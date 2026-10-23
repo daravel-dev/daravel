@@ -5,6 +5,8 @@ import 'dart:typed_data';
 
 import '../foundation/container.dart';
 import '../routing/route_entry.dart';
+import '../validation/validated_data.dart';
+import '../validation/validator.dart';
 import 'headers.dart';
 import 'http_exceptions.dart';
 
@@ -376,6 +378,30 @@ final class Request {
   /// Resolves [T] from the container of the active request scope.
   T make<T extends Object>({String? name}) =>
       Container.current.make<T>(name: name);
+
+  /// Validates the merged input (Laravel `$request->validate()`): throws a
+  /// 422 [ValidationException] on failure, otherwise returns only the
+  /// validated attributes.
+  Future<ValidatedData> validate(
+    Map<String, Object> rules, {
+    Map<String, String> messages = const <String, String>{},
+    Map<String, String> attributes = const <String, String>{},
+  }) async {
+    Container? container;
+    try {
+      container = Container.current;
+    } on StateError {
+      container = null;
+    }
+    return Validator(
+      await all(),
+      rules,
+      messages: messages,
+      attributes: attributes,
+      container: container,
+      locale: this.attributes['locale'] as String? ?? 'en',
+    ).validate();
+  }
 
   /// Schedules [callback] to run after the response has been sent
   /// (Laravel's `defer()` helper); errors are reported, never surfaced to

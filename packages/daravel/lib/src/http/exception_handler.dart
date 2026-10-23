@@ -2,6 +2,7 @@ import 'dart:async';
 
 import '../logging/logger.dart';
 import 'http_exceptions.dart';
+import '../validation/validation_exception.dart';
 import 'request.dart';
 import 'response.dart';
 
@@ -113,6 +114,9 @@ final class ExceptionHandler {
     StackTrace stackTrace,
     Request request,
   ) {
+    if (error is ValidationException) {
+      return Response.json(error.toJson(), status: 422);
+    }
     if (error is HttpException) {
       return Response.json(
         <String, Object?>{'message': error.message},
