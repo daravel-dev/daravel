@@ -55,6 +55,14 @@ void main() {
     )).assertMethodNotAllowed().assertHeader('allow', 'GET, HEAD');
   });
 
+  test('GET / renders the welcome landing page', () async {
+    (await client.get('/', headers: <String, String>{'accept': 'text/html'}))
+        .assertOk()
+        .assertHeader('content-type', 'text/html; charset=utf-8')
+        .assertSee('<title>Starter</title>')
+        .assertSee('compiled to native Dart');
+  });
+
   test('route parameters are typed', () async {
     (await client.get('/api/users/not-a-number')).assertNotFound();
   });

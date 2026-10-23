@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/-%E2%9A%A1%20Daravel-0D1117?style=for-the-badge&logoColor=white" alt="Daravel" height="48">
+  <img src="https://raw.githubusercontent.com/teoprayoga/daravel/main/docs/logo.svg" alt="Daravel logo" width="96" height="96">
 </p>
 
 <h1 align="center">Daravel</h1>

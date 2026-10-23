@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Daravel logo">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0f172a"/>
+      <stop offset="1" stop-color="#1e293b"/>
+    </linearGradient>
+    <linearGradient id="dart" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#13b9fd"/>
+      <stop offset="1" stop-color="#0175c2"/>
+    </linearGradient>
+    <linearGradient id="laravel" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ff6a5c"/>
+      <stop offset="1" stop-color="#ff2d20"/>
+    </linearGradient>
+  </defs>
+  <!-- tile -->
+  <rect width="64" height="64" rx="14" fill="url(#tile)"/>
+  <!-- Laravel-style isometric folded "L" doubling as the wing -->
+  <path d="M11 21 L23 15 L23 35 L36 41.5 L36 50 L11 37.5 Z" fill="url(#laravel)"/>
+  <path d="M23 15 L29.5 18.3 L29.5 38.2 L23 35 Z" fill="#b9170e"/>
+  <path d="M11 21 L23 27 L23 35 L11 29 Z" fill="#d9231a"/>
+  <!-- tail feathers -->
+  <path d="M16 45 L30 40.5 L27.5 49.5 Z" fill="#0175c2"/>
+  <path d="M19 49 L29 43.5 L29.5 51 Z" fill="#13b9fd" opacity=".85"/>
+  <!-- Dash-style hummingbird body and head -->
+  <ellipse cx="37" cy="37" rx="13" ry="10.5" fill="url(#dart)"/>
+  <ellipse cx="39.5" cy="41" rx="6.5" ry="4" fill="#ffffff" opacity=".22"/>
+  <circle cx="45.5" cy="24.5" r="8.2" fill="#13b9fd"/>
+  <!-- beak in Laravel red -->
+  <path d="M52 22.5 L63 19.5 L53 27.2 Z" fill="url(#laravel)"/>
+  <!-- eye -->
+  <circle cx="47.6" cy="23.6" r="2.5" fill="#ffffff"/>
+  <circle cx="48.2" cy="23.8" r="1.25" fill="#0f172a"/>
+  <!-- crest -->
+  <path d="M40.5 18.5 L43.5 13 L45.5 17.5 Z" fill="#0175c2"/>
+</svg>
