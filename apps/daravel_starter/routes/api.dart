@@ -8,6 +8,7 @@ void apiRoutes(Router router) {
   final users = UserController();
 
   router.get('/ping', ping.ping).name('ping');
+  router.get('/users', users.index).name('users.index');
   router.get('/users/{id}', users.show).name('users.show').whereNumber('id');
   router.post('/users', users.store).name('users.store');
 }

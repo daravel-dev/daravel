@@ -8,11 +8,13 @@ environment:
 resolution: workspace
 
 dependencies:
+  collection: ^1.19.1
   crypto: ^3.0.7
   meta: ^1.16.0
   path: ^1.9.0
   postgres: ^3.5.20
   sqlite3: ^2.7.0
+  uuid: ^4.6.0
 
 dev_dependencies:
   lints: ^6.0.0
