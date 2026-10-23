@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import '../server/coordinator.dart';
 import 'http_exceptions.dart';
 import 'middleware.dart';
 import 'request.dart';
@@ -73,7 +74,7 @@ final class Limit {
 /// `null` (no limit).
 typedef LimitResolver = FutureOr<Object?> Function(Request request);
 
-/// Outcome of [RateLimiter.attempt].
+/// Outcome of [RateLimitStore.attempt].
 final class RateLimitResult {
   const RateLimitResult({
     required this.allowed,
@@ -94,19 +95,231 @@ final class RateLimitResult {
   final Duration? retryAfter;
 }
 
-/// Sliding-window-log rate limiter, in-memory per isolate (S9 adds the
-/// process/cluster scopes; BLUEPRINT_V2 §7.7).
-final class RateLimiter {
-  RateLimiter({DateTime Function()? clock, this.maxKeys = 100000})
+/// Backing store of attempt counters (ADR-003 scopes).
+abstract interface class RateLimitStore {
+  StateScope get scope;
+
+  /// Records an attempt for [key] when under the limit.
+  Future<RateLimitResult> attempt(String key, int maxAttempts, Duration decay);
+
+  /// Attempts counted in the current window.
+  Future<int> attempts(String key, Duration decay);
+
+  /// Time until an attempt is possible again (zero when not limited).
+  Future<Duration> availableIn(String key, int maxAttempts, Duration decay);
+
+  Future<void> clear(String key);
+
+  Future<void> flush();
+}
+
+/// Sliding-window-log counters in this isolate's memory.
+final class MemoryRateLimitStore implements RateLimitStore {
+  MemoryRateLimitStore({DateTime Function()? clock, this.maxKeys = 100000})
     : _clock = clock ?? _utcNow;
 
   final DateTime Function() _clock;
 
   /// Keys retained before the least-recently-touched ones are evicted.
   final int maxKeys;
-
-  final Map<String, LimitResolver> _limiters = <String, LimitResolver>{};
   final Map<String, List<int>> _hits = <String, List<int>>{};
+
+  @override
+  StateScope get scope => StateScope.isolate;
+
+  int get size => _hits.length;
+
+  /// Synchronous variant (used by the coordinator service).
+  RateLimitResult attemptSync(String key, int maxAttempts, Duration decay) {
+    final now = _clock().millisecondsSinceEpoch;
+    final window = _window(key, decay, now);
+    if (window.length >= maxAttempts) {
+      final resetMs = window.first + decay.inMilliseconds;
+      return RateLimitResult(
+        allowed: false,
+        limit: maxAttempts,
+        remaining: 0,
+        resetAt: DateTime.fromMillisecondsSinceEpoch(resetMs, isUtc: true),
+        retryAfter: Duration(milliseconds: resetMs - now),
+      );
+    }
+    window.add(now);
+    return RateLimitResult(
+      allowed: true,
+      limit: maxAttempts,
+      remaining: maxAttempts - window.length,
+      resetAt: DateTime.fromMillisecondsSinceEpoch(
+        window.first + decay.inMilliseconds,
+        isUtc: true,
+      ),
+    );
+  }
+
+  int attemptsSync(String key, Duration decay) =>
+      _window(key, decay, _clock().millisecondsSinceEpoch).length;
+
+  Duration availableInSync(String key, int maxAttempts, Duration decay) {
+    final now = _clock().millisecondsSinceEpoch;
+    final window = _window(key, decay, now);
+    if (window.length < maxAttempts) {
+      return Duration.zero;
+    }
+    return Duration(milliseconds: window.first + decay.inMilliseconds - now);
+  }
+
+  @override
+  Future<RateLimitResult> attempt(
+    String key,
+    int maxAttempts,
+    Duration decay,
+  ) async => attemptSync(key, maxAttempts, decay);
+
+  @override
+  Future<int> attempts(String key, Duration decay) async =>
+      attemptsSync(key, decay);
+
+  @override
+  Future<Duration> availableIn(
+    String key,
+    int maxAttempts,
+    Duration decay,
+  ) async => availableInSync(key, maxAttempts, decay);
+
+  @override
+  Future<void> clear(String key) async => _hits.remove(key);
+
+  @override
+  Future<void> flush() async => _hits.clear();
+
+  List<int> _window(String key, Duration decay, int now) {
+    final existing = _hits.remove(key);
+    final cutoff = now - decay.inMilliseconds;
+    final window = existing == null
+        ? <int>[]
+        : existing.where((t) => t > cutoff).toList();
+    _hits[key] = window; // re-insert → most recently used
+    if (_hits.length > maxKeys) {
+      _hits.remove(_hits.keys.first);
+    }
+    return window;
+  }
+
+  static DateTime _utcNow() => DateTime.now().toUtc();
+}
+
+/// Coordinator service exposing a [MemoryRateLimitStore] to every worker.
+final class RateLimitService implements CoordinatorService {
+  RateLimitService([MemoryRateLimitStore? store])
+    : store = store ?? MemoryRateLimitStore();
+
+  static const String serviceName = 'rateLimiter';
+
+  final MemoryRateLimitStore store;
+
+  @override
+  String get name => serviceName;
+
+  @override
+  Object? handle(String op, Map<String, Object?> args) {
+    final key = args['key'] as String;
+    final decay = Duration(milliseconds: args['decay'] as int? ?? 0);
+    final max = args['max'] as int? ?? 0;
+    return switch (op) {
+      'attempt' => store.attemptSync(key, max, decay),
+      'attempts' => store.attemptsSync(key, decay),
+      'availableIn' => store.availableInSync(key, max, decay).inMilliseconds,
+      'clear' => store.clear(key),
+      'flush' => store.flush(),
+      _ => throw CoordinatorException('Unknown rateLimiter op [$op].'),
+    };
+  }
+
+  @override
+  Map<String, Object?> stats() => <String, Object?>{'keys': store.size};
+}
+
+/// Process-wide counters via the coordinator. Fails **open** on coordinator
+/// errors/timeouts (the request is allowed and [onError] is notified), the
+/// documented default for rate limiting (§5.2).
+final class ProcessRateLimitStore implements RateLimitStore {
+  ProcessRateLimitStore(
+    this.channel, {
+    this.timeout = const Duration(milliseconds: 50),
+    this.onError,
+  });
+
+  final CoordinatorChannel channel;
+  final Duration timeout;
+  final void Function(Object error)? onError;
+
+  @override
+  StateScope get scope => StateScope.process;
+
+  Future<Object?> _call(String op, Map<String, Object?> args) => channel.call(
+    RateLimitService.serviceName,
+    op,
+    args,
+    timeout: channel.isRemote ? timeout : const Duration(seconds: 5),
+  );
+
+  @override
+  Future<RateLimitResult> attempt(
+    String key,
+    int maxAttempts,
+    Duration decay,
+  ) async {
+    try {
+      return await _call('attempt', {
+            'key': key,
+            'max': maxAttempts,
+            'decay': decay.inMilliseconds,
+          })
+          as RateLimitResult;
+    } on CoordinatorException catch (error) {
+      onError?.call(error);
+      return RateLimitResult(
+        allowed: true,
+        limit: maxAttempts,
+        remaining: maxAttempts - 1,
+        resetAt: DateTime.now().toUtc().add(decay),
+      );
+    }
+  }
+
+  @override
+  Future<int> attempts(String key, Duration decay) async =>
+      await _call('attempts', {'key': key, 'decay': decay.inMilliseconds})
+          as int;
+
+  @override
+  Future<Duration> availableIn(
+    String key,
+    int maxAttempts,
+    Duration decay,
+  ) async => Duration(
+    milliseconds:
+        await _call('availableIn', {
+              'key': key,
+              'max': maxAttempts,
+              'decay': decay.inMilliseconds,
+            })
+            as int,
+  );
+
+  @override
+  Future<void> clear(String key) => _call('clear', {'key': key});
+
+  @override
+  Future<void> flush() => _call('flush', {'key': ''});
+}
+
+/// Named limiters + counters (Laravel `RateLimiter`; BLUEPRINT_V2 §7.7).
+final class RateLimiter {
+  RateLimiter({RateLimitStore? store})
+    : store = store ?? MemoryRateLimitStore();
+
+  final RateLimitStore store;
+  final Map<String, LimitResolver> _limiters = <String, LimitResolver>{};
 
   /// Registers a named limiter (`RateLimiter::for('api', fn)`).
   void define(String name, LimitResolver resolver) =>
@@ -136,72 +349,32 @@ final class RateLimiter {
     };
   }
 
-  /// Records an attempt for [key] when under the limit.
-  RateLimitResult attempt(String key, int maxAttempts, Duration decay) {
-    final now = _clock().millisecondsSinceEpoch;
-    final window = _window(key, decay, now);
-    if (window.length >= maxAttempts) {
-      final resetMs = window.first + decay.inMilliseconds;
-      return RateLimitResult(
-        allowed: false,
-        limit: maxAttempts,
-        remaining: 0,
-        resetAt: DateTime.fromMillisecondsSinceEpoch(resetMs, isUtc: true),
-        retryAfter: Duration(milliseconds: resetMs - now),
-      );
-    }
-    window.add(now);
-    return RateLimitResult(
-      allowed: true,
-      limit: maxAttempts,
-      remaining: maxAttempts - window.length,
-      resetAt: DateTime.fromMillisecondsSinceEpoch(
-        window.first + decay.inMilliseconds,
-        isUtc: true,
-      ),
-    );
-  }
+  Future<RateLimitResult> attempt(
+    String key,
+    int maxAttempts,
+    Duration decay,
+  ) => store.attempt(key, maxAttempts, decay);
 
-  /// Attempts counted in the current window.
-  int attempts(String key, Duration decay) =>
-      _window(key, decay, _clock().millisecondsSinceEpoch).length;
+  Future<int> attempts(String key, Duration decay) =>
+      store.attempts(key, decay);
 
-  bool tooManyAttempts(String key, int maxAttempts, Duration decay) =>
-      attempts(key, decay) >= maxAttempts;
+  Future<bool> tooManyAttempts(
+    String key,
+    int maxAttempts,
+    Duration decay,
+  ) async => await attempts(key, decay) >= maxAttempts;
 
-  int remaining(String key, int maxAttempts, Duration decay) {
-    final left = maxAttempts - attempts(key, decay);
+  Future<int> remaining(String key, int maxAttempts, Duration decay) async {
+    final left = maxAttempts - await attempts(key, decay);
     return left < 0 ? 0 : left;
   }
 
-  /// Time until an attempt is possible again (zero when not limited).
-  Duration availableIn(String key, int maxAttempts, Duration decay) {
-    final now = _clock().millisecondsSinceEpoch;
-    final window = _window(key, decay, now);
-    if (window.length < maxAttempts) {
-      return Duration.zero;
-    }
-    return Duration(milliseconds: window.first + decay.inMilliseconds - now);
-  }
+  Future<Duration> availableIn(String key, int maxAttempts, Duration decay) =>
+      store.availableIn(key, maxAttempts, decay);
 
-  void clear(String key) => _hits.remove(key);
+  Future<void> clear(String key) => store.clear(key);
 
-  void flush() => _hits.clear();
-
-  List<int> _window(String key, Duration decay, int now) {
-    final existing = _hits.remove(key);
-    final cutoff = now - decay.inMilliseconds;
-    final window = existing == null
-        ? <int>[]
-        : existing.where((t) => t > cutoff).toList();
-    _hits[key] = window; // re-insert → most recently used
-    if (_hits.length > maxKeys) {
-      _hits.remove(_hits.keys.first);
-    }
-    return window;
-  }
-
-  static DateTime _utcNow() => DateTime.now().toUtc();
+  Future<void> flush() => store.flush();
 }
 
 /// 429 with `Retry-After` and `X-RateLimit-*` headers.
@@ -280,7 +453,7 @@ final class ThrottleMiddleware implements Middleware {
       }
       final key =
           '$prefix${name ?? ''}:${limit.key ?? await _signature(request)}';
-      final result = limiter.attempt(key, limit.maxAttempts, limit.decay);
+      final result = await limiter.attempt(key, limit.maxAttempts, limit.decay);
       if (!result.allowed) {
         final retry = result.retryAfter ?? Duration.zero;
         final seconds = (retry.inMilliseconds / 1000).ceil();

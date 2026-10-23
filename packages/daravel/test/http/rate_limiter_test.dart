@@ -8,30 +8,37 @@ void main() {
 
   setUp(() {
     now = start;
-    limiter = RateLimiter(clock: () => now);
+    limiter = RateLimiter(store: MemoryRateLimitStore(clock: () => now));
   });
 
-  test('sliding window: blocks after max attempts and frees as hits age', () {
-    const decay = Duration(minutes: 1);
-    for (var i = 0; i < 3; i++) {
-      final result = limiter.attempt('k', 3, decay);
-      expect(result.allowed, isTrue);
-      expect(result.remaining, 2 - i);
-      now = now.add(const Duration(seconds: 10));
-    }
-    final blocked = limiter.attempt('k', 3, decay);
-    expect(blocked.allowed, isFalse);
-    expect(blocked.remaining, 0);
-    expect(blocked.retryAfter, const Duration(seconds: 30));
-    expect(limiter.tooManyAttempts('k', 3, decay), isTrue);
-    expect(limiter.availableIn('k', 3, decay), const Duration(seconds: 30));
-    // The first hit (t=0) leaves the window at t=60s.
-    now = start.add(const Duration(seconds: 61));
-    expect(limiter.attempts('k', decay), 2);
-    expect(limiter.attempt('k', 3, decay).allowed, isTrue);
-    limiter.clear('k');
-    expect(limiter.attempts('k', decay), 0);
-  });
+  test(
+    'sliding window: blocks after max attempts and frees as hits age',
+    () async {
+      const decay = Duration(minutes: 1);
+      for (var i = 0; i < 3; i++) {
+        final result = await limiter.attempt('k', 3, decay);
+        expect(result.allowed, isTrue);
+        expect(result.remaining, 2 - i);
+        now = now.add(const Duration(seconds: 10));
+      }
+      final blocked = await limiter.attempt('k', 3, decay);
+      expect(blocked.allowed, isFalse);
+      expect(blocked.remaining, 0);
+      expect(blocked.retryAfter, const Duration(seconds: 30));
+      expect(await limiter.tooManyAttempts('k', 3, decay), isTrue);
+      expect(
+        await limiter.availableIn('k', 3, decay),
+        const Duration(seconds: 30),
+      );
+      // The first hit (t=0) leaves the window at t=60s.
+      now = start.add(const Duration(seconds: 61));
+      expect(await limiter.attempts('k', decay), 2);
+      expect((await limiter.attempt('k', 3, decay)).allowed, isTrue);
+      await limiter.clear('k');
+      expect(await limiter.attempts('k', decay), 0);
+      expect(limiter.store.scope, StateScope.isolate);
+    },
+  );
 
   test('named limiters resolve Limit, List<Limit> or null', () async {
     limiter
@@ -67,7 +74,7 @@ void main() {
         '1',
       );
       now = now.add(const Duration(seconds: 15));
-      expect(
+      await expectLater(
         () => middleware.handle(Request.fake(path: '/a'), next),
         throwsA(
           isA<ThrottleRequestsException>()
@@ -129,7 +136,7 @@ void main() {
       Request.fake(headers: {'x-user': '7'}, ip: '1.1.1.1'),
       next,
     );
-    expect(
+    await expectLater(
       () => middleware.handle(
         Request.fake(headers: {'x-user': '7'}, ip: '2.2.2.2'),
         next,

@@ -11,10 +11,12 @@ import 'package:args/command_runner.dart';
 import 'package:daravel/daravel.dart';
 
 import 'src/database_commands.dart';
+import 'src/cache_commands.dart';
 import 'src/make_commands.dart';
 
 export 'src/database_commands.dart';
 export 'src/generator.dart';
+export 'src/cache_commands.dart';
 export 'src/make_commands.dart';
 
 /// Creates an unbooted [Application] (a project's `createApp()`).
@@ -33,6 +35,8 @@ final class DartisanRunner extends CommandRunner<int> {
     addCommand(MigrateResetCommand(createApp));
     addCommand(MigrateFreshCommand(createApp));
     addCommand(DbSeedCommand(createApp));
+    addCommand(CacheClearCommand(createApp));
+    addCommand(CoordinatorStatsCommand(createApp));
     addCommand(MakeModelCommand());
     addCommand(MakeMigrationCommand());
     addCommand(MakeSeederCommand());
@@ -81,7 +85,11 @@ final class ServeCommand extends DaravelCommand {
         'host',
         help: 'Host to bind (default: APP_HOST or 127.0.0.1).',
       )
-      ..addOption('port', help: 'Port to bind (default: APP_PORT or 8000).');
+      ..addOption('port', help: 'Port to bind (default: APP_PORT or 8000).')
+      ..addOption(
+        'isolates',
+        help: 'HTTP worker isolates (default: APP_ISOLATES or 1).',
+      );
   }
 
   @override
@@ -99,12 +107,17 @@ final class ServeCommand extends DaravelCommand {
     if (portValue != null && port == null) {
       usageException('--port must be an integer, got "$portValue".');
     }
-    final app = createApp();
-    await app.boot();
-    await app.serve(
-      options: ServeOptions.fromEnv(app.env, host: host, port: port),
+    final isolatesValue = results['isolates'] as String?;
+    final isolates = isolatesValue == null ? null : int.tryParse(isolatesValue);
+    if (isolatesValue != null && (isolates == null || isolates < 1)) {
+      usageException('--isolates must be a positive integer.');
+    }
+    return Application.serveWith(
+      createApp,
+      host: host,
+      port: port,
+      isolates: isolates,
     );
-    return 0;
   }
 }
 

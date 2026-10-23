@@ -76,3 +76,8 @@ export 'src/auth/jwt.dart';
 export 'src/auth/tokens.dart';
 export 'src/http/rate_limiter.dart';
 export 'src/support/auth_facades.dart';
+export 'src/cache/cache.dart';
+export 'src/cache/stores.dart';
+export 'src/server/coordinator.dart';
+export 'src/server/supervisor.dart';
+export 'src/support/cache_facade.dart';

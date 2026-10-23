@@ -19,24 +19,35 @@ final class ServeOptions {
     this.idleTimeout = const Duration(seconds: 60),
     this.shutdownTimeout = const Duration(seconds: 30),
     this.requestTimeout = const Duration(seconds: 30),
+    this.handleSignals = true,
+    this.readyTimeout = const Duration(seconds: 30),
   });
 
   /// Reads `APP_HOST` / `APP_PORT`, overridable by explicit arguments.
-  factory ServeOptions.fromEnv(Env env, {String? host, int? port}) =>
-      ServeOptions(
-        host: host ?? env.string('APP_HOST', '127.0.0.1'),
-        port: port ?? env.integer('APP_PORT', 8000),
-        requestTimeout: env.duration(
-          'HTTP_REQUEST_TIMEOUT',
-          const Duration(seconds: 30),
-        ),
-      );
+  factory ServeOptions.fromEnv(
+    Env env, {
+    String? host,
+    int? port,
+    int? isolates,
+  }) => ServeOptions(
+    host: host ?? env.string('APP_HOST', '127.0.0.1'),
+    port: port ?? env.integer('APP_PORT', 8000),
+    isolates: isolates ?? env.integer('APP_ISOLATES', 1),
+    shutdownTimeout: env.duration(
+      'SHUTDOWN_TIMEOUT',
+      const Duration(seconds: 30),
+    ),
+    requestTimeout: env.duration(
+      'HTTP_REQUEST_TIMEOUT',
+      const Duration(seconds: 30),
+    ),
+  );
 
   final String host;
   final int port;
 
-  /// Number of HTTP worker isolates. Tier 0 serves from a single isolate; the
-  /// supervisor/worker topology (ADR-004) arrives in slice S9.
+  /// Number of HTTP worker isolates (`APP_ISOLATES`, `serve --isolates`).
+  /// Above 1, `Application.serveWith` runs a supervisor + workers (ADR-004).
   final int isolates;
   final bool shared;
   final Duration idleTimeout;
@@ -45,6 +56,13 @@ final class ServeOptions {
   /// Default handler timeout (routes may override with `RouteEntry.timeout`);
   /// `null` disables it.
   final Duration? requestTimeout;
+
+  /// Whether this engine installs SIGINT/SIGTERM handlers (workers under a
+  /// supervisor leave signals to the supervisor).
+  final bool handleSignals;
+
+  /// How long the supervisor waits for every worker to bind.
+  final Duration readyTimeout;
 }
 
 /// Binds the `dart:io` server, wraps every request in a request scope and
@@ -87,7 +105,9 @@ final class ServerEngine {
     server.idleTimeout = options.idleTimeout;
     kernel.defaultTimeout = options.requestTimeout;
     _server = server;
-    _installSignalHandlers();
+    if (options.handleSignals) {
+      _installSignalHandlers();
+    }
     logger.info(
       'Daravel server listening on http://${options.host}:${server.port}',
     );
@@ -121,17 +141,16 @@ final class ServerEngine {
     final server = _server;
     if (server != null) {
       try {
-        await server
-            .close(force: force)
-            .timeout(
-              options.shutdownTimeout,
-              onTimeout: () {
-                logger.warning(
-                  'Shutdown timeout reached; closing remaining connections.',
-                );
-                return server.close(force: true);
-              },
-            );
+        try {
+          await Future<void>(() async {
+            await server.close(force: force);
+          }).timeout(options.shutdownTimeout);
+        } on TimeoutException {
+          logger.warning(
+            'Shutdown timeout reached; closing remaining connections.',
+          );
+          await server.close(force: true);
+        }
       } catch (error, stackTrace) {
         logger.error(
           'Error while closing server',
@@ -171,6 +190,7 @@ final class ServerEngine {
           .runScoped<void>(
             'request',
             (scope) async {
+              scope.put<Request>(request);
               Response response;
               try {
                 response = await kernel.handle(request);

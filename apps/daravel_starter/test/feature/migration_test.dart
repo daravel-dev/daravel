@@ -25,6 +25,7 @@ void main() {
       expect(
         await migrator.run(),
         unorderedEquals(<String>[
+          '0001_01_01_000001_create_cache_table',
           '2019_12_14_000001_create_personal_access_tokens_table',
           '2026_10_23_000001_create_users_table',
         ]),
@@ -57,7 +58,7 @@ void main() {
     )).assertNotFound().assertJsonPath('message', 'User [2] not found.');
 
     await app.run(() async {
-      expect(await App.make<Migrator>().rollback(), hasLength(2));
+      expect(await App.make<Migrator>().rollback(), hasLength(3));
       expect(await Schema.hasTable('users'), isFalse);
     });
   });

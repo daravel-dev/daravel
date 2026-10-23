@@ -8,6 +8,8 @@ import '../database/migrations/m_2026_10_23_000001_create_users_table.dart';
 final List<Migration> migrations = <Migration>[
   // Framework-provided: Sanctum-compatible `personal_access_tokens`.
   const CreatePersonalAccessTokensTable(),
+  // Framework-provided: Laravel-compatible `cache` + `cache_locks`.
+  const CreateCacheTable(),
   // <dartisan:entries>
   const CreateUsersTable(),
   // </dartisan:entries>

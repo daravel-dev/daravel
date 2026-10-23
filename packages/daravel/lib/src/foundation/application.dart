@@ -6,6 +6,7 @@ import '../auth/authorization.dart';
 import '../auth/contracts.dart';
 import '../auth/encryption.dart';
 import '../auth/hashing.dart';
+import '../cache/cache.dart';
 import '../database/database_config.dart';
 import '../database/database_manager.dart';
 import '../database/schema/migration.dart';
@@ -21,6 +22,8 @@ import '../http/server_engine.dart';
 import '../logging/logger.dart';
 import '../routing/router.dart';
 import '../routing/url_signer.dart';
+import '../server/coordinator.dart';
+import '../server/supervisor.dart';
 import 'config.dart';
 import 'config_validator.dart';
 import 'container.dart';
@@ -78,6 +81,10 @@ final class Application {
   bool _draining = false;
   ServerEngine? _engine;
 
+  /// Channel to the process coordinator (`process`-scope rate limits, locks,
+  /// cache). Set by the [Supervisor] before boot; in-process otherwise.
+  CoordinatorChannel? coordinator;
+
   /// Whether [boot] has completed.
   bool get booted => _booted;
 
@@ -99,7 +106,8 @@ final class Application {
       ..register(AppConfig.fromEnv(env))
       ..register(DatabaseConfig.fromEnv(env, basePath: basePath))
       ..register(HashConfig.fromEnv(env))
-      ..register(AuthConfig.fromEnv(env));
+      ..register(AuthConfig.fromEnv(env))
+      ..register(CacheConfig.fromEnv(env));
     for (final factory in _builder._configFactories) {
       config.register(factory(env));
     }
@@ -116,7 +124,14 @@ final class Application {
       appKey: env.maybeString('APP_KEY'),
     );
     final gate = AuthorizationGate(userResolver: () => _currentUser(auth));
-    final rateLimiter = RateLimiter();
+    final channel =
+        coordinator ?? LocalCoordinatorChannel(createStandardCoordinator());
+    final rateLimiter = RateLimiter(
+      store: ProcessRateLimitStore(
+        channel,
+        onError: (error) => logger.warning('Rate limiter fail-open: $error'),
+      ),
+    );
     container
       ..instance<Application>(this)
       ..instance<Env>(env)
@@ -141,7 +156,16 @@ final class Application {
       ..singleton<Encrypter>((c) => _encrypter(c.make<Env>()))
       ..instance<RateLimiter>(rateLimiter)
       ..instance<AuthorizationGate>(gate)
-      ..instance<AuthManager>(auth);
+      ..instance<AuthManager>(auth)
+      ..instance<CoordinatorChannel>(channel)
+      ..singleton<CacheManager>(
+        (c) => CacheManager.fromConfig(
+          c.make<ConfigRepository>().section<CacheConfig>(),
+          basePath: basePath,
+          database: () => c.make<DatabaseManager>(),
+          channel: channel,
+        ),
+      );
 
     middleware
       ..aliasFactory('auth', AuthenticateMiddleware.new)
@@ -278,10 +302,53 @@ final class Application {
     return container.runScoped<R>(scope, (_) => body());
   }
 
+  /// Serves with [factory]: in-process when `isolates <= 1`, otherwise a
+  /// [Supervisor] spawns `isolates` workers that each build their own
+  /// application. Returns the process exit code.
+  static Future<int> serveWith(
+    ApplicationFactory factory, {
+    String? host,
+    int? port,
+    int? isolates,
+  }) async {
+    final probe = factory();
+    await probe.boot();
+    final options = ServeOptions.fromEnv(
+      probe.env,
+      host: host,
+      port: port,
+      isolates: isolates,
+    );
+    if (options.isolates <= 1) {
+      await probe.serve(options: options);
+      return 0;
+    }
+    probe._ensureServeable(options);
+    final logger = probe.logger;
+    await probe.shutdown();
+    return Supervisor(factory, options, logger: logger).run();
+  }
+
   /// Boots, serves HTTP until the engine stops, then releases resources.
-  Future<void> serve({ServeOptions? options}) async {
+  /// [onStarted] fires once the socket is bound (used by workers to report
+  /// readiness).
+  Future<void> serve({
+    ServeOptions? options,
+    void Function(ServerEngine engine)? onStarted,
+  }) async {
     await boot();
     final resolved = options ?? ServeOptions.fromEnv(env);
+    _ensureServeable(resolved);
+    final engine = ServerEngine(this, resolved, kernel: kernel, logger: logger);
+    _engine = engine;
+    await engine.start();
+    onStarted?.call(engine);
+    await engine.done;
+    _engine = null;
+    await _closeResources();
+  }
+
+  void _ensureServeable(ServeOptions resolved) {
     final db = config.section<DatabaseConfig>();
     final connection = db.connections[db.defaultConnection];
     if (resolved.isolates > 1 &&
@@ -293,12 +360,6 @@ final class Application {
         'database). Use a file database or run with isolates: 1.',
       );
     }
-    final engine = ServerEngine(this, resolved, kernel: kernel, logger: logger);
-    _engine = engine;
-    await engine.start();
-    await engine.done;
-    _engine = null;
-    await _closeResources();
   }
 
   /// Stops the server (if running) and releases resources.
