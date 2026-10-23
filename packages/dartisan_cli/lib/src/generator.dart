@@ -41,11 +41,13 @@ final class ProjectPaths {
   String get controllers => p.join(root, 'lib', 'app', 'http', 'controllers');
   String get requests => p.join(root, 'lib', 'app', 'http', 'requests');
   String get middleware => p.join(root, 'lib', 'app', 'http', 'middleware');
+  String get jobs => p.join(root, 'lib', 'app', 'jobs');
   String get migrations => p.join(root, 'database', 'migrations');
   String get seeders => p.join(root, 'database', 'seeders');
   String get factories => p.join(root, 'database', 'factories');
   String get migrationsRegistry => p.join(root, 'bootstrap', 'migrations.dart');
   String get seedersRegistry => p.join(root, 'bootstrap', 'seeders.dart');
+  String get jobsRegistry => p.join(root, 'bootstrap', 'jobs.dart');
 }
 
 /// Naming helpers shared by generators.
@@ -288,6 +290,32 @@ final class Generator {
     return file;
   }
 
+  GeneratedFile job(String name) {
+    final className = Naming.pascal(name);
+    final file = _write(
+      p.join(paths.jobs, '${Naming.snake(className)}.dart'),
+      Stubs.job(
+        className: className,
+        jobName: Naming.snake(className).replaceAll('_', '-'),
+      ),
+    );
+    if (updateRegistries && !file.skipped) {
+      _patchRegistry(
+        paths.jobsRegistry,
+        template: RegistryPatcher.template(
+          header:
+              '// Job registry (explicit, AOT-friendly): name → factory from JSON.',
+          listType: 'JobDefinition',
+          listName: 'jobs',
+        ),
+        importLine:
+            "import 'package:${paths.packageName}/app/jobs/${Naming.snake(className)}.dart';",
+        entryLine: '  JobDefinition($className.name, $className.fromJson),',
+      );
+    }
+    return file;
+  }
+
   GeneratedFile factory(String name, {String? model}) {
     final modelName = Naming.pascal(
       model ?? name.replaceAll(RegExp(r'Factory$'), ''),
@@ -481,6 +509,38 @@ $down
 }
 ''';
   }
+
+  static String job({required String className, required String jobName}) =>
+      '''
+import 'package:daravel/daravel.dart';
+
+/// Queued job; dispatch with `await Queue.dispatch($className(...))`.
+final class $className extends Job {
+  const $className();
+
+  /// Stable registry key (see bootstrap/jobs.dart).
+  static const String name = '$jobName';
+
+  factory $className.fromJson(Map<String, Object?> json) => const $className();
+
+  @override
+  String get jobName => name;
+
+  @override
+  int get tries => 3;
+
+  @override
+  List<Duration> get backoff => const [Duration(seconds: 10), Duration(seconds: 60)];
+
+  @override
+  Map<String, Object?> toJson() => const <String, Object?>{};
+
+  @override
+  Future<void> handle(JobContext ctx) async {
+    // Do the work here.
+  }
+}
+''';
 
   static String seeder({required String className}) =>
       '''

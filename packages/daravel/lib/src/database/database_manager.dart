@@ -25,6 +25,9 @@ final class DatabaseManager {
   /// Zone key under which the active transaction executor is stored.
   static const Symbol transactionKey = #daravel.tx;
 
+  /// Zone key holding the after-commit callbacks of the active transaction.
+  static const Object afterCommitKey = #daravelAfterCommit;
+
   /// Zone key tracking the savepoint depth of the active transaction.
   static const Symbol depthKey = #daravel.txDepth;
 
@@ -167,13 +170,22 @@ final class DatabaseManager {
     }
     final driver = await this.connection(connection);
     for (var attempt = 1; ; attempt++) {
+      final callbacks = <FutureOr<void> Function()>[];
       try {
-        return await driver.transaction<T>(
+        final result = await driver.transaction<T>(
           (tx) => runZoned<Future<T>>(
             body,
-            zoneValues: <Object?, Object?>{transactionKey: tx, depthKey: 1},
+            zoneValues: <Object?, Object?>{
+              transactionKey: tx,
+              depthKey: 1,
+              afterCommitKey: callbacks,
+            },
           ),
         );
+        for (final callback in callbacks) {
+          await callback();
+        }
+        return result;
       } catch (error) {
         if (attempt >= attempts || !_isRetryable(error)) {
           rethrow;
@@ -189,18 +201,36 @@ final class DatabaseManager {
     final tx = Zone.current[transactionKey]! as QueryExecutor;
     final depth = transactionDepth + 1;
     final name = 'daravel_sp_$depth';
+    final callbacks = <FutureOr<void> Function()>[];
     await tx.execute('SAVEPOINT $name');
     try {
       final result = await runZoned<Future<T>>(
         body,
-        zoneValues: <Object?, Object?>{depthKey: depth},
+        zoneValues: <Object?, Object?>{
+          depthKey: depth,
+          afterCommitKey: callbacks,
+        },
       );
       await tx.execute('RELEASE SAVEPOINT $name');
+      (Zone.current[afterCommitKey] as List<FutureOr<void> Function()>?)
+          ?.addAll(callbacks);
       return result;
     } catch (_) {
       await tx.execute('ROLLBACK TO SAVEPOINT $name');
       rethrow;
     }
+  }
+
+  /// Runs [callback] once the active transaction (and its savepoints)
+  /// commits; a rollback discards it. Outside a transaction it runs now.
+  Future<void> afterCommit(FutureOr<void> Function() callback) async {
+    final pending =
+        Zone.current[afterCommitKey] as List<FutureOr<void> Function()>?;
+    if (pending == null || !inTransaction) {
+      await callback();
+      return;
+    }
+    pending.add(callback);
   }
 
   static bool _isRetryable(Object error) => PostgresDriver.isRetryable(error);

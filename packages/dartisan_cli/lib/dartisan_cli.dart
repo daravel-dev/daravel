@@ -13,11 +13,13 @@ import 'package:daravel/daravel.dart';
 import 'src/database_commands.dart';
 import 'src/cache_commands.dart';
 import 'src/make_commands.dart';
+import 'src/queue_commands.dart';
 
 export 'src/database_commands.dart';
 export 'src/generator.dart';
 export 'src/cache_commands.dart';
 export 'src/make_commands.dart';
+export 'src/queue_commands.dart';
 
 /// Creates an unbooted [Application] (a project's `createApp()`).
 typedef AppFactory = Application Function();
@@ -37,6 +39,17 @@ final class DartisanRunner extends CommandRunner<int> {
     addCommand(DbSeedCommand(createApp));
     addCommand(CacheClearCommand(createApp));
     addCommand(CoordinatorStatsCommand(createApp));
+    addCommand(QueueWorkCommand(createApp));
+    addCommand(QueueFailedCommand(createApp));
+    addCommand(QueueRetryCommand(createApp));
+    addCommand(QueueForgetCommand(createApp));
+    addCommand(QueueFlushCommand(createApp));
+    addCommand(QueueClearCommand(createApp));
+    addCommand(QueueRestartCommand(createApp));
+    addCommand(ScheduleRunCommand(createApp, this));
+    addCommand(ScheduleWorkCommand(createApp, this));
+    addCommand(ScheduleListCommand(createApp));
+    addCommand(MakeJobCommand());
     addCommand(MakeModelCommand());
     addCommand(MakeMigrationCommand());
     addCommand(MakeSeederCommand());
@@ -45,6 +58,11 @@ final class DartisanRunner extends CommandRunner<int> {
     addCommand(MakeRequestCommand());
     addCommand(MakeMiddlewareCommand());
   }
+
+  /// Runs [command] with [args] and returns its exit code (used by the
+  /// scheduler for `schedule.command(...)`).
+  Future<int> runNamed(String command, List<String> args) async =>
+      await run(<String>[command, ...args]) ?? 1;
 
   /// Runs [args] and returns a process exit code (never throws for usage
   /// errors).

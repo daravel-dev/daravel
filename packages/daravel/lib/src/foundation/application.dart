@@ -11,6 +11,7 @@ import '../database/database_config.dart';
 import '../database/database_manager.dart';
 import '../database/schema/migration.dart';
 import '../database/seeding/seeder.dart';
+import '../events/events.dart';
 import '../http/exception_handler.dart';
 import '../http/middleware/validate_signature.dart';
 import '../http/kernel.dart';
@@ -20,8 +21,12 @@ import '../http/request.dart';
 import '../http/response.dart';
 import '../http/server_engine.dart';
 import '../logging/logger.dart';
+import '../queue/drivers.dart';
+import '../queue/job.dart';
+import '../queue/queue_manager.dart';
 import '../routing/router.dart';
 import '../routing/url_signer.dart';
+import '../schedule/schedule.dart';
 import '../server/coordinator.dart';
 import '../server/supervisor.dart';
 import 'config.dart';
@@ -107,7 +112,8 @@ final class Application {
       ..register(DatabaseConfig.fromEnv(env, basePath: basePath))
       ..register(HashConfig.fromEnv(env))
       ..register(AuthConfig.fromEnv(env))
-      ..register(CacheConfig.fromEnv(env));
+      ..register(CacheConfig.fromEnv(env))
+      ..register(QueueConfig.fromEnv(env));
     for (final factory in _builder._configFactories) {
       config.register(factory(env));
     }
@@ -126,6 +132,9 @@ final class Application {
     final gate = AuthorizationGate(userResolver: () => _currentUser(auth));
     final channel =
         coordinator ?? LocalCoordinatorChannel(createStandardCoordinator());
+    final events = EventDispatcher();
+    final jobs = JobRegistry(_builder._jobs);
+    final schedule = Schedule();
     final rateLimiter = RateLimiter(
       store: ProcessRateLimitStore(
         channel,
@@ -158,6 +167,10 @@ final class Application {
       ..instance<AuthorizationGate>(gate)
       ..instance<AuthManager>(auth)
       ..instance<CoordinatorChannel>(channel)
+      ..instance<EventDispatcher>(events)
+      ..instance<JobRegistry>(jobs)
+      ..instance<Schedule>(schedule)
+      ..singleton<QueueManager>((c) => _buildQueue(c, events, jobs))
       ..singleton<CacheManager>(
         (c) => CacheManager.fromConfig(
           c.make<ConfigRepository>().section<CacheConfig>(),
@@ -193,6 +206,12 @@ final class Application {
     }
 
     _builder._authConfig?.call(auth);
+    _builder._eventsConfig?.call(events);
+    _builder._jobsConfig?.call(jobs);
+    _builder._scheduleConfig?.call(schedule);
+    events.afterCommitHook = (callback) =>
+        container.make<DatabaseManager>().afterCommit(callback);
+    events.queuePusher = (Job job) => container.make<QueueManager>().push(job);
     _builder._policiesConfig?.call(gate);
     _builder._rateLimitsConfig?.call(rateLimiter);
 
@@ -217,6 +236,64 @@ final class Application {
     Container.setRoot(container);
     _booted = true;
   }
+
+  QueueManager _buildQueue(
+    Container c,
+    EventDispatcher events,
+    JobRegistry jobs,
+  ) {
+    final queueConfig = c.make<ConfigRepository>().section<QueueConfig>();
+    final db = c.make<DatabaseManager>();
+    final cache = c.make<CacheManager>();
+    final failed = queueConfig.defaultConnection == 'database'
+        ? DatabaseFailedJobProvider(db, table: queueConfig.failedTable)
+        : MemoryFailedJobProvider();
+    final lockStore = cache.store(queueConfig.uniqueLockStore);
+    late final QueueManager manager;
+    final processor = JobProcessor(
+      registry: jobs,
+      events: events,
+      failedJobs: failed,
+      container: c,
+      logger: logger,
+      uniqueLockRelease: (key) => manager.releaseUniqueLock(key),
+    );
+    manager =
+        QueueManager(
+            config: queueConfig,
+            registry: jobs,
+            events: events,
+            container: c,
+            processor: processor,
+            database: db,
+            lockStore: lockStore,
+            logger: logger,
+          )
+          ..extend('sync', SyncQueue.new)
+          ..extend('memory', MemoryQueue.new)
+          ..extend(
+            'database',
+            () => DatabaseQueue(
+              db,
+              table: queueConfig.table,
+              retryAfter: queueConfig.retryAfter,
+            ),
+          );
+    return manager;
+  }
+
+  /// A scheduler over the registered [Schedule] (`schedule:run/work`).
+  Scheduler scheduler({ScheduleCommandRunner? commandRunner}) => Scheduler(
+    container.make<Schedule>(),
+    environment: config.section<AppConfig>().env,
+    events: container.make<EventDispatcher>(),
+    queue: container.make<QueueManager>(),
+    lockStore: container.make<CacheManager>().store(
+      config.section<QueueConfig>().uniqueLockStore,
+    ),
+    commandRunner: commandRunner,
+    logger: logger,
+  );
 
   static Future<Authenticatable?> _currentUser(AuthManager auth) async {
     try {
@@ -399,6 +476,10 @@ final class ApplicationBuilder {
   void Function(AuthManager auth)? _authConfig;
   void Function(AuthorizationGate gate)? _policiesConfig;
   void Function(RateLimiter limiter)? _rateLimitsConfig;
+  void Function(EventDispatcher events)? _eventsConfig;
+  void Function(JobRegistry jobs)? _jobsConfig;
+  void Function(Schedule schedule)? _scheduleConfig;
+  final List<JobDefinition> _jobs = <JobDefinition>[];
   final List<ServiceProvider> _providers = <ServiceProvider>[];
   final List<Migration> _migrations = <Migration>[];
   final List<Seeder> _seeders = <Seeder>[];
@@ -420,6 +501,31 @@ final class ApplicationBuilder {
     void Function(AuthorizationGate gate) configure,
   ) {
     _policiesConfig = configure;
+    return this;
+  }
+
+  /// Registers event listeners and subscribers (`EventServiceProvider`).
+  ApplicationBuilder withEvents(
+    void Function(EventDispatcher events) configure,
+  ) {
+    _eventsConfig = configure;
+    return this;
+  }
+
+  /// Registers job definitions (`bootstrap/jobs.dart`); [configure] may add
+  /// more, e.g. queued listeners.
+  ApplicationBuilder withJobs(
+    List<JobDefinition> jobs, {
+    void Function(JobRegistry jobs)? configure,
+  }) {
+    _jobs.addAll(jobs);
+    _jobsConfig = configure;
+    return this;
+  }
+
+  /// Declares scheduled tasks (`routes/console.dart`).
+  ApplicationBuilder withSchedule(void Function(Schedule schedule) define) {
+    _scheduleConfig = define;
     return this;
   }
 

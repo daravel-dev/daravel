@@ -165,6 +165,22 @@ final class MakeMigrationCommand extends MakeCommand {
   }
 }
 
+/// `make:job Name`
+final class MakeJobCommand extends MakeCommand {
+  @override
+  String get name => 'make:job';
+
+  @override
+  String get description => 'Create a new job class (and register it).';
+
+  @override
+  Future<int> run() async {
+    final gen = generator();
+    gen.job(nameArgument);
+    return report(gen);
+  }
+}
+
 /// `make:seeder Name`
 final class MakeSeederCommand extends MakeCommand {
   @override

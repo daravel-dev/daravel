@@ -1,11 +1,15 @@
 import 'dart:io';
 
 import 'package:daravel/daravel.dart';
+import 'package:daravel_starter/app/events/user_registered.dart';
+import 'package:daravel_starter/app/jobs/send_welcome_email.dart';
 import 'package:daravel_starter/app/models/user.dart';
 import 'package:daravel_starter/app/policies/user_policy.dart';
 
 import '../routes/api.dart';
+import '../routes/console.dart';
 import '../routes/web.dart';
+import 'jobs.dart';
 import 'migrations.dart';
 import 'seeders.dart';
 
@@ -18,6 +22,13 @@ Application createApp({String? basePath, Map<String, String>? env}) =>
         .withEnv(env ?? const <String, String>{})
         .withMigrations(migrations)
         .withSeeders(seeders)
+        .withJobs(jobs)
+        .withSchedule(consoleRoutes)
+        .withEvents((events) {
+          events.listen<UserRegistered>(
+            (event) => Queue.dispatch(SendWelcomeEmail(event.userId)),
+          );
+        })
         .withRouting(
           api: apiRoutes,
           web: webRoutes,

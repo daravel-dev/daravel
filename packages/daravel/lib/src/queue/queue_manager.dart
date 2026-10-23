@@ -1,0 +1,669 @@
+import 'dart:async';
+
+import '../cache/cache.dart';
+import '../database/database_manager.dart';
+import '../events/events.dart';
+import '../foundation/config.dart';
+import '../foundation/container.dart';
+import '../foundation/env.dart';
+import '../foundation/exceptions.dart';
+import '../logging/logger.dart';
+import 'drivers.dart';
+import 'job.dart';
+
+/// `QUEUE_*` configuration (`config/queue.php` parity).
+final class QueueConfig implements ConfigSection {
+  const QueueConfig({
+    this.defaultConnection = 'sync',
+    this.defaultQueue = 'default',
+    this.table = 'jobs',
+    this.failedTable = 'failed_jobs',
+    this.retryAfter = const Duration(seconds: 90),
+    this.afterCommit = true,
+    this.uniqueLockStore = 'process',
+  });
+
+  factory QueueConfig.fromEnv(Env env) => QueueConfig(
+    defaultConnection: env.string('QUEUE_CONNECTION', 'sync'),
+    defaultQueue: env.string('QUEUE_DEFAULT', 'default'),
+    table: env.string('QUEUE_TABLE', 'jobs'),
+    failedTable: env.string('QUEUE_FAILED_TABLE', 'failed_jobs'),
+    retryAfter: env.duration('QUEUE_RETRY_AFTER', const Duration(seconds: 90)),
+    afterCommit: env.boolean('QUEUE_AFTER_COMMIT', true),
+    uniqueLockStore: env.string('QUEUE_UNIQUE_LOCK_STORE', 'process'),
+  );
+
+  /// `sync` | `database` | `memory`.
+  final String defaultConnection;
+  final String defaultQueue;
+  final String table;
+  final String failedTable;
+  final Duration retryAfter;
+
+  /// Dispatches inside a transaction wait for the commit by default.
+  final bool afterCommit;
+
+  /// Cache store holding unique-job locks.
+  final String uniqueLockStore;
+
+  @override
+  String get key => 'queue';
+
+  @override
+  Map<String, Object?> toMap() => <String, Object?>{
+    'default': defaultConnection,
+    'queue': defaultQueue,
+    'after_commit': afterCommit,
+    'connections': {
+      'sync': {'driver': 'sync'},
+      'memory': {'driver': 'memory'},
+      'database': {
+        'driver': 'database',
+        'table': table,
+        'retry_after': retryAfter.inSeconds,
+      },
+    },
+    'failed': {'table': failedTable},
+  };
+}
+
+/// Recorded pushes while [QueueManager.fake] is active.
+final class QueueFake {
+  final List<({Job job, String queue, String connection, Duration? delay})>
+  pushed = [];
+
+  List<J> pushedJobs<J extends Job>([bool Function(J job)? where]) => [
+    for (final entry in pushed)
+      if (entry.job is J && (where == null || where(entry.job as J)))
+        entry.job as J,
+  ];
+
+  void assertPushed<J extends Job>([bool Function(J job)? where]) {
+    if (pushedJobs<J>(where).isEmpty) {
+      throw StateError('Expected job [$J] to be pushed; it was not.');
+    }
+  }
+
+  void assertPushedOn<J extends Job>(String queue) {
+    if (!pushed.any((e) => e.job is J && e.queue == queue)) {
+      throw StateError('Expected job [$J] on queue [$queue]; it was not.');
+    }
+  }
+
+  void assertNotPushed<J extends Job>() {
+    if (pushedJobs<J>().isNotEmpty) {
+      throw StateError('Expected job [$J] not to be pushed; it was.');
+    }
+  }
+
+  void assertNothingPushed() {
+    if (pushed.isNotEmpty) {
+      throw StateError(
+        'Expected no jobs; got ${pushed.map((e) => e.job.jobName).join(', ')}.',
+      );
+    }
+  }
+
+  int pushedTimes<J extends Job>() => pushedJobs<J>().length;
+}
+
+/// Fluent dispatch (`dispatch($job)->onQueue('x')->delay(...)`). Awaiting it
+/// performs the push and yields the driver job id (`null` when a unique
+/// job was skipped).
+final class PendingDispatch implements Future<Object?> {
+  PendingDispatch(this._manager, this.job);
+
+  final QueueManager _manager;
+  final Job job;
+  String? _queue;
+  String? _connection;
+  Duration? _delay;
+  bool? _afterCommit;
+  Future<Object?>? _future;
+
+  PendingDispatch onQueue(String queue) => this.._queue = queue;
+
+  PendingDispatch onConnection(String connection) =>
+      this.._connection = connection;
+
+  PendingDispatch delay(Duration delay) => this.._delay = delay;
+
+  PendingDispatch afterCommit() => this.._afterCommit = true;
+
+  PendingDispatch beforeCommit() => this.._afterCommit = false;
+
+  Future<Object?> get _run => _future ??= _manager.push(
+    job,
+    queue: _queue,
+    connection: _connection,
+    delay: _delay,
+    afterCommit: _afterCommit,
+  );
+
+  @override
+  Stream<Object?> asStream() => _run.asStream();
+
+  @override
+  Future<Object?> catchError(Function onError, {bool Function(Object)? test}) =>
+      _run.catchError(onError, test: test);
+
+  @override
+  Future<R> then<R>(
+    FutureOr<R> Function(Object? value) onValue, {
+    Function? onError,
+  }) => _run.then(onValue, onError: onError);
+
+  @override
+  Future<Object?> timeout(
+    Duration timeLimit, {
+    FutureOr<Object?> Function()? onTimeout,
+  }) => _run.timeout(timeLimit, onTimeout: onTimeout);
+
+  @override
+  Future<Object?> whenComplete(FutureOr<void> Function() action) =>
+      _run.whenComplete(action);
+}
+
+/// Outcome of one processing attempt.
+enum JobOutcome { processed, released, deleted, failed }
+
+/// Runs one reserved job through its middleware with timeout, retry and
+/// failure bookkeeping (shared by the worker and the sync driver).
+final class JobProcessor {
+  JobProcessor({
+    required this.registry,
+    required this.events,
+    required this.failedJobs,
+    required this.container,
+    this.logger,
+    this.uniqueLockRelease,
+    DateTime Function()? clock,
+  }) : _clock = clock ?? _utcNow;
+
+  final JobRegistry registry;
+  final EventDispatcher events;
+  final FailedJobProvider failedJobs;
+  final Container container;
+  final Logger? logger;
+
+  /// Releases the unique-job lock named by the payload.
+  final Future<void> Function(String key)? uniqueLockRelease;
+  final DateTime Function() _clock;
+
+  /// Processes [queued] from [driver]. [tries]/[backoff] override the job's
+  /// own values when the worker was started with `--tries/--backoff`.
+  Future<JobOutcome> process(
+    QueueDriver driver,
+    QueuedJob queued, {
+    int? tries,
+    List<Duration>? backoff,
+    Duration? timeout,
+  }) async {
+    final payload = queued.payload;
+    final Job job;
+    try {
+      job = registry.make(payload.jobName, payload.data);
+    } on UnknownJobException catch (error, stackTrace) {
+      await _fail(driver, queued, error, stackTrace, job: null);
+      return JobOutcome.failed;
+    }
+    final maxTries = (tries ?? payload.maxTries);
+    final ctx = JobContext(
+      id: queued.id,
+      attempt: queued.attempts,
+      queue: queued.queue,
+      connection: driver.name,
+      payload: payload.data,
+      maxTries: maxTries == 0 ? null : maxTries,
+    );
+    await events.dispatch(
+      JobProcessing(
+        connection: driver.name,
+        queue: queued.queue,
+        jobName: payload.jobName,
+        jobId: queued.id,
+        attempt: queued.attempts,
+      ),
+    );
+    final stopwatch = Stopwatch()..start();
+    Object? error;
+    StackTrace? trace;
+    var timedOut = false;
+    try {
+      await container.runScoped<void>('job', (_) async {
+        await _runWithMiddleware(ctx, job, () async {
+          try {
+            await job.handle(ctx).timeout(timeout ?? payload.timeout);
+          } on TimeoutException {
+            ctx.cancelled = true;
+            timedOut = true;
+            rethrow;
+          }
+        });
+      });
+    } catch (e, s) {
+      error = e;
+      trace = s;
+    }
+    final failure = ctx.failure;
+    if (failure != null && error == null) {
+      error = failure;
+      trace = StackTrace.current;
+    }
+    if (error == null) {
+      if (ctx.deleted) {
+        await _finish(driver, queued, payload);
+        return JobOutcome.deleted;
+      }
+      if (ctx.released) {
+        await driver.release(queued, ctx.releaseDelay ?? Duration.zero);
+        return JobOutcome.released;
+      }
+      await _finish(driver, queued, payload);
+      await events.dispatch(
+        JobProcessed(
+          connection: driver.name,
+          queue: queued.queue,
+          jobName: payload.jobName,
+          jobId: queued.id,
+          duration: stopwatch.elapsed,
+        ),
+      );
+      return JobOutcome.processed;
+    }
+    final exhausted =
+        _exhausted(payload, queued.attempts, maxTries) ||
+        failure != null ||
+        (timedOut && payload.failOnTimeout);
+    await events.dispatch(
+      JobExceptionOccurred(
+        connection: driver.name,
+        queue: queued.queue,
+        jobName: payload.jobName,
+        jobId: queued.id,
+        error: error,
+        willRetry: !exhausted,
+      ),
+    );
+    if (exhausted) {
+      await _fail(driver, queued, error, trace ?? StackTrace.current, job: job);
+      return JobOutcome.failed;
+    }
+    final delay = _backoff(
+      backoff ?? [for (final s in payload.backoffSeconds) Duration(seconds: s)],
+      queued.attempts,
+    );
+    logger?.warning(
+      'Job ${payload.displayName} attempt ${queued.attempts} failed; '
+      'retrying in ${delay.inSeconds}s: $error',
+    );
+    await driver.release(queued, delay);
+    return JobOutcome.released;
+  }
+
+  bool _exhausted(JobPayload payload, int attempts, int maxTries) {
+    final retryUntil = payload.retryUntil;
+    if (retryUntil != null) {
+      return _clock().millisecondsSinceEpoch ~/ 1000 >= retryUntil;
+    }
+    return maxTries > 0 && attempts >= maxTries;
+  }
+
+  static Duration _backoff(List<Duration> backoff, int attempt) {
+    if (backoff.isEmpty) {
+      return Duration.zero;
+    }
+    final index = attempt - 1;
+    return index < backoff.length ? backoff[index] : backoff.last;
+  }
+
+  Future<void> _runWithMiddleware(JobContext ctx, Job job, JobNext core) {
+    JobNext next = core;
+    for (final middleware in job.middleware.reversed) {
+      final downstream = next;
+      next = () => middleware.handle(ctx, job, downstream);
+    }
+    return next();
+  }
+
+  Future<void> _finish(
+    QueueDriver driver,
+    QueuedJob queued,
+    JobPayload payload,
+  ) async {
+    await driver.delete(queued);
+    final unique = payload.uniqueKey;
+    if (unique != null) {
+      await uniqueLockRelease?.call(unique);
+    }
+  }
+
+  Future<void> _fail(
+    QueueDriver driver,
+    QueuedJob queued,
+    Object error,
+    StackTrace stackTrace, {
+    required Job? job,
+  }) async {
+    await _finish(driver, queued, queued.payload);
+    await failedJobs.log(
+      connection: driver.name,
+      queue: queued.queue,
+      payload: queued.raw,
+      exception: '$error\n$stackTrace',
+    );
+    logger?.error(
+      'Job ${queued.payload.displayName} failed',
+      error: error,
+      stackTrace: stackTrace,
+      context: <String, Object?>{'job_id': queued.id, 'queue': queued.queue},
+    );
+    try {
+      await job?.failed(error, stackTrace);
+    } catch (hookError, hookTrace) {
+      logger?.error(
+        'failed() hook of ${queued.payload.displayName} threw',
+        error: hookError,
+        stackTrace: hookTrace,
+      );
+    }
+    await events.dispatch(
+      JobFailed(
+        connection: driver.name,
+        queue: queued.queue,
+        jobName: queued.payload.jobName,
+        jobId: queued.id,
+        error: error,
+      ),
+    );
+  }
+
+  static DateTime _utcNow() => DateTime.now().toUtc();
+}
+
+/// Connections, dispatching, unique jobs and faking (Laravel `QueueManager`
+/// + `Bus::dispatch`).
+final class QueueManager {
+  QueueManager({
+    required this.config,
+    required this.registry,
+    required this.events,
+    required this.container,
+    required this.processor,
+    this.database,
+    this.lockStore,
+    this.logger,
+  });
+
+  final QueueConfig config;
+  final JobRegistry registry;
+  final EventDispatcher events;
+  final Container container;
+  final JobProcessor processor;
+  final DatabaseManager? database;
+
+  /// Store for unique-job locks (`ShouldBeUnique`).
+  final CacheRepository? lockStore;
+  final Logger? logger;
+
+  final Map<String, QueueDriver Function()> _factories = {};
+  final Map<String, QueueDriver> _connections = <String, QueueDriver>{};
+  QueueFake? _fake;
+
+  /// Registers a connection factory.
+  void extend(String name, QueueDriver Function() factory) =>
+      _factories[name] = factory;
+
+  Iterable<String> get connectionNames => _factories.keys;
+
+  /// The connection named [name] (default: `QUEUE_CONNECTION`).
+  QueueDriver connection([String? name]) {
+    final resolved = name ?? config.defaultConnection;
+    final existing = _connections[resolved];
+    if (existing != null) {
+      return existing;
+    }
+    final factory = _factories[resolved];
+    if (factory == null) {
+      throw ConfigException(
+        'Queue connection [$resolved] is not defined (available: '
+        '${_factories.keys.join(', ')}).',
+      );
+    }
+    final driver = factory();
+    if (driver is SyncQueue) {
+      driver.processor = (payload, queue) =>
+          _processSync(driver, payload, queue);
+    }
+    return _connections[resolved] = driver;
+  }
+
+  /// Fluent dispatch; await the result to push.
+  PendingDispatch dispatch(Job job) => PendingDispatch(this, job);
+
+  /// Pushes [job]; returns the driver id or `null` when a unique job with
+  /// the same id is already pending.
+  Future<Object?> push(
+    Job job, {
+    String? queue,
+    String? connection,
+    Duration? delay,
+    bool? afterCommit,
+  }) async {
+    final fake = _fake;
+    final targetQueue = queue ?? job.queue ?? config.defaultQueue;
+    final targetConnection =
+        connection ?? job.connection ?? config.defaultConnection;
+    if (fake != null) {
+      fake.pushed.add((
+        job: job,
+        queue: targetQueue,
+        connection: targetConnection,
+        delay: delay,
+      ));
+      return fake.pushed.length;
+    }
+    final db = database;
+    final deferToCommit =
+        (afterCommit ?? config.afterCommit) && db != null && db.inTransaction;
+    if (deferToCommit) {
+      await db.afterCommit(
+        () => _pushNow(job, targetQueue, targetConnection, delay),
+      );
+      return null;
+    }
+    return _pushNow(job, targetQueue, targetConnection, delay);
+  }
+
+  Future<Object?> _pushNow(
+    Job job,
+    String queue,
+    String connection,
+    Duration? delay,
+  ) async {
+    String? uniqueKey;
+    final uniqueId = job.uniqueId;
+    if (uniqueId != null) {
+      final store = lockStore;
+      if (store == null) {
+        throw const ConfigException('Unique jobs need a cache lock store.');
+      }
+      uniqueKey = 'unique:${job.jobName}:$uniqueId';
+      final ttl = job.uniqueFor == Duration.zero
+          ? const Duration(days: 365)
+          : job.uniqueFor;
+      if (!await store.lock(uniqueKey, ttl: ttl).acquire()) {
+        logger?.debug(
+          'Unique job ${job.displayName} [$uniqueId] already pending; skipped.',
+        );
+        return null;
+      }
+    }
+    final payload = JobPayload.forJob(job, uniqueKey: uniqueKey);
+    return this
+        .connection(connection)
+        .push(payload, queue: queue, delay: delay);
+  }
+
+  /// Pushes after [delay].
+  Future<Object?> later(
+    Duration delay,
+    Job job, {
+    String? queue,
+    String? connection,
+  }) => push(job, queue: queue, connection: connection, delay: delay);
+
+  /// Pushes several jobs.
+  Future<List<Object?>> bulk(
+    Iterable<Job> jobs, {
+    String? queue,
+    String? connection,
+  }) async => [
+    for (final job in jobs)
+      await push(job, queue: queue, connection: connection),
+  ];
+
+  /// Releases a unique-job lock (called by the processor).
+  Future<void> releaseUniqueLock(String key) async {
+    await lockStore?.lock(key).forceRelease();
+  }
+
+  Future<void> _processSync(
+    SyncQueue driver,
+    JobPayload payload,
+    String queue,
+  ) async {
+    final queued = QueuedJob(
+      id: payload.uuid,
+      queue: queue,
+      payload: payload,
+      attempts: 1,
+      raw: payload.encode(),
+    );
+    final outcome = await processor.process(driver, queued, tries: 1);
+    if (outcome == JobOutcome.released) {
+      logger?.warning(
+        'Sync job ${payload.displayName} asked to be released; sync jobs cannot be retried.',
+      );
+    }
+  }
+
+  /// Records pushes instead of sending them (tests).
+  QueueFake fake() => _fake = QueueFake();
+
+  void restore() => _fake = null;
+
+  /// Requests every running worker to stop after its current job.
+  Future<void> restart() async {
+    await lockStore?.store.put(
+      'daravel:queue:restart',
+      DateTime.now().toUtc().millisecondsSinceEpoch,
+    );
+  }
+
+  /// Timestamp of the last [restart] request (epoch ms) or `null`.
+  Future<int?> restartRequestedAt() async =>
+      (await lockStore?.store.get('daravel:queue:restart')) as int?;
+}
+
+/// `queue:work` options.
+final class WorkerOptions {
+  const WorkerOptions({
+    this.connection,
+    this.queues = const <String>['default'],
+    this.tries,
+    this.backoff,
+    this.timeout,
+    this.sleep = const Duration(seconds: 3),
+    this.maxJobs,
+    this.maxTime,
+    this.stopWhenEmpty = false,
+  });
+
+  final String? connection;
+
+  /// Queues polled in priority order.
+  final List<String> queues;
+
+  /// Overrides the job's `tries` (`null` = use the job's own value).
+  final int? tries;
+  final List<Duration>? backoff;
+  final Duration? timeout;
+  final Duration sleep;
+  final int? maxJobs;
+  final Duration? maxTime;
+  final bool stopWhenEmpty;
+}
+
+/// Polls queues and processes jobs (`dartisan queue:work`).
+final class QueueWorker {
+  QueueWorker(this.manager, {Logger? logger}) : _logger = logger;
+
+  final QueueManager manager;
+  final Logger? _logger;
+  bool _stop = false;
+  int processed = 0;
+
+  /// Stops after the current job.
+  void stop() => _stop = true;
+
+  /// Runs until stopped, [WorkerOptions.maxJobs]/[WorkerOptions.maxTime]
+  /// are reached, or the queue is empty with [WorkerOptions.stopWhenEmpty].
+  /// Returns the exit code (0, or 1 when stopped by `queue:restart`).
+  Future<int> run(WorkerOptions options) async {
+    _stop = false;
+    final started = DateTime.now().toUtc();
+    final restartMark = await manager.restartRequestedAt();
+    final driver = manager.connection(options.connection);
+    _logger?.info(
+      'Processing jobs from [${options.queues.join(', ')}] on connection '
+      '[${driver.name}].',
+    );
+    while (!_stop) {
+      final ran = await runNextJob(driver, options);
+      if (ran) {
+        processed++;
+      }
+      final maxJobs = options.maxJobs;
+      if (maxJobs != null && processed >= maxJobs) {
+        break;
+      }
+      final maxTime = options.maxTime;
+      if (maxTime != null &&
+          DateTime.now().toUtc().difference(started) >= maxTime) {
+        break;
+      }
+      final restart = await manager.restartRequestedAt();
+      if (restart != null && restart != restartMark) {
+        _logger?.info('Restart requested; worker stopping.');
+        return 1;
+      }
+      if (!ran) {
+        if (options.stopWhenEmpty) {
+          break;
+        }
+        await Future<void>.delayed(options.sleep);
+      }
+    }
+    return 0;
+  }
+
+  /// Processes at most one job; returns whether one was found.
+  Future<bool> runNextJob(QueueDriver driver, WorkerOptions options) async {
+    for (final queue in options.queues) {
+      final job = await driver.pop(queue);
+      if (job == null) {
+        continue;
+      }
+      await manager.processor.process(
+        driver,
+        job,
+        tries: options.tries,
+        backoff: options.backoff,
+        timeout: options.timeout,
+      );
+      return true;
+    }
+    return false;
+  }
+}

@@ -1,4 +1,5 @@
 import 'package:daravel/daravel.dart';
+import 'package:daravel_starter/app/events/user_registered.dart';
 import 'package:daravel_starter/app/http/requests/store_user_request.dart';
 import 'package:daravel_starter/app/models/user.dart';
 
@@ -12,6 +13,7 @@ final class AuthController {
       'email': data.string('email'),
       'password': await Hash.make(data.string('password')),
     });
+    await Event.dispatch(UserRegistered(user.id, user.email));
     final token = await Auth.issueToken(user, 'api');
     return Response.created(<String, Object?>{
       'user': user,

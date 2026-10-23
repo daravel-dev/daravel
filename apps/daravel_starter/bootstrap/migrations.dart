@@ -10,6 +10,8 @@ final List<Migration> migrations = <Migration>[
   const CreatePersonalAccessTokensTable(),
   // Framework-provided: Laravel-compatible `cache` + `cache_locks`.
   const CreateCacheTable(),
+  // Framework-provided: Laravel-compatible `jobs`, `job_batches`, `failed_jobs`.
+  const CreateJobsTable(),
   // <dartisan:entries>
   const CreateUsersTable(),
   // </dartisan:entries>
