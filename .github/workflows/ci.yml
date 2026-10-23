@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    name: ${{ matrix.os }} / Dart ${{ matrix.sdk }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        sdk: [stable]
+        include:
+          - os: ubuntu-latest
+            sdk: "3.9.0"
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: ${{ matrix.sdk }}
+
+      - name: Install SQLite (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libsqlite3-0
+
+      - name: Resolve workspace
+        run: dart pub get
+
+      - name: Format
+        run: dart format --output=none --set-exit-if-changed .
+
+      - name: Analyze
+        run: dart analyze --fatal-infos
+
+      - name: Test (all packages)
+        run: |
+          for pkg in packages/daravel packages/daravel_test packages/dartisan_cli apps/daravel_starter; do
+            if [ -d "$pkg/test" ]; then
+              echo "== $pkg"
+              (cd "$pkg" && dart test --reporter=expanded)
+            fi
+          done
+
+      - name: Compile AOT binary
+        working-directory: apps/daravel_starter
+        run: |
+          mkdir -p build
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            dart compile exe bin/server.dart -o build/server.exe
+          else
+            dart compile exe bin/server.dart -o build/server
+          fi
+
+      - name: Smoke test AOT binary
+        working-directory: apps/daravel_starter
+        run: dart run tool/smoke.dart

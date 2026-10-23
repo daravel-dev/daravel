@@ -1,0 +1,21 @@
+# Dart / pub
+.dart_tool/
+build/
+*.aot
+*.exe
+
+# Environment & local data
+.env
+.env.*
+!.env.example
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+storage/logs/
+storage/tmp/
+
+# IDE
+.idea/
+.vscode/
+*.iml

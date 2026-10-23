@@ -1,0 +1,27 @@
+# Workspace-wide analysis configuration (applies to every package below this directory).
+# Strict modes are non-negotiable (BLUEPRINT_V2 §11.1). `public_member_api_docs` and the
+# custom `daravel_lints` package are enabled in later slices.
+include: package:lints/recommended.yaml
+
+analyzer:
+  language:
+    strict-casts: true
+    strict-inference: true
+    strict-raw-types: true
+  errors:
+    missing_required_param: error
+    missing_return: error
+    unused_import: warning
+    dead_code: warning
+  exclude:
+    - "**/build/**"
+
+linter:
+  rules:
+    - always_declare_return_types
+    - avoid_dynamic_calls
+    - cancel_subscriptions
+    - close_sinks
+    - prefer_final_locals
+    - unawaited_futures
+    - use_super_parameters

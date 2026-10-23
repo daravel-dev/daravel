@@ -1,0 +1,15 @@
+name: daravel_test
+description: Testing toolkit for Daravel applications (TestClient, assertions, database helpers).
+version: 0.0.1-dev
+publish_to: none
+
+environment:
+  sdk: ^3.9.0
+resolution: workspace
+
+dependencies:
+  daravel: any
+  test: ^1.25.0
+
+dev_dependencies:
+  lints: ^6.0.0

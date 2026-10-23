@@ -1,0 +1,12 @@
+name: daravel_workspace
+description: Daravel monorepo workspace (framework core, CLI, testing toolkit, starter app).
+publish_to: none
+
+environment:
+  sdk: ^3.9.0
+
+workspace:
+  - packages/daravel
+  - packages/daravel_test
+  - packages/dartisan_cli
+  - apps/daravel_starter
