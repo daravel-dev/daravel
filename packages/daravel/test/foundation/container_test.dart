@@ -23,6 +23,7 @@ class B {
 }
 
 void main() {
+  extraTests();
   setUp(() {
     Counter.instances = 0;
     Container.setRoot(null);
@@ -180,5 +181,81 @@ void main() {
         expect(identical(Container.current, root), isTrue);
       },
     );
+  });
+}
+
+abstract interface class Greeter {
+  String greet();
+}
+
+final class EnglishGreeter implements Greeter {
+  @override
+  String greet() => 'hello';
+}
+
+final class LoudGreeter implements Greeter {
+  LoudGreeter(this.inner);
+  final Greeter inner;
+  @override
+  String greet() => inner.greet().toUpperCase();
+}
+
+void extraTests() {
+  group('extend / alias / tag / resolving / deferred', () {
+    test('extend decorates lazily built and already built instances', () {
+      final c = Container()..singleton<EnglishGreeter>((_) => EnglishGreeter());
+      c.extend<EnglishGreeter>((g, _) => EnglishGreeter());
+      final first = c.make<EnglishGreeter>();
+      c.alias<Greeter, EnglishGreeter>();
+      expect(identical(c.make<Greeter>(), first), isTrue);
+
+      c.singleton<Greeter>((_) => EnglishGreeter(), name: 'loud');
+      c.extend<Greeter>((g, _) => LoudGreeter(g), name: 'loud');
+      expect(c.make<Greeter>(name: 'loud').greet(), 'HELLO');
+    });
+
+    test('alias resolves to the target binding', () {
+      final c = Container()
+        ..singleton<EnglishGreeter>((_) => EnglishGreeter())
+        ..alias<Greeter, EnglishGreeter>();
+      expect(c.bound<Greeter>(), isTrue);
+      expect(identical(c.make<Greeter>(), c.make<EnglishGreeter>()), isTrue);
+    });
+
+    test('tagged resolves every binding under a tag', () {
+      final c = Container()
+        ..singleton<EnglishGreeter>((_) => EnglishGreeter())
+        ..singleton<Greeter>((_) => LoudGreeter(EnglishGreeter()), name: 'loud')
+        ..tag<EnglishGreeter>('greeters')
+        ..tag<Greeter>('greeters', name: 'loud');
+      final greeters = c.tagged('greeters').cast<Greeter>();
+      expect(greeters.map((g) => g.greet()), ['hello', 'HELLO']);
+      expect(c.tagged('none'), isEmpty);
+    });
+
+    test('resolving hooks run for built instances only', () {
+      final seen = <String>[];
+      final c = Container()
+        ..resolving<Greeter>((g, _) => seen.add(g.greet()))
+        ..bind<Greeter>((_) => EnglishGreeter())
+        ..instance<EnglishGreeter>(EnglishGreeter());
+      c.make<Greeter>();
+      c.make<EnglishGreeter>();
+      expect(seen, ['hello']);
+    });
+
+    test('deferred registration runs once on first resolution', () {
+      var registrations = 0;
+      final c = Container()
+        ..deferred([Greeter, EnglishGreeter], (c) {
+          registrations++;
+          c.singleton<EnglishGreeter>((_) => EnglishGreeter());
+          c.alias<Greeter, EnglishGreeter>();
+        });
+      expect(c.bound<Greeter>(), isTrue);
+      expect(c.make<Greeter>().greet(), 'hello');
+      c.make<EnglishGreeter>();
+      expect(registrations, 1);
+    });
   });
 }

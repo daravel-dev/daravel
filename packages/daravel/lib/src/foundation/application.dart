@@ -13,8 +13,10 @@ import '../http/server_engine.dart';
 import '../logging/logger.dart';
 import '../routing/router.dart';
 import 'config.dart';
+import 'config_validator.dart';
 import 'container.dart';
 import 'env.dart';
+import 'exceptions.dart';
 import 'service_provider.dart';
 
 final class _RoutingConfig {
@@ -92,11 +94,10 @@ final class Application {
     }
     final appConfig = config.section<AppConfig>();
     exceptions.debug = appConfig.debug;
-    if (appConfig.isProduction && appConfig.debug) {
-      logger.warning(
-        'APP_DEBUG=true while APP_ENV=production: error responses will leak '
-        'stack traces. Disable debug mode in production.',
-      );
+
+    final validator = ConfigValidator(extraChecks: _builder._configChecks);
+    for (final issue in validator.validateOrThrow(env, config)) {
+      logger.warning('Config: ${issue.message}');
     }
 
     container
@@ -124,6 +125,9 @@ final class Application {
       await provider.register(container);
     }
     for (final provider in _builder._providers) {
+      if (provider is DeferredServiceProvider) {
+        continue;
+      }
       await provider.boot(container);
     }
 
@@ -199,12 +203,19 @@ final class Application {
   /// Boots, serves HTTP until the engine stops, then releases resources.
   Future<void> serve({ServeOptions? options}) async {
     await boot();
-    final engine = ServerEngine(
-      this,
-      options ?? ServeOptions.fromEnv(env),
-      kernel: kernel,
-      logger: logger,
-    );
+    final resolved = options ?? ServeOptions.fromEnv(env);
+    final db = config.section<DatabaseConfig>();
+    final connection = db.connections[db.defaultConnection];
+    if (resolved.isolates > 1 &&
+        connection?.driver == 'sqlite' &&
+        connection?.database == ':memory:') {
+      throw ConfigException(
+        'An in-memory SQLite database cannot be shared across '
+        '${resolved.isolates} isolates (each isolate would get its own empty '
+        'database). Use a file database or run with isolates: 1.',
+      );
+    }
+    final engine = ServerEngine(this, resolved, kernel: kernel, logger: logger);
     _engine = engine;
     await engine.start();
     await engine.done;
@@ -250,7 +261,14 @@ final class ApplicationBuilder {
   final List<Migration> _migrations = <Migration>[];
   final List<ConfigSection Function(Env env)> _configFactories =
       <ConfigSection Function(Env env)>[];
+  final List<ConfigCheck> _configChecks = <ConfigCheck>[];
   LogLevel? _logLevel;
+
+  /// Adds a configuration check run at boot (errors abort the boot).
+  ApplicationBuilder withConfigCheck(ConfigCheck check) {
+    _configChecks.add(check);
+    return this;
+  }
 
   /// Environment overrides with the highest precedence (tests, CLI flags).
   ApplicationBuilder withEnv(Map<String, String> overrides) {

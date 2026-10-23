@@ -17,6 +17,7 @@ typedef AppFactory = Application Function();
 final class DartisanRunner extends CommandRunner<int> {
   DartisanRunner(AppFactory createApp)
     : super('dartisan', 'Daravel command-line interface.') {
+    addCommand(AboutCommand(createApp));
     addCommand(ServeCommand(createApp));
     addCommand(RouteListCommand(createApp));
     addCommand(MigrateCommand(createApp));
@@ -266,4 +267,43 @@ String renderTable(List<List<String>> rows) {
   }
   buffer.writeln(separator);
   return buffer.toString();
+}
+
+/// `dartisan about` — summarizes the application environment.
+final class AboutCommand extends DaravelCommand {
+  AboutCommand(super.createApp);
+
+  @override
+  String get name => 'about';
+
+  @override
+  String get description => 'Display basic information about your application.';
+
+  @override
+  Future<int> run() => withApp((app) async {
+    final appConfig = app.config.section<AppConfig>();
+    final db = app.config.section<DatabaseConfig>();
+    final connection = db.connections[db.defaultConnection];
+    stdout.write(
+      renderTable(<List<String>>[
+        <String>['Key', 'Value'],
+        <String>['Application', appConfig.name],
+        <String>['Environment', appConfig.env],
+        <String>['Debug mode', appConfig.debug ? 'ENABLED' : 'OFF'],
+        <String>['URL', appConfig.url],
+        <String>['Timezone', appConfig.timezone],
+        <String>['Locale', appConfig.locale],
+        <String>['Dart', Platform.version.split(' ').first],
+        <String>['Daravel', '0.0.1-dev (Tier 1 / S1)'],
+        <String>[
+          'Database',
+          '${db.defaultConnection} (${connection?.driver ?? '?'})',
+        ],
+        <String>['Routes', '${app.router.routes.length}'],
+        <String>['Migrations', '${App.make<Migrator>().migrations.length}'],
+        <String>['Base path', app.basePath],
+      ]),
+    );
+    return 0;
+  });
 }

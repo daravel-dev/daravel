@@ -17,3 +17,22 @@ abstract class ServiceProvider {
   /// Called after every provider has registered; safe to resolve services.
   FutureOr<void> boot(Container container) {}
 }
+
+/// A provider whose bindings are registered lazily, the first time one of
+/// the types in [provides] is resolved from the container (Laravel's
+/// `DeferrableProvider`). Registration must be synchronous because
+/// `Container.make` is synchronous; [boot] is not invoked for deferred
+/// providers.
+abstract class DeferredServiceProvider extends ServiceProvider {
+  const DeferredServiceProvider();
+
+  /// The types this provider binds.
+  List<Type> get provides;
+
+  /// Synchronously binds the services listed in [provides].
+  void registerDeferred(Container container);
+
+  @override
+  void register(Container container) =>
+      container.deferred(provides, registerDeferred);
+}

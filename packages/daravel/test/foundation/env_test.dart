@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 void main() {
+  main2();
   test('parses comments, export, quotes, escapes and expansion', () {
     final values = Env.parse(r'''
 # comment line
@@ -79,4 +80,62 @@ MISSING_REF=${NOPE}x
     final env = await Env.load(basePath: dir.path, includePlatform: false);
     expect(env.toMap(), isEmpty);
   });
+}
+
+enum Driver { sqlite, pgsql }
+
+void main2() {
+  test('typed accessors: duration, enumValue, url', () {
+    final env = Env.fromMap({
+      'TTL': '5m',
+      'TIMEOUT': '45',
+      'TICK': '250ms',
+      'DRIVER': 'PgSql',
+      'URL': 'https://example.test/app',
+    });
+    expect(env.duration('TTL'), const Duration(minutes: 5));
+    expect(env.duration('TIMEOUT'), const Duration(seconds: 45));
+    expect(env.duration('TICK'), const Duration(milliseconds: 250));
+    expect(env.duration('NOPE', Duration.zero), Duration.zero);
+    expect(() => env.duration('DRIVER'), throwsA(isA<EnvException>()));
+    expect(env.enumValue('DRIVER', Driver.values), Driver.pgsql);
+    expect(env.enumValue('NOPE', Driver.values, Driver.sqlite), Driver.sqlite);
+    expect(
+      () => env.enumValue('TTL', Driver.values),
+      throwsA(isA<EnvException>()),
+    );
+    expect(env.url('URL').host, 'example.test');
+    expect(() => env.url('TTL'), throwsA(isA<EnvException>()));
+  });
+
+  test(
+    'load applies the .env.{APP_ENV} overlay between the base file and overrides',
+    () async {
+      final dir = await Directory.systemTemp.createTemp('daravel_env_');
+      addTearDown(() => dir.delete(recursive: true));
+      await File(
+        p.join(dir.path, '.env'),
+      ).writeAsString('APP_ENV=testing\nA=base\nB=base\nC=base\n');
+      await File(
+        p.join(dir.path, '.env.testing'),
+      ).writeAsString('B=overlay\nC=overlay\nD=\${A}-overlay\n');
+
+      final env = await Env.load(
+        basePath: dir.path,
+        includePlatform: false,
+        overrides: {'C': 'override'},
+      );
+      expect(env.string('A'), 'base');
+      expect(env.string('B'), 'overlay');
+      expect(env.string('C'), 'override');
+      expect(env.string('D'), 'base-overlay');
+
+      final other = await Env.load(
+        basePath: dir.path,
+        includePlatform: false,
+        overrides: {'APP_ENV': 'production'},
+      );
+      expect(other.string('B'), 'base');
+    },
+  );
 }

@@ -59,6 +59,12 @@ final class Container {
 
   final Map<BindingKey, Object> _instances = {};
   final Map<BindingKey, _Binding> _bindings = {};
+  final Map<BindingKey, BindingKey> _aliases = {};
+  final Map<BindingKey, List<Object Function(Object, Container)>> _extenders =
+      {};
+  final Map<String, List<BindingKey>> _tags = {};
+  final List<void Function(Object, Container)> _resolvingHooks = [];
+  final Map<Type, void Function(Container)> _deferred = {};
   final List<BindingKey> _resolutionStack = [];
 
   // ---------------------------------------------------------------------------
@@ -94,10 +100,69 @@ final class Container {
     _bindings[key] = _Binding(lifetime, factory);
   }
 
+  /// Decorates the binding for [T]: [decorator] receives the resolved
+  /// instance and returns the (wrapped) instance to use instead. Applies
+  /// immediately to already-resolved instances.
+  void extend<T extends Object>(
+    T Function(T existing, Container container) decorator, {
+    String? name,
+  }) {
+    final key = _canonical(BindingKey(T, name));
+    final existing = _instances[key];
+    if (existing != null) {
+      _instances[key] = decorator(existing as T, this);
+      return;
+    }
+    _extenders
+        .putIfAbsent(key, () => [])
+        .add((instance, container) => decorator(instance as T, container));
+  }
+
+  /// Makes `make<TAlias>()` resolve the binding registered for [TTarget]
+  /// (for example an interface to its default implementation).
+  void alias<TAlias extends Object, TTarget extends Object>({String? name}) {
+    _aliases[BindingKey(TAlias, name)] = BindingKey(TTarget, name);
+  }
+
+  /// Adds the binding for [T] to [tag] so it can be resolved via [tagged].
+  void tag<T extends Object>(String tag, {String? name}) {
+    _tags.putIfAbsent(tag, () => []).add(BindingKey(T, name));
+  }
+
+  /// Resolves every binding registered under [tag], in registration order.
+  List<Object> tagged(String tag) => [
+    for (final key in _tags[tag] ?? const <BindingKey>[]) _makeByKey(key),
+  ];
+
+  /// Registers a callback invoked after any instance of [T] is constructed
+  /// by the container (not for instances registered via [instance]).
+  void resolving<T extends Object>(
+    void Function(T instance, Container container) hook,
+  ) {
+    _resolvingHooks.add((instance, container) {
+      if (instance is T) {
+        hook(instance, container);
+      }
+    });
+  }
+
+  /// Registers [register] to run lazily the first time any of [provides] is
+  /// resolved (deferred service providers).
+  void deferred(
+    List<Type> provides,
+    void Function(Container container) register,
+  ) {
+    for (final type in provides) {
+      _deferred[type] = register;
+    }
+  }
+
   /// Whether a binding or instance exists for [T] (and [name]).
   bool bound<T extends Object>({String? name}) {
-    final key = BindingKey(T, name);
-    return _instances.containsKey(key) || _bindings.containsKey(key);
+    final key = _canonical(BindingKey(T, name));
+    return _instances.containsKey(key) ||
+        _bindings.containsKey(key) ||
+        _deferred.containsKey(key.type);
   }
 
   /// Removes the binding and any cached instance for [T] (and [name]).
@@ -105,6 +170,23 @@ final class Container {
     final key = BindingKey(T, name);
     _instances.remove(key);
     _bindings.remove(key);
+    _extenders.remove(key);
+    _aliases.remove(key);
+  }
+
+  BindingKey _canonical(BindingKey key) {
+    var current = key;
+    var hops = 0;
+    while (true) {
+      final target = _aliases[current];
+      if (target == null) {
+        return current;
+      }
+      if (++hops > 32) {
+        throw StateError('Alias cycle detected starting at [$key].');
+      }
+      current = target;
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -112,39 +194,51 @@ final class Container {
   // ---------------------------------------------------------------------------
 
   /// Resolves [T]; throws [BindingResolutionException] when unknown.
-  T make<T extends Object>({String? name}) {
-    final key = BindingKey(T, name);
+  T make<T extends Object>({String? name}) =>
+      _makeByKey(BindingKey(T, name)) as T;
+
+  Object _makeByKey(BindingKey requested) {
+    final key = _canonical(requested);
     final scope = currentScope;
 
     if (scope != null) {
       final scopedInstance = scope._get(key);
       if (scopedInstance != null) {
-        return scopedInstance as T;
+        return scopedInstance;
       }
     }
 
     final existing = _instances[key];
     if (existing != null) {
-      return existing as T;
+      return existing;
     }
 
     final binding = _bindings[key];
+    if (binding == null) {
+      final register = _deferred[key.type];
+      if (register != null) {
+        _deferred.removeWhere((_, callback) => identical(callback, register));
+        register(this);
+        // Re-resolve: the provider may have registered an alias for the key.
+        return _makeByKey(requested);
+      }
+    }
     if (binding == null) {
       throw BindingResolutionException(key, scope: scope?.name);
     }
 
     switch (binding.lifetime) {
       case Lifetime.singleton:
-        final created = _build<T>(key, binding);
+        final created = _build(key, binding);
         _instances[key] = created;
         return created;
       case Lifetime.transient:
-        return _build<T>(key, binding);
+        return _build(key, binding);
       case Lifetime.scoped:
         if (scope == null) {
           throw ScopeRequiredException(key);
         }
-        final created = _build<T>(key, binding);
+        final created = _build(key, binding);
         scope._put(key, created);
         return created;
     }
@@ -163,13 +257,21 @@ final class Container {
   T? resolved<T extends Object>({String? name}) =>
       _instances[BindingKey(T, name)] as T?;
 
-  T _build<T extends Object>(BindingKey key, _Binding binding) {
+  Object _build(BindingKey key, _Binding binding) {
     if (_resolutionStack.contains(key)) {
       throw CircularDependencyException([..._resolutionStack, key]);
     }
     _resolutionStack.add(key);
     try {
-      return binding.factory(this) as T;
+      var instance = binding.factory(this);
+      for (final extender
+          in _extenders[key] ?? const <Object Function(Object, Container)>[]) {
+        instance = extender(instance, this);
+      }
+      for (final hook in _resolvingHooks) {
+        hook(instance, this);
+      }
+      return instance;
     } finally {
       _resolutionStack.removeLast();
     }

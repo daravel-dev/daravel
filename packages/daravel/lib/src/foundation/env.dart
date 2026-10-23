@@ -21,27 +21,40 @@ final class Env {
     r'\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)',
   );
 
-  /// Loads `[basePath]/[fileName]` when it exists, then applies the OS
-  /// environment (when [includePlatform]) and finally [overrides].
+  /// Loads `[basePath]/[fileName]` when it exists, then the environment
+  /// specific overlay `[fileName].{APP_ENV}` (e.g. `.env.testing`), then the
+  /// OS environment (when [includePlatform]) and finally [overrides].
+  ///
+  /// `APP_ENV` for the overlay is taken from [overrides], the OS environment
+  /// and the base file, in that order of precedence.
   static Future<Env> load({
     required String basePath,
     Map<String, String> overrides = const {},
     String fileName = '.env',
     bool includePlatform = true,
   }) async {
+    final platform = includePlatform
+        ? Platform.environment
+        : const <String, String>{};
     final values = <String, String>{};
-    final file = File(p.join(basePath, fileName));
-    if (await file.exists()) {
-      values.addAll(
-        parse(
-          await file.readAsString(),
-          context: includePlatform ? Platform.environment : const {},
-        ),
-      );
+    final base = File(p.join(basePath, fileName));
+    if (await base.exists()) {
+      values.addAll(parse(await base.readAsString(), context: platform));
     }
-    if (includePlatform) {
-      values.addAll(Platform.environment);
+    final appEnv =
+        overrides['APP_ENV'] ?? platform['APP_ENV'] ?? values['APP_ENV'];
+    if (appEnv != null && appEnv.isNotEmpty) {
+      final overlay = File(p.join(basePath, '$fileName.$appEnv'));
+      if (await overlay.exists()) {
+        values.addAll(
+          parse(
+            await overlay.readAsString(),
+            context: {...values, ...platform},
+          ),
+        );
+      }
     }
+    values.addAll(platform);
     values.addAll(overrides);
     return Env._(values);
   }
@@ -243,6 +256,74 @@ final class Env {
         .map((e) => e.trim())
         .where((e) => e.isNotEmpty)
         .toList();
+  }
+
+  static final RegExp _durationPattern = RegExp(r'^(\d+)\s*(ms|s|m|h|d)?$');
+
+  /// Parses [key] as a duration: `500ms`, `30s`, `5m`, `2h`, `1d`, or a bare
+  /// number of seconds. Returns [fallback] when unset.
+  Duration duration(String key, [Duration? fallback]) {
+    final raw = _values[key];
+    if (raw == null || raw.trim().isEmpty) {
+      if (fallback == null) {
+        throw EnvException('Environment variable [$key] is not set.');
+      }
+      return fallback;
+    }
+    final match = _durationPattern.firstMatch(raw.trim());
+    if (match == null) {
+      throw EnvException(
+        'Environment variable [$key] must be a duration like 30s, 5m, 1h '
+        'or 500ms, got "$raw".',
+      );
+    }
+    final amount = int.parse(match.group(1)!);
+    return switch (match.group(2)) {
+      'ms' => Duration(milliseconds: amount),
+      'm' => Duration(minutes: amount),
+      'h' => Duration(hours: amount),
+      'd' => Duration(days: amount),
+      _ => Duration(seconds: amount),
+    };
+  }
+
+  /// Matches [key] against the `name` of [values] (case-insensitive).
+  E enumValue<E extends Enum>(String key, List<E> values, [E? fallback]) {
+    final raw = _values[key];
+    if (raw == null || raw.trim().isEmpty) {
+      if (fallback == null) {
+        throw EnvException('Environment variable [$key] is not set.');
+      }
+      return fallback;
+    }
+    final wanted = raw.trim().toLowerCase();
+    for (final value in values) {
+      if (value.name.toLowerCase() == wanted) {
+        return value;
+      }
+    }
+    throw EnvException(
+      'Environment variable [$key] must be one of '
+      '${values.map((v) => v.name).join(', ')}, got "$raw".',
+    );
+  }
+
+  /// Parses [key] as an absolute URL, or returns [fallback].
+  Uri url(String key, [Uri? fallback]) {
+    final raw = _values[key];
+    if (raw == null || raw.trim().isEmpty) {
+      if (fallback == null) {
+        throw EnvException('Environment variable [$key] is not set.');
+      }
+      return fallback;
+    }
+    final parsed = Uri.tryParse(raw.trim());
+    if (parsed == null || !parsed.hasScheme || !parsed.hasAuthority) {
+      throw EnvException(
+        'Environment variable [$key] must be an absolute URL, got "$raw".',
+      );
+    }
+    return parsed;
   }
 
   /// An unmodifiable snapshot of all values.

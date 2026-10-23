@@ -13,6 +13,7 @@ export 'src/database/schema/schema_builder.dart';
 export 'src/database/sqlite_driver.dart';
 export 'src/foundation/application.dart';
 export 'src/foundation/config.dart';
+export 'src/foundation/config_validator.dart';
 export 'src/foundation/container.dart';
 export 'src/foundation/env.dart';
 export 'src/foundation/exceptions.dart';
