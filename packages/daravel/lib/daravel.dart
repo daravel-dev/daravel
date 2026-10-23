@@ -37,3 +37,6 @@ export 'src/http/middleware/cors.dart';
 export 'src/http/middleware/input_normalization.dart';
 export 'src/http/middleware/security_headers.dart';
 export 'src/http/middleware/trust_proxies.dart';
+export 'src/http/middleware/validate_signature.dart';
+export 'src/routing/resource_controller.dart';
+export 'src/routing/url_signer.dart';

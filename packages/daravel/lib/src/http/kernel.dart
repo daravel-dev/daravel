@@ -100,7 +100,12 @@ final class HttpKernel {
         );
       }
       final route = match.value;
-      request.bindRoute(route, match.params);
+      request.bindRoute(route, <String, String>{
+        for (final entry in route.defaultValues.entries)
+          if (entry.value != null) entry.key: '${entry.value}',
+        ...match.params,
+      });
+      await router.resolveBindings(request);
       final limit = route.bodyLimitBytes;
       if (limit != null) {
         request.maxBodyBytes = limit;

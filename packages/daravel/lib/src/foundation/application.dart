@@ -5,6 +5,7 @@ import '../database/database_config.dart';
 import '../database/database_manager.dart';
 import '../database/schema/migration.dart';
 import '../http/exception_handler.dart';
+import '../http/middleware/validate_signature.dart';
 import '../http/kernel.dart';
 import '../http/middleware.dart';
 import '../http/request.dart';
@@ -12,6 +13,7 @@ import '../http/response.dart';
 import '../http/server_engine.dart';
 import '../logging/logger.dart';
 import '../routing/router.dart';
+import '../routing/url_signer.dart';
 import 'config.dart';
 import 'config_validator.dart';
 import 'container.dart';
@@ -131,6 +133,13 @@ final class Application {
       await provider.boot(container);
     }
 
+    router.baseUrl = appConfig.url;
+    final appKey = env.maybeString('APP_KEY');
+    if (appKey != null && appKey.isNotEmpty) {
+      final signer = UrlSigner.fromAppKey(appKey);
+      router.signer = signer;
+      middleware.alias('signed', ValidateSignatureMiddleware(signer));
+    }
     _registerRoutes();
     router.compile(middleware);
     kernel = HttpKernel(

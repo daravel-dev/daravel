@@ -56,16 +56,21 @@ void main() {
     expect(tree.lookup('/assets/css/app.css')!.params['path'], 'css/app.css');
   });
 
-  test('rejects conflicting parameter names and misplaced wildcards', () {
-    final tree = RadixTree<int>()..insert('/a/{x}', 1);
-    expect(() => tree.insert('/a/{y}', 2), throwsArgumentError);
-    expect(() => tree.insert('/a/{rest*}/b', 3), throwsArgumentError);
-  });
+  test(
+    'allows different parameter names at one position and rejects misplaced wildcards',
+    () {
+      final tree = RadixTree<int>()..insert('/a/{x}', 1);
+      tree.insert('/a/{y}', 2);
+      expect(tree.lookup('/a/1', accept: (v, _) => v == 2)!.params, {'y': '1'});
+      expect(() => tree.insert('/a/{rest*}/b', 3), throwsArgumentError);
+    },
+  );
 
-  test('last registration wins for the same path', () {
+  test('first accepted registration wins for the same path', () {
     final tree = RadixTree<int>()
       ..insert('/a', 1)
       ..insert('/a', 2);
-    expect(tree.lookup('/a')!.value, 2);
+    expect(tree.lookup('/a')!.value, 1);
+    expect(tree.lookup('/a', accept: (v, _) => v == 2)!.value, 2);
   });
 }

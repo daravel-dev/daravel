@@ -389,6 +389,20 @@ final class Request {
     return callbacks;
   }
 
+  final Map<String, Object?> _bindings = <String, Object?>{};
+
+  /// Stores the object bound to route parameter [param]. Called by the router.
+  void setBinding(String param, Object? value) => _bindings[param] = value;
+
+  /// The object bound to route parameter [param] (see `Router.bind`).
+  /// Throws [StateError] when nothing was bound.
+  T binding<T>(String param) {
+    if (!_bindings.containsKey(param)) {
+      throw StateError('No binding resolved for route parameter [$param].');
+    }
+    return _bindings[param] as T;
+  }
+
   static int _depth(Object? value) {
     if (value is Map<Object?, Object?>) {
       var max = 0;
