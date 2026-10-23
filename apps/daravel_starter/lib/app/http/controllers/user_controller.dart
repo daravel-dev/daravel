@@ -26,13 +26,23 @@ final class UserController {
   Future<Object?> store(Request request) async {
     final data = await FormRequest.run(const StoreUserRequest(), request);
     final user = await DB.transaction(
-      () => User.create({
+      () async => User.create({
         'name': data.string('name'),
         'email': data.string('email'),
-        // Hashing arrives with the auth slice (S8); never store plain text in real apps.
-        'password': 'plain:${data.string('password')}',
+        'password': await Hash.make(data.string('password')),
       }),
     );
     return Response.created(<String, Object?>{'data': user});
+  }
+
+  /// `PATCH /api/users/{id}` — only the owner may update (see `UserPolicy`).
+  Future<Object?> update(Request request) async {
+    final user = await User.findOrFail(request.param<int>('id'));
+    await request.authorize('update', [user]);
+    final data = await request.validate({
+      'name': 'required|string|min:2|max:100',
+    });
+    await user.update({'name': data.string('name')});
+    return <String, Object?>{'data': user};
   }
 }

@@ -2,9 +2,10 @@ import 'package:daravel/daravel.dart';
 
 /// Application user (Laravel's default `User` model).
 ///
-/// The `definition`, statics and accessors follow the layout that
+/// [AuthenticatableModel] makes it usable by the auth guards; the
+/// `definition`, statics and accessors follow the layout that
 /// `dartisan make:model` generates; edit freely outside the marked regions.
-final class User extends Model {
+final class User extends Model with AuthenticatableModel {
   static final ModelDefinition<User> definition = ModelDefinition<User>(
     table: 'users',
     factory: User.new,

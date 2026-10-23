@@ -1,6 +1,11 @@
 import 'dart:async';
 import 'dart:io';
 
+import '../auth/auth_manager.dart';
+import '../auth/authorization.dart';
+import '../auth/contracts.dart';
+import '../auth/encryption.dart';
+import '../auth/hashing.dart';
 import '../database/database_config.dart';
 import '../database/database_manager.dart';
 import '../database/schema/migration.dart';
@@ -9,6 +14,7 @@ import '../http/exception_handler.dart';
 import '../http/middleware/validate_signature.dart';
 import '../http/kernel.dart';
 import '../http/middleware.dart';
+import '../http/rate_limiter.dart';
 import '../http/request.dart';
 import '../http/response.dart';
 import '../http/server_engine.dart';
@@ -91,7 +97,9 @@ final class Application {
 
     config = ConfigRepository()
       ..register(AppConfig.fromEnv(env))
-      ..register(DatabaseConfig.fromEnv(env, basePath: basePath));
+      ..register(DatabaseConfig.fromEnv(env, basePath: basePath))
+      ..register(HashConfig.fromEnv(env))
+      ..register(AuthConfig.fromEnv(env));
     for (final factory in _builder._configFactories) {
       config.register(factory(env));
     }
@@ -103,6 +111,12 @@ final class Application {
       logger.warning('Config: ${issue.message}');
     }
 
+    final auth = AuthManager(
+      config.section<AuthConfig>(),
+      appKey: env.maybeString('APP_KEY'),
+    );
+    final gate = AuthorizationGate(userResolver: () => _currentUser(auth));
+    final rateLimiter = RateLimiter();
     container
       ..instance<Application>(this)
       ..instance<Env>(env)
@@ -120,7 +134,26 @@ final class Application {
       ..singleton<Migrator>(
         (c) => Migrator(c.make<DatabaseManager>(), _builder._migrations),
       )
-      ..instance<SeederRegistry>(SeederRegistry(_builder._seeders));
+      ..instance<SeederRegistry>(SeederRegistry(_builder._seeders))
+      ..singleton<HashManager>(
+        (c) => HashManager(c.make<ConfigRepository>().section<HashConfig>()),
+      )
+      ..singleton<Encrypter>((c) => _encrypter(c.make<Env>()))
+      ..instance<RateLimiter>(rateLimiter)
+      ..instance<AuthorizationGate>(gate)
+      ..instance<AuthManager>(auth);
+
+    middleware
+      ..aliasFactory('auth', AuthenticateMiddleware.new)
+      ..aliasFactory('can', AuthorizeMiddleware.fromParams)
+      ..aliasFactory(
+        'throttle',
+        (params) => ThrottleMiddleware.fromParams(
+          params,
+          limiter: rateLimiter,
+          userKeyResolver: (_) => _currentUserId(auth),
+        ),
+      );
 
     _builder._middlewareConfig?.call(middleware);
     _builder._exceptionsConfig?.call(exceptions);
@@ -134,6 +167,10 @@ final class Application {
       }
       await provider.boot(container);
     }
+
+    _builder._authConfig?.call(auth);
+    _builder._policiesConfig?.call(gate);
+    _builder._rateLimitsConfig?.call(rateLimiter);
 
     router.baseUrl = appConfig.url;
     final appKey = env.maybeString('APP_KEY');
@@ -155,6 +192,35 @@ final class Application {
     config.freeze();
     Container.setRoot(container);
     _booted = true;
+  }
+
+  static Future<Authenticatable?> _currentUser(AuthManager auth) async {
+    try {
+      return await auth.user<Authenticatable>();
+    } on StateError {
+      return null;
+    }
+  }
+
+  static Future<Object?> _currentUserId(AuthManager auth) async {
+    try {
+      return await auth.id();
+    } on StateError {
+      return null;
+    }
+  }
+
+  static Encrypter _encrypter(Env env) {
+    final key = env.maybeString('APP_KEY');
+    if (key == null || key.isEmpty) {
+      throw const ConfigException(
+        'APP_KEY is not set; Crypt needs it. Run `dartisan key:generate`.',
+      );
+    }
+    return Encrypter.fromAppKey(
+      key,
+      previousKeys: env.list('APP_PREVIOUS_KEYS'),
+    );
   }
 
   void _registerRoutes() {
@@ -196,10 +262,10 @@ final class Application {
   /// engine and the test client).
   Future<Response> handle(Request request) async {
     await boot();
-    return container.runScoped<Response>(
-      'request',
-      (_) => kernel.handle(request),
-    );
+    return container.runScoped<Response>('request', (scope) {
+      scope.put<Request>(request);
+      return kernel.handle(request);
+    });
   }
 
   /// Runs [body] inside a scope named [scope] with this application's
@@ -269,6 +335,9 @@ final class ApplicationBuilder {
   _RoutingConfig? _routing;
   void Function(MiddlewareRegistry middleware)? _middlewareConfig;
   void Function(ExceptionHandler exceptions)? _exceptionsConfig;
+  void Function(AuthManager auth)? _authConfig;
+  void Function(AuthorizationGate gate)? _policiesConfig;
+  void Function(RateLimiter limiter)? _rateLimitsConfig;
   final List<ServiceProvider> _providers = <ServiceProvider>[];
   final List<Migration> _migrations = <Migration>[];
   final List<Seeder> _seeders = <Seeder>[];
@@ -276,6 +345,28 @@ final class ApplicationBuilder {
   /// Registers database seeders; the first one is the root seeder.
   ApplicationBuilder withSeeders(List<Seeder> seeders) {
     _seeders.addAll(seeders);
+    return this;
+  }
+
+  /// Registers guards and user providers (`config/auth.php`).
+  ApplicationBuilder withAuth(void Function(AuthManager auth) configure) {
+    _authConfig = configure;
+    return this;
+  }
+
+  /// Registers gates and policies (`Gate::define`, `Gate::policy`).
+  ApplicationBuilder withPolicies(
+    void Function(AuthorizationGate gate) configure,
+  ) {
+    _policiesConfig = configure;
+    return this;
+  }
+
+  /// Registers named rate limiters (`RateLimiter::for`).
+  ApplicationBuilder withRateLimits(
+    void Function(RateLimiter limiter) configure,
+  ) {
+    _rateLimitsConfig = configure;
     return this;
   }
 

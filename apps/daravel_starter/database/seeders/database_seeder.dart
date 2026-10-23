@@ -8,10 +8,13 @@ final class DatabaseSeeder extends Seeder {
 
   @override
   Future<void> run() async {
-    await userFactory().createMany(const <String, Object?>{}, 10);
-    await userFactory().create({
-      'name': 'Test User',
-      'email': 'test@example.com',
-    });
+    // Every seeded user logs in with "password".
+    final password = await Hash.make('password');
+    await userFactory(
+      passwordHash: password,
+    ).createMany(const <String, Object?>{}, 10);
+    await userFactory(
+      passwordHash: password,
+    ).create({'name': 'Test User', 'email': 'test@example.com'});
   }
 }

@@ -22,10 +22,14 @@ void main() {
   test('users migration runs, serves data and rolls back', () async {
     await app.run(() async {
       final migrator = App.make<Migrator>();
-      expect(await migrator.run(), <String>[
-        '2026_10_23_000001_create_users_table',
-      ]);
-      expect((await migrator.status()).single.ran, isTrue);
+      expect(
+        await migrator.run(),
+        unorderedEquals(<String>[
+          '2019_12_14_000001_create_personal_access_tokens_table',
+          '2026_10_23_000001_create_users_table',
+        ]),
+      );
+      expect((await migrator.status()).every((m) => m.ran), isTrue);
 
       final id = await DB.insertGetId(
         'INSERT INTO "users" ("name", "email", "password") VALUES (?, ?, ?)',
@@ -53,7 +57,7 @@ void main() {
     )).assertNotFound().assertJsonPath('message', 'User [2] not found.');
 
     await app.run(() async {
-      expect(await App.make<Migrator>().rollback(), hasLength(1));
+      expect(await App.make<Migrator>().rollback(), hasLength(2));
       expect(await Schema.hasTable('users'), isFalse);
     });
   });

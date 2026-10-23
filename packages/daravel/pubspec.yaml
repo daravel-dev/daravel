@@ -8,8 +8,10 @@ environment:
 resolution: workspace
 
 dependencies:
+  bcrypt: ^1.2.0
   collection: ^1.19.1
   crypto: ^3.0.7
+  cryptography: ^2.9.0
   meta: ^1.16.0
   path: ^1.9.0
   postgres: ^3.5.20

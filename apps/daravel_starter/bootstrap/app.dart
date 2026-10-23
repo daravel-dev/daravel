@@ -1,6 +1,8 @@
 import 'dart:io';
 
 import 'package:daravel/daravel.dart';
+import 'package:daravel_starter/app/models/user.dart';
+import 'package:daravel_starter/app/policies/user_policy.dart';
 
 import '../routes/api.dart';
 import '../routes/web.dart';
@@ -33,6 +35,21 @@ Application createApp({String? basePath, Map<String, String>? env}) =>
             ConvertEmptyStringsToNullMiddleware(),
           ]);
           middleware.group('api', const <Object>[]);
+        })
+        .withAuth((auth) {
+          // Sanctum-style bearer tokens stored in `personal_access_tokens`.
+          auth.token<User>('token', ModelUserProvider<User>(User.definition));
+          // Stateless JWTs signed with JWT_SECRET (or APP_KEY):
+          // auth.jwt<User>('jwt', ModelUserProvider<User>(User.definition));
+        })
+        .withPolicies((gate) {
+          gate.policy<User>(const UserPolicy());
+        })
+        .withRateLimits((limiter) {
+          limiter.define('login', (request) async {
+            final email = (await request.all())['email'];
+            return Limit.perMinute(5).by('$email|${request.ip}');
+          });
         })
         .withExceptions((exceptions) {
           // Custom renderers/reporters go here, e.g.

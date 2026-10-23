@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:collection/collection.dart';
 
 import '../../foundation/container.dart';
+import '../../http/http_exceptions.dart';
 import '../../http/request.dart';
 import '../../http/response.dart';
 import '../database_manager.dart';
@@ -27,9 +28,9 @@ final class MassAssignmentException implements Exception {
 }
 
 /// Thrown by `findOrFail()` and friends.
-final class ModelNotFoundException extends RecordNotFound {
+final class ModelNotFoundException extends HttpException {
   ModelNotFoundException(this.table, this.id)
-    : super('No query results for model [$table] with id [$id].');
+    : super(404, 'No query results for model [$table] with id [$id].');
   final String table;
   final Object? id;
 }
