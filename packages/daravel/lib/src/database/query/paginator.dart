@@ -206,6 +206,12 @@ final class CursorPaginator<T> implements JsonSerializable, Responsable {
   final String cursorName;
   final Map<String, String> query;
 
+  /// URL of the next page (`null` on the last page).
+  String? get nextPageUrl => _url(nextCursor);
+
+  /// URL of the previous page (`null` on the first page).
+  String? get previousPageUrl => _url(previousCursor);
+
   String? _url(Cursor? cursor) => cursor == null
       ? null
       : '$path?${Uri(queryParameters: <String, String>{...query, cursorName: cursor.encode()}).query}';

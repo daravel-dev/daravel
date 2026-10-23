@@ -88,3 +88,8 @@ export 'src/queue/queue_manager.dart';
 export 'src/schedule/cron.dart';
 export 'src/schedule/schedule.dart';
 export 'src/support/queue_facades.dart';
+export 'src/http/resources.dart';
+export 'src/observability/health.dart';
+export 'src/observability/metrics.dart';
+export 'src/storage/storage.dart';
+export 'src/support/storage_facade.dart';

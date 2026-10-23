@@ -53,3 +53,43 @@ final class CoordinatorStatsCommand extends DaravelCommand {
     return 0;
   });
 }
+
+/// `storage:link [--force]` — creates `public/storage` → `storage/app/public`.
+final class StorageLinkCommand extends DaravelCommand {
+  StorageLinkCommand(super.createApp) {
+    argParser.addFlag(
+      'force',
+      negatable: false,
+      help: 'Recreate existing symbolic links.',
+    );
+  }
+
+  @override
+  String get name => 'storage:link';
+
+  @override
+  String get description =>
+      'Create the symbolic links configured for the application.';
+
+  @override
+  Future<int> run() => withApp((app) async {
+    try {
+      final created = await App.make<StorageManager>().link(
+        force: argResults!['force'] as bool,
+      );
+      if (created.isEmpty) {
+        stdout.writeln('All links already exist (use --force to recreate).');
+      }
+      for (final link in created) {
+        stdout.writeln('The [$link] link has been connected.');
+      }
+      return 0;
+    } on FileSystemException catch (error) {
+      stderr.writeln(
+        'Could not create the link: ${error.message}. On Windows enable '
+        'Developer Mode or run the terminal as administrator.',
+      );
+      return 1;
+    }
+  });
+}

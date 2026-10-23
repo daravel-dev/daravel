@@ -71,4 +71,20 @@ void main() {
       'The email address has already been taken.',
     );
   });
+
+  test(
+    'GET /api/users returns a resource collection with links and meta',
+    () async {
+      (await client.post('/api/users', json: valid)).assertCreated();
+      (await client.get('/api/users'))
+          .assertOk()
+          .assertJsonPath('data.0.email', 'ana@example.com')
+          .assertJsonPath('data.0.email_verified', false)
+          .assertJsonPath('data.0.password', null)
+          .assertJsonPath('links.first', '/api/users?page=1')
+          .assertJsonPath('links.next', null)
+          .assertJsonPath('meta.total', 1)
+          .assertJsonPath('meta.per_page', 15);
+    },
+  );
 }

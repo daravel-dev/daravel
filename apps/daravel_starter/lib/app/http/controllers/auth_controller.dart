@@ -1,6 +1,7 @@
 import 'package:daravel/daravel.dart';
 import 'package:daravel_starter/app/events/user_registered.dart';
 import 'package:daravel_starter/app/http/requests/store_user_request.dart';
+import 'package:daravel_starter/app/http/resources/user_resource.dart';
 import 'package:daravel_starter/app/models/user.dart';
 
 /// Token-based authentication (Sanctum-style personal access tokens).
@@ -16,7 +17,7 @@ final class AuthController {
     await Event.dispatch(UserRegistered(user.id, user.email));
     final token = await Auth.issueToken(user, 'api');
     return Response.created(<String, Object?>{
-      'user': user,
+      'user': UserResource(user),
       'token': token.plainTextToken,
       'token_type': 'Bearer',
     });
@@ -44,16 +45,15 @@ final class AuthController {
       data.has('device_name') ? data.string('device_name') : 'api',
     );
     return <String, Object?>{
-      'user': user,
+      'user': UserResource(user),
       'token': token.plainTextToken,
       'token_type': 'Bearer',
     };
   }
 
   /// `GET /api/auth/me` — the authenticated user.
-  Future<Object?> me(Request request) async => <String, Object?>{
-    'data': await request.user<User>(),
-  };
+  Future<Object?> me(Request request) async =>
+      UserResource((await request.user<User>())!);
 
   /// `POST /api/auth/logout` — revokes the current token.
   Future<Object?> logout(Request request) async {

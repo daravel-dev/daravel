@@ -7,6 +7,7 @@ import '../foundation/application.dart';
 import '../http/rate_limiter.dart';
 import '../http/server_engine.dart';
 import '../logging/logger.dart';
+import '../observability/metrics.dart';
 import 'coordinator.dart';
 
 /// Creates an unbooted [Application]. Must be a top-level function (or a
@@ -16,7 +17,8 @@ typedef ApplicationFactory = Application Function();
 /// Builds the standard coordinator with rate limiting and process cache.
 Coordinator createStandardCoordinator() => Coordinator()
   ..register(RateLimitService())
-  ..register(ProcessCacheService());
+  ..register(ProcessCacheService())
+  ..register(MetricsService());
 
 /// Sent by a worker once its server is bound.
 final class WorkerReady {

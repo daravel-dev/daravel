@@ -39,6 +39,7 @@ final class DartisanRunner extends CommandRunner<int> {
     addCommand(DbSeedCommand(createApp));
     addCommand(CacheClearCommand(createApp));
     addCommand(CoordinatorStatsCommand(createApp));
+    addCommand(StorageLinkCommand(createApp));
     addCommand(QueueWorkCommand(createApp));
     addCommand(QueueFailedCommand(createApp));
     addCommand(QueueRetryCommand(createApp));

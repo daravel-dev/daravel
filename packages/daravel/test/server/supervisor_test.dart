@@ -8,7 +8,11 @@ import 'package:test/test.dart';
 /// Top-level factory: sendable to worker isolates (BLUEPRINT_V2 §5.2).
 Application
 supervisedApp() => Application.configure(basePath: Directory.systemTemp.path)
-    .withEnv({'APP_ENV': 'testing', 'DB_DATABASE': ':memory:'})
+    .withEnv({
+      'APP_ENV': 'testing',
+      'DB_DATABASE': ':memory:',
+      'METRICS_ENABLED': 'true',
+    })
     .withLogLevel(LogLevel.warning)
     .withRouting(
       apiPrefix: '',
@@ -95,6 +99,24 @@ void main() {
 
       // The request is bound in its scope (guards rely on it).
       expect(jsonDecode((await get('/scope')).$2), {'same': true});
+
+      // Metrics are merged across workers by the coordinator (snapshots are
+      // published every second; the answering worker publishes fresh).
+      await Future<void>.delayed(const Duration(milliseconds: 1500));
+      final metrics = (await get("/metrics")).$2;
+      expect(
+        metrics,
+        contains(
+          'http_requests_total{method="GET",route="/whoami",status="200"} 40',
+        ),
+      );
+      expect(
+        RegExp(
+          '^process_resident_memory_bytes ',
+          multiLine: true,
+        ).allMatches(metrics),
+        hasLength(1),
+      );
 
       // Handler errors are rendered, never kill a worker.
       expect((await get('/boom')).$1, 500);

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import '../auth/auth_manager.dart';
@@ -11,8 +12,12 @@ import '../database/database_config.dart';
 import '../database/database_manager.dart';
 import '../database/schema/migration.dart';
 import '../database/seeding/seeder.dart';
+import '../observability/health.dart';
+import '../observability/metrics.dart';
+import '../storage/storage.dart';
 import '../events/events.dart';
 import '../http/exception_handler.dart';
+import '../http/headers.dart';
 import '../http/middleware/validate_signature.dart';
 import '../http/kernel.dart';
 import '../http/middleware.dart';
@@ -90,6 +95,8 @@ final class Application {
   /// cache). Set by the [Supervisor] before boot; in-process otherwise.
   CoordinatorChannel? coordinator;
 
+  Timer? _metricsTimer;
+
   /// Whether [boot] has completed.
   bool get booted => _booted;
 
@@ -104,7 +111,12 @@ final class Application {
 
   Future<void> _boot() async {
     env = await Env.load(basePath: basePath, overrides: _builder._envOverrides);
-    logger = Logger(minimumLevel: _builder._logLevel ?? LogLevel.debug);
+    final loggingConfig = LoggingConfig.fromEnv(env);
+    logger = Logger.fromConfig(
+      loggingConfig,
+      basePath: basePath,
+      minimumLevel: _builder._logLevel,
+    );
     exceptions.logger = logger;
 
     config = ConfigRepository()
@@ -113,7 +125,10 @@ final class Application {
       ..register(HashConfig.fromEnv(env))
       ..register(AuthConfig.fromEnv(env))
       ..register(CacheConfig.fromEnv(env))
-      ..register(QueueConfig.fromEnv(env));
+      ..register(QueueConfig.fromEnv(env))
+      ..register(loggingConfig)
+      ..register(StorageConfig.fromEnv(env))
+      ..register(MetricsConfig.fromEnv(env));
     for (final factory in _builder._configFactories) {
       config.register(factory(env));
     }
@@ -133,6 +148,14 @@ final class Application {
     final channel =
         coordinator ?? LocalCoordinatorChannel(createStandardCoordinator());
     final events = EventDispatcher();
+    final metrics = AppMetrics(MetricsRegistry(), channel: channel);
+    events
+      ..listen<JobProcessed>((_) => metrics.jobs.inc({'status': 'processed'}))
+      ..listen<JobExceptionOccurred>(
+        (e) =>
+            metrics.jobs.inc({'status': e.willRetry ? 'released' : 'errored'}),
+      )
+      ..listen<JobFailed>((_) => metrics.jobs.inc({'status': 'failed'}));
     final jobs = JobRegistry(_builder._jobs);
     final schedule = Schedule();
     final rateLimiter = RateLimiter(
@@ -168,6 +191,13 @@ final class Application {
       ..instance<AuthManager>(auth)
       ..instance<CoordinatorChannel>(channel)
       ..instance<EventDispatcher>(events)
+      ..instance<AppMetrics>(metrics)
+      ..singleton<StorageManager>(
+        (c) => StorageManager(
+          c.make<ConfigRepository>().section<StorageConfig>(),
+          basePath: basePath,
+        ).withDefaultDisks(),
+      )
       ..instance<JobRegistry>(jobs)
       ..instance<Schedule>(schedule)
       ..singleton<QueueManager>((c) => _buildQueue(c, events, jobs))
@@ -193,6 +223,11 @@ final class Application {
       );
 
     _builder._middlewareConfig?.call(middleware);
+    final metricsConfig = config.section<MetricsConfig>();
+    if (metricsConfig.enabled) {
+      middleware.prepend(MetricsMiddleware(metrics));
+      _metricsTimer = metrics.startPublishing();
+    }
     _builder._exceptionsConfig?.call(exceptions);
 
     for (final provider in _builder._providers) {
@@ -332,6 +367,11 @@ final class Application {
     final health = routing.health;
     if (health != null) {
       router.get(health, _health);
+      router.get('${health == '/' ? '' : health}/ready', _ready);
+    }
+    final metricsConfig = config.section<MetricsConfig>();
+    if (metricsConfig.enabled) {
+      router.get(metricsConfig.path, _metrics);
     }
     final api = routing.api;
     if (api != null) {
@@ -357,6 +397,46 @@ final class Application {
       'app': config.section<AppConfig>().name,
       'timestamp': DateTime.now().toUtc().toIso8601String(),
     };
+  }
+
+  /// Readiness: runs the health checks (database, cache and any added via
+  /// [ApplicationBuilder.withHealthChecks]).
+  Future<Object?> _ready(Request request) async {
+    if (_draining) {
+      return Response.json(const <String, Object?>{
+        'status': 'draining',
+      }, status: 503);
+    }
+    final result = await healthChecker.run();
+    return Response.json(result.body, status: result.healthy ? 200 : 503);
+  }
+
+  /// The configured readiness checks.
+  HealthChecker get healthChecker => HealthChecker(<HealthCheck>[
+    if (_builder._defaultHealthChecks) ...[
+      DatabaseHealthCheck(() => container.make<DatabaseManager>()),
+      CacheHealthCheck(() => container.make<CacheManager>()),
+    ],
+    ..._builder._healthChecks,
+  ]);
+
+  Future<Object?> _metrics(Request request) async {
+    final token = config.section<MetricsConfig>().token;
+    if (token != null) {
+      final header = request.headers['authorization'] ?? '';
+      if (!constantTimeEquals(header, 'Bearer $token')) {
+        return Response.json(const <String, Object?>{
+          'message': 'Unauthenticated.',
+        }, status: 401);
+      }
+    }
+    final text = await container.make<AppMetrics>().render();
+    return Response(
+      headers: Headers(<String, Object>{
+        'content-type': 'text/plain; version=0.0.4; charset=utf-8',
+      }),
+      body: BytesBody(utf8.encode(text)),
+    );
   }
 
   /// Handles one request inside a fresh request scope (used by the server
@@ -453,6 +533,8 @@ final class Application {
   void markDraining() => _draining = true;
 
   Future<void> _closeResources() async {
+    _metricsTimer?.cancel();
+    _metricsTimer = null;
     final db = container.resolved<DatabaseManager>();
     if (db != null) {
       await db.closeAll();
@@ -460,6 +542,7 @@ final class Application {
     if (Container.rootOrNull == container) {
       Container.setRoot(null);
     }
+    await logger.close();
   }
 }
 
@@ -480,6 +563,8 @@ final class ApplicationBuilder {
   void Function(JobRegistry jobs)? _jobsConfig;
   void Function(Schedule schedule)? _scheduleConfig;
   final List<JobDefinition> _jobs = <JobDefinition>[];
+  final List<HealthCheck> _healthChecks = <HealthCheck>[];
+  bool _defaultHealthChecks = true;
   final List<ServiceProvider> _providers = <ServiceProvider>[];
   final List<Migration> _migrations = <Migration>[];
   final List<Seeder> _seeders = <Seeder>[];
@@ -520,6 +605,17 @@ final class ApplicationBuilder {
   }) {
     _jobs.addAll(jobs);
     _jobsConfig = configure;
+    return this;
+  }
+
+  /// Adds readiness checks to `/up/ready`; [defaults] keeps the database
+  /// and cache checks.
+  ApplicationBuilder withHealthChecks(
+    List<HealthCheck> checks, {
+    bool defaults = true,
+  }) {
+    _healthChecks.addAll(checks);
+    _defaultHealthChecks = defaults;
     return this;
   }
 

@@ -1,17 +1,21 @@
 import 'package:daravel/daravel.dart';
 import 'package:daravel_starter/app/http/requests/store_user_request.dart';
+import 'package:daravel_starter/app/http/resources/user_resource.dart';
 import 'package:daravel_starter/app/models/user.dart';
 
-/// Users API backed by the `User` model.
+/// Users API backed by the `User` model and [UserResource].
 final class UserController {
-  /// `GET /api/users` — paginated list.
-  Future<Object?> index(Request request) async => User.query()
-      .orderByDesc('id')
-      .paginate(
-        page: int.tryParse(request.query['page'] ?? '') ?? 1,
-        perPage: 15,
-        path: '/api/users',
-      );
+  /// `GET /api/users` — paginated `{data, links, meta}`.
+  Future<Object?> index(Request request) async => JsonResource.collection(
+    await User.query()
+        .orderByDesc('id')
+        .paginate(
+          page: int.tryParse(request.query['page'] ?? '') ?? 1,
+          perPage: 15,
+          path: '/api/users',
+        ),
+    UserResource.new,
+  );
 
   /// `GET /api/users/{id}`
   Future<Object?> show(Request request) async {
@@ -19,10 +23,10 @@ final class UserController {
     if (user == null) {
       abort(404, 'User [${request.param<int>('id')}] not found.');
     }
-    return <String, Object?>{'data': user};
+    return UserResource(user);
   }
 
-  /// `POST /api/users`
+  /// `POST /api/users` — 201 because the model was just created.
   Future<Object?> store(Request request) async {
     final data = await FormRequest.run(const StoreUserRequest(), request);
     final user = await DB.transaction(
@@ -32,7 +36,7 @@ final class UserController {
         'password': await Hash.make(data.string('password')),
       }),
     );
-    return Response.created(<String, Object?>{'data': user});
+    return UserResource(user);
   }
 
   /// `PATCH /api/users/{id}` — only the owner may update (see `UserPolicy`).
@@ -43,6 +47,6 @@ final class UserController {
       'name': 'required|string|min:2|max:100',
     });
     await user.update({'name': data.string('name')});
-    return <String, Object?>{'data': user};
+    return UserResource(user);
   }
 }

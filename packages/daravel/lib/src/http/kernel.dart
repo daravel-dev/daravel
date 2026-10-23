@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import '../foundation/container.dart';
 import '../logging/logger.dart';
 import '../routing/router.dart';
 import 'exception_handler.dart';
@@ -31,6 +32,7 @@ final class HttpKernel {
 
   /// Handles a single request and always yields a response.
   Future<Response> handle(Request request) async {
+    _bindLogContext(request);
     try {
       return await MiddlewarePipeline.run(
         middleware.applyPriority(middleware.global),
@@ -127,6 +129,19 @@ final class HttpKernel {
       return request.method == 'HEAD' ? response.withoutBody() : response;
     } catch (error, stackTrace) {
       return exceptions.handle(error, stackTrace, request);
+    }
+  }
+
+  static void _bindLogContext(Request request) {
+    try {
+      final scope = Container.current.currentScope;
+      if (scope != null && scope.get<LogContext>() == null) {
+        scope.put<LogContext>(
+          LogContext(<String, Object?>{'request_id': request.id}),
+        );
+      }
+    } on StateError {
+      // No container (bare kernel in unit tests).
     }
   }
 

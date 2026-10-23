@@ -14,11 +14,12 @@
   <a href="https://dart.dev"><img src="https://img.shields.io/badge/Dart-%5E3.9-0175C2?logo=dart&logoColor=white" alt="Dart ^3.9"></a>
   <a href="https://dart.dev/tools/dart-compile#exe"><img src="https://img.shields.io/badge/AOT-native%20binary-16A34A" alt="AOT native binary"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
-  <img src="https://img.shields.io/badge/status-Tier%200%20walking%20skeleton-F59E0B" alt="Status: Tier 0">
+  <img src="https://img.shields.io/badge/status-Tier%201%20·%20S11%20of%2014-F59E0B" alt="Status: Tier 1, slice 11 of 14">
 </p>
 
 <p align="center">
   <a href="#about-daravel">About</a> ·
+  <a href="#features">Features</a> ·
   <a href="#laravel--daravel-at-a-glance">Laravel ↔ Daravel</a> ·
   <a href="#quick-start">Quick start</a> ·
   <a href="#project-structure">Structure</a> ·
@@ -39,19 +40,38 @@ what makes Laravel loved and adds what only Dart can offer:
   millisecond startup. No interpreter, no FPM, no build step for your users.
 - **Static types, everywhere.** Routes, validation, configuration and models are checked by the
   Dart analyzer before a request is ever served.
-- **Octane-grade concurrency, by design.** Every request runs in an isolated `Zone` scope; worker
-  isolates saturate all CPU cores without shared mutable state.
+- **Octane-grade concurrency, by design.** A supervisor runs N worker isolates on one port; every
+  request runs in its own `Zone` scope, and rate limits, locks and metrics stay correct across
+  workers through a coordinator isolate.
 - **Zero magic at build time.** No `dart:mirrors`, no `build_runner`. Laravel ergonomics come from
   generics, explicit registries and scaffold-time generation (`dartisan make:*`).
-- **Laravel parity where it matters.** Error payloads, paginator JSON, personal access tokens,
-  migration tables and password hashes are wire- and storage-compatible, so Laravel and Daravel
-  can run side by side on the same database.
+- **Laravel parity where it matters.** Error payloads, paginator and resource JSON, personal access
+  tokens, password hashes, encrypted payloads and the `migrations`, `cache`, `jobs` and
+  `failed_jobs` tables are wire- and storage-compatible, so Laravel and Daravel can run side by
+  side on the same database.
 
-Daravel is accessible, powerful, and designed for teams that already think in Laravel.
+> **Status.** Tier 1 in progress: slices S1–S11 are done (foundation, HTTP, routing, validation,
+> database, ORM, schema & seeding, auth, multi-isolate serving & cache, queue & scheduler,
+> resources, storage & observability). Next is S12, CLI completeness. The API is not stable yet.
 
-> **Status.** Tier 0 walking skeleton: container and zone scopes, application builder, HTTP kernel,
-> radix router, SQLite access, schema migrations, `TestClient`, CLI and a three-OS CI pipeline.
-> See the [roadmap](#roadmap) for what comes next.
+## Features
+
+| Area | What you get today |
+| :-- | :-- |
+| **Foundation** | Service container with singleton/scoped/transient lifetimes, deferred providers, `.env` + `.env.{APP_ENV}`, typed config sections, boot-time config validation |
+| **HTTP** | Middleware pipeline with aliases, groups and priority; trusted proxies, CORS, security headers, body limits, request ids, per-route timeouts, `defer()`, terminable middleware |
+| **Routing** | Radix router, constraints, optional params, groups, resources, route model binding, named routes, signed URLs |
+| **Validation** | ~50 rules with Laravel presence semantics, wildcards (`items.*.id`), `FormRequest`, Laravel-12 422 payloads, `en`/`id` messages |
+| **Database** | Query builder for SQLite, PostgreSQL and MySQL grammars; length-aware, simple and cursor pagination; savepoints; retries; after-commit callbacks |
+| **ORM** | Hybrid Active Record: casts, accessors/mutators, scopes, soft deletes, observers, eager loading, `HasOne/HasMany/BelongsTo/BelongsToMany/HasManyThrough` |
+| **Schema** | Create and alter tables, foreign keys, SQLite table rebuilds, `migrate:fresh`, seeders, model factories with a built-in faker |
+| **Auth** | Argon2id/bcrypt/PBKDF2 hashing off the event loop, AES-256 `Crypt`, Sanctum-compatible tokens, JWT (HS256/EdDSA), multi-guard `auth:token,jwt`, Gate & Policies, `can:` middleware |
+| **Concurrency** | Supervisor + workers sharing one port, readiness barrier, respawn with crash-loop detection, coordinator isolate for process-wide state |
+| **Cache & limits** | Memory (LRU), process, file and database stores; `remember` with stampede protection, `flexible`, atomic locks; sliding-window rate limiter and `throttle:` |
+| **Queue & schedule** | Events with queued listeners, jobs with retries, backoff, timeouts, unique jobs and middleware; sync/memory/database drivers; cron scheduler with overlap protection |
+| **API & files** | `JsonResource` with conditional attributes and Laravel `data/links/meta` collections; local/public/memory disks with `Storage.fake()` |
+| **Observability** | Channel-based structured logging with request context and secret redaction, Prometheus `/metrics` merged across workers, `/up` and `/up/ready` health probes |
+| **Testing** | `TestClient` with fluent assertions, `Event.fake()`, `Queue.fake()`, `Storage.fake()`, `Log.spy()` |
 
 ## Laravel ↔ Daravel at a glance
 
@@ -70,7 +90,7 @@ Daravel keeps Laravel's names and semantics and adapts only the syntax to Dart.
 return Application::configure(basePath: __DIR__)
     ->withRouting(api: __DIR__.'/../routes/api.php', health: '/up')
     ->withMiddleware(fn (Middleware $m) => $m->append(RequestId::class))
-    ->withExceptions(fn (Exceptions $e) => $e->render(...))
+    ->withSchedule(fn (Schedule $s) => $s->job(new PruneTokens)->daily())
     ->create();
 ```
 
@@ -82,7 +102,7 @@ return Application::configure(basePath: __DIR__)
 Application createApp() => Application.configure(basePath: '.')
     .withRouting(api: apiRoutes, health: '/up')
     .withMiddleware((m) => m.use(const [RequestIdMiddleware()]))
-    .withExceptions((e) => e.render<MyException>(...))
+    .withSchedule((s) => s.job(const PruneTokens()).daily())
     .create();
 ```
 
@@ -93,11 +113,12 @@ Application createApp() => Application.configure(basePath: '.')
 
 ```php
 // routes/api.php
-Route::prefix('auth')->name('auth.')->group(function () {
-    Route::post('/login', [AuthController::class, 'login'])->name('login');
-    Route::middleware('auth:sanctum')->group(function () {
-        Route::get('/me', [AuthController::class, 'me'])->name('me');
-    });
+Route::post('/auth/login', [AuthController::class, 'login'])
+    ->middleware('throttle:login');
+Route::middleware('auth:sanctum')->group(function () {
+    Route::get('/auth/me', [AuthController::class, 'me']);
+    Route::patch('/users/{user}', [UserController::class, 'update'])
+        ->can('update', 'user');
 });
 ```
 
@@ -106,11 +127,12 @@ Route::prefix('auth')->name('auth.')->group(function () {
 
 ```dart
 // routes/api.dart
-router.group(prefix: '/auth', name: 'auth.', (r) {
-  r.post('/login', auth.login).name('login');
-  r.group(middleware: ['auth:token'], (r) {
-    r.get('/me', auth.me).name('me');
-  });
+router.post('/auth/login', auth.login)
+    .middleware(const ['throttle:login']);
+router.group(middleware: const ['auth'], (r) {
+  r.get('/auth/me', auth.me);
+  r.patch('/users/{user}', users.update)
+      .middleware(const ['can:update,user']);
 });
 ```
 
@@ -127,9 +149,12 @@ public function store(Request $request)
         'password' => 'required|min:8|confirmed',
     ]);
 
-    $user = DB::transaction(fn () => User::create($data));
+    $user = DB::transaction(fn () => User::create([
+        ...$data, 'password' => Hash::make($data['password']),
+    ]));
+    UserRegistered::dispatch($user);
 
-    return response()->json($user, 201);
+    return new UserResource($user);       // 201: recently created
 }
 ```
 
@@ -139,13 +164,17 @@ public function store(Request $request)
 ```dart
 Future<Object?> store(Request request) async {
   final data = await request.validate({
-    'email':    [Rule.required(), Rule.email(), Rule.unique('users')],
-    'password': [Rule.required(), Rule.min(8), Rule.confirmed()],
+    'email':    'required|email|unique:users',
+    'password': [Rules.required(), Rules.min(8), Rules.confirmed()],
   });
 
-  final user = await DB.transaction(() => User.create(data.toMap()));
+  final user = await DB.transaction(() async => User.create({
+    'email': data.string('email'),
+    'password': await Hash.make(data.string('password')),
+  }));
+  await Event.dispatch(UserRegistered(user.id, user.email));
 
-  return Response.created(user);
+  return UserResource(user);             // 201: recently created
 }
 ```
 
@@ -155,10 +184,42 @@ Future<Object?> store(Request request) async {
 <td>
 
 ```php
-Schema::create('users', function (Blueprint $table) {
-    $table->id();
-    $table->string('email')->unique();
-    $table->timestamps();
+class SendWelcomeEmail implements ShouldQueue
+{
+    public $tries = 3;
+    public $backoff = [10, 60];
+
+    public function handle(): void { /* … */ }
+}
+
+SendWelcomeEmail::dispatch($user)->onQueue('emails');
+```
+
+</td>
+<td>
+
+```dart
+final class SendWelcomeEmail extends Job {
+  @override int get tries => 3;
+  @override List<Duration> get backoff =>
+      const [Duration(seconds: 10), Duration(seconds: 60)];
+
+  @override Future<void> handle(JobContext ctx) async { /* … */ }
+}
+
+await Queue.dispatch(SendWelcomeEmail(user.id)).onQueue('emails');
+```
+
+</td>
+</tr>
+<tr>
+<td>
+
+```php
+$value = Cache::remember('stats', 600, fn () => Stats::compute());
+
+Cache::lock('report')->block(5, function () {
+    // exclusive across workers
 });
 ```
 
@@ -166,10 +227,11 @@ Schema::create('users', function (Blueprint $table) {
 <td>
 
 ```dart
-schema.create('users', (table) {
-  table.id();
-  table.string('email').unique();
-  table.timestamps();
+final value = await Cache.remember('stats',
+    const Duration(minutes: 10), Stats.compute);
+
+await Cache.lock('report').block(const Duration(seconds: 5), () async {
+  // exclusive across workers
 });
 ```
 
@@ -179,26 +241,27 @@ schema.create('users', (table) {
 <td>
 
 ```php
-$this->postJson('/api/users', ['email' => 'a@b.c'])
+$this->postJson('/api/auth/register', $payload)
      ->assertCreated()
-     ->assertJsonPath('data.email', 'a@b.c');
+     ->assertJsonPath('user.email', 'ana@example.com');
+
+Queue::assertPushed(SendWelcomeEmail::class);
 ```
 
 </td>
 <td>
 
 ```dart
-(await client.post('/api/users', json: {'email': 'a@b.c'}))
+(await client.post('/api/auth/register', json: payload))
     .assertCreated()
-    .assertJsonPath('data.email', 'a@b.c');
+    .assertJsonPath('user.email', 'ana@example.com');
+
+fake.assertPushed<SendWelcomeEmail>();
 ```
 
 </td>
 </tr>
 </table>
-
-Validation, models and authentication shown above land in the next slices (S4–S8); routing,
-migrations, transactions and the test client are available today.
 
 ## Quick start
 
@@ -212,21 +275,33 @@ cd daravel
 dart pub get                                  # resolves the whole workspace
 
 cd apps/daravel_starter
-cp .env.example .env
-dart run bin/dartisan.dart migrate            # creates database/database.sqlite
+cp .env.example .env                          # then set APP_KEY (base64:… 32 bytes)
+dart run bin/dartisan.dart migrate --seed     # users, tokens, cache and jobs tables
 dart run bin/dartisan.dart serve              # http://127.0.0.1:8000
 ```
 
 ```bash
-curl http://127.0.0.1:8000/up                 # {"status":"ok","app":"Daravel",...}
-curl http://127.0.0.1:8000/api/ping           # {"message":"pong",...}
+curl http://127.0.0.1:8000/up                 # liveness
+curl http://127.0.0.1:8000/up/ready           # {"status":"ok","checks":{"database":…,"cache":…}}
+curl -X POST http://127.0.0.1:8000/api/auth/register \
+     -H 'content-type: application/json' \
+     -d '{"name":"Ana","email":"ana@example.com","password":"secret-123","password_confirmation":"secret-123"}'
+```
+
+Serve on every core and process background work:
+
+```bash
+dart run bin/dartisan.dart serve --isolates=4           # supervisor + 4 workers on one port
+dart run bin/dartisan.dart queue:work --queue=emails,default
+dart run bin/dartisan.dart schedule:work
 ```
 
 Ship it as a native binary:
 
 ```bash
 dart compile exe bin/server.dart -o build/server   # build/server.exe on Windows
-dart run tool/smoke.dart build/server              # boots the binary and probes /up and /api/ping
+APP_ISOLATES=4 METRICS_ENABLED=true ./build/server
+dart run tool/smoke.dart build/server              # boots the binary and probes it
 ```
 
 ## Project structure
@@ -239,13 +314,26 @@ apps/daravel_starter/
 │   ├── server.dart              # HTTP entrypoint (compiles to the native binary)
 │   └── dartisan.dart            # project-bound CLI
 ├── bootstrap/
-│   └── app.dart                 # Application.configure(...) — routing, middleware, exceptions
+│   ├── app.dart                 # Application.configure(...): routing, auth, events, schedule
+│   ├── migrations.dart          # explicit registries maintained by `dartisan make:*`
+│   ├── seeders.dart
+│   └── jobs.dart
 ├── routes/
-│   └── api.dart                 # mounted under /api
+│   ├── api.dart                 # mounted under /api
+│   ├── web.dart
+│   └── console.dart             # scheduled tasks
 ├── lib/app/
-│   └── http/controllers/        # controllers are plain classes; handlers are method tear-offs
+│   ├── events/                  # plain event classes
+│   ├── http/controllers/        # controllers are plain classes; handlers are method tear-offs
+│   ├── http/requests/           # FormRequests
+│   ├── http/resources/          # JsonResources
+│   ├── jobs/                    # queued jobs
+│   ├── models/                  # Hybrid Active Record models
+│   └── policies/                # authorization policies
 ├── database/
-│   └── migrations/              # m_<timestamp>_<name>.dart, registered explicitly in bootstrap
+│   ├── migrations/              # m_<timestamp>_<name>.dart
+│   ├── factories/
+│   └── seeders/
 ├── test/feature/                # TestClient-based feature tests (in-memory SQLite)
 └── tool/smoke.dart              # AOT binary smoke test used by CI
 ```
@@ -254,55 +342,64 @@ The monorepo is a Dart pub workspace:
 
 | Package | Purpose |
 | :-- | :-- |
-| [`packages/daravel`](packages/daravel) | Framework core: container, application, HTTP, routing, database, schema, facades |
+| [`packages/daravel`](packages/daravel) | Framework core |
 | [`packages/daravel_test`](packages/daravel_test) | Testing toolkit: `TestClient` and Laravel-style fluent assertions |
-| [`packages/dartisan_cli`](packages/dartisan_cli) | The `dartisan` command-line interface |
+| [`packages/dartisan_cli`](packages/dartisan_cli) | The `dartisan` command-line interface and code generators |
 | [`apps/daravel_starter`](apps/daravel_starter) | Reference application and end-to-end tests |
 
 ## dartisan CLI
 
+| Group | Commands |
+| :-- | :-- |
+| App | `about`, `serve [--host] [--port] [--isolates]`, `route:list`, `coordinator:stats` |
+| Database | `migrate [--seed]`, `migrate:status`, `migrate:rollback [--step]`, `migrate:reset`, `migrate:fresh [--seed] [--force]`, `db:seed [--class] [--all]` |
+| Generators | `make:model [-m -f -s -c --api --all]`, `make:migration`, `make:seeder`, `make:factory`, `make:controller [--api --resource]`, `make:request`, `make:middleware`, `make:job` |
+| Queue | `queue:work [--queue --tries --backoff --timeout --max-jobs --once]`, `queue:failed`, `queue:retry`, `queue:forget`, `queue:flush`, `queue:clear`, `queue:restart` |
+| Schedule | `schedule:run`, `schedule:work`, `schedule:list` |
+| Cache & files | `cache:clear [store]`, `storage:link` |
+
+Generators update the registries in `bootstrap/` through marked regions, so a new migration, seeder
+or job is wired up the moment it is created:
+
 ```bash
-dart run bin/dartisan.dart serve [--host=127.0.0.1] [--port=8000]
-dart run bin/dartisan.dart route:list
-dart run bin/dartisan.dart migrate
-dart run bin/dartisan.dart migrate:status
-dart run bin/dartisan.dart migrate:rollback [--step=1]
-dart run bin/dartisan.dart migrate:reset
+dart run bin/dartisan.dart make:model Post --all --api
 ```
 
 ```text
-+----------+-----------------+------------+------------+
-| Method   | URI             | Name       | Middleware |
-+----------+-----------------+------------+------------+
-| GET|HEAD | /up             |            |            |
-| GET|HEAD | /api/ping       | ping       |            |
-| GET|HEAD | /api/users/{id} | users.show |            |
-+----------+-----------------+------------+------------+
+created lib/app/models/post.dart
+created database/migrations/m_2026_10_24_090507_create_posts_table.dart
+overwrote bootstrap/migrations.dart
+created database/factories/post_factory.dart
+created database/seeders/post_seeder.dart
+overwrote bootstrap/seeders.dart
+created lib/app/http/controllers/post_controller.dart
 ```
-
-Generators (`make:model`, `make:controller`, …), `dartisan new`, hot reload and `dartisan build`
-arrive with slice S12.
 
 ## Architecture in brief
 
 - **Container + Zone scopes.** `Container.runScoped('request', …)` stores the scope in a child
   `Zone`; facades resolve the zone container first and fall back to the per-isolate root, so
-  `DB`, `Config` and `Log` work in requests, commands, jobs and tests alike.
-- **Request lifecycle.** Global middleware → radix-tree routing (static › param › wildcard, with
-  backtracking) → route middleware → handler → automatic response conversion. `404`, `405`
-  (with `Allow`), `HEAD` and `OPTIONS` behave exactly like Laravel.
+  `DB`, `Auth`, `Cache` and `Log` work in requests, jobs, commands and tests alike.
+- **Request lifecycle.** Global middleware → radix-tree routing → route model binding → route
+  middleware → handler → automatic response conversion, then a terminate phase after the response
+  is written. `404`, `405` (with `Allow`), `HEAD` and `OPTIONS` behave exactly like Laravel.
+- **State scopes (ADR-003).** Every store declares `isolate`, `process` or `cluster` scope. Rate
+  limits and locks default to `process` and are served by a coordinator isolate, so
+  `throttle:60,1` means 60 per minute for the whole server, not 60 per worker.
 - **Zone-aware transactions.** `DB.transaction(() async { … })` puts the transaction executor in
-  the zone; every query inside the callback joins it without passing a handle around.
-- **Secure by default.** Parameterised SQL only, validated identifiers in DDL, request ids on every
-  response, graceful shutdown with a draining `/up` endpoint.
+  the zone. Queued jobs and `dispatchAfterCommit` events wait for the commit and are dropped on
+  rollback, including nested savepoints.
+- **Secure by default.** Parameterised SQL only, hashing in compute isolates, constant-time secret
+  comparison, downgrade-resistant hash verification, log redaction, trusted-proxy-aware client IPs.
 
 ## Roadmap
 
 | Tier | Scope | State |
 | :-- | :-- | :-- |
 | **0** | Walking skeleton: container, HTTP kernel, router, SQLite, migrations, test client, CLI, CI | ✅ done |
-| **1** | Validation & FormRequests, Hybrid Active Record ORM with relations, PostgreSQL/MySQL, auth (Sanctum-style tokens, JWT), Gate/Policy, cache & rate limiting, queue & scheduler, API resources, generators, hot reload | 🚧 next (slices S1–S14) |
-| **2** | Sessions/CSRF, Redis, S3, mail, localization, SSE/WebSockets, OpenTelemetry, Blade-compatible compiled views | planned |
+| **1** | S1 foundation · S2 HTTP hardening · S3 routing · S4 validation · S5 database · S6 ORM · S7 schema, seeding & generators · S8 auth · S9 multi-isolate & cache · S10 events, queue & scheduler · S11 resources, storage & observability | ✅ done |
+| **1** | S12 CLI completeness (`new`, hot reload, `build --docker`, `doctor`, `openapi:generate`) · S13 testing toolkit & lints · S14 conformance suite, benchmarks, docs | 🚧 next |
+| **2** | Multipart uploads, sessions/CSRF, Redis, S3, mail, localization, SSE/WebSockets, OpenTelemetry, Blade-compatible compiled views | planned |
 | **daragic** | Bidirectional Laravel ⇄ Daravel generator: runtime introspection → IR → generated project, converted tests, differential replay | designed |
 
 ## Blueprints
@@ -325,6 +422,7 @@ package, `dart compile exe` of the starter and a smoke test against the resultin
 dart format --output=none --set-exit-if-changed .
 dart analyze --fatal-infos
 (cd packages/daravel && dart test)
+(cd packages/dartisan_cli && dart test)
 (cd apps/daravel_starter && dart test)
 ```
 

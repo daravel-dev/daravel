@@ -40,6 +40,27 @@ abstract final class Config {
 abstract final class Log {
   static Logger get logger => Container.current.make<Logger>();
 
+  /// A named channel (`Log::channel('daily')`).
+  static Logger channel(String name) => logger.channelNamed(name);
+
+  /// Adds context to the current request/job (or shares it globally).
+  static void withContext(Map<String, Object?> context) =>
+      logger.withContext(context);
+
+  static void shareContext(Map<String, Object?> context) =>
+      logger.shareContext(context);
+
+  static void notice(String message, [Map<String, Object?>? context]) =>
+      logger.notice(message, context);
+
+  /// Captures records for assertions (`Log::spy()`); remove with
+  /// `Log.logger.removeHandler(spy)`.
+  static MemoryHandler spy() {
+    final handler = MemoryHandler();
+    logger.addHandler(handler);
+    return handler;
+  }
+
   static void debug(String message, [Map<String, Object?>? context]) =>
       logger.debug(message, context);
 
