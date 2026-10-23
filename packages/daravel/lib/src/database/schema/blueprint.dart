@@ -1,4 +1,5 @@
 import '../query_executor.dart';
+import 'schema_grammars.dart';
 
 /// Column types supported by the Tier 0 schema builder.
 enum ColumnType {
@@ -147,9 +148,8 @@ abstract class SchemaGrammar {
   /// Picks the grammar for [dialect].
   static SchemaGrammar forDialect(SqlDialect dialect) => switch (dialect) {
     SqlDialect.sqlite => const SqliteSchemaGrammar(),
-    SqlDialect.postgres || SqlDialect.mysql => throw UnsupportedError(
-      'Schema grammar for $dialect arrives in slice S5.',
-    ),
+    SqlDialect.postgres => const PostgresSchemaGrammar(),
+    SqlDialect.mysql => const MySqlSchemaGrammar(),
   };
 }
 

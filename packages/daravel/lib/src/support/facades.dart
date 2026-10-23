@@ -1,4 +1,6 @@
 import '../database/database_manager.dart';
+import '../database/query/query_ast.dart';
+import '../database/query/query_builder.dart';
 import '../database/query_executor.dart';
 import '../database/schema/blueprint.dart';
 import '../database/schema/schema_builder.dart';
@@ -68,25 +70,36 @@ abstract final class DB {
   static Future<DatabaseDriver> connection([String? name]) =>
       manager.connection(name);
 
+  /// Fluent query on [table] (`DB::table()`).
+  static QueryBuilder table(String table, {String? connection}) =>
+      manager.table(table, connection: connection);
+
+  /// Raw SQL expression for use inside the query builder.
+  static RawExpression raw(String sql, [List<Object?> bindings = const []]) =>
+      RawExpression(sql, bindings);
+
+  /// Raw query; [bindings] is a `List` for `?` or a `Map` for `:name`.
   static Future<List<Map<String, Object?>>> select(
     String sql, [
-    List<Object?> bindings = const <Object?>[],
+    Object? bindings = const <Object?>[],
   ]) => manager.select(sql, bindings);
 
   static Future<int> statement(
     String sql, [
-    List<Object?> bindings = const <Object?>[],
+    Object? bindings = const <Object?>[],
   ]) => manager.statement(sql, bindings);
 
   static Future<Object?> insertGetId(
     String sql, [
-    List<Object?> bindings = const <Object?>[],
+    Object? bindings = const <Object?>[],
   ]) => manager.insertGetId(sql, bindings);
 
   static Future<T> transaction<T>(
     Future<T> Function() body, {
     String? connection,
-  }) => manager.transaction<T>(body, connection: connection);
+    int attempts = 1,
+  }) =>
+      manager.transaction<T>(body, connection: connection, attempts: attempts);
 
   static bool get inTransaction => manager.inTransaction;
 }

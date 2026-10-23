@@ -222,9 +222,9 @@ void main() {
     expect(() => db.connection('nope'), throwsA(isA<ConfigException>()));
     final pg = DatabaseManager(
       const DatabaseConfig(
-        defaultConnection: 'pgsql',
+        defaultConnection: 'mysql',
         connections: <String, ConnectionConfig>{
-          'pgsql': ConnectionConfig(driver: 'pgsql', database: 'x'),
+          'mysql': ConnectionConfig(driver: 'mysql', database: 'x'),
         },
       ),
     );

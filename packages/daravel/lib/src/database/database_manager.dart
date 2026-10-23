@@ -3,20 +3,30 @@ import 'dart:async';
 import '../foundation/exceptions.dart';
 import '../logging/logger.dart';
 import 'database_config.dart';
+import 'postgres_driver.dart';
+import 'query/query_ast.dart';
+import 'query/query_builder.dart';
+import 'query/query_grammar.dart';
 import 'query_executor.dart';
+import 'sql_bindings.dart';
 import 'sqlite_driver.dart';
 
-/// Manages named connections and Zone-aware transactions (BLUEPRINT_V2 §5.6).
+/// Manages named connections, Zone-aware transactions with savepoints and
+/// raw SQL binding expansion (BLUEPRINT_V2 §5.6, ADR-005).
 ///
 /// `DB.transaction(() async { ... })` stores the transaction executor in a
-/// child zone; every query issued inside the callback — directly, via models
-/// or via validation rules — resolves [executor] and therefore joins the
-/// transaction without passing it around explicitly.
+/// child zone; every query issued inside the callback — directly, via the
+/// query builder, models or validation rules — resolves [executor] and
+/// therefore joins the transaction without passing it around explicitly.
+/// Nested calls create savepoints.
 final class DatabaseManager {
   DatabaseManager(this.config, {Logger? logger}) : _logger = logger;
 
   /// Zone key under which the active transaction executor is stored.
   static const Symbol transactionKey = #daravel.tx;
+
+  /// Zone key tracking the savepoint depth of the active transaction.
+  static const Symbol depthKey = #daravel.txDepth;
 
   final DatabaseConfig config;
   final Logger? _logger;
@@ -63,38 +73,137 @@ final class DatabaseManager {
   /// Whether the current zone is inside a transaction.
   bool get inTransaction => Zone.current[transactionKey] != null;
 
+  /// Current savepoint depth (0 outside, 1 in the outer transaction).
+  int get transactionDepth => Zone.current[depthKey] as int? ?? 0;
+
+  /// Dialect of [name] (or the default connection) without connecting.
+  SqlDialect dialectOf([String? name]) {
+    final connection = config.connections[name ?? config.defaultConnection];
+    if (connection == null) {
+      throw ConfigException(
+        'Database connection [${name ?? config.defaultConnection}] is not configured.',
+      );
+    }
+    return switch (connection.driver) {
+      'sqlite' => SqlDialect.sqlite,
+      'pgsql' || 'postgres' || 'postgresql' => SqlDialect.postgres,
+      'mysql' || 'mariadb' => SqlDialect.mysql,
+      final other => throw UnsupportedError(
+        'Unknown database driver [$other].',
+      ),
+    };
+  }
+
+  /// Query grammar for [name] (or the default connection).
+  QueryGrammar grammarFor([String? name]) =>
+      QueryGrammar.forDialect(dialectOf(name));
+
+  /// Starts a fluent query on [table].
+  QueryBuilder table(String table, {String? connection}) =>
+      QueryBuilder(this, table, connection: connection);
+
+  /// A raw SQL expression (never bound; use `?` for embedded bindings).
+  RawExpression raw(String sql, [List<Object?> bindings = const []]) =>
+      RawExpression(sql, bindings);
+
+  /// Runs a raw query. [bindings] may be a `List` (`?` placeholders) or a
+  /// `Map` (`:name` placeholders); see [SqlBindings].
   Future<List<Map<String, Object?>>> select(
     String sql, [
-    List<Object?> bindings = const <Object?>[],
-  ]) async => (await executor()).select(sql, bindings);
+    Object? bindings = const <Object?>[],
+    String? connection,
+  ]) async {
+    final executor = await this.executor(connection);
+    final (expanded, values) = _expand(sql, bindings, executor.dialect);
+    return executor.select(expanded, values);
+  }
 
+  /// Runs a raw statement and returns the affected row count.
   Future<int> statement(
     String sql, [
-    List<Object?> bindings = const <Object?>[],
-  ]) async => (await executor()).execute(sql, bindings);
+    Object? bindings = const <Object?>[],
+    String? connection,
+  ]) async {
+    final executor = await this.executor(connection);
+    final (expanded, values) = _expand(sql, bindings, executor.dialect);
+    return executor.execute(expanded, values);
+  }
 
+  /// Runs a raw insert and returns the generated id.
   Future<Object?> insertGetId(
     String sql, [
-    List<Object?> bindings = const <Object?>[],
-  ]) async => (await executor()).insertGetId(sql, bindings);
+    Object? bindings = const <Object?>[],
+    String? connection,
+  ]) async {
+    final executor = await this.executor(connection);
+    final (expanded, values) = _expand(sql, bindings, executor.dialect);
+    return executor.insertGetId(expanded, values);
+  }
+
+  (String, List<Object?>) _expand(
+    String sql,
+    Object? bindings,
+    SqlDialect dialect,
+  ) {
+    final grammar = QueryGrammar.forDialect(dialect);
+    return SqlBindings.expand(
+      sql,
+      bindings ?? const <Object?>[],
+      grammar.parameter,
+    );
+  }
 
   /// Runs [body] in a transaction on [connection] (default when `null`).
-  /// Nested calls join the enclosing transaction (savepoints arrive in S5).
+  /// Nested calls create a savepoint that is released or rolled back with
+  /// the nested callback. With [attempts] > 1, deadlocks and serialization
+  /// failures retry the whole transaction.
   Future<T> transaction<T>(
     Future<T> Function() body, {
     String? connection,
+    int attempts = 1,
   }) async {
     if (inTransaction) {
-      return body();
+      return _savepoint(body);
     }
     final driver = await this.connection(connection);
-    return driver.transaction<T>(
-      (tx) => runZoned<Future<T>>(
-        body,
-        zoneValues: <Object?, Object?>{transactionKey: tx},
-      ),
-    );
+    for (var attempt = 1; ; attempt++) {
+      try {
+        return await driver.transaction<T>(
+          (tx) => runZoned<Future<T>>(
+            body,
+            zoneValues: <Object?, Object?>{transactionKey: tx, depthKey: 1},
+          ),
+        );
+      } catch (error) {
+        if (attempt >= attempts || !_isRetryable(error)) {
+          rethrow;
+        }
+        _logger?.warning(
+          'Transaction attempt $attempt failed with a retryable error; retrying.',
+        );
+      }
+    }
   }
+
+  Future<T> _savepoint<T>(Future<T> Function() body) async {
+    final tx = Zone.current[transactionKey]! as QueryExecutor;
+    final depth = transactionDepth + 1;
+    final name = 'daravel_sp_$depth';
+    await tx.execute('SAVEPOINT $name');
+    try {
+      final result = await runZoned<Future<T>>(
+        body,
+        zoneValues: <Object?, Object?>{depthKey: depth},
+      );
+      await tx.execute('RELEASE SAVEPOINT $name');
+      return result;
+    } catch (_) {
+      await tx.execute('ROLLBACK TO SAVEPOINT $name');
+      rethrow;
+    }
+  }
+
+  static bool _isRetryable(Object error) => PostgresDriver.isRetryable(error);
 
   /// Whether any connection has been opened.
   bool get hasOpenConnections => _connections.isNotEmpty;
@@ -117,10 +226,27 @@ final class DatabaseManager {
     switch (connection.driver) {
       case 'sqlite':
         return SqliteDriver(path: connection.database, name: name);
+      case 'pgsql':
+      case 'postgres':
+      case 'postgresql':
+        return PostgresDriver(
+          name: name,
+          host: connection.host ?? '127.0.0.1',
+          port: connection.port ?? 5432,
+          database: connection.database,
+          username: connection.username,
+          password: connection.password,
+          maxConnections: (connection.options['pool'] as int?) ?? 10,
+          sslMode: switch (connection.options['sslmode']) {
+            'require' => PostgresSslMode.require,
+            'verify-full' || 'verifyFull' => PostgresSslMode.verifyFull,
+            _ => PostgresSslMode.disable,
+          },
+        );
       default:
         throw UnsupportedError(
           'Database driver [${connection.driver}] is not available yet '
-          '(Tier 0 ships SQLite; PostgreSQL and MySQL arrive in slice S5).',
+          '(MySQL/MariaDB arrives in slice S5b).',
         );
     }
   }

@@ -66,6 +66,10 @@ final class DatabaseConfig implements ConfigSection {
           port: env.integer('DB_PORT', 5432),
           username: env.maybeString('DB_USERNAME'),
           password: env.maybeString('DB_PASSWORD'),
+          options: <String, Object?>{
+            'pool': env.integer('DB_POOL_SIZE', 10),
+            'sslmode': env.string('DB_SSLMODE', 'disable'),
+          },
         ),
         'mysql': ConnectionConfig(
           driver: 'mysql',
