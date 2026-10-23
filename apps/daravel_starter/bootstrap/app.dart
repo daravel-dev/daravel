@@ -21,7 +21,16 @@ Application createApp({String? basePath, Map<String, String>? env}) =>
           health: '/up',
         )
         .withMiddleware((middleware) {
-          middleware.use(const <Middleware>[RequestIdMiddleware()]);
+          middleware.use(const <Middleware>[
+            // Only honour X-Forwarded-* from these proxies (none by default).
+            // TrustProxiesMiddleware(proxies: ['10.0.0.0/8']),
+            RequestIdMiddleware(),
+            SecurityHeadersMiddleware(),
+            BodyLimitsMiddleware(),
+            TrimStringsMiddleware(),
+            ConvertEmptyStringsToNullMiddleware(),
+          ]);
+          middleware.group('api', const <Object>[]);
         })
         .withExceptions((exceptions) {
           // Custom renderers/reporters go here, e.g.

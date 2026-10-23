@@ -137,6 +137,7 @@ final class Application {
       router: router,
       middleware: middleware,
       exceptions: exceptions,
+      logger: logger,
     );
     container.instance<HttpKernel>(kernel);
 

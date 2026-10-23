@@ -18,6 +18,7 @@ final class ServeOptions {
     this.shared = true,
     this.idleTimeout = const Duration(seconds: 60),
     this.shutdownTimeout = const Duration(seconds: 30),
+    this.requestTimeout = const Duration(seconds: 30),
   });
 
   /// Reads `APP_HOST` / `APP_PORT`, overridable by explicit arguments.
@@ -25,6 +26,10 @@ final class ServeOptions {
       ServeOptions(
         host: host ?? env.string('APP_HOST', '127.0.0.1'),
         port: port ?? env.integer('APP_PORT', 8000),
+        requestTimeout: env.duration(
+          'HTTP_REQUEST_TIMEOUT',
+          const Duration(seconds: 30),
+        ),
       );
 
   final String host;
@@ -36,6 +41,10 @@ final class ServeOptions {
   final bool shared;
   final Duration idleTimeout;
   final Duration shutdownTimeout;
+
+  /// Default handler timeout (routes may override with `RouteEntry.timeout`);
+  /// `null` disables it.
+  final Duration? requestTimeout;
 }
 
 /// Binds the `dart:io` server, wraps every request in a request scope and
@@ -76,6 +85,7 @@ final class ServerEngine {
       shared: options.shared,
     );
     server.idleTimeout = options.idleTimeout;
+    kernel.defaultTimeout = options.requestTimeout;
     _server = server;
     _installSignalHandlers();
     logger.info(
@@ -182,6 +192,7 @@ final class ServerEngine {
                   'Failed to write response for request $id: $error',
                 );
               }
+              await kernel.terminate(request, response);
               logger.info(
                 '${request.method} ${request.path} ${response.status} '
                 '${(stopwatch.elapsedMicroseconds / 1000).toStringAsFixed(2)}ms',

@@ -33,6 +33,26 @@ final class RouteEntry {
   final String _namePrefix;
   String? _name;
   List<Middleware> _resolved = const <Middleware>[];
+  Duration? _timeout;
+  int? _bodyLimitBytes;
+
+  /// Per-route handler timeout (overrides the server default).
+  Duration? get timeoutDuration => _timeout;
+
+  /// Per-route body limit in bytes (overrides `BodyLimitsMiddleware`).
+  int? get bodyLimitBytes => _bodyLimitBytes;
+
+  /// Sets a handler timeout; the kernel answers `503` when exceeded.
+  RouteEntry timeout(Duration duration) {
+    _timeout = duration;
+    return this;
+  }
+
+  /// Sets the maximum body size accepted by this route.
+  RouteEntry bodyLimit(int bytes) {
+    _bodyLimitBytes = bytes;
+    return this;
+  }
 
   /// The route name (including any group prefix), if set.
   String? get routeName => _name;
@@ -69,7 +89,7 @@ final class RouteEntry {
 
   /// Resolves aliases into instances. Called by `Router.compile`.
   void resolveMiddleware(MiddlewareRegistry registry) {
-    _resolved = List.unmodifiable(_middleware.map(registry.resolve));
+    _resolved = List.unmodifiable(registry.resolveAll(_middleware));
   }
 
   @override

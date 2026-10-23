@@ -48,6 +48,11 @@ final class MethodNotAllowedHttpException extends HttpException {
   final List<String> allowedMethods;
 }
 
+final class PayloadTooLargeHttpException extends HttpException {
+  const PayloadTooLargeHttpException([String message = 'Payload Too Large'])
+    : super(413, message);
+}
+
 final class ServiceUnavailableHttpException extends HttpException {
   const ServiceUnavailableHttpException([
     String message = 'Service Unavailable',

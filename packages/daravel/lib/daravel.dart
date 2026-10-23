@@ -32,3 +32,8 @@ export 'src/routing/route_entry.dart';
 export 'src/routing/router.dart';
 export 'src/support/facades.dart';
 export 'src/support/request_id.dart';
+export 'src/http/middleware/body_limits.dart';
+export 'src/http/middleware/cors.dart';
+export 'src/http/middleware/input_normalization.dart';
+export 'src/http/middleware/security_headers.dart';
+export 'src/http/middleware/trust_proxies.dart';
