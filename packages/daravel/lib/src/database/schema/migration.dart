@@ -88,6 +88,13 @@ final class Migrator {
     return _rollbackNames(targets);
   }
 
+  /// Drops every table and re-runs all migrations (`migrate:fresh`).
+  Future<List<String>> fresh() async {
+    final schema = SchemaBuilder(await _db.executor());
+    await schema.dropAllTables();
+    return run();
+  }
+
   /// Rolls back every migration.
   Future<List<String>> reset() async {
     await install();

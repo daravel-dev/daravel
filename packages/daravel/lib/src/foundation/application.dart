@@ -4,6 +4,7 @@ import 'dart:io';
 import '../database/database_config.dart';
 import '../database/database_manager.dart';
 import '../database/schema/migration.dart';
+import '../database/seeding/seeder.dart';
 import '../http/exception_handler.dart';
 import '../http/middleware/validate_signature.dart';
 import '../http/kernel.dart';
@@ -118,7 +119,8 @@ final class Application {
       )
       ..singleton<Migrator>(
         (c) => Migrator(c.make<DatabaseManager>(), _builder._migrations),
-      );
+      )
+      ..instance<SeederRegistry>(SeederRegistry(_builder._seeders));
 
     _builder._middlewareConfig?.call(middleware);
     _builder._exceptionsConfig?.call(exceptions);
@@ -269,6 +271,14 @@ final class ApplicationBuilder {
   void Function(ExceptionHandler exceptions)? _exceptionsConfig;
   final List<ServiceProvider> _providers = <ServiceProvider>[];
   final List<Migration> _migrations = <Migration>[];
+  final List<Seeder> _seeders = <Seeder>[];
+
+  /// Registers database seeders; the first one is the root seeder.
+  ApplicationBuilder withSeeders(List<Seeder> seeders) {
+    _seeders.addAll(seeders);
+    return this;
+  }
+
   final List<ConfigSection Function(Env env)> _configFactories =
       <ConfigSection Function(Env env)>[];
   final List<ConfigCheck> _configChecks = <ConfigCheck>[];

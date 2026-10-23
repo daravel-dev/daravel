@@ -10,6 +10,13 @@ import 'dart:io';
 import 'package:args/command_runner.dart';
 import 'package:daravel/daravel.dart';
 
+import 'src/database_commands.dart';
+import 'src/make_commands.dart';
+
+export 'src/database_commands.dart';
+export 'src/generator.dart';
+export 'src/make_commands.dart';
+
 /// Creates an unbooted [Application] (a project's `createApp()`).
 typedef AppFactory = Application Function();
 
@@ -24,6 +31,15 @@ final class DartisanRunner extends CommandRunner<int> {
     addCommand(MigrateStatusCommand(createApp));
     addCommand(MigrateRollbackCommand(createApp));
     addCommand(MigrateResetCommand(createApp));
+    addCommand(MigrateFreshCommand(createApp));
+    addCommand(DbSeedCommand(createApp));
+    addCommand(MakeModelCommand());
+    addCommand(MakeMigrationCommand());
+    addCommand(MakeSeederCommand());
+    addCommand(MakeFactoryCommand());
+    addCommand(MakeControllerCommand());
+    addCommand(MakeRequestCommand());
+    addCommand(MakeMiddlewareCommand());
   }
 
   /// Runs [args] and returns a process exit code (never throws for usage
@@ -127,7 +143,13 @@ final class RouteListCommand extends DaravelCommand {
 
 /// `dartisan migrate` — runs pending migrations.
 final class MigrateCommand extends DaravelCommand {
-  MigrateCommand(super.createApp);
+  MigrateCommand(super.createApp) {
+    argParser.addFlag(
+      'seed',
+      negatable: false,
+      help: 'Run the root seeder afterwards.',
+    );
+  }
 
   @override
   String get name => 'migrate';

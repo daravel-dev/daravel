@@ -63,3 +63,7 @@ export 'src/database/orm/model_definition.dart';
 export 'src/database/orm/model_query.dart';
 export 'src/database/orm/observer.dart';
 export 'src/database/orm/relations.dart';
+export 'src/database/schema/sqlite_schema.dart';
+export 'src/database/seeding/factory.dart';
+export 'src/database/seeding/faker.dart';
+export 'src/database/seeding/seeder.dart';

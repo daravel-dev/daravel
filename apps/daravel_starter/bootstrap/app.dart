@@ -2,9 +2,10 @@ import 'dart:io';
 
 import 'package:daravel/daravel.dart';
 
-import '../database/migrations/m_2026_10_23_000001_create_users_table.dart';
 import '../routes/api.dart';
 import '../routes/web.dart';
+import 'migrations.dart';
+import 'seeders.dart';
 
 /// Builds the (unbooted) application. Pure: safe to call once per isolate.
 ///
@@ -13,7 +14,8 @@ import '../routes/web.dart';
 Application createApp({String? basePath, Map<String, String>? env}) =>
     Application.configure(basePath: basePath ?? Directory.current.path)
         .withEnv(env ?? const <String, String>{})
-        .withMigrations(const <Migration>[CreateUsersTable()])
+        .withMigrations(migrations)
+        .withSeeders(seeders)
         .withRouting(
           api: apiRoutes,
           web: webRoutes,

@@ -119,6 +119,19 @@ abstract final class Schema {
 
   static Future<bool> hasTable(String table) async =>
       (await builder()).hasTable(table);
+
+  static Future<void> table(
+    String table,
+    void Function(Blueprint table) define,
+  ) async => (await builder()).table(table, define);
+
+  static Future<bool> hasColumn(String table, String column) async =>
+      (await builder()).hasColumn(table, column);
+
+  static Future<void> drop(String table) async => (await builder()).drop(table);
+
+  static Future<void> rename(String from, String to) async =>
+      (await builder()).rename(from, to);
 }
 
 /// Reads an environment variable from the active application.

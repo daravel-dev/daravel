@@ -1,35 +1,74 @@
 import '../query_executor.dart';
 import 'schema_grammars.dart';
+import 'sqlite_schema.dart';
 
-/// Column types supported by the Tier 0 schema builder.
+/// Column types supported by the schema builder.
 enum ColumnType {
   increments,
   string,
+  char,
   text,
   integer,
+  tinyInteger,
+  smallInteger,
   bigInteger,
-  boolean,
+  decimal,
+  float,
   doublePrecision,
+  boolean,
+  date,
+  dateTime,
+  time,
   timestamp,
+  json,
+  uuid,
+  binary,
+  enumeration,
 }
 
-/// A column being defined inside a [Blueprint].
+/// A column being defined (or changed) inside a [Blueprint].
 final class ColumnDefinition {
-  ColumnDefinition(this.name, this.type, {this.length});
+  ColumnDefinition(
+    this.name,
+    this.type, {
+    this.length,
+    this.precision,
+    this.scale,
+    this.allowed = const <String>[],
+  });
 
   final String name;
   final ColumnType type;
   final int? length;
+  final int? precision;
+  final int? scale;
+
+  /// Allowed values for [ColumnType.enumeration].
+  final List<String> allowed;
 
   bool _nullable = false;
   bool _unique = false;
+  bool _primary = false;
+  bool _index = false;
+  bool _unsigned = false;
+  bool _useCurrent = false;
   bool _hasDefault = false;
+  bool _change = false;
   Object? _defaultValue;
+  String? _defaultRaw;
+  String? _comment;
 
   bool get isNullable => _nullable;
   bool get isUnique => _unique;
-  bool get hasDefault => _hasDefault;
+  bool get isPrimary => _primary;
+  bool get hasIndex => _index;
+  bool get isUnsigned => _unsigned;
+  bool get usesCurrent => _useCurrent;
+  bool get hasDefault => _hasDefault || _defaultRaw != null || _useCurrent;
   Object? get defaultValue => _defaultValue;
+  String? get rawDefault => _defaultRaw;
+  String? get commentText => _comment;
+  bool get isChange => _change;
   bool get isAutoIncrement => type == ColumnType.increments;
 
   ColumnDefinition nullable([bool value = true]) {
@@ -42,11 +81,128 @@ final class ColumnDefinition {
     return this;
   }
 
+  ColumnDefinition primary() {
+    _primary = true;
+    return this;
+  }
+
+  ColumnDefinition index() {
+    _index = true;
+    return this;
+  }
+
+  ColumnDefinition unsigned() {
+    _unsigned = true;
+    return this;
+  }
+
   ColumnDefinition defaultTo(Object? value) {
     _hasDefault = true;
     _defaultValue = value;
     return this;
   }
+
+  /// Raw SQL default (`defaultRaw('CURRENT_TIMESTAMP')`).
+  ColumnDefinition defaultRaw(String expression) {
+    _defaultRaw = expression;
+    return this;
+  }
+
+  /// `DEFAULT CURRENT_TIMESTAMP` for timestamp columns.
+  ColumnDefinition useCurrent() {
+    _useCurrent = true;
+    return this;
+  }
+
+  ColumnDefinition comment(String text) {
+    _comment = text;
+    return this;
+  }
+
+  /// Marks the column as a modification of an existing column
+  /// (`Schema.table` only).
+  ColumnDefinition change() {
+    _change = true;
+    return this;
+  }
+}
+
+/// A `foreignId()` column that can be `constrained()`.
+final class ForeignIdDefinition extends ColumnDefinition {
+  ForeignIdDefinition(super.name, super.type, this._blueprint);
+
+  final Blueprint _blueprint;
+
+  /// Adds a foreign key to [table] (guessed from the column name:
+  /// `user_id` → `users`) referencing [column].
+  ForeignKeyDefinition constrained([String? table, String column = 'id']) {
+    final target = table ?? guessTable(name);
+    return _blueprint.foreign([name]).references(column).on(target);
+  }
+
+  /// `user_id` → `users`, `category_id` → `categories`.
+  static String guessTable(String column) {
+    final base = column.endsWith('_id')
+        ? column.substring(0, column.length - 3)
+        : column;
+    if (base.endsWith('y') && !base.endsWith('ey')) {
+      return '${base.substring(0, base.length - 1)}ies';
+    }
+    if (base.endsWith('s') ||
+        base.endsWith('x') ||
+        base.endsWith('ch') ||
+        base.endsWith('sh')) {
+      return '${base}es';
+    }
+    return '${base}s';
+  }
+
+  @override
+  ForeignIdDefinition nullable([bool value = true]) {
+    super.nullable(value);
+    return this;
+  }
+}
+
+/// A foreign key constraint.
+final class ForeignKeyDefinition {
+  ForeignKeyDefinition(this.columns, {String? name}) : _name = name;
+
+  final List<String> columns;
+  final String? _name;
+  List<String> referencedColumns = const <String>['id'];
+  String? referencedTable;
+  String? onDeleteAction;
+  String? onUpdateAction;
+
+  /// Constraint name (`<table>_<columns>_foreign` when unset).
+  String nameFor(String table) =>
+      _name ?? '${table}_${columns.join('_')}_foreign';
+
+  ForeignKeyDefinition references(Object column) {
+    referencedColumns = column is List<String> ? column : <String>['$column'];
+    return this;
+  }
+
+  ForeignKeyDefinition on(String table) {
+    referencedTable = table;
+    return this;
+  }
+
+  ForeignKeyDefinition onDelete(String action) {
+    onDeleteAction = action.toUpperCase();
+    return this;
+  }
+
+  ForeignKeyDefinition onUpdate(String action) {
+    onUpdateAction = action.toUpperCase();
+    return this;
+  }
+
+  ForeignKeyDefinition cascadeOnDelete() => onDelete('cascade');
+  ForeignKeyDefinition restrictOnDelete() => onDelete('restrict');
+  ForeignKeyDefinition nullOnDelete() => onDelete('set null');
+  ForeignKeyDefinition cascadeOnUpdate() => onUpdate('cascade');
 }
 
 /// A table-level index.
@@ -56,15 +212,36 @@ final class IndexDefinition {
   final List<String> columns;
   final bool unique;
   final String? name;
+
+  String nameFor(String table) =>
+      name ?? '${table}_${columns.join('_')}_${unique ? 'unique' : 'index'}';
 }
 
-/// Collects column and index definitions for `Schema.create`.
+/// Collects column, index and foreign key definitions for `Schema.create`
+/// and the change commands for `Schema.table`.
 final class Blueprint {
-  Blueprint(this.table);
+  Blueprint(this.table, {this.alter = false});
 
   final String table;
+
+  /// Whether this blueprint modifies an existing table.
+  final bool alter;
+
   final List<ColumnDefinition> columns = <ColumnDefinition>[];
   final List<IndexDefinition> indexes = <IndexDefinition>[];
+  final List<ForeignKeyDefinition> foreignKeys = <ForeignKeyDefinition>[];
+  final List<String> dropColumns = <String>[];
+  final List<(String, String)> renameColumns = <(String, String)>[];
+  final List<String> dropIndexes = <String>[];
+  final List<String> dropForeignKeys = <String>[];
+
+  /// Columns being added (not changed).
+  List<ColumnDefinition> get addedColumns =>
+      columns.where((c) => !c.isChange).toList();
+
+  /// Columns being changed.
+  List<ColumnDefinition> get changedColumns =>
+      columns.where((c) => c.isChange).toList();
 
   ColumnDefinition _add(ColumnDefinition column) {
     columns.add(column);
@@ -75,26 +252,91 @@ final class Blueprint {
   ColumnDefinition id([String name = 'id']) =>
       _add(ColumnDefinition(name, ColumnType.increments));
 
+  /// UUID primary key (client generated).
+  ColumnDefinition uuid([String name = 'uuid']) =>
+      _add(ColumnDefinition(name, ColumnType.uuid));
+
+  /// ULID column (26 chars).
+  ColumnDefinition ulid([String name = 'ulid']) =>
+      _add(ColumnDefinition(name, ColumnType.char, length: 26));
+
+  /// `BIGINT UNSIGNED` style foreign key column; chain `.constrained()`.
+  ForeignIdDefinition foreignId(String name) {
+    final column = ForeignIdDefinition(name, ColumnType.bigInteger, this)
+      ..unsigned();
+    columns.add(column);
+    return column;
+  }
+
+  /// UUID foreign key column; chain `.constrained()`.
+  ForeignIdDefinition foreignUuid(String name) {
+    final column = ForeignIdDefinition(name, ColumnType.uuid, this);
+    columns.add(column);
+    return column;
+  }
+
   ColumnDefinition string(String name, {int length = 255}) =>
       _add(ColumnDefinition(name, ColumnType.string, length: length));
 
+  ColumnDefinition char(String name, {int length = 255}) =>
+      _add(ColumnDefinition(name, ColumnType.char, length: length));
+
   ColumnDefinition text(String name) =>
       _add(ColumnDefinition(name, ColumnType.text));
+  ColumnDefinition mediumText(String name) => text(name);
+  ColumnDefinition longText(String name) => text(name);
 
   ColumnDefinition integer(String name) =>
       _add(ColumnDefinition(name, ColumnType.integer));
-
+  ColumnDefinition tinyInteger(String name) =>
+      _add(ColumnDefinition(name, ColumnType.tinyInteger));
+  ColumnDefinition smallInteger(String name) =>
+      _add(ColumnDefinition(name, ColumnType.smallInteger));
   ColumnDefinition bigInteger(String name) =>
       _add(ColumnDefinition(name, ColumnType.bigInteger));
+  ColumnDefinition unsignedBigInteger(String name) =>
+      bigInteger(name).unsigned();
+  ColumnDefinition unsignedInteger(String name) => integer(name).unsigned();
 
-  ColumnDefinition boolean(String name) =>
-      _add(ColumnDefinition(name, ColumnType.boolean));
+  ColumnDefinition decimal(String name, {int precision = 8, int scale = 2}) =>
+      _add(
+        ColumnDefinition(
+          name,
+          ColumnType.decimal,
+          precision: precision,
+          scale: scale,
+        ),
+      );
+
+  ColumnDefinition float(String name) =>
+      _add(ColumnDefinition(name, ColumnType.float));
 
   ColumnDefinition doublePrecision(String name) =>
       _add(ColumnDefinition(name, ColumnType.doublePrecision));
 
+  ColumnDefinition boolean(String name) =>
+      _add(ColumnDefinition(name, ColumnType.boolean));
+
+  ColumnDefinition date(String name) =>
+      _add(ColumnDefinition(name, ColumnType.date));
+  ColumnDefinition dateTime(String name) =>
+      _add(ColumnDefinition(name, ColumnType.dateTime));
+  ColumnDefinition time(String name) =>
+      _add(ColumnDefinition(name, ColumnType.time));
+
   ColumnDefinition timestamp(String name) =>
       _add(ColumnDefinition(name, ColumnType.timestamp));
+
+  ColumnDefinition json(String name) =>
+      _add(ColumnDefinition(name, ColumnType.json));
+  ColumnDefinition jsonb(String name) => json(name);
+
+  ColumnDefinition binary(String name) =>
+      _add(ColumnDefinition(name, ColumnType.binary));
+
+  /// Enum column (emulated with a CHECK constraint where needed).
+  ColumnDefinition enumeration(String name, List<String> allowed) =>
+      _add(ColumnDefinition(name, ColumnType.enumeration, allowed: allowed));
 
   /// Nullable `created_at` / `updated_at` columns.
   void timestamps() {
@@ -102,11 +344,70 @@ final class Blueprint {
     timestamp('updated_at').nullable();
   }
 
+  /// Nullable `deleted_at` column for soft deletes.
+  ColumnDefinition softDeletes([String name = 'deleted_at']) =>
+      timestamp(name).nullable();
+
+  /// Nullable `remember_token` column.
+  ColumnDefinition rememberToken() =>
+      string('remember_token', length: 100).nullable();
+
   void index(List<String> columns, {String? name}) =>
       indexes.add(IndexDefinition(columns, unique: false, name: name));
 
   void unique(List<String> columns, {String? name}) =>
       indexes.add(IndexDefinition(columns, unique: true, name: name));
+
+  /// Starts a foreign key on [columns]; chain `.references().on()`.
+  ForeignKeyDefinition foreign(List<String> columns, {String? name}) {
+    final key = ForeignKeyDefinition(columns, name: name);
+    foreignKeys.add(key);
+    return key;
+  }
+
+  // --- change commands (Schema.table) ---------------------------------------
+
+  void dropColumn(Object names) =>
+      dropColumns.addAll(names is List<String> ? names : <String>['$names']);
+
+  void renameColumn(String from, String to) => renameColumns.add((from, to));
+
+  void dropIndex(String name) => dropIndexes.add(name);
+
+  void dropUnique(String name) => dropIndexes.add(name);
+
+  /// Drops a foreign key by constraint name or by its columns.
+  void dropForeign(Object nameOrColumns) => dropForeignKeys.add(
+    nameOrColumns is List<String>
+        ? '${table}_${nameOrColumns.join('_')}_foreign'
+        : '$nameOrColumns',
+  );
+
+  void dropSoftDeletes([String name = 'deleted_at']) => dropColumn(name);
+
+  void dropTimestamps() => dropColumn(const ['created_at', 'updated_at']);
+}
+
+/// Column metadata returned by `Schema.getColumns`.
+final class ColumnInfo {
+  const ColumnInfo({
+    required this.name,
+    required this.type,
+    required this.nullable,
+    this.defaultValue,
+    this.autoIncrement = false,
+    this.primary = false,
+  });
+
+  final String name;
+  final String type;
+  final bool nullable;
+  final String? defaultValue;
+  final bool autoIncrement;
+  final bool primary;
+
+  @override
+  String toString() => 'ColumnInfo($name $type${nullable ? ' null' : ''})';
 }
 
 /// Compiles blueprints into DDL for one dialect.
@@ -114,6 +415,11 @@ abstract class SchemaGrammar {
   const SchemaGrammar();
 
   static final RegExp _identifier = RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$');
+
+  SqlDialect get dialect;
+
+  String get quoteOpen => '"';
+  String get quoteClose => '"';
 
   /// Quotes an identifier after validating its characters (never trusts
   /// input: an invalid identifier throws instead of being interpolated).
@@ -125,18 +431,58 @@ abstract class SchemaGrammar {
         'Invalid SQL identifier',
       );
     }
-    return '"$identifier"';
+    return '$quoteOpen$identifier$quoteClose';
   }
 
-  List<String> compileCreate(Blueprint blueprint);
+  /// Picks the grammar for [dialect].
+  static SchemaGrammar forDialect(SqlDialect dialect) => switch (dialect) {
+    SqlDialect.sqlite => const SqliteSchemaGrammar(),
+    SqlDialect.postgres => const PostgresSchemaGrammar(),
+    SqlDialect.mysql => const MySqlSchemaGrammar(),
+  };
+
+  // --- hooks -----------------------------------------------------------------
+
+  /// SQL type for [column].
+  String typeFor(ColumnDefinition column);
+
+  /// Clause appended to an auto-increment column (after the type).
+  String get autoIncrementClause;
+
+  /// Whether `UNSIGNED` is supported.
+  bool get supportsUnsigned => false;
+
+  /// Whether inline `UNIQUE` on a column is used (else a unique index).
+  bool get inlineUnique => true;
+
+  /// Whether enum columns need a CHECK constraint.
+  bool get enumAsCheck => true;
+
+  /// Query returning one row when [table] exists (one binding: table name).
+  String compileTableExists();
+
+  /// Query listing user table names (column `name`).
+  String compileListTables();
+
+  /// Query returning raw column rows for [table] (one binding: table name).
+  String compileColumns();
+
+  /// Normalizes a raw column row from [compileColumns].
+  ColumnInfo columnInfo(Map<String, Object?> row);
+
+  String compileRename(String from, String to) =>
+      'ALTER TABLE ${wrap(from)} RENAME TO ${wrap(to)}';
 
   String compileDropIfExists(String table) =>
       'DROP TABLE IF EXISTS ${wrap(table)}';
 
   String compileDrop(String table) => 'DROP TABLE ${wrap(table)}';
 
-  /// Query returning one row when [table] exists (`?` binding = table name).
-  String compileTableExists();
+  String compileDropIndex(String table, String name) =>
+      'DROP INDEX ${wrap(name)}';
+
+  String compileDropForeign(String table, String name) =>
+      'ALTER TABLE ${wrap(table)} DROP CONSTRAINT ${wrap(name)}';
 
   String literal(Object? value) => switch (value) {
     null => 'NULL',
@@ -145,69 +491,123 @@ abstract class SchemaGrammar {
     _ => "'${'$value'.replaceAll("'", "''")}'",
   };
 
-  /// Picks the grammar for [dialect].
-  static SchemaGrammar forDialect(SqlDialect dialect) => switch (dialect) {
-    SqlDialect.sqlite => const SqliteSchemaGrammar(),
-    SqlDialect.postgres => const PostgresSchemaGrammar(),
-    SqlDialect.mysql => const MySqlSchemaGrammar(),
-  };
-}
+  // --- shared compilation ----------------------------------------------------
 
-/// SQLite DDL grammar.
-final class SqliteSchemaGrammar extends SchemaGrammar {
-  const SqliteSchemaGrammar();
-
-  @override
-  List<String> compileCreate(Blueprint blueprint) {
-    final columns = blueprint.columns.map(_compileColumn).join(', ');
-    final statements = <String>[
-      'CREATE TABLE ${wrap(blueprint.table)} ($columns)',
-    ];
-    for (final index in blueprint.indexes) {
-      final name =
-          index.name ??
-          '${blueprint.table}_${index.columns.join('_')}_${index.unique ? 'unique' : 'index'}';
-      statements.add(
-        'CREATE ${index.unique ? 'UNIQUE ' : ''}INDEX ${wrap(name)} ON '
-        '${wrap(blueprint.table)} (${index.columns.map(wrap).join(', ')})',
-      );
-    }
-    return statements;
-  }
-
-  @override
-  String compileTableExists() =>
-      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?";
-
-  String _compileColumn(ColumnDefinition column) {
+  /// `name TYPE [NULL|NOT NULL] [DEFAULT ...] [UNIQUE] [PRIMARY KEY]`.
+  String compileColumn(ColumnDefinition column) {
     final buffer = StringBuffer()
       ..write(wrap(column.name))
       ..write(' ')
-      ..write(_type(column));
+      ..write(typeFor(column));
+    if (supportsUnsigned && column.isUnsigned && !column.isAutoIncrement) {
+      buffer.write(' UNSIGNED');
+    }
     if (column.isAutoIncrement) {
-      buffer.write(' PRIMARY KEY AUTOINCREMENT NOT NULL');
-    } else {
-      buffer.write(column.isNullable ? ' NULL' : ' NOT NULL');
+      buffer.write(autoIncrementClause);
+      return buffer.toString();
     }
-    if (column.hasDefault) {
-      buffer
-        ..write(' DEFAULT ')
-        ..write(literal(column.defaultValue));
-    }
-    if (column.isUnique) {
+    buffer.write(column.isNullable ? ' NULL' : ' NOT NULL');
+    buffer.write(defaultClause(column));
+    if (column.isUnique && inlineUnique) {
       buffer.write(' UNIQUE');
+    }
+    if (column.isPrimary) {
+      buffer.write(' PRIMARY KEY');
+    }
+    if (column.type == ColumnType.enumeration && enumAsCheck) {
+      buffer.write(
+        ' CHECK (${wrap(column.name)} IN (${column.allowed.map(literal).join(', ')}))',
+      );
     }
     return buffer.toString();
   }
 
-  String _type(ColumnDefinition column) => switch (column.type) {
-    ColumnType.increments => 'INTEGER',
-    ColumnType.string => 'VARCHAR(${column.length ?? 255})',
-    ColumnType.text => 'TEXT',
-    ColumnType.integer => 'INTEGER',
-    ColumnType.bigInteger => 'INTEGER',
-    ColumnType.boolean => 'TINYINT(1)',
-    ColumnType.doublePrecision => 'DOUBLE',
-    ColumnType.timestamp => 'DATETIME',
-  };
+  String defaultClause(ColumnDefinition column) {
+    if (column.usesCurrent) {
+      return ' DEFAULT CURRENT_TIMESTAMP';
+    }
+    if (column.rawDefault != null) {
+      return ' DEFAULT ${column.rawDefault}';
+    }
+    if (column.hasDefault) {
+      return ' DEFAULT ${literal(column.defaultValue)}';
+    }
+    return '';
+  }
+
+  /// Inline `CONSTRAINT ... FOREIGN KEY` clause.
+  String compileForeignClause(String table, ForeignKeyDefinition key) {
+    final target = key.referencedTable;
+    if (target == null) {
+      throw StateError(
+        'Foreign key on [${key.columns.join(', ')}] is missing .on(table).',
+      );
+    }
+    final buffer = StringBuffer(
+      'CONSTRAINT ${wrap(key.nameFor(table))} FOREIGN KEY (${key.columns.map(wrap).join(', ')}) '
+      'REFERENCES ${wrap(target)} (${key.referencedColumns.map(wrap).join(', ')})',
+    );
+    if (key.onDeleteAction != null) {
+      buffer.write(' ON DELETE ${key.onDeleteAction}');
+    }
+    if (key.onUpdateAction != null) {
+      buffer.write(' ON UPDATE ${key.onUpdateAction}');
+    }
+    return buffer.toString();
+  }
+
+  String compileIndex(String table, IndexDefinition index) =>
+      'CREATE ${index.unique ? 'UNIQUE ' : ''}INDEX ${wrap(index.nameFor(table))} ON '
+      '${wrap(table)} (${index.columns.map(wrap).join(', ')})';
+
+  /// Indexes implied by `.index()` / `.unique()` column modifiers.
+  List<IndexDefinition> columnIndexes(Blueprint blueprint) => [
+    for (final column in blueprint.addedColumns)
+      if (column.hasIndex) IndexDefinition([column.name], unique: false),
+    for (final column in blueprint.addedColumns)
+      if (column.isUnique && !inlineUnique)
+        IndexDefinition([column.name], unique: true),
+  ];
+
+  List<String> compileCreate(Blueprint blueprint) {
+    final parts = <String>[
+      for (final column in blueprint.columns) compileColumn(column),
+      for (final key in blueprint.foreignKeys)
+        compileForeignClause(blueprint.table, key),
+    ];
+    return <String>[
+      'CREATE TABLE ${wrap(blueprint.table)} (${parts.join(', ')})$createSuffix',
+      for (final index in [...columnIndexes(blueprint), ...blueprint.indexes])
+        compileIndex(blueprint.table, index),
+    ];
+  }
+
+  String get createSuffix => '';
+
+  /// ALTER statements for [blueprint] (PostgreSQL/MySQL style; SQLite uses
+  /// [SqliteTableRebuilder] when needed).
+  List<String> compileAlter(Blueprint blueprint) {
+    final table = wrap(blueprint.table);
+    return <String>[
+      for (final name in blueprint.dropForeignKeys)
+        compileDropForeign(blueprint.table, name),
+      for (final name in blueprint.dropIndexes)
+        compileDropIndex(blueprint.table, name),
+      for (final name in blueprint.dropColumns)
+        'ALTER TABLE $table DROP COLUMN ${wrap(name)}',
+      for (final (from, to) in blueprint.renameColumns)
+        'ALTER TABLE $table RENAME COLUMN ${wrap(from)} TO ${wrap(to)}',
+      for (final column in blueprint.addedColumns)
+        'ALTER TABLE $table ADD COLUMN ${compileColumn(column)}',
+      for (final column in blueprint.changedColumns)
+        ...compileChange(blueprint.table, column),
+      for (final key in blueprint.foreignKeys)
+        'ALTER TABLE $table ADD ${compileForeignClause(blueprint.table, key)}',
+      for (final index in [...columnIndexes(blueprint), ...blueprint.indexes])
+        compileIndex(blueprint.table, index),
+    ];
+  }
+
+  /// Statements altering an existing column to match [column].
+  List<String> compileChange(String table, ColumnDefinition column);
 }

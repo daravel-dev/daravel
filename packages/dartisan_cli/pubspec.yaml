@@ -13,6 +13,7 @@ executables:
 dependencies:
   args: ^2.6.0
   daravel: any
+  path: ^1.9.1
 
 dev_dependencies:
   lints: ^6.0.0
