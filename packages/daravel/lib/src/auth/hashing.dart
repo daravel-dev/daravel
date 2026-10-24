@@ -43,7 +43,7 @@ final class HashInfo {
 /// (`config/hashing.php` parity).
 final class HashConfig implements ConfigSection {
   const HashConfig({
-    this.driver = .argon2id,
+    this.driver = .bcrypt,
     this.bcryptRounds = 12,
     this.argonMemory = 65536,
     this.argonTime = 3,
@@ -56,7 +56,8 @@ final class HashConfig implements ConfigSection {
   /// suites stay fast (Laravel does the same in `phpunit.xml`).
   factory HashConfig.fromEnv(Env env) {
     final testing = env.string('APP_ENV', 'production') == 'testing';
-    final driverName = env.string('HASH_DRIVER', 'argon2id');
+    // Laravel's default driver (ADR-024), so a shared users table works.
+    final driverName = env.string('HASH_DRIVER', 'bcrypt');
     final driver = HashDriver.values.firstWhere(
       (d) => d.name == driverName,
       orElse: () => throw ConfigException(
@@ -87,9 +88,11 @@ final class HashConfig implements ConfigSection {
   final int argonThreads;
   final int pbkdf2Iterations;
 
-  /// When true, [HashManager.check] refuses hashes made by a different
-  /// driver than the configured one (Laravel 11 `verify` option), which
-  /// blocks algorithm-downgrade attacks via injected hashes.
+  /// When true, [HashManager.check] refuses hashes of a different driver
+  /// unless they belong to the strong family ({bcrypt, argon2id}, ADR-024):
+  /// legacy or weak formats (pbkdf2) cannot be injected as a downgrade, while
+  /// a bcrypt ⇄ argon2id switch still verifies old hashes so
+  /// `rehashPasswordIfRequired` can upgrade them at login.
   final bool verify;
 
   @override
@@ -108,6 +111,10 @@ final class HashConfig implements ConfigSection {
     'verify': verify,
   };
 }
+
+/// Drivers whose hashes [HashManager.check] accepts across a driver switch
+/// even with `verify` enabled (ADR-024).
+const Set<HashDriver> strongDrivers = {HashDriver.bcrypt, HashDriver.argon2id};
 
 /// Creates and verifies password hashes off the event loop.
 ///
@@ -133,7 +140,9 @@ final class HashManager {
     if (detected == null) {
       return Future<bool>.value(false);
     }
-    if (config.verify && detected != config.driver) {
+    if (config.verify &&
+        detected != config.driver &&
+        !strongDrivers.contains(detected)) {
       throw HashException(
         'This password does not use the ${config.driver.name} algorithm. '
         'Set HASH_VERIFY=false to accept ${detected.name} hashes.',

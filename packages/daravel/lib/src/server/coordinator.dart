@@ -89,11 +89,20 @@ final class Coordinator {
   Iterable<String> get serviceNames => _services.keys;
 
   /// Dispatches directly (used by [LocalCoordinatorChannel]).
-  Future<Object?> handle(
+  Future<Object?> handle(String service, String op, Map<String, Object?> args) {
+    try {
+      final result = _invoke(service, op, args);
+      return result is Future<Object?> ? result : Future<Object?>.value(result);
+    } on Object catch (error, stackTrace) {
+      return Future<Object?>.error(error, stackTrace);
+    }
+  }
+
+  FutureOr<Object?> _invoke(
     String service,
     String op,
     Map<String, Object?> args,
-  ) async {
+  ) {
     final target = _services[service];
     if (target == null) {
       throw CoordinatorException('Unknown coordinator service [$service].');
@@ -122,15 +131,31 @@ final class Coordinator {
         );
         return;
       }
+      // Synchronous services (rate limits, memory cache, locks) answer
+      // inline: no Future or microtask per message.
+      final FutureOr<Object?> result;
+      try {
+        result = _invoke(message.service, message.op, message.args);
+      } on Object catch (error) {
+        message.replyTo.send(CoordinatorReply(message.id, error: '$error'));
+        return;
+      }
+      if (result is! Future<Object?>) {
+        message.replyTo.send(CoordinatorReply(message.id, result: result));
+        return;
+      }
       _inFlight++;
-      unawaited(_dispatch(message));
+      unawaited(_dispatch(message, result));
     });
     return port.sendPort;
   }
 
-  Future<void> _dispatch(CoordinatorRequest request) async {
+  Future<void> _dispatch(
+    CoordinatorRequest request,
+    Future<Object?> pending,
+  ) async {
     try {
-      final result = await handle(request.service, request.op, request.args);
+      final result = await pending;
       request.replyTo.send(CoordinatorReply(request.id, result: result));
     } catch (error) {
       request.replyTo.send(CoordinatorReply(request.id, error: '$error'));
@@ -200,8 +225,16 @@ final class RemoteCoordinatorChannel implements CoordinatorChannel {
 
   final SendPort _target;
   late final ReceivePort _replies;
-  final Map<int, Completer<Object?>> _pending = <int, Completer<Object?>>{};
+  final Map<int, _PendingCall> _pending = <int, _PendingCall>{};
   int _nextId = 0;
+
+  /// Monotonic clock for deadlines; one sweep [Timer] enforces every call's
+  /// timeout instead of a timer per call (the happy path allocates none).
+  final Stopwatch _clock = Stopwatch()..start();
+  Timer? _sweeper;
+
+  /// Interval of the timeout sweep (timeouts fire within this much).
+  static const Duration sweepInterval = Duration(milliseconds: 10);
 
   @override
   StateScope get scope => StateScope.process;
@@ -219,8 +252,13 @@ final class RemoteCoordinatorChannel implements CoordinatorChannel {
     Duration timeout = const Duration(seconds: 1),
   }) {
     final id = _nextId++;
-    final completer = Completer<Object?>();
-    _pending[id] = completer;
+    final call = _PendingCall(
+      service,
+      timeout,
+      _clock.elapsedMicroseconds + timeout.inMicroseconds,
+    );
+    _pending[id] = call;
+    _sweeper ??= Timer.periodic(sweepInterval, (_) => _sweep());
     _target.send(
       CoordinatorRequest(
         id: id,
@@ -230,38 +268,63 @@ final class RemoteCoordinatorChannel implements CoordinatorChannel {
         replyTo: _replies.sendPort,
       ),
     );
-    return completer.future.timeout(
-      timeout,
-      onTimeout: () {
-        _pending.remove(id);
-        throw CoordinatorTimeoutException(service, timeout);
-      },
-    );
+    return call.completer.future;
+  }
+
+  void _sweep() {
+    final now = _clock.elapsedMicroseconds;
+    _pending.removeWhere((_, call) {
+      if (now < call.deadline) {
+        return false;
+      }
+      call.completer.completeError(
+        CoordinatorTimeoutException(call.service, call.timeout),
+      );
+      return true;
+    });
+    if (_pending.isEmpty) {
+      _sweeper?.cancel();
+      _sweeper = null;
+    }
   }
 
   void _onReply(Object? message) {
     if (message is! CoordinatorReply) {
       return;
     }
-    final completer = _pending.remove(message.id);
-    if (completer == null) {
+    final call = _pending.remove(message.id);
+    if (call == null) {
       return;
     }
     final error = message.error;
     if (error != null) {
-      completer.completeError(CoordinatorException(error));
+      call.completer.completeError(CoordinatorException(error));
     } else {
-      completer.complete(message.result);
+      call.completer.complete(message.result);
     }
   }
 
   void close() {
+    _sweeper?.cancel();
+    _sweeper = null;
     _replies.close();
-    for (final completer in _pending.values) {
-      completer.completeError(
+    for (final call in _pending.values) {
+      call.completer.completeError(
         const CoordinatorException('Coordinator channel closed.'),
       );
     }
     _pending.clear();
   }
+}
+
+/// An in-flight [RemoteCoordinatorChannel.call].
+final class _PendingCall {
+  _PendingCall(this.service, this.timeout, this.deadline);
+
+  final String service;
+  final Duration timeout;
+
+  /// Monotonic microseconds after which the call times out.
+  final int deadline;
+  final Completer<Object?> completer = Completer<Object?>();
 }

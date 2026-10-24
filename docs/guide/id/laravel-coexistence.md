@@ -17,9 +17,11 @@ Laravel, dan **suite konformansi** menguncinya:
 
 ```dotenv
 APP_KEY=base64:...        # kunci yang sama dengan aplikasi Laravel
-APP_CIPHER=AES-256-CBC    # default Laravel (default Daravel adalah GCM)
-HASH_DRIVER=bcrypt        # secara default Laravel hanya memverifikasi bcrypt
 ```
+
+Hanya itu: default Daravel sama dengan Laravel (ADR-024), yaitu
+`APP_CIPHER=AES-256-CBC` dan `HASH_DRIVER=bcrypt`. Jika aplikasi Laravel
+mengubahnya, samakan nilainya.
 
 ## Yang dibagi
 
@@ -37,8 +39,9 @@ HASH_DRIVER=bcrypt        # secara default Laravel hanya memverifikasi bcrypt
 
 - `Crypt::encrypt()` Laravel memakai PHP `serialize()`, Daravel memakai JSON:
   gunakan varian `*String` lintas runtime.
-- Default cipher (GCM) dan hasher (argon2id) Daravel berbeda dari Laravel
-  (ADR-008); atur `APP_CIPHER` dan `HASH_DRIVER` saat berbagi data.
+- `HASH_VERIFY` di Daravel tetap menerima hash bcrypt dan argon2id saat
+  driver diganti, agar `rehashPasswordIfRequired` bisa meng-upgrade hash
+  lama saat login (ADR-024).
 - Eager loading `with(...)` menjadi `with_(...)` karena `with` adalah kata
   kunci Dart.
 

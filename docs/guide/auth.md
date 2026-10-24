@@ -50,19 +50,22 @@ tokens; a denylist supports logout.
 
 ## Hashing
 
-`Hash.make` / `Hash.check` run in a compute isolate. Drivers: `argon2id`
-(default), `bcrypt` (`$2y$`, verifiable by PHP and Laravel) and `pbkdf2`.
-`Hash.check` detects the driver from the hash, and `Hash.needsRehash` plus
-`rehashPasswordIfRequired` upgrade hashes on login. When the database is
-shared with Laravel, set `HASH_DRIVER=bcrypt` so Laravel can verify
-passwords that Daravel writes.
+`Hash.make` / `Hash.check` run in a compute isolate. Drivers: `bcrypt`
+(default, cost 12, `$2y$` like Laravel), `argon2id` and `pbkdf2`.
+`Hash.check` detects the driver from the hash. With `HASH_VERIFY=true` (the
+default) it refuses foreign formats except the strong family (bcrypt and
+argon2id), so switching `HASH_DRIVER` between those two keeps every
+existing password valid while `Hash.needsRehash` and
+`rehashPasswordIfRequired` upgrade hashes at login. Keep bcrypt while a
+Laravel app shares the users table: Laravel verifies only bcrypt by default.
 
 ## Encryption
 
 `Crypt.encryptString` / `decryptString` produce Laravel's payload
 (`base64(json{iv, value, mac, tag})`) keyed by `APP_KEY`. The cipher is
-`APP_CIPHER`: `AES-256-GCM` (Daravel's default) or `AES-256-CBC`
-(Laravel's default). Set it to match the Laravel app you share data with.
+`APP_CIPHER`: `AES-256-CBC` (the default, like Laravel; encrypt-then-MAC
+with HMAC-SHA256) or `AES-256-GCM`. Use the same value as any Laravel app
+you share data with.
 `APP_PREVIOUS_KEYS` enables key rotation. `Crypt.encrypt` JSON-encodes
 values (Laravel uses PHP `serialize()`), so only the string variants are
 cross-runtime.

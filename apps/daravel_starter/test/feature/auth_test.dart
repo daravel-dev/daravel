@@ -76,9 +76,10 @@ void main() {
           .table('users')
           .where('email', 'ana@example.com')
           .first();
+      // bcrypt by default (ADR-024), so a Laravel app can verify it.
       expect(
         Hash.info(stored!['password']! as String).driver,
-        HashDriver.argon2id,
+        HashDriver.bcrypt,
       );
       final tokens = await DB.table('personal_access_tokens').get();
       expect(tokens.map((t) => t['name']), containsAll(['api', 'phone']));

@@ -163,11 +163,11 @@ void main() {
       expect(base64.decode(payload['iv']! as String), hasLength(16));
     });
 
-    test('APP_CIPHER=AES-256-CBC selects the Laravel default cipher', () async {
+    test('zero-config defaults are Laravel\'s: AES-256-CBC and bcrypt '
+        '(ADR-024)', () async {
       await app.shutdown();
-      (app, client) = await bootConformanceApp(
-        env: {'APP_KEY': key, 'APP_CIPHER': 'AES-256-CBC'},
-      );
+      // Only the shared APP_KEY: no APP_CIPHER, no HASH_DRIVER.
+      (app, client) = await bootConformanceApp(env: {'APP_KEY': key});
       expect(
         await app.run(() => Crypt.decryptString(laravelPayload)),
         'hello from laravel',
@@ -175,7 +175,26 @@ void main() {
       final ours = await app.run(() => Crypt.encryptString('x'));
       final payload =
           jsonDecode(utf8.decode(base64.decode(ours))) as Map<String, Object?>;
-      expect(payload['tag'], '');
+      expect(payload['tag'], '', reason: 'CBC payload');
+      expect(await app.run(() => Hash.make('secret')), startsWith(r'$2y$'));
+      expect(
+        await app.run(
+          () => Hash.check('password', LaravelContract.bcryptOfPassword),
+        ),
+        isTrue,
+      );
+    });
+
+    test('APP_CIPHER=AES-256-GCM opts into GCM', () async {
+      await app.shutdown();
+      (app, client) = await bootConformanceApp(
+        env: {'APP_KEY': key, 'APP_CIPHER': 'AES-256-GCM'},
+      );
+      final ours = await app.run(() => Crypt.encryptString('x'));
+      final payload =
+          jsonDecode(utf8.decode(base64.decode(ours))) as Map<String, Object?>;
+      expect(payload['mac'], '');
+      expect(payload['tag'], isNotEmpty);
     });
   });
 

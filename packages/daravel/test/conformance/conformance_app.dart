@@ -108,7 +108,6 @@ Application conformanceApp({
       'APP_DEBUG': 'false',
       'DB_DATABASE': ':memory:',
       'APP_KEY': 'base64:${'A' * 43}=',
-      'HASH_DRIVER': 'bcrypt',
       ...env,
     })
     .withMigrations(const [

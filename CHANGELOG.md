@@ -5,6 +5,33 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 beta releases may still change Laravel-facing formats when the conformance
 suite shows they differ from Laravel.
 
+## Unreleased
+
+### Changed (ADR-024: zero-config Laravel coexistence)
+
+- `Crypt` defaults to AES-256-CBC (encrypt-then-HMAC-SHA256) and hashing to
+  bcrypt with cost 12, Laravel's defaults; `APP_CIPHER=AES-256-GCM` and
+  `HASH_DRIVER=argon2id` remain available. **Upgrade:** apps that relied on
+  the old defaults should set them explicitly; existing argon2id hashes keep
+  verifying and are rehashed to bcrypt at login.
+- `HASH_VERIFY` now accepts hashes of the strong family (bcrypt, argon2id)
+  across a driver switch, so `rehashPasswordIfRequired` can upgrade them;
+  weaker foreign formats (pbkdf2) are still refused.
+
+### Performance
+
+- The rate limiter uses Laravel's fixed-window counter (hits + reset time,
+  O(1) per key) instead of a sliding-window log that copied every timestamp
+  on each request. Windows now start with the first hit, as in Laravel.
+- The coordinator answers synchronous services inline (no Future per
+  message) and the remote channel enforces timeouts with one sweep timer
+  instead of a timer per call.
+- With several isolates, generous limits (≥ 32) are served from adaptive
+  local leases with unused hits released, and blocked keys are answered
+  locally for up to 100 ms. On the benchmark (Windows, indicative) the
+  throttled route went from 45% to 96% of the unthrottled throughput on one
+  isolate and from 2.2k to 9.5k req/s on four.
+
 ## 1.0.0-beta.1 (Tier 1 / S14)
 
 ### Added

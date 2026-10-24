@@ -24,7 +24,7 @@ isolate count. Every scenario is also expressed relative to a plain
 that ratio drops by more than 10% against `bench/baseline.json`.
 
 Internal targets (not public promises): `/ping` within 25% of `dart:io`,
-throttling adds at most 100 µs at p50, and four isolates give at least three
-times the throughput of one on a 4+ core machine. See
+throttling adds at most 100 µs of service time per
+request, and four isolates give at least three times the throughput of one on a 4+ core machine. See
 [bench/README.md](https://github.com/teoprayoga/daravel/blob/main/bench/README.md)
 for the methodology.

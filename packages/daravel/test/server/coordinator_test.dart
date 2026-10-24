@@ -134,6 +134,90 @@ void main() {
     );
   });
 
+  group('leased rate limiting across workers', () {
+    const decay = Duration(minutes: 1);
+
+    test(
+      'never exceeds the limit with several workers hammering one key',
+      () async {
+        final workers = [
+          for (var i = 0; i < 4; i++)
+            RemoteCoordinatorChannel(coordinator.listen()),
+        ];
+        for (final channel in workers) {
+          addTearDown(channel.close);
+        }
+        final stores = [for (final c in workers) ProcessRateLimitStore(c)];
+        var allowed = 0;
+        await Future.wait([
+          for (final store in stores)
+            () async {
+              for (var i = 0; i < 100; i++) {
+                if ((await store.attempt('hot', 120, decay)).allowed) {
+                  allowed++;
+                }
+              }
+            }(),
+        ]);
+        expect(allowed, 120);
+        final blocked = await stores.first.attempt('hot', 120, decay);
+        expect(blocked.allowed, isFalse);
+        expect(blocked.retryAfter, isNotNull);
+      },
+    );
+
+    test('batches grow on hot keys and unused hits are released', () async {
+      final channel = RemoteCoordinatorChannel(coordinator.listen());
+      addTearDown(channel.close);
+      final store = ProcessRateLimitStore(
+        channel,
+        leaseTtl: const Duration(milliseconds: 40),
+      );
+      // Hot: leases of 1, 2, 4, 8 used up in a row.
+      for (var i = 0; i < 15; i++) {
+        expect((await store.attempt('k', 1000, decay)).allowed, isTrue);
+      }
+      final service =
+          coordinator.service(RateLimitService.serviceName)!
+              as RateLimitService;
+      expect(service.store.attemptsSync('k', decay), 15);
+      expect(coordinator.stats()['handled'], lessThan(15));
+      // One more opens a 16-hit lease; after it expires, 15 go back.
+      await store.attempt('k', 1000, decay);
+      expect(service.store.attemptsSync('k', decay), 31);
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      await store.attempt('k', 1000, decay);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(service.store.attemptsSync('k', decay), 17);
+    });
+
+    test('small limits (login) always ask the coordinator', () async {
+      final channel = RemoteCoordinatorChannel(coordinator.listen());
+      addTearDown(channel.close);
+      final store = ProcessRateLimitStore(channel);
+      for (var i = 0; i < 5; i++) {
+        expect((await store.attempt('login', 5, decay)).remaining, 4 - i);
+      }
+      expect((await store.attempt('login', 5, decay)).allowed, isFalse);
+    });
+
+    test('a blocked key is answered locally for a short while', () async {
+      final channel = RemoteCoordinatorChannel(coordinator.listen());
+      addTearDown(channel.close);
+      final store = ProcessRateLimitStore(channel);
+      final service =
+          coordinator.service(RateLimitService.serviceName)!
+              as RateLimitService;
+      service.store.attemptSync('full', 40, decay, cost: 40);
+      expect((await store.attempt('full', 40, decay)).allowed, isFalse);
+      final handled = coordinator.stats()['handled']! as int;
+      for (var i = 0; i < 10; i++) {
+        expect((await store.attempt('full', 40, decay)).allowed, isFalse);
+      }
+      expect(coordinator.stats()['handled'], handled);
+    });
+  });
+
   test('backpressure rejects requests above maxQueue', () async {
     final tiny = Coordinator(maxQueue: 1)..register(_SlowService());
     addTearDown(tiny.close);

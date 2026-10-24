@@ -92,7 +92,7 @@ final class RateLimitResult {
   final int limit;
   final int remaining;
 
-  /// When the oldest counted attempt leaves the window.
+  /// When the current window resets.
   final DateTime resetAt;
 
   /// How long to wait before the next attempt succeeds (when blocked).
@@ -117,7 +117,37 @@ abstract interface class RateLimitStore {
   Future<void> flush();
 }
 
-/// Sliding-window-log counters in this isolate's memory.
+/// Fixed-window counter of one key: Laravel's `RateLimiter` model (a hit
+/// counter plus the time its window resets, started by the first hit).
+final class _Bucket {
+  _Bucket(this.resetAtMs);
+
+  int hits = 0;
+  final int resetAtMs;
+}
+
+/// Grant of [MemoryRateLimitStore.acquireSync]: how many of the requested
+/// hits were recorded and the window they belong to.
+final class RateLimitGrant {
+  const RateLimitGrant({
+    required this.granted,
+    required this.hits,
+    required this.resetAtMs,
+  });
+
+  /// Hits recorded (0 when the key is exhausted).
+  final int granted;
+
+  /// Hits in the window after this grant.
+  final int hits;
+
+  /// Epoch milliseconds when the window resets.
+  final int resetAtMs;
+}
+
+/// Fixed-window counters in this isolate's memory, like Laravel's
+/// `RateLimiter` (hits + reset time per key): O(1) time and two integers per
+/// key, whatever the limit.
 final class MemoryRateLimitStore implements RateLimitStore {
   MemoryRateLimitStore({DateTime Function()? clock, this.maxKeys = 100000})
     : _clock = clock ?? _utcNow;
@@ -126,49 +156,92 @@ final class MemoryRateLimitStore implements RateLimitStore {
 
   /// Keys retained before the least-recently-touched ones are evicted.
   final int maxKeys;
-  final Map<String, List<int>> _hits = <String, List<int>>{};
+  final Map<String, _Bucket> _buckets = <String, _Bucket>{};
 
   @override
   StateScope get scope => StateScope.isolate;
 
-  int get size => _hits.length;
+  int get size => _buckets.length;
 
-  /// Synchronous variant (used by the coordinator service).
-  RateLimitResult attemptSync(String key, int maxAttempts, Duration decay) {
+  /// Synchronous variant (used by the coordinator service). [cost] counts
+  /// several hits at once; the attempt is all-or-nothing.
+  RateLimitResult attemptSync(
+    String key,
+    int maxAttempts,
+    Duration decay, {
+    int cost = 1,
+  }) {
     final now = _clock().millisecondsSinceEpoch;
-    final window = _window(key, decay, now);
-    if (window.length >= maxAttempts) {
-      final resetMs = window.first + decay.inMilliseconds;
+    final bucket = _bucket(key, decay, now);
+    final resetAt = DateTime.fromMillisecondsSinceEpoch(
+      bucket.resetAtMs,
+      isUtc: true,
+    );
+    if (bucket.hits + cost > maxAttempts) {
       return RateLimitResult(
         allowed: false,
         limit: maxAttempts,
         remaining: 0,
-        resetAt: DateTime.fromMillisecondsSinceEpoch(resetMs, isUtc: true),
-        retryAfter: Duration(milliseconds: resetMs - now),
+        resetAt: resetAt,
+        retryAfter: Duration(milliseconds: bucket.resetAtMs - now),
       );
     }
-    window.add(now);
+    bucket.hits += cost;
     return RateLimitResult(
       allowed: true,
       limit: maxAttempts,
-      remaining: maxAttempts - window.length,
-      resetAt: DateTime.fromMillisecondsSinceEpoch(
-        window.first + decay.inMilliseconds,
-        isUtc: true,
-      ),
+      remaining: maxAttempts - bucket.hits,
+      resetAt: resetAt,
     );
   }
 
-  int attemptsSync(String key, Duration decay) =>
-      _window(key, decay, _clock().millisecondsSinceEpoch).length;
+  /// Records up to [want] hits (fewer when the window is nearly full); used
+  /// by workers to lease a batch of hits in one coordinator round trip.
+  RateLimitGrant acquireSync(
+    String key,
+    int maxAttempts,
+    Duration decay,
+    int want,
+  ) {
+    final now = _clock().millisecondsSinceEpoch;
+    final bucket = _bucket(key, decay, now);
+    final free = maxAttempts - bucket.hits;
+    final granted = free <= 0 ? 0 : (want < free ? want : free);
+    bucket.hits += granted;
+    return RateLimitGrant(
+      granted: granted,
+      hits: bucket.hits,
+      resetAtMs: bucket.resetAtMs,
+    );
+  }
+
+  /// Gives back [count] unused leased hits of the window ending at
+  /// [resetAtMs] (ignored once that window is over).
+  /// Returns the hits left in the window.
+  int releaseSync(String key, int count, int resetAtMs) {
+    final bucket = _buckets[key];
+    if (bucket == null || bucket.resetAtMs != resetAtMs) {
+      return 0;
+    }
+    bucket.hits = bucket.hits > count ? bucket.hits - count : 0;
+    return bucket.hits;
+  }
+
+  int attemptsSync(String key, Duration decay) {
+    final bucket = _buckets[key];
+    final now = _clock().millisecondsSinceEpoch;
+    return bucket == null || now >= bucket.resetAtMs ? 0 : bucket.hits;
+  }
 
   Duration availableInSync(String key, int maxAttempts, Duration decay) {
+    final bucket = _buckets[key];
     final now = _clock().millisecondsSinceEpoch;
-    final window = _window(key, decay, now);
-    if (window.length < maxAttempts) {
+    if (bucket == null ||
+        now >= bucket.resetAtMs ||
+        bucket.hits < maxAttempts) {
       return Duration.zero;
     }
-    return Duration(milliseconds: window.first + decay.inMilliseconds - now);
+    return Duration(milliseconds: bucket.resetAtMs - now);
   }
 
   @override
@@ -190,22 +263,23 @@ final class MemoryRateLimitStore implements RateLimitStore {
   ) async => availableInSync(key, maxAttempts, decay);
 
   @override
-  Future<void> clear(String key) async => _hits.remove(key);
+  Future<void> clear(String key) async => _buckets.remove(key);
 
   @override
-  Future<void> flush() async => _hits.clear();
+  Future<void> flush() async => _buckets.clear();
 
-  List<int> _window(String key, Duration decay, int now) {
-    final existing = _hits.remove(key);
-    final cutoff = now - decay.inMilliseconds;
-    final window = existing == null
-        ? <int>[]
-        : existing.where((t) => t > cutoff).toList();
-    _hits[key] = window; // re-insert → most recently used
-    if (_hits.length > maxKeys) {
-      _hits.remove(_hits.keys.first);
+  /// The live bucket of [key], starting a new window when the previous one
+  /// expired; keeps keys in least-recently-used order for eviction.
+  _Bucket _bucket(String key, Duration decay, int now) {
+    var bucket = _buckets.remove(key);
+    if (bucket == null || now >= bucket.resetAtMs) {
+      bucket = _Bucket(now + decay.inMilliseconds);
     }
-    return window;
+    _buckets[key] = bucket;
+    if (_buckets.length > maxKeys) {
+      _buckets.remove(_buckets.keys.first);
+    }
+    return bucket;
   }
 
   static DateTime _utcNow() => Clock.now().toUtc();
@@ -230,6 +304,12 @@ final class RateLimitService implements CoordinatorService {
     final max = args['max'] as int? ?? 0;
     return switch (op) {
       'attempt' => store.attemptSync(key, max, decay),
+      'acquire' => store.acquireSync(key, max, decay, args['want'] as int),
+      'release' => store.releaseSync(
+        key,
+        args['count'] as int,
+        args['resetAt'] as int,
+      ),
       'attempts' => store.attemptsSync(key, decay),
       'availableIn' => store.availableInSync(key, max, decay).inMilliseconds,
       'clear' => store.clear(key),
@@ -242,19 +322,65 @@ final class RateLimitService implements CoordinatorService {
   Map<String, Object?> stats() => <String, Object?>{'keys': store.size};
 }
 
+/// Hits a worker leased from the coordinator for one key.
+final class _Lease {
+  _Lease(this.tokens, this.limit, this.hits, this.resetAtMs, this.expiresAt);
+
+  int tokens;
+  final int limit;
+
+  /// Coordinator hits after the lease (includes the leased tokens).
+  final int hits;
+  final int resetAtMs;
+
+  /// Monotonic microseconds after which unused tokens go back.
+  final int expiresAt;
+}
+
 /// Process-wide counters via the coordinator. Fails **open** on coordinator
 /// errors/timeouts (the request is allowed and [onError] is notified), the
 /// documented default for rate limiting (§5.2).
+///
+/// Across isolates, hot keys with generous limits are served from local
+/// leases: a worker takes a batch of hits in one round trip and spends them
+/// in memory. The batch starts at 1, doubles while leases are used up within
+/// [leaseTtl] and resets when they are not; unused hits are released back,
+/// so the limit is never exceeded nor under-delivered. Keys with fewer than
+/// [leaseThreshold] attempts (login limits) always go to the coordinator. A
+/// worker that saw a key blocked answers `429` locally for up to
+/// [blockedCacheTtl] instead of asking again.
 final class ProcessRateLimitStore implements RateLimitStore {
   ProcessRateLimitStore(
     this.channel, {
     this.timeout = const Duration(milliseconds: 50),
     this.onError,
+    this.leaseThreshold = 32,
+    this.maxLease = 16,
+    this.leaseTtl = const Duration(milliseconds: 200),
+    this.blockedCacheTtl = const Duration(milliseconds: 100),
   });
 
   final CoordinatorChannel channel;
   final Duration timeout;
   final void Function(Object error)? onError;
+
+  /// Smallest `maxAttempts` served from leases.
+  final int leaseThreshold;
+
+  /// Largest batch leased at once.
+  final int maxLease;
+
+  /// Lifetime of a lease before unused hits are released.
+  final Duration leaseTtl;
+
+  /// How long a worker remembers that a key is blocked.
+  final Duration blockedCacheTtl;
+
+  final Map<String, _Lease> _leases = <String, _Lease>{};
+  final Map<String, int> _batch = <String, int>{};
+  final Map<String, (int, RateLimitResult)> _blocked =
+      <String, (int, RateLimitResult)>{};
+  final Stopwatch _monotonic = Stopwatch()..start();
 
   @override
   StateScope get scope => StateScope.process;
@@ -273,11 +399,14 @@ final class ProcessRateLimitStore implements RateLimitStore {
     Duration decay,
   ) async {
     try {
-      return await _call('attempt', {
-        'key': key,
-        'max': maxAttempts,
-        'decay': decay.inMilliseconds,
-      }) as RateLimitResult;
+      if (!channel.isRemote || maxAttempts < leaseThreshold) {
+        return await _call('attempt', {
+          'key': key,
+          'max': maxAttempts,
+          'decay': decay.inMilliseconds,
+        }) as RateLimitResult;
+      }
+      return await _leased(key, maxAttempts, decay);
     } on CoordinatorException catch (error) {
       onError?.call(error);
       return RateLimitResult(
@@ -285,6 +414,107 @@ final class ProcessRateLimitStore implements RateLimitStore {
         limit: maxAttempts,
         remaining: maxAttempts - 1,
         resetAt: Clock.now().toUtc().add(decay),
+      );
+    }
+  }
+
+  Future<RateLimitResult> _leased(
+    String key,
+    int maxAttempts,
+    Duration decay,
+  ) async {
+    final now = _monotonic.elapsedMicroseconds;
+    final blocked = _blocked[key];
+    if (blocked != null) {
+      if (now < blocked.$1) {
+        return blocked.$2;
+      }
+      _blocked.remove(key);
+    }
+    var lease = _leases[key];
+    if (lease != null &&
+        (now >= lease.expiresAt || lease.limit != maxAttempts)) {
+      _retire(key, lease, usedUp: false);
+      lease = null;
+    }
+    if (lease == null || lease.tokens == 0) {
+      if (lease != null) {
+        _retire(key, lease, usedUp: true);
+      }
+      lease = await _acquire(key, maxAttempts, decay, now);
+      if (lease == null) {
+        return _blocked[key]!.$2;
+      }
+    }
+    lease.tokens--;
+    return RateLimitResult(
+      allowed: true,
+      limit: maxAttempts,
+      remaining: maxAttempts - lease.hits + lease.tokens,
+      resetAt: DateTime.fromMillisecondsSinceEpoch(
+        lease.resetAtMs,
+        isUtc: true,
+      ),
+    );
+  }
+
+  Future<_Lease?> _acquire(
+    String key,
+    int maxAttempts,
+    Duration decay,
+    int now,
+  ) async {
+    final grant = await _call('acquire', {
+      'key': key,
+      'max': maxAttempts,
+      'decay': decay.inMilliseconds,
+      'want': _batch[key] ?? 1,
+    }) as RateLimitGrant;
+    if (grant.granted == 0) {
+      final wallNow = Clock.now().toUtc().millisecondsSinceEpoch;
+      final retryMs = grant.resetAtMs - wallNow;
+      final result = RateLimitResult(
+        allowed: false,
+        limit: maxAttempts,
+        remaining: 0,
+        resetAt: DateTime.fromMillisecondsSinceEpoch(
+          grant.resetAtMs,
+          isUtc: true,
+        ),
+        retryAfter: Duration(milliseconds: retryMs < 0 ? 0 : retryMs),
+      );
+      final ttl = blockedCacheTtl.inMicroseconds;
+      final untilReset = retryMs * 1000;
+      _blocked[key] = (now + (untilReset < ttl ? untilReset : ttl), result);
+      _batch.remove(key);
+      return null;
+    }
+    return _leases[key] = _Lease(
+      grant.granted,
+      maxAttempts,
+      grant.hits,
+      grant.resetAtMs,
+      now + leaseTtl.inMicroseconds,
+    );
+  }
+
+  /// Retires [lease]: returns unused hits and adapts the next batch size
+  /// (doubles when the lease was used up in time, back to 1 otherwise).
+  void _retire(String key, _Lease lease, {required bool usedUp}) {
+    _leases.remove(key);
+    final current = _batch[key] ?? 1;
+    if (usedUp) {
+      _batch[key] = current * 2 > maxLease ? maxLease : current * 2;
+      return;
+    }
+    _batch.remove(key);
+    if (lease.tokens > 0) {
+      unawaited(
+        _call('release', {
+          'key': key,
+          'count': lease.tokens,
+          'resetAt': lease.resetAtMs,
+        }).then<void>((_) {}, onError: (Object error) => onError?.call(error)),
       );
     }
   }
@@ -308,10 +538,20 @@ final class ProcessRateLimitStore implements RateLimitStore {
   );
 
   @override
-  Future<void> clear(String key) => _call('clear', {'key': key});
+  Future<void> clear(String key) {
+    _leases.remove(key);
+    _batch.remove(key);
+    _blocked.remove(key);
+    return _call('clear', {'key': key});
+  }
 
   @override
-  Future<void> flush() => _call('flush', {'key': ''});
+  Future<void> flush() {
+    _leases.clear();
+    _batch.clear();
+    _blocked.clear();
+    return _call('flush', {'key': ''});
+  }
 }
 
 /// Named limiters + counters (Laravel `RateLimiter`; BLUEPRINT_V2 §7.7).

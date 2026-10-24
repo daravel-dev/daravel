@@ -47,7 +47,9 @@ uses. To set the baseline, copy a nightly `results.json` artifact to
 `bench/baseline.json` and commit it.
 
 Internal targets (§10.2, not public promises) are printed at the end:
-ping overhead ≤ 25% against `dart:io`, throttle adds ≤ 100 µs p50, and four
+ping overhead ≤ 25% against `dart:io`, throttling adds ≤ 100 µs of service
+time per request (measured as `1/rps` on one isolate, since latency percentiles
+under concurrent load are mostly queueing), and four
 isolates give ≥ 3× the ping throughput of one on a 4+ core machine.
 
 Startup is measured by polling `/up`. On Windows a refused connection takes

@@ -186,8 +186,12 @@ Map<String, Object?> _targets(List<Map<String, Object?>> results) {
   final throttled = find('5-throttled', 1);
   final ping = find('1-ping', 1);
   if (throttled != null && ping != null) {
-    final added = (throttled['p50_us']! as int) - (ping['p50_us']! as int);
-    out['throttle_added_p50_us'] = '$added (target ≤ 100)';
+    // Service time per request on one isolate (1 / throughput): latency
+    // percentiles under concurrent load are dominated by queueing.
+    final added =
+        1e6 / (throttled['rps']! as int) - 1e6 / (ping['rps']! as int);
+    out['throttle_added_us_per_request'] =
+        '${added.toStringAsFixed(1)} (target ≤ 100; ADR-024 aims < 30)';
   }
   final ping4 = find('1-ping', 4);
   if (ping1 != null && ping4 != null) {

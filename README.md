@@ -71,7 +71,7 @@ what makes Laravel loved and adds what only Dart can offer:
 | **Schema** | Create and alter tables, foreign keys, SQLite table rebuilds, `migrate:fresh`, seeders, model factories with a built-in faker |
 | **Auth** | Argon2id/bcrypt/PBKDF2 hashing off the event loop, AES-256 `Crypt`, Sanctum-compatible tokens, JWT (HS256/EdDSA), multi-guard `auth:token,jwt`, Gate & Policies, `can:` middleware |
 | **Concurrency** | Supervisor + workers sharing one port, readiness barrier, respawn with crash-loop detection, coordinator isolate for process-wide state |
-| **Cache & limits** | Memory (LRU), process, file and database stores; `remember` with stampede protection, `flexible`, atomic locks; sliding-window rate limiter and `throttle:` |
+| **Cache & limits** | Memory (LRU), process, file and database stores; `remember` with stampede protection, `flexible`, atomic locks; Laravel-style fixed-window rate limiter (shared by every worker, with adaptive local leases) and `throttle:` |
 | **Queue & schedule** | Events with queued listeners, jobs with retries, backoff, timeouts, unique jobs and middleware; sync/memory/database drivers; cron scheduler with overlap protection |
 | **API & files** | `JsonResource` with conditional attributes and Laravel `data/links/meta` collections; local/public/memory disks with `Storage.fake()` |
 | **Observability** | Channel-based structured logging with request context and secret redaction, Prometheus `/metrics` merged across workers, `/up` and `/up/ready` health probes |

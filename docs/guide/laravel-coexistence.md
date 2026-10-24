@@ -18,9 +18,10 @@ Laravel's, and the **conformance suite** locks them:
 
 ```dotenv
 APP_KEY=base64:...        # the same key as the Laravel app
-APP_CIPHER=AES-256-CBC    # Laravel's default (Daravel defaults to GCM)
-HASH_DRIVER=bcrypt        # Laravel verifies only bcrypt by default
 ```
+
+That is all: Daravel's defaults are Laravel's (ADR-024), `APP_CIPHER=AES-256-CBC`
+and `HASH_DRIVER=bcrypt`. If the Laravel app changed them, set the same values.
 
 ## What is shared, and how
 
@@ -44,8 +45,7 @@ HASH_DRIVER=bcrypt        # Laravel verifies only bcrypt by default
 | Laravel | Daravel | Why |
 | :-- | :-- | :-- |
 | `Crypt::encrypt()` uses PHP `serialize()` | JSON | No PHP serializer yet (Tier 2); use the `*String` variants across runtimes |
-| Default cipher AES-256-CBC | AES-256-GCM | ADR-008 (authenticated encryption by default); set `APP_CIPHER` |
-| Default hasher bcrypt | argon2id | ADR-008; set `HASH_DRIVER=bcrypt` when sharing users |
+| `HASH_VERIFY` rejects any other driver | accepts bcrypt and argon2id across a switch | Lets `rehashPasswordIfRequired` upgrade old hashes (ADR-024) |
 | JSON escapes `/` and non-ASCII (`\/`, `é`) | plain UTF-8 | Equivalent after decoding; cursors use PHP's escaping |
 | `$model->with(...)` | `with_(...)` | `with` is reserved in Dart |
 | URL rule accepts any length | rejects > 8 192 chars | Bounded validation time (security suite) |

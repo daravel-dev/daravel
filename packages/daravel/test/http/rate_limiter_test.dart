@@ -11,34 +11,34 @@ void main() {
     limiter = RateLimiter(store: MemoryRateLimitStore(clock: () => now));
   });
 
-  test(
-    'sliding window: blocks after max attempts and frees as hits age',
-    () async {
-      const decay = Duration(minutes: 1);
-      for (var i = 0; i < 3; i++) {
-        final result = await limiter.attempt('k', 3, decay);
-        expect(result.allowed, isTrue);
-        expect(result.remaining, 2 - i);
-        now = now.add(const Duration(seconds: 10));
-      }
-      final blocked = await limiter.attempt('k', 3, decay);
-      expect(blocked.allowed, isFalse);
-      expect(blocked.remaining, 0);
-      expect(blocked.retryAfter, const Duration(seconds: 30));
-      expect(await limiter.tooManyAttempts('k', 3, decay), isTrue);
-      expect(
-        await limiter.availableIn('k', 3, decay),
-        const Duration(seconds: 30),
-      );
-      // The first hit (t=0) leaves the window at t=60s.
-      now = start.add(const Duration(seconds: 61));
-      expect(await limiter.attempts('k', decay), 2);
-      expect((await limiter.attempt('k', 3, decay)).allowed, isTrue);
-      await limiter.clear('k');
-      expect(await limiter.attempts('k', decay), 0);
-      expect(limiter.store.scope, StateScope.isolate);
-    },
-  );
+  test('fixed window (Laravel): blocks after max attempts until the window '
+      'started by the first hit resets', () async {
+    const decay = Duration(minutes: 1);
+    for (var i = 0; i < 3; i++) {
+      final result = await limiter.attempt('k', 3, decay);
+      expect(result.allowed, isTrue);
+      expect(result.remaining, 2 - i);
+      now = now.add(const Duration(seconds: 10));
+    }
+    final blocked = await limiter.attempt('k', 3, decay);
+    expect(blocked.allowed, isFalse);
+    expect(blocked.remaining, 0);
+    expect(blocked.retryAfter, const Duration(seconds: 30));
+    expect(await limiter.tooManyAttempts('k', 3, decay), isTrue);
+    expect(
+      await limiter.availableIn('k', 3, decay),
+      const Duration(seconds: 30),
+    );
+    // The window opened by the first hit (t=0) resets at t=60s.
+    now = start.add(const Duration(seconds: 61));
+    expect(await limiter.attempts('k', decay), 0);
+    final fresh = await limiter.attempt('k', 3, decay);
+    expect(fresh.allowed, isTrue);
+    expect(fresh.remaining, 2);
+    await limiter.clear('k');
+    expect(await limiter.attempts('k', decay), 0);
+    expect(limiter.store.scope, StateScope.isolate);
+  });
 
   test('named limiters resolve Limit, List<Limit> or null', () async {
     limiter

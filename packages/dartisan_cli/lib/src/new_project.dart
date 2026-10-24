@@ -291,13 +291,14 @@ LOG_LEVEL=debug
 CACHE_STORE=memory
 QUEUE_CONNECTION=sync
 FILESYSTEM_DISK=local
-HASH_DRIVER=argon2id
+HASH_DRIVER=bcrypt
 AUTH_GUARD=token
 METRICS_ENABLED=false
 
-# Sharing the database with a Laravel app? Match its defaults:
-# APP_CIPHER=AES-256-CBC
-# HASH_DRIVER=bcrypt
+# Defaults match Laravel (ADR-024): AES-256-CBC and bcrypt, so a Laravel app
+# sharing APP_KEY and the database interoperates without changes.
+# APP_CIPHER=AES-256-GCM
+# HASH_DRIVER=argon2id
 ''';
 
 const String _readme = r'''

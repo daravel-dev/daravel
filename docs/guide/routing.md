@@ -78,4 +78,9 @@ limiter.define(
 Responses carry `X-RateLimit-Limit` and `X-RateLimit-Remaining`; a limited
 request gets `429 {"message": "Too Many Attempts."}` with `Retry-After` and
 `X-RateLimit-Reset`. Limits are shared by every isolate of the process
-through the coordinator.
+through the coordinator. Like Laravel, a window starts with the first hit
+and resets `decay` later. With several isolates, keys with generous limits
+(32 or more attempts) are served from small local leases that grow on hot
+keys and give unused hits back: the limit is never exceeded (a hit leased by
+one worker may briefly be unavailable to another, for at most 200 ms), and
+the coordinator is no longer on every request.

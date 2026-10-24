@@ -10,11 +10,13 @@ import 'hashing.dart' show constantTimeEquals;
 
 /// Symmetric ciphers supported by [Encrypter].
 enum EncryptionCipher {
-  /// AES-256-GCM (default, ADR-008). Payload `{iv, value, mac: "", tag}`,
-  /// the shape Laravel emits for its `aes-256-gcm` cipher.
+  /// AES-256-GCM (opt in with `APP_CIPHER=AES-256-GCM`). Payload
+  /// `{iv, value, mac: "", tag}`, the shape Laravel emits for its
+  /// `aes-256-gcm` cipher.
   aes256gcm,
 
-  /// AES-256-CBC + HMAC-SHA256 (Laravel's default `APP_CIPHER`):
+  /// AES-256-CBC + HMAC-SHA256, encrypt-then-MAC (default, ADR-024, like
+  /// Laravel's `APP_CIPHER`):
   /// byte-compatible with Laravel's `aes-256-cbc` payloads
   /// (`{iv, value, mac, tag: ""}`), for values shared across a
   /// Laravel ⇄ Daravel deployment (BLUEPRINT_V2 §4.4).
@@ -46,8 +48,8 @@ final class EncryptException extends DaravelException {
 ///
 /// Payloads are `base64(json({"iv","value","mac","tag"}))` like Laravel's,
 /// so [encryptString] output can be read by a Laravel app sharing the key
-/// configured with the same cipher. Daravel defaults to AES-256-GCM; set
-/// `APP_CIPHER=AES-256-CBC` to match a default Laravel app.
+/// configured with the same cipher. Like Laravel, the default is AES-256-CBC
+/// (ADR-024); `APP_CIPHER=AES-256-GCM` selects GCM.
 /// Decryption accepts either payload shape.
 /// [encrypt]/[decrypt] JSON-encode arbitrary values, where Laravel uses PHP
 /// `serialize()`, so only the string variants are cross-runtime.
@@ -55,7 +57,7 @@ final class Encrypter {
   Encrypter(
     List<int> key, {
     List<List<int>> previousKeys = const <List<int>>[],
-    this.cipher = .aes256gcm,
+    this.cipher = .aes256cbc,
   }) : _keys = <List<int>>[key, ...previousKeys] {
     for (final k in _keys) {
       if (k.length != 32) {
@@ -71,7 +73,7 @@ final class Encrypter {
   factory Encrypter.fromAppKey(
     String appKey, {
     Iterable<String> previousKeys = const <String>[],
-    EncryptionCipher cipher = .aes256gcm,
+    EncryptionCipher cipher = .aes256cbc,
   }) => Encrypter(
     parseKey(appKey),
     previousKeys: previousKeys

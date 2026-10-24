@@ -65,14 +65,33 @@ void main() {
   });
 
   test(
-    'verify=true refuses foreign algorithms (downgrade protection)',
+    'verify=true accepts the strong family across a driver switch (ADR-024)',
     () async {
       final bcrypt = HashManager(config(HashDriver.bcrypt));
       final argon = HashManager(config(HashDriver.argon2id));
-      final hashed = await bcrypt.make('pw');
-      expect(() => argon.check('pw', hashed), throwsA(isA<HashException>()));
+      final fromBcrypt = await bcrypt.make('pw');
+      expect(await argon.check('pw', fromBcrypt), isTrue);
+      expect(argon.needsRehash(fromBcrypt), isTrue);
+      expect(await bcrypt.check('pw', await argon.make('pw')), isTrue);
     },
   );
+
+  test(
+    'verify=true refuses weak foreign algorithms (downgrade protection)',
+    () async {
+      final pbkdf2 = HashManager(config(HashDriver.pbkdf2));
+      final bcrypt = HashManager(config(HashDriver.bcrypt));
+      final hashed = await pbkdf2.make('pw');
+      expect(() => bcrypt.check('pw', hashed), throwsA(isA<HashException>()));
+    },
+  );
+
+  test('bcrypt cost 12 is the default, like Laravel', () {
+    const defaults = HashConfig();
+    expect(defaults.driver, HashDriver.bcrypt);
+    expect(defaults.bcryptRounds, 12);
+    expect(HashConfig.fromEnv(Env.fromMap(const {})).driver, HashDriver.bcrypt);
+  });
 
   test('unknown strings never verify', () async {
     final hash = HashManager(config(HashDriver.argon2id));
