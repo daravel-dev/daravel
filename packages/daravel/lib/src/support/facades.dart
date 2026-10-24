@@ -138,6 +138,10 @@ abstract final class Schema {
   static Future<void> dropIfExists(String table) async =>
       (await builder()).dropIfExists(table);
 
+  /// Columns of [table] (`Schema::getColumns`).
+  static Future<List<ColumnInfo>> getColumns(String table) async =>
+      (await builder()).getColumns(table);
+
   static Future<bool> hasTable(String table) async =>
       (await builder()).hasTable(table);
 

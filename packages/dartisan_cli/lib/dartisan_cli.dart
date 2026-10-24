@@ -5,18 +5,29 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
 import 'package:daravel/daravel.dart';
 
 import 'src/database_commands.dart';
+import 'src/dev_server.dart';
+import 'src/generator.dart';
+import 'src/project_commands.dart';
 import 'src/cache_commands.dart';
 import 'src/make_commands.dart';
 import 'src/queue_commands.dart';
 
 export 'src/database_commands.dart';
+export 'src/dev_server.dart';
+export 'src/model_sync.dart';
+export 'src/new_project.dart';
+export 'src/openapi.dart';
+export 'src/project_commands.dart';
+export 'src/stubs.dart';
 export 'src/generator.dart';
+export 'src/global_runner.dart';
 export 'src/cache_commands.dart';
 export 'src/make_commands.dart';
 export 'src/queue_commands.dart';
@@ -24,10 +35,16 @@ export 'src/queue_commands.dart';
 /// Creates an unbooted [Application] (a project's `createApp()`).
 typedef AppFactory = Application Function();
 
+/// Builds a custom command for a project (`bootstrap/commands.dart`):
+/// `SendReportsCommand.new`.
+typedef CommandFactory = Command<int> Function(AppFactory createApp);
+
 /// Command runner wired to a project's application factory.
 final class DartisanRunner extends CommandRunner<int> {
-  DartisanRunner(AppFactory createApp)
-    : super('dartisan', 'Daravel command-line interface.') {
+  DartisanRunner(
+    AppFactory createApp, {
+    List<CommandFactory> commands = const <CommandFactory>[],
+  }) : super('dartisan', 'Daravel command-line interface.') {
     addCommand(AboutCommand(createApp));
     addCommand(ServeCommand(createApp));
     addCommand(RouteListCommand(createApp));
@@ -58,6 +75,15 @@ final class DartisanRunner extends CommandRunner<int> {
     addCommand(MakeControllerCommand());
     addCommand(MakeRequestCommand());
     addCommand(MakeMiddlewareCommand());
+    extraMakeCommands().forEach(addCommand);
+    addCommand(KeyGenerateCommand());
+    addCommand(DoctorCommand(createApp));
+    addCommand(BuildCommand());
+    addCommand(OpenApiGenerateCommand(createApp));
+    addCommand(ModelSyncCommand(createApp));
+    for (final factory in commands) {
+      addCommand(factory(createApp));
+    }
   }
 
   /// Runs [command] with [args] and returns its exit code (used by the
@@ -108,6 +134,11 @@ final class ServeCommand extends DaravelCommand {
       ..addOption(
         'isolates',
         help: 'HTTP worker isolates (default: APP_ISOLATES or 1).',
+      )
+      ..addFlag(
+        'watch',
+        negatable: false,
+        help: 'Hot reload on file changes (development, single isolate).',
       );
   }
 
@@ -131,6 +162,26 @@ final class ServeCommand extends DaravelCommand {
     if (isolatesValue != null && (isolates == null || isolates < 1)) {
       usageException('--isolates must be a positive integer.');
     }
+    if (results['watch'] as bool) {
+      final server = DevServer(
+        root: ProjectPaths.locate().root,
+        dart: dartExecutable(),
+        environment: <String, String>{
+          'APP_HOST': ?host,
+          if (port != null) 'APP_PORT': '$port',
+        },
+      );
+      await server.start();
+      final signals = [
+        ProcessSignal.sigint.watch(),
+        if (!Platform.isWindows) ProcessSignal.sigterm.watch(),
+      ];
+      for (final signal in signals) {
+        signal.listen((_) => server.stop());
+      }
+      await server.done;
+      return 0;
+    }
     return Application.serveWith(
       createApp,
       host: host,
@@ -142,7 +193,13 @@ final class ServeCommand extends DaravelCommand {
 
 /// `dartisan route:list` — prints the compiled route table.
 final class RouteListCommand extends DaravelCommand {
-  RouteListCommand(super.createApp);
+  RouteListCommand(super.createApp) {
+    argParser
+      ..addOption('path', help: 'Only routes whose URI contains this.')
+      ..addOption('method', help: 'Only routes answering this method.')
+      ..addOption('name', help: 'Only routes whose name contains this.')
+      ..addFlag('json', negatable: false, help: 'Output JSON.');
+  }
 
   @override
   String get name => 'route:list';
@@ -152,9 +209,37 @@ final class RouteListCommand extends DaravelCommand {
 
   @override
   Future<int> run() => withApp((app) {
+    final r = argResults!;
+    final path = r['path'] as String?;
+    final method = (r['method'] as String?)?.toUpperCase();
+    final name = r['name'] as String?;
+    final routes = app.router.routes
+        .where((route) => path == null || route.path.contains(path))
+        .where((route) => method == null || route.methods.contains(method))
+        .where(
+          (route) => name == null || (route.routeName ?? '').contains(name),
+        )
+        .toList();
+    if (r['json'] as bool) {
+      stdout.writeln(
+        jsonEncode([
+          for (final route in routes)
+            {
+              'methods': route.methods,
+              'uri': route.path,
+              'name': route.routeName,
+              'middleware': [
+                for (final m in route.middlewareEntries)
+                  m is String ? m : m.runtimeType.toString(),
+              ],
+            },
+        ]),
+      );
+      return 0;
+    }
     final rows = <List<String>>[
       <String>['Method', 'URI', 'Name', 'Middleware'],
-      for (final route in app.router.routes)
+      for (final route in routes)
         <String>[
           route.methods.join('|'),
           route.path,
@@ -168,7 +253,7 @@ final class RouteListCommand extends DaravelCommand {
         ],
     ];
     stdout.write(renderTable(rows));
-    stdout.writeln('\n${app.router.routes.length} route(s).');
+    stdout.writeln('\n${routes.length} route(s).');
     return 0;
   });
 }

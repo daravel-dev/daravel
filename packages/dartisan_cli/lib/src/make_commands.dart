@@ -40,6 +40,9 @@ abstract class MakeCommand extends Command<int> {
     for (final entry in generator.log) {
       stdout.writeln(entry);
     }
+    for (final hint in generator.hints) {
+      stdout.writeln('  -> $hint');
+    }
     return generator.log.any((e) => !e.skipped) ? 0 : 1;
   }
 }
@@ -82,6 +85,18 @@ final class MakeModelCommand extends MakeCommand {
         abbr: 'a',
         negatable: false,
         help: 'Migration, factory, seeder and controller.',
+      )
+      ..addFlag(
+        'policy',
+        abbr: 'p',
+        negatable: false,
+        help: 'Also create (and register) a policy.',
+      )
+      ..addFlag(
+        'resource',
+        abbr: 'r',
+        negatable: false,
+        help: 'Also create an API resource.',
       )
       ..addFlag(
         'soft-deletes',
@@ -129,6 +144,12 @@ final class MakeModelCommand extends MakeCommand {
         resource: true,
         model: model,
       );
+    }
+    if (all || args['policy'] as bool) {
+      gen.policy('${Naming.pascal(model)}Policy', model: model);
+    }
+    if (all || args['resource'] as bool) {
+      gen.resource('${Naming.pascal(model)}Resource', model: model);
     }
     return report(gen);
   }
@@ -281,5 +302,167 @@ final class MakeMiddlewareCommand extends MakeCommand {
     final gen = generator();
     gen.middleware(nameArgument);
     return report(gen);
+  }
+}
+
+/// Generic `make:*` command for generators that take a name and optional
+/// `--model` / `--event` options.
+final class _SimpleMakeCommand extends MakeCommand {
+  _SimpleMakeCommand(
+    this.name,
+    this.description,
+    this._generate, {
+    bool model = false,
+    bool modelRequired = false,
+    bool event = false,
+  }) : _modelRequired = modelRequired {
+    if (model || modelRequired) {
+      argParser.addOption('model', help: 'Model the class works with.');
+    }
+    if (event) {
+      argParser.addOption('event', help: 'Event the listener handles.');
+    }
+  }
+
+  @override
+  final String name;
+
+  @override
+  final String description;
+
+  final bool _modelRequired;
+  final void Function(Generator gen, String name, Map<String, String?> options)
+  _generate;
+
+  @override
+  Future<int> run() async {
+    final args = argResults!;
+    final options = <String, String?>{
+      for (final option in const ['model', 'event'])
+        if (argParser.options.containsKey(option))
+          option: args[option] as String?,
+    };
+    if (_modelRequired && options['model'] == null) {
+      usageException('--model is required for $name.');
+    }
+    final gen = generator();
+    _generate(gen, nameArgument, options);
+    return report(gen);
+  }
+}
+
+/// `make:policy`, `make:event`, `make:listener`, `make:resource`,
+/// `make:rule`, `make:observer`, `make:provider`, `make:command`,
+/// `make:test`.
+List<Command<int>> extraMakeCommands() => [
+  _SimpleMakeCommand(
+    'make:policy',
+    'Create a new policy class (registered with --model).',
+    (g, n, o) => g.policy(n, model: o['model']),
+    model: true,
+  ),
+  _SimpleMakeCommand(
+    'make:event',
+    'Create a new event class.',
+    (g, n, o) => g.event(n),
+  ),
+  _SimpleMakeCommand(
+    'make:listener',
+    'Create a new listener (registered with --event).',
+    (g, n, o) => g.listener(n, event: o['event']),
+    event: true,
+  ),
+  _SimpleMakeCommand(
+    'make:resource',
+    'Create a new API resource.',
+    (g, n, o) => g.resource(n, model: o['model']),
+    model: true,
+  ),
+  _SimpleMakeCommand(
+    'make:rule',
+    'Create a new validation rule.',
+    (g, n, o) => g.rule(n),
+  ),
+  _SimpleMakeCommand(
+    'make:observer',
+    'Create a new model observer.',
+    (g, n, o) => g.observer(n, model: o['model']!),
+    modelRequired: true,
+  ),
+  _SimpleMakeCommand(
+    'make:provider',
+    'Create a new service provider.',
+    (g, n, o) => g.provider(n),
+  ),
+  MakeConsoleCommand(),
+  MakeTestCommand(),
+  StubPublishCommand(),
+];
+
+/// `make:command Name [--command=app:name]`
+final class MakeConsoleCommand extends MakeCommand {
+  MakeConsoleCommand() {
+    argParser.addOption(
+      'command',
+      help: 'Terminal signature (default: app:<kebab-name>).',
+    );
+  }
+
+  @override
+  String get name => 'make:command';
+
+  @override
+  String get description => 'Create a new dartisan command (and register it).';
+
+  @override
+  Future<int> run() async {
+    final gen = generator();
+    gen.command(nameArgument, signature: argResults!['command'] as String?);
+    return report(gen);
+  }
+}
+
+/// `make:test Name [--unit]`
+final class MakeTestCommand extends MakeCommand {
+  MakeTestCommand() {
+    argParser.addFlag('unit', negatable: false, help: 'Create a unit test.');
+  }
+
+  @override
+  String get name => 'make:test';
+
+  @override
+  String get description => 'Create a new test.';
+
+  @override
+  Future<int> run() async {
+    final gen = generator();
+    gen.test(nameArgument, unit: argResults!['unit'] as bool);
+    return report(gen);
+  }
+}
+
+/// `stub:publish [--force]` — copies the generator templates to `stubs/`.
+final class StubPublishCommand extends MakeCommand {
+  @override
+  String get name => 'stub:publish';
+
+  @override
+  String get description =>
+      'Publish all stubs that are available for customization.';
+
+  @override
+  String get nameArgument => '';
+
+  @override
+  Future<int> run() async {
+    final gen = generator();
+    gen.publishStubs();
+    final written = gen.log.where((e) => !e.skipped).length;
+    stdout.writeln(
+      '$written stub(s) published to stubs/ '
+      '(${gen.log.length - written} already existed; use --force to overwrite).',
+    );
+    return 0;
   }
 }

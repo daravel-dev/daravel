@@ -40,6 +40,10 @@ jobs:
         run: dart analyze --fatal-infos
 
       - name: Test (all packages)
+        env:
+          # `dartisan new` end-to-end (pub get + analyze + test of a generated
+          # project) runs once, on Linux.
+          DARAVEL_E2E: ${{ runner.os == 'Linux' && matrix.sdk == 'stable' && '1' || '0' }}
         run: |
           for pkg in packages/daravel packages/daravel_test packages/dartisan_cli apps/daravel_starter; do
             if [ -d "$pkg/test" ]; then

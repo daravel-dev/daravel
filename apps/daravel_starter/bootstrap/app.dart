@@ -1,16 +1,15 @@
 import 'dart:io';
 
 import 'package:daravel/daravel.dart';
-import 'package:daravel_starter/app/events/user_registered.dart';
-import 'package:daravel_starter/app/jobs/send_welcome_email.dart';
 import 'package:daravel_starter/app/models/user.dart';
-import 'package:daravel_starter/app/policies/user_policy.dart';
 
 import '../routes/api.dart';
 import '../routes/console.dart';
 import '../routes/web.dart';
 import 'jobs.dart';
+import 'listeners.dart';
 import 'migrations.dart';
+import 'policies.dart';
 import 'seeders.dart';
 
 /// Builds the (unbooted) application. Pure: safe to call once per isolate.
@@ -24,11 +23,8 @@ Application createApp({String? basePath, Map<String, String>? env}) =>
         .withSeeders(seeders)
         .withJobs(jobs)
         .withSchedule(consoleRoutes)
-        .withEvents((events) {
-          events.listen<UserRegistered>(
-            (event) => Queue.dispatch(SendWelcomeEmail(event.userId)),
-          );
-        })
+        .withEvents(registerListeners)
+        .withPolicies(registerPolicies)
         .withRouting(
           api: apiRoutes,
           web: webRoutes,
@@ -52,9 +48,6 @@ Application createApp({String? basePath, Map<String, String>? env}) =>
           auth.token<User>('token', ModelUserProvider<User>(User.definition));
           // Stateless JWTs signed with JWT_SECRET (or APP_KEY):
           // auth.jwt<User>('jwt', ModelUserProvider<User>(User.definition));
-        })
-        .withPolicies((gate) {
-          gate.policy<User>(const UserPolicy());
         })
         .withRateLimits((limiter) {
           limiter.define('login', (request) async {

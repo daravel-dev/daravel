@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
+import 'stubs.dart';
+
 /// Locates a Daravel project (BLUEPRINT_V2 §8.3): a directory with a
 /// `pubspec.yaml` and a `bootstrap/` folder.
 final class ProjectPaths {
@@ -37,17 +39,33 @@ final class ProjectPaths {
   final String root;
   final String packageName;
 
-  String get models => p.join(root, 'lib', 'app', 'models');
-  String get controllers => p.join(root, 'lib', 'app', 'http', 'controllers');
-  String get requests => p.join(root, 'lib', 'app', 'http', 'requests');
-  String get middleware => p.join(root, 'lib', 'app', 'http', 'middleware');
-  String get jobs => p.join(root, 'lib', 'app', 'jobs');
+  String _app(List<String> parts) => p.joinAll([root, 'lib', 'app', ...parts]);
+
+  String get models => _app(['models']);
+  String get controllers => _app(['http', 'controllers']);
+  String get requests => _app(['http', 'requests']);
+  String get middleware => _app(['http', 'middleware']);
+  String get resources => _app(['http', 'resources']);
+  String get jobs => _app(['jobs']);
+  String get events => _app(['events']);
+  String get listeners => _app(['listeners']);
+  String get policies => _app(['policies']);
+  String get rules => _app(['rules']);
+  String get observers => _app(['observers']);
+  String get providers => _app(['providers']);
+  String get commands => _app(['console', 'commands']);
   String get migrations => p.join(root, 'database', 'migrations');
   String get seeders => p.join(root, 'database', 'seeders');
   String get factories => p.join(root, 'database', 'factories');
+  String get featureTests => p.join(root, 'test', 'feature');
+  String get unitTests => p.join(root, 'test', 'unit');
+  String get stubs => p.join(root, 'stubs');
   String get migrationsRegistry => p.join(root, 'bootstrap', 'migrations.dart');
   String get seedersRegistry => p.join(root, 'bootstrap', 'seeders.dart');
   String get jobsRegistry => p.join(root, 'bootstrap', 'jobs.dart');
+  String get policiesRegistry => p.join(root, 'bootstrap', 'policies.dart');
+  String get listenersRegistry => p.join(root, 'bootstrap', 'listeners.dart');
+  String get commandsRegistry => p.join(root, 'bootstrap', 'commands.dart');
 }
 
 /// Naming helpers shared by generators.
@@ -64,6 +82,8 @@ abstract final class Naming {
       .replaceAll(RegExp(r'_+'), '_')
       .replaceAll(RegExp(r'^_|_$'), '')
       .toLowerCase();
+
+  static String kebab(String input) => snake(input).replaceAll('_', '-');
 
   static String camel(String input) {
     final pascalCase = pascal(input);
@@ -85,6 +105,12 @@ abstract final class Naming {
 
   /// Table name for a model class (`BlogPost` → `blog_posts`).
   static String table(String model) => plural(snake(model));
+
+  /// Appends [suffix] unless [name] already ends with it.
+  static String withSuffix(String name, String suffix) {
+    final pascalName = pascal(name);
+    return pascalName.endsWith(suffix) ? pascalName : '$pascalName$suffix';
+  }
 
   /// `yyyy_MM_dd_HHmmss` timestamp for migration files.
   static String timestamp([DateTime? now]) {
@@ -109,7 +135,7 @@ final class GeneratedFile {
   @override
   String toString() => skipped
       ? 'skipped $path'
-      : '${overwritten ? 'overwrote' : 'created'} $path';
+      : '${overwritten ? 'updated' : 'created'} $path';
 }
 
 /// Inserts import and entry lines into registry files that carry
@@ -164,11 +190,8 @@ abstract final class RegistryPatcher {
       );
     }
     final inner = content.substring(start + open.length, end);
-    return (
-      start: start,
-      end: end,
-      lines: inner.split('\n').map((l) => l.trimRight()).toList(),
-    );
+    final lines = inner.split('\n').map((l) => l.trimRight()).toList();
+    return (start: start, end: end, lines: lines);
   }
 
   static String _replaceRegion(
@@ -178,17 +201,40 @@ abstract final class RegistryPatcher {
     List<String> lines,
   ) {
     final region = _region(content, open, close);
+    // Keep the closing marker's indentation.
+    final lineStart = content.lastIndexOf('\n', region.end - 1) + 1;
+    final indent = content.substring(lineStart, region.end);
     final body = lines.isEmpty ? '\n' : '\n${lines.join('\n')}\n';
     return content.substring(0, region.start + open.length) +
         body +
+        (indent.trim().isEmpty ? indent : '') +
         content.substring(region.end);
   }
 
-  /// A fresh registry file with markers.
+  /// A fresh list registry (`final List<Migration> migrations = [...]`).
   static String template({
     required String header,
     required String listType,
     required String listName,
+    String import = "import 'package:daravel/daravel.dart';",
+  }) =>
+      '''
+$header
+$import
+$importsStart
+$importsEnd
+
+/// Maintained by `dartisan make:*`; entries may also be added by hand.
+final List<$listType> $listName = <$listType>[
+  $entriesStart
+  $entriesEnd
+];
+''';
+
+  /// A fresh function registry (`void registerPolicies(AuthorizationGate gate)`).
+  static String functionTemplate({
+    required String header,
+    required String signature,
   }) =>
       '''
 $header
@@ -197,10 +243,10 @@ $importsStart
 $importsEnd
 
 /// Maintained by `dartisan make:*`; entries may also be added by hand.
-final List<$listType> $listName = <$listType>[
-$entriesStart
-$entriesEnd
-];
+$signature {
+  $entriesStart
+  $entriesEnd
+}
 ''';
 }
 
@@ -221,20 +267,45 @@ final class Generator {
   final DateTime Function() _clock;
   final List<GeneratedFile> log = <GeneratedFile>[];
 
+  /// Manual follow-up steps printed after generation.
+  final List<String> hints = <String>[];
+
+  String get _package => paths.packageName;
+
+  /// The template for [name]: the project's `stubs/<name>.stub` when it
+  /// exists, otherwise the built-in one.
+  String stub(String name) {
+    final custom = File(p.join(paths.stubs, '$name.stub'));
+    if (custom.existsSync()) {
+      return custom.readAsStringSync();
+    }
+    final builtIn = builtInStubs[name];
+    if (builtIn == null) {
+      throw ArgumentError.value(name, 'name', 'Unknown stub.');
+    }
+    return builtIn;
+  }
+
+  GeneratedFile _render(
+    String path,
+    String stubName,
+    Map<String, String> values,
+  ) => _write(path, renderStub(stub(stubName), values));
+
   // ---------------------------------------------------------------------------
-  // Public generators
+  // Generators
   // ---------------------------------------------------------------------------
 
   GeneratedFile model(String name, {String? table, bool softDeletes = false}) {
     final className = Naming.pascal(name);
-    final tableName = table ?? Naming.table(className);
-    return _write(
+    return _render(
       p.join(paths.models, '${Naming.snake(className)}.dart'),
-      Stubs.model(
-        className: className,
-        table: tableName,
-        softDeletes: softDeletes,
-      ),
+      'model',
+      {
+        'class': className,
+        'table': table ?? Naming.table(className),
+        'softDeletes': softDeletes ? '\n    softDeletes: true,' : '',
+      },
     );
   }
 
@@ -242,77 +313,54 @@ final class Generator {
     final snake = Naming.snake(name);
     final stamp = Naming.timestamp(_clock());
     final className = Naming.pascal(snake);
-    final file = _write(
+    final stubName = create != null
+        ? 'migration.create'
+        : table != null
+        ? 'migration.update'
+        : 'migration';
+    final file = _render(
       p.join(paths.migrations, 'm_${stamp}_$snake.dart'),
-      Stubs.migration(
-        className: className,
-        name: '${stamp}_$snake',
-        create: create,
-        table: table,
-      ),
+      stubName,
+      {
+        'class': className,
+        'name': '${stamp}_$snake',
+        'table': create ?? table ?? '',
+      },
     );
-    if (updateRegistries && !file.skipped) {
-      _patchRegistry(
-        paths.migrationsRegistry,
-        template: RegistryPatcher.template(
-          header:
-              '// Migration registry (explicit, AOT-friendly). See BLUEPRINT_V2 ADR-002.',
-          listType: 'Migration',
-          listName: 'migrations',
-        ),
-        importLine: "import '../database/migrations/m_${stamp}_$snake.dart';",
-        entryLine: '  const $className(),',
-      );
-    }
+    _register(
+      file,
+      paths.migrationsRegistry,
+      RegistryPatcher.template(
+        header:
+            '// Migration registry (explicit, AOT-friendly). See BLUEPRINT_V2 ADR-002.',
+        listType: 'Migration',
+        listName: 'migrations',
+      ),
+      "import '../database/migrations/m_${stamp}_$snake.dart';",
+      '  const $className(),',
+    );
     return file;
   }
 
   GeneratedFile seeder(String name) {
     final className = Naming.pascal(name);
-    final file = _write(
+    final file = _render(
       p.join(paths.seeders, '${Naming.snake(className)}.dart'),
-      Stubs.seeder(className: className),
+      'seeder',
+      {'class': className},
     );
-    if (updateRegistries && !file.skipped) {
-      _patchRegistry(
-        paths.seedersRegistry,
-        template: RegistryPatcher.template(
-          header:
-              '// Seeder registry (explicit, AOT-friendly). The first entry is the root seeder.',
-          listType: 'Seeder',
-          listName: 'seeders',
-        ),
-        importLine:
-            "import '../database/seeders/${Naming.snake(className)}.dart';",
-        entryLine: '  const $className(),',
-      );
-    }
-    return file;
-  }
-
-  GeneratedFile job(String name) {
-    final className = Naming.pascal(name);
-    final file = _write(
-      p.join(paths.jobs, '${Naming.snake(className)}.dart'),
-      Stubs.job(
-        className: className,
-        jobName: Naming.snake(className).replaceAll('_', '-'),
+    _register(
+      file,
+      paths.seedersRegistry,
+      RegistryPatcher.template(
+        header:
+            '// Seeder registry (explicit, AOT-friendly). The first entry is the root seeder.',
+        listType: 'Seeder',
+        listName: 'seeders',
       ),
+      "import '../database/seeders/${Naming.snake(className)}.dart';",
+      '  const $className(),',
     );
-    if (updateRegistries && !file.skipped) {
-      _patchRegistry(
-        paths.jobsRegistry,
-        template: RegistryPatcher.template(
-          header:
-              '// Job registry (explicit, AOT-friendly): name → factory from JSON.',
-          listType: 'JobDefinition',
-          listName: 'jobs',
-        ),
-        importLine:
-            "import 'package:${paths.packageName}/app/jobs/${Naming.snake(className)}.dart';",
-        entryLine: '  JobDefinition($className.name, $className.fromJson),',
-      );
-    }
     return file;
   }
 
@@ -320,9 +368,15 @@ final class Generator {
     final modelName = Naming.pascal(
       model ?? name.replaceAll(RegExp(r'Factory$'), ''),
     );
-    return _write(
+    return _render(
       p.join(paths.factories, '${Naming.snake(modelName)}_factory.dart'),
-      Stubs.factory(modelName: modelName, packageName: paths.packageName),
+      'factory',
+      {
+        'model': modelName,
+        'modelFile': Naming.snake(modelName),
+        'function': '${Naming.camel(modelName)}Factory',
+        'package': _package,
+      },
     );
   }
 
@@ -332,40 +386,239 @@ final class Generator {
     bool resource = false,
     String? model,
   }) {
-    final className = Naming.pascal(
-      name.endsWith('Controller') ? name : '${name}Controller',
-    );
-    return _write(
+    final className = Naming.withSuffix(name, 'Controller');
+    final modelName = model == null ? null : Naming.pascal(model);
+    final stubName = modelName != null
+        ? 'controller.model.api'
+        : (api || resource)
+        ? 'controller.api'
+        : 'controller';
+    return _render(
       p.join(paths.controllers, '${Naming.snake(className)}.dart'),
-      Stubs.controller(
-        className: className,
-        api: api,
-        resource: resource || api,
-        model: model == null ? null : Naming.pascal(model),
-        packageName: paths.packageName,
-      ),
+      stubName,
+      {
+        'class': className,
+        'model': modelName ?? '',
+        'modelFile': modelName == null ? '' : Naming.snake(modelName),
+        'param': modelName == null ? '' : Naming.snake(modelName),
+        'resource': modelName == null ? '' : Naming.table(modelName),
+        'package': _package,
+      },
     );
   }
 
   GeneratedFile request(String name) {
-    final className = Naming.pascal(
-      name.endsWith('Request') ? name : '${name}Request',
-    );
-    return _write(
+    final className = Naming.withSuffix(name, 'Request');
+    return _render(
       p.join(paths.requests, '${Naming.snake(className)}.dart'),
-      Stubs.request(className: className),
+      'request',
+      {'class': className},
     );
   }
 
   GeneratedFile middleware(String name) {
-    final className = Naming.pascal(
-      name.endsWith('Middleware') ? name : '${name}Middleware',
-    );
-    return _write(
+    final className = Naming.withSuffix(name, 'Middleware');
+    return _render(
       p.join(paths.middleware, '${Naming.snake(className)}.dart'),
-      Stubs.middleware(className: className),
+      'middleware',
+      {'class': className},
     );
   }
+
+  GeneratedFile job(String name) {
+    final className = Naming.pascal(name);
+    final file = _render(
+      p.join(paths.jobs, '${Naming.snake(className)}.dart'),
+      'job',
+      {'class': className, 'jobName': Naming.kebab(className)},
+    );
+    _register(
+      file,
+      paths.jobsRegistry,
+      RegistryPatcher.template(
+        header:
+            '// Job registry (explicit, AOT-friendly): name → factory from JSON.',
+        listType: 'JobDefinition',
+        listName: 'jobs',
+      ),
+      "import 'package:$_package/app/jobs/${Naming.snake(className)}.dart';",
+      '  JobDefinition($className.name, $className.fromJson),',
+    );
+    return file;
+  }
+
+  GeneratedFile policy(String name, {String? model}) {
+    final className = Naming.withSuffix(name, 'Policy');
+    final modelName = model == null ? null : Naming.pascal(model);
+    final file = _render(
+      p.join(paths.policies, '${Naming.snake(className)}.dart'),
+      modelName == null ? 'policy' : 'policy.model',
+      {
+        'class': className,
+        'model': modelName ?? '',
+        'modelFile': modelName == null ? '' : Naming.snake(modelName),
+        'package': _package,
+      },
+    );
+    if (modelName != null) {
+      _register(
+        file,
+        paths.policiesRegistry,
+        RegistryPatcher.functionTemplate(
+          header: '// Policy registry: model type → policy (Gate::policy).',
+          signature: 'void registerPolicies(AuthorizationGate gate)',
+        ),
+        "import 'package:$_package/app/policies/${Naming.snake(className)}.dart';",
+        '  gate.policy<$modelName>(const $className());',
+        extraImport:
+            "import 'package:$_package/app/models/${Naming.snake(modelName)}.dart';",
+      );
+    }
+    return file;
+  }
+
+  GeneratedFile event(String name) {
+    final className = Naming.pascal(name);
+    return _render(
+      p.join(paths.events, '${Naming.snake(className)}.dart'),
+      'event',
+      {'class': className},
+    );
+  }
+
+  GeneratedFile listener(String name, {String? event}) {
+    final className = Naming.pascal(name);
+    final eventName = event == null ? null : Naming.pascal(event);
+    final file = _render(
+      p.join(paths.listeners, '${Naming.snake(className)}.dart'),
+      eventName == null ? 'listener' : 'listener.event',
+      {
+        'class': className,
+        'event': eventName ?? '',
+        'eventFile': eventName == null ? '' : Naming.snake(eventName),
+        'package': _package,
+      },
+    );
+    if (eventName != null) {
+      _register(
+        file,
+        paths.listenersRegistry,
+        RegistryPatcher.functionTemplate(
+          header:
+              r'// Listener registry: event → listeners (EventServiceProvider::$listen).',
+          signature: 'void registerListeners(EventDispatcher events)',
+        ),
+        "import 'package:$_package/app/listeners/${Naming.snake(className)}.dart';",
+        '  events.listen<$eventName>(const $className().handle);',
+        extraImport:
+            "import 'package:$_package/app/events/${Naming.snake(eventName)}.dart';",
+      );
+    }
+    return file;
+  }
+
+  GeneratedFile resource(String name, {String? model}) {
+    final className = Naming.withSuffix(name, 'Resource');
+    final modelName = Naming.pascal(
+      model ?? className.substring(0, className.length - 'Resource'.length),
+    );
+    final hasModel =
+        model != null ||
+        File(
+          p.join(paths.models, '${Naming.snake(modelName)}.dart'),
+        ).existsSync();
+    return _render(
+      p.join(paths.resources, '${Naming.snake(className)}.dart'),
+      hasModel ? 'resource.model' : 'resource',
+      {
+        'class': className,
+        'model': modelName,
+        'modelFile': Naming.snake(modelName),
+        'package': _package,
+      },
+    );
+  }
+
+  GeneratedFile rule(String name) {
+    final className = Naming.pascal(name);
+    return _render(
+      p.join(paths.rules, '${Naming.snake(className)}.dart'),
+      'rule',
+      {'class': className, 'ruleName': Naming.snake(className)},
+    );
+  }
+
+  GeneratedFile observer(String name, {required String model}) {
+    final className = Naming.withSuffix(name, 'Observer');
+    final modelName = Naming.pascal(model);
+    hints.add(
+      'Attach the observer: observers: [const $className()] in '
+      '$modelName.definition.',
+    );
+    return _render(
+      p.join(paths.observers, '${Naming.snake(className)}.dart'),
+      'observer',
+      {
+        'class': className,
+        'model': modelName,
+        'modelFile': Naming.snake(modelName),
+        'package': _package,
+      },
+    );
+  }
+
+  GeneratedFile provider(String name) {
+    final className = Naming.withSuffix(name, 'ServiceProvider');
+    hints.add(
+      'Register it: .withProviders([const $className()]) in bootstrap/app.dart.',
+    );
+    return _render(
+      p.join(paths.providers, '${Naming.snake(className)}.dart'),
+      'provider',
+      {'class': className},
+    );
+  }
+
+  GeneratedFile command(String name, {String? signature}) {
+    final className = Naming.withSuffix(name, 'Command');
+    final base = className.substring(0, className.length - 'Command'.length);
+    final file = _render(
+      p.join(paths.commands, '${Naming.snake(className)}.dart'),
+      'command',
+      {
+        'class': className,
+        'signature': signature ?? 'app:${Naming.kebab(base)}',
+      },
+    );
+    _register(
+      file,
+      paths.commandsRegistry,
+      RegistryPatcher.template(
+        header: '// Console command registry (custom dartisan commands).',
+        listType: 'CommandFactory',
+        listName: 'commands',
+        import: "import 'package:dartisan_cli/dartisan_cli.dart';",
+      ),
+      "import 'package:$_package/app/console/commands/${Naming.snake(className)}.dart';",
+      '  $className.new,',
+    );
+    return file;
+  }
+
+  GeneratedFile test(String name, {bool unit = false}) {
+    final snake = Naming.snake(name.replaceAll(RegExp(r'_?[Tt]est$'), ''));
+    return _render(
+      p.join(unit ? paths.unitTests : paths.featureTests, '${snake}_test.dart'),
+      unit ? 'test.unit' : 'test',
+      {'description': snake.replaceAll('_', ' ')},
+    );
+  }
+
+  /// Copies every built-in stub to `stubs/<name>.stub`.
+  List<GeneratedFile> publishStubs() => [
+    for (final entry in builtInStubs.entries)
+      _write(p.join(paths.stubs, '${entry.key}.stub'), entry.value),
+  ];
 
   // ---------------------------------------------------------------------------
   // Internals
@@ -388,266 +641,39 @@ final class Generator {
     return result;
   }
 
-  void _patchRegistry(
-    String path, {
-    required String template,
-    required String importLine,
-    required String entryLine,
+  void _register(
+    GeneratedFile file,
+    String registry,
+    String template,
+    String importLine,
+    String entryLine, {
+    String? extraImport,
   }) {
-    final file = File(path);
-    final content = file.existsSync() ? file.readAsStringSync() : template;
-    final patched = RegistryPatcher.patch(
-      content,
-      importLine: importLine,
-      entryLine: entryLine,
-    );
-    if (patched == null) {
+    if (!updateRegistries || file.skipped) {
+      return;
+    }
+    final target = File(registry);
+    final existed = target.existsSync();
+    var content = existed ? target.readAsStringSync() : template;
+    var changed = false;
+    for (final line in [?extraImport, importLine]) {
+      final patched = RegistryPatcher.patch(
+        content,
+        importLine: line,
+        entryLine: entryLine,
+      );
+      if (patched != null) {
+        content = patched;
+        changed = true;
+      }
+    }
+    if (!changed) {
       return;
     }
     if (!dryRun) {
-      file.parent.createSync(recursive: true);
-      file.writeAsStringSync(patched);
+      target.parent.createSync(recursive: true);
+      target.writeAsStringSync(content);
     }
-    log.add(GeneratedFile(path, overwritten: file.existsSync()));
+    log.add(GeneratedFile(registry, overwritten: existed));
   }
-}
-
-/// Code templates (publishable later via `stub:publish`).
-abstract final class Stubs {
-  static String model({
-    required String className,
-    required String table,
-    bool softDeletes = false,
-  }) =>
-      '''
-import 'package:daravel/daravel.dart';
-
-final class $className extends Model {
-  static final ModelDefinition<$className> definition = ModelDefinition<$className>(
-    table: '$table',
-    factory: $className.new,
-    fillable: [],
-    hidden: [],
-    casts: {
-      'created_at': Cast.dateTime,
-      'updated_at': Cast.dateTime,
-    },${softDeletes ? '\n    softDeletes: true,' : ''}
-    relations: {},
-  );
-
-  @override
-  ModelDefinition<$className> get modelDefinition => $className.definition;
-
-  // <dartisan:statics>
-  static ModelQuery<$className> query() => definition.query();
-  static Future<$className?> find(Object id) => query().find(id);
-  static Future<$className> findOrFail(Object id) => query().findOrFail(id);
-  static Future<$className> create(Map<String, Object?> attributes) =>
-      query().create(attributes);
-  static Future<ModelCollection<$className>> all() => query().get();
-  static ModelQuery<$className> where(Object column, [Object? op, Object? value]) =>
-      query().where(column, op, value);
-  // </dartisan:statics>
-
-  // <dartisan:accessors>
-  int get id => getAttr('id');
-  DateTime? get createdAt => getAttr('created_at');
-  DateTime? get updatedAt => getAttr('updated_at');
-  // </dartisan:accessors>
-}
-''';
-
-  static String migration({
-    required String className,
-    required String name,
-    String? create,
-    String? table,
-  }) {
-    final String up;
-    final String down;
-    if (create != null) {
-      up =
-          '''
-    await schema.create('$create', (table) {
-      table.id();
-      table.timestamps();
-    });''';
-      down = "    await schema.dropIfExists('$create');";
-    } else if (table != null) {
-      up =
-          '''
-    await schema.table('$table', (table) {
-      // table.string('column').nullable();
-    });''';
-      down =
-          '''
-    await schema.table('$table', (table) {
-      // table.dropColumn('column');
-    });''';
-    } else {
-      up = '    // Schema changes go here.';
-      down = '    // Reverse the changes made in up().';
-    }
-    return '''
-import 'package:daravel/daravel.dart';
-
-final class $className extends Migration {
-  const $className();
-
-  @override
-  String get name => '$name';
-
-  @override
-  Future<void> up(SchemaBuilder schema) async {
-$up
-  }
-
-  @override
-  Future<void> down(SchemaBuilder schema) async {
-$down
-  }
-}
-''';
-  }
-
-  static String job({required String className, required String jobName}) =>
-      '''
-import 'package:daravel/daravel.dart';
-
-/// Queued job; dispatch with `await Queue.dispatch($className(...))`.
-final class $className extends Job {
-  const $className();
-
-  /// Stable registry key (see bootstrap/jobs.dart).
-  static const String name = '$jobName';
-
-  factory $className.fromJson(Map<String, Object?> json) => const $className();
-
-  @override
-  String get jobName => name;
-
-  @override
-  int get tries => 3;
-
-  @override
-  List<Duration> get backoff => const [Duration(seconds: 10), Duration(seconds: 60)];
-
-  @override
-  Map<String, Object?> toJson() => const <String, Object?>{};
-
-  @override
-  Future<void> handle(JobContext ctx) async {
-    // Do the work here.
-  }
-}
-''';
-
-  static String seeder({required String className}) =>
-      '''
-import 'package:daravel/daravel.dart';
-
-final class $className extends Seeder {
-  const $className();
-
-  @override
-  Future<void> run() async {
-    // Seed the database here, e.g. await userFactory().createMany(const {}, 10);
-  }
-}
-''';
-
-  static String factory({
-    required String modelName,
-    required String packageName,
-  }) =>
-      '''
-import 'package:daravel/daravel.dart';
-import 'package:$packageName/app/models/${Naming.snake(modelName)}.dart';
-
-/// Factory for [$modelName].
-ModelFactory<$modelName> ${Naming.camel(modelName)}Factory({Faker? faker}) => ModelFactory<$modelName>(
-  $modelName.definition,
-  (Faker f) => <String, Object?>{
-    // 'name': f.name(),
-  },
-  faker: faker,
-);
-''';
-
-  static String controller({
-    required String className,
-    required bool api,
-    required bool resource,
-    required String packageName,
-    String? model,
-  }) {
-    final modelImport = model == null
-        ? ''
-        : "import 'package:$packageName/app/models/${Naming.snake(model)}.dart';\n";
-    final implementsClause = resource ? ' implements ResourceController' : '';
-    final body = resource
-        ? '''
-  @override
-  Future<Object?> index(Request request) async => ${model == null ? '<String, Object?>{}' : '$model.query().paginate()'};
-
-  @override
-  Future<Object?> store(Request request) async {
-    final data = await request.validate({});
-    return Response.created(data.toMap());
-  }
-
-  @override
-  Future<Object?> show(Request request) async => ${model == null ? '<String, Object?>{}' : "$model.findOrFail(request.param<int>('${Naming.snake(model)}'))"};
-
-  @override
-  Future<Object?> update(Request request) async {
-    final data = await request.validate({});
-    return data.toMap();
-  }
-
-  @override
-  Future<Object?> destroy(Request request) async => Response.noContent();
-'''
-        : '''
-  Future<Object?> index(Request request) async => <String, Object?>{};
-''';
-    return '''
-import 'package:daravel/daravel.dart';
-$modelImport
-final class $className$implementsClause {
-$body}
-''';
-  }
-
-  static String request({required String className}) =>
-      '''
-import 'package:daravel/daravel.dart';
-
-final class $className extends FormRequest {
-  const $className();
-
-  @override
-  FutureOr<bool> authorize(Request request) => true;
-
-  @override
-  Map<String, Object> rules(Request request) => {
-    // 'email': 'required|email',
-  };
-}
-''';
-
-  static String middleware({required String className}) =>
-      '''
-import 'package:daravel/daravel.dart';
-
-final class $className implements Middleware {
-  const $className();
-
-  @override
-  Future<Response> handle(Request request, Next next) async {
-    final response = await next(request);
-    return response;
-  }
-}
-''';
 }

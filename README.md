@@ -14,7 +14,7 @@
   <a href="https://dart.dev"><img src="https://img.shields.io/badge/Dart-%5E3.9-0175C2?logo=dart&logoColor=white" alt="Dart ^3.9"></a>
   <a href="https://dart.dev/tools/dart-compile#exe"><img src="https://img.shields.io/badge/AOT-native%20binary-16A34A" alt="AOT native binary"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
-  <img src="https://img.shields.io/badge/status-Tier%201%20·%20S11%20of%2014-F59E0B" alt="Status: Tier 1, slice 11 of 14">
+  <img src="https://img.shields.io/badge/status-Tier%201%20·%20S12%20of%2014-F59E0B" alt="Status: Tier 1, slice 12 of 14">
 </p>
 
 <p align="center">
@@ -50,9 +50,10 @@ what makes Laravel loved and adds what only Dart can offer:
   `failed_jobs` tables are wire- and storage-compatible, so Laravel and Daravel can run side by
   side on the same database.
 
-> **Status.** Tier 1 in progress: slices S1–S11 are done (foundation, HTTP, routing, validation,
+> **Status.** Tier 1 in progress: slices S1–S12 are done (foundation, HTTP, routing, validation,
 > database, ORM, schema & seeding, auth, multi-isolate serving & cache, queue & scheduler,
-> resources, storage & observability). Next is S12, CLI completeness. The API is not stable yet.
+> resources, storage & observability, CLI with `new` and hot reload). Next is S13, the testing
+> toolkit. The API is not stable yet.
 
 ## Features
 
@@ -275,9 +276,10 @@ cd daravel
 dart pub get                                  # resolves the whole workspace
 
 cd apps/daravel_starter
-cp .env.example .env                          # then set APP_KEY (base64:… 32 bytes)
+cp .env.example .env
+dart run bin/dartisan.dart key:generate       # writes APP_KEY to .env
 dart run bin/dartisan.dart migrate --seed     # users, tokens, cache and jobs tables
-dart run bin/dartisan.dart serve              # http://127.0.0.1:8000
+dart run bin/dartisan.dart serve --watch      # http://127.0.0.1:8000 with hot reload
 ```
 
 ```bash
@@ -286,6 +288,16 @@ curl http://127.0.0.1:8000/up/ready           # {"status":"ok","checks":{"databa
 curl -X POST http://127.0.0.1:8000/api/auth/register \
      -H 'content-type: application/json' \
      -d '{"name":"Ana","email":"ana@example.com","password":"secret-123","password_confirmation":"secret-123"}'
+```
+
+Or start a fresh application from the clone (`--path` points at the framework checkout;
+without it the project depends on this repository through git):
+
+```bash
+dart run packages/dartisan_cli/bin/dartisan.dart new ../blog --path=.
+cd ../blog
+dart run bin/dartisan.dart migrate --seed
+dart run bin/dartisan.dart serve --watch
 ```
 
 Serve on every core and process background work:
@@ -351,15 +363,17 @@ The monorepo is a Dart pub workspace:
 
 | Group | Commands |
 | :-- | :-- |
-| App | `about`, `serve [--host] [--port] [--isolates]`, `route:list`, `coordinator:stats` |
-| Database | `migrate [--seed]`, `migrate:status`, `migrate:rollback [--step]`, `migrate:reset`, `migrate:fresh [--seed] [--force]`, `db:seed [--class] [--all]` |
-| Generators | `make:model [-m -f -s -c --api --all]`, `make:migration`, `make:seeder`, `make:factory`, `make:controller [--api --resource]`, `make:request`, `make:middleware`, `make:job` |
+| Project | `new <name> [--template=api\|minimal] [--path] [--git]`, `about`, `doctor [--production]`, `key:generate [--show] [--force]`, `stub:publish` |
+| Serve & build | `serve [--host] [--port] [--isolates] [--watch]`, `build [--output] [--define K=V] [--docker]`, `route:list [--path] [--method] [--name] [--json]`, `openapi:generate`, `coordinator:stats` |
+| Database | `migrate [--seed]`, `migrate:status`, `migrate:rollback [--step]`, `migrate:reset`, `migrate:fresh [--seed] [--force]`, `db:seed [--class] [--all]`, `model:sync [Model] [--dry-run]` |
+| Generators | `make:model [-m -f -s -c -p -r --api --all]`, `make:migration`, `make:seeder`, `make:factory`, `make:controller [--api --resource --model]`, `make:request`, `make:middleware`, `make:job`, `make:policy`, `make:event`, `make:listener [--event]`, `make:resource`, `make:rule`, `make:observer`, `make:provider`, `make:command`, `make:test [--unit]` |
 | Queue | `queue:work [--queue --tries --backoff --timeout --max-jobs --once]`, `queue:failed`, `queue:retry`, `queue:forget`, `queue:flush`, `queue:clear`, `queue:restart` |
 | Schedule | `schedule:run`, `schedule:work`, `schedule:list` |
 | Cache & files | `cache:clear [store]`, `storage:link` |
 
-Generators update the registries in `bootstrap/` through marked regions, so a new migration, seeder
-or job is wired up the moment it is created:
+Generators update the registries in `bootstrap/` (migrations, seeders, jobs, policies, listeners
+and custom commands) through marked regions, so a new class is wired up the moment it is created.
+Every template can be customised after `stub:publish`:
 
 ```bash
 dart run bin/dartisan.dart make:model Post --all --api
@@ -368,11 +382,14 @@ dart run bin/dartisan.dart make:model Post --all --api
 ```text
 created lib/app/models/post.dart
 created database/migrations/m_2026_10_24_090507_create_posts_table.dart
-overwrote bootstrap/migrations.dart
+updated bootstrap/migrations.dart
 created database/factories/post_factory.dart
 created database/seeders/post_seeder.dart
-overwrote bootstrap/seeders.dart
+updated bootstrap/seeders.dart
 created lib/app/http/controllers/post_controller.dart
+created lib/app/policies/post_policy.dart
+updated bootstrap/policies.dart
+created lib/app/http/resources/post_resource.dart
 ```
 
 ## Architecture in brief
@@ -397,8 +414,8 @@ created lib/app/http/controllers/post_controller.dart
 | Tier | Scope | State |
 | :-- | :-- | :-- |
 | **0** | Walking skeleton: container, HTTP kernel, router, SQLite, migrations, test client, CLI, CI | ✅ done |
-| **1** | S1 foundation · S2 HTTP hardening · S3 routing · S4 validation · S5 database · S6 ORM · S7 schema, seeding & generators · S8 auth · S9 multi-isolate & cache · S10 events, queue & scheduler · S11 resources, storage & observability | ✅ done |
-| **1** | S12 CLI completeness (`new`, hot reload, `build --docker`, `doctor`, `openapi:generate`) · S13 testing toolkit & lints · S14 conformance suite, benchmarks, docs | 🚧 next |
+| **1** | S1 foundation · S2 HTTP hardening · S3 routing · S4 validation · S5 database · S6 ORM · S7 schema, seeding & generators · S8 auth · S9 multi-isolate & cache · S10 events, queue & scheduler · S11 resources, storage & observability · S12 CLI (`new`, hot reload, `build --docker`, `doctor`, `openapi:generate`, `model:sync`, stubs) | ✅ done |
+| **1** | S13 testing toolkit & lints · S14 conformance suite, benchmarks, docs | 🚧 next |
 | **2** | Multipart uploads, sessions/CSRF, Redis, S3, mail, localization, SSE/WebSockets, OpenTelemetry, Blade-compatible compiled views | planned |
 | **daragic** | Bidirectional Laravel ⇄ Daravel generator: runtime introspection → IR → generated project, converted tests, differential replay | designed |
 
