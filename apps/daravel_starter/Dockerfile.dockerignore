@@ -1,0 +1,13 @@
+# Used by BuildKit for `docker build -f apps/daravel_starter/Dockerfile .`
+**/.dart_tool/
+**/build/
+**/.env
+**/.env.*
+!**/.env.example
+!**/.env.encrypted
+!**/.env.*.encrypted
+**/*.sqlite*
+**/storage/logs/
+.git/
+docs/reviews/
+BLUEPRINT_*.md

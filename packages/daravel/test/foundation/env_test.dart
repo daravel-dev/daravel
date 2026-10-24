@@ -25,8 +25,9 @@ MISSING_REF=${NOPE}x
     expect(values['QUOTED'], r'single $NOT_EXPANDED');
     expect(values['ESCAPED'], 'line1\nline2 "q"');
     expect(values['URL'], 'http://localhost/api');
-    expect(values['URL2'], 'http://localhost/v2');
-    expect(values['MISSING_REF'], 'x');
+    // phpdotenv 5 (Laravel): only ${NAME} resolves; unknown names stay.
+    expect(values['URL2'], r'$BASE/v2');
+    expect(values['MISSING_REF'], r'${NOPE}x');
   });
 
   test('rejects malformed lines', () {

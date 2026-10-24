@@ -4,6 +4,10 @@ import 'package:path/path.dart' as p;
 
 import 'exceptions.dart';
 
+/// Decrypts the contents of an encrypted environment file with [key]
+/// (`EnvironmentEncrypter.decrypt` in the application).
+typedef EnvDecrypter = Future<String> Function(String contents, String key);
+
 /// Typed access to environment variables loaded from `.env` files, the OS
 /// environment and explicit overrides (BLUEPRINT_V2 §7.1.3).
 ///
@@ -17,9 +21,8 @@ final class Env {
   final Map<String, String> _values;
 
   static final RegExp _keyPattern = RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$');
-  static final RegExp _expansionPattern = RegExp(
-    r'\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)',
-  );
+  // phpdotenv 5 (Laravel) resolves only `${NAME}`; a bare `$` is literal.
+  static final RegExp _expansionPattern = RegExp(r'\$\{([a-zA-Z0-9_.]+)\}');
 
   /// Loads `[basePath]/[fileName]` when it exists, then the environment
   /// specific overlay `[fileName].{APP_ENV}` (e.g. `.env.testing`), then the
@@ -27,32 +30,59 @@ final class Env {
   ///
   /// `APP_ENV` for the overlay is taken from [overrides], the OS environment
   /// and the base file, in that order of precedence.
+  ///
+  /// Encrypted files (`.env.encrypted`, `.env.{APP_ENV}.encrypted`, written
+  /// by `dartisan env:encrypt` or `php artisan env:encrypt`) are decrypted in
+  /// memory with [decrypt] when one of [encryptionKeyVariables] is set, and
+  /// override the plain file of the same level. Nothing is written to disk.
   static Future<Env> load({
     required String basePath,
     Map<String, String> overrides = const {},
     String fileName = '.env',
     bool includePlatform = true,
+    EnvDecrypter? decrypt,
+    List<String> encryptionKeyVariables = const [
+      'DARAVEL_ENV_ENCRYPTION_KEY',
+      'LARAVEL_ENV_ENCRYPTION_KEY',
+    ],
   }) async {
     final platform = includePlatform
         ? Platform.environment
         : const <String, String>{};
-    final values = <String, String>{};
-    final base = File(p.join(basePath, fileName));
-    if (await base.exists()) {
-      values.addAll(parse(await base.readAsString(), context: platform));
+    String? found;
+    for (final name in encryptionKeyVariables) {
+      found ??= overrides[name] ?? platform[name];
     }
+    final key = found;
+    final values = <String, String>{};
+    Future<void> loadLevel(String name, Map<String, String> context) async {
+      final plain = File(p.join(basePath, name));
+      if (await plain.exists()) {
+        values.addAll(parse(await plain.readAsString(), context: context));
+      }
+      final encrypted = File(p.join(basePath, '$name.encrypted'));
+      if (decrypt != null &&
+          key != null &&
+          key.isNotEmpty &&
+          await encrypted.exists()) {
+        final String contents;
+        try {
+          contents = await decrypt(await encrypted.readAsString(), key);
+        } catch (error) {
+          throw EnvException(
+            'Could not decrypt $name.encrypted with the configured key: '
+            '$error',
+          );
+        }
+        values.addAll(parse(contents, context: {...values, ...context}));
+      }
+    }
+
+    await loadLevel(fileName, platform);
     final appEnv =
         overrides['APP_ENV'] ?? platform['APP_ENV'] ?? values['APP_ENV'];
     if (appEnv != null && appEnv.isNotEmpty) {
-      final overlay = File(p.join(basePath, '$fileName.$appEnv'));
-      if (await overlay.exists()) {
-        values.addAll(
-          parse(
-            await overlay.readAsString(),
-            context: {...values, ...platform},
-          ),
-        );
-      }
+      await loadLevel('$fileName.$appEnv', {...values, ...platform});
     }
     values.addAll(platform);
     values.addAll(overrides);
@@ -61,7 +91,7 @@ final class Env {
 
   /// Parses dotenv [contents] (Laravel/dotenv compatible subset: comments,
   /// `export` prefix, single/double quotes, `\n`/`\t`/`\"`/`\\` escapes in
-  /// double quotes, `${VAR}` / `$VAR` expansion in unquoted and double quoted
+  /// double quotes, `${VAR}` expansion (a bare `$VAR` stays literal, as in phpdotenv) in unquoted and double quoted
   /// values, inline ` # comments` after unquoted values).
   static Map<String, String> parse(
     String contents, {
@@ -94,10 +124,37 @@ final class Env {
           'Invalid .env key "$key" on line ${lineNumber + 1}.',
         );
       }
-      final rawValue = statement.substring(separator + 1).trim();
-      values[key] = _parseValue(rawValue, values, context, lineNumber + 1);
+      var rawValue = statement.substring(separator + 1).trim();
+      final startLine = lineNumber + 1;
+      // A double-quoted value may span lines, as in phpdotenv (PEM keys).
+      if (rawValue.startsWith('"') && !_closesQuote(rawValue, 1)) {
+        while (lineNumber + 1 < lines.length) {
+          lineNumber++;
+          var next = lines[lineNumber];
+          if (next.endsWith('\r')) {
+            next = next.substring(0, next.length - 1);
+          }
+          rawValue = '$rawValue\n$next';
+          if (_closesQuote(next, 0)) {
+            break;
+          }
+        }
+      }
+      values[key] = _parseValue(rawValue, values, context, startLine);
     }
     return values;
+  }
+
+  /// Whether [text] has an unescaped `"` at or after [from].
+  static bool _closesQuote(String text, int from) {
+    for (var i = from; i < text.length; i++) {
+      if (text[i] == r'\') {
+        i++;
+      } else if (text[i] == '"') {
+        return true;
+      }
+    }
+    return false;
   }
 
   static String _parseValue(
@@ -172,8 +229,9 @@ final class Env {
     Map<String, String> values,
     Map<String, String> context,
   ) => value.replaceAllMapped(_expansionPattern, (match) {
-    final name = match.group(1) ?? match.group(2)!;
-    return values[name] ?? context[name] ?? '';
+    final name = match.group(1)!;
+    // Unknown references stay as written, as in phpdotenv.
+    return values[name] ?? context[name] ?? match.group(0)!;
   });
 
   // ---------------------------------------------------------------------------

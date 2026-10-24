@@ -352,6 +352,15 @@ void main() {
                     return 'late';
                   })
                   .timeout(const Duration(milliseconds: 20));
+              r
+                  .get('/slower', (_) async {
+                    await Future<void>.delayed(const Duration(seconds: 6));
+                    return 'late';
+                  })
+                  .timeout(const Duration(seconds: 2));
+              r
+                  .get('/quick', (_) => 'fine')
+                  .timeout(const Duration(seconds: 2));
               r.post('/echo', (req) async => await req.all());
             },
           )
@@ -391,6 +400,16 @@ void main() {
             as Map<String, Object?>)['message'],
         contains('did not complete'),
       );
+    });
+
+    test('long timeouts fire within a second of the deadline', () async {
+      final watch = Stopwatch()..start();
+      expect((await app.handle(Request.fake(path: '/api/quick'))).status, 200);
+      final response = await app.handle(Request.fake(path: '/api/slower'));
+      expect(response.status, 503);
+      expect(watch.elapsed, greaterThanOrEqualTo(const Duration(seconds: 2)));
+      // Within the sweep interval, with room for a busy CI machine.
+      expect(watch.elapsed, lessThan(const Duration(seconds: 6)));
     });
 
     test(

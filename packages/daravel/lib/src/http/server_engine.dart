@@ -21,6 +21,8 @@ final class ServeOptions {
     this.requestTimeout = const Duration(seconds: 30),
     this.handleSignals = true,
     this.readyTimeout = const Duration(seconds: 30),
+    this.embedQueue = false,
+    this.embedScheduler = false,
   });
 
   /// Reads `APP_HOST` / `APP_PORT`, overridable by explicit arguments.
@@ -34,6 +36,8 @@ final class ServeOptions {
     String? host,
     int? port,
     int? isolates,
+    bool? embedQueue,
+    bool? embedScheduler,
   }) {
     final platformPort = env.has('APP_PORT') ? null : env.maybeString('PORT');
     final platform = platformPort != null && int.tryParse(platformPort) != null;
@@ -51,6 +55,8 @@ final class ServeOptions {
         'HTTP_REQUEST_TIMEOUT',
         const Duration(seconds: 30),
       ),
+      embedQueue: embedQueue ?? env.boolean('SERVER_EMBED_QUEUE'),
+      embedScheduler: embedScheduler ?? env.boolean('SERVER_EMBED_SCHEDULER'),
     );
   }
 
@@ -74,6 +80,14 @@ final class ServeOptions {
 
   /// How long the supervisor waits for every worker to bind.
   final Duration readyTimeout;
+
+  /// Runs a queue worker in its own isolate next to the HTTP workers
+  /// (`serve --embed-queue`, `SERVER_EMBED_QUEUE`).
+  final bool embedQueue;
+
+  /// Runs the scheduler in its own isolate, so no cron entry is needed
+  /// (`serve --embed-scheduler`, `SERVER_EMBED_SCHEDULER`).
+  final bool embedScheduler;
 }
 
 /// Binds the `dart:io` server, wraps every request in a request scope and

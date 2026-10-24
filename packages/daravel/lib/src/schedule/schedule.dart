@@ -461,13 +461,28 @@ final class Scheduler {
       final wait =
           tick ??
           Duration(seconds: 60 - now.second, milliseconds: -now.millisecond);
-      await Future<void>.delayed(
-        wait.isNegative ? const Duration(seconds: 1) : wait,
-      );
+      final wake = _wake = Completer<void>();
+      await Future.any([
+        Future<void>.delayed(
+          wait.isNegative ? const Duration(seconds: 1) : wait,
+        ),
+        wake.future,
+      ]);
+      _wake = null;
     }
   }
 
-  void stop() => _stop = true;
+  Completer<void>? _wake;
+
+  /// Stops [work] after the running tick, without waiting for the next
+  /// minute.
+  void stop() {
+    _stop = true;
+    final wake = _wake;
+    if (wake != null && !wake.isCompleted) {
+      wake.complete();
+    }
+  }
 
   static String _minuteKey(DateTime time) {
     final t = time.toUtc();

@@ -459,8 +459,8 @@ The monorepo is a Dart pub workspace:
 
 | Group | Commands |
 | :-- | :-- |
-| Project | `new <name> [--template=api\|minimal] [--path] [--git]`, `about`, `doctor [--production]`, `key:generate [--show] [--force]`, `stub:publish` |
-| Serve & build | `serve [--host] [--port] [--isolates] [--watch]`, `build [--output] [--with-cli] [--docker]`, `test [--conformance] [--security] [--coverage]`, `route:list [--path] [--method] [--name] [--json]`, `openapi:generate`, `lint [--json]`, `coordinator:stats` |
+| Project | `new <name> [--template=api\|minimal] [--path] [--git]`, `about`, `doctor [--production]`, `key:generate [--show] [--force]`, `stub:publish`, `env:encrypt`, `env:decrypt`, `env:obfuscate`, `adopt <laravel-path> [--check]` |
+| Serve & build | `serve [--host] [--port] [--isolates] [--watch] [--embed-queue] [--embed-scheduler]`, `build [--output] [--with-cli] [--docker]`, `test [--conformance] [--security] [--coverage]`, `route:list [--path] [--method] [--name] [--json]`, `openapi:generate`, `lint [--json]`, `coordinator:stats` |
 | Database | `migrate [--seed]`, `migrate:status`, `migrate:rollback [--step]`, `migrate:reset`, `migrate:fresh [--seed] [--force]`, `db:seed [--class] [--all]`, `model:sync [Model] [--dry-run]` |
 | Generators | `make:model [-m -f -s -c -p -r --api --all]`, `make:migration`, `make:seeder`, `make:factory`, `make:controller [--api --resource --model]`, `make:request`, `make:middleware`, `make:job`, `make:policy`, `make:event`, `make:listener [--event]`, `make:resource`, `make:rule`, `make:observer`, `make:provider`, `make:command`, `make:test [--unit]` |
 | Queue | `queue:work [--queue --tries --backoff --timeout --max-jobs --once]`, `queue:failed`, `queue:retry`, `queue:forget`, `queue:flush`, `queue:clear`, `queue:restart` |

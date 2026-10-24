@@ -77,6 +77,7 @@ export 'src/auth/auth_manager.dart';
 export 'src/auth/authorization.dart';
 export 'src/auth/contracts.dart';
 export 'src/auth/encryption.dart';
+export 'src/auth/env_encryption.dart';
 export 'src/auth/hashing.dart';
 export 'src/auth/jwt.dart';
 export 'src/auth/tokens.dart';

@@ -17,8 +17,8 @@ application:
 
 | Group | Commands |
 | :-- | :-- |
-| Project | `about`, `doctor [--production]`, `key:generate`, `stub:publish`, `lint`, `cache:clear`, `storage:link` |
-| Serve, test & build | `serve [--watch] [--isolates=N]`, `test [--conformance] [--security] [--coverage]`, `build [--with-cli] [--docker]`, `route:list`, `openapi:generate`, `coordinator:stats` |
+| Project | `about`, `doctor [--production]`, `key:generate`, `stub:publish`, `lint`, `cache:clear`, `storage:link`, `env:encrypt`, `env:decrypt`, `env:obfuscate`, `adopt <laravel-path>` |
+| Serve, test & build | `serve [--watch] [--isolates=N] [--embed-queue] [--embed-scheduler]`, `test [--conformance] [--security] [--coverage]`, `build [--with-cli] [--docker]`, `route:list`, `openapi:generate`, `coordinator:stats` |
 | Database | `migrate`, `migrate:status`, `migrate:rollback`, `migrate:reset`, `migrate:fresh`, `db:seed`, `model:sync` |
 | Generators | `make:model`, `make:migration`, `make:controller`, `make:request`, `make:middleware`, `make:job`, `make:policy`, `make:event`, `make:listener`, `make:resource`, `make:rule`, `make:observer`, `make:provider`, `make:command`, `make:seeder`, `make:factory`, `make:test` |
 | Queue & schedule | `queue:work`, `queue:failed`, `queue:retry`, `queue:forget`, `queue:flush`, `queue:clear`, `queue:pause`, `queue:continue`, `queue:restart`, `schedule:work`, `schedule:run`, `schedule:list` |

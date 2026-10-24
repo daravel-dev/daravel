@@ -281,6 +281,9 @@ final class Router {
       _binders[param] = _Binder(resolver, orFail: orFail);
 
   /// Runs the registered binders for the matched route of [request].
+  /// Whether any route model binding is registered.
+  bool get hasBindings => _binders.isNotEmpty;
+
   Future<void> resolveBindings(Request request) async {
     if (_binders.isEmpty) {
       return;

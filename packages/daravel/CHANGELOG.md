@@ -9,6 +9,9 @@
 - Fixed: the access log measures time to response, without deferred work.
 - PostgreSQL over a Unix socket (`DB_HOST=/cloudsql/...`).
 - Monitoring hooks: `Job.tags`, `QueueDriver.oldestWait` (custom drivers must implement it), `QueueManager.pause` / `resume`, `DB.listen` with `QueryExecuted`.
+- `.env.encrypted` decrypted in memory at boot (`EnvironmentEncrypter`, Laravel `env:encrypt` format); multi-line double-quoted `.env` values; `EmbeddedWorkers` and `serveWith(embedQueue:, embedScheduler:)`.
+- Changed: `.env` expands only `${NAME}` (phpdotenv 5); a bare `$NAME` stays literal.
+- Faster request path: no timer per request for long timeouts, cheaper request ids, no empty awaits.
 
 ## 1.0.0-beta.2
 

@@ -5,6 +5,7 @@
 - `openapi:generate` documents request bodies, query parameters and responses (Laravel resource and paginator envelopes, `components.schemas`) from route metadata.
 - `queue:pause` and `queue:continue`; `queue:work` and `schedule:work` stop gracefully on `SIGTERM`.
 - `doctor` compares the connection pool against the server's `max_connections`.
+- `env:encrypt`, `env:decrypt` and `env:obfuscate`; `adopt <laravel-path> [--check]`; `serve --embed-queue --embed-scheduler`.
 
 ## 1.0.0-beta.2
 

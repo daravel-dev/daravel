@@ -409,6 +409,17 @@ final class Post extends Model with AuthenticatableModel {
       expect(docker, contains('CMD ["/app/bin/server"]'));
       expect(docker, contains('USER daravel'));
     });
+
+    test('the starter Dockerfile shares the runtime stage', () {
+      String runtime(String dockerfile) =>
+          dockerfile.substring(dockerfile.indexOf('FROM debian')).trim();
+      final repo = p.normalize(p.join(Directory.current.path, '..', '..'));
+      final starter = File(
+        p.join(repo, 'apps', 'daravel_starter', 'Dockerfile'),
+      ).readAsStringSync().replaceAll('\r\n', '\n');
+      expect(runtime(starter), runtime(dockerfileTemplate()));
+      expect(dockerignoreTemplate, contains('!.env.encrypted'));
+    });
   });
 
   group('new project', () {

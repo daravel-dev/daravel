@@ -32,6 +32,8 @@ final class HttpKernel {
   /// Default handler timeout applied when a route sets none (`null` = none).
   Duration? defaultTimeout;
 
+  final _Deadlines _deadlines = _Deadlines();
+
   /// Handles a single request and always yields a response.
   Future<Response> handle(Request request) async {
     _bindLogContext(request);
@@ -110,7 +112,10 @@ final class HttpKernel {
           if (entry.value != null) entry.key: '${entry.value}',
         ...match.params,
       });
-      await router.resolveBindings(request);
+      // Skipping empty awaits keeps the per-request path short.
+      if (router.hasBindings) {
+        await router.resolveBindings(request);
+      }
       final limit = route.bodyLimitBytes;
       if (limit != null) {
         request.maxBodyBytes = limit;
@@ -119,19 +124,16 @@ final class HttpKernel {
         route.resolvedMiddleware,
         request,
         (req) async {
-          await _validateDeclared(route, req);
+          if (route.formRequest != null || route.declaredRules != null) {
+            await _validateDeclared(route, req);
+          }
           return toResponse(await route.handler(req), req);
         },
       );
       final timeout = route.timeoutDuration ?? defaultTimeout;
       final response = timeout == null
           ? await run()
-          : await run().timeout(
-              timeout,
-              onTimeout: () => throw ServiceUnavailableHttpException(
-                'The request did not complete within ${timeout.inSeconds}s.',
-              ),
-            );
+          : await _deadlines.guard(run(), timeout);
       return request.method == 'HEAD' ? response.withoutBody() : response;
     } catch (error, stackTrace) {
       return exceptions.handle(error, stackTrace, request);
@@ -202,4 +204,80 @@ final class HttpKernel {
     final trimmed = request.path.replaceAll(RegExp(r'^/+|/+$'), '');
     return trimmed.isEmpty ? '/' : trimmed;
   }
+}
+
+/// Request timeouts without a timer per request.
+///
+/// A `Future.timeout` creates and cancels a timer for every request, and
+/// cancelling the earliest timer makes the VM reschedule its wake-up: at
+/// thousands of requests per second that cost about 15% of throughput.
+/// Long timeouts (the 30 s default) are instead tracked in one set and
+/// checked once a second by a single timer, so they fire within a second of
+/// their deadline. Short timeouts keep a precise timer.
+final class _Deadlines {
+  static const Duration _coarseFrom = Duration(seconds: 2);
+  static const Duration _interval = Duration(seconds: 1);
+  static final Stopwatch _clock = Stopwatch()..start();
+
+  final Set<_Deadline> _pending = <_Deadline>{};
+  Timer? _sweeper;
+
+  Future<Response> guard(Future<Response> work, Duration timeout) {
+    if (timeout < _coarseFrom) {
+      return work.timeout(timeout, onTimeout: () => throw _timedOut(timeout));
+    }
+    final deadline = _Deadline(
+      _clock.elapsedMicroseconds + timeout.inMicroseconds,
+      timeout,
+    );
+    _pending.add(deadline);
+    _sweeper ??= Zone.root.run(() => Timer.periodic(_interval, _sweep));
+    work.then(
+      (response) {
+        if (_pending.remove(deadline)) {
+          deadline.result.complete(response);
+        }
+      },
+      onError: (Object error, StackTrace stackTrace) {
+        if (_pending.remove(deadline)) {
+          deadline.result.completeError(error, stackTrace);
+        }
+      },
+    );
+    return deadline.result.future;
+  }
+
+  void _sweep(Timer timer) {
+    if (_pending.isEmpty) {
+      timer.cancel();
+      _sweeper = null;
+      return;
+    }
+    final now = _clock.elapsedMicroseconds;
+    final expired = [
+      for (final deadline in _pending)
+        if (deadline.at <= now) deadline,
+    ];
+    for (final deadline in expired) {
+      _pending.remove(deadline);
+      deadline.result.completeError(
+        _timedOut(deadline.timeout),
+        StackTrace.current,
+      );
+    }
+  }
+
+  static ServiceUnavailableHttpException _timedOut(Duration timeout) =>
+      ServiceUnavailableHttpException(
+        'The request did not complete within ${timeout.inSeconds}s.',
+      );
+}
+
+final class _Deadline {
+  _Deadline(this.at, this.timeout);
+
+  /// Microseconds on [_Deadlines._clock].
+  final int at;
+  final Duration timeout;
+  final Completer<Response> result = Completer<Response>();
 }

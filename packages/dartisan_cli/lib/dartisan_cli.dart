@@ -16,6 +16,8 @@ import 'src/dev_server.dart';
 import 'src/generator.dart';
 import 'src/project_commands.dart';
 import 'src/cache_commands.dart';
+import 'src/adopt_command.dart';
+import 'src/env_commands.dart';
 import 'src/make_commands.dart';
 import 'src/queue_commands.dart';
 
@@ -29,6 +31,8 @@ export 'src/stubs.dart';
 export 'src/generator.dart';
 export 'src/global_runner.dart';
 export 'src/cache_commands.dart';
+export 'src/env_commands.dart';
+export 'src/adopt_command.dart';
 export 'src/make_commands.dart';
 export 'src/queue_commands.dart';
 
@@ -79,6 +83,10 @@ final class DartisanRunner extends CommandRunner<int> {
     addCommand(MakeMiddlewareCommand());
     extraMakeCommands().forEach(addCommand);
     addCommand(KeyGenerateCommand());
+    addCommand(EnvEncryptCommand());
+    addCommand(EnvDecryptCommand());
+    addCommand(EnvObfuscateCommand());
+    addCommand(AdoptCommand());
     addCommand(DoctorCommand(createApp));
     addCommand(BuildCommand());
     addCommand(TestCommand());
@@ -143,6 +151,17 @@ final class ServeCommand extends DaravelCommand {
         'watch',
         negatable: false,
         help: 'Hot reload on file changes (development, single isolate).',
+      )
+      ..addFlag(
+        'embed-queue',
+        negatable: false,
+        help:
+            'Also run a queue worker in its own isolate (SERVER_EMBED_QUEUE).',
+      )
+      ..addFlag(
+        'embed-scheduler',
+        negatable: false,
+        help: 'Also run the scheduler in its own isolate (SERVER_EMBED_SCHEDULER).',
       );
   }
 
@@ -186,11 +205,15 @@ final class ServeCommand extends DaravelCommand {
       await server.done;
       return 0;
     }
+    final dartisan = runner;
     return Application.serveWith(
       createApp,
       host: host,
       port: port,
       isolates: isolates,
+      embedQueue: (results['embed-queue'] as bool) ? true : null,
+      embedScheduler: (results['embed-scheduler'] as bool) ? true : null,
+      commandRunner: dartisan is DartisanRunner ? dartisan.runNamed : null,
     );
   }
 }

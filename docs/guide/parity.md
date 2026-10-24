@@ -130,6 +130,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `Hash::make / check / needsRehash` | `await Hash.make / check, Hash.needsRehash` |  |
 | `Crypt::encryptString / decryptString` | `await Crypt.encryptString / decryptString` | **async**; Byte-compatible with APP_CIPHER=AES-256-CBC or AES-256-GCM. |
 | `Crypt::encrypt / decrypt` | `await Crypt.encrypt / decrypt` | **async**; Values are JSON-encoded, not PHP-serialized: not cross-runtime. |
+| `php artisan env:encrypt / env:decrypt` | `dartisan env:encrypt / env:decrypt` | Same .env.encrypted file (default and --readable); decrypted in memory at boot with DARAVEL_ENV_ENCRYPTION_KEY or LARAVEL_ENV_ENCRYPTION_KEY. |
 | `Gate::define / allows / denies / authorize` | `Gate.define / allows / denies / authorize` | **async** |
 | `class PostPolicy` | `final class PostPolicy extends Policy<Post>` |  |
 | `RateLimiter::for('login', fn)` | `limiter.define('login', (request) => Limit.perMinute(5))` |  |

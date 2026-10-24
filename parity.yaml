@@ -125,6 +125,7 @@ sections:
       - { php: "Hash::make / check / needsRehash", dart: "await Hash.make / check, Hash.needsRehash", symbol: Hash.needsRehash }
       - { php: "Crypt::encryptString / decryptString", dart: "await Crypt.encryptString / decryptString", symbol: Crypt.decryptString, async: true, note: "Byte-compatible with APP_CIPHER=AES-256-CBC or AES-256-GCM." }
       - { php: "Crypt::encrypt / decrypt", dart: "await Crypt.encrypt / decrypt", symbol: Crypt.encrypt, async: true, note: "Values are JSON-encoded, not PHP-serialized: not cross-runtime." }
+      - { php: "php artisan env:encrypt / env:decrypt", dart: "dartisan env:encrypt / env:decrypt", symbol: EnvironmentEncrypter, note: "Same .env.encrypted file (default and --readable); decrypted in memory at boot with DARAVEL_ENV_ENCRYPTION_KEY or LARAVEL_ENV_ENCRYPTION_KEY." }
       - { php: "Gate::define / allows / denies / authorize", dart: "Gate.define / allows / denies / authorize", symbol: Gate.authorize, async: true }
       - { php: "class PostPolicy", dart: "final class PostPolicy extends Policy<Post>", symbol: Policy }
       - { php: "RateLimiter::for('login', fn)", dart: "limiter.define('login', (request) => Limit.perMinute(5))", symbol: RateLimiter.define }

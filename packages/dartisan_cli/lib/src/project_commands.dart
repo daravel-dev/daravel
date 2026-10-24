@@ -170,7 +170,28 @@ final class DoctorCommand extends DaravelCommand {
     if (paths != null) {
       final env = File(p.join(paths.root, '.env'));
       final example = File(p.join(paths.root, '.env.example'));
-      if (!env.existsSync()) {
+      final encrypted = File(p.join(paths.root, '.env.encrypted'));
+      final hasKey = EnvironmentEncrypter.keyVariables.any(
+        (name) => (Platform.environment[name] ?? '').isNotEmpty,
+      );
+      if (encrypted.existsSync()) {
+        checks.add(
+          hasKey
+              ? const DoctorCheck(
+                  CheckStatus.ok,
+                  '.env.encrypted is decrypted in memory at boot',
+                )
+              : const DoctorCheck(
+                  CheckStatus.warning,
+                  '.env.encrypted is present but no key is set',
+                  'Set DARAVEL_ENV_ENCRYPTION_KEY (or '
+                      'LARAVEL_ENV_ENCRYPTION_KEY) to load it.',
+                ),
+        );
+      }
+      if (!env.existsSync() && encrypted.existsSync()) {
+        // Configuration comes from the encrypted file.
+      } else if (!env.existsSync()) {
         checks.add(
           const DoctorCheck(
             CheckStatus.warning,
@@ -580,6 +601,9 @@ build/
 .env
 .env.*
 !.env.example
+# Encrypted environments are safe to ship; the key comes from the runtime.
+!.env.encrypted
+!.env.*.encrypted
 *.sqlite*
 storage/logs/
 .git/

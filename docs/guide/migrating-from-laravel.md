@@ -29,6 +29,19 @@ also works in the other direction.
 
 ## 1. Share the secrets and the database
 
+`dartisan adopt` does this step for you. It reads the Laravel project (and
+never changes it), copies `APP_KEY`, the cipher, the `DB_*` settings and the
+hashing parameters into this project's `.env`, sets a separate
+`CACHE_PREFIX`, and checks the Laravel version, the database driver and the
+shared tables:
+
+```bash
+dart run bin/dartisan.dart adopt ../shop --check   # report only
+dart run bin/dartisan.dart adopt ../shop           # write .env (backup: .env.before-adopt)
+```
+
+By hand, the settings are:
+
 ```dotenv
 # Daravel .env: the same database and the same key as Laravel
 APP_KEY=base64:...            # copied from Laravel's .env

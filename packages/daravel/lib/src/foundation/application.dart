@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'clock.dart';
 
@@ -8,6 +9,7 @@ import '../auth/auth_manager.dart';
 import '../auth/authorization.dart';
 import '../auth/contracts.dart';
 import '../auth/encryption.dart';
+import '../auth/env_encryption.dart';
 import '../auth/hashing.dart';
 import '../cache/cache.dart';
 import '../database/database_config.dart';
@@ -42,6 +44,8 @@ import 'container.dart';
 import 'env.dart';
 import 'exceptions.dart';
 import 'service_provider.dart';
+
+part 'embedded_workers.dart';
 
 final class _RoutingConfig {
   const _RoutingConfig({
@@ -112,7 +116,11 @@ final class Application {
   Future<void> boot() => _booting ??= _boot();
 
   Future<void> _boot() async {
-    env = await Env.load(basePath: basePath, overrides: _builder._envOverrides);
+    env = await Env.load(
+      basePath: basePath,
+      overrides: _builder._envOverrides,
+      decrypt: (contents, key) => EnvironmentEncrypter(key).decrypt(contents),
+    );
     final loggingConfig = LoggingConfig.fromEnv(env);
     logger = Logger.fromConfig(
       loggingConfig,
@@ -479,11 +487,20 @@ final class Application {
   /// Serves with [factory]: in-process when `isolates <= 1`, otherwise a
   /// [Supervisor] spawns `isolates` workers that each build their own
   /// application. Returns the process exit code.
+  ///
+  /// With [embedQueue] / [embedScheduler] (or `SERVER_EMBED_QUEUE` /
+  /// `SERVER_EMBED_SCHEDULER`), a queue worker and the scheduler run in their
+  /// own isolates in the same process and stop with the server.
+  /// [commandRunner] lets the embedded scheduler run console commands (the
+  /// CLI passes its own); without it, scheduled commands fail and are logged.
   static Future<int> serveWith(
     ApplicationFactory factory, {
     String? host,
     int? port,
     int? isolates,
+    bool? embedQueue,
+    bool? embedScheduler,
+    ScheduleCommandRunner? commandRunner,
   }) async {
     final probe = factory();
     await probe.boot();
@@ -492,15 +509,34 @@ final class Application {
       host: host,
       port: port,
       isolates: isolates,
+      embedQueue: embedQueue,
+      embedScheduler: embedScheduler,
     );
-    if (options.isolates <= 1) {
-      await probe.serve(options: options);
-      return 0;
-    }
     probe._ensureServeable(options);
-    final logger = probe.logger;
-    await probe.shutdown();
-    return Supervisor(factory, options, logger: logger).run();
+    final roles = [
+      if (options.embedQueue) EmbeddedRole.queue,
+      if (options.embedScheduler) EmbeddedRole.scheduler,
+    ];
+    final embedded = roles.isEmpty
+        ? null
+        : EmbeddedWorkers(
+            factory,
+            roles: roles,
+            logger: probe.logger,
+            commandRunner: commandRunner,
+          );
+    await embedded?.start();
+    try {
+      if (options.isolates <= 1) {
+        await probe.serve(options: options);
+        return 0;
+      }
+      final logger = probe.logger;
+      await probe.shutdown();
+      return await Supervisor(factory, options, logger: logger).run();
+    } finally {
+      await embedded?.stop(timeout: options.shutdownTimeout);
+    }
   }
 
   /// Boots, serves HTTP until the engine stops, then releases resources.
@@ -525,13 +561,20 @@ final class Application {
   void _ensureServeable(ServeOptions resolved) {
     final db = config.section<DatabaseConfig>();
     final connection = db.connections[db.defaultConnection];
-    if (resolved.isolates > 1 &&
-        connection?.driver == 'sqlite' &&
-        connection?.database == ':memory:') {
+    if (connection?.driver != 'sqlite' || connection?.database != ':memory:') {
+      return;
+    }
+    if (resolved.isolates > 1) {
       throw ConfigException(
         'An in-memory SQLite database cannot be shared across '
         '${resolved.isolates} isolates (each isolate would get its own empty '
         'database). Use a file database or run with isolates: 1.',
+      );
+    }
+    if (resolved.embedQueue || resolved.embedScheduler) {
+      throw const ConfigException(
+        'An in-memory SQLite database cannot be shared with the embedded '
+        'queue or scheduler isolate. Use a file database.',
       );
     }
   }

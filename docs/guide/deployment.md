@@ -17,7 +17,10 @@ Copy the whole `bundle/` directory to the server and start `bin/server`.
 `dartisan build --docker` writes a multi-stage `Dockerfile` (Dart SDK
 builder, `debian:bookworm-slim` runtime, non-root user, no system SQLite
 needed) and `.dockerignore`. The `api` template also ships
-`docker-compose.yml` with PostgreSQL 16.
+`docker-compose.yml` with PostgreSQL 16. The reference app in this repository ships the same
+runtime stage in `apps/daravel_starter/Dockerfile`, built from the repository
+root (`docker build -f apps/daravel_starter/Dockerfile .`) because it is part
+of the pub workspace.
 
 ## Ports and container platforms
 
@@ -47,6 +50,51 @@ TrustProxiesMiddleware(proxies: ['10.0.0.0/8'])
 ```
 
 Without it, `X-Forwarded-*` headers are ignored.
+
+## Secrets: encrypted environment files
+
+`dartisan env:encrypt` writes `.env.encrypted` (or `.env.production.encrypted`
+with `--env=production`) in the format of `php artisan env:encrypt`, so either
+framework can read the file the other wrote. The encrypted file can be
+committed; the key stays in your secret manager:
+
+```bash
+dart run bin/dartisan.dart env:encrypt --env=production   # prints a new key
+dart run bin/dartisan.dart env:encrypt --readable         # names stay visible in diffs
+dart run bin/dartisan.dart env:decrypt --key=base64:...   # back to .env
+```
+
+At runtime, set `DARAVEL_ENV_ENCRYPTION_KEY` (or `LARAVEL_ENV_ENCRYPTION_KEY`)
+and the application decrypts `.env.encrypted` and `.env.{APP_ENV}.encrypted`
+in memory at boot; no plain `.env` is written to disk. The generated
+`.dockerignore` lets encrypted files into the image. A wrong key stops the
+boot with a clear error, and `dartisan doctor` warns when an encrypted file
+has no key.
+
+`dartisan env:obfuscate --only=API_TOKEN` writes a Dart class whose values are
+XOR-masked, so they do not show up in `strings bin/server` (useful for keys
+compiled into a client). This is obfuscation, not encryption: the mask ships
+in the same binary, so it does not replace `env:encrypt` for real secrets.
+
+## One process: embedded queue and scheduler
+
+Small deployments (one VPS, one container) can run HTTP, a queue worker and
+the scheduler in one process:
+
+```bash
+dart run bin/dartisan.dart serve --embed-queue --embed-scheduler
+SERVER_EMBED_QUEUE=true SERVER_EMBED_SCHEDULER=true bin/server   # same, from the bundle
+```
+
+The queue worker (on `SERVER_EMBED_QUEUES`, default the default queue) and
+the scheduler each run in their own isolate, so jobs never block the HTTP
+event loop. A crashed isolate is respawned; on `SIGTERM` the current job or
+tick finishes before the process exits. Scheduled console commands run when
+the server is started with `dartisan serve`; started as `bin/server`, the
+embedded scheduler runs jobs, closures and `exec` tasks. Embedding needs a
+file or PostgreSQL database (an in-memory SQLite database is refused). For
+several instances, keep one embedded scheduler (or run `schedule:work`
+separately) and scale queue workers on their own.
 
 ## Google Cloud Run
 

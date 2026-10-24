@@ -9,6 +9,18 @@ suite shows they differ from Laravel.
 
 ### Added
 
+- `dartisan env:encrypt` / `env:decrypt` (the `.env.encrypted` format of
+  `php artisan env:encrypt`, default and `--readable`, verified against
+  Laravel 12.70.1 in both directions) and in-memory decryption at boot with
+  `DARAVEL_ENV_ENCRYPTION_KEY` or `LARAVEL_ENV_ENCRYPTION_KEY`;
+  `EnvironmentEncrypter`; `dartisan env:obfuscate` (XOR-masked Dart class).
+- `dartisan adopt <laravel-path> [--check]`: copies the shared settings from a
+  Laravel `.env` and checks version, driver, key, hashing and shared tables.
+- `serve --embed-queue --embed-scheduler` (`SERVER_EMBED_QUEUE`,
+  `SERVER_EMBED_SCHEDULER`): queue worker and scheduler in their own isolates
+  next to the HTTP server; `EmbeddedWorkers`.
+- `apps/daravel_starter/Dockerfile` (built from the repository root).
+- `.env` values in double quotes may span several lines, as in phpdotenv.
 - Declared route metadata: `RouteEntry.validates(FormRequest)` and `.rules({...})`
   validate before the handler (403/422) and feed `request.validated()`;
   `.returns(schema, name:, shape:)` and `.action(...)` describe responses.
@@ -32,12 +44,23 @@ suite shows they differ from Laravel.
 
 ### Changed
 
+- `.env` parsing follows phpdotenv 5 (Laravel): only `${NAME}` is expanded;
+  a bare `$NAME` stays literal and unknown references are kept as written
+  (before, `$NAME` was expanded and unknown names became empty). Values
+  such as passwords containing `$` now read the same in both frameworks.
 - `QueueDriver` gained `oldestWait`; custom drivers must implement it.
 - Form bodies are parsed into nested maps and lists (`Map<String, Object?>`)
   rather than `Map<String, String>`.
 
 ### Fixed
 
+- Request timeouts no longer create a timer per request (one sweeper per
+  kernel for timeouts of 2 s and more): `GET /ping` went from about 64% to
+  79% of plain `dart:io` throughput on Linux. Request ids use three random
+  draws instead of twelve, and requests skip empty awaits for route bindings
+  and undeclared validation.
+- `Scheduler.stop()` takes effect immediately instead of after the current
+  minute.
 - SQLite: queries from outside an open transaction (another request on the
   same isolate) ran inside it and were rolled back with it. They now wait
   until it commits or rolls back. Row counts and insert ids come from the
