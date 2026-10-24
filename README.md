@@ -512,7 +512,7 @@ created lib/app/http/resources/post_resource.dart
 | **0** | Walking skeleton: container, HTTP kernel, router, SQLite, migrations, test client, CLI, CI | ✅ done |
 | **1** | S1 foundation · S2 HTTP hardening · S3 routing · S4 validation · S5 database · S6 ORM · S7 schema, seeding & generators · S8 auth · S9 multi-isolate & cache · S10 events, queue & scheduler · S11 resources, storage & observability · S12 CLI (`new`, hot reload, `build --docker`, `doctor`, `openapi:generate`, `model:sync`, stubs) · S13 testing toolkit, lints & architecture tests | ✅ done |
 | **1** | S14 conformance suite, security suite, `parity.yaml`, benchmark harness, documentation site, `api`/`minimal` templates → **1.0.0-beta.1** | ✅ done |
-| **2** | Multipart uploads, sessions/CSRF, Redis, S3, mail, localization, SSE/WebSockets, OpenTelemetry, Blade-compatible compiled views | planned |
+| **2** | Sessions/CSRF, Redis, S3, mail, localization, SSE/WebSockets, OpenTelemetry, Blade-compatible compiled views | planned |
 | **daragic** | Bidirectional Laravel ⇄ Daravel generator: runtime introspection → IR → generated project, converted tests, differential replay | designed |
 | **Ecosystem** | First-party packages under `daravel-dev`: `daravel_horizon` (queue supervisor and dashboard), `daravel_socialite` (OAuth and Sign in with Apple/Google), `daravel_reverb` (WebSockets, Pusher protocol), then `daravel_telescope` and `daravel_scout` | planned |
 

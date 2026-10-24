@@ -221,6 +221,27 @@ void main() {
       expect(jsonEncode(doc), isNot(contains('"head"')));
     });
 
+    test('file rules make a multipart request body', () {
+      final router = Router()
+        ..post('/api/avatar', (_) => null).rules(const {
+          'avatar': 'required|image|max:2048',
+          'caption': 'nullable|string',
+        });
+      final doc = buildOpenApi(router.routes);
+      final content =
+          ((((doc['paths']! as Map)['/api/avatar'] as Map)['post']
+                      as Map)['requestBody']
+                  as Map)['content']
+              as Map;
+      expect(content.keys, ['multipart/form-data']);
+      final schema = (content['multipart/form-data'] as Map)['schema'] as Map;
+      expect((schema['properties'] as Map)['avatar'], {
+        'type': 'string',
+        'format': 'binary',
+        'description': 'File size: at most 2048 KB.',
+      });
+    });
+
     test('declared rules and responses become schemas', () {
       const post = {
         'type': 'object',

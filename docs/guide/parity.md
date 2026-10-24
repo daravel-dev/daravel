@@ -40,6 +40,9 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `$request->query('page')` | `request.query['page']` |  |
 | `$request->query() (ids[]=1&ids[]=2)` | `request.queryInput` | Brackets build lists and maps, as PHP parse_str. |
 | `$request->header('x-id')` | `request.header('x-id')` |  |
+| `$request->file('avatar') / hasFile('avatar')` | `await request.file('avatar') / hasFile('avatar')` | **async**; Multipart bodies stream to temporary files. |
+| `$file->store('avatars', 'public') / storeAs(...)` | `await file.store('avatars', disk: 'public')` | **async** |
+| `UploadedFile::fake()->image('a.png')` | `UploadedFile.fake.image('a.png')` |  |
 | `$request->bearerToken()` | `request.bearerToken()` |  |
 | `$request->ip()` | `request.ip` |  |
 | `$request->url()` | `request.url` |  |
@@ -226,7 +229,6 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | Polymorphic relations (morphTo, morphMany, ...) | Tier 2 |
 | Blade templates | Tier 3 (typed HTML builder) |
 | Sessions, CSRF, SPA cookie auth | Tier 2 |
-| Multipart uploads / UploadedFile | Tier 2 |
 | Mail, notifications, broadcasting | Tier 2/3 |
 | Redis cache/queue/lock, S3 storage | Tier 2 |
 | PHP serialize() for Crypt::encrypt payloads | Tier 2 (Laravel-compatible Crypt mode) |

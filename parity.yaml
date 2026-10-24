@@ -45,6 +45,9 @@ sections:
       - { php: "$request->query('page')", dart: "request.query['page']", symbol: Request.query }
       - { php: "$request->query() (ids[]=1&ids[]=2)", dart: "request.queryInput", symbol: Request.queryInput, note: "Brackets build lists and maps, as PHP parse_str." }
       - { php: "$request->header('x-id')", dart: "request.header('x-id')", symbol: Request.header }
+      - { php: "$request->file('avatar') / hasFile('avatar')", dart: "await request.file('avatar') / hasFile('avatar')", symbol: Request.file, async: true, note: "Multipart bodies stream to temporary files." }
+      - { php: "$file->store('avatars', 'public') / storeAs(...)", dart: "await file.store('avatars', disk: 'public')", symbol: UploadedFile.store, async: true }
+      - { php: "UploadedFile::fake()->image('a.png')", dart: "UploadedFile.fake.image('a.png')", symbol: UploadedFile.fake }
       - { php: "$request->bearerToken()", dart: "request.bearerToken()", symbol: Request.bearerToken }
       - { php: "$request->ip()", dart: "request.ip", symbol: Request.ip }
       - { php: "$request->url()", dart: "request.url", symbol: Request.url }
@@ -215,7 +218,6 @@ missing:
   - { php: "Polymorphic relations (morphTo, morphMany, ...)", plan: "Tier 2" }
   - { php: "Blade templates", plan: "Tier 3 (typed HTML builder)" }
   - { php: "Sessions, CSRF, SPA cookie auth", plan: "Tier 2" }
-  - { php: "Multipart uploads / UploadedFile", plan: "Tier 2" }
   - { php: "Mail, notifications, broadcasting", plan: "Tier 2/3" }
   - { php: "Redis cache/queue/lock, S3 storage", plan: "Tier 2" }
   - { php: "PHP serialize() for Crypt::encrypt payloads", plan: "Tier 2 (Laravel-compatible Crypt mode)" }

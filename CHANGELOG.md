@@ -9,6 +9,13 @@ suite shows they differ from Laravel.
 
 ### Added
 
+- File uploads: `multipart/form-data` bodies stream to temporary files as
+  `UploadedFile` (`request.file`, `hasFile`, `store`, `storeAs`, `hashName`,
+  `UploadedFile.fake`), with Laravel 12's `file`, `image`, `mimes`,
+  `mimetypes`, `extensions` rules and kilobyte sizes. Types are detected from
+  the content, never the name; PHP files are refused. `TestClient` and
+  `Request.fake` take `files:`, and OpenAPI documents such routes as
+  `multipart/form-data`.
 - MySQL and MariaDB (ADR-019): the new `daravel_mysql` package (`MySqlDriver`, on
   the pure Dart `mysql_dart` client) and `ApplicationBuilder.withDatabaseDriver`.
   New projects and the starter register it, so `DB_CONNECTION=mysql` or

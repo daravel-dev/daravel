@@ -83,22 +83,34 @@ final class TestClient {
     String uri, {
     Object? json,
     Map<String, String>? form,
+    Map<String, Object>? files,
     Map<String, String>? headers,
-  }) => send('POST', uri, json: json, form: form, headers: headers);
+  }) =>
+      send('POST', uri, json: json, form: form, files: files, headers: headers);
 
   Future<TestResponse> put(
     String uri, {
     Object? json,
     Map<String, String>? form,
+    Map<String, Object>? files,
     Map<String, String>? headers,
-  }) => send('PUT', uri, json: json, form: form, headers: headers);
+  }) =>
+      send('PUT', uri, json: json, form: form, files: files, headers: headers);
 
   Future<TestResponse> patch(
     String uri, {
     Object? json,
     Map<String, String>? form,
+    Map<String, Object>? files,
     Map<String, String>? headers,
-  }) => send('PATCH', uri, json: json, form: form, headers: headers);
+  }) => send(
+    'PATCH',
+    uri,
+    json: json,
+    form: form,
+    files: files,
+    headers: headers,
+  );
 
   Future<TestResponse> delete(
     String uri, {
@@ -112,6 +124,7 @@ final class TestClient {
     String uri, {
     Object? json,
     Map<String, String>? form,
+    Map<String, Object>? files,
     String? body,
     Map<String, String>? headers,
   }) async {
@@ -120,6 +133,7 @@ final class TestClient {
       path: uri,
       json: json,
       form: form,
+      files: files,
       body: body,
       headers: <String, String>{
         'accept': 'application/json',

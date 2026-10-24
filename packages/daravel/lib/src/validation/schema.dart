@@ -119,6 +119,23 @@ final class _Node {
   }
 
   void _applyBounds(Map<String, Object?> schema) {
+    if (schema['format'] == 'binary') {
+      // File sizes are kilobytes, not string lengths.
+      final limits = [
+        for (final rule in rules)
+          switch (rule) {
+            MinRule(:final min) => 'at least $min KB',
+            MaxRule(:final max) => 'at most $max KB',
+            BetweenRule(:final min, :final max) => '$min to $max KB',
+            SizeRule(:final size) => 'exactly $size KB',
+            _ => null,
+          },
+      ].nonNulls;
+      if (limits.isNotEmpty) {
+        schema['description'] = 'File size: ${limits.join(', ')}.';
+      }
+      return;
+    }
     final type = schema['type'];
     final (minKey, maxKey) = switch (type) {
       'string' => ('minLength', 'maxLength'),

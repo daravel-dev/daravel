@@ -64,3 +64,45 @@ creates one.
 Declare it on the route with `.validates(const StorePostRequest())` instead
 and read `request.validated()` in the handler; see
 [Routing](routing.md#declared-validation-and-responses).
+
+## File uploads
+
+`multipart/form-data` bodies are parsed as they arrive: fields become input
+like a form, and each file is streamed to a temporary file (deleted after the
+response) and appears as an `UploadedFile`. Names such as `photos[]` and
+`user[avatar]` nest as in Laravel.
+
+```dart
+router.post('/avatar', (request) async {
+  final data = request.validated();
+  final path = await data.file('avatar').store('avatars', disk: 'public');
+  return {'url': Storage.disk('public').url(path)};
+}).rules(const {'avatar': 'required|image|max:2048'});
+```
+
+- `request.file('avatar')`, `request.hasFile('photos')` and
+  `request.uploadedFiles()` read the uploads; `all()` includes them.
+- `UploadedFile`: `clientName`, `clientExtension`, `clientMimeType` (sent by
+  the client, not trusted), `mimeType` and `extension` (detected from the
+  content), `size`, `bytes()`, `text()`, `openRead()`, `hashName()`,
+  `store(directory, disk:)` and `storeAs(directory, name, disk:)`.
+- Rules, as in Laravel 12: `file`, `image` (jpg, jpeg, png, gif, bmp, webp;
+  `image:allow_svg` adds SVG), `mimes:pdf,docx` (the extension of the
+  detected type), `mimetypes:image/*`, `extensions:csv,txt` (the client's
+  file name), and `min`, `max`, `size`, `between` in kilobytes. PHP files are
+  refused unless `php` is listed.
+- Types are detected from the content (PDF, images, Office and OpenDocument
+  files, archives, text), never from the file name: a text file named
+  `photo.png` is not an image.
+- The body size limit of `BodyLimitsMiddleware` (50 MiB by default) covers
+  uploads; a request also accepts at most 1 000 fields and 20 files.
+
+In tests, send files with `client.post(uri, files: {...})` (or
+`Request.fake(files: ...)`) and build them with `UploadedFile.fake`:
+
+```dart
+await client.post('/api/avatar', files: {
+  'avatar': UploadedFile.fake.image('me.png', kilobytes: 120),
+  'photos': [UploadedFile.fake.image('1.png'), UploadedFile.fake.image('2.gif')],
+});
+```

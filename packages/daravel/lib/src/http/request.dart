@@ -9,6 +9,8 @@ import '../validation/validated_data.dart';
 import '../validation/validator.dart';
 import 'headers.dart';
 import 'http_exceptions.dart';
+import 'multipart.dart';
+import 'uploaded_file.dart';
 
 /// Rewrites an input value; used by `TrimStrings` and
 /// `ConvertEmptyStringsToNull` style middleware.
@@ -52,6 +54,7 @@ final class Request {
     String path = '/',
     Object? json,
     Map<String, String>? form,
+    Map<String, Object>? files,
     String? body,
     Map<String, String>? headers,
     Map<String, String>? query,
@@ -68,7 +71,15 @@ final class Request {
     }
     final requestHeaders = Headers(headers);
     List<int>? bytes;
-    if (json != null) {
+    if (files != null) {
+      // Real multipart bytes, parsed like a browser upload.
+      const boundary = '----daravel-fake-boundary';
+      bytes = _fakeMultipart(boundary, form ?? const {}, files);
+      requestHeaders.set(
+        'content-type',
+        'multipart/form-data; boundary=$boundary',
+      );
+    } else if (json != null) {
       bytes = utf8.encode(jsonEncode(json));
       requestHeaders.set('content-type', 'application/json');
     } else if (form != null) {
@@ -118,6 +129,8 @@ final class Request {
   List<int>? _bodyBytes;
   Object? _parsedBody;
   bool _bodyParsed = false;
+  final List<UploadedFile> _uploads = [];
+  bool _cleanupScheduled = false;
   Map<String, Object?>? _queryInput;
   Map<String, Object?>? _allInput;
 
@@ -277,6 +290,80 @@ final class Request {
     return _bodyBytes = builder.takeBytes();
   }
 
+  /// The body as a stream that never exceeds [maxBodyBytes] (multipart
+  /// bodies are parsed as they arrive instead of being buffered).
+  Stream<List<int>> _limitedBody() async* {
+    final cached = _bodyBytes;
+    if (cached != null) {
+      _enforceLimit(cached.length);
+      yield cached;
+      return;
+    }
+    final declared = contentLength;
+    if (declared != null) {
+      _enforceLimit(declared);
+    }
+    final stream = _bodyStream;
+    _bodyStream = null;
+    _bodyBytes = const <int>[];
+    if (stream == null) {
+      return;
+    }
+    var total = 0;
+    await for (final chunk in stream) {
+      total += chunk.length;
+      _enforceLimit(total);
+      yield chunk;
+    }
+  }
+
+  /// The uploaded file at [key] (dot notation: `photos.0`), or `null`
+  /// (`$request->file('avatar')`).
+  Future<UploadedFile?> file(String key) async {
+    final value = _dig(await all(), key);
+    return value is UploadedFile ? value : null;
+  }
+
+  /// Whether [key] holds an uploaded file, or a list with at least one
+  /// (`$request->hasFile('photos')`).
+  Future<bool> hasFile(String key) async {
+    final value = _dig(await all(), key);
+    return value is UploadedFile ||
+        (value is List && value.any((item) => item is UploadedFile));
+  }
+
+  /// Every file uploaded with this request.
+  Future<List<UploadedFile>> uploadedFiles() async {
+    await body();
+    return List.unmodifiable(_uploads);
+  }
+
+  /// Deletes the temporary files of the uploads; runs when the request
+  /// scope ends (after the response is sent).
+  Future<void> deleteUploads() async {
+    for (final upload in _uploads) {
+      await upload.delete();
+    }
+  }
+
+  void _scheduleCleanup() {
+    if (_cleanupScheduled) {
+      return;
+    }
+    _cleanupScheduled = true;
+    Scope? scope;
+    try {
+      scope = Container.current.currentScope;
+    } on StateError {
+      scope = null; // No container (a bare kernel in unit tests).
+    }
+    if (scope != null) {
+      scope.onDispose(deleteUploads);
+    } else {
+      defer(deleteUploads);
+    }
+  }
+
   void _enforceLimit(int size) {
     final limit = maxBodyBytes;
     if (limit != null && size > limit) {
@@ -291,6 +378,16 @@ final class Request {
   Future<Object?> body() async {
     if (_bodyParsed) {
       return _parsedBody;
+    }
+    final boundary = multipartBoundary(headers.contentType);
+    if (boundary != null) {
+      _bodyParsed = true;
+      final multipart = await parseMultipart(_limitedBody(), boundary);
+      _uploads.addAll(multipart.files);
+      if (multipart.files.isNotEmpty) {
+        _scheduleCleanup();
+      }
+      return _parsedBody = multipart.fields;
     }
     final raw = await bytes();
     _bodyParsed = true;
@@ -597,7 +694,7 @@ final class Request {
 /// up to [maxDepth] levels, and a repeated plain key keeps its last value.
 /// Maps whose keys are exactly `0..n-1` become lists, as in Laravel's JSON.
 Map<String, Object?> parseQueryString(String query, {int maxDepth = 32}) {
-  final result = <String, Object?>{};
+  final pairs = <(String, Object)>[];
   for (final pair in query.split('&')) {
     if (pair.isEmpty) {
       continue;
@@ -615,6 +712,20 @@ Map<String, Object?> parseQueryString(String query, {int maxDepth = 32}) {
     } on ArgumentError {
       continue; // Malformed percent-encoding: PHP drops it too.
     }
+    pairs.add((key, value));
+  }
+  return buildInput(pairs, maxDepth: maxDepth);
+}
+
+/// Nests `name[key][]`-style [pairs] into maps and lists, as PHP fills
+/// `$_GET`, `$_POST` and `$_FILES` (used for query strings, form bodies and
+/// multipart fields and files).
+Map<String, Object?> buildInput(
+  Iterable<(String, Object)> pairs, {
+  int maxDepth = 32,
+}) {
+  final result = <String, Object?>{};
+  for (final (key, value) in pairs) {
     final open = key.indexOf('[');
     final segments = <String>[];
     if (open > 0) {
@@ -648,7 +759,7 @@ void _putQueryValue(
   Map<String, Object?> map,
   String key,
   List<String> segments,
-  String value,
+  Object value,
 ) {
   if (segments.isEmpty) {
     map[key] = value;
@@ -687,4 +798,41 @@ Object? _listify(Object? value) {
     return converted.values.toList();
   }
   return converted;
+}
+
+/// A `multipart/form-data` body with [fields] and [files] (an
+/// [UploadedFile] or a list of them per name, sent as `name[]`).
+List<int> _fakeMultipart(
+  String boundary,
+  Map<String, String> fields,
+  Map<String, Object> files,
+) {
+  final out = BytesBuilder();
+  void text(String value) => out.add(utf8.encode(value));
+  for (final MapEntry(:key, :value) in fields.entries) {
+    text('--$boundary\r\n');
+    text('Content-Disposition: form-data; name="$key"\r\n\r\n');
+    text('$value\r\n');
+  }
+  for (final MapEntry(:key, :value) in files.entries) {
+    final uploads = switch (value) {
+      UploadedFile() => [(key, value)],
+      List<Object?>() => [
+        for (final item in value) ('$key[]', item! as UploadedFile),
+      ],
+      _ => throw ArgumentError.value(value, key, 'UploadedFile or List'),
+    };
+    for (final (name, file) in uploads) {
+      text('--$boundary\r\n');
+      text(
+        'Content-Disposition: form-data; name="$name"; '
+        'filename="${file.clientName}"\r\n',
+      );
+      text('Content-Type: ${file.clientMimeType}\r\n\r\n');
+      out.add(file.readAsBytesSync());
+      text('\r\n');
+    }
+  }
+  text('--$boundary--\r\n');
+  return out.takeBytes();
 }

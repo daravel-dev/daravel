@@ -14,7 +14,7 @@ Report vulnerabilities privately as described in
 | 5 | `nosniff`, `Referrer-Policy`, `X-Frame-Options` for HTML, HSTS on HTTPS | `SecurityHeadersMiddleware` |
 | 6 | Starter throttles `login` (5/min per e-mail + IP) and `register` (5/min per IP) | `bootstrap/app.dart` |
 | 7 | Logs redact secrets and never log request bodies | `Logger` |
-| 8 | Uploads: multipart arrives in Tier 2; storage paths cannot escape the disk | `normalizeDiskPath` |
+| 8 | Uploads: types come from the content (never the name), PHP files are refused, bodies and file counts are limited, temporary files are removed after the response, and storage paths cannot escape the disk | `detectMimeType`, `normalizeDiskPath` |
 | 9 | Generic credential errors; unknown accounts still cost a hash | `equalizeLoginTiming` |
 | 10 | `dartisan doctor --production` fails on critical misconfiguration | CLI |
 

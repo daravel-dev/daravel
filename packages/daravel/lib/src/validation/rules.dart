@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../database/database_manager.dart';
+import '../http/uploaded_file.dart';
 import 'rule.dart';
 
 /// Factory facade for built-in rules (`Rule.required()`, `Rule.email()`...).
@@ -31,6 +32,11 @@ abstract final class Rules {
   static Rule map() => const MapRule();
   static Rule email() => const EmailRule();
   static Rule url() => const UrlRule();
+  static Rule file() => const FileRule();
+  static Rule image({bool allowSvg = false}) => ImageRule(allowSvg: allowSvg);
+  static Rule mimes(List<String> extensions) => MimesRule(extensions);
+  static Rule mimetypes(List<String> types) => MimetypesRule(types);
+  static Rule extensions(List<String> extensions) => ExtensionsRule(extensions);
   static Rule uuid() => const UuidRule();
   static Rule ulid() => const UlidRule();
   static Rule ip() => const IpRule();
@@ -527,8 +533,10 @@ final class RegexRule extends Rule {
 
 /// Size of a value Laravel-style: numbers by value, strings by rune count,
 /// collections by length. `null` for unsupported types.
+/// Uploaded files by size in kilobytes, as Laravel measures them.
 num? sizeOf(Object? value) => switch (value) {
   num() => value,
+  UploadedFile() => value.size / 1024,
   String() => value.runes.length,
   List<Object?>() => value.length,
   Map<Object?, Object?>() => value.length,
@@ -537,6 +545,7 @@ num? sizeOf(Object? value) => switch (value) {
 
 String _sizeKind(Object? value) => switch (value) {
   num() => 'numeric',
+  UploadedFile() => 'file',
   List<Object?>() || Map<Object?, Object?>() => 'array',
   _ => 'string',
 };
@@ -939,4 +948,126 @@ final class ClosureRule extends Rule {
   final String name;
   @override
   FutureOr<String?> passes(ValidationContext c) => check(c);
+}
+
+// ---------------------------------------------------------------------------
+// Files (Laravel 12 ValidatesAttributes: validateFile, validateImage,
+// validateMimes, validateMimetypes, validateExtensions)
+// ---------------------------------------------------------------------------
+
+const Set<String> _phpExtensions = {
+  'php',
+  'php3',
+  'php4',
+  'php5',
+  'php7',
+  'php8',
+  'phtml',
+  'phar',
+};
+
+/// Laravel refuses PHP uploads unless `php` is listed explicitly.
+bool _blocksPhp(UploadedFile file, List<String> allowed) =>
+    !allowed.contains('php') &&
+    _phpExtensions.contains(file.clientExtension.trim());
+
+final class FileRule extends Rule {
+  const FileRule();
+  @override
+  String get name => 'file';
+  @override
+  Map<String, Object?> get schemaHint => const {
+    'type': 'string',
+    'format': 'binary',
+  };
+  @override
+  String? passes(ValidationContext c) => c.value is UploadedFile ? null : name;
+}
+
+/// `mimes:jpg,png`: the extension guessed from the content.
+final class MimesRule extends Rule {
+  const MimesRule(this.extensions, {this.ruleName = 'mimes'});
+  final List<String> extensions;
+  final String ruleName;
+  @override
+  String get name => ruleName;
+  @override
+  Map<String, Object?> get parameters => {'values': extensions.join(', ')};
+  @override
+  Map<String, Object?> get schemaHint => const {
+    'type': 'string',
+    'format': 'binary',
+  };
+  @override
+  String? passes(ValidationContext c) {
+    final value = c.value;
+    if (value is! UploadedFile || _blocksPhp(value, extensions)) {
+      return name;
+    }
+    final allowed = {...extensions};
+    if (allowed.contains('jpg') || allowed.contains('jpeg')) {
+      allowed.addAll(['jpg', 'jpeg']);
+    }
+    return allowed.contains(value.extension) ? null : name;
+  }
+}
+
+/// `image` (jpg, jpeg, png, gif, bmp, webp; `image:allow_svg` adds svg).
+final class ImageRule extends MimesRule {
+  const ImageRule({bool allowSvg = false})
+    : super(allowSvg ? _withSvg : _images, ruleName: 'image');
+  static const List<String> _images = [
+    'jpg',
+    'jpeg',
+    'png',
+    'gif',
+    'bmp',
+    'webp',
+  ];
+  static const List<String> _withSvg = [..._images, 'svg'];
+  @override
+  Map<String, Object?> get parameters => const {};
+}
+
+/// `mimetypes:image/jpeg,video/*`: the type detected from the content.
+final class MimetypesRule extends Rule {
+  const MimetypesRule(this.types);
+  final List<String> types;
+  @override
+  String get name => 'mimetypes';
+  @override
+  Map<String, Object?> get parameters => {'values': types.join(', ')};
+  @override
+  Map<String, Object?> get schemaHint => const {
+    'type': 'string',
+    'format': 'binary',
+  };
+  @override
+  String? passes(ValidationContext c) {
+    final value = c.value;
+    if (value is! UploadedFile || _blocksPhp(value, types)) {
+      return name;
+    }
+    final type = value.mimeType;
+    final family = '${type.split('/').first}/*';
+    return types.contains(type) || types.contains(family) ? null : name;
+  }
+}
+
+/// `extensions:csv,txt`: the extension of the client's file name.
+final class ExtensionsRule extends Rule {
+  const ExtensionsRule(this.extensions);
+  final List<String> extensions;
+  @override
+  String get name => 'extensions';
+  @override
+  Map<String, Object?> get parameters => {'values': extensions.join(', ')};
+  @override
+  String? passes(ValidationContext c) {
+    final value = c.value;
+    if (value is! UploadedFile || _blocksPhp(value, extensions)) {
+      return name;
+    }
+    return extensions.contains(value.clientExtension) ? null : name;
+  }
 }

@@ -72,7 +72,10 @@ Map<String, Object?> buildOpenApi(
           'requestBody': <String, Object?>{
             'required': true,
             'content': {
-              'application/json': {
+              // File rules (format: binary) need a multipart body.
+              (input != null && _hasBinary(input)
+                  ? 'multipart/form-data'
+                  : 'application/json'): {
                 'schema': input ?? {'type': 'object'},
               },
             },
@@ -283,3 +286,11 @@ String _operationId(String method, String path) {
       .map((s) => s[0].toUpperCase() + s.substring(1));
   return words.isEmpty ? '${method}Root' : '$method${words.join()}';
 }
+
+/// Whether [schema] has a `format: binary` property at any depth.
+bool _hasBinary(Object? schema) => switch (schema) {
+  Map<Object?, Object?>() =>
+    schema['format'] == 'binary' || schema.values.any(_hasBinary),
+  List<Object?>() => schema.any(_hasBinary),
+  _ => false,
+};

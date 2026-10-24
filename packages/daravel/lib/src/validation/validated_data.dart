@@ -1,3 +1,4 @@
+import '../http/uploaded_file.dart';
 import 'rule.dart';
 import 'rules.dart';
 
@@ -13,6 +14,14 @@ extension type const ValidatedData(Map<String, Object?> _data)
 
   String string(String path) =>
       _require<String>(path, (v) => v is String ? v : '$v');
+
+  /// The uploaded file at [path] (validate it with `file`, `image` or
+  /// `mimes`).
+  UploadedFile file(String path) => _require<UploadedFile>(
+    path,
+    (v) => v is UploadedFile ? v : null,
+    expected: 'file',
+  );
 
   String? maybeString(String path) {
     final value = get(path);
