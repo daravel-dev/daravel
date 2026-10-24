@@ -22,11 +22,12 @@ suite keeps them that way. See [Laravel coexistence](laravel-coexistence.md).
 7. [Cache, events, queues, scheduling](background.md).
 8. [Strings, helpers and collections](helpers.md): `Str`, `retry`, `once`, `pluck`, ...
 9. [Testing](testing.md): `TestClient`, database helpers, fakes, conformance.
-10. [Deployment](deployment.md): native bundles, Docker, isolates, production checks.
+10. [Deployment](deployment.md): native bundles, Docker, Cloud Run, VPS (systemd + Caddy).
 11. [Laravel coexistence](laravel-coexistence.md): the compatibility contract.
-12. [Security](security.md): secure defaults and the security suite.
-13. [Performance](performance.md): the benchmark harness.
-14. [Laravel ⇄ Daravel parity table](parity.md) (generated).
+12. [Migrating from Laravel](migrating-from-laravel.md): move endpoints one at a time behind a proxy.
+13. [Security](security.md): secure defaults and the security suite.
+14. [Performance](performance.md): the benchmark harness.
+15. [Laravel ⇄ Daravel parity table](parity.md) (generated).
 
 Bahasa Indonesia: [Dokumentasi Daravel](id/index.md).
 

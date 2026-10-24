@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:daravel/daravel.dart';
@@ -68,8 +69,8 @@ final class QueueWorkCommand extends DaravelCommand {
       stopWhenEmpty: r['stop-when-empty'] as bool || r['once'] as bool,
     );
     final worker = QueueWorker(App.make<QueueManager>(), logger: app.logger);
-    ProcessSignal.sigint.watch().listen((_) => worker.stop());
-    final code = await worker.run(options);
+    final stopWatching = watchStopSignals(worker.stop);
+    final code = await worker.run(options).whenComplete(stopWatching);
     stdout.writeln('Processed ${worker.processed} job(s).');
     return code;
   });
@@ -354,11 +355,11 @@ final class ScheduleWorkCommand extends DaravelCommand {
   @override
   Future<int> run() => withApp((app) async {
     final scheduler = app.scheduler(commandRunner: dartisan.runNamed);
-    ProcessSignal.sigint.watch().listen((_) => scheduler.stop());
+    final stopWatching = watchStopSignals(scheduler.stop);
     stdout.writeln(
       'Schedule worker started (${app.config.section<AppConfig>().env}).',
     );
-    await scheduler.work();
+    await scheduler.work().whenComplete(stopWatching);
     return 0;
   });
 }
@@ -399,4 +400,17 @@ final class ScheduleListCommand extends DaravelCommand {
     );
     return 0;
   });
+}
+
+/// Calls [stop] on `SIGINT` and, outside Windows, `SIGTERM` (sent by
+/// systemd, Docker, Kubernetes and Cloud Run), so long-running workers
+/// finish the current job before exiting. Returns a function that removes
+/// the handlers.
+Future<void> Function() watchStopSignals(void Function() stop) {
+  final subscriptions = <StreamSubscription<ProcessSignal>>[
+    ProcessSignal.sigint.watch().listen((_) => stop()),
+    if (!Platform.isWindows)
+      ProcessSignal.sigterm.watch().listen((_) => stop()),
+  ];
+  return () => Future.wait([for (final s in subscriptions) s.cancel()]);
 }

@@ -18,7 +18,8 @@ tetap begitu. Lihat [Koeksistensi dengan Laravel](laravel-coexistence.md).
   [Validasi](../validation.md), [Database](../database.md),
   [Respons dan resource](../responses.md), [Autentikasi](../auth.md),
   [Cache, event, queue](../background.md), [Testing](../testing.md),
-  [Deployment](../deployment.md), [Keamanan](../security.md),
+  [Deployment](../deployment.md),
+  [Migrasi bertahap dari Laravel](../migrating-from-laravel.md), [Keamanan](../security.md),
   [Performa](../performance.md), [Tabel paritas](../parity.md).
 
 English: [Daravel documentation](../index.md).

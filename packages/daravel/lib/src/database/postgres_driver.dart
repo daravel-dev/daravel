@@ -44,6 +44,20 @@ final class PostgresDriver implements DatabaseDriver {
 
   pg.Pool<Object?>? _pool;
 
+  /// The socket file when [host] is a path (`/cloudsql/project:region:db`),
+  /// as libpq and Laravel read it: a directory gets `.s.PGSQL.<port>`
+  /// appended. `null` for TCP hosts.
+  String? get unixSocketPath {
+    if (!host.startsWith('/')) {
+      return null;
+    }
+    final file = '.s.PGSQL.$port';
+    if (host.endsWith('/$file')) {
+      return host;
+    }
+    return host.endsWith('/') ? '$host$file' : '$host/$file';
+  }
+
   @override
   SqlDialect get dialect => SqlDialect.postgres;
 
@@ -65,7 +79,8 @@ final class PostgresDriver implements DatabaseDriver {
     final pool = pg.Pool<Object?>.withEndpoints(
       [
         pg.Endpoint(
-          host: host,
+          host: unixSocketPath ?? host,
+          isUnixSocket: unixSocketPath != null,
           port: port,
           database: database,
           username: username,

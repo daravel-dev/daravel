@@ -20,10 +20,20 @@ suite shows they differ from Laravel.
   `QueueManager.pause` / `resume` with `dartisan queue:pause` /
   `queue:continue` (`[connection:]queue`, like Laravel 11), `QueueWorker.pause`
   / `resume`, and `DB.listen` with `QueryExecuted` events.
+- PostgreSQL over a Unix socket: a `DB_HOST` path (`/cloudsql/project:region:db`)
+  connects to `<dir>/.s.PGSQL.<port>`, as in Laravel and libpq.
+- Guides: [Migrating from Laravel](docs/guide/migrating-from-laravel.md)
+  (Strangler Fig behind Caddy or nginx) and Cloud Run and VPS (systemd +
+  Caddy) sections in [Deployment](docs/guide/deployment.md).
 
 ### Changed
 
 - `QueueDriver` gained `oldestWait`; custom drivers must implement it.
+
+### Fixed
+
+- `queue:work` and `schedule:work` stop gracefully on `SIGTERM` (systemd,
+  Docker, Cloud Run), not only on `SIGINT`.
 
 ## 1.0.0-beta.2
 

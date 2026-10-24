@@ -78,3 +78,5 @@ Daravel jobs, so give Daravel its own queue names, for example
 `Queue.dispatch(job).onQueue('daravel')` with `dartisan queue:work
 --queue=daravel`, and keep Laravel's `queue:work` on its own queues.
 The [parity table](parity.md) lists every mapped API and what is missing.
+To move an application over endpoint by endpoint, see
+[Migrating from Laravel](migrating-from-laravel.md).
