@@ -240,6 +240,22 @@ through Caddy, and trust it with `TrustProxiesMiddleware(proxies:
 ['127.0.0.1/32'])`. To move a Laravel application over endpoint by endpoint
 behind the same Caddy, see [Migrating from Laravel](migrating-from-laravel.md).
 
+## Maintenance mode
+
+```bash
+dart run bin/dartisan.dart down --retry=60 --with-secret   # prints the bypass path
+dart run bin/dartisan.dart up
+```
+
+`down` writes `storage/framework/down` in Laravel's format, and running
+servers answer `503 {"message": "Service Unavailable"}` (with `Retry-After`
+and `Refresh` when given) within a second, without a restart. The health
+routes (`/up`, `/up/ready`) and `--except=/path` stay available. Visiting
+`/<secret>` sets a `daravel_maintenance` cookie (HMAC-signed, valid for 12
+hours, as Laravel's) that lets you use the application while it is down.
+With several servers, the file must be on storage they share, or run `down`
+on each.
+
 ## Production checklist
 
 - `APP_ENV=production`, `APP_DEBUG=false` (boot fails otherwise unless

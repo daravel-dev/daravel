@@ -167,6 +167,9 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `public function with($request)` | `Map<String, Object?> withMeta(Request? request)` | `with` is a reserved word in Dart. |
 | `Storage::disk('public')->put($path, $contents)` | `await Storage.disk('public').put(path, contents)` |  |
 | `Storage::url($path)` | `Storage.url(path)` |  |
+| `Http::withToken($t)->retry(3, 100)->post($url, $data)` | `await Http.withToken(t).retry(3).post(url, json: data)` | **async** |
+| `Http::fake([...]) / Http::assertSent(...)` | `Http.fake({...}).assertSent(...)` |  |
+| `php artisan down --secret / up` | `dartisan down --secret / up` | Same storage/framework/down file; bypass cookie daravel_maintenance. |
 | `Log::info($message, $context)` | `Log.info(message, context)` |  |
 | `Log::withContext([...])` | `Log.withContext({...})` |  |
 | `config('app.name')` | `Config.get<String>('app.name')` |  |

@@ -765,3 +765,84 @@ final class LintCommand extends Command<int> {
     return issues.isEmpty ? 0 : 1;
   }
 }
+
+/// `down [--secret] [--with-secret] [--retry] [--refresh] [--status]
+/// [--except]` — puts the application in maintenance mode (Laravel's
+/// `storage/framework/down`). Running servers notice within a second.
+final class DownCommand extends Command<int> {
+  DownCommand({this.root}) {
+    argParser
+      ..addOption('secret', help: 'Path that sets a bypass cookie (/<secret>).')
+      ..addFlag(
+        'with-secret',
+        negatable: false,
+        help: 'Generate the bypass secret.',
+      )
+      ..addOption('retry', help: 'Retry-After header, in seconds.')
+      ..addOption('refresh', help: 'Refresh header, in seconds.')
+      ..addOption('status', defaultsTo: '503', help: 'Response status.')
+      ..addMultiOption('except', help: 'Paths that stay available.');
+  }
+
+  /// Project root; located from the working directory when `null`.
+  final String? root;
+
+  @override
+  String get name => 'down';
+
+  @override
+  String get description => 'Put the application into maintenance mode.';
+
+  @override
+  Future<int> run() async {
+    final args = argResults!;
+    int? number(String option) {
+      final value = args[option] as String?;
+      if (value == null) {
+        return null;
+      }
+      return int.tryParse(value) ??
+          usageException('--$option must be an integer, got "$value".');
+    }
+
+    final secret =
+        args['secret'] as String? ??
+        ((args['with-secret'] as bool) ? Str.random(32) : null);
+    MaintenanceMode.at(root ?? ProjectPaths.locate().root).activate(
+      secret: secret,
+      retry: number('retry'),
+      refresh: number('refresh'),
+      status: number('status') ?? 503,
+      except: [for (final path in args['except'] as List<String>) path],
+    );
+    stdout.writeln('Application is now in maintenance mode.');
+    if (secret != null) {
+      stdout.writeln('Bypass: visit /$secret to set the bypass cookie.');
+    }
+    return 0;
+  }
+}
+
+/// `up` — brings the application out of maintenance mode.
+final class UpCommand extends Command<int> {
+  UpCommand({this.root});
+
+  /// Project root; located from the working directory when `null`.
+  final String? root;
+
+  @override
+  String get name => 'up';
+
+  @override
+  String get description => 'Bring the application out of maintenance mode.';
+
+  @override
+  Future<int> run() async {
+    final wasDown = MaintenanceMode.at(root ?? ProjectPaths.locate().root)
+        .deactivate();
+    stdout.writeln(
+      wasDown ? 'Application is now live.' : 'Application is already up.',
+    );
+    return 0;
+  }
+}

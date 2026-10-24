@@ -1,0 +1,51 @@
+name: Bug report
+description: Something in Daravel or dartisan does not work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Security problems go to the private channel in
+        [SECURITY.md](https://github.com/daravel-dev/daravel/blob/main/SECURITY.md), not here.
+  - type: input
+    id: version
+    attributes:
+      label: Daravel version
+      description: "`dartisan about` or the `daravel` version in pubspec.lock"
+      placeholder: 1.0.0-beta.3
+    validations:
+      required: true
+  - type: input
+    id: sdk
+    attributes:
+      label: Dart SDK version
+      description: "`dart --version`"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options: [Linux, macOS, Windows, Docker / container, Other]
+    validations:
+      required: true
+  - type: dropdown
+    id: database
+    attributes:
+      label: Database
+      options: [SQLite, PostgreSQL, Not relevant]
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The smallest route, command or test that shows the problem.
+      render: dart
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and actual behaviour
+      description: Include the full error and stack trace. For Laravel compatibility issues, what Laravel 12 does.
+    validations:
+      required: true

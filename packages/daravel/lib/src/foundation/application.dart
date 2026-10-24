@@ -20,8 +20,10 @@ import '../observability/health.dart';
 import '../observability/metrics.dart';
 import '../storage/storage.dart';
 import '../events/events.dart';
+import '../http/client.dart';
 import '../http/exception_handler.dart';
 import '../http/headers.dart';
+import '../http/middleware/maintenance_mode.dart';
 import '../http/middleware/validate_signature.dart';
 import '../http/kernel.dart';
 import '../http/middleware.dart';
@@ -198,6 +200,7 @@ final class Application {
         (c) => HashManager(c.make<ConfigRepository>().section<HashConfig>()),
       )
       ..singleton<Encrypter>((c) => _encrypter(c.make<Env>()))
+      ..singleton<HttpClientFactory>((_) => HttpClientFactory())
       ..instance<RateLimiter>(rateLimiter)
       ..instance<AuthorizationGate>(gate)
       ..instance<AuthManager>(auth)
@@ -235,6 +238,19 @@ final class Application {
       );
 
     _builder._middlewareConfig?.call(middleware);
+    // `dartisan down`: answer 503 except for the health probes.
+    final health = _builder._routing?.health;
+    middleware.prepend(
+      PreventRequestsDuringMaintenance(
+        MaintenanceMode.at(basePath),
+        except: {
+          if (health != null) ...{
+            health,
+            '${health == '/' ? '' : health}/ready',
+          },
+        },
+      ),
+    );
     final metricsConfig = config.section<MetricsConfig>();
     if (metricsConfig.enabled) {
       middleware.prepend(MetricsMiddleware(metrics));
@@ -595,6 +611,7 @@ final class Application {
   Future<void> _closeResources() async {
     _metricsTimer?.cancel();
     _metricsTimer = null;
+    container.resolved<HttpClientFactory>()?.close();
     final db = container.resolved<DatabaseManager>();
     if (db != null) {
       await db.closeAll();

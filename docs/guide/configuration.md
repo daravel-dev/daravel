@@ -1,0 +1,87 @@
+# Configuration
+
+## Environment files
+
+Configuration comes from the environment, read in this order (later wins):
+
+1. `.env` in the project root;
+2. `.env.{APP_ENV}` (for example `.env.testing`), when `APP_ENV` is set;
+3. the process environment;
+4. overrides passed in code (`withEnv({...})`, used by tests).
+
+The syntax is Laravel's (phpdotenv 5): comments, `export`, single and
+double quotes, escapes in double quotes, values in double quotes that span
+several lines, and `${NAME}` references. A bare `$NAME` stays as written, so
+a password such as `p$ss` reads the same in Laravel and Daravel.
+
+`dartisan key:generate` writes a fresh `APP_KEY`. Without a `.env`,
+`APP_ENV` defaults to `production`.
+
+## Encrypted environment files
+
+`dartisan env:encrypt` writes `.env.encrypted` in the format of
+`php artisan env:encrypt`; set `DARAVEL_ENV_ENCRYPTION_KEY` (or
+`LARAVEL_ENV_ENCRYPTION_KEY`) and the application decrypts it in memory at
+boot. See [Deployment](deployment.md#secrets-encrypted-environment-files).
+
+## Typed configuration
+
+Each module reads its variables into a typed section (`AppConfig`,
+`DatabaseConfig`, `CacheConfig`, `QueueConfig`, ...), validated at boot:
+debug mode in production, a malformed `APP_KEY` or an unknown
+`DB_CONNECTION` stop the application with a clear message.
+
+```dart
+final app = Config.section<AppConfig>();      // typed
+final name = Config.get<String>('app.name');  // dot notation, like config()
+```
+
+Your own settings get a section too:
+
+```dart
+final class BillingConfig implements ConfigSection {
+  BillingConfig(this.currency, this.trialDays);
+
+  factory BillingConfig.fromEnv(Env env) => BillingConfig(
+    env.string('BILLING_CURRENCY', 'IDR'),
+    env.integer('BILLING_TRIAL_DAYS', 14),
+  );
+
+  final String currency;
+  final int trialDays;
+
+  @override
+  String get key => 'billing';
+
+  @override
+  Map<String, Object?> toMap() => {'currency': currency, 'trial_days': trialDays};
+}
+
+// bootstrap/app.dart
+Application.configure(basePath: '.').withConfig(BillingConfig.fromEnv);
+```
+
+`Env` has typed readers: `string`, `integer`, `boolean`, `duration`
+(`30s`, `5m`, `500ms`), `list`, `url` and `enumValue`. Configuration is
+frozen after boot.
+
+## Common variables
+
+| Variable | Default | Purpose |
+| :-- | :-- | :-- |
+| `APP_ENV`, `APP_DEBUG` | `production`, `false` | Environment and debug output |
+| `APP_KEY`, `APP_PREVIOUS_KEYS` | none | Encryption, signed URLs, tokens; key rotation |
+| `APP_CIPHER` | `AES-256-CBC` | `Crypt` cipher (as Laravel) |
+| `APP_HOST`, `APP_PORT`, `PORT` | `127.0.0.1`, `8000` | Server address; `PORT` for container platforms |
+| `APP_ISOLATES` | `1` | HTTP worker isolates |
+| `DB_CONNECTION`, `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD` | `sqlite` | Database (a path in `DB_HOST` is a Unix socket) |
+| `DB_POOL_SIZE`, `DB_SSLMODE` | `10`, `disable` | PostgreSQL pool per isolate, TLS |
+| `CACHE_STORE`, `CACHE_PREFIX` | `memory` | Cache store and key prefix |
+| `QUEUE_CONNECTION` | `sync` | `sync`, `memory` or `database` |
+| `HASH_DRIVER`, `BCRYPT_ROUNDS` | `bcrypt`, `12` | Password hashing (as Laravel) |
+| `LOG_LEVEL`, `LOG_STACK` | `debug` | Logging level and channels (`json` for production) |
+| `SHUTDOWN_TIMEOUT`, `HTTP_REQUEST_TIMEOUT` | `30s`, `30s` | Graceful shutdown and handler timeouts |
+| `SERVER_EMBED_QUEUE`, `SERVER_EMBED_SCHEDULER` | `false` | Queue worker and scheduler in the server process |
+
+`dartisan doctor` checks the configuration and the database connection;
+`doctor --production` treats warnings as failures.

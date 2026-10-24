@@ -62,6 +62,19 @@ dartisan make:job PublishPost
 Templates live in `dartisan_cli`; `stub:publish` copies them into `stubs/`
 so you can change them.
 
+## Inspecting the application
+
+```bash
+dartisan db:show                      # tables with column and row counts
+dartisan db:table users --limit=5     # columns, then the first rows
+dartisan tinker "await User.query().where('active', true).count()"
+```
+
+`tinker` evaluates one Dart expression inside the booted application (models
+are imported for you) and prints the result, models and collections as JSON.
+Dart has no `eval`, so each call compiles a small program and boots the
+application again; it is one-shot, not a REPL.
+
 ## Build and run
 
 ```bash

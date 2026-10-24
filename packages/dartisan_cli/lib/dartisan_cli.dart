@@ -18,6 +18,7 @@ import 'src/project_commands.dart';
 import 'src/cache_commands.dart';
 import 'src/adopt_command.dart';
 import 'src/env_commands.dart';
+import 'src/tinker_command.dart';
 import 'src/make_commands.dart';
 import 'src/queue_commands.dart';
 
@@ -33,6 +34,7 @@ export 'src/global_runner.dart';
 export 'src/cache_commands.dart';
 export 'src/env_commands.dart';
 export 'src/adopt_command.dart';
+export 'src/tinker_command.dart';
 export 'src/make_commands.dart';
 export 'src/queue_commands.dart';
 
@@ -58,6 +60,8 @@ final class DartisanRunner extends CommandRunner<int> {
     addCommand(MigrateResetCommand(createApp));
     addCommand(MigrateFreshCommand(createApp));
     addCommand(DbSeedCommand(createApp));
+    addCommand(DbShowCommand(createApp));
+    addCommand(DbTableCommand(createApp));
     addCommand(CacheClearCommand(createApp));
     addCommand(CoordinatorStatsCommand(createApp));
     addCommand(StorageLinkCommand(createApp));
@@ -87,6 +91,9 @@ final class DartisanRunner extends CommandRunner<int> {
     addCommand(EnvDecryptCommand());
     addCommand(EnvObfuscateCommand());
     addCommand(AdoptCommand());
+    addCommand(DownCommand());
+    addCommand(UpCommand());
+    addCommand(TinkerCommand());
     addCommand(DoctorCommand(createApp));
     addCommand(BuildCommand());
     addCommand(TestCommand());

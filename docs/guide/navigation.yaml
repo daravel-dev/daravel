@@ -1,0 +1,18 @@
+# Sidebar of the documentation site, in order. Every guide page must appear
+# here; tool/docs/generate.dart fails on a missing or unknown page.
+- title: Prologue
+  pages: [index, releases, parity, migrating-from-laravel, laravel-coexistence]
+- title: Getting started
+  pages: [getting-started, configuration, deployment]
+- title: Architecture
+  pages: [architecture]
+- title: The basics
+  pages: [routing, validation, responses, http-client]
+- title: Database
+  pages: [database, orm]
+- title: Security
+  pages: [auth, security]
+- title: Digging deeper
+  pages: [dartisan, background, helpers]
+- title: Testing and performance
+  pages: [testing, performance]

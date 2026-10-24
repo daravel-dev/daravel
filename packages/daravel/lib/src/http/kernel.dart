@@ -39,7 +39,7 @@ final class HttpKernel {
     _bindLogContext(request);
     try {
       return await MiddlewarePipeline.run(
-        middleware.applyPriority(middleware.global),
+        middleware.orderedGlobal,
         request,
         _dispatch,
       );
@@ -54,7 +54,7 @@ final class HttpKernel {
   Future<void> terminate(Request request, Response response) async {
     final layers = <Middleware>[
       // The same order as the request went through them.
-      ...middleware.applyPriority(middleware.global),
+      ...middleware.orderedGlobal,
       ...?request.route?.resolvedMiddleware,
     ];
     for (final layer in layers) {

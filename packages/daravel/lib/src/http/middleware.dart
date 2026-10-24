@@ -64,6 +64,12 @@ final class MiddlewareRegistry {
   /// Global middleware in execution order.
   List<Middleware> get global => List.unmodifiable(_global);
 
+  List<Middleware>? _ordered;
+
+  /// [global] sorted by priority; computed once, not per request.
+  List<Middleware> get orderedGlobal =>
+      _ordered ??= List.unmodifiable(applyPriority(_global));
+
   /// Registered alias names.
   Iterable<String> get aliases => _aliases.keys;
 
@@ -71,20 +77,30 @@ final class MiddlewareRegistry {
   Iterable<String> get groups => _groups.keys;
 
   /// Appends [middleware] to the global stack.
-  void use(List<Middleware> middleware) => _global.addAll(middleware);
+  void use(List<Middleware> middleware) {
+    _global.addAll(middleware);
+    _ordered = null;
+  }
 
   /// Inserts [middleware] at the front of the global stack.
-  void prepend(Middleware middleware) => _global.insert(0, middleware);
+  void prepend(Middleware middleware) {
+    _global.insert(0, middleware);
+    _ordered = null;
+  }
 
   /// Inserts [middleware] right after the first global middleware of type
   /// [T] (or at the front when none exists).
   void insertAfter<T extends Middleware>(Middleware middleware) {
     final index = _global.indexWhere((m) => m is T);
     _global.insert(index + 1, middleware);
+    _ordered = null;
   }
 
   /// Removes every global middleware of type [T].
-  void remove<T extends Middleware>() => _global.removeWhere((m) => m is T);
+  void remove<T extends Middleware>() {
+    _global.removeWhere((m) => m is T);
+    _ordered = null;
+  }
 
   /// Registers an alias resolving to a fixed instance (`'auth'`).
   void alias(String name, Middleware middleware) =>
@@ -101,7 +117,10 @@ final class MiddlewareRegistry {
 
   /// Orders resolved middleware by type: types listed here run first, in
   /// this order; other middleware keeps its relative order afterwards.
-  void priority(List<Type> order) => _priority = List<Type>.of(order);
+  void priority(List<Type> order) {
+    _priority = List<Type>.of(order);
+    _ordered = null;
+  }
 
   /// Resolves a single entry (instance, alias, `alias:params` or group).
   List<Middleware> resolve(Object entry) {

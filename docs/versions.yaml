@@ -1,0 +1,11 @@
+# Documentation versions (tool/docs/generate.dart, .github/workflows/docs.yml).
+# Each version is built from its branch into build/site/docs/<id>/.
+default: "1.x"
+versions:
+  - id: "1.x"
+    label: "1.x"
+    branch: "1.x"
+  - id: "main"
+    label: "main (development)"
+    branch: "main"
+    development: true

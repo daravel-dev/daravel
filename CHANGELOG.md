@@ -5,6 +5,29 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 beta releases may still change Laravel-facing formats when the conformance
 suite shows they differ from Laravel.
 
+## Unreleased
+
+### Added
+
+- Issue forms and a pull request template.
+- `Http`: outgoing requests with Laravel's `Http::` API (`withToken`, `baseUrl`,
+  `timeout`, `retry`, `asForm`, JSON helpers on the response, `throwIfFailed`)
+  and `Http.fake()` with patterns, sequences, `assertSent` and
+  `preventStrayRequests`.
+- Maintenance mode: `dartisan down [--secret] [--with-secret] [--retry]
+  [--refresh] [--status] [--except]` and `up`, with Laravel's
+  `storage/framework/down` file; `PreventRequestsDuringMaintenance` runs on
+  every application (health routes stay up, signed bypass cookie).
+- `dartisan db:show`, `db:table <table> [--limit]` and
+  `tinker "<expression>"`.
+- Documentation site: a landing page (EN/ID) with Laravel ⇄ Daravel examples,
+  versioned docs under `docs/<version>/` (`docs/versions.yaml`, built from each
+  branch by the Docs workflow), a categorised sidebar
+  (`docs/guide/navigation.yaml`), "on this page" links, `Ctrl+K` search,
+  light/dark themes, copy buttons and Indonesian pages with an English
+  fallback. Old page URLs redirect.
+- Guide pages: Releases, Configuration, Architecture, ORM and dartisan.
+
 ## 1.0.0-beta.3
 
 ### Added

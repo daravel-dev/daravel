@@ -1,13 +1,15 @@
 import 'dart:io';
 
-import 'package:markdown/markdown.dart' as md;
 import 'package:yaml/yaml.dart';
+
+import 'site.dart';
 
 /// Documentation site generator (BLUEPRINT_V2 §14.4, §11.3):
 ///
 /// ```bash
-/// dart run tool/docs/generate.dart          # refresh docs/guide, build build/site
-/// dart run tool/docs/generate.dart --check  # CI: fail when docs/guide is stale
+/// dart run tool/docs/generate.dart                 # refresh docs/guide, build build/site
+/// dart run tool/docs/generate.dart --check         # CI: fail when docs/guide is stale
+/// dart run tool/docs/generate.dart --version=main --keep   # add a version to build/site
 /// ```
 ///
 /// 1. Renders `docs/guide/parity.md` from `parity.yaml` (side-by-side
@@ -15,9 +17,32 @@ import 'package:yaml/yaml.dart';
 /// 2. Replaces every `<!-- include: path#region -->` … `<!-- /include -->`
 ///    block with that region of a compiled test file, so guide snippets are
 ///    the code the test suite runs.
-/// 3. Builds a static HTML site from `docs/guide` into `build/site`.
+/// 3. Builds the site into `build/site`: the landing pages, and the guide
+///    of this checkout as `docs/<version>/` (sidebar from
+///    `docs/guide/navigation.yaml`, versions from `docs/versions.yaml`).
+///    `--keep` adds to an existing build, so the docs workflow can build
+///    every version from its own branch into one site.
 void main(List<String> args) {
   final check = args.contains('--check');
+  String? option(String name) {
+    for (final arg in args) {
+      if (arg.startsWith('--$name=')) {
+        return arg.substring(name.length + 3);
+      }
+    }
+    return null;
+  }
+
+  if (args.contains('--list-versions')) {
+    // "<id> <branch>" per line, for the docs workflow.
+    final versions =
+        loadYaml(File('docs/versions.yaml').readAsStringSync()) as YamlMap;
+    for (final v in versions['versions'] as YamlList) {
+      stdout.writeln('${(v as YamlMap)['id']} ${v['branch']}');
+    }
+    return;
+  }
+
   final guide = Directory('docs/guide');
   final changed = <String>[];
 
@@ -36,6 +61,28 @@ void main(List<String> args) {
   for (final file in _markdownFiles(guide)) {
     write(file, expandIncludes(file.readAsStringSync()));
   }
+  final localNav = readNavigation(File('docs/guide/navigation.yaml'));
+  final problems = checkNavigation(guide, localNav);
+  if (problems.isNotEmpty) {
+    stderr.writeln(problems.join('\n'));
+    exitCode = 1;
+    return;
+  }
+
+  // `--guide=<dir>`: the guide of another branch (the docs workflow builds
+  // every version with this generator). Its navigation is used when it has
+  // one; otherwise this one, without missing pages and with extra pages at
+  // the end, so an older branch still builds.
+  final source = option('guide');
+  final siteGuide = source == null ? guide : Directory(source);
+  var nav = localNav;
+  if (source != null) {
+    final own = File('$source/navigation.yaml');
+    nav = reconcileNavigation(
+      siteGuide,
+      own.existsSync() ? readNavigation(own) : localNav,
+    );
+  }
 
   if (check) {
     if (changed.isNotEmpty) {
@@ -49,11 +96,33 @@ void main(List<String> args) {
     }
     return;
   }
-  final pages = buildSite(guide, Directory('build/site'));
+  final (defaultVersion, versions) = readVersions(File('docs/versions.yaml'));
+  final version = option('version') ?? defaultVersion;
+  final out = Directory(option('out') ?? 'build/site');
+  final pages = buildSite(
+    guide: siteGuide,
+    out: out,
+    version: version,
+    defaultVersion: defaultVersion,
+    versions: versions,
+    nav: nav,
+    releaseVersion: _releaseVersion(),
+    clean: !args.contains('--keep'),
+  );
   stdout.writeln(
-    'Updated ${changed.length} guide file(s); built $pages pages in build/site.',
+    'Updated ${changed.length} guide file(s); built $pages pages of '
+    '$version in ${out.path}.',
   );
 }
+
+String _releaseVersion() =>
+    RegExp(r"daravelVersion = '([^']+)'")
+        .firstMatch(
+          File('packages/daravel/lib/src/foundation/version.dart')
+              .readAsStringSync(),
+        )
+        ?.group(1) ??
+    'dev';
 
 Iterable<File> _markdownFiles(Directory dir) =>
     dir
@@ -153,99 +222,3 @@ String extractRegion(String source, String region, String path) {
       .join('\n')
       .trimRight();
 }
-
-/// Converts every guide page to HTML with a shared layout and navigation.
-int buildSite(Directory guide, Directory out) {
-  if (out.existsSync()) {
-    out.deleteSync(recursive: true);
-  }
-  final files = _markdownFiles(guide).toList();
-  final nav = <(String, String)>[];
-  for (final file in files) {
-    final relative = file.path
-        .substring(guide.path.length + 1)
-        .replaceAll(r'\', '/');
-    final title = _title(file.readAsStringSync()) ?? relative;
-    nav.add((relative.replaceAll(RegExp(r'\.md$'), '.html'), title));
-  }
-  for (final file in files) {
-    final relative = file.path
-        .substring(guide.path.length + 1)
-        .replaceAll(r'\', '/');
-    final depth = '../' * (relative.split('/').length - 1);
-    final html = md.markdownToHtml(
-      file.readAsStringSync().replaceAllMapped(
-        RegExp(r'\]\(([^)#]+)\.md(#[^)]*)?\)'),
-        (m) => '](${m[1]}.html${m[2] ?? ''})',
-      ),
-      extensionSet: md.ExtensionSet.gitHubWeb,
-    );
-    final links = nav
-        .where((entry) => !entry.$1.contains('/'))
-        .map(
-          (entry) =>
-              '<a href="$depth${entry.$1}"'
-              '${entry.$1 == relative.replaceAll('.md', '.html') ? ' class="active"' : ''}'
-              '>${_escape(entry.$2)}</a>',
-        )
-        .join('\n');
-    final target = File(
-      '${out.path}/${relative.replaceAll(RegExp(r'\.md$'), '.html')}',
-    )..parent.createSync(recursive: true);
-    target.writeAsStringSync(
-      _layout(_title(file.readAsStringSync()) ?? 'Daravel', links, html, depth),
-    );
-  }
-  return files.length;
-}
-
-String? _title(String markdown) =>
-    RegExp(r'^# (.+)$', multiLine: true).firstMatch(markdown)?.group(1);
-
-String _escape(String text) => text
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;');
-
-String _layout(String title, String nav, String body, String depth) =>
-    '''
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${_escape(title)} · Daravel</title>
-<style>
-:root { --fg:#1d1d24; --muted:#5d5d6b; --bg:#ffffff; --panel:#f5f5f8; --accent:#c2410c; --border:#e3e3ea; }
-@media (prefers-color-scheme: dark) {
-  :root { --fg:#ececf1; --muted:#a0a0ad; --bg:#14141a; --panel:#1d1d25; --accent:#fb923c; --border:#2c2c36; }
-}
-* { box-sizing: border-box; }
-body { margin:0; font:16px/1.6 system-ui, sans-serif; color:var(--fg); background:var(--bg); }
-.layout { display:flex; min-height:100vh; }
-nav { width:250px; flex:none; padding:24px 16px; background:var(--panel); border-right:1px solid var(--border); }
-nav .brand { font-weight:700; font-size:20px; margin-bottom:16px; display:block; color:var(--fg); text-decoration:none; }
-nav a { display:block; padding:4px 8px; color:var(--muted); text-decoration:none; border-radius:6px; }
-nav a.active, nav a:hover { color:var(--fg); background:var(--bg); }
-main { flex:1; min-width:0; padding:32px 40px; max-width:960px; }
-a { color:var(--accent); }
-pre { background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:14px 16px; overflow-x:auto; font-size:14px; }
-code { font:14px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-table { border-collapse:collapse; width:100%; display:block; overflow-x:auto; }
-th, td { border:1px solid var(--border); padding:6px 10px; text-align:left; vertical-align:top; }
-th { background:var(--panel); }
-@media (max-width: 760px) { .layout { display:block; } nav { width:auto; } main { padding:20px 16px; } }
-</style>
-</head>
-<body>
-<div class="layout">
-<nav><a class="brand" href="${depth}index.html">Daravel</a>
-$nav
-</nav>
-<main>
-$body
-</main>
-</div>
-</body>
-</html>
-''';

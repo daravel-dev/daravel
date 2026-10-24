@@ -1,12 +1,19 @@
 name: Docs
 
-# Builds the documentation site from docs/guide (tool/docs/generate.dart).
-# Publishing to GitHub Pages is opt-in: enable Pages (source: GitHub Actions)
-# and set the repository variable DOCS_PAGES=true.
+# Builds the documentation site: the landing pages and every version listed
+# in docs/versions.yaml (each version's docs/guide comes from its branch;
+# the generator is always main's). Publishing to GitHub Pages is opt-in:
+# enable Pages (source: GitHub Actions), set the custom domain, and set the
+# repository variable DOCS_PAGES=true.
 on:
   push:
-    branches: [main]
-    paths: ["docs/guide/**", "parity.yaml", "tool/docs/**", "packages/daravel/test/docs/**"]
+    branches: [main, "[0-9]+.x"]
+    paths:
+      - "docs/**"
+      - "parity.yaml"
+      - "tool/docs/**"
+      - "packages/daravel/test/docs/**"
+      - "packages/daravel/lib/src/foundation/version.dart"
   workflow_dispatch:
 
 permissions:
@@ -14,16 +21,38 @@ permissions:
   pages: write
   id-token: write
 
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
       - uses: dart-lang/setup-dart@v1
         with:
           sdk: stable
       - run: dart pub get
-      - run: dart run tool/docs/generate.dart
+      - name: Build every version
+        run: |
+          dart run tool/docs/generate.dart --version=main
+          dart run tool/docs/generate.dart --list-versions | while read -r id branch; do
+            if [ "$id" = "main" ]; then
+              continue
+            fi
+            if ! git rev-parse --verify --quiet "origin/$branch" >/dev/null; then
+              echo "Skipping $id: branch $branch does not exist."
+              continue
+            fi
+            mkdir -p "$RUNNER_TEMP/$id"
+            git archive "origin/$branch" docs/guide | tar -x -C "$RUNNER_TEMP/$id"
+            dart run tool/docs/generate.dart --version="$id" \
+              --guide="$RUNNER_TEMP/$id/docs/guide" --keep
+          done
       - uses: actions/upload-pages-artifact@v3
         with:
           path: build/site
