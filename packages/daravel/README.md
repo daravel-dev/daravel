@@ -16,8 +16,9 @@ Laravel's formats, locked by a conformance suite.
 
 1. **One native bundle.** `dartisan build` compiles the app ahead of time,
    with SQLite bundled by a build hook: no SDK, PHP-FPM or Node.js on the
-   server. Worker isolates share the compiled code (about 18 MB idle with one
-   worker, 19 MB with four, in the benchmark harness).
+   server. It serves its first request about 14 ms after starting, and worker
+   isolates share the compiled code (about 11 MB idle with one worker, 12 MB
+   with four, on a Linux CI runner).
 2. **No reflection, no `build_runner`.** Generators write plain Dart into
    explicit registries, so the compiler sees exactly what you read.
 3. **Every core on one port.** A supervisor runs N worker isolates, respawns

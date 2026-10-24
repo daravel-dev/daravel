@@ -51,8 +51,9 @@ from the route to the database, and every CPU core on one port.
 
 1. **One native bundle.** `dartisan build` compiles the application ahead of time into machine
    code, with SQLite bundled by a build hook. The server needs no Dart SDK, PHP-FPM or Node.js
-   runtime, and no source code. Worker isolates share the compiled code: the benchmark harness
-   measures about 18 MB of idle memory with one worker and 19 MB with four.
+   runtime, and no source code. It answers its first request about 14 ms after starting, and
+   worker isolates share the compiled code: about 11 MB of idle memory with one worker, 12 MB
+   with four.
 2. **No reflection, no code generation step.** `dart:mirrors` does not exist in AOT binaries, and
    Daravel does not need `build_runner` either. `dartisan make:*` and `model:sync` write plain Dart
    into explicit registries and accessor regions, so the compiler sees exactly the code you read.
@@ -81,8 +82,10 @@ from the route to the database, and every CPU core on one port.
    registry. A security regression suite and the conformance suite run in CI.
 
 Measured, not claimed: [`bench/`](bench/README.md) builds the servers AOT and reports every
-scenario relative to a plain `dart:io` server in the same run. On a Windows laptop, Daravel's
-`GET /ping` reaches 94% of plain `dart:io` throughput with one isolate and 90% with four.
+scenario relative to a plain `dart:io` server in the same run. The numbers above come from the
+benchmark workflow on a 4-CPU GitHub Actions Linux runner, where Daravel's `GET /ping` reaches
+55% of plain `dart:io` throughput with one isolate and 78% with four (the load generator
+shares the machine).
 
 ## Features
 
