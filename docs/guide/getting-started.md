@@ -21,13 +21,15 @@ dart pub global activate dartisan_cli     # from pub.dev
 dartisan new blog                  # api template: auth, users, tokens, tests
 dartisan new tiny --template=minimal
 cd blog
-dart run bin/dartisan.dart migrate --seed
-dart run bin/dartisan.dart serve --watch   # hot reload
+dartisan migrate --seed
+dartisan serve --watch   # hot reload
 ```
 
 Every project has a project-bound CLI, `bin/dartisan.dart`, that knows your
-application (`createApp()` in `bootstrap/app.dart`). `dart run
-bin/dartisan.dart help` lists every command.
+application (`createApp()` in `bootstrap/app.dart`). Inside a project the
+global `dartisan` runs it, so `dartisan` alone lists every command, including
+your own, and `dartisan migrate --help` shows a command's options.
+`dart run bin/dartisan.dart <command>` is the same without the global tool.
 
 ## Project structure
 
@@ -51,10 +53,10 @@ Laravel discovers automatically is listed explicitly in `bootstrap/`;
 ## Generators
 
 ```bash
-dart run bin/dartisan.dart make:model Post --migration --factory
-dart run bin/dartisan.dart make:controller PostController --api --model=Post
-dart run bin/dartisan.dart make:request StorePostRequest
-dart run bin/dartisan.dart make:job PublishPost
+dartisan make:model Post --migration --factory
+dartisan make:controller PostController --api --model=Post
+dartisan make:request StorePostRequest
+dartisan make:job PublishPost
 ```
 
 Templates live in `dartisan_cli`; `stub:publish` copies them into `stubs/`
@@ -63,9 +65,9 @@ so you can change them.
 ## Build and run
 
 ```bash
-dart run bin/dartisan.dart build           # dart build cli → build/server/bundle
+dartisan build           # dart build cli → build/server/bundle
 APP_ISOLATES=4 ./build/server/bundle/bin/server
-dart run bin/dartisan.dart build --docker  # multi-stage Dockerfile
+dartisan build --docker  # multi-stage Dockerfile
 ```
 
 The bundle is a directory: `bin/server` plus `lib/` with the bundled SQLite.

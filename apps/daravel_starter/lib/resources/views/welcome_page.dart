@@ -1,6 +1,7 @@
 import 'dart:convert';
 
-import 'logo_data.dart';
+import 'package:daravel/daravel.dart'
+    show daravelFaviconDataUri, daravelLogoDataUri;
 
 /// Renders the welcome landing page served at `/`.
 ///
@@ -21,7 +22,7 @@ String welcomePage({
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>$name</title>
-<link rel="icon" type="image/png" href="$faviconDataUri">
+<link rel="icon" type="image/png" href="$daravelFaviconDataUri">
 <style>
   :root {
     --bg: #0b0d12; --panel: #12151c; --panel-2: #171b24; --line: #232936;
@@ -53,6 +54,8 @@ String welcomePage({
            border: 1px solid var(--line); border-radius: 16px; padding: 22px;
            transition: transform .15s ease, border-color .15s ease; }
   a.card:hover { transform: translateY(-2px); border-color: var(--accent); }
+  div.card { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 22px; }
+  .card a { color: inherit; }
   .card h2 { font-size: 17px; margin: 0 0 6px; }
   .card p { margin: 0; color: var(--muted); font-size: 14px; }
   .card code { font-family: var(--mono); font-size: 13px; color: var(--accent-2); }
@@ -67,19 +70,20 @@ String welcomePage({
 <div class="glow"></div>
 <main>
   <header>
-    <div class="brand"><div class="mark"><img src="$logoDataUri" alt="Daravel logo" width="40" height="40"></div>$name</div>
+    <div class="brand"><div class="mark"><img src="$daravelLogoDataUri" alt="Daravel logo" width="40" height="40"></div>$name</div>
     <div class="env"><span class="dot"></span>${escape(environment)} &middot; request ${escape(requestId)}</div>
   </header>
 
   <h1>The Laravel experience,<br><span>compiled to native Dart.</span></h1>
   <p class="lead">Your application is up and serving from a single AOT binary. Start by exploring the
-  API, reading the blueprints, or scaffolding your first endpoint with <code>dartisan</code>.</p>
+  API, reading the documentation, or scaffolding your first endpoint with <code>dartisan</code>.</p>
 
   <div class="grid">
-    <a class="card" href="/api/ping">
-      <h2>API playground</h2>
-      <p>Hit <code>GET /api/ping</code> and <code>GET /up</code> to see JSON responses with request ids.</p>
-    </a>
+    <div class="card">
+      <h2>Try the API</h2>
+      <p><a href="/api/ping"><code>GET /api/ping</code></a> &middot; <a href="/up"><code>GET /up</code></a> &middot;
+      <a href="/up/ready"><code>GET /up/ready</code></a>: JSON responses with request ids.</p>
+    </div>
     <a class="card" href="https://github.com/daravel-dev/daravel/blob/main/docs/guide/index.md">
       <h2>Documentation</h2>
       <p>Guides for routing, validation, the ORM, auth, queues, testing and deployment.</p>
@@ -96,9 +100,10 @@ String welcomePage({
 
   <div class="term">
 <span class="c"># next steps</span><br>
-dart run bin/dartisan.dart route:list<br>
-dart run bin/dartisan.dart migrate<br>
-dart run bin/dartisan.dart build<span class="c"> &nbsp;# ship a native bundle</span>
+dartisan route:list<br>
+dartisan migrate --seed<br>
+dartisan test<br>
+dartisan build<span class="c"> &nbsp;# ship a native AOT bundle</span>
   </div>
 
   <footer>

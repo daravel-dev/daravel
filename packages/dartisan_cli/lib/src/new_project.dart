@@ -122,10 +122,13 @@ Map<String, String> newProjectFiles({
     'bootstrap/listeners.dart': _listenersRegistry,
     'bootstrap/commands.dart': _commandsRegistry,
     'routes/web.dart': _webRoutes,
+    'lib/app/http/controllers/welcome_controller.dart': _welcomeController,
+    'lib/resources/views/welcome_page.dart': _welcomePage,
     'routes/console.dart': api ? _consoleRoutes : _consoleRoutesMinimal,
     'lib/app/http/controllers/ping_controller.dart': _pingController,
     'storage/.gitignore': '*\n!.gitignore\n',
     'test/architecture_test.dart': _architectureTest,
+    'test/feature/welcome_test.dart': _welcomeTest,
     'dart_test.yaml': _dartTestYaml,
     '.github/workflows/ci.yml': _ciWorkflow,
     if (api) ...{
@@ -258,8 +261,8 @@ final class NewCommand extends Command<int> {
     stdout.writeln('''
 
   cd ${r.rest.first}
-  dart run bin/dartisan.dart migrate${r['template'] == 'api' ? ' --seed' : ''}
-  dart run bin/dartisan.dart serve --watch
+  dartisan migrate${r['template'] == 'api' ? ' --seed' : ''}
+  dartisan serve --watch
 ''');
     return 0;
   }
@@ -342,12 +345,16 @@ const String _readme = r'''
 A [Daravel](https://github.com/daravel-dev/daravel) application.
 
 ```bash
-dart run bin/dartisan.dart migrate --seed
-dart run bin/dartisan.dart serve --watch      # hot reload
-dart run bin/dartisan.dart test               # = dart test
-dart run bin/dartisan.dart test --conformance # Laravel wire-format contract
-dart run bin/dartisan.dart build --docker     # native bundle + Dockerfile
+dartisan migrate --seed
+dartisan serve --watch           # hot reload, http://127.0.0.1:8000
+dartisan test                    # = dart test
+dartisan test --conformance      # Laravel wire-format contract
+dartisan build --docker          # native bundle + Dockerfile
+dartisan                         # every command, including your own
 ```
+
+`dartisan` (`dart pub global activate dartisan_cli`) runs this project's own
+CLI, `bin/dartisan.dart`, so `dart run bin/dartisan.dart <command>` works too.
 ''';
 
 const String _binServer = r'''
@@ -627,10 +634,13 @@ void apiRoutes(Router router) {
 
 const String _webRoutes = r'''
 import 'package:daravel/daravel.dart';
+import 'package:{{ package }}/app/http/controllers/welcome_controller.dart';
 
-/// Web routes, mounted at the root.
+/// Web routes (HTML), mounted at the root by `bootstrap/app.dart`.
 void webRoutes(Router router) {
-  router.get('/', (_) => <String, Object?>{'app': Config.get<String>('app.name')});
+  final welcome = WelcomeController();
+
+  router.get('/', welcome.index).name('welcome');
 }
 ''';
 
@@ -1104,4 +1114,206 @@ jobs:
         run: dart run bin/dartisan.dart test --conformance
       - name: Native bundle
         run: dart build cli -t bin/server.dart -o build/server
+''';
+
+/// Same as `apps/daravel_starter/lib/resources/views/welcome_page.dart`
+/// (kept identical by `test/s12_test.dart`).
+const String _welcomePage = r"""
+import 'dart:convert';
+
+import 'package:daravel/daravel.dart'
+    show daravelFaviconDataUri, daravelLogoDataUri;
+
+/// Renders the welcome landing page served at `/`.
+///
+/// Views are plain Dart until the Blade-compatible compiler lands (ADR-018).
+/// Every dynamic value passes through [escape] so the page is XSS-safe.
+String welcomePage({
+  required String appName,
+  required String environment,
+  required String dartVersion,
+  required String frameworkVersion,
+  required String requestId,
+}) {
+  final name = escape(appName);
+  return '''
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>$name</title>
+<link rel="icon" type="image/png" href="$daravelFaviconDataUri">
+<style>
+  :root {
+    --bg: #0b0d12; --panel: #12151c; --panel-2: #171b24; --line: #232936;
+    --text: #e6e8ee; --muted: #9aa3b5; --accent: #ff2d20; --accent-2: #ff6a5c;
+    --ok: #22c55e; --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --bg: #f7f7f8; --panel: #ffffff; --panel-2: #f1f2f5; --line: #e4e6ea;
+            --text: #16181d; --muted: #5f6675; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 16px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .glow { position: fixed; inset: -40% -20% auto; height: 70vh; pointer-events: none;
+          background: radial-gradient(60% 60% at 50% 40%, rgba(255,45,32,.18), transparent 70%); }
+  main { position: relative; max-width: 1040px; margin: 0 auto; padding: 72px 24px 48px; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+  .brand { display: flex; align-items: center; gap: 12px; font-weight: 700; font-size: 20px; letter-spacing: .2px; }
+  .mark { width: 40px; height: 40px; display: grid; place-items: center; }
+  .mark img { width: 40px; height: 40px; border-radius: 9px; box-shadow: 0 6px 18px rgba(1,117,194,.25); }
+  .env { font-family: var(--mono); font-size: 12px; color: var(--muted); border: 1px solid var(--line);
+         border-radius: 999px; padding: 6px 12px; display: inline-flex; gap: 8px; align-items: center; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 4px rgba(34,197,94,.15); }
+  h1 { font-size: clamp(36px, 6vw, 60px); line-height: 1.05; margin: 64px 0 16px; letter-spacing: -.02em; }
+  h1 span { background: linear-gradient(90deg, var(--accent), var(--accent-2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .lead { color: var(--muted); font-size: 18px; max-width: 640px; margin: 0 0 40px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+  a.card { display: block; text-decoration: none; color: inherit; background: var(--panel);
+           border: 1px solid var(--line); border-radius: 16px; padding: 22px;
+           transition: transform .15s ease, border-color .15s ease; }
+  a.card:hover { transform: translateY(-2px); border-color: var(--accent); }
+  div.card { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 22px; }
+  .card a { color: inherit; }
+  .card h2 { font-size: 17px; margin: 0 0 6px; }
+  .card p { margin: 0; color: var(--muted); font-size: 14px; }
+  .card code { font-family: var(--mono); font-size: 13px; color: var(--accent-2); }
+  .term { margin-top: 32px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 16px;
+          padding: 18px 22px; font-family: var(--mono); font-size: 13.5px; overflow-x: auto; }
+  .term .c { color: var(--muted); }
+  footer { margin-top: 40px; display: flex; flex-wrap: wrap; gap: 8px 24px; color: var(--muted);
+           font-size: 13px; font-family: var(--mono); }
+</style>
+</head>
+<body>
+<div class="glow"></div>
+<main>
+  <header>
+    <div class="brand"><div class="mark"><img src="$daravelLogoDataUri" alt="Daravel logo" width="40" height="40"></div>$name</div>
+    <div class="env"><span class="dot"></span>${escape(environment)} &middot; request ${escape(requestId)}</div>
+  </header>
+
+  <h1>The Laravel experience,<br><span>compiled to native Dart.</span></h1>
+  <p class="lead">Your application is up and serving from a single AOT binary. Start by exploring the
+  API, reading the documentation, or scaffolding your first endpoint with <code>dartisan</code>.</p>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Try the API</h2>
+      <p><a href="/api/ping"><code>GET /api/ping</code></a> &middot; <a href="/up"><code>GET /up</code></a> &middot;
+      <a href="/up/ready"><code>GET /up/ready</code></a>: JSON responses with request ids.</p>
+    </div>
+    <a class="card" href="https://github.com/daravel-dev/daravel/blob/main/docs/guide/index.md">
+      <h2>Documentation</h2>
+      <p>Guides for routing, validation, the ORM, auth, queues, testing and deployment.</p>
+    </a>
+    <a class="card" href="https://github.com/daravel-dev/daravel/blob/main/docs/guide/parity.md">
+      <h2>Laravel &harr; Daravel</h2>
+      <p>Side-by-side comparison of routing, validation, migrations and tests.</p>
+    </a>
+    <a class="card" href="https://github.com/daravel-dev/daravel">
+      <h2>Source on GitHub</h2>
+      <p>Framework core, <code>dartisan</code> CLI, testing toolkit and this starter.</p>
+    </a>
+  </div>
+
+  <div class="term">
+<span class="c"># next steps</span><br>
+dartisan route:list<br>
+dartisan migrate --seed<br>
+dartisan test<br>
+dartisan build<span class="c"> &nbsp;# ship a native AOT bundle</span>
+  </div>
+
+  <footer>
+    <span>Daravel ${escape(frameworkVersion)}</span>
+    <span>Dart ${escape(dartVersion)}</span>
+    <span>APP_ENV=${escape(environment)}</span>
+  </footer>
+</main>
+</body>
+</html>
+''';
+}
+
+/// HTML-escapes [value] (same character set as Laravel's `e()` helper).
+String escape(String value) =>
+    const HtmlEscape(HtmlEscapeMode.element)
+        .convert(value)
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+""";
+
+const String _welcomeController = r'''
+import 'dart:io';
+
+import 'package:daravel/daravel.dart';
+import 'package:{{ package }}/resources/views/welcome_page.dart';
+
+/// Serves the welcome landing page at `/` (Laravel's `welcome.blade.php`).
+///
+/// Browsers get the HTML page; clients asking for JSON (`Accept:
+/// application/json`) get a short status document instead.
+final class WelcomeController {
+  static const String frameworkVersion = daravelVersion;
+
+  Future<Object?> index(Request request) async {
+    final app = Config.section<AppConfig>();
+    if (request.expectsJson) {
+      return <String, Object?>{
+        'app': app.name,
+        'env': app.env,
+        'daravel': frameworkVersion,
+      };
+    }
+    return Response.html(
+      welcomePage(
+        appName: app.name,
+        environment: app.env,
+        dartVersion: Platform.version.split(' ').first,
+        frameworkVersion: frameworkVersion,
+        requestId: request.id,
+      ),
+    );
+  }
+}
+''';
+
+const String _welcomeTest = r'''
+import 'dart:io';
+
+import 'package:daravel/daravel.dart';
+import 'package:daravel_test/daravel_test.dart';
+import 'package:test/test.dart';
+
+import '../../bootstrap/app.dart';
+
+void main() {
+  late Application app;
+
+  setUp(() async {
+    app = createApp(
+      basePath: Directory.current.path,
+      env: <String, String>{'APP_ENV': 'testing', 'DB_DATABASE': ':memory:'},
+    );
+    await app.boot();
+  });
+
+  tearDown(() => app.shutdown());
+
+  test('GET / renders the welcome page for browsers', () async {
+    (await TestClient(app).get('/', headers: {'accept': 'text/html'}))
+        .assertOk()
+        .assertHeader('content-type', 'text/html; charset=utf-8')
+        .assertSee('compiled to native Dart');
+  });
+
+  test('GET / answers JSON clients with a status document', () async {
+    (await TestClient(app).get('/'))
+        .assertOk()
+        .assertJsonPath('daravel', daravelVersion);
+  });
+}
 ''';

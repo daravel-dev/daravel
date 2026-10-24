@@ -22,13 +22,16 @@ dart pub global activate dartisan_cli     # dari pub.dev
 dartisan new blog                  # template api: auth, user, token, test
 dartisan new tiny --template=minimal
 cd blog
-dart run bin/dartisan.dart migrate --seed
-dart run bin/dartisan.dart serve --watch   # hot reload
+dartisan migrate --seed
+dartisan serve --watch   # hot reload
 ```
 
 Setiap proyek punya CLI sendiri, `bin/dartisan.dart`, yang mengenal aplikasi
-Anda (`createApp()` di `bootstrap/app.dart`). `dart run bin/dartisan.dart
-help` menampilkan semua perintah.
+Anda (`createApp()` di `bootstrap/app.dart`). Di dalam folder proyek,
+`dartisan` global menjalankan CLI itu: `dartisan` saja menampilkan semua
+perintah (termasuk perintah buatan Anda), dan `dartisan migrate --help`
+menampilkan opsinya. Tanpa `dartisan` global, gunakan
+`dart run bin/dartisan.dart <perintah>`.
 
 ## Struktur proyek
 
@@ -50,9 +53,9 @@ dan `dartisan lint` melaporkan file yang belum terdaftar.
 ## Build dan menjalankan
 
 ```bash
-dart run bin/dartisan.dart build           # dart build cli → build/server/bundle
+dartisan build           # dart build cli → build/server/bundle
 APP_ISOLATES=4 ./build/server/bundle/bin/server
-dart run bin/dartisan.dart build --docker  # Dockerfile multi-stage
+dartisan build --docker  # Dockerfile multi-stage
 ```
 
 Hasil build berupa direktori: `bin/server` ditambah `lib/` berisi SQLite.

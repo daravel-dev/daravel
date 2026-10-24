@@ -63,9 +63,7 @@ final class JobPayload {
     maxTries: (json['maxTries'] as num?)?.toInt() ?? 1,
     maxExceptions: (json['maxExceptions'] as num?)?.toInt() ?? 1,
     failOnTimeout: json['failOnTimeout'] as bool? ?? false,
-    backoffSeconds: ((json['backoff'] as List<Object?>?) ?? const [])
-        .map((e) => (e as num).toInt())
-        .toList(),
+    backoffSeconds: _backoff(json['backoff']),
     timeout: Duration(
       milliseconds: (((json['timeout'] as num?) ?? 60) * 1000).round(),
     ),
@@ -73,6 +71,17 @@ final class JobPayload {
     retryUntil: (json['retryUntil'] as num?)?.toInt(),
     uniqueKey: json['uniqueKey'] as String?,
   );
+
+  /// Backoff seconds as a list (Daravel), a number, or Laravel's
+  /// comma-separated string (`"1,5,10"`).
+  static List<int> _backoff(Object? value) => switch (value) {
+    final List<Object?> list => [for (final e in list) (e! as num).toInt()],
+    final num seconds => [seconds.toInt()],
+    final String csv when csv.trim().isNotEmpty => [
+      for (final part in csv.split(',')) int.tryParse(part.trim()) ?? 0,
+    ],
+    _ => const <int>[],
+  };
 
   /// Parses the stored JSON string.
   factory JobPayload.decode(String raw) =>
@@ -263,6 +272,7 @@ final class DatabaseQueue implements QueueDriver {
     this.table = 'jobs',
     this.connection,
     this.retryAfter = const Duration(seconds: 90),
+    this.onForeignJob,
     DateTime Function()? clock,
   }) : _clock = clock ?? _utcNow;
 
@@ -272,7 +282,43 @@ final class DatabaseQueue implements QueueDriver {
 
   /// Reserved jobs older than this are considered abandoned and re-queued.
   final Duration retryAfter;
+
+  /// Called once per foreign job (pushed by a Laravel app sharing the
+  /// `jobs` table) that this worker skipped; see [isForeignPayload].
+  final void Function(String queue, Object id, String handler)? onForeignJob;
   final DateTime Function() _clock;
+
+  /// Foreign job ids seen per queue, excluded from later polls so they never
+  /// hide Daravel jobs queued behind them. Bounded; oldest ids drop first.
+  final Map<String, Set<Object>> _foreign = <String, Set<Object>>{};
+  static const int _maxForeignIds = 1000;
+
+  /// Rows read per poll while looking past foreign jobs.
+  static const int _pollBatch = 16;
+
+  /// Whether [raw] was pushed by Laravel rather than Daravel. Laravel's
+  /// payloads are JSON too, but their `job` is a PHP handler such as
+  /// `Illuminate\Queue\CallQueuedHandler@call` and `data` holds a
+  /// PHP-serialized `command`; Daravel job names never contain `\` or `@`.
+  /// Anything that is not a JSON object is foreign as well.
+  static bool isForeignPayload(String raw) {
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(raw);
+    } on FormatException {
+      return true;
+    }
+    if (decoded is! Map<String, Object?>) {
+      return true;
+    }
+    final job = decoded['job'];
+    if (job is! String || job.contains(r'\') || job.contains('@')) {
+      return true;
+    }
+    final data = decoded['data'];
+    return data is Map<String, Object?> &&
+        (data.containsKey('commandName') || data['command'] is String);
+  }
 
   @override
   String get name => 'database';
@@ -302,25 +348,43 @@ final class DatabaseQueue implements QueueDriver {
     return id!;
   }
 
+  /// Claims the next available Daravel job of [queue].
+  ///
+  /// Jobs pushed by a Laravel app sharing the table are skipped without being
+  /// touched (no `reserved_at`, no `attempts` change), so Laravel's workers
+  /// still process them normally.
   @override
   Future<QueuedJob?> pop(String queue) async {
     for (var attempt = 0; attempt < 5; attempt++) {
       final now = _now;
       final stale = now - retryAfter.inSeconds;
-      final row = await _query()
-          .where('queue', queue)
-          .where((QueryBuilder q) {
-            q
-                .where((QueryBuilder available) {
-                  available
-                      .whereNull('reserved_at')
-                      .where('available_at', '<=', now);
-                })
-                .orWhere('reserved_at', '<=', stale);
-          })
-          .orderBy('id')
-          .first();
+      final skip = _foreign[queue] ?? const <Object>{};
+      final query = _query().where('queue', queue).where((QueryBuilder q) {
+        q
+            .where((QueryBuilder available) {
+              available
+                  .whereNull('reserved_at')
+                  .where('available_at', '<=', now);
+            })
+            .orWhere('reserved_at', '<=', stale);
+      });
+      if (skip.isNotEmpty) {
+        query.whereNotIn('id', skip.toList());
+      }
+      final rows = await query.orderBy('id').limit(_pollBatch).get();
+      Map<String, Object?>? row;
+      for (final candidate in rows) {
+        if (isForeignPayload(candidate['payload']! as String)) {
+          _rememberForeign(queue, candidate);
+          continue;
+        }
+        row = candidate;
+        break;
+      }
       if (row == null) {
+        if (rows.length == _pollBatch) {
+          continue; // A full batch of foreign jobs: look further.
+        }
         return null;
       }
       final id = row['id']!;
@@ -350,6 +414,25 @@ final class DatabaseQueue implements QueueDriver {
       }
     }
     return null;
+  }
+
+  void _rememberForeign(String queue, Map<String, Object?> row) {
+    final ids = _foreign.putIfAbsent(queue, () => <Object>{});
+    final id = row['id']!;
+    if (!ids.add(id)) {
+      return;
+    }
+    if (ids.length > _maxForeignIds) {
+      ids.remove(ids.first);
+    }
+    String handler;
+    try {
+      final decoded = jsonDecode(row['payload']! as String);
+      handler = decoded is Map<String, Object?> ? '${decoded['job']}' : '?';
+    } on FormatException {
+      handler = '?';
+    }
+    onForeignJob?.call(queue, id, handler);
   }
 
   @override

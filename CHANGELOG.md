@@ -9,6 +9,32 @@ suite shows they differ from Laravel.
 
 ### Added
 
+- `dartisan new` projects open on the Daravel welcome page (HTML for browsers,
+  JSON for API clients) with their own `welcome_test.dart`; the page is shared
+  with the starter and the logo ships as `daravelLogoDataUri` /
+  `daravelFaviconDataUri` in `package:daravel`.
+- `PORT` fallback: without `APP_PORT`, the server uses the platform's `PORT`
+  (Cloud Run, Railway, Render, Fly.io) and binds `0.0.0.0`; the Dockerfile
+  sets `PORT=8080`.
+
+### Changed
+
+- The global `dartisan` delegates everything inside a project to its
+  `bin/dartisan.dart`, including `dartisan`, `dartisan --help` and
+  `dartisan <command> --help`; only `new` stays global. Generated READMEs and
+  the post-create message use `dartisan <command>`.
+
+### Fixed
+
+- Sharing the `jobs` table with Laravel: a Daravel worker that met a Laravel
+  job failed it into `failed_jobs` (or crashed on Laravel's string `backoff`).
+  Laravel jobs are now skipped untouched and logged once, and `backoff` in
+  Laravel's comma-separated form is accepted.
+
+## 1.0.0-beta.1 (first pub.dev release; Tier 1 complete)
+
+### Added
+
 - pub.dev readiness: package metadata (homepage, repository, issue tracker,
   documentation, topics, platforms), explicit `^1.0.0-beta.1` constraints
   between packages, per-package `README`, `CHANGELOG`, `LICENSE`,
@@ -16,7 +42,6 @@ suite shows they differ from Laravel.
   and `.github/workflows/publish.yml` publishes on `v*` tags with GitHub OIDC.
 - `dartisan new --source=pub|git` (pub.dev by default, a plain pubspec without
   `dependency_overrides`).
-
 - Support layer (BLUEPRINT_V2 §7.12): `Str` (case conversion, slug, slicing,
   predicates, secure random, UUID/ULID, English plural/singular), global
   helpers (`abortIf`, `abortUnless`, `retry`, `rescue`, `once`, `blank`,
@@ -65,9 +90,7 @@ suite shows they differ from Laravel.
   throttled route went from 45% to 96% of the unthrottled throughput on one
   isolate and from 2.2k to 9.5k req/s on four.
 
-## 1.0.0-beta.1 (Tier 1 / S14)
-
-### Added
+### Added (Tier 1 / S14)
 
 - **Conformance suite** (`packages/daravel/test/conformance`, tag
   `conformance`): error bodies (401/403/404/405/413/422/429/500), validation

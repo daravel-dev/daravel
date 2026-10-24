@@ -67,6 +67,14 @@ language. Daravel keeps the intent and changes the mechanism:
 
 ## Not shared yet
 
-Sessions, CSRF and cookies (Tier 2), queue payloads (both sides can share
-the `jobs` table only when each consumes its own queue names), MySQL (Tier 2).
+Sessions, CSRF and cookies (Tier 2) and MySQL (Tier 2).
+
+**Queues.** Both frameworks can use one `jobs` table, but each runs only its
+own jobs: Laravel's payloads carry a PHP-serialized command and Daravel's a
+registered Dart job. Daravel workers recognise Laravel jobs and skip them
+without touching them (no reservation, `attempts` unchanged, logged once), so
+a Laravel worker still processes them. Laravel workers cannot do the same for
+Daravel jobs, so give Daravel its own queue names, for example
+`Queue.dispatch(job).onQueue('daravel')` with `dartisan queue:work
+--queue=daravel`, and keep Laravel's `queue:work` on its own queues.
 The [parity table](parity.md) lists every mapped API and what is missing.

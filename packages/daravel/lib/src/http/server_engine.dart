@@ -24,24 +24,35 @@ final class ServeOptions {
   });
 
   /// Reads `APP_HOST` / `APP_PORT`, overridable by explicit arguments.
+  ///
+  /// Without `APP_PORT`, the `PORT` variable injected by Cloud Run, Railway,
+  /// Render, Fly.io and Heroku is used, and the host then defaults to
+  /// `0.0.0.0` so the platform can reach the server (`APP_HOST` still
+  /// wins). Otherwise the defaults are `127.0.0.1:8000`.
   factory ServeOptions.fromEnv(
     Env env, {
     String? host,
     int? port,
     int? isolates,
-  }) => ServeOptions(
-    host: host ?? env.string('APP_HOST', '127.0.0.1'),
-    port: port ?? env.integer('APP_PORT', 8000),
-    isolates: isolates ?? env.integer('APP_ISOLATES', 1),
-    shutdownTimeout: env.duration(
-      'SHUTDOWN_TIMEOUT',
-      const Duration(seconds: 30),
-    ),
-    requestTimeout: env.duration(
-      'HTTP_REQUEST_TIMEOUT',
-      const Duration(seconds: 30),
-    ),
-  );
+  }) {
+    final platformPort = env.has('APP_PORT') ? null : env.maybeString('PORT');
+    final platform = platformPort != null && int.tryParse(platformPort) != null;
+    return ServeOptions(
+      host: host ?? env.string('APP_HOST', platform ? '0.0.0.0' : '127.0.0.1'),
+      port:
+          port ??
+          (platform ? int.parse(platformPort) : env.integer('APP_PORT', 8000)),
+      isolates: isolates ?? env.integer('APP_ISOLATES', 1),
+      shutdownTimeout: env.duration(
+        'SHUTDOWN_TIMEOUT',
+        const Duration(seconds: 30),
+      ),
+      requestTimeout: env.duration(
+        'HTTP_REQUEST_TIMEOUT',
+        const Duration(seconds: 30),
+      ),
+    );
+  }
 
   final String host;
   final int port;

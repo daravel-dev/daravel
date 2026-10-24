@@ -316,6 +316,12 @@ final class Application {
               db,
               table: queueConfig.table,
               retryAfter: queueConfig.retryAfter,
+              onForeignJob: (queue, id, handler) => logger.warning(
+                'Skipped a job pushed by another runtime (Laravel?) on queue '
+                '[$queue]; give Daravel and Laravel workers separate queue '
+                'names.',
+                {'job_id': id, 'handler': handler},
+              ),
             ),
           );
     return manager;

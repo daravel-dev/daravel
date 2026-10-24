@@ -60,7 +60,16 @@ void main() {
         .assertOk()
         .assertHeader('content-type', 'text/html; charset=utf-8')
         .assertSee('<title>Starter</title>')
-        .assertSee('compiled to native Dart');
+        .assertSee('compiled to native Dart')
+        .assertSee('dartisan migrate --seed')
+        .assertSee(daravelLogoDataUri);
+  });
+
+  test('GET / answers JSON clients with a status document', () async {
+    (await client.get('/'))
+        .assertOk()
+        .assertJsonPath('app', 'Starter')
+        .assertJsonPath('daravel', daravelVersion);
   });
 
   test('route parameters are typed', () async {

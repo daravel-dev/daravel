@@ -19,6 +19,15 @@ builder, `debian:bookworm-slim` runtime, non-root user, no system SQLite
 needed) and `.dockerignore`. The `api` template also ships
 `docker-compose.yml` with PostgreSQL 16.
 
+## Ports and container platforms
+
+The server listens on `APP_HOST:APP_PORT` (`127.0.0.1:8000` by default). On
+Cloud Run, Railway, Render, Fly.io and similar platforms, which inject a
+`PORT` variable, Daravel uses that port when `APP_PORT` is not set and then
+binds `0.0.0.0` so the platform can reach it; the generated `Dockerfile` sets
+`PORT=8080` as a default the platform can override. `SIGTERM` drains
+in-flight requests within `SHUTDOWN_TIMEOUT`.
+
 ## Concurrency
 
 `APP_ISOLATES=N` (or `serve --isolates=N`) starts a supervisor and N worker

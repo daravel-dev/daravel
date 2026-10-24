@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:async';
 import 'dart:io';
 
@@ -168,6 +169,78 @@ void main() {
     expect(
       () => JobRegistry().make('nope', const {}),
       throwsA(isA<UnknownJobException>()),
+    );
+  });
+
+  group('sharing the jobs table with Laravel', () {
+    // Illuminate\Queue\Queue::createObjectPayload (Laravel 12), as stored by
+    // `SendWelcomeEmail::dispatch($user)` in a Laravel app.
+    final laravelPayload = jsonEncode({
+      'uuid': '5f1c7a2e-1e2a-4c1d-9a5e-0d9b3f6c2a11',
+      'displayName': r'App\Jobs\SendWelcomeEmail',
+      'job': r'Illuminate\Queue\CallQueuedHandler@call',
+      'maxTries': null,
+      'maxExceptions': null,
+      'failOnTimeout': false,
+      'backoff': '1,5,10',
+      'timeout': null,
+      'retryUntil': null,
+      'data': {
+        'commandName': r'App\Jobs\SendWelcomeEmail',
+        'command': r'O:25:"App\Jobs\SendWelcomeEmail":1:{s:4:"user";i:42;}',
+        'batchId': null,
+      },
+      'createdAt': 1792832400,
+    });
+
+    test('recognises Laravel payloads and nothing else', () {
+      expect(DatabaseQueue.isForeignPayload(laravelPayload), isTrue);
+      expect(DatabaseQueue.isForeignPayload('not json'), isTrue);
+      expect(
+        DatabaseQueue.isForeignPayload(
+          JobPayload.forJob(const Greet('ana')).encode(),
+        ),
+        isFalse,
+      );
+    });
+
+    test(
+      'Laravel jobs are skipped untouched; Daravel jobs behind them run',
+      () async {
+        await boot('database');
+        await app!.run(() async {
+          final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+          // Twenty Laravel jobs queued first, on the same queue name.
+          for (var i = 0; i < 20; i++) {
+            await DB.table('jobs').insert({
+              'queue': 'default',
+              'payload': laravelPayload,
+              'attempts': 0,
+              'reserved_at': null,
+              'available_at': now,
+              'created_at': now,
+            });
+          }
+          await Queue.push(const Greet('ana'));
+          await QueueWorker(Queue.manager)
+              .run(const WorkerOptions(stopWhenEmpty: true));
+
+          expect(log, ['greet:ana:1'], reason: 'the Daravel job ran');
+          final laravel = await DB
+              .table('jobs')
+              .where('payload', laravelPayload)
+              .get();
+          expect(laravel, hasLength(20), reason: 'Laravel jobs stay queued');
+          expect(
+            laravel.every(
+              (r) => r['attempts'] == 0 && r['reserved_at'] == null,
+            ),
+            isTrue,
+            reason: 'never reserved, attempts untouched',
+          );
+          expect(await Queue.manager.processor.failedJobs.all(), isEmpty);
+        });
+      },
     );
   });
 

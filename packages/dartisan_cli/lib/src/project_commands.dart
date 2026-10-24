@@ -553,7 +553,8 @@ COPY --from=build /app/build/server/bundle/ ./
 COPY --from=build /app/build/dartisan/bundle/bin/dartisan ./bin/dartisan
 RUN mkdir -p storage/logs storage/app database && chown -R daravel /app
 USER daravel
-ENV APP_ENV=production APP_DEBUG=false APP_HOST=0.0.0.0 APP_PORT=8080 \
+# PORT (not APP_PORT) so Cloud Run, Railway, Render and Fly.io can inject theirs.
+ENV APP_ENV=production APP_DEBUG=false APP_HOST=0.0.0.0 PORT=8080 \
     LOG_STACK=json
 EXPOSE 8080
 # Health: GET /up (liveness) and /up/ready (readiness).

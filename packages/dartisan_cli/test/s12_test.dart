@@ -458,6 +458,70 @@ final class Post extends Model with AuthenticatableModel {
     });
   });
 
+  group('global dartisan inside a project (UX review #6)', () {
+    test('delegates everything except creating a project', () {
+      for (final args in [
+        <String>[],
+        ['--help'],
+        ['help'],
+        ['help', 'migrate'],
+        ['migrate', '--seed'],
+        ['migrate', '--help'],
+        ['serve', '--watch'],
+        ['make:model', 'Post'],
+      ]) {
+        expect(
+          GlobalDartisanRunner.delegates(args, inProject: true),
+          isTrue,
+          reason: '$args',
+        );
+      }
+      for (final args in [
+        ['new', 'blog'],
+        ['help', 'new'],
+        ['new', '--help'],
+      ]) {
+        expect(
+          GlobalDartisanRunner.delegates(args, inProject: true),
+          isFalse,
+          reason: '$args',
+        );
+      }
+      expect(
+        GlobalDartisanRunner.delegates(['migrate'], inProject: false),
+        isFalse,
+      );
+    });
+  });
+
+  group('welcome page template', () {
+    test('new projects get the starter landing page, verbatim', () {
+      final files = newProjectFiles(
+        package: 'shop',
+        appName: 'Shop',
+        source: const GitSource(),
+      );
+      final repo = p.normalize(p.join(Directory.current.path, '..', '..'));
+      final starter = File(
+        p.join(
+          repo,
+          'apps',
+          'daravel_starter',
+          'lib',
+          'resources',
+          'views',
+          'welcome_page.dart',
+        ),
+      ).readAsStringSync();
+      expect(files['lib/resources/views/welcome_page.dart'], starter);
+      expect(
+        files['lib/app/http/controllers/welcome_controller.dart'],
+        contains('package:shop/resources/views/welcome_page.dart'),
+      );
+      expect(files['routes/web.dart'], contains('WelcomeController'));
+    });
+  });
+
   group('framework sources', () {
     test('pub.dev source writes a plain pubspec without overrides', () {
       final pubspec = newProjectFiles(

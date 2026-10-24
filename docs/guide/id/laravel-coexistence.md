@@ -35,6 +35,16 @@ mengubahnya, samakan nilainya.
 - Body JSON error 401/403/404/405/413/422/429/500, paginasi (termasuk cursor),
   resource, dan format tanggal `2026-01-02T03:04:05.000000Z`.
 
+## Antrean (`jobs`)
+
+Kedua framework bisa memakai satu tabel `jobs`, tetapi masing-masing hanya
+menjalankan job miliknya sendiri. Worker Daravel mengenali job Laravel dan
+melewatinya tanpa menyentuhnya (tidak di-reserve, `attempts` tidak berubah),
+jadi worker Laravel tetap memprosesnya. Worker Laravel tidak bisa melakukan
+hal yang sama untuk job Daravel, jadi beri Daravel nama antrean sendiri,
+misalnya `Queue.dispatch(job).onQueue('daravel')` dengan
+`dartisan queue:work --queue=daravel`.
+
 ## Perbedaan yang disengaja
 
 - `Crypt::encrypt()` Laravel memakai PHP `serialize()`, Daravel memakai JSON:
