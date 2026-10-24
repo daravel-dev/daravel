@@ -12,6 +12,36 @@ Laravel and Daravel can share a database: error and pagination JSON, Sanctum
 tokens, bcrypt hashes, `Crypt` payloads and the framework tables use
 Laravel's formats, locked by a conformance suite.
 
+## Why Daravel?
+
+1. **One native bundle.** `dartisan build` compiles the app ahead of time,
+   with SQLite bundled by a build hook: no SDK, PHP-FPM or Node.js on the
+   server. Worker isolates share the compiled code (about 18 MB idle with one
+   worker, 19 MB with four, in the benchmark harness).
+2. **No reflection, no `build_runner`.** Generators write plain Dart into
+   explicit registries, so the compiler sees exactly what you read.
+3. **Every core on one port.** A supervisor runs N worker isolates, respawns
+   crashes and drains on `SIGTERM`; a coordinator isolate keeps locks, the
+   `process` cache and rate limits correct across workers without Redis.
+4. **Request state stays in its request.** Requests, jobs and commands run in
+   their own `Zone` scope; transactions are zone-aware, with savepoints and
+   after-commit dispatch.
+5. **Runs next to Laravel** on the same SQLite or PostgreSQL database
+   (MySQL is planned), so an application can move
+   [endpoint by endpoint](https://github.com/daravel-dev/daravel/blob/main/docs/guide/migrating-from-laravel.md).
+6. **Routes that document themselves.** `.validates(...)` and `.returns(...)`
+   enforce 403/422 before the handler and generate OpenAPI 3.1.
+7. **Guard rails included.** Hashing in compute isolates, AST lints against
+   SQL interpolation and reflection, and security and conformance suites.
+
+| Laravel | Daravel |
+| :-- | :-- |
+| `Route::post('/posts', [PostController::class, 'store'])` with `StorePostRequest $request` | `router.post('/posts', posts.store).validates(const StorePostRequest())` |
+| `$request->validated()` | `request.validated()` |
+| `$request->integer('page', 1)` | `await request.integer('page', 1)` |
+| `User::where('active', true)->paginate()` | `await User.query().where('active', true).paginate()` |
+| `DB::transaction(fn () => ...)` | `await DB.transaction(() async => ...)` |
+
 ## Get started
 
 The fastest way is the CLI, which creates a complete project:

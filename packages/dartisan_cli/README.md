@@ -17,14 +17,17 @@ application:
 
 | Group | Commands |
 | :-- | :-- |
-| Project | `about`, `doctor [--production]`, `key:generate`, `stub:publish`, `lint` |
-| Serve, test & build | `serve [--watch] [--isolates=N]`, `test [--conformance] [--security] [--coverage]`, `build [--with-cli] [--docker]`, `route:list`, `openapi:generate` |
-| Database | `migrate`, `migrate:status`, `migrate:rollback`, `migrate:fresh`, `db:seed`, `model:sync` |
-| Generators | `make:model`, `make:migration`, `make:controller`, `make:request`, `make:job`, `make:policy`, `make:resource`, `make:test` and more |
-| Queue & schedule | `queue:work`, `queue:failed`, `queue:retry`, `schedule:work`, `schedule:list` |
+| Project | `about`, `doctor [--production]`, `key:generate`, `stub:publish`, `lint`, `cache:clear`, `storage:link` |
+| Serve, test & build | `serve [--watch] [--isolates=N]`, `test [--conformance] [--security] [--coverage]`, `build [--with-cli] [--docker]`, `route:list`, `openapi:generate`, `coordinator:stats` |
+| Database | `migrate`, `migrate:status`, `migrate:rollback`, `migrate:reset`, `migrate:fresh`, `db:seed`, `model:sync` |
+| Generators | `make:model`, `make:migration`, `make:controller`, `make:request`, `make:middleware`, `make:job`, `make:policy`, `make:event`, `make:listener`, `make:resource`, `make:rule`, `make:observer`, `make:provider`, `make:command`, `make:seeder`, `make:factory`, `make:test` |
+| Queue & schedule | `queue:work`, `queue:failed`, `queue:retry`, `queue:forget`, `queue:flush`, `queue:clear`, `queue:pause`, `queue:continue`, `queue:restart`, `schedule:work`, `schedule:run`, `schedule:list` |
 
 `serve --watch` hot-reloads through the Dart VM service; `build` runs
 `dart build cli` and produces a native bundle with SQLite included.
+`openapi:generate` documents request bodies and responses from the rules and
+schemas declared on routes (`.validates(...)`, `.returns(...)`), and
+`doctor --production` is a pre-flight check for container entrypoints.
 
 To embed the runner in your own entrypoint, see
 [`example/main.dart`](example/main.dart).

@@ -15,11 +15,13 @@
   <a href="https://dart.dev"><img src="https://img.shields.io/badge/Dart-%5E3.13-0175C2?logo=dart&logoColor=white" alt="Dart ^3.13"></a>
   <a href="https://dart.dev/tools/dart-build"><img src="https://img.shields.io/badge/AOT-native%20bundle-16A34A" alt="AOT native bundle"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
-  <img src="https://img.shields.io/badge/version-1.0.0--beta.1-F59E0B" alt="Version 1.0.0-beta.1">
+  <a href="https://pub.dev/packages/daravel"><img src="https://img.shields.io/pub/v/daravel?include_prereleases&label=pub.dev" alt="pub.dev version"></a>
+  <a href="https://pub.dev/publishers/daravel.teoprayoga.my.id"><img src="https://img.shields.io/pub/publisher/daravel" alt="pub.dev publisher"></a>
 </p>
 
 <p align="center">
   <a href="#about-daravel">About</a> ·
+  <a href="#why-daravel">Why Daravel</a> ·
   <a href="#features">Features</a> ·
   <a href="#laravel--daravel-at-a-glance">Laravel ↔ Daravel</a> ·
   <a href="#quick-start">Quick start</a> ·
@@ -37,26 +39,50 @@
 
 Daravel is a backend framework for Dart that follows the **Laravel 11/12 philosophy**: expressive
 and elegant syntax, batteries included, and conventions that make common tasks disappear. It keeps
-what makes Laravel loved and adds what only Dart can offer:
+what makes Laravel loved and adds what only Dart can offer: one native executable, static types
+from the route to the database, and every CPU core on one port.
 
-- **A native AOT binary.** `dart build cli` produces a self-contained executable (with SQLite
-  bundled next to it) and millisecond startup. No interpreter, no FPM, no build step for your users.
-- **Static types, everywhere.** Routes, validation, configuration and models are checked by the
-  Dart analyzer before a request is ever served.
-- **Octane-grade concurrency, by design.** A supervisor runs N worker isolates on one port; every
-  request runs in its own `Zone` scope, and rate limits, locks and metrics stay correct across
-  workers through a coordinator isolate.
-- **Zero magic at build time.** No `dart:mirrors`, no `build_runner`. Laravel ergonomics come from
-  generics, explicit registries and scaffold-time generation (`dartisan make:*`).
-- **Laravel parity where it matters.** Error payloads, paginator and resource JSON, personal access
-  tokens, password hashes, encrypted payloads and the `migrations`, `cache`, `jobs` and
-  `failed_jobs` tables are wire- and storage-compatible, so Laravel and Daravel can run side by
-  side on the same database.
+> **Status.** Tier 0 and Tier 1 (slices S1–S14) are complete and published on
+> [pub.dev](https://pub.dev/packages/daravel) as `1.0.0` betas by the verified publisher
+> `daravel.teoprayoga.my.id`. The Dart API may still change before `1.0.0`; the Laravel-facing
+> formats are locked by the conformance suite.
 
-> **Status.** Tier 1 in progress: slices S1–S13 are done (foundation, HTTP, routing, validation,
-> database, ORM, schema & seeding, auth, multi-isolate serving & cache, queue & scheduler,
-> resources, storage & observability, CLI with `new` and hot reload, testing toolkit and lints).
-> Next is S14: conformance suite, benchmarks and documentation. The API is not stable yet.
+## Why Daravel?
+
+1. **One native bundle.** `dartisan build` compiles the application ahead of time into machine
+   code, with SQLite bundled by a build hook. The server needs no Dart SDK, PHP-FPM or Node.js
+   runtime, and no source code. Worker isolates share the compiled code: the benchmark harness
+   measures about 18 MB of idle memory with one worker and 19 MB with four.
+2. **No reflection, no code generation step.** `dart:mirrors` does not exist in AOT binaries, and
+   Daravel does not need `build_runner` either. `dartisan make:*` and `model:sync` write plain Dart
+   into explicit registries and accessor regions, so the compiler sees exactly the code you read.
+3. **Every core on one port, before you need Redis.** `serve --isolates=N` runs a supervisor that
+   respawns crashed workers, stops on a crash loop and drains in-flight requests on `SIGTERM`. A
+   coordinator isolate keeps atomic locks, the `process` cache and Laravel-style fixed-window rate
+   limits correct across workers; local leases keep throttled routes off the coordinator's hot path.
+4. **Request state stays in its request.** Every request, job and command runs in its own `Zone`
+   scope, and facades (`Auth`, `DB`, `Cache`, `Log`) resolve from it. `DB.transaction` is
+   zone-aware too: nested calls become savepoints, queued jobs and `dispatchAfterCommit` events
+   wait for the outer commit and are dropped on rollback, and on SQLite other requests wait for an
+   open transaction instead of running inside it.
+5. **Runs next to Laravel on the same database.** `$2y$` bcrypt hashes, `Crypt` payloads
+   (AES-256-CBC or GCM, with `APP_PREVIOUS_KEYS` rotation), Sanctum personal access tokens,
+   422 and paginator JSON, resources and the `migrations`, `cache`, `jobs` and `failed_jobs`
+   tables are Laravel 12's, and Daravel's queue workers leave Laravel's jobs alone. This works on
+   SQLite and PostgreSQL today (the MySQL driver is planned) and is locked by a conformance suite.
+   Move an application [endpoint by endpoint](docs/guide/migrating-from-laravel.md).
+6. **Routes that document themselves.** `.validates(StoreUserRequest())`, `.rules({...})` and
+   `.returns(UserResource.schema, shape: .paginated)` make the kernel answer 403/422 before your
+   handler runs, fill `request.validated()`, and feed `dartisan openapi:generate`, which turns
+   the same Laravel rules (`required|email|max:255`, `items.*.id`, `confirmed`) into OpenAPI 3.1.
+7. **Guard rails included.** Password hashing (bcrypt, Argon2id, PBKDF2) runs in compute isolates,
+   so login spikes do not block the event loop. `dartisan lint` rejects SQL string interpolation,
+   `dart:mirrors`, `print` and mutable statics in application code, and classes left out of a
+   registry. A security regression suite and the conformance suite run in CI.
+
+Measured, not claimed: [`bench/`](bench/README.md) builds the servers AOT and reports every
+scenario relative to a plain `dart:io` server in the same run. On a Windows laptop, Daravel's
+`GET /ping` reaches 94% of plain `dart:io` throughput with one isolate and 90% with four.
 
 ## Features
 
@@ -182,6 +208,45 @@ Future<Object?> store(Request request) async {
   await Event.dispatch(UserRegistered(user.id, user.email));
 
   return UserResource(user);             // 201: recently created
+}
+```
+
+</td>
+</tr>
+<tr>
+<td>
+
+```php
+// A FormRequest is injected and runs first.
+Route::post('/posts', [PostController::class, 'store']);
+
+public function store(StorePostRequest $request)
+{
+    return Post::create($request->validated());
+}
+
+public function index(Request $request)
+{
+    $page = $request->integer('page', 1);
+    $tags = $request->query('tags', []);  // ?tags[]=a&tags[]=b
+}
+```
+
+</td>
+<td>
+
+```dart
+// Declared on the route: 403/422 first, and in OpenAPI.
+router.post('/posts', posts.store)
+    .validates(const StorePostRequest())
+    .returns(PostResource.schema, name: 'Post');
+
+Future<Object?> store(Request request) async =>
+    PostResource(await Post.create(request.validated().toMap()));
+
+Future<Object?> index(Request request) async {
+  final page = await request.integer('page', 1);
+  final tags = request.queryInput['tags'];  // ['a', 'b']
 }
 ```
 
@@ -446,13 +511,15 @@ created lib/app/http/resources/post_resource.dart
 | **1** | S14 conformance suite, security suite, `parity.yaml`, benchmark harness, documentation site, `api`/`minimal` templates → **1.0.0-beta.1** | ✅ done |
 | **2** | Multipart uploads, sessions/CSRF, Redis, S3, mail, localization, SSE/WebSockets, OpenTelemetry, Blade-compatible compiled views | planned |
 | **daragic** | Bidirectional Laravel ⇄ Daravel generator: runtime introspection → IR → generated project, converted tests, differential replay | designed |
+| **Ecosystem** | First-party packages under `daravel-dev`: `daravel_horizon` (queue supervisor and dashboard), `daravel_socialite` (OAuth and Sign in with Apple/Google), `daravel_reverb` (WebSockets, Pusher protocol), then `daravel_telescope` and `daravel_scout` | planned |
 
 ## Documentation
 
 Guides live in [`docs/guide`](docs/guide/index.md) (English, with Indonesian core pages in
 [`docs/guide/id`](docs/guide/id/index.md)): getting started, routing, validation, database,
-responses, auth, background work, testing, deployment, Laravel coexistence, security,
-performance and the generated [Laravel ⇄ Daravel parity table](docs/guide/parity.md).
+responses, auth, background work, testing, deployment (Docker, Cloud Run, VPS), Laravel
+coexistence, [migrating from Laravel](docs/guide/migrating-from-laravel.md), security, performance
+and the generated [Laravel ⇄ Daravel parity table](docs/guide/parity.md).
 `dart run tool/docs/generate.dart` builds the HTML site into `build/site`. Release notes are in
 [CHANGELOG.md](CHANGELOG.md).
 

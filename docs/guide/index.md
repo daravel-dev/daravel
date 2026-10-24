@@ -11,6 +11,27 @@ database**. Error and pagination JSON, Sanctum tokens, bcrypt hashes, `Crypt`
 payloads and the framework tables use Laravel's formats, and a conformance
 suite keeps them that way. See [Laravel coexistence](laravel-coexistence.md).
 
+## Why Daravel?
+
+1. **One native bundle**: AOT machine code with SQLite bundled; no runtime
+   or source on the server ([Deployment](deployment.md)).
+2. **No reflection, no `build_runner`**: generators write plain Dart into
+   explicit registries.
+3. **Every core on one port**: a supervisor with worker isolates and a
+   coordinator for locks, cache and rate limits, without Redis.
+4. **Request state stays in its request**: `Zone` scopes for requests, jobs
+   and commands; zone-aware transactions.
+5. **Runs next to Laravel** on the same database
+   ([coexistence](laravel-coexistence.md),
+   [migrating](migrating-from-laravel.md)).
+6. **Routes that document themselves**: `.validates()` and `.returns()`
+   enforce 403/422 and generate OpenAPI 3.1 ([Routing](routing.md)).
+7. **Guard rails included**: hashing in compute isolates, AST lints, and
+   [security](security.md) and conformance suites.
+
+Performance numbers come from a reproducible harness, never from claims
+([Performance](performance.md)).
+
 ## Guides
 
 1. [Getting started](getting-started.md): install, create a project, serve, build.
