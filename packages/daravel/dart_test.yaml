@@ -1,0 +1,6 @@
+# Test tags (`dart test --tags conformance`, `dartisan test --conformance`).
+tags:
+  # Laravel 12 wire/storage contracts (BLUEPRINT_V2 §11.2).
+  conformance:
+  # Security regression tests (BLUEPRINT_V2 §9.3).
+  security:

@@ -43,3 +43,18 @@ abstract final class Clock {
     }
   }
 }
+
+/// Serializes [time] the way Laravel serializes dates to JSON
+/// (`Carbon::toJSON()`): UTC ISO-8601 with microseconds,
+/// `2026-01-02T03:04:05.000000Z`.
+String jsonDate(DateTime time) {
+  final utc = time.toUtc();
+  String two(int v) => v.toString().padLeft(2, '0');
+  final year = utc.year.toString().padLeft(4, '0');
+  final micros = (utc.millisecond * 1000 + utc.microsecond).toString().padLeft(
+    6,
+    '0',
+  );
+  return '$year-${two(utc.month)}-${two(utc.day)}T${two(utc.hour)}:'
+      '${two(utc.minute)}:${two(utc.second)}.${micros}Z';
+}

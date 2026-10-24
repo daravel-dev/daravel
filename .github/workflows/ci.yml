@@ -35,6 +35,9 @@ jobs:
       - name: Analyze
         run: dart analyze --fatal-infos
 
+      - name: Docs up to date (parity table, compiled examples)
+        run: dart run tool/docs/generate.dart --check
+
       - name: Test (all packages)
         env:
           # `dartisan new` end-to-end (pub get + analyze + test of a generated

@@ -219,10 +219,7 @@ import 'package:{{ package }}/app/models/{{ modelFile }}.dart';
 /// Register with `router.apiResource('{{ resource }}', {{ class }}())`.
 final class {{ class }} implements ResourceController {
   @override
-  Future<Object?> index(Request request) => {{ model }}.query().paginate(
-    page: int.tryParse(request.query['page'] ?? '') ?? 1,
-    path: request.path,
-  );
+  Future<Object?> index(Request request) => {{ model }}.query().paginate();
 
   @override
   Future<Object?> store(Request request) async {
@@ -398,8 +395,8 @@ final class {{ class }} extends JsonResource<{{ model }}> {
   @override
   Map<String, Object?> toArray(Request? request) => {
     'id': resource.id,
-    'created_at': resource.createdAt?.toIso8601String(),
-    'updated_at': resource.updatedAt?.toIso8601String(),
+    'created_at': resource.createdAt,
+    'updated_at': resource.updatedAt,
   };
 }
 ''';

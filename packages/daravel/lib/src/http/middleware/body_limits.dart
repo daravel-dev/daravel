@@ -1,3 +1,4 @@
+import '../http_exceptions.dart';
 import '../middleware.dart';
 import '../request.dart';
 import '../response.dart';
@@ -45,9 +46,9 @@ final class BodyLimitsMiddleware implements Middleware {
     final declared = request.contentLength;
     if (declared != null && declared > request.maxBodyBytes!) {
       return Future<Response>.value(
+        // Laravel's ValidatePostSize message; the limit is not disclosed.
         Response.json(<String, Object?>{
-          'message':
-              'Request body exceeds the limit of ${request.maxBodyBytes} bytes.',
+          'message': const PayloadTooLargeHttpException().message,
         }, status: 413),
       );
     }

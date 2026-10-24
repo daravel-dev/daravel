@@ -21,7 +21,7 @@ void main() {
   });
 
   test('AES-256-GCM round trip with a Laravel-shaped payload', () async {
-    final crypt = Encrypter(key);
+    final crypt = Encrypter(key, cipher: .aes256gcm);
     final encrypted = await crypt.encryptString('hello daravel');
     final payload = payloadOf(encrypted);
     expect(payload.keys, ['iv', 'value', 'mac', 'tag']);

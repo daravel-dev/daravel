@@ -408,27 +408,81 @@ final class Post extends Model with AuthenticatableModel {
       );
     });
 
-    test(
-      'generated project resolves, analyzes and passes its tests (e2e)',
-      () async {
-        final repo = p.normalize(p.join(Directory.current.path, '..', '..'));
-        final target = p.join(root.path, 'app');
-        final runner = GlobalDartisanRunner();
-        expect(await runner.execute(['new', target, '--path=$repo']), 0);
-        final analyze = await Process.run(dartExecutable(), const [
-          'analyze',
-          '--fatal-infos',
-        ], workingDirectory: target);
-        expect(analyze.exitCode, 0, reason: '${analyze.stdout}');
-        final test = await Process.run(dartExecutable(), const [
-          'test',
-        ], workingDirectory: target);
-        expect(test.exitCode, 0, reason: '${test.stdout}');
-      },
-      skip: Platform.environment['DARAVEL_E2E'] == '1'
-          ? false
-          : 'set DARAVEL_E2E=1 to run (pub get + analyze + test, ~1 min)',
-      timeout: const Timeout(Duration(minutes: 5)),
-    );
+    for (final template in ['api', 'minimal']) {
+      test(
+        '$template project resolves, analyzes and passes its tests (e2e)',
+        () async {
+          final repo = p.normalize(p.join(Directory.current.path, '..', '..'));
+          final target = p.join(root.path, template);
+          final runner = GlobalDartisanRunner();
+          expect(
+            await runner.execute([
+              'new',
+              target,
+              '--path=$repo',
+              '--template=$template',
+            ]),
+            0,
+          );
+          final analyze = await Process.run(dartExecutable(), const [
+            'analyze',
+            '--fatal-infos',
+          ], workingDirectory: target);
+          expect(analyze.exitCode, 0, reason: '${analyze.stdout}');
+          final test = await Process.run(dartExecutable(), const [
+            'test',
+          ], workingDirectory: target);
+          expect(test.exitCode, 0, reason: '${test.stdout}');
+        },
+        skip: Platform.environment['DARAVEL_E2E'] == '1'
+            ? false
+            : 'set DARAVEL_E2E=1 to run (pub get + analyze + test, ~1 min)',
+        timeout: const Timeout(Duration(minutes: 5)),
+      );
+    }
+  });
+
+  group('dartisan test', () {
+    test('maps flags to dart test arguments', () {
+      expect(TestCommand.dartArgs(), ['test']);
+      expect(TestCommand.dartArgs(conformance: true), [
+        'test',
+        '--tags',
+        'conformance',
+      ]);
+      expect(TestCommand.dartArgs(coverage: true, rest: ['test/unit']), [
+        'test',
+        '--coverage=coverage',
+        'test/unit',
+      ]);
+    });
+  });
+
+  group('templates (S14)', () {
+    test('api ships conformance, compose and CI; minimal ships CI', () {
+      final api = newProjectFiles(
+        package: 'shop',
+        appName: 'Shop',
+        source: const GitSource(),
+      );
+      expect(
+        api.keys,
+        containsAll(<String>[
+          'dart_test.yaml',
+          '.github/workflows/ci.yml',
+          'test/conformance/api_contract_test.dart',
+          'docker-compose.yml',
+        ]),
+      );
+      expect(api['routes/api.dart'], contains('throttle:register'));
+      final minimal = newProjectFiles(
+        package: 'tiny',
+        appName: 'Tiny',
+        source: const GitSource(),
+        template: 'minimal',
+      );
+      expect(minimal.keys, contains('.github/workflows/ci.yml'));
+      expect(minimal.keys, isNot(contains('docker-compose.yml')));
+    });
   });
 }

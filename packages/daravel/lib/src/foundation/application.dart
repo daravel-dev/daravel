@@ -360,6 +360,7 @@ final class Application {
     return Encrypter.fromAppKey(
       key,
       previousKeys: env.list('APP_PREVIOUS_KEYS'),
+      cipher: EncryptionCipher.parse(env.string('APP_CIPHER', 'AES-256-GCM')),
     );
   }
 

@@ -426,13 +426,13 @@ final class CreateCacheTable extends Migration {
   Future<void> up(SchemaBuilder schema) async {
     await schema.create('cache', (table) {
       table.string('key').primary();
-      table.text('value');
-      table.integer('expiration');
+      table.mediumText('value');
+      table.integer('expiration').index();
     });
     await schema.create('cache_locks', (table) {
       table.string('key').primary();
       table.string('owner');
-      table.integer('expiration');
+      table.integer('expiration').index();
     });
   }
 

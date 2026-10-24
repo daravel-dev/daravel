@@ -106,7 +106,7 @@ final class ModelUserProvider<T extends Authenticatable>
   HashManager get hasher => _hasher ?? Container.current.make<HashManager>();
 
   @override
-  String get morphClass => _morphClass ?? T.toString();
+  String get morphClass => _morphClass ?? definition.morphClass;
 
   @override
   Future<T?> retrieveById(Object id) async =>
@@ -298,6 +298,7 @@ abstract base class RequestGuard<T extends Authenticatable>
   Future<bool> validate(Map<String, Object?> credentials) async {
     final found = await provider?.retrieveByCredentials(credentials);
     if (found == null) {
+      await equalizeLoginTiming(credentials);
       return false;
     }
     return provider!.validateCredentials(found, credentials);
@@ -354,4 +355,28 @@ abstract final class AuthScope {
       return null;
     }
   }
+}
+
+/// When no user matched [credentials], hashes their password against a
+/// dummy hash so failed logins for unknown and known accounts take the same
+/// time (user enumeration mitigation, BLUEPRINT_V2 §9.2 item 9).
+Future<void> equalizeLoginTiming(Map<String, Object?> credentials) async {
+  String? plain;
+  for (final entry in credentials.entries) {
+    final value = entry.value;
+    if (entry.key.contains('password') && value is String) {
+      plain = value;
+      break;
+    }
+  }
+  if (plain == null) {
+    return;
+  }
+  final HashManager hasher;
+  try {
+    hasher = Container.current.make<HashManager>();
+  } on Object {
+    return; // No hashing configured (custom providers).
+  }
+  await hasher.checkAgainstDummy(plain);
 }

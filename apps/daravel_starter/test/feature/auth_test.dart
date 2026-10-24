@@ -39,7 +39,8 @@ void main() {
 
   test('register → me → logout → 401', () async {
     final token = await register();
-    expect(token, matches(RegExp(r'^\d+\|[A-Za-z0-9]{40}$')));
+    // Sanctum 4 format: id|40 random chars + crc32b checksum.
+    expect(token, matches(RegExp(r'^\d+\|[A-Za-z0-9]{40}[0-9a-f]{8}$')));
     (await client.get('/api/auth/me'))
         .assertUnauthorized()
         .assertJsonPath('message', 'Unauthenticated.');

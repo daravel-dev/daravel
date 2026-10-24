@@ -81,7 +81,7 @@ void main() {
           .assertJsonPath('data.0.email', 'ana@example.com')
           .assertJsonPath('data.0.email_verified', false)
           .assertJsonPath('data.0.password', null)
-          .assertJsonPath('links.first', '/api/users?page=1')
+          .assertJsonPath('links.first', 'http://localhost/api/users?page=1')
           .assertJsonPath('links.next', null)
           .assertJsonPath('meta.total', 1)
           .assertJsonPath('meta.per_page', 15);

@@ -31,10 +31,20 @@ final class MassAssignmentException implements Exception {
 
 /// Thrown by `findOrFail()` and friends.
 final class ModelNotFoundException extends HttpException {
-  ModelNotFoundException(this.table, this.id)
-    : super(404, 'No query results for model [$table] with id [$id].');
-  final String table;
-  final Object? id;
+  /// Laravel's message: `No query results for model [App\Models\User] 1`
+  /// (ids comma separated), or `... [App\Models\User].` without ids.
+  ModelNotFoundException(this.model, [this.ids = const <Object?>[]])
+    : super(
+        404,
+        'No query results for model [$model]'
+        '${ids.isEmpty ? '.' : ' ${ids.join(', ')}'}',
+      );
+
+  /// The model's [ModelDefinition.morphClass].
+  final String model;
+
+  /// The ids that were looked up (empty for `firstOrFail()`/`sole()`).
+  final List<Object?> ids;
 }
 
 /// Base for Hybrid Active Record models (ADR-006): an attribute bag with
@@ -353,7 +363,7 @@ abstract base class Model implements JsonSerializable, Responsable {
   Future<Model> refresh() async {
     final fresh = await _query().withTrashed().whereKey(key).first();
     if (fresh == null) {
-      throw ModelNotFoundException(table, key);
+      throw ModelNotFoundException(modelDefinition.morphClass, [key]);
     }
     _attributes = Map<String, Object?>.of(fresh._attributes);
     syncOriginal();
@@ -611,7 +621,7 @@ abstract base class Model implements JsonSerializable, Responsable {
   static Object? _serialize(Object? value) => switch (value) {
     Model() => value.toJson(),
     List<Model>() => [for (final m in value) m.toJson()],
-    DateTime() => value.toUtc().toIso8601String(),
+    DateTime() => jsonDate(value),
     Enum() => value.name,
     RawExpression() => value.sql,
     _ => value,

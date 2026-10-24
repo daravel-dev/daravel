@@ -338,6 +338,10 @@ final class EmailRule extends _PatternRule {
 
 final class UrlRule extends Rule {
   const UrlRule();
+
+  /// Longest URL accepted.
+  static const int maxLength = 8192;
+
   @override
   String get name => 'url';
   @override
@@ -348,7 +352,9 @@ final class UrlRule extends Rule {
   @override
   String? passes(ValidationContext c) {
     final value = c.value;
-    if (value is! String) {
+    // Longer than any URL a browser or server accepts (RFC 9110 suggests
+    // supporting 8000 octets); rejecting early bounds parse time (§9.3).
+    if (value is! String || value.length > maxLength) {
       return 'url';
     }
     final uri = Uri.tryParse(value);

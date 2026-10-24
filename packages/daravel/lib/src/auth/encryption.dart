@@ -10,14 +10,25 @@ import 'hashing.dart' show constantTimeEquals;
 
 /// Symmetric ciphers supported by [Encrypter].
 enum EncryptionCipher {
-  /// AES-256-GCM (default). Payload `{iv, value, mac: "", tag}` — the same
-  /// shape Laravel emits for its `aes-256-gcm` cipher.
+  /// AES-256-GCM (default, ADR-008). Payload `{iv, value, mac: "", tag}`,
+  /// the shape Laravel emits for its `aes-256-gcm` cipher.
   aes256gcm,
 
-  /// AES-256-CBC + HMAC-SHA256 — byte-compatible with Laravel's default
-  /// `aes-256-cbc` cipher (`{iv, value, mac, tag: ""}`), for values shared
-  /// across a Laravel ⇄ Daravel deployment (BLUEPRINT_V2 §4.4).
-  aes256cbc,
+  /// AES-256-CBC + HMAC-SHA256 (Laravel's default `APP_CIPHER`):
+  /// byte-compatible with Laravel's `aes-256-cbc` payloads
+  /// (`{iv, value, mac, tag: ""}`), for values shared across a
+  /// Laravel ⇄ Daravel deployment (BLUEPRINT_V2 §4.4).
+  aes256cbc;
+
+  /// Parses Laravel's `APP_CIPHER` names (`AES-256-CBC`, `aes-256-gcm`).
+  static EncryptionCipher parse(String name) =>
+      switch (name.trim().toLowerCase()) {
+        'aes-256-cbc' => .aes256cbc,
+        'aes-256-gcm' => .aes256gcm,
+        _ => throw EncryptException(
+          'Unsupported cipher [$name]; use AES-256-CBC or AES-256-GCM.',
+        ),
+      };
 }
 
 /// Raised when a payload is malformed, was tampered with or was encrypted
@@ -35,7 +46,9 @@ final class EncryptException extends DaravelException {
 ///
 /// Payloads are `base64(json({"iv","value","mac","tag"}))` like Laravel's,
 /// so [encryptString] output can be read by a Laravel app sharing the key
-/// (either cipher; decryption picks the cipher from the payload).
+/// configured with the same cipher. Daravel defaults to AES-256-GCM; set
+/// `APP_CIPHER=AES-256-CBC` to match a default Laravel app.
+/// Decryption accepts either payload shape.
 /// [encrypt]/[decrypt] JSON-encode arbitrary values, where Laravel uses PHP
 /// `serialize()`, so only the string variants are cross-runtime.
 final class Encrypter {

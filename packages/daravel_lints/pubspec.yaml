@@ -1,6 +1,6 @@
 name: daravel_lints
 description: Daravel lint rules (AST-based) and architecture checks for Daravel applications.
-version: 0.0.1-dev
+version: 1.0.0-beta.1
 publish_to: none
 
 environment:

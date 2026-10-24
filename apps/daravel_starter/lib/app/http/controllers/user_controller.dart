@@ -7,13 +7,7 @@ import 'package:daravel_starter/app/models/user.dart';
 final class UserController {
   /// `GET /api/users` — paginated `{data, links, meta}`.
   Future<Object?> index(Request request) async => JsonResource.collection(
-    await User.query()
-        .orderByDesc('id')
-        .paginate(
-          page: int.tryParse(request.query['page'] ?? '') ?? 1,
-          perPage: 15,
-          path: '/api/users',
-        ),
+    await User.query().orderByDesc('id').paginate(perPage: 15),
     UserResource.new,
   );
 

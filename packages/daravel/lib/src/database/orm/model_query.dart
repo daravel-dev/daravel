@@ -454,12 +454,12 @@ final class ModelQuery<T extends Model> {
   }
 
   Future<T> firstOrFail() async =>
-      (await first()) ?? (throw ModelNotFoundException(definition.table, null));
+      (await first()) ?? (throw ModelNotFoundException(definition.morphClass));
 
   Future<T> sole() async {
     final rows = await prepared().limit(2).get();
     if (rows.isEmpty) {
-      throw ModelNotFoundException(definition.table, null);
+      throw ModelNotFoundException(definition.morphClass);
     }
     if (rows.length > 1) {
       throw MultipleRecordsFoundException(rows.length);
@@ -470,7 +470,8 @@ final class ModelQuery<T extends Model> {
   Future<T?> find(Object id) => whereKey(id).first();
 
   Future<T> findOrFail(Object id) async =>
-      (await find(id)) ?? (throw ModelNotFoundException(definition.table, id));
+      (await find(id)) ??
+      (throw ModelNotFoundException(definition.morphClass, [id]));
 
   Future<ModelCollection<T>> findMany(List<Object?> ids) =>
       whereIn(_qualify(definition.primaryKey), ids).get();
@@ -487,17 +488,19 @@ final class ModelQuery<T extends Model> {
   Future<bool> doesntExist() => prepared().doesntExist();
 
   Future<LengthAwarePaginator<T>> paginate({
-    int page = 1,
+    int? page,
     int? perPage,
-    String path = '/',
+    String? path,
     String pageName = 'page',
     Map<String, String> query = const {},
   }) async {
+    final current = page ?? Pagination.resolvePage(pageName);
+    final base = path ?? Pagination.resolvePath();
     final size = perPage ?? definition.perPage;
     final rows = await prepared().paginate(
-      page: page,
+      page: current,
       perPage: size,
-      path: path,
+      path: base,
       pageName: pageName,
       query: query,
     );
@@ -506,34 +509,36 @@ final class ModelQuery<T extends Model> {
       items: models,
       total: rows.total,
       perPage: size,
-      currentPage: page,
-      path: path,
+      currentPage: current,
+      path: base,
       pageName: pageName,
       query: query,
     );
   }
 
   Future<SimplePaginator<T>> simplePaginate({
-    int page = 1,
+    int? page,
     int? perPage,
-    String path = '/',
+    String? path,
     String pageName = 'page',
     Map<String, String> query = const {},
   }) async {
+    final current = page ?? Pagination.resolvePage(pageName);
+    final base = path ?? Pagination.resolvePath();
     final size = perPage ?? definition.perPage;
     final rows = await prepared().simplePaginate(
-      page: page,
+      page: current,
       perPage: size,
-      path: path,
+      path: base,
       pageName: pageName,
       query: query,
     );
     return SimplePaginator<T>(
       items: await _hydrateAll(rows.items),
       perPage: size,
-      currentPage: page,
+      currentPage: current,
       hasMorePages: rows.hasMorePages,
-      path: path,
+      path: base,
       pageName: pageName,
       query: query,
     );
@@ -542,15 +547,17 @@ final class ModelQuery<T extends Model> {
   Future<CursorPaginator<T>> cursorPaginate({
     int? perPage,
     Cursor? cursor,
-    String path = '/',
+    String? path,
     String cursorName = 'cursor',
     Map<String, String> query = const {},
   }) async {
+    final base = path ?? Pagination.resolvePath();
+    final from = cursor ?? Pagination.resolveCursor(cursorName);
     final size = perPage ?? definition.perPage;
     final rows = await prepared().cursorPaginate(
       perPage: size,
-      cursor: cursor,
-      path: path,
+      cursor: from,
+      path: base,
       cursorName: cursorName,
       query: query,
     );
@@ -559,7 +566,7 @@ final class ModelQuery<T extends Model> {
       perPage: size,
       nextCursor: rows.nextCursor,
       previousCursor: rows.previousCursor,
-      path: path,
+      path: base,
       cursorName: cursorName,
       query: query,
     );

@@ -1,0 +1,41 @@
+name: Benchmarks
+
+# BLUEPRINT_V2 §10.2 / §11.2: nightly benchmark on Linux. Throughput is
+# compared relative to a plain dart:io server measured in the same job, so
+# the > 10% regression gate does not depend on the runner's hardware.
+on:
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+    inputs:
+      duration:
+        description: Seconds per scenario
+        default: "10"
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Resolve workspace
+        run: dart pub get
+
+      - name: Run benchmarks
+        working-directory: bench
+        run: |
+          args="--duration=${{ github.event.inputs.duration || '10' }} --isolates=1,4 --out=results.json"
+          if [ -f baseline.json ]; then args="$args --compare=baseline.json"; fi
+          dart run bin/bench.dart $args
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-results-${{ github.run_number }}
+          path: bench/results.json

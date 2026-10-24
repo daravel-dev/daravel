@@ -100,6 +100,8 @@ Map<String, String> newProjectFiles({
     'lib/app/http/controllers/ping_controller.dart': _pingController,
     'storage/.gitignore': '*\n!.gitignore\n',
     'test/architecture_test.dart': _architectureTest,
+    'dart_test.yaml': _dartTestYaml,
+    '.github/workflows/ci.yml': _ciWorkflow,
     if (api) ...{
       'bootstrap/app.dart': _bootstrapApi,
       'bootstrap/migrations.dart': _migrationsRegistry,
@@ -115,6 +117,8 @@ Map<String, String> newProjectFiles({
       'database/factories/user_factory.dart': _userFactory,
       'database/seeders/database_seeder.dart': _databaseSeeder,
       'test/feature/auth_test.dart': _authTest,
+      'test/conformance/api_contract_test.dart': _conformanceTest,
+      'docker-compose.yml': _dockerCompose,
     } else ...{
       'bootstrap/app.dart': _bootstrapMinimal,
       'bootstrap/migrations.dart': _emptyMigrations,
@@ -290,6 +294,10 @@ FILESYSTEM_DISK=local
 HASH_DRIVER=argon2id
 AUTH_GUARD=token
 METRICS_ENABLED=false
+
+# Sharing the database with a Laravel app? Match its defaults:
+# APP_CIPHER=AES-256-CBC
+# HASH_DRIVER=bcrypt
 ''';
 
 const String _readme = r'''
@@ -300,8 +308,9 @@ A [Daravel](https://github.com/teoprayoga/daravel) application.
 ```bash
 dart run bin/dartisan.dart migrate --seed
 dart run bin/dartisan.dart serve --watch      # hot reload
-dart test
-dart run bin/dartisan.dart build --docker     # native binary + Dockerfile
+dart run bin/dartisan.dart test               # = dart test
+dart run bin/dartisan.dart test --conformance # Laravel wire-format contract
+dart run bin/dartisan.dart build --docker     # native bundle + Dockerfile
 ```
 ''';
 
@@ -375,6 +384,10 @@ Application createApp({String? basePath, Map<String, String>? env}) =>
             final email = (await request.all())['email'];
             return Limit.perMinute(5).by('$email|${request.ip}');
           });
+          limiter.define(
+            'register',
+            (request) => Limit.perMinute(5).by(request.ip),
+          );
         })
         .create();
 ''';
@@ -551,7 +564,10 @@ void apiRoutes(Router router) {
   final auth = AuthController();
 
   router.get('/ping', PingController().ping).name('ping');
-  router.post('/auth/register', auth.register).name('auth.register');
+  router
+      .post('/auth/register', auth.register)
+      .name('auth.register')
+      .middleware(const ['throttle:register']);
   router
       .post('/auth/login', auth.login)
       .name('auth.login')
@@ -674,12 +690,17 @@ import 'package:{{ package }}/app/models/user.dart';
 final class AuthController {
   Future<Object?> register(Request request) async {
     final data = await FormRequest.run(const RegisterRequest(), request);
-    final user = await User.create({
-      'name': data.string('name'),
-      'email': data.string('email'),
-      'password': await Hash.make(data.string('password')),
+    // Hash before the transaction so the expensive work holds no locks.
+    final password = await Hash.make(data.string('password'));
+    // The user and its first token commit together, or not at all.
+    final (user, token) = await DB.transaction(() async {
+      final user = await User.create({
+        'name': data.string('name'),
+        'email': data.string('email'),
+        'password': password,
+      });
+      return (user, await Auth.issueToken(user, 'api'));
     });
-    final token = await Auth.issueToken(user, 'api');
     return Response.created(<String, Object?>{
       'user': UserResource(user),
       'token': token.plainTextToken,
@@ -746,7 +767,7 @@ final class UserResource extends JsonResource<User> {
     'id': resource.id,
     'name': resource.name,
     'email': resource.email,
-    'created_at': resource.createdAt?.toIso8601String(),
+    'created_at': resource.createdAt,
   };
 }
 ''';
@@ -915,4 +936,136 @@ void main() {
         .assertJsonPath('message', 'pong');
   });
 }
+''';
+
+const String _dartTestYaml = r'''
+# Test tags (`dartisan test --conformance`, `dart test --tags conformance`).
+tags:
+  conformance:
+  security:
+''';
+
+const String _conformanceTest = r'''
+@Tags(['conformance'])
+library;
+
+import 'dart:io';
+
+import 'package:daravel/daravel.dart';
+import 'package:daravel_test/conformance.dart';
+import 'package:daravel_test/daravel_test.dart';
+import 'package:test/test.dart';
+
+import '../../bootstrap/app.dart';
+
+/// Keeps this API on Laravel's wire format (validation errors, auth
+/// messages, Sanctum tokens), so Laravel clients and a Laravel app sharing
+/// the database keep working. Run with `dartisan test --conformance`.
+void main() {
+  late Application app;
+  late TestClient client;
+
+  setUp(() async {
+    app = createApp(
+      basePath: Directory.current.path,
+      env: <String, String>{'APP_ENV': 'testing', 'DB_DATABASE': ':memory:'},
+    );
+    await app.boot();
+    await app.run(() => App.make<Migrator>().run());
+    client = TestClient(app);
+  });
+
+  tearDown(() => app.shutdown());
+
+  test('422 bodies are Laravel validation errors', () async {
+    final res = await client.post('/api/auth/register', json: {});
+    res.assertUnprocessable();
+    expect(res.json, isLaravelValidationError());
+  });
+
+  test('401 and 404 use Laravel messages', () async {
+    expect(
+      (await client.get('/api/auth/me')).json,
+      isLaravelErrorBody(LaravelContract.unauthenticated),
+    );
+    expect(
+      (await client.get('/api/nope')).json,
+      isLaravelErrorBody(LaravelContract.routeNotFound('api/nope')),
+    );
+  });
+
+  test('tokens are Sanctum tokens', () async {
+    final res = await client.post(
+      '/api/auth/register',
+      json: {
+        'name': 'Ana',
+        'email': 'ana@example.com',
+        'password': 'secret-123',
+        'password_confirmation': 'secret-123',
+      },
+    );
+    res.assertCreated();
+    expect(res.jsonMap['token'], matches(LaravelContract.sanctumPlainTextToken));
+  });
+}
+''';
+
+const String _dockerCompose = r'''
+# Local stack: the app (built from Dockerfile) and Postgres 16.
+#   docker compose up --build
+services:
+  app:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      APP_KEY: "${APP_KEY:?set APP_KEY (dartisan key:generate)}"
+      DB_CONNECTION: pgsql
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_DATABASE: app
+      DB_USERNAME: app
+      DB_PASSWORD: secret
+    depends_on:
+      db:
+        condition: service_healthy
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: app
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: secret
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d app"]
+      interval: 2s
+      retries: 15
+    volumes:
+      - db:/var/lib/postgresql/data
+volumes:
+  db:
+''';
+
+const String _ciWorkflow = r'''
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - run: dart pub get
+      - run: dart format --output=none --set-exit-if-changed .
+      - run: dart analyze --fatal-infos
+      - run: dart test
+      - name: Laravel conformance
+        run: dart run bin/dartisan.dart test --conformance
+      - name: Native bundle
+        run: dart build cli -t bin/server.dart -o build/server
 ''';

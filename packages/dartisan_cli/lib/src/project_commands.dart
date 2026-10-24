@@ -349,6 +349,76 @@ final class DoctorCommand extends DaravelCommand {
   }
 }
 
+/// `test [--conformance] [--security] [--coverage] [-- dart test args]` —
+/// runs the project's tests with `dart test`.
+///
+/// `--conformance` and `--security` select the tagged suites
+/// (`dart_test.yaml`); `--coverage` writes `coverage/` for
+/// `package:coverage` / `format_coverage`.
+final class TestCommand extends Command<int> {
+  TestCommand() {
+    argParser
+      ..addFlag(
+        'conformance',
+        negatable: false,
+        help: 'Only the Laravel conformance suite (tag "conformance").',
+      )
+      ..addFlag(
+        'security',
+        negatable: false,
+        help: 'Only the security regression suite (tag "security").',
+      )
+      ..addFlag(
+        'coverage',
+        negatable: false,
+        help: 'Collect coverage into coverage/.',
+      );
+  }
+
+  @override
+  String get name => 'test';
+
+  @override
+  String get description => 'Run the test suite (dart test).';
+
+  @override
+  String get invocation => 'dartisan test [options] [-- dart test args]';
+
+  /// The `dart test` arguments for the parsed options.
+  static List<String> dartArgs({
+    bool conformance = false,
+    bool security = false,
+    bool coverage = false,
+    List<String> rest = const <String>[],
+  }) => <String>[
+    'test',
+    if (conformance) ...['--tags', 'conformance'],
+    if (security) ...['--tags', 'security'],
+    if (coverage) '--coverage=coverage',
+    ...rest,
+  ];
+
+  @override
+  Future<int> run() async {
+    final paths = ProjectPaths.locate();
+    final r = argResults!;
+    final args = dartArgs(
+      conformance: r['conformance'] as bool,
+      security: r['security'] as bool,
+      coverage: r['coverage'] as bool,
+      rest: r.rest,
+    );
+    stdout.writeln('dart ${args.join(' ')}');
+    final process = await Process.start(
+      dartExecutable(),
+      args,
+      workingDirectory: paths.root,
+      mode: ProcessStartMode.inheritStdio,
+    );
+    return process.exitCode;
+  }
+}
+
 /// `build [--output] [--with-cli] [--docker]` — native app bundle and
 /// optional Dockerfile.
 ///

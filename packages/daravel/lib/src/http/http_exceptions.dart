@@ -32,8 +32,7 @@ final class ForbiddenHttpException extends HttpException {
 }
 
 final class NotFoundHttpException extends HttpException {
-  const NotFoundHttpException([String message = 'Not Found'])
-    : super(404, message);
+  const NotFoundHttpException([String message = '']) : super(404, message);
 }
 
 final class MethodNotAllowedHttpException extends HttpException {
@@ -49,8 +48,9 @@ final class MethodNotAllowedHttpException extends HttpException {
 }
 
 final class PayloadTooLargeHttpException extends HttpException {
-  const PayloadTooLargeHttpException([String message = 'Payload Too Large'])
-    : super(413, message);
+  const PayloadTooLargeHttpException([
+    String message = 'The POST data is too large.',
+  ]) : super(413, message);
 }
 
 final class ServiceUnavailableHttpException extends HttpException {
@@ -84,12 +84,10 @@ const Map<int, String> reasonPhrases = <int, String>{
 };
 
 /// Throws an [HttpException] with [status] (Laravel's `abort()` helper).
+///
+/// Like Laravel, the JSON message is empty unless [message] is given.
 Never abort(
   int status, [
   String? message,
   Map<String, String> headers = const <String, String>{},
-]) => throw HttpException(
-  status,
-  message ?? reasonPhrases[status] ?? 'HTTP $status',
-  headers: headers,
-);
+]) => throw HttpException(status, message ?? '', headers: headers);

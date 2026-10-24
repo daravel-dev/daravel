@@ -172,7 +172,8 @@ final class HttpKernel {
   }
 
   static String _label(Request request) {
-    final path = request.path;
-    return path.startsWith('/') ? path.substring(1) : path;
+    // Laravel's Request::path(): trimmed of slashes, '/' for the root.
+    final trimmed = request.path.replaceAll(RegExp(r'^/+|/+$'), '');
+    return trimmed.isEmpty ? '/' : trimmed;
   }
 }

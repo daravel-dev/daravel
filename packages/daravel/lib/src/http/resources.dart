@@ -242,67 +242,36 @@ final class ResourceCollection<T> implements JsonSerializable, Responsable {
   Object toPayload([Request? request]) {
     final data = resolveItems(request);
     final extra = <String, Object?>{..._additional};
-    switch (source) {
-      case final LengthAwarePaginator<T> page:
-        return <String, Object?>{
-          'data': data,
-          'links': <String, Object?>{
-            'first': page.url(1),
-            'last': page.url(page.lastPage),
-            'prev': page.previousPageUrl,
-            'next': page.nextPageUrl,
-          },
-          'meta': <String, Object?>{
-            'current_page': page.currentPage,
-            'from': page.from,
-            'last_page': page.lastPage,
-            'links': page.links,
-            'path': page.path,
-            'per_page': page.perPage,
-            'to': page.to,
-            'total': page.total,
-          },
-          ...extra,
-        };
-      case final SimplePaginator<T> page:
-        return <String, Object?>{
-          'data': data,
-          'links': <String, Object?>{
-            'first': page.url(1),
-            'last': null,
-            'prev': page.previousPageUrl,
-            'next': page.nextPageUrl,
-          },
-          'meta': <String, Object?>{
-            'current_page': page.currentPage,
-            'from': data.isEmpty
-                ? null
-                : (page.currentPage - 1) * page.perPage + 1,
-            'path': page.path,
-            'per_page': page.perPage,
-            'to': data.isEmpty
-                ? null
-                : (page.currentPage - 1) * page.perPage + data.length,
-          },
-          ...extra,
-        };
-      case final CursorPaginator<T> page:
-        return <String, Object?>{
-          'data': data,
-          'links': <String, Object?>{
-            'first': null,
-            'last': null,
-            'prev': page.previousPageUrl,
-            'next': page.nextPageUrl,
-          },
-          'meta': <String, Object?>{
-            'path': page.path,
-            'per_page': page.perPage,
-            'next_cursor': page.nextCursor?.encode(),
-            'prev_cursor': page.previousCursor?.encode(),
-          },
-          ...extra,
-        };
+    final paginated = switch (source) {
+      final LengthAwarePaginator<T> page => page.toJson(),
+      final SimplePaginator<T> page => page.toJson(),
+      final CursorPaginator<T> page => page.toJson(),
+      _ => null,
+    };
+    if (paginated != null) {
+      // Laravel's PaginatedResourceResponse: links from the URL keys, meta
+      // is the paginator array minus data and URLs (same key order).
+      const urlKeys = {
+        'data',
+        'first_page_url',
+        'last_page_url',
+        'prev_page_url',
+        'next_page_url',
+      };
+      return <String, Object?>{
+        'data': data,
+        'links': <String, Object?>{
+          'first': paginated['first_page_url'],
+          'last': paginated['last_page_url'],
+          'prev': paginated['prev_page_url'],
+          'next': paginated['next_page_url'],
+        },
+        'meta': <String, Object?>{
+          for (final entry in paginated.entries)
+            if (!urlKeys.contains(entry.key)) entry.key: entry.value,
+        },
+        ...extra,
+      };
     }
     final key = ResourceWrapping.key;
     if (key == null && extra.isEmpty) {

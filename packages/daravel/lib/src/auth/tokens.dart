@@ -122,6 +122,7 @@ final class TokenGuard<T extends Authenticatable> extends RequestGuard<T> {
     this.table = 'personal_access_tokens',
     this.expiration,
     this.lastUsedDebounce = const Duration(minutes: 1),
+    this.tokenPrefix = '',
     this._db,
     DateTime Function()? clock,
   }) : _clock = clock ?? _utcNow,
@@ -135,6 +136,9 @@ final class TokenGuard<T extends Authenticatable> extends RequestGuard<T> {
 
   /// Minimum interval between `last_used_at` writes for one token.
   final Duration lastUsedDebounce;
+
+  /// Prepended to new secrets (Sanctum `token_prefix`, e.g. `myapp_`).
+  final String tokenPrefix;
 
   final DatabaseManager? _db;
   final DateTime Function() _clock;
@@ -205,7 +209,9 @@ final class TokenGuard<T extends Authenticatable> extends RequestGuard<T> {
     List<String> abilities = const <String>['*'],
     DateTime? expiresAt,
   }) async {
-    final secret = secureRandomString(40);
+    // Sanctum 4: prefix + 40 random chars + crc32b(entropy).
+    final entropy = secureRandomString(40);
+    final secret = '$tokenPrefix$entropy${crc32b(utf8.encode(entropy))}';
     final now = _clock();
     final effectiveExpiry =
         expiresAt ?? (expiration == null ? null : now.add(expiration!));

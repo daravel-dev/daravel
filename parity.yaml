@@ -1,0 +1,190 @@
+# Laravel ⇄ Daravel parity table (BLUEPRINT_V2 §16.5, ADR-016).
+#
+# Machine-readable map of Laravel 12 APIs to their Daravel equivalents,
+# shared by the framework, the generated side-by-side docs and `daragic`.
+# `symbol` is verified by packages/daravel/test/architecture/parity_test.dart:
+#   Class            a public class, mixin, enum or extension type
+#   Class.member     a member declared on it or inherited (extends/with/implements)
+#   function         a top-level function or variable
+# Regenerate the docs page with `dart run tool/docs/generate.dart`.
+
+parityVersion: 1
+laravel: "12.x"
+daravel: "1.x"
+
+sections:
+  - name: Routing
+    symbols:
+      - { php: "Route::get($uri, $action)", dart: "router.get(path, handler)", symbol: Router.get }
+      - { php: "Route::post / put / patch / delete", dart: "router.post / put / patch / delete", symbol: Router.post }
+      - { php: "Route::match($methods, ...)", dart: "router.match(methods, path, handler)", symbol: Router.match }
+      - { php: "Route::any(...)", dart: "router.any(path, handler)", symbol: Router.any }
+      - { php: "Route::redirect($from, $to)", dart: "router.redirect(from, to)", symbol: Router.redirect }
+      - { php: "Route::fallback(...)", dart: "router.fallback(handler)", symbol: Router.fallback }
+      - { php: "Route::middleware(...)->prefix(...)->group(...)", dart: "router.group((r) {...}, prefix:, middleware:)", symbol: Router.group }
+      - { php: "Route::apiResource('photos', PhotoController::class)", dart: "router.apiResource('photos', PhotoController())", symbol: Router.apiResource }
+      - { php: "Route::resource(...)", dart: "router.resource(name, controller)", symbol: Router.resource }
+      - { php: "->name('users.show')", dart: ".name('users.show')", symbol: RouteEntry.name }
+      - { php: "->middleware(['auth'])", dart: ".middleware(const ['auth'])", symbol: RouteEntry.middleware }
+      - { php: "->where('id', '[0-9]+') / ->whereNumber('id')", dart: ".where('id', r'\\d+') / .whereNumber('id')", symbol: RouteEntry.whereNumber }
+      - { php: "->whereUuid('id')", dart: ".whereUuid('id')", symbol: RouteEntry.whereUuid }
+      - { php: "route('users.show', ['id' => 1])", dart: "router.url('users.show', {'id': 1})", symbol: Router.url }
+
+  - name: Requests & responses
+    symbols:
+      - { php: "$request->validate($rules)", dart: "await request.validate(rules)", symbol: Request.validate, async: true }
+      - { php: "$request->all()", dart: "await request.all()", symbol: Request.all, async: true }
+      - { php: "$request->input('a.b')", dart: "await request.input<T>('a.b')", symbol: Request.input, async: true }
+      - { php: "$request->has('key')", dart: "await request.has('key')", symbol: Request.has, async: true }
+      - { php: "$request->query('page')", dart: "request.query['page']", symbol: Request.query }
+      - { php: "$request->header('x-id')", dart: "request.header('x-id')", symbol: Request.header }
+      - { php: "$request->bearerToken()", dart: "request.bearerToken()", symbol: Request.bearerToken }
+      - { php: "$request->ip()", dart: "request.ip", symbol: Request.ip }
+      - { php: "$request->url()", dart: "request.url", symbol: Request.url }
+      - { php: "$request->route('id')", dart: "request.param<int>('id')", symbol: Request.param }
+      - { php: "$request->expectsJson()", dart: "request.expectsJson", symbol: Request.expectsJson }
+      - { php: "response()->json($data, $status)", dart: "Response.json(data, status: status)", symbol: Response.json }
+      - { php: "response()->noContent()", dart: "Response.noContent()", symbol: Response.noContent }
+      - { php: "redirect($to)", dart: "Response.redirect(to)", symbol: Response.redirect }
+      - { php: "response()->streamDownload(...)", dart: "Response.stream(...)", symbol: Response.stream }
+      - { php: "abort(404, $message)", dart: "abort(404, message)", symbol: abort, note: "Without a message the JSON message is empty, as in Laravel." }
+      - { php: "class StoreUserRequest extends FormRequest", dart: "final class StoreUserRequest extends FormRequest", symbol: FormRequest }
+
+  - name: Validation
+    symbols:
+      - { php: "Validator::make($data, $rules)", dart: "Validator(data, rules)", symbol: Validator }
+      - { php: "$validator->fails()", dart: "await validator.fails()", symbol: Validator.fails, async: true }
+      - { php: "$validator->validate()", dart: "await validator.validate()", symbol: Validator.validate, async: true }
+      - { php: "ValidationException", dart: "ValidationException", symbol: ValidationException }
+      - { php: "Rule::in([...]) / Rule::unique('users')", dart: "Rules.inList([...]) / Rules.unique('users')", symbol: Rules }
+
+  - name: Eloquent
+    symbols:
+      - { php: "class User extends Model", dart: "final class User extends Model", symbol: Model }
+      - { php: "protected $table / $fillable / $hidden / $casts", dart: "ModelDefinition<User>(table:, fillable:, hidden:, casts:)", symbol: ModelDefinition }
+      - { php: "$model->getMorphClass()", dart: "User.definition.morphClass", symbol: ModelDefinition.morphClass }
+      - { php: "User::query()", dart: "User.query()", symbol: ModelDefinition.query }
+      - { php: "User::where('a', $b)->first()", dart: "await User.query().where('a', b).first()", symbol: ModelQuery.where, async: true }
+      - { php: "User::find($id) / findOrFail($id)", dart: "await User.query().find(id) / findOrFail(id)", symbol: ModelQuery.findOrFail, async: true, throws: ModelNotFoundException }
+      - { php: "->firstOrFail()", dart: ".firstOrFail()", symbol: ModelQuery.firstOrFail, async: true, throws: ModelNotFoundException }
+      - { php: "User::create($attributes)", dart: "await User.query().create(attributes)", symbol: ModelQuery.create, async: true }
+      - { php: "User::firstOrCreate / updateOrCreate", dart: "firstOrCreate / updateOrCreate", symbol: ModelQuery.updateOrCreate, async: true }
+      - { php: "->with(['posts'])", dart: ".with_(['posts'])", symbol: ModelQuery.with_, note: "`with` is a reserved word in Dart." }
+      - { php: "->withCount('posts')", dart: ".withCount('posts')", symbol: ModelQuery.withCount }
+      - { php: "->whereHas('posts', fn)", dart: ".whereHas('posts', (q) {...})", symbol: ModelQuery.whereHas }
+      - { php: "->paginate(15)", dart: "await query.paginate(perPage: 15)", symbol: ModelQuery.paginate, async: true, note: "Page and path come from the current request, like Laravel." }
+      - { php: "->simplePaginate() / cursorPaginate()", dart: ".simplePaginate() / .cursorPaginate()", symbol: ModelQuery.cursorPaginate, async: true }
+      - { php: "->latest() / oldest()", dart: ".latest() / .oldest()", symbol: ModelQuery.latest }
+      - { php: "->withTrashed() / onlyTrashed()", dart: ".withTrashed() / .onlyTrashed()", symbol: ModelQuery.withTrashed }
+      - { php: "$model->save() / update() / delete()", dart: "await model.save() / update() / delete()", symbol: Model.save, async: true }
+      - { php: "$model->restore() / forceDelete()", dart: "await model.restore() / forceDelete()", symbol: Model.restore, async: true }
+      - { php: "$model->isDirty() / wasChanged()", dart: "model.isDirty() / wasChanged()", symbol: Model.isDirty }
+      - { php: "$model->refresh() / fresh()", dart: "await model.refresh() / fresh()", symbol: Model.refresh, async: true }
+      - { php: "$model->load('posts')", dart: "await model.load('posts')", symbol: Model.load, async: true }
+      - { php: "$model->toArray() / toJson()", dart: "model.toJson()", symbol: Model.toJson }
+      - { php: "ModelNotFoundException", dart: "ModelNotFoundException", symbol: ModelNotFoundException }
+
+  - name: Database
+    symbols:
+      - { php: "DB::table('users')", dart: "DB.table('users')", symbol: DB.table }
+      - { php: "DB::select($sql, $bindings)", dart: "await DB.select(sql, bindings)", symbol: DB.select, async: true }
+      - { php: "DB::statement($sql)", dart: "await DB.statement(sql)", symbol: DB.statement, async: true }
+      - { php: "DB::transaction(fn)", dart: "await DB.transaction(() async {...})", symbol: DB.transaction, async: true }
+      - { php: "DB::raw($sql)", dart: "DB.raw(sql)", symbol: DB.raw }
+      - { php: "->insertGetId($values)", dart: "await DB.table(t).insertGetId(values)", symbol: QueryBuilder.insertGetId, async: true }
+      - { php: "->upsert($values, $uniqueBy)", dart: ".upsert(values, uniqueBy)", symbol: QueryBuilder.upsert, async: true }
+      - { php: "->chunkById(100, fn)", dart: ".chunkById(100, (rows) async {...})", symbol: QueryBuilder.chunkById, async: true }
+      - { php: "->toSql() / toRawSql()", dart: ".toSql() / .toRawSql()", symbol: QueryBuilder.toRawSql }
+
+  - name: Schema & migrations
+    symbols:
+      - { php: "Schema::create('users', fn (Blueprint $table) => ...)", dart: "schema.create('users', (table) {...})", symbol: SchemaBuilder.create, async: true }
+      - { php: "Schema::table / dropIfExists / hasTable / hasColumn", dart: "schema.table / dropIfExists / hasTable / hasColumn", symbol: SchemaBuilder.hasColumn, async: true }
+      - { php: "$table->id() / string() / foreignId()->constrained()", dart: "table.id() / string() / foreignId().constrained()", symbol: Blueprint.foreignId }
+      - { php: "$table->timestamps() / softDeletes() / rememberToken()", dart: "table.timestamps() / softDeletes() / rememberToken()", symbol: Blueprint.softDeletes }
+      - { php: "return new class extends Migration { up / down }", dart: "final class CreateX extends Migration { up / down }", symbol: Migration }
+      - { php: "class DatabaseSeeder extends Seeder", dart: "final class DatabaseSeeder extends Seeder", symbol: Seeder }
+      - { php: "User::factory()->count(3)->create()", dart: "UserFactory().count(3).create()", symbol: ModelFactory }
+
+  - name: Auth & security
+    symbols:
+      - { php: "auth()->user() / Auth::user()", dart: "await Auth.user()", symbol: Auth.user, async: true }
+      - { php: "Auth::id() / check() / guest()", dart: "await Auth.id() / check() / guest()", symbol: Auth.check, async: true }
+      - { php: "Auth::guard('api')", dart: "Auth.guard('api')", symbol: Auth.guard }
+      - { php: "$user->createToken($name, $abilities)", dart: "await Auth.issueToken(user, name, abilities: [...])", symbol: Auth.issueToken, async: true }
+      - { php: "$user->currentAccessToken()->delete()", dart: "await Auth.tokenGuard().revokeCurrent()", symbol: TokenGuard.revokeCurrent, async: true }
+      - { php: "$user->tokenCan('posts:read')", dart: "await Auth.tokenGuard().tokenCan('posts:read')", symbol: TokenGuard.tokenCan, async: true }
+      - { php: "Hash::make / check / needsRehash", dart: "await Hash.make / check, Hash.needsRehash", symbol: Hash.needsRehash }
+      - { php: "Crypt::encryptString / decryptString", dart: "await Crypt.encryptString / decryptString", symbol: Crypt.decryptString, async: true, note: "Byte-compatible with APP_CIPHER=AES-256-CBC or AES-256-GCM." }
+      - { php: "Crypt::encrypt / decrypt", dart: "await Crypt.encrypt / decrypt", symbol: Crypt.encrypt, async: true, note: "Values are JSON-encoded, not PHP-serialized: not cross-runtime." }
+      - { php: "Gate::define / allows / denies / authorize", dart: "Gate.define / allows / denies / authorize", symbol: Gate.authorize, async: true }
+      - { php: "class PostPolicy", dart: "final class PostPolicy extends Policy<Post>", symbol: Policy }
+      - { php: "RateLimiter::for('login', fn)", dart: "limiter.define('login', (request) => Limit.perMinute(5))", symbol: RateLimiter.define }
+      - { php: "Limit::perMinute(60)->by($key)", dart: "Limit.perMinute(60).by(key)", symbol: Limit.by }
+
+  - name: Cache, queue, events, scheduling
+    symbols:
+      - { php: "Cache::get / put / forget / has", dart: "await Cache.get / put / forget / has", symbol: Cache.put, async: true }
+      - { php: "Cache::remember($key, $ttl, fn)", dart: "await Cache.remember(key, ttl, () async {...})", symbol: Cache.remember, async: true }
+      - { php: "Cache::flexible($key, [$fresh, $stale], fn)", dart: "await Cache.flexible(...)", symbol: Cache.flexible, async: true }
+      - { php: "Cache::lock('name', 10)->get(fn)", dart: "await Cache.lock('name', ...)", symbol: Cache.lock }
+      - { php: "SendEmail::dispatch($user)", dart: "await Queue.dispatch(SendEmail(user))", symbol: Queue.dispatch, async: true }
+      - { php: "Queue::later($delay, $job)", dart: "await Queue.later(delay, job)", symbol: Queue.later, async: true }
+      - { php: "class SendEmail implements ShouldQueue", dart: "final class SendEmail extends Job", symbol: Job }
+      - { php: "event(new OrderShipped($order))", dart: "await Event.dispatch(OrderShipped(order))", symbol: Event.dispatch, async: true }
+      - { php: "Event::listen(OrderShipped::class, fn)", dart: "Event.listen<OrderShipped>((e) async {...})", symbol: Event.listen }
+      - { php: "Event::fake() / Queue::fake()", dart: "Event.fake() / Queue.fake()", symbol: Event.fake }
+      - { php: "Schedule::command('reports:send')->daily()", dart: "schedule.command('reports:send').daily()", symbol: Schedule.command }
+      - { php: "->everyFiveMinutes() / dailyAt('13:00')", dart: ".everyFiveMinutes() / .dailyAt('13:00')", symbol: ScheduledTask.dailyAt }
+      - { php: "->withoutOverlapping() / onOneServer()", dart: ".withoutOverlapping() / .onOneServer()", symbol: ScheduledTask.withoutOverlapping }
+
+  - name: Resources, storage, logging, config
+    symbols:
+      - { php: "class UserResource extends JsonResource { toArray }", dart: "final class UserResource extends JsonResource<User> { toArray }", symbol: JsonResource.toArray }
+      - { php: "UserResource::collection($users)", dart: "JsonResource.collection(users, UserResource.new)", symbol: JsonResource.collection }
+      - { php: "->additional([...])", dart: ".additional({...})", symbol: JsonResource.additional }
+      - { php: "$this->when($cond, $value) / whenLoaded('posts')", dart: "when(cond, value) / whenLoaded('posts')", symbol: JsonResource.whenLoaded }
+      - { php: "public function with($request)", dart: "Map<String, Object?> withMeta(Request? request)", symbol: JsonResource.withMeta, note: "`with` is a reserved word in Dart." }
+      - { php: "Storage::disk('public')->put($path, $contents)", dart: "await Storage.disk('public').put(path, contents)", symbol: Storage.disk }
+      - { php: "Storage::url($path)", dart: "Storage.url(path)", symbol: Storage.url }
+      - { php: "Log::info($message, $context)", dart: "Log.info(message, context)", symbol: Log.info }
+      - { php: "Log::withContext([...])", dart: "Log.withContext({...})", symbol: Log.withContext }
+      - { php: "config('app.name')", dart: "Config.get<String>('app.name')", symbol: Config.get }
+      - { php: "app(Service::class)", dart: "App.make<Service>()", symbol: App.make }
+      - { php: "now()", dart: "Clock.now()", symbol: Clock.now, note: "Frozen by freezeTime()/travel() in tests." }
+
+  - name: Testing
+    symbols:
+      - { php: "$this->getJson('/api/users')", dart: "await client.get('/api/users')", symbol: TestClient.get, async: true }
+      - { php: "$this->postJson($uri, $data)", dart: "await client.post(uri, json: data)", symbol: TestClient.post, async: true }
+      - { php: "$this->actingAs($user)", dart: "client.actingAs(user)", symbol: TestClient.actingAs }
+      - { php: "->assertOk() / assertCreated() / assertUnprocessable()", dart: ".assertOk() / .assertCreated() / .assertUnprocessable()", symbol: TestResponse.assertUnprocessable }
+      - { php: "->assertJsonPath('data.id', 1)", dart: ".assertJsonPath('data.id', 1)", symbol: TestResponse.assertJsonPath }
+      - { php: "use RefreshDatabase;", dart: "refreshDatabase(() => app)", symbol: refreshDatabase }
+      - { php: "$this->freezeTime() / travel(5)->minutes()", dart: "freezeTime() / travel(Duration(minutes: 5))", symbol: freezeTime }
+
+middlewareAliases:
+  auth: auth
+  "auth:sanctum": "auth:token"
+  throttle: throttle
+  can: can
+  signed: signed
+
+exceptions:
+  ModelNotFoundException: ModelNotFoundException
+  AuthorizationException: AuthorizationException
+  AuthenticationException: AuthenticationException
+  ValidationException: ValidationException
+  ThrottleRequestsException: ThrottleRequestsException
+
+# Laravel features without a Daravel equivalent yet (BLUEPRINT_V2 Tier 2/3).
+missing:
+  - { php: "MySQL / MariaDB runtime driver", plan: "Tier 2 (grammars exist; ADR-019)" }
+  - { php: "Polymorphic relations (morphTo, morphMany, ...)", plan: "Tier 2" }
+  - { php: "Blade templates", plan: "Tier 3 (typed HTML builder)" }
+  - { php: "Sessions, CSRF, SPA cookie auth", plan: "Tier 2" }
+  - { php: "Multipart uploads / UploadedFile", plan: "Tier 2" }
+  - { php: "Mail, notifications, broadcasting", plan: "Tier 2/3" }
+  - { php: "Redis cache/queue/lock, S3 storage", plan: "Tier 2" }
+  - { php: "PHP serialize() for Crypt::encrypt payloads", plan: "Tier 2 (Laravel-compatible Crypt mode)" }
+  - { php: "optional() helper", plan: "Not planned: Dart has ?. and ??" }

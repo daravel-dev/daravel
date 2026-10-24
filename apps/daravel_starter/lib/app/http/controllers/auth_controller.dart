@@ -9,13 +9,18 @@ final class AuthController {
   /// `POST /api/auth/register` — creates the user and issues a token.
   Future<Object?> register(Request request) async {
     final data = await FormRequest.run(const StoreUserRequest(), request);
-    final user = await User.create({
-      'name': data.string('name'),
-      'email': data.string('email'),
-      'password': await Hash.make(data.string('password')),
+    // Hash before the transaction so the expensive work holds no locks.
+    final password = await Hash.make(data.string('password'));
+    // The user and its first token commit together, or not at all.
+    final (user, token) = await DB.transaction(() async {
+      final user = await User.create({
+        'name': data.string('name'),
+        'email': data.string('email'),
+        'password': password,
+      });
+      return (user, await Auth.issueToken(user, 'api'));
     });
     await Event.dispatch(UserRegistered(user.id, user.email));
-    final token = await Auth.issueToken(user, 'api');
     return Response.created(<String, Object?>{
       'user': UserResource(user),
       'token': token.plainTextToken,

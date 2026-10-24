@@ -178,7 +178,11 @@ void main() {
     expect(denied.json, {'message': 'Unauthenticated.'});
 
     final issued = await app.run(() => Auth.issueToken(ana, 'cli'));
-    expect(issued.plainTextToken, matches(RegExp(r'^\d+\|[A-Za-z0-9]{40}$')));
+    // Sanctum 4: id|40 random chars + crc32b checksum.
+    expect(
+      issued.plainTextToken,
+      matches(RegExp(r'^\d+\|[A-Za-z0-9]{40}[0-9a-f]{8}$')),
+    );
     final ok = await get('/me', token: issued.plainTextToken);
     expect(ok.status, 200);
     expect(ok.json, {'id': ana.id, 'guard': 'token'});
@@ -206,7 +210,7 @@ void main() {
           .first(),
     );
     expect(row!['last_used_at'], isNotNull);
-    expect(row['tokenable_type'], 'TestUser');
+    expect(row['tokenable_type'], r'App\Models\TestUser');
     expect(row['token'], hasLength(64));
 
     final logout = await get('/logout', token: token.plainTextToken);

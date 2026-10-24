@@ -45,12 +45,38 @@ final class Headers {
   bool has(String name) => _values.containsKey(name.toLowerCase());
 
   /// Replaces all values of [name] with [value].
+  ///
+  /// Throws [ArgumentError] for header injection attempts: names that are
+  /// not RFC 9110 tokens and values containing CR, LF or NUL.
   void set(String name, String value) =>
-      _values[name.toLowerCase()] = <String>[value];
+      _values[_checkName(name)] = <String>[_checkValue(name, value)];
 
-  /// Appends [value] to [name].
-  void add(String name, String value) =>
-      _values.putIfAbsent(name.toLowerCase(), () => <String>[]).add(value);
+  /// Appends [value] to [name] (validated like [set]).
+  void add(String name, String value) => _values
+      .putIfAbsent(_checkName(name), () => <String>[])
+      .add(_checkValue(name, value));
+
+  static final RegExp _token = RegExp(r"^[!#$%&'*+.^_`|~0-9A-Za-z-]+$");
+
+  static String _checkName(String name) {
+    if (!_token.hasMatch(name)) {
+      throw ArgumentError.value(name, 'name', 'Invalid HTTP header name.');
+    }
+    return name.toLowerCase();
+  }
+
+  static String _checkValue(String name, String value) {
+    for (final unit in value.codeUnits) {
+      if (unit == 0x0D || unit == 0x0A || unit == 0x00) {
+        throw ArgumentError.value(
+          value,
+          name,
+          'HTTP header values must not contain CR, LF or NUL.',
+        );
+      }
+    }
+    return value;
+  }
 
   /// Removes [name].
   void remove(String name) => _values.remove(name.toLowerCase());

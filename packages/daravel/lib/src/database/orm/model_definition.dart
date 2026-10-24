@@ -69,7 +69,9 @@ final class ModelDefinition<T extends Model> {
     this.perPage = 15,
     this.touches = const <String>[],
     this.withRelations = const <String>[],
-  }) : _relationFactories = relations,
+    String? morphClass,
+  }) : morphClass = morphClass ?? 'App\\Models\\$T',
+       _relationFactories = relations,
        scopes = {
          for (final entry in scopes.entries)
            entry.key: (ModelQuery<Model> query, List<Object?> args) =>
@@ -90,6 +92,12 @@ final class ModelDefinition<T extends Model> {
        };
 
   final String table;
+
+  /// Laravel class name of the model (`App\Models\User` by default), used
+  /// for polymorphic columns such as `personal_access_tokens.tokenable_type`
+  /// and in [ModelNotFoundException] messages. Override it when the Laravel
+  /// model lives elsewhere.
+  final String morphClass;
   final T Function() factory;
   final String primaryKey;
   final KeyType keyType;

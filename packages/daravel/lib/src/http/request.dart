@@ -157,6 +157,21 @@ final class Request {
   /// Host as seen by the client (`X-Forwarded-Host` when trusted).
   String get host => _forwardedHost ?? uri.host;
 
+  /// Scheme, host (with a non-default port) and path, without the query
+  /// string or trailing slash (Laravel `$request->url()`), e.g.
+  /// `http://localhost/api/users`.
+  String get url {
+    final forwarded = _forwardedHost;
+    final defaultPort = scheme == 'https' ? 443 : 80;
+    final authority =
+        forwarded ??
+        (uri.hasPort && uri.port != defaultPort
+            ? '${uri.host}:${uri.port}'
+            : uri.host);
+    final base = '$scheme://$authority${uri.path}';
+    return base.endsWith('/') ? base.replaceAll(RegExp(r'/+$'), '') : base;
+  }
+
   /// Records forwarding information. Called by `TrustProxiesMiddleware`.
   void applyForwarded({
     String? ip,
@@ -257,9 +272,8 @@ final class Request {
   void _enforceLimit(int size) {
     final limit = maxBodyBytes;
     if (limit != null && size > limit) {
-      throw PayloadTooLargeHttpException(
-        'Request body exceeds the limit of $limit bytes.',
-      );
+      // Laravel's ValidatePostSize message; the limit is not disclosed.
+      throw const PayloadTooLargeHttpException();
     }
   }
 

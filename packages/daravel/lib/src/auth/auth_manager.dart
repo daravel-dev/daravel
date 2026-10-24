@@ -20,6 +20,7 @@ final class AuthConfig implements ConfigSection {
     this.defaultGuard = 'token',
     this.tokenExpiration,
     this.tokenTable = 'personal_access_tokens',
+    this.tokenPrefix = '',
     this.jwtSecret,
     this.jwtAlgorithm = .hs256,
     this.jwtTtl = const Duration(minutes: 60),
@@ -37,6 +38,7 @@ final class AuthConfig implements ConfigSection {
         ? Duration(minutes: env.integer('AUTH_TOKEN_EXPIRATION'))
         : null,
     tokenTable: env.string('AUTH_TOKEN_TABLE', 'personal_access_tokens'),
+    tokenPrefix: env.string('SANCTUM_TOKEN_PREFIX', ''),
     jwtSecret: env.maybeString('JWT_SECRET'),
     jwtAlgorithm: JwtAlgorithm.parse(env.string('JWT_ALGO', 'HS256')),
     jwtTtl: Duration(minutes: env.integer('JWT_TTL', 60)),
@@ -53,6 +55,9 @@ final class AuthConfig implements ConfigSection {
   /// Sanctum-style global token lifetime (`AUTH_TOKEN_EXPIRATION` minutes).
   final Duration? tokenExpiration;
   final String tokenTable;
+
+  /// Prefix for new token secrets (`SANCTUM_TOKEN_PREFIX`, as in Sanctum).
+  final String tokenPrefix;
 
   /// HS256 secret; falls back to `APP_KEY` when unset.
   final String? jwtSecret;
@@ -75,7 +80,11 @@ final class AuthConfig implements ConfigSection {
   @override
   Map<String, Object?> toMap() => <String, Object?>{
     'defaults': {'guard': defaultGuard},
-    'tokens': {'expiration': tokenExpiration?.inMinutes, 'table': tokenTable},
+    'tokens': {
+      'expiration': tokenExpiration?.inMinutes,
+      'table': tokenTable,
+      'prefix': tokenPrefix,
+    },
     'jwt': {
       'algorithm': jwtAlgorithm.header,
       'ttl': jwtTtl.inMinutes,
@@ -124,6 +133,7 @@ final class AuthManager {
       provider: provider,
       table: table ?? config.tokenTable,
       expiration: expiration ?? config.tokenExpiration,
+      tokenPrefix: config.tokenPrefix,
     );
     register(name, guard);
     return guard;
@@ -258,8 +268,11 @@ final class AuthManager {
       );
     }
     final user = await provider.retrieveByCredentials(credentials);
-    if (user == null ||
-        !await provider.validateCredentials(user, credentials)) {
+    if (user == null) {
+      await equalizeLoginTiming(credentials);
+      return null;
+    }
+    if (!await provider.validateCredentials(user, credentials)) {
       return null;
     }
     await provider.rehashPasswordIfRequired(user, credentials);

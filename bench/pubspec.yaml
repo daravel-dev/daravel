@@ -1,0 +1,15 @@
+name: daravel_bench
+description: Daravel benchmark harness (BLUEPRINT_V2 §10.2).
+version: 1.0.0-beta.1
+publish_to: none
+
+environment:
+  sdk: ^3.13.0
+resolution: workspace
+
+dependencies:
+  daravel: any
+  path: ^1.9.0
+
+dev_dependencies:
+  lints: ^6.0.0

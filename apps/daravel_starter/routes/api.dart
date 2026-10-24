@@ -11,7 +11,9 @@ void apiRoutes(Router router) {
 
   router.get('/ping', ping.ping).name('ping');
 
-  router.post('/auth/register', auth.register).name('auth.register');
+  router.post('/auth/register', auth.register).name('auth.register').middleware(
+    const ['throttle:register'],
+  );
   router.post('/auth/login', auth.login).name('auth.login').middleware(const [
     'throttle:login',
   ]);

@@ -34,13 +34,15 @@ final class Migrator {
   final List<Migration> migrations;
 
   /// Creates the `migrations` table when missing.
+  ///
+  /// Same columns as Laravel's `DatabaseMigrationRepository`, compiled by the
+  /// connection's grammar (`id`, `migration`, `batch`).
   Future<void> install() async {
-    await _db.statement(
-      'CREATE TABLE IF NOT EXISTS "$table" ('
-      '"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, '
-      '"migration" VARCHAR(255) NOT NULL, '
-      '"batch" INTEGER NOT NULL)',
-    );
+    await SchemaBuilder(await _db.executor()).createIfNotExists(table, (t) {
+      t.id();
+      t.string('migration');
+      t.integer('batch');
+    });
   }
 
   /// Runs all pending migrations in one new batch; returns their names.

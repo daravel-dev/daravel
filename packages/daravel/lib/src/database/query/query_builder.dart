@@ -608,45 +608,49 @@ final class QueryBuilder {
   }
 
   Future<LengthAwarePaginator<Map<String, Object?>>> paginate({
-    int page = 1,
+    int? page,
     int perPage = 15,
-    String path = '/',
+    String? path,
     String pageName = 'page',
     Map<String, String> query = const {},
   }) async {
+    final current = page ?? Pagination.resolvePage(pageName);
+    final base = path ?? Pagination.resolvePath();
     final total = await count();
     final items = total == 0
         ? <Map<String, Object?>>[]
-        : await clone().forPage(page, perPage).get();
+        : await clone().forPage(current, perPage).get();
     return LengthAwarePaginator(
       items: items,
       total: total,
       perPage: perPage,
-      currentPage: page,
-      path: path,
+      currentPage: current,
+      path: base,
       pageName: pageName,
       query: query,
     );
   }
 
   Future<SimplePaginator<Map<String, Object?>>> simplePaginate({
-    int page = 1,
+    int? page,
     int perPage = 15,
-    String path = '/',
+    String? path,
     String pageName = 'page',
     Map<String, String> query = const {},
   }) async {
+    final current = page ?? Pagination.resolvePage(pageName);
+    final base = path ?? Pagination.resolvePath();
     final rows = await clone()
-        .offset((page - 1) * perPage)
+        .offset((current - 1) * perPage)
         .limit(perPage + 1)
         .get();
     final hasMore = rows.length > perPage;
     return SimplePaginator(
       items: hasMore ? rows.sublist(0, perPage) : rows,
       perPage: perPage,
-      currentPage: page,
+      currentPage: current,
       hasMorePages: hasMore,
-      path: path,
+      path: base,
       pageName: pageName,
       query: query,
     );
@@ -657,21 +661,23 @@ final class QueryBuilder {
   Future<CursorPaginator<Map<String, Object?>>> cursorPaginate({
     int perPage = 15,
     Cursor? cursor,
-    String path = '/',
+    String? path,
     String cursorName = 'cursor',
     Map<String, String> query = const {},
   }) async {
+    final base = path ?? Pagination.resolvePath();
+    final from = cursor ?? Pagination.resolveCursor(cursorName);
     if (_ast.orders.isEmpty || _ast.orders.any((o) => o.raw != null)) {
       throw StateError(
         'cursorPaginate() requires orderBy() on unique columns.',
       );
     }
     final columns = [for (final o in _ast.orders) '${o.column}'];
-    final forward = cursor?.pointsToNext ?? true;
+    final forward = from?.pointsToNext ?? true;
     final q = clone();
-    if (cursor != null) {
+    if (from != null) {
       q.where(
-        (QueryBuilder nested) => _applyCursor(nested, columns, cursor, forward),
+        (QueryBuilder nested) => _applyCursor(nested, columns, from, forward),
       );
       if (!forward) {
         q._ast.orders
@@ -701,14 +707,14 @@ final class QueryBuilder {
     final prev = rows.isEmpty
         ? null
         : (forward
-              ? (cursor == null ? null : make(rows.first, false))
+              ? (from == null ? null : make(rows.first, false))
               : (hasMore ? make(rows.first, false) : null));
     return CursorPaginator(
       items: rows,
       perPage: perPage,
       nextCursor: next,
       previousCursor: prev,
-      path: path,
+      path: base,
       cursorName: cursorName,
       query: query,
     );

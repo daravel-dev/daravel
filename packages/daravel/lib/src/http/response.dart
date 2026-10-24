@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import '../foundation/clock.dart';
 import 'headers.dart';
 import 'request.dart';
 
@@ -138,7 +139,7 @@ final class Response {
 
   static Object? _toEncodable(Object? value) {
     if (value is DateTime) {
-      return value.toUtc().toIso8601String();
+      return jsonDate(value);
     }
     if (value is JsonSerializable) {
       return value.toJson();

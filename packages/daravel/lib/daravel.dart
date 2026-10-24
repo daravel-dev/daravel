@@ -18,6 +18,7 @@ export 'src/foundation/container.dart';
 export 'src/foundation/env.dart';
 export 'src/foundation/exceptions.dart';
 export 'src/foundation/service_provider.dart';
+export 'src/foundation/version.dart';
 export 'src/http/exception_handler.dart';
 export 'src/http/headers.dart';
 export 'src/http/http_exceptions.dart';

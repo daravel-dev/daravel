@@ -13,9 +13,9 @@
 <p align="center">
   <a href="https://github.com/teoprayoga/daravel/actions/workflows/ci.yml"><img src="https://github.com/teoprayoga/daravel/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://dart.dev"><img src="https://img.shields.io/badge/Dart-%5E3.13-0175C2?logo=dart&logoColor=white" alt="Dart ^3.13"></a>
-  <a href="https://dart.dev/tools/dart-compile#exe"><img src="https://img.shields.io/badge/AOT-native%20binary-16A34A" alt="AOT native binary"></a>
+  <a href="https://dart.dev/tools/dart-build"><img src="https://img.shields.io/badge/AOT-native%20bundle-16A34A" alt="AOT native bundle"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
-  <img src="https://img.shields.io/badge/status-Tier%201%20·%20S13%20of%2014-F59E0B" alt="Status: Tier 1, slice 13 of 14">
+  <img src="https://img.shields.io/badge/version-1.0.0--beta.1-F59E0B" alt="Version 1.0.0-beta.1">
 </p>
 
 <p align="center">
@@ -25,6 +25,7 @@
   <a href="#quick-start">Quick start</a> ·
   <a href="#project-structure">Structure</a> ·
   <a href="#dartisan-cli">dartisan</a> ·
+  <a href="docs/guide/index.md">Docs</a> ·
   <a href="#roadmap">Roadmap</a> ·
   <a href="#design-process">Design</a> ·
   <a href="#brand">Brand</a>
@@ -76,6 +77,8 @@ what makes Laravel loved and adds what only Dart can offer:
 | **Observability** | Channel-based structured logging with request context and secret redaction, Prometheus `/metrics` merged across workers, `/up` and `/up/ready` health probes |
 | **Testing** | `TestClient` with `actingAs` and 30+ fluent assertions, `refreshDatabase` (migrate once, roll back every test), database assertions, `Event/Queue/Storage` fakes, `Log.spy()`, time travel via `Clock` |
 | **Quality** | `daravel_lints` (no reflection, no `print`, no mutable statics in `lib/app`, no SQL interpolation, unregistered classes) and architecture checks for apps and for the framework's own module graph |
+| **Laravel conformance** | Locked Laravel 12 wire and storage formats (errors, pagination, resources, Sanctum tokens, bcrypt, `Crypt`, shared tables), a machine-checked `parity.yaml`, and conformance matchers for your own tests |
+| **Security & performance** | A security regression suite (injection, spoofing, JWT, traversal, ReDoS, fuzzing, timing) and a benchmark harness with a nightly regression gate |
 
 ## Laravel ↔ Daravel at a glance
 
@@ -377,7 +380,7 @@ The monorepo is a Dart pub workspace:
 | Group | Commands |
 | :-- | :-- |
 | Project | `new <name> [--template=api\|minimal] [--path] [--git]`, `about`, `doctor [--production]`, `key:generate [--show] [--force]`, `stub:publish` |
-| Serve & build | `serve [--host] [--port] [--isolates] [--watch]`, `build [--output] [--define K=V] [--docker]`, `route:list [--path] [--method] [--name] [--json]`, `openapi:generate`, `lint [--json]`, `coordinator:stats` |
+| Serve & build | `serve [--host] [--port] [--isolates] [--watch]`, `build [--output] [--with-cli] [--docker]`, `test [--conformance] [--security] [--coverage]`, `route:list [--path] [--method] [--name] [--json]`, `openapi:generate`, `lint [--json]`, `coordinator:stats` |
 | Database | `migrate [--seed]`, `migrate:status`, `migrate:rollback [--step]`, `migrate:reset`, `migrate:fresh [--seed] [--force]`, `db:seed [--class] [--all]`, `model:sync [Model] [--dry-run]` |
 | Generators | `make:model [-m -f -s -c -p -r --api --all]`, `make:migration`, `make:seeder`, `make:factory`, `make:controller [--api --resource --model]`, `make:request`, `make:middleware`, `make:job`, `make:policy`, `make:event`, `make:listener [--event]`, `make:resource`, `make:rule`, `make:observer`, `make:provider`, `make:command`, `make:test [--unit]` |
 | Queue | `queue:work [--queue --tries --backoff --timeout --max-jobs --once]`, `queue:failed`, `queue:retry`, `queue:forget`, `queue:flush`, `queue:clear`, `queue:restart` |
@@ -428,9 +431,18 @@ created lib/app/http/resources/post_resource.dart
 | :-- | :-- | :-- |
 | **0** | Walking skeleton: container, HTTP kernel, router, SQLite, migrations, test client, CLI, CI | ✅ done |
 | **1** | S1 foundation · S2 HTTP hardening · S3 routing · S4 validation · S5 database · S6 ORM · S7 schema, seeding & generators · S8 auth · S9 multi-isolate & cache · S10 events, queue & scheduler · S11 resources, storage & observability · S12 CLI (`new`, hot reload, `build --docker`, `doctor`, `openapi:generate`, `model:sync`, stubs) · S13 testing toolkit, lints & architecture tests | ✅ done |
-| **1** | S14 conformance suite, benchmarks, docs | 🚧 next |
+| **1** | S14 conformance suite, security suite, `parity.yaml`, benchmark harness, documentation site, `api`/`minimal` templates → **1.0.0-beta.1** | ✅ done |
 | **2** | Multipart uploads, sessions/CSRF, Redis, S3, mail, localization, SSE/WebSockets, OpenTelemetry, Blade-compatible compiled views | planned |
 | **daragic** | Bidirectional Laravel ⇄ Daravel generator: runtime introspection → IR → generated project, converted tests, differential replay | designed |
+
+## Documentation
+
+Guides live in [`docs/guide`](docs/guide/index.md) (English, with Indonesian core pages in
+[`docs/guide/id`](docs/guide/id/index.md)): getting started, routing, validation, database,
+responses, auth, background work, testing, deployment, Laravel coexistence, security,
+performance and the generated [Laravel ⇄ Daravel parity table](docs/guide/parity.md).
+`dart run tool/docs/generate.dart` builds the HTML site into `build/site`. Release notes are in
+[CHANGELOG.md](CHANGELOG.md).
 
 ## Design process
 
@@ -454,7 +466,9 @@ together with usage rules. Every file is generated from geometry in `tool/brand/
 
 Every commit runs on Linux, Windows and macOS: `dart format --set-exit-if-changed`,
 `dart analyze --fatal-infos` with strict casts, inference and raw types, `dart test` for every
-package, `dart build cli` of the starter and a smoke test against the resulting binary.
+package (including the Laravel conformance suite, the security suite and the `parity.yaml`
+check), a docs freshness check, `dart build cli` of the starter and a smoke test against the
+resulting binary. Benchmarks run nightly (`bench/`).
 
 ```bash
 dart format --output=none --set-exit-if-changed .
@@ -464,6 +478,9 @@ dart analyze --fatal-infos
 (cd packages/daravel_test && dart test)
 (cd packages/dartisan_cli && dart test)
 (cd apps/daravel_starter && dart test)
+(cd packages/daravel && dart test --tags conformance)   # Laravel contracts only
+(cd packages/daravel && dart test --tags security)      # security suite only
+dart run tool/docs/generate.dart --check
 ```
 
 ## Contributing
@@ -474,8 +491,8 @@ Commits use DCO sign-off.
 
 ## Security vulnerabilities
 
-If you discover a security vulnerability, please report it privately via GitHub Security
-Advisories instead of opening a public issue. All reports are reviewed promptly.
+If you discover a security vulnerability, please report it privately as described in
+[SECURITY.md](SECURITY.md) instead of opening a public issue.
 
 ## License
 

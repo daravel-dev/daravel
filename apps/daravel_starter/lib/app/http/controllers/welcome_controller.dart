@@ -5,7 +5,7 @@ import 'package:daravel_starter/resources/views/welcome_page.dart';
 
 /// Serves the welcome landing page at `/` (Laravel's `welcome.blade.php`).
 final class WelcomeController {
-  static const String frameworkVersion = '0.0.1-dev';
+  static const String frameworkVersion = daravelVersion;
 
   Future<Object?> index(Request request) async {
     final app = Config.section<AppConfig>();

@@ -119,7 +119,7 @@ void main() {
     expect(response.headers.contentType, 'application/json');
     expect(await jsonOf(response), <String, Object?>{
       'a': 1,
-      'when': '2026-01-02T03:04:05.000Z',
+      'when': '2026-01-02T03:04:05.000000Z',
     });
   });
 

@@ -11,6 +11,6 @@ final class UserResource extends JsonResource<User> {
     'name': resource.name,
     'email': resource.email,
     'email_verified': resource.emailVerifiedAt != null,
-    'created_at': resource.createdAt?.toIso8601String(),
+    'created_at': resource.createdAt,
   };
 }

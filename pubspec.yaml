@@ -11,3 +11,8 @@ workspace:
   - packages/daravel_lints
   - packages/dartisan_cli
   - apps/daravel_starter
+  - bench
+
+dev_dependencies:
+  markdown: ^7.3.0
+  yaml: ^3.1.3

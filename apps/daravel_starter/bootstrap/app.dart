@@ -54,6 +54,10 @@ Application createApp({String? basePath, Map<String, String>? env}) =>
             final email = (await request.all())['email'];
             return Limit.perMinute(5).by('$email|${request.ip}');
           });
+          limiter.define(
+            'register',
+            (request) => Limit.perMinute(5).by(request.ip),
+          );
         })
         .withExceptions((exceptions) {
           // Custom renderers/reporters go here, e.g.

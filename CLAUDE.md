@@ -35,6 +35,15 @@ dart analyze --fatal-infos                           # CI gate (whole workspace)
 (cd packages/daravel && DARAVEL_TEST_PG=postgres://daravel:secret@127.0.0.1:5432/daravel_test \
   dart test test/database/postgres_integration_test.dart)
 (cd packages/dartisan_cli && DARAVEL_E2E=1 dart test test/s12_test.dart --name e2e)  # dartisan new → pub get → analyze → test (~1 min)
+
+# tagged suites (dart_test.yaml)
+(cd packages/daravel && dart test --tags conformance)  # Laravel 12 wire/storage contracts
+(cd packages/daravel && dart test --tags security)     # BLUEPRINT_V2 §9.3 suite
+
+dart run tool/docs/generate.dart          # refresh docs/guide (parity.md, examples) + build/site
+dart run tool/docs/generate.dart --check  # CI gate: docs/guide must be up to date
+dart run tool/conformance/sync_laravel_messages.dart   # regenerate Laravel validation fixture
+(cd bench && dart run bin/bench.dart --duration=5 --isolates=1,4)   # benchmark harness
 ```
 
 Starter app (`apps/daravel_starter`), using its project-bound CLI:
@@ -56,7 +65,7 @@ CI (`.github/workflows/ci.yml`) runs format, analyze, every package's tests, the
 
 ## Architecture
 
-**Packages.** `packages/daravel` (core, one barrel `lib/daravel.dart`, modules under `lib/src/<module>`), `packages/dartisan_cli` (CLI, generators, `dartisan new` templates), `packages/daravel_test` (TestClient, `refreshDatabase`, assertions, time travel, architecture helpers), `packages/daravel_lints` (AST lint rules on `package:analyzer`, run as `dartisan lint`/tests, not an IDE plugin), `apps/daravel_starter` (reference app; its tests are the end-to-end spec).
+**Packages.** `packages/daravel` (core, one barrel `lib/daravel.dart`, modules under `lib/src/<module>`), `packages/dartisan_cli` (CLI, generators, `dartisan new` templates), `packages/daravel_test` (TestClient, `refreshDatabase`, assertions, time travel, architecture helpers), `packages/daravel_lints` (AST lint rules on `package:analyzer`, run as `dartisan lint`/tests, not an IDE plugin), `apps/daravel_starter` (reference app; its tests are the end-to-end spec), `bench` (benchmark harness, BLUEPRINT_V2 §10.2). User docs live in `docs/guide` (generated parts: `parity.md` and the code samples).
 
 **Composition root.** `lib/src/foundation/application.dart` is the only file allowed to import every module. `Application.configure(...).with*(...).create()` builds an unbooted app; `boot()` loads env → typed config sections → `ConfigValidator` → container bindings → providers → routes → `router.compile` → `config.freeze()` → `Container.setRoot`. `Application.serveWith(createApp)` serves in-process when `isolates <= 1`, otherwise a `Supervisor` spawns N worker isolates that each call the (top-level, sendable) `createApp`.
 
@@ -88,6 +97,10 @@ The static is `definition` and the instance getter is `modelDefinition`, because
 
 ## Conventions and gotchas
 
+- **Laravel-facing formats are locked by the conformance suite.** Fixtures and matchers live in `packages/daravel_test/lib/src/conformance/` (`LaravelContract`, citing the Laravel/Sanctum source); tests in `packages/daravel/test/conformance/`. Changing an error body, paginator/resource JSON, token, hash, `Crypt` payload, date format or shared-table schema means updating the contract deliberately (and an ADR). Verify against the real Laravel 12.x source, not memory.
+- `parity.yaml` (repo root) maps Laravel APIs to Daravel symbols; `test/parity_test.dart` fails if a `symbol` disappears. Guide snippets come from `packages/daravel/test/docs/guide_examples_test.dart` regions; after editing that file or `parity.yaml`, run `dart run tool/docs/generate.dart`.
+- Binding defaults from ADR-008 stay: Crypt AES-256-GCM and Argon2id. Laravel coexistence is opt-in via `APP_CIPHER=AES-256-CBC` and `HASH_DRIVER=bcrypt`.
+- The release number lives in `daravelVersion` (`foundation/version.dart`); `test/foundation/version_test.dart` keeps every workspace pubspec equal to it.
 - Strict analysis is non-negotiable: `strict-casts`, `strict-inference`, `strict-raw-types`, plus `unawaited_futures`, `avoid_dynamic_calls`, `close_sinks` and others (`analysis_options.yaml`). Closures passed where the parameter type is `Object` need explicit parameter types, e.g. `where((QueryBuilder q) { … })` or `(Faker f) => {…}`.
 - Names already taken or reserved in Dart: `with` (resource extra data is `withMeta`), `Factory` (container typedef, so model factories are `ModelFactory<T>`), `CommandRunner` (`package:args`, so scheduler commands use `ScheduleCommandRunner`), `ScheduledTask.name` is a getter (`named()` sets it), `Rules` is the rule facade because `Rule` is the base class.
 - SQLite quirks the code already handles: no parenthesized UNION members (`wrapUnion`); column alters go through `SqliteTableRebuilder` (backup table + `defer_foreign_keys` inside a savepoint); in-memory databases cannot be shared across isolates, so `serve` refuses `:memory:` with `isolates > 1`.

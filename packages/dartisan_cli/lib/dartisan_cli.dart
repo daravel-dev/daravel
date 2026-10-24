@@ -79,6 +79,7 @@ final class DartisanRunner extends CommandRunner<int> {
     addCommand(KeyGenerateCommand());
     addCommand(DoctorCommand(createApp));
     addCommand(BuildCommand());
+    addCommand(TestCommand());
     addCommand(OpenApiGenerateCommand(createApp));
     addCommand(ModelSyncCommand(createApp));
     addCommand(LintCommand());
@@ -434,7 +435,7 @@ final class AboutCommand extends DaravelCommand {
         <String>['Timezone', appConfig.timezone],
         <String>['Locale', appConfig.locale],
         <String>['Dart', Platform.version.split(' ').first],
-        <String>['Daravel', '0.0.1-dev (Tier 1 / S1)'],
+        <String>['Daravel', daravelVersion],
         <String>[
           'Database',
           '${db.defaultConnection} (${connection?.driver ?? '?'})',

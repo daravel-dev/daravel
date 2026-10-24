@@ -142,6 +142,16 @@ final class HashManager {
     return Isolate.run(() => _check(plain, hashed, detected));
   }
 
+  Future<String>? _dummy;
+
+  /// Spends the same time as a real [check] of [plain], for when no user
+  /// matched the credentials, so response timing does not reveal which
+  /// accounts exist (BLUEPRINT_V2 §9.2 item 9). Always completes normally.
+  Future<void> checkAgainstDummy(String plain) async {
+    final dummy = _dummy ??= make('daravel-timing-equalizer');
+    await check(plain, await dummy);
+  }
+
   /// Whether [hashed] was produced by a different driver or cost than the
   /// current configuration (call after a successful login to upgrade).
   bool needsRehash(String hashed) {
@@ -355,4 +365,18 @@ String secureRandomString(int length) {
       (_) => alphabet.codeUnitAt(random.nextInt(alphabet.length)),
     ),
   );
+}
+
+/// PHP `hash('crc32b', $data)`: CRC-32 (IEEE 802.3, as zlib) as 8 lowercase
+/// hex digits. Sanctum appends it to token secrets so leaked tokens can be
+/// recognised by secret scanners.
+String crc32b(List<int> bytes) {
+  var crc = 0xFFFFFFFF;
+  for (final byte in bytes) {
+    crc ^= byte;
+    for (var bit = 0; bit < 8; bit++) {
+      crc = (crc & 1) != 0 ? (crc >>> 1) ^ 0xEDB88320 : crc >>> 1;
+    }
+  }
+  return ((crc ^ 0xFFFFFFFF) & 0xFFFFFFFF).toRadixString(16).padLeft(8, '0');
 }
