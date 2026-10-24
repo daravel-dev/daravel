@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.0-beta.2
+
+- Inside a project, the global `dartisan` now runs the project CLI for every command, including `dartisan`, `dartisan --help` and `dartisan <command> --help`; only `new` stays global.
+- `dartisan new` projects serve the Daravel welcome page at `/` (HTML, or JSON for API clients) and include a welcome test; instructions use `dartisan <command>`.
+- The generated Dockerfile sets `PORT=8080` so container platforms can override it.
+
 ## 1.0.0-beta.1
 
 First public beta: `dartisan new` (api and minimal templates with CI and conformance tests), dev server with hot reload, generators, migrations, queue and schedule commands, `doctor`, `test`, native `build` (bundle with SQLite) and `--docker`, `openapi:generate`, `model:sync`.
