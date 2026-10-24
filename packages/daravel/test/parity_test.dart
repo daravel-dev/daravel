@@ -76,9 +76,15 @@ final class _Declarations {
           const [],
         );
       case ExtensionDeclaration():
+        // Members count for the extension's own name and the extended type.
+        final members = _members(node.body.members).toList();
+        final name = node.name?.lexeme;
+        if (name != null) {
+          addType(name, members, const []);
+        }
         final on = node.onClause?.extendedType;
         if (on is NamedType) {
-          addType(on.name.lexeme, _members(node.body.members), const []);
+          addType(on.name.lexeme, members, const []);
         }
       case FunctionDeclaration():
         topLevel.add(node.name.lexeme);

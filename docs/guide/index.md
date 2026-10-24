@@ -20,12 +20,13 @@ suite keeps them that way. See [Laravel coexistence](laravel-coexistence.md).
 5. [Responses and resources](responses.md): JSON, API resources, errors.
 6. [Authentication and authorization](auth.md): tokens, JWT, hashing, Crypt, gates.
 7. [Cache, events, queues, scheduling](background.md).
-8. [Testing](testing.md): `TestClient`, database helpers, fakes, conformance.
-9. [Deployment](deployment.md): native bundles, Docker, isolates, production checks.
-10. [Laravel coexistence](laravel-coexistence.md): the compatibility contract.
-11. [Security](security.md): secure defaults and the security suite.
-12. [Performance](performance.md): the benchmark harness.
-13. [Laravel ⇄ Daravel parity table](parity.md) (generated).
+8. [Strings, helpers and collections](helpers.md): `Str`, `retry`, `once`, `pluck`, ...
+9. [Testing](testing.md): `TestClient`, database helpers, fakes, conformance.
+10. [Deployment](deployment.md): native bundles, Docker, isolates, production checks.
+11. [Laravel coexistence](laravel-coexistence.md): the compatibility contract.
+12. [Security](security.md): secure defaults and the security suite.
+13. [Performance](performance.md): the benchmark harness.
+14. [Laravel ⇄ Daravel parity table](parity.md) (generated).
 
 Bahasa Indonesia: [Dokumentasi Daravel](id/index.md).
 

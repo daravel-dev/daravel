@@ -153,6 +153,24 @@ sections:
       - { php: "app(Service::class)", dart: "App.make<Service>()", symbol: App.make }
       - { php: "now()", dart: "Clock.now()", symbol: Clock.now, note: "Frozen by freezeTime()/travel() in tests." }
 
+  - name: Strings, helpers, collections
+    symbols:
+      - { php: "Str::slug / snake / camel / studly / kebab / title / headline", dart: "Str.slug / snake / camel / studly / kebab / title / headline", symbol: Str.headline }
+      - { php: "Str::limit / words / mask / squish", dart: "Str.limit / words / mask / squish", symbol: Str.mask }
+      - { php: "Str::after / before / between / start / finish", dart: "Str.after / before / between / start / finish", symbol: Str.between }
+      - { php: "Str::contains / startsWith / endsWith", dart: "Str.contains / startsWith / endsWith", symbol: Str.contains }
+      - { php: "Str::plural / singular / pluralStudly", dart: "Str.plural / singular / pluralStudly", symbol: Str.pluralStudly, note: "English rules with common irregulars." }
+      - { php: "Str::random / uuid / ulid / isUuid / isJson", dart: "Str.random / uuid / ulid / isUuid / isJson", symbol: Str.ulid }
+      - { php: "abort_if / abort_unless", dart: "abortIf / abortUnless", symbol: abortIf }
+      - { php: "retry(, fn, )", dart: "await retry(times, (attempt) async {...}, delay:)", symbol: retry, async: true }
+      - { php: "rescue(fn, )", dart: "await rescue(() async {...}, fallback:)", symbol: rescue, async: true }
+      - { php: "once(fn)", dart: "once(key, () => ...)", symbol: once, note: "Keyed explicitly; memoized per request/job/command scope." }
+      - { php: "blank / filled / tap / value / data_get", dart: "blank / filled / tap / value / dataGet", symbol: dataGet }
+      - { php: "now() / today()", dart: "now() / today()", symbol: today }
+      - { php: "collect($rows)->pluck('email')", dart: "rows.pluck('email')", symbol: DaravelIterable.pluck, note: "Extensions on Iterable: no conversion to a Collection." }
+      - { php: "->keyBy / groupBy / chunk / unique", dart: ".keyBy / groupBy / chunk / unique", symbol: DaravelIterable.groupBy }
+      - { php: "->sum / avg / sortBy / sortByDesc / partition", dart: ".sumBy / avgBy / sortBy / sortByDesc / partition", symbol: DaravelIterable.partition }
+
   - name: Testing
     symbols:
       - { php: "$this->getJson('/api/users')", dart: "await client.get('/api/users')", symbol: TestClient.get, async: true }
@@ -188,3 +206,5 @@ missing:
   - { php: "Redis cache/queue/lock, S3 storage", plan: "Tier 2" }
   - { php: "PHP serialize() for Crypt::encrypt payloads", plan: "Tier 2 (Laravel-compatible Crypt mode)" }
   - { php: "optional() helper", plan: "Not planned: Dart has ?. and ??" }
+  - { php: "app() / route() / url() global helpers", plan: "Use App.make<T>(), router.url(...); a global app() would be shadowed by the idiomatic app variable" }
+  - { php: "dd() / dump()", plan: "Not planned: use print or Log in development" }

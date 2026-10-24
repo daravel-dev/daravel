@@ -121,6 +121,44 @@ void main() {
       final hash = await app.run(() => Hash.make('secret', driver: .bcrypt));
       expect(hash, startsWith(r'$2y$'));
     });
+
+    test(
+      r'verifies $2b$ bcrypt from other runtimes (Bun, Node, Python)',
+      () async {
+        // Bun.password.hash('secret', {algorithm: 'bcrypt', cost: 10}).
+        const bun =
+            r'$2b$10$C3.GbBa8CNOQNLgt79NZTe/GY2ikJtk5iCl3xIAoFlb0b3l4WFnjO';
+        expect(await app.run(() => Hash.check('secret', bun)), isTrue);
+        expect(await app.run(() => Hash.check('wrong', bun)), isFalse);
+      },
+    );
+  });
+
+  group('Hash (argon2id PHC strings, as PHP password_hash writes them)', () {
+    test('verifies hashes from libargon2 and Bun', () async {
+      // argon2-cffi README (libargon2, the library PHP links against).
+      const libargon2 =
+          r'$argon2id$v=19$m=65536,t=3,p=4$MIIRqgvgQbgj220jfp0MPA$'
+          'YfwJSVjtjSU0zzV/P3S9nnQ/USre2wvJMjfCIjrTQbg';
+      // Bun.password.hash('secret', {algorithm: 'argon2id',
+      //   memoryCost: 65536, timeCost: 4}): PHP's default m and t.
+      const bun =
+          r'$argon2id$v=19$m=65536,t=4,p=1$EJUC0V0fkGau7K9h9Zn6gh4xn0bCeG/'
+          r'MbvN2/RUspko$JpoHg3XO4FmgNISQcxiYwpGzQQ6kf/exX8TY26ODzBE';
+      // bcrypt is the default driver: verify accepts the strong family.
+      expect(
+        await app.run(
+          () => Hash.check('correct horse battery staple', libargon2),
+        ),
+        isTrue,
+      );
+      expect(
+        await app.run(() => Hash.check('Tr0ub4dor&3', libargon2)),
+        isFalse,
+      );
+      expect(await app.run(() => Hash.check('secret', bun)), isTrue);
+      expect(await app.run(() => Hash.needsRehash(bun)), isTrue);
+    });
   });
 
   group('Crypt', () {
@@ -133,6 +171,19 @@ void main() {
     test('decrypts a Laravel AES-256-CBC encryptString payload', () async {
       final crypt = Encrypter.fromAppKey(key, cipher: .aes256cbc);
       expect(await crypt.decryptString(laravelPayload), 'hello from laravel');
+    });
+
+    test('decrypts a Laravel AES-256-GCM payload (Bun / BoringSSL)', () async {
+      // Built like Encrypter::encryptString with cipher aes-256-gcm:
+      // 12-byte iv, base64 value and tag, empty mac, PHP-escaped JSON.
+      const gcm =
+          'eyJpdiI6Im9hS2pwS1dtcDZpcHFxdXMiLCJ2YWx1ZSI6IlRvcnJBNXQxV0IzaEU1'
+          'SWNOYkN0QlFmN0NrZ1VLQT09IiwibWFjIjoiIiwidGFnIjoiU2tYZVRnak9kVDRN'
+          'V2JxbnQ5NndSUT09In0=';
+      for (final cipher in EncryptionCipher.values) {
+        final crypt = Encrypter.fromAppKey(key, cipher: cipher);
+        expect(await crypt.decryptString(gcm), 'hello from laravel gcm');
+      }
     });
 
     test('rejects a tampered Laravel payload', () async {

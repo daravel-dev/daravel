@@ -53,3 +53,13 @@ PNG rendering uses headless Chrome or Edge. Set `CHROME=/path/to/chrome` if it i
 ## Origin
 
 The mark was drawn from scratch as vector geometry, using the project owner's dragon sketches as composition references. It deliberately contains no elements of other marks: no Flutter-style chevrons and no Laravel-style cube glyphs. The wordmark is built from strokes, not a font, so it renders identically everywhere.
+
+## Trademarks and fair use
+
+- Describe Daravel as **"a Laravel-inspired, AOT-native backend framework for Dart"**. Never
+  present it as an official Laravel port or as "Laravel for Dart", and never imply endorsement
+  by Laravel Holdings Inc. or Google LLC.
+- Do not alter the Daravel mark to resemble the Laravel logo or the Dart or Flutter logos, and do
+  not combine the Daravel mark with those logos in a single lockup.
+- "Laravel" is a trademark of Laravel Holdings Inc.; "Dart" and "Flutter" are trademarks of
+  Google LLC. Mention them only to describe compatibility or inspiration (nominative fair use).

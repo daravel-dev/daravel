@@ -225,6 +225,37 @@ void main() {
     });
   });
 
+  test('strings, helpers and collections', () async {
+    // #region support
+    Str.slug('Laravel & Dart: Hello!'); // laravel-dart-hello
+    Str.snake('emailVerifiedAt'); // email_verified_at
+    Str.plural('category'); // categories
+    Str.limit('The quick brown fox', 9); // The quick...
+    Str.mask('ana@example.com', '*', 3); // ana************
+
+    final rows = [
+      {'id': 1, 'role': 'admin', 'total': 10},
+      {'id': 2, 'role': 'editor', 'total': 5},
+      {'id': 3, 'role': 'admin', 'total': 7},
+    ];
+    rows.pluck('id'); // [1, 2, 3]
+    rows.groupBy((row) => row['role']); // {admin: [...], editor: [...]}
+    rows.sumBy((row) => row['total']! as int); // 22
+    rows.sortByDesc((row) => row['total']! as int).pluck('id'); // [1, 3, 2]
+
+    final rate = await retry(3, (attempt) async => fetchRate(attempt));
+    final cached = await rescue(() async => fetchRate(0), fallback: 1.0);
+    blank('  '); // true
+    dataGet({
+      'user': {'name': 'Ana'},
+    }, 'user.name'); // Ana
+    // #endregion support
+    expect(Str.slug('Laravel & Dart: Hello!'), 'laravel-dart-hello');
+    expect(Str.mask('ana@example.com', '*', 3), 'ana************');
+    expect(rate, 15600.0);
+    expect(cached, 1.0);
+  });
+
   test('HTTP feature test', () async {
     await app.run(
       () => Post.query().create({'title': 'Hello', 'published': true}),
@@ -243,4 +274,15 @@ void main() {
     (await client.get('/api/posts/99')).assertNotFound();
     // #endregion testing
   });
+}
+
+/// Fails twice, then answers (the `retry` example).
+double fetchRate(int attempt) {
+  if (attempt > 0 && attempt < 3) {
+    throw StateError('timeout');
+  }
+  if (attempt == 0) {
+    throw StateError('offline');
+  }
+  return 15600.0;
 }

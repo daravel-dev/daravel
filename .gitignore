@@ -28,3 +28,9 @@ BLUEPRINT_*
 
 # FVM local SDK link (the pinned version lives in .fvmrc)
 .fvm/
+
+# AI assistant instructions are kept locally by maintainers (like BLUEPRINT_*).
+CLAUDE.md
+AGENTS.md
+GEMINI.md
+.claude/

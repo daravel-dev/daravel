@@ -206,6 +206,12 @@ Application conformanceApp({
             await Post.definition.query().findOrFail(req.param<int>('id')),
           ),
         );
+        r.post(
+          '/posts',
+          (req) async => PostResource(
+            await Post.definition.query().create(await req.all()),
+          ),
+        );
         r.apiResource('photos', PhotoController());
       },
     )

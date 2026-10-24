@@ -50,6 +50,21 @@ and `HASH_DRIVER=bcrypt`. If the Laravel app changed them, set the same values.
 | `$model->with(...)` | `with_(...)` | `with` is reserved in Dart |
 | URL rule accepts any length | rejects > 8 192 chars | Bounded validation time (security suite) |
 
+## Where Dart differs from PHP by design
+
+Some Laravel idioms cannot exist in an AOT-compiled, statically typed
+language. Daravel keeps the intent and changes the mechanism:
+
+| Laravel (PHP) | Why it cannot carry over | Daravel |
+| :-- | :-- | :-- |
+| Synchronous I/O: `User::find(1)` | Dart runs I/O on an event loop | `await User.query().find(1)` |
+| Magic properties and methods (`__get`, `__call`) | No reflection in AOT binaries (`dart:mirrors` is unavailable) | Typed accessors written by `dartisan make:model` / `model:sync` |
+| Autoloading and folder scanning | The AOT compiler drops code that `main()` never imports | Explicit registries in `bootstrap/`, maintained by `make:*` and checked by `dartisan lint` |
+| Injected controller parameters (`store(StoreRequest $r, User $u)`) | Signatures cannot be introspected at runtime | Handlers take a `Request`; `FormRequest.run`, `request.param<T>()` and route model binding |
+| One `array` type and loose comparison | Sound null safety; `List` and `Map` are distinct types | Typed `ValidatedData`, maps and lists |
+| `eval` and queued closures | No compiler in the binary; closures cannot cross processes | Jobs are `Job` classes registered in `bootstrap/jobs.dart` |
+| Server-driven reflective UI (Livewire, Filament, Nova) | Depends on reflective property hydration | Flutter (web, mobile, desktop) or an SPA over the JSON API |
+
 ## Not shared yet
 
 Sessions, CSRF and cookies (Tier 2), queue payloads (both sides can share

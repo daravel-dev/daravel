@@ -7,6 +7,26 @@ suite shows they differ from Laravel.
 
 ## Unreleased
 
+### Added
+
+- Support layer (BLUEPRINT_V2 §7.12): `Str` (case conversion, slug, slicing,
+  predicates, secure random, UUID/ULID, English plural/singular), global
+  helpers (`abortIf`, `abortUnless`, `retry`, `rescue`, `once`, `blank`,
+  `filled`, `tap`, `value`, `dataGet`, `now`, `today`) and Laravel-style
+  `Iterable` extensions (`pluck`, `keyBy`, `groupBy`, `chunk`, `unique`,
+  `sumBy`, `avgBy`, `sortBy`, `sortByDesc`, `partition`); guide page
+  `docs/guide/helpers.md` and `parity.yaml` entries.
+- Conformance vectors from independent implementations: argon2id PHC strings
+  (libargon2 via argon2-cffi, and Bun), `$2b$` bcrypt, an AES-256-GCM Laravel
+  payload (BoringSSL); `201 Created` for resources of just-created models.
+- `CONTRIBUTING.md`, trademark disclaimer and generated-code ownership in the
+  README, fair-use rules in `docs/brand/README.md`, and a "Where Dart differs
+  from PHP by design" table in the coexistence guide.
+
+### Removed
+
+- `CLAUDE.md` is no longer tracked (kept locally, like the blueprints).
+
 ### Changed (ADR-024: zero-config Laravel coexistence)
 
 - `Crypt` defaults to AES-256-CBC (encrypt-then-HMAC-SHA256) and hashing to

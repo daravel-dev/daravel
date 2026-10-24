@@ -162,6 +162,26 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `app(Service::class)` | `App.make<Service>()` |  |
 | `now()` | `Clock.now()` | Frozen by freezeTime()/travel() in tests. |
 
+## Strings, helpers, collections
+
+| Laravel | Daravel | Notes |
+| :-- | :-- | :-- |
+| `Str::slug / snake / camel / studly / kebab / title / headline` | `Str.slug / snake / camel / studly / kebab / title / headline` |  |
+| `Str::limit / words / mask / squish` | `Str.limit / words / mask / squish` |  |
+| `Str::after / before / between / start / finish` | `Str.after / before / between / start / finish` |  |
+| `Str::contains / startsWith / endsWith` | `Str.contains / startsWith / endsWith` |  |
+| `Str::plural / singular / pluralStudly` | `Str.plural / singular / pluralStudly` | English rules with common irregulars. |
+| `Str::random / uuid / ulid / isUuid / isJson` | `Str.random / uuid / ulid / isUuid / isJson` |  |
+| `abort_if / abort_unless` | `abortIf / abortUnless` |  |
+| `retry(, fn, )` | `await retry(times, (attempt) async {...}, delay:)` | **async** |
+| `rescue(fn, )` | `await rescue(() async {...}, fallback:)` | **async** |
+| `once(fn)` | `once(key, () => ...)` | Keyed explicitly; memoized per request/job/command scope. |
+| `blank / filled / tap / value / data_get` | `blank / filled / tap / value / dataGet` |  |
+| `now() / today()` | `now() / today()` |  |
+| `collect($rows)->pluck('email')` | `rows.pluck('email')` | Extensions on Iterable: no conversion to a Collection. |
+| `->keyBy / groupBy / chunk / unique` | `.keyBy / groupBy / chunk / unique` |  |
+| `->sum / avg / sortBy / sortByDesc / partition` | `.sumBy / avgBy / sortBy / sortByDesc / partition` |  |
+
 ## Testing
 
 | Laravel | Daravel | Notes |
@@ -197,3 +217,5 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | Redis cache/queue/lock, S3 storage | Tier 2 |
 | PHP serialize() for Crypt::encrypt payloads | Tier 2 (Laravel-compatible Crypt mode) |
 | optional() helper | Not planned: Dart has ?. and ?? |
+| app() / route() / url() global helpers | Use App.make<T>(), router.url(...); a global app() would be shadowed by the idiomatic app variable |
+| dd() / dump() | Not planned: use print or Log in development |

@@ -270,6 +270,14 @@ void main() {
         expect(links['last'], isNull);
       });
 
+      test('a resource of a just-created model answers 201 '
+          '(wasRecentlyCreated)', () async {
+        final res = await client.post('/api/posts', json: {'title': 'New'});
+        res.assertCreated();
+        expect(res.jsonMap['data'], {'id': 6, 'title': 'New'});
+        (await client.get('/api/posts/6/resource')).assertOk();
+      });
+
       test('a single resource is wrapped in data', () async {
         final res = await client.get('/api/posts/1/resource');
         expect(res.json, {

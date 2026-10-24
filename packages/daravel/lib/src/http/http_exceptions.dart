@@ -91,3 +91,27 @@ Never abort(
   String? message,
   Map<String, String> headers = const <String, String>{},
 ]) => throw HttpException(status, message ?? '', headers: headers);
+
+/// Aborts with [status] when [condition] is true (`abort_if()`).
+void abortIf(
+  bool condition,
+  int status, [
+  String? message,
+  Map<String, String> headers = const <String, String>{},
+]) {
+  if (condition) {
+    abort(status, message, headers);
+  }
+}
+
+/// Aborts with [status] unless [condition] is true (`abort_unless()`).
+void abortUnless(
+  bool condition,
+  int status, [
+  String? message,
+  Map<String, String> headers = const <String, String>{},
+]) {
+  if (!condition) {
+    abort(status, message, headers);
+  }
+}
