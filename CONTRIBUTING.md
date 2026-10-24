@@ -74,5 +74,21 @@ Run tests from inside each package directory. `DARAVEL_E2E=1` enables the
 - Add a line to the `Unreleased` section of [CHANGELOG.md](CHANGELOG.md) for
   user-visible changes.
 
+## Branches and releases
+
+Daravel follows Laravel's branch model, one branch per major version:
+
+- `main` is where development happens.
+- `1.x` is the 1.x release line. Until work on 2.0 starts, it is fast-forwarded
+  to every `v1.*` release tag (the release workflow does this), so `1.x` and
+  `main` hold the same code. Once breaking changes for 2.0 land on `main`,
+  fixes for 1.x are made on `1.x` and merged up into `main`.
+- Releases are tags `vMAJOR.MINOR.PATCH[-pre]`. Pushing one publishes the
+  packages to pub.dev (`publish.yml`) and creates the GitHub release with
+  the notes of that version from CHANGELOG.md (`release.yml`).
+
+Projects that depend on Daravel through git can pin the release line with
+`dartisan new --source=git --ref=1.x`.
+
 By contributing you agree that your contributions are licensed under the
 [MIT license](LICENSE).
