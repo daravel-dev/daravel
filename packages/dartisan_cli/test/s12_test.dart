@@ -458,6 +458,39 @@ final class Post extends Model with AuthenticatableModel {
     });
   });
 
+  group('framework sources', () {
+    test('pub.dev source writes a plain pubspec without overrides', () {
+      final pubspec = newProjectFiles(
+        package: 'shop',
+        appName: 'Shop',
+        source: const PubHostedSource(),
+      )['pubspec.yaml']!;
+      expect(pubspec, contains('  daravel: ^$daravelVersion'));
+      expect(pubspec, contains('  dartisan_cli: ^$daravelVersion'));
+      expect(pubspec, contains('  daravel_test: ^$daravelVersion'));
+      expect(pubspec, isNot(contains('dependency_overrides')));
+    });
+
+    test('git and path sources pin every package with overrides', () {
+      for (final source in [const GitSource(), const PathSource('/repo')]) {
+        final pubspec = newProjectFiles(
+          package: 'shop',
+          appName: 'Shop',
+          source: source,
+        )['pubspec.yaml']!;
+        expect(pubspec, contains('dependency_overrides:'));
+      }
+      expect(
+        newProjectFiles(
+          package: 'shop',
+          appName: 'Shop',
+          source: const GitSource(),
+        )['pubspec.yaml'],
+        contains('url: https://github.com/daravel-dev/daravel.git'),
+      );
+    });
+  });
+
   group('templates (S14)', () {
     test('api ships conformance, compose and CI; minimal ships CI', () {
       final api = newProjectFiles(

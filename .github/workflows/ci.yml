@@ -51,6 +51,14 @@ jobs:
             fi
           done
 
+      - name: Verify pub.dev packaging (dry-run)
+        if: runner.os == 'Linux' && matrix.sdk == 'stable'
+        run: |
+          for pkg in packages/daravel_lints packages/daravel packages/daravel_test packages/dartisan_cli; do
+            echo "== $pkg"
+            (cd "$pkg" && dart pub publish --dry-run)
+          done
+
       # `dart build cli` (not `dart compile exe`): package:sqlite3 bundles
       # SQLite through a build hook, next to the executable.
       - name: Build AOT bundle

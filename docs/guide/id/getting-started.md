@@ -18,7 +18,7 @@
 ## Membuat proyek
 
 ```bash
-dart pub global activate --source path packages/dartisan_cli   # dari checkout Daravel
+dart pub global activate dartisan_cli     # dari pub.dev
 dartisan new blog                  # template api: auth, user, token, test
 dartisan new tiny --template=minimal
 cd blog

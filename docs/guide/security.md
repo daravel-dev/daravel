@@ -1,7 +1,7 @@
 # Security
 
 Report vulnerabilities privately as described in
-[SECURITY.md](https://github.com/teoprayoga/daravel/blob/main/SECURITY.md).
+[SECURITY.md](https://github.com/daravel-dev/daravel/blob/main/SECURITY.md).
 
 ## Secure by default (BLUEPRINT_V2 §9.2)
 

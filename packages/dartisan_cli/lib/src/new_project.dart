@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
-import 'package:daravel/daravel.dart' show Encrypter;
+import 'package:daravel/daravel.dart' show Encrypter, daravelVersion;
 import 'package:path/path.dart' as p;
 
 import 'generator.dart';
@@ -14,12 +14,31 @@ sealed class FrameworkSource {
 
   /// Dependency block for [package] (`daravel`, `dartisan_cli`, …).
   String dependency(String package);
+
+  /// Whether every framework package must be pinned with
+  /// `dependency_overrides` (git and path sources: the packages depend on
+  /// each other by name, which would otherwise resolve from pub.dev).
+  bool get needsOverrides => true;
 }
 
-/// Git dependency on github.com/teoprayoga/daravel (default).
+/// Published packages on pub.dev (default): a plain `pubspec.yaml` without
+/// overrides, like any other application.
+final class PubHostedSource extends FrameworkSource {
+  const PubHostedSource({this.version = '^$daravelVersion'});
+
+  final String version;
+
+  @override
+  String dependency(String package) => '  $package: $version';
+
+  @override
+  bool get needsOverrides => false;
+}
+
+/// Git dependency on github.com/daravel-dev/daravel (`--source=git`).
 final class GitSource extends FrameworkSource {
   const GitSource({
-    this.url = 'https://github.com/teoprayoga/daravel.git',
+    this.url = 'https://github.com/daravel-dev/daravel.git',
     this.ref = 'main',
   });
 
@@ -75,11 +94,18 @@ Map<String, String> newProjectFiles({
       source.dependency('dartisan_cli'),
     ].join('\n'),
     'devDependencies': source.dependency('daravel_test'),
-    'overrides': [
-      source.dependency('daravel'),
-      source.dependency('daravel_lints'),
-      source.dependency('daravel_test'),
-    ].join('\n'),
+    'overrides': source.needsOverrides
+        ? [
+            '',
+            '# dartisan_cli and daravel_test depend on daravel and '
+                'daravel_lints by name; pin every',
+            '# framework package to the same source.',
+            'dependency_overrides:',
+            source.dependency('daravel'),
+            source.dependency('daravel_lints'),
+            source.dependency('daravel_test'),
+          ].join('\n')
+        : '',
   };
   final files = <String, String>{
     'pubspec.yaml': _pubspec,
@@ -145,10 +171,22 @@ final class NewCommand extends Command<int> {
         help: 'Project template.',
       )
       ..addOption(
-        'path',
-        help: 'Use a local Daravel checkout instead of the git repository.',
+        'source',
+        allowed: ['pub', 'git'],
+        defaultsTo: 'pub',
+        help:
+            'Where the framework packages come from: pub.dev or the git '
+            'repository (follow main with --ref).',
       )
-      ..addOption('ref', defaultsTo: 'main', help: 'Git ref of the framework.')
+      ..addOption(
+        'path',
+        help: 'Use a local Daravel checkout (overrides --source).',
+      )
+      ..addOption(
+        'ref',
+        defaultsTo: 'main',
+        help: 'Git ref of the framework (with --source=git).',
+      )
       ..addFlag('git', negatable: false, help: 'Initialise a git repository.')
       ..addFlag('no-pub', negatable: false, help: 'Skip `dart pub get`.')
       ..addFlag(
@@ -187,9 +225,11 @@ final class NewCommand extends Command<int> {
       package: package,
       appName: Naming.pascal(package),
       template: r['template'] as String,
-      source: path == null
+      source: path != null
+          ? PathSource(path)
+          : r['source'] == 'git'
           ? GitSource(ref: r['ref'] as String)
-          : PathSource(path),
+          : const PubHostedSource(),
     );
     for (final entry in files.entries) {
       final file = File(p.join(directory, entry.key));
@@ -240,13 +280,8 @@ dependencies:
 dev_dependencies:
 {{ devDependencies }}
   lints: ^6.0.0
-  test: ^1.25.0
-
-# dartisan_cli and daravel_test depend on daravel and daravel_lints by name; pin every
-# framework package to the same source.
-dependency_overrides:
-{{ overrides }}
-''';
+  test: ^1.33.0
+{{ overrides }}''';
 
 const String _analysisOptions = r'''
 include: package:lints/recommended.yaml
@@ -304,7 +339,7 @@ METRICS_ENABLED=false
 const String _readme = r'''
 # {{ appName }}
 
-A [Daravel](https://github.com/teoprayoga/daravel) application.
+A [Daravel](https://github.com/daravel-dev/daravel) application.
 
 ```bash
 dart run bin/dartisan.dart migrate --seed

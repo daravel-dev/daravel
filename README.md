@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/teoprayoga/daravel/actions/workflows/ci.yml"><img src="https://github.com/teoprayoga/daravel/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/daravel-dev/daravel/actions/workflows/ci.yml"><img src="https://github.com/daravel-dev/daravel/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://dart.dev"><img src="https://img.shields.io/badge/Dart-%5E3.13-0175C2?logo=dart&logoColor=white" alt="Dart ^3.13"></a>
   <a href="https://dart.dev/tools/dart-build"><img src="https://img.shields.io/badge/AOT-native%20bundle-16A34A" alt="AOT native bundle"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
@@ -277,8 +277,20 @@ needed: `package:sqlite3` downloads a hash-verified SQLite build through a build
 it with the app (set `hooks: user_defines: sqlite3: source: system` in `pubspec.yaml` to use the
 OS library instead).
 
+Create an application with the CLI from pub.dev:
+
 ```bash
-git clone https://github.com/teoprayoga/daravel.git
+dart pub global activate dartisan_cli
+dartisan new blog                             # api template; --template=minimal for less
+cd blog
+dart run bin/dartisan.dart migrate --seed
+dart run bin/dartisan.dart serve --watch
+```
+
+Or work on the framework itself and run the starter app from a clone:
+
+```bash
+git clone https://github.com/daravel-dev/daravel.git
 cd daravel
 dart pub get                                  # resolves the whole workspace
 
@@ -298,7 +310,7 @@ curl -X POST http://127.0.0.1:8000/api/auth/register \
 ```
 
 Or start a fresh application from the clone (`--path` points at the framework checkout;
-without it the project depends on this repository through git):
+`--source=git` depends on this repository through git; the default uses pub.dev):
 
 ```bash
 dart run packages/dartisan_cli/bin/dartisan.dart new ../blog --path=.

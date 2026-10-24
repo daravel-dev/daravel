@@ -80,15 +80,15 @@ String welcomePage({
       <h2>API playground</h2>
       <p>Hit <code>GET /api/ping</code> and <code>GET /up</code> to see JSON responses with request ids.</p>
     </a>
-    <a class="card" href="https://github.com/teoprayoga/daravel/blob/main/BLUEPRINT_V2.md">
-      <h2>Blueprints</h2>
-      <p>Architecture, ADRs and the slice-by-slice roadmap from Tier 0 to 1.0.</p>
+    <a class="card" href="https://github.com/daravel-dev/daravel/blob/main/docs/guide/index.md">
+      <h2>Documentation</h2>
+      <p>Guides for routing, validation, the ORM, auth, queues, testing and deployment.</p>
     </a>
-    <a class="card" href="https://github.com/teoprayoga/daravel#laravel--daravel-at-a-glance">
+    <a class="card" href="https://github.com/daravel-dev/daravel/blob/main/docs/guide/parity.md">
       <h2>Laravel &harr; Daravel</h2>
       <p>Side-by-side comparison of routing, validation, migrations and tests.</p>
     </a>
-    <a class="card" href="https://github.com/teoprayoga/daravel">
+    <a class="card" href="https://github.com/daravel-dev/daravel">
       <h2>Source on GitHub</h2>
       <p>Framework core, <code>dartisan</code> CLI, testing toolkit and this starter.</p>
     </a>

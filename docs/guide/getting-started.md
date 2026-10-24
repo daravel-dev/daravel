@@ -17,7 +17,7 @@
 ## Create a project
 
 ```bash
-dart pub global activate --source path packages/dartisan_cli   # from a Daravel checkout
+dart pub global activate dartisan_cli     # from pub.dev
 dartisan new blog                  # api template: auth, users, tokens, tests
 dartisan new tiny --template=minimal
 cd blog

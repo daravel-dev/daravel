@@ -1,0 +1,54 @@
+name: Publish to pub.dev
+
+# Automated publishing with GitHub OIDC (no stored credentials). One-time
+# setup per package on pub.dev: Admin → Automated publishing → enable GitHub
+# Actions for repository daravel-dev/daravel with tag pattern `v{{version}}`.
+# Then push a tag such as `v1.0.0-beta.1` to publish all four packages in
+# dependency order.
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+*"]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - run: dart pub get
+      - name: Tag matches daravelVersion
+        run: |
+          version=$(sed -n "s/^const String daravelVersion = '\(.*\)';/\1/p" packages/daravel/lib/src/foundation/version.dart)
+          test "v$version" = "${GITHUB_REF_NAME}" || { echo "Tag ${GITHUB_REF_NAME} != v$version"; exit 1; }
+      - run: dart analyze --fatal-infos
+      - run: (cd packages/daravel && dart test)
+
+  lints:
+    needs: verify
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
+    with:
+      working-directory: packages/daravel_lints
+
+  daravel:
+    needs: lints
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
+    with:
+      working-directory: packages/daravel
+
+  daravel_test:
+    needs: daravel
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
+    with:
+      working-directory: packages/daravel_test
+
+  dartisan_cli:
+    needs: daravel
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
+    with:
+      working-directory: packages/dartisan_cli

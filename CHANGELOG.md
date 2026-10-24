@@ -9,6 +9,14 @@ suite shows they differ from Laravel.
 
 ### Added
 
+- pub.dev readiness: package metadata (homepage, repository, issue tracker,
+  documentation, topics, platforms), explicit `^1.0.0-beta.1` constraints
+  between packages, per-package `README`, `CHANGELOG`, `LICENSE`,
+  `example/main.dart` and `.pubignore`; CI runs `dart pub publish --dry-run`
+  and `.github/workflows/publish.yml` publishes on `v*` tags with GitHub OIDC.
+- `dartisan new --source=pub|git` (pub.dev by default, a plain pubspec without
+  `dependency_overrides`).
+
 - Support layer (BLUEPRINT_V2 §7.12): `Str` (case conversion, slug, slicing,
   predicates, secure random, UUID/ULID, English plural/singular), global
   helpers (`abortIf`, `abortUnless`, `retry`, `rescue`, `once`, `blank`,
@@ -22,6 +30,11 @@ suite shows they differ from Laravel.
 - `CONTRIBUTING.md`, trademark disclaimer and generated-code ownership in the
   README, fair-use rules in `docs/brand/README.md`, and a "Where Dart differs
   from PHP by design" table in the coexistence guide.
+
+### Changed
+
+- The repository moves to `github.com/daravel-dev/daravel` (URLs in docs,
+  templates and metadata).
 
 ### Removed
 

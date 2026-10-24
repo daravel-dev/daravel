@@ -163,7 +163,8 @@ Future<void> assertDatabaseCount(
 Future<void> assertDatabaseEmpty(String table, {String? connection}) =>
     assertDatabaseCount(table, 0, connection: connection);
 
-/// [model] (or the row matching a map in [table]) is soft deleted.
+/// [modelOrTable] (a model, or a table name with [data] to match) is soft
+/// deleted.
 Future<void> assertSoftDeleted(
   Object modelOrTable, [
   Map<String, Object?> data = const {},
@@ -176,7 +177,8 @@ Future<void> assertSoftDeleted(
   }
 }
 
-/// [model] (or a row matching a map in [table]) is not soft deleted.
+/// [modelOrTable] (a model, or a table name with [data] to match) is not
+/// soft deleted.
 Future<void> assertNotSoftDeleted(
   Object modelOrTable, [
   Map<String, Object?> data = const {},
