@@ -48,6 +48,7 @@ export 'src/routing/url_signer.dart';
 export 'src/validation/form_request.dart';
 export 'src/validation/messages.dart';
 export 'src/validation/rule.dart';
+export 'src/validation/schema.dart';
 export 'src/validation/rule_parser.dart';
 export 'src/validation/rules.dart';
 export 'src/validation/validated_data.dart';

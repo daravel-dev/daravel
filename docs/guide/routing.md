@@ -26,11 +26,13 @@ void apiRoutes(Router router) {
   router.group((router) {
     router
         .post('/posts', (request) async {
-          final data = await FormRequest.run(const StorePostRequest(), request);
+          final data = request.validated();
           final post = await Post.query().create(data.toMap());
           return PostResource(post).withStatus(201);
         })
-        .name('posts.store');
+        .name('posts.store')
+        .validates(const StorePostRequest())
+        .returns(PostResource.schema, name: 'Post');
   }, middleware: const ['auth', 'throttle:writes']);
 }
 ```
@@ -53,6 +55,27 @@ void apiRoutes(Router router) {
 Unknown routes answer `404 {"message": "The route api/x could not be
 found."}`. A known path with the wrong verb answers `405` with an `Allow`
 header and Laravel's message.
+
+## Declared validation and responses
+
+A route can declare its input and output, so the kernel validates before the
+handler runs and `dartisan openapi:generate` documents both:
+
+- `.validates(const StorePostRequest())` runs the form request
+  (`authorize()` → 403, rules → 422) before the handler;
+  `.rules({'q': 'required|string'})` does the same with inline rules (query
+  input for `GET`). The handler reads the result with `request.validated()`,
+  which throws when the route declares no validation.
+- `.returns(PostResource.schema, name: 'Post', shape: .paginated)` documents
+  the response: `item` (`{"data": ...}`), `raw`, `collection`, `paginated`,
+  `simplePaginated` or `cursorPaginated`, wrapped in Laravel's resource and
+  paginator envelopes. Named schemas become `components.schemas`.
+- `.action('PostController@store')` records the controller action
+  (`x-daravel-action` in OpenAPI).
+
+`rulesToJsonSchema(rules)` is the conversion used for the request schema:
+dotted keys nest, `*` becomes array items, `nullable` adds `null`, and
+`min`/`max`/`between`/`size` map to the bound that fits the type.
 
 ## Middleware
 

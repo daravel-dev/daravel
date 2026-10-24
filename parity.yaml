@@ -28,6 +28,9 @@ sections:
       - { php: "->middleware(['auth'])", dart: ".middleware(const ['auth'])", symbol: RouteEntry.middleware }
       - { php: "->where('id', '[0-9]+') / ->whereNumber('id')", dart: ".where('id', r'\\d+') / .whereNumber('id')", symbol: RouteEntry.whereNumber }
       - { php: "->whereUuid('id')", dart: ".whereUuid('id')", symbol: RouteEntry.whereUuid }
+      - { php: "public function store(StorePostRequest $request)", dart: ".validates(const StorePostRequest())", symbol: RouteEntry.validates, note: "Validated before the handler; read with request.validated()." }
+      - { php: "$request->validated()", dart: "request.validated()", symbol: Request.validated }
+      - { php: "(Scribe / Scramble response annotations)", dart: ".returns(schema, name:, shape:)", symbol: RouteEntry.returns, note: "Used by dartisan openapi:generate." }
       - { php: "route('users.show', ['id' => 1])", dart: "router.url('users.show', {'id': 1})", symbol: Router.url }
 
   - name: Requests & responses

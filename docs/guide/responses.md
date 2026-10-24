@@ -13,6 +13,16 @@ UTC with microseconds, `2026-01-02T03:04:05.000000Z`.
 final class PostResource extends JsonResource<Post> {
   PostResource(super.resource);
 
+  /// Documents the item for `dartisan openapi:generate` (`.returns(...)`).
+  static const Map<String, Object?> schema = {
+    'type': 'object',
+    'properties': {
+      'id': {'type': 'integer'},
+      'title': {'type': 'string'},
+      'published': {'type': 'boolean'},
+    },
+  };
+
   @override
   Map<String, Object?> toArray(Request? request) => {
     'id': resource.id,

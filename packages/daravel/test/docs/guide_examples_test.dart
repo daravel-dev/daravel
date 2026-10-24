@@ -66,6 +66,16 @@ final class StorePostRequest extends FormRequest {
 final class PostResource extends JsonResource<Post> {
   PostResource(super.resource);
 
+  /// Documents the item for `dartisan openapi:generate` (`.returns(...)`).
+  static const Map<String, Object?> schema = {
+    'type': 'object',
+    'properties': {
+      'id': {'type': 'integer'},
+      'title': {'type': 'string'},
+      'published': {'type': 'boolean'},
+    },
+  };
+
   @override
   Map<String, Object?> toArray(Request? request) => {
     'id': resource.id,
@@ -130,11 +140,13 @@ void apiRoutes(Router router) {
   router.group((router) {
     router
         .post('/posts', (request) async {
-          final data = await FormRequest.run(const StorePostRequest(), request);
+          final data = request.validated();
           final post = await Post.query().create(data.toMap());
           return PostResource(post).withStatus(201);
         })
-        .name('posts.store');
+        .name('posts.store')
+        .validates(const StorePostRequest())
+        .returns(PostResource.schema, name: 'Post');
   }, middleware: const ['auth', 'throttle:writes']);
 }
 // #endregion routing

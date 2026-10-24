@@ -220,6 +220,66 @@ void main() {
       ]);
       expect(jsonEncode(doc), isNot(contains('"head"')));
     });
+
+    test('declared rules and responses become schemas', () {
+      const post = {
+        'type': 'object',
+        'properties': {
+          'id': {'type': 'integer'},
+          'title': {'type': 'string'},
+        },
+      };
+      final router = Router()
+        ..post('/api/posts', (_) => null)
+            .rules(const {'title': 'required|string|max:120'})
+            .returns(post, name: 'Post')
+            .action('PostController@store')
+        ..get('/api/posts', (_) => null)
+            .rules(const {'q': 'sometimes|string', 'page': 'integer|min:1'})
+            .returns(post, name: 'Post', shape: ResponseShape.paginated);
+      final doc = buildOpenApi(router.routes);
+      final paths = (doc['paths']! as Map)['/api/posts'] as Map;
+
+      final store = paths['post'] as Map<String, Object?>;
+      final body =
+          (((store['requestBody']! as Map)['content']
+                      as Map)['application/json']
+                  as Map)['schema']
+              as Map;
+      expect(body['required'], ['title']);
+      expect((body['properties'] as Map)['title'], {
+        'type': 'string',
+        'maxLength': 120,
+      });
+      expect(store['x-daravel-action'], 'PostController@store');
+      final created = (store['responses']! as Map)['201'] as Map;
+      final createdSchema =
+          ((created['content'] as Map)['application/json'] as Map)['schema']
+              as Map;
+      expect(createdSchema['properties'], {
+        'data': {r'$ref': '#/components/schemas/Post'},
+      });
+      expect((store['responses']! as Map).keys, contains('422'));
+
+      final index = paths['get'] as Map<String, Object?>;
+      final query = [
+        for (final p in index['parameters']! as List)
+          if ((p as Map)['in'] == 'query') p['name'],
+      ];
+      expect(query, ['q', 'page']);
+      final page =
+          ((((index['responses']! as Map)['200'] as Map)['content']
+                      as Map)['application/json']
+                  as Map)['schema']
+              as Map;
+      expect((page['properties'] as Map).keys, ['data', 'links', 'meta']);
+      expect(
+        (((page['properties'] as Map)['meta'] as Map)['properties'] as Map)
+            .keys,
+        containsAll(['current_page', 'last_page', 'links', 'total']),
+      );
+      expect(((doc['components']! as Map)['schemas'] as Map).keys, ['Post']);
+    });
   });
 
   group('model:sync', () {

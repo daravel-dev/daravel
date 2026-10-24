@@ -21,6 +21,9 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `->middleware(['auth'])` | `.middleware(const ['auth'])` |  |
 | `->where('id', '[0-9]+') / ->whereNumber('id')` | `.where('id', r'\d+') / .whereNumber('id')` |  |
 | `->whereUuid('id')` | `.whereUuid('id')` |  |
+| `public function store(StorePostRequest $request)` | `.validates(const StorePostRequest())` | Validated before the handler; read with request.validated(). |
+| `$request->validated()` | `request.validated()` |  |
+| `(Scribe / Scramble response annotations)` | `.returns(schema, name:, shape:)` | Used by dartisan openapi:generate. |
 | `route('users.show', ['id' => 1])` | `router.url('users.show', {'id': 1})` |  |
 
 ## Requests & responses

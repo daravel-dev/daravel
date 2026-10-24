@@ -4,9 +4,12 @@ import 'package:daravel/daravel.dart';
 /// (`dartisan openapi:generate`; BLUEPRINT_V2 §7.10.x).
 ///
 /// Paths, methods, operation ids (route names), path parameters with their
-/// constraints, tags and summaries come from the routes. Middleware drives
+/// constraints, tags and summaries come from the routes. Input schemas come
+/// from `.validates(FormRequest)` / `.rules({...})` (request bodies for
+/// writes, query parameters for reads) and responses from `.returns(...)`,
+/// wrapped in Laravel's resource and paginator envelopes. Middleware drives
 /// the documented error responses: `auth` adds bearer security and 401,
-/// `can:` adds 403, `throttle` adds 429, write methods add 422.
+/// `can:` adds 403, `throttle` adds 429, validation adds 422.
 Map<String, Object?> buildOpenApi(
   Iterable<RouteEntry> routes, {
   String title = 'Daravel API',
@@ -14,6 +17,7 @@ Map<String, Object?> buildOpenApi(
   String? serverUrl,
 }) {
   final paths = <String, Map<String, Object?>>{};
+  final schemas = <String, Object?>{};
   var usesAuth = false;
   for (final route in routes) {
     final path = route.path.replaceAll('?}', '}');
@@ -22,17 +26,31 @@ Map<String, Object?> buildOpenApi(
       (m) => m == 'auth' || m.startsWith('auth:'),
     );
     usesAuth = usesAuth || authenticated;
+    final rules = route.documentedRules();
+    final input = rules == null ? null : rulesToJsonSchema(rules);
     for (final method in route.methods) {
       if (method == 'HEAD' || method == 'OPTIONS') {
         continue;
       }
       final lower = method.toLowerCase();
       final write = const {'post', 'put', 'patch'}.contains(lower);
+      final validates = write || input != null;
+      final declared = route.declaredResponse;
+      final status =
+          declared?.status ??
+          (lower == 'post' ? 201 : (lower == 'delete' ? 204 : 200));
+      final queryProperties = !write && input != null
+          ? (input['properties'] as Map<String, Object?>? ?? const {})
+          : const <String, Object?>{};
+      final queryRequired = !write && input != null
+          ? ((input['required'] as List<Object?>?) ?? const [])
+          : const <Object?>[];
       final operation = <String, Object?>{
         'operationId': route.routeName ?? _operationId(lower, path),
         if (route.summaryText != null) 'summary': route.summaryText,
         'tags': route.tagList.isNotEmpty ? route.tagList : [_tag(path)],
-        if (route.parameterNames.isNotEmpty)
+        if (route.actionName != null) 'x-daravel-action': route.actionName,
+        if (route.parameterNames.isNotEmpty || queryProperties.isNotEmpty)
           'parameters': [
             for (final name in route.parameterNames)
               <String, Object?>{
@@ -41,12 +59,21 @@ Map<String, Object?> buildOpenApi(
                 'required': !route.path.contains('{$name?}'),
                 'schema': _schema(route.constraints[name]),
               },
+            for (final MapEntry(key: name, value: schema)
+                in queryProperties.entries)
+              <String, Object?>{
+                'name': name,
+                'in': 'query',
+                'required': queryRequired.contains(name),
+                'schema': schema,
+              },
           ],
         if (write)
           'requestBody': <String, Object?>{
+            'required': true,
             'content': {
               'application/json': {
-                'schema': {'type': 'object'},
+                'schema': input ?? {'type': 'object'},
               },
             },
           },
@@ -55,16 +82,22 @@ Map<String, Object?> buildOpenApi(
             {'bearerAuth': <String>[]},
           ],
         'responses': <String, Object?>{
-          (lower == 'post' ? '201' : (lower == 'delete' ? '204' : '200')): {
+          '$status': {
             'description': 'Successful response',
+            if (declared != null && status != 204)
+              'content': {
+                'application/json': {'schema': _envelope(declared, schemas)},
+              },
           },
           if (authenticated)
             '401': {r'$ref': '#/components/responses/Unauthenticated'},
-          if (middleware.any((m) => m.startsWith('can:')))
+          if (middleware.any((m) => m.startsWith('can:')) ||
+              route.formRequest != null)
             '403': {r'$ref': '#/components/responses/Forbidden'},
           if (route.parameterNames.isNotEmpty)
             '404': {r'$ref': '#/components/responses/NotFound'},
-          if (write) '422': {r'$ref': '#/components/responses/ValidationError'},
+          if (validates)
+            '422': {r'$ref': '#/components/responses/ValidationError'},
           if (middleware.any((m) => m.startsWith('throttle')))
             '429': {r'$ref': '#/components/responses/TooManyRequests'},
         },
@@ -95,6 +128,10 @@ Map<String, Object?> buildOpenApi(
       paths.entries.toList()..sort((a, b) => a.key.compareTo(b.key)),
     ),
     'components': {
+      if (schemas.isNotEmpty)
+        'schemas': Map<String, Object?>.fromEntries(
+          schemas.entries.toList()..sort((a, b) => a.key.compareTo(b.key)),
+        ),
       if (usesAuth)
         'securitySchemes': {
           'bearerAuth': {'type': 'http', 'scheme': 'bearer'},
@@ -106,6 +143,7 @@ Map<String, Object?> buildOpenApi(
         'TooManyRequests': response('Too Many Attempts.'),
         'ValidationError': response('The given data was invalid.', {
           'type': 'object',
+          'required': ['message', 'errors'],
           'properties': {
             'message': {'type': 'string'},
             'errors': {
@@ -119,6 +157,96 @@ Map<String, Object?> buildOpenApi(
         }),
       },
     },
+  };
+}
+
+/// The response schema of [response] in Laravel's envelope; named item
+/// schemas are registered in [schemas] and referenced.
+Map<String, Object?> _envelope(
+  RouteResponse response,
+  Map<String, Object?> schemas,
+) {
+  final name = response.name;
+  final Map<String, Object?> item;
+  if (name == null) {
+    item = response.schema;
+  } else {
+    schemas[name] = response.schema;
+    item = {r'$ref': '#/components/schemas/$name'};
+  }
+  const nullableString = {
+    'type': ['string', 'null'],
+  };
+  const nullableInt = {
+    'type': ['integer', 'null'],
+  };
+  Map<String, Object?> page(Map<String, Object?> meta) => {
+    'type': 'object',
+    'required': ['data', 'links', 'meta'],
+    'properties': {
+      'data': {'type': 'array', 'items': item},
+      'links': {
+        'type': 'object',
+        'properties': {
+          'first': nullableString,
+          'last': nullableString,
+          'prev': nullableString,
+          'next': nullableString,
+        },
+      },
+      'meta': {'type': 'object', 'properties': meta},
+    },
+  };
+  return switch (response.shape) {
+    ResponseShape.raw => item,
+    ResponseShape.item => {
+      'type': 'object',
+      'required': ['data'],
+      'properties': {'data': item},
+    },
+    ResponseShape.collection => {
+      'type': 'object',
+      'required': ['data'],
+      'properties': {
+        'data': {'type': 'array', 'items': item},
+      },
+    },
+    // PaginatedResourceResponse: the paginator array minus data and URLs.
+    ResponseShape.paginated => page({
+      'current_page': {'type': 'integer'},
+      'from': nullableInt,
+      'last_page': {'type': 'integer'},
+      'links': {
+        'type': 'array',
+        'items': {
+          'type': 'object',
+          'properties': {
+            'url': nullableString,
+            'label': {'type': 'string'},
+            'page': nullableInt,
+            'active': {'type': 'boolean'},
+          },
+        },
+      },
+      'path': {'type': 'string'},
+      'per_page': {'type': 'integer'},
+      'to': nullableInt,
+      'total': {'type': 'integer'},
+    }),
+    ResponseShape.simplePaginated => page({
+      'current_page': {'type': 'integer'},
+      'current_page_url': {'type': 'string'},
+      'from': nullableInt,
+      'path': {'type': 'string'},
+      'per_page': {'type': 'integer'},
+      'to': nullableInt,
+    }),
+    ResponseShape.cursorPaginated => page({
+      'path': {'type': 'string'},
+      'per_page': {'type': 'integer'},
+      'next_cursor': nullableString,
+      'prev_cursor': nullableString,
+    }),
   };
 }
 

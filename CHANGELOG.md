@@ -9,6 +9,12 @@ suite shows they differ from Laravel.
 
 ### Added
 
+- Declared route metadata: `RouteEntry.validates(FormRequest)` and `.rules({...})`
+  validate before the handler (403/422) and feed `request.validated()`;
+  `.returns(schema, name:, shape:)` and `.action(...)` describe responses.
+  `dartisan openapi:generate` now emits request bodies, query parameters,
+  Laravel resource/paginator envelopes and `components.schemas`;
+  `rulesToJsonSchema` converts validation rules to JSON Schema.
 - Extension points for monitoring tools (Horizon- and Telescope-style):
   `Job.tags` stored in the payload, `QueueDriver.oldestWait(queue)`,
   `QueueManager.pause` / `resume` with `dartisan queue:pause` /

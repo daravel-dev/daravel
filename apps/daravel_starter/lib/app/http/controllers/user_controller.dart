@@ -1,5 +1,4 @@
 import 'package:daravel/daravel.dart';
-import 'package:daravel_starter/app/http/requests/store_user_request.dart';
 import 'package:daravel_starter/app/http/resources/user_resource.dart';
 import 'package:daravel_starter/app/models/user.dart';
 
@@ -22,7 +21,8 @@ final class UserController {
 
   /// `POST /api/users` — 201 because the model was just created.
   Future<Object?> store(Request request) async {
-    final data = await FormRequest.run(const StoreUserRequest(), request);
+    // Validated by the route's .validates(StoreUserRequest()).
+    final data = request.validated();
     final user = await DB.transaction(
       () async => User.create({
         'name': data.string('name'),

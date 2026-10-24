@@ -905,6 +905,12 @@ final class PasswordRule extends Rule {
   @override
   Map<String, Object?> get parameters => {'min': min};
   @override
+  Map<String, Object?> get schemaHint => {
+    'type': 'string',
+    'format': 'password',
+    'minLength': min,
+  };
+  @override
   String? passes(ValidationContext c) {
     final value = c.value;
     if (value is! String) {

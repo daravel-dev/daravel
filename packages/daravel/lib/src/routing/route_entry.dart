@@ -2,6 +2,7 @@ import 'dart:async';
 
 import '../http/middleware.dart';
 import '../http/request.dart';
+import '../validation/form_request.dart';
 import 'radix_tree.dart';
 
 /// A route handler. May return a `Response`, a `Responsable`, a JSON-able
@@ -54,6 +55,43 @@ final class RouteEntry {
   bool _isFallback = false;
   String? _summary;
   List<String> _tags = const <String>[];
+  FormRequest? _formRequest;
+  Map<String, Object>? _rules;
+  RouteResponse? _response;
+  String? _action;
+
+  /// The form request validating this route ([validates]).
+  FormRequest? get formRequest => _formRequest;
+
+  /// Inline validation rules of this route ([rules]).
+  Map<String, Object>? get declaredRules => _rules;
+
+  /// The declared response ([returns]).
+  RouteResponse? get declaredResponse => _response;
+
+  /// The controller action this route stands for ([action]), such as
+  /// `PostController@store` (Laravel's route action; used by `daragic`).
+  String? get actionName => _action;
+
+  /// The rules describing this route's input: the inline [rules], or those
+  /// of the [validates] form request evaluated against an empty request
+  /// (for documentation; `null` when none are declared or the form
+  /// request's rules need a real request).
+  Map<String, Object>? documentedRules() {
+    final inline = _rules;
+    if (inline != null) {
+      return inline;
+    }
+    final form = _formRequest;
+    if (form == null) {
+      return null;
+    }
+    try {
+      return form.rules(Request.fake(method: methods.first, path: path));
+    } on Object {
+      return null;
+    }
+  }
 
   /// The route name (including any group prefix), if set.
   String? get routeName => _name;
@@ -162,6 +200,43 @@ final class RouteEntry {
     return this;
   }
 
+  /// Validates every request with [request] before the handler runs (after
+  /// the route middleware), like a type-hinted `FormRequest` in Laravel:
+  /// `authorize()` false answers 403, invalid input 422. The handler reads
+  /// the result with `request.validated()`. The rules also document the
+  /// route (`dartisan openapi:generate`, generated clients).
+  RouteEntry validates(FormRequest request) {
+    _formRequest = request;
+    return this;
+  }
+
+  /// Like [validates] with inline rules (`request.validate(rules)`).
+  RouteEntry rules(Map<String, Object> rules) {
+    _rules = Map.unmodifiable(rules);
+    return this;
+  }
+
+  /// Documents the response: [schema] is the JSON Schema of one item (for
+  /// example one resource's `toArray`), [shape] says how it is returned
+  /// (`{"data": item}`, a collection or one of Laravel's paginators) and
+  /// [name] registers it under `components/schemas`.
+  RouteEntry returns(
+    Map<String, Object?> schema, {
+    String? name,
+    ResponseShape shape = .item,
+    int? status,
+  }) {
+    _response = RouteResponse(schema, name: name, shape: shape, status: status);
+    return this;
+  }
+
+  /// Names the controller action this route stands for
+  /// (`PostController@store`), as Laravel's route action does.
+  RouteEntry action(String action) {
+    _action = action;
+    return this;
+  }
+
   /// Marks this route as the fallback. Called by `Router.fallback`.
   void markFallback() => _isFallback = true;
 
@@ -189,4 +264,45 @@ final class RouteEntry {
   String toString() =>
       'RouteEntry(${methods.join('|')} $path'
       '${_name == null ? '' : ' name=$_name'})';
+}
+
+/// How a route returns its item schema (see [RouteEntry.returns]).
+enum ResponseShape {
+  /// `{"data": item}` (a `JsonResource`).
+  item,
+
+  /// The item itself, without a `data` wrapper.
+  raw,
+
+  /// `{"data": [item, ...]}` (`JsonResource.collection` of a list).
+  collection,
+
+  /// `{"data": [...], "links": {...}, "meta": {...}}` from `paginate()`.
+  paginated,
+
+  /// The same envelope from `simplePaginate()`.
+  simplePaginated,
+
+  /// The same envelope from `cursorPaginate()`.
+  cursorPaginated,
+}
+
+/// A documented route response (see [RouteEntry.returns]).
+final class RouteResponse {
+  const RouteResponse(
+    this.schema, {
+    this.name,
+    this.shape = ResponseShape.item,
+    this.status,
+  });
+
+  /// JSON Schema of one item.
+  final Map<String, Object?> schema;
+
+  /// Component name (`components/schemas/<name>`), when set.
+  final String? name;
+  final ResponseShape shape;
+
+  /// Status code; defaults to 201 for POST, 200 otherwise.
+  final int? status;
 }

@@ -392,6 +392,24 @@ final class Request {
   T make<T extends Object>({String? name}) =>
       Container.current.make<T>(name: name);
 
+  /// Request attribute holding the result of the route's declared
+  /// validation (`.validates()` / `.rules()`).
+  static const String validatedAttribute = 'daravel.validated';
+
+  /// The input validated by the route's `.validates(FormRequest)` or
+  /// `.rules({...})` (Laravel's `$request->validated()`); throws a
+  /// [StateError] when the route declares neither.
+  ValidatedData validated() {
+    final data = attributes[validatedAttribute];
+    if (data is ValidatedData) {
+      return data;
+    }
+    throw StateError(
+      'This route declares no validation. Add .validates(FormRequest) or '
+      '.rules({...}) to the route, or call request.validate(...).',
+    );
+  }
+
   /// Validates the merged input (Laravel `$request->validate()`): throws a
   /// 422 [ValidationException] on failure, otherwise returns only the
   /// validated attributes.

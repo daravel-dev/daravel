@@ -60,3 +60,7 @@ final class StorePostRequest extends FormRequest {
 `authorize()` (403 when it returns `false`), then the rules, and returns the
 validated data. `dart run bin/dartisan.dart make:request StorePostRequest`
 creates one.
+
+Declare it on the route with `.validates(const StorePostRequest())` instead
+and read `request.validated()` in the handler; see
+[Routing](routing.md#declared-validation-and-responses).

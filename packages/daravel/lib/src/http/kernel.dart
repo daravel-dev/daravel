@@ -2,7 +2,9 @@ import 'dart:async';
 
 import '../foundation/container.dart';
 import '../logging/logger.dart';
+import '../routing/route_entry.dart';
 import '../routing/router.dart';
+import '../validation/form_request.dart';
 import 'exception_handler.dart';
 import 'headers.dart';
 import 'http_exceptions.dart';
@@ -115,7 +117,10 @@ final class HttpKernel {
       Future<Response> run() => MiddlewarePipeline.run(
         route.resolvedMiddleware,
         request,
-        (req) async => toResponse(await route.handler(req), req),
+        (req) async {
+          await _validateDeclared(route, req);
+          return toResponse(await route.handler(req), req);
+        },
       );
       final timeout = route.timeoutDuration ?? defaultTimeout;
       final response = timeout == null
@@ -129,6 +134,26 @@ final class HttpKernel {
       return request.method == 'HEAD' ? response.withoutBody() : response;
     } catch (error, stackTrace) {
       return exceptions.handle(error, stackTrace, request);
+    }
+  }
+
+  /// Runs the validation declared with `.validates()` / `.rules()` and keeps
+  /// the result for `request.validated()`.
+  static Future<void> _validateDeclared(
+    RouteEntry route,
+    Request request,
+  ) async {
+    final form = route.formRequest;
+    final rules = route.declaredRules;
+    if (form != null) {
+      request.attributes[Request.validatedAttribute] = await FormRequest.run(
+        form,
+        request,
+      );
+    } else if (rules != null) {
+      request.attributes[Request.validatedAttribute] = await request.validate(
+        rules,
+      );
     }
   }
 
