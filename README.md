@@ -42,9 +42,9 @@ and elegant syntax, batteries included, and conventions that make common tasks d
 what makes Laravel loved and adds what only Dart can offer: one native executable, static types
 from the route to the database, and every CPU core on one port.
 
-> **Status.** Tier 0 and Tier 1 (slices S1–S14) are complete and published on
-> [pub.dev](https://pub.dev/packages/daravel) as `1.0.0` betas by the verified publisher
-> `daravel.teoprayoga.my.id`. The Dart API may still change before `1.0.0`; the Laravel-facing
+> **Status.** Daravel `1.0.0` is stable and published on
+> [pub.dev](https://pub.dev/packages/daravel) by the verified publisher
+> `daravel.teoprayoga.my.id`. The Dart API follows SemVer on the `1.x` line; the Laravel-facing
 > formats are locked by the conformance suite.
 
 ## Why Daravel?

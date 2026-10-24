@@ -1,11 +1,14 @@
 # Changelog
 
 All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
-`daravel_lints`, `dartisan_cli`). Versions follow SemVer; until 1.0.0 the
-beta releases may still change Laravel-facing formats when the conformance
-suite shows they differ from Laravel.
+`daravel_lints`, `daravel_mysql`, `dartisan_cli`). Versions follow SemVer:
+breaking changes to the Dart API wait for a new major version, and
+Laravel-facing formats change only to match Laravel more closely.
 
-## Unreleased
+## 1.0.0
+
+The first stable release. The Dart API now follows SemVer, `1.x` is the
+supported release line, and MySQL/MariaDB join SQLite and PostgreSQL.
 
 ### Added
 

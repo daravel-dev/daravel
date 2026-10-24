@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.0
+
+- First stable release: the Dart API follows SemVer from here on.
+- File uploads: `multipart/form-data` bodies stream to temporary files as `UploadedFile` (`request.file`, `hasFile`, `store`, `storeAs`, `UploadedFile.fake`), with Laravel's `file`, `image`, `mimes`, `mimetypes` and `extensions` rules and kilobyte sizes. Types are detected from the content; PHP files are refused.
+- Database drivers are pluggable (`withDatabaseDriver`, `DatabaseDriverFactory`, `RetryableErrors`); MySQL and MariaDB ship in `daravel_mysql`. `mediumText`/`longText` columns and named unique indexes match Laravel.
+- `Http`: outgoing requests with Laravel's `Http::` API and `Http.fake()`.
+- Maintenance mode (`storage/framework/down`, `PreventRequestsDuringMaintenance`).
+- Fixed: the migrator and the `unique`/`exists` rules quoted identifiers with double quotes, which MySQL rejects.
+- Fixed: SQLite "database is locked" when several isolates open a new database file at once.
+
 ## 1.0.0-beta.3
 
 - Declared route metadata: `.validates(FormRequest)`, `.rules({...})`, `.returns(schema, name:, shape:)` and `.action(...)`; the kernel answers 403/422 before the handler and `request.validated()` returns the result. `rulesToJsonSchema` converts rules to JSON Schema.

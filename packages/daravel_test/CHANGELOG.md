@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.0
+
+- Requires `daravel` 1.0.0.
+- `TestClient.post`, `put`, `patch` and `send` take `files:` (uploads built with `UploadedFile.fake`).
+
 ## 1.0.0-beta.3
 
 - Requires `daravel` 1.0.0-beta.3; no API changes.

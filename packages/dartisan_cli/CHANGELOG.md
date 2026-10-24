@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.0
+
+- `down` and `up` (maintenance mode), `db:show`, `db:table` and `tinker`.
+- MySQL and MariaDB: new projects register `daravel_mysql`, and `adopt` accepts MySQL applications.
+- `openapi:generate` documents routes with file rules as `multipart/form-data`.
+
 ## 1.0.0-beta.3
 
 - `openapi:generate` documents request bodies, query parameters and responses (Laravel resource and paginator envelopes, `components.schemas`) from route metadata.

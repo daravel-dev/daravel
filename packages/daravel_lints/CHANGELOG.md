@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.0
+
+- Version aligned with the Daravel 1.0.0 release; no rule changes.
+
 ## 1.0.0-beta.3
 
 - Version aligned with the Daravel 1.0.0-beta.3 release; no rule changes.
