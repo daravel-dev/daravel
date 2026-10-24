@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.0-beta.3
+
+- Declared route metadata: `.validates(FormRequest)`, `.rules({...})`, `.returns(schema, name:, shape:)` and `.action(...)`; the kernel answers 403/422 before the handler and `request.validated()` returns the result. `rulesToJsonSchema` converts rules to JSON Schema.
+- Typed input: `input<T>()` converts query and form strings (`?page=5` is `5` for `input<int>`), plus `integer()`, `float()`, `boolean()` and `string()`.
+- Query strings and form bodies read bracketed keys like PHP (`ids[]=1&ids[]=2` is a list; `Request.queryInput`, `parseQueryString`). Form bodies are now nested maps.
+- Fixed: on SQLite, queries from another request no longer run inside (and roll back with) an open transaction.
+- Fixed: the access log measures time to response, without deferred work.
+- PostgreSQL over a Unix socket (`DB_HOST=/cloudsql/...`).
+- Monitoring hooks: `Job.tags`, `QueueDriver.oldestWait` (custom drivers must implement it), `QueueManager.pause` / `resume`, `DB.listen` with `QueryExecuted`.
+
 ## 1.0.0-beta.2
 
 - `daravelLogoDataUri` and `daravelFaviconDataUri` for welcome pages.

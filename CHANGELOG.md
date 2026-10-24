@@ -5,7 +5,7 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 beta releases may still change Laravel-facing formats when the conformance
 suite shows they differ from Laravel.
 
-## Unreleased
+## 1.0.0-beta.3
 
 ### Added
 

@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.0-beta.3
+
+- Requires `daravel` 1.0.0-beta.3; no API changes.
+
 ## 1.0.0-beta.2
 
 - Requires `daravel` 1.0.0-beta.2; doc comment fixes for `assertSoftDeleted` / `assertNotSoftDeleted`.

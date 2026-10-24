@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.0-beta.3
+
+- `openapi:generate` documents request bodies, query parameters and responses (Laravel resource and paginator envelopes, `components.schemas`) from route metadata.
+- `queue:pause` and `queue:continue`; `queue:work` and `schedule:work` stop gracefully on `SIGTERM`.
+- `doctor` compares the connection pool against the server's `max_connections`.
+
 ## 1.0.0-beta.2
 
 - Inside a project, the global `dartisan` now runs the project CLI for every command, including `dartisan`, `dartisan --help` and `dartisan <command> --help`; only `new` stays global.
