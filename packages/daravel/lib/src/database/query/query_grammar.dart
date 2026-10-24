@@ -70,9 +70,9 @@ abstract class QueryGrammar {
 
   /// Picks the grammar for [dialect].
   static QueryGrammar forDialect(SqlDialect dialect) => switch (dialect) {
-    SqlDialect.sqlite => const SqliteQueryGrammar(),
-    SqlDialect.postgres => const PostgresQueryGrammar(),
-    SqlDialect.mysql => const MySqlQueryGrammar(),
+    .sqlite => const SqliteQueryGrammar(),
+    .postgres => const PostgresQueryGrammar(),
+    .mysql => const MySqlQueryGrammar(),
   };
 
   /// Quotes `table.column`, `column as alias`, `table.*` or `*`. Invalid
@@ -182,10 +182,10 @@ abstract class QueryGrammar {
 
   String _join(JoinClause join, Compilation c) {
     final keyword = switch (join.type) {
-      JoinType.inner => 'INNER JOIN',
-      JoinType.left => 'LEFT JOIN',
-      JoinType.right => 'RIGHT JOIN',
-      JoinType.cross => 'CROSS JOIN',
+      .inner => 'INNER JOIN',
+      .left => 'LEFT JOIN',
+      .right => 'RIGHT JOIN',
+      .cross => 'CROSS JOIN',
     };
     final sub = join.subQuery;
     final target = sub != null
@@ -318,9 +318,9 @@ abstract class QueryGrammar {
   }
 
   String lockClause(LockMode mode) => switch (mode) {
-    LockMode.none => '',
-    LockMode.forUpdate => ' FOR UPDATE',
-    LockMode.shared => ' FOR SHARE',
+    .none => '',
+    .forUpdate => ' FOR UPDATE',
+    .shared => ' FOR SHARE',
   };
 
   /// Wraps one side of a `UNION` (SQLite cannot parenthesize selects).
@@ -585,9 +585,9 @@ final class MySqlQueryGrammar extends QueryGrammar {
 
   @override
   String lockClause(LockMode mode) => switch (mode) {
-    LockMode.none => '',
-    LockMode.forUpdate => ' FOR UPDATE',
-    LockMode.shared => ' LOCK IN SHARE MODE',
+    .none => '',
+    .forUpdate => ' FOR UPDATE',
+    .shared => ' LOCK IN SHARE MODE',
   };
 
   @override

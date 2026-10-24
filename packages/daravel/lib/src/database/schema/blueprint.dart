@@ -69,7 +69,7 @@ final class ColumnDefinition {
   String? get rawDefault => _defaultRaw;
   String? get commentText => _comment;
   bool get isChange => _change;
-  bool get isAutoIncrement => type == ColumnType.increments;
+  bool get isAutoIncrement => type == .increments;
 
   ColumnDefinition nullable([bool value = true]) {
     _nullable = value;
@@ -166,7 +166,7 @@ final class ForeignIdDefinition extends ColumnDefinition {
 
 /// A foreign key constraint.
 final class ForeignKeyDefinition {
-  ForeignKeyDefinition(this.columns, {String? name}) : _name = name;
+  ForeignKeyDefinition(this.columns, {this._name});
 
   final List<String> columns;
   final String? _name;
@@ -436,9 +436,9 @@ abstract class SchemaGrammar {
 
   /// Picks the grammar for [dialect].
   static SchemaGrammar forDialect(SqlDialect dialect) => switch (dialect) {
-    SqlDialect.sqlite => const SqliteSchemaGrammar(),
-    SqlDialect.postgres => const PostgresSchemaGrammar(),
-    SqlDialect.mysql => const MySqlSchemaGrammar(),
+    .sqlite => const SqliteSchemaGrammar(),
+    .postgres => const PostgresSchemaGrammar(),
+    .mysql => const MySqlSchemaGrammar(),
   };
 
   // --- hooks -----------------------------------------------------------------
@@ -514,7 +514,7 @@ abstract class SchemaGrammar {
     if (column.isPrimary) {
       buffer.write(' PRIMARY KEY');
     }
-    if (column.type == ColumnType.enumeration && enumAsCheck) {
+    if (column.type == .enumeration && enumAsCheck) {
       buffer.write(
         ' CHECK (${wrap(column.name)} IN (${column.allowed.map(literal).join(', ')}))',
       );

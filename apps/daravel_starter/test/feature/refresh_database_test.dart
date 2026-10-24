@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:daravel_test/daravel_test.dart';
+
 import '../../bootstrap/app.dart';
 
 /// One app per file, migrated once; every test is rolled back.

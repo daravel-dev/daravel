@@ -10,10 +10,13 @@ import 'dart:math';
 Future<void> main(List<String> args) async {
   final binary = args.isNotEmpty
       ? args.first
-      : (Platform.isWindows ? 'build/server.exe' : 'build/server');
+      : (Platform.isWindows
+            ? 'build/server/bundle/bin/server.exe'
+            : 'build/server/bundle/bin/server');
   if (!File(binary).existsSync()) {
     stderr.writeln(
-      'Binary not found: $binary (run `dart compile exe bin/server.dart -o $binary`).',
+      'Binary not found: $binary '
+      '(run `dart build cli -t bin/server.dart -o build/server`).',
     );
     exitCode = 2;
     return;

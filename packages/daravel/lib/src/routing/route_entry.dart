@@ -29,10 +29,9 @@ final class RouteEntry {
     required this.path,
     required this.handler,
     List<Object> middleware = const <Object>[],
-    String namePrefix = '',
+    this._namePrefix = '',
     Map<String, RegExp> wheres = const <String, RegExp>{},
   }) : _middleware = List<Object>.of(middleware),
-       _namePrefix = namePrefix,
        _wheres = Map<String, RegExp>.of(wheres);
 
   /// Upper-cased HTTP methods served by this route.

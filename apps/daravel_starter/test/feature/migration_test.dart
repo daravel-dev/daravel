@@ -54,9 +54,9 @@ void main() {
         .assertOk()
         .assertJsonPath('data.name', 'Ana')
         .assertJsonPath('data.email', 'ana@example.com');
-    (await client.get(
-      '/api/users/2',
-    )).assertNotFound().assertJsonPath('message', 'User [2] not found.');
+    (await client.get('/api/users/2'))
+        .assertNotFound()
+        .assertJsonPath('message', 'User [2] not found.');
 
     await app.run(() async {
       expect(await App.make<Migrator>().rollback(), hasLength(4));

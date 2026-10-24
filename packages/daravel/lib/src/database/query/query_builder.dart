@@ -2,7 +2,6 @@ import 'dart:async';
 
 import '../../http/http_exceptions.dart';
 import '../database_manager.dart';
-import '../query_executor.dart';
 import 'paginator.dart';
 import 'query_ast.dart';
 import 'query_grammar.dart';
@@ -32,9 +31,8 @@ class DaravelQueryException implements Exception {
 /// [clone] to branch. Compiles through the grammar of the connection it runs
 /// on, so the same builder works on SQLite, PostgreSQL and MySQL.
 final class QueryBuilder {
-  QueryBuilder(this._db, String table, {String? connection, QueryAst? ast})
-    : _connection = connection,
-      _ast = ast ?? QueryAst(table);
+  QueryBuilder(this._db, String table, {this._connection, QueryAst? ast})
+    : _ast = ast ?? QueryAst(table);
 
   final DatabaseManager _db;
   final String? _connection;
@@ -314,7 +312,7 @@ final class QueryBuilder {
     Object first, [
     String? operator,
     String? second,
-    JoinType type = JoinType.inner,
+    JoinType type = .inner,
   ]) {
     final clause = JoinClause(
       type: type,
@@ -349,7 +347,7 @@ final class QueryBuilder {
   QueryBuilder crossJoin(String table) {
     _ast.joins.add(
       JoinClause(
-        type: JoinType.cross,
+        type: .cross,
         table: _tableName(table),
         alias: _aliasOf(table),
       ),
@@ -363,7 +361,7 @@ final class QueryBuilder {
     String first,
     String operator,
     String second, {
-    JoinType type = JoinType.inner,
+    JoinType type = .inner,
   }) {
     final clause =
         JoinClause(type: type, table: alias, alias: alias, subQuery: sub._ast)
@@ -429,9 +427,7 @@ final class QueryBuilder {
   }
 
   QueryBuilder inRandomOrder() => orderByRaw(
-    _db.grammarFor(_connection).dialect == SqlDialect.mysql
-        ? 'RAND()'
-        : 'RANDOM()',
+    _db.grammarFor(_connection).dialect == .mysql ? 'RAND()' : 'RANDOM()',
   );
 
   QueryBuilder reorder([Object? column, String direction = 'asc']) {
@@ -529,9 +525,8 @@ final class QueryBuilder {
 
   Future<List<Map<String, Object?>>> get() async {
     final executor = await _db.executor(_connection);
-    final compiled = QueryGrammar.forDialect(
-      executor.dialect,
-    ).compileSelect(_ast);
+    final compiled = QueryGrammar.forDialect(executor.dialect)
+        .compileSelect(_ast);
     return executor.select(compiled.sql, compiled.bindings);
   }
 
@@ -581,9 +576,8 @@ final class QueryBuilder {
 
   Future<bool> exists() async {
     final executor = await _db.executor(_connection);
-    final compiled = QueryGrammar.forDialect(
-      executor.dialect,
-    ).compileExists(_ast);
+    final compiled = QueryGrammar.forDialect(executor.dialect)
+        .compileExists(_ast);
     final rows = await executor.select(compiled.sql, compiled.bindings);
     final value = rows.first.values.first;
     return value == true || value == 1 || value == 't';
@@ -607,9 +601,8 @@ final class QueryBuilder {
       ..limit = null
       ..offset = null;
     final executor = await _db.executor(_connection);
-    final compiled = QueryGrammar.forDialect(
-      executor.dialect,
-    ).compileSelect(query);
+    final compiled = QueryGrammar.forDialect(executor.dialect)
+        .compileSelect(query);
     final rows = await executor.select(compiled.sql, compiled.bindings);
     return rows.isEmpty ? null : rows.first['aggregate'];
   }
@@ -804,17 +797,15 @@ final class QueryBuilder {
   Future<int> insert(Object rows) async {
     final list = _rows(rows);
     final executor = await _db.executor(_connection);
-    final compiled = QueryGrammar.forDialect(
-      executor.dialect,
-    ).compileInsert(_ast.table, list);
+    final compiled = QueryGrammar.forDialect(executor.dialect)
+        .compileInsert(_ast.table, list);
     return executor.execute(compiled.sql, compiled.bindings);
   }
 
   Future<int> insertOrIgnore(Object rows) async {
     final executor = await _db.executor(_connection);
-    final compiled = QueryGrammar.forDialect(
-      executor.dialect,
-    ).compileInsert(_ast.table, _rows(rows), ignore: true);
+    final compiled = QueryGrammar.forDialect(executor.dialect)
+        .compileInsert(_ast.table, _rows(rows), ignore: true);
     return executor.execute(compiled.sql, compiled.bindings);
   }
 
@@ -825,7 +816,7 @@ final class QueryBuilder {
     final executor = await _db.executor(_connection);
     final grammar = QueryGrammar.forDialect(executor.dialect);
     final compiled = grammar.compileInsertGetId(_ast.table, row, idColumn);
-    if (grammar.supportsReturning && executor.dialect == SqlDialect.postgres) {
+    if (grammar.supportsReturning && executor.dialect == .postgres) {
       final rows = await executor.select(compiled.sql, compiled.bindings);
       return rows.first[idColumn];
     }
@@ -843,17 +834,15 @@ final class QueryBuilder {
     final columns =
         update ?? list.first.keys.where((k) => !uniqueBy.contains(k)).toList();
     final executor = await _db.executor(_connection);
-    final compiled = QueryGrammar.forDialect(
-      executor.dialect,
-    ).compileUpsert(_ast.table, list, uniqueBy, columns);
+    final compiled = QueryGrammar.forDialect(executor.dialect)
+        .compileUpsert(_ast.table, list, uniqueBy, columns);
     return executor.execute(compiled.sql, compiled.bindings);
   }
 
   Future<int> update(Map<String, Object?> values) async {
     final executor = await _db.executor(_connection);
-    final compiled = QueryGrammar.forDialect(
-      executor.dialect,
-    ).compileUpdate(_ast, values);
+    final compiled = QueryGrammar.forDialect(executor.dialect)
+        .compileUpdate(_ast, values);
     return executor.execute(compiled.sql, compiled.bindings);
   }
 
@@ -899,17 +888,15 @@ final class QueryBuilder {
   Future<int> delete([Object? id]) async {
     final q = id == null ? this : clone().where('id', id);
     final executor = await _db.executor(_connection);
-    final compiled = QueryGrammar.forDialect(
-      executor.dialect,
-    ).compileDelete(q._ast);
+    final compiled = QueryGrammar.forDialect(executor.dialect)
+        .compileDelete(q._ast);
     return executor.execute(compiled.sql, compiled.bindings);
   }
 
   Future<void> truncate() async {
     final executor = await _db.executor(_connection);
-    final compiled = QueryGrammar.forDialect(
-      executor.dialect,
-    ).compileTruncate(_ast.table);
+    final compiled = QueryGrammar.forDialect(executor.dialect)
+        .compileTruncate(_ast.table);
     await executor.execute(compiled.sql, compiled.bindings);
   }
 

@@ -443,9 +443,8 @@ Future<void> main(List<String> args) async {
     'daravel-social': socialSvg(),
   };
   for (final entry in svgs.entries) {
-    File(
-      '${svgDir.path}/${entry.key}.svg',
-    ).writeAsStringSync('${entry.value}\n');
+    File('${svgDir.path}/${entry.key}.svg')
+        .writeAsStringSync('${entry.value}\n');
   }
   stdout.writeln('Wrote ${svgs.length} SVGs to docs/brand/svg');
   if (args.contains('--svg-only')) {

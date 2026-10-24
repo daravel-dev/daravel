@@ -197,78 +197,69 @@ void main() {
       expect(indexes.map((i) => i['name']), contains('items_name_index'));
     });
 
-    test(
-      'alter via table rebuild: change, unique, foreign keys and data retention',
-      () async {
-        await schema.create('teams', (t) {
-          t.id();
-          t.string('name');
-        });
-        await schema.create('members', (t) {
-          t.id();
-          t.string('email');
-          t.integer('team_id').nullable();
-          t.string('nickname').nullable();
-          t.integer('age').nullable();
-        });
-        await db.table('teams').insert({'name': 'blue'});
-        await db.table('members').insert({
-          'email': 'm@x.test',
-          'team_id': 1,
-          'nickname': 'm',
-          'age': 30,
-        });
+    test('alter via table rebuild: change, unique, foreign keys and data retention', () async {
+      await schema.create('teams', (t) {
+        t.id();
+        t.string('name');
+      });
+      await schema.create('members', (t) {
+        t.id();
+        t.string('email');
+        t.integer('team_id').nullable();
+        t.string('nickname').nullable();
+        t.integer('age').nullable();
+      });
+      await db.table('teams').insert({'name': 'blue'});
+      await db.table('members').insert({
+        'email': 'm@x.test',
+        'team_id': 1,
+        'nickname': 'm',
+        'age': 30,
+      });
 
-        await schema.table('members', (t) {
-          t.string('email').change(); // keep type, now unique via index below
-          t.unique(['email']);
-          t.foreign(['team_id']).references('id').on('teams').cascadeOnDelete();
-          t.dropColumn('nickname');
-          t.renameColumn('age', 'years');
-          t.boolean('active').defaultTo(true);
-        });
+      await schema.table('members', (t) {
+        t.string('email').change(); // keep type, now unique via index below
+        t.unique(['email']);
+        t.foreign(['team_id']).references('id').on('teams').cascadeOnDelete();
+        t.dropColumn('nickname');
+        t.renameColumn('age', 'years');
+        t.boolean('active').defaultTo(true);
+      });
 
-        final columns = await schema.getColumns('members');
-        expect(columns.map((c) => c.name), [
-          'id',
-          'email',
-          'team_id',
-          'years',
-          'active',
-        ]);
-        final row = await db.table('members').sole();
-        expect(row['years'], 30);
-        expect(row['active'], 1);
-        expect(row['email'], 'm@x.test');
-        expect(columns.first.autoIncrement, isTrue);
+      final columns = await schema.getColumns('members');
+      expect(columns.map((c) => c.name), [
+        'id',
+        'email',
+        'team_id',
+        'years',
+        'active',
+      ]);
+      final row = await db.table('members').sole();
+      expect(row['years'], 30);
+      expect(row['active'], 1);
+      expect(row['email'], 'm@x.test');
+      expect(columns.first.autoIncrement, isTrue);
 
-        await expectLater(
-          db.table('members').insert({'email': 'm@x.test'}),
-          throwsA(anything),
-          reason: 'unique',
-        );
-        await db.table('teams').delete();
-        expect(
-          await db.table('members').count(),
-          0,
-          reason: 'cascade delete through rebuilt FK',
-        );
+      await expectLater(
+        db.table('members').insert({'email': 'm@x.test'}),
+        throwsA(anything),
+        reason: 'unique',
+      );
+      await db.table('teams').delete();
+      expect(
+        await db.table('members').count(),
+        0,
+        reason: 'cascade delete through rebuilt FK',
+      );
 
-        await schema.table('members', (t) {
-          t.dropForeign(['team_id']);
-          t.dropUnique('members_email_unique');
-        });
-        await db.table('members').insert({
-          'email': 'dup@x.test',
-          'team_id': 999,
-        });
-        await db.table('members').insert({
-          'email': 'dup@x.test',
-          'team_id': 999,
-        });
-        expect(await db.table('members').count(), 2);
-      },
-    );
+      await schema.table('members', (t) {
+        t.dropForeign(['team_id']);
+        t.dropUnique('members_email_unique');
+      });
+      await db.table('members').insert({'email': 'dup@x.test', 'team_id': 999});
+      await db.table('members').insert({'email': 'dup@x.test', 'team_id': 999});
+      expect(await db.table('members').count(), 2);
+    });
 
     test(
       'rebuild inside a migration transaction with referencing tables',

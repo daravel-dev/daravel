@@ -8,16 +8,17 @@ import 'response.dart';
 
 /// Renders an exception of type [T] into a [Response], or returns `null` to
 /// fall through to the next renderer.
-typedef ExceptionRenderer<T extends Object> =
-    Response? Function(T exception, Request request);
+typedef ExceptionRenderer<T extends Object> = Response? Function(
+  T exception,
+  Request request,
+);
 
 /// Reports (logs, forwards) an exception of type [T].
-typedef ExceptionReporter<T extends Object> =
-    FutureOr<void> Function(
-      T exception,
-      StackTrace stackTrace,
-      Request request,
-    );
+typedef ExceptionReporter<T extends Object> = FutureOr<void> Function(
+  T exception,
+  StackTrace stackTrace,
+  Request request,
+);
 
 final class _Renderer<T extends Object> {
   const _Renderer(this.render);
@@ -51,7 +52,7 @@ final class ExceptionHandler {
   /// (`withoutExceptionHandling()` in tests).
   static const String rethrowAttribute = 'daravel.rethrow_exceptions';
 
-  ExceptionHandler({Logger? logger}) : _logger = logger;
+  ExceptionHandler({this._logger});
 
   Logger? _logger;
   bool debug = false;

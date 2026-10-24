@@ -1,4 +1,5 @@
 import 'dart:convert';
+
 import '../foundation/clock.dart';
 
 import 'package:crypto/crypto.dart' as crypto;
@@ -121,10 +122,9 @@ final class TokenGuard<T extends Authenticatable> extends RequestGuard<T> {
     this.table = 'personal_access_tokens',
     this.expiration,
     this.lastUsedDebounce = const Duration(minutes: 1),
-    DatabaseManager? db,
+    this._db,
     DateTime Function()? clock,
-  }) : _db = db,
-       _clock = clock ?? _utcNow,
+  }) : _clock = clock ?? _utcNow,
        super(provider: provider);
 
   final String table;

@@ -1,8 +1,6 @@
 import 'dart:async';
-import 'dart:ffi';
 import 'dart:io';
 
-import 'package:sqlite3/open.dart';
 import 'package:sqlite3/sqlite3.dart';
 
 import 'query_executor.dart';
@@ -23,7 +21,6 @@ final class SqliteDriver implements DatabaseDriver {
 
   Database? _db;
   Future<void> _transactionQueue = Future<void>.value();
-  static bool _nativeConfigured = false;
 
   @override
   SqlDialect get dialect => SqlDialect.sqlite;
@@ -31,32 +28,11 @@ final class SqliteDriver implements DatabaseDriver {
   @override
   bool get isConnected => _db != null;
 
-  /// Configures how the native library is located. On Windows, falls back to
-  /// the system `winsqlite3.dll` when `sqlite3.dll` is not on the PATH.
-  static void configureNativeLibrary() {
-    if (_nativeConfigured) {
-      return;
-    }
-    _nativeConfigured = true;
-    if (Platform.isWindows) {
-      open.overrideFor(OperatingSystem.windows, _openWindowsLibrary);
-    }
-  }
-
-  static DynamicLibrary _openWindowsLibrary() {
-    try {
-      return DynamicLibrary.open('sqlite3.dll');
-    } catch (_) {
-      return DynamicLibrary.open('winsqlite3.dll');
-    }
-  }
-
   @override
   Future<void> connect() async {
     if (_db != null) {
       return;
     }
-    configureNativeLibrary();
     final isMemory = path == ':memory:' || path.startsWith('file:');
     if (!isMemory) {
       final parent = File(path).parent;
@@ -76,7 +52,7 @@ final class SqliteDriver implements DatabaseDriver {
 
   @override
   Future<void> close() async {
-    _db?.dispose();
+    _db?.close();
     _db = null;
   }
 

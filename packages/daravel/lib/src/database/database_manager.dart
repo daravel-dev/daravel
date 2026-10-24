@@ -20,7 +20,7 @@ import 'sqlite_driver.dart';
 /// therefore joins the transaction without passing it around explicitly.
 /// Nested calls create savepoints.
 final class DatabaseManager {
-  DatabaseManager(this.config, {Logger? logger}) : _logger = logger;
+  DatabaseManager(this.config, {this._logger});
 
   /// Zone key under which the active transaction executor is stored.
   static const Symbol transactionKey = #daravel.tx;

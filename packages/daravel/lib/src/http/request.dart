@@ -26,10 +26,9 @@ final class Request {
     required this.headers,
     required this.remoteAddress,
     required this.id,
-    Stream<List<int>>? bodyStream,
-    List<int>? bodyBytes,
-  }) : _bodyStream = bodyStream,
-       _bodyBytes = bodyBytes;
+    this._bodyStream,
+    this._bodyBytes,
+  });
 
   /// Wraps a `dart:io` request.
   factory Request.fromHttpRequest(

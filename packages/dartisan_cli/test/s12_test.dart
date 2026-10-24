@@ -60,9 +60,8 @@ void main() {
       final published = gen.publishStubs();
       expect(published.length, builtInStubs.length);
       expect(File(p.join(paths.stubs, 'model.stub')).existsSync(), isTrue);
-      File(
-        p.join(paths.stubs, 'event.stub'),
-      ).writeAsStringSync('// custom\nfinal class {{ class }} {}\n');
+      File(p.join(paths.stubs, 'event.stub'))
+          .writeAsStringSync('// custom\nfinal class {{ class }} {}\n');
       gen.event('Shipped');
       expect(
         File(p.join(paths.events, 'shipped.dart')).readAsStringSync(),
@@ -115,59 +114,50 @@ void main() {
         contains("String get name => 'tokens:prune';"),
       );
       expect(
-        File(
-          p.join(paths.commands, 'send_reports_command.dart'),
-        ).readAsStringSync(),
+        File(p.join(paths.commands, 'send_reports_command.dart'))
+            .readAsStringSync(),
         contains("'app:send-reports'"),
       );
       expect(gen.hints, isEmpty);
     });
 
-    test(
-      'resource picks the model stub when the model exists; hints are collected',
-      () {
-        final gen = Generator(paths)
-          ..model('Post')
-          ..resource('Post')
-          ..resource('Stats')
-          ..observer('Audit', model: 'Post')
-          ..provider('Billing')
-          ..rule('Uppercase')
-          ..test('PostApi')
-          ..test('Math', unit: true);
-        expect(
-          File(
-            p.join(paths.resources, 'post_resource.dart'),
-          ).readAsStringSync(),
-          contains('extends JsonResource<Post>'),
-        );
-        expect(
-          File(
-            p.join(paths.resources, 'stats_resource.dart'),
-          ).readAsStringSync(),
-          contains('JsonResource<Map<String, Object?>>'),
-        );
-        expect(
-          File(p.join(paths.observers, 'audit_observer.dart')).existsSync(),
-          isTrue,
-        );
-        expect(
-          File(
-            p.join(paths.providers, 'billing_service_provider.dart'),
-          ).existsSync(),
-          isTrue,
-        );
-        expect(
-          File(p.join(paths.featureTests, 'post_api_test.dart')).existsSync(),
-          isTrue,
-        );
-        expect(
-          File(p.join(paths.unitTests, 'math_test.dart')).existsSync(),
-          isTrue,
-        );
-        expect(gen.hints, hasLength(2));
-      },
-    );
+    test('resource picks the model stub when the model exists; hints are collected', () {
+      final gen = Generator(paths)
+        ..model('Post')
+        ..resource('Post')
+        ..resource('Stats')
+        ..observer('Audit', model: 'Post')
+        ..provider('Billing')
+        ..rule('Uppercase')
+        ..test('PostApi')
+        ..test('Math', unit: true);
+      expect(
+        File(p.join(paths.resources, 'post_resource.dart')).readAsStringSync(),
+        contains('extends JsonResource<Post>'),
+      );
+      expect(
+        File(p.join(paths.resources, 'stats_resource.dart')).readAsStringSync(),
+        contains('JsonResource<Map<String, Object?>>'),
+      );
+      expect(
+        File(p.join(paths.observers, 'audit_observer.dart')).existsSync(),
+        isTrue,
+      );
+      expect(
+        File(p.join(paths.providers, 'billing_service_provider.dart'))
+            .existsSync(),
+        isTrue,
+      );
+      expect(
+        File(p.join(paths.featureTests, 'post_api_test.dart')).existsSync(),
+        isTrue,
+      );
+      expect(
+        File(p.join(paths.unitTests, 'math_test.dart')).existsSync(),
+        isTrue,
+      );
+      expect(gen.hints, hasLength(2));
+    });
 
     test('registry patcher keeps the closing marker indentation', () {
       const source =
@@ -354,8 +344,9 @@ final class Post extends Model with AuthenticatableModel {
     test('Dockerfile builds both binaries on a slim runtime', () {
       final docker = dockerfileTemplate();
       expect(docker, contains('FROM dart:stable AS build'));
-      expect(docker, contains('dart compile exe bin/server.dart'));
-      expect(docker, contains('libsqlite3-0'));
+      expect(docker, contains('dart build cli -t bin/server.dart'));
+      expect(docker, isNot(contains('libsqlite3-0')));
+      expect(docker, contains('CMD ["/app/bin/server"]'));
       expect(docker, contains('USER daravel'));
     });
   });

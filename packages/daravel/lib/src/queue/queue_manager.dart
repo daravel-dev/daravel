@@ -1,4 +1,5 @@
 import 'dart:async';
+
 import '../foundation/clock.dart';
 
 import '../cache/cache.dart';
@@ -206,7 +207,7 @@ final class JobProcessor {
       job = registry.make(payload.jobName, payload.data);
     } on UnknownJobException catch (error, stackTrace) {
       await _fail(driver, queued, error, stackTrace, job: null);
-      return JobOutcome.failed;
+      return .failed;
     }
     final maxTries = (tries ?? payload.maxTries);
     final ctx = JobContext(
@@ -254,11 +255,11 @@ final class JobProcessor {
     if (error == null) {
       if (ctx.deleted) {
         await _finish(driver, queued, payload);
-        return JobOutcome.deleted;
+        return .deleted;
       }
       if (ctx.released) {
         await driver.release(queued, ctx.releaseDelay ?? Duration.zero);
-        return JobOutcome.released;
+        return .released;
       }
       await _finish(driver, queued, payload);
       await events.dispatch(
@@ -270,7 +271,7 @@ final class JobProcessor {
           duration: stopwatch.elapsed,
         ),
       );
-      return JobOutcome.processed;
+      return .processed;
     }
     final exhausted =
         _exhausted(payload, queued.attempts, maxTries) ||
@@ -288,7 +289,7 @@ final class JobProcessor {
     );
     if (exhausted) {
       await _fail(driver, queued, error, trace ?? StackTrace.current, job: job);
-      return JobOutcome.failed;
+      return .failed;
     }
     final delay = _backoff(
       backoff ?? [for (final s in payload.backoffSeconds) Duration(seconds: s)],
@@ -299,7 +300,7 @@ final class JobProcessor {
       'retrying in ${delay.inSeconds}s: $error',
     );
     await driver.release(queued, delay);
-    return JobOutcome.released;
+    return .released;
   }
 
   bool _exhausted(JobPayload payload, int attempts, int maxTries) {
@@ -542,7 +543,7 @@ final class QueueManager {
       raw: payload.encode(),
     );
     final outcome = await processor.process(driver, queued, tries: 1);
-    if (outcome == JobOutcome.released) {
+    if (outcome == .released) {
       logger?.warning(
         'Sync job ${payload.displayName} asked to be released; sync jobs cannot be retried.',
       );
@@ -598,7 +599,7 @@ final class WorkerOptions {
 
 /// Polls queues and processes jobs (`dartisan queue:work`).
 final class QueueWorker {
-  QueueWorker(this.manager, {Logger? logger}) : _logger = logger;
+  QueueWorker(this.manager, {this._logger});
 
   final QueueManager manager;
   final Logger? _logger;

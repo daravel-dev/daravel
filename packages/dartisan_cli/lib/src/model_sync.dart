@@ -15,9 +15,9 @@ final class ModelSource {
   /// Parses `final class X extends Model`, `table: '...'`, the casts map
   /// and the primary key (regex-based; generated layout assumed).
   static ModelSource? parse(String source) {
-    final className = RegExp(
-      r'class\s+(\w+)\s+extends\s+Model\b',
-    ).firstMatch(source)?.group(1);
+    final className = RegExp(r'class\s+(\w+)\s+extends\s+Model\b')
+        .firstMatch(source)
+        ?.group(1);
     final table = RegExp(r"table:\s*'([^']+)'").firstMatch(source)?.group(1);
     if (className == null || table == null) {
       return null;

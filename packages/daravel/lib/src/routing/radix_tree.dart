@@ -7,8 +7,10 @@ final class RouteMatch<T extends Object> {
 }
 
 /// Decides whether [value] accepts the captured [params] (route constraints).
-typedef MatchPredicate<T extends Object> =
-    bool Function(T value, Map<String, String> params);
+typedef MatchPredicate<T extends Object> = bool Function(
+  T value,
+  Map<String, String> params,
+);
 
 final class _Node<T extends Object> {
   final Map<String, _Node<T>> statics = <String, _Node<T>>{};

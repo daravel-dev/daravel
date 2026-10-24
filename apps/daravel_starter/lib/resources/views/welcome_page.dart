@@ -98,7 +98,7 @@ String welcomePage({
 <span class="c"># next steps</span><br>
 dart run bin/dartisan.dart route:list<br>
 dart run bin/dartisan.dart migrate<br>
-dart compile exe bin/server.dart -o build/server<span class="c"> &nbsp;# ship a native binary</span>
+dart run bin/dartisan.dart build<span class="c"> &nbsp;# ship a native bundle</span>
   </div>
 
   <footer>
@@ -113,6 +113,8 @@ dart compile exe bin/server.dart -o build/server<span class="c"> &nbsp;# ship a 
 }
 
 /// HTML-escapes [value] (same character set as Laravel's `e()` helper).
-String escape(String value) => const HtmlEscape(
-  HtmlEscapeMode.element,
-).convert(value).replaceAll('"', '&quot;').replaceAll("'", '&#39;');
+String escape(String value) =>
+    const HtmlEscape(HtmlEscapeMode.element)
+        .convert(value)
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');

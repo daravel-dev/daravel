@@ -146,7 +146,7 @@ final class Ticket extends Model {
     table: 'tickets',
     factory: Ticket.new,
     guarded: [],
-    keyType: KeyType.ulid,
+    keyType: .ulid,
     timestamps: false,
   );
   @override
@@ -519,14 +519,12 @@ void main() {
     });
 
     test('touches parent updated_at on save', () async {
-      final before = (await users().findOrFail(
-        ana.id,
-      )).getAttr<DateTime?>('updated_at');
+      final before = (await users().findOrFail(ana.id))
+          .getAttr<DateTime?>('updated_at');
       await Future<void>.delayed(const Duration(milliseconds: 1100));
       await posts().create({'user_id': ana.id, 'title': 'Touch'});
-      final after = (await users().findOrFail(
-        ana.id,
-      )).getAttr<DateTime?>('updated_at');
+      final after = (await users().findOrFail(ana.id))
+          .getAttr<DateTime?>('updated_at');
       expect(after, isNot(before));
     });
   });

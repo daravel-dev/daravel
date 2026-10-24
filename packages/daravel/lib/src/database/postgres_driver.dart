@@ -22,7 +22,7 @@ final class PostgresDriver implements DatabaseDriver {
     this.password,
     this.name = 'pgsql',
     this.maxConnections = 10,
-    this.sslMode = PostgresSslMode.disable,
+    this.sslMode = .disable,
     this.connectTimeout = const Duration(seconds: 10),
     this.queryTimeout = const Duration(seconds: 30),
     this.applicationName = 'daravel',
@@ -75,9 +75,9 @@ final class PostgresDriver implements DatabaseDriver {
       settings: pg.PoolSettings(
         maxConnectionCount: maxConnections,
         sslMode: switch (sslMode) {
-          PostgresSslMode.disable => pg.SslMode.disable,
-          PostgresSslMode.require => pg.SslMode.require,
-          PostgresSslMode.verifyFull => pg.SslMode.verifyFull,
+          .disable => pg.SslMode.disable,
+          .require => pg.SslMode.require,
+          .verifyFull => pg.SslMode.verifyFull,
         },
         connectTimeout: connectTimeout,
         queryTimeout: queryTimeout,

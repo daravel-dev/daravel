@@ -140,39 +140,34 @@ void main() {
     });
   });
 
-  test(
-    'withoutOverlapping skips while the lock is held; onOneServer needs cluster scope',
-    () async {
-      await app.run(() async {
-        final schedule = App.make<Schedule>();
-        var runs = 0;
-        schedule
-            .call(() => runs++)
-            .everyMinute()
-            .withoutOverlapping()
-            .named('slow');
-        final scheduler = app.scheduler();
-        final lock = Cache.store(
-          'process',
-        ).lock('schedule:slow', owner: 'other');
-        expect(await lock.acquire(), isTrue);
-        final blocked = await scheduler.run(at);
-        expect(blocked.single.skipped, 'overlap');
-        expect(runs, 0);
-        await lock.forceRelease();
-        expect((await scheduler.run(at)).single.ran, isTrue);
-        expect(runs, 1);
-        // Lock is released after the run.
-        expect(await lock.currentOwner(), isNull);
+  test('withoutOverlapping skips while the lock is held; onOneServer needs cluster scope', () async {
+    await app.run(() async {
+      final schedule = App.make<Schedule>();
+      var runs = 0;
+      schedule
+          .call(() => runs++)
+          .everyMinute()
+          .withoutOverlapping()
+          .named('slow');
+      final scheduler = app.scheduler();
+      final lock = Cache.store('process').lock('schedule:slow', owner: 'other');
+      expect(await lock.acquire(), isTrue);
+      final blocked = await scheduler.run(at);
+      expect(blocked.single.skipped, 'overlap');
+      expect(runs, 0);
+      await lock.forceRelease();
+      expect((await scheduler.run(at)).single.ran, isTrue);
+      expect(runs, 1);
+      // Lock is released after the run.
+      expect(await lock.currentOwner(), isNull);
 
-        schedule.call(() {}).everyMinute().onOneServer().named('single');
-        await expectLater(
-          () => scheduler.run(at),
-          throwsA(isA<ConfigException>()),
-        );
-      });
-    },
-  );
+      schedule.call(() {}).everyMinute().onOneServer().named('single');
+      await expectLater(
+        () => scheduler.run(at),
+        throwsA(isA<ConfigException>()),
+      );
+    });
+  });
 
   test('commands run through the command runner', () async {
     await app.run(() async {

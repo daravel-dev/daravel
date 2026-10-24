@@ -368,23 +368,20 @@ void main() {
 
     tearDown(() => app.shutdown());
 
-    test(
-      'terminate runs after the response for global and route middleware, then deferred callbacks',
-      () async {
-        final request = Request.fake(path: '/api/fast');
-        final response = await app.handle(request);
-        expect(response.status, 200);
-        expect(log, ['handle:global', 'handle:route']);
-        await app.kernel.terminate(request, response);
-        expect(log, [
-          'handle:global',
-          'handle:route',
-          'terminate:global:200',
-          'terminate:route:200',
-          'deferred',
-        ]);
-      },
-    );
+    test('terminate runs after the response for global and route middleware, then deferred callbacks', () async {
+      final request = Request.fake(path: '/api/fast');
+      final response = await app.handle(request);
+      expect(response.status, 200);
+      expect(log, ['handle:global', 'handle:route']);
+      await app.kernel.terminate(request, response);
+      expect(log, [
+        'handle:global',
+        'handle:route',
+        'terminate:global:200',
+        'terminate:route:200',
+        'deferred',
+      ]);
+    });
 
     test('route timeouts answer 503', () async {
       final response = await app.handle(Request.fake(path: '/api/slow'));

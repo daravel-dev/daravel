@@ -33,7 +33,7 @@ void main() {
   });
 
   test('AES-256-CBC + HMAC round trip (Laravel aes-256-cbc shape)', () async {
-    final crypt = Encrypter(key, cipher: EncryptionCipher.aes256cbc);
+    final crypt = Encrypter(key, cipher: .aes256cbc);
     final encrypted = await crypt.encryptString('shared with laravel');
     final payload = payloadOf(encrypted);
     expect(base64.decode(payload['iv']! as String), hasLength(16));
@@ -90,7 +90,7 @@ void main() {
       throwsA(isA<DecryptException>()),
     );
 
-    final cbc = Encrypter(key, cipher: EncryptionCipher.aes256cbc);
+    final cbc = Encrypter(key, cipher: .aes256cbc);
     final cbcPayload = payloadOf(await cbc.encryptString('secret'));
     cbcPayload['mac'] = '0' * 64;
     expect(

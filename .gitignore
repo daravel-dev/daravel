@@ -25,3 +25,6 @@ docs/reviews/
 
 # Design blueprints (kept local, not published)
 BLUEPRINT_*
+
+# FVM local SDK link (the pinned version lives in .fvmrc)
+.fvm/

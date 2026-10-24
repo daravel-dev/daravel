@@ -21,7 +21,7 @@ final class AuthConfig implements ConfigSection {
     this.tokenExpiration,
     this.tokenTable = 'personal_access_tokens',
     this.jwtSecret,
-    this.jwtAlgorithm = JwtAlgorithm.hs256,
+    this.jwtAlgorithm = .hs256,
     this.jwtTtl = const Duration(minutes: 60),
     this.jwtLeeway = const Duration(seconds: 30),
     this.jwtIssuer,
@@ -93,7 +93,7 @@ final class AuthConfig implements ConfigSection {
 /// guard named explicitly, the one activated by `auth:a,b` middleware for
 /// this request, or the configured default.
 final class AuthManager {
-  AuthManager(this.config, {String? appKey}) : _appKey = appKey;
+  AuthManager(this.config, {this._appKey});
 
   final AuthConfig config;
   final String? _appKey;
@@ -168,7 +168,7 @@ final class AuthManager {
   JwtCodec defaultJwtCodec() {
     final keys = <JwtKey>[];
     final publicKey = config.jwtPublicKey;
-    if (config.jwtAlgorithm == JwtAlgorithm.eddsa) {
+    if (config.jwtAlgorithm == .eddsa) {
       if (publicKey == null || publicKey.isEmpty) {
         throw const ConfigException(
           'JWT_ALGO=EdDSA requires JWT_PUBLIC_KEY (and JWT_PRIVATE_KEY to '
@@ -306,9 +306,9 @@ final class AuthManager {
     List<String> abilities = const <String>['*'],
     DateTime? expiresAt,
     String? guard,
-  }) => tokenGuard(
-    guard,
-  ).issue(user, name, abilities: abilities, expiresAt: expiresAt);
+  }) =>
+      tokenGuard(guard)
+          .issue(user, name, abilities: abilities, expiresAt: expiresAt);
 
   /// Issues a JWT for [user].
   Future<String> issueJwt(

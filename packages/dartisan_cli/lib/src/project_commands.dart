@@ -78,6 +78,9 @@ final class KeyGenerateCommand extends Command<int> {
   }
 }
 
+/// Oldest Dart SDK Daravel supports (keep in sync with every pubspec).
+const (int, int) minimumDartSdk = (3, 13);
+
 /// One `doctor` finding.
 enum CheckStatus { ok, warning, error }
 
@@ -89,9 +92,9 @@ final class DoctorCheck {
   final String? detail;
 
   String get symbol => switch (status) {
-    CheckStatus.ok => '[ok]  ',
-    CheckStatus.warning => '[warn]',
-    CheckStatus.error => '[FAIL]',
+    .ok => '[ok]  ',
+    .warning => '[warn]',
+    .error => '[FAIL]',
   };
 }
 
@@ -122,9 +125,7 @@ final class DoctorCommand extends DaravelCommand {
     }
     final strict = argResults!['production'] as bool;
     final failed = checks.where(
-      (c) =>
-          c.status == CheckStatus.error ||
-          (strict && c.status == CheckStatus.warning),
+      (c) => c.status == .error || (strict && c.status == .warning),
     );
     stdout.writeln(
       failed.isEmpty
@@ -141,7 +142,8 @@ final class DoctorCommand extends DaravelCommand {
     final major = int.parse(version?.group(1) ?? '0');
     final minor = int.parse(version?.group(2) ?? '0');
     checks.add(
-      major > 3 || (major == 3 && minor >= 9)
+      major > minimumDartSdk.$1 ||
+              (major == minimumDartSdk.$1 && minor >= minimumDartSdk.$2)
           ? DoctorCheck(
               CheckStatus.ok,
               'Dart SDK ${Platform.version.split(' ').first}',
@@ -149,7 +151,7 @@ final class DoctorCommand extends DaravelCommand {
           : DoctorCheck(
               CheckStatus.error,
               'Dart SDK ${Platform.version.split(' ').first}',
-              'Daravel needs Dart ^3.9.',
+              'Daravel needs Dart ^${minimumDartSdk.$1}.${minimumDartSdk.$2}.',
             ),
     );
 
@@ -263,7 +265,7 @@ final class DoctorCommand extends DaravelCommand {
         DoctorCheck(
           CheckStatus.error,
           'Database [${db.defaultConnection}] unreachable',
-          '$error${Platform.isLinux ? '\nOn Debian/Ubuntu: apt-get install libsqlite3-0' : ''}',
+          '$error',
         ),
       );
     }
@@ -347,23 +349,32 @@ final class DoctorCommand extends DaravelCommand {
   }
 }
 
-/// `build [--output] [--define K=V] [--docker]` — native binary and
+/// `build [--output] [--with-cli] [--docker]` — native app bundle and
 /// optional Dockerfile.
+///
+/// Uses `dart build cli`, which runs build hooks: SQLite (package:sqlite3)
+/// is downloaded as a hash-verified prebuilt and placed next to the
+/// executable, so servers need no system SQLite. The result is a bundle
+/// (`bin/server` + `lib/`), deployed as one directory.
 final class BuildCommand extends Command<int> {
   BuildCommand() {
     argParser
       ..addOption(
         'output',
         abbr: 'o',
-        help: 'Binary path (default: build/server).',
+        help: 'Bundle directory (default: build/server → build/server/bundle).',
       )
-      ..addMultiOption('define', abbr: 'D', help: 'Compile-time KEY=VALUE.')
+      ..addFlag(
+        'with-cli',
+        negatable: false,
+        help: 'Also build bin/dartisan.dart into the same bundle.',
+      )
       ..addFlag(
         'docker',
         negatable: false,
         help: 'Write Dockerfile and .dockerignore.',
       )
-      ..addFlag('no-compile', negatable: false, help: 'Skip dart compile exe.')
+      ..addFlag('no-compile', negatable: false, help: 'Skip the native build.')
       ..addFlag(
         'force',
         negatable: false,
@@ -375,7 +386,7 @@ final class BuildCommand extends Command<int> {
   String get name => 'build';
 
   @override
-  String get description => 'Compile the application to a native binary.';
+  String get description => 'Build the application as a native bundle.';
 
   @override
   Future<int> run() async {
@@ -387,9 +398,8 @@ final class BuildCommand extends Command<int> {
         stdout.writeln('Dockerfile exists (use --force to overwrite).');
       } else {
         dockerfile.writeAsStringSync(dockerfileTemplate());
-        File(
-          p.join(paths.root, '.dockerignore'),
-        ).writeAsStringSync(dockerignoreTemplate);
+        File(p.join(paths.root, '.dockerignore'))
+            .writeAsStringSync(dockerignoreTemplate);
         stdout.writeln(
           'Wrote Dockerfile and .dockerignore.\n'
           '  docker build -t ${paths.packageName} .\n'
@@ -400,35 +410,45 @@ final class BuildCommand extends Command<int> {
     if (r['no-compile'] as bool) {
       return 0;
     }
-    final output =
-        r['output'] as String? ??
-        p.join('build', Platform.isWindows ? 'server.exe' : 'server');
-    Directory(
-      p.dirname(p.join(paths.root, output)),
-    ).createSync(recursive: true);
-    final args = <String>[
-      'compile',
-      'exe',
-      for (final define in r['define'] as List<String>) '--define=$define',
+    final output = r['output'] as String? ?? p.join('build', 'server');
+    final targets = [
       'bin/server.dart',
-      '-o',
-      output,
+      if (r['with-cli'] as bool) 'bin/dartisan.dart',
     ];
-    stdout.writeln('dart ${args.join(' ')}');
-    final process = await Process.start(
-      dartExecutable(),
-      args,
-      workingDirectory: paths.root,
-      mode: ProcessStartMode.inheritStdio,
-    );
-    final code = await process.exitCode;
-    if (code == 0) {
-      final size = File(p.join(paths.root, output)).lengthSync();
-      stdout.writeln(
-        'Built $output (${(size / 1024 / 1024).toStringAsFixed(1)} MB).',
+    for (final target in targets) {
+      final out = target == 'bin/server.dart'
+          ? output
+          : p.join(p.dirname(output), 'dartisan');
+      final args = ['build', 'cli', '-t', target, '-o', out];
+      stdout.writeln('dart ${args.join(' ')}');
+      final process = await Process.start(
+        dartExecutable(),
+        args,
+        workingDirectory: paths.root,
+        mode: ProcessStartMode.inheritStdio,
       );
+      final code = await process.exitCode;
+      if (code != 0) {
+        return code;
+      }
     }
-    return code;
+    if (r['with-cli'] as bool) {
+      // One bundle: both executables share bin/ and the bundled lib/.
+      final exe = Platform.isWindows ? 'dartisan.exe' : 'dartisan';
+      File(
+        p.join(paths.root, p.dirname(output), 'dartisan', 'bundle', 'bin', exe),
+      ).copySync(p.join(paths.root, output, 'bundle', 'bin', exe));
+    }
+    final bundle = Directory(p.join(paths.root, output, 'bundle'));
+    final size = bundle
+        .listSync(recursive: true)
+        .whereType<File>()
+        .fold<int>(0, (sum, f) => sum + f.lengthSync());
+    stdout.writeln(
+      'Built ${p.join(output, 'bundle')} '
+      '(${(size / 1024 / 1024).toStringAsFixed(1)} MB; run bin/server).',
+    );
+    return 0;
   }
 }
 
@@ -439,7 +459,8 @@ String dartExecutable() {
   return base == 'dart' || base == 'dartvm' ? current : 'dart';
 }
 
-/// Multi-stage image: Dart SDK builder → slim runtime with libsqlite3.
+/// Multi-stage image: Dart SDK builder → slim runtime. SQLite ships inside
+/// the bundle (build hooks), so the runtime needs no libsqlite3 package.
 String dockerfileTemplate() => r'''
 # syntax=docker/dockerfile:1
 FROM dart:stable AS build
@@ -447,23 +468,26 @@ WORKDIR /app
 COPY pubspec.* ./
 RUN dart pub get
 COPY . .
-RUN dart pub get --offline && dart compile exe bin/server.dart -o /app/server \
- && dart compile exe bin/dartisan.dart -o /app/dartisan
+RUN dart pub get --offline \
+ && dart build cli -t bin/server.dart -o build/server \
+ && dart build cli -t bin/dartisan.dart -o build/dartisan
 
 FROM debian:bookworm-slim
 RUN apt-get update \
- && apt-get install -y --no-install-recommends libsqlite3-0 ca-certificates \
+ && apt-get install -y --no-install-recommends ca-certificates \
  && rm -rf /var/lib/apt/lists/* \
  && useradd --system --home /app daravel
 WORKDIR /app
-COPY --from=build /app/server /app/dartisan ./
+# bin/server and bin/dartisan share the bundled lib/ (SQLite).
+COPY --from=build /app/build/server/bundle/ ./
+COPY --from=build /app/build/dartisan/bundle/bin/dartisan ./bin/dartisan
 RUN mkdir -p storage/logs storage/app database && chown -R daravel /app
 USER daravel
 ENV APP_ENV=production APP_DEBUG=false APP_HOST=0.0.0.0 APP_PORT=8080 \
     LOG_STACK=json
 EXPOSE 8080
 # Health: GET /up (liveness) and /up/ready (readiness).
-CMD ["/app/server"]
+CMD ["/app/bin/server"]
 ''';
 
 const String dockerignoreTemplate = '''

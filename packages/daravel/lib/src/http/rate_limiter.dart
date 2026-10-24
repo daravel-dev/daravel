@@ -1,4 +1,5 @@
 import 'dart:async';
+
 import '../foundation/clock.dart';
 
 import '../server/coordinator.dart';
@@ -8,8 +9,10 @@ import 'request.dart';
 import 'response.dart';
 
 /// Builds the 429 response for a limit (`Limit.response`).
-typedef ThrottleResponseBuilder =
-    Response Function(Request request, Map<String, String> headers);
+typedef ThrottleResponseBuilder = Response Function(
+  Request request,
+  Map<String, String> headers,
+);
 
 /// A rate limit (Laravel `Illuminate\Cache\RateLimiting\Limit`).
 final class Limit {
@@ -271,11 +274,10 @@ final class ProcessRateLimitStore implements RateLimitStore {
   ) async {
     try {
       return await _call('attempt', {
-            'key': key,
-            'max': maxAttempts,
-            'decay': decay.inMilliseconds,
-          })
-          as RateLimitResult;
+        'key': key,
+        'max': maxAttempts,
+        'decay': decay.inMilliseconds,
+      }) as RateLimitResult;
     } on CoordinatorException catch (error) {
       onError?.call(error);
       return RateLimitResult(
@@ -298,13 +300,11 @@ final class ProcessRateLimitStore implements RateLimitStore {
     int maxAttempts,
     Duration decay,
   ) async => Duration(
-    milliseconds:
-        await _call('availableIn', {
-              'key': key,
-              'max': maxAttempts,
-              'decay': decay.inMilliseconds,
-            })
-            as int,
+    milliseconds: await _call('availableIn', {
+      'key': key,
+      'max': maxAttempts,
+      'decay': decay.inMilliseconds,
+    }) as int,
   );
 
   @override

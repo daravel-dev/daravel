@@ -1,4 +1,5 @@
 import 'dart:async';
+
 import '../../foundation/clock.dart';
 
 import 'package:collection/collection.dart';
@@ -248,17 +249,17 @@ abstract base class Model implements JsonSerializable, Responsable {
       }
       if (key == null) {
         switch (modelDefinition.keyType) {
-          case KeyType.uuid:
+          case .uuid:
             _attributes[modelDefinition.primaryKey] = KeyGenerator.uuid();
-          case KeyType.ulid:
+          case .ulid:
             _attributes[modelDefinition.primaryKey] = KeyGenerator.ulid();
-          case KeyType.autoInt:
-          case KeyType.string:
+          case .autoInt:
+          case .string:
             break;
         }
       }
       final values = Map<String, Object?>.of(_attributes);
-      if (modelDefinition.keyType == KeyType.autoInt) {
+      if (modelDefinition.keyType == .autoInt) {
         final id = await _query().builder.insertGetId(
           values,
           idColumn: modelDefinition.primaryKey,

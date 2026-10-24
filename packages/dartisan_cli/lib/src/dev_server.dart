@@ -24,10 +24,10 @@ ReloadAction actionFor(Iterable<String> paths) {
         path.startsWith('routes/') ||
         path.startsWith('database/') ||
         path.startsWith('config/')) {
-      return ReloadAction.restart;
+      return .restart;
     }
   }
-  return ReloadAction.hotReload;
+  return .hotReload;
 }
 
 /// `dartisan serve --watch`: runs `bin/server.dart` in a child VM with the
@@ -110,7 +110,7 @@ final class DevServer {
     _pending.clear();
     final stopwatch = Stopwatch()..start();
     try {
-      if (actionFor(changed) == ReloadAction.restart) {
+      if (actionFor(changed) == .restart) {
         _out.writeln('Restarting (${changed.join(', ')})...');
         await restart();
         _out.writeln('Restarted in ${stopwatch.elapsedMilliseconds} ms.');
@@ -182,9 +182,8 @@ final class DevServer {
         .transform(utf8.decoder)
         .transform(const LineSplitter())
         .listen((line) {
-          final match = RegExp(
-            r'(http://127\.0\.0\.1:\d+/[^\s]*)',
-          ).firstMatch(line);
+          final match = RegExp(r'(http://127\.0\.0\.1:\d+/[^\s]*)')
+              .firstMatch(line);
           if (!uri.isCompleted &&
               line.contains('listening on') &&
               match != null) {

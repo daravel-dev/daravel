@@ -13,26 +13,22 @@ final class SqliteSchemaGrammar extends SchemaGrammar {
 
   @override
   String typeFor(ColumnDefinition column) => switch (column.type) {
-    ColumnType.increments => 'INTEGER',
-    ColumnType.string => 'VARCHAR(${column.length ?? 255})',
-    ColumnType.char => 'VARCHAR(${column.length ?? 255})',
-    ColumnType.text => 'TEXT',
-    ColumnType.integer ||
-    ColumnType.tinyInteger ||
-    ColumnType.smallInteger ||
-    ColumnType.bigInteger => 'INTEGER',
-    ColumnType.decimal =>
-      'NUMERIC(${column.precision ?? 8}, ${column.scale ?? 2})',
-    ColumnType.float => 'FLOAT',
-    ColumnType.doublePrecision => 'DOUBLE',
-    ColumnType.boolean => 'TINYINT(1)',
-    ColumnType.date => 'DATE',
-    ColumnType.dateTime || ColumnType.timestamp => 'DATETIME',
-    ColumnType.time => 'TIME',
-    ColumnType.json => 'TEXT',
-    ColumnType.uuid => 'VARCHAR(36)',
-    ColumnType.binary => 'BLOB',
-    ColumnType.enumeration => 'VARCHAR(255)',
+    .increments => 'INTEGER',
+    .string => 'VARCHAR(${column.length ?? 255})',
+    .char => 'VARCHAR(${column.length ?? 255})',
+    .text => 'TEXT',
+    .integer || .tinyInteger || .smallInteger || .bigInteger => 'INTEGER',
+    .decimal => 'NUMERIC(${column.precision ?? 8}, ${column.scale ?? 2})',
+    .float => 'FLOAT',
+    .doublePrecision => 'DOUBLE',
+    .boolean => 'TINYINT(1)',
+    .date => 'DATE',
+    .dateTime || ColumnType.timestamp => 'DATETIME',
+    .time => 'TIME',
+    .json => 'TEXT',
+    .uuid => 'VARCHAR(36)',
+    .binary => 'BLOB',
+    .enumeration => 'VARCHAR(255)',
   };
 
   @override
@@ -348,7 +344,7 @@ final class SqliteTableRebuilder {
     name: column.name,
     type:
         grammar.typeFor(column) +
-        (column.type == ColumnType.enumeration
+        (column.type == .enumeration
             ? ' CHECK (${grammar.wrap(column.name)} IN (${column.allowed.map(grammar.literal).join(', ')}))'
             : ''),
     notNull: !column.isNullable && !column.isAutoIncrement,

@@ -238,18 +238,17 @@ void main() {
         final held = Cache.lock('slot', ttl: const Duration(seconds: 5));
         expect(await held.acquire(), isTrue);
         await expectLater(
-          () => Cache.lock(
-            'slot',
-          ).block(const Duration(milliseconds: 150), () => 'never'),
+          () =>
+              Cache.lock('slot')
+                  .block(const Duration(milliseconds: 150), () => 'never'),
           throwsA(isA<LockTimeoutException>()),
         );
         unawaited(
           Future<void>.delayed(const Duration(milliseconds: 50), held.release),
         );
         expect(
-          await Cache.lock(
-            'slot',
-          ).block(const Duration(seconds: 2), () => 'got it'),
+          await Cache.lock('slot')
+              .block(const Duration(seconds: 2), () => 'got it'),
           'got it',
         );
         // Callback form releases afterwards.

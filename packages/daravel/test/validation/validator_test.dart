@@ -397,35 +397,32 @@ void main() {
 
     tearDown(() => app.shutdown());
 
-    test(
-      'request.validate renders 422 with Laravel JSON and unique hits the database',
-      () async {
-        final response = await app.handle(
-          Request.fake(
-            method: 'POST',
-            path: '/api/users',
-            json: {'email': 'taken@x.test', 'name': 'toolong'},
-          ),
-        );
-        expect(response.status, 422);
-        expect(await response.bodyText(), contains('"errors"'));
-        expect(
-          await response.bodyText(),
-          contains('The email has already been taken.'),
-        );
-        expect(await response.bodyText(), contains('(and 1 more error)'));
+    test('request.validate renders 422 with Laravel JSON and unique hits the database', () async {
+      final response = await app.handle(
+        Request.fake(
+          method: 'POST',
+          path: '/api/users',
+          json: {'email': 'taken@x.test', 'name': 'toolong'},
+        ),
+      );
+      expect(response.status, 422);
+      expect(await response.bodyText(), contains('"errors"'));
+      expect(
+        await response.bodyText(),
+        contains('The email has already been taken.'),
+      );
+      expect(await response.bodyText(), contains('(and 1 more error)'));
 
-        final ok = await app.handle(
-          Request.fake(
-            method: 'POST',
-            path: '/api/users',
-            json: {'email': 'new@x.test', 'name': 'Ana', 'extra': 1},
-          ),
-        );
-        expect(ok.status, 201);
-        expect(await ok.bodyText(), '{"email":"new@x.test","name":"Ana"}');
-      },
-    );
+      final ok = await app.handle(
+        Request.fake(
+          method: 'POST',
+          path: '/api/users',
+          json: {'email': 'new@x.test', 'name': 'Ana', 'extra': 1},
+        ),
+      );
+      expect(ok.status, 201);
+      expect(await ok.bodyText(), '{"email":"new@x.test","name":"Ana"}');
+    });
 
     test('FormRequest authorizes, prepares and validates', () async {
       final forbidden = await app.handle(

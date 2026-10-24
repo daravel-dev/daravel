@@ -1,6 +1,7 @@
 import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
+
 import '../foundation/clock.dart';
 
 import 'package:crypto/crypto.dart' as crypto;
@@ -251,11 +252,10 @@ final class ProcessStore implements CacheStore {
   @override
   Future<bool> add(String key, Object? value, {Duration? ttl}) async =>
       await _call('add', {
-            'key': key,
-            'value': value,
-            'ttl': ttl?.inMilliseconds,
-          })
-          as bool;
+        'key': key,
+        'value': value,
+        'ttl': ttl?.inMilliseconds,
+      }) as bool;
 
   @override
   Future<int> increment(String key, [int by = 1]) async =>
@@ -278,11 +278,10 @@ final class ProcessStore implements CacheStore {
   @override
   Future<bool> acquireLock(String name, String owner, Duration ttl) async =>
       await _call('acquireLock', {
-            'key': name,
-            'owner': owner,
-            'ttl': ttl.inMilliseconds,
-          })
-          as bool;
+        'key': name,
+        'owner': owner,
+        'ttl': ttl.inMilliseconds,
+      }) as bool;
 
   @override
   Future<bool> releaseLock(String name, String owner) async =>

@@ -15,7 +15,7 @@ Blueprints and reviews are written in Bahasa Indonesia; code, identifiers, comme
 
 ## Commands
 
-Pub workspace (Dart SDK ^3.9): run `dart pub get` once at the repo root. Tests must be run **from inside each package directory**.
+Pub workspace (Dart SDK `^3.13`). The SDK is pinned in `.fvmrc` (Flutter 3.47.5 = Dart 3.13.4): run commands as `fvm dart …`, because a plain `dart` earlier on PATH may be older and is rejected by the `^3.13` constraint. The commands below write `dart` for brevity. Run `dart pub get` once at the repo root. Tests must be run **from inside each package directory**.
 
 ```bash
 dart format --output=none --set-exit-if-changed .   # CI gate
@@ -44,8 +44,8 @@ dart run bin/dartisan.dart key:generate
 dart run bin/dartisan.dart migrate --seed
 dart run bin/dartisan.dart serve --watch          # hot reload; --isolates=N for supervisor mode
 dart run bin/dartisan.dart lint                   # daravel_lints + registry check
-mkdir -p build && dart compile exe bin/server.dart -o build/server.exe
-dart run tool/smoke.dart build/server.exe         # CI smoke test of the AOT binary
+dart build cli -t bin/server.dart -o build/server   # AOT bundle: bundle/bin/server + bundle/lib/sqlite3
+dart run tool/smoke.dart                          # CI smoke test of build/server/bundle/bin/server(.exe)
 ```
 
 `migrate:fresh` refuses to run when `APP_ENV=production`, which is the default without a `.env`; use `APP_ENV=local`. For throwaway runs, set `DB_DATABASE=":memory:"`.

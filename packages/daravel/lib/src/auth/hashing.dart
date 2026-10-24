@@ -43,7 +43,7 @@ final class HashInfo {
 /// (`config/hashing.php` parity).
 final class HashConfig implements ConfigSection {
   const HashConfig({
-    this.driver = HashDriver.argon2id,
+    this.driver = .argon2id,
     this.bcryptRounds = 12,
     this.argonMemory = 65536,
     this.argonTime = 3,
@@ -151,12 +151,12 @@ final class HashManager {
     }
     final o = parsed.options;
     return switch (config.driver) {
-      HashDriver.bcrypt => o['rounds'] != config.bcryptRounds,
-      HashDriver.argon2id =>
+      .bcrypt => o['rounds'] != config.bcryptRounds,
+      .argon2id =>
         o['memory'] != config.argonMemory ||
             o['time'] != config.argonTime ||
             o['threads'] != config.argonThreads,
-      HashDriver.pbkdf2 => o['iterations'] != config.pbkdf2Iterations,
+      .pbkdf2 => o['iterations'] != config.pbkdf2Iterations,
     };
   }
 
@@ -164,7 +164,7 @@ final class HashManager {
   HashInfo info(String hashed) {
     if (RegExp(r'^\$2[aby]\$\d{2}\$.{53}$').hasMatch(hashed)) {
       return HashInfo(
-        driver: HashDriver.bcrypt,
+        driver: .bcrypt,
         options: {'rounds': int.parse(hashed.substring(4, 6))},
       );
     }
@@ -173,7 +173,7 @@ final class HashManager {
     ).firstMatch(hashed);
     if (argon != null) {
       return HashInfo(
-        driver: HashDriver.argon2id,
+        driver: .argon2id,
         options: {
           'memory': int.parse(argon[1]!),
           'time': int.parse(argon[2]!),
@@ -186,7 +186,7 @@ final class HashManager {
     ).firstMatch(hashed);
     if (pbkdf2 != null) {
       return HashInfo(
-        driver: HashDriver.pbkdf2,
+        driver: .pbkdf2,
         options: {'iterations': int.parse(pbkdf2[1]!)},
       );
     }
@@ -205,18 +205,18 @@ final class HashManager {
     HashDriver driver,
     HashConfig cfg,
   ) async => switch (driver) {
-    HashDriver.bcrypt => bc.BCrypt.hashpw(
+    .bcrypt => bc.BCrypt.hashpw(
       plain,
       bc.BCrypt.gensalt(prefix: r'$2y', logRounds: cfg.bcryptRounds),
     ),
-    HashDriver.argon2id => await _argon2(
+    .argon2id => await _argon2(
       plain,
       _randomBytes(16),
       memory: cfg.argonMemory,
       time: cfg.argonTime,
       threads: cfg.argonThreads,
     ),
-    HashDriver.pbkdf2 => await _pbkdf2(
+    .pbkdf2 => await _pbkdf2(
       plain,
       _randomBytes(16),
       iterations: cfg.pbkdf2Iterations,
@@ -230,9 +230,9 @@ final class HashManager {
   ) async {
     try {
       switch (driver) {
-        case HashDriver.bcrypt:
+        case .bcrypt:
           return bc.BCrypt.checkpw(plain, hashed);
-        case HashDriver.argon2id:
+        case .argon2id:
           final parts = hashed.split(r'$');
           final params = <String, int>{
             for (final kv in parts[3].split(','))
@@ -246,7 +246,7 @@ final class HashManager {
             threads: params['p']!,
           );
           return constantTimeEquals(recomputed, hashed);
-        case HashDriver.pbkdf2:
+        case .pbkdf2:
           final parts = hashed.split(r'$');
           final iterations = int.parse(parts[2].substring(2));
           final recomputed = await _pbkdf2(

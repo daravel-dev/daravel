@@ -128,9 +128,8 @@ void main() {
     await app.run(() async {
       await Storage.put('private.txt', 'secret');
       expect(
-        File(
-          p.join(base.path, 'storage', 'app', 'private', 'private.txt'),
-        ).existsSync(),
+        File(p.join(base.path, 'storage', 'app', 'private', 'private.txt'))
+            .existsSync(),
         isTrue,
       );
       await Storage.disk('public').put('avatars/a.png', [1]);
@@ -144,9 +143,8 @@ void main() {
       await Storage.disk('public').put('x.txt', 'y');
       fake.assertExists('x.txt', 'y');
       expect(
-        File(
-          p.join(base.path, 'storage', 'app', 'public', 'x.txt'),
-        ).existsSync(),
+        File(p.join(base.path, 'storage', 'app', 'public', 'x.txt'))
+            .existsSync(),
         isFalse,
       );
 

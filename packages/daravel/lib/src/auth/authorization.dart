@@ -8,25 +8,25 @@ import 'contracts.dart';
 
 /// Ability callback: returns `bool`, [AuthResponse] or `null` (= no opinion
 /// in `before`/`after` hooks, deny in abilities).
-typedef GateCallback =
-    FutureOr<Object?> Function(Authenticatable? user, List<Object?> args);
+typedef GateCallback = FutureOr<Object?> Function(
+  Authenticatable? user,
+  List<Object?> args,
+);
 
 /// `before` hook: a non-null result short-circuits the check.
-typedef GateBeforeHook =
-    FutureOr<Object?> Function(
-      Authenticatable? user,
-      String ability,
-      List<Object?> args,
-    );
+typedef GateBeforeHook = FutureOr<Object?> Function(
+  Authenticatable? user,
+  String ability,
+  List<Object?> args,
+);
 
 /// `after` hook: may override the result by returning non-null.
-typedef GateAfterHook =
-    FutureOr<Object?> Function(
-      Authenticatable? user,
-      String ability,
-      AuthResponse result,
-      List<Object?> args,
-    );
+typedef GateAfterHook = FutureOr<Object?> Function(
+  Authenticatable? user,
+  String ability,
+  AuthResponse result,
+  List<Object?> args,
+);
 
 /// Result of an authorization check with an optional message and code.
 final class AuthResponse {
@@ -138,9 +138,8 @@ final class _PolicyEntry {
 /// Ability registry and checker (Laravel `Gate`). One instance per
 /// application; [forUser] yields a view bound to a specific user.
 final class AuthorizationGate {
-  AuthorizationGate({Future<Authenticatable?> Function()? userResolver})
-    : _userResolver = userResolver,
-      _boundUser = null,
+  AuthorizationGate({this._userResolver})
+    : _boundUser = null,
       _isBound = false,
       _abilities = <String, GateCallback>{},
       _policies = <_PolicyEntry>[],

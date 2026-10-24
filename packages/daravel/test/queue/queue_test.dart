@@ -193,9 +193,8 @@ void main() {
         await app!.run(() async {
           final manager = Queue.manager;
           final driver = manager.connection();
-          await Queue.dispatch(
-            const Greet('cy', failTimes: 1),
-          ).onQueue('emails');
+          await Queue.dispatch(const Greet('cy', failTimes: 1))
+              .onQueue('emails');
           await Queue.dispatch(const Greet('di', failTimes: 9));
           expect(await driver.size('emails'), 1);
           expect(await driver.size('default'), 1);
@@ -236,9 +235,8 @@ void main() {
 
           // Third attempt of di exhausts tries=3 → failed_jobs + failed() hook.
           await Future<void>.delayed(const Duration(milliseconds: 5100));
-          await QueueWorker(
-            manager,
-          ).run(const WorkerOptions(stopWhenEmpty: true));
+          await QueueWorker(manager)
+              .run(const WorkerOptions(stopWhenEmpty: true));
           expect(log, contains('failed:di'));
           expect(await driver.size('default'), 0);
           final failed = await manager.processor.failedJobs.all();
@@ -258,9 +256,8 @@ void main() {
       await boot('memory');
       await app!.run(() async {
         await Queue.push(const Slow());
-        await QueueWorker(
-          Queue.manager,
-        ).run(const WorkerOptions(stopWhenEmpty: true));
+        await QueueWorker(Queue.manager)
+            .run(const WorkerOptions(stopWhenEmpty: true));
         final failed = await Queue.manager.processor.failedJobs.all();
         expect(failed.single.exception, contains('TimeoutException'));
         await Future<void>.delayed(const Duration(milliseconds: 250));
@@ -277,9 +274,8 @@ void main() {
       expect(first, isNotNull);
       expect(duplicate, isNull);
       expect(await Queue.size(), 1);
-      await QueueWorker(
-        Queue.manager,
-      ).run(const WorkerOptions(stopWhenEmpty: true));
+      await QueueWorker(Queue.manager)
+          .run(const WorkerOptions(stopWhenEmpty: true));
       expect(await Queue.push(const Greet('ed', unique: 'ed')), isNotNull);
     });
   });
@@ -288,15 +284,13 @@ void main() {
     await boot('memory');
     await app!.run(() async {
       final driver = Queue.connection();
-      final lock = Cache.store(
-        'process',
-      ).lock('overlap:exclusive:k1', owner: 'someone');
+      final lock = Cache.store('process')
+          .lock('overlap:exclusive:k1', owner: 'someone');
       expect(await lock.acquire(), isTrue);
       await Queue.push(const Exclusive('k1'));
       await Queue.push(const Exclusive('k2'));
-      await QueueWorker(
-        Queue.manager,
-      ).run(const WorkerOptions(stopWhenEmpty: true));
+      await QueueWorker(Queue.manager)
+          .run(const WorkerOptions(stopWhenEmpty: true));
       expect(log, ['exclusive:k2']);
       expect(
         await driver.size('default'),
@@ -311,9 +305,8 @@ void main() {
         const Controlled('delete'),
         const Controlled('fail'),
       ]);
-      await QueueWorker(
-        Queue.manager,
-      ).run(const WorkerOptions(stopWhenEmpty: true));
+      await QueueWorker(Queue.manager)
+          .run(const WorkerOptions(stopWhenEmpty: true));
       expect(
         await driver.size('default'),
         2,

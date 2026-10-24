@@ -228,13 +228,13 @@ final class Container {
     }
 
     switch (binding.lifetime) {
-      case Lifetime.singleton:
+      case .singleton:
         final created = _build(key, binding);
         _instances[key] = created;
         return created;
-      case Lifetime.transient:
+      case .transient:
         return _build(key, binding);
-      case Lifetime.scoped:
+      case .scoped:
         if (scope == null) {
           throw ScopeRequiredException(key);
         }

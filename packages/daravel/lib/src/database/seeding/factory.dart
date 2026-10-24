@@ -29,9 +29,8 @@ final class ModelFactory<T extends Model> {
     this._define, {
     this.states = const <String, FactoryState>{},
     Faker? faker,
-    DatabaseManager? db,
-  }) : faker = faker ?? Faker(),
-       _db = db;
+    this._db,
+  }) : faker = faker ?? Faker();
 
   final ModelDefinition<T> definition;
   final FactoryDefinition _define;

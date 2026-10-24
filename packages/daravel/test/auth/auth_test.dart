@@ -172,25 +172,22 @@ void main() {
     ),
   );
 
-  test(
-    'token guard: 401 without token, user resolved with a valid token',
-    () async {
-      final denied = await get('/me');
-      expect(denied.status, 401);
-      expect(denied.json, {'message': 'Unauthenticated.'});
+  test('token guard: 401 without token, user resolved with a valid token', () async {
+    final denied = await get('/me');
+    expect(denied.status, 401);
+    expect(denied.json, {'message': 'Unauthenticated.'});
 
-      final issued = await app.run(() => Auth.issueToken(ana, 'cli'));
-      expect(issued.plainTextToken, matches(RegExp(r'^\d+\|[A-Za-z0-9]{40}$')));
-      final ok = await get('/me', token: issued.plainTextToken);
-      expect(ok.status, 200);
-      expect(ok.json, {'id': ana.id, 'guard': 'token'});
+    final issued = await app.run(() => Auth.issueToken(ana, 'cli'));
+    expect(issued.plainTextToken, matches(RegExp(r'^\d+\|[A-Za-z0-9]{40}$')));
+    final ok = await get('/me', token: issued.plainTextToken);
+    expect(ok.status, 200);
+    expect(ok.json, {'id': ana.id, 'guard': 'token'});
 
-      final tampered =
-          '${issued.plainTextToken.substring(0, issued.plainTextToken.length - 1)}x';
-      expect((await get('/me', token: tampered)).status, 401);
-      expect((await get('/me', token: 'garbage')).status, 401);
-    },
-  );
+    final tampered =
+        '${issued.plainTextToken.substring(0, issued.plainTextToken.length - 1)}x';
+    expect((await get('/me', token: tampered)).status, 401);
+    expect((await get('/me', token: 'garbage')).status, 401);
+  });
 
   test('abilities, last_used_at and revocation', () async {
     final token = await app.run(

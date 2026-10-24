@@ -42,7 +42,7 @@ final class Encrypter {
   Encrypter(
     List<int> key, {
     List<List<int>> previousKeys = const <List<int>>[],
-    this.cipher = EncryptionCipher.aes256gcm,
+    this.cipher = .aes256gcm,
   }) : _keys = <List<int>>[key, ...previousKeys] {
     for (final k in _keys) {
       if (k.length != 32) {
@@ -58,7 +58,7 @@ final class Encrypter {
   factory Encrypter.fromAppKey(
     String appKey, {
     Iterable<String> previousKeys = const <String>[],
-    EncryptionCipher cipher = EncryptionCipher.aes256gcm,
+    EncryptionCipher cipher = .aes256gcm,
   }) => Encrypter(
     parseKey(appKey),
     previousKeys: previousKeys
@@ -110,7 +110,7 @@ final class Encrypter {
     final secret = cg.SecretKey(key);
     final Map<String, String> payload;
     switch (cipher) {
-      case EncryptionCipher.aes256gcm:
+      case .aes256gcm:
         final iv = _randomBytes(12);
         final box = await cg.AesGcm.with256bits().encrypt(
           plain,
@@ -123,7 +123,7 @@ final class Encrypter {
           'mac': '',
           'tag': base64.encode(box.mac.bytes),
         };
-      case EncryptionCipher.aes256cbc:
+      case .aes256cbc:
         final iv = _randomBytes(16);
         final box = await cg.AesCbc.with256bits(
           macAlgorithm: cg.MacAlgorithm.empty,
@@ -190,12 +190,11 @@ final class Encrypter {
         return null;
       }
       final plain =
-          await cg.AesCbc.with256bits(
-            macAlgorithm: cg.MacAlgorithm.empty,
-          ).decrypt(
-            cg.SecretBox(value, nonce: iv, mac: cg.Mac.empty),
-            secretKey: secret,
-          );
+          await cg.AesCbc.with256bits(macAlgorithm: cg.MacAlgorithm.empty)
+              .decrypt(
+                cg.SecretBox(value, nonce: iv, mac: cg.Mac.empty),
+                secretKey: secret,
+              );
       return utf8.decode(plain);
     } on cg.SecretBoxAuthenticationError {
       return null;

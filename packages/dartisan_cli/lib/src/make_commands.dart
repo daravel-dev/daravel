@@ -175,9 +175,8 @@ final class MakeMigrationCommand extends MakeCommand {
     final raw = nameArgument;
     var create = argResults!['create'] as String?;
     final table = argResults!['table'] as String?;
-    final guessed = RegExp(
-      r'^create_(\w+)_table$',
-    ).firstMatch(Naming.snake(raw));
+    final guessed = RegExp(r'^create_(\w+)_table$')
+        .firstMatch(Naming.snake(raw));
     if (create == null && table == null && guessed != null) {
       create = guessed.group(1);
     }

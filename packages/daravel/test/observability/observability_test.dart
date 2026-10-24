@@ -9,7 +9,7 @@ void main() {
   group('Logger', () {
     test('levels, redaction, shared and scope context', () async {
       final memory = MemoryHandler();
-      final logger = Logger(minimumLevel: LogLevel.info, handlers: [memory])
+      final logger = Logger(minimumLevel: .info, handlers: [memory])
         ..shareContext({'app': 'demo'});
       logger
         ..debug('hidden')

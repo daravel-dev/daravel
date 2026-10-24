@@ -40,18 +40,18 @@ abstract class ModelObserver<T extends Model> {
 
   /// Dispatches [event] to the matching hook.
   FutureOr<bool?> handle(ModelEvent event, T model) => switch (event) {
-    ModelEvent.retrieved => retrieved(model),
-    ModelEvent.creating => creating(model),
-    ModelEvent.created => created(model),
-    ModelEvent.updating => updating(model),
-    ModelEvent.updated => updated(model),
-    ModelEvent.saving => saving(model),
-    ModelEvent.saved => saved(model),
-    ModelEvent.deleting => deleting(model),
-    ModelEvent.deleted => deleted(model),
-    ModelEvent.restoring => restoring(model),
-    ModelEvent.restored => restored(model),
-    ModelEvent.forceDeleting => forceDeleting(model),
-    ModelEvent.forceDeleted => forceDeleted(model),
+    .retrieved => retrieved(model),
+    .creating => creating(model),
+    .created => created(model),
+    .updating => updating(model),
+    .updated => updated(model),
+    .saving => saving(model),
+    .saved => saved(model),
+    .deleting => deleting(model),
+    .deleted => deleted(model),
+    .restoring => restoring(model),
+    .restored => restored(model),
+    .forceDeleting => forceDeleting(model),
+    .forceDeleted => forceDeleted(model),
   };
 }

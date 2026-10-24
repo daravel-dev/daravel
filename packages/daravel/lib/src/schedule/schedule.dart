@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+
 import '../foundation/clock.dart';
 
 import '../cache/cache.dart';
@@ -8,12 +9,13 @@ import '../foundation/exceptions.dart';
 import '../logging/logger.dart';
 import '../queue/job.dart';
 import '../queue/queue_manager.dart';
-import '../server/coordinator.dart';
 import 'cron.dart';
 
 /// Runs a console command by name (wired by the CLI runner).
-typedef ScheduleCommandRunner =
-    Future<int> Function(String command, List<String> args);
+typedef ScheduleCommandRunner = Future<int> Function(
+  String command,
+  List<String> args,
+);
 
 /// What a scheduled task does.
 sealed class ScheduledAction {
@@ -46,7 +48,7 @@ final class ExecAction extends ScheduledAction {
 
 /// A task with its cron expression, filters and hooks (Laravel `Event`).
 final class ScheduledTask {
-  ScheduledTask(this.action, {String? name}) : _name = name;
+  ScheduledTask(this.action, {this._name});
 
   final ScheduledAction action;
   String? _name;
@@ -331,7 +333,7 @@ final class Scheduler {
           'withoutOverlapping/onOneServer need a cache lock store.',
         );
       }
-      if (task.singleServer && store.scope != StateScope.cluster) {
+      if (task.singleServer && store.scope != .cluster) {
         throw ConfigException(
           'onOneServer requires a cluster-scope lock store (database/redis); '
           '[${store.scope.name}] is not shared between servers.',

@@ -23,7 +23,7 @@ enum LogLevel {
   static LogLevel parse(String value) {
     final normalized = value.trim().toLowerCase();
     if (normalized == 'warn') {
-      return LogLevel.warning;
+      return .warning;
     }
     return LogLevel.values.firstWhere(
       (l) => l.name == normalized,
@@ -265,7 +265,7 @@ final class LoggingConfig implements ConfigSection {
   const LoggingConfig({
     this.channel = 'stack',
     this.stack = const <String>['console'],
-    this.level = LogLevel.debug,
+    this.level = .debug,
     this.path = 'storage/logs',
     this.days = 14,
     this.redact = defaultRedactedKeys,
@@ -323,7 +323,7 @@ final class LoggingConfig implements ConfigSection {
 final class Logger {
   /// Console logger; pass [handlers] to replace the console output.
   Logger({
-    this.minimumLevel = LogLevel.debug,
+    this.minimumLevel = .debug,
     StringSink? out,
     StringSink? err,
     List<LogHandler>? handlers,

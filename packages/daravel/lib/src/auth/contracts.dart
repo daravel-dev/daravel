@@ -91,11 +91,10 @@ final class ModelUserProvider<T extends Authenticatable>
     implements UserProvider<T> {
   ModelUserProvider(
     this.definition, {
-    HashManager? hasher,
-    String? morphClass,
+    this._hasher,
+    this._morphClass,
     this.passwordKey = 'password',
-  }) : _hasher = hasher,
-       _morphClass = morphClass;
+  });
 
   final ModelDefinition<Model> definition;
   final HashManager? _hasher;

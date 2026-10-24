@@ -14,15 +14,17 @@ final class ConfigIssue {
   final ConfigIssueLevel level;
   final String message;
 
-  bool get isError => level == ConfigIssueLevel.error;
+  bool get isError => level == .error;
 
   @override
   String toString() => '${level.name.toUpperCase()}: $message';
 }
 
 /// A reusable configuration check.
-typedef ConfigCheck =
-    Iterable<ConfigIssue> Function(Env env, ConfigRepository config);
+typedef ConfigCheck = Iterable<ConfigIssue> Function(
+  Env env,
+  ConfigRepository config,
+);
 
 /// Validates configuration at boot (BLUEPRINT_V2 §5.3 step 3, §9.2).
 ///

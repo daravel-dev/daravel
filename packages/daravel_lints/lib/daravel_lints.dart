@@ -190,11 +190,11 @@ final class NoSqlStringInterpolation extends LintRule {
 
   @override
   void check(CompilationUnit unit, void Function(AstNode, String) report) {
-    void inspect(AstNode node, String callee, NodeList<Expression> arguments) {
+    void inspect(AstNode node, String callee, NodeList<Argument> arguments) {
       if (arguments.isEmpty) {
         return;
       }
-      final sql = arguments.first;
+      final sql = arguments.first.argumentExpression;
       if (_interpolates(sql)) {
         report(
           sql,
@@ -320,9 +320,8 @@ bool _suppressed(List<String> lines, CharacterLocation location, String rule) {
   bool mentions(int index) =>
       index >= 0 &&
       index < lines.length &&
-      RegExp(
-        'daravel-lint-ignore:[^\\n]*\\b${RegExp.escape(rule)}\\b',
-      ).hasMatch(lines[index]);
+      RegExp('daravel-lint-ignore:[^\\n]*\\b${RegExp.escape(rule)}\\b')
+          .hasMatch(lines[index]);
   return mentions(location.lineNumber - 1) || mentions(location.lineNumber - 2);
 }
 

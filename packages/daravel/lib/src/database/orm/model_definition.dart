@@ -7,8 +7,10 @@ import 'observer.dart';
 import 'relations.dart';
 
 /// Local scope: `scopes: {'published': (q, args) => q.where('published', true)}`.
-typedef ScopeFn<T extends Model> =
-    void Function(ModelQuery<T> query, List<Object?> args);
+typedef ScopeFn<T extends Model> = void Function(
+  ModelQuery<T> query,
+  List<Object?> args,
+);
 
 /// Global scope applied to every query unless `withoutGlobalScopes()`.
 typedef GlobalScopeFn<T extends Model> = void Function(ModelQuery<T> query);
@@ -45,7 +47,7 @@ final class ModelDefinition<T extends Model> {
     required this.table,
     required this.factory,
     this.primaryKey = 'id',
-    this.keyType = KeyType.autoInt,
+    this.keyType = .autoInt,
     this.connection,
     this.fillable = const <String>[],
     this.guarded = const <String>['*'],

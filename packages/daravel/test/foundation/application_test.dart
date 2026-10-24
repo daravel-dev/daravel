@@ -48,9 +48,9 @@ final class _CacheProvider extends DeferredServiceProvider {
   }
 }
 
-ApplicationBuilder _builder(Map<String, String> env) => Application.configure(
-  basePath: Directory.systemTemp.path,
-).withEnv({'APP_ENV': 'testing', 'DB_DATABASE': ':memory:', ...env});
+ApplicationBuilder _builder(Map<String, String> env) =>
+    Application.configure(basePath: Directory.systemTemp.path)
+        .withEnv({'APP_ENV': 'testing', 'DB_DATABASE': ':memory:', ...env});
 
 void main() {
   tearDown(() => Container.setRoot(null));
@@ -59,9 +59,9 @@ void main() {
     'providers register before any boot; deferred ones register lazily',
     () async {
       final log = <String>[];
-      final app = _builder(
-        {},
-      ).withProviders([_CacheProvider(log), _ClockProvider(log)]).create();
+      final app = _builder({})
+          .withProviders([_CacheProvider(log), _ClockProvider(log)])
+          .create();
       await app.boot();
 
       expect(log, ['clock.register', 'clock.boot']);
@@ -91,10 +91,8 @@ void main() {
   test(
     'debug mode in production aborts the boot unless explicitly allowed',
     () async {
-      final strict = _builder({
-        'APP_ENV': 'production',
-        'APP_DEBUG': 'true',
-      }).create();
+      final strict = _builder({'APP_ENV': 'production', 'APP_DEBUG': 'true'})
+          .create();
       await expectLater(strict.boot(), throwsA(isA<ConfigException>()));
 
       final allowed = _builder({

@@ -12,7 +12,7 @@
 
 <p align="center">
   <a href="https://github.com/teoprayoga/daravel/actions/workflows/ci.yml"><img src="https://github.com/teoprayoga/daravel/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://dart.dev"><img src="https://img.shields.io/badge/Dart-%5E3.9-0175C2?logo=dart&logoColor=white" alt="Dart ^3.9"></a>
+  <a href="https://dart.dev"><img src="https://img.shields.io/badge/Dart-%5E3.13-0175C2?logo=dart&logoColor=white" alt="Dart ^3.13"></a>
   <a href="https://dart.dev/tools/dart-compile#exe"><img src="https://img.shields.io/badge/AOT-native%20binary-16A34A" alt="AOT native binary"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
   <img src="https://img.shields.io/badge/status-Tier%201%20·%20S13%20of%2014-F59E0B" alt="Status: Tier 1, slice 13 of 14">
@@ -38,8 +38,8 @@ Daravel is a backend framework for Dart that follows the **Laravel 11/12 philoso
 and elegant syntax, batteries included, and conventions that make common tasks disappear. It keeps
 what makes Laravel loved and adds what only Dart can offer:
 
-- **A single native binary.** `dart compile exe` produces one self-contained executable with
-  millisecond startup. No interpreter, no FPM, no build step for your users.
+- **A native AOT binary.** `dart build cli` produces a self-contained executable (with SQLite
+  bundled next to it) and millisecond startup. No interpreter, no FPM, no build step for your users.
 - **Static types, everywhere.** Routes, validation, configuration and models are checked by the
   Dart analyzer before a request is ever served.
 - **Octane-grade concurrency, by design.** A supervisor runs N worker isolates on one port; every
@@ -269,9 +269,10 @@ fake.assertPushed<SendWelcomeEmail>();
 
 ## Quick start
 
-Requires the [Dart SDK](https://dart.dev/get-dart) `^3.9`. On Linux install the SQLite library
-(`sudo apt-get install libsqlite3-0`); Windows falls back to the system `winsqlite3.dll`
-automatically.
+Requires the [Dart SDK](https://dart.dev/get-dart) `^3.13` (Flutter 3.47+). No system SQLite is
+needed: `package:sqlite3` downloads a hash-verified SQLite build through a build hook and bundles
+it with the app (set `hooks: user_defines: sqlite3: source: system` in `pubspec.yaml` to use the
+OS library instead).
 
 ```bash
 git clone https://github.com/teoprayoga/daravel.git
@@ -311,12 +312,13 @@ dart run bin/dartisan.dart queue:work --queue=emails,default
 dart run bin/dartisan.dart schedule:work
 ```
 
-Ship it as a native binary:
+Ship it as a native bundle (`bin/server` plus the bundled SQLite in `lib/`; deploy the directory):
 
 ```bash
-dart compile exe bin/server.dart -o build/server   # build/server.exe on Windows
-APP_ISOLATES=4 METRICS_ENABLED=true ./build/server
-dart run tool/smoke.dart build/server              # boots the binary and probes it
+dart run bin/dartisan.dart build                   # = dart build cli -t bin/server.dart -o build/server
+APP_ISOLATES=4 METRICS_ENABLED=true ./build/server/bundle/bin/server
+dart run tool/smoke.dart                           # boots the bundle and probes it
+dart run bin/dartisan.dart build --docker          # multi-stage Dockerfile, no libsqlite3 needed
 ```
 
 ## Project structure
@@ -452,7 +454,7 @@ together with usage rules. Every file is generated from geometry in `tool/brand/
 
 Every commit runs on Linux, Windows and macOS: `dart format --set-exit-if-changed`,
 `dart analyze --fatal-infos` with strict casts, inference and raw types, `dart test` for every
-package, `dart compile exe` of the starter and a smoke test against the resulting binary.
+package, `dart build cli` of the starter and a smoke test against the resulting binary.
 
 ```bash
 dart format --output=none --set-exit-if-changed .

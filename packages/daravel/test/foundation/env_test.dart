@@ -108,34 +108,29 @@ void main2() {
     expect(() => env.url('TTL'), throwsA(isA<EnvException>()));
   });
 
-  test(
-    'load applies the .env.{APP_ENV} overlay between the base file and overrides',
-    () async {
-      final dir = await Directory.systemTemp.createTemp('daravel_env_');
-      addTearDown(() => dir.delete(recursive: true));
-      await File(
-        p.join(dir.path, '.env'),
-      ).writeAsString('APP_ENV=testing\nA=base\nB=base\nC=base\n');
-      await File(
-        p.join(dir.path, '.env.testing'),
-      ).writeAsString('B=overlay\nC=overlay\nD=\${A}-overlay\n');
+  test('load applies the .env.{APP_ENV} overlay between the base file and overrides', () async {
+    final dir = await Directory.systemTemp.createTemp('daravel_env_');
+    addTearDown(() => dir.delete(recursive: true));
+    await File(p.join(dir.path, '.env'))
+        .writeAsString('APP_ENV=testing\nA=base\nB=base\nC=base\n');
+    await File(p.join(dir.path, '.env.testing'))
+        .writeAsString('B=overlay\nC=overlay\nD=\${A}-overlay\n');
 
-      final env = await Env.load(
-        basePath: dir.path,
-        includePlatform: false,
-        overrides: {'C': 'override'},
-      );
-      expect(env.string('A'), 'base');
-      expect(env.string('B'), 'overlay');
-      expect(env.string('C'), 'override');
-      expect(env.string('D'), 'base-overlay');
+    final env = await Env.load(
+      basePath: dir.path,
+      includePlatform: false,
+      overrides: {'C': 'override'},
+    );
+    expect(env.string('A'), 'base');
+    expect(env.string('B'), 'overlay');
+    expect(env.string('C'), 'override');
+    expect(env.string('D'), 'base-overlay');
 
-      final other = await Env.load(
-        basePath: dir.path,
-        includePlatform: false,
-        overrides: {'APP_ENV': 'production'},
-      );
-      expect(other.string('B'), 'base');
-    },
-  );
+    final other = await Env.load(
+      basePath: dir.path,
+      includePlatform: false,
+      overrides: {'APP_ENV': 'production'},
+    );
+    expect(other.string('B'), 'base');
+  });
 }

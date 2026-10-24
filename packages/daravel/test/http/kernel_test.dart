@@ -11,9 +11,10 @@ final class _Trace implements Middleware {
 
   @override
   Future<Response> handle(Request request, Next next) async {
-    final trace =
-        request.attributes.putIfAbsent('trace', () => <String>[])
-            as List<String>;
+    final trace = request.attributes.putIfAbsent(
+      'trace',
+      () => <String>[],
+    ) as List<String>;
     trace.add(label);
     final response = await next(request);
     return response.withHeader('x-trace-$label', 'done');

@@ -1,4 +1,5 @@
 import 'dart:math';
+
 import '../../foundation/clock.dart';
 
 /// Minimal, dependency-free fake data generator for seeders and factories.

@@ -57,10 +57,11 @@ const String compositionRoot = 'foundation/application.dart';
 
 final String _src = p.join(Directory.current.path, 'lib', 'src');
 
-Iterable<File> _dartFiles(String dir) => Directory(dir)
-    .listSync(recursive: true)
-    .whereType<File>()
-    .where((f) => f.path.endsWith('.dart'));
+Iterable<File> _dartFiles(String dir) =>
+    Directory(dir)
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where((f) => f.path.endsWith('.dart'));
 
 String _module(String file) => p.split(p.relative(file, from: _src)).first;
 

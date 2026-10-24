@@ -15,7 +15,7 @@ jobs:
         sdk: [stable]
         include:
           - os: ubuntu-latest
-            sdk: "3.9.0"
+            sdk: "3.13.0"
     defaults:
       run:
         shell: bash
@@ -25,10 +25,6 @@ jobs:
       - uses: dart-lang/setup-dart@v1
         with:
           sdk: ${{ matrix.sdk }}
-
-      - name: Install SQLite (Linux)
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libsqlite3-0
 
       - name: Resolve workspace
         run: dart pub get
@@ -52,16 +48,12 @@ jobs:
             fi
           done
 
-      - name: Compile AOT binary
+      # `dart build cli` (not `dart compile exe`): package:sqlite3 bundles
+      # SQLite through a build hook, next to the executable.
+      - name: Build AOT bundle
         working-directory: apps/daravel_starter
-        run: |
-          mkdir -p build
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            dart compile exe bin/server.dart -o build/server.exe
-          else
-            dart compile exe bin/server.dart -o build/server
-          fi
+        run: dart build cli -t bin/server.dart -o build/server
 
-      - name: Smoke test AOT binary
+      - name: Smoke test AOT bundle
         working-directory: apps/daravel_starter
         run: dart run tool/smoke.dart

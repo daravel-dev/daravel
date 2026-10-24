@@ -40,9 +40,9 @@ void main() {
   test('register → me → logout → 401', () async {
     final token = await register();
     expect(token, matches(RegExp(r'^\d+\|[A-Za-z0-9]{40}$')));
-    (await client.get(
-      '/api/auth/me',
-    )).assertUnauthorized().assertJsonPath('message', 'Unauthenticated.');
+    (await client.get('/api/auth/me'))
+        .assertUnauthorized()
+        .assertJsonPath('message', 'Unauthenticated.');
     (await client.withToken(token).get('/api/auth/me'))
         .assertOk()
         .assertJsonPath('data.email', 'ana@example.com')

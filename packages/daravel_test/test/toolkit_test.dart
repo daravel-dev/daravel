@@ -158,10 +158,9 @@ void main() {
       'email': 'di@x.io',
     });
     (await db.client.get('/me')).assertUnauthorized();
-    (await db.client.actingAs(member).get('/me')).assertOk().assertJsonPath(
-      'id',
-      member.id,
-    );
+    (await db.client.actingAs(member).get('/me'))
+        .assertOk()
+        .assertJsonPath('id', member.id);
     (await db.client.actingAs(member, guard: 'token').get('/me')).assertOk();
   });
 
@@ -228,9 +227,8 @@ void main() {
     tearDown(() => root.delete(recursive: true));
 
     test('pass on a clean project and fail on violations', () {
-      File(
-        '${root.path}/lib/app/http/ok.dart',
-      ).writeAsStringSync('class Ok { static const x = 1; }\n');
+      File('${root.path}/lib/app/http/ok.dart')
+          .writeAsStringSync('class Ok { static const x = 1; }\n');
       expectNoMutableStatics(root.path);
       expectRegistryComplete(root.path);
       expectLintClean(root.path);
@@ -239,9 +237,8 @@ void main() {
       File('${root.path}/lib/app/http/bad.dart').writeAsStringSync(
         "import 'dart:io';\nclass Bad { static int n = 0; }\n",
       );
-      File(
-        '${root.path}/lib/app/jobs/lost.dart',
-      ).writeAsStringSync('class Lost {}\n');
+      File('${root.path}/lib/app/jobs/lost.dart')
+          .writeAsStringSync('class Lost {}\n');
       expect(
         () => expectNoMutableStatics(root.path),
         throwsA(isA<TestFailure>()),

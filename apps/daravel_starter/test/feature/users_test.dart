@@ -59,9 +59,9 @@ void main() {
         .assertJsonPath('data.id', 1)
         .assertJsonPath('data.email', 'ana@example.com');
 
-    (await client.get(
-      '/api/users/1',
-    )).assertOk().assertJsonPath('data.name', 'Ana');
+    (await client.get('/api/users/1'))
+        .assertOk()
+        .assertJsonPath('data.name', 'Ana');
 
     (await client.post(
       '/api/users',

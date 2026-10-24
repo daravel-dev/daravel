@@ -229,9 +229,9 @@ final class BelongsToMany<R extends Model> extends Relation<R> {
   }
 
   @override
-  ModelQuery<R> queryFor(Model parent, DatabaseManager db) => _base(
-    db,
-  ).where('$pivotTable.$foreignPivotKey', parent.attributes[parentKey]);
+  ModelQuery<R> queryFor(Model parent, DatabaseManager db) =>
+      _base(db)
+          .where('$pivotTable.$foreignPivotKey', parent.attributes[parentKey]);
 
   @override
   Future<void> eagerLoad(
@@ -306,9 +306,8 @@ final class BelongsToMany<R extends Model> extends Relation<R> {
   }
 
   Future<int> detach(Model parent, DatabaseManager db, Object? ids) {
-    final query = _pivot(
-      db,
-    ).where(foreignPivotKey, parent.attributes[parentKey]);
+    final query = _pivot(db)
+        .where(foreignPivotKey, parent.attributes[parentKey]);
     if (ids != null) {
       query.whereIn(relatedPivotKey, _ids(ids));
     }
@@ -385,9 +384,9 @@ final class HasManyThrough<R extends Model> extends Relation<R> {
   }
 
   @override
-  ModelQuery<R> queryFor(Model parent, DatabaseManager db) => _base(
-    db,
-  ).where('${through().table}.$firstKey', parent.attributes[localKey]);
+  ModelQuery<R> queryFor(Model parent, DatabaseManager db) =>
+      _base(db)
+          .where('${through().table}.$firstKey', parent.attributes[localKey]);
 
   @override
   Future<void> eagerLoad(

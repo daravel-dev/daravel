@@ -54,7 +54,7 @@ void main() {
           shutdownTimeout: const Duration(seconds: 5),
           readyTimeout: const Duration(seconds: 60),
         ),
-        logger: Logger(minimumLevel: LogLevel.warning),
+        logger: Logger(minimumLevel: .warning),
       );
       await supervisor.start();
       addTearDown(supervisor.stop);

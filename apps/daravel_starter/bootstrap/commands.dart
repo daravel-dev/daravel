@@ -1,5 +1,6 @@
 // Console command registry (custom dartisan commands).
 import 'package:dartisan_cli/dartisan_cli.dart';
+
 // <dartisan:imports>
 // </dartisan:imports>
 

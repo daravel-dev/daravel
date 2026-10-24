@@ -331,8 +331,7 @@ final class Generator {
       file,
       paths.migrationsRegistry,
       RegistryPatcher.template(
-        header:
-            '// Migration registry (explicit, AOT-friendly). See BLUEPRINT_V2 ADR-002.',
+        header: '// Migration registry (explicit, AOT-friendly). See BLUEPRINT_V2 ADR-002.',
         listType: 'Migration',
         listName: 'migrations',
       ),
@@ -353,8 +352,7 @@ final class Generator {
       file,
       paths.seedersRegistry,
       RegistryPatcher.template(
-        header:
-            '// Seeder registry (explicit, AOT-friendly). The first entry is the root seeder.',
+        header: '// Seeder registry (explicit, AOT-friendly). The first entry is the root seeder.',
         listType: 'Seeder',
         listName: 'seeders',
       ),
@@ -436,8 +434,7 @@ final class Generator {
       file,
       paths.jobsRegistry,
       RegistryPatcher.template(
-        header:
-            '// Job registry (explicit, AOT-friendly): name → factory from JSON.',
+        header: '// Job registry (explicit, AOT-friendly): name → factory from JSON.',
         listType: 'JobDefinition',
         listName: 'jobs',
       ),
@@ -504,8 +501,7 @@ final class Generator {
         file,
         paths.listenersRegistry,
         RegistryPatcher.functionTemplate(
-          header:
-              r'// Listener registry: event → listeners (EventServiceProvider::$listen).',
+          header: r'// Listener registry: event → listeners (EventServiceProvider::$listen).',
           signature: 'void registerListeners(EventDispatcher events)',
         ),
         "import 'package:$_package/app/listeners/${Naming.snake(className)}.dart';",
@@ -524,9 +520,8 @@ final class Generator {
     );
     final hasModel =
         model != null ||
-        File(
-          p.join(paths.models, '${Naming.snake(modelName)}.dart'),
-        ).existsSync();
+        File(p.join(paths.models, '${Naming.snake(modelName)}.dart'))
+            .existsSync();
     return _render(
       p.join(paths.resources, '${Naming.snake(className)}.dart'),
       hasModel ? 'resource.model' : 'resource',

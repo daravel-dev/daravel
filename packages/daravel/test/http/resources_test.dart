@@ -123,9 +123,9 @@ void main() {
       await app.run(() async {
         final author = (await Author.definition.query().find(1))!;
         final plain = await body(
-          AuthorResource(
-            author,
-          ).additional({'trace': 'x'}).toResponse(Request.fake()),
+          AuthorResource(author)
+              .additional({'trace': 'x'})
+              .toResponse(Request.fake()),
         );
         expect(plain, {
           'data': {'id': 1, 'name': 'A1', 'first': true},
@@ -138,9 +138,8 @@ void main() {
             .with_(['books'])
             .find(1))!;
         final admin = await body(
-          AuthorResource(
-            loaded,
-          ).toResponse(Request.fake(query: {'admin': '1'})),
+          AuthorResource(loaded)
+              .toResponse(Request.fake(query: {'admin': '1'})),
         );
         expect((admin['data']! as Map)['admin_note'], 'vip');
         expect((admin['data']! as Map)['books'], [
@@ -164,9 +163,10 @@ void main() {
         final created = await Author.definition.query().create({'name': 'New'});
         expect(AuthorResource(created).toResponse(Request.fake()).status, 201);
         expect(
-          AuthorResource(
-            created,
-          ).withStatus(202).toResponse(Request.fake()).status,
+          AuthorResource(created)
+              .withStatus(202)
+              .toResponse(Request.fake())
+              .status,
           202,
         );
         final nested = jsonDecode(

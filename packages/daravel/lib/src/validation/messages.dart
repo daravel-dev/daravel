@@ -31,10 +31,8 @@ abstract final class ValidationMessages {
       'alpha': 'The :attribute field must only contain letters.',
       'alpha_num':
           'The :attribute field must only contain letters and numbers.',
-      'alpha_dash':
-          'The :attribute field must only contain letters, numbers, dashes, and underscores.',
-      'ascii':
-          'The :attribute field must only contain single-byte alphanumeric characters and symbols.',
+      'alpha_dash': 'The :attribute field must only contain letters, numbers, dashes, and underscores.',
+      'ascii': 'The :attribute field must only contain single-byte alphanumeric characters and symbols.',
       'lowercase': 'The :attribute field must be lowercase.',
       'uppercase': 'The :attribute field must be uppercase.',
       'regex': 'The :attribute field format is invalid.',
@@ -78,8 +76,7 @@ abstract final class ValidationMessages {
       'exists': 'The selected :attribute is invalid.',
       'password.letters':
           'The :attribute field must contain at least one letter.',
-      'password.mixed':
-          'The :attribute field must contain at least one uppercase and one lowercase letter.',
+      'password.mixed': 'The :attribute field must contain at least one uppercase and one lowercase letter.',
       'password.numbers':
           'The :attribute field must contain at least one number.',
       'password.symbols':
@@ -114,10 +111,8 @@ abstract final class ValidationMessages {
       'json': 'Kolom :attribute harus berupa string JSON yang valid.',
       'alpha': 'Kolom :attribute hanya boleh berisi huruf.',
       'alpha_num': 'Kolom :attribute hanya boleh berisi huruf dan angka.',
-      'alpha_dash':
-          'Kolom :attribute hanya boleh berisi huruf, angka, tanda hubung, dan garis bawah.',
-      'ascii':
-          'Kolom :attribute hanya boleh berisi karakter alfanumerik dan simbol single-byte.',
+      'alpha_dash': 'Kolom :attribute hanya boleh berisi huruf, angka, tanda hubung, dan garis bawah.',
+      'ascii': 'Kolom :attribute hanya boleh berisi karakter alfanumerik dan simbol single-byte.',
       'lowercase': 'Kolom :attribute harus huruf kecil.',
       'uppercase': 'Kolom :attribute harus huruf besar.',
       'regex': 'Format kolom :attribute tidak valid.',
@@ -155,8 +150,7 @@ abstract final class ValidationMessages {
       'exists': 'Kolom :attribute yang dipilih tidak valid.',
       'password.letters':
           'Kolom :attribute harus mengandung minimal satu huruf.',
-      'password.mixed':
-          'Kolom :attribute harus mengandung minimal satu huruf besar dan satu huruf kecil.',
+      'password.mixed': 'Kolom :attribute harus mengandung minimal satu huruf besar dan satu huruf kecil.',
       'password.numbers':
           'Kolom :attribute harus mengandung minimal satu angka.',
       'password.symbols':

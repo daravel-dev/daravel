@@ -1,4 +1,5 @@
 import 'dart:math';
+
 import '../../foundation/clock.dart';
 
 import 'package:uuid/uuid.dart';
