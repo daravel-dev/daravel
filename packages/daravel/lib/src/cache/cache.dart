@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math';
+import '../foundation/clock.dart';
 
 import 'package:path/path.dart' as p;
 
@@ -284,7 +285,7 @@ final class CacheRepository {
   ) async {
     final (fresh, stale) = window;
     final raw = await store.get(_key(key));
-    final now = DateTime.now().toUtc().millisecondsSinceEpoch;
+    final now = Clock.now().toUtc().millisecondsSinceEpoch;
     if (raw is Map<String, Object?> && raw['v'] is T && raw['c'] is int) {
       final age = Duration(milliseconds: now - (raw['c'] as int));
       if (age < fresh) {
@@ -316,7 +317,7 @@ final class CacheRepository {
       final value = await compute();
       await store.put(_key(key), <String, Object?>{
         'v': value,
-        'c': DateTime.now().toUtc().millisecondsSinceEpoch,
+        'c': Clock.now().toUtc().millisecondsSinceEpoch,
       }, ttl: stale);
     } finally {
       await guard.release();

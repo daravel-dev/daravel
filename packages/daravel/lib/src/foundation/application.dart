@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'clock.dart';
 
 import '../auth/auth_manager.dart';
 import '../auth/authorization.dart';
@@ -135,7 +136,9 @@ final class Application {
     final appConfig = config.section<AppConfig>();
     exceptions.debug = appConfig.debug;
 
-    final validator = ConfigValidator(extraChecks: _builder._configChecks);
+    final validator = ConfigValidator(
+      extraChecks: [DatabaseConfig.check, ..._builder._configChecks],
+    );
     for (final issue in validator.validateOrThrow(env, config)) {
       logger.warning('Config: ${issue.message}');
     }
@@ -395,7 +398,7 @@ final class Application {
     return <String, Object?>{
       'status': 'ok',
       'app': config.section<AppConfig>().name,
-      'timestamp': DateTime.now().toUtc().toIso8601String(),
+      'timestamp': Clock.now().toUtc().toIso8601String(),
     };
   }
 
@@ -441,10 +444,16 @@ final class Application {
 
   /// Handles one request inside a fresh request scope (used by the server
   /// engine and the test client).
-  Future<Response> handle(Request request) async {
+  /// [prepare] runs inside the request scope before the kernel (the test
+  /// client uses it for `actingAs`).
+  Future<Response> handle(
+    Request request, {
+    FutureOr<void> Function()? prepare,
+  }) async {
     await boot();
-    return container.runScoped<Response>('request', (scope) {
+    return container.runScoped<Response>('request', (scope) async {
       scope.put<Request>(request);
+      await prepare?.call();
       return kernel.handle(request);
     });
   }

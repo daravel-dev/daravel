@@ -1,6 +1,5 @@
 import 'dart:convert';
 
-import '../database/database_config.dart';
 import 'config.dart';
 import 'env.dart';
 import 'exceptions.dart';
@@ -37,11 +36,7 @@ final class ConfigValidator {
   final List<ConfigCheck> _checks;
 
   /// The framework's built-in checks.
-  static final List<ConfigCheck> defaultChecks = [
-    _debugInProduction,
-    _appKey,
-    _databaseDefault,
-  ];
+  static final List<ConfigCheck> defaultChecks = [_debugInProduction, _appKey];
 
   /// Runs every check and returns all issues (errors first).
   List<ConfigIssue> validate(Env env, ConfigRepository config) {
@@ -124,26 +119,6 @@ final class ConfigValidator {
     } on FormatException {
       return const [
         ConfigIssue(ConfigIssueLevel.error, 'APP_KEY is not valid base64.'),
-      ];
-    }
-    return const [];
-  }
-
-  static Iterable<ConfigIssue> _databaseDefault(
-    Env env,
-    ConfigRepository config,
-  ) {
-    if (!config.hasSection<DatabaseConfig>()) {
-      return const [];
-    }
-    final db = config.section<DatabaseConfig>();
-    if (!db.connections.containsKey(db.defaultConnection)) {
-      return [
-        ConfigIssue(
-          ConfigIssueLevel.error,
-          'DB_CONNECTION=${db.defaultConnection} is not a configured '
-          'connection (available: ${db.connections.keys.join(', ')}).',
-        ),
       ];
     }
     return const [];

@@ -1,6 +1,7 @@
 import 'package:path/path.dart' as p;
 
 import '../foundation/config.dart';
+import '../foundation/config_validator.dart';
 import '../foundation/env.dart';
 
 /// A single named connection (`config/database.php` parity).
@@ -36,6 +37,24 @@ final class ConnectionConfig {
 
 /// Database configuration section.
 final class DatabaseConfig implements ConfigSection {
+  /// Boot check: `DB_CONNECTION` must name a configured connection.
+  static Iterable<ConfigIssue> check(Env env, ConfigRepository config) {
+    if (!config.hasSection<DatabaseConfig>()) {
+      return const [];
+    }
+    final db = config.section<DatabaseConfig>();
+    if (!db.connections.containsKey(db.defaultConnection)) {
+      return [
+        ConfigIssue(
+          ConfigIssueLevel.error,
+          'DB_CONNECTION=${db.defaultConnection} is not a configured '
+          'connection (available: ${db.connections.keys.join(', ')}).',
+        ),
+      ];
+    }
+    return const [];
+  }
+
   const DatabaseConfig({
     required this.defaultConnection,
     required this.connections,

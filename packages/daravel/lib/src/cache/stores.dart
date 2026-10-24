@@ -1,6 +1,7 @@
 import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
+import '../foundation/clock.dart';
 
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:path/path.dart' as p;
@@ -156,7 +157,7 @@ final class MemoryStore implements CacheStore {
     return existing.owner;
   }
 
-  static DateTime _utcNow() => DateTime.now().toUtc();
+  static DateTime _utcNow() => Clock.now().toUtc();
 }
 
 /// Coordinator service exposing a [MemoryStore] to every worker
@@ -318,7 +319,7 @@ final class FileStore implements CacheStore {
     '${crypto.sha1.convert(utf8.encode(name))}.lock',
   );
 
-  static int get _now => DateTime.now().toUtc().millisecondsSinceEpoch;
+  static int get _now => Clock.now().toUtc().millisecondsSinceEpoch;
 
   Future<Map<String, Object?>?> _read(String key) async {
     final file = File(_path(key));
@@ -517,7 +518,7 @@ final class DatabaseStore implements CacheStore {
   @override
   StateScope get scope => StateScope.cluster;
 
-  static int get _now => DateTime.now().toUtc().millisecondsSinceEpoch ~/ 1000;
+  static int get _now => Clock.now().toUtc().millisecondsSinceEpoch ~/ 1000;
 
   int _expiration(Duration? ttl) => ttl == null
       ? foreverExpiration

@@ -14,7 +14,7 @@
   <a href="https://dart.dev"><img src="https://img.shields.io/badge/Dart-%5E3.9-0175C2?logo=dart&logoColor=white" alt="Dart ^3.9"></a>
   <a href="https://dart.dev/tools/dart-compile#exe"><img src="https://img.shields.io/badge/AOT-native%20binary-16A34A" alt="AOT native binary"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
-  <img src="https://img.shields.io/badge/status-Tier%201%20·%20S12%20of%2014-F59E0B" alt="Status: Tier 1, slice 12 of 14">
+  <img src="https://img.shields.io/badge/status-Tier%201%20·%20S13%20of%2014-F59E0B" alt="Status: Tier 1, slice 13 of 14">
 </p>
 
 <p align="center">
@@ -50,10 +50,10 @@ what makes Laravel loved and adds what only Dart can offer:
   `failed_jobs` tables are wire- and storage-compatible, so Laravel and Daravel can run side by
   side on the same database.
 
-> **Status.** Tier 1 in progress: slices S1–S12 are done (foundation, HTTP, routing, validation,
+> **Status.** Tier 1 in progress: slices S1–S13 are done (foundation, HTTP, routing, validation,
 > database, ORM, schema & seeding, auth, multi-isolate serving & cache, queue & scheduler,
-> resources, storage & observability, CLI with `new` and hot reload). Next is S13, the testing
-> toolkit. The API is not stable yet.
+> resources, storage & observability, CLI with `new` and hot reload, testing toolkit and lints).
+> Next is S14: conformance suite, benchmarks and documentation. The API is not stable yet.
 
 ## Features
 
@@ -72,7 +72,8 @@ what makes Laravel loved and adds what only Dart can offer:
 | **Queue & schedule** | Events with queued listeners, jobs with retries, backoff, timeouts, unique jobs and middleware; sync/memory/database drivers; cron scheduler with overlap protection |
 | **API & files** | `JsonResource` with conditional attributes and Laravel `data/links/meta` collections; local/public/memory disks with `Storage.fake()` |
 | **Observability** | Channel-based structured logging with request context and secret redaction, Prometheus `/metrics` merged across workers, `/up` and `/up/ready` health probes |
-| **Testing** | `TestClient` with fluent assertions, `Event.fake()`, `Queue.fake()`, `Storage.fake()`, `Log.spy()` |
+| **Testing** | `TestClient` with `actingAs` and 30+ fluent assertions, `refreshDatabase` (migrate once, roll back every test), database assertions, `Event/Queue/Storage` fakes, `Log.spy()`, time travel via `Clock` |
+| **Quality** | `daravel_lints` (no reflection, no `print`, no mutable statics in `lib/app`, no SQL interpolation, unregistered classes) and architecture checks for apps and for the framework's own module graph |
 
 ## Laravel ↔ Daravel at a glance
 
@@ -355,7 +356,9 @@ The monorepo is a Dart pub workspace:
 | Package | Purpose |
 | :-- | :-- |
 | [`packages/daravel`](packages/daravel) | Framework core |
-| [`packages/daravel_test`](packages/daravel_test) | Testing toolkit: `TestClient` and Laravel-style fluent assertions |
+| [`packages/daravel_test`](packages/daravel_test) | Testing toolkit: `TestClient`, assertions, `refreshDatabase`, time travel, architecture helpers |
+| [`packages/daravel_lints`](packages/daravel_lints) | AST-based lint rules and registry checks, run by `dartisan lint` and in tests |
+| [`packages/daravel_lints`](packages/daravel_lints) | AST-based lint rules and registry checks, run by `dartisan lint` and in tests |
 | [`packages/dartisan_cli`](packages/dartisan_cli) | The `dartisan` command-line interface and code generators |
 | [`apps/daravel_starter`](apps/daravel_starter) | Reference application and end-to-end tests |
 
@@ -364,7 +367,7 @@ The monorepo is a Dart pub workspace:
 | Group | Commands |
 | :-- | :-- |
 | Project | `new <name> [--template=api\|minimal] [--path] [--git]`, `about`, `doctor [--production]`, `key:generate [--show] [--force]`, `stub:publish` |
-| Serve & build | `serve [--host] [--port] [--isolates] [--watch]`, `build [--output] [--define K=V] [--docker]`, `route:list [--path] [--method] [--name] [--json]`, `openapi:generate`, `coordinator:stats` |
+| Serve & build | `serve [--host] [--port] [--isolates] [--watch]`, `build [--output] [--define K=V] [--docker]`, `route:list [--path] [--method] [--name] [--json]`, `openapi:generate`, `lint [--json]`, `coordinator:stats` |
 | Database | `migrate [--seed]`, `migrate:status`, `migrate:rollback [--step]`, `migrate:reset`, `migrate:fresh [--seed] [--force]`, `db:seed [--class] [--all]`, `model:sync [Model] [--dry-run]` |
 | Generators | `make:model [-m -f -s -c -p -r --api --all]`, `make:migration`, `make:seeder`, `make:factory`, `make:controller [--api --resource --model]`, `make:request`, `make:middleware`, `make:job`, `make:policy`, `make:event`, `make:listener [--event]`, `make:resource`, `make:rule`, `make:observer`, `make:provider`, `make:command`, `make:test [--unit]` |
 | Queue | `queue:work [--queue --tries --backoff --timeout --max-jobs --once]`, `queue:failed`, `queue:retry`, `queue:forget`, `queue:flush`, `queue:clear`, `queue:restart` |
@@ -414,8 +417,8 @@ created lib/app/http/resources/post_resource.dart
 | Tier | Scope | State |
 | :-- | :-- | :-- |
 | **0** | Walking skeleton: container, HTTP kernel, router, SQLite, migrations, test client, CLI, CI | ✅ done |
-| **1** | S1 foundation · S2 HTTP hardening · S3 routing · S4 validation · S5 database · S6 ORM · S7 schema, seeding & generators · S8 auth · S9 multi-isolate & cache · S10 events, queue & scheduler · S11 resources, storage & observability · S12 CLI (`new`, hot reload, `build --docker`, `doctor`, `openapi:generate`, `model:sync`, stubs) | ✅ done |
-| **1** | S13 testing toolkit & lints · S14 conformance suite, benchmarks, docs | 🚧 next |
+| **1** | S1 foundation · S2 HTTP hardening · S3 routing · S4 validation · S5 database · S6 ORM · S7 schema, seeding & generators · S8 auth · S9 multi-isolate & cache · S10 events, queue & scheduler · S11 resources, storage & observability · S12 CLI (`new`, hot reload, `build --docker`, `doctor`, `openapi:generate`, `model:sync`, stubs) · S13 testing toolkit, lints & architecture tests | ✅ done |
+| **1** | S14 conformance suite, benchmarks, docs | 🚧 next |
 | **2** | Multipart uploads, sessions/CSRF, Redis, S3, mail, localization, SSE/WebSockets, OpenTelemetry, Blade-compatible compiled views | planned |
 | **daragic** | Bidirectional Laravel ⇄ Daravel generator: runtime introspection → IR → generated project, converted tests, differential replay | designed |
 
@@ -439,6 +442,8 @@ package, `dart compile exe` of the starter and a smoke test against the resultin
 dart format --output=none --set-exit-if-changed .
 dart analyze --fatal-infos
 (cd packages/daravel && dart test)
+(cd packages/daravel_lints && dart test)
+(cd packages/daravel_test && dart test)
 (cd packages/dartisan_cli && dart test)
 (cd apps/daravel_starter && dart test)
 ```

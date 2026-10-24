@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
+import '../foundation/clock.dart';
 
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:cryptography/cryptography.dart' as cg;
@@ -317,7 +318,7 @@ final class JwtCodec {
   static List<int> _decode(String segment) =>
       base64Url.decode(segment.padRight((segment.length + 3) ~/ 4 * 4, '='));
 
-  static DateTime _utcNow() => DateTime.now().toUtc();
+  static DateTime _utcNow() => Clock.now().toUtc();
 }
 
 /// Revoked token ids (`jti`) until their expiry.
@@ -351,7 +352,7 @@ final class MemoryJwtDenylist implements JwtDenylist {
     _entries.removeWhere((_, exp) => !exp.isAfter(now));
   }
 
-  static DateTime _utcNow() => DateTime.now().toUtc();
+  static DateTime _utcNow() => Clock.now().toUtc();
 }
 
 /// Stateless bearer-JWT guard: `sub` is the user's identifier.
@@ -462,5 +463,5 @@ final class JwtGuard<T extends Authenticatable> extends RequestGuard<T> {
         .replaceAll('=', '');
   }
 
-  static DateTime _utcNow() => DateTime.now().toUtc();
+  static DateTime _utcNow() => Clock.now().toUtc();
 }

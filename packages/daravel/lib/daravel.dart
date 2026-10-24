@@ -93,3 +93,4 @@ export 'src/observability/health.dart';
 export 'src/observability/metrics.dart';
 export 'src/storage/storage.dart';
 export 'src/support/storage_facade.dart';
+export 'src/foundation/clock.dart';

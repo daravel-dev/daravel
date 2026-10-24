@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import '../foundation/clock.dart';
 
 import '../cache/cache.dart';
 import '../events/events.dart';
@@ -167,10 +168,10 @@ final class ScheduledTask {
 
   /// Runs only between [start] and [end] (`HH:mm`, inclusive).
   ScheduledTask between(String start, String end) =>
-      when(() => _inWindow(start, end, DateTime.now().toUtc().add(_offset)));
+      when(() => _inWindow(start, end, Clock.now().toUtc().add(_offset)));
 
   ScheduledTask unlessBetween(String start, String end) =>
-      skip(() => _inWindow(start, end, DateTime.now().toUtc().add(_offset)));
+      skip(() => _inWindow(start, end, Clock.now().toUtc().add(_offset)));
 
   ScheduledTask environments(List<String> names) => this.._environments = names;
 
@@ -471,5 +472,5 @@ final class Scheduler {
     return '${t.year}-${t.month}-${t.day}T${t.hour}:${t.minute}';
   }
 
-  static DateTime _utcNow() => DateTime.now().toUtc();
+  static DateTime _utcNow() => Clock.now().toUtc();
 }

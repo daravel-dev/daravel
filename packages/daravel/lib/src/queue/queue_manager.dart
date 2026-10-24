@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../foundation/clock.dart';
 
 import '../cache/cache.dart';
 import '../database/database_manager.dart';
@@ -378,7 +379,7 @@ final class JobProcessor {
     );
   }
 
-  static DateTime _utcNow() => DateTime.now().toUtc();
+  static DateTime _utcNow() => Clock.now().toUtc();
 }
 
 /// Connections, dispatching, unique jobs and faking (Laravel `QueueManager`

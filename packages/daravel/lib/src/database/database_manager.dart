@@ -28,6 +28,9 @@ final class DatabaseManager {
   /// Zone key holding the after-commit callbacks of the active transaction.
   static const Object afterCommitKey = #daravelAfterCommit;
 
+  /// Zone key marking the callbacks list of a test baseline transaction.
+  static const Object baselineKey = #daravelBaselineTransaction;
+
   /// Zone key tracking the savepoint depth of the active transaction.
   static const Symbol depthKey = #daravel.txDepth;
 
@@ -212,8 +215,16 @@ final class DatabaseManager {
         },
       );
       await tx.execute('RELEASE SAVEPOINT $name');
-      (Zone.current[afterCommitKey] as List<FutureOr<void> Function()>?)
-          ?.addAll(callbacks);
+      final parent =
+          Zone.current[afterCommitKey] as List<FutureOr<void> Function()>?;
+      if (parent != null && identical(parent, Zone.current[baselineKey])) {
+        // The app-level transaction "committed" inside a test baseline.
+        for (final callback in callbacks) {
+          await callback();
+        }
+      } else {
+        parent?.addAll(callbacks);
+      }
       return result;
     } catch (_) {
       await tx.execute('ROLLBACK TO SAVEPOINT $name');
@@ -226,11 +237,48 @@ final class DatabaseManager {
   Future<void> afterCommit(FutureOr<void> Function() callback) async {
     final pending =
         Zone.current[afterCommitKey] as List<FutureOr<void> Function()>?;
-    if (pending == null || !inTransaction) {
+    if (pending == null ||
+        !inTransaction ||
+        identical(pending, Zone.current[baselineKey])) {
       await callback();
       return;
     }
     pending.add(callback);
+  }
+
+  /// Runs [body] in a transaction that is always rolled back (Laravel
+  /// `RefreshDatabase`). Application transactions inside become savepoints
+  /// and their after-commit callbacks fire when they "commit", as they
+  /// would without the wrapper.
+  Future<T> rollbackAfter<T>(
+    Future<T> Function() body, {
+    String? connection,
+  }) async {
+    if (inTransaction) {
+      throw StateError('rollbackAfter cannot be nested inside a transaction.');
+    }
+    final driver = await this.connection(connection);
+    final baseline = <FutureOr<void> Function()>[];
+    late T result;
+    try {
+      await driver.transaction<void>(
+        (tx) => runZoned<Future<void>>(
+          () async {
+            result = await body();
+            throw const _RollbackSignal();
+          },
+          zoneValues: <Object?, Object?>{
+            transactionKey: tx,
+            depthKey: 1,
+            afterCommitKey: baseline,
+            baselineKey: baseline,
+          },
+        ),
+      );
+    } on _RollbackSignal {
+      return result;
+    }
+    return result;
   }
 
   static bool _isRetryable(Object error) => PostgresDriver.isRetryable(error);
@@ -280,4 +328,9 @@ final class DatabaseManager {
         );
     }
   }
+}
+
+/// Internal: forces [DatabaseManager.rollbackAfter] to roll back.
+final class _RollbackSignal implements Exception {
+  const _RollbackSignal();
 }

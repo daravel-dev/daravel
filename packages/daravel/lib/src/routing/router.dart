@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../foundation/clock.dart';
 
 import '../http/http_exceptions.dart';
 import '../http/middleware.dart';
@@ -446,7 +447,7 @@ final class Router {
     final relative = url(name, params: params, query: query);
     final signed = signer.sign(
       relative,
-      expires: expires == null ? null : DateTime.now().add(expires),
+      expires: expires == null ? null : Clock.now().add(expires),
     );
     return absolute ? '${_trimmedBase()}$signed' : signed;
   }

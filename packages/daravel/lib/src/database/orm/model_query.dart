@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../../foundation/clock.dart';
 
 import '../../foundation/container.dart';
 import '../database_manager.dart';
@@ -672,7 +673,7 @@ final class ModelQuery<T extends Model> {
       column.contains('.') ? column : '${definition.table}.$column';
 
   static String _timestamp() {
-    final now = DateTime.now().toUtc();
+    final now = Clock.now().toUtc();
     String two(int n) => n.toString().padLeft(2, '0');
     return '${now.year}-${two(now.month)}-${two(now.day)} ${two(now.hour)}:${two(now.minute)}:${two(now.second)}';
   }

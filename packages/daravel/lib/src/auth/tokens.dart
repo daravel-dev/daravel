@@ -1,4 +1,5 @@
 import 'dart:convert';
+import '../foundation/clock.dart';
 
 import 'package:crypto/crypto.dart' as crypto;
 
@@ -79,7 +80,7 @@ final class PersonalAccessToken {
 
   bool isExpired([DateTime? now]) {
     final at = expiresAt;
-    return at != null && !at.isAfter(now ?? DateTime.now().toUtc());
+    return at != null && !at.isAfter(now ?? Clock.now().toUtc());
   }
 
   Map<String, Object?> toJson() => <String, Object?>{
@@ -292,7 +293,7 @@ final class TokenGuard<T extends Authenticatable> extends RequestGuard<T> {
   static String _hash(String secret) =>
       crypto.sha256.convert(utf8.encode(secret)).toString();
 
-  static DateTime _utcNow() => DateTime.now().toUtc();
+  static DateTime _utcNow() => Clock.now().toUtc();
 }
 
 /// Parses a timestamp column value (driver-specific: `DateTime`, ISO string

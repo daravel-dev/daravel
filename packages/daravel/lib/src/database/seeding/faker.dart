@@ -1,4 +1,5 @@
 import 'dart:math';
+import '../../foundation/clock.dart';
 
 /// Minimal, dependency-free fake data generator for seeders and factories.
 /// Deterministic when constructed with a [seed] (`Faker(seed: 42)`).
@@ -219,13 +220,13 @@ final class Faker {
   }
 
   DateTime pastDate({int days = 365}) => dateTimeBetween(
-    DateTime.now().toUtc().subtract(Duration(days: days)),
-    DateTime.now().toUtc(),
+    Clock.now().toUtc().subtract(Duration(days: days)),
+    Clock.now().toUtc(),
   );
 
   DateTime futureDate({int days = 365}) => dateTimeBetween(
-    DateTime.now().toUtc(),
-    DateTime.now().toUtc().add(Duration(days: days)),
+    Clock.now().toUtc(),
+    Clock.now().toUtc().add(Duration(days: days)),
   );
 
   /// Random string of [length] chars from [alphabet].

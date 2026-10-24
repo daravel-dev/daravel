@@ -1,4 +1,5 @@
 import 'dart:convert';
+import '../foundation/clock.dart';
 
 import 'package:crypto/crypto.dart';
 
@@ -50,7 +51,7 @@ final class UrlSigner {
         return false;
       }
       final current =
-          (now ?? DateTime.now()).toUtc().millisecondsSinceEpoch ~/ 1000;
+          (now ?? Clock.now()).toUtc().millisecondsSinceEpoch ~/ 1000;
       if (current > seconds) {
         return false;
       }

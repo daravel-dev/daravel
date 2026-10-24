@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../foundation/clock.dart';
 
 import '../server/coordinator.dart';
 import 'http_exceptions.dart';
@@ -204,7 +205,7 @@ final class MemoryRateLimitStore implements RateLimitStore {
     return window;
   }
 
-  static DateTime _utcNow() => DateTime.now().toUtc();
+  static DateTime _utcNow() => Clock.now().toUtc();
 }
 
 /// Coordinator service exposing a [MemoryRateLimitStore] to every worker.
@@ -281,7 +282,7 @@ final class ProcessRateLimitStore implements RateLimitStore {
         allowed: true,
         limit: maxAttempts,
         remaining: maxAttempts - 1,
-        resetAt: DateTime.now().toUtc().add(decay),
+        resetAt: Clock.now().toUtc().add(decay),
       );
     }
   }

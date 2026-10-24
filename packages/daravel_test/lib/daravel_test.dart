@@ -9,19 +9,62 @@ import 'dart:convert';
 import 'package:daravel/daravel.dart';
 import 'package:test/test.dart';
 
+export 'src/architecture.dart';
+export 'src/database.dart';
+export 'src/time.dart';
+
 /// Sends synthetic requests to an [Application].
 final class TestClient {
-  TestClient(this.app, {Map<String, String>? defaultHeaders})
-    : _defaultHeaders = <String, String>{...?defaultHeaders};
+  TestClient(
+    this.app, {
+    Map<String, String>? defaultHeaders,
+    this.user,
+    this.guard,
+    this.handleExceptions = true,
+  }) : _defaultHeaders = <String, String>{...?defaultHeaders};
 
   final Application app;
   final Map<String, String> _defaultHeaders;
 
-  /// Returns a client that always sends [headers].
-  TestClient withHeaders(Map<String, String> headers) => TestClient(
+  /// User authenticated for every request (see [actingAs]).
+  final Authenticatable? user;
+
+  /// Guard [user] is set on (`null` = the default guard).
+  final String? guard;
+
+  /// When false, exceptions propagate to the test instead of being
+  /// rendered (see [withoutExceptionHandling]).
+  final bool handleExceptions;
+
+  TestClient _copy({
+    Map<String, String>? headers,
+    Authenticatable? user,
+    String? guard,
+    bool? handleExceptions,
+  }) => TestClient(
     app,
-    defaultHeaders: <String, String>{..._defaultHeaders, ...headers},
+    defaultHeaders: <String, String>{..._defaultHeaders, ...?headers},
+    user: user ?? this.user,
+    guard: guard ?? this.guard,
+    handleExceptions: handleExceptions ?? this.handleExceptions,
   );
+
+  /// Returns a client that always sends [headers].
+  TestClient withHeaders(Map<String, String> headers) =>
+      _copy(headers: headers);
+
+  /// Authenticates every request as [user] on [guard] without tokens
+  /// (Laravel `actingAs`).
+  TestClient actingAs(Authenticatable user, {String? guard}) =>
+      _copy(user: user, guard: guard);
+
+  /// Lets exceptions reach the test (Laravel `withoutExceptionHandling`),
+  /// which shows the real stack trace instead of a 500 body.
+  TestClient withoutExceptionHandling() => _copy(handleExceptions: false);
+
+  /// Sends a JSON request with any [method] (`$this->json(...)`).
+  Future<TestResponse> json(String method, String uri, [Object? body]) =>
+      send(method.toUpperCase(), uri, json: body);
 
   /// Returns a client that sends `Authorization: Bearer <token>`.
   TestClient withToken(String token) =>
@@ -84,7 +127,21 @@ final class TestClient {
         ...?headers,
       },
     );
-    final response = await app.handle(request);
+    if (!handleExceptions) {
+      request.attributes[ExceptionHandler.rethrowAttribute] = true;
+    }
+    final actor = user;
+    final response = await app.handle(
+      request,
+      prepare: actor == null
+          ? null
+          : () {
+              final auth = Container.current.make<AuthManager>();
+              final name = guard ?? auth.defaultGuard;
+              auth.guard(name).setUser(actor);
+              auth.useForRequest(name);
+            },
+    );
     return TestResponse(
       status: response.status,
       headers: response.headers,
@@ -227,6 +284,205 @@ final class TestResponse {
       fail('Expected response body to contain "$text".\nBody: $body');
     }
     return this;
+  }
+
+  /// Asserts the JSON has every key of [structure] (`assertJsonStructure`):
+  /// a list of keys, nested maps for objects and `'*'` for every element.
+  TestResponse assertJsonStructure(Object structure, [String? path]) {
+    final mismatch = _structureMismatch(
+      path == null ? json : _dig(json, path),
+      structure,
+      path ?? r'$',
+    );
+    if (mismatch != null) {
+      fail('JSON structure mismatch: $mismatch\nBody: $body');
+    }
+    return this;
+  }
+
+  /// Asserts [fragment] appears as a subset of some object anywhere in the
+  /// JSON (`assertJsonFragment`).
+  TestResponse assertJsonFragment(Map<String, Object?> fragment) {
+    if (!_containsFragment(json, fragment)) {
+      fail('JSON fragment $fragment not found.\nBody: $body');
+    }
+    return this;
+  }
+
+  /// Asserts [fragment] appears nowhere in the JSON (`assertJsonMissing`).
+  TestResponse assertJsonMissing(Map<String, Object?> fragment) {
+    if (_containsFragment(json, fragment)) {
+      fail('Unexpected JSON fragment $fragment found.\nBody: $body');
+    }
+    return this;
+  }
+
+  /// Asserts nothing exists at [path].
+  TestResponse assertJsonMissingPath(String path) {
+    if (_has(json, path)) {
+      fail('Unexpected JSON at [$path].\nBody: $body');
+    }
+    return this;
+  }
+
+  /// 422 with errors for [keys] (a list) or exact first messages (a map),
+  /// like `assertJsonValidationErrors`.
+  TestResponse assertJsonValidationErrors(Object keys) {
+    assertUnprocessable();
+    final errors = _errors();
+    if (keys is Map<Object?, Object?>) {
+      for (final entry in keys.entries) {
+        final messages = errors['${entry.key}'];
+        if (messages == null || !messages.contains(entry.value)) {
+          fail(
+            'Expected validation error "${entry.value}" for [${entry.key}], '
+            'got $messages.\nBody: $body',
+          );
+        }
+      }
+      return this;
+    }
+    for (final key in (keys as List<Object?>).map((k) => '$k')) {
+      if (!errors.containsKey(key)) {
+        fail(
+          'Expected a validation error for [$key]; errors: ${errors.keys}.\nBody: $body',
+        );
+      }
+    }
+    return this;
+  }
+
+  /// Asserts no validation errors for [keys] (or none at all).
+  TestResponse assertJsonMissingValidationErrors([List<String>? keys]) {
+    final errors = status == 422 ? _errors() : const <String, List<String>>{};
+    final unexpected = keys == null
+        ? errors.keys.toList()
+        : keys.where(errors.containsKey).toList();
+    if (unexpected.isNotEmpty) {
+      fail('Unexpected validation errors for $unexpected.\nBody: $body');
+    }
+    return this;
+  }
+
+  /// Request passed validation (`assertValid`).
+  TestResponse assertValid([List<String>? keys]) =>
+      assertJsonMissingValidationErrors(keys);
+
+  /// Request failed validation for [errors] (`assertInvalid`).
+  TestResponse assertInvalid(Object errors) =>
+      assertJsonValidationErrors(errors);
+
+  /// A 3xx response, optionally to [location] (`assertRedirect`).
+  TestResponse assertRedirect([String? location]) {
+    if (status < 300 || status >= 400) {
+      fail('Expected a redirect but got HTTP $status.\nBody: $body');
+    }
+    if (location != null) {
+      assertHeader('location', location);
+    }
+    return this;
+  }
+
+  TestResponse assertDontSee(String text) {
+    if (body.contains(text)) {
+      fail('Expected response body not to contain "$text".\nBody: $body');
+    }
+    return this;
+  }
+
+  Map<String, List<String>> _errors() {
+    final errors = jsonMap['errors'];
+    if (errors is! Map<Object?, Object?>) {
+      fail('Response has no "errors" object.\nBody: $body');
+    }
+    return <String, List<String>>{
+      for (final entry in errors.entries)
+        '${entry.key}': [for (final m in entry.value! as List<Object?>) '$m'],
+    };
+  }
+
+  static String? _structureMismatch(
+    Object? actual,
+    Object structure,
+    String path,
+  ) {
+    if (structure is List<Object?>) {
+      for (final item in structure) {
+        final nested = _structureMismatch(actual, item!, path);
+        if (nested != null) {
+          return nested;
+        }
+      }
+      return null;
+    }
+    if (structure is Map<Object?, Object?>) {
+      for (final entry in structure.entries) {
+        final key = '${entry.key}';
+        if (key == '*') {
+          if (actual is! List<Object?>) {
+            return '$path expected a list';
+          }
+          for (var i = 0; i < actual.length; i++) {
+            final nested = _structureMismatch(
+              actual[i],
+              entry.value!,
+              '$path[$i]',
+            );
+            if (nested != null) {
+              return nested;
+            }
+          }
+          continue;
+        }
+        if (actual is! Map<Object?, Object?> || !actual.containsKey(key)) {
+          return '$path.$key is missing';
+        }
+        final nested = _structureMismatch(
+          actual[key],
+          entry.value!,
+          '$path.$key',
+        );
+        if (nested != null) {
+          return nested;
+        }
+      }
+      return null;
+    }
+    final key = '$structure';
+    if (actual is! Map<Object?, Object?> || !actual.containsKey(key)) {
+      return '$path.$key is missing';
+    }
+    return null;
+  }
+
+  static bool _containsFragment(Object? value, Map<String, Object?> fragment) {
+    if (value is Map<Object?, Object?>) {
+      if (_subsetMismatch(value, fragment, r'$') == null) {
+        return true;
+      }
+      return value.values.any((v) => _containsFragment(v, fragment));
+    }
+    if (value is List<Object?>) {
+      return value.any((v) => _containsFragment(v, fragment));
+    }
+    return false;
+  }
+
+  static bool _has(Object? source, String path) {
+    Object? current = source;
+    for (final segment in path.split('.')) {
+      if (current is Map<Object?, Object?> && current.containsKey(segment)) {
+        current = current[segment];
+      } else if (current is List<Object?> &&
+          int.tryParse(segment) != null &&
+          int.parse(segment) >= 0 &&
+          int.parse(segment) < current.length) {
+        current = current[int.parse(segment)];
+      } else {
+        return false;
+      }
+    }
+    return true;
   }
 
   /// Prints status, headers and body (debugging aid).

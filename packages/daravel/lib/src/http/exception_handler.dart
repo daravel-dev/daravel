@@ -47,6 +47,10 @@ final class _Reporter<T extends Object> {
 /// `{"message": "Server Error"}` for everything else (with `exception`,
 /// `file`-less `trace` details when [debug] is enabled).
 final class ExceptionHandler {
+  /// Request attribute that makes [handle] rethrow instead of rendering
+  /// (`withoutExceptionHandling()` in tests).
+  static const String rethrowAttribute = 'daravel.rethrow_exceptions';
+
   ExceptionHandler({Logger? logger}) : _logger = logger;
 
   Logger? _logger;
@@ -77,6 +81,9 @@ final class ExceptionHandler {
     StackTrace stackTrace,
     Request request,
   ) async {
+    if (request.attributes[rethrowAttribute] == true) {
+      Error.throwWithStackTrace(error, stackTrace);
+    }
     await _report(error, stackTrace, request);
     for (final renderer in _renderers) {
       final response = renderer.tryRender(error, request);

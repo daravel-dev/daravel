@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:args/command_runner.dart';
 import 'package:daravel/daravel.dart';
+import 'package:daravel_lints/daravel_lints.dart';
 import 'package:path/path.dart' as p;
 
 import '../dartisan_cli.dart';
@@ -224,7 +225,9 @@ final class DoctorCommand extends DaravelCommand {
       ),
     );
 
-    for (final issue in ConfigValidator().validate(env, app.config)) {
+    for (final issue in ConfigValidator(
+      extraChecks: const [DatabaseConfig.check],
+    ).validate(env, app.config)) {
       checks.add(
         DoctorCheck(
           issue.isError ? CheckStatus.error : CheckStatus.warning,
@@ -589,4 +592,44 @@ final class ModelSyncCommand extends DaravelCommand {
     }
     return 0;
   });
+}
+
+/// `lint [--json]` — runs `daravel_lints` over the project.
+final class LintCommand extends Command<int> {
+  LintCommand() {
+    argParser.addFlag('json', negatable: false, help: 'Output JSON.');
+  }
+
+  @override
+  String get name => 'lint';
+
+  @override
+  String get description =>
+      'Check the project with the Daravel lint rules and registries.';
+
+  @override
+  Future<int> run() async {
+    final root = ProjectPaths.locate().root;
+    final issues = lintProject(root);
+    if (argResults!['json'] as bool) {
+      stdout.writeln(
+        jsonEncode([
+          for (final i in issues)
+            {
+              'rule': i.rule,
+              'message': i.message,
+              'path': i.path,
+              'line': i.line,
+              'column': i.column,
+            },
+        ]),
+      );
+    } else {
+      issues.forEach(stdout.writeln);
+      stdout.writeln(
+        issues.isEmpty ? 'No issues found.' : '${issues.length} issue(s).',
+      );
+    }
+    return issues.isEmpty ? 0 : 1;
+  }
 }

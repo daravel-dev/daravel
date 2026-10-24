@@ -81,6 +81,7 @@ final class DartisanRunner extends CommandRunner<int> {
     addCommand(BuildCommand());
     addCommand(OpenApiGenerateCommand(createApp));
     addCommand(ModelSyncCommand(createApp));
+    addCommand(LintCommand());
     for (final factory in commands) {
       addCommand(factory(createApp));
     }

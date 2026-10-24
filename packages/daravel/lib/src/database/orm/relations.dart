@@ -5,6 +5,7 @@ import 'model.dart';
 import 'model_collection.dart';
 import 'model_definition.dart';
 import 'model_query.dart';
+import '../../foundation/clock.dart';
 
 /// Constraint applied to a relation query (`with({'posts': (q) => ...})`).
 typedef RelationConstraint = void Function(ModelQuery<Model> query);
@@ -340,7 +341,7 @@ final class BelongsToMany<R extends Model> extends Relation<R> {
   }
 
   static String formatNow() {
-    final now = DateTime.now().toUtc();
+    final now = Clock.now().toUtc();
     String two(int n) => n.toString().padLeft(2, '0');
     return '${now.year}-${two(now.month)}-${two(now.day)} ${two(now.hour)}:${two(now.minute)}:${two(now.second)}';
   }

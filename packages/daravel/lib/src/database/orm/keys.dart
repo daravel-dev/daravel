@@ -1,4 +1,5 @@
 import 'dart:math';
+import '../../foundation/clock.dart';
 
 import 'package:uuid/uuid.dart';
 
@@ -27,7 +28,7 @@ abstract final class KeyGenerator {
 
   /// Crockford base32 ULID: 10 chars timestamp + 16 chars randomness.
   static String ulid([DateTime? now]) {
-    var time = (now ?? DateTime.now()).toUtc().millisecondsSinceEpoch;
+    var time = (now ?? Clock.now()).toUtc().millisecondsSinceEpoch;
     final chars = List<String>.filled(26, '0');
     for (var i = 9; i >= 0; i--) {
       chars[i] = _alphabet[time & 0x1f];

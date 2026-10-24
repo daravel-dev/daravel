@@ -77,6 +77,7 @@ Map<String, String> newProjectFiles({
     'devDependencies': source.dependency('daravel_test'),
     'overrides': [
       source.dependency('daravel'),
+      source.dependency('daravel_lints'),
       source.dependency('daravel_test'),
     ].join('\n'),
   };
@@ -98,6 +99,7 @@ Map<String, String> newProjectFiles({
     'routes/console.dart': api ? _consoleRoutes : _consoleRoutesMinimal,
     'lib/app/http/controllers/ping_controller.dart': _pingController,
     'storage/.gitignore': '*\n!.gitignore\n',
+    'test/architecture_test.dart': _architectureTest,
     if (api) ...{
       'bootstrap/app.dart': _bootstrapApi,
       'bootstrap/migrations.dart': _migrationsRegistry,
@@ -236,7 +238,7 @@ dev_dependencies:
   lints: ^6.0.0
   test: ^1.25.0
 
-# dartisan_cli and daravel_test depend on daravel by name; pin every
+# dartisan_cli and daravel_test depend on daravel and daravel_lints by name; pin every
 # framework package to the same source.
 dependency_overrides:
 {{ overrides }}
@@ -870,6 +872,18 @@ void main() {
     (await client.withToken(token).post('/api/auth/logout')).assertNoContent();
     (await client.withToken(token).get('/api/auth/me')).assertUnauthorized();
   });
+}
+''';
+
+const String _architectureTest = r'''
+import 'package:daravel_test/daravel_test.dart';
+import 'package:test/test.dart';
+
+/// Architecture rules (`dart run bin/dartisan.dart lint` runs the same).
+void main() {
+  test('passes every Daravel lint rule', expectLintClean);
+  test('keeps no mutable static state in lib/app', expectNoMutableStatics);
+  test('registers every migration, seeder, job and command', expectRegistryComplete);
 }
 ''';
 

@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../../foundation/clock.dart';
 
 import 'package:collection/collection.dart';
 
@@ -621,7 +622,7 @@ abstract base class Model implements JsonSerializable, Responsable {
   @override
   String toString() => '$runtimeType(${modelDefinition.primaryKey}: $key)';
 
-  static DateTime _now() => DateTime.now().toUtc();
+  static DateTime _now() => Clock.now().toUtc();
 }
 
 /// Base for "not found" model errors (kept separate from HTTP so it can be

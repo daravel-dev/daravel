@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import '../foundation/clock.dart';
 
 import 'package:uuid/uuid.dart';
 
@@ -35,8 +36,7 @@ final class JobPayload {
     DateTime? now,
     String? uniqueKey,
   }) {
-    final pushed =
-        (now ?? DateTime.now().toUtc()).millisecondsSinceEpoch ~/ 1000;
+    final pushed = (now ?? Clock.now().toUtc()).millisecondsSinceEpoch ~/ 1000;
     final retryUntil = job.retryUntil;
     return JobPayload(
       uuid: uuid ?? const Uuid().v4(),
@@ -250,7 +250,7 @@ final class MemoryQueue implements QueueDriver {
     return before - _entries.length;
   }
 
-  static DateTime _utcNow() => DateTime.now().toUtc();
+  static DateTime _utcNow() => Clock.now().toUtc();
 }
 
 /// Laravel-compatible `jobs` table (scope `cluster`). Reservation is an
@@ -370,7 +370,7 @@ final class DatabaseQueue implements QueueDriver {
   @override
   Future<int> clear(String queue) => _query().where('queue', queue).delete();
 
-  static DateTime _utcNow() => DateTime.now().toUtc();
+  static DateTime _utcNow() => Clock.now().toUtc();
 }
 
 /// Runs jobs inline at push time (dev/test). [processor] is wired by the
@@ -492,7 +492,7 @@ final class MemoryFailedJobProvider implements FailedJobProvider {
         queue: queue,
         payload: payload,
         exception: exception,
-        failedAt: DateTime.now().toUtc(),
+        failedAt: Clock.now().toUtc(),
       ),
     );
     return id;
@@ -527,7 +527,7 @@ final class MemoryFailedJobProvider implements FailedJobProvider {
 
   @override
   Future<int> prune(Duration olderThan) async {
-    final cutoff = DateTime.now().toUtc().subtract(olderThan);
+    final cutoff = Clock.now().toUtc().subtract(olderThan);
     final before = _jobs.length;
     _jobs.removeWhere((j) => j.failedAt.isBefore(cutoff));
     return before - _jobs.length;
@@ -561,7 +561,7 @@ final class DatabaseFailedJobProvider implements FailedJobProvider {
       'queue': queue,
       'payload': payload,
       'exception': exception,
-      'failed_at': DateTime.now().toUtc(),
+      'failed_at': Clock.now().toUtc(),
     });
     return id!;
   }
@@ -590,7 +590,7 @@ final class DatabaseFailedJobProvider implements FailedJobProvider {
 
   @override
   Future<int> prune(Duration olderThan) => _query()
-      .where('failed_at', '<', DateTime.now().toUtc().subtract(olderThan))
+      .where('failed_at', '<', Clock.now().toUtc().subtract(olderThan))
       .delete();
 
   static FailedJob _fromRow(Map<String, Object?> row) => FailedJob(
@@ -600,7 +600,7 @@ final class DatabaseFailedJobProvider implements FailedJobProvider {
     queue: row['queue'] as String,
     payload: row['payload'] as String,
     exception: row['exception'] as String,
-    failedAt: _parse(row['failed_at']) ?? DateTime.now().toUtc(),
+    failedAt: _parse(row['failed_at']) ?? Clock.now().toUtc(),
   );
 
   static DateTime? _parse(Object? value) => switch (value) {
