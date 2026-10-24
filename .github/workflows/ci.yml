@@ -68,3 +68,34 @@ jobs:
       - name: Smoke test AOT bundle
         working-directory: apps/daravel_starter
         run: dart run tool/smoke.dart
+
+  postgres:
+    name: PostgreSQL integration
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: daravel
+          POSTGRES_PASSWORD: secret
+          POSTGRES_DB: daravel_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U daravel"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DARAVEL_TEST_PG: postgres://daravel:secret@127.0.0.1:5432/daravel_test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dart-lang/setup-dart@v1
+
+      - name: Resolve workspace
+        run: dart pub get
+
+      - name: Test against PostgreSQL
+        run: |
+          (cd packages/daravel && dart test --tags integration --reporter=expanded)

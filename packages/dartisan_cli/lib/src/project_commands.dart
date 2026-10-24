@@ -272,15 +272,28 @@ final class DoctorCommand extends DaravelCommand {
     final serve = ServeOptions.fromEnv(env);
     final pool = env.integer('DB_POOL_SIZE', 10);
     final connection = db.connections[db.defaultConnection];
-    if (connection?.driver == 'pgsql' && pool * serve.isolates > 100) {
-      checks.add(
-        DoctorCheck(
-          CheckStatus.warning,
-          'Connection pool: $pool × ${serve.isolates} isolates = '
-              '${pool * serve.isolates} connections',
-          'PostgreSQL allows 100 by default; lower DB_POOL_SIZE.',
-        ),
-      );
+    if (connection?.driver == 'pgsql') {
+      // Each isolate has its own pool; leave room for workers, migrations
+      // and other clients (a Laravel app on the same database).
+      var limit = 100;
+      try {
+        final rows = await DB.manager.select('SHOW max_connections');
+        limit = int.tryParse('${rows.first['max_connections']}') ?? limit;
+      } catch (_) {
+        // Unreachable: reported above; assume PostgreSQL's default.
+      }
+      final total = pool * serve.isolates;
+      if (total > limit * 0.8) {
+        checks.add(
+          DoctorCheck(
+            CheckStatus.warning,
+            'Connection pool: $pool × ${serve.isolates} isolates = $total '
+                'of max_connections=$limit',
+            'Each instance can open $total connections; lower DB_POOL_SIZE '
+                'or APP_ISOLATES, or put PgBouncer in front.',
+          ),
+        );
+      }
     }
     if (connection?.driver == 'sqlite' &&
         connection?.database == ':memory:' &&

@@ -118,6 +118,8 @@ final class Request {
   List<int>? _bodyBytes;
   Object? _parsedBody;
   bool _bodyParsed = false;
+  Map<String, Object?>? _queryInput;
+  Map<String, Object?>? _allInput;
 
   RouteEntry? _route;
   Map<String, String> _routeParams = const <String, String>{};
@@ -139,6 +141,12 @@ final class Request {
 
   /// Multi-valued query parameters.
   Map<String, List<String>> get queryMulti => uri.queryParametersAll;
+
+  /// Query parameters as Laravel reads them (PHP's `parse_str`):
+  /// `ids[]=1&ids[]=2` is a list, `filter[status]=x` a map, and a repeated
+  /// plain key keeps its last value.
+  Map<String, Object?> get queryInput =>
+      _queryInput ??= parseQueryString(uri.query);
 
   /// Client address. Equals [remoteAddress] unless a trusted proxy supplied
   /// `X-Forwarded-For` (see `TrustProxiesMiddleware`).
@@ -278,8 +286,8 @@ final class Request {
   }
 
   /// Parses the body according to its content type:
-  /// JSON → decoded value, form → `Map<String, String>`, otherwise the raw
-  /// text (or `null` when empty).
+  /// JSON → decoded value, form → a map read like PHP's `parse_str` (see
+  /// [parseQueryString]), otherwise the raw text (or `null` when empty).
   Future<Object?> body() async {
     if (_bodyParsed) {
       return _parsedBody;
@@ -306,30 +314,38 @@ final class Request {
       return _parsedBody = decoded;
     }
     if (contentType.contains('application/x-www-form-urlencoded')) {
-      return _parsedBody = Uri.splitQueryString(utf8.decode(raw));
+      return _parsedBody = parseQueryString(utf8.decode(raw));
     }
     return _parsedBody = utf8.decode(raw);
   }
 
   /// Registers a transformer applied to every input value returned by
   /// [all] and [input] (strings are visited recursively inside maps/lists).
-  void addInputTransformer(InputTransformer transformer) =>
-      _inputTransformers.add(transformer);
+  void addInputTransformer(InputTransformer transformer) {
+    _inputTransformers.add(transformer);
+    _allInput = null;
+  }
 
   /// Merged input: query parameters overlaid by body fields (body wins),
-  /// with input transformers applied.
+  /// with input transformers applied. Computed once per request (until a
+  /// transformer is added); each call returns a fresh top-level map.
   Future<Map<String, Object?>> all() async {
-    final result = <String, Object?>{...query};
+    final cached = _allInput;
+    if (cached != null) {
+      return <String, Object?>{...cached};
+    }
+    final result = <String, Object?>{...queryInput};
     final parsed = await body();
     if (parsed is Map<String, Object?>) {
       result.addAll(parsed);
     } else if (parsed is Map<Object?, Object?>) {
       parsed.forEach((key, value) => result['$key'] = value);
     }
-    if (_inputTransformers.isEmpty) {
-      return result;
-    }
-    return _transform(result, '') as Map<String, Object?>;
+    final input = _inputTransformers.isEmpty
+        ? result
+        : _transform(result, '') as Map<String, Object?>;
+    _allInput = input;
+    return <String, Object?>{...input};
   }
 
   Object? _transform(Object? value, String key) {
@@ -350,12 +366,80 @@ final class Request {
   }
 
   /// Dot-notation input lookup across body and query (`user.email`).
+  ///
+  /// Query and form values are strings; for `int`, `double`, `num` and
+  /// `bool` they are converted (`?page=5` → `input<int>('page')` is `5`).
+  /// A value that cannot be converted yields [fallback].
   Future<T?> input<T>(String key, [T? fallback]) async {
     final value = _dig(await all(), key);
     if (value is T) {
       return value;
     }
-    return fallback;
+    final converted = value is String ? _convert<T>(value) : null;
+    return converted ?? fallback;
+  }
+
+  /// `$request->integer('page', 1)`: the input as an `int`, or [fallback]
+  /// when it is missing or not a number.
+  Future<int> integer(String key, [int fallback = 0]) async =>
+      switch (_dig(await all(), key)) {
+        final int value => value,
+        final num value => value.toInt(),
+        final String value => _convert<int>(value) ?? fallback,
+        _ => fallback,
+      };
+
+  /// `$request->float('price')`: the input as a `double`, or [fallback].
+  Future<double> float(String key, [double fallback = 0]) async =>
+      switch (_dig(await all(), key)) {
+        final num value => value.toDouble(),
+        final String value => _convert<double>(value) ?? fallback,
+        _ => fallback,
+      };
+
+  /// `$request->boolean('remember')`: `true` for `true`, `1`, `"1"`,
+  /// `"true"`, `"on"` and `"yes"` (PHP's `FILTER_VALIDATE_BOOLEAN`), `false`
+  /// for anything else, and [fallback] when the key is missing.
+  Future<bool> boolean(String key, [bool fallback = false]) async =>
+      switch (_dig(await all(), key)) {
+        null => fallback,
+        final bool value => value,
+        final num value => value == 1,
+        final String value => _truthy.contains(value.trim().toLowerCase()),
+        _ => false,
+      };
+
+  /// `$request->string('name')`: the input as a `String` (numbers and
+  /// booleans are converted), or [fallback] when it is missing.
+  Future<String> string(String key, [String fallback = '']) async =>
+      switch (_dig(await all(), key)) {
+        final String value => value,
+        final num value => '$value',
+        final bool value => value ? '1' : '',
+        _ => fallback,
+      };
+
+  static const Set<String> _truthy = {'1', 'true', 'on', 'yes'};
+  static const Set<String> _falsy = {'0', 'false', 'off', 'no', ''};
+
+  static Type _type<X>() => X;
+
+  static T? _convert<T>(String raw) {
+    final value = raw.trim();
+    bool wants<X>() => T == X || T == _type<X?>();
+    final lower = value.toLowerCase();
+    final Object? converted = wants<int>()
+        ? int.tryParse(value) ?? double.tryParse(value)?.toInt()
+        : wants<double>()
+        ? double.tryParse(value)
+        : wants<num>()
+        ? num.tryParse(value)
+        : wants<bool>()
+        ? (_truthy.contains(lower)
+              ? true
+              : (_falsy.contains(lower) ? false : null))
+        : null;
+    return converted is T ? converted : null;
   }
 
   /// Whether [key] is present in the input (even if empty).
@@ -506,4 +590,101 @@ final class Request {
 
   @override
   String toString() => 'Request($method ${uri.path})';
+}
+
+/// Parses a query string (or form body) the way PHP's `parse_str` fills
+/// Laravel's input: `a[]=1&a[]=2` is a list, `f[status]=x` a map, keys nest
+/// up to [maxDepth] levels, and a repeated plain key keeps its last value.
+/// Maps whose keys are exactly `0..n-1` become lists, as in Laravel's JSON.
+Map<String, Object?> parseQueryString(String query, {int maxDepth = 32}) {
+  final result = <String, Object?>{};
+  for (final pair in query.split('&')) {
+    if (pair.isEmpty) {
+      continue;
+    }
+    final equals = pair.indexOf('=');
+    final String key;
+    final String value;
+    try {
+      key = Uri.decodeQueryComponent(
+        equals == -1 ? pair : pair.substring(0, equals),
+      );
+      value = equals == -1
+          ? ''
+          : Uri.decodeQueryComponent(pair.substring(equals + 1));
+    } on ArgumentError {
+      continue; // Malformed percent-encoding: PHP drops it too.
+    }
+    final open = key.indexOf('[');
+    final segments = <String>[];
+    if (open > 0) {
+      var cursor = open;
+      while (cursor < key.length && key[cursor] == '[') {
+        final close = key.indexOf(']', cursor);
+        if (close == -1) {
+          break;
+        }
+        segments.add(key.substring(cursor + 1, close));
+        cursor = close + 1;
+      }
+    }
+    if (segments.length > maxDepth) {
+      continue;
+    }
+    _putQueryValue(
+      result,
+      segments.isEmpty ? key : key.substring(0, open),
+      segments,
+      value,
+    );
+  }
+  // The top level stays a map even for keys like `0`, `1`.
+  return <String, Object?>{
+    for (final entry in result.entries) entry.key: _listify(entry.value),
+  };
+}
+
+void _putQueryValue(
+  Map<String, Object?> map,
+  String key,
+  List<String> segments,
+  String value,
+) {
+  if (segments.isEmpty) {
+    map[key] = value;
+    return;
+  }
+  var child = map[key];
+  if (child is! Map<String, Object?>) {
+    child = <String, Object?>{};
+    map[key] = child;
+  }
+  var next = segments.first;
+  if (next.isEmpty) {
+    // `[]` appends at the next integer index, as in PHP.
+    var index = 0;
+    for (final existing in child.keys) {
+      final number = int.tryParse(existing);
+      if (number != null && number >= index) {
+        index = number + 1;
+      }
+    }
+    next = '$index';
+  }
+  _putQueryValue(child, next, segments.sublist(1), value);
+}
+
+Object? _listify(Object? value) {
+  if (value is! Map<String, Object?>) {
+    return value;
+  }
+  final converted = <String, Object?>{
+    for (final entry in value.entries) entry.key: _listify(entry.value),
+  };
+  var index = 0;
+  final sequential = converted.keys.every((key) => key == '${index++}');
+  if (sequential && converted.isNotEmpty) {
+    return converted.values.toList();
+  }
+  return converted;
 }

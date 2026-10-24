@@ -34,7 +34,11 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `$request->all()` | `await request.all()` | **async** |
 | `$request->input('a.b')` | `await request.input<T>('a.b')` | **async** |
 | `$request->has('key')` | `await request.has('key')` | **async** |
+| `$request->integer('page', 1)` | `await request.integer('page', 1)` | **async** |
+| `$request->boolean('remember')` | `await request.boolean('remember')` | **async** |
+| `$request->float('price') / ->string('name')` | `await request.float('price') / .string('name')` | **async** |
 | `$request->query('page')` | `request.query['page']` |  |
+| `$request->query() (ids[]=1&ids[]=2)` | `request.queryInput` | Brackets build lists and maps, as PHP parse_str. |
 | `$request->header('x-id')` | `request.header('x-id')` |  |
 | `$request->bearerToken()` | `request.bearerToken()` |  |
 | `$request->ip()` | `request.ip` |  |

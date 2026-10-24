@@ -39,7 +39,11 @@ sections:
       - { php: "$request->all()", dart: "await request.all()", symbol: Request.all, async: true }
       - { php: "$request->input('a.b')", dart: "await request.input<T>('a.b')", symbol: Request.input, async: true }
       - { php: "$request->has('key')", dart: "await request.has('key')", symbol: Request.has, async: true }
+      - { php: "$request->integer('page', 1)", dart: "await request.integer('page', 1)", symbol: Request.integer, async: true }
+      - { php: "$request->boolean('remember')", dart: "await request.boolean('remember')", symbol: Request.boolean, async: true }
+      - { php: "$request->float('price') / ->string('name')", dart: "await request.float('price') / .string('name')", symbol: Request.float, async: true }
       - { php: "$request->query('page')", dart: "request.query['page']", symbol: Request.query }
+      - { php: "$request->query() (ids[]=1&ids[]=2)", dart: "request.queryInput", symbol: Request.queryInput, note: "Brackets build lists and maps, as PHP parse_str." }
       - { php: "$request->header('x-id')", dart: "request.header('x-id')", symbol: Request.header }
       - { php: "$request->bearerToken()", dart: "request.bearerToken()", symbol: Request.bearerToken }
       - { php: "$request->ip()", dart: "request.ip", symbol: Request.ip }

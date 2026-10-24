@@ -4,3 +4,5 @@ tags:
   conformance:
   # Security regression tests (BLUEPRINT_V2 §9.3).
   security:
+  # Needs a database server (DARAVEL_TEST_PG); skipped without it.
+  integration:

@@ -51,7 +51,8 @@ final class HttpKernel {
   /// reported and never propagate.
   Future<void> terminate(Request request, Response response) async {
     final layers = <Middleware>[
-      ...middleware.global,
+      // The same order as the request went through them.
+      ...middleware.applyPriority(middleware.global),
       ...?request.route?.resolvedMiddleware,
     ];
     for (final layer in layers) {

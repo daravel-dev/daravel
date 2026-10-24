@@ -223,10 +223,12 @@ final class ServerEngine {
                   'Failed to write response for request $id: $error',
                 );
               }
+              // Time to response, without terminate() and deferred work.
+              final elapsed = stopwatch.elapsedMicroseconds / 1000;
               await kernel.terminate(request, response);
               logger.info(
                 '${request.method} ${request.path} ${response.status} '
-                '${(stopwatch.elapsedMicroseconds / 1000).toStringAsFixed(2)}ms',
+                '${elapsed.toStringAsFixed(2)}ms',
                 <String, Object?>{'request_id': id},
               );
             },

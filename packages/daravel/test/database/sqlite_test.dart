@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:daravel/daravel.dart';
 import 'package:test/test.dart';
 
@@ -134,6 +136,39 @@ void main() {
         'SELECT COUNT(*) AS c FROM t WHERE "active" = 1',
       );
       expect(rows.single['c'], 5);
+    },
+  );
+
+  test(
+    'queries outside an open transaction wait for it instead of joining it',
+    () async {
+      final inside = Completer<void>();
+      final transaction = db.transaction(() async {
+        await db.statement('INSERT INTO t ("name") VALUES (?)', <Object?>[
+          'rolled back',
+        ]);
+        inside.complete();
+        // Another request runs while this one is suspended.
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        expect(
+          (await db.select('SELECT "name" FROM t')).map((r) => r['name']),
+          ['rolled back'],
+        );
+        throw StateError('rollback');
+      });
+      final failed = expectLater(transaction, throwsStateError);
+      await inside.future;
+      // Neither sees the uncommitted row nor is rolled back with it.
+      final seen = await db.select('SELECT COUNT(*) AS c FROM t');
+      final id = await db.insertGetId(
+        'INSERT INTO t ("name") VALUES (?)',
+        <Object?>['independent'],
+      );
+      await failed;
+      expect(seen.single['c'], 0);
+      final rows = await db.select('SELECT "id", "name" FROM t');
+      expect(rows.single['name'], 'independent');
+      expect(rows.single['id'], id);
     },
   );
 

@@ -25,13 +25,32 @@ suite shows they differ from Laravel.
 - Guides: [Migrating from Laravel](docs/guide/migrating-from-laravel.md)
   (Strangler Fig behind Caddy or nginx) and Cloud Run and VPS (systemd +
   Caddy) sections in [Deployment](docs/guide/deployment.md).
+- `Request.integer`, `float`, `boolean` and `string` (Laravel 12 parity), and
+  `Request.queryInput` / `parseQueryString`, which read `ids[]=1&ids[]=2` and
+  `filter[status]=x` like PHP's `parse_str`.
+- A PostgreSQL CI job runs the integration suite (`--tags integration`).
 
 ### Changed
 
 - `QueueDriver` gained `oldestWait`; custom drivers must implement it.
+- Form bodies are parsed into nested maps and lists (`Map<String, Object?>`)
+  rather than `Map<String, String>`.
 
 ### Fixed
 
+- SQLite: queries from outside an open transaction (another request on the
+  same isolate) ran inside it and were rolled back with it. They now wait
+  until it commits or rolls back. Row counts and insert ids come from the
+  connection instead of extra `SELECT changes()` / `last_insert_rowid()`.
+- `request.input<int>('page')` returned the fallback for `?page=5`: query
+  and form strings are now converted to `int`, `double`, `num` and `bool`.
+- Query strings and form bodies keep bracketed keys as lists and maps
+  (`ids[]=1&ids[]=2`) instead of dropping values, so `ids.*` rules apply.
+- The access log measures the time to the response, without `terminate()`
+  and `request.defer()` work; terminable global middleware run in priority
+  order.
+- `dartisan doctor` compares the pool size against the server's
+  `max_connections` instead of assuming 100.
 - `queue:work` and `schedule:work` stop gracefully on `SIGTERM` (systemd,
   Docker, Cloud Run), not only on `SIGINT`.
 

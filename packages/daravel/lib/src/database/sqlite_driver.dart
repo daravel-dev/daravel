@@ -8,7 +8,10 @@ import 'query_executor.dart';
 /// SQLite driver backed by `package:sqlite3` (synchronous FFI).
 ///
 /// One connection per isolate; transactions are serialized with an async
-/// lock because SQLite is single-writer. File databases are opened in WAL
+/// lock because SQLite is single-writer. While a transaction is open, queries
+/// from outside it (another request on the same isolate) wait until it
+/// commits or rolls back, so they never join or get rolled back with it;
+/// queries from inside it are recognised by a zone token. File databases are opened in WAL
 /// mode with a busy timeout (BLUEPRINT_V2 §2.2.4).
 final class SqliteDriver implements DatabaseDriver {
   SqliteDriver({required this.path, this.name = 'sqlite'});
@@ -21,6 +24,27 @@ final class SqliteDriver implements DatabaseDriver {
 
   Database? _db;
   Future<void> _transactionQueue = Future<void>.value();
+
+  /// Zone key holding the token of the transaction a zone runs in.
+  static final Object _zoneKey = Object();
+
+  /// Token and completion of the open transaction, if any.
+  Object? _activeToken;
+  Completer<void>? _activeDone;
+
+  /// Waits while a transaction that the current zone is not part of is open.
+  Future<void> _waitTurn() async {
+    while (true) {
+      final done = _activeDone;
+      if (done == null || identical(Zone.current[_zoneKey], _activeToken)) {
+        return;
+      }
+      await done.future;
+    }
+  }
+
+  bool get _mustWait =>
+      _activeDone != null && !identical(Zone.current[_zoneKey], _activeToken);
 
   @override
   SqlDialect get dialect => SqlDialect.sqlite;
@@ -71,6 +95,9 @@ final class SqliteDriver implements DatabaseDriver {
     String sql, [
     List<Object?> bindings = const <Object?>[],
   ]) async {
+    if (_mustWait) {
+      await _waitTurn();
+    }
     final result = _database.select(sql, _normalize(bindings));
     return <Map<String, Object?>>[
       for (final row in result) Map<String, Object?>.of(row),
@@ -82,9 +109,11 @@ final class SqliteDriver implements DatabaseDriver {
     String sql, [
     List<Object?> bindings = const <Object?>[],
   ]) async {
-    _database.execute(sql, _normalize(bindings));
-    final changes = _database.select('SELECT changes() AS n');
-    return (changes.first['n'] as num).toInt();
+    if (_mustWait) {
+      await _waitTurn();
+    }
+    final db = _database..execute(sql, _normalize(bindings));
+    return db.updatedRows;
   }
 
   @override
@@ -92,9 +121,11 @@ final class SqliteDriver implements DatabaseDriver {
     String sql, [
     List<Object?> bindings = const <Object?>[],
   ]) async {
-    _database.execute(sql, _normalize(bindings));
-    final rows = _database.select('SELECT last_insert_rowid() AS id');
-    return rows.first['id'];
+    if (_mustWait) {
+      await _waitTurn();
+    }
+    final db = _database..execute(sql, _normalize(bindings));
+    return db.lastInsertRowId;
   }
 
   @override
@@ -104,14 +135,30 @@ final class SqliteDriver implements DatabaseDriver {
     _transactionQueue = release.future;
     return previous
         .then((_) async {
-          await execute('BEGIN');
+          // SQLite calls are synchronous, so nothing else runs between this
+          // point and BEGIN: queries outside the transaction see the token
+          // before the transaction has written anything.
+          final token = Object();
+          final done = Completer<void>();
+          _activeToken = token;
+          _activeDone = done;
           try {
-            final result = await body(this);
-            await execute('COMMIT');
-            return result;
-          } catch (_) {
-            await execute('ROLLBACK');
-            rethrow;
+            _database.execute('BEGIN');
+            try {
+              final result = await runZoned(
+                () => body(this),
+                zoneValues: <Object?, Object?>{_zoneKey: token},
+              );
+              _database.execute('COMMIT');
+              return result;
+            } catch (_) {
+              _database.execute('ROLLBACK');
+              rethrow;
+            }
+          } finally {
+            _activeToken = null;
+            _activeDone = null;
+            done.complete();
           }
         })
         .whenComplete(release.complete);

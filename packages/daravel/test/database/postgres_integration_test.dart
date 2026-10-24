@@ -50,6 +50,7 @@ void main() {
       t.string('name').unique();
       t.integer('qty').defaultTo(0);
       t.boolean('active').defaultTo(true);
+      t.json('tags').nullable();
       t.timestamps();
     });
   });
@@ -60,7 +61,11 @@ void main() {
   });
 
   test('CRUD, RETURNING ids, upsert, named bindings and savepoints', () async {
-    final id = await db.table('pg_items').insertGetId({'name': 'a', 'qty': 1});
+    final id = await db.table('pg_items').insertGetId({
+      'name': 'a',
+      'qty': 1,
+      'tags': '["x", "y"]',
+    });
     expect(id, 1);
     await db.table('pg_items').upsert({'name': 'a', 'qty': 5}, ['name'], [
       'qty',
@@ -73,8 +78,8 @@ void main() {
       ],
     );
     expect(
-      (await db.table('pg_items').whereJsonLength('name', '>', 0).count()),
-      isA<int>(),
+      await db.table('pg_items').whereJsonLength('tags', '>', 1).count(),
+      1,
     );
 
     await db.transaction(() async {
