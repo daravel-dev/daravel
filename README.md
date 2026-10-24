@@ -1,8 +1,9 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/teoprayoga/daravel/main/docs/logo.svg" alt="Daravel logo" width="96" height="96">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/svg/daravel-logo-horizontal-on-dark.svg">
+    <img src="docs/brand/svg/daravel-logo-horizontal-on-light.svg" alt="Daravel" height="96">
+  </picture>
 </p>
-
-<h1 align="center">Daravel</h1>
 
 <p align="center">
   <strong>The Laravel developer experience, compiled to a single native binary.</strong><br>
@@ -25,7 +26,8 @@
   <a href="#project-structure">Structure</a> ·
   <a href="#dartisan-cli">dartisan</a> ·
   <a href="#roadmap">Roadmap</a> ·
-  <a href="#blueprints">Blueprints</a>
+  <a href="#design-process">Design</a> ·
+  <a href="#brand">Brand</a>
 </p>
 
 ---
@@ -330,24 +332,31 @@ apps/daravel_starter/
 │   ├── app.dart                 # Application.configure(...): routing, auth, events, schedule
 │   ├── migrations.dart          # explicit registries maintained by `dartisan make:*`
 │   ├── seeders.dart
-│   └── jobs.dart
+│   ├── jobs.dart
+│   ├── policies.dart            # registerPolicies(gate)
+│   ├── listeners.dart           # registerListeners(events)
+│   └── commands.dart            # custom dartisan commands
 ├── routes/
 │   ├── api.dart                 # mounted under /api
 │   ├── web.dart
 │   └── console.dart             # scheduled tasks
 ├── lib/app/
+│   ├── console/commands/        # custom dartisan commands
 │   ├── events/                  # plain event classes
 │   ├── http/controllers/        # controllers are plain classes; handlers are method tear-offs
 │   ├── http/requests/           # FormRequests
 │   ├── http/resources/          # JsonResources
 │   ├── jobs/                    # queued jobs
+│   ├── listeners/               # event listeners
 │   ├── models/                  # Hybrid Active Record models
 │   └── policies/                # authorization policies
 ├── database/
 │   ├── migrations/              # m_<timestamp>_<name>.dart
 │   ├── factories/
 │   └── seeders/
-├── test/feature/                # TestClient-based feature tests (in-memory SQLite)
+├── test/
+│   ├── feature/                 # TestClient and refreshDatabase tests (in-memory SQLite)
+│   └── architecture_test.dart   # lints, registry completeness, import rules
 └── tool/smoke.dart              # AOT binary smoke test used by CI
 ```
 
@@ -357,7 +366,6 @@ The monorepo is a Dart pub workspace:
 | :-- | :-- |
 | [`packages/daravel`](packages/daravel) | Framework core |
 | [`packages/daravel_test`](packages/daravel_test) | Testing toolkit: `TestClient`, assertions, `refreshDatabase`, time travel, architecture helpers |
-| [`packages/daravel_lints`](packages/daravel_lints) | AST-based lint rules and registry checks, run by `dartisan lint` and in tests |
 | [`packages/daravel_lints`](packages/daravel_lints) | AST-based lint rules and registry checks, run by `dartisan lint` and in tests |
 | [`packages/dartisan_cli`](packages/dartisan_cli) | The `dartisan` command-line interface and code generators |
 | [`apps/daravel_starter`](apps/daravel_starter) | Reference application and end-to-end tests |
@@ -422,15 +430,23 @@ created lib/app/http/resources/post_resource.dart
 | **2** | Multipart uploads, sessions/CSRF, Redis, S3, mail, localization, SSE/WebSockets, OpenTelemetry, Blade-compatible compiled views | planned |
 | **daragic** | Bidirectional Laravel ⇄ Daravel generator: runtime introspection → IR → generated project, converted tests, differential replay | designed |
 
-## Blueprints
+## Design process
 
-The design is documented before it is built. Decisions are recorded as ADRs and are binding:
+The design is documented before it is built. Architecture, module specifications, the
+Laravel ⇄ Daravel generator (`daragic`) and the slice-by-slice plan live in maintainer blueprints,
+with decisions recorded as binding ADRs. Code comments refer to them as `BLUEPRINT_V2 §…` and
+`ADR-…`. Guidance for AI coding assistants working in this repository is in
+[`CLAUDE.md`](CLAUDE.md).
 
-- [`BLUEPRINT_V2.md`](BLUEPRINT_V2.md) — architecture, module specifications, security, performance,
-  quality gates and the slice-by-slice execution plan.
-- [`BLUEPRINT_DARAGIC.md`](BLUEPRINT_DARAGIC.md) — the Laravel ⇄ Daravel generator: intermediate
-  representation, extractors, transpiler semantics, Blade compiler, verification and packaging.
-- [`BLUEPRINT_V1.md`](BLUEPRINT_V1.md) — the original specification, kept for history.
+## Brand
+
+<img src="docs/brand/svg/daravel-icon.svg" alt="Daravel icon" width="72" align="right">
+
+The Daravel mark is a geometric dragon: a blue wing and head for Dart, and a red serpentine body
+for the Laravel heritage. Icons from 16 to 1024 px, a transparent mark, single-colour versions,
+light and dark lockups, a social preview and `favicon.ico` live in [`docs/brand`](docs/brand),
+together with usage rules. Every file is generated from geometry in `tool/brand/generate.dart`
+(`dart run tool/brand/generate.dart`), so the SVG is the source of truth.
 
 ## Quality gates
 
@@ -450,9 +466,9 @@ dart analyze --fatal-infos
 
 ## Contributing
 
-Daravel is in its foundation phase and welcomes discussion on the blueprints as much as code.
-Open an issue to propose a change to an ADR, or a pull request for a slice that follows the
-Definition of Done in `BLUEPRINT_V2.md` §11.6. Commits use DCO sign-off.
+Daravel is in its foundation phase and welcomes design discussion as much as code. Open an
+issue to propose a design change, or a pull request that keeps every quality gate green.
+Commits use DCO sign-off.
 
 ## Security vulnerabilities
 

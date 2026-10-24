@@ -7,3 +7,7 @@
 *.md text eol=lf
 *.sqlite binary
 *.exe binary
+*.png binary
+*.ico binary
+*.jpg binary
+*.svg text eol=lf

@@ -1,8 +1,6 @@
 import 'dart:convert';
 
-/// Inline brand mark (also used as favicon). Source: docs/logo.svg
-const String logoSvg =
-    '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Daravel logo"> <defs> <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1"> <stop offset="0" stop-color="#0f172a"/> <stop offset="1" stop-color="#1e293b"/> </linearGradient> <linearGradient id="dart" x1="0" y1="0" x2="1" y2="1"> <stop offset="0" stop-color="#13b9fd"/> <stop offset="1" stop-color="#0175c2"/> </linearGradient> <linearGradient id="laravel" x1="0" y1="0" x2="1" y2="1"> <stop offset="0" stop-color="#ff6a5c"/> <stop offset="1" stop-color="#ff2d20"/> </linearGradient> </defs> <rect width="64" height="64" rx="14" fill="url(#tile)"/> <path d="M11 21 L23 15 L23 35 L36 41.5 L36 50 L11 37.5 Z" fill="url(#laravel)"/> <path d="M23 15 L29.5 18.3 L29.5 38.2 L23 35 Z" fill="#b9170e"/> <path d="M11 21 L23 27 L23 35 L11 29 Z" fill="#d9231a"/> <path d="M16 45 L30 40.5 L27.5 49.5 Z" fill="#0175c2"/> <path d="M19 49 L29 43.5 L29.5 51 Z" fill="#13b9fd" opacity=".85"/> <ellipse cx="37" cy="37" rx="13" ry="10.5" fill="url(#dart)"/> <ellipse cx="39.5" cy="41" rx="6.5" ry="4" fill="#ffffff" opacity=".22"/> <circle cx="45.5" cy="24.5" r="8.2" fill="#13b9fd"/> <path d="M52 22.5 L63 19.5 L53 27.2 Z" fill="url(#laravel)"/> <circle cx="47.6" cy="23.6" r="2.5" fill="#ffffff"/> <circle cx="48.2" cy="23.8" r="1.25" fill="#0f172a"/> <path d="M40.5 18.5 L43.5 13 L45.5 17.5 Z" fill="#0175c2"/> </svg>''';
+import 'logo_data.dart';
 
 /// Renders the welcome landing page served at `/`.
 ///
@@ -23,7 +21,7 @@ String welcomePage({
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>$name</title>
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,${Uri.encodeComponent(logoSvg)}">
+<link rel="icon" type="image/png" href="$faviconDataUri">
 <style>
   :root {
     --bg: #0b0d12; --panel: #12151c; --panel-2: #171b24; --line: #232936;
@@ -43,7 +41,7 @@ String welcomePage({
   header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
   .brand { display: flex; align-items: center; gap: 12px; font-weight: 700; font-size: 20px; letter-spacing: .2px; }
   .mark { width: 40px; height: 40px; display: grid; place-items: center; }
-  .mark svg { width: 40px; height: 40px; border-radius: 11px; box-shadow: 0 6px 18px rgba(1,117,194,.25); }
+  .mark img { width: 40px; height: 40px; border-radius: 9px; box-shadow: 0 6px 18px rgba(1,117,194,.25); }
   .env { font-family: var(--mono); font-size: 12px; color: var(--muted); border: 1px solid var(--line);
          border-radius: 999px; padding: 6px 12px; display: inline-flex; gap: 8px; align-items: center; }
   .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 4px rgba(34,197,94,.15); }
@@ -69,7 +67,7 @@ String welcomePage({
 <div class="glow"></div>
 <main>
   <header>
-    <div class="brand"><div class="mark">$logoSvg</div>$name</div>
+    <div class="brand"><div class="mark"><img src="$logoDataUri" alt="Daravel logo" width="40" height="40"></div>$name</div>
     <div class="env"><span class="dot"></span>${escape(environment)} &middot; request ${escape(requestId)}</div>
   </header>
 

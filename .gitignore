@@ -19,3 +19,9 @@ storage/tmp/
 .idea/
 .vscode/
 *.iml
+
+# Local weekly review notes (not published)
+docs/reviews/
+
+# Design blueprints (kept local, not published)
+BLUEPRINT_*
