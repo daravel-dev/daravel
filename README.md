@@ -70,7 +70,7 @@ from the route to the database, and every CPU core on one port.
    (AES-256-CBC or GCM, with `APP_PREVIOUS_KEYS` rotation), Sanctum personal access tokens,
    422 and paginator JSON, resources and the `migrations`, `cache`, `jobs` and `failed_jobs`
    tables are Laravel 12's, and Daravel's queue workers leave Laravel's jobs alone. This works on
-   SQLite and PostgreSQL today (the MySQL driver is planned) and is locked by a conformance suite.
+   SQLite, PostgreSQL, MySQL and MariaDB, and is locked by a conformance suite.
    Move an application [endpoint by endpoint](docs/guide/migrating-from-laravel.md).
 6. **Routes that document themselves.** `.validates(StoreUserRequest())`, `.rules({...})` and
    `.returns(UserResource.schema, shape: .paginated)` make the kernel answer 403/422 before your

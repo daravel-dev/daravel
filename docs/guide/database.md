@@ -1,7 +1,19 @@
 # Database
 
-SQLite and PostgreSQL are supported at runtime (`DB_CONNECTION=sqlite` or
-`pgsql`); the MySQL grammar exists but its driver is planned for Tier 2.
+`DB_CONNECTION` selects SQLite (`sqlite`, the default), PostgreSQL (`pgsql`),
+MySQL (`mysql`) or MariaDB (`mariadb`). MySQL and MariaDB come from
+`package:daravel_mysql`, which new projects register in `bootstrap/app.dart`:
+
+```dart
+Application.configure(basePath: '.')
+    .withDatabaseDriver('mysql', MySqlDriver.fromConfig)
+    .withDatabaseDriver('mariadb', MySqlDriver.fromConfig)
+```
+
+On MySQL, results read as in Laravel (`TINYINT(1)` as `0`/`1`, `DECIMAL` and
+`JSON` as strings, dates as `Y-m-d H:i:s`), and the session time zone is the
+server's unless `DB_TIMEZONE` is set, so `TIMESTAMP` columns read the same
+from both frameworks. MySQL 8.4 and MariaDB 11 run in CI on every commit.
 Every query is built by a grammar with bound values; identifiers are quoted.
 
 ## Migrations

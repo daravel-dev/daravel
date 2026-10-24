@@ -802,17 +802,17 @@ final class DateCompareRule extends Rule {
 // Database
 // ---------------------------------------------------------------------------
 
-final RegExp _identifier = RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$');
+final RegExp _identifierPattern = RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$');
 
-String _quote(String identifier) {
-  if (!_identifier.hasMatch(identifier)) {
+String _identifier(String identifier) {
+  if (!_identifierPattern.hasMatch(identifier)) {
     throw ArgumentError.value(
       identifier,
       'identifier',
       'Invalid SQL identifier',
     );
   }
-  return '"$identifier"';
+  return identifier;
 }
 
 String _columnFor(ValidationContext c, String? column) {
@@ -846,16 +846,12 @@ final class UniqueRule extends Rule {
     }
     final db = container.make<DatabaseManager>();
     final col = _columnFor(c, column);
-    final bindings = <Object?>[c.value];
-    var sql =
-        'SELECT COUNT(*) AS n FROM ${_quote(table)} WHERE ${_quote(col)} = ?';
+    // The builder quotes identifiers for the connection's dialect.
+    var query = db.table(_identifier(table)).where(_identifier(col), c.value);
     if (ignore != null) {
-      sql += ' AND ${_quote(idColumn)} <> ?';
-      bindings.add(ignore);
+      query = query.where(_identifier(idColumn), '<>', ignore);
     }
-    final rows = await db.select(sql, bindings);
-    final count = rows.first['n'];
-    return count is num && count > 0 ? 'unique' : null;
+    return await query.count() > 0 ? 'unique' : null;
   }
 }
 
@@ -874,12 +870,11 @@ final class ExistsRule extends Rule {
     }
     final db = container.make<DatabaseManager>();
     final col = _columnFor(c, column);
-    final rows = await db.select(
-      'SELECT COUNT(*) AS n FROM ${_quote(table)} WHERE ${_quote(col)} = ?',
-      <Object?>[c.value],
-    );
-    final count = rows.first['n'];
-    return count is num && count > 0 ? null : 'exists';
+    final count = await db
+        .table(_identifier(table))
+        .where(_identifier(col), c.value)
+        .count();
+    return count > 0 ? null : 'exists';
   }
 }
 

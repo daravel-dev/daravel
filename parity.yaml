@@ -97,6 +97,7 @@ sections:
       - { php: "DB::select($sql, $bindings)", dart: "await DB.select(sql, bindings)", symbol: DB.select, async: true }
       - { php: "DB::statement($sql)", dart: "await DB.statement(sql)", symbol: DB.statement, async: true }
       - { php: "DB::transaction(fn)", dart: "await DB.transaction(() async {...})", symbol: DB.transaction, async: true }
+      - { php: "DB_CONNECTION=mysql / mariadb", dart: "withDatabaseDriver('mysql', MySqlDriver.fromConfig)", symbol: ApplicationBuilder.withDatabaseDriver, note: "package:daravel_mysql; registered by new projects." }
       - { php: "DB::raw($sql)", dart: "DB.raw(sql)", symbol: DB.raw }
       - { php: "DB::listen(fn (QueryExecuted $q) => ...)", dart: "DB.listen((QueryExecuted q) {...})", symbol: DB.listen }
       - { php: "->insertGetId($values)", dart: "await DB.table(t).insertGetId(values)", symbol: QueryBuilder.insertGetId, async: true }
@@ -211,7 +212,6 @@ exceptions:
 
 # Laravel features without a Daravel equivalent yet (BLUEPRINT_V2 Tier 2/3).
 missing:
-  - { php: "MySQL / MariaDB runtime driver", plan: "Tier 2 (grammars exist; ADR-019)" }
   - { php: "Polymorphic relations (morphTo, morphMany, ...)", plan: "Tier 2" }
   - { php: "Blade templates", plan: "Tier 3 (typed HTML builder)" }
   - { php: "Sessions, CSRF, SPA cookie auth", plan: "Tier 2" }

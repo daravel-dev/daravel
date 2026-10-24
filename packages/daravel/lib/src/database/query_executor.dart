@@ -108,3 +108,9 @@ final class ListeningQueryExecutor implements QueryExecutor {
     List<Object?> bindings = const <Object?>[],
   ]) => _timed(sql, bindings, () => inner.insertGetId(sql, bindings));
 }
+
+/// A driver that recognises its own transient errors (deadlocks, lock
+/// timeouts), so `DB.transaction(attempts: n)` retries them.
+abstract interface class RetryableErrors {
+  bool isRetryableError(Object error);
+}

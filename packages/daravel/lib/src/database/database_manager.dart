@@ -19,8 +19,21 @@ import 'sqlite_driver.dart';
 /// query builder, models or validation rules — resolves [executor] and
 /// therefore joins the transaction without passing it around explicitly.
 /// Nested calls create savepoints.
+/// Builds the driver of a connection whose `driver` is not built in
+/// (`mysql` and `mariadb` come from package:daravel_mysql).
+typedef DatabaseDriverFactory = DatabaseDriver Function(
+  String name,
+  ConnectionConfig connection,
+);
+
 final class DatabaseManager {
-  DatabaseManager(this.config, {this._logger});
+  DatabaseManager(
+    this.config, {
+    this._logger,
+    Map<String, DatabaseDriverFactory> drivers = const {},
+  }) : _driverFactories = drivers;
+
+  final Map<String, DatabaseDriverFactory> _driverFactories;
 
   /// Zone key under which the active transaction executor is stored.
   static const Symbol transactionKey = #daravel.tx;
@@ -212,7 +225,7 @@ final class DatabaseManager {
         }
         return result;
       } catch (error) {
-        if (attempt >= attempts || !_isRetryable(error)) {
+        if (attempt >= attempts || !_isRetryable(driver, error)) {
           rethrow;
         }
         _logger?.warning(
@@ -303,7 +316,12 @@ final class DatabaseManager {
     return result;
   }
 
-  static bool _isRetryable(Object error) => PostgresDriver.isRetryable(error);
+  static bool _isRetryable(DatabaseDriver driver, Object error) =>
+      PostgresDriver.isRetryable(error) ||
+      switch (driver) {
+        final RetryableErrors retryable => retryable.isRetryableError(error),
+        _ => false,
+      };
 
   /// Whether any connection has been opened.
   bool get hasOpenConnections => _connections.isNotEmpty;
@@ -322,6 +340,10 @@ final class DatabaseManager {
     final connection = config.connections[name];
     if (connection == null) {
       throw ConfigException('Database connection [$name] is not configured.');
+    }
+    final custom = _driverFactories[connection.driver];
+    if (custom != null) {
+      return custom(name, connection);
     }
     switch (connection.driver) {
       case 'sqlite':
@@ -343,10 +365,16 @@ final class DatabaseManager {
             _ => PostgresSslMode.disable,
           },
         );
+      case 'mysql' || 'mariadb':
+        throw UnsupportedError(
+          'The ${connection.driver} driver is in package:daravel_mysql: add '
+          'it to pubspec.yaml and register it in bootstrap/app.dart with '
+          ".withDatabaseDriver('${connection.driver}', MySqlDriver.fromConfig).",
+        );
       default:
         throw UnsupportedError(
-          'Database driver [${connection.driver}] is not available yet '
-          '(MySQL/MariaDB arrives in slice S5b).',
+          'Database driver [${connection.driver}] is not available; register '
+          'one with ApplicationBuilder.withDatabaseDriver.',
         );
     }
   }

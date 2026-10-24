@@ -16,7 +16,7 @@ final class PostgresSchemaGrammar extends SchemaGrammar {
     .increments => 'BIGSERIAL',
     .string => 'VARCHAR(${column.length ?? 255})',
     .char => 'CHAR(${column.length ?? 255})',
-    .text => 'TEXT',
+    .text || .mediumText || .longText => 'TEXT',
     .integer => 'INTEGER',
     .tinyInteger || ColumnType.smallInteger => 'SMALLINT',
     .bigInteger => 'BIGINT',
@@ -119,6 +119,8 @@ final class MySqlSchemaGrammar extends SchemaGrammar {
     .string => 'VARCHAR(${column.length ?? 255})',
     .char => 'CHAR(${column.length ?? 255})',
     .text => 'TEXT',
+    .mediumText => 'MEDIUMTEXT',
+    .longText => 'LONGTEXT',
     .integer => 'INT',
     .tinyInteger => 'TINYINT',
     .smallInteger => 'SMALLINT',
@@ -147,7 +149,10 @@ final class MySqlSchemaGrammar extends SchemaGrammar {
 
   @override
   String compileColumns() =>
-      'SELECT column_name AS name, column_type AS type, is_nullable AS nullable, column_default AS dflt, extra '
+      // Every column is aliased: MySQL 8 names information_schema columns in
+      // upper case (EXTRA), MariaDB in lower case.
+      'SELECT column_name AS name, column_type AS type, is_nullable AS nullable, '
+      'column_default AS dflt, extra AS extra, column_key AS ckey '
       'FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ? ORDER BY ordinal_position';
 
   @override
@@ -157,6 +162,7 @@ final class MySqlSchemaGrammar extends SchemaGrammar {
     nullable: row['nullable'] == 'YES',
     defaultValue: row['dflt'] as String?,
     autoIncrement: '${row['extra']}'.contains('auto_increment'),
+    primary: row['ckey'] == 'PRI',
   );
 
   @override

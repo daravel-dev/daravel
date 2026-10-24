@@ -1,4 +1,5 @@
 import '../database_manager.dart';
+import '../query/query_builder.dart';
 import 'schema_builder.dart';
 
 /// A schema migration. [name] must be unique and stable (it is recorded in
@@ -58,10 +59,7 @@ final class Migrator {
     for (final migration in pending) {
       await _db.transaction(() async {
         await migration.up(SchemaBuilder(await _db.executor()));
-        await _db.statement(
-          'INSERT INTO "$table" ("migration", "batch") VALUES (?, ?)',
-          <Object?>[migration.name, batch],
-        );
+        await _ledger().insert({'migration': migration.name, 'batch': batch});
       });
       migrated.add(migration.name);
     }
@@ -71,9 +69,11 @@ final class Migrator {
   /// Rolls back the last [steps] batches; returns the migration names.
   Future<List<String>> rollback({int steps = 1}) async {
     await install();
-    final rows = await _db.select(
-      'SELECT "migration", "batch" FROM "$table" ORDER BY "batch" DESC, "id" DESC',
-    );
+    final rows = await _ledger()
+        .select(['migration', 'batch'])
+        .orderByDesc('batch')
+        .orderByDesc('id')
+        .get();
     if (rows.isEmpty) {
       return const <String>[];
     }
@@ -100,9 +100,11 @@ final class Migrator {
   /// Rolls back every migration.
   Future<List<String>> reset() async {
     await install();
-    final rows = await _db.select(
-      'SELECT "migration" FROM "$table" ORDER BY "batch" DESC, "id" DESC',
-    );
+    final rows = await _ledger()
+        .select(['migration'])
+        .orderByDesc('batch')
+        .orderByDesc('id')
+        .get();
     return _rollbackNames(<String>[
       for (final row in rows) row['migration'] as String,
     ]);
@@ -111,7 +113,7 @@ final class Migrator {
   /// Reports every known migration with its ran/batch state.
   Future<List<MigrationStatus>> status() async {
     await install();
-    final rows = await _db.select('SELECT "migration", "batch" FROM "$table"');
+    final rows = await _ledger().select(['migration', 'batch']).get();
     final batches = <String, int>{
       for (final row in rows)
         row['migration'] as String: (row['batch'] as num).toInt(),
@@ -139,24 +141,23 @@ final class Migrator {
       }
       await _db.transaction(() async {
         await migration.down(SchemaBuilder(await _db.executor()));
-        await _db.statement(
-          'DELETE FROM "$table" WHERE "migration" = ?',
-          <Object?>[name],
-        );
+        await _ledger().where('migration', name).delete();
       });
       rolledBack.add(name);
     }
     return rolledBack;
   }
 
+  /// The `migrations` table, quoted by the connection's grammar.
+  QueryBuilder _ledger() => _db.table(table);
+
   Future<Set<String>> _ranNames() async {
-    final rows = await _db.select('SELECT "migration" FROM "$table"');
+    final rows = await _ledger().select(['migration']).get();
     return <String>{for (final row in rows) row['migration'] as String};
   }
 
   Future<int> _lastBatch() async {
-    final rows = await _db.select('SELECT MAX("batch") AS b FROM "$table"');
-    final value = rows.isEmpty ? null : rows.first['b'];
+    final value = await _ledger().max('batch');
     return value is num ? value.toInt() : 0;
   }
 }

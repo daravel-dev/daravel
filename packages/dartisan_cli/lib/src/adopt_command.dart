@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:args/command_runner.dart';
 import 'package:daravel/daravel.dart';
+import 'package:daravel_mysql/daravel_mysql.dart';
 import 'package:path/path.dart' as p;
 
 import 'generator.dart';
@@ -140,14 +141,20 @@ final class AdoptCommand extends Command<int> {
             'DB_PASSWORD; copy the parts of the URL into them.',
       );
     }
-    final supported = driver == 'sqlite' || driver == 'pgsql';
+    const mysqlFamily = {'mysql', 'mariadb'};
+    final supported =
+        driver == 'sqlite' || driver == 'pgsql' || mysqlFamily.contains(driver);
     if (supported) {
-      report.ok('Database driver $driver');
+      report.ok(
+        mysqlFamily.contains(driver)
+            ? 'Database driver $driver (package:daravel_mysql, registered in '
+                  'bootstrap/app.dart of new projects)'
+            : 'Database driver $driver',
+      );
     } else {
       report.fail(
-        'Database driver $driver is not supported yet',
-        'Daravel runs on SQLite and PostgreSQL; the MySQL/MariaDB driver is '
-            'planned.',
+        'Database driver $driver is not supported',
+        'Daravel runs on SQLite, PostgreSQL, MySQL and MariaDB.',
       );
     }
     if (supported && !(args['skip-database'] as bool)) {
@@ -238,6 +245,10 @@ final class AdoptCommand extends Command<int> {
           ),
         },
       ),
+      drivers: const {
+        'mysql': MySqlDriver.fromConfig,
+        'mariadb': MySqlDriver.fromConfig,
+      },
     );
     try {
       if (driver == 'sqlite' && !File(env['DB_DATABASE']!).existsSync()) {

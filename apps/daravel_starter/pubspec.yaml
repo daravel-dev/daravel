@@ -9,6 +9,7 @@ resolution: workspace
 
 dependencies:
   daravel: any
+  daravel_mysql: any
   dartisan_cli: any
 
 dev_dependencies:

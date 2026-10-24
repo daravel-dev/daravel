@@ -28,7 +28,7 @@ Laravel's formats, locked by a conformance suite.
    their own `Zone` scope; transactions are zone-aware, with savepoints and
    after-commit dispatch.
 5. **Runs next to Laravel** on the same SQLite or PostgreSQL database
-   (MySQL is planned), so an application can move
+   (or MySQL and MariaDB with `daravel_mysql`), so an application can move
    [endpoint by endpoint](https://github.com/daravel-dev/daravel/blob/main/docs/guide/migrating-from-laravel.md).
 6. **Routes that document themselves.** `.validates(...)` and `.returns(...)`
    enforce 403/422 before the handler and generate OpenAPI 3.1.

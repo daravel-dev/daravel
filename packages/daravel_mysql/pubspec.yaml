@@ -1,0 +1,24 @@
+name: daravel_mysql
+description: MySQL and MariaDB driver for Daravel, so a Daravel application can share a MySQL database with a Laravel application.
+version: 1.0.0-beta.3
+homepage: https://github.com/daravel-dev/daravel
+repository: https://github.com/daravel-dev/daravel/tree/main/packages/daravel_mysql
+issue_tracker: https://github.com/daravel-dev/daravel/issues
+documentation: https://github.com/daravel-dev/daravel/blob/main/docs/guide/database.md
+topics: [mysql, mariadb, database, server, backend]
+
+platforms:
+  linux:
+  macos:
+  windows:
+
+environment:
+  sdk: ^3.13.0
+resolution: workspace
+
+dependencies:
+  daravel: ^1.0.0-beta.3
+  mysql_dart: ^3.0.3
+
+dev_dependencies:
+  test: ^1.33.0

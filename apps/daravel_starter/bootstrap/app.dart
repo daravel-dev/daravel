@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:daravel/daravel.dart';
+import 'package:daravel_mysql/daravel_mysql.dart';
 import 'package:daravel_starter/app/models/user.dart';
 
 import '../routes/api.dart';
@@ -19,6 +20,9 @@ import 'seeders.dart';
 Application createApp({String? basePath, Map<String, String>? env}) =>
     Application.configure(basePath: basePath ?? Directory.current.path)
         .withEnv(env ?? const <String, String>{})
+        // DB_CONNECTION=mysql or mariadb (sqlite and pgsql are built in).
+        .withDatabaseDriver('mysql', MySqlDriver.fromConfig)
+        .withDatabaseDriver('mariadb', MySqlDriver.fromConfig)
         .withMigrations(migrations)
         .withSeeders(seeders)
         .withJobs(jobs)

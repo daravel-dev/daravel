@@ -74,13 +74,20 @@ void main() {
   });
 
   test(
-    '--check changes nothing; MySQL fails until its driver exists',
+    '--check changes nothing; MySQL is adopted, SQL Server is not',
     () async {
       writeLaravel('APP_KEY=$key\nDB_CONNECTION=mysql\nDB_DATABASE=shop\n');
-      expect(await runner.run(['adopt', laravel.path, '--check']), 1);
+      final check = ['adopt', laravel.path, '--check', '--skip-database'];
+      expect(await runner.run(check), 0);
       expect(File(p.join(daravel.path, '.env')).existsSync(), isFalse);
-      expect(await runner.run(['adopt', laravel.path]), 1);
-      expect(File(p.join(daravel.path, '.env')).existsSync(), isFalse);
+      expect(await runner.run(['adopt', laravel.path, '--skip-database']), 0);
+      final env = File(p.join(daravel.path, '.env'));
+      expect(Env.parse(env.readAsStringSync())['DB_CONNECTION'], 'mysql');
+
+      env.deleteSync();
+      writeLaravel('APP_KEY=$key\nDB_CONNECTION=sqlsrv\n');
+      expect(await runner.run(['adopt', laravel.path, '--skip-database']), 1);
+      expect(env.existsSync(), isFalse);
     },
   );
 

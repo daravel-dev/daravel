@@ -1,0 +1,3 @@
+tags:
+  # Needs a MySQL or MariaDB server (DARAVEL_TEST_MYSQL); skipped without it.
+  integration:

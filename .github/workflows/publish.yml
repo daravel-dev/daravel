@@ -47,8 +47,14 @@ jobs:
     with:
       working-directory: packages/daravel_test
 
-  dartisan_cli:
+  daravel_mysql:
     needs: daravel
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
+    with:
+      working-directory: packages/daravel_mysql
+
+  dartisan_cli:
+    needs: [daravel, daravel_mysql]
     uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
     with:
       working-directory: packages/dartisan_cli

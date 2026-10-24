@@ -18,9 +18,8 @@ also works in the other direction.
 
 ## Before you start
 
-- **PostgreSQL.** Daravel's runtime drivers are SQLite and PostgreSQL; the
-  MySQL driver is not available yet. A Laravel application on MySQL has to
-  move to PostgreSQL first (or wait for the MySQL driver).
+- **The same database server.** Daravel runs on MySQL, MariaDB, PostgreSQL
+  and SQLite, so it can use the Laravel application's database as it is.
 - **API with bearer tokens.** Sanctum personal access tokens work on both
   sides. Session cookies, CSRF and Sanctum's stateful SPA mode are not
   shared yet, so routes that depend on a Laravel session stay in Laravel.

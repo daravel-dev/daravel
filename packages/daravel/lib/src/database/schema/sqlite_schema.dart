@@ -16,7 +16,7 @@ final class SqliteSchemaGrammar extends SchemaGrammar {
     .increments => 'INTEGER',
     .string => 'VARCHAR(${column.length ?? 255})',
     .char => 'VARCHAR(${column.length ?? 255})',
-    .text => 'TEXT',
+    .text || .mediumText || .longText => 'TEXT',
     .integer || .tinyInteger || .smallInteger || .bigInteger => 'INTEGER',
     .decimal => 'NUMERIC(${column.precision ?? 8}, ${column.scale ?? 2})',
     .float => 'FLOAT',

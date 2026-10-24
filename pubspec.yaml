@@ -10,6 +10,7 @@ workspace:
   - packages/daravel_test
   - packages/daravel_lints
   - packages/dartisan_cli
+  - packages/daravel_mysql
   - apps/daravel_starter
   - bench
 

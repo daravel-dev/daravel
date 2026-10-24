@@ -9,6 +9,13 @@ suite shows they differ from Laravel.
 
 ### Added
 
+- MySQL and MariaDB (ADR-019): the new `daravel_mysql` package (`MySqlDriver`, on
+  the pure Dart `mysql_dart` client) and `ApplicationBuilder.withDatabaseDriver`.
+  New projects and the starter register it, so `DB_CONNECTION=mysql` or
+  `mariadb` works as in Laravel. Results read as Laravel reads them
+  (`TINYINT(1)` as 0/1, `DECIMAL`/`JSON` as strings, dates as `Y-m-d H:i:s`),
+  deadlocks are retried, and `dartisan adopt` accepts MySQL applications.
+  CI runs MySQL 8.4 and MariaDB 11 on every commit.
 - Issue forms and a pull request template.
 - `Http`: outgoing requests with Laravel's `Http::` API (`withToken`, `baseUrl`,
   `timeout`, `retry`, `asForm`, JSON helpers on the response, `throwIfFailed`)
@@ -30,6 +37,15 @@ suite shows they differ from Laravel.
 
 ### Fixed
 
+- `mediumText` and `longText` columns were plain `TEXT`; on MySQL they are now
+  `MEDIUMTEXT`/`LONGTEXT`, as Laravel creates them (cache values, job payloads
+  and failed job exceptions over 64 KB).
+- Unique columns get a named index (`{table}_{column}_unique`), as Laravel
+  names them, instead of an inline `UNIQUE` constraint.
+- The migrator and the `unique` / `exists` rules quoted identifiers with double
+  quotes, which MySQL rejects; they now use the query builder.
+- MySQL `getColumns` read `extra` in MariaDB's lower case only; MySQL 8 returns
+  it in upper case. Columns also report their primary key.
 - SQLite: worker isolates (or processes) opening the same new database file
   at once could fail with "database is locked": switching to WAL answers
   `SQLITE_BUSY` without waiting for the busy timeout. The switch is now

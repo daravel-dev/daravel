@@ -233,17 +233,18 @@ void main() {
       statements.first,
       'CREATE TABLE "users" ('
       '"id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, '
-      '"email" VARCHAR(255) NOT NULL UNIQUE, '
+      '"email" VARCHAR(255) NOT NULL, '
       '"age" INTEGER NULL DEFAULT 0, '
       '"role" VARCHAR(20) NOT NULL DEFAULT \'user\', '
       '"created_at" DATETIME NULL, '
       '"updated_at" DATETIME NULL)',
     );
-    expect(statements[1], 'CREATE INDEX "users_age_index" ON "users" ("age")');
-    expect(
-      statements[2],
+    // Unique columns get a named index, as Laravel creates them.
+    expect(statements.skip(1), [
+      'CREATE UNIQUE INDEX "users_email_unique" ON "users" ("email")',
+      'CREATE INDEX "users_age_index" ON "users" ("age")',
       'CREATE UNIQUE INDEX "email_role" ON "users" ("email", "role")',
-    );
+    ]);
   });
 
   test('identifiers are validated, never interpolated blindly', () {

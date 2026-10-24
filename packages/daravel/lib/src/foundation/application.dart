@@ -190,6 +190,7 @@ final class Application {
         (c) => DatabaseManager(
           c.make<ConfigRepository>().section<DatabaseConfig>(),
           logger: c.make<Logger>(),
+          drivers: _builder._databaseDrivers,
         ),
       )
       ..singleton<Migrator>(
@@ -644,6 +645,7 @@ final class ApplicationBuilder {
   bool _defaultHealthChecks = true;
   final List<ServiceProvider> _providers = <ServiceProvider>[];
   final List<Migration> _migrations = <Migration>[];
+  final Map<String, DatabaseDriverFactory> _databaseDrivers = {};
   final List<Seeder> _seeders = <Seeder>[];
 
   /// Registers database seeders; the first one is the root seeder.
@@ -762,6 +764,17 @@ final class ApplicationBuilder {
 
   ApplicationBuilder withProviders(List<ServiceProvider> providers) {
     _providers.addAll(providers);
+    return this;
+  }
+
+  /// Registers the driver for connections whose `driver` is [name], for
+  /// example `withDatabaseDriver('mysql', MySqlDriver.fromConfig)` from
+  /// package:daravel_mysql.
+  ApplicationBuilder withDatabaseDriver(
+    String name,
+    DatabaseDriverFactory factory,
+  ) {
+    _databaseDrivers[name] = factory;
     return this;
   }
 

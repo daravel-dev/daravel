@@ -22,6 +22,7 @@ executables:
 dependencies:
   args: ^2.6.0
   daravel: ^1.0.0-beta.3
+  daravel_mysql: ^1.0.0-beta.3
   daravel_lints: ^1.0.0-beta.3
   path: ^1.9.1
   vm_service: ^15.4.0

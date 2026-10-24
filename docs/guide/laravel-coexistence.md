@@ -67,7 +67,7 @@ language. Daravel keeps the intent and changes the mechanism:
 
 ## Not shared yet
 
-Sessions, CSRF and cookies (Tier 2) and MySQL (Tier 2).
+Sessions, CSRF and cookies (Tier 2).
 
 **Queues.** Both frameworks can use one `jobs` table, but each runs only its
 own jobs: Laravel's payloads carry a PHP-serialized command and Daravel's a

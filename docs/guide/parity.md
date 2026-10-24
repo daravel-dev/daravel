@@ -98,6 +98,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `DB::select($sql, $bindings)` | `await DB.select(sql, bindings)` | **async** |
 | `DB::statement($sql)` | `await DB.statement(sql)` | **async** |
 | `DB::transaction(fn)` | `await DB.transaction(() async {...})` | **async** |
+| `DB_CONNECTION=mysql / mariadb` | `withDatabaseDriver('mysql', MySqlDriver.fromConfig)` | package:daravel_mysql; registered by new projects. |
 | `DB::raw($sql)` | `DB.raw(sql)` |  |
 | `DB::listen(fn (QueryExecuted $q) => ...)` | `DB.listen((QueryExecuted q) {...})` |  |
 | `->insertGetId($values)` | `await DB.table(t).insertGetId(values)` | **async** |
@@ -222,7 +223,6 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 
 | Laravel | Plan |
 | :-- | :-- |
-| MySQL / MariaDB runtime driver | Tier 2 (grammars exist; ADR-019) |
 | Polymorphic relations (morphTo, morphMany, ...) | Tier 2 |
 | Blade templates | Tier 3 (typed HTML builder) |
 | Sessions, CSRF, SPA cookie auth | Tier 2 |

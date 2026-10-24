@@ -90,14 +90,24 @@ final class DatabaseConfig implements ConfigSection {
             'sslmode': env.string('DB_SSLMODE', 'disable'),
           },
         ),
-        'mysql': ConnectionConfig(
-          driver: 'mysql',
-          database: database ?? 'daravel',
-          host: env.string('DB_HOST', '127.0.0.1'),
-          port: env.integer('DB_PORT', 3306),
-          username: env.maybeString('DB_USERNAME'),
-          password: env.maybeString('DB_PASSWORD'),
-        ),
+        // MySQL and MariaDB (Laravel 11+ names both); the driver comes from
+        // package:daravel_mysql (`withDatabaseDriver`).
+        for (final driver in ['mysql', 'mariadb'])
+          driver: ConnectionConfig(
+            driver: driver,
+            database: database ?? 'daravel',
+            host: env.string('DB_HOST', '127.0.0.1'),
+            port: env.integer('DB_PORT', 3306),
+            username: env.maybeString('DB_USERNAME'),
+            password: env.maybeString('DB_PASSWORD'),
+            options: <String, Object?>{
+              'pool': env.integer('DB_POOL_SIZE', 10),
+              'sslmode': env.string('DB_SSLMODE', 'disable'),
+              'charset': env.string('DB_CHARSET', 'utf8mb4'),
+              'collation': env.string('DB_COLLATION', 'utf8mb4_unicode_ci'),
+              'timezone': env.maybeString('DB_TIMEZONE'),
+            },
+          ),
       },
     );
   }

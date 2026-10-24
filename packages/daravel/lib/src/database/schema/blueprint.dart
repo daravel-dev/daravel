@@ -8,6 +8,8 @@ enum ColumnType {
   string,
   char,
   text,
+  mediumText,
+  longText,
   integer,
   tinyInteger,
   smallInteger,
@@ -283,8 +285,14 @@ final class Blueprint {
 
   ColumnDefinition text(String name) =>
       _add(ColumnDefinition(name, ColumnType.text));
-  ColumnDefinition mediumText(String name) => text(name);
-  ColumnDefinition longText(String name) => text(name);
+
+  /// `MEDIUMTEXT` on MySQL (16 MB), `TEXT` elsewhere.
+  ColumnDefinition mediumText(String name) =>
+      _add(ColumnDefinition(name, ColumnType.mediumText));
+
+  /// `LONGTEXT` on MySQL (4 GB), `TEXT` elsewhere.
+  ColumnDefinition longText(String name) =>
+      _add(ColumnDefinition(name, ColumnType.longText));
 
   ColumnDefinition integer(String name) =>
       _add(ColumnDefinition(name, ColumnType.integer));
@@ -453,7 +461,7 @@ abstract class SchemaGrammar {
   bool get supportsUnsigned => false;
 
   /// Whether inline `UNIQUE` on a column is used (else a unique index).
-  bool get inlineUnique => true;
+  bool get inlineUnique => false;
 
   /// Whether enum columns need a CHECK constraint.
   bool get enumAsCheck => true;

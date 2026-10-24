@@ -74,8 +74,9 @@ frozen after boot.
 | `APP_CIPHER` | `AES-256-CBC` | `Crypt` cipher (as Laravel) |
 | `APP_HOST`, `APP_PORT`, `PORT` | `127.0.0.1`, `8000` | Server address; `PORT` for container platforms |
 | `APP_ISOLATES` | `1` | HTTP worker isolates |
-| `DB_CONNECTION`, `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD` | `sqlite` | Database (a path in `DB_HOST` is a Unix socket) |
-| `DB_POOL_SIZE`, `DB_SSLMODE` | `10`, `disable` | PostgreSQL pool per isolate, TLS |
+| `DB_CONNECTION`, `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD` | `sqlite` | `sqlite`, `pgsql`, `mysql` or `mariadb` (a path in `DB_HOST` is a PostgreSQL Unix socket) |
+| `DB_CHARSET`, `DB_COLLATION`, `DB_TIMEZONE` | `utf8mb4`, `utf8mb4_unicode_ci`, server | MySQL and MariaDB, as Laravel reads them |
+| `DB_POOL_SIZE`, `DB_SSLMODE` | `10`, `disable` | Connection pool per isolate, TLS (`require`, `verify-full`) |
 | `CACHE_STORE`, `CACHE_PREFIX` | `memory` | Cache store and key prefix |
 | `QUEUE_CONNECTION` | `sync` | `sync`, `memory` or `database` |
 | `HASH_DRIVER`, `BCRYPT_ROUNDS` | `bcrypt`, `12` | Password hashing (as Laravel) |

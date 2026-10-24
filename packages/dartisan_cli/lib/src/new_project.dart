@@ -91,6 +91,7 @@ Map<String, String> newProjectFiles({
     'appKey': key,
     'dependencies': [
       source.dependency('daravel'),
+      source.dependency('daravel_mysql'),
       source.dependency('dartisan_cli'),
     ].join('\n'),
     'devDependencies': source.dependency('daravel_test'),
@@ -103,6 +104,7 @@ Map<String, String> newProjectFiles({
             'dependency_overrides:',
             source.dependency('daravel'),
             source.dependency('daravel_lints'),
+            source.dependency('daravel_mysql'),
             source.dependency('daravel_test'),
           ].join('\n')
         : '',
@@ -388,6 +390,7 @@ const String _bootstrapApi = r'''
 import 'dart:io';
 
 import 'package:daravel/daravel.dart';
+import 'package:daravel_mysql/daravel_mysql.dart';
 import 'package:{{ package }}/app/models/user.dart';
 
 import '../routes/api.dart';
@@ -403,6 +406,9 @@ import 'seeders.dart';
 Application createApp({String? basePath, Map<String, String>? env}) =>
     Application.configure(basePath: basePath ?? Directory.current.path)
         .withEnv(env ?? const <String, String>{})
+        // DB_CONNECTION=mysql or mariadb (sqlite and pgsql are built in).
+        .withDatabaseDriver('mysql', MySqlDriver.fromConfig)
+        .withDatabaseDriver('mariadb', MySqlDriver.fromConfig)
         .withMigrations(migrations)
         .withSeeders(seeders)
         .withJobs(jobs)
@@ -439,6 +445,7 @@ const String _bootstrapMinimal = r'''
 import 'dart:io';
 
 import 'package:daravel/daravel.dart';
+import 'package:daravel_mysql/daravel_mysql.dart';
 
 import '../routes/api.dart';
 import '../routes/console.dart';
@@ -453,6 +460,9 @@ import 'seeders.dart';
 Application createApp({String? basePath, Map<String, String>? env}) =>
     Application.configure(basePath: basePath ?? Directory.current.path)
         .withEnv(env ?? const <String, String>{})
+        // DB_CONNECTION=mysql or mariadb (sqlite and pgsql are built in).
+        .withDatabaseDriver('mysql', MySqlDriver.fromConfig)
+        .withDatabaseDriver('mariadb', MySqlDriver.fromConfig)
         .withMigrations(migrations)
         .withSeeders(seeders)
         .withJobs(jobs)
