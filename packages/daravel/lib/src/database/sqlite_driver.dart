@@ -65,13 +65,44 @@ final class SqliteDriver implements DatabaseDriver {
       }
     }
     final db = sqlite3.open(path);
-    db.execute('PRAGMA foreign_keys = ON');
     if (!isMemory) {
-      db.execute('PRAGMA journal_mode = WAL');
+      // First, so that switching to WAL (and every later statement) waits
+      // for another isolate or process opening the same file instead of
+      // failing with SQLITE_BUSY.
       db.execute('PRAGMA busy_timeout = 5000');
+      await _enableWal(db);
       db.execute('PRAGMA synchronous = NORMAL');
     }
+    db.execute('PRAGMA foreign_keys = ON');
     _db = db;
+  }
+
+  /// Switches the file to WAL. The mode is stored in the file, so only the
+  /// first connection has to set it; when several isolates open a new file
+  /// at once, the switch answers SQLITE_BUSY without consulting the busy
+  /// timeout, so it is retried briefly.
+  static Future<void> _enableWal(Database db) async {
+    final deadline = DateTime.now().add(const Duration(seconds: 5));
+    var delay = const Duration(milliseconds: 5);
+    while (true) {
+      try {
+        final mode = db.select('PRAGMA journal_mode').first.values.first;
+        if ('$mode'.toLowerCase() == 'wal') {
+          return;
+        }
+        db.execute('PRAGMA journal_mode = WAL');
+        return;
+      } on SqliteException catch (error) {
+        final busy = error.extendedResultCode & 0xff == 5; // SQLITE_BUSY
+        if (!busy || DateTime.now().isAfter(deadline)) {
+          rethrow;
+        }
+      }
+      await Future<void>.delayed(delay);
+      if (delay < const Duration(milliseconds: 100)) {
+        delay *= 2;
+      }
+    }
   }
 
   @override

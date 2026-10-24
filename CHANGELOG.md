@@ -28,6 +28,14 @@ suite shows they differ from Laravel.
   fallback. Old page URLs redirect.
 - Guide pages: Releases, Configuration, Architecture, ORM and dartisan.
 
+### Fixed
+
+- SQLite: worker isolates (or processes) opening the same new database file
+  at once could fail with "database is locked": switching to WAL answers
+  `SQLITE_BUSY` without waiting for the busy timeout. The switch is now
+  skipped when the file is already in WAL and retried briefly otherwise, and
+  the busy timeout is set first.
+
 ## 1.0.0-beta.3
 
 ### Added

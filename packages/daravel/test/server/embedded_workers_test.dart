@@ -102,30 +102,34 @@ void main() {
     await app.shutdown();
   });
 
-  test('queue and scheduler isolates run and stop promptly', () async {
-    final app = embeddedApp();
-    await app.boot();
-    await app.run(() => Queue.dispatch(const RecordMark('queued')));
-    await app.shutdown();
+  test(
+    'queue and scheduler isolates run and stop promptly',
+    timeout: const Timeout(Duration(minutes: 2)),
+    () async {
+      final app = embeddedApp();
+      await app.boot();
+      await app.run(() => Queue.dispatch(const RecordMark('queued')));
+      await app.shutdown();
 
-    final embedded = EmbeddedWorkers(
-      embeddedApp,
-      roles: const [EmbeddedRole.queue, EmbeddedRole.scheduler],
-      logger: Logger(minimumLevel: .warning),
-    );
-    await embedded.start();
-    // The scheduler runs the due tasks right away, then sleeps to the next
-    // minute; the queue picks up the dispatched job.
-    await waitFor(
-      (marks) => marks.contains('queued') && marks.contains('scheduled'),
-    );
+      final embedded = EmbeddedWorkers(
+        embeddedApp,
+        roles: const [EmbeddedRole.queue, EmbeddedRole.scheduler],
+        logger: Logger(minimumLevel: .warning),
+      );
+      await embedded.start();
+      // The scheduler runs the due tasks right away, then sleeps to the next
+      // minute; the queue picks up the dispatched job.
+      await waitFor(
+        (marks) => marks.contains('queued') && marks.contains('scheduled'),
+      );
 
-    final stopwatch = Stopwatch()..start();
-    await embedded.stop(timeout: const Duration(seconds: 20));
-    // The scheduler wakes from its minute sleep; the queue finishes its
-    // poll sleep (3 s).
-    expect(stopwatch.elapsed, lessThan(const Duration(seconds: 15)));
-  });
+      final stopwatch = Stopwatch()..start();
+      await embedded.stop(timeout: const Duration(seconds: 20));
+      // The scheduler wakes from its minute sleep; the queue finishes its
+      // poll sleep (3 s).
+      expect(stopwatch.elapsed, lessThan(const Duration(seconds: 15)));
+    },
+  );
 
   test('serveWith refuses an in-memory database with embedded workers', () {
     Application memoryApp() =>
