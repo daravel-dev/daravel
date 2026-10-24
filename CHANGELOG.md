@@ -5,6 +5,20 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 beta releases may still change Laravel-facing formats when the conformance
 suite shows they differ from Laravel.
 
+## Unreleased
+
+### Added
+
+- Extension points for monitoring tools (Horizon- and Telescope-style):
+  `Job.tags` stored in the payload, `QueueDriver.oldestWait(queue)`,
+  `QueueManager.pause` / `resume` with `dartisan queue:pause` /
+  `queue:continue` (`[connection:]queue`, like Laravel 11), `QueueWorker.pause`
+  / `resume`, and `DB.listen` with `QueryExecuted` events.
+
+### Changed
+
+- `QueueDriver` gained `oldestWait`; custom drivers must implement it.
+
 ## 1.0.0-beta.2
 
 ### Added

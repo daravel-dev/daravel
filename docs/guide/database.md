@@ -101,6 +101,22 @@ after-commit callbacks (`App.make<DatabaseManager>().afterCommit(...)`, used
 by queued jobs and `Event.dispatchAfterCommit`) run only when the outer
 transaction commits.
 
+## Listening to queries
+
+`DB.listen((QueryExecuted query) { ... })` is called after every query of
+the builder, the ORM, raw SQL and migrations, with its SQL, bindings,
+duration and connection, for example to log slow queries:
+
+```dart
+DB.listen((query) {
+  if (query.time > const Duration(milliseconds: 100)) {
+    Log.warning('Slow query', {'sql': query.sql, 'ms': query.time.inMilliseconds});
+  }
+});
+```
+
+Without listeners, queries are not wrapped and cost nothing extra.
+
 ## Pagination
 
 `paginate()`, `simplePaginate()` and `cursorPaginate()` read the page (or

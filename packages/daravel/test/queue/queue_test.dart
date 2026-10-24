@@ -36,6 +36,9 @@ final class Greet extends Job {
   String? get uniqueId => unique;
 
   @override
+  List<String> get tags => ['user:$name', 'greetings'];
+
+  @override
   Map<String, Object?> toJson() => {
     'name': name,
     'fail': failTimes,
@@ -170,6 +173,74 @@ void main() {
       () => JobRegistry().make('nope', const {}),
       throwsA(isA<UnknownJobException>()),
     );
+  });
+
+  group('extension hooks (Horizon-style tooling)', () {
+    test('job tags are stored in the payload', () {
+      final payload = JobPayload.forJob(const Greet('ana'));
+      expect(payload.tags, ['user:ana', 'greetings']);
+      expect(payload.toJson()['tags'], ['user:ana', 'greetings']);
+      expect(JobPayload.decode(payload.encode()).tags, payload.tags);
+    });
+
+    for (final connection in ['memory', 'database']) {
+      test('oldestWait on $connection', () async {
+        await boot(connection);
+        await app!.run(() async {
+          final driver = Queue.connection();
+          expect(await driver.oldestWait('default'), isNull);
+          await Queue.push(const Greet('ana'));
+          final wait = await driver.oldestWait('default');
+          expect(wait, isNotNull);
+          expect(wait!.inSeconds, lessThan(5));
+          await Queue.later(
+            const Duration(hours: 1),
+            const Greet('bo'),
+            queue: 'later',
+          );
+          expect(
+            await driver.oldestWait('later'),
+            isNull,
+            reason: 'delayed jobs are not waiting yet',
+          );
+        });
+      });
+    }
+
+    test(
+      'queue:pause stops every worker taking jobs until continued',
+      () async {
+        await boot('database');
+        await app!.run(() async {
+          await Queue.push(const Greet('ana'));
+          await Queue.manager.pause('default');
+          expect(await Queue.manager.isPaused('default'), isTrue);
+          await QueueWorker(Queue.manager)
+              .run(const WorkerOptions(stopWhenEmpty: true));
+          expect(log, isEmpty);
+          expect(await Queue.size(), 1);
+
+          await Queue.manager.resume('default');
+          await QueueWorker(Queue.manager)
+              .run(const WorkerOptions(stopWhenEmpty: true));
+          expect(log, ['greet:ana:1']);
+        });
+      },
+    );
+
+    test('a paused worker takes nothing until resumed', () async {
+      await boot('memory');
+      await app!.run(() async {
+        await Queue.push(const Greet('ana'));
+        final worker = QueueWorker(Queue.manager)..pause();
+        expect(worker.paused, isTrue);
+        final driver = Queue.connection();
+        expect(await worker.runNextJob(driver, const WorkerOptions()), isFalse);
+        worker.resume();
+        expect(await worker.runNextJob(driver, const WorkerOptions()), isTrue);
+        expect(log, ['greet:ana:1']);
+      });
+    });
   });
 
   group('sharing the jobs table with Laravel', () {

@@ -92,6 +92,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `DB::statement($sql)` | `await DB.statement(sql)` | **async** |
 | `DB::transaction(fn)` | `await DB.transaction(() async {...})` | **async** |
 | `DB::raw($sql)` | `DB.raw(sql)` |  |
+| `DB::listen(fn (QueryExecuted $q) => ...)` | `DB.listen((QueryExecuted q) {...})` |  |
 | `->insertGetId($values)` | `await DB.table(t).insertGetId(values)` | **async** |
 | `->upsert($values, $uniqueBy)` | `.upsert(values, uniqueBy)` | **async** |
 | `->chunkById(100, fn)` | `.chunkById(100, (rows) async {...})` | **async** |
@@ -137,6 +138,8 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `Cache::lock('name', 10)->get(fn)` | `await Cache.lock('name', ...)` |  |
 | `SendEmail::dispatch($user)` | `await Queue.dispatch(SendEmail(user))` | **async** |
 | `Queue::later($delay, $job)` | `await Queue.later(delay, job)` | **async** |
+| `public function tags() (Horizon)` | `List<String> get tags` |  |
+| `php artisan queue:pause database:default / queue:continue` | `dartisan queue:pause database:default / queue:continue` |  |
 | `class SendEmail implements ShouldQueue` | `final class SendEmail extends Job` |  |
 | `event(new OrderShipped($order))` | `await Event.dispatch(OrderShipped(order))` | **async** |
 | `Event::listen(OrderShipped::class, fn)` | `Event.listen<OrderShipped>((e) async {...})` |  |

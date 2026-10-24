@@ -67,14 +67,36 @@ final class DatabaseManager {
     return future;
   }
 
+  final List<void Function(QueryExecuted event)> _queryListeners =
+      <void Function(QueryExecuted event)>[];
+
+  /// Calls [listener] after every query (`DB::listen`). Listeners run
+  /// synchronously on the query's isolate; keep them cheap.
+  void listen(void Function(QueryExecuted event) listener) =>
+      _queryListeners.add(listener);
+
+  /// Removes every query listener.
+  void forgetListeners() => _queryListeners.clear();
+
   /// The active transaction executor of the current zone, or the connection.
+  /// With query listeners registered it is wrapped to report each query.
   Future<QueryExecutor> executor([String? name]) {
     final active = Zone.current[transactionKey] as QueryExecutor?;
+    final connectionName = name ?? config.defaultConnection;
     if (active != null) {
-      return Future<QueryExecutor>.value(active);
+      return Future<QueryExecutor>.value(_observed(active, connectionName));
     }
-    return connection(name);
+    if (_queryListeners.isEmpty) {
+      return connection(name);
+    }
+    return connection(name)
+        .then((executor) => _observed(executor, connectionName));
   }
+
+  QueryExecutor _observed(QueryExecutor executor, String connectionName) =>
+      _queryListeners.isEmpty || executor is ListeningQueryExecutor
+      ? executor
+      : ListeningQueryExecutor(executor, connectionName, _queryListeners);
 
   /// Whether the current zone is inside a transaction.
   bool get inTransaction => Zone.current[transactionKey] != null;

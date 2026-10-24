@@ -58,6 +58,18 @@ unique jobs, job middleware, `queue:work`, `queue:failed`, `queue:retry` and
 `queue:restart` are supported. Dispatch inside a transaction is deferred
 until commit by default.
 
+For monitoring and operations (the hooks a Horizon-style dashboard builds
+on):
+
+- `List<String> get tags` on a job (for example `['user:42']`) is stored in
+  the payload's `tags` key.
+- `Queue.connection().oldestWait('emails')` says how long the oldest ready
+  job has been waiting.
+- `dartisan queue:pause database:emails` stops every worker taking jobs from
+  that queue (running jobs finish) until `dartisan queue:continue
+  database:emails`; `QueueWorker.pause()` / `resume()` do the same for one
+  worker.
+
 ## Scheduling
 
 `routes/console.dart` declares the schedule:

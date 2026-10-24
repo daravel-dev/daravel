@@ -57,6 +57,10 @@ abstract class Job {
 
   /// Human readable name (`displayName` in the payload).
   String get displayName => runtimeType.toString();
+
+  /// Tags for monitoring and filtering (`tags()` in Laravel Horizon), such
+  /// as `['user:42', 'billing']`. Stored in the payload's `tags` key.
+  List<String> get tags => const <String>[];
 }
 
 /// Registry entry: name → factory from JSON.

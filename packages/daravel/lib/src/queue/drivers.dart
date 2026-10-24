@@ -29,6 +29,7 @@ final class JobPayload {
     required this.pushedAt,
     this.retryUntil,
     this.uniqueKey,
+    this.tags = const <String>[],
   });
 
   factory JobPayload.forJob(
@@ -52,6 +53,7 @@ final class JobPayload {
       pushedAt: pushed,
       retryUntil: retryUntil == null ? null : pushed + retryUntil.inSeconds,
       uniqueKey: uniqueKey,
+      tags: List.unmodifiable(job.tags),
     );
   }
 
@@ -70,6 +72,10 @@ final class JobPayload {
     pushedAt: (json['pushedAt'] as num?)?.toInt() ?? 0,
     retryUntil: (json['retryUntil'] as num?)?.toInt(),
     uniqueKey: json['uniqueKey'] as String?,
+    tags: [
+      for (final tag in (json['tags'] as List<Object?>?) ?? const <Object?>[])
+        if (tag is String) tag,
+    ],
   );
 
   /// Backoff seconds as a list (Daravel), a number, or Laravel's
@@ -108,6 +114,9 @@ final class JobPayload {
   /// Unique-job lock key to release after processing.
   final String? uniqueKey;
 
+  /// Monitoring tags ([Job.tags]; Laravel Horizon's `tags` payload key).
+  final List<String> tags;
+
   Map<String, Object?> toJson() => <String, Object?>{
     'uuid': uuid,
     'displayName': displayName,
@@ -120,6 +129,7 @@ final class JobPayload {
     'retryUntil': retryUntil,
     'pushedAt': pushedAt,
     'uniqueKey': uniqueKey,
+    'tags': tags,
     'data': data,
   };
 
@@ -169,6 +179,11 @@ abstract interface class QueueDriver {
   Future<void> delete(QueuedJob job);
 
   Future<int> size(String queue);
+
+  /// How long the oldest job that is ready to run on [queue] has been
+  /// waiting (`null` when none is waiting). Used by queue dashboards and
+  /// auto-scaling (Laravel Horizon's "wait time").
+  Future<Duration?> oldestWait(String queue);
 
   Future<int> clear(String queue);
 }
@@ -252,6 +267,21 @@ final class MemoryQueue implements QueueDriver {
   @override
   Future<int> size(String queue) async =>
       _entries.where((e) => e.queue == queue).length;
+
+  @override
+  Future<Duration?> oldestWait(String queue) async {
+    final now = _now;
+    int? oldest;
+    for (final entry in _entries) {
+      if (entry.queue == queue &&
+          !entry.reserved &&
+          entry.availableAt <= now &&
+          (oldest == null || entry.availableAt < oldest)) {
+        oldest = entry.availableAt;
+      }
+    }
+    return oldest == null ? null : Duration(milliseconds: now - oldest);
+  }
 
   @override
   Future<int> clear(String queue) async {
@@ -451,6 +481,21 @@ final class DatabaseQueue implements QueueDriver {
   @override
   Future<int> size(String queue) => _query().where('queue', queue).count();
 
+  /// Measured from `available_at` of unreserved ready rows (Laravel's
+  /// columns), so jobs pushed by either runtime count.
+  @override
+  Future<Duration?> oldestWait(String queue) async {
+    final now = _now;
+    final oldest = await _query()
+        .where('queue', queue)
+        .whereNull('reserved_at')
+        .where('available_at', '<=', now)
+        .min('available_at');
+    return oldest == null
+        ? null
+        : Duration(seconds: now - (oldest as num).toInt());
+  }
+
   @override
   Future<int> clear(String queue) => _query().where('queue', queue).delete();
 
@@ -499,6 +544,9 @@ final class SyncQueue implements QueueDriver {
 
   @override
   Future<int> size(String queue) async => 0;
+
+  @override
+  Future<Duration?> oldestWait(String queue) async => null;
 
   @override
   Future<int> clear(String queue) async => 0;

@@ -166,12 +166,13 @@ void main() {
       },
     );
 
-    test('batches grow on hot keys and unused hits are released', () async {
+    test('batches grow on hot keys', () async {
       final channel = RemoteCoordinatorChannel(coordinator.listen());
       addTearDown(channel.close);
+      // A TTL far above any CI hiccup: leases never expire in this test.
       final store = ProcessRateLimitStore(
         channel,
-        leaseTtl: const Duration(milliseconds: 40),
+        leaseTtl: const Duration(minutes: 1),
       );
       // Hot: leases of 1, 2, 4, 8 used up in a row.
       for (var i = 0; i < 15; i++) {
@@ -182,13 +183,32 @@ void main() {
               as RateLimitService;
       expect(service.store.attemptsSync('k', decay), 15);
       expect(coordinator.stats()['handled'], lessThan(15));
-      // One more opens a 16-hit lease; after it expires, 15 go back.
+      // One more opens a 16-hit lease.
       await store.attempt('k', 1000, decay);
       expect(service.store.attemptsSync('k', decay), 31);
-      await Future<void>.delayed(const Duration(milliseconds: 60));
+    });
+
+    test('unused leased hits are released after the lease expires', () async {
+      final channel = RemoteCoordinatorChannel(coordinator.listen());
+      addTearDown(channel.close);
+      final store = ProcessRateLimitStore(
+        channel,
+        leaseTtl: const Duration(milliseconds: 50),
+      );
+      final service =
+          coordinator.service(RateLimitService.serviceName)!
+              as RateLimitService;
+      for (var i = 0; i < 4; i++) {
+        await store.attempt('k', 1000, decay);
+      }
+      // Wait well past the TTL: the next attempt releases what was leased
+      // but unused and restarts at a batch of 1. However slow the runner
+      // (leases may also expire between the first attempts), the
+      // coordinator then holds exactly the 5 hits that were served.
+      await Future<void>.delayed(const Duration(milliseconds: 300));
       await store.attempt('k', 1000, decay);
-      await Future<void>.delayed(const Duration(milliseconds: 20));
-      expect(service.store.attemptsSync('k', decay), 17);
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(service.store.attemptsSync('k', decay), 5);
     });
 
     test('small limits (login) always ask the coordinator', () async {

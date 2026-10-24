@@ -123,6 +123,11 @@ abstract final class DB {
       manager.transaction<T>(body, connection: connection, attempts: attempts);
 
   static bool get inTransaction => manager.inTransaction;
+
+  /// Calls [listener] after every query (`DB::listen`): SQL, bindings,
+  /// duration and connection, for debugging and slow-query logging.
+  static void listen(void Function(QueryExecuted event) listener) =>
+      manager.listen(listener);
 }
 
 /// Schema access.

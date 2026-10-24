@@ -91,6 +91,7 @@ sections:
       - { php: "DB::statement($sql)", dart: "await DB.statement(sql)", symbol: DB.statement, async: true }
       - { php: "DB::transaction(fn)", dart: "await DB.transaction(() async {...})", symbol: DB.transaction, async: true }
       - { php: "DB::raw($sql)", dart: "DB.raw(sql)", symbol: DB.raw }
+      - { php: "DB::listen(fn (QueryExecuted $q) => ...)", dart: "DB.listen((QueryExecuted q) {...})", symbol: DB.listen }
       - { php: "->insertGetId($values)", dart: "await DB.table(t).insertGetId(values)", symbol: QueryBuilder.insertGetId, async: true }
       - { php: "->upsert($values, $uniqueBy)", dart: ".upsert(values, uniqueBy)", symbol: QueryBuilder.upsert, async: true }
       - { php: "->chunkById(100, fn)", dart: ".chunkById(100, (rows) async {...})", symbol: QueryBuilder.chunkById, async: true }
@@ -130,6 +131,8 @@ sections:
       - { php: "Cache::lock('name', 10)->get(fn)", dart: "await Cache.lock('name', ...)", symbol: Cache.lock }
       - { php: "SendEmail::dispatch($user)", dart: "await Queue.dispatch(SendEmail(user))", symbol: Queue.dispatch, async: true }
       - { php: "Queue::later($delay, $job)", dart: "await Queue.later(delay, job)", symbol: Queue.later, async: true }
+      - { php: "public function tags() (Horizon)", dart: "List<String> get tags", symbol: Job.tags }
+      - { php: "php artisan queue:pause database:default / queue:continue", dart: "dartisan queue:pause database:default / queue:continue", symbol: QueueManager.pause }
       - { php: "class SendEmail implements ShouldQueue", dart: "final class SendEmail extends Job", symbol: Job }
       - { php: "event(new OrderShipped($order))", dart: "await Event.dispatch(OrderShipped(order))", symbol: Event.dispatch, async: true }
       - { php: "Event::listen(OrderShipped::class, fn)", dart: "Event.listen<OrderShipped>((e) async {...})", symbol: Event.listen }

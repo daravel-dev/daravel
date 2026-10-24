@@ -236,6 +236,61 @@ final class QueueClearCommand extends DaravelCommand {
 }
 
 /// `queue:restart` — asks running workers to stop after their current job.
+/// `[connection:]queue` argument of `queue:pause` / `queue:continue`
+/// (Laravel 11 syntax): `default`, `database:emails`.
+(String?, String) parseQueueTarget(String? argument) {
+  final value = (argument == null || argument.isEmpty) ? 'default' : argument;
+  final colon = value.indexOf(':');
+  return colon == -1
+      ? (null, value)
+      : (value.substring(0, colon), value.substring(colon + 1));
+}
+
+/// `queue:pause [connection:]queue` — workers stop taking jobs from the
+/// queue (running jobs finish) until `queue:continue`.
+final class QueuePauseCommand extends DaravelCommand {
+  QueuePauseCommand(super.createApp);
+
+  @override
+  String get name => 'queue:pause';
+
+  @override
+  String get description => 'Pause job processing for a queue.';
+
+  @override
+  String get invocation => 'dartisan queue:pause [connection:]queue';
+
+  @override
+  Future<int> run() => withApp((app) async {
+    final (connection, queue) = parseQueueTarget(argResults!.rest.firstOrNull);
+    await App.make<QueueManager>().pause(queue, connection: connection);
+    stdout.writeln('Job processing on queue [$queue] has been paused.');
+    return 0;
+  });
+}
+
+/// `queue:continue [connection:]queue` — resumes a paused queue.
+final class QueueContinueCommand extends DaravelCommand {
+  QueueContinueCommand(super.createApp);
+
+  @override
+  String get name => 'queue:continue';
+
+  @override
+  String get description => 'Resume job processing for a paused queue.';
+
+  @override
+  String get invocation => 'dartisan queue:continue [connection:]queue';
+
+  @override
+  Future<int> run() => withApp((app) async {
+    final (connection, queue) = parseQueueTarget(argResults!.rest.firstOrNull);
+    await App.make<QueueManager>().resume(queue, connection: connection);
+    stdout.writeln('Job processing on queue [$queue] has been resumed.');
+    return 0;
+  });
+}
+
 final class QueueRestartCommand extends DaravelCommand {
   QueueRestartCommand(super.createApp);
 

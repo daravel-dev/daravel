@@ -64,6 +64,8 @@ final class DartisanRunner extends CommandRunner<int> {
     addCommand(QueueFlushCommand(createApp));
     addCommand(QueueClearCommand(createApp));
     addCommand(QueueRestartCommand(createApp));
+    addCommand(QueuePauseCommand(createApp));
+    addCommand(QueueContinueCommand(createApp));
     addCommand(ScheduleRunCommand(createApp, this));
     addCommand(ScheduleWorkCommand(createApp, this));
     addCommand(ScheduleListCommand(createApp));

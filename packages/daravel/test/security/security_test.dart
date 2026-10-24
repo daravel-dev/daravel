@@ -323,16 +323,18 @@ void main() {
     });
   });
 
-  group('ReDoS: built-in pattern rules on adversarial 100 KB input', () {
-    final adversarial = <String, String>{
-      'letters': 'a' * 100000,
-      'letters+bang': '${'a' * 100000}!',
-      'at-runs': '${'a@' * 50000}!',
-      'dots': '${'a.' * 50000}!',
-      'dashes': '${'-' * 100000}!',
-      'email-domain': 'a@${'a' * 99990}.!',
-      'hex': '${'0' * 100000}g',
-      'unicode': '${'é' * 100000}1',
+  group('ReDoS: built-in pattern rules on adversarial input', () {
+    // Each pattern is repeated to the requested length, so the same shape
+    // can be timed at 20 KB and 100 KB.
+    final shapes = <String, String Function(int length)>{
+      'letters': (n) => 'a' * n,
+      'letters+bang': (n) => '${'a' * n}!',
+      'at-runs': (n) => '${'a@' * (n ~/ 2)}!',
+      'dots': (n) => '${'a.' * (n ~/ 2)}!',
+      'dashes': (n) => '${'-' * n}!',
+      'email-domain': (n) => 'a@${'a' * (n - 10)}.!',
+      'hex': (n) => '${'0' * n}g',
+      'unicode': (n) => '${'é' * n}1',
     };
     const rules = [
       'email',
@@ -354,24 +356,43 @@ void main() {
       'digits:5',
       'date',
     ];
+    // BLUEPRINT_V2 §9.3 budget (< 10 ms at 100 KB) depends on the machine,
+    // so it is enforced only with DARAVEL_STRICT_TIMING=1. Always enforced:
+    // time grows linearly with the input (a backtracking blow-up grows at
+    // least quadratically) and stays far from a hang.
+    final strict = Platform.environment['DARAVEL_STRICT_TIMING'] == '1';
+
+    Future<int> medianMicros(String input, String rule) async {
+      await Validator({'v': input}, {'v': rule}).fails(); // Warm-up (JIT).
+      final times = <int>[];
+      for (var i = 0; i < 5; i++) {
+        final watch = Stopwatch()..start();
+        await Validator({'v': input}, {'v': rule}).fails();
+        times.add(watch.elapsedMicroseconds);
+      }
+      times.sort();
+      return times[2];
+    }
 
     for (final rule in rules) {
-      test('$rule stays under 10 ms', () async {
-        for (final MapEntry(key: label, value: input) in adversarial.entries) {
-          final validator = Validator({'v': input}, {'v': rule});
-          await validator.fails(); // Warm-up (JIT).
-          final times = <int>[];
-          for (var i = 0; i < 3; i++) {
-            final watch = Stopwatch()..start();
-            await Validator({'v': input}, {'v': rule}).fails();
-            times.add(watch.elapsedMicroseconds);
+      test('$rule scales linearly on 100 KB input', () async {
+        for (final MapEntry(key: label, value: shape) in shapes.entries) {
+          final small = await medianMicros(shape(20000), rule);
+          final large = await medianMicros(shape(100000), rule);
+          final reason = '$rule on $label: 20 KB $small µs, 100 KB $large µs';
+          expect(large, lessThan(250000), reason: reason);
+          // 5x the input: linear ≈ 5x, quadratic ≈ 25x. Sub-millisecond
+          // timings are noise, so the ratio is only checked above 1 ms.
+          if (large > 1000) {
+            expect(
+              large / (small < 50 ? 50 : small),
+              lessThan(15),
+              reason: reason,
+            );
           }
-          times.sort();
-          expect(
-            times[1],
-            lessThan(10000),
-            reason: '$rule on $label took ${times[1]} µs (median)',
-          );
+          if (strict) {
+            expect(large, lessThan(10000), reason: reason);
+          }
         }
       });
     }

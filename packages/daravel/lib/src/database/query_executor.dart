@@ -36,3 +36,75 @@ abstract interface class DatabaseDriver implements QueryExecutor {
   /// Runs [body] inside a transaction; rolls back when it throws.
   Future<T> transaction<T>(Future<T> Function(QueryExecutor tx) body);
 }
+
+/// A query that ran (Laravel's `QueryExecuted`), passed to
+/// `DatabaseManager.listen` / `DB.listen` listeners: SQL with its bindings,
+/// duration and connection. For debugging, slow-query logging, N+1
+/// detection and inspection tools.
+final class QueryExecuted {
+  const QueryExecuted({
+    required this.sql,
+    required this.bindings,
+    required this.time,
+    required this.connectionName,
+  });
+
+  final String sql;
+  final List<Object?> bindings;
+  final Duration time;
+  final String connectionName;
+
+  @override
+  String toString() =>
+      'QueryExecuted($connectionName, ${time.inMicroseconds} µs: $sql)';
+}
+
+/// Wraps an executor to report every query to [listeners]. Only used while
+/// listeners are registered, so queries cost nothing extra otherwise.
+final class ListeningQueryExecutor implements QueryExecutor {
+  ListeningQueryExecutor(this.inner, this.connectionName, this.listeners);
+
+  final QueryExecutor inner;
+  final String connectionName;
+  final List<void Function(QueryExecuted event)> listeners;
+
+  @override
+  SqlDialect get dialect => inner.dialect;
+
+  Future<T> _timed<T>(
+    String sql,
+    List<Object?> bindings,
+    Future<T> Function() run,
+  ) async {
+    final watch = Stopwatch()..start();
+    final result = await run();
+    final event = QueryExecuted(
+      sql: sql,
+      bindings: bindings,
+      time: watch.elapsed,
+      connectionName: connectionName,
+    );
+    for (final listener in List.of(listeners)) {
+      listener(event);
+    }
+    return result;
+  }
+
+  @override
+  Future<List<Map<String, Object?>>> select(
+    String sql, [
+    List<Object?> bindings = const <Object?>[],
+  ]) => _timed(sql, bindings, () => inner.select(sql, bindings));
+
+  @override
+  Future<int> execute(
+    String sql, [
+    List<Object?> bindings = const <Object?>[],
+  ]) => _timed(sql, bindings, () => inner.execute(sql, bindings));
+
+  @override
+  Future<Object?> insertGetId(
+    String sql, [
+    List<Object?> bindings = const <Object?>[],
+  ]) => _timed(sql, bindings, () => inner.insertGetId(sql, bindings));
+}

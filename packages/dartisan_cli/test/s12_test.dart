@@ -458,6 +458,24 @@ final class Post extends Model with AuthenticatableModel {
     });
   });
 
+  group('queue:pause / queue:continue', () {
+    test('parse Laravel-style [connection:]queue targets', () {
+      expect(parseQueueTarget(null), (null, 'default'));
+      expect(parseQueueTarget('emails'), (null, 'emails'));
+      expect(parseQueueTarget('database:emails'), ('database', 'emails'));
+    });
+
+    test('are registered', () {
+      final runner = DartisanRunner(
+        Application.configure(basePath: '.').create,
+      );
+      expect(
+        runner.commands.keys,
+        containsAll(['queue:pause', 'queue:continue']),
+      );
+    });
+  });
+
   group('global dartisan inside a project (UX review #6)', () {
     test('delegates everything except creating a project', () {
       for (final args in [

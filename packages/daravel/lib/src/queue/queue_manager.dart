@@ -566,6 +566,33 @@ final class QueueManager {
   /// Timestamp of the last [restart] request (epoch ms) or `null`.
   Future<int?> restartRequestedAt() async =>
       (await lockStore?.store.get('daravel:queue:restart')) as int?;
+
+  static String _pauseKey(String connection, String queue) =>
+      'daravel:queue:paused:$connection:$queue';
+
+  /// Stops every worker from taking jobs off [queue] until [resume]
+  /// (`queue:pause`); running jobs finish. Shared through the cache store,
+  /// like [restart].
+  Future<void> pause(String queue, {String? connection}) async => lockStore
+      ?.store
+      .forever(_pauseKey(_connectionName(connection), queue), true);
+
+  /// Lets workers take jobs off [queue] again (`queue:continue`).
+  Future<void> resume(String queue, {String? connection}) async {
+    await lockStore?.store.forget(
+      _pauseKey(_connectionName(connection), queue),
+    );
+  }
+
+  /// Whether [queue] on [connection] is paused by [pause].
+  Future<bool> isPaused(String queue, {String? connection}) async =>
+      await lockStore?.store.get(
+        _pauseKey(_connectionName(connection), queue),
+      ) ==
+      true;
+
+  String _connectionName(String? connection) =>
+      connection ?? config.defaultConnection;
 }
 
 /// `queue:work` options.
@@ -604,10 +631,22 @@ final class QueueWorker {
   final QueueManager manager;
   final Logger? _logger;
   bool _stop = false;
+  bool _paused = false;
   int processed = 0;
 
   /// Stops after the current job.
   void stop() => _stop = true;
+
+  /// Stops taking new jobs (the current one finishes) until [resume]; for
+  /// embedding supervisors. [QueueManager.pause] pauses a queue for every
+  /// worker instead.
+  void pause() => _paused = true;
+
+  /// Takes jobs again after [pause].
+  void resume() => _paused = false;
+
+  /// Whether [pause] is in effect.
+  bool get paused => _paused;
 
   /// Runs until stopped, [WorkerOptions.maxJobs]/[WorkerOptions.maxTime]
   /// are reached, or the queue is empty with [WorkerOptions.stopWhenEmpty].
@@ -650,9 +689,16 @@ final class QueueWorker {
     return 0;
   }
 
-  /// Processes at most one job; returns whether one was found.
+  /// Processes at most one job; returns whether one was found. Paused
+  /// workers and paused queues ([QueueManager.pause]) are skipped.
   Future<bool> runNextJob(QueueDriver driver, WorkerOptions options) async {
+    if (_paused) {
+      return false;
+    }
     for (final queue in options.queues) {
+      if (await manager.isPaused(queue, connection: options.connection)) {
+        continue;
+      }
       final job = await driver.pop(queue);
       if (job == null) {
         continue;
