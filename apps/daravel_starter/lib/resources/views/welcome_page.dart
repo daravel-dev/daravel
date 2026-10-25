@@ -82,7 +82,8 @@ String welcomePage({
     <div class="card">
       <h2>Try the API</h2>
       <p><a href="/api/ping"><code>GET /api/ping</code></a> &middot; <a href="/up"><code>GET /up</code></a> &middot;
-      <a href="/up/ready"><code>GET /up/ready</code></a>: JSON responses with request ids.</p>
+      <a href="/up/ready"><code>GET /up/ready</code></a>: JSON responses with request ids.
+      Locally, <a href="/docs/api">/docs/api</a> lists every route with its schemas and lets you send requests.</p>
     </div>
     <a class="card" href="https://github.com/daravel-dev/daravel/blob/main/docs/guide/index.md">
       <h2>Documentation</h2>

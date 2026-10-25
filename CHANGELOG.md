@@ -5,6 +5,17 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 breaking changes to the Dart API wait for a new major version, and
 Laravel-facing formats change only to match Laravel more closely.
 
+## Unreleased
+
+### Added
+
+- Live API reference (Laravel Scramble, FastAPI's `/docs`): with
+  `APP_ENV=local`, `GET /docs/api` serves an interactive Scalar page of
+  every route and `GET /docs/api.json` its OpenAPI 3.1 document.
+  `API_DOCS` turns it on or off, `API_DOCS_PATH` moves it, and the starter's
+  welcome page links to it. `buildOpenApi` moved to `package:daravel`
+  (`package:dartisan_cli` still exports it).
+
 ## 1.3.0
 
 A model registry with `model:show`, Laravel Boost's tools in `mcp:serve`,

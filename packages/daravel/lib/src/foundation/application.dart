@@ -21,6 +21,7 @@ import '../database/schema/migration.dart';
 import '../database/seeding/seeder.dart';
 import '../observability/health.dart';
 import '../observability/metrics.dart';
+import '../support/brand.dart';
 import '../storage/storage.dart';
 import '../events/events.dart';
 import '../http/client.dart';
@@ -38,6 +39,7 @@ import '../logging/logger.dart';
 import '../queue/drivers.dart';
 import '../queue/job.dart';
 import '../queue/queue_manager.dart';
+import '../routing/openapi.dart';
 import '../routing/router.dart';
 import '../routing/url_signer.dart';
 import '../schedule/schedule.dart';
@@ -431,6 +433,17 @@ final class Application {
     if (metricsConfig.enabled) {
       router.get(metricsConfig.path, _metrics);
     }
+    // Live API reference (Laravel Scramble): local only unless API_DOCS.
+    final appConfig = config.section<AppConfig>();
+    if (env.boolean('API_DOCS', appConfig.env == 'local')) {
+      final docs = env.string('API_DOCS_PATH', '/docs/api');
+      router
+          .get(docs, (_) => _apiDocsPage('$docs.json'))
+          .name('daravel.api-docs');
+      router
+          .get('$docs.json', (_) => Response.json(_apiDocument()))
+          .name('daravel.api-docs.json');
+    }
     final api = routing.api;
     if (api != null) {
       router.group(api, prefix: routing.apiPrefix);
@@ -442,6 +455,45 @@ final class Application {
     for (final extra in routing.then) {
       extra(router);
     }
+  }
+
+  Map<String, Object?>? _openApi;
+
+  /// The OpenAPI document of the compiled routes, built once.
+  Map<String, Object?> _apiDocument() => _openApi ??= buildOpenApi(
+    router.routes,
+    title: '${config.section<AppConfig>().name} API',
+  );
+
+  /// Scalar options: no hosted toolbar, AI agent or MCP generator (they
+  /// point to Scalar's services, not this application).
+  static const String _scalarConfiguration =
+      '{"showDeveloperTools":"never","agent":{"disabled":true},'
+      '"mcp":{"disabled":true}}';
+
+  /// The interactive reference (Scalar) for the document at [specUrl].
+  Response _apiDocsPage(String specUrl) {
+    String escape(String text) => text
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;');
+    final name = escape(config.section<AppConfig>().name);
+    return Response.html('''
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>$name API</title>
+<link rel="icon" href="$daravelFaviconDataUri">
+</head>
+<body>
+<script id="api-reference" data-url="${escape(specUrl)}" data-configuration="${escape(_scalarConfiguration)}"></script>
+<script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference@1.73.1"></script>
+</body>
+</html>
+''');
   }
 
   Object? _health(Request request) {

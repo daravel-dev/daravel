@@ -73,6 +73,17 @@ handler runs and `dartisan openapi:generate` documents both:
 - `.action('PostController@store')` records the controller action
   (`x-daravel-action` in OpenAPI).
 
+### Live API reference
+
+Locally (`APP_ENV=local`), `GET /docs/api` serves an interactive reference
+of every route (Scalar, as Laravel Scramble or FastAPI's `/docs`): paths,
+parameters, request and response schemas, and a client to send requests,
+with a bearer token for `auth` routes. `GET /docs/api.json` is the same
+OpenAPI 3.1 document `dartisan openapi:generate` writes (`buildOpenApi`).
+`API_DOCS=true` turns it on in another environment and `API_DOCS=false`
+off; `API_DOCS_PATH` moves it. The page loads Scalar from jsDelivr, so the
+browser needs internet access; the JSON does not.
+
 `rulesToJsonSchema(rules)` is the conversion used for the request schema:
 dotted keys nest, `*` becomes array items, `nullable` adds `null`, and
 `min`/`max`/`between`/`size` map to the bound that fits the type.

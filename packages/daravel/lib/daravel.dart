@@ -33,6 +33,7 @@ export 'src/http/server_engine.dart';
 export 'src/logging/context.dart';
 export 'src/logging/logger.dart';
 export 'src/routing/radix_tree.dart';
+export 'src/routing/openapi.dart';
 export 'src/routing/route_entry.dart';
 export 'src/routing/router.dart';
 export 'src/support/facades.dart';
