@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.0
+
+- `invalid_timezone`: zone names in `.timezone('...')` must be IANA zones (suggests the right case).
+- `registry_entry_missing` checks `lib/app/models` against `bootstrap/models.dart` when that file exists.
+
 ## 1.2.0
 
 - Version aligned with Daravel 1.2.0; no rule changes.

@@ -5,7 +5,11 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 breaking changes to the Dart API wait for a new major version, and
 Laravel-facing formats change only to match Laravel more closely.
 
-## Unreleased
+## 1.3.0
+
+A model registry with `model:show`, Laravel Boost's tools in `mcp:serve`,
+the scheduler's default zone, two new lints, and a fix for `UTC` in
+`timezone()`; all backwards compatible.
 
 ### Added
 
@@ -15,7 +19,6 @@ Laravel-facing formats change only to match Laravel more closely.
   `dartisan doctor` warns when `APP_TIMEZONE` is not UTC and
   `SCHEDULE_TIMEZONE` is empty. `schedule:list --timezone=<zone>` shows the
   next runs in that zone.
-
 - Model registry: `bootstrap/models.dart` lists the application's models
   and `ApplicationBuilder.withModels` registers them (`ModelRegistry`,
   `describeModel`). `dartisan new` and the starter include it, and

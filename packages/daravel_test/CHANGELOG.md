@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.0
+
+- Requires `daravel` 1.3.0; `expectRegistryComplete()` includes the model registry when the project has one.
+
 ## 1.2.0
 
 - Requires `daravel` 1.2.0; no API changes.

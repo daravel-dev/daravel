@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.3.0
+
+- `dartisan model:show <Model> [--json]`; `make:model` adds models to `bootstrap/models.dart`, which `dartisan new` now creates.
+- `mcp:serve` tools `models`, `db_query` (read-only), `read_logs`, `last_error`; `docs_search` with `locale: "id"`.
+- `dartisan mcp:install` and `dartisan new --mcp` (`.mcp.json` + `AGENTS.md`).
+- `schedule:list --timezone`; `doctor` warns when `APP_TIMEZONE` is not UTC and `SCHEDULE_TIMEZONE` is empty.
+- `build --docker` leaves SQLite out when `DB_CONNECTION` is not `sqlite`.
+- Requires `daravel` 1.3.0.
+
 ## 1.2.0
 
 - `dartisan mcp:serve [--allow-write]`: MCP server on stdio for AI coding agents (`about`, `routes`, `schema`, `conventions`, `docs_search`; `run_command` opt-in).

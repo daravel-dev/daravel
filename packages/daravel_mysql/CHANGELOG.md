@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.0
+
+- Requires `daravel` 1.3.0; `mcp:serve`'s `db_query` is tested on MySQL and MariaDB.
+
 ## 1.2.0
 
 - Requires `daravel` 1.2.0; the date query shortcut and query guard suites also run on MySQL and MariaDB.

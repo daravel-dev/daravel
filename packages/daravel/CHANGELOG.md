@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.0
+
+- Model registry: `ApplicationBuilder.withModels`, `ModelRegistry`, `describeModel` (read by `dartisan model:show` and `mcp:serve`).
+- `SCHEDULE_TIMEZONE` (Laravel's `app.schedule_timezone`) as the default zone of scheduled tasks; `ScheduledTask.wallTime`.
+- Fixed: `ScheduledTask.timezone('UTC')` and other alias zone names (`GMT`, `US/Eastern`) threw.
+
 ## 1.2.0
 
 - `Application.withBindings`, `Container.call` shorthand, `inject<T>()`/`maybeInject<T>()`.
