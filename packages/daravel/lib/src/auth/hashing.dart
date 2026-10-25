@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import 'package:bcrypt/bcrypt.dart' as bc;
 import 'package:cryptography/cryptography.dart' as cg;
+import 'package:cryptography/dart.dart' as cgd;
 
 import '../foundation/config.dart';
 import '../foundation/env.dart';
@@ -291,11 +292,16 @@ final class HashManager {
     required int time,
     required int threads,
   }) async {
-    final algorithm = cg.Argon2id(
+    // Lanes run in this isolate (maxIsolates: 0): hashing already runs in a
+    // compute isolate, and the default helper isolates (one per lane,
+    // sharing raw memory) could stall indefinitely when many isolates are
+    // busy.
+    final algorithm = cgd.DartArgon2id(
       parallelism: threads,
       memory: memory,
       iterations: time,
       hashLength: 32,
+      maxIsolates: 0,
     );
     final key = await algorithm.deriveKeyFromPassword(
       password: plain,

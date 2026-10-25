@@ -158,9 +158,7 @@ void main() {
       );
       expect(await app.run(() => Hash.check('secret', bun)), isTrue);
       expect(await app.run(() => Hash.needsRehash(bun)), isTrue);
-      // Three 64 MiB argon2id hashes in pure Dart; slow next to the rest of
-      // the suite running in parallel.
-    }, timeout: const Timeout(Duration(minutes: 2)));
+    });
   });
 
   group('Crypt', () {
