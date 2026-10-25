@@ -54,6 +54,9 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `response()->noContent()` | `Response.noContent()` |  |
 | `redirect($to)` | `Response.redirect(to)` |  |
 | `response()->streamDownload(...)` | `Response.stream(...)` |  |
+| `response()->eventStream(fn () => ...)` | `Response.sse(stream)` | Same frames and `</stream>` end event; adds heartbeats and ends on shutdown. |
+| `new StreamedEvent(event: 'tick', data: $data)` | `SseEvent(data, event: 'tick')` |  |
+| `Reverb / Pusher channels` | `router.ws('/ws/x', (socket, request) {...})` | A plain WebSocket after the route's middleware, not the Pusher protocol. |
 | `abort(404, $message)` | `abort(404, message)` | Without a message the JSON message is empty, as in Laravel. |
 | `class StoreUserRequest extends FormRequest` | `final class StoreUserRequest extends FormRequest` |  |
 

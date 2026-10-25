@@ -51,6 +51,7 @@ import '../server/supervisor.dart';
 import 'config.dart';
 import 'config_validator.dart';
 import 'container.dart';
+import 'drain.dart';
 import 'locale.dart';
 import 'env.dart';
 import 'exceptions.dart';
@@ -223,6 +224,7 @@ final class Application {
       ..instance<SeederRegistry>(SeederRegistry(_builder._seeders))
       ..instance<ModelRegistry>(ModelRegistry(_builder._models))
       ..instance<Translator>(_translator())
+      ..instance<DrainSignal>(drainSignal)
       ..singleton<FeatureManager>(
         (c) => FeatureManager(switch (env.string(
           'PENNANT_STORE',
@@ -738,7 +740,14 @@ final class Application {
   }
 
   /// Marks the application as draining; `/up` answers `503` from now on.
-  void markDraining() => _draining = true;
+  void markDraining() {
+    _draining = true;
+    drainSignal.signal();
+  }
+
+  /// Completes when this application starts draining (long-lived responses
+  /// such as server-sent events end on it).
+  final DrainSignal drainSignal = DrainSignal();
 
   Future<void> _closeResources() async {
     _metricsTimer?.cancel();

@@ -59,6 +59,9 @@ sections:
       - { php: "response()->noContent()", dart: "Response.noContent()", symbol: Response.noContent }
       - { php: "redirect($to)", dart: "Response.redirect(to)", symbol: Response.redirect }
       - { php: "response()->streamDownload(...)", dart: "Response.stream(...)", symbol: Response.stream }
+      - { php: "response()->eventStream(fn () => ...)", dart: "Response.sse(stream)", symbol: Response.sse, note: "Same frames and `</stream>` end event; adds heartbeats and ends on shutdown." }
+      - { php: "new StreamedEvent(event: 'tick', data: $data)", dart: "SseEvent(data, event: 'tick')", symbol: SseEvent }
+      - { php: "Reverb / Pusher channels", dart: "router.ws('/ws/x', (socket, request) {...})", symbol: Router.ws, note: "A plain WebSocket after the route's middleware, not the Pusher protocol." }
       - { php: "abort(404, $message)", dart: "abort(404, message)", symbol: abort, note: "Without a message the JSON message is empty, as in Laravel." }
       - { php: "class StoreUserRequest extends FormRequest", dart: "final class StoreUserRequest extends FormRequest", symbol: FormRequest }
 

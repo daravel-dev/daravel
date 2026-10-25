@@ -5,6 +5,26 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 breaking changes to the Dart API wait for a new major version, and
 Laravel-facing formats change only to match Laravel more closely.
 
+## Unreleased
+
+### Added
+
+- Server-sent events: `Response.sse(stream)` and `SseEvent` (Laravel's
+  `response()->eventStream()` and `StreamedEvent`, with the same frames and
+  `</stream>` end event). Adds a heartbeat comment while idle, which also
+  detects closed clients, and ends open streams on shutdown.
+- WebSockets: `router.ws(path, (socket, request) {...})` upgrades after the
+  route's middleware, runs the handler in the request's scope, answers plain
+  requests with `426`, and closes open sockets with `1001` on shutdown
+  (`ServerEngine.openWebSockets`).
+- `DrainSignal` (bound in the container): completes when the application
+  starts draining, for long-lived work that should end on shutdown.
+
+### Changed
+
+- A `Response.stream` without a content length is written unbuffered, so
+  each chunk goes out as it is produced.
+
 ## 1.5.1
 
 A fix for JSON numbers outside the double range. Upgrade from any 1.x.

@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import '../foundation/clock.dart';
 import 'headers.dart';
+import 'realtime.dart';
 import 'request.dart';
 
 /// Objects that know how to turn themselves into a [Response].
@@ -46,6 +47,7 @@ final class Response {
     Headers? headers,
     this.body = const EmptyBody(),
     this.contentLengthOverride,
+    this.webSocket,
   }) : headers = headers ?? Headers();
 
   /// JSON response (`application/json`). [data] may contain maps, lists,
@@ -112,6 +114,37 @@ final class Response {
     body: BytesBody(bytes),
   );
 
+  /// Server-sent events (Laravel's `response()->eventStream()`): each item of
+  /// [events] (an [SseEvent], or a value sent as an `update` event) is
+  /// written as it comes, a `: keep-alive` comment every [heartbeat] keeps
+  /// proxies from closing an idle stream, and [endStreamWith] (`</stream>`,
+  /// as Laravel; `null` for none) closes it. The stream also ends when the
+  /// server starts draining, so `EventSource` reconnects elsewhere. A client
+  /// that went away is noticed at the next event or heartbeat (TCP reports
+  /// nothing on an idle connection), which then cancels [events].
+  factory Response.sse(
+    Stream<Object?> events, {
+    Object? endStreamWith = '</stream>',
+    Duration? heartbeat = const Duration(seconds: 15),
+    Map<String, String>? headers,
+  }) => Response(
+    headers: Headers(<String, Object>{
+      ...?headers,
+      'content-type': 'text/event-stream',
+      'cache-control': 'no-cache',
+      'x-accel-buffering': 'no',
+    }),
+    body: StreamBody(
+      sseStream(events, endStreamWith: endStreamWith, heartbeat: heartbeat),
+    ),
+  );
+
+  /// Switches the connection to a WebSocket (`router.ws` returns this after
+  /// the route's middleware passed); [handler] gets the socket inside the
+  /// request's scope.
+  factory Response.webSocket(WebSocketHandler handler) =>
+      Response(status: 101, webSocket: handler);
+
   /// Streamed body with an explicit content type.
   factory Response.stream(
     Stream<List<int>> stream, {
@@ -128,6 +161,10 @@ final class Response {
   final int status;
   final Headers headers;
   final ResponseBody body;
+
+  /// Set by [Response.webSocket]: the server upgrades the connection and
+  /// hands the socket to this handler.
+  final WebSocketHandler? webSocket;
 
   /// Content length to advertise when the body was stripped (HEAD requests).
   final int? contentLengthOverride;
@@ -194,6 +231,7 @@ final class Response {
     headers: headers ?? this.headers,
     body: body,
     contentLengthOverride: contentLengthOverride,
+    webSocket: webSocket,
   );
 
   /// Collects the body as bytes (consumes stream bodies).
@@ -243,6 +281,9 @@ final class Response {
       case StreamBody(:final stream, :final contentLength):
         if (contentLength != null) {
           out.contentLength = contentLength;
+        } else {
+          // Chunked streams (server-sent events) go out as they come.
+          out.bufferOutput = false;
         }
         await out.addStream(stream);
     }

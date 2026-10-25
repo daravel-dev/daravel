@@ -7,6 +7,7 @@ import '../logging/logger.dart';
 import '../support/request_id.dart';
 import 'kernel.dart';
 import 'request.dart';
+import 'realtime.dart';
 import 'response.dart';
 
 /// Options for [Application.serve].
@@ -162,6 +163,62 @@ final class ServerEngine {
     );
   }
 
+  final Set<WebSocket> _sockets = <WebSocket>{};
+
+  /// Open WebSocket connections on this engine.
+  int get openWebSockets => _sockets.length;
+
+  /// Upgrades [httpRequest] (its middleware has passed) and runs [handler]
+  /// in the request's scope until the socket closes. A plain request to a
+  /// WebSocket route gets `426 Upgrade Required`.
+  Future<void> _upgrade(
+    HttpRequest httpRequest,
+    Request request,
+    Response response,
+    WebSocketHandler handler,
+    String id,
+  ) async {
+    if (!WebSocketTransformer.isUpgradeRequest(httpRequest) || _stopping) {
+      final refusal = Response.json(const <String, Object?>{
+        'message': 'Upgrade Required',
+      }, status: 426).withHeader('upgrade', 'websocket');
+      try {
+        await refusal.writeTo(httpRequest.response);
+      } catch (_) {
+        // Client gone.
+      }
+      await kernel.terminate(request, refusal);
+      return;
+    }
+    final WebSocket socket;
+    try {
+      socket = await WebSocketTransformer.upgrade(httpRequest);
+    } catch (error) {
+      logger.warning('WebSocket upgrade failed for request $id: $error');
+      return;
+    }
+    _sockets.add(socket);
+    logger.info(
+      '${request.method} ${request.path} 101 (WebSocket)',
+      <String, Object?>{'request_id': id},
+    );
+    try {
+      await handler(socket, request);
+      await socket.done;
+    } catch (error, stackTrace) {
+      logger.error(
+        'WebSocket handler failed for request $id',
+        error: error,
+        stackTrace: stackTrace,
+        context: <String, Object?>{'request_id': id},
+      );
+      await socket.close(WebSocketStatus.internalServerError);
+    } finally {
+      _sockets.remove(socket);
+      await kernel.terminate(request, response);
+    }
+  }
+
   /// Stops accepting connections, lets in-flight requests finish (up to
   /// [ServeOptions.shutdownTimeout]) and completes [done].
   Future<void> stop({bool force = false}) async {
@@ -174,6 +231,13 @@ final class ServerEngine {
       await subscription.cancel();
     }
     _signals.clear();
+    // Open WebSockets would hold the shutdown until its timeout: tell
+    // clients the server is going away so they reconnect elsewhere.
+    for (final socket in _sockets.toList()) {
+      unawaited(
+        socket.close(WebSocketStatus.goingAway, 'Server shutting down'),
+      );
+    }
     final server = _server;
     if (server != null) {
       try {
@@ -241,6 +305,11 @@ final class ServerEngine {
                 response = Response.json(const <String, Object?>{
                   'message': 'Server Error',
                 }, status: 500);
+              }
+              final onSocket = response.webSocket;
+              if (onSocket != null) {
+                await _upgrade(httpRequest, request, response, onSocket, id);
+                return;
               }
               try {
                 await response.writeTo(httpRequest.response);

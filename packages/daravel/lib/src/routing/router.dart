@@ -4,6 +4,7 @@ import '../foundation/clock.dart';
 
 import '../http/http_exceptions.dart';
 import '../http/middleware.dart';
+import '../http/realtime.dart';
 import '../http/request.dart';
 import '../http/response.dart';
 import 'radix_tree.dart';
@@ -77,6 +78,22 @@ final class Router {
 
   RouteEntry get(String path, Handler handler) =>
       match(const <String>['GET', 'HEAD'], path, handler);
+
+  /// A WebSocket endpoint: the route's middleware (`auth`, `throttle`, ...)
+  /// runs first, then the connection is upgraded and [handler] gets the
+  /// socket and the request (route parameters, `Auth.user()`) in the
+  /// request's scope. A plain request gets `426 Upgrade Required`.
+  RouteEntry ws(String path, WebSocketHandler handler) =>
+      match(const <String>['GET'], path, (request) {
+        if (!isWebSocketUpgrade(request)) {
+          return Response.json(
+            const <String, Object?>{'message': 'Upgrade Required'},
+            status: 426,
+            headers: const <String, String>{'upgrade': 'websocket'},
+          );
+        }
+        return Response.webSocket(handler);
+      });
 
   RouteEntry post(String path, Handler handler) =>
       match(const <String>['POST'], path, handler);
