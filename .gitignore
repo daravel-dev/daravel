@@ -23,6 +23,9 @@ storage/tmp/
 # Local weekly review notes (not published)
 docs/reviews/
 
+# External reviews, for the review team only (not published)
+docs/external-reviews/
+
 # Design blueprints (kept local, not published)
 BLUEPRINT_*
 
