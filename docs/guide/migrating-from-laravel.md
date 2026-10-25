@@ -200,3 +200,31 @@ owner (step 2: give its migrations Laravel's recorded names, or insert
 the matching rows), move the scheduler and queue workers, and remove the
 `handle` / `location` block for Laravel. See [Deployment](deployment.md) for
 running Daravel on its own.
+
+## The application model (daragic)
+
+`dartisan daragic:export` writes the application's structure as a DAM
+(Daravel Application Model), the language-neutral format the `daragic`
+generator reads in either direction:
+
+```bash
+dart run bin/dartisan.dart daragic:export                         # dam/dam.json + dam/daragic.lock
+dart run bin/dartisan.dart daragic:export --only=routes,models --out=build/dam
+```
+
+It boots the application (without serving) and records the routes (methods,
+URI in Laravel's form, name, controller action from `.action()`,
+middleware, `where` patterns, validation rules both as the DSL and
+structured, the documented response), the models from `bootstrap/models.dart`
+(table, key, fillable, casts, hidden, relations with their keys, as
+`App\Models\...` classes), migrations with their batch, the database schema,
+the schedule, jobs, feature flags, translations, middleware and the keys of
+`.env.example`. The file is deterministic (sorted, no timestamps), so two
+exports diff cleanly, and holds no secrets: keys that look secret
+(`*_KEY`, `*_PASSWORD`, `*_TOKEN`, ...) keep no default. `daragic.lock`
+hashes each section and entity for incremental merges.
+
+Method bodies (controllers, closures, jobs, scopes) are not exported yet:
+they need the Dialect IR extractor. Routes registered without `.action()`
+appear as closures. `report.unsupported` in the file lists what is left out,
+so nothing is dropped silently.

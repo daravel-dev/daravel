@@ -15,6 +15,28 @@ Laravel-facing formats change only to match Laravel more closely.
   The application sees the same requests as in process; `actingAs` works
   through `ServerEngine.prepare`, a new per-request hook. CI runs the core,
   toolkit and starter suites both ways on Linux, macOS and Windows.
+- `dartisan daragic:export [--out] [--only]`: the application's structure as
+  a DAM (BLUEPRINT_DARAGIC §5, §7) in `dam.json` plus `daragic.lock`
+  (hashes per section and entity): routes (Laravel-style URIs, actions,
+  middleware, unanchored `where` patterns, validation as DSL and structured
+  rules, responses), models with relations, migrations with batches,
+  schema, schedule, jobs, feature flags, translations, middleware and
+  `.env.example` keys without secrets. Deterministic and offline-safe (no
+  database: the schema is marked unavailable). Method bodies are listed in
+  `report.unsupported` until the Dialect IR extractor exists.
+- `TouchableCacheStore.touch(key, ttl)` (Laravel's `Cache::touch`): change
+  how long a key lives without rewriting its value; the memory, file and
+  database stores implement it.
+
+### Fixed
+
+- A shared rate limit (`CACHE_LIMITER`, `CacheRateLimitStore`) could let one
+  request too many through under concurrency (seen in CI on MariaDB: 11 of
+  a limit of 10). When a request found the counter just created by another
+  one and incremented it to 1, it reset the counter to 1 as Laravel's
+  `RateLimiter::hit()` does, losing the other request's hit. It now only
+  gives the counter a lifetime (`touch`), so every hit counts. Covered by a
+  test that forces that interleaving.
 
 ## 1.4.1
 

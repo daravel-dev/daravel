@@ -21,6 +21,7 @@ import 'src/env_commands.dart';
 import 'src/tinker_command.dart';
 import 'src/make_commands.dart';
 import 'src/queue_commands.dart';
+import 'src/daragic_export.dart';
 import 'src/mcp_server.dart';
 
 export 'src/database_commands.dart';
@@ -38,6 +39,7 @@ export 'src/adopt_command.dart';
 export 'src/tinker_command.dart';
 export 'src/make_commands.dart';
 export 'src/queue_commands.dart';
+export 'src/daragic_export.dart';
 export 'src/mcp_server.dart';
 
 /// Creates an unbooted [Application] (a project's `createApp()`).
@@ -66,6 +68,7 @@ final class DartisanRunner extends CommandRunner<int> {
     addCommand(DbTableCommand(createApp));
     addCommand(DbBackupCommand(createApp));
     addCommand(ModelShowCommand(createApp));
+    addCommand(DaragicExportCommand(createApp));
     addCommand(CacheClearCommand(createApp));
     addCommand(CoordinatorStatsCommand(createApp));
     addCommand(StorageLinkCommand(createApp));

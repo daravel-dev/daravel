@@ -57,6 +57,18 @@ final class Translator {
     }
   }
 
+  /// Keyed lines by locale (read-only).
+  Map<String, Map<String, String>> get lines => {
+    for (final MapEntry(:key, :value) in _lines.entries)
+      key: Map.unmodifiable(value),
+  };
+
+  /// JSON lines by locale (read-only).
+  Map<String, Map<String, String>> get jsonLines => {
+    for (final MapEntry(:key, :value) in _json.entries)
+      key: Map.unmodifiable(value),
+  };
+
   /// The locales that have lines.
   Set<String> get locales => {..._lines.keys, ..._json.keys};
 

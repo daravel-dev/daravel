@@ -50,6 +50,7 @@ options.
 | `tinker "<expression>"` | Evaluates a Dart expression in the booted application |
 | `model:sync [Model]` | Regenerates a model's typed accessors from its table |
 | `model:show <Model> [--json]` | A model's table, attributes (type, cast, fillable, hidden) and relations, from `bootstrap/models.dart` |
+| `daragic:export [--out] [--only]` | The application model (DAM) for `daragic`: routes, models, migrations, schema, schedule, ... (see [Migrating from Laravel](migrating-from-laravel.md#the-application-model-daragic)) |
 
 ## Queues and scheduling
 

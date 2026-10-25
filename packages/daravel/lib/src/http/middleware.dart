@@ -76,6 +76,10 @@ final class MiddlewareRegistry {
   /// Registered group names.
   Iterable<String> get groups => _groups.keys;
 
+  /// The entries of group [name] (alias strings or middleware), or empty.
+  List<Object> groupEntries(String name) =>
+      List.unmodifiable(_groups[name] ?? const <Object>[]);
+
   /// Appends [middleware] to the global stack.
   void use(List<Middleware> middleware) {
     _global.addAll(middleware);
