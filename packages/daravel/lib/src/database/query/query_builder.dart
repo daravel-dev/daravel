@@ -68,6 +68,14 @@ final class QueryBuilder {
   QueryBuilder selectRaw(String sql, [List<Object?> bindings = const []]) =>
       addSelect([RawExpression(sql, bindings)]);
 
+  /// Adds `(subquery) AS alias` to the select list (`selectSub`), or
+  /// `EXISTS(subquery) AS alias` when [exists].
+  QueryBuilder selectSub(
+    QueryBuilder query,
+    String alias, {
+    bool exists = false,
+  }) => addSelect([SubSelect(query._ast, alias, exists: exists)]);
+
   QueryBuilder distinct([bool value = true]) {
     _ast.distinct = value;
     return this;
@@ -132,13 +140,7 @@ final class QueryBuilder {
   ]) {
     final sub = QueryBuilder(_db, _ast.table, connection: _connection);
     nested(sub);
-    return _add(
-      RawWhere(
-        'NOT (${_db.grammarFor(_connection).compileSelect(QueryAst('x')..wheres.addAll(sub._ast.wheres)).sql.split(' WHERE ').last})',
-        _collectBindings(sub._ast.wheres),
-        boolean,
-      ),
-    );
+    return _add(NestedWhere(sub._ast.wheres, not: true, boolean: boolean));
   }
 
   QueryBuilder whereColumn(
@@ -988,33 +990,6 @@ final class QueryBuilder {
       caseSensitive: false,
     ).firstMatch(table.trim());
     return match?.group(2);
-  }
-
-  static List<Object?> _collectBindings(List<WhereClause> wheres) {
-    final bindings = <Object?>[];
-    for (final where in wheres) {
-      switch (where) {
-        case BasicWhere(:final value):
-          if (value is RawExpression) {
-            bindings.addAll(value.bindings);
-          } else {
-            bindings.add(value);
-          }
-        case InWhere(:final values):
-          bindings.addAll(values);
-        case BetweenWhere(:final from, :final to):
-          bindings.addAll([from, to]);
-        case RawWhere(:final bindings):
-          bindings.addAll(bindings);
-        case NestedWhere(:final wheres):
-          bindings.addAll(_collectBindings(wheres));
-        case DatePartWhere(:final value) || JsonWhere(:final value):
-          bindings.add(value);
-        case ColumnWhere() || NullWhere() || ExistsWhere():
-          break;
-      }
-    }
-    return bindings;
   }
 }
 

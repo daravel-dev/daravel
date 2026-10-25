@@ -437,10 +437,15 @@ abstract base class Model implements JsonSerializable, Responsable {
   Future<void> _touchOwners() async {
     for (final name in modelDefinition.touches) {
       final relation = modelDefinition.relation(name);
-      if (relation is BelongsTo<Model>) {
-        final owner = await relation.queryFor(this, database).first();
-        await owner?.touch();
-      }
+      final owner = switch (relation) {
+        BelongsTo<Model>() => await relation.queryFor(this, database).first(),
+        MorphTo()
+            when attributes[relation.morphType] != null &&
+                attributes[relation.foreignKey] != null =>
+          await relation.queryFor(this, database).first(),
+        _ => null,
+      };
+      await owner?.touch();
     }
   }
 

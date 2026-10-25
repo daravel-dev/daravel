@@ -72,7 +72,7 @@ sections:
     symbols:
       - { php: "class User extends Model", dart: "final class User extends Model", symbol: Model }
       - { php: "protected $table / $fillable / $hidden / $casts", dart: "ModelDefinition<User>(table:, fillable:, hidden:, casts:)", symbol: ModelDefinition }
-      - { php: "$model->getMorphClass()", dart: "User.definition.morphClass", symbol: ModelDefinition.morphClass }
+      - { php: "$model->getMorphClass()", dart: "Relation.morphClassOf(User.definition)", symbol: Relation.morphClassOf, note: "The morph alias, else `ModelDefinition.morphClass` (`App\\Models\\User` by default)." }
       - { php: "User::query()", dart: "User.query()", symbol: ModelDefinition.query }
       - { php: "User::where('a', $b)->first()", dart: "await User.query().where('a', b).first()", symbol: ModelQuery.where, async: true }
       - { php: "User::find($id) / findOrFail($id)", dart: "await User.query().find(id) / findOrFail(id)", symbol: ModelQuery.findOrFail, async: true, throws: ModelNotFoundException }
@@ -81,7 +81,16 @@ sections:
       - { php: "User::firstOrCreate / updateOrCreate", dart: "firstOrCreate / updateOrCreate", symbol: ModelQuery.updateOrCreate, async: true }
       - { php: "->with(['posts'])", dart: ".with_(['posts'])", symbol: ModelQuery.with_, note: "`with` is a reserved word in Dart." }
       - { php: "->withCount('posts')", dart: ".withCount('posts')", symbol: ModelQuery.withCount }
+      - { php: "->withSum('orders', 'total') / withAvg / withMin / withMax / withExists", dart: ".withSum('orders', 'total') / withAvg / withMin / withMax / withExists", symbol: ModelQuery.withExists }
       - { php: "->whereHas('posts', fn)", dart: ".whereHas('posts', (q) {...})", symbol: ModelQuery.whereHas }
+      - { php: "->whereHas('posts.comments', fn) / whereDoesntHave / orWhereHas", dart: ".whereHas('posts.comments', (q) {...})", symbol: ModelQuery.orWhereDoesntHave, note: "Nested relations become nested EXISTS, as in Laravel." }
+      - { php: "->whereHasMorph('commentable', [Post::class], fn)", dart: ".whereHasMorph('commentable', [Post.definition], (q, type) {...})", symbol: ModelQuery.whereHasMorph }
+      - { php: "$this->hasOneThrough(Owner::class, Car::class)", dart: "HasOneThrough<Owner>(() => Owner.definition, through: () => Car.definition, firstKey: 'mechanic_id', secondKey: 'car_id')", symbol: HasOneThrough }
+      - { php: "$this->morphMany(Comment::class, 'commentable')", dart: "MorphMany<Comment>(() => Comment.definition, morphName: 'commentable')", symbol: MorphMany }
+      - { php: "$this->morphOne(Image::class, 'imageable')", dart: "MorphOne<Image>(() => Image.definition, morphName: 'imageable')", symbol: MorphOne }
+      - { php: "$this->morphTo()", dart: "MorphTo(types: [() => Post.definition, () => Video.definition])", symbol: MorphTo, note: "No reflection: possible targets come from `types:` or the morph map." }
+      - { php: "$this->morphToMany(Tag::class, 'taggable') / morphedByMany", dart: "MorphToMany<Tag>(..., morphName: 'taggable', relatedPivotKey: 'tag_id') / MorphedByMany", symbol: MorphedByMany }
+      - { php: "Relation::morphMap([...]) / enforceMorphMap([...])", dart: "Relation.morphMap({'post': () => Post.definition}) / enforceMorphMap", symbol: Relation.enforceMorphMap }
       - { php: "->paginate(15)", dart: "await query.paginate(perPage: 15)", symbol: ModelQuery.paginate, async: true, note: "Page and path come from the current request, like Laravel." }
       - { php: "->simplePaginate() / cursorPaginate()", dart: ".simplePaginate() / .cursorPaginate()", symbol: ModelQuery.cursorPaginate, async: true }
       - { php: "->latest() / oldest()", dart: ".latest() / .oldest()", symbol: ModelQuery.latest }
@@ -107,12 +116,15 @@ sections:
       - { php: "->upsert($values, $uniqueBy)", dart: ".upsert(values, uniqueBy)", symbol: QueryBuilder.upsert, async: true }
       - { php: "->chunkById(100, fn)", dart: ".chunkById(100, (rows) async {...})", symbol: QueryBuilder.chunkById, async: true }
       - { php: "->toSql() / toRawSql()", dart: ".toSql() / .toRawSql()", symbol: QueryBuilder.toRawSql }
+      - { php: "->selectSub($query, 'alias')", dart: ".selectSub(query, 'alias')", symbol: QueryBuilder.selectSub }
 
   - name: Schema & migrations
     symbols:
+      - { php: "->selectSub($query, 'alias')", dart: ".selectSub(query, 'alias')", symbol: QueryBuilder.selectSub }
       - { php: "Schema::create('users', fn (Blueprint $table) => ...)", dart: "schema.create('users', (table) {...})", symbol: SchemaBuilder.create, async: true }
       - { php: "Schema::table / dropIfExists / hasTable / hasColumn", dart: "schema.table / dropIfExists / hasTable / hasColumn", symbol: SchemaBuilder.hasColumn, async: true }
       - { php: "$table->id() / string() / foreignId()->constrained()", dart: "table.id() / string() / foreignId().constrained()", symbol: Blueprint.foreignId }
+      - { php: "$table->morphs('taggable') / nullableMorphs / uuidMorphs / ulidMorphs", dart: "table.morphs('taggable') / nullableMorphs / uuidMorphs / ulidMorphs", symbol: Blueprint.nullableMorphs }
       - { php: "$table->timestamps() / softDeletes() / rememberToken()", dart: "table.timestamps() / softDeletes() / rememberToken()", symbol: Blueprint.softDeletes }
       - { php: "return new class extends Migration { up / down }", dart: "final class CreateX extends Migration { up / down }", symbol: Migration }
       - { php: "class DatabaseSeeder extends Seeder", dart: "final class DatabaseSeeder extends Seeder", symbol: Seeder }
@@ -215,7 +227,6 @@ exceptions:
 
 # Laravel features without a Daravel equivalent yet (BLUEPRINT_V2 Tier 2/3).
 missing:
-  - { php: "Polymorphic relations (morphTo, morphMany, ...)", plan: "Tier 2" }
   - { php: "Blade templates", plan: "Tier 3 (typed HTML builder)" }
   - { php: "Sessions, CSRF, SPA cookie auth", plan: "Tier 2" }
   - { php: "Mail, notifications, broadcasting", plan: "Tier 2/3" }

@@ -77,6 +77,41 @@ Future<void> f(String name, int id) async {
     },
   );
 
+  test(
+    'unawaited_in_db_transaction flags queries that outlive the transaction',
+    () {
+      const source = '''
+Future<void> f(User user, Map<String, int> totals) async {
+  await DB.transaction(() async {
+    await user.save();
+    user.save();
+    DB.table('logs').insert({'a': 1});
+    unawaited(Post.query().where('id', 1).delete());
+    order.save().ignore();
+    for (final id in ids) {
+      Tag.query().whereKey(id).update({'n': 1});
+    }
+    totals.update('a', (v) => v + 1);
+    items.first;
+    final pending = user.save();
+    await pending;
+    db.afterCommit(() => Mail.query().create({}));
+    await DB.transaction(() async {
+      user.touch();
+    });
+    return post.update({'title': 't'});
+  });
+  user.save(); // outside: not this rule's business
+}
+''';
+      final issues = lintSource(source, 'lib/app/services/orders.dart');
+      expect(rulesOf(issues).toSet(), {'unawaited_in_db_transaction'});
+      expect(issues.map((i) => i.line), [4, 5, 6, 7, 9, 17]);
+      expect(issues.first.message, contains('Add `await`'));
+      expect(lintSource(source, 'lib/src/internal.dart'), isEmpty);
+    },
+  );
+
   test('lintProject walks the project and checks registries', () async {
     final root = await Directory.systemTemp.createTemp('daravel_lints_');
     addTearDown(() => root.delete(recursive: true));

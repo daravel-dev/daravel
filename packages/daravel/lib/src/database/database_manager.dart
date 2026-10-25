@@ -47,6 +47,9 @@ final class DatabaseManager {
   /// Zone key tracking the savepoint depth of the active transaction.
   static const Symbol depthKey = #daravel.txDepth;
 
+  /// Zone key of the active transaction level (its lock and executor).
+  static const Symbol _scopeKey = #daravel.txScope;
+
   final DatabaseConfig config;
   final Logger? _logger;
   final Map<String, DatabaseDriver> _connections = <String, DatabaseDriver>{};
@@ -210,16 +213,18 @@ final class DatabaseManager {
     for (var attempt = 1; ; attempt++) {
       final callbacks = <FutureOr<void> Function()>[];
       try {
-        final result = await driver.transaction<T>(
-          (tx) => runZoned<Future<T>>(
+        final result = await driver.transaction<T>((tx) {
+          final scope = _TransactionScope(tx);
+          return runZoned<Future<T>>(
             body,
             zoneValues: <Object?, Object?>{
-              transactionKey: tx,
+              transactionKey: scope.executor,
+              _scopeKey: scope,
               depthKey: 1,
               afterCommitKey: callbacks,
             },
-          ),
-        );
+          ).whenComplete(scope.close);
+        });
         for (final callback in callbacks) {
           await callback();
         }
@@ -235,36 +240,47 @@ final class DatabaseManager {
     }
   }
 
-  Future<T> _savepoint<T>(Future<T> Function() body) async {
-    final tx = Zone.current[transactionKey]! as QueryExecutor;
-    final depth = transactionDepth + 1;
-    final name = 'daravel_sp_$depth';
-    final callbacks = <FutureOr<void> Function()>[];
-    await tx.execute('SAVEPOINT $name');
-    try {
-      final result = await runZoned<Future<T>>(
-        body,
-        zoneValues: <Object?, Object?>{
-          depthKey: depth,
-          afterCommitKey: callbacks,
-        },
-      );
-      await tx.execute('RELEASE SAVEPOINT $name');
-      final parent =
-          Zone.current[afterCommitKey] as List<FutureOr<void> Function()>?;
-      if (parent != null && identical(parent, Zone.current[baselineKey])) {
-        // The app-level transaction "committed" inside a test baseline.
-        for (final callback in callbacks) {
-          await callback();
+  /// A savepoint under the current level. Savepoints on one connection form
+  /// a stack, so siblings started together (`Future.wait`) run one after
+  /// another; each gets its own scope for its own children.
+  Future<T> _savepoint<T>(Future<T> Function() body) {
+    final parent = Zone.current[_scopeKey]! as _TransactionScope;
+    return parent.runChild(() async {
+      final tx = parent.connection;
+      final depth = transactionDepth + 1;
+      final name = 'daravel_sp_$depth';
+      final callbacks = <FutureOr<void> Function()>[];
+      final scope = _TransactionScope(tx);
+      await tx.execute('SAVEPOINT $name');
+      try {
+        final result = await runZoned<Future<T>>(
+          body,
+          zoneValues: <Object?, Object?>{
+            transactionKey: scope.executor,
+            _scopeKey: scope,
+            depthKey: depth,
+            afterCommitKey: callbacks,
+          },
+        );
+        scope.close();
+        await tx.execute('RELEASE SAVEPOINT $name');
+        final pending =
+            Zone.current[afterCommitKey] as List<FutureOr<void> Function()>?;
+        if (pending != null && identical(pending, Zone.current[baselineKey])) {
+          // The app-level transaction "committed" inside a test baseline.
+          for (final callback in callbacks) {
+            await callback();
+          }
+        } else {
+          pending?.addAll(callbacks);
         }
-      } else {
-        parent?.addAll(callbacks);
+        return result;
+      } catch (_) {
+        scope.close();
+        await tx.execute('ROLLBACK TO SAVEPOINT $name');
+        rethrow;
       }
-      return result;
-    } catch (_) {
-      await tx.execute('ROLLBACK TO SAVEPOINT $name');
-      rethrow;
-    }
+    });
   }
 
   /// Runs [callback] once the active transaction (and its savepoints)
@@ -296,20 +312,22 @@ final class DatabaseManager {
     final baseline = <FutureOr<void> Function()>[];
     late T result;
     try {
-      await driver.transaction<void>(
-        (tx) => runZoned<Future<void>>(
+      await driver.transaction<void>((tx) {
+        final scope = _TransactionScope(tx);
+        return runZoned<Future<void>>(
           () async {
             result = await body();
             throw const _RollbackSignal();
           },
           zoneValues: <Object?, Object?>{
-            transactionKey: tx,
+            transactionKey: scope.executor,
+            _scopeKey: scope,
             depthKey: 1,
             afterCommitKey: baseline,
             baselineKey: baseline,
           },
-        ),
-      );
+        ).whenComplete(scope.close);
+      });
     } on _RollbackSignal {
       return result;
     }
@@ -383,4 +401,79 @@ final class DatabaseManager {
 /// Internal: forces [DatabaseManager.rollbackAfter] to roll back.
 final class _RollbackSignal implements Exception {
   const _RollbackSignal();
+}
+
+/// One transaction or savepoint level on a [connection].
+///
+/// Its [executor] (what the zone hands to queries) stops working when the
+/// level ends, so a query that outlives it (a missing `await`) fails
+/// instead of running outside the transaction. Child savepoints run one at
+/// a time ([runChild]), and queries of this level wait while a child is
+/// open, so none lands inside a savepoint that is then rolled back.
+final class _TransactionScope {
+  _TransactionScope(this.connection) {
+    executor = _ScopedExecutor(this);
+  }
+
+  /// The driver's transaction executor (shared by every level).
+  final QueryExecutor connection;
+  late final QueryExecutor executor;
+  bool _closed = false;
+  Future<void> _children = Future<void>.value();
+
+  void close() => _closed = true;
+
+  Future<T> runChild<T>(Future<T> Function() body) {
+    final previous = _children;
+    final done = Completer<void>();
+    _children = done.future;
+    return previous.then((_) => body()).whenComplete(done.complete);
+  }
+
+  /// Waits for open child savepoints, then checks that the level is open.
+  Future<void> _ready(String sql) async {
+    await _children;
+    if (_closed) {
+      throw StateError(
+        'A query ran after its transaction finished; await every query '
+        'inside DB.transaction: $sql',
+      );
+    }
+  }
+}
+
+final class _ScopedExecutor implements QueryExecutor {
+  _ScopedExecutor(this._scope);
+
+  final _TransactionScope _scope;
+
+  @override
+  SqlDialect get dialect => _scope.connection.dialect;
+
+  @override
+  Future<List<Map<String, Object?>>> select(
+    String sql, [
+    List<Object?> bindings = const <Object?>[],
+  ]) async {
+    await _scope._ready(sql);
+    return _scope.connection.select(sql, bindings);
+  }
+
+  @override
+  Future<int> execute(
+    String sql, [
+    List<Object?> bindings = const <Object?>[],
+  ]) async {
+    await _scope._ready(sql);
+    return _scope.connection.execute(sql, bindings);
+  }
+
+  @override
+  Future<Object?> insertGetId(
+    String sql, [
+    List<Object?> bindings = const <Object?>[],
+  ]) async {
+    await _scope._ready(sql);
+    return _scope.connection.insertGetId(sql, bindings);
+  }
 }

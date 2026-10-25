@@ -128,7 +128,15 @@ abstract class QueryGrammar {
     } else {
       buffer.write(
         query.columns
-            .map((col) => col is RawExpression ? c.raw(col) : wrap(col))
+            .map(
+              (col) => switch (col) {
+                RawExpression() => c.raw(col),
+                SubSelect(:final query, :final alias, :final exists) =>
+                  '${exists ? 'EXISTS' : ''}(${_select(query, c)}) '
+                      'AS ${_quote(alias)}',
+                _ => wrap(col),
+              },
+            )
             .join(', '),
       );
     }
@@ -240,7 +248,8 @@ abstract class QueryGrammar {
       '${wrap(column)} IS ${not ? 'NOT ' : ''}NULL',
     BetweenWhere(:final column, :final from, :final to, :final not) =>
       '${wrap(column)} ${not ? 'NOT ' : ''}BETWEEN ${c.bind(from)} AND ${c.bind(to)}',
-    NestedWhere(:final wheres) => '(${_wheres(wheres, c)})',
+    NestedWhere(:final wheres, :final not) =>
+      '${not ? 'NOT ' : ''}(${_wheres(wheres, c)})',
     ExistsWhere(:final subQuery, :final not) =>
       '${not ? 'NOT ' : ''}EXISTS (${_select(subQuery, c)})',
     RawWhere(:final sql, :final bindings) => c.raw(

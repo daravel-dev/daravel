@@ -1,3 +1,14 @@
+/// A subquery in the select list: `(SELECT ...) AS alias`, or
+/// `EXISTS(SELECT ...) AS alias` when [exists]. Compiled in the same pass as
+/// the outer query, so dialects with numbered placeholders stay in order.
+final class SubSelect {
+  const SubSelect(this.query, this.alias, {this.exists = false});
+
+  final QueryAst query;
+  final String alias;
+  final bool exists;
+}
+
 /// Raw SQL fragment with its own bindings; inserted verbatim by grammars.
 final class RawExpression {
   const RawExpression(this.sql, [this.bindings = const <Object?>[]]);
@@ -108,8 +119,11 @@ final class BetweenWhere extends WhereClause {
 }
 
 final class NestedWhere extends WhereClause {
-  const NestedWhere(this.wheres, {super.boolean});
+  const NestedWhere(this.wheres, {this.not = false, super.boolean});
   final List<WhereClause> wheres;
+
+  /// `NOT (...)` (`whereNot`).
+  final bool not;
 }
 
 final class ExistsWhere extends WhereClause {

@@ -77,14 +77,16 @@ final class Post extends Model {
 
 `dartisan make:model` writes this for you and `dartisan model:sync`
 regenerates the typed accessors from the table. Relations (`HasOne`,
-`HasMany`, `BelongsTo`, `BelongsToMany`, `HasManyThrough`) are declared in
+`HasMany`, `BelongsTo`, `BelongsToMany`, `HasManyThrough` and the
+[polymorphic ones](orm.md#polymorphic-relations)) are declared in
 `relations:` and eager loaded with `with_([...])` (`with` is a reserved
 word in Dart). Soft deletes, observers, model events, global scopes,
-`withCount` and `whereHas` work as in Eloquent.
+`withCount` and (nested) `whereHas` work as in Eloquent.
 
 `ModelDefinition.morphClass` is the Laravel class name of the model
 (`App\Models\Post` by default). It is stored in polymorphic columns such as
-`personal_access_tokens.tokenable_type` and used in
+`personal_access_tokens.tokenable_type`, unless `Relation.morphMap` gives
+the model an alias, and used in
 `No query results for model [App\Models\Post] 1`.
 
 ## Querying
@@ -112,6 +114,18 @@ Transactions follow the zone: nested calls become savepoints, and
 after-commit callbacks (`App.make<DatabaseManager>().afterCommit(...)`, used
 by queued jobs and `Event.dispatchAfterCommit`) run only when the outer
 transaction commits.
+
+Dart can run several things at once inside one transaction, which PHP
+cannot, so two rules keep it safe:
+
+- Nested transactions started together (`Future.wait([DB.transaction(...),
+  DB.transaction(...)])`) run one after the other, because savepoints on a
+  connection form a stack. One failing rolls back only its own work.
+- A query that runs after its transaction has finished (a missing `await`)
+  throws a `StateError` instead of running outside the transaction.
+  `await` every query inside `DB.transaction`; `dartisan lint`
+  (`unawaited_in_db_transaction`) points out the ones that are not,
+  including `unawaited(...)` and `.ignore()`.
 
 ## Listening to queries
 

@@ -3,3 +3,4 @@ build/
 coverage/
 *.sqlite
 .dart_tool/
+test/orm_matrix_test.dart

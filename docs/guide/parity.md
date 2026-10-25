@@ -71,7 +71,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | :-- | :-- | :-- |
 | `class User extends Model` | `final class User extends Model` |  |
 | `protected $table / $fillable / $hidden / $casts` | `ModelDefinition<User>(table:, fillable:, hidden:, casts:)` |  |
-| `$model->getMorphClass()` | `User.definition.morphClass` |  |
+| `$model->getMorphClass()` | `Relation.morphClassOf(User.definition)` | The morph alias, else `ModelDefinition.morphClass` (`App\Models\User` by default). |
 | `User::query()` | `User.query()` |  |
 | `User::where('a', $b)->first()` | `await User.query().where('a', b).first()` | **async** |
 | `User::find($id) / findOrFail($id)` | `await User.query().find(id) / findOrFail(id)` | **async**; throws `ModelNotFoundException` |
@@ -80,7 +80,16 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `User::firstOrCreate / updateOrCreate` | `firstOrCreate / updateOrCreate` | **async** |
 | `->with(['posts'])` | `.with_(['posts'])` | `with` is a reserved word in Dart. |
 | `->withCount('posts')` | `.withCount('posts')` |  |
+| `->withSum('orders', 'total') / withAvg / withMin / withMax / withExists` | `.withSum('orders', 'total') / withAvg / withMin / withMax / withExists` |  |
 | `->whereHas('posts', fn)` | `.whereHas('posts', (q) {...})` |  |
+| `->whereHas('posts.comments', fn) / whereDoesntHave / orWhereHas` | `.whereHas('posts.comments', (q) {...})` | Nested relations become nested EXISTS, as in Laravel. |
+| `->whereHasMorph('commentable', [Post::class], fn)` | `.whereHasMorph('commentable', [Post.definition], (q, type) {...})` |  |
+| `$this->hasOneThrough(Owner::class, Car::class)` | `HasOneThrough<Owner>(() => Owner.definition, through: () => Car.definition, firstKey: 'mechanic_id', secondKey: 'car_id')` |  |
+| `$this->morphMany(Comment::class, 'commentable')` | `MorphMany<Comment>(() => Comment.definition, morphName: 'commentable')` |  |
+| `$this->morphOne(Image::class, 'imageable')` | `MorphOne<Image>(() => Image.definition, morphName: 'imageable')` |  |
+| `$this->morphTo()` | `MorphTo(types: [() => Post.definition, () => Video.definition])` | No reflection: possible targets come from `types:` or the morph map. |
+| `$this->morphToMany(Tag::class, 'taggable') / morphedByMany` | `MorphToMany<Tag>(..., morphName: 'taggable', relatedPivotKey: 'tag_id') / MorphedByMany` |  |
+| `Relation::morphMap([...]) / enforceMorphMap([...])` | `Relation.morphMap({'post': () => Post.definition}) / enforceMorphMap` |  |
 | `->paginate(15)` | `await query.paginate(perPage: 15)` | **async**; Page and path come from the current request, like Laravel. |
 | `->simplePaginate() / cursorPaginate()` | `.simplePaginate() / .cursorPaginate()` | **async** |
 | `->latest() / oldest()` | `.latest() / .oldest()` |  |
@@ -108,14 +117,17 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `->upsert($values, $uniqueBy)` | `.upsert(values, uniqueBy)` | **async** |
 | `->chunkById(100, fn)` | `.chunkById(100, (rows) async {...})` | **async** |
 | `->toSql() / toRawSql()` | `.toSql() / .toRawSql()` |  |
+| `->selectSub($query, 'alias')` | `.selectSub(query, 'alias')` |  |
 
 ## Schema & migrations
 
 | Laravel | Daravel | Notes |
 | :-- | :-- | :-- |
+| `->selectSub($query, 'alias')` | `.selectSub(query, 'alias')` |  |
 | `Schema::create('users', fn (Blueprint $table) => ...)` | `schema.create('users', (table) {...})` | **async** |
 | `Schema::table / dropIfExists / hasTable / hasColumn` | `schema.table / dropIfExists / hasTable / hasColumn` | **async** |
 | `$table->id() / string() / foreignId()->constrained()` | `table.id() / string() / foreignId().constrained()` |  |
+| `$table->morphs('taggable') / nullableMorphs / uuidMorphs / ulidMorphs` | `table.morphs('taggable') / nullableMorphs / uuidMorphs / ulidMorphs` |  |
 | `$table->timestamps() / softDeletes() / rememberToken()` | `table.timestamps() / softDeletes() / rememberToken()` |  |
 | `return new class extends Migration { up / down }` | `final class CreateX extends Migration { up / down }` |  |
 | `class DatabaseSeeder extends Seeder` | `final class DatabaseSeeder extends Seeder` |  |
@@ -226,7 +238,6 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 
 | Laravel | Plan |
 | :-- | :-- |
-| Polymorphic relations (morphTo, morphMany, ...) | Tier 2 |
 | Blade templates | Tier 3 (typed HTML builder) |
 | Sessions, CSRF, SPA cookie auth | Tier 2 |
 | Mail, notifications, broadcasting | Tier 2/3 |

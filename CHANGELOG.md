@@ -5,6 +5,58 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 breaking changes to the Dart API wait for a new major version, and
 Laravel-facing formats change only to match Laravel more closely.
 
+## Unreleased
+
+### Added
+
+- Polymorphic relations, stored as Laravel stores them: `MorphOne`,
+  `MorphMany`, `MorphTo` (one query per stored type when eager loading,
+  nested relations per type, `associate`/`dissociate`, `touches`),
+  `MorphToMany` and `MorphedByMany` (pivot `attach`/`detach`/`sync` scoped
+  to the type). `Relation.morphMap`, `enforceMorphMap` and `morphClassOf`
+  (Laravel's `getMorphClass`; Sanctum's `tokenable_type` follows it).
+  `whereHasMorph`, `whereDoesntHaveMorph` and their `orWhere*` forms;
+  `whereHas` on a `MorphTo` checks every type the relation lists.
+- Nested existence queries: `whereHas('posts.comments')`, `orWhereHas`,
+  `has`, `whereDoesntHave`, `doesntHave`, `withWhereHas` at any depth, and
+  the new `orWhereDoesntHave`.
+- Schema: `morphs`, `nullableMorphs`, `uuidMorphs`, `nullableUuidMorphs`,
+  `ulidMorphs` and `nullableUlidMorphs`, with Laravel's composite index.
+- `HasOneThrough`.
+- Relation aggregates: `withSum`, `withAvg`, `withMin`, `withMax` and
+  `withExists` (a `bool`), named as in Laravel (`orders_sum_total`), and
+  `'relation as name'` aliases for all of them and `withCount`.
+- `QueryBuilder.selectSub` (a subquery in the select list).
+- `Relation.existenceQuery` (the subquery for `whereHas` against an aliased
+  parent table); custom relations keep working through `correlated`.
+
+- `daravel_lints`: `unawaited_in_db_transaction` flags queries started
+  inside `DB.transaction` without `await`, including `unawaited(...)` and
+  `.ignore()`.
+
+### Fixed
+
+- Transactions: nested transactions started together inside one
+  (`Future.wait([DB.transaction(...), DB.transaction(...)])`) shared a
+  savepoint name and interleaved, so one failing could roll back the
+  other's committed work (SQLite, PostgreSQL and MySQL). Sibling savepoints
+  now run one after another, queries of the outer level wait for an open
+  savepoint, and a query that runs after its transaction has finished (a
+  missing `await`) throws a `StateError` instead of running outside it.
+- `whereHas`, `whereDoesntHave` and `withCount` on a relation to the same
+  model (`Category.children`, users following users) compared the inner
+  table with itself. The inner table is now aliased, as Laravel's
+  `laravel_reserved_N`.
+- PostgreSQL: `withCount` with a constraint, and `whereNot` with bindings,
+  sent their subquery with misnumbered placeholders (`$1` inside a raw
+  fragment), so the statement failed. Both now compile in the same pass as
+  the outer query.
+
+- Verifying an argon2id hash with several lanes (`p=4`, as libargon2 and
+  PHP can write them) could hang when many isolates were busy: the pure
+  Dart implementation spawned one helper isolate per lane from inside the
+  hashing isolate. Lanes are now computed in the hashing isolate.
+
 ## 1.0.0
 
 The first stable release. The Dart API now follows SemVer, `1.x` is the

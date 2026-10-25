@@ -277,6 +277,46 @@ final class Blueprint {
     return column;
   }
 
+  /// Polymorphic columns `{name}_type` (string) and `{name}_id` (unsigned
+  /// big integer) with a composite index, as Laravel's `morphs()` creates.
+  void morphs(String name, {String? indexName}) =>
+      _morphs(name, unsignedBigInteger, nullable: false, indexName: indexName);
+
+  /// [morphs] with both columns nullable.
+  void nullableMorphs(String name, {String? indexName}) =>
+      _morphs(name, unsignedBigInteger, nullable: true, indexName: indexName);
+
+  /// [morphs] with a UUID `{name}_id`.
+  void uuidMorphs(String name, {String? indexName}) =>
+      _morphs(name, uuid, nullable: false, indexName: indexName);
+
+  /// [uuidMorphs] with both columns nullable.
+  void nullableUuidMorphs(String name, {String? indexName}) =>
+      _morphs(name, uuid, nullable: true, indexName: indexName);
+
+  /// [morphs] with a ULID `{name}_id`.
+  void ulidMorphs(String name, {String? indexName}) =>
+      _morphs(name, ulid, nullable: false, indexName: indexName);
+
+  /// [ulidMorphs] with both columns nullable.
+  void nullableUlidMorphs(String name, {String? indexName}) =>
+      _morphs(name, ulid, nullable: true, indexName: indexName);
+
+  void _morphs(
+    String name,
+    ColumnDefinition Function(String name) id, {
+    required bool nullable,
+    String? indexName,
+  }) {
+    final type = string('${name}_type');
+    final key = id('${name}_id');
+    if (nullable) {
+      type.nullable();
+      key.nullable();
+    }
+    index(['${name}_type', '${name}_id'], name: indexName);
+  }
+
   ColumnDefinition string(String name, {int length = 255}) =>
       _add(ColumnDefinition(name, ColumnType.string, length: length));
 

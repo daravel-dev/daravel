@@ -238,6 +238,168 @@ final class NoSqlStringInterpolation extends LintRule {
   };
 }
 
+/// A query started inside `DB.transaction(() async { ... })` without
+/// `await` runs after the transaction has finished, outside it (Daravel then
+/// throws a StateError). `unawaited_futures` misses explicit `unawaited()`
+/// and `.ignore()`, and projects may not enable it.
+final class UnawaitedInDbTransaction extends LintRule {
+  const UnawaitedInDbTransaction();
+
+  /// Methods that only exist on the query builder, the ORM or a model.
+  static const Set<String> queryMethods = <String>{
+    'save',
+    'insert',
+    'insertGetId',
+    'insertOrIgnore',
+    'upsert',
+    'statement',
+    'forceDelete',
+    'restore',
+    'touch',
+    'attach',
+    'detach',
+    'sync',
+    'increment',
+    'decrement',
+    'create',
+    'createMany',
+    'firstOrCreate',
+    'updateOrCreate',
+    'transaction',
+  };
+
+  /// Common names that count only on a chain that starts like a query.
+  static const Set<String> chainMethods = <String>{
+    'get',
+    'first',
+    'firstOrFail',
+    'find',
+    'findOrFail',
+    'pluck',
+    'count',
+    'exists',
+    'delete',
+    'update',
+    'paginate',
+    'sum',
+    'avg',
+    'min',
+    'max',
+  };
+
+  @override
+  String get name => 'unawaited_in_db_transaction';
+
+  @override
+  String get description =>
+      'Queries inside DB.transaction must be awaited (or returned).';
+
+  @override
+  bool appliesTo(String relativePath) => !relativePath.startsWith('lib/src/');
+
+  @override
+  void check(CompilationUnit unit, void Function(AstNode, String) report) {
+    unit.accept(
+      _Visitor(
+        onMethod: (node) {
+          if (node.methodName.name != 'transaction') {
+            return;
+          }
+          for (final argument in node.argumentList.arguments) {
+            final body = argument.argumentExpression;
+            if (body is FunctionExpression) {
+              body.body.accept(_TransactionBodyScanner(report));
+            }
+          }
+        },
+      ),
+    );
+  }
+
+  /// Whether [expression] is a call chain that runs a query.
+  static bool isQuery(Expression expression) {
+    final names = <String>[];
+    String? root;
+    Expression? current = expression;
+    while (current != null) {
+      switch (current) {
+        case MethodInvocation(:final methodName, :final target):
+          names.add(methodName.name);
+          current = target;
+        case PropertyAccess(:final propertyName, :final target):
+          names.add(propertyName.name);
+          current = target;
+        case PrefixedIdentifier(:final prefix, :final identifier):
+          names.add(identifier.name);
+          root = prefix.name;
+          current = null;
+        case SimpleIdentifier(:final name):
+          root = name;
+          current = null;
+        case ParenthesizedExpression(:final expression):
+          current = expression;
+        default:
+          current = null;
+      }
+    }
+    if (names.any(queryMethods.contains)) {
+      return true;
+    }
+    final startsLikeQuery =
+        root == 'DB' ||
+        names.any((n) => n == 'table' || n == 'query' || n.startsWith('where'));
+    return startsLikeQuery && names.any(chainMethods.contains);
+  }
+}
+
+/// Finds fire-and-forget queries in one transaction body. Nested closures
+/// are skipped: callbacks such as `afterCommit(() => ...)` run later on
+/// purpose, and nested transactions are checked on their own.
+final class _TransactionBodyScanner extends RecursiveAstVisitor<void> {
+  _TransactionBodyScanner(this.report);
+
+  final void Function(AstNode node, String message) report;
+
+  static const String _message =
+      'Query is not awaited inside DB.transaction: it would run after the '
+      'transaction finishes. Add `await` (or return it).';
+
+  @override
+  void visitFunctionExpression(FunctionExpression node) {}
+
+  @override
+  void visitExpressionStatement(ExpressionStatement node) {
+    final expression = node.expression;
+    if (expression is! AwaitExpression &&
+        UnawaitedInDbTransaction.isQuery(expression)) {
+      report(expression, _message);
+      return;
+    }
+    super.visitExpressionStatement(node);
+  }
+
+  @override
+  void visitMethodInvocation(MethodInvocation node) {
+    final target = node.target;
+    final arguments = node.argumentList.arguments;
+    final ignored =
+        (target == null &&
+            node.methodName.name == 'unawaited' &&
+            arguments.length == 1 &&
+            UnawaitedInDbTransaction.isQuery(
+              arguments.single.argumentExpression,
+            )) ||
+        (node.methodName.name == 'ignore' &&
+            target != null &&
+            UnawaitedInDbTransaction.isQuery(target));
+    if (ignored) {
+      report(node, _message);
+      return;
+    }
+    super.visitMethodInvocation(node);
+  }
+}
+
 final class _Visitor extends RecursiveAstVisitor<void> {
   _Visitor({this.onMethod, this.onField, this.onTopLevel, this.onCreation});
 
@@ -277,6 +439,7 @@ const List<LintRule> defaultRules = <LintRule>[
   NoPrintInApp(),
   NoMutableStaticInApp(),
   NoSqlStringInterpolation(),
+  UnawaitedInDbTransaction(),
 ];
 
 /// Lints Dart [source] whose project-relative path is [relativePath].

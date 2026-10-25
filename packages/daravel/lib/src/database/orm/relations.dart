@@ -10,6 +10,12 @@ import '../../foundation/clock.dart';
 /// Constraint applied to a relation query (`with({'posts': (q) => ...})`).
 typedef RelationConstraint = void Function(ModelQuery<Model> query);
 
+/// Constraint for `whereHasMorph`, called once per target [type].
+typedef MorphConstraint = void Function(
+  ModelQuery<Model> query,
+  ModelDefinition<Model> type,
+);
+
 /// Base relation (BLUEPRINT_V2 §7.5.4). Related definitions are resolved
 /// lazily through a thunk so two models may reference each other.
 abstract class Relation<R extends Model> {
@@ -37,6 +43,29 @@ abstract class Relation<R extends Model> {
   /// `whereHas` / `withCount`.
   ModelQuery<R> correlated(ModelDefinition<Model> parent, DatabaseManager db);
 
+  /// [correlated] against the parent table as [parentTable] names it (an
+  /// alias inside a self-relation subquery). The built-in relations alias
+  /// their own table when it has the parent's name (`categories` whose
+  /// `children` are `categories`); custom relations fall back to
+  /// [correlated].
+  ModelQuery<R> existenceQuery(
+    ModelDefinition<Model> parent,
+    DatabaseManager db, {
+    required String parentTable,
+  }) => correlated(parent, db);
+
+  static int _selfJoinCount = 0;
+
+  /// The related query for an existence subquery, aliased as Laravel's
+  /// `laravel_reserved_N` when its table is the parent's.
+  ModelQuery<R> _existenceBase(DatabaseManager db, String parentTable) {
+    final query = related.query(db: db);
+    if (related.table == parentTable) {
+      query.aliasTable('laravel_reserved_${_selfJoinCount++}');
+    }
+    return query;
+  }
+
   /// The models loaded under [name] on [parents], flattened (for nested
   /// eager loading).
   List<Model> loadedModels(List<Model> parents) => [
@@ -53,6 +82,76 @@ abstract class Relation<R extends Model> {
     for (var i = 0; i < items.length; i += size)
       items.sublist(i, i + size > items.length ? items.length : i + size),
   ];
+
+  // ---------------------------------------------------------------------------
+  // Morph map (Laravel's Relation::morphMap)
+  // ---------------------------------------------------------------------------
+
+  static final Map<String, ModelDefinition<Model> Function()> _morphMap = {};
+  static bool _requireMorphMap = false;
+
+  /// Registers morph aliases: a model listed here is stored in `*_type`
+  /// columns under its alias (`'post'`) instead of its
+  /// [ModelDefinition.morphClass], and [MorphTo] resolves the alias back.
+  /// Returns the current map.
+  static Map<String, ModelDefinition<Model> Function()> morphMap([
+    Map<String, ModelDefinition<Model> Function()>? map,
+    bool merge = true,
+  ]) {
+    if (map != null) {
+      if (!merge) {
+        _morphMap.clear();
+      }
+      _morphMap.addAll(map);
+    }
+    return Map.unmodifiable(_morphMap);
+  }
+
+  /// [morphMap] and [requireMorphMap]: every model used in a polymorphic
+  /// relation must then have an alias.
+  static void enforceMorphMap(
+    Map<String, ModelDefinition<Model> Function()> map, {
+    bool merge = true,
+  }) {
+    requireMorphMap();
+    morphMap(map, merge);
+  }
+
+  /// Whether models without a morph alias are refused
+  /// (`ClassMorphViolationException` in Laravel).
+  static void requireMorphMap([bool require = true]) =>
+      _requireMorphMap = require;
+
+  static bool get requiresMorphMap => _requireMorphMap;
+
+  /// The value stored in `*_type` columns for [definition] (Laravel's
+  /// `getMorphClass`): its morph alias, else its
+  /// [ModelDefinition.morphClass].
+  static String morphClassOf(ModelDefinition<Model> definition) {
+    final alias = _aliasOf(definition);
+    if (alias != null) {
+      return alias;
+    }
+    if (_requireMorphMap) {
+      throw StateError(
+        'No morph map defined for model [${definition.morphClass}].',
+      );
+    }
+    return definition.morphClass;
+  }
+
+  /// The definition registered under [alias] (`getMorphedModel`), or null.
+  static ModelDefinition<Model>? morphedModel(String alias) =>
+      _morphMap[alias]?.call();
+
+  static String? _aliasOf(ModelDefinition<Model> definition) {
+    for (final MapEntry(:key, :value) in _morphMap.entries) {
+      if (identical(value(), definition)) {
+        return key;
+      }
+    }
+    return null;
+  }
 }
 
 /// `hasMany`: related rows carry `foreignKey` = parent `localKey`.
@@ -94,13 +193,21 @@ class HasMany<R extends Model> extends Relation<R> {
 
   @override
   ModelQuery<R> correlated(ModelDefinition<Model> parent, DatabaseManager db) =>
-      related
-          .query(db: db)
-          .whereColumn(
-            '${related.table}.$foreignKey',
-            '=',
-            '${parent.table}.$localKey',
-          );
+      existenceQuery(parent, db, parentTable: parent.table);
+
+  @override
+  ModelQuery<R> existenceQuery(
+    ModelDefinition<Model> parent,
+    DatabaseManager db, {
+    required String parentTable,
+  }) {
+    final query = _existenceBase(db, parentTable);
+    return query.whereColumn(
+      '${query.tableName}.$foreignKey',
+      '=',
+      '$parentTable.$localKey',
+    );
+  }
 
   /// Creates a related model with the foreign key set.
   Future<R> create(
@@ -167,13 +274,21 @@ final class BelongsTo<R extends Model> extends Relation<R> {
 
   @override
   ModelQuery<R> correlated(ModelDefinition<Model> parent, DatabaseManager db) =>
-      related
-          .query(db: db)
-          .whereColumn(
-            '${related.table}.$ownerKey',
-            '=',
-            '${parent.table}.$foreignKey',
-          );
+      existenceQuery(parent, db, parentTable: parent.table);
+
+  @override
+  ModelQuery<R> existenceQuery(
+    ModelDefinition<Model> parent,
+    DatabaseManager db, {
+    required String parentTable,
+  }) {
+    final query = _existenceBase(db, parentTable);
+    return query.whereColumn(
+      '${query.tableName}.$ownerKey',
+      '=',
+      '$parentTable.$foreignKey',
+    );
+  }
 
   /// Sets the foreign key on [parent] to point at [owner] (no save).
   void associate(Model parent, R owner) =>
@@ -228,10 +343,25 @@ final class BelongsToMany<R extends Model> extends Relation<R> {
     return query;
   }
 
+  // Hooks for the polymorphic pivot relations ([MorphToMany]).
+
+  /// Extra constraints on queries through the pivot table.
+  ModelQuery<R> _scoped(ModelQuery<R> query, ModelDefinition<Model> parent) =>
+      query;
+
+  /// The pivot rows of [parent].
+  QueryBuilder _parentPivot(Model parent, DatabaseManager db) =>
+      _pivot(db).where(foreignPivotKey, parent.attributes[parentKey]);
+
+  /// Extra values written to new pivot rows of [parent].
+  Map<String, Object?> _pivotValues(Model parent) => const {};
+
   @override
-  ModelQuery<R> queryFor(Model parent, DatabaseManager db) =>
-      _base(db)
-          .where('$pivotTable.$foreignPivotKey', parent.attributes[parentKey]);
+  ModelQuery<R> queryFor(Model parent, DatabaseManager db) => _scoped(
+    _base(db)
+        .where('$pivotTable.$foreignPivotKey', parent.attributes[parentKey]),
+    parent.modelDefinition,
+  );
 
   @override
   Future<void> eagerLoad(
@@ -243,7 +373,10 @@ final class BelongsToMany<R extends Model> extends Relation<R> {
       ..remove(null);
     final grouped = <Object?, List<R>>{};
     for (final batch in Relation.chunk(keys.toList(), 500)) {
-      final query = _base(db).whereIn('$pivotTable.$foreignPivotKey', batch);
+      final query = _scoped(
+        _base(db).whereIn('$pivotTable.$foreignPivotKey', batch),
+        parents.first.modelDefinition,
+      );
       constraint?.call(query as ModelQuery<Model>);
       for (final model in await query.get()) {
         grouped
@@ -260,21 +393,29 @@ final class BelongsToMany<R extends Model> extends Relation<R> {
   }
 
   @override
-  ModelQuery<R> correlated(ModelDefinition<Model> parent, DatabaseManager db) {
-    final query = related.query(db: db);
+  ModelQuery<R> correlated(ModelDefinition<Model> parent, DatabaseManager db) =>
+      existenceQuery(parent, db, parentTable: parent.table);
+
+  @override
+  ModelQuery<R> existenceQuery(
+    ModelDefinition<Model> parent,
+    DatabaseManager db, {
+    required String parentTable,
+  }) {
+    final query = _existenceBase(db, parentTable);
     query.builder
       ..join(
         pivotTable,
         '$pivotTable.$relatedPivotKey',
         '=',
-        '${related.table}.$relatedKey',
+        '${query.tableName}.$relatedKey',
       )
       ..whereColumn(
         '$pivotTable.$foreignPivotKey',
         '=',
-        '${parent.table}.$parentKey',
+        '$parentTable.$parentKey',
       );
-    return query;
+    return _scoped(query, parent);
   }
 
   QueryBuilder _pivot(DatabaseManager db) =>
@@ -298,6 +439,7 @@ final class BelongsToMany<R extends Model> extends Relation<R> {
         {
           foreignPivotKey: parent.attributes[parentKey],
           relatedPivotKey: id,
+          ..._pivotValues(parent),
           ...pivot,
           if (withTimestamps) ...{'created_at': now, 'updated_at': now},
         },
@@ -306,8 +448,7 @@ final class BelongsToMany<R extends Model> extends Relation<R> {
   }
 
   Future<int> detach(Model parent, DatabaseManager db, Object? ids) {
-    final query = _pivot(db)
-        .where(foreignPivotKey, parent.attributes[parentKey]);
+    final query = _parentPivot(parent, db);
     if (ids != null) {
       query.whereIn(relatedPivotKey, _ids(ids));
     }
@@ -321,11 +462,10 @@ final class BelongsToMany<R extends Model> extends Relation<R> {
     bool detaching = true,
   }) async {
     final wanted = _ids(ids);
-    final current =
-        (await _pivot(db)
-                .where(foreignPivotKey, parent.attributes[parentKey])
-                .pluck(relatedPivotKey))
-            as List<Object?>;
+    final current = (await _parentPivot(
+      parent,
+      db,
+    ).pluck(relatedPivotKey)) as List<Object?>;
     final toAttach = wanted.where((id) => !current.contains(id)).toList();
     final toDetach = detaching
         ? current.where((id) => !wanted.contains(id)).toList()
@@ -348,7 +488,7 @@ final class BelongsToMany<R extends Model> extends Relation<R> {
 
 /// `hasManyThrough`: parent → through (`firstKey` = parent `localKey`) →
 /// related (`secondKey` = through `secondLocalKey`).
-final class HasManyThrough<R extends Model> extends Relation<R> {
+class HasManyThrough<R extends Model> extends Relation<R> {
   HasManyThrough(
     super.related, {
     required this.through,
@@ -416,23 +556,399 @@ final class HasManyThrough<R extends Model> extends Relation<R> {
   }
 
   @override
-  ModelQuery<R> correlated(ModelDefinition<Model> parent, DatabaseManager db) {
+  ModelQuery<R> correlated(ModelDefinition<Model> parent, DatabaseManager db) =>
+      existenceQuery(parent, db, parentTable: parent.table);
+
+  @override
+  ModelQuery<R> existenceQuery(
+    ModelDefinition<Model> parent,
+    DatabaseManager db, {
+    required String parentTable,
+  }) {
     final throughTable = through().table;
-    final query = related.query(db: db);
+    final query = _existenceBase(db, parentTable);
     query.builder
       ..join(
         throughTable,
         '$throughTable.$secondLocalKey',
         '=',
-        '${related.table}.$secondKey',
+        '${query.tableName}.$secondKey',
       )
-      ..whereColumn(
-        '$throughTable.$firstKey',
-        '=',
-        '${parent.table}.$localKey',
-      );
+      ..whereColumn('$throughTable.$firstKey', '=', '$parentTable.$localKey');
     return query;
   }
+}
+
+/// `hasOneThrough`: like [HasManyThrough] but a single model (or null).
+final class HasOneThrough<R extends Model> extends HasManyThrough<R> {
+  HasOneThrough(
+    super.related, {
+    required super.through,
+    required super.firstKey,
+    required super.secondKey,
+    super.localKey,
+    super.secondLocalKey,
+  });
+
+  @override
+  Future<void> eagerLoad(
+    List<Model> parents,
+    DatabaseManager db, [
+    RelationConstraint? constraint,
+  ]) async {
+    await super.eagerLoad(parents, db, constraint);
+    for (final parent in parents) {
+      final list = parent.relations[name] as List<Model>;
+      parent.setRelation(name, list.isEmpty ? null : list.first);
+    }
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Polymorphic relations
+// -----------------------------------------------------------------------------
+
+/// `morphMany`: related rows carry `{morphName}_type` = the parent's morph
+/// class ([Relation.morphClassOf]) and `{morphName}_id` = the parent's
+/// [localKey], so posts and videos can share one `comments` table.
+class MorphMany<R extends Model> extends HasMany<R> {
+  MorphMany(
+    super.related, {
+    required this.morphName,
+    String? morphType,
+    String? foreignKey,
+    super.localKey,
+  }) : morphType = morphType ?? '${morphName}_type',
+       super(foreignKey: foreignKey ?? '${morphName}_id');
+
+  final String morphName;
+
+  /// The column holding the parent's morph class.
+  final String morphType;
+
+  @override
+  ModelQuery<R> queryFor(Model parent, DatabaseManager db) => super
+      .queryFor(parent, db)
+      .where(morphType, Relation.morphClassOf(parent.modelDefinition));
+
+  @override
+  Future<void> eagerLoad(
+    List<Model> parents,
+    DatabaseManager db, [
+    RelationConstraint? constraint,
+  ]) {
+    if (parents.isEmpty) {
+      return Future.value();
+    }
+    // The parents of one eager load share a definition (see loadRelationsOn).
+    final type = Relation.morphClassOf(parents.first.modelDefinition);
+    return super.eagerLoad(parents, db, (query) {
+      query.where(morphType, type);
+      constraint?.call(query);
+    });
+  }
+
+  @override
+  ModelQuery<R> existenceQuery(
+    ModelDefinition<Model> parent,
+    DatabaseManager db, {
+    required String parentTable,
+  }) {
+    final query = super.existenceQuery(parent, db, parentTable: parentTable);
+    return query.where(
+      '${query.tableName}.$morphType',
+      Relation.morphClassOf(parent),
+    );
+  }
+
+  /// Creates a related model with the morph type and id set.
+  @override
+  Future<R> create(
+    Model parent,
+    DatabaseManager db,
+    Map<String, Object?> attributes,
+  ) async {
+    final model = related.newInstance(attributes, db)
+      ..setAttr(foreignKey, parent.attributes[localKey])
+      ..setAttr(morphType, Relation.morphClassOf(parent.modelDefinition));
+    await model.save();
+    return model;
+  }
+}
+
+/// `morphOne`: like [MorphMany] but a single row.
+final class MorphOne<R extends Model> extends MorphMany<R> {
+  MorphOne(
+    super.related, {
+    required super.morphName,
+    super.morphType,
+    super.foreignKey,
+    super.localKey,
+  });
+
+  @override
+  Future<void> eagerLoad(
+    List<Model> parents,
+    DatabaseManager db, [
+    RelationConstraint? constraint,
+  ]) async {
+    await super.eagerLoad(parents, db, constraint);
+    for (final parent in parents) {
+      final list = parent.relations[name] as List<Model>;
+      parent.setRelation(name, list.isEmpty ? null : list.first);
+    }
+  }
+}
+
+/// `morphTo`: the inverse of [MorphOne] / [MorphMany]. Each row names its
+/// owner's type in [morphType] and key in [foreignKey], so rows of one
+/// table may point at different models (a comment on a post or a video).
+///
+/// [morphName] defaults to the name the relation is registered under, as
+/// Laravel defaults it to the method name. Stored types are resolved
+/// through [types] and then [Relation.morphMap]: there is no reflection to
+/// turn `App\Models\Post` into a model, so every possible target must be
+/// listed in one of the two.
+final class MorphTo extends Relation<Model> {
+  MorphTo({
+    this._morphName,
+    this._morphType,
+    this._foreignKey,
+    this.ownerKey,
+    this.types = const [],
+  }) : super(_noSingleRelated);
+
+  final String? _morphName;
+  final String? _morphType;
+  final String? _foreignKey;
+
+  /// The key of the target models (their primary key when null).
+  final String? ownerKey;
+
+  /// The models this relation may point at (besides [Relation.morphMap]).
+  final List<ModelDefinition<Model> Function()> types;
+
+  String get morphName => _morphName ?? name;
+
+  /// The column holding the owner's morph class (`{morphName}_type`).
+  String get morphType => _morphType ?? '${morphName}_type';
+
+  /// The column holding the owner's key (`{morphName}_id`).
+  String get foreignKey => _foreignKey ?? '${morphName}_id';
+
+  static ModelDefinition<Model> _noSingleRelated() => throw StateError(
+    'A MorphTo relation has no single related model; its rows point at '
+    'different models.',
+  );
+
+  /// Every model this relation may point at: [types], then the morph map.
+  List<ModelDefinition<Model>> get knownTypes {
+    final known = <ModelDefinition<Model>>[];
+    for (final type in [...types, ...Relation._morphMap.values]) {
+      final definition = type();
+      if (!known.any((d) => identical(d, definition))) {
+        known.add(definition);
+      }
+    }
+    return known;
+  }
+
+  /// The model stored as [type] in [morphType]: its alias or, as Laravel
+  /// still resolves rows written before an alias existed, its class name.
+  ModelDefinition<Model> definitionFor(String type) {
+    final mapped = Relation.morphedModel(type);
+    if (mapped != null) {
+      return mapped;
+    }
+    for (final definition in knownTypes) {
+      if (definition.morphClass == type ||
+          Relation._aliasOf(definition) == type) {
+        return definition;
+      }
+    }
+    throw StateError(
+      'Cannot resolve the morph type [$type] of relation [$morphName]: '
+      'list its model in MorphTo(types: [...]) or register it with '
+      'Relation.morphMap().',
+    );
+  }
+
+  String _keyOf(ModelDefinition<Model> definition) =>
+      ownerKey ?? definition.primaryKey;
+
+  @override
+  ModelQuery<Model> queryFor(Model parent, DatabaseManager db) {
+    final type = parent.attributes[morphType];
+    if (type == null) {
+      throw StateError(
+        '[${parent.table}.$morphType] is null: relation [$morphName] points '
+        'at nothing.',
+      );
+    }
+    final definition = definitionFor('$type');
+    return definition
+        .query(db: db)
+        .where(_keyOf(definition), parent.attributes[foreignKey]);
+  }
+
+  /// One query per stored type, as Laravel's `MorphTo` eager loads.
+  @override
+  Future<void> eagerLoad(
+    List<Model> parents,
+    DatabaseManager db, [
+    RelationConstraint? constraint,
+  ]) async {
+    final byType = <String, List<Model>>{};
+    for (final parent in parents) {
+      final type = parent.attributes[morphType];
+      if (type == null || parent.attributes[foreignKey] == null) {
+        parent.setRelation(name, null);
+        continue;
+      }
+      byType.putIfAbsent('$type', () => []).add(parent);
+    }
+    for (final MapEntry(key: type, value: group) in byType.entries) {
+      final definition = definitionFor(type);
+      final key = _keyOf(definition);
+      final ids = {for (final p in group) p.attributes[foreignKey]}.toList();
+      // Keys compare as strings, as Laravel's dictionary keys do.
+      final byKey = <String, Model>{};
+      for (final batch in Relation.chunk(ids, 500)) {
+        final query = definition.query(db: db).whereIn(key, batch);
+        constraint?.call(query);
+        for (final model in await query.get()) {
+          byKey['${model.attributes[key]}'] = model;
+        }
+      }
+      for (final parent in group) {
+        parent.setRelation(name, byKey['${parent.attributes[foreignKey]}']);
+      }
+    }
+  }
+
+  /// Not available: the owner table depends on each row. `whereHas` on a
+  /// `MorphTo` goes through `whereHasMorph` instead.
+  @override
+  ModelQuery<Model> correlated(
+    ModelDefinition<Model> parent,
+    DatabaseManager db,
+  ) => throw UnsupportedError(
+    'Relation [$morphName] is a MorphTo: query it with whereHasMorph().',
+  );
+
+  /// A query on [type] correlated with the parent table (named
+  /// [parentTable]), for `whereHasMorph`.
+  ModelQuery<Model> correlatedTo(
+    ModelDefinition<Model> type,
+    DatabaseManager db, {
+    required String parentTable,
+  }) {
+    final query = type.query(db: db);
+    if (type.table == parentTable) {
+      query.aliasTable('laravel_reserved_${Relation._selfJoinCount++}');
+    }
+    return query.whereColumn(
+      '${query.tableName}.${_keyOf(type)}',
+      '=',
+      '$parentTable.$foreignKey',
+    );
+  }
+
+  /// Points [child] at [owner] (no save).
+  void associate(Model child, Model owner) => child
+    ..setAttr(morphType, Relation.morphClassOf(owner.modelDefinition))
+    ..setAttr(foreignKey, owner.attributes[_keyOf(owner.modelDefinition)])
+    ..setRelation(name, owner);
+
+  /// Clears the morph columns of [child] (no save).
+  void dissociate(Model child) => child
+    ..setAttr(morphType, null)
+    ..setAttr(foreignKey, null)
+    ..setRelation(name, null);
+}
+
+/// `morphToMany`: a polymorphic many-to-many through a pivot table holding
+/// `{morphName}_type`, `{morphName}_id` and [relatedPivotKey] (`taggables`:
+/// the tags of posts and of videos). [pivotTable] defaults to
+/// `{morphName}s`; pass it when the plural is irregular.
+final class MorphToMany<R extends Model> extends BelongsToMany<R> {
+  MorphToMany(
+    super.related, {
+    required this.morphName,
+    required super.relatedPivotKey,
+    String? pivotTable,
+    String? foreignPivotKey,
+    String? morphType,
+    super.parentKey,
+    super.relatedKey,
+    super.withPivot,
+    super.withTimestamps,
+  }) : morphType = morphType ?? '${morphName}_type',
+       _inverse = false,
+       super(
+         pivotTable: pivotTable ?? '${morphName}s',
+         foreignPivotKey: foreignPivotKey ?? '${morphName}_id',
+       );
+
+  MorphToMany._inverse(
+    super.related, {
+    required this.morphName,
+    required super.foreignPivotKey,
+    String? pivotTable,
+    String? relatedPivotKey,
+    String? morphType,
+    super.parentKey,
+    super.relatedKey,
+    super.withPivot,
+    super.withTimestamps,
+  }) : morphType = morphType ?? '${morphName}_type',
+       _inverse = true,
+       super(
+         pivotTable: pivotTable ?? '${morphName}s',
+         relatedPivotKey: relatedPivotKey ?? '${morphName}_id',
+       );
+
+  final String morphName;
+
+  /// The pivot column holding the morph class.
+  final String morphType;
+
+  /// [MorphedByMany]: the morph type is the related model's.
+  final bool _inverse;
+
+  String _typeFor(ModelDefinition<Model> parent) =>
+      Relation.morphClassOf(_inverse ? related : parent);
+
+  @override
+  ModelQuery<R> _scoped(ModelQuery<R> query, ModelDefinition<Model> parent) =>
+      query.where('$pivotTable.$morphType', _typeFor(parent));
+
+  @override
+  QueryBuilder _parentPivot(Model parent, DatabaseManager db) => super
+      ._parentPivot(parent, db)
+      .where(morphType, _typeFor(parent.modelDefinition));
+
+  @override
+  Map<String, Object?> _pivotValues(Model parent) => {
+    morphType: _typeFor(parent.modelDefinition),
+  };
+}
+
+/// `morphedByMany`: the inverse of [MorphToMany] (the posts of a tag). The
+/// pivot's `{morphName}_type` is the related model's morph class.
+final class MorphedByMany<R extends Model> extends MorphToMany<R> {
+  MorphedByMany(
+    super.related, {
+    required super.morphName,
+    required super.foreignPivotKey,
+    super.pivotTable,
+    super.relatedPivotKey,
+    super.morphType,
+    super.parentKey,
+    super.relatedKey,
+    super.withPivot,
+    super.withTimestamps,
+  }) : super._inverse();
 }
 
 /// Raw helper re-exported for relation subqueries.

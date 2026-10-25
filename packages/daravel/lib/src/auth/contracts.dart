@@ -2,6 +2,7 @@ import 'dart:async';
 
 import '../database/orm/model.dart';
 import '../database/orm/model_definition.dart';
+import '../database/orm/relations.dart';
 import '../foundation/container.dart';
 import '../http/http_exceptions.dart';
 import '../http/request.dart';
@@ -106,7 +107,7 @@ final class ModelUserProvider<T extends Authenticatable>
   HashManager get hasher => _hasher ?? Container.current.make<HashManager>();
 
   @override
-  String get morphClass => _morphClass ?? definition.morphClass;
+  String get morphClass => _morphClass ?? Relation.morphClassOf(definition);
 
   @override
   Future<T?> retrieveById(Object id) async =>

@@ -34,7 +34,8 @@ final class ModelQuery<T extends Model> {
   final QueryBuilder builder;
 
   final Map<String, RelationConstraint?> _with = {};
-  final List<(String, RelationConstraint?)> _withCount = [];
+  final List<_Aggregate> _aggregates = [];
+  String? _tableAlias;
   bool _withTrashed = false;
   bool _onlyTrashed = false;
   bool _withoutGlobalScopes = false;
@@ -286,24 +287,74 @@ final class ModelQuery<T extends Model> {
     return this;
   }
 
-  /// Adds `<relation>_count` columns.
-  ModelQuery<T> withCount(Object relations) {
-    for (final entry in parseWith(relations).entries) {
-      _withCount.add((entry.key, entry.value));
+  /// Adds `<relation>_count` columns (`'posts as drafts_count'` names the
+  /// column).
+  ModelQuery<T> withCount(Object relations) =>
+      _withAggregate(relations, 'count', '*');
+
+  /// Adds `<relation>_sum_<column>` columns.
+  ModelQuery<T> withSum(Object relations, String column) =>
+      _withAggregate(relations, 'sum', column);
+
+  /// Adds `<relation>_avg_<column>` columns.
+  ModelQuery<T> withAvg(Object relations, String column) =>
+      _withAggregate(relations, 'avg', column);
+
+  /// Adds `<relation>_min_<column>` columns.
+  ModelQuery<T> withMin(Object relations, String column) =>
+      _withAggregate(relations, 'min', column);
+
+  /// Adds `<relation>_max_<column>` columns.
+  ModelQuery<T> withMax(Object relations, String column) =>
+      _withAggregate(relations, 'max', column);
+
+  /// Adds boolean `<relation>_exists` columns.
+  ModelQuery<T> withExists(Object relations) =>
+      _withAggregate(relations, 'exists', '*');
+
+  ModelQuery<T> _withAggregate(
+    Object relations,
+    String function,
+    String column,
+  ) {
+    for (final MapEntry(key: name, :value) in parseWith(relations).entries) {
+      // `posts as drafts` (any case of "as"), as Laravel splits it.
+      final parts = name.split(RegExp(r'\s+as\s+', caseSensitive: false));
+      final relation = parts.first.trim();
+      final alias = parts.length > 1
+          ? parts[1].trim()
+          : _aggregateAlias(relation, function, column);
+      _aggregates.add((relation, function, column, alias, value));
     }
     return this;
   }
 
-  /// Filters on the existence of related rows.
+  /// Laravel's default name: `snake("$relation $function $column")` with
+  /// punctuation removed, and no column part for `count` and `exists`.
+  static String _aggregateAlias(
+    String relation,
+    String function,
+    String column,
+  ) {
+    final words = column == '*'
+        ? '$relation $function'
+        : '$relation $function $column';
+    return words
+        .replaceAll(RegExp(r'[^A-Za-z0-9\s_]'), '')
+        .replaceAllMapped(RegExp('([a-z0-9])([A-Z])'), (m) => '${m[1]}_${m[2]}')
+        .trim()
+        .replaceAll(RegExp(r'\s+'), '_')
+        .toLowerCase();
+  }
+
+  /// Filters on the existence of related rows. [relation] may be nested
+  /// (`posts.comments`): each level becomes an `EXISTS` inside the previous
+  /// one, and [constraint] applies to the last.
   ModelQuery<T> whereHas(
     String relation, [
     RelationConstraint? constraint,
     String boolean = 'AND',
-  ]) {
-    final sub = _correlated(relation, constraint);
-    builder.whereExists(sub.prepared(), boolean: boolean);
-    return this;
-  }
+  ]) => _has(relation, constraint, boolean: boolean);
 
   ModelQuery<T> orWhereHas(String relation, [RelationConstraint? constraint]) =>
       whereHas(relation, constraint, 'OR');
@@ -313,12 +364,145 @@ final class ModelQuery<T extends Model> {
   ModelQuery<T> whereDoesntHave(
     String relation, [
     RelationConstraint? constraint,
-  ]) {
-    builder.whereNotExists(_correlated(relation, constraint).prepared());
+  ]) => _has(relation, constraint, not: true);
+
+  ModelQuery<T> orWhereDoesntHave(
+    String relation, [
+    RelationConstraint? constraint,
+  ]) => _has(relation, constraint, not: true, boolean: 'OR');
+
+  ModelQuery<T> doesntHave(String relation) => whereDoesntHave(relation);
+
+  /// Filters on a `MorphTo` relation whose owner is one of [types] and
+  /// matches [constraint] (called with each type).
+  ModelQuery<T> whereHasMorph(
+    String relation,
+    List<ModelDefinition<Model>> types, [
+    MorphConstraint? constraint,
+  ]) => _hasMorph(_morphTo(relation), types, constraint);
+
+  ModelQuery<T> orWhereHasMorph(
+    String relation,
+    List<ModelDefinition<Model>> types, [
+    MorphConstraint? constraint,
+  ]) => _hasMorph(_morphTo(relation), types, constraint, boolean: 'OR');
+
+  /// Rows whose `MorphTo` owner is one of [types] but does not match
+  /// [constraint] (or no longer exists).
+  ModelQuery<T> whereDoesntHaveMorph(
+    String relation,
+    List<ModelDefinition<Model>> types, [
+    MorphConstraint? constraint,
+  ]) => _hasMorph(_morphTo(relation), types, constraint, not: true);
+
+  ModelQuery<T> orWhereDoesntHaveMorph(
+    String relation,
+    List<ModelDefinition<Model>> types, [
+    MorphConstraint? constraint,
+  ]) => _hasMorph(
+    _morphTo(relation),
+    types,
+    constraint,
+    not: true,
+    boolean: 'OR',
+  );
+
+  ModelQuery<T> _has(
+    String name,
+    RelationConstraint? constraint, {
+    bool not = false,
+    String boolean = 'AND',
+  }) {
+    final dot = name.indexOf('.');
+    final head = dot == -1 ? name : name.substring(0, dot);
+    // `a.b.c`: the rest is a (positive) whereHas inside the subquery of `a`,
+    // as Laravel's hasNested builds it.
+    final inner = dot == -1
+        ? constraint
+        : (ModelQuery<Model> query) {
+            query.whereHas(name.substring(dot + 1), constraint);
+          };
+    final relation = definition.requireRelation(head);
+    if (relation is MorphTo) {
+      // Laravel queries every stored type ('*'); without reflection the
+      // candidates are the types the relation knows.
+      final types = relation.knownTypes;
+      if (types.isEmpty) {
+        throw StateError(
+          'MorphTo [$head] on [${definition.table}] lists no types: pass '
+          'MorphTo(types: [...]), register Relation.morphMap() or use '
+          'whereHasMorph().',
+        );
+      }
+      return _hasMorph(
+        relation,
+        types,
+        inner == null ? null : (query, _) => inner(query),
+        not: not,
+        boolean: boolean,
+        orNull: not,
+      );
+    }
+    final sub = relation.existenceQuery(
+      definition as ModelDefinition<Model>,
+      _db,
+      parentTable: tableName,
+    );
+    inner?.call(sub);
+    builder.whereExists(sub.prepared(), not: not, boolean: boolean);
     return this;
   }
 
-  ModelQuery<T> doesntHave(String relation) => whereDoesntHave(relation);
+  /// `(type = 'A' AND EXISTS (owner A)) OR (type = 'B' AND EXISTS (...))`,
+  /// as Laravel's `hasMorph` builds it; [orNull] also matches rows without
+  /// an owner (`doesntHave` on every type).
+  ModelQuery<T> _hasMorph(
+    MorphTo relation,
+    List<ModelDefinition<Model>> types,
+    MorphConstraint? constraint, {
+    bool not = false,
+    String boolean = 'AND',
+    bool orNull = false,
+  }) {
+    if (types.isEmpty) {
+      // Laravel compares 0 with the count: never true for "has".
+      if (!not) {
+        builder.whereRaw('0 = 1', const [], boolean);
+      }
+      return this;
+    }
+    final typeColumn = _qualify(relation.morphType);
+    builder.where(
+      (QueryBuilder group) {
+        for (final type in types) {
+          final sub = relation.correlatedTo(type, _db, parentTable: tableName);
+          constraint?.call(sub, type);
+          group.orWhere((QueryBuilder query) {
+            query
+              ..where(typeColumn, Relation.morphClassOf(type))
+              ..whereExists(sub.prepared(), not: not);
+          });
+        }
+        if (orNull) {
+          group.orWhereNull(typeColumn);
+        }
+      },
+      null,
+      null,
+      boolean,
+    );
+    return this;
+  }
+
+  MorphTo _morphTo(String name) {
+    final relation = definition.requireRelation(name);
+    if (relation is! MorphTo) {
+      throw StateError(
+        'Relation [$name] on [${definition.table}] is not a MorphTo relation.',
+      );
+    }
+    return relation;
+  }
 
   /// `whereHas` + `with` with the same constraint.
   ModelQuery<T> withWhereHas(
@@ -332,9 +516,26 @@ final class ModelQuery<T extends Model> {
 
   ModelQuery<Model> _correlated(String name, RelationConstraint? constraint) {
     final relation = definition.requireRelation(name);
-    final sub = relation.correlated(definition as ModelDefinition<Model>, _db);
+    final sub = relation.existenceQuery(
+      definition as ModelDefinition<Model>,
+      _db,
+      parentTable: tableName,
+    );
     constraint?.call(sub);
     return sub;
+  }
+
+  /// The name this query's table goes by: [definition]'s table, or the
+  /// alias of a self-relation subquery.
+  String get tableName => _tableAlias ?? definition.table;
+
+  /// Gives the table an [alias] (`FROM categories AS laravel_reserved_0`),
+  /// used by relation subqueries on the parent's own table. Soft deletes and
+  /// key lookups are qualified with it.
+  ModelQuery<T> aliasTable(String alias) {
+    builder.from(definition.table, alias: alias);
+    _tableAlias = alias;
+    return this;
   }
 
   /// Parses `with()` arguments into `name → constraint` pairs.
@@ -373,21 +574,28 @@ final class ModelQuery<T extends Model> {
         query.whereNull(_qualify(definition.deletedAt));
       }
     }
-    if (_withCount.isNotEmpty) {
+    if (_aggregates.isNotEmpty) {
       if (query.ast.columns.isEmpty) {
-        query.select(['${definition.table}.*']);
+        query.select(['$tableName.*']);
       }
       final grammar = QueryGrammar.forDialect(
         _db.dialectOf(definition.connection),
       );
-      for (final (name, constraint) in _withCount) {
+      for (final (name, function, column, alias, constraint) in _aggregates) {
         final sub = _correlated(name, constraint);
-        sub.builder.select([RawExpression('COUNT(*)')]);
-        final compiled = grammar.compileSelect(sub.prepared().ast);
-        query.selectRaw(
-          '(${compiled.sql}) AS ${grammar.wrap('${name}_count')}',
-          compiled.bindings,
-        );
+        if (function != 'exists') {
+          final target = column == '*'
+              ? '*'
+              : grammar.wrap(
+                  column.contains('.') ? column : '${sub.tableName}.$column',
+                );
+          sub.builder.select([
+            RawExpression('${function.toUpperCase()}($target)'),
+          ]);
+        }
+        // As an AST, not compiled SQL: PostgreSQL numbers its placeholders
+        // ($1, $2...) across the whole statement.
+        query.selectSub(sub.prepared(), alias, exists: function == 'exists');
       }
     }
     return query;
@@ -400,6 +608,26 @@ final class ModelQuery<T extends Model> {
   Future<ModelCollection<T>> _hydrateAll(
     List<Map<String, Object?>> rows,
   ) async {
+    // `withExists` columns read as bool, as Laravel casts them.
+    final exists = [
+      for (final (_, function, _, alias, _) in _aggregates)
+        if (function == 'exists') alias,
+    ];
+    if (exists.isNotEmpty) {
+      rows = [
+        for (final row in rows)
+          {
+            ...row,
+            for (final alias in exists)
+              alias: switch (row[alias]) {
+                final bool value => value,
+                final num value => value != 0,
+                final Object value => '$value' == '1' || '$value' == 't',
+                null => false,
+              },
+          },
+      ];
+    }
     final models = ModelCollection<T>([for (final row in rows) _hydrate(row)]);
     for (final model in models) {
       await model.fireEvent(ModelEvent.retrieved);
@@ -433,9 +661,15 @@ final class ModelQuery<T extends Model> {
       final relation = definition.requireRelation(entry.key);
       await relation.eagerLoad(models, _db, rootConstraints[entry.key]);
       if (entry.value.isNotEmpty) {
-        final children = relation.loadedModels(models);
-        if (children.isNotEmpty) {
-          await relation.related
+        // Grouped by definition: a MorphTo loads posts and videos together,
+        // and each needs its own relations.
+        final byDefinition = <ModelDefinition<Model>, List<Model>>{};
+        for (final child in relation.loadedModels(models)) {
+          byDefinition.putIfAbsent(child.modelDefinition, () => []).add(child);
+        }
+        for (final MapEntry(key: childDefinition, value: children)
+            in byDefinition.entries) {
+          await childDefinition
               .query(db: _db)
               .loadRelationsOn(children, entry.value);
         }
@@ -673,12 +907,16 @@ final class ModelQuery<T extends Model> {
       .._withTrashed = _withTrashed
       .._onlyTrashed = _onlyTrashed
       .._withoutGlobalScopes = _withoutGlobalScopes;
+    final alias = _tableAlias;
+    if (alias != null) {
+      copy.aliasTable(alias);
+    }
     copy.builder.ast.wheres.addAll(builder.ast.wheres);
     return copy;
   }
 
   String _qualify(String column) =>
-      column.contains('.') ? column : '${definition.table}.$column';
+      column.contains('.') ? column : '$tableName.$column';
 
   static String _timestamp() {
     final now = Clock.now().toUtc();
@@ -686,3 +924,7 @@ final class ModelQuery<T extends Model> {
     return '${now.year}-${two(now.month)}-${two(now.day)} ${two(now.hour)}:${two(now.minute)}:${two(now.second)}';
   }
 }
+
+/// A `with{Count,Sum,Avg,Min,Max,Exists}` column: relation, function,
+/// column, alias and constraint.
+typedef _Aggregate = (String, String, String, String, RelationConstraint?);

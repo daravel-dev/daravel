@@ -55,7 +55,9 @@ Casts: `Cast.integer`, `decimal`, `boolean`, `string`, `dateTime`, `date`,
 ## Relations
 
 `HasOne`, `HasMany`, `BelongsTo`, `BelongsToMany` (with `withPivot` and
-`withTimestamps`) and `HasManyThrough`.
+`withTimestamps`), `HasManyThrough`, `HasOneThrough`, and the polymorphic `MorphOne`,
+`MorphMany`, `MorphTo`, `MorphToMany` and `MorphedByMany`
+(see [Polymorphic relations](#polymorphic-relations)).
 
 ```dart
 final users = await User.query()
@@ -76,6 +78,102 @@ await user.detach('roles', [3]);
 `Model.preventLazyLoading` turns an unloaded relation into an error, which
 catches N+1 queries in tests.
 
+### Nested existence queries
+
+`whereHas`, `orWhereHas`, `has`, `whereDoesntHave`, `orWhereDoesntHave`,
+`doesntHave` and `withWhereHas` accept nested relations, at any depth. Each
+level becomes an `EXISTS` inside the previous one, the constraint applies to
+the last, and soft deletes and global scopes apply at every level:
+
+```dart
+// Users with at least one approved comment on one of their posts.
+final users = await User.query()
+    .whereHas('posts.comments', (q) => q.where('approved', true))
+    .get();
+```
+
+A relation to the same model (`Category` with `parent` and `children`, users
+following users) works too: the inner table gets an alias, as Laravel's
+`laravel_reserved_N`, so `whereHas('children')` compares a child with its
+outer parent rather than with itself.
+
+### Relation aggregates
+
+`withCount`, `withSum`, `withAvg`, `withMin`, `withMax` and `withExists` add
+a column per relation, named as in Laravel (`posts_count`,
+`orders_sum_total`, `orders_exists`); `'orders as paid_orders'` picks the
+name, and a map adds a constraint:
+
+```dart
+final users = await User.query()
+    .withCount('posts')
+    .withSum('orders', 'total')
+    .withMax({'orders': (ModelQuery<Model> q) => q.where('paid', true)}, 'total')
+    .withExists('orders')
+    .get();
+```
+
+`*_exists` reads as a `bool`. Sums and averages come back as the driver
+returns them: numbers on SQLite, strings for `DECIMAL`/`numeric` results on
+MySQL and PostgreSQL, as with Laravel's PDO.
+
+## Polymorphic relations
+
+A polymorphic relation lets one table belong to several models: comments on
+posts and on videos, images of users and of products, tags shared by
+everything. The child row stores the owner's type in `{name}_type` and its
+key in `{name}_id`, exactly as Laravel stores them, so both frameworks can
+read the same rows.
+
+```dart
+// Migration
+schema.create('comments', (table) {
+  table.id();
+  table.morphs('commentable'); // commentable_type, commentable_id + index
+  table.text('body');
+});
+
+// Post (and Video, the same way)
+'comments': () => MorphMany<Comment>(() => Comment.definition, morphName: 'commentable'),
+'image': () => MorphOne<Image>(() => Image.definition, morphName: 'imageable'),
+'tags': () => MorphToMany<Tag>(() => Tag.definition, morphName: 'taggable', relatedPivotKey: 'tag_id'),
+
+// Comment: the owner, a Post or a Video
+'commentable': () => MorphTo(types: [() => Post.definition, () => Video.definition]),
+
+// Tag: the inverse of morphToMany
+'posts': () => MorphedByMany<Post>(() => Post.definition, morphName: 'taggable', foreignPivotKey: 'tag_id'),
+```
+
+- `MorphMany` / `MorphOne` work like `HasMany` / `HasOne`, filtered on the
+  owner's type: eager loading, `relatedQuery`, `whereHas`, `withCount` and
+  `create(parent, db, attributes)`, which fills both morph columns.
+- `MorphTo` loads each row's owner, one query per stored type when eager
+  loading, and nested relations (`with_(['commentable.author'])`) load per
+  type. `associate(child, owner)` and `dissociate(child)` set the columns;
+  `touches: ['commentable']` updates the owner's timestamp.
+- `MorphToMany` / `MorphedByMany` work like `BelongsToMany` (`attach`,
+  `detach`, `sync`, `withPivot`) with the type column on the pivot table
+  (`{name}s` by default, `taggables` here).
+- `whereHasMorph('commentable', [Post.definition], (q, type) => ...)`,
+  `whereDoesntHaveMorph` and their `orWhere*` forms query the owner. On a
+  `MorphTo`, `whereHas` and `whereDoesntHave` check every type the relation
+  knows.
+
+The stored type is the model's `morphClass` (`App\Models\Post` by default,
+like Laravel's class name). Register aliases as in Laravel; rows that still
+hold the class name keep resolving:
+
+```dart
+Relation.morphMap({'post': () => Post.definition, 'video': () => Video.definition});
+Relation.enforceMorphMap({...}); // every polymorphic model must then have an alias
+```
+
+Dart has no reflection, so a `MorphTo` cannot turn a stored class name into
+a model on its own: every possible owner must be listed in `types:` or in
+the morph map. For the same reason, `whereHas` on a `MorphTo` checks the
+listed types, where Laravel reads the distinct types from the table.
+
 ## Scopes, soft deletes and events
 
 - Local scopes (`scopes:`) are called with `query.scope('published')`;
@@ -87,8 +185,3 @@ catches N+1 queries in tests.
   `updated`, `saving`, `saved`, `deleting`, `deleted`, `restoring`,
   `restored` and the force-delete events; returning `false` from a `*ing`
   hook cancels the operation.
-
-## Not yet
-
-Polymorphic relations (`morphTo`, `morphMany`) and nested `whereHas`
-(`'posts.comments'`) are planned.
