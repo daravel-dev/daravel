@@ -293,6 +293,19 @@ final class DoctorCommand extends DaravelCommand {
     final serve = ServeOptions.fromEnv(env);
     final pool = env.integer('DB_POOL_SIZE', 10);
     final connection = db.connections[db.defaultConnection];
+    final appZone = env.string('APP_TIMEZONE', 'UTC');
+    if (appZone.toUpperCase() != 'UTC' &&
+        env.string('SCHEDULE_TIMEZONE', '').isEmpty &&
+        App.make<Schedule>().tasks.isNotEmpty) {
+      checks.add(
+        DoctorCheck(
+          CheckStatus.warning,
+          'Scheduled tasks run in UTC, not APP_TIMEZONE ($appZone)',
+          'Laravel runs them in APP_TIMEZONE; set SCHEDULE_TIMEZONE=$appZone '
+              'to match it.',
+        ),
+      );
+    }
     if (paths != null &&
         connection?.driver == 'sqlite' &&
         systemSqliteConfigured(paths.root)) {
@@ -523,7 +536,11 @@ final class BuildCommand extends Command<int> {
       if (dockerfile.existsSync() && !(r['force'] as bool)) {
         stdout.writeln('Dockerfile exists (use --force to overwrite).');
       } else {
-        dockerfile.writeAsStringSync(dockerfileTemplate());
+        final connection =
+            projectEnvValue(paths.root, 'DB_CONNECTION') ?? 'sqlite';
+        dockerfile.writeAsStringSync(
+          dockerfileTemplate(sqlite: connection == 'sqlite'),
+        );
         File(p.join(paths.root, '.dockerignore'))
             .writeAsStringSync(dockerignoreTemplate);
         stdout.writeln(
@@ -709,7 +726,29 @@ String dartExecutable() {
 
 /// Multi-stage image: Dart SDK builder → slim runtime. SQLite ships inside
 /// the bundle (build hooks), so the runtime needs no libsqlite3 package.
-String dockerfileTemplate() => r'''
+/// The generated `Dockerfile`. Without [sqlite] (an application on
+/// PostgreSQL or MySQL) the image leaves the SQLite library out, as
+/// `dartisan build --no-sqlite` does.
+String dockerfileTemplate({bool sqlite = true}) {
+  if (sqlite) {
+    return _dockerfile;
+  }
+  return _dockerfile
+      .replaceFirst(
+        'RUN dart pub get --offline \\\n',
+        '# No SQLite library in the bundle (the database is not SQLite).\n'
+            "RUN grep -q '^hooks:' pubspec.yaml || printf "
+            r"'\nhooks:\n  user_defines:\n    sqlite3:\n      source: system\n' "
+            '>> pubspec.yaml \\\n'
+            ' && dart pub get --offline \\\n',
+      )
+      .replaceFirst(
+        '# bin/server and bin/dartisan share the bundled lib/ (SQLite).\n',
+        '# bin/server and bin/dartisan (no bundled libraries).\n',
+      );
+}
+
+const String _dockerfile = r'''
 # syntax=docker/dockerfile:1
 FROM dart:stable AS build
 WORKDIR /app

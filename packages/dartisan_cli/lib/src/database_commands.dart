@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:daravel/daravel.dart';
@@ -202,6 +203,129 @@ final class DbTableCommand extends DaravelCommand {
           ]),
         );
       }
+    }
+    return 0;
+  });
+}
+
+/// [describeModel] plus the model's database columns (`attributes`), each
+/// with its type, nullability, default, key, and whether it is fillable,
+/// hidden or cast; the shape of `artisan model:show --json`.
+Future<Map<String, Object?>> modelDetails(
+  DatabaseManager db,
+  ModelDefinition<Model> model,
+) async {
+  final details = describeModel(model);
+  final schema = SchemaBuilder(await db.executor(model.connection));
+  final columns = await schema.hasTable(model.table)
+      ? await schema.getColumns(model.table)
+      : const <ColumnInfo>[];
+  return {
+    ...details,
+    'attributes': [
+      for (final column in columns)
+        {
+          'name': column.name,
+          'type': column.type,
+          'nullable': column.nullable,
+          'default': column.defaultValue,
+          'primary': column.primary,
+          'increments': column.autoIncrement,
+          'fillable': model.isFillable(column.name),
+          'hidden': model.hidden.contains(column.name),
+          'cast': switch (model.casts[column.name]) {
+            final Cast cast => castName(cast),
+            null => null,
+          },
+        },
+    ],
+  };
+}
+
+/// `model:show <Model> [--json]` — a model's table, attributes and
+/// relations (Laravel 11), from `bootstrap/models.dart`.
+final class ModelShowCommand extends DaravelCommand {
+  ModelShowCommand(super.createApp) {
+    argParser.addFlag('json', negatable: false, help: 'Output JSON.');
+  }
+
+  @override
+  String get name => 'model:show';
+
+  @override
+  String get description => 'Show information about a model.';
+
+  @override
+  String get invocation => 'dartisan model:show <Model> [--json]';
+
+  @override
+  Future<int> run() => withApp((app) async {
+    final args = argResults!;
+    if (args.rest.length != 1) {
+      usageException('Pass the model name.');
+    }
+    final registry = App.make<ModelRegistry>();
+    final model = registry.find(args.rest.single);
+    if (model == null) {
+      stderr.writeln(
+        registry.models.isEmpty
+            ? 'No models are registered: list them in bootstrap/models.dart '
+                  'and pass it to withModels(...).'
+            : 'Model [${args.rest.single}] is not registered. Known: '
+                  '${registry.models.map(modelClassName).join(', ')}.',
+      );
+      return 1;
+    }
+    final details = await modelDetails(DB.manager, model);
+    if (args['json'] as bool) {
+      stdout.writeln(jsonEncode(details));
+      return 0;
+    }
+    final attributes = details['attributes']! as List<Object?>;
+    final relations = details['relations']! as List<Object?>;
+    stdout
+      ..writeln('${details['class']} (${details['morphClass']})')
+      ..writeln(
+        'Table ${details['table']}, primary key ${details['primaryKey']}'
+        '${model.softDeletes ? ', soft deletes' : ''}'
+        '${model.timestamps ? ', timestamps' : ''}',
+      )
+      ..writeln()
+      ..write(
+        renderTable([
+          ['Attribute', 'Type', 'Cast', 'Flags'],
+          for (final a in attributes.cast<Map<String, Object?>>())
+            [
+              '${a['name']}',
+              '${a['type']}',
+              '${a['cast'] ?? ''}',
+              [
+                if (a['primary'] == true) 'primary',
+                if (a['increments'] == true) 'increments',
+                if (a['nullable'] == true) 'nullable',
+                if (a['fillable'] == true) 'fillable',
+                if (a['hidden'] == true) 'hidden',
+              ].join(', '),
+            ],
+        ]),
+      );
+    if (relations.isNotEmpty) {
+      stdout
+        ..writeln()
+        ..write(
+          renderTable([
+            ['Relation', 'Type', 'Related'],
+            for (final r in relations.cast<Map<String, Object?>>())
+              [
+                '${r['name']}',
+                '${r['type']}',
+                switch (r['related']) {
+                  final List<Object?> types => types.join(', '),
+                  final other => '$other',
+                },
+              ],
+          ]),
+        );
     }
     return 0;
   });

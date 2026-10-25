@@ -7,8 +7,34 @@ import 'package:dartisan_cli/dartisan_cli.dart';
 import 'package:dartisan_cli/src/guide_pages.g.dart';
 import 'package:test/test.dart';
 
+final class Post extends Model {
+  static final ModelDefinition<Post> definition = ModelDefinition<Post>(
+    table: 'posts',
+    factory: Post.new,
+    fillable: ['title'],
+    timestamps: false,
+    relations: {
+      'comments': () =>
+          HasMany<Comment>(() => Comment.definition, foreignKey: 'post_id'),
+    },
+  );
+  @override
+  ModelDefinition<Post> get modelDefinition => Post.definition;
+}
+
+final class Comment extends Model {
+  static final ModelDefinition<Comment> definition = ModelDefinition<Comment>(
+    table: 'comments',
+    factory: Comment.new,
+  );
+  @override
+  ModelDefinition<Comment> get modelDefinition => Comment.definition;
+}
+
 void main() {
   late Application app;
+  final logs = Directory.systemTemp.createTempSync('mcp_logs_');
+  tearDownAll(() => logs.deleteSync(recursive: true));
   final ran = <List<String>>[];
 
   Future<Application> boot({String env = 'local'}) async {
@@ -17,7 +43,9 @@ void main() {
           'APP_ENV': env,
           'APP_KEY': 'base64:${base64Encode(List.filled(32, 7))}',
           'DB_DATABASE': ':memory:',
+          'LOG_PATH': logs.path,
         })
+        .withModels([Post.definition, Comment.definition])
         .withRouting(
           api: (router) {
             router
@@ -135,6 +163,10 @@ void main() {
       'about',
       'routes',
       'schema',
+      'models',
+      'db_query',
+      'read_logs',
+      'last_error',
       'conventions',
       'docs_search',
     ]);
@@ -183,6 +215,118 @@ void main() {
     );
   });
 
+  test('models lists the registry and describes one model', () async {
+    expect(await tool(server(), 'models'), [
+      {
+        'class': 'Post',
+        'table': 'posts',
+        'relations': {'comments': 'HasMany'},
+      },
+      {
+        'class': 'Comment',
+        'table': 'comments',
+        'relations': <String, Object?>{},
+      },
+    ]);
+    final post = (await tool(server(), 'models', {'model': 'post'}))! as Map;
+    expect(post['class'], 'Post');
+    expect(post['attributes'], [
+      {
+        'name': 'id',
+        'type': 'INTEGER',
+        'nullable': true,
+        'default': null,
+        'primary': false,
+        'increments': false,
+        'fillable': false,
+        'hidden': false,
+        'cast': null,
+      },
+      {
+        'name': 'title',
+        'type': 'TEXT',
+        'nullable': true,
+        'default': null,
+        'primary': false,
+        'increments': false,
+        'fillable': true,
+        'hidden': false,
+        'cast': null,
+      },
+    ]);
+    expect(
+      (post['relations']! as List).single,
+      containsPair('related', 'Comment'),
+    );
+    // Comment has no table yet: no attributes, no error.
+    final comment =
+        (await tool(server(), 'models', {'model': 'Comment'}))! as Map;
+    expect(comment['attributes'], isEmpty);
+    expect(
+      () => tool(server(), 'models', {'model': 'Nope'}),
+      throwsA(isA<StateError>()),
+    );
+  });
+
+  test('db_query runs read-only selects through the tool', () async {
+    await app.run(() => DB.table('posts').insert({'id': 1, 'title': 'Hello'}));
+    expect(
+      await tool(server(), 'db_query', {
+        'sql': 'SELECT title FROM posts WHERE id = ?',
+        'bindings': [1],
+      }),
+      {
+        'rows': [
+          {'title': 'Hello'},
+        ],
+        'truncated': false,
+      },
+    );
+    expect(
+      () => tool(server(), 'db_query', {'sql': 'DELETE FROM posts'}),
+      throwsA(isA<StateError>()),
+    );
+  });
+
+  test('read_logs and last_error read the daily log files', () async {
+    expect(await tool(server(), 'last_error'), startsWith('No error'));
+    final day = File('${logs.path}/daravel-2026-10-24.log');
+    final today = File('${logs.path}/daravel-2026-10-25.log');
+    day.writeAsStringSync(
+      '{"time":"2026-10-24T10:00:00Z","level":"error","message":"old"}\n',
+    );
+    today.writeAsStringSync(
+      '{"time":"2026-10-25T09:00:00Z","level":"info","message":"one"}\n'
+      'not json\n'
+      '{"time":"2026-10-25T09:01:00Z","level":"error","message":"boom",'
+      '"error":"StateError"}\n'
+      '{"time":"2026-10-25T09:02:00Z","level":"debug","message":"two"}\n',
+    );
+    final messages = [
+      for (final r in (await tool(server(), 'read_logs'))! as List)
+        (r as Map)['message'],
+    ];
+    expect(messages, ['old', 'one', 'boom', 'two']);
+    expect(
+      [
+        for (final r
+            in (await tool(server(), 'read_logs', {'count': 2}))! as List)
+          (r as Map)['message'],
+      ],
+      ['boom', 'two'],
+    );
+    expect(
+      [
+        for (final r
+            in (await tool(server(), 'read_logs', {'level': 'warning'}))!
+                as List)
+          (r as Map)['message'],
+      ],
+      ['old', 'boom'],
+    );
+    expect(await tool(server(), 'last_error'), containsPair('message', 'boom'));
+  });
+
   test('conventions and docs_search answer from the bundled guide', () async {
     expect(await tool(server(), 'conventions'), contains('bootstrap/'));
     final hits =
@@ -190,7 +334,25 @@ void main() {
             as List;
     expect(hits, isNotEmpty);
     expect((hits.first as Map)['page'], 'background.md');
-    expect(guidePages.keys, containsAll(['index.md', 'orm.md', 'parity.md']));
+    expect(
+      guidePages.keys,
+      containsAll(['index.md', 'orm.md', 'parity.md', 'id/index.md']),
+    );
+    // Indonesian pages only with locale id.
+    expect(
+      await tool(server(), 'docs_search', {'query': 'berdampingan'}),
+      isEmpty,
+    );
+    final id =
+        (await tool(server(), 'docs_search', {
+              'query': 'berdampingan',
+              'locale': 'id',
+            }))!
+            as List;
+    expect([
+      for (final h in id) (h as Map)['page'],
+    ], everyElement(startsWith('id/')));
+    expect(id, isNotEmpty);
     expect(
       await tool(server(), 'docs_search', {'query': 'zzqxv nonexistent'}),
       isEmpty,

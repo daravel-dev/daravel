@@ -10,6 +10,7 @@ import '../routes/web.dart';
 import 'jobs.dart';
 import 'listeners.dart';
 import 'migrations.dart';
+import 'models.dart';
 import 'policies.dart';
 import 'seeders.dart';
 
@@ -25,6 +26,7 @@ Application createApp({String? basePath, Map<String, String>? env}) =>
         .withDatabaseDriver('mariadb', MySqlDriver.fromConfig)
         .withMigrations(migrations)
         .withSeeders(seeders)
+        .withModels(models)
         .withJobs(jobs)
         .withSchedule(consoleRoutes)
         .withEvents(registerListeners)

@@ -184,4 +184,43 @@ Future<void> f(Request request, Map<String, Object?> data) async {
     expect(issues.last.path, 'lib/app/jobs/orphan.dart');
     expect(issues.last.message, contains('bootstrap/jobs.dart'));
   });
+  test('models are checked only once bootstrap/models.dart exists', () async {
+    final root = await Directory.systemTemp.createTemp('daravel_lints_');
+    addTearDown(() => root.delete(recursive: true));
+    void write(String path, String content) {
+      final file = File(p.join(root.path, path));
+      file.parent.createSync(recursive: true);
+      file.writeAsStringSync(content);
+    }
+
+    write('lib/app/models/user.dart', 'class User {}\n');
+    write('lib/app/models/post.dart', 'class Post {}\n');
+    expect(checkRegistries(root.path), isEmpty, reason: 'no registry yet');
+
+    write(
+      'bootstrap/models.dart',
+      "import 'package:demo/app/models/user.dart';\n",
+    );
+    final issues = checkRegistries(root.path);
+    expect(issues.map((i) => i.path), ['lib/app/models/post.dart']);
+    expect(issues.single.message, contains('bootstrap/models.dart'));
+  });
+  test('invalid_timezone checks scheduler zone names', () {
+    const source = '''
+void consoleRoutes(Schedule schedule) {
+  schedule.command('a').daily().timezone('Asia/Jakarta');
+  schedule.command('b').daily().timezone('UTC');
+  schedule.command('c').daily().timezone('asia/jakarta');
+  schedule.command('d').daily().timezone('Mars/Base');
+  schedule.command('e').daily().timezone(const Duration(hours: 7));
+  schedule.command('f').daily().timezone(zone);
+}
+''';
+    final issues = lintSource(source, 'routes/console.dart');
+    expect(issues.map((i) => i.rule).toSet(), {'invalid_timezone'});
+    expect(issues.map((i) => i.line), [4, 5]);
+    expect(issues[0].message, contains('did you mean "Asia/Jakarta"?'));
+    expect(issues[1].message, contains('Unknown time zone "Mars/Base"'));
+    expect(lintSource(source, 'lib/src/x.dart'), isEmpty);
+  });
 }

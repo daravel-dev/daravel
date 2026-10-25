@@ -92,4 +92,20 @@ void main() {
     );
     expect(projectEnvValue(appRoot, 'MISSING_KEY'), isNull);
   });
+  test('the Dockerfile leaves SQLite out for other databases', () {
+    final plain = dockerfileTemplate();
+    final lean = dockerfileTemplate(sqlite: false);
+    expect(plain, isNot(contains('source: system')));
+    expect(lean, contains("grep -q '^hooks:' pubspec.yaml || printf"));
+    expect(lean, contains(r'sqlite3:\n      source: system'));
+    expect(
+      lean,
+      contains('# bin/server and bin/dartisan (no bundled libraries).'),
+    );
+    // The build stage still builds both executables.
+    expect(
+      'dart build cli'.allMatches(lean).length,
+      'dart build cli'.allMatches(plain).length,
+    );
+  });
 }

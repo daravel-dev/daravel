@@ -104,7 +104,12 @@ void consoleRoutes(Schedule schedule) {
 Run it with `schedule:work` (long-running) or `schedule:run` from cron;
 `schedule:list` shows the next runs and each task's zone.
 
-Cron expressions are read in UTC unless a task names its zone:
+Cron expressions are read in `SCHEDULE_TIMEZONE` (Laravel's
+`app.schedule_timezone`), or in UTC when it is not set, unless a task names
+its own zone. Laravel falls back to `APP_TIMEZONE`; Daravel 1.x does not, so
+upgrading never moves existing schedules, and `dartisan doctor` warns when
+`APP_TIMEZONE` is not UTC while `SCHEDULE_TIMEZONE` is empty.
+`schedule:list --timezone=Asia/Jakarta` shows the next runs in that zone.
 
 ```dart
 schedule.command('reports:send').dailyAt('08:00').timezone('Asia/Jakarta');
@@ -114,5 +119,10 @@ schedule.call(sync).hourly().timezone(const Duration(hours: 7)); // fixed offset
 
 IANA zones follow daylight saving time as Laravel does: a time skipped when
 the clocks go forward runs that much later (02:30 runs at 03:30), and a time
-repeated when they go back runs twice. The zone database is compiled into
-the binary (about 0.3 MB); an unknown zone name throws at boot.
+repeated when they go back runs twice. (This assumes clock changes of at
+most 3 hours, more than 3 hours apart, as in every current DST rule; a
+one-off change such as Samoa's 24-hour jump in 2011 could misfire once.)
+The zone database is compiled into
+the binary (about 0.5 MB, with the alias names PHP accepts: `UTC`, `GMT`,
+`US/Eastern`, ...); an unknown zone name throws at boot, and `dartisan lint`
+reports it (`invalid_timezone`).

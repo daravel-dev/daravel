@@ -14,6 +14,9 @@ import '../auth/hashing.dart';
 import '../cache/cache.dart';
 import '../database/database_config.dart';
 import '../database/database_manager.dart';
+import '../database/orm/model.dart';
+import '../database/orm/model_definition.dart';
+import '../database/orm/model_registry.dart';
 import '../database/schema/migration.dart';
 import '../database/seeding/seeder.dart';
 import '../observability/health.dart';
@@ -172,7 +175,11 @@ final class Application {
       )
       ..listen<JobFailed>((_) => metrics.jobs.inc({'status': 'failed'}));
     final jobs = JobRegistry(_builder._jobs);
-    final schedule = Schedule();
+    // Laravel's `app.schedule_timezone`; tasks without their own zone use it.
+    final scheduleZone = env.maybeString('SCHEDULE_TIMEZONE') ?? '';
+    final schedule = Schedule(
+      timezone: scheduleZone.isEmpty ? null : scheduleZone,
+    );
     final cacheConfig = config.section<CacheConfig>();
     final limiterStore = cacheConfig.limiter;
     final rateLimiter = RateLimiter(
@@ -208,6 +215,7 @@ final class Application {
         (c) => Migrator(c.make<DatabaseManager>(), _builder._migrations),
       )
       ..instance<SeederRegistry>(SeederRegistry(_builder._seeders))
+      ..instance<ModelRegistry>(ModelRegistry(_builder._models))
       ..singleton<HashManager>(
         (c) => HashManager(c.make<ConfigRepository>().section<HashConfig>()),
       )
@@ -663,6 +671,14 @@ final class ApplicationBuilder {
   final List<Migration> _migrations = <Migration>[];
   final Map<String, DatabaseDriverFactory> _databaseDrivers = {};
   final List<Seeder> _seeders = <Seeder>[];
+  final List<ModelDefinition<Model>> _models = <ModelDefinition<Model>>[];
+
+  /// Registers the application's models (`bootstrap/models.dart`), read by
+  /// `dartisan model:show` and `mcp:serve`.
+  ApplicationBuilder withModels(List<ModelDefinition<Model>> models) {
+    _models.addAll(models);
+    return this;
+  }
 
   /// Registers database seeders; the first one is the root seeder.
   ApplicationBuilder withSeeders(List<Seeder> seeders) {

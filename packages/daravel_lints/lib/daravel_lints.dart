@@ -17,6 +17,8 @@ import 'package:analyzer/dart/ast/token.dart';
 import 'package:analyzer/dart/ast/visitor.dart';
 import 'package:analyzer/source/line_info.dart';
 import 'package:path/path.dart' as p;
+import 'package:timezone/data/latest_all.dart' as tzdata;
+import 'package:timezone/timezone.dart' as tz;
 
 /// One finding.
 final class LintIssue {
@@ -689,6 +691,64 @@ final class _Visitor extends RecursiveAstVisitor<void> {
   }
 }
 
+/// `ScheduledTask.timezone('Asia/Jakarta')`: the zone name must exist in the
+/// IANA database, or the application fails at boot.
+final class InvalidTimezone extends LintRule {
+  const InvalidTimezone();
+
+  @override
+  String get name => 'invalid_timezone';
+
+  @override
+  String get description => 'Scheduler zone names must be IANA zones.';
+
+  @override
+  bool appliesTo(String relativePath) => !relativePath.startsWith('lib/src/');
+
+  static Map<String, String>? _zones;
+
+  /// Known zone names by their lower-case form.
+  static Map<String, String> get zones => _zones ??= () {
+    tzdata.initializeTimeZones();
+    return {
+      for (final name in tz.timeZoneDatabase.locations.keys)
+        name.toLowerCase(): name,
+    };
+  }();
+
+  /// The problem with [zone], or `null` when it is a known zone.
+  static String? problemIn(String zone) {
+    final known = zones[zone.toLowerCase()];
+    if (known == zone) {
+      return null;
+    }
+    return known == null
+        ? 'Unknown time zone "$zone"; use an IANA name such as '
+              '"Asia/Jakarta" or "America/New_York".'
+        : 'Unknown time zone "$zone"; did you mean "$known"?';
+  }
+
+  @override
+  void check(CompilationUnit unit, void Function(AstNode, String) report) {
+    unit.accept(
+      _Visitor(
+        onMethod: (node) {
+          final arguments = node.argumentList.arguments;
+          if (node.methodName.name != 'timezone' || arguments.length != 1) {
+            return;
+          }
+          final argument = arguments.first.argumentExpression;
+          final zone = InvalidValidationRule._literalText(argument);
+          final problem = zone == null ? null : problemIn(zone);
+          if (problem != null) {
+            report(argument, problem);
+          }
+        },
+      ),
+    );
+  }
+}
+
 /// Every built-in rule.
 const List<LintRule> defaultRules = <LintRule>[
   NoDartMirrors(),
@@ -697,6 +757,7 @@ const List<LintRule> defaultRules = <LintRule>[
   NoSqlStringInterpolation(),
   UnawaitedInDbTransaction(),
   InvalidValidationRule(),
+  InvalidTimezone(),
 ];
 
 /// Lints Dart [source] whose project-relative path is [relativePath].
@@ -791,14 +852,24 @@ const Map<String, String> registryConventions = <String, String>{
   'lib/app/console/commands': 'bootstrap/commands.dart',
 };
 
+/// Convention folders checked only when their registry exists: projects
+/// created before `bootstrap/models.dart` (1.3) have no model registry.
+const Map<String, String> optionalRegistryConventions = <String, String>{
+  'lib/app/models': 'bootstrap/models.dart',
+};
+
 /// `registry_entry_missing`: classes in convention folders that no registry
 /// imports (they would silently never run — ADR-002).
 List<LintIssue> checkRegistries(
   String root, {
   Map<String, String> conventions = registryConventions,
+  Map<String, String> optional = optionalRegistryConventions,
 }) {
   final issues = <LintIssue>[];
-  for (final entry in conventions.entries) {
+  for (final entry in [
+    ...conventions.entries,
+    ...optional.entries.where((e) => File(p.join(root, e.value)).existsSync()),
+  ]) {
     final dir = Directory(p.join(root, entry.key));
     final registry = File(p.join(root, entry.value));
     if (!dir.existsSync()) {

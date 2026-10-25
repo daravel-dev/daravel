@@ -5,6 +5,7 @@ import 'package:daravel/daravel.dart' show Encrypter, daravelVersion;
 import 'package:path/path.dart' as p;
 
 import 'generator.dart';
+import 'mcp_server.dart';
 import 'project_commands.dart';
 import 'stubs.dart';
 
@@ -121,6 +122,7 @@ Map<String, String> newProjectFiles({
     'bin/dartisan.dart': _binDartisan,
     'bootstrap/seeders.dart': api ? _seedersRegistry : _emptySeeders,
     'bootstrap/jobs.dart': _jobsRegistry,
+    'bootstrap/models.dart': api ? _modelsRegistry : _emptyModels,
     'bootstrap/listeners.dart': _listenersRegistry,
     'bootstrap/commands.dart': _commandsRegistry,
     'routes/web.dart': _webRoutes,
@@ -195,6 +197,11 @@ final class NewCommand extends Command<int> {
       ..addFlag('git', negatable: false, help: 'Initialise a git repository.')
       ..addFlag('no-pub', negatable: false, help: 'Skip `dart pub get`.')
       ..addFlag(
+        'mcp',
+        negatable: false,
+        help: 'Also write .mcp.json and AGENTS.md for AI coding agents.',
+      )
+      ..addFlag(
         'force',
         negatable: false,
         help: 'Write into a non-empty directory.',
@@ -240,6 +247,9 @@ final class NewCommand extends Command<int> {
       final file = File(p.join(directory, entry.key));
       file.parent.createSync(recursive: true);
       file.writeAsStringSync(entry.value);
+    }
+    if (r['mcp'] as bool) {
+      installMcp(directory);
     }
     stdout.writeln('Created ${files.length} files in ${r.rest.first}.');
     if (!(r['no-pub'] as bool)) {
@@ -399,6 +409,7 @@ import '../routes/web.dart';
 import 'jobs.dart';
 import 'listeners.dart';
 import 'migrations.dart';
+import 'models.dart';
 import 'policies.dart';
 import 'seeders.dart';
 
@@ -411,6 +422,7 @@ Application createApp({String? basePath, Map<String, String>? env}) =>
         .withDatabaseDriver('mariadb', MySqlDriver.fromConfig)
         .withMigrations(migrations)
         .withSeeders(seeders)
+        .withModels(models)
         .withJobs(jobs)
         .withEvents(registerListeners)
         .withPolicies(registerPolicies)
@@ -453,6 +465,7 @@ import '../routes/web.dart';
 import 'jobs.dart';
 import 'listeners.dart';
 import 'migrations.dart';
+import 'models.dart';
 import 'policies.dart';
 import 'seeders.dart';
 
@@ -465,6 +478,7 @@ Application createApp({String? basePath, Map<String, String>? env}) =>
         .withDatabaseDriver('mariadb', MySqlDriver.fromConfig)
         .withMigrations(migrations)
         .withSeeders(seeders)
+        .withModels(models)
         .withJobs(jobs)
         .withEvents(registerListeners)
         .withPolicies(registerPolicies)
@@ -534,6 +548,36 @@ import 'package:daravel/daravel.dart';
 
 /// Maintained by `dartisan make:*`; entries may also be added by hand.
 final List<Seeder> seeders = <Seeder>[
+  // <dartisan:entries>
+  // </dartisan:entries>
+];
+''';
+
+const String _modelsRegistry = r'''
+// Model registry (explicit, AOT-friendly): read by `dartisan model:show`
+// and `dartisan mcp:serve`.
+import 'package:daravel/daravel.dart';
+// <dartisan:imports>
+import 'package:{{ package }}/app/models/user.dart';
+// </dartisan:imports>
+
+/// Maintained by `dartisan make:model`; entries may also be added by hand.
+final List<ModelDefinition<Model>> models = <ModelDefinition<Model>>[
+  // <dartisan:entries>
+  User.definition,
+  // </dartisan:entries>
+];
+''';
+
+const String _emptyModels = r'''
+// Model registry (explicit, AOT-friendly): read by `dartisan model:show`
+// and `dartisan mcp:serve`.
+import 'package:daravel/daravel.dart';
+// <dartisan:imports>
+// </dartisan:imports>
+
+/// Maintained by `dartisan make:model`; entries may also be added by hand.
+final List<ModelDefinition<Model>> models = <ModelDefinition<Model>>[
   // <dartisan:entries>
   // </dartisan:entries>
 ];

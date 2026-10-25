@@ -168,4 +168,28 @@ void main() {
     expect(result.skipped, isFalse);
     expect(File(result.path).existsSync(), isFalse);
   });
+  test('make:model fills bootstrap/models.dart only when it exists', () {
+    Generator(paths).model('Post');
+    expect(File(paths.modelsRegistry).existsSync(), isFalse);
+
+    File(paths.modelsRegistry).writeAsStringSync('''
+import 'package:daravel/daravel.dart';
+// <dartisan:imports>
+// </dartisan:imports>
+
+final List<ModelDefinition<Model>> models = <ModelDefinition<Model>>[
+  // <dartisan:entries>
+  // </dartisan:entries>
+];
+''');
+    Generator(paths).model('Comment');
+    Generator(paths).model('Comment');
+    final registry = File(paths.modelsRegistry).readAsStringSync();
+    expect(
+      registry,
+      contains("import 'package:demo_app/app/models/comment.dart';"),
+    );
+    expect('Comment.definition,'.allMatches(registry), hasLength(1));
+    expect(registry, isNot(contains('Post.definition')));
+  });
 }

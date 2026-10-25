@@ -75,6 +75,7 @@ sections:
     symbols:
       - { php: "class User extends Model", dart: "final class User extends Model", symbol: Model }
       - { php: "protected $table / $fillable / $hidden / $casts", dart: "ModelDefinition<User>(table:, fillable:, hidden:, casts:)", symbol: ModelDefinition }
+      - { php: "php artisan model:show User", dart: "dartisan model:show User (models listed in bootstrap/models.dart)", symbol: ModelRegistry, note: "No class discovery: the registry is explicit, like migrations and jobs." }
       - { php: "$model->getMorphClass()", dart: "Relation.morphClassOf(User.definition)", symbol: Relation.morphClassOf, note: "The morph alias, else `ModelDefinition.morphClass` (`App\\Models\\User` by default)." }
       - { php: "User::query()", dart: "User.query()", symbol: ModelDefinition.query }
       - { php: "User::where('a', $b)->first()", dart: "await User.query().where('a', b).first()", symbol: ModelQuery.where, async: true }
@@ -171,6 +172,7 @@ sections:
       - { php: "->everyFiveMinutes() / dailyAt('13:00')", dart: ".everyFiveMinutes() / .dailyAt('13:00')", symbol: ScheduledTask.dailyAt }
       - { php: "->withoutOverlapping() / onOneServer()", dart: ".withoutOverlapping() / .onOneServer()", symbol: ScheduledTask.withoutOverlapping }
       - { php: "->timezone('America/New_York')", dart: ".timezone('America/New_York')", symbol: ScheduledTask.timezone }
+      - { php: "config('app.schedule_timezone')", dart: "SCHEDULE_TIMEZONE", symbol: Schedule.timezone, note: "No fallback to APP_TIMEZONE in 1.x (doctor warns)." }
 
   - name: Resources, storage, logging, config
     symbols:

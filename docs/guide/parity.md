@@ -74,6 +74,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | :-- | :-- | :-- |
 | `class User extends Model` | `final class User extends Model` |  |
 | `protected $table / $fillable / $hidden / $casts` | `ModelDefinition<User>(table:, fillable:, hidden:, casts:)` |  |
+| `php artisan model:show User` | `dartisan model:show User (models listed in bootstrap/models.dart)` | No class discovery: the registry is explicit, like migrations and jobs. |
 | `$model->getMorphClass()` | `Relation.morphClassOf(User.definition)` | The morph alias, else `ModelDefinition.morphClass` (`App\Models\User` by default). |
 | `User::query()` | `User.query()` |  |
 | `User::where('a', $b)->first()` | `await User.query().where('a', b).first()` | **async** |
@@ -178,6 +179,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `->everyFiveMinutes() / dailyAt('13:00')` | `.everyFiveMinutes() / .dailyAt('13:00')` |  |
 | `->withoutOverlapping() / onOneServer()` | `.withoutOverlapping() / .onOneServer()` |  |
 | `->timezone('America/New_York')` | `.timezone('America/New_York')` |  |
+| `config('app.schedule_timezone')` | `SCHEDULE_TIMEZONE` | No fallback to APP_TIMEZONE in 1.x (doctor warns). |
 
 ## Resources, storage, logging, config
 

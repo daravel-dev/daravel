@@ -63,6 +63,7 @@ final class ProjectPaths {
   String get migrationsRegistry => p.join(root, 'bootstrap', 'migrations.dart');
   String get seedersRegistry => p.join(root, 'bootstrap', 'seeders.dart');
   String get jobsRegistry => p.join(root, 'bootstrap', 'jobs.dart');
+  String get modelsRegistry => p.join(root, 'bootstrap', 'models.dart');
   String get policiesRegistry => p.join(root, 'bootstrap', 'policies.dart');
   String get listenersRegistry => p.join(root, 'bootstrap', 'listeners.dart');
   String get commandsRegistry => p.join(root, 'bootstrap', 'commands.dart');
@@ -298,7 +299,7 @@ final class Generator {
 
   GeneratedFile model(String name, {String? table, bool softDeletes = false}) {
     final className = Naming.pascal(name);
-    return _render(
+    final file = _render(
       p.join(paths.models, '${Naming.snake(className)}.dart'),
       'model',
       {
@@ -307,6 +308,18 @@ final class Generator {
         'softDeletes': softDeletes ? '\n    softDeletes: true,' : '',
       },
     );
+    // Only projects that keep a model registry (created by `dartisan new`
+    // since 1.3): creating one here would leave older models unregistered.
+    if (File(paths.modelsRegistry).existsSync()) {
+      _register(
+        file,
+        paths.modelsRegistry,
+        '',
+        "import 'package:$_package/app/models/${Naming.snake(className)}.dart';",
+        '  $className.definition,',
+      );
+    }
+    return file;
   }
 
   GeneratedFile migration(String name, {String? create, String? table}) {

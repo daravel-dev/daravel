@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:timezone/data/latest.dart' as tzdata;
+import 'package:timezone/data/latest_all.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
 
 import '../foundation/clock.dart';
@@ -97,6 +97,11 @@ final class ScheduledTask {
   }
 
   static bool _zonesLoaded = false;
+
+  /// [utc] as wall-clock time in [zone] (an IANA name or a `Duration`), for
+  /// display (`schedule:list --timezone`).
+  static DateTime wallTime(DateTime utc, Object zone) =>
+      ScheduledTask(CallbackAction(() {})).timezone(zone)._wall(utc);
 
   bool get overlapProtected => _withoutOverlapping != null;
 
@@ -257,7 +262,10 @@ final class ScheduledTask {
       return false;
     }
     // Shortly after a forward jump: was the local time `jump` earlier one
-    // that did not exist? (Transitions are never 3 hours apart.)
+    // that did not exist? This (and nextRun's look-ahead) assumes zone
+    // transitions are more than 3 hours apart and jumps at most 3 hours.
+    // Current DST rules all fit (1 hour, 30 minutes on Lord Howe); a one-off
+    // change such as Samoa's 24-hour jump in 2011 could misfire once.
     final now = _offsetAt(utc);
     final before = _offsetAt(utc.subtract(const Duration(hours: 3)));
     final jump = now - before;
@@ -330,12 +338,21 @@ final class ScheduledTask {
 
 /// Declares scheduled tasks (`routes/console.dart`, Laravel 11 style).
 final class Schedule {
+  /// [timezone] (an IANA name or a `Duration`) is the zone of every task that
+  /// does not name its own: `SCHEDULE_TIMEZONE`, Laravel's
+  /// `app.schedule_timezone`. Without it, tasks run in UTC.
+  Schedule({this.timezone});
+
+  final Object? timezone;
   final List<ScheduledTask> _tasks = <ScheduledTask>[];
 
   List<ScheduledTask> get tasks => List<ScheduledTask>.unmodifiable(_tasks);
 
   ScheduledTask _add(ScheduledAction action) {
     final task = ScheduledTask(action);
+    if (timezone case final Object zone) {
+      task.timezone(zone);
+    }
     _tasks.add(task);
     return task;
   }

@@ -5,6 +5,50 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 breaking changes to the Dart API wait for a new major version, and
 Laravel-facing formats change only to match Laravel more closely.
 
+## Unreleased
+
+### Added
+
+- `SCHEDULE_TIMEZONE` (Laravel's `app.schedule_timezone`): the zone of
+  scheduled tasks that do not name their own. Unlike Laravel there is no
+  fallback to `APP_TIMEZONE` in 1.x, so upgrading never moves a schedule;
+  `dartisan doctor` warns when `APP_TIMEZONE` is not UTC and
+  `SCHEDULE_TIMEZONE` is empty. `schedule:list --timezone=<zone>` shows the
+  next runs in that zone.
+
+- Model registry: `bootstrap/models.dart` lists the application's models
+  and `ApplicationBuilder.withModels` registers them (`ModelRegistry`,
+  `describeModel`). `dartisan new` and the starter include it, and
+  `make:model` adds new models to it when the file exists.
+- `dartisan model:show <Model> [--json]` (Laravel 11): table, attributes
+  with type, cast, fillable and hidden flags, and relations with their
+  keys.
+- `mcp:serve` tools (Laravel Boost's counterparts):
+  - `models`: the registered models and their relations, or one model in
+    detail.
+  - `db_query`: one `SELECT`/`WITH`/`EXPLAIN` statement in a transaction
+    that is always rolled back, read-only in the database on SQLite and
+    PostgreSQL.
+  - `read_logs` and `last_error`: the daily log files.
+- `dartisan mcp:install [--guidelines=AGENTS.md] [--force]` (Laravel's
+  `boost:install`) and `dartisan new --mcp`: register the server in
+  `.mcp.json`, keeping other servers, and write the Daravel guidelines
+  between markers that later runs refresh.
+- `dartisan lint` checks `lib/app/models` against `bootstrap/models.dart`,
+  only in projects that have the file (older projects are unaffected).
+- Lint `invalid_timezone`: zone names passed to `.timezone('...')` must be
+  IANA zones (suggests the right case, `asia/jakarta` → `Asia/Jakarta`).
+- `docs_search` takes `locale: "id"` to search the Indonesian guide pages
+  as well.
+- `dartisan build --docker` writes a Dockerfile without the SQLite library
+  when `DB_CONNECTION` is not `sqlite` (as `build --no-sqlite`).
+
+### Fixed
+
+- `ScheduledTask.timezone('UTC')` (and other alias names PHP accepts, such
+  as `GMT` or `US/Eastern`) threw: the bundled zone data now includes them
+  (about 0.2 MB more).
+
 ## 1.2.0
 
 Laravel's everyday conveniences, scheduler time zones, smaller bundles and

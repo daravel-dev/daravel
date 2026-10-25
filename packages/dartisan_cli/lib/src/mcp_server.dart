@@ -2,7 +2,9 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:args/command_runner.dart';
 import 'package:daravel/daravel.dart';
+import 'package:path/path.dart' as p;
 
 import '../dartisan_cli.dart';
 import 'guide_pages.g.dart';
@@ -172,6 +174,47 @@ final class McpServer {
       },
     ),
     _tool(
+      'models',
+      'The models in bootstrap/models.dart with their tables and relations; '
+          'with "model", its attributes (columns with type, cast, fillable, '
+          'hidden), keys and relations (type, related model, foreign keys).',
+      const {
+        'model': {
+          'type': 'string',
+          'description': 'Class name (Post), morph class or table.',
+        },
+      },
+    ),
+    _tool(
+      'db_query',
+      'Runs one read-only SELECT, WITH or EXPLAIN statement on the default '
+          'connection (always rolled back; read-only where the database '
+          'enforces it) and returns at most "limit" rows.',
+      const {
+        'sql': {'type': 'string', 'description': 'Use ? for bindings.'},
+        'bindings': {'type': 'array', 'description': 'Values for the ?s.'},
+        'limit': {'type': 'integer', 'description': 'Rows (default 100).'},
+      },
+      required: const ['sql'],
+    ),
+    _tool(
+      'read_logs',
+      'The newest records of the daily log files (LOG_STACK must include '
+          '"daily"), oldest first.',
+      const {
+        'count': {'type': 'integer', 'description': 'Records (default 20).'},
+        'level': {
+          'type': 'string',
+          'description': 'Minimum level: debug, info, warning, error, ...',
+        },
+      },
+    ),
+    _tool(
+      'last_error',
+      'The newest error-level log record (message, exception, stack trace).',
+      const {},
+    ),
+    _tool(
       'conventions',
       'How a Daravel project is organised: explicit registries, '
           'generators, the model pattern, time, Laravel-compatible formats '
@@ -185,6 +228,11 @@ final class McpServer {
       const {
         'query': {'type': 'string', 'description': 'Words to look for.'},
         'limit': {'type': 'integer', 'description': 'Sections (default 5).'},
+        'locale': {
+          'type': 'string',
+          'enum': ['en', 'id'],
+          'description': 'id also searches the Indonesian pages (default en).',
+        },
       },
       required: const ['query'],
     ),
@@ -266,6 +314,73 @@ final class McpServer {
                 header[i].toLowerCase(): row[i],
             },
         ];
+      case 'models':
+        final registry = app.container.make<ModelRegistry>();
+        final wanted = args['model'] as String?;
+        if (wanted == null) {
+          if (registry.models.isEmpty) {
+            return 'No models are registered. List them in '
+                'bootstrap/models.dart and pass it to withModels(...).';
+          }
+          return [
+            for (final model in registry.models)
+              {
+                'class': modelClassName(model),
+                'table': model.table,
+                'relations': {
+                  for (final name in model.relationNames)
+                    name: describeRelation(model.requireRelation(name))['type'],
+                },
+              },
+          ];
+        }
+        final model = registry.find(wanted);
+        if (model == null) {
+          throw StateError('Model [$wanted] is not registered.');
+        }
+        return modelDetails(DB.manager, model);
+      case 'db_query':
+        final sql = args['sql'];
+        if (sql is! String || sql.trim().isEmpty) {
+          throw ArgumentError('Pass the SQL.');
+        }
+        final limit = args['limit'] is int
+            ? (args['limit']! as int).clamp(1, 1000)
+            : 100;
+        final result = await readOnlySelect(
+          DB.manager,
+          sql,
+          bindings: args['bindings'] as List<Object?>? ?? const [],
+          limit: limit,
+        );
+        return {'rows': result.rows, 'truncated': result.truncated};
+      case 'read_logs' || 'last_error':
+        final config = app.config.section<LoggingConfig>();
+        final directory = p.isAbsolute(config.path)
+            ? config.path
+            : p.join(app.basePath, config.path);
+        final last = name == 'last_error';
+        final level = args['level'] as String?;
+        final records = readLogRecords(
+          directory,
+          count: last
+              ? 1
+              : args['count'] is int
+              ? (args['count']! as int).clamp(1, 500)
+              : 20,
+          minLevel: last
+              ? LogLevel.error
+              : level == null
+              ? null
+              : LogLevel.parse(level),
+        );
+        if (records.isEmpty) {
+          return last
+              ? 'No error is logged in $directory.'
+              : 'No log records in $directory (LOG_STACK needs "daily" '
+                    'for log files).';
+        }
+        return last ? records.single : records;
       case 'conventions':
         return daravelConventions;
       case 'docs_search':
@@ -274,7 +389,11 @@ final class McpServer {
           throw ArgumentError('Pass a query.');
         }
         final limit = args['limit'] is int ? args['limit']! as int : 5;
-        return searchGuide(query, limit: limit);
+        return searchGuide(
+          query,
+          limit: limit,
+          locale: args['locale'] == 'id' ? 'id' : 'en',
+        );
       case 'run_command':
         final command = args['command'];
         if (command is! String || command.isEmpty) {
@@ -375,6 +494,112 @@ final class McpServer {
   }
 }
 
+/// Runs one `SELECT`/`WITH`/`EXPLAIN` statement that cannot write: inside a
+/// transaction that is always rolled back, read-only where the database
+/// enforces it (SQLite `query_only`, PostgreSQL `READ ONLY`; MySQL relies on
+/// the statement check and the rollback). At most [limit] rows.
+Future<({List<Map<String, Object?>> rows, bool truncated})> readOnlySelect(
+  DatabaseManager db,
+  String sql, {
+  List<Object?> bindings = const [],
+  int limit = 100,
+}) async {
+  final statement = sql.trim().replaceFirst(RegExp(r';\s*$'), '');
+  if (statement.contains(';')) {
+    throw ArgumentError('Pass a single statement.');
+  }
+  final verb = RegExp(
+    r'^(select|with|explain)\b',
+    caseSensitive: false,
+  ).firstMatch(statement)?.group(1)?.toLowerCase();
+  if (verb == null) {
+    throw ArgumentError('Only SELECT, WITH and EXPLAIN statements run.');
+  }
+  // Ask for one row more than the limit to know whether rows were left out.
+  final query = verb == 'explain'
+      ? statement
+      : 'SELECT * FROM ($statement) daravel_mcp_query LIMIT ${limit + 1}';
+  final dialect = db.dialectOf();
+  late List<Map<String, Object?>> rows;
+  try {
+    await db.transaction(() async {
+      switch (dialect) {
+        case SqlDialect.postgres:
+          await db.statement('SET TRANSACTION READ ONLY');
+        case SqlDialect.sqlite:
+          await db.statement('PRAGMA query_only = ON');
+        case SqlDialect.mysql:
+          break;
+      }
+      try {
+        rows = await db.select(query, bindings);
+      } finally {
+        if (dialect == SqlDialect.sqlite) {
+          await db.statement('PRAGMA query_only = OFF');
+        }
+      }
+      throw const _Rollback();
+    });
+  } on _Rollback {
+    // Always rolled back.
+  }
+  return (
+    rows: rows.length > limit ? rows.sublist(0, limit) : rows,
+    truncated: rows.length > limit,
+  );
+}
+
+final class _Rollback implements Exception {
+  const _Rollback();
+}
+
+/// The newest [count] records of the daily log files in [directory]
+/// (`LOG_STACK` with `daily`), newest last; [minLevel] filters by severity.
+List<Map<String, Object?>> readLogRecords(
+  String directory, {
+  int count = 20,
+  LogLevel? minLevel,
+}) {
+  final dir = Directory(directory);
+  if (!dir.existsSync()) {
+    return const [];
+  }
+  final files =
+      dir
+          .listSync()
+          .whereType<File>()
+          .where((f) => f.path.endsWith('.log'))
+          .toList()
+        ..sort((a, b) => b.path.compareTo(a.path));
+  final records = <Map<String, Object?>>[];
+  for (final file in files) {
+    final lines = file.readAsLinesSync();
+    for (final line in lines.reversed) {
+      if (records.length == count) {
+        return records.reversed.toList();
+      }
+      final Object? record;
+      try {
+        record = jsonDecode(line);
+      } on FormatException {
+        continue;
+      }
+      if (record is! Map<String, Object?>) {
+        continue;
+      }
+      if (minLevel != null) {
+        final level = LogLevel.values.asNameMap()[record['level']];
+        // LogLevel runs from debug up to emergency.
+        if (level == null || level.index < minLevel.index) {
+          continue;
+        }
+      }
+      records.add(record);
+    }
+  }
+  return records.reversed.toList();
+}
+
 /// A rule value (`'required|email'`, a list, a [Rule], a [RuleBuilder]) as
 /// strings in the rule DSL.
 List<String> describeRules(Object value) => switch (value) {
@@ -396,8 +621,12 @@ String _rule(Rule rule) => rule.parameters.isEmpty
     : '${rule.name}:${rule.parameters.values.join(',')}';
 
 /// The best sections of the guide for [query]: headings count three times,
-/// every query word must appear.
-List<Map<String, Object?>> searchGuide(String query, {int limit = 5}) {
+/// every query word must appear. [locale] `id` adds the Indonesian pages.
+List<Map<String, Object?>> searchGuide(
+  String query, {
+  int limit = 5,
+  String locale = 'en',
+}) {
   final words = query
       .toLowerCase()
       .split(RegExp(r'[^a-z0-9_:.]+'))
@@ -408,6 +637,9 @@ List<Map<String, Object?>> searchGuide(String query, {int limit = 5}) {
   }
   final hits = <({String page, String heading, String text, int score})>[];
   for (final MapEntry(key: page, value: content) in guidePages.entries) {
+    if (page.startsWith('id/') && locale != 'id') {
+      continue;
+    }
     var heading = page;
     final buffer = StringBuffer();
     void flush() {
@@ -486,7 +718,8 @@ final class Post extends Model {
   ModelDefinition<Post> get modelDefinition => Post.definition;
 }
 Keep the explicit ModelDefinition<T> type and relation thunks (inference
-cycles). Typed accessors live between // <dartisan:accessors> markers and
+cycles). Every model is listed in bootstrap/models.dart (make:model adds
+it; the "models" tool and `dartisan model:show` read it). Typed accessors live between // <dartisan:accessors> markers and
 are rewritten by `dartisan model:sync` from the database schema.
 
 ## Routes and validation
@@ -548,5 +781,127 @@ final class McpServeCommand extends DaravelCommand {
       }),
       stdout: () => stderr,
     );
+  }
+}
+
+/// The `daravel` entry `mcp:install` writes to `.mcp.json`.
+const Map<String, Object?> mcpServerEntry = {
+  'command': 'dart',
+  'args': ['run', 'bin/dartisan.dart', 'mcp:serve'],
+};
+
+const String _guidelinesStart = '<!-- daravel:guidelines -->';
+const String _guidelinesEnd = '<!-- /daravel:guidelines -->';
+
+/// The Daravel section of the agent guidelines (`AGENTS.md`).
+String agentGuidelines() {
+  final conventions = daravelConventions
+      .replaceFirst(RegExp(r'^# .*\n\n'), '')
+      .replaceAll(RegExp(r'^## ', multiLine: true), '### ');
+  return '''
+$_guidelinesStart
+## Daravel
+
+This project uses Daravel $daravelVersion, a Laravel-style backend framework
+for Dart. The `daravel` MCP server (`dart run bin/dartisan.dart mcp:serve`)
+answers with the application as it is: call `conventions` first, `routes`,
+`models` and `schema` before changing code, `docs_search` for framework
+APIs, and `db_query`, `read_logs` and `last_error` while debugging.
+
+$conventions$_guidelinesEnd
+''';
+}
+
+/// Registers the `daravel` MCP server in [root]`/.mcp.json` (other servers
+/// are kept) and writes the Daravel section of [root]`/`[guidelines]
+/// between markers, so running it again only refreshes that section.
+/// Returns the files it changed.
+List<String> installMcp(
+  String root, {
+  String guidelines = 'AGENTS.md',
+  bool force = false,
+}) {
+  final changed = <String>[];
+  final config = File(p.join(root, '.mcp.json'));
+  final Map<String, Object?> json = config.existsSync()
+      ? switch (jsonDecode(config.readAsStringSync())) {
+          final Map<String, Object?> map => map,
+          _ => throw const FormatException('.mcp.json is not a JSON object.'),
+        }
+      : {};
+  final servers = switch (json['mcpServers']) {
+    final Map<String, Object?> map => map,
+    _ => <String, Object?>{},
+  };
+  if (force || !servers.containsKey('daravel')) {
+    servers['daravel'] = mcpServerEntry;
+    json['mcpServers'] = servers;
+    config.writeAsStringSync(
+      '${const JsonEncoder.withIndent('  ').convert(json)}\n',
+    );
+    changed.add(config.path);
+  }
+
+  final file = File(p.join(root, guidelines));
+  final section = agentGuidelines();
+  final current = file.existsSync() ? file.readAsStringSync() : null;
+  final String next;
+  if (current == null) {
+    next = '# Agent guidelines\n\n$section';
+  } else {
+    final start = current.indexOf(_guidelinesStart);
+    final end = current.indexOf(_guidelinesEnd);
+    next = start != -1 && end > start
+        ? current.substring(0, start) +
+              section.trimRight() +
+              current.substring(end + _guidelinesEnd.length)
+        : '${current.trimRight()}\n\n$section';
+  }
+  if (next != current) {
+    file.writeAsStringSync(next);
+    changed.add(file.path);
+  }
+  return changed;
+}
+
+/// `mcp:install [--guidelines=AGENTS.md] [--force]`: registers the MCP
+/// server for AI agents and writes their Daravel guidelines.
+final class McpInstallCommand extends Command<int> {
+  McpInstallCommand() {
+    argParser
+      ..addOption(
+        'guidelines',
+        defaultsTo: 'AGENTS.md',
+        help: 'File for the agent guidelines (e.g. CLAUDE.md).',
+      )
+      ..addFlag(
+        'force',
+        negatable: false,
+        help: 'Replace an existing "daravel" entry in .mcp.json.',
+      );
+  }
+
+  @override
+  String get name => 'mcp:install';
+
+  @override
+  String get description =>
+      'Register mcp:serve in .mcp.json and write agent guidelines.';
+
+  @override
+  Future<int> run() async {
+    final root = ProjectPaths.locate().root;
+    final changed = installMcp(
+      root,
+      guidelines: argResults!['guidelines'] as String,
+      force: argResults!['force'] as bool,
+    );
+    for (final path in changed) {
+      stdout.writeln('Wrote ${p.relative(path, from: root)}');
+    }
+    if (changed.isEmpty) {
+      stdout.writeln('Already installed.');
+    }
+    return 0;
   }
 }

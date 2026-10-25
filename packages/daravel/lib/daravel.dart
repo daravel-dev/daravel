@@ -76,6 +76,7 @@ export 'src/database/orm/model.dart';
 export 'src/database/orm/model_collection.dart';
 export 'src/database/orm/model_definition.dart';
 export 'src/database/orm/model_query.dart';
+export 'src/database/orm/model_registry.dart';
 export 'src/database/orm/observer.dart';
 export 'src/database/orm/relations.dart';
 export 'src/database/schema/sqlite_schema.dart';

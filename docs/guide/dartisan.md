@@ -26,7 +26,7 @@ options.
 | `down [--secret] [--retry]`, `up` | Maintenance mode, see [Deployment](deployment.md#maintenance-mode) |
 | `stub:publish` | Copies the generator templates into `stubs/` |
 | `lint [--json]` | `daravel_lints` rules and registry checks |
-| `mcp:serve [--allow-write]` | Project context for AI coding agents over MCP, see [below](#ai-coding-agents-mcp) |
+| `mcp:serve [--allow-write]`, `mcp:install` | Project context for AI coding agents over MCP, see [below](#ai-coding-agents-mcp) |
 
 ## Serve, test and build
 
@@ -48,6 +48,7 @@ options.
 | `db:show`, `db:table <table> [--limit]` | Tables, columns and rows |
 | `tinker "<expression>"` | Evaluates a Dart expression in the booted application |
 | `model:sync [Model]` | Regenerates a model's typed accessors from its table |
+| `model:show <Model> [--json]` | A model's table, attributes (type, cast, fillable, hidden) and relations, from `bootstrap/models.dart` |
 
 ## Queues and scheduling
 
@@ -79,6 +80,9 @@ application, so agents see the application as it is, not a guess:
 | `about` | Daravel and Dart versions, environment, drivers |
 | `routes` | Methods, URI, name, action, middleware, validation rules and their JSON Schema, documented response |
 | `schema` | Tables with column and row counts, or one table's columns |
+| `models` | The registered models and their relations, or one model's attributes, keys and relations |
+| `db_query` | One `SELECT`/`WITH`/`EXPLAIN` statement, at most 100 rows by default; always rolled back, and read-only in the database on SQLite (`query_only`) and PostgreSQL (`READ ONLY`) |
+| `read_logs`, `last_error` | The newest records of the daily log files (`LOG_STACK` with `daily`), or the newest error |
 | `conventions` | Registries, generators, the model pattern, time, locked Laravel formats, lint rules |
 | `docs_search` | The best sections of this guide, for the installed version |
 | `run_command` | Runs a dartisan command (`--allow-write` only) |
@@ -90,13 +94,27 @@ It is read-only unless started with `--allow-write`. Even then,
 `queue:flush`, `queue:clear`, `key:generate`, `env:decrypt`). Protocol messages
 use stdout; logs go to stderr.
 
-Register it with Claude Code from the project directory:
+`dartisan mcp:install` sets a project up for agents, like Laravel's
+`boost:install`:
+
+```bash
+dart run bin/dartisan.dart mcp:install                          # .mcp.json + AGENTS.md
+dart run bin/dartisan.dart mcp:install --guidelines=CLAUDE.md   # guidelines elsewhere
+dartisan new blog --mcp                                         # the same, for a new project
+```
+
+It adds a `daravel` server to `.mcp.json` (other servers are kept; `--force`
+replaces an existing `daravel` entry) and writes the Daravel conventions
+between `<!-- daravel:guidelines -->` markers in `AGENTS.md`. Running it
+again after an upgrade refreshes that section and leaves the rest of the
+file alone. Claude Code reads `.mcp.json` from the project; to register the
+server by hand instead:
 
 ```bash
 claude mcp add daravel -- dart run bin/dartisan.dart mcp:serve
 ```
 
-Or commit a `.mcp.json`, which other MCP clients read too:
+The `.mcp.json` entry, which other MCP clients read too:
 
 ```json
 {

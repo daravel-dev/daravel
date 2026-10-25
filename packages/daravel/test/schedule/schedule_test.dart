@@ -156,7 +156,52 @@ void main() {
       () => schedule.call(() {}).timezone('Mars/Olympus_Mons'),
       throwsArgumentError,
     );
+    // Alias names PHP accepts (not in the canonical-only data set).
+    for (final alias in ['UTC', 'GMT', 'US/Eastern', 'Asia/Saigon']) {
+      expect(schedule.call(() {}).timezone(alias).timezoneName, alias);
+    }
+    expect(
+      schedule
+          .call(() {})
+          .dailyAt('09:00')
+          .timezone('US/Eastern')
+          .isDue(DateTime.utc(2026, 1, 15, 14)),
+      isTrue,
+    );
     expect(() => schedule.call(() {}).timezone(7), throwsArgumentError);
+  });
+
+  test('SCHEDULE_TIMEZONE is the zone of tasks without their own '
+      "(Laravel's app.schedule_timezone)", () async {
+    final zoned = Application.configure(basePath: Directory.systemTemp.path)
+        .withEnv({
+          'APP_ENV': 'testing',
+          'DB_DATABASE': ':memory:',
+          'SCHEDULE_TIMEZONE': 'Asia/Jakarta',
+        })
+        .withSchedule((schedule) {
+          schedule.call(() {}).dailyAt('08:00').named('local');
+          schedule
+              .call(() {})
+              .dailyAt('08:00')
+              .timezone(Duration.zero)
+              .named('utc');
+        })
+        .create();
+    await zoned.boot();
+    addTearDown(zoned.shutdown);
+    final tasks = {
+      for (final t in zoned.container.make<Schedule>().tasks) t.name: t,
+    };
+    expect(tasks['local']!.timezoneName, 'Asia/Jakarta');
+    expect(tasks['local']!.isDue(DateTime.utc(2026, 10, 24, 1)), isTrue);
+    expect(tasks['utc']!.isDue(DateTime.utc(2026, 10, 24, 8)), isTrue);
+    // Without it, tasks stay in UTC.
+    expect(app.container.make<Schedule>().timezone, isNull);
+    expect(
+      ScheduledTask.wallTime(DateTime.utc(2026, 7, 1, 12), 'America/New_York'),
+      DateTime.utc(2026, 7, 1, 8),
+    );
   });
 
   test('runs due tasks with hooks, filters, jobs and events', () async {

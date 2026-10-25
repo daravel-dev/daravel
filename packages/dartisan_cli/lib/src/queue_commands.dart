@@ -366,7 +366,12 @@ final class ScheduleWorkCommand extends DaravelCommand {
 
 /// `schedule:list` — prints the schedule.
 final class ScheduleListCommand extends DaravelCommand {
-  ScheduleListCommand(super.createApp);
+  ScheduleListCommand(super.createApp) {
+    argParser.addOption(
+      'timezone',
+      help: 'Show the next due times in this zone (default UTC).',
+    );
+  }
 
   @override
   String get name => 'schedule:list';
@@ -382,15 +387,30 @@ final class ScheduleListCommand extends DaravelCommand {
       return 0;
     }
     final now = DateTime.now().toUtc();
+    final zone = argResults!['timezone'] as String?;
+    String due(DateTime? utc) => switch (utc) {
+      null => '-',
+      final at when zone == null => at.toIso8601String(),
+      final at => ScheduledTask.wallTime(
+        at,
+        zone,
+      ).toIso8601String().replaceFirst('Z', ''),
+    };
     stdout.write(
       renderTable(<List<String>>[
-        <String>['Expression', 'Zone', 'Task', 'Next Due (UTC)', 'Options'],
+        <String>[
+          'Expression',
+          'Zone',
+          'Task',
+          'Next Due (${zone ?? 'UTC'})',
+          'Options',
+        ],
         for (final task in tasks)
           <String>[
             task.cron.expression,
             task.timezoneName,
             task.name,
-            task.nextRun(now)?.toIso8601String() ?? '-',
+            due(task.nextRun(now)),
             [
               if (task.overlapProtected) 'withoutOverlapping',
               if (task.singleServer) 'onOneServer',

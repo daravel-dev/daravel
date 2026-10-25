@@ -52,6 +52,32 @@ Casts: `Cast.integer`, `decimal`, `boolean`, `string`, `dateTime`, `date`,
 `dartisan model:sync` writes typed getters and setters from the table, so
 `user.email` is a `String` checked by the compiler.
 
+## Model registry
+
+`bootstrap/models.dart` lists the application's models, the way the other
+registries list migrations and jobs (Daravel discovers nothing by
+reflection):
+
+```dart
+final List<ModelDefinition<Model>> models = <ModelDefinition<Model>>[
+  // <dartisan:entries>
+  User.definition,
+  Post.definition,
+  // </dartisan:entries>
+];
+```
+
+`createApp` passes it to `.withModels(models)`, and `dartisan make:model`
+adds new models to it. `dartisan model:show Post [--json]` (Laravel 11's
+`model:show`) prints the model's table, attributes with their type, cast,
+fillable and hidden flags, and its relations; `dartisan mcp:serve` gives AI
+agents the same data. Once the file exists, `dartisan lint` reports models
+in `lib/app/models` that it leaves out.
+
+Projects created before 1.3 can add the file by hand (copy the block above,
+with one entry per model) and the `.withModels(models)` call; until then
+everything else keeps working.
+
 ## Relations
 
 `HasOne`, `HasMany`, `BelongsTo`, `BelongsToMany` (with `withPivot` and

@@ -64,6 +64,7 @@ final class DartisanRunner extends CommandRunner<int> {
     addCommand(DbSeedCommand(createApp));
     addCommand(DbShowCommand(createApp));
     addCommand(DbTableCommand(createApp));
+    addCommand(ModelShowCommand(createApp));
     addCommand(CacheClearCommand(createApp));
     addCommand(CoordinatorStatsCommand(createApp));
     addCommand(StorageLinkCommand(createApp));
@@ -103,6 +104,7 @@ final class DartisanRunner extends CommandRunner<int> {
     addCommand(ModelSyncCommand(createApp));
     addCommand(LintCommand());
     addCommand(McpServeCommand(createApp));
+    addCommand(McpInstallCommand());
     for (final factory in commands) {
       addCommand(factory(createApp));
     }
