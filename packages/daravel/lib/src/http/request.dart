@@ -400,7 +400,7 @@ final class Request {
     if (contentType.contains('json')) {
       final Object? decoded;
       try {
-        decoded = jsonDecode(utf8.decode(raw)) as Object?;
+        decoded = jsonDecode(utf8.decode(raw), reviver: _finiteNumbers);
       } on FormatException catch (error) {
         throw BadRequestHttpException('Malformed JSON body: ${error.message}');
       }
@@ -682,6 +682,16 @@ final class Request {
       throw StateError('No binding resolved for route parameter [$param].');
     }
     return _bindings[param] as T;
+  }
+
+  /// Rejects numbers outside the double range (`1e309` decodes to Infinity):
+  /// `numeric` would accept them, and a response or a stored row holding one
+  /// could no longer be encoded as JSON (a lasting 500).
+  static Object? _finiteNumbers(Object? key, Object? value) {
+    if (value is double && !value.isFinite) {
+      throw const FormatException('Number out of range');
+    }
+    return value;
   }
 
   static int _depth(Object? value) {

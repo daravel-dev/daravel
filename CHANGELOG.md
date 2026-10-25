@@ -5,6 +5,19 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 breaking changes to the Dart API wait for a new major version, and
 Laravel-facing formats change only to match Laravel more closely.
 
+## Unreleased
+
+### Fixed
+
+- A JSON body with a number outside the double range (`{"n": 1e309}`,
+  which decodes to Infinity) is now `400 Malformed JSON body: Number out of
+  range`. Before, `numeric` accepted it; a response echoing it was a 500,
+  and on SQLite a stored value made every later read of that row a 500.
+  PostgreSQL and MySQL rejected the insert (a 500). Laravel behaves as
+  Daravel did (`is_numeric(INF)` is true, `json_encode` fails); this is a
+  deliberate, safer difference. Reported in the security audit
+  (Blueprint #23).
+
 ## 1.5.0
 
 The application model export for `daragic`, test suites over a real

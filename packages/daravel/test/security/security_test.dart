@@ -161,6 +161,59 @@ void main() {
       )..maxJsonDepth = 64;
       await expectLater(request.all(), throwsA(isA<HttpException>()));
     });
+
+    test(
+      'numbers outside the double range are rejected (Blueprint #23)',
+      () async {
+        // 1e309 decodes to Infinity: `numeric` accepts it, and a response or
+        // a stored row holding it can no longer be encoded (a lasting 500).
+        Request json(String body) => Request.fake(
+          method: 'POST',
+          body: body,
+          headers: {'content-type': 'application/json'},
+        );
+        for (final body in [
+          '{"n": 1e309}',
+          '{"n": -1e309}',
+          '{"items": [{"price": 1e400}]}',
+        ]) {
+          await expectLater(
+            json(body).all(),
+            throwsA(
+              isA<BadRequestHttpException>().having(
+                (e) => e.message,
+                'message',
+                'Malformed JSON body: Number out of range',
+              ),
+            ),
+            reason: body,
+          );
+        }
+        // Large but finite numbers stay valid.
+        expect(await json('{"n": 1e308, "big": 99999999999999999999}').all(), {
+          'n': 1e308,
+          'big': 1e20,
+        });
+
+        final app = Application.configure(basePath: Directory.systemTemp.path)
+            .withEnv(const {'APP_ENV': 'testing', 'DB_DATABASE': ':memory:'})
+            .withRouting(api: (r) => r.post('/echo', (req) => req.all()))
+            .create();
+        await app.boot();
+        addTearDown(app.shutdown);
+        (await TestClient(app).send(
+            'POST',
+            '/api/echo',
+            body: '{"n": 1e309}',
+            headers: {'content-type': 'application/json'},
+          ))
+          ..assertStatus(400)
+          ..assertJsonPath(
+            'message',
+            'Malformed JSON body: Number out of range',
+          );
+      },
+    );
   });
 
   group('JWT manipulation', () {
