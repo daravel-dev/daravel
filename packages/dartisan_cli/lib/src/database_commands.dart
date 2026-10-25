@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:daravel/daravel.dart';
+import 'package:path/path.dart' as p;
 
 import '../dartisan_cli.dart';
 
@@ -326,6 +327,147 @@ final class ModelShowCommand extends DaravelCommand {
               ],
           ]),
         );
+    }
+    return 0;
+  });
+}
+
+/// Copies the SQLite database behind [db] to [target] with `VACUUM INTO`:
+/// a consistent copy even while the server writes (unlike copying the file,
+/// which can catch a write half done), checked with `PRAGMA
+/// integrity_check`. Returns the backup's size in bytes.
+Future<int> backupSqlite(DatabaseManager db, String target) async {
+  final file = File(target);
+  if (file.existsSync()) {
+    throw StateError('$target exists; backups never overwrite a file.');
+  }
+  file.parent.createSync(recursive: true);
+  await db.statement('VACUUM INTO ?', [file.absolute.path]);
+  final check = DatabaseManager(
+    DatabaseConfig(
+      defaultConnection: 'backup',
+      connections: {
+        'backup': ConnectionConfig(driver: 'sqlite', database: file.path),
+      },
+    ),
+  );
+  try {
+    final result = await check.select('PRAGMA integrity_check');
+    final status = result.isEmpty ? null : result.first.values.first;
+    if (status != 'ok') {
+      throw StateError(
+        'The backup at $target failed its integrity check: '
+        '$status',
+      );
+    }
+  } finally {
+    await check.closeAll();
+  }
+  return file.lengthSync();
+}
+
+/// Deletes all but the newest [keep] `*.sqlite` backups in [directory]
+/// (names sort by their timestamp); returns the deleted paths.
+List<String> pruneBackups(String directory, int keep) {
+  final dir = Directory(directory);
+  if (!dir.existsSync()) {
+    return const [];
+  }
+  final backups =
+      dir
+          .listSync()
+          .whereType<File>()
+          .where((f) => f.path.endsWith('.sqlite'))
+          .toList()
+        ..sort((a, b) => b.path.compareTo(a.path));
+  final removed = [for (final old in backups.skip(keep)) old.path];
+  for (final path in removed) {
+    File(path).deleteSync();
+  }
+  return removed;
+}
+
+/// `db:backup [--output] [--keep=N]`: a hot backup of the SQLite database
+/// into `storage/backups/` (schedule it with
+/// `schedule.command('db:backup', ['--keep=14']).dailyAt('02:00')`).
+final class DbBackupCommand extends DaravelCommand {
+  DbBackupCommand(super.createApp) {
+    argParser
+      ..addOption(
+        'output',
+        help: 'Backup file (default: storage/backups/<name>-<time>.sqlite).',
+      )
+      ..addOption(
+        'keep',
+        help: 'Keep only the newest N backups in the backup directory.',
+      );
+  }
+
+  @override
+  String get name => 'db:backup';
+
+  @override
+  String get description => 'Back up the SQLite database while it is in use.';
+
+  @override
+  Future<int> run() => withApp((app) async {
+    final config = app.config.section<DatabaseConfig>();
+    final connection = config.connections[config.defaultConnection];
+    switch (connection?.driver) {
+      case 'sqlite':
+        break;
+      case 'pgsql':
+        stderr.writeln(
+          'db:backup copies SQLite databases. For PostgreSQL use pg_dump, '
+          'e.g. pg_dump --format=custom --file=backup.dump '
+          '"${connection!.database}" (PGPASSWORD in the environment).',
+        );
+        return 1;
+      case 'mysql' || 'mariadb':
+        stderr.writeln(
+          'db:backup copies SQLite databases. For MySQL and MariaDB use '
+          'mysqldump --single-transaction "${connection!.database}" '
+          '(MYSQL_PWD in the environment).',
+        );
+        return 1;
+      default:
+        stderr.writeln('No SQLite connection [${config.defaultConnection}].');
+        return 1;
+    }
+    final database = connection!.database;
+    if (database == ':memory:' || database.startsWith('file:')) {
+      stderr.writeln('An in-memory database has nothing to back up.');
+      return 1;
+    }
+    final args = argResults!;
+    final directory = p.join(app.basePath, 'storage', 'backups');
+    String two(int n) => n.toString().padLeft(2, '0');
+    final now = DateTime.now().toUtc();
+    final stamp =
+        '${now.year}-${two(now.month)}-${two(now.day)}-'
+        '${two(now.hour)}${two(now.minute)}${two(now.second)}';
+    final target =
+        args['output'] as String? ??
+        p.join(
+          directory,
+          '${p.basenameWithoutExtension(database)}-$stamp.sqlite',
+        );
+    final int size;
+    try {
+      size = await backupSqlite(DB.manager, target);
+    } on StateError catch (error) {
+      stderr.writeln(error.message);
+      return 1;
+    }
+    stdout.writeln(
+      'Backed up to ${p.relative(target, from: app.basePath)} '
+      '(${(size / 1024).toStringAsFixed(1)} KB).',
+    );
+    final keep = int.tryParse(args['keep'] as String? ?? '');
+    if (keep != null && keep > 0) {
+      for (final path in pruneBackups(p.dirname(target), keep)) {
+        stdout.writeln('Removed ${p.relative(path, from: app.basePath)}');
+      }
     }
     return 0;
   });

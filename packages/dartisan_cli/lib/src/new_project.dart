@@ -505,6 +505,8 @@ import '../database/migrations/m_0001_01_01_000000_create_users_table.dart';
 final List<Migration> migrations = <Migration>[
   const CreateCacheTable(),
   const CreateJobsTable(),
+  // Framework-provided: Laravel Pennant's `features` (feature flags).
+  const CreateFeaturesTable(),
   const CreatePersonalAccessTokensTable(),
   // <dartisan:entries>
   const CreateUsersTable(),

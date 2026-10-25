@@ -15,6 +15,8 @@ import '../../daravel/test/database/date_queries_and_guards_test.dart';
 import '../../daravel/test/database/orm_polymorphic_test.dart';
 import '../../daravel/test/database/orm_self_relations_and_aggregates_test.dart';
 import '../../daravel/test/database/transaction_concurrency_test.dart';
+import '../../daravel/test/features/feature_test.dart'
+    show featureDatabaseTests;
 
 /// Runs only when `DARAVEL_TEST_MYSQL` is set (CI: MySQL 8.4, MariaDB 11).
 void main() {
@@ -51,4 +53,5 @@ void main() {
   group('transaction concurrency', () => transactionConcurrencyTests(open));
   group('cache store concurrency', () => cacheStoreConcurrencyTests(open));
   group('date queries and guards', () => dateQueryAndGuardTests(open));
+  group('feature flags (Pennant table)', () => featureDatabaseTests(open));
 }

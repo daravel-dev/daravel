@@ -255,6 +255,31 @@ through Caddy, and trust it with `TrustProxiesMiddleware(proxies:
 ['127.0.0.1/32'])`. To move a Laravel application over endpoint by endpoint
 behind the same Caddy, see [Migrating from Laravel](migrating-from-laravel.md).
 
+## Backups
+
+`dartisan db:backup` copies a SQLite database while the server keeps
+running. It uses SQLite's `VACUUM INTO`, which writes a consistent,
+compacted copy even while other connections write (copying the file with
+`cp` can catch a write half done), checks the copy with
+`PRAGMA integrity_check`, and never overwrites a file:
+
+```bash
+dart run bin/dartisan.dart db:backup                  # storage/backups/database-<time>.sqlite
+dart run bin/dartisan.dart db:backup --keep=14        # and delete all but the newest 14
+dart run bin/dartisan.dart db:backup --output=/mnt/backups/app.sqlite
+```
+
+Schedule it in `routes/console.dart`, and copy `storage/backups` off the
+server (object storage, another machine):
+
+```dart
+schedule.command('db:backup', const ['--keep=14']).dailyAt('02:00');
+```
+
+On PostgreSQL and MySQL the command explains the native tool instead
+(`pg_dump --format=custom`, `mysqldump --single-transaction`), which
+backs those servers up consistently without stopping them.
+
 ## Maintenance mode
 
 ```bash

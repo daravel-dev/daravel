@@ -31,6 +31,7 @@ import '../http/headers.dart';
 import '../http/middleware/maintenance_mode.dart';
 import '../http/middleware/validate_signature.dart';
 import '../http/kernel.dart';
+import '../features/feature.dart';
 import '../http/middleware.dart';
 import '../http/middleware/cache_headers.dart';
 import '../http/rate_limiter.dart';
@@ -222,6 +223,18 @@ final class Application {
       ..instance<SeederRegistry>(SeederRegistry(_builder._seeders))
       ..instance<ModelRegistry>(ModelRegistry(_builder._models))
       ..instance<Translator>(_translator())
+      ..singleton<FeatureManager>(
+        (c) => FeatureManager(switch (env.string(
+          'PENNANT_STORE',
+          config.section<AppConfig>().env == 'testing' ? 'array' : 'database',
+        )) {
+          'array' => ArrayFeatureStore(),
+          'database' => DatabaseFeatureStore(c.make<DatabaseManager>()),
+          final other => throw ConfigException(
+            'PENNANT_STORE must be array or database, not $other.',
+          ),
+        }),
+      )
       ..singleton<HashManager>(
         (c) => HashManager(c.make<ConfigRepository>().section<HashConfig>()),
       )
@@ -255,6 +268,13 @@ final class Application {
       ..aliasFactory('auth', AuthenticateMiddleware.new)
       ..aliasFactory('can', AuthorizeMiddleware.fromParams)
       ..aliasFactory('cache.headers', CacheHeadersMiddleware.fromParams)
+      ..aliasFactory(
+        'feature',
+        (params) => EnsureFeaturesAreActive(
+          params,
+          debug: config.section<AppConfig>().debug,
+        ),
+      )
       ..aliasFactory(
         'throttle',
         (params) => ThrottleMiddleware.fromParams(

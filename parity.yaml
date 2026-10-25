@@ -201,6 +201,13 @@ sections:
       - { php: "Lang::get / Lang::has", dart: "Lang.get / Lang.has", symbol: Lang.get }
       - { php: "App::setLocale('id') / App::getLocale()", dart: "App.setLocale('id') / App.locale", symbol: App.setLocale, note: "Per request, job or command scope." }
       - { php: "lang/id.json", dart: "lang/id.json (loaded at boot)", symbol: Translator.addJson }
+  - name: Feature flags (Pennant)
+    symbols:
+      - { php: "Feature::define('beta', fn (User $user) => ...)", dart: "Feature.define('beta', (scope) => ...)", symbol: Feature.define }
+      - { php: "Feature::active('beta') / Feature::value('beta')", dart: "await Feature.active('beta') / Feature.value('beta')", symbol: Feature.active, async: true }
+      - { php: "Feature::for($team)->active('beta')", dart: "Feature.forScope(team).active('beta')", symbol: Feature.forScope, note: "`for` is a Dart keyword." }
+      - { php: "Feature::activateForEveryone('beta')", dart: "Feature.activateForEveryone('beta')", symbol: Feature.activateForEveryone }
+      - { php: "EnsureFeaturesAreActive::using('beta')", dart: "'feature:beta'", symbol: EnsureFeaturesAreActive, note: "Same features table, scope format and 400 response." }
   - name: Strings, helpers, collections
     symbols:
       - { php: "Str::slug / snake / camel / studly / kebab / title / headline", dart: "Str.slug / snake / camel / studly / kebab / title / headline", symbol: Str.headline }
@@ -242,6 +249,7 @@ middlewareAliases:
   can: can
   signed: signed
   cache.headers: cache.headers
+  'Laravel\Pennant\Middleware\EnsureFeaturesAreActive': feature
 
 exceptions:
   ModelNotFoundException: ModelNotFoundException

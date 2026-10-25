@@ -31,6 +31,19 @@ Laravel-facing formats change only to match Laravel more closely.
   JSON, XML, SVG, JavaScript bodies of at least 1 KB; strong ETags become
   weak).
 
+- Feature flags (Laravel Pennant): `Feature.define`, `active`, `value`,
+  `forScope`, `activate`/`deactivate`, `forget`, `activateForEveryone`,
+  `purge`, and the `feature:a,b` middleware (400 when inactive). Values
+  live in Pennant's `features` table (`CreateFeaturesTable`, scopes
+  serialized as `App\Models\User|1`), so a Laravel application on the same
+  database shares them; `PENNANT_STORE=array` keeps them in memory (the
+  default in testing). Tested on SQLite, PostgreSQL and MySQL/MariaDB.
+- `dartisan db:backup [--output] [--keep=N]`: a hot backup of the SQLite
+  database (`VACUUM INTO`, consistent while the server writes, checked with
+  `PRAGMA integrity_check`, never overwriting) into `storage/backups`;
+  `--keep` prunes older backups. On PostgreSQL and MySQL it points to
+  `pg_dump` / `mysqldump`.
+
 ### Fixed
 
 - A `HEAD` response is stripped after the global middleware, not before:

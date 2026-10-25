@@ -14,6 +14,8 @@ final List<Migration> migrations = <Migration>[
   const CreateCacheTable(),
   // Framework-provided: Laravel-compatible `jobs`, `job_batches`, `failed_jobs`.
   const CreateJobsTable(),
+  // Framework-provided: Laravel Pennant's `features` (feature flags).
+  const CreateFeaturesTable(),
   // <dartisan:entries>
   const CreateUsersTable(),
   // </dartisan:entries>

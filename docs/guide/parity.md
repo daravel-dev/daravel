@@ -213,6 +213,16 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `App::setLocale('id') / App::getLocale()` | `App.setLocale('id') / App.locale` | Per request, job or command scope. |
 | `lang/id.json` | `lang/id.json (loaded at boot)` |  |
 
+## Feature flags (Pennant)
+
+| Laravel | Daravel | Notes |
+| :-- | :-- | :-- |
+| `Feature::define('beta', fn (User $user) => ...)` | `Feature.define('beta', (scope) => ...)` |  |
+| `Feature::active('beta') / Feature::value('beta')` | `await Feature.active('beta') / Feature.value('beta')` | **async** |
+| `Feature::for($team)->active('beta')` | `Feature.forScope(team).active('beta')` | `for` is a Dart keyword. |
+| `Feature::activateForEveryone('beta')` | `Feature.activateForEveryone('beta')` |  |
+| `EnsureFeaturesAreActive::using('beta')` | `'feature:beta'` | Same features table, scope format and 400 response. |
+
 ## Strings, helpers, collections
 
 | Laravel | Daravel | Notes |
@@ -261,6 +271,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `can` | `can` |
 | `signed` | `signed` |
 | `cache.headers` | `cache.headers` |
+| `Laravel\Pennant\Middleware\EnsureFeaturesAreActive` | `feature` |
 
 ## Not available yet
 

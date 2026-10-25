@@ -15,6 +15,7 @@ const Map<String, Set<String>> allowedDependencies = {
   'storage': {'foundation'},
   'view': {'http'},
   'translation': {'foundation', 'http'},
+  'features': {'foundation', 'database', 'auth', 'http'},
   'routing': {'foundation', 'http', 'validation'},
   'validation': {'foundation', 'http', 'database'},
   'database': {'foundation', 'http', 'logging'},

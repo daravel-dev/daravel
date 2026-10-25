@@ -64,6 +64,7 @@ final class DartisanRunner extends CommandRunner<int> {
     addCommand(DbSeedCommand(createApp));
     addCommand(DbShowCommand(createApp));
     addCommand(DbTableCommand(createApp));
+    addCommand(DbBackupCommand(createApp));
     addCommand(ModelShowCommand(createApp));
     addCommand(CacheClearCommand(createApp));
     addCommand(CoordinatorStatsCommand(createApp));
