@@ -222,11 +222,30 @@ final class ProcessCacheService implements CoordinatorService {
 
 /// Process-wide cache and locks via the coordinator (scope `process`).
 /// Lock calls are **fail-closed**: coordinator errors propagate.
+///
+/// With [l1Ttl], each isolate keeps the values it reads for that long (up to
+/// [l1MaxEntries]) and answers repeated reads without a coordinator round
+/// trip; its own writes update or drop them at once, while writes from
+/// other isolates show up within [l1Ttl]. Misses, counters and locks always
+/// go to the coordinator.
 final class ProcessStore implements CacheStore {
-  ProcessStore(this.channel, {this.timeout = const Duration(seconds: 1)});
+  ProcessStore(
+    this.channel, {
+    this.timeout = const Duration(seconds: 1),
+    this.l1Ttl,
+    this.l1MaxEntries = 1000,
+  });
 
   final CoordinatorChannel channel;
   final Duration timeout;
+  final Duration? l1Ttl;
+  final int l1MaxEntries;
+
+  /// Near cache: key → (value, expiry on [_l1Clock] in microseconds). A
+  /// monotonic clock: staleness is wall time, not `Clock` (tests may freeze
+  /// domain time).
+  final Map<String, (Object?, int)> _l1 = <String, (Object?, int)>{};
+  final Stopwatch _l1Clock = Stopwatch()..start();
 
   @override
   StateScope get scope => StateScope.process;
@@ -234,46 +253,114 @@ final class ProcessStore implements CacheStore {
   Future<Object?> _call(String op, [Map<String, Object?> args = const {}]) =>
       channel.call(ProcessCacheService.serviceName, op, args, timeout: timeout);
 
-  @override
-  Future<Object?> get(String key) => _call('get', {'key': key});
+  Object? _l1Read(String key) {
+    final entry = _l1[key];
+    if (entry == null) {
+      return null;
+    }
+    if (entry.$2 <= _l1Clock.elapsedMicroseconds) {
+      _l1.remove(key);
+      return null;
+    }
+    return _copy(entry.$1);
+  }
+
+  void _l1Write(String key, Object? value) {
+    final ttl = l1Ttl;
+    _l1.remove(key);
+    if (ttl == null || value == null) {
+      return;
+    }
+    if (_l1.length >= l1MaxEntries) {
+      _l1.remove(_l1.keys.first); // Oldest first (insertion order).
+    }
+    _l1[key] = (
+      _copy(value),
+      _l1Clock.elapsedMicroseconds + ttl.inMicroseconds,
+    );
+  }
+
+  /// Callers get their own copy, so mutating a cached map is harmless.
+  static Object? _copy(Object? value) => switch (value) {
+    final Map<Object?, Object?> map => <Object?, Object?>{
+      for (final MapEntry(:key, :value) in map.entries) key: _copy(value),
+    },
+    final List<Object?> list => [for (final item in list) _copy(item)],
+    _ => value,
+  };
 
   @override
-  Future<Map<String, Object?>> many(List<String> keys) async =>
-      (await _call('many', {'keys': keys}))! as Map<String, Object?>;
+  Future<Object?> get(String key) async {
+    if (l1Ttl != null) {
+      final cached = _l1Read(key);
+      if (cached != null) {
+        return cached;
+      }
+    }
+    final value = await _call('get', {'key': key});
+    _l1Write(key, value);
+    return value;
+  }
 
   @override
-  Future<void> put(String key, Object? value, {Duration? ttl}) =>
-      _call('put', {'key': key, 'value': value, 'ttl': ttl?.inMilliseconds});
+  Future<Map<String, Object?>> many(List<String> keys) async {
+    final values =
+        (await _call('many', {'keys': keys}))! as Map<String, Object?>;
+    values.forEach(_l1Write);
+    return values;
+  }
 
   @override
-  Future<void> putMany(Map<String, Object?> values, {Duration? ttl}) =>
-      _call('putMany', {'values': values, 'ttl': ttl?.inMilliseconds});
+  Future<void> put(String key, Object? value, {Duration? ttl}) async {
+    _l1.remove(key);
+    await _call('put', {
+      'key': key,
+      'value': value,
+      'ttl': ttl?.inMilliseconds,
+    });
+    _l1Write(key, value);
+  }
 
   @override
-  Future<bool> add(String key, Object? value, {Duration? ttl}) async =>
-      await _call('add', {
-        'key': key,
-        'value': value,
-        'ttl': ttl?.inMilliseconds,
-      }) as bool;
+  Future<void> putMany(Map<String, Object?> values, {Duration? ttl}) async {
+    values.keys.forEach(_l1.remove);
+    await _call('putMany', {'values': values, 'ttl': ttl?.inMilliseconds});
+    values.forEach(_l1Write);
+  }
 
   @override
-  Future<int> increment(String key, [int by = 1]) async =>
-      await _call('increment', {'key': key, 'by': by}) as int;
+  Future<bool> add(String key, Object? value, {Duration? ttl}) async {
+    _l1.remove(key);
+    return await _call('add', {
+      'key': key,
+      'value': value,
+      'ttl': ttl?.inMilliseconds,
+    }) as bool;
+  }
+
+  @override
+  Future<int> increment(String key, [int by = 1]) async {
+    _l1.remove(key);
+    return await _call('increment', {'key': key, 'by': by}) as int;
+  }
 
   @override
   Future<int> decrement(String key, [int by = 1]) => increment(key, -by);
 
   @override
-  Future<void> forever(String key, Object? value) =>
-      _call('put', {'key': key, 'value': value});
+  Future<void> forever(String key, Object? value) => put(key, value);
 
   @override
-  Future<bool> forget(String key) async =>
-      await _call('forget', {'key': key}) as bool;
+  Future<bool> forget(String key) async {
+    _l1.remove(key);
+    return await _call('forget', {'key': key}) as bool;
+  }
 
   @override
-  Future<void> flush() => _call('flush');
+  Future<void> flush() async {
+    _l1.clear();
+    await _call('flush');
+  }
 
   @override
   Future<bool> acquireLock(String name, String owner, Duration ttl) async =>
@@ -595,26 +682,43 @@ final class DatabaseStore implements CacheStore {
     }
   }
 
+  /// Atomic across connections, processes and machines: a compare-and-swap
+  /// (`UPDATE ... WHERE value = <read value>`) retried when another writer
+  /// got in first. A read-then-write, even in a transaction, loses updates
+  /// under READ COMMITTED, and a row lock would deadlock SQLite's deferred
+  /// transactions across isolates.
   @override
-  Future<int> increment(String key, [int by = 1]) => db.transaction(() async {
-    final row = await _row(key);
-    final current = _decode(row?['value']);
-    final next = (current is num ? current.toInt() : 0) + by;
-    final exp = row == null
-        ? foreverExpiration
-        : (row['expiration'] as num).toInt();
-    await db
-        .table(table, connection: connection)
-        .upsert(
-          <String, Object?>{
-            'key': key,
-            'value': _encode(next),
-            'expiration': exp,
-          },
-          const ['key'],
-        );
-    return next;
-  }, connection: connection);
+  Future<int> increment(String key, [int by = 1]) async {
+    for (var attempt = 1; ; attempt++) {
+      final row = await _row(key);
+      if (row == null) {
+        final inserted = await db
+            .table(table, connection: connection)
+            .insertOrIgnore(<String, Object?>{
+              'key': key,
+              'value': _encode(by),
+              'expiration': foreverExpiration,
+            });
+        if (inserted > 0) {
+          return by;
+        }
+      } else {
+        final current = _decode(row['value']);
+        final next = (current is num ? current.toInt() : 0) + by;
+        final swapped = await db
+            .table(table, connection: connection)
+            .where('key', key)
+            .where('value', row['value'])
+            .update(<String, Object?>{'value': _encode(next)});
+        if (swapped > 0) {
+          return next;
+        }
+      }
+      if (attempt >= 1000) {
+        throw StateError('Cache increment of [$key] kept losing races.');
+      }
+    }
+  }
 
   @override
   Future<int> decrement(String key, [int by = 1]) => increment(key, -by);

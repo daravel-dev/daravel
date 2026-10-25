@@ -78,6 +78,8 @@ frozen after boot.
 | `DB_CHARSET`, `DB_COLLATION`, `DB_TIMEZONE` | `utf8mb4`, `utf8mb4_unicode_ci`, server | MySQL and MariaDB, as Laravel reads them |
 | `DB_POOL_SIZE`, `DB_SSLMODE` | `10`, `disable` | Connection pool per isolate, TLS (`require`, `verify-full`) |
 | `CACHE_STORE`, `CACHE_PREFIX` | `memory` | Cache store and key prefix |
+| `CACHE_PROCESS_L1_TTL` | `0` (off) | With the `process` store, how long each worker isolate reuses a value it read (`250ms`) before asking the coordinator again |
+| `CACHE_LIMITER` | coordinator | Cache store for rate limits (Laravel's `cache.limiter`); `database` shares them between machines |
 | `QUEUE_CONNECTION` | `sync` | `sync`, `memory` or `database` |
 | `HASH_DRIVER`, `BCRYPT_ROUNDS` | `bcrypt`, `12` | Password hashing (as Laravel) |
 | `LOG_LEVEL`, `LOG_STACK` | `debug` | Logging level and channels (`json` for production) |

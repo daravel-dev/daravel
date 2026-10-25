@@ -140,6 +140,8 @@ final class CacheConfig implements ConfigSection {
     this.table = 'cache',
     this.lockTable = 'cache_locks',
     this.maxEntries = 10000,
+    this.processL1Ttl = Duration.zero,
+    this.limiter,
   });
 
   factory CacheConfig.fromEnv(Env env) {
@@ -154,6 +156,11 @@ final class CacheConfig implements ConfigSection {
       table: env.string('CACHE_TABLE', 'cache'),
       lockTable: env.string('CACHE_LOCK_TABLE', 'cache_locks'),
       maxEntries: env.integer('CACHE_MAX_ENTRIES', 10000),
+      processL1Ttl: env.duration('CACHE_PROCESS_L1_TTL', Duration.zero),
+      limiter: switch (env.string('CACHE_LIMITER', '')) {
+        '' => null,
+        final store => store,
+      },
     );
   }
 
@@ -165,16 +172,28 @@ final class CacheConfig implements ConfigSection {
   final String lockTable;
   final int maxEntries;
 
+  /// How long each worker isolate may reuse a value read from the `process`
+  /// store before asking the coordinator again (`CACHE_PROCESS_L1_TTL`, e.g.
+  /// `250ms`). Zero (the default) disables the near cache.
+  final Duration processL1Ttl;
+
+  /// The cache store rate limits count in (`CACHE_LIMITER`, Laravel's
+  /// `cache.limiter`), e.g. `database` to share them between machines.
+  /// Null keeps the default: the coordinator, shared by this machine's
+  /// isolates.
+  final String? limiter;
+
   @override
   String get key => 'cache';
 
   @override
   Map<String, Object?> toMap() => <String, Object?>{
     'default': defaultStore,
+    'limiter': limiter,
     'prefix': prefix,
     'stores': {
       'memory': {'driver': 'memory', 'max_entries': maxEntries},
-      'process': {'driver': 'process'},
+      'process': {'driver': 'process', 'l1_ttl': processL1Ttl.inMilliseconds},
       'file': {'driver': 'file', 'path': path},
       'database': {
         'driver': 'database',
@@ -345,7 +364,10 @@ final class CacheManager {
     required CoordinatorChannel channel,
   }) {
     final manager = CacheManager(config: config, prefix: config.prefix);
-    final process = ProcessStore(channel);
+    final process = ProcessStore(
+      channel,
+      l1Ttl: config.processL1Ttl > Duration.zero ? config.processL1Ttl : null,
+    );
     manager
       ..extend('memory', () => MemoryStore(maxEntries: config.maxEntries))
       ..extend('process', () => process)

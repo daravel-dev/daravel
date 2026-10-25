@@ -54,6 +54,31 @@ void transactionConcurrencyTests(DatabaseOpener open) {
     expect(await names(), ['a1', 'a2']);
   });
 
+  test('50 parallel queries on one transaction connection', () async {
+    // One connection carries the transaction; drivers queue its queries
+    // (no interleaving on the wire), and a failure still rolls back all.
+    await db.transaction(() async {
+      await Future.wait([for (var i = 0; i < 25; i++) insert('p$i')]);
+      final counts = await Future.wait([
+        for (var i = 0; i < 25; i++) db.table('tx_items').count(),
+      ]);
+      expect(counts.toSet(), {25});
+    });
+    expect(await names(), hasLength(25));
+    await expectLater(
+      db.transaction(() async {
+        await Future.wait([
+          for (var i = 0; i < 25; i++) insert('q$i'),
+          Future<void>.error(StateError('boom')),
+        ]);
+      }),
+      throwsStateError,
+    );
+    // Give the remaining queued inserts a turn, then check nothing stayed.
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect(await names(), hasLength(25));
+  });
+
   test('nested savepoints inside a sibling do not deadlock', () async {
     await db.transaction(() async {
       await Future.wait([

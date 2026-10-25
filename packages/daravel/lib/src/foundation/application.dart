@@ -47,6 +47,7 @@ import 'env.dart';
 import 'exceptions.dart';
 import 'service_provider.dart';
 
+part 'cache_rate_limit_store.dart';
 part 'embedded_workers.dart';
 
 final class _RoutingConfig {
@@ -172,11 +173,21 @@ final class Application {
       ..listen<JobFailed>((_) => metrics.jobs.inc({'status': 'failed'}));
     final jobs = JobRegistry(_builder._jobs);
     final schedule = Schedule();
+    final cacheConfig = config.section<CacheConfig>();
+    final limiterStore = cacheConfig.limiter;
     final rateLimiter = RateLimiter(
-      store: ProcessRateLimitStore(
-        channel,
-        onError: (error) => logger.warning('Rate limiter fail-open: $error'),
-      ),
+      store: limiterStore == null || limiterStore == 'process'
+          ? ProcessRateLimitStore(
+              channel,
+              onError: (error) =>
+                  logger.warning('Rate limiter fail-open: $error'),
+            )
+          // CACHE_LIMITER=database (or another store): limits shared
+          // wherever that store is.
+          : CacheRateLimitStore(
+              () => container.make<CacheManager>().store(limiterStore).store,
+              prefix: '${cacheConfig.prefix}rate_limiter:',
+            ),
     );
     container
       ..instance<Application>(this)
