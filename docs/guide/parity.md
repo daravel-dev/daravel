@@ -203,6 +203,16 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `$this->app->singleton(...) in AppServiceProvider::register()` | `.withBindings((c) => c.singleton((c) => OrderService(c(), c())))` | Calling the container (`c()`) resolves the type each argument needs. |
 | `now()` | `Clock.now()` | Frozen by freezeTime()/travel() in tests. |
 
+## Localization
+
+| Laravel | Daravel | Notes |
+| :-- | :-- | :-- |
+| `__('auth.failed') / trans('auth.failed', ['name' => $name])` | `trans('auth.failed', {'name': name})` | No __: a leading underscore makes a Dart name private. |
+| `trans_choice('apples', $count)` | `transChoice('apples', count)` | Laravel's plural rules for 280 locales. |
+| `Lang::get / Lang::has` | `Lang.get / Lang.has` |  |
+| `App::setLocale('id') / App::getLocale()` | `App.setLocale('id') / App.locale` | Per request, job or command scope. |
+| `lang/id.json` | `lang/id.json (loaded at boot)` |  |
+
 ## Strings, helpers, collections
 
 | Laravel | Daravel | Notes |

@@ -15,6 +15,14 @@ Laravel-facing formats change only to match Laravel more closely.
   `API_DOCS` turns it on or off, `API_DOCS_PATH` moves it, and the starter's
   welcome page links to it. `buildOpenApi` moved to `package:daravel`
   (`package:dartisan_cli` still exports it).
+- Localization (Laravel's translator): `trans()` (Laravel's `__()`),
+  `transChoice()`, the `Lang` facade, `App.locale`/`App.setLocale()` per
+  request, job or command, `ApplicationBuilder.withTranslations` and
+  `lang/<locale>.json` files, `APP_FALLBACK_LOCALE`, and
+  `SetLocaleMiddleware` (`?lang=` and `Accept-Language`). Placeholders and
+  plural selection match Laravel, with its plural rules for 280 locales
+  (tested against Laravel 12's own output). Validation messages follow the
+  current locale.
 
 ## 1.3.0
 

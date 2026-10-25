@@ -13,6 +13,6 @@
 - title: Security
   pages: [auth, security]
 - title: Digging deeper
-  pages: [dartisan, background, helpers]
+  pages: [dartisan, background, helpers, localization]
 - title: Testing and performance
   pages: [testing, performance]

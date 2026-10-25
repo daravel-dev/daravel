@@ -6,6 +6,7 @@ import '../database/query/query_builder.dart';
 import '../database/query_executor.dart';
 import '../database/schema/blueprint.dart';
 import '../database/schema/schema_builder.dart';
+import '../foundation/locale.dart';
 import '../foundation/application.dart';
 import '../foundation/config.dart';
 import '../foundation/container.dart';
@@ -23,6 +24,17 @@ abstract final class App {
 
   static T? tryMake<T extends Object>({String? name}) =>
       Container.current.tryMake<T>(name: name);
+
+  /// The locale of the current request, job or command (`APP_LOCALE` unless
+  /// [setLocale] or `SetLocaleMiddleware` chose another).
+  static String get locale => currentLocale();
+
+  /// Sets the locale for the rest of the current scope (Laravel's
+  /// `App::setLocale`).
+  static void setLocale(String locale) => setCurrentLocale(locale);
+
+  /// Whether the current locale is [locale].
+  static bool isLocale(String locale) => currentLocale() == locale;
 }
 
 /// Resolves [T] from the active container (Laravel's `resolve()`), with [T]

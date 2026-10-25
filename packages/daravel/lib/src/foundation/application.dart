@@ -22,6 +22,7 @@ import '../database/seeding/seeder.dart';
 import '../observability/health.dart';
 import '../observability/metrics.dart';
 import '../support/brand.dart';
+import '../translation/translator.dart';
 import '../storage/storage.dart';
 import '../events/events.dart';
 import '../http/client.dart';
@@ -48,6 +49,7 @@ import '../server/supervisor.dart';
 import 'config.dart';
 import 'config_validator.dart';
 import 'container.dart';
+import 'locale.dart';
 import 'env.dart';
 import 'exceptions.dart';
 import 'service_provider.dart';
@@ -218,6 +220,7 @@ final class Application {
       )
       ..instance<SeederRegistry>(SeederRegistry(_builder._seeders))
       ..instance<ModelRegistry>(ModelRegistry(_builder._models))
+      ..instance<Translator>(_translator())
       ..singleton<HashManager>(
         (c) => HashManager(c.make<ConfigRepository>().section<HashConfig>()),
       )
@@ -455,6 +458,38 @@ final class Application {
     for (final extra in routing.then) {
       extra(router);
     }
+  }
+
+  /// The translator: `APP_LOCALE`, `APP_FALLBACK_LOCALE`, the lines from
+  /// [ApplicationBuilder.withTranslations] and `lang/<locale>.json`.
+  Translator _translator() {
+    setApplicationLocale(config.section<AppConfig>().locale);
+    final translator = Translator(
+      fallback: env.string('APP_FALLBACK_LOCALE', 'en'),
+    );
+    for (final MapEntry(:key, :value) in _builder._translations.entries) {
+      translator.addLines(value, key);
+    }
+    final lang = Directory('$basePath${Platform.pathSeparator}lang');
+    if (lang.existsSync()) {
+      for (final file in lang.listSync().whereType<File>()) {
+        final name = file.uri.pathSegments.last;
+        if (!name.endsWith('.json')) {
+          continue;
+        }
+        final Object? json;
+        try {
+          json = jsonDecode(file.readAsStringSync());
+        } on FormatException catch (error) {
+          throw ConfigException('lang/$name is not valid JSON: $error');
+        }
+        if (json is! Map<String, Object?>) {
+          throw ConfigException('lang/$name must be a JSON object.');
+        }
+        translator.addJson(json, name.substring(0, name.length - 5));
+      }
+    }
+    return translator;
   }
 
   Map<String, Object?>? _openApi;
@@ -724,6 +759,17 @@ final class ApplicationBuilder {
   final Map<String, DatabaseDriverFactory> _databaseDrivers = {};
   final List<Seeder> _seeders = <Seeder>[];
   final List<ModelDefinition<Model>> _models = <ModelDefinition<Model>>[];
+  final Map<String, Map<String, Object?>> _translations = {};
+
+  /// Registers translation lines by locale (Laravel's `lang/<locale>/*.php`):
+  /// `{'en': {'auth.failed': '...'}, 'id': {...}}`; nested maps become
+  /// dotted keys. `lang/<locale>.json` files are loaded as well.
+  ApplicationBuilder withTranslations(Map<String, Map<String, Object?>> lines) {
+    for (final MapEntry(:key, :value) in lines.entries) {
+      (_translations[key] ??= {}).addAll(value);
+    }
+    return this;
+  }
 
   /// Registers the application's models (`bootstrap/models.dart`), read by
   /// `dartisan model:show` and `mcp:serve`.

@@ -194,6 +194,13 @@ sections:
       - { php: "$this->app->singleton(...) in AppServiceProvider::register()", dart: ".withBindings((c) => c.singleton((c) => OrderService(c(), c())))", symbol: ApplicationBuilder.withBindings, note: "Calling the container (`c()`) resolves the type each argument needs." }
       - { php: "now()", dart: "Clock.now()", symbol: Clock.now, note: "Frozen by freezeTime()/travel() in tests." }
 
+  - name: Localization
+    symbols:
+      - { php: "__('auth.failed') / trans('auth.failed', ['name' => $name])", dart: "trans('auth.failed', {'name': name})", symbol: trans, note: "No __: a leading underscore makes a Dart name private." }
+      - { php: "trans_choice('apples', $count)", dart: "transChoice('apples', count)", symbol: transChoice, note: "Laravel's plural rules for 280 locales." }
+      - { php: "Lang::get / Lang::has", dart: "Lang.get / Lang.has", symbol: Lang.get }
+      - { php: "App::setLocale('id') / App::getLocale()", dart: "App.setLocale('id') / App.locale", symbol: App.setLocale, note: "Per request, job or command scope." }
+      - { php: "lang/id.json", dart: "lang/id.json (loaded at boot)", symbol: Translator.addJson }
   - name: Strings, helpers, collections
     symbols:
       - { php: "Str::slug / snake / camel / studly / kebab / title / headline", dart: "Str.slug / snake / camel / studly / kebab / title / headline", symbol: Str.headline }

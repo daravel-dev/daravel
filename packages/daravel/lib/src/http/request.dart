@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import '../foundation/container.dart';
+import '../foundation/locale.dart';
 import '../routing/route_entry.dart';
 import '../validation/validated_data.dart';
 import '../validation/validator.dart';
@@ -653,7 +654,7 @@ final class Request {
       messages: messages,
       attributes: attributes,
       container: container,
-      locale: this.attributes['locale'] as String? ?? 'en',
+      locale: this.attributes['locale'] as String? ?? currentLocale(),
     ).validate();
   }
 

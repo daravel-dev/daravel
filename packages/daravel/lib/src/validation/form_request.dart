@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import '../foundation/container.dart';
+import '../foundation/locale.dart';
 import '../http/http_exceptions.dart';
 import '../http/request.dart';
 import 'validated_data.dart';
@@ -61,7 +62,7 @@ abstract class FormRequest {
       messages: form.messages(),
       attributes: form.attributes(),
       container: _containerOrNull(),
-      locale: request.attributes['locale'] as String? ?? 'en',
+      locale: request.attributes['locale'] as String? ?? currentLocale(),
     );
     return form.passed(request, await validator.validate());
   }
