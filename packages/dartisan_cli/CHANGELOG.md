@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.5.1
+
+- Requires `daravel` 1.5.1 (JSON number range fix).
+
 ## 1.5.0
 
 - `dartisan daragic:export [--out] [--only]`: the application model (DAM) in `dam.json` with `daragic.lock`.

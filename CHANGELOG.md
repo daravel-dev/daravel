@@ -5,7 +5,9 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 breaking changes to the Dart API wait for a new major version, and
 Laravel-facing formats change only to match Laravel more closely.
 
-## Unreleased
+## 1.5.1
+
+A fix for JSON numbers outside the double range. Upgrade from any 1.x.
 
 ### Fixed
 

@@ -8,6 +8,7 @@ publisher `daravel.teoprayoga.my.id`.
 
 | Version | Highlights |
 | :-- | :-- |
+| `1.5.1` | Fix: JSON numbers outside the double range (`1e309`) are a 400 instead of a 500 or a stored Infinity |
 | `1.5.0` | `daragic:export` (DAM), `TestTransport.socket`, `TouchableCacheStore.touch`; fix for shared rate limits under concurrency |
 | `1.4.1` | Fix: security headers no longer pile up across requests on a running server |
 | `1.4.0` | Live `/docs/api` reference, localization (`trans`, `transChoice`, 280 locales' plural rules), `cache.headers` and gzip, Pennant-compatible feature flags, `db:backup`; fix for `HEAD` responses |

@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.5.1
+
+- Fixed: a JSON body number outside the double range (`1e309`) is `400 Malformed JSON body: Number out of range` instead of decoding to Infinity (a 500 when echoed, and on SQLite a stored value that broke every later read).
+
 ## 1.5.0
 
 - `TouchableCacheStore.touch(key, ttl)` (Laravel's `Cache::touch`) on the memory, file and database stores.

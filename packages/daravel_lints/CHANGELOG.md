@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.5.1
+
+- Version aligned with Daravel 1.5.1; no changes.
+
 ## 1.5.0
 
 - Version aligned with Daravel 1.5.0; no changes.
