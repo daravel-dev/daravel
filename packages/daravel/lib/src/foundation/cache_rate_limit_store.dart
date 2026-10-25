@@ -46,8 +46,16 @@ final class CacheRateLimitStore implements RateLimitStore {
     final added = await store.add(hitsKey, 0, ttl: decay);
     var hits = await store.increment(hitsKey);
     if (!added && hits == 1) {
-      // The counter expired between add and increment: give it a window.
-      await store.put(hitsKey, 1, ttl: decay);
+      // Either the counter expired between add and increment (increment
+      // then created it without a lifetime), or another request added it
+      // and has not incremented yet. Laravel resets it to 1, which loses
+      // that other request's hit; giving it a lifetime keeps the count.
+      final store = this.store;
+      if (store is TouchableCacheStore) {
+        await store.touch(hitsKey, decay);
+      } else {
+        await store.put(hitsKey, 1, ttl: decay);
+      }
     }
     final resetAtMs = _int(await store.get(timerKey));
     final resetAt = DateTime.fromMillisecondsSinceEpoch(

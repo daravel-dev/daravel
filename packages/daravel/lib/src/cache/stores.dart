@@ -19,7 +19,7 @@ final class _Entry {
 }
 
 /// Bounded LRU store in this isolate's memory (scope `isolate`).
-final class MemoryStore implements CacheStore {
+final class MemoryStore implements TouchableCacheStore {
   MemoryStore({this.maxEntries = 10000, DateTime Function()? clock})
     : _clock = clock ?? _utcNow;
 
@@ -47,6 +47,16 @@ final class MemoryStore implements CacheStore {
     }
     _entries[key] = entry; // most recently used
     return entry;
+  }
+
+  @override
+  Future<bool> touch(String key, Duration ttl) async {
+    final entry = _live(key);
+    if (entry == null) {
+      return false;
+    }
+    entry.expiresAt = _now + ttl.inMilliseconds;
+    return true;
   }
 
   void _store(String key, Object? value, Duration? ttl) {
@@ -386,7 +396,7 @@ final class ProcessStore implements CacheStore {
 /// JSON files under a directory (scope `cluster` on a shared disk, otherwise
 /// `process`). Writes go to a temp file then `rename` (atomic on POSIX and
 /// NTFS). Locks use exclusive file creation.
-final class FileStore implements CacheStore {
+final class FileStore implements TouchableCacheStore {
   FileStore(this.directory);
 
   final String directory;
@@ -452,6 +462,16 @@ final class FileStore implements CacheStore {
 
   @override
   Future<Object?> get(String key) async => (await _read(key))?['v'];
+
+  @override
+  Future<bool> touch(String key, Duration ttl) async {
+    final entry = await _read(key);
+    if (entry == null) {
+      return false;
+    }
+    await _write(key, entry['v'], ttl);
+    return true;
+  }
 
   @override
   Future<Map<String, Object?>> many(List<String> keys) async =>
@@ -585,7 +605,7 @@ final class FileStore implements CacheStore {
 }
 
 /// Laravel-compatible `cache` / `cache_locks` tables (scope `cluster`).
-final class DatabaseStore implements CacheStore {
+final class DatabaseStore implements TouchableCacheStore {
   DatabaseStore(
     this.db, {
     this.table = 'cache',
@@ -681,6 +701,16 @@ final class DatabaseStore implements CacheStore {
       return updated > 0;
     }
   }
+
+  /// Changes only the expiration, so a concurrent `increment` is kept.
+  @override
+  Future<bool> touch(String key, Duration ttl) async =>
+      await db
+          .table(table, connection: connection)
+          .where('key', key)
+          .where('expiration', '>', _now)
+          .update(<String, Object?>{'expiration': _expiration(ttl)}) >
+      0;
 
   /// Atomic across connections, processes and machines: a compare-and-swap
   /// (`UPDATE ... WHERE value = <read value>`) retried when another writer

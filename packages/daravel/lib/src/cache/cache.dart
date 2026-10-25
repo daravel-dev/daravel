@@ -50,6 +50,13 @@ abstract interface class CacheStore {
   Future<String?> lockOwner(String name);
 }
 
+/// A store that can change how long a key lives without rewriting its value
+/// (Laravel's `Cache::touch`), so a concurrent `increment` is never lost.
+abstract interface class TouchableCacheStore implements CacheStore {
+  /// Makes [key] expire [ttl] from now; `false` when [key] is missing.
+  Future<bool> touch(String key, Duration ttl);
+}
+
 /// Raised by [Lock.block] when the lock cannot be obtained in time.
 final class LockTimeoutException extends DaravelException {
   LockTimeoutException(String name, Duration timeout)

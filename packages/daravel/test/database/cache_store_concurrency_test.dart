@@ -46,6 +46,14 @@ void cacheStoreConcurrencyTests(DatabaseOpener open) {
     await second.closeAll();
   });
 
+  test('touch changes the expiration, not the value', () async {
+    final store = DatabaseStore(first);
+    await store.put('hits', 4, ttl: const Duration(seconds: 1));
+    expect(await store.touch('hits', const Duration(hours: 1)), isTrue);
+    expect(await store.get('hits'), 4);
+    expect(await store.touch('missing', const Duration(hours: 1)), isFalse);
+  });
+
   test('concurrent increments from two machines are all counted', () async {
     if (first.dialectOf() == SqlDialect.sqlite &&
         first.config.connections.values.first.database == ':memory:') {
