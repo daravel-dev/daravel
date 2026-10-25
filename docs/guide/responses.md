@@ -69,6 +69,39 @@ and attributes where `true` writes a bare attribute (`required`) and
 `false`/`null` leave it out. It is a separate import because names such as
 `a`, `p` and `text` would clash with ordinary variables.
 
+## Caching and compression
+
+Laravel's `cache.headers` middleware sets `Cache-Control`, `ETag` and
+`Last-Modified` on successful `GET`/`HEAD` responses and answers
+`304 Not Modified` when the client's copy is current:
+
+```dart
+router.get('/catalog', catalog).middleware(const [
+  'cache.headers:public;max_age=3600;etag',
+]);
+```
+
+The options are Laravel's (`public`, `private`, `max_age`, `s_maxage`,
+`must_revalidate`, `no_cache`, `no_store`, `immutable`, `etag`,
+`last_modified=<unix time or date>`, ...) and the headers come out as
+Laravel writes them (`Cache-Control: max-age=3600, public`; `private` is
+added when neither `public`, `private` nor `s_maxage` is given). `etag`
+hashes the body (MD5; Laravel uses xxh128, so the values differ but behave
+the same). `If-None-Match` matches exactly, weakly (`W/`), from a list or
+with `*`; `If-Modified-Since` is used only without it.
+
+`CompressResponseMiddleware` gzips bodies of at least 1 KB with a text, JSON,
+XML, SVG or JavaScript type for clients that send `Accept-Encoding: gzip`
+(JSON usually shrinks by 70–90%), sets `Vary: Accept-Encoding` and turns a
+strong `ETag` into a weak one. Streams are left alone. Behind a proxy that
+already compresses (Caddy's `encode`, nginx's `gzip`), leave it out.
+
+```dart
+.withMiddleware((middleware) {
+  middleware.use(const [CompressResponseMiddleware()]);
+})
+```
+
 ## Errors
 
 Exceptions are rendered by the exception handler with Laravel's bodies. With

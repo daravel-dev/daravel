@@ -241,6 +241,7 @@ middlewareAliases:
   throttle: throttle
   can: can
   signed: signed
+  cache.headers: cache.headers
 
 exceptions:
   ModelNotFoundException: ModelNotFoundException

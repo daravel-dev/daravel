@@ -48,6 +48,7 @@ export 'src/support/number.dart';
 export 'src/support/str.dart';
 export 'src/support/str_extensions.dart';
 export 'src/support/time_extensions.dart';
+export 'src/http/middleware/cache_headers.dart';
 export 'src/http/middleware/body_limits.dart';
 export 'src/http/middleware/cors.dart';
 export 'src/http/middleware/input_normalization.dart';

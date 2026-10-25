@@ -37,15 +37,19 @@ final class HttpKernel {
   /// Handles a single request and always yields a response.
   Future<Response> handle(Request request) async {
     _bindLogContext(request);
+    Response response;
     try {
-      return await MiddlewarePipeline.run(
+      response = await MiddlewarePipeline.run(
         middleware.orderedGlobal,
         request,
         _dispatch,
       );
     } catch (error, stackTrace) {
-      return exceptions.handle(error, stackTrace, request);
+      response = await exceptions.handle(error, stackTrace, request);
     }
+    // Last, after every middleware (compression, cache headers) has seen the
+    // body a GET would get: HEAD answers the same headers without it.
+    return request.method == 'HEAD' ? response.withoutBody() : response;
   }
 
   /// Runs `terminate()` of every terminable middleware that applied to the
@@ -134,7 +138,7 @@ final class HttpKernel {
       final response = timeout == null
           ? await run()
           : await _deadlines.guard(run(), timeout);
-      return request.method == 'HEAD' ? response.withoutBody() : response;
+      return response;
     } catch (error, stackTrace) {
       return exceptions.handle(error, stackTrace, request);
     }

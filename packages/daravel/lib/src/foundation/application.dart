@@ -32,6 +32,7 @@ import '../http/middleware/maintenance_mode.dart';
 import '../http/middleware/validate_signature.dart';
 import '../http/kernel.dart';
 import '../http/middleware.dart';
+import '../http/middleware/cache_headers.dart';
 import '../http/rate_limiter.dart';
 import '../http/request.dart';
 import '../http/response.dart';
@@ -253,6 +254,7 @@ final class Application {
     middleware
       ..aliasFactory('auth', AuthenticateMiddleware.new)
       ..aliasFactory('can', AuthorizeMiddleware.fromParams)
+      ..aliasFactory('cache.headers', CacheHeadersMiddleware.fromParams)
       ..aliasFactory(
         'throttle',
         (params) => ThrottleMiddleware.fromParams(

@@ -23,6 +23,20 @@ Laravel-facing formats change only to match Laravel more closely.
   plural selection match Laravel, with its plural rules for 280 locales
   (tested against Laravel 12's own output). Validation messages follow the
   current locale.
+- `cache.headers` middleware (Laravel's `SetCacheHeaders`): `Cache-Control`,
+  `ETag` and `Last-Modified` from `public;max_age=3600;etag`-style options,
+  written as Laravel writes them, and `304 Not Modified` for
+  `If-None-Match`/`If-Modified-Since`.
+- `CompressResponseMiddleware`: gzip for clients that accept it (text,
+  JSON, XML, SVG, JavaScript bodies of at least 1 KB; strong ETags become
+  weak).
+
+### Fixed
+
+- A `HEAD` response is stripped after the global middleware, not before:
+  it now carries the same headers a `GET` would (with compression, the
+  compressed `Content-Length`), and error responses to `HEAD` lose their
+  body too.
 
 ## 1.3.0
 
