@@ -5,7 +5,12 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 breaking changes to the Dart API wait for a new major version, and
 Laravel-facing formats change only to match Laravel more closely.
 
-## Unreleased
+## 1.1.0
+
+Polymorphic relations and safer concurrency, all backwards compatible. The
+fixes matter most for applications running several isolates or machines:
+concurrent nested transactions, cache counters and shared rate limits no
+longer lose work.
 
 ### Added
 

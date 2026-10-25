@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.0
+
+- `dartisan lint` reports `unawaited_in_db_transaction` and `invalid_validation_rule`.
+- Requires `daravel` 1.1.0.
+
 ## 1.0.0
 
 - `down` and `up` (maintenance mode), `db:show`, `db:table` and `tinker`.

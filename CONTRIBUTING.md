@@ -86,6 +86,11 @@ Daravel follows Laravel's branch model, one branch per major version:
 - Releases are tags `vMAJOR.MINOR.PATCH[-pre]`. Pushing one publishes the
   packages to pub.dev (`publish.yml`) and creates the GitHub release with
   the notes of that version from CHANGELOG.md (`release.yml`).
+- Never publish a package by hand before the versions it depends on are on
+  pub.dev: pub.dev analyses a package as soon as it is published, and one
+  whose dependencies cannot be resolved keeps a 50/160 score until its next
+  release. A new package is published by hand only after the workflow has
+  published its dependencies, then gets automated publishing enabled.
 
 Projects that depend on Daravel through git can pin the release line with
 `dartisan new --source=git --ref=1.x`.

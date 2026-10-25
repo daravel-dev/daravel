@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.1.0
+
+- Polymorphic relations (`MorphOne`, `MorphMany`, `MorphTo`, `MorphToMany`, `MorphedByMany`), `Relation.morphMap`/`enforceMorphMap`, `whereHasMorph`, schema `morphs()`; nested `whereHas('a.b.c')`; self relations aliased as `laravel_reserved_N`; `HasOneThrough`; `withSum`/`withAvg`/`withMin`/`withMax`/`withExists`; `QueryBuilder.selectSub`.
+- `request.queryInt`, `queryDouble`, `queryBool`, `queryString` (no `await`); `RuleBuilder` chains (`Rules.required().email().max(255)`).
+- `CACHE_PROCESS_L1_TTL` (near cache for the `process` store) and `CACHE_LIMITER` (`CacheRateLimitStore`, rate limits in a cache store).
+- Fixed: nested transactions started together (`Future.wait`) could roll back each other's work; a query after its transaction finished ran outside it (now a `StateError`).
+- Fixed: the database cache store lost concurrent `increment`s (now a compare-and-swap).
+- Fixed: on PostgreSQL, `withCount` with a constraint and `whereNot` with bindings failed (misnumbered placeholders).
+- Fixed: verifying a multi-lane argon2id hash could hang under load.
+
 ## 1.0.0
 
 - First stable release: the Dart API follows SemVer from here on.

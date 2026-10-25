@@ -1,6 +1,6 @@
 name: daravel_test
 description: Testing toolkit for Daravel applications (TestClient, assertions, database helpers, fakes, time travel, architecture checks).
-version: 1.0.0
+version: 1.1.0
 homepage: https://github.com/daravel-dev/daravel
 repository: https://github.com/daravel-dev/daravel/tree/main/packages/daravel_test
 issue_tracker: https://github.com/daravel-dev/daravel/issues
@@ -18,8 +18,8 @@ resolution: workspace
 
 dependencies:
   collection: ^1.19.1
-  daravel: ^1.0.0
-  daravel_lints: ^1.0.0
+  daravel: ^1.1.0
+  daravel_lints: ^1.1.0
   path: ^1.9.0
   test: ^1.33.0
 

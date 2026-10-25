@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.0
+
+- `unawaited_in_db_transaction`: queries started inside `DB.transaction` without `await` (including `unawaited(...)` and `.ignore()`).
+- `invalid_validation_rule`: unknown rule names and missing or non-numeric arguments in rule strings.
+
 ## 1.0.0
 
 - Version aligned with the Daravel 1.0.0 release; no rule changes.

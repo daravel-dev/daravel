@@ -1,6 +1,6 @@
 # Releases and versioning
 
-Daravel `1.0.0` is the first stable release. The five packages (`daravel`,
+Daravel `1.x` is the stable release line. The five packages (`daravel`,
 `dartisan_cli`, `daravel_test`, `daravel_lints`, `daravel_mysql`) are released
 together under one version,
 published on [pub.dev](https://pub.dev/packages/daravel) by the verified
@@ -8,6 +8,7 @@ publisher `daravel.teoprayoga.my.id`.
 
 | Version | Highlights |
 | :-- | :-- |
+| `1.1.0` | Polymorphic relations, nested `whereHas`, relation aggregates, synchronous query input, chained rules, two new lints, near cache and shared rate limits; fixes for concurrent transactions, database cache counters and PostgreSQL subqueries |
 | `1.0.0` | First stable release: file uploads, MySQL and MariaDB (`daravel_mysql`), `Http` client, maintenance mode, `db:show`/`db:table`/`tinker` |
 | `1.0.0-beta.3` | Route metadata (`.validates()`, `.returns()`) and OpenAPI schemas, typed request input, `.env.encrypted`, `dartisan adopt`, embedded queue and scheduler, faster request path |
 | `1.0.0-beta.2` | `dartisan` delegation, welcome page, Laravel queue guard, `PORT` fallback |
