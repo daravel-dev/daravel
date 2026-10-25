@@ -9,6 +9,27 @@ Laravel-facing formats change only to match Laravel more closely.
 
 ### Added
 
+- `dartisan build --no-sqlite`: a bundle without the SQLite library for
+  PostgreSQL and MySQL applications (about 1.7 MB smaller). It applies
+  `package:sqlite3`'s `source: system` only for the build, in the workspace
+  root's pubspec for a workspace member, and restores the file; it refuses
+  when `DB_CONNECTION` is `sqlite` unless `--force`. A server that opens
+  SQLite without the library says what is missing.
+- Scheduler: `ScheduledTask.timezone()` takes an IANA zone name
+  (`'Asia/Jakarta'`, `'America/New_York'`) as well as a fixed `Duration`.
+  Daylight saving time follows Laravel (checked against cron-expression on
+  PHP): a skipped time runs that much later, a repeated time runs twice.
+  `schedule:list` shows each task's zone. Adds `package:timezone` (about
+  0.3 MB of zone data in the binary).
+- `dartisan mcp:serve`: a Model Context Protocol server on stdio for AI
+  coding agents, bound to the project: `about`, `routes` (rules, request
+  schema, response, action), `schema`, `conventions` and `docs_search` over
+  the guide of the installed version. Read-only by default; `--allow-write`
+  adds `run_command`, which refuses long-running commands and, in
+  production, destructive ones.
+- `dartisan doctor` warns when the pubspec loads SQLite from the OS
+  (`source: system`) while the database is SQLite.
+
 - Dependency injection without boilerplate: `ApplicationBuilder.withBindings`
   registers services without a provider class, calling the container
   (`c()`) resolves the type each argument needs, and `inject<T>()` /

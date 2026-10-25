@@ -64,7 +64,22 @@ final class SqliteDriver implements DatabaseDriver {
         parent.createSync(recursive: true);
       }
     }
-    final db = sqlite3.open(path);
+    final Database db;
+    try {
+      db = sqlite3.open(path);
+    } on ArgumentError catch (error) {
+      if (!'$error'.contains('dynamic library')) {
+        rethrow;
+      }
+      // A bundle built with `dartisan build --no-sqlite` loads SQLite from
+      // the operating system, which may not have it.
+      throw StateError(
+        'SQLite is not available: this build leaves the SQLite library out '
+        '(dartisan build --no-sqlite) and the operating system has none. '
+        'Install it (e.g. apt install libsqlite3-0) or build with SQLite '
+        'bundled. Cause: $error',
+      );
+    }
     if (!isMemory) {
       // First, so that switching to WAL (and every later statement) waits
       // for another isolate or process opening the same file instead of

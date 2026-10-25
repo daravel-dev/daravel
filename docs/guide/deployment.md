@@ -12,6 +12,21 @@ hooks: SQLite is downloaded (hash-verified) and placed in `bundle/lib/`.
 Copy the whole `bundle/` directory to the server and start `bin/server`.
 (`dart compile exe` cannot be used: it refuses packages with build hooks.)
 
+An application on PostgreSQL or MySQL does not need the SQLite library in
+its bundle:
+
+```bash
+dart run bin/dartisan.dart build --no-sqlite   # bundle/bin/server only (about 1.7 MB smaller)
+```
+
+`--no-sqlite` sets `package:sqlite3`'s `source: system` build option only for
+the build (in the workspace root's pubspec for a workspace member) and puts
+the file back afterwards, so `dart run` and `dart test` keep the bundled
+SQLite that tests usually rely on. It refuses when `DB_CONNECTION` is
+`sqlite` (`--force` builds anyway, for servers that have `libsqlite3`); a
+server that then opens SQLite without the library gets an error that says
+so.
+
 ## Docker
 
 `dartisan build --docker` writes a multi-stage `Dockerfile` (Dart SDK

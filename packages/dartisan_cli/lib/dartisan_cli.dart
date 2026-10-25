@@ -21,6 +21,7 @@ import 'src/env_commands.dart';
 import 'src/tinker_command.dart';
 import 'src/make_commands.dart';
 import 'src/queue_commands.dart';
+import 'src/mcp_server.dart';
 
 export 'src/database_commands.dart';
 export 'src/dev_server.dart';
@@ -37,6 +38,7 @@ export 'src/adopt_command.dart';
 export 'src/tinker_command.dart';
 export 'src/make_commands.dart';
 export 'src/queue_commands.dart';
+export 'src/mcp_server.dart';
 
 /// Creates an unbooted [Application] (a project's `createApp()`).
 typedef AppFactory = Application Function();
@@ -100,6 +102,7 @@ final class DartisanRunner extends CommandRunner<int> {
     addCommand(OpenApiGenerateCommand(createApp));
     addCommand(ModelSyncCommand(createApp));
     addCommand(LintCommand());
+    addCommand(McpServeCommand(createApp));
     for (final factory in commands) {
       addCommand(factory(createApp));
     }

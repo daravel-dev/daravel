@@ -81,6 +81,84 @@ void main() {
     expect(schedule.tasks, hasLength(9));
   });
 
+  test('IANA zones follow daylight saving time', () {
+    final schedule = Schedule();
+    final ny = schedule
+        .call(() {})
+        .dailyAt('09:00')
+        .timezone('America/New_York');
+    expect(ny.timezoneName, 'America/New_York');
+    // 09:00 is 14:00 UTC in winter (EST) and 13:00 UTC in summer (EDT).
+    expect(ny.isDue(DateTime.utc(2026, 1, 15, 14)), isTrue);
+    expect(ny.isDue(DateTime.utc(2026, 1, 15, 13)), isFalse);
+    expect(ny.isDue(DateTime.utc(2026, 7, 15, 13)), isTrue);
+    expect(ny.isDue(DateTime.utc(2026, 7, 15, 14)), isFalse);
+    // Clocks go forward on 2026-03-08: the next 09:00 is already EDT.
+    expect(
+      ny.nextRun(DateTime.utc(2026, 3, 7, 15)),
+      DateTime.utc(2026, 3, 8, 13),
+    );
+
+    // Values below were checked against Laravel 12 (dragonmantank/cron-
+    // expression on PHP DateTime). 02:30 does not exist that night: it
+    // runs once, at 03:30 EDT (07:30 UTC).
+    final gap = schedule
+        .call(() {})
+        .dailyAt('02:30')
+        .timezone('America/New_York');
+    expect(
+      [
+        for (var hour = 5; hour <= 9; hour++)
+          gap.isDue(DateTime.utc(2026, 3, 8, hour, 30)),
+      ],
+      [false, false, true, false, false],
+    );
+    expect(
+      gap.nextRun(DateTime.utc(2026, 3, 8, 3)),
+      DateTime.utc(2026, 3, 8, 7, 30),
+    );
+    // 01:30 happens twice when the clocks go back on 2026-11-01: it runs
+    // at both (05:30 and 06:30 UTC).
+    final repeated = schedule
+        .call(() {})
+        .dailyAt('01:30')
+        .timezone('America/New_York');
+    expect(
+      [
+        for (var hour = 4; hour <= 7; hour++)
+          repeated.isDue(DateTime.utc(2026, 11, 1, hour, 30)),
+      ],
+      [false, true, true, false],
+    );
+    expect(
+      repeated.nextRun(DateTime.utc(2026, 11, 1, 5, 31)),
+      DateTime.utc(2026, 11, 1, 6, 30),
+    );
+    final every30 = schedule
+        .call(() {})
+        .everyThirtyMinutes()
+        .timezone('America/New_York');
+    expect(every30.isDue(DateTime.utc(2026, 3, 8, 6, 30)), isTrue);
+    expect(every30.isDue(DateTime.utc(2026, 3, 8, 7)), isTrue);
+
+    final jakarta = schedule
+        .call(() {})
+        .dailyAt('07:00')
+        .timezone('Asia/Jakarta');
+    expect(jakarta.isDue(DateTime.utc(2026, 10, 24)), isTrue);
+    expect(jakarta.timezoneOffset, const Duration(hours: 7));
+
+    final fixed = schedule.call(() {}).timezone(const Duration(hours: -3));
+    expect(fixed.timezoneName, '-03:00');
+    expect(schedule.call(() {}).timezoneName, '+00:00');
+
+    expect(
+      () => schedule.call(() {}).timezone('Mars/Olympus_Mons'),
+      throwsArgumentError,
+    );
+    expect(() => schedule.call(() {}).timezone(7), throwsArgumentError);
+  });
+
   test('runs due tasks with hooks, filters, jobs and events', () async {
     await app.run(() async {
       final schedule = App.make<Schedule>();

@@ -1,6 +1,9 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:timezone/data/latest.dart' as tzdata;
+import 'package:timezone/timezone.dart' as tz;
+
 import '../foundation/clock.dart';
 
 import '../cache/cache.dart';
@@ -54,6 +57,7 @@ final class ScheduledTask {
   String? _name;
   CronExpression _cron = CronExpression.parse('* * * * *');
   Duration _offset = Duration.zero;
+  tz.Location? _location;
   final List<FutureOr<bool> Function()> _filters = [];
   final List<FutureOr<bool> Function()> _rejects = [];
   final List<FutureOr<void> Function()> _before = [];
@@ -70,8 +74,29 @@ final class ScheduledTask {
 
   CronExpression get cron => _cron;
 
-  /// Fixed UTC offset applied before matching the cron expression.
-  Duration get timezoneOffset => _offset;
+  /// The UTC offset in force now (a fixed offset, or the IANA zone's).
+  Duration get timezoneOffset => _offsetAt(Clock.now().toUtc());
+
+  /// The IANA zone name, or the fixed offset (`+07:00`).
+  String get timezoneName => _location?.name ?? _formatOffset(_offset);
+
+  Duration _offsetAt(DateTime utc) => switch (_location) {
+    final tz.Location location =>
+      location.timeZone(utc.millisecondsSinceEpoch).offset,
+    null => _offset,
+  };
+
+  /// [utc] as wall-clock time in the task's zone (fields only).
+  DateTime _wall(DateTime utc) => utc.toUtc().add(_offsetAt(utc.toUtc()));
+
+  static String _formatOffset(Duration offset) {
+    final sign = offset.isNegative ? '-' : '+';
+    final minutes = offset.inMinutes.abs();
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '$sign${two(minutes ~/ 60)}:${two(minutes % 60)}';
+  }
+
+  static bool _zonesLoaded = false;
 
   bool get overlapProtected => _withoutOverlapping != null;
 
@@ -155,8 +180,30 @@ final class ScheduledTask {
     return cronExpression(fields.join(' '));
   }
 
-  /// Fixed offset from UTC (tier-1 limitation: no DST tables).
-  ScheduledTask timezone(Duration offset) => this.._offset = offset;
+  /// The zone the cron expression is read in: an IANA name
+  /// (`'Asia/Jakarta'`, `'America/New_York'`, daylight saving time
+  /// included), as Laravel's `->timezone()`, or a fixed offset
+  /// (`Duration(hours: 7)`).
+  ScheduledTask timezone(Object zone) {
+    switch (zone) {
+      case final Duration offset:
+        _offset = offset;
+        _location = null;
+      case final String name:
+        if (!_zonesLoaded) {
+          tzdata.initializeTimeZones();
+          _zonesLoaded = true;
+        }
+        try {
+          _location = tz.getLocation(name);
+        } on tz.LocationNotFoundException {
+          throw ArgumentError.value(name, 'zone', 'Unknown time zone');
+        }
+      default:
+        throw ArgumentError.value(zone, 'zone', 'A zone name or a Duration');
+    }
+    return this;
+  }
 
   // ---------------------------------------------------------------------------
   // Constraints
@@ -170,10 +217,10 @@ final class ScheduledTask {
 
   /// Runs only between [start] and [end] (`HH:mm`, inclusive).
   ScheduledTask between(String start, String end) =>
-      when(() => _inWindow(start, end, Clock.now().toUtc().add(_offset)));
+      when(() => _inWindow(start, end, _wall(Clock.now())));
 
   ScheduledTask unlessBetween(String start, String end) =>
-      skip(() => _inWindow(start, end, Clock.now().toUtc().add(_offset)));
+      skip(() => _inWindow(start, end, _wall(Clock.now())));
 
   ScheduledTask environments(List<String> names) => this.._environments = names;
 
@@ -197,11 +244,53 @@ final class ScheduledTask {
       this.._onFailure.add(hook);
 
   /// Whether the task is due at [utcNow] (minute precision).
-  bool isDue(DateTime utcNow) => _cron.matches(utcNow.toUtc().add(_offset));
+  ///
+  /// Daylight saving time works as in Laravel (PHP `DateTime`): a time
+  /// skipped when the clocks go forward runs that much later (02:30 runs at
+  /// 03:30), and a time repeated when they go back runs twice.
+  bool isDue(DateTime utcNow) {
+    final utc = utcNow.toUtc();
+    if (_cron.matches(_wall(utc))) {
+      return true;
+    }
+    if (_location == null) {
+      return false;
+    }
+    // Shortly after a forward jump: was the local time `jump` earlier one
+    // that did not exist? (Transitions are never 3 hours apart.)
+    final now = _offsetAt(utc);
+    final before = _offsetAt(utc.subtract(const Duration(hours: 3)));
+    final jump = now - before;
+    return jump > Duration.zero &&
+        _offsetAt(utc.subtract(jump)) != now &&
+        _cron.matches(utc.add(before));
+  }
 
-  /// Next run after [utcNow], in UTC.
-  DateTime? nextRun(DateTime utcNow) =>
-      _cron.next(utcNow.toUtc().add(_offset))?.subtract(_offset);
+  /// Next run after [utcNow], in UTC (the earliest moment [isDue] holds).
+  DateTime? nextRun(DateTime utcNow) {
+    final utc = utcNow.toUtc();
+    DateTime? best;
+    // The offset now and the one just ahead cover a repeated hour (the
+    // second 01:30 after the clocks go back).
+    for (final offset in {
+      _offsetAt(utc),
+      _offsetAt(utc.add(const Duration(hours: 3))),
+    }) {
+      final wall = _cron.next(utc.add(offset));
+      if (wall == null) {
+        continue;
+      }
+      for (final guess in {offset, _offsetAt(wall.subtract(offset))}) {
+        final candidate = wall.subtract(guess);
+        if (candidate.isAfter(utc) &&
+            isDue(candidate) &&
+            (best == null || candidate.isBefore(best))) {
+          best = candidate;
+        }
+      }
+    }
+    return best;
+  }
 
   Future<bool> passesFilters(String environment) async {
     final envs = _environments;

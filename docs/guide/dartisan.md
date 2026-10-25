@@ -26,6 +26,7 @@ options.
 | `down [--secret] [--retry]`, `up` | Maintenance mode, see [Deployment](deployment.md#maintenance-mode) |
 | `stub:publish` | Copies the generator templates into `stubs/` |
 | `lint [--json]` | `daravel_lints` rules and registry checks |
+| `mcp:serve [--allow-write]` | Project context for AI coding agents over MCP, see [below](#ai-coding-agents-mcp) |
 
 ## Serve, test and build
 
@@ -33,7 +34,7 @@ options.
 | :-- | :-- |
 | `serve [--watch] [--isolates=N] [--embed-queue] [--embed-scheduler]` | HTTP server; `--watch` hot-reloads |
 | `test [--conformance] [--security] [--coverage]` | Runs the tests |
-| `build [--with-cli] [--docker]` | Native bundle in `build/server/bundle`, optional `Dockerfile` |
+| `build [--with-cli] [--docker] [--no-sqlite]` | Native bundle in `build/server/bundle`, optional `Dockerfile`; `--no-sqlite` leaves the SQLite library out (PostgreSQL/MySQL apps) |
 | `route:list` | The route table |
 | `openapi:generate [--output]` | OpenAPI 3.1 from the routes and their declared metadata |
 
@@ -66,6 +67,47 @@ options.
 `make:listener`, `make:resource`, `make:rule`, `make:observer`,
 `make:provider`, `make:command` and `make:test`. Each one writes the file
 from a template and adds it to the matching registry in `bootstrap/`.
+
+## AI coding agents (MCP)
+
+`dartisan mcp:serve` is a [Model Context Protocol](https://modelcontextprotocol.io)
+server on stdio, Daravel's counterpart to Laravel Boost. It boots the project's
+application, so agents see the application as it is, not a guess:
+
+| Tool | Answers with |
+| :-- | :-- |
+| `about` | Daravel and Dart versions, environment, drivers |
+| `routes` | Methods, URI, name, action, middleware, validation rules and their JSON Schema, documented response |
+| `schema` | Tables with column and row counts, or one table's columns |
+| `conventions` | Registries, generators, the model pattern, time, locked Laravel formats, lint rules |
+| `docs_search` | The best sections of this guide, for the installed version |
+| `run_command` | Runs a dartisan command (`--allow-write` only) |
+
+It is read-only unless started with `--allow-write`. Even then,
+`run_command` refuses long-running commands (`serve`, `queue:work`,
+`schedule:work`, `tinker`) and, with `APP_ENV=production`, destructive ones
+(`migrate:fresh`, `migrate:reset`, `migrate:rollback`, `db:seed`,
+`queue:flush`, `queue:clear`, `key:generate`, `env:decrypt`). Protocol messages
+use stdout; logs go to stderr.
+
+Register it with Claude Code from the project directory:
+
+```bash
+claude mcp add daravel -- dart run bin/dartisan.dart mcp:serve
+```
+
+Or commit a `.mcp.json`, which other MCP clients read too:
+
+```json
+{
+  "mcpServers": {
+    "daravel": {
+      "command": "dart",
+      "args": ["run", "bin/dartisan.dart", "mcp:serve"]
+    }
+  }
+}
+```
 
 ## Your own commands
 

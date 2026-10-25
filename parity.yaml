@@ -170,6 +170,7 @@ sections:
       - { php: "Schedule::command('reports:send')->daily()", dart: "schedule.command('reports:send').daily()", symbol: Schedule.command }
       - { php: "->everyFiveMinutes() / dailyAt('13:00')", dart: ".everyFiveMinutes() / .dailyAt('13:00')", symbol: ScheduledTask.dailyAt }
       - { php: "->withoutOverlapping() / onOneServer()", dart: ".withoutOverlapping() / .onOneServer()", symbol: ScheduledTask.withoutOverlapping }
+      - { php: "->timezone('America/New_York')", dart: ".timezone('America/New_York')", symbol: ScheduledTask.timezone }
 
   - name: Resources, storage, logging, config
     symbols:

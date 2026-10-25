@@ -384,10 +384,11 @@ final class ScheduleListCommand extends DaravelCommand {
     final now = DateTime.now().toUtc();
     stdout.write(
       renderTable(<List<String>>[
-        <String>['Expression', 'Task', 'Next Due (UTC)', 'Options'],
+        <String>['Expression', 'Zone', 'Task', 'Next Due (UTC)', 'Options'],
         for (final task in tasks)
           <String>[
             task.cron.expression,
+            task.timezoneName,
             task.name,
             task.nextRun(now)?.toIso8601String() ?? '-',
             [

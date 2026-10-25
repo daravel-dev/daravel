@@ -102,4 +102,17 @@ void consoleRoutes(Schedule schedule) {
 ```
 
 Run it with `schedule:work` (long-running) or `schedule:run` from cron;
-`schedule:list` shows the next runs.
+`schedule:list` shows the next runs and each task's zone.
+
+Cron expressions are read in UTC unless a task names its zone:
+
+```dart
+schedule.command('reports:send').dailyAt('08:00').timezone('Asia/Jakarta');
+schedule.job(const Digest()).dailyAt('09:00').timezone('America/New_York');
+schedule.call(sync).hourly().timezone(const Duration(hours: 7)); // fixed offset
+```
+
+IANA zones follow daylight saving time as Laravel does: a time skipped when
+the clocks go forward runs that much later (02:30 runs at 03:30), and a time
+repeated when they go back runs twice. The zone database is compiled into
+the binary (about 0.3 MB); an unknown zone name throws at boot.

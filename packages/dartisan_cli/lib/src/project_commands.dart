@@ -293,6 +293,18 @@ final class DoctorCommand extends DaravelCommand {
     final serve = ServeOptions.fromEnv(env);
     final pool = env.integer('DB_POOL_SIZE', 10);
     final connection = db.connections[db.defaultConnection];
+    if (paths != null &&
+        connection?.driver == 'sqlite' &&
+        systemSqliteConfigured(paths.root)) {
+      checks.add(
+        const DoctorCheck(
+          CheckStatus.warning,
+          'pubspec sets sqlite3 source: system but the database is SQLite',
+          'Every build then loads SQLite from the OS; remove the hooks block '
+              'or install libsqlite3 on the servers.',
+        ),
+      );
+    }
     if (connection?.driver == 'pgsql') {
       // Each isolate has its own pool; leave room for workers, migrations
       // and other clients (a Laravel app on the same database).
@@ -480,9 +492,19 @@ final class BuildCommand extends Command<int> {
       )
       ..addFlag('no-compile', negatable: false, help: 'Skip the native build.')
       ..addFlag(
+        'sqlite',
+        defaultsTo: true,
+        help:
+            'Bundle the SQLite library. --no-sqlite leaves it out for '
+            'PostgreSQL and MySQL applications (smaller bundle); a server '
+            'that still uses SQLite then needs it from the OS.',
+      )
+      ..addFlag(
         'force',
         negatable: false,
-        help: 'Overwrite an existing Dockerfile.',
+        help:
+            'Overwrite an existing Dockerfile; build --no-sqlite even when '
+            'DB_CONNECTION is sqlite.',
       );
   }
 
@@ -519,22 +541,48 @@ final class BuildCommand extends Command<int> {
       'bin/server.dart',
       if (r['with-cli'] as bool) 'bin/dartisan.dart',
     ];
-    for (final target in targets) {
-      final out = target == 'bin/server.dart'
-          ? output
-          : p.join(p.dirname(output), 'dartisan');
-      final args = ['build', 'cli', '-t', target, '-o', out];
-      stdout.writeln('dart ${args.join(' ')}');
-      final process = await Process.start(
-        dartExecutable(),
-        args,
-        workingDirectory: paths.root,
-        mode: ProcessStartMode.inheritStdio,
-      );
-      final code = await process.exitCode;
-      if (code != 0) {
-        return code;
+    final withSqlite = r['sqlite'] as bool;
+    if (!withSqlite) {
+      final connection =
+          projectEnvValue(paths.root, 'DB_CONNECTION') ?? 'sqlite';
+      if (connection == 'sqlite' && !(r['force'] as bool)) {
+        stderr.writeln(
+          'DB_CONNECTION is sqlite: without the bundled library the server '
+          'would need SQLite from the operating system. Use --force if it '
+          'has one (libsqlite3), or build with SQLite.',
+        );
+        return 1;
       }
+    }
+    // Only for the build: `dart run` and `dart test` keep the bundled SQLite
+    // (tests often use an in-memory database).
+    final restore = withSqlite ? null : useSystemSqlite(paths.root);
+    try {
+      for (final target in targets) {
+        final out = target == 'bin/server.dart'
+            ? output
+            : p.join(p.dirname(output), 'dartisan');
+        final args = ['build', 'cli', '-t', target, '-o', out];
+        stdout.writeln('dart ${args.join(' ')}');
+        final process = await Process.start(
+          dartExecutable(),
+          args,
+          workingDirectory: paths.root,
+          mode: ProcessStartMode.inheritStdio,
+        );
+        final code = await process.exitCode;
+        if (code != 0) {
+          return code;
+        }
+      }
+    } finally {
+      restore?.call();
+    }
+    if (!withSqlite) {
+      removeBundledSqlite(p.join(paths.root, output, 'bundle'));
+      stdout.writeln(
+        'SQLite left out of the bundle (loaded from the OS if used).',
+      );
     }
     if (r['with-cli'] as bool) {
       // One bundle: both executables share bin/ and the bundled lib/.
@@ -554,6 +602,102 @@ final class BuildCommand extends Command<int> {
     );
     return 0;
   }
+}
+
+/// `package:sqlite3`'s build-hook setting that loads SQLite from the OS
+/// instead of bundling it.
+const String systemSqliteHooks = '''
+hooks:
+  user_defines:
+    sqlite3:
+      source: system
+''';
+
+/// The pubspec whose `hooks.user_defines` the build reads: the project's,
+/// or the workspace root's for a workspace member (`resolution: workspace`).
+File hooksPubspec(String root) {
+  final own = File(p.join(root, 'pubspec.yaml'));
+  final member = RegExp(
+    r'^resolution:\s*workspace',
+    multiLine: true,
+  ).hasMatch(own.readAsStringSync());
+  if (!member) {
+    return own;
+  }
+  var dir = Directory(root).absolute.parent;
+  while (true) {
+    final candidate = File(p.join(dir.path, 'pubspec.yaml'));
+    if (candidate.existsSync() &&
+        RegExp(
+          r'^workspace:',
+          multiLine: true,
+        ).hasMatch(candidate.readAsStringSync())) {
+      return candidate;
+    }
+    final parent = dir.parent;
+    if (parent.path == dir.path) {
+      return own;
+    }
+    dir = parent;
+  }
+}
+
+/// Whether [hooksPubspec] already has `sqlite3: source: system`.
+bool systemSqliteConfigured(String root) =>
+    RegExp(r'sqlite3:\s*\n\s+source:\s*system')
+        .hasMatch(hooksPubspec(root).readAsStringSync());
+
+/// Adds [systemSqliteHooks] to [hooksPubspec] and returns a function that
+/// restores the file exactly. When the pubspec already has `hooks:`, it must
+/// already say `source: system` (it is never merged); otherwise this throws.
+void Function() useSystemSqlite(String root) {
+  final pubspec = hooksPubspec(root);
+  final original = pubspec.readAsStringSync();
+  if (RegExp(r'^hooks:', multiLine: true).hasMatch(original)) {
+    if (systemSqliteConfigured(root)) {
+      return () {};
+    }
+    throw StateError(
+      '${pubspec.path} already has a hooks: section; add '
+      '"sqlite3: source: system" under hooks.user_defines yourself.',
+    );
+  }
+  pubspec.writeAsStringSync('${original.trimRight()}\n\n$systemSqliteHooks');
+  return () => pubspec.writeAsStringSync(original);
+}
+
+/// Removes SQLite libraries left in [bundle] by an earlier build.
+void removeBundledSqlite(String bundle) {
+  final lib = Directory(p.join(bundle, 'lib'));
+  if (!lib.existsSync()) {
+    return;
+  }
+  for (final file in lib.listSync().whereType<File>()) {
+    if (p.basename(file.path).contains('sqlite3')) {
+      file.deleteSync();
+    }
+  }
+}
+
+/// [key] from the process environment, else from the project's `.env`.
+String? projectEnvValue(String root, String key) {
+  final fromProcess = Platform.environment[key];
+  if (fromProcess != null && fromProcess.isNotEmpty) {
+    return fromProcess;
+  }
+  final env = File(p.join(root, '.env'));
+  if (!env.existsSync()) {
+    return null;
+  }
+  for (final line in env.readAsLinesSync()) {
+    final match = RegExp(
+      '^\\s*${RegExp.escape(key)}\\s*=\\s*["\']?([^"\'#\\s]*)',
+    ).firstMatch(line);
+    if (match != null) {
+      return match[1];
+    }
+  }
+  return null;
 }
 
 /// The `dart` executable to spawn (works under `dart run` and AOT).

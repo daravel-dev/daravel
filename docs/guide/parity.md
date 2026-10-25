@@ -177,6 +177,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `Schedule::command('reports:send')->daily()` | `schedule.command('reports:send').daily()` |  |
 | `->everyFiveMinutes() / dailyAt('13:00')` | `.everyFiveMinutes() / .dailyAt('13:00')` |  |
 | `->withoutOverlapping() / onOneServer()` | `.withoutOverlapping() / .onOneServer()` |  |
+| `->timezone('America/New_York')` | `.timezone('America/New_York')` |  |
 
 ## Resources, storage, logging, config
 
