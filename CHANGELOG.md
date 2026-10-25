@@ -5,6 +5,17 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 breaking changes to the Dart API wait for a new major version, and
 Laravel-facing formats change only to match Laravel more closely.
 
+## Unreleased
+
+### Added
+
+- `TestTransport.socket` for `TestClient` (or `DARAVEL_TEST_TRANSPORT=socket`
+  for a whole suite): requests go through a real `ServerEngine` on a
+  loopback port and `HttpClient`, so `dart:io`'s behaviour is tested too.
+  The application sees the same requests as in process; `actingAs` works
+  through `ServerEngine.prepare`, a new per-request hook. CI runs the core,
+  toolkit and starter suites both ways on Linux, macOS and Windows.
+
 ## 1.4.1
 
 A fix for response headers that piled up across requests on a running

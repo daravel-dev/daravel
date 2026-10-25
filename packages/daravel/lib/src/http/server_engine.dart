@@ -98,12 +98,18 @@ final class ServerEngine {
     this.options, {
     required this.kernel,
     required this.logger,
+    this.prepare,
   });
 
   final Application app;
   final ServeOptions options;
   final HttpKernel kernel;
   final Logger logger;
+
+  /// Runs inside each request's scope before the kernel (as
+  /// `Application.handle`'s `prepare`); the testing toolkit uses it to
+  /// authenticate socket requests (`actingAs`).
+  final FutureOr<void> Function(Request request)? prepare;
 
   HttpServer? _server;
   final Completer<void> _done = Completer<void>();
@@ -223,6 +229,7 @@ final class ServerEngine {
               scope.put<Request>(request);
               Response response;
               try {
+                await prepare?.call(request);
                 response = await kernel.handle(request);
               } catch (error, stackTrace) {
                 logger.error(

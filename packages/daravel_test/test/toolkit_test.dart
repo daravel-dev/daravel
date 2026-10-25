@@ -94,6 +94,11 @@ build() => Application.configure(basePath: Directory.systemTemp.path)
             .get('/me', (req) async => {'id': (await req.user<Member>())!.id})
             .middleware(const ['auth']);
         router.get('/boom', (_) => throw StateError('kaboom'));
+        router.get('/where', (req) => {'url': req.uri.toString()});
+        router.post('/upload', (req) async {
+          final file = (await req.file('doc'))!;
+          return {'name': file.clientName, 'size': file.size};
+        });
         router.get(
           '/go',
           (_) =>
@@ -255,5 +260,40 @@ void main() {
         throwsA(isA<TestFailure>()),
       );
     });
+  });
+  db.test('the socket transport goes through a real ServerEngine', () async {
+    final member = await Member.query().create({
+      'name': 'So',
+      'email': 'so@x.io',
+    });
+    final socket = TestClient(db.client.app, transport: TestTransport.socket);
+    // actingAs crosses the socket through the engine's prepare hook.
+    (await socket.get('/me')).assertUnauthorized();
+    (await socket.actingAs(member).get('/me')).assertJsonPath('id', member.id);
+    // The application sees the same host as in process.
+    (await socket.get('/where?x=1'))
+        .assertJsonPath('url', 'http://localhost/where?x=1');
+    // Redirects are not followed; HEAD has headers and no body.
+    (await socket.get('/go'))
+      ..assertStatus(302)
+      ..assertHeader('location', '/there');
+    final head = await socket.head('/where');
+    head.assertOk();
+    expect(head.bodyBytes, isEmpty);
+    // Multipart bytes are the same as in process.
+    (await socket.post(
+      '/upload',
+      files: {
+        'doc': UploadedFile.fake.withContent(
+          'cv.pdf',
+          List<int>.filled(300, 1),
+        ),
+      },
+    )).assertJson({'name': 'cv.pdf', 'size': 300});
+    // Exceptions cannot cross a socket: this one stays in process.
+    await expectLater(
+      socket.withoutExceptionHandling().get('/boom'),
+      throwsStateError,
+    );
   });
 }

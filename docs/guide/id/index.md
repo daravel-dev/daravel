@@ -35,12 +35,13 @@ Angka performa berasal dari harness yang bisa direproduksi, bukan klaim
 
 - [Memulai](getting-started.md)
 - [Koeksistensi dengan Laravel](laravel-coexistence.md)
-- Panduan lain tersedia dalam bahasa Inggris: [Routing](../routing.md),
+- [Keamanan & Hardening Sistem](security.md)
+- [Panduan Deployment (Cloud Run & Native Bundle)](deployment.md)
+- Panduan lain dalam bahasa Inggris: [Routing](../routing.md),
   [Validasi](../validation.md), [Database](../database.md),
   [Respons dan resource](../responses.md), [Autentikasi](../auth.md),
   [Cache, event, queue](../background.md), [Testing](../testing.md),
-  [Deployment](../deployment.md),
-  [Migrasi bertahap dari Laravel](../migrating-from-laravel.md), [Keamanan](../security.md),
+  [Migrasi bertahap dari Laravel](../migrating-from-laravel.md),
   [Performa](../performance.md), [Tabel paritas](../parity.md).
 
 English: [Daravel documentation](../index.md).

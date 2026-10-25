@@ -51,6 +51,19 @@ jobs:
             fi
           done
 
+      # The same suites again through a real ServerEngine socket instead of
+      # Application.handle: dart:io's own behaviour (default headers, HEAD,
+      # lengths, compression) is only visible there.
+      - name: Test over a real socket
+        if: matrix.sdk == 'stable'
+        env:
+          DARAVEL_TEST_TRANSPORT: socket
+        run: |
+          for pkg in packages/daravel packages/daravel_test apps/daravel_starter; do
+            echo "== $pkg (socket)"
+            (cd "$pkg" && dart test --reporter=expanded)
+          done
+
       - name: Verify pub.dev packaging (dry-run)
         if: runner.os == 'Linux' && matrix.sdk == 'stable'
         run: |

@@ -1,10 +1,14 @@
 /// Testing toolkit for Daravel applications (BLUEPRINT_V2 §7.11).
 ///
-/// [TestClient] drives an [Application] through `Application.handle` without
-/// opening sockets; [TestResponse] offers Laravel-style fluent assertions.
+/// [TestClient] drives an [Application] through `Application.handle`, or
+/// through a real `ServerEngine` socket ([TestTransport.socket]);
+/// [TestResponse] offers Laravel-style fluent assertions.
 library;
 
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
+import 'dart:math';
 
 import 'package:daravel/daravel.dart';
 import 'package:test/test.dart';
@@ -12,6 +16,23 @@ import 'package:test/test.dart';
 export 'src/architecture.dart';
 export 'src/database.dart';
 export 'src/time.dart';
+
+/// How a [TestClient] reaches the application.
+enum TestTransport {
+  /// `Application.handle` in the test's isolate (fast; the default).
+  inProcess,
+
+  /// A real `ServerEngine` on a loopback port and an `HttpClient`: what
+  /// `dart:io` does to requests and responses (headers, `HEAD`, lengths,
+  /// compression) is part of the test.
+  socket;
+
+  /// `DARAVEL_TEST_TRANSPORT=socket` runs every suite over the socket.
+  static TestTransport get fromEnvironment =>
+      Platform.environment['DARAVEL_TEST_TRANSPORT'] == 'socket'
+      ? socket
+      : inProcess;
+}
 
 /// Sends synthetic requests to an [Application].
 final class TestClient {
@@ -21,10 +42,15 @@ final class TestClient {
     this.user,
     this.guard,
     this.handleExceptions = true,
-  }) : _defaultHeaders = <String, String>{...?defaultHeaders};
+    TestTransport? transport,
+  }) : _defaultHeaders = <String, String>{...?defaultHeaders},
+       transport = transport ?? TestTransport.fromEnvironment;
 
   final Application app;
   final Map<String, String> _defaultHeaders;
+
+  /// In process or over a socket (see [TestTransport]).
+  final TestTransport transport;
 
   /// User authenticated for every request (see [actingAs]).
   final Authenticatable? user;
@@ -47,6 +73,7 @@ final class TestClient {
     user: user ?? this.user,
     guard: guard ?? this.guard,
     handleExceptions: handleExceptions ?? this.handleExceptions,
+    transport: transport,
   );
 
   /// Returns a client that always sends [headers].
@@ -141,6 +168,15 @@ final class TestClient {
         ...?headers,
       },
     );
+    // Exceptions cannot cross a socket: withoutExceptionHandling stays in
+    // process.
+    // Header values HttpClient refuses to send (non-ASCII, control
+    // characters, e.g. from fuzzing) are tested in process too.
+    if (transport == TestTransport.socket &&
+        handleExceptions &&
+        _sendable(request.headers)) {
+      return _SocketHarness.of(app).send(request, user, guard);
+    }
     if (!handleExceptions) {
       request.attributes[ExceptionHandler.rethrowAttribute] = true;
     }
@@ -161,6 +197,132 @@ final class TestClient {
       headers: response.headers,
       bodyBytes: await response.bodyBytes(),
       request: request,
+    );
+  }
+}
+
+/// Whether `HttpClient` can send every header value (visible ASCII and tab).
+bool _sendable(Headers headers) => headers.entries.every(
+  (entry) => entry.value.every(
+    (value) => value.codeUnits.every(
+      (unit) => unit == 0x09 || (unit >= 0x20 && unit < 0x7F),
+    ),
+  ),
+);
+
+/// One `ServerEngine` per application for [TestTransport.socket], started on
+/// the first request and stopped when the test ends.
+final class _SocketHarness {
+  _SocketHarness._(this.app);
+
+  static final Expando<_SocketHarness> _byApp = Expando('socket harness');
+
+  static _SocketHarness of(Application app) =>
+      _byApp[app] ??= _SocketHarness._(app);
+
+  final Application app;
+  final Map<String, (Authenticatable, String?)> _actors = {};
+  final Random _random = Random.secure();
+  ServerEngine? _engine;
+  HttpClient? _client;
+  Future<void>? _starting;
+
+  static const String actorHeader = 'x-daravel-test-actor';
+
+  Future<void> _start() async {
+    final engine = ServerEngine(
+      app,
+      const ServeOptions(host: '127.0.0.1', port: 0, handleSignals: false),
+      kernel: app.kernel,
+      logger: Logger(minimumLevel: LogLevel.critical),
+      prepare: (request) {
+        final token = request.header(actorHeader);
+        final actor = token == null ? null : _actors.remove(token);
+        if (actor == null) {
+          return;
+        }
+        final (user, guard) = actor;
+        final auth = Container.current.make<AuthManager>();
+        final name = guard ?? auth.defaultGuard;
+        auth.guard(name).setUser(user);
+        auth.useForRequest(name);
+      },
+    );
+    await engine.start();
+    _engine = engine;
+    // Raw bytes, as in process: no transparent gunzip.
+    _client = HttpClient()
+      ..userAgent = null
+      ..autoUncompress = false;
+    addTearDown(_stop);
+  }
+
+  Future<void> _stop() async {
+    _byApp[app] = null;
+    _client?.close(force: true);
+    await _engine?.stop();
+  }
+
+  Future<TestResponse> send(
+    Request fake,
+    Authenticatable? user,
+    String? guard,
+  ) async {
+    await (_starting ??= _start());
+    final url = fake.uri.replace(
+      scheme: 'http',
+      host: '127.0.0.1',
+      port: _engine!.port,
+    );
+    final outgoing = await _client!.openUrl(fake.method, url);
+    outgoing
+      ..followRedirects = false
+      ..persistentConnection = true;
+    // HttpClient asks for gzip on its own; send only what the test sends.
+    outgoing.headers.removeAll('accept-encoding');
+    // The application sees the same host as in process (`localhost`), so
+    // absolute URLs (paginators, redirects) do not depend on the transport.
+    outgoing.headers
+      ..host = fake.uri.host
+      ..port = fake.uri.port;
+    for (final MapEntry(key: name, value: values) in fake.headers.entries) {
+      if (name == 'host') {
+        continue;
+      }
+      outgoing.headers.removeAll(name);
+      for (final value in values) {
+        outgoing.headers.add(name, value);
+      }
+    }
+    if (user != null) {
+      final token = List<int>.generate(
+        16,
+        (_) => _random.nextInt(256),
+      ).map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+      _actors[token] = (user, guard);
+      outgoing.headers.set(actorHeader, token);
+    }
+    final body = await fake.bytes();
+    if (body.isNotEmpty) {
+      outgoing.contentLength = body.length;
+      outgoing.add(body);
+    }
+    final incoming = await outgoing.close();
+    final bytes = await incoming.fold<List<int>>(
+      <int>[],
+      (all, chunk) => all..addAll(chunk),
+    );
+    final headers = Headers();
+    incoming.headers.forEach((name, values) {
+      for (final value in values) {
+        headers.add(name, value);
+      }
+    });
+    return TestResponse(
+      status: incoming.statusCode,
+      headers: headers,
+      bodyBytes: bytes,
+      request: fake,
     );
   }
 }

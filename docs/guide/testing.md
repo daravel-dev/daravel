@@ -34,6 +34,29 @@
 
 Run the suite with `dartisan test` (`--coverage` writes `coverage/`).
 
+## In process or over a socket
+
+`TestClient` calls `Application.handle` directly: fast, and enough for most
+tests. What `dart:io` itself does to a response (default headers, `HEAD`,
+`Content-Length`, compression) only shows on a real socket, so the same
+tests can run through a real `ServerEngine` on a loopback port:
+
+```bash
+DARAVEL_TEST_TRANSPORT=socket dart test      # every TestClient in the suite
+```
+
+```dart
+final client = TestClient(app, transport: TestTransport.socket);  // one client
+```
+
+The application sees the same request either way (host `localhost`, the
+same JSON, form and multipart bytes), `actingAs` still works, redirects are
+not followed and gzip bodies are not unpacked. Two things stay in process:
+`withoutExceptionHandling()` (an exception cannot cross a socket) and
+headers `HttpClient` cannot send (non-ASCII values, as in fuzzing). Under
+`refreshDatabase` the server runs inside the test's transaction. Running
+the suite both ways in CI catches what in-process tests cannot see.
+
 ## Conformance tests
 
 `package:daravel_test/conformance.dart` exposes Laravel 12's wire contracts
