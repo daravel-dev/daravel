@@ -5,7 +5,11 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 breaking changes to the Dart API wait for a new major version, and
 Laravel-facing formats change only to match Laravel more closely.
 
-## Unreleased
+## 1.6.0
+
+Real-time responses: server-sent events and WebSocket routes. Upgrade from
+any 1.x; nothing existing changes behaviour except that unsized streamed
+responses are now written unbuffered.
 
 ### Added
 

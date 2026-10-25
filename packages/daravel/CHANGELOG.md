@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.6.0
+
+- Added `Response.sse` and `SseEvent` (Laravel's `response()->eventStream()` frames and `</stream>` end event), with an idle heartbeat that also detects closed clients, ending on shutdown.
+- Added `router.ws` and `Response.webSocket`: upgrade after the route's middleware, handler in the request scope, `426` for plain requests, `1001` on shutdown.
+- Added `DrainSignal`, completed when the application starts draining.
+- Unsized `Response.stream` bodies are written unbuffered.
+
 ## 1.5.1
 
 - Fixed: a JSON body number outside the double range (`1e309`) is `400 Malformed JSON body: Number out of range` instead of decoding to Infinity (a 500 when echoed, and on SQLite a stored value that broke every later read).

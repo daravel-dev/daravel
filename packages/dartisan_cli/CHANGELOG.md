@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.6.0
+
+- Requires `daravel` 1.6.0 (server-sent events and WebSocket routes); the bundled guide includes the new section.
+
 ## 1.5.1
 
 - Requires `daravel` 1.5.1 (JSON number range fix).

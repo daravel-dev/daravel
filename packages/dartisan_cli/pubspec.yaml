@@ -1,6 +1,6 @@
 name: dartisan_cli
 description: dartisan, the Daravel command-line interface. Creates projects, runs the dev server with hot reload, generators, migrations, queues and native builds.
-version: 1.5.1
+version: 1.6.0
 homepage: https://github.com/daravel-dev/daravel
 repository: https://github.com/daravel-dev/daravel/tree/main/packages/dartisan_cli
 issue_tracker: https://github.com/daravel-dev/daravel/issues
@@ -21,9 +21,9 @@ executables:
 
 dependencies:
   args: ^2.6.0
-  daravel: ^1.5.1
-  daravel_mysql: ^1.5.1
-  daravel_lints: ^1.5.1
+  daravel: ^1.6.0
+  daravel_mysql: ^1.6.0
+  daravel_lints: ^1.6.0
   path: ^1.9.1
   vm_service: ^15.4.0
   watcher: ^1.2.1
