@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.0
+
+- `dartisan mcp:serve [--allow-write]`: MCP server on stdio for AI coding agents (`about`, `routes`, `schema`, `conventions`, `docs_search`; `run_command` opt-in).
+- `dartisan build --no-sqlite`: bundle without the SQLite library for PostgreSQL/MySQL apps; `doctor` warns about `source: system` on an SQLite app.
+- `schedule:list` shows each task's zone.
+- Requires `daravel` 1.2.0.
+
 ## 1.1.0
 
 - `dartisan lint` reports `unawaited_in_db_transaction` and `invalid_validation_rule`.

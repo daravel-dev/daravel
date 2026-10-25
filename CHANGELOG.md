@@ -5,7 +5,10 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 breaking changes to the Dart API wait for a new major version, and
 Laravel-facing formats change only to match Laravel more closely.
 
-## Unreleased
+## 1.2.0
+
+Laravel's everyday conveniences, scheduler time zones, smaller bundles and
+project context for AI agents, all backwards compatible.
 
 ### Added
 

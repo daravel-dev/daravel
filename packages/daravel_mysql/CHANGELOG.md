@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.0
+
+- Requires `daravel` 1.2.0; the date query shortcut and query guard suites also run on MySQL and MariaDB.
+
 ## 1.1.0
 
 - Version aligned with Daravel 1.1.0; the framework's ORM, transaction and cache concurrency suites now also run on MySQL 8.4 and MariaDB 11.

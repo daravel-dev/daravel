@@ -8,6 +8,7 @@ publisher `daravel.teoprayoga.my.id`.
 
 | Version | Highlights |
 | :-- | :-- |
+| `1.2.0` | DI bindings and `inject()`, fluent string/date/number helpers, Carbon calendar math, date query shortcuts, `DB.whenQueryingForLongerThan`, `Context`, typed HTML builder, IANA scheduler zones, `build --no-sqlite`, `mcp:serve` |
 | `1.1.0` | Polymorphic relations, nested `whereHas`, relation aggregates, synchronous query input, chained rules, two new lints, near cache and shared rate limits; fixes for concurrent transactions, database cache counters and PostgreSQL subqueries |
 | `1.0.0` | First stable release: file uploads, MySQL and MariaDB (`daravel_mysql`), `Http` client, maintenance mode, `db:show`/`db:table`/`tinker` |
 | `1.0.0-beta.3` | Route metadata (`.validates()`, `.returns()`) and OpenAPI schemas, typed request input, `.env.encrypted`, `dartisan adopt`, embedded queue and scheduler, faster request path |

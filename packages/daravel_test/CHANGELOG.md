@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.0
+
+- Requires `daravel` 1.2.0; no API changes.
+
 ## 1.1.0
 
 - Requires `daravel` 1.1.0; no API changes.

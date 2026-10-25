@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.0
+
+- Version aligned with Daravel 1.2.0; no rule changes.
+
 ## 1.1.0
 
 - `unawaited_in_db_transaction`: queries started inside `DB.transaction` without `await` (including `unawaited(...)` and `.ignore()`).

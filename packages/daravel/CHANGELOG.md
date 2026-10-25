@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.2.0
+
+- `Application.withBindings`, `Container.call` shorthand, `inject<T>()`/`maybeInject<T>()`.
+- Fluent `String`/`String?` helpers, `10.minutes`/`7.days.fromNow`, Carbon-style dates (`diffForHumans` in `en`/`id`) and calendar math (`addMonths` overflowing as Carbon, `NoOverflow` forms, week/month/year boundaries); `Number` (`format`, `currency`, `fileSize`, `abbreviate`, `forHumans`, `ordinal`).
+- Query shortcuts `wherePast`, `whereFuture`, `whereToday`, `whereBeforeToday`, `whereAfterToday` (and their `NowOr`/`Or` forms); `whereYear`/`whereMonth`/`whereDay` on model queries.
+- `DB.whenQueryingForLongerThan`, `DB.totalQueryDuration`, `DB.withQueryCount`.
+- `Context`: request data in log records, carried into dispatched jobs (hidden entries carried but not logged).
+- `package:daravel/html.dart`: typed, escaped HTML builder; nodes are responses.
+- `ScheduledTask.timezone()` accepts IANA zone names with Laravel's DST behaviour (adds `package:timezone`).
+- Opening SQLite in a bundle built without it reports what is missing.
+
 ## 1.1.0
 
 - Polymorphic relations (`MorphOne`, `MorphMany`, `MorphTo`, `MorphToMany`, `MorphedByMany`), `Relation.morphMap`/`enforceMorphMap`, `whereHasMorph`, schema `morphs()`; nested `whereHas('a.b.c')`; self relations aliased as `laravel_reserved_N`; `HasOneThrough`; `withSum`/`withAvg`/`withMin`/`withMax`/`withExists`; `QueryBuilder.selectSub`.
