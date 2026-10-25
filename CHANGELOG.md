@@ -5,7 +5,11 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 breaking changes to the Dart API wait for a new major version, and
 Laravel-facing formats change only to match Laravel more closely.
 
-## Unreleased
+## 1.5.0
+
+The application model export for `daragic`, test suites over a real
+socket, and a fix for a shared rate limit that could let one request too
+many through; all backwards compatible.
 
 ### Added
 

@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.5.0
+
+- `TestTransport.socket` (or `DARAVEL_TEST_TRANSPORT=socket`): `TestClient` requests through a real `ServerEngine` and `HttpClient`; `actingAs` works over the socket.
+
 ## 1.4.1
 
 - Version aligned with Daravel 1.4.1; no changes.

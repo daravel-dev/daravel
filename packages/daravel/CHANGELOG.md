@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.5.0
+
+- `TouchableCacheStore.touch(key, ttl)` (Laravel's `Cache::touch`) on the memory, file and database stores.
+- `ServerEngine.prepare`: a per-request hook inside the request scope.
+- `MiddlewareRegistry.groupEntries`, `Translator.lines` / `jsonLines` (read-only).
+- Fixed: a shared rate limit (`CacheRateLimitStore`) could let one request too many through under concurrency.
+
 ## 1.4.1
 
 - Fixed: response headers piled up across requests on a real server (`x-content-type-options: nosniff, nosniff, ...`), because `dart:io` shares its default header lists with every response. The server starts without `dart:io`'s defaults and `Response.writeTo` replaces header values.

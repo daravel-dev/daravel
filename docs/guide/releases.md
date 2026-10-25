@@ -8,6 +8,7 @@ publisher `daravel.teoprayoga.my.id`.
 
 | Version | Highlights |
 | :-- | :-- |
+| `1.5.0` | `daragic:export` (DAM), `TestTransport.socket`, `TouchableCacheStore.touch`; fix for shared rate limits under concurrency |
 | `1.4.1` | Fix: security headers no longer pile up across requests on a running server |
 | `1.4.0` | Live `/docs/api` reference, localization (`trans`, `transChoice`, 280 locales' plural rules), `cache.headers` and gzip, Pennant-compatible feature flags, `db:backup`; fix for `HEAD` responses |
 | `1.3.0` | Model registry and `model:show`, `mcp:serve` `models`/`db_query`/`read_logs`/`last_error`, `mcp:install`, `SCHEDULE_TIMEZONE`, lint `invalid_timezone`, SQLite-free Docker images; fix for `timezone('UTC')` |
