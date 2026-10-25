@@ -128,6 +128,11 @@ final class ServerEngine {
       shared: options.shared,
     );
     server.idleTimeout = options.idleTimeout;
+    // dart:io starts every response from these defaults (X-Frame-Options:
+    // SAMEORIGIN, ...) and shares their value lists, so adding to a response
+    // header appended to the server's defaults: values piled up across
+    // requests. Daravel's middleware sets these headers itself.
+    server.defaultResponseHeaders.clear();
     kernel.defaultTimeout = options.requestTimeout;
     _server = server;
     if (options.handleSignals) {

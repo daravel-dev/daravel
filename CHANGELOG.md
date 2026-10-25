@@ -5,6 +5,20 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 breaking changes to the Dart API wait for a new major version, and
 Laravel-facing formats change only to match Laravel more closely.
 
+## Unreleased
+
+### Fixed
+
+- Response headers piled up across requests on a real server
+  (`x-content-type-options: nosniff, nosniff, ...`,
+  `x-frame-options: SAMEORIGIN, DENY, DENY, ...`): `dart:io` shares the
+  value lists of the server's default headers with every response, and
+  writing a header appended to them. The server now starts without
+  `dart:io`'s defaults (Daravel's middleware sets these headers; JSON
+  responses no longer get `X-Frame-Options: SAMEORIGIN` or the obsolete
+  `X-XSS-Protection`), and `Response.writeTo` replaces header values instead
+  of appending. Covered by a socket test.
+
 ## 1.4.0
 
 Laravel's everyday web layer: a live API reference, localization, HTTP

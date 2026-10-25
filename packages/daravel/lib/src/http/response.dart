@@ -222,6 +222,9 @@ final class Response {
       if (entry.key == 'content-length') {
         continue;
       }
+      // Replace, never append: a value list inherited from the server's
+      // default headers is shared with every other response.
+      out.headers.removeAll(entry.key);
       for (final value in entry.value) {
         out.headers.add(entry.key, value);
       }
