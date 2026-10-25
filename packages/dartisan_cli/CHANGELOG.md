@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.1
+
+- Requires `daravel` 1.4.1 (response header fix).
+
 ## 1.4.0
 
 - `dartisan db:backup [--output] [--keep=N]`: hot SQLite backups (`VACUUM INTO`, integrity checked).

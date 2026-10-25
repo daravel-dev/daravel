@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.1
+
+- Fixed: response headers piled up across requests on a real server (`x-content-type-options: nosniff, nosniff, ...`), because `dart:io` shares its default header lists with every response. The server starts without `dart:io`'s defaults and `Response.writeTo` replaces header values.
+
 ## 1.4.0
 
 - Live API reference at `/docs/api` (Scalar) and `/docs/api.json` in local environments (`API_DOCS`, `API_DOCS_PATH`); `buildOpenApi` moved here from `dartisan_cli`.

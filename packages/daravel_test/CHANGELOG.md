@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.1
+
+- Version aligned with Daravel 1.4.1; no changes.
+
 ## 1.4.0
 
 - Requires `daravel` 1.4.0; no API changes.
