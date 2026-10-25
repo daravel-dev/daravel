@@ -9,6 +9,20 @@ Laravel-facing formats change only to match Laravel more closely.
 
 ### Added
 
+- `request.queryInt`, `queryDouble`, `queryBool` and `queryString`: typed
+  query parameters without `await` (dot notation, input transformers
+  applied, converted like `integer()`/`boolean()`).
+- `RuleBuilder`: rule objects chain (`Rules.required().email().max(255)`)
+  and validate, report and document exactly like the matching string.
+- `daravel_lints`: `invalid_validation_rule` reports unknown rule names and
+  missing or malformed arguments in rule strings (`.rules`, `.validate`,
+  `Validator`, `FormRequest.rules`).
+- `CACHE_PROCESS_L1_TTL`: the `process` store can keep values in each
+  worker isolate for a short time, saving coordinator round trips for hot
+  keys (off by default; misses, counters and locks are never cached).
+- `CACHE_LIMITER` (Laravel's `cache.limiter`): rate limits counted in a
+  cache store through `CacheRateLimitStore`; with `database`, every machine
+  sharing the database shares the limits.
 - Polymorphic relations, stored as Laravel stores them: `MorphOne`,
   `MorphMany`, `MorphTo` (one query per stored type when eager loading,
   nested relations per type, `associate`/`dissociate`, `touches`),
@@ -36,6 +50,10 @@ Laravel-facing formats change only to match Laravel more closely.
 
 ### Fixed
 
+- Database cache store: `increment`/`decrement` from several connections
+  at once lost updates (a read then a write; 40 concurrent increments
+  counted 12 on PostgreSQL). It is now a compare-and-swap retried on
+  conflict, atomic on SQLite, PostgreSQL and MySQL.
 - Transactions: nested transactions started together inside one
   (`Future.wait([DB.transaction(...), DB.transaction(...)])`) shared a
   savepoint name and interleaved, so one failing could roll back the

@@ -453,7 +453,19 @@ The monorepo is a Dart pub workspace:
 | [`packages/daravel_test`](packages/daravel_test) | Testing toolkit: `TestClient`, assertions, `refreshDatabase`, time travel, architecture helpers |
 | [`packages/daravel_lints`](packages/daravel_lints) | AST-based lint rules and registry checks, run by `dartisan lint` and in tests |
 | [`packages/dartisan_cli`](packages/dartisan_cli) | The `dartisan` command-line interface and code generators |
+| [`packages/daravel_mysql`](packages/daravel_mysql) | MySQL and MariaDB driver |
 | [`apps/daravel_starter`](apps/daravel_starter) | Reference application and end-to-end tests |
+
+The five packages ([`daravel`](https://pub.dev/packages/daravel),
+[`dartisan_cli`](https://pub.dev/packages/dartisan_cli),
+[`daravel_test`](https://pub.dev/packages/daravel_test),
+[`daravel_lints`](https://pub.dev/packages/daravel_lints),
+[`daravel_mysql`](https://pub.dev/packages/daravel_mysql)) are released together
+under one version by the verified publisher
+[`daravel.teoprayoga.my.id`](https://pub.dev/publishers/daravel.teoprayoga.my.id);
+only packages from that publisher belong to this project. pub.dev also tags
+them as Flutter-compatible because they are plain Dart, but Daravel is a
+server framework for Linux, macOS and Windows.
 
 ## dartisan CLI
 
