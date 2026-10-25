@@ -362,31 +362,35 @@ void main() {
     // least quadratically) and stays far from a hang.
     final strict = Platform.environment['DARAVEL_STRICT_TIMING'] == '1';
 
-    Future<int> medianMicros(String input, String rule) async {
+    // The fastest of several runs: GC pauses and scheduling only ever add
+    // time, so the minimum is the least noisy estimate on shared CI runners.
+    Future<int> fastestMicros(String input, String rule) async {
       await Validator({'v': input}, {'v': rule}).fails(); // Warm-up (JIT).
-      final times = <int>[];
-      for (var i = 0; i < 5; i++) {
+      var fastest = 1 << 62;
+      for (var i = 0; i < 7; i++) {
         final watch = Stopwatch()..start();
         await Validator({'v': input}, {'v': rule}).fails();
-        times.add(watch.elapsedMicroseconds);
+        if (watch.elapsedMicroseconds < fastest) {
+          fastest = watch.elapsedMicroseconds;
+        }
       }
-      times.sort();
-      return times[2];
+      return fastest;
     }
 
     for (final rule in rules) {
       test('$rule scales linearly on 100 KB input', () async {
         for (final MapEntry(key: label, value: shape) in shapes.entries) {
-          final small = await medianMicros(shape(20000), rule);
-          final large = await medianMicros(shape(100000), rule);
-          final reason = '$rule on $label: 20 KB $small µs, 100 KB $large µs';
+          final small = await fastestMicros(shape(10000), rule);
+          final large = await fastestMicros(shape(100000), rule);
+          final reason = '$rule on $label: 10 KB $small µs, 100 KB $large µs';
           expect(large, lessThan(250000), reason: reason);
-          // 5x the input: linear ≈ 5x, quadratic ≈ 25x. Sub-millisecond
-          // timings are noise, so the ratio is only checked above 1 ms.
+          // 10x the input: linear ≈ 10x, quadratic ≈ 100x, so 40 keeps a
+          // wide margin both ways. Sub-millisecond timings are noise, so the
+          // ratio is only checked above 1 ms.
           if (large > 1000) {
             expect(
               large / (small < 50 ? 50 : small),
-              lessThan(15),
+              lessThan(40),
               reason: reason,
             );
           }
