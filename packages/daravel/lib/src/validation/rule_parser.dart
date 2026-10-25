@@ -1,3 +1,4 @@
+import 'rule_builder.dart';
 import 'rule.dart';
 import 'rules.dart';
 
@@ -12,15 +13,18 @@ abstract final class RuleParser {
     for (final entry in rules.entries) entry.key: parseValue(entry.value),
   };
 
-  /// Parses a single value (`String` DSL, `Rule` or `List<Object>`).
+  /// Parses a single value (`String` DSL, `Rule`, a `RuleBuilder` chain or a
+  /// `List<Object>` of those).
   static List<Rule> parseValue(Object value) => switch (value) {
     String() => parse(value),
     Rule() => [value],
+    RuleBuilder() => value.toList(),
     List<Object?>() => [
       for (final item in value)
         ...switch (item) {
           String() => parse(item),
           Rule() => [item],
+          RuleBuilder() => item.toList(),
           _ => throw ArgumentError.value(
             item,
             'rules',

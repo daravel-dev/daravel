@@ -112,6 +112,44 @@ Future<void> f(User user, Map<String, int> totals) async {
     },
   );
 
+  test('invalid_validation_rule checks names and arguments', () {
+    const source = '''
+void routes(Router r) {
+  r.post('/users', create).rules({
+    'email': 'required|emial|max:255',
+    'name': 'required|string|max',
+    'age': ['nullable', 'integer', 'between:18'],
+    'code': 'size:abc',
+    'ok': 'required|string|max:255|in:a,b|unique:users,email',
+    'dynamic': 'required|\$rule',
+  });
+}
+
+final class StoreUser extends FormRequest {
+  @override
+  Map<String, Object> rules(Request request) => {'title': 'requird'};
+}
+
+Future<void> f(Request request, Map<String, Object?> data) async {
+  await request.validate({'q': 'digits_between:1,x'});
+  Validator(data, {'z': 'required'}); // daravel-lint-ignore: none
+  Validator(data, {'z': 'nope'});
+}
+''';
+    final issues = lintSource(source, 'lib/app/http/routes.dart');
+    expect(rulesOf(issues).toSet(), {'invalid_validation_rule'});
+    expect(issues.map((i) => i.line), [3, 4, 5, 6, 14, 18, 20]);
+    expect(
+      issues[0].message,
+      'Unknown validation rule "emial" in '
+      '"required|emial|max:255".',
+    );
+    expect(issues[1].message, contains('"max" needs 1 argument ("max:...")'));
+    expect(issues[2].message, contains('"between" needs 2 arguments'));
+    expect(issues[3].message, contains('expects a number, got "abc"'));
+    expect(lintSource(source, 'lib/src/x.dart'), isEmpty);
+  });
+
   test('lintProject walks the project and checks registries', () async {
     final root = await Directory.systemTemp.createTemp('daravel_lints_');
     addTearDown(() => root.delete(recursive: true));

@@ -39,6 +39,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `$request->float('price') / ->string('name')` | `await request.float('price') / .string('name')` | **async** |
 | `$request->query('page')` | `request.query['page']` |  |
 | `$request->query() (ids[]=1&ids[]=2)` | `request.queryInput` | Brackets build lists and maps, as PHP parse_str. |
+| `$request->query->getInt('page', 1)` | `request.queryInt('page', 1) / queryDouble / queryBool / queryString` | Synchronous: the query string is in memory. |
 | `$request->header('x-id')` | `request.header('x-id')` |  |
 | `$request->file('avatar') / hasFile('avatar')` | `await request.file('avatar') / hasFile('avatar')` | **async**; Multipart bodies stream to temporary files. |
 | `$file->store('avatars', 'public') / storeAs(...)` | `await file.store('avatars', disk: 'public')` | **async** |
@@ -64,6 +65,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `$validator->validate()` | `await validator.validate()` | **async** |
 | `ValidationException` | `ValidationException` |  |
 | `Rule::in([...]) / Rule::unique('users')` | `Rules.inList([...]) / Rules.unique('users')` |  |
+| `['required', 'email', 'max:255']` | `Rules.required().email().max(255)` | Chained rule objects, checked by the compiler. |
 
 ## Eloquent
 

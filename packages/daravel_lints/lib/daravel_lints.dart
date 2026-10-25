@@ -238,6 +238,249 @@ final class NoSqlStringInterpolation extends LintRule {
   };
 }
 
+/// Validation rule strings (`'required|emial|max:255'`) are parsed when
+/// the route or request is defined; this reports unknown names and missing
+/// or malformed arguments before that, in `.rules({...})`,
+/// `.validate({...})`, `Validator(data, {...})` and `FormRequest.rules()`.
+final class InvalidValidationRule extends LintRule {
+  const InvalidValidationRule();
+
+  /// Every name `RuleParser.parseOne` accepts (kept equal by
+  /// `packages/daravel/test/validation/rule_names_lint_test.dart`).
+  static const Set<String> knownRules = <String>{
+    'required',
+    'nullable',
+    'sometimes',
+    'bail',
+    'present',
+    'filled',
+    'prohibited',
+    'required_if',
+    'required_unless',
+    'required_with',
+    'required_without',
+    'string',
+    'integer',
+    'int',
+    'numeric',
+    'boolean',
+    'bool',
+    'array',
+    'list',
+    'map',
+    'object',
+    'email',
+    'url',
+    'file',
+    'image',
+    'mimes',
+    'mimetypes',
+    'extensions',
+    'uuid',
+    'ulid',
+    'ip',
+    'ipv4',
+    'ipv6',
+    'json',
+    'alpha',
+    'alpha_num',
+    'alpha_dash',
+    'ascii',
+    'lowercase',
+    'uppercase',
+    'regex',
+    'not_regex',
+    'min',
+    'max',
+    'between',
+    'size',
+    'digits',
+    'digits_between',
+    'in',
+    'not_in',
+    'distinct',
+    'confirmed',
+    'same',
+    'different',
+    'starts_with',
+    'ends_with',
+    'date',
+    'after',
+    'after_or_equal',
+    'before',
+    'before_or_equal',
+    'unique',
+    'exists',
+    'password',
+  };
+
+  /// Rules that need at least this many arguments.
+  static const Map<String, int> requiredArguments = <String, int>{
+    'required_if': 2,
+    'required_unless': 2,
+    'required_with': 1,
+    'required_without': 1,
+    'mimes': 1,
+    'mimetypes': 1,
+    'extensions': 1,
+    'regex': 1,
+    'not_regex': 1,
+    'min': 1,
+    'max': 1,
+    'between': 2,
+    'size': 1,
+    'digits': 1,
+    'digits_between': 2,
+    'in': 1,
+    'not_in': 1,
+    'same': 1,
+    'different': 1,
+    'starts_with': 1,
+    'ends_with': 1,
+    'after': 1,
+    'after_or_equal': 1,
+    'before': 1,
+    'before_or_equal': 1,
+    'unique': 1,
+    'exists': 1,
+  };
+
+  /// Rules whose arguments must be numbers (`int` for the digits rules).
+  static const Set<String> numericArguments = <String>{
+    'min',
+    'max',
+    'between',
+    'size',
+  };
+  static const Set<String> integerArguments = <String>{
+    'digits',
+    'digits_between',
+    'password',
+  };
+
+  @override
+  String get name => 'invalid_validation_rule';
+
+  @override
+  String get description => 'Validation rule strings must parse.';
+
+  @override
+  bool appliesTo(String relativePath) => !relativePath.startsWith('lib/src/');
+
+  @override
+  void check(CompilationUnit unit, void Function(AstNode, String) report) {
+    void checkMap(Expression? expression) {
+      if (expression is! SetOrMapLiteral) {
+        return;
+      }
+      for (final element in expression.elements) {
+        if (element is! MapLiteralEntry) {
+          continue;
+        }
+        final value = element.value;
+        final strings = value is ListLiteral
+            ? value.elements.whereType<Expression>()
+            : [value];
+        for (final literal in strings) {
+          final dsl = _literalText(literal);
+          if (dsl == null) {
+            continue;
+          }
+          final problem = problemIn(dsl);
+          if (problem != null) {
+            report(literal, problem);
+          }
+        }
+      }
+    }
+
+    unit.accept(
+      _Visitor(
+        onMethod: (node) {
+          final arguments = node.argumentList.arguments;
+          switch (node.methodName.name) {
+            case 'rules' || 'validate' when arguments.isNotEmpty:
+              checkMap(arguments.first.argumentExpression);
+            // Unresolved ASTs parse `Validator(data, {...})` as a call.
+            case 'Validator' when arguments.length > 1:
+              checkMap(arguments[1].argumentExpression);
+          }
+        },
+        onCreation: (node) {
+          final arguments = node.argumentList.arguments;
+          if (node.constructorName.type.name.lexeme == 'Validator' &&
+              arguments.length > 1) {
+            checkMap(arguments[1].argumentExpression);
+          }
+        },
+        onMethodDeclaration: (node) {
+          if (node.name.lexeme != 'rules') {
+            return;
+          }
+          switch (node.body) {
+            case ExpressionFunctionBody(:final expression):
+              checkMap(expression);
+            case BlockFunctionBody(:final block):
+              for (final statement in block.statements) {
+                if (statement is ReturnStatement) {
+                  checkMap(statement.expression);
+                }
+              }
+            case EmptyFunctionBody() || NativeFunctionBody():
+              break;
+          }
+        },
+      ),
+    );
+  }
+
+  /// The first problem in [dsl], or null when every segment parses.
+  static String? problemIn(String dsl) {
+    for (final raw in dsl.split('|')) {
+      final segment = raw.trim();
+      if (segment.isEmpty) {
+        continue;
+      }
+      final colon = segment.indexOf(':');
+      final rule = colon == -1 ? segment : segment.substring(0, colon);
+      final arguments = colon == -1
+          ? const <String>[]
+          : [
+              for (final a in segment.substring(colon + 1).split(','))
+                if (a.trim().isNotEmpty) a.trim(),
+            ];
+      if (!knownRules.contains(rule)) {
+        return 'Unknown validation rule "$rule" in "$dsl".';
+      }
+      final needed = requiredArguments[rule] ?? 0;
+      if (arguments.length < needed) {
+        return 'Validation rule "$rule" needs $needed argument'
+            '${needed == 1 ? '' : 's'} ("$rule:${List.filled(needed, '...').join(',')}") '
+            'in "$dsl".';
+      }
+      final badNumber = numericArguments.contains(rule)
+          ? arguments.where((a) => num.tryParse(a) == null)
+          : integerArguments.contains(rule)
+          ? arguments.where((a) => int.tryParse(a) == null)
+          : const <String>[];
+      if (badNumber.isNotEmpty) {
+        return 'Validation rule "$rule" expects a number, got '
+            '"${badNumber.first}" in "$dsl".';
+      }
+    }
+    return null;
+  }
+
+  static String? _literalText(Expression expression) => switch (expression) {
+    SimpleStringLiteral(:final value) => value,
+    AdjacentStrings(:final strings) =>
+      strings.every((s) => s is SimpleStringLiteral)
+          ? strings.map((s) => (s as SimpleStringLiteral).value).join()
+          : null,
+    _ => null,
+  };
+}
+
 /// A query started inside `DB.transaction(() async { ... })` without
 /// `await` runs after the transaction has finished, outside it (Daravel then
 /// throws a StateError). `unawaited_futures` misses explicit `unawaited()`
@@ -401,9 +644,16 @@ final class _TransactionBodyScanner extends RecursiveAstVisitor<void> {
 }
 
 final class _Visitor extends RecursiveAstVisitor<void> {
-  _Visitor({this.onMethod, this.onField, this.onTopLevel, this.onCreation});
+  _Visitor({
+    this.onMethod,
+    this.onField,
+    this.onTopLevel,
+    this.onCreation,
+    this.onMethodDeclaration,
+  });
 
   final void Function(MethodInvocation node)? onMethod;
+  final void Function(MethodDeclaration node)? onMethodDeclaration;
   final void Function(FieldDeclaration node)? onField;
   final void Function(TopLevelVariableDeclaration node)? onTopLevel;
   final void Function(InstanceCreationExpression node)? onCreation;
@@ -412,6 +662,12 @@ final class _Visitor extends RecursiveAstVisitor<void> {
   void visitMethodInvocation(MethodInvocation node) {
     onMethod?.call(node);
     super.visitMethodInvocation(node);
+  }
+
+  @override
+  void visitMethodDeclaration(MethodDeclaration node) {
+    onMethodDeclaration?.call(node);
+    super.visitMethodDeclaration(node);
   }
 
   @override
@@ -440,6 +696,7 @@ const List<LintRule> defaultRules = <LintRule>[
   NoMutableStaticInApp(),
   NoSqlStringInterpolation(),
   UnawaitedInDbTransaction(),
+  InvalidValidationRule(),
 ];
 
 /// Lints Dart [source] whose project-relative path is [relativePath].

@@ -77,6 +77,34 @@ handler runs and `dartisan openapi:generate` documents both:
 dotted keys nest, `*` becomes array items, `nullable` adds `null`, and
 `min`/`max`/`between`/`size` map to the bound that fits the type.
 
+## Reading input
+
+The query string is in memory from the start, so its typed readers need no
+`await`; the body is read once, asynchronously, and validated input is then
+available synchronously:
+
+```dart
+router.get('/posts', (request) async {
+  final page = request.queryInt('page', 1);          // ?page=2 → 2
+  final drafts = request.queryBool('drafts');        // on, 1, true, yes
+  final q = request.queryString('q');                // '' when missing
+  final tags = request.queryInput['tags'];           // ?tags[]=a&tags[]=b → [a, b]
+  ...
+});
+
+router.post('/posts', (request) async {
+  final data = request.validated();                  // after .rules / .validates
+  final title = data.string('title');
+  final views = data.maybeInteger('views') ?? 0;
+  ...
+}).rules({'title': 'required|string', 'views': 'nullable|integer'});
+```
+
+`queryInt`, `queryDouble`, `queryBool` and `queryString` convert like their
+asynchronous counterparts over the whole input (`await request.integer(...)`,
+`float`, `boolean`, `string`), accept dot notation (`filter.page`) and see
+input transformers such as `TrimStrings`, as Laravel's query bag does.
+
 ## Middleware
 
 Global middleware is configured in `bootstrap/app.dart`

@@ -44,6 +44,7 @@ sections:
       - { php: "$request->float('price') / ->string('name')", dart: "await request.float('price') / .string('name')", symbol: Request.float, async: true }
       - { php: "$request->query('page')", dart: "request.query['page']", symbol: Request.query }
       - { php: "$request->query() (ids[]=1&ids[]=2)", dart: "request.queryInput", symbol: Request.queryInput, note: "Brackets build lists and maps, as PHP parse_str." }
+      - { php: "$request->query->getInt('page', 1)", dart: "request.queryInt('page', 1) / queryDouble / queryBool / queryString", symbol: Request.queryInt, note: "Synchronous: the query string is in memory." }
       - { php: "$request->header('x-id')", dart: "request.header('x-id')", symbol: Request.header }
       - { php: "$request->file('avatar') / hasFile('avatar')", dart: "await request.file('avatar') / hasFile('avatar')", symbol: Request.file, async: true, note: "Multipart bodies stream to temporary files." }
       - { php: "$file->store('avatars', 'public') / storeAs(...)", dart: "await file.store('avatars', disk: 'public')", symbol: UploadedFile.store, async: true }
@@ -67,6 +68,7 @@ sections:
       - { php: "$validator->validate()", dart: "await validator.validate()", symbol: Validator.validate, async: true }
       - { php: "ValidationException", dart: "ValidationException", symbol: ValidationException }
       - { php: "Rule::in([...]) / Rule::unique('users')", dart: "Rules.inList([...]) / Rules.unique('users')", symbol: Rules }
+      - { php: "['required', 'email', 'max:255']", dart: "Rules.required().email().max(255)", symbol: RuleBuilder, note: "Chained rule objects, checked by the compiler." }
 
   - name: Eloquent
     symbols:

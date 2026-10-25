@@ -133,6 +133,7 @@ final class Request {
   bool _cleanupScheduled = false;
   Map<String, Object?>? _queryInput;
   Map<String, Object?>? _allInput;
+  Map<String, Object?>? _transformedQuery;
 
   RouteEntry? _route;
   Map<String, String> _routeParams = const <String, String>{};
@@ -421,6 +422,7 @@ final class Request {
   void addInputTransformer(InputTransformer transformer) {
     _inputTransformers.add(transformer);
     _allInput = null;
+    _transformedQuery = null;
   }
 
   /// Merged input: query parameters overlaid by body fields (body wins),
@@ -479,42 +481,82 @@ final class Request {
   /// `$request->integer('page', 1)`: the input as an `int`, or [fallback]
   /// when it is missing or not a number.
   Future<int> integer(String key, [int fallback = 0]) async =>
-      switch (_dig(await all(), key)) {
-        final int value => value,
-        final num value => value.toInt(),
-        final String value => _convert<int>(value) ?? fallback,
-        _ => fallback,
-      };
+      _asInt(_dig(await all(), key), fallback);
 
   /// `$request->float('price')`: the input as a `double`, or [fallback].
   Future<double> float(String key, [double fallback = 0]) async =>
-      switch (_dig(await all(), key)) {
-        final num value => value.toDouble(),
-        final String value => _convert<double>(value) ?? fallback,
-        _ => fallback,
-      };
+      _asDouble(_dig(await all(), key), fallback);
 
   /// `$request->boolean('remember')`: `true` for `true`, `1`, `"1"`,
   /// `"true"`, `"on"` and `"yes"` (PHP's `FILTER_VALIDATE_BOOLEAN`), `false`
   /// for anything else, and [fallback] when the key is missing.
   Future<bool> boolean(String key, [bool fallback = false]) async =>
-      switch (_dig(await all(), key)) {
-        null => fallback,
-        final bool value => value,
-        final num value => value == 1,
-        final String value => _truthy.contains(value.trim().toLowerCase()),
-        _ => false,
-      };
+      _asBool(_dig(await all(), key), fallback);
 
   /// `$request->string('name')`: the input as a `String` (numbers and
   /// booleans are converted), or [fallback] when it is missing.
   Future<String> string(String key, [String fallback = '']) async =>
-      switch (_dig(await all(), key)) {
-        final String value => value,
-        final num value => '$value',
-        final bool value => value ? '1' : '',
-        _ => fallback,
-      };
+      _asString(_dig(await all(), key), fallback);
+
+  // Query string, synchronously: it is in memory from the start, so these
+  // need no `await` (the body has `request.validated()` for that).
+
+  /// The query parameter [key] (dot notation) as an `int`, without `await`
+  /// (`?page=2` → `2`), or [fallback]. Converted like [integer].
+  int queryInt(String key, [int fallback = 0]) =>
+      _asInt(_dig(_query, key), fallback);
+
+  /// The query parameter [key] as a `double`, or [fallback].
+  double queryDouble(String key, [double fallback = 0]) =>
+      _asDouble(_dig(_query, key), fallback);
+
+  /// The query parameter [key] as a `bool` (like [boolean]), or [fallback]
+  /// when it is missing.
+  bool queryBool(String key, [bool fallback = false]) =>
+      _asBool(_dig(_query, key), fallback);
+
+  /// The query parameter [key] as a `String`, or [fallback] when it is
+  /// missing.
+  String queryString(String key, [String fallback = '']) =>
+      _asString(_dig(_query, key), fallback);
+
+  /// [queryInput] with the input transformers applied (`TrimStrings`
+  /// changes query values too, as in Laravel).
+  Map<String, Object?> get _query {
+    if (_inputTransformers.isEmpty) {
+      return queryInput;
+    }
+    return _transformedQuery ??=
+        _transform(queryInput, '') as Map<String, Object?>;
+  }
+
+  static int _asInt(Object? value, int fallback) => switch (value) {
+    final int value => value,
+    final num value => value.toInt(),
+    final String value => _convert<int>(value) ?? fallback,
+    _ => fallback,
+  };
+
+  static double _asDouble(Object? value, double fallback) => switch (value) {
+    final num value => value.toDouble(),
+    final String value => _convert<double>(value) ?? fallback,
+    _ => fallback,
+  };
+
+  static bool _asBool(Object? value, bool fallback) => switch (value) {
+    null => fallback,
+    final bool value => value,
+    final num value => value == 1,
+    final String value => _truthy.contains(value.trim().toLowerCase()),
+    _ => false,
+  };
+
+  static String _asString(Object? value, String fallback) => switch (value) {
+    final String value => value,
+    final num value => '$value',
+    final bool value => value ? '1' : '',
+    _ => fallback,
+  };
 
   static const Set<String> _truthy = {'1', 'true', 'on', 'yes'};
   static const Set<String> _falsy = {'0', 'false', 'off', 'no', ''};

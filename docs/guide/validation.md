@@ -13,6 +13,25 @@ final data = await request.validate({
 data.string('email'); // typed access to validated input only
 ```
 
+Rule objects also chain, so the compiler checks names and arguments:
+
+```dart
+.rules({
+  'email': Rules.required().string().email().max(255).unique('users'),
+  'age': Rules.nullable().integer().min(18),
+  'avatar': Rules.nullable().image().max(2048),
+})
+```
+
+Any `Rules.x()` starts a chain, each step adds the rule of the same name, and
+a chain validates, reports and documents (OpenAPI) exactly like the matching
+string. Strings, rule objects and chains mix freely in one list.
+
+Rule strings are parsed when the route or request is defined, so a typo fails
+at boot or in the first test; `dartisan lint` (`invalid_validation_rule`)
+reports it earlier, with the line, including a missing argument such as
+`max` without a value.
+
 Failures throw `ValidationException`, rendered as Laravel's 422 body:
 
 ```json

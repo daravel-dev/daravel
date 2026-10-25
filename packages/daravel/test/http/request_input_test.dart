@@ -40,6 +40,41 @@ void main() {
       expect(await request.string('missing', 'x'), 'x');
     });
 
+    test(
+      'query accessors are synchronous and convert like the async ones',
+      () async {
+        expect(request.queryInt('page'), 5);
+        expect(request.queryInt('page'), await request.integer('page'));
+        expect(request.queryInt('bad'), 0);
+        expect(request.queryInt('missing', 10), 10);
+        expect(request.queryDouble('ratio'), 0.25);
+        expect(request.queryBool('remember'), isTrue);
+        expect(request.queryBool('archived'), isFalse);
+        expect(request.queryBool('missing', true), isTrue);
+        expect(request.queryString('name'), '  Ana ');
+        expect(request.queryString('missing', 'x'), 'x');
+
+        final nested = Request.fake(path: '/x?filter[page]=3&ids[]=1&ids[]=2');
+        expect(nested.queryInt('filter.page'), 3);
+        expect(nested.queryInt('ids.1'), 2);
+      },
+    );
+
+    test('query accessors read the body never, and see input transformers', () {
+      final post =
+          Request.fake(
+            method: 'POST',
+            path: '/items?page=2&name=+Bo+',
+            json: const {'page': 9},
+          )..addInputTransformer(
+            (key, value) => value is String ? value.trim() : value,
+          );
+      // The query string only (the body says 9), already trimmed as
+      // TrimStrings trims the query in Laravel.
+      expect(post.queryInt('page'), 2);
+      expect(post.queryString('name'), 'Bo');
+    });
+
     test('JSON values keep their types', () async {
       final json = Request.fake(
         method: 'POST',
