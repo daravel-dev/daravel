@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.0
+
+- Version aligned with Daravel 1.4.0; no rule changes.
+
 ## 1.3.0
 
 - `invalid_timezone`: zone names in `.timezone('...')` must be IANA zones (suggests the right case).

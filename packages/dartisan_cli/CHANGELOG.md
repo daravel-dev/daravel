@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.4.0
+
+- `dartisan db:backup [--output] [--keep=N]`: hot SQLite backups (`VACUUM INTO`, integrity checked).
+- `dartisan new` includes the feature flags migration; the welcome page links to `/docs/api`.
+- `buildOpenApi` is re-exported from `package:daravel`.
+- Requires `daravel` 1.4.0.
+
 ## 1.3.0
 
 - `dartisan model:show <Model> [--json]`; `make:model` adds models to `bootstrap/models.dart`, which `dartisan new` now creates.

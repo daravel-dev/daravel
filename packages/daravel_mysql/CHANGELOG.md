@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.0
+
+- Requires `daravel` 1.4.0; the feature flag store is tested on MySQL and MariaDB.
+
 ## 1.3.0
 
 - Requires `daravel` 1.3.0; `mcp:serve`'s `db_query` is tested on MySQL and MariaDB.

@@ -8,6 +8,7 @@ publisher `daravel.teoprayoga.my.id`.
 
 | Version | Highlights |
 | :-- | :-- |
+| `1.4.0` | Live `/docs/api` reference, localization (`trans`, `transChoice`, 280 locales' plural rules), `cache.headers` and gzip, Pennant-compatible feature flags, `db:backup`; fix for `HEAD` responses |
 | `1.3.0` | Model registry and `model:show`, `mcp:serve` `models`/`db_query`/`read_logs`/`last_error`, `mcp:install`, `SCHEDULE_TIMEZONE`, lint `invalid_timezone`, SQLite-free Docker images; fix for `timezone('UTC')` |
 | `1.2.0` | DI bindings and `inject()`, fluent string/date/number helpers, Carbon calendar math, date query shortcuts, `DB.whenQueryingForLongerThan`, `Context`, typed HTML builder, IANA scheduler zones, `build --no-sqlite`, `mcp:serve` |
 | `1.1.0` | Polymorphic relations, nested `whereHas`, relation aggregates, synchronous query input, chained rules, two new lints, near cache and shared rate limits; fixes for concurrent transactions, database cache counters and PostgreSQL subqueries |

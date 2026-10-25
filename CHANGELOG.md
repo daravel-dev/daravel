@@ -5,7 +5,11 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 breaking changes to the Dart API wait for a new major version, and
 Laravel-facing formats change only to match Laravel more closely.
 
-## Unreleased
+## 1.4.0
+
+Laravel's everyday web layer: a live API reference, localization, HTTP
+caching and compression, feature flags shared with Pennant, and hot SQLite
+backups; all backwards compatible.
 
 ### Added
 

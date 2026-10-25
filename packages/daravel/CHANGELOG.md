@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.4.0
+
+- Live API reference at `/docs/api` (Scalar) and `/docs/api.json` in local environments (`API_DOCS`, `API_DOCS_PATH`); `buildOpenApi` moved here from `dartisan_cli`.
+- Localization: `trans`, `transChoice`, `Lang`, `App.locale`/`App.setLocale` per scope, `withTranslations`, `lang/<locale>.json`, `APP_FALLBACK_LOCALE`, `SetLocaleMiddleware`; validation messages follow the current locale.
+- `cache.headers` middleware (ETag, `304`) and `CompressResponseMiddleware` (gzip).
+- Feature flags (`Feature`, `FeatureManager`, `feature:` middleware, `CreateFeaturesTable`) in Laravel Pennant's storage format.
+- Fixed: `HEAD` responses are stripped after the global middleware.
+
 ## 1.3.0
 
 - Model registry: `ApplicationBuilder.withModels`, `ModelRegistry`, `describeModel` (read by `dartisan model:show` and `mcp:serve`).
