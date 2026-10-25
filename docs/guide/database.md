@@ -143,6 +143,43 @@ DB.listen((query) {
 
 Without listeners, queries are not wrapped and cost nothing extra.
 
+For a time budget rather than single slow queries, Laravel's
+`whenQueryingForLongerThan` adds up the queries of each request, job or
+command and calls the handler once when the total passes the threshold:
+
+```dart
+DB.whenQueryingForLongerThan(const Duration(milliseconds: 500), (query) {
+  Log.warning('Request spent over 500 ms in queries',
+      {'total_ms': DB.totalQueryDuration.inMilliseconds});
+});
+```
+
+`DB.withQueryCount` runs a callback and returns its result with the queries
+it ran, which turns an N+1 into a failing test:
+
+```dart
+final (users, count, queries) = await DB.withQueryCount(
+  () => User.query().with_('posts').get(),
+);
+expect(count, 2); // users, then every post in one query
+```
+
+## Dates in queries
+
+`whereDate`, `whereYear`, `whereMonth` and `whereDay` compare a part of a
+date column. Laravel 11's shortcuts compare with the current time, read from
+`Clock` (so `freezeTime()` applies), and take a column or a list:
+
+| Method | Condition |
+| :-- | :-- |
+| `wherePast` / `whereNowOrPast` | before / at or before now |
+| `whereFuture` / `whereNowOrFuture` | after / at or after now |
+| `whereToday` | the date is today |
+| `whereBeforeToday` / `whereTodayOrBefore` | the date is before / at most today |
+| `whereAfterToday` / `whereTodayOrAfter` | the date is after / at least today |
+
+Each has an `orWhere…` form, on `DB.table(...)` and on model queries.
+
 ## Pagination
 
 `paginate()`, `simplePaginate()` and `cursorPaginate()` read the page (or

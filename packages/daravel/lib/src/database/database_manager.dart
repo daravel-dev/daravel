@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import '../foundation/container.dart';
 import '../foundation/exceptions.dart';
 import '../logging/logger.dart';
 import 'database_config.dart';
@@ -94,15 +95,98 @@ final class DatabaseManager {
   /// Removes every query listener.
   void forgetListeners() => _queryListeners.clear();
 
+  static const Symbol _captureKey = #daravel.queryCapture;
+
+  /// Runs [body] and returns its result with every query it ran, in this
+  /// zone (nested calls each see their own queries): for tests that assert
+  /// eager loading removed an N+1.
+  Future<(T, List<QueryExecuted>)> captureQueries<T>(
+    FutureOr<T> Function() body,
+  ) async {
+    final captured = <QueryExecuted>[];
+    final outer = Zone.current[_captureKey] as List<List<QueryExecuted>>?;
+    final result = await runZoned(
+      () async => body(),
+      zoneValues: {
+        _captureKey: [...?outer, captured],
+      },
+    );
+    return (result, captured);
+  }
+
+  final List<(Duration, void Function(QueryExecuted event))> _durationHandlers =
+      [];
+  final _QueryTime _isolateQueryTime = _QueryTime();
+
+  /// Calls [handler] once the queries of the current request, job or
+  /// command have taken more than [threshold] in total (Laravel's
+  /// `DB::whenQueryingForLongerThan`), once per scope.
+  void whenQueryingForLongerThan(
+    Duration threshold,
+    void Function(QueryExecuted event) handler,
+  ) => _durationHandlers.add((threshold, handler));
+
+  /// Time spent in queries by the current request, job or command (the
+  /// isolate's total outside a scope).
+  Duration get totalQueryDuration => _queryTime().total;
+
+  _QueryTime _queryTime() {
+    final Scope? scope;
+    try {
+      scope = Container.current.currentScope;
+    } on StateError {
+      return _isolateQueryTime;
+    }
+    if (scope == null) {
+      return _isolateQueryTime;
+    }
+    final existing = scope.get<_QueryTime>();
+    if (existing != null) {
+      return existing;
+    }
+    final time = _QueryTime();
+    scope.put<_QueryTime>(time);
+    return time;
+  }
+
+  /// Reports [event] to listeners, captures and duration handlers. Runs in
+  /// the zone of the query.
+  void _dispatch(QueryExecuted event) {
+    for (final listener in List.of(_queryListeners)) {
+      listener(event);
+    }
+    final captures = Zone.current[_captureKey] as List<List<QueryExecuted>>?;
+    if (captures != null) {
+      for (final captured in captures) {
+        captured.add(event);
+      }
+    }
+    if (_durationHandlers.isNotEmpty) {
+      final time = _queryTime()..total += event.time;
+      for (var i = 0; i < _durationHandlers.length; i++) {
+        final (threshold, handler) = _durationHandlers[i];
+        if (time.total > threshold && time.fired.add(i)) {
+          handler(event);
+        }
+      }
+    }
+  }
+
+  bool get _observing =>
+      _queryListeners.isNotEmpty ||
+      _durationHandlers.isNotEmpty ||
+      Zone.current[_captureKey] != null;
+
   /// The active transaction executor of the current zone, or the connection.
-  /// With query listeners registered it is wrapped to report each query.
+  /// While anything listens (listeners, captures, duration handlers) it is
+  /// wrapped to report each query.
   Future<QueryExecutor> executor([String? name]) {
     final active = Zone.current[transactionKey] as QueryExecutor?;
     final connectionName = name ?? config.defaultConnection;
     if (active != null) {
       return Future<QueryExecutor>.value(_observed(active, connectionName));
     }
-    if (_queryListeners.isEmpty) {
+    if (!_observing) {
       return connection(name);
     }
     return connection(name)
@@ -110,9 +194,9 @@ final class DatabaseManager {
   }
 
   QueryExecutor _observed(QueryExecutor executor, String connectionName) =>
-      _queryListeners.isEmpty || executor is ListeningQueryExecutor
+      !_observing || executor is ListeningQueryExecutor
       ? executor
-      : ListeningQueryExecutor(executor, connectionName, _queryListeners);
+      : ListeningQueryExecutor(executor, connectionName, [_dispatch]);
 
   /// Whether the current zone is inside a transaction.
   bool get inTransaction => Zone.current[transactionKey] != null;
@@ -476,4 +560,10 @@ final class _ScopedExecutor implements QueryExecutor {
     await _scope._ready(sql);
     return _scope.connection.insertGetId(sql, bindings);
   }
+}
+
+/// Query time of one scope, and which duration handlers already fired.
+final class _QueryTime {
+  Duration total = Duration.zero;
+  final Set<int> fired = <int>{};
 }

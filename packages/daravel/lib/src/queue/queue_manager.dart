@@ -9,6 +9,7 @@ import '../foundation/config.dart';
 import '../foundation/container.dart';
 import '../foundation/env.dart';
 import '../foundation/exceptions.dart';
+import '../logging/context.dart';
 import '../logging/logger.dart';
 import 'drivers.dart';
 import 'job.dart';
@@ -233,6 +234,7 @@ final class JobProcessor {
     var timedOut = false;
     try {
       await container.runScoped<void>('job', (_) async {
+        Context.current.hydrate(payload.context);
         await _runWithMiddleware(ctx, job, () async {
           try {
             await job.handle(ctx).timeout(timeout ?? payload.timeout);

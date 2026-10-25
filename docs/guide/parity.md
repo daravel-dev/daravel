@@ -50,6 +50,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `$request->route('id')` | `request.param<int>('id')` |  |
 | `$request->expectsJson()` | `request.expectsJson` |  |
 | `response()->json($data, $status)` | `Response.json(data, status: status)` |  |
+| `Blade views ({{ $name }}, {!! $html !!})` | `div([user.name]) / raw(html) from package:daravel/html.dart` | Typed builder, escaped by default; a separate import. |
 | `response()->noContent()` | `Response.noContent()` |  |
 | `redirect($to)` | `Response.redirect(to)` |  |
 | `response()->streamDownload(...)` | `Response.stream(...)` |  |
@@ -115,6 +116,9 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `DB_CONNECTION=mysql / mariadb` | `withDatabaseDriver('mysql', MySqlDriver.fromConfig)` | package:daravel_mysql; registered by new projects. |
 | `DB::raw($sql)` | `DB.raw(sql)` |  |
 | `DB::listen(fn (QueryExecuted $q) => ...)` | `DB.listen((QueryExecuted q) {...})` |  |
+| `DB::whenQueryingForLongerThan(500, fn)` | `DB.whenQueryingForLongerThan(const Duration(milliseconds: 500), (q) {...})` | Total per request, job or command; once. |
+| `DB::enableQueryLog(); ... count(DB::getQueryLog())` | `final (result, count, queries) = await DB.withQueryCount(() => ...)` |  |
+| `->whereToday('starts_at') / wherePast / whereFuture / whereBeforeToday` | `.whereToday('starts_at') / wherePast / whereFuture / whereBeforeToday` | Against Clock.now(). |
 | `->insertGetId($values)` | `await DB.table(t).insertGetId(values)` | **async** |
 | `->upsert($values, $uniqueBy)` | `.upsert(values, uniqueBy)` | **async** |
 | `->chunkById(100, fn)` | `.chunkById(100, (rows) async {...})` | **async** |
@@ -192,6 +196,8 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `Log::withContext([...])` | `Log.withContext({...})` |  |
 | `config('app.name')` | `Config.get<String>('app.name')` |  |
 | `app(Service::class)` | `App.make<Service>()` |  |
+| `resolve(Service::class)` | `inject<Service>() / maybeInject<Service>()` | The type is inferred where the value goes: `orders ?? inject()`. |
+| `$this->app->singleton(...) in AppServiceProvider::register()` | `.withBindings((c) => c.singleton((c) => OrderService(c(), c())))` | Calling the container (`c()`) resolves the type each argument needs. |
 | `now()` | `Clock.now()` | Frozen by freezeTime()/travel() in tests. |
 
 ## Strings, helpers, collections
@@ -204,6 +210,12 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `Str::contains / startsWith / endsWith` | `Str.contains / startsWith / endsWith` |  |
 | `Str::plural / singular / pluralStudly` | `Str.plural / singular / pluralStudly` | English rules with common irregulars. |
 | `Str::random / uuid / ulid / isUuid / isJson` | `Str.random / uuid / ulid / isUuid / isJson` |  |
+| `Str::of($title)->after(':')->squish()->slug()` | `title.after(':').squish().slug()` | Str methods chain on the string itself. |
+| `now()->addMinutes(10) / Carbon::now()->subDays(7)` | `10.minutes.fromNow / 7.days.ago` |  |
+| `$date->diffForHumans() / isPast() / isToday() / startOfDay()` | `date.diffForHumans() / isPast / isToday / startOfDay` | Carbon's units and wording, en and id. |
+| `$date->addMonth() / addMonthsNoOverflow(1) / startOfWeek() / between($a, $b)` | `date.addMonths(1) / addMonthsNoOverflow(1) / startOfWeek / isBetween(a, b)` | Same overflow rules as Carbon. |
+| `Context::add('tenant_id', $id) / Context::get('tenant_id') / addHidden` | `Context.add('tenant_id', id) / Context.get<int>('tenant_id') / addHidden` | Logged, and carried into queued jobs. |
+| `Number::format / percentage / currency / fileSize / abbreviate / ordinal` | `Number.format / percentage / currency / fileSize / abbreviate / ordinal` | en and id locales, as Laravel's intl output. |
 | `abort_if / abort_unless` | `abortIf / abortUnless` |  |
 | `retry(, fn, )` | `await retry(times, (attempt) async {...}, delay:)` | **async** |
 | `rescue(fn, )` | `await rescue(() async {...}, fallback:)` | **async** |
@@ -240,7 +252,6 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 
 | Laravel | Plan |
 | :-- | :-- |
-| Blade templates | Tier 3 (typed HTML builder) |
 | Sessions, CSRF, SPA cookie auth | Tier 2 |
 | Mail, notifications, broadcasting | Tier 2/3 |
 | Redis cache/queue/lock, S3 storage | Tier 2 |

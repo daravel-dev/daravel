@@ -119,6 +119,74 @@ final class ModelQuery<T extends Model> {
     return this;
   }
 
+  ModelQuery<T> whereYear(
+    String column,
+    Object operatorOrValue, [
+    Object? value,
+  ]) => _on((b) => b.whereYear(column, operatorOrValue, value));
+
+  ModelQuery<T> whereMonth(
+    String column,
+    Object operatorOrValue, [
+    Object? value,
+  ]) => _on((b) => b.whereMonth(column, operatorOrValue, value));
+
+  ModelQuery<T> whereDay(
+    String column,
+    Object operatorOrValue, [
+    Object? value,
+  ]) => _on((b) => b.whereDay(column, operatorOrValue, value));
+
+  // Laravel 11's date shortcuts, against Clock.now(); [columns] is a column
+  // or a list of columns.
+  ModelQuery<T> wherePast(Object columns) =>
+      _on((b) => b.wherePast(_qualifyAll(columns)));
+  ModelQuery<T> whereNowOrPast(Object columns) =>
+      _on((b) => b.whereNowOrPast(_qualifyAll(columns)));
+  ModelQuery<T> orWherePast(Object columns) =>
+      _on((b) => b.orWherePast(_qualifyAll(columns)));
+  ModelQuery<T> orWhereNowOrPast(Object columns) =>
+      _on((b) => b.orWhereNowOrPast(_qualifyAll(columns)));
+  ModelQuery<T> whereFuture(Object columns) =>
+      _on((b) => b.whereFuture(_qualifyAll(columns)));
+  ModelQuery<T> whereNowOrFuture(Object columns) =>
+      _on((b) => b.whereNowOrFuture(_qualifyAll(columns)));
+  ModelQuery<T> orWhereFuture(Object columns) =>
+      _on((b) => b.orWhereFuture(_qualifyAll(columns)));
+  ModelQuery<T> orWhereNowOrFuture(Object columns) =>
+      _on((b) => b.orWhereNowOrFuture(_qualifyAll(columns)));
+  ModelQuery<T> whereToday(Object columns) =>
+      _on((b) => b.whereToday(_qualifyAll(columns)));
+  ModelQuery<T> whereBeforeToday(Object columns) =>
+      _on((b) => b.whereBeforeToday(_qualifyAll(columns)));
+  ModelQuery<T> whereTodayOrBefore(Object columns) =>
+      _on((b) => b.whereTodayOrBefore(_qualifyAll(columns)));
+  ModelQuery<T> whereAfterToday(Object columns) =>
+      _on((b) => b.whereAfterToday(_qualifyAll(columns)));
+  ModelQuery<T> whereTodayOrAfter(Object columns) =>
+      _on((b) => b.whereTodayOrAfter(_qualifyAll(columns)));
+  ModelQuery<T> orWhereToday(Object columns) =>
+      _on((b) => b.orWhereToday(_qualifyAll(columns)));
+  ModelQuery<T> orWhereBeforeToday(Object columns) =>
+      _on((b) => b.orWhereBeforeToday(_qualifyAll(columns)));
+  ModelQuery<T> orWhereTodayOrBefore(Object columns) =>
+      _on((b) => b.orWhereTodayOrBefore(_qualifyAll(columns)));
+  ModelQuery<T> orWhereAfterToday(Object columns) =>
+      _on((b) => b.orWhereAfterToday(_qualifyAll(columns)));
+  ModelQuery<T> orWhereTodayOrAfter(Object columns) =>
+      _on((b) => b.orWhereTodayOrAfter(_qualifyAll(columns)));
+
+  ModelQuery<T> _on(void Function(QueryBuilder builder) apply) {
+    apply(builder);
+    return this;
+  }
+
+  List<String> _qualifyAll(Object columns) => switch (columns) {
+    final String column => [_qualify(column)],
+    final Iterable<Object?> list => [for (final c in list) _qualify('$c')],
+    _ => throw ArgumentError.value(columns, 'columns', 'String or List'),
+  };
+
   ModelQuery<T> whereAny(List<String> columns, String operator, Object? value) {
     builder.whereAny(columns, operator, value);
     return this;

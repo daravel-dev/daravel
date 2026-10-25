@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 import '../foundation/config.dart';
+import 'context.dart';
 import '../foundation/container.dart';
 import '../foundation/env.dart';
 import '../foundation/exceptions.dart';
@@ -494,7 +495,12 @@ final class Logger {
     if (level.index < minimumLevel.index || _handlers.isEmpty) {
       return;
     }
-    final merged = <String, Object?>{..._shared, ...scopeContext, ...?context};
+    final merged = <String, Object?>{
+      ..._shared,
+      ...Context.forLogging,
+      ...scopeContext,
+      ...?context,
+    };
     final record = LogRecord(
       time: DateTime.now().toUtc(),
       level: level,

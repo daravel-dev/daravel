@@ -197,6 +197,10 @@ final class Container {
   T make<T extends Object>({String? name}) =>
       _makeByKey(BindingKey(T, name)) as T;
 
+  /// [make] with [T] inferred from where the value goes, so a factory
+  /// names no types: `c.singleton((c) => OrderService(c(), c()))`.
+  T call<T extends Object>({String? name}) => make<T>(name: name);
+
   Object _makeByKey(BindingKey requested) {
     final key = _canonical(requested);
     final scope = currentScope;

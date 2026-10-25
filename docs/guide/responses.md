@@ -40,6 +40,35 @@ final class PostResource extends JsonResource<Post> {
 - `when`, `whenLoaded`, `mergeWhen`, `additional({...})` and
   `withMeta(request)` (Laravel's `with()`) are available.
 
+## HTML
+
+`package:daravel/html.dart` builds pages from Dart functions instead of Blade
+templates. Text and attribute values are always escaped; markup that must be
+written as is goes through `raw()`, like Blade's `{!! !!}`. A node returned
+from a handler is sent as `text/html`:
+
+```dart
+import 'package:daravel/html.dart';
+
+HtmlNode userCard(User user) => div(classes: 'card', [
+  h2([user.name]),                                   // escaped
+  p(classes: 'muted', [user.email]),
+  if (user.isAdmin) span(classes: 'badge', ['Admin']),
+]);
+
+router.get('/users/{id}', (request) async => document(title: 'Profile', [
+  mainEl([userCard(await User.query().findOrFail(request.param<int>('id')))]),
+]));
+```
+
+Children are nodes, strings (escaped text), numbers, `null` (skipped) and
+nested lists, so `if` and `for` work inside them. There are helpers for the
+common elements (`div`, `span`, `p`, `h1`–`h3`, `a`, `ul`/`ol`/`li`, tables,
+`form`, `input`, `label`, `button`, `img`, …), `el(tag, ...)` for any other,
+and attributes where `true` writes a bare attribute (`required`) and
+`false`/`null` leave it out. It is a separate import because names such as
+`a`, `p` and `text` would clash with ordinary variables.
+
 ## Errors
 
 Exceptions are rendered by the exception handler with Laravel's bodies. With

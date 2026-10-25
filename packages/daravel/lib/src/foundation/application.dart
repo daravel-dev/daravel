@@ -270,6 +270,9 @@ final class Application {
     }
     _builder._exceptionsConfig?.call(exceptions);
 
+    for (final configure in _builder._bindings) {
+      configure(container);
+    }
     for (final provider in _builder._providers) {
       await provider.register(container);
     }
@@ -655,6 +658,8 @@ final class ApplicationBuilder {
   final List<HealthCheck> _healthChecks = <HealthCheck>[];
   bool _defaultHealthChecks = true;
   final List<ServiceProvider> _providers = <ServiceProvider>[];
+  final List<void Function(Container container)> _bindings =
+      <void Function(Container container)>[];
   final List<Migration> _migrations = <Migration>[];
   final Map<String, DatabaseDriverFactory> _databaseDrivers = {};
   final List<Seeder> _seeders = <Seeder>[];
@@ -770,6 +775,24 @@ final class ApplicationBuilder {
     void Function(ExceptionHandler exceptions) configure,
   ) {
     _exceptionsConfig = configure;
+    return this;
+  }
+
+  /// Registers services without a [ServiceProvider] class:
+  ///
+  /// ```dart
+  /// .withBindings((c) {
+  ///   c.singleton<PaymentGateway>((c) => MidtransGateway(c()));
+  ///   c.scoped<TenantContext>((c) => TenantContext.of(c()));
+  /// })
+  /// ```
+  ///
+  /// Runs after the framework's own bindings (so it can replace one) and
+  /// before the providers register (so they can use these).
+  ApplicationBuilder withBindings(
+    void Function(Container container) configure,
+  ) {
+    _bindings.add(configure);
     return this;
   }
 

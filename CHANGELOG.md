@@ -5,6 +5,39 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 breaking changes to the Dart API wait for a new major version, and
 Laravel-facing formats change only to match Laravel more closely.
 
+## Unreleased
+
+### Added
+
+- Dependency injection without boilerplate: `ApplicationBuilder.withBindings`
+  registers services without a provider class, calling the container
+  (`c()`) resolves the type each argument needs, and `inject<T>()` /
+  `maybeInject<T>()` (Laravel's `resolve()`) keep defaults mockable.
+- Fluent helpers: `Str` methods chain on strings
+  (`title.after(':').squish().slug()`, `isBlank` on `String?`); durations
+  (`10.minutes`, `7.days.fromNow`) and Carbon-style dates (`isPast`,
+  `startOfDay`, `diffForHumans()` in English and Indonesian, on `Clock`);
+  Laravel's `Number` (`format`, `percentage`, `currency`, `fileSize`,
+  `abbreviate`, `forHumans`, `ordinal`) with intl's output for `en` and
+  `id`.
+- Calendar math as Carbon: `addMonths`/`addYears` (overflowing) and their
+  `NoOverflow` forms, `startOf`/`endOf` week (Monday), month and year,
+  `daysInMonth`, `isWeekend`, `isSameDay`, `isBetween`.
+- Laravel 11 date shortcuts on queries: `wherePast`, `whereFuture`,
+  `whereNowOrPast`, `whereNowOrFuture`, `whereToday`, `whereBeforeToday`,
+  `whereTodayOrBefore`, `whereAfterToday`, `whereTodayOrAfter` and their
+  `orWhere` forms (on `Clock`); `whereYear`/`whereMonth`/`whereDay` on model
+  queries.
+- `DB.whenQueryingForLongerThan` (total query time per request, job or
+  command, as Laravel), `DB.totalQueryDuration`, and `DB.withQueryCount`
+  for N+1 assertions.
+- `Context` (Laravel 11): per-request data added to log records and carried
+  into the jobs it dispatches, with hidden entries that are carried but not
+  logged.
+- `package:daravel/html.dart`: a typed HTML builder for pages, escaped by
+  default (`raw()` for trusted markup); a node returned from a handler is
+  sent as HTML.
+
 ## 1.1.0
 
 Polymorphic relations and safer concurrency, all backwards compatible. The

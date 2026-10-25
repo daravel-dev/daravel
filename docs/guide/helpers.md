@@ -41,6 +41,64 @@ dataGet({
 | Generators | `random` (cryptographically secure), `uuid` (v4), `ulid` |
 | Inflection | `plural(word, [count])`, `singular`, `pluralStudly`: English rules, common irregulars and uncountables; the case of the input is kept |
 
+The same helpers chain on the string itself, like Laravel's `Str::of()`:
+
+```dart
+final slug = rawTitle.after(':').squish().slug();
+final model = 'blog_posts'.singular().studly();     // BlogPost
+final masked = email.mask('*', 3);
+if (request.header('x-tenant').isBlank) { ... }    // also on null
+```
+
+Methods that `String` already has (`contains`, `startsWith`, `padLeft`, …)
+keep their Dart meaning; `Str.contains` and friends give Laravel's.
+`isBlank`, `isFilled`, `orEmpty` and `nullIfBlank` work on `String?`.
+
+## Time
+
+```dart
+await Cache.remember('leaderboard', 10.minutes, Leaderboard.compute);
+final expires = 7.days.fromNow;                     // Clock.now() + 7 days
+post.createdAt.diffForHumans();                     // 5 minutes ago
+post.createdAt.diffForHumans(locale: 'id');         // 5 menit yang lalu
+```
+
+- `5.seconds`, `10.minutes`, `2.hours`, `7.days`, `2.weeks` are durations;
+  `.fromNow` and `.ago` turn them into dates.
+- On a `DateTime`: `isPast`, `isFuture`, `isToday`, `startOfDay`,
+  `endOfDay` and `diffForHumans({other, locale})`.
+- Calendar math as Carbon: `addMonths`/`subMonths` and `addYears`/`subYears`
+  overflow (Jan 31 plus one month is Mar 3), the `…NoOverflow` forms stay in
+  the target month (Feb 28); `startOfWeek` (Monday) / `endOfWeek`,
+  `startOfMonth` / `endOfMonth`, `startOfYear` / `endOfYear` (ends at
+  `.999999`), `daysInMonth`, `isWeekend`, `isWeekday`, `isSameDay`,
+  `isSameMonth`, `isSameYear` and `isBetween(start, end, inclusive:)`.
+- Everything reads `Clock`, so `freezeTime()` and `travel()` apply.
+- `diffForHumans` is Carbon's: the largest whole calendar unit (`4 weeks
+  ago`, then `1 month ago` from the same day of the previous month),
+  `from now` for the future, `before`/`after` with `other:`, in English or
+  Indonesian (`yang lalu`, `dari sekarang`).
+
+## `Number`
+
+Laravel's `Number`, with the same output as Laravel's intl formatting for
+the `en` and `id` locales (`Number.useLocale('id')` sets the default):
+
+| Call | Result |
+| :-- | :-- |
+| `Number.format(1234567.891, precision: 2)` | `1,234,567.89` (`1.234.567,89` in `id`) |
+| `Number.percentage(66.666, precision: 1)` | `66.7%` |
+| `Number.currency(150000, code: 'IDR', locale: 'id')` | `Rp 150.000,00` |
+| `Number.currency(150000, code: 'IDR')` | `IDR 150,000.00` |
+| `Number.fileSize(5 * 1024 * 1024)` | `5 MB` |
+| `Number.abbreviate(1230000, precision: 2)` | `1.23M` |
+| `Number.forHumans(1500)` | `2 thousand` |
+| `Number.ordinal(22)` | `22nd` (`ke-22` in `id`) |
+
+Rounding is half to even, as ICU rounds (`Number.format(2.5, precision: 0)`
+is `2`). Shortcuts: `5242880.toFileSize()`, `1500.abbreviate()`,
+`150000.toCurrency(code: 'IDR')`, `22.ordinal()`.
+
 ## Global helpers
 
 | Helper | Notes |

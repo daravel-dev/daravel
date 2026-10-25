@@ -6,6 +6,7 @@ import '../foundation/clock.dart';
 import 'package:uuid/uuid.dart';
 
 import '../database/database_manager.dart';
+import '../logging/context.dart';
 import '../database/query/query_builder.dart';
 import '../database/schema/migration.dart';
 import '../database/schema/schema_builder.dart';
@@ -30,6 +31,7 @@ final class JobPayload {
     this.retryUntil,
     this.uniqueKey,
     this.tags = const <String>[],
+    this.context,
   });
 
   factory JobPayload.forJob(
@@ -54,6 +56,8 @@ final class JobPayload {
       retryUntil: retryUntil == null ? null : pushed + retryUntil.inSeconds,
       uniqueKey: uniqueKey,
       tags: List.unmodifiable(job.tags),
+      // The dispatching request's Context travels with the job.
+      context: Context.current.dehydrate(),
     );
   }
 
@@ -76,6 +80,12 @@ final class JobPayload {
       for (final tag in (json['tags'] as List<Object?>?) ?? const <Object?>[])
         if (tag is String) tag,
     ],
+    context: switch (json['context']) {
+      final Map<Object?, Object?> map => {
+        for (final MapEntry(:key, :value) in map.entries) '$key': value,
+      },
+      _ => null,
+    },
   );
 
   /// Backoff seconds as a list (Daravel), a number, or Laravel's
@@ -115,6 +125,9 @@ final class JobPayload {
   final String? uniqueKey;
 
   /// Monitoring tags ([Job.tags]; Laravel Horizon's `tags` payload key).
+  /// The dispatching scope's `Context` (visible and hidden entries).
+  final Map<String, Object?>? context;
+
   final List<String> tags;
 
   Map<String, Object?> toJson() => <String, Object?>{
@@ -130,6 +143,7 @@ final class JobPayload {
     'pushedAt': pushedAt,
     'uniqueKey': uniqueKey,
     'tags': tags,
+    if (context != null) 'context': context,
     'data': data,
   };
 

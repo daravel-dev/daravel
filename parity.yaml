@@ -55,6 +55,7 @@ sections:
       - { php: "$request->route('id')", dart: "request.param<int>('id')", symbol: Request.param }
       - { php: "$request->expectsJson()", dart: "request.expectsJson", symbol: Request.expectsJson }
       - { php: "response()->json($data, $status)", dart: "Response.json(data, status: status)", symbol: Response.json }
+      - { php: "Blade views ({{ $name }}, {!! $html !!})", dart: "div([user.name]) / raw(html) from package:daravel/html.dart", symbol: HtmlNode, note: "Typed builder, escaped by default; a separate import." }
       - { php: "response()->noContent()", dart: "Response.noContent()", symbol: Response.noContent }
       - { php: "redirect($to)", dart: "Response.redirect(to)", symbol: Response.redirect }
       - { php: "response()->streamDownload(...)", dart: "Response.stream(...)", symbol: Response.stream }
@@ -114,6 +115,9 @@ sections:
       - { php: "DB_CONNECTION=mysql / mariadb", dart: "withDatabaseDriver('mysql', MySqlDriver.fromConfig)", symbol: ApplicationBuilder.withDatabaseDriver, note: "package:daravel_mysql; registered by new projects." }
       - { php: "DB::raw($sql)", dart: "DB.raw(sql)", symbol: DB.raw }
       - { php: "DB::listen(fn (QueryExecuted $q) => ...)", dart: "DB.listen((QueryExecuted q) {...})", symbol: DB.listen }
+      - { php: "DB::whenQueryingForLongerThan(500, fn)", dart: "DB.whenQueryingForLongerThan(const Duration(milliseconds: 500), (q) {...})", symbol: DB.whenQueryingForLongerThan, note: "Total per request, job or command; once." }
+      - { php: "DB::enableQueryLog(); ... count(DB::getQueryLog())", dart: "final (result, count, queries) = await DB.withQueryCount(() => ...)", symbol: DB.withQueryCount }
+      - { php: "->whereToday('starts_at') / wherePast / whereFuture / whereBeforeToday", dart: ".whereToday('starts_at') / wherePast / whereFuture / whereBeforeToday", symbol: QueryBuilder.whereToday, note: "Against Clock.now()." }
       - { php: "->insertGetId($values)", dart: "await DB.table(t).insertGetId(values)", symbol: QueryBuilder.insertGetId, async: true }
       - { php: "->upsert($values, $uniqueBy)", dart: ".upsert(values, uniqueBy)", symbol: QueryBuilder.upsert, async: true }
       - { php: "->chunkById(100, fn)", dart: ".chunkById(100, (rows) async {...})", symbol: QueryBuilder.chunkById, async: true }
@@ -183,6 +187,8 @@ sections:
       - { php: "Log::withContext([...])", dart: "Log.withContext({...})", symbol: Log.withContext }
       - { php: "config('app.name')", dart: "Config.get<String>('app.name')", symbol: Config.get }
       - { php: "app(Service::class)", dart: "App.make<Service>()", symbol: App.make }
+      - { php: "resolve(Service::class)", dart: "inject<Service>() / maybeInject<Service>()", symbol: inject, note: "The type is inferred where the value goes: `orders ?? inject()`." }
+      - { php: "$this->app->singleton(...) in AppServiceProvider::register()", dart: ".withBindings((c) => c.singleton((c) => OrderService(c(), c())))", symbol: ApplicationBuilder.withBindings, note: "Calling the container (`c()`) resolves the type each argument needs." }
       - { php: "now()", dart: "Clock.now()", symbol: Clock.now, note: "Frozen by freezeTime()/travel() in tests." }
 
   - name: Strings, helpers, collections
@@ -193,6 +199,12 @@ sections:
       - { php: "Str::contains / startsWith / endsWith", dart: "Str.contains / startsWith / endsWith", symbol: Str.contains }
       - { php: "Str::plural / singular / pluralStudly", dart: "Str.plural / singular / pluralStudly", symbol: Str.pluralStudly, note: "English rules with common irregulars." }
       - { php: "Str::random / uuid / ulid / isUuid / isJson", dart: "Str.random / uuid / ulid / isUuid / isJson", symbol: Str.ulid }
+      - { php: "Str::of($title)->after(':')->squish()->slug()", dart: "title.after(':').squish().slug()", symbol: DaravelString, note: "Str methods chain on the string itself." }
+      - { php: "now()->addMinutes(10) / Carbon::now()->subDays(7)", dart: "10.minutes.fromNow / 7.days.ago", symbol: DaravelDuration }
+      - { php: "$date->diffForHumans() / isPast() / isToday() / startOfDay()", dart: "date.diffForHumans() / isPast / isToday / startOfDay", symbol: DaravelDateTime, note: "Carbon's units and wording, en and id." }
+      - { php: "$date->addMonth() / addMonthsNoOverflow(1) / startOfWeek() / between($a, $b)", dart: "date.addMonths(1) / addMonthsNoOverflow(1) / startOfWeek / isBetween(a, b)", symbol: DaravelDateTime, note: "Same overflow rules as Carbon." }
+      - { php: "Context::add('tenant_id', $id) / Context::get('tenant_id') / addHidden", dart: "Context.add('tenant_id', id) / Context.get<int>('tenant_id') / addHidden", symbol: Context, note: "Logged, and carried into queued jobs." }
+      - { php: "Number::format / percentage / currency / fileSize / abbreviate / ordinal", dart: "Number.format / percentage / currency / fileSize / abbreviate / ordinal", symbol: Number, note: "en and id locales, as Laravel's intl output." }
       - { php: "abort_if / abort_unless", dart: "abortIf / abortUnless", symbol: abortIf }
       - { php: "retry(, fn, )", dart: "await retry(times, (attempt) async {...}, delay:)", symbol: retry, async: true }
       - { php: "rescue(fn, )", dart: "await rescue(() async {...}, fallback:)", symbol: rescue, async: true }
@@ -229,7 +241,6 @@ exceptions:
 
 # Laravel features without a Daravel equivalent yet (BLUEPRINT_V2 Tier 2/3).
 missing:
-  - { php: "Blade templates", plan: "Tier 3 (typed HTML builder)" }
   - { php: "Sessions, CSRF, SPA cookie auth", plan: "Tier 2" }
   - { php: "Mail, notifications, broadcasting", plan: "Tier 2/3" }
   - { php: "Redis cache/queue/lock, S3 storage", plan: "Tier 2" }

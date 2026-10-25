@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import '../database/database_manager.dart';
 import '../database/query/query_ast.dart';
 import '../database/query/query_builder.dart';
@@ -22,6 +24,24 @@ abstract final class App {
   static T? tryMake<T extends Object>({String? name}) =>
       Container.current.tryMake<T>(name: name);
 }
+
+/// Resolves [T] from the active container (Laravel's `resolve()`), with [T]
+/// inferred from where the value goes, so a default stays mockable:
+///
+/// ```dart
+/// final class OrderController {
+///   OrderController({OrderService? orders}) : orders = orders ?? inject();
+///   final OrderService orders;
+/// }
+/// ```
+///
+/// Request-scoped services resolve to the current request's instance.
+T inject<T extends Object>({String? name}) =>
+    Container.current.make<T>(name: name);
+
+/// [inject], or `null` when nothing is bound for [T].
+T? maybeInject<T extends Object>({String? name}) =>
+    Container.current.tryMake<T>(name: name);
 
 /// Configuration access (`Config.get('app.name')`).
 abstract final class Config {
@@ -128,6 +148,32 @@ abstract final class DB {
   /// duration and connection, for debugging and slow-query logging.
   static void listen(void Function(QueryExecuted event) listener) =>
       manager.listen(listener);
+
+  /// Calls [handler] once the current request, job or command has spent
+  /// more than [threshold] in queries (`DB::whenQueryingForLongerThan`).
+  static void whenQueryingForLongerThan(
+    Duration threshold,
+    void Function(QueryExecuted event) handler,
+  ) => manager.whenQueryingForLongerThan(threshold, handler);
+
+  /// Time the current request, job or command has spent in queries.
+  static Duration get totalQueryDuration => manager.totalQueryDuration;
+
+  /// Runs [body] and returns its result, how many queries it ran and the
+  /// queries themselves:
+  ///
+  /// ```dart
+  /// final (users, count, _) = await DB.withQueryCount(
+  ///   () => User.query().with_('posts').get(),
+  /// );
+  /// expect(count, 2); // eager loading: no N+1
+  /// ```
+  static Future<(T, int, List<QueryExecuted>)> withQueryCount<T>(
+    FutureOr<T> Function() body,
+  ) async {
+    final (result, queries) = await manager.captureQueries(body);
+    return (result, queries.length, queries);
+  }
 }
 
 /// Schema access.

@@ -44,6 +44,31 @@ final class BillingServiceProvider extends ServiceProvider {
 `DeferredServiceProvider` registers its bindings the first time one of its
 types is resolved.
 
+For a few bindings, `withBindings` saves the provider class. Calling the
+container (`c()`) resolves whatever type the argument needs, so factories
+name no types, and `inject()` (Laravel's `resolve()`) does the same in
+application code:
+
+```dart
+Application.configure(basePath: '.')
+    .withBindings((c) {
+      c.singleton((c) => StripeGateway(c()));          // c() → Env
+      c.singleton((c) => OrderService(c(), c()));      // → StripeGateway, Logger
+      c.scoped((c) => RequestAudit(c()));              // → this request
+    });
+
+final class OrderController {
+  OrderController({OrderService? orders}) : orders = orders ?? inject();
+  final OrderService orders;                           // a fake in unit tests
+}
+```
+
+`withBindings` runs after the framework's own bindings, so it can replace
+one, and before the providers register, so they can use its services.
+`maybeInject<T>()` returns `null` when nothing is bound. The container is
+not `get_it`: scoped services live in the request's zone, so concurrent
+requests never see each other's instances.
+
 ## Zones instead of global state
 
 A PHP request starts from an empty process; a Dart server handles many

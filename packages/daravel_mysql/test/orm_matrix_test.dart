@@ -11,6 +11,7 @@ import 'package:test/test.dart';
 // package has the MySQL driver. Not published (.pubignore): the imports
 // reach into the workspace.
 import '../../daravel/test/database/cache_store_concurrency_test.dart';
+import '../../daravel/test/database/date_queries_and_guards_test.dart';
 import '../../daravel/test/database/orm_polymorphic_test.dart';
 import '../../daravel/test/database/orm_self_relations_and_aggregates_test.dart';
 import '../../daravel/test/database/transaction_concurrency_test.dart';
@@ -49,4 +50,5 @@ void main() {
   );
   group('transaction concurrency', () => transactionConcurrencyTests(open));
   group('cache store concurrency', () => cacheStoreConcurrencyTests(open));
+  group('date queries and guards', () => dateQueryAndGuardTests(open));
 }

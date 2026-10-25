@@ -70,6 +70,26 @@ on):
   database:emails`; `QueueWorker.pause()` / `resume()` do the same for one
   worker.
 
+## Context
+
+Laravel 11's `Context` holds data about the current request, job or
+command. Visible entries are added to every log record, and everything,
+hidden entries included, travels with the jobs dispatched from there:
+
+```dart
+// A middleware
+Context.add('tenant_id', tenant.id);
+Context.addHidden('api_token', token);    // carried, never logged
+
+// Later in the request, or inside the queued job minutes later
+final tenantId = Context.get<int>('tenant_id');
+```
+
+`addMany`, `addIf`, `push(key, [values])`, `has`, `forget`, `all()` and
+the `…Hidden` counterparts complete it. Each request starts empty. Values
+must be JSON-encodable, like job data, and hidden values are stored in the
+job payload (the `jobs` table), so keep real secrets out of it.
+
 ## Scheduling
 
 `routes/console.dart` declares the schedule:

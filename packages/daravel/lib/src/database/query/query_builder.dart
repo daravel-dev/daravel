@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import '../../foundation/clock.dart';
 import '../../http/http_exceptions.dart';
 import '../database_manager.dart';
 import 'paginator.dart';
@@ -272,6 +273,72 @@ final class QueryBuilder {
   ]) {
     final (operator, actual) = _operatorAndValue(operatorOrValue, value);
     return _add(DatePartWhere(column, 'day', operator, actual));
+  }
+
+  // Laravel 11's date shortcuts (BuildsWhereDateClauses), against
+  // Clock.now(). [columns] is a column or a list of columns.
+
+  QueryBuilder wherePast(Object columns) => _againstNow(columns, '<', 'AND');
+  QueryBuilder whereNowOrPast(Object columns) =>
+      _againstNow(columns, '<=', 'AND');
+  QueryBuilder orWherePast(Object columns) => _againstNow(columns, '<', 'OR');
+  QueryBuilder orWhereNowOrPast(Object columns) =>
+      _againstNow(columns, '<=', 'OR');
+  QueryBuilder whereFuture(Object columns) => _againstNow(columns, '>', 'AND');
+  QueryBuilder whereNowOrFuture(Object columns) =>
+      _againstNow(columns, '>=', 'AND');
+  QueryBuilder orWhereFuture(Object columns) => _againstNow(columns, '>', 'OR');
+  QueryBuilder orWhereNowOrFuture(Object columns) =>
+      _againstNow(columns, '>=', 'OR');
+
+  QueryBuilder whereToday(Object columns) => _againstToday(columns, '=', 'AND');
+  QueryBuilder whereBeforeToday(Object columns) =>
+      _againstToday(columns, '<', 'AND');
+  QueryBuilder whereTodayOrBefore(Object columns) =>
+      _againstToday(columns, '<=', 'AND');
+  QueryBuilder whereAfterToday(Object columns) =>
+      _againstToday(columns, '>', 'AND');
+  QueryBuilder whereTodayOrAfter(Object columns) =>
+      _againstToday(columns, '>=', 'AND');
+  QueryBuilder orWhereToday(Object columns) =>
+      _againstToday(columns, '=', 'OR');
+  QueryBuilder orWhereBeforeToday(Object columns) =>
+      _againstToday(columns, '<', 'OR');
+  QueryBuilder orWhereTodayOrBefore(Object columns) =>
+      _againstToday(columns, '<=', 'OR');
+  QueryBuilder orWhereAfterToday(Object columns) =>
+      _againstToday(columns, '>', 'OR');
+  QueryBuilder orWhereTodayOrAfter(Object columns) =>
+      _againstToday(columns, '>=', 'OR');
+
+  static Iterable<String> _columnsOf(Object columns) => switch (columns) {
+    final String column => [column],
+    final Iterable<Object?> list => [for (final c in list) '$c'],
+    _ => throw ArgumentError.value(columns, 'columns', 'String or List'),
+  };
+
+  static String _two(int n) => n.toString().padLeft(2, '0');
+
+  /// `Y-m-d`, in UTC like the timestamps Daravel writes.
+  static String _date(DateTime t) =>
+      '${t.year}-${_two(t.month)}-${_two(t.day)}';
+
+  QueryBuilder _againstNow(Object columns, String operator, String boolean) {
+    final now = Clock.now().toUtc();
+    final value =
+        '${_date(now)} ${_two(now.hour)}:${_two(now.minute)}:${_two(now.second)}';
+    for (final column in _columnsOf(columns)) {
+      _add(BasicWhere(column, operator, value, boolean: boolean));
+    }
+    return this;
+  }
+
+  QueryBuilder _againstToday(Object columns, String operator, String boolean) {
+    final today = _date(Clock.now().toUtc());
+    for (final column in _columnsOf(columns)) {
+      _add(DatePartWhere(column, 'date', operator, today, boolean: boolean));
+    }
+    return this;
   }
 
   QueryBuilder whereJsonContains(
