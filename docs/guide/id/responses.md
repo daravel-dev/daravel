@@ -1,4 +1,4 @@
-<!-- source: responses.md sha256:f8ca4288af42 -->
+<!-- source: responses.md sha256:f48329fa6a0b -->
 # Respons dan resource
 
 Handler bisa mengembalikan `Response.json(data, status: 201)`,
@@ -194,8 +194,11 @@ sampai ke isolate yang punya listener di channel itu, sesuai urutan
 terbitnya, dan tidak disimpan: listener menerima apa yang diterbitkan
 setelah `subscribe` selesai. Pesan tetap di satu server; untuk beberapa
 mesin, terbitkan lewat sesuatu yang dipakai bersama, seperti tabel database
-atau queue. Channel notifikasi `broadcast` menerbitkan lewat mekanisme ini
-([Mail dan notifikasi](mail.md#broadcast)).
+atau queue.
+
+Untuk client Laravel Echo, event dikirim melalui protokol Pusher
+([Broadcasting](broadcasting.md)), yang berjalan di atas channel-channel
+ini.
 
 ## Error
 

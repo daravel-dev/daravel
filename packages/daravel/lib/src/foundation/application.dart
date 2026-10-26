@@ -52,6 +52,10 @@ import '../routing/openapi.dart';
 import '../routing/router.dart';
 import '../routing/url_signer.dart';
 import '../schedule/schedule.dart';
+import '../broadcasting/broadcast_config.dart';
+import '../broadcasting/broadcast_manager.dart';
+import '../broadcasting/channel_registry.dart';
+import '../broadcasting/pusher_server.dart';
 import '../server/broadcast.dart';
 import '../server/coordinator.dart';
 import '../server/supervisor.dart';
@@ -165,6 +169,7 @@ final class Application {
       ..register(loggingConfig)
       ..register(StorageConfig.fromEnv(env))
       ..register(MailConfig.fromEnv(env))
+      ..register(BroadcastConfig.fromEnv(env))
       ..register(MetricsConfig.fromEnv(env));
     for (final factory in _builder._configFactories) {
       config.register(factory(env));
@@ -283,7 +288,7 @@ final class Application {
           c.make<DatabaseManager>(),
           c.make<Mailer>(),
           appName: config.section<AppConfig>().name,
-          broadcaster: c.make<Broadcaster>(),
+          broadcaster: c.make<BroadcastManager>(),
           channels: _builder._notificationChannels,
         ),
       )
@@ -297,6 +302,23 @@ final class Application {
       ..instance<AuthManager>(auth)
       ..instance<CoordinatorChannel>(channel)
       ..singleton<Broadcaster>((c) => Broadcaster(c.make<CoordinatorChannel>()))
+      ..singleton<BroadcastManager>((c) {
+        final broadcasting = c
+            .make<ConfigRepository>()
+            .section<BroadcastConfig>();
+        return BroadcastManager(
+          broadcasting,
+          server: broadcasting.serves
+              ? PusherServer(
+                  broadcasting,
+                  c.make<Broadcaster>(),
+                  c.make<CoordinatorChannel>(),
+                )
+              : null,
+          http: c.make<HttpClientFactory>(),
+          logger: c.make<Logger>(),
+        );
+      })
       ..instance<EventDispatcher>(events)
       ..instance<AppMetrics>(metrics)
       ..singleton<StorageManager>(
@@ -378,6 +400,11 @@ final class Application {
     events.afterCommitHook = (callback) =>
         container.make<DatabaseManager>().afterCommit(callback);
     events.queuePusher = (Job job) => container.make<QueueManager>().push(job);
+    events.broadcastHook = (event) async {
+      if (event is ShouldBroadcast) {
+        await container.make<BroadcastManager>().broadcast(event);
+      }
+    };
     _builder._policiesConfig?.call(gate);
     _builder._rateLimitsConfig?.call(rateLimiter);
 
@@ -498,6 +525,8 @@ final class Application {
   }
 
   void _registerRoutes() {
+    // Also without withRouting: a server may only serve broadcasting.
+    _registerBroadcastingRoutes();
     final routing = _builder._routing;
     if (routing == null) {
       return;
@@ -533,6 +562,64 @@ final class Application {
     for (final extra in routing.then) {
       extra(router);
     }
+  }
+
+  /// The Pusher protocol server and Laravel's `/broadcasting/auth`, when
+  /// [ApplicationBuilder.withBroadcasting] was called and REVERB_APP_KEY
+  /// and REVERB_APP_SECRET are set.
+  void _registerBroadcastingRoutes() {
+    final setup = _builder._broadcasting;
+    final broadcasting = config.section<BroadcastConfig>();
+    if (setup == null || !broadcasting.serves) {
+      return;
+    }
+    final server = container.make<BroadcastManager>().server!;
+    final channels = ChannelRegistry();
+    setup.channels?.call(channels);
+    final authorization = BroadcastAuthorization(
+      broadcasting,
+      channels,
+      container.make<AuthManager>(),
+    );
+    router
+      ..ws(
+        '/app/{key}',
+        (socket, request) =>
+            server.connect(socket, request, request.param<String>('key')),
+      ).name('daravel.broadcasting.connect')
+      ..post(
+        '/apps/{appId}/events',
+        (request) => server.events(request, request.param<String>('appId')),
+      )
+      ..post(
+        '/apps/{appId}/batch_events',
+        (request) =>
+            server.batchEvents(request, request.param<String>('appId')),
+      )
+      ..get(
+        '/apps/{appId}/channels',
+        (request) => server.channels(request, request.param<String>('appId')),
+      )
+      ..get(
+        '/apps/{appId}/channels/{channel}',
+        (request) => server.channel(
+          request,
+          request.param<String>('appId'),
+          request.param<String>('channel'),
+        ),
+      )
+      ..get(
+        '/apps/{appId}/channels/{channel}/users',
+        (request) => server.users(
+          request,
+          request.param<String>('appId'),
+          request.param<String>('channel'),
+        ),
+      )
+      ..post(
+        setup.authPath,
+        authorization.handle,
+      ).name('broadcasting.auth').middleware(setup.authMiddleware);
   }
 
   /// The translator: `APP_LOCALE`, `APP_FALLBACK_LOCALE`, the lines from
@@ -847,6 +934,12 @@ final class ApplicationBuilder {
       {};
   MailTheme Function(MailTheme defaults)? _mailTheme;
   final Map<String, NotificationChannel> _notificationChannels = {};
+  ({
+    void Function(ChannelRegistry channels)? channels,
+    List<String> authMiddleware,
+    String authPath,
+  })?
+  _broadcasting;
   final List<Seeder> _seeders = <Seeder>[];
   final List<ModelDefinition<Model>> _models = <ModelDefinition<Model>>[];
   final Map<String, Map<String, Object?>> _translations = {};
@@ -1051,6 +1144,25 @@ final class ApplicationBuilder {
     MailTheme Function(MailTheme defaults) theme,
   ) {
     _mailTheme = theme;
+    return this;
+  }
+
+  /// Serves Laravel Echo and Laravel's broadcasting, as Laravel Reverb
+  /// does, on this server's port: the Pusher protocol at `/app/{key}`, its
+  /// HTTP API at `/apps/{id}/...`, and `/broadcasting/auth` for private and
+  /// presence channels, which [channels] authorizes (Laravel's
+  /// `routes/channels.php`). Needs REVERB_APP_ID, REVERB_APP_KEY and
+  /// REVERB_APP_SECRET.
+  ApplicationBuilder withBroadcasting({
+    void Function(ChannelRegistry channels)? channels,
+    List<String> authMiddleware = const ['auth'],
+    String authPath = '/broadcasting/auth',
+  }) {
+    _broadcasting = (
+      channels: channels,
+      authMiddleware: authMiddleware,
+      authPath: authPath,
+    );
     return this;
   }
 

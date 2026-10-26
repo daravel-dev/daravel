@@ -8,7 +8,34 @@ Laravel-facing formats change only to match Laravel more closely.
 
 ## Unreleased
 
+### Added
+
+- Broadcasting with Laravel Echo (Blueprint #26): Daravel speaks the
+  Pusher protocol (version 7) as Laravel Reverb does, on its HTTP port.
+  `withBroadcasting(channels: ...)` with `REVERB_APP_ID`, `REVERB_APP_KEY`
+  and `REVERB_APP_SECRET` serves `/app/{key}` (Echo, pusher-js),
+  `/broadcasting/auth` (Laravel's channel signatures; the `channels`
+  callbacks are `routes/channels.php`), and the HTTP API (`/apps/{id}/events`,
+  `batch_events`, `channels`, `channel`, `users`). Public, private and
+  presence channels, client events (`whisper`) and `toOthers` work, and
+  connections, subscriptions and presence members are shared by every worker
+  isolate through the coordinator.
+- `ShouldBroadcast` events are broadcast when dispatched; `Broadcast.event`
+  (with `toOthers()`, from Echo's `X-Socket-ID`) and `Broadcast.send`.
+- `BROADCAST_CONNECTION`: `daravel` (this server), `reverb` (a Laravel
+  Reverb or another Daravel), `pusher` (Pusher Channels), `log`, `null`.
+  Laravel broadcasts through Daravel with `BROADCAST_CONNECTION=reverb`.
+  Signed API requests older than ten minutes are refused.
+- `bench/interop/run.sh`: `laravel-echo` and `pusher-js` against Daravel,
+  Laravel 12 through Daravel, and Daravel through Laravel Reverb.
+
 ### Changed
+
+- The `broadcast` notification channel sends through
+  `BROADCAST_CONNECTION` on the notifiable's private channel,
+  `private-App.Models.User.1`, as a Pusher event, so Echo's
+  `.notification()` receives it. In 1.9.0 it published raw messages on
+  `App.Models.User.1` for `Broadcast.pipe`.
 
 - bcrypt is Daravel's own: on Linux it runs the system's C bcrypt
   (libxcrypt's `crypt_rn`, as PHP does), about 1.5 times as fast as before,

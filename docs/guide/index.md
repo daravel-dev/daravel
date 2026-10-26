@@ -50,16 +50,17 @@ Performance numbers come from a reproducible harness, never from claims
 6. [Authentication and authorization](auth.md): tokens, JWT, hashing, Crypt, gates.
 7. [Cache, events, queues, scheduling](background.md).
 8. [Mail and notifications](mail.md): SMTP, mailables, and mail and database notifications.
-9. [Strings, helpers and collections](helpers.md): `Str`, `retry`, `once`, `pluck`, ...
-10. [HTTP client](http-client.md): outgoing requests with `Http`, retries and `Http.fake()`.
-11. [Flutter client](flutter-client.md): a typed client generated from the routes, with on-device validation.
-12. [Testing](testing.md): `TestClient`, database helpers, fakes, conformance.
-13. [Deployment](deployment.md): native bundles, Docker, Cloud Run, VPS (systemd + Caddy).
-14. [Laravel coexistence](laravel-coexistence.md): the compatibility contract.
-15. [Migrating from Laravel](migrating-from-laravel.md): move endpoints one at a time behind a proxy.
-16. [Security](security.md): secure defaults and the security suite.
-17. [Performance](performance.md): the benchmark harness.
-18. [Laravel ⇄ Daravel parity table](parity.md) (generated).
+9. [Broadcasting](broadcasting.md): Laravel Echo, the Pusher protocol as Reverb, private and presence channels.
+10. [Strings, helpers and collections](helpers.md): `Str`, `retry`, `once`, `pluck`, ...
+11. [HTTP client](http-client.md): outgoing requests with `Http`, retries and `Http.fake()`.
+12. [Flutter client](flutter-client.md): a typed client generated from the routes, with on-device validation.
+13. [Testing](testing.md): `TestClient`, database helpers, fakes, conformance.
+14. [Deployment](deployment.md): native bundles, Docker, Cloud Run, VPS (systemd + Caddy).
+15. [Laravel coexistence](laravel-coexistence.md): the compatibility contract.
+16. [Migrating from Laravel](migrating-from-laravel.md): move endpoints one at a time behind a proxy.
+17. [Security](security.md): secure defaults and the security suite.
+18. [Performance](performance.md): the benchmark harness.
+19. [Laravel ⇄ Daravel parity table](parity.md) (generated).
 
 Bahasa Indonesia: [Dokumentasi Daravel](id/index.md).
 

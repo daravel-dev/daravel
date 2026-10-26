@@ -13,6 +13,6 @@
 - title: Security
   pages: [auth, security]
 - title: Digging deeper
-  pages: [dartisan, flutter-client, background, mail, helpers, localization, feature-flags]
+  pages: [dartisan, flutter-client, background, mail, broadcasting, helpers, localization, feature-flags]
 - title: Testing and performance
   pages: [testing, performance]

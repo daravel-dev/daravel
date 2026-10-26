@@ -243,10 +243,15 @@ final class EventDispatcher {
         entry.value.add(event);
       }
     }
+    await broadcastHook?.call(event);
   }
 
   /// Dispatches after the active transaction commits, or immediately when
   /// no transaction is active (`ShouldDispatchAfterCommit`).
+  /// Called with every dispatched event after its listeners; the
+  /// application broadcasts the ones that are `ShouldBroadcast`.
+  Future<void> Function(Object event)? broadcastHook;
+
   Future<void> dispatchAfterCommit<E extends Object>(E event) {
     final hook = afterCommitHook;
     if (hook == null) {

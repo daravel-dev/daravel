@@ -34,6 +34,7 @@ and `HASH_DRIVER=bcrypt`. If the Laravel app changed them, set the same values.
 | `personal_access_tokens` | Sanctum 4 schema; tokens `{id}\|{40 chars}{crc32b}`, SHA-256 stored; `tokenable_type` = `App\Models\User` |
 | `notifications` | Laravel 12 schema; `type` `App\Notifications\...`, `notifiable_type` the model's `morphClass`, `data` JSON ([Mail](mail.md)) |
 | `features` | Pennant's schema and scope serialization ([Feature flags](feature-flags.md)) |
+| Broadcasting | Laravel Reverb's Pusher protocol: Echo connects to Daravel, `/broadcasting/auth` signs as Laravel does, Laravel broadcasts through Daravel and Daravel through Reverb, notifications on `private-App.Models.User.{id}` ([Broadcasting](broadcasting.md)) |
 | Passwords | bcrypt `$2y$` both ways (argon2id hashes need PHP's argon2 support) |
 | `Crypt` strings | `base64(json{iv, value, mac, tag})`, AES-256-CBC + HMAC or AES-256-GCM |
 | JSON errors | 401/403/404/405/413/422/429/500 bodies and messages, see [Responses](responses.md) |

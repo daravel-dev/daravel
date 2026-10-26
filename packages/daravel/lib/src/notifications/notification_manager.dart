@@ -15,7 +15,7 @@ import '../mail/mailer.dart';
 import '../mail/message.dart';
 import '../queue/job.dart';
 import '../queue/queue_manager.dart';
-import '../server/broadcast.dart';
+import '../broadcasting/broadcast_manager.dart';
 import 'notification.dart';
 
 /// Delivers a notification on one channel; [id] is this delivery's UUID.
@@ -218,9 +218,9 @@ final class DatabaseNotification {
 /// Laravel's `BroadcastNotificationCreated` event: `{"event": ..., "data":
 /// {...toBroadcast, "id": ..., "type": ...}}`.
 final class BroadcastChannel implements QueueableNotificationChannel {
-  BroadcastChannel(this._broadcaster);
+  BroadcastChannel(this._manager);
 
-  final Broadcaster _broadcaster;
+  final BroadcastManager _manager;
 
   @override
   Future<void> send(Object notifiable, Notification notification, String id) =>
@@ -237,25 +237,22 @@ final class BroadcastChannel implements QueueableNotificationChannel {
         : _channelsOf(notifiable, notification);
     return {
       'channels': channels,
-      'message': jsonEncode({
-        'event': notification.broadcastAs(),
-        'data': {
-          ...(notification.toBroadcast(notifiable) ??
-              notification.toArray(notifiable)),
-          'id': id,
-          'type': notification.broadcastType(notifiable),
-        },
-      }),
+      'event': notification.broadcastAs(),
+      'data': {
+        ...(notification.toBroadcast(notifiable) ??
+            notification.toArray(notifiable)),
+        'id': id,
+        'type': notification.broadcastType(notifiable),
+      },
     };
   }
 
   @override
-  Future<void> deliver(Map<String, Object?> payload) async {
-    final message = payload['message']! as String;
-    for (final channel in (payload['channels']! as List<Object?>)) {
-      await _broadcaster.publish(channel! as String, message);
-    }
-  }
+  Future<void> deliver(Map<String, Object?> payload) => _manager.send(
+    payload['event']! as String,
+    [for (final channel in payload['channels']! as List<Object?>) '$channel'],
+    payload['data'],
+  );
 
   static List<String> _channelsOf(
     Object notifiable,
@@ -269,9 +266,10 @@ final class BroadcastChannel implements QueueableNotificationChannel {
           return [for (final channel in channels) '$channel'];
       }
     }
+    // Laravel's PrivateChannel of the model: private-App.Models.User.1.
     if (notifiable is Model) {
       final type = notifiable.modelDefinition.morphClass.replaceAll(r'\', '.');
-      return ['$type.${notifiable.key}'];
+      return ['private-$type.${notifiable.key}'];
     }
     throw StateError(
       'The broadcast channel needs a model or a route '
@@ -286,7 +284,7 @@ final class NotificationManager {
     this._db,
     Mailer mailer, {
     required String appName,
-    Broadcaster? broadcaster,
+    BroadcastManager? broadcaster,
     Map<String, NotificationChannel> channels = const {},
   }) : _channels = {
          'mail': MailChannel(mailer, appName: appName),

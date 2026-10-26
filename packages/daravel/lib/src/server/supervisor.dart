@@ -9,6 +9,7 @@ import '../http/server_engine.dart';
 import '../logging/logger.dart';
 import '../observability/metrics.dart';
 import 'broadcast.dart';
+import 'channels.dart';
 import 'coordinator.dart';
 
 /// Creates an unbooted [Application]. Must be a top-level function (or a
@@ -16,12 +17,13 @@ import 'coordinator.dart';
 typedef ApplicationFactory = Application Function();
 
 /// Builds the standard coordinator: rate limiting, process cache, merged
-/// metrics and broadcast fan-out.
+/// metrics, broadcast fan-out and channel membership.
 Coordinator createStandardCoordinator() => Coordinator()
   ..register(RateLimitService())
   ..register(ProcessCacheService())
   ..register(MetricsService())
-  ..register(BroadcastService());
+  ..register(BroadcastService())
+  ..register(ChannelMembershipService());
 
 /// Sent by a worker once its server is bound.
 final class WorkerReady {

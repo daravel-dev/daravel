@@ -176,7 +176,7 @@ because `Notification` is the base class.
 | :-- | :-- | :-- |
 | `mail` | `toMail` | the model's `email` and `name`, or a `Notifications.route('mail', ...)` address |
 | `database` | `toDatabase` (or `toArray`) into `notifications` | a model |
-| `broadcast` | `toBroadcast` (or `toArray`) to the [Broadcaster](responses.md#broadcasting-to-every-isolate) | the model's channel, or `Notifications.route('broadcast', 'channel')` |
+| `broadcast` | `toBroadcast` (or `toArray`) as Laravel's event, through `BROADCAST_CONNECTION` ([Broadcasting](broadcasting.md)) | the model's private channel, or `Notifications.route('broadcast', 'channel')` |
 | your own | `withNotificationChannel('sms', SmsChannel())` | `routeNotificationFor('sms', ...)` |
 
 A model decides its own routes by implementing `RoutesNotifications`:
@@ -211,30 +211,28 @@ final count = await Notifications.unreadCount(user);
 
 ### Broadcast
 
-The `broadcast` channel publishes Laravel's `BroadcastNotificationCreated`
-event: the notifiable's channel is `App.Models.User.1` (its `morphClass`
-with dots, then its key), and the message is
+The `broadcast` channel sends Laravel's `BroadcastNotificationCreated`
+event through `BROADCAST_CONNECTION` ([Broadcasting](broadcasting.md)): on
+the notifiable's private channel, `private-App.Models.User.1` (its
+`morphClass` with dots, then its key), with
 
 ```json
-{"event": "Illuminate\\Notifications\\Events\\BroadcastNotificationCreated",
- "data": {"invoice_id": 7, "total": 120000, "id": "<uuid>", "type": "App\\Notifications\\InvoicePaid"}}
+{"invoice_id": 7, "total": 120000, "id": "<uuid>", "type": "App\Notifications\InvoicePaid"}
 ```
 
-with the data of `toBroadcast`, or `toArray` (as in Laravel, `toDatabase`
-is not used), and the same `id` as the notification's database row.
+from `toBroadcast`, or `toArray` (as in Laravel, `toDatabase` is not used),
+and the same `id` as the notification's database row. Laravel Echo
+receives it as in Laravel:
+
+```js
+Echo.private(`App.Models.User.${userId}`).notification((notification) => {
+  console.log(notification.type, notification.total);
+});
+```
+
 `broadcastOn`, `broadcastAs` and `broadcastType` change the channels, the
-event name and the type. A WebSocket route delivers it to the user's
-browser or app:
-
-```dart
-r.ws('/ws/notifications', (socket, request) async {
-  final user = await Auth.user<User>();
-  await Broadcast.pipe(socket, ['App.Models.User.${user!.key}']);
-}).middleware(const ['auth']);
-```
-
-This is Daravel's own WebSocket, not the Pusher protocol, so Laravel Echo
-does not connect to it yet.
+event name and the type; `Notifications.route('broadcast', 'channel')`
+sends to a channel without a model.
 
 ## Queueing
 

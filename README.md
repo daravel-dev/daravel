@@ -107,6 +107,7 @@ shares the machine).
 | **Auth** | Argon2id/bcrypt/PBKDF2 hashing off the event loop, AES-256 `Crypt`, Sanctum-compatible tokens, JWT (HS256/EdDSA), multi-guard `auth:token,jwt`, Gate & Policies, `can:` middleware |
 | **Concurrency** | Supervisor + workers sharing one port, readiness barrier, respawn with crash-loop detection, coordinator isolate for process-wide state |
 | **Cache & limits** | Memory (LRU), process, file and database stores; `remember` with stampede protection, `flexible`, atomic locks; Laravel-style fixed-window rate limiter (shared by every worker, with adaptive local leases) and `throttle:` |
+| **Realtime** | Laravel Echo over the Pusher protocol as Laravel Reverb (public, private and presence channels, whispers), `ShouldBroadcast`, broadcasting through a Reverb or Pusher Channels, SSE and WebSocket routes |
 | **Queue & schedule** | Events with queued listeners, jobs with retries, backoff, timeouts, unique jobs and middleware; sync/memory/database drivers; cron scheduler with overlap protection |
 | **API & files** | `JsonResource` with conditional attributes and Laravel `data/links/meta` collections; local/public/memory disks with `Storage.fake()` |
 | **Observability** | Channel-based structured logging with request context and secret redaction, Prometheus `/metrics` merged across workers, `/up` and `/up/ready` health probes |
@@ -534,10 +535,10 @@ created lib/app/http/resources/post_resource.dart
 | **0** | Walking skeleton: container, HTTP kernel, router, SQLite, migrations, test client, CLI, CI | ✅ done |
 | **1** | S1 foundation · S2 HTTP hardening · S3 routing · S4 validation · S5 database · S6 ORM · S7 schema, seeding & generators · S8 auth · S9 multi-isolate & cache · S10 events, queue & scheduler · S11 resources, storage & observability · S12 CLI (`new`, hot reload, `build --docker`, `doctor`, `openapi:generate`, `model:sync`, stubs) · S13 testing toolkit, lints & architecture tests | ✅ done |
 | **1** | S14 conformance suite, security suite, `parity.yaml`, benchmark harness, documentation site, `api`/`minimal` templates → **1.0.0-beta.1** | ✅ done |
-| **1.x** | Released after 1.0: localization, feature flags, SSE and WebSockets, the Flutter client generator, driver packages and `db:transfer`, mail and notifications | ✅ done |
+| **1.x** | Released after 1.0: localization, feature flags, SSE and WebSockets, the Flutter client generator, driver packages and `db:transfer`, mail and notifications, Laravel Echo broadcasting | ✅ done |
 | **2** | Sessions/CSRF, Redis, S3, OpenTelemetry, Blade-compatible compiled views; database clients only in the driver packages | planned |
 | **daragic** | Bidirectional Laravel ⇄ Daravel generator: runtime introspection → IR → generated project, converted tests, differential replay | designed |
-| **Ecosystem** | First-party packages under `daravel-dev`: `daravel_horizon` (queue supervisor and dashboard), `daravel_socialite` (OAuth and Sign in with Apple/Google), `daravel_reverb` (WebSockets, Pusher protocol), then `daravel_telescope` and `daravel_scout` | planned |
+| **Ecosystem** | First-party packages under `daravel-dev`: `daravel_horizon` (queue supervisor and dashboard), `daravel_socialite` (OAuth and Sign in with Apple/Google), then `daravel_telescope` and `daravel_scout` | planned |
 
 ## Documentation
 

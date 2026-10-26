@@ -79,6 +79,9 @@ frozen after boot.
 | `MAIL_MAILER` | `log` (`array` in tests) | `smtp`, `log`, `array` or a registered transport ([Mail](mail.md)) |
 | `MAIL_SCHEME`, `MAIL_HOST`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD` | `smtp`, `127.0.0.1`, `2525` | SMTP server; `smtps` (or port 465) for TLS from the start |
 | `MAIL_FROM_ADDRESS`, `MAIL_FROM_NAME` | `hello@example.com`, `APP_NAME` | The default sender |
+| `BROADCAST_CONNECTION` | `daravel` | Where broadcast events go: `daravel` (this server), `reverb`, `pusher`, `log`, `null` ([Broadcasting](broadcasting.md)) |
+| `REVERB_APP_ID`, `REVERB_APP_KEY`, `REVERB_APP_SECRET` | none | The Pusher app this server serves Echo with (or the Reverb it sends to) |
+| `REVERB_HOST`, `REVERB_PORT`, `REVERB_SCHEME` | none, 443, `https` | The Reverb `BROADCAST_CONNECTION=reverb` sends to |
 | `DB_CHARSET`, `DB_COLLATION`, `DB_TIMEZONE` | `utf8mb4`, `utf8mb4_unicode_ci`, server | MySQL and MariaDB, as Laravel reads them |
 | `DB_POOL_SIZE`, `DB_SSLMODE` | `10`, `disable` | Connection pool per isolate, TLS (`require`, `verify-full`) |
 | `CACHE_STORE`, `CACHE_PREFIX` | `memory` | Cache store and key prefix |

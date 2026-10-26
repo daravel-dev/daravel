@@ -184,9 +184,10 @@ A message is a string, or anything else as JSON. It reaches only the
 isolates that have a listener on the channel, in publish order, and is
 not stored: a listener gets what is published after `subscribe` returns.
 It stays within one server; for several machines, publish through
-something they share, such as a database table or a queue. The
-`broadcast` notification channel publishes through it
-([Mail and notifications](mail.md#broadcast)).
+something they share, such as a database table or a queue.
+
+For Laravel Echo clients, events go through the Pusher protocol instead
+([Broadcasting](broadcasting.md)), which runs on top of these channels.
 
 ## Errors
 

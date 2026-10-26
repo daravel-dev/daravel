@@ -49,7 +49,8 @@ abstract class Notification {
   Map<String, Object?>? toBroadcast(Object notifiable) => null;
 
   /// The channels to broadcast on; empty for the notifiable's own
-  /// (`App.Models.User.1`, Laravel's `receivesBroadcastNotificationsOn`).
+  /// (`private-App.Models.User.1`, Laravel's
+  /// `receivesBroadcastNotificationsOn` as a `PrivateChannel`).
   List<String> broadcastOn(Object notifiable) => const [];
 
   /// The broadcast event name: Laravel's

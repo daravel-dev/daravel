@@ -112,6 +112,10 @@ void main() {
         .withEnv({
           'APP_ENV': 'testing',
           'APP_NAME': 'Shop',
+          // This server broadcasts (Pusher protocol, as Reverb).
+          'REVERB_APP_ID': '1',
+          'REVERB_APP_KEY': 'key',
+          'REVERB_APP_SECRET': 'secret',
           if (pg != null && pg.isNotEmpty) ...{
             'DB_CONNECTION': 'pgsql',
             'DB_URL': pg,
@@ -323,8 +327,10 @@ void main() {
   test(
     'broadcast channel: Laravel\'s event, on the notifiable\'s channel',
     () async {
+      // Laravel's PrivateChannel of the user, as Echo's
+      // `.private('App.Models.User.1').notification()` listens.
       final subscription = await Broadcast.subscribe(
-        'App.Models.User.${teo.key}',
+        'private-App.Models.User.${teo.key}',
       );
       final received = <String>[];
       subscription.messages.listen(received.add);
@@ -333,15 +339,18 @@ void main() {
       );
       await pumpEventQueue();
 
-      final message = jsonDecode(received.single) as Map<String, Object?>;
+      // The Pusher frame each connection gets (after the excluded socket).
+      final message = _frame(received.single);
       expect(
         message['event'],
         r'Illuminate\Notifications\Events\BroadcastNotificationCreated',
       );
+      expect(message['channel'], 'private-App.Models.User.${teo.key}');
       // The same id as the database row, as in Laravel.
       final row = (await Notifications.of(teo)).single;
-      // toArray, not toDatabase (which has the url): as Laravel.
-      expect(message['data'], {
+      // toArray, not toDatabase (which has the url): as Laravel. The data
+      // is a JSON string in the frame, as Reverb sends it.
+      expect(jsonDecode(message['data']! as String), {
         'total': 5,
         'id': row.id,
         'type': r'App\Notifications\InvoicePaid',
@@ -357,11 +366,16 @@ void main() {
       ).notify(const InvoicePaid(9, channels: ['broadcast']));
       await pumpEventQueue();
       expect(
-        jsonDecode(opsMessages.single),
-        containsPair('data', containsPair('total', 9)),
+        jsonDecode(_frame(opsMessages.single)['data']! as String),
+        containsPair('total', 9),
       );
       await subscription.cancel();
       await ops.cancel();
     },
   );
 }
+
+/// A Pusher frame from a broadcaster envelope (`<except>\n<frame>`).
+Map<String, Object?> _frame(String envelope) =>
+    jsonDecode(envelope.substring(envelope.indexOf('\n') + 1))
+        as Map<String, Object?>;

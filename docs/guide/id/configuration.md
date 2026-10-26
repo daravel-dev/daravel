@@ -1,4 +1,4 @@
-<!-- source: configuration.md sha256:30f25a719f29 -->
+<!-- source: configuration.md sha256:3b5c8b57e712 -->
 # Konfigurasi
 
 ## File environment
@@ -82,6 +82,9 @@ setelah boot.
 | `MAIL_MAILER` | `log` (`array` di test) | `smtp`, `log`, `array`, atau transport yang didaftarkan ([Mail](mail.md)) |
 | `MAIL_SCHEME`, `MAIL_HOST`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD` | `smtp`, `127.0.0.1`, `2525` | Server SMTP; `smtps` (atau port 465) untuk TLS sejak awal |
 | `MAIL_FROM_ADDRESS`, `MAIL_FROM_NAME` | `hello@example.com`, `APP_NAME` | Pengirim default |
+| `BROADCAST_CONNECTION` | `daravel` | Tujuan event broadcast: `daravel` (server ini), `reverb`, `pusher`, `log`, `null` ([Broadcasting](broadcasting.md)) |
+| `REVERB_APP_ID`, `REVERB_APP_KEY`, `REVERB_APP_SECRET` | tidak ada | Aplikasi Pusher yang dipakai server ini untuk melayani Echo (atau Reverb tujuan pengiriman) |
+| `REVERB_HOST`, `REVERB_PORT`, `REVERB_SCHEME` | tidak ada, 443, `https` | Reverb tujuan `BROADCAST_CONNECTION=reverb` |
 | `DB_CHARSET`, `DB_COLLATION`, `DB_TIMEZONE` | `utf8mb4`, `utf8mb4_unicode_ci`, server | MySQL dan MariaDB, sebagaimana dibaca Laravel |
 | `DB_POOL_SIZE`, `DB_SSLMODE` | `10`, `disable` | Pool koneksi per isolate, TLS (`require`, `verify-full`) |
 | `CACHE_STORE`, `CACHE_PREFIX` | `memory` | Penyimpanan cache dan prefix key |

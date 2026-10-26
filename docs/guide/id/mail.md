@@ -1,4 +1,4 @@
-<!-- source: mail.md sha256:97d3119c1ee4 -->
+<!-- source: mail.md sha256:6f8172191c49 -->
 # Mail dan notifikasi
 
 `Mail` mengirim email lewat SMTP (atau transport lain) dan `Notifications`
@@ -180,7 +180,7 @@ dasarnya.
 | :-- | :-- | :-- |
 | `mail` | `toMail` | `email` dan `name` milik model, atau alamat dari `Notifications.route('mail', ...)` |
 | `database` | `toDatabase` (atau `toArray`) ke `notifications` | sebuah model |
-| `broadcast` | `toBroadcast` (atau `toArray`) ke [Broadcaster](responses.md#broadcast-ke-semua-isolate) | channel milik model, atau `Notifications.route('broadcast', 'channel')` |
+| `broadcast` | `toBroadcast` (atau `toArray`) sebagai event Laravel, melalui `BROADCAST_CONNECTION` ([Broadcasting](broadcasting.md)) | channel private milik model, atau `Notifications.route('broadcast', 'channel')` |
 | buatan Anda | `withNotificationChannel('sms', SmsChannel())` | `routeNotificationFor('sms', ...)` |
 
 Model menentukan rutenya sendiri dengan mengimplementasikan
@@ -216,30 +216,28 @@ final count = await Notifications.unreadCount(user);
 
 ### Broadcast
 
-Channel `broadcast` menerbitkan event `BroadcastNotificationCreated` dari
-Laravel: channel milik notifiable adalah `App.Models.User.1` (`morphClass`
-dengan titik, lalu key-nya), dan pesannya
+Channel `broadcast` mengirim event `BroadcastNotificationCreated` dari
+Laravel melalui `BROADCAST_CONNECTION` ([Broadcasting](broadcasting.md)):
+di channel private milik notifiable, `private-App.Models.User.1`
+(`morphClass` dengan titik, lalu key-nya), dengan
 
 ```json
-{"event": "Illuminate\\Notifications\\Events\\BroadcastNotificationCreated",
- "data": {"invoice_id": 7, "total": 120000, "id": "<uuid>", "type": "App\\Notifications\\InvoicePaid"}}
+{"invoice_id": 7, "total": 120000, "id": "<uuid>", "type": "App\Notifications\InvoicePaid"}
 ```
 
-dengan data dari `toBroadcast`, atau `toArray` (seperti di Laravel,
-`toDatabase` tidak dipakai), dan `id` yang sama dengan baris notifikasi di
-database. `broadcastOn`, `broadcastAs`, dan `broadcastType` mengubah channel,
-nama event, dan type-nya. Route WebSocket mengantarkannya ke browser atau
-aplikasi milik user:
+dari `toBroadcast`, atau `toArray` (seperti di Laravel, `toDatabase` tidak
+dipakai), dan `id` yang sama dengan baris notifikasi di database. Laravel
+Echo menerimanya seperti di Laravel:
 
-```dart
-r.ws('/ws/notifications', (socket, request) async {
-  final user = await Auth.user<User>();
-  await Broadcast.pipe(socket, ['App.Models.User.${user!.key}']);
-}).middleware(const ['auth']);
+```js
+Echo.private(`App.Models.User.${userId}`).notification((notification) => {
+  console.log(notification.type, notification.total);
+});
 ```
 
-Ini WebSocket milik Daravel sendiri, bukan protokol Pusher, jadi Laravel
-Echo belum bisa terhubung ke sana.
+`broadcastOn`, `broadcastAs`, dan `broadcastType` mengubah channel, nama
+event, dan type-nya; `Notifications.route('broadcast', 'channel')` mengirim
+ke sebuah channel tanpa model.
 
 ## Queue
 

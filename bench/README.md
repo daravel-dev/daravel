@@ -52,6 +52,14 @@ time per request (measured as `1/rps` on one isolate, since latency percentiles
 under concurrent load are mostly queueing), and four
 isolates give ≥ 3× the ping throughput of one on a 4+ core machine.
 
+## Interop with Laravel's broadcasting
+
+`bench/interop/run.sh` (Linux and Docker) runs `laravel-echo` and
+`pusher-js` from npm against Daravel's Pusher protocol server, Laravel 12
+broadcasting through Daravel, and Daravel broadcasting through Laravel
+Reverb; `ISOLATES=4` runs Daravel with four worker isolates. It is a
+compatibility check, not a benchmark.
+
 ## Against Laravel
 
 `bench/laravel/compare.sh` (Linux and Docker) runs the same scenarios

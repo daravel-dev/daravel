@@ -1,4 +1,4 @@
-<!-- source: laravel-coexistence.md sha256:8d771f596c20 -->
+<!-- source: laravel-coexistence.md sha256:ecf5ba100a57 -->
 # Koeksistensi dengan Laravel
 
 Tujuan produk Daravel adalah aplikasi Laravel dan aplikasi Daravel bisa
@@ -37,6 +37,7 @@ mengubahnya, samakan nilainya.
 | `personal_access_tokens` | skema Sanctum 4; token `{id}\|{40 karakter}{crc32b}`, yang disimpan SHA-256-nya; `tokenable_type` = `App\Models\User` |
 | `notifications` | skema Laravel 12; `type` `App\Notifications\...`, `notifiable_type` adalah `morphClass` model, `data` JSON ([Mail](mail.md)) |
 | `features` | skema dan serialisasi scope Pennant ([Feature flag](feature-flags.md)) |
+| Broadcasting | protokol Pusher dari Laravel Reverb: Echo terhubung ke Daravel, `/broadcasting/auth` menandatangani seperti Laravel, Laravel mem-broadcast lewat Daravel dan Daravel lewat Reverb, notifikasi di `private-App.Models.User.{id}` ([Broadcasting](broadcasting.md)) |
 | Password | bcrypt `$2y$` dua arah (hash argon2id butuh dukungan argon2 di PHP) |
 | String `Crypt` | `base64(json{iv, value, mac, tag})`, AES-256-CBC + HMAC atau AES-256-GCM |
 | Error JSON | body dan pesan 401/403/404/405/413/422/429/500, lihat [Respons](responses.md) |

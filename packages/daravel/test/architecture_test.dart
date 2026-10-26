@@ -17,7 +17,8 @@ const Map<String, Set<String>> allowedDependencies = {
   'translation': {'foundation', 'http'},
   'features': {'foundation', 'database', 'auth', 'http'},
   'mail': {'foundation', 'logging', 'queue'},
-  'notifications': {'foundation', 'mail', 'database', 'queue', 'server'},
+  'notifications': {'foundation', 'mail', 'database', 'queue', 'broadcasting'},
+  'broadcasting': {'foundation', 'auth', 'http', 'logging', 'server'},
   'routing': {'foundation', 'http', 'validation'},
   'validation': {'foundation', 'http', 'database'},
   'database': {'foundation', 'http', 'logging'},
@@ -57,6 +58,7 @@ const Map<String, Set<String>> allowedDependencies = {
     'notifications',
     'queue',
     'server',
+    'broadcasting',
     'storage',
   },
 };

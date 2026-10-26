@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:672bdbb952a3 -->
+<!-- source: README.md sha256:93d14fe6c3dc -->
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/brand/svg/daravel-logo-horizontal-on-dark.svg">
@@ -112,6 +112,7 @@ berbagi mesin yang sama).
 | **Auth** | Hashing Argon2id/bcrypt/PBKDF2 di luar event loop, `Crypt` AES-256, token yang kompatibel dengan Sanctum, JWT (HS256/EdDSA), multi-guard `auth:token,jwt`, Gate & Policy, middleware `can:` |
 | **Konkurensi** | Supervisor + worker yang berbagi satu port, readiness barrier, respawn dengan deteksi crash berulang, isolate coordinator untuk state seluruh proses |
 | **Cache & limit** | Store memory (LRU), process, file, dan database; `remember` dengan perlindungan stampede, `flexible`, atomic lock; rate limiter fixed-window ala Laravel (dibagi semua worker, dengan lease lokal adaptif) dan `throttle:` |
+| **Realtime** | Laravel Echo lewat protokol Pusher seperti Laravel Reverb (channel publik, private, dan presence, whisper), `ShouldBroadcast`, broadcast lewat Reverb atau Pusher Channels, route SSE dan WebSocket |
 | **Queue & jadwal** | Event dengan listener di queue, job dengan retry, backoff, timeout, unique job, dan middleware; driver sync/memory/database; scheduler cron dengan perlindungan tumpang tindih |
 | **API & file** | `JsonResource` dengan atribut kondisional dan koleksi `data/links/meta` ala Laravel; disk local/public/memory dengan `Storage.fake()` |
 | **Observabilitas** | Logging terstruktur berbasis channel dengan konteks request dan redaksi secret, Prometheus `/metrics` yang digabung dari semua worker, health probe `/up` dan `/up/ready` |
@@ -541,10 +542,10 @@ created lib/app/http/resources/post_resource.dart
 | **0** | Kerangka berjalan: container, kernel HTTP, router, SQLite, migrasi, test client, CLI, CI | ✅ selesai |
 | **1** | S1 fondasi · S2 pengerasan HTTP · S3 routing · S4 validasi · S5 database · S6 ORM · S7 skema, seeding & generator · S8 auth · S9 multi-isolate & cache · S10 event, queue & scheduler · S11 resource, storage & observabilitas · S12 CLI (`new`, hot reload, `build --docker`, `doctor`, `openapi:generate`, `model:sync`, stub) · S13 toolkit testing, lint & test arsitektur | ✅ selesai |
 | **1** | S14 suite konformansi, suite keamanan, `parity.yaml`, harness benchmark, situs dokumentasi, template `api`/`minimal` → **1.0.0-beta.1** | ✅ selesai |
-| **1.x** | Dirilis setelah 1.0: lokalisasi, feature flag, SSE dan WebSocket, generator client Flutter, paket driver dan `db:transfer`, mail dan notifikasi | ✅ selesai |
+| **1.x** | Dirilis setelah 1.0: lokalisasi, feature flag, SSE dan WebSocket, generator client Flutter, paket driver dan `db:transfer`, mail dan notifikasi, broadcasting untuk Laravel Echo | ✅ selesai |
 | **2** | Session/CSRF, Redis, S3, OpenTelemetry, view terkompilasi yang kompatibel dengan Blade; client database hanya di paket driver | direncanakan |
 | **daragic** | Generator dua arah Laravel ⇄ Daravel: introspeksi runtime → IR → proyek hasil generate, test yang dikonversi, differential replay | sudah didesain |
-| **Ekosistem** | Paket first-party di bawah `daravel-dev`: `daravel_horizon` (supervisor dan dashboard queue), `daravel_socialite` (OAuth dan Sign in with Apple/Google), `daravel_reverb` (WebSocket, protokol Pusher), lalu `daravel_telescope` dan `daravel_scout` | direncanakan |
+| **Ekosistem** | Paket first-party di bawah `daravel-dev`: `daravel_horizon` (supervisor dan dashboard queue), `daravel_socialite` (OAuth dan Sign in with Apple/Google), lalu `daravel_telescope` dan `daravel_scout` | direncanakan |
 
 ## Dokumentasi
 

@@ -79,8 +79,19 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `new Content(markdown: 'mail.orders.shipped')` | `MailContent(markdown: '...')` | Markdown in Dart, not a Blade view; Laravel's default theme, inlined. |
 | `<x-mail::button :url="$url" color="success">` | `mailButton(label, url, color: 'success')` | The <x-mail::button> and <x-mail::panel> tags work in the markdown too. |
 | `php artisan vendor:publish --tag=laravel-mail (theme CSS)` | `.withMailTheme((theme) => theme.copyWith(primary: '#4f46e5'))` |  |
-| `via() => ['broadcast'] (BroadcastNotificationCreated)` | `via() => ['broadcast']` | Same event, data and channel name; Daravel's own WebSocket, not Pusher. |
-| `broadcast(new OrderShipped($order)) (Reverb, Redis)` | `await Broadcast.publish('orders.7', data)` | **async**; Across the server's isolates through the coordinator; no Pusher protocol yet. |
+| `via() => ['broadcast'] (BroadcastNotificationCreated)` | `via() => ['broadcast']` | Same event, data and channel (private-App.Models.User.1): Echo's .notification() receives it. |
+
+## Broadcasting
+
+| Laravel | Daravel | Notes |
+| :-- | :-- | :-- |
+| `php artisan reverb:start (Laravel Reverb)` | `.withBroadcasting(...) with REVERB_APP_ID / _KEY / _SECRET` | The Pusher protocol on the HTTP port; Laravel Echo and pusher-js connect unchanged. |
+| `Broadcast::channel('orders.{id}', fn ($user, $id) => ...)` | `channels.channel('orders.{id}', (user, p) => ...)` | routes/channels.php: false refuses, true admits, a map is the presence member. |
+| `class OrderShipped implements ShouldBroadcast` | `final class OrderShipped with ShouldBroadcast` | broadcastWith says what to send (no reflection); broadcast when dispatched. |
+| `broadcast(new OrderShipped($order))->toOthers()` | `await Broadcast.event(OrderShipped(order).toOthers())` | **async** |
+| `BROADCAST_CONNECTION=reverb / pusher / log / null` | `BROADCAST_CONNECTION=daravel / reverb / pusher / log / null` | **async**; daravel: this server; reverb and pusher: their HTTP API, signed as pusher-php-server. |
+| `Pusher HTTP API (POST /apps/{id}/events)` | `the same endpoints, signatures checked` | **async**; Laravel broadcasts through Daravel with BROADCAST_CONNECTION=reverb. |
+| `(Reverb's internal pub/sub)` | `await Broadcast.publish('orders.7', data)` | **async**; Daravel's own channels between isolates, for custom WebSocket and SSE routes. |
 
 ## Validation
 
