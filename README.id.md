@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:aa615d862b5a -->
+<!-- source: README.md sha256:672bdbb952a3 -->
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/brand/svg/daravel-logo-horizontal-on-dark.svg">
@@ -16,6 +16,7 @@
 </p>
 
 <p align="center">
+  <a href="https://daravel.dev"><img src="https://img.shields.io/badge/website-daravel.dev-0175C2" alt="Website"></a>
   <a href="https://github.com/daravel-dev/daravel/actions/workflows/ci.yml"><img src="https://github.com/daravel-dev/daravel/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://dart.dev"><img src="https://img.shields.io/badge/Dart-%5E3.13-0175C2?logo=dart&logoColor=white" alt="Dart ^3.13"></a>
   <a href="https://dart.dev/tools/dart-build"><img src="https://img.shields.io/badge/AOT-native%20bundle-16A34A" alt="AOT native bundle"></a>
@@ -25,6 +26,7 @@
 </p>
 
 <p align="center">
+  <a href="https://daravel.dev">Website</a> ·
   <a href="#tentang-daravel">Tentang</a> ·
   <a href="#mengapa-daravel">Mengapa Daravel</a> ·
   <a href="#fitur">Fitur</a> ·
@@ -32,7 +34,7 @@
   <a href="#mulai-cepat">Mulai cepat</a> ·
   <a href="#struktur-proyek">Struktur</a> ·
   <a href="#cli-dartisan">dartisan</a> ·
-  <a href="docs/guide/id/index.md">Dokumentasi</a> ·
+  <a href="https://daravel.dev/id/index.html">Dokumentasi</a> ·
   <a href="#roadmap">Roadmap</a> ·
   <a href="#proses-desain">Desain</a> ·
   <a href="#brand">Brand</a>

@@ -281,6 +281,7 @@ int buildSite({
       ),
     );
   }
+  File('${out.path}/CNAME').writeAsStringSync('daravel.dev\n');
   return count;
 }
 
@@ -382,7 +383,7 @@ String pageHead({
 <meta name="description" content="${escapeHtml(description)}">
 <meta property="og:title" content="${escapeHtml(title)}">
 <meta property="og:description" content="${escapeHtml(description)}">
-<meta property="og:image" content="https://daravel.teoprayoga.my.id/assets/brand/daravel-social-1280x640.png">
+<meta property="og:image" content="https://daravel.dev/assets/brand/daravel-social-1280x640.png">
 <link rel="icon" href="${prefix}favicon.ico">
 <link rel="apple-touch-icon" href="${prefix}assets/brand/daravel-icon-180.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">

@@ -15,6 +15,7 @@
 </p>
 
 <p align="center">
+  <a href="https://daravel.dev"><img src="https://img.shields.io/badge/website-daravel.dev-0175C2" alt="Website"></a>
   <a href="https://github.com/daravel-dev/daravel/actions/workflows/ci.yml"><img src="https://github.com/daravel-dev/daravel/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://dart.dev"><img src="https://img.shields.io/badge/Dart-%5E3.13-0175C2?logo=dart&logoColor=white" alt="Dart ^3.13"></a>
   <a href="https://dart.dev/tools/dart-build"><img src="https://img.shields.io/badge/AOT-native%20bundle-16A34A" alt="AOT native bundle"></a>
@@ -24,6 +25,7 @@
 </p>
 
 <p align="center">
+  <a href="https://daravel.dev">Website</a> ·
   <a href="#about-daravel">About</a> ·
   <a href="#why-daravel">Why Daravel</a> ·
   <a href="#features">Features</a> ·
@@ -31,7 +33,7 @@
   <a href="#quick-start">Quick start</a> ·
   <a href="#project-structure">Structure</a> ·
   <a href="#dartisan-cli">dartisan</a> ·
-  <a href="docs/guide/index.md">Docs</a> ·
+  <a href="https://daravel.dev">Docs</a> ·
   <a href="#roadmap">Roadmap</a> ·
   <a href="#design-process">Design</a> ·
   <a href="#brand">Brand</a>
