@@ -68,6 +68,31 @@ void main() {
       expect(remaining, isNot(contains('daravel-2020-01-01.log')));
     });
 
+    test('daily pruning keeps today plus days - 1, whether or not today '
+        'already exists', () async {
+      for (final todayExists in [false, true]) {
+        final dir = await Directory.systemTemp.createTemp('daravel_logs_');
+        addTearDown(() => dir.delete(recursive: true));
+        final daily = DailyFileHandler(dir.path, days: 2);
+        final today = p.basename(daily.pathFor(DateTime.now()));
+        for (final old in [
+          'daravel-2020-01-01.log',
+          'daravel-2020-01-02.log',
+          'daravel-2020-01-03.log',
+          if (todayExists) today,
+        ]) {
+          File(p.join(dir.path, old)).writeAsStringSync('x\n');
+        }
+        final logger = Logger(handlers: [daily])..info('to file');
+        await logger.close();
+        final remaining = dir.listSync().map((f) => p.basename(f.path)).toSet();
+        expect(remaining, {
+          today,
+          'daravel-2020-01-03.log',
+        }, reason: 'today exists: $todayExists');
+      }
+    });
+
     test('fromConfig builds stacks and named channels', () {
       final logger = Logger.fromConfig(
         const LoggingConfig(stack: ['console', 'json']),

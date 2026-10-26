@@ -10,6 +10,13 @@ Laravel-facing formats change only to match Laravel more closely.
 A typed Dart/Flutter client generated from the routes. Upgrade from any
 1.x; WebSocket routes no longer appear in the OpenAPI document.
 
+### Fixed
+
+- The `daily` log channel could keep one file more than
+  `LOG_DAILY_DAYS`: today's file is opened asynchronously, so pruning
+  counted it only when it already existed. It now always keeps today plus
+  the newest `days - 1` older files.
+
 ### Added
 
 - `dartisan client:flutter`: generates a typed Dart/Flutter client package

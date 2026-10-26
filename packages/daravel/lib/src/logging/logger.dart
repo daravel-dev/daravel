@@ -189,14 +189,14 @@ final class DailyFileHandler implements LogHandler {
     final pattern = RegExp(
       '^${RegExp.escape(name)}-\\d{4}-\\d{2}-\\d{2}\\.log\$',
     );
-    final files =
-        dir
-            .listSync()
-            .whereType<File>()
-            .where((f) => pattern.hasMatch(p.basename(f.path)))
-            .toList()
-          ..sort((a, b) => b.path.compareTo(a.path));
-    for (final stale in files.skip(days)) {
+    // The current file is opened asynchronously and may not exist yet, so
+    // it is never counted: keep it plus the `days - 1` newest others.
+    final current = _currentDate == null ? null : p.basename(_currentDate!);
+    final files = dir.listSync().whereType<File>().where((f) {
+      final base = p.basename(f.path);
+      return pattern.hasMatch(base) && base != current;
+    }).toList()..sort((a, b) => b.path.compareTo(a.path));
+    for (final stale in files.skip(days - 1)) {
       try {
         stale.deleteSync();
       } on FileSystemException {

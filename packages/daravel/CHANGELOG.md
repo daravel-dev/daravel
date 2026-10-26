@@ -3,6 +3,7 @@
 ## 1.7.0
 
 - Added `RouteEntry.isWebSocket` (set by `router.ws`); WebSocket routes are left out of the OpenAPI document.
+- Fixed: the daily log handler could keep one file more than `days` (today's file, opened asynchronously, was only counted when it already existed).
 
 ## 1.6.0
 
