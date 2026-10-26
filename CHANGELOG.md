@@ -6,6 +6,15 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 breaking changes to the Dart API wait for a new major version, and
 Laravel-facing formats change only to match Laravel more closely.
 
+## Unreleased
+
+### Fixed
+
+- `client:flutter --state`: the generated `providers.dart`, `blocs.dart` and
+  `cubits.dart` imported `runtime.dart` even when no route used a runtime
+  type (no paginator, no upload, as in a new project's auth routes). The
+  resulting `unused_import` warning failed `dart analyze --fatal-infos`.
+
 ## 1.8.0
 
 Database driver packages (`daravel_sqlite`, `daravel_postgres`),

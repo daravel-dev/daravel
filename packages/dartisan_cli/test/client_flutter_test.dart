@@ -445,6 +445,54 @@ void main() {
         workingDirectory: dir.path,
       );
 
+      test('a client without paginators or uploads analyzes clean', () async {
+        // Like a new project's auth routes: the adapters use no runtime type.
+        final small = Application.configure(basePath: Directory.systemTemp.path)
+            .withEnv(const {'APP_ENV': 'testing', 'DB_DATABASE': ':memory:'})
+            .withRouting(
+              api: (r) {
+                r
+                    .post('/login', (_) async => Response.json(const {}))
+                    .name('auth.login')
+                    .rules({'email': 'required|email'})
+                    .returns(accountSchema, name: 'Account', shape: .raw);
+                r
+                    .get('/me', (_) async => Response.json(const {}))
+                    .name('auth.me')
+                    .returns(accountSchema, name: 'Account');
+              },
+            )
+            .create();
+        await small.boot();
+        addTearDown(small.shutdown);
+        final out = await Directory.systemTemp.createTemp('client_small_');
+        addTearDown(() async {
+          try {
+            await out.delete(recursive: true);
+          } on FileSystemException {
+            // Windows may still hold a file.
+          }
+        });
+        await writeClient(
+          generateClient(
+            routesUnder(small.router.routes, '/api'),
+            packageName: 'app_client',
+            baseUrl: 'http://127.0.0.1:8000',
+            states: clientStates.toSet(),
+          ),
+          out.path,
+        );
+        Future<ProcessResult> run(List<String> args) => Process.run(
+          Platform.resolvedExecutable,
+          args,
+          workingDirectory: out.path,
+        );
+        final get = await run(['pub', 'get']);
+        expect(get.exitCode, 0, reason: '${get.stdout}${get.stderr}');
+        final analyze = await run(['analyze', '--fatal-infos']);
+        expect(analyze.exitCode, 0, reason: '${analyze.stdout}');
+      }, timeout: const Timeout(Duration(minutes: 2)));
+
       test('analyzes clean and matches the server', () async {
         final get = await dart(['pub', 'get']);
         expect(get.exitCode, 0, reason: '${get.stdout}${get.stderr}');

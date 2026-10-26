@@ -1289,6 +1289,9 @@ extension on _Generator {
       (op) => op.typed.any((p) => p.type.startsWith('http.')),
     );
     return [
+      // Which generated libraries an adapter uses depends on the routes
+      // (no paginator: no runtime type), as in the other generated files.
+      '// ignore_for_file: unused_import\n\n',
       if (bloc) "import 'package:bloc/bloc.dart';\n",
       if (usesHttp) "import 'package:http/http.dart' as http;\n",
       if (riverpod) "import 'package:riverpod/riverpod.dart';\n",
