@@ -2,6 +2,7 @@
 # Daravel vs Laravel on the same machine, database and load generator.
 #
 #   bash bench/laravel/compare.sh            # from the repository root, Linux + Docker
+#   SCENARIOS=6 bash bench/laravel/compare.sh  # only login
 #
 # Every server runs pinned to SERVER_CPUS and the load generator to
 # CLIENT_CPUS, so they never share a core. Daravel runs from an AOT build in
@@ -13,6 +14,7 @@ set -euo pipefail
 
 DURATION=${DURATION:-10}
 WORKERS=${WORKERS:-4}
+SCENARIOS=${SCENARIOS:-1,2,3,4,5,6}
 SERVER_CPUS=${SERVER_CPUS:-0-3}
 CLIENT_CPUS=${CLIENT_CPUS:-4-11}
 WORK=${WORK:-$HOME/daravel-bench}
@@ -20,7 +22,9 @@ PORT=18600
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
 
 mkdir -p "$WORK/data" "$WORK/pub-cache"
-rm -rf "$WORK/src" "$WORK/data"/*
+# The containers run as root, so their files are removed by one too.
+docker run --rm -v "$WORK:/w" dart:stable rm -rf /w/src /w/data >/dev/null
+mkdir -p "$WORK/data"
 mkdir -p "$WORK/src"
 # A copy of the working tree, so the container's `pub get` never touches the
 # checkout's .dart_tool.
@@ -39,7 +43,7 @@ dart_run() {
 echo "== Daravel (AOT, isolates 1 and $WORKERS, cores $SERVER_CPUS)"
 dart_run "dart pub get >/dev/null && taskset -c $CLIENT_CPUS dart run bin/bench.dart \
   --database=/data/bench.sqlite --server-cpus=$SERVER_CPUS --isolates=1,$WORKERS \
-  --duration=$DURATION --out=/data/daravel.json"
+  --duration=$DURATION --scenarios=$SCENARIOS --out=/data/daravel.json"
 
 laravel() { # name mode workers
   docker rm -f daravel-bench-laravel-run >/dev/null 2>&1 || true
@@ -47,7 +51,7 @@ laravel() { # name mode workers
     --cpuset-cpus="$SERVER_CPUS" -v "$WORK/data:/data" \
     -e MODE="$2" -e WORKERS="$3" -e PORT=$PORT daravel-bench-laravel >/dev/null
   dart_run "taskset -c $CLIENT_CPUS dart run bin/bench.dart --external=$1:$PORT \
-    --isolates=$3 --duration=$DURATION --out=/data/$1-$3.json"
+    --isolates=$3 --duration=$DURATION --scenarios=$SCENARIOS --out=/data/$1-$3.json"
   docker rm -f daravel-bench-laravel-run >/dev/null
 }
 

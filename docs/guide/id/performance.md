@@ -1,4 +1,4 @@
-<!-- source: performance.md sha256:1a25dd633208 -->
+<!-- source: performance.md sha256:5a88ccd9cdaf -->
 # Performa
 
 Daravel tidak membuat klaim performa tanpa angka yang bisa direproduksi
@@ -52,12 +52,13 @@ berjalan, 10 detik per skenario, 64 koneksi), empat worker:
 | validasi + insert | 2 918 req/s | 1 079 req/s | 551 req/s |
 | eager loading (20 post) | 1 876 req/s | 440 req/s | 300 req/s |
 | route dengan rate limit | 10 494 req/s | 1 721 req/s | 902 req/s |
-| login (bcrypt, cost 10) | 35 req/s | 72 req/s | 68 req/s |
+| login (bcrypt, cost 10) | 35 req/s (61 sejak 1.10) | 72 req/s | 68 req/s |
 
 Dengan satu worker, Daravel melayani 6 sampai 10 kali throughput Octane di
-lima skenario pertama. Login adalah pengecualian: bcrypt di Dart murni lebih
-lambat dari implementasi C di PHP, dan pool compute Daravel tidak bertambah
-mengikuti jumlah isolate, sehingga Laravel menjawab dua kali lebih banyak
-login dengan empat worker. Throughput bukan satu-satunya biaya login, tetapi
-inilah skenario yang perlu diperbaiki. Jalankan skrip ini di perangkat Anda
-sendiri sebelum mengandalkan angka-angka ini.
+lima skenario pertama. Login adalah pengecualian: `package:bcrypt` di Dart
+murni butuh 124 ms per hash, sedangkan bcrypt C di PHP butuh 70 ms. Kini
+Daravel menjalankan bcrypt C milik sistem di Linux (lihat
+[Hashing](auth.md#hashing)); run kedua skenario login di mesin yang sama
+memberi Daravel 61 req/s, Octane 55, dan klasik 47, sehingga biaya login kini
+sama dengan di Laravel. Jalankan skrip ini di perangkat Anda sendiri sebelum
+mengandalkan angka-angka ini.

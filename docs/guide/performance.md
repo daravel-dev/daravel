@@ -49,12 +49,12 @@ running, 10 s per scenario, 64 connections), four workers:
 | validation + insert | 2 918 req/s | 1 079 req/s | 551 req/s |
 | eager loading (20 posts) | 1 876 req/s | 440 req/s | 300 req/s |
 | rate limited route | 10 494 req/s | 1 721 req/s | 902 req/s |
-| login (bcrypt, cost 10) | 35 req/s | 72 req/s | 68 req/s |
+| login (bcrypt, cost 10) | 35 req/s (61 since 1.10) | 72 req/s | 68 req/s |
 
 With one worker Daravel served 6 to 10 times Octane's throughput on the
-first five scenarios. Login is the exception: bcrypt in pure Dart is slower
-than PHP's C implementation, and Daravel's compute pool does not grow with
-the isolate count, so Laravel answers twice as many logins with four
-workers. Throughput is not the only cost of a login, but this is the
-scenario to improve. Run the script on your own hardware before relying on
-these numbers.
+first five scenarios. Login was the exception: `package:bcrypt` in pure
+Dart took 124 ms per hash where PHP's C bcrypt takes 70 ms. Daravel now
+runs the system's C bcrypt on Linux (see [Hashing](auth.md#hashing)); a
+second run of the login scenario on the same machine gave Daravel 61 req/s,
+Octane 55 and classic 47, so login now costs what it costs in Laravel.
+Run the script on your own hardware before relying on these numbers.

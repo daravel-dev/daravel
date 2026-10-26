@@ -1,4 +1,4 @@
-<!-- source: auth.md sha256:c481846da874 -->
+<!-- source: auth.md sha256:96e65185161d -->
 # Autentikasi dan otorisasi
 
 Guard didaftarkan di `bootstrap/app.dart`:
@@ -60,6 +60,13 @@ password yang ada tetap valid, sementara `Hash.needsRehash` dan
 `rehashPasswordIfRequired` meng-upgrade hash saat login. Tetap pakai bcrypt
 selama aplikasi Laravel berbagi tabel users: secara default Laravel hanya
 memverifikasi bcrypt.
+
+Di Linux, bcrypt dijalankan oleh library C milik sistem (`crypt_rn` dari
+libxcrypt, implementasi yang juga dipakai PHP), sehingga biaya sebuah login
+sama dengan di Laravel; di sistem lain, atau dengan
+`DARAVEL_NATIVE_CRYPT=false`, implementasi Dart menghasilkan hash yang sama
+sekitar 1,5 kali lebih lambat. Keduanya membaca hash `$2a$`, `$2b$`, dan
+`$2y$`, dan memakai 72 byte pertama sebuah password, seperti PHP.
 
 ## Enkripsi
 

@@ -6,6 +6,21 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 breaking changes to the Dart API wait for a new major version, and
 Laravel-facing formats change only to match Laravel more closely.
 
+## Unreleased
+
+### Changed
+
+- bcrypt is Daravel's own: on Linux it runs the system's C bcrypt
+  (libxcrypt's `crypt_rn`, as PHP does), about 1.5 times as fast as before,
+  so a login costs what it costs in Laravel; elsewhere (or with
+  `DARAVEL_NATIVE_CRYPT=false`) a Dart implementation about 15% faster
+  than `package:bcrypt`, which is no longer a dependency. Hashes are the
+  same: `$2a$`, `$2b$` and `$2y$` are read, `$2y$` is written, and only the
+  first 72 bytes of a password count, as in PHP (a longer password was
+  refused before).
+- `bench/laravel/compare.sh` cleans up after its containers and takes
+  `SCENARIOS` (`SCENARIOS=6` measures only login).
+
 ## 1.9.0
 
 Mail and notifications (with queued delivery, Laravel's markdown mail theme

@@ -3,11 +3,11 @@ import 'dart:isolate';
 import 'dart:math';
 import 'dart:typed_data';
 
-import 'package:bcrypt/bcrypt.dart' as bc;
 import 'package:cryptography/cryptography.dart' as cg;
 import 'package:cryptography/dart.dart' as cgd;
 
 import '../foundation/config.dart';
+import 'bcrypt.dart';
 import '../foundation/env.dart';
 import '../foundation/exceptions.dart';
 
@@ -225,10 +225,7 @@ final class HashManager {
     HashDriver driver,
     HashConfig cfg,
   ) async => switch (driver) {
-    .bcrypt => bc.BCrypt.hashpw(
-      plain,
-      bc.BCrypt.gensalt(prefix: r'$2y', logRounds: cfg.bcryptRounds),
-    ),
+    .bcrypt => Bcrypt.hash(plain, cost: cfg.bcryptRounds),
     .argon2id => await _argon2(
       plain,
       _randomBytes(16),
@@ -251,7 +248,7 @@ final class HashManager {
     try {
       switch (driver) {
         case .bcrypt:
-          return bc.BCrypt.checkpw(plain, hashed);
+          return Bcrypt.verify(plain, hashed);
         case .argon2id:
           final parts = hashed.split(r'$');
           final params = <String, int>{

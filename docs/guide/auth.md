@@ -59,6 +59,12 @@ existing password valid while `Hash.needsRehash` and
 `rehashPasswordIfRequired` upgrade hashes at login. Keep bcrypt while a
 Laravel app shares the users table: Laravel verifies only bcrypt by default.
 
+On Linux, bcrypt runs in the system's C library (libxcrypt's `crypt_rn`,
+the implementation PHP uses), so a login costs what it costs in Laravel; on
+other systems, or with `DARAVEL_NATIVE_CRYPT=false`, a Dart implementation
+gives the same hashes about 1.5 times slower. Both read `$2a$`, `$2b$` and
+`$2y$` hashes and use the first 72 bytes of a password, as PHP does.
+
 ## Encryption
 
 `Crypt.encryptString` / `decryptString` produce Laravel's payload
