@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.8.0
+
+- Added `db:install <driver>` and `db:transfer --from --to`.
+- Added `client:flutter --state=riverpod,bloc,cubit` and `--watch`; a schema's `title` names its model and a 204 response is `void`.
+- `dartisan new` projects declare their auth routes (`.validates()`, `.returns()`).
+
 ## 1.7.0
 
 - Added `client:flutter`: generates a typed Dart/Flutter client package (`package:http`) from the routes, with models, paginators, error exceptions, SSE and WebSocket URLs, and the server's validation rules and messages checked on the device.

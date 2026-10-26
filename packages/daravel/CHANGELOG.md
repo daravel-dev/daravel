@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.8.0
+
+- Added `ConnectionConfig.fromUrl`, `ApplicationBuilder.withDatabaseConnection`, `DatabaseManager.forConnection`, `SqliteDriver.fromConfig` and `PostgresDriver.fromConfig`.
+- Fixed: transactions are per connection. A query on another connection inside `DB.transaction` ran in the default connection's transaction (on the wrong database), and a transaction on another connection became a savepoint of it.
+
 ## 1.7.0
 
 - Added `RouteEntry.isWebSocket` (set by `router.ws`); WebSocket routes are left out of the OpenAPI document.

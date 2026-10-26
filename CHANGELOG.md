@@ -6,7 +6,12 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 breaking changes to the Dart API wait for a new major version, and
 Laravel-facing formats change only to match Laravel more closely.
 
-## Unreleased
+## 1.8.0
+
+Database driver packages (`daravel_sqlite`, `daravel_postgres`),
+`db:install`, `db:transfer`, extra connections, and the Flutter client's
+state adapters and watch mode. Upgrade from any 1.x. One behaviour changes:
+transactions are per connection, as in Laravel (see Fixed).
 
 ### Added
 

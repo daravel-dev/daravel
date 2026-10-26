@@ -8,6 +8,7 @@ publisher `daravel.teoprayoga.my.id`.
 
 | Version | Highlights |
 | :-- | :-- |
+| `1.8.0` | Driver packages, `db:install`, `db:transfer`, `withDatabaseConnection`; `client:flutter --state`/`--watch`; per-connection transactions |
 | `1.7.0` | `dartisan client:flutter`: typed Dart/Flutter client with the server's validation rules on the device |
 | `1.6.0` | Server-sent events (`Response.sse`, Laravel `eventStream` frames) and WebSocket routes (`router.ws`) |
 | `1.5.1` | Fix: JSON numbers outside the double range (`1e309`) are a 400 instead of a 500 or a stored Infinity |

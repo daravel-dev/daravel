@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.7.0
+## 1.8.0
 
 - First release: the PostgreSQL driver of Daravel (`PostgresDriver` and
   `.withPostgres()` on the application builder), re-exported from
