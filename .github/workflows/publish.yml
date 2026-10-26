@@ -3,7 +3,7 @@ name: Publish to pub.dev
 # Automated publishing with GitHub OIDC (no stored credentials). One-time
 # setup per package on pub.dev: Admin → Automated publishing → enable GitHub
 # Actions for repository daravel-dev/daravel with tag pattern `v{{version}}`.
-# Then push a tag such as `v1.0.1` to publish all five packages in
+# Then push a tag such as `v1.0.1` to publish all seven packages in
 # dependency order.
 on:
   push:
@@ -52,6 +52,18 @@ jobs:
     uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
     with:
       working-directory: packages/daravel_mysql
+
+  daravel_sqlite:
+    needs: daravel
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
+    with:
+      working-directory: packages/daravel_sqlite
+
+  daravel_postgres:
+    needs: daravel
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
+    with:
+      working-directory: packages/daravel_postgres
 
   dartisan_cli:
     needs: [daravel, daravel_mysql]
