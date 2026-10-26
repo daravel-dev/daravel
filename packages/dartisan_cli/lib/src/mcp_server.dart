@@ -774,6 +774,11 @@ final class McpServeCommand extends DaravelCommand {
   Future<int> run() {
     final protocol = stdout;
     final allowWrite = argResults!['allow-write'] as bool;
+    stderr.writeln('[mcp] Daravel MCP Server running on stdio (JSON-RPC 2.0).');
+    stderr.writeln(
+      '[mcp] Waiting for AI client messages (Cursor, Claude, Antigravity)...',
+    );
+    stderr.writeln('[mcp] (Press Ctrl+C to stop)');
     return IOOverrides.runZoned(
       () => withApp((app) async {
         await McpServer(app, allowWrite: allowWrite).serve(stdin, protocol);
@@ -790,11 +795,43 @@ const Map<String, Object?> mcpServerEntry = {
   'args': ['run', 'bin/dartisan.dart', 'mcp:serve'],
 };
 
+/// The entry for a DDEV project: its packages are resolved inside the web
+/// container, so the server runs there (`ddev dartisan`).
+const Map<String, Object?> mcpDdevServerEntry = {
+  'command': 'ddev',
+  'args': ['dartisan', 'mcp:serve'],
+};
+
+/// `.ddev/commands/web/dartisan`: `ddev dartisan <command>` runs the
+/// project's CLI in the web container.
+const String ddevDartisanCommand = r"""#!/usr/bin/env bash
+
+## Description: Run the project's dartisan (Daravel's artisan) in the web container
+## Usage: dartisan [command] [arguments]
+## Example: "ddev dartisan migrate" or "ddev dartisan route:list"
+
+# The packages are resolved inside the container, so the project's CLI runs
+# here, not with a dart on the host.
+cd /var/www/html
+exec dart run bin/dartisan.dart "$@"
+""";
+
+/// Whether [root] is a DDEV project (`.ddev/config.yaml`).
+bool isDdevProject(String root) =>
+    File(p.join(root, '.ddev', 'config.yaml')).existsSync();
+
+/// The `.mcp.json` entry for the project at [root].
+Map<String, Object?> mcpServerEntryFor(String root) =>
+    isDdevProject(root) ? mcpDdevServerEntry : mcpServerEntry;
+
 const String _guidelinesStart = '<!-- daravel:guidelines -->';
 const String _guidelinesEnd = '<!-- /daravel:guidelines -->';
 
-/// The Daravel section of the agent guidelines (`AGENTS.md`).
-String agentGuidelines() {
+/// The Daravel section of the agent guidelines (`AGENTS.md`); [server] is
+/// how the MCP server is started.
+String agentGuidelines({
+  String server = 'dart run bin/dartisan.dart mcp:serve',
+}) {
   final conventions = daravelConventions
       .replaceFirst(RegExp(r'^# .*\n\n'), '')
       .replaceAll(RegExp(r'^## ', multiLine: true), '### ');
@@ -803,7 +840,7 @@ $_guidelinesStart
 ## Daravel
 
 This project uses Daravel $daravelVersion, a Laravel-style backend framework
-for Dart. The `daravel` MCP server (`dart run bin/dartisan.dart mcp:serve`)
+for Dart. The `daravel` MCP server (`$server`)
 answers with the application as it is: call `conventions` first, `routes`,
 `models` and `schema` before changing code, `docs_search` for framework
 APIs, and `db_query`, `read_logs` and `last_error` while debugging.
@@ -815,7 +852,12 @@ $conventions$_guidelinesEnd
 /// Registers the `daravel` MCP server in [root]`/.mcp.json` (other servers
 /// are kept) and writes the Daravel section of [root]`/`[guidelines]
 /// between markers, so running it again only refreshes that section.
-/// Returns the files it changed.
+///
+/// In a DDEV project the server runs in the web container
+/// (`ddev dartisan mcp:serve`, adding `.ddev/commands/web/dartisan` when
+/// missing), and an existing entry still at the host default, which cannot
+/// resolve the container's packages, is replaced. Returns the files it
+/// changed.
 List<String> installMcp(
   String root, {
   String guidelines = 'AGENTS.md',
@@ -833,8 +875,14 @@ List<String> installMcp(
     final Map<String, Object?> map => map,
     _ => <String, Object?>{},
   };
-  if (force || !servers.containsKey('daravel')) {
-    servers['daravel'] = mcpServerEntry;
+  final ddev = isDdevProject(root);
+  final entry = mcpServerEntryFor(root);
+  final existing = servers['daravel'];
+  // Compared as JSON, the form it has in .mcp.json.
+  final hostDefault =
+      ddev && jsonEncode(existing) == jsonEncode(mcpServerEntry);
+  if (force || existing == null || hostDefault) {
+    servers['daravel'] = entry;
     json['mcpServers'] = servers;
     config.writeAsStringSync(
       '${const JsonEncoder.withIndent('  ').convert(json)}\n',
@@ -842,8 +890,25 @@ List<String> installMcp(
     changed.add(config.path);
   }
 
+  if (ddev) {
+    final command = File(p.join(root, '.ddev', 'commands', 'web', 'dartisan'));
+    if (!command.existsSync()) {
+      command
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync(ddevDartisanCommand);
+      if (!Platform.isWindows) {
+        Process.runSync('chmod', ['+x', command.path]);
+      }
+      changed.add(command.path);
+    }
+  }
+
   final file = File(p.join(root, guidelines));
-  final section = agentGuidelines();
+  final section = agentGuidelines(
+    server: ddev
+        ? 'ddev dartisan mcp:serve'
+        : 'dart run bin/dartisan.dart mcp:serve',
+  );
   final current = file.existsSync() ? file.readAsStringSync() : null;
   final String next;
   if (current == null) {

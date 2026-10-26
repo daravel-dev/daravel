@@ -20,6 +20,11 @@ Laravel-facing formats change only to match Laravel more closely.
 
 ### Changed
 
+- `mcp:install` in a DDEV project (`.ddev/config.yaml`) registers
+  `ddev dartisan mcp:serve`, which runs in the web container where the
+  packages are resolved. It adds `.ddev/commands/web/dartisan` when
+  missing and replaces an entry still at the host default
+  (`dart run bin/dartisan.dart mcp:serve`), which cannot work there.
 - The release workflow skips packages whose version is already on pub.dev,
   so re-running it finishes a release that was partly published by hand.
 

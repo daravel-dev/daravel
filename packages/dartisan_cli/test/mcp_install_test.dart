@@ -28,6 +28,69 @@ void main() {
     expect(installMcp(root.path), isEmpty);
   });
 
+  group('in a DDEV project', () {
+    setUp(() {
+      Directory(p.join(root.path, '.ddev')).createSync();
+      file('.ddev/config.yaml').writeAsStringSync('name: shop\n');
+    });
+
+    Map<Object?, Object?> servers() =>
+        (jsonDecode(file('.mcp.json').readAsStringSync()) as Map)['mcpServers']
+            as Map;
+
+    test('the server runs in the web container', () {
+      final changed = installMcp(root.path);
+      expect(changed.map(p.basename), ['.mcp.json', 'dartisan', 'AGENTS.md']);
+      expect(servers()['daravel'], mcpDdevServerEntry);
+      expect(servers()['daravel'], {
+        'command': 'ddev',
+        'args': ['dartisan', 'mcp:serve'],
+      });
+      final command = file('.ddev/commands/web/dartisan');
+      expect(command.readAsStringSync(), ddevDartisanCommand);
+      expect(
+        command.readAsStringSync(),
+        contains('dart run bin/dartisan.dart "\$@"'),
+      );
+      if (!Platform.isWindows) {
+        expect(command.statSync().modeString(), startsWith('rwx'));
+      }
+      expect(
+        file('AGENTS.md').readAsStringSync(),
+        contains('(`ddev dartisan mcp:serve`)'),
+      );
+      expect(installMcp(root.path), isEmpty);
+    });
+
+    test('an entry left at the host default is fixed, a custom one kept', () {
+      file('.mcp.json').writeAsStringSync(
+        jsonEncode({
+          'mcpServers': {'daravel': mcpServerEntry},
+        }),
+      );
+      installMcp(root.path);
+      expect(servers()['daravel'], mcpDdevServerEntry);
+
+      file('.mcp.json').writeAsStringSync(
+        jsonEncode({
+          'mcpServers': {
+            'daravel': {'command': 'custom'},
+          },
+        }),
+      );
+      installMcp(root.path);
+      expect(servers()['daravel'], {'command': 'custom'});
+    });
+
+    test('an existing ddev command is not replaced', () {
+      final command = file('.ddev/commands/web/dartisan')
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync('# mine\n');
+      installMcp(root.path);
+      expect(command.readAsStringSync(), '# mine\n');
+    });
+  });
+
   test('keeps other servers and the rest of the guidelines file', () {
     file('.mcp.json').writeAsStringSync(
       jsonEncode({

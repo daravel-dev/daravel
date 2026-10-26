@@ -132,6 +132,32 @@ The `.mcp.json` entry, which other MCP clients read too:
 }
 ```
 
+### DDEV
+
+In a [DDEV](https://ddev.com) project (one with `.ddev/config.yaml`), the
+packages are resolved inside the web container, so a `dart` on the host
+cannot run the project's CLI. `mcp:install` sees this and registers the
+server in the container instead:
+
+```json
+{
+  "mcpServers": {
+    "daravel": {
+      "command": "ddev",
+      "args": ["dartisan", "mcp:serve"]
+    }
+  }
+}
+```
+
+It also adds the custom command `.ddev/commands/web/dartisan` when it is
+missing, so `ddev dartisan migrate` and the other commands run in the
+container too. An entry still at the host default (`dart run ...`) is
+replaced, because it cannot work there. An entry you changed is kept.
+After adding DDEV to an existing project, run
+`ddev dartisan mcp:install` again. `dartisan new --mcp` runs before DDEV
+is configured, so it writes the host entry.
+
 ## Your own commands
 
 ```dart
