@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.7.0
+
+- Added `RouteEntry.isWebSocket` (set by `router.ws`); WebSocket routes are left out of the OpenAPI document.
+
 ## 1.6.0
 
 - Added `Response.sse` and `SseEvent` (Laravel's `response()->eventStream()` frames and `</stream>` end event), with an idle heartbeat that also detects closed clients, ending on shutdown.

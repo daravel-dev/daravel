@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.7.0
+
+- Added `client:flutter`: generates a typed Dart/Flutter client package (`package:http`) from the routes, with models, paginators, error exceptions, SSE and WebSocket URLs, and the server's validation rules and messages checked on the device.
+
 ## 1.6.0
 
 - Requires `daravel` 1.6.0 (server-sent events and WebSocket routes); the bundled guide includes the new section.
