@@ -97,7 +97,7 @@ void main(List<String> args) {
   }
   if (translations.missing.isNotEmpty) {
     stdout.writeln(
-      'Not translated yet (id/): ${translations.missing.length} page(s): '
+      'Not translated yet: ${translations.missing.length} page(s): '
       '${translations.missing.join(', ')}',
     );
   }

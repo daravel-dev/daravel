@@ -2,6 +2,8 @@
 
 # daravel
 
+English · [Bahasa Indonesia](https://github.com/daravel-dev/daravel/blob/main/packages/daravel/README.id.md)
+
 A Laravel-inspired, AOT-native backend framework for Dart. Routing,
 middleware, validation with Laravel's rules and messages, a query builder and
 an Eloquent-style ORM, migrations, Sanctum-compatible tokens, JWT, gates,

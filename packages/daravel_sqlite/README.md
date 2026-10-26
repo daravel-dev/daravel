@@ -2,6 +2,8 @@
 
 # daravel_sqlite
 
+English · [Bahasa Indonesia](https://github.com/daravel-dev/daravel/blob/main/packages/daravel_sqlite/README.id.md)
+
 SQLite driver for [Daravel](https://pub.dev/packages/daravel).
 
 ```bash

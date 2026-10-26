@@ -67,7 +67,9 @@ Run tests from inside each package directory. `DARAVEL_E2E=1` enables the
   again with `dart run tool/docs/generate.dart --stamp=id/routing.md`. If you
   cannot write the Indonesian text, say so in the pull request. Changes to
   generated code samples do not count. Pages without a translation are only
-  listed, and the site shows them in English with a notice.
+  listed, and the site shows them in English with a notice. `README.id.md`
+  files (the repository's and each package's) follow their `README.md`
+  the same way: `--stamp=packages/daravel/README.id.md`.
 - **Domain time** reads `Clock.now()` so tests can freeze it.
 - **Security fixes** get a regression test in
   `packages/daravel/test/security`; report vulnerabilities privately as

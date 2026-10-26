@@ -20,7 +20,36 @@
   }
   applyTheme(storedTheme());
 
+  // Language: the EN / ID choice is remembered, and a visitor arriving from
+  // another site (a search engine, a README link) on a page in the other
+  // language is sent to the same page in theirs. Links inside the site are
+  // never redirected, so the switcher always works.
+  var LANG_STORAGE = "daravel-lang";
+  function storedLang() {
+    try { return localStorage.getItem(LANG_STORAGE); } catch (e) { return null; }
+  }
+  function fromThisSite() {
+    try { return document.referrer && new URL(document.referrer).host === location.host; }
+    catch (e) { return false; }
+  }
+
   document.addEventListener("DOMContentLoaded", function () {
+    var pageLang = root.getAttribute("lang");
+    var wanted = storedLang();
+    if (wanted && pageLang && wanted !== pageLang && !fromThisSite()) {
+      var other = document.querySelector('.lang a[hreflang="' + wanted + '"]');
+      if (other && other.getAttribute("aria-current") !== "true") {
+        location.replace(other.href + location.hash);
+        return;
+      }
+    }
+    document.querySelectorAll(".lang a[hreflang]").forEach(function (link) {
+      link.addEventListener("click", function () {
+        try { localStorage.setItem(LANG_STORAGE, link.getAttribute("hreflang")); }
+        catch (e) { /* private mode */ }
+      });
+    });
+
     applyTheme(storedTheme());
 
     var themeButton = document.querySelector("[data-theme-toggle]");

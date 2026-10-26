@@ -2,6 +2,8 @@
 
 # dartisan_cli
 
+English · [Bahasa Indonesia](https://github.com/daravel-dev/daravel/blob/main/packages/dartisan_cli/README.id.md)
+
 `dartisan`, the command-line interface of
 [Daravel](https://pub.dev/packages/daravel), a Laravel-inspired, AOT-native
 backend framework for Dart.
@@ -17,10 +19,10 @@ application:
 
 | Group | Commands |
 | :-- | :-- |
-| Project | `about`, `doctor [--production]`, `key:generate`, `stub:publish`, `lint`, `cache:clear`, `storage:link`, `env:encrypt`, `env:decrypt`, `env:obfuscate`, `adopt <laravel-path>`, `down`, `up`, `tinker "<expr>"` |
-| Serve, test & build | `serve [--watch] [--isolates=N] [--embed-queue] [--embed-scheduler]`, `test [--conformance] [--security] [--coverage]`, `build [--with-cli] [--docker]`, `route:list`, `openapi:generate`, `coordinator:stats` |
-| Database | `migrate`, `migrate:status`, `migrate:rollback`, `migrate:reset`, `migrate:fresh`, `db:seed`, `model:sync`, `db:show`, `db:table` |
-| Generators | `make:model`, `make:migration`, `make:controller`, `make:request`, `make:middleware`, `make:job`, `make:policy`, `make:event`, `make:listener`, `make:resource`, `make:rule`, `make:observer`, `make:provider`, `make:command`, `make:seeder`, `make:factory`, `make:test` |
+| Project | `about`, `doctor [--production]`, `key:generate`, `stub:publish`, `lint`, `cache:clear`, `storage:link`, `env:encrypt`, `env:decrypt`, `env:obfuscate`, `adopt <laravel-path>`, `down`, `up`, `tinker "<expr>"`, `mcp:serve`, `mcp:install` |
+| Serve, test & build | `serve [--watch] [--isolates=N] [--embed-queue] [--embed-scheduler]`, `test [--conformance] [--security] [--coverage]`, `build [--with-cli] [--docker] [--no-sqlite]`, `route:list`, `openapi:generate`, `client:flutter`, `coordinator:stats` |
+| Database | `migrate`, `migrate:status`, `migrate:rollback`, `migrate:reset`, `migrate:fresh`, `db:seed`, `model:sync`, `model:show`, `db:show`, `db:table`, `db:install`, `db:transfer`, `db:backup`, `daragic:export` |
+| Generators | `make:model`, `make:migration`, `make:controller`, `make:request`, `make:middleware`, `make:job`, `make:policy`, `make:event`, `make:listener`, `make:resource`, `make:rule`, `make:mail`, `make:notification`, `make:observer`, `make:provider`, `make:command`, `make:seeder`, `make:factory`, `make:test` |
 | Queue & schedule | `queue:work`, `queue:failed`, `queue:retry`, `queue:forget`, `queue:flush`, `queue:clear`, `queue:pause`, `queue:continue`, `queue:restart`, `schedule:work`, `schedule:run`, `schedule:list` |
 
 `serve --watch` hot-reloads through the Dart VM service; `build` runs
@@ -28,6 +30,9 @@ application:
 `openapi:generate` documents request bodies and responses from the rules and
 schemas declared on routes (`.validates(...)`, `.returns(...)`), and
 `doctor --production` is a pre-flight check for container entrypoints.
+`client:flutter` generates a typed Dart/Flutter client from the routes,
+and `mcp:serve` gives AI coding agents the routes, schema, models and logs
+of the project. `dartisan --version` prints the version.
 
 To embed the runner in your own entrypoint, see
 [`example/main.dart`](example/main.dart).

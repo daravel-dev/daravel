@@ -2,6 +2,8 @@
 
 # daravel_postgres
 
+English · [Bahasa Indonesia](https://github.com/daravel-dev/daravel/blob/main/packages/daravel_postgres/README.id.md)
+
 PostgreSQL driver for [Daravel](https://pub.dev/packages/daravel).
 
 ```bash

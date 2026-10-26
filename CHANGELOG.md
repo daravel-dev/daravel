@@ -42,8 +42,12 @@ Laravel-facing formats change only to match Laravel more closely.
   `tool/docs/generate.dart --check` (a CI gate) fails when a translation is
   out of date or its headings and code blocks no longer match. Run
   `--stamp=id/<page>.md` after updating a translation. Pages without a
-  translation are only listed. The five existing translations now cover
-  their whole English pages.
+  translation are only listed. Every guide page now has an Indonesian
+  translation, and the repository and package READMEs have a
+  `README.id.md` with a language switcher, checked the same way.
+- Documentation site: the EN / ID choice is remembered, and a visitor
+  arriving from another site on a page in the other language is sent to
+  the same page in theirs.
 
 - `DB_URL`, as in Laravel 12: one URL sets the database
   (`postgres://user:pass@host:5432/app?sslmode=require`) and is merged into

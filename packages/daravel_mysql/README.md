@@ -2,6 +2,8 @@
 
 # daravel_mysql
 
+English · [Bahasa Indonesia](https://github.com/daravel-dev/daravel/blob/main/packages/daravel_mysql/README.id.md)
+
 MySQL and MariaDB driver for [Daravel](https://pub.dev/packages/daravel),
 on the pure Dart [`mysql_dart`](https://pub.dev/packages/mysql_dart) client.
 With it, a Daravel application can share a MySQL database with a Laravel

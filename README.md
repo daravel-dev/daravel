@@ -6,6 +6,10 @@
 </p>
 
 <p align="center">
+  English · <a href="README.id.md">Bahasa Indonesia</a>
+</p>
+
+<p align="center">
   <strong>The Laravel developer experience, compiled to a single native binary.</strong><br>
   A Laravel-inspired, AOT-native backend framework for Dart.
 </p>
@@ -454,13 +458,17 @@ The monorepo is a Dart pub workspace:
 | [`packages/daravel_lints`](packages/daravel_lints) | AST-based lint rules and registry checks, run by `dartisan lint` and in tests |
 | [`packages/dartisan_cli`](packages/dartisan_cli) | The `dartisan` command-line interface and code generators |
 | [`packages/daravel_mysql`](packages/daravel_mysql) | MySQL and MariaDB driver |
+| [`packages/daravel_sqlite`](packages/daravel_sqlite) | SQLite driver package (`db:install sqlite`) |
+| [`packages/daravel_postgres`](packages/daravel_postgres) | PostgreSQL driver package (`db:install pgsql`) |
 | [`apps/daravel_starter`](apps/daravel_starter) | Reference application and end-to-end tests |
 
-The five packages ([`daravel`](https://pub.dev/packages/daravel),
+The seven packages ([`daravel`](https://pub.dev/packages/daravel),
 [`dartisan_cli`](https://pub.dev/packages/dartisan_cli),
 [`daravel_test`](https://pub.dev/packages/daravel_test),
 [`daravel_lints`](https://pub.dev/packages/daravel_lints),
-[`daravel_mysql`](https://pub.dev/packages/daravel_mysql)) are released together
+[`daravel_mysql`](https://pub.dev/packages/daravel_mysql),
+[`daravel_sqlite`](https://pub.dev/packages/daravel_sqlite),
+[`daravel_postgres`](https://pub.dev/packages/daravel_postgres)) are released together
 under one version by the verified publisher
 [`daravel.teoprayoga.my.id`](https://pub.dev/publishers/daravel.teoprayoga.my.id);
 only packages from that publisher belong to this project. pub.dev also tags
@@ -524,14 +532,15 @@ created lib/app/http/resources/post_resource.dart
 | **0** | Walking skeleton: container, HTTP kernel, router, SQLite, migrations, test client, CLI, CI | ✅ done |
 | **1** | S1 foundation · S2 HTTP hardening · S3 routing · S4 validation · S5 database · S6 ORM · S7 schema, seeding & generators · S8 auth · S9 multi-isolate & cache · S10 events, queue & scheduler · S11 resources, storage & observability · S12 CLI (`new`, hot reload, `build --docker`, `doctor`, `openapi:generate`, `model:sync`, stubs) · S13 testing toolkit, lints & architecture tests | ✅ done |
 | **1** | S14 conformance suite, security suite, `parity.yaml`, benchmark harness, documentation site, `api`/`minimal` templates → **1.0.0-beta.1** | ✅ done |
-| **2** | Sessions/CSRF, Redis, S3, mail, localization, SSE/WebSockets, OpenTelemetry, Blade-compatible compiled views | planned |
+| **1.x** | Released after 1.0: localization, feature flags, SSE and WebSockets, the Flutter client generator, driver packages and `db:transfer`, mail and notifications | ✅ done |
+| **2** | Sessions/CSRF, Redis, S3, OpenTelemetry, Blade-compatible compiled views; database clients only in the driver packages | planned |
 | **daragic** | Bidirectional Laravel ⇄ Daravel generator: runtime introspection → IR → generated project, converted tests, differential replay | designed |
 | **Ecosystem** | First-party packages under `daravel-dev`: `daravel_horizon` (queue supervisor and dashboard), `daravel_socialite` (OAuth and Sign in with Apple/Google), `daravel_reverb` (WebSockets, Pusher protocol), then `daravel_telescope` and `daravel_scout` | planned |
 
 ## Documentation
 
-Guides live in [`docs/guide`](docs/guide/index.md) (English, with Indonesian core pages in
-[`docs/guide/id`](docs/guide/id/index.md)): getting started, routing, validation, database,
+Guides live in [`docs/guide`](docs/guide/index.md), in English and in Indonesian
+([`docs/guide/id`](docs/guide/id/index.md)): getting started, routing, validation, database,
 responses, auth, background work, testing, deployment (Docker, Cloud Run, VPS), Laravel
 coexistence, [migrating from Laravel](docs/guide/migrating-from-laravel.md), security, performance
 and the generated [Laravel ⇄ Daravel parity table](docs/guide/parity.md).

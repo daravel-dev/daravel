@@ -2,6 +2,8 @@
 
 # daravel_test
 
+English · [Bahasa Indonesia](https://github.com/daravel-dev/daravel/blob/main/packages/daravel_test/README.id.md)
+
 Testing toolkit for [Daravel](https://pub.dev/packages/daravel)
 applications, in the spirit of Laravel's testing helpers.
 

@@ -2,6 +2,8 @@
 
 # daravel_lints
 
+English · [Bahasa Indonesia](https://github.com/daravel-dev/daravel/blob/main/packages/daravel_lints/README.id.md)
+
 AST lint rules for [Daravel](https://pub.dev/packages/daravel) applications,
 run by `dartisan lint` and in tests (they are not an IDE analyzer plugin).
 
@@ -11,6 +13,9 @@ run by `dartisan lint` and in tests (they are not an IDE analyzer plugin).
 | `no_print_in_app` | `print` in `lib/app` (use `Log`, which redacts and adds request context) |
 | `no_mutable_static_in_app` | mutable statics and globals shared by every request |
 | `no_sql_string_interpolation` | SQL built with interpolation or concatenation instead of bindings |
+| `invalid_validation_rule` | unknown validation rules and missing arguments (`max` without a value) |
+| `unawaited_in_db_transaction` | a query inside `DB.transaction` that is not awaited |
+| `invalid_timezone` | a time zone name the scheduler does not know |
 | `registry_entry_missing` | migrations, jobs, policies, listeners or commands left out of `bootstrap/` |
 
 Suppress a finding with `// daravel-lint-ignore: <rule>` on the same line or the
