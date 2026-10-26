@@ -27,6 +27,29 @@ options.
 | `stub:publish` | Copies the generator templates into `stubs/` |
 | `lint [--json]` | `daravel_lints` rules and registry checks |
 | `mcp:serve [--allow-write]`, `mcp:install` | Project context for AI coding agents over MCP, see [below](#ai-coding-agents-mcp) |
+| `upgrade [--check] [--to] [--no-global] [--no-get]`, `self-update` | Move the project and the global CLI to a release, see [below](#upgrading) |
+| `--version` (`-V`) | The version of the CLI or, in a project, of its framework |
+
+### Upgrading
+
+`dartisan upgrade` moves a project to the latest release on pub.dev: it
+sets every Daravel package in `pubspec.yaml` (`daravel`, `dartisan_cli`,
+`daravel_test`, `daravel_lints` and the driver packages) to `^<version>`,
+runs `dart pub upgrade`, and activates the same version of the global
+`dartisan`. Packages from git or a path, and `dependency_overrides`, are
+left as they are.
+
+```bash
+dartisan upgrade --check        # installed and latest version, nothing changes
+dartisan upgrade                # the latest release
+dartisan upgrade --to=1.8.1     # a given version
+dartisan self-update            # only the global dartisan
+```
+
+The global `dartisan` runs both itself, so they also work in a project
+whose own CLI is older than the commands. Read the
+[changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md)
+before moving to a new minor version.
 
 ## Serve, test and build
 

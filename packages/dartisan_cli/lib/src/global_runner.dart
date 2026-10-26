@@ -9,6 +9,7 @@ import 'generator.dart';
 import 'make_commands.dart';
 import 'new_project.dart';
 import 'project_commands.dart';
+import 'upgrade_command.dart';
 
 /// Global `dartisan` (`dart pub global activate dartisan_cli`).
 ///
@@ -29,6 +30,8 @@ final class GlobalDartisanRunner extends CommandRunner<int> {
     addCommand(KeyGenerateCommand());
     addCommand(MakeModelCommand());
     addCommand(StubPublishCommand());
+    addCommand(UpgradeCommand());
+    addCommand(SelfUpdateCommand());
   }
 
   @override
@@ -43,17 +46,18 @@ final class GlobalDartisanRunner extends CommandRunner<int> {
   /// Whether [args] run in the project's CLI rather than the global one:
   /// inside a project everything is delegated, including `dartisan`,
   /// `dartisan --help` and `dartisan <cmd> --help` (like `php artisan`),
-  /// except creating a project (`new`, `help new`).
+  /// except creating a project (`new`) and upgrading (`upgrade`,
+  /// `self-update`), which also work for projects whose CLI predates them.
   static bool delegates(List<String> args, {required bool inProject}) {
     if (!inProject) {
       return false;
     }
     final first = args.firstOrNull;
-    final second = args.length > 1 ? args[1] : null;
-    final createsProject =
-        first == 'new' || (first == 'help' && second == 'new');
-    return !createsProject;
+    final command = first == 'help' && args.length > 1 ? args[1] : first;
+    return !_globalOnly.contains(command);
   }
+
+  static const Set<String> _globalOnly = {'new', 'upgrade', 'self-update'};
 
   /// Delegates to the project CLI (see [delegates]) when the current
   /// directory belongs to a Daravel project.

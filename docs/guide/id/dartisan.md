@@ -1,4 +1,4 @@
-<!-- source: dartisan.md sha256:c39bd4dd190c -->
+<!-- source: dartisan.md sha256:0220c32bf7f9 -->
 # dartisan
 
 `dartisan` adalah `artisan`-nya Daravel. Pasang sekali, lalu pakai di proyek
@@ -28,6 +28,29 @@ sebuah command.
 | `stub:publish` | Menyalin template generator ke `stubs/` |
 | `lint [--json]` | Rule `daravel_lints` dan pengecekan registry |
 | `mcp:serve [--allow-write]`, `mcp:install` | Konteks proyek untuk agen AI coding lewat MCP, lihat [di bawah](#agen-ai-coding-mcp) |
+| `upgrade [--check] [--to] [--no-global] [--no-get]`, `self-update` | Memindahkan proyek dan CLI global ke sebuah rilis, lihat [di bawah](#upgrade) |
+| `--version` (`-V`) | Versi CLI atau, di dalam proyek, versi framework-nya |
+
+### Upgrade
+
+`dartisan upgrade` memindahkan proyek ke rilis terbaru di pub.dev: semua
+paket Daravel di `pubspec.yaml` (`daravel`, `dartisan_cli`, `daravel_test`,
+`daravel_lints`, dan paket driver) di-set ke `^<versi>`, lalu
+`dart pub upgrade` dijalankan, dan versi yang sama dari `dartisan` global
+diaktifkan. Paket dari git atau path, serta `dependency_overrides`, tidak
+diubah.
+
+```bash
+dartisan upgrade --check        # versi terpasang dan terbaru, tidak ada yang berubah
+dartisan upgrade                # rilis terbaru
+dartisan upgrade --to=1.8.1     # versi tertentu
+dartisan self-update            # hanya dartisan global
+```
+
+`dartisan` global menjalankan keduanya sendiri, jadi keduanya juga bekerja
+di proyek yang CLI-nya lebih tua dari command ini. Baca
+[changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md)
+sebelum pindah ke versi minor baru.
 
 ## Serve, test, dan build
 

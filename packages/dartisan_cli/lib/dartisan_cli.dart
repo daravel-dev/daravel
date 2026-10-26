@@ -16,6 +16,7 @@ import 'src/database_commands.dart';
 import 'src/dev_server.dart';
 import 'src/generator.dart';
 import 'src/project_commands.dart';
+import 'src/upgrade_command.dart';
 import 'src/cache_commands.dart';
 import 'src/adopt_command.dart';
 import 'src/env_commands.dart';
@@ -49,6 +50,7 @@ export 'src/daragic_export.dart';
 export 'src/db_install.dart';
 export 'src/db_transfer.dart';
 export 'src/mcp_server.dart';
+export 'src/upgrade_command.dart';
 
 /// Creates an unbooted [Application] (a project's `createApp()`).
 typedef AppFactory = Application Function();
@@ -124,6 +126,8 @@ final class DartisanRunner extends CommandRunner<int> {
     addCommand(OpenApiGenerateCommand(createApp));
     addCommand(ModelSyncCommand(createApp));
     addCommand(LintCommand());
+    addCommand(UpgradeCommand());
+    addCommand(SelfUpdateCommand());
     addCommand(McpServeCommand(createApp));
     addCommand(McpInstallCommand());
     for (final factory in commands) {
