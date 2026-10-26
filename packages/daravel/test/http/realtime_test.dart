@@ -238,6 +238,19 @@ void main() {
       (await TestClient(app).get('/api/rooms/lobby')).assertStatus(426);
     });
 
+    test('WebSocket routes are marked and left out of OpenAPI', () {
+      final routes = app.router.routes;
+      final rooms = routes.singleWhere((r) => r.path == '/api/rooms/{room}');
+      expect(rooms.isWebSocket, isTrue);
+      expect(
+        routes.singleWhere((r) => r.path == '/api/events').isWebSocket,
+        isFalse,
+      );
+      final paths = buildOpenApi(routes)['paths']! as Map<String, Object?>;
+      expect(paths.keys, contains('/api/events'));
+      expect(paths.keys, isNot(contains('/api/rooms/{room}')));
+    });
+
     test('shutdown closes WebSockets with 1001 (going away)', () async {
       final socket = await WebSocket.connect(ws('/api/rooms/a'));
       addTearDown(socket.close);

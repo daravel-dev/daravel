@@ -50,13 +50,14 @@ Performance numbers come from a reproducible harness, never from claims
 7. [Cache, events, queues, scheduling](background.md).
 8. [Strings, helpers and collections](helpers.md): `Str`, `retry`, `once`, `pluck`, ...
 9. [HTTP client](http-client.md): outgoing requests with `Http`, retries and `Http.fake()`.
-10. [Testing](testing.md): `TestClient`, database helpers, fakes, conformance.
-11. [Deployment](deployment.md): native bundles, Docker, Cloud Run, VPS (systemd + Caddy).
-12. [Laravel coexistence](laravel-coexistence.md): the compatibility contract.
-13. [Migrating from Laravel](migrating-from-laravel.md): move endpoints one at a time behind a proxy.
-14. [Security](security.md): secure defaults and the security suite.
-15. [Performance](performance.md): the benchmark harness.
-16. [Laravel ⇄ Daravel parity table](parity.md) (generated).
+10. [Flutter client](flutter-client.md): a typed client generated from the routes, with on-device validation.
+11. [Testing](testing.md): `TestClient`, database helpers, fakes, conformance.
+12. [Deployment](deployment.md): native bundles, Docker, Cloud Run, VPS (systemd + Caddy).
+13. [Laravel coexistence](laravel-coexistence.md): the compatibility contract.
+14. [Migrating from Laravel](migrating-from-laravel.md): move endpoints one at a time behind a proxy.
+15. [Security](security.md): secure defaults and the security suite.
+16. [Performance](performance.md): the benchmark harness.
+17. [Laravel ⇄ Daravel parity table](parity.md) (generated).
 
 Bahasa Indonesia: [Dokumentasi Daravel](id/index.md).
 

@@ -5,6 +5,21 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 breaking changes to the Dart API wait for a new major version, and
 Laravel-facing formats change only to match Laravel more closely.
 
+## Unreleased
+
+### Added
+
+- `dartisan client:flutter`: generates a typed Dart/Flutter client package
+  (plain Dart on `package:http`) from the routes. It produces methods per
+  route name, models from `.returns()` schemas, Laravel's paginators,
+  `ValidationException` for 422 responses, a bearer `TokenStore`,
+  server-sent events and WebSocket URLs. Input classes check the server's
+  own rules on the device, with the messages resolved by the server's
+  translator, so a form shows exactly what a 422 would say. Rules that need
+  the server (`unique`, closures, files, ...) are listed instead of guessed.
+- `RouteEntry.isWebSocket`. WebSocket routes are left out of the OpenAPI
+  document.
+
 ## 1.6.0
 
 Real-time responses: server-sent events and WebSocket routes. Upgrade from

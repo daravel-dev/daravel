@@ -37,6 +37,7 @@ options.
 | `build [--with-cli] [--docker] [--no-sqlite]` | Native bundle in `build/server/bundle`, optional `Dockerfile`; `--no-sqlite` leaves the SQLite library out (PostgreSQL/MySQL apps) |
 | `route:list` | The route table |
 | `openapi:generate [--output]` | OpenAPI 3.1 from the routes and their declared metadata |
+| `client:flutter [--output] [--package-name] [--prefix]` | A typed Dart/Flutter client package from the routes, with the server's validation rules ([Flutter client](flutter-client.md)) |
 
 ## Database
 

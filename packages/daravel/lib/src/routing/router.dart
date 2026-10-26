@@ -93,7 +93,7 @@ final class Router {
           );
         }
         return Response.webSocket(handler);
-      });
+      })..markWebSocket();
 
   RouteEntry post(String path, Handler handler) =>
       match(const <String>['POST'], path, handler);

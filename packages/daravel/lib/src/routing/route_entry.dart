@@ -53,6 +53,7 @@ final class RouteEntry {
   Duration? _timeout;
   int? _bodyLimitBytes;
   bool _isFallback = false;
+  bool _isWebSocket = false;
   String? _summary;
   List<String> _tags = const <String>[];
   FormRequest? _formRequest;
@@ -116,6 +117,9 @@ final class RouteEntry {
 
   /// Whether this is the fallback route.
   bool get isFallback => _isFallback;
+
+  /// Whether this is a WebSocket endpoint ([Router.ws]).
+  bool get isWebSocket => _isWebSocket;
 
   /// Short description (OpenAPI `summary`).
   String? get summaryText => _summary;
@@ -239,6 +243,9 @@ final class RouteEntry {
 
   /// Marks this route as the fallback. Called by `Router.fallback`.
   void markFallback() => _isFallback = true;
+
+  /// Marks this route as a WebSocket endpoint. Called by `Router.ws`.
+  void markWebSocket() => _isWebSocket = true;
 
   /// Whether every captured parameter satisfies this route's constraints
   /// (and the router-wide [globalPatterns] for unconstrained parameters).

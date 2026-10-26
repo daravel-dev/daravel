@@ -22,7 +22,8 @@ Map<String, Object?> buildOpenApi(
   var usesAuth = false;
   for (final route in routes) {
     // The framework's own pages (the live `/docs/api` reference).
-    if ((route.routeName ?? '').startsWith('daravel.')) {
+    // WebSocket endpoints are not HTTP operations OpenAPI can describe.
+    if ((route.routeName ?? '').startsWith('daravel.') || route.isWebSocket) {
       continue;
     }
     final path = route.path.replaceAll('?}', '}');
