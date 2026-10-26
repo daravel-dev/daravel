@@ -12,7 +12,7 @@ body:
     attributes:
       label: Daravel version
       description: "`dartisan about` or the `daravel` version in pubspec.lock"
-      placeholder: 1.9.0
+      placeholder: 1.10.0
     validations:
       required: true
   - type: input

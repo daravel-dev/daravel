@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.10.0
+
+- Version aligned with Daravel 1.10.0; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).
+
 ## 1.9.0
 
 - Added `dartisan upgrade [--check] [--to=<version>]` and `dartisan self-update`.

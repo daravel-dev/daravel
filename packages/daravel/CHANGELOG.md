@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.10.0
+
+- Added broadcasting with Laravel Echo: the Pusher protocol as Laravel Reverb (`withBroadcasting`, `ChannelRegistry`, `/broadcasting/auth`, the HTTP API), `ShouldBroadcast`, `Broadcast.event` / `send`, and `BROADCAST_CONNECTION` (`daravel`, `reverb`, `pusher`, `log`, `null`).
+- Changed: the `broadcast` notification channel sends Laravel's `BroadcastNotificationCreated` on `private-App.Models.User.{id}` through `BROADCAST_CONNECTION`.
+- Changed: bcrypt runs in libxcrypt on Linux (about 1.5 times as fast) and in a faster Dart implementation elsewhere; `package:bcrypt` is no longer a dependency. Passwords longer than 72 bytes are cut at 72 bytes, as PHP does.
+
 ## 1.9.0
 
 - Added mail (`Mailable`, `Mail`, SMTP, `log` and `array` transports, `MailFake`), with queued delivery and markdown mail in Laravel 12's default theme (`MailContent(markdown:)`, `mailButton`, `mailPanel`, `withMailTheme`).

@@ -6,7 +6,13 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 breaking changes to the Dart API wait for a new major version, and
 Laravel-facing formats change only to match Laravel more closely.
 
-## Unreleased
+## 1.10.0
+
+Broadcasting with Laravel Echo: Daravel speaks the Pusher protocol as
+Laravel Reverb does, Laravel can broadcast through it and it through
+Reverb. bcrypt runs in the system's C library on Linux, so a login costs
+what it costs in Laravel. Upgrade from any 1.x with `dartisan upgrade`;
+the `broadcast` notification channel now uses `private-App.Models.User.{id}`.
 
 ### Added
 
