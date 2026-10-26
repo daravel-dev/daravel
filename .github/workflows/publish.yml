@@ -4,7 +4,8 @@ name: Publish to pub.dev
 # setup per package on pub.dev: Admin → Automated publishing → enable GitHub
 # Actions for repository daravel-dev/daravel with tag pattern `v{{version}}`.
 # Then push a tag such as `v1.0.1` to publish all seven packages in
-# dependency order.
+# dependency order. Versions already on pub.dev are skipped, so re-running
+# the workflow after a partly manual release publishes the rest.
 on:
   push:
     tags: ["v[0-9]+.[0-9]+.[0-9]+*"]
@@ -12,10 +13,20 @@ on:
 permissions:
   id-token: write
   contents: read
-
 jobs:
   verify:
     runs-on: ubuntu-latest
+    # Each package: `published` when this version is on pub.dev already (a
+    # release partly published by hand), so its job is skipped and a re-run
+    # of the workflow finishes the rest.
+    outputs:
+      daravel_lints: ${{ steps.published.outputs.daravel_lints }}
+      daravel: ${{ steps.published.outputs.daravel }}
+      daravel_test: ${{ steps.published.outputs.daravel_test }}
+      daravel_mysql: ${{ steps.published.outputs.daravel_mysql }}
+      daravel_sqlite: ${{ steps.published.outputs.daravel_sqlite }}
+      daravel_postgres: ${{ steps.published.outputs.daravel_postgres }}
+      dartisan_cli: ${{ steps.published.outputs.dartisan_cli }}
     steps:
       - uses: actions/checkout@v4
       - uses: dart-lang/setup-dart@v1
@@ -28,45 +39,64 @@ jobs:
           test "v$version" = "${GITHUB_REF_NAME}" || { echo "Tag ${GITHUB_REF_NAME} != v$version"; exit 1; }
       - run: dart analyze --fatal-infos
       - run: (cd packages/daravel && dart test)
+      - name: Versions already on pub.dev
+        id: published
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          for package in daravel_lints daravel daravel_test daravel_mysql daravel_sqlite daravel_postgres dartisan_cli; do
+            status=$(curl -s -o /dev/null -w '%{http_code}' "https://pub.dev/api/packages/$package/versions/$version")
+            if [ "$status" = "200" ]; then state=published; else state=pending; fi
+            echo "$package $version: $state"
+            echo "$package=$state" >> "$GITHUB_OUTPUT"
+          done
 
   lints:
     needs: verify
+    if: needs.verify.outputs.daravel_lints != 'published'
     uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
     with:
       working-directory: packages/daravel_lints
 
+  # `!failure() && !cancelled()`: a skipped (already published) dependency
+  # does not stop the packages after it.
   daravel:
-    needs: lints
+    needs: [verify, lints]
+    if: ${{ !failure() && !cancelled() && needs.verify.outputs.daravel != 'published' }}
     uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
     with:
       working-directory: packages/daravel
 
   daravel_test:
-    needs: daravel
+    needs: [verify, daravel]
+    if: ${{ !failure() && !cancelled() && needs.verify.outputs.daravel_test != 'published' }}
     uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
     with:
       working-directory: packages/daravel_test
 
   daravel_mysql:
-    needs: daravel
+    needs: [verify, daravel]
+    if: ${{ !failure() && !cancelled() && needs.verify.outputs.daravel_mysql != 'published' }}
     uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
     with:
       working-directory: packages/daravel_mysql
 
   daravel_sqlite:
-    needs: daravel
+    needs: [verify, daravel]
+    if: ${{ !failure() && !cancelled() && needs.verify.outputs.daravel_sqlite != 'published' }}
     uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
     with:
       working-directory: packages/daravel_sqlite
 
   daravel_postgres:
-    needs: daravel
+    needs: [verify, daravel]
+    if: ${{ !failure() && !cancelled() && needs.verify.outputs.daravel_postgres != 'published' }}
     uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
     with:
       working-directory: packages/daravel_postgres
 
   dartisan_cli:
-    needs: [daravel, daravel_mysql]
+    needs: [verify, daravel, daravel_mysql]
+    if: ${{ !failure() && !cancelled() && needs.verify.outputs.dartisan_cli != 'published' }}
     uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
     with:
       working-directory: packages/dartisan_cli
