@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.9.0
+
+- Added mail (`Mailable`, `Mail`, SMTP, `log` and `array` transports, `MailFake`), with queued delivery and markdown mail in Laravel 12's default theme (`MailContent(markdown:)`, `mailButton`, `mailPanel`, `withMailTheme`).
+- Added notifications: `Notification`, `Notifications`, the `mail`, `database` and `broadcast` channels, `CreateNotificationsTable`, `ShouldQueue` notifications and `NotificationFake`.
+- Added `Broadcast` / `Broadcaster`: publish to a channel and every worker isolate delivers to its listeners, through the coordinator; `Broadcast.pipe` for WebSockets.
+- Added `DB_URL` (`ConnectionConfig.withUrl`), merged as Laravel 12's `ConfigurationUrlParser` does.
+- Fixed: PostgreSQL rejected `double.infinity`, `-infinity` and `NaN` bindings.
+
 ## 1.8.1
 
 - Version aligned with Daravel 1.8.1; no changes.

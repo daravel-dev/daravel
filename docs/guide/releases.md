@@ -8,6 +8,7 @@ publisher `daravel.teoprayoga.my.id`.
 
 | Version | Highlights |
 | :-- | :-- |
+| `1.9.0` | Mail and notifications (queued, markdown theme, broadcast channel), `Broadcast` across isolates, `DB_URL`, `dartisan upgrade`, Indonesian guide, benchmark against Laravel |
 | `1.8.1` | Fix: `client:flutter --state` adapters without paginators or uploads pass `dart analyze --fatal-infos` |
 | `1.8.0` | Driver packages, `db:install`, `db:transfer`, `withDatabaseConnection`; `client:flutter --state`/`--watch`; per-connection transactions |
 | `1.7.0` | `dartisan client:flutter`: typed Dart/Flutter client with the server's validation rules on the device |

@@ -6,7 +6,12 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 breaking changes to the Dart API wait for a new major version, and
 Laravel-facing formats change only to match Laravel more closely.
 
-## Unreleased
+## 1.9.0
+
+Mail and notifications (with queued delivery, Laravel's markdown mail theme
+and a broadcast channel), `Broadcast` across isolates, `DB_URL`,
+`dartisan upgrade`, the complete Indonesian guide and a benchmark against
+Laravel. Upgrade from any 1.x; `dartisan upgrade` does it from now on.
 
 ### Added
 

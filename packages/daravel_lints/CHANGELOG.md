@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.9.0
+
+- Version aligned with Daravel 1.9.0; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).
+
 ## 1.8.1
 
 - Version aligned with Daravel 1.8.1; no changes.

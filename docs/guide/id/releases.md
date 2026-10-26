@@ -1,4 +1,4 @@
-<!-- source: releases.md sha256:cf17db022946 -->
+<!-- source: releases.md sha256:b93ab5734353 -->
 # Rilis dan versioning
 
 Daravel `1.x` adalah lini rilis stabil. Ketujuh paket (`daravel`,
@@ -9,6 +9,7 @@ terverifikasi `daravel.teoprayoga.my.id`.
 
 | Versi | Sorotan |
 | :-- | :-- |
+| `1.9.0` | Mail dan notifikasi (queue, tema markdown, channel broadcast), `Broadcast` lintas isolate, `DB_URL`, `dartisan upgrade`, panduan Bahasa Indonesia, benchmark dibanding Laravel |
 | `1.8.1` | Perbaikan: adapter `client:flutter --state` tanpa paginator atau upload lolos `dart analyze --fatal-infos` |
 | `1.8.0` | Paket driver, `db:install`, `db:transfer`, `withDatabaseConnection`; `client:flutter --state`/`--watch`; transaksi per koneksi |
 | `1.7.0` | `dartisan client:flutter`: client Dart/Flutter bertipe dengan rule validasi server di perangkat |

@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.9.0
+
+- Added `dartisan upgrade [--check] [--to=<version>]` and `dartisan self-update`.
+- Added `dartisan --version` (`-V`).
+- Added `make:mail` and `make:notification`.
+- `mcp:install` in a DDEV project registers `ddev dartisan mcp:serve` and adds `.ddev/commands/web/dartisan`.
+
 ## 1.8.1
 
 - Fixed: `client:flutter --state` adapters (`providers.dart`, `blocs.dart`, `cubits.dart`) no longer fail `dart analyze --fatal-infos` with an unused import when no route uses a paginator or an upload.
