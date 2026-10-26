@@ -90,6 +90,50 @@ message without appearing in it. Subjects, names, addresses and headers
 that contain a line break are refused with an `ArgumentError`, because
 user input in a header would otherwise let someone add recipients.
 
+### Markdown mail and the theme
+
+`MailContent(markdown: ...)` is Laravel's markdown mailable: the markdown
+becomes the HTML part inside the mail theme (header with `APP_NAME`, a
+white card, the footer), and the text part unless `text:` is given.
+Laravel's components are written as in Blade, or with `mailButton` and
+`mailPanel`, which escape what they are given:
+
+```dart
+@override
+MailContent content() => MailContent(
+  markdown: '''
+# Order ${escapeHtml(order.number)} shipped
+
+It is on its way.
+
+${mailButton('Track your order', order.trackingUrl, color: 'success')}
+
+<x-mail::panel>
+Delivery **tomorrow** between 9 and 12.
+</x-mail::panel>
+
+Thanks,<br>
+${escapeHtml(appName)}
+''',
+);
+```
+
+The theme is Laravel 12's default (`default.css`), with its styles inlined
+into every element, as Laravel does before sending, because many mail
+clients ignore `<style>`. Buttons take `primary`, `success` or `error`.
+Change the colors, the logo or the footer once for every mail:
+
+```dart
+Application.configure(basePath: '.')
+    .withMailTheme((theme) => theme.copyWith(
+      primary: '#4f46e5',
+      logoUrl: 'https://example.com/logo.png',
+    ))
+```
+
+Escape values you put into markdown with `escapeHtml`, as Blade's `{{ }}`
+does; markdown syntax in them still works, as in Laravel.
+
 ## Notifications
 
 <!-- dartisan make:notification InvoicePaid -->
@@ -120,8 +164,11 @@ await Notifications.route('mail', 'billing@example.com').notify(InvoicePaid(invo
 
 `NotificationMail` is Laravel's notification `MailMessage`. It has a
 greeting ("Hello!", or "Whoops!" after `.error()`), lines, an optional
-button and a salutation ("Regards," and `APP_NAME`), rendered as HTML and
-text. The subject defaults to the class name as words (`Invoice Paid`).
+button and a salutation ("Regards," and `APP_NAME`), rendered in the mail
+theme from the same markdown as Laravel's `notifications::email` template,
+with its "If you're having trouble clicking..." subcopy under the button,
+and as text. The subject defaults to the class name as words
+(`Invoice Paid`).
 `toMail` can return a `Mailable` instead. The facade is `Notifications`
 because `Notification` is the base class.
 
@@ -129,6 +176,7 @@ because `Notification` is the base class.
 | :-- | :-- | :-- |
 | `mail` | `toMail` | the model's `email` and `name`, or a `Notifications.route('mail', ...)` address |
 | `database` | `toDatabase` (or `toArray`) into `notifications` | a model |
+| `broadcast` | `toBroadcast` (or `toArray`) to the [Broadcaster](responses.md#broadcasting-to-every-isolate) | the model's channel, or `Notifications.route('broadcast', 'channel')` |
 | your own | `withNotificationChannel('sms', SmsChannel())` | `routeNotificationFor('sms', ...)` |
 
 A model decides its own routes by implementing `RoutesNotifications`:
@@ -160,6 +208,33 @@ final unread = await user.notifications(unreadOnly: true); // newest first
 await Notifications.markAsRead(user, [unread.first.id]);   // or all: markAsRead(user)
 final count = await Notifications.unreadCount(user);
 ```
+
+### Broadcast
+
+The `broadcast` channel publishes Laravel's `BroadcastNotificationCreated`
+event: the notifiable's channel is `App.Models.User.1` (its `morphClass`
+with dots, then its key), and the message is
+
+```json
+{"event": "Illuminate\\Notifications\\Events\\BroadcastNotificationCreated",
+ "data": {"invoice_id": 7, "total": 120000, "id": "<uuid>", "type": "App\\Notifications\\InvoicePaid"}}
+```
+
+with the data of `toBroadcast`, or `toArray` (as in Laravel, `toDatabase`
+is not used), and the same `id` as the notification's database row.
+`broadcastOn`, `broadcastAs` and `broadcastType` change the channels, the
+event name and the type. A WebSocket route delivers it to the user's
+browser or app:
+
+```dart
+r.ws('/ws/notifications', (socket, request) async {
+  final user = await Auth.user<User>();
+  await Broadcast.pipe(socket, ['App.Models.User.${user!.key}']);
+}).middleware(const ['auth']);
+```
+
+This is Daravel's own WebSocket, not the Pusher protocol, so Laravel Echo
+does not connect to it yet.
 
 ## Queueing
 

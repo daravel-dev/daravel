@@ -1,4 +1,4 @@
-<!-- source: responses.md sha256:eb7c3f8dbb93 -->
+<!-- source: responses.md sha256:f8ca4288af42 -->
 # Respons dan resource
 
 Handler bisa mengembalikan `Response.json(data, status: 201)`,
@@ -156,13 +156,46 @@ r.ws('/ws/rooms/{room}', (socket, request) async {
 
 Request HTTP biasa ke path itu mendapat `426 Upgrade Required`. Saat
 shutdown, socket yang terbuka ditutup dengan `1001` (going away). Ini
-WebSocket mentah, bukan protokol Pusher dari Laravel Reverb. Menyebarkan
-pesan ke beberapa isolate atau server adalah urusan aplikasi, misalnya
-melalui database atau queue.
+WebSocket mentah, bukan protokol Pusher dari Laravel Reverb.
 
 Keduanya butuh koneksi sungguhan. `TestClient` mengumpulkan respons secara
 utuh, jadi uji `Response.sse` yang berhingga dengannya, dan uji WebSocket
 dengan `ServerEngine` di port 0 dan `WebSocket.connect`.
+
+### Broadcast ke semua isolate
+
+Dengan beberapa isolate, socket seorang user dipegang salah satunya,
+sementara request yang membawa kabar untuk user itu bisa berjalan di isolate
+lain. `Broadcast` menerbitkan pesan ke sebuah channel dan setiap isolate
+mengantarkannya ke listener miliknya sendiri, melalui coordinator, tanpa
+Redis:
+
+```dart
+r.ws('/ws/orders/{id}', (socket, request) =>
+    Broadcast.pipe(socket, ['orders.${request.param<int>('id')}']));
+
+// Di mana saja: controller, job, listener.
+await Broadcast.publish('orders.7', {'status': 'shipped'});
+```
+
+`pipe` meneruskan sebuah channel ke socket sampai socket ditutup.
+`subscribe` memberikan pesannya sebagai stream, untuk SSE atau keperluan
+lain:
+
+```dart
+r.get('/orders/{id}/events', (request) async {
+  final updates = await Broadcast.subscribe('orders.${request.param<int>('id')}');
+  return Response.sse(updates.messages);
+});
+```
+
+Pesan berupa string, atau apa pun selain itu sebagai JSON. Pesan hanya
+sampai ke isolate yang punya listener di channel itu, sesuai urutan
+terbitnya, dan tidak disimpan: listener menerima apa yang diterbitkan
+setelah `subscribe` selesai. Pesan tetap di satu server; untuk beberapa
+mesin, terbitkan lewat sesuatu yang dipakai bersama, seperti tabel database
+atau queue. Channel notifikasi `broadcast` menerbitkan lewat mekanisme ini
+([Mail dan notifikasi](mail.md#broadcast)).
 
 ## Error
 

@@ -15,6 +15,7 @@ import '../mail/mailer.dart';
 import '../mail/message.dart';
 import '../queue/job.dart';
 import '../queue/queue_manager.dart';
+import '../server/broadcast.dart';
 import 'notification.dart';
 
 /// Delivers a notification on one channel; [id] is this delivery's UUID.
@@ -213,16 +214,86 @@ final class DatabaseNotification {
   };
 }
 
+/// Publishes notifications to their channels on the [Broadcaster], as
+/// Laravel's `BroadcastNotificationCreated` event: `{"event": ..., "data":
+/// {...toBroadcast, "id": ..., "type": ...}}`.
+final class BroadcastChannel implements QueueableNotificationChannel {
+  BroadcastChannel(this._broadcaster);
+
+  final Broadcaster _broadcaster;
+
+  @override
+  Future<void> send(Object notifiable, Notification notification, String id) =>
+      deliver(prepare(notifiable, notification, id));
+
+  @override
+  Map<String, Object?> prepare(
+    Object notifiable,
+    Notification notification,
+    String id,
+  ) {
+    final channels = notification.broadcastOn(notifiable).isNotEmpty
+        ? notification.broadcastOn(notifiable)
+        : _channelsOf(notifiable, notification);
+    return {
+      'channels': channels,
+      'message': jsonEncode({
+        'event': notification.broadcastAs(),
+        'data': {
+          ...(notification.toBroadcast(notifiable) ??
+              notification.toArray(notifiable)),
+          'id': id,
+          'type': notification.broadcastType(notifiable),
+        },
+      }),
+    };
+  }
+
+  @override
+  Future<void> deliver(Map<String, Object?> payload) async {
+    final message = payload['message']! as String;
+    for (final channel in (payload['channels']! as List<Object?>)) {
+      await _broadcaster.publish(channel! as String, message);
+    }
+  }
+
+  static List<String> _channelsOf(
+    Object notifiable,
+    Notification notification,
+  ) {
+    if (notifiable is RoutesNotifications) {
+      switch (notifiable.routeNotificationFor('broadcast', notification)) {
+        case final String channel:
+          return [channel];
+        case final List<Object?> channels:
+          return [for (final channel in channels) '$channel'];
+      }
+    }
+    if (notifiable is Model) {
+      final type = notifiable.modelDefinition.morphClass.replaceAll(r'\', '.');
+      return ['$type.${notifiable.key}'];
+    }
+    throw StateError(
+      'The broadcast channel needs a model or a route '
+      '(Notifications.route(\'broadcast\', \'channel\')).',
+    );
+  }
+}
+
 /// Sends notifications on their channels (the `Notifications` facade).
 final class NotificationManager {
   NotificationManager(
     this._db,
     Mailer mailer, {
     required String appName,
+    Broadcaster? broadcaster,
     Map<String, NotificationChannel> channels = const {},
   }) : _channels = {
          'mail': MailChannel(mailer, appName: appName),
          'database': DatabaseChannel(_db),
+         'broadcast': ?broadcaster == null
+             ? null
+             : BroadcastChannel(broadcaster),
          ...channels,
        };
 

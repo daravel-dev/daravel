@@ -1,4 +1,5 @@
 import 'message.dart';
+import 'theme.dart';
 
 /// Who and what a [Mailable] is about (Laravel's `Envelope`).
 final class Envelope {
@@ -23,15 +24,27 @@ final class Envelope {
   final Map<String, String> headers;
 }
 
-/// The body of a [Mailable]: HTML, plain text or both (Laravel's
-/// `Content`). Give both when you can; mail clients and spam filters
-/// prefer a text alternative.
+/// The body of a [Mailable] (Laravel's `Content`): HTML, plain text or
+/// both, or [markdown] in the mail theme. Give a text alternative when you
+/// can; mail clients and spam filters prefer messages that have one.
 final class MailContent {
-  const MailContent({this.html, this.text})
-    : assert(html != null || text != null, 'Give html, text or both.');
+  const MailContent({this.html, this.text, this.markdown, this.subcopy})
+    : assert(
+        html != null || text != null || markdown != null,
+        'Give html, text, markdown or a combination.',
+      );
 
   final String? html;
   final String? text;
+
+  /// Laravel's `markdown:` view: rendered in the [MailTheme] (header,
+  /// footer, inline styles) for the HTML part, and as text for the text
+  /// part unless [text] is given. `<x-mail::button>` and
+  /// `<x-mail::panel>` work as in Laravel.
+  final String? markdown;
+
+  /// Small print under a [markdown] body, above the footer.
+  final String? subcopy;
 }
 
 /// An email (Laravel's `Mailable`):
@@ -90,9 +103,11 @@ abstract class Mailable {
       list.any((a) => a.email.toLowerCase() == email.toLowerCase());
 
   /// The message to send, [defaultFrom] when the envelope names no sender.
-  MailMessage build({required MailAddress defaultFrom}) {
+  MailMessage build({required MailAddress defaultFrom, MailTheme? theme}) {
     final envelope = this.envelope();
     final content = this.content();
+    final markdown = content.markdown;
+    final style = theme ?? const MailTheme(appName: 'Daravel');
     return MailMessage(
       from: envelope.from ?? defaultFrom,
       to: to,
@@ -100,8 +115,16 @@ abstract class Mailable {
       bcc: bcc,
       replyTo: envelope.replyTo,
       subject: envelope.subject,
-      html: content.html,
-      text: content.text,
+      html:
+          content.html ??
+          (markdown == null
+              ? null
+              : style.layout(style.render(markdown), subcopy: content.subcopy)),
+      text:
+          content.text ??
+          (markdown == null
+              ? null
+              : markdownToText([markdown, ?content.subcopy].join('\n\n'))),
       attachments: attachments(),
       headers: envelope.headers,
     );

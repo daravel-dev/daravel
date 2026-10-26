@@ -149,13 +149,44 @@ r.ws('/ws/rooms/{room}', (socket, request) async {
 
 A plain HTTP request to that path gets `426 Upgrade Required`. On shutdown
 open sockets are closed with `1001` (going away). This is a raw WebSocket,
-not Laravel Reverb's Pusher protocol. Fanning messages out across several
-isolates or servers is up to the application, for example through a
-database or a queue.
+not Laravel Reverb's Pusher protocol.
 
 Both need a real connection. `TestClient` collects a response in full, so
 test a finite `Response.sse` with it, and test WebSockets with `ServerEngine`
 on port 0 and `WebSocket.connect`.
+
+### Broadcasting to every isolate
+
+With several isolates, the socket of one user is held by one of them, and
+the request that has news for that user may run in another. `Broadcast`
+publishes to a channel and every isolate delivers to its own listeners,
+through the coordinator, without Redis:
+
+```dart
+r.ws('/ws/orders/{id}', (socket, request) =>
+    Broadcast.pipe(socket, ['orders.${request.param<int>('id')}']));
+
+// Anywhere: a controller, a job, a listener.
+await Broadcast.publish('orders.7', {'status': 'shipped'});
+```
+
+`pipe` forwards a channel to a socket until it closes. `subscribe` gives
+the messages as a stream, for SSE or anything else:
+
+```dart
+r.get('/orders/{id}/events', (request) async {
+  final updates = await Broadcast.subscribe('orders.${request.param<int>('id')}');
+  return Response.sse(updates.messages);
+});
+```
+
+A message is a string, or anything else as JSON. It reaches only the
+isolates that have a listener on the channel, in publish order, and is
+not stored: a listener gets what is published after `subscribe` returns.
+It stays within one server; for several machines, publish through
+something they share, such as a database table or a queue. The
+`broadcast` notification channel publishes through it
+([Mail and notifications](mail.md#broadcast)).
 
 ## Errors
 

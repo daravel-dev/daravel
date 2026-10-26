@@ -1,4 +1,4 @@
-<!-- source: mail.md sha256:ec46a4903c60 -->
+<!-- source: mail.md sha256:97d3119c1ee4 -->
 # Mail dan notifikasi
 
 `Mail` mengirim email lewat SMTP (atau transport lain) dan `Notifications`
@@ -92,6 +92,52 @@ menerima pesan tanpa tercantum di dalamnya. Subjek, nama, alamat, dan header
 yang mengandung pemisah baris ditolak dengan `ArgumentError`, karena tanpa
 itu input user di sebuah header bisa dipakai untuk menambahkan penerima.
 
+### Markdown mail dan tema
+
+`MailContent(markdown: ...)` adalah mailable markdown ala Laravel: markdown
+menjadi bagian HTML di dalam tema mail (header dengan `APP_NAME`, kartu
+putih, footer), sekaligus menjadi bagian teks kecuali `text:` diberikan.
+Komponen Laravel ditulis seperti di Blade, atau dengan `mailButton` dan
+`mailPanel`, yang meng-escape apa yang diberikan:
+
+```dart
+@override
+MailContent content() => MailContent(
+  markdown: '''
+# Order ${escapeHtml(order.number)} shipped
+
+It is on its way.
+
+${mailButton('Track your order', order.trackingUrl, color: 'success')}
+
+<x-mail::panel>
+Delivery **tomorrow** between 9 and 12.
+</x-mail::panel>
+
+Thanks,<br>
+${escapeHtml(appName)}
+''',
+);
+```
+
+Temanya adalah tema default Laravel 12 (`default.css`), dengan style-nya
+di-inline ke setiap elemen seperti yang dilakukan Laravel sebelum mengirim,
+karena banyak aplikasi email mengabaikan `<style>`. Button menerima
+`primary`, `success`, atau `error`. Ubah warna, logo, atau footer sekali
+untuk semua mail:
+
+```dart
+Application.configure(basePath: '.')
+    .withMailTheme((theme) => theme.copyWith(
+      primary: '#4f46e5',
+      logoUrl: 'https://example.com/logo.png',
+    ))
+```
+
+Escape nilai yang Anda masukkan ke markdown dengan `escapeHtml`, seperti
+`{{ }}` di Blade; sintaks markdown di dalamnya tetap berlaku, seperti di
+Laravel.
+
 ## Notifikasi
 
 <!-- dartisan make:notification InvoicePaid -->
@@ -123,8 +169,10 @@ await Notifications.route('mail', 'billing@example.com').notify(InvoicePaid(invo
 `NotificationMail` adalah `MailMessage` notifikasi dari Laravel. Isinya
 salam pembuka ("Hello!", atau "Whoops!" setelah `.error()`), baris-baris
 teks, tombol opsional, dan salam penutup ("Regards," dan `APP_NAME`),
-dirender sebagai HTML dan teks. Subjek default-nya nama kelas yang dipecah
-menjadi kata (`Invoice Paid`). `toMail` juga boleh mengembalikan `Mailable`.
+dirender di tema mail dari markdown yang sama dengan template
+`notifications::email` Laravel, lengkap dengan subcopy "If you're having
+trouble clicking..." di bawah tombol, dan sebagai teks. Subjek default-nya
+nama kelas yang dipecah menjadi kata (`Invoice Paid`). `toMail` juga boleh mengembalikan `Mailable`.
 Facade-nya bernama `Notifications` karena `Notification` adalah kelas
 dasarnya.
 
@@ -132,6 +180,7 @@ dasarnya.
 | :-- | :-- | :-- |
 | `mail` | `toMail` | `email` dan `name` milik model, atau alamat dari `Notifications.route('mail', ...)` |
 | `database` | `toDatabase` (atau `toArray`) ke `notifications` | sebuah model |
+| `broadcast` | `toBroadcast` (atau `toArray`) ke [Broadcaster](responses.md#broadcast-ke-semua-isolate) | channel milik model, atau `Notifications.route('broadcast', 'channel')` |
 | buatan Anda | `withNotificationChannel('sms', SmsChannel())` | `routeNotificationFor('sms', ...)` |
 
 Model menentukan rutenya sendiri dengan mengimplementasikan
@@ -149,7 +198,7 @@ final class User extends Model implements RoutesNotifications {
 ### Tabel notifications
 
 Tambahkan `CreateNotificationsTable()` ke `bootstrap/migrations.dart`. Ini
-tabel dari `make:notifications-table` dari Laravel (`id` UUID, `type`,
+tabel yang dibuat `make:notifications-table` di Laravel (`id` UUID, `type`,
 `notifiable_type`/`notifiable_id`, `data`, `read_at`, timestamp), dan hanya
 dibuat bila belum ada, jadi database yang sudah dimigrasi Laravel bisa
 dipakai apa adanya. Baris ditulis seperti Laravel menulisnya:
@@ -164,6 +213,33 @@ final unread = await user.notifications(unreadOnly: true); // terbaru lebih dulu
 await Notifications.markAsRead(user, [unread.first.id]);   // atau semua: markAsRead(user)
 final count = await Notifications.unreadCount(user);
 ```
+
+### Broadcast
+
+Channel `broadcast` menerbitkan event `BroadcastNotificationCreated` dari
+Laravel: channel milik notifiable adalah `App.Models.User.1` (`morphClass`
+dengan titik, lalu key-nya), dan pesannya
+
+```json
+{"event": "Illuminate\\Notifications\\Events\\BroadcastNotificationCreated",
+ "data": {"invoice_id": 7, "total": 120000, "id": "<uuid>", "type": "App\\Notifications\\InvoicePaid"}}
+```
+
+dengan data dari `toBroadcast`, atau `toArray` (seperti di Laravel,
+`toDatabase` tidak dipakai), dan `id` yang sama dengan baris notifikasi di
+database. `broadcastOn`, `broadcastAs`, dan `broadcastType` mengubah channel,
+nama event, dan type-nya. Route WebSocket mengantarkannya ke browser atau
+aplikasi milik user:
+
+```dart
+r.ws('/ws/notifications', (socket, request) async {
+  final user = await Auth.user<User>();
+  await Broadcast.pipe(socket, ['App.Models.User.${user!.key}']);
+}).middleware(const ['auth']);
+```
+
+Ini WebSocket milik Daravel sendiri, bukan protokol Pusher, jadi Laravel
+Echo belum bisa terhubung ke sana.
 
 ## Queue
 

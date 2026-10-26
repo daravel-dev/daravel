@@ -48,6 +48,11 @@ final class InvoicePaid extends Notification {
     'total': total,
     'url': '/invoices/1',
   };
+
+  /// What the broadcast channel sends (no toBroadcast; Laravel then reads
+  /// toArray, never toDatabase).
+  @override
+  Map<String, Object?> toArray(Object notifiable) => {'total': total};
 }
 
 final class Welcome extends Mailable {
@@ -314,4 +319,49 @@ void main() {
     expect(await DB.table('notifications').count(), 0);
     expect(sms.sent, isEmpty);
   });
+
+  test(
+    'broadcast channel: Laravel\'s event, on the notifiable\'s channel',
+    () async {
+      final subscription = await Broadcast.subscribe(
+        'App.Models.User.${teo.key}',
+      );
+      final received = <String>[];
+      subscription.messages.listen(received.add);
+      await teo.notify(
+        const InvoicePaid(5, channels: ['database', 'broadcast']),
+      );
+      await pumpEventQueue();
+
+      final message = jsonDecode(received.single) as Map<String, Object?>;
+      expect(
+        message['event'],
+        r'Illuminate\Notifications\Events\BroadcastNotificationCreated',
+      );
+      // The same id as the database row, as in Laravel.
+      final row = (await Notifications.of(teo)).single;
+      // toArray, not toDatabase (which has the url): as Laravel.
+      expect(message['data'], {
+        'total': 5,
+        'id': row.id,
+        'type': r'App\Notifications\InvoicePaid',
+      });
+
+      // A route instead of a model.
+      final ops = await Broadcast.subscribe('ops');
+      final opsMessages = <String>[];
+      ops.messages.listen(opsMessages.add);
+      await Notifications.route(
+        'broadcast',
+        'ops',
+      ).notify(const InvoicePaid(9, channels: ['broadcast']));
+      await pumpEventQueue();
+      expect(
+        jsonDecode(opsMessages.single),
+        containsPair('data', containsPair('total', 9)),
+      );
+      await subscription.cancel();
+      await ops.cancel();
+    },
+  );
 }

@@ -48,6 +48,30 @@ Laravel-facing formats change only to match Laravel more closely.
 - Documentation site: the EN / ID choice is remembered, and a visitor
   arriving from another site on a page in the other language is sent to
   the same page in theirs.
+- `Broadcast` (`Broadcaster`): publish to a channel from any isolate and
+  every worker isolate delivers to its own listeners, through the
+  coordinator, without Redis. `Broadcast.pipe(socket, channels)` forwards
+  channels to a WebSocket until it closes; `subscribe` gives a stream (for
+  SSE). Only isolates with a listener on the channel receive a message.
+- Markdown mail and the mail theme: `MailContent(markdown: ...)` renders
+  in Laravel 12's default mail theme, with its styles inlined, and Laravel's
+  `<x-mail::button>` and `<x-mail::panel>` components (or `mailButton`,
+  `mailPanel`). `withMailTheme` changes colors, logo and footer.
+  Notification mail is rendered from the markdown of Laravel's
+  `notifications::email` template, with its subcopy.
+- The `broadcast` notification channel: Laravel's
+  `BroadcastNotificationCreated` event (`toBroadcast` or `toArray`, plus
+  `id` and `type`) on the notifiable's channel (`App.Models.User.1`), with
+  the same id as the database row.
+- `dartisan upgrade [--check] [--to=<version>]`: sets every Daravel package
+  in `pubspec.yaml` to the release (git and path packages are left alone),
+  runs `dart pub upgrade` and activates the same global `dartisan`.
+  `dartisan self-update` updates only the global CLI. The global
+  `dartisan` runs both, so they work in projects whose CLI predates them.
+- `bench/laravel/compare.sh`: Daravel against Laravel 12 (Octane on
+  FrankenPHP, and classic) on the same cores, database and load generator,
+  with the same endpoints. `bench.dart --external=name:port` measures any
+  running server with the scenarios.
 
 - `DB_URL`, as in Laravel 12: one URL sets the database
   (`postgres://user:pass@host:5432/app?sslmode=require`) and is merged into
@@ -66,6 +90,12 @@ Laravel-facing formats change only to match Laravel more closely.
   (`dart run bin/dartisan.dart mcp:serve`), which cannot work there.
 - The release workflow skips packages whose version is already on pub.dev,
   so re-running it finishes a release that was partly published by hand.
+
+### Fixed
+
+- PostgreSQL: `double.infinity`, `-infinity` and `NaN` bindings are sent as
+  typed `float8`. `package:postgres` sent them as the SQL text `'infinity'`,
+  quotes included, which PostgreSQL rejected.
 
 ## 1.8.1
 

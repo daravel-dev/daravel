@@ -76,6 +76,11 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `(new MailMessage)->line()->action()` | `NotificationMail().line().action()` |  |
 | `$user->unreadNotifications / markAsRead()` | `user.notifications(unreadOnly: true) / Notifications.markAsRead(user)` | **async** |
 | `php artisan make:notifications-table` | `CreateNotificationsTable()` | Laravel's table; created only when missing. |
+| `new Content(markdown: 'mail.orders.shipped')` | `MailContent(markdown: '...')` | Markdown in Dart, not a Blade view; Laravel's default theme, inlined. |
+| `<x-mail::button :url="$url" color="success">` | `mailButton(label, url, color: 'success')` | The <x-mail::button> and <x-mail::panel> tags work in the markdown too. |
+| `php artisan vendor:publish --tag=laravel-mail (theme CSS)` | `.withMailTheme((theme) => theme.copyWith(primary: '#4f46e5'))` |  |
+| `via() => ['broadcast'] (BroadcastNotificationCreated)` | `via() => ['broadcast']` | Same event, data and channel name; Daravel's own WebSocket, not Pusher. |
+| `broadcast(new OrderShipped($order)) (Reverb, Redis)` | `await Broadcast.publish('orders.7', data)` | **async**; Across the server's isolates through the coordinator; no Pusher protocol yet. |
 
 ## Validation
 

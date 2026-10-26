@@ -1,5 +1,6 @@
 import '../mail/mailable.dart';
 import '../mail/message.dart';
+import '../mail/theme.dart';
 
 /// A notification (Laravel's `Notification`): [via] names the channels,
 /// and each channel reads its own method.
@@ -42,6 +43,22 @@ abstract class Notification {
   /// The `type` column: Laravel stores the notification's class name, so
   /// the default is `App\Notifications\<ClassName>`.
   String databaseType(Object notifiable) => 'App\\Notifications\\$runtimeType';
+
+  /// For the `broadcast` channel: the data sent; [toArray] when null
+  /// (Laravel's `toBroadcast`).
+  Map<String, Object?>? toBroadcast(Object notifiable) => null;
+
+  /// The channels to broadcast on; empty for the notifiable's own
+  /// (`App.Models.User.1`, Laravel's `receivesBroadcastNotificationsOn`).
+  List<String> broadcastOn(Object notifiable) => const [];
+
+  /// The broadcast event name: Laravel's
+  /// `Illuminate\Notifications\Events\BroadcastNotificationCreated`.
+  String broadcastAs() =>
+      r'Illuminate\Notifications\Events\BroadcastNotificationCreated';
+
+  /// The `type` sent with a broadcast: [databaseType] by default.
+  String broadcastType(Object notifiable) => databaseType(notifiable);
 }
 
 /// The mail of a notification (Laravel's notification `MailMessage`): a
@@ -140,50 +157,38 @@ final class NotificationMail {
     return out.toString();
   }
 
-  String _html(String appName) {
-    final color = switch (_level) {
-      'error' => '#dc2626',
-      'success' => '#16a34a',
-      _ => '#1f2937',
-    };
-    String paragraph(String text) =>
-        '<p style="margin:0 0 16px;line-height:1.5">${escapeHtml(text)}</p>';
-    final out = StringBuffer()
-      ..write(
-        '<!doctype html><html><body style="margin:0;padding:24px;'
-        'background:#f4f4f5;font-family:-apple-system,Segoe UI,Roboto,'
-        'Helvetica,Arial,sans-serif;color:#18181b">'
-        '<div style="max-width:560px;margin:0 auto;background:#ffffff;'
-        'border-radius:8px;padding:32px">',
-      )
-      ..write(
-        '<h1 style="margin:0 0 16px;font-size:20px">'
-        '${escapeHtml(_greetingText())}</h1>',
-      );
-    _intro.map(paragraph).forEach(out.write);
+  /// The body as Laravel's `notifications::email` markdown template
+  /// writes it; user text is HTML-escaped, as Blade's `{{ }}` does.
+  String _markdown(String appName) {
+    final out = StringBuffer('# ${escapeHtml(_greetingText())}\n\n');
+    for (final line in _intro) {
+      out.write('${escapeHtml(line)}\n\n');
+    }
     final url = _actionUrl;
     if (_actionText != null && url != null) {
-      out.write(
-        '<p style="margin:24px 0;text-align:center"><a href="${escapeHtml(url)}" '
-        'style="display:inline-block;padding:10px 18px;border-radius:6px;'
-        'background:$color;color:#ffffff;text-decoration:none">'
-        '${escapeHtml(_actionText!)}</a></p>',
-      );
+      final color = switch (_level) {
+        'success' || 'error' => _level,
+        _ => 'primary',
+      };
+      out.write('${mailButton(_actionText!, url, color: color)}\n\n');
     }
-    _outro.map(paragraph).forEach(out.write);
-    out.write(
-      '<p style="margin:16px 0 0">'
-      '${escapeHtml(_salutationText(appName)).replaceAll('\n', '<br>')}</p>',
-    );
-    if (_actionText != null && url != null) {
-      out.write(
-        '<p style="margin:24px 0 0;font-size:12px;color:#71717a">'
-        'If the button does not work, copy this URL into your browser: '
-        '${escapeHtml(url)}</p>',
-      );
+    for (final line in _outro) {
+      out.write('${escapeHtml(line)}\n\n');
     }
-    out.write('</div></body></html>');
+    out.write(escapeHtml(_salutationText(appName)).replaceAll('\n', '<br>\n'));
     return out.toString();
+  }
+
+  /// Laravel's subcopy under a button.
+  String? _subcopy() {
+    final url = _actionUrl;
+    if (_actionText == null || url == null) {
+      return null;
+    }
+    final display = url.replaceAll('mailto:', '').replaceAll('tel:', '');
+    return "If you're having trouble clicking the \"${escapeHtml(_actionText!)}\" "
+        'button, copy and paste the URL below\ninto your web browser: '
+        '<span class="break-all">[${escapeHtml(display)}](${escapeHtml(url)})</span>';
   }
 }
 
@@ -202,8 +207,11 @@ final class _NotificationMailable extends Mailable {
   );
 
   @override
-  MailContent content() =>
-      MailContent(html: _mail._html(_appName), text: _mail._text(_appName));
+  MailContent content() => MailContent(
+    markdown: _mail._markdown(_appName),
+    subcopy: _mail._subcopy(),
+    text: _mail._text(_appName),
+  );
 
   @override
   List<MailAttachment> attachments() => _mail._attachments;

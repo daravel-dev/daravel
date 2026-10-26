@@ -79,6 +79,11 @@ sections:
       - { php: "(new MailMessage)->line()->action()", dart: "NotificationMail().line().action()", symbol: NotificationMail.action }
       - { php: "$user->unreadNotifications / markAsRead()", dart: "user.notifications(unreadOnly: true) / Notifications.markAsRead(user)", symbol: Notifications.markAsRead, async: true }
       - { php: "php artisan make:notifications-table", dart: "CreateNotificationsTable()", symbol: CreateNotificationsTable, note: "Laravel's table; created only when missing." }
+      - { php: "new Content(markdown: 'mail.orders.shipped')", dart: "MailContent(markdown: '...')", symbol: MailContent, note: "Markdown in Dart, not a Blade view; Laravel's default theme, inlined." }
+      - { php: "<x-mail::button :url=\"$url\" color=\"success\">", dart: "mailButton(label, url, color: 'success')", symbol: mailButton, note: "The <x-mail::button> and <x-mail::panel> tags work in the markdown too." }
+      - { php: "php artisan vendor:publish --tag=laravel-mail (theme CSS)", dart: ".withMailTheme((theme) => theme.copyWith(primary: '#4f46e5'))", symbol: MailTheme.copyWith }
+      - { php: "via() => ['broadcast'] (BroadcastNotificationCreated)", dart: "via() => ['broadcast']", symbol: BroadcastChannel, note: "Same event, data and channel name; Daravel's own WebSocket, not Pusher." }
+      - { php: "broadcast(new OrderShipped($order)) (Reverb, Redis)", dart: "await Broadcast.publish('orders.7', data)", symbol: Broadcast.publish, async: true, note: "Across the server's isolates through the coordinator; no Pusher protocol yet." }
 
   - name: Validation
     symbols:

@@ -42,6 +42,7 @@ import '../notifications/notification_manager.dart';
 import '../mail/mail_config.dart';
 import '../mail/mailer.dart';
 import '../mail/smtp.dart';
+import '../mail/theme.dart';
 import '../mail/transport.dart';
 import '../logging/logger.dart';
 import '../queue/drivers.dart';
@@ -51,6 +52,7 @@ import '../routing/openapi.dart';
 import '../routing/router.dart';
 import '../routing/url_signer.dart';
 import '../schedule/schedule.dart';
+import '../server/broadcast.dart';
 import '../server/coordinator.dart';
 import '../server/supervisor.dart';
 import 'config.dart';
@@ -257,6 +259,7 @@ final class Application {
       ..singleton<Mailer>((c) {
         final mail = c.make<ConfigRepository>().section<MailConfig>();
         final custom = _builder._mailTransports[mail.mailer];
+        final theme = _builder._mailTheme;
         return Mailer(
           mail,
           custom != null
@@ -270,6 +273,9 @@ final class Application {
                     'array, or one registered with withMailTransport).',
                   ),
                 },
+          theme: theme?.call(
+            MailTheme(appName: mail.appName, appUrl: mail.appUrl),
+          ),
         );
       })
       ..singleton<NotificationManager>(
@@ -277,6 +283,7 @@ final class Application {
           c.make<DatabaseManager>(),
           c.make<Mailer>(),
           appName: config.section<AppConfig>().name,
+          broadcaster: c.make<Broadcaster>(),
           channels: _builder._notificationChannels,
         ),
       )
@@ -289,6 +296,7 @@ final class Application {
       ..instance<AuthorizationGate>(gate)
       ..instance<AuthManager>(auth)
       ..instance<CoordinatorChannel>(channel)
+      ..singleton<Broadcaster>((c) => Broadcaster(c.make<CoordinatorChannel>()))
       ..instance<EventDispatcher>(events)
       ..instance<AppMetrics>(metrics)
       ..singleton<StorageManager>(
@@ -797,6 +805,7 @@ final class Application {
     _metricsTimer = null;
     container.resolved<HttpClientFactory>()?.close();
     await container.resolved<Mailer>()?.transport.close();
+    await container.resolved<Broadcaster>()?.close();
     final db = container.resolved<DatabaseManager>();
     if (db != null) {
       await db.closeAll();
@@ -836,6 +845,7 @@ final class ApplicationBuilder {
       {};
   final Map<String, MailTransport Function(MailConfig config)> _mailTransports =
       {};
+  MailTheme Function(MailTheme defaults)? _mailTheme;
   final Map<String, NotificationChannel> _notificationChannels = {};
   final List<Seeder> _seeders = <Seeder>[];
   final List<ModelDefinition<Model>> _models = <ModelDefinition<Model>>[];
@@ -1031,6 +1041,16 @@ final class ApplicationBuilder {
     MailTransport Function(MailConfig config) transport,
   ) {
     _mailTransports[name] = transport;
+    return this;
+  }
+
+  /// Changes the look of markdown and notification mail, starting from
+  /// Laravel's default theme with `APP_NAME` and `APP_URL`:
+  /// `.withMailTheme((theme) => theme.copyWith(primary: '#4f46e5'))`.
+  ApplicationBuilder withMailTheme(
+    MailTheme Function(MailTheme defaults) theme,
+  ) {
+    _mailTheme = theme;
     return this;
   }
 

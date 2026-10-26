@@ -15,6 +15,8 @@ final class MailConfig implements ConfigSection {
     this.requireTls = false,
     this.localDomain = 'localhost',
     this.timeout = const Duration(seconds: 30),
+    this.appName = 'Daravel',
+    this.appUrl = 'http://localhost',
   });
 
   /// `MAIL_MAILER` (`smtp`, `log`, `array` or a registered transport):
@@ -54,6 +56,8 @@ final class MailConfig implements ConfigSection {
               ? Uri.parse(appUrl).host
               : 'localhost'),
       timeout: env.duration('MAIL_TIMEOUT', const Duration(seconds: 30)),
+      appName: appName,
+      appUrl: appUrl,
     );
   }
 
@@ -75,6 +79,10 @@ final class MailConfig implements ConfigSection {
   /// The EHLO name (`MAIL_EHLO_DOMAIN`, else the host of `APP_URL`).
   final String localDomain;
   final Duration timeout;
+
+  /// `APP_NAME` and `APP_URL`: the header and footer of themed mail.
+  final String appName;
+  final String appUrl;
 
   @override
   String get key => 'mail';

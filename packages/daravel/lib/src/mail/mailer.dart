@@ -6,16 +6,22 @@ import '../queue/job.dart';
 import '../queue/queue_manager.dart';
 import 'mail_config.dart';
 import 'mailable.dart';
+import 'theme.dart';
 import 'message.dart';
 import 'transport.dart';
 
 /// Renders mailables and hands them to the configured [MailTransport]
 /// (the `Mail` facade).
 final class Mailer {
-  Mailer(this.config, this.transport);
+  Mailer(this.config, this.transport, {MailTheme? theme})
+    : theme =
+          theme ?? MailTheme(appName: config.appName, appUrl: config.appUrl);
 
   final MailConfig config;
   final MailTransport transport;
+
+  /// The look of markdown and notification mail.
+  final MailTheme theme;
   MailFake? _fake;
 
   /// Starts a message to [recipients] (addresses, `Name <address>`
@@ -35,7 +41,7 @@ final class Mailer {
       );
       return null;
     }
-    final message = mailable.build(defaultFrom: config.from);
+    final message = mailable.build(defaultFrom: config.from, theme: theme);
     _checkRecipients(message);
     final fake = _fake;
     if (fake != null) {
@@ -68,7 +74,7 @@ final class Mailer {
     String? connection,
     Duration? delay,
   }) async {
-    final message = mailable.build(defaultFrom: config.from);
+    final message = mailable.build(defaultFrom: config.from, theme: theme);
     _checkRecipients(message);
     final fake = _fake;
     if (fake != null) {
