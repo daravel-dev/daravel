@@ -74,7 +74,7 @@ Pada Daravel `1.4.1`:
 
 ## Standar Kriptografi & Ketahanan Timing Attack
 
-### Enkripsi Terotentikasi (Authenticated Encryption)
+### Enkripsi Terautentikasi (Authenticated Encryption)
 Class `Encrypter` di Daravel menggunakan skema **Encrypt-then-MAC** (`AES-256-CBC` + `HMAC-SHA256`) atau `AES-256-GCM` dengan authentication tag 128-bit:
 * Komparasi MAC menggunakan fungsi **`constantTimeEquals(expected, actual)`** guna memitigasi serangan berbasis perbedaan waktu eksekusi (*timing attack*).
 * IV dan Nonce dibuat menggunakan **`Random.secure()`** (CSPRNG tingkat OS).

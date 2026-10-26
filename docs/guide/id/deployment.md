@@ -11,7 +11,7 @@ dart run bin/dartisan.dart build --with-cli  # sekaligus bin/dartisan di dalam b
 `dartisan build` menjalankan `dart build cli`, yang mengompilasi AOT dan
 menjalankan build hook: SQLite diunduh (hash-nya diverifikasi) dan diletakkan
 di `bundle/lib/`. Salin seluruh direktori `bundle/` ke server lalu jalankan
-`bin/server`. (`dart compile exe` tidak bisa dipakai: ia menolak paket yang
+`bin/server`. (`dart compile exe` tidak bisa dipakai karena menolak paket yang
 punya build hook.)
 
 Aplikasi di PostgreSQL atau MySQL tidak membutuhkan library SQLite di
@@ -267,7 +267,7 @@ di belakang Caddy yang sama, lihat [Migrasi dari Laravel](migrating-from-laravel
 ## Backup
 
 `dartisan db:backup` menyalin database SQLite sementara server tetap
-berjalan. Ia memakai `VACUUM INTO` milik SQLite, yang menulis salinan yang
+berjalan. Command ini memakai `VACUUM INTO` dari SQLite, yang menulis salinan yang
 konsisten dan ringkas meskipun koneksi lain sedang menulis (menyalin file
 dengan `cp` bisa menangkap tulisan yang baru setengah jadi), mengecek
 salinannya dengan `PRAGMA integrity_check`, dan tidak pernah menimpa file:
@@ -301,7 +301,7 @@ sedang berjalan menjawab `503 {"message": "Service Unavailable"}` (dengan
 `Retry-After` dan `Refresh` bila diberikan) dalam satu detik, tanpa restart.
 Route health (`/up`, `/up/ready`) dan `--except=/path` tetap bisa diakses.
 Mengunjungi `/<secret>` memasang cookie `daravel_maintenance` (ditandatangani
-HMAC, berlaku 12 jam, seperti milik Laravel) yang memungkinkan Anda memakai
+HMAC, berlaku 12 jam, seperti di Laravel) yang memungkinkan Anda memakai
 aplikasi selama mode maintenance. Dengan beberapa server, file itu harus
 berada di storage yang dipakai bersama, atau jalankan `down` di setiap server.
 

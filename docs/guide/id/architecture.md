@@ -18,7 +18,7 @@ dibagi oleh bahasa bertipe statis yang dikompilasi ahead-of-time dengan PHP.
    `request.defer()` dijalankan.
 
 `404`, `405` (dengan `Allow`), `HEAD`, dan `OPTIONS` berperilaku seperti di
-Laravel, dan exception dirender sebagai body error JSON milik Laravel.
+Laravel, dan exception dirender sebagai body error JSON dari Laravel.
 
 ## Service container
 
@@ -48,7 +48,7 @@ pertama kali di-resolve.
 Untuk sedikit binding, `withBindings` menghemat kelas provider. Memanggil
 container (`c()`) me-resolve tipe apa pun yang dibutuhkan argumennya,
 sehingga factory tidak perlu menyebut tipe, dan `inject()` (`resolve()`
-milik Laravel) melakukan hal yang sama di kode aplikasi:
+dari Laravel) melakukan hal yang sama di kode aplikasi:
 
 ```dart
 Application.configure(basePath: '.')

@@ -25,7 +25,7 @@
   `assertExactJson`, `assertJsonPath`, `assertJsonStructure`,
   `assertJsonValidationErrors`, header.
 - `refreshDatabase(createApp)` menjalankan setiap test di dalam transaksi
-  yang di-rollback (`RefreshDatabase` milik Laravel); `assertDatabaseHas` /
+  yang di-rollback (`RefreshDatabase` dari Laravel); `assertDatabaseHas` /
   `assertDatabaseMissing` / `assertDatabaseCount`.
 - Fake: `Event.fake()`, `Queue.fake()`, `Storage.fake()`, dengan
   `assertDispatched`, `assertPushed`, ...
@@ -64,7 +64,7 @@ tidak terlihat oleh test di dalam proses.
 ## Test konformansi
 
 `package:daravel_test/conformance.dart` menyediakan kontrak wire Laravel 12
-sebagai matcher, sehingga aplikasi bisa membuktikan bahwa ia masih
+sebagai matcher, sehingga aplikasi bisa membuktikan bahwa aplikasinya masih
 "berbicara" Laravel:
 
 ```dart

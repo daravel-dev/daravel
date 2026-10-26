@@ -4,7 +4,7 @@
 `Mail` mengirim email lewat SMTP (atau transport lain) dan `Notifications`
 mengirim notifikasi ke beberapa channel sekaligus: mail, database, atau
 channel buatan Anda. Keduanya membaca pengaturan Laravel, dan notifikasi
-yang disimpan memakai tabel `notifications` milik Laravel, sehingga aplikasi
+yang disimpan memakai tabel `notifications` dari Laravel, sehingga aplikasi
 Laravel di database yang sama juga bisa menampilkannya.
 
 ## Konfigurasi
@@ -120,7 +120,7 @@ await Notifications.send(admins, InvoicePaid(invoice));  // sebuah list
 await Notifications.route('mail', 'billing@example.com').notify(InvoicePaid(invoice));
 ```
 
-`NotificationMail` adalah `MailMessage` notifikasi milik Laravel. Isinya
+`NotificationMail` adalah `MailMessage` notifikasi dari Laravel. Isinya
 salam pembuka ("Hello!", atau "Whoops!" setelah `.error()`), baris-baris
 teks, tombol opsional, dan salam penutup ("Regards," dan `APP_NAME`),
 dirender sebagai HTML dan teks. Subjek default-nya nama kelas yang dipecah
@@ -149,7 +149,7 @@ final class User extends Model implements RoutesNotifications {
 ### Tabel notifications
 
 Tambahkan `CreateNotificationsTable()` ke `bootstrap/migrations.dart`. Ini
-tabel dari `make:notifications-table` milik Laravel (`id` UUID, `type`,
+tabel dari `make:notifications-table` dari Laravel (`id` UUID, `type`,
 `notifiable_type`/`notifiable_id`, `data`, `read_at`, timestamp), dan hanya
 dibuat bila belum ada, jadi database yang sudah dimigrasi Laravel bisa
 dipakai apa adanya. Baris ditulis seperti Laravel menulisnya:

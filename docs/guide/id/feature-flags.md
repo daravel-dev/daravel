@@ -3,7 +3,7 @@
 
 `Feature` adalah Laravel Pennant: sebuah fitur di-resolve sekali per scope
 (secara default user yang sedang login), nilainya disimpan, dan pengecekan
-berikutnya membacanya. Penyimpanannya adalah tabel `features` milik
+berikutnya membacanya. Penyimpanannya adalah tabel `features` dari
 Pennant, jadi aplikasi Laravel di database yang sama melihat flag yang sama;
 dengan cara itulah sebuah fitur bisa berpindah dari satu framework ke yang
 lain.
@@ -30,7 +30,7 @@ await Feature.forScope(team).active('new-scoring-engine'); // scope lain
 await Feature.allAreActive(['a', 'b']);
 ```
 
-`forScope` adalah `Feature::for` milik Pennant (`for` adalah kata kunci
+`forScope` adalah `Feature::for` dari Pennant (`for` adalah kata kunci
 Dart). Scope diserialisasi seperti di Pennant: `__laravel_null` bila tidak
 ada, string dan angka apa adanya, model sebagai `App\Models\User|1`
 (`morphClass` dan key-nya), atau implementasikan `FeatureScope` untuk yang
@@ -54,7 +54,7 @@ scope yang belum punya nilai tetap di-resolve melalui definisinya.
 
 ## Route
 
-`feature:a,b` (`EnsureFeaturesAreActive` milik Pennant) menjawab
+`feature:a,b` (`EnsureFeaturesAreActive` dari Pennant) menjawab
 `400 Bad Request` kecuali setiap fitur yang dicantumkan aktif untuk user;
 dengan `APP_DEBUG`, pesannya menyebut fitur-fitur itu.
 
@@ -64,7 +64,7 @@ router.get('/api/v2/scores', scores.index).middleware(const ['feature:new-scorin
 
 ## Penyimpanan
 
-`PENNANT_STORE` (variabel milik Laravel) memilih `database` (default;
+`PENNANT_STORE` (variabel dari Laravel) memilih `database` (default;
 tambahkan `CreateFeaturesTable()` ke `bootstrap/migrations.dart`, yang sudah
 disertakan di proyek baru) atau `array` (memori, per isolate; default saat
 `APP_ENV=testing`).

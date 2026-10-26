@@ -2,8 +2,8 @@
 # HTTP client
 
 `Http` mengirim request keluar ke payment gateway, API pesan, dan layanan
-lain, dengan API `Http::` milik Laravel. Ia memakai satu client `dart:io`
-ber-pool per aplikasi, sehingga koneksi dipakai ulang.
+lain, dengan API `Http::` dari Laravel. `Http` memakai satu client `dart:io`
+per aplikasi dengan pool koneksi, sehingga koneksi dipakai ulang.
 
 ```dart
 final response = await Http.withToken(apiKey)

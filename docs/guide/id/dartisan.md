@@ -80,7 +80,7 @@ registry yang sesuai di `bootstrap/`.
 
 `dartisan mcp:serve` adalah server [Model Context
 Protocol](https://modelcontextprotocol.io) lewat stdio, padanan Laravel
-Boost di Daravel. Ia mem-boot aplikasi proyek, sehingga agen melihat
+Boost di Daravel. Server ini mem-boot aplikasi proyek, sehingga agen melihat
 aplikasi sebagaimana adanya, bukan tebakan:
 
 | Tool | Menjawab dengan |
@@ -104,7 +104,7 @@ command yang destruktif (`migrate:fresh`, `migrate:reset`,
 stderr.
 
 `dartisan mcp:install` menyiapkan proyek untuk agen, seperti
-`boost:install` milik Laravel:
+`boost:install` dari Laravel:
 
 ```bash
 dart run bin/dartisan.dart mcp:install                          # .mcp.json + AGENTS.md
@@ -160,7 +160,7 @@ berjalan di container. Entri yang masih berisi default host (`dart run ...`)
 diganti, karena tidak bisa berjalan di sana. Entri yang sudah Anda ubah
 dipertahankan. Setelah menambahkan DDEV ke proyek yang sudah ada, jalankan
 lagi `ddev dartisan mcp:install`. `dartisan new --mcp` berjalan sebelum DDEV
-dikonfigurasi, jadi ia menulis entri untuk host.
+dikonfigurasi, jadi yang ditulis adalah entri untuk host.
 
 ## Command buatan sendiri
 

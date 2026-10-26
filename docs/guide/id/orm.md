@@ -42,7 +42,7 @@ tipe.
 Opsi lain: `primaryKey`, `keyType` (auto-increment, UUID, ULID, atau
 string), `connection`, `guarded`, `visible`, `appends`, `timestamps` dan
 nama kolom `createdAt` / `updatedAt` / `deletedAt`, `perPage`, `touches`,
-`withRelations` (`$with` milik Eloquent), dan `morphClass` (nama kelas
+`withRelations` (`$with` dari Eloquent), dan `morphClass` (nama kelas
 Laravel yang disimpan di kolom polimorfik, `App\Models\User` secara
 default).
 
@@ -50,7 +50,7 @@ default).
 
 Cast: `Cast.integer`, `decimal`, `boolean`, `string`, `dateTime`, `date`,
 `json`, `Cast.enumeration(MyEnum.values)`, dan `Cast.custom(...)`.
-`accessors:` dan `mutators:` menggantikan method atribut milik Laravel, dan
+`accessors:` dan `mutators:` menggantikan method atribut dari Laravel, dan
 `dartisan model:sync` menulis getter dan setter bertipe dari tabel, sehingga
 `user.email` adalah `String` yang dicek compiler.
 
@@ -124,7 +124,7 @@ final users = await User.query()
 
 Relasi ke model yang sama (`Category` dengan `parent` dan `children`, user
 yang mengikuti user) juga bisa: tabel di dalamnya mendapat alias, seperti
-`laravel_reserved_N` milik Laravel, sehingga `whereHas('children')`
+`laravel_reserved_N` dari Laravel, sehingga `whereHas('children')`
 membandingkan child dengan parent di luarnya, bukan dengan dirinya sendiri.
 
 ### Agregat relasi

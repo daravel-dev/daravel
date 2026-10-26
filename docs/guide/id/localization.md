@@ -8,7 +8,7 @@ yang berjalan bersamaan dalam bahasa berbeda tidak pernah saling melihat.
 
 ## Baris
 
-Baris ber-key (`lang/<locale>/*.php` milik Laravel) didaftarkan di
+Baris ber-key (`lang/<locale>/*.php` dari Laravel) didaftarkan di
 `bootstrap/app.dart`; map bersarang menjadi key bertitik:
 
 ```dart
@@ -46,14 +46,14 @@ Lang.get('auth.failed', const {}, 'id');       // locale tertentu
 Lang.has('exam.welcome');
 ```
 
-`trans` adalah `__()` dan `trans()` milik Laravel: Dart memakai garis bawah
+`trans` adalah `__()` dan `trans()` dari Laravel: Dart memakai garis bawah
 di depan untuk nama privat, jadi tidak ada `__`. Key yang tidak ada
 mengembalikan key itu sendiri. `:name` memakai nilai apa adanya, `:Name`
 mengapitalkan huruf pertamanya, dan `:NAME` menjadikannya huruf besar semua;
 placeholder terpanjang yang menang dan teks pengganti tidak dipindai lagi,
 seperti `strtr` di PHP.
 
-`transChoice` (`trans_choice` milik Laravel) mengisi `:count` dan memilih
+`transChoice` (`trans_choice` dari Laravel) mengisi `:count` dan memilih
 bentuknya: segmen eksplisit `{n}` atau `[from,to]` (`*` untuk ujung terbuka)
 yang cocok, atau bentuk plural milik locale. Aturan plural-nya sama dengan
 Laravel, untuk 280 locale, jadi `apple|apples` menjadi `apples` untuk 0 dalam

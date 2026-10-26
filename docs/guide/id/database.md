@@ -71,7 +71,7 @@ DB_CONNECTION=pgsql
 DB_URL=postgres://app:secret@db.internal:5432/shop?sslmode=require
 ```
 
-Nilainya digabung seperti cara `ConfigurationUrlParser` milik Laravel
+Nilainya digabung seperti cara `ConfigurationUrlParser` dari Laravel
 menggabungkannya, dan test Daravel membandingkan hasilnya dengan hasil
 Laravel sendiri:
 
@@ -91,7 +91,7 @@ Seperti di Laravel, `DB_URL` berlaku untuk setiap koneksi bawaan, dan
 
 Key `DB_*` mengonfigurasi satu database. Tambahkan yang lain dengan
 pengaturannya sendiri di `bootstrap/app.dart`, misalnya dari URL dalam
-bentuk `DB_URL` milik Laravel:
+bentuk `DB_URL` dari Laravel:
 
 ```dart
 Application.configure(basePath: basePath ?? Directory.current.path)
@@ -159,7 +159,7 @@ database.
   baris setelahnya (kategori yang induknya datang belakangan) atau tabel
   yang saling merujuk tetap tersalin. Definisinya dipulihkan sebelum commit.
 - **Nilai.** `0`/`1` menjadi boolean di PostgreSQL, dokumen JSON dari
-  PostgreSQL menjadi teks, dan tanggal menjadi `Y-m-d H:i:s` milik Laravel di
+  PostgreSQL menjadi teks, dan tanggal menjadi `Y-m-d H:i:s` dari Laravel di
   SQLite dan MySQL.
 - **Id.** Baris mempertahankan primary key-nya. Sequence PostgreSQL
   dilanjutkan setelah id tertinggi yang disalin, sehingga insert berikutnya
@@ -195,7 +195,7 @@ final class CreatePostsTable extends Migration {
 <!-- /include -->
 
 Migrasi dicantumkan di `bootstrap/migrations.dart` dan dicatat di tabel
-`migrations` milik Laravel (`id`, `migration`, `batch`), sehingga aplikasi
+`migrations` dari Laravel (`id`, `migration`, `batch`), sehingga aplikasi
 Laravel dan aplikasi Daravel bisa berbagi satu catatan. Command: `migrate`,
 `migrate:status`, `migrate:rollback`, `migrate:reset`, `migrate:fresh`,
 `db:seed`. Di SQLite, perubahan kolom membangun ulang tabel dengan aman.
@@ -203,7 +203,7 @@ Laravel dan aplikasi Daravel bisa berbagi satu catatan. Command: `migrate`,
 ## Model
 
 Model adalah "hybrid active record": wadah atribut ditambah
-`ModelDefinition` statis yang menggantikan property ajaib milik Laravel.
+`ModelDefinition` statis yang menggantikan property ajaib dari Laravel.
 
 <!-- include: packages/daravel/test/docs/guide_examples_test.dart#model -->
 ```dart
@@ -297,7 +297,7 @@ DB.listen((query) {
 Tanpa listener, query tidak dibungkus dan tidak menambah biaya.
 
 Untuk anggaran waktu, bukan query lambat satu per satu,
-`whenQueryingForLongerThan` milik Laravel menjumlahkan query setiap request,
+`whenQueryingForLongerThan` dari Laravel menjumlahkan query setiap request,
 job, atau command dan memanggil handler sekali saat totalnya melewati
 ambang:
 
@@ -342,9 +342,9 @@ model.
 `paginate()`, `simplePaginate()`, dan `cursorPaginate()` membaca halaman
 (atau cursor) dan path absolut dari request saat ini, seperti Laravel, dan
 diserialisasi ke JSON Laravel yang persis sama: key yang sama dengan urutan
-yang sama, `links` dengan jendela geser dan nomor `page` milik Laravel,
+yang sama, `links` dengan jendela geser dan nomor `page` dari Laravel,
 `current_page_url` untuk paginasi sederhana, dan cursor yang di-encode
-seperti `Cursor::encode()` milik Laravel, sehingga cursor yang diterbitkan
+seperti `Cursor::encode()` dari Laravel, sehingga cursor yang diterbitkan
 salah satu framework bekerja di framework lainnya. Pakai
 `withQueryString()` atau `appends({...})` untuk mempertahankan parameter
 query tambahan.

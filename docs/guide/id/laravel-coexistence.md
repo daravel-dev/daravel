@@ -11,7 +11,7 @@ menguncinya:
   terhadap framework (`dart test --tags conformance`);
 - fixture-nya mengutip sumber Laravel 12 / Sanctum 4 asalnya
   (`packages/daravel_test/lib/src/conformance/`), dan pesan validasi
-  dibangkitkan dari `lang/en/validation.php` milik Laravel
+  dibangkitkan dari `lang/en/validation.php` dari Laravel
   (`dart run tool/conformance/sync_laravel_messages.dart`);
 - aplikasi mendapat matcher yang sama dari
   `package:daravel_test/conformance.dart`.

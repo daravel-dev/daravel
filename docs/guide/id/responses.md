@@ -4,7 +4,7 @@
 Handler bisa mengembalikan `Response.json(data, status: 201)`,
 `Response.text`, `Response.html`, `Response.redirect`, `Response.stream`,
 `Response.noContent()`, `JsonSerializable` atau `Responsable` apa pun, map,
-list, model, dan paginator. Tanggal diserialisasi seperti `toJSON()` milik
+list, model, dan paginator. Tanggal diserialisasi seperti `toJSON()` dari
 Carbon: UTC dengan mikrodetik, `2026-01-02T03:04:05.000000Z`.
 
 ## API resource
@@ -37,10 +37,10 @@ final class PostResource extends JsonResource<Post> {
 - Resource tunggal dibungkus dalam `{"data": {...}}`.
 - `JsonResource.collection(items, PostResource.new)` membungkus list, dan
   untuk paginator menghasilkan `{data, links: {first, last, prev, next},
-  meta}` milik Laravel, dengan `meta` berisi array paginator tanpa `data` dan
+  meta}` dari Laravel, dengan `meta` berisi array paginator tanpa `data` dan
   URL-nya.
 - `when`, `whenLoaded`, `mergeWhen`, `additional({...})`, dan
-  `withMeta(request)` (`with()` milik Laravel) tersedia.
+  `withMeta(request)` (`with()` dari Laravel) tersedia.
 
 ## HTML
 
@@ -74,7 +74,7 @@ variabel biasa.
 
 ## Caching dan kompresi
 
-Middleware `cache.headers` milik Laravel memasang `Cache-Control`, `ETag`,
+Middleware `cache.headers` dari Laravel memasang `Cache-Control`, `ETag`,
 dan `Last-Modified` pada respons `GET`/`HEAD` yang sukses, dan menjawab
 `304 Not Modified` bila salinan di client masih terbaru:
 
@@ -109,7 +109,7 @@ middleware ini.
 
 ## Server-sent events dan WebSocket
 
-`Response.sse` adalah `response()->eventStream()` milik Laravel: setiap item
+`Response.sse` adalah `response()->eventStream()` dari Laravel: setiap item
 stream dikirim begitu dihasilkan. Nilai biasa menjadi event `update` (JSON,
 kecuali berupa string atau angka), dan `SseEvent` menetapkan nama event,
 `id`, dan `retry`. Saat stream berakhir, `</stream>` dikirim seperti di
@@ -156,7 +156,7 @@ r.ws('/ws/rooms/{room}', (socket, request) async {
 
 Request HTTP biasa ke path itu mendapat `426 Upgrade Required`. Saat
 shutdown, socket yang terbuka ditutup dengan `1001` (going away). Ini
-WebSocket mentah, bukan protokol Pusher milik Laravel Reverb. Menyebarkan
+WebSocket mentah, bukan protokol Pusher dari Laravel Reverb. Menyebarkan
 pesan ke beberapa isolate atau server adalah urusan aplikasi, misalnya
 melalui database atau queue.
 
@@ -166,7 +166,7 @@ dengan `ServerEngine` di port 0 dan `WebSocket.connect`.
 
 ## Error
 
-Exception dirender exception handler dengan body milik Laravel. Dengan
+Exception dirender exception handler dengan body dari Laravel. Dengan
 `APP_DEBUG=false`, tidak ada detail internal yang bocor:
 
 | Situasi | Status | `message` |

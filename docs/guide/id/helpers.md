@@ -43,7 +43,7 @@ dataGet({
 | Infleksi | `plural(word, [count])`, `singular`, `pluralStudly`: aturan bahasa Inggris, bentuk tak beraturan dan kata tak terhitung yang umum; huruf besar-kecil input dipertahankan |
 
 Helper yang sama bisa dirangkai langsung pada string, seperti `Str::of()`
-milik Laravel:
+dari Laravel:
 
 ```dart
 final slug = rawTitle.after(':').squish().slug();
@@ -78,7 +78,7 @@ post.createdAt.diffForHumans(locale: 'id');         // 5 menit yang lalu
   `isSameDay`, `isSameMonth`, `isSameYear`, dan
   `isBetween(start, end, inclusive:)`.
 - Semuanya membaca `Clock`, jadi `freezeTime()` dan `travel()` berlaku.
-- `diffForHumans` sama dengan milik Carbon: satuan kalender utuh terbesar
+- `diffForHumans` sama dengan dari Carbon: satuan kalender utuh terbesar
   (`4 weeks ago`, lalu `1 month ago` dari tanggal yang sama di bulan
   sebelumnya), `from now` untuk masa depan, `before`/`after` dengan
   `other:`, dalam bahasa Inggris atau Indonesia (`yang lalu`,
@@ -86,7 +86,7 @@ post.createdAt.diffForHumans(locale: 'id');         // 5 menit yang lalu
 
 ## `Number`
 
-`Number` milik Laravel, dengan output yang sama seperti format intl Laravel
+`Number` dari Laravel, dengan output yang sama seperti format intl Laravel
 untuk locale `en` dan `id` (`Number.useLocale('id')` menetapkan default):
 
 | Pemanggilan | Hasil |
@@ -117,7 +117,7 @@ menghasilkan `2`). Shortcut: `5242880.toFileSize()`, `1500.abbreviate()`,
 | `now()`, `today()` | membaca `Clock`, jadi `freezeTime()` dan `travel()` berlaku |
 | `env(key, [fallback])` | environment yang sudah dimuat |
 
-`app()` milik Laravel adalah `App.make<T>()`: `app` global akan tertutup oleh
+`app()` dari Laravel adalah `App.make<T>()`: `app` global akan tertutup oleh
 variabel `app` yang dipakai di mana-mana dalam kode dan test Daravel.
 `route()` dan `url()` adalah `router.url(name, params)`. `dd()` dan `dump()`
 tidak disediakan.

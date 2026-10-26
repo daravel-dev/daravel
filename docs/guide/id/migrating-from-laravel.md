@@ -23,14 +23,14 @@ Laravel bisa dimatikan. Pola ini juga berlaku ke arah sebaliknya.
   PostgreSQL, dan SQLite, jadi bisa memakai database aplikasi Laravel apa
   adanya.
 - **API dengan bearer token.** Personal access token Sanctum bekerja di
-  kedua sisi. Cookie session, CSRF, dan mode SPA stateful milik Sanctum belum
+  kedua sisi. Cookie session, CSRF, dan mode SPA stateful dari Sanctum belum
   dibagi, jadi route yang bergantung pada session Laravel tetap di Laravel.
 - Format **Laravel 11 atau 12**. [Suite konformansi](laravel-coexistence.md)
   mengunci Laravel 12 dan Sanctum 4.
 
 ## 1. Bagikan secret dan database
 
-`dartisan adopt` mengerjakan langkah ini untuk Anda. Ia membaca proyek
+`dartisan adopt` mengerjakan langkah ini untuk Anda. Command ini membaca proyek
 Laravel (dan tidak pernah mengubahnya), menyalin `APP_KEY`, cipher,
 pengaturan `DB_*`, dan parameter hashing ke `.env` proyek ini, menetapkan
 `CACHE_PREFIX` yang terpisah, lalu mengecek versi Laravel, driver database,
@@ -76,7 +76,7 @@ satu sisi memiliki skema selama keduanya berjalan:
   Sanctum yang dipublikasikan `php artisan install:api` dengan timestamp
   baru, akan dianggap belum dijalankan dan gagal karena tabelnya sudah ada.
   Jangan pernah menjalankan `dartisan migrate:fresh` atau `migrate:reset` di
-  sana: keduanya juga menghapus atau me-rollback tabel milik Laravel.
+  sana: keduanya juga menghapus atau me-rollback tabel Laravel.
 - **Daravel pemiliknya** (setelah sebagian besar kode pindah): pindahkan
   migrasi yang tersisa ke `bootstrap/migrations.dart` dengan nama yang sama
   dan berhenti menjalankan `php artisan migrate`.

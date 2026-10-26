@@ -17,7 +17,7 @@ await Queue.dispatch(const PublishPost(1)).onQueue('posts');
 ## Cache
 
 Store: `memory` (per isolate, LRU), `process` (dibagi semua isolate server
-melalui coordinator), `file`, dan `database` (tabel `cache` milik Laravel).
+melalui coordinator), `file`, dan `database` (tabel `cache` dari Laravel).
 `Cache.remember`, `flexible` (stale-while-revalidate), `increment`, `pull`,
 dan `lock` (atomic lock, gagal tertutup) mengikuti Laravel.
 
@@ -54,7 +54,7 @@ final class PublishPost extends Job {
 Job didaftarkan berdasarkan nama di `bootstrap/jobs.dart`
 (`JobDefinition('publish-post', (json) => PublishPost(...))`), karena
 Daravel tidak memakai reflection. Driver: `sync`, `database` (tabel `jobs` /
-`failed_jobs` milik Laravel), dan `memory`. Retry, backoff, timeout, unique
+`failed_jobs` dari Laravel), dan `memory`. Retry, backoff, timeout, unique
 job, job middleware, `queue:work`, `queue:failed`, `queue:retry`, dan
 `queue:restart` didukung. Dispatch di dalam transaksi secara default ditunda
 sampai commit.
@@ -109,7 +109,7 @@ cron; `schedule:list` menampilkan jadwal berikutnya beserta zona setiap
 task.
 
 Ekspresi cron dibaca dalam `SCHEDULE_TIMEZONE` (`app.schedule_timezone`
-milik Laravel), atau dalam UTC bila tidak di-set, kecuali sebuah task
+dari Laravel), atau dalam UTC bila tidak di-set, kecuali sebuah task
 menyebut zonanya sendiri. Laravel jatuh ke `APP_TIMEZONE`; Daravel 1.x
 tidak, sehingga upgrade tidak pernah menggeser jadwal yang ada, dan
 `dartisan doctor` memperingatkan bila `APP_TIMEZONE` bukan UTC sementara

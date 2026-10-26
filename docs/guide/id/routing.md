@@ -72,7 +72,7 @@ mendokumentasikan keduanya:
 - `.returns(PostResource.schema, name: 'Post', shape: .paginated)`
   mendokumentasikan respons: `item` (`{"data": ...}`), `raw`, `collection`,
   `paginated`, `simplePaginated`, atau `cursorPaginated`, dibungkus amplop
-  resource dan paginator milik Laravel. Schema bernama menjadi
+  resource dan paginator dari Laravel. Schema bernama menjadi
   `components.schemas`.
 - `.action('PostController@store')` mencatat action controller
   (`x-daravel-action` di OpenAPI).

@@ -67,7 +67,7 @@ print('${page.items.length} of ${page.total}');
 
 ## Error
 
-Body error milik Laravel menjadi exception:
+Body error dari Laravel menjadi exception:
 
 | Status | Exception | Field yang berguna |
 | :-- | :-- | :-- |
@@ -173,7 +173,7 @@ mobile dan desktop.
 `riverpod` dan `bloc` yang Dart murni, yang menjadi dasar `flutter_riverpod`
 dan `flutter_bloc`, jadi `ProviderScope`, `BlocProvider`, dan `BlocBuilder`
 bekerja dengannya seperti biasa. Command ini menambahkan dependency ke
-`pubspec.yaml` paket baru. Untuk paket yang sudah ada, ia mencetak baris
+`pubspec.yaml` paket baru. Untuk paket yang sudah ada, command ini mencetak baris
 yang perlu ditambahkan.
 
 ```bash

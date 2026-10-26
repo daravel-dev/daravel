@@ -36,7 +36,7 @@ gagal saat boot atau di test pertama; `dartisan lint`
 termasuk argumen yang hilang seperti `max` tanpa nilai.
 
 Kegagalan melempar `ValidationException`, yang dirender sebagai body 422
-milik Laravel:
+dari Laravel:
 
 ```json
 {

@@ -54,7 +54,7 @@ tanda tangan yang salah, dan token kedaluwarsa; denylist mendukung logout.
 `Hash.make` / `Hash.check` berjalan di compute isolate. Driver: `bcrypt`
 (default, cost 12, `$2y$` seperti Laravel), `argon2id`, dan `pbkdf2`.
 `Hash.check` mendeteksi driver dari hash-nya. Dengan `HASH_VERIFY=true`
-(default), ia menolak format asing kecuali keluarga yang kuat (bcrypt dan
+(default), `Hash.check` menolak format asing kecuali keluarga yang kuat (bcrypt dan
 argon2id), sehingga mengganti `HASH_DRIVER` di antara keduanya menjaga semua
 password yang ada tetap valid, sementara `Hash.needsRehash` dan
 `rehashPasswordIfRequired` meng-upgrade hash saat login. Tetap pakai bcrypt
