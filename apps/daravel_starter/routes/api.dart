@@ -2,6 +2,7 @@ import 'package:daravel/daravel.dart';
 import 'package:daravel_starter/app/http/controllers/auth_controller.dart';
 import 'package:daravel_starter/app/http/controllers/ping_controller.dart';
 import 'package:daravel_starter/app/http/controllers/user_controller.dart';
+import 'package:daravel_starter/app/http/requests/login_request.dart';
 import 'package:daravel_starter/app/http/requests/store_user_request.dart';
 import 'package:daravel_starter/app/http/resources/user_resource.dart';
 
@@ -13,15 +14,36 @@ void apiRoutes(Router router) {
 
   router.get('/ping', ping.ping).name('ping');
 
-  router.post('/auth/register', auth.register).name('auth.register').middleware(
-    const ['throttle:register'],
-  );
-  router.post('/auth/login', auth.login).name('auth.login').middleware(const [
-    'throttle:login',
-  ]);
+  router
+      .post('/auth/register', auth.register)
+      .name('auth.register')
+      .middleware(const ['throttle:register'])
+      .validates(const StoreUserRequest())
+      .returns(AuthController.tokenSchema, name: 'AuthToken', shape: .raw)
+      .action('AuthController@register');
+  router
+      .post('/auth/login', auth.login)
+      .name('auth.login')
+      .middleware(const ['throttle:login'])
+      .validates(const LoginRequest())
+      .returns(
+        AuthController.tokenSchema,
+        name: 'AuthToken',
+        shape: .raw,
+        status: 200,
+      )
+      .action('AuthController@login');
   router.group((router) {
-    router.get('/auth/me', auth.me).name('auth.me');
-    router.post('/auth/logout', auth.logout).name('auth.logout');
+    router
+        .get('/auth/me', auth.me)
+        .name('auth.me')
+        .returns(UserResource.schema, name: 'User')
+        .action('AuthController@me');
+    router
+        .post('/auth/logout', auth.logout)
+        .name('auth.logout')
+        .returns(const <String, Object?>{}, status: 204)
+        .action('AuthController@logout');
   }, middleware: const ['auth']);
 
   router

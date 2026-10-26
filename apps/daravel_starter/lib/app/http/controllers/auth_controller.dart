@@ -1,14 +1,30 @@
 import 'package:daravel/daravel.dart';
 import 'package:daravel_starter/app/events/user_registered.dart';
-import 'package:daravel_starter/app/http/requests/store_user_request.dart';
 import 'package:daravel_starter/app/http/resources/user_resource.dart';
 import 'package:daravel_starter/app/models/user.dart';
 
 /// Token-based authentication (Sanctum-style personal access tokens).
 final class AuthController {
+  /// JSON Schema of the register and login responses, for `.returns(...)`
+  /// (OpenAPI, `dartisan client:flutter`).
+  static const Map<String, Object?> tokenSchema = {
+    'title': 'AuthToken',
+    'type': 'object',
+    'required': ['user', 'token', 'token_type'],
+    'properties': {
+      'user': UserResource.schema,
+      'token': {'type': 'string'},
+      'token_type': {
+        'type': 'string',
+        'enum': ['Bearer'],
+      },
+    },
+  };
+
   /// `POST /api/auth/register` — creates the user and issues a token.
+  /// Validated by the route (`.validates(StoreUserRequest())`).
   Future<Object?> register(Request request) async {
-    final data = await FormRequest.run(const StoreUserRequest(), request);
+    final data = request.validated();
     // Hash before the transaction so the expensive work holds no locks.
     final password = await Hash.make(data.string('password'));
     // The user and its first token commit together, or not at all.
@@ -30,12 +46,9 @@ final class AuthController {
 
   /// `POST /api/auth/login` — validates credentials and issues a token.
   /// Throttled by the `login` limiter (5 attempts per minute per email+IP).
+  /// Validated by the route (`.validates(LoginRequest())`).
   Future<Object?> login(Request request) async {
-    final data = await request.validate({
-      'email': 'required|email',
-      'password': 'required|string',
-      'device_name': 'sometimes|string|max:100',
-    });
+    final data = request.validated();
     final user = await Auth.retrieveByCredentials<User>({
       'email': data.string('email'),
       'password': data.string('password'),

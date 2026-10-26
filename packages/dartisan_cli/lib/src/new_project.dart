@@ -143,6 +143,7 @@ Map<String, String> newProjectFiles({
       'lib/app/models/user.dart': _userModel,
       'lib/app/http/controllers/auth_controller.dart': _authController,
       'lib/app/http/requests/register_request.dart': _registerRequest,
+      'lib/app/http/requests/login_request.dart': _loginRequest,
       'lib/app/http/resources/user_resource.dart': _userResource,
       'lib/app/policies/user_policy.dart': _userPolicy,
       'database/migrations/m_0001_01_01_000000_create_users_table.dart':
@@ -657,8 +658,12 @@ const String _apiRoutes = r'''
 import 'package:daravel/daravel.dart';
 import 'package:{{ package }}/app/http/controllers/auth_controller.dart';
 import 'package:{{ package }}/app/http/controllers/ping_controller.dart';
+import 'package:{{ package }}/app/http/requests/login_request.dart';
+import 'package:{{ package }}/app/http/requests/register_request.dart';
+import 'package:{{ package }}/app/http/resources/user_resource.dart';
 
-/// API routes, mounted under `/api`.
+/// API routes, mounted under `/api`. `.validates()` and `.returns()` also
+/// document them (`openapi:generate`, `client:flutter`).
 void apiRoutes(Router router) {
   final auth = AuthController();
 
@@ -666,14 +671,29 @@ void apiRoutes(Router router) {
   router
       .post('/auth/register', auth.register)
       .name('auth.register')
-      .middleware(const ['throttle:register']);
+      .middleware(const ['throttle:register'])
+      .validates(const RegisterRequest())
+      .returns(AuthController.tokenSchema, name: 'AuthToken', shape: .raw);
   router
       .post('/auth/login', auth.login)
       .name('auth.login')
-      .middleware(const ['throttle:login']);
+      .middleware(const ['throttle:login'])
+      .validates(const LoginRequest())
+      .returns(
+        AuthController.tokenSchema,
+        name: 'AuthToken',
+        shape: .raw,
+        status: 200,
+      );
   router.group((router) {
-    router.get('/auth/me', auth.me).name('auth.me');
-    router.post('/auth/logout', auth.logout).name('auth.logout');
+    router
+        .get('/auth/me', auth.me)
+        .name('auth.me')
+        .returns(UserResource.schema, name: 'User');
+    router
+        .post('/auth/logout', auth.logout)
+        .name('auth.logout')
+        .returns(const <String, Object?>{}, status: 204);
   }, middleware: const ['auth']);
 }
 ''';
@@ -784,14 +804,29 @@ final class User extends Model with AuthenticatableModel {
 
 const String _authController = r'''
 import 'package:daravel/daravel.dart';
-import 'package:{{ package }}/app/http/requests/register_request.dart';
 import 'package:{{ package }}/app/http/resources/user_resource.dart';
 import 'package:{{ package }}/app/models/user.dart';
 
-/// Token authentication (Sanctum-style personal access tokens).
+/// Token authentication (Sanctum-style personal access tokens). The routes
+/// validate the input (`.validates(...)` in `routes/api.dart`).
 final class AuthController {
+  /// JSON Schema of the register and login responses, for `.returns(...)`.
+  static const Map<String, Object?> tokenSchema = {
+    'title': 'AuthToken',
+    'type': 'object',
+    'required': ['user', 'token', 'token_type'],
+    'properties': {
+      'user': UserResource.schema,
+      'token': {'type': 'string'},
+      'token_type': {
+        'type': 'string',
+        'enum': ['Bearer'],
+      },
+    },
+  };
+
   Future<Object?> register(Request request) async {
-    final data = await FormRequest.run(const RegisterRequest(), request);
+    final data = request.validated();
     // Hash before the transaction so the expensive work holds no locks.
     final password = await Hash.make(data.string('password'));
     // The user and its first token commit together, or not at all.
@@ -811,10 +846,7 @@ final class AuthController {
   }
 
   Future<Object?> login(Request request) async {
-    final data = await request.validate({
-      'email': 'required|email',
-      'password': 'required|string',
-    });
+    final data = request.validated();
     final user = await Auth.retrieveByCredentials<User>({
       'email': data.string('email'),
       'password': data.string('password'),
@@ -857,12 +889,42 @@ final class RegisterRequest extends FormRequest {
 }
 ''';
 
+const String _loginRequest = r'''
+import 'package:daravel/daravel.dart';
+
+final class LoginRequest extends FormRequest {
+  const LoginRequest();
+
+  @override
+  Map<String, Object> rules(Request request) => {
+    'email': 'required|email',
+    'password': 'required|string',
+  };
+}
+''';
+
 const String _userResource = r'''
 import 'package:daravel/daravel.dart';
 import 'package:{{ package }}/app/models/user.dart';
 
 final class UserResource extends JsonResource<User> {
   UserResource(super.resource);
+
+  /// JSON Schema of [toArray], for `.returns(...)`.
+  static const Map<String, Object?> schema = {
+    'title': 'User',
+    'type': 'object',
+    'required': ['id', 'name', 'email'],
+    'properties': {
+      'id': {'type': 'integer'},
+      'name': {'type': 'string'},
+      'email': {'type': 'string', 'format': 'email'},
+      'created_at': {
+        'type': ['string', 'null'],
+        'format': 'date-time',
+      },
+    },
+  };
 
   @override
   Map<String, Object?> toArray(Request? request) => {

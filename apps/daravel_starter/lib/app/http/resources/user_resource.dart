@@ -7,6 +7,7 @@ final class UserResource extends JsonResource<User> {
 
   /// JSON Schema of [toArray], for `.returns(...)` (OpenAPI, generated clients).
   static const Map<String, Object?> schema = {
+    'title': 'User',
     'type': 'object',
     'required': ['id', 'name', 'email', 'email_verified'],
     'properties': {

@@ -5,6 +5,37 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 breaking changes to the Dart API wait for a new major version, and
 Laravel-facing formats change only to match Laravel more closely.
 
+## Unreleased
+
+### Added
+
+- `client:flutter --state=riverpod,bloc,cubit`: state adapters on the pure
+  Dart `riverpod`/`bloc` packages (used by `flutter_riverpod`/`flutter_bloc`).
+  Riverpod gets a client provider and a `FutureProvider.autoDispose` family
+  per `GET` route, with record arguments for several parameters. Bloc and
+  Cubit get one class per route on a shared `RemoteState<T>` (idle,
+  loading, data, error, with the 422 `validation`).
+- `client:flutter --watch`: regenerates the client when routes, requests,
+  resources or `.env` change, in a fresh process per run.
+
+### Changed
+
+- The starter and `dartisan new` projects declare their auth routes:
+  `.validates(RegisterRequest/LoginRequest)` and `.returns(...)` on
+  register, login, me and logout. The controllers read
+  `request.validated()`, so the input is still validated once. The
+  OpenAPI document and `client:flutter` now type these routes:
+  `api.auth.login(email:, password:)` returns an `AuthToken` with a `User`.
+- `client:flutter`: a schema's `title` names its model, so a schema reused
+  inside another response is one class; `.returns(..., status: 204)` is
+  `Future<void>`.
+
+### Fixed
+
+- `client:flutter`: a route with an optional path parameter and declared
+  input generated code that did not compile (the input was dropped). The
+  optional parameter is now named, next to the input.
+
 ## 1.7.0
 
 A typed Dart/Flutter client generated from the routes. Upgrade from any

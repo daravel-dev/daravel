@@ -166,6 +166,27 @@ void routes(Router r) {
   r
       .get('/class', (_) async => Response.json({'ok': true}))
       .name('class.default');
+  r
+      .delete('/accounts/{id}', (_) async => Response.noContent())
+      .name('accounts.destroy')
+      .whereNumber('id')
+      .returns(const <String, Object?>{}, status: 204);
+  // A titled schema inside another response is the same model class.
+  r
+      .get(
+        '/session',
+        (_) async => Response.json({'account': account(5), 'token': 't'}),
+      )
+      .name('session')
+      .returns(const {
+        'title': 'Session',
+        'type': 'object',
+        'required': ['account', 'token'],
+        'properties': {
+          'account': {...accountSchema, 'title': 'Account'},
+          'token': {'type': 'string'},
+        },
+      }, shape: .raw);
 }
 
 Application buildApp() =>
@@ -193,6 +214,7 @@ void main() {
       packageName: 'app_client',
       baseUrl: 'http://127.0.0.1:8000',
       title: 'Client Test',
+      states: clientStates.toSet(),
     );
   });
 
@@ -210,7 +232,7 @@ void main() {
     expect(api, contains('defaultValue('));
     // A one-segment name is a method on the client itself.
     expect(api, contains('Future<List<TagsItem>> tags('));
-    expect(client.operations, 8);
+    expect(client.operations, 10);
   });
 
   test('typed signatures from rules, path constraints and responses', () {
@@ -265,6 +287,16 @@ void main() {
     expect(models, contains('final List<String>? labels;'));
     expect(models, contains("'created_at': createdAt?.toIso8601String()"));
     expect(models, contains('final class TagsItem {'));
+    // `title`: one Account class, reused inside Session.
+    expect('final class Account {'.allMatches(models), hasLength(1));
+    expect(models, contains('final Account account;'));
+    expect(models, isNot(contains('SessionAccount')));
+  });
+
+  test('204 responses are Future<void>', () {
+    final api = file('lib/src/api.dart');
+    expect(api, contains('Future<void> destroy(int id, '));
+    expect(api, contains("await _client.send('DELETE', "));
   });
 
   test('validators carry the server messages and name server-only rules', () {
@@ -279,6 +311,101 @@ void main() {
       contains('Checked by the server only: `email`: available; `tags.*`.'),
     );
     expect(client.notes, contains(contains('server-only rules')));
+  });
+
+  test('state adapters: providers, cubits, blocs and their dependencies', () {
+    expect(
+      file('pubspec.yaml'),
+      allOf(contains('bloc: ^9.0.0'), contains('riverpod: ^3.0.0')),
+    );
+    expect(
+      file('lib/app_client.dart'),
+      allOf(
+        contains("export 'src/providers.dart';"),
+        contains("export 'src/cubits.dart';"),
+        contains("export 'src/blocs.dart';"),
+        contains("export 'src/remote_state.dart';"),
+      ),
+    );
+    final providers = file('lib/src/providers.dart');
+    expect(
+      providers,
+      contains('final appClientProvider = Provider<AppClient>'),
+    );
+    // GETs only; several parameters make a record argument.
+    expect(
+      providers,
+      contains(
+        'final accountsIndexProvider = FutureProvider.autoDispose\n'
+        '    .family<Page<Account>, ({String? search, int? page})>(',
+      ),
+    );
+    expect(providers, contains('.family<Account, int>('));
+    expect(providers, isNot(contains('signupProvider')));
+    final cubits = file('lib/src/cubits.dart');
+    expect(
+      cubits,
+      contains(
+        'final class AccountsSignupCubit extends Cubit<RemoteState<Account>>',
+      ),
+    );
+    expect(cubits, contains('Future<void> submit({'));
+    expect(cubits, contains('Future<void> load(int id) =>'));
+    // A 204 is a RemoteState<void>.
+    expect(cubits, contains('Cubit<RemoteState<void>>'));
+    final blocs = file('lib/src/blocs.dart');
+    expect(blocs, contains('final class AccountsShowRequested {'));
+    expect(
+      blocs,
+      contains(
+        'final class AccountsShowBloc extends '
+        'Bloc<AccountsShowRequested, RemoteState<Account>> {',
+      ),
+    );
+  });
+
+  test('no adapters: no adapter files or dependencies', () {
+    final plain = generateClient(
+      routesUnder(app.router.routes, '/api'),
+      packageName: 'app_client',
+      baseUrl: 'x',
+    );
+    expect(plain.files.keys, isNot(contains('lib/src/providers.dart')));
+    expect(plain.files['pubspec.yaml'], isNot(contains('riverpod')));
+  });
+
+  test('watch regenerates on a saved source, not on other files', () async {
+    final root = await Directory.systemTemp.createTemp('client_watch_');
+    addTearDown(() => root.delete(recursive: true));
+    for (final dir in ['routes', 'lib', 'out']) {
+      Directory(p.join(root.path, dir)).createSync();
+    }
+    final runs = StreamController<void>.broadcast();
+    addTearDown(runs.close);
+    var count = 0;
+    final watcher = ClientWatcher(
+      root: root.path,
+      exclude: p.join(root.path, 'out'),
+      debounce: const Duration(milliseconds: 50),
+      out: StringBuffer(),
+      regenerate: () async {
+        count++;
+        runs.add(null);
+        return 0;
+      },
+    );
+    await watcher.start();
+    addTearDown(watcher.stop);
+    final next = runs.stream.first.timeout(const Duration(seconds: 10));
+    File(p.join(root.path, 'routes', 'api.dart')).writeAsStringSync('// x');
+    await next;
+    expect(count, 1);
+    // Not Dart, or inside the generated package: ignored.
+    File(p.join(root.path, 'lib', 'notes.txt')).writeAsStringSync('x');
+    Directory(p.join(root.path, 'lib', 'out')).createSync();
+    File(p.join(root.path, 'out', 'api.dart')).writeAsStringSync('// y');
+    await Future<void>.delayed(const Duration(milliseconds: 600));
+    expect(count, 1);
   });
 
   group(
@@ -319,7 +446,7 @@ void main() {
       );
 
       test('analyzes clean and matches the server', () async {
-        final get = await dart(['pub', 'get', '--offline']);
+        final get = await dart(['pub', 'get']);
         expect(get.exitCode, 0, reason: '${get.stdout}${get.stderr}');
         final analyze = await dart(['analyze', '--fatal-infos']);
         expect(analyze.exitCode, 0, reason: '${analyze.stdout}');
@@ -384,12 +511,18 @@ void main() {
         ]);
         expect(out['ws'], 'joined lobby');
         expect(out['avatar'], {'size': 3, 'caption': 'hi'});
+        expect(out['session'], 5);
+        expect(out['cubit'], 7);
+        expect(out['cubit422'], 'The email is taken.');
+        expect(out['bloc'], 8);
+        expect(out['riverpod'], 9);
+        expect(out['riverpodPage'], 3);
         expect(out['unauthenticated'], isNull);
       }, timeout: const Timeout(Duration(minutes: 3)));
     },
     skip: Platform.environment['DARAVEL_E2E'] == '1'
         ? false
-        : 'set DARAVEL_E2E=1 to run (pub get + analyze + run, ~30 s)',
+        : 'set DARAVEL_E2E=1 to run (pub get + analyze + run, ~40 s)',
   );
 }
 
@@ -455,6 +588,7 @@ import 'dart:io';
 
 import 'package:app_client/app_client.dart';
 import 'package:http/http.dart' as http;
+import 'package:riverpod/riverpod.dart';
 
 Future<void> main(List<String> args) async {
   final cases = (jsonDecode(File(args[0]).readAsStringSync()) as List<Object?>)
@@ -522,7 +656,42 @@ Future<void> main(List<String> args) async {
     avatar: http.MultipartFile.fromBytes('avatar', [1, 2, 3], filename: 'a.png'),
     caption: 'hi',
   );
+  await api.accounts.destroy(3);
+  out['session'] = (await api.session()).account.id;
   out['unauthenticated'] = await api.tokens.read();
+
+  final cubit = AccountsShowCubit(api);
+  await cubit.load(7);
+  out['cubit'] = (cubit.state as RemoteData<Account>).data.id;
+  final signup = AccountsSignupCubit(api);
+  await signup.submit(
+    name: 'Teo',
+    email: 'taken@daravel.dev',
+    role: 'admin',
+    slug: 'abc',
+    password: 'Secret123',
+    passwordConfirmation: 'Secret123',
+  );
+  out['cubit422'] = (signup.state as RemoteError<Account>).validation?.first(
+    'email',
+  );
+  final bloc = AccountsShowBloc(api)..add(const AccountsShowRequested(8));
+  final loaded = await bloc.stream.firstWhere((s) => s is RemoteData<Account>);
+  out['bloc'] = (loaded as RemoteData<Account>).data.id;
+  final container = ProviderContainer(
+    overrides: [appClientProvider.overrideWithValue(api)],
+  );
+  final show = container.listen(accountsShowProvider(9).future, (_, __) {});
+  out['riverpod'] = (await show.read()).id;
+  final index = container.listen(
+    accountsIndexProvider((search: 'x', page: 3)).future,
+    (_, __) {},
+  );
+  out['riverpodPage'] = (await index.read()).currentPage;
+  container.dispose();
+  await cubit.close();
+  await signup.close();
+  await bloc.close();
   api.close();
   print(jsonEncode(out));
 }

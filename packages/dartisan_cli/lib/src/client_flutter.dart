@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:daravel/daravel.dart';
@@ -34,7 +35,17 @@ final class ClientFlutterCommand extends DaravelCommand {
             'Only routes under this path (all routes when none match; '
             '`/` for all).',
       )
+      ..addMultiOption(
+        'state',
+        allowed: clientStates,
+        help: 'State adapters to generate (comma-separated).',
+      )
       ..addOption('base-url', help: 'Default base URL (default: APP_URL).')
+      ..addFlag(
+        'watch',
+        negatable: false,
+        help: 'Regenerate when routes, requests, resources or .env change.',
+      )
       ..addOption(
         'locale',
         help: 'Locale of the validation messages (default: APP_LOCALE).',
@@ -48,8 +59,49 @@ final class ClientFlutterCommand extends DaravelCommand {
   String get description =>
       'Generate a typed Dart/Flutter API client from the routes.';
 
+  /// The generated package's directory and the app's, set by [_generate].
+  String? _output;
+  String? _base;
+
   @override
-  Future<int> run() => withApp((app) async {
+  Future<int> run() async {
+    final code = await withApp(_generate);
+    final output = _output;
+    final base = _base;
+    if (code != 0 || argResults!['watch'] != true || output == null) {
+      return code;
+    }
+    // Every run needs a fresh process: the routes are compiled in.
+    final script = Platform.script.toFilePath();
+    final args = [
+      'run',
+      if (script.endsWith('.dart')) script else 'bin/dartisan.dart',
+      'client:flutter',
+      for (final arg in argResults!.arguments)
+        if (arg != '--watch') arg,
+    ];
+    final watcher = ClientWatcher(
+      root: base!,
+      exclude: output,
+      regenerate: () async {
+        final result = await Process.run(
+          Platform.resolvedExecutable,
+          args,
+          workingDirectory: base,
+        );
+        stdout.write(result.stdout);
+        stderr.write(result.stderr);
+        return result.exitCode;
+      },
+    );
+    await watcher.start();
+    final unwatch = watchStopSignals(() => unawaited(watcher.stop()));
+    await watcher.done;
+    await unwatch();
+    return 0;
+  }
+
+  Future<int> _generate(Application app) async {
     final config = app.config.section<AppConfig>();
     final packageName = argResults!['package-name'] as String;
     if (!RegExp(r'^[a-z][a-z0-9_]*$').hasMatch(packageName)) {
@@ -62,6 +114,7 @@ final class ClientFlutterCommand extends DaravelCommand {
       baseUrl: argResults!['base-url'] as String? ?? config.url,
       locale: argResults!['locale'] as String? ?? config.locale,
       title: config.name,
+      states: (argResults!['state'] as List<String>).toSet(),
     );
     final output = argResults!['output'] as String;
     final root = p.normalize(
@@ -76,8 +129,10 @@ final class ClientFlutterCommand extends DaravelCommand {
     for (final note in client.notes) {
       stdout.writeln('  note: $note');
     }
+    _output = root;
+    _base = app.basePath;
     return 0;
-  });
+  }
 }
 
 /// A generated client: [files] by path relative to the package root.
@@ -105,6 +160,26 @@ const Set<String> _keptFiles = {'pubspec.yaml', 'analysis_options.yaml'};
 
 /// Writes [client] under [root] and formats it.
 Future<void> writeClient(GeneratedClient client, String root) async {
+  for (final path in _optionalFiles) {
+    final file = File(p.join(root, path));
+    if (!client.files.containsKey(path) && file.existsSync()) {
+      await file.delete();
+    }
+  }
+  final pubspec = File(p.join(root, 'pubspec.yaml'));
+  if (pubspec.existsSync()) {
+    // Kept as edited: name what a new `--state` needs instead.
+    final text = pubspec.readAsStringSync();
+    final wanted = RegExp(r'^  (\w+): ', multiLine: true)
+        .allMatches(client.files['pubspec.yaml'] ?? '')
+        .map((m) => m[1]!)
+        .where((name) => name != 'sdk');
+    for (final name in wanted) {
+      if (!RegExp('^  $name:', multiLine: true).hasMatch(text)) {
+        client.notes.add('add `$name` to ${pubspec.path}');
+      }
+    }
+  }
   for (final MapEntry(key: path, value: content) in client.files.entries) {
     final file = File(p.join(root, path));
     if (_keptFiles.contains(path) && file.existsSync()) {
@@ -141,7 +216,8 @@ GeneratedClient generateClient(
   required String baseUrl,
   String locale = 'en',
   String title = 'Daravel',
-}) => _Generator(packageName, baseUrl, locale, title).run(routes);
+  Set<String> states = const <String>{},
+}) => _Generator(packageName, baseUrl, locale, title, states).run(routes);
 
 /// Dart's reserved words (and `await`/`yield`, reserved in async code):
 /// not usable as names. Built-in and contextual identifiers (`get`, `show`,
@@ -284,9 +360,19 @@ final class _Field {
 }
 
 final class _Generator {
-  _Generator(this.packageName, this.baseUrl, this.locale, this.title);
+  _Generator(
+    this.packageName,
+    this.baseUrl,
+    this.locale,
+    this.title,
+    this.states,
+  );
 
   final String packageName;
+
+  /// State adapters to generate ([clientStates]).
+  final Set<String> states;
+  final List<_Op> _ops = <_Op>[];
   final String baseUrl;
   final String locale;
   final String title;
@@ -319,6 +405,11 @@ final class _Generator {
       'lib/src/models.dart': _file(_models, importHttp: false),
       'lib/src/inputs.dart': _file(_inputs, importHttp: _usesHttp),
       'lib/src/api.dart': _api(),
+      if (states.contains('bloc') || states.contains('cubit'))
+        'lib/src/remote_state.dart': _remoteState(),
+      if (states.contains('riverpod')) 'lib/src/providers.dart': _providers(),
+      if (states.contains('bloc')) 'lib/src/blocs.dart': _blocs(),
+      if (states.contains('cubit')) 'lib/src/cubits.dart': _cubits(),
     };
     return GeneratedClient(
       files,
@@ -465,20 +556,33 @@ final class _Generator {
             : 'query: query',
     ];
     final (returnType, convert) = _response(route, response, base);
+    // Dart has no optional positional and named parameters together: with
+    // named ones, optional path parameters become named too.
+    final positionalOptional = named.isEmpty ? optional : const <String>[];
+    if (named.isNotEmpty) {
+      named.insertAll(0, optional.map(_unbracket));
+    }
     final params = [
       ...required,
-      if (optional.isNotEmpty) '[${optional.map(_unbracket).join(', ')}]',
-      if (named.isNotEmpty && optional.isEmpty) '{${named.join(', ')}}',
+      if (positionalOptional.isNotEmpty)
+        '[${positionalOptional.map(_unbracket).join(', ')}]',
+      if (named.isNotEmpty) '{${named.join(', ')}}',
     ];
-    if (named.isNotEmpty && optional.isNotEmpty) {
-      // Dart has no optional positional and named parameters together.
-      params
-        ..removeLast()
-        ..add('[${[...optional.map(_unbracket)].join(', ')}]');
-      _notes.add(
-        '${route.path}: optional path parameter and input; input is a map',
-      );
-    }
+    _ops.add(
+      _Op(
+        group: group,
+        method: methodName,
+        returnType: returnType,
+        query: verb == 'GET',
+        doc: '`$verb ${route.path}`',
+        params: [
+          for (final param in required) _Param.parse(param, named: false),
+          for (final param in positionalOptional)
+            _Param.parse(_unbracket(param), named: false, optional: true),
+          for (final param in named) _Param.parse(param, named: true),
+        ],
+      ),
+    );
     _operations++;
     out
       ..write(doc)
@@ -486,8 +590,12 @@ final class _Generator {
         '  Future<$returnType> $methodName(${params.join(', ')}) async {\n',
       )
       ..write(call)
-      ..write('    final json = await ${target}send(${args.join(', ')});\n')
-      ..write('    return $convert;\n')
+      ..write(
+        returnType == 'void'
+            ? '    await ${target}send(${args.join(', ')});\n'
+            : '    final json = await ${target}send(${args.join(', ')});\n'
+                  '    return $convert;\n',
+      )
       ..write('  }\n\n');
   }
 
@@ -616,7 +724,10 @@ final class _Generator {
       case 'object':
         final properties = schema['properties'];
         if (models && properties is Map && properties.isNotEmpty) {
-          final model = _pascal(name);
+          // A `title` names the model, so one schema reused in several
+          // responses (`UserResource.schema`) is one class.
+          final title = schema['title'];
+          final model = _pascal(title is String ? title : name);
           _emitModel(model, schema);
           return _Type(
             model,
@@ -1037,8 +1148,12 @@ final class _Generator {
       '/// Typed client of $title, generated from its routes.\n'
       'library;\n\n'
       "export 'src/api.dart';\n"
+      "${states.contains('bloc') ? "export 'src/blocs.dart';\n" : ''}"
+      "${states.contains('cubit') ? "export 'src/cubits.dart';\n" : ''}"
       "export 'src/inputs.dart';\n"
       "export 'src/models.dart';\n"
+      "${states.contains('riverpod') ? "export 'src/providers.dart';\n" : ''}"
+      "${states.contains('bloc') || states.contains('cubit') ? "export 'src/remote_state.dart';\n" : ''}"
       "export 'src/runtime.dart';\n";
 
   String _pubspec() =>
@@ -1049,7 +1164,14 @@ final class _Generator {
       'environment:\n'
       '  sdk: ^3.6.0\n\n'
       'dependencies:\n'
+      '${_stateDependencies.map((d) => '  $d\n').join()}'
       '  http: ^1.2.0\n';
+
+  /// The packages the state adapters need, as pubspec lines.
+  List<String> get _stateDependencies => [
+    if (states.contains('bloc') || states.contains('cubit')) 'bloc: ^9.0.0',
+    if (states.contains('riverpod')) 'riverpod: ^3.0.0',
+  ];
 }
 
 const String _analysisOptions = '''
@@ -1068,3 +1190,320 @@ String _toMap(String json) => 'jsonObject($json)';
 String _toDateTime(String json) => 'DateTime.parse($json as String)';
 String _fromDateTime(String value, bool nullable) =>
     '$value${nullable ? '?' : ''}.toIso8601String()';
+
+// ---------------------------------------------------------------------------
+// State adapters (`--state=riverpod,bloc,cubit`)
+// ---------------------------------------------------------------------------
+
+/// The state adapters `--state` accepts.
+const List<String> clientStates = ['riverpod', 'bloc', 'cubit'];
+
+/// Files only some runs write; removed when a run no longer does.
+const List<String> _optionalFiles = [
+  'lib/src/remote_state.dart',
+  'lib/src/providers.dart',
+  'lib/src/blocs.dart',
+  'lib/src/cubits.dart',
+];
+
+/// One generated client method, for the state adapters.
+final class _Op {
+  _Op({
+    required this.group,
+    required this.method,
+    required this.returnType,
+    required this.query,
+    required this.doc,
+    required this.params,
+  });
+
+  final String group;
+  final String method;
+  final String returnType;
+
+  /// A GET: a cached query (providers) and `load` rather than `submit`.
+  final bool query;
+  final String doc;
+  final List<_Param> params;
+
+  /// The class-name stem: `UsersShow`, or `Ping` for a root method.
+  String get stem => '${_pascal(group)}${_pascal(method)}';
+
+  /// The call on the client: `users.show` or `ping`.
+  String get target => group.isEmpty ? method : '$group.$method';
+
+  /// Parameters a state adapter exposes: not the untyped `query`/`body`
+  /// maps (a new map per build would never be equal, refetching forever).
+  List<_Param> get typed =>
+      params.where((p) => !p.type.startsWith('Map<')).toList();
+
+  /// The client call with [value] reading each parameter (`event.id`).
+  String call(String client, String Function(_Param) value) {
+    final args = [
+      for (final param in typed)
+        param.named ? '${param.name}: ${value(param)}' : value(param),
+    ];
+    return '$client.$target(${args.join(', ')})';
+  }
+}
+
+final class _Param {
+  const _Param(
+    this.type,
+    this.name, {
+    required this.named,
+    required this.required,
+  });
+
+  /// Parses `required String name`, `int? page` or `int id`.
+  factory _Param.parse(
+    String source, {
+    required bool named,
+    bool optional = false,
+  }) {
+    final isRequired = source.startsWith('required ');
+    final text = isRequired ? source.substring('required '.length) : source;
+    final space = text.lastIndexOf(' ');
+    return _Param(
+      text.substring(0, space),
+      text.substring(space + 1),
+      named: named,
+      required: named ? isRequired : !optional,
+    );
+  }
+
+  final String type;
+  final String name;
+  final bool named;
+  final bool required;
+}
+
+extension on _Generator {
+  /// The imports of an adapter file covering [ops].
+  String _stateImports(
+    Iterable<_Op> ops, {
+    required bool bloc,
+    required bool riverpod,
+  }) {
+    final usesHttp = ops.any(
+      (op) => op.typed.any((p) => p.type.startsWith('http.')),
+    );
+    return [
+      if (bloc) "import 'package:bloc/bloc.dart';\n",
+      if (usesHttp) "import 'package:http/http.dart' as http;\n",
+      if (riverpod) "import 'package:riverpod/riverpod.dart';\n",
+      '\n',
+      "import 'api.dart';\n",
+      "import 'models.dart';\n",
+      if (bloc) "import 'remote_state.dart';\n",
+      "import 'runtime.dart';\n",
+    ].join();
+  }
+
+  String _remoteState() =>
+      '${_Generator._header}\n'
+      "import 'runtime.dart';\n\n"
+      '/// The state of one request in a Bloc or Cubit.\n'
+      'sealed class RemoteState<T> {\n'
+      '  const RemoteState();\n\n'
+      '  /// The last data, kept while reloading.\n'
+      '  T? get dataOrNull => switch (this) {\n'
+      '    RemoteData<T>(:final data) => data,\n'
+      '    RemoteLoading<T>(:final previous) => previous,\n'
+      '    _ => null,\n'
+      '  };\n'
+      '}\n\n'
+      '/// Nothing requested yet.\n'
+      'final class RemoteIdle<T> extends RemoteState<T> {\n'
+      '  const RemoteIdle();\n'
+      '}\n\n'
+      '/// In flight; [previous] is the data of the last success, if any.\n'
+      'final class RemoteLoading<T> extends RemoteState<T> {\n'
+      '  const RemoteLoading([this.previous]);\n\n'
+      '  final T? previous;\n'
+      '}\n\n'
+      '/// Succeeded.\n'
+      'final class RemoteData<T> extends RemoteState<T> {\n'
+      '  const RemoteData(this.data);\n\n'
+      '  final T data;\n'
+      '}\n\n'
+      '/// Failed: an [ApiException] for an error response.\n'
+      'final class RemoteError<T> extends RemoteState<T> {\n'
+      '  const RemoteError(this.error, [this.stackTrace]);\n\n'
+      '  final Object error;\n'
+      '  final StackTrace? stackTrace;\n\n'
+      "  /// The 422 body, for form fields: `validation?.first('email')`.\n"
+      '  ValidationException? get validation => switch (error) {\n'
+      '    final ValidationException e => e,\n'
+      '    _ => null,\n'
+      '  };\n'
+      '}\n\n'
+      '/// Emits loading, then the data or the error of [call].\n'
+      'Future<void> runRemote<T>(\n'
+      '  RemoteState<T> current,\n'
+      '  void Function(RemoteState<T> state) emit,\n'
+      '  Future<T> Function() call,\n'
+      ') async {\n'
+      '  emit(RemoteLoading<T>(current.dataOrNull));\n'
+      '  try {\n'
+      '    emit(RemoteData<T>(await call()));\n'
+      '  } on Object catch (error, stackTrace) {\n'
+      '    emit(RemoteError<T>(error, stackTrace));\n'
+      '  }\n'
+      '}\n';
+
+  String _providers() {
+    final client = '${_camel(packageName)}Provider';
+    final out = StringBuffer()
+      ..write(_Generator._header)
+      ..write('\n')
+      ..write(_stateImports(_queries, bloc: false, riverpod: true))
+      ..write('\n')
+      ..write(
+        '/// The client. Override it to set the base URL and token store:\n',
+      )
+      ..write('/// `ProviderScope(overrides: [$client.overrideWithValue(\n')
+      ..write('/// $_clientClass(baseUrl: ...))])`.\n')
+      ..write('final $client = Provider<$_clientClass>((ref) {\n')
+      ..write('  final client = $_clientClass();\n')
+      ..write('  ref.onDispose(client.close);\n')
+      ..write('  return client;\n')
+      ..write('});\n\n');
+    final watch = 'ref.watch($client)';
+    for (final op in _queries) {
+      final name = '${_camel(op.stem)}Provider';
+      final params = op.typed;
+      out
+        ..write('/// ${op.doc}: `ref.watch($name')
+        ..write(params.isEmpty ? '' : '(...)')
+        ..write(')`; refresh with `ref.invalidate($name)`.\n');
+      if (params.isEmpty) {
+        out.write(
+          'final $name = FutureProvider.autoDispose<${op.returnType}>(\n'
+          '  (ref) => ${op.call(watch, (p) => p.name)},\n'
+          ');\n\n',
+        );
+      } else if (params.length == 1) {
+        final param = params.single;
+        out.write(
+          'final $name = FutureProvider.autoDispose\n'
+          '    .family<${op.returnType}, ${_nullable(param)}>(\n'
+          '      (ref, ${param.name}) => ${op.call(watch, (p) => p.name)},\n'
+          '    );\n\n',
+        );
+      } else {
+        final record =
+            '({${params.map((p) => '${_nullable(p)} ${p.name}').join(', ')}})';
+        out.write(
+          '///\n'
+          '/// The argument is a record: '
+          '`$name((${params.map((p) => '${p.name}: ...').join(', ')}))`.\n'
+          'final $name = FutureProvider.autoDispose\n'
+          '    .family<${op.returnType}, $record>(\n'
+          '      (ref, args) => ${op.call(watch, (p) => 'args.${p.name}')},\n'
+          '    );\n\n',
+        );
+      }
+    }
+    return out.toString();
+  }
+
+  /// The operations with a provider: reads that return data.
+  Iterable<_Op> get _queries =>
+      _ops.where((op) => op.query && op.returnType != 'void');
+
+  /// A parameter's type in a state adapter: optional ones are nullable.
+  String _nullable(_Param param) => param.required || param.type.endsWith('?')
+      ? param.type
+      : '${param.type}?';
+
+  String _cubits() {
+    final out = StringBuffer()
+      ..write(_Generator._header)
+      ..write('\n')
+      ..write(_stateImports(_ops, bloc: true, riverpod: false))
+      ..write('\n');
+    for (final op in _ops) {
+      final type = op.returnType;
+      final verb = op.query ? 'load' : 'submit';
+      out
+        ..write('/// ${op.doc}: call [$verb]; the state follows the request.\n')
+        ..write(
+          'final class ${op.stem}Cubit extends Cubit<RemoteState<$type>> {\n',
+        )
+        ..write(
+          '  ${op.stem}Cubit(this._client) : super(RemoteIdle<$type>());\n\n',
+        )
+        ..write('  final $_clientClass _client;\n\n')
+        ..write('  Future<void> $verb(${_signature(op.typed)}) =>\n')
+        ..write(
+          '      runRemote(state, emit, () => '
+          '${op.call('_client', (p) => p.name)});\n',
+        )
+        ..write('}\n\n');
+    }
+    return out.toString();
+  }
+
+  String _blocs() {
+    final out = StringBuffer()
+      ..write(_Generator._header)
+      ..write('\n')
+      ..write(_stateImports(_ops, bloc: true, riverpod: false))
+      ..write('\n');
+    for (final op in _ops) {
+      final type = op.returnType;
+      final event = '${op.stem}Requested';
+      final params = op.typed;
+      out
+        ..write('/// Requests ${op.doc} from [${op.stem}Bloc].\n')
+        ..write('final class $event {\n')
+        ..write('  const $event(${_signature(params, fields: true)});\n');
+      if (params.isNotEmpty) {
+        out.write('\n');
+      }
+      for (final param in params) {
+        out.write('  final ${_nullable(param)} ${param.name};\n');
+      }
+      out
+        ..write('}\n\n')
+        ..write('/// ${op.doc}: add [$event]; the state follows the request.\n')
+        ..write(
+          'final class ${op.stem}Bloc extends Bloc<$event, RemoteState<$type>> {\n',
+        )
+        ..write(
+          '  ${op.stem}Bloc(this._client) : super(RemoteIdle<$type>()) {\n',
+        )
+        ..write('    on<$event>(\n')
+        ..write('      (event, emit) => runRemote(\n')
+        ..write('        state,\n')
+        ..write('        emit.call,\n')
+        ..write(
+          '        () => ${op.call('_client', (p) => 'event.${p.name}')},\n',
+        )
+        ..write('      ),\n')
+        ..write('    );\n')
+        ..write('  }\n\n')
+        ..write('  final $_clientClass _client;\n')
+        ..write('}\n\n');
+    }
+    return out.toString();
+  }
+
+  /// A parameter list for [params]: positional first, then named (or, with
+  /// [fields], `this.` initializers).
+  String _signature(List<_Param> params, {bool fields = false}) {
+    String one(_Param p) =>
+        fields ? 'this.${p.name}' : '${_nullable(p)} ${p.name}';
+    final positional = params.where((p) => !p.named && p.required).map(one);
+    final optional = params.where((p) => !p.named && !p.required).map(one);
+    final named = params
+        .where((p) => p.named)
+        .map((p) => '${p.required ? 'required ' : ''}${one(p)}');
+    return [
+      ...positional,
+      if (optional.isNotEmpty) '[${optional.join(', ')}]',
+      if (named.isNotEmpty) '{${named.join(', ')}}',
+    ].join(', ');
+  }
+}

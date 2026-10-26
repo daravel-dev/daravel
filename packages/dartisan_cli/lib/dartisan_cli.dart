@@ -41,6 +41,7 @@ export 'src/tinker_command.dart';
 export 'src/make_commands.dart';
 export 'src/queue_commands.dart';
 export 'src/client_flutter.dart';
+export 'src/client_watcher.dart';
 export 'src/daragic_export.dart';
 export 'src/mcp_server.dart';
 
