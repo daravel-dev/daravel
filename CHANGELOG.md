@@ -6,6 +6,23 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 breaking changes to the Dart API wait for a new major version, and
 Laravel-facing formats change only to match Laravel more closely.
 
+## Unreleased
+
+### Added
+
+- `DB_URL`, as in Laravel 12: one URL sets the database
+  (`postgres://user:pass@host:5432/app?sslmode=require`) and is merged into
+  the connections the way Laravel's `ConfigurationUrlParser` merges it.
+  The scheme picks the driver (`postgres` → `pgsql`, `mysql2` → `mysql`),
+  parts the URL gives replace the `DB_*` values and the rest stay, and the
+  query string adds options. A `.env` written for Laravel with `DB_URL` now
+  configures Daravel the same way. `ConnectionConfig.withUrl` is the merge.
+
+### Changed
+
+- The release workflow skips packages whose version is already on pub.dev,
+  so re-running it finishes a release that was partly published by hand.
+
 ## 1.8.1
 
 A fix for clients generated with `client:flutter --state`. Upgrade from

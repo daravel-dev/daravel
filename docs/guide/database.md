@@ -56,6 +56,30 @@ application from SQLite to PostgreSQL:
 3. `dartisan migrate`, or copy the existing data across with `db:transfer`
    (below), which migrates the new database first.
 
+### Database URLs
+
+`DB_URL` sets a database with one value, as in Laravel 12, so a `.env` that
+uses it works for both frameworks:
+
+```dotenv
+DB_CONNECTION=pgsql
+DB_URL=postgres://app:secret@db.internal:5432/shop?sslmode=require
+```
+
+It is merged the way Laravel's `ConfigurationUrlParser` merges it, and
+Daravel's tests compare the result with Laravel's own:
+
+- The scheme sets the driver: `postgres` and `postgresql` mean `pgsql`,
+  `mysql2` means `mysql`, and `sqlite3` means `sqlite`.
+- The host, port, user, password and database the URL contains replace the
+  `DB_*` values. Parts it leaves out keep them (`DB_PORT`, `DB_DATABASE`,
+  ...). User and password are URL-decoded, so write `@` as `%40`.
+- The query string adds options (`sslmode`, `charset`, `timezone`, ...);
+  `true`, `false`, `null` and numbers are read as such.
+
+As in Laravel, `DB_URL` applies to every built-in connection, and
+`DB_CONNECTION` picks which one is used.
+
 ### Several databases at once
 
 The `DB_*` keys configure one database. Add others with their own settings

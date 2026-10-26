@@ -118,6 +118,7 @@ sections:
       - { php: "DB::transaction(fn)", dart: "await DB.transaction(() async {...})", symbol: DB.transaction, async: true }
       - { php: "DB_CONNECTION=mysql / mariadb", dart: "withDatabaseDriver('mysql', MySqlDriver.fromConfig)", symbol: ApplicationBuilder.withDatabaseDriver, note: "package:daravel_mysql; registered by new projects." }
       - { php: "DB::connection('legacy')->table('orders')", dart: "DB.table('orders', connection: 'legacy')", symbol: DB.table }
+      - { php: "DB_URL=postgres://user:pass@host/db (ConfigurationUrlParser)", dart: "DB_URL, ConnectionConfig.withUrl(url)", symbol: ConnectionConfig.withUrl, note: "Merged like Laravel 12: URL parts replace DB_* values, the rest stay." }
       - { php: "'connections' => ['legacy' => ['url' => env('LEGACY_DB_URL')]]", dart: "withDatabaseConnection('legacy', (env) => ConnectionConfig.fromUrl(env.string('LEGACY_DB_URL')))", symbol: ApplicationBuilder.withDatabaseConnection }
       - { php: "DB::connection('legacy')->transaction(fn)", dart: "DB.transaction(() async {...}, connection: 'legacy')", symbol: DB.transaction, async: true, note: "Transactions are per connection, as in Laravel." }
       - { php: "DB::raw($sql)", dart: "DB.raw(sql)", symbol: DB.raw }

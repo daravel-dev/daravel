@@ -119,6 +119,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `DB::transaction(fn)` | `await DB.transaction(() async {...})` | **async** |
 | `DB_CONNECTION=mysql / mariadb` | `withDatabaseDriver('mysql', MySqlDriver.fromConfig)` | package:daravel_mysql; registered by new projects. |
 | `DB::connection('legacy')->table('orders')` | `DB.table('orders', connection: 'legacy')` |  |
+| `DB_URL=postgres://user:pass@host/db (ConfigurationUrlParser)` | `DB_URL, ConnectionConfig.withUrl(url)` | Merged like Laravel 12: URL parts replace DB_* values, the rest stay. |
 | `'connections' => ['legacy' => ['url' => env('LEGACY_DB_URL')]]` | `withDatabaseConnection('legacy', (env) => ConnectionConfig.fromUrl(env.string('LEGACY_DB_URL')))` |  |
 | `DB::connection('legacy')->transaction(fn)` | `DB.transaction(() async {...}, connection: 'legacy')` | **async**; Transactions are per connection, as in Laravel. |
 | `DB::raw($sql)` | `DB.raw(sql)` |  |

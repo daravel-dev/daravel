@@ -75,6 +75,7 @@ frozen after boot.
 | `APP_HOST`, `APP_PORT`, `PORT` | `127.0.0.1`, `8000` | Server address; `PORT` for container platforms |
 | `APP_ISOLATES` | `1` | HTTP worker isolates |
 | `DB_CONNECTION`, `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD` | `sqlite` | `sqlite`, `pgsql`, `mysql` or `mariadb` (a path in `DB_HOST` is a PostgreSQL Unix socket) |
+| `DB_URL` | | One URL instead of the keys above, as in Laravel 12: `postgres://user:pass@host:5432/app?sslmode=require`. Its parts replace the matching `DB_*` values; those it leaves out stay ([Database](database.md#database-urls)) |
 | `DB_CHARSET`, `DB_COLLATION`, `DB_TIMEZONE` | `utf8mb4`, `utf8mb4_unicode_ci`, server | MySQL and MariaDB, as Laravel reads them |
 | `DB_POOL_SIZE`, `DB_SSLMODE` | `10`, `disable` | Connection pool per isolate, TLS (`require`, `verify-full`) |
 | `CACHE_STORE`, `CACHE_PREFIX` | `memory` | Cache store and key prefix |

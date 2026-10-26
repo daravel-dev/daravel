@@ -50,6 +50,116 @@ void main() {
     });
   });
 
+  group('withUrl merges like Laravel 12 ConfigurationUrlParser', () {
+    // The base and the expected results come from running Laravel's
+    // ConfigurationUrlParser::parseConfiguration on the same input.
+    const base = ConnectionConfig(
+      driver: 'sqlite',
+      database: 'laravel',
+      host: '127.0.0.1',
+      port: 5432,
+      username: 'root',
+      password: '',
+      options: {'sslmode': 'prefer'},
+    );
+
+    Map<String, Object?> parsed(String url) {
+      final c = base.withUrl(url);
+      return {
+        'driver': c.driver,
+        'host': c.host,
+        'port': c.port,
+        'database': c.database,
+        'username': c.username,
+        'password': c.password,
+        ...c.options,
+      };
+    }
+
+    test('every part given', () {
+      expect(
+        parsed(
+          'postgres://shop:s%40cret@db.internal:6432/shop?sslmode=require',
+        ),
+        {
+          'driver': 'pgsql',
+          'host': 'db.internal',
+          'port': 6432,
+          'database': 'shop',
+          'username': 'shop',
+          'password': 's@cret',
+          'sslmode': 'require',
+        },
+      );
+    });
+
+    test('parts left out keep the base values', () {
+      expect(parsed('postgresql://db.internal/shop'), {
+        'driver': 'pgsql',
+        'host': 'db.internal',
+        'port': 5432,
+        'database': 'shop',
+        'username': 'root',
+        'password': '',
+        'sslmode': 'prefer',
+      });
+      expect(parsed('pgsql://user:pass@host'), {
+        'driver': 'pgsql',
+        'host': 'host',
+        'port': 5432,
+        'database': 'laravel',
+        'username': 'user',
+        'password': 'pass',
+        'sslmode': 'prefer',
+      });
+    });
+
+    test('driver aliases and typed query options', () {
+      expect(
+        parsed('mysql2://user@10.0.0.5/legacy?charset=utf8mb4&strict=true'),
+        {
+          'driver': 'mysql',
+          'host': '10.0.0.5',
+          'port': 5432,
+          'database': 'legacy',
+          'username': 'user',
+          'password': '',
+          'sslmode': 'prefer',
+          'charset': 'utf8mb4',
+          'strict': true,
+        },
+      );
+      expect(parsed('mariadb://h:3307/app')['driver'], 'mariadb');
+      expect(parsed('mariadb://h:3307/app')['port'], 3307);
+    });
+  });
+
+  test('DB_URL applies to the connections, as in Laravel 12', () {
+    final config = DatabaseConfig.fromEnv(
+      Env.fromMap(const {
+        'DB_CONNECTION': 'pgsql',
+        'DB_URL': 'postgres://app:secret@db.internal:6432/shop?sslmode=require',
+        'DB_POOL_SIZE': '4',
+      }),
+      basePath: '/srv',
+    );
+    final pgsql = config.connections['pgsql']!;
+    expect(
+      (pgsql.host, pgsql.port, pgsql.database),
+      ('db.internal', 6432, 'shop'),
+    );
+    expect((pgsql.username, pgsql.password), ('app', 'secret'));
+    expect(pgsql.options['sslmode'], 'require');
+    // DB_* values the URL does not give stay.
+    expect(pgsql.options['pool'], 4);
+    // Without DB_URL nothing changes.
+    final plain = DatabaseConfig.fromEnv(
+      Env.fromMap(const {'DB_CONNECTION': 'pgsql', 'DB_HOST': 'h'}),
+      basePath: '/srv',
+    );
+    expect(plain.connections['pgsql']!.host, 'h');
+  });
+
   test(
     'withDatabaseConnection adds a connection with its own settings',
     () async {

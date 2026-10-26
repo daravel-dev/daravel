@@ -16,6 +16,60 @@ final class ConnectionConfig {
     this.options = const <String, Object?>{},
   });
 
+  /// This connection with what [url] gives, merged as Laravel 12's
+  /// `ConfigurationUrlParser` does for `DB_URL`: the scheme sets the driver
+  /// (`postgres`/`postgresql` → `pgsql`, `mysql2` → `mysql`, `sqlite3` →
+  /// `sqlite`), the host, port, user, password and database it contains
+  /// replace this connection's, and its query string adds options. Parts
+  /// the URL leaves out keep their values.
+  ConnectionConfig withUrl(String url, {String basePath = '.'}) {
+    if (url.startsWith('sqlite:') || url.startsWith('sqlite3:')) {
+      final file = ConnectionConfig.fromUrl(
+        'sqlite:${url.substring(url.indexOf(':') + 1)}',
+        basePath: basePath,
+      );
+      return ConnectionConfig(
+        driver: 'sqlite',
+        database: file.database,
+        options: options,
+      );
+    }
+    final uri = Uri.parse(url);
+    final driver = switch (uri.scheme) {
+      'postgres' || 'postgresql' => 'pgsql',
+      'mysql2' => 'mysql',
+      '' => this.driver,
+      final scheme => scheme,
+    };
+    final user = uri.userInfo.isEmpty ? null : uri.userInfo.split(':');
+    final database = uri.path.length > 1 ? uri.path.substring(1) : null;
+    return ConnectionConfig(
+      driver: driver,
+      database: database == null
+          ? this.database
+          : Uri.decodeComponent(database),
+      host: uri.host.isEmpty ? host : uri.host,
+      port: uri.hasPort ? uri.port : port,
+      username: user == null ? username : Uri.decodeComponent(user.first),
+      password: user == null || user.length < 2
+          ? password
+          : Uri.decodeComponent(user.sublist(1).join(':')),
+      options: <String, Object?>{
+        ...options,
+        for (final MapEntry(:key, :value) in uri.queryParameters.entries)
+          key: _native(value),
+      },
+    );
+  }
+
+  /// A query value as PHP's `parseStringsToNativeTypes` reads it.
+  static Object? _native(String value) => switch (value) {
+    'true' => true,
+    'false' => false,
+    'null' => null,
+    _ => int.tryParse(value) ?? double.tryParse(value) ?? value,
+  };
+
   /// A connection from a URL, as Laravel's `DB_URL`:
   /// `pgsql://user:secret@host:5432/app?sslmode=require&pool=5`,
   /// `mysql://user@host/app`, `mariadb://...`, `sqlite:database/app.sqlite`
@@ -135,41 +189,49 @@ final class DatabaseConfig implements ConfigSection {
       final value => p.join(basePath, value),
     };
 
-    return DatabaseConfig(
-      defaultConnection: defaultConnection,
-      connections: <String, ConnectionConfig>{
-        'sqlite': ConnectionConfig(driver: 'sqlite', database: sqlitePath),
-        'pgsql': ConnectionConfig(
-          driver: 'pgsql',
+    final connections = <String, ConnectionConfig>{
+      'sqlite': ConnectionConfig(driver: 'sqlite', database: sqlitePath),
+      'pgsql': ConnectionConfig(
+        driver: 'pgsql',
+        database: database ?? 'daravel',
+        host: env.string('DB_HOST', '127.0.0.1'),
+        port: env.integer('DB_PORT', 5432),
+        username: env.maybeString('DB_USERNAME'),
+        password: env.maybeString('DB_PASSWORD'),
+        options: <String, Object?>{
+          'pool': env.integer('DB_POOL_SIZE', 10),
+          'sslmode': env.string('DB_SSLMODE', 'disable'),
+        },
+      ),
+      // MySQL and MariaDB (Laravel 11+ names both); the driver comes from
+      // package:daravel_mysql (`withDatabaseDriver`).
+      for (final driver in ['mysql', 'mariadb'])
+        driver: ConnectionConfig(
+          driver: driver,
           database: database ?? 'daravel',
           host: env.string('DB_HOST', '127.0.0.1'),
-          port: env.integer('DB_PORT', 5432),
+          port: env.integer('DB_PORT', 3306),
           username: env.maybeString('DB_USERNAME'),
           password: env.maybeString('DB_PASSWORD'),
           options: <String, Object?>{
             'pool': env.integer('DB_POOL_SIZE', 10),
             'sslmode': env.string('DB_SSLMODE', 'disable'),
+            'charset': env.string('DB_CHARSET', 'utf8mb4'),
+            'collation': env.string('DB_COLLATION', 'utf8mb4_unicode_ci'),
+            'timezone': env.maybeString('DB_TIMEZONE'),
           },
         ),
-        // MySQL and MariaDB (Laravel 11+ names both); the driver comes from
-        // package:daravel_mysql (`withDatabaseDriver`).
-        for (final driver in ['mysql', 'mariadb'])
-          driver: ConnectionConfig(
-            driver: driver,
-            database: database ?? 'daravel',
-            host: env.string('DB_HOST', '127.0.0.1'),
-            port: env.integer('DB_PORT', 3306),
-            username: env.maybeString('DB_USERNAME'),
-            password: env.maybeString('DB_PASSWORD'),
-            options: <String, Object?>{
-              'pool': env.integer('DB_POOL_SIZE', 10),
-              'sslmode': env.string('DB_SSLMODE', 'disable'),
-              'charset': env.string('DB_CHARSET', 'utf8mb4'),
-              'collation': env.string('DB_COLLATION', 'utf8mb4_unicode_ci'),
-              'timezone': env.maybeString('DB_TIMEZONE'),
+    };
+    // Laravel 12 gives every connection `'url' => env('DB_URL')`.
+    final url = env.maybeString('DB_URL');
+    return DatabaseConfig(
+      defaultConnection: defaultConnection,
+      connections: url == null || url.isEmpty
+          ? connections
+          : {
+              for (final MapEntry(:key, :value) in connections.entries)
+                key: value.withUrl(url, basePath: basePath),
             },
-          ),
-      },
     );
   }
 
