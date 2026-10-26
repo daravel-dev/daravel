@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:yaml/yaml.dart';
 
+import 'i18n.dart';
 import 'site.dart';
 
 /// Documentation site generator (BLUEPRINT_V2 §14.4, §11.3):
@@ -44,6 +45,13 @@ void main(List<String> args) {
   }
 
   final guide = Directory('docs/guide');
+  // `--stamp=id/routing.md`: the translation is up to date with its
+  // English page again.
+  final stamp = option('stamp');
+  if (stamp != null) {
+    stdout.writeln(stampTranslation(guide, stamp));
+    return;
+  }
   final changed = <String>[];
 
   void write(File file, String content) {
@@ -78,6 +86,30 @@ void main(List<String> args) {
     File('packages/dartisan_cli/lib/src/guide_pages.g.dart'),
     renderGuidePages(guidePages),
   );
+  // Translations: a stale or unstamped one fails the check; pages without
+  // one are listed (the site shows them in English with a notice).
+  final translations = checkTranslations(guide);
+  for (final page in translations.unstamped) {
+    translations.stale.add(
+      '$page has no source marker; run '
+      '`dart run tool/docs/generate.dart --stamp=$page`',
+    );
+  }
+  if (translations.missing.isNotEmpty) {
+    stdout.writeln(
+      'Not translated yet (id/): ${translations.missing.length} page(s): '
+      '${translations.missing.join(', ')}',
+    );
+  }
+  if (translations.stale.isNotEmpty) {
+    stderr.writeln(
+      'Translations to update:\n  ${translations.stale.join('\n  ')}',
+    );
+    if (check) {
+      exitCode = 1;
+      return;
+    }
+  }
   final localNav = readNavigation(File('docs/guide/navigation.yaml'));
   final problems = checkNavigation(guide, localNav);
   if (problems.isNotEmpty) {

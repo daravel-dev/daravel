@@ -1,70 +1,141 @@
-# Panduan Deployment (Deployment Guide)
+<!-- source: deployment.md sha256:3c3b8ba0d5f5 -->
+# Deployment
 
-Daravel menghadirkan keunggulan unik di ekosistem backend: **kompilasi AOT (Ahead-of-Time) menjadi satu executable biner mandiri (*single native binary*)**. Aplikasi Daravel tidak memerlukan instalasi Dart SDK, runtime Node.js, maupun PHP-FPM di server produksi.
-
----
-
-## 1. Kompilasi Bundle Native
-
-Gunakan perintah `dartisan build` untuk mengompilasi aplikasi ke kode mesin:
+## Bundle native
 
 ```bash
-dart run bin/dartisan.dart build             # Menghasilkan folder build/server/bundle
-dart run bin/dartisan.dart build --with-cli  # Menyertakan binary bin/dartisan di dalam bundle
+dart run bin/dartisan.dart build             # → build/server/bundle
+dart run bin/dartisan.dart build --with-cli  # sekaligus bin/dartisan di dalam bundle
 ```
 
-Perintah `dartisan build` menjalankan `dart build cli` yang mengompilasi biner dan menjalankan *build hooks*: library native SQLite diunduh otomatis (diverifikasi hash SHA-256) dan diletakkan di `bundle/lib/`. Cukup salin folder `bundle/` ke server dan jalankan `bin/server`.
+`dartisan build` menjalankan `dart build cli`, yang mengompilasi AOT dan
+menjalankan build hook: SQLite diunduh (hash-nya diverifikasi) dan diletakkan
+di `bundle/lib/`. Salin seluruh direktori `bundle/` ke server lalu jalankan
+`bin/server`. (`dart compile exe` tidak bisa dipakai: ia menolak paket yang
+punya build hook.)
 
-> [!TIP]
-> **Optimasi Ukuran untuk PostgreSQL & MySQL**  
-> Jika aplikasi Anda menggunakan PostgreSQL atau MySQL/MariaDB, hilangkan library SQLite untuk menghemat ukuran biner (~1.7 MB lebih kecil):
-> ```bash
-> dart run bin/dartisan.dart build --no-sqlite
-> ```
-
----
-
-## 2. Container & Docker
-
-Perintah berikut membuat `Dockerfile` multi-stage (Dart SDK builder + `debian:bookworm-slim` runtime non-root user) yang siap pakai:
+Aplikasi di PostgreSQL atau MySQL tidak membutuhkan library SQLite di
+bundle-nya:
 
 ```bash
-dart run bin/dartisan.dart build --docker
+dart run bin/dartisan.dart build --no-sqlite   # hanya bundle/bin/server (sekitar 1,7 MB lebih kecil)
 ```
 
-Image hasil build berukuran sangat ramping (~25 MB) dengan konsumsi memori idle sangat minim (~11 MB).
+`--no-sqlite` men-set opsi build `source: system` milik `package:sqlite3`
+hanya selama build (di pubspec root workspace untuk anggota workspace) lalu
+mengembalikan file itu sesudahnya, sehingga `dart run` dan `dart test` tetap
+memakai SQLite bawaan yang biasanya diandalkan test. Opsi ini menolak bila
+`DB_CONNECTION` bernilai `sqlite` (`--force` tetap mem-build, untuk server
+yang punya `libsqlite3`); server yang kemudian membuka SQLite tanpa library
+itu mendapat error yang menjelaskannya.
 
----
+## Docker
 
-## 3. Deployment ke Google Cloud Run
+`dartisan build --docker` menulis `Dockerfile` multi-stage (builder Dart SDK,
+runtime `debian:bookworm-slim`, user non-root, tanpa perlu SQLite sistem)
+dan `.dockerignore`. Template `api` juga menyertakan `docker-compose.yml`
+dengan PostgreSQL 16. Aplikasi referensi di repository ini menyertakan stage
+runtime yang sama di `apps/daravel_starter/Dockerfile`, di-build dari root
+repository (`docker build -f apps/daravel_starter/Dockerfile .`) karena ia
+bagian dari pub workspace.
 
-Google Cloud Run adalah platform serverless berbasis container yang ideal untuk Daravel. Cloud Run secara otomatis menginjeksi variabel environment `PORT`. Daravel secara cerdas mengenali variabel `PORT` ini dan melakukan bind ke `0.0.0.0`.
+## Port dan platform container
 
-### Langkah-langkah Deploy:
+Server mendengarkan di `APP_HOST:APP_PORT` (`127.0.0.1:8000` secara default).
+Di Cloud Run, Railway, Render, Fly.io, dan platform serupa yang menyuntikkan
+variabel `PORT`, Daravel memakai port itu bila `APP_PORT` tidak di-set, lalu
+bind ke `0.0.0.0` agar platform bisa menjangkaunya; `Dockerfile` yang
+dihasilkan men-set `PORT=8080` sebagai default yang bisa ditimpa platform.
+`SIGTERM` menuntaskan request yang sedang berjalan dalam `SHUTDOWN_TIMEOUT`.
 
-#### A. Siapkan Artefak & Image Registry
+## Konkurensi
+
+`APP_ISOLATES=N` (atau `serve --isolates=N`) menjalankan supervisor dan N
+worker isolate yang berbagi satu port. State per proses (rate limit,
+penyimpanan cache `process`, lock, metrik) melewati coordinator. Mulailah
+dengan satu isolate per vCPU lalu ukur (lihat [Performa](performance.md)).
+SQLite `:memory:` tidak bisa dibagi antar-isolate; pakai file atau
+PostgreSQL.
+
+## Topologi
+
+Jalankan Daravel di belakang reverse proxy (Caddy, nginx) yang mengakhiri TLS
+dan mengompresi respons, lalu percayai proxy itu secara eksplisit:
+
+```dart
+TrustProxiesMiddleware(proxies: ['10.0.0.0/8'])
+```
+
+Tanpa itu, header `X-Forwarded-*` diabaikan.
+
+## Secret: file environment terenkripsi
+
+`dartisan env:encrypt` menulis `.env.encrypted` (atau
+`.env.production.encrypted` dengan `--env=production`) dalam format
+`php artisan env:encrypt`, sehingga kedua framework bisa membaca file yang
+ditulis framework lainnya. File terenkripsi boleh di-commit; kuncinya tetap
+di secret manager Anda:
+
+```bash
+dart run bin/dartisan.dart env:encrypt --env=production   # mencetak kunci baru
+dart run bin/dartisan.dart env:encrypt --readable         # nama variabel tetap terlihat di diff
+dart run bin/dartisan.dart env:decrypt --key=base64:...   # kembali ke .env
+```
+
+Saat runtime, set `DARAVEL_ENV_ENCRYPTION_KEY` (atau
+`LARAVEL_ENV_ENCRYPTION_KEY`) dan aplikasi mendekripsi `.env.encrypted` dan
+`.env.{APP_ENV}.encrypted` di memori saat boot; tidak ada `.env` biasa yang
+ditulis ke disk. `.dockerignore` yang dihasilkan meloloskan file terenkripsi
+ke dalam image. Kunci yang salah menghentikan boot dengan error yang jelas,
+dan `dartisan doctor` memperingatkan bila sebuah file terenkripsi tidak
+punya kunci.
+
+`dartisan env:obfuscate --only=API_TOKEN` menulis kelas Dart yang nilainya
+di-mask dengan XOR, sehingga tidak muncul di `strings bin/server` (berguna
+untuk kunci yang dikompilasi ke dalam client). Ini obfuskasi, bukan enkripsi:
+mask-nya ikut di biner yang sama, jadi tidak menggantikan `env:encrypt` untuk
+secret sungguhan.
+
+## Satu proses: queue dan scheduler tertanam
+
+Deployment kecil (satu VPS, satu container) bisa menjalankan HTTP, sebuah
+queue worker, dan scheduler dalam satu proses:
+
+```bash
+dart run bin/dartisan.dart serve --embed-queue --embed-scheduler
+SERVER_EMBED_QUEUE=true SERVER_EMBED_SCHEDULER=true bin/server   # sama, dari bundle
+```
+
+Queue worker (di `SERVER_EMBED_QUEUES`, default-nya queue default) dan
+scheduler masing-masing berjalan di isolate sendiri, sehingga job tidak
+pernah memblokir event loop HTTP. Isolate yang crash dijalankan ulang; saat
+`SIGTERM`, job atau tick yang sedang berjalan diselesaikan sebelum proses
+keluar. Console command yang terjadwal berjalan bila server dijalankan dengan
+`dartisan serve`; bila dijalankan sebagai `bin/server`, scheduler tertanam
+menjalankan job, closure, dan task `exec`. Mode tertanam butuh database file
+atau PostgreSQL (database SQLite in-memory ditolak). Untuk beberapa instance,
+pertahankan satu scheduler tertanam (atau jalankan `schedule:work`
+terpisah) dan skalakan queue worker secara terpisah.
+
+## Google Cloud Run
+
+`Dockerfile` yang dihasilkan berjalan di Cloud Run tanpa perubahan: ia
+mendengarkan `PORT` yang disuntikkan, menulis log JSON ke stdout (diurai oleh
+Cloud Logging), dan menyertakan `bin/dartisan` di samping `bin/server` untuk
+command sekali jalan.
+
 ```bash
 REGION=asia-southeast2
-PROJECT=nama-project-gcp-anda
 IMAGE=$REGION-docker.pkg.dev/$PROJECT/daravel/api:$(git rev-parse --short HEAD)
-SQL=$PROJECT:$REGION:main-db
+SQL=$PROJECT:$REGION:main          # instance Cloud SQL untuk PostgreSQL
 
-# 1. Buat repository Artifact Registry jika belum ada
 gcloud artifacts repositories create daravel --repository-format=docker --location=$REGION
-
-# 2. Build dan submit image container
 gcloud builds submit --tag $IMAGE
-```
 
-#### B. Simpan Kredensial Sensitif di Secret Manager
-Jangan menyimpan kunci rahasia di dalam image atau git repository:
-```bash
+# Secret, sekali saja: APP_KEY dari `dartisan key:generate --show` dan password DB
 printf '%s' 'base64:...' | gcloud secrets create app-key --data-file=-
-printf '%s' 'rahasia-db'  | gcloud secrets create db-password --data-file=-
-```
+printf '%s' '...'        | gcloud secrets create db-password --data-file=-
 
-#### C. Deploy Service Cloud Run
-```bash
 gcloud run deploy api --image $IMAGE --region $REGION \
   --add-cloudsql-instances $SQL \
   --set-env-vars "DB_CONNECTION=pgsql,DB_HOST=/cloudsql/$SQL,DB_DATABASE=app,DB_USERNAME=app,APP_ISOLATES=2,DB_POOL_SIZE=5,SHUTDOWN_TIMEOUT=8s,QUEUE_CONNECTION=database" \
@@ -72,13 +143,24 @@ gcloud run deploy api --image $IMAGE --region $REGION \
   --cpu 2 --memory 512Mi --concurrency 200
 ```
 
-#### D. Konfigurasi Probes (Health Checks)
-Atur probe berikut di Cloud Run:
-* **Startup Probe**: Arahkan ke `/up/ready` (memvalidasi kesiapan pool database).
-* **Liveness Probe**: Arahkan ke `/up` (memverifikasi HTTP server aktif).
+- **Cloud SQL.** `--add-cloudsql-instances` me-mount Unix socket instance di
+  bawah `/cloudsql/`; `DB_HOST` yang di-set ke direktori itu terhubung
+  melaluinya (seperti di Laravel). Pertahankan `DB_SSLMODE=disable` untuk
+  socket; bila memakai IP privat, set `DB_HOST` ke IP tersebut dan
+  `DB_SSLMODE=require`.
+- **Koneksi.** Setiap isolate punya pool sendiri, sehingga database melihat
+  hingga `instance × APP_ISOLATES × DB_POOL_SIZE` koneksi. Batasi
+  `--max-instances` agar sesuai `max_connections` instance database.
+- **Isolate.** Samakan `APP_ISOLATES` dengan `--cpu`.
+- **Shutdown.** Cloud Run mengirim `SIGTERM` lalu mematikan container 10
+  detik kemudian; `SHUTDOWN_TIMEOUT=8s` menuntaskan request yang sedang
+  berjalan di dalam rentang itu.
+- **Probe.** Arahkan startup probe ke `/up/ready` (mengecek database) dan
+  liveness probe ke `/up`, di YAML service atau di console.
 
-#### E. Menjalankan Migrasi Database
-Jalankan migrasi database sebagai Cloud Run Job sebelum traffic dialihkan ke revisi baru:
+Migrasi dijalankan sebagai Cloud Run job dari image yang sama, sebelum
+trafik pindah ke revisi baru:
+
 ```bash
 gcloud run jobs deploy migrate --image $IMAGE --region $REGION \
   --set-cloudsql-instances $SQL \
@@ -88,24 +170,148 @@ gcloud run jobs deploy migrate --image $IMAGE --region $REGION \
 gcloud run jobs execute migrate --region $REGION --wait
 ```
 
----
+Service Cloud Run hanya berjalan selama menangani request, jadi pekerjaan
+latar belakang dipindahkan ke job yang dijalankan Cloud Scheduler, di-build
+dengan cara yang sama: scheduler sebagai `--args schedule:run` setiap menit,
+dan queue worker sebagai `--args queue:work,--stop-when-empty,--max-time=540`
+setiap beberapa menit. Untuk queue yang terus sibuk, jalankan `queue:work`
+di VM (bagian berikut).
 
-## 4. Konkurensi & Multi-Isolate
+## VPS dengan systemd dan Caddy
 
-Daravel memaksimalkan seluruh core CPU tanpa membutuhkan Redis untuk state lokal:
-* Atur `APP_ISOLATES=N` sesuai jumlah vCPU (misal: `APP_ISOLATES=2` untuk server 2 core).
-* Supervisor isolate akan mendistribusikan koneksi secara seimbang (*shared socket*).
-* Status rate limit, proses cache L1, dan lock dikoordinasikan secara instan melalui isolate `Coordinator`.
-
----
-
-## 5. Menjalankan Queue & Scheduler dalam Satu Proses
-
-Untuk deployment hemat biaya (seperti 1 VPS atau 1 instance kecil), Daravel dapat menjalankan HTTP server, queue worker, dan cron scheduler dalam **satu proses**:
+Build bundle di mesin dengan OS dan arsitektur CPU yang sama dengan server
+(atau di CI), dengan `bin/dartisan` disertakan:
 
 ```bash
-dart run bin/dartisan.dart serve --embed-queue --embed-scheduler
-# Atau dari binary hasil compile:
-SERVER_EMBED_QUEUE=true SERVER_EMBED_SCHEDULER=true bin/server
+dart run bin/dartisan.dart build --with-cli
+RELEASE=/srv/api/releases/$(date +%Y%m%d%H%M%S)
+rsync -a build/server/bundle/ deploy@vps:$RELEASE/
+ssh deploy@vps "cd $RELEASE && ln -s /srv/api/shared/.env .env \
+  && ln -s /srv/api/shared/storage storage \
+  && ./bin/dartisan migrate && ./bin/dartisan doctor --production \
+  && ln -sfn $RELEASE /srv/api/current \
+  && sudo systemctl restart api api-queue api-schedule"
 ```
-Queue worker dan scheduler masing-masing berjalan di isolate terpisah sehingga tidak akan pernah memblokir *event loop* request HTTP.
+
+Aplikasi membaca `.env` dari direktori kerjanya, jadi setiap rilis menautkan
+`.env` dan `storage/` bersama. Rollback berarti mengarahkan `current` ke
+rilis sebelumnya lalu me-restart.
+
+`/etc/systemd/system/api.service`:
+
+```ini
+[Unit]
+Description=Daravel API
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+User=daravel
+WorkingDirectory=/srv/api/current
+ExecStart=/srv/api/current/bin/server
+Environment=APP_ISOLATES=4 SHUTDOWN_TIMEOUT=25s
+Restart=always
+RestartSec=2
+KillSignal=SIGTERM
+TimeoutStopSec=30
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/srv/api/shared/storage
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Worker-nya adalah unit yang sama dengan command lain; keduanya berhenti
+dengan rapi saat `SIGTERM` setelah job yang sedang berjalan selesai:
+
+```ini
+# /etc/systemd/system/api-queue.service ([Unit]/[Install] seperti di atas)
+[Service]
+User=daravel
+WorkingDirectory=/srv/api/current
+ExecStart=/srv/api/current/bin/dartisan queue:work --max-time=3600
+Restart=always
+TimeoutStopSec=90
+
+# /etc/systemd/system/api-schedule.service
+[Service]
+User=daravel
+WorkingDirectory=/srv/api/current
+ExecStart=/srv/api/current/bin/dartisan schedule:work
+Restart=always
+```
+
+`--max-time` me-restart queue worker setiap jam, dan `dartisan queue:restart`
+meminta worker yang sedang berjalan keluar setelah job-nya selesai (misalnya
+di akhir deploy). Set `TimeoutStopSec` di atas durasi job terlama.
+
+Caddy mengakhiri TLS (sertifikat otomatis) dan mengompresi respons.
+`/etc/caddy/Caddyfile`:
+
+```caddyfile
+api.example.com {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:8000 {
+		health_uri /up
+	}
+}
+```
+
+Pertahankan `APP_HOST=127.0.0.1` (default) agar server hanya bisa dijangkau
+melalui Caddy, dan percayai Caddy dengan `TrustProxiesMiddleware(proxies:
+['127.0.0.1/32'])`. Untuk memindahkan aplikasi Laravel endpoint demi endpoint
+di belakang Caddy yang sama, lihat [Migrasi dari Laravel](migrating-from-laravel.md).
+
+## Backup
+
+`dartisan db:backup` menyalin database SQLite sementara server tetap
+berjalan. Ia memakai `VACUUM INTO` milik SQLite, yang menulis salinan yang
+konsisten dan ringkas meskipun koneksi lain sedang menulis (menyalin file
+dengan `cp` bisa menangkap tulisan yang baru setengah jadi), mengecek
+salinannya dengan `PRAGMA integrity_check`, dan tidak pernah menimpa file:
+
+```bash
+dart run bin/dartisan.dart db:backup                  # storage/backups/database-<waktu>.sqlite
+dart run bin/dartisan.dart db:backup --keep=14        # dan hapus semua kecuali 14 terbaru
+dart run bin/dartisan.dart db:backup --output=/mnt/backups/app.sqlite
+```
+
+Jadwalkan di `routes/console.dart`, lalu salin `storage/backups` keluar dari
+server (object storage, mesin lain):
+
+```dart
+schedule.command('db:backup', const ['--keep=14']).dailyAt('02:00');
+```
+
+Di PostgreSQL dan MySQL, command ini justru menjelaskan tool native-nya
+(`pg_dump --format=custom`, `mysqldump --single-transaction`), yang mem-backup
+server itu secara konsisten tanpa menghentikannya.
+
+## Mode maintenance
+
+```bash
+dart run bin/dartisan.dart down --retry=60 --with-secret   # mencetak path untuk bypass
+dart run bin/dartisan.dart up
+```
+
+`down` menulis `storage/framework/down` dalam format Laravel, dan server yang
+sedang berjalan menjawab `503 {"message": "Service Unavailable"}` (dengan
+`Retry-After` dan `Refresh` bila diberikan) dalam satu detik, tanpa restart.
+Route health (`/up`, `/up/ready`) dan `--except=/path` tetap bisa diakses.
+Mengunjungi `/<secret>` memasang cookie `daravel_maintenance` (ditandatangani
+HMAC, berlaku 12 jam, seperti milik Laravel) yang memungkinkan Anda memakai
+aplikasi selama mode maintenance. Dengan beberapa server, file itu harus
+berada di storage yang dipakai bersama, atau jalankan `down` di setiap server.
+
+## Daftar periksa produksi
+
+- `APP_ENV=production`, `APP_DEBUG=false` (boot gagal bila tidak, kecuali
+  diizinkan secara eksplisit), dan `APP_KEY` 32 byte dari secret manager.
+- `dart run bin/dartisan.dart doctor --production` mengecek konfigurasi,
+  keterjangkauan database, `/metrics` yang terbuka untuk publik,
+  `QUEUE_CONNECTION=sync`, dan lainnya; jalankan di entrypoint container.
+- Endpoint health: `/up` (liveness) dan `/up/ready` (readiness).
+- Jalankan `queue:work` dan `schedule:work` sebagai proses terpisah.
+- Log: `LOG_STACK=json` untuk log terstruktur; secret di-redaksi.

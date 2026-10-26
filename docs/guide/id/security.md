@@ -1,3 +1,4 @@
+<!-- source: security.md sha256:94c5a83ea5cd -->
 # Keamanan Sistem (Security Guide)
 
 Pelaporan kerentanan keamanan secara privat dijelaskan pada berkas

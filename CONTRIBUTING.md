@@ -60,6 +60,14 @@ Run tests from inside each package directory. `DARAVEL_E2E=1` enables the
   `docs/guide`. Code samples in the guide come from
   `packages/daravel/test/docs/guide_examples_test.dart` regions: edit the
   test, then run `dart run tool/docs/generate.dart`.
+- **Translations** (`docs/guide/id/`) start with the hash of the English
+  page they follow (`<!-- source: routing.md sha256:... -->`). When you change
+  an English page that has a translation, `generate.dart --check` fails until
+  the translation is updated (same headings and code blocks) and stamped
+  again with `dart run tool/docs/generate.dart --stamp=id/routing.md`. If you
+  cannot write the Indonesian text, say so in the pull request. Changes to
+  generated code samples do not count. Pages without a translation are only
+  listed, and the site shows them in English with a notice.
 - **Domain time** reads `Clock.now()` so tests can freeze it.
 - **Security fixes** get a regression test in
   `packages/daravel/test/security`; report vulnerabilities privately as

@@ -17,5 +17,6 @@ workspace:
   - bench
 
 dev_dependencies:
+  crypto: ^3.0.7
   markdown: ^7.3.0
   yaml: ^3.1.3

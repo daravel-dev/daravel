@@ -35,6 +35,13 @@ Laravel-facing formats change only to match Laravel more closely.
   `QueueableNotificationChannel`. `Mail.fake()` adds `assertQueued`,
   `assertNotQueued`, `assertNothingQueued` and `assertNothingOutgoing`.
   `daragic:export` leaves the framework's own jobs out of the DAM.
+- Translation check for the Indonesian guide (Blueprint #24): each page in
+  `docs/guide/id/` records the hash of its English page, and
+  `tool/docs/generate.dart --check` (a CI gate) fails when a translation is
+  out of date or its headings and code blocks no longer match. Run
+  `--stamp=id/<page>.md` after updating a translation. Pages without a
+  translation are only listed. The five existing translations now cover
+  their whole English pages.
 
 - `DB_URL`, as in Laravel 12: one URL sets the database
   (`postgres://user:pass@host:5432/app?sslmode=require`) and is merged into

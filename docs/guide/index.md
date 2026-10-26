@@ -12,7 +12,8 @@ payloads and the framework tables use Laravel's formats, and a conformance
 suite keeps them that way. See [Laravel coexistence](laravel-coexistence.md).
 
 The official packages are `daravel`, `dartisan_cli`, `daravel_test`,
-`daravel_lints` and `daravel_mysql`, released together by the verified
+`daravel_lints`, `daravel_mysql`, `daravel_sqlite` and `daravel_postgres`,
+released together by the verified
 publisher [`daravel.teoprayoga.my.id`](https://pub.dev/publishers/daravel.teoprayoga.my.id)
 on pub.dev; only packages from that publisher belong to this project.
 Daravel runs on Linux, macOS and Windows servers (pub.dev also lists Flutter,

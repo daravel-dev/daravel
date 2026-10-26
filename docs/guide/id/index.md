@@ -1,19 +1,30 @@
+<!-- source: index.md sha256:729f058ed5ff -->
 # Dokumentasi Daravel
 
-Daravel adalah framework backend Dart yang mengikuti filosofi Laravel 11/12
-dan dikompilasi menjadi executable native (AOT). Jika Anda mengenal Laravel,
-Anda sudah tahu letak semuanya: route, controller, form request, model gaya
-Eloquent, migrasi, queue, scheduler, dan `artisan` (di sini `dartisan`).
+Daravel adalah framework backend untuk Dart yang mengikuti filosofi Laravel
+11/12 dan dikompilasi menjadi executable native AOT. Jika Anda mengenal
+Laravel, Anda sudah tahu letak semuanya: route, controller, form request,
+model ala Eloquent, migrasi, queue, scheduler, dan `artisan` (di sini
+`dartisan`).
 
 Laravel dan Daravel dirancang untuk **berjalan berdampingan di database yang
 sama**. JSON error dan paginasi, token Sanctum, hash bcrypt, payload `Crypt`,
-dan tabel framework memakai format Laravel, dan suite konformansi menjaganya
-tetap begitu. Lihat [Koeksistensi dengan Laravel](laravel-coexistence.md).
+dan tabel-tabel framework memakai format Laravel, dan sebuah suite
+konformansi menjaganya tetap begitu. Lihat [Koeksistensi dengan
+Laravel](laravel-coexistence.md).
+
+Paket resminya adalah `daravel`, `dartisan_cli`, `daravel_test`,
+`daravel_lints`, `daravel_mysql`, `daravel_sqlite`, dan `daravel_postgres`,
+dirilis bersama oleh publisher
+terverifikasi [`daravel.teoprayoga.my.id`](https://pub.dev/publishers/daravel.teoprayoga.my.id)
+di pub.dev; hanya paket dari publisher itu yang merupakan bagian dari
+proyek ini. Daravel berjalan di server Linux, macOS, dan Windows (pub.dev
+juga mencantumkan Flutter, karena paketnya Dart murni).
 
 ## Mengapa Daravel?
 
 1. **Satu bundle native**: kode mesin AOT dengan SQLite terbawa; server tidak
-   butuh runtime maupun source code ([Deployment](../deployment.md)).
+   membutuhkan runtime maupun source code ([Deployment](deployment.md)).
 2. **Tanpa reflection, tanpa `build_runner`**: generator menulis Dart biasa
    ke registry yang eksplisit.
 3. **Semua core di satu port**: supervisor dengan worker isolate dan
@@ -22,26 +33,39 @@ tetap begitu. Lihat [Koeksistensi dengan Laravel](laravel-coexistence.md).
    dan command; transaksi yang sadar zone.
 5. **Berjalan berdampingan dengan Laravel** di database yang sama
    ([koeksistensi](laravel-coexistence.md),
-   [migrasi bertahap](../migrating-from-laravel.md)).
-6. **Route yang mendokumentasikan dirinya**: `.validates()` dan `.returns()`
-   menjalankan 403/422 dan menghasilkan OpenAPI 3.1 ([Routing](../routing.md)).
+   [migrasi](migrating-from-laravel.md)).
+6. **Route yang mendokumentasikan dirinya sendiri**: `.validates()` dan
+   `.returns()` menegakkan 403/422 dan menghasilkan OpenAPI 3.1
+   ([Routing](routing.md)).
 7. **Pengaman bawaan**: hashing di compute isolate, lint AST, serta suite
-   [keamanan](../security.md) dan konformansi.
+   [keamanan](security.md) dan konformansi.
 
-Angka performa berasal dari harness yang bisa direproduksi, bukan klaim
-([Performa](../performance.md)).
+Angka performa berasal dari harness yang bisa direproduksi, bukan dari klaim
+([Performa](performance.md)).
 
 ## Panduan
 
-- [Memulai](getting-started.md)
-- [Koeksistensi dengan Laravel](laravel-coexistence.md)
-- [Keamanan & Hardening Sistem](security.md)
-- [Panduan Deployment (Cloud Run & Native Bundle)](deployment.md)
-- Panduan lain dalam bahasa Inggris: [Routing](../routing.md),
-  [Validasi](../validation.md), [Database](../database.md),
-  [Respons dan resource](../responses.md), [Autentikasi](../auth.md),
-  [Cache, event, queue](../background.md), [Testing](../testing.md),
-  [Migrasi bertahap dari Laravel](../migrating-from-laravel.md),
-  [Performa](../performance.md), [Tabel paritas](../parity.md).
+1. [Memulai](getting-started.md): instalasi, membuat proyek, menjalankan, build.
+2. [Routing](routing.md): route, grup, middleware, resource, rate limit.
+3. [Validasi](validation.md): rule, form request, format 422.
+4. [Database](database.md): migrasi, query builder, model, paginasi.
+5. [Respons dan resource](responses.md): JSON, API resource, error.
+6. [Autentikasi dan otorisasi](auth.md): token, JWT, hashing, Crypt, gate.
+7. [Cache, event, queue, penjadwalan](background.md).
+8. [Mail dan notifikasi](mail.md): SMTP, mailable, serta notifikasi mail dan database.
+9. [String, helper, dan koleksi](helpers.md): `Str`, `retry`, `once`, `pluck`, ...
+10. [HTTP client](http-client.md): request keluar dengan `Http`, retry, dan `Http.fake()`.
+11. [Client Flutter](flutter-client.md): client bertipe yang dihasilkan dari route, dengan validasi di perangkat.
+12. [Testing](testing.md): `TestClient`, helper database, fake, konformansi.
+13. [Deployment](deployment.md): bundle native, Docker, Cloud Run, VPS (systemd + Caddy).
+14. [Koeksistensi dengan Laravel](laravel-coexistence.md): kontrak kompatibilitas.
+15. [Migrasi dari Laravel](migrating-from-laravel.md): pindahkan endpoint satu per satu di balik proxy.
+16. [Keamanan](security.md): default yang aman dan suite keamanan.
+17. [Performa](performance.md): harness benchmark.
+18. [Tabel paritas Laravel ⇄ Daravel](../parity.md) (dihasilkan otomatis, dalam bahasa Inggris).
 
 English: [Daravel documentation](../index.md).
+
+Contoh kode di panduan ini disalin dari file yang dikompilasi dan diuji
+(`packages/daravel/test/docs/guide_examples_test.dart`) oleh
+`dart run tool/docs/generate.dart`, sehingga tidak bisa usang.
