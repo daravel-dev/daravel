@@ -175,6 +175,10 @@ final class _PgExecutor implements QueryExecutor {
       switch (value) {
         DateTime() => value.toUtc(),
         Enum() => value.name,
+        // package:postgres sends an untyped Infinity as the SQL literal
+        // `'infinity'`, quotes included, which PostgreSQL rejects; a typed
+        // float8 goes out in binary, where Infinity and NaN are plain values.
+        double() when !value.isFinite => pg.TypedValue(pg.Type.double, value),
         _ => value,
       },
   ];

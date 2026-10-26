@@ -97,4 +97,27 @@ void main() {
     await db.table('pg_items').truncate();
     expect(await db.table('pg_items').count(), 0);
   });
+
+  test('non-finite doubles round-trip as PostgreSQL reads them', () async {
+    final schema = SchemaBuilder(await db.executor());
+    await schema.dropIfExists('pg_floats');
+    await schema.create('pg_floats', (t) {
+      t.id();
+      t.doublePrecision('v');
+    });
+    try {
+      for (final v in [double.infinity, double.negativeInfinity, double.nan]) {
+        await db.table('pg_floats').insert({'v': v});
+      }
+      final values = [
+        for (final row in await db.table('pg_floats').orderBy('id').get())
+          row['v'],
+      ];
+      expect(values[0], double.infinity);
+      expect(values[1], double.negativeInfinity);
+      expect(values[2], isA<double>().having((d) => d.isNaN, 'isNaN', isTrue));
+    } finally {
+      await schema.dropIfExists('pg_floats');
+    }
+  });
 }
