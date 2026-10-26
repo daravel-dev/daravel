@@ -47,6 +47,8 @@ options.
 | `migrate:fresh [--seed] [--force]` | Drops every table and migrates again (refused in production without `--force`) |
 | `db:seed [--class]` | Runs seeders |
 | `db:show`, `db:table <table> [--limit]` | Tables, columns and rows |
+| `db:install <driver> [--no-get]` | Adds a driver package (`sqlite`, `pgsql`, `mysql`, `mariadb`) and registers it ([Database](database.md#drivers-and-connections)) |
+| `db:transfer --from --to [--dry-run] [--truncate] [--tables] [--no-migrate]` | Copies the data to another database, migrating it first ([Database](database.md#copying-data-between-databases)) |
 | `db:backup [--output] [--keep=N]` | Hot backup of the SQLite database into `storage/backups` (see [Deployment](deployment.md#backups)) |
 | `tinker "<expression>"` | Evaluates a Dart expression in the booted application |
 | `model:sync [Model]` | Regenerates a model's typed accessors from its table |

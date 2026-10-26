@@ -16,6 +16,67 @@ final class ConnectionConfig {
     this.options = const <String, Object?>{},
   });
 
+  /// A connection from a URL, as Laravel's `DB_URL`:
+  /// `pgsql://user:secret@host:5432/app?sslmode=require&pool=5`,
+  /// `mysql://user@host/app`, `mariadb://...`, `sqlite:database/app.sqlite`
+  /// or `sqlite::memory:`. User and password are URL-decoded; a relative
+  /// SQLite path resolves against [basePath].
+  factory ConnectionConfig.fromUrl(String url, {String basePath = '.'}) {
+    if (url.startsWith('sqlite:')) {
+      var path = url.substring('sqlite:'.length);
+      if (path.startsWith('//')) {
+        path = path.substring(2); // sqlite:///abs/path is /abs/path
+      }
+      if (path.isEmpty) {
+        throw FormatException('No SQLite file in "$url".');
+      }
+      return ConnectionConfig(
+        driver: 'sqlite',
+        database: path == ':memory:' || p.isAbsolute(path)
+            ? path
+            : p.join(basePath, path),
+      );
+    }
+    final uri = Uri.tryParse(url);
+    final driver = switch (uri?.scheme) {
+      'pgsql' || 'postgres' || 'postgresql' => 'pgsql',
+      'mysql' => 'mysql',
+      'mariadb' => 'mariadb',
+      _ => null,
+    };
+    if (uri == null || driver == null) {
+      throw FormatException(
+        'Not a database URL: "$url" (pgsql://, mysql://, mariadb:// or '
+        'sqlite:).',
+      );
+    }
+    final database = uri.pathSegments.where((s) => s.isNotEmpty).join('/');
+    if (database.isEmpty) {
+      throw FormatException('No database name in "$url".');
+    }
+    final user = uri.userInfo.split(':');
+    final query = uri.queryParameters;
+    return ConnectionConfig(
+      driver: driver,
+      database: Uri.decodeComponent(database),
+      host: uri.host.isEmpty ? '127.0.0.1' : uri.host,
+      port: uri.hasPort ? uri.port : (driver == 'pgsql' ? 5432 : 3306),
+      username: user.first.isEmpty ? null : Uri.decodeComponent(user.first),
+      password: user.length > 1
+          ? Uri.decodeComponent(user.sublist(1).join(':'))
+          : null,
+      options: <String, Object?>{
+        'pool': int.tryParse(query['pool'] ?? '') ?? 10,
+        'sslmode': query['sslmode'] ?? 'disable',
+        if (driver != 'pgsql') ...{
+          'charset': query['charset'] ?? 'utf8mb4',
+          'collation': query['collation'] ?? 'utf8mb4_unicode_ci',
+          'timezone': query['timezone'],
+        },
+      },
+    );
+  }
+
   final String driver;
   final String database;
   final String? host;
@@ -114,6 +175,16 @@ final class DatabaseConfig implements ConfigSection {
 
   final String defaultConnection;
   final Map<String, ConnectionConfig> connections;
+
+  /// This configuration with [extra] connections added (or replacing ones
+  /// of the same name).
+  DatabaseConfig withConnections(Map<String, ConnectionConfig> extra) =>
+      extra.isEmpty
+      ? this
+      : DatabaseConfig(
+          defaultConnection: defaultConnection,
+          connections: <String, ConnectionConfig>{...connections, ...extra},
+        );
 
   @override
   String get key => 'database';

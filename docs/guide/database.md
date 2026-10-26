@@ -10,11 +10,133 @@ Application.configure(basePath: '.')
     .withDatabaseDriver('mariadb', MySqlDriver.fromConfig)
 ```
 
+SQLite and PostgreSQL are built in through Daravel 1.x. See [Drivers and
+connections](#drivers-and-connections) for the driver packages and for
+using several databases at once.
+
 On MySQL, results read as in Laravel (`TINYINT(1)` as `0`/`1`, `DECIMAL` and
 `JSON` as strings, dates as `Y-m-d H:i:s`), and the session time zone is the
 server's unless `DB_TIMEZONE` is set, so `TIMESTAMP` columns read the same
 from both frameworks. MySQL 8.4 and MariaDB 11 run in CI on every commit.
 Every query is built by a grammar with bound values; identifiers are quoted.
+
+## Drivers and connections
+
+Each database client is a package. MySQL and MariaDB already work this way.
+For SQLite (`daravel_sqlite`) and PostgreSQL (`daravel_postgres`), the
+packages re-export the drivers that are still built into 1.x, so adding one
+changes nothing today. In 2.0, `package:daravel` stops depending on any
+database client, and the drivers live only in these packages. A project
+that already depends on its driver package then upgrades without changes,
+and no longer builds or ships the clients it does not use.
+
+`dartisan db:install` adds a driver package, registers it and documents its
+settings:
+
+```bash
+dart run bin/dartisan.dart db:install pgsql     # or sqlite, mysql, mariadb
+```
+
+| It changes | With |
+| :-- | :-- |
+| `pubspec.yaml` | `daravel_postgres: ^<version>` (then `dart pub get`; `--no-get` skips it) |
+| `bootstrap/app.dart` | the import and `.withPostgres()` (`.withSqlite()`, or the MySQL `withDatabaseDriver` lines) after `Application.configure(...)` |
+| `.env.example` | a commented block with the driver's `DB_*` keys |
+
+Running it again changes nothing.
+
+### Switching the default database
+
+The models, queries and migrations do not depend on the driver. To move an
+application from SQLite to PostgreSQL:
+
+1. `dartisan db:install pgsql`.
+2. In `.env`: `DB_CONNECTION=pgsql` and `DB_HOST`, `DB_PORT`, `DB_DATABASE`,
+   `DB_USERNAME`, `DB_PASSWORD`.
+3. `dartisan migrate`, or copy the existing data across with `db:transfer`
+   (below), which migrates the new database first.
+
+### Several databases at once
+
+The `DB_*` keys configure one database. Add others with their own settings
+in `bootstrap/app.dart`, for example from a URL in Laravel's `DB_URL`
+form:
+
+```dart
+Application.configure(basePath: basePath ?? Directory.current.path)
+    .withDatabaseConnection(
+      'legacy',
+      (env) => ConnectionConfig.fromUrl(env.string('LEGACY_DB_URL')),
+    )
+```
+
+```dotenv
+LEGACY_DB_URL=mysql://shop:secret@10.0.0.5:3306/shop
+```
+
+`ConnectionConfig.fromUrl` reads `pgsql://`, `mysql://`, `mariadb://` and
+`sqlite:` URLs, and the query string sets `sslmode`, `pool`, `charset` and
+`timezone`. A connection whose driver is MySQL or MariaDB still needs that
+driver registered (`db:install mysql`).
+
+Queries and models pick a connection by name:
+
+```dart
+final orders = await DB.table('orders', connection: 'legacy').get();
+
+final class LegacyOrder extends Model {
+  static final ModelDefinition<LegacyOrder> definition =
+      ModelDefinition<LegacyOrder>(
+        table: 'orders',
+        connection: 'legacy',
+        factory: LegacyOrder.new,
+      );
+  @override
+  ModelDefinition<LegacyOrder> get modelDefinition => LegacyOrder.definition;
+}
+```
+
+Transactions are per connection, as in Laravel. Queries on another
+connection inside `DB.transaction(...)` do not join it, so they commit even
+when it rolls back. `DB.transaction(..., connection: 'legacy')` starts a
+transaction of its own on that connection.
+
+### Copying data between databases
+
+`dartisan db:transfer` copies an application's data to another database,
+for example from the SQLite file used in development to PostgreSQL:
+
+```bash
+dart run bin/dartisan.dart db:transfer --from=sqlite --to=pgsql://app:secret@db.internal:5432/app
+dart run bin/dartisan.dart db:transfer --from=sqlite --to=pgsql --dry-run   # counts, changes nothing
+```
+
+`--from` and `--to` take a connection name (`sqlite`, `pgsql`, a
+`withDatabaseConnection` name) or a URL. The `DB_*` keys configure every
+built-in connection at once, so a URL is how one `.env` reaches two
+databases.
+
+- **Schema.** The target is migrated with the application's migrations
+  first (`--no-migrate` when it already is). Each database gets its own
+  column types rather than a translation of the source's DDL. Tables that
+  no migration creates are listed and skipped, and the `migrations` ledger
+  is never copied.
+- **Order and atomicity.** Tables are copied parents first, following the
+  target's foreign keys, in one transaction on the target. A failure
+  leaves the target as it was. On PostgreSQL, foreign keys are deferred
+  during the copy and checked once at the end, so rows that reference
+  later rows (a category whose parent comes after it) or tables that
+  reference each other copy too. Their definitions are restored before
+  the commit.
+- **Values.** `0`/`1` become booleans on PostgreSQL, JSON documents from
+  PostgreSQL become text, and dates become Laravel's `Y-m-d H:i:s` on SQLite
+  and MySQL.
+- **Ids.** Rows keep their primary keys. PostgreSQL sequences continue after
+  the highest copied id, so the next insert does not collide.
+- **Safety.** A target table that already has rows stops the transfer
+  unless `--truncate` replaces them. With `APP_ENV=production` it needs
+  `--force`. Rows are read in chunks of `--chunk` (500), paged by
+  primary key. `--tables=users,posts` limits the copy.
 
 ## Migrations
 

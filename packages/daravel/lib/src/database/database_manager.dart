@@ -57,6 +57,20 @@ final class DatabaseManager {
   final Map<String, Future<DatabaseDriver>> _connecting =
       <String, Future<DatabaseDriver>>{};
 
+  /// A separate manager whose only (and default) connection is [connection]
+  /// under [name], with this manager's registered drivers: for tools that
+  /// reach a database outside the configuration (`dartisan db:transfer`).
+  /// Close it with [closeAll].
+  DatabaseManager forConnection(String name, ConnectionConfig connection) =>
+      DatabaseManager(
+        DatabaseConfig(
+          defaultConnection: name,
+          connections: <String, ConnectionConfig>{name: connection},
+        ),
+        logger: _logger,
+        drivers: _driverFactories,
+      );
+
   /// Returns the (lazily connected) driver for [name] or the default
   /// connection.
   Future<DatabaseDriver> connection([String? name]) {
@@ -181,7 +195,7 @@ final class DatabaseManager {
   /// While anything listens (listeners, captures, duration handlers) it is
   /// wrapped to report each query.
   Future<QueryExecutor> executor([String? name]) {
-    final active = Zone.current[transactionKey] as QueryExecutor?;
+    final active = _activeScope(name)?.executor;
     final connectionName = name ?? config.defaultConnection;
     if (active != null) {
       return Future<QueryExecutor>.value(_observed(active, connectionName));
@@ -198,8 +212,20 @@ final class DatabaseManager {
       ? executor
       : ListeningQueryExecutor(executor, connectionName, [_dispatch]);
 
-  /// Whether the current zone is inside a transaction.
-  bool get inTransaction => Zone.current[transactionKey] != null;
+  /// Whether the current zone is inside a transaction on the default
+  /// connection of this manager.
+  bool get inTransaction => _activeScope(null) != null;
+
+  /// The transaction of the current zone when it runs on [name] (the
+  /// default connection when `null`) of this manager.
+  _TransactionScope? _activeScope(String? name) {
+    final scope = Zone.current[_scopeKey];
+    return scope is _TransactionScope &&
+            identical(scope.owner, this) &&
+            scope.connectionName == (name ?? config.defaultConnection)
+        ? scope
+        : null;
+  }
 
   /// Current savepoint depth (0 outside, 1 in the outer transaction).
   int get transactionDepth => Zone.current[depthKey] as int? ?? 0;
@@ -290,15 +316,16 @@ final class DatabaseManager {
     String? connection,
     int attempts = 1,
   }) async {
-    if (inTransaction) {
+    if (_activeScope(connection) != null) {
       return _savepoint(body);
     }
+    final connectionName = connection ?? config.defaultConnection;
     final driver = await this.connection(connection);
     for (var attempt = 1; ; attempt++) {
       final callbacks = <FutureOr<void> Function()>[];
       try {
         final result = await driver.transaction<T>((tx) {
-          final scope = _TransactionScope(tx);
+          final scope = _TransactionScope(tx, this, connectionName);
           return runZoned<Future<T>>(
             body,
             zoneValues: <Object?, Object?>{
@@ -334,7 +361,7 @@ final class DatabaseManager {
       final depth = transactionDepth + 1;
       final name = 'daravel_sp_$depth';
       final callbacks = <FutureOr<void> Function()>[];
-      final scope = _TransactionScope(tx);
+      final scope = _TransactionScope(tx, this, parent.connectionName);
       await tx.execute('SAVEPOINT $name');
       try {
         final result = await runZoned<Future<T>>(
@@ -389,15 +416,16 @@ final class DatabaseManager {
     Future<T> Function() body, {
     String? connection,
   }) async {
-    if (inTransaction) {
+    if (_activeScope(connection) != null) {
       throw StateError('rollbackAfter cannot be nested inside a transaction.');
     }
+    final connectionName = connection ?? config.defaultConnection;
     final driver = await this.connection(connection);
     final baseline = <FutureOr<void> Function()>[];
     late T result;
     try {
       await driver.transaction<void>((tx) {
-        final scope = _TransactionScope(tx);
+        final scope = _TransactionScope(tx, this, connectionName);
         return runZoned<Future<void>>(
           () async {
             result = await body();
@@ -448,25 +476,14 @@ final class DatabaseManager {
       return custom(name, connection);
     }
     switch (connection.driver) {
+      // Built in through 1.x; in 2.0 they move to package:daravel_sqlite
+      // and package:daravel_postgres and are registered like MySQL.
       case 'sqlite':
-        return SqliteDriver(path: connection.database, name: name);
+        return SqliteDriver.fromConfig(name, connection);
       case 'pgsql':
       case 'postgres':
       case 'postgresql':
-        return PostgresDriver(
-          name: name,
-          host: connection.host ?? '127.0.0.1',
-          port: connection.port ?? 5432,
-          database: connection.database,
-          username: connection.username,
-          password: connection.password,
-          maxConnections: (connection.options['pool'] as int?) ?? 10,
-          sslMode: switch (connection.options['sslmode']) {
-            'require' => PostgresSslMode.require,
-            'verify-full' || 'verifyFull' => PostgresSslMode.verifyFull,
-            _ => PostgresSslMode.disable,
-          },
-        );
+        return PostgresDriver.fromConfig(name, connection);
       case 'mysql' || 'mariadb':
         throw UnsupportedError(
           'The ${connection.driver} driver is in package:daravel_mysql: add '
@@ -495,12 +512,17 @@ final class _RollbackSignal implements Exception {
 /// a time ([runChild]), and queries of this level wait while a child is
 /// open, so none lands inside a savepoint that is then rolled back.
 final class _TransactionScope {
-  _TransactionScope(this.connection) {
+  _TransactionScope(this.connection, this.owner, this.connectionName) {
     executor = _ScopedExecutor(this);
   }
 
   /// The driver's transaction executor (shared by every level).
   final QueryExecutor connection;
+
+  /// The manager and connection the transaction runs on: queries of
+  /// another connection (or another manager) never join it.
+  final DatabaseManager owner;
+  final String connectionName;
   late final QueryExecutor executor;
   bool _closed = false;
   Future<void> _children = Future<void>.value();

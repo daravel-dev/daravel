@@ -117,6 +117,9 @@ sections:
       - { php: "DB::statement($sql)", dart: "await DB.statement(sql)", symbol: DB.statement, async: true }
       - { php: "DB::transaction(fn)", dart: "await DB.transaction(() async {...})", symbol: DB.transaction, async: true }
       - { php: "DB_CONNECTION=mysql / mariadb", dart: "withDatabaseDriver('mysql', MySqlDriver.fromConfig)", symbol: ApplicationBuilder.withDatabaseDriver, note: "package:daravel_mysql; registered by new projects." }
+      - { php: "DB::connection('legacy')->table('orders')", dart: "DB.table('orders', connection: 'legacy')", symbol: DB.table }
+      - { php: "'connections' => ['legacy' => ['url' => env('LEGACY_DB_URL')]]", dart: "withDatabaseConnection('legacy', (env) => ConnectionConfig.fromUrl(env.string('LEGACY_DB_URL')))", symbol: ApplicationBuilder.withDatabaseConnection }
+      - { php: "DB::connection('legacy')->transaction(fn)", dart: "DB.transaction(() async {...}, connection: 'legacy')", symbol: DB.transaction, async: true, note: "Transactions are per connection, as in Laravel." }
       - { php: "DB::raw($sql)", dart: "DB.raw(sql)", symbol: DB.raw }
       - { php: "DB::listen(fn (QueryExecuted $q) => ...)", dart: "DB.listen((QueryExecuted q) {...})", symbol: DB.listen }
       - { php: "DB::whenQueryingForLongerThan(500, fn)", dart: "DB.whenQueryingForLongerThan(const Duration(milliseconds: 500), (q) {...})", symbol: DB.whenQueryingForLongerThan, note: "Total per request, job or command; once." }

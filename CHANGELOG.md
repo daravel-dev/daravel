@@ -1,13 +1,31 @@
 # Changelog
 
 All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
-`daravel_lints`, `daravel_mysql`, `dartisan_cli`). Versions follow SemVer:
+`daravel_lints`, `daravel_mysql`, `daravel_sqlite`, `daravel_postgres`,
+`dartisan_cli`). Versions follow SemVer:
 breaking changes to the Dart API wait for a new major version, and
 Laravel-facing formats change only to match Laravel more closely.
 
 ## Unreleased
 
 ### Added
+
+- `daravel_sqlite` and `daravel_postgres` (Blueprint #31): driver packages
+  with `.withSqlite()` / `.withPostgres()`, re-exporting the drivers that
+  stay built into 1.x. Depending on them now means 2.0, where the core no
+  longer depends on any database client, needs no change.
+- `dartisan db:install <driver>`: adds the driver package, registers it in
+  `bootstrap/app.dart` and documents its keys in `.env.example`.
+- `dartisan db:transfer --from --to`: copies an application's data to
+  another database (connection names or URLs). The target is migrated
+  first, and the copy is one transaction, parents first. Values are adapted
+  to the target, PostgreSQL foreign keys are deferred during the copy and
+  its sequences continue after the copied ids.
+- `withDatabaseConnection(name, (env) => ...)` adds connections with their
+  own settings, and `ConnectionConfig.fromUrl` reads `pgsql://`,
+  `mysql://`, `mariadb://` and `sqlite:` URLs. `SqliteDriver.fromConfig`,
+  `PostgresDriver.fromConfig` and `DatabaseManager.forConnection` are new
+  too.
 
 - `client:flutter --state=riverpod,bloc,cubit`: state adapters on the pure
   Dart `riverpod`/`bloc` packages (used by `flutter_riverpod`/`flutter_bloc`).
@@ -32,6 +50,11 @@ Laravel-facing formats change only to match Laravel more closely.
 
 ### Fixed
 
+- Transactions are per connection, as in Laravel. A query on another
+  connection inside `DB.transaction` (`DB.table(t, connection: 'other')`)
+  ran inside the transaction of the default connection, on the wrong
+  database. A `DB.transaction(..., connection: 'other')` inside one became a
+  savepoint of it. Both now use their own connection and transaction.
 - `client:flutter`: a route with an optional path parameter and declared
   input generated code that did not compile (the input was dropped). The
   optional parameter is now named, next to the input.

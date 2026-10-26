@@ -23,6 +23,8 @@ import 'src/make_commands.dart';
 import 'src/queue_commands.dart';
 import 'src/client_flutter.dart';
 import 'src/daragic_export.dart';
+import 'src/db_install.dart';
+import 'src/db_transfer.dart';
 import 'src/mcp_server.dart';
 
 export 'src/database_commands.dart';
@@ -43,6 +45,8 @@ export 'src/queue_commands.dart';
 export 'src/client_flutter.dart';
 export 'src/client_watcher.dart';
 export 'src/daragic_export.dart';
+export 'src/db_install.dart';
+export 'src/db_transfer.dart';
 export 'src/mcp_server.dart';
 
 /// Creates an unbooted [Application] (a project's `createApp()`).
@@ -72,6 +76,7 @@ final class DartisanRunner extends CommandRunner<int> {
     addCommand(DbBackupCommand(createApp));
     addCommand(ModelShowCommand(createApp));
     addCommand(DaragicExportCommand(createApp));
+    addCommand(DbTransferCommand(createApp));
     addCommand(ClientFlutterCommand(createApp));
     addCommand(CacheClearCommand(createApp));
     addCommand(CoordinatorStatsCommand(createApp));
@@ -98,6 +103,7 @@ final class DartisanRunner extends CommandRunner<int> {
     addCommand(MakeMiddlewareCommand());
     extraMakeCommands().forEach(addCommand);
     addCommand(KeyGenerateCommand());
+    addCommand(DbInstallCommand());
     addCommand(EnvEncryptCommand());
     addCommand(EnvDecryptCommand());
     addCommand(EnvObfuscateCommand());

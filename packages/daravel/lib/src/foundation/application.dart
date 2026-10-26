@@ -144,7 +144,13 @@ final class Application {
 
     config = ConfigRepository()
       ..register(AppConfig.fromEnv(env))
-      ..register(DatabaseConfig.fromEnv(env, basePath: basePath))
+      ..register(
+        DatabaseConfig.fromEnv(env, basePath: basePath).withConnections({
+          for (final MapEntry(:key, :value)
+              in _builder._databaseConnections.entries)
+            key: value(env),
+        }),
+      )
       ..register(HashConfig.fromEnv(env))
       ..register(AuthConfig.fromEnv(env))
       ..register(CacheConfig.fromEnv(env))
@@ -788,6 +794,8 @@ final class ApplicationBuilder {
       <void Function(Container container)>[];
   final List<Migration> _migrations = <Migration>[];
   final Map<String, DatabaseDriverFactory> _databaseDrivers = {};
+  final Map<String, ConnectionConfig Function(Env env)> _databaseConnections =
+      {};
   final List<Seeder> _seeders = <Seeder>[];
   final List<ModelDefinition<Model>> _models = <ModelDefinition<Model>>[];
   final Map<String, Map<String, Object?>> _translations = {};
@@ -954,6 +962,24 @@ final class ApplicationBuilder {
     DatabaseDriverFactory factory,
   ) {
     _databaseDrivers[name] = factory;
+    return this;
+  }
+
+  /// Adds a database connection [name] with its own settings, next to the
+  /// ones `DB_*` configures; select it with `DB.table(t, connection: name)`
+  /// or a model's `connection:`. [connection] reads the environment:
+  ///
+  /// ```dart
+  /// .withDatabaseConnection(
+  ///   'legacy',
+  ///   (env) => ConnectionConfig.fromUrl(env.string('LEGACY_DB_URL')),
+  /// )
+  /// ```
+  ApplicationBuilder withDatabaseConnection(
+    String name,
+    ConnectionConfig Function(Env env) connection,
+  ) {
+    _databaseConnections[name] = connection;
     return this;
   }
 

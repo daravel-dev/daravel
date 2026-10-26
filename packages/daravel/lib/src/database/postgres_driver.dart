@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:postgres/postgres.dart' as pg;
 
+import 'database_config.dart';
 import 'query_executor.dart';
 
 /// SSL modes exposed without leaking the `postgres` package type.
@@ -27,6 +28,25 @@ final class PostgresDriver implements DatabaseDriver {
     this.queryTimeout = const Duration(seconds: 30),
     this.applicationName = 'daravel',
   });
+
+  /// The driver for a configured connection (`DB_HOST`, `DB_PORT`,
+  /// `DB_POOL_SIZE`, `DB_SSLMODE`, ...), as a `DatabaseDriverFactory`:
+  /// `withDatabaseDriver('pgsql', PostgresDriver.fromConfig)`.
+  factory PostgresDriver.fromConfig(String name, ConnectionConfig connection) =>
+      PostgresDriver(
+        name: name,
+        host: connection.host ?? '127.0.0.1',
+        port: connection.port ?? 5432,
+        database: connection.database,
+        username: connection.username,
+        password: connection.password,
+        maxConnections: (connection.options['pool'] as int?) ?? 10,
+        sslMode: switch (connection.options['sslmode']) {
+          'require' => PostgresSslMode.require,
+          'verify-full' || 'verifyFull' => PostgresSslMode.verifyFull,
+          _ => PostgresSslMode.disable,
+        },
+      );
 
   final String host;
   final int port;

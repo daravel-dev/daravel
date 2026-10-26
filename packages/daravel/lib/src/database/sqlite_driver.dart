@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:sqlite3/sqlite3.dart';
 
+import 'database_config.dart';
 import 'query_executor.dart';
 
 /// SQLite driver backed by `package:sqlite3` (synchronous FFI).
@@ -15,6 +16,12 @@ import 'query_executor.dart';
 /// mode with a busy timeout (BLUEPRINT_V2 §2.2.4).
 final class SqliteDriver implements DatabaseDriver {
   SqliteDriver({required this.path, this.name = 'sqlite'});
+
+  /// The driver for a configured connection (`DB_DATABASE` is the file), as
+  /// a `DatabaseDriverFactory`:
+  /// `withDatabaseDriver('sqlite', SqliteDriver.fromConfig)`.
+  factory SqliteDriver.fromConfig(String name, ConnectionConfig connection) =>
+      SqliteDriver(path: connection.database, name: name);
 
   /// File path, `:memory:` or a `file:` URI.
   final String path;

@@ -1,0 +1,23 @@
+name: daravel_postgres
+description: PostgreSQL driver for Daravel. Depend on it to choose PostgreSQL explicitly; in Daravel 2.0 the driver lives only here.
+version: 1.7.0
+homepage: https://github.com/daravel-dev/daravel
+repository: https://github.com/daravel-dev/daravel/tree/main/packages/daravel_postgres
+issue_tracker: https://github.com/daravel-dev/daravel/issues
+documentation: https://github.com/daravel-dev/daravel/blob/main/docs/guide/database.md
+topics: [postgresql, postgres, database, server, backend]
+
+platforms:
+  linux:
+  macos:
+  windows:
+
+environment:
+  sdk: ^3.13.0
+resolution: workspace
+
+dependencies:
+  daravel: ^1.7.0
+
+dev_dependencies:
+  test: ^1.33.0

@@ -1,0 +1,5 @@
+# Local artefacts never published.
+build/
+coverage/
+*.sqlite
+.dart_tool/

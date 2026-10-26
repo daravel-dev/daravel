@@ -118,6 +118,9 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `DB::statement($sql)` | `await DB.statement(sql)` | **async** |
 | `DB::transaction(fn)` | `await DB.transaction(() async {...})` | **async** |
 | `DB_CONNECTION=mysql / mariadb` | `withDatabaseDriver('mysql', MySqlDriver.fromConfig)` | package:daravel_mysql; registered by new projects. |
+| `DB::connection('legacy')->table('orders')` | `DB.table('orders', connection: 'legacy')` |  |
+| `'connections' => ['legacy' => ['url' => env('LEGACY_DB_URL')]]` | `withDatabaseConnection('legacy', (env) => ConnectionConfig.fromUrl(env.string('LEGACY_DB_URL')))` |  |
+| `DB::connection('legacy')->transaction(fn)` | `DB.transaction(() async {...}, connection: 'legacy')` | **async**; Transactions are per connection, as in Laravel. |
 | `DB::raw($sql)` | `DB.raw(sql)` |  |
 | `DB::listen(fn (QueryExecuted $q) => ...)` | `DB.listen((QueryExecuted q) {...})` |  |
 | `DB::whenQueryingForLongerThan(500, fn)` | `DB.whenQueryingForLongerThan(const Duration(milliseconds: 500), (q) {...})` | Total per request, job or command; once. |

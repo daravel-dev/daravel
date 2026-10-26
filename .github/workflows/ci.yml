@@ -44,7 +44,7 @@ jobs:
           # project) runs once, on Linux.
           DARAVEL_E2E: ${{ runner.os == 'Linux' && matrix.sdk == 'stable' && '1' || '0' }}
         run: |
-          for pkg in packages/daravel packages/daravel_lints packages/daravel_test packages/daravel_mysql packages/dartisan_cli apps/daravel_starter; do
+          for pkg in packages/daravel packages/daravel_lints packages/daravel_test packages/daravel_mysql packages/daravel_sqlite packages/daravel_postgres packages/dartisan_cli apps/daravel_starter; do
             if [ -d "$pkg/test" ]; then
               echo "== $pkg"
               (cd "$pkg" && dart test --reporter=expanded)
@@ -67,7 +67,7 @@ jobs:
       - name: Verify pub.dev packaging (dry-run)
         if: runner.os == 'Linux' && matrix.sdk == 'stable'
         run: |
-          for pkg in packages/daravel_lints packages/daravel packages/daravel_test packages/daravel_mysql packages/dartisan_cli; do
+          for pkg in packages/daravel_lints packages/daravel packages/daravel_test packages/daravel_mysql packages/daravel_sqlite packages/daravel_postgres packages/dartisan_cli; do
             echo "== $pkg"
             (cd "$pkg" && dart pub publish --dry-run)
           done
@@ -112,6 +112,7 @@ jobs:
       - name: Test against PostgreSQL
         run: |
           (cd packages/daravel && dart test --tags integration --reporter=expanded)
+          (cd packages/dartisan_cli && dart test test/db_transfer_test.dart --reporter=expanded)
 
   mysql:
     # ADR-019: MySQL and MariaDB on every commit.
@@ -151,4 +152,6 @@ jobs:
         run: dart pub get
 
       - name: Test against ${{ matrix.server }}
-        run: (cd packages/daravel_mysql && dart test --tags integration --reporter=expanded)
+        run: |
+          (cd packages/daravel_mysql && dart test --tags integration --reporter=expanded)
+          (cd packages/dartisan_cli && dart test test/db_transfer_test.dart --reporter=expanded)
