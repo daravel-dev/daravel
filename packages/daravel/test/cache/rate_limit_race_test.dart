@@ -100,10 +100,16 @@ void main() {
     final dir = Directory.systemTemp.createTempSync('touch_');
     addTearDown(() => dir.deleteSync(recursive: true));
     final stores = <TouchableCacheStore>[MemoryStore(), FileStore(dir.path)];
+    Clock.freeze();
+    addTearDown(Clock.restore);
     for (final store in stores) {
-      await store.put('k', 5, ttl: const Duration(seconds: 1));
+      final start = Clock.now();
+      await store.put('k', 5, ttl: const Duration(minutes: 1));
       expect(await store.touch('k', const Duration(hours: 1)), isTrue);
+      // Past the original TTL: only the touched expiration keeps it.
+      Clock.travel(const Duration(minutes: 2));
       expect(await store.get('k'), 5);
+      Clock.travelTo(start);
       expect(await store.touch('missing', const Duration(hours: 1)), isFalse);
     }
   });

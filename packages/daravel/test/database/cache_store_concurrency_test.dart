@@ -47,9 +47,15 @@ void cacheStoreConcurrencyTests(DatabaseOpener open) {
   });
 
   test('touch changes the expiration, not the value', () async {
+    // A frozen clock: expirations are whole seconds, so a real one could
+    // tick past a short TTL between put and touch.
+    Clock.freeze();
+    addTearDown(Clock.restore);
     final store = DatabaseStore(first);
-    await store.put('hits', 4, ttl: const Duration(seconds: 1));
+    await store.put('hits', 4, ttl: const Duration(minutes: 1));
     expect(await store.touch('hits', const Duration(hours: 1)), isTrue);
+    // Past the original TTL: only the touched expiration keeps it.
+    Clock.travel(const Duration(minutes: 2));
     expect(await store.get('hits'), 4);
     expect(await store.touch('missing', const Duration(hours: 1)), isFalse);
   });
