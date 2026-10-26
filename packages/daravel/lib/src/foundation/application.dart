@@ -38,6 +38,11 @@ import '../http/rate_limiter.dart';
 import '../http/request.dart';
 import '../http/response.dart';
 import '../http/server_engine.dart';
+import '../notifications/notification_manager.dart';
+import '../mail/mail_config.dart';
+import '../mail/mailer.dart';
+import '../mail/smtp.dart';
+import '../mail/transport.dart';
 import '../logging/logger.dart';
 import '../queue/drivers.dart';
 import '../queue/job.dart';
@@ -157,6 +162,7 @@ final class Application {
       ..register(QueueConfig.fromEnv(env))
       ..register(loggingConfig)
       ..register(StorageConfig.fromEnv(env))
+      ..register(MailConfig.fromEnv(env))
       ..register(MetricsConfig.fromEnv(env));
     for (final factory in _builder._configFactories) {
       config.register(factory(env));
@@ -187,7 +193,12 @@ final class Application {
             metrics.jobs.inc({'status': e.willRetry ? 'released' : 'errored'}),
       )
       ..listen<JobFailed>((_) => metrics.jobs.inc({'status': 'failed'}));
-    final jobs = JobRegistry(_builder._jobs);
+    // The framework's own jobs (queued mail and notifications) first.
+    final jobs = JobRegistry([
+      SendQueuedMail.definition,
+      SendQueuedNotification.definition,
+      ..._builder._jobs,
+    ]);
     // Laravel's `app.schedule_timezone`; tasks without their own zone use it.
     final scheduleZone = env.maybeString('SCHEDULE_TIMEZONE') ?? '';
     final schedule = Schedule(
@@ -242,6 +253,32 @@ final class Application {
             'PENNANT_STORE must be array or database, not $other.',
           ),
         }),
+      )
+      ..singleton<Mailer>((c) {
+        final mail = c.make<ConfigRepository>().section<MailConfig>();
+        final custom = _builder._mailTransports[mail.mailer];
+        return Mailer(
+          mail,
+          custom != null
+              ? custom(mail)
+              : switch (mail.mailer) {
+                  'smtp' => SmtpTransport(mail),
+                  'log' => LogTransport(c.make<Logger>()),
+                  'array' => ArrayTransport(),
+                  final other => throw ConfigException(
+                    'MAIL_MAILER=$other is not a mail transport (smtp, log, '
+                    'array, or one registered with withMailTransport).',
+                  ),
+                },
+        );
+      })
+      ..singleton<NotificationManager>(
+        (c) => NotificationManager(
+          c.make<DatabaseManager>(),
+          c.make<Mailer>(),
+          appName: config.section<AppConfig>().name,
+          channels: _builder._notificationChannels,
+        ),
       )
       ..singleton<HashManager>(
         (c) => HashManager(c.make<ConfigRepository>().section<HashConfig>()),
@@ -759,6 +796,7 @@ final class Application {
     _metricsTimer?.cancel();
     _metricsTimer = null;
     container.resolved<HttpClientFactory>()?.close();
+    await container.resolved<Mailer>()?.transport.close();
     final db = container.resolved<DatabaseManager>();
     if (db != null) {
       await db.closeAll();
@@ -796,6 +834,9 @@ final class ApplicationBuilder {
   final Map<String, DatabaseDriverFactory> _databaseDrivers = {};
   final Map<String, ConnectionConfig Function(Env env)> _databaseConnections =
       {};
+  final Map<String, MailTransport Function(MailConfig config)> _mailTransports =
+      {};
+  final Map<String, NotificationChannel> _notificationChannels = {};
   final List<Seeder> _seeders = <Seeder>[];
   final List<ModelDefinition<Model>> _models = <ModelDefinition<Model>>[];
   final Map<String, Map<String, Object?>> _translations = {};
@@ -980,6 +1021,25 @@ final class ApplicationBuilder {
     ConnectionConfig Function(Env env) connection,
   ) {
     _databaseConnections[name] = connection;
+    return this;
+  }
+
+  /// Registers a mail transport for `MAIL_MAILER=[name]`, for example one
+  /// that calls a provider's HTTP API.
+  ApplicationBuilder withMailTransport(
+    String name,
+    MailTransport Function(MailConfig config) transport,
+  ) {
+    _mailTransports[name] = transport;
+    return this;
+  }
+
+  /// Registers notification channel [name] (Slack, SMS, push, ...).
+  ApplicationBuilder withNotificationChannel(
+    String name,
+    NotificationChannel channel,
+  ) {
+    _notificationChannels[name] = channel;
     return this;
   }
 

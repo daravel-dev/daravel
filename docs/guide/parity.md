@@ -60,6 +60,23 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `abort(404, $message)` | `abort(404, message)` | Without a message the JSON message is empty, as in Laravel. |
 | `class StoreUserRequest extends FormRequest` | `final class StoreUserRequest extends FormRequest` |  |
 
+## Mail and notifications
+
+| Laravel | Daravel | Notes |
+| :-- | :-- | :-- |
+| `Mail::to($user)->send(new OrderShipped($order))` | `await Mail.to(user).send(OrderShipped(order))` | **async** |
+| `class OrderShipped extends Mailable (envelope, content, attachments)` | `final class OrderShipped extends Mailable` |  |
+| `Mail::to($user)->queue(new OrderShipped) / later($delay, ...)` | `await Mail.to(user).queue(OrderShipped()) / later(delay, ...)` | **async**; Rendered when queued; the job carries the message. |
+| `class OrderShipped extends Mailable implements ShouldQueue` | `final class OrderShipped extends Mailable with ShouldQueue` | Also for notifications. |
+| `Mail::fake(); Mail::assertSent(OrderShipped::class)` | `final mail = Mail.fake(); mail.assertSent<OrderShipped>()` |  |
+| `MAIL_MAILER=smtp / log / array` | `MAIL_MAILER=smtp / log / array` | Same keys as config/mail.php; MAIL_ENCRYPTION from Laravel 10 is read too. |
+| `$user->notify(new InvoicePaid($invoice))` | `await user.notify(InvoicePaid(invoice))` | **async** |
+| `Notification::send($users, new InvoicePaid)` | `await Notifications.send(users, InvoicePaid())` | **async**; Notifications, plural: Notification is the base class. |
+| `Notification::route('mail', $address)->notify(...)` | `Notifications.route('mail', address).notify(...)` |  |
+| `(new MailMessage)->line()->action()` | `NotificationMail().line().action()` |  |
+| `$user->unreadNotifications / markAsRead()` | `user.notifications(unreadOnly: true) / Notifications.markAsRead(user)` | **async** |
+| `php artisan make:notifications-table` | `CreateNotificationsTable()` | Laravel's table; created only when missing. |
+
 ## Validation
 
 | Laravel | Daravel | Notes |

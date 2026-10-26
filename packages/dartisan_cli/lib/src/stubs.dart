@@ -36,6 +36,8 @@ const Map<String, String> builtInStubs = <String, String>{
   'resource': _resource,
   'resource.model': _resourceModel,
   'rule': _rule,
+  'mail': _mail,
+  'notification': _notification,
   'observer': _observer,
   'provider': _provider,
   'command': _command,
@@ -418,6 +420,51 @@ final class {{ class }} extends Rule {
         ? null
         : 'The :attribute field is invalid.';
   }
+}
+''';
+
+const String _mail = r'''
+import 'package:daravel/daravel.dart';
+
+/// `await Mail.to(user).send({{ class }}());`
+final class {{ class }} extends Mailable {
+  {{ class }}();
+
+  @override
+  Envelope envelope() => const Envelope(subject: '{{ subject }}');
+
+  @override
+  MailContent content() => const MailContent(
+    html: '<p>{{ subject }}</p>',
+    text: '{{ subject }}',
+  );
+
+  @override
+  List<MailAttachment> attachments() => const [];
+}
+''';
+
+const String _notification = r'''
+import 'package:daravel/daravel.dart';
+
+/// `await user.notify(const {{ class }}());`
+final class {{ class }} extends Notification {
+  const {{ class }}();
+
+  /// The channels: `mail`, `database` (add `CreateNotificationsTable()` to
+  /// `bootstrap/migrations.dart`) or a registered one.
+  @override
+  List<String> via(Object notifiable) => const ['mail'];
+
+  @override
+  NotificationMail toMail(Object notifiable) => NotificationMail()
+      .line('The introduction to the notification.')
+      .action('Notification Action', 'https://example.com')
+      .line('Thank you for using our application!');
+
+  /// The `data` of the `database` channel.
+  @override
+  Map<String, Object?> toArray(Object notifiable) => const {};
 }
 ''';
 

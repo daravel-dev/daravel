@@ -51,6 +51,8 @@ final class ProjectPaths {
   String get listeners => _app(['listeners']);
   String get policies => _app(['policies']);
   String get rules => _app(['rules']);
+  String get mail => _app(['mail']);
+  String get notifications => _app(['notifications']);
   String get observers => _app(['observers']);
   String get providers => _app(['providers']);
   String get commands => _app(['console', 'commands']);
@@ -555,6 +557,35 @@ final class Generator {
       {'class': className, 'ruleName': Naming.snake(className)},
     );
   }
+
+  /// `make:mail OrderShipped`: a [Mailable] in `lib/app/mail/`.
+  GeneratedFile mail(String name) {
+    final className = Naming.pascal(name);
+    return _render(
+      p.join(paths.mail, '${Naming.snake(className)}.dart'),
+      'mail',
+      {'class': className, 'subject': _headline(className)},
+    );
+  }
+
+  /// `make:notification InvoicePaid`: a notification in
+  /// `lib/app/notifications/`.
+  GeneratedFile notification(String name) {
+    final className = Naming.pascal(name);
+    return _render(
+      p.join(paths.notifications, '${Naming.snake(className)}.dart'),
+      'notification',
+      {'class': className},
+    );
+  }
+
+  /// `OrderShipped` → `Order Shipped` (Laravel's `Str::headline`).
+  static String _headline(String className) =>
+      Naming.snake(className)
+          .split('_')
+          .where((w) => w.isNotEmpty)
+          .map((w) => w[0].toUpperCase() + w.substring(1))
+          .join(' ');
 
   GeneratedFile observer(String name, {required String model}) {
     final className = Naming.withSuffix(name, 'Observer');

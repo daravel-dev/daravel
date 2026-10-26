@@ -98,7 +98,9 @@ Future<Map<String, Object?>> buildDam(
   if (wants('jobs')) {
     dam['jobs'] = [
       for (final name in app.container.make<JobRegistry>().names)
-        {'name': name},
+        // The framework's own jobs (`daravel:mail`, ...) are not the
+        // application's; Laravel has its own for the same work.
+        if (!name.startsWith('daravel:')) {'name': name},
     ]..sort(_byKey('name'));
   }
   if (wants('features')) {

@@ -63,6 +63,23 @@ abstract class Job {
   List<String> get tags => const <String>[];
 }
 
+/// Laravel's `ShouldQueue` for mailables and notifications: sending one
+/// puts it on the queue instead. Override the getters to pick where.
+///
+/// ```dart
+/// final class InvoicePaid extends Notification with ShouldQueue { ... }
+/// ```
+abstract mixin class ShouldQueue {
+  /// The queue; the default queue when null.
+  String? get queue => null;
+
+  /// The connection; the default connection when null.
+  String? get connection => null;
+
+  /// How long to wait before it is processed.
+  Duration? get delay => null;
+}
+
 /// Registry entry: name → factory from JSON.
 final class JobDefinition {
   const JobDefinition(this.name, this.fromJson);

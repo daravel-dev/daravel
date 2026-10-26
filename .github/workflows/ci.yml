@@ -112,6 +112,7 @@ jobs:
       - name: Test against PostgreSQL
         run: |
           (cd packages/daravel && dart test --tags integration --reporter=expanded)
+          (cd packages/daravel && dart test test/notifications --reporter=expanded)
           (cd packages/dartisan_cli && dart test test/db_transfer_test.dart --reporter=expanded)
 
   mysql:

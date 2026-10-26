@@ -383,6 +383,16 @@ List<Command<int>> extraMakeCommands() => [
     (g, n, o) => g.rule(n),
   ),
   _SimpleMakeCommand(
+    'make:mail',
+    'Create a new mailable class.',
+    (g, n, o) => g.mail(n),
+  ),
+  _SimpleMakeCommand(
+    'make:notification',
+    'Create a new notification class.',
+    (g, n, o) => g.notification(n),
+  ),
+  _SimpleMakeCommand(
     'make:observer',
     'Create a new model observer.',
     (g, n, o) => g.observer(n, model: o['model']!),

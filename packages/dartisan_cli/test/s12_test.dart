@@ -45,6 +45,7 @@ void main() {
         'ruleName': 'thing',
         'signature': 'app:thing',
         'description': 'thing',
+        'subject': 'Thing',
       };
       for (final entry in builtInStubs.entries) {
         expect(
@@ -129,11 +130,22 @@ void main() {
         ..observer('Audit', model: 'Post')
         ..provider('Billing')
         ..rule('Uppercase')
+        ..mail('OrderShipped')
+        ..notification('InvoicePaid')
         ..test('PostApi')
         ..test('Math', unit: true);
       expect(
         File(p.join(paths.resources, 'post_resource.dart')).readAsStringSync(),
         contains('extends JsonResource<Post>'),
+      );
+      final mail = File(p.join(paths.mail, 'order_shipped.dart'))
+          .readAsStringSync();
+      expect(mail, contains('final class OrderShipped extends Mailable'));
+      expect(mail, contains("Envelope(subject: 'Order Shipped')"));
+      expect(
+        File(p.join(paths.notifications, 'invoice_paid.dart'))
+            .readAsStringSync(),
+        contains('final class InvoicePaid extends Notification'),
       );
       expect(
         File(p.join(paths.resources, 'stats_resource.dart')).readAsStringSync(),
@@ -516,6 +528,10 @@ final class Post extends Model with AuthenticatableModel {
             ]),
             0,
           );
+          // Generated mail and notifications compile in a new project.
+          Generator(ProjectPaths.locate(target))
+            ..mail('OrderShipped')
+            ..notification('InvoicePaid');
           final analyze = await Process.run(dartExecutable(), const [
             'analyze',
             '--fatal-infos',

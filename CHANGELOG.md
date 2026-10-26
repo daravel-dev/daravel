@@ -10,6 +10,32 @@ Laravel-facing formats change only to match Laravel more closely.
 
 ### Added
 
+- Mail (Blueprint #13 §5.1): `Mailable` (Laravel 12's envelope, content and
+  attachments), the `Mail` facade (`Mail.to(user).cc(...).send(...)`,
+  `Mail.fake()` with `assertSent`, `assertNotSent`, `assertNothingSent`)
+  and `MAIL_*` configuration read from Laravel's keys. A built-in SMTP
+  transport handles STARTTLS, smtps and `AUTH PLAIN`/`LOGIN`, and `log` and
+  `array` transports are included; `withMailTransport` adds your own.
+  Messages are standard MIME (alternatives, quoted-printable, attachments,
+  RFC 2047/2231). Header values with line breaks are refused, so user input
+  cannot inject headers.
+- Notifications (Blueprint #13 §5.2): `Notification` with `via`, `toMail`
+  (`NotificationMail` or a `Mailable`) and `toDatabase`, `user.notify(...)`,
+  `Notifications.send/route/of/markAsRead/unreadCount/fake`, and custom
+  channels with `withNotificationChannel`. `CreateNotificationsTable()` is
+  Laravel's table and rows are written as Laravel writes them, so both
+  frameworks read each other's notifications.
+- `make:mail` and `make:notification`.
+- Queued mail and notifications: `Mail.to(...).queue(...)` and
+  `.later(delay, ...)`, and `with ShouldQueue` on a mailable or a
+  notification. The message, or a notification's database row, is
+  prepared when it is queued and delivered by the framework's own jobs
+  (`daravel:mail`, `daravel:notification`; nothing to register). Inside a
+  transaction it is pushed on commit. Custom channels can implement
+  `QueueableNotificationChannel`. `Mail.fake()` adds `assertQueued`,
+  `assertNotQueued`, `assertNothingQueued` and `assertNothingOutgoing`.
+  `daragic:export` leaves the framework's own jobs out of the DAM.
+
 - `DB_URL`, as in Laravel 12: one URL sets the database
   (`postgres://user:pass@host:5432/app?sslmode=require`) and is merged into
   the connections the way Laravel's `ConfigurationUrlParser` merges it.

@@ -65,6 +65,21 @@ sections:
       - { php: "abort(404, $message)", dart: "abort(404, message)", symbol: abort, note: "Without a message the JSON message is empty, as in Laravel." }
       - { php: "class StoreUserRequest extends FormRequest", dart: "final class StoreUserRequest extends FormRequest", symbol: FormRequest }
 
+  - name: Mail and notifications
+    symbols:
+      - { php: "Mail::to($user)->send(new OrderShipped($order))", dart: "await Mail.to(user).send(OrderShipped(order))", symbol: Mail.to, async: true }
+      - { php: "class OrderShipped extends Mailable (envelope, content, attachments)", dart: "final class OrderShipped extends Mailable", symbol: Mailable.envelope }
+      - { php: "Mail::to($user)->queue(new OrderShipped) / later($delay, ...)", dart: "await Mail.to(user).queue(OrderShipped()) / later(delay, ...)", symbol: PendingMail.queue, async: true, note: "Rendered when queued; the job carries the message." }
+      - { php: "class OrderShipped extends Mailable implements ShouldQueue", dart: "final class OrderShipped extends Mailable with ShouldQueue", symbol: ShouldQueue, note: "Also for notifications." }
+      - { php: "Mail::fake(); Mail::assertSent(OrderShipped::class)", dart: "final mail = Mail.fake(); mail.assertSent<OrderShipped>()", symbol: MailFake.assertSent }
+      - { php: "MAIL_MAILER=smtp / log / array", dart: "MAIL_MAILER=smtp / log / array", symbol: SmtpTransport, note: "Same keys as config/mail.php; MAIL_ENCRYPTION from Laravel 10 is read too." }
+      - { php: "$user->notify(new InvoicePaid($invoice))", dart: "await user.notify(InvoicePaid(invoice))", symbol: Model.notify, async: true }
+      - { php: "Notification::send($users, new InvoicePaid)", dart: "await Notifications.send(users, InvoicePaid())", symbol: Notifications.send, async: true, note: "Notifications, plural: Notification is the base class." }
+      - { php: "Notification::route('mail', $address)->notify(...)", dart: "Notifications.route('mail', address).notify(...)", symbol: Notifications.route }
+      - { php: "(new MailMessage)->line()->action()", dart: "NotificationMail().line().action()", symbol: NotificationMail.action }
+      - { php: "$user->unreadNotifications / markAsRead()", dart: "user.notifications(unreadOnly: true) / Notifications.markAsRead(user)", symbol: Notifications.markAsRead, async: true }
+      - { php: "php artisan make:notifications-table", dart: "CreateNotificationsTable()", symbol: CreateNotificationsTable, note: "Laravel's table; created only when missing." }
+
   - name: Validation
     symbols:
       - { php: "Validator::make($data, $rules)", dart: "Validator(data, rules)", symbol: Validator }
