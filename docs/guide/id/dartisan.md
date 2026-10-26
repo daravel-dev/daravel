@@ -1,0 +1,186 @@
+<!-- source: dartisan.md sha256:c39bd4dd190c -->
+# dartisan
+
+`dartisan` adalah `artisan`-nya Daravel. Pasang sekali, lalu pakai di proyek
+mana pun:
+
+```bash
+dart pub global activate dartisan_cli
+dartisan new blog                       # atau --template=minimal
+cd blog && dartisan migrate --seed && dartisan serve --watch
+```
+
+Di dalam proyek, `dartisan` global menjalankan CLI milik proyek itu,
+`bin/dartisan.dart`, yang mengenal aplikasi Anda dan command buatan Anda
+(`bootstrap/commands.dart`). `dartisan <command> --help` menampilkan opsi
+sebuah command.
+
+## Proyek
+
+| Command | Fungsinya |
+| :-- | :-- |
+| `about` | Versi, environment, driver, dan path |
+| `doctor [--production]` | Mengecek konfigurasi, database, storage, dan port |
+| `key:generate [--show] [--force]` | Menulis `APP_KEY` baru |
+| `env:encrypt`, `env:decrypt`, `env:obfuscate` | File `.env` terenkripsi, lihat [Konfigurasi](configuration.md) |
+| `adopt <laravel-path> [--check]` | Berbagi database dan kunci dengan aplikasi Laravel, lihat [Migrasi dari Laravel](migrating-from-laravel.md) |
+| `down [--secret] [--retry]`, `up` | Mode maintenance, lihat [Deployment](deployment.md#mode-maintenance) |
+| `stub:publish` | Menyalin template generator ke `stubs/` |
+| `lint [--json]` | Rule `daravel_lints` dan pengecekan registry |
+| `mcp:serve [--allow-write]`, `mcp:install` | Konteks proyek untuk agen AI coding lewat MCP, lihat [di bawah](#agen-ai-coding-mcp) |
+
+## Serve, test, dan build
+
+| Command | Fungsinya |
+| :-- | :-- |
+| `serve [--watch] [--isolates=N] [--embed-queue] [--embed-scheduler]` | Server HTTP; `--watch` melakukan hot reload |
+| `test [--conformance] [--security] [--coverage]` | Menjalankan test |
+| `build [--with-cli] [--docker] [--no-sqlite]` | Bundle native di `build/server/bundle`, opsional `Dockerfile`; `--no-sqlite` tidak menyertakan library SQLite (aplikasi PostgreSQL/MySQL) |
+| `route:list` | Tabel route |
+| `openapi:generate [--output]` | OpenAPI 3.1 dari route dan metadata yang dideklarasikan |
+| `client:flutter [--output] [--package-name] [--prefix] [--state] [--watch]` | Paket client Dart/Flutter bertipe dari route, dengan rule validasi milik server ([Client Flutter](flutter-client.md)) |
+
+## Database
+
+| Command | Fungsinya |
+| :-- | :-- |
+| `migrate [--seed]`, `migrate:status`, `migrate:rollback`, `migrate:reset` | Migrasi |
+| `migrate:fresh [--seed] [--force]` | Menghapus semua tabel lalu migrasi lagi (ditolak di produksi tanpa `--force`) |
+| `db:seed [--class]` | Menjalankan seeder |
+| `db:show`, `db:table <table> [--limit]` | Tabel, kolom, dan baris |
+| `db:install <driver> [--no-get]` | Menambahkan paket driver (`sqlite`, `pgsql`, `mysql`, `mariadb`) dan mendaftarkannya ([Database](database.md#driver-dan-koneksi)) |
+| `db:transfer --from --to [--dry-run] [--truncate] [--tables] [--no-migrate]` | Menyalin data ke database lain, setelah lebih dulu memigrasinya ([Database](database.md#menyalin-data-antar-database)) |
+| `db:backup [--output] [--keep=N]` | Backup database SQLite saat server berjalan ke `storage/backups` (lihat [Deployment](deployment.md#backup)) |
+| `tinker "<expression>"` | Mengevaluasi ekspresi Dart di aplikasi yang sudah di-boot |
+| `model:sync [Model]` | Membangkitkan ulang accessor bertipe sebuah model dari tabelnya |
+| `model:show <Model> [--json]` | Tabel, atribut (tipe, cast, fillable, hidden), dan relasi sebuah model, dari `bootstrap/models.dart` |
+| `daragic:export [--out] [--only]` | Model aplikasi (DAM) untuk `daragic`: route, model, migrasi, skema, jadwal, ... (lihat [Migrasi dari Laravel](migrating-from-laravel.md#model-aplikasi-daragic)) |
+
+## Queue dan penjadwalan
+
+| Command | Fungsinya |
+| :-- | :-- |
+| `queue:work [--queue] [--tries] [--max-time] [--stop-when-empty]` | Memproses job; berhenti setelah job yang sedang berjalan saat `SIGTERM` |
+| `queue:failed`, `queue:retry`, `queue:forget`, `queue:flush` | Job yang gagal |
+| `queue:clear`, `queue:pause`, `queue:continue`, `queue:restart` | Kendali queue |
+| `schedule:work`, `schedule:run`, `schedule:list` | Scheduler |
+| `cache:clear`, `storage:link`, `coordinator:stats` | Cache, link storage publik, state coordinator |
+
+## Generator
+
+`make:model [-m -f -s -c -p -r --api --all]`, `make:migration`,
+`make:seeder`, `make:factory`, `make:controller [--api --resource --model]`,
+`make:request`, `make:middleware`, `make:job`, `make:policy`, `make:event`,
+`make:listener`, `make:resource`, `make:rule`, `make:mail`,
+`make:notification`, `make:observer`, `make:provider`, `make:command`, dan
+`make:test`. Masing-masing menulis file dari template dan menambahkannya ke
+registry yang sesuai di `bootstrap/`.
+
+## Agen AI coding (MCP)
+
+`dartisan mcp:serve` adalah server [Model Context
+Protocol](https://modelcontextprotocol.io) lewat stdio, padanan Laravel
+Boost di Daravel. Ia mem-boot aplikasi proyek, sehingga agen melihat
+aplikasi sebagaimana adanya, bukan tebakan:
+
+| Tool | Menjawab dengan |
+| :-- | :-- |
+| `about` | Versi Daravel dan Dart, environment, driver |
+| `routes` | Method, URI, nama, action, middleware, rule validasi beserta JSON Schema-nya, respons yang didokumentasikan |
+| `schema` | Tabel beserta jumlah kolom dan baris, atau kolom satu tabel |
+| `models` | Model yang terdaftar beserta relasinya, atau atribut, key, dan relasi satu model |
+| `db_query` | Satu statement `SELECT`/`WITH`/`EXPLAIN`, paling banyak 100 baris secara default; selalu di-rollback, dan read-only di level database pada SQLite (`query_only`) dan PostgreSQL (`READ ONLY`) |
+| `read_logs`, `last_error` | Record terbaru dari file log harian (`LOG_STACK` dengan `daily`), atau error terbaru |
+| `conventions` | Registry, generator, pola model, waktu, format Laravel yang dikunci, rule lint |
+| `docs_search` | Bagian paling relevan dari panduan ini, untuk versi yang terpasang |
+| `run_command` | Menjalankan command dartisan (hanya dengan `--allow-write`) |
+
+Server ini read-only kecuali dijalankan dengan `--allow-write`. Bahkan
+dengan itu, `run_command` menolak command yang berjalan lama (`serve`,
+`queue:work`, `schedule:work`, `tinker`) dan, dengan `APP_ENV=production`,
+command yang destruktif (`migrate:fresh`, `migrate:reset`,
+`migrate:rollback`, `db:seed`, `queue:flush`, `queue:clear`,
+`key:generate`, `env:decrypt`). Pesan protokol memakai stdout; log masuk ke
+stderr.
+
+`dartisan mcp:install` menyiapkan proyek untuk agen, seperti
+`boost:install` milik Laravel:
+
+```bash
+dart run bin/dartisan.dart mcp:install                          # .mcp.json + AGENTS.md
+dart run bin/dartisan.dart mcp:install --guidelines=CLAUDE.md   # pedoman di file lain
+dartisan new blog --mcp                                         # sama, untuk proyek baru
+```
+
+Command ini menambahkan server `daravel` ke `.mcp.json` (server lain
+dipertahankan; `--force` mengganti entri `daravel` yang sudah ada) dan
+menulis konvensi Daravel di antara penanda `<!-- daravel:guidelines -->` di
+`AGENTS.md`. Menjalankannya lagi setelah upgrade memperbarui bagian itu dan
+membiarkan sisa file. Claude Code membaca `.mcp.json` dari proyek; untuk
+mendaftarkan server secara manual:
+
+```bash
+claude mcp add daravel -- dart run bin/dartisan.dart mcp:serve
+```
+
+Entri `.mcp.json`, yang juga dibaca client MCP lain:
+
+```json
+{
+  "mcpServers": {
+    "daravel": {
+      "command": "dart",
+      "args": ["run", "bin/dartisan.dart", "mcp:serve"]
+    }
+  }
+}
+```
+
+### DDEV
+
+Di proyek [DDEV](https://ddev.com) (yang punya `.ddev/config.yaml`), paket
+di-resolve di dalam web container, jadi `dart` di host tidak bisa
+menjalankan CLI proyek. `mcp:install` mengenali ini dan mendaftarkan server
+di dalam container:
+
+```json
+{
+  "mcpServers": {
+    "daravel": {
+      "command": "ddev",
+      "args": ["dartisan", "mcp:serve"]
+    }
+  }
+}
+```
+
+Command ini juga menambahkan custom command `.ddev/commands/web/dartisan`
+bila belum ada, sehingga `ddev dartisan migrate` dan command lain juga
+berjalan di container. Entri yang masih berisi default host (`dart run ...`)
+diganti, karena tidak bisa berjalan di sana. Entri yang sudah Anda ubah
+dipertahankan. Setelah menambahkan DDEV ke proyek yang sudah ada, jalankan
+lagi `ddev dartisan mcp:install`. `dartisan new --mcp` berjalan sebelum DDEV
+dikonfigurasi, jadi ia menulis entri untuk host.
+
+## Command buatan sendiri
+
+```dart
+final class SendReports extends DaravelCommand {
+  SendReports(super.createApp);
+
+  @override
+  String get name => 'reports:send';
+
+  @override
+  String get description => 'Email the weekly reports.';
+
+  @override
+  Future<int> run() => withApp((app) async {
+    // Aplikasi sudah di-boot; facade bisa dipakai di sini.
+    return 0;
+  });
+}
+```
+
+`dartisan make:command SendReports` menulis ini dan mendaftarkannya di
+`bootstrap/commands.dart`.

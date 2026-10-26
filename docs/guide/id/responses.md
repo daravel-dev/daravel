@@ -1,0 +1,186 @@
+<!-- source: responses.md sha256:eb7c3f8dbb93 -->
+# Respons dan resource
+
+Handler bisa mengembalikan `Response.json(data, status: 201)`,
+`Response.text`, `Response.html`, `Response.redirect`, `Response.stream`,
+`Response.noContent()`, `JsonSerializable` atau `Responsable` apa pun, map,
+list, model, dan paginator. Tanggal diserialisasi seperti `toJSON()` milik
+Carbon: UTC dengan mikrodetik, `2026-01-02T03:04:05.000000Z`.
+
+## API resource
+
+<!-- include: packages/daravel/test/docs/guide_examples_test.dart#resource -->
+```dart
+final class PostResource extends JsonResource<Post> {
+  PostResource(super.resource);
+
+  /// Documents the item for `dartisan openapi:generate` (`.returns(...)`).
+  static const Map<String, Object?> schema = {
+    'type': 'object',
+    'properties': {
+      'id': {'type': 'integer'},
+      'title': {'type': 'string'},
+      'published': {'type': 'boolean'},
+    },
+  };
+
+  @override
+  Map<String, Object?> toArray(Request? request) => {
+    'id': resource.id,
+    'title': resource.title,
+    'published': resource.published,
+  };
+}
+```
+<!-- /include -->
+
+- Resource tunggal dibungkus dalam `{"data": {...}}`.
+- `JsonResource.collection(items, PostResource.new)` membungkus list, dan
+  untuk paginator menghasilkan `{data, links: {first, last, prev, next},
+  meta}` milik Laravel, dengan `meta` berisi array paginator tanpa `data` dan
+  URL-nya.
+- `when`, `whenLoaded`, `mergeWhen`, `additional({...})`, dan
+  `withMeta(request)` (`with()` milik Laravel) tersedia.
+
+## HTML
+
+`package:daravel/html.dart` membangun halaman dari fungsi Dart, bukan dari
+template Blade. Teks dan nilai atribut selalu di-escape; markup yang harus
+ditulis apa adanya melewati `raw()`, seperti `{!! !!}` di Blade. Node yang
+dikembalikan handler dikirim sebagai `text/html`:
+
+```dart
+import 'package:daravel/html.dart';
+
+HtmlNode userCard(User user) => div(classes: 'card', [
+  h2([user.name]),                                   // di-escape
+  p(classes: 'muted', [user.email]),
+  if (user.isAdmin) span(classes: 'badge', ['Admin']),
+]);
+
+router.get('/users/{id}', (request) async => document(title: 'Profile', [
+  mainEl([userCard(await User.query().findOrFail(request.param<int>('id')))]),
+]));
+```
+
+Child berupa node, string (teks yang di-escape), angka, `null` (dilewati),
+dan list bersarang, sehingga `if` dan `for` bisa dipakai di dalamnya. Ada
+helper untuk elemen umum (`div`, `span`, `p`, `h1`–`h3`, `a`,
+`ul`/`ol`/`li`, tabel, `form`, `input`, `label`, `button`, `img`, …),
+`el(tag, ...)` untuk elemen lain, dan atribut dengan `true` menulis atribut
+tanpa nilai (`required`) serta `false`/`null` menghilangkannya. Import-nya
+terpisah karena nama seperti `a`, `p`, dan `text` akan bentrok dengan
+variabel biasa.
+
+## Caching dan kompresi
+
+Middleware `cache.headers` milik Laravel memasang `Cache-Control`, `ETag`,
+dan `Last-Modified` pada respons `GET`/`HEAD` yang sukses, dan menjawab
+`304 Not Modified` bila salinan di client masih terbaru:
+
+```dart
+router.get('/catalog', catalog).middleware(const [
+  'cache.headers:public;max_age=3600;etag',
+]);
+```
+
+Opsinya sama dengan Laravel (`public`, `private`, `max_age`, `s_maxage`,
+`must_revalidate`, `no_cache`, `no_store`, `immutable`, `etag`,
+`last_modified=<waktu unix atau tanggal>`, ...) dan header-nya keluar
+seperti yang ditulis Laravel (`Cache-Control: max-age=3600, public`;
+`private` ditambahkan bila tidak ada `public`, `private`, maupun
+`s_maxage`). `etag` meng-hash body (MD5; Laravel memakai xxh128, jadi
+nilainya berbeda tetapi perilakunya sama). `If-None-Match` dicocokkan secara
+persis, lemah (`W/`), dari sebuah list, atau dengan `*`; `If-Modified-Since`
+hanya dipakai tanpa header itu.
+
+`CompressResponseMiddleware` meng-gzip body minimal 1 KB bertipe teks, JSON,
+XML, SVG, atau JavaScript untuk client yang mengirim `Accept-Encoding: gzip`
+(JSON biasanya menyusut 70–90%), memasang `Vary: Accept-Encoding`, dan
+mengubah `ETag` kuat menjadi lemah. Stream dibiarkan. Di belakang proxy yang
+sudah mengompresi (`encode` di Caddy, `gzip` di nginx), jangan pakai
+middleware ini.
+
+```dart
+.withMiddleware((middleware) {
+  middleware.use(const [CompressResponseMiddleware()]);
+})
+```
+
+## Server-sent events dan WebSocket
+
+`Response.sse` adalah `response()->eventStream()` milik Laravel: setiap item
+stream dikirim begitu dihasilkan. Nilai biasa menjadi event `update` (JSON,
+kecuali berupa string atau angka), dan `SseEvent` menetapkan nama event,
+`id`, dan `retry`. Saat stream berakhir, `</stream>` dikirim seperti di
+Laravel, atau berikan `endStreamWith: null` agar tidak mengirim apa pun.
+
+```dart
+r.get('/api/orders/{id}/status', (request) async {
+  final id = request.param<int>('id');
+  return Response.sse(
+    Stream.periodic(const Duration(seconds: 2), (_) => id)
+        .asyncMap((id) async => (await Order.find(id))?.toJson())
+        .take(30),
+  );
+});
+```
+
+Frame-nya sama dengan Laravel (`event: update`, `data: ...`), jadi client
+yang ditulis untuk salah satu backend bekerja dengan keduanya. Selain itu:
+
+- Komentar `: keep-alive` dikirim setiap 15 detik selama stream diam
+  (`heartbeat:`), agar proxy tetap membuka koneksi. Penulisan itu juga cara
+  mendeteksi tab yang sudah ditutup, karena TCP tidak melaporkan apa pun pada
+  koneksi yang diam. Stream sumber kemudian dibatalkan.
+- `x-accel-buffering: no` dan penulisan tanpa buffer mencegah nginx dan
+  `dart:io` menahan event.
+- Saat shutdown (SIGTERM, `ServerEngine.stop`), stream yang terbuka
+  diakhiri dengan event penutupnya alih-alih menahan shutdown sampai
+  timeout, dan `EventSource` tersambung ulang ke instance lain. Baca
+  `request.header('last-event-id')` untuk melanjutkan dari `id` terakhir yang
+  diterimanya.
+
+`router.ws` meng-upgrade koneksi menjadi WebSocket setelah middleware route
+lolos. `auth`, `throttle`, dan parameter route bekerja seperti di route mana
+pun, dan handler berjalan di scope request, jadi `Auth.user()` bisa dipakai
+di sana:
+
+```dart
+r.ws('/ws/rooms/{room}', (socket, request) async {
+  final room = request.param<String>('room');
+  socket.add(jsonEncode({'joined': room, 'user': await Auth.id()}));
+  socket.listen((message) => socket.add('echo: $message'));
+}).middleware(['auth:sanctum']);
+```
+
+Request HTTP biasa ke path itu mendapat `426 Upgrade Required`. Saat
+shutdown, socket yang terbuka ditutup dengan `1001` (going away). Ini
+WebSocket mentah, bukan protokol Pusher milik Laravel Reverb. Menyebarkan
+pesan ke beberapa isolate atau server adalah urusan aplikasi, misalnya
+melalui database atau queue.
+
+Keduanya butuh koneksi sungguhan. `TestClient` mengumpulkan respons secara
+utuh, jadi uji `Response.sse` yang berhingga dengannya, dan uji WebSocket
+dengan `ServerEngine` di port 0 dan `WebSocket.connect`.
+
+## Error
+
+Exception dirender exception handler dengan body milik Laravel. Dengan
+`APP_DEBUG=false`, tidak ada detail internal yang bocor:
+
+| Situasi | Status | `message` |
+| :-- | :-- | :-- |
+| Validasi gagal | 422 | error pertama + `(and N more errors)`, ditambah `errors` |
+| Belum login | 401 | `Unauthenticated.` |
+| Ditolak gate / policy | 403 | `This action is unauthorized.` |
+| Route tidak dikenal | 404 | `The route api/x could not be found.` |
+| `findOrFail` / `firstOrFail` | 404 | `No query results for model [App\Models\Post] 1` |
+| Verb salah | 405 | `The DELETE method is not supported for route ... Supported methods: GET, HEAD.` |
+| Body terlalu besar | 413 | `The POST data is too large.` |
+| Terkena rate limit | 429 | `Too Many Attempts.` |
+| `abort(404)` tanpa pesan | 404 | string kosong, seperti Laravel |
+| Selain itu | 500 | `Server Error` |
+
+Daftarkan renderer sendiri dengan `withExceptions((e) =>
+e.render<MyError>((error, request) => Response.json({...}, status: 409)))`.
