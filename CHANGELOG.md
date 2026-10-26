@@ -6,7 +6,10 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 breaking changes to the Dart API wait for a new major version, and
 Laravel-facing formats change only to match Laravel more closely.
 
-## Unreleased
+## 1.8.1
+
+A fix for clients generated with `client:flutter --state`. Upgrade from
+any 1.x.
 
 ### Fixed
 

@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.8.1
+
+- Fixed: `client:flutter --state` adapters (`providers.dart`, `blocs.dart`, `cubits.dart`) no longer fail `dart analyze --fatal-infos` with an unused import when no route uses a paginator or an upload.
+
 ## 1.8.0
 
 - Added `db:install <driver>` and `db:transfer --from --to`.

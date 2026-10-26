@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.8.1
+
+- Version aligned with Daravel 1.8.1; no changes.
+
 ## 1.8.0
 
 - Added `ConnectionConfig.fromUrl`, `ApplicationBuilder.withDatabaseConnection`, `DatabaseManager.forConnection`, `SqliteDriver.fromConfig` and `PostgresDriver.fromConfig`.

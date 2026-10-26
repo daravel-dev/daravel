@@ -1,6 +1,6 @@
 name: daravel_bench
 description: Daravel benchmark harness (BLUEPRINT_V2 §10.2).
-version: 1.8.0
+version: 1.8.1
 publish_to: none
 
 environment:
