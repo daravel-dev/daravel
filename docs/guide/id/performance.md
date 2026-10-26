@@ -1,4 +1,4 @@
-<!-- source: performance.md sha256:067b2524964c -->
+<!-- source: performance.md sha256:1a25dd633208 -->
 # Performa
 
 Daravel tidak membuat klaim performa tanpa angka yang bisa direproduksi
@@ -30,3 +30,34 @@ request, dan empat isolate memberi setidaknya tiga kali throughput satu
 isolate di mesin dengan 4 core atau lebih. Lihat
 [bench/README.md](https://github.com/daravel-dev/daravel/blob/main/bench/README.md)
 untuk metodologinya.
+
+## Dibandingkan dengan Laravel
+
+`bench/laravel/compare.sh` menjalankan skenario yang sama terhadap Laravel
+12.70 di PHP 8.4 dengan OPcache: sebagai Laravel Octane di worker mode
+FrankenPHP, dan sebagai FrankenPHP klasik, yang mem-boot aplikasi di setiap
+request seperti php-fpm. Endpoint-nya mengerjakan hal yang sama, di satu
+database SQLite dengan pengaturan yang sama, dan setiap server berjalan di
+empat core yang sama, terpisah dari load generator. Metodenya dan dua
+perbedaan yang menguntungkan Laravel ada di
+[bench/README.md](https://github.com/daravel-dev/daravel/blob/main/bench/README.md#against-laravel).
+
+Satu run pada 2026-10-26 (WSL2 di laptop 16 thread, container lain ikut
+berjalan, 10 detik per skenario, 64 koneksi), empat worker:
+
+| Skenario | Daravel | Laravel Octane | Laravel klasik |
+| :-- | --: | --: | --: |
+| `GET /ping` | 12 160 req/s | 2 254 req/s | 983 req/s |
+| JSON + satu query | 9 594 req/s | 1 843 req/s | 720 req/s |
+| validasi + insert | 2 918 req/s | 1 079 req/s | 551 req/s |
+| eager loading (20 post) | 1 876 req/s | 440 req/s | 300 req/s |
+| route dengan rate limit | 10 494 req/s | 1 721 req/s | 902 req/s |
+| login (bcrypt, cost 10) | 35 req/s | 72 req/s | 68 req/s |
+
+Dengan satu worker, Daravel melayani 6 sampai 10 kali throughput Octane di
+lima skenario pertama. Login adalah pengecualian: bcrypt di Dart murni lebih
+lambat dari implementasi C di PHP, dan pool compute Daravel tidak bertambah
+mengikuti jumlah isolate, sehingga Laravel menjawab dua kali lebih banyak
+login dengan empat worker. Throughput bukan satu-satunya biaya login, tetapi
+inilah skenario yang perlu diperbaiki. Jalankan skrip ini di perangkat Anda
+sendiri sebelum mengandalkan angka-angka ini.

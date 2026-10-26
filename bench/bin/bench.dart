@@ -20,8 +20,16 @@ import 'package:path/path.dart' as p;
 /// to the `dart:io` baseline measured in the same run, which is what
 /// `--compare` gates on: absolute numbers depend on the machine, ratios much
 /// less.
+///
+/// `--external=laravel-octane:8000` measures the same scenarios against a
+/// server that is already running (the Laravel comparison in
+/// `bench/laravel/`) and nothing else.
 Future<void> main(List<String> args) async {
   final options = _Options.parse(args);
+  if (options.external.isNotEmpty) {
+    await _measureExternal(options);
+    return;
+  }
   final root = p.dirname(p.dirname(Platform.script.toFilePath()));
   final build = p.join(root, 'build');
   if (!options.skipBuild) {
@@ -43,7 +51,7 @@ Future<void> main(List<String> args) async {
     'bin',
     Platform.isWindows ? '$target.exe' : target,
   );
-  final database = p.join(build, 'bench.sqlite');
+  final database = options.database ?? p.join(build, 'bench.sqlite');
   final env = <String, String>{
     'APP_ENV': 'production',
     'APP_DEBUG': 'false',
@@ -73,7 +81,12 @@ Future<void> main(List<String> args) async {
       'APP_ISOLATES': '$isolates',
     };
 
-    final baseline = await _Server.start(exe('baseline'), serverEnv, port);
+    final baseline = await _Server.start(
+      exe('baseline'),
+      serverEnv,
+      port,
+      cpus: options.serverCpus,
+    );
     final ping = await _measure(options, port, const LoadSpec('GET', '/ping'));
     await baseline.stop();
     results.add({
@@ -83,7 +96,12 @@ Future<void> main(List<String> args) async {
     });
     _print('0-dartio-ping', isolates, ping);
 
-    final server = await _Server.start(exe('server'), serverEnv, port);
+    final server = await _Server.start(
+      exe('server'),
+      serverEnv,
+      port,
+      cpus: options.serverCpus,
+    );
     startup.add({
       'isolates': isolates,
       'startup_ms': server.startup.inMilliseconds,
@@ -254,10 +272,19 @@ final class _Server {
   static Future<_Server> start(
     String executable,
     Map<String, String> env,
-    int port,
-  ) async {
+    int port, {
+    String? cpus,
+  }) async {
     final watch = Stopwatch()..start();
-    final process = await Process.start(executable, const [], environment: env);
+    // `--server-cpus` (Linux): the server gets its own cores, apart from
+    // the load generator.
+    final process = cpus == null
+        ? await Process.start(executable, const [], environment: env)
+        : await Process.start('taskset', [
+            '-c',
+            cpus,
+            executable,
+          ], environment: env);
     unawaited(process.stdout.drain<void>());
     unawaited(process.stderr.drain<void>());
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 1);
@@ -336,8 +363,11 @@ final class _Options {
     required this.scenarios,
     required this.skipBuild,
     required this.threshold,
+    required this.external,
     this.out,
     this.compare,
+    this.database,
+    this.serverCpus,
   });
 
   factory _Options.parse(List<String> args) {
@@ -362,6 +392,16 @@ final class _Options {
       threshold: double.parse(value('threshold') ?? '0.10'),
       out: value('out'),
       compare: value('compare'),
+      external: [
+        for (final target in (value('external') ?? '').split(','))
+          if (target.isNotEmpty)
+            (
+              target.substring(0, target.lastIndexOf(':')),
+              int.parse(target.substring(target.lastIndexOf(':') + 1)),
+            ),
+      ],
+      database: value('database'),
+      serverCpus: value('server-cpus'),
     );
   }
 
@@ -374,4 +414,78 @@ final class _Options {
   final double threshold;
   final String? out;
   final String? compare;
+
+  /// Servers already running, as (name, port): `--external=name:port,...`.
+  final List<(String, int)> external;
+
+  /// The SQLite database (`--database`, default `build/bench.sqlite`).
+  final String? database;
+
+  /// Cores for the servers (`--server-cpus=0-3`, Linux, via `taskset`).
+  final String? serverCpus;
+}
+
+/// `--external`: scenarios 1–6 against servers that are already running.
+/// `--isolates` names their worker count in the report.
+Future<void> _measureExternal(_Options options) async {
+  final results = <Map<String, Object?>>[];
+  final workers = options.isolates.first;
+  for (final (name, port) in options.external) {
+    await _waitUntilUp(port);
+    for (final (scenario, spec) in _scenarios) {
+      if (!options.scenarios.any(scenario.startsWith)) {
+        continue;
+      }
+      final result = await _measure(options, port, spec);
+      results.add({
+        'target': name,
+        'scenario': scenario,
+        'isolates': workers,
+        ...result.toJson(),
+      });
+      _print('$name $scenario', workers, result);
+    }
+  }
+  if (options.out != null) {
+    File(options.out!).writeAsStringSync(
+      const JsonEncoder.withIndent('  ').convert({
+        'meta': {
+          'date': DateTime.now().toUtc().toIso8601String(),
+          'os':
+              '${Platform.operatingSystem} ${Platform.operatingSystemVersion}',
+          'cpus': Platform.numberOfProcessors,
+          'duration_s': options.duration.inSeconds,
+          'connections': options.connections,
+        },
+        'results': results,
+      }),
+    );
+    stdout.writeln('Wrote ${options.out}.');
+  }
+}
+
+Future<void> _waitUntilUp(int port) async {
+  final client = HttpClient()..connectionTimeout = const Duration(seconds: 1);
+  final deadline = DateTime.now().add(const Duration(seconds: 60));
+  try {
+    while (true) {
+      try {
+        final response = await (await client.getUrl(
+          Uri.parse('http://127.0.0.1:$port/up'),
+        )).close();
+        await response.drain<void>();
+        if (response.statusCode == 200) {
+          return;
+        }
+      } on Object {
+        // Not listening yet.
+      }
+      if (DateTime.now().isAfter(deadline)) {
+        throw StateError('Nothing answered /up on port $port.');
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    }
+  } finally {
+    client.close(force: true);
+  }
 }

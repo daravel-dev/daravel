@@ -52,6 +52,38 @@ time per request (measured as `1/rps` on one isolate, since latency percentiles
 under concurrent load are mostly queueing), and four
 isolates give ≥ 3× the ping throughput of one on a 4+ core machine.
 
+## Against Laravel
+
+`bench/laravel/compare.sh` (Linux and Docker) runs the same scenarios
+against Laravel 12 on PHP 8.4 with OPcache, from `bench/laravel/Dockerfile`:
+
+```bash
+bash bench/laravel/compare.sh                       # 10 s per scenario, 4 workers
+DURATION=20 WORKERS=8 SERVER_CPUS=0-7 CLIENT_CPUS=8-15 bash bench/laravel/compare.sh
+```
+
+- **Daravel**: the AOT build, with 1 and `WORKERS` isolates.
+- **Laravel Octane** on FrankenPHP's worker mode (the application stays in
+  memory between requests), with 1 and `WORKERS` workers.
+- **Laravel classic**: FrankenPHP without worker mode, which boots the
+  application for every request, as php-fpm does.
+
+The endpoints in `bench/laravel/overlay/` do what `lib/bench_app.dart`
+does: the same routes, validation rules, queries and responses. Both use
+one SQLite database, seeded by Daravel (Laravel reads its `$2y$` hashes as
+they are), with the same settings (WAL, `busy_timeout` 5000,
+`synchronous=NORMAL`). Laravel's configuration and routes are cached, as in
+production. Every server runs on `SERVER_CPUS` and the load generator on
+`CLIENT_CPUS`, so they never compete for a core.
+
+Two differences favour Laravel: its rate limiter uses the `array` cache, so
+each Octane worker counts on its own, where Daravel's limit is shared by
+every isolate through the coordinator; and `/ping` is registered outside the
+`web` middleware group (no session or CSRF), as Daravel's is.
+
+`bench.dart --external=name:port` measures any server that is already
+running, and `bin/laravel_report.dart <dir>` prints the table.
+
 Startup is measured by polling `/up`. On Windows a refused connection takes
 about 0.5 s to report, so startup numbers there are dominated by the poll and
 are not comparable with Linux.
