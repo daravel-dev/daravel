@@ -35,6 +35,8 @@ Laravel-facing formats change only to match Laravel more closely.
   `QueueableNotificationChannel`. `Mail.fake()` adds `assertQueued`,
   `assertNotQueued`, `assertNothingQueued` and `assertNothingOutgoing`.
   `daragic:export` leaves the framework's own jobs out of the DAM.
+- `dartisan --version` (`-V`) prints the version: `Dartisan CLI <version>`
+  outside a project, `Daravel Framework <version>` from a project's CLI.
 - Translation check for the Indonesian guide (Blueprint #24): each page in
   `docs/guide/id/` records the hash of its English page, and
   `tool/docs/generate.dart --check` (a CI gate) fails when a translation is

@@ -1,6 +1,8 @@
 import 'dart:io';
 
+import 'package:args/args.dart';
 import 'package:args/command_runner.dart';
+import 'package:daravel/daravel.dart' show daravelVersion;
 import 'package:path/path.dart' as p;
 
 import 'generator.dart';
@@ -17,10 +19,25 @@ import 'project_commands.dart';
 final class GlobalDartisanRunner extends CommandRunner<int> {
   GlobalDartisanRunner()
     : super('dartisan', 'Daravel command-line interface (global).') {
+    argParser.addFlag(
+      'version',
+      abbr: 'V',
+      negatable: false,
+      help: 'Display this application version.',
+    );
     addCommand(NewCommand());
     addCommand(KeyGenerateCommand());
     addCommand(MakeModelCommand());
     addCommand(StubPublishCommand());
+  }
+
+  @override
+  Future<int?> runCommand(ArgResults topLevelResults) async {
+    if (topLevelResults['version'] == true) {
+      stdout.writeln('Dartisan CLI $daravelVersion');
+      return 0;
+    }
+    return super.runCommand(topLevelResults);
   }
 
   /// Whether [args] run in the project's CLI rather than the global one:

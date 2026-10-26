@@ -8,6 +8,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:args/args.dart';
 import 'package:args/command_runner.dart';
 import 'package:daravel/daravel.dart';
 
@@ -62,6 +63,12 @@ final class DartisanRunner extends CommandRunner<int> {
     AppFactory createApp, {
     List<CommandFactory> commands = const <CommandFactory>[],
   }) : super('dartisan', 'Daravel command-line interface.') {
+    argParser.addFlag(
+      'version',
+      abbr: 'V',
+      negatable: false,
+      help: 'Display this application version.',
+    );
     addCommand(AboutCommand(createApp));
     addCommand(ServeCommand(createApp));
     addCommand(RouteListCommand(createApp));
@@ -122,6 +129,15 @@ final class DartisanRunner extends CommandRunner<int> {
     for (final factory in commands) {
       addCommand(factory(createApp));
     }
+  }
+
+  @override
+  Future<int?> runCommand(ArgResults topLevelResults) async {
+    if (topLevelResults['version'] == true) {
+      stdout.writeln('Daravel Framework $daravelVersion');
+      return 0;
+    }
+    return super.runCommand(topLevelResults);
   }
 
   /// Runs [command] with [args] and returns its exit code (used by the
