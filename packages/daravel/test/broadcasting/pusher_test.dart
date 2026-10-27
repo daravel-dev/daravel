@@ -397,6 +397,53 @@ void main() {
     await teo.close();
   });
 
+  test('member events another server sent late are not repeated', () async {
+    // Across servers a member event can arrive after the subscription's
+    // snapshot already holds its change (it travelled through the relay);
+    // the client must not hear that a member it has joined, or left.
+    final teo = await connect();
+    final (_, teoAuth) = await authorize(
+      teo.socketId,
+      'presence-chat.1',
+      token: 'user-1',
+    );
+    await teo.subscribe(
+      'presence-chat.1',
+      auth: teoAuth['auth']! as String,
+      channelData: teoAuth['channel_data']! as String,
+    );
+    final broadcaster = app.container.make<Broadcaster>();
+    void relayed(String event, String userId) => broadcaster.deliverLocally(
+      'presence-chat.1',
+      '\n${jsonEncode({
+        'event': 'pusher_internal:$event',
+        'data': jsonEncode({
+          'user_id': userId,
+          'user_info': {'name': userId},
+        }),
+        'channel': 'presence-chat.1',
+      })}',
+    );
+
+    relayed('member_added', '1'); // in the snapshot already
+    relayed('member_removed', '9'); // never a member
+    relayed('member_added', '3'); // new: heard
+    relayed('member_added', '3'); // the same again
+    relayed('member_removed', '3'); // heard
+    relayed('member_removed', '3'); // the same again
+    final added = await teo.next();
+    expect(added['event'], 'pusher_internal:member_added');
+    expect((jsonDecode(added['data']! as String) as Map)['user_id'], '3');
+    final removed = await teo.next();
+    expect(removed['event'], 'pusher_internal:member_removed');
+    expect((jsonDecode(removed['data']! as String) as Map)['user_id'], '3');
+    // Nothing else came in between: the next frame is the sentinel.
+    relayed('member_added', '4');
+    final sentinel = await teo.next();
+    expect((jsonDecode(sentinel['data']! as String) as Map)['user_id'], '4');
+    await teo.close();
+  });
+
   test('client events reach the others on private channels only', () async {
     Future<_Client> join() async {
       final client = await connect();

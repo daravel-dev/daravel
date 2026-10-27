@@ -328,6 +328,46 @@ final class _Connection {
 
   final Map<String, BroadcastSubscription> _subscriptions = {};
 
+  /// Frames of a channel that arrived before its `subscription_succeeded`
+  /// went out; sent after it, as Pusher clients expect.
+  final Map<String, List<String>> _early = {};
+
+  /// The members of each presence channel this connection was told about:
+  /// its `subscription_succeeded` snapshot, then `member_added` and
+  /// `member_removed`. Across servers a member event can arrive after the
+  /// snapshot already holds its change; those are dropped, so a client
+  /// never hears that a member it has joined.
+  final Map<String, Set<String>> _members = {};
+
+  void _deliver(String channel, String frame) {
+    final early = _early[channel];
+    if (early != null) {
+      early.add(frame);
+      return;
+    }
+    final members = _members[channel];
+    if (members != null) {
+      final message = _decodeMap(frame);
+      final event = message['event'];
+      if (event == 'pusher_internal:member_added' ||
+          event == 'pusher_internal:member_removed') {
+        final data = switch (message['data']) {
+          final String text => _decodeMap(text),
+          final Map<String, Object?> map => map,
+          _ => const <String, Object?>{},
+        };
+        final userId = '${data['user_id']}';
+        final fresh = event == 'pusher_internal:member_added'
+            ? members.add(userId)
+            : members.remove(userId);
+        if (!fresh) {
+          return;
+        }
+      }
+    }
+    send(frame);
+  }
+
   void send(String text) {
     if (_socket.closeCode == null) {
       _socket.add(text);
@@ -423,24 +463,33 @@ final class _Connection {
       userInfo = member?['user_info'];
     }
     if (!_subscriptions.containsKey(channel)) {
+      // Listening first, so nothing published from here on is missed;
+      // what arrives before subscription_succeeded waits for it.
+      _early[channel] = [];
       final subscription = await _server._broadcaster.subscribe(channel);
       subscription.messages.listen((envelope) {
         final newline = envelope.indexOf('\n');
         // `<except>\n<frame>`: not to the connection that sent it.
         if (envelope.substring(0, newline) != id) {
-          send(envelope.substring(newline + 1));
+          _deliver(channel, envelope.substring(newline + 1));
         }
       });
       _subscriptions[channel] = subscription;
     }
-    final joined =
-        (await _server._call('join', {
-              'channel': channel,
-              'socket': id,
-              'user_id': userId,
-              'user_info': userInfo,
-            }))!
-            as Map;
+    final Map<Object?, Object?> joined;
+    try {
+      joined =
+          (await _server._call('join', {
+                'channel': channel,
+                'socket': id,
+                'user_id': userId,
+                'user_info': userInfo,
+              }))!
+              as Map;
+    } on Object {
+      _early.remove(channel); // nothing to wait for any more
+      rethrow;
+    }
     final members = joined['members'] as Map?;
     send(
       jsonEncode({
@@ -459,6 +508,9 @@ final class _Connection {
         'channel': channel,
       }),
     );
+    if (presence) {
+      _members[channel] = {for (final key in members?.keys ?? const []) '$key'};
+    }
     if (PusherServer.isCacheChannel(channel)) {
       final cached = await _server._call('cache_get', {'channel': channel});
       send(
@@ -466,6 +518,10 @@ final class _Connection {
             ? cached
             : jsonEncode({'event': 'pusher:cache_miss', 'channel': channel}),
       );
+    }
+    // Now the frames that arrived meanwhile, after the snapshot they follow.
+    for (final frame in _early.remove(channel) ?? const <String>[]) {
+      _deliver(channel, frame);
     }
     if (joined['added'] == true) {
       await _server._send(
@@ -483,6 +539,8 @@ final class _Connection {
 
   Future<void> _unsubscribe(String channel) async {
     final subscription = _subscriptions.remove(channel);
+    _early.remove(channel);
+    _members.remove(channel);
     if (subscription == null) {
       return;
     }

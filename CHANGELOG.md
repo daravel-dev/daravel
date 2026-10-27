@@ -21,6 +21,14 @@ Laravel-facing formats change only to match Laravel more closely.
   server, which accepts its join tokens, and against LiveKit's PHP SDK
   (`bench/interop/livekit.sh`).
 
+### Fixed
+
+- With several broadcasting servers, a client joining a presence channel
+  could hear `member_added` for a member its `subscription_succeeded`
+  already listed, or before it: a frame relayed from another server
+  arrived late. Frames now wait for `subscription_succeeded`, and each
+  connection drops member events its members already reflect.
+
 ## 1.12.0
 
 Three first-party packages share their data with a Laravel application:
