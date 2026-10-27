@@ -1,4 +1,4 @@
-<!-- source: broadcasting.md sha256:2067f80e9117 -->
+<!-- source: broadcasting.md sha256:a6513b0bdcf4 -->
 # Broadcasting
 
 Daravel berbicara dengan protokol Pusher, seperti Laravel Reverb, di port
@@ -185,6 +185,10 @@ dan `users` dari API HTTP menjawab untuk seluruh cluster, begitu pula event
 terakhir sebuah channel cache. Setiap server mengirim heartbeat setiap
 sepuluh detik; anggota dari server yang diam selama 30 detik (karena crash)
 tidak dihitung lagi dan dihapus semenit kemudian.
+
+Dengan [daravel_redis](redis.md), `REVERB_SCALING_DRIVER=redis` membagi
+hal yang sama lewat Redis: frame lewat Pub/Sub, anggota dan channel cache
+di Redis, sehingga database tidak menanggungnya sama sekali.
 
 Beri setiap server `REVERB_SERVER_ID` yang tetap bila nama host dan id
 proses tidak cukup membedakannya. Load balancer tidak perlu sticky session:

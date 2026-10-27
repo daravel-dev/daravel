@@ -1,0 +1,5 @@
+# Local artefacts never published.
+build/
+coverage/
+.dart_tool/
+test/scaling_test.dart

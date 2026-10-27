@@ -461,15 +461,17 @@ The monorepo is a Dart pub workspace:
 | [`packages/daravel_lints`](packages/daravel_lints) | AST-based lint rules and registry checks, run by `dartisan lint` and in tests |
 | [`packages/dartisan_cli`](packages/dartisan_cli) | The `dartisan` command-line interface and code generators |
 | [`packages/daravel_mysql`](packages/daravel_mysql) | MySQL and MariaDB driver |
+| [`packages/daravel_redis`](packages/daravel_redis) | Redis and Valkey for several servers: cache, locks, rate limits, queues, broadcasting |
 | [`packages/daravel_sqlite`](packages/daravel_sqlite) | SQLite driver package (`db:install sqlite`) |
 | [`packages/daravel_postgres`](packages/daravel_postgres) | PostgreSQL driver package (`db:install pgsql`) |
 | [`apps/daravel_starter`](apps/daravel_starter) | Reference application and end-to-end tests |
 
-The seven packages ([`daravel`](https://pub.dev/packages/daravel),
+The eight packages ([`daravel`](https://pub.dev/packages/daravel),
 [`dartisan_cli`](https://pub.dev/packages/dartisan_cli),
 [`daravel_test`](https://pub.dev/packages/daravel_test),
 [`daravel_lints`](https://pub.dev/packages/daravel_lints),
 [`daravel_mysql`](https://pub.dev/packages/daravel_mysql),
+[`daravel_redis`](https://pub.dev/packages/daravel_redis),
 [`daravel_sqlite`](https://pub.dev/packages/daravel_sqlite),
 [`daravel_postgres`](https://pub.dev/packages/daravel_postgres)) are released together
 under one version by the verified publisher

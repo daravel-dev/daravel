@@ -18,6 +18,7 @@ const List<String> daravelPackages = [
   'daravel_mysql',
   'daravel_sqlite',
   'daravel_postgres',
+  'daravel_redis',
 ];
 
 /// Reads the latest stable `daravel` version from pub.dev.

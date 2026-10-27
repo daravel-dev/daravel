@@ -1,10 +1,36 @@
 # Changelog
 
 All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
-`daravel_lints`, `daravel_mysql`, `daravel_sqlite`, `daravel_postgres`,
-`dartisan_cli`). Versions follow SemVer:
+`daravel_lints`, `daravel_mysql`, `daravel_redis`, `daravel_sqlite`,
+`daravel_postgres`, `dartisan_cli`). Versions follow SemVer:
 breaking changes to the Dart API wait for a new major version, and
 Laravel-facing formats change only to match Laravel more closely.
+
+## Unreleased
+
+### Added
+
+- `daravel_redis`, the eighth package (Blueprints #41 and #43): Redis and
+  Valkey for the `cluster` scope, chosen in `.env` after `.withRedis()`.
+  `CACHE_STORE=redis` (cache, Laravel-compatible locks, the JWT denylist),
+  `CACHE_LIMITER=redis` (one Lua script per attempt),
+  `QUEUE_CONNECTION=redis` (jobs that start as soon as they are pushed,
+  through `BLPOP`, at least once) and `REVERB_SCALING_DRIVER=redis`
+  (broadcasting servers over Pub/Sub). Its own RESP client pipelines
+  commands on one connection per isolate, with command timeouts, bounded
+  in-flight commands and TLS; `cache:clear` deletes only the cache's keys.
+  Tested on Redis 7 and Valkey 8, in CI as well.
+- `ApplicationBuilder.withCacheStore`, `withQueueDriver`,
+  `withBroadcastScaling` and `withShutdown`, for driver packages; the
+  `BroadcastRelay` contract; `REVERB_SCALING_DRIVER`.
+
+### Fixed
+
+- `withConfig(MyConfig.fromEnv)` registered the section as a plain
+  `ConfigSection`, so `Config.section<MyConfig>()`, as the configuration
+  guide shows it, never found it.
+- With a queue connection other than `sync` and `memory`, failed jobs are
+  stored in `failed_jobs`, as in Laravel, instead of in memory.
 
 ## 1.11.0
 

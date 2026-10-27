@@ -44,7 +44,11 @@ final class QueueConfig implements ConfigSection {
       // the database queue they must live where both see them.
       uniqueLockStore: env.string(
         'QUEUE_UNIQUE_LOCK_STORE',
-        connection == 'database' ? 'database' : 'process',
+        switch (connection) {
+          'database' => 'database',
+          'redis' => 'redis',
+          _ => 'process',
+        },
       ),
       signalStore: env.maybeString('QUEUE_SIGNAL_STORE'),
     );
@@ -81,7 +85,8 @@ final class QueueConfig implements ConfigSection {
   final bool afterCommit;
 
   /// Cache store holding unique-job locks (`QUEUE_UNIQUE_LOCK_STORE`;
-  /// `database` with the database queue, `process` otherwise).
+  /// `database` with the database queue, `redis` with the redis queue,
+  /// `process` otherwise).
   final String uniqueLockStore;
 
   /// Cache store of `queue:restart` and `queue:pause` signals

@@ -97,6 +97,16 @@ sections:
       - { php: "REVERB_SCALING_ENABLED=true (Reverb with Redis)", dart: "REVERB_SCALING_ENABLED=true (the database)", symbol: DatabaseBroadcastRelay, note: "Frames, presence members (here included) and cache channels span every server; PostgreSQL NOTIFY, MySQL polling." }
       - { php: "(Reverb's internal pub/sub)", dart: "await Broadcast.publish('orders.7', data)", symbol: Broadcast.publish, async: true, note: "Daravel's own channels between isolates, for custom WebSocket and SSE routes." }
 
+  - name: Redis (daravel_redis)
+    symbols:
+      - { php: "Redis::command('HSET', [...])", dart: "await Redis.command(['HSET', ...])", symbol: Redis.command, async: true }
+      - { php: "Redis::publish($channel, $message)", dart: "await Redis.publish(channel, message)", symbol: Redis.publish, async: true }
+      - { php: "Redis::subscribe([...], fn ($message) => ...)", dart: "Redis.subscribe([...]).messages.listen(...)", symbol: Redis.subscribe, note: "Subscribes again after the connection drops." }
+      - { php: "CACHE_STORE=redis", dart: "CACHE_STORE=redis with .withRedis()", symbol: RedisStore, note: "Numbers stored raw; cache:clear deletes the cache's keys, not the database (no FLUSHDB)." }
+      - { php: "Cache::lock('report')->get(...) on Redis", dart: "Cache.lock('report') on CACHE_STORE=redis", symbol: RedisStore.acquireLock, async: true, note: "Laravel's RedisLock: the same keys and release script." }
+      - { php: "QUEUE_CONNECTION=redis", dart: "QUEUE_CONNECTION=redis", symbol: RedisQueue, note: "BLPOP wakes idle workers; keys under daravel:, apart from Laravel's queues:." }
+      - { php: "REVERB_SCALING_ENABLED=true (Redis)", dart: "REVERB_SCALING_DRIVER=redis", symbol: RedisBroadcastRelay, note: "Pub/Sub between servers; presence members shared across them." }
+
   - name: Validation
     symbols:
       - { php: "Validator::make($data, $rules)", dart: "Validator(data, rules)", symbol: Validator }

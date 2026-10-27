@@ -18,6 +18,24 @@ abstract interface class ChannelState {
   Future<Object?> call(String op, Map<String, Object?> args);
 }
 
+/// Carries the Pusher server's frames to the other servers and theirs to
+/// this one (`REVERB_SCALING_ENABLED`): [DatabaseBroadcastRelay], or a
+/// driver registered with `ApplicationBuilder.withBroadcastScaling`
+/// (package:daravel_redis's Pub/Sub).
+abstract interface class BroadcastRelay {
+  /// Hands [envelope] (`<except socket>\n<frame>`) to the other servers.
+  Future<void> send(String channel, String envelope);
+
+  /// Starts handing the other servers' frames to [deliver] (this isolate's
+  /// connections) until [close]; completes once it listens.
+  Future<void> start(void Function(String channel, String envelope) deliver);
+
+  Future<void> close();
+}
+
+/// The channel state and relay of a scaling driver.
+typedef BroadcastScaling = ({ChannelState state, BroadcastRelay relay});
+
 /// This server's name among the others when [BroadcastConfig.serverId] is
 /// not set: the host and the process, which every worker isolate shares.
 String defaultBroadcastServerId() => '${Platform.localHostname}:$pid';
@@ -223,7 +241,7 @@ final class DatabaseChannelState implements ChannelState {
 /// PostgreSQL wakes the readers with `NOTIFY`; other databases are read
 /// every [poll]. A reader looks back 64 ids, so a frame committed after a
 /// later one (two servers inserting at once) is still delivered, once.
-final class DatabaseBroadcastRelay {
+final class DatabaseBroadcastRelay implements BroadcastRelay {
   DatabaseBroadcastRelay(
     this.db, {
     required this.state,
@@ -257,6 +275,7 @@ final class DatabaseBroadcastRelay {
       db.table('broadcast_messages', connection: connection);
 
   /// Stores [envelope] (`<except socket>\n<frame>`) for the other servers.
+  @override
   Future<void> send(String channel, String envelope) async {
     await _messages.insert(<String, Object?>{
       'origin': server,
@@ -268,6 +287,7 @@ final class DatabaseBroadcastRelay {
   }
 
   /// Starts reading the other servers' frames into [deliver] until [close].
+  @override
   Future<void> start(void Function(String channel, String envelope) deliver) {
     if (_running) {
       return Future<void>.value();
@@ -361,6 +381,7 @@ final class DatabaseBroadcastRelay {
   }
 
   /// Stops reading.
+  @override
   Future<void> close() async {
     _closed = true;
     final wake = _wake;

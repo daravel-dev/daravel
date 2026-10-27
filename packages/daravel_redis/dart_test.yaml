@@ -1,0 +1,3 @@
+tags:
+  # Needs a Redis or Valkey server (DARAVEL_TEST_REDIS); skipped without it.
+  integration:

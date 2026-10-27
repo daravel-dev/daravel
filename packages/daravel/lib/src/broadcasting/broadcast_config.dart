@@ -30,6 +30,7 @@ final class BroadcastConfig implements ConfigSection {
     this.maxMessageSize = 10000,
     this.encryptionMasterKey,
     this.scaling = false,
+    this.scalingDriver = 'database',
     this.scalingConnection,
     this.scalingPoll = const Duration(milliseconds: 100),
     this.serverId,
@@ -63,6 +64,7 @@ final class BroadcastConfig implements ConfigSection {
         ),
       ),
       scaling: env.boolean('REVERB_SCALING_ENABLED', false),
+      scalingDriver: env.string('REVERB_SCALING_DRIVER', 'database'),
       scalingConnection: env.maybeString('REVERB_SCALING_CONNECTION'),
       scalingPoll: env.duration(
         'REVERB_SCALING_POLL',
@@ -129,6 +131,10 @@ final class BroadcastConfig implements ConfigSection {
   /// (`REVERB_SCALING_CONNECTION`, default the default connection) instead
   /// of Reverb's Redis.
   final bool scaling;
+
+  /// What the servers share through (`REVERB_SCALING_DRIVER`): `database`,
+  /// or `redis` with package:daravel_redis.
+  final String scalingDriver;
   final String? scalingConnection;
 
   /// How often a server reads the other servers' events when the database
@@ -160,6 +166,7 @@ final class BroadcastConfig implements ConfigSection {
     'encryption_master_key': encryptionMasterKey == null ? null : '********',
     'scaling': {
       'enabled': scaling,
+      'driver': scalingDriver,
       'connection': scalingConnection,
       'poll_ms': scalingPoll.inMilliseconds,
       'server_id': serverId,

@@ -1,0 +1,17 @@
+/// Redis and Valkey for Daravel (Blueprints #41 and #43): the `cluster`
+/// scope of a cache, locks, rate limits, queues and broadcasting, chosen in
+/// `.env`. Daravel's core needs none of it on one server.
+///
+/// ```dart
+/// Application.configure(basePath: '.').withRedis()
+/// ```
+library;
+
+export 'src/broadcasting.dart';
+export 'src/client.dart';
+export 'src/config.dart';
+export 'src/connection.dart';
+export 'src/queue.dart';
+export 'src/resp.dart';
+export 'src/setup.dart';
+export 'src/store.dart';

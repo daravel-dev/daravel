@@ -122,7 +122,8 @@ void main() {
   final root = p.normalize(p.join(Directory.current.path, '..', '..'));
   final declarations = _Declarations()
     ..scan(p.join(root, 'packages', 'daravel', 'lib'))
-    ..scan(p.join(root, 'packages', 'daravel_test', 'lib'));
+    ..scan(p.join(root, 'packages', 'daravel_test', 'lib'))
+    ..scan(p.join(root, 'packages', 'daravel_redis', 'lib'));
   final parity =
       loadYaml(File(p.join(root, 'parity.yaml')).readAsStringSync()) as YamlMap;
 

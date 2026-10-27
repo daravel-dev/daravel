@@ -9,6 +9,7 @@ resolution: workspace
 
 dependencies:
   daravel: any
+  daravel_redis: any
   path: ^1.9.0
 
 dev_dependencies:

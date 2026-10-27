@@ -122,9 +122,10 @@ final class AdoptCommand extends Command<int> {
     // Keep cache values apart: Laravel stores PHP-serialized values.
     final appName = source['APP_NAME'] ?? 'laravel';
     adopted['CACHE_PREFIX'] = 'daravel_cache_';
+    // Laravel 12's default: Str::slug(APP_NAME).'-cache-'.
     final laravelPrefix =
         source['CACHE_PREFIX'] ??
-        '${appName.toLowerCase().replaceAll(RegExp('[^a-z0-9]+'), '_')}_cache_';
+        '${appName.toLowerCase().replaceAll(RegExp('[^a-z0-9]+'), '-').replaceAll(RegExp(r'^-+|-+$'), '')}-cache-';
     if (laravelPrefix == 'daravel_cache_') {
       report.warn(
         'Laravel already uses CACHE_PREFIX=daravel_cache_',

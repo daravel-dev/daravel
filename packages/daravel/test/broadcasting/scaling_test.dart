@@ -24,10 +24,12 @@ void main() {
 }
 
 /// Also run on MySQL and MariaDB by daravel_mysql/test/orm_matrix_test.dart
-/// ([configure] registers its driver).
+/// ([configure] registers its driver), and through Redis by
+/// daravel_redis/test/scaling_test.dart ([env] picks the driver).
 void scalingTests({
   String? databaseUrl,
   ApplicationBuilder Function(ApplicationBuilder builder)? configure,
+  Map<String, String> env = const {},
 }) {
   late Directory dir;
   final servers = <(Application, ServerEngine)>[];
@@ -47,6 +49,7 @@ void scalingTests({
           'REVERB_SCALING_ENABLED': 'true',
           'REVERB_SCALING_POLL': '20ms',
           'REVERB_SERVER_ID': id,
+          ...env,
         })
         .withBroadcasting()
         .create();

@@ -96,6 +96,18 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `REVERB_SCALING_ENABLED=true (Reverb with Redis)` | `REVERB_SCALING_ENABLED=true (the database)` | Frames, presence members (here included) and cache channels span every server; PostgreSQL NOTIFY, MySQL polling. |
 | `(Reverb's internal pub/sub)` | `await Broadcast.publish('orders.7', data)` | **async**; Daravel's own channels between isolates, for custom WebSocket and SSE routes. |
 
+## Redis (daravel_redis)
+
+| Laravel | Daravel | Notes |
+| :-- | :-- | :-- |
+| `Redis::command('HSET', [...])` | `await Redis.command(['HSET', ...])` | **async** |
+| `Redis::publish($channel, $message)` | `await Redis.publish(channel, message)` | **async** |
+| `Redis::subscribe([...], fn ($message) => ...)` | `Redis.subscribe([...]).messages.listen(...)` | Subscribes again after the connection drops. |
+| `CACHE_STORE=redis` | `CACHE_STORE=redis with .withRedis()` | Numbers stored raw; cache:clear deletes the cache's keys, not the database (no FLUSHDB). |
+| `Cache::lock('report')->get(...) on Redis` | `Cache.lock('report') on CACHE_STORE=redis` | **async**; Laravel's RedisLock: the same keys and release script. |
+| `QUEUE_CONNECTION=redis` | `QUEUE_CONNECTION=redis` | BLPOP wakes idle workers; keys under daravel:, apart from Laravel's queues:. |
+| `REVERB_SCALING_ENABLED=true (Redis)` | `REVERB_SCALING_DRIVER=redis` | Pub/Sub between servers; presence members shared across them. |
+
 ## Validation
 
 | Laravel | Daravel | Notes |

@@ -15,6 +15,7 @@ void main() {
       'packages/daravel_test',
       'packages/dartisan_cli',
       'packages/daravel_mysql',
+      'packages/daravel_redis',
       'packages/daravel_sqlite',
       'packages/daravel_postgres',
       'apps/daravel_starter',

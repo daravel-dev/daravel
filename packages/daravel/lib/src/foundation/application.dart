@@ -174,8 +174,8 @@ final class Application {
       ..register(MailConfig.fromEnv(env))
       ..register(BroadcastConfig.fromEnv(env))
       ..register(MetricsConfig.fromEnv(env));
-    for (final factory in _builder._configFactories) {
-      config.register(factory(env));
+    for (final register in _builder._configFactories) {
+      register(env, config);
     }
     final appConfig = config.section<AppConfig>();
     exceptions.debug = appConfig.debug;
@@ -322,18 +322,32 @@ final class Application {
         final broadcasting = c
             .make<ConfigRepository>()
             .section<BroadcastConfig>();
-        DatabaseChannelState? shared;
-        DatabaseBroadcastRelay? relay;
-        if (broadcasting.serves && broadcasting.scaling) {
+        ChannelState? shared;
+        BroadcastRelay? relay;
+        final server = broadcasting.serverId ?? defaultBroadcastServerId();
+        final driver = _builder._broadcastScaling[broadcasting.scalingDriver];
+        if (broadcasting.serves &&
+            broadcasting.scaling &&
+            broadcasting.scalingDriver != 'database') {
+          if (driver == null) {
+            throw ConfigException(
+              'REVERB_SCALING_DRIVER=${broadcasting.scalingDriver} is not '
+              'registered (withBroadcastScaling, or withRedis() from '
+              'package:daravel_redis).',
+            );
+          }
+          (state: shared, relay: relay) = driver(c, broadcasting, server);
+        } else if (broadcasting.serves && broadcasting.scaling) {
           // Several servers: channel state and frames in the database.
-          shared = DatabaseChannelState(
+          final state = DatabaseChannelState(
             c.make<DatabaseManager>(),
-            server: broadcasting.serverId ?? defaultBroadcastServerId(),
+            server: server,
             connection: broadcasting.scalingConnection,
           );
+          shared = state;
           relay = DatabaseBroadcastRelay(
             c.make<DatabaseManager>(),
-            state: shared,
+            state: state,
             connection: broadcasting.scalingConnection,
             poll: broadcasting.scalingPoll,
             onError: (error) =>
@@ -366,14 +380,19 @@ final class Application {
       ..instance<JobRegistry>(jobs)
       ..instance<Schedule>(schedule)
       ..singleton<QueueManager>((c) => _buildQueue(c, events, jobs))
-      ..singleton<CacheManager>(
-        (c) => CacheManager.fromConfig(
+      ..singleton<CacheManager>((c) {
+        final manager = CacheManager.fromConfig(
           c.make<ConfigRepository>().section<CacheConfig>(),
           basePath: basePath,
           database: () => c.make<DatabaseManager>(),
           channel: channel,
-        ),
-      );
+        );
+        for (final MapEntry(key: name, value: factory)
+            in _builder._cacheStores.entries) {
+          manager.extend(name, () => factory(c));
+        }
+        return manager;
+      });
 
     middleware
       ..aliasFactory('auth', AuthenticateMiddleware.new)
@@ -474,9 +493,12 @@ final class Application {
     final queueConfig = c.make<ConfigRepository>().section<QueueConfig>();
     final db = c.make<DatabaseManager>();
     final cache = c.make<CacheManager>();
-    final failed = queueConfig.defaultConnection == 'database'
-        ? DatabaseFailedJobProvider(db, table: queueConfig.failedTable)
-        : MemoryFailedJobProvider();
+    // Failed jobs of the queues that outlive the process (database, or a
+    // driver such as redis) go to `failed_jobs`, as in Laravel.
+    final failed =
+        const {'sync', 'memory'}.contains(queueConfig.defaultConnection)
+        ? MemoryFailedJobProvider()
+        : DatabaseFailedJobProvider(db, table: queueConfig.failedTable);
     final lockStore = cache.store(queueConfig.uniqueLockStore);
     // queue:restart and queue:pause run in a process of their own: with
     // the database queue, their signals need a store that outlives it and
@@ -525,6 +547,10 @@ final class Application {
               ),
             ),
           );
+    for (final MapEntry(key: name, value: factory)
+        in _builder._queueDrivers.entries) {
+      manager.extend(name, () => factory(c));
+    }
     return manager;
   }
 
@@ -943,6 +969,9 @@ final class Application {
     await container.resolved<Mailer>()?.transport.close();
     await container.resolved<BroadcastManager>()?.server?.close();
     await container.resolved<Broadcaster>()?.close();
+    for (final hook in _builder._shutdownHooks) {
+      await hook(container);
+    }
     final db = container.resolved<DatabaseManager>();
     if (db != null) {
       await db.closeAll();
@@ -978,6 +1007,18 @@ final class ApplicationBuilder {
       <void Function(Container container)>[];
   final List<Migration> _migrations = <Migration>[];
   final Map<String, DatabaseDriverFactory> _databaseDrivers = {};
+  final Map<String, CacheStore Function(Container c)> _cacheStores = {};
+  final Map<String, QueueDriver Function(Container c)> _queueDrivers = {};
+  final Map<
+    String,
+    BroadcastScaling Function(
+      Container c,
+      BroadcastConfig config,
+      String server,
+    )
+  >
+  _broadcastScaling = {};
+  final List<Future<void> Function(Container c)> _shutdownHooks = [];
   final Map<String, ConnectionConfig Function(Env env)> _databaseConnections =
       {};
   final Map<String, MailTransport Function(MailConfig config)> _mailTransports =
@@ -1051,13 +1092,14 @@ final class ApplicationBuilder {
   }
 
   /// Adds readiness checks to `/up/ready`; [defaults] keeps the database
-  /// and cache checks.
+  /// and cache checks (unchanged when null, so a package adding its own
+  /// check keeps the application's choice).
   ApplicationBuilder withHealthChecks(
     List<HealthCheck> checks, {
-    bool defaults = true,
+    bool? defaults,
   }) {
     _healthChecks.addAll(checks);
-    _defaultHealthChecks = defaults;
+    _defaultHealthChecks = defaults ?? _defaultHealthChecks;
     return this;
   }
 
@@ -1075,8 +1117,10 @@ final class ApplicationBuilder {
     return this;
   }
 
-  final List<ConfigSection Function(Env env)> _configFactories =
-      <ConfigSection Function(Env env)>[];
+  /// Each registers its section under its own type, so `section<T>()`
+  /// finds it.
+  final List<void Function(Env env, ConfigRepository config)> _configFactories =
+      [];
   final List<ConfigCheck> _configChecks = <ConfigCheck>[];
   LogLevel? _logLevel;
 
@@ -1230,11 +1274,54 @@ final class ApplicationBuilder {
     return this;
   }
 
+  /// Registers the cache store [name] (`CACHE_STORE=[name]`, and the
+  /// `CACHE_LIMITER` and `QUEUE_UNIQUE_LOCK_STORE` that name it), for
+  /// example package:daravel_redis's `redis`.
+  ApplicationBuilder withCacheStore(
+    String name,
+    CacheStore Function(Container c) factory,
+  ) {
+    _cacheStores[name] = factory;
+    return this;
+  }
+
+  /// Registers the queue connection [name] (`QUEUE_CONNECTION=[name]`).
+  ApplicationBuilder withQueueDriver(
+    String name,
+    QueueDriver Function(Container c) factory,
+  ) {
+    _queueDrivers[name] = factory;
+    return this;
+  }
+
+  /// Registers what several broadcasting servers share through for
+  /// `REVERB_SCALING_DRIVER=[name]` (`database` is built in). [server] is
+  /// this server's name (`REVERB_SERVER_ID`).
+  ApplicationBuilder withBroadcastScaling(
+    String name,
+    BroadcastScaling Function(
+      Container c,
+      BroadcastConfig config,
+      String server,
+    )
+    factory,
+  ) {
+    _broadcastScaling[name] = factory;
+    return this;
+  }
+
+  /// Runs [hook] when the application shuts down, before the database
+  /// closes (a driver's connections, for example).
+  ApplicationBuilder withShutdown(Future<void> Function(Container c) hook) {
+    _shutdownHooks.add(hook);
+    return this;
+  }
+
   /// Registers an additional typed configuration section.
   ApplicationBuilder withConfig<T extends ConfigSection>(
     T Function(Env env) factory,
   ) {
-    _configFactories.add(factory);
+    _configFactories.add((env, config) => config.register<T>(factory(env)));
     return this;
   }
 

@@ -121,6 +121,17 @@ void main() {
     await good.shutdown();
   });
 
+  test('withConfig registers a section under its own type', () async {
+    final app = _builder({'BILLING_CURRENCY': 'EUR'})
+        .withConfig(_BillingConfig.fromEnv)
+        .create();
+    await app.boot();
+    // section<T>() found nothing before: it was stored as ConfigSection.
+    expect(app.config.section<_BillingConfig>().currency, 'EUR');
+    expect(app.config.get<String>('billing.currency'), 'EUR');
+    await app.shutdown();
+  });
+
   test('custom config checks participate in validation', () async {
     final app = _builder({})
         .withConfigCheck(
@@ -154,4 +165,19 @@ void main() {
       await app.shutdown();
     },
   );
+}
+
+final class _BillingConfig implements ConfigSection {
+  const _BillingConfig(this.currency);
+
+  factory _BillingConfig.fromEnv(Env env) =>
+      _BillingConfig(env.string('BILLING_CURRENCY', 'IDR'));
+
+  final String currency;
+
+  @override
+  String get key => 'billing';
+
+  @override
+  Map<String, Object?> toMap() => {'currency': currency};
 }

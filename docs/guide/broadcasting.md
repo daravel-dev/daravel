@@ -179,6 +179,10 @@ event of a cache channel. Each server sends a heartbeat every ten seconds;
 the members of a server silent for 30 seconds (it crashed) stop counting
 and are deleted a minute later.
 
+With [daravel_redis](redis.md), `REVERB_SCALING_DRIVER=redis` shares the
+same things through Redis instead: frames over Pub/Sub, members and cache
+channels in Redis, so the database sees none of it.
+
 Give each server a stable `REVERB_SERVER_ID` if the host name and process
 id do not tell them apart. A load balancer needs no sticky sessions: a
 client stays on the server its WebSocket reached.

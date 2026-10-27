@@ -61,6 +61,10 @@ and Echo on one of two Daravel servers that share a database
 (`REVERB_SCALING_ENABLED`); `ISOLATES=4` runs Daravel with four worker
 isolates. It is a compatibility check, not a benchmark.
 
+`bench/interop/redis.sh` puts Laravel 12 (predis) and Daravel
+(`daravel_redis`) on one Redis: a cache lock taken by either is refused to
+the other, with the same owner, and a cached number counts up from both.
+
 `bench/interop/connections.sh` is the capacity test: it builds the interop
 server AOT, opens `COUNT` (10 000) idle Pusher connections with
 `bin/connections.dart`, all on one channel, and prints the server's RSS

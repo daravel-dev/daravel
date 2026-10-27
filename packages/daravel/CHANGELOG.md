@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Added `ApplicationBuilder.withCacheStore`, `withQueueDriver`, `withBroadcastScaling` and `withShutdown`, the `BroadcastRelay` contract and `REVERB_SCALING_DRIVER`, for driver packages such as `daravel_redis`.
+- Fixed: `withConfig` registers a section under its own type, so `Config.section<T>()` finds it.
+- Changed: `withHealthChecks` keeps the default checks setting unless `defaults:` is given.
+
 ## 1.11.0
 
 - Added cache channels (`cache-`, `private-cache-`, `presence-cache-`) and end-to-end encrypted `private-encrypted-` channels (`REVERB_ENCRYPTION_MASTER_KEY_BASE64`, `Echo.encryptedPrivate`).

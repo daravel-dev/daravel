@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:0753b8568937 -->
+<!-- source: README.md sha256:b56429d81795 -->
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/daravel-dev/daravel/main/docs/brand/svg/daravel-logo-horizontal-on-dark.svg">
@@ -253,6 +253,7 @@ Daravel dirancang modular dengan pustaka-pustaka resmi yang terpadu:
 | **[`daravel_test`](https://pub.dev/packages/daravel_test)** | [![pub](https://img.shields.io/pub/v/daravel_test.svg)](https://pub.dev/packages/daravel_test) | Testing toolkit: `TestClient`, fakes database, konformansi Laravel |
 | **[`daravel_lints`](https://pub.dev/packages/daravel_lints)** | [![pub](https://img.shields.io/pub/v/daravel_lints.svg)](https://pub.dev/packages/daravel_lints) | Aturan lint AST terhadap reflection, interpolasi SQL, dan kebocoran memori |
 | **[`daravel_mysql`](https://pub.dev/packages/daravel_mysql)** | [![pub](https://img.shields.io/pub/v/daravel_mysql.svg)](https://pub.dev/packages/daravel_mysql) | Driver MySQL & MariaDB berkinerja tinggi |
+| **[`daravel_redis`](https://pub.dev/packages/daravel_redis)** | [![pub](https://img.shields.io/pub/v/daravel_redis.svg)](https://pub.dev/packages/daravel_redis) | Redis & Valkey lintas server: cache, lock, rate limit, queue, broadcasting |
 | **[`daravel_postgres`](https://pub.dev/packages/daravel_postgres)** | [![pub](https://img.shields.io/pub/v/daravel_postgres.svg)](https://pub.dev/packages/daravel_postgres) | Driver PostgreSQL dengan dukungan binary float8 |
 | **[`daravel_sqlite`](https://pub.dev/packages/daravel_sqlite)** | [![pub](https://img.shields.io/pub/v/daravel_sqlite.svg)](https://pub.dev/packages/daravel_sqlite) | Driver SQLite bawaan dengan build hook native |
 

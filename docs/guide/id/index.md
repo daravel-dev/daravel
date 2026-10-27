@@ -1,4 +1,4 @@
-<!-- source: index.md sha256:98c5a8ba104b -->
+<!-- source: index.md sha256:99b8ebdcf7b9 -->
 # Dokumentasi Daravel
 
 Daravel adalah framework backend untuk Dart yang mengikuti filosofi Laravel
@@ -54,16 +54,17 @@ Angka performa berasal dari harness yang bisa direproduksi, bukan dari klaim
 7. [Cache, event, queue, penjadwalan](background.md).
 8. [Mail dan notifikasi](mail.md): SMTP, mailable, serta notifikasi mail dan database.
 9. [Broadcasting](broadcasting.md): Laravel Echo, protokol Pusher seperti Reverb, channel private dan presence.
-10. [String, helper, dan koleksi](helpers.md): `Str`, `retry`, `once`, `pluck`, ...
-11. [HTTP client](http-client.md): request keluar dengan `Http`, retry, dan `Http.fake()`.
-12. [Client Flutter](flutter-client.md): client bertipe yang dihasilkan dari route, dengan validasi di perangkat.
-13. [Testing](testing.md): `TestClient`, helper database, fake, konformansi.
-14. [Deployment](deployment.md): bundle native, Docker, Cloud Run, VPS (systemd + Caddy).
-15. [Koeksistensi dengan Laravel](laravel-coexistence.md): kontrak kompatibilitas.
-16. [Migrasi dari Laravel](migrating-from-laravel.md): pindahkan endpoint satu per satu di balik proxy.
-17. [Keamanan](security.md): default yang aman dan suite keamanan.
-18. [Performa](performance.md): harness benchmark.
-19. [Tabel paritas Laravel ⇄ Daravel](../parity.md) (dihasilkan otomatis, dalam bahasa Inggris).
+10. [Redis](redis.md): cache, lock, rate limit, queue, dan broadcasting lintas server, saat satu server tidak cukup.
+11. [String, helper, dan koleksi](helpers.md): `Str`, `retry`, `once`, `pluck`, ...
+12. [HTTP client](http-client.md): request keluar dengan `Http`, retry, dan `Http.fake()`.
+13. [Client Flutter](flutter-client.md): client bertipe yang dihasilkan dari route, dengan validasi di perangkat.
+14. [Testing](testing.md): `TestClient`, helper database, fake, konformansi.
+15. [Deployment](deployment.md): bundle native, Docker, Cloud Run, VPS (systemd + Caddy).
+16. [Koeksistensi dengan Laravel](laravel-coexistence.md): kontrak kompatibilitas.
+17. [Migrasi dari Laravel](migrating-from-laravel.md): pindahkan endpoint satu per satu di balik proxy.
+18. [Keamanan](security.md): default yang aman dan suite keamanan.
+19. [Performa](performance.md): harness benchmark.
+20. [Tabel paritas Laravel ⇄ Daravel](../parity.md) (dihasilkan otomatis, dalam bahasa Inggris).
 
 English: [Daravel documentation](../index.md).
 

@@ -34,7 +34,7 @@ final class PusherServer {
   final ChannelState _state;
 
   /// Carries frames to the other servers, and theirs to this one.
-  final DatabaseBroadcastRelay? relay;
+  final BroadcastRelay? relay;
 
   /// Starts reading the other servers' frames (once, at the first client).
   Future<void>? _relaying;

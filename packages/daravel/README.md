@@ -254,6 +254,7 @@ The Daravel framework is designed around modular, high-cohesion packages:
 | **[`daravel_test`](https://pub.dev/packages/daravel_test)** | [![pub](https://img.shields.io/pub/v/daravel_test.svg)](https://pub.dev/packages/daravel_test) | Testing toolkit: `TestClient`, database fakes, Laravel wire conformance |
 | **[`daravel_lints`](https://pub.dev/packages/daravel_lints)** | [![pub](https://img.shields.io/pub/v/daravel_lints.svg)](https://pub.dev/packages/daravel_lints) | AST-based lint rules against reflection, SQL interpolation, and memory leaks |
 | **[`daravel_mysql`](https://pub.dev/packages/daravel_mysql)** | [![pub](https://img.shields.io/pub/v/daravel_mysql.svg)](https://pub.dev/packages/daravel_mysql) | High-performance MySQL & MariaDB driver |
+| **[`daravel_redis`](https://pub.dev/packages/daravel_redis)** | [![pub](https://img.shields.io/pub/v/daravel_redis.svg)](https://pub.dev/packages/daravel_redis) | Redis & Valkey across servers: cache, locks, rate limits, queues, broadcasting |
 | **[`daravel_postgres`](https://pub.dev/packages/daravel_postgres)** | [![pub](https://img.shields.io/pub/v/daravel_postgres.svg)](https://pub.dev/packages/daravel_postgres) | High-performance PostgreSQL driver with binary float8 support |
 | **[`daravel_sqlite`](https://pub.dev/packages/daravel_sqlite)** | [![pub](https://img.shields.io/pub/v/daravel_sqlite.svg)](https://pub.dev/packages/daravel_sqlite) | Embedded SQLite driver bundled with native build hooks |
 
