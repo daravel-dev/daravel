@@ -9,7 +9,7 @@
 - title: The basics
   pages: [routing, validation, responses, http-client]
 - title: Database
-  pages: [database, orm]
+  pages: [database, orm, query-filters]
 - title: Security
   pages: [auth, permissions, security]
 - title: Digging deeper

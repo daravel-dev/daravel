@@ -94,7 +94,7 @@ before moving to a new minor version.
 `make:seeder`, `make:factory`, `make:controller [--api --resource --model]`,
 `make:request`, `make:middleware`, `make:job`, `make:policy`, `make:event`,
 `make:listener`, `make:resource`, `make:rule`, `make:mail`,
-`make:notification`, `make:observer`,
+`make:notification`, `make:observer`, `make:query-filter` (daravel_teorion),
 `make:provider`, `make:command` and `make:test`. Each one writes the file
 from a template and adds it to the matching registry in `bootstrap/`.
 

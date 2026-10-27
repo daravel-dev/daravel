@@ -361,6 +361,13 @@ List<Command<int>> extraMakeCommands() => [
     model: true,
   ),
   _SimpleMakeCommand(
+    'make:query-filter',
+    'Create a daravel_teorion query filter (registered in '
+        'bootstrap/query_filters.dart).',
+    (g, n, o) => g.queryFilter(n, model: o['model']),
+    model: true,
+  ),
+  _SimpleMakeCommand(
     'make:event',
     'Create a new event class.',
     (g, n, o) => g.event(n),

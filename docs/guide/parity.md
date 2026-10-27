@@ -122,6 +122,17 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `php artisan permission:show` | `dartisan permission:show` |  |
 | `app(PermissionRegistrar::class)->forgetCachedPermissions()` | `await PermissionRegistrar.current.forgetCachedPermissions()` | **async** |
 
+## Query filters (daravel_teorion)
+
+| Laravel | Daravel | Notes |
+| :-- | :-- | :-- |
+| `Post::query()->filterAndPaginate($request)` | `await Post.definition.query().filterAndPaginate(request)` | **async**; laravel-teorion's request format: filters, scopes[], withs[], sort, is_paginate, pagination=cursor. |
+| `Post::findFiltered($request, $id)` | `await Post.definition.query().findFiltered(request, id)` | **async** |
+| `class PostQueryFilter extends QueryFilter` | `final class PostQueryFilter extends QueryFilter<Post>` |  |
+| `Filter::multiLike(['title'])->alias('q')` | `Filter.multiLike(['title']).alias('q')` | default() is withDefault(); enum/in/null are enum_/in_/null_. |
+| `FilterMacroRegistry::register('phone', fn ...)` | `FilterMacroRegistry.register('phone', (q, value, param, request) {...})` |  |
+| `php artisan make:query-filter PostQueryFilter` | `dartisan make:query-filter Post` | Registered in bootstrap/query_filters.dart (no reflection). |
+
 ## Validation
 
 | Laravel | Daravel | Notes |

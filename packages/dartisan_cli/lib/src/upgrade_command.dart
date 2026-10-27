@@ -20,6 +20,7 @@ const List<String> daravelPackages = [
   'daravel_postgres',
   'daravel_permission',
   'daravel_redis',
+  'daravel_teorion',
 ];
 
 /// Reads the latest stable `daravel` version from pub.dev.

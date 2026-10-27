@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:ee85728c2833 -->
+<!-- source: README.md sha256:7fa482090a2c -->
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/daravel-dev/daravel/main/docs/brand/svg/daravel-logo-horizontal-on-dark.svg">
@@ -254,6 +254,7 @@ Daravel dirancang modular dengan pustaka-pustaka resmi yang terpadu:
 | **[`daravel_lints`](https://pub.dev/packages/daravel_lints)** | [![pub](https://img.shields.io/pub/v/daravel_lints.svg)](https://pub.dev/packages/daravel_lints) | Aturan lint AST terhadap reflection, interpolasi SQL, dan kebocoran memori |
 | **[`daravel_mysql`](https://pub.dev/packages/daravel_mysql)** | [![pub](https://img.shields.io/pub/v/daravel_mysql.svg)](https://pub.dev/packages/daravel_mysql) | Driver MySQL & MariaDB berkinerja tinggi |
 | **[`daravel_permission`](https://pub.dev/packages/daravel_permission)** | [![pub](https://img.shields.io/pub/v/daravel_permission.svg)](https://pub.dev/packages/daravel_permission) | Role & permission di database pada tabel spatie/laravel-permission |
+| **[`daravel_teorion`](https://pub.dev/packages/daravel_teorion)** | [![pub](https://img.shields.io/pub/v/daravel_teorion.svg)](https://pub.dev/packages/daravel_teorion) | Query filter dari request dengan whitelist (laravel-teorion) |
 | **[`daravel_redis`](https://pub.dev/packages/daravel_redis)** | [![pub](https://img.shields.io/pub/v/daravel_redis.svg)](https://pub.dev/packages/daravel_redis) | Redis & Valkey lintas server: cache, lock, rate limit, queue, broadcasting |
 | **[`daravel_postgres`](https://pub.dev/packages/daravel_postgres)** | [![pub](https://img.shields.io/pub/v/daravel_postgres.svg)](https://pub.dev/packages/daravel_postgres) | Driver PostgreSQL dengan dukungan binary float8 |
 | **[`daravel_sqlite`](https://pub.dev/packages/daravel_sqlite)** | [![pub](https://img.shields.io/pub/v/daravel_sqlite.svg)](https://pub.dev/packages/daravel_sqlite) | Driver SQLite bawaan dengan build hook native |

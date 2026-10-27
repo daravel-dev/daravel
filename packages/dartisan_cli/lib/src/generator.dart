@@ -50,6 +50,7 @@ final class ProjectPaths {
   String get events => _app(['events']);
   String get listeners => _app(['listeners']);
   String get policies => _app(['policies']);
+  String get queryFilters => _app(['query_filters']);
   String get rules => _app(['rules']);
   String get mail => _app(['mail']);
   String get notifications => _app(['notifications']);
@@ -67,6 +68,8 @@ final class ProjectPaths {
   String get jobsRegistry => p.join(root, 'bootstrap', 'jobs.dart');
   String get modelsRegistry => p.join(root, 'bootstrap', 'models.dart');
   String get policiesRegistry => p.join(root, 'bootstrap', 'policies.dart');
+  String get queryFiltersRegistry =>
+      p.join(root, 'bootstrap', 'query_filters.dart');
   String get listenersRegistry => p.join(root, 'bootstrap', 'listeners.dart');
   String get commandsRegistry => p.join(root, 'bootstrap', 'commands.dart');
 }
@@ -232,6 +235,26 @@ final List<$listType> $listName = <$listType>[
   $entriesStart
   $entriesEnd
 ];
+''';
+
+  /// A fresh map registry (`final Map<Type, ...> queryFilters = {...}`).
+  static String mapTemplate({
+    required String header,
+    required String mapType,
+    required String mapName,
+    String import = "import 'package:daravel/daravel.dart';",
+  }) =>
+      '''
+$header
+$import
+$importsStart
+$importsEnd
+
+/// Maintained by `dartisan make:*`; entries may also be added by hand.
+final $mapType $mapName = {
+  $entriesStart
+  $entriesEnd
+};
 ''';
 
   /// A fresh function registry (`void registerPolicies(AuthorizationGate gate)`).
@@ -486,6 +509,45 @@ final class Generator {
             "import 'package:$_package/app/models/${Naming.snake(modelName)}.dart';",
       );
     }
+    return file;
+  }
+
+  /// A daravel_teorion query filter for [model] (from [name] without its
+  /// `QueryFilter` suffix by default), registered in
+  /// `bootstrap/query_filters.dart`.
+  GeneratedFile queryFilter(String name, {String? model}) {
+    final className = Naming.withSuffix(name, 'QueryFilter');
+    final modelName = Naming.pascal(
+      model ?? className.substring(0, className.length - 'QueryFilter'.length),
+    );
+    final file = _render(
+      p.join(paths.queryFilters, '${Naming.snake(className)}.dart'),
+      'query-filter',
+      {
+        'class': className,
+        'model': modelName,
+        'modelFile': Naming.snake(modelName),
+        'package': _package,
+      },
+    );
+    _register(
+      file,
+      paths.queryFiltersRegistry,
+      RegistryPatcher.mapTemplate(
+        header:
+            '// Query filter registry (daravel_teorion): model type → its query\n'
+            '// filter. Pass it to Application.configure(...).withQueryFilters().',
+        mapType: 'Map<Type, QueryFilter<Model> Function()>',
+        mapName: 'queryFilters',
+        import:
+            "import 'package:daravel/daravel.dart';\n"
+            "import 'package:daravel_teorion/daravel_teorion.dart';",
+      ),
+      "import 'package:$_package/app/query_filters/${Naming.snake(className)}.dart';",
+      '  $modelName: $className.new,',
+      extraImport:
+          "import 'package:$_package/app/models/${Naming.snake(modelName)}.dart';",
+    );
     return file;
   }
 

@@ -30,6 +30,7 @@ const Map<String, String> builtInStubs = <String, String>{
   'job': _job,
   'policy': _policy,
   'policy.model': _policyModel,
+  'query-filter': _queryFilter,
   'event': _event,
   'listener': _listener,
   'listener.event': _listenerEvent,
@@ -319,6 +320,27 @@ import 'package:daravel/daravel.dart';
 /// Register with `gate.define(...)` or attach to a model type.
 final class {{ class }} extends Policy<Object> {
   const {{ class }}();
+}
+''';
+
+const String _queryFilter = r'''
+import 'package:daravel/daravel.dart';
+import 'package:daravel_teorion/daravel_teorion.dart';
+import 'package:{{ package }}/app/models/{{ modelFile }}.dart';
+
+/// What clients may filter, load and sort {{ model }} by
+/// (`{{ model }}.definition.query().filterAndPaginate(request)`).
+final class {{ class }} extends QueryFilter<{{ model }}> {
+  @override
+  Map<String, Filter> get filters => {
+    'search': Filter.multiLike(['name']),
+  };
+
+  @override
+  List<String> get allowedSorts => ['id', 'created_at'];
+
+  @override
+  List<String> get defaultSort => ['-id'];
 }
 ''';
 

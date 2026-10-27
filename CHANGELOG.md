@@ -29,6 +29,20 @@ Laravel-facing formats change only to match Laravel more closely.
   with Spatie's 403 messages, a gate hook, guards, opt-in wildcards and
   super-admin role, the `permission:*` commands, and an in-memory cache
   invalidated across isolates and processes.
+- `daravel_teorion` (Blueprint #33): a port of laravel-teorion 2.4 with its
+  request format, so one client works against Laravel and Daravel.
+  `QueryFilter<T>` declares filters (exact, like, multiLike, boolean,
+  null, enum, in, date, dateRange, between, range, gt, lt, has,
+  jsonContains, callback, scope, macro, with alias, default and required)
+  and the allowed scopes, relations, counts, aggregates and sorts;
+  `filterAndPaginate`, `findFiltered` and `filter` on any model query
+  apply them, with legacy and isolated scopes, three sort formats,
+  pagination, cursors, soft deletes, visibility, validation rules,
+  OpenAPI parameters and the fingerprinted `QueryAudited`. Unlike the
+  original it quotes `order_null_bottoms[]` (laravel-teorion writes it
+  into SQL), refuses `withs[]=relation:columns`, applies range filters
+  from their own parameters and answers refusals with 400.
+  `dartisan make:query-filter Post` writes one and registers it.
 - `Blueprint.primary([...])`: primary keys over several columns, named as
   Laravel names them.
 - `ApplicationBuilder.withCacheStore`, `withQueueDriver`,

@@ -1,4 +1,4 @@
-<!-- source: dartisan.md sha256:0220c32bf7f9 -->
+<!-- source: dartisan.md sha256:a846fdc2b0ff -->
 # dartisan
 
 `dartisan` adalah `artisan`-nya Daravel. Pasang sekali, lalu pakai di proyek
@@ -95,7 +95,8 @@ sebelum pindah ke versi minor baru.
 `make:seeder`, `make:factory`, `make:controller [--api --resource --model]`,
 `make:request`, `make:middleware`, `make:job`, `make:policy`, `make:event`,
 `make:listener`, `make:resource`, `make:rule`, `make:mail`,
-`make:notification`, `make:observer`, `make:provider`, `make:command`, dan
+`make:notification`, `make:observer`, `make:query-filter` (daravel_teorion),
+`make:provider`, `make:command`, dan
 `make:test`. Masing-masing menulis file dari template dan menambahkannya ke
 registry yang sesuai di `bootstrap/`.
 

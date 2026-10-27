@@ -119,6 +119,15 @@ sections:
       - { php: "php artisan permission:show", dart: "dartisan permission:show", symbol: PermissionShowCommand }
       - { php: "app(PermissionRegistrar::class)->forgetCachedPermissions()", dart: "await PermissionRegistrar.current.forgetCachedPermissions()", symbol: PermissionRegistrar.forgetCachedPermissions, async: true }
 
+  - name: Query filters (daravel_teorion)
+    symbols:
+      - { php: "Post::query()->filterAndPaginate($request)", dart: "await Post.definition.query().filterAndPaginate(request)", symbol: FilterableQuery.filterAndPaginate, async: true, note: "laravel-teorion's request format: filters, scopes[], withs[], sort, is_paginate, pagination=cursor." }
+      - { php: "Post::findFiltered($request, $id)", dart: "await Post.definition.query().findFiltered(request, id)", symbol: FilterableQuery.findFiltered, async: true }
+      - { php: "class PostQueryFilter extends QueryFilter", dart: "final class PostQueryFilter extends QueryFilter<Post>", symbol: QueryFilter }
+      - { php: "Filter::multiLike(['title'])->alias('q')", dart: "Filter.multiLike(['title']).alias('q')", symbol: Filter.multiLike, note: "default() is withDefault(); enum/in/null are enum_/in_/null_." }
+      - { php: "FilterMacroRegistry::register('phone', fn ...)", dart: "FilterMacroRegistry.register('phone', (q, value, param, request) {...})", symbol: FilterMacroRegistry.register }
+      - { php: "php artisan make:query-filter PostQueryFilter", dart: "dartisan make:query-filter Post", symbol: QueryFilterRegistry, note: "Registered in bootstrap/query_filters.dart (no reflection)." }
+
   - name: Validation
     symbols:
       - { php: "Validator::make($data, $rules)", dart: "Validator(data, rules)", symbol: Validator }

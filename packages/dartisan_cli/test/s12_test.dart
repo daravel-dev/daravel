@@ -73,6 +73,37 @@ void main() {
   });
 
   group('generators and registries', () {
+    test('make:query-filter writes the filter and a map registry', () {
+      final gen = Generator(paths)
+        ..queryFilter('Post')
+        ..queryFilter('ArticleQueryFilter');
+      final filter = File(p.join(paths.queryFilters, 'post_query_filter.dart'))
+          .readAsStringSync();
+      expect(
+        filter,
+        contains('final class PostQueryFilter extends QueryFilter<Post> {'),
+      );
+      expect(filter, contains("import 'package:demo/app/models/post.dart';"));
+      final registry = File(paths.queryFiltersRegistry).readAsStringSync();
+      expect(
+        registry,
+        contains("import 'package:daravel_teorion/daravel_teorion.dart';"),
+      );
+      expect(
+        registry,
+        contains(
+          'final Map<Type, QueryFilter<Model> Function()> queryFilters = {',
+        ),
+      );
+      expect(
+        registry,
+        contains(
+          '  Post: PostQueryFilter.new,\n  Article: ArticleQueryFilter.new,\n  // </dartisan:entries>',
+        ),
+      );
+      expect(gen, isNotNull);
+    });
+
     test('policy, listener and command patch function/list registries', () {
       final gen = Generator(paths)
         ..policy('Post', model: 'Post')
