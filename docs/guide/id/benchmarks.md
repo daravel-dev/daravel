@@ -1,4 +1,4 @@
-<!-- source: benchmarks.md sha256:b0ed4c28e1b8 -->
+<!-- source: benchmarks.md sha256:55e13f80c56e -->
 # Benchmark
 
 Daravel hanya memublikasikan angka bersama skrip yang menghasilkannya,
@@ -54,7 +54,11 @@ lalu menulis hasilnya ke `bench/results/<tanggal>-<host>/`:
    512 koneksi pada endpoint skenario 2, tanpa batas, dengan
    `HTTP_MAX_IN_FLIGHT`, dan dengan tambahan `HTTP_MAX_QUEUE_DELAY`
    ([load shedding](deployment.md#load-shedding)): goodput, p99 dari request
-   yang berhasil, dan porsi yang ditolak dengan `503`, lima run.
+   yang berhasil, dan porsi yang ditolak dengan `503`, lima run. Dua kali:
+   dengan client yang langsung mencoba ulang (closed loop, skenario 11), dan
+   pada laju kedatangan tetap 1,5 kali kapasitas dari client yang tidak
+   mencoba ulang (open loop, skenario 12), beban yang memang menjadi tujuan
+   load shedding.
 5. **Kurva saturasi**: `/ping` dan skenario JSON pada 16, 64, 256, dan
    1 024 koneksi, dengan `dart:io` polos sebagai batas atas untuk `/ping`.
 6. **Load generator kedua**: [oha](https://github.com/hatoo/oha), ditulis

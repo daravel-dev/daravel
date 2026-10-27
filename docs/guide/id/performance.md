@@ -1,4 +1,4 @@
-<!-- source: performance.md sha256:d772af2452fa -->
+<!-- source: performance.md sha256:8b8730ef6df4 -->
 # Performa
 
 Daravel tidak membuat klaim performa tanpa angka yang bisa direproduksi
@@ -21,7 +21,11 @@ Harness ini melaporkan request per detik dan latensi p50/p95/p99 untuk:
 11. overload: skenario 2 di bawah koneksi yang jauh lebih banyak daripada
     yang bisa dilayani worker, tanpa batas, dengan `HTTP_MAX_IN_FLIGHT`, dan
     dengan tambahan `HTTP_MAX_QUEUE_DELAY` (lihat
-    [Deployment](deployment.md#load-shedding)),
+    [Deployment](deployment.md#load-shedding)), dengan client yang langsung
+    mencoba ulang (closed loop),
+12. tiga server yang sama pada laju kedatangan tetap 1,5 kali kapasitasnya,
+    dari client yang tidak mencoba ulang (open loop, kasus yang memang
+    menjadi tujuan load shedding),
 
 ditambah microbenchmark Zone/facade, waktu startup, dan RSS saat idle untuk
 setiap jumlah isolate. Setiap skenario juga dinyatakan relatif terhadap

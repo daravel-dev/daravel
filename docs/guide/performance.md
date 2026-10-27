@@ -20,6 +20,10 @@ It reports requests per second and p50/p95/p99 latency for:
 11. overload: scenario 2 under far more connections than the workers can
     serve, without a limit, with `HTTP_MAX_IN_FLIGHT`, and with
     `HTTP_MAX_QUEUE_DELAY` added (see [Deployment](deployment.md#load-shedding)),
+    with clients that retry at once (closed loop),
+12. the same three servers at a fixed arrival rate 1.5 times their capacity,
+    from clients that do not retry (open loop, the case load shedding is
+    for),
 
 plus a Zone/facade microbenchmark, startup time and idle RSS for each
 isolate count. Every scenario is also expressed relative to a plain

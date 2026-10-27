@@ -34,7 +34,9 @@ void main(List<String> args) {
   ];
   final overload = {
     for (final MapEntry(:key, :value) in _summarise(overloadRuns).entries)
-      if (key.$2.startsWith('11-overload-')) key: value,
+      if (key.$2.startsWith('11-overload-') ||
+          key.$2.startsWith('12-open-loop-'))
+        key: value,
   };
   final curve = _summarise([
     if (Directory(p.join(directory, 'curve')).existsSync())
@@ -81,11 +83,10 @@ void main(List<String> args) {
     pgsql,
     pgRuns.length,
   );
-  _overloadTables('SQLite', overload, overloadRuns.length);
-  _overloadTables('PostgreSQL', {
-    for (final MapEntry(:key, :value) in pgsql.entries)
-      if (key.$2.startsWith('11-overload-')) key: value,
-  }, pgRuns.length);
+  for (final scenario in ['12-open-loop', '11-overload']) {
+    _overloadTables(scenario, 'SQLite', overload, overloadRuns.length);
+    _overloadTables(scenario, 'PostgreSQL', pgsql, pgRuns.length);
+  }
   _curveTables(curve);
   _ohaTable(oha);
 }
@@ -115,7 +116,14 @@ final class _Summary {
       p99 = [for (final s in samples) s['p99_us']! as int]..sort(),
       errors = samples.fold(0, (sum, s) => sum + (s['errors']! as int)),
       requests = samples.fold(0, (sum, s) => sum + (s['requests']! as int)),
-      shed = samples.fold(0, (sum, s) => sum + (s['shed'] as int? ?? 0));
+      shed = samples.fold(0, (sum, s) => sum + (s['shed'] as int? ?? 0)),
+      offered = switch ([
+        for (final s in samples)
+          if (s['offered_rps'] case final int rate) rate,
+      ]..sort()) {
+        [] => null,
+        final rates => _median(rates),
+      };
 
   final _Key key;
   final List<int> rps;
@@ -123,8 +131,11 @@ final class _Summary {
   final int errors;
   final int requests;
 
-  /// `503`s refused by load shedding, over every run (scenario 11).
+  /// `503`s refused by load shedding, over every run (scenarios 11, 12).
   final int shed;
+
+  /// The arrival rate offered to the server (scenario 12), median of runs.
+  final int? offered;
 
   int get medianRps => _median(rps);
   int get medianP99 => _median(p99);
@@ -142,6 +153,7 @@ final class _Summary {
     'requests': requests,
     'errors': errors,
     if (shed > 0) 'shed': shed,
+    'offered_rps': ?offered,
   };
 }
 
@@ -261,26 +273,45 @@ void _throughputTables(
   }
 }
 
-/// Scenario 11: one table per worker count, a row per server variant.
-void _overloadTables(String database, Map<_Key, _Summary> overload, int runs) {
-  if (overload.isEmpty) {
+/// Scenarios 11 (`11-overload`, closed loop) and 12 (`12-open-loop`): one
+/// table per worker count, a row per server variant.
+void _overloadTables(
+  String scenario,
+  String database,
+  Map<_Key, _Summary> overload,
+  int runs,
+) {
+  final variants = {
+    '$scenario-unlimited': 'no limit',
+    '$scenario-in-flight': '`HTTP_MAX_IN_FLIGHT`',
+    '$scenario-queue-delay': '`HTTP_MAX_IN_FLIGHT` + `HTTP_MAX_QUEUE_DELAY`',
+  };
+  if (!overload.keys.any((k) => variants.containsKey(k.$2))) {
     return;
   }
-  const variants = {
-    '11-overload-unlimited': 'no limit',
-    '11-overload-in-flight': '`HTTP_MAX_IN_FLIGHT`',
-    '11-overload-queue-delay': '`HTTP_MAX_IN_FLIGHT` + `HTTP_MAX_QUEUE_DELAY`',
-  };
+  const shedding =
+      '[load shedding](https://github.com/daravel-dev/daravel/blob/main/'
+      'docs/guide/deployment.md#load-shedding)';
+  final openLoop = scenario.startsWith('12-');
+  final median = 'Median of $runs run${runs == 1 ? '' : 's'}.';
   stdout.writeln(
-    '\n## Overload (Daravel, $database)\n\nScenario 2\'s endpoint flooded '
-    'with far more '
-    'keep-alive connections than the workers can serve, without a limit and '
-    'with [load shedding](https://github.com/daravel-dev/daravel/blob/main/'
-    'docs/guide/deployment.md#load-shedding). '
-    'Goodput counts successful responses only, p99 is of those; refused '
-    'requests got `503` with `Retry-After` and are retried at once by the '
-    'load generator, the worst case for the server. Median of $runs '
-    'run${runs == 1 ? '' : 's'}.',
+    openLoop
+        ? '\n## Overload, open loop (Daravel, $database)\n\nScenario 2\'s '
+              'endpoint at a fixed arrival rate above its capacity, as from '
+              'many independent users: the capacity is measured first, then '
+              'a multiple of it is offered to each server, without a limit '
+              'and with $shedding. A refused request is not retried. Latency '
+              'is counted from when each request was due, so waiting for a '
+              'connection or behind a slow server counts. Goodput counts '
+              'successful responses only, p99 is of those. $median'
+        : '\n## Overload, closed loop (Daravel, $database)\n\nScenario 2\'s '
+              'endpoint flooded with far more keep-alive connections than '
+              'the workers can serve, without a limit and with $shedding. '
+              'Each client sends its next request as soon as one is '
+              'answered, refused ones included, so the number waiting never '
+              'falls: the worst case for shedding, which can only add the '
+              'cost of its refusals here. Goodput counts successful '
+              'responses only, p99 is of those. $median',
   );
   final workers = {for (final k in overload.keys) k.$3}.toList()..sort();
   for (final w in workers) {
@@ -295,7 +326,9 @@ void _overloadTables(String database, Map<_Key, _Summary> overload, int runs) {
     stdout
       ..writeln(
         '\n### $w worker${w == 1 ? '' : 's'}, '
-        '${rows.first.$2.key.$4} connections\n',
+        '${rows.first.$2.key.$4} connections'
+        '${rows.first.$2.offered == null ? '' : ', ${_count(rows.first.$2.offered!)} req/s offered'}'
+        '\n',
       )
       ..writeln('| Limit | Goodput | p99 | Refused (503) | Errors |')
       ..writeln('| :-- | --: | --: | --: | --: |');

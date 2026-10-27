@@ -93,10 +93,13 @@ another has room, and the server refuses a request before all
 `APP_ISOLATES × HTTP_MAX_IN_FLIGHT` slots are taken. A reverse proxy that
 opens several upstream connections evens this out.
 
-Pick the values from a load test (scenario 11 of `bench/` runs one):
+Pick the values from a load test (scenario 12 of `bench/` runs one at a
+fixed arrival rate above capacity):
 `HTTP_MAX_QUEUE_DELAY` is the queueing delay you are willing to add to a
-response (p99 under overload lands close to it), and `HTTP_MAX_IN_FLIGHT`
-is about 2–4× `DB_POOL_SIZE` for a worker doing database work. Refusals
+response, and `HTTP_MAX_IN_FLIGHT` is about 2–4× `DB_POOL_SIZE` for a
+worker doing database work. For an application on PostgreSQL the in-flight
+limit is the one that bounds latency, since a worker waiting on the
+database does not lag; `HTTP_MAX_QUEUE_DELAY` catches CPU-bound work. Refusals
 are counted in `http_requests_shed_total{worker="..."}` on `/metrics` (one
 series per worker, as `http_requests_in_flight`) and logged as a
 warning at most once a second, naming the limit that was hit; a steady

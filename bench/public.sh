@@ -11,8 +11,8 @@
 #   environment.txt     hardware, kernel, versions, commit, settings
 #   runs/<n>/*.json     RUNS × bench/laravel/compare.sh at 64 connections
 #   pgsql/<n>/*.json    RUNS × the database scenarios (PG_SCENARIOS) on PostgreSQL
-#   overload/<n>/*.json RUNS × scenario 11 (Daravel under overload, with and
-#                       without load shedding)
+#   overload/<n>/*.json RUNS × scenarios 11 and 12 (Daravel under overload,
+#                       closed and open loop, with and without load shedding)
 #   curve/*.json        CURVE_SCENARIOS at each of CURVE connections, WORKERS workers
 #   oha/*.json          oha against Daravel and Octane (GET scenarios 1, 2, 4)
 #   report.md           the tables (bin/public_report.dart)
@@ -23,7 +23,7 @@
 # a core. On a VM, prefer dedicated vCPUs: shared ones measure the
 # neighbours. Settings: RUNS (5), DURATION (10 s per scenario), WORKERS (4),
 # CURVE (16,64,256,1024), CURVE_SCENARIOS (1,2), DART_IMAGE (dart:stable),
-# OHA_VERSION (1.16.0), PG_SCENARIOS (2,3,4,11; empty skips PostgreSQL),
+# OHA_VERSION (1.16.0), PG_SCENARIOS (2,3,4,11,12; empty skips PostgreSQL),
 # PG_IMAGE (postgres:17), OVERLOAD_CONNECTIONS (512), MAX_IN_FLIGHT (32),
 # MAX_QUEUE_DELAY (50, ms), WORK (~/daravel-bench).
 set -euo pipefail
@@ -35,7 +35,7 @@ CURVE=${CURVE:-16,64,256,1024}
 CURVE_SCENARIOS=${CURVE_SCENARIOS:-1,2}
 DART_IMAGE=${DART_IMAGE:-dart:stable}
 OHA_VERSION=${OHA_VERSION:-1.16.0}
-PG_SCENARIOS=${PG_SCENARIOS-2,3,4,11}
+PG_SCENARIOS=${PG_SCENARIOS-2,3,4,11,12}
 PG_IMAGE=${PG_IMAGE:-postgres:17}
 OVERLOAD_CONNECTIONS=${OVERLOAD_CONNECTIONS:-512}
 MAX_IN_FLIGHT=${MAX_IN_FLIGHT:-32}
@@ -190,9 +190,11 @@ wait_up
 oha_all laravel-octane
 stop daravel-bench-laravel-run
 
-# --- 3b. Scenario 11: Daravel flooded with OVERLOAD_CONNECTIONS, without a
-# limit, with HTTP_MAX_IN_FLIGHT, and with HTTP_MAX_QUEUE_DELAY added (Laravel
-# has no equivalent to compare). Reuses the AOT build and the seeded SQLite
+# --- 3b. Scenarios 11 and 12: Daravel under overload, without a limit, with
+# HTTP_MAX_IN_FLIGHT, and with HTTP_MAX_QUEUE_DELAY added: flooded with
+# OVERLOAD_CONNECTIONS clients that retry at once (11), and at 1.5 times its
+# capacity from clients that do not (12, open loop). Laravel has no
+# equivalent to compare. Reuses the AOT build and the seeded SQLite
 # database the last compare.sh left in $WORK.
 for run in $(seq 1 "$RUNS"); do
   echo "== Overload run $run of $RUNS"
@@ -200,7 +202,7 @@ for run in $(seq 1 "$RUNS"); do
     -v "$WORK/src:/src" -v "$WORK/data:/data" -v "$WORK/pub-cache:/root/.pub-cache" \
     -w /src/bench "$DART_IMAGE" sh -c "taskset -c $CLIENT_CPUS dart run bin/bench.dart \
       --skip-build --database=/data/bench.sqlite --server-cpus=$SERVER_CPUS \
-      --isolates=1,$WORKERS --duration=$DURATION --scenarios=11 \
+      --isolates=1,$WORKERS --duration=$DURATION --scenarios=11,12 \
       --overload-connections=$OVERLOAD_CONNECTIONS --max-in-flight=$MAX_IN_FLIGHT \
       --max-queue-delay=$MAX_QUEUE_DELAY --out=/data/overload.json"
   mkdir -p "$OUT/overload/$run"

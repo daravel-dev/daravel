@@ -1,4 +1,4 @@
-<!-- source: deployment.md sha256:37ca5134bf9a -->
+<!-- source: deployment.md sha256:9f66b46ac7a4 -->
 # Deployment
 
 ## Bundle native
@@ -96,11 +96,14 @@ dan server bisa menolak request sebelum seluruh
 `APP_ISOLATES × HTTP_MAX_IN_FLIGHT` slot terpakai. Reverse proxy yang
 membuka beberapa koneksi upstream meratakannya.
 
-Tentukan nilainya dari load test (skenario 11 di `bench/` menjalankannya):
-`HTTP_MAX_QUEUE_DELAY` adalah keterlambatan antrean yang rela kamu tambahkan
-ke sebuah respons (p99 saat overload mendarat di dekatnya), dan
-`HTTP_MAX_IN_FLIGHT` sekitar 2–4× `DB_POOL_SIZE` untuk worker yang
-mengakses database. Penolakan dihitung di
+Tentukan nilainya dari load test (skenario 12 di `bench/` menjalankannya
+dengan laju kedatangan tetap di atas kapasitas):
+`HTTP_MAX_QUEUE_DELAY` adalah keterlambatan antrean yang rela Anda tambahkan
+ke sebuah respons, dan `HTTP_MAX_IN_FLIGHT` sekitar 2–4× `DB_POOL_SIZE`
+untuk worker yang mengakses database. Untuk aplikasi di PostgreSQL, batas
+in-flight-lah yang membatasi latensi, karena worker yang menunggu database
+tidak mengalami lag; `HTTP_MAX_QUEUE_DELAY` menangkap pekerjaan yang berat
+di CPU. Penolakan dihitung di
 `http_requests_shed_total{worker="..."}` pada `/metrics` (satu seri per
 worker, seperti `http_requests_in_flight`) dan dicatat sebagai warning paling banyak sekali per detik,
 menyebutkan batas yang tersentuh; penolakan yang terus-menerus berarti

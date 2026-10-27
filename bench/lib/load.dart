@@ -135,3 +135,139 @@ Future<_WorkerResult> _worker(
   client.close(force: true);
   return (ok: ok, errors: errors, shed: shed, latencies: latencies);
 }
+
+/// Open loop: [rate] requests per second arrive whatever the server does,
+/// as from many independent users, spread over [clientIsolates] isolates
+/// with up to [connections] keep-alive connections in all. A refused
+/// request is not retried, unlike [runLoad], whose clients send the next
+/// request as soon as one is answered, so the number waiting never falls.
+///
+/// Latency runs from when a request was *due*, not from when it was sent:
+/// time spent waiting for a free connection or behind a slow server counts
+/// (no coordinated omission). The connections open during [warmup], at
+/// half the rate. After [duration] the requests still outstanding get
+/// [grace] to finish; the rest count as errors. Throughput is completions
+/// of the requests due within [duration], per second of it (goodput).
+Future<LoadResult> runOpenLoop(
+  int port,
+  LoadSpec spec, {
+  required double rate,
+  int connections = 512,
+  int clientIsolates = 4,
+  Duration duration = const Duration(seconds: 10),
+  Duration warmup = const Duration(seconds: 2),
+  Duration grace = const Duration(seconds: 2),
+}) async {
+  final perIsolate = max(1, connections ~/ clientIsolates);
+  final perRate = rate / clientIsolates;
+  final parts = await Future.wait([
+    for (var i = 0; i < clientIsolates; i++)
+      Isolate.run(
+        () => _openWorker(
+          port,
+          spec,
+          perIsolate,
+          perRate,
+          warmup,
+          duration,
+          grace,
+        ),
+      ),
+  ]);
+  return LoadResult(
+    parts.fold(0, (sum, p) => sum + p.ok),
+    parts.fold(0, (sum, p) => sum + p.errors),
+    duration,
+    [for (final p in parts) ...p.latencies],
+    shed: parts.fold(0, (sum, p) => sum + p.shed),
+  );
+}
+
+Future<_WorkerResult> _openWorker(
+  int port,
+  LoadSpec spec,
+  int connections,
+  double rate,
+  Duration warmup,
+  Duration duration,
+  Duration grace,
+) async {
+  final client = HttpClient()..maxConnectionsPerHost = connections;
+  final uri = Uri.parse('http://127.0.0.1:$port${spec.path}');
+  final latencies = <int>[];
+  var ok = 0;
+  var errors = 0;
+  var shed = 0;
+  var outstanding = 0;
+  var closed = false;
+  var sequence = Isolate.current.hashCode;
+  final clock = Stopwatch()..start();
+
+  Future<void> send(int dueUs, {required bool counted}) async {
+    if (counted) {
+      outstanding++;
+    }
+    int? status;
+    try {
+      final request = await client.openUrl(spec.method, uri);
+      final body = spec.json?.call(sequence++);
+      if (body != null) {
+        final bytes = utf8.encode(jsonEncode(body));
+        request.headers
+          ..contentType = ContentType.json
+          ..contentLength = bytes.length;
+        request.add(bytes);
+      }
+      final response = await request.close();
+      await response.drain<void>();
+      status = response.statusCode;
+    } on Object {
+      status = null;
+    }
+    if (!counted || closed) {
+      return;
+    }
+    outstanding--;
+    if (status == null || (status >= 400 && status != 503)) {
+      errors++;
+    } else if (status == HttpStatus.serviceUnavailable) {
+      shed++;
+    } else {
+      ok++;
+      latencies.add(clock.elapsedMicroseconds - dueUs);
+    }
+  }
+
+  /// Sends [perSecond] requests a second for [length] from now, each at its
+  /// due time, without waiting for the answers.
+  Future<List<Future<void>>> drive(
+    double perSecond,
+    Duration length, {
+    required bool counted,
+  }) async {
+    final startUs = clock.elapsedMicroseconds;
+    final interval = 1e6 / perSecond;
+    final total = (length.inMicroseconds / interval).floor();
+    final pending = <Future<void>>[];
+    for (var i = 0; i < total; i++) {
+      final due = startUs + (i * interval).round();
+      final wait = due - clock.elapsedMicroseconds;
+      if (wait > 0) {
+        await Future<void>.delayed(Duration(microseconds: wait));
+      } else if (i % 64 == 0) {
+        // Behind schedule: still let answers in now and then.
+        await Future<void>.delayed(Duration.zero);
+      }
+      pending.add(send(due, counted: counted));
+    }
+    return pending;
+  }
+
+  await Future.wait(await drive(rate / 2, warmup, counted: false));
+  final pending = await drive(rate, duration, counted: true);
+  await Future.wait(pending).timeout(grace, onTimeout: () => const []);
+  closed = true;
+  errors += outstanding;
+  client.close(force: true);
+  return (ok: ok, errors: errors, shed: shed, latencies: latencies);
+}

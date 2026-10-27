@@ -41,6 +41,13 @@ Laravel-facing formats change only to match Laravel more closely.
   skipped" and exits 0. The nightly benchmark runs them against a
   PostgreSQL service container, and `public.sh` includes scenario 11 in
   its PostgreSQL runs.
+- `bench/`: scenario `12-open-loop` measures load shedding where it
+  applies: the capacity of scenario 2 is measured, then 1.5 times it
+  (`--open-loop-factor`) arrives at a fixed rate, from clients that do not
+  retry, with latency counted from each request's due time
+  (`runOpenLoop`). Scenario 11's clients retry at once (a closed loop), so
+  the number waiting never falls and shedding can only add the cost of its
+  refusals.
 - `daravel_livekit` (Blueprint #48): LiveKit's server SDK for Daravel.
   `LivekitToken` signs access tokens with LiveKit's claims and
   `VideoGrant`s, `RoomServiceClient` manages rooms and participants over

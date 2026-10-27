@@ -51,7 +51,10 @@ writes the results into `bench/results/<date>-<host>/`:
    512 connections on scenario 2's endpoint, without a limit, with
    `HTTP_MAX_IN_FLIGHT` and with `HTTP_MAX_QUEUE_DELAY` added
    ([load shedding](deployment.md#load-shedding)): goodput, p99 of the
-   successful requests and the share refused with `503`, five runs.
+   successful requests and the share refused with `503`, five runs. Twice:
+   with clients that retry at once (closed loop, scenario 11), and at a
+   fixed arrival rate 1.5 times the capacity from clients that do not
+   (open loop, scenario 12), the load that shedding is meant for.
 5. **A saturation curve**: `/ping` and the JSON scenario at 16, 64, 256 and
    1 024 connections, with plain `dart:io` as the ceiling for `/ping`.
 6. **A second load generator**: [oha](https://github.com/hatoo/oha),

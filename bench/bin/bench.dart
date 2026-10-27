@@ -180,6 +180,17 @@ Future<void> main(List<String> args) async {
         ),
       );
     }
+    if (options.selects(_openLoopScenario)) {
+      results.addAll(
+        await _measureOpenLoop(
+          options,
+          exe('server'),
+          serverEnv,
+          port,
+          isolates,
+        ),
+      );
+    }
   }
 
   final report = {
@@ -199,7 +210,8 @@ Future<void> main(List<String> args) async {
   final targets = _targets([
     for (final r in results)
       if (r['connections'] == options.connections.first ||
-          (r['scenario']! as String).startsWith(_overloadScenario))
+          (r['scenario']! as String).startsWith(_overloadScenario) ||
+          (r['scenario']! as String).startsWith(_openLoopScenario))
         r,
   ]);
   report['targets'] = targets;
@@ -219,6 +231,11 @@ Future<void> main(List<String> args) async {
 /// serve, without a limit, with `HTTP_MAX_IN_FLIGHT`, and with
 /// `HTTP_MAX_QUEUE_DELAY` added.
 const String _overloadScenario = '11-overload';
+
+/// Scenario 12: the same three servers under a fixed arrival rate above
+/// their capacity (open loop), where refusing the excess can keep the
+/// accepted requests fast; scenario 11's clients retry at once instead.
+const String _openLoopScenario = '12-open-loop';
 
 /// The endpoint of scenario 2, so its normal-load numbers are the reference.
 const LoadSpec _overloadSpec = LoadSpec('GET', '/api/users/42');
@@ -272,20 +289,9 @@ Future<List<Map<String, Object?>>> _measureOverload(
   int isolates,
 ) async {
   final results = <Map<String, Object?>>[];
-  final limit = options.maxInFlight;
   final delay = options.maxQueueDelay;
   final connections = options.overloadConnections;
-  for (final (suffix, extra) in [
-    ('unlimited', const <String, String>{'HTTP_MAX_IN_FLIGHT': '0'}),
-    ('in-flight', {'HTTP_MAX_IN_FLIGHT': '$limit'}),
-    (
-      'queue-delay',
-      {
-        'HTTP_MAX_IN_FLIGHT': '$limit',
-        'HTTP_MAX_QUEUE_DELAY': '${delay.inMilliseconds}ms',
-      },
-    ),
-  ]) {
+  for (final (suffix, extra) in _limitVariants(options)) {
     final server = await _Server.start(
       executable,
       {...env, ...extra},
@@ -309,6 +315,86 @@ Future<List<Map<String, Object?>>> _measureOverload(
           : 0,
       ...result.toJson(),
     });
+    _print(name, isolates, connections, result);
+  }
+  return results;
+}
+
+/// The three servers of scenarios 11 and 12: without a limit, with
+/// `HTTP_MAX_IN_FLIGHT=--max-in-flight`, and with
+/// `HTTP_MAX_QUEUE_DELAY=--max-queue-delay` added.
+List<(String, Map<String, String>)> _limitVariants(_Options options) => [
+  ('unlimited', const <String, String>{'HTTP_MAX_IN_FLIGHT': '0'}),
+  ('in-flight', {'HTTP_MAX_IN_FLIGHT': '${options.maxInFlight}'}),
+  (
+    'queue-delay',
+    {
+      'HTTP_MAX_IN_FLIGHT': '${options.maxInFlight}',
+      'HTTP_MAX_QUEUE_DELAY': '${options.maxQueueDelay.inMilliseconds}ms',
+    },
+  ),
+];
+
+/// Scenario 12. Measures the capacity of scenario 2's endpoint (closed
+/// loop, 64 connections, on the server without a limit), then sends
+/// `--open-loop-factor` (1.5) times that rate to each of the three servers
+/// of [_limitVariants], with up to `--overload-connections`. Without a
+/// limit the queue, and the latency, grow for as long as the overload
+/// lasts; with load shedding the excess is refused and the accepted
+/// requests should stay near the limit. Latency is counted from each
+/// request's due time ([runOpenLoop]).
+Future<List<Map<String, Object?>>> _measureOpenLoop(
+  _Options options,
+  String executable,
+  Map<String, String> env,
+  int port,
+  int isolates,
+) async {
+  final results = <Map<String, Object?>>[];
+  final delay = options.maxQueueDelay;
+  final connections = options.overloadConnections;
+  int? capacity;
+  for (final (suffix, extra) in _limitVariants(options)) {
+    final server = await _Server.start(
+      executable,
+      {...env, ...extra},
+      port,
+      cpus: options.serverCpus,
+    );
+    final LoadResult result;
+    try {
+      capacity ??= (await _measure(
+        options,
+        port,
+        _overloadSpec,
+        64,
+      )).rps.round();
+      result = await runOpenLoop(
+        port,
+        _overloadSpec,
+        rate: capacity * options.openLoopFactor,
+        connections: connections,
+        clientIsolates: options.clientIsolates,
+        duration: options.duration,
+      );
+    } finally {
+      await server.stop();
+    }
+    final name = '$_openLoopScenario-$suffix';
+    final rate = (capacity * options.openLoopFactor).round();
+    results.add({
+      'scenario': name,
+      'isolates': isolates,
+      'connections': connections,
+      'capacity_rps': capacity,
+      'offered_rps': rate,
+      'max_in_flight': int.parse(extra['HTTP_MAX_IN_FLIGHT']!),
+      'max_queue_delay_ms': extra.containsKey('HTTP_MAX_QUEUE_DELAY')
+          ? delay.inMilliseconds
+          : 0,
+      ...result.toJson(),
+    });
+    stdout.write('(offered $rate req/s, capacity $capacity) ');
     _print(name, isolates, connections, result);
   }
   return results;
@@ -370,6 +456,30 @@ Map<String, Object?> _targets(List<Map<String, Object?>> results) {
         '$p99Before → $p99After µs with HTTP_MAX_QUEUE_DELAY='
         '${shed['max_queue_delay_ms']}ms (target ≤ 50% of unlimited; '
         'goodput ${(goodput * 100).toStringAsFixed(0)}%, target ≥ 90%)';
+  }
+  for (final isolates in {1, 4}) {
+    final unlimited = find('$_openLoopScenario-unlimited', isolates);
+    if (unlimited == null) {
+      continue;
+    }
+    final p99Before = unlimited['p99_us']! as int;
+    final parts = <String>[];
+    for (final variant in ['in-flight', 'queue-delay']) {
+      final limited = find('$_openLoopScenario-$variant', isolates);
+      if (limited == null) {
+        continue;
+      }
+      final goodput =
+          (limited['rps']! as int) / max(1, unlimited['rps']! as int);
+      parts.add(
+        '$variant: p99 $p99Before → ${limited['p99_us']} µs, goodput '
+        '${(goodput * 100).toStringAsFixed(0)}%',
+      );
+    }
+    out['open_loop_isolates_$isolates'] =
+        '${unlimited['offered_rps']} req/s offered '
+        '(capacity ${unlimited['capacity_rps']}); ${parts.join('; ')} '
+        '(targets: p99 ≤ 50% of unlimited, goodput ≥ 90%)';
   }
   final ping4 = find('1-ping', 4);
   if (ping1 != null && ping4 != null) {
@@ -531,6 +641,7 @@ final class _Options {
     required this.overloadConnections,
     required this.maxInFlight,
     required this.maxQueueDelay,
+    required this.openLoopFactor,
     this.out,
     this.compare,
     this.database,
@@ -558,7 +669,7 @@ final class _Options {
             '${max(2, Platform.numberOfProcessors ~/ 2)}',
       ),
       isolates: (value('isolates') ?? '1,4').split(',').map(int.parse).toList(),
-      scenarios: (value('scenarios') ?? '1,2,3,4,5,6,11').split(','),
+      scenarios: (value('scenarios') ?? '1,2,3,4,5,6,11,12').split(','),
       skipBuild: args.contains('--skip-build'),
       threshold: double.parse(value('threshold') ?? '0.10'),
       out: value('out'),
@@ -585,6 +696,7 @@ final class _Options {
       maxQueueDelay: Duration(
         milliseconds: int.parse(value('max-queue-delay') ?? '50'),
       ),
+      openLoopFactor: double.parse(value('open-loop-factor') ?? '1.5'),
     );
   }
 
@@ -619,17 +731,21 @@ final class _Options {
   /// Cores for the servers (`--server-cpus=0-3`, Linux, via `taskset`).
   final String? serverCpus;
 
-  /// Scenario 11: keep-alive connections to flood the server with
-  /// (`--overload-connections`, default 512).
+  /// Scenarios 11 and 12: keep-alive connections to flood the server with,
+  /// or at most to open (`--overload-connections`, default 512).
   final int overloadConnections;
 
-  /// Scenario 11: `HTTP_MAX_IN_FLIGHT` of the limited servers
+  /// Scenarios 11 and 12: `HTTP_MAX_IN_FLIGHT` of the limited servers
   /// (`--max-in-flight`, default 32, per worker).
   final int maxInFlight;
 
-  /// Scenario 11: `HTTP_MAX_QUEUE_DELAY` of the third server
+  /// Scenarios 11 and 12: `HTTP_MAX_QUEUE_DELAY` of the third server
   /// (`--max-queue-delay`, milliseconds, default 50).
   final Duration maxQueueDelay;
+
+  /// Scenario 12: the offered rate as a multiple of the measured capacity
+  /// (`--open-loop-factor`, default 1.5).
+  final double openLoopFactor;
 
   /// `--serve`: run the server on [port] until stopped, measure nothing.
   final bool serve;
