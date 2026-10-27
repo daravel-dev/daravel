@@ -18,6 +18,7 @@ final class _SlowService implements CoordinatorService {
 
 void main() {
   coordinatorRobustnessTests();
+  burstTests();
   workerExitTests();
   rateLimitMemoryTests();
   late Coordinator coordinator;
@@ -491,4 +492,80 @@ void workerExitTests() {
     // Unknown workers are a no-op.
     coordinator.forgetWorker('daravel-worker-9');
   });
+}
+
+void burstTests() {
+  test(
+    'locks and presence stay consistent under a burst from workers',
+    () async {
+      final coordinator = createStandardCoordinator();
+      addTearDown(coordinator.close);
+      final workers = [
+        for (var i = 0; i < 4; i++)
+          RemoteCoordinatorChannel(coordinator.listen()),
+      ];
+      for (final channel in workers) {
+        addTearDown(channel.close);
+      }
+      final stores = [for (final c in workers) ProcessStore(c)];
+
+      // 200 attempts at one lock at the same time: exactly one holder, every
+      // call answered (no hang, no timeout), and the lock passes on cleanly.
+      for (var round = 0; round < 3; round++) {
+        final results = await Future.wait([
+          for (var w = 0; w < stores.length; w++)
+            for (var i = 0; i < 50; i++)
+              stores[w].acquireLock(
+                'job',
+                'w$w-$i',
+                const Duration(seconds: 5),
+              ),
+        ]).timeout(const Duration(seconds: 10));
+        expect(
+          results.where((won) => won),
+          hasLength(1),
+          reason: 'round $round',
+        );
+        final owner = (await stores.first.lockOwner('job'))!;
+        final holder = stores[int.parse(owner.substring(1, 2))];
+        expect(await holder.releaseLock('job', owner), isTrue);
+        expect(await stores.last.lockOwner('job'), isNull);
+      }
+
+      // 400 joins and leaves interleaved from four workers: the member list
+      // ends up with exactly the sockets that stayed.
+      final presence = <Future<Object?>>[];
+      for (var w = 0; w < workers.length; w++) {
+        for (var i = 0; i < 100; i++) {
+          presence.add(
+            workers[w].call('channels', 'join', {
+              'channel': 'presence-burst',
+              'socket': 's$w-$i',
+              'user_id': 'u$w-$i',
+              'user_info': null,
+              'worker': 'daravel-worker-$w',
+            }),
+          );
+          if (i.isOdd) {
+            presence.add(
+              workers[w].call('channels', 'leave', {
+                'channel': 'presence-burst',
+                'socket': 's$w-$i',
+              }),
+            );
+          }
+        }
+      }
+      await Future.wait(presence).timeout(const Duration(seconds: 10));
+      final info = await workers.first.call('channels', 'channel', {
+        'channel': 'presence-burst',
+      }) as Map<Object?, Object?>;
+      expect(info['subscription_count'], 200, reason: 'the even sockets');
+      expect(info['user_count'], 200);
+      expect(coordinator.stats()['in_flight'], 0);
+      for (final channel in workers) {
+        expect(channel.pending, 0, reason: 'every call was answered');
+      }
+    },
+  );
 }
