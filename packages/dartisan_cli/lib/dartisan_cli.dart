@@ -399,6 +399,11 @@ final class MigrateCommand extends DaravelCommand {
         stdout.writeln('Migrated: $name');
       }
     }
+    if (argResults!['seed'] as bool) {
+      for (final seeder in await App.make<SeederRegistry>().run()) {
+        stdout.writeln('Seeded: $seeder');
+      }
+    }
     return 0;
   });
 }

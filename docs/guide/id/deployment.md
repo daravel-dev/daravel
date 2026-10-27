@@ -1,4 +1,4 @@
-<!-- source: deployment.md sha256:be003b1419e8 -->
+<!-- source: deployment.md sha256:b2997c802220 -->
 # Deployment
 
 ## Konsep & Arsitektur Ahead-of-Time (AOT) Single Binary
@@ -57,7 +57,7 @@ dart run bin/dartisan.dart doctor --production
 dart run bin/dartisan.dart env:encrypt --env=production
 ```
 
-`dartisan doctor --production` memeriksa keterjangkauan database, keamanan kunci aplikasi (`APP_KEY`), proteksi route `/metrics`, dan memastikan driver queue bukan `sync`.
+`dartisan doctor --production` mewajibkan `APP_ENV=production` dan memeriksa keterjangkauan database, kunci aplikasi (`APP_KEY`), hashing password (`HASH_VERIFY`, `BCRYPT_ROUNDS`), proteksi route `/metrics`, dan memastikan driver queue bukan `sync`; lihat [Konfigurasi](configuration.md).
 
 ---
 

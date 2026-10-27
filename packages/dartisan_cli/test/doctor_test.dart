@@ -93,14 +93,92 @@ void main() {
     },
   );
 
-  test('notices never fail doctor --production', () async {
+  Future<int> gate(Map<String, String> env) async {
     final runner = CommandRunner<int>('dartisan', 'test')
-      ..addCommand(
-        DoctorCommand(appWith({'APP_ISOLATES': '4', 'LOG_LEVEL': 'debug'})),
-      );
-    final code = await inProject(() async {
-      return await runner.run(['doctor', '--production']) ?? 0;
+      ..addCommand(DoctorCommand(appWith(env)));
+    return await inProject<int?>(
+          () => runner.run(['doctor', '--production']),
+        ) ??
+        0;
+  }
+
+  List<String> titled(List<DoctorCheck> checks, CheckStatus status) => [
+    for (final c in checks)
+      if (c.status == status) c.title,
+  ];
+
+  test('notices never fail doctor --production', () async {
+    final code = await gate({
+      'APP_ENV': 'production',
+      'QUEUE_CONNECTION': 'database',
+      'APP_ISOLATES': '4',
+      'LOG_LEVEL': 'debug',
+      // Notes under production, never failures.
+      'APP_URL': 'http://api.example.test',
+      'HASH_DRIVER': 'pbkdf2',
     });
     expect(code, 0);
+  });
+
+  test('doctor --production needs APP_ENV=production', () async {
+    // The production-only checks are skipped under any other environment,
+    // so the gate used to pass on a configuration never deployed as such.
+    expect(await gate({'APP_ENV': 'local'}), 1);
+    final checks = await inProject(
+      () =>
+          DoctorCommand(appWith({'APP_ENV': 'staging'}))
+              .diagnose(production: true),
+    );
+    expect(titled(checks, CheckStatus.error), [
+      'doctor --production with APP_ENV=staging',
+    ]);
+    // Without the flag the same configuration is not an error.
+    expect(
+      titled(await diagnose({'APP_ENV': 'staging'}), CheckStatus.error),
+      isEmpty,
+    );
+  });
+
+  test('production: no APP_KEY is an error, weak hashing warns', () async {
+    final checks = await diagnose({
+      'APP_ENV': 'production',
+      'APP_KEY': '',
+      'HASH_VERIFY': 'false',
+      'BCRYPT_ROUNDS': '4',
+      'APP_URL': 'http://api.example.test',
+    });
+    expect(
+      titled(checks, CheckStatus.error),
+      contains('APP_KEY is not set in production'),
+    );
+    expect(
+      titled(checks, CheckStatus.warning),
+      containsAll([
+        'HASH_VERIFY=false in production',
+        'BCRYPT_ROUNDS=4 in production',
+      ]),
+    );
+    expect(
+      notices(checks),
+      containsAll([
+        'APP_URL=http://api.example.test is plain http',
+        'Secrets are in a plain .env',
+      ]),
+    );
+    // Laravel's defaults pass, and none of it fires outside production.
+    final defaults = await diagnose({'APP_ENV': 'production'});
+    expect(
+      titled(defaults, CheckStatus.warning),
+      isNot(contains(startsWith('HASH_'))),
+    );
+    final local = await diagnose({
+      'APP_KEY': '',
+      'HASH_VERIFY': 'false',
+      'BCRYPT_ROUNDS': '4',
+    });
+    expect([
+      ...titled(local, CheckStatus.error),
+      ...titled(local, CheckStatus.warning),
+    ], isNot(contains(contains('in production'))));
   });
 }

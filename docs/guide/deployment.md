@@ -54,7 +54,7 @@ dart run bin/dartisan.dart doctor --production
 dart run bin/dartisan.dart env:encrypt --env=production
 ```
 
-`dartisan doctor --production` checks database connectivity, application key security (`APP_KEY`), protects `/metrics` routes, and ensures queue connections are not set to `sync`.
+`dartisan doctor --production` requires `APP_ENV=production` and checks database connectivity, the application key (`APP_KEY`), password hashing (`HASH_VERIFY`, `BCRYPT_ROUNDS`), that `/metrics` is protected and that the queue connection is not `sync`; see [Configuration](configuration.md).
 
 ---
 

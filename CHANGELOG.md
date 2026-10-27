@@ -58,8 +58,22 @@ match Laravel more closely.
   `$request->merge()` and `$request->replace()`: change the body's fields
   that `all()`, `input()` and validation read.
 
+### Changed
+
+- `dartisan doctor --production` fails unless `APP_ENV=production`: the
+  checks that only apply there (debug mode, the key, `/metrics`, the
+  queue, hashing) were skipped under any other environment, so the gate
+  passed on a configuration never deployed as such. Under production it
+  now also reports a missing `APP_KEY` (error), `HASH_VERIFY=false` and
+  `BCRYPT_ROUNDS` below 10 (warnings), and a plain-`http` `APP_URL`,
+  `HASH_DRIVER=pbkdf2` and secrets in a plain `.env` (notes). A missing
+  `.env` is a note when `APP_ENV` comes from the OS environment, so the
+  gate passes inside the image `build --docker` produces.
+
 ### Fixed
 
+- `dartisan migrate --seed` runs the root seeder; the flag was declared
+  and never read (`migrate:fresh --seed` worked).
 - `daravel_livekit` refuses to work with an empty API secret: HS256 over
   an empty key verifies whatever was signed with one, so a server whose
   `LIVEKIT_API_SECRET` was unset accepted webhooks anyone knowing the API

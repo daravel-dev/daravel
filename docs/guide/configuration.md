@@ -101,7 +101,13 @@ frozen after boot.
 | `SERVER_EMBED_QUEUE`, `SERVER_EMBED_SCHEDULER` | `false` | Queue worker and scheduler in the server process |
 
 `dartisan doctor` checks the configuration and the database connection;
-`doctor --production` treats warnings as failures. Tuning advice (one
-isolate on a machine with more cores, `LOG_LEVEL` below `warning`, a SQLite
-file shared by several isolates, the PostgreSQL pool against
-`max_connections`) is printed as `[note]` and never fails.
+`doctor --production` treats warnings as failures and requires
+`APP_ENV=production`, since the checks that only apply there would
+otherwise be skipped. Under `APP_ENV=production` a missing `APP_KEY` is an
+error, `HASH_VERIFY=false` and `BCRYPT_ROUNDS` below 10 are warnings, and a
+plain-`http` `APP_URL`, `HASH_DRIVER=pbkdf2` and secrets in a plain `.env`
+are notes. Tuning advice (one isolate on a machine with more cores,
+`LOG_LEVEL` below `warning`, a SQLite file shared by several isolates, the
+PostgreSQL pool against `max_connections`) is printed as `[note]` and never
+fails; so is a missing `.env` when `APP_ENV` comes from the OS environment,
+as in a container.

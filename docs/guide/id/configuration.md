@@ -1,4 +1,4 @@
-<!-- source: configuration.md sha256:df6b0d9c38ca -->
+<!-- source: configuration.md sha256:935175223252 -->
 # Konfigurasi
 
 ## File environment
@@ -104,8 +104,14 @@ setelah boot.
 | `SERVER_EMBED_QUEUE`, `SERVER_EMBED_SCHEDULER` | `false` | Queue worker dan scheduler di dalam proses server |
 
 `dartisan doctor` mengecek konfigurasi dan koneksi database;
-`doctor --production` memperlakukan peringatan sebagai kegagalan. Saran
+`doctor --production` memperlakukan peringatan sebagai kegagalan dan
+mewajibkan `APP_ENV=production`, karena pemeriksaan yang hanya berlaku di
+sana akan terlewati tanpanya. Dengan `APP_ENV=production`, `APP_KEY` yang
+kosong adalah error, `HASH_VERIFY=false` dan `BCRYPT_ROUNDS` di bawah 10
+adalah peringatan, sedangkan `APP_URL` yang masih `http`,
+`HASH_DRIVER=pbkdf2` dan rahasia di `.env` polos adalah catatan. Saran
 tuning (satu isolate di mesin dengan core lebih banyak, `LOG_LEVEL` di bawah
 `warning`, file SQLite yang dipakai bersama beberapa isolate, pool PostgreSQL
 dibandingkan `max_connections`) dicetak sebagai `[note]` dan tidak pernah
-menggagalkan.
+menggagalkan; begitu pula `.env` yang tidak ada saat `APP_ENV` berasal dari
+environment OS, seperti di container.

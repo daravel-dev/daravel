@@ -121,14 +121,14 @@ final class DoctorCommand extends DaravelCommand {
 
   @override
   Future<int> run() async {
-    final checks = await diagnose();
+    final strict = argResults!['production'] as bool;
+    final checks = await diagnose(production: strict);
     for (final check in checks) {
       stdout.writeln(
         '${check.symbol} ${check.title}'
         '${check.detail == null ? '' : '\n         ${check.detail}'}',
       );
     }
-    final strict = argResults!['production'] as bool;
     final failed = checks.where(
       (c) => c.status == .error || (strict && c.status == .warning),
     );
@@ -140,8 +140,12 @@ final class DoctorCommand extends DaravelCommand {
     return failed.isEmpty ? 0 : 1;
   }
 
-  /// Runs every check (also used by tests).
-  Future<List<DoctorCheck>> diagnose() async {
+  /// Runs every check (also used by tests). With [production] (the
+  /// `--production` flag) the application must run with
+  /// `APP_ENV=production`, since the checks that only apply there would
+  /// otherwise be skipped and the gate would pass on a configuration that
+  /// was never the deployed one.
+  Future<List<DoctorCheck>> diagnose({bool production = false}) async {
     final checks = <DoctorCheck>[];
     final version = RegExp(r'^(\d+)\.(\d+)').firstMatch(Platform.version);
     final major = int.parse(version?.group(1) ?? '0');
@@ -197,10 +201,16 @@ final class DoctorCommand extends DaravelCommand {
       if (!env.existsSync() && encrypted.existsSync()) {
         // Configuration comes from the encrypted file.
       } else if (!env.existsSync()) {
+        // A container built by `build --docker` has no .env (its
+        // .dockerignore keeps it out) and is configured by the OS
+        // environment: a note, so the gate the image runs still passes.
+        final fromOs = (Platform.environment['APP_ENV'] ?? '').isNotEmpty;
         checks.add(
-          const DoctorCheck(
-            CheckStatus.warning,
-            '.env is missing',
+          DoctorCheck(
+            fromOs ? CheckStatus.notice : CheckStatus.warning,
+            fromOs
+                ? '.env is missing; configured by the OS environment'
+                : '.env is missing',
             'Copy .env.example to .env (OS environment variables still apply).',
           ),
         );
@@ -231,7 +241,7 @@ final class DoctorCommand extends DaravelCommand {
     }
     try {
       await app.run(() async {
-        checks.addAll(await _appChecks(app, paths));
+        checks.addAll(await _appChecks(app, paths, production: production));
       });
     } finally {
       await app.shutdown();
@@ -241,8 +251,9 @@ final class DoctorCommand extends DaravelCommand {
 
   Future<List<DoctorCheck>> _appChecks(
     Application app,
-    ProjectPaths? paths,
-  ) async {
+    ProjectPaths? paths, {
+    required bool production,
+  }) async {
     final checks = <DoctorCheck>[];
     final appConfig = app.config.section<AppConfig>();
     final env = app.env;
@@ -252,6 +263,19 @@ final class DoctorCommand extends DaravelCommand {
         'Application boots (APP_ENV=${appConfig.env})',
       ),
     );
+    if (production && !appConfig.isProduction) {
+      checks.add(
+        DoctorCheck(
+          CheckStatus.error,
+          'doctor --production with APP_ENV=${appConfig.env}',
+          'Set APP_ENV=production: the checks that only apply there '
+              '(debug mode, the application key, /metrics, the queue, '
+              'hashing) were skipped, so this run proves nothing about the '
+              'deployed configuration.',
+        ),
+      );
+    }
+    checks.addAll(_productionChecks(app, appConfig, paths));
 
     for (final issue in ConfigValidator(
       extraChecks: const [DatabaseConfig.check],
@@ -466,6 +490,85 @@ final class DoctorCommand extends DaravelCommand {
           CheckStatus.warning,
           'QUEUE_CONNECTION=sync in production',
           'Jobs run inside requests; use the database driver and queue:work.',
+        ),
+      );
+    }
+    return checks;
+  }
+
+  /// What must not reach production: no application key (an error even
+  /// without `--production`), password hashing weakened below Laravel's
+  /// defaults or with its format check off (warnings, so the gate fails),
+  /// and two notes: a plain-`http` `APP_URL` and secrets in a plain `.env`
+  /// where `env:encrypt` is available. Nothing here fires outside
+  /// `APP_ENV=production`.
+  List<DoctorCheck> _productionChecks(
+    Application app,
+    AppConfig appConfig,
+    ProjectPaths? paths,
+  ) {
+    if (!appConfig.isProduction) {
+      return const [];
+    }
+    final checks = <DoctorCheck>[];
+    final key = app.env.maybeString('APP_KEY') ?? '';
+    if (key.isEmpty) {
+      checks.add(
+        const DoctorCheck(
+          CheckStatus.error,
+          'APP_KEY is not set in production',
+          'Encryption, signed URLs and tokens need it: run '
+              '`dartisan key:generate`.',
+        ),
+      );
+    }
+    final hashing = app.config.section<HashConfig>();
+    if (!hashing.verify) {
+      checks.add(
+        const DoctorCheck(
+          CheckStatus.warning,
+          'HASH_VERIFY=false in production',
+          'Hashes of a weaker format are accepted; set HASH_VERIFY=true.',
+        ),
+      );
+    }
+    if (hashing.driver == HashDriver.bcrypt && hashing.bcryptRounds < 10) {
+      checks.add(
+        DoctorCheck(
+          CheckStatus.warning,
+          'BCRYPT_ROUNDS=${hashing.bcryptRounds} in production',
+          'Laravel uses 12; below 10 passwords are cheap to brute-force.',
+        ),
+      );
+    }
+    if (hashing.driver == HashDriver.pbkdf2) {
+      checks.add(
+        const DoctorCheck(
+          CheckStatus.notice,
+          'HASH_DRIVER=pbkdf2 in production',
+          'bcrypt (the default) or argon2id resist GPU attacks; existing '
+              'hashes are upgraded at login.',
+        ),
+      );
+    }
+    if (Uri.tryParse(appConfig.url)?.scheme == 'http') {
+      checks.add(
+        DoctorCheck(
+          CheckStatus.notice,
+          'APP_URL=${appConfig.url} is plain http',
+          'Signed URLs, redirects and links will be served without TLS.',
+        ),
+      );
+    }
+    if (paths != null &&
+        File(p.join(paths.root, '.env')).existsSync() &&
+        !File(p.join(paths.root, '.env.encrypted')).existsSync()) {
+      checks.add(
+        const DoctorCheck(
+          CheckStatus.notice,
+          'Secrets are in a plain .env',
+          '`dartisan env:encrypt` keeps them in .env.encrypted, decrypted in '
+              'memory at boot.',
         ),
       );
     }
