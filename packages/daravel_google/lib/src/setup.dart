@@ -83,39 +83,39 @@ final class GoogleConfig implements ConfigSection {
 extension GoogleApplicationBuilder on ApplicationBuilder {
   /// Adds Google: [GoogleConfig] from `.env` and the [Google] facade, whose
   /// clients send through the application's HTTP client.
-  ApplicationBuilder withGoogle() =>
-      withConfig<GoogleConfig>(GoogleConfig.fromEnv)
-          .withConfigCheck(GoogleConfig.check)
-          .withBindings(
-            (container) => container
-              ..singleton<GoogleOAuth>((c) {
-                final config = c
-                    .make<ConfigRepository>()
-                    .section<GoogleConfig>();
-                return GoogleOAuth(
-                  clientId: config.clientId,
-                  clientSecret: config.clientSecret,
-                  redirectUri: config.redirectUri,
-                  http: c.make<HttpClientFactory>(),
-                );
-              })
-              ..singleton<GoogleServiceAccount>((c) {
-                final config = c
-                    .make<ConfigRepository>()
-                    .section<GoogleConfig>();
-                final path = config.credentials;
-                if (path == null) {
-                  throw const ConfigException(
-                    'Google: set GOOGLE_APPLICATION_CREDENTIALS to a service '
-                    'account key file.',
-                  );
-                }
-                return GoogleServiceAccount.fromFile(
-                  path,
-                  http: c.make<HttpClientFactory>(),
-                );
-              }),
-          );
+  ApplicationBuilder
+  withGoogle() => withConfig<GoogleConfig>(GoogleConfig.fromEnv)
+      .withConfigCheck(GoogleConfig.check)
+      .withBindings(
+        (container) => container
+          ..singleton<GoogleOAuth>((c) {
+            final config = c.make<ConfigRepository>().section<GoogleConfig>();
+            return GoogleOAuth(
+              clientId: config.clientId,
+              clientSecret: config.clientSecret,
+              redirectUri: config.redirectUri,
+              http: c.make<HttpClientFactory>(),
+            );
+          })
+          ..singleton<GoogleServiceAccount>((c) {
+            final config = c.make<ConfigRepository>().section<GoogleConfig>();
+            final path = config.credentials;
+            if (path == null) {
+              throw const ConfigException(
+                'Google: set GOOGLE_APPLICATION_CREDENTIALS to a service '
+                'account key file.',
+              );
+            }
+            return GoogleServiceAccount.fromFile(
+              path,
+              http: c.make<HttpClientFactory>(),
+            );
+          })
+          ..singleton<ServiceAccountCredentialsCache>(
+            (c) =>
+                ServiceAccountCredentialsCache(c.make<GoogleServiceAccount>()),
+          ),
+      );
 }
 
 /// Google from anywhere in a request, job or command.
@@ -157,14 +157,24 @@ abstract final class Google {
     calendarId: calendarId,
   );
 
+  /// The service account's credentials for [scopes] (acting as [subject]),
+  /// one per isolate and combination: their token is fetched once and
+  /// shared by every call until a minute before it expires.
+  static ServiceAccountCredentials serviceCredentials({
+    required List<String> scopes,
+    String? subject,
+  }) => Container.current.make<ServiceAccountCredentialsCache>().of(
+    scopes: scopes,
+    subject: subject,
+  );
+
   /// The calendar of `GOOGLE_CALENDAR_ID` as the service account, acting
   /// as [subject] (default `GOOGLE_CALENDAR_IMPERSONATE`) when set.
   static GoogleCalendar serviceCalendar({
     String? subject,
     String? calendarId,
   }) => calendar(
-    ServiceAccountCredentials(
-      serviceAccount,
+    serviceCredentials(
       scopes: const [GoogleScopes.calendar],
       subject: subject ?? config.impersonate,
     ),

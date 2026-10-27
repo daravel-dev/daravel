@@ -1,4 +1,4 @@
-<!-- source: google.md sha256:9b7f4bfdb1b0 -->
+<!-- source: google.md sha256:dd83cbfb7a33 -->
 # Google
 
 `daravel_google` menghubungkan aplikasi dengan Google: user masuk ke akun
@@ -106,8 +106,11 @@ final asTeacher = Google.serviceCalendar(subject: 'guru@sekolah.sch.id');
 
 Access token-nya didapat dari JWT yang ditandatangani dengan kunci RSA di
 file kunci (RS256, RFC 7523), diambil saat pertama kali dibutuhkan dan lagi
-satu menit sebelum kedaluwarsa. `GoogleServiceAccount.fromFile(path)` bisa
-dipakai tanpa facade.
+satu menit sebelum kedaluwarsa. Credential-nya disimpan per isolate,
+menurut scope dan subject (`Google.serviceCredentials`), sehingga semua
+panggilan `serviceCalendar()` memakai satu token; tiap worker isolate
+mengambil tokennya sendiri, seperti cache APCu pada worker PHP-FPM.
+`GoogleServiceAccount.fromFile(path)` bisa dipakai tanpa facade.
 
 ## Event
 

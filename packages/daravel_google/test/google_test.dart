@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
@@ -325,6 +326,98 @@ void main() {
       expect(stored.single.refreshToken, '1//refresh');
       expect(await credentials.accessToken(), 'ya29.new');
       expect(fake.recorded, hasLength(1), reason: 'still valid');
+    });
+
+    test(
+      'a store that fails keeps the old token, so the next call retries',
+      () async {
+        final http = HttpClientFactory();
+        final fake = http.fake({
+          GoogleOAuth.tokenEndpoint: Http.response({
+            'access_token': 'ya29.new',
+            'expires_in': 3599,
+          }),
+        });
+        final old = GoogleToken(
+          accessToken: 'ya29.old',
+          created: now.subtract(const Duration(hours: 2)),
+          expiresIn: const Duration(hours: 1),
+          refreshToken: '1//refresh',
+        );
+        var storeFails = true;
+        final stored = <GoogleToken>[];
+        final credentials = UserCredentials(
+          old,
+          oauth: GoogleOAuth(clientId: 'id', clientSecret: 's', http: http),
+          onRefresh: (token) {
+            if (storeFails) {
+              throw StateError('database down');
+            }
+            stored.add(token);
+          },
+        );
+        await expectLater(credentials.accessToken(), throwsStateError);
+        // Not in memory either: a token the store never saw would be served
+        // by this isolate only, and silently.
+        expect(credentials.token, same(old));
+        storeFails = false;
+        expect(await credentials.accessToken(), 'ya29.new');
+        expect(fake.recorded, hasLength(2), reason: 'refreshed again');
+        expect(stored.single.accessToken, 'ya29.new');
+      },
+    );
+
+    test('the service account token is fetched once per isolate', () async {
+      final keys = _keyPair();
+      final file = File('${Directory.systemTemp.path}/daravel_google_sa.json')
+        ..writeAsStringSync(
+          jsonEncode({
+            'type': 'service_account',
+            'project_id': 'demo',
+            'private_key_id': 'kid-1',
+            'private_key': _pkcs8Pem(keys.privateKey),
+            'client_email': 'calendar@demo.iam.gserviceaccount.com',
+            'token_uri': GoogleServiceAccount.defaultTokenUri,
+          }),
+        );
+      addTearDown(file.delete);
+      final app = Application.configure(basePath: '.')
+          .withEnv({
+            'APP_ENV': 'testing',
+            'DB_DATABASE': ':memory:',
+            'GOOGLE_APPLICATION_CREDENTIALS': file.path,
+          })
+          .withGoogle()
+          .create();
+      await app.boot();
+      addTearDown(app.shutdown);
+      await app.run(() async {
+        final fake = App.make<HttpClientFactory>().fake({
+          GoogleServiceAccount.defaultTokenUri: Http.response({
+            'access_token': 'ya29.service',
+            'expires_in': 3599,
+            'token_type': 'Bearer',
+          }),
+          '*': Http.response({'id': 'evt1'}),
+        });
+        // Each call used to build new credentials: an RSA signature and a
+        // token request per API call.
+        await Google.serviceCalendar().get('evt1');
+        await Google.serviceCalendar().get('evt1');
+        await Google.serviceCalendar(subject: 'guru@sekolah.sch.id').get('e');
+        final tokenCalls = fake.recorded.where(
+          (r) => r.url.toString() == GoogleServiceAccount.defaultTokenUri,
+        );
+        expect(tokenCalls, hasLength(2), reason: 'one per subject');
+        expect(App.make<ServiceAccountCredentialsCache>().size, 2);
+        expect(
+          identical(
+            Google.serviceCredentials(scopes: const [GoogleScopes.calendar]),
+            Google.serviceCredentials(scopes: const [GoogleScopes.calendar]),
+          ),
+          isTrue,
+        );
+      });
     });
   });
 

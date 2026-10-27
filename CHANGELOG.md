@@ -72,6 +72,12 @@ match Laravel more closely.
 
 ### Fixed
 
+- `daravel_google`: `Google.serviceCalendar()` shares one service-account
+  token per isolate, scopes and subject (`Google.serviceCredentials`,
+  `ServiceAccountCredentialsCache`); it used to sign an RS256 assertion
+  and call Google's token endpoint on every call. `UserCredentials` stores
+  a refreshed token before keeping it, so a store that fails is retried on
+  the next call instead of leaving memory and database apart.
 - Supervisor: a worker that does not become ready within `readyTimeout`
   is killed; it used to go on booting, bind the port and serve untracked
   next to its replacement. `stop()` returns at once when every worker is

@@ -101,7 +101,10 @@ final asTeacher = Google.serviceCalendar(subject: 'guru@sekolah.sch.id');
 
 The access token comes from a JWT signed with the key file's RSA key
 (RS256, RFC 7523), fetched when first needed and again a minute before it
-expires. `GoogleServiceAccount.fromFile(path)` works without the facade.
+expires. The credentials are held per isolate, by scopes and subject
+(`Google.serviceCredentials`), so every `serviceCalendar()` call shares
+one token; each worker isolate fetches its own, like a PHP-FPM worker's
+APCu cache. `GoogleServiceAccount.fromFile(path)` works without the facade.
 
 ## Events
 

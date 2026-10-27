@@ -45,8 +45,12 @@ final class UserCredentials implements GoogleCredentials {
     final refreshing = _refreshing ??= () async {
       try {
         final fresh = await oauth.refresh(_token);
-        _token = fresh;
+        // Stored first: if the store fails, the token in memory stays the
+        // old one, so the next call refreshes and stores again instead of
+        // serving a token the database never saw (and, had Google rotated
+        // the refresh token, one the next process could not refresh).
         await onRefresh?.call(fresh);
+        _token = fresh;
         return fresh;
       } finally {
         _refreshing = null;
@@ -54,6 +58,29 @@ final class UserCredentials implements GoogleCredentials {
     }();
     return (await refreshing).accessToken;
   }
+}
+
+/// The [ServiceAccountCredentials] of this isolate by scopes and subject,
+/// so repeated `Google.serviceCalendar()` calls share one token (and one
+/// in-flight fetch) instead of signing an assertion and calling Google's
+/// token endpoint each. Per isolate: worker isolates share no memory, so
+/// each holds its own token, like a PHP-FPM worker's APCu cache.
+final class ServiceAccountCredentialsCache {
+  ServiceAccountCredentialsCache(this.account);
+
+  final GoogleServiceAccount account;
+  final Map<String, ServiceAccountCredentials> _credentials = {};
+
+  /// Credentials held for this isolate.
+  int get size => _credentials.length;
+
+  ServiceAccountCredentials of({
+    required List<String> scopes,
+    String? subject,
+  }) => _credentials.putIfAbsent(
+    '${subject ?? ''}|${(List.of(scopes)..sort()).join(' ')}',
+    () => ServiceAccountCredentials(account, scopes: scopes, subject: subject),
+  );
 }
 
 /// A service account's token for [scopes] (acting as [subject] when
