@@ -1,4 +1,4 @@
-<!-- source: configuration.md sha256:da8a1b9fd4c5 -->
+<!-- source: configuration.md sha256:94259e58d7e4 -->
 <!-- source: configuration.md sha256:0 -->
 # Konfigurasi
 
@@ -86,12 +86,14 @@ setelah boot.
 | `BROADCAST_CONNECTION` | `daravel` | Tujuan event broadcast: `daravel` (server ini), `reverb`, `pusher`, `log`, `null` ([Broadcasting](broadcasting.md)) |
 | `REVERB_APP_ID`, `REVERB_APP_KEY`, `REVERB_APP_SECRET` | tidak ada | Aplikasi Pusher yang dipakai server ini untuk melayani Echo (atau Reverb tujuan pengiriman) |
 | `REVERB_HOST`, `REVERB_PORT`, `REVERB_SCHEME` | tidak ada, 443, `https` | Reverb tujuan `BROADCAST_CONNECTION=reverb` |
+| `REVERB_SCALING_ENABLED`, `REVERB_SCALING_CONNECTION` | `false`, koneksi default | Beberapa server berbagi broadcasting melalui database ([Broadcasting](broadcasting.md#beberapa-server)) |
+| `REVERB_SCALING_POLL`, `REVERB_SERVER_ID` | `100ms`, nama host dan id proses | Seberapa sering server membaca event server lain tanpa `NOTIFY` (PostgreSQL memilikinya), dan nama server ini |
 | `REVERB_ENCRYPTION_MASTER_KEY_BASE64` | tidak ada | 32 byte dalam base64 untuk mengenkripsi channel `private-encrypted-` (`PUSHER_ENCRYPTION_MASTER_KEY_BASE64` dengan `pusher`) |
 | `DB_CHARSET`, `DB_COLLATION`, `DB_TIMEZONE` | `utf8mb4`, `utf8mb4_unicode_ci`, server | MySQL dan MariaDB, sebagaimana dibaca Laravel |
 | `DB_POOL_SIZE`, `DB_SSLMODE` | `10`, `disable` | Pool koneksi per isolate, TLS (`require`, `verify-full`) |
 | `CACHE_STORE`, `CACHE_PREFIX` | `memory` | Penyimpanan cache dan prefix key |
 | `CACHE_PROCESS_L1_TTL` | `0` (mati) | Dengan store `process`, berapa lama setiap worker isolate memakai ulang nilai yang dibacanya (`250ms`) sebelum bertanya lagi ke coordinator |
-| `CACHE_LIMITER` | coordinator | Penyimpanan cache untuk rate limit (`cache.limiter` dari Laravel); `database` membaginya antarmesin |
+| `CACHE_LIMITER` | coordinator | Penyimpanan cache untuk rate limit (`cache.limiter` dari Laravel); `database` membaginya antarmesin, dengan satu statement per percobaan |
 | `QUEUE_CONNECTION` | `sync` | `sync`, `memory`, atau `database` |
 | `QUEUE_UNIQUE_LOCK_STORE` | `database` dengan queue database, selain itu `process` | Cache store untuk lock unique job; proses `queue:work` harus bisa menjangkaunya |
 | `QUEUE_SIGNAL_STORE` | `file` dengan queue database, selain itu lock store | Cache store untuk sinyal `queue:restart` dan `queue:pause`; `database` menjangkau worker di semua mesin |

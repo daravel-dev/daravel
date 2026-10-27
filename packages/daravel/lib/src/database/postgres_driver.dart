@@ -14,7 +14,7 @@ enum PostgresSslMode { disable, require, verifyFull }
 /// grammar emits them; raw SQL is expanded by `SqlBindings`). Transactions
 /// run on a dedicated pooled connection; the executor passed to the callback
 /// is the only object that may issue queries inside the transaction.
-final class PostgresDriver implements DatabaseDriver {
+final class PostgresDriver implements NotifyingDriver {
   PostgresDriver({
     required this.host,
     required this.database,
@@ -97,16 +97,7 @@ final class PostgresDriver implements DatabaseDriver {
       return;
     }
     final pool = pg.Pool<Object?>.withEndpoints(
-      [
-        pg.Endpoint(
-          host: unixSocketPath ?? host,
-          isUnixSocket: unixSocketPath != null,
-          port: port,
-          database: database,
-          username: username,
-          password: password,
-        ),
-      ],
+      [_endpoint],
       settings: pg.PoolSettings(
         maxConnectionCount: maxConnections,
         sslMode: switch (sslMode) {
@@ -129,6 +120,53 @@ final class PostgresDriver implements DatabaseDriver {
     final pool = _pool;
     _pool = null;
     await pool?.close();
+  }
+
+  pg.Endpoint get _endpoint => pg.Endpoint(
+    host: unixSocketPath ?? host,
+    isUnixSocket: unixSocketPath != null,
+    port: port,
+    database: database,
+    username: username,
+    password: password,
+  );
+
+  @override
+  Stream<String> listen(String channel) {
+    pg.Connection? connection;
+    StreamSubscription<String>? subscription;
+    late final StreamController<String> out;
+    out = StreamController<String>(
+      onListen: () async {
+        try {
+          final opened = connection = await pg.Connection.open(
+            _endpoint,
+            settings: pg.ConnectionSettings(
+              sslMode: switch (sslMode) {
+                .disable => pg.SslMode.disable,
+                .require => pg.SslMode.require,
+                .verifyFull => pg.SslMode.verifyFull,
+              },
+              connectTimeout: connectTimeout,
+              applicationName: applicationName,
+            ),
+          );
+          subscription = opened.channels[channel].listen(
+            out.add,
+            onError: out.addError,
+            onDone: out.close,
+          );
+        } catch (error, stackTrace) {
+          out.addError(error, stackTrace);
+          await out.close();
+        }
+      },
+      onCancel: () async {
+        await subscription?.cancel();
+        await connection?.close();
+      },
+    );
+    return out.stream;
   }
 
   pg.Pool<Object?> get _session {

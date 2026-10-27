@@ -58,6 +58,12 @@ unique jobs, job middleware, `queue:work`, `queue:failed`, `queue:retry` and
 `queue:restart` are supported. Dispatch inside a transaction is deferred
 until commit by default.
 
+An idle worker waits up to `--sleep` (3 seconds, as Laravel's) between
+empty polls, but a push wakes it at once: on PostgreSQL the database queue
+sends a `NOTIFY` that every worker on every machine hears, and the memory
+queue wakes the workers of its isolate. MySQL and MariaDB workers poll as
+Laravel's do.
+
 `queue:work`, `queue:restart` and the server are separate processes, so
 what they share lives outside them. With the database queue, unique-job
 locks are kept in the `database` cache store (Laravel's `cache_locks`

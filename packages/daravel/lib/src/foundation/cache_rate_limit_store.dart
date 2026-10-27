@@ -34,12 +34,28 @@ final class CacheRateLimitStore implements RateLimitStore {
     _ => 0,
   };
 
+  /// Where a [WindowCounterStore] keeps the window of [key]: a key of its
+  /// own, since its value format differs from the two-key algorithm's.
+  String _windowKey(String key) => '$prefix$key:window';
+
   @override
   Future<RateLimitResult> attempt(
     String key,
     int maxAttempts,
     Duration decay,
   ) async {
+    final store = this.store;
+    if (store is WindowCounterStore) {
+      // One round trip (the database store's single upsert).
+      final hit = await store.hitWindow(_windowKey(key), maxAttempts, decay);
+      return RateLimitResult(
+        allowed: hit.allowed,
+        limit: maxAttempts,
+        remaining: hit.allowed ? maxAttempts - hit.hits : 0,
+        resetAt: hit.resetAt,
+        retryAfter: hit.allowed ? null : _until(hit.resetAt),
+      );
+    }
     final hitsKey = '$prefix$key';
     final timerKey = '$hitsKey:timer';
     await store.add(timerKey, _nowMs + decay.inMilliseconds, ttl: decay);
@@ -86,8 +102,13 @@ final class CacheRateLimitStore implements RateLimitStore {
   }
 
   @override
-  Future<int> attempts(String key, Duration decay) async =>
-      _int(await store.get('$prefix$key'));
+  Future<int> attempts(String key, Duration decay) async {
+    final store = this.store;
+    if (store is WindowCounterStore) {
+      return (await store.currentWindow(_windowKey(key)))?.hits ?? 0;
+    }
+    return _int(await store.get('$prefix$key'));
+  }
 
   @override
   Future<Duration> availableIn(
@@ -95,6 +116,13 @@ final class CacheRateLimitStore implements RateLimitStore {
     int maxAttempts,
     Duration decay,
   ) async {
+    final store = this.store;
+    if (store is WindowCounterStore) {
+      final window = await store.currentWindow(_windowKey(key));
+      return window == null || window.hits < maxAttempts
+          ? Duration.zero
+          : _until(window.resetAt);
+    }
     if (await attempts(key, decay) < maxAttempts) {
       return Duration.zero;
     }
@@ -108,6 +136,7 @@ final class CacheRateLimitStore implements RateLimitStore {
   Future<void> clear(String key) async {
     await store.forget('$prefix$key');
     await store.forget('$prefix$key:timer');
+    await store.forget(_windowKey(key));
   }
 
   /// Not supported: the cache is shared with the application, so flushing it

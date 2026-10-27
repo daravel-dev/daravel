@@ -29,6 +29,10 @@ final class BroadcastConfig implements ConfigSection {
     this.activityTimeout = 30,
     this.maxMessageSize = 10000,
     this.encryptionMasterKey,
+    this.scaling = false,
+    this.scalingConnection,
+    this.scalingPoll = const Duration(milliseconds: 100),
+    this.serverId,
   });
 
   factory BroadcastConfig.fromEnv(Env env) {
@@ -58,6 +62,13 @@ final class BroadcastConfig implements ConfigSection {
               : 'REVERB_ENCRYPTION_MASTER_KEY_BASE64',
         ),
       ),
+      scaling: env.boolean('REVERB_SCALING_ENABLED', false),
+      scalingConnection: env.maybeString('REVERB_SCALING_CONNECTION'),
+      scalingPoll: env.duration(
+        'REVERB_SCALING_POLL',
+        const Duration(milliseconds: 100),
+      ),
+      serverId: env.maybeString('REVERB_SERVER_ID'),
     );
   }
 
@@ -112,6 +123,22 @@ final class BroadcastConfig implements ConfigSection {
     return key;
   }
 
+  /// Several servers (machines, or processes) serve the same clients
+  /// (`REVERB_SCALING_ENABLED`, as in Reverb): events, channel members and
+  /// cache channels are shared through the database
+  /// (`REVERB_SCALING_CONNECTION`, default the default connection) instead
+  /// of Reverb's Redis.
+  final bool scaling;
+  final String? scalingConnection;
+
+  /// How often a server reads the other servers' events when the database
+  /// cannot notify it (PostgreSQL does, through `LISTEN`).
+  final Duration scalingPoll;
+
+  /// This server's name among the others (`REVERB_SERVER_ID`); by default
+  /// the host name and process id, shared by its worker isolates.
+  final String? serverId;
+
   /// Whether this server answers Pusher clients: it has a key and secret.
   bool get serves => appKey.isNotEmpty && appSecret.isNotEmpty;
 
@@ -131,5 +158,11 @@ final class BroadcastConfig implements ConfigSection {
     'activity_timeout': activityTimeout,
     'max_message_size': maxMessageSize,
     'encryption_master_key': encryptionMasterKey == null ? null : '********',
+    'scaling': {
+      'enabled': scaling,
+      'connection': scalingConnection,
+      'poll_ms': scalingPoll.inMilliseconds,
+      'server_id': serverId,
+    },
   };
 }

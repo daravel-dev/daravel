@@ -57,6 +57,23 @@ abstract interface class TouchableCacheStore implements CacheStore {
   Future<bool> touch(String key, Duration ttl);
 }
 
+/// A store that counts fixed-window hits in one atomic step, for rate limits
+/// over the network (`CACHE_LIMITER=database`): one round trip per attempt
+/// instead of a read-modify-write sequence.
+abstract interface class WindowCounterStore implements CacheStore {
+  /// Counts a hit on [key] unless [maxHits] were already counted in its
+  /// window, which [window] starts when [key] has none. [allowed] says
+  /// whether this hit was counted; [hits] never exceeds [maxHits].
+  Future<({bool allowed, int hits, DateTime resetAt})> hitWindow(
+    String key,
+    int maxHits,
+    Duration window,
+  );
+
+  /// Hits counted in the current window of [key], or null without one.
+  Future<({int hits, DateTime resetAt})?> currentWindow(String key);
+}
+
 /// Raised by [Lock.block] when the lock cannot be obtained in time.
 final class LockTimeoutException extends DaravelException {
   LockTimeoutException(String name, Duration timeout)

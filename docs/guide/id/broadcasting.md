@@ -1,4 +1,4 @@
-<!-- source: broadcasting.md sha256:96c14980f843 -->
+<!-- source: broadcasting.md sha256:2067f80e9117 -->
 # Broadcasting
 
 Daravel berbicara dengan protokol Pusher, seperti Laravel Reverb, di port
@@ -68,8 +68,9 @@ Echo.private(`App.Models.User.${userId}`).notification((n) => { /* ... */ });
 
 Koneksi, langganan, dan anggota presence dibagi oleh semua worker isolate
 melalui coordinator, sehingga `APP_ISOLATES=4` berperilaku seperti satu
-server. Semua itu tidak dibagi antarmesin: dengan beberapa server, taruh
-WebSocket di satu server saja, atau pakai Reverb dengan scaling Redis-nya.
+server. Beberapa server (mesin, atau proses di belakang load balancer)
+berbagi semua itu melalui database, seperti Reverb berbagi melalui Redis;
+lihat [Beberapa server](#beberapa-server).
 
 ## Mem-broadcast event
 
@@ -161,6 +162,34 @@ Kunci yang sama berlaku untuk `BROADCAST_CONNECTION=reverb` atau `pusher`:
 Laravel (dengan `encryption_master_key_base64`) dan Daravel mengenkripsi
 dengan cara yang sama.
 
+## Beberapa server
+
+```dotenv
+REVERB_SCALING_ENABLED=true
+# REVERB_SCALING_CONNECTION=pgsql   # koneksi selain koneksi default
+```
+
+Tambahkan `CreateBroadcastingTables()` ke `bootstrap/migrations.dart` lalu
+jalankan `dartisan migrate`. Setelah itu setiap server menulis frame yang
+dikirimnya ke `broadcast_messages`, dan setiap server membaca frame dari
+server lain lalu meneruskannya ke client-nya sendiri, sehingga event yang
+diterbitkan di satu server (lewat API HTTP, `Broadcast.send`, atau whisper)
+sampai ke client yang terhubung ke server mana pun. Di PostgreSQL server
+saling membangunkan dengan `NOTIFY`; di MySQL dan MariaDB server membaca
+setiap `REVERB_SCALING_POLL` (`100ms`).
+
+Anggota presence juga dibagi, berbeda dengan Reverb yang `here`-nya hanya
+memuat anggota di server yang sama: `here`, `member_added` (sekali per
+user, di server mana pun tab user itu berada), serta `channels`, `channel`,
+dan `users` dari API HTTP menjawab untuk seluruh cluster, begitu pula event
+terakhir sebuah channel cache. Setiap server mengirim heartbeat setiap
+sepuluh detik; anggota dari server yang diam selama 30 detik (karena crash)
+tidak dihitung lagi dan dihapus semenit kemudian.
+
+Beri setiap server `REVERB_SERVER_ID` yang tetap bila nama host dan id
+proses tidak cukup membedakannya. Load balancer tidak perlu sticky session:
+client tetap di server yang dijangkau WebSocket-nya.
+
 ## Origin dan batas
 
 | Variabel | Default | Kegunaan |
@@ -197,7 +226,7 @@ setiap koneksi membuat event yang sama butuh 7,9 s.
 `bench/interop/run.sh` (Linux dan Docker) mengecek semua ini terhadap
 perangkat lunak yang harus didukungnya: `laravel-echo` dan `pusher-js` dari
 npm terhadap Daravel (publik, private, `toOthers`, whisper, presence,
-notifikasi, channel cache dan terenkripsi, otorisasi yang ditolak), Laravel 12 yang mem-broadcast lewat
+notifikasi, channel cache dan terenkripsi, otorisasi yang ditolak), dua server Daravel yang berbagi satu database, Laravel 12 yang mem-broadcast lewat
 Daravel dengan `pusher/pusher-php-server`, dan Daravel yang mem-broadcast
 lewat Laravel Reverb, dengan satu atau empat worker isolate
 (`ISOLATES=4`).

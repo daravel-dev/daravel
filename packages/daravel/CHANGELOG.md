@@ -5,6 +5,10 @@
 - Added cache channels (`cache-`, `private-cache-`, `presence-cache-`) and end-to-end encrypted `private-encrypted-` channels (`REVERB_ENCRYPTION_MASTER_KEY_BASE64`, `Echo.encryptedPrivate`).
 - Added `compress:` to `Router.ws` and `Response.webSocket`; the Pusher endpoint runs without permessage-deflate.
 - Changed: a WebSocket connection no longer keeps its HTTP request alive (`Request.detachBody`).
+- Added several broadcasting servers through the database (`REVERB_SCALING_ENABLED`, `CreateBroadcastingTables`, `DatabaseChannelState`, `DatabaseBroadcastRelay`).
+- Added `WakeableQueueDriver`: idle workers wake on a push (PostgreSQL `NOTIFY`, the memory queue) and on `stop()`.
+- Added `DatabaseManager.notifications` / `notify` and `NotifyingDriver` (PostgreSQL `LISTEN` / `NOTIFY`).
+- Changed: `CACHE_LIMITER=database` counts an attempt with one upsert (`WindowCounterStore`).
 
 ## 1.10.1
 

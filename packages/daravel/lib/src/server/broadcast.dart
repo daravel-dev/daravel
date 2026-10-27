@@ -113,6 +113,15 @@ final class Broadcaster {
     return receivers! as int;
   }
 
+  /// Hands [text] to this isolate's listeners of [channel] only: for
+  /// messages that reached every isolate some other way (the Pusher
+  /// server's relay between machines, which each isolate reads itself).
+  void deliverLocally(String channel, String text) {
+    for (final listener in [...?_local[channel]]) {
+      listener.add(text);
+    }
+  }
+
   /// Listens to [channel]. The returned subscription receives every
   /// message published after this completes; cancel it when done.
   Future<BroadcastSubscription> subscribe(String channel) async {

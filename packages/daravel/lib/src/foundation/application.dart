@@ -56,6 +56,7 @@ import '../schedule/schedule.dart';
 import '../broadcasting/broadcast_config.dart';
 import '../broadcasting/broadcast_manager.dart';
 import '../broadcasting/channel_registry.dart';
+import '../broadcasting/cluster.dart';
 import '../broadcasting/pusher_server.dart';
 import '../server/broadcast.dart';
 import '../server/coordinator.dart';
@@ -321,6 +322,24 @@ final class Application {
         final broadcasting = c
             .make<ConfigRepository>()
             .section<BroadcastConfig>();
+        DatabaseChannelState? shared;
+        DatabaseBroadcastRelay? relay;
+        if (broadcasting.serves && broadcasting.scaling) {
+          // Several servers: channel state and frames in the database.
+          shared = DatabaseChannelState(
+            c.make<DatabaseManager>(),
+            server: broadcasting.serverId ?? defaultBroadcastServerId(),
+            connection: broadcasting.scalingConnection,
+          );
+          relay = DatabaseBroadcastRelay(
+            c.make<DatabaseManager>(),
+            state: shared,
+            connection: broadcasting.scalingConnection,
+            poll: broadcasting.scalingPoll,
+            onError: (error) =>
+                c.make<Logger>().warning('Broadcast relay: $error'),
+          );
+        }
         return BroadcastManager(
           broadcasting,
           server: broadcasting.serves
@@ -328,6 +347,8 @@ final class Application {
                   broadcasting,
                   c.make<Broadcaster>(),
                   c.make<CoordinatorChannel>(),
+                  state: shared,
+                  relay: relay,
                 )
               : null,
           http: c.make<HttpClientFactory>(),
@@ -920,6 +941,7 @@ final class Application {
     _metricsTimer = null;
     container.resolved<HttpClientFactory>()?.close();
     await container.resolved<Mailer>()?.transport.close();
+    await container.resolved<BroadcastManager>()?.server?.close();
     await container.resolved<Broadcaster>()?.close();
     final db = container.resolved<DatabaseManager>();
     if (db != null) {

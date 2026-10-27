@@ -93,6 +93,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `Pusher HTTP API (POST /apps/{id}/events)` | `the same endpoints, signatures checked` | **async**; Laravel broadcasts through Daravel with BROADCAST_CONNECTION=reverb. |
 | `Echo.channel('cache-prices') (Pusher cache channels)` | `Broadcast.send(..., ['cache-prices'], ...)` | The last event is kept 30 minutes for new subscribers. |
 | `Echo.encryptedPrivate('orders.7') with encryption_master_key_base64` | `REVERB_ENCRYPTION_MASTER_KEY_BASE64` | private-encrypted- channels, sealed with libsodium's secretbox. |
+| `REVERB_SCALING_ENABLED=true (Reverb with Redis)` | `REVERB_SCALING_ENABLED=true (the database)` | Frames, presence members (here included) and cache channels span every server; PostgreSQL NOTIFY, MySQL polling. |
 | `(Reverb's internal pub/sub)` | `await Broadcast.publish('orders.7', data)` | **async**; Daravel's own channels between isolates, for custom WebSocket and SSE routes. |
 
 ## Validation

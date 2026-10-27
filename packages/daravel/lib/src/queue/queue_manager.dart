@@ -685,7 +685,16 @@ final class QueueWorker {
   int processed = 0;
 
   /// Stops after the current job.
-  void stop() => _stop = true;
+  void stop() {
+    _stop = true;
+    final idle = _idle;
+    if (idle != null && !idle.isCompleted) {
+      idle.complete();
+    }
+  }
+
+  /// Completed by [stop] while the worker waits for work.
+  Completer<void>? _idle;
 
   /// Stops taking new jobs (the current one finishes) until [resume]; for
   /// embedding supervisors. [QueueManager.pause] pauses a queue for every
@@ -710,33 +719,50 @@ final class QueueWorker {
       'Processing jobs from [${options.queues.join(', ')}] on connection '
       '[${driver.name}].',
     );
-    while (!_stop) {
-      final ran = await runNextJob(driver, options);
-      if (ran) {
-        processed++;
-      }
-      final maxJobs = options.maxJobs;
-      if (maxJobs != null && processed >= maxJobs) {
-        break;
-      }
-      final maxTime = options.maxTime;
-      if (maxTime != null &&
-          DateTime.now().toUtc().difference(started) >= maxTime) {
-        break;
-      }
-      final restart = await manager.restartRequestedAt();
-      if (restart != null && restart != restartMark) {
-        _logger?.info('Restart requested; worker stopping.');
-        return 1;
-      }
-      if (!ran) {
-        if (options.stopWhenEmpty) {
+    try {
+      while (!_stop) {
+        final ran = await runNextJob(driver, options);
+        if (ran) {
+          processed++;
+        }
+        final maxJobs = options.maxJobs;
+        if (maxJobs != null && processed >= maxJobs) {
           break;
         }
-        await Future<void>.delayed(options.sleep);
+        final maxTime = options.maxTime;
+        if (maxTime != null &&
+            DateTime.now().toUtc().difference(started) >= maxTime) {
+          break;
+        }
+        final restart = await manager.restartRequestedAt();
+        if (restart != null && restart != restartMark) {
+          _logger?.info('Restart requested; worker stopping.');
+          return 1;
+        }
+        if (!ran) {
+          if (options.stopWhenEmpty) {
+            break;
+          }
+          await _waitForWork(driver, options);
+        }
+      }
+    } finally {
+      if (driver is WakeableQueueDriver) {
+        await driver.stopWaiting();
       }
     }
     return 0;
+  }
+
+  /// Up to [WorkerOptions.sleep]: less when the driver wakes the worker on
+  /// a push ([WakeableQueueDriver]) or [stop] is called.
+  Future<void> _waitForWork(QueueDriver driver, WorkerOptions options) async {
+    final idle = _idle = Completer<void>();
+    final wait = driver is WakeableQueueDriver
+        ? driver.waitForWork(options.queues, options.sleep)
+        : Future<void>.delayed(options.sleep);
+    await Future.any([wait, idle.future]);
+    _idle = null;
   }
 
   /// Processes at most one job; returns whether one was found. Paused

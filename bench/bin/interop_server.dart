@@ -68,6 +68,7 @@ Application createApp() =>
             ),
           );
         })
+        .withMigrations(const [CreateBroadcastingTables()])
         .withBroadcasting(
           channels: (channels) {
             channels
@@ -121,4 +122,14 @@ Application createApp() =>
         )
         .create();
 
-Future<void> main() async => Application.serveWith(createApp);
+Future<void> main() async {
+  // Several servers (scenario D of run.sh): the first one creates the
+  // tables they share.
+  if (Platform.environment['MIGRATE'] == 'true') {
+    final app = createApp();
+    await app.boot();
+    await app.run(() => App.make<Migrator>().run());
+    await app.shutdown();
+  }
+  await Application.serveWith(createApp);
+}

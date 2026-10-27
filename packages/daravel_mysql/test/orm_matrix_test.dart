@@ -10,6 +10,7 @@ import 'package:test/test.dart';
 // The framework's database-independent suites, run here because only this
 // package has the MySQL driver. Not published (.pubignore): the imports
 // reach into the workspace.
+import '../../daravel/test/broadcasting/scaling_test.dart' show scalingTests;
 import '../../daravel/test/database/cache_store_concurrency_test.dart';
 import '../../daravel/test/database/date_queries_and_guards_test.dart';
 import '../../daravel/test/database/orm_polymorphic_test.dart';
@@ -54,4 +55,12 @@ void main() {
   group('cache store concurrency', () => cacheStoreConcurrencyTests(open));
   group('date queries and guards', () => dateQueryAndGuardTests(open));
   group('feature flags (Pennant table)', () => featureDatabaseTests(open));
+  group(
+    'broadcast scaling',
+    () => scalingTests(
+      databaseUrl: url,
+      configure: (builder) =>
+          builder.withDatabaseDriver('mysql', MySqlDriver.fromConfig),
+    ),
+  );
 }

@@ -605,7 +605,7 @@ final class FileStore implements TouchableCacheStore {
 }
 
 /// Laravel-compatible `cache` / `cache_locks` tables (scope `cluster`).
-final class DatabaseStore implements TouchableCacheStore {
+final class DatabaseStore implements TouchableCacheStore, WindowCounterStore {
   DatabaseStore(
     this.db, {
     this.table = 'cache',
@@ -752,6 +752,87 @@ final class DatabaseStore implements TouchableCacheStore {
 
   @override
   Future<int> decrement(String key, [int by = 1]) => increment(key, -by);
+
+  /// One upsert per hit: the row holds the hits as plain digits and the end
+  /// of the window as its expiration. A blocked hit turns `max` into `-max`
+  /// (saturated), so the statement's result alone says whether this hit
+  /// counted; `RETURNING` reads it back in the same statement (MySQL, which
+  /// has none, reads it in the same transaction, where the row stays locked).
+  @override
+  Future<({bool allowed, int hits, DateTime resetAt})> hitWindow(
+    String key,
+    int maxHits,
+    Duration window,
+  ) async {
+    final now = _now;
+    final end = _expiration(window);
+    if (maxHits <= 0) {
+      return (allowed: false, hits: 0, resetAt: _time(end));
+    }
+    final grammar = db.grammarFor(connection);
+    final dialect = db.dialectOf(connection);
+    final (number, text) = switch (dialect) {
+      .postgres => ('BIGINT', 'TEXT'),
+      .mysql => ('SIGNED', 'CHAR'),
+      .sqlite => ('INTEGER', 'TEXT'),
+    };
+    final t = grammar.wrap(table);
+    final k = grammar.wrap('key');
+    final v = grammar.wrap('value');
+    final e = grammar.wrap('expiration');
+    final oldValue = grammar.wrap('$table.value');
+    final oldEnd = grammar.wrap('$table.expiration');
+    final hits = 'CAST($oldValue AS $number)';
+    // MySQL assigns left to right: the value reads the old expiration
+    // before the expiration is assigned, as in the other dialects.
+    final sets =
+        "$v = CASE WHEN $oldEnd <= ? THEN '1' "
+        'WHEN $hits < 0 THEN $oldValue '
+        'WHEN $hits < ? THEN CAST($hits + 1 AS $text) '
+        'ELSE CAST(-$hits AS $text) END, '
+        '$e = CASE WHEN $oldEnd <= ? THEN ? ELSE $oldEnd END';
+    final insert = "INSERT INTO $t ($k, $v, $e) VALUES (?, '1', ?)";
+    final upsert = dialect == .mysql
+        ? '$insert ON DUPLICATE KEY UPDATE $sets'
+        : '$insert ON CONFLICT ($k) DO UPDATE SET $sets';
+    final bindings = <Object?>[key, end, now, maxHits, now, end];
+    final List<Map<String, Object?>> rows;
+    if (grammar.supportsReturning) {
+      rows = await db.select('$upsert RETURNING $v, $e', bindings, connection);
+    } else {
+      rows = await db.transaction(() async {
+        await db.statement(upsert, bindings, connection);
+        return db.select('SELECT $v, $e FROM $t WHERE $k = ?', <Object?>[
+          key,
+        ], connection);
+      }, connection: connection);
+    }
+    final count = int.parse('${rows.single['value']}');
+    return (
+      allowed: count > 0,
+      hits: count.abs(),
+      resetAt: _time((rows.single['expiration']! as num).toInt()),
+    );
+  }
+
+  @override
+  Future<({int hits, DateTime resetAt})?> currentWindow(String key) async {
+    final row = await db
+        .table(table, connection: connection)
+        .where('key', key)
+        .where('expiration', '>', _now)
+        .first();
+    if (row == null) {
+      return null;
+    }
+    return (
+      hits: (int.tryParse('${row['value']}') ?? 0).abs(),
+      resetAt: _time((row['expiration']! as num).toInt()),
+    );
+  }
+
+  static DateTime _time(int seconds) =>
+      DateTime.fromMillisecondsSinceEpoch(seconds * 1000, isUtc: true);
 
   @override
   Future<void> forever(String key, Object? value) => put(key, value);

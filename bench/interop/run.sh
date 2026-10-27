@@ -12,6 +12,8 @@
 #    broadcasts through Daravel and reads its channels API.
 # C. Daravel with BROADCAST_CONNECTION=reverb broadcasts through Laravel
 #    Reverb, and Echo, connected to Reverb, receives it.
+# D. Two Daravel servers with REVERB_SCALING_ENABLED (one database): Echo
+#    connected to one receives an event published on the other.
 #
 # Laravel comes from bench/laravel/Dockerfile, plus pusher/pusher-php-server
 # and laravel/reverb.
@@ -74,7 +76,7 @@ listener() { # port event output: waits until subscribed
   return 1
 }
 
-cleanup() { docker rm -f daravel-interop daravel-to-reverb reverb-interop >/dev/null 2>&1; }
+cleanup() { docker rm -f daravel-interop daravel-to-reverb reverb-interop daravel-scale-a daravel-scale-b >/dev/null 2>&1; }
 trap cleanup EXIT
 status=0
 
@@ -105,6 +107,17 @@ curl -s -o /dev/null -X POST http://127.0.0.1:18701/api/publish
 wait
 cat "$WORK/c.out"
 grep -q "1 passed, 0 failed" "$WORK/c.out" || status=1
+
+echo "== D: two Daravel servers, one database (REVERB_SCALING_ENABLED)"
+SCALE=(-e REVERB_SCALING_ENABLED=true -e DB_DATABASE=/src/build-scale.sqlite)
+docker run --rm -v "$WORK/src:/src" dart:stable rm -f /src/build-scale.sqlite >/dev/null
+daravel daravel-scale-a 18702 "${SCALE[@]}" -e MIGRATE=true -e REVERB_SERVER_ID=a || exit 1
+daravel daravel-scale-b 18703 "${SCALE[@]}" -e REVERB_SERVER_ID=b || exit 1
+listener 18703 .published "$WORK/d.out" || exit 1
+curl -s -o /dev/null -X POST http://127.0.0.1:18702/api/publish
+wait
+cat "$WORK/d.out"
+grep -q "1 passed, 0 failed" "$WORK/d.out" || status=1
 
 [ $status -eq 0 ] && echo "All interop scenarios passed." || echo "Some interop scenarios failed."
 exit $status

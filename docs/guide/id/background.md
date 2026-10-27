@@ -1,4 +1,4 @@
-<!-- source: background.md sha256:375b06a6e3b6 -->
+<!-- source: background.md sha256:4e39345fe57a -->
 # Cache, event, queue, dan penjadwalan
 
 <!-- include: packages/daravel/test/docs/guide_examples_test.dart#cache-events-queue -->
@@ -58,6 +58,13 @@ Daravel tidak memakai reflection. Driver: `sync`, `database` (tabel `jobs` /
 job, job middleware, `queue:work`, `queue:failed`, `queue:retry`, dan
 `queue:restart` didukung. Dispatch di dalam transaksi secara default ditunda
 sampai commit.
+
+Worker yang menganggur menunggu paling lama `--sleep` (3 detik, seperti
+Laravel) di antara polling yang kosong, tetapi push langsung
+membangunkannya: di PostgreSQL queue database mengirim `NOTIFY` yang
+didengar semua worker di semua mesin, dan queue memory membangunkan worker
+di isolate-nya. Worker MySQL dan MariaDB melakukan polling seperti worker
+Laravel.
 
 `queue:work`, `queue:restart`, dan server adalah proses yang terpisah,
 sehingga apa yang mereka bagi disimpan di luar ketiganya. Dengan queue

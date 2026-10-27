@@ -8,6 +8,7 @@ import '../http/response.dart';
 import '../server/broadcast.dart';
 import '../server/coordinator.dart';
 import 'broadcast_config.dart';
+import 'cluster.dart';
 import 'pusher_signature.dart';
 
 /// A Pusher protocol server (version 7), as Laravel Reverb is: Laravel
@@ -16,13 +17,30 @@ import 'pusher_signature.dart';
 ///
 /// Messages reach the connections of every worker isolate through the
 /// [Broadcaster]; who is on which channel, and a presence channel's
-/// members, live in the coordinator (`ChannelMembershipService`).
+/// members, live in the coordinator (`ChannelMembershipService`). With
+/// several servers (`REVERB_SCALING_ENABLED`), [state] and [relay] share
+/// both through the database instead.
 final class PusherServer {
-  PusherServer(this.config, this._broadcaster, this._coordinator);
+  PusherServer(
+    this.config,
+    this._broadcaster,
+    CoordinatorChannel coordinator, {
+    ChannelState? state,
+    this.relay,
+  }) : _state = state ?? _CoordinatorChannelState(coordinator);
 
   final BroadcastConfig config;
   final Broadcaster _broadcaster;
-  final CoordinatorChannel _coordinator;
+  final ChannelState _state;
+
+  /// Carries frames to the other servers, and theirs to this one.
+  final DatabaseBroadcastRelay? relay;
+
+  /// Starts reading the other servers' frames (once, at the first client).
+  Future<void>? _relaying;
+
+  /// Stops relaying (application shutdown).
+  Future<void> close() async => relay?.close();
 
   static final Random _random = Random.secure();
 
@@ -57,7 +75,9 @@ final class PusherServer {
     if (!internal && isCacheChannel(channel)) {
       await _call('cache_set', {'channel': channel, 'frame': text});
     }
-    await _broadcaster.publish(channel, '${except ?? ''}\n$text');
+    final envelope = '${except ?? ''}\n$text';
+    await _broadcaster.publish(channel, envelope);
+    await relay?.send(channel, envelope);
   }
 
   /// `cache-…`, `private-cache-…` and `presence-cache-…` channels.
@@ -67,7 +87,7 @@ final class PusherServer {
       channel.startsWith('presence-cache-');
 
   Future<Object?> _call(String op, Map<String, Object?> args) =>
-      _coordinator.call('channels', op, args);
+      _state.call(op, args);
 
   // ---------------------------------------------------------------------
   // WebSocket connections (`/app/{key}`).
@@ -83,6 +103,10 @@ final class PusherServer {
       socket.add(_error(4009, 'Origin not allowed'));
       await socket.close();
       return;
+    }
+    final relay = this.relay;
+    if (relay != null) {
+      await (_relaying ??= relay.start(_broadcaster.deliverLocally));
     }
     final connection = _Connection(
       this,
@@ -278,6 +302,17 @@ final class PusherServer {
 
   static Response _invalid(String message) =>
       Response.json({'message': message}, status: 422);
+}
+
+/// The coordinator's `ChannelMembershipService`: one server, every isolate.
+final class _CoordinatorChannelState implements ChannelState {
+  _CoordinatorChannelState(this._coordinator);
+
+  final CoordinatorChannel _coordinator;
+
+  @override
+  Future<Object?> call(String op, Map<String, Object?> args) =>
+      _coordinator.call('channels', op, args);
 }
 
 /// One client connection.

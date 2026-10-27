@@ -37,6 +37,15 @@ abstract interface class DatabaseDriver implements QueryExecutor {
   Future<T> transaction<T>(Future<T> Function(QueryExecutor tx) body);
 }
 
+/// A driver that delivers notifications between connections to the same
+/// database (PostgreSQL's `LISTEN` / `NOTIFY`), so other processes and
+/// machines can be woken instead of polling.
+abstract interface class NotifyingDriver implements DatabaseDriver {
+  /// Payloads notified on [channel], from a connection of its own (a pooled
+  /// one would drop the subscription); closed when the listener cancels.
+  Stream<String> listen(String channel);
+}
+
 /// A query that ran (Laravel's `QueryExecuted`), passed to
 /// `DatabaseManager.listen` / `DB.listen` listeners: SQL with its bindings,
 /// duration and connection. For debugging, slow-query logging, N+1

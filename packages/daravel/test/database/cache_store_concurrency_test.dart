@@ -96,4 +96,36 @@ void cacheStoreConcurrencyTests(DatabaseOpener open) {
     expect(results.where((r) => r.allowed), hasLength(10));
     expect(await a.attempts('login', window), 10);
   });
+
+  test('one upsert per attempt: blocked hits are not counted, the window '
+      'resets when it ends', () async {
+    final limiter = CacheRateLimitStore(() => DatabaseStore(first));
+    const window = Duration(minutes: 1);
+    final start = DateTime.now().toUtc();
+    Clock.fake(start);
+    addTearDown(Clock.restore);
+
+    final allowed = [
+      for (var i = 0; i < 3; i++)
+        (await limiter.attempt('api', 2, window)).allowed,
+    ];
+    expect(allowed, [true, true, false]);
+    final blocked = await limiter.attempt('api', 2, window);
+    expect(blocked.allowed, isFalse);
+    expect(blocked.retryAfter, greaterThan(const Duration(seconds: 55)));
+    expect(await limiter.attempts('api', window), 2);
+    expect(
+      await limiter.availableIn('api', 2, window),
+      greaterThan(const Duration(seconds: 55)),
+    );
+
+    Clock.travelTo(start.add(const Duration(minutes: 1, seconds: 1)));
+    final fresh = await limiter.attempt('api', 2, window);
+    expect(fresh.allowed, isTrue);
+    expect(fresh.remaining, 1);
+
+    await limiter.clear('api');
+    expect(await limiter.attempts('api', window), 0);
+    expect(await limiter.availableIn('api', 2, window), Duration.zero);
+  });
 }

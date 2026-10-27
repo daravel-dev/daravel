@@ -252,6 +252,31 @@ final class DatabaseManager {
   QueryGrammar grammarFor([String? name]) =>
       QueryGrammar.forDialect(dialectOf(name));
 
+  /// Payloads sent with [notify] on [channel], when the connection delivers
+  /// notifications (PostgreSQL's `LISTEN`); `null` otherwise, so callers
+  /// poll instead. The stream holds a connection of its own until its
+  /// listener cancels.
+  Future<Stream<String>?> notifications(
+    String channel, {
+    String? connection,
+  }) async {
+    final driver = await this.connection(connection);
+    return driver is NotifyingDriver ? driver.listen(channel) : null;
+  }
+
+  /// Wakes the [notifications] listeners of [channel], on every machine
+  /// connected to the database (PostgreSQL's `NOTIFY`; inside a transaction
+  /// it is sent at commit). Nothing on databases without notifications.
+  Future<void> notify(
+    String channel, [
+    String payload = '',
+    String? connection,
+  ]) async {
+    if (dialectOf(connection) == .postgres) {
+      await select('SELECT pg_notify(?, ?)', [channel, payload], connection);
+    }
+  }
+
   /// Starts a fluent query on [table].
   QueryBuilder table(String table, {String? connection}) =>
       QueryBuilder(this, table, connection: connection);

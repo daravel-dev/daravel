@@ -56,9 +56,10 @@ isolates give ≥ 3× the ping throughput of one on a 4+ core machine.
 
 `bench/interop/run.sh` (Linux and Docker) runs `laravel-echo` and
 `pusher-js` from npm against Daravel's Pusher protocol server, Laravel 12
-broadcasting through Daravel, and Daravel broadcasting through Laravel
-Reverb; `ISOLATES=4` runs Daravel with four worker isolates. It is a
-compatibility check, not a benchmark.
+broadcasting through Daravel, Daravel broadcasting through Laravel Reverb,
+and Echo on one of two Daravel servers that share a database
+(`REVERB_SCALING_ENABLED`); `ISOLATES=4` runs Daravel with four worker
+isolates. It is a compatibility check, not a benchmark.
 
 `bench/interop/connections.sh` is the capacity test: it builds the interop
 server AOT, opens `COUNT` (10 000) idle Pusher connections with

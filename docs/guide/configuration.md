@@ -82,12 +82,14 @@ frozen after boot.
 | `BROADCAST_CONNECTION` | `daravel` | Where broadcast events go: `daravel` (this server), `reverb`, `pusher`, `log`, `null` ([Broadcasting](broadcasting.md)) |
 | `REVERB_APP_ID`, `REVERB_APP_KEY`, `REVERB_APP_SECRET` | none | The Pusher app this server serves Echo with (or the Reverb it sends to) |
 | `REVERB_HOST`, `REVERB_PORT`, `REVERB_SCHEME` | none, 443, `https` | The Reverb `BROADCAST_CONNECTION=reverb` sends to |
+| `REVERB_SCALING_ENABLED`, `REVERB_SCALING_CONNECTION` | `false`, default connection | Several servers share broadcasting through the database ([Broadcasting](broadcasting.md#several-servers)) |
+| `REVERB_SCALING_POLL`, `REVERB_SERVER_ID` | `100ms`, host and process id | How often servers read each other's events without `NOTIFY` (PostgreSQL has it), and this server's name |
 | `REVERB_ENCRYPTION_MASTER_KEY_BASE64` | none | 32 bytes in base64 that `private-encrypted-` channels are encrypted with (`PUSHER_ENCRYPTION_MASTER_KEY_BASE64` with `pusher`) |
 | `DB_CHARSET`, `DB_COLLATION`, `DB_TIMEZONE` | `utf8mb4`, `utf8mb4_unicode_ci`, server | MySQL and MariaDB, as Laravel reads them |
 | `DB_POOL_SIZE`, `DB_SSLMODE` | `10`, `disable` | Connection pool per isolate, TLS (`require`, `verify-full`) |
 | `CACHE_STORE`, `CACHE_PREFIX` | `memory` | Cache store and key prefix |
 | `CACHE_PROCESS_L1_TTL` | `0` (off) | With the `process` store, how long each worker isolate reuses a value it read (`250ms`) before asking the coordinator again |
-| `CACHE_LIMITER` | coordinator | Cache store for rate limits (Laravel's `cache.limiter`); `database` shares them between machines |
+| `CACHE_LIMITER` | coordinator | Cache store for rate limits (Laravel's `cache.limiter`); `database` shares them between machines, with one statement per attempt |
 | `QUEUE_CONNECTION` | `sync` | `sync`, `memory` or `database` |
 | `QUEUE_UNIQUE_LOCK_STORE` | `database` with the database queue, else `process` | Cache store of unique-job locks; `queue:work` processes must reach it |
 | `QUEUE_SIGNAL_STORE` | `file` with the database queue, else the lock store | Cache store of `queue:restart` and `queue:pause` signals; `database` reaches workers on every machine |

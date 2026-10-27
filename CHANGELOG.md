@@ -23,6 +23,20 @@ Laravel-facing formats change only to match Laravel more closely.
   off.
 - `bench/interop/connections.sh`: 10 000 idle Echo connections against the
   AOT build, with memory and fan-out time.
+- Several broadcasting servers (`REVERB_SCALING_ENABLED`, Reverb's
+  horizontal scaling) through the database instead of Redis:
+  `CreateBroadcastingTables` stores relayed frames, channel members, server
+  heartbeats and cache channels, so events, presence members (`here`
+  included, which Reverb keeps per server), `member_added` / `_removed`,
+  the channels API and cache channels span every server. PostgreSQL wakes
+  the servers with `NOTIFY`; MySQL and MariaDB poll
+  (`REVERB_SCALING_POLL`). The interop suite runs Echo against two servers.
+- Idle queue workers wake when a job is pushed (`WakeableQueueDriver`):
+  the database queue sends a PostgreSQL `NOTIFY` heard by workers on every
+  machine, the memory queue wakes its isolate's workers, and `stop()` ends
+  the wait (Review #42, PERF-02).
+- `DatabaseManager.notifications(channel)` and `notify(channel, payload)` over
+  PostgreSQL's `LISTEN` / `NOTIFY` (`NotifyingDriver`).
 
 ### Changed
 
@@ -30,6 +44,9 @@ Laravel-facing formats change only to match Laravel more closely.
   one event reaches 10 000 connections in 0.6 s instead of 7.9 s.
 - A WebSocket connection no longer keeps the HTTP request (parser, headers,
   response) alive: about 18 KB per idle connection instead of 23 KB.
+- `CACHE_LIMITER=database` counts an attempt with one upsert instead of
+  five to seven queries (`WindowCounterStore`); blocked attempts are not
+  counted, as before (Review #42, PERF-01).
 
 ## 1.10.1
 

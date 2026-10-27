@@ -66,8 +66,9 @@ Echo.private(`App.Models.User.${userId}`).notification((n) => { /* ... */ });
 
 Connections, subscriptions and presence members are shared by every
 worker isolate through the coordinator, so `APP_ISOLATES=4` behaves as one
-server. They are not shared between machines: with several servers, put the
-WebSocket on one, or use a Reverb with its Redis scaling.
+server. Several servers (machines, or processes behind a load balancer)
+share them through the database, as Reverb shares them through Redis; see
+[Several servers](#several-servers).
 
 ## Broadcasting events
 
@@ -155,6 +156,33 @@ Echo.encryptedPrivate('orders.7').listen('.secret', (e) => { /* decrypted */ });
 The same key works with `BROADCAST_CONNECTION=reverb` or `pusher`: Laravel
 (with `encryption_master_key_base64`) and Daravel encrypt the same way.
 
+## Several servers
+
+```dotenv
+REVERB_SCALING_ENABLED=true
+# REVERB_SCALING_CONNECTION=pgsql   # a connection other than the default
+```
+
+Add `CreateBroadcastingTables()` to `bootstrap/migrations.dart` and run
+`dartisan migrate`. Each server then writes the frames it sends to
+`broadcast_messages`, and every server reads the others' frames and hands
+them to its own clients, so an event published on one server (by the HTTP
+API, `Broadcast.send` or a whisper) reaches clients connected to any of
+them. On PostgreSQL the servers wake each other with `NOTIFY`; on MySQL and
+MariaDB they read every `REVERB_SCALING_POLL` (`100ms`).
+
+Presence members are shared too, unlike Reverb, whose `here` lists only
+the members on the same server: `here`, `member_added` (once per user,
+whichever server the user's tabs are on) and the HTTP API's `channels`,
+`channel` and `users` answer for the whole cluster, and so does the last
+event of a cache channel. Each server sends a heartbeat every ten seconds;
+the members of a server silent for 30 seconds (it crashed) stop counting
+and are deleted a minute later.
+
+Give each server a stable `REVERB_SERVER_ID` if the host name and process
+id do not tell them apart. A load balancer needs no sticky sessions: a
+client stays on the server its WebSocket reached.
+
 ## Origins and limits
 
 | Variable | Default | Purpose |
@@ -190,7 +218,7 @@ event take 7.9 s.
 `bench/interop/run.sh` (Linux and Docker) checks this against the software
 it has to work with: `laravel-echo` and `pusher-js` from npm against Daravel
 (public, private, `toOthers`, whispers, presence, notifications, cache and
-encrypted channels, a refused authorization), Laravel 12 broadcasting through Daravel with
+encrypted channels, a refused authorization), two Daravel servers sharing one database, Laravel 12 broadcasting through Daravel with
 `pusher/pusher-php-server`, and Daravel broadcasting through Laravel Reverb,
 with one or four worker isolates (`ISOLATES=4`).
 

@@ -202,6 +202,37 @@ abstract interface class QueueDriver {
   Future<int> clear(String queue);
 }
 
+/// A driver that wakes an idle worker as soon as a job is pushed, instead
+/// of the worker sleeping `--sleep` between empty polls.
+abstract interface class WakeableQueueDriver implements QueueDriver {
+  /// Completes when a job may be ready on one of [queues], or after
+  /// [maxWait] at the latest.
+  Future<void> waitForWork(List<String> queues, Duration maxWait);
+
+  /// Releases what [waitForWork] holds (a listening connection) once the
+  /// worker stops.
+  Future<void> stopWaiting();
+}
+
+/// Completes the first of [wake] and [maxWait].
+Future<void> _within(Future<void> wake, Duration maxWait) {
+  final done = Completer<void>();
+  final timer = Timer(maxWait, () {
+    if (!done.isCompleted) {
+      done.complete();
+    }
+  });
+  unawaited(
+    wake.then((_) {
+      timer.cancel();
+      if (!done.isCompleted) {
+        done.complete();
+      }
+    }),
+  );
+  return done.future;
+}
+
 final class _MemoryEntry {
   _MemoryEntry(this.id, this.queue, this.payload, this.availableAt);
 
@@ -215,7 +246,7 @@ final class _MemoryEntry {
 
 /// In-memory queue (scope `isolate`): tests and `--embed-queue` style
 /// single-process setups.
-final class MemoryQueue implements QueueDriver {
+final class MemoryQueue implements WakeableQueueDriver {
   MemoryQueue({DateTime Function()? clock}) : _clock = clock ?? _utcNow;
 
   final DateTime Function() _clock;
@@ -240,8 +271,35 @@ final class MemoryQueue implements QueueDriver {
     _entries.add(
       _MemoryEntry(id, queue, payload, _now + (delay?.inMilliseconds ?? 0)),
     );
+    _wake(queue);
     return id;
   }
+
+  final Map<String, List<Completer<void>>> _waiting = {};
+
+  void _wake(String queue) {
+    for (final waiter in _waiting.remove(queue) ?? const <Completer<void>>[]) {
+      if (!waiter.isCompleted) {
+        waiter.complete();
+      }
+    }
+  }
+
+  @override
+  Future<void> waitForWork(List<String> queues, Duration maxWait) {
+    final waiter = Completer<void>();
+    for (final queue in queues) {
+      (_waiting[queue] ??= []).add(waiter);
+    }
+    return _within(waiter.future, maxWait).whenComplete(() {
+      for (final queue in queues) {
+        _waiting[queue]?.remove(waiter);
+      }
+    });
+  }
+
+  @override
+  Future<void> stopWaiting() async {}
 
   @override
   Future<QueuedJob?> pop(String queue) async {
@@ -310,7 +368,7 @@ final class MemoryQueue implements QueueDriver {
 /// Laravel-compatible `jobs` table (scope `cluster`). Reservation is an
 /// optimistic `UPDATE … WHERE reserved_at IS NULL`, so several workers
 /// never process the same row twice.
-final class DatabaseQueue implements QueueDriver {
+final class DatabaseQueue implements WakeableQueueDriver {
   DatabaseQueue(
     this.db, {
     this.table = 'jobs',
@@ -389,7 +447,64 @@ final class DatabaseQueue implements QueueDriver {
       'available_at': now + (delay?.inSeconds ?? 0),
       'created_at': now,
     });
+    // Wakes idle workers on every machine (PostgreSQL; sent at commit when
+    // pushed inside a transaction). Delayed jobs wait for their time.
+    if (delay == null || delay <= Duration.zero) {
+      await db.notify(_channel, queue, connection);
+    }
     return id!;
+  }
+
+  /// The notification channel of this jobs table.
+  String get _channel => 'daravel_queue_$table';
+
+  StreamSubscription<String>? _notifications;
+  bool _listening = false;
+  final Map<String, List<Completer<void>>> _waiting = {};
+
+  /// Waits for a `NOTIFY` from a push on PostgreSQL, through one connection
+  /// kept until [stopWaiting]; other databases sleep [maxWait], as before.
+  @override
+  Future<void> waitForWork(List<String> queues, Duration maxWait) async {
+    if (!_listening) {
+      _listening = true;
+      final stream = await db.notifications(_channel, connection: connection);
+      _notifications = stream?.listen(
+        (queue) {
+          for (final waiter
+              in _waiting.remove(queue) ?? const <Completer<void>>[]) {
+            if (!waiter.isCompleted) {
+              waiter.complete();
+            }
+          }
+        },
+        // A dropped connection: sleep and poll from now on.
+        onError: (Object _) => unawaited(_dropNotifications()),
+        onDone: () => unawaited(_dropNotifications()),
+      );
+    }
+    if (_notifications == null) {
+      return Future<void>.delayed(maxWait);
+    }
+    final waiter = Completer<void>();
+    for (final queue in queues) {
+      (_waiting[queue] ??= []).add(waiter);
+    }
+    await _within(waiter.future, maxWait);
+    for (final queue in queues) {
+      _waiting[queue]?.remove(waiter);
+    }
+  }
+
+  Future<void> _dropNotifications() async {
+    await _notifications?.cancel();
+    _notifications = null;
+  }
+
+  @override
+  Future<void> stopWaiting() async {
+    _listening = false;
+    await _dropNotifications();
   }
 
   /// Claims the next available Daravel job of [queue].
