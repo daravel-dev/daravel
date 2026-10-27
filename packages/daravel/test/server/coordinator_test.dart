@@ -407,6 +407,9 @@ void rateLimitMemoryTests() {
     // The ninth key reaches maxKeys: the expired leases go back and their
     // batch sizes go with them.
     await store.attempt('ip-8', 100, const Duration(minutes: 1));
+    // The expired leases went back with their batch sizes (unused tokens
+    // mean the key is not hot); a hot key's size is kept until the batch
+    // map itself is full and its older half goes.
     expect(store.trackedKeys, 1);
     expect(
       await store.attempts('ip-0', const Duration(minutes: 1)),

@@ -20,14 +20,15 @@ match Laravel more closely.
   request on the isolate queued behind it. `daravel_mysql` now passes the
   timeout to `mysql_dart`, which kills the query on expiry.
 - `HTTP_MAX_BODY` (`ServeOptions.maxBodyBytes`, 50 MiB; `0` for none): a
-  body limit every request served by the engine starts with, so an
+  body limit every request starts with (`Request.defaultMaxBodyBytes`,
+  on served and synthetic requests alike), so an
   application that does not register `BodyLimitsMiddleware` (which
   tightens it to 1 MiB for JSON and forms) still refuses a 10 GB upload
   with `413` instead of buffering it in memory. A declared
   `Content-Length` above it is refused before the body is read.
 - `daravel_livekit`: `RoomServiceClient` retries a Twirp call whose
-  connection failed before it was sent, or that LiveKit answered 502, 503
-  or 504, up to `retries` (2) more times with exponential backoff and
+  connection failed before it was sent, or that LiveKit answered 502
+  or 503, up to `retries` (2) more times with exponential backoff and
   jitter from `retryDelay` (200 ms); a timeout or any other answer is
   final, since the call may have been processed. The HTTP client's
   `ConnectionException` carries `isTimeout` for that distinction.
@@ -84,8 +85,9 @@ match Laravel more closely.
   other, so a secret that was never set accepted tokens anyone could
   mint. The guard's `JWT_SECRET` already had to be 32 bytes; this is the
   floor for every other use of the codec.
-- `dartisan migrate:rollback`, `migrate:reset` and `db:seed` refuse to
-  run under `APP_ENV=production` without `--force`, as artisan's do; a
+- `dartisan migrate:rollback`, `migrate:reset`, `db:seed` and
+  `migrate --seed` refuse to run under `APP_ENV=production` without
+  `--force`, as artisan's do (plain `migrate` is unchanged); a
   framework error in any command is one `Error:` line and exit 1 rather
   than a stack trace and exit 255 (`--verbose` or `DARAVEL_DEBUG=true`
   keeps the trace); `mcp:serve` also refuses `down` and `env:encrypt` in
@@ -120,10 +122,11 @@ match Laravel more closely.
   a lock that expired without a release (its holder crashed) stayed for
   ever, so one lock name per order or user only grew the map
   (`MemoryStore.lockCount`).
-- `ProcessRateLimitStore` sweeps the leases, blocks and batch sizes of
-  keys it no longer limits once `maxKeys` (10 000) are tracked; every key
-  a worker ever limited (one per client IP) stayed until it was asked for
-  again (`ProcessRateLimitStore.trackedKeys`).
+- `ProcessRateLimitStore` sweeps the expired leases and blocks of keys it
+  no longer limits once `maxKeys` (10 000) are tracked, and keeps batch
+  sizes in order of last use, dropping the older half when full; every
+  key a worker ever limited (one per client IP) stayed until it was asked
+  for again (`ProcessRateLimitStore.trackedKeys`).
 - `daravel_google`: `Google.serviceCalendar()` shares one service-account
   token per isolate, scopes and subject (`Google.serviceCredentials`,
   `ServiceAccountCredentialsCache`); it used to sign an RS256 assertion
@@ -139,7 +142,9 @@ match Laravel more closely.
   the fan-out kept sending to.
 - Supervisor: a worker that does not become ready within `readyTimeout`
   is killed; it used to go on booting, bind the port and serve untracked
-  next to its replacement. `stop()` returns at once when every worker is
+  next to its replacement. A worker that reports `WorkerFailed` while
+  being respawned is counted once (its exit used to be counted again and
+  respawned twice), and a `WorkerReady` nobody waits for is ignored. `stop()` returns at once when every worker is
   already gone instead of waiting for the shutdown deadline, a respawn
   that completes during a drain is drained, and a message with an
   unknown worker index is dropped instead of thrown out of the inbox

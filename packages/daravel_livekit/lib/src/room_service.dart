@@ -41,7 +41,7 @@ final class RoomServiceClient {
 
   /// How many more times a call is sent after the connection failed
   /// (refused, reset, a DNS miss: the request never reached LiveKit) or
-  /// LiveKit answered 502, 503 or 504 (a node restarting; not processed).
+  /// LiveKit answered 502 or 503 (a node restarting; not processed; a 504 is a proxy that gave up while the call may have run).
   /// Any other answer, and a timeout, is final: the call may have been
   /// processed, and `SendData` sent twice is two messages.
   final int retries;
@@ -66,10 +66,11 @@ final class RoomServiceClient {
     return Duration(microseconds: half + _random.nextInt(half + 1));
   }
 
+  /// 502 and 503 come from a proxy or node that did not reach the
+  /// service; a 504 is a proxy that gave up waiting while LiveKit may have
+  /// completed the call, so it is final like a timeout.
   static bool _notProcessed(ClientResponse response) =>
-      response.status == 502 ||
-      response.status == 503 ||
-      response.status == 504;
+      response.status == 502 || response.status == 503;
 
   static final Random _random = Random.secure();
 

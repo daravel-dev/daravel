@@ -141,7 +141,14 @@ final class Request {
   final Map<String, Object?> attributes = <String, Object?>{};
 
   /// Maximum body size accepted by [bytes]; `null` means unlimited.
-  int? maxBodyBytes;
+  int? maxBodyBytes = defaultMaxBodyBytes;
+
+  /// The body limit every request starts with, served or synthetic
+  /// (`Request.fake`, the test client), so both paths behave the same:
+  /// 50 MiB, the widest limit `BodyLimitsMiddleware` applies. The engine
+  /// replaces it with `ServeOptions.maxBodyBytes` (`HTTP_MAX_BODY`), the
+  /// middleware and `RouteEntry.bodyLimit` with theirs.
+  static const int defaultMaxBodyBytes = 50 << 20;
 
   /// Maximum JSON nesting depth accepted by [body]; `null` means unlimited.
   int? maxJsonDepth;

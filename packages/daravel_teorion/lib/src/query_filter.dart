@@ -701,12 +701,21 @@ extension FilterableQuery<T extends Model> on ModelQuery<T> {
         await request.input<Object?>(config.maxResultsKey) ??
         await request.input<Object?>(config.perPageKey);
     final asked = int.tryParse('${value ?? ''}');
+    // A cap or default below 1 (TEORION_MAX_PER_PAGE=0, a typo) would be
+    // the zero limit this guards against: the cap falls back to 100 and
+    // the default to the cap.
+    final cap = config.maxPerPage < 1 ? 100 : config.maxPerPage;
+    final fallback = config.defaultPerPage < 1
+        ? cap
+        : config.defaultPerPage > cap
+        ? cap
+        : config.defaultPerPage;
     // Below 1 is not a size (the builder reads a negative limit as none,
     // and a paginator divides by it); above the cap is cut to it.
     if (asked == null || asked < 1) {
-      return config.defaultPerPage;
+      return fallback;
     }
-    return asked > config.maxPerPage ? config.maxPerPage : asked;
+    return asked > cap ? cap : asked;
   }
 
   static Future<void> _visibility(

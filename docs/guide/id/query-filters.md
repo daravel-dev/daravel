@@ -1,4 +1,4 @@
-<!-- source: query-filters.md sha256:3a35542c571f -->
+<!-- source: query-filters.md sha256:e678f2094294 -->
 # Query filter
 
 `daravel_teorion` mengubah query string sebuah listing menjadi filter, eager
@@ -66,7 +66,7 @@ mengembalikan query, untuk dilanjutkan dengan `.where(...)`, `.get()`, atau
 | Filter yang dideklarasikan | `?q=dart&status=published` | Diterapkan bila ada (atau dengan default-nya) |
 | `scopes[]` | `?scopes[]=published` | Scope model, diberi seluruh request |
 | `scopes[N]` | `?scopes[0][name]=byAuthor&scopes[0][params][author_id]=3` | Scope, hanya diberi parameternya sendiri |
-| `withs[]` | `?withs[]=author&withs[]=author.country` | Eager load (segmen pertama harus diizinkan) |
+| `withs[]` | `?withs[]=author&withs[]=tags` | Eager load (setiap path harus terdaftar di `allowedWiths`) |
 | `withs[]` dengan kolom | `?withs[]=author:id,name` | Hanya kolom-kolom itu, bila `allowedWithColumns` mendaftarnya |
 | `withCounts[]` | `?withCounts[]=comments` | `comments_count` |
 | `withAggregates` | `?withAggregates[comments][sum][]=score` | `comments_sum_score` (juga `avg`, `min`, `max`, `count`) |

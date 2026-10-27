@@ -191,12 +191,14 @@ final class Supervisor {
     exitPort.listen((_) => _onWorkerExit(worker));
     try {
       await ready.future.timeout(options.readyTimeout);
-    } on TimeoutException {
-      // The isolate is still booting (or hung): without this it would go
-      // on, bind the port once ready and serve as a worker nobody tracks,
-      // drains or counts, next to the one spawned in its place. Its exit
-      // is not watched: the caller reports this failure (start() throws,
-      // a respawn counts it), so it must not be counted again as a crash.
+    } on Object catch (error) {
+      // Not ready: it timed out (still booting, or hung) or it reported
+      // WorkerFailed. Either way the caller reports this failure (start()
+      // throws, a respawn counts it), so its exit must not be counted
+      // again as a crash: the ports are closed first, and the isolate is
+      // killed. Without the kill a worker that timed out went on, bound
+      // the port once ready and served as a worker nobody tracked,
+      // drained or counted, next to the one spawned in its place.
       _ready.remove(worker.index);
       exitPort.close();
       errorPort.close();
@@ -204,10 +206,13 @@ final class Supervisor {
       worker.errorPort = null;
       worker.isolate = null;
       isolate.kill(priority: Isolate.immediate);
-      throw StateError(
-        'Worker ${worker.index} did not become ready within '
-        '${options.readyTimeout.inSeconds}s.',
-      );
+      if (error is TimeoutException) {
+        throw StateError(
+          'Worker ${worker.index} did not become ready within '
+          '${options.readyTimeout.inSeconds}s.',
+        );
+      }
+      rethrow;
     }
     if (_stopping) {
       // A respawn that completed while the supervisor was already
@@ -226,12 +231,15 @@ final class Supervisor {
     switch (message) {
       case WorkerReady():
         final worker = workerAt(message.index);
-        if (worker == null) {
+        final ready = _ready.remove(message.index);
+        if (worker == null || ready == null) {
+          // Nobody is waiting: a worker killed after its ready timeout
+          // whose message was already in flight. Its ports are dead.
           return;
         }
         worker.control = message.control;
         worker.port = message.port;
-        _ready.remove(message.index)?.complete();
+        ready.complete();
         logger.debug('Worker ${message.index} ready on port ${message.port}');
       case WorkerFailed():
         _ready

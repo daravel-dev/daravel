@@ -63,7 +63,7 @@ returns the query, to go on with `.where(...)`, `.get()` or `.first()`.
 | A declared filter | `?q=dart&status=published` | Applied when present (or with its default) |
 | `scopes[]` | `?scopes[]=published` | The model's scope, given the whole request |
 | `scopes[N]` | `?scopes[0][name]=byAuthor&scopes[0][params][author_id]=3` | The scope, given only its own parameters |
-| `withs[]` | `?withs[]=author&withs[]=author.country` | Eager loads (the first segment must be allowed) |
+| `withs[]` | `?withs[]=author&withs[]=tags` | Eager loads (each path must be listed in `allowedWiths`) |
 | `withs[]` with columns | `?withs[]=author:id,name` | Only those columns, when `allowedWithColumns` lists them |
 | `withCounts[]` | `?withCounts[]=comments` | `comments_count` |
 | `withAggregates` | `?withAggregates[comments][sum][]=score` | `comments_sum_score` (also `avg`, `min`, `max`, `count`) |

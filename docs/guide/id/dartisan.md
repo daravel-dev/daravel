@@ -1,4 +1,4 @@
-<!-- source: dartisan.md sha256:e2ce16942092 -->
+<!-- source: dartisan.md sha256:45cefa4769ad -->
 # dartisan
 
 `dartisan` adalah `artisan`-nya Daravel. Pasang sekali, lalu pakai di proyek
@@ -67,7 +67,7 @@ sebelum pindah ke versi minor baru.
 
 | Command | Fungsinya |
 | :-- | :-- |
-| `migrate [--seed]`, `migrate:status` | Migrasi |
+| `migrate [--seed [--force]]`, `migrate:status` | Migrasi (seeding ditolak di produksi tanpa `--force`) |
 | `migrate:rollback [--step] [--force]`, `migrate:reset [--force]` | Membatalkan batch terakhir, atau semuanya (ditolak di produksi tanpa `--force`) |
 | `migrate:fresh [--seed] [--force]` | Menghapus semua tabel lalu migrasi lagi (ditolak di produksi tanpa `--force`) |
 | `db:seed [--class] [--force]` | Menjalankan seeder (ditolak di produksi tanpa `--force`) |

@@ -449,21 +449,27 @@ final class ProcessRateLimitStore implements RateLimitStore {
       {..._leases.keys, ..._batch.keys, ..._blocked.keys}.length;
 
   /// Drops what has expired once [maxKeys] is reached: leases past their
-  /// lifetime (their unused hits go back to the coordinator), blocks past
-  /// theirs, and batch sizes of keys that hold no lease.
+  /// lifetime (their unused hits go back to the coordinator) and blocks
+  /// past theirs. Batch sizes have no expiry: the map is kept in order of
+  /// last use and its older half goes when it is full, so a hot key
+  /// (refreshed at every lease) keeps its size and a key seen once does
+  /// not.
   void _sweep(int now) {
-    if (_leases.length < maxKeys &&
-        _blocked.length < maxKeys &&
-        _batch.length < maxKeys) {
-      return;
-    }
-    for (final entry in _leases.entries.toList()) {
-      if (now >= entry.value.expiresAt) {
-        _retire(entry.key, entry.value, usedUp: false);
+    if (_leases.length >= maxKeys) {
+      for (final entry in _leases.entries.toList()) {
+        if (now >= entry.value.expiresAt) {
+          _retire(entry.key, entry.value, usedUp: false);
+        }
       }
     }
-    _blocked.removeWhere((_, blocked) => now >= blocked.$1);
-    _batch.removeWhere((key, _) => !_leases.containsKey(key));
+    if (_blocked.length >= maxKeys) {
+      _blocked.removeWhere((_, blocked) => now >= blocked.$1);
+    }
+    if (_batch.length >= maxKeys) {
+      for (final key in _batch.keys.take(_batch.length ~/ 2).toList()) {
+        _batch.remove(key);
+      }
+    }
   }
 
   @override
@@ -587,8 +593,9 @@ final class ProcessRateLimitStore implements RateLimitStore {
   /// (doubles when the lease was used up in time, back to 1 otherwise).
   void _retire(String key, _Lease lease, {required bool usedUp}) {
     _leases.remove(key);
-    final current = _batch[key] ?? 1;
+    final current = _batch.remove(key) ?? 1;
     if (usedUp) {
+      // Re-inserted: the most recently used key is last (see _sweep).
       _batch[key] = current * 2 > maxLease ? maxLease : current * 2;
       return;
     }

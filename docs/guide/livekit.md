@@ -77,8 +77,8 @@ Each call is signed with a 10-minute token carrying only the grant it needs
 (`roomCreate`, `roomList`, or `roomAdmin` on that room), as LiveKit's SDKs
 do. A refusal is a `LivekitException` with Twirp's `code` (`not_found`,
 `permission_denied`) and the HTTP status. A call whose connection failed
-before anything was sent (refused, reset), or that LiveKit answered 502,
-503 or 504 (a node restarting), is sent again up to `retries` (2) more
+before anything was sent (refused, reset), or that LiveKit answered 502
+or 503 (a node restarting), is sent again up to `retries` (2) more
 times after `retryDelay` (200 ms) doubled each time with jitter; a timeout
 or any other answer is final, since the call may have been processed and
 `sendData` twice is two messages. The client sends through the

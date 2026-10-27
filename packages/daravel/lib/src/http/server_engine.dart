@@ -31,9 +31,9 @@ final class ServeOptions {
     this.maxBodyBytes = defaultMaxBodyBytes,
   });
 
-  /// The body limit a request starts with: 50 MiB, the widest limit
-  /// `BodyLimitsMiddleware` applies.
-  static const int defaultMaxBodyBytes = 50 << 20;
+  /// The body limit a request starts with: [Request.defaultMaxBodyBytes]
+  /// (50 MiB, the widest limit `BodyLimitsMiddleware` applies).
+  static const int defaultMaxBodyBytes = Request.defaultMaxBodyBytes;
 
   /// Reads `APP_HOST` / `APP_PORT`, overridable by explicit arguments.
   ///

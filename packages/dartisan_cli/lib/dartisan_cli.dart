@@ -427,6 +427,7 @@ final class MigrateCommand extends DaravelCommand {
       negatable: false,
       help: 'Run the root seeder afterwards.',
     );
+    addForceFlag(argParser);
   }
 
   @override
@@ -437,6 +438,12 @@ final class MigrateCommand extends DaravelCommand {
 
   @override
   Future<int> run() => withApp((app) async {
+    // Migrating is what deployments do; seeding production is what db:seed
+    // refuses without --force, and --seed must not be the way around it.
+    if (argResults!['seed'] as bool &&
+        refuseInProduction(app, argResults!, 'migrate --seed')) {
+      return 1;
+    }
     final migrated = await App.make<Migrator>().run();
     if (migrated.isEmpty) {
       stdout.writeln('Nothing to migrate.');

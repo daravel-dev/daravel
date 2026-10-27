@@ -66,7 +66,7 @@ before moving to a new minor version.
 
 | Command | What it does |
 | :-- | :-- |
-| `migrate [--seed]`, `migrate:status` | Migrations |
+| `migrate [--seed [--force]]`, `migrate:status` | Migrations (seeding is refused in production without `--force`) |
 | `migrate:rollback [--step] [--force]`, `migrate:reset [--force]` | Roll back the last batches, or everything (refused in production without `--force`) |
 | `migrate:fresh [--seed] [--force]` | Drops every table and migrates again (refused in production without `--force`) |
 | `db:seed [--class] [--force]` | Runs seeders (refused in production without `--force`) |

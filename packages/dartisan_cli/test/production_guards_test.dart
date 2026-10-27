@@ -61,6 +61,9 @@ void main() {
 
   test('rollback, reset and db:seed need --force in production', () async {
     expect(await run(['migrate']), 0);
+    // migrate --seed is the same operation as db:seed and gets the same
+    // guard; plain migrate is what deployments run.
+    expect(await run(['migrate', '--seed']), 1);
     for (final command in ['migrate:rollback', 'migrate:reset', 'db:seed']) {
       expect(await run([command]), 1, reason: command);
     }
@@ -70,6 +73,7 @@ void main() {
       expect(await run([command], env: 'local'), 0, reason: command);
     }
     expect(await run(['migrate']), 0);
+    expect(await run(['migrate', '--seed', '--force']), 0);
     expect(await run(['db:seed', '--force']), 0);
     expect(await run(['migrate:rollback', '--force']), 0);
     expect(await run(['migrate:reset', '--force']), 0);
