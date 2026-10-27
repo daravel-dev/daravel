@@ -275,6 +275,22 @@ void main() {
       );
     });
 
+    test('concurrent calls share one token fetch', () async {
+      final credentials = ServiceAccountCredentials(
+        account,
+        scopes: const [GoogleScopes.calendar],
+      );
+      final tokens = await Future.wait([
+        credentials.accessToken(),
+        credentials.accessToken(),
+        credentials.accessToken(),
+      ]);
+      expect(tokens, ['ya29.service', 'ya29.service', 'ya29.service']);
+      expect(fake.recorded, hasLength(1), reason: 'one assertion, one fetch');
+      expect(await credentials.accessToken(), 'ya29.service');
+      expect(fake.recorded, hasLength(1), reason: 'still valid');
+    });
+
     test('gets a token with the jwt-bearer grant', () async {
       final token = await account.token(scopes: [GoogleScopes.calendar]);
       expect(token.accessToken, 'ya29.service');
