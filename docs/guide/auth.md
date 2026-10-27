@@ -46,7 +46,10 @@ exists.
 `Auth.issueJwt(user)` signs HS256 tokens with `JWT_SECRET` (or `APP_KEY`),
 or EdDSA with `JWT_PUBLIC_KEY` / `JWT_PRIVATE_KEY`. Verification rejects
 `alg: none`, algorithms without a configured key, bad signatures and expired
-tokens; a denylist supports logout.
+tokens. `Auth.jwtGuard().invalidate()` revokes a token until it expires (plus
+the leeway): the denylist lives in the default cache store, or in the
+`process` store when that one is `memory`, so every worker isolate refuses
+the token; with `CACHE_STORE=database`, every machine does.
 
 ## Hashing
 

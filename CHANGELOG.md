@@ -24,6 +24,25 @@ Laravel-facing formats change only to match Laravel more closely.
 - `bench/interop/connections.sh`: 10 000 idle Echo connections against the
   AOT build, with memory and fan-out time.
 
+### Fixed
+
+- `dartisan queue:restart`, `queue:pause` and `queue:continue` reached no
+  `queue:work` process with the database queue: their signals lived in the
+  memory of the command's own process. They now go to the `file` cache
+  store (`QUEUE_SIGNAL_STORE=database` for workers on several machines)
+  (Review #42).
+- A revoked JWT stayed valid on the other worker isolates, and guards
+  without a denylist could not revoke at all: `auth.jwt(...)` now uses a
+  denylist in the default cache store (the `process` store when that is
+  `memory`), shared by every isolate. A revoked token also stays refused
+  through the verification leeway after `exp` (Review #42).
+- Unique-job locks taken by the server could not be released by a separate
+  `queue:work` process, so a unique job was skipped until its lock expired
+  (a year without `uniqueFor`). With `QUEUE_CONNECTION=database` they now
+  default to the `database` cache store (the `cache_locks` table of
+  `CreateCacheTable`), and boot warns when `QUEUE_UNIQUE_LOCK_STORE` names
+  a store of one process.
+
 ### Changed
 
 - The Pusher endpoint runs without permessage-deflate, as Reverb's does:

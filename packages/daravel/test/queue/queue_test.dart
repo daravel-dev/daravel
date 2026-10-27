@@ -122,15 +122,21 @@ void main() {
 
   Future<void> boot(String connection) async {
     log.clear();
-    app = Application.configure(basePath: Directory.systemTemp.path)
-        .withEnv({
-          'APP_ENV': 'testing',
-          'DB_DATABASE': ':memory:',
-          'QUEUE_CONNECTION': connection,
-        })
-        .withMigrations(const [CreateJobsTable()])
-        .withJobs(definitions)
-        .create();
+    app =
+        Application.configure(
+              // Its own directory: queue:pause signals live in the file store.
+              basePath: Directory.systemTemp
+                  .createTempSync('daravel_queue_')
+                  .path,
+            )
+            .withEnv({
+              'APP_ENV': 'testing',
+              'DB_DATABASE': ':memory:',
+              'QUEUE_CONNECTION': connection,
+            })
+            .withMigrations(const [CreateJobsTable()])
+            .withJobs(definitions)
+            .create();
     await app!.boot();
     await app!.run(() => App.make<Migrator>().run());
   }

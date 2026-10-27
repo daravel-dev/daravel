@@ -1,4 +1,4 @@
-<!-- source: background.md sha256:2bfd5aa74a1d -->
+<!-- source: background.md sha256:375b06a6e3b6 -->
 # Cache, event, queue, dan penjadwalan
 
 <!-- include: packages/daravel/test/docs/guide_examples_test.dart#cache-events-queue -->
@@ -58,6 +58,13 @@ Daravel tidak memakai reflection. Driver: `sync`, `database` (tabel `jobs` /
 job, job middleware, `queue:work`, `queue:failed`, `queue:retry`, dan
 `queue:restart` didukung. Dispatch di dalam transaksi secara default ditunda
 sampai commit.
+
+`queue:work`, `queue:restart`, dan server adalah proses yang terpisah,
+sehingga apa yang mereka bagi disimpan di luar ketiganya. Dengan queue
+database, lock unique job disimpan di cache store `database` (tabel
+`cache_locks` dari Laravel), dan sinyal `queue:restart` / `queue:pause` di
+store `file`, yang menjangkau semua worker di mesin yang sama;
+`QUEUE_SIGNAL_STORE=database` menjangkau worker di semua mesin.
 
 Untuk monitoring dan operasional (hook yang menjadi dasar dashboard ala
 Horizon):

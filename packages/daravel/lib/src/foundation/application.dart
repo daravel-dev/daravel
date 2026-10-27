@@ -11,6 +11,7 @@ import '../auth/contracts.dart';
 import '../auth/encryption.dart';
 import '../auth/env_encryption.dart';
 import '../auth/hashing.dart';
+import '../auth/jwt.dart';
 import '../cache/cache.dart';
 import '../database/database_config.dart';
 import '../database/database_manager.dart';
@@ -68,6 +69,7 @@ import 'env.dart';
 import 'exceptions.dart';
 import 'service_provider.dart';
 
+part 'cache_jwt_denylist.dart';
 part 'cache_rate_limit_store.dart';
 part 'embedded_workers.dart';
 
@@ -178,7 +180,11 @@ final class Application {
     exceptions.debug = appConfig.debug;
 
     final validator = ConfigValidator(
-      extraChecks: [DatabaseConfig.check, ..._builder._configChecks],
+      extraChecks: [
+        DatabaseConfig.check,
+        QueueConfig.check,
+        ..._builder._configChecks,
+      ],
     );
     for (final issue in validator.validateOrThrow(env, config)) {
       logger.warning('Config: ${issue.message}');
@@ -187,6 +193,15 @@ final class Application {
     final auth = AuthManager(
       config.section<AuthConfig>(),
       appKey: env.maybeString('APP_KEY'),
+      // A revoked JWT is refused on every isolate (and every machine with
+      // a shared store), not only on the one that handled the logout.
+      jwtDenylist: CacheJwtDenylist(() {
+        final cache = container.make<CacheManager>();
+        final store = cache.store();
+        return store.scope == StateScope.isolate
+            ? cache.store('process').store
+            : store.store;
+      }, prefix: '${config.section<CacheConfig>().prefix}jwt_denylist:'),
     );
     final gate = AuthorizationGate(userResolver: () => _currentUser(auth));
     final channel =
@@ -442,6 +457,16 @@ final class Application {
         ? DatabaseFailedJobProvider(db, table: queueConfig.failedTable)
         : MemoryFailedJobProvider();
     final lockStore = cache.store(queueConfig.uniqueLockStore);
+    // queue:restart and queue:pause run in a process of their own: with
+    // the database queue, their signals need a store that outlives it and
+    // that `queue:work` processes read. The file store does, on one machine,
+    // without a table that workers would query on every loop.
+    final signalStore = cache.store(
+      queueConfig.signalStore ??
+          (queueConfig.defaultConnection == 'database'
+              ? 'file'
+              : queueConfig.uniqueLockStore),
+    );
     late final QueueManager manager;
     final processor = JobProcessor(
       registry: jobs,
@@ -460,6 +485,7 @@ final class Application {
             processor: processor,
             database: db,
             lockStore: lockStore,
+            signalStore: signalStore,
             logger: logger,
           )
           ..extend('sync', SyncQueue.new)
