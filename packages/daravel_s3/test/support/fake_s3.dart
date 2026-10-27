@@ -61,14 +61,22 @@ final class FakeS3 {
 
   Future<void> close() => _server.close(force: true);
 
+  /// Runs before every request: answer it and return true to take it over
+  /// (a 503, a stall, a dropped connection), or return false to let the
+  /// fake serve it.
+  Future<bool> Function(HttpRequest request)? fault;
+
   Future<void> _handle(HttpRequest request) async {
-    final builder = BytesBuilder(copy: false);
-    await request.forEach(builder.add);
-    final body = builder.takeBytes();
     log.add(
       '${request.method} ${request.uri.path}'
       '${request.uri.hasQuery ? '?${request.uri.query}' : ''}',
     );
+    if (await fault?.call(request) ?? false) {
+      return;
+    }
+    final builder = BytesBuilder(copy: false);
+    await request.forEach(builder.add);
+    final body = builder.takeBytes();
     final response = request.response;
     try {
       // A browser POST upload carries its signature in the form's policy.

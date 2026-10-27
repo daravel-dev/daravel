@@ -51,6 +51,134 @@ void main() {
       await s3.close();
     });
 
+    /// A client with a short timeout and no wait between retries.
+    S3Client quick({
+      int retries = 3,
+      Duration timeout = const Duration(milliseconds: 300),
+    }) => S3Client(
+      signer: s3.signer,
+      bucket: s3.bucket,
+      endpoint: s3.endpoint,
+      pathStyle: true,
+      timeout: timeout,
+      retries: retries,
+      retryDelay: Duration.zero,
+    );
+
+    test('503 SlowDown, 500 and a dropped connection are retried', () async {
+      var faults = 0;
+      s3.fault = (request) async {
+        if (faults++ >= 3) {
+          return false;
+        }
+        await request.drain<void>();
+        if (faults == 3) {
+          // A reset mid-request.
+          (await request.response.detachSocket(writeHeaders: false)).destroy();
+          return true;
+        }
+        request.response
+          ..statusCode = faults == 1 ? 503 : 500
+          ..write(
+            '<Error><Code>${faults == 1 ? 'SlowDown' : 'InternalError'}</Code>'
+            '<Message>try again</Message></Error>',
+          );
+        await request.response.close();
+        return true;
+      };
+      final client = quick();
+      addTearDown(client.close);
+      await client.putObject('retried.txt', utf8.encode('ok'));
+      expect(s3.objects['retried.txt']!.bytes, utf8.encode('ok'));
+      expect(s3.log.where((l) => l == 'PUT /bucket/retried.txt'), hasLength(4));
+
+      // Exhausted: the last answer is the error, with S3's code.
+      faults = -100;
+      await expectLater(
+        quick(retries: 1).putObject('never.txt', [1]),
+        throwsA(
+          isA<S3Exception>().having((e) => e.code, 'code', 'InternalError'),
+        ),
+      );
+      expect(client.backoff(0).inMicroseconds, 0, reason: 'no delay here');
+      final real = S3Client(signer: s3.signer, bucket: 'b');
+      expect(real.backoff(0).inMilliseconds, inInclusiveRange(50, 100));
+      expect(real.backoff(2).inMilliseconds, inInclusiveRange(200, 400));
+      expect(real.backoff(30).inSeconds, inInclusiveRange(10, 20));
+    });
+
+    test('a request that times out is aborted, 4xx is not retried', () async {
+      var stalled = 0;
+      s3.fault = (request) async {
+        if (request.uri.path.endsWith('/stall.txt')) {
+          stalled++;
+          await request.drain<void>();
+          // Never answer; the client gives up and aborts.
+          await Future<void>.delayed(const Duration(seconds: 2));
+          request.response.statusCode = 200;
+          await request.response.close();
+          return true;
+        }
+        return false;
+      };
+      final client = quick();
+      addTearDown(client.close);
+      final watch = Stopwatch()..start();
+      await expectLater(
+        client.putObject('stall.txt', [1]),
+        throwsA(
+          isA<ConnectionException>()
+              .having((e) => e.isTimeout, 'isTimeout', isTrue)
+              .having((e) => e.message, 'message', contains('timed out')),
+        ),
+      );
+      expect(watch.elapsed, lessThan(const Duration(seconds: 1)));
+      expect(stalled, 1, reason: 'a timeout is not retried');
+      // Not retryable: one request, S3's answer as it came.
+      await expectLater(client.getObject('missing-but-ok'), completion(isNull));
+      await expectLater(
+        client.send('GET', '', query: const {'nope': '1'}, accept: const {418}),
+        throwsA(isA<S3Exception>()),
+      );
+    });
+
+    test('a body that goes quiet is cut off, not held for ever', () async {
+      s3.fault = (request) async {
+        if (request.uri.path.endsWith('/quiet.bin') &&
+            request.method == 'GET') {
+          await request.drain<void>();
+          final response = request.response
+            ..statusCode = 200
+            ..contentLength = 100
+            ..add(List.filled(10, 1));
+          await response.flush();
+          // The rest never comes.
+          await Future<void>.delayed(const Duration(seconds: 2));
+          try {
+            await response.close();
+          } on Object {
+            // Already gone.
+          }
+          return true;
+        }
+        return false;
+      };
+      final client = quick();
+      addTearDown(client.close);
+      final watch = Stopwatch()..start();
+      await expectLater(
+        S3Disk('s3', client).getBytes('quiet.bin'),
+        throwsA(
+          isA<ConnectionException>().having(
+            (e) => e.isTimeout,
+            'isTimeout',
+            isTrue,
+          ),
+        ),
+      );
+      expect(watch.elapsed, lessThan(const Duration(seconds: 1)));
+    });
+
     test('objects get a content type from their extension', () async {
       await disk.put('img/logo.png', [1, 2, 3]);
       await disk.put('data.unknownext', 'x');

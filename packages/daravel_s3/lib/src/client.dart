@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:io' as io;
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
@@ -40,6 +42,8 @@ final class S3Client {
     String? endpoint,
     this.pathStyle = false,
     this.timeout = const Duration(minutes: 5),
+    this.retries = 3,
+    this.retryDelay = const Duration(milliseconds: 100),
     HttpClient Function()? httpClient,
   }) : endpoint = Uri.parse(
          endpoint ?? 'https://s3.${signer.region}.amazonaws.com',
@@ -54,11 +58,36 @@ final class S3Client {
   final bool pathStyle;
 
   /// How long a request may take to send its body and get its response
-  /// headers (a download's body streams without a limit).
+  /// headers, and then how long its body may go quiet while read. A
+  /// request that times out is aborted, so its socket is not left waiting
+  /// for an answer nobody reads.
   final Duration timeout;
+
+  /// How many more times a call is sent when the connection failed or S3
+  /// answered 500, 502, 503 (`SlowDown`) or 504, as the AWS SDKs do: the
+  /// wait is [retryDelay] doubled each time with jitter, capped at 20 s.
+  /// Every call carries its whole body in memory, so a resend is exact,
+  /// and every S3 call here is idempotent.
+  final int retries;
+  final Duration retryDelay;
 
   final HttpClient Function() _httpClient;
   HttpClient? _client;
+
+  static final Random _random = Random.secure();
+
+  /// The wait before retry number [attempt] (from 0): equal jitter on an
+  /// exponential base.
+  Duration backoff(int attempt) {
+    const cap = Duration(seconds: 20);
+    final base = retryDelay.inMicroseconds * (1 << attempt);
+    final capped = base < cap.inMicroseconds ? base : cap.inMicroseconds;
+    final half = capped ~/ 2;
+    return Duration(microseconds: half + _random.nextInt(half + 1));
+  }
+
+  static bool _retryable(int status) =>
+      status == 500 || status == 502 || status == 503 || status == 504;
 
   /// The URL of [key] (empty for the bucket), with [query] in canonical
   /// order.
@@ -107,33 +136,60 @@ final class S3Client {
       ..autoUncompress = false
       ..connectionTimeout = const Duration(seconds: 30)
       ..idleTimeout = const Duration(seconds: 15);
-    final HttpClientResponse response;
-    try {
-      final request = await client.openUrl(method, target).timeout(timeout);
-      for (final MapEntry(:key, :value) in signed.entries) {
-        if (key != 'host') {
-          request.headers.set(key, value, preserveHeaderCase: true);
+    HttpClientResponse response;
+    for (var attempt = 0; ; attempt++) {
+      HttpClientRequest? request;
+      try {
+        request = await client.openUrl(method, target).timeout(timeout);
+        for (final MapEntry(:key, :value) in signed.entries) {
+          if (key != 'host') {
+            request.headers.set(key, value, preserveHeaderCase: true);
+          }
         }
+        request.contentLength = body.length;
+        if (body.isNotEmpty) {
+          request.add(body);
+        }
+        response = await request.close().timeout(timeout);
+      } on TimeoutException {
+        // Future.timeout does not cancel the request: without the abort
+        // the answer would arrive to nobody and the socket stay out of the
+        // pool for as long as the peer kept it.
+        request?.abort();
+        throw ConnectionException(
+          'S3 $method $target timed out after ${timeout.inSeconds}s.',
+          isTimeout: true,
+        );
+      } on SocketException catch (error) {
+        if (attempt < retries) {
+          await Future<void>.delayed(backoff(attempt));
+          continue;
+        }
+        throw ConnectionException('Could not reach $target: ${error.message}');
+      } on io.HttpException catch (error) {
+        // The connection closed before any response (a reset, a node
+        // going away): nothing was processed, so the call is sent again.
+        if (attempt < retries) {
+          await Future<void>.delayed(backoff(attempt));
+          continue;
+        }
+        throw ConnectionException('HTTP error for $target: ${error.message}');
       }
-      request.contentLength = body.length;
-      if (body.isNotEmpty) {
-        request.add(body);
+      if (attempt < retries &&
+          !accept.contains(response.statusCode) &&
+          _retryable(response.statusCode)) {
+        // S3 asks for exactly this on 503 SlowDown and 500 InternalError.
+        await _drain(response, target);
+        await Future<void>.delayed(backoff(attempt));
+        continue;
       }
-      response = await request.close().timeout(timeout);
-    } on TimeoutException {
-      throw ConnectionException(
-        'S3 $method $target timed out after ${timeout.inSeconds}s.',
-      );
-    } on SocketException catch (error) {
-      throw ConnectionException('Could not reach $target: ${error.message}');
-    } on HttpException catch (error) {
-      throw ConnectionException('HTTP error for $target: ${error.message}');
+      break;
     }
     if (!accept.contains(response.statusCode)) {
       // Reading (or draining) the body returns the connection to the pool.
       final text = method == 'HEAD'
-          ? await response.drain<String>('')
-          : await utf8.decoder.bind(response).join();
+          ? await _drain(response, target)
+          : await _readText(response, target);
       throw S3Exception(
         'S3 $method ${key.isEmpty ? bucket : key}: '
         '${xmlValue(text, 'Message') ?? xmlValue(text, 'Code') ?? 'HTTP ${response.statusCode}'}',
@@ -165,8 +221,52 @@ final class S3Client {
       accept: accept,
     );
     final builder = BytesBuilder(copy: false);
-    await response.forEach(builder.add);
+    await readBody(response, builder.add, uri(key, query));
     return (response: response, body: builder.takeBytes());
+  }
+
+  /// Reads [response]'s body through [onChunk], failing with
+  /// [ConnectionException] when it goes quiet for [timeout] (a half-open
+  /// connection would otherwise hold the handler, and the socket, for
+  /// ever); the socket is destroyed then, not returned to the pool.
+  Future<void> readBody(
+    HttpClientResponse response,
+    void Function(List<int> chunk) onChunk,
+    Uri target,
+  ) async {
+    try {
+      await response
+          .timeout(
+            timeout,
+            onTimeout: (sink) => sink.addError(
+              ConnectionException(
+                'S3 response body from $target went quiet for '
+                '${timeout.inSeconds}s.',
+                isTimeout: true,
+              ),
+            ),
+          )
+          .forEach(onChunk);
+    } on ConnectionException {
+      response.detachSocket().then((socket) => socket.destroy()).ignore();
+      rethrow;
+    } on io.HttpException catch (error) {
+      // Closed while receiving: the same failure as a reset, named alike.
+      throw ConnectionException(
+        'S3 response body from $target was cut off: ${error.message}',
+      );
+    }
+  }
+
+  Future<String> _drain(HttpClientResponse response, Uri target) async {
+    await readBody(response, (_) {}, target);
+    return '';
+  }
+
+  Future<String> _readText(HttpClientResponse response, Uri target) async {
+    final builder = BytesBuilder(copy: false);
+    await readBody(response, builder.add, target);
+    return utf8.decode(builder.takeBytes(), allowMalformed: true);
   }
 
   Future<void> putObject(

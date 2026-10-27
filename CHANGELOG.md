@@ -105,6 +105,16 @@ match Laravel more closely.
 
 ### Fixed
 
+- `daravel_s3`: a request that times out is aborted (its socket used to
+  wait for an answer nobody read, out of the pool for as long as the
+  peer kept it); a response body that goes quiet for the client's
+  `timeout` is cut off with `ConnectionException` instead of holding the
+  handler for ever; a request S3 answered 500, 502, 503 (`SlowDown`) or
+  504, or whose connection failed before a response, is sent again up
+  to `retries` (3) more times with exponential jittered backoff from
+  `retryDelay` (100 ms), as the AWS SDKs do; and a connection reset
+  during a send now surfaces as `ConnectionException` (the catch bound to
+  Daravel's `HttpException`, not `dart:io`'s, so it escaped unwrapped).
 - `DB.transaction(attempts: n)`: the after-commit callbacks ran inside
   the retry, so a callback failing with a deadlock or serialization error
   re-ran the body after it had committed, committing its writes again.

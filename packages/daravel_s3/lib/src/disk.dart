@@ -220,7 +220,9 @@ final class S3Disk implements Disk {
       throw _notFound(path);
     }
     final builder = BytesBuilder(copy: false);
-    await response.forEach(builder.add);
+    // With the client's quiet timeout: a half-open connection would
+    // otherwise hold the handler for ever.
+    await client.readBody(response, builder.add, client.uri(key(path)));
     return builder.takeBytes();
   }
 
