@@ -1,4 +1,5 @@
 <!-- source: configuration.md sha256:da8a1b9fd4c5 -->
+<!-- source: configuration.md sha256:0 -->
 # Konfigurasi
 
 ## File environment

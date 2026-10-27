@@ -24,6 +24,22 @@ Laravel-facing formats change only to match Laravel more closely.
 - `bench/interop/connections.sh`: 10 000 idle Echo connections against the
   AOT build, with memory and fan-out time.
 
+### Changed
+
+- The Pusher endpoint runs without permessage-deflate, as Reverb's does:
+  one event reaches 10 000 connections in 0.6 s instead of 7.9 s.
+- A WebSocket connection no longer keeps the HTTP request (parser, headers,
+  response) alive: about 18 KB per idle connection instead of 23 KB.
+
+## 1.10.1
+
+Security fixes from Review #42; upgrade with `dartisan upgrade`. A JWT
+revoked on one worker isolate is now refused on all of them, and
+`queue:restart` and `queue:pause` reach `queue:work` processes. With
+`QUEUE_CONNECTION=database`, unique jobs now keep their locks in the
+`database` cache store, so that queue needs the cache tables
+(`CreateCacheTable`) when it runs `ShouldBeUnique` jobs.
+
 ### Fixed
 
 - `dartisan queue:restart`, `queue:pause` and `queue:continue` reached no
@@ -42,13 +58,6 @@ Laravel-facing formats change only to match Laravel more closely.
   default to the `database` cache store (the `cache_locks` table of
   `CreateCacheTable`), and boot warns when `QUEUE_UNIQUE_LOCK_STORE` names
   a store of one process.
-
-### Changed
-
-- The Pusher endpoint runs without permessage-deflate, as Reverb's does:
-  one event reaches 10 000 connections in 0.6 s instead of 7.9 s.
-- A WebSocket connection no longer keeps the HTTP request (parser, headers,
-  response) alive: about 18 KB per idle connection instead of 23 KB.
 
 ## 1.10.0
 
