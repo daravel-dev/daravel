@@ -14,7 +14,7 @@ suite keeps them that way. See [Laravel coexistence](laravel-coexistence.md).
 The official packages are `daravel`, `dartisan_cli`, `daravel_test`,
 `daravel_lints`, `daravel_mysql`, `daravel_sqlite` and `daravel_postgres`,
 released together by the verified
-publisher [`daravel.teoprayoga.my.id`](https://pub.dev/publishers/daravel.teoprayoga.my.id)
+publisher [`framework.daravel.dev`](https://pub.dev/publishers/framework.daravel.dev)
 on pub.dev; only packages from that publisher belong to this project.
 Daravel runs on Linux, macOS and Windows servers (pub.dev also lists Flutter,
 since the packages are plain Dart).

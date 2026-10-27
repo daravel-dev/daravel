@@ -21,7 +21,7 @@
   <a href="https://dart.dev/tools/dart-build"><img src="https://img.shields.io/badge/AOT-native%20bundle-16A34A" alt="AOT native bundle"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
   <a href="https://pub.dev/packages/daravel"><img src="https://img.shields.io/pub/v/daravel?include_prereleases&label=pub.dev" alt="pub.dev version"></a>
-  <a href="https://pub.dev/publishers/daravel.teoprayoga.my.id"><img src="https://img.shields.io/pub/publisher/daravel" alt="pub.dev publisher"></a>
+  <a href="https://pub.dev/publishers/framework.daravel.dev"><img src="https://img.shields.io/pub/publisher/daravel" alt="pub.dev publisher"></a>
 </p>
 
 <p align="center">
@@ -50,7 +50,7 @@ from the route to the database, and every CPU core on one port.
 
 > **Status.** Daravel `1.0.0` is stable and published on
 > [pub.dev](https://pub.dev/packages/daravel) by the verified publisher
-> `daravel.teoprayoga.my.id`. The Dart API follows SemVer on the `1.x` line; the Laravel-facing
+> `framework.daravel.dev`. The Dart API follows SemVer on the `1.x` line; the Laravel-facing
 > formats are locked by the conformance suite.
 
 ## Why Daravel?
@@ -479,7 +479,7 @@ The ten packages ([`daravel`](https://pub.dev/packages/daravel),
 [`daravel_sqlite`](https://pub.dev/packages/daravel_sqlite),
 [`daravel_postgres`](https://pub.dev/packages/daravel_postgres)) are released together
 under one version by the verified publisher
-[`daravel.teoprayoga.my.id`](https://pub.dev/publishers/daravel.teoprayoga.my.id);
+[`framework.daravel.dev`](https://pub.dev/publishers/framework.daravel.dev);
 only packages from that publisher belong to this project. pub.dev also tags
 them as Flutter-compatible because they are plain Dart, but Daravel is a
 server framework for Linux, macOS and Windows.

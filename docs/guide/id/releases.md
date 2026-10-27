@@ -1,11 +1,11 @@
-<!-- source: releases.md sha256:7b935f72d4dc -->
+<!-- source: releases.md sha256:d4d7094eb7fd -->
 # Rilis dan versioning
 
 Daravel `1.x` adalah lini rilis stabil. Ketujuh paket (`daravel`,
 `dartisan_cli`, `daravel_test`, `daravel_lints`, `daravel_mysql`,
 `daravel_sqlite`, `daravel_postgres`) dirilis bersama dengan satu versi,
 dipublikasikan di [pub.dev](https://pub.dev/packages/daravel) oleh publisher
-terverifikasi `daravel.teoprayoga.my.id`.
+terverifikasi `framework.daravel.dev`.
 
 | Versi | Sorotan |
 | :-- | :-- |

@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:64e94421adb6 -->
+<!-- source: README.md sha256:28fb5d11b915 -->
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/brand/svg/daravel-logo-horizontal-on-dark.svg">
@@ -22,7 +22,7 @@
   <a href="https://dart.dev/tools/dart-build"><img src="https://img.shields.io/badge/AOT-native%20bundle-16A34A" alt="AOT native bundle"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
   <a href="https://pub.dev/packages/daravel"><img src="https://img.shields.io/pub/v/daravel?include_prereleases&label=pub.dev" alt="pub.dev version"></a>
-  <a href="https://pub.dev/publishers/daravel.teoprayoga.my.id"><img src="https://img.shields.io/pub/publisher/daravel" alt="pub.dev publisher"></a>
+  <a href="https://pub.dev/publishers/framework.daravel.dev"><img src="https://img.shields.io/pub/publisher/daravel" alt="pub.dev publisher"></a>
 </p>
 
 <p align="center">
@@ -52,7 +52,7 @@ di satu port.
 
 > **Status.** Daravel `1.0.0` sudah stabil dan dipublikasikan di
 > [pub.dev](https://pub.dev/packages/daravel) oleh publisher terverifikasi
-> `daravel.teoprayoga.my.id`. API Dart mengikuti SemVer di lini `1.x`; format yang berhadapan
+> `framework.daravel.dev`. API Dart mengikuti SemVer di lini `1.x`; format yang berhadapan
 > dengan Laravel dikunci oleh suite konformansi.
 
 ## Mengapa Daravel?
@@ -485,7 +485,7 @@ Kesepuluh paket ([`daravel`](https://pub.dev/packages/daravel),
 [`daravel_sqlite`](https://pub.dev/packages/daravel_sqlite),
 [`daravel_postgres`](https://pub.dev/packages/daravel_postgres)) dirilis bersama dengan satu
 versi oleh publisher terverifikasi
-[`daravel.teoprayoga.my.id`](https://pub.dev/publishers/daravel.teoprayoga.my.id); hanya paket
+[`framework.daravel.dev`](https://pub.dev/publishers/framework.daravel.dev); hanya paket
 dari publisher itu yang merupakan bagian dari proyek ini. pub.dev juga menandainya kompatibel
 dengan Flutter karena paketnya Dart murni, tetapi Daravel adalah framework server untuk Linux,
 macOS, dan Windows.

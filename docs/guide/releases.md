@@ -4,7 +4,7 @@ Daravel `1.x` is the stable release line. The seven packages (`daravel`,
 `dartisan_cli`, `daravel_test`, `daravel_lints`, `daravel_mysql`,
 `daravel_sqlite`, `daravel_postgres`) are released together under one version,
 published on [pub.dev](https://pub.dev/packages/daravel) by the verified
-publisher `daravel.teoprayoga.my.id`.
+publisher `framework.daravel.dev`.
 
 | Version | Highlights |
 | :-- | :-- |

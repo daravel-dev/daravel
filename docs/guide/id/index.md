@@ -1,4 +1,4 @@
-<!-- source: index.md sha256:a8713197b381 -->
+<!-- source: index.md sha256:611636d7ecfe -->
 # Dokumentasi Daravel
 
 Daravel adalah framework backend untuk Dart yang mengikuti filosofi Laravel
@@ -16,7 +16,7 @@ Laravel](laravel-coexistence.md).
 Paket resminya adalah `daravel`, `dartisan_cli`, `daravel_test`,
 `daravel_lints`, `daravel_mysql`, `daravel_sqlite`, dan `daravel_postgres`,
 dirilis bersama oleh publisher
-terverifikasi [`daravel.teoprayoga.my.id`](https://pub.dev/publishers/daravel.teoprayoga.my.id)
+terverifikasi [`framework.daravel.dev`](https://pub.dev/publishers/framework.daravel.dev)
 di pub.dev; hanya paket dari publisher itu yang merupakan bagian dari
 proyek ini. Daravel berjalan di server Linux, macOS, dan Windows (pub.dev
 juga mencantumkan Flutter, karena paketnya Dart murni).
