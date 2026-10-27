@@ -101,6 +101,8 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | Laravel | Daravel | Notes |
 | :-- | :-- | :-- |
 | `Redis::command('HSET', [...])` | `await Redis.command(['HSET', ...])` | **async** |
+| `Redis::throttle('key')->allow(10)->every(60)->then(fn, fn)` | `await Redis.throttle('key').allow(10).every(const Duration(seconds: 60)).then(() {...}, (e) {...})` | **async**; Laravel's DurationLimiter script and key: both count against one limit. |
+| `Redis::funnel('key')->limit(3)->then(fn, fn)` | `await Redis.funnel('key').limit(3).then(() {...}, (e) {...})` | **async**; Laravel's ConcurrencyLimiter script and slot keys. |
 | `Redis::publish($channel, $message)` | `await Redis.publish(channel, message)` | **async** |
 | `Redis::subscribe([...], fn ($message) => ...)` | `Redis.subscribe([...]).messages.listen(...)` | Subscribes again after the connection drops. |
 | `CACHE_STORE=redis` | `CACHE_STORE=redis with .withRedis()` | Numbers stored raw; cache:clear deletes the cache's keys, not the database (no FLUSHDB). |
@@ -246,6 +248,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `Cache::get / put / forget / has` | `await Cache.get / put / forget / has` | **async** |
 | `Cache::remember($key, $ttl, fn)` | `await Cache.remember(key, ttl, () async {...})` | **async** |
 | `Cache::flexible($key, [$fresh, $stale], fn)` | `await Cache.flexible(...)` | **async** |
+| `Cache::tags(['people'])->put($key, $value, $ttl)` | `await Cache.tags(['people']).put(key, value, ttl: ttl)` | **async**; memory, process and redis stores (Laravel's layout on Redis); file and database cannot tag, as in Laravel. |
 | `Cache::lock('name', 10)->get(fn)` | `await Cache.lock('name', ...)` |  |
 | `SendEmail::dispatch($user)` | `await Queue.dispatch(SendEmail(user))` | **async** |
 | `Queue::later($delay, $job)` | `await Queue.later(delay, job)` | **async** |

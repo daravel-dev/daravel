@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Laravel 12 and Daravel on one Redis (Linux and Docker): a cache lock taken
 # by either is refused to the other, with the same owner, a number in the
-# cache counts up from both sides, and with REDIS_SERIALIZER=php each reads
-# the other's cached arrays.
+# cache counts up from both sides, with REDIS_SERIALIZER=php each reads the
+# other's cached arrays, tagged entries are shared and flushed from either
+# side, and Redis::throttle counts both.
 #
 #   bash bench/interop/redis.sh
 set -uo pipefail
@@ -73,6 +74,23 @@ laravel 'Cache::put("profile", ["name" => "Ana", "roles" => ["admin", "editor"],
 check "Daravel reads Laravel's array" '{"name":"Ana","roles":["admin","editor"],"active":true,"score":1.5}' "$(daravel profile)"
 daravel put-profile >/dev/null
 check "Laravel reads Daravel's array" '{"name":"Bo","tags":["x"],"none":null}' "$(laravel 'echo json_encode(Cache::get("profile"));' | tail -1)"
+
+echo "== Tagged entries, both ways"
+laravel 'Cache::tags(["people", "artists"])->put("John", "x", 60);' >/dev/null
+check "Daravel reads Laravel's tagged entry" "John=x" "$(daravel tags-get)"
+daravel tags-put >/dev/null
+check "Laravel reads Daravel's tagged entry" "y" "$(laravel 'echo Cache::tags(["people"])->get("Anne");' | tail -1)"
+daravel tags-flush >/dev/null
+check "Daravel's flush reaches Laravel" "NULL" "$(laravel 'var_export(Cache::tags(["people", "artists"])->get("John"));' | tail -1)"
+laravel 'Cache::tags(["people"])->flush();' >/dev/null
+check "Laravel's flush reaches Daravel" "Anne=null" "$(daravel tags-get)"
+
+echo "== One throttle for both"
+throttle='echo \Illuminate\Support\Facades\Redis::throttle("reports")->allow(2)->every(60)->block(0)->then(fn () => "ran", fn () => "refused");'
+check "Laravel runs (1 of 2)" "ran" "$(laravel "$throttle" | tail -1)"
+check "Daravel runs (2 of 2)" "throttle=ran" "$(daravel throttle)"
+check "Laravel is refused" "refused" "$(laravel "$throttle" | tail -1)"
+check "Daravel is refused" "throttle=refused" "$(daravel throttle)"
 
 [ $status -eq 0 ] && echo "All Redis interop checks passed." || echo "Some Redis interop checks failed."
 exit $status

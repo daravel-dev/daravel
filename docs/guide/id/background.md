@@ -1,4 +1,4 @@
-<!-- source: background.md sha256:4e39345fe57a -->
+<!-- source: background.md sha256:d4dce3d223ca -->
 # Cache, event, queue, dan penjadwalan
 
 <!-- include: packages/daravel/test/docs/guide_examples_test.dart#cache-events-queue -->
@@ -20,6 +20,11 @@ Store: `memory` (per isolate, LRU), `process` (dibagi semua isolate server
 melalui coordinator), `file`, dan `database` (tabel `cache` dari Laravel).
 `Cache.remember`, `flexible` (stale-while-revalidate), `increment`, `pull`,
 dan `lock` (atomic lock, gagal tertutup) mengikuti Laravel.
+`Cache.tags(['people', 'artists']).put(...)` memberi tag pada entri dan
+`Cache.tags(['people']).flush()` melupakannya, di store `memory` dan
+`process` serta dengan [Redis](redis.md#cache-tags), dengan key yang sama
+seperti Laravel; `file` dan `database` tidak bisa memberi tag, seperti di
+Laravel.
 
 ## Event
 

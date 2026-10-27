@@ -45,14 +45,64 @@ typedef McpCommandRunner =
       List<String> arguments,
     );
 
+/// A tool a package adds to `mcp:serve` (daravel_redis's `redis_inspect`),
+/// offered by one of its commands ([McpToolSource]).
+final class McpTool {
+  const McpTool({
+    required this.name,
+    required this.description,
+    required this.run,
+    this.properties = const {},
+    this.required = const [],
+    this.readOnly = true,
+  });
+
+  final String name;
+  final String description;
+
+  /// The input schema's properties (`{'key': {'type': 'string'}}`).
+  final Map<String, Object?> properties;
+  final List<String> required;
+
+  /// Tools that change something are offered with `--allow-write` only.
+  final bool readOnly;
+
+  /// Answers a call, inside the application's scope; a string, or a value
+  /// sent as JSON.
+  final Future<Object?> Function(Map<String, Object?> arguments) run;
+}
+
+/// A command that brings MCP tools: `mcp:serve` offers the tools of every
+/// registered command that is one, so a package adds tools through the
+/// commands it already registers in `bootstrap/commands.dart`.
+abstract interface class McpToolSource {
+  List<McpTool> get mcpTools;
+}
+
+/// The tools of [runner]'s commands that are [McpToolSource]s.
+List<McpTool> mcpToolsOf(CommandRunner<int>? runner) => [
+  for (final command in {...?runner?.commands.values})
+    if (command case final McpToolSource source) ...source.mcpTools,
+];
+
 /// A Model Context Protocol server (JSON-RPC 2.0) that gives AI coding
 /// agents the project's routes, database schema, conventions and guide.
 ///
 /// Read-only unless [allowWrite]; then `run_command` runs dartisan commands
 /// (except [mcpRefusedCommands], and [mcpProductionRefused] in production).
 final class McpServer {
-  McpServer(this.app, {this.allowWrite = false, McpCommandRunner? runCommand})
-    : _runCommand = runCommand ?? _spawnDartisan;
+  McpServer(
+    this.app, {
+    this.allowWrite = false,
+    McpCommandRunner? runCommand,
+    this.tools = const [],
+  }) : _runCommand = runCommand ?? _spawnDartisan;
+
+  /// Tools packages add ([McpToolSource]).
+  final List<McpTool> tools;
+
+  Iterable<McpTool> get _extra =>
+      tools.where((tool) => tool.readOnly || allowWrite);
 
   /// A booted application.
   final Application app;
@@ -253,6 +303,14 @@ final class McpServer {
         required: const ['command'],
         readOnly: false,
       ),
+    for (final tool in _extra)
+      _tool(
+        tool.name,
+        tool.description,
+        tool.properties,
+        required: tool.required,
+        readOnly: tool.readOnly,
+      ),
   ];
 
   static Map<String, Object?> _tool(
@@ -418,6 +476,11 @@ final class McpServer {
           'stdout': _truncate(result.stdout),
           'stderr': _truncate(result.stderr),
         };
+    }
+    for (final tool in _extra) {
+      if (tool.name == name) {
+        return tool.run(args);
+      }
     }
     throw StateError('Unknown tool: $name');
   }
@@ -781,7 +844,11 @@ final class McpServeCommand extends DaravelCommand {
     stderr.writeln('[mcp] (Press Ctrl+C to stop)');
     return IOOverrides.runZoned(
       () => withApp((app) async {
-        await McpServer(app, allowWrite: allowWrite).serve(stdin, protocol);
+        await McpServer(
+          app,
+          allowWrite: allowWrite,
+          tools: mcpToolsOf(runner),
+        ).serve(stdin, protocol);
         return 0;
       }),
       stdout: () => stderr,

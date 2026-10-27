@@ -130,7 +130,11 @@ final class _Entry {
 /// every read goes to Redis. An L1 entry lives at most [maxAge], and at
 /// most [maxKeys] are kept, the least recently read evicted first.
 final class TieredStore
-    implements TouchableCacheStore, WindowCounterStore, RateCounterStore {
+    implements
+        TouchableCacheStore,
+        WindowCounterStore,
+        RateCounterStore,
+        TaggableCacheStore {
   TieredStore(
     this.values, {
     required this.shared,
@@ -167,6 +171,12 @@ final class TieredStore
 
   @override
   StateScope get scope => StateScope.cluster;
+
+  /// Tags kept with tag ids, as Laravel's array store does: in the tiered
+  /// namespace, so a flush reaches every L1 as an invalidation.
+  @override
+  TaggedCacheStore tags(List<String> names, {String prefix = ''}) =>
+      TagSetCacheStore(this, names, prefix: prefix);
 
   /// Entries in this isolate's L1, whether tracking is live, and why not.
   Map<String, Object?> get stats => {

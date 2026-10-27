@@ -11,6 +11,7 @@ import '../database/database_manager.dart';
 import '../database/query/query_builder.dart';
 import '../server/coordinator.dart';
 import 'cache.dart';
+import 'tags.dart';
 
 final class _Entry {
   _Entry(this.value, this.expiresAt);
@@ -19,7 +20,7 @@ final class _Entry {
 }
 
 /// Bounded LRU store in this isolate's memory (scope `isolate`).
-final class MemoryStore implements TouchableCacheStore {
+final class MemoryStore implements TouchableCacheStore, TaggableCacheStore {
   MemoryStore({this.maxEntries = 10000, DateTime Function()? clock})
     : _clock = clock ?? _utcNow;
 
@@ -31,6 +32,10 @@ final class MemoryStore implements TouchableCacheStore {
 
   @override
   StateScope get scope => StateScope.isolate;
+
+  @override
+  TaggedCacheStore tags(List<String> names, {String prefix = ''}) =>
+      TagSetCacheStore(this, names, prefix: prefix);
 
   int get size => _entries.length;
 
@@ -238,7 +243,7 @@ final class ProcessCacheService implements CoordinatorService {
 /// trip; its own writes update or drop them at once, while writes from
 /// other isolates show up within [l1Ttl]. Misses, counters and locks always
 /// go to the coordinator.
-final class ProcessStore implements CacheStore {
+final class ProcessStore implements TaggableCacheStore {
   ProcessStore(
     this.channel, {
     this.timeout = const Duration(seconds: 1),
@@ -259,6 +264,10 @@ final class ProcessStore implements CacheStore {
 
   @override
   StateScope get scope => StateScope.process;
+
+  @override
+  TaggedCacheStore tags(List<String> names, {String prefix = ''}) =>
+      TagSetCacheStore(this, names, prefix: prefix);
 
   Future<Object?> _call(String op, [Map<String, Object?> args = const {}]) =>
       channel.call(ProcessCacheService.serviceName, op, args, timeout: timeout);

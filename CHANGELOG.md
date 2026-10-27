@@ -25,10 +25,16 @@ Laravel-facing formats change only to match Laravel more closely.
   isolate's memory in front of Redis, kept exact by `CLIENT TRACKING`), a
   stream queue engine with a consumer group (`QUEUE_REDIS_ENGINE=stream`),
   cached values in PHP's `serialize()` format so Laravel reads them
-  (`REDIS_SERIALIZER=php`), sliding-window and GCRA rate limits, and the
-  `redis:ping`, `redis:stats`, `redis:keys-audit` and read-only `redis:cli`
-  commands. Tested on Redis 7 and Valkey 8, Sentinel failover and Cluster
-  resharding included, in CI as well.
+  (`REDIS_SERIALIZER=php`), sliding-window and GCRA rate limits, cache tags
+  in Laravel 12's layout, `Redis.throttle` and `Redis.funnel` on Laravel's
+  scripts and keys (so both frameworks count against one limit), sharded
+  Pub/Sub that follows its slot, server-sent events that resume from a
+  stream (`Redis.events('orders').since(request)`), and the `redis:ping`,
+  `redis:stats`, `redis:keys-audit`, `redis:inspect` (also the MCP tool
+  `redis_inspect`), `cache:prune-stale-tags` and read-only `redis:cli`
+  commands. `bench/interop/redis.sh` checks locks, numbers, arrays, tags and
+  throttles against Laravel 12. Tested on Redis 7 and Valkey 8, Sentinel
+  failover and Cluster resharding included, in CI as well.
 - `daravel_permission` (Blueprint #36): roles and permissions in the
   database on spatie/laravel-permission's five tables, so Laravel and
   Daravel share them (`bench/interop/permission.sh` checks it against
@@ -54,6 +60,14 @@ Laravel-facing formats change only to match Laravel more closely.
   `dartisan make:query-filter Post` writes one and registers it.
 - `Blueprint.primary([...])`: primary keys over several columns, named as
   Laravel names them.
+- `Cache.tags([...])` (`TaggableCacheStore`, `TaggedCacheStore`): tagged
+  entries and their flush, on the `memory` and `process` stores with
+  Laravel's tag ids (`TagSetCacheStore`) and on daravel_redis's with
+  Laravel's Redis layout; `file` and `database` refuse, as in Laravel.
+- `dartisan redis:install [--docker]`: adds daravel_redis, `.withRedis()`,
+  its commands, its `.env` keys and a Valkey (or Redis) compose service.
+- MCP tools from packages: a command that is an `McpToolSource` adds its
+  `McpTool`s to `mcp:serve` (write tools with `--allow-write` only).
 - `Limit.slidingWindow()` and `Limit.gcra()` (`RateLimitAlgorithm`):
   rate limits without the fixed window's burst at a reset, counted by
   stores that support them (`AlgorithmRateLimitStore`, `RateCounterStore`:
@@ -64,6 +78,9 @@ Laravel-facing formats change only to match Laravel more closely.
   `BroadcastRelay` contract; `REVERB_SCALING_DRIVER`.
 
 ### Fixed
+- Projects from `dartisan new --path` or `--source=git` pin `dartisan_cli`
+  too, so packages depending on it by name (daravel_redis,
+  daravel_permission) resolve from the same source.
 
 - `withConfig(MyConfig.fromEnv)` registered the section as a plain
   `ConfigSection`, so `Config.section<MyConfig>()`, as the configuration

@@ -1,4 +1,4 @@
-<!-- source: redis.md sha256:5c036070ead3 -->
+<!-- source: redis.md sha256:28c12488d147 -->
 # Redis
 
 Di satu server, Daravel tidak membutuhkan Redis: isolate coordinator
@@ -19,8 +19,12 @@ protokolnya sendiri (tanpa library native).
 ## Instalasi
 
 ```bash
-dart pub add daravel_redis
+dartisan redis:install --docker   # atau: dart pub add daravel_redis
 ```
+
+`redis:install` menambahkan paketnya, `.withRedis()` dan command `redis:*`,
+key `.env` di `.env.example`, dan dengan `--docker` sebuah service Valkey di
+file compose (`--server=redis` untuk Redis).
 
 ```dart
 // bootstrap/app.dart
@@ -139,6 +143,23 @@ paling lama `REDIS_TIERED_TTL` dan mengikuti time to live key-nya sendiri;
 paling banyak `REDIS_TIERED_MAX_KEYS` yang disimpan, dan yang paling lama
 tidak dibaca keluar lebih dulu.
 
+## Cache tags
+
+```dart
+await Cache.tags(['people', 'artists']).put('John', john, ttl: const Duration(hours: 1));
+await Cache.tags(['people']).flush();
+```
+
+Entri yang diberi tag disusun seperti Laravel 12 menyusunnya di Redis:
+nilainya di `<cache prefix><sha1 dari tag>:<key>`, dan key setiap tag di
+sorted set `<cache prefix>tag:<name>:entries` dengan skor waktu
+kedaluwarsanya. Flush menghapus key yang didaftar tag-nya, sehingga
+masing-masing framework bisa mem-flush apa yang diberi tag oleh yang lain.
+Key yang sudah kedaluwarsa tetap ada di daftar sampai
+`dartisan cache:prune-stale-tags` (padanan command Laravel dengan nama yang
+sama, layak dijadwalkan) membuangnya. Store `tiered` juga bisa memberi tag,
+dengan id tag seperti array store dari Laravel.
+
 ## Engine queue
 
 `QUEUE_REDIS_ENGINE=list` (default) menyimpan job di list dan sorted set.
@@ -170,6 +191,22 @@ limiter.define('search', (request) => Limit.perMinute(60).slidingWindow());
 `Retry-After` menyebutkan kapan percobaan berikutnya akan lolos di
 masing-masing algoritma.
 
+## Event yang bisa dilanjutkan
+
+```dart
+router.get('/orders/events', (request) =>
+    Response.sse(Redis.events('orders').since(request)));
+
+await Redis.events('orders').publish({'id': 7}, event: 'created');
+```
+
+Setiap event masuk ke sebuah stream (`<REDIS_PREFIX>sse:orders`, kira-kira
+1000 terakhir disimpan) dan id stream-nya menjadi `id:` event tersebut.
+Browser yang menyambung ulang mengirim `Last-Event-ID`; ia lebih dulu
+menerima yang terlewat, lalu event live, tanpa ada yang terkirim dua kali
+maupun hilang di antaranya. Semua listener sebuah channel dalam satu isolate
+berbagi satu koneksi `XREAD BLOCK`.
+
 ## Facade `Redis`
 
 ```dart
@@ -187,6 +224,29 @@ await Redis.eval(script, keys: ['visits'], args: [1]);
 await Redis.publish('orders', '{"id":7}');
 Redis.subscribe(['orders']).messages.listen((message) { /* ... */ });
 ```
+
+`publish(..., sharded: true)` dan `subscribe([...], sharded: true)` memakai
+Pub/Sub ber-shard (Redis 7): di cluster sebuah pesan tetap di dalam shard
+channel-nya, dan subscription mengikuti shard itu saat slot-nya berpindah.
+Channel ber-shard harus berbagi hash slot (`{orders}:created`,
+`{orders}:paid`).
+
+```dart
+// Paling banyak 10 per menit, dihitung bersama Redis::throttle('reports') dari Laravel
+await Redis.throttle('reports').allow(10).every(const Duration(minutes: 1))
+    .then(() => sendReport(), (error) => releaseLater());
+
+// Paling banyak 3 sekaligus (Redis::funnel dari Laravel)
+await Redis.funnel('imports').limit(3).block(const Duration(seconds: 5))
+    .then(() => runImport());
+```
+
+`throttle` dan `funnel` memakai skrip dan key dari Laravel (dengan
+`REDIS_PREFIX`), sehingga kedua framework menghitung terhadap satu batas
+yang sama. Seperti di Laravel, jendela `throttle` berjalan dari satu detik
+bulat sampai detik itu ditambah periodenya. `funnel` di cluster membutuhkan
+hash tag di namanya (`{imports}`), karena slot-slotnya adalah key
+tersendiri.
 
 Setiap isolate memegang satu koneksi per server, dan perintah yang dikirim
 tanpa saling menunggu berbagi round trip-nya (pipelining). Perintah
@@ -211,6 +271,8 @@ tidak ikut mengompilasi CLI.
 | `redis:stats [--connection]` | `INFO` setiap master (memori, client, hit) dan apa yang dikerjakan client (koneksi, redirect, failover) |
 | `redis:keys-audit [--connection] [--match] [--limit]` | Key per tipe di bawah `REDIS_PREFIX`, dan key cache yang tidak pernah kedaluwarsa |
 | `redis:cli [--connection] [--write] [command ...]` | Satu perintah, atau prompt; tanpa `--write` hanya perintah baca yang dijalankan (`KEYS` juga tidak: pakai `SCAN`) |
+| `redis:inspect <key> [--connection]` | Isi sebuah key: tipe, time to live, encoding, ukuran, memori, dan item pertamanya (nilai disembunyikan di production). Juga tersedia sebagai tool MCP `redis_inspect` ([dartisan](dartisan.md#agen-ai-coding-mcp)) |
+| `cache:prune-stale-tags [--store]` | Membuang key yang sudah kedaluwarsa dari daftar tag |
 
 ## Jaminan
 
@@ -233,14 +295,19 @@ tidak ikut mengompilasi CLI.
 | Lock | Dibagi bila keduanya memakai `REDIS_PREFIX` dan `CACHE_PREFIX` yang sama: key yang sama di koneksi yang sama, `SET NX PX`, dan skrip pelepasan yang sama. `dartisan adopt` memberi Daravel prefix cache sendiri, jadi samakan `CACHE_PREFIX` dengan prefix dari Laravel untuk berbagi lock |
 | Angka di cache | Dibagi: disimpan sebagai digit biasa |
 | Nilai cache lainnya | Dibagi dengan `REDIS_SERIALIZER=php`: Daravel menulis `serialize()` dari PHP untuk string, boolean, list, dan map, serta membaca nilai dari Laravel, dengan object menjadi map berisi property-nya. Dengan `json`, Laravel tidak bisa membaca nilai dari Daravel |
+| Tag | Dibagi: key dan daftar tag yang sama; flush dari salah satunya sampai ke apa yang diberi tag oleh yang lain |
+| `Redis.throttle`, `Redis.funnel` | Dibagi dengan `Redis::throttle` dan `Redis::funnel` dengan nama yang sama: skrip dan key dari Laravel |
 | Queue | Dipisah (namespace `daravel:`): worker Laravel tidak bisa menjalankan job Daravel, begitu pula sebaliknya |
 
 `bench/interop/redis.sh` mengecek semua ini terhadap Laravel 12 dengan
 predis: lock yang diambil salah satunya ditolak bagi yang lain dengan
-pemilik yang sama, angka di cache bertambah dari kedua sisi, dan
-masing-masing membaca array yang di-cache sisi lainnya.
+pemilik yang sama, angka di cache bertambah dari kedua sisi, masing-masing
+membaca array dan entri ber-tag dari sisi lainnya serta mem-flush tag milik
+sisi lain, dan satu throttle menghitung keduanya.
 
 ## Belum tersedia
 
-Cache tags, Pub/Sub ber-shard (`SSUBSCRIBE`), Server-Sent Events yang bisa
-dilanjutkan dari stream, dan perintah `redis:install` sudah direncanakan.
+`REDIS_TOPOLOGY=coordinator`, yang akan menyalurkan perintah semua isolate
+lewat satu set koneksi per server untuk layanan terkelola dengan batas
+koneksi rendah, sudah direncanakan. Sampai saat itu setiap isolate membuka
+koneksinya sendiri.

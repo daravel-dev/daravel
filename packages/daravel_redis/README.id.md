@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:32fa98038a5c -->
+<!-- source: README.md sha256:6d63c5879d42 -->
 <img src="https://raw.githubusercontent.com/daravel-dev/daravel/main/docs/brand/png/daravel-icon-128.png" alt="Daravel" width="64" align="right">
 
 # daravel_redis
@@ -12,7 +12,7 @@ satu server Daravel tidak membutuhkan semua ini; coordinator-nya menyimpan
 state tersebut di memori.
 
 ```bash
-dart pub add daravel_redis
+dartisan redis:install --docker   # atau: dart pub add daravel_redis
 ```
 
 ```dart
@@ -51,9 +51,14 @@ REVERB_SCALING_DRIVER=redis
   `CACHE_PREFIX` yang sama; dengan `REDIS_SERIALIZER=php` keduanya juga
   berbagi nilai cache. Queue tetap terpisah dari queue Laravel (key
   `daravel:`).
+- Cache tags, `Redis.throttle`, dan `Redis.funnel` dengan key dari
+  Laravel, sehingga kedua framework berbagi semuanya; Pub/Sub ber-shard;
+  server-sent events yang dilanjutkan dari `Last-Event-ID`
+  (`Redis.events('orders')`).
 - `cache:clear` hanya menghapus key cache itu sendiri, tidak pernah seluruh
-  database; `redis:ping`, `redis:stats`, `redis:keys-audit`, dan
-  `redis:cli` yang read-only (`package:daravel_redis/commands.dart`).
+  database; `redis:ping`, `redis:stats`, `redis:keys-audit`,
+  `redis:inspect` (juga tool MCP untuk agen AI), `cache:prune-stale-tags`,
+  dan `redis:cli` yang read-only (`package:daravel_redis/commands.dart`).
 
 Dokumentasi: <https://github.com/daravel-dev/daravel/blob/main/docs/guide/id/redis.md>.
 

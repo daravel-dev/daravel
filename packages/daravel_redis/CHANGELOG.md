@@ -8,4 +8,8 @@
 - `RedisQueueEngine.stream` (`QUEUE_REDIS_ENGINE=stream`): a stream with a consumer group, `XAUTOCLAIM` for jobs whose worker died.
 - `RedisSerializer.php` (`REDIS_SERIALIZER=php`) and `PhpSerializer`: cached values as Laravel's `serialize()`, read either way.
 - `RateCounterStore` on `RedisStore`: `Limit.slidingWindow()` and `Limit.gcra()`, one script each on the server's clock.
-- `redisCommands` (`package:daravel_redis/commands.dart`): `redis:ping`, `redis:stats`, `redis:keys-audit`, `redis:cli` (read-only unless `--write`).
+- `redisCommands` (`package:daravel_redis/commands.dart`): `redis:ping`, `redis:stats`, `redis:keys-audit`, `redis:cli` (read-only unless `--write`), `redis:inspect` with the MCP tool `redis_inspect`, `cache:prune-stale-tags`.
+- `RedisStore.tags` (`RedisTaggedCacheStore`, Laravel 12's keys and tag lists) and `flushStaleTags`; `TieredStore` tags with tag ids.
+- `Redis.throttle` and `Redis.funnel` (`RedisDurationLimiter`, `RedisConcurrencyLimiter`, `LimiterTimeoutException`), Laravel's scripts and keys.
+- Sharded Pub/Sub: `publish(..., sharded: true)`, `subscribe([...], sharded: true)`, following its slot in a cluster.
+- `Redis.events(channel)` (`RedisEventStream`): server-sent events kept in a stream, resumed from `Last-Event-ID`.

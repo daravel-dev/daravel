@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:args/command_runner.dart';
 import 'package:daravel/daravel.dart';
 import 'package:dartisan_cli/dartisan_cli.dart';
 import 'package:dartisan_cli/src/guide_pages.g.dart';
@@ -423,6 +424,29 @@ void main() {
     ]);
     expect(describeRules(Rules.required().min(3)), ['required', 'min:3']);
   });
+  test('packages add tools through their commands', () async {
+    final runner = CommandRunner<int>('dartisan', 'test')
+      ..addCommand(_ToolCommand());
+    final tools = mcpToolsOf(runner);
+    expect([for (final t in tools) t.name], ['echo', 'wipe']);
+
+    Future<List<Object?>> listed(McpServer server) async {
+      final result =
+          (await call(server, 'tools/list'))['result']! as Map<String, Object?>;
+      return [
+        for (final t in result['tools']! as List<Object?>)
+          (t! as Map<String, Object?>)['name'],
+      ];
+    }
+
+    final readOnly = McpServer(app, tools: tools);
+    expect(await listed(readOnly), contains('echo'));
+    expect(await listed(readOnly), isNot(contains('wipe')));
+    expect(await tool(readOnly, 'echo', {'text': 'hi'}), {'echo': 'hi'});
+    final writing = McpServer(app, allowWrite: true, tools: tools);
+    expect(await listed(writing), containsAll(['echo', 'wipe']));
+    expect(await tool(writing, 'wipe'), 'wiped');
+  });
 }
 
 final class _Sink implements IOSink {
@@ -436,4 +460,30 @@ final class _Sink implements IOSink {
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+final class _ToolCommand extends Command<int> implements McpToolSource {
+  @override
+  String get name => 'tool:test';
+
+  @override
+  String get description => 'Brings tools.';
+
+  @override
+  List<McpTool> get mcpTools => [
+    McpTool(
+      name: 'echo',
+      description: 'Echoes.',
+      properties: const {
+        'text': {'type': 'string'},
+      },
+      run: (arguments) async => {'echo': arguments['text']},
+    ),
+    McpTool(
+      name: 'wipe',
+      description: 'Writes.',
+      readOnly: false,
+      run: (arguments) async => 'wiped',
+    ),
+  ];
 }

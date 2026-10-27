@@ -28,6 +28,7 @@ import 'src/daragic_export.dart';
 import 'src/db_install.dart';
 import 'src/db_transfer.dart';
 import 'src/mcp_server.dart';
+import 'src/redis_install.dart';
 
 export 'src/database_commands.dart';
 export 'src/dev_server.dart';
@@ -50,6 +51,7 @@ export 'src/daragic_export.dart';
 export 'src/db_install.dart';
 export 'src/db_transfer.dart';
 export 'src/mcp_server.dart';
+export 'src/redis_install.dart';
 export 'src/upgrade_command.dart';
 
 /// Creates an unbooted [Application] (a project's `createApp()`).
@@ -113,6 +115,7 @@ final class DartisanRunner extends CommandRunner<int> {
     extraMakeCommands().forEach(addCommand);
     addCommand(KeyGenerateCommand());
     addCommand(DbInstallCommand());
+    addCommand(RedisInstallCommand());
     addCommand(EnvEncryptCommand());
     addCommand(EnvDecryptCommand());
     addCommand(EnvObfuscateCommand());

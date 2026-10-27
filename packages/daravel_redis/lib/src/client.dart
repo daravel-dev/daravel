@@ -89,7 +89,16 @@ abstract base class RedisClient {
 
   /// Messages published on [channels] (or matching them, with [pattern]),
   /// on a connection of its own that subscribes again after it drops.
-  RedisSubscription subscribe(List<String> channels, {bool pattern = false});
+  ///
+  /// [sharded] uses sharded Pub/Sub (`SSUBSCRIBE`, Redis 7): in a cluster
+  /// a message travels only within the shard of its channel, so the
+  /// channels must share a hash slot (`{orders}:created`,
+  /// `{orders}:paid`).
+  RedisSubscription subscribe(
+    List<String> channels, {
+    bool pattern = false,
+    bool sharded = false,
+  });
 
   /// The keys matching [match] (a `SCAN` glob), on every master.
   Stream<String> scan({String? match, int count = 500});
@@ -151,9 +160,15 @@ abstract base class RedisClient {
   Future<int> del(List<String> keys) async =>
       keys.isEmpty ? 0 : (await command(['DEL', ...keys]))! as int;
 
-  /// `PUBLISH`: how many subscribers received [message].
-  Future<int> publish(String channel, String message) async =>
-      (await command(['PUBLISH', channel, message]))! as int;
+  /// `PUBLISH` (`SPUBLISH` when [sharded]): how many subscribers received
+  /// [message].
+  Future<int> publish(
+    String channel,
+    String message, {
+    bool sharded = false,
+  }) async =>
+      (await command([sharded ? 'SPUBLISH' : 'PUBLISH', channel, message]))!
+          as int;
 }
 
 /// One server: a standalone Redis or Valkey, or the master Sentinel
@@ -320,11 +335,16 @@ final class RedisNodeClient extends RedisClient {
   }
 
   @override
-  RedisSubscription subscribe(List<String> channels, {bool pattern = false}) {
+  RedisSubscription subscribe(
+    List<String> channels, {
+    bool pattern = false,
+    bool sharded = false,
+  }) {
     final subscription = RedisSubscription._(
       (onMessage) => connect(onMessage: onMessage),
       channels,
       pattern,
+      sharded: sharded,
       connectTimeout: config.connectTimeout,
       onCancel: _subscriptions.remove,
     );
@@ -699,12 +719,31 @@ final class RedisClusterClient extends RedisClient {
   bool _closed = false;
 
   @override
-  RedisSubscription subscribe(List<String> channels, {bool pattern = false}) {
+  RedisSubscription subscribe(
+    List<String> channels, {
+    bool pattern = false,
+    bool sharded = false,
+  }) {
+    final slots = {for (final channel in channels) slot(channel)};
+    if (sharded && slots.length > 1) {
+      throw ArgumentError.value(
+        channels,
+        'channels',
+        'sharded channels must share a hash slot (give them a hash tag)',
+      );
+    }
     final subscription = RedisSubscription._(
-      (onMessage) async =>
-          _node(await _address(null)).connect(onMessage: onMessage),
+      (onMessage) async {
+        if (sharded) {
+          // The shard may have moved: read the map again first.
+          await refresh();
+        }
+        return _node(await _address(sharded ? slots.first : null))
+            .connect(onMessage: onMessage);
+      },
       channels,
       pattern,
+      sharded: sharded,
       connectTimeout: config.connectTimeout,
       onCancel: _subscriptions.remove,
     );
@@ -768,6 +807,7 @@ final class RedisSubscription {
     this.pattern, {
     required this._connectTimeout,
     required this._onCancel,
+    this.sharded = false,
   });
 
   final Future<RedisConnection> Function(
@@ -778,6 +818,9 @@ final class RedisSubscription {
   final void Function(RedisSubscription subscription) _onCancel;
   final List<String> channels;
   final bool pattern;
+
+  /// Sharded Pub/Sub (`SSUBSCRIBE`).
+  final bool sharded;
   final StreamController<RedisMessage> _messages =
       StreamController<RedisMessage>.broadcast();
   final Completer<void> _ready = Completer<void>();
@@ -806,7 +849,14 @@ final class RedisSubscription {
           return;
         }
         _connection = connection..subscriber = true;
-        connection.write([pattern ? 'PSUBSCRIBE' : 'SUBSCRIBE', ...channels]);
+        connection.write([
+          sharded
+              ? 'SSUBSCRIBE'
+              : pattern
+              ? 'PSUBSCRIBE'
+              : 'SUBSCRIBE',
+          ...channels,
+        ]);
         await confirmed.future.timeout(_connectTimeout);
         if (!_ready.isCompleted) {
           _ready.complete();
@@ -829,12 +879,20 @@ final class RedisSubscription {
 
   void _onMessage(List<Object?> message, Completer<void> confirmed) {
     switch (message) {
-      case ['subscribe' || 'psubscribe', ...]:
+      case ['subscribe' || 'psubscribe' || 'ssubscribe', ...]:
         if (!confirmed.isCompleted) {
           confirmed.complete();
         }
-      case ['message', final String channel, final String payload]:
+      case [
+        'message' || 'smessage',
+        final String channel,
+        final String payload,
+      ]:
         _messages.add(RedisMessage(channel, payload));
+      case ['sunsubscribe', _, 0]:
+        // The shard moved (or the server unsubscribed us): subscribe again
+        // where it is now.
+        unawaited(_connection?.close());
       case [
         'pmessage',
         final String pattern,

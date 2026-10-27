@@ -269,6 +269,48 @@ void _cluster() {
       });
     }
 
+    test('sharded Pub/Sub follows its shard when the slot moves', () async {
+      final channel = '$prefix{orders}:created';
+      expect(
+        () => client.subscribe([channel, '${prefix}other'], sharded: true),
+        throwsArgumentError,
+      );
+      final subscription = client.subscribe([
+        channel,
+        '$prefix{orders}:paid',
+      ], sharded: true);
+      final received = <String>[];
+      subscription.messages.listen((m) => received.add(m.payload));
+      await subscription.ready;
+      final publisher = RedisClient(client.config) as RedisClusterClient;
+      addTearDown(publisher.close);
+      expect(await publisher.publish(channel, 'one', sharded: true), 1);
+
+      final slot = client.slot(channel);
+      final masters = await client.masters();
+      final owner = await _ownerOf(masters, slot);
+      final target = masters.firstWhere((m) => m != owner);
+      await _startMove(masters, slot, owner, target);
+      await _finishMove(masters, slot, target);
+      try {
+        // The old owner unsubscribed us; the subscription follows the slot.
+        final until = DateTime.now().add(const Duration(seconds: 10));
+        while (!received.contains('two')) {
+          if (DateTime.now().isAfter(until)) {
+            fail('no message after the slot moved: $received');
+          }
+          await publisher.refresh();
+          await publisher.publish(channel, 'two', sharded: true);
+          await Future<void>.delayed(const Duration(milliseconds: 200));
+        }
+      } finally {
+        await _startMove(masters, slot, target, owner);
+        await _finishMove(masters, slot, owner);
+        await subscription.cancel();
+      }
+      expect(received.first, 'one');
+    });
+
     test('ASK while a slot migrates, MOVED once it moved', () async {
       final key = '${prefix}migrating';
       final slot = client.slot(key);
@@ -276,22 +318,9 @@ void _cluster() {
       await client.command(['GET', key]); // reads the map
       final owner = await _ownerOf(masters, slot);
       final target = masters.firstWhere((m) => m != owner);
-      Future<void> move(String from, String to) async {
-        final ids = {
-          for (final m in masters) m: await _node(m, ['CLUSTER', 'MYID']),
-        };
-        await _node(to, ['CLUSTER', 'SETSLOT', slot, 'IMPORTING', ids[from]]);
-        await _node(from, ['CLUSTER', 'SETSLOT', slot, 'MIGRATING', ids[to]]);
-        return;
-      }
-
-      Future<void> finish(String to) async {
-        final id = await _node(to, ['CLUSTER', 'MYID']);
-        await _node(to, ['CLUSTER', 'SETSLOT', slot, 'NODE', id]);
-        for (final m in masters.where((m) => m != to)) {
-          await _node(m, ['CLUSTER', 'SETSLOT', slot, 'NODE', id]);
-        }
-      }
+      Future<void> move(String from, String to) =>
+          _startMove(masters, slot, from, to);
+      Future<void> finish(String to) => _finishMove(masters, slot, to);
 
       await move(owner, target);
       try {
@@ -315,6 +344,29 @@ void _cluster() {
       expect(await _ownerOf(masters, slot), owner);
     });
   });
+}
+
+/// Starts moving an empty [slot] (`IMPORTING`, `MIGRATING`).
+Future<void> _startMove(
+  List<String> masters,
+  int slot,
+  String from,
+  String to,
+) async {
+  final ids = {
+    for (final m in masters) m: await _node(m, ['CLUSTER', 'MYID']),
+  };
+  await _node(to, ['CLUSTER', 'SETSLOT', slot, 'IMPORTING', ids[from]]);
+  await _node(from, ['CLUSTER', 'SETSLOT', slot, 'MIGRATING', ids[to]]);
+}
+
+/// Gives [slot] to [to] on every master.
+Future<void> _finishMove(List<String> masters, int slot, String to) async {
+  final id = await _node(to, ['CLUSTER', 'MYID']);
+  await _node(to, ['CLUSTER', 'SETSLOT', slot, 'NODE', id]);
+  for (final m in masters.where((m) => m != to)) {
+    await _node(m, ['CLUSTER', 'SETSLOT', slot, 'NODE', id]);
+  }
 }
 
 Future<Object?> _node(String address, List<Object?> args) async {

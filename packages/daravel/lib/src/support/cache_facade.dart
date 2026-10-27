@@ -10,6 +10,10 @@ abstract final class Cache {
   /// The default store, or [name] (`Cache::store('file')`).
   static CacheRepository store([String? name]) => manager.store(name);
 
+  /// The default store with its entries tagged [names] (Laravel's
+  /// `Cache::tags`).
+  static CacheRepository tags(List<String> names) => store().tags(names);
+
   static Future<T?> get<T>(String key, [T? fallback]) =>
       store().get<T>(key, fallback);
 

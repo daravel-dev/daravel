@@ -71,6 +71,7 @@ before moving to a new minor version.
 | `db:seed [--class]` | Runs seeders |
 | `db:show`, `db:table <table> [--limit]` | Tables, columns and rows |
 | `db:install <driver> [--no-get]` | Adds a driver package (`sqlite`, `pgsql`, `mysql`, `mariadb`) and registers it ([Database](database.md#drivers-and-connections)) |
+| `redis:install [--docker] [--server=valkey\|redis] [--no-get]` | Adds daravel_redis, registers `.withRedis()` and its commands, documents its `.env` keys and, with `--docker`, a Valkey service ([Redis](redis.md)) |
 | `db:transfer --from --to [--dry-run] [--truncate] [--tables] [--no-migrate]` | Copies the data to another database, migrating it first ([Database](database.md#copying-data-between-databases)) |
 | `db:backup [--output] [--keep=N]` | Hot backup of the SQLite database into `storage/backups` (see [Deployment](deployment.md#backups)) |
 | `tinker "<expression>"` | Evaluates a Dart expression in the booted application |
@@ -122,6 +123,12 @@ It is read-only unless started with `--allow-write`. Even then,
 (`migrate:fresh`, `migrate:reset`, `migrate:rollback`, `db:seed`,
 `queue:flush`, `queue:clear`, `key:generate`, `env:decrypt`). Protocol messages
 use stdout; logs go to stderr.
+
+Packages add tools through the commands they register: a command that is an
+`McpToolSource` brings its `McpTool`s. With `redisCommands` in
+`bootstrap/commands.dart`, agents get `redis_inspect` (what a key holds, or
+the keys of a pattern; values hidden in production). A tool that writes is
+offered with `--allow-write` only.
 
 `dartisan mcp:install` sets a project up for agents, like Laravel's
 `boost:install`:

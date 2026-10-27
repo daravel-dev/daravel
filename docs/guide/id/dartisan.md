@@ -1,4 +1,4 @@
-<!-- source: dartisan.md sha256:a846fdc2b0ff -->
+<!-- source: dartisan.md sha256:527d70fca127 -->
 # dartisan
 
 `dartisan` adalah `artisan`-nya Daravel. Pasang sekali, lalu pakai di proyek
@@ -72,6 +72,7 @@ sebelum pindah ke versi minor baru.
 | `db:seed [--class]` | Menjalankan seeder |
 | `db:show`, `db:table <table> [--limit]` | Tabel, kolom, dan baris |
 | `db:install <driver> [--no-get]` | Menambahkan paket driver (`sqlite`, `pgsql`, `mysql`, `mariadb`) dan mendaftarkannya ([Database](database.md#driver-dan-koneksi)) |
+| `redis:install [--docker] [--server=valkey\|redis] [--no-get]` | Menambahkan daravel_redis, mendaftarkan `.withRedis()` beserta command-nya, mendokumentasikan key `.env`-nya, dan dengan `--docker` sebuah service Valkey ([Redis](redis.md)) |
 | `db:transfer --from --to [--dry-run] [--truncate] [--tables] [--no-migrate]` | Menyalin data ke database lain, setelah lebih dulu memigrasinya ([Database](database.md#menyalin-data-antar-database)) |
 | `db:backup [--output] [--keep=N]` | Backup database SQLite saat server berjalan ke `storage/backups` (lihat [Deployment](deployment.md#backup)) |
 | `tinker "<expression>"` | Mengevaluasi ekspresi Dart di aplikasi yang sudah di-boot |
@@ -126,6 +127,12 @@ command yang destruktif (`migrate:fresh`, `migrate:reset`,
 `migrate:rollback`, `db:seed`, `queue:flush`, `queue:clear`,
 `key:generate`, `env:decrypt`). Pesan protokol memakai stdout; log masuk ke
 stderr.
+
+Paket menambahkan tool lewat command yang mereka daftarkan: command yang
+merupakan `McpToolSource` membawa `McpTool`-nya. Dengan `redisCommands` di
+`bootstrap/commands.dart`, agen mendapat `redis_inspect` (isi sebuah key,
+atau key dari sebuah pola; nilainya disembunyikan di production). Tool yang
+menulis hanya ditawarkan dengan `--allow-write`.
 
 `dartisan mcp:install` menyiapkan proyek untuk agen, seperti
 `boost:install` dari Laravel:

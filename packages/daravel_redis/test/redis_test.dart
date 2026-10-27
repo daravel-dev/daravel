@@ -131,6 +131,15 @@ void main() {
       }();
     });
 
+    test('sharded pub/sub (Redis 7)', () async {
+      final subscription = client.subscribe(['${prefix}shard'], sharded: true);
+      addTearDown(subscription.cancel);
+      final received = subscription.messages.first;
+      await subscription.ready;
+      expect(await client.publish('${prefix}shard', 'hi', sharded: true), 1);
+      expect((await received).payload, 'hi');
+    });
+
     test('pub/sub delivers to subscribers', () async {
       final subscription = client.subscribe(['${prefix}news']);
       await subscription.ready;

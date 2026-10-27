@@ -9,6 +9,7 @@ import 'client.dart';
 import 'config.dart';
 import 'resp.dart';
 import 'setup.dart';
+import 'store.dart';
 
 /// The `redis:*` commands, for `bootstrap/commands.dart`:
 ///
@@ -20,6 +21,8 @@ const List<CommandFactory> redisCommands = [
   RedisStatsCommand.new,
   RedisKeysAuditCommand.new,
   RedisCliCommand.new,
+  RedisInspectCommand.new,
+  CachePruneStaleTagsCommand.new,
 ];
 
 void _connectionOption(DaravelCommand command, [String fallback = 'default']) {
@@ -422,5 +425,193 @@ final class RedisCliCommand extends DaravelCommand {
         stderr.writeln(error.message);
       }
     }
+  });
+}
+
+/// What one key holds: its type, time to live, encoding, size and memory,
+/// and with [values] the first [limit] items (a string's first 1000
+/// characters). Null fields where the server does not say.
+Future<Map<String, Object?>> inspectRedisKey(
+  RedisClient client,
+  String key, {
+  bool values = true,
+  int limit = 20,
+}) async {
+  final type = '${await client.command(['TYPE', key])}';
+  if (type == 'none') {
+    return {'key': key, 'exists': false};
+  }
+  Future<Object?> optional(List<Object?> args) async {
+    try {
+      return await client.command(args);
+    } on RedisCommandException {
+      return null;
+    }
+  }
+
+  final size = switch (type) {
+    'string' => ['STRLEN', key],
+    'hash' => ['HLEN', key],
+    'list' => ['LLEN', key],
+    'set' => ['SCARD', key],
+    'zset' => ['ZCARD', key],
+    'stream' => ['XLEN', key],
+    _ => null,
+  };
+  final preview = !values
+      ? null
+      : switch (type) {
+          'string' => switch (await client.get(key)) {
+            final String text when text.length > 1000 =>
+              '${text.substring(0, 1000)}…',
+            final value => value,
+          },
+          'hash' =>
+            ((await client.command(['HSCAN', key, 0, 'COUNT', limit]))!
+                as List)[1],
+          'list' => await client.command(['LRANGE', key, 0, limit - 1]),
+          'set' =>
+            ((await client.command(['SSCAN', key, 0, 'COUNT', limit]))!
+                as List)[1],
+          'zset' => await client.command([
+            'ZRANGE',
+            key,
+            0,
+            limit - 1,
+            'WITHSCORES',
+          ]),
+          'stream' => await client.command([
+            'XREVRANGE',
+            key,
+            '+',
+            '-',
+            'COUNT',
+            limit,
+          ]),
+          _ => null,
+        };
+  return {
+    'key': key,
+    'exists': true,
+    'type': type,
+    'ttl_ms': await client.command(['PTTL', key]),
+    'encoding': await optional(['OBJECT', 'ENCODING', key]),
+    'size': size == null ? null : await client.command(size),
+    'memory_bytes': await optional(['MEMORY', 'USAGE', key]),
+    'values': values ? preview : 'hidden in production',
+  };
+}
+
+/// `redis:inspect <key> [--connection=default]`: what a key holds. Its
+/// tool `redis_inspect` gives AI agents the same through `mcp:serve`;
+/// values stay hidden when `APP_ENV=production`.
+final class RedisInspectCommand extends DaravelCommand
+    implements McpToolSource {
+  RedisInspectCommand(super.createApp) {
+    _connectionOption(this);
+  }
+
+  @override
+  String get name => 'redis:inspect';
+
+  @override
+  String get description =>
+      'Shows what a key holds: type, time to live, size, memory and items.';
+
+  static bool get _production =>
+      App.make<ConfigRepository>().section<AppConfig>().isProduction;
+
+  @override
+  Future<int> run() => withApp((app) async {
+    final key = argResults!.rest.firstOrNull;
+    if (key == null) {
+      stderr.writeln('Usage: dartisan redis:inspect <key>');
+      return 64;
+    }
+    final report = await inspectRedisKey(
+      Redis.connection(_connection(this)),
+      key,
+      values: !_production,
+    );
+    stdout.writeln(const JsonEncoder.withIndent('  ').convert(report));
+    return report['exists'] == true ? 0 : 1;
+  });
+
+  @override
+  List<McpTool> get mcpTools => [
+    McpTool(
+      name: 'redis_inspect',
+      description:
+          'Redis: what one key holds (type, TTL, encoding, size, memory, '
+          'first items), or with `match` the keys of a pattern by type and '
+          'the cache keys that never expire. Values are hidden in '
+          'production.',
+      properties: const {
+        'key': {'type': 'string', 'description': 'A full key.'},
+        'match': {
+          'type': 'string',
+          'description': 'A SCAN pattern, e.g. myapp-database-*',
+        },
+        'connection': {'type': 'string', 'description': 'default or cache'},
+        'limit': {'type': 'integer', 'description': 'Items to show (20).'},
+      },
+      run: (arguments) async {
+        final client = Redis.connection(
+          arguments['connection'] as String? ?? 'default',
+        );
+        final limit = (arguments['limit'] as num?)?.toInt() ?? 20;
+        if (arguments['key'] case final String key) {
+          return inspectRedisKey(
+            client,
+            key,
+            values: !_production,
+            limit: limit,
+          );
+        }
+        final config = App.make<ConfigRepository>();
+        final redis = config.section<RedisConfig>();
+        final audit = await auditRedisKeys(
+          client,
+          match: arguments['match'] as String? ?? '${redis.prefix}*',
+          cachePrefix: '${redis.prefix}${config.section<CacheConfig>().prefix}',
+          limit: limit,
+        );
+        return {
+          'keys': audit.keys,
+          'types': audit.types,
+          'without_ttl': audit.withoutTtl,
+          'cache_keys_without_ttl': audit.cacheWithoutTtl,
+        };
+      },
+    ),
+  ];
+}
+
+/// `cache:prune-stale-tags [--store=redis]`: drops expired keys from the
+/// tag lists of a Redis cache store (Laravel's command of the same name).
+final class CachePruneStaleTagsCommand extends DaravelCommand {
+  CachePruneStaleTagsCommand(super.createApp) {
+    argParser.addOption(
+      'store',
+      help: 'The cache store (default: CACHE_STORE).',
+    );
+  }
+
+  @override
+  String get name => 'cache:prune-stale-tags';
+
+  @override
+  String get description => 'Prune stale cache tags from a Redis store.';
+
+  @override
+  Future<int> run() => withApp((app) async {
+    final store = Cache.store(argResults!['store'] as String?).store;
+    if (store is! RedisStore) {
+      stderr.writeln('Pruning cache tags is only necessary on Redis stores.');
+      return 1;
+    }
+    final lists = await store.flushStaleTags();
+    stdout.writeln('Stale cache tags pruned ($lists tag lists).');
+    return 0;
   });
 }

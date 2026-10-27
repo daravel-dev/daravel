@@ -114,6 +114,7 @@ export 'src/auth/tokens.dart';
 export 'src/http/rate_limiter.dart';
 export 'src/support/auth_facades.dart';
 export 'src/cache/cache.dart';
+export 'src/cache/tags.dart';
 export 'src/cache/stores.dart';
 export 'src/broadcasting/broadcast_config.dart';
 export 'src/broadcasting/broadcast_manager.dart';

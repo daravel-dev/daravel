@@ -19,6 +19,10 @@ Stores: `memory` (per isolate, LRU), `process` (shared by every isolate of
 the server through the coordinator), `file` and `database` (Laravel's
 `cache` table). `Cache.remember`, `flexible` (stale-while-revalidate),
 `increment`, `pull`, `lock` (atomic locks, fail closed) mirror Laravel.
+`Cache.tags(['people', 'artists']).put(...)` tags entries and
+`Cache.tags(['people']).flush()` forgets them, on the `memory` and
+`process` stores and with [Redis](redis.md#cache-tags), where the keys are
+Laravel's; `file` and `database` cannot tag, as in Laravel.
 
 ## Events
 

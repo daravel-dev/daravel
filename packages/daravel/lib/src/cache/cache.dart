@@ -13,6 +13,7 @@ import '../foundation/env.dart';
 import '../foundation/exceptions.dart';
 import '../server/coordinator.dart';
 import 'stores.dart';
+import 'tags.dart';
 
 /// Backing store contract (BLUEPRINT_V2 §7.7). Values must be
 /// JSON-serializable for the file/database stores.
@@ -243,7 +244,12 @@ final class CacheConfig implements ConfigSection {
 /// A store wrapped with a key prefix and the high-level API
 /// (`remember`, `flexible`, `lock`, …).
 final class CacheRepository {
-  CacheRepository(this.store, {this.prefix = '', this.lockStore});
+  CacheRepository(
+    this.store, {
+    this.prefix = '',
+    this.lockStore,
+    this._lockPrefix,
+  });
 
   final CacheStore store;
   final String prefix;
@@ -252,9 +258,29 @@ final class CacheRepository {
   /// across isolates (defaults to [store]).
   final CacheStore? lockStore;
 
+  /// What lock names get before them, when not [prefix] (a tagged
+  /// repository's locks are not tagged).
+  final String? _lockPrefix;
+
   StateScope get scope => store.scope;
 
   String _key(String key) => '$prefix$key';
+
+  /// This cache with its entries tagged [names] (Laravel's `Cache::tags`):
+  /// `flush()` on it forgets only what those tags hold. Reads use the same
+  /// tags, in the same order. [UnsupportedError] on stores that cannot tag
+  /// (`file`, `database`), as Laravel's `BadMethodCallException`.
+  CacheRepository tags(List<String> names) {
+    final store = this.store;
+    if (store is! TaggableCacheStore) {
+      throw UnsupportedError('This cache store does not support tagging.');
+    }
+    return CacheRepository(
+      store.tags(names, prefix: prefix),
+      lockStore: lockStore ?? store,
+      lockPrefix: _lockPrefix ?? prefix,
+    );
+  }
 
   Future<T?> get<T>(String key, [T? fallback]) async {
     final value = await store.get(_key(key));
@@ -385,7 +411,12 @@ final class CacheRepository {
     String name, {
     Duration ttl = const Duration(seconds: 10),
     String? owner,
-  }) => Lock(lockStore ?? store, _key(name), ttl: ttl, owner: owner);
+  }) => Lock(
+    lockStore ?? store,
+    '${_lockPrefix ?? prefix}$name',
+    ttl: ttl,
+    owner: owner,
+  );
 }
 
 /// Holds named stores (Laravel `CacheManager`).

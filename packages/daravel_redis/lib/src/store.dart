@@ -6,6 +6,7 @@ import 'package:daravel/daravel.dart';
 import 'client.dart';
 import 'resp.dart';
 import 'serializer.dart';
+import 'tags.dart';
 
 /// `CACHE_STORE=redis`: a cache, locks and rate limits shared by every
 /// server (scope `cluster`).
@@ -17,7 +18,11 @@ import 'serializer.dart';
 /// `SET name owner NX PX` and a release that checks the owner. Reads fail
 /// open (a dropped connection is a miss); writes and locks throw.
 final class RedisStore
-    implements TouchableCacheStore, WindowCounterStore, RateCounterStore {
+    implements
+        TouchableCacheStore,
+        WindowCounterStore,
+        RateCounterStore,
+        TaggableCacheStore {
   RedisStore(
     this.client, {
     RedisClient? lockClient,
@@ -50,6 +55,26 @@ final class RedisStore
   /// Laravel's `RedisLock` key: the connection prefix, then the lock's name
   /// (which carries the cache prefix), so both frameworks see one lock.
   String _lock(String name) => '$prefix$name';
+
+  /// Tagged entries laid out as Laravel 12 lays them out
+  /// ([RedisTaggedCacheStore]).
+  @override
+  TaggedCacheStore tags(List<String> names, {String prefix = ''}) =>
+      RedisTaggedCacheStore(this, names, prefix: prefix);
+
+  /// Drops expired keys from every tag list of this cache (Laravel's
+  /// `cache:prune-stale-tags`); returns how many lists it visited.
+  Future<int> flushStaleTags() async {
+    final now = Clock.now().toUtc().millisecondsSinceEpoch ~/ 1000;
+    var lists = 0;
+    await for (final key in client.scan(
+      match: '${_escape('$prefix$flushPrefix')}tag:*:entries',
+    )) {
+      await client.command(['ZREMRANGEBYSCORE', key, 0, now]);
+      lists++;
+    }
+    return lists;
+  }
 
   /// The key [key] has in Redis, after [prefix].
   String keyOf(String key) => _key(key);

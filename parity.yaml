@@ -100,6 +100,8 @@ sections:
   - name: Redis (daravel_redis)
     symbols:
       - { php: "Redis::command('HSET', [...])", dart: "await Redis.command(['HSET', ...])", symbol: Redis.command, async: true }
+      - { php: "Redis::throttle('key')->allow(10)->every(60)->then(fn, fn)", dart: "await Redis.throttle('key').allow(10).every(const Duration(seconds: 60)).then(() {...}, (e) {...})", symbol: Redis.throttle, async: true, note: "Laravel's DurationLimiter script and key: both count against one limit." }
+      - { php: "Redis::funnel('key')->limit(3)->then(fn, fn)", dart: "await Redis.funnel('key').limit(3).then(() {...}, (e) {...})", symbol: Redis.funnel, async: true, note: "Laravel's ConcurrencyLimiter script and slot keys." }
       - { php: "Redis::publish($channel, $message)", dart: "await Redis.publish(channel, message)", symbol: Redis.publish, async: true }
       - { php: "Redis::subscribe([...], fn ($message) => ...)", dart: "Redis.subscribe([...]).messages.listen(...)", symbol: Redis.subscribe, note: "Subscribes again after the connection drops." }
       - { php: "CACHE_STORE=redis", dart: "CACHE_STORE=redis with .withRedis()", symbol: RedisStore, note: "Numbers stored raw; cache:clear deletes the cache's keys, not the database (no FLUSHDB)." }
@@ -229,6 +231,7 @@ sections:
       - { php: "Cache::get / put / forget / has", dart: "await Cache.get / put / forget / has", symbol: Cache.put, async: true }
       - { php: "Cache::remember($key, $ttl, fn)", dart: "await Cache.remember(key, ttl, () async {...})", symbol: Cache.remember, async: true }
       - { php: "Cache::flexible($key, [$fresh, $stale], fn)", dart: "await Cache.flexible(...)", symbol: Cache.flexible, async: true }
+      - { php: "Cache::tags(['people'])->put($key, $value, $ttl)", dart: "await Cache.tags(['people']).put(key, value, ttl: ttl)", symbol: Cache.tags, async: true, note: "memory, process and redis stores (Laravel's layout on Redis); file and database cannot tag, as in Laravel." }
       - { php: "Cache::lock('name', 10)->get(fn)", dart: "await Cache.lock('name', ...)", symbol: Cache.lock }
       - { php: "SendEmail::dispatch($user)", dart: "await Queue.dispatch(SendEmail(user))", symbol: Queue.dispatch, async: true }
       - { php: "Queue::later($delay, $job)", dart: "await Queue.later(delay, job)", symbol: Queue.later, async: true }

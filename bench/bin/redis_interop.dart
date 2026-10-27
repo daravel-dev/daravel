@@ -33,6 +33,25 @@ Future<void> main(List<String> args) async {
         return 'visits=${await Cache.increment('visits')}';
       case 'profile':
         return jsonEncode(await Cache.get<Object?>('profile'));
+      case 'tags-get':
+        final john = await Cache.tags(['people', 'artists'])
+            .get<Object?>('John');
+        final anne = await Cache.tags(['people']).get<Object?>('Anne');
+        return john != null ? 'John=$john' : 'Anne=$anne';
+      case 'tags-put':
+        await Cache.tags(['people'])
+            .put('Anne', 'y', ttl: const Duration(minutes: 1));
+        return 'stored';
+      case 'tags-flush':
+        await Cache.tags(['people']).flush();
+        return 'flushed';
+      case 'throttle':
+        final result = await Redis.throttle('reports')
+            .allow(2)
+            .every(const Duration(seconds: 60))
+            .block(Duration.zero)
+            .then(() => 'ran', (error) => 'refused');
+        return 'throttle=$result';
       case 'put-profile':
         await Cache.put('profile', {
           'name': 'Bo',

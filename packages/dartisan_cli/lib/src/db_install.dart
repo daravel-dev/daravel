@@ -14,7 +14,11 @@ final class DriverPackage {
     required this.connection,
     required this.registration,
     required this.env,
+    this.note,
   });
+
+  /// The comment above the builder calls, when not `DB_CONNECTION=...`.
+  final String? note;
 
   /// The pub package (`daravel_postgres`).
   final String package;
@@ -151,7 +155,8 @@ String? registerDriver(String source, DriverPackage driver) {
     final next = RegExp(r'\n([ \t]+)\.').firstMatch(result.substring(close));
     final indent = next?[1] ?? '        ';
     final lines = [
-      '$indent// DB_CONNECTION=${driver.connection} (package:${driver.package}).',
+      '$indent// ${driver.note ?? 'DB_CONNECTION=${driver.connection}'} '
+          '(package:${driver.package}).',
       for (final call in missing) '$indent$call',
     ];
     result = result.replaceRange(close + 1, close + 1, '\n${lines.join('\n')}');
@@ -197,7 +202,9 @@ int _closingParen(String source, int open) {
 
 /// [example] (`.env.example`) with a commented block for [driver], once.
 String addEnvExample(String example, DriverPackage driver) {
-  final marker = '# ${driver.title} (dartisan db:install ${driver.connection})';
+  final marker = driver.note == null
+      ? '# ${driver.title} (dartisan db:install ${driver.connection})'
+      : '# ${driver.title} (dartisan ${driver.connection}:install)';
   if (example.contains(marker)) {
     return example;
   }

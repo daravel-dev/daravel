@@ -11,7 +11,7 @@ On one server Daravel needs none of it; its coordinator keeps that state in
 memory.
 
 ```bash
-dart pub add daravel_redis
+dartisan redis:install --docker   # or: dart pub add daravel_redis
 ```
 
 ```dart
@@ -48,8 +48,12 @@ REVERB_SCALING_DRIVER=redis
   Laravel and Daravel share them with the same `CACHE_PREFIX`; with
   `REDIS_SERIALIZER=php` they share cached values too. Queues stay apart
   from Laravel's (`daravel:` keys).
+- Cache tags, `Redis.throttle` and `Redis.funnel` in Laravel's keys, so
+  both frameworks share them; sharded Pub/Sub; server-sent events that
+  resume from `Last-Event-ID` (`Redis.events('orders')`).
 - `cache:clear` deletes the cache's own keys, never the whole database;
-  `redis:ping`, `redis:stats`, `redis:keys-audit` and a read-only
+  `redis:ping`, `redis:stats`, `redis:keys-audit`, `redis:inspect` (also an
+  MCP tool for AI agents), `cache:prune-stale-tags` and a read-only
   `redis:cli` (`package:daravel_redis/commands.dart`).
 
 Documentation: <https://github.com/daravel-dev/daravel/blob/main/docs/guide/redis.md>.

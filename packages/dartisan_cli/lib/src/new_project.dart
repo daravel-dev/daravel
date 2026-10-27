@@ -100,13 +100,15 @@ Map<String, String> newProjectFiles({
         ? [
             '',
             '# dartisan_cli and daravel_test depend on daravel and '
-                'daravel_lints by name; pin every',
-            '# framework package to the same source.',
+                'daravel_lints by name, and packages such as daravel_redis',
+            '# on dartisan_cli; pin every framework package to the same '
+                'source.',
             'dependency_overrides:',
             source.dependency('daravel'),
             source.dependency('daravel_lints'),
             source.dependency('daravel_mysql'),
             source.dependency('daravel_test'),
+            source.dependency('dartisan_cli'),
           ].join('\n')
         : '',
   };

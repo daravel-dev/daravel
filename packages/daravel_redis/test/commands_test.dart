@@ -109,6 +109,79 @@ void main() {
       commands: redisCommands,
     ).run(args);
 
+    test('inspect: every type, and its MCP tool', () async {
+      await client.set('${prefix}s', 'x' * 1200);
+      await client.command(['HSET', '${prefix}h', 'a', '1', 'b', '2']);
+      await client.command(['RPUSH', '${prefix}l', 'one', 'two']);
+      await client.command(['SADD', '${prefix}set', 'm']);
+      await client.command(['ZADD', '${prefix}z', 1, 'm']);
+      await client.command(['XADD', '${prefix}x', '*', 'f', 'v']);
+
+      final string = await inspectRedisKey(client, '${prefix}s');
+      expect(string['type'], 'string');
+      expect(string['size'], 1200);
+      expect((string['values']! as String).length, 1001);
+      expect((await inspectRedisKey(client, '${prefix}h'))['size'], 2);
+      expect((await inspectRedisKey(client, '${prefix}l'))['values'], [
+        'one',
+        'two',
+      ]);
+      expect((await inspectRedisKey(client, '${prefix}z'))['values'], [
+        'm',
+        '1',
+      ]);
+      expect((await inspectRedisKey(client, '${prefix}x'))['type'], 'stream');
+      expect((await inspectRedisKey(client, '${prefix}set'))['size'], 1);
+      expect(
+        (await inspectRedisKey(client, '${prefix}s', values: false))['values'],
+        'hidden in production',
+      );
+      expect((await inspectRedisKey(client, '${prefix}none'))['exists'], false);
+
+      expect(await dartisan(['redis:inspect', '${prefix}h']), 0);
+      expect(await dartisan(['redis:inspect', '${prefix}none']), 1);
+
+      for (final (env, shown) in [('local', true), ('production', false)]) {
+        final app =
+            Application.configure(
+              basePath: Directory.systemTemp.createTempSync('redis_mcp_').path,
+            ).withRedis().withEnv({
+              'APP_ENV': env,
+              'APP_KEY': 'base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+              'LOG_LEVEL': 'error',
+              'DB_DATABASE': ':memory:',
+              'REDIS_URL': url,
+              'REDIS_PREFIX': prefix,
+            }).create();
+        await app.boot();
+        addTearDown(app.shutdown);
+        final runner = DartisanRunner(() => app, commands: redisCommands);
+        final server = McpServer(app, tools: mcpToolsOf(runner));
+        final response = (await server.handle({
+          'jsonrpc': '2.0',
+          'id': 1,
+          'method': 'tools/call',
+          'params': {
+            'name': 'redis_inspect',
+            'arguments': {'key': '${prefix}h'},
+          },
+        }))!;
+        final result = response['result']! as Map<String, Object?>;
+        final text = ((result['content']! as List).single! as Map)['text'];
+        expect(result['isError'], isFalse, reason: '$text');
+        expect(text, contains('"type": "hash"'));
+        expect(
+          text,
+          shown ? contains('"a"') : contains('hidden in production'),
+        );
+      }
+    });
+
+    test('cache:prune-stale-tags', () async {
+      expect(await dartisan(['cache:prune-stale-tags', '--store=memory']), 1);
+      expect(await dartisan(['cache:prune-stale-tags', '--store=redis']), 0);
+    });
+
     test('ping, stats, keys-audit and cli', () async {
       await client.set('${prefix}c_forever', '1');
       await client.set(

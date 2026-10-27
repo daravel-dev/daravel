@@ -3,6 +3,8 @@ import 'package:daravel/daravel.dart';
 import 'broadcasting.dart';
 import 'client.dart';
 import 'config.dart';
+import 'events.dart';
+import 'limiters.dart';
 import 'queue.dart';
 import 'store.dart';
 import 'tiered.dart';
@@ -127,11 +129,46 @@ abstract final class Redis {
     List<Object?> args = const [],
   }) => connection().eval(script, keys: keys, args: args);
 
-  static Future<int> publish(String channel, String message) =>
-      connection().publish(channel, message);
+  static Future<int> publish(
+    String channel,
+    String message, {
+    bool sharded = false,
+  }) => connection().publish(channel, message, sharded: sharded);
 
   static RedisSubscription subscribe(
     List<String> channels, {
     bool pattern = false,
-  }) => connection().subscribe(channels, pattern: pattern);
+    bool sharded = false,
+  }) => connection().subscribe(channels, pattern: pattern, sharded: sharded);
+
+  /// `REDIS_PREFIX`, which Laravel's connection puts before a limiter's
+  /// name.
+  static String get _prefix =>
+      Container.current.make<ConfigRepository>().section<RedisConfig>().prefix;
+
+  /// At most n runs per period, shared with Laravel's `Redis::throttle` of
+  /// the same name: `Redis.throttle('api').allow(10).every(...).then(...)`.
+  static RedisThrottleBuilder throttle(
+    String name, {
+    String connection = 'default',
+  }) => RedisThrottleBuilder(Redis.connection(connection), '$_prefix$name');
+
+  /// Server-sent events of [channel] that a client coming back with
+  /// `Last-Event-ID` resumes: `Response.sse(Redis.events('orders').since(request))`.
+  static RedisEventStream events(
+    String channel, {
+    String connection = 'default',
+    int maxLength = 1000,
+  }) => RedisEventStream(
+    Redis.connection(connection),
+    '${_prefix}sse:$channel',
+    maxLength: maxLength,
+  );
+
+  /// At most n at a time, shared with Laravel's `Redis::funnel`:
+  /// `Redis.funnel('imports').limit(3).then(...)`.
+  static RedisFunnelBuilder funnel(
+    String name, {
+    String connection = 'default',
+  }) => RedisFunnelBuilder(Redis.connection(connection), '$_prefix$name');
 }
