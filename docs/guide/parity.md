@@ -126,6 +126,20 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `php artisan permission:show` | `dartisan permission:show` |  |
 | `app(PermissionRegistrar::class)->forgetCachedPermissions()` | `await PermissionRegistrar.current.forgetCachedPermissions()` | **async** |
 
+## Activity log (daravel_activitylog)
+
+| Laravel | Daravel | Notes |
+| :-- | :-- | :-- |
+| `use LogsActivity; getActivitylogOptions()` | `with LogsActivity, observers: [ActivityLogObserver<T>()]` | spatie/laravel-activitylog v4's activity_log table: shared with Laravel. |
+| `LogOptions::defaults()->logOnly([...])->logOnlyDirty()` | `LogOptions.defaults().logOnly([...]).logOnlyDirty()` |  |
+| `activity('log')->performedOn($m)->causedBy($u)->log('...')` | `await activity('log').performedOn(m).causedBy(u).log('...')` | **async** |
+| `activity()->withoutLogs(fn () => ...)` | `await ActivityLog.withoutLogs(() async {...})` | **async**; Scoped to the callback, not the whole process. |
+| `LogBatch::withinBatch(fn ($uuid) => ...)` | `await LogBatch.within((uuid) async {...})` | **async** |
+| `$model->activities` | `await model.activities().get()` | **async** |
+| `Activity::inLog('x')->causedBy($u)->get()` | `await Activity.query().inLog('x').causedBy(u).get()` | **async** |
+| `$activity->changes()` | `activity.changes` |  |
+| `php artisan activitylog:clean` | `dartisan activitylog:clean` |  |
+
 ## Query filters (daravel_teorion)
 
 | Laravel | Daravel | Notes |
@@ -184,6 +198,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `$model->save() / update() / delete()` | `await model.save() / update() / delete()` | **async** |
 | `$model->restore() / forceDelete()` | `await model.restore() / forceDelete()` | **async** |
 | `$model->isDirty() / wasChanged()` | `model.isDirty() / wasChanged()` |  |
+| `$model->getChanges()` | `model.getChanges()` |  |
 | `$model->refresh() / fresh()` | `await model.refresh() / fresh()` | **async** |
 | `$model->load('posts')` | `await model.load('posts')` | **async** |
 | `$model->toArray() / toJson()` | `model.toJson()` |  |

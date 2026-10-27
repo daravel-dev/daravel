@@ -19,9 +19,12 @@ const List<String> daravelPackages = [
   'daravel_sqlite',
   'daravel_postgres',
   'daravel_permission',
+  'daravel_activitylog',
   'daravel_redis',
   'daravel_teorion',
   'daravel_livekit',
+  'daravel_google',
+  'daravel_teobiefy',
   'daravel_s3',
 ];
 

@@ -1,17 +1,31 @@
 # Changelog
 
 All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
-`daravel_lints`, `daravel_mysql`, `daravel_permission`, `daravel_redis`,
-`daravel_sqlite`, `daravel_postgres`, `daravel_teorion`, `daravel_livekit`,
-`daravel_google`, `daravel_teobiefy`, `daravel_s3`, `dartisan_cli`). Versions
-follow SemVer: breaking changes to the Dart API wait for a new major
-version, and Laravel-facing formats change only to match Laravel more
-closely.
+`daravel_lints`, `daravel_mysql`, `daravel_permission`, `daravel_activitylog`,
+`daravel_redis`, `daravel_sqlite`, `daravel_postgres`, `daravel_teorion`,
+`daravel_livekit`, `daravel_google`, `daravel_teobiefy`, `daravel_s3`,
+`dartisan_cli`). Versions follow SemVer: breaking changes to the Dart API
+wait for a new major version, and Laravel-facing formats change only to
+match Laravel more closely.
 
 ## Unreleased
 
 ### Added
 
+- `daravel_activitylog` (Blueprint #38): spatie/laravel-activitylog v4 on
+  its `activity_log` table, so Laravel and Daravel share one log
+  (`bench/interop/activitylog.sh` checks it against Laravel 12 with Spatie
+  4.10, both ways). `LogsActivity` with `ActivityLogObserver` records
+  `created`, `updated` (with `old` values), `deleted` and `restored` as
+  Spatie does; `LogOptions` has Spatie's builder methods (`logOnly` with
+  relation and JSON attributes, `logOnlyDirty`, `dontSubmitEmptyLogs`,
+  ...); `activity()` logs by hand with placeholders; the request's user is
+  the causer; `LogBatch.within`; `Activity` with Spatie's scopes,
+  `subject()` and `causer()`; `activitylog:clean`. The activity is written
+  in the model's transaction, and what Spatie keeps in singletons (a
+  disabled log, a forced causer, a batch) is scoped to a zone.
+- `Model.getChanges()`, Laravel's `getChanges()`: the attributes the last
+  `save()` wrote.
 - `daravel_s3` (Blueprint #52): a `Storage` disk on AWS S3 and
   S3-compatible stores (Cloudflare R2, MinIO, DigitalOcean Spaces, Google
   Cloud Storage), configured from Laravel's `AWS_*` variables with

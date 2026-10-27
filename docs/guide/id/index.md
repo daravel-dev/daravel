@@ -1,4 +1,4 @@
-<!-- source: index.md sha256:3526b20d0fe8 -->
+<!-- source: index.md sha256:23e0aac8fe7c -->
 # Dokumentasi Daravel
 
 Daravel adalah framework backend untuk Dart yang mengikuti filosofi Laravel
@@ -15,7 +15,8 @@ Laravel](laravel-coexistence.md).
 
 Paket resminya adalah `daravel`, `dartisan_cli`, `daravel_test`,
 `daravel_lints`, `daravel_mysql`, `daravel_sqlite`, `daravel_postgres`,
-`daravel_redis`, `daravel_permission`, dan `daravel_teorion`,
+`daravel_redis`, `daravel_permission`, `daravel_activitylog`, dan
+`daravel_teorion`,
 dirilis bersama oleh publisher
 terverifikasi [`framework.daravel.dev`](https://pub.dev/publishers/framework.daravel.dev)
 di pub.dev; hanya paket dari publisher itu yang merupakan bagian dari
@@ -54,25 +55,26 @@ Angka performa berasal dari harness yang bisa direproduksi, bukan dari klaim
 6. [Respons dan resource](responses.md): JSON, API resource, error.
 7. [Autentikasi dan otorisasi](auth.md): token, JWT, hashing, Crypt, gate.
 8. [Role dan permission](permissions.md): role di database pada tabel spatie/laravel-permission, middleware, dan gate.
-9. [Cache, event, queue, penjadwalan](background.md).
-10. [Mail dan notifikasi](mail.md): SMTP, mailable, serta notifikasi mail dan database.
-11. [Broadcasting](broadcasting.md): Laravel Echo, protokol Pusher seperti Reverb, channel private dan presence.
-12. [LiveKit](livekit.md): kelas video dan rapat lewat WebRTC: access token, room dan participant, webhook yang terverifikasi.
-13. [Google](google.md): Google Calendar user lewat OAuth dengan refresh, service account, event dengan tamu dan link Google Meet.
-14. [Teobiefy](teobiefy.md): payload API terenkripsi yang kompatibel dengan API Laravel Bali Melajah (handshake X25519, ChaCha20-Poly1305).
-15. [Redis](redis.md): cache, lock, rate limit, queue, dan broadcasting lintas server, saat satu server tidak cukup.
-16. [String, helper, dan koleksi](helpers.md): `Str`, `retry`, `once`, `pluck`, ...
-17. [HTTP client](http-client.md): request keluar dengan `Http`, retry, dan `Http.fake()`.
-18. [Client Flutter](flutter-client.md): client bertipe yang dihasilkan dari route, dengan validasi di perangkat.
-19. [Testing](testing.md): `TestClient`, helper database, fake, konformansi.
-20. [Deployment](deployment.md): bundle native, Docker, Cloud Run, VPS (systemd + Caddy).
-21. [Koeksistensi dengan Laravel](laravel-coexistence.md): kontrak kompatibilitas.
-22. [Migrasi dari Laravel](migrating-from-laravel.md): pindahkan endpoint satu per satu di balik proxy.
-23. [Keamanan](security.md): default yang aman dan suite keamanan.
-24. [Performa](performance.md): harness benchmark.
-25. [Operasional](operations.md): isolate, koneksi database, load shedding, metrik, dan shutdown di production.
-26. [Benchmark](benchmarks.md): Daravel dibandingkan dengan Laravel Octane dan klasik, serta cara mereproduksinya.
-27. [Tabel paritas Laravel ⇄ Daravel](../parity.md) (dihasilkan otomatis, dalam bahasa Inggris).
+9. [Activity log](activitylog.md): siapa mengubah apa pada model Anda, dan aktivitas yang dicatat manual, di tabel spatie/laravel-activitylog.
+10. [Cache, event, queue, penjadwalan](background.md).
+11. [Mail dan notifikasi](mail.md): SMTP, mailable, serta notifikasi mail dan database.
+12. [Broadcasting](broadcasting.md): Laravel Echo, protokol Pusher seperti Reverb, channel private dan presence.
+13. [LiveKit](livekit.md): kelas video dan rapat lewat WebRTC: access token, room dan participant, webhook yang terverifikasi.
+14. [Google](google.md): Google Calendar user lewat OAuth dengan refresh, service account, event dengan tamu dan link Google Meet.
+15. [Teobiefy](teobiefy.md): payload API terenkripsi yang kompatibel dengan API Laravel Bali Melajah (handshake X25519, ChaCha20-Poly1305).
+16. [Redis](redis.md): cache, lock, rate limit, queue, dan broadcasting lintas server, saat satu server tidak cukup.
+17. [String, helper, dan koleksi](helpers.md): `Str`, `retry`, `once`, `pluck`, ...
+18. [HTTP client](http-client.md): request keluar dengan `Http`, retry, dan `Http.fake()`.
+19. [Client Flutter](flutter-client.md): client bertipe yang dihasilkan dari route, dengan validasi di perangkat.
+20. [Testing](testing.md): `TestClient`, helper database, fake, konformansi.
+21. [Deployment](deployment.md): bundle native, Docker, Cloud Run, VPS (systemd + Caddy).
+22. [Koeksistensi dengan Laravel](laravel-coexistence.md): kontrak kompatibilitas.
+23. [Migrasi dari Laravel](migrating-from-laravel.md): pindahkan endpoint satu per satu di balik proxy.
+24. [Keamanan](security.md): default yang aman dan suite keamanan.
+25. [Performa](performance.md): harness benchmark.
+26. [Operasional](operations.md): isolate, koneksi database, load shedding, metrik, dan shutdown di production.
+27. [Benchmark](benchmarks.md): Daravel dibandingkan dengan Laravel Octane dan klasik, serta cara mereproduksinya.
+28. [Tabel paritas Laravel ⇄ Daravel](../parity.md) (dihasilkan otomatis, dalam bahasa Inggris).
 
 English: [Daravel documentation](../index.md).
 
