@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:97c1df0246b9 -->
+<!-- source: README.md sha256:97f04f4e5a87 -->
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/brand/svg/daravel-logo-horizontal-on-dark.svg">
@@ -470,6 +470,7 @@ Monorepo ini adalah pub workspace Dart:
 | [`packages/daravel_permission`](packages/daravel_permission) | Role dan permission pada tabel spatie/laravel-permission |
 | [`packages/daravel_teorion`](packages/daravel_teorion) | Query filter dari request, format laravel-teorion |
 | [`packages/daravel_livekit`](packages/daravel_livekit) | SDK server LiveKit: access token, room, webhook terverifikasi |
+| [`packages/daravel_google`](packages/daravel_google) | Google: token OAuth dengan refresh, service account, event Calendar dengan link Meet |
 | [`packages/daravel_redis`](packages/daravel_redis) | Redis dan Valkey untuk beberapa server: cache, lock, rate limit, queue, broadcasting |
 | [`packages/daravel_sqlite`](packages/daravel_sqlite) | Paket driver SQLite (`db:install sqlite`) |
 | [`packages/daravel_postgres`](packages/daravel_postgres) | Paket driver PostgreSQL (`db:install pgsql`) |
@@ -484,6 +485,7 @@ Kesebelas paket ([`daravel`](https://pub.dev/packages/daravel),
 [`daravel_redis`](https://pub.dev/packages/daravel_redis),
 [`daravel_teorion`](https://pub.dev/packages/daravel_teorion),
 [`daravel_livekit`](https://pub.dev/packages/daravel_livekit),
+[`daravel_google`](https://pub.dev/packages/daravel_google),
 [`daravel_sqlite`](https://pub.dev/packages/daravel_sqlite),
 [`daravel_postgres`](https://pub.dev/packages/daravel_postgres)) dirilis bersama dengan satu
 versi oleh publisher terverifikasi

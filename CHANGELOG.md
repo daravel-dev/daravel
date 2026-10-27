@@ -10,6 +10,18 @@ Laravel-facing formats change only to match Laravel more closely.
 
 ### Added
 
+- `daravel_google` (Blueprint #49): Google for Daravel. `GoogleOAuth`
+  (the consent URL with offline access, the code exchange, refresh and
+  revoke), `GoogleServiceAccount` (key files and RS256 assertions per
+  RFC 7523, checked byte for byte against OpenSSL, with domain-wide
+  delegation), credentials that refresh a minute early with one refresh
+  for concurrent calls, and `GoogleCalendar` (events with guests and
+  Google Meet links: create, get, list, patch, replace, delete).
+  `GoogleToken` reads and writes google/apiclient's token JSON, so a
+  Laravel application and a Daravel one share a stored token.
+  `withGoogle()` reads `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
+  `GOOGLE_REDIRECT_URI`, `GOOGLE_APPLICATION_CREDENTIALS`,
+  `GOOGLE_CALENDAR_ID` and `GOOGLE_CALENDAR_IMPERSONATE`.
 - `daravel_livekit` (Blueprint #48): LiveKit's server SDK for Daravel.
   `LivekitToken` signs access tokens with LiveKit's claims and
   `VideoGrant`s, `RoomServiceClient` manages rooms and participants over
