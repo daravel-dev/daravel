@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.11.0
 
 - Added cache channels (`cache-`, `private-cache-`, `presence-cache-`) and end-to-end encrypted `private-encrypted-` channels (`REVERB_ENCRYPTION_MASTER_KEY_BASE64`, `Echo.encryptedPrivate`).
 - Added `compress:` to `Router.ws` and `Response.webSocket`; the Pusher endpoint runs without permessage-deflate.

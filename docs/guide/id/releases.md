@@ -1,4 +1,4 @@
-<!-- source: releases.md sha256:f325a3788aa5 -->
+<!-- source: releases.md sha256:7b935f72d4dc -->
 # Rilis dan versioning
 
 Daravel `1.x` adalah lini rilis stabil. Ketujuh paket (`daravel`,
@@ -9,6 +9,7 @@ terverifikasi `daravel.teoprayoga.my.id`.
 
 | Versi | Sorotan |
 | :-- | :-- |
+| `1.11.0` | Broadcasting lintas server (REVERB_SCALING_ENABLED), channel cache dan terenkripsi, 10k koneksi, rate limit satu statement, worker queue yang bisa dibangunkan |
 | `1.10.1` | Perbaikan keamanan: pencabutan JWT di semua isolate, queue:restart dan queue:pause lintas proses, lock unique job |
 | `1.10.0` | Broadcasting untuk Laravel Echo (protokol Pusher seperti Reverb; `ShouldBroadcast`, `BROADCAST_CONNECTION`), bcrypt C di Linux |
 | `1.9.0` | Mail dan notifikasi (queue, tema markdown, channel broadcast), `Broadcast` lintas isolate, `DB_URL`, `dartisan upgrade`, panduan Bahasa Indonesia, benchmark dibanding Laravel |

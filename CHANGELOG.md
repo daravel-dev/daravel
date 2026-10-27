@@ -6,7 +6,16 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 breaking changes to the Dart API wait for a new major version, and
 Laravel-facing formats change only to match Laravel more closely.
 
-## Unreleased
+## 1.11.0
+
+Broadcasting grows up: several servers share Echo's clients through the
+database (`REVERB_SCALING_ENABLED`), cache and end-to-end encrypted
+channels work as on Pusher, and one server holds 10 000 idle connections
+in 189 MB with an event reaching all of them in 0.6 s. Database rate
+limits take one statement per attempt and idle queue workers wake when a
+job is pushed. Upgrade from any 1.x with `dartisan upgrade`; add
+`CreateBroadcastingTables()` to `bootstrap/migrations.dart` before turning
+scaling on.
 
 ### Added
 
