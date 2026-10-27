@@ -19,6 +19,13 @@ match Laravel more closely.
   held its pooled connection for ever and, once the pool was full, every
   request on the isolate queued behind it. `daravel_mysql` now passes the
   timeout to `mysql_dart`, which kills the query on expiry.
+- A WebSocket frame limit (`router.ws(..., maxPayloadBytes:)`,
+  `Response.webSocket(maxPayloadBytes:)`, 1 MiB by default): a larger
+  frame fails the connection as it arrives. `dart:io` sets no limit of
+  its own unless the build defines one, so one client could make a
+  worker buffer a frame of any size. The Pusher server caps frames at
+  `REVERB_APP_MAX_MESSAGE_SIZE` plus 1 KiB, before buffering instead of
+  after.
 - `HTTP_MAX_BODY` (`ServeOptions.maxBodyBytes`, 50 MiB; `0` for none): a
   body limit every request starts with (`Request.defaultMaxBodyBytes`,
   on served and synthetic requests alike), so an

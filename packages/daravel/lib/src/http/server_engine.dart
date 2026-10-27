@@ -394,6 +394,9 @@ final class ServerEngine {
         compression: response.webSocketCompression
             ? CompressionOptions.compressionDefault
             : CompressionOptions.compressionOff,
+        // A frame above it fails the connection as it arrives, instead of
+        // being buffered whole first.
+        maxPayloadLength: response.webSocketMaxPayloadBytes,
       );
     } catch (error) {
       logger.warning('WebSocket upgrade failed for request $id: $error');

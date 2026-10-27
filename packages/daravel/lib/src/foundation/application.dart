@@ -671,6 +671,9 @@ final class Application {
             server.connect(socket, request, request.param<String>('key')),
         // As Reverb: no permessage-deflate, so no zlib state per connection.
         compress: false,
+        // Pusher messages are small; a frame past the limit fails the
+        // connection before it is buffered, not after.
+        maxPayloadBytes: broadcasting.maxMessageSize + 1024,
       ).name('daravel.broadcasting.connect')
       ..post(
         '/apps/{appId}/events',

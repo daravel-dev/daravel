@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added a WebSocket frame limit: `router.ws(..., maxPayloadBytes:)` and `Response.webSocket(maxPayloadBytes:)` (1 MiB, `Response.defaultWebSocketMaxPayloadBytes`); a larger frame fails the connection as it arrives. `dart:io` sets no limit of its own, so one client could make a worker buffer a frame of any size. The Pusher server caps frames at `REVERB_APP_MAX_MESSAGE_SIZE` plus 1 KiB.
 - Added `HTTP_MAX_BODY` (`ServeOptions.maxBodyBytes`, 50 MiB, `0` for none): the body limit every request served by the engine starts with, so an application without `BodyLimitsMiddleware` never buffers an unbounded body.
 - Added `DB_CONNECT_TIMEOUT` and `DB_QUERY_TIMEOUT` (seconds, `0` for none; `connect_timeout` / `query_timeout` connection options, `PostgresDriver.timeoutOption`): the PostgreSQL statement timeout was a fixed 30 s, so a long `CREATE INDEX` in a migration was cancelled.
 - Fixed: PostgreSQL closes its pool when the `SELECT 1` probe fails after the connection opened (each retry leaked a backend), and `listen()` closes the dedicated connection when the listener cancelled during the handshake (it lived until process exit).

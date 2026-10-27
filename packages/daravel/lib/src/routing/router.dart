@@ -89,6 +89,7 @@ final class Router {
     String path,
     WebSocketHandler handler, {
     bool compress = true,
+    int maxPayloadBytes = Response.defaultWebSocketMaxPayloadBytes,
   }) => match(const <String>['GET'], path, (request) {
     if (!isWebSocketUpgrade(request)) {
       return Response.json(
@@ -97,7 +98,11 @@ final class Router {
         headers: const <String, String>{'upgrade': 'websocket'},
       );
     }
-    return Response.webSocket(handler, compress: compress);
+    return Response.webSocket(
+      handler,
+      compress: compress,
+      maxPayloadBytes: maxPayloadBytes,
+    );
   })..markWebSocket();
 
   RouteEntry post(String path, Handler handler) =>

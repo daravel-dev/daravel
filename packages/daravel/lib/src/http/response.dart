@@ -49,7 +49,15 @@ final class Response {
     this.contentLengthOverride,
     this.webSocket,
     this.webSocketCompression = true,
+    this.webSocketMaxPayloadBytes = defaultWebSocketMaxPayloadBytes,
   }) : headers = headers ?? Headers();
+
+  /// The largest WebSocket frame a route accepts unless it says otherwise:
+  /// 1 MiB. `dart:io` sets no limit of its own (its default is the largest
+  /// integer unless the build defines
+  /// `dart.io.default.ws.max.payload.length`), so one client could make a
+  /// worker buffer a frame of any size.
+  static const int defaultWebSocketMaxPayloadBytes = 1 << 20;
 
   /// JSON response (`application/json`). [data] may contain maps, lists,
   /// numbers, strings, booleans, `null`, [DateTime] (ISO-8601 UTC), enums and
@@ -147,8 +155,13 @@ final class Response {
   factory Response.webSocket(
     WebSocketHandler handler, {
     bool compress = true,
-  }) =>
-      Response(status: 101, webSocket: handler, webSocketCompression: compress);
+    int maxPayloadBytes = defaultWebSocketMaxPayloadBytes,
+  }) => Response(
+    status: 101,
+    webSocket: handler,
+    webSocketCompression: compress,
+    webSocketMaxPayloadBytes: maxPayloadBytes,
+  );
 
   /// Streamed body with an explicit content type.
   factory Response.stream(
@@ -173,6 +186,10 @@ final class Response {
 
   /// Whether the WebSocket offers permessage-deflate to clients that ask.
   final bool webSocketCompression;
+
+  /// The largest frame the WebSocket accepts (uncompressed bytes); a
+  /// larger one fails the connection ([defaultWebSocketMaxPayloadBytes]).
+  final int webSocketMaxPayloadBytes;
 
   /// Content length to advertise when the body was stripped (HEAD requests).
   final int? contentLengthOverride;
@@ -241,6 +258,7 @@ final class Response {
     contentLengthOverride: contentLengthOverride,
     webSocket: webSocket,
     webSocketCompression: webSocketCompression,
+    webSocketMaxPayloadBytes: webSocketMaxPayloadBytes,
   );
 
   /// Collects the body as bytes (consumes stream bodies).

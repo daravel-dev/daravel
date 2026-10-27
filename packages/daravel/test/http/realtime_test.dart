@@ -104,6 +104,11 @@ void main() {
                 socket.add('joined ${request.param<String>('room')}');
                 socket.listen((message) => socket.add('echo: $message'));
               });
+              r.ws('/tiny', (socket, request) {
+                socket.listen(
+                  (message) => socket.add('got ${'$message'.length}'),
+                );
+              }, maxPayloadBytes: 16);
               r
                   .ws('/private', (socket, request) {
                     socket.add('hello ${request.attributes['who']}');
@@ -227,6 +232,40 @@ void main() {
       expect(await allowed.first, 'hello teo');
       await allowed.close();
     });
+
+    test(
+      "a frame above the route's payload limit fails the connection",
+      () async {
+        final tiny = await WebSocket.connect(ws('/api/tiny'));
+        tiny.add('small');
+        final replies = StreamIterator(tiny.cast<String>());
+        expect(await replies.moveNext(), isTrue);
+        expect(replies.current, 'got 5');
+        // 100 bytes against a 16-byte limit: dart:io fails the connection as
+        // the frame header arrives, before any of it is buffered.
+        tiny.add('x' * 100);
+        expect(
+          await replies.moveNext(),
+          isFalse,
+          reason: 'closed by the server',
+        );
+        final deadline = DateTime.now().add(const Duration(seconds: 3));
+        while (engine.openWebSockets != 0 &&
+            DateTime.now().isBefore(deadline)) {
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+        }
+        expect(engine.openWebSockets, 0);
+        await tiny.close();
+        // Still serving, and a route without a limit of its own takes 1 MiB.
+        final lobby = await WebSocket.connect(ws('/api/rooms/lobby'));
+        final messages = StreamIterator(lobby.cast<String>());
+        expect(await messages.moveNext(), isTrue);
+        lobby.add('y' * 100000);
+        expect(await messages.moveNext(), isTrue);
+        expect(messages.current, startsWith('echo: yyy'));
+        await lobby.close();
+      },
+    );
 
     test('a plain request to a WebSocket route is 426', () async {
       final client = HttpClient();
