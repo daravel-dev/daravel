@@ -18,6 +18,7 @@ final class _SlowService implements CoordinatorService {
 
 void main() {
   coordinatorRobustnessTests();
+  rateLimitMemoryTests();
   late Coordinator coordinator;
 
   setUp(
@@ -378,5 +379,37 @@ void coordinatorRobustnessTests() {
       reason: 'not the timeout',
     );
     expect(channel.pending, 0);
+  });
+}
+
+void rateLimitMemoryTests() {
+  test('a worker sweeps the state of keys it no longer limits', () async {
+    final coordinator = createStandardCoordinator();
+    addTearDown(coordinator.close);
+    final channel = RemoteCoordinatorChannel(coordinator.listen());
+    addTearDown(channel.close);
+    final store = ProcessRateLimitStore(
+      channel,
+      maxKeys: 8,
+      leaseTtl: const Duration(milliseconds: 20),
+      blockedCacheTtl: const Duration(milliseconds: 20),
+    );
+    // One key per client, each seen once: a lease (and after a second
+    // attempt a batch size) per key, never asked for again.
+    for (var i = 0; i < 8; i++) {
+      await store.attempt('ip-$i', 100, const Duration(minutes: 1));
+      await store.attempt('ip-$i', 100, const Duration(minutes: 1));
+    }
+    expect(store.trackedKeys, 8);
+    await Future<void>.delayed(const Duration(milliseconds: 40));
+    // The ninth key reaches maxKeys: the expired leases go back and their
+    // batch sizes go with them.
+    await store.attempt('ip-8', 100, const Duration(minutes: 1));
+    expect(store.trackedKeys, 1);
+    expect(
+      await store.attempts('ip-0', const Duration(minutes: 1)),
+      2,
+      reason: 'the hits were used; only unused leased tokens went back',
+    );
   });
 }

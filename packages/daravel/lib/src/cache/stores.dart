@@ -135,12 +135,22 @@ final class MemoryStore implements TouchableCacheStore, TaggableCacheStore {
   Future<bool> acquireLock(String name, String owner, Duration ttl) async =>
       acquireLockSync(name, owner, ttl);
 
+  /// Locks held or expired but not yet forgotten (see [acquireLockSync]).
+  int get lockCount => _locks.length;
+
   bool acquireLockSync(String name, String owner, Duration ttl) {
     final existing = _locks[name];
     if (existing != null &&
         existing.expiresAt > _now &&
         existing.owner != owner) {
       return false;
+    }
+    if (existing == null && _locks.length >= maxEntries) {
+      // A lock that expires without a release (its holder crashed) stayed
+      // for ever: with one name per order or user the map only grew. Expired
+      // ones are swept once there are as many as cache entries may be.
+      final now = _now;
+      _locks.removeWhere((_, lock) => lock.expiresAt <= now);
     }
     _locks[name] = (owner: owner, expiresAt: _now + ttl.inMilliseconds);
     return true;

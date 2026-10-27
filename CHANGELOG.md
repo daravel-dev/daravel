@@ -72,6 +72,17 @@ match Laravel more closely.
 
 ### Fixed
 
+- SQLite: a connection whose setup fails after the file is opened (a file
+  that is not a database, one that stays busy) closes its handle; it used
+  to stay open, keeping the file locked, and every retry leaked one more.
+- `MemoryStore` sweeps expired locks once there are `maxEntries` of them;
+  a lock that expired without a release (its holder crashed) stayed for
+  ever, so one lock name per order or user only grew the map
+  (`MemoryStore.lockCount`).
+- `ProcessRateLimitStore` sweeps the leases, blocks and batch sizes of
+  keys it no longer limits once `maxKeys` (10 000) are tracked; every key
+  a worker ever limited (one per client IP) stayed until it was asked for
+  again (`ProcessRateLimitStore.trackedKeys`).
 - `daravel_google`: `Google.serviceCalendar()` shares one service-account
   token per isolate, scopes and subject (`Google.serviceCredentials`,
   `ServiceAccountCredentialsCache`); it used to sign an RS256 assertion

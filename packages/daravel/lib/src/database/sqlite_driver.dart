@@ -94,15 +94,24 @@ final class SqliteDriver implements DatabaseDriver, QueryErrors {
         'bundled. Cause: $error',
       );
     }
-    if (!isMemory) {
-      // First, so that switching to WAL (and every later statement) waits
-      // for another isolate or process opening the same file instead of
-      // failing with SQLITE_BUSY.
-      db.execute('PRAGMA busy_timeout = 5000');
-      await _enableWal(db);
-      db.execute('PRAGMA synchronous = NORMAL');
+    try {
+      if (!isMemory) {
+        // First, so that switching to WAL (and every later statement) waits
+        // for another isolate or process opening the same file instead of
+        // failing with SQLITE_BUSY.
+        db.execute('PRAGMA busy_timeout = 5000');
+        await _enableWal(db);
+        db.execute('PRAGMA synchronous = NORMAL');
+      }
+      db.execute('PRAGMA foreign_keys = ON');
+    } on Object {
+      // A file that is not a database (SQLITE_NOTADB), one that stays busy:
+      // the handle was open and never closed, keeping the file locked, and
+      // each retry (the manager connects again on the next query) leaked
+      // one more.
+      db.close();
+      rethrow;
     }
-    db.execute('PRAGMA foreign_keys = ON');
     _db = db;
   }
 

@@ -414,6 +414,7 @@ final class ProcessRateLimitStore implements RateLimitStore {
     this.maxLease = 16,
     this.leaseTtl = const Duration(milliseconds: 200),
     this.blockedCacheTtl = const Duration(milliseconds: 100),
+    this.maxKeys = 10000,
   });
 
   final CoordinatorChannel channel;
@@ -432,11 +433,38 @@ final class ProcessRateLimitStore implements RateLimitStore {
   /// How long a worker remembers that a key is blocked.
   final Duration blockedCacheTtl;
 
+  /// Keys this worker keeps state for (leases, blocks, batch sizes) before
+  /// the expired ones are swept. Every key the worker ever limited (one per
+  /// client IP, say) used to stay until it was asked for again.
+  final int maxKeys;
+
   final Map<String, _Lease> _leases = <String, _Lease>{};
   final Map<String, int> _batch = <String, int>{};
   final Map<String, (int, RateLimitResult)> _blocked =
       <String, (int, RateLimitResult)>{};
   final Stopwatch _monotonic = Stopwatch()..start();
+
+  /// Keys with state on this worker.
+  int get trackedKeys =>
+      {..._leases.keys, ..._batch.keys, ..._blocked.keys}.length;
+
+  /// Drops what has expired once [maxKeys] is reached: leases past their
+  /// lifetime (their unused hits go back to the coordinator), blocks past
+  /// theirs, and batch sizes of keys that hold no lease.
+  void _sweep(int now) {
+    if (_leases.length < maxKeys &&
+        _blocked.length < maxKeys &&
+        _batch.length < maxKeys) {
+      return;
+    }
+    for (final entry in _leases.entries.toList()) {
+      if (now >= entry.value.expiresAt) {
+        _retire(entry.key, entry.value, usedUp: false);
+      }
+    }
+    _blocked.removeWhere((_, blocked) => now >= blocked.$1);
+    _batch.removeWhere((key, _) => !_leases.containsKey(key));
+  }
 
   @override
   StateScope get scope => StateScope.process;
@@ -480,6 +508,7 @@ final class ProcessRateLimitStore implements RateLimitStore {
     Duration decay,
   ) async {
     final now = _monotonic.elapsedMicroseconds;
+    _sweep(now);
     final blocked = _blocked[key];
     if (blocked != null) {
       if (now < blocked.$1) {
