@@ -25,6 +25,7 @@ const List<String> daravelPackages = [
   'daravel_livekit',
   'daravel_google',
   'daravel_teobiefy',
+  'daravel_s3',
 ];
 
 /// Reads the latest stable `daravel` version from pub.dev.

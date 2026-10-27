@@ -468,12 +468,13 @@ The monorepo is a Dart pub workspace:
 | [`packages/daravel_livekit`](packages/daravel_livekit) | LiveKit server SDK: access tokens, rooms, verified webhooks |
 | [`packages/daravel_google`](packages/daravel_google) | Google: OAuth tokens with refresh, service accounts, Calendar events with Meet links |
 | [`packages/daravel_teobiefy`](packages/daravel_teobiefy) | Encrypted API payloads compatible with Bali Melajah's Laravel API |
+| [`packages/daravel_s3`](packages/daravel_s3) | S3, Cloudflare R2 and MinIO storage disk: pure Dart SigV4, multipart streaming, presigned URLs |
 | [`packages/daravel_redis`](packages/daravel_redis) | Redis and Valkey for several servers: cache, locks, rate limits, queues, broadcasting |
 | [`packages/daravel_sqlite`](packages/daravel_sqlite) | SQLite driver package (`db:install sqlite`) |
 | [`packages/daravel_postgres`](packages/daravel_postgres) | PostgreSQL driver package (`db:install pgsql`) |
 | [`apps/daravel_starter`](apps/daravel_starter) | Reference application and end-to-end tests |
 
-The fourteen packages ([`daravel`](https://pub.dev/packages/daravel),
+The fifteen packages ([`daravel`](https://pub.dev/packages/daravel),
 [`dartisan_cli`](https://pub.dev/packages/dartisan_cli),
 [`daravel_test`](https://pub.dev/packages/daravel_test),
 [`daravel_lints`](https://pub.dev/packages/daravel_lints),
@@ -485,6 +486,7 @@ The fourteen packages ([`daravel`](https://pub.dev/packages/daravel),
 [`daravel_livekit`](https://pub.dev/packages/daravel_livekit),
 [`daravel_google`](https://pub.dev/packages/daravel_google),
 [`daravel_teobiefy`](https://pub.dev/packages/daravel_teobiefy),
+[`daravel_s3`](https://pub.dev/packages/daravel_s3),
 [`daravel_sqlite`](https://pub.dev/packages/daravel_sqlite),
 [`daravel_postgres`](https://pub.dev/packages/daravel_postgres)) are released together
 under one version by the verified publisher

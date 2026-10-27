@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:47d9970d2434 -->
+<!-- source: README.md sha256:5b01d41a468a -->
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/brand/svg/daravel-logo-horizontal-on-dark.svg">
@@ -474,12 +474,13 @@ Monorepo ini adalah pub workspace Dart:
 | [`packages/daravel_livekit`](packages/daravel_livekit) | SDK server LiveKit: access token, room, webhook terverifikasi |
 | [`packages/daravel_google`](packages/daravel_google) | Google: token OAuth dengan refresh, service account, event Calendar dengan link Meet |
 | [`packages/daravel_teobiefy`](packages/daravel_teobiefy) | Payload API terenkripsi yang kompatibel dengan API Laravel Bali Melajah |
+| [`packages/daravel_s3`](packages/daravel_s3) | Disk penyimpanan S3, Cloudflare R2, dan MinIO: SigV4 Dart murni, streaming multipart, presigned URL |
 | [`packages/daravel_redis`](packages/daravel_redis) | Redis dan Valkey untuk beberapa server: cache, lock, rate limit, queue, broadcasting |
 | [`packages/daravel_sqlite`](packages/daravel_sqlite) | Paket driver SQLite (`db:install sqlite`) |
 | [`packages/daravel_postgres`](packages/daravel_postgres) | Paket driver PostgreSQL (`db:install pgsql`) |
 | [`apps/daravel_starter`](apps/daravel_starter) | Aplikasi referensi dan test end-to-end |
 
-Keempat belas paket ([`daravel`](https://pub.dev/packages/daravel),
+Kelima belas paket ([`daravel`](https://pub.dev/packages/daravel),
 [`dartisan_cli`](https://pub.dev/packages/dartisan_cli),
 [`daravel_test`](https://pub.dev/packages/daravel_test),
 [`daravel_lints`](https://pub.dev/packages/daravel_lints),
@@ -491,6 +492,7 @@ Keempat belas paket ([`daravel`](https://pub.dev/packages/daravel),
 [`daravel_livekit`](https://pub.dev/packages/daravel_livekit),
 [`daravel_google`](https://pub.dev/packages/daravel_google),
 [`daravel_teobiefy`](https://pub.dev/packages/daravel_teobiefy),
+[`daravel_s3`](https://pub.dev/packages/daravel_s3),
 [`daravel_sqlite`](https://pub.dev/packages/daravel_sqlite),
 [`daravel_postgres`](https://pub.dev/packages/daravel_postgres)) dirilis bersama dengan satu
 versi oleh publisher terverifikasi

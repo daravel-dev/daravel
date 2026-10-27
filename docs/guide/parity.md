@@ -58,7 +58,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `response()->streamDownload(...)` | `Response.stream(...)` |  |
 | `response()->eventStream(fn () => ...)` | `Response.sse(stream)` | Same frames and `</stream>` end event; adds heartbeats and ends on shutdown. |
 | `new StreamedEvent(event: 'tick', data: $data)` | `SseEvent(data, event: 'tick')` |  |
-| `Reverb / Pusher channels` | `router.ws('/ws/x', (socket, request) {...})` | A plain WebSocket after the route's middleware, not the Pusher protocol. |
+| `A custom WebSocket endpoint (outside Reverb channels)` | `router.ws('/ws/x', (socket, request) {...})` | A plain WebSocket after the route's middleware; Reverb and Pusher channels are under Broadcasting. |
 | `abort(404, $message)` | `abort(404, message)` | Without a message the JSON message is empty, as in Laravel. |
 | `class StoreUserRequest extends FormRequest` | `final class StoreUserRequest extends FormRequest` |  |
 
@@ -295,6 +295,8 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `public function with($request)` | `Map<String, Object?> withMeta(Request? request)` | `with` is a reserved word in Dart. |
 | `Storage::disk('public')->put($path, $contents)` | `await Storage.disk('public').put(path, contents)` |  |
 | `Storage::url($path)` | `Storage.url(path)` |  |
+| `Storage::disk('s3')->temporaryUrl($path, now()->addMinutes(30))` | `Storage.disk('s3').temporaryUrl(path, expiration: 30.minutes.fromNow)` | package:daravel_s3 (withS3()); same AWS_* variables. |
+| `Storage::disk('s3')->temporaryUploadUrl($path, $expiration)` | `Storage.disk('s3').temporaryUploadUrl(path, expiration: ...)` | Returns url and headers, as Laravel's array. |
 | `Http::withToken($t)->retry(3, 100)->post($url, $data)` | `await Http.withToken(t).retry(3).post(url, json: data)` | **async** |
 | `Http::fake([...]) / Http::assertSent(...)` | `Http.fake({...}).assertSent(...)` |  |
 | `php artisan down --secret / up` | `dartisan down --secret / up` | Same storage/framework/down file; bypass cookie daravel_maintenance. |
@@ -381,8 +383,6 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | Laravel | Plan |
 | :-- | :-- |
 | Sessions, CSRF, SPA cookie auth | Tier 2 |
-| Mail, notifications, broadcasting | Tier 2/3 |
-| Redis cache/queue/lock, S3 storage | Tier 2 |
 | PHP serialize() for Crypt::encrypt payloads | Tier 2 (Laravel-compatible Crypt mode) |
 | optional() helper | Not planned: Dart has ?. and ?? |
 | app() / route() / url() global helpers | Use App.make<T>(), router.url(...); a global app() would be shadowed by the idiomatic app variable |

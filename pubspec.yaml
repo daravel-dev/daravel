@@ -20,6 +20,7 @@ workspace:
   - packages/daravel_google
   - packages/daravel_teobiefy
   - packages/daravel_livekit
+  - packages/daravel_s3
   - apps/daravel_starter
   - bench
 

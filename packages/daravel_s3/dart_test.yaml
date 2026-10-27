@@ -1,0 +1,3 @@
+tags:
+  # Needs an S3-compatible server (DARAVEL_TEST_S3, e.g. RustFS or MinIO).
+  integration:
