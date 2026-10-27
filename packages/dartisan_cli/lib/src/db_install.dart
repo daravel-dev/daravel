@@ -67,6 +67,12 @@ const DriverPackage _postgres = DriverPackage(
     'DB_USERNAME=app',
     'DB_PASSWORD=',
     'DB_SSLMODE=disable',
+    'DB_POOL_SIZE=10',
+    // A worker waiting on PostgreSQL does not lag, so HTTP_MAX_QUEUE_DELAY
+    // alone never sheds; the in-flight limit is the one that keeps
+    // latency bounded under overload (bench scenario 12).
+    'Load shedding: about 4 x DB_POOL_SIZE requests at once per worker',
+    'HTTP_MAX_IN_FLIGHT=40',
   ],
 );
 

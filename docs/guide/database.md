@@ -41,7 +41,7 @@ dart run bin/dartisan.dart db:install pgsql     # or sqlite, mysql, mariadb
 | :-- | :-- |
 | `pubspec.yaml` | `daravel_postgres: ^<version>` (then `dart pub get`; `--no-get` skips it) |
 | `bootstrap/app.dart` | the import and `.withPostgres()` (`.withSqlite()`, or the MySQL `withDatabaseDriver` lines) after `Application.configure(...)` |
-| `.env.example` | a commented block with the driver's `DB_*` keys |
+| `.env.example` | a commented block with the driver's `DB_*` keys; for PostgreSQL also `DB_POOL_SIZE=10` and `HTTP_MAX_IN_FLIGHT=40` ([load shedding](deployment.md#load-shedding) sized to the pool) |
 
 Running it again changes nothing.
 

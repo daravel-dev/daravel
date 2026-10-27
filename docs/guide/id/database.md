@@ -1,4 +1,4 @@
-<!-- source: database.md sha256:01da8429c034 -->
+<!-- source: database.md sha256:d35d3231ae6e -->
 # Database
 
 `DB_CONNECTION` memilih SQLite (`sqlite`, default), PostgreSQL (`pgsql`),
@@ -46,7 +46,7 @@ dart run bin/dartisan.dart db:install pgsql     # atau sqlite, mysql, mariadb
 | :-- | :-- |
 | `pubspec.yaml` | `daravel_postgres: ^<version>` (lalu `dart pub get`; `--no-get` melewatinya) |
 | `bootstrap/app.dart` | import dan `.withPostgres()` (`.withSqlite()`, atau baris `withDatabaseDriver` untuk MySQL) setelah `Application.configure(...)` |
-| `.env.example` | blok berkomentar dengan key `DB_*` milik driver |
+| `.env.example` | blok berkomentar dengan key `DB_*` dari driver; untuk PostgreSQL juga `DB_POOL_SIZE=10` dan `HTTP_MAX_IN_FLIGHT=40` ([load shedding](deployment.md#load-shedding) yang disesuaikan dengan pool) |
 
 Menjalankannya lagi tidak mengubah apa pun.
 

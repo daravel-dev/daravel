@@ -41,6 +41,12 @@ Laravel-facing formats change only to match Laravel more closely.
   skipped" and exits 0. The nightly benchmark runs them against a
   PostgreSQL service container, and `public.sh` includes scenario 11 in
   its PostgreSQL runs.
+- `dartisan db:install pgsql` adds `DB_POOL_SIZE=10` and
+  `HTTP_MAX_IN_FLIGHT=40` (about 4 × the pool) to the PostgreSQL block of
+  `.env.example`: a worker waiting on PostgreSQL does not lag, so
+  `HTTP_MAX_QUEUE_DELAY` alone never sheds there, while the in-flight limit
+  kept p99 at 47 ms instead of 6.2 s at 1.5 × capacity (bench scenario 12,
+  4 isolates, pool 4).
 - `bench/`: scenario `12-open-loop` measures load shedding where it
   applies: the capacity of scenario 2 is measured, then 1.5 times it
   (`--open-loop-factor`) arrives at a fixed rate, from clients that do not
