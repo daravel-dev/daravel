@@ -72,6 +72,19 @@ match Laravel more closely.
 
 ### Fixed
 
+- Supervisor: a worker that does not become ready within `readyTimeout`
+  is killed; it used to go on booting, bind the port and serve untracked
+  next to its replacement. `stop()` returns at once when every worker is
+  already gone instead of waiting for the shutdown deadline, a respawn
+  that completes during a drain is drained, and a message with an
+  unknown worker index is dropped instead of thrown out of the inbox
+  listener (on the main isolate, where that ends the process).
+- Coordinator: a service answer that cannot be sent to a worker (a
+  `ReceivePort`, a socket) is answered as a `CoordinatorException`
+  instead of thrown out of the coordinator's port listener, which runs
+  on the supervisor's main isolate. `RemoteCoordinatorChannel.call` after
+  `close()` fails at once (it used to wait for the timeout and restart
+  the sweep timer).
 - `dartisan migrate --seed` runs the root seeder; the flag was declared
   and never read (`migrate:fresh --seed` worked).
 - `daravel_livekit` refuses to work with an empty API secret: HS256 over

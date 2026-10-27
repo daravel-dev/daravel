@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:isolate';
 
 import 'package:daravel/daravel.dart';
 import 'package:test/test.dart';
@@ -16,6 +17,7 @@ final class _SlowService implements CoordinatorService {
 }
 
 void main() {
+  coordinatorRobustnessTests();
   late Coordinator coordinator;
 
   setUp(
@@ -302,4 +304,79 @@ final class _TimingOutChannel implements CoordinatorChannel {
     Map<String, Object?> args, {
     Duration timeout = const Duration(seconds: 1),
   }) => Future<Object?>.error(CoordinatorTimeoutException(service, timeout));
+}
+
+/// A service whose answer cannot cross an isolate boundary.
+final class _UnsendableService implements CoordinatorService {
+  @override
+  String get name => 'unsendable';
+
+  @override
+  Object? handle(String op, Map<String, Object?> args) =>
+      op == 'later' ? Future<Object?>.value(ReceivePort()) : ReceivePort();
+
+  @override
+  Map<String, Object?> stats() => const {};
+}
+
+void coordinatorRobustnessTests() {
+  test('an answer that cannot be sent is an error, not a crash', () async {
+    // The listener runs on the supervisor's main isolate, where an uncaught
+    // error ends the whole server. A ReceivePort cannot be sent even
+    // within one isolate.
+    final coordinator = createStandardCoordinator()
+      ..register(_UnsendableService());
+    addTearDown(coordinator.close);
+    final channel = RemoteCoordinatorChannel(coordinator.listen());
+    addTearDown(channel.close);
+    for (final op in ['now', 'later']) {
+      await expectLater(
+        channel.call('unsendable', op, const {}),
+        throwsA(
+          isA<CoordinatorException>().having(
+            (e) => e.message,
+            'message',
+            contains('cannot be sent to a worker'),
+          ),
+        ),
+        reason: op,
+      );
+    }
+    // Still serving.
+    expect(
+      await channel.call('rateLimiter', 'attempts', const {
+        'key': 'k',
+        'decayMs': 60000,
+      }),
+      0,
+    );
+    expect(coordinator.stats()['in_flight'], 0);
+  });
+
+  test('a closed channel refuses calls at once', () async {
+    final coordinator = createStandardCoordinator();
+    addTearDown(coordinator.close);
+    final channel = RemoteCoordinatorChannel(coordinator.listen());
+    channel.close();
+    final watch = Stopwatch()..start();
+    await expectLater(
+      channel.call('rateLimiter', 'attempts', const {
+        'key': 'k',
+        'decayMs': 60000,
+      }, timeout: const Duration(seconds: 5)),
+      throwsA(
+        isA<CoordinatorException>().having(
+          (e) => e.message,
+          'message',
+          'Coordinator channel closed.',
+        ),
+      ),
+    );
+    expect(
+      watch.elapsed,
+      lessThan(const Duration(seconds: 1)),
+      reason: 'not the timeout',
+    );
+    expect(channel.pending, 0);
+  });
 }

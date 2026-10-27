@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
@@ -40,6 +41,7 @@ Future<int> freePort() async {
 }
 
 void main() {
+  supervisorRobustnessTests();
   test(
     'supervisor runs 2 workers on one port with process-scope state',
     () async {
@@ -127,5 +129,57 @@ void main() {
       await expectLater(get('/whoami'), throwsA(isA<SocketException>()));
     },
     timeout: const Timeout(Duration(minutes: 2)),
+  );
+}
+
+/// A provider whose boot never finishes: the worker never binds, never
+/// sends WorkerReady.
+final class _NeverBoots extends ServiceProvider {
+  @override
+  Future<void> boot(Container container) => Completer<void>().future;
+}
+
+/// Top-level factory: sendable to worker isolates.
+Application neverReadyApp() =>
+    Application.configure(basePath: Directory.systemTemp.path)
+        .withEnv({'APP_ENV': 'testing', 'DB_DATABASE': ':memory:'})
+        .withLogLevel(LogLevel.warning)
+        .withProviders([_NeverBoots()])
+        .create();
+
+void supervisorRobustnessTests() {
+  test(
+    'a worker that never becomes ready is killed, not left behind',
+    () async {
+      final supervisor = Supervisor(
+        neverReadyApp,
+        ServeOptions(
+          host: '127.0.0.1',
+          port: await freePort(),
+          isolates: 1,
+          handleSignals: false,
+          shutdownTimeout: const Duration(seconds: 10),
+          readyTimeout: const Duration(milliseconds: 500),
+        ),
+        logger: Logger(minimumLevel: .error),
+      );
+      await expectLater(
+        supervisor.start(),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            'Worker 0 did not become ready within 0s.',
+          ),
+        ),
+      );
+      // The isolate was killed and forgotten, so stop() has nothing to
+      // drain and returns now; a zombie would have held it until the
+      // shutdown deadline (12 s).
+      final watch = Stopwatch()..start();
+      await supervisor.stop();
+      expect(watch.elapsed, lessThan(const Duration(seconds: 3)));
+      expect(supervisor.exitCode, 0);
+    },
   );
 }

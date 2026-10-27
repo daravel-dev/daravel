@@ -189,21 +189,46 @@ final class Supervisor {
       }
     });
     exitPort.listen((_) => _onWorkerExit(worker));
-    return ready.future.timeout(
-      options.readyTimeout,
-      onTimeout: () {
-        throw StateError(
-          'Worker ${worker.index} did not become ready within '
-          '${options.readyTimeout.inSeconds}s.',
-        );
-      },
-    );
+    try {
+      await ready.future.timeout(options.readyTimeout);
+    } on TimeoutException {
+      // The isolate is still booting (or hung): without this it would go
+      // on, bind the port once ready and serve as a worker nobody tracks,
+      // drains or counts, next to the one spawned in its place. Its exit
+      // is not watched: the caller reports this failure (start() throws,
+      // a respawn counts it), so it must not be counted again as a crash.
+      _ready.remove(worker.index);
+      exitPort.close();
+      errorPort.close();
+      worker.exitPort = null;
+      worker.errorPort = null;
+      worker.isolate = null;
+      isolate.kill(priority: Isolate.immediate);
+      throw StateError(
+        'Worker ${worker.index} did not become ready within '
+        '${options.readyTimeout.inSeconds}s.',
+      );
+    }
+    if (_stopping) {
+      // A respawn that completed while the supervisor was already
+      // draining: tell it, or it would serve until the shutdown deadline
+      // kills it.
+      worker.control?.send('drain');
+    }
   }
 
+  /// The inbox listener runs on the main isolate, where an uncaught error
+  /// ends the process: a message with an index outside [_workers] is
+  /// dropped, not thrown on.
   void _onMessage(Object? message) {
+    _Worker? workerAt(int index) =>
+        index >= 0 && index < _workers.length ? _workers[index] : null;
     switch (message) {
       case WorkerReady():
-        final worker = _workers[message.index];
+        final worker = workerAt(message.index);
+        if (worker == null) {
+          return;
+        }
         worker.control = message.control;
         worker.port = message.port;
         _ready.remove(message.index)?.complete();
@@ -215,7 +240,7 @@ final class Supervisor {
               StateError('Worker ${message.index} failed: ${message.error}'),
             );
       case WorkerDrained():
-        _workers[message.index].drained = true;
+        workerAt(message.index)?.drained = true;
     }
   }
 
@@ -283,6 +308,10 @@ final class Supervisor {
     for (final worker in _workers) {
       worker.control?.send('drain');
     }
+    // Every worker may already be gone (a failed start, a crash loop):
+    // then nothing will report an exit, and [done] would wait for the
+    // deadline below.
+    _checkAllStopped();
     final deadline = options.shutdownTimeout + const Duration(seconds: 2);
     await done.timeout(
       deadline,

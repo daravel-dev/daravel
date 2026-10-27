@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fixed: the supervisor kills a worker that misses `readyTimeout` (it used to keep booting and serve untracked next to its replacement), `stop()` returns at once when every worker is already gone, a respawn finishing during a drain is drained, and an inbox message with an unknown worker index is dropped rather than thrown on the main isolate.
+- Fixed: a coordinator answer that cannot be sent to a worker is a `CoordinatorException` for that call instead of an uncaught error on the supervisor's main isolate; `RemoteCoordinatorChannel.call` after `close()` fails at once.
 - Fixed: a request whose `Host`, `X-Forwarded-Host` or `X-Forwarded-Proto` header does not parse as a URI is answered with `400` (`Request.fromHttpRequest` throws `BadRequestHttpException`); the `FormatException` used to escape the server's listen callback and end the serving isolate.
 
 ## 1.13.0

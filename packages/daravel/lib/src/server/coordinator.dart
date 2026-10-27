@@ -130,7 +130,8 @@ final class Coordinator {
       }
       if (_inFlight >= maxQueue) {
         _rejected++;
-        message.replyTo.send(
+        _reply(
+          message,
           CoordinatorReply(message.id, error: 'Coordinator queue is full.'),
         );
         return;
@@ -141,11 +142,11 @@ final class Coordinator {
       try {
         result = _invoke(message.service, message.op, message.args);
       } on Object catch (error) {
-        message.replyTo.send(CoordinatorReply(message.id, error: '$error'));
+        _reply(message, CoordinatorReply(message.id, error: '$error'));
         return;
       }
       if (result is! Future<Object?>) {
-        message.replyTo.send(CoordinatorReply(message.id, result: result));
+        _reply(message, CoordinatorReply(message.id, result: result));
         return;
       }
       _inFlight++;
@@ -154,15 +155,34 @@ final class Coordinator {
     return port.sendPort;
   }
 
+  /// Sends [reply] to the worker. A result that cannot cross an isolate
+  /// (a closure, a socket) makes `send` throw; this listener runs on the
+  /// supervisor's main isolate, where an uncaught error ends the whole
+  /// server, so the worker gets the error as an answer instead.
+  static void _reply(CoordinatorRequest request, CoordinatorReply reply) {
+    try {
+      request.replyTo.send(reply);
+    } on Object catch (error) {
+      request.replyTo.send(
+        CoordinatorReply(
+          request.id,
+          error:
+              'Coordinator service [${request.service}] returned a value '
+              'that cannot be sent to a worker: $error',
+        ),
+      );
+    }
+  }
+
   Future<void> _dispatch(
     CoordinatorRequest request,
     Future<Object?> pending,
   ) async {
     try {
       final result = await pending;
-      request.replyTo.send(CoordinatorReply(request.id, result: result));
+      _reply(request, CoordinatorReply(request.id, result: result));
     } catch (error) {
-      request.replyTo.send(CoordinatorReply(request.id, error: '$error'));
+      _reply(request, CoordinatorReply(request.id, error: '$error'));
     } finally {
       _inFlight--;
     }
@@ -244,6 +264,7 @@ final class RemoteCoordinatorChannel implements CoordinatorChannel {
   late final ReceivePort _replies;
   final Map<int, _PendingCall> _pending = <int, _PendingCall>{};
   int _nextId = 0;
+  bool _closed = false;
 
   /// Monotonic clock for deadlines; one sweep [Timer] enforces every call's
   /// timeout instead of a timer per call (the happy path allocates none).
@@ -268,6 +289,13 @@ final class RemoteCoordinatorChannel implements CoordinatorChannel {
     Map<String, Object?> args, {
     Duration timeout = const Duration(seconds: 1),
   }) {
+    if (_closed) {
+      // After close() no reply can arrive: fail now rather than after the
+      // timeout (and without restarting the sweeper).
+      return Future<Object?>.error(
+        const CoordinatorException('Coordinator channel closed.'),
+      );
+    }
     final id = _nextId++;
     final call = _PendingCall(
       service,
@@ -322,6 +350,7 @@ final class RemoteCoordinatorChannel implements CoordinatorChannel {
   }
 
   void close() {
+    _closed = true;
     _sweeper?.cancel();
     _sweeper = null;
     _replies.close();
