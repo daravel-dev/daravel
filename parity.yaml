@@ -150,7 +150,9 @@ sections:
       - { php: "User::find($id) / findOrFail($id)", dart: "await User.query().find(id) / findOrFail(id)", symbol: ModelQuery.findOrFail, async: true, throws: ModelNotFoundException }
       - { php: "->firstOrFail()", dart: ".firstOrFail()", symbol: ModelQuery.firstOrFail, async: true, throws: ModelNotFoundException }
       - { php: "User::create($attributes)", dart: "await User.query().create(attributes)", symbol: ModelQuery.create, async: true }
-      - { php: "User::firstOrCreate / updateOrCreate", dart: "firstOrCreate / updateOrCreate", symbol: ModelQuery.updateOrCreate, async: true }
+      - { php: "User::firstOrCreate / updateOrCreate", dart: "firstOrCreate / updateOrCreate", symbol: ModelQuery.updateOrCreate, async: true, note: "Through createOrFirst, as Laravel 12: a concurrent create returns the winner's row." }
+      - { php: "User::createOrFirst($attributes, $values)", dart: "await User.query().createOrFirst(attributes, values)", symbol: ModelQuery.createOrFirst, async: true, note: "In a savepoint inside a transaction." }
+      - { php: "catch (UniqueConstraintViolationException $e)", dart: "on UniqueConstraintViolationException catch (e)", symbol: UniqueConstraintViolationException, note: "Extends QueryException (sql, bindings, connectionName, previous); the message keeps the ? placeholders." }
       - { php: "->with(['posts'])", dart: ".with_(['posts'])", symbol: ModelQuery.with_, note: "`with` is a reserved word in Dart." }
       - { php: "->with('user:id,name')", dart: ".with_('user:id,name')", symbol: ModelQuery.parseWith, note: "Keys the relation matches on are added when the selection leaves them out." }
       - { php: "->withCount('posts')", dart: ".withCount('posts')", symbol: ModelQuery.withCount }

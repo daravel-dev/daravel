@@ -60,6 +60,15 @@ Laravel-facing formats change only to match Laravel more closely.
   `dartisan make:query-filter Post` writes one and registers it.
 - `Blueprint.primary([...])`: primary keys over several columns, named as
   Laravel names them.
+- `QueryException` and `UniqueConstraintViolationException` (Blueprint
+  #45): a refused query throws them with its SQL, bindings, connection and
+  the driver's error, a unique index or primary key refusal as the
+  subclass (SQLite, PostgreSQL `23505`, MySQL/MariaDB `1062`, recognised by
+  each driver through `QueryErrors`). Their message keeps the `?`
+  placeholders, so binding values stay out of logs. `createOrFirst`, and
+  `firstOrCreate` and `updateOrCreate` through it as in Laravel 12, return
+  the existing row when a concurrent request created it first, in a
+  savepoint inside a transaction.
 - Eager loading specific columns (Blueprint #44): `with_('user:id,name')`,
   nested (`posts.comments:id,body`) and as a map key next to a constraint,
   as Laravel's colon syntax. The keys a relation matches on, the keys the
@@ -85,6 +94,9 @@ Laravel-facing formats change only to match Laravel more closely.
   `BroadcastRelay` contract; `REVERB_SCALING_DRIVER`.
 
 ### Fixed
+- `firstOrCreate` and `updateOrCreate` called at once for the same row no
+  longer fail with the database's unique error: the second returns the
+  first's row.
 - Projects from `dartisan new --path` or `--source=git` pin `dartisan_cli`
   too, so packages depending on it by name (daravel_redis,
   daravel_permission) resolve from the same source.

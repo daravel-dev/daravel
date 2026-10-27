@@ -52,6 +52,7 @@ and `HASH_DRIVER=bcrypt`. If the Laravel app changed them, set the same values.
 | JSON escapes `/` and non-ASCII (`\/`, `é`) | plain UTF-8 | Equivalent after decoding; cursors use PHP's escaping |
 | `$model->with(...)` | `with_(...)` | `with` is reserved in Dart |
 | URL rule accepts any length | rejects > 8 192 chars | Bounded validation time (security suite) |
+| `QueryException` writes the bindings into its message | keeps the `?` placeholders | Values (password hashes, emails) stay out of logs; they are in `bindings` |
 
 ## Where Dart differs from PHP by design
 

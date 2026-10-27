@@ -195,4 +195,63 @@ void main() {
       expect(await DB.table('my_items').count(), 0);
     });
   });
+  test('a duplicate is a UniqueConstraintViolationException', () async {
+    await db.table('my_items').insert({'name': 'dup'});
+    await expectLater(
+      db.table('my_items').insert({'name': 'dup'}),
+      throwsA(
+        isA<UniqueConstraintViolationException>()
+            .having((e) => e.connectionName, 'connection', 'mysql')
+            .having(
+              (e) => '${e.previous.runtimeType}',
+              'driver error',
+              contains('MySQLServerException'),
+            ),
+      ),
+    );
+    await expectLater(
+      db.table('my_items_missing').get(),
+      throwsA(
+        isA<QueryException>().having(
+          (e) => e,
+          'type',
+          isNot(isA<UniqueConstraintViolationException>()),
+        ),
+      ),
+    );
+  });
+
+  test(
+    'createOrFirst keeps the transaction usable; firstOrCreate races',
+    () async {
+      final items = _Item.definition;
+      await db.transaction(() async {
+        await items.query(db: db).create({'name': 'kept'});
+        // Refused by the unique index inside the transaction: a savepoint, so
+        // the transaction is not aborted and commits.
+        final again = await items.query(db: db).createOrFirst({'name': 'kept'});
+        expect(again.wasRecentlyCreated, isFalse);
+        await items.query(db: db).create({'name': 'after'});
+      });
+      expect(await db.table('my_items').count(), 2);
+
+      final racers = await Future.wait([
+        for (var i = 0; i < 12; i++)
+          items.query(db: db).firstOrCreate({'name': 'race'}, {'qty': i}),
+      ]);
+      expect({for (final r in racers) r.attributes['id']}, hasLength(1));
+      expect(await db.table('my_items').where('name', 'race').count(), 1);
+    },
+  );
+}
+
+final class _Item extends Model {
+  static final ModelDefinition<_Item> definition = ModelDefinition<_Item>(
+    table: 'my_items',
+    factory: _Item.new,
+    guarded: [],
+  );
+
+  @override
+  ModelDefinition<_Item> get modelDefinition => _Item.definition;
 }

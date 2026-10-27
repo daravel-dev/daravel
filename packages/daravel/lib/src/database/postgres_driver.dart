@@ -14,7 +14,12 @@ enum PostgresSslMode { disable, require, verifyFull }
 /// grammar emits them; raw SQL is expanded by `SqlBindings`). Transactions
 /// run on a dedicated pooled connection; the executor passed to the callback
 /// is the only object that may issue queries inside the transaction.
-final class PostgresDriver implements NotifyingDriver {
+final class PostgresDriver implements NotifyingDriver, QueryErrors {
+  /// SQLSTATE 23505 (`unique_violation`), as Laravel checks it.
+  @override
+  bool isUniqueConstraintError(Object error) =>
+      error is pg.ServerException && error.code == '23505';
+
   PostgresDriver({
     required this.host,
     required this.database,

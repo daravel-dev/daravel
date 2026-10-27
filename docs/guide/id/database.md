@@ -1,4 +1,4 @@
-<!-- source: database.md sha256:08917063ec37 -->
+<!-- source: database.md sha256:fc18dee13f2c -->
 # Database
 
 `DB_CONNECTION` memilih SQLite (`sqlite`, default), PostgreSQL (`pgsql`),
@@ -280,6 +280,37 @@ yang tidak bisa dilakukan PHP, jadi dua aturan menjaganya tetap aman:
   (`unawaited_in_db_transaction`) menunjukkan yang tidak, termasuk
   `unawaited(...)` dan `.ignore()`.
 
+## Error query
+
+Query yang ditolak database melempar `QueryException`, berisi `sql`,
+`bindings`, `connectionName`, dan error asli driver di `previous`. Baris
+yang ditolak unique index atau primary key melempar subkelasnya,
+`UniqueConstraintViolationException` (SQLite, PostgreSQL `23505`,
+MySQL/MariaDB `1062`), seperti di Laravel, dan seperti Laravel pula ia
+menjadi 500 bila tidak ditangkap. Rule `unique` menjawab 422 sebelum insert;
+exception ini menangani dua request yang sama-sama lolos pengecekan itu:
+
+```dart
+try {
+  await User.query().create({'email': email, 'name': name});
+} on UniqueConstraintViolationException {
+  throw ValidationException.withMessages({
+    'email': 'The email has already been taken.',
+  });
+}
+```
+
+`createOrFirst(attributes, values)` membuat barisnya atau, bila request lain
+sudah membuatnya lebih dulu, mengembalikan baris itu; `firstOrCreate` dan
+`updateOrCreate` memakainya, seperti di Laravel 12. Di dalam transaksi,
+insert-nya berjalan dalam savepoint, sehingga insert yang ditolak tidak
+membatalkan transaksi (PostgreSQL akan membatalkannya bila tidak begitu).
+
+Berbeda dengan Laravel, pesannya mempertahankan placeholder `?` dan hanya
+baris pertama dari error driver, sehingga nilai binding (hash password,
+email) tidak masuk log; kata-kata database sendiri masih bisa menyebut
+nilai yang bentrok (`Duplicate entry` di MySQL, detail di PostgreSQL).
+
 ## Mendengarkan query
 
 `DB.listen((QueryExecuted query) { ... })` dipanggil setelah setiap query
@@ -294,7 +325,7 @@ DB.listen((query) {
 });
 ```
 
-Tanpa listener, query tidak dibungkus dan tidak menambah biaya.
+Tanpa listener, query tidak diukur waktunya dan tidak dilaporkan.
 
 Untuk anggaran waktu, bukan query lambat satu per satu,
 `whenQueryingForLongerThan` dari Laravel menjumlahkan query setiap request,

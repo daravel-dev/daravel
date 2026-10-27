@@ -44,13 +44,14 @@ void main() {
 
   test('no listeners, no wrapping', () async {
     await app.run(() async {
-      final executor = await App.make<DatabaseManager>().executor();
-      expect(executor, isNot(isA<ListeningQueryExecutor>()));
+      // Errors are always translated; listening wraps only with listeners.
+      Future<QueryExecutor> inner() async =>
+          ((await App.make<DatabaseManager>().executor())
+                  as QueryExceptionExecutor)
+              .inner;
+      expect(await inner(), isNot(isA<ListeningQueryExecutor>()));
       DB.listen((_) {});
-      expect(
-        await App.make<DatabaseManager>().executor(),
-        isA<ListeningQueryExecutor>(),
-      );
+      expect(await inner(), isA<ListeningQueryExecutor>());
       App.make<DatabaseManager>().forgetListeners();
     });
   });

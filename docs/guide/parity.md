@@ -159,7 +159,9 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `User::find($id) / findOrFail($id)` | `await User.query().find(id) / findOrFail(id)` | **async**; throws `ModelNotFoundException` |
 | `->firstOrFail()` | `.firstOrFail()` | **async**; throws `ModelNotFoundException` |
 | `User::create($attributes)` | `await User.query().create(attributes)` | **async** |
-| `User::firstOrCreate / updateOrCreate` | `firstOrCreate / updateOrCreate` | **async** |
+| `User::firstOrCreate / updateOrCreate` | `firstOrCreate / updateOrCreate` | **async**; Through createOrFirst, as Laravel 12: a concurrent create returns the winner's row. |
+| `User::createOrFirst($attributes, $values)` | `await User.query().createOrFirst(attributes, values)` | **async**; In a savepoint inside a transaction. |
+| `catch (UniqueConstraintViolationException $e)` | `on UniqueConstraintViolationException catch (e)` | Extends QueryException (sql, bindings, connectionName, previous); the message keeps the ? placeholders. |
 | `->with(['posts'])` | `.with_(['posts'])` | `with` is a reserved word in Dart. |
 | `->with('user:id,name')` | `.with_('user:id,name')` | Keys the relation matches on are added when the selection leaves them out. |
 | `->withCount('posts')` | `.withCount('posts')` |  |

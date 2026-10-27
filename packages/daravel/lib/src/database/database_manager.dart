@@ -198,14 +198,28 @@ final class DatabaseManager {
     final active = _activeScope(name)?.executor;
     final connectionName = name ?? config.defaultConnection;
     if (active != null) {
-      return Future<QueryExecutor>.value(_observed(active, connectionName));
+      return Future<QueryExecutor>.value(
+        _guarded(_observed(active, connectionName), connectionName),
+      );
     }
-    if (!_observing) {
-      return connection(name);
-    }
-    return connection(name)
-        .then((executor) => _observed(executor, connectionName));
+    return connection(name).then(
+      (executor) =>
+          _guarded(_observed(executor, connectionName), connectionName),
+    );
   }
+
+  /// [executor] turning driver errors into [QueryException]s.
+  QueryExecutor _guarded(QueryExecutor executor, String connectionName) =>
+      executor is QueryExceptionExecutor
+      ? executor
+      : QueryExceptionExecutor(
+          executor,
+          connectionName,
+          switch (_connections[connectionName]) {
+            final QueryErrors errors => errors,
+            _ => null,
+          },
+        );
 
   QueryExecutor _observed(QueryExecutor executor, String connectionName) =>
       !_observing || executor is ListeningQueryExecutor
@@ -215,6 +229,11 @@ final class DatabaseManager {
   /// Whether the current zone is inside a transaction on the default
   /// connection of this manager.
   bool get inTransaction => _activeScope(null) != null;
+
+  /// Whether the current zone is inside a transaction on [connection] (the
+  /// default connection when `null`).
+  bool inTransactionOn([String? connection]) =>
+      _activeScope(connection) != null;
 
   /// The transaction of the current zone when it runs on [name] (the
   /// default connection when `null`) of this manager.
@@ -471,12 +490,15 @@ final class DatabaseManager {
     return result;
   }
 
-  static bool _isRetryable(DatabaseDriver driver, Object error) =>
-      PostgresDriver.isRetryable(error) ||
-      switch (driver) {
-        final RetryableErrors retryable => retryable.isRetryableError(error),
-        _ => false,
-      };
+  static bool _isRetryable(DatabaseDriver driver, Object error) {
+    // A statement's error arrives wrapped; the driver knows its own.
+    final cause = error is QueryException ? error.previous : error;
+    return PostgresDriver.isRetryable(cause) ||
+        switch (driver) {
+          final RetryableErrors retryable => retryable.isRetryableError(cause),
+          _ => false,
+        };
+  }
 
   /// Whether any connection has been opened.
   bool get hasOpenConnections => _connections.isNotEmpty;

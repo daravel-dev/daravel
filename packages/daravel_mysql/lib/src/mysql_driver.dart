@@ -22,7 +22,8 @@ import 'package:mysql_dart/mysql_dart.dart' as my;
 /// ORM parses as UTC. The session time zone is left to the server unless
 /// `DB_TIMEZONE` is set, as in Laravel, so `TIMESTAMP` columns read the same
 /// from both applications.
-final class MySqlDriver implements DatabaseDriver, RetryableErrors {
+final class MySqlDriver
+    implements DatabaseDriver, RetryableErrors, QueryErrors {
   MySqlDriver({
     required this.host,
     required this.database,
@@ -87,6 +88,12 @@ final class MySqlDriver implements DatabaseDriver, RetryableErrors {
   bool isRetryableError(Object error) =>
       error is MySQLServerException &&
       (error.errorCode == 1213 || error.errorCode == 1205);
+
+  /// `ER_DUP_ENTRY` (1062), as Laravel matches "Integrity constraint
+  /// violation: 1062".
+  @override
+  bool isUniqueConstraintError(Object error) =>
+      error is MySQLServerException && error.errorCode == 1062;
 
   @override
   Future<void> connect() async {

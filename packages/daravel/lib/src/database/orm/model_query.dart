@@ -8,6 +8,7 @@ import '../query/paginator.dart';
 import '../query/query_ast.dart';
 import '../query/query_builder.dart';
 import '../query/query_grammar.dart';
+import '../query_executor.dart';
 import 'model.dart';
 import 'model_collection.dart';
 import 'model_definition.dart';
@@ -964,12 +965,40 @@ final class ModelQuery<T extends Model> {
   T make([Map<String, Object?> attributes = const {}]) =>
       definition.newInstance(attributes, _db);
 
+  /// The row matching [attributes], or one created with [values] too;
+  /// when another request creates it first, that row (through
+  /// [createOrFirst], as Laravel 12).
   Future<T> firstOrCreate(
     Map<String, Object?> attributes, [
     Map<String, Object?> values = const {},
+  ]) async =>
+      await _copy().where(attributes).first() ??
+      await createOrFirst(attributes, values);
+
+  /// Creates the row; when a unique index already holds it (another
+  /// request won the race), returns the row matching [attributes]
+  /// (Laravel's `createOrFirst`). Inside a transaction the insert runs in a
+  /// savepoint, so a refused one leaves the transaction usable (PostgreSQL
+  /// aborts it otherwise).
+  Future<T> createOrFirst(
+    Map<String, Object?> attributes, [
+    Map<String, Object?> values = const {},
   ]) async {
-    final existing = await _copy().where(attributes).first();
-    return existing ?? await create({...attributes, ...values});
+    final row = {...attributes, ...values};
+    try {
+      return _db.inTransactionOn(definition.connection)
+          ? await _db.transaction(
+              () => create(row),
+              connection: definition.connection,
+            )
+          : await create(row);
+    } on UniqueConstraintViolationException {
+      final existing = await _copy().where(attributes).first();
+      if (existing == null) {
+        rethrow;
+      }
+      return existing;
+    }
   }
 
   Future<T> firstOrNew(
@@ -980,16 +1009,18 @@ final class ModelQuery<T extends Model> {
     return existing ?? make({...attributes, ...values});
   }
 
+  /// The row matching [attributes] updated with [values], or created with
+  /// both; safe against a concurrent create (Laravel 12's
+  /// `updateOrCreate`).
   Future<T> updateOrCreate(
     Map<String, Object?> attributes,
     Map<String, Object?> values,
   ) async {
-    final existing = await _copy().where(attributes).first();
-    if (existing != null) {
-      await existing.update(values);
-      return existing;
+    final model = await firstOrCreate(attributes, values);
+    if (!model.wasRecentlyCreated) {
+      await model.update(values);
     }
-    return create({...attributes, ...values});
+    return model;
   }
 
   /// Bulk update (adds `updated_at`).

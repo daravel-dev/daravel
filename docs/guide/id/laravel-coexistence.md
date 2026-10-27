@@ -1,4 +1,4 @@
-<!-- source: laravel-coexistence.md sha256:ecf5ba100a57 -->
+<!-- source: laravel-coexistence.md sha256:65d309fce86e -->
 # Koeksistensi dengan Laravel
 
 Tujuan produk Daravel adalah aplikasi Laravel dan aplikasi Daravel bisa
@@ -55,6 +55,7 @@ mengubahnya, samakan nilainya.
 | JSON meng-escape `/` dan non-ASCII (`\/`, `é`) | UTF-8 apa adanya | Setara setelah di-decode; cursor memakai escaping PHP |
 | `$model->with(...)` | `with_(...)` | `with` adalah kata kunci Dart |
 | Rule URL menerima panjang berapa pun | menolak > 8 192 karakter | Waktu validasi yang terbatas (suite keamanan) |
+| `QueryException` menulis binding ke pesannya | mempertahankan placeholder `?` | Nilai (hash password, email) tidak masuk log; nilainya ada di `bindings` |
 
 ## Di mana Dart sengaja berbeda dari PHP
 

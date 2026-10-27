@@ -14,7 +14,14 @@ import 'query_executor.dart';
 /// commits or rolls back, so they never join or get rolled back with it;
 /// queries from inside it are recognised by a zone token. File databases are opened in WAL
 /// mode with a busy timeout (BLUEPRINT_V2 §2.2.4).
-final class SqliteDriver implements DatabaseDriver {
+final class SqliteDriver implements DatabaseDriver, QueryErrors {
+  /// SQLITE_CONSTRAINT_UNIQUE (2067) and SQLITE_CONSTRAINT_PRIMARYKEY
+  /// (1555), as Laravel matches "UNIQUE constraint failed".
+  @override
+  bool isUniqueConstraintError(Object error) =>
+      error is SqliteException &&
+      (error.extendedResultCode == 2067 || error.extendedResultCode == 1555);
+
   SqliteDriver({required this.path, this.name = 'sqlite'});
 
   /// The driver for a configured connection (`DB_DATABASE` is the file), as

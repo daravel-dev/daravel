@@ -273,6 +273,37 @@ cannot, so two rules keep it safe:
   (`unawaited_in_db_transaction`) points out the ones that are not,
   including `unawaited(...)` and `.ignore()`.
 
+## Query errors
+
+A query the database refuses throws `QueryException`, with `sql`,
+`bindings`, `connectionName` and the driver's own error in `previous`. A
+row refused by a unique index or primary key throws its subclass
+`UniqueConstraintViolationException` (SQLite, PostgreSQL `23505`,
+MySQL/MariaDB `1062`), as in Laravel, and like Laravel it is a 500 unless
+caught. The `unique` rule answers 422 before the insert; this exception
+covers two requests that both pass that check:
+
+```dart
+try {
+  await User.query().create({'email': email, 'name': name});
+} on UniqueConstraintViolationException {
+  throw ValidationException.withMessages({
+    'email': 'The email has already been taken.',
+  });
+}
+```
+
+`createOrFirst(attributes, values)` creates the row or, when another
+request created it first, returns that one; `firstOrCreate` and
+`updateOrCreate` go through it, as in Laravel 12. Inside a transaction the
+insert runs in a savepoint, so a refused insert does not abort the
+transaction (PostgreSQL would otherwise).
+
+Unlike Laravel's, the message keeps the `?` placeholders and only the first
+line of the driver's error, so binding values (a password hash, an email)
+stay out of logs; the database's own words may still name a conflicting
+value (MySQL's `Duplicate entry`, PostgreSQL's detail).
+
 ## Listening to queries
 
 `DB.listen((QueryExecuted query) { ... })` is called after every query of
@@ -287,7 +318,7 @@ DB.listen((query) {
 });
 ```
 
-Without listeners, queries are not wrapped and cost nothing extra.
+Without listeners, queries are neither timed nor reported.
 
 For a time budget rather than single slow queries, Laravel's
 `whenQueryingForLongerThan` adds up the queries of each request, job or
