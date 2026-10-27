@@ -72,6 +72,16 @@ match Laravel more closely.
 
 ### Fixed
 
+- `DB.transaction(attempts: n)`: the after-commit callbacks ran inside
+  the retry, so a callback failing with a deadlock or serialization error
+  re-ran the body after it had committed, committing its writes again.
+  They now run after the retry scope; as in Laravel, the first callback
+  to throw stops the rest and surfaces to the caller.
+- `daravel_permission`: `hasRole`, `hasAllRoles` and `hasExactRoles`
+  given a `Role` of another guard no longer match a role of the same name
+  under the model's guard (Spatie compares `Role` objects by key).
+- `daravel_teorion`: `scopes[0][params]=x` (not a map) is read as no
+  parameters instead of a 500.
 - SQLite: a connection whose setup fails after the file is opened (a file
   that is not a database, one that stays busy) closes its handle; it used
   to stay open, keeping the file locked, and every retry leaked one more.
