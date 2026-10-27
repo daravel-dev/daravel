@@ -158,4 +158,38 @@ void main() {
     );
     expect((await request.all())['name'], 'Ana');
   });
+
+  group('merge and replace', () {
+    test('merge overwrites and adds body fields, as Laravel\'s', () async {
+      final request = Request.fake(
+        method: 'POST',
+        query: const {'page': '2'},
+        json: const {'data_enc': 'x', 'nonce': 'n', 'name': 'old'},
+      );
+      expect((await request.all())['name'], 'old', reason: 'cached first');
+      await request.merge({'name': 'Ana', 'age': 17});
+      final all = await request.all();
+      expect(all, {
+        'page': '2',
+        'data_enc': 'x',
+        'nonce': 'n',
+        'name': 'Ana',
+        'age': 17,
+      });
+      expect(await request.input<int>('age'), 17);
+      final validated = await request.validate({'name': 'required|string'});
+      expect(validated.string('name'), 'Ana');
+    });
+
+    test('replace keeps the query and drops the old body', () async {
+      final request = Request.fake(
+        method: 'POST',
+        query: const {'page': '2'},
+        json: const {'data_enc': 'x', 'nonce': 'n'},
+      );
+      request.replace({'name': 'Ana'});
+      expect(await request.all(), {'page': '2', 'name': 'Ana'});
+      expect(await request.body(), {'name': 'Ana'});
+    });
+  });
 }

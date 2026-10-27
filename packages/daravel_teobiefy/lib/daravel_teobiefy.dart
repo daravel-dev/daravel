@@ -1,0 +1,15 @@
+/// teobiefy for Daravel: the encrypted payloads of Bali Melajah's Laravel
+/// API (protocol v1), so its clients talk to a Daravel backend unchanged.
+/// An X25519 handshake (`crypto_kx`) gives each client a pair of session
+/// keys; request and response payloads are sealed with ChaCha20-Poly1305
+/// IETF, as libsodium does.
+///
+/// ```dart
+/// Application.configure(basePath: '.').withTeobiefy()
+/// ```
+library;
+
+export 'src/crypto.dart';
+export 'src/middleware.dart';
+export 'src/sessions.dart';
+export 'src/setup.dart';

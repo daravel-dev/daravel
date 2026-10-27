@@ -38,6 +38,8 @@ sections:
       - { php: "$request->validate($rules)", dart: "await request.validate(rules)", symbol: Request.validate, async: true }
       - { php: "$request->all()", dart: "await request.all()", symbol: Request.all, async: true }
       - { php: "$request->input('a.b')", dart: "await request.input<T>('a.b')", symbol: Request.input, async: true }
+      - { php: "$request->merge([...])", dart: "await request.merge({...})", symbol: Request.merge, async: true }
+      - { php: "$request->replace([...])", dart: "request.replace({...})", symbol: Request.replace }
       - { php: "$request->has('key')", dart: "await request.has('key')", symbol: Request.has, async: true }
       - { php: "$request->integer('page', 1)", dart: "await request.integer('page', 1)", symbol: Request.integer, async: true }
       - { php: "$request->boolean('remember')", dart: "await request.boolean('remember')", symbol: Request.boolean, async: true }

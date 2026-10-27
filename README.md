@@ -466,6 +466,7 @@ The monorepo is a Dart pub workspace:
 | [`packages/daravel_teorion`](packages/daravel_teorion) | Request-driven query filters, laravel-teorion's format |
 | [`packages/daravel_livekit`](packages/daravel_livekit) | LiveKit server SDK: access tokens, rooms, verified webhooks |
 | [`packages/daravel_google`](packages/daravel_google) | Google: OAuth tokens with refresh, service accounts, Calendar events with Meet links |
+| [`packages/daravel_teobiefy`](packages/daravel_teobiefy) | Encrypted API payloads compatible with Bali Melajah's Laravel API |
 | [`packages/daravel_redis`](packages/daravel_redis) | Redis and Valkey for several servers: cache, locks, rate limits, queues, broadcasting |
 | [`packages/daravel_sqlite`](packages/daravel_sqlite) | SQLite driver package (`db:install sqlite`) |
 | [`packages/daravel_postgres`](packages/daravel_postgres) | PostgreSQL driver package (`db:install pgsql`) |
@@ -481,6 +482,7 @@ The eleven packages ([`daravel`](https://pub.dev/packages/daravel),
 [`daravel_teorion`](https://pub.dev/packages/daravel_teorion),
 [`daravel_livekit`](https://pub.dev/packages/daravel_livekit),
 [`daravel_google`](https://pub.dev/packages/daravel_google),
+[`daravel_teobiefy`](https://pub.dev/packages/daravel_teobiefy),
 [`daravel_sqlite`](https://pub.dev/packages/daravel_sqlite),
 [`daravel_postgres`](https://pub.dev/packages/daravel_postgres)) are released together
 under one version by the verified publisher
