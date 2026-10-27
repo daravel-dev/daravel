@@ -3,7 +3,7 @@ name: Publish to pub.dev
 # Automated publishing with GitHub OIDC (no stored credentials). One-time
 # setup per package on pub.dev: Admin → Automated publishing → enable GitHub
 # Actions for repository daravel-dev/daravel with tag pattern `v{{version}}`.
-# Then push a tag such as `v1.0.1` to publish all seven packages in
+# Then push a tag such as `v1.0.1` to publish all ten packages in
 # dependency order. Versions already on pub.dev are skipped, so re-running
 # the workflow after a partly manual release publishes the rest.
 on:
@@ -27,6 +27,9 @@ jobs:
       daravel_sqlite: ${{ steps.published.outputs.daravel_sqlite }}
       daravel_postgres: ${{ steps.published.outputs.daravel_postgres }}
       dartisan_cli: ${{ steps.published.outputs.dartisan_cli }}
+      daravel_teorion: ${{ steps.published.outputs.daravel_teorion }}
+      daravel_permission: ${{ steps.published.outputs.daravel_permission }}
+      daravel_redis: ${{ steps.published.outputs.daravel_redis }}
     steps:
       - uses: actions/checkout@v4
       - uses: dart-lang/setup-dart@v1
@@ -43,7 +46,7 @@ jobs:
         id: published
         run: |
           version="${GITHUB_REF_NAME#v}"
-          for package in daravel_lints daravel daravel_test daravel_mysql daravel_sqlite daravel_postgres dartisan_cli; do
+          for package in daravel_lints daravel daravel_test daravel_mysql daravel_sqlite daravel_postgres dartisan_cli daravel_teorion daravel_permission daravel_redis; do
             status=$(curl -s -o /dev/null -w '%{http_code}' "https://pub.dev/api/packages/$package/versions/$version")
             if [ "$status" = "200" ]; then state=published; else state=pending; fi
             echo "$package $version: $state"
@@ -100,3 +103,25 @@ jobs:
     uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
     with:
       working-directory: packages/dartisan_cli
+
+  daravel_teorion:
+    needs: [verify, daravel]
+    if: ${{ !failure() && !cancelled() && needs.verify.outputs.daravel_teorion != 'published' }}
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
+    with:
+      working-directory: packages/daravel_teorion
+
+  # The commands of these two build on dartisan_cli.
+  daravel_permission:
+    needs: [verify, daravel, dartisan_cli]
+    if: ${{ !failure() && !cancelled() && needs.verify.outputs.daravel_permission != 'published' }}
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
+    with:
+      working-directory: packages/daravel_permission
+
+  daravel_redis:
+    needs: [verify, daravel, dartisan_cli]
+    if: ${{ !failure() && !cancelled() && needs.verify.outputs.daravel_redis != 'published' }}
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
+    with:
+      working-directory: packages/daravel_redis
