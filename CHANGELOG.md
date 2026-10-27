@@ -117,6 +117,13 @@ match Laravel more closely.
   and call Google's token endpoint on every call. `UserCredentials` stores
   a refreshed token before keeping it, so a store that fails is retried on
   the next call instead of leaving memory and database apart.
+- A worker isolate that exits (a crash, a kill) no longer leaves ghosts
+  behind in the coordinator: its presence-channel members vanish from
+  `users` and `channel` and its broadcast ports are dropped
+  (`WorkerAwareService`, `Coordinator.forgetWorker`; `join` and
+  `subscribe` carry the worker's name). Members it held used to stay in
+  every presence channel for ever, and every respawn added a dead port
+  the fan-out kept sending to.
 - Supervisor: a worker that does not become ready within `readyTimeout`
   is killed; it used to go on booting, bind the port and serve untracked
   next to its replacement. `stop()` returns at once when every worker is

@@ -7,10 +7,13 @@ import 'coordinator.dart';
 /// A presence channel's members are users: a user with two tabs open is
 /// one member, added with the first connection and removed with the last,
 /// as Laravel Reverb counts them.
-final class ChannelMembershipService implements CoordinatorService {
-  /// channel → socket id → (user id, user info); the user is null on
-  /// channels that are not presence channels.
-  final Map<String, Map<String, (String?, Object?)>> _channels = {};
+final class ChannelMembershipService
+    implements CoordinatorService, WorkerAwareService {
+  /// channel → socket id → (user id, user info, worker); the user is null
+  /// on channels that are not presence channels, the worker is the isolate
+  /// that holds the socket (`join`'s `worker`), so a crashed worker's
+  /// sockets can be forgotten.
+  final Map<String, Map<String, (String?, Object?, String?)>> _channels = {};
 
   /// The last frame of each cache channel (`cache-…`, `private-cache-…`,
   /// `presence-cache-…`) and when it was sent: new subscribers get it.
@@ -32,6 +35,7 @@ final class ChannelMembershipService implements CoordinatorService {
           args['socket']! as String,
           args['user_id'] as String?,
           args['user_info'],
+          args['worker'] as String?,
         );
       case 'leave':
         return _leave(args['channel']! as String, args['socket']! as String);
@@ -73,10 +77,11 @@ final class ChannelMembershipService implements CoordinatorService {
     String socket,
     String? userId,
     Object? userInfo,
+    String? worker,
   ) {
     final sockets = _channels.putIfAbsent(channel, () => {});
     final wasMember = userId != null && _users(channel).containsKey(userId);
-    sockets[socket] = (userId, userInfo);
+    sockets[socket] = (userId, userInfo, worker);
     return {
       // The user's first connection: the others hear member_added.
       'added': userId != null && !wasMember,
@@ -101,9 +106,24 @@ final class ChannelMembershipService implements CoordinatorService {
 
   /// user id → user info, in join order.
   Map<String, Object?> _users(String channel) => {
-    for (final (userId, info) in (_channels[channel] ?? const {}).values)
+    for (final (userId, info, _) in (_channels[channel] ?? const {}).values)
       ?userId: info,
   };
+
+  /// Drops every socket [worker] held. The members it made vanish from
+  /// `users` and `channel`; their `member_removed` is not sent (the worker
+  /// that would have sent it is gone), so clients learn at the next member
+  /// event or by reading the member list again.
+  @override
+  void forgetWorker(String worker) {
+    for (final channel in _channels.keys.toList()) {
+      final sockets = _channels[channel]!
+        ..removeWhere((_, socket) => socket.$3 == worker);
+      if (sockets.isEmpty) {
+        _channels.remove(channel);
+      }
+    }
+  }
 
   Map<String, Object?> _info(String channel) {
     final sockets = _channels[channel];

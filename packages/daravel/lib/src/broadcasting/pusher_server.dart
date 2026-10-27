@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:math';
 
 import '../http/request.dart';
@@ -484,6 +485,7 @@ final class _Connection {
                 'socket': id,
                 'user_id': userId,
                 'user_info': userInfo,
+                'worker': Isolate.current.debugName,
               }))!
               as Map;
     } on Object {

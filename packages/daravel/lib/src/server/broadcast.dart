@@ -11,8 +11,13 @@ import 'coordinator.dart';
 /// An isolate registers its port for a channel when its first local
 /// listener subscribes and removes it when the last one leaves, so a
 /// message only crosses to isolates that have someone listening.
-final class BroadcastService implements CoordinatorService {
+final class BroadcastService implements CoordinatorService, WorkerAwareService {
   final Map<String, Set<SendPort>> _channels = <String, Set<SendPort>>{};
+
+  /// The ports each worker registered (`subscribe`'s `worker`), so a
+  /// crashed worker's ports are dropped: sends to them went nowhere, and a
+  /// respawn registered new ones, so the sets only grew.
+  final Map<String, Set<SendPort>> _byWorker = <String, Set<SendPort>>{};
   int _published = 0;
   int _delivered = 0;
 
@@ -20,13 +25,29 @@ final class BroadcastService implements CoordinatorService {
   String get name => 'broadcast';
 
   @override
+  void forgetWorker(String worker) {
+    final ports = _byWorker.remove(worker);
+    if (ports == null) {
+      return;
+    }
+    for (final channel in _channels.keys.toList()) {
+      final subscribers = _channels[channel]!..removeAll(ports);
+      if (subscribers.isEmpty) {
+        _channels.remove(channel);
+      }
+    }
+  }
+
+  @override
   Object? handle(String op, Map<String, Object?> args) {
     final channel = args['channel']! as String;
     switch (op) {
       case 'subscribe':
-        _channels
-            .putIfAbsent(channel, () => <SendPort>{})
-            .add(args['port']! as SendPort);
+        final port = args['port']! as SendPort;
+        _channels.putIfAbsent(channel, () => <SendPort>{}).add(port);
+        if (args['worker'] case final String worker) {
+          _byWorker.putIfAbsent(worker, () => <SendPort>{}).add(port);
+        }
         return null;
       case 'unsubscribe':
         final ports = _channels[channel];
@@ -138,6 +159,7 @@ final class Broadcaster {
       _registering[channel] = _coordinator.call('broadcast', 'subscribe', {
         'channel': channel,
         'port': _sendPort,
+        'worker': Isolate.current.debugName,
       });
     }
     await _registering[channel];

@@ -250,6 +250,10 @@ final class Supervisor {
     worker.isolate = null;
     worker.control = null;
     worker.port = null;
+    // Its presence members and broadcast ports would otherwise outlive it:
+    // ghosts in every presence channel, and a port per respawn that only
+    // ever grew.
+    coordinator.forgetWorker('daravel-worker-${worker.index}');
     if (_stopping) {
       _checkAllStopped();
       return;

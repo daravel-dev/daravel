@@ -18,6 +18,7 @@ final class _SlowService implements CoordinatorService {
 
 void main() {
   coordinatorRobustnessTests();
+  workerExitTests();
   rateLimitMemoryTests();
   late Coordinator coordinator;
 
@@ -411,5 +412,83 @@ void rateLimitMemoryTests() {
       2,
       reason: 'the hits were used; only unused leased tokens went back',
     );
+  });
+}
+
+void workerExitTests() {
+  test('a worker that exits takes its members and ports with it', () async {
+    final coordinator = createStandardCoordinator();
+    addTearDown(coordinator.close);
+    final channel = LocalCoordinatorChannel(coordinator);
+    Future<Object?> join(String worker, String socket, String user) =>
+        channel.call('channels', 'join', {
+          'channel': 'presence-room',
+          'socket': socket,
+          'user_id': user,
+          'user_info': {'name': user},
+          'worker': worker,
+        });
+    await join('daravel-worker-0', 's1', 'ana');
+    await join('daravel-worker-1', 's2', 'bo');
+    await join('daravel-worker-1', 's3', 'cy');
+    final inbox0 = ReceivePort();
+    final inbox1 = ReceivePort();
+    addTearDown(inbox0.close);
+    addTearDown(inbox1.close);
+    for (final (worker, port) in [
+      ('daravel-worker-0', inbox0.sendPort),
+      ('daravel-worker-1', inbox1.sendPort),
+    ]) {
+      await channel.call('broadcast', 'subscribe', {
+        'channel': 'news',
+        'port': port,
+        'worker': worker,
+      });
+    }
+    expect(
+      await channel.call('channels', 'users', {'channel': 'presence-room'}),
+      ['ana', 'bo', 'cy'],
+    );
+    expect(
+      await channel.call('broadcast', 'publish', {
+        'channel': 'news',
+        'message': 'x',
+      }),
+      2,
+    );
+
+    // Worker 1 crashes: its two sockets never sent `leave`, its port never
+    // `unsubscribe`.
+    coordinator.forgetWorker('daravel-worker-1');
+    expect(
+      await channel.call('channels', 'users', {'channel': 'presence-room'}),
+      ['ana'],
+      reason: 'no ghost members',
+    );
+    expect(
+      await channel.call('channels', 'channel', {'channel': 'presence-room'}),
+      {'occupied': true, 'subscription_count': 1, 'user_count': 1},
+    );
+    expect(
+      await channel.call('broadcast', 'publish', {
+        'channel': 'news',
+        'message': 'y',
+      }),
+      1,
+      reason: 'the dead port is gone',
+    );
+    // The channel empties once the last worker goes.
+    coordinator.forgetWorker('daravel-worker-0');
+    expect(
+      await channel.call('channels', 'channel', {'channel': 'presence-room'}),
+      {'occupied': false, 'subscription_count': 0, 'user_count': 0},
+    );
+    expect((coordinator.stats()['services'] as Map)['broadcast'], {
+      'channels': 0,
+      'published': 2,
+      'delivered': 3,
+    });
+    // Unknown workers are a no-op.
+    coordinator.forgetWorker('daravel-worker-9');
   });
 }

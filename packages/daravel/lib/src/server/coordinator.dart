@@ -66,6 +66,16 @@ abstract interface class CoordinatorService {
   Map<String, Object?> stats();
 }
 
+/// A [CoordinatorService] holding state on behalf of worker isolates
+/// (presence members, broadcast ports): told when a worker is gone, so
+/// what it registered does not outlive it. Workers name themselves with
+/// `Isolate.current.debugName` (`daravel-worker-N` under a supervisor).
+abstract interface class WorkerAwareService {
+  /// Forgets everything registered by [worker], which has exited without
+  /// unregistering it (a crash, a kill).
+  void forgetWorker(String worker);
+}
+
 /// Hosts `process`-scope services. Lives in the supervisor (main) isolate
 /// when serving with several workers; in-process otherwise.
 final class Coordinator {
@@ -91,6 +101,16 @@ final class Coordinator {
   CoordinatorService? service(String name) => _services[name];
 
   Iterable<String> get serviceNames => _services.keys;
+
+  /// Tells every [WorkerAwareService] that [worker] is gone (the
+  /// supervisor calls it on a worker's exit).
+  void forgetWorker(String worker) {
+    for (final service in _services.values) {
+      if (service is WorkerAwareService) {
+        (service as WorkerAwareService).forgetWorker(worker);
+      }
+    }
+  }
 
   /// Dispatches directly (used by [LocalCoordinatorChannel]).
   Future<Object?> handle(String service, String op, Map<String, Object?> args) {
