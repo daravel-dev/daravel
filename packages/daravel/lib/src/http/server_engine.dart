@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import '../foundation/application.dart';
 import '../foundation/env.dart';
 import '../logging/logger.dart';
 import '../support/request_id.dart';
+import 'http_exceptions.dart';
 import 'kernel.dart';
 import 'request.dart';
 import 'realtime.dart';
@@ -464,6 +466,37 @@ final class ServerEngine {
     unawaited(stop());
   }
 
+  /// Answers a request that could not be turned into a [Request] (see
+  /// [Request.fromHttpRequest]) with its [HttpException] status, or 400, and
+  /// closes the connection: nothing of it was read or trusted.
+  void _rejectMalformed(HttpRequest httpRequest, String id, Object error) {
+    final status = error is HttpException
+        ? error.status
+        : HttpStatus.badRequest;
+    final message = error is HttpException && status < 500
+        ? error.message
+        : 'Bad Request';
+    logger.warning(
+      'Malformed request refused with $status: $error',
+      <String, Object?>{'request_id': id},
+    );
+    try {
+      final response = httpRequest.response
+        ..statusCode = status
+        ..headers.contentType = ContentType.json
+        ..headers.set(HttpHeaders.connectionHeader, 'close')
+        ..headers.set(HttpHeaders.cacheControlHeader, 'no-store');
+      response.write(jsonEncode(<String, Object?>{'message': message}));
+      unawaited(
+        response.close().catchError((Object _) {
+          // Client gone.
+        }),
+      );
+    } on Object {
+      // Headers already sent or the socket is gone: nothing left to do.
+    }
+  }
+
   void _handle(HttpRequest httpRequest) {
     if (_mustShed(httpRequest)) {
       _shedRequest(httpRequest);
@@ -487,9 +520,14 @@ final class ServerEngine {
     final Request request;
     try {
       request = Request.fromHttpRequest(httpRequest, id: id);
-    } on Object {
+    } on Object catch (error) {
+      // This runs inside the server's listen callback: an error thrown here
+      // is uncaught and ends the isolate (the whole process with one
+      // isolate, a worker under a supervisor). A request dart:io accepted
+      // but the engine cannot represent is a client error: answer it.
       release();
-      rethrow;
+      _rejectMalformed(httpRequest, id, error);
+      return;
     }
     // The closure below lives as long as a WebSocket does: it lets go of
     // the HTTP request once the socket has taken over.

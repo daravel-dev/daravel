@@ -46,6 +46,13 @@ closely.
 
 ### Fixed
 
+- A request whose `Host`, `X-Forwarded-Host` or `X-Forwarded-Proto` header
+  does not parse as a URI (`Host: [::1`, a space) is answered with `400`
+  and the connection closed. `Request.fromHttpRequest` throws
+  `BadRequestHttpException` for it; it used to throw `FormatException`
+  out of the server's listen callback, which ended the serving isolate:
+  one malformed request stopped a single-isolate server, and five within a
+  minute made a supervisor exit with its crash-loop code.
 - `MemoryDisk.deleteDirectory('')` (the disk of `Storage.fake()`) refuses
   the disk root with a `StorageException`, as `LocalDisk` does. It used to
   return `false`, so a test passed where the real disk throws.

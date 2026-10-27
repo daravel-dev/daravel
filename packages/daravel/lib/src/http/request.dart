@@ -34,17 +34,37 @@ final class Request {
   });
 
   /// Wraps a `dart:io` request.
+  ///
+  /// Throws [BadRequestHttpException] for a request `dart:io` accepted but
+  /// that cannot be represented: `HttpRequest.requestedUri` parses the
+  /// `Host`, `X-Forwarded-Host` and `X-Forwarded-Proto` headers with
+  /// `Uri.parse` (an unterminated `[::1` or a space throws), and [Headers]
+  /// refuses control characters in values. The engine answers 400; without
+  /// this the error would escape the server's listen callback and take the
+  /// serving isolate down.
   factory Request.fromHttpRequest(
     HttpRequest httpRequest, {
     required String id,
-  }) => Request._(
-    method: httpRequest.method.toUpperCase(),
-    uri: httpRequest.requestedUri,
-    headers: Headers.fromHttpHeaders(httpRequest.headers),
-    remoteAddress: httpRequest.connectionInfo?.remoteAddress.address ?? '',
-    id: id,
-    bodyStream: httpRequest,
-  );
+  }) {
+    final Uri uri;
+    final Headers headers;
+    try {
+      uri = httpRequest.requestedUri;
+      headers = Headers.fromHttpHeaders(httpRequest.headers);
+    } on FormatException {
+      throw const BadRequestHttpException('Malformed request URI or Host.');
+    } on ArgumentError {
+      throw const BadRequestHttpException('Malformed request headers.');
+    }
+    return Request._(
+      method: httpRequest.method.toUpperCase(),
+      uri: uri,
+      headers: headers,
+      remoteAddress: httpRequest.connectionInfo?.remoteAddress.address ?? '',
+      id: id,
+      bodyStream: httpRequest,
+    );
+  }
 
   /// Builds a synthetic request without opening a socket.
   ///

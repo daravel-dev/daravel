@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Fixed: a request whose `Host`, `X-Forwarded-Host` or `X-Forwarded-Proto` header does not parse as a URI is answered with `400` (`Request.fromHttpRequest` throws `BadRequestHttpException`); the `FormatException` used to escape the server's listen callback and end the serving isolate.
+
 ## 1.13.0
 
 - Added load shedding per worker: `HTTP_MAX_IN_FLIGHT` (`ServeOptions.maxInFlight`) and `HTTP_MAX_QUEUE_DELAY` (`ServeOptions.maxQueueDelay`) refuse a request before routing with `503`, `Retry-After: 1` and `{"message":"Service Unavailable"}`; the health probes are never refused; `ServerEngine.inFlight`, `queueDelay`, `shedRequests` and `http_requests_shed_total`.
