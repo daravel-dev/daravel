@@ -136,6 +136,10 @@ final class Application {
   /// Whether the server is shutting down (health endpoint answers 503).
   bool get draining => _draining;
 
+  /// The liveness probe path (`withRouting(health: ...)`, `/up` by
+  /// default); `null` when the probes are turned off.
+  String? get healthPath => _builder._routing?.health;
+
   /// The running server engine, if any.
   ServerEngine? get engine => _engine;
 
@@ -869,6 +873,8 @@ final class Application {
     int? isolates,
     bool? embedQueue,
     bool? embedScheduler,
+    int? maxInFlight,
+    Duration? maxQueueDelay,
     ScheduleCommandRunner? commandRunner,
   }) async {
     final probe = factory();
@@ -880,6 +886,8 @@ final class Application {
       isolates: isolates,
       embedQueue: embedQueue,
       embedScheduler: embedScheduler,
+      maxInFlight: maxInFlight,
+      maxQueueDelay: maxQueueDelay,
     );
     probe._ensureServeable(options);
     final roles = [
@@ -918,7 +926,14 @@ final class Application {
     await boot();
     final resolved = options ?? ServeOptions.fromEnv(env);
     _ensureServeable(resolved);
-    final engine = ServerEngine(this, resolved, kernel: kernel, logger: logger);
+    final shed = container.make<AppMetrics>().shed;
+    final engine = ServerEngine(
+      this,
+      resolved,
+      kernel: kernel,
+      logger: logger,
+      onShed: () => shed.inc(),
+    );
     _engine = engine;
     await engine.start();
     onStarted?.call(engine);

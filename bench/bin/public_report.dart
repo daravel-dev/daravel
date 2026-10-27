@@ -29,6 +29,13 @@ void main(List<String> args) {
     for (final run in _directories(p.join(directory, 'pgsql'))) _load(run),
   ];
   final pgsql = _summarise(pgRuns);
+  final overloadRuns = [
+    for (final run in _directories(p.join(directory, 'overload'))) _load(run),
+  ];
+  final overload = {
+    for (final MapEntry(:key, :value) in _summarise(overloadRuns).entries)
+      if (key.$2.startsWith('11-overload-')) key: value,
+  };
   final curve = _summarise([
     if (Directory(p.join(directory, 'curve')).existsSync())
       _load(p.join(directory, 'curve')),
@@ -42,6 +49,8 @@ void main(List<String> args) {
         'throughput': [for (final s in throughput.values) s.toJson()],
         'pgsql_runs': pgRuns.length,
         'pgsql': [for (final s in pgsql.values) s.toJson()],
+        'overload_runs': overloadRuns.length,
+        'overload': [for (final s in overload.values) s.toJson()],
         'curve': [for (final s in curve.values) s.toJson()],
         'oha': oha,
       }),
@@ -72,6 +81,7 @@ void main(List<String> args) {
     pgsql,
     pgRuns.length,
   );
+  _overloadTables(overload, overloadRuns.length);
   _curveTables(curve);
   _ohaTable(oha);
 }
@@ -100,13 +110,17 @@ final class _Summary {
     : rps = [for (final s in samples) s['rps']! as int]..sort(),
       p99 = [for (final s in samples) s['p99_us']! as int]..sort(),
       errors = samples.fold(0, (sum, s) => sum + (s['errors']! as int)),
-      requests = samples.fold(0, (sum, s) => sum + (s['requests']! as int));
+      requests = samples.fold(0, (sum, s) => sum + (s['requests']! as int)),
+      shed = samples.fold(0, (sum, s) => sum + (s['shed'] as int? ?? 0));
 
   final _Key key;
   final List<int> rps;
   final List<int> p99;
   final int errors;
   final int requests;
+
+  /// `503`s refused by load shedding, over every run (scenario 11).
+  final int shed;
 
   int get medianRps => _median(rps);
   int get medianP99 => _median(p99);
@@ -123,6 +137,7 @@ final class _Summary {
     'p99_us_median': medianP99,
     'requests': requests,
     'errors': errors,
+    if (shed > 0) 'shed': shed,
   };
 }
 
@@ -238,6 +253,54 @@ void _throughputTables(
         )
         ..writeln('| :-- | --: | --: | --: | --: |');
       rows.forEach(stdout.writeln);
+    }
+  }
+}
+
+/// Scenario 11: one table per worker count, a row per server variant.
+void _overloadTables(Map<_Key, _Summary> overload, int runs) {
+  if (overload.isEmpty) {
+    return;
+  }
+  const variants = {
+    '11-overload-unlimited': 'no limit',
+    '11-overload-in-flight': '`HTTP_MAX_IN_FLIGHT`',
+    '11-overload-queue-delay': '`HTTP_MAX_IN_FLIGHT` + `HTTP_MAX_QUEUE_DELAY`',
+  };
+  stdout.writeln(
+    '\n## Overload (Daravel)\n\nScenario 2\'s endpoint flooded with far more '
+    'keep-alive connections than the workers can serve, without a limit and '
+    'with [load shedding](https://github.com/daravel-dev/daravel/blob/main/'
+    'docs/guide/deployment.md#load-shedding). '
+    'Goodput counts successful responses only, p99 is of those; refused '
+    'requests got `503` with `Retry-After` and are retried at once by the '
+    'load generator, the worst case for the server. Median of $runs '
+    'run${runs == 1 ? '' : 's'}.',
+  );
+  final workers = {for (final k in overload.keys) k.$3}.toList()..sort();
+  for (final w in workers) {
+    final rows = [
+      for (final MapEntry(key: id, value: label) in variants.entries)
+        for (final s in overload.values)
+          if (s.key.$2 == id && s.key.$3 == w) (label, s),
+    ];
+    if (rows.isEmpty) {
+      continue;
+    }
+    stdout
+      ..writeln(
+        '\n### $w worker${w == 1 ? '' : 's'}, '
+        '${rows.first.$2.key.$4} connections\n',
+      )
+      ..writeln('| Limit | Goodput | p99 | Refused (503) | Errors |')
+      ..writeln('| :-- | --: | --: | --: | --: |');
+    for (final (label, s) in rows) {
+      final attempts = s.requests + s.shed;
+      final share = attempts == 0 ? 0 : s.shed * 100 / attempts;
+      stdout.writeln(
+        '| $label | ${_count(s.medianRps)} req/s | ${_ms(s.medianP99)} '
+        '| ${share.toStringAsFixed(1)}% | ${_count(s.errors)} |',
+      );
     }
   }
 }

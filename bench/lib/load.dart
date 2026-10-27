@@ -13,17 +13,28 @@ final class LoadSpec {
   final Object? Function(int sequence)? json;
 }
 
-/// Result of a load run: throughput and latency percentiles.
+/// Result of a load run: throughput and latency percentiles of the
+/// successful requests; [shed] counts the `503`s a server refused with
+/// load shedding (`HTTP_MAX_IN_FLIGHT`), apart from other errors.
 final class LoadResult {
-  LoadResult(this.requests, this.errors, this.elapsed, List<int> latencies)
-    : _sorted = (List<int>.of(latencies)..sort());
+  LoadResult(
+    this.requests,
+    this.errors,
+    this.elapsed,
+    List<int> latencies, {
+    this.shed = 0,
+  }) : _sorted = (List<int>.of(latencies)..sort());
 
   final int requests;
   final int errors;
+  final int shed;
   final Duration elapsed;
   final List<int> _sorted;
 
   double get rps => requests / (elapsed.inMicroseconds / 1e6);
+
+  /// Share of attempts the server refused with `503`.
+  double get shedShare => requests + shed == 0 ? 0 : shed / (requests + shed);
 
   /// Latency percentile in microseconds.
   int percentile(double p) => _sorted.isEmpty
@@ -37,6 +48,7 @@ final class LoadResult {
     'p50_us': percentile(50),
     'p95_us': percentile(95),
     'p99_us': percentile(99),
+    if (shed > 0) 'shed': shed,
   };
 }
 
@@ -53,7 +65,7 @@ Future<LoadResult> runLoad(
   Duration warmup = const Duration(seconds: 2),
 }) async {
   final perIsolate = max(1, connections ~/ clientIsolates);
-  Future<(int, int, List<int>)> spawn(Duration d) =>
+  Future<_WorkerResult> spawn(Duration d) =>
       Isolate.run(() => _worker(port, spec, perIsolate, d));
   await Future.wait([for (var i = 0; i < clientIsolates; i++) spawn(warmup)]);
   final watch = Stopwatch()..start();
@@ -62,14 +74,17 @@ Future<LoadResult> runLoad(
   ]);
   final elapsed = watch.elapsed;
   return LoadResult(
-    parts.fold(0, (sum, p) => sum + p.$1),
-    parts.fold(0, (sum, p) => sum + p.$2),
+    parts.fold(0, (sum, p) => sum + p.ok),
+    parts.fold(0, (sum, p) => sum + p.errors),
     elapsed,
-    [for (final p in parts) ...p.$3],
+    [for (final p in parts) ...p.latencies],
+    shed: parts.fold(0, (sum, p) => sum + p.shed),
   );
 }
 
-Future<(int, int, List<int>)> _worker(
+typedef _WorkerResult = ({int ok, int errors, int shed, List<int> latencies});
+
+Future<_WorkerResult> _worker(
   int port,
   LoadSpec spec,
   int connections,
@@ -81,6 +96,7 @@ Future<(int, int, List<int>)> _worker(
   final latencies = <int>[];
   var ok = 0;
   var errors = 0;
+  var shed = 0;
   var sequence = Isolate.current.hashCode;
   await Future.wait([
     for (var c = 0; c < connections; c++)
@@ -102,6 +118,11 @@ Future<(int, int, List<int>)> _worker(
             if (response.statusCode < 400) {
               ok++;
               latencies.add(watch.elapsedMicroseconds);
+            } else if (response.statusCode == HttpStatus.serviceUnavailable) {
+              // Load shedding closes the connection; the next attempt opens
+              // one again, at once: the harness is a client that ignores
+              // `Retry-After`, which is the worst case for the server.
+              shed++;
             } else {
               errors++;
             }
@@ -112,5 +133,5 @@ Future<(int, int, List<int>)> _worker(
       }(),
   ]);
   client.close(force: true);
-  return (ok, errors, latencies);
+  return (ok: ok, errors: errors, shed: shed, latencies: latencies);
 }

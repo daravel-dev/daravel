@@ -24,6 +24,8 @@ final class ServeOptions {
     this.readyTimeout = const Duration(seconds: 30),
     this.embedQueue = false,
     this.embedScheduler = false,
+    this.maxInFlight,
+    this.maxQueueDelay,
   });
 
   /// Reads `APP_HOST` / `APP_PORT`, overridable by explicit arguments.
@@ -39,6 +41,8 @@ final class ServeOptions {
     int? isolates,
     bool? embedQueue,
     bool? embedScheduler,
+    int? maxInFlight,
+    Duration? maxQueueDelay,
   }) {
     final platformPort = env.has('APP_PORT') ? null : env.maybeString('PORT');
     final platform = platformPort != null && int.tryParse(platformPort) != null;
@@ -58,7 +62,36 @@ final class ServeOptions {
       ),
       embedQueue: embedQueue ?? env.boolean('SERVER_EMBED_QUEUE'),
       embedScheduler: embedScheduler ?? env.boolean('SERVER_EMBED_SCHEDULER'),
+      maxInFlight: maxInFlight == null
+          ? _maxInFlightFromEnv(env)
+          : maxInFlight == 0
+          ? null
+          : maxInFlight,
+      maxQueueDelay: maxQueueDelay == null
+          ? _maxQueueDelayFromEnv(env)
+          : maxQueueDelay == Duration.zero
+          ? null
+          : maxQueueDelay,
     );
+  }
+
+  /// `HTTP_MAX_QUEUE_DELAY`: unset, empty or `0` means no limit.
+  static Duration? _maxQueueDelayFromEnv(Env env) {
+    final value = env.duration('HTTP_MAX_QUEUE_DELAY', Duration.zero);
+    return value <= Duration.zero ? null : value;
+  }
+
+  /// `HTTP_MAX_IN_FLIGHT`: unset, empty or `0` means no limit.
+  static int? _maxInFlightFromEnv(Env env) {
+    final value = env.integer('HTTP_MAX_IN_FLIGHT', 0);
+    if (value < 0) {
+      throw ArgumentError.value(
+        value,
+        'HTTP_MAX_IN_FLIGHT',
+        'must be a positive integer, or 0 for no limit',
+      );
+    }
+    return value == 0 ? null : value;
   }
 
   final String host;
@@ -89,6 +122,27 @@ final class ServeOptions {
   /// Runs the scheduler in its own isolate, so no cron entry is needed
   /// (`serve --embed-scheduler`, `SERVER_EMBED_SCHEDULER`).
   final bool embedScheduler;
+
+  /// Load shedding (`HTTP_MAX_IN_FLIGHT`, `serve --max-in-flight`): the
+  /// most requests one worker isolate handles at once. Beyond it a request
+  /// is refused at once with `503 Service Unavailable` and `Retry-After: 1`,
+  /// before routing, middleware or a request scope run, so an overloaded
+  /// worker fails fast instead of queueing until every client times out.
+  /// The health probes are never refused. `null` (the default) sets no
+  /// limit. Under a supervisor the limit is per worker, so the server
+  /// takes up to `APP_ISOLATES × HTTP_MAX_IN_FLIGHT` requests at once.
+  final int? maxInFlight;
+
+  /// Load shedding by event-loop lag (`HTTP_MAX_QUEUE_DELAY`,
+  /// `serve --max-queue-delay`): a timer measures how late the worker's
+  /// event loop runs it, which is how long a request has been waiting in
+  /// the socket and event queues before the engine even sees it. Above this
+  /// delay requests are refused with `503` like [maxInFlight]. This is the
+  /// limit that catches synchronous work: a handler that only touches
+  /// SQLite or the CPU finishes within one event-loop turn, so it never
+  /// counts as in flight, and the queue in front of it is invisible to
+  /// [maxInFlight]. `null` (the default) turns it off.
+  final Duration? maxQueueDelay;
 }
 
 /// Binds the `dart:io` server, wraps every request in a request scope and
@@ -100,6 +154,7 @@ final class ServerEngine {
     required this.kernel,
     required this.logger,
     this.prepare,
+    this.onShed,
   });
 
   final Application app;
@@ -112,14 +167,126 @@ final class ServerEngine {
   /// authenticate socket requests (`actingAs`).
   final FutureOr<void> Function(Request request)? prepare;
 
+  /// Called for every request refused by load shedding (the application
+  /// counts them in `http_requests_shed_total`).
+  final void Function()? onShed;
+
   HttpServer? _server;
   final Completer<void> _done = Completer<void>();
   final List<StreamSubscription<ProcessSignal>> _signals =
       <StreamSubscription<ProcessSignal>>[];
   bool _stopping = false;
+  int _inFlight = 0;
+  int _shed = 0;
+  int _lastShedLogMs = -1;
+  late final Set<String> _neverShed = _healthPaths();
+  Timer? _lagTimer;
+  final Stopwatch _lagClock = Stopwatch();
+  int _lagExpectedUs = 0;
+  int _lagUs = 0;
+
+  /// How often the lag timer runs; the measured lag is at least this
+  /// coarse, so the smallest useful [ServeOptions.maxQueueDelay] is a few
+  /// ticks.
+  static const Duration lagTick = Duration(milliseconds: 5);
+
+  /// Requests this engine is handling right now (open WebSockets are not
+  /// counted once upgraded; see [openWebSockets]).
+  int get inFlight => _inFlight;
+
+  /// Requests refused with 503 because [ServeOptions.maxInFlight] or
+  /// [ServeOptions.maxQueueDelay] was reached.
+  int get shedRequests => _shed;
+
+  /// The event loop's current lag: how late the last lag tick ran, smoothed
+  /// over the last few ticks, or how overdue the next tick already is when
+  /// that is more. Zero without [ServeOptions.maxQueueDelay].
+  Duration get queueDelay => Duration(microseconds: _currentLagUs());
+
+  /// Requests queued behind synchronous work reach [_handle] before the late
+  /// tick has run and updated the average, so a tick overdue right now
+  /// counts as lag already.
+  int _currentLagUs() {
+    if (_lagTimer == null) {
+      return _lagUs;
+    }
+    final overdue = _lagClock.elapsedMicroseconds - _lagExpectedUs;
+    return overdue > _lagUs ? overdue : _lagUs;
+  }
+
+  void _startLagTimer() {
+    if (options.maxQueueDelay == null || _lagTimer != null) {
+      return;
+    }
+    _lagClock.start();
+    _lagExpectedUs = lagTick.inMicroseconds;
+    _lagTimer = Timer.periodic(lagTick, (_) {
+      final now = _lagClock.elapsedMicroseconds;
+      final late = (now - _lagExpectedUs).clamp(0, 1 << 40);
+      // A short moving average: a single late tick (a GC pause) does not
+      // shed, a saturated loop does within a few ticks.
+      _lagUs = (_lagUs * 3 + late) ~/ 4;
+      _lagExpectedUs = now + lagTick.inMicroseconds;
+    });
+  }
 
   /// Completes once the server has stopped.
   Future<void> get done => _done.future;
+
+  Set<String> _healthPaths() {
+    final health = app.healthPath;
+    if (health == null) {
+      return const <String>{};
+    }
+    return <String>{health, '${health == '/' ? '' : health}/ready'};
+  }
+
+  /// Whether [httpRequest] must be refused: the limit is reached and the
+  /// path is not a health probe (a liveness probe that fails under load
+  /// would get the worker restarted, which is the opposite of help).
+  bool _mustShed(HttpRequest httpRequest) {
+    final limit = options.maxInFlight;
+    final delay = options.maxQueueDelay;
+    final overloaded =
+        (limit != null && _inFlight >= limit) ||
+        (delay != null && _currentLagUs() > delay.inMicroseconds);
+    return overloaded && !_neverShed.contains(httpRequest.uri.path);
+  }
+
+  /// Answers `503` without routing, scope or body read. A body-less
+  /// request (most `GET`s) keeps its keep-alive connection, which costs the
+  /// server less than a reconnect; one whose body was not read has its
+  /// connection closed by `dart:io`, so a client streaming into an
+  /// overloaded worker is not kept.
+  void _shedRequest(HttpRequest httpRequest) {
+    _shed++;
+    onShed?.call();
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (now - _lastShedLogMs >= 1000) {
+      _lastShedLogMs = now;
+      final limit = options.maxInFlight;
+      final reason = limit != null && _inFlight >= limit
+          ? '$limit requests in flight'
+          : 'event loop '
+                '${(_currentLagUs() / 1000).toStringAsFixed(0)}ms behind';
+      logger.warning(
+        'Load shedding: $reason; refused '
+        '${httpRequest.method} ${httpRequest.uri.path} with 503 '
+        '($_shed refused so far).',
+      );
+    }
+    final response = httpRequest.response
+      ..statusCode = HttpStatus.serviceUnavailable
+      ..headers.contentType = ContentType.json
+      ..headers.set(HttpHeaders.retryAfterHeader, '1')
+      ..headers.set(HttpHeaders.cacheControlHeader, 'no-store');
+    response.write('{"message":"Service Unavailable"}');
+    unawaited(
+      response.close().catchError((Object _) {
+        // Client gone.
+      }),
+    );
+  }
 
   /// The bound port (useful when `port: 0` was requested).
   int? get port => _server?.port;
@@ -142,6 +309,7 @@ final class ServerEngine {
     server.defaultResponseHeaders.clear();
     kernel.defaultTimeout = options.requestTimeout;
     _server = server;
+    _startLagTimer();
     if (options.handleSignals) {
       _installSignalHandlers();
     }
@@ -241,6 +409,8 @@ final class ServerEngine {
     }
     _stopping = true;
     app.markDraining();
+    _lagTimer?.cancel();
+    _lagTimer = null;
     for (final subscription in _signals) {
       await subscription.cancel();
     }
@@ -295,9 +465,32 @@ final class ServerEngine {
   }
 
   void _handle(HttpRequest httpRequest) {
+    if (_mustShed(httpRequest)) {
+      _shedRequest(httpRequest);
+      return;
+    }
+    // The slot is held until the response is written and terminate() has
+    // run (deferred work runs on this worker's event loop too), or until a
+    // WebSocket upgrade: a session can last hours and holds a socket, not a
+    // slot (see [openWebSockets]). Released exactly once on every path.
+    _inFlight++;
+    var released = false;
+    void release() {
+      if (!released) {
+        released = true;
+        _inFlight--;
+      }
+    }
+
     final stopwatch = Stopwatch()..start();
     final id = RequestId.generate();
-    final request = Request.fromHttpRequest(httpRequest, id: id);
+    final Request request;
+    try {
+      request = Request.fromHttpRequest(httpRequest, id: id);
+    } on Object {
+      release();
+      rethrow;
+    }
     // The closure below lives as long as a WebSocket does: it lets go of
     // the HTTP request once the socket has taken over.
     HttpRequest? raw = httpRequest;
@@ -307,47 +500,52 @@ final class ServerEngine {
           .runScoped<void>(
             'request',
             (scope) async {
-              scope.put<Request>(request);
-              Response response;
               try {
-                await prepare?.call(request);
-                response = await kernel.handle(request);
-              } catch (error, stackTrace) {
-                logger.error(
-                  'Unhandled error while handling ${request.method} ${request.path}',
-                  error: error,
-                  stackTrace: stackTrace,
-                  context: <String, Object?>{'request_id': id},
-                );
-                response = Response.json(const <String, Object?>{
-                  'message': 'Server Error',
-                }, status: 500);
-              }
-              final onSocket = response.webSocket;
-              if (onSocket != null) {
-                final socket = await _upgrade(raw!, request, response, id);
-                raw = null;
-                request.detachBody();
-                if (socket != null) {
-                  await _session(socket, request, response, onSocket, id);
+                scope.put<Request>(request);
+                Response response;
+                try {
+                  await prepare?.call(request);
+                  response = await kernel.handle(request);
+                } catch (error, stackTrace) {
+                  logger.error(
+                    'Unhandled error while handling ${request.method} ${request.path}',
+                    error: error,
+                    stackTrace: stackTrace,
+                    context: <String, Object?>{'request_id': id},
+                  );
+                  response = Response.json(const <String, Object?>{
+                    'message': 'Server Error',
+                  }, status: 500);
                 }
-                return;
-              }
-              try {
-                await response.writeTo(raw!.response);
-              } catch (error) {
-                logger.warning(
-                  'Failed to write response for request $id: $error',
+                final onSocket = response.webSocket;
+                if (onSocket != null) {
+                  final socket = await _upgrade(raw!, request, response, id);
+                  raw = null;
+                  request.detachBody();
+                  release();
+                  if (socket != null) {
+                    await _session(socket, request, response, onSocket, id);
+                  }
+                  return;
+                }
+                try {
+                  await response.writeTo(raw!.response);
+                } catch (error) {
+                  logger.warning(
+                    'Failed to write response for request $id: $error',
+                  );
+                }
+                // Time to response, without terminate() and deferred work.
+                final elapsed = stopwatch.elapsedMicroseconds / 1000;
+                await kernel.terminate(request, response);
+                logger.info(
+                  '${request.method} ${request.path} ${response.status} '
+                  '${elapsed.toStringAsFixed(2)}ms',
+                  <String, Object?>{'request_id': id},
                 );
+              } finally {
+                release();
               }
-              // Time to response, without terminate() and deferred work.
-              final elapsed = stopwatch.elapsedMicroseconds / 1000;
-              await kernel.terminate(request, response);
-              logger.info(
-                '${request.method} ${request.path} ${response.status} '
-                '${elapsed.toStringAsFixed(2)}ms',
-                <String, Object?>{'request_id': id},
-              );
             },
             onUncaughtError: (error, stackTrace) => logger.error(
               'Uncaught asynchronous error in request $id',
@@ -356,6 +554,7 @@ final class ServerEngine {
             ),
           )
           .catchError((Object error, StackTrace stackTrace) {
+            release();
             logger.error(
               'Request scope failed for $id',
               error: error,

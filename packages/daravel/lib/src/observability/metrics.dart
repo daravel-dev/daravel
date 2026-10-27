@@ -344,6 +344,11 @@ final class AppMetrics {
       'Requests currently being handled.',
     );
     jobs = registry.counter('queue_jobs_total', 'Queue jobs by status.');
+    shed = registry.counter(
+      'http_requests_shed_total',
+      'Requests refused with 503 by load shedding '
+          '(HTTP_MAX_IN_FLIGHT, HTTP_MAX_QUEUE_DELAY).',
+    );
     registry.gauge(
       'process_resident_memory_bytes',
       'Resident set size of the process.',
@@ -360,6 +365,7 @@ final class AppMetrics {
   late final Histogram duration;
   late final Gauge inFlight;
   late final Counter jobs;
+  late final Counter shed;
 
   String get _worker =>
       Isolate.current.debugName ?? '${Isolate.current.hashCode}';

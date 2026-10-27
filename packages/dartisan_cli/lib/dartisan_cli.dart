@@ -196,6 +196,18 @@ final class ServeCommand extends DaravelCommand {
         'isolates',
         help: 'HTTP worker isolates (default: APP_ISOLATES or 1).',
       )
+      ..addOption(
+        'max-in-flight',
+        help:
+            'Requests one worker handles at once before answering 503 '
+            '(default: HTTP_MAX_IN_FLIGHT, 0 for no limit).',
+      )
+      ..addOption(
+        'max-queue-delay',
+        help:
+            'Event-loop lag, like 200ms, above which a worker answers 503 '
+            '(default: HTTP_MAX_QUEUE_DELAY, 0 for no limit).',
+      )
       ..addFlag(
         'watch',
         negatable: false,
@@ -234,6 +246,26 @@ final class ServeCommand extends DaravelCommand {
     if (isolatesValue != null && (isolates == null || isolates < 1)) {
       usageException('--isolates must be a positive integer.');
     }
+    final maxInFlightValue = results['max-in-flight'] as String?;
+    final maxInFlight = maxInFlightValue == null
+        ? null
+        : int.tryParse(maxInFlightValue);
+    if (maxInFlightValue != null && (maxInFlight == null || maxInFlight < 0)) {
+      usageException('--max-in-flight must be a positive integer, or 0.');
+    }
+    final maxQueueDelayValue = results['max-queue-delay'] as String?;
+    Duration? maxQueueDelay;
+    if (maxQueueDelayValue != null) {
+      try {
+        maxQueueDelay = Env.fromMap({
+          'HTTP_MAX_QUEUE_DELAY': maxQueueDelayValue,
+        }).duration('HTTP_MAX_QUEUE_DELAY');
+      } on EnvException {
+        usageException(
+          '--max-queue-delay must be a duration like 200ms or 1s, or 0.',
+        );
+      }
+    }
     if (results['watch'] as bool) {
       final server = DevServer(
         root: ProjectPaths.locate().root,
@@ -262,6 +294,9 @@ final class ServeCommand extends DaravelCommand {
       isolates: isolates,
       embedQueue: (results['embed-queue'] as bool) ? true : null,
       embedScheduler: (results['embed-scheduler'] as bool) ? true : null,
+      // 0 on the command line means "no limit" even when the .env sets one.
+      maxInFlight: maxInFlight,
+      maxQueueDelay: maxQueueDelay,
       commandRunner: dartisan is DartisanRunner ? dartisan.runNamed : null,
     );
   }

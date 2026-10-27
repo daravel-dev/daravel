@@ -1,4 +1,4 @@
-<!-- source: performance.md sha256:1d6af2d1d41d -->
+<!-- source: performance.md sha256:d772af2452fa -->
 # Performa
 
 Daravel tidak membuat klaim performa tanpa angka yang bisa direproduksi
@@ -18,6 +18,10 @@ Harness ini melaporkan request per detik dan latensi p50/p95/p99 untuk:
 4. eager loading dua relasi,
 5. route yang di-throttle (biaya coordinator),
 6. login (bcrypt di compute pool),
+11. overload: skenario 2 di bawah koneksi yang jauh lebih banyak daripada
+    yang bisa dilayani worker, tanpa batas, dengan `HTTP_MAX_IN_FLIGHT`, dan
+    dengan tambahan `HTTP_MAX_QUEUE_DELAY` (lihat
+    [Deployment](deployment.md#load-shedding)),
 
 ditambah microbenchmark Zone/facade, waktu startup, dan RSS saat idle untuk
 setiap jumlah isolate. Setiap skenario juga dinyatakan relatif terhadap

@@ -136,7 +136,7 @@ Future<void> main(List<String> args) async {
       'rss_idle_kb': await _rssKb(server.process.pid),
     });
     for (final (name, spec) in _scenarios) {
-      if (!options.scenarios.any(name.startsWith)) {
+      if (!options.selects(name)) {
         continue;
       }
       for (final connections in options.connections) {
@@ -155,6 +155,18 @@ Future<void> main(List<String> args) async {
       }
     }
     await server.stop();
+
+    if (options.selects(_overloadScenario)) {
+      results.addAll(
+        await _measureOverload(
+          options,
+          exe('server'),
+          serverEnv,
+          port,
+          isolates,
+        ),
+      );
+    }
   }
 
   final report = {
@@ -173,7 +185,9 @@ Future<void> main(List<String> args) async {
   };
   final targets = _targets([
     for (final r in results)
-      if (r['connections'] == options.connections.first) r,
+      if (r['connections'] == options.connections.first ||
+          (r['scenario']! as String).startsWith(_overloadScenario))
+        r,
   ]);
   report['targets'] = targets;
   stdout.writeln('\nstartup: $startup\ntargets: $targets');
@@ -188,6 +202,14 @@ Future<void> main(List<String> args) async {
 }
 
 /// Scenarios 1–6 of §10.2 (7 multipart and 8 SSE wait for Tier 2).
+/// Scenario 11: the server under more concurrent connections than it can
+/// serve, without a limit, with `HTTP_MAX_IN_FLIGHT`, and with
+/// `HTTP_MAX_QUEUE_DELAY` added.
+const String _overloadScenario = '11-overload';
+
+/// The endpoint of scenario 2, so its normal-load numbers are the reference.
+const LoadSpec _overloadSpec = LoadSpec('GET', '/api/users/42');
+
 final List<(String, LoadSpec)> _scenarios = [
   ('1-ping', const LoadSpec('GET', '/ping')),
   ('2-show-json-query', const LoadSpec('GET', '/api/users/42')),
@@ -217,6 +239,68 @@ Future<LoadResult> _measure(
   duration: options.duration,
 );
 
+/// Scenario 11. Floods scenario 2's endpoint with `--overload-connections`
+/// keep-alive connections (far above what the workers can serve at once)
+/// against three servers in turn: without a limit, with
+/// `HTTP_MAX_IN_FLIGHT=--max-in-flight`, and with
+/// `HTTP_MAX_QUEUE_DELAY=--max-queue-delay` added. Without a limit every
+/// connection queues and p99 grows with the connection count. The in-flight
+/// limit alone changes little here: scenario 2's handler does synchronous
+/// SQLite work and finishes inside one event-loop turn, so the queue forms
+/// in front of the engine where that limit cannot see it. The queue-delay
+/// limit bounds that queue; the rest is refused with 503, and goodput should
+/// stay about the same since the workers are saturated either way. Latency
+/// percentiles are of the successful requests only.
+Future<List<Map<String, Object?>>> _measureOverload(
+  _Options options,
+  String executable,
+  Map<String, String> env,
+  int port,
+  int isolates,
+) async {
+  final results = <Map<String, Object?>>[];
+  final limit = options.maxInFlight;
+  final delay = options.maxQueueDelay;
+  final connections = options.overloadConnections;
+  for (final (suffix, extra) in [
+    ('unlimited', const <String, String>{'HTTP_MAX_IN_FLIGHT': '0'}),
+    ('in-flight', {'HTTP_MAX_IN_FLIGHT': '$limit'}),
+    (
+      'queue-delay',
+      {
+        'HTTP_MAX_IN_FLIGHT': '$limit',
+        'HTTP_MAX_QUEUE_DELAY': '${delay.inMilliseconds}ms',
+      },
+    ),
+  ]) {
+    final server = await _Server.start(
+      executable,
+      {...env, ...extra},
+      port,
+      cpus: options.serverCpus,
+    );
+    final LoadResult result;
+    try {
+      result = await _measure(options, port, _overloadSpec, connections);
+    } finally {
+      await server.stop();
+    }
+    final name = '$_overloadScenario-$suffix';
+    results.add({
+      'scenario': name,
+      'isolates': isolates,
+      'connections': connections,
+      'max_in_flight': int.parse(extra['HTTP_MAX_IN_FLIGHT']!),
+      'max_queue_delay_ms': extra.containsKey('HTTP_MAX_QUEUE_DELAY')
+          ? delay.inMilliseconds
+          : 0,
+      ...result.toJson(),
+    });
+    _print(name, isolates, connections, result);
+  }
+  return results;
+}
+
 void _print(
   String name,
   int isolates,
@@ -227,11 +311,14 @@ void _print(
   final relative = baseline == null
       ? ''
       : '  (${(r.rps / baseline * 100).toStringAsFixed(1)}% of dart:io)';
+  final shed = r.shed == 0
+      ? ''
+      : '  shed ${r.shed} (${(r.shedShare * 100).toStringAsFixed(1)}%)';
   stdout.writeln(
     '${name.padRight(26)} isolates=$isolates  c=$connections  '
     '${r.rps.toStringAsFixed(0).padLeft(7)} req/s  '
     'p50 ${r.percentile(50)} µs  p95 ${r.percentile(95)} µs  '
-    'p99 ${r.percentile(99)} µs  errors ${r.errors}$relative',
+    'p99 ${r.percentile(99)} µs  errors ${r.errors}$shed$relative',
   );
 }
 
@@ -256,6 +343,20 @@ Map<String, Object?> _targets(List<Map<String, Object?>> results) {
         1e6 / (throttled['rps']! as int) - 1e6 / (ping['rps']! as int);
     out['throttle_added_us_per_request'] =
         '${added.toStringAsFixed(1)} (target ≤ 100; ADR-024 aims < 30)';
+  }
+  for (final isolates in {1, 4}) {
+    final unlimited = find('$_overloadScenario-unlimited', isolates);
+    final shed = find('$_overloadScenario-queue-delay', isolates);
+    if (unlimited == null || shed == null) {
+      continue;
+    }
+    final p99Before = unlimited['p99_us']! as int;
+    final p99After = shed['p99_us']! as int;
+    final goodput = (shed['rps']! as int) / max(1, unlimited['rps']! as int);
+    out['overload_p99_isolates_$isolates'] =
+        '$p99Before → $p99After µs with HTTP_MAX_QUEUE_DELAY='
+        '${shed['max_queue_delay_ms']}ms (target ≤ 50% of unlimited; '
+        'goodput ${(goodput * 100).toStringAsFixed(0)}%, target ≥ 90%)';
   }
   final ping4 = find('1-ping', 4);
   if (ping1 != null && ping4 != null) {
@@ -414,6 +515,9 @@ final class _Options {
     required this.external,
     required this.serve,
     required this.port,
+    required this.overloadConnections,
+    required this.maxInFlight,
+    required this.maxQueueDelay,
     this.out,
     this.compare,
     this.database,
@@ -441,7 +545,7 @@ final class _Options {
             '${max(2, Platform.numberOfProcessors ~/ 2)}',
       ),
       isolates: (value('isolates') ?? '1,4').split(',').map(int.parse).toList(),
-      scenarios: (value('scenarios') ?? '1,2,3,4,5,6').split(','),
+      scenarios: (value('scenarios') ?? '1,2,3,4,5,6,11').split(','),
       skipBuild: args.contains('--skip-build'),
       threshold: double.parse(value('threshold') ?? '0.10'),
       out: value('out'),
@@ -459,8 +563,18 @@ final class _Options {
       serverCpus: value('server-cpus'),
       serve: args.contains('--serve'),
       port: int.parse(value('port') ?? '18600'),
+      overloadConnections: int.parse(value('overload-connections') ?? '512'),
+      maxInFlight: int.parse(value('max-in-flight') ?? '32'),
+      maxQueueDelay: Duration(
+        milliseconds: int.parse(value('max-queue-delay') ?? '50'),
+      ),
     );
   }
+
+  /// Whether [scenario] (`<id>-<name>`) was selected with `--scenarios`:
+  /// ids match exactly, so `1` selects `1-ping` and not `11-overload`.
+  bool selects(String scenario) =>
+      scenarios.any((id) => scenario.startsWith('$id-'));
 
   final Duration duration;
 
@@ -487,6 +601,18 @@ final class _Options {
 
   /// Cores for the servers (`--server-cpus=0-3`, Linux, via `taskset`).
   final String? serverCpus;
+
+  /// Scenario 11: keep-alive connections to flood the server with
+  /// (`--overload-connections`, default 512).
+  final int overloadConnections;
+
+  /// Scenario 11: `HTTP_MAX_IN_FLIGHT` of the limited servers
+  /// (`--max-in-flight`, default 32, per worker).
+  final int maxInFlight;
+
+  /// Scenario 11: `HTTP_MAX_QUEUE_DELAY` of the third server
+  /// (`--max-queue-delay`, milliseconds, default 50).
+  final Duration maxQueueDelay;
 
   /// `--serve`: run the server on [port] until stopped, measure nothing.
   final bool serve;
@@ -530,7 +656,7 @@ Future<void> _measureExternal(_Options options) async {
   for (final (name, port) in options.external) {
     await _waitUntilUp(port);
     for (final (scenario, spec) in _scenarios) {
-      if (!options.scenarios.any(scenario.startsWith)) {
+      if (!options.selects(scenario)) {
         continue;
       }
       for (final connections in options.connections) {

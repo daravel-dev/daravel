@@ -1,4 +1,4 @@
-<!-- source: configuration.md sha256:bba74e10977d -->
+<!-- source: configuration.md sha256:1da5560e6c97 -->
 # Konfigurasi
 
 ## File environment
@@ -100,6 +100,7 @@ setelah boot.
 | `HASH_DRIVER`, `BCRYPT_ROUNDS` | `bcrypt`, `12` | Hashing password (seperti Laravel) |
 | `LOG_LEVEL`, `LOG_STACK` | `debug` | Level log dan channel (`json` untuk produksi) |
 | `SHUTDOWN_TIMEOUT`, `HTTP_REQUEST_TIMEOUT` | `30s`, `30s` | Graceful shutdown dan timeout handler |
+| `HTTP_MAX_QUEUE_DELAY`, `HTTP_MAX_IN_FLIGHT` | mati (`200ms` di proyek baru), mati | [Load shedding](deployment.md#load-shedding): `503` selama event loop worker terlambat sebanyak ini, atau di atas sekian request sekaligus |
 | `SERVER_EMBED_QUEUE`, `SERVER_EMBED_SCHEDULER` | `false` | Queue worker dan scheduler di dalam proses server |
 
 `dartisan doctor` mengecek konfigurasi dan koneksi database;

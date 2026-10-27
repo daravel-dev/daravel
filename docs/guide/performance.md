@@ -17,6 +17,9 @@ It reports requests per second and p50/p95/p99 latency for:
 4. eager loading two relations,
 5. a throttled route (coordinator cost),
 6. login (bcrypt in the compute pool),
+11. overload: scenario 2 under far more connections than the workers can
+    serve, without a limit, with `HTTP_MAX_IN_FLIGHT`, and with
+    `HTTP_MAX_QUEUE_DELAY` added (see [Deployment](deployment.md#load-shedding)),
 
 plus a Zone/facade microbenchmark, startup time and idle RSS for each
 isolate count. Every scenario is also expressed relative to a plain

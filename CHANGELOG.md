@@ -10,6 +10,31 @@ Laravel-facing formats change only to match Laravel more closely.
 
 ### Added
 
+- Load shedding, per worker isolate, off by default: above either limit a
+  request is refused before routing with `503 Service Unavailable`,
+  `Retry-After: 1` and `{"message":"Service Unavailable"}` (a body-less
+  request keeps its keep-alive connection), so an overloaded worker fails
+  fast instead of queueing until every client times out. `HTTP_MAX_IN_FLIGHT=N`
+  (`ServeOptions.maxInFlight`, `serve --max-in-flight=N`) caps requests
+  awaiting I/O at once; the slot is released after `terminate()` and an
+  upgraded WebSocket holds none. `HTTP_MAX_QUEUE_DELAY=200ms`
+  (`ServeOptions.maxQueueDelay`, `serve --max-queue-delay`) refuses
+  requests while the worker's event loop runs that late, measured by a
+  5 ms timer, which is what bounds latency under CPU-bound or SQLite work
+  (such a handler never counts as in flight). The health probes are never
+  refused. Refusals are counted in `http_requests_shed_total` and logged
+  at most once a second, naming the limit hit; `ServerEngine.inFlight`,
+  `queueDelay` and `shedRequests` expose the numbers.
+- `dartisan new` projects (and the starter's `.env.example`) set
+  `HTTP_MAX_QUEUE_DELAY=200ms`, so a new application sheds load instead of
+  queueing without bound; `HTTP_MAX_IN_FLIGHT` stays commented out.
+- `bench/`: scenario `11-overload` floods scenario 2's endpoint with
+  `--overload-connections` (512) against a server without a limit, with
+  `HTTP_MAX_IN_FLIGHT=--max-in-flight` (32), and with
+  `HTTP_MAX_QUEUE_DELAY=--max-queue-delay` (50ms) added, reporting goodput,
+  p99 and the share refused. The load generator counts `503`s apart from
+  errors, and `--scenarios` ids now match exactly (`1` no longer selects
+  `11`). `bench/public.sh` runs it `RUNS` times and reports it.
 - `daravel_livekit` (Blueprint #48): LiveKit's server SDK for Daravel.
   `LivekitToken` signs access tokens with LiveKit's claims and
   `VideoGrant`s, `RoomServiceClient` manages rooms and participants over
