@@ -102,9 +102,9 @@ base mixin HasRoles on Model {
   /// `admin` role of the `admin` guard is not the `admin` role of `web`).
   static List<String> _names(Object roles, String guard) => [
     for (final item in roles is Iterable ? roles : [roles])
-      if (item is Role)
-        ...[if (item.guardName == guard) item.name]
-      else
+      if (item is Role) ...[
+        if (item.guardName == guard) item.name,
+      ] else
         // `hasRole('admin|writer')`, as Spatie reads a pipe-separated string.
         ...'$item'.split('|').map((name) => name.trim()),
   ];

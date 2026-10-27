@@ -323,11 +323,10 @@ final class _Pipeline<T extends Model> {
           {
             // `scopes[0][params]=x` (a string, not a map) is a client's
             // mistake, not a 500: it is read as no parameters.
-            for (final MapEntry(:key, :value)
-                in switch (map['params']) {
-                  final Map<Object?, Object?> params => params,
-                  _ => const <Object?, Object?>{},
-                }.entries)
+            for (final MapEntry(:key, :value) in switch (map['params']) {
+              final Map<Object?, Object?> params => params,
+              _ => const <Object?, Object?>{},
+            }.entries)
               '$key': value,
           },
           false,

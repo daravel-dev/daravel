@@ -318,10 +318,10 @@ void teorionTests({String? databaseUrl}) {
     );
     // `params` that is not a map is a client's mistake, read as none, not
     // a 500.
-    expect(
-      await titles('scopes[0][name]=popular&scopes[0][params]=x'),
-      ['Daravel launch', 'Dart tips'],
-    );
+    expect(await titles('scopes[0][name]=popular&scopes[0][params]=x'), [
+      'Daravel launch',
+      'Dart tips',
+    ]);
     await expectLater(
       list('scopes[]=secret'),
       throwsA(
