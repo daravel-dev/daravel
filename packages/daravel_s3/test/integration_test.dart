@@ -13,8 +13,10 @@ import 'support/disk_contract.dart';
 /// The disk contract against a real S3-compatible server:
 /// `DARAVEL_TEST_S3=http://127.0.0.1:9000` (path style, keys
 /// `minioadmin` / `minioadmin`, bucket `daravel-test`, all overridable
-/// with `DARAVEL_TEST_S3_KEY`, `_SECRET`, `_BUCKET` and `_REGION`), e.g.
-/// MinIO from `docker run -p 9000:9000 minio/minio server /data`.
+/// with `DARAVEL_TEST_S3_KEY`, `_SECRET`, `_BUCKET` and `_REGION`). CI
+/// runs RustFS (MinIO's images are no longer published): `docker run -p
+/// 9000:9000 -e RUSTFS_ACCESS_KEY=minioadmin -e
+/// RUSTFS_SECRET_KEY=minioadmin rustfs/rustfs:1.0.4 /data`.
 void main() {
   final environment = Platform.environment;
   final endpoint = environment['DARAVEL_TEST_S3'];

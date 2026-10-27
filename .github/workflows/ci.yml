@@ -177,8 +177,10 @@ jobs:
         run: (cd packages/daravel_livekit && dart test --tags integration --reporter=expanded)
 
   s3:
-    # Blueprint #52: the disk contract, multipart and presigned URLs on MinIO.
-    name: S3 integration (MinIO)
+    # Blueprint #52: the disk contract, multipart and presigned URLs on a real
+    # S3-compatible server. RustFS rather than MinIO, whose images are no
+    # longer published.
+    name: S3 integration (RustFS)
     runs-on: ubuntu-latest
     env:
       DARAVEL_TEST_S3: http://127.0.0.1:9000
@@ -190,13 +192,14 @@ jobs:
       - name: Resolve workspace
         run: dart pub get
 
-      - name: Start MinIO (keys minioadmin / minioadmin)
+      - name: Start RustFS (keys minioadmin / minioadmin)
         run: |
-          docker run -d --name minio -p 127.0.0.1:9000:9000 minio/minio:latest server /data
-          for _ in $(seq 1 30); do curl -sf http://127.0.0.1:9000/minio/health/live && exit 0; sleep 1; done
-          docker logs minio; exit 1
+          docker run -d --name rustfs -p 127.0.0.1:9000:9000 -e RUSTFS_ACCESS_KEY=minioadmin -e RUSTFS_SECRET_KEY=minioadmin rustfs/rustfs:1.0.4 /data
+          # 503 while it initialises, 403 (anonymous request) once it serves.
+          for _ in $(seq 1 60); do [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:9000/)" = 403 ] && exit 0; sleep 1; done
+          docker logs rustfs; exit 1
 
-      - name: Test against MinIO
+      - name: Test against RustFS
         run: (cd packages/daravel_s3 && dart test --tags integration --reporter=expanded)
 
   mysql:

@@ -24,7 +24,7 @@ closely.
   `temporaryUrl` and `temporaryUploadUrl` presign `GET` and `PUT` on the
   testable clock and work on `Storage.fake()` disks too. One contract suite
   runs against `LocalDisk`, `MemoryDisk` and `S3Disk`, over an in-process
-  S3 that verifies every signature, and on MinIO in CI.
+  S3 that verifies every signature, and on RustFS in CI.
 
 - `daravel_teobiefy` (Blueprint #34, phase 1): the encrypted API payloads
   of Bali Melajah's Laravel API (teobiefy protocol v1), so its clients
