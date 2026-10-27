@@ -33,6 +33,8 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `$request->validate($rules)` | `await request.validate(rules)` | **async** |
 | `$request->all()` | `await request.all()` | **async** |
 | `$request->input('a.b')` | `await request.input<T>('a.b')` | **async** |
+| `$request->merge([...])` | `await request.merge({...})` | **async** |
+| `$request->replace([...])` | `request.replace({...})` |  |
 | `$request->has('key')` | `await request.has('key')` | **async** |
 | `$request->integer('page', 1)` | `await request.integer('page', 1)` | **async** |
 | `$request->boolean('remember')` | `await request.boolean('remember')` | **async** |

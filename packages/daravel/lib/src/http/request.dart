@@ -456,6 +456,27 @@ final class Request {
     return <String, Object?>{...input};
   }
 
+  /// Adds [input] to the body's fields, overwriting those of the same name,
+  /// like Laravel's `$request->merge()`: [all], [input] and validation see
+  /// it from now on. The body is read first when it was not.
+  Future<void> merge(Map<String, Object?> input) async {
+    final parsed = await body();
+    replace({
+      if (parsed is Map<Object?, Object?>)
+        for (final MapEntry(:key, :value) in parsed.entries) '$key': value,
+      ...input,
+    });
+  }
+
+  /// Replaces the body's fields with [input], like Laravel's
+  /// `$request->replace()`; query parameters stay. A body not read yet is
+  /// discarded.
+  void replace(Map<String, Object?> input) {
+    _parsedBody = <String, Object?>{...input};
+    _bodyParsed = true;
+    _allInput = null;
+  }
+
   Object? _transform(Object? value, String key) {
     if (value is Map<Object?, Object?>) {
       return <String, Object?>{

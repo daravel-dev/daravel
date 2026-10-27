@@ -3,9 +3,29 @@
 All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 `daravel_lints`, `daravel_mysql`, `daravel_permission`, `daravel_redis`,
 `daravel_sqlite`, `daravel_postgres`, `daravel_teorion`, `daravel_livekit`,
-`daravel_google`, `dartisan_cli`). Versions follow SemVer:
+`daravel_google`, `daravel_teobiefy`, `dartisan_cli`). Versions follow SemVer:
 breaking changes to the Dart API wait for a new major version, and
 Laravel-facing formats change only to match Laravel more closely.
+
+## Unreleased
+
+### Added
+
+- `daravel_teobiefy` (Blueprint #34, phase 1): the encrypted API payloads
+  of Bali Melajah's Laravel API (teobiefy protocol v1), so its clients
+  talk to Daravel unchanged. `Teobiefy.handshake` derives a pair of session
+  keys per client with X25519 (libsodium's `crypto_kx`), kept in the cache
+  under Laravel's key with a sliding TTL; the `teobiefy` middleware opens
+  `data_enc` requests and seals the `data` of JSON responses with
+  ChaCha20-Poly1305 IETF (zstd-framed, base64 or `enc_v: 2`), and answers
+  `409 SESSION_KEY_REQUIRED` rather than plain data. Checked against
+  vectors from libsodium and frames read by the reference `zstd`.
+  `withTeobiefy()` reads Laravel's `LIBSODIUM_SESSION_TTL`,
+  `LIBSODIUM_PAYLOAD_V2_ENABLED`, `LIBSODIUM_LEGACY_KEY_ENABLED` and
+  `LIBSODIUM_LEGACY_KEY`.
+- `Request.merge(input)` and `Request.replace(input)`, Laravel's
+  `$request->merge()` and `$request->replace()`: change the body's fields
+  that `all()`, `input()` and validation read.
 
 ## 1.13.0
 

@@ -17,6 +17,7 @@ workspace:
   - packages/daravel_postgres
   - packages/daravel_teorion
   - packages/daravel_google
+  - packages/daravel_teobiefy
   - packages/daravel_livekit
   - apps/daravel_starter
   - bench
