@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Fixed: `hasRole`, `hasAllRoles` and `hasExactRoles` given a `Role` of another guard no longer match a role of the same name under the model's guard (Spatie compares `Role` objects by key).
+
 ## 1.13.0
 
 - Version aligned with Daravel 1.13.0; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).

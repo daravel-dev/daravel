@@ -97,10 +97,13 @@ base mixin HasRoles on Model {
     await assignRole(resolved);
   }
 
-  static List<String> _names(Object roles) => [
+  /// The names in [roles] that can match under [guard]: a [Role] of
+  /// another guard never does (Spatie matches a Role object by key, so the
+  /// `admin` role of the `admin` guard is not the `admin` role of `web`).
+  static List<String> _names(Object roles, String guard) => [
     for (final item in roles is Iterable ? roles : [roles])
       if (item is Role)
-        item.name
+        ...[if (item.guardName == guard) item.name]
       else
         // `hasRole('admin|writer')`, as Spatie reads a pipe-separated string.
         ...'$item'.split('|').map((name) => name.trim()),
@@ -110,7 +113,7 @@ base mixin HasRoles on Model {
   /// list).
   Future<bool> hasRole(Object roles, {String? guard}) async {
     final mine = (await _access(guard)).roles;
-    return _names(roles).any(mine.contains);
+    return _names(roles, guard ?? guardName).any(mine.contains);
   }
 
   Future<bool> hasAnyRole(Object roles, {String? guard}) =>
@@ -118,13 +121,13 @@ base mixin HasRoles on Model {
 
   Future<bool> hasAllRoles(Object roles, {String? guard}) async {
     final mine = (await _access(guard)).roles;
-    return _names(roles).every(mine.contains);
+    return _names(roles, guard ?? guardName).every(mine.contains);
   }
 
   /// Whether this model's roles are exactly [roles].
   Future<bool> hasExactRoles(Object roles, {String? guard}) async {
     final mine = (await _access(guard)).roles;
-    final wanted = _names(roles).toSet();
+    final wanted = _names(roles, guard ?? guardName).toSet();
     return mine.length == wanted.length && mine.containsAll(wanted);
   }
 

@@ -269,8 +269,13 @@ void permissionTests({String? databaseUrl}) {
       await cy.assignRole('admin');
       final panel = (await Admin.definition.query().find(cy.id))!;
       expect(await panel.hasRole('admin'), isFalse, reason: 'web role only');
+      // A Role object of another guard is not the same role, whatever its
+      // name (Spatie compares Role objects by key).
+      expect(await cy.hasRole(adminRole), isFalse, reason: 'admin guard');
+      expect(await cy.hasRole('admin'), isTrue);
       await panel.assignRole(adminRole);
       expect(await panel.hasRole('admin'), isTrue);
+      expect(await panel.hasRole(adminRole), isTrue);
       await expectLater(
         cy.assignRole(adminRole),
         throwsA(
