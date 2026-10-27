@@ -10,10 +10,11 @@ Laravel-facing formats change only to match Laravel more closely.
 ## 1.13.0
 
 Two first-party packages for a virtual classroom next to a Laravel
-application: `daravel_livekit` (LiveKit's server SDK, checked against a
-LiveKit server and LiveKit's PHP SDK) and `daravel_google` (OAuth tokens
-in google/apiclient's JSON, service accounts, Google Calendar events with
-Google Meet links). From the architecture audit of 2026-10-27: per-worker
+application join the release line: `daravel_livekit` (LiveKit's server
+SDK, checked against a LiveKit server and LiveKit's PHP SDK) and
+`daravel_google` (OAuth tokens in google/apiclient's JSON, service
+accounts, Google Calendar events with Google Meet links), both first
+published as 1.12.0. From the architecture audit of 2026-10-27: per-worker
 load shedding (`HTTP_MAX_IN_FLIGHT`, `HTTP_MAX_QUEUE_DELAY`), `doctor`
 notes on isolates, log level and SQLite, worker-labelled and coordinator
 metrics, an operations guide and reconstructed ADRs, and benchmarks that
