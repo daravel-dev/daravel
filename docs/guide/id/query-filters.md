@@ -1,4 +1,4 @@
-<!-- source: query-filters.md sha256:e995d17bcf19 -->
+<!-- source: query-filters.md sha256:939033fdcfb4 -->
 # Query filter
 
 `daravel_teorion` mengubah query string sebuah listing menjadi filter, eager
@@ -67,6 +67,7 @@ mengembalikan query, untuk dilanjutkan dengan `.where(...)`, `.get()`, atau
 | `scopes[]` | `?scopes[]=published` | Scope model, diberi seluruh request |
 | `scopes[N]` | `?scopes[0][name]=byAuthor&scopes[0][params][author_id]=3` | Scope, hanya diberi parameternya sendiri |
 | `withs[]` | `?withs[]=author&withs[]=author.country` | Eager load (segmen pertama harus diizinkan) |
+| `withs[]` dengan kolom | `?withs[]=author:id,name` | Hanya kolom-kolom itu, bila `allowedWithColumns` mendaftarnya |
 | `withCounts[]` | `?withCounts[]=comments` | `comments_count` |
 | `withAggregates` | `?withAggregates[comments][sum][]=score` | `comments_sum_score` (juga `avg`, `min`, `max`, `count`) |
 | `sort` | `?sort=-created_at,title` | `-` untuk menurun |
@@ -88,6 +89,21 @@ list.`), begitu pula filter wajib yang tidak ada. Relasi di luar
 `allowedWiths`, dan scope yang diizinkan tetapi tidak didefinisikan model,
 dilewati, kecuali `TEORION_STRICT` (default mengikuti `APP_DEBUG`) juga
 menolaknya.
+
+Client hanya bisa memilih kolom sebuah relasi dari kolom yang Anda daftar,
+per path relasi; relasi tanpa daftar dimuat utuh dan permintaan kolom
+untuknya ditolak, begitu pula kolom lain (`Column [password] of relation
+[author] is not in the allowed with columns list.` dalam mode strict). Key
+yang dipakai relasi untuk mencocokkan ditambahkan, sehingga `author:name`
+tetap menemukan author-nya.
+
+```dart
+@override
+Map<String, List<String>> get allowedWithColumns => {
+  'author': ['id', 'name', 'avatar'],
+  'author.country': ['name'],
+};
+```
 
 ## Filter
 
@@ -129,7 +145,9 @@ sama.
 
 - `order_null_bottoms[]` hanya menerima kolom sort yang diizinkan, dengan
   quoting; laravel-teorion menulis nilainya ke SQL apa adanya.
-- `withs[]` menolak `relation:columns`, yang bisa memilih kolom tersembunyi.
+- `withs[]=relation:columns` hanya menerima kolom yang didaftar
+  `allowedWithColumns`; laravel-teorion meneruskan kolom apa pun, termasuk
+  yang tersembunyi.
 - `Filter.range()` dan `Filter.dateRange()` berlaku saat parameternya
   sendiri ada (`views_min`, `start_date`); laravel-teorion juga butuh
   parameter yang dideklarasikan itu sendiri.

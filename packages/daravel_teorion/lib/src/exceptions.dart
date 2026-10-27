@@ -1,5 +1,7 @@
 import 'package:daravel/daravel.dart';
 
+import 'query_filter.dart';
+
 // laravel-teorion's exceptions, with its messages. Laravel answers them as
 // 500 (RuntimeException); they come from the client's request, so Daravel
 // answers 400.
@@ -17,6 +19,18 @@ final class DisallowedScopeException extends HttpException {
 final class DisallowedWithException extends HttpException {
   DisallowedWithException(String relation)
     : super(400, 'Relation [$relation] is not in the allowed withs list.');
+}
+
+/// `?withs[]=author:id,password` asked for a column outside
+/// [QueryFilter.allowedWithColumns] (a Daravel addition: laravel-teorion
+/// passes any column through).
+final class DisallowedWithColumnsException extends HttpException {
+  DisallowedWithColumnsException(String relation, String column)
+    : super(
+        400,
+        'Column [$column] of relation [$relation] is not in the allowed '
+        'with columns list.',
+      );
 }
 
 final class RequiredFilterMissingException extends HttpException {

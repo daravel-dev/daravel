@@ -36,6 +36,13 @@ abstract class QueryFilter<T extends Model> {
   /// Relations a client may eager load (`?withs[]=author`).
   List<String> get allowedWiths => const [];
 
+  /// Columns a client may pick, by relation path (`author`,
+  /// `author.country`): `?withs[]=author:id,name` loads only those (and the
+  /// keys the relation matches on). A relation without an entry is loaded
+  /// whole, and asking it for columns is refused, so no client reaches a
+  /// column you did not list.
+  Map<String, List<String>> get allowedWithColumns => const {};
+
   /// Relations a client may count (`?withCounts[]=comments`).
   List<String> get allowedWithCounts => const [];
 
@@ -114,9 +121,15 @@ abstract class QueryFilter<T extends Model> {
       {
         'name': 'withs[]',
         'in': 'query',
+        if (allowedWithColumns.isNotEmpty)
+          'description':
+              'A relation, or `relation:column,column` with columns of: '
+              '${[for (final MapEntry(key: path, value: columns) in allowedWithColumns.entries) '$path (${columns.join(', ')})'].join('; ')}.',
         'schema': {
           'type': 'array',
-          'items': {'type': 'string', 'enum': allowedWiths},
+          'items': allowedWithColumns.isEmpty
+              ? {'type': 'string', 'enum': allowedWiths}
+              : {'type': 'string'},
         },
       },
     if (allowedScopes.isNotEmpty)
@@ -327,20 +340,45 @@ final class _Pipeline<T extends Model> {
     final toLoad = <String>[];
     for (final entry in _entries(await request.input<Object?>('withs'))) {
       final relation = '$entry';
-      final root = relation.split('.').first.split(':').first;
-      // `relation:columns` would pick columns the model hides: refused.
-      if (!declaration.allowedWiths.contains(root) || relation.contains(':')) {
+      final colon = relation.indexOf(':');
+      final path = (colon < 0 ? relation : relation.substring(0, colon)).trim();
+      final root = path.split('.').first;
+      if (!declaration.allowedWiths.contains(root)) {
         if (_config.strict) {
           throw DisallowedWithException(root);
         }
         continue;
       }
-      toLoad.add(relation);
+      if (colon < 0) {
+        toLoad.add(path);
+        continue;
+      }
+      // Only listed columns, as plain names: nothing the model hides or an
+      // expression reaches the SELECT.
+      final allowed = declaration.allowedWithColumns[path] ?? const [];
+      final columns = [
+        for (final column in relation.substring(colon + 1).split(','))
+          if (column.trim().isNotEmpty) column.trim(),
+      ];
+      final refused = columns.isEmpty
+          ? '(none)'
+          : columns
+                .where((c) => !allowed.contains(c) || !_column.hasMatch(c))
+                .firstOrNull;
+      if (refused != null) {
+        if (_config.strict) {
+          throw DisallowedWithColumnsException(path, refused);
+        }
+        continue;
+      }
+      toLoad.add('$path:${columns.join(',')}');
     }
     if (toLoad.isNotEmpty) {
       query.with_(toLoad);
     }
   }
+
+  static final RegExp _column = RegExp(r'^\w+$');
 
   Future<void> _withCounts(ModelQuery<T> query) async {
     final counts = [

@@ -64,6 +64,7 @@ returns the query, to go on with `.where(...)`, `.get()` or `.first()`.
 | `scopes[]` | `?scopes[]=published` | The model's scope, given the whole request |
 | `scopes[N]` | `?scopes[0][name]=byAuthor&scopes[0][params][author_id]=3` | The scope, given only its own parameters |
 | `withs[]` | `?withs[]=author&withs[]=author.country` | Eager loads (the first segment must be allowed) |
+| `withs[]` with columns | `?withs[]=author:id,name` | Only those columns, when `allowedWithColumns` lists them |
 | `withCounts[]` | `?withCounts[]=comments` | `comments_count` |
 | `withAggregates` | `?withAggregates[comments][sum][]=score` | `comments_sum_score` (also `avg`, `min`, `max`, `count`) |
 | `sort` | `?sort=-created_at,title` | `-` for descending |
@@ -83,6 +84,20 @@ laravel-teorion's message (`Sort column [password] is not in the allowed
 sorts list.`), as does a required filter that is missing. Relations outside
 `allowedWiths`, and allowed scopes the model does not define, are skipped,
 unless `TEORION_STRICT` (`APP_DEBUG` by default) refuses them too.
+
+A client picks a relation's columns only among those you list, by relation
+path; a relation without a list is loaded whole and asking it for columns
+is refused, as is any other column (`Column [password] of relation [author]
+is not in the allowed with columns list.` in strict mode). The keys the
+relation matches on are added, so `author:name` still finds its author.
+
+```dart
+@override
+Map<String, List<String>> get allowedWithColumns => {
+  'author': ['id', 'name', 'avatar'],
+  'author.country': ['name'],
+};
+```
 
 ## Filters
 
@@ -123,7 +138,8 @@ ones.
 
 - `order_null_bottoms[]` takes allowed sort columns only, quoted;
   laravel-teorion writes the value into SQL as it comes.
-- `withs[]` refuses `relation:columns`, which could select hidden columns.
+- `withs[]=relation:columns` takes only the columns `allowedWithColumns`
+  lists; laravel-teorion passes any column, hidden ones included.
 - `Filter.range()` and `Filter.dateRange()` apply when their own
   parameters are there (`views_min`, `start_date`); laravel-teorion also
   needs the declared parameter itself.

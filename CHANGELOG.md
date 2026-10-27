@@ -55,7 +55,9 @@ Laravel-facing formats change only to match Laravel more closely.
   pagination, cursors, soft deletes, visibility, validation rules,
   OpenAPI parameters and the fingerprinted `QueryAudited`. Unlike the
   original it quotes `order_null_bottoms[]` (laravel-teorion writes it
-  into SQL), refuses `withs[]=relation:columns`, applies range filters
+  into SQL), takes `withs[]=relation:columns` only within
+  `allowedWithColumns` (laravel-teorion passes any column), applies range
+  filters
   from their own parameters and answers refusals with 400.
   `dartisan make:query-filter Post` writes one and registers it.
 - `Blueprint.primary([...])`: primary keys over several columns, named as

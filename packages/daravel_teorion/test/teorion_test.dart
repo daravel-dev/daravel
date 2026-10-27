@@ -78,6 +78,11 @@ final class PostQueryFilter extends QueryFilter<Post> {
   List<String> get allowedWiths => ['author'];
 
   @override
+  Map<String, List<String>> get allowedWithColumns => {
+    'author': ['name'],
+  };
+
+  @override
   List<String> get allowedWithCounts => ['comments'];
 
   @override
@@ -331,10 +336,24 @@ void teorionTests({String? databaseUrl}) {
     expect(first['comments_count'], 2);
     // MySQL returns SUM as DECIMAL text, as Laravel reads it.
     expect(num.parse('${first['comments_sum_score']}'), 9);
-    // `relation:columns` is refused: it could select hidden columns.
+    // Listed columns only, plus the key the relation matches on.
     final picked =
-        await list('withs[]=author:id,name') as ModelCollection<Post>;
-    expect(picked.first.toJson().containsKey('author'), isFalse);
+        await list('withs[]=author:name&sort=id') as ModelCollection<Post>;
+    expect(picked.first.toJson()['author'], {'name': 'Ana', 'id': 1});
+    // Anything else is not loaded: an unlisted column, an expression, or
+    // columns of a relation without a list.
+    for (final refused in [
+      'withs[]=author:name,created_at',
+      'withs[]=author:(select 1)',
+      'withs[]=author:',
+    ]) {
+      final posts = await list(refused) as ModelCollection<Post>;
+      expect(
+        posts.first.toJson().containsKey('author'),
+        isFalse,
+        reason: refused,
+      );
+    }
   });
 
   test('strict mode refuses relations outside the whitelist', () async {
@@ -357,6 +376,19 @@ void teorionTests({String? databaseUrl}) {
           'message',
           'Relation [comments] is not in the allowed withs list.',
         ),
+      ),
+    );
+    await expectLater(
+      list('withs[]=author:created_at'),
+      throwsA(
+        isA<DisallowedWithColumnsException>()
+            .having((e) => e.status, 'status', 400)
+            .having(
+              (e) => e.message,
+              'message',
+              'Column [created_at] of relation [author] is not in the '
+                  'allowed with columns list.',
+            ),
       ),
     );
   });
@@ -451,6 +483,10 @@ void teorionTests({String? databaseUrl}) {
       names,
       containsAll(['q', 'status', 'sort', 'withs[]', 'is_paginate']),
     );
+    final withs = PostQueryFilter().openApiParameters.firstWhere(
+      (p) => p['name'] == 'withs[]',
+    );
+    expect(withs['description'], contains('author (name)'));
   });
 }
 
