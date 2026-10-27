@@ -1,4 +1,4 @@
-<!-- source: teobiefy.md sha256:1182b6e2c000 -->
+<!-- source: teobiefy.md sha256:b51b077671bc -->
 # Teobiefy
 
 `daravel_teobiefy` berbicara dengan protokol payload terenkripsi dari API
@@ -81,7 +81,12 @@ limit.
 
 Sesi disimpan di store cache default, atau di store `process` bila store
 default menyimpan salinan per isolate: dengan beberapa worker, handshake
-yang dijawab satu worker harus berlaku juga di worker lain.
+yang dijawab satu worker harus berlaku juga di worker lain. Pemeriksaan
+replay menyimpan satu entri kecil per request terenkripsi di sana selama
+TTL sesi, jadi ukurlah store untuk sesi ditambah request selama satu TTL:
+store in-memory menampung 10.000 entri dan membuang yang paling lama tidak
+dipakai di luar itu, yaitu sesi yang menganggur lebih lama dari sebanyak
+itu request; Redis tidak punya batas seperti itu.
 
 ## Middleware
 

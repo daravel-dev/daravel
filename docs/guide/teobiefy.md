@@ -77,7 +77,12 @@ is open by design (public endpoints encrypt too), hence the rate limit.
 
 Sessions live in the default cache store, or in the `process` store when
 the default keeps a copy per isolate: with several workers, a handshake
-answered by one must hold on the others.
+answered by one must hold on the others. The replay check keeps one small
+entry per encrypted request there for the session TTL, so size the store
+for the sessions plus the requests of one TTL: the in-memory stores hold
+10 000 entries and drop the least recently used beyond that, which
+would be sessions idle longer than that many requests; Redis has no such
+cap.
 
 ## The middleware
 
