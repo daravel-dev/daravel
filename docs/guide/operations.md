@@ -100,10 +100,10 @@ of every worker are merged.
 | `http_requests_in_flight{worker}` | one worker much busier than the others: connection distribution (see above) |
 | `http_requests_total{status}` | the share of `5xx` |
 | `process_resident_memory_bytes` | steady growth over hours or days |
+| `coordinator_messages_total` | its rate (`rate(...[1m])`) climbing with traffic: every worker asks the coordinator, which answers on the supervisor's event loop |
 
 Database connections are best watched on the database side
 (`pg_stat_activity` on PostgreSQL), against the formula above.
-`dartisan coordinator:stats` shows the coordinator's message rate.
 
 ## Graceful shutdown
 

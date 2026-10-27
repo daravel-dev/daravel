@@ -216,6 +216,10 @@ void main() {
           'http_requests_in_flight{worker="${Isolate.current.debugName}"}',
         ),
       );
+      // The coordinator's own counters, in one isolate too.
+      expect(text, contains('# TYPE coordinator_messages_total counter'));
+      expect(text, matches(RegExp(r'\ncoordinator_messages_total \d+\n')));
+      expect(text, contains('coordinator_in_flight 0'));
     });
 
     test('/metrics is absent unless enabled', () async {

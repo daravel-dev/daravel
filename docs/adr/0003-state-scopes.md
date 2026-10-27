@@ -80,8 +80,10 @@ measure for the `process` scope, not part of ADR-024's decision.
   `CacheStore` interface).
 - With several servers, `process` state is per server; state that must
   hold across servers needs a `cluster` store.
-- `dartisan coordinator:stats` shows each service's state and the message
-  rate.
+- `/metrics` exposes the coordinator's `coordinator_messages_total`,
+  `coordinator_rejected_total` and `coordinator_in_flight`, so a flood of
+  messages shows on a running server. (`dartisan coordinator:stats` shows
+  only the coordinator of its own process.)
 
 ## Sources
 

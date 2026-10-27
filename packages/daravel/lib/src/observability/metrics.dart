@@ -269,8 +269,49 @@ final class MetricsRegistry {
 }
 
 /// Coordinator service collecting worker snapshots (`process` scope).
+///
+/// With [coordinatorStats] (the standard coordinator passes its own
+/// `stats`), `collect` adds the coordinator's message counters, so a flood
+/// of messages from the workers shows on `/metrics`.
 final class MetricsService implements CoordinatorService {
+  MetricsService({this.coordinatorStats});
+
   static const String serviceName = 'metrics';
+
+  final Map<String, Object?> Function()? coordinatorStats;
+
+  /// [Coordinator.stats] as metrics, in the shape of
+  /// [MetricsRegistry.snapshot]: `coordinator_messages_total` (rate it for
+  /// messages per second), `coordinator_rejected_total` and
+  /// `coordinator_in_flight`.
+  static Map<String, Object?> coordinatorSnapshot(Map<String, Object?> stats) {
+    Map<String, Object?> metric(
+      String type,
+      String help,
+      String key,
+    ) => <String, Object?>{
+      'type': type,
+      'help': help,
+      'series': <String, Object?>{'': ((stats[key] ?? 0) as num).toDouble()},
+    };
+    return <String, Object?>{
+      'coordinator_messages_total': metric(
+        'counter',
+        'Messages the coordinator received from the workers.',
+        'messages',
+      ),
+      'coordinator_rejected_total': metric(
+        'counter',
+        'Messages refused because the coordinator queue was full.',
+        'rejected',
+      ),
+      'coordinator_in_flight': metric(
+        'gauge',
+        'Asynchronous coordinator calls not answered yet.',
+        'in_flight',
+      ),
+    };
+  }
 
   final Map<String, Map<String, Object?>> _snapshots = {};
 
@@ -285,7 +326,11 @@ final class MetricsService implements CoordinatorService {
             args['snapshot']! as Map<String, Object?>;
         return null;
       case 'collect':
-        return MetricsRegistry.merge(_snapshots.values);
+        final stats = coordinatorStats;
+        return <String, Object?>{
+          ...MetricsRegistry.merge(_snapshots.values),
+          if (stats != null) ...coordinatorSnapshot(stats()),
+        };
       default:
         throw CoordinatorException('Unknown metrics op [$op].');
     }
@@ -380,6 +425,13 @@ final class AppMetrics {
   /// Exposition text: merged across workers under a supervisor.
   Future<String> render() async {
     final remote = channel;
+    if (remote is LocalCoordinatorChannel) {
+      // One isolate: the coordinator is in this one; add its counters.
+      return MetricsRegistry.renderSnapshot(<String, Object?>{
+        ...registry.snapshot(),
+        ...MetricsService.coordinatorSnapshot(remote.coordinator.stats()),
+      });
+    }
     if (remote == null || !remote.isRemote) {
       return registry.render();
     }

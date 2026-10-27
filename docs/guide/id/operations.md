@@ -1,4 +1,4 @@
-<!-- source: operations.md sha256:3a6bfd27abd6 -->
+<!-- source: operations.md sha256:5ea897fd2b05 -->
 # Operasional
 
 Menjalankan Daravel di bawah trafik nyata: berapa isolate, berapa koneksi
@@ -106,10 +106,10 @@ setiap worker digabungkan.
 | `http_requests_in_flight{worker}` | satu worker jauh lebih sibuk daripada yang lain: distribusi koneksi (lihat di atas) |
 | `http_requests_total{status}` | porsi `5xx` |
 | `process_resident_memory_bytes` | pertumbuhan terus-menerus selama berjam-jam atau berhari-hari |
+| `coordinator_messages_total` | lajunya (`rate(...[1m])`) yang ikut naik bersama trafik: setiap worker bertanya ke coordinator, yang menjawab di event loop supervisor |
 
 Koneksi database paling baik dipantau dari sisi database
 (`pg_stat_activity` di PostgreSQL), dibandingkan dengan rumus di atas.
-`dartisan coordinator:stats` menunjukkan laju pesan coordinator.
 
 ## Graceful shutdown
 

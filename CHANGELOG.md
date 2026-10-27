@@ -62,9 +62,13 @@ Laravel-facing formats change only to match Laravel more closely.
   calls are synchronous, so a worker waiting for another isolate's write
   lock blocks its event loop. `DatabaseConfig.sharesSqliteFile(isolates)`
   answers the same question.
-- `Coordinator.stats()` (`dartisan coordinator:stats`) reports `messages`,
-  `uptime_s` and `messages_per_second`, so a flood of coordinator messages
-  shows. A test keeps every standard coordinator service synchronous.
+- `/metrics` reports the coordinator's own counters,
+  `coordinator_messages_total`, `coordinator_rejected_total` and
+  `coordinator_in_flight`, with one isolate or under a supervisor, so a
+  flood of coordinator messages shows (`rate(coordinator_messages_total[1m])`).
+  `Coordinator.stats()` adds `messages`, `uptime_s` and
+  `messages_per_second`. A test keeps every standard coordinator service
+  synchronous.
 - The README's release number is written by `tool/docs/generate.dart` and
   checked by `--check`, so it cannot fall behind the packages.
 - Guide: [Operations](docs/guide/operations.md) (isolates, the database
