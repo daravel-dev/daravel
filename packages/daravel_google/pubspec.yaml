@@ -1,0 +1,24 @@
+name: daravel_google
+description: Google for Daravel. OAuth 2.0 user tokens with refresh, service accounts (RS256 JWT, RFC 7523) and Google Calendar v3 with attendees and Google Meet links.
+version: 1.12.0
+homepage: https://daravel.dev
+repository: https://github.com/daravel-dev/daravel/tree/main/packages/daravel_google
+issue_tracker: https://github.com/daravel-dev/daravel/issues
+documentation: https://daravel.dev/google.html
+topics: [google, calendar, oauth, server, backend]
+
+platforms:
+  linux:
+  macos:
+  windows:
+
+environment:
+  sdk: ^3.13.0
+resolution: workspace
+
+dependencies:
+  daravel: ^1.12.0
+  pointycastle: ^4.0.0
+
+dev_dependencies:
+  test: ^1.33.0
