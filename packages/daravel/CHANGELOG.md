@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Fixed: `DB.transaction(attempts: n)` no longer re-runs a committed body when an after-commit callback fails with a retryable error; the callbacks run outside the retry.
 - Fixed: a SQLite connection whose setup fails after the file is opened (not a database, stays busy) closes its handle instead of leaking it with the file locked.
 - Fixed: `MemoryStore` sweeps expired, unreleased locks once there are `maxEntries` of them (`lockCount`); `ProcessRateLimitStore` sweeps the state of keys it no longer limits once `maxKeys` (10 000) are tracked (`trackedKeys`). Both only grew before.
 - Fixed: the supervisor kills a worker that misses `readyTimeout` (it used to keep booting and serve untracked next to its replacement), `stop()` returns at once when every worker is already gone, a respawn finishing during a drain is drained, and an inbox message with an unknown worker index is dropped rather than thrown on the main isolate.

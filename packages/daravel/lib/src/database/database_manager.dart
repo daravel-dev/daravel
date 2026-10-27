@@ -367,8 +367,9 @@ final class DatabaseManager {
     final driver = await this.connection(connection);
     for (var attempt = 1; ; attempt++) {
       final callbacks = <FutureOr<void> Function()>[];
+      final T result;
       try {
-        final result = await driver.transaction<T>((tx) {
+        result = await driver.transaction<T>((tx) {
           final scope = _TransactionScope(tx, this, connectionName);
           return runZoned<Future<T>>(
             body,
@@ -380,10 +381,6 @@ final class DatabaseManager {
             },
           ).whenComplete(scope.close);
         });
-        for (final callback in callbacks) {
-          await callback();
-        }
-        return result;
       } catch (error) {
         if (attempt >= attempts || !_isRetryable(driver, error)) {
           rethrow;
@@ -391,7 +388,16 @@ final class DatabaseManager {
         _logger?.warning(
           'Transaction attempt $attempt failed with a retryable error; retrying.',
         );
+        continue;
       }
+      // Committed. The callbacks run outside the retry above: one that
+      // fails with a deadlock or busy error (a query of its own) must not
+      // run the body, and its writes, a second time. As in Laravel, the
+      // first callback to throw stops the rest and surfaces to the caller.
+      for (final callback in callbacks) {
+        await callback();
+      }
+      return result;
     }
   }
 
