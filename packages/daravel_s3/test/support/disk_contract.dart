@@ -7,13 +7,7 @@ import 'package:test/test.dart';
 /// The behaviour every [Disk] shares, run against `MemoryDisk` and
 /// `LocalDisk` (the reference) and against `S3Disk`, so the S3 disk is
 /// held to what the core disks do rather than to its own idea of it.
-///
-/// [refusesRootDelete] is off for `MemoryDisk` only: unlike `LocalDisk` it
-/// answers `deleteDirectory('')` with `false` instead of refusing.
-void diskContract(
-  Future<Disk> Function() create, {
-  bool refusesRootDelete = true,
-}) {
+void diskContract(Future<Disk> Function() create) {
   late Disk disk;
 
   setUp(() async => disk = await create());
@@ -139,12 +133,10 @@ void diskContract(
       expect(await disk.deleteDirectory('dir'), isTrue);
       expect(await disk.allFiles(), ['a.txt', 'other/e.txt']);
       expect(await disk.deleteDirectory('dir'), isFalse);
-      if (refusesRootDelete) {
-        await expectLater(
-          disk.deleteDirectory(''),
-          throwsA(isA<StorageException>()),
-        );
-      }
+      await expectLater(
+        disk.deleteDirectory(''),
+        throwsA(isA<StorageException>()),
+      );
     });
   });
 

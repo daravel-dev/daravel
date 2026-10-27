@@ -11,7 +11,7 @@ import 'support/fake_s3.dart';
 
 void main() {
   group('MemoryDisk (reference)', () {
-    diskContract(() async => MemoryDisk('memory'), refusesRootDelete: false);
+    diskContract(() async => MemoryDisk('memory'));
   });
 
   group('LocalDisk (reference)', () {

@@ -113,6 +113,16 @@ void main() {
     expect(() => disk.assertExists('u/3.png'), throwsStateError);
     expect(await disk.deleteDirectory('u'), isTrue);
     disk.assertDirectoryEmpty('u');
+    // As LocalDisk: a fake must not accept what the real disk refuses.
+    await expectLater(
+      disk.deleteDirectory(''),
+      throwsA(isA<StorageException>()),
+    );
+    await expectLater(
+      disk.deleteDirectory('./'),
+      throwsA(isA<StorageException>()),
+    );
+    disk.assertExists('log.txt');
   });
 
   test('manager, facade fake and storage:link', () async {

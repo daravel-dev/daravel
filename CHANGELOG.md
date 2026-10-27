@@ -42,6 +42,12 @@ closely.
   `$request->merge()` and `$request->replace()`: change the body's fields
   that `all()`, `input()` and validation read.
 
+### Fixed
+
+- `MemoryDisk.deleteDirectory('')` (the disk of `Storage.fake()`) refuses
+  the disk root with a `StorageException`, as `LocalDisk` does. It used to
+  return `false`, so a test passed where the real disk throws.
+
 ## 1.13.0
 
 Two first-party packages for a virtual classroom next to a Laravel
