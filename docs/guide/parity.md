@@ -58,7 +58,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `response()->streamDownload(...)` | `Response.stream(...)` |  |
 | `response()->eventStream(fn () => ...)` | `Response.sse(stream)` | Same frames and `</stream>` end event; adds heartbeats and ends on shutdown. |
 | `new StreamedEvent(event: 'tick', data: $data)` | `SseEvent(data, event: 'tick')` |  |
-| `Reverb / Pusher channels` | `router.ws('/ws/x', (socket, request) {...})` | A plain WebSocket after the route's middleware, not the Pusher protocol. |
+| `A custom WebSocket endpoint (outside Reverb channels)` | `router.ws('/ws/x', (socket, request) {...})` | A plain WebSocket after the route's middleware; Reverb and Pusher channels are under Broadcasting. |
 | `abort(404, $message)` | `abort(404, message)` | Without a message the JSON message is empty, as in Laravel. |
 | `class StoreUserRequest extends FormRequest` | `final class StoreUserRequest extends FormRequest` |  |
 
@@ -368,7 +368,6 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | Laravel | Plan |
 | :-- | :-- |
 | Sessions, CSRF, SPA cookie auth | Tier 2 |
-| Mail, notifications, broadcasting | Tier 2/3 |
 | PHP serialize() for Crypt::encrypt payloads | Tier 2 (Laravel-compatible Crypt mode) |
 | optional() helper | Not planned: Dart has ?. and ?? |
 | app() / route() / url() global helpers | Use App.make<T>(), router.url(...); a global app() would be shadowed by the idiomatic app variable |
