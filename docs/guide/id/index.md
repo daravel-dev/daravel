@@ -1,4 +1,4 @@
-<!-- source: index.md sha256:8cfe1f3f72b5 -->
+<!-- source: index.md sha256:9bc2e746b7dc -->
 # Dokumentasi Daravel
 
 Daravel adalah framework backend untuk Dart yang mengikuti filosofi Laravel
@@ -68,8 +68,9 @@ Angka performa berasal dari harness yang bisa direproduksi, bukan dari klaim
 20. [Migrasi dari Laravel](migrating-from-laravel.md): pindahkan endpoint satu per satu di balik proxy.
 21. [Keamanan](security.md): default yang aman dan suite keamanan.
 22. [Performa](performance.md): harness benchmark.
-23. [Benchmark](benchmarks.md): Daravel dibandingkan dengan Laravel Octane dan klasik, serta cara mereproduksinya.
-24. [Tabel paritas Laravel ⇄ Daravel](../parity.md) (dihasilkan otomatis, dalam bahasa Inggris).
+23. [Operasional](operations.md): isolate, koneksi database, load shedding, metrik, dan shutdown di production.
+24. [Benchmark](benchmarks.md): Daravel dibandingkan dengan Laravel Octane dan klasik, serta cara mereproduksinya.
+25. [Tabel paritas Laravel ⇄ Daravel](../parity.md) (dihasilkan otomatis, dalam bahasa Inggris).
 
 English: [Daravel documentation](../index.md).
 

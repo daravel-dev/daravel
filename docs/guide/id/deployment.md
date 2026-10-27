@@ -1,4 +1,4 @@
-<!-- source: deployment.md sha256:adfbd8b1fd83 -->
+<!-- source: deployment.md sha256:37ca5134bf9a -->
 # Deployment
 
 ## Bundle native
@@ -54,8 +54,11 @@ dihasilkan men-set `PORT=8080` sebagai default yang bisa ditimpa platform.
 worker isolate yang berbagi satu port. State per proses (rate limit,
 penyimpanan cache `process`, lock, metrik) melewati coordinator. Mulailah
 dengan satu isolate per vCPU lalu ukur (lihat [Performa](performance.md)).
-SQLite `:memory:` tidak bisa dibagi antar-isolate; pakai file atau
-PostgreSQL.
+SQLite `:memory:` tidak bisa dibagi antar-isolate. SQLite untuk
+development, test, dan deployment dengan satu isolate; pakai PostgreSQL
+untuk production dengan `APP_ISOLATES` lebih dari 1
+([alasannya](database.md#sqlite-atau-postgresql)). Cara menentukan jumlah
+isolate, koneksi, dan batas ada di [Operasional](operations.md).
 
 ## Load shedding
 

@@ -564,7 +564,8 @@ and the generated [Laravel ⇄ Daravel parity table](docs/guide/parity.md).
 The design is documented before it is built. Architecture, module specifications, the
 Laravel ⇄ Daravel generator (`daragic`) and the slice-by-slice plan live in maintainer blueprints,
 with decisions recorded as binding ADRs. Code comments refer to them as `BLUEPRINT_V2 §…` and
-`ADR-…`.
+`ADR-…`. The decisions the runtime depends on most (state scopes, the supervisor and its workers,
+the Laravel coexistence defaults) are written up in [`docs/adr`](docs/adr/README.md).
 
 ## Brand
 

@@ -52,8 +52,11 @@ in-flight requests within `SHUTDOWN_TIMEOUT`.
 isolates sharing one port. Per-process state (rate limits, the `process`
 cache store, locks, metrics) goes through the coordinator. Start with one
 isolate per vCPU and measure (see [Performance](performance.md)).
-SQLite `:memory:` cannot be shared between isolates; use a file or
-PostgreSQL.
+SQLite `:memory:` cannot be shared between isolates. SQLite is for
+development, tests and single-isolate deployments; use PostgreSQL for
+production with `APP_ISOLATES` greater than 1
+([why](database.md#sqlite-or-postgresql)). Sizing isolates, connections and
+limits is in [Operations](operations.md).
 
 ## Load shedding
 

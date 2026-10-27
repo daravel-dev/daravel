@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:787ab46fd5d8 -->
+<!-- source: README.md sha256:bacbe56248d9 -->
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/brand/svg/daravel-logo-horizontal-on-dark.svg">
@@ -571,7 +571,8 @@ ada di [CHANGELOG.md](CHANGELOG.md).
 Desain didokumentasikan sebelum dibangun. Arsitektur, spesifikasi modul, generator
 Laravel ⇄ Daravel (`daragic`), dan rencana per slice ada di blueprint maintainer, dengan keputusan
 dicatat sebagai ADR yang mengikat. Komentar kode merujuknya sebagai `BLUEPRINT_V2 §…` dan
-`ADR-…`.
+`ADR-…`. Keputusan yang paling diandalkan runtime (state scope, supervisor beserta worker-nya, dan
+default untuk koeksistensi dengan Laravel) dituliskan di [`docs/adr`](docs/adr/README.md).
 
 ## Brand
 

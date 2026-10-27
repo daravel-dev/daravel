@@ -1,4 +1,4 @@
-<!-- source: database.md sha256:fc18dee13f2c -->
+<!-- source: database.md sha256:01da8429c034 -->
 # Database
 
 `DB_CONNECTION` memilih SQLite (`sqlite`, default), PostgreSQL (`pgsql`),
@@ -49,6 +49,22 @@ dart run bin/dartisan.dart db:install pgsql     # atau sqlite, mysql, mariadb
 | `.env.example` | blok berkomentar dengan key `DB_*` milik driver |
 
 Menjalankannya lagi tidak mengubah apa pun.
+
+### SQLite atau PostgreSQL
+
+SQLite untuk development, test, dan deployment dengan satu isolate.
+PostgreSQL (atau MySQL dan MariaDB) untuk production dengan `APP_ISOLATES`
+lebih dari 1.
+
+SQLite tetap bekerja dengan beberapa isolate: setiap isolate membuka file
+yang sama dalam mode WAL dan menunggu sampai 5 detik (`busy_timeout`) untuk
+write lock dari isolate lain. Namun pemanggilan SQLite bersifat sinkron,
+sehingga selama sebuah worker menunggu lock itu, seluruh event loop-nya ikut
+menunggu, begitu pula setiap request di worker tersebut. Penulisan
+diserialkan di seluruh server. `serve` mencatat warning saat menjalankan
+beberapa isolate di atas file SQLite, dan `dartisan doctor` memberi
+catatan; lihat [Operasional](operations.md) untuk menghitung koneksi
+PostgreSQL.
 
 ### Mengganti database default
 

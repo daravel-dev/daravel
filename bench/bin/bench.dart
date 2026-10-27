@@ -342,7 +342,7 @@ Map<String, Object?> _targets(List<Map<String, Object?>> results) {
     final added =
         1e6 / (throttled['rps']! as int) - 1e6 / (ping['rps']! as int);
     out['throttle_added_us_per_request'] =
-        '${added.toStringAsFixed(1)} (target ≤ 100; ADR-024 aims < 30)';
+        '${added.toStringAsFixed(1)} (target ≤ 100; the leases of ADR-003 aim < 30)';
   }
   for (final isolates in {1, 4}) {
     final unlimited = find('$_overloadScenario-unlimited', isolates);

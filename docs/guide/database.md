@@ -45,6 +45,21 @@ dart run bin/dartisan.dart db:install pgsql     # or sqlite, mysql, mariadb
 
 Running it again changes nothing.
 
+### SQLite or PostgreSQL
+
+SQLite is for development, tests and deployments with one isolate.
+PostgreSQL (or MySQL and MariaDB) is for production with `APP_ISOLATES`
+greater than 1.
+
+SQLite works with several isolates: every isolate opens the same file in
+WAL mode and waits up to 5 seconds (`busy_timeout`) for another isolate's
+write lock. But SQLite calls are synchronous, so while a worker waits for
+that lock its whole event loop waits too, and so does every request on
+that worker. Writes are serialized across the server. `serve` logs a
+warning when it starts several isolates on a SQLite file, and
+`dartisan doctor` notes it; see [Operations](operations.md) for sizing
+PostgreSQL connections.
+
 ### Switching the default database
 
 The models, queries and migrations do not depend on the driver. To move an

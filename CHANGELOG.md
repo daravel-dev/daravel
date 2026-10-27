@@ -61,6 +61,16 @@ Laravel-facing formats change only to match Laravel more closely.
   shows. A test keeps every standard coordinator service synchronous.
 - The README's release number is written by `tool/docs/generate.dart` and
   checked by `--check`, so it cannot fall behind the packages.
+- Guide: [Operations](docs/guide/operations.md) (isolates, the database
+  connection formula, load shedding, reverse-proxy connections, the
+  metrics to watch, graceful shutdown), and the Database and Deployment
+  guides now say plainly that SQLite is for development, tests and
+  single-isolate deployments, PostgreSQL for production with several
+  isolates.
+- `docs/adr/`: ADR-003 (state scopes, with the rate-limit leases), ADR-004
+  (supervisor and workers) and ADR-024 (Laravel's defaults for `Crypt` and
+  hashing), reconstructed from the code for readers without the
+  maintainer's design documents.
 
 ### Changed
 
