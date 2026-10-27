@@ -7,10 +7,13 @@ import 'dart:io';
 /// ```bash
 /// dart run bin/laravel_report.dart ~/daravel-bench/data
 /// ```
+///
+/// One table per worker count, and per connection count when the run
+/// measured several (`CONNECTIONS=16,64,256`).
 void main(List<String> args) {
   final directory = Directory(args.isEmpty ? '.' : args.first);
-  // (target, scenario, workers) → result
-  final results = <(String, String, int), Map<String, Object?>>{};
+  // (target, scenario, workers, connections) → result
+  final results = <(String, String, int, int), Map<String, Object?>>{};
   for (final file in directory.listSync().whereType<File>()) {
     if (!file.path.endsWith('.json')) {
       continue;
@@ -22,7 +25,10 @@ void main(List<String> args) {
       final target =
           result['target'] as String? ??
           (scenario.startsWith('0-') ? 'dart:io' : 'daravel');
-      results[(target, scenario, result['isolates']! as int)] = result;
+      // Runs from before `--connections` took a list used 64.
+      final connections = result['connections'] as int? ?? 64;
+      results[(target, scenario, result['isolates']! as int, connections)] =
+          result;
     }
   }
   final targets = ['daravel', 'laravel-octane', 'laravel-classic'];
@@ -35,6 +41,7 @@ void main(List<String> args) {
     '6-login-hash': 'login (bcrypt)',
   };
   final workers = {for (final key in results.keys) key.$3}.toList()..sort();
+  final connections = {for (final key in results.keys) key.$4}.toList()..sort();
 
   String cell(Map<String, Object?>? r) => r == null
       ? '–'
@@ -42,24 +49,34 @@ void main(List<String> args) {
             '${(r['errors']! as int) > 0 ? ', ${r['errors']} errors' : ''}';
 
   for (final w in workers) {
-    stdout
-      ..writeln('\n### $w worker${w == 1 ? '' : 's'}\n')
-      ..writeln(
-        '| Scenario | Daravel | Laravel Octane | Laravel classic | '
-        'Daravel ÷ Octane |',
-      )
-      ..writeln('| :-- | --: | --: | --: | --: |');
-    for (final MapEntry(key: id, value: label) in scenarios.entries) {
-      final row = [for (final t in targets) results[(t, id, w)]];
-      if (row.every((r) => r == null)) {
+    for (final c in connections) {
+      final heading = connections.length == 1
+          ? '$w worker${w == 1 ? '' : 's'}'
+          : '$w worker${w == 1 ? '' : 's'}, $c connections';
+      final rows = <String>[];
+      for (final MapEntry(key: id, value: label) in scenarios.entries) {
+        final row = [for (final t in targets) results[(t, id, w, c)]];
+        if (row.every((r) => r == null)) {
+          continue;
+        }
+        final daravel = row[0];
+        final octane = row[1];
+        final ratio = daravel == null || octane == null
+            ? '–'
+            : '${((daravel['rps']! as int) / (octane['rps']! as int)).toStringAsFixed(1)}×';
+        rows.add('| $label | ${row.map(cell).join(' | ')} | $ratio |');
+      }
+      if (rows.isEmpty) {
         continue;
       }
-      final daravel = row[0];
-      final octane = row[1];
-      final ratio = daravel == null || octane == null
-          ? '–'
-          : '${((daravel['rps']! as int) / (octane['rps']! as int)).toStringAsFixed(1)}×';
-      stdout.writeln('| $label | ${row.map(cell).join(' | ')} | $ratio |');
+      stdout
+        ..writeln('\n### $heading\n')
+        ..writeln(
+          '| Scenario | Daravel | Laravel Octane | Laravel classic | '
+          'Daravel ÷ Octane |',
+        )
+        ..writeln('| :-- | --: | --: | --: | --: |');
+      rows.forEach(stdout.writeln);
     }
   }
 }

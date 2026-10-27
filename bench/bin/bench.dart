@@ -24,6 +24,14 @@ import 'package:path/path.dart' as p;
 /// `--external=laravel-octane:8000` measures the same scenarios against a
 /// server that is already running (the Laravel comparison in
 /// `bench/laravel/`) and nothing else.
+///
+/// `--connections=16,64,256,1024` measures every scenario at each of those
+/// connection counts (the saturation curve of `bench/public.sh`); each
+/// result names its count.
+///
+/// `--serve --isolates=4 --port=18600` seeds and starts the Daravel server
+/// and keeps it running until SIGINT or SIGTERM, for an external load
+/// generator (`bench/public.sh` checks the harness against `oha` with it).
 Future<void> main(List<String> args) async {
   final options = _Options.parse(args);
   if (options.external.isNotEmpty) {
@@ -65,6 +73,11 @@ Future<void> main(List<String> args) async {
   };
   await _run(exe('server'), ['--seed'], root, environment: env);
 
+  if (options.serve) {
+    await _serve(exe('server'), env, options);
+    return;
+  }
+
   final results = <Map<String, Object?>>[];
   final startup = <Map<String, Object?>>[];
   final micro = jsonDecode(
@@ -87,14 +100,25 @@ Future<void> main(List<String> args) async {
       port,
       cpus: options.serverCpus,
     );
-    final ping = await _measure(options, port, const LoadSpec('GET', '/ping'));
+    // dart:io at every connection count, the reference of each point.
+    final pings = <int, LoadResult>{};
+    for (final connections in options.connections) {
+      final ping = await _measure(
+        options,
+        port,
+        const LoadSpec('GET', '/ping'),
+        connections,
+      );
+      pings[connections] = ping;
+      results.add({
+        'scenario': '0-dartio-ping',
+        'isolates': isolates,
+        'connections': connections,
+        ...ping.toJson(),
+      });
+      _print('0-dartio-ping', isolates, connections, ping);
+    }
     await baseline.stop();
-    results.add({
-      'scenario': '0-dartio-ping',
-      'isolates': isolates,
-      ...ping.toJson(),
-    });
-    _print('0-dartio-ping', isolates, ping);
 
     final server = await _Server.start(
       exe('server'),
@@ -111,16 +135,20 @@ Future<void> main(List<String> args) async {
       if (!options.scenarios.any(name.startsWith)) {
         continue;
       }
-      final result = await _measure(options, port, spec);
-      results.add({
-        'scenario': name,
-        'isolates': isolates,
-        ...result.toJson(),
-        'relative_to_dartio': double.parse(
-          (result.rps / ping.rps).toStringAsFixed(4),
-        ),
-      });
-      _print(name, isolates, result, ping.rps);
+      for (final connections in options.connections) {
+        final result = await _measure(options, port, spec, connections);
+        final ping = pings[connections]!;
+        results.add({
+          'scenario': name,
+          'isolates': isolates,
+          'connections': connections,
+          ...result.toJson(),
+          'relative_to_dartio': double.parse(
+            (result.rps / ping.rps).toStringAsFixed(4),
+          ),
+        });
+        _print(name, isolates, connections, result, ping.rps);
+      }
     }
     await server.stop();
   }
@@ -138,7 +166,10 @@ Future<void> main(List<String> args) async {
     'zone': micro,
     'results': results,
   };
-  final targets = _targets(results);
+  final targets = _targets([
+    for (final r in results)
+      if (r['connections'] == options.connections.first) r,
+  ]);
   report['targets'] = targets;
   stdout.writeln('\nstartup: $startup\ntargets: $targets');
   if (options.out != null) {
@@ -168,21 +199,31 @@ final List<(String, LoadSpec)> _scenarios = [
   ('6-login-hash', const LoadSpec('POST', '/api/login')),
 ];
 
-Future<LoadResult> _measure(_Options options, int port, LoadSpec spec) =>
-    runLoad(
-      port,
-      spec,
-      connections: options.connections,
-      clientIsolates: options.clientIsolates,
-      duration: options.duration,
-    );
+Future<LoadResult> _measure(
+  _Options options,
+  int port,
+  LoadSpec spec,
+  int connections,
+) => runLoad(
+  port,
+  spec,
+  connections: connections,
+  clientIsolates: min(options.clientIsolates, connections),
+  duration: options.duration,
+);
 
-void _print(String name, int isolates, LoadResult r, [double? baseline]) {
+void _print(
+  String name,
+  int isolates,
+  int connections,
+  LoadResult r, [
+  double? baseline,
+]) {
   final relative = baseline == null
       ? ''
       : '  (${(r.rps / baseline * 100).toStringAsFixed(1)}% of dart:io)';
   stdout.writeln(
-    '${name.padRight(26)} isolates=$isolates  '
+    '${name.padRight(26)} isolates=$isolates  c=$connections  '
     '${r.rps.toStringAsFixed(0).padLeft(7)} req/s  '
     'p50 ${r.percentile(50)} µs  p95 ${r.percentile(95)} µs  '
     'p99 ${r.percentile(99)} µs  errors ${r.errors}$relative',
@@ -238,10 +279,12 @@ int _compare(
     if (relative == null) {
       continue;
     }
+    // Baselines written before `--connections` took a list ran at 64.
     final before = baseline.cast<Map<String, Object?>>().where(
       (b) =>
           b['scenario'] == current['scenario'] &&
-          b['isolates'] == current['isolates'],
+          b['isolates'] == current['isolates'] &&
+          (b['connections'] ?? 64) == current['connections'],
     );
     if (before.isEmpty) {
       continue;
@@ -364,6 +407,8 @@ final class _Options {
     required this.skipBuild,
     required this.threshold,
     required this.external,
+    required this.serve,
+    required this.port,
     this.out,
     this.compare,
     this.database,
@@ -381,7 +426,10 @@ final class _Options {
 
     return _Options(
       duration: Duration(seconds: int.parse(value('duration') ?? '10')),
-      connections: int.parse(value('connections') ?? '64'),
+      connections: (value('connections') ?? '64')
+          .split(',')
+          .map(int.parse)
+          .toList(),
       clientIsolates: int.parse(
         value('client-isolates') ??
             '${max(2, Platform.numberOfProcessors ~/ 2)}',
@@ -402,11 +450,15 @@ final class _Options {
       ],
       database: value('database'),
       serverCpus: value('server-cpus'),
+      serve: args.contains('--serve'),
+      port: int.parse(value('port') ?? '18600'),
     );
   }
 
   final Duration duration;
-  final int connections;
+
+  /// Connection counts, each measured in turn (`--connections=16,64`).
+  final List<int> connections;
   final int clientIsolates;
   final List<int> isolates;
   final List<String> scenarios;
@@ -423,6 +475,39 @@ final class _Options {
 
   /// Cores for the servers (`--server-cpus=0-3`, Linux, via `taskset`).
   final String? serverCpus;
+
+  /// `--serve`: run the server on [port] until stopped, measure nothing.
+  final bool serve;
+  final int port;
+}
+
+/// `--serve`: the Daravel server with `--isolates` workers on `--port`,
+/// until SIGINT or SIGTERM (or until it exits on its own).
+Future<void> _serve(
+  String executable,
+  Map<String, String> env,
+  _Options options,
+) async {
+  final server = await _Server.start(
+    executable,
+    {
+      ...env,
+      'APP_PORT': '${options.port}',
+      'APP_ISOLATES': '${options.isolates.first}',
+    },
+    options.port,
+    cpus: options.serverCpus,
+  );
+  stdout.writeln(
+    'Daravel serving on 127.0.0.1:${options.port} '
+    '(${options.isolates.first} isolates); stop with SIGINT or SIGTERM.',
+  );
+  await Future.any<Object?>([
+    ProcessSignal.sigint.watch().first,
+    if (!Platform.isWindows) ProcessSignal.sigterm.watch().first,
+    server.process.exitCode,
+  ]);
+  await server.stop();
 }
 
 /// `--external`: scenarios 1–6 against servers that are already running.
@@ -436,14 +521,17 @@ Future<void> _measureExternal(_Options options) async {
       if (!options.scenarios.any(scenario.startsWith)) {
         continue;
       }
-      final result = await _measure(options, port, spec);
-      results.add({
-        'target': name,
-        'scenario': scenario,
-        'isolates': workers,
-        ...result.toJson(),
-      });
-      _print('$name $scenario', workers, result);
+      for (final connections in options.connections) {
+        final result = await _measure(options, port, spec, connections);
+        results.add({
+          'target': name,
+          'scenario': scenario,
+          'isolates': workers,
+          'connections': connections,
+          ...result.toJson(),
+        });
+        _print('$name $scenario', workers, connections, result);
+      }
     }
   }
   if (options.out != null) {
