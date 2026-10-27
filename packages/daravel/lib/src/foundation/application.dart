@@ -890,6 +890,18 @@ final class Application {
       maxQueueDelay: maxQueueDelay,
     );
     probe._ensureServeable(options);
+    // Once, here in the main isolate, rather than in every worker.
+    if (probe.config.section<DatabaseConfig>().sharesSqliteFile(
+      options.isolates,
+    )) {
+      probe.logger.warning(
+        'SQLite with ${options.isolates} isolates: SQLite calls are '
+        'synchronous, so a worker waiting for another isolate\'s write lock '
+        '(busy_timeout, up to 5 s) blocks its whole event loop. Use '
+        'PostgreSQL for production with APP_ISOLATES > 1 (Deployment guide, '
+        '"Concurrency").',
+      );
+    }
     final roles = [
       if (options.embedQueue) EmbeddedRole.queue,
       if (options.embedScheduler) EmbeddedRole.scheduler,
@@ -926,13 +938,13 @@ final class Application {
     await boot();
     final resolved = options ?? ServeOptions.fromEnv(env);
     _ensureServeable(resolved);
-    final shed = container.make<AppMetrics>().shed;
+    final metrics = container.make<AppMetrics>();
     final engine = ServerEngine(
       this,
       resolved,
       kernel: kernel,
       logger: logger,
-      onShed: () => shed.inc(),
+      onShed: metrics.recordShed,
     );
     _engine = engine;
     await engine.start();

@@ -94,7 +94,8 @@ Pick the values from a load test (scenario 11 of `bench/` runs one):
 `HTTP_MAX_QUEUE_DELAY` is the queueing delay you are willing to add to a
 response (p99 under overload lands close to it), and `HTTP_MAX_IN_FLIGHT`
 is about 2–4× `DB_POOL_SIZE` for a worker doing database work. Refusals
-are counted in `http_requests_shed_total` on `/metrics` and logged as a
+are counted in `http_requests_shed_total{worker="..."}` on `/metrics` (one
+series per worker, as `http_requests_in_flight`) and logged as a
 warning at most once a second, naming the limit that was hit; a steady
 stream of them means the server needs more isolates or instances, not a
 higher limit.

@@ -101,4 +101,7 @@ frozen after boot.
 | `SERVER_EMBED_QUEUE`, `SERVER_EMBED_SCHEDULER` | `false` | Queue worker and scheduler in the server process |
 
 `dartisan doctor` checks the configuration and the database connection;
-`doctor --production` treats warnings as failures.
+`doctor --production` treats warnings as failures. Tuning advice (one
+isolate on a machine with more cores, `LOG_LEVEL` below `warning`, a SQLite
+file shared by several isolates, the PostgreSQL pool against
+`max_connections`) is printed as `[note]` and never fails.

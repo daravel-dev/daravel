@@ -341,13 +341,13 @@ final class AppMetrics {
     );
     inFlight = registry.gauge(
       'http_requests_in_flight',
-      'Requests currently being handled.',
+      'Requests currently being handled, by worker isolate.',
     );
     jobs = registry.counter('queue_jobs_total', 'Queue jobs by status.');
     shed = registry.counter(
       'http_requests_shed_total',
       'Requests refused with 503 by load shedding '
-          '(HTTP_MAX_IN_FLIGHT, HTTP_MAX_QUEUE_DELAY).',
+          '(HTTP_MAX_IN_FLIGHT, HTTP_MAX_QUEUE_DELAY), by worker isolate.',
     );
     registry.gauge(
       'process_resident_memory_bytes',
@@ -367,8 +367,15 @@ final class AppMetrics {
   late final Counter jobs;
   late final Counter shed;
 
-  String get _worker =>
+  /// The `worker` label of [inFlight] and [shed]: the isolate's name
+  /// (`daravel-worker-N` under a supervisor, the same after a respawn, so
+  /// there is one value per worker). Workers share the port, which spreads
+  /// connections rather than requests, and this shows when one is busier.
+  late final String _worker =
       Isolate.current.debugName ?? '${Isolate.current.hashCode}';
+
+  /// Counts one request refused by load shedding on this worker.
+  void recordShed() => shed.inc({'worker': _worker});
 
   /// Exposition text: merged across workers under a supervisor.
   Future<String> render() async {
@@ -421,14 +428,15 @@ final class MetricsMiddleware implements Middleware {
   @override
   Future<Response> handle(Request request, Next next) async {
     final stopwatch = Stopwatch()..start();
-    metrics.inFlight.inc();
+    final worker = {'worker': metrics._worker};
+    metrics.inFlight.inc(worker);
     var status = 500;
     try {
       final response = await next(request);
       status = response.status;
       return response;
     } finally {
-      metrics.inFlight.dec();
+      metrics.inFlight.dec(worker);
       final route = request.route?.path ?? 'unmatched';
       metrics.requests.inc({
         'method': request.method,

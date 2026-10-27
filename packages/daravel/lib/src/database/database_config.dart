@@ -238,6 +238,18 @@ final class DatabaseConfig implements ConfigSection {
   final String defaultConnection;
   final Map<String, ConnectionConfig> connections;
 
+  /// Whether the default connection is a SQLite *file* that [isolates]
+  /// isolates would share. It works (WAL, `busy_timeout`), but a writer
+  /// waiting for another isolate's lock blocks its whole event loop, since
+  /// SQLite calls are synchronous: for production with several isolates,
+  /// PostgreSQL (or MySQL) is the database to use.
+  bool sharesSqliteFile(int isolates) {
+    final connection = connections[defaultConnection];
+    return isolates > 1 &&
+        connection?.driver == 'sqlite' &&
+        connection?.database != ':memory:';
+  }
+
   /// This configuration with [extra] connections added (or replacing ones
   /// of the same name).
   DatabaseConfig withConnections(Map<String, ConnectionConfig> extra) =>

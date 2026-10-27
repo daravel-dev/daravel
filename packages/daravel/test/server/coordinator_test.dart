@@ -43,6 +43,9 @@ void main() {
     expect(await store.attempts('k', const Duration(minutes: 1)), 2);
     final stats = coordinator.stats();
     expect(stats['handled'], 4);
+    expect(stats['messages'], 4, reason: 'handled plus rejected');
+    expect(stats['uptime_s'], isA<double>());
+    expect(stats['messages_per_second'], isA<double>());
     expect((stats['services'] as Map)['rateLimiter'], {'keys': 1});
     expect(
       () => channel.call('nope', 'x', const {}),

@@ -73,7 +73,7 @@ void main() {
       ),
       kernel: app.kernel,
       logger: Logger(handlers: [log]),
-      onShed: () => app.container.make<AppMetrics>().shed.inc(),
+      onShed: app.container.make<AppMetrics>().recordShed,
     );
     await engine.start();
     addTearDown(() {
@@ -152,7 +152,10 @@ void main() {
       expect(warnings.first.message, contains('2 requests in flight'));
       expect(warnings.first.message, contains('GET /fast'));
       final metrics = app.container.make<AppMetrics>().registry.render();
-      expect(metrics, contains('http_requests_shed_total 5'));
+      expect(
+        metrics,
+        matches(RegExp(r'http_requests_shed_total{worker="[^"]+"} 5')),
+      );
 
       gate.complete();
       for (final response in await Future.wait(held)) {

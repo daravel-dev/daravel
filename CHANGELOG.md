@@ -45,6 +45,30 @@ Laravel-facing formats change only to match Laravel more closely.
   `LIVEKIT_API_SECRET` / `LIVEKIT_SECRET_KEY`. Tested against a LiveKit
   server, which accepts its join tokens, and against LiveKit's PHP SDK
   (`bench/interop/livekit.sh`).
+- `dartisan doctor` gives tuning advice as `[note]` lines, a new
+  `CheckStatus.notice` that never fails, not even with `--production`
+  (deployments use it as a gate): one isolate on a machine with more cores,
+  `LOG_LEVEL` below `warning` (a line per request at `info`), and a SQLite
+  file shared by several isolates. The PostgreSQL pool check counts the pool
+  the driver opens (`DB_POOL_SIZE` or `pool=` in `DB_URL`) and says
+  "skipped" when the database is unreachable instead of assuming 100.
+- `serve` with several isolates on a SQLite file logs one warning: SQLite
+  calls are synchronous, so a worker waiting for another isolate's write
+  lock blocks its event loop. `DatabaseConfig.sharesSqliteFile(isolates)`
+  answers the same question.
+- `Coordinator.stats()` (`dartisan coordinator:stats`) reports `messages`,
+  `uptime_s` and `messages_per_second`, so a flood of coordinator messages
+  shows. A test keeps every standard coordinator service synchronous.
+- The README's release number is written by `tool/docs/generate.dart` and
+  checked by `--check`, so it cannot fall behind the packages.
+
+### Changed
+
+- `http_requests_in_flight` and `http_requests_shed_total` carry a `worker`
+  label (`daravel-worker-N`, or the isolate's name), one series per worker:
+  workers share the port, which spreads connections rather than requests,
+  and an uneven worker now shows. Queries that expect one series need
+  `sum(...)`.
 
 ### Fixed
 

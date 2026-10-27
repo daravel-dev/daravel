@@ -1,4 +1,4 @@
-<!-- source: deployment.md sha256:0efa720ffab0 -->
+<!-- source: deployment.md sha256:adfbd8b1fd83 -->
 # Deployment
 
 ## Bundle native
@@ -97,8 +97,9 @@ Tentukan nilainya dari load test (skenario 11 di `bench/` menjalankannya):
 `HTTP_MAX_QUEUE_DELAY` adalah keterlambatan antrean yang rela kamu tambahkan
 ke sebuah respons (p99 saat overload mendarat di dekatnya), dan
 `HTTP_MAX_IN_FLIGHT` sekitar 2–4× `DB_POOL_SIZE` untuk worker yang
-mengakses database. Penolakan dihitung di `http_requests_shed_total` pada
-`/metrics` dan dicatat sebagai warning paling banyak sekali per detik,
+mengakses database. Penolakan dihitung di
+`http_requests_shed_total{worker="..."}` pada `/metrics` (satu seri per
+worker, seperti `http_requests_in_flight`) dan dicatat sebagai warning paling banyak sekali per detik,
 menyebutkan batas yang tersentuh; penolakan yang terus-menerus berarti
 server butuh lebih banyak isolate atau instance, bukan batas yang lebih
 tinggi.

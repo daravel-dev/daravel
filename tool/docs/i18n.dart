@@ -27,13 +27,18 @@ final RegExp _include = RegExp(
   dotAll: true,
 );
 
+/// `<!-- release -->1.12.0<!-- /release -->` in the READMEs: the release
+/// number, written by `generate.dart` from `daravelVersion`.
+final RegExp releaseMarker = RegExp(r'<!-- release -->[^<]*<!-- /release -->');
+
 /// The hash of an English page as a translator sees it: generated code
-/// samples (`<!-- include: ... -->` blocks) are left out, so a change in a
-/// sample's code does not make the translations stale.
+/// samples (`<!-- include: ... -->` blocks) and the release number are left
+/// out, so a new sample or release does not make the translations stale.
 String sourceHash(String english) {
   final text = english
       .replaceAll('\r\n', '\n')
-      .replaceAllMapped(_include, (m) => m[1]!);
+      .replaceAllMapped(_include, (m) => m[1]!)
+      .replaceAll(releaseMarker, '<!-- release --><!-- /release -->');
   return sha256.convert(utf8.encode(text)).toString().substring(0, 12);
 }
 

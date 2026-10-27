@@ -1,4 +1,4 @@
-<!-- source: configuration.md sha256:1da5560e6c97 -->
+<!-- source: configuration.md sha256:df6b0d9c38ca -->
 # Konfigurasi
 
 ## File environment
@@ -104,4 +104,8 @@ setelah boot.
 | `SERVER_EMBED_QUEUE`, `SERVER_EMBED_SCHEDULER` | `false` | Queue worker dan scheduler di dalam proses server |
 
 `dartisan doctor` mengecek konfigurasi dan koneksi database;
-`doctor --production` memperlakukan peringatan sebagai kegagalan.
+`doctor --production` memperlakukan peringatan sebagai kegagalan. Saran
+tuning (satu isolate di mesin dengan core lebih banyak, `LOG_LEVEL` di bawah
+`warning`, file SQLite yang dipakai bersama beberapa isolate, pool PostgreSQL
+dibandingkan `max_connections`) dicetak sebagai `[note]` dan tidak pernah
+menggagalkan.
