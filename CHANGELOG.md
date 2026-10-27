@@ -21,7 +21,9 @@ closely.
   multipart upload (aborted on failure) for longer streams; `copy` is
   server side, `delete` batches `DeleteObjects` per thousand keys, and
   `makeDirectory` writes the `dir/` marker Laravel writes.
-  `temporaryUrl` and `temporaryUploadUrl` presign `GET` and `PUT` on the
+  `temporaryUrl` and `temporaryUploadUrl` presign `GET` and `PUT`, and
+  `temporaryUploadForm` signs a `POST` policy that caps an upload's size
+  and content type (`content-length-range`), all on the
   testable clock and work on `Storage.fake()` disks too. One contract suite
   runs against `LocalDisk`, `MemoryDisk` and `S3Disk`, over an in-process
   S3 that verifies every signature, and on RustFS in CI.

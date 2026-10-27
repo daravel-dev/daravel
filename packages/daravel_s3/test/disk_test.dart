@@ -8,6 +8,7 @@ import 'package:test/test.dart';
 
 import 'support/disk_contract.dart';
 import 'support/fake_s3.dart';
+import 'support/post_form.dart';
 
 void main() {
   group('MemoryDisk (reference)', () {
@@ -227,6 +228,133 @@ void main() {
         ),
       );
       wrongKey.client.close();
+    });
+
+    group('temporaryUploadForm (POST policy)', () {
+      DateTime soon() => DateTime.now().add(const Duration(minutes: 15));
+
+      test('the policy carries every field and the conditions', () {
+        final form = disk.temporaryUploadForm(
+          'materials/a.mp4',
+          expiration: soon(),
+          maxSize: 1000,
+          contentTypePrefix: 'video/',
+        );
+        expect(form.url, '${s3.endpoint}/bucket');
+        expect(form.fields['key'], 'materials/a.mp4');
+        expect(form.fields, isNot(contains('Content-Type')));
+        final policy = jsonDecode(
+          utf8.decode(base64.decode(form.fields['policy']!)),
+        ) as Map<String, Object?>;
+        expect(
+          policy['expiration'],
+          matches(RegExp(r'^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$')),
+        );
+        expect(policy['conditions'], [
+          {'bucket': 'bucket'},
+          ['content-length-range', 0, 1000],
+          ['starts-with', r'$Content-Type', 'video/'],
+          {'key': 'materials/a.mp4'},
+          {'x-amz-algorithm': 'AWS4-HMAC-SHA256'},
+          {'x-amz-credential': form.fields['x-amz-credential']},
+          {'x-amz-date': form.fields['x-amz-date']},
+        ]);
+      });
+
+      test('uploads a file within the limits', () async {
+        final form = disk.temporaryUploadForm(
+          'materials/a.mp4',
+          expiration: soon(),
+          maxSize: 1000,
+          contentTypePrefix: 'video/',
+        );
+        final response = await postForm(form.url, {
+          ...form.fields,
+          'Content-Type': 'video/mp4',
+        }, List.filled(1000, 1));
+        expect(response.status, 204, reason: response.body);
+        expect(await disk.size('materials/a.mp4'), 1000);
+        expect(s3.objects['materials/a.mp4']!.type, 'video/mp4');
+      });
+
+      test('rejects a file over maxSize', () async {
+        final form = disk.temporaryUploadForm(
+          'big.bin',
+          expiration: soon(),
+          maxSize: 1000,
+        );
+        final response = await postForm(
+          form.url,
+          form.fields,
+          List.filled(1001, 1),
+        );
+        expect(response.status, 400);
+        expect(response.body, contains('EntityTooLarge'));
+        expect(await disk.exists('big.bin'), isFalse);
+      });
+
+      test('rejects another content type, key or an extra field', () async {
+        final form = disk.temporaryUploadForm(
+          'img/a.png',
+          expiration: soon(),
+          maxSize: 100,
+          contentTypePrefix: 'image/',
+        );
+        for (final tampered in [
+          {...form.fields, 'Content-Type': 'text/html'},
+          {...form.fields, 'key': 'img/other.png', 'Content-Type': 'image/png'},
+          {...form.fields, 'Content-Type': 'image/png', 'acl': 'public-read'},
+        ]) {
+          final response = await postForm(form.url, tampered, [1, 2, 3]);
+          expect(response.status, 403, reason: '$tampered');
+        }
+        expect(s3.objects, isEmpty);
+      });
+
+      test('an exact content type is a signed field', () async {
+        final form = disk.temporaryUploadForm(
+          'doc.pdf',
+          expiration: soon(),
+          contentType: 'application/pdf',
+        );
+        expect(form.fields['Content-Type'], 'application/pdf');
+        final response = await postForm(form.url, form.fields, [1]);
+        expect(response.status, 204, reason: response.body);
+      });
+
+      test('an expired policy is refused', () async {
+        Clock.fake(DateTime.now().subtract(const Duration(hours: 1)));
+        addTearDown(Clock.restore);
+        final form = disk.temporaryUploadForm(
+          'late.bin',
+          expiration: Clock.now().add(const Duration(minutes: 5)),
+        );
+        Clock.restore();
+        final response = await postForm(form.url, form.fields, [1]);
+        expect(response.status, 403);
+        expect(response.body, contains('expired'));
+      });
+
+      test('arguments are checked', () {
+        expect(
+          () => disk.temporaryUploadForm(
+            'a',
+            expiration: soon(),
+            contentType: 'a/b',
+            contentTypePrefix: 'a/',
+          ),
+          throwsArgumentError,
+        );
+        expect(
+          () => disk.temporaryUploadForm(
+            'a',
+            expiration: soon(),
+            maxSize: 5,
+            minSize: 10,
+          ),
+          throwsArgumentError,
+        );
+      });
     });
   });
 }

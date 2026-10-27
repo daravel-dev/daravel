@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:daravel_s3/daravel_s3.dart';
 import 'package:daravel_s3/src/xml.dart';
+import 'package:mime/mime.dart';
 
 /// An in-process S3 (path-style, one bucket) that checks every request's
 /// SigV4 signature, header or presigned, against its own secret: enough of
@@ -70,7 +71,11 @@ final class FakeS3 {
     );
     final response = request.response;
     try {
-      final denied = _verify(request, body);
+      // A browser POST upload carries its signature in the form's policy.
+      final isForm =
+          request.method == 'POST' &&
+          request.headers.contentType?.mimeType == 'multipart/form-data';
+      final denied = isForm ? null : _verify(request, body);
       if (denied != null) {
         return await _error(response, 403, 'SignatureDoesNotMatch', denied);
       }
@@ -84,6 +89,8 @@ final class FakeS3 {
       switch ((request.method, key.isEmpty)) {
         case ('GET', true):
           return await _list(response, query);
+        case ('POST', true) when isForm:
+          return await _postObject(request, response, body);
         case ('POST', true) when query.containsKey('delete'):
           return await _deleteMany(request, response, body);
         case ('POST', false) when query.containsKey('uploads'):
@@ -218,6 +225,104 @@ final class FakeS3 {
       ].join('\n'),
     );
     return expected == signature ? null : 'Signature mismatch';
+  }
+
+  /// `POST Object` with a policy, checked as S3 checks it: the signature
+  /// over the base64 policy, its expiry, every condition, and that every
+  /// form field (but `policy`, `x-amz-signature`, `file`, `x-ignore-*`) is
+  /// covered by one.
+  Future<void> _postObject(
+    HttpRequest request,
+    HttpResponse response,
+    Uint8List body,
+  ) async {
+    final boundary = request.headers.contentType!.parameters['boundary']!;
+    final fields = <String, String>{};
+    Uint8List? file;
+    String? lastField;
+    await for (final part in MimeMultipartTransformer(
+      boundary,
+    ).bind(Stream.value(body))) {
+      final name = RegExp('name="([^"]*)"')
+          .firstMatch(part.headers['content-disposition'] ?? '')!
+          .group(1)!;
+      final builder = BytesBuilder(copy: false);
+      await part.forEach(builder.add);
+      lastField = name;
+      if (name == 'file') {
+        file = builder.takeBytes();
+      } else {
+        fields[name.toLowerCase()] = utf8.decode(builder.takeBytes());
+      }
+    }
+    if (file == null || lastField != 'file') {
+      return _error(response, 400, 'InvalidArgument', 'file must be last.');
+    }
+    final policy = fields['policy'] ?? '';
+    final amzDate = fields['x-amz-date'] ?? '';
+    final credential = fields['x-amz-credential'] ?? '';
+    if (!credential.startsWith('${signer.accessKey}/') ||
+        signer.signatureOf(_parseAmzDate(amzDate), policy) !=
+            fields['x-amz-signature']) {
+      return _error(response, 403, 'SignatureDoesNotMatch', 'Bad policy.');
+    }
+    final decoded =
+        jsonDecode(utf8.decode(base64.decode(policy))) as Map<String, Object?>;
+    if (DateTime.now().toUtc().isAfter(
+      DateTime.parse(decoded['expiration']! as String),
+    )) {
+      return _error(response, 403, 'AccessDenied', 'Policy expired.');
+    }
+    final covered = <String>{};
+    String? failure;
+    for (final condition in decoded['conditions']! as List<Object?>) {
+      switch (condition) {
+        case {'bucket': final Object? value}:
+          if (value != bucket) failure = 'bucket';
+        case final Map<String, Object?> exact:
+          final name = exact.keys.single.toLowerCase();
+          covered.add(name);
+          if (fields[name] != exact.values.single) failure = name;
+        case ['content-length-range', final int min, final int max]:
+          if (file.length < min || file.length > max) {
+            return _error(
+              response,
+              400,
+              file.length > max ? 'EntityTooLarge' : 'EntityTooSmall',
+              'Size outside content-length-range.',
+            );
+          }
+        case ['starts-with', final String field, final String prefix]:
+          final name = field.substring(1).toLowerCase();
+          covered.add(name);
+          if (!(fields[name] ?? '').startsWith(prefix)) failure = name;
+        case ['eq', final String field, final String value]:
+          final name = field.substring(1).toLowerCase();
+          covered.add(name);
+          if (fields[name] != value) failure = name;
+      }
+    }
+    final uncovered = fields.keys.where(
+      (name) =>
+          !covered.contains(name) &&
+          !{'policy', 'x-amz-signature'}.contains(name) &&
+          !name.startsWith('x-ignore-'),
+    );
+    if (failure != null || uncovered.isNotEmpty) {
+      return _error(
+        response,
+        403,
+        'AccessDenied',
+        'Invalid according to Policy: ${failure ?? uncovered.first}',
+      );
+    }
+    objects[fields['key']!] = (
+      bytes: file,
+      modified: DateTime.now().toUtc(),
+      type: fields['content-type'] ?? 'binary/octet-stream',
+    );
+    response.statusCode = 204;
+    return response.close();
   }
 
   static DateTime _parseAmzDate(String value) => DateTime.utc(

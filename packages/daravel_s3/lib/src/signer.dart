@@ -145,6 +145,54 @@ final class SigV4Signer {
     );
   }
 
+  /// The form fields of a browser `POST` upload (S3's POST policy): [fields]
+  /// plus the `x-amz-*` credential fields, `policy` (base64 JSON that
+  /// expires after [expires]) and `x-amz-signature`, which signs the policy
+  /// itself rather than a canonical request.
+  ///
+  /// Every field becomes an exact-match condition, as S3 requires each
+  /// form field to appear in the policy; [conditions] adds the rest
+  /// (`["content-length-range", 0, max]`, `["starts-with", "$key", p]`).
+  Map<String, String> presignPost({
+    required DateTime now,
+    required Duration expires,
+    Map<String, String> fields = const {},
+    List<Object> conditions = const [],
+  }) {
+    if (expires.inSeconds < 1 || expires.inSeconds > 604800) {
+      throw ArgumentError.value(
+        expires,
+        'expires',
+        'A presigned POST policy lives between 1 second and 7 days.',
+      );
+    }
+    final all = <String, String>{
+      ...fields,
+      'x-amz-algorithm': 'AWS4-HMAC-SHA256',
+      'x-amz-credential': '$accessKey/${_scope(now)}',
+      'x-amz-date': _amzDate(now),
+      if (sessionToken case final String token) 'x-amz-security-token': token,
+    };
+    final expiry = now.toUtc().add(expires);
+    final policy = base64.encode(
+      utf8.encode(
+        jsonEncode({
+          // ISO 8601 to the second, as S3's examples write it.
+          'expiration': '${expiry.toIso8601String().substring(0, 19)}Z',
+          'conditions': [
+            ...conditions,
+            for (final MapEntry(:key, :value) in all.entries) {key: value},
+          ],
+        }),
+      ),
+    );
+    return {
+      ...all,
+      'policy': policy,
+      'x-amz-signature': _signature(now, policy),
+    };
+  }
+
   /// The canonical request of SigV4 (step 1), exposed for tests and for
   /// servers that verify signatures.
   static String canonicalRequest({

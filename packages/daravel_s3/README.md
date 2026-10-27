@@ -29,7 +29,8 @@ final upload = Storage.disk('s3').temporaryUploadUrl('materials/a.mp4',
 - Every `Disk` method, held to the same contract tests as the core's
   `LocalDisk` and `MemoryDisk`; server-side copy, batched deletes.
 - Streams upload in 8 MiB parts and download as they arrive.
-- Presigned download and direct upload URLs, also on `Storage.fake()`.
+- Presigned download and direct upload URLs, and POST forms that cap an
+  upload's size and type; all also on `Storage.fake()`.
 
 Documentation: <https://github.com/daravel-dev/daravel/blob/main/docs/guide/s3.md>.
 

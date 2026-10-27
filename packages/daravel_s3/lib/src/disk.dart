@@ -29,6 +29,25 @@ final class S3PresignedRequest {
   };
 }
 
+/// A presigned `POST` form (S3's POST policy) for a browser or app to
+/// upload with: send [fields] as `multipart/form-data` to [url], with the
+/// file as the last field, named `file`. Unlike a presigned `PUT` the
+/// policy can bound the size and the content type.
+final class S3PresignedPost {
+  const S3PresignedPost(this.url, this.fields);
+
+  final String url;
+
+  /// Form fields to send unchanged, before `file`.
+  final Map<String, String> fields;
+
+  Map<String, Object?> toJson() => {
+    'method': 'POST',
+    'url': url,
+    'fields': fields,
+  };
+}
+
 /// A [Disk] on an S3 bucket or an S3-compatible store (Cloudflare R2,
 /// MinIO, DigitalOcean Spaces, Google Cloud Storage's interoperability
 /// API), with presigned download and upload URLs.
@@ -336,6 +355,45 @@ final class S3Disk implements Disk {
       headers: headers,
     );
     return S3PresignedRequest('PUT', url.toString(), headers);
+  }
+
+  /// A presigned `POST` form for [path] until [expiration], the way to cap
+  /// a direct upload's size: S3 rejects a file over [maxSize] bytes (or
+  /// under [minSize]), and a content type other than [contentType] or not
+  /// starting with [contentTypePrefix] (then the client adds its own
+  /// `Content-Type` field).
+  S3PresignedPost temporaryUploadForm(
+    String path, {
+    required DateTime expiration,
+    int? maxSize,
+    int minSize = 0,
+    String? contentType,
+    String? contentTypePrefix,
+  }) {
+    if (contentType != null && contentTypePrefix != null) {
+      throw ArgumentError(
+        'Pass either contentType or contentTypePrefix, not both.',
+      );
+    }
+    if (maxSize != null && (maxSize < minSize || minSize < 0)) {
+      throw ArgumentError.value(maxSize, 'maxSize', 'Must be >= minSize >= 0.');
+    }
+    final fields = client.signer.presignPost(
+      now: Clock.now(),
+      expires: expiration.difference(Clock.now()),
+      fields: {
+        'key': key(path),
+        'Content-Type': ?contentType,
+        if (visibility == 'public') 'acl': 'public-read',
+      },
+      conditions: [
+        {'bucket': client.bucket},
+        if (maxSize != null) ['content-length-range', minSize, maxSize],
+        if (contentTypePrefix != null)
+          ['starts-with', r'$Content-Type', contentTypePrefix],
+      ],
+    );
+    return S3PresignedPost(client.uri('').toString(), fields);
   }
 
   @override

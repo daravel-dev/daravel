@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:f04bb8bd6c0f -->
+<!-- source: README.md sha256:6ce07026bcf7 -->
 <img src="https://raw.githubusercontent.com/daravel-dev/daravel/main/docs/brand/png/daravel-icon-128.png" alt="Daravel" width="64" align="right">
 
 # daravel_s3
@@ -32,7 +32,8 @@ final upload = Storage.disk('s3').temporaryUploadUrl('materials/a.mp4',
   `LocalDisk` dan `MemoryDisk` di core; server-side copy, delete secara
   batch.
 - Stream di-upload per part 8 MiB dan diunduh sambil datanya tiba.
-- Presigned URL untuk unduhan dan upload langsung, juga pada
+- Presigned URL untuk unduhan dan upload langsung, serta form POST yang
+  membatasi ukuran dan tipe upload; semuanya juga bekerja pada
   `Storage.fake()`.
 
 Dokumentasi: <https://github.com/daravel-dev/daravel/blob/main/docs/guide/id/s3.md>.

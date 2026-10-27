@@ -81,6 +81,32 @@ extension S3TemporaryUrls on Disk {
     ),
   };
 
+  /// See [S3Disk.temporaryUploadForm].
+  S3PresignedPost temporaryUploadForm(
+    String path, {
+    required DateTime expiration,
+    int? maxSize,
+    int minSize = 0,
+    String? contentType,
+    String? contentTypePrefix,
+  }) => switch (this) {
+    final S3Disk s3 => s3.temporaryUploadForm(
+      path,
+      expiration: expiration,
+      maxSize: maxSize,
+      minSize: minSize,
+      contentType: contentType,
+      contentTypePrefix: contentTypePrefix,
+    ),
+    final MemoryDisk fake => S3PresignedPost(_fakeUrl(fake, path, expiration), {
+      'key': path,
+      'Content-Type': ?contentType,
+    }),
+    _ => throw StorageException(
+      'Disk [$name] does not support temporary upload forms.',
+    ),
+  };
+
   static String _fakeUrl(MemoryDisk disk, String path, DateTime expiration) =>
       '${disk.url(path)}?expiration='
       '${expiration.toUtc().millisecondsSinceEpoch ~/ 1000}';
