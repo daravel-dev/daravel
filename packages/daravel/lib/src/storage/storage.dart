@@ -433,6 +433,9 @@ final class MemoryDisk implements Disk {
   @override
   Future<bool> deleteDirectory(String path) async {
     final dir = normalizeDiskPath(path);
+    if (dir.isEmpty) {
+      throw const StorageException('Refusing to delete the disk root.');
+    }
     final before = _files.length;
     _files.removeWhere((key, _) => key.startsWith('$dir/'));
     final removedDir = _dirs.remove(dir);

@@ -63,7 +63,7 @@ sections:
       - { php: "response()->streamDownload(...)", dart: "Response.stream(...)", symbol: Response.stream }
       - { php: "response()->eventStream(fn () => ...)", dart: "Response.sse(stream)", symbol: Response.sse, note: "Same frames and `</stream>` end event; adds heartbeats and ends on shutdown." }
       - { php: "new StreamedEvent(event: 'tick', data: $data)", dart: "SseEvent(data, event: 'tick')", symbol: SseEvent }
-      - { php: "Reverb / Pusher channels", dart: "router.ws('/ws/x', (socket, request) {...})", symbol: Router.ws, note: "A plain WebSocket after the route's middleware, not the Pusher protocol." }
+      - { php: "A custom WebSocket endpoint (outside Reverb channels)", dart: "router.ws('/ws/x', (socket, request) {...})", symbol: Router.ws, note: "A plain WebSocket after the route's middleware; Reverb and Pusher channels are under Broadcasting." }
       - { php: "abort(404, $message)", dart: "abort(404, message)", symbol: abort, note: "Without a message the JSON message is empty, as in Laravel." }
       - { php: "class StoreUserRequest extends FormRequest", dart: "final class StoreUserRequest extends FormRequest", symbol: FormRequest }
 
@@ -261,6 +261,8 @@ sections:
       - { php: "public function with($request)", dart: "Map<String, Object?> withMeta(Request? request)", symbol: JsonResource.withMeta, note: "`with` is a reserved word in Dart." }
       - { php: "Storage::disk('public')->put($path, $contents)", dart: "await Storage.disk('public').put(path, contents)", symbol: Storage.disk }
       - { php: "Storage::url($path)", dart: "Storage.url(path)", symbol: Storage.url }
+      - { php: "Storage::disk('s3')->temporaryUrl($path, now()->addMinutes(30))", dart: "Storage.disk('s3').temporaryUrl(path, expiration: 30.minutes.fromNow)", symbol: S3Disk.temporaryUrl, note: "package:daravel_s3 (withS3()); same AWS_* variables." }
+      - { php: "Storage::disk('s3')->temporaryUploadUrl($path, $expiration)", dart: "Storage.disk('s3').temporaryUploadUrl(path, expiration: ...)", symbol: S3Disk.temporaryUploadUrl, note: "Returns url and headers, as Laravel's array." }
       - { php: "Http::withToken($t)->retry(3, 100)->post($url, $data)", dart: "await Http.withToken(t).retry(3).post(url, json: data)", symbol: Http.withToken, async: true }
       - { php: "Http::fake([...]) / Http::assertSent(...)", dart: "Http.fake({...}).assertSent(...)", symbol: Http.fake }
       - { php: "php artisan down --secret / up", dart: "dartisan down --secret / up", symbol: PreventRequestsDuringMaintenance, note: "Same storage/framework/down file; bypass cookie daravel_maintenance." }
@@ -339,8 +341,6 @@ exceptions:
 # Laravel features without a Daravel equivalent yet (BLUEPRINT_V2 Tier 2/3).
 missing:
   - { php: "Sessions, CSRF, SPA cookie auth", plan: "Tier 2" }
-  - { php: "Mail, notifications, broadcasting", plan: "Tier 2/3" }
-  - { php: "Redis cache/queue/lock, S3 storage", plan: "Tier 2" }
   - { php: "PHP serialize() for Crypt::encrypt payloads", plan: "Tier 2 (Laravel-compatible Crypt mode)" }
   - { php: "optional() helper", plan: "Not planned: Dart has ?. and ??" }
   - { php: "app() / route() / url() global helpers", plan: "Use App.make<T>(), router.url(...); a global app() would be shadowed by the idiomatic app variable" }

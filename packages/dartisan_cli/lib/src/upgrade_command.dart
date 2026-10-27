@@ -22,6 +22,7 @@ const List<String> daravelPackages = [
   'daravel_redis',
   'daravel_teorion',
   'daravel_livekit',
+  'daravel_s3',
 ];
 
 /// Reads the latest stable `daravel` version from pub.dev.

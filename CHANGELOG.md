@@ -3,13 +3,30 @@
 All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 `daravel_lints`, `daravel_mysql`, `daravel_permission`, `daravel_redis`,
 `daravel_sqlite`, `daravel_postgres`, `daravel_teorion`, `daravel_livekit`,
-`daravel_google`, `daravel_teobiefy`, `dartisan_cli`). Versions follow SemVer:
-breaking changes to the Dart API wait for a new major version, and
-Laravel-facing formats change only to match Laravel more closely.
+`daravel_google`, `daravel_teobiefy`, `daravel_s3`, `dartisan_cli`). Versions
+follow SemVer: breaking changes to the Dart API wait for a new major
+version, and Laravel-facing formats change only to match Laravel more
+closely.
 
 ## Unreleased
 
 ### Added
+
+- `daravel_s3` (Blueprint #52): a `Storage` disk on AWS S3 and
+  S3-compatible stores (Cloudflare R2, MinIO, DigitalOcean Spaces, Google
+  Cloud Storage), configured from Laravel's `AWS_*` variables with
+  `withS3()`. Requests are signed with AWS Signature Version 4 in pure Dart
+  (checked against AWS's published S3 examples), bodies stay binary and
+  downloads stream. `putStream` holds one 8 MiB part at most and becomes a
+  multipart upload (aborted on failure) for longer streams; `copy` is
+  server side, `delete` batches `DeleteObjects` per thousand keys, and
+  `makeDirectory` writes the `dir/` marker Laravel writes.
+  `temporaryUrl` and `temporaryUploadUrl` presign `GET` and `PUT`, and
+  `temporaryUploadForm` signs a `POST` policy that caps an upload's size
+  and content type (`content-length-range`), all on the
+  testable clock and work on `Storage.fake()` disks too. One contract suite
+  runs against `LocalDisk`, `MemoryDisk` and `S3Disk`, over an in-process
+  S3 that verifies every signature, and on RustFS in CI.
 
 - `daravel_teobiefy` (Blueprint #34, phase 1): the encrypted API payloads
   of Bali Melajah's Laravel API (teobiefy protocol v1), so its clients
@@ -26,6 +43,12 @@ Laravel-facing formats change only to match Laravel more closely.
 - `Request.merge(input)` and `Request.replace(input)`, Laravel's
   `$request->merge()` and `$request->replace()`: change the body's fields
   that `all()`, `input()` and validation read.
+
+### Fixed
+
+- `MemoryDisk.deleteDirectory('')` (the disk of `Storage.fake()`) refuses
+  the disk root with a `StorageException`, as `LocalDisk` does. It used to
+  return `false`, so a test passed where the real disk throws.
 
 ## 1.13.0
 
