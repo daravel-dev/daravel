@@ -336,6 +336,9 @@ APP_ISOLATES=1
 # Load shedding: 503 + Retry-After while a worker's event loop is this late
 HTTP_MAX_QUEUE_DELAY=200ms
 # HTTP_MAX_IN_FLIGHT=0
+# Request body limit in bytes (50 MiB; 0 for none). BodyLimitsMiddleware
+# tightens it to 1 MiB for JSON and forms.
+# HTTP_MAX_BODY=52428800
 
 DB_CONNECTION=sqlite
 DB_DATABASE=database/database.sqlite
