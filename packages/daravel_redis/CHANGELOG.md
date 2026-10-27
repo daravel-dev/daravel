@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.12.0
 
 - First release: `withRedis()`, a RESP client (`RedisClient`, `RedisScript`, Pub/Sub), `RedisStore` (cache, Laravel-compatible locks, one-script rate limits), `RedisQueue` (`BLPOP` wake-up), broadcasting between servers (`RedisBroadcastRelay`, `RedisChannelState`), the `Redis` facade and a `redis` readiness check.
 - Sentinel (`RedisMode.sentinel`, `redis+sentinel://`: master discovery, `ROLE` check, `READONLY` resent after a failover) and Redis Cluster (`RedisClusterClient`, `redis+cluster://`: slot map, `MOVED`, `ASK`, `TRYAGAIN`, keys of several slots split for `MGET`/`DEL`/`UNLINK`/`EXISTS`/`TOUCH`, `SCAN` on every master); `redisHashSlot`; `RedisClient.pipeline`, `scan`, `stats`.

@@ -1,6 +1,12 @@
 # Changelog
 
-## Unreleased
+## 1.12.0
+
+- Added `Cache.tags([...])` (`TaggableCacheStore`, `TaggedCacheStore`, `TagSetCacheStore`) on the `memory` and `process` stores; `file` and `database` refuse, as in Laravel.
+- Added `Limit.slidingWindow()` and `Limit.gcra()` (`RateLimitAlgorithm`, `AlgorithmRateLimitStore`, `RateCounterStore`), counted by stores that support them and as a fixed window elsewhere.
+- Added eager loading specific columns: `with_('user:id,name')`, nested and as a map key; the keys a relation matches on, those the next nested level reads and a root `select`'s foreign keys are added (`Relation.matchColumns`, `parentColumns`).
+- Added `QueryException` and `UniqueConstraintViolationException` (`QueryErrors`, `QueryExceptionExecutor`), whose message keeps the `?` placeholders, and `createOrFirst`.
+- Fixed: `firstOrCreate` and `updateOrCreate` called at once for the same row no longer fail with the database's unique error.
 
 - Added `ApplicationBuilder.withCacheStore`, `withQueueDriver`, `withBroadcastScaling` and `withShutdown`, the `BroadcastRelay` contract and `REVERB_SCALING_DRIVER`, for driver packages such as `daravel_redis`.
 - Added `Blueprint.primary([...])` (composite primary keys).

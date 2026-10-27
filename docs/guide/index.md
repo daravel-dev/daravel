@@ -12,7 +12,8 @@ payloads and the framework tables use Laravel's formats, and a conformance
 suite keeps them that way. See [Laravel coexistence](laravel-coexistence.md).
 
 The official packages are `daravel`, `dartisan_cli`, `daravel_test`,
-`daravel_lints`, `daravel_mysql`, `daravel_sqlite` and `daravel_postgres`,
+`daravel_lints`, `daravel_mysql`, `daravel_sqlite`, `daravel_postgres`,
+`daravel_redis`, `daravel_permission` and `daravel_teorion`,
 released together by the verified
 publisher [`framework.daravel.dev`](https://pub.dev/publishers/framework.daravel.dev)
 on pub.dev; only packages from that publisher belong to this project.

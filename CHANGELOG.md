@@ -1,12 +1,24 @@
 # Changelog
 
 All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
-`daravel_lints`, `daravel_mysql`, `daravel_redis`, `daravel_sqlite`,
-`daravel_postgres`, `dartisan_cli`). Versions follow SemVer:
+`daravel_lints`, `daravel_mysql`, `daravel_permission`, `daravel_redis`,
+`daravel_sqlite`, `daravel_postgres`, `daravel_teorion`, `dartisan_cli`). Versions follow SemVer:
 breaking changes to the Dart API wait for a new major version, and
 Laravel-facing formats change only to match Laravel more closely.
 
-## Unreleased
+## 1.12.0
+
+Three first-party packages share their data with a Laravel application:
+`daravel_redis` (Redis and Valkey on one server, behind Sentinel or as a
+Cluster: cache, tags, locks, rate limits, queues, broadcasting, checked
+against Laravel 12), `daravel_permission` (roles and permissions on
+spatie/laravel-permission's tables) and `daravel_teorion` (laravel-teorion's
+query filters). The ORM loads specific columns of a relation without
+losing the keys it matches on, a unique index refusing a row is a
+`UniqueConstraintViolationException`, and `firstOrCreate` no longer fails
+when two requests create the same row. Upgrade from any 1.x with
+`dartisan upgrade`; the new packages are added with `dart pub add` (or
+`dartisan redis:install`).
 
 ### Added
 

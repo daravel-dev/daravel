@@ -1,13 +1,16 @@
 # Releases and versioning
 
-Daravel `1.x` is the stable release line. The seven packages (`daravel`,
+Daravel `1.x` is the stable release line. The ten packages (`daravel`,
 `dartisan_cli`, `daravel_test`, `daravel_lints`, `daravel_mysql`,
-`daravel_sqlite`, `daravel_postgres`) are released together under one version,
+`daravel_sqlite`, `daravel_postgres`, and since 1.12.0 `daravel_redis`,
+`daravel_permission` and `daravel_teorion`) are released together under one
+version,
 published on [pub.dev](https://pub.dev/packages/daravel) by the verified
 publisher `framework.daravel.dev`.
 
 | Version | Highlights |
 | :-- | :-- |
+| `1.12.0` | Redis and Valkey (daravel_redis), roles and permissions (daravel_permission), query filters (daravel_teorion), cache tags, eager loading specific columns, typed unique violations and createOrFirst |
 | `1.11.0` | Broadcasting across servers (REVERB_SCALING_ENABLED), cache and encrypted channels, 10k connections, one-statement rate limits, wakeable queue workers |
 | `1.10.1` | Security fixes: JWT revocation on every isolate, queue:restart and queue:pause across processes, unique-job locks |
 | `1.10.0` | Broadcasting with Laravel Echo (the Pusher protocol, as Reverb; `ShouldBroadcast`, `BROADCAST_CONNECTION`), bcrypt in C on Linux |
