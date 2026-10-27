@@ -102,10 +102,14 @@ final class AuthConfig implements ConfigSection {
 /// guard named explicitly, the one activated by `auth:a,b` middleware for
 /// this request, or the configured default.
 final class AuthManager {
-  AuthManager(this.config, {this._appKey});
+  AuthManager(this.config, {this._appKey, this.jwtDenylist});
 
   final AuthConfig config;
   final String? _appKey;
+
+  /// The denylist of [jwt] guards that are not given one: shared by every
+  /// isolate when the application builds it (`CacheJwtDenylist`).
+  final JwtDenylist? jwtDenylist;
   final Map<String, Guard<Authenticatable>> _guards =
       <String, Guard<Authenticatable>>{};
   String? _defaultOverride;
@@ -153,7 +157,7 @@ final class AuthManager {
       provider: provider,
       codec: codec ?? defaultJwtCodec(),
       ttl: ttl ?? config.jwtTtl,
-      denylist: denylist,
+      denylist: denylist ?? jwtDenylist,
     );
     register(name, guard);
     return guard;

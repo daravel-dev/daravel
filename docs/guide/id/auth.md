@@ -1,4 +1,4 @@
-<!-- source: auth.md sha256:96e65185161d -->
+<!-- source: auth.md sha256:659dafeae66c -->
 # Autentikasi dan otorisasi
 
 Guard didaftarkan di `bootstrap/app.dart`:
@@ -47,7 +47,11 @@ baik akunnya ada maupun tidak.
 `Auth.issueJwt(user)` menandatangani token HS256 dengan `JWT_SECRET` (atau
 `APP_KEY`), atau EdDSA dengan `JWT_PUBLIC_KEY` / `JWT_PRIVATE_KEY`.
 Verifikasi menolak `alg: none`, algoritma tanpa kunci yang dikonfigurasi,
-tanda tangan yang salah, dan token kedaluwarsa; denylist mendukung logout.
+tanda tangan yang salah, dan token kedaluwarsa.
+`Auth.jwtGuard().invalidate()` mencabut token sampai kedaluwarsa (ditambah
+leeway): denylist disimpan di cache store default, atau di store `process`
+bila store default-nya `memory`, sehingga semua worker isolate menolak token
+itu; dengan `CACHE_STORE=database`, semua mesin menolaknya.
 
 ## Hashing
 

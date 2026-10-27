@@ -1,4 +1,5 @@
-<!-- source: configuration.md sha256:3b5c8b57e712 -->
+<!-- source: configuration.md sha256:b3f8e90f4636 -->
+<!-- source: configuration.md sha256:0 -->
 # Konfigurasi
 
 ## File environment
@@ -91,6 +92,8 @@ setelah boot.
 | `CACHE_PROCESS_L1_TTL` | `0` (mati) | Dengan store `process`, berapa lama setiap worker isolate memakai ulang nilai yang dibacanya (`250ms`) sebelum bertanya lagi ke coordinator |
 | `CACHE_LIMITER` | coordinator | Penyimpanan cache untuk rate limit (`cache.limiter` dari Laravel); `database` membaginya antarmesin |
 | `QUEUE_CONNECTION` | `sync` | `sync`, `memory`, atau `database` |
+| `QUEUE_UNIQUE_LOCK_STORE` | `database` dengan queue database, selain itu `process` | Cache store untuk lock unique job; proses `queue:work` harus bisa menjangkaunya |
+| `QUEUE_SIGNAL_STORE` | `file` dengan queue database, selain itu lock store | Cache store untuk sinyal `queue:restart` dan `queue:pause`; `database` menjangkau worker di semua mesin |
 | `HASH_DRIVER`, `BCRYPT_ROUNDS` | `bcrypt`, `12` | Hashing password (seperti Laravel) |
 | `LOG_LEVEL`, `LOG_STACK` | `debug` | Level log dan channel (`json` untuk produksi) |
 | `SHUTDOWN_TIMEOUT`, `HTTP_REQUEST_TIMEOUT` | `30s`, `30s` | Graceful shutdown dan timeout handler |

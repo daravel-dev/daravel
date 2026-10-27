@@ -6,6 +6,34 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 breaking changes to the Dart API wait for a new major version, and
 Laravel-facing formats change only to match Laravel more closely.
 
+## 1.10.1
+
+Security fixes from Review #42; upgrade with `dartisan upgrade`. A JWT
+revoked on one worker isolate is now refused on all of them, and
+`queue:restart` and `queue:pause` reach `queue:work` processes. With
+`QUEUE_CONNECTION=database`, unique jobs now keep their locks in the
+`database` cache store, so that queue needs the cache tables
+(`CreateCacheTable`) when it runs `ShouldBeUnique` jobs.
+
+### Fixed
+
+- `dartisan queue:restart`, `queue:pause` and `queue:continue` reached no
+  `queue:work` process with the database queue: their signals lived in the
+  memory of the command's own process. They now go to the `file` cache
+  store (`QUEUE_SIGNAL_STORE=database` for workers on several machines)
+  (Review #42).
+- A revoked JWT stayed valid on the other worker isolates, and guards
+  without a denylist could not revoke at all: `auth.jwt(...)` now uses a
+  denylist in the default cache store (the `process` store when that is
+  `memory`), shared by every isolate. A revoked token also stays refused
+  through the verification leeway after `exp` (Review #42).
+- Unique-job locks taken by the server could not be released by a separate
+  `queue:work` process, so a unique job was skipped until its lock expired
+  (a year without `uniqueFor`). With `QUEUE_CONNECTION=database` they now
+  default to the `database` cache store (the `cache_locks` table of
+  `CreateCacheTable`), and boot warns when `QUEUE_UNIQUE_LOCK_STORE` names
+  a store of one process.
+
 ## 1.10.0
 
 Broadcasting with Laravel Echo: Daravel speaks the Pusher protocol as

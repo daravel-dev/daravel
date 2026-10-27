@@ -88,6 +88,8 @@ frozen after boot.
 | `CACHE_PROCESS_L1_TTL` | `0` (off) | With the `process` store, how long each worker isolate reuses a value it read (`250ms`) before asking the coordinator again |
 | `CACHE_LIMITER` | coordinator | Cache store for rate limits (Laravel's `cache.limiter`); `database` shares them between machines |
 | `QUEUE_CONNECTION` | `sync` | `sync`, `memory` or `database` |
+| `QUEUE_UNIQUE_LOCK_STORE` | `database` with the database queue, else `process` | Cache store of unique-job locks; `queue:work` processes must reach it |
+| `QUEUE_SIGNAL_STORE` | `file` with the database queue, else the lock store | Cache store of `queue:restart` and `queue:pause` signals; `database` reaches workers on every machine |
 | `HASH_DRIVER`, `BCRYPT_ROUNDS` | `bcrypt`, `12` | Password hashing (as Laravel) |
 | `LOG_LEVEL`, `LOG_STACK` | `debug` | Logging level and channels (`json` for production) |
 | `SHUTDOWN_TIMEOUT`, `HTTP_REQUEST_TIMEOUT` | `30s`, `30s` | Graceful shutdown and handler timeouts |

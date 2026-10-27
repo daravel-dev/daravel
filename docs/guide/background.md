@@ -58,6 +58,13 @@ unique jobs, job middleware, `queue:work`, `queue:failed`, `queue:retry` and
 `queue:restart` are supported. Dispatch inside a transaction is deferred
 until commit by default.
 
+`queue:work`, `queue:restart` and the server are separate processes, so
+what they share lives outside them. With the database queue, unique-job
+locks are kept in the `database` cache store (Laravel's `cache_locks`
+table), and `queue:restart` / `queue:pause` signals in the `file` store,
+which reaches every worker on the machine; `QUEUE_SIGNAL_STORE=database`
+reaches workers on every machine.
+
 For monitoring and operations (the hooks a Horizon-style dashboard builds
 on):
 

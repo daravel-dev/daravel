@@ -329,7 +329,9 @@ abstract interface class JwtDenylist {
   Future<bool> contains(String jti);
 }
 
-/// In-memory denylist (per isolate). A cache-backed store arrives with S9.
+/// In-memory denylist of one isolate, for tests and single-isolate tools:
+/// with `APP_ISOLATES` > 1 a token revoked on one isolate stays valid on
+/// the others. Applications get a shared one by default (`auth.jwt`).
 final class MemoryJwtDenylist implements JwtDenylist {
   MemoryJwtDenylist({DateTime Function()? clock}) : _clock = clock ?? _utcNow;
 
@@ -437,8 +439,8 @@ final class JwtGuard<T extends Authenticatable> extends RequestGuard<T> {
     final list = denylist;
     if (list == null) {
       throw StateError(
-        'JwtGuard [$name] has no denylist; pass denylist: MemoryJwtDenylist() '
-        'to support invalidation.',
+        'JwtGuard [$name] has no denylist; register it with auth.jwt(...) '
+        '(a denylist shared by every isolate) or pass one.',
       );
     }
     final JwtClaims? current = token == null
@@ -448,9 +450,11 @@ final class JwtGuard<T extends Authenticatable> extends RequestGuard<T> {
     if (jti == null) {
       return;
     }
+    // Verification accepts a token up to the leeway after `exp`.
     await list.add(
       jti,
-      current!.expiresAt ?? _clock().add(const Duration(days: 365)),
+      current!.expiresAt?.add(codec.leeway) ??
+          _clock().add(const Duration(days: 365)),
     );
     if (token == null) {
       forgetUser();

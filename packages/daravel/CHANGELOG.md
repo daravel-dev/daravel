@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.10.1
+
+- Fixed: `queue:restart` / `queue:pause` reach `queue:work` processes with the database queue (`QUEUE_SIGNAL_STORE`, the `file` store by default).
+- Fixed: `auth.jwt` guards get a denylist shared by every isolate (`CacheJwtDenylist`), and revoked tokens stay refused through the leeway.
+- Fixed: with the database queue, unique-job locks default to the `database` cache store, so `queue:work` processes release them.
+
 ## 1.10.0
 
 - Added broadcasting with Laravel Echo: the Pusher protocol as Laravel Reverb (`withBroadcasting`, `ChannelRegistry`, `/broadcasting/auth`, the HTTP API), `ShouldBroadcast`, `Broadcast.event` / `send`, and `BROADCAST_CONNECTION` (`daravel`, `reverb`, `pusher`, `log`, `null`).

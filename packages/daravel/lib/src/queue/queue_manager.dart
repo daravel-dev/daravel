@@ -6,6 +6,7 @@ import '../cache/cache.dart';
 import '../database/database_manager.dart';
 import '../events/events.dart';
 import '../foundation/config.dart';
+import '../foundation/config_validator.dart';
 import '../foundation/container.dart';
 import '../foundation/env.dart';
 import '../foundation/exceptions.dart';
@@ -24,17 +25,50 @@ final class QueueConfig implements ConfigSection {
     this.retryAfter = const Duration(seconds: 90),
     this.afterCommit = true,
     this.uniqueLockStore = 'process',
+    this.signalStore,
   });
 
-  factory QueueConfig.fromEnv(Env env) => QueueConfig(
-    defaultConnection: env.string('QUEUE_CONNECTION', 'sync'),
-    defaultQueue: env.string('QUEUE_DEFAULT', 'default'),
-    table: env.string('QUEUE_TABLE', 'jobs'),
-    failedTable: env.string('QUEUE_FAILED_TABLE', 'failed_jobs'),
-    retryAfter: env.duration('QUEUE_RETRY_AFTER', const Duration(seconds: 90)),
-    afterCommit: env.boolean('QUEUE_AFTER_COMMIT', true),
-    uniqueLockStore: env.string('QUEUE_UNIQUE_LOCK_STORE', 'process'),
-  );
+  factory QueueConfig.fromEnv(Env env) {
+    final connection = env.string('QUEUE_CONNECTION', 'sync');
+    return QueueConfig(
+      defaultConnection: connection,
+      defaultQueue: env.string('QUEUE_DEFAULT', 'default'),
+      table: env.string('QUEUE_TABLE', 'jobs'),
+      failedTable: env.string('QUEUE_FAILED_TABLE', 'failed_jobs'),
+      retryAfter: env.duration(
+        'QUEUE_RETRY_AFTER',
+        const Duration(seconds: 90),
+      ),
+      afterCommit: env.boolean('QUEUE_AFTER_COMMIT', true),
+      // `queue:work` processes release the locks that requests take: with
+      // the database queue they must live where both see them.
+      uniqueLockStore: env.string(
+        'QUEUE_UNIQUE_LOCK_STORE',
+        connection == 'database' ? 'database' : 'process',
+      ),
+      signalStore: env.maybeString('QUEUE_SIGNAL_STORE'),
+    );
+  }
+
+  /// Warns when the database queue keeps unique-job locks where separate
+  /// `queue:work` processes cannot release them.
+  static Iterable<ConfigIssue> check(Env env, ConfigRepository config) {
+    final queue = config.section<QueueConfig>();
+    if (queue.defaultConnection != 'database' ||
+        !const {'memory', 'process', 'file'}.contains(queue.uniqueLockStore)) {
+      return const [];
+    }
+    return [
+      ConfigIssue(
+        ConfigIssueLevel.warning,
+        'QUEUE_UNIQUE_LOCK_STORE=${queue.uniqueLockStore} with '
+        'QUEUE_CONNECTION=database: a `dartisan queue:work` process cannot '
+        'release unique-job locks taken by the server, so a unique job is not '
+        'dispatched again until its lock expires. Use the database store '
+        '(the default), or run the worker with `serve --embed-queue`.',
+      ),
+    ];
+  }
 
   /// `sync` | `database` | `memory`.
   final String defaultConnection;
@@ -46,8 +80,15 @@ final class QueueConfig implements ConfigSection {
   /// Dispatches inside a transaction wait for the commit by default.
   final bool afterCommit;
 
-  /// Cache store holding unique-job locks.
+  /// Cache store holding unique-job locks (`QUEUE_UNIQUE_LOCK_STORE`;
+  /// `database` with the database queue, `process` otherwise).
   final String uniqueLockStore;
+
+  /// Cache store of `queue:restart` and `queue:pause` signals
+  /// (`QUEUE_SIGNAL_STORE`): by default the `file` store with the database
+  /// queue (one machine; `database` reaches every machine), [uniqueLockStore]
+  /// otherwise.
+  final String? signalStore;
 
   @override
   String get key => 'queue';
@@ -396,6 +437,7 @@ final class QueueManager {
     required this.processor,
     this.database,
     this.lockStore,
+    this._signalStore,
     this.logger,
   });
 
@@ -408,6 +450,12 @@ final class QueueManager {
 
   /// Store for unique-job locks (`ShouldBeUnique`).
   final CacheRepository? lockStore;
+
+  /// Where [restart] and [pause] signals live (defaults to [lockStore]):
+  /// the commands run in a process of their own, so it must be a store the
+  /// workers read too.
+  CacheRepository? get signalStore => _signalStore ?? lockStore;
+  final CacheRepository? _signalStore;
   final Logger? logger;
 
   final Map<String, QueueDriver Function()> _factories = {};
@@ -559,7 +607,7 @@ final class QueueManager {
 
   /// Requests every running worker to stop after its current job.
   Future<void> restart() async {
-    await lockStore?.store.put(
+    await signalStore?.store.put(
       'daravel:queue:restart',
       DateTime.now().toUtc().millisecondsSinceEpoch,
     );
@@ -567,7 +615,7 @@ final class QueueManager {
 
   /// Timestamp of the last [restart] request (epoch ms) or `null`.
   Future<int?> restartRequestedAt() async =>
-      (await lockStore?.store.get('daravel:queue:restart')) as int?;
+      (await signalStore?.store.get('daravel:queue:restart')) as int?;
 
   static String _pauseKey(String connection, String queue) =>
       'daravel:queue:paused:$connection:$queue';
@@ -575,20 +623,20 @@ final class QueueManager {
   /// Stops every worker from taking jobs off [queue] until [resume]
   /// (`queue:pause`); running jobs finish. Shared through the cache store,
   /// like [restart].
-  Future<void> pause(String queue, {String? connection}) async => lockStore
+  Future<void> pause(String queue, {String? connection}) async => signalStore
       ?.store
       .forever(_pauseKey(_connectionName(connection), queue), true);
 
   /// Lets workers take jobs off [queue] again (`queue:continue`).
   Future<void> resume(String queue, {String? connection}) async {
-    await lockStore?.store.forget(
+    await signalStore?.store.forget(
       _pauseKey(_connectionName(connection), queue),
     );
   }
 
   /// Whether [queue] on [connection] is paused by [pause].
   Future<bool> isPaused(String queue, {String? connection}) async =>
-      await lockStore?.store.get(
+      await signalStore?.store.get(
         _pauseKey(_connectionName(connection), queue),
       ) ==
       true;
