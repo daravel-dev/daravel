@@ -161,6 +161,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `User::create($attributes)` | `await User.query().create(attributes)` | **async** |
 | `User::firstOrCreate / updateOrCreate` | `firstOrCreate / updateOrCreate` | **async** |
 | `->with(['posts'])` | `.with_(['posts'])` | `with` is a reserved word in Dart. |
+| `->with('user:id,name')` | `.with_('user:id,name')` | Keys the relation matches on are added when the selection leaves them out. |
 | `->withCount('posts')` | `.withCount('posts')` |  |
 | `->withSum('orders', 'total') / withAvg / withMin / withMax / withExists` | `.withSum('orders', 'total') / withAvg / withMin / withMax / withExists` |  |
 | `->whereHas('posts', fn)` | `.whereHas('posts', (q) {...})` |  |

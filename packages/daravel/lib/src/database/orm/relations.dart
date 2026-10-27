@@ -43,6 +43,56 @@ abstract class Relation<R extends Model> {
   /// `whereHas` / `withCount`.
   ModelQuery<R> correlated(ModelDefinition<Model> parent, DatabaseManager db);
 
+  /// The related rows' columns this relation matches them on (its foreign
+  /// or owner key): added back when an eager load selects columns without
+  /// them (`with_('user:name')` still reads `users.id`).
+  List<String> get matchColumns => const [];
+
+  /// The parent rows' columns this relation reads (its local or foreign
+  /// key): added to a parent query that selects columns without them, so
+  /// the relation can still be loaded from its rows.
+  List<String> get parentColumns => const [];
+
+  /// Adds the [columns] that [query] (on [table]) does not select yet;
+  /// bare names are qualified with [table]. A query that selects every
+  /// column (none listed, `*`, `table.*`) is left alone.
+  static void keepColumns(
+    QueryBuilder query,
+    String table,
+    Iterable<Object> columns,
+  ) {
+    final selected = query.ast.columns;
+    if (selected.isEmpty || selected.any((c) => c == '*' || c == '$table.*')) {
+      return;
+    }
+    final missing = [
+      for (final column in columns)
+        if (!selected.any(
+          (c) => c == column || (column is String && c == '$table.$column'),
+        ))
+          column is String && _bare.hasMatch(column)
+              ? '$table.$column'
+              : column,
+    ];
+    if (missing.isNotEmpty) {
+      query.addSelect(missing);
+    }
+  }
+
+  /// Qualifies the bare column names [query] selects with [table]: a
+  /// query joining a pivot or intermediate table would find `id` ambiguous.
+  static void qualifySelect(QueryBuilder query, String table) {
+    final selected = query.ast.columns;
+    for (var i = 0; i < selected.length; i++) {
+      final column = selected[i];
+      if (column is String && _bare.hasMatch(column)) {
+        selected[i] = '$table.$column';
+      }
+    }
+  }
+
+  static final RegExp _bare = RegExp(r'^\w+$');
+
   /// [correlated] against the parent table as [parentTable] names it (an
   /// alias inside a self-relation subquery). The built-in relations alias
   /// their own table when it has the parent's name (`categories` whose
@@ -166,6 +216,12 @@ class HasMany<R extends Model> extends Relation<R> {
       related.query(db: db).where(foreignKey, parent.attributes[localKey]);
 
   @override
+  List<String> get matchColumns => [foreignKey];
+
+  @override
+  List<String> get parentColumns => [localKey];
+
+  @override
   Future<void> eagerLoad(
     List<Model> parents,
     DatabaseManager db, [
@@ -177,6 +233,7 @@ class HasMany<R extends Model> extends Relation<R> {
     for (final batch in Relation.chunk(keys.toList(), 500)) {
       final query = related.query(db: db).whereIn(foreignKey, batch);
       constraint?.call(query as ModelQuery<Model>);
+      Relation.keepColumns(query.builder, query.tableName, matchColumns);
       for (final model in await query.get()) {
         grouped
             .putIfAbsent(model.attributes[foreignKey], () => <R>[])
@@ -252,6 +309,12 @@ final class BelongsTo<R extends Model> extends Relation<R> {
       related.query(db: db).where(ownerKey, parent.attributes[foreignKey]);
 
   @override
+  List<String> get matchColumns => [ownerKey];
+
+  @override
+  List<String> get parentColumns => [foreignKey];
+
+  @override
   Future<void> eagerLoad(
     List<Model> parents,
     DatabaseManager db, [
@@ -263,6 +326,7 @@ final class BelongsTo<R extends Model> extends Relation<R> {
     for (final batch in Relation.chunk(keys.toList(), 500)) {
       final query = related.query(db: db).whereIn(ownerKey, batch);
       constraint?.call(query as ModelQuery<Model>);
+      Relation.keepColumns(query.builder, query.tableName, matchColumns);
       for (final model in await query.get()) {
         byKey[model.attributes[ownerKey]] = model;
       }
@@ -326,6 +390,13 @@ final class BelongsToMany<R extends Model> extends Relation<R> {
     if (withTimestamps) ...['created_at', 'updated_at'],
   ];
 
+  List<String> get _pivotSelect => [
+    for (final column in _pivotColumns) '$pivotTable.$column as pivot_$column',
+  ];
+
+  @override
+  List<String> get parentColumns => [parentKey];
+
   ModelQuery<R> _base(DatabaseManager db) {
     final query = related.query(db: db);
     query.builder
@@ -335,11 +406,7 @@ final class BelongsToMany<R extends Model> extends Relation<R> {
         '=',
         '${related.table}.$relatedKey',
       )
-      ..select([
-        '${related.table}.*',
-        for (final column in _pivotColumns)
-          '$pivotTable.$column as pivot_$column',
-      ]);
+      ..select(['${related.table}.*', ..._pivotSelect]);
     return query;
   }
 
@@ -378,6 +445,9 @@ final class BelongsToMany<R extends Model> extends Relation<R> {
         parents.first.modelDefinition,
       );
       constraint?.call(query as ModelQuery<Model>);
+      // As Laravel's shouldSelect: the pivot columns whatever was selected.
+      Relation.qualifySelect(query.builder, related.table);
+      Relation.keepColumns(query.builder, related.table, _pivotSelect);
       for (final model in await query.get()) {
         grouped
             .putIfAbsent(model.pivot?[foreignPivotKey], () => <R>[])
@@ -506,6 +576,9 @@ class HasManyThrough<R extends Model> extends Relation<R> {
 
   static const String throughKeyAlias = 'laravel_through_key';
 
+  @override
+  List<String> get parentColumns => [localKey];
+
   ModelQuery<R> _base(DatabaseManager db) {
     final throughTable = through().table;
     final query = related.query(db: db);
@@ -541,6 +614,10 @@ class HasManyThrough<R extends Model> extends Relation<R> {
     for (final batch in Relation.chunk(keys.toList(), 500)) {
       final query = _base(db).whereIn('$throughTable.$firstKey', batch);
       constraint?.call(query as ModelQuery<Model>);
+      Relation.qualifySelect(query.builder, related.table);
+      Relation.keepColumns(query.builder, related.table, [
+        '$throughTable.$firstKey as $throughKeyAlias',
+      ]);
       for (final model in await query.get()) {
         grouped
             .putIfAbsent(model.attributes[throughKeyAlias], () => <R>[])
@@ -777,6 +854,9 @@ final class MorphTo extends Relation<Model> {
       ownerKey ?? definition.primaryKey;
 
   @override
+  List<String> get parentColumns => [morphType, foreignKey];
+
+  @override
   ModelQuery<Model> queryFor(Model parent, DatabaseManager db) {
     final type = parent.attributes[morphType];
     if (type == null) {
@@ -816,6 +896,7 @@ final class MorphTo extends Relation<Model> {
       for (final batch in Relation.chunk(ids, 500)) {
         final query = definition.query(db: db).whereIn(key, batch);
         constraint?.call(query);
+        Relation.keepColumns(query.builder, query.tableName, [key]);
         for (final model in await query.get()) {
           byKey['${model.attributes[key]}'] = model;
         }

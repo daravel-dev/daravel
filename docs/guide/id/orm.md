@@ -1,4 +1,4 @@
-<!-- source: orm.md sha256:d44671bf77b6 -->
+<!-- source: orm.md sha256:dbd8414716a4 -->
 # ORM
 
 Model mengikuti API Eloquent. Karena Dart tidak punya property ajaib, setiap
@@ -106,6 +106,29 @@ await user.detach('roles', [3]);
 `load` dan `loadMissing` memuat relasi ke model yang sudah Anda punya.
 `Model.preventLazyLoading` mengubah relasi yang belum dimuat menjadi error,
 sehingga query N+1 tertangkap di test.
+
+### Eager loading kolom tertentu
+
+Seperti di Laravel, `relation:column,column` hanya membaca kolom-kolom itu
+dari sebuah relasi, di kedalaman berapa pun, dan juga sebagai key map di
+samping constraint:
+
+```dart
+await Post.query().with_(['user:id,name', 'comments:id,post_id,body']).get();
+await User.query().with_(['posts:title', 'posts.comments:body']).get();
+await Post.query().with_({
+  'comments:id,post_id,body': (q) => q.latest().limit(5),
+}).get();
+```
+
+Bila pilihan kolom melupakan key yang dipakai untuk mencocokkan relasi
+(`with('user:name')`), Laravel meninggalkan relasinya kosong, sedangkan
+Daravel menambahkannya: owner key dari `BelongsTo`, foreign key dari
+`HasMany`, key yang dibaca tingkat berikutnya pada eager load bersarang
+(`posts.id` di atas), dan foreign key yang dibutuhkan relasi dari sebuah
+`select([...])` di query root. Kolom pivot dari `BelongsToMany` dan key
+perantara dari `HasManyThrough` tetap dipilih, dan kolom-kolomnya diberi
+nama tabel, sehingga `id` tidak pernah ambigu.
 
 ### Query keberadaan bersarang
 

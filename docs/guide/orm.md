@@ -104,6 +104,27 @@ await user.detach('roles', [3]);
 `Model.preventLazyLoading` turns an unloaded relation into an error, which
 catches N+1 queries in tests.
 
+### Eager loading specific columns
+
+As in Laravel, `relation:column,column` reads only those columns of a
+relation, at any depth, and as a map key next to a constraint:
+
+```dart
+await Post.query().with_(['user:id,name', 'comments:id,post_id,body']).get();
+await User.query().with_(['posts:title', 'posts.comments:body']).get();
+await Post.query().with_({
+  'comments:id,post_id,body': (q) => q.latest().limit(5),
+}).get();
+```
+
+Where Laravel leaves a relation empty when the selection forgets the key it
+matches on (`with('user:name')`), Daravel adds it: the owner key of a
+`BelongsTo`, the foreign key of a `HasMany`, the keys the next level of a
+nested load reads (`posts.id` above), and the foreign keys a root
+`select([...])` needs for its relations. The pivot columns of a
+`BelongsToMany` and the intermediate key of a `HasManyThrough` stay
+selected, and their columns are qualified, so `id` is never ambiguous.
+
 ### Nested existence queries
 
 `whereHas`, `orWhereHas`, `has`, `whereDoesntHave`, `orWhereDoesntHave`,

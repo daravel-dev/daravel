@@ -607,20 +607,50 @@ final class ModelQuery<T extends Model> {
   }
 
   /// Parses `with()` arguments into `name → constraint` pairs.
-  static Map<String, RelationConstraint?> parseWith(Object relations) =>
-      switch (relations) {
-        String() => {relations: null},
-        List<Object?>() => {for (final r in relations) '$r': null},
-        Map<Object?, Object?>() => {
-          for (final entry in relations.entries)
-            '${entry.key}': entry.value as RelationConstraint?,
-        },
-        _ => throw ArgumentError.value(
+  ///
+  /// `relation:column,column` selects those columns of the relation
+  /// (Laravel's `with('user:id,name')`, also as a map key next to a
+  /// constraint); the keys the relation matches on are added when left out.
+  static Map<String, RelationConstraint?> parseWith(Object relations) {
+    final parsed = <String, RelationConstraint?>{};
+    void add(String entry, RelationConstraint? constraint) {
+      final colon = entry.indexOf(':');
+      if (colon < 0) {
+        parsed[entry.trim()] = constraint;
+        return;
+      }
+      final columns = [
+        for (final column in entry.substring(colon + 1).split(','))
+          if (column.trim().isNotEmpty) column.trim(),
+      ];
+      parsed[entry.substring(0, colon).trim()] = columns.isEmpty
+          ? constraint
+          : (ModelQuery<Model> query) {
+              query.builder.select(columns);
+              constraint?.call(query);
+            };
+    }
+
+    switch (relations) {
+      case String():
+        add(relations, null);
+      case List<Object?>():
+        for (final relation in relations) {
+          add('$relation', null);
+        }
+      case Map<Object?, Object?>():
+        for (final entry in relations.entries) {
+          add('${entry.key}', entry.value as RelationConstraint?);
+        }
+      default:
+        throw ArgumentError.value(
           relations,
           'relations',
           'Expected a String, List or Map',
-        ),
-      };
+        );
+    }
+    return parsed;
+  }
 
   // ---------------------------------------------------------------------------
   // Execution
@@ -635,6 +665,13 @@ final class ModelQuery<T extends Model> {
       }
     }
     final query = builder.clone();
+    if (_with.isNotEmpty) {
+      // `select(['title']).with_('user')` still reads `user_id`.
+      Relation.keepColumns(query, tableName, [
+        for (final name in {for (final w in _with.keys) w.split('.').first})
+          ...?definition.relation(name)?.parentColumns,
+      ]);
+    }
     if (definition.softDeletes && !_withoutGlobalScopes) {
       if (_onlyTrashed) {
         query.whereNotNull(_qualify(definition.deletedAt));
@@ -727,7 +764,22 @@ final class ModelQuery<T extends Model> {
     }
     for (final entry in byRoot.entries) {
       final relation = definition.requireRelation(entry.key);
-      await relation.eagerLoad(models, _db, rootConstraints[entry.key]);
+      final own = rootConstraints[entry.key];
+      final nested = {for (final key in entry.value.keys) key.split('.').first};
+      await relation.eagerLoad(
+        models,
+        _db,
+        nested.isEmpty
+            ? own
+            : (ModelQuery<Model> query) {
+                own?.call(query);
+                // The children's own relations read these columns.
+                Relation.keepColumns(query.builder, query.tableName, [
+                  for (final name in nested)
+                    ...?query.definition.relation(name)?.parentColumns,
+                ]);
+              },
+      );
       if (entry.value.isNotEmpty) {
         // Grouped by definition: a MorphTo loads posts and videos together,
         // and each needs its own relations.

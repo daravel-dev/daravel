@@ -152,6 +152,7 @@ sections:
       - { php: "User::create($attributes)", dart: "await User.query().create(attributes)", symbol: ModelQuery.create, async: true }
       - { php: "User::firstOrCreate / updateOrCreate", dart: "firstOrCreate / updateOrCreate", symbol: ModelQuery.updateOrCreate, async: true }
       - { php: "->with(['posts'])", dart: ".with_(['posts'])", symbol: ModelQuery.with_, note: "`with` is a reserved word in Dart." }
+      - { php: "->with('user:id,name')", dart: ".with_('user:id,name')", symbol: ModelQuery.parseWith, note: "Keys the relation matches on are added when the selection leaves them out." }
       - { php: "->withCount('posts')", dart: ".withCount('posts')", symbol: ModelQuery.withCount }
       - { php: "->withSum('orders', 'total') / withAvg / withMin / withMax / withExists", dart: ".withSum('orders', 'total') / withAvg / withMin / withMax / withExists", symbol: ModelQuery.withExists }
       - { php: "->whereHas('posts', fn)", dart: ".whereHas('posts', (q) {...})", symbol: ModelQuery.whereHas }

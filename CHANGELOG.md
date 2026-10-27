@@ -60,6 +60,13 @@ Laravel-facing formats change only to match Laravel more closely.
   `dartisan make:query-filter Post` writes one and registers it.
 - `Blueprint.primary([...])`: primary keys over several columns, named as
   Laravel names them.
+- Eager loading specific columns (Blueprint #44): `with_('user:id,name')`,
+  nested (`posts.comments:id,body`) and as a map key next to a constraint,
+  as Laravel's colon syntax. The keys a relation matches on, the keys the
+  next nested level reads and a root `select`'s foreign keys are added
+  when left out (`Relation.matchColumns`, `parentColumns`); the pivot and
+  intermediate columns of `BelongsToMany` and `HasManyThrough` stay
+  selected and qualified.
 - `Cache.tags([...])` (`TaggableCacheStore`, `TaggedCacheStore`): tagged
   entries and their flush, on the `memory` and `process` stores with
   Laravel's tag ids (`TagSetCacheStore`) and on daravel_redis's with
