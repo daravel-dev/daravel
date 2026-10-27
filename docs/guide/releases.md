@@ -8,6 +8,7 @@ publisher `daravel.teoprayoga.my.id`.
 
 | Version | Highlights |
 | :-- | :-- |
+| `1.10.1` | Security fixes: JWT revocation on every isolate, queue:restart and queue:pause across processes, unique-job locks |
 | `1.10.0` | Broadcasting with Laravel Echo (the Pusher protocol, as Reverb; `ShouldBroadcast`, `BROADCAST_CONNECTION`), bcrypt in C on Linux |
 | `1.9.0` | Mail and notifications (queued, markdown theme, broadcast channel), `Broadcast` across isolates, `DB_URL`, `dartisan upgrade`, Indonesian guide, benchmark against Laravel |
 | `1.8.1` | Fix: `client:flutter --state` adapters without paginators or uploads pass `dart analyze --fatal-infos` |
