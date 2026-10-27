@@ -369,7 +369,6 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | :-- | :-- |
 | Sessions, CSRF, SPA cookie auth | Tier 2 |
 | Mail, notifications, broadcasting | Tier 2/3 |
-| Redis cache/queue/lock | Tier 2 |
 | PHP serialize() for Crypt::encrypt payloads | Tier 2 (Laravel-compatible Crypt mode) |
 | optional() helper | Not planned: Dart has ?. and ?? |
 | app() / route() / url() global helpers | Use App.make<T>(), router.url(...); a global app() would be shadowed by the idiomatic app variable |

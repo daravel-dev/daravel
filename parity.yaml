@@ -342,7 +342,6 @@ exceptions:
 missing:
   - { php: "Sessions, CSRF, SPA cookie auth", plan: "Tier 2" }
   - { php: "Mail, notifications, broadcasting", plan: "Tier 2/3" }
-  - { php: "Redis cache/queue/lock", plan: "Tier 2" }
   - { php: "PHP serialize() for Crypt::encrypt payloads", plan: "Tier 2 (Laravel-compatible Crypt mode)" }
   - { php: "optional() helper", plan: "Not planned: Dart has ?. and ??" }
   - { php: "app() / route() / url() global helpers", plan: "Use App.make<T>(), router.url(...); a global app() would be shadowed by the idiomatic app variable" }
