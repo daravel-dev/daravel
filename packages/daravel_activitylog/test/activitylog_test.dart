@@ -367,8 +367,15 @@ void activitylogTests({String? databaseUrl}) {
         'title': 'Hello',
         'secret': 'hunter2',
       });
+      Clock.travelTo(DateTime.utc(2026, 10, 28, 8));
+      await post.delete();
+      Clock.travelTo(DateTime.utc(2026, 10, 28, 9));
+      await post.restore();
+      // At the same instant updated_at does not change, so the restore
+      // saves deleted_at alone and only `restored` is logged.
       await post.delete();
       await post.restore();
+      Clock.restore();
 
       final rows = await activities();
       expect(
@@ -376,9 +383,11 @@ void activitylogTests({String? databaseUrl}) {
         [
           'created',
           'deleted',
-          // Laravel's restore() saves deleted_at and updated_at, so Spatie
-          // logs the update as well as the restore.
+          // Laravel's restore() saves deleted_at and a later updated_at,
+          // so Spatie logs the update as well as the restore.
           'updated',
+          'restored',
+          'deleted',
           'restored',
         ],
       );
