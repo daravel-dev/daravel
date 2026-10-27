@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Added `MySqlDriver.queryTimeout` (`DB_QUERY_TIMEOUT`, 30 s; `0` for none) and `DB_CONNECT_TIMEOUT`: statements had no timeout, so one stuck on a lock wait or a half-open connection held its pooled connection for ever. On expiry `mysql_dart` kills the query through a side connection.
+
 ## 1.13.0
 
 - Version aligned with Daravel 1.13.0; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).

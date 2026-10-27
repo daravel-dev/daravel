@@ -51,7 +51,37 @@ final class PostgresDriver implements NotifyingDriver, QueryErrors {
           'verify-full' || 'verifyFull' => PostgresSslMode.verifyFull,
           _ => PostgresSslMode.disable,
         },
+        connectTimeout:
+            timeoutOption(
+              connection.options['connect_timeout'],
+              const Duration(seconds: 10),
+            ) ??
+            noTimeout,
+        queryTimeout:
+            timeoutOption(
+              connection.options['query_timeout'],
+              const Duration(seconds: 30),
+            ) ??
+            noTimeout,
       );
+
+  /// What `DB_QUERY_TIMEOUT=0` means for a driver whose timeout cannot be
+  /// absent: longer than any deployment.
+  static const Duration noTimeout = Duration(days: 365);
+
+  /// A timeout option in seconds (`DB_QUERY_TIMEOUT`, `DB_CONNECT_TIMEOUT`):
+  /// unset means [fallback], `0` means none (`null`).
+  static Duration? timeoutOption(Object? value, Duration fallback) {
+    final seconds = switch (value) {
+      final int n => n,
+      final String s => int.tryParse(s),
+      _ => null,
+    };
+    if (seconds == null) {
+      return fallback;
+    }
+    return seconds <= 0 ? null : Duration(seconds: seconds);
+  }
 
   final String host;
   final int port;
@@ -116,7 +146,15 @@ final class PostgresDriver implements NotifyingDriver, QueryErrors {
       ),
     );
     // Fail fast on bad credentials/hosts instead of at the first query.
-    await pool.execute(pg.Sql('SELECT 1'));
+    try {
+      await pool.execute(pg.Sql('SELECT 1'));
+    } catch (_) {
+      // A probe that fails after the connection opened (a query timeout on
+      // an overloaded server) would leave a live backend in a pool nothing
+      // references, and the manager connects again on the next query.
+      await pool.close(force: true);
+      rethrow;
+    }
     _pool = pool;
   }
 
@@ -140,6 +178,7 @@ final class PostgresDriver implements NotifyingDriver, QueryErrors {
   Stream<String> listen(String channel) {
     pg.Connection? connection;
     StreamSubscription<String>? subscription;
+    var cancelled = false;
     late final StreamController<String> out;
     out = StreamController<String>(
       onListen: () async {
@@ -156,6 +195,14 @@ final class PostgresDriver implements NotifyingDriver, QueryErrors {
               applicationName: applicationName,
             ),
           );
+          if (cancelled) {
+            // The listener left during the handshake (a client that
+            // disconnected at once): onCancel found nothing to close, and
+            // this dedicated backend would have lived until process exit.
+            connection = null;
+            await opened.close(force: true);
+            return;
+          }
           subscription = opened.channels[channel].listen(
             out.add,
             onError: out.addError,
@@ -167,6 +214,7 @@ final class PostgresDriver implements NotifyingDriver, QueryErrors {
         }
       },
       onCancel: () async {
+        cancelled = true;
         await subscription?.cancel();
         await connection?.close();
       },

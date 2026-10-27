@@ -12,6 +12,13 @@ match Laravel more closely.
 
 ### Added
 
+- `DB_CONNECT_TIMEOUT` and `DB_QUERY_TIMEOUT` (seconds, `0` for none) for
+  PostgreSQL and MySQL: the PostgreSQL statement timeout was a fixed 30 s,
+  which cancelled a long `CREATE INDEX` in a migration, and MySQL had none
+  at all, so a statement stuck on a lock wait or a half-open connection
+  held its pooled connection for ever and, once the pool was full, every
+  request on the isolate queued behind it. `daravel_mysql` now passes the
+  timeout to `mysql_dart`, which kills the query on expiry.
 - `HTTP_MAX_BODY` (`ServeOptions.maxBodyBytes`, 50 MiB; `0` for none): a
   body limit every request served by the engine starts with, so an
   application that does not register `BodyLimitsMiddleware` (which

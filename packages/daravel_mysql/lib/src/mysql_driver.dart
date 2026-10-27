@@ -36,6 +36,7 @@ final class MySqlDriver
     this.collation = 'utf8mb4_unicode_ci',
     this.timeZone,
     this.connectTimeout = const Duration(seconds: 10),
+    this.queryTimeout = const Duration(seconds: 30),
   });
 
   /// Builds the driver from a connection of `config/database` (`DB_*`).
@@ -57,6 +58,16 @@ final class MySqlDriver
       collation:
           (connection.options['collation'] as String?) ?? 'utf8mb4_unicode_ci',
       timeZone: connection.options['timezone'] as String?,
+      connectTimeout:
+          PostgresDriver.timeoutOption(
+            connection.options['connect_timeout'],
+            const Duration(seconds: 10),
+          ) ??
+          PostgresDriver.noTimeout,
+      queryTimeout: PostgresDriver.timeoutOption(
+        connection.options['query_timeout'],
+        const Duration(seconds: 30),
+      ),
     );
   }
 
@@ -70,6 +81,14 @@ final class MySqlDriver
   final String collation;
   final String? timeZone;
   final Duration connectTimeout;
+
+  /// How long a statement may run (`DB_QUERY_TIMEOUT`, 30 s like
+  /// PostgreSQL; `null` for none). Without it a statement stuck on a lock
+  /// wait, a stalled replica or a half-open connection held its pooled
+  /// connection for ever, and once `maxConnections` were stuck every
+  /// request on the isolate queued behind them. On expiry `mysql_dart`
+  /// issues `KILL QUERY` through a side connection.
+  final Duration? queryTimeout;
 
   @override
   final String name;
@@ -148,31 +167,39 @@ final class MySqlDriver
   Future<List<Map<String, Object?>>> select(
     String sql, [
     List<Object?> bindings = const [],
-  ]) => _withConnection((c) => _MySqlExecutor(c).select(sql, bindings));
+  ]) => _withConnection(
+    (c) => _MySqlExecutor(c, queryTimeout).select(sql, bindings),
+  );
 
   @override
   Future<int> execute(String sql, [List<Object?> bindings = const []]) =>
-      _withConnection((c) => _MySqlExecutor(c).execute(sql, bindings));
+      _withConnection(
+        (c) => _MySqlExecutor(c, queryTimeout).execute(sql, bindings),
+      );
 
   @override
   Future<Object?> insertGetId(
     String sql, [
     List<Object?> bindings = const [],
-  ]) => _withConnection((c) => _MySqlExecutor(c).insertGetId(sql, bindings));
+  ]) => _withConnection(
+    (c) => _MySqlExecutor(c, queryTimeout).insertGetId(sql, bindings),
+  );
 
   @override
   Future<T> transaction<T>(Future<T> Function(QueryExecutor tx) body) =>
       _withConnection(
-        (connection) =>
-            connection.transactional<T>((tx) => body(_MySqlExecutor(tx))),
+        (connection) => connection.transactional<T>(
+          (tx) => body(_MySqlExecutor(tx, queryTimeout)),
+        ),
       );
 }
 
 /// Runs statements on one connection (a pooled one, or a transaction's).
 final class _MySqlExecutor implements QueryExecutor {
-  _MySqlExecutor(this._connection);
+  _MySqlExecutor(this._connection, this._queryTimeout);
 
   final my.MySQLConnection _connection;
+  final Duration? _queryTimeout;
 
   @override
   SqlDialect get dialect => SqlDialect.mysql;
@@ -194,7 +221,7 @@ final class _MySqlExecutor implements QueryExecutor {
         ];
 
   Future<my.IResultSet> _run(String sql, List<Object?> bindings) =>
-      _connection.execute(sql, _normalize(bindings));
+      _connection.execute(sql, _normalize(bindings), false, _queryTimeout);
 
   @override
   Future<List<Map<String, Object?>>> select(

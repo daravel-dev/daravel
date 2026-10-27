@@ -1,4 +1,4 @@
-<!-- source: configuration.md sha256:7b5bd354c235 -->
+<!-- source: configuration.md sha256:1eff4c5bb7eb -->
 # Konfigurasi
 
 ## File environment
@@ -91,6 +91,7 @@ setelah boot.
 | `REVERB_ENCRYPTION_MASTER_KEY_BASE64` | tidak ada | 32 byte dalam base64 untuk mengenkripsi channel `private-encrypted-` (`PUSHER_ENCRYPTION_MASTER_KEY_BASE64` dengan `pusher`) |
 | `DB_CHARSET`, `DB_COLLATION`, `DB_TIMEZONE` | `utf8mb4`, `utf8mb4_unicode_ci`, server | MySQL dan MariaDB, sebagaimana dibaca Laravel |
 | `DB_POOL_SIZE`, `DB_SSLMODE` | `10`, `disable` | Pool koneksi per isolate, TLS (`require`, `verify-full`) |
+| `DB_CONNECT_TIMEOUT`, `DB_QUERY_TIMEOUT` | `10`, `30` | Detik yang boleh dipakai koneksi PostgreSQL atau MySQL untuk terbuka, dan sebuah statement untuk berjalan (`0` untuk tanpa batas; statement yang macet akan menahan koneksi pool-nya selamanya) |
 | `CACHE_STORE`, `CACHE_PREFIX` | `memory` | Penyimpanan cache dan prefix key |
 | `CACHE_PROCESS_L1_TTL` | `0` (mati) | Dengan store `process`, berapa lama setiap worker isolate memakai ulang nilai yang dibacanya (`250ms`) sebelum bertanya lagi ke coordinator |
 | `CACHE_LIMITER` | coordinator | Penyimpanan cache untuk rate limit (`cache.limiter` dari Laravel); `database` membaginya antarmesin, dengan satu statement per percobaan |

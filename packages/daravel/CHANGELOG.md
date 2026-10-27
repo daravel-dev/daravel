@@ -3,6 +3,8 @@
 ## Unreleased
 
 - Added `HTTP_MAX_BODY` (`ServeOptions.maxBodyBytes`, 50 MiB, `0` for none): the body limit every request served by the engine starts with, so an application without `BodyLimitsMiddleware` never buffers an unbounded body.
+- Added `DB_CONNECT_TIMEOUT` and `DB_QUERY_TIMEOUT` (seconds, `0` for none; `connect_timeout` / `query_timeout` connection options, `PostgresDriver.timeoutOption`): the PostgreSQL statement timeout was a fixed 30 s, so a long `CREATE INDEX` in a migration was cancelled.
+- Fixed: PostgreSQL closes its pool when the `SELECT 1` probe fails after the connection opened (each retry leaked a backend), and `listen()` closes the dedicated connection when the listener cancelled during the handshake (it lived until process exit).
 - Changed: `HmacJwtKey` (so `JwtCodec.hs256`) refuses an empty secret with `ArgumentError`; HMAC over an empty key signs and verifies like any other, so a secret that was never set accepted tokens anyone could mint.
 - Added `ConnectionException.isTimeout`: true when the request was sent and the answer did not come in time (it may have been processed), false when the connection was refused or reset.
 - Fixed: `DB.transaction(attempts: n)` no longer re-runs a committed body when an after-commit callback fails with a retryable error; the callbacks run outside the retry.

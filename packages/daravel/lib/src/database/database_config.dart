@@ -201,6 +201,9 @@ final class DatabaseConfig implements ConfigSection {
         options: <String, Object?>{
           'pool': env.integer('DB_POOL_SIZE', 10),
           'sslmode': env.string('DB_SSLMODE', 'disable'),
+          // Seconds; 0 for none. The drivers' defaults apply when unset.
+          'connect_timeout': env.maybeString('DB_CONNECT_TIMEOUT'),
+          'query_timeout': env.maybeString('DB_QUERY_TIMEOUT'),
         },
       ),
       // MySQL and MariaDB (Laravel 11+ names both); the driver comes from
@@ -216,6 +219,8 @@ final class DatabaseConfig implements ConfigSection {
           options: <String, Object?>{
             'pool': env.integer('DB_POOL_SIZE', 10),
             'sslmode': env.string('DB_SSLMODE', 'disable'),
+            'connect_timeout': env.maybeString('DB_CONNECT_TIMEOUT'),
+            'query_timeout': env.maybeString('DB_QUERY_TIMEOUT'),
             'charset': env.string('DB_CHARSET', 'utf8mb4'),
             'collation': env.string('DB_COLLATION', 'utf8mb4_unicode_ci'),
             'timezone': env.maybeString('DB_TIMEZONE'),

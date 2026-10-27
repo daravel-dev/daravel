@@ -4,6 +4,7 @@ import 'package:mysql_dart/exception.dart';
 import 'package:test/test.dart';
 
 void main() {
+  timeoutOptionTests();
   test('fromConfig reads the DB_* connection like Laravel', () {
     final driver = MySqlDriver.fromConfig(
       'mariadb',
@@ -75,5 +76,21 @@ void main() {
         ),
       ),
     );
+  });
+}
+
+void timeoutOptionTests() {
+  test('DB_QUERY_TIMEOUT and DB_CONNECT_TIMEOUT reach the driver', () {
+    MySqlDriver of(Map<String, Object?> options) => MySqlDriver.fromConfig(
+      'mysql',
+      ConnectionConfig(driver: 'mysql', database: 'd', options: options),
+    );
+    final defaults = of(const {});
+    expect(defaults.queryTimeout, const Duration(seconds: 30));
+    expect(defaults.connectTimeout, const Duration(seconds: 10));
+    final set = of(const {'query_timeout': '5', 'connect_timeout': '2'});
+    expect(set.queryTimeout, const Duration(seconds: 5));
+    expect(set.connectTimeout, const Duration(seconds: 2));
+    expect(of(const {'query_timeout': '0'}).queryTimeout, isNull);
   });
 }
