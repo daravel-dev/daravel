@@ -60,6 +60,15 @@ match Laravel more closely.
 
 ### Fixed
 
+- `daravel_teobiefy` refuses a replayed request: every nonce a session
+  uses is remembered (`TeobiefySessions.useNonce`, the cache's `add` for
+  the session's TTL) and a body sent again is `406`, recorded only after
+  its tag checked out so a forgery cannot burn a genuine nonce. A clear
+  body from a client with no key is `409 SESSION_KEY_REQUIRED` before the
+  handler runs (it used to run on the clear data and only the response
+  was refused), and a presented session id the store does not know is
+  `409` even with the legacy key, instead of a `406` the client cannot
+  act on.
 - `daravel_teorion` closes three holes a client's query parameters opened:
   `allowedWiths` is matched by full path (`author` no longer opens
   `?withs[]=author.posts.comments`, nor a relation the model does not

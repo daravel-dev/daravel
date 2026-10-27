@@ -78,4 +78,13 @@ final class TeobiefySessions {
     await cache.put('$prefix$sessionId', stored, ttl: ttl);
     return (rx: rx, tx: tx);
   }
+
+  /// Records that [nonce] was used by [sessionId] (`legacy` for the legacy
+  /// key) and tells whether it was the first time. A client seals every
+  /// request with a fresh random nonce, so a repeat is a captured body sent
+  /// again; it is remembered for [ttl], after which the session itself is
+  /// gone. The protocol carries no timestamp or sequence, so this is the
+  /// replay check (the Laravel application has none).
+  Future<bool> useNonce(String sessionId, List<int> nonce) =>
+      cache.add('$prefix$sessionId:nonce:${base64.encode(nonce)}', 1, ttl: ttl);
 }

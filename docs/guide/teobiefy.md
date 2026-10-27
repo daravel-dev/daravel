@@ -87,14 +87,18 @@ application lists them.
 - A request with `data_enc` is decrypted with the session's `rx` key and
   its JSON object merged into the input (`request.merge`); `data_enc` and
   `nonce` are removed. A body that does not decrypt is `406 Invalid
-  payload`.
+  payload`, and so is a body sent again: each nonce is remembered for the
+  session's lifetime (the protocol has no timestamp, so this is the replay
+  check; the Laravel application has none).
 - A JSON response with a `data` key is encrypted with the session's `tx`
   key. Other keys (`status`, `message`, `data_count`) stay in clear.
   Responses without `data`, and anything that is not JSON, pass as they
   are.
 - Without a session and without the legacy key the answer is `409` with
   `type: SESSION_KEY_REQUIRED`, never plain data; the client handshakes
-  again and repeats the request.
+  again and repeats the request. A clear body from such a client is
+  refused before the handler runs, and a session id the store does not
+  know (expired, another server) is `409` even with the legacy key.
 
 `LIBSODIUM_PAYLOAD_V2_ENABLED=true` seals the zstd bytes directly and adds
 `enc_v: 2`; clients recognise it by zstd's magic number after decrypting.

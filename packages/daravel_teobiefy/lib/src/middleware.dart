@@ -29,21 +29,35 @@ final class TeobiefyMiddleware implements Middleware {
   @override
   Future<Response> handle(Request request, Next next) async {
     final service = Teobiefy.service;
+    // An empty header is no session, like a missing one.
+    final presented = request.header(TeobiefySessions.header);
+    final sessionId = presented == null || presented.isEmpty ? null : presented;
     SessionKeys? keys;
     var looked = false;
     Future<SessionKeys?> session() async {
       if (!looked) {
         looked = true;
-        keys = await service.sessions.find(
-          request.header(TeobiefySessions.header),
-        );
+        keys = await service.sessions.find(sessionId);
       }
       return keys;
     }
 
+    // The key of a request or response: the session's, else the legacy key
+    // for a client that presents no session at all. A client that presents
+    // an id the store does not know (expired, another server) gets 409
+    // and handshakes again; the legacy key would only have given it a 406
+    // it cannot act on. Null means 409.
+    Future<Uint8List?> keyFor(Uint8List Function(SessionKeys keys) pick) async {
+      final found = await session();
+      if (found != null) {
+        return pick(found);
+      }
+      return sessionId == null ? service.legacyKey : null;
+    }
+
     final body = await request.body();
     if (body is Map<Object?, Object?> && body['data_enc'] != null) {
-      final key = (await session())?.rx ?? service.legacyKey;
+      final key = await keyFor((keys) => keys.rx);
       if (key == null) {
         return Teobiefy.sessionKeyRequired();
       }
@@ -59,6 +73,14 @@ final class TeobiefyMiddleware implements Middleware {
         if (payload is! Map<String, Object?>) {
           throw const FormatException('The payload is not a JSON object.');
         }
+        // Only after the tag checked out, so a forged body cannot burn a
+        // nonce; a body seen before is a replay, whatever it decrypts to.
+        if (!await service.sessions.useNonce(
+          keys == null ? 'legacy' : sessionId!,
+          nonce,
+        )) {
+          throw const FormatException('The nonce was already used.');
+        }
         request.replace(
           {
             for (final MapEntry(:key, :value) in body.entries) '$key': value,
@@ -69,6 +91,13 @@ final class TeobiefyMiddleware implements Middleware {
         Log.warning('Teobiefy: invalid payload: $error');
         return Teobiefy.invalidPayload();
       }
+    } else if (body is Map<Object?, Object?> && body.isNotEmpty) {
+      // A clear body where an encrypted one belongs, from a client with no
+      // key to answer with: refused here, before the handler runs on it.
+      // The 409 used to come only after the handler had done its work.
+      if (await keyFor((keys) => keys.rx) == null) {
+        return Teobiefy.sessionKeyRequired();
+      }
     }
 
     final response = await next(request);
@@ -76,12 +105,12 @@ final class TeobiefyMiddleware implements Middleware {
       // The client has no key before its handshake.
       return response;
     }
-    return _encrypt(response, session, service);
+    return _encrypt(response, () => keyFor((keys) => keys.tx), service);
   }
 
   static Future<Response> _encrypt(
     Response response,
-    Future<SessionKeys?> Function() session,
+    Future<Uint8List?> Function() keyFor,
     TeobiefyService service,
   ) async {
     if (!(response.headers.first('content-type') ?? '').contains('json')) {
@@ -104,7 +133,7 @@ final class TeobiefyMiddleware implements Middleware {
     if (json is! Map<String, Object?> || !json.containsKey('data')) {
       return unchanged();
     }
-    final key = (await session())?.tx ?? service.legacyKey;
+    final key = await keyFor();
     if (key == null) {
       return Teobiefy.sessionKeyRequired();
     }

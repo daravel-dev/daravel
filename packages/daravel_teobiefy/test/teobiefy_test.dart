@@ -130,8 +130,12 @@ void main() {
 
   group('the middleware', () {
     late Application app;
+    // How many times the /profile handler ran: a refused request must not
+    // have reached it.
+    var profileHits = 0;
 
     Future<Application> boot([Map<String, String> env = const {}]) async {
+      profileHits = 0;
       final application = Application.configure(basePath: '.')
           .withEnv({
             'APP_ENV': 'testing',
@@ -146,6 +150,7 @@ void main() {
               router.post('/v1/session-key', Teobiefy.handshake);
               router.group(middleware: const ['teobiefy'], (r) {
                 r.post('/profile', (request) async {
+                  profileHits++;
                   final input = await request.all();
                   return Teobiefy.api(200, 'ok', {
                     'echo': input['name'],
@@ -286,11 +291,13 @@ void main() {
         'data': null,
         'type': 'SESSION_KEY_REQUIRED',
       });
-      // A response with data and no session is refused as well.
+      // A clear body with no session is refused before the handler runs:
+      // the 409 used to come after the handler had acted on the clear data.
       final response = await app.handle(
         Request.fake(method: 'POST', path: '/api/profile', json: {'a': 1}),
       );
       expect(response.status, 409);
+      expect(profileHits, 0, reason: 'the handler must not see clear data');
       // Responses without data pass as they are.
       final plain = await app.handle(Request.fake(path: '/api/plain'));
       expect(await plain.bodyText(), 'plain');
@@ -304,7 +311,50 @@ void main() {
       }, tamper: true);
       expect(response.status, 406);
       expect((await json(response))['message'], 'Invalid payload');
+      expect(profileHits, 0);
     });
+
+    test(
+      'a replayed payload is 406; a forgery does not burn its nonce',
+      () async {
+        app = await boot();
+        final session = await handshake();
+        final nonce = TeobiefyCrypto.nonce();
+        final sealed = await TeobiefyCrypto.seal(
+          utf8.encode(jsonEncode({'name': 'Ana'})),
+          session.keys.tx,
+          nonce,
+        );
+        Future<Response> submit(List<int> body) => app.handle(
+          Request.fake(
+            method: 'POST',
+            path: '/api/profile',
+            headers: {'X-Session-Id': session.id},
+            json: {
+              'data_enc': base64.encode(body),
+              'nonce': base64.encode(nonce),
+            },
+          ),
+        );
+        // A forged body under the same nonce fails its tag and leaves the
+        // nonce unused, so the genuine request is not locked out by it.
+        final forged = Uint8List.fromList(sealed)..[0] ^= 1;
+        expect((await submit(forged)).status, 406);
+        final first = await submit(sealed);
+        expect(first.status, 200);
+        expect(profileHits, 1);
+        // The captured body sent again: same session, same nonce.
+        final replay = await submit(sealed);
+        expect(replay.status, 406);
+        expect((await json(replay))['message'], 'Invalid payload');
+        expect(profileHits, 1, reason: 'a replay must not reach the handler');
+        // A fresh nonce from the same session still works.
+        expect(
+          (await send(session.id, session.keys.tx, {'name': 'B'})).status,
+          200,
+        );
+      },
+    );
 
     test(
       'an invalid public key is 422; sessions outlive one isolate',
@@ -345,6 +395,15 @@ void main() {
         app.config,
       ).map((i) => i.level);
       expect(issues, [ConfigIssueLevel.warning]);
+      // A client that presents a session id the store does not know
+      // (expired, another server) is told to handshake again, not given
+      // the 406 the legacy key would produce for its body.
+      final expired = await send('b' * 64, base64.decode(legacy), {
+        'name': 'Old',
+      });
+      expect(expired.status, 409);
+      expect((await json(expired))['type'], 'SESSION_KEY_REQUIRED');
+      expect(profileHits, 1);
     });
   });
 

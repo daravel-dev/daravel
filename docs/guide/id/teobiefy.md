@@ -1,4 +1,4 @@
-<!-- source: teobiefy.md sha256:5f2927c275dd -->
+<!-- source: teobiefy.md sha256:1182b6e2c000 -->
 # Teobiefy
 
 `daravel_teobiefy` berbicara dengan protokol payload terenkripsi dari API
@@ -90,13 +90,18 @@ aplikasi Laravel.
 
 - Request dengan `data_enc` didekripsi dengan kunci `rx` sesi, lalu objek
   JSON-nya digabungkan ke input (`request.merge`); `data_enc` dan `nonce`
-  dihapus. Body yang gagal didekripsi dijawab `406 Invalid payload`.
+  dihapus. Body yang gagal didekripsi dijawab `406 Invalid payload`,
+  begitu pula body yang dikirim ulang: setiap nonce diingat selama sesi
+  hidup (protokolnya tidak punya timestamp, jadi inilah pemeriksaan replay;
+  aplikasi Laravel tidak memilikinya).
 - Response JSON yang punya key `data` dienkripsi dengan kunci `tx` sesi.
   Key lain (`status`, `message`, `data_count`) tetap terbuka. Response tanpa
   `data`, dan apa pun yang bukan JSON, diteruskan apa adanya.
 - Tanpa sesi dan tanpa legacy key, jawabannya `409` dengan
   `type: SESSION_KEY_REQUIRED`, tidak pernah data polos; client melakukan
-  handshake ulang lalu mengulang request.
+  handshake ulang lalu mengulang request. Body polos dari client seperti
+  itu ditolak sebelum handler berjalan, dan session id yang tidak dikenal
+  store (kedaluwarsa, server lain) dijawab `409` meski legacy key aktif.
 
 `LIBSODIUM_PAYLOAD_V2_ENABLED=true` menyegel byte zstd secara langsung dan
 menambahkan `enc_v: 2`; client mengenalinya dari magic number zstd setelah
