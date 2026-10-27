@@ -66,9 +66,10 @@ before moving to a new minor version.
 
 | Command | What it does |
 | :-- | :-- |
-| `migrate [--seed]`, `migrate:status`, `migrate:rollback`, `migrate:reset` | Migrations |
+| `migrate [--seed]`, `migrate:status` | Migrations |
+| `migrate:rollback [--step] [--force]`, `migrate:reset [--force]` | Roll back the last batches, or everything (refused in production without `--force`) |
 | `migrate:fresh [--seed] [--force]` | Drops every table and migrates again (refused in production without `--force`) |
-| `db:seed [--class]` | Runs seeders |
+| `db:seed [--class] [--force]` | Runs seeders (refused in production without `--force`) |
 | `db:show`, `db:table <table> [--limit]` | Tables, columns and rows |
 | `db:install <driver> [--no-get]` | Adds a driver package (`sqlite`, `pgsql`, `mysql`, `mariadb`) and registers it ([Database](database.md#drivers-and-connections)) |
 | `redis:install [--docker] [--server=valkey\|redis] [--no-get]` | Adds daravel_redis, registers `.withRedis()` and its commands, documents its `.env` keys and, with `--docker`, a Valkey service ([Redis](redis.md)) |
@@ -121,8 +122,8 @@ It is read-only unless started with `--allow-write`. Even then,
 `run_command` refuses long-running commands (`serve`, `queue:work`,
 `schedule:work`, `tinker`) and, with `APP_ENV=production`, destructive ones
 (`migrate:fresh`, `migrate:reset`, `migrate:rollback`, `db:seed`,
-`queue:flush`, `queue:clear`, `key:generate`, `env:decrypt`). Protocol messages
-use stdout; logs go to stderr.
+`queue:flush`, `queue:clear`, `key:generate`, `env:decrypt`, `env:encrypt`,
+`down`). Protocol messages use stdout; logs go to stderr.
 
 Packages add tools through the commands they register: a command that is an
 `McpToolSource` brings its `McpTool`s. With `redisCommands` in

@@ -1,4 +1,4 @@
-<!-- source: dartisan.md sha256:527d70fca127 -->
+<!-- source: dartisan.md sha256:e2ce16942092 -->
 # dartisan
 
 `dartisan` adalah `artisan`-nya Daravel. Pasang sekali, lalu pakai di proyek
@@ -67,9 +67,10 @@ sebelum pindah ke versi minor baru.
 
 | Command | Fungsinya |
 | :-- | :-- |
-| `migrate [--seed]`, `migrate:status`, `migrate:rollback`, `migrate:reset` | Migrasi |
+| `migrate [--seed]`, `migrate:status` | Migrasi |
+| `migrate:rollback [--step] [--force]`, `migrate:reset [--force]` | Membatalkan batch terakhir, atau semuanya (ditolak di produksi tanpa `--force`) |
 | `migrate:fresh [--seed] [--force]` | Menghapus semua tabel lalu migrasi lagi (ditolak di produksi tanpa `--force`) |
-| `db:seed [--class]` | Menjalankan seeder |
+| `db:seed [--class] [--force]` | Menjalankan seeder (ditolak di produksi tanpa `--force`) |
 | `db:show`, `db:table <table> [--limit]` | Tabel, kolom, dan baris |
 | `db:install <driver> [--no-get]` | Menambahkan paket driver (`sqlite`, `pgsql`, `mysql`, `mariadb`) dan mendaftarkannya ([Database](database.md#driver-dan-koneksi)) |
 | `redis:install [--docker] [--server=valkey\|redis] [--no-get]` | Menambahkan daravel_redis, mendaftarkan `.withRedis()` beserta command-nya, mendokumentasikan key `.env`-nya, dan dengan `--docker` sebuah service Valkey ([Redis](redis.md)) |
@@ -125,8 +126,8 @@ dengan itu, `run_command` menolak command yang berjalan lama (`serve`,
 `queue:work`, `schedule:work`, `tinker`) dan, dengan `APP_ENV=production`,
 command yang destruktif (`migrate:fresh`, `migrate:reset`,
 `migrate:rollback`, `db:seed`, `queue:flush`, `queue:clear`,
-`key:generate`, `env:decrypt`). Pesan protokol memakai stdout; log masuk ke
-stderr.
+`key:generate`, `env:decrypt`, `env:encrypt`, `down`). Pesan protokol
+memakai stdout; log masuk ke stderr.
 
 Paket menambahkan tool lewat command yang mereka daftarkan: command yang
 merupakan `McpToolSource` membawa `McpTool`-nya. Dengan `redisCommands` di

@@ -20,6 +20,7 @@ final class DbSeedCommand extends DaravelCommand {
         negatable: false,
         help: 'Run every registered seeder in order.',
       );
+    addForceFlag(argParser);
   }
 
   @override
@@ -31,6 +32,9 @@ final class DbSeedCommand extends DaravelCommand {
   @override
   Future<int> run() => withApp((app) async {
     final results = argResults!;
+    if (refuseInProduction(app, results, name)) {
+      return 1;
+    }
     final registry = App.make<SeederRegistry>();
     if (registry.seeders.isEmpty) {
       stdout.writeln(

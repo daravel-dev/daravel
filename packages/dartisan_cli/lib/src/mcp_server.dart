@@ -36,6 +36,9 @@ const Set<String> mcpProductionRefused = {
   'queue:clear',
   'key:generate',
   'env:decrypt',
+  // Maintenance mode from an agent, and env:encrypt --prune deletes .env.
+  'down',
+  'env:encrypt',
 };
 
 /// Runs a dartisan command for `run_command`: exit code and output.

@@ -72,6 +72,12 @@ match Laravel more closely.
 
 ### Changed
 
+- `dartisan migrate:rollback`, `migrate:reset` and `db:seed` refuse to
+  run under `APP_ENV=production` without `--force`, as artisan's do; a
+  framework error in any command is one `Error:` line and exit 1 rather
+  than a stack trace and exit 255 (`--verbose` or `DARAVEL_DEBUG=true`
+  keeps the trace); `mcp:serve` also refuses `down` and `env:encrypt` in
+  production.
 - `dartisan doctor --production` fails unless `APP_ENV=production`: the
   checks that only apply there (debug mode, the key, `/metrics`, the
   queue, hashing) were skipped under any other environment, so the gate

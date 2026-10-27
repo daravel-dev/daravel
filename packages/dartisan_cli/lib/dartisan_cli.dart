@@ -153,16 +153,62 @@ final class DartisanRunner extends CommandRunner<int> {
       await run(<String>[command, ...args]) ?? 1;
 
   /// Runs [args] and returns a process exit code (never throws for usage
-  /// errors).
+  /// errors). A framework error (configuration, a migration the registry
+  /// does not know, a refused command) is one line on stderr and exit 1
+  /// instead of a stack trace and the VM's 255; `DARAVEL_DEBUG=true` (or
+  /// `--verbose`) keeps the trace.
   Future<int> execute(List<String> args) async {
     try {
       return await run(args) ?? 0;
     } on UsageException catch (error) {
       stderr.writeln(error);
       return 64;
+    } on DaravelException catch (error, stackTrace) {
+      return _fail(error, stackTrace, args);
+    } on StateError catch (error, stackTrace) {
+      return _fail(error, stackTrace, args);
+    } on ArgumentError catch (error, stackTrace) {
+      return _fail(error, stackTrace, args);
     }
   }
+
+  static int _fail(Object error, StackTrace stackTrace, List<String> args) {
+    final message = error is DaravelException
+        ? error.message
+        : error is Error
+        ? '$error'.replaceFirst(RegExp(r'^\w+: '), '')
+        : '$error';
+    stderr.writeln('Error: $message');
+    final verbose =
+        args.contains('--verbose') ||
+        (Platform.environment['DARAVEL_DEBUG'] ?? '').toLowerCase() == 'true';
+    if (verbose) {
+      stderr.writeln(stackTrace);
+    }
+    return 1;
+  }
 }
+
+/// Refuses a destructive command under `APP_ENV=production` unless
+/// `--force` was given, as artisan does for `migrate:rollback`,
+/// `migrate:reset` and `db:seed`.
+bool refuseInProduction(Application app, ArgResults results, String command) {
+  if (app.config.section<AppConfig>().isProduction &&
+      !(results['force'] as bool)) {
+    stderr.writeln(
+      '$command is destructive; pass --force to run it in production.',
+    );
+    return true;
+  }
+  return false;
+}
+
+/// The `--force` flag of a destructive command.
+void addForceFlag(ArgParser parser) => parser.addFlag(
+  'force',
+  negatable: false,
+  help: 'Required when APP_ENV=production.',
+);
 
 /// Base class for commands that need the project application.
 abstract class DaravelCommand extends Command<int> {
@@ -444,6 +490,7 @@ final class MigrateRollbackCommand extends DaravelCommand {
       defaultsTo: '1',
       help: 'Number of batches to roll back.',
     );
+    addForceFlag(argParser);
   }
 
   @override
@@ -459,6 +506,9 @@ final class MigrateRollbackCommand extends DaravelCommand {
     if (steps == null || steps < 1) {
       usageException('--step must be a positive integer, got "$stepValue".');
     }
+    if (refuseInProduction(app, argResults!, name)) {
+      return 1;
+    }
     final rolledBack = await App.make<Migrator>().rollback(steps: steps);
     if (rolledBack.isEmpty) {
       stdout.writeln('Nothing to rollback.');
@@ -473,7 +523,9 @@ final class MigrateRollbackCommand extends DaravelCommand {
 
 /// `dartisan migrate:reset` — rolls back every migration.
 final class MigrateResetCommand extends DaravelCommand {
-  MigrateResetCommand(super.createApp);
+  MigrateResetCommand(super.createApp) {
+    addForceFlag(argParser);
+  }
 
   @override
   String get name => 'migrate:reset';
@@ -483,6 +535,9 @@ final class MigrateResetCommand extends DaravelCommand {
 
   @override
   Future<int> run() => withApp((app) async {
+    if (refuseInProduction(app, argResults!, name)) {
+      return 1;
+    }
     final rolledBack = await App.make<Migrator>().reset();
     if (rolledBack.isEmpty) {
       stdout.writeln('Nothing to rollback.');
