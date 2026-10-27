@@ -45,8 +45,8 @@ writes the results into `bench/results/<date>-<host>/`:
    warm-up, at 64 keep-alive connections. A table gives the median, with the
    lowest and highest run beside it, so one noisy run shows as spread
    instead of moving the number.
-3. **PostgreSQL**: the scenarios that query (2 to 4), five runs again,
-   against a fresh PostgreSQL 17 server.
+3. **PostgreSQL**: the scenarios that query (2 to 4, and the overload of
+   scenario 11), five runs again, against a fresh PostgreSQL 17 server.
 4. **Overload**: Daravel alone (Laravel has no equivalent) flooded with
    512 connections on scenario 2's endpoint, without a limit, with
    `HTTP_MAX_IN_FLIGHT` and with `HTTP_MAX_QUEUE_DELAY` added

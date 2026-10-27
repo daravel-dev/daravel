@@ -81,7 +81,11 @@ void main(List<String> args) {
     pgsql,
     pgRuns.length,
   );
-  _overloadTables(overload, overloadRuns.length);
+  _overloadTables('SQLite', overload, overloadRuns.length);
+  _overloadTables('PostgreSQL', {
+    for (final MapEntry(:key, :value) in pgsql.entries)
+      if (key.$2.startsWith('11-overload-')) key: value,
+  }, pgRuns.length);
   _curveTables(curve);
   _ohaTable(oha);
 }
@@ -258,7 +262,7 @@ void _throughputTables(
 }
 
 /// Scenario 11: one table per worker count, a row per server variant.
-void _overloadTables(Map<_Key, _Summary> overload, int runs) {
+void _overloadTables(String database, Map<_Key, _Summary> overload, int runs) {
   if (overload.isEmpty) {
     return;
   }
@@ -268,7 +272,8 @@ void _overloadTables(Map<_Key, _Summary> overload, int runs) {
     '11-overload-queue-delay': '`HTTP_MAX_IN_FLIGHT` + `HTTP_MAX_QUEUE_DELAY`',
   };
   stdout.writeln(
-    '\n## Overload (Daravel)\n\nScenario 2\'s endpoint flooded with far more '
+    '\n## Overload (Daravel, $database)\n\nScenario 2\'s endpoint flooded '
+    'with far more '
     'keep-alive connections than the workers can serve, without a limit and '
     'with [load shedding](https://github.com/daravel-dev/daravel/blob/main/'
     'docs/guide/deployment.md#load-shedding). '

@@ -1,4 +1,4 @@
-<!-- source: benchmarks.md sha256:c69df13df9a6 -->
+<!-- source: benchmarks.md sha256:b0ed4c28e1b8 -->
 # Benchmark
 
 Daravel hanya memublikasikan angka bersama skrip yang menghasilkannya,
@@ -47,8 +47,9 @@ lalu menulis hasilnya ke `bench/results/<tanggal>-<host>/`:
    pemanasan 2 detik, dengan 64 koneksi keep-alive. Tabelnya memuat median,
    dengan run terendah dan tertinggi di sampingnya, sehingga satu run yang
    bising terlihat sebagai rentang alih-alih menggeser angkanya.
-3. **PostgreSQL**: skenario yang menjalankan query (2 sampai 4), juga lima
-   run, terhadap server PostgreSQL 17 yang baru.
+3. **PostgreSQL**: skenario yang menjalankan query (2 sampai 4, serta
+   overload dari skenario 11), juga lima run, terhadap server PostgreSQL 17
+   yang baru.
 4. **Overload**: Daravel saja (Laravel tidak punya padanannya) dibanjiri
    512 koneksi pada endpoint skenario 2, tanpa batas, dengan
    `HTTP_MAX_IN_FLIGHT`, dan dengan tambahan `HTTP_MAX_QUEUE_DELAY`

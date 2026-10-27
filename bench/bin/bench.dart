@@ -32,11 +32,24 @@ import 'package:path/path.dart' as p;
 /// `--serve --isolates=4 --port=18600` seeds and starts the Daravel server
 /// and keeps it running until SIGINT or SIGTERM, for an external load
 /// generator (`bench/public.sh` checks the harness against `oha` with it).
+///
+/// `--database=pgsql://user:secret@host:5432/db?pool=4` (or `--db-url`)
+/// runs every selected scenario against PostgreSQL, seeded with the same
+/// users, posts and comments; 2–4 and 11 are the ones that query. When
+/// nothing answers at that address the harness prints "postgres scenarios
+/// skipped" and exits 0, so a run without PostgreSQL does not fail.
 Future<void> main(List<String> args) async {
   final options = _Options.parse(args);
   if (options.external.isNotEmpty) {
     await _measureExternal(options);
     return;
+  }
+  if (options.dbUrl case final url?) {
+    final address = await _postgresAddress(url);
+    if (address != null) {
+      stdout.writeln('postgres scenarios skipped: nothing answers at $address');
+      return;
+    }
   }
   final root = p.dirname(p.dirname(Platform.script.toFilePath()));
   final build = p.join(root, 'build');
@@ -558,8 +571,12 @@ final class _Options {
               int.parse(target.substring(target.lastIndexOf(':') + 1)),
             ),
       ],
-      database: value('database'),
-      dbUrl: value('db-url'),
+      // `--database` takes a SQLite path or, like `--db-url`, a PostgreSQL
+      // URL.
+      database: _isPostgresUrl(value('database')) ? null : value('database'),
+      dbUrl:
+          value('db-url') ??
+          (_isPostgresUrl(value('database')) ? value('database') : null),
       serverCpus: value('server-cpus'),
       serve: args.contains('--serve'),
       port: int.parse(value('port') ?? '18600'),
@@ -617,6 +634,28 @@ final class _Options {
   /// `--serve`: run the server on [port] until stopped, measure nothing.
   final bool serve;
   final int port;
+}
+
+bool _isPostgresUrl(String? value) =>
+    value != null && RegExp(r'^(pgsql|postgres|postgresql)://').hasMatch(value);
+
+/// `host:port` of [url] when nothing accepts a connection there (within
+/// 3 s), else `null`. Only the address is printed, never the credentials.
+Future<String?> _postgresAddress(String url) async {
+  final uri = Uri.parse(url);
+  final host = uri.host.isEmpty ? '127.0.0.1' : uri.host;
+  final port = uri.hasPort ? uri.port : 5432;
+  try {
+    final socket = await Socket.connect(
+      host,
+      port,
+      timeout: const Duration(seconds: 3),
+    );
+    socket.destroy();
+    return null;
+  } on SocketException {
+    return '$host:$port';
+  }
 }
 
 /// `--serve`: the Daravel server with `--isolates` workers on `--port`,

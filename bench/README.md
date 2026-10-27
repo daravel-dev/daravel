@@ -44,8 +44,19 @@ the queue-delay limit is what bounds p99 there (see
 exactly (`--scenarios=1` does not select 11).
 
 The database is SQLite (`build/bench.sqlite`, seeded with 1 000 users,
-200 posts, 2 000 comments), or PostgreSQL with
-`--db-url=pgsql://user:secret@host:port/db?pool=4`.
+200 posts, 2 000 comments), or PostgreSQL, seeded the same way:
+
+```bash
+dart run bin/bench.dart --database='pgsql://user:secret@127.0.0.1:5432/bench?pool=4' 
+  --scenarios=2,3,4,11 --isolates=1,4
+```
+
+`--database` takes a SQLite path or a `pgsql://`, `postgres://` or
+`postgresql://` URL (`--db-url` is the same). Scenarios 2–4 and 11 are the
+ones that query. When nothing answers at that address the harness prints
+`postgres scenarios skipped: nothing answers at host:port` and exits 0, so
+the nightly workflow, which runs these four against a PostgreSQL service
+container, does not fail when the database is missing.
 
 ## Reading the results
 
@@ -146,7 +157,7 @@ RUNS=1 DURATION=3 CURVE=16,64 bash bench/public.sh     # a quick dry run
 2. It runs `compare.sh` `RUNS` times (5) at 64 connections. The report
    gives the median and the lowest and highest value of each scenario, so a
    noisy run shows as spread.
-3. It repeats the database scenarios (`PG_SCENARIOS`, 2 to 4) on
+3. It repeats the database scenarios (`PG_SCENARIOS`, 2 to 4 and 11) on
    PostgreSQL, `RUNS` times as well; `PG_SCENARIOS=` skips them.
 4. It runs scenario 11 (`11-overload`) on Daravel `RUNS` times:
    `OVERLOAD_CONNECTIONS` (512) against no limit, `MAX_IN_FLIGHT` (32) and

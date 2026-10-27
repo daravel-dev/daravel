@@ -35,6 +35,12 @@ Laravel-facing formats change only to match Laravel more closely.
   p99 and the share refused. The load generator counts `503`s apart from
   errors, and `--scenarios` ids now match exactly (`1` no longer selects
   `11`). `bench/public.sh` runs it `RUNS` times and reports it.
+- `bench/`: `--database` takes a PostgreSQL URL as well as a SQLite path, so
+  scenarios 2–4 and 11 run against PostgreSQL seeded with the same data;
+  when nothing answers there the harness prints "postgres scenarios
+  skipped" and exits 0. The nightly benchmark runs them against a
+  PostgreSQL service container, and `public.sh` includes scenario 11 in
+  its PostgreSQL runs.
 - `daravel_livekit` (Blueprint #48): LiveKit's server SDK for Daravel.
   `LivekitToken` signs access tokens with LiveKit's claims and
   `VideoGrant`s, `RoomServiceClient` manages rooms and participants over

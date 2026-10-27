@@ -23,7 +23,7 @@
 # a core. On a VM, prefer dedicated vCPUs: shared ones measure the
 # neighbours. Settings: RUNS (5), DURATION (10 s per scenario), WORKERS (4),
 # CURVE (16,64,256,1024), CURVE_SCENARIOS (1,2), DART_IMAGE (dart:stable),
-# OHA_VERSION (1.16.0), PG_SCENARIOS (2,3,4; empty skips PostgreSQL),
+# OHA_VERSION (1.16.0), PG_SCENARIOS (2,3,4,11; empty skips PostgreSQL),
 # PG_IMAGE (postgres:17), OVERLOAD_CONNECTIONS (512), MAX_IN_FLIGHT (32),
 # MAX_QUEUE_DELAY (50, ms), WORK (~/daravel-bench).
 set -euo pipefail
@@ -35,7 +35,7 @@ CURVE=${CURVE:-16,64,256,1024}
 CURVE_SCENARIOS=${CURVE_SCENARIOS:-1,2}
 DART_IMAGE=${DART_IMAGE:-dart:stable}
 OHA_VERSION=${OHA_VERSION:-1.16.0}
-PG_SCENARIOS=${PG_SCENARIOS-2,3,4}
+PG_SCENARIOS=${PG_SCENARIOS-2,3,4,11}
 PG_IMAGE=${PG_IMAGE:-postgres:17}
 OVERLOAD_CONNECTIONS=${OVERLOAD_CONNECTIONS:-512}
 MAX_IN_FLIGHT=${MAX_IN_FLIGHT:-32}
@@ -58,7 +58,8 @@ if [ -e "$OUT" ]; then
   exit 1
 fi
 mkdir -p "$OUT/runs" "$OUT/pgsql" "$OUT/overload" "$OUT/curve" "$OUT/oha" "$WORK/tools"
-export DURATION WORKERS SERVER_CPUS CLIENT_CPUS WORK DART_IMAGE PG_IMAGE
+export DURATION WORKERS SERVER_CPUS CLIENT_CPUS WORK DART_IMAGE PG_IMAGE \
+  OVERLOAD_CONNECTIONS MAX_IN_FLIGHT MAX_QUEUE_DELAY
 
 # --- oha, pinned. The checksum is the one of the release asset on GitHub.
 case "$(uname -m)" in

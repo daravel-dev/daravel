@@ -80,7 +80,8 @@ echo "== Daravel (AOT, isolates $WORKER_COUNTS, cores $SERVER_CPUS, $DB)"
 dart_run "dart pub get >/dev/null && taskset -c $CLIENT_CPUS dart run bin/bench.dart \
   $DARAVEL_DB --server-cpus=$SERVER_CPUS --isolates=$WORKER_COUNTS \
   --duration=$DURATION --scenarios=$SCENARIOS --connections=$CONNECTIONS \
-  --out=/data/daravel.json"
+  --overload-connections=${OVERLOAD_CONNECTIONS:-512} --max-in-flight=${MAX_IN_FLIGHT:-32} \
+  --max-queue-delay=${MAX_QUEUE_DELAY:-50} --out=/data/daravel.json"
 
 laravel() { # name mode workers
   docker rm -f daravel-bench-laravel-run >/dev/null 2>&1 || true
