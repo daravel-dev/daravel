@@ -14,6 +14,22 @@ typedef ThrottleResponseBuilder = Response Function(
   Map<String, String> headers,
 );
 
+/// How a [Limit] counts attempts.
+enum RateLimitAlgorithm {
+  /// Laravel's: a window that starts with its first hit and resets at once,
+  /// so up to twice the limit can pass around a reset.
+  fixedWindow,
+
+  /// The current window plus the previous one, weighted by how much of it
+  /// is still within the decay: no burst at the reset.
+  slidingWindow,
+
+  /// Generic cell rate algorithm: the limit spread evenly over the decay
+  /// (one attempt every decay / maxAttempts), with a burst of the whole
+  /// limit after a quiet period.
+  gcra,
+}
+
 /// A rate limit (Laravel `Illuminate\Cache\RateLimiting\Limit`).
 final class Limit {
   const Limit({
@@ -21,6 +37,7 @@ final class Limit {
     required this.decay,
     this.key,
     this.responseBuilder,
+    this.algorithm = RateLimitAlgorithm.fixedWindow,
   });
 
   factory Limit.perSecond(int maxAttempts, [int seconds = 1]) => Limit(
@@ -48,7 +65,8 @@ final class Limit {
     : maxAttempts = -1,
       decay = Duration.zero,
       key = null,
-      responseBuilder = null;
+      responseBuilder = null,
+      algorithm = RateLimitAlgorithm.fixedWindow;
 
   final int maxAttempts;
   final Duration decay;
@@ -57,6 +75,11 @@ final class Limit {
   final Object? key;
   final ThrottleResponseBuilder? responseBuilder;
 
+  /// How attempts are counted: [RateLimitAlgorithm.fixedWindow] unless
+  /// [slidingWindow] or [gcra] says otherwise. A store without that
+  /// algorithm (an [AlgorithmRateLimitStore]) counts a fixed window.
+  final RateLimitAlgorithm algorithm;
+
   bool get isUnlimited => maxAttempts < 0;
 
   Limit by(Object key) => Limit(
@@ -64,6 +87,7 @@ final class Limit {
     decay: decay,
     key: key,
     responseBuilder: responseBuilder,
+    algorithm: algorithm,
   );
 
   Limit response(ThrottleResponseBuilder builder) => Limit(
@@ -71,6 +95,23 @@ final class Limit {
     decay: decay,
     key: key,
     responseBuilder: builder,
+    algorithm: algorithm,
+  );
+
+  /// Counts with [RateLimitAlgorithm.slidingWindow] (`CACHE_LIMITER=redis`
+  /// with daravel_redis).
+  Limit slidingWindow() => _counting(RateLimitAlgorithm.slidingWindow);
+
+  /// Counts with [RateLimitAlgorithm.gcra] (`CACHE_LIMITER=redis` with
+  /// daravel_redis).
+  Limit gcra() => _counting(RateLimitAlgorithm.gcra);
+
+  Limit _counting(RateLimitAlgorithm algorithm) => Limit(
+    maxAttempts: maxAttempts,
+    decay: decay,
+    key: key,
+    responseBuilder: responseBuilder,
+    algorithm: algorithm,
   );
 }
 
@@ -115,6 +156,21 @@ abstract interface class RateLimitStore {
   Future<void> clear(String key);
 
   Future<void> flush();
+}
+
+/// A [RateLimitStore] that also counts with other algorithms than the
+/// fixed window ([Limit.slidingWindow], [Limit.gcra]).
+abstract interface class AlgorithmRateLimitStore implements RateLimitStore {
+  /// Whether [algorithm] is counted as itself (else as a fixed window).
+  bool supports(RateLimitAlgorithm algorithm);
+
+  /// Records an attempt for [key] under [algorithm] when under the limit.
+  Future<RateLimitResult> attemptWith(
+    RateLimitAlgorithm algorithm,
+    String key,
+    int maxAttempts,
+    Duration decay,
+  );
 }
 
 /// Fixed-window counter of one key: Laravel's `RateLimiter` model (a hit
@@ -590,11 +646,22 @@ final class RateLimiter {
     };
   }
 
+  /// Records an attempt; [algorithm] counts it as [Limit.slidingWindow] or
+  /// [Limit.gcra] where the store can, else as a fixed window.
   Future<RateLimitResult> attempt(
     String key,
     int maxAttempts,
-    Duration decay,
-  ) => store.attempt(key, maxAttempts, decay);
+    Duration decay, {
+    RateLimitAlgorithm algorithm = RateLimitAlgorithm.fixedWindow,
+  }) {
+    final store = this.store;
+    if (algorithm != RateLimitAlgorithm.fixedWindow &&
+        store is AlgorithmRateLimitStore &&
+        store.supports(algorithm)) {
+      return store.attemptWith(algorithm, key, maxAttempts, decay);
+    }
+    return store.attempt(key, maxAttempts, decay);
+  }
 
   Future<int> attempts(String key, Duration decay) =>
       store.attempts(key, decay);
@@ -694,7 +761,12 @@ final class ThrottleMiddleware implements Middleware {
       }
       final key =
           '$prefix${name ?? ''}:${limit.key ?? await _signature(request)}';
-      final result = await limiter.attempt(key, limit.maxAttempts, limit.decay);
+      final result = await limiter.attempt(
+        key,
+        limit.maxAttempts,
+        limit.decay,
+        algorithm: limit.algorithm,
+      );
       if (!result.allowed) {
         final retry = result.retryAfter ?? Duration.zero;
         final seconds = (retry.inMilliseconds / 1000).ceil();

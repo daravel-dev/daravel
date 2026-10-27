@@ -109,6 +109,9 @@ final class RedisConnection {
 
   bool get isClosed => _closed;
 
+  /// Commands waiting for their replies.
+  int get inFlight => _pending.length;
+
   /// Sends [args] and returns the reply; an error reply throws
   /// [RedisCommandException]. [timeout] defaults to the connection's
   /// command timeout; `Duration.zero` waits without limit (blocking

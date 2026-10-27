@@ -11,7 +11,10 @@ part of 'application.dart';
 ///
 /// It lives in the composition root because it joins the cache module and
 /// the HTTP rate limiter, which may not import each other.
-final class CacheRateLimitStore implements RateLimitStore {
+///
+/// A [RateCounterStore] (daravel_redis) also counts [Limit.slidingWindow]
+/// and [Limit.gcra], each under a key of its own.
+final class CacheRateLimitStore implements AlgorithmRateLimitStore {
   /// [store] is resolved on first use (the cache is built after the
   /// limiter at boot).
   CacheRateLimitStore(this._store, {this.prefix = 'rate_limiter:'});
@@ -96,6 +99,41 @@ final class CacheRateLimitStore implements RateLimitStore {
     );
   }
 
+  @override
+  bool supports(RateLimitAlgorithm algorithm) =>
+      algorithm == RateLimitAlgorithm.fixedWindow || store is RateCounterStore;
+
+  @override
+  Future<RateLimitResult> attemptWith(
+    RateLimitAlgorithm algorithm,
+    String key,
+    int maxAttempts,
+    Duration decay,
+  ) async {
+    final store = this.store;
+    if (store is! RateCounterStore ||
+        algorithm == RateLimitAlgorithm.fixedWindow) {
+      return attempt(key, maxAttempts, decay);
+    }
+    final hit = algorithm == RateLimitAlgorithm.gcra
+        ? await store.hitGcra('$prefix$key:gcra', maxAttempts, decay)
+        : await store.hitSlidingWindow(
+            '$prefix$key:sliding',
+            maxAttempts,
+            decay,
+          );
+    return RateLimitResult(
+      allowed: hit.allowed,
+      limit: maxAttempts,
+      remaining: hit.remaining,
+      resetAt: DateTime.fromMillisecondsSinceEpoch(
+        _nowMs + hit.resetIn.inMilliseconds,
+        isUtc: true,
+      ),
+      retryAfter: hit.allowed ? null : hit.retryAfter,
+    );
+  }
+
   static Duration _until(DateTime resetAt) {
     final left = resetAt.millisecondsSinceEpoch - _nowMs;
     return Duration(milliseconds: left > 0 ? left : 0);
@@ -137,6 +175,8 @@ final class CacheRateLimitStore implements RateLimitStore {
     await store.forget('$prefix$key');
     await store.forget('$prefix$key:timer');
     await store.forget(_windowKey(key));
+    await store.forget('$prefix$key:sliding');
+    await store.forget('$prefix$key:gcra');
   }
 
   /// Not supported: the cache is shared with the application, so flushing it

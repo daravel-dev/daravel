@@ -148,4 +148,101 @@ void main() {
       200,
     );
   });
+  group('algorithms', () {
+    test('a limit keeps its algorithm through by() and response()', () {
+      final limit = Limit.perMinute(5)
+          .gcra()
+          .by('u')
+          .response(
+            (request, headers) => Response.text('slow down', status: 429),
+          );
+      expect(limit.algorithm, RateLimitAlgorithm.gcra);
+      expect(limit.key, 'u');
+      expect(Limit.perMinute(5).algorithm, RateLimitAlgorithm.fixedWindow);
+      expect(
+        Limit.perMinute(5).slidingWindow().algorithm,
+        RateLimitAlgorithm.slidingWindow,
+      );
+    });
+
+    test('a store without the algorithm counts a fixed window', () async {
+      const decay = Duration(minutes: 1);
+      final hits = [
+        for (var i = 0; i < 3; i++)
+          (await limiter.attempt(
+            'g',
+            2,
+            decay,
+            algorithm: RateLimitAlgorithm.gcra,
+          )).allowed,
+      ];
+      expect(hits, [true, true, false]);
+    });
+
+    test('a store with it is asked, from the middleware too', () async {
+      final store = _AlgorithmStore();
+      final limiter = RateLimiter(store: store)
+        ..define('api', (request) => Limit.perMinute(2).slidingWindow());
+      final middleware = ThrottleMiddleware(
+        limiterName: 'api',
+        limiter: limiter,
+      );
+      final response = await middleware.handle(
+        Request.fake(),
+        (request) async => Response.text('ok'),
+      );
+      expect(response.headers['x-ratelimit-remaining'], '1');
+      expect(store.calls, [RateLimitAlgorithm.slidingWindow]);
+      await limiter.attempt('k', 2, const Duration(minutes: 1));
+      expect(store.calls, hasLength(1)); // a fixed window: attempt()
+    });
+  });
+}
+
+final class _AlgorithmStore implements AlgorithmRateLimitStore {
+  final MemoryRateLimitStore _memory = MemoryRateLimitStore();
+  final List<RateLimitAlgorithm> calls = [];
+
+  @override
+  bool supports(RateLimitAlgorithm algorithm) => true;
+
+  @override
+  Future<RateLimitResult> attemptWith(
+    RateLimitAlgorithm algorithm,
+    String key,
+    int maxAttempts,
+    Duration decay,
+  ) async {
+    calls.add(algorithm);
+    return RateLimitResult(
+      allowed: true,
+      limit: maxAttempts,
+      remaining: maxAttempts - 1,
+      resetAt: DateTime.utc(2030),
+    );
+  }
+
+  @override
+  StateScope get scope => StateScope.isolate;
+
+  @override
+  Future<RateLimitResult> attempt(
+    String key,
+    int maxAttempts,
+    Duration decay,
+  ) => _memory.attempt(key, maxAttempts, decay);
+
+  @override
+  Future<int> attempts(String key, Duration decay) =>
+      _memory.attempts(key, decay);
+
+  @override
+  Future<Duration> availableIn(String key, int maxAttempts, Duration decay) =>
+      _memory.availableIn(key, maxAttempts, decay);
+
+  @override
+  Future<void> clear(String key) => _memory.clear(key);
+
+  @override
+  Future<void> flush() => _memory.flush();
 }

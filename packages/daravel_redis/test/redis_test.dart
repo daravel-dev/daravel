@@ -219,101 +219,144 @@ void main() {
     );
   });
 
-  group('queue', () {
-    late RedisQueue queue;
-    setUp(
-      () => queue = RedisQueue(
-        client,
-        prefix: prefix,
-        retryAfter: const Duration(milliseconds: 300),
-      ),
-    );
-    tearDown(() => queue.stopWaiting());
+  group('rate limit algorithms', () {
+    late RedisStore store;
+    setUp(() => store = RedisStore(client, prefix: prefix));
 
-    JobPayload payload(String text) => JobPayload.forJob(Ping(text));
-
-    test('push, pop, delete; the payload stays byte for byte', () async {
-      final job = payload('one');
-      await queue.push(job, queue: 'default');
-      expect(await queue.size('default'), 1);
-      final popped = (await queue.pop('default'))!;
-      expect(popped.raw, job.encode());
-      expect(popped.attempts, 1);
-      expect(await queue.pop('default'), isNull);
-      await queue.delete(popped);
-      expect(await queue.size('default'), 0);
-    });
-
-    test(
-      'delayed jobs wait; released jobs come back with an attempt more',
-      () async {
-        await queue.push(
-          payload('later'),
-          queue: 'default',
-          delay: const Duration(milliseconds: 200),
-        );
-        expect(await queue.pop('default'), isNull);
-        await Future<void>.delayed(const Duration(milliseconds: 250));
-        final job = (await queue.pop('default'))!;
-        await queue.release(job, Duration.zero);
-        final again = (await queue.pop('default'))!;
-        expect(again.attempts, 2);
-        expect(again.payload.uuid, job.payload.uuid);
-      },
-    );
-
-    test('a job whose worker died runs again after retryAfter', () async {
-      await queue.push(payload('crash'), queue: 'default');
-      expect(await queue.pop('default'), isNotNull);
-      expect(await queue.pop('default'), isNull);
-      await Future<void>.delayed(const Duration(milliseconds: 350));
-      expect((await queue.pop('default'))?.attempts, 2);
-    });
-
-    test('oldestWait and clear', () async {
-      expect(await queue.oldestWait('default'), isNull);
-      await queue.push(payload('a'), queue: 'default');
-      await queue.push(
-        payload('b'),
-        queue: 'default',
-        delay: const Duration(minutes: 1),
+    test('GCRA spreads the limit; a refused hit is not counted', () async {
+      const window = Duration(milliseconds: 600);
+      final hits = [
+        for (var i = 0; i < 4; i++) await store.hitGcra('g', 3, window),
+      ];
+      expect([for (final h in hits) h.allowed], [true, true, true, false]);
+      expect([for (final h in hits) h.remaining], [2, 1, 0, 0]);
+      // One hit every 200ms once the burst is spent.
+      expect(hits[3].retryAfter.inMilliseconds, inInclusiveRange(1, 200));
+      await Future<void>.delayed(
+        hits[3].retryAfter + const Duration(milliseconds: 20),
       );
-      await Future<void>.delayed(const Duration(milliseconds: 30));
+      expect((await store.hitGcra('g', 3, window)).allowed, isTrue);
+      expect((await store.hitGcra('g', 3, window)).allowed, isFalse);
+    });
+
+    test('a sliding window has no burst at the reset', () async {
+      const window = Duration(milliseconds: 800);
+      final hits = [
+        for (var i = 0; i < 5; i++)
+          await store.hitSlidingWindow('s', 4, window),
+      ];
       expect(
-        await queue.oldestWait('default'),
-        greaterThanOrEqualTo(const Duration(milliseconds: 20)),
+        [for (final h in hits) h.allowed],
+        [true, true, true, true, false],
       );
-      expect(await queue.clear('default'), 2);
-      expect(await queue.size('default'), 0);
-    });
-
-    test('a push from another server wakes a waiting worker at once', () async {
-      final other = RedisClient(server);
-      addTearDown(other.close);
-      final pusher = RedisQueue(other, prefix: prefix);
-      final watch = Stopwatch()..start();
-      final waiting = queue.waitForWork([
-        'default',
-      ], const Duration(seconds: 10));
-      await Future<void>.delayed(const Duration(milliseconds: 100));
-      await pusher.push(payload('wake'), queue: 'default');
-      await waiting;
-      expect(watch.elapsed, lessThan(const Duration(seconds: 2)));
-      expect(await queue.pop('default'), isNotNull);
-    });
-
-    test('the wait ends when a delayed job is due', () async {
-      await queue.push(
-        payload('due'),
-        queue: 'default',
-        delay: const Duration(milliseconds: 300),
-      );
-      final watch = Stopwatch()..start();
-      await queue.waitForWork(['default'], const Duration(seconds: 10));
-      expect(watch.elapsed, lessThan(const Duration(seconds: 2)));
-      expect(await queue.pop('default'), isNotNull);
+      final wait = hits[4].retryAfter;
+      expect(wait, greaterThan(Duration.zero));
+      await Future<void>.delayed(wait + const Duration(milliseconds: 30));
+      expect((await store.hitSlidingWindow('s', 4, window)).allowed, isTrue);
     });
   });
+
+  for (final engine in RedisQueueEngine.values) {
+    group('queue (${engine.name})', () {
+      late RedisQueue queue;
+      setUp(
+        () => queue = RedisQueue(
+          client,
+          prefix: prefix,
+          retryAfter: const Duration(milliseconds: 300),
+          engine: engine,
+        ),
+      );
+      tearDown(() => queue.stopWaiting());
+
+      JobPayload payload(String text) => JobPayload.forJob(Ping(text));
+
+      test('push, pop, delete; the payload stays byte for byte', () async {
+        final job = payload('one');
+        await queue.push(job, queue: 'default');
+        expect(await queue.size('default'), 1);
+        final popped = (await queue.pop('default'))!;
+        expect(popped.raw, job.encode());
+        expect(popped.attempts, 1);
+        expect(await queue.pop('default'), isNull);
+        await queue.delete(popped);
+        expect(await queue.size('default'), 0);
+      });
+
+      test(
+        'delayed jobs wait; released jobs come back with an attempt more',
+        () async {
+          await queue.push(
+            payload('later'),
+            queue: 'default',
+            delay: const Duration(milliseconds: 200),
+          );
+          expect(await queue.pop('default'), isNull);
+          await Future<void>.delayed(const Duration(milliseconds: 250));
+          final job = (await queue.pop('default'))!;
+          await queue.release(job, Duration.zero);
+          final again = (await queue.pop('default'))!;
+          expect(again.attempts, 2);
+          expect(again.payload.uuid, job.payload.uuid);
+        },
+      );
+
+      test('a job whose worker died runs again after retryAfter', () async {
+        await queue.push(payload('crash'), queue: 'default');
+        expect(await queue.pop('default'), isNotNull);
+        expect(await queue.pop('default'), isNull);
+        await Future<void>.delayed(const Duration(milliseconds: 350));
+        expect((await queue.pop('default'))?.attempts, 2);
+      });
+
+      test('oldestWait and clear', () async {
+        expect(await queue.oldestWait('default'), isNull);
+        await queue.push(payload('a'), queue: 'default');
+        await queue.push(
+          payload('b'),
+          queue: 'default',
+          delay: const Duration(minutes: 1),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+        expect(
+          await queue.oldestWait('default'),
+          greaterThanOrEqualTo(const Duration(milliseconds: 20)),
+        );
+        expect(await queue.clear('default'), 2);
+        expect(await queue.size('default'), 0);
+      });
+
+      test(
+        'a push from another server wakes a waiting worker at once',
+        () async {
+          final other = RedisClient(server);
+          addTearDown(other.close);
+          final pusher = RedisQueue(other, prefix: prefix, engine: engine);
+          final watch = Stopwatch()..start();
+          final waiting = queue.waitForWork([
+            'default',
+          ], const Duration(seconds: 10));
+          await Future<void>.delayed(const Duration(milliseconds: 100));
+          await pusher.push(payload('wake'), queue: 'default');
+          await waiting;
+          expect(watch.elapsed, lessThan(const Duration(seconds: 2)));
+          expect(await queue.pop('default'), isNotNull);
+        },
+      );
+
+      test('the wait ends when a delayed job is due', () async {
+        await queue.push(
+          payload('due'),
+          queue: 'default',
+          delay: const Duration(milliseconds: 300),
+        );
+        final watch = Stopwatch()..start();
+        await queue.waitForWork(['default'], const Duration(seconds: 10));
+        expect(watch.elapsed, lessThan(const Duration(seconds: 2)));
+        expect(await queue.pop('default'), isNotNull);
+      });
+    });
+  }
 
   group('application', () {
     final apps = <Application>[];
@@ -386,6 +429,55 @@ void main() {
         expect(await Redis.command(['PING']), 'PONG');
       });
     });
+
+    test(
+      'tiered cache, stream queue, GCRA and serialize(), from .env',
+      () async {
+        final app = await boot({
+          'CACHE_STORE': 'tiered',
+          'QUEUE_REDIS_ENGINE': 'stream',
+          'REDIS_SERIALIZER': 'php',
+        });
+        Ping.ran.clear();
+        await app.run(() async {
+          expect(Cache.store().store, isA<TieredStore>());
+          await Cache.put('list', [1, 'a']);
+          expect(await Cache.get<Object?>('list'), [1, 'a']);
+          final cachePrefix = App.make<ConfigRepository>()
+              .section<CacheConfig>()
+              .prefix;
+          // As Laravel's serialize() writes it.
+          expect(
+            await Redis.connection('cache')
+                .get('${prefix}tiered:${cachePrefix}list'),
+            'a:2:{i:0;i:1;i:1;s:1:"a";}',
+          );
+
+          final limiter = App.make<RateLimiter>();
+          final hits = [
+            for (var i = 0; i < 3; i++)
+              (await limiter.attempt(
+                'gcra',
+                2,
+                const Duration(minutes: 1),
+                algorithm: RateLimitAlgorithm.gcra,
+              )).allowed,
+          ];
+          expect(hits, [true, true, false]);
+
+          final queue = Queue.manager.connection() as RedisQueue;
+          expect(queue.engine, RedisQueueEngine.stream);
+          final worker = QueueWorker(Queue.manager);
+          final run = worker.run(
+            const WorkerOptions(sleep: Duration(seconds: 30), maxJobs: 1),
+          );
+          await Future<void>.delayed(const Duration(milliseconds: 100));
+          await Queue.dispatch(const Ping('stream'));
+          expect(await run.timeout(const Duration(seconds: 5)), 0);
+          expect(Ping.ran, ['stream']);
+        });
+      },
+    );
 
     test('a JWT revoked on one server is refused on another', () async {
       final users = <Map<String, Object?>>[];

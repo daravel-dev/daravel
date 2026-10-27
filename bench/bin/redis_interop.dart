@@ -1,5 +1,6 @@
 // The Daravel side of bench/interop/redis.sh: one step per run, against the
 // Redis a Laravel application uses too (REDIS_*, CACHE_PREFIX).
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:daravel/daravel.dart';
@@ -30,6 +31,15 @@ Future<void> main(List<String> args) async {
         return 'visits=${await Cache.get<int>('visits')}';
       case 'increment':
         return 'visits=${await Cache.increment('visits')}';
+      case 'profile':
+        return jsonEncode(await Cache.get<Object?>('profile'));
+      case 'put-profile':
+        await Cache.put('profile', {
+          'name': 'Bo',
+          'tags': ['x'],
+          'none': null,
+        }, ttl: const Duration(minutes: 1));
+        return 'stored';
     }
     return 'unknown step';
   });

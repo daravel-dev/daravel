@@ -74,6 +74,18 @@ abstract interface class WindowCounterStore implements CacheStore {
   Future<({int hits, DateTime resetAt})?> currentWindow(String key);
 }
 
+/// A store that counts rate limits as a sliding window or with the generic
+/// cell rate algorithm, in one atomic step on the server's clock
+/// (daravel_redis). [resetIn] is how long until the key holds no hits;
+/// [retryAfter] how long until a refused hit would be counted.
+abstract interface class RateCounterStore implements CacheStore {
+  Future<({bool allowed, int remaining, Duration resetIn, Duration retryAfter})>
+  hitSlidingWindow(String key, int maxHits, Duration window);
+
+  Future<({bool allowed, int remaining, Duration resetIn, Duration retryAfter})>
+  hitGcra(String key, int maxHits, Duration window);
+}
+
 /// Raised by [Lock.block] when the lock cannot be obtained in time.
 final class LockTimeoutException extends DaravelException {
   LockTimeoutException(String name, Duration timeout)

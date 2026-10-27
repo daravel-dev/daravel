@@ -37,10 +37,20 @@ REVERB_SCALING_DRIVER=redis
 - Speaks RESP itself, with pipelining on one connection per isolate,
   command timeouts, bounded in-flight commands and TLS. Tested on Redis 7
   and Valkey 8.
+- One server, Sentinel (`redis+sentinel://`, found again after a failover)
+  or Redis Cluster (`redis+cluster://`, slots, `MOVED` and `ASK`).
+- `CACHE_STORE=tiered`: each isolate's memory in front of Redis, kept exact
+  by `CLIENT TRACKING`.
+- Queues on lists or on a stream with a consumer group
+  (`QUEUE_REDIS_ENGINE=stream`); sliding-window and GCRA rate limits
+  (`Limit.perMinute(60).gcra()`).
 - Locks are Laravel's `RedisLock` (keys, connection, release script), so
-  Laravel and Daravel share them with the same `CACHE_PREFIX`.
-  Queues stay apart from Laravel's (`daravel:` keys).
-- `cache:clear` deletes the cache's own keys, never the whole database.
+  Laravel and Daravel share them with the same `CACHE_PREFIX`; with
+  `REDIS_SERIALIZER=php` they share cached values too. Queues stay apart
+  from Laravel's (`daravel:` keys).
+- `cache:clear` deletes the cache's own keys, never the whole database;
+  `redis:ping`, `redis:stats`, `redis:keys-audit` and a read-only
+  `redis:cli` (`package:daravel_redis/commands.dart`).
 
 Documentation: <https://github.com/daravel-dev/daravel/blob/main/docs/guide/redis.md>.
 

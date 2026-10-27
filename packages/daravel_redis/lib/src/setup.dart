@@ -5,6 +5,7 @@ import 'client.dart';
 import 'config.dart';
 import 'queue.dart';
 import 'store.dart';
+import 'tiered.dart';
 
 /// `withRedis()` on the application builder.
 extension RedisApplicationBuilder on ApplicationBuilder {
@@ -13,7 +14,12 @@ extension RedisApplicationBuilder on ApplicationBuilder {
   /// - `CACHE_STORE=redis`, `CACHE_LIMITER=redis`,
   ///   `QUEUE_UNIQUE_LOCK_STORE=redis`: [RedisStore] on the `cache`
   ///   connection (`REDIS_CACHE_DB`);
-  /// - `QUEUE_CONNECTION=redis`: [RedisQueue] on the `default` connection;
+  /// - `CACHE_STORE=tiered`: [TieredStore], each isolate's memory in front
+  ///   of Redis, kept exact by `CLIENT TRACKING`;
+  /// - `QUEUE_CONNECTION=redis`: [RedisQueue] on the `default` connection
+  ///   (`QUEUE_REDIS_ENGINE=stream` for a stream with a consumer group);
+  /// - `REDIS_MODE` (or a `redis+sentinel://` / `redis+cluster://`
+  ///   `REDIS_URL`): Sentinel or Redis Cluster;
   /// - `REVERB_SCALING_ENABLED=true` with `REVERB_SCALING_DRIVER=redis`:
   ///   broadcasting servers share channels through Redis Pub/Sub;
   /// - the [Redis] facade, a `redis` readiness check on `/up/ready`, and
@@ -28,14 +34,21 @@ extension RedisApplicationBuilder on ApplicationBuilder {
               RedisManager(c.make<ConfigRepository>().section<RedisConfig>()),
         ),
       )
-      .withCacheStore('redis', (c) {
+      .withCacheStore('redis', _redisStore)
+      .withCacheStore('tiered', (c) {
         final redis = c.make<ConfigRepository>().section<RedisConfig>();
-        final manager = c.make<RedisManager>();
-        return RedisStore(
-          manager.connection('cache'),
-          lockClient: manager.connection(redis.lockConnection),
-          prefix: redis.prefix,
-          flushPrefix: c.make<ConfigRepository>().section<CacheConfig>().prefix,
+        final shared = _redisStore(c);
+        return TieredStore(
+          RedisStore(
+            shared.client,
+            lockClient: shared.lockClient,
+            prefix: '${redis.prefix}tiered:',
+            flushPrefix: shared.flushPrefix,
+            serializer: redis.serializer,
+          ),
+          shared: shared,
+          maxKeys: redis.tieredMaxKeys,
+          maxAge: redis.tieredTtl,
         );
       })
       .withQueueDriver('redis', (c) {
@@ -46,6 +59,7 @@ extension RedisApplicationBuilder on ApplicationBuilder {
           prefix: redis.prefix,
           namespace: redis.queueNamespace,
           retryAfter: config.section<QueueConfig>().retryAfter,
+          engine: redis.queueEngine,
         );
       })
       .withBroadcastScaling('redis', (c, broadcasting, server) {
@@ -73,6 +87,19 @@ extension RedisApplicationBuilder on ApplicationBuilder {
         }),
       ])
       .withShutdown((c) async => c.resolved<RedisManager>()?.close());
+}
+
+RedisStore _redisStore(Container c) {
+  final config = c.make<ConfigRepository>();
+  final redis = config.section<RedisConfig>();
+  final manager = c.make<RedisManager>();
+  return RedisStore(
+    manager.connection('cache'),
+    lockClient: manager.connection(redis.lockConnection),
+    prefix: redis.prefix,
+    flushPrefix: config.section<CacheConfig>().prefix,
+    serializer: redis.serializer,
+  );
 }
 
 /// Redis from anywhere in a request, job or command (`Illuminate\Redis`).

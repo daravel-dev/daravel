@@ -13,5 +13,7 @@ export 'src/config.dart';
 export 'src/connection.dart';
 export 'src/queue.dart';
 export 'src/resp.dart';
+export 'src/serializer.dart';
 export 'src/setup.dart';
 export 'src/store.dart';
+export 'src/tiered.dart';

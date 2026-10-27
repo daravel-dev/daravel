@@ -130,9 +130,12 @@ Laravel application shows within `PERMISSION_CACHE_TTL` (5 minutes).
 
 ## Commands
 
-Add them to `bootstrap/commands.dart`:
+Add them to `bootstrap/commands.dart`, from a library of their own so the
+server does not compile the CLI:
 
 ```dart
+import 'package:daravel_permission/commands.dart';
+
 final List<CommandFactory> commands = [...permissionCommands];
 ```
 

@@ -11,8 +11,9 @@ state has to be shared and the database becomes the bottleneck.
 | Several servers, little traffic, PostgreSQL or MySQL already there | `CACHE_STORE=database`, the database queue, `REVERB_SCALING_ENABLED` on the database. Still no Redis |
 | Several servers with tight latency, strict rate limits, many jobs or WebSockets across servers, or a Laravel app on Redis already | `daravel_redis` |
 
-It works with Redis 6.2 or newer and with Valkey, and speaks the protocol
-itself (no native library).
+It works with Redis 6.2 or newer and with Valkey, on one server, behind
+Sentinel or as a Redis Cluster, and speaks the protocol itself (no native
+library).
 
 ## Installing
 
@@ -51,6 +52,7 @@ REVERB_SCALING_DRIVER=redis  # broadcasting servers share Echo's clients
 | Setting | What Redis does |
 | :-- | :-- |
 | `CACHE_STORE=redis` | `Cache` and `Cache.lock` on every server. Logout (`Auth.jwtGuard().invalidate()`) reaches every server too, since the JWT denylist lives in the default store |
+| `CACHE_STORE=tiered` | The same, with each isolate's memory in front of Redis ([below](#a-cache-in-each-isolate)) |
 | `CACHE_LIMITER=redis` | Each attempt is one Lua script; blocked attempts are not counted |
 | `QUEUE_CONNECTION=redis` | Jobs in Redis; an idle worker blocks on `BLPOP` and starts a pushed job at once instead of after `--sleep`. Unique-job locks and `queue:restart` / `queue:pause` go to Redis as well (`QUEUE_UNIQUE_LOCK_STORE=redis`) |
 | `REVERB_SCALING_DRIVER=redis` | Frames between servers over Pub/Sub; presence members, the channels API and cache channels in Redis ([Broadcasting](broadcasting.md#several-servers)) |
@@ -63,7 +65,7 @@ on its prefix, never `FLUSHDB`) and never queued jobs.
 
 | Variable | Default | Purpose |
 | :-- | :-- | :-- |
-| `REDIS_URL` | none | `redis://` or `rediss://` (TLS), `user:password@host:port/database`; replaces the variables below |
+| `REDIS_URL` | none | `redis://` or `rediss://` (TLS), `user:password@host:port/database`; `redis+sentinel://` and `redis+cluster://` list several hosts ([below](#sentinel-and-cluster)). Replaces the variables below |
 | `REDIS_HOST`, `REDIS_PORT` | `127.0.0.1`, `6379` | The server |
 | `REDIS_USERNAME`, `REDIS_PASSWORD` | none | ACL user (Redis 6+) and password |
 | `REDIS_DB`, `REDIS_CACHE_DB` | `0`, `1` | Databases of the `default` and `cache` connections, as in Laravel |
@@ -72,10 +74,92 @@ on its prefix, never `FLUSHDB`) and never queued jobs.
 | `REDIS_TLS` | `false` | TLS without `rediss://`; boot warns when a public host goes without it |
 | `REDIS_COMMAND_TIMEOUT`, `REDIS_CONNECT_TIMEOUT` | `1s`, `2s` | A command that times out closes its connection, which reopens on the next one |
 | `REDIS_MAX_IN_FLIGHT` | `1024` | Commands waiting for replies on one connection; more are refused at once |
+| `REDIS_MODE` | `standalone` | `sentinel` or `cluster`, with `REDIS_NODES` |
+| `REDIS_NODES` | `REDIS_HOST:REDIS_PORT` | `host:port,host:port`: the Sentinels, or the cluster nodes to start from |
+| `REDIS_SENTINEL_SERVICE` | `mymaster` | The master's name at the Sentinels |
+| `REDIS_SENTINEL_USERNAME`, `REDIS_SENTINEL_PASSWORD` | none | The Sentinels' own credentials |
+| `REDIS_SERIALIZER` | `json` | `php` writes cached values as Laravel's `serialize()`; both are always read |
+| `REDIS_TIERED_MAX_KEYS`, `REDIS_TIERED_TTL` | `10000`, `60s` | The `tiered` store's entries per isolate and their longest life |
+| `QUEUE_REDIS_ENGINE` | `list` | `stream` keeps jobs in a stream with a consumer group |
 | `QUEUE_REDIS_NAMESPACE` | `daravel` | The queues' key space, apart from Laravel's `queues:` |
 
 `/up/ready` gains a `redis` check (`PING`). Passwords never appear in logs or
 errors.
+
+## Sentinel and Cluster
+
+```dotenv
+# The master Sentinel names, found again after a failover
+REDIS_URL=redis+sentinel://:secret@10.0.0.21:26379,10.0.0.22:26379/mymaster/0
+
+# A Redis Cluster, from any of its nodes
+REDIS_URL=redis+cluster://:secret@10.0.0.31:6379,10.0.0.32:6379
+```
+
+With Sentinel, each connection asks the Sentinels for the master and checks
+its `ROLE`. After a failover the old master drops its clients, which
+reconnect to the new one; a write refused by a demoted master (`READONLY`)
+did not run and is sent again to the new master. Writes accepted by the old
+master in the moment before Sentinel demotes it can be lost: that window
+belongs to Redis's asynchronous replication.
+
+In a cluster, each command goes to the master of its key's hash slot, from
+a slot map read with `CLUSTER SLOTS` and corrected by `MOVED` and `ASK`
+while slots move. `MGET`, `DEL`, `UNLINK`, `EXISTS` and `TOUCH` over keys of
+several slots are split per slot; `SCAN` (and so `cache:clear`) visits
+every master. Everything Daravel runs as one script shares a hash tag
+(`{default}` for a queue), so it stays on one slot; your own scripts over
+several keys need one too (`{user:7}:a`, `{user:7}:b`), or the server
+answers `CROSSSLOT`. A cluster has only database 0, so `REDIS_CACHE_DB`
+does not apply there.
+
+## A cache in each isolate
+
+`CACHE_STORE=tiered` keeps what each isolate reads in its own memory (L1)
+in front of Redis (L2), and Redis tells every server when one of those keys
+is written (`CLIENT TRACKING` in broadcast mode, RESP3). A read from L1 is
+then never older than the last write the server was told of; only the
+short trip of that notice separates them.
+
+```dart
+final user = await Cache.store('tiered').remember('user:7', null, loadUser);
+```
+
+Its values live under a prefix of their own (`tiered:`), so only they are
+broadcast; locks and rate limits go to the `redis` store as usual. Until
+tracking is running, and on servers without it, every read goes to Redis.
+An entry lives at most `REDIS_TIERED_TTL` and follows the key's own time to
+live; at most `REDIS_TIERED_MAX_KEYS` stay, the least recently read leaving
+first.
+
+## Queue engines
+
+`QUEUE_REDIS_ENGINE=list` (the default) keeps jobs in lists and sorted sets.
+`stream` keeps them in a Redis stream read by a consumer group: the server
+itself tracks the jobs being run (`XPENDING`), and a job whose worker died
+is claimed by another after `QUEUE_RETRY_AFTER` (`XAUTOCLAIM`, by the
+server's clock). Both wake idle workers the same way, and the payload stays
+byte for byte what was pushed. Switch engines with an empty queue: each
+keeps its jobs under keys of its own.
+
+## Rate limit algorithms
+
+Laravel's fixed window lets up to twice the limit through around a reset.
+With `CACHE_LIMITER=redis`, two other algorithms are one script each, on
+the Redis server's clock:
+
+```dart
+limiter.define('login', (request) => Limit.perMinute(5).by(request.ip).gcra());
+limiter.define('search', (request) => Limit.perMinute(60).slidingWindow());
+```
+
+| Algorithm | Counts |
+| :-- | :-- |
+| `fixedWindow` (default) | Laravel's: hits since the window's first hit |
+| `slidingWindow()` | The current window plus the previous one, weighted by how much of it is still within the decay |
+| `gcra()` | One attempt every decay / limit, the whole limit as a burst after a quiet period |
+
+`Retry-After` says when the next attempt passes under each.
 
 ## The `Redis` facade
 
@@ -83,6 +167,10 @@ errors.
 await Redis.set('greeting', 'halo', ttl: const Duration(minutes: 5));
 final greeting = await Redis.get('greeting');
 await Redis.command(['HSET', 'user:7', 'name', 'Ana']);
+final [name, ttl] = await Redis.connection().pipeline([
+  ['HGET', 'user:7', 'name'],
+  ['TTL', 'user:7'],
+]);
 
 final script = RedisScript("return redis.call('INCRBY', KEYS[1], ARGV[1])");
 await Redis.eval(script, keys: ['visits'], args: [1]);
@@ -91,10 +179,29 @@ await Redis.publish('orders', '{"id":7}');
 Redis.subscribe(['orders']).messages.listen((message) { /* ... */ });
 ```
 
-Each isolate keeps one connection, and commands sent without awaiting each
-other share its round trips (pipelining). Blocking commands and
-subscriptions get connections of their own; a subscription subscribes again
-after the connection drops.
+Each isolate keeps one connection per server, and commands sent without
+awaiting each other share its round trips (pipelining). Blocking commands
+and subscriptions get connections of their own; a subscription subscribes
+again after the connection drops.
+
+## Commands
+
+```dart
+// bootstrap/commands.dart
+import 'package:daravel_redis/commands.dart';
+
+final List<CommandFactory> commands = [...redisCommands];
+```
+
+They come from a library of their own, so the server does not compile the
+CLI.
+
+| Command | What it does |
+| :-- | :-- |
+| `redis:ping [--connection]` | The server, its version, the mode and the round trip |
+| `redis:stats [--connection]` | Each master's `INFO` (memory, clients, hits) and what the client did (connections, redirections, failovers) |
+| `redis:keys-audit [--connection] [--match] [--limit]` | Keys by type under `REDIS_PREFIX`, and the cache keys that never expire |
+| `redis:cli [--connection] [--write] [command ...]` | One command, or a prompt; only reading commands run without `--write` (`KEYS` neither: use `SCAN`) |
 
 ## Guarantees
 
@@ -116,16 +223,14 @@ after the connection drops.
 | :-- | :-- |
 | Locks | Shared once both use the same `REDIS_PREFIX` and `CACHE_PREFIX`: the same keys on the same connection, `SET NX PX` and the same release script. `dartisan adopt` gives Daravel a cache prefix of its own, so set `CACHE_PREFIX` to Laravel's to share them |
 | Numbers in the cache | Shared: stored as plain digits |
-| Other cache values | Daravel stores JSON, Laravel PHP's `serialize()`: neither reads the other's |
+| Other cache values | Shared with `REDIS_SERIALIZER=php`: Daravel writes PHP's `serialize()` for strings, booleans, lists and maps, and reads Laravel's values, objects as maps of their properties. With `json`, Laravel cannot read Daravel's values |
 | Queues | Kept apart (`daravel:` namespace): Laravel's workers cannot run Daravel jobs, nor the other way round |
 
 `bench/interop/redis.sh` checks this against Laravel 12 with predis: a lock
-taken by either is refused to the other with the same owner, and a cached
-number counts up from both sides.
+taken by either is refused to the other with the same owner, a cached
+number counts up from both sides, and each reads the other's cached arrays.
 
 ## Not yet
 
-Redis Sentinel and Cluster, a two-level cache with `CLIENT TRACKING`, the
-Streams queue engine and a PHP-compatible serializer are planned. Until
-then, point `REDIS_URL` at a single primary (a managed service's endpoint
-works).
+Cache tags, sharded Pub/Sub (`SSUBSCRIBE`), Server-Sent Events that resume
+from a stream, and a `redis:install` command are planned.

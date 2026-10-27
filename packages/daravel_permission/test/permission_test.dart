@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:daravel/daravel.dart';
 import 'package:daravel_mysql/daravel_mysql.dart';
+import 'package:daravel_permission/commands.dart';
 import 'package:daravel_permission/daravel_permission.dart';
 import 'package:dartisan_cli/dartisan_cli.dart';
 import 'package:test/test.dart';

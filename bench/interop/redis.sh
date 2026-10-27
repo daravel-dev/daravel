@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Laravel 12 and Daravel on one Redis (Linux and Docker): a cache lock taken
-# by either is refused to the other, with the same owner, and a number in
-# the cache counts up from both sides.
+# by either is refused to the other, with the same owner, a number in the
+# cache counts up from both sides, and with REDIS_SERIALIZER=php each reads
+# the other's cached arrays.
 #
 #   bash bench/interop/redis.sh
 set -uo pipefail
@@ -10,7 +11,8 @@ WORK=${WORK:-$HOME/daravel-bench}
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
 PORT=16390
 SHARED=(-e REDIS_HOST=127.0.0.1 -e REDIS_PORT=$PORT -e CACHE_STORE=redis
-  -e CACHE_PREFIX=shared-cache- -e REDIS_PREFIX=shared-database-)
+  -e CACHE_PREFIX=shared-cache- -e REDIS_PREFIX=shared-database-
+  -e REDIS_SERIALIZER=php)
 
 docker run --rm -v "$WORK:/w" dart:stable rm -rf /w/src >/dev/null
 mkdir -p "$WORK/src" "$WORK/pub-cache"
@@ -44,6 +46,9 @@ check() { # name expected actual
   if [[ "$3" == *"$2"* ]]; then echo "PASS $1"; else echo "FAIL $1: expected [$2] in [$3]"; status=1; fi
 }
 
+# The first Daravel run compiles; done before a lock with a 30s lifetime.
+daravel get >/dev/null
+
 echo "== Laravel takes the lock, Daravel is refused"
 owner=$(laravel '$l = Cache::lock("report", 30); $l->get(); echo $l->owner();' | tail -1)
 out=$(daravel lock)
@@ -62,6 +67,12 @@ laravel 'Cache::put("visits", 41, 60); Cache::increment("visits");' >/dev/null
 check "Daravel reads Laravel's number" "visits=42" "$(daravel get)"
 check "Daravel increments it" "visits=43" "$(daravel increment)"
 check "Laravel reads Daravel's number" "43" "$(laravel 'echo Cache::get("visits");' | tail -1)"
+
+echo "== Cached arrays, both ways (REDIS_SERIALIZER=php)"
+laravel 'Cache::put("profile", ["name" => "Ana", "roles" => ["admin", "editor"], "active" => true, "score" => 1.5], 60);' >/dev/null
+check "Daravel reads Laravel's array" '{"name":"Ana","roles":["admin","editor"],"active":true,"score":1.5}' "$(daravel profile)"
+daravel put-profile >/dev/null
+check "Laravel reads Daravel's array" '{"name":"Bo","tags":["x"],"none":null}' "$(laravel 'echo json_encode(Cache::get("profile"));' | tail -1)"
 
 [ $status -eq 0 ] && echo "All Redis interop checks passed." || echo "Some Redis interop checks failed."
 exit $status

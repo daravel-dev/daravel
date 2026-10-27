@@ -1,4 +1,4 @@
-<!-- source: permissions.md sha256:94542d9221d2 -->
+<!-- source: permissions.md sha256:479a028c0444 -->
 # Role dan permission
 
 `daravel_permission` menyimpan role dan permission di database, di lima
@@ -135,9 +135,12 @@ Perubahan yang dibuat aplikasi Laravel terlihat dalam
 
 ## Perintah
 
-Tambahkan ke `bootstrap/commands.dart`:
+Tambahkan ke `bootstrap/commands.dart`, dari library tersendiri sehingga
+server tidak ikut mengompilasi CLI:
 
 ```dart
+import 'package:daravel_permission/commands.dart';
+
 final List<CommandFactory> commands = [...permissionCommands];
 ```
 

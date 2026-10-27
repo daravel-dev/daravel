@@ -19,7 +19,16 @@ Laravel-facing formats change only to match Laravel more closely.
   (broadcasting servers over Pub/Sub). Its own RESP client pipelines
   commands on one connection per isolate, with command timeouts, bounded
   in-flight commands and TLS; `cache:clear` deletes only the cache's keys.
-  Tested on Redis 7 and Valkey 8, in CI as well.
+  It reaches Sentinel's master (`redis+sentinel://`, found again after a
+  failover) and Redis Cluster (`redis+cluster://`: slot map, `MOVED` and
+  `ASK`, keys of several slots split), offers `CACHE_STORE=tiered` (each
+  isolate's memory in front of Redis, kept exact by `CLIENT TRACKING`), a
+  stream queue engine with a consumer group (`QUEUE_REDIS_ENGINE=stream`),
+  cached values in PHP's `serialize()` format so Laravel reads them
+  (`REDIS_SERIALIZER=php`), sliding-window and GCRA rate limits, and the
+  `redis:ping`, `redis:stats`, `redis:keys-audit` and read-only `redis:cli`
+  commands. Tested on Redis 7 and Valkey 8, Sentinel failover and Cluster
+  resharding included, in CI as well.
 - `daravel_permission` (Blueprint #36): roles and permissions in the
   database on spatie/laravel-permission's five tables, so Laravel and
   Daravel share them (`bench/interop/permission.sh` checks it against
@@ -45,6 +54,11 @@ Laravel-facing formats change only to match Laravel more closely.
   `dartisan make:query-filter Post` writes one and registers it.
 - `Blueprint.primary([...])`: primary keys over several columns, named as
   Laravel names them.
+- `Limit.slidingWindow()` and `Limit.gcra()` (`RateLimitAlgorithm`):
+  rate limits without the fixed window's burst at a reset, counted by
+  stores that support them (`AlgorithmRateLimitStore`, `RateCounterStore`:
+  `CACHE_LIMITER=redis` with daravel_redis) and as a fixed window
+  elsewhere. `throttle` passes a named limiter's algorithm on.
 - `ApplicationBuilder.withCacheStore`, `withQueueDriver`,
   `withBroadcastScaling` and `withShutdown`, for driver packages; the
   `BroadcastRelay` contract; `REVERB_SCALING_DRIVER`.

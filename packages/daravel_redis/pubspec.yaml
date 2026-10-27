@@ -19,6 +19,7 @@ resolution: workspace
 dependencies:
   crypto: ^3.0.7
   daravel: ^1.11.0
+  dartisan_cli: ^1.11.0
 
 dev_dependencies:
   test: ^1.33.0

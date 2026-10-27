@@ -137,6 +137,8 @@ jobs:
           --health-retries 20
     env:
       DARAVEL_TEST_REDIS: redis://127.0.0.1:6379/15
+      DARAVEL_TEST_REDIS_CLUSTER: redis+cluster://127.0.0.1:17001,127.0.0.1:17002
+      DARAVEL_TEST_REDIS_SENTINEL: redis+sentinel://127.0.0.1:17020/mymaster
     steps:
       - uses: actions/checkout@v4
 
@@ -144,6 +146,9 @@ jobs:
 
       - name: Resolve workspace
         run: dart pub get
+
+      - name: Start a Sentinel and a Cluster of ${{ matrix.server }}
+        run: sh packages/daravel_redis/tool/topologies.sh ${{ matrix.server }}
 
       - name: Test against ${{ matrix.server }}
         run: (cd packages/daravel_redis && dart test --tags integration --reporter=expanded)

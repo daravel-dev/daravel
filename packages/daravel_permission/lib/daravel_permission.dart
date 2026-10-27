@@ -7,7 +7,6 @@
 /// ```
 library;
 
-export 'src/commands.dart';
 export 'src/config.dart';
 export 'src/exceptions.dart';
 export 'src/has_roles.dart';

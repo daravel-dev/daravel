@@ -3,3 +3,4 @@ build/
 coverage/
 .dart_tool/
 test/scaling_test.dart
+tool/

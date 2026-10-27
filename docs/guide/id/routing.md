@@ -1,4 +1,4 @@
-<!-- source: routing.md sha256:a25de79ce707 -->
+<!-- source: routing.md sha256:3a8f1fafe5cd -->
 # Routing
 
 Route didaftarkan di `routes/api.dart` (di-mount di bawah `/api`) dan
@@ -155,3 +155,10 @@ kecil yang membesar untuk key yang ramai dan mengembalikan hit yang tidak
 terpakai: batasnya tidak pernah terlampaui (hit yang di-lease satu worker
 bisa sejenak tidak tersedia bagi worker lain, paling lama 200 ms), dan
 coordinator tidak lagi dilibatkan di setiap request.
+
+Fixed window bisa meloloskan sampai dua kali batas di sekitar reset.
+`Limit.perMinute(60).slidingWindow()` juga menimbang jendela sebelumnya,
+dan `.gcra()` meratakan batasnya (satu percobaan setiap decay / batas,
+seluruh batas sebagai burst setelah periode sepi). Keduanya membutuhkan
+`CACHE_LIMITER=redis` dengan [daravel_redis](redis.md#algoritma-rate-limit);
+store lain menghitungnya sebagai fixed window.

@@ -146,3 +146,10 @@ and resets `decay` later. With several isolates, keys with generous limits
 keys and give unused hits back: the limit is never exceeded (a hit leased by
 one worker may briefly be unavailable to another, for at most 200 ms), and
 the coordinator is no longer on every request.
+
+A fixed window lets up to twice the limit through around a reset.
+`Limit.perMinute(60).slidingWindow()` also weighs the previous window, and
+`.gcra()` spreads the limit evenly (one attempt every decay / limit, the
+whole limit as a burst after a quiet period). Both need
+`CACHE_LIMITER=redis` with [daravel_redis](redis.md#rate-limit-algorithms);
+other stores count them as a fixed window.

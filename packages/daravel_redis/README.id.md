@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:e871ebb336b7 -->
+<!-- source: README.md sha256:32fa98038a5c -->
 <img src="https://raw.githubusercontent.com/daravel-dev/daravel/main/docs/brand/png/daravel-icon-128.png" alt="Daravel" width="64" align="right">
 
 # daravel_redis
@@ -38,12 +38,22 @@ REVERB_SCALING_DRIVER=redis
 - Berbicara RESP sendiri, dengan pipelining di satu koneksi per isolate,
   timeout per perintah, batas perintah yang menunggu balasan, dan TLS.
   Diuji di Redis 7 dan Valkey 8.
+- Satu server, Sentinel (`redis+sentinel://`, ditemukan lagi setelah
+  failover), atau Redis Cluster (`redis+cluster://`, slot, `MOVED`, dan
+  `ASK`).
+- `CACHE_STORE=tiered`: memori setiap isolate di depan Redis, dijaga tetap
+  akurat oleh `CLIENT TRACKING`.
+- Queue di list atau di stream dengan consumer group
+  (`QUEUE_REDIS_ENGINE=stream`); rate limit sliding window dan GCRA
+  (`Limit.perMinute(60).gcra()`).
 - Lock-nya adalah `RedisLock` dari Laravel (key, koneksi, skrip
   pelepasan), sehingga Laravel dan Daravel berbagi lock dengan
-  `CACHE_PREFIX` yang sama. Queue tetap terpisah dari queue Laravel (key
+  `CACHE_PREFIX` yang sama; dengan `REDIS_SERIALIZER=php` keduanya juga
+  berbagi nilai cache. Queue tetap terpisah dari queue Laravel (key
   `daravel:`).
-- `cache:clear` hanya menghapus key milik cache, tidak pernah seluruh
-  database.
+- `cache:clear` hanya menghapus key cache itu sendiri, tidak pernah seluruh
+  database; `redis:ping`, `redis:stats`, `redis:keys-audit`, dan
+  `redis:cli` yang read-only (`package:daravel_redis/commands.dart`).
 
 Dokumentasi: <https://github.com/daravel-dev/daravel/blob/main/docs/guide/id/redis.md>.
 
