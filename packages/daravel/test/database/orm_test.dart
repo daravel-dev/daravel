@@ -267,6 +267,7 @@ void main() {
         expect(user.getDirty(), {'name': 'Bob'});
         expect(await user.save(), isTrue);
         expect(user.wasChanged('name'), isTrue);
+        expect(user.getChanges(), containsPair('name', 'Bob'));
         expect(user.isClean(), isTrue);
         expect((await users().find(user.id))!.name, 'Bob');
 
