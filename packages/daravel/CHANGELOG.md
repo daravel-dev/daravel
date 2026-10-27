@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added `HTTP_MAX_BODY` (`ServeOptions.maxBodyBytes`, 50 MiB, `0` for none): the body limit every request served by the engine starts with, so an application without `BodyLimitsMiddleware` never buffers an unbounded body.
 - Added `ConnectionException.isTimeout`: true when the request was sent and the answer did not come in time (it may have been processed), false when the connection was refused or reset.
 - Fixed: `DB.transaction(attempts: n)` no longer re-runs a committed body when an after-commit callback fails with a retryable error; the callbacks run outside the retry.
 - Fixed: a SQLite connection whose setup fails after the file is opened (not a database, stays busy) closes its handle instead of leaking it with the file locked.

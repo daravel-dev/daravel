@@ -384,6 +384,7 @@ final class Supervisor {
       readyTimeout: spawn.options.readyTimeout,
       maxInFlight: spawn.options.maxInFlight,
       maxQueueDelay: spawn.options.maxQueueDelay,
+      maxBodyBytes: spawn.options.maxBodyBytes,
     );
     control.listen((Object? message) {
       if (message == 'drain') {

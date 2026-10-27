@@ -12,6 +12,18 @@ match Laravel more closely.
 
 ### Added
 
+- `HTTP_MAX_BODY` (`ServeOptions.maxBodyBytes`, 50 MiB; `0` for none): a
+  body limit every request served by the engine starts with, so an
+  application that does not register `BodyLimitsMiddleware` (which
+  tightens it to 1 MiB for JSON and forms) still refuses a 10 GB upload
+  with `413` instead of buffering it in memory. A declared
+  `Content-Length` above it is refused before the body is read.
+- `daravel_livekit`: `RoomServiceClient` retries a Twirp call whose
+  connection failed before it was sent, or that LiveKit answered 502, 503
+  or 504, up to `retries` (2) more times with exponential backoff and
+  jitter from `retryDelay` (200 ms); a timeout or any other answer is
+  final, since the call may have been processed. The HTTP client's
+  `ConnectionException` carries `isTimeout` for that distinction.
 - `daravel_activitylog` (Blueprint #38): spatie/laravel-activitylog v4 on
   its `activity_log` table, so Laravel and Daravel share one log
   (`bench/interop/activitylog.sh` checks it against Laravel 12 with Spatie

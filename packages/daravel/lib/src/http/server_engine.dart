@@ -28,7 +28,12 @@ final class ServeOptions {
     this.embedScheduler = false,
     this.maxInFlight,
     this.maxQueueDelay,
+    this.maxBodyBytes = defaultMaxBodyBytes,
   });
+
+  /// The body limit a request starts with: 50 MiB, the widest limit
+  /// `BodyLimitsMiddleware` applies.
+  static const int defaultMaxBodyBytes = 50 << 20;
 
   /// Reads `APP_HOST` / `APP_PORT`, overridable by explicit arguments.
   ///
@@ -74,7 +79,22 @@ final class ServeOptions {
           : maxQueueDelay == Duration.zero
           ? null
           : maxQueueDelay,
+      maxBodyBytes: _maxBodyFromEnv(env),
     );
+  }
+
+  /// `HTTP_MAX_BODY` in bytes: unset means [defaultMaxBodyBytes], `0` no
+  /// limit.
+  static int? _maxBodyFromEnv(Env env) {
+    final value = env.integer('HTTP_MAX_BODY', defaultMaxBodyBytes);
+    if (value < 0) {
+      throw ArgumentError.value(
+        value,
+        'HTTP_MAX_BODY',
+        'must be a positive number of bytes, or 0 for no limit',
+      );
+    }
+    return value == 0 ? null : value;
   }
 
   /// `HTTP_MAX_QUEUE_DELAY`: unset, empty or `0` means no limit.
@@ -145,6 +165,15 @@ final class ServeOptions {
   /// counts as in flight, and the queue in front of it is invisible to
   /// [maxInFlight]. `null` (the default) turns it off.
   final Duration? maxQueueDelay;
+
+  /// The body limit every request starts with (`HTTP_MAX_BODY`, 50 MiB):
+  /// a declared `Content-Length` above it is refused with `413` before
+  /// the body is read, and a body that grows past it while read is cut
+  /// off. `BodyLimitsMiddleware` and `RouteEntry.bodyLimit` replace it per
+  /// content type or route; without them an application still never
+  /// buffers an unbounded body in memory. `null` (`HTTP_MAX_BODY=0`) sets
+  /// no limit.
+  final int? maxBodyBytes;
 }
 
 /// Binds the `dart:io` server, wraps every request in a request scope and
@@ -529,6 +558,7 @@ final class ServerEngine {
       _rejectMalformed(httpRequest, id, error);
       return;
     }
+    request.maxBodyBytes = options.maxBodyBytes;
     // The closure below lives as long as a WebSocket does: it lets go of
     // the HTTP request once the socket has taken over.
     HttpRequest? raw = httpRequest;
