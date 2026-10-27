@@ -39,7 +39,7 @@ since the packages are plain Dart).
    [security](security.md) and conformance suites.
 
 Performance numbers come from a reproducible harness, never from claims
-([Performance](performance.md)).
+([Performance](performance.md), [Benchmarks](benchmarks.md)).
 
 ## Guides
 
@@ -65,7 +65,8 @@ Performance numbers come from a reproducible harness, never from claims
 20. [Migrating from Laravel](migrating-from-laravel.md): move endpoints one at a time behind a proxy.
 21. [Security](security.md): secure defaults and the security suite.
 22. [Performance](performance.md): the benchmark harness.
-23. [Laravel ⇄ Daravel parity table](parity.md) (generated).
+23. [Benchmarks](benchmarks.md): Daravel against Laravel Octane and classic, and how to reproduce it.
+24. [Laravel ⇄ Daravel parity table](parity.md) (generated).
 
 Bahasa Indonesia: [Dokumentasi Daravel](id/index.md).
 

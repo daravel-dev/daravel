@@ -25,6 +25,10 @@ void main(List<String> args) {
     for (final run in _directories(p.join(directory, 'runs'))) _load(run),
   ];
   final throughput = _summarise(runs);
+  final pgRuns = [
+    for (final run in _directories(p.join(directory, 'pgsql'))) _load(run),
+  ];
+  final pgsql = _summarise(pgRuns);
   final curve = _summarise([
     if (Directory(p.join(directory, 'curve')).existsSync())
       _load(p.join(directory, 'curve')),
@@ -36,6 +40,8 @@ void main(List<String> args) {
       const JsonEncoder.withIndent('  ').convert({
         'runs': runs.length,
         'throughput': [for (final s in throughput.values) s.toJson()],
+        'pgsql_runs': pgRuns.length,
+        'pgsql': [for (final s in pgsql.values) s.toJson()],
         'curve': [for (final s in curve.values) s.toJson()],
         'oha': oha,
       }),
@@ -51,7 +57,21 @@ void main(List<String> args) {
       ..write(environment.readAsStringSync())
       ..writeln('```');
   }
-  _throughputTables(throughput, runs.length);
+  _throughputTables(
+    'Throughput (SQLite)',
+    'Every server reads one SQLite file on the same disk.',
+    throughput,
+    runs.length,
+  );
+  _throughputTables(
+    'Throughput (PostgreSQL)',
+    'The scenarios that query, against one PostgreSQL server on the '
+        'servers\' cores, as a database on the same machine would be. '
+        'Daravel keeps a pool of 4 connections per isolate; Octane one '
+        'connection per worker; classic connects for every request.',
+    pgsql,
+    pgRuns.length,
+  );
   _curveTables(curve);
   _ohaTable(oha);
 }
@@ -165,7 +185,12 @@ Map<_Key, _Summary> _summarise(List<Map<_Key, Map<String, Object?>>> runs) {
   };
 }
 
-void _throughputTables(Map<_Key, _Summary> throughput, int runs) {
+void _throughputTables(
+  String title,
+  String description,
+  Map<_Key, _Summary> throughput,
+  int runs,
+) {
   if (throughput.isEmpty) {
     return;
   }
@@ -184,7 +209,7 @@ void _throughputTables(Map<_Key, _Summary> throughput, int runs) {
   }
 
   stdout.writeln(
-    '\n## Throughput\n\nMedian of $runs run${runs == 1 ? '' : 's'}, '
+    '\n## $title\n\n$description Median of $runs run${runs == 1 ? '' : 's'}, '
     'lowest–highest in brackets; p99 is the median of the runs\' p99. '
     'Laravel classic boots the application for every request, as php-fpm '
     'does, and runs with the larger worker count only.',

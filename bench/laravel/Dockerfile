@@ -2,7 +2,7 @@
 # bench/lib/bench_app.dart. Built and run by bench/laravel/compare.sh.
 FROM dunglas/frankenphp:1-php8.4
 
-RUN install-php-extensions pcntl pdo_sqlite zip opcache @composer
+RUN install-php-extensions pcntl pdo_sqlite pdo_pgsql zip opcache @composer
 
 # --no-scripts: the skeleton's post-create scripts wait for input; the overlay
 # provides .env and the key.

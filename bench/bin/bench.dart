@@ -65,7 +65,11 @@ Future<void> main(List<String> args) async {
     'APP_DEBUG': 'false',
     'APP_KEY': 'base64:${base64.encode(List<int>.filled(32, 7))}',
     'APP_HOST': '127.0.0.1',
-    'DB_DATABASE': database,
+    if (options.dbUrl case final url?) ...{
+      'DB_CONNECTION': 'pgsql',
+      'DB_URL': url,
+    } else
+      'DB_DATABASE': database,
     'HASH_DRIVER': 'bcrypt',
     'BCRYPT_ROUNDS': '10',
     'LOG_LEVEL': 'error',
@@ -161,6 +165,7 @@ Future<void> main(List<String> args) async {
       'cpus': Platform.numberOfProcessors,
       'duration_s': options.duration.inSeconds,
       'connections': options.connections,
+      'database': options.dbUrl == null ? 'sqlite' : 'pgsql',
     },
     'startup': startup,
     'zone': micro,
@@ -412,6 +417,7 @@ final class _Options {
     this.out,
     this.compare,
     this.database,
+    this.dbUrl,
     this.serverCpus,
   });
 
@@ -449,6 +455,7 @@ final class _Options {
             ),
       ],
       database: value('database'),
+      dbUrl: value('db-url'),
       serverCpus: value('server-cpus'),
       serve: args.contains('--serve'),
       port: int.parse(value('port') ?? '18600'),
@@ -472,6 +479,11 @@ final class _Options {
 
   /// The SQLite database (`--database`, default `build/bench.sqlite`).
   final String? database;
+
+  /// `--db-url=pgsql://user:secret@host:port/db?pool=4`: PostgreSQL instead
+  /// of the SQLite [database] (scenarios 2–4 then measure a network
+  /// database, as most deployments have).
+  final String? dbUrl;
 
   /// Cores for the servers (`--server-cpus=0-3`, Linux, via `taskset`).
   final String? serverCpus;

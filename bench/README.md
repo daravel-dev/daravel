@@ -33,8 +33,8 @@ Scenarios 7 (5 MB multipart) and 8 (1 000 idle SSE connections) wait for
 multipart and SSE support (Tier 2).
 
 The database is SQLite (`build/bench.sqlite`, seeded with 1 000 users,
-200 posts, 2 000 comments). The Postgres variant of scenarios 2–4 is not
-wired up yet.
+200 posts, 2 000 comments), or PostgreSQL with
+`--db-url=pgsql://user:secret@host:port/db?pool=4`.
 
 ## Reading the results
 
@@ -111,7 +111,11 @@ every isolate through the coordinator; and `/ping` is registered outside the
 `bench.dart --external=name:port` measures any server that is already
 running, and `bin/laravel_report.dart <dir>` prints the table.
 `CONNECTIONS=16,64,256` measures every scenario at each connection count,
-and `WORKER_COUNTS=4` skips the one-worker runs.
+and `WORKER_COUNTS=4` skips the one-worker runs. `DB=pgsql` starts a fresh
+PostgreSQL container (`PG_IMAGE`, default `postgres:17`, port 18632, on the
+servers' cores) and points both sides at it through `DB_URL`: Daravel with a
+pool of 4 connections per isolate, Laravel with one connection per Octane
+worker, or one per request in classic mode.
 
 ## Public run
 
@@ -127,17 +131,19 @@ RUNS=1 DURATION=3 CURVE=16,64 bash bench/public.sh     # a quick dry run
 1. It records the machine and the versions (`environment.txt`: CPU model,
    cores and threads per core, memory, virtualisation, CPU governor,
    kernel, Docker, the Dart image digest, PHP, FrankenPHP, Laravel, Octane,
-   oha, the commit, the load before the run).
+   PostgreSQL, oha, the commit, the load before the run).
 2. It runs `compare.sh` `RUNS` times (5) at 64 connections. The report
    gives the median and the lowest and highest value of each scenario, so a
    noisy run shows as spread.
-3. It measures a saturation curve: `CURVE_SCENARIOS` (1 and 2) at `CURVE`
+3. It repeats the database scenarios (`PG_SCENARIOS`, 2 to 4) on
+   PostgreSQL, `RUNS` times as well; `PG_SCENARIOS=` skips them.
+4. It measures a saturation curve: `CURVE_SCENARIOS` (1 and 2) at `CURVE`
    connections (16, 64, 256, 1024) for Daravel, Octane and classic with
    `WORKERS` workers, and dart:io as the reference for `/ping`.
-4. It cross-checks the harness with [oha](https://github.com/hatoo/oha)
+5. It cross-checks the harness with [oha](https://github.com/hatoo/oha)
    (pinned, checksum verified), a load generator written in Rust, against
    Daravel (`bench.dart --serve`) and Octane on the GET scenarios 1, 2 and 4.
-5. `bin/public_report.dart` writes `report.md` and `summary.json`.
+6. `bin/public_report.dart` writes `report.md` and `summary.json`.
 
 Everything lands in `bench/results/<date>-<host>/` with the raw JSON of
 every run, so a published number can be traced to its measurements.

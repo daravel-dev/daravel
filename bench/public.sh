@@ -10,6 +10,7 @@
 #
 #   environment.txt     hardware, kernel, versions, commit, settings
 #   runs/<n>/*.json     RUNS × bench/laravel/compare.sh at 64 connections
+#   pgsql/<n>/*.json    RUNS × the database scenarios (PG_SCENARIOS) on PostgreSQL
 #   curve/*.json        CURVE_SCENARIOS at each of CURVE connections, WORKERS workers
 #   oha/*.json          oha against Daravel and Octane (GET scenarios 1, 2, 4)
 #   report.md           the tables (bin/public_report.dart)
@@ -20,7 +21,8 @@
 # a core. On a VM, prefer dedicated vCPUs: shared ones measure the
 # neighbours. Settings: RUNS (5), DURATION (10 s per scenario), WORKERS (4),
 # CURVE (16,64,256,1024), CURVE_SCENARIOS (1,2), DART_IMAGE (dart:stable),
-# OHA_VERSION (1.16.0), WORK (~/daravel-bench).
+# OHA_VERSION (1.16.0), PG_SCENARIOS (2,3,4; empty skips PostgreSQL),
+# PG_IMAGE (postgres:17), WORK (~/daravel-bench).
 set -euo pipefail
 
 RUNS=${RUNS:-5}
@@ -30,6 +32,8 @@ CURVE=${CURVE:-16,64,256,1024}
 CURVE_SCENARIOS=${CURVE_SCENARIOS:-1,2}
 DART_IMAGE=${DART_IMAGE:-dart:stable}
 OHA_VERSION=${OHA_VERSION:-1.16.0}
+PG_SCENARIOS=${PG_SCENARIOS-2,3,4}
+PG_IMAGE=${PG_IMAGE:-postgres:17}
 WORK=${WORK:-$HOME/daravel-bench}
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 CPUS=$(nproc)
@@ -47,8 +51,8 @@ if [ -e "$OUT" ]; then
   echo "$OUT exists; remove it or set OUT." >&2
   exit 1
 fi
-mkdir -p "$OUT/runs" "$OUT/curve" "$OUT/oha" "$WORK/tools"
-export DURATION WORKERS SERVER_CPUS CLIENT_CPUS WORK DART_IMAGE
+mkdir -p "$OUT/runs" "$OUT/pgsql" "$OUT/curve" "$OUT/oha" "$WORK/tools"
+export DURATION WORKERS SERVER_CPUS CLIENT_CPUS WORK DART_IMAGE PG_IMAGE
 
 # --- oha, pinned. The checksum is the one of the release asset on GitHub.
 case "$(uname -m)" in
@@ -74,6 +78,7 @@ fi
 
 # --- What the numbers were measured on.
 docker pull -q "$DART_IMAGE" >/dev/null
+if [ -n "$PG_SCENARIOS" ]; then docker pull -q "$PG_IMAGE" >/dev/null; fi
 docker build --network=host -q -t daravel-bench-laravel "$REPO/bench/laravel" >/dev/null
 {
   echo "date:        $(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -95,9 +100,13 @@ docker build --network=host -q -t daravel-bench-laravel "$REPO/bench/laravel" >/
     echo "frankenphp:  $(frankenphp version | head -1)"
     echo "laravel:     $(php artisan --version)"
     echo "octane:      $(composer show laravel/octane 2>/dev/null | sed -n "s/^versions *: *[*]* *//p")"'
+  if [ -n "$PG_SCENARIOS" ]; then
+    echo "postgres:    $(docker run --rm "$PG_IMAGE" postgres --version)" \
+      "($(docker image inspect --format '{{index .RepoDigests 0}}' "$PG_IMAGE"))"
+  fi
   echo "oha:         $("$OHA" --version) ($OHA_ASSET, sha256 $(sha256sum "$OHA" | cut -c1-16)…)"
   echo "settings:    RUNS=$RUNS DURATION=${DURATION}s WORKERS=$WORKERS CURVE=$CURVE" \
-    "CURVE_SCENARIOS=$CURVE_SCENARIOS"
+    "CURVE_SCENARIOS=$CURVE_SCENARIOS PG_SCENARIOS=$PG_SCENARIOS"
   echo "cpus:        servers $SERVER_CPUS, load generators $CLIENT_CPUS"
   echo "load before: $(cut -d' ' -f1-3 /proc/loadavg)"
   echo "containers:  $(docker ps -q | wc -l) running before the run"
@@ -110,6 +119,16 @@ for run in $(seq 1 "$RUNS"); do
   mkdir -p "$OUT/runs/$run"
   cp "$WORK/data"/*.json "$WORK/data/report.md" "$OUT/runs/$run/"
 done
+
+# --- 1b. The same on PostgreSQL, for the scenarios that query.
+if [ -n "$PG_SCENARIOS" ]; then
+  for run in $(seq 1 "$RUNS"); do
+    echo "== PostgreSQL run $run of $RUNS"
+    DB=pgsql SCENARIOS=$PG_SCENARIOS CONNECTIONS=64 bash "$REPO/bench/laravel/compare.sh"
+    mkdir -p "$OUT/pgsql/$run"
+    cp "$WORK/data"/*.json "$WORK/data/report.md" "$OUT/pgsql/$run/"
+  done
+fi
 
 # --- 2. The saturation curve, WORKERS workers only.
 echo "== Saturation curve ($CURVE connections)"
