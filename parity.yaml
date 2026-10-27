@@ -107,6 +107,18 @@ sections:
       - { php: "QUEUE_CONNECTION=redis", dart: "QUEUE_CONNECTION=redis", symbol: RedisQueue, note: "BLPOP wakes idle workers; keys under daravel:, apart from Laravel's queues:." }
       - { php: "REVERB_SCALING_ENABLED=true (Redis)", dart: "REVERB_SCALING_DRIVER=redis", symbol: RedisBroadcastRelay, note: "Pub/Sub between servers; presence members shared across them." }
 
+  - name: Permissions (daravel_permission)
+    symbols:
+      - { php: "$user->assignRole('writer')", dart: "await user.assignRole('writer')", symbol: HasRoles.assignRole, async: true, note: "spatie/laravel-permission's tables and morph types: shared with Laravel." }
+      - { php: "$user->hasRole('admin|writer')", dart: "await user.hasRole('admin|writer')", symbol: HasRoles.hasRole, async: true }
+      - { php: "$user->hasPermissionTo('posts.edit')", dart: "await user.hasPermissionTo('posts.edit')", symbol: HasRoles.hasPermissionTo, async: true, note: "Throws PermissionDoesNotExist for unknown names, as Spatie." }
+      - { php: "$user->syncRoles(['editor'])", dart: "await user.syncRoles(['editor'])", symbol: HasRoles.syncRoles, async: true }
+      - { php: "Role::create(['name' => 'writer'])", dart: "await Role.create('writer')", symbol: Role.create, async: true }
+      - { php: "$role->givePermissionTo('posts.edit')", dart: "await role.givePermissionTo('posts.edit')", symbol: Role.givePermissionTo, async: true }
+      - { php: "Route::middleware('role:admin|editor')", dart: ".middleware(['role:admin|editor'])", symbol: RoleMiddleware, note: "Also permission: and role_or_permission:, with Spatie's 403 messages." }
+      - { php: "php artisan permission:show", dart: "dartisan permission:show", symbol: PermissionShowCommand }
+      - { php: "app(PermissionRegistrar::class)->forgetCachedPermissions()", dart: "await PermissionRegistrar.current.forgetCachedPermissions()", symbol: PermissionRegistrar.forgetCachedPermissions, async: true }
+
   - name: Validation
     symbols:
       - { php: "Validator::make($data, $rules)", dart: "Validator(data, rules)", symbol: Validator }

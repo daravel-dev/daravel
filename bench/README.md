@@ -65,6 +65,11 @@ isolates. It is a compatibility check, not a benchmark.
 (`daravel_redis`) on one Redis: a cache lock taken by either is refused to
 the other, with the same owner, and a cached number counts up from both.
 
+`bench/interop/permission.sh` runs Laravel 12 with spatie/laravel-permission
+6 and Daravel (`daravel_permission`) on one SQLite database: Spatie's own
+migration creates the tables, and roles given by either are seen by the
+other.
+
 `bench/interop/connections.sh` is the capacity test: it builds the interop
 server AOT, opens `COUNT` (10 000) idle Pusher connections with
 `bin/connections.dart`, all on one channel, and prints the server's RSS

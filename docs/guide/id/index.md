@@ -1,4 +1,4 @@
-<!-- source: index.md sha256:99b8ebdcf7b9 -->
+<!-- source: index.md sha256:889afcc645db -->
 # Dokumentasi Daravel
 
 Daravel adalah framework backend untuk Dart yang mengikuti filosofi Laravel
@@ -51,20 +51,21 @@ Angka performa berasal dari harness yang bisa direproduksi, bukan dari klaim
 4. [Database](database.md): migrasi, query builder, model, paginasi.
 5. [Respons dan resource](responses.md): JSON, API resource, error.
 6. [Autentikasi dan otorisasi](auth.md): token, JWT, hashing, Crypt, gate.
-7. [Cache, event, queue, penjadwalan](background.md).
-8. [Mail dan notifikasi](mail.md): SMTP, mailable, serta notifikasi mail dan database.
-9. [Broadcasting](broadcasting.md): Laravel Echo, protokol Pusher seperti Reverb, channel private dan presence.
-10. [Redis](redis.md): cache, lock, rate limit, queue, dan broadcasting lintas server, saat satu server tidak cukup.
-11. [String, helper, dan koleksi](helpers.md): `Str`, `retry`, `once`, `pluck`, ...
-12. [HTTP client](http-client.md): request keluar dengan `Http`, retry, dan `Http.fake()`.
-13. [Client Flutter](flutter-client.md): client bertipe yang dihasilkan dari route, dengan validasi di perangkat.
-14. [Testing](testing.md): `TestClient`, helper database, fake, konformansi.
-15. [Deployment](deployment.md): bundle native, Docker, Cloud Run, VPS (systemd + Caddy).
-16. [Koeksistensi dengan Laravel](laravel-coexistence.md): kontrak kompatibilitas.
-17. [Migrasi dari Laravel](migrating-from-laravel.md): pindahkan endpoint satu per satu di balik proxy.
-18. [Keamanan](security.md): default yang aman dan suite keamanan.
-19. [Performa](performance.md): harness benchmark.
-20. [Tabel paritas Laravel ⇄ Daravel](../parity.md) (dihasilkan otomatis, dalam bahasa Inggris).
+7. [Role dan permission](permissions.md): role di database pada tabel spatie/laravel-permission, middleware, dan gate.
+8. [Cache, event, queue, penjadwalan](background.md).
+9. [Mail dan notifikasi](mail.md): SMTP, mailable, serta notifikasi mail dan database.
+10. [Broadcasting](broadcasting.md): Laravel Echo, protokol Pusher seperti Reverb, channel private dan presence.
+11. [Redis](redis.md): cache, lock, rate limit, queue, dan broadcasting lintas server, saat satu server tidak cukup.
+12. [String, helper, dan koleksi](helpers.md): `Str`, `retry`, `once`, `pluck`, ...
+13. [HTTP client](http-client.md): request keluar dengan `Http`, retry, dan `Http.fake()`.
+14. [Client Flutter](flutter-client.md): client bertipe yang dihasilkan dari route, dengan validasi di perangkat.
+15. [Testing](testing.md): `TestClient`, helper database, fake, konformansi.
+16. [Deployment](deployment.md): bundle native, Docker, Cloud Run, VPS (systemd + Caddy).
+17. [Koeksistensi dengan Laravel](laravel-coexistence.md): kontrak kompatibilitas.
+18. [Migrasi dari Laravel](migrating-from-laravel.md): pindahkan endpoint satu per satu di balik proxy.
+19. [Keamanan](security.md): default yang aman dan suite keamanan.
+20. [Performa](performance.md): harness benchmark.
+21. [Tabel paritas Laravel ⇄ Daravel](../parity.md) (dihasilkan otomatis, dalam bahasa Inggris).
 
 English: [Daravel documentation](../index.md).
 

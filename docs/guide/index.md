@@ -48,20 +48,21 @@ Performance numbers come from a reproducible harness, never from claims
 4. [Database](database.md): migrations, the query builder, models, pagination.
 5. [Responses and resources](responses.md): JSON, API resources, errors.
 6. [Authentication and authorization](auth.md): tokens, JWT, hashing, Crypt, gates.
-7. [Cache, events, queues, scheduling](background.md).
-8. [Mail and notifications](mail.md): SMTP, mailables, and mail and database notifications.
-9. [Broadcasting](broadcasting.md): Laravel Echo, the Pusher protocol as Reverb, private and presence channels.
-10. [Redis](redis.md): cache, locks, rate limits, queues and broadcasting across servers, when one server is not enough.
-11. [Strings, helpers and collections](helpers.md): `Str`, `retry`, `once`, `pluck`, ...
-12. [HTTP client](http-client.md): outgoing requests with `Http`, retries and `Http.fake()`.
-13. [Flutter client](flutter-client.md): a typed client generated from the routes, with on-device validation.
-14. [Testing](testing.md): `TestClient`, database helpers, fakes, conformance.
-15. [Deployment](deployment.md): native bundles, Docker, Cloud Run, VPS (systemd + Caddy).
-16. [Laravel coexistence](laravel-coexistence.md): the compatibility contract.
-17. [Migrating from Laravel](migrating-from-laravel.md): move endpoints one at a time behind a proxy.
-18. [Security](security.md): secure defaults and the security suite.
-19. [Performance](performance.md): the benchmark harness.
-20. [Laravel ⇄ Daravel parity table](parity.md) (generated).
+7. [Roles and permissions](permissions.md): database roles on spatie/laravel-permission's tables, middleware and gates.
+8. [Cache, events, queues, scheduling](background.md).
+9. [Mail and notifications](mail.md): SMTP, mailables, and mail and database notifications.
+10. [Broadcasting](broadcasting.md): Laravel Echo, the Pusher protocol as Reverb, private and presence channels.
+11. [Redis](redis.md): cache, locks, rate limits, queues and broadcasting across servers, when one server is not enough.
+12. [Strings, helpers and collections](helpers.md): `Str`, `retry`, `once`, `pluck`, ...
+13. [HTTP client](http-client.md): outgoing requests with `Http`, retries and `Http.fake()`.
+14. [Flutter client](flutter-client.md): a typed client generated from the routes, with on-device validation.
+15. [Testing](testing.md): `TestClient`, database helpers, fakes, conformance.
+16. [Deployment](deployment.md): native bundles, Docker, Cloud Run, VPS (systemd + Caddy).
+17. [Laravel coexistence](laravel-coexistence.md): the compatibility contract.
+18. [Migrating from Laravel](migrating-from-laravel.md): move endpoints one at a time behind a proxy.
+19. [Security](security.md): secure defaults and the security suite.
+20. [Performance](performance.md): the benchmark harness.
+21. [Laravel ⇄ Daravel parity table](parity.md) (generated).
 
 Bahasa Indonesia: [Dokumentasi Daravel](id/index.md).
 

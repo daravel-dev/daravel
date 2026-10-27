@@ -1,0 +1,160 @@
+import 'package:daravel/daravel.dart';
+
+import 'config.dart';
+import 'wildcard.dart';
+
+/// A model's roles and permissions of one guard.
+typedef Access = ({Set<String> roles, Set<String> permissions});
+
+/// Keeps every model's roles and permissions in this isolate's memory, so a
+/// check is a set lookup instead of a join per request.
+///
+/// A version number in a shared cache store invalidates them: the default
+/// store when it spans servers (`database`, `redis`), else the `file` store,
+/// which every process of the machine reads (a `dartisan permission:*`
+/// command included). Any change made through Daravel bumps it: this
+/// isolate reloads at once, the others within [versionCheck]. Entries also
+/// expire after [PermissionConfig.cacheTtl], which bounds how long a change
+/// made by a Laravel application sharing the tables takes to show.
+final class PermissionRegistrar {
+  PermissionRegistrar(
+    this.config,
+    this._shared, {
+    this.versionCheck = const Duration(seconds: 1),
+  });
+
+  /// How often this isolate reads the shared version: a check stays a
+  /// memory lookup.
+  final Duration versionCheck;
+  int? _knownVersion;
+  DateTime _checkedAt = DateTime.fromMillisecondsSinceEpoch(0);
+
+  final PermissionConfig config;
+  final CacheRepository Function() _shared;
+
+  /// The registrar of the current application.
+  static PermissionRegistrar get current =>
+      Container.current.make<PermissionRegistrar>();
+
+  static const String _versionKey = 'daravel_permission:version';
+
+  final Map<String, ({int version, DateTime expires, Access access})> _local =
+      {};
+  final Map<String, ({int version, DateTime expires, Set<String> names})>
+  _allPermissions = {};
+
+  Future<int> _version() async {
+    // Wall clock: a polling interval, not domain time.
+    final now = DateTime.now();
+    final known = _knownVersion;
+    if (known != null && now.difference(_checkedAt) < versionCheck) {
+      return known;
+    }
+    _checkedAt = now;
+    return _knownVersion = await _shared().get<int>(_versionKey) ?? 0;
+  }
+
+  /// Forgets every cached role and permission, on every isolate.
+  Future<void> forgetCachedPermissions() async {
+    _local.clear();
+    _allPermissions.clear();
+    _knownVersion = await _shared().increment(_versionKey);
+    _checkedAt = DateTime.now();
+  }
+
+  /// The roles and permissions (direct and through roles) of the model
+  /// [type] / [id] for [guard].
+  Future<Access> accessOf(String type, Object id, String guard) async {
+    final key = '$type#$id#$guard';
+    final version = await _version();
+    final now = Clock.now();
+    final cached = _local[key];
+    if (cached != null &&
+        cached.version == version &&
+        cached.expires.isAfter(now)) {
+      return cached.access;
+    }
+    final access = await _load(type, id, guard);
+    _local[key] = (
+      version: version,
+      expires: now.add(config.cacheTtl),
+      access: access,
+    );
+    return access;
+  }
+
+  /// Every permission name of [guard] (to tell an unknown permission from
+  /// one the model lacks).
+  Future<Set<String>> permissionNames(String guard) async {
+    final version = await _version();
+    final now = Clock.now();
+    final cached = _allPermissions[guard];
+    if (cached != null &&
+        cached.version == version &&
+        cached.expires.isAfter(now)) {
+      return cached.names;
+    }
+    final names = {
+      for (final row
+          in await DB.table('permissions').where('guard_name', guard).select([
+            'name',
+          ]).get())
+        '${row['name']}',
+    };
+    _allPermissions[guard] = (
+      version: version,
+      expires: now.add(config.cacheTtl),
+      names: names,
+    );
+    return names;
+  }
+
+  static Future<Access> _load(String type, Object id, String guard) async {
+    final roles = await DB
+        .table('model_has_roles')
+        .join('roles', 'roles.id', '=', 'model_has_roles.role_id')
+        .where('model_has_roles.model_type', type)
+        .where('model_has_roles.model_id', id)
+        .where('roles.guard_name', guard)
+        .select(['roles.id', 'roles.name'])
+        .get();
+    final direct = await DB
+        .table('model_has_permissions')
+        .join(
+          'permissions',
+          'permissions.id',
+          '=',
+          'model_has_permissions.permission_id',
+        )
+        .where('model_has_permissions.model_type', type)
+        .where('model_has_permissions.model_id', id)
+        .where('permissions.guard_name', guard)
+        .select(['permissions.name'])
+        .get();
+    final roleIds = [for (final row in roles) row['id']];
+    final viaRoles = roleIds.isEmpty
+        ? const <Map<String, Object?>>[]
+        : await DB
+              .table('role_has_permissions')
+              .join(
+                'permissions',
+                'permissions.id',
+                '=',
+                'role_has_permissions.permission_id',
+              )
+              .whereIn('role_has_permissions.role_id', roleIds)
+              .where('permissions.guard_name', guard)
+              .select(['permissions.name'])
+              .get();
+    return (
+      roles: {for (final row in roles) '${row['name']}'},
+      permissions: {
+        for (final row in [...direct, ...viaRoles]) '${row['name']}',
+      },
+    );
+  }
+
+  /// Whether [granted] imply [permission] with wildcards ([wildcardImplies]).
+  static bool implies(Iterable<String> granted, String permission) =>
+      wildcardImplies(granted, permission);
+}

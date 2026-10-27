@@ -232,6 +232,9 @@ final class Blueprint {
   final List<ColumnDefinition> columns = <ColumnDefinition>[];
   final List<IndexDefinition> indexes = <IndexDefinition>[];
   final List<ForeignKeyDefinition> foreignKeys = <ForeignKeyDefinition>[];
+
+  /// A primary key over several columns ([primary]), when creating.
+  IndexDefinition? primaryKey;
   final List<String> dropColumns = <String>[];
   final List<(String, String)> renameColumns = <(String, String)>[];
   final List<String> dropIndexes = <String>[];
@@ -405,6 +408,15 @@ final class Blueprint {
 
   void unique(List<String> columns, {String? name}) =>
       indexes.add(IndexDefinition(columns, unique: true, name: name));
+
+  /// A primary key over [columns] (`$table->primary([...])`), named as
+  /// Laravel names it unless [name] is given: `<table>_<columns>_primary`.
+  void primary(List<String> columns, {String? name}) =>
+      primaryKey = IndexDefinition(
+        columns,
+        unique: true,
+        name: name ?? '${table}_${columns.join('_')}_primary',
+      );
 
   /// Starts a foreign key on [columns]; chain `.references().on()`.
   ForeignKeyDefinition foreign(List<String> columns, {String? name}) {
@@ -620,6 +632,9 @@ abstract class SchemaGrammar {
   List<String> compileCreate(Blueprint blueprint) {
     final parts = <String>[
       for (final column in blueprint.columns) compileColumn(column),
+      if (blueprint.primaryKey case final key?)
+        'CONSTRAINT ${wrap(key.name!)} PRIMARY KEY '
+            '(${key.columns.map(wrap).join(', ')})',
       for (final key in blueprint.foreignKeys)
         compileForeignClause(blueprint.table, key),
     ];

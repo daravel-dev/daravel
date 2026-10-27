@@ -11,7 +11,7 @@
 - title: Database
   pages: [database, orm]
 - title: Security
-  pages: [auth, security]
+  pages: [auth, permissions, security]
 - title: Digging deeper
   pages: [dartisan, flutter-client, background, mail, broadcasting, redis, helpers, localization, feature-flags]
 - title: Testing and performance

@@ -20,6 +20,17 @@ Laravel-facing formats change only to match Laravel more closely.
   commands on one connection per isolate, with command timeouts, bounded
   in-flight commands and TLS; `cache:clear` deletes only the cache's keys.
   Tested on Redis 7 and Valkey 8, in CI as well.
+- `daravel_permission` (Blueprint #36): roles and permissions in the
+  database on spatie/laravel-permission's five tables, so Laravel and
+  Daravel share them (`bench/interop/permission.sh` checks it against
+  Spatie 6). `HasRoles` on a model (`assignRole`, `syncRoles`, `hasRole`,
+  `hasPermissionTo`, ...), `Role` and `Permission` with Spatie's
+  exceptions, the `role`, `permission` and `role_or_permission` middleware
+  with Spatie's 403 messages, a gate hook, guards, opt-in wildcards and
+  super-admin role, the `permission:*` commands, and an in-memory cache
+  invalidated across isolates and processes.
+- `Blueprint.primary([...])`: primary keys over several columns, named as
+  Laravel names them.
 - `ApplicationBuilder.withCacheStore`, `withQueueDriver`,
   `withBroadcastScaling` and `withShutdown`, for driver packages; the
   `BroadcastRelay` contract; `REVERB_SCALING_DRIVER`.
@@ -29,6 +40,9 @@ Laravel-facing formats change only to match Laravel more closely.
 - `withConfig(MyConfig.fromEnv)` registered the section as a plain
   `ConfigSection`, so `Config.section<MyConfig>()`, as the configuration
   guide shows it, never found it.
+- `withAuth`, `withPolicies` and `withMiddleware` kept only the last call;
+  every call now applies, in order, so packages can add guards, gate hooks
+  and middleware aliases next to the application's.
 - With a queue connection other than `sync` and `memory`, failed jobs are
   stored in `failed_jobs`, as in Laravel, instead of in memory.
 

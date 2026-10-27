@@ -414,7 +414,9 @@ final class Application {
         ),
       );
 
-    _builder._middlewareConfig?.call(middleware);
+    for (final configure in _builder._middlewareConfigs) {
+      configure(middleware);
+    }
     // `dartisan down`: answer 503 except for the health probes.
     final health = _builder._routing?.health;
     middleware.prepend(
@@ -448,7 +450,9 @@ final class Application {
       await provider.boot(container);
     }
 
-    _builder._authConfig?.call(auth);
+    for (final configure in _builder._authConfigs) {
+      configure(auth);
+    }
     _builder._eventsConfig?.call(events);
     _builder._jobsConfig?.call(jobs);
     _builder._scheduleConfig?.call(schedule);
@@ -460,7 +464,9 @@ final class Application {
         await container.make<BroadcastManager>().broadcast(event);
       }
     };
-    _builder._policiesConfig?.call(gate);
+    for (final configure in _builder._policiesConfigs) {
+      configure(gate);
+    }
     _builder._rateLimitsConfig?.call(rateLimiter);
 
     router.baseUrl = appConfig.url;
@@ -991,10 +997,13 @@ final class ApplicationBuilder {
 
   Map<String, String> _envOverrides = const <String, String>{};
   _RoutingConfig? _routing;
-  void Function(MiddlewareRegistry middleware)? _middlewareConfig;
+  // Every call adds one, run in order: packages (daravel_permission) add
+  // middleware aliases, guards and gate hooks next to the application's.
+  final List<void Function(MiddlewareRegistry middleware)> _middlewareConfigs =
+      [];
   void Function(ExceptionHandler exceptions)? _exceptionsConfig;
-  void Function(AuthManager auth)? _authConfig;
-  void Function(AuthorizationGate gate)? _policiesConfig;
+  final List<void Function(AuthManager auth)> _authConfigs = [];
+  final List<void Function(AuthorizationGate gate)> _policiesConfigs = [];
   void Function(RateLimiter limiter)? _rateLimitsConfig;
   void Function(EventDispatcher events)? _eventsConfig;
   void Function(JobRegistry jobs)? _jobsConfig;
@@ -1058,17 +1067,19 @@ final class ApplicationBuilder {
     return this;
   }
 
-  /// Registers guards and user providers (`config/auth.php`).
+  /// Registers guards and user providers (`config/auth.php`). Several
+  /// calls all apply, in order.
   ApplicationBuilder withAuth(void Function(AuthManager auth) configure) {
-    _authConfig = configure;
+    _authConfigs.add(configure);
     return this;
   }
 
-  /// Registers gates and policies (`Gate::define`, `Gate::policy`).
+  /// Registers gates and policies (`Gate::define`, `Gate::policy`). Several
+  /// calls all apply, in order.
   ApplicationBuilder withPolicies(
     void Function(AuthorizationGate gate) configure,
   ) {
-    _policiesConfig = configure;
+    _policiesConfigs.add(configure);
     return this;
   }
 
@@ -1155,10 +1166,12 @@ final class ApplicationBuilder {
     return this;
   }
 
+  /// Configures middleware: global entries, aliases, groups, priority.
+  /// Several calls all apply, in order.
   ApplicationBuilder withMiddleware(
     void Function(MiddlewareRegistry middleware) configure,
   ) {
-    _middlewareConfig = configure;
+    _middlewareConfigs.add(configure);
     return this;
   }
 

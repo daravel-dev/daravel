@@ -108,6 +108,20 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `QUEUE_CONNECTION=redis` | `QUEUE_CONNECTION=redis` | BLPOP wakes idle workers; keys under daravel:, apart from Laravel's queues:. |
 | `REVERB_SCALING_ENABLED=true (Redis)` | `REVERB_SCALING_DRIVER=redis` | Pub/Sub between servers; presence members shared across them. |
 
+## Permissions (daravel_permission)
+
+| Laravel | Daravel | Notes |
+| :-- | :-- | :-- |
+| `$user->assignRole('writer')` | `await user.assignRole('writer')` | **async**; spatie/laravel-permission's tables and morph types: shared with Laravel. |
+| `$user->hasRole('admin\|writer')` | `await user.hasRole('admin\|writer')` | **async** |
+| `$user->hasPermissionTo('posts.edit')` | `await user.hasPermissionTo('posts.edit')` | **async**; Throws PermissionDoesNotExist for unknown names, as Spatie. |
+| `$user->syncRoles(['editor'])` | `await user.syncRoles(['editor'])` | **async** |
+| `Role::create(['name' => 'writer'])` | `await Role.create('writer')` | **async** |
+| `$role->givePermissionTo('posts.edit')` | `await role.givePermissionTo('posts.edit')` | **async** |
+| `Route::middleware('role:admin\|editor')` | `.middleware(['role:admin\|editor'])` | Also permission: and role_or_permission:, with Spatie's 403 messages. |
+| `php artisan permission:show` | `dartisan permission:show` |  |
+| `app(PermissionRegistrar::class)->forgetCachedPermissions()` | `await PermissionRegistrar.current.forgetCachedPermissions()` | **async** |
+
 ## Validation
 
 | Laravel | Daravel | Notes |

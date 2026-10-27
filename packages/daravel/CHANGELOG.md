@@ -3,6 +3,8 @@
 ## Unreleased
 
 - Added `ApplicationBuilder.withCacheStore`, `withQueueDriver`, `withBroadcastScaling` and `withShutdown`, the `BroadcastRelay` contract and `REVERB_SCALING_DRIVER`, for driver packages such as `daravel_redis`.
+- Added `Blueprint.primary([...])` (composite primary keys).
+- Changed: `withAuth`, `withPolicies` and `withMiddleware` apply every call, in order, instead of keeping the last.
 - Fixed: `withConfig` registers a section under its own type, so `Config.section<T>()` finds it.
 - Changed: `withHealthChecks` keeps the default checks setting unless `defaults:` is given.
 
