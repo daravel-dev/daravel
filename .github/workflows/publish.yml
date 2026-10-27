@@ -30,6 +30,8 @@ jobs:
       daravel_teorion: ${{ steps.published.outputs.daravel_teorion }}
       daravel_permission: ${{ steps.published.outputs.daravel_permission }}
       daravel_redis: ${{ steps.published.outputs.daravel_redis }}
+      daravel_livekit: ${{ steps.published.outputs.daravel_livekit }}
+      daravel_google: ${{ steps.published.outputs.daravel_google }}
     steps:
       - uses: actions/checkout@v4
       - uses: dart-lang/setup-dart@v1
@@ -46,7 +48,7 @@ jobs:
         id: published
         run: |
           version="${GITHUB_REF_NAME#v}"
-          for package in daravel_lints daravel daravel_test daravel_mysql daravel_sqlite daravel_postgres dartisan_cli daravel_teorion daravel_permission daravel_redis; do
+          for package in daravel_lints daravel daravel_test daravel_mysql daravel_sqlite daravel_postgres dartisan_cli daravel_teorion daravel_permission daravel_redis daravel_livekit daravel_google; do
             status=$(curl -s -o /dev/null -w '%{http_code}' "https://pub.dev/api/packages/$package/versions/$version")
             if [ "$status" = "200" ]; then state=published; else state=pending; fi
             echo "$package $version: $state"
@@ -125,3 +127,17 @@ jobs:
     uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
     with:
       working-directory: packages/daravel_redis
+
+  daravel_livekit:
+    needs: [verify, daravel]
+    if: ${{ !failure() && !cancelled() && needs.verify.outputs.daravel_livekit != 'published' }}
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
+    with:
+      working-directory: packages/daravel_livekit
+
+  daravel_google:
+    needs: [verify, daravel]
+    if: ${{ !failure() && !cancelled() && needs.verify.outputs.daravel_google != 'published' }}
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
+    with:
+      working-directory: packages/daravel_google
