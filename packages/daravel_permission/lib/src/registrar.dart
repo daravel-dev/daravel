@@ -79,6 +79,9 @@ final class PermissionRegistrar {
     if (cached != null &&
         cached.version == version &&
         cached.expires.isAfter(now)) {
+      // Most recently used last, so the sweep below drops cold entries.
+      _local.remove(key);
+      _local[key] = cached;
       return cached.access;
     }
     final access = await _load(type, id, guard);

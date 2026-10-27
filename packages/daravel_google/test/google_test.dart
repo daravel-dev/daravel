@@ -660,6 +660,21 @@ void revokedTests() {
     }
     expect(fake.recorded, hasLength(1), reason: 'asked Google once');
     expect(credentials.revoked, isNotNull);
+    // The client remembers it too, so credentials built afresh for each
+    // request (Google.calendarFor) do not ask again either.
+    final oauth = credentials.oauth;
+    expect(oauth.isRevoked(credentials.token), isTrue);
+    await expectLater(
+      UserCredentials(credentials.token, oauth: oauth).accessToken(),
+      throwsA(
+        isA<GoogleException>().having(
+          (e) => e.reason,
+          'reason',
+          'invalid_grant',
+        ),
+      ),
+    );
+    expect(fake.recorded, hasLength(1), reason: 'still once');
     // After the user consented again.
     credentials.replace(
       GoogleToken(

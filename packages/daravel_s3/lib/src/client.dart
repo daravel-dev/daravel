@@ -1,12 +1,13 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:io' as io;
 import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
-import 'package:daravel/daravel.dart';
+// Daravel's HttpException is the HTTP error response; the one caught
+// below is dart:io's (a connection closed under a request).
+import 'package:daravel/daravel.dart' hide HttpException;
 
 import 'signer.dart';
 import 'xml.dart';
@@ -80,7 +81,10 @@ final class S3Client {
   /// exponential base.
   Duration backoff(int attempt) {
     const cap = Duration(seconds: 20);
-    final base = retryDelay.inMicroseconds * (1 << attempt);
+    // Past 2^30 the base is above the cap anyway; shifting further would
+    // overflow into a negative wait.
+    final base =
+        retryDelay.inMicroseconds * (1 << (attempt < 30 ? attempt : 30));
     final capped = base < cap.inMicroseconds ? base : cap.inMicroseconds;
     final half = capped ~/ 2;
     return Duration(microseconds: half + _random.nextInt(half + 1));
@@ -139,8 +143,9 @@ final class S3Client {
     HttpClientResponse response;
     for (var attempt = 0; ; attempt++) {
       HttpClientRequest? request;
+      final opening = client.openUrl(method, target);
       try {
-        request = await client.openUrl(method, target).timeout(timeout);
+        request = await opening.timeout(timeout);
         for (final MapEntry(:key, :value) in signed.entries) {
           if (key != 'host') {
             request.headers.set(key, value, preserveHeaderCase: true);
@@ -155,7 +160,13 @@ final class S3Client {
         // Future.timeout does not cancel the request: without the abort
         // the answer would arrive to nobody and the socket stay out of the
         // pool for as long as the peer kept it.
-        request?.abort();
+        if (request == null) {
+          // openUrl itself was late (a stalled handshake): the request it
+          // yields afterwards is aborted too, or it would hold its socket.
+          opening.then((late) => late.abort()).ignore();
+        } else {
+          request.abort();
+        }
         throw ConnectionException(
           'S3 $method $target timed out after ${timeout.inSeconds}s.',
           isTimeout: true,
@@ -166,10 +177,14 @@ final class S3Client {
           continue;
         }
         throw ConnectionException('Could not reach $target: ${error.message}');
-      } on io.HttpException catch (error) {
-        // The connection closed before any response (a reset, a node
-        // going away): nothing was processed, so the call is sent again.
-        if (attempt < retries) {
+      } on HttpException catch (error) {
+        // A connection closed or reset before any response: nothing was
+        // processed, so the call is sent again. Other HttpExceptions (a
+        // bad header value, a body longer than its length) are the
+        // caller's and fail at once.
+        final message = error.message.toLowerCase();
+        final dropped = message.contains('closed') || message.contains('reset');
+        if (dropped && attempt < retries) {
           await Future<void>.delayed(backoff(attempt));
           continue;
         }
@@ -225,17 +240,13 @@ final class S3Client {
     return (response: response, body: builder.takeBytes());
   }
 
-  /// Reads [response]'s body through [onChunk], failing with
-  /// [ConnectionException] when it goes quiet for [timeout] (a half-open
-  /// connection would otherwise hold the handler, and the socket, for
-  /// ever); the socket is destroyed then, not returned to the pool.
-  Future<void> readBody(
-    HttpClientResponse response,
-    void Function(List<int> chunk) onChunk,
-    Uri target,
-  ) async {
-    try {
-      await response
+  /// [response]'s body, failing with [ConnectionException] when it goes
+  /// quiet for [timeout] (a half-open connection would otherwise hold the
+  /// handler, and the socket, for ever) or is cut off. Cancelling a
+  /// response body's subscription destroys its socket, so an error here
+  /// never returns the connection to the pool.
+  Stream<List<int>> bodyStream(HttpClientResponse response, Uri target) =>
+      response
           .timeout(
             timeout,
             onTimeout: (sink) => sink.addError(
@@ -246,17 +257,20 @@ final class S3Client {
               ),
             ),
           )
-          .forEach(onChunk);
-    } on ConnectionException {
-      response.detachSocket().then((socket) => socket.destroy()).ignore();
-      rethrow;
-    } on io.HttpException catch (error) {
-      // Closed while receiving: the same failure as a reset, named alike.
-      throw ConnectionException(
-        'S3 response body from $target was cut off: ${error.message}',
-      );
-    }
-  }
+          .handleError(
+            (Object error) => throw ConnectionException(
+              'S3 response body from $target was cut off: '
+              '${(error as HttpException).message}',
+            ),
+            test: (error) => error is HttpException,
+          );
+
+  /// Reads [response]'s body through [onChunk] (see [bodyStream]).
+  Future<void> readBody(
+    HttpClientResponse response,
+    void Function(List<int> chunk) onChunk,
+    Uri target,
+  ) => bodyStream(response, target).forEach(onChunk);
 
   Future<String> _drain(HttpClientResponse response, Uri target) async {
     await readBody(response, (_) {}, target);

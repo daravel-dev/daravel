@@ -123,9 +123,10 @@ match Laravel more closely.
   handler for ever; a request S3 answered 500, 502, 503 (`SlowDown`) or
   504, or whose connection failed before a response, is sent again up
   to `retries` (3) more times with exponential jittered backoff from
-  `retryDelay` (100 ms), as the AWS SDKs do; and a connection reset
-  during a send now surfaces as `ConnectionException` (the catch bound to
-  Daravel's `HttpException`, not `dart:io`'s, so it escaped unwrapped).
+  `retryDelay` (100 ms), as the AWS SDKs do; a connection reset during
+  a send now surfaces as `ConnectionException` (the catch bound to
+  Daravel's `HttpException`, not `dart:io`'s, so it escaped unwrapped);
+  and `readStream` downloads get the same quiet-body timeout as `get`.
 - `DB.transaction(attempts: n)`: the after-commit callbacks ran inside
   the retry, so a callback failing with a deadlock or serialization error
   re-ran the body after it had committed, committing its writes again.
@@ -151,9 +152,12 @@ match Laravel more closely.
 - `daravel_permission`: the per-isolate access cache is bounded
   (`PermissionRegistrar.maxCachedModels`, 10 000); one entry per model
   ever checked stayed until the isolate exited.
-- `daravel_google`: once Google answers `invalid_grant`, `UserCredentials`
-  keeps throwing it (`revoked`) instead of asking the token endpoint
-  again on every call; `replace` installs the token of a new consent.
+- `daravel_google`: once Google answers `invalid_grant`, the refresh
+  token is remembered as revoked on the OAuth client (`GoogleOAuth.isRevoked`)
+  and by the `UserCredentials` (`revoked`), so neither credentials kept
+  alive nor ones built afresh per request ask the token endpoint again;
+  `replace` installs the token of a new consent and discards a refresh
+  of the old one still in flight.
 - `daravel_google`: `Google.serviceCalendar()` shares one service-account
   token per isolate, scopes and subject (`Google.serviceCredentials`,
   `ServiceAccountCredentialsCache`); it used to sign an RS256 assertion

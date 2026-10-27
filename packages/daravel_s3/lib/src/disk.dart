@@ -232,7 +232,8 @@ final class S3Disk implements Disk {
     if (response == null) {
       throw _notFound(path);
     }
-    yield* response;
+    // With the client's quiet timeout, like getBytes.
+    yield* client.bodyStream(response, client.uri(key(path)));
   }
 
   @override

@@ -105,6 +105,7 @@ void main() {
       expect(real.backoff(0).inMilliseconds, inInclusiveRange(50, 100));
       expect(real.backoff(2).inMilliseconds, inInclusiveRange(200, 400));
       expect(real.backoff(30).inSeconds, inInclusiveRange(10, 20));
+      expect(real.backoff(90).inSeconds, inInclusiveRange(10, 20));
     });
 
     test('a request that times out is aborted, 4xx is not retried', () async {

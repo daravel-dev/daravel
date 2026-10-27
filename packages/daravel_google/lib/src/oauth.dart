@@ -88,12 +88,39 @@ final class GoogleOAuth {
         reason: 'no_refresh_token',
       );
     }
-    final fresh = await _token('Refresh the access token', {
-      'grant_type': 'refresh_token',
-      'refresh_token': refreshToken,
-    });
+    if (_revoked[refreshToken] case final GoogleException revoked) {
+      throw revoked;
+    }
+    final GoogleToken fresh;
+    try {
+      fresh = await _token('Refresh the access token', {
+        'grant_type': 'refresh_token',
+        'refresh_token': refreshToken,
+      });
+    } on GoogleException catch (error) {
+      if (error.reason == 'invalid_grant') {
+        // Revoked or expired: the user must consent again, which brings a
+        // new refresh token. Remembered here, on the client every
+        // UserCredentials shares, so a token loaded afresh for each request
+        // does not ask Google again each time.
+        if (_revoked.length >= maxRevoked) {
+          _revoked.remove(_revoked.keys.first);
+        }
+        _revoked[refreshToken] = error;
+      }
+      rethrow;
+    }
     return token.renewedBy(fresh);
   }
+
+  /// Refresh tokens Google answered `invalid_grant` for, on this isolate.
+  final Map<String, GoogleException> _revoked = {};
+
+  /// How many revoked refresh tokens are remembered.
+  static const int maxRevoked = 1000;
+
+  /// Whether [token]'s refresh token is known to be revoked.
+  bool isRevoked(GoogleToken token) => _revoked.containsKey(token.refreshToken);
 
   /// Revokes [token] (its refresh token when it has one, which also ends
   /// its access tokens).

@@ -45,11 +45,16 @@ final class UserCredentials implements GoogleCredentials {
   /// [replace].
   GoogleException? get revoked => _revoked;
 
-  /// Uses [token] from now on (after the user consented again).
+  /// Uses [token] from now on (after the user consented again). A refresh
+  /// of the old token still in flight is ignored when it lands.
   void replace(GoogleToken token) {
     _token = token;
     _revoked = null;
+    _generation++;
+    _refreshing = null;
   }
+
+  int _generation = 0;
 
   @override
   Future<String> accessToken() async {
@@ -59,26 +64,35 @@ final class UserCredentials implements GoogleCredentials {
     if (_revoked case final GoogleException error) {
       throw error;
     }
+    final generation = _generation;
     final refreshing = _refreshing ??= () async {
       try {
         final GoogleToken fresh;
         try {
           fresh = await oauth.refresh(_token);
         } on GoogleException catch (error) {
-          if (error.reason == 'invalid_grant') {
+          if (error.reason == 'invalid_grant' && generation == _generation) {
             _revoked = error;
           }
           rethrow;
+        }
+        if (generation != _generation) {
+          // replace() ran meanwhile: the token it installed wins.
+          return _token;
         }
         // Stored first: if the store fails, the token in memory stays the
         // old one, so the next call refreshes and stores again instead of
         // serving a token the database never saw (and, had Google rotated
         // the refresh token, one the next process could not refresh).
         await onRefresh?.call(fresh);
-        _token = fresh;
-        return fresh;
+        if (generation == _generation) {
+          _token = fresh;
+        }
+        return _token;
       } finally {
-        _refreshing = null;
+        if (generation == _generation) {
+          _refreshing = null;
+        }
       }
     }();
     return (await refreshing).accessToken;
