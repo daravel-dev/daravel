@@ -72,6 +72,11 @@ match Laravel more closely.
 
 ### Changed
 
+- `HmacJwtKey` (so `JwtCodec.hs256`) refuses an empty secret with
+  `ArgumentError`: HMAC over an empty key signs and verifies like any
+  other, so a secret that was never set accepted tokens anyone could
+  mint. The guard's `JWT_SECRET` already had to be 32 bytes; this is the
+  floor for every other use of the codec.
 - `dartisan migrate:rollback`, `migrate:reset` and `db:seed` refuse to
   run under `APP_ENV=production` without `--force`, as artisan's do; a
   framework error in any command is one `Error:` line and exit 1 rather

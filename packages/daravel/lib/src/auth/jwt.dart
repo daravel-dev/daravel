@@ -40,10 +40,22 @@ sealed class JwtKey {
   JwtAlgorithm get algorithm;
 }
 
-/// Shared secret for HS256.
+/// Shared secret for HS256. An empty secret is refused: HMAC over an
+/// empty key signs and verifies like any other, so a `JWT_SECRET` that
+/// was never set would accept tokens anyone could mint (`AuthManager`
+/// also requires 32 bytes for the guard's secret; this is the floor for
+/// every other use of the codec).
 final class HmacJwtKey extends JwtKey {
   HmacJwtKey(List<int> secret, {super.kid})
-    : secret = Uint8List.fromList(secret);
+    : secret = Uint8List.fromList(secret) {
+    if (secret.isEmpty) {
+      throw ArgumentError.value(
+        secret,
+        'secret',
+        'an HMAC key must not be empty',
+      );
+    }
+  }
 
   /// Uses the UTF-8 bytes of [secret].
   factory HmacJwtKey.fromString(String secret, {String? kid}) =>

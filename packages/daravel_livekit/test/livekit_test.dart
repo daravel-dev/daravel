@@ -158,19 +158,18 @@ void main() {
       // could sign webhooks for a server whose secret is unset. That is the
       // server's misconfiguration (a 500), not LiveKit's (a 401).
       const unset = LivekitWebhookReceiver(apiKey: _key, apiSecret: '');
-      final forged = await JwtCodec.hs256('').sign({
-        'iss': _key,
-        'exp': Clock.now().millisecondsSinceEpoch ~/ 1000 + 60,
-        'sha256': base64.encode(sha256.convert(body).bytes),
-      });
-      expect(
-        await JwtCodec.hs256('').verify(forged).then((t) => t.claims['iss']),
-        _key,
-        reason: 'the forgery is what an empty-key receiver would accept',
-      );
+      // The core codec refuses an empty key too, so the forgery is signed
+      // with the real secret: the receiver must refuse before it looks at
+      // the token at all.
+      final forged = await signed(body);
       await expectLater(
         unset.receive(body, forged),
         throwsA(isA<StateError>()),
+      );
+      expect(
+        () => JwtCodec.hs256(''),
+        throwsArgumentError,
+        reason: 'no empty-key codec to be fooled with',
       );
       await expectLater(
         LivekitToken.verify(forged, apiKey: _key, apiSecret: ''),

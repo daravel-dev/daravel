@@ -2,6 +2,7 @@ import 'package:daravel/daravel.dart';
 import 'package:test/test.dart';
 
 void main() {
+  emptyKeyTests();
   final fixed = DateTime.utc(2026, 10, 24, 12);
   var now = fixed;
   DateTime clock() => now;
@@ -154,5 +155,16 @@ void main() {
     expect(await denylist.contains('abc'), isTrue);
     now = fixed.add(const Duration(minutes: 2));
     expect(await denylist.contains('abc'), isFalse);
+  });
+}
+
+void emptyKeyTests() {
+  test('an empty HMAC secret is refused', () {
+    // HMAC over an empty key signs and verifies like any other key, so a
+    // secret that was never set would accept tokens anyone could mint.
+    expect(() => HmacJwtKey.fromString(''), throwsArgumentError);
+    expect(() => HmacJwtKey(const []), throwsArgumentError);
+    expect(() => JwtCodec.hs256(''), throwsArgumentError);
+    expect(HmacJwtKey.fromString('x').secret, hasLength(1));
   });
 }
