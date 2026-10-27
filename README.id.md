@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:5348ca3f0830 -->
+<!-- source: README.md sha256:97c1df0246b9 -->
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/brand/svg/daravel-logo-horizontal-on-dark.svg">
@@ -549,9 +549,9 @@ created lib/app/http/resources/post_resource.dart
 | :-- | :-- | :-- |
 | **0** | Kerangka berjalan: container, kernel HTTP, router, SQLite, migrasi, test client, CLI, CI | ✅ selesai |
 | **1** | S1 fondasi · S2 pengerasan HTTP · S3 routing · S4 validasi · S5 database · S6 ORM · S7 skema, seeding & generator · S8 auth · S9 multi-isolate & cache · S10 event, queue & scheduler · S11 resource, storage & observabilitas · S12 CLI (`new`, hot reload, `build --docker`, `doctor`, `openapi:generate`, `model:sync`, stub) · S13 toolkit testing, lint & test arsitektur | ✅ selesai |
-| **1** | S14 suite konformansi, suite keamanan, `parity.yaml`, harness benchmark, situs dokumentasi, template `api`/`minimal` → **1.0.0-beta.1** | ✅ selesai |
-| **1.x** | Dirilis setelah 1.0: lokalisasi, feature flag, SSE dan WebSocket, generator client Flutter, paket driver dan `db:transfer`, mail dan notifikasi, broadcasting untuk Laravel Echo | ✅ selesai |
-| **2** | Session/CSRF, Redis, S3, OpenTelemetry, view terkompilasi yang kompatibel dengan Blade; client database hanya di paket driver | direncanakan |
+| **1** | S14 suite konformansi, suite keamanan, `parity.yaml`, harness benchmark, situs dokumentasi, template `api`/`minimal` → beta publik pertama, lalu **1.0.0** | ✅ selesai |
+| **1.x** | Dirilis setelah 1.0: lokalisasi, feature flag, SSE dan WebSocket, generator client Flutter, paket driver dan `db:transfer`, mail dan notifikasi, broadcasting untuk Laravel Echo, Redis dan Valkey (`daravel_redis`), role dan permission (`daravel_permission`), query filter (`daravel_teorion`); terbaru **1.12.0** | ✅ selesai |
+| **2** | Session/CSRF, S3, OpenTelemetry, view terkompilasi yang kompatibel dengan Blade; client database hanya di paket driver | direncanakan |
 | **daragic** | Generator dua arah Laravel ⇄ Daravel: introspeksi runtime → IR → proyek hasil generate, test yang dikonversi, differential replay | sudah didesain |
 | **Ekosistem** | Paket first-party di bawah `daravel-dev`: `daravel_horizon` (supervisor dan dashboard queue), `daravel_socialite` (OAuth dan Sign in with Apple/Google), lalu `daravel_telescope` dan `daravel_scout` | direncanakan |
 
