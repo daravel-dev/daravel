@@ -43,10 +43,37 @@ void main() {
     expect(await store.attempts('k', const Duration(minutes: 1)), 2);
     final stats = coordinator.stats();
     expect(stats['handled'], 4);
+    expect(stats['messages'], 4, reason: 'handled plus rejected');
+    expect(stats['uptime_s'], isA<double>());
+    expect(stats['messages_per_second'], isA<double>());
     expect((stats['services'] as Map)['rateLimiter'], {'keys': 1});
     expect(
       () => channel.call('nope', 'x', const {}),
       throwsA(isA<CoordinatorException>()),
+    );
+  });
+
+  test('merged metrics carry the coordinator message counters', () async {
+    final channel = LocalCoordinatorChannel(coordinator);
+    await channel.call('rateLimiter', 'attempts', const {
+      'key': 'k',
+      'decayMs': 60000,
+    });
+    // What the supervisor's /metrics renders: the workers' snapshots plus
+    // the coordinator's own counters.
+    final merged = await channel.call(
+      MetricsService.serviceName,
+      'collect',
+      const {},
+    ) as Map<String, Object?>;
+    final messages = merged['coordinator_messages_total']! as Map;
+    expect(messages['type'], 'counter');
+    // `attempts` and this `collect` itself.
+    expect((messages['series'] as Map)[''], 2.0);
+    expect(merged, contains('coordinator_in_flight'));
+    expect(
+      MetricsRegistry.renderSnapshot(merged),
+      contains('coordinator_messages_total 2'),
     );
   });
 

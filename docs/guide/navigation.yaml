@@ -15,4 +15,4 @@
 - title: Digging deeper
   pages: [dartisan, flutter-client, background, mail, broadcasting, livekit, google, redis, helpers, localization, feature-flags]
 - title: Testing and performance
-  pages: [testing, performance, benchmarks]
+  pages: [testing, performance, benchmarks, operations]

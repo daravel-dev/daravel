@@ -28,13 +28,46 @@ default half the CPUs), `--threshold=0.10`.
 | 6 | login (bcrypt cost 10 in the compute pool) | `POST /api/login` |
 | 9 | Zone scope and facade microbenchmark | `server --micro` |
 | 10 | startup to first `/up` and idle RSS | every isolate count |
+| 11 | overload: scenario 2 under `--overload-connections` (512) against three servers: no limit, `HTTP_MAX_IN_FLIGHT=--max-in-flight` (32), and `HTTP_MAX_QUEUE_DELAY=--max-queue-delay` (50 ms) added | `GET /api/users/42` |
+| 12 | open loop: the capacity of scenario 2 is measured, then `--open-loop-factor` (1.5) times it is offered at a fixed rate to the same three servers, with up to `--overload-connections` | `GET /api/users/42` |
 
 Scenarios 7 (5 MB multipart) and 8 (1 000 idle SSE connections) wait for
 multipart and SSE support (Tier 2).
 
+Scenario 11 reports goodput (successful requests per second), latency
+percentiles of the successful requests, and `shed`, the share of attempts
+refused with 503. The generator ignores `Retry-After` and reconnects at
+once, the worst case for the server. Expect the in-flight limit alone to
+change little: scenario 2's handler is synchronous SQLite work that finishes
+inside one event-loop turn, so the queue forms before the engine sees it;
+the queue-delay limit is the one that sees that queue (see
+`docs/guide/deployment.md#load-shedding`). `--scenarios` ids match
+exactly (`--scenarios=1` does not select 11).
+
+Scenario 11 is a closed loop: each client sends its next request as soon as
+one is answered, refusals included, so the number of waiting requests never
+falls and shedding can only add the cost of its refusals. Scenario 12 is the
+open loop that load shedding is for: requests arrive at a fixed rate,
+whatever the server does, as from many independent users, and a refused
+request is not retried. Its latency is counted from when each request was
+due, so time spent waiting for a connection or behind a slow server counts
+(no coordinated omission). The `open_loop_isolates_N` target compares p99
+and goodput of the limited servers with the unlimited one.
+
 The database is SQLite (`build/bench.sqlite`, seeded with 1 000 users,
-200 posts, 2 000 comments), or PostgreSQL with
-`--db-url=pgsql://user:secret@host:port/db?pool=4`.
+200 posts, 2 000 comments), or PostgreSQL, seeded the same way:
+
+```bash
+dart run bin/bench.dart --database='pgsql://user:secret@127.0.0.1:5432/bench?pool=4' 
+  --scenarios=2,3,4,11 --isolates=1,4
+```
+
+`--database` takes a SQLite path or a `pgsql://`, `postgres://` or
+`postgresql://` URL (`--db-url` is the same). Scenarios 2–4 and 11 are the
+ones that query. When nothing answers at that address the harness prints
+`postgres scenarios skipped: nothing answers at host:port` and exits 0, so
+the nightly workflow, which runs these four against a PostgreSQL service
+container, does not fail when the database is missing.
 
 ## Reading the results
 
@@ -135,15 +168,18 @@ RUNS=1 DURATION=3 CURVE=16,64 bash bench/public.sh     # a quick dry run
 2. It runs `compare.sh` `RUNS` times (5) at 64 connections. The report
    gives the median and the lowest and highest value of each scenario, so a
    noisy run shows as spread.
-3. It repeats the database scenarios (`PG_SCENARIOS`, 2 to 4) on
+3. It repeats the database scenarios (`PG_SCENARIOS`, 2 to 4, 11 and 12) on
    PostgreSQL, `RUNS` times as well; `PG_SCENARIOS=` skips them.
-4. It measures a saturation curve: `CURVE_SCENARIOS` (1 and 2) at `CURVE`
+4. It runs scenarios 11 (closed loop) and 12 (open loop) on Daravel `RUNS`
+   times: `OVERLOAD_CONNECTIONS` (512) against no limit, `MAX_IN_FLIGHT`
+   (32) and `MAX_QUEUE_DELAY` (50 ms) added.
+5. It measures a saturation curve: `CURVE_SCENARIOS` (1 and 2) at `CURVE`
    connections (16, 64, 256, 1024) for Daravel, Octane and classic with
    `WORKERS` workers, and dart:io as the reference for `/ping`.
-5. It cross-checks the harness with [oha](https://github.com/hatoo/oha)
+6. It cross-checks the harness with [oha](https://github.com/hatoo/oha)
    (pinned, checksum verified), a load generator written in Rust, against
    Daravel (`bench.dart --serve`) and Octane on the GET scenarios 1, 2 and 4.
-6. `bin/public_report.dart` writes `report.md` and `summary.json`.
+7. `bin/public_report.dart` writes `report.md` and `summary.json`.
 
 Everything lands in `bench/results/<date>-<host>/` with the raw JSON of
 every run, so a published number can be traced to its measurements.

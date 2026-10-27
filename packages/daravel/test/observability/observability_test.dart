@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:daravel/daravel.dart';
 import 'package:path/path.dart' as p;
@@ -208,6 +209,17 @@ void main() {
         ),
       );
       expect(text, contains('process_resident_memory_bytes'));
+      // One series per worker isolate, so uneven workers show.
+      expect(
+        text,
+        contains(
+          'http_requests_in_flight{worker="${Isolate.current.debugName}"}',
+        ),
+      );
+      // The coordinator's own counters, in one isolate too.
+      expect(text, contains('# TYPE coordinator_messages_total counter'));
+      expect(text, matches(RegExp(r'\ncoordinator_messages_total \d+\n')));
+      expect(text, contains('coordinator_in_flight 0'));
     });
 
     test('/metrics is absent unless enabled', () async {

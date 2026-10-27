@@ -32,11 +32,24 @@ import 'package:path/path.dart' as p;
 /// `--serve --isolates=4 --port=18600` seeds and starts the Daravel server
 /// and keeps it running until SIGINT or SIGTERM, for an external load
 /// generator (`bench/public.sh` checks the harness against `oha` with it).
+///
+/// `--database=pgsql://user:secret@host:5432/db?pool=4` (or `--db-url`)
+/// runs every selected scenario against PostgreSQL, seeded with the same
+/// users, posts and comments; 2–4 and 11 are the ones that query. When
+/// nothing answers at that address the harness prints "postgres scenarios
+/// skipped" and exits 0, so a run without PostgreSQL does not fail.
 Future<void> main(List<String> args) async {
   final options = _Options.parse(args);
   if (options.external.isNotEmpty) {
     await _measureExternal(options);
     return;
+  }
+  if (options.dbUrl case final url?) {
+    final address = await _postgresAddress(url);
+    if (address != null) {
+      stdout.writeln('postgres scenarios skipped: nothing answers at $address');
+      return;
+    }
   }
   final root = p.dirname(p.dirname(Platform.script.toFilePath()));
   final build = p.join(root, 'build');
@@ -136,7 +149,7 @@ Future<void> main(List<String> args) async {
       'rss_idle_kb': await _rssKb(server.process.pid),
     });
     for (final (name, spec) in _scenarios) {
-      if (!options.scenarios.any(name.startsWith)) {
+      if (!options.selects(name)) {
         continue;
       }
       for (final connections in options.connections) {
@@ -155,6 +168,29 @@ Future<void> main(List<String> args) async {
       }
     }
     await server.stop();
+
+    if (options.selects(_overloadScenario)) {
+      results.addAll(
+        await _measureOverload(
+          options,
+          exe('server'),
+          serverEnv,
+          port,
+          isolates,
+        ),
+      );
+    }
+    if (options.selects(_openLoopScenario)) {
+      results.addAll(
+        await _measureOpenLoop(
+          options,
+          exe('server'),
+          serverEnv,
+          port,
+          isolates,
+        ),
+      );
+    }
   }
 
   final report = {
@@ -173,7 +209,10 @@ Future<void> main(List<String> args) async {
   };
   final targets = _targets([
     for (final r in results)
-      if (r['connections'] == options.connections.first) r,
+      if (r['connections'] == options.connections.first ||
+          (r['scenario']! as String).startsWith(_overloadScenario) ||
+          (r['scenario']! as String).startsWith(_openLoopScenario))
+        r,
   ]);
   report['targets'] = targets;
   stdout.writeln('\nstartup: $startup\ntargets: $targets');
@@ -188,6 +227,19 @@ Future<void> main(List<String> args) async {
 }
 
 /// Scenarios 1–6 of §10.2 (7 multipart and 8 SSE wait for Tier 2).
+/// Scenario 11: the server under more concurrent connections than it can
+/// serve, without a limit, with `HTTP_MAX_IN_FLIGHT`, and with
+/// `HTTP_MAX_QUEUE_DELAY` added.
+const String _overloadScenario = '11-overload';
+
+/// Scenario 12: the same three servers under a fixed arrival rate above
+/// their capacity (open loop), where refusing the excess can keep the
+/// accepted requests fast; scenario 11's clients retry at once instead.
+const String _openLoopScenario = '12-open-loop';
+
+/// The endpoint of scenario 2, so its normal-load numbers are the reference.
+const LoadSpec _overloadSpec = LoadSpec('GET', '/api/users/42');
+
 final List<(String, LoadSpec)> _scenarios = [
   ('1-ping', const LoadSpec('GET', '/ping')),
   ('2-show-json-query', const LoadSpec('GET', '/api/users/42')),
@@ -217,6 +269,137 @@ Future<LoadResult> _measure(
   duration: options.duration,
 );
 
+/// Scenario 11. Floods scenario 2's endpoint with `--overload-connections`
+/// keep-alive connections (far above what the workers can serve at once)
+/// against three servers in turn: without a limit, with
+/// `HTTP_MAX_IN_FLIGHT=--max-in-flight`, and with
+/// `HTTP_MAX_QUEUE_DELAY=--max-queue-delay` added. Without a limit every
+/// connection queues and p99 grows with the connection count. The in-flight
+/// limit alone changes little here: scenario 2's handler does synchronous
+/// SQLite work and finishes inside one event-loop turn, so the queue forms
+/// in front of the engine where that limit cannot see it. The queue-delay
+/// limit bounds that queue; the rest is refused with 503, and goodput should
+/// stay about the same since the workers are saturated either way. Latency
+/// percentiles are of the successful requests only.
+Future<List<Map<String, Object?>>> _measureOverload(
+  _Options options,
+  String executable,
+  Map<String, String> env,
+  int port,
+  int isolates,
+) async {
+  final results = <Map<String, Object?>>[];
+  final delay = options.maxQueueDelay;
+  final connections = options.overloadConnections;
+  for (final (suffix, extra) in _limitVariants(options)) {
+    final server = await _Server.start(
+      executable,
+      {...env, ...extra},
+      port,
+      cpus: options.serverCpus,
+    );
+    final LoadResult result;
+    try {
+      result = await _measure(options, port, _overloadSpec, connections);
+    } finally {
+      await server.stop();
+    }
+    final name = '$_overloadScenario-$suffix';
+    results.add({
+      'scenario': name,
+      'isolates': isolates,
+      'connections': connections,
+      'max_in_flight': int.parse(extra['HTTP_MAX_IN_FLIGHT']!),
+      'max_queue_delay_ms': extra.containsKey('HTTP_MAX_QUEUE_DELAY')
+          ? delay.inMilliseconds
+          : 0,
+      ...result.toJson(),
+    });
+    _print(name, isolates, connections, result);
+  }
+  return results;
+}
+
+/// The three servers of scenarios 11 and 12: without a limit, with
+/// `HTTP_MAX_IN_FLIGHT=--max-in-flight`, and with
+/// `HTTP_MAX_QUEUE_DELAY=--max-queue-delay` added.
+List<(String, Map<String, String>)> _limitVariants(_Options options) => [
+  ('unlimited', const <String, String>{'HTTP_MAX_IN_FLIGHT': '0'}),
+  ('in-flight', {'HTTP_MAX_IN_FLIGHT': '${options.maxInFlight}'}),
+  (
+    'queue-delay',
+    {
+      'HTTP_MAX_IN_FLIGHT': '${options.maxInFlight}',
+      'HTTP_MAX_QUEUE_DELAY': '${options.maxQueueDelay.inMilliseconds}ms',
+    },
+  ),
+];
+
+/// Scenario 12. Measures the capacity of scenario 2's endpoint (closed
+/// loop, 64 connections, on the server without a limit), then sends
+/// `--open-loop-factor` (1.5) times that rate to each of the three servers
+/// of [_limitVariants], with up to `--overload-connections`. Without a
+/// limit the queue, and the latency, grow for as long as the overload
+/// lasts; with load shedding the excess is refused and the accepted
+/// requests should stay near the limit. Latency is counted from each
+/// request's due time ([runOpenLoop]).
+Future<List<Map<String, Object?>>> _measureOpenLoop(
+  _Options options,
+  String executable,
+  Map<String, String> env,
+  int port,
+  int isolates,
+) async {
+  final results = <Map<String, Object?>>[];
+  final delay = options.maxQueueDelay;
+  final connections = options.overloadConnections;
+  int? capacity;
+  for (final (suffix, extra) in _limitVariants(options)) {
+    final server = await _Server.start(
+      executable,
+      {...env, ...extra},
+      port,
+      cpus: options.serverCpus,
+    );
+    final LoadResult result;
+    try {
+      capacity ??= (await _measure(
+        options,
+        port,
+        _overloadSpec,
+        64,
+      )).rps.round();
+      result = await runOpenLoop(
+        port,
+        _overloadSpec,
+        rate: capacity * options.openLoopFactor,
+        connections: connections,
+        clientIsolates: options.clientIsolates,
+        duration: options.duration,
+      );
+    } finally {
+      await server.stop();
+    }
+    final name = '$_openLoopScenario-$suffix';
+    final rate = (capacity * options.openLoopFactor).round();
+    results.add({
+      'scenario': name,
+      'isolates': isolates,
+      'connections': connections,
+      'capacity_rps': capacity,
+      'offered_rps': rate,
+      'max_in_flight': int.parse(extra['HTTP_MAX_IN_FLIGHT']!),
+      'max_queue_delay_ms': extra.containsKey('HTTP_MAX_QUEUE_DELAY')
+          ? delay.inMilliseconds
+          : 0,
+      ...result.toJson(),
+    });
+    stdout.write('(offered $rate req/s, capacity $capacity) ');
+    _print(name, isolates, connections, result);
+  }
+  return results;
+}
+
 void _print(
   String name,
   int isolates,
@@ -227,11 +410,14 @@ void _print(
   final relative = baseline == null
       ? ''
       : '  (${(r.rps / baseline * 100).toStringAsFixed(1)}% of dart:io)';
+  final shed = r.shed == 0
+      ? ''
+      : '  shed ${r.shed} (${(r.shedShare * 100).toStringAsFixed(1)}%)';
   stdout.writeln(
     '${name.padRight(26)} isolates=$isolates  c=$connections  '
     '${r.rps.toStringAsFixed(0).padLeft(7)} req/s  '
     'p50 ${r.percentile(50)} µs  p95 ${r.percentile(95)} µs  '
-    'p99 ${r.percentile(99)} µs  errors ${r.errors}$relative',
+    'p99 ${r.percentile(99)} µs  errors ${r.errors}$shed$relative',
   );
 }
 
@@ -255,7 +441,45 @@ Map<String, Object?> _targets(List<Map<String, Object?>> results) {
     final added =
         1e6 / (throttled['rps']! as int) - 1e6 / (ping['rps']! as int);
     out['throttle_added_us_per_request'] =
-        '${added.toStringAsFixed(1)} (target ≤ 100; ADR-024 aims < 30)';
+        '${added.toStringAsFixed(1)} (target ≤ 100; the leases of ADR-003 aim < 30)';
+  }
+  for (final isolates in {1, 4}) {
+    final unlimited = find('$_overloadScenario-unlimited', isolates);
+    final shed = find('$_overloadScenario-queue-delay', isolates);
+    if (unlimited == null || shed == null) {
+      continue;
+    }
+    final p99Before = unlimited['p99_us']! as int;
+    final p99After = shed['p99_us']! as int;
+    final goodput = (shed['rps']! as int) / max(1, unlimited['rps']! as int);
+    out['overload_p99_isolates_$isolates'] =
+        '$p99Before → $p99After µs with HTTP_MAX_QUEUE_DELAY='
+        '${shed['max_queue_delay_ms']}ms (target ≤ 50% of unlimited; '
+        'goodput ${(goodput * 100).toStringAsFixed(0)}%, target ≥ 90%)';
+  }
+  for (final isolates in {1, 4}) {
+    final unlimited = find('$_openLoopScenario-unlimited', isolates);
+    if (unlimited == null) {
+      continue;
+    }
+    final p99Before = unlimited['p99_us']! as int;
+    final parts = <String>[];
+    for (final variant in ['in-flight', 'queue-delay']) {
+      final limited = find('$_openLoopScenario-$variant', isolates);
+      if (limited == null) {
+        continue;
+      }
+      final goodput =
+          (limited['rps']! as int) / max(1, unlimited['rps']! as int);
+      parts.add(
+        '$variant: p99 $p99Before → ${limited['p99_us']} µs, goodput '
+        '${(goodput * 100).toStringAsFixed(0)}%',
+      );
+    }
+    out['open_loop_isolates_$isolates'] =
+        '${unlimited['offered_rps']} req/s offered '
+        '(capacity ${unlimited['capacity_rps']}); ${parts.join('; ')} '
+        '(targets: p99 ≤ 50% of unlimited, goodput ≥ 90%)';
   }
   final ping4 = find('1-ping', 4);
   if (ping1 != null && ping4 != null) {
@@ -414,6 +638,10 @@ final class _Options {
     required this.external,
     required this.serve,
     required this.port,
+    required this.overloadConnections,
+    required this.maxInFlight,
+    required this.maxQueueDelay,
+    required this.openLoopFactor,
     this.out,
     this.compare,
     this.database,
@@ -441,7 +669,7 @@ final class _Options {
             '${max(2, Platform.numberOfProcessors ~/ 2)}',
       ),
       isolates: (value('isolates') ?? '1,4').split(',').map(int.parse).toList(),
-      scenarios: (value('scenarios') ?? '1,2,3,4,5,6').split(','),
+      scenarios: (value('scenarios') ?? '1,2,3,4,5,6,11,12').split(','),
       skipBuild: args.contains('--skip-build'),
       threshold: double.parse(value('threshold') ?? '0.10'),
       out: value('out'),
@@ -454,13 +682,28 @@ final class _Options {
               int.parse(target.substring(target.lastIndexOf(':') + 1)),
             ),
       ],
-      database: value('database'),
-      dbUrl: value('db-url'),
+      // `--database` takes a SQLite path or, like `--db-url`, a PostgreSQL
+      // URL.
+      database: _isPostgresUrl(value('database')) ? null : value('database'),
+      dbUrl:
+          value('db-url') ??
+          (_isPostgresUrl(value('database')) ? value('database') : null),
       serverCpus: value('server-cpus'),
       serve: args.contains('--serve'),
       port: int.parse(value('port') ?? '18600'),
+      overloadConnections: int.parse(value('overload-connections') ?? '512'),
+      maxInFlight: int.parse(value('max-in-flight') ?? '32'),
+      maxQueueDelay: Duration(
+        milliseconds: int.parse(value('max-queue-delay') ?? '50'),
+      ),
+      openLoopFactor: double.parse(value('open-loop-factor') ?? '1.5'),
     );
   }
+
+  /// Whether [scenario] (`<id>-<name>`) was selected with `--scenarios`:
+  /// ids match exactly, so `1` selects `1-ping` and not `11-overload`.
+  bool selects(String scenario) =>
+      scenarios.any((id) => scenario.startsWith('$id-'));
 
   final Duration duration;
 
@@ -488,9 +731,47 @@ final class _Options {
   /// Cores for the servers (`--server-cpus=0-3`, Linux, via `taskset`).
   final String? serverCpus;
 
+  /// Scenarios 11 and 12: keep-alive connections to flood the server with,
+  /// or at most to open (`--overload-connections`, default 512).
+  final int overloadConnections;
+
+  /// Scenarios 11 and 12: `HTTP_MAX_IN_FLIGHT` of the limited servers
+  /// (`--max-in-flight`, default 32, per worker).
+  final int maxInFlight;
+
+  /// Scenarios 11 and 12: `HTTP_MAX_QUEUE_DELAY` of the third server
+  /// (`--max-queue-delay`, milliseconds, default 50).
+  final Duration maxQueueDelay;
+
+  /// Scenario 12: the offered rate as a multiple of the measured capacity
+  /// (`--open-loop-factor`, default 1.5).
+  final double openLoopFactor;
+
   /// `--serve`: run the server on [port] until stopped, measure nothing.
   final bool serve;
   final int port;
+}
+
+bool _isPostgresUrl(String? value) =>
+    value != null && RegExp(r'^(pgsql|postgres|postgresql)://').hasMatch(value);
+
+/// `host:port` of [url] when nothing accepts a connection there (within
+/// 3 s), else `null`. Only the address is printed, never the credentials.
+Future<String?> _postgresAddress(String url) async {
+  final uri = Uri.parse(url);
+  final host = uri.host.isEmpty ? '127.0.0.1' : uri.host;
+  final port = uri.hasPort ? uri.port : 5432;
+  try {
+    final socket = await Socket.connect(
+      host,
+      port,
+      timeout: const Duration(seconds: 3),
+    );
+    socket.destroy();
+    return null;
+  } on SocketException {
+    return '$host:$port';
+  }
 }
 
 /// `--serve`: the Daravel server with `--isolates` workers on `--port`,
@@ -530,7 +811,7 @@ Future<void> _measureExternal(_Options options) async {
   for (final (name, port) in options.external) {
     await _waitUntilUp(port);
     for (final (scenario, spec) in _scenarios) {
-      if (!options.scenarios.any(scenario.startsWith)) {
+      if (!options.selects(scenario)) {
         continue;
       }
       for (final connections in options.connections) {

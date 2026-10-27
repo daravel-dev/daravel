@@ -22,6 +22,51 @@ Laravel-facing formats change only to match Laravel more closely.
   `withGoogle()` reads `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
   `GOOGLE_REDIRECT_URI`, `GOOGLE_APPLICATION_CREDENTIALS`,
   `GOOGLE_CALENDAR_ID` and `GOOGLE_CALENDAR_IMPERSONATE`.
+- Load shedding, per worker isolate, off by default: above either limit a
+  request is refused before routing with `503 Service Unavailable`,
+  `Retry-After: 1` and `{"message":"Service Unavailable"}` (a body-less
+  request keeps its keep-alive connection), so an overloaded worker fails
+  fast instead of queueing until every client times out. `HTTP_MAX_IN_FLIGHT=N`
+  (`ServeOptions.maxInFlight`, `serve --max-in-flight=N`) caps requests
+  awaiting I/O at once; the slot is released after `terminate()` and an
+  upgraded WebSocket holds none. `HTTP_MAX_QUEUE_DELAY=200ms`
+  (`ServeOptions.maxQueueDelay`, `serve --max-queue-delay`) refuses
+  requests while the worker's event loop runs that late, measured by a
+  5 ms timer, the limit that sees CPU-bound or SQLite work (such a
+  handler never counts as in flight). The health probes are never
+  refused. Refusals are counted in `http_requests_shed_total` and logged
+  at most once a second, naming the limit hit; `ServerEngine.inFlight`,
+  `queueDelay` and `shedRequests` expose the numbers. `serve --watch`
+  passes both options on to the server it runs and restarts.
+- `dartisan new` projects (and the starter's `.env.example`) set
+  `HTTP_MAX_QUEUE_DELAY=200ms`, so a new application sheds load instead of
+  queueing without bound; `HTTP_MAX_IN_FLIGHT` stays commented out.
+- `bench/`: scenario `11-overload` floods scenario 2's endpoint with
+  `--overload-connections` (512) against a server without a limit, with
+  `HTTP_MAX_IN_FLIGHT=--max-in-flight` (32), and with
+  `HTTP_MAX_QUEUE_DELAY=--max-queue-delay` (50ms) added, reporting goodput,
+  p99 and the share refused. The load generator counts `503`s apart from
+  errors, and `--scenarios` ids now match exactly (`1` no longer selects
+  `11`). `bench/public.sh` runs it `RUNS` times and reports it.
+- `bench/`: `--database` takes a PostgreSQL URL as well as a SQLite path, so
+  scenarios 2–4 and 11 run against PostgreSQL seeded with the same data;
+  when nothing answers there the harness prints "postgres scenarios
+  skipped" and exits 0. The nightly benchmark runs them against a
+  PostgreSQL service container, and `public.sh` includes scenario 11 in
+  its PostgreSQL runs.
+- `dartisan db:install pgsql` adds `DB_POOL_SIZE=10` and
+  `HTTP_MAX_IN_FLIGHT=40` (about 4 × the pool) to the PostgreSQL block of
+  `.env.example`: a worker waiting on PostgreSQL does not lag, so
+  `HTTP_MAX_QUEUE_DELAY` alone never sheds there, while the in-flight limit
+  kept p99 at 47 ms instead of 6.2 s at 1.5 × capacity (bench scenario 12,
+  4 isolates, pool 4).
+- `bench/`: scenario `12-open-loop` measures load shedding where it
+  applies: the capacity of scenario 2 is measured, then 1.5 times it
+  (`--open-loop-factor`) arrives at a fixed rate, from clients that do not
+  retry, with latency counted from each request's due time
+  (`runOpenLoop`). Scenario 11's clients retry at once (a closed loop), so
+  the number waiting never falls and shedding can only add the cost of its
+  refusals.
 - `daravel_livekit` (Blueprint #48): LiveKit's server SDK for Daravel.
   `LivekitToken` signs access tokens with LiveKit's claims and
   `VideoGrant`s, `RoomServiceClient` manages rooms and participants over
@@ -32,6 +77,44 @@ Laravel-facing formats change only to match Laravel more closely.
   `LIVEKIT_API_SECRET` / `LIVEKIT_SECRET_KEY`. Tested against a LiveKit
   server, which accepts its join tokens, and against LiveKit's PHP SDK
   (`bench/interop/livekit.sh`).
+- `dartisan doctor` gives tuning advice as `[note]` lines, a new
+  `CheckStatus.notice` that never fails, not even with `--production`
+  (deployments use it as a gate): one isolate on a machine with more cores,
+  `LOG_LEVEL` below `warning` (a line per request at `info`), and a SQLite
+  file shared by several isolates. The PostgreSQL pool check counts the pool
+  the driver opens (`DB_POOL_SIZE` or `pool=` in `DB_URL`) and says
+  "skipped" when the database is unreachable instead of assuming 100.
+- `serve` with several isolates on a SQLite file logs one warning: SQLite
+  calls are synchronous, so a worker waiting for another isolate's write
+  lock blocks its event loop. `DatabaseConfig.sharesSqliteFile(isolates)`
+  answers the same question.
+- `/metrics` reports the coordinator's own counters,
+  `coordinator_messages_total`, `coordinator_rejected_total` and
+  `coordinator_in_flight`, with one isolate or under a supervisor, so a
+  flood of coordinator messages shows (`rate(coordinator_messages_total[1m])`).
+  `Coordinator.stats()` adds `messages`, `uptime_s` and
+  `messages_per_second`. A test keeps every standard coordinator service
+  synchronous.
+- The README's release number is written by `tool/docs/generate.dart` and
+  checked by `--check`, so it cannot fall behind the packages.
+- Guide: [Operations](docs/guide/operations.md) (isolates, the database
+  connection formula, load shedding, reverse-proxy connections, the
+  metrics to watch, graceful shutdown), and the Database and Deployment
+  guides now say plainly that SQLite is for development, tests and
+  single-isolate deployments, PostgreSQL for production with several
+  isolates.
+- `docs/adr/`: ADR-003 (state scopes, with the rate-limit leases), ADR-004
+  (supervisor and workers) and ADR-024 (Laravel's defaults for `Crypt` and
+  hashing), reconstructed from the code for readers without the
+  maintainer's design documents.
+
+### Changed
+
+- `http_requests_in_flight` and `http_requests_shed_total` carry a `worker`
+  label (`daravel-worker-N`, or the isolate's name), one series per worker:
+  workers share the port, which spreads connections rather than requests,
+  and an uneven worker now shows. Queries that expect one series need
+  `sum(...)`.
 
 ### Fixed
 

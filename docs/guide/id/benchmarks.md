@@ -1,4 +1,4 @@
-<!-- source: benchmarks.md sha256:3544f4de2af7 -->
+<!-- source: benchmarks.md sha256:55e13f80c56e -->
 # Benchmark
 
 Daravel hanya memublikasikan angka bersama skrip yang menghasilkannya,
@@ -47,15 +47,25 @@ lalu menulis hasilnya ke `bench/results/<tanggal>-<host>/`:
    pemanasan 2 detik, dengan 64 koneksi keep-alive. Tabelnya memuat median,
    dengan run terendah dan tertinggi di sampingnya, sehingga satu run yang
    bising terlihat sebagai rentang alih-alih menggeser angkanya.
-3. **PostgreSQL**: skenario yang menjalankan query (2 sampai 4), juga lima
-   run, terhadap server PostgreSQL 17 yang baru.
-4. **Kurva saturasi**: `/ping` dan skenario JSON pada 16, 64, 256, dan
+3. **PostgreSQL**: skenario yang menjalankan query (2 sampai 4, serta
+   overload dari skenario 11), juga lima run, terhadap server PostgreSQL 17
+   yang baru.
+4. **Overload**: Daravel saja (Laravel tidak punya padanannya) dibanjiri
+   512 koneksi pada endpoint skenario 2, tanpa batas, dengan
+   `HTTP_MAX_IN_FLIGHT`, dan dengan tambahan `HTTP_MAX_QUEUE_DELAY`
+   ([load shedding](deployment.md#load-shedding)): goodput, p99 dari request
+   yang berhasil, dan porsi yang ditolak dengan `503`, lima run. Dua kali:
+   dengan client yang langsung mencoba ulang (closed loop, skenario 11), dan
+   pada laju kedatangan tetap 1,5 kali kapasitas dari client yang tidak
+   mencoba ulang (open loop, skenario 12), beban yang memang menjadi tujuan
+   load shedding.
+5. **Kurva saturasi**: `/ping` dan skenario JSON pada 16, 64, 256, dan
    1 024 koneksi, dengan `dart:io` polos sebagai batas atas untuk `/ping`.
-5. **Load generator kedua**: [oha](https://github.com/hatoo/oha), ditulis
+6. **Load generator kedua**: [oha](https://github.com/hatoo/oha), ditulis
    dalam Rust (versinya di-pin, checksum diverifikasi), mengukur Daravel
    dan Octane pada skenario GET. Jika angkanya sejalan dengan harness,
    hasilnya bukan berasal dari load generator Dart.
-6. **Data mentah**: JSON setiap run disimpan di samping `report.md` dan
+7. **Data mentah**: JSON setiap run disimpan di samping `report.md` dan
    `summary.json`.
 
 Server (dan PostgreSQL) berjalan di separuh pertama core, dan load generator

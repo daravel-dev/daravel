@@ -17,13 +17,17 @@ import 'coordinator.dart';
 typedef ApplicationFactory = Application Function();
 
 /// Builds the standard coordinator: rate limiting, process cache, merged
-/// metrics, broadcast fan-out and channel membership.
-Coordinator createStandardCoordinator() => Coordinator()
-  ..register(RateLimitService())
-  ..register(ProcessCacheService())
-  ..register(MetricsService())
-  ..register(BroadcastService())
-  ..register(ChannelMembershipService());
+/// metrics (with the coordinator's own counters), broadcast fan-out and
+/// channel membership.
+Coordinator createStandardCoordinator() {
+  final coordinator = Coordinator();
+  return coordinator
+    ..register(RateLimitService())
+    ..register(ProcessCacheService())
+    ..register(MetricsService(coordinatorStats: coordinator.stats))
+    ..register(BroadcastService())
+    ..register(ChannelMembershipService());
+}
 
 /// Sent by a worker once its server is bound.
 final class WorkerReady {
@@ -349,6 +353,8 @@ final class Supervisor {
       requestTimeout: spawn.options.requestTimeout,
       handleSignals: false,
       readyTimeout: spawn.options.readyTimeout,
+      maxInFlight: spawn.options.maxInFlight,
+      maxQueueDelay: spawn.options.maxQueueDelay,
     );
     control.listen((Object? message) {
       if (message == 'drain') {

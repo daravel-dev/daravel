@@ -136,6 +136,10 @@ final class Application {
   /// Whether the server is shutting down (health endpoint answers 503).
   bool get draining => _draining;
 
+  /// The liveness probe path (`withRouting(health: ...)`, `/up` by
+  /// default); `null` when the probes are turned off.
+  String? get healthPath => _builder._routing?.health;
+
   /// The running server engine, if any.
   ServerEngine? get engine => _engine;
 
@@ -869,6 +873,8 @@ final class Application {
     int? isolates,
     bool? embedQueue,
     bool? embedScheduler,
+    int? maxInFlight,
+    Duration? maxQueueDelay,
     ScheduleCommandRunner? commandRunner,
   }) async {
     final probe = factory();
@@ -880,8 +886,22 @@ final class Application {
       isolates: isolates,
       embedQueue: embedQueue,
       embedScheduler: embedScheduler,
+      maxInFlight: maxInFlight,
+      maxQueueDelay: maxQueueDelay,
     );
     probe._ensureServeable(options);
+    // Once, here in the main isolate, rather than in every worker.
+    if (probe.config.section<DatabaseConfig>().sharesSqliteFile(
+      options.isolates,
+    )) {
+      probe.logger.warning(
+        'SQLite with ${options.isolates} isolates: SQLite calls are '
+        'synchronous, so a worker waiting for another isolate\'s write lock '
+        '(busy_timeout, up to 5 s) blocks its whole event loop. Use '
+        'PostgreSQL for production with APP_ISOLATES > 1 (Deployment guide, '
+        '"Concurrency").',
+      );
+    }
     final roles = [
       if (options.embedQueue) EmbeddedRole.queue,
       if (options.embedScheduler) EmbeddedRole.scheduler,
@@ -918,7 +938,14 @@ final class Application {
     await boot();
     final resolved = options ?? ServeOptions.fromEnv(env);
     _ensureServeable(resolved);
-    final engine = ServerEngine(this, resolved, kernel: kernel, logger: logger);
+    final metrics = container.make<AppMetrics>();
+    final engine = ServerEngine(
+      this,
+      resolved,
+      kernel: kernel,
+      logger: logger,
+      onShed: metrics.recordShed,
+    );
     _engine = engine;
     await engine.start();
     onStarted?.call(engine);

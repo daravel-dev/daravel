@@ -333,6 +333,9 @@ APP_URL=http://127.0.0.1:8000
 APP_HOST=127.0.0.1
 APP_PORT=8000
 APP_ISOLATES=1
+# Load shedding: 503 + Retry-After while a worker's event loop is this late
+HTTP_MAX_QUEUE_DELAY=200ms
+# HTTP_MAX_IN_FLIGHT=0
 
 DB_CONNECTION=sqlite
 DB_DATABASE=database/database.sqlite

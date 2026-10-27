@@ -119,6 +119,23 @@ dev_dependencies:
       expect(once, startsWith('APP_NAME=Shop\n\n#'));
       expect(addEnvExample(once, driverPackages['pgsql']!), once);
     });
+
+    test('PostgreSQL comes with an in-flight limit sized to its pool', () {
+      final block = addEnvExample('', driverPackages['pgsql']!);
+      expect(
+        block,
+        contains(
+          '# DB_POOL_SIZE=10\n'
+          '# Load shedding: about 4 x DB_POOL_SIZE requests at once per worker\n'
+          '# HTTP_MAX_IN_FLIGHT=40\n',
+        ),
+      );
+      // The other drivers are unchanged until they are measured.
+      expect(
+        addEnvExample('', driverPackages['mysql']!),
+        isNot(contains('HTTP_MAX_IN_FLIGHT')),
+      );
+    });
   });
 
   group('db:install', () {
