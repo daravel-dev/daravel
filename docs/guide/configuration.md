@@ -105,7 +105,7 @@ frozen after boot.
 `doctor --production` treats warnings as failures and requires
 `APP_ENV=production`, since the checks that only apply there would
 otherwise be skipped. Under `APP_ENV=production` a missing `APP_KEY` is an
-error, `HASH_VERIFY=false` and `BCRYPT_ROUNDS` below 10 are warnings, and a
+error, `HASH_VERIFY=false`, `BCRYPT_ROUNDS` below 10 and `HTTP_MAX_BODY=0` are warnings, and a
 plain-`http` `APP_URL`, `HASH_DRIVER=pbkdf2` and secrets in a plain `.env`
 are notes. Tuning advice (one isolate on a machine with more cores,
 `LOG_LEVEL` below `warning`, a SQLite file shared by several isolates, the

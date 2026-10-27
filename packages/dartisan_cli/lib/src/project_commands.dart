@@ -560,6 +560,17 @@ final class DoctorCommand extends DaravelCommand {
         ),
       );
     }
+    if (ServeOptions.fromEnv(app.env).maxBodyBytes == null) {
+      checks.add(
+        const DoctorCheck(
+          CheckStatus.warning,
+          'HTTP_MAX_BODY=0 in production',
+          'Requests have no body limit: a client can make a worker buffer '
+              'gigabytes. Leave it unset (50 MiB) or set the largest upload '
+              'you accept.',
+        ),
+      );
+    }
     if (paths != null &&
         File(p.join(paths.root, '.env')).existsSync() &&
         !File(p.join(paths.root, '.env.encrypted')).existsSync()) {

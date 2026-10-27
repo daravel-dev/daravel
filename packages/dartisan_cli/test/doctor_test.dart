@@ -146,6 +146,7 @@ void main() {
       'HASH_VERIFY': 'false',
       'BCRYPT_ROUNDS': '4',
       'APP_URL': 'http://api.example.test',
+      'HTTP_MAX_BODY': '0',
     });
     expect(
       titled(checks, CheckStatus.error),
@@ -156,6 +157,7 @@ void main() {
       containsAll([
         'HASH_VERIFY=false in production',
         'BCRYPT_ROUNDS=4 in production',
+        'HTTP_MAX_BODY=0 in production',
       ]),
     );
     expect(

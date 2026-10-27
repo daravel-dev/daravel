@@ -1,4 +1,4 @@
-<!-- source: configuration.md sha256:52eb99f9cf8f -->
+<!-- source: configuration.md sha256:7b5bd354c235 -->
 # Konfigurasi
 
 ## File environment
@@ -108,7 +108,7 @@ setelah boot.
 `doctor --production` memperlakukan peringatan sebagai kegagalan dan
 mewajibkan `APP_ENV=production`, karena pemeriksaan yang hanya berlaku di
 sana akan terlewati tanpanya. Dengan `APP_ENV=production`, `APP_KEY` yang
-kosong adalah error, `HASH_VERIFY=false` dan `BCRYPT_ROUNDS` di bawah 10
+kosong adalah error, `HASH_VERIFY=false`, `BCRYPT_ROUNDS` di bawah 10 dan `HTTP_MAX_BODY=0`
 adalah peringatan, sedangkan `APP_URL` yang masih `http`,
 `HASH_DRIVER=pbkdf2` dan rahasia di `.env` polos adalah catatan. Saran
 tuning (satu isolate di mesin dengan core lebih banyak, `LOG_LEVEL` di bawah

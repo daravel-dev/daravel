@@ -87,8 +87,9 @@ match Laravel more closely.
   checks that only apply there (debug mode, the key, `/metrics`, the
   queue, hashing) were skipped under any other environment, so the gate
   passed on a configuration never deployed as such. Under production it
-  now also reports a missing `APP_KEY` (error), `HASH_VERIFY=false` and
-  `BCRYPT_ROUNDS` below 10 (warnings), and a plain-`http` `APP_URL`,
+  now also reports a missing `APP_KEY` (error), `HASH_VERIFY=false`,
+  `BCRYPT_ROUNDS` below 10 and `HTTP_MAX_BODY=0` (warnings), and a
+  plain-`http` `APP_URL`,
   `HASH_DRIVER=pbkdf2` and secrets in a plain `.env` (notes). A missing
   `.env` is a note when `APP_ENV` comes from the OS environment, so the
   gate passes inside the image `build --docker` produces.
