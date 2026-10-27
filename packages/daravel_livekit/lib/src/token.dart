@@ -91,18 +91,37 @@ final class LivekitToken {
     };
   }
 
-  /// The signed JWT (HS256).
-  Future<String> toJwt() => JwtCodec.hs256(apiSecret).sign(claims);
+  /// The signed JWT (HS256). [StateError] without a secret: HS256 over an
+  /// empty key signs, and LiveKit would refuse the result.
+  Future<String> toJwt() async {
+    requireSecret(apiSecret);
+    return JwtCodec.hs256(apiSecret).sign(claims);
+  }
 
   /// Verifies [jwt]: its signature, its time claims and that [apiKey]
-  /// issued it; throws [JwtException] otherwise.
+  /// issued it; throws [JwtException] otherwise, and [StateError] without
+  /// a secret: HS256 over an empty key verifies whatever was signed with
+  /// one, so a missing `LIVEKIT_API_SECRET` must not pass as a valid key.
   static Future<LivekitClaims> verify(
     String jwt, {
     required String apiKey,
     required String apiSecret,
-  }) async => LivekitClaims(
-    (await JwtCodec.hs256(apiSecret, issuer: apiKey).verify(jwt)).claims,
-  );
+  }) async {
+    requireSecret(apiSecret);
+    return LivekitClaims(
+      (await JwtCodec.hs256(apiSecret, issuer: apiKey).verify(jwt)).claims,
+    );
+  }
+
+  /// [StateError] when [apiSecret] is empty.
+  static void requireSecret(String apiSecret) {
+    if (apiSecret.isEmpty) {
+      throw StateError(
+        'LIVEKIT_API_SECRET is not set: LiveKit tokens cannot be signed or '
+        'verified without it.',
+      );
+    }
+  }
 }
 
 /// The verified claims of a [LivekitToken].

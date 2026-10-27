@@ -29,11 +29,20 @@ final class LivekitConfig implements ConfigSection {
   final String apiKey;
   final String apiSecret;
 
-  /// Warns when the key or the secret is missing.
+  /// Warns when the key and the secret are missing (LiveKit is not in use
+  /// yet); fails the boot when the key is set but the secret is not, since
+  /// an empty secret would sign tokens LiveKit refuses and verify webhooks
+  /// anyone could forge.
   static Iterable<ConfigIssue> check(Env env, ConfigRepository config) {
     final livekit = config.section<LivekitConfig>();
     return [
-      if (livekit.apiKey.isEmpty || livekit.apiSecret.isEmpty)
+      if (livekit.apiKey.isNotEmpty && livekit.apiSecret.isEmpty)
+        const ConfigIssue(
+          ConfigIssueLevel.error,
+          'LiveKit: LIVEKIT_API_KEY is set but LIVEKIT_API_SECRET is empty; '
+          'tokens and webhooks need both.',
+        )
+      else if (livekit.apiKey.isEmpty || livekit.apiSecret.isEmpty)
         const ConfigIssue(
           ConfigIssueLevel.warning,
           'LiveKit: set LIVEKIT_API_KEY and LIVEKIT_API_SECRET before issuing '

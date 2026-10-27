@@ -1,4 +1,4 @@
-<!-- source: livekit.md sha256:16c6b6bb1547 -->
+<!-- source: livekit.md sha256:acb92185c828 -->
 # LiveKit
 
 [LiveKit](https://livekit.io) membawa video, audio, dan berbagi layar
@@ -30,7 +30,11 @@ LIVEKIT_API_KEY=...
 LIVEKIT_API_SECRET=...                    # atau LIVEKIT_SECRET_KEY
 ```
 
-Boot memberi peringatan selama key atau secret belum diisi.
+Boot memberi peringatan selama keduanya belum diisi, dan gagal bila key
+diisi tetapi secret tidak: secret kosong akan menandatangani token yang
+ditolak LiveKit dan memverifikasi webhook yang bisa dipalsukan siapa pun.
+`LivekitToken` dan `LivekitWebhookReceiver` melempar `StateError` untuk
+secret kosong dengan alasan yang sama.
 
 ## Token
 

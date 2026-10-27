@@ -60,6 +60,13 @@ match Laravel more closely.
 
 ### Fixed
 
+- `daravel_livekit` refuses to work with an empty API secret: HS256 over
+  an empty key verifies whatever was signed with one, so a server whose
+  `LIVEKIT_API_SECRET` was unset accepted webhooks anyone knowing the API
+  key (the `iss` of every client token) could sign. `LivekitToken.toJwt`,
+  `LivekitToken.verify` and `LivekitWebhookReceiver.receive` throw
+  `StateError` on an empty secret, and boot fails (not just warns) when
+  `LIVEKIT_API_KEY` is set but the secret is not.
 - `daravel_teobiefy` refuses a replayed request: every nonce a session
   uses is remembered (`TeobiefySessions.useNonce`, the cache's `add` for
   the session's TTL) and a body sent again is `406`, recorded only after

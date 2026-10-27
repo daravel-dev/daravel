@@ -151,6 +151,36 @@ void main() {
       }
     });
 
+    test('an empty secret verifies nothing', () async {
+      // HS256 over an empty key would accept a token signed with an empty
+      // key: anyone knowing the API key (the `iss` of every client token)
+      // could sign webhooks for a server whose secret is unset. That is the
+      // server's misconfiguration (a 500), not LiveKit's (a 401).
+      const unset = LivekitWebhookReceiver(apiKey: _key, apiSecret: '');
+      final forged = await JwtCodec.hs256('').sign({
+        'iss': _key,
+        'exp': Clock.now().millisecondsSinceEpoch ~/ 1000 + 60,
+        'sha256': base64.encode(sha256.convert(body).bytes),
+      });
+      expect(
+        await JwtCodec.hs256('').verify(forged).then((t) => t.claims['iss']),
+        _key,
+        reason: 'the forgery is what an empty-key receiver would accept',
+      );
+      await expectLater(
+        unset.receive(body, forged),
+        throwsA(isA<StateError>()),
+      );
+      await expectLater(
+        LivekitToken.verify(forged, apiKey: _key, apiSecret: ''),
+        throwsA(isA<StateError>()),
+      );
+      await expectLater(
+        const LivekitToken(apiKey: _key, apiSecret: '').toJwt(),
+        throwsA(isA<StateError>()),
+      );
+    });
+
     test('anything else is refused with 401', () async {
       final tampered = utf8.encode(
         utf8.decode(body).replaceFirst('u-7', 'u-8'),
@@ -286,5 +316,29 @@ void main() {
       }),
     );
     expect((current.url, current.apiSecret), ('wss://lk.example.test', 'new'));
+  });
+
+  test('a key without a secret fails the boot; neither only warns', () async {
+    Application build(Map<String, String> env) =>
+        Application.configure(basePath: '.')
+            .withEnv({'APP_ENV': 'testing', 'DB_DATABASE': ':memory:', ...env})
+            .withLivekit()
+            .create();
+    final unset = build(const {});
+    await unset.boot();
+    addTearDown(unset.shutdown);
+    expect(LivekitConfig.check(unset.env, unset.config).map((i) => i.level), [
+      ConfigIssueLevel.warning,
+    ]);
+    final half = build(const {'LIVEKIT_API_KEY': 'k'});
+    await expectLater(
+      half.boot(),
+      throwsA(
+        predicate(
+          (Object e) => '$e'.contains('LIVEKIT_API_SECRET is empty'),
+          'names the missing secret',
+        ),
+      ),
+    );
   });
 }

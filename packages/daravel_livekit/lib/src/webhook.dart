@@ -69,6 +69,11 @@ final class LivekitWebhookReceiver {
     List<int> body,
     String? authorization,
   ) async {
+    // Before the header is even looked at: with no secret there is nothing
+    // to verify against, and the caller's error is a 500, not a 401 that
+    // would be charged to LiveKit. (With an empty key, anyone who knows
+    // the API key, the `iss` of every client token, could sign webhooks.)
+    LivekitToken.requireSecret(apiSecret);
     final header = authorization?.trim() ?? '';
     if (header.isEmpty) {
       throw const LivekitWebhookException('Authorization header is empty.');

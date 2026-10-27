@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Fixed: an empty API secret no longer signs or verifies anything (`LivekitToken.toJwt`, `LivekitToken.verify` and `LivekitWebhookReceiver.receive` throw `StateError`); with HS256 an empty key verified tokens signed with an empty key, so webhooks could be forged by anyone knowing the API key. Boot fails when `LIVEKIT_API_KEY` is set but `LIVEKIT_API_SECRET` is not.
+
 ## 1.13.0
 
 - Version aligned with Daravel 1.13.0; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).

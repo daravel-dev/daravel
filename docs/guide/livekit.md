@@ -29,7 +29,10 @@ LIVEKIT_API_KEY=...
 LIVEKIT_API_SECRET=...                    # or LIVEKIT_SECRET_KEY
 ```
 
-Boot warns while the key or the secret is missing.
+Boot warns while both are missing, and fails when the key is set but the
+secret is not: an empty secret would sign tokens LiveKit refuses and verify
+webhooks anyone could forge. `LivekitToken` and `LivekitWebhookReceiver`
+throw `StateError` on an empty secret for the same reason.
 
 ## Tokens
 
