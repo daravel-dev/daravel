@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: write
+  actions: write # to start docs.yml, see the last step
 
 jobs:
   github-release:
@@ -57,3 +58,11 @@ jobs:
               echo "$branch has diverged; not moving it."
             fi
           fi
+
+      # A push made with GITHUB_TOKEN starts no workflow, so the push above
+      # does not rebuild the site, which shows each version from its own
+      # branch. A workflow_dispatch does: GitHub's one exception.
+      - name: Rebuild the documentation site
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run docs.yml --ref main
