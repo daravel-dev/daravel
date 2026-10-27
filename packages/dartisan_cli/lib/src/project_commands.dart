@@ -82,7 +82,11 @@ final class KeyGenerateCommand extends Command<int> {
 const (int, int) minimumDartSdk = (3, 13);
 
 /// One `doctor` finding.
-enum CheckStatus { ok, warning, error }
+///
+/// [notice] is advice about tuning (worker count, log level, SQLite under
+/// several isolates): printed, but it never fails `doctor`, not even with
+/// `--production`, which deployments use as a gate.
+enum CheckStatus { ok, notice, warning, error }
 
 final class DoctorCheck {
   const DoctorCheck(this.status, this.title, [this.detail]);
@@ -93,6 +97,7 @@ final class DoctorCheck {
 
   String get symbol => switch (status) {
     .ok => '[ok]  ',
+    .notice => '[note]',
     .warning => '[warn]',
     .error => '[FAIL]',
   };
@@ -272,8 +277,10 @@ final class DoctorCommand extends DaravelCommand {
 
     final stopwatch = Stopwatch()..start();
     final db = app.config.section<DatabaseConfig>();
+    var reachable = false;
     try {
       await DB.manager.select('SELECT 1');
+      reachable = true;
       checks.add(
         DoctorCheck(
           CheckStatus.ok,
@@ -291,8 +298,10 @@ final class DoctorCommand extends DaravelCommand {
       );
     }
     final serve = ServeOptions.fromEnv(env);
-    final pool = env.integer('DB_POOL_SIZE', 10);
     final connection = db.connections[db.defaultConnection];
+    // The pool the driver really opens: DB_POOL_SIZE, or `pool=` in DB_URL.
+    final pool =
+        connection?.options['pool'] as int? ?? env.integer('DB_POOL_SIZE', 10);
     final appZone = env.string('APP_TIMEZONE', 'UTC');
     if (appZone.toUpperCase() != 'UTC' &&
         env.string('SCHEDULE_TIMEZONE', '').isEmpty &&
@@ -321,15 +330,28 @@ final class DoctorCommand extends DaravelCommand {
     if (connection?.driver == 'pgsql') {
       // Each isolate has its own pool; leave room for workers, migrations
       // and other clients (a Laravel app on the same database).
-      var limit = 100;
-      try {
-        final rows = await DB.manager.select('SHOW max_connections');
-        limit = int.tryParse('${rows.first['max_connections']}') ?? limit;
-      } catch (_) {
-        // Unreachable: reported above; assume PostgreSQL's default.
-      }
       final total = pool * serve.isolates;
-      if (total > limit * 0.8) {
+      int? limit;
+      if (reachable) {
+        try {
+          final rows = await DB.manager.select('SHOW max_connections');
+          limit = int.tryParse('${rows.first['max_connections']}');
+        } catch (_) {
+          // A proxy such as PgBouncer may not answer SHOW: skipped below.
+        }
+      }
+      if (limit == null) {
+        checks.add(
+          DoctorCheck(
+            CheckStatus.notice,
+            'Connection pool: $pool × ${serve.isolates} isolates = $total '
+            'per instance (max_connections check skipped)',
+            reachable
+                ? 'The server did not answer SHOW max_connections.'
+                : 'The database is unreachable.',
+          ),
+        );
+      } else if (total > limit * 0.8) {
         checks.add(
           DoctorCheck(
             CheckStatus.warning,
@@ -339,7 +361,50 @@ final class DoctorCommand extends DaravelCommand {
                 'or APP_ISOLATES, or put PgBouncer in front.',
           ),
         );
+      } else {
+        checks.add(
+          DoctorCheck(
+            CheckStatus.ok,
+            'Connection pool: $pool × ${serve.isolates} isolates = $total '
+            'of max_connections=$limit',
+          ),
+        );
       }
+    }
+    if (db.sharesSqliteFile(serve.isolates)) {
+      checks.add(
+        DoctorCheck(
+          CheckStatus.notice,
+          'SQLite file shared by ${serve.isolates} isolates',
+          'SQLite calls are synchronous: a worker waiting for another '
+              'isolate\'s write lock (busy_timeout, up to 5 s) blocks its '
+              'event loop. Use PostgreSQL for production with '
+              'APP_ISOLATES > 1.',
+        ),
+      );
+    }
+    final cores = Platform.numberOfProcessors;
+    if (serve.isolates == 1 && cores > 1) {
+      checks.add(
+        DoctorCheck(
+          CheckStatus.notice,
+          'APP_ISOLATES=1: you are using 1 of $cores cores',
+          'Set APP_ISOLATES to the number of cores (or vCPUs) the server '
+              'may use, and measure.',
+        ),
+      );
+    }
+    final logLevel = LogLevel.parse(env.string('LOG_LEVEL', 'debug'));
+    if (logLevel.index < LogLevel.warning.index) {
+      checks.add(
+        DoctorCheck(
+          CheckStatus.notice,
+          'LOG_LEVEL=${logLevel.name} is below warning',
+          'At info and debug the server writes a line for every request, '
+              'which is real I/O at high request rates; LOG_LEVEL=warning '
+              'keeps warnings and errors.',
+        ),
+      );
     }
     if (connection?.driver == 'sqlite' &&
         connection?.database == ':memory:' &&

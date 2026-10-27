@@ -48,7 +48,8 @@ and elegant syntax, batteries included, and conventions that make common tasks d
 what makes Laravel loved and adds what only Dart can offer: one native executable, static types
 from the route to the database, and every CPU core on one port.
 
-> **Status.** Daravel `1.0.0` is stable and published on
+> **Status.** Daravel is stable since `1.0.0`; the current release is
+> `<!-- release -->1.12.0<!-- /release -->`, published on
 > [pub.dev](https://pub.dev/packages/daravel) by the verified publisher
 > `framework.daravel.dev`. The Dart API follows SemVer on the `1.x` line; the Laravel-facing
 > formats are locked by the conformance suite.
@@ -543,7 +544,7 @@ created lib/app/http/resources/post_resource.dart
 | **0** | Walking skeleton: container, HTTP kernel, router, SQLite, migrations, test client, CLI, CI | ✅ done |
 | **1** | S1 foundation · S2 HTTP hardening · S3 routing · S4 validation · S5 database · S6 ORM · S7 schema, seeding & generators · S8 auth · S9 multi-isolate & cache · S10 events, queue & scheduler · S11 resources, storage & observability · S12 CLI (`new`, hot reload, `build --docker`, `doctor`, `openapi:generate`, `model:sync`, stubs) · S13 testing toolkit, lints & architecture tests | ✅ done |
 | **1** | S14 conformance suite, security suite, `parity.yaml`, benchmark harness, documentation site, `api`/`minimal` templates → first public beta, then **1.0.0** | ✅ done |
-| **1.x** | Released after 1.0: localization, feature flags, SSE and WebSockets, the Flutter client generator, driver packages and `db:transfer`, mail and notifications, Laravel Echo broadcasting, Redis and Valkey (`daravel_redis`), roles and permissions (`daravel_permission`), query filters (`daravel_teorion`); latest **1.12.0** | ✅ done |
+| **1.x** | Released after 1.0: localization, feature flags, SSE and WebSockets, the Flutter client generator, driver packages and `db:transfer`, mail and notifications, Laravel Echo broadcasting, Redis and Valkey (`daravel_redis`), roles and permissions (`daravel_permission`), query filters (`daravel_teorion`); latest **<!-- release -->1.12.0<!-- /release -->** | ✅ done |
 | **2** | Sessions/CSRF, S3, OpenTelemetry, Blade-compatible compiled views; database clients only in the driver packages | planned |
 | **daragic** | Bidirectional Laravel ⇄ Daravel generator: runtime introspection → IR → generated project, converted tests, differential replay | designed |
 | **Ecosystem** | First-party packages under `daravel-dev`: `daravel_horizon` (queue supervisor and dashboard), `daravel_socialite` (OAuth and Sign in with Apple/Google), then `daravel_telescope` and `daravel_scout` | planned |
@@ -563,7 +564,8 @@ and the generated [Laravel ⇄ Daravel parity table](docs/guide/parity.md).
 The design is documented before it is built. Architecture, module specifications, the
 Laravel ⇄ Daravel generator (`daragic`) and the slice-by-slice plan live in maintainer blueprints,
 with decisions recorded as binding ADRs. Code comments refer to them as `BLUEPRINT_V2 §…` and
-`ADR-…`.
+`ADR-…`. The decisions the runtime depends on most (state scopes, the supervisor and its workers,
+the Laravel coexistence defaults) are written up in [`docs/adr`](docs/adr/README.md).
 
 ## Brand
 

@@ -52,8 +52,60 @@ in-flight requests within `SHUTDOWN_TIMEOUT`.
 isolates sharing one port. Per-process state (rate limits, the `process`
 cache store, locks, metrics) goes through the coordinator. Start with one
 isolate per vCPU and measure (see [Performance](performance.md)).
-SQLite `:memory:` cannot be shared between isolates; use a file or
-PostgreSQL.
+SQLite `:memory:` cannot be shared between isolates. SQLite is for
+development, tests and single-isolate deployments; use PostgreSQL for
+production with `APP_ISOLATES` greater than 1
+([why](database.md#sqlite-or-postgresql)). Sizing isolates, connections and
+limits is in [Operations](operations.md).
+
+## Load shedding
+
+Without a limit, an overloaded worker accepts every connection `dart:io`
+hands it and answers them later and later, until every client times out at
+once. Two per-worker limits refuse a request at once instead, with
+`503 Service Unavailable`, `Retry-After: 1` and a JSON body, before routing,
+middleware or a request scope run. A body-less request keeps its keep-alive
+connection; one whose body was not read has it closed. The health
+probes (`/up`, `/up/ready`) are never refused, so a worker under load is not
+restarted for being busy. Both are off (`0`) by default; projects
+created by `dartisan new` set `HTTP_MAX_QUEUE_DELAY=200ms` in their
+`.env.example`.
+
+- `HTTP_MAX_IN_FLIGHT=N` (`serve --max-in-flight=N`) caps the requests one
+  worker handles at the same time. A slot is held until the response is
+  written and `terminate()` (deferred work) has run; an upgraded WebSocket
+  holds a socket, not a slot. This bounds requests that *wait*: a worker
+  whose handlers await PostgreSQL, Redis or another service. It cannot see
+  synchronous work: a handler that only touches SQLite or the CPU finishes
+  inside one event-loop turn, so a second request is never in flight next
+  to it, however long the queue in front of the worker grows.
+- `HTTP_MAX_QUEUE_DELAY=200ms` (`serve --max-queue-delay=200ms`) refuses
+  requests while the worker's event loop runs more than that late. A timer
+  ticks every 5 ms and measures its own delay, smoothed over a few ticks;
+  that delay is how long a request has been waiting in the socket and
+  event queues before the engine sees it, whatever the handler does. This
+  is the limit that sees CPU-bound or SQLite work, which the in-flight
+  limit cannot; measure its effect under your own load (`bench/` scenario
+  12). Under a supervisor each worker measures its own loop.
+
+Workers share the port with `shared: true`, so the kernel spreads
+*connections*, not requests, over them: one worker can be full while
+another has room, and the server refuses a request before all
+`APP_ISOLATES × HTTP_MAX_IN_FLIGHT` slots are taken. A reverse proxy that
+opens several upstream connections evens this out.
+
+Pick the values from a load test (scenario 12 of `bench/` runs one at a
+fixed arrival rate above capacity):
+`HTTP_MAX_QUEUE_DELAY` is the queueing delay you are willing to add to a
+response, and `HTTP_MAX_IN_FLIGHT` is about 2–4× `DB_POOL_SIZE` for a
+worker doing database work. For an application on PostgreSQL the in-flight
+limit is the one that bounds latency, since a worker waiting on the
+database does not lag; `HTTP_MAX_QUEUE_DELAY` catches CPU-bound work. Refusals
+are counted in `http_requests_shed_total{worker="..."}` on `/metrics` (one
+series per worker, as `http_requests_in_flight`) and logged as a
+warning at most once a second, naming the limit that was hit; a steady
+stream of them means the server needs more isolates or instances, not a
+higher limit.
 
 ## Topology
 

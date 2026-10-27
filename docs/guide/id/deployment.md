@@ -1,4 +1,4 @@
-<!-- source: deployment.md sha256:3c3b8ba0d5f5 -->
+<!-- source: deployment.md sha256:6d476885b3b8 -->
 # Deployment
 
 ## Bundle native
@@ -54,8 +54,63 @@ dihasilkan men-set `PORT=8080` sebagai default yang bisa ditimpa platform.
 worker isolate yang berbagi satu port. State per proses (rate limit,
 penyimpanan cache `process`, lock, metrik) melewati coordinator. Mulailah
 dengan satu isolate per vCPU lalu ukur (lihat [Performa](performance.md)).
-SQLite `:memory:` tidak bisa dibagi antar-isolate; pakai file atau
-PostgreSQL.
+SQLite `:memory:` tidak bisa dibagi antar-isolate. SQLite untuk
+development, test, dan deployment dengan satu isolate; pakai PostgreSQL
+untuk production dengan `APP_ISOLATES` lebih dari 1
+([alasannya](database.md#sqlite-atau-postgresql)). Cara menentukan jumlah
+isolate, koneksi, dan batas ada di [Operasional](operations.md).
+
+## Load shedding
+
+Tanpa batas, worker yang kelebihan beban menerima setiap koneksi yang
+diberikan `dart:io` dan menjawabnya makin lama makin lambat, sampai semua
+klien kena timeout sekaligus. Dua batas per worker menolak request seketika
+sebagai gantinya, dengan `503 Service Unavailable`, `Retry-After: 1` dan
+body JSON, sebelum routing, middleware, atau request scope berjalan.
+Request tanpa body mempertahankan koneksi keep-alive-nya; yang body-nya
+tidak terbaca ditutup. Health probe (`/up`, `/up/ready`) tidak pernah ditolak,
+sehingga worker yang sibuk tidak di-restart karena sibuk. Keduanya mati
+(`0`) secara default; proyek yang dibuat dengan `dartisan new` men-set
+`HTTP_MAX_QUEUE_DELAY=200ms` di `.env.example`-nya.
+
+- `HTTP_MAX_IN_FLIGHT=N` (`serve --max-in-flight=N`) membatasi request yang
+  ditangani satu worker pada saat yang sama. Satu slot ditahan sampai
+  respons tertulis dan `terminate()` (deferred work) selesai; WebSocket yang
+  sudah di-upgrade menahan socket, bukan slot. Ini membatasi request yang
+  *menunggu*: worker yang handler-nya menunggu PostgreSQL, Redis, atau
+  layanan lain. Ia tidak melihat kerja sinkron: handler yang hanya menyentuh
+  SQLite atau CPU selesai dalam satu putaran event loop, sehingga request
+  kedua tidak pernah in-flight di sampingnya, seberapa pun panjang antrean
+  di depan worker.
+- `HTTP_MAX_QUEUE_DELAY=200ms` (`serve --max-queue-delay=200ms`) menolak
+  request selama event loop worker berjalan lebih terlambat dari itu. Sebuah
+  timer berdetak tiap 5 ms dan mengukur keterlambatannya sendiri, dihaluskan
+  selama beberapa detak; keterlambatan itu adalah lamanya request menunggu
+  di antrean socket dan event sebelum engine melihatnya, apa pun yang
+  dilakukan handler. Inilah batas yang bisa melihat pekerjaan yang berat di
+  CPU atau SQLite, yang tidak terlihat oleh batas in-flight; ukur efeknya di
+  bawah beban Anda sendiri (skenario 12 di `bench/`). Di bawah supervisor,
+  tiap worker mengukur loop-nya sendiri.
+
+Worker berbagi port lewat `shared: true`, jadi kernel membagi *koneksi*,
+bukan request, ke worker: satu worker bisa penuh saat yang lain masih lega,
+dan server bisa menolak request sebelum seluruh
+`APP_ISOLATES × HTTP_MAX_IN_FLIGHT` slot terpakai. Reverse proxy yang
+membuka beberapa koneksi upstream meratakannya.
+
+Tentukan nilainya dari load test (skenario 12 di `bench/` menjalankannya
+dengan laju kedatangan tetap di atas kapasitas):
+`HTTP_MAX_QUEUE_DELAY` adalah keterlambatan antrean yang rela Anda tambahkan
+ke sebuah respons, dan `HTTP_MAX_IN_FLIGHT` sekitar 2–4× `DB_POOL_SIZE`
+untuk worker yang mengakses database. Untuk aplikasi di PostgreSQL, batas
+in-flight-lah yang membatasi latensi, karena worker yang menunggu database
+tidak mengalami lag; `HTTP_MAX_QUEUE_DELAY` menangkap pekerjaan yang berat
+di CPU. Penolakan dihitung di
+`http_requests_shed_total{worker="..."}` pada `/metrics` (satu seri per
+worker, seperti `http_requests_in_flight`) dan dicatat sebagai warning paling banyak sekali per detik,
+menyebutkan batas yang tersentuh; penolakan yang terus-menerus berarti
+server butuh lebih banyak isolate atau instance, bukan batas yang lebih
+tinggi.
 
 ## Topologi
 

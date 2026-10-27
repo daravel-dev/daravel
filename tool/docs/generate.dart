@@ -81,6 +81,18 @@ void main(List<String> args) {
       guidePages[relative] = content;
     }
   }
+  // The release number in the READMEs (`<!-- release -->`), so the status
+  // line cannot fall behind the packages again.
+  final release = _releaseVersion();
+  for (final readme in [File('README.md'), File('README.id.md')]) {
+    write(
+      readme,
+      readme.readAsStringSync().replaceAll(
+        releaseMarker,
+        '<!-- release -->$release<!-- /release -->',
+      ),
+    );
+  }
   // The English guide, searched by `dartisan mcp:serve` (docs_search).
   write(
     File('packages/dartisan_cli/lib/src/guide_pages.g.dart'),
@@ -155,7 +167,7 @@ void main(List<String> args) {
     defaultVersion: defaultVersion,
     versions: versions,
     nav: nav,
-    releaseVersion: _releaseVersion(),
+    releaseVersion: release,
     clean: !args.contains('--keep'),
   );
   stdout.writeln(

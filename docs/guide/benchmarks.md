@@ -45,15 +45,23 @@ writes the results into `bench/results/<date>-<host>/`:
    warm-up, at 64 keep-alive connections. A table gives the median, with the
    lowest and highest run beside it, so one noisy run shows as spread
    instead of moving the number.
-3. **PostgreSQL**: the scenarios that query (2 to 4), five runs again,
-   against a fresh PostgreSQL 17 server.
-4. **A saturation curve**: `/ping` and the JSON scenario at 16, 64, 256 and
+3. **PostgreSQL**: the scenarios that query (2 to 4, and the overload of
+   scenario 11), five runs again, against a fresh PostgreSQL 17 server.
+4. **Overload**: Daravel alone (Laravel has no equivalent) flooded with
+   512 connections on scenario 2's endpoint, without a limit, with
+   `HTTP_MAX_IN_FLIGHT` and with `HTTP_MAX_QUEUE_DELAY` added
+   ([load shedding](deployment.md#load-shedding)): goodput, p99 of the
+   successful requests and the share refused with `503`, five runs. Twice:
+   with clients that retry at once (closed loop, scenario 11), and at a
+   fixed arrival rate 1.5 times the capacity from clients that do not
+   (open loop, scenario 12), the load that shedding is meant for.
+5. **A saturation curve**: `/ping` and the JSON scenario at 16, 64, 256 and
    1 024 connections, with plain `dart:io` as the ceiling for `/ping`.
-5. **A second load generator**: [oha](https://github.com/hatoo/oha),
+6. **A second load generator**: [oha](https://github.com/hatoo/oha),
    written in Rust (pinned version, checksum verified), measures Daravel
    and Octane on the GET scenarios. If its numbers and the harness's agree,
    the results do not come from the Dart load generator.
-6. **The raw data**: the JSON of every run stays next to `report.md` and
+7. **The raw data**: the JSON of every run stays next to `report.md` and
    `summary.json`.
 
 The servers (and PostgreSQL) run on the first half of the cores and the

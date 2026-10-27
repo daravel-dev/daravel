@@ -81,6 +81,10 @@ final class Coordinator {
   int _handled = 0;
   int _rejected = 0;
 
+  /// Since construction, for the message rate in [stats] (wall clock: not
+  /// domain time, so not `Clock`).
+  final Stopwatch _uptime = Stopwatch()..start();
+
   void register(CoordinatorService service) =>
       _services[service.name] = service;
 
@@ -164,14 +168,27 @@ final class Coordinator {
     }
   }
 
-  Map<String, Object?> stats() => <String, Object?>{
-    'handled': _handled,
-    'rejected': _rejected,
-    'in_flight': _inFlight,
-    'services': <String, Object?>{
-      for (final entry in _services.entries) entry.key: entry.value.stats(),
-    },
-  };
+  /// Counters, the message rate and each service's snapshot. `messages`
+  /// (handled plus rejected) only grows; with `uptime_s`, or by reading the
+  /// stats twice, it shows a flood of messages from the workers, which the
+  /// coordinator answers on the supervisor's own event loop.
+  Map<String, Object?> stats() {
+    final messages = _handled + _rejected;
+    final seconds = _uptime.elapsedMicroseconds / 1e6;
+    return <String, Object?>{
+      'handled': _handled,
+      'rejected': _rejected,
+      'messages': messages,
+      'uptime_s': double.parse(seconds.toStringAsFixed(1)),
+      'messages_per_second': seconds == 0
+          ? 0.0
+          : double.parse((messages / seconds).toStringAsFixed(1)),
+      'in_flight': _inFlight,
+      'services': <String, Object?>{
+        for (final entry in _services.entries) entry.key: entry.value.stats(),
+      },
+    };
+  }
 
   void close() {
     _port?.close();

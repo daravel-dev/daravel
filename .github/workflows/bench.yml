@@ -16,6 +16,22 @@ jobs:
   bench:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    # Scenarios 2–4 and 11 again on PostgreSQL. A throwaway server for this
+    # job; the harness skips the PostgreSQL run when it does not answer.
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: bench
+          POSTGRES_PASSWORD: bench
+          POSTGRES_DB: bench
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U bench"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
     steps:
       - uses: actions/checkout@v4
 
@@ -33,9 +49,21 @@ jobs:
           if [ -f baseline.json ]; then args="$args --compare=baseline.json"; fi
           dart run bin/bench.dart $args
 
+      - name: Run PostgreSQL variants
+        working-directory: bench
+        run: |
+          dart run bin/bench.dart --skip-build \
+            --database='postgres://bench:bench@127.0.0.1:5432/bench?pool=4' \
+            --scenarios=2,3,4,11 --isolates=1,4 \
+            --duration=${{ github.event.inputs.duration || '10' }} \
+            --out=results-pgsql.json
+
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: bench-results-${{ github.run_number }}
-          path: bench/results.json
+          path: |
+            bench/results.json
+            bench/results-pgsql.json
+          if-no-files-found: ignore

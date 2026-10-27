@@ -160,6 +160,23 @@ void main() {
     expect(plain.connections['pgsql']!.host, 'h');
   });
 
+  test('sharesSqliteFile: a SQLite file under several isolates only', () {
+    DatabaseConfig config(Map<String, String> env) =>
+        DatabaseConfig.fromEnv(Env.fromMap(env), basePath: '/srv');
+    final file = config(const {'DB_DATABASE': 'database/app.sqlite'});
+    expect(file.sharesSqliteFile(1), isFalse);
+    expect(file.sharesSqliteFile(4), isTrue);
+    expect(
+      config(const {'DB_DATABASE': ':memory:'}).sharesSqliteFile(4),
+      isFalse,
+      reason: 'refused outright by serve, not a sharing risk',
+    );
+    expect(
+      config(const {'DB_CONNECTION': 'pgsql'}).sharesSqliteFile(4),
+      isFalse,
+    );
+  });
+
   test(
     'withDatabaseConnection adds a connection with its own settings',
     () async {

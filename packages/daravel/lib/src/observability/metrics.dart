@@ -269,8 +269,49 @@ final class MetricsRegistry {
 }
 
 /// Coordinator service collecting worker snapshots (`process` scope).
+///
+/// With [coordinatorStats] (the standard coordinator passes its own
+/// `stats`), `collect` adds the coordinator's message counters, so a flood
+/// of messages from the workers shows on `/metrics`.
 final class MetricsService implements CoordinatorService {
+  MetricsService({this.coordinatorStats});
+
   static const String serviceName = 'metrics';
+
+  final Map<String, Object?> Function()? coordinatorStats;
+
+  /// [Coordinator.stats] as metrics, in the shape of
+  /// [MetricsRegistry.snapshot]: `coordinator_messages_total` (rate it for
+  /// messages per second), `coordinator_rejected_total` and
+  /// `coordinator_in_flight`.
+  static Map<String, Object?> coordinatorSnapshot(Map<String, Object?> stats) {
+    Map<String, Object?> metric(
+      String type,
+      String help,
+      String key,
+    ) => <String, Object?>{
+      'type': type,
+      'help': help,
+      'series': <String, Object?>{'': ((stats[key] ?? 0) as num).toDouble()},
+    };
+    return <String, Object?>{
+      'coordinator_messages_total': metric(
+        'counter',
+        'Messages the coordinator received from the workers.',
+        'messages',
+      ),
+      'coordinator_rejected_total': metric(
+        'counter',
+        'Messages refused because the coordinator queue was full.',
+        'rejected',
+      ),
+      'coordinator_in_flight': metric(
+        'gauge',
+        'Asynchronous coordinator calls not answered yet.',
+        'in_flight',
+      ),
+    };
+  }
 
   final Map<String, Map<String, Object?>> _snapshots = {};
 
@@ -285,7 +326,11 @@ final class MetricsService implements CoordinatorService {
             args['snapshot']! as Map<String, Object?>;
         return null;
       case 'collect':
-        return MetricsRegistry.merge(_snapshots.values);
+        final stats = coordinatorStats;
+        return <String, Object?>{
+          ...MetricsRegistry.merge(_snapshots.values),
+          if (stats != null) ...coordinatorSnapshot(stats()),
+        };
       default:
         throw CoordinatorException('Unknown metrics op [$op].');
     }
@@ -341,9 +386,14 @@ final class AppMetrics {
     );
     inFlight = registry.gauge(
       'http_requests_in_flight',
-      'Requests currently being handled.',
+      'Requests currently being handled, by worker isolate.',
     );
     jobs = registry.counter('queue_jobs_total', 'Queue jobs by status.');
+    shed = registry.counter(
+      'http_requests_shed_total',
+      'Requests refused with 503 by load shedding '
+          '(HTTP_MAX_IN_FLIGHT, HTTP_MAX_QUEUE_DELAY), by worker isolate.',
+    );
     registry.gauge(
       'process_resident_memory_bytes',
       'Resident set size of the process.',
@@ -360,13 +410,28 @@ final class AppMetrics {
   late final Histogram duration;
   late final Gauge inFlight;
   late final Counter jobs;
+  late final Counter shed;
 
-  String get _worker =>
+  /// The `worker` label of [inFlight] and [shed]: the isolate's name
+  /// (`daravel-worker-N` under a supervisor, the same after a respawn, so
+  /// there is one value per worker). Workers share the port, which spreads
+  /// connections rather than requests, and this shows when one is busier.
+  late final String _worker =
       Isolate.current.debugName ?? '${Isolate.current.hashCode}';
+
+  /// Counts one request refused by load shedding on this worker.
+  void recordShed() => shed.inc({'worker': _worker});
 
   /// Exposition text: merged across workers under a supervisor.
   Future<String> render() async {
     final remote = channel;
+    if (remote is LocalCoordinatorChannel) {
+      // One isolate: the coordinator is in this one; add its counters.
+      return MetricsRegistry.renderSnapshot(<String, Object?>{
+        ...registry.snapshot(),
+        ...MetricsService.coordinatorSnapshot(remote.coordinator.stats()),
+      });
+    }
     if (remote == null || !remote.isRemote) {
       return registry.render();
     }
@@ -415,14 +480,15 @@ final class MetricsMiddleware implements Middleware {
   @override
   Future<Response> handle(Request request, Next next) async {
     final stopwatch = Stopwatch()..start();
-    metrics.inFlight.inc();
+    final worker = {'worker': metrics._worker};
+    metrics.inFlight.inc(worker);
     var status = 500;
     try {
       final response = await next(request);
       status = response.status;
       return response;
     } finally {
-      metrics.inFlight.dec();
+      metrics.inFlight.dec(worker);
       final route = request.route?.path ?? 'unmatched';
       metrics.requests.inc({
         'method': request.method,
