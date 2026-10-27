@@ -14,6 +14,7 @@ Map<String, Object?> _payload(String jwt) => jsonDecode(
 ) as Map<String, Object?>;
 
 void main() {
+  twirpRetryTests();
   tearDown(Clock.restore);
 
   group('tokens', () {
@@ -340,5 +341,107 @@ void main() {
         ),
       ),
     );
+  });
+}
+
+void twirpRetryTests() {
+  group('Twirp retries', () {
+    late HttpClientFactory http;
+
+    RoomServiceClient client({int retries = 2}) => RoomServiceClient(
+      'http://lk.example.test',
+      apiKey: _key,
+      apiSecret: _secret,
+      http: http,
+      retries: retries,
+      retryDelay: Duration.zero,
+    );
+
+    setUp(() => http = HttpClientFactory());
+
+    test('a node that is unavailable or unreachable is tried again', () async {
+      var drops = 0;
+      final fake = http.fake({
+        '*/CreateRoom': Http.sequence([
+          Http.response({'msg': 'restarting'}, 503),
+          Http.response({'msg': 'bad gateway'}, 502),
+          Http.response({'sid': 'RM_1', 'name': 'a'}),
+        ]),
+        '*/ListRooms': (ClientRequest request) {
+          if (drops++ == 0) {
+            throw const ConnectionException('Could not reach: reset');
+          }
+          return Http.response({'rooms': <Object?>[]});
+        },
+      });
+      expect((await client().createRoom('a')).name, 'a');
+      expect(await client().listRooms(), isEmpty);
+      expect(
+        fake.recorded.where((r) => r.url.path.endsWith('CreateRoom')),
+        hasLength(3),
+      );
+      expect(
+        fake.recorded.where((r) => r.url.path.endsWith('ListRooms')),
+        hasLength(2),
+      );
+    });
+
+    test('other errors, timeouts and exhausted retries are final', () async {
+      final fake = http.fake({
+        '*/CreateRoom': Http.response({'code': 'not_found', 'msg': 'no'}, 404),
+        '*/ListRooms': Http.sequence([
+          Http.response({'msg': 'down'}, 503),
+          Http.response({'msg': 'down'}, 503),
+          Http.response({'msg': 'down'}, 503),
+          Http.response({'msg': 'down'}, 503),
+        ]),
+        '*/DeleteRoom': (ClientRequest request) =>
+            throw const ConnectionException('timed out', isTimeout: true),
+      });
+      await expectLater(
+        client().createRoom('a'),
+        throwsA(isA<LivekitException>().having((e) => e.status, 'status', 404)),
+      );
+      await expectLater(
+        client().listRooms(),
+        throwsA(isA<LivekitException>().having((e) => e.status, 'status', 503)),
+      );
+      await expectLater(
+        client().deleteRoom('a'),
+        throwsA(isA<ConnectionException>()),
+      );
+      expect(
+        fake.recorded.where((r) => r.url.path.endsWith('CreateRoom')),
+        hasLength(1),
+        reason: '4xx is final',
+      );
+      expect(
+        fake.recorded.where((r) => r.url.path.endsWith('ListRooms')),
+        hasLength(3),
+        reason: 'retries + 1',
+      );
+      expect(
+        fake.recorded.where((r) => r.url.path.endsWith('DeleteRoom')),
+        hasLength(1),
+        reason: 'a timeout may have been processed',
+      );
+    });
+
+    test('the backoff doubles with jitter and is capped', () {
+      final rooms = RoomServiceClient(
+        'http://lk',
+        apiKey: _key,
+        apiSecret: _secret,
+        retryDelay: const Duration(milliseconds: 200),
+      );
+      for (var i = 0; i < 50; i++) {
+        final first = rooms.backoff(0);
+        expect(first.inMilliseconds, inInclusiveRange(100, 200));
+        final second = rooms.backoff(1);
+        expect(second.inMilliseconds, inInclusiveRange(200, 400));
+        final far = rooms.backoff(20);
+        expect(far.inMilliseconds, inInclusiveRange(2500, 5000));
+      }
+    });
   });
 }

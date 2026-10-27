@@ -1,4 +1,4 @@
-<!-- source: livekit.md sha256:acb92185c828 -->
+<!-- source: livekit.md sha256:9aafc07a067f -->
 # LiveKit
 
 [LiveKit](https://livekit.io) membawa video, audio, dan berbagi layar
@@ -79,8 +79,13 @@ Setiap pemanggilan ditandatangani dengan token 10 menit yang hanya membawa
 grant yang dibutuhkannya (`roomCreate`, `roomList`, atau `roomAdmin` pada
 room itu), seperti SDK LiveKit. Penolakan berupa `LivekitException` dengan
 `code` dari Twirp (`not_found`, `permission_denied`) dan status HTTP-nya.
-Client mengirim lewat HTTP client aplikasi, sehingga `Http.fake()` bisa
-menggantikannya di test.
+Pemanggilan yang koneksinya gagal sebelum apa pun terkirim (ditolak,
+reset), atau yang dijawab LiveKit dengan 502, 503 atau 504 (node sedang
+restart), dikirim ulang paling banyak `retries` (2) kali lagi setelah
+`retryDelay` (200 ms) yang digandakan tiap kali dengan jitter; timeout
+atau jawaban lain bersifat final, karena pemanggilan itu mungkin sudah
+diproses dan `sendData` dua kali berarti dua pesan. Client mengirim lewat
+HTTP client aplikasi, sehingga `Http.fake()` bisa menggantikannya di test.
 
 ## Webhook
 

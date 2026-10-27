@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added `ConnectionException.isTimeout`: true when the request was sent and the answer did not come in time (it may have been processed), false when the connection was refused or reset.
 - Fixed: `DB.transaction(attempts: n)` no longer re-runs a committed body when an after-commit callback fails with a retryable error; the callbacks run outside the retry.
 - Fixed: a SQLite connection whose setup fails after the file is opened (not a database, stays busy) closes its handle instead of leaking it with the file locked.
 - Fixed: `MemoryStore` sweeps expired, unreleased locks once there are `maxEntries` of them (`lockCount`); `ProcessRateLimitStore` sweeps the state of keys it no longer limits once `maxKeys` (10 000) are tracked (`trackedKeys`). Both only grew before.

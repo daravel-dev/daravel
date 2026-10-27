@@ -29,6 +29,8 @@ final class RoomServiceClient {
     required this.apiSecret,
     this._http,
     this.timeout = const Duration(seconds: 10),
+    this.retries = 2,
+    this.retryDelay = const Duration(milliseconds: 200),
   }) : url = httpUrl(url);
 
   /// The server, as `http(s)://` (a `ws(s)://` URL is turned into one).
@@ -36,8 +38,38 @@ final class RoomServiceClient {
   final String apiKey;
   final String apiSecret;
   final Duration timeout;
+
+  /// How many more times a call is sent after the connection failed
+  /// (refused, reset, a DNS miss: the request never reached LiveKit) or
+  /// LiveKit answered 502, 503 or 504 (a node restarting; not processed).
+  /// Any other answer, and a timeout, is final: the call may have been
+  /// processed, and `SendData` sent twice is two messages.
+  final int retries;
+
+  /// The wait before the first retry, doubled each time up to 5 seconds,
+  /// with a random share of it added (equal jitter), so workers that
+  /// failed together do not retry together.
+  final Duration retryDelay;
+
   final HttpClientFactory? _http;
   HttpClientFactory? _own;
+
+  static const Duration _maxBackoff = Duration(seconds: 5);
+
+  /// The wait before retry number [attempt] (from 0).
+  Duration backoff(int attempt) {
+    final base = retryDelay.inMicroseconds * (1 << attempt);
+    final capped = base < _maxBackoff.inMicroseconds
+        ? base
+        : _maxBackoff.inMicroseconds;
+    final half = capped ~/ 2;
+    return Duration(microseconds: half + _random.nextInt(half + 1));
+  }
+
+  static bool _notProcessed(ClientResponse response) =>
+      response.status == 502 ||
+      response.status == 503 ||
+      response.status == 504;
 
   static final Random _random = Random.secure();
 
@@ -78,12 +110,25 @@ final class RoomServiceClient {
       ttl: const Duration(minutes: 10),
       video: grant,
     ).toJwt();
-    final response = await _factory
-        .request()
-        .withToken(token)
-        .acceptJson()
-        .timeout(timeout)
-        .post('$url/twirp/livekit.RoomService/$method', json: body);
+    ClientResponse response;
+    for (var attempt = 0; ; attempt++) {
+      try {
+        response = await _factory
+            .request()
+            .withToken(token)
+            .acceptJson()
+            .timeout(timeout)
+            .post('$url/twirp/livekit.RoomService/$method', json: body);
+        if (attempt >= retries || !_notProcessed(response)) {
+          break;
+        }
+      } on ConnectionException catch (error) {
+        if (attempt >= retries || error.isTimeout) {
+          rethrow;
+        }
+      }
+      await Future<void>.delayed(backoff(attempt));
+    }
     if (!response.successful) {
       Object? error;
       try {

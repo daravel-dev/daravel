@@ -174,6 +174,7 @@ final class HttpClientFactory {
     } on TimeoutException {
       throw ConnectionException(
         'Request to ${request.url} timed out after ${timeout.inSeconds}s.',
+        isTimeout: true,
       );
     } on io.SocketException catch (error) {
       throw ConnectionException(
@@ -596,7 +597,13 @@ final class HttpFake {
 
 /// The server could not be reached, or did not answer in time.
 final class ConnectionException extends DaravelException {
-  const ConnectionException(super.message);
+  const ConnectionException(super.message, {this.isTimeout = false});
+
+  /// Whether the request was sent and the answer did not come in time: it
+  /// may have been processed, unlike a connection that was refused or
+  /// reset before anything was sent, so a caller retrying must not
+  /// assume it was not.
+  final bool isTimeout;
 }
 
 /// A 4xx or 5xx response, thrown by [ClientResponse.throwIfFailed].
