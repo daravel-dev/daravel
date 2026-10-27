@@ -71,6 +71,7 @@ Map<String, Object?> _jwtPart(String part) =>
         as Map<String, Object?>;
 
 void main() {
+  revokedTests();
   final now = DateTime.utc(2026, 10, 28, 7, 30);
   setUp(() => Clock.fake(now));
   tearDown(Clock.restore);
@@ -624,5 +625,51 @@ void main() {
         reason: 'no GOOGLE_APPLICATION_CREDENTIALS',
       );
     });
+  });
+}
+
+void revokedTests() {
+  test('a revoked refresh token is not retried on every call', () async {
+    final http = HttpClientFactory();
+    final fake = http.fake({
+      GoogleOAuth.tokenEndpoint: Http.response({
+        'error': 'invalid_grant',
+        'error_description': 'Token has been expired or revoked.',
+      }, 400),
+    });
+    final credentials = UserCredentials(
+      GoogleToken(
+        accessToken: 'ya29.old',
+        created: DateTime.utc(2026, 10, 28).subtract(const Duration(hours: 2)),
+        expiresIn: const Duration(hours: 1),
+        refreshToken: '1//revoked',
+      ),
+      oauth: GoogleOAuth(clientId: 'id', clientSecret: 's', http: http),
+    );
+    for (var i = 0; i < 3; i++) {
+      await expectLater(
+        credentials.accessToken(),
+        throwsA(
+          isA<GoogleException>().having(
+            (e) => e.reason,
+            'reason',
+            'invalid_grant',
+          ),
+        ),
+      );
+    }
+    expect(fake.recorded, hasLength(1), reason: 'asked Google once');
+    expect(credentials.revoked, isNotNull);
+    // After the user consented again.
+    credentials.replace(
+      GoogleToken(
+        accessToken: 'ya29.new',
+        created: Clock.now().toUtc(),
+        expiresIn: const Duration(hours: 1),
+        refreshToken: '1//fresh',
+      ),
+    );
+    expect(credentials.revoked, isNull);
+    expect(await credentials.accessToken(), 'ya29.new');
   });
 }

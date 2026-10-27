@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'client.dart';
 import 'oauth.dart';
 import 'service_account.dart';
 import 'token.dart';
@@ -33,18 +34,42 @@ final class UserCredentials implements GoogleCredentials {
   final GoogleOAuth oauth;
   final FutureOr<void> Function(GoogleToken token)? onRefresh;
   Future<GoogleToken>? _refreshing;
+  GoogleException? _revoked;
 
   /// The current token (the refreshed one after a refresh).
   GoogleToken get token => _token;
+
+  /// Set once Google answered `invalid_grant`: the refresh token is
+  /// revoked or expired, the user must consent again, and asking Google
+  /// again on every call would only hammer its token endpoint. Cleared by
+  /// [replace].
+  GoogleException? get revoked => _revoked;
+
+  /// Uses [token] from now on (after the user consented again).
+  void replace(GoogleToken token) {
+    _token = token;
+    _revoked = null;
+  }
 
   @override
   Future<String> accessToken() async {
     if (!_token.expired()) {
       return _token.accessToken;
     }
+    if (_revoked case final GoogleException error) {
+      throw error;
+    }
     final refreshing = _refreshing ??= () async {
       try {
-        final fresh = await oauth.refresh(_token);
+        final GoogleToken fresh;
+        try {
+          fresh = await oauth.refresh(_token);
+        } on GoogleException catch (error) {
+          if (error.reason == 'invalid_grant') {
+            _revoked = error;
+          }
+          rethrow;
+        }
         // Stored first: if the store fails, the token in memory stays the
         // old one, so the next call refreshes and stores again instead of
         // serving a token the database never saw (and, had Google rotated

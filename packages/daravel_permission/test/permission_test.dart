@@ -420,6 +420,21 @@ void permissionTests({String? databaseUrl}) {
     expect(await has('outside'), isTrue);
   });
 
+  test('the per-isolate access cache is bounded', () async {
+    final app = await migrated();
+    await app.run(() async {
+      final registrar = PermissionRegistrar.current;
+      for (var i = 0; i < PermissionRegistrar.maxCachedModels + 50; i++) {
+        await registrar.accessOf(r'App\Models\User', i, 'web');
+      }
+      expect(
+        registrar.cachedModels,
+        lessThanOrEqualTo(PermissionRegistrar.maxCachedModels),
+        reason: 'one entry per model ever checked used to stay for ever',
+      );
+    });
+  });
+
   test('the permission:* commands', () async {
     final app = await migrated();
     final id = await app.run(() async => (await user('Ivy')).id);

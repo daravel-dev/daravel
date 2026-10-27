@@ -38,6 +38,13 @@ final class PermissionRegistrar {
 
   static const String _versionKey = 'daravel_permission:version';
 
+  /// The most models whose roles and permissions this isolate caches
+  /// before stale entries are swept.
+  static const int maxCachedModels = 10000;
+
+  /// Models cached on this isolate.
+  int get cachedModels => _local.length;
+
   final Map<String, ({int version, DateTime expires, Access access})> _local =
       {};
   final Map<String, ({int version, DateTime expires, Set<String> names})>
@@ -75,6 +82,20 @@ final class PermissionRegistrar {
       return cached.access;
     }
     final access = await _load(type, id, guard);
+    if (_local.length >= maxCachedModels) {
+      // One entry per model ever checked on this isolate: bounded by
+      // dropping what a newer version or the TTL has already retired, and
+      // when that is not enough, the oldest half.
+      _local.removeWhere(
+        (_, entry) => entry.version != version || !entry.expires.isAfter(now),
+      );
+      if (_local.length >= maxCachedModels) {
+        for (final old in _local.keys.take(_local.length ~/ 2).toList()) {
+          _local.remove(old);
+        }
+      }
+    }
+    _local.remove(key);
     _local[key] = (
       version: version,
       expires: now.add(config.cacheTtl),

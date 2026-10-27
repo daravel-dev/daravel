@@ -137,6 +137,12 @@ match Laravel more closely.
   sizes in order of last use, dropping the older half when full; every
   key a worker ever limited (one per client IP) stayed until it was asked
   for again (`ProcessRateLimitStore.trackedKeys`).
+- `daravel_permission`: the per-isolate access cache is bounded
+  (`PermissionRegistrar.maxCachedModels`, 10 000); one entry per model
+  ever checked stayed until the isolate exited.
+- `daravel_google`: once Google answers `invalid_grant`, `UserCredentials`
+  keeps throwing it (`revoked`) instead of asking the token endpoint
+  again on every call; `replace` installs the token of a new consent.
 - `daravel_google`: `Google.serviceCalendar()` shares one service-account
   token per isolate, scopes and subject (`Google.serviceCredentials`,
   `ServiceAccountCredentialsCache`); it used to sign an RS256 assertion

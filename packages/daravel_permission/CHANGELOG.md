@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Fixed: the per-isolate access cache is bounded (`PermissionRegistrar.maxCachedModels`, 10 000; `cachedModels`): one entry per model ever checked stayed until the isolate exited.
 - Fixed: `hasRole`, `hasAllRoles` and `hasExactRoles` given a `Role` of another guard no longer match a role of the same name under the model's guard (Spatie compares `Role` objects by key).
 
 ## 1.13.0
