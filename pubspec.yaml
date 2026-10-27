@@ -14,6 +14,7 @@ workspace:
   - packages/daravel_redis
   - packages/daravel_sqlite
   - packages/daravel_permission
+  - packages/daravel_activitylog
   - packages/daravel_postgres
   - packages/daravel_teorion
   - packages/daravel_google

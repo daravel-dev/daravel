@@ -123,6 +123,18 @@ sections:
       - { php: "php artisan permission:show", dart: "dartisan permission:show", symbol: PermissionShowCommand }
       - { php: "app(PermissionRegistrar::class)->forgetCachedPermissions()", dart: "await PermissionRegistrar.current.forgetCachedPermissions()", symbol: PermissionRegistrar.forgetCachedPermissions, async: true }
 
+  - name: Activity log (daravel_activitylog)
+    symbols:
+      - { php: "use LogsActivity; getActivitylogOptions()", dart: "with LogsActivity, observers: [ActivityLogObserver<T>()]", symbol: LogsActivity, note: "spatie/laravel-activitylog v4's activity_log table: shared with Laravel." }
+      - { php: "LogOptions::defaults()->logOnly([...])->logOnlyDirty()", dart: "LogOptions.defaults().logOnly([...]).logOnlyDirty()", symbol: LogOptions.logOnly }
+      - { php: "activity('log')->performedOn($m)->causedBy($u)->log('...')", dart: "await activity('log').performedOn(m).causedBy(u).log('...')", symbol: ActivityLogger.log, async: true }
+      - { php: "activity()->withoutLogs(fn () => ...)", dart: "await ActivityLog.withoutLogs(() async {...})", symbol: ActivityLog.withoutLogs, async: true, note: "Scoped to the callback, not the whole process." }
+      - { php: "LogBatch::withinBatch(fn ($uuid) => ...)", dart: "await LogBatch.within((uuid) async {...})", symbol: LogBatch.within, async: true }
+      - { php: "$model->activities", dart: "await model.activities().get()", symbol: LogsActivity.activities, async: true }
+      - { php: "Activity::inLog('x')->causedBy($u)->get()", dart: "await Activity.query().inLog('x').causedBy(u).get()", symbol: ActivityQuery.inLog, async: true }
+      - { php: "$activity->changes()", dart: "activity.changes", symbol: Activity.changes }
+      - { php: "php artisan activitylog:clean", dart: "dartisan activitylog:clean", symbol: ActivitylogCleanCommand }
+
   - name: Query filters (daravel_teorion)
     symbols:
       - { php: "Post::query()->filterAndPaginate($request)", dart: "await Post.definition.query().filterAndPaginate(request)", symbol: FilterableQuery.filterAndPaginate, async: true, note: "laravel-teorion's request format: filters, scopes[], withs[], sort, is_paginate, pagination=cursor." }
@@ -175,6 +187,7 @@ sections:
       - { php: "$model->save() / update() / delete()", dart: "await model.save() / update() / delete()", symbol: Model.save, async: true }
       - { php: "$model->restore() / forceDelete()", dart: "await model.restore() / forceDelete()", symbol: Model.restore, async: true }
       - { php: "$model->isDirty() / wasChanged()", dart: "model.isDirty() / wasChanged()", symbol: Model.isDirty }
+      - { php: "$model->getChanges()", dart: "model.getChanges()", symbol: Model.getChanges }
       - { php: "$model->refresh() / fresh()", dart: "await model.refresh() / fresh()", symbol: Model.refresh, async: true }
       - { php: "$model->load('posts')", dart: "await model.load('posts')", symbol: Model.load, async: true }
       - { php: "$model->toArray() / toJson()", dart: "model.toJson()", symbol: Model.toJson }

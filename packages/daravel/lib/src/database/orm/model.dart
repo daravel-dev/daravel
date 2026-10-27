@@ -211,6 +211,11 @@ abstract base class Model implements JsonSerializable, Responsable {
   bool wasChanged([String? key]) =>
       key == null ? _changes.isNotEmpty : _changes.containsKey(key);
 
+  /// The attributes the last `save()` wrote (Laravel's `getChanges()`):
+  /// what an `updated` or `created` observer sees changed, since by then
+  /// [original] already matches [attributes].
+  Map<String, Object?> getChanges() => Map.unmodifiable(_changes);
+
   /// Marks the current attributes as the persisted state.
   void syncOriginal() => _original = Map<String, Object?>.of(_attributes);
 
