@@ -2,11 +2,23 @@
 
 All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 `daravel_lints`, `daravel_mysql`, `daravel_permission`, `daravel_redis`,
-`daravel_sqlite`, `daravel_postgres`, `daravel_teorion`, `dartisan_cli`). Versions follow SemVer:
+`daravel_sqlite`, `daravel_postgres`, `daravel_teorion`, `daravel_livekit`,
+`daravel_google`, `dartisan_cli`). Versions follow SemVer:
 breaking changes to the Dart API wait for a new major version, and
 Laravel-facing formats change only to match Laravel more closely.
 
-## Unreleased
+## 1.13.0
+
+Two first-party packages for a virtual classroom next to a Laravel
+application: `daravel_livekit` (LiveKit's server SDK, checked against a
+LiveKit server and LiveKit's PHP SDK) and `daravel_google` (OAuth tokens
+in google/apiclient's JSON, service accounts, Google Calendar events with
+Google Meet links). From the architecture audit of 2026-10-27: per-worker
+load shedding (`HTTP_MAX_IN_FLIGHT`, `HTTP_MAX_QUEUE_DELAY`), `doctor`
+notes on isolates, log level and SQLite, worker-labelled and coordinator
+metrics, an operations guide and reconstructed ADRs, and benchmarks that
+measure overload in an open loop. Presence channels no longer repeat or
+reorder member events across broadcasting servers.
 
 ### Added
 

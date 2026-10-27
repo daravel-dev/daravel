@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.13.0
+
+- Version aligned with Daravel 1.13.0; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).
+
 ## 1.12.0
 
 - First release: `withRedis()`, a RESP client (`RedisClient`, `RedisScript`, Pub/Sub), `RedisStore` (cache, Laravel-compatible locks, one-script rate limits), `RedisQueue` (`BLPOP` wake-up), broadcasting between servers (`RedisBroadcastRelay`, `RedisChannelState`), the `Redis` facade and a `redis` readiness check.

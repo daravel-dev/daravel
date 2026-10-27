@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.13.0
+
+- Added `serve --max-in-flight` and `serve --max-queue-delay` (also passed on by `serve --watch`); new projects set `HTTP_MAX_QUEUE_DELAY=200ms`.
+- Added `CheckStatus.notice`: `doctor` notes one isolate on a machine with more cores, `LOG_LEVEL` below `warning` and a SQLite file shared by several isolates, never failing, not even with `--production`. The PostgreSQL pool check counts the pool the driver opens and says "skipped" when the database is unreachable.
+- `db:install pgsql` writes `DB_POOL_SIZE=10` and `HTTP_MAX_IN_FLIGHT=40` into the PostgreSQL block of `.env.example`.
+
 ## 1.12.0
 
 - Version aligned with Daravel 1.12.0; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).

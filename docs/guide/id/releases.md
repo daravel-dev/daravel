@@ -1,16 +1,18 @@
-<!-- source: releases.md sha256:812717ea3522 -->
+<!-- source: releases.md sha256:92fd63729749 -->
 # Rilis dan versioning
 
-Daravel `1.x` adalah lini rilis stabil. Kesepuluh paket (`daravel`,
+Daravel `1.x` adalah lini rilis stabil. Kedua belas paket (`daravel`,
 `dartisan_cli`, `daravel_test`, `daravel_lints`, `daravel_mysql`,
 `daravel_sqlite`, `daravel_postgres`, dan sejak 1.12.0 `daravel_redis`,
-`daravel_permission`, serta `daravel_teorion`) dirilis bersama dengan satu
+`daravel_permission`, serta `daravel_teorion`, dan sejak 1.13.0
+`daravel_livekit` serta `daravel_google`) dirilis bersama dengan satu
 versi,
 dipublikasikan di [pub.dev](https://pub.dev/packages/daravel) oleh publisher
 terverifikasi `framework.daravel.dev`.
 
 | Versi | Sorotan |
 | :-- | :-- |
+| `1.13.0` | LiveKit (daravel_livekit) dan Google (daravel_google), load shedding (HTTP_MAX_IN_FLIGHT, HTTP_MAX_QUEUE_DELAY), catatan doctor, panduan operasional, metrik berlabel worker, perbaikan event presence lintas server |
 | `1.12.0` | Redis dan Valkey (daravel_redis), role dan permission (daravel_permission), query filter (daravel_teorion), cache tags, eager loading kolom tertentu, exception unique violation bertipe, dan createOrFirst |
 | `1.11.0` | Broadcasting lintas server (REVERB_SCALING_ENABLED), channel cache dan terenkripsi, 10k koneksi, rate limit satu statement, worker queue yang bisa dibangunkan |
 | `1.10.1` | Perbaikan keamanan: pencabutan JWT di semua isolate, queue:restart dan queue:pause lintas proses, lock unique job |

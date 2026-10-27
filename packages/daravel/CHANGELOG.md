@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.13.0
+
+- Added load shedding per worker: `HTTP_MAX_IN_FLIGHT` (`ServeOptions.maxInFlight`) and `HTTP_MAX_QUEUE_DELAY` (`ServeOptions.maxQueueDelay`) refuse a request before routing with `503`, `Retry-After: 1` and `{"message":"Service Unavailable"}`; the health probes are never refused; `ServerEngine.inFlight`, `queueDelay`, `shedRequests` and `http_requests_shed_total`.
+- Added `coordinator_messages_total`, `coordinator_rejected_total` and `coordinator_in_flight` on `/metrics`, and `messages`, `uptime_s` and `messages_per_second` in `Coordinator.stats()`.
+- Added `DatabaseConfig.sharesSqliteFile(isolates)`; `serve` with several isolates on a SQLite file logs one warning.
+- Changed: `http_requests_in_flight` and `http_requests_shed_total` carry a `worker` label (one series per worker isolate).
+- Fixed presence channels across broadcasting servers: no `member_added` for a member `subscription_succeeded` already listed, and no member event before it.
+
 ## 1.12.0
 
 - Added `Cache.tags([...])` (`TaggableCacheStore`, `TaggedCacheStore`, `TagSetCacheStore`) on the `memory` and `process` stores; `file` and `database` refuse, as in Laravel.
