@@ -82,7 +82,22 @@ async function daravel() {
   const n = await within(notification, 'notification');
   check('notification', n.text === 'Welcome!' && n.type === 'App\\Notifications\\Welcome' && !!n.id, n);
 
-  // 6. Ana may not listen to Teo's channel: the auth endpoint refuses.
+  // 6. A cache channel: a client that subscribes after the event gets it.
+  await post('/price');
+  const late = echo('user-2');
+  const cached = new Promise((resolve) => late.channel('cache-prices').listen('.price.updated', resolve));
+  check('cache channel', (await within(cached, 'cached event')).price === 13);
+  late.disconnect();
+
+  // 7. An end-to-end encrypted channel: pusher-js decrypts with the
+  // shared_secret from /broadcasting/auth.
+  const secretChannel = teo.encryptedPrivate('orders.7');
+  await within(subscribed(secretChannel), 'subscribe encrypted');
+  const secret = new Promise((resolve) => secretChannel.listen('.secret', resolve));
+  await post('/secret');
+  check('encrypted channel', (await within(secret, 'encrypted event')).code === '4821');
+
+  // 8. Ana may not listen to Teo's channel: the auth endpoint refuses.
   const refused = await within(
     new Promise((resolve) => ana.private('App.Models.User.1').error(resolve)),
     'auth error',

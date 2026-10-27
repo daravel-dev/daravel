@@ -20,7 +20,8 @@ set -uo pipefail
 WORK=${WORK:-$HOME/daravel-bench}
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
 HERE="$REPO/bench/interop"
-KEYS=(-e REVERB_APP_ID=app1 -e REVERB_APP_KEY=key1 -e REVERB_APP_SECRET=secret1)
+KEYS=(-e REVERB_APP_ID=app1 -e REVERB_APP_KEY=key1 -e REVERB_APP_SECRET=secret1
+  -e REVERB_ENCRYPTION_MASTER_KEY_BASE64=KioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKio=)
 
 # A copy of the working tree, so the container's `pub get` never touches
 # the checkout's .dart_tool; its files are root's, so a container removes it.

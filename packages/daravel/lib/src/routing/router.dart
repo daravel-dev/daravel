@@ -83,17 +83,22 @@ final class Router {
   /// runs first, then the connection is upgraded and [handler] gets the
   /// socket and the request (route parameters, `Auth.user()`) in the
   /// request's scope. A plain request gets `426 Upgrade Required`.
-  RouteEntry ws(String path, WebSocketHandler handler) =>
-      match(const <String>['GET'], path, (request) {
-        if (!isWebSocketUpgrade(request)) {
-          return Response.json(
-            const <String, Object?>{'message': 'Upgrade Required'},
-            status: 426,
-            headers: const <String, String>{'upgrade': 'websocket'},
-          );
-        }
-        return Response.webSocket(handler);
-      })..markWebSocket();
+  /// A WebSocket route; [compress] false turns permessage-deflate off (see
+  /// [Response.webSocket]).
+  RouteEntry ws(
+    String path,
+    WebSocketHandler handler, {
+    bool compress = true,
+  }) => match(const <String>['GET'], path, (request) {
+    if (!isWebSocketUpgrade(request)) {
+      return Response.json(
+        const <String, Object?>{'message': 'Upgrade Required'},
+        status: 426,
+        headers: const <String, String>{'upgrade': 'websocket'},
+      );
+    }
+    return Response.webSocket(handler, compress: compress);
+  })..markWebSocket();
 
   RouteEntry post(String path, Handler handler) =>
       match(const <String>['POST'], path, handler);

@@ -1,4 +1,4 @@
-<!-- source: configuration.md sha256:3b5c8b57e712 -->
+<!-- source: configuration.md sha256:b77b77736f2f -->
 # Konfigurasi
 
 ## File environment
@@ -85,6 +85,7 @@ setelah boot.
 | `BROADCAST_CONNECTION` | `daravel` | Tujuan event broadcast: `daravel` (server ini), `reverb`, `pusher`, `log`, `null` ([Broadcasting](broadcasting.md)) |
 | `REVERB_APP_ID`, `REVERB_APP_KEY`, `REVERB_APP_SECRET` | tidak ada | Aplikasi Pusher yang dipakai server ini untuk melayani Echo (atau Reverb tujuan pengiriman) |
 | `REVERB_HOST`, `REVERB_PORT`, `REVERB_SCHEME` | tidak ada, 443, `https` | Reverb tujuan `BROADCAST_CONNECTION=reverb` |
+| `REVERB_ENCRYPTION_MASTER_KEY_BASE64` | tidak ada | 32 byte dalam base64 untuk mengenkripsi channel `private-encrypted-` (`PUSHER_ENCRYPTION_MASTER_KEY_BASE64` dengan `pusher`) |
 | `DB_CHARSET`, `DB_COLLATION`, `DB_TIMEZONE` | `utf8mb4`, `utf8mb4_unicode_ci`, server | MySQL dan MariaDB, sebagaimana dibaca Laravel |
 | `DB_POOL_SIZE`, `DB_SSLMODE` | `10`, `disable` | Pool koneksi per isolate, TLS (`require`, `verify-full`) |
 | `CACHE_STORE`, `CACHE_PREFIX` | `memory` | Penyimpanan cache dan prefix key |

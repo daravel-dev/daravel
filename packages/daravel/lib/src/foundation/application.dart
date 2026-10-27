@@ -586,6 +586,8 @@ final class Application {
         '/app/{key}',
         (socket, request) =>
             server.connect(socket, request, request.param<String>('key')),
+        // As Reverb: no permessage-deflate, so no zlib state per connection.
+        compress: false,
       ).name('daravel.broadcasting.connect')
       ..post(
         '/apps/{appId}/events',

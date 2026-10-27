@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Added cache channels (`cache-`, `private-cache-`, `presence-cache-`) and end-to-end encrypted `private-encrypted-` channels (`REVERB_ENCRYPTION_MASTER_KEY_BASE64`, `Echo.encryptedPrivate`).
+- Added `compress:` to `Router.ws` and `Response.webSocket`; the Pusher endpoint runs without permessage-deflate.
+- Changed: a WebSocket connection no longer keeps its HTTP request alive (`Request.detachBody`).
+
 ## 1.10.0
 
 - Added broadcasting with Laravel Echo: the Pusher protocol as Laravel Reverb (`withBroadcasting`, `ChannelRegistry`, `/broadcasting/auth`, the HTTP API), `ShouldBroadcast`, `Broadcast.event` / `send`, and `BROADCAST_CONNECTION` (`daravel`, `reverb`, `pusher`, `log`, `null`).

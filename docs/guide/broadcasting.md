@@ -121,6 +121,40 @@ and secret. Daravel checks the request signatures as Pusher does, and also
 refuses requests whose timestamp is more than ten minutes off, so a captured
 request cannot be replayed (Reverb does not check the time).
 
+## Cache and encrypted channels
+
+A channel whose name starts with `cache-` (or `private-cache-`,
+`presence-cache-`) keeps its last event for 30 minutes, as Pusher Channels
+does: a client that subscribes later gets it right after
+`subscription_succeeded`, or `pusher:cache_miss` when there is none.
+
+```dart
+await Broadcast.send('price.updated', ['cache-prices'], {'sku': 'A1', 'price': 13});
+```
+
+```js
+Echo.channel('cache-prices').listen('.price.updated', (e) => { /* the last price */ });
+```
+
+`private-encrypted-` channels are end-to-end encrypted, as with Pusher:
+set `REVERB_ENCRYPTION_MASTER_KEY_BASE64` (32 random bytes, base64:
+`openssl rand -base64 32`) and listen with `Echo.encryptedPrivate`.
+Each channel's key is derived from the master key, `/broadcasting/auth`
+hands it to clients the channel admits, and events are sealed with
+libsodium's `secretbox` before they leave the application, so the
+WebSocket server only relays ciphertext. Clients cannot whisper on them.
+
+```dart
+await Broadcast.send('secret', ['private-encrypted-orders.7'], {'code': '4821'});
+```
+
+```js
+Echo.encryptedPrivate('orders.7').listen('.secret', (e) => { /* decrypted */ });
+```
+
+The same key works with `BROADCAST_CONNECTION=reverb` or `pusher`: Laravel
+(with `encryption_master_key_base64`) and Daravel encrypt the same way.
+
 ## Origins and limits
 
 | Variable | Default | Purpose |
@@ -132,12 +166,31 @@ request cannot be replayed (Reverb does not check the time).
 Client events (`client-*`, Echo's `whisper`) are forwarded only on private
 and presence channels the sender has joined, as Pusher Channels requires.
 
+## Capacity
+
+`bench/interop/connections.sh` opens idle Echo connections against the AOT
+build, all subscribed to one channel, and times one event reaching every
+one of them. With 10 000 connections:
+
+| | Memory (RSS) | One event to all |
+| :-- | --: | --: |
+| Daravel, 1 isolate | 11 MB idle, 189 MB loaded (about 18 KB per connection) | 0.62 s |
+| Daravel, 4 isolates | 12 MB idle, 188 MB loaded | 0.43 s |
+| `dart:io` alone (a bare `WebSocket` server) | 7 MB idle, 98 MB loaded (about 9 KB per connection) | 0.63 s |
+| Laravel Reverb 1.12 | 54 MB idle, about 21 KB per connection (1 000 connections) | |
+
+About half of each connection is `dart:io`'s own WebSocket. Reverb without
+`ext-uv` or `ext-event` stops near 1 000 connections (PHP's
+`stream_select`). The WebSocket runs without permessage-deflate, as
+Reverb's does: compressing each frame for each connection made the same
+event take 7.9 s.
+
 ## Verified against the real clients
 
 `bench/interop/run.sh` (Linux and Docker) checks this against the software
 it has to work with: `laravel-echo` and `pusher-js` from npm against Daravel
-(public, private, `toOthers`, whispers, presence, notifications, a refused
-authorization), Laravel 12 broadcasting through Daravel with
+(public, private, `toOthers`, whispers, presence, notifications, cache and
+encrypted channels, a refused authorization), Laravel 12 broadcasting through Daravel with
 `pusher/pusher-php-server`, and Daravel broadcasting through Laravel Reverb,
 with one or four worker isolates (`ISOLATES=4`).
 

@@ -1,4 +1,4 @@
-<!-- source: responses.md sha256:f48329fa6a0b -->
+<!-- source: responses.md sha256:80e255d1e8f8 -->
 # Respons dan resource
 
 Handler bisa mengembalikan `Response.json(data, status: 201)`,
@@ -156,7 +156,11 @@ r.ws('/ws/rooms/{room}', (socket, request) async {
 
 Request HTTP biasa ke path itu mendapat `426 Upgrade Required`. Saat
 shutdown, socket yang terbuka ditutup dengan `1001` (going away). Ini
-WebSocket mentah, bukan protokol Pusher dari Laravel Reverb.
+WebSocket mentah; Laravel Echo terhubung melalui
+[Broadcasting](broadcasting.md). Client yang meminta permessage-deflate
+mendapatkannya; `r.ws(path, handler, compress: false)` mematikannya, yang
+menghemat CPU dan memori per koneksi saat satu pesan dikirim ke banyak
+socket.
 
 Keduanya butuh koneksi sungguhan. `TestClient` mengumpulkan respons secara
 utuh, jadi uji `Response.sse` yang berhingga dengannya, dan uji WebSocket

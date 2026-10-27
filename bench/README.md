@@ -60,6 +60,15 @@ broadcasting through Daravel, and Daravel broadcasting through Laravel
 Reverb; `ISOLATES=4` runs Daravel with four worker isolates. It is a
 compatibility check, not a benchmark.
 
+`bench/interop/connections.sh` is the capacity test: it builds the interop
+server AOT, opens `COUNT` (10 000) idle Pusher connections with
+`bin/connections.dart`, all on one channel, and prints the server's RSS
+idle and loaded and the time one event takes to reach every connection
+(`ISOLATES=4` for four worker isolates). The client connects from
+127.0.0.2 onwards, since one source address has only a few thousand local
+ports on some systems (WSL). Results are in
+[Broadcasting](../docs/guide/broadcasting.md#capacity).
+
 ## Against Laravel
 
 `bench/laravel/compare.sh` (Linux and Docker) runs the same scenarios

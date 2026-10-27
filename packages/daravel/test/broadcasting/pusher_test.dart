@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:daravel/daravel.dart';
+import 'package:daravel/src/broadcasting/secretbox.dart';
 import 'package:test/test.dart';
 
 final class Member implements Authenticatable {
@@ -33,6 +34,10 @@ final class OrderShipped with ShouldBroadcast {
 const String appId = '42';
 const String appKey = 'daravel-key';
 const String appSecret = 'daravel-secret';
+final List<int> masterKey = List.filled(32, 0x2a);
+
+/// base64 of 32 0x2a bytes ([masterKey]).
+const String masterKeyBase64 = 'KioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKio=';
 
 void main() {
   late Application app;
@@ -46,6 +51,7 @@ void main() {
           'REVERB_APP_ID': appId,
           'REVERB_APP_KEY': appKey,
           'REVERB_APP_SECRET': appSecret,
+          'REVERB_ENCRYPTION_MASTER_KEY_BASE64': masterKeyBase64,
         })
         .withAuth((auth) {
           auth.register(
@@ -64,6 +70,10 @@ void main() {
           channels: (channels) {
             channels
               ..channel('orders.{id}', (user, p) => p['id'] == '7')
+              ..channel(
+                'cache-chat.{room}',
+                (user, p) => {'name': (user as Member).name},
+              )
               ..channel(
                 'chat.{room}',
                 (user, p) => {'name': (user as Member).name},
@@ -460,6 +470,167 @@ void main() {
       'status': 'shipped',
     });
     await client.close();
+  });
+
+  test(
+    'cache channels: cache_miss, then the last event for new subscribers',
+    () async {
+      final first = await connect();
+      await first.subscribe('cache-prices');
+      expect(await first.next(), {
+        'event': 'pusher:cache_miss',
+        'channel': 'cache-prices',
+      });
+      await trigger(
+        'price.updated',
+        ['cache-prices'],
+        {'sku': 'A1', 'price': 12},
+      );
+      await trigger(
+        'price.updated',
+        ['cache-prices'],
+        {'sku': 'A1', 'price': 13},
+      );
+      expect((await first.next())['event'], 'price.updated');
+      expect((await first.next())['event'], 'price.updated');
+
+      // A later subscriber gets the last event right after subscribing, even
+      // when nobody else is listening any more (as Pusher, not Reverb).
+      await first.close();
+      final later = await connect();
+      await later.subscribe('cache-prices');
+      final cached = await later.next();
+      expect(cached['event'], 'price.updated');
+      expect(cached['channel'], 'cache-prices');
+      expect(jsonDecode(cached['data']! as String), {'sku': 'A1', 'price': 13});
+      await later.close();
+
+      // Kept for 30 minutes.
+      Clock.freeze();
+      addTearDown(Clock.restore);
+      Clock.travel(const Duration(minutes: 31));
+      final expired = await connect();
+      await expired.subscribe('cache-prices');
+      expect((await expired.next())['event'], 'pusher:cache_miss');
+      await expired.close();
+    },
+  );
+
+  test('presence cache channels keep events, not member changes', () async {
+    final teo = await connect();
+    final (_, auth) = await authorize(
+      teo.socketId,
+      'presence-cache-chat.1',
+      token: 'user-1',
+    );
+    await teo.subscribe(
+      'presence-cache-chat.1',
+      auth: auth['auth']! as String,
+      channelData: auth['channel_data']! as String,
+    );
+    expect((await teo.next())['event'], 'pusher:cache_miss');
+    final ana = await connect();
+    final (_, anaAuth) = await authorize(
+      ana.socketId,
+      'presence-cache-chat.1',
+      token: 'user-2',
+    );
+    await ana.subscribe(
+      'presence-cache-chat.1',
+      auth: anaAuth['auth']! as String,
+      channelData: anaAuth['channel_data']! as String,
+    );
+    // member_added is not cached, so Ana still gets cache_miss.
+    expect((await ana.next())['event'], 'pusher:cache_miss');
+    expect((await teo.next())['event'], 'pusher_internal:member_added');
+    await teo.close();
+    await ana.close();
+  });
+
+  test(
+    'end-to-end encrypted channels: shared_secret, ciphertext, no whispers',
+    () async {
+      final client = await connect();
+      final (status, body) = await authorize(
+        client.socketId,
+        'private-encrypted-orders.7',
+        token: 'user-1',
+      );
+      expect(status, 200);
+      final secret = base64.decode(body['shared_secret']! as String);
+      expect(
+        secret,
+        PusherEncryption.sharedSecret('private-encrypted-orders.7', masterKey),
+      );
+      await client.subscribe(
+        'private-encrypted-orders.7',
+        auth: body['auth']! as String,
+      );
+      await client.subscribe('news');
+
+      await app.container.make<BroadcastManager>().send(
+        r'App\Events\Shipped',
+        ['private-encrypted-orders.7', 'news'],
+        {'id': 7},
+      );
+      final frames = [await client.next(), await client.next()];
+      final encrypted = frames.firstWhere(
+        (f) => f['channel'] == 'private-encrypted-orders.7',
+      );
+      final plain = frames.firstWhere((f) => f['channel'] == 'news');
+      expect(jsonDecode(plain['data']! as String), {'id': 7});
+      final box =
+          jsonDecode(encrypted['data']! as String) as Map<String, Object?>;
+      expect(box.keys, unorderedEquals(['nonce', 'ciphertext']));
+      expect(
+        utf8.decode(
+          Secretbox.open(
+            base64.decode(box['ciphertext']! as String),
+            base64.decode(box['nonce']! as String),
+            secret,
+          )!,
+        ),
+        '{"id":7}',
+      );
+
+      // Client events are not relayed on encrypted channels.
+      final other = await connect();
+      final (_, otherAuth) = await authorize(
+        other.socketId,
+        'private-encrypted-orders.7',
+        token: 'user-2',
+      );
+      await other.subscribe(
+        'private-encrypted-orders.7',
+        auth: otherAuth['auth']! as String,
+      );
+      client.send({
+        'event': 'client-typing',
+        'channel': 'private-encrypted-orders.7',
+        'data': <String, Object?>{},
+      });
+      other.send({'event': 'pusher:ping', 'data': <String, Object?>{}});
+      expect(await other.next(), {'event': 'pusher:pong'});
+      await client.close();
+      await other.close();
+    },
+  );
+
+  test('the encryption master key must be 32 bytes of base64', () {
+    expect(
+      () => BroadcastConfig.fromEnv(
+        Env.fromMap({
+          'REVERB_ENCRYPTION_MASTER_KEY_BASE64': base64.encode([1, 2]),
+        }),
+      ),
+      throwsA(isA<ConfigException>()),
+    );
+    expect(
+      () => BroadcastConfig.fromEnv(
+        Env.fromMap(const {'REVERB_ENCRYPTION_MASTER_KEY_BASE64': '***'}),
+      ),
+      throwsA(isA<ConfigException>()),
+    );
   });
 
   test('the HTTP API reports channels and presence users', () async {

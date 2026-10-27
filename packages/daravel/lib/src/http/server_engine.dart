@@ -168,14 +168,13 @@ final class ServerEngine {
   /// Open WebSocket connections on this engine.
   int get openWebSockets => _sockets.length;
 
-  /// Upgrades [httpRequest] (its middleware has passed) and runs [handler]
-  /// in the request's scope until the socket closes. A plain request to a
-  /// WebSocket route gets `426 Upgrade Required`.
-  Future<void> _upgrade(
+  /// Upgrades [httpRequest] (its middleware has passed); null when it is
+  /// not a WebSocket request, which gets `426 Upgrade Required`, or the
+  /// upgrade fails.
+  Future<WebSocket?> _upgrade(
     HttpRequest httpRequest,
     Request request,
     Response response,
-    WebSocketHandler handler,
     String id,
   ) async {
     if (!WebSocketTransformer.isUpgradeRequest(httpRequest) || _stopping) {
@@ -188,15 +187,30 @@ final class ServerEngine {
         // Client gone.
       }
       await kernel.terminate(request, refusal);
-      return;
+      return null;
     }
-    final WebSocket socket;
     try {
-      socket = await WebSocketTransformer.upgrade(httpRequest);
+      return await WebSocketTransformer.upgrade(
+        httpRequest,
+        compression: response.webSocketCompression
+            ? CompressionOptions.compressionDefault
+            : CompressionOptions.compressionOff,
+      );
     } catch (error) {
       logger.warning('WebSocket upgrade failed for request $id: $error');
-      return;
+      return null;
     }
+  }
+
+  /// Runs [handler] in the request's scope until [socket] closes. It holds
+  /// no [HttpRequest]: an idle connection keeps only what it needs.
+  Future<void> _session(
+    WebSocket socket,
+    Request request,
+    Response response,
+    WebSocketHandler handler,
+    String id,
+  ) async {
     _sockets.add(socket);
     logger.info(
       '${request.method} ${request.path} 101 (WebSocket)',
@@ -284,6 +298,9 @@ final class ServerEngine {
     final stopwatch = Stopwatch()..start();
     final id = RequestId.generate();
     final request = Request.fromHttpRequest(httpRequest, id: id);
+    // The closure below lives as long as a WebSocket does: it lets go of
+    // the HTTP request once the socket has taken over.
+    HttpRequest? raw = httpRequest;
 
     unawaited(
       app.container
@@ -308,11 +325,16 @@ final class ServerEngine {
               }
               final onSocket = response.webSocket;
               if (onSocket != null) {
-                await _upgrade(httpRequest, request, response, onSocket, id);
+                final socket = await _upgrade(raw!, request, response, id);
+                raw = null;
+                request.detachBody();
+                if (socket != null) {
+                  await _session(socket, request, response, onSocket, id);
+                }
                 return;
               }
               try {
-                await response.writeTo(httpRequest.response);
+                await response.writeTo(raw!.response);
               } catch (error) {
                 logger.warning(
                   'Failed to write response for request $id: $error',

@@ -45,12 +45,26 @@ final class PusherServer {
   }
 
   /// One frame, encoded once, to every connection on [channel] but
-  /// [except]: `<socket id>\n<frame>`.
+  /// [except]: `<socket id>\n<frame>`. A cache channel also keeps it for
+  /// the next subscribers, unless [internal] (member_added and _removed).
   Future<void> _send(
     String channel,
     Map<String, Object?> frame,
-    String? except,
-  ) => _broadcaster.publish(channel, '${except ?? ''}\n${jsonEncode(frame)}');
+    String? except, {
+    bool internal = false,
+  }) async {
+    final text = jsonEncode(frame);
+    if (!internal && isCacheChannel(channel)) {
+      await _call('cache_set', {'channel': channel, 'frame': text});
+    }
+    await _broadcaster.publish(channel, '${except ?? ''}\n$text');
+  }
+
+  /// `cache-…`, `private-cache-…` and `presence-cache-…` channels.
+  static bool isCacheChannel(String channel) =>
+      channel.startsWith('cache-') ||
+      channel.startsWith('private-cache-') ||
+      channel.startsWith('presence-cache-');
 
   Future<Object?> _call(String op, Map<String, Object?> args) =>
       _coordinator.call('channels', op, args);
@@ -410,12 +424,25 @@ final class _Connection {
         'channel': channel,
       }),
     );
+    if (PusherServer.isCacheChannel(channel)) {
+      final cached = await _server._call('cache_get', {'channel': channel});
+      send(
+        cached is String
+            ? cached
+            : jsonEncode({'event': 'pusher:cache_miss', 'channel': channel}),
+      );
+    }
     if (joined['added'] == true) {
-      await _server._send(channel, {
-        'event': 'pusher_internal:member_added',
-        'data': jsonEncode({'user_id': userId, 'user_info': ?userInfo}),
-        'channel': channel,
-      }, id);
+      await _server._send(
+        channel,
+        {
+          'event': 'pusher_internal:member_added',
+          'data': jsonEncode({'user_id': userId, 'user_info': ?userInfo}),
+          'channel': channel,
+        },
+        id,
+        internal: true,
+      );
     }
   }
 
@@ -430,11 +457,16 @@ final class _Connection {
             as Map;
     final removed = left['removed'];
     if (removed != null) {
-      await _server._send(channel, {
-        'event': 'pusher_internal:member_removed',
-        'data': jsonEncode({'user_id': removed}),
-        'channel': channel,
-      }, id);
+      await _server._send(
+        channel,
+        {
+          'event': 'pusher_internal:member_removed',
+          'data': jsonEncode({'user_id': removed}),
+          'channel': channel,
+        },
+        id,
+        internal: true,
+      );
     }
   }
 
@@ -443,8 +475,11 @@ final class _Connection {
   /// presence channels this connection has joined.
   Future<void> _whisper(String event, Map<String, Object?> payload) async {
     final channel = payload['channel'];
+    // Not on encrypted channels: the server cannot read them, so Pusher
+    // does not relay their client events either.
     if (channel is! String ||
         !_subscriptions.containsKey(channel) ||
+        channel.startsWith('private-encrypted-') ||
         !(channel.startsWith('private-') || channel.startsWith('presence-'))) {
       return;
     }

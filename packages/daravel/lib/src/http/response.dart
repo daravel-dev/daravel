@@ -48,6 +48,7 @@ final class Response {
     this.body = const EmptyBody(),
     this.contentLengthOverride,
     this.webSocket,
+    this.webSocketCompression = true,
   }) : headers = headers ?? Headers();
 
   /// JSON response (`application/json`). [data] may contain maps, lists,
@@ -141,9 +142,13 @@ final class Response {
 
   /// Switches the connection to a WebSocket (`router.ws` returns this after
   /// the route's middleware passed); [handler] gets the socket inside the
-  /// request's scope.
-  factory Response.webSocket(WebSocketHandler handler) =>
-      Response(status: 101, webSocket: handler);
+  /// request's scope. [compress] false turns permessage-deflate off: no
+  /// compression state per connection, which matters with many of them.
+  factory Response.webSocket(
+    WebSocketHandler handler, {
+    bool compress = true,
+  }) =>
+      Response(status: 101, webSocket: handler, webSocketCompression: compress);
 
   /// Streamed body with an explicit content type.
   factory Response.stream(
@@ -165,6 +170,9 @@ final class Response {
   /// Set by [Response.webSocket]: the server upgrades the connection and
   /// hands the socket to this handler.
   final WebSocketHandler? webSocket;
+
+  /// Whether the WebSocket offers permessage-deflate to clients that ask.
+  final bool webSocketCompression;
 
   /// Content length to advertise when the body was stripped (HEAD requests).
   final int? contentLengthOverride;
@@ -232,6 +240,7 @@ final class Response {
     body: body,
     contentLengthOverride: contentLengthOverride,
     webSocket: webSocket,
+    webSocketCompression: webSocketCompression,
   );
 
   /// Collects the body as bytes (consumes stream bodies).

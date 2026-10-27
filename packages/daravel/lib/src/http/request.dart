@@ -292,6 +292,14 @@ final class Request {
     return _bodyBytes = builder.takeBytes();
   }
 
+  /// Lets go of the socket's body: a request upgraded to a WebSocket has
+  /// none, and the stream would keep the whole HTTP request (parser,
+  /// headers, response) alive as long as the connection.
+  void detachBody() {
+    _bodyStream = null;
+    _bodyBytes ??= const <int>[];
+  }
+
   /// The body as a stream that never exceeds [maxBodyBytes] (multipart
   /// bodies are parsed as they arrive instead of being buffered).
   Stream<List<int>> _limitedBody() async* {

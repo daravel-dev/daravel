@@ -12,6 +12,7 @@ import 'broadcast_config.dart';
 import 'channel_registry.dart';
 import 'pusher_server.dart';
 import 'pusher_signature.dart';
+import 'secretbox.dart';
 
 /// An event that is broadcast when it is dispatched (Laravel's
 /// `ShouldBroadcast`): `Event.dispatch(OrderShipped(order))` also sends it
@@ -83,6 +84,46 @@ final class BroadcastManager {
     if (channels.isEmpty) {
       return;
     }
+    // Each end-to-end encrypted channel has its own key, so its own
+    // payload (pusher-php-server refuses to mix them).
+    final encrypted = [
+      for (final channel in channels)
+        if (channel.startsWith('private-encrypted-')) channel,
+    ];
+    if (encrypted.isNotEmpty) {
+      final key = config.encryptionMasterKey;
+      if (key == null) {
+        throw StateError(
+          'Broadcasting to ${encrypted.first} needs an encryption master '
+          'key (REVERB_ENCRYPTION_MASTER_KEY_BASE64).',
+        );
+      }
+      final text = data is String ? data : jsonEncode(data);
+      for (final channel in encrypted) {
+        await _deliver(
+          event,
+          [channel],
+          PusherEncryption.encrypt(channel, text, key),
+          exceptSocket,
+        );
+      }
+      channels = [
+        for (final channel in channels)
+          if (!channel.startsWith('private-encrypted-')) channel,
+      ];
+      if (channels.isEmpty) {
+        return;
+      }
+    }
+    await _deliver(event, channels, data, exceptSocket);
+  }
+
+  Future<void> _deliver(
+    String event,
+    List<String> channels,
+    Object? data,
+    String? exceptSocket,
+  ) async {
     switch (config.connection) {
       case 'daravel':
         final server = this.server;
@@ -205,14 +246,29 @@ final class BroadcastAuthorization {
       throw const HttpException(403, '');
     }
     if (!channel.startsWith('presence-')) {
-      return Response.json(
-        PusherSignature.authorizeChannel(
-          key: config.appKey,
-          secret: config.appSecret,
-          socketId: socketId,
-          channel: channel,
-        ),
+      final signed = PusherSignature.authorizeChannel(
+        key: config.appKey,
+        secret: config.appSecret,
+        socketId: socketId,
+        channel: channel,
       );
+      if (!channel.startsWith('private-encrypted-')) {
+        return Response.json(signed);
+      }
+      // The browser decrypts with the channel's key (pusher-php-server).
+      final key = config.encryptionMasterKey;
+      if (key == null) {
+        throw StateError(
+          '$channel needs an encryption master key '
+          '(REVERB_ENCRYPTION_MASTER_KEY_BASE64).',
+        );
+      }
+      return Response.json({
+        ...signed,
+        'shared_secret': base64.encode(
+          PusherEncryption.sharedSecret(channel, key),
+        ),
+      });
     }
     // As pusher-php-server: the user id as a string, user_info when given.
     final channelData = jsonEncode({

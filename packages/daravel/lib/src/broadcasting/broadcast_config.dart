@@ -1,5 +1,8 @@
+import 'dart:convert';
+
 import '../foundation/config.dart';
 import '../foundation/env.dart';
+import '../foundation/exceptions.dart';
 
 /// Broadcasting, from the keys of Laravel 12's `config/broadcasting.php`
 /// and `config/reverb.php`, so one `.env` serves both frameworks.
@@ -25,6 +28,7 @@ final class BroadcastConfig implements ConfigSection {
     this.allowedOrigins = const ['*'],
     this.activityTimeout = 30,
     this.maxMessageSize = 10000,
+    this.encryptionMasterKey,
   });
 
   factory BroadcastConfig.fromEnv(Env env) {
@@ -47,6 +51,13 @@ final class BroadcastConfig implements ConfigSection {
       allowedOrigins: env.list('REVERB_ALLOWED_ORIGINS', const ['*']),
       activityTimeout: env.integer('REVERB_APP_ACTIVITY_TIMEOUT', 30),
       maxMessageSize: env.integer('REVERB_APP_MAX_MESSAGE_SIZE', 10000),
+      encryptionMasterKey: _masterKey(
+        env.maybeString(
+          pusher
+              ? 'PUSHER_ENCRYPTION_MASTER_KEY_BASE64'
+              : 'REVERB_ENCRYPTION_MASTER_KEY_BASE64',
+        ),
+      ),
     );
   }
 
@@ -75,6 +86,32 @@ final class BroadcastConfig implements ConfigSection {
   /// The largest message a client may send, in bytes.
   final int maxMessageSize;
 
+  /// The key of end-to-end encrypted channels (`private-encrypted-…`):
+  /// 32 bytes, `REVERB_ENCRYPTION_MASTER_KEY_BASE64` (or `PUSHER_…`), as
+  /// pusher-php-server's `encryption_master_key_base64`.
+  final List<int>? encryptionMasterKey;
+
+  static List<int>? _masterKey(String? base64Key) {
+    if (base64Key == null || base64Key.isEmpty) {
+      return null;
+    }
+    final List<int> key;
+    try {
+      key = base64.decode(base64Key);
+    } on FormatException {
+      throw const ConfigException(
+        'The broadcasting encryption master key must be valid base64.',
+      );
+    }
+    if (key.length != 32) {
+      throw const ConfigException(
+        'The broadcasting encryption master key must be 32 bytes '
+        '(openssl rand -base64 32).',
+      );
+    }
+    return key;
+  }
+
   /// Whether this server answers Pusher clients: it has a key and secret.
   bool get serves => appKey.isNotEmpty && appSecret.isNotEmpty;
 
@@ -93,5 +130,6 @@ final class BroadcastConfig implements ConfigSection {
     'allowed_origins': allowedOrigins,
     'activity_timeout': activityTimeout,
     'max_message_size': maxMessageSize,
+    'encryption_master_key': encryptionMasterKey == null ? null : '********',
   };
 }

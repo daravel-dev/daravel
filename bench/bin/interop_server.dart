@@ -101,6 +101,22 @@ Application createApp() =>
               await Notifications.send(UserOne(), const Welcome());
               return Response.noContent();
             });
+            r.post('/price', (_) async {
+              await Broadcast.send(
+                'price.updated',
+                ['cache-prices'],
+                {'sku': 'A1', 'price': 13},
+              );
+              return Response.noContent();
+            });
+            r.post('/secret', (_) async {
+              await Broadcast.send(
+                'secret',
+                ['private-encrypted-orders.7'],
+                {'code': '4821'},
+              );
+              return Response.noContent();
+            });
           },
         )
         .create();

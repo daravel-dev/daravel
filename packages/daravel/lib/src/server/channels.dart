@@ -1,3 +1,4 @@
+import '../foundation/clock.dart';
 import 'coordinator.dart';
 
 /// Who is subscribed to which channel, across every worker isolate: the
@@ -10,6 +11,14 @@ final class ChannelMembershipService implements CoordinatorService {
   /// channel → socket id → (user id, user info); the user is null on
   /// channels that are not presence channels.
   final Map<String, Map<String, (String?, Object?)>> _channels = {};
+
+  /// The last frame of each cache channel (`cache-…`, `private-cache-…`,
+  /// `presence-cache-…`) and when it was sent: new subscribers get it.
+  final Map<String, (String, DateTime)> _cached = {};
+
+  /// How long a cache channel keeps its last frame, as Pusher Channels
+  /// (Reverb forgets it when the channel empties).
+  static const Duration cacheTtl = Duration(minutes: 30);
 
   @override
   String get name => 'channels';
@@ -38,6 +47,23 @@ final class ChannelMembershipService implements CoordinatorService {
         return _users(args['channel']! as String).keys.toList();
       case 'connections':
         return {for (final sockets in _channels.values) ...sockets.keys}.length;
+      case 'cache_set':
+        _cached[args['channel']! as String] = (
+          args['frame']! as String,
+          Clock.now(),
+        );
+        return null;
+      case 'cache_get':
+        final channel = args['channel']! as String;
+        final cached = _cached[channel];
+        if (cached == null) {
+          return null;
+        }
+        if (Clock.now().difference(cached.$2) > cacheTtl) {
+          _cached.remove(channel);
+          return null;
+        }
+        return cached.$1;
     }
     throw CoordinatorException('Unknown channels operation [$op].');
   }

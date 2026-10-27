@@ -6,6 +6,31 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 breaking changes to the Dart API wait for a new major version, and
 Laravel-facing formats change only to match Laravel more closely.
 
+## Unreleased
+
+### Added
+
+- Cache channels: `cache-`, `private-cache-` and `presence-cache-` channels
+  keep their last event for 30 minutes and send it to new subscribers (or
+  `pusher:cache_miss`), as Pusher Channels does.
+- End-to-end encrypted channels: with `REVERB_ENCRYPTION_MASTER_KEY_BASE64`,
+  events on `private-encrypted-` channels are sealed with libsodium's
+  `secretbox` under a per-channel key that `/broadcasting/auth` hands to
+  admitted clients, so `Echo.encryptedPrivate` works; the same with
+  `BROADCAST_CONNECTION=reverb` and `pusher`.
+- `r.ws(path, handler, compress: false)` and
+  `Response.webSocket(handler, compress: false)` turn permessage-deflate
+  off.
+- `bench/interop/connections.sh`: 10 000 idle Echo connections against the
+  AOT build, with memory and fan-out time.
+
+### Changed
+
+- The Pusher endpoint runs without permessage-deflate, as Reverb's does:
+  one event reaches 10 000 connections in 0.6 s instead of 7.9 s.
+- A WebSocket connection no longer keeps the HTTP request (parser, headers,
+  response) alive: about 18 KB per idle connection instead of 23 KB.
+
 ## 1.10.0
 
 Broadcasting with Laravel Echo: Daravel speaks the Pusher protocol as

@@ -82,6 +82,7 @@ frozen after boot.
 | `BROADCAST_CONNECTION` | `daravel` | Where broadcast events go: `daravel` (this server), `reverb`, `pusher`, `log`, `null` ([Broadcasting](broadcasting.md)) |
 | `REVERB_APP_ID`, `REVERB_APP_KEY`, `REVERB_APP_SECRET` | none | The Pusher app this server serves Echo with (or the Reverb it sends to) |
 | `REVERB_HOST`, `REVERB_PORT`, `REVERB_SCHEME` | none, 443, `https` | The Reverb `BROADCAST_CONNECTION=reverb` sends to |
+| `REVERB_ENCRYPTION_MASTER_KEY_BASE64` | none | 32 bytes in base64 that `private-encrypted-` channels are encrypted with (`PUSHER_ENCRYPTION_MASTER_KEY_BASE64` with `pusher`) |
 | `DB_CHARSET`, `DB_COLLATION`, `DB_TIMEZONE` | `utf8mb4`, `utf8mb4_unicode_ci`, server | MySQL and MariaDB, as Laravel reads them |
 | `DB_POOL_SIZE`, `DB_SSLMODE` | `10`, `disable` | Connection pool per isolate, TLS (`require`, `verify-full`) |
 | `CACHE_STORE`, `CACHE_PREFIX` | `memory` | Cache store and key prefix |
