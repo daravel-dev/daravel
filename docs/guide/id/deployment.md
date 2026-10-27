@@ -1,4 +1,4 @@
-<!-- source: deployment.md sha256:9f66b46ac7a4 -->
+<!-- source: deployment.md sha256:6d476885b3b8 -->
 # Deployment
 
 ## Bundle native
@@ -87,8 +87,10 @@ sehingga worker yang sibuk tidak di-restart karena sibuk. Keduanya mati
   timer berdetak tiap 5 ms dan mengukur keterlambatannya sendiri, dihaluskan
   selama beberapa detak; keterlambatan itu adalah lamanya request menunggu
   di antrean socket dan event sebelum engine melihatnya, apa pun yang
-  dilakukan handler. Inilah batas yang menjaga latency di bawah beban CPU
-  atau SQLite. Di bawah supervisor, tiap worker mengukur loop-nya sendiri.
+  dilakukan handler. Inilah batas yang bisa melihat pekerjaan yang berat di
+  CPU atau SQLite, yang tidak terlihat oleh batas in-flight; ukur efeknya di
+  bawah beban Anda sendiri (skenario 12 di `bench/`). Di bawah supervisor,
+  tiap worker mengukur loop-nya sendiri.
 
 Worker berbagi port lewat `shared: true`, jadi kernel membagi *koneksi*,
 bukan request, ke worker: satu worker bisa penuh saat yang lain masih lega,

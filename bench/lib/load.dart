@@ -144,8 +144,9 @@ Future<_WorkerResult> _worker(
 ///
 /// Latency runs from when a request was *due*, not from when it was sent:
 /// time spent waiting for a free connection or behind a slow server counts
-/// (no coordinated omission). The connections open during [warmup], at
-/// half the rate. After [duration] the requests still outstanding get
+/// (no coordinated omission). The connections open during [warmup], a few
+/// at a time, so none is refused for arriving in a burst. After [duration]
+/// the requests still outstanding get
 /// [grace] to finish; the rest count as errors. Throughput is completions
 /// of the requests due within [duration], per second of it (goodput).
 Future<LoadResult> runOpenLoop(
@@ -263,7 +264,21 @@ Future<_WorkerResult> _openWorker(
     return pending;
   }
 
-  await Future.wait(await drive(rate / 2, warmup, counted: false));
+  // Warm-up: open the connections a few at a time over its first half (a
+  // burst of new connections overflows the kernel's SYN backlog, and the
+  // refused ones would count against the server), each kept busy until the
+  // warm-up ends, so the measured window starts with a full pool.
+  final warmEnd = clock.elapsedMicroseconds + warmup.inMicroseconds;
+  final step = warmup.inMicroseconds ~/ (2 * connections);
+  await Future.wait([
+    for (var c = 0; c < connections; c++)
+      () async {
+        await Future<void>.delayed(Duration(microseconds: c * step));
+        while (clock.elapsedMicroseconds < warmEnd) {
+          await send(clock.elapsedMicroseconds, counted: false);
+        }
+      }(),
+  ]);
   final pending = await drive(rate, duration, counted: true);
   await Future.wait(pending).timeout(grace, onTimeout: () => const []);
   closed = true;

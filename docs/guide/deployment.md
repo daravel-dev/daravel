@@ -84,8 +84,9 @@ created by `dartisan new` set `HTTP_MAX_QUEUE_DELAY=200ms` in their
   ticks every 5 ms and measures its own delay, smoothed over a few ticks;
   that delay is how long a request has been waiting in the socket and
   event queues before the engine sees it, whatever the handler does. This
-  is the limit that bounds latency under CPU-bound or SQLite load. Under a
-  supervisor each worker measures its own loop.
+  is the limit that sees CPU-bound or SQLite work, which the in-flight
+  limit cannot; measure its effect under your own load (`bench/` scenario
+  12). Under a supervisor each worker measures its own loop.
 
 Workers share the port with `shared: true`, so the kernel spreads
 *connections*, not requests, over them: one worker can be full while

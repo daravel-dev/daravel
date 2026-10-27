@@ -270,9 +270,13 @@ final class ServeCommand extends DaravelCommand {
       final server = DevServer(
         root: ProjectPaths.locate().root,
         dart: dartExecutable(),
+        // The child reads these from its environment, which wins over
+        // .env, so `0` still means no limit.
         environment: <String, String>{
           'APP_HOST': ?host,
           if (port != null) 'APP_PORT': '$port',
+          if (maxInFlight != null) 'HTTP_MAX_IN_FLIGHT': '$maxInFlight',
+          'HTTP_MAX_QUEUE_DELAY': ?maxQueueDelayValue,
         },
       );
       await server.start();

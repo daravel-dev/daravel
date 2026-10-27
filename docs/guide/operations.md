@@ -52,9 +52,9 @@ time out together. Two per-worker limits refuse the excess with `503` and
 `Retry-After: 1` instead ([Load shedding](deployment.md#load-shedding)):
 
 - `HTTP_MAX_QUEUE_DELAY` (new projects set `200ms`) refuses while the
-  worker's event loop runs that late. This is the one that bounds latency
-  for CPU-bound or SQLite work. p99 under overload lands close to it, so
-  set it to the queueing delay you are willing to add to a response.
+  worker's event loop runs that late. It is the limit that sees CPU-bound
+  or SQLite work, which the in-flight limit cannot; set it to the queueing
+  delay you are willing to add to a response, and measure.
 - `HTTP_MAX_IN_FLIGHT` caps requests awaiting I/O at once; about 2–4×
   `DB_POOL_SIZE` for a worker doing database work.
 

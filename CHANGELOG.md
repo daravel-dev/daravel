@@ -20,11 +20,12 @@ Laravel-facing formats change only to match Laravel more closely.
   upgraded WebSocket holds none. `HTTP_MAX_QUEUE_DELAY=200ms`
   (`ServeOptions.maxQueueDelay`, `serve --max-queue-delay`) refuses
   requests while the worker's event loop runs that late, measured by a
-  5 ms timer, which is what bounds latency under CPU-bound or SQLite work
-  (such a handler never counts as in flight). The health probes are never
+  5 ms timer, the limit that sees CPU-bound or SQLite work (such a
+  handler never counts as in flight). The health probes are never
   refused. Refusals are counted in `http_requests_shed_total` and logged
   at most once a second, naming the limit hit; `ServerEngine.inFlight`,
-  `queueDelay` and `shedRequests` expose the numbers.
+  `queueDelay` and `shedRequests` expose the numbers. `serve --watch`
+  passes both options on to the server it runs and restarts.
 - `dartisan new` projects (and the starter's `.env.example`) set
   `HTTP_MAX_QUEUE_DELAY=200ms`, so a new application sheds load instead of
   queueing without bound; `HTTP_MAX_IN_FLIGHT` stays commented out.

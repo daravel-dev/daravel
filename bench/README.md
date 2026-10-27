@@ -40,7 +40,7 @@ refused with 503. The generator ignores `Retry-After` and reconnects at
 once, the worst case for the server. Expect the in-flight limit alone to
 change little: scenario 2's handler is synchronous SQLite work that finishes
 inside one event-loop turn, so the queue forms before the engine sees it;
-the queue-delay limit is what bounds p99 there (see
+the queue-delay limit is the one that sees that queue (see
 `docs/guide/deployment.md#load-shedding`). `--scenarios` ids match
 exactly (`--scenarios=1` does not select 11).
 

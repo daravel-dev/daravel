@@ -1,4 +1,4 @@
-<!-- source: operations.md sha256:5ea897fd2b05 -->
+<!-- source: operations.md sha256:711fdc6d750b -->
 # Operasional
 
 Menjalankan Daravel di bawah trafik nyata: berapa isolate, berapa koneksi
@@ -57,10 +57,10 @@ semuanya timeout bersamaan. Dua batas per worker menolak kelebihannya dengan
 ([Load shedding](deployment.md#load-shedding)):
 
 - `HTTP_MAX_QUEUE_DELAY` (proyek baru men-set `200ms`) menolak selama event
-  loop worker terlambat sebanyak itu. Inilah batas yang membatasi latensi
-  untuk pekerjaan yang berat di CPU atau SQLite. p99 saat overload mendekati
-  nilai ini, jadi set ke penundaan antrean yang bersedia Anda tambahkan ke
-  sebuah respons.
+  loop worker terlambat sebanyak itu. Inilah batas yang bisa melihat
+  pekerjaan yang berat di CPU atau SQLite, yang tidak terlihat oleh batas
+  in-flight; set ke penundaan antrean yang bersedia Anda tambahkan ke sebuah
+  respons, lalu ukur.
 - `HTTP_MAX_IN_FLIGHT` membatasi request yang menunggu I/O sekaligus; sekitar
   2–4× `DB_POOL_SIZE` untuk worker yang mengakses database.
 
