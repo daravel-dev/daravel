@@ -16,6 +16,7 @@ workspace:
   - packages/daravel_permission
   - packages/daravel_postgres
   - packages/daravel_teorion
+  - packages/daravel_livekit
   - apps/daravel_starter
   - bench
 

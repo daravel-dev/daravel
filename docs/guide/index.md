@@ -54,17 +54,18 @@ Performance numbers come from a reproducible harness, never from claims
 9. [Cache, events, queues, scheduling](background.md).
 10. [Mail and notifications](mail.md): SMTP, mailables, and mail and database notifications.
 11. [Broadcasting](broadcasting.md): Laravel Echo, the Pusher protocol as Reverb, private and presence channels.
-12. [Redis](redis.md): cache, locks, rate limits, queues and broadcasting across servers, when one server is not enough.
-13. [Strings, helpers and collections](helpers.md): `Str`, `retry`, `once`, `pluck`, ...
-14. [HTTP client](http-client.md): outgoing requests with `Http`, retries and `Http.fake()`.
-15. [Flutter client](flutter-client.md): a typed client generated from the routes, with on-device validation.
-16. [Testing](testing.md): `TestClient`, database helpers, fakes, conformance.
-17. [Deployment](deployment.md): native bundles, Docker, Cloud Run, VPS (systemd + Caddy).
-18. [Laravel coexistence](laravel-coexistence.md): the compatibility contract.
-19. [Migrating from Laravel](migrating-from-laravel.md): move endpoints one at a time behind a proxy.
-20. [Security](security.md): secure defaults and the security suite.
-21. [Performance](performance.md): the benchmark harness.
-22. [Laravel ⇄ Daravel parity table](parity.md) (generated).
+12. [LiveKit](livekit.md): video classrooms and meetings over WebRTC: access tokens, rooms and participants, verified webhooks.
+13. [Redis](redis.md): cache, locks, rate limits, queues and broadcasting across servers, when one server is not enough.
+14. [Strings, helpers and collections](helpers.md): `Str`, `retry`, `once`, `pluck`, ...
+15. [HTTP client](http-client.md): outgoing requests with `Http`, retries and `Http.fake()`.
+16. [Flutter client](flutter-client.md): a typed client generated from the routes, with on-device validation.
+17. [Testing](testing.md): `TestClient`, database helpers, fakes, conformance.
+18. [Deployment](deployment.md): native bundles, Docker, Cloud Run, VPS (systemd + Caddy).
+19. [Laravel coexistence](laravel-coexistence.md): the compatibility contract.
+20. [Migrating from Laravel](migrating-from-laravel.md): move endpoints one at a time behind a proxy.
+21. [Security](security.md): secure defaults and the security suite.
+22. [Performance](performance.md): the benchmark harness.
+23. [Laravel ⇄ Daravel parity table](parity.md) (generated).
 
 Bahasa Indonesia: [Dokumentasi Daravel](id/index.md).
 

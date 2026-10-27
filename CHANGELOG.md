@@ -6,6 +6,21 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 breaking changes to the Dart API wait for a new major version, and
 Laravel-facing formats change only to match Laravel more closely.
 
+## Unreleased
+
+### Added
+
+- `daravel_livekit` (Blueprint #48): LiveKit's server SDK for Daravel.
+  `LivekitToken` signs access tokens with LiveKit's claims and
+  `VideoGrant`s, `RoomServiceClient` manages rooms and participants over
+  Twirp with a 10-minute token per call carrying only its grant, and
+  `LivekitWebhookReceiver` verifies webhooks (signature, expiry, issuer and
+  the body's SHA-256), with no switch to skip it. `withLivekit()` reads
+  `LIVEKIT_URL` / `LIVEKIT_HOST`, `LIVEKIT_API_KEY` and
+  `LIVEKIT_API_SECRET` / `LIVEKIT_SECRET_KEY`. Tested against a LiveKit
+  server, which accepts its join tokens, and against LiveKit's PHP SDK
+  (`bench/interop/livekit.sh`).
+
 ## 1.12.0
 
 Three first-party packages share their data with a Laravel application:

@@ -8,8 +8,10 @@ environment:
 resolution: workspace
 
 dependencies:
+  crypto: ^3.0.7
   daravel: any
   daravel_permission: any
+  daravel_livekit: any
   daravel_redis: any
   path: ^1.9.0
 

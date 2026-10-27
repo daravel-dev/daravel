@@ -18,6 +18,7 @@ void main() {
       'packages/daravel_permission',
       'packages/daravel_redis',
       'packages/daravel_teorion',
+      'packages/daravel_livekit',
       'packages/daravel_sqlite',
       'packages/daravel_postgres',
       'apps/daravel_starter',

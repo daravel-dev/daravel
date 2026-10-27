@@ -463,12 +463,13 @@ The monorepo is a Dart pub workspace:
 | [`packages/daravel_mysql`](packages/daravel_mysql) | MySQL and MariaDB driver |
 | [`packages/daravel_permission`](packages/daravel_permission) | Roles and permissions on spatie/laravel-permission's tables |
 | [`packages/daravel_teorion`](packages/daravel_teorion) | Request-driven query filters, laravel-teorion's format |
+| [`packages/daravel_livekit`](packages/daravel_livekit) | LiveKit server SDK: access tokens, rooms, verified webhooks |
 | [`packages/daravel_redis`](packages/daravel_redis) | Redis and Valkey for several servers: cache, locks, rate limits, queues, broadcasting |
 | [`packages/daravel_sqlite`](packages/daravel_sqlite) | SQLite driver package (`db:install sqlite`) |
 | [`packages/daravel_postgres`](packages/daravel_postgres) | PostgreSQL driver package (`db:install pgsql`) |
 | [`apps/daravel_starter`](apps/daravel_starter) | Reference application and end-to-end tests |
 
-The ten packages ([`daravel`](https://pub.dev/packages/daravel),
+The eleven packages ([`daravel`](https://pub.dev/packages/daravel),
 [`dartisan_cli`](https://pub.dev/packages/dartisan_cli),
 [`daravel_test`](https://pub.dev/packages/daravel_test),
 [`daravel_lints`](https://pub.dev/packages/daravel_lints),
@@ -476,6 +477,7 @@ The ten packages ([`daravel`](https://pub.dev/packages/daravel),
 [`daravel_permission`](https://pub.dev/packages/daravel_permission),
 [`daravel_redis`](https://pub.dev/packages/daravel_redis),
 [`daravel_teorion`](https://pub.dev/packages/daravel_teorion),
+[`daravel_livekit`](https://pub.dev/packages/daravel_livekit),
 [`daravel_sqlite`](https://pub.dev/packages/daravel_sqlite),
 [`daravel_postgres`](https://pub.dev/packages/daravel_postgres)) are released together
 under one version by the verified publisher

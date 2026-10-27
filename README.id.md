@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:28fb5d11b915 -->
+<!-- source: README.md sha256:5348ca3f0830 -->
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/brand/svg/daravel-logo-horizontal-on-dark.svg">
@@ -469,12 +469,13 @@ Monorepo ini adalah pub workspace Dart:
 | [`packages/daravel_mysql`](packages/daravel_mysql) | Driver MySQL dan MariaDB |
 | [`packages/daravel_permission`](packages/daravel_permission) | Role dan permission pada tabel spatie/laravel-permission |
 | [`packages/daravel_teorion`](packages/daravel_teorion) | Query filter dari request, format laravel-teorion |
+| [`packages/daravel_livekit`](packages/daravel_livekit) | SDK server LiveKit: access token, room, webhook terverifikasi |
 | [`packages/daravel_redis`](packages/daravel_redis) | Redis dan Valkey untuk beberapa server: cache, lock, rate limit, queue, broadcasting |
 | [`packages/daravel_sqlite`](packages/daravel_sqlite) | Paket driver SQLite (`db:install sqlite`) |
 | [`packages/daravel_postgres`](packages/daravel_postgres) | Paket driver PostgreSQL (`db:install pgsql`) |
 | [`apps/daravel_starter`](apps/daravel_starter) | Aplikasi referensi dan test end-to-end |
 
-Kesepuluh paket ([`daravel`](https://pub.dev/packages/daravel),
+Kesebelas paket ([`daravel`](https://pub.dev/packages/daravel),
 [`dartisan_cli`](https://pub.dev/packages/dartisan_cli),
 [`daravel_test`](https://pub.dev/packages/daravel_test),
 [`daravel_lints`](https://pub.dev/packages/daravel_lints),
@@ -482,6 +483,7 @@ Kesepuluh paket ([`daravel`](https://pub.dev/packages/daravel),
 [`daravel_permission`](https://pub.dev/packages/daravel_permission),
 [`daravel_redis`](https://pub.dev/packages/daravel_redis),
 [`daravel_teorion`](https://pub.dev/packages/daravel_teorion),
+[`daravel_livekit`](https://pub.dev/packages/daravel_livekit),
 [`daravel_sqlite`](https://pub.dev/packages/daravel_sqlite),
 [`daravel_postgres`](https://pub.dev/packages/daravel_postgres)) dirilis bersama dengan satu
 versi oleh publisher terverifikasi
