@@ -58,10 +58,23 @@ final class LivekitWebhookEvent {
 /// key, still valid, whose `sha256` claim is the base64 SHA-256 of the
 /// exact body. Anything else throws [LivekitWebhookException].
 final class LivekitWebhookReceiver {
-  const LivekitWebhookReceiver({required this.apiKey, required this.apiSecret});
+  const LivekitWebhookReceiver({
+    required this.apiKey,
+    required this.apiSecret,
+    this.maxAge = const Duration(minutes: 5),
+  });
 
   final String apiKey;
   final String apiSecret;
+
+  /// How old an event may be (`created_at` against `Clock.now()`, with
+  /// 30 s of skew either way): a captured webhook can be replayed for as
+  /// long as its token is valid, and LiveKit signs tokens for minutes, so
+  /// this closes the window at five minutes. `null` only checks the token.
+  final Duration? maxAge;
+
+  /// Clock skew tolerated when checking [maxAge].
+  static const Duration skew = Duration(seconds: 30);
 
   /// [body] as it arrived, and the `Authorization` header (with or without
   /// `Bearer `).
@@ -106,7 +119,25 @@ final class LivekitWebhookReceiver {
     if (json is! Map<String, Object?>) {
       throw const LivekitWebhookException('The body is not a JSON object.');
     }
-    return LivekitWebhookEvent(json);
+    final event = LivekitWebhookEvent(json);
+    final limit = maxAge;
+    final createdAt = event.createdAt;
+    if (limit != null && createdAt != null) {
+      final age = Clock.now().toUtc().difference(createdAt);
+      if (age > limit + skew) {
+        throw LivekitWebhookException(
+          'Webhook ${event.id} is ${age.inSeconds}s old; events older '
+          'than ${limit.inSeconds}s are refused (a replay?).',
+        );
+      }
+      if (age < -skew) {
+        throw LivekitWebhookException(
+          'Webhook ${event.id} is dated ${(-age).inSeconds}s in the '
+          'future.',
+        );
+      }
+    }
+    return event;
   }
 
   /// The webhook of [request] (its raw body and `Authorization` header).

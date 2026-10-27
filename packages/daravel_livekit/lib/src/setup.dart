@@ -117,11 +117,15 @@ abstract final class Livekit {
 
   /// The verified webhook of [request]; [LivekitWebhookException] (401)
   /// when it is not LiveKit's.
-  static Future<LivekitWebhookEvent> webhook(Request request) {
+  static Future<LivekitWebhookEvent> webhook(
+    Request request, {
+    Duration? maxAge = const Duration(minutes: 5),
+  }) {
     final config = Livekit.config;
     return LivekitWebhookReceiver(
       apiKey: config.apiKey,
       apiSecret: config.apiSecret,
+      maxAge: maxAge,
     ).fromRequest(request);
   }
 }

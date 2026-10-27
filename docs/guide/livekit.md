@@ -102,7 +102,10 @@ router.post('/livekit/webhook', (request) async {
 
 `Livekit.webhook` checks the `Authorization` token (signature, expiry,
 issued under the API key) and that its `sha256` claim is the base64
-SHA-256 of the exact body, as LiveKit's SDKs do; anything else is a 401
+SHA-256 of the exact body, as LiveKit's SDKs do, and, beyond them, that
+the event's `created_at` is within `maxAge` (five minutes, 30 s of skew
+either way), since a captured webhook could otherwise be sent again for
+as long as its token lives; anything else is a 401
 `LivekitWebhookException`. There is no switch to skip that check: a
 webhook route that accepts unsigned events lets anyone mark a meeting as
 finished.

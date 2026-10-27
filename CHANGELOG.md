@@ -26,6 +26,10 @@ match Laravel more closely.
   tightens it to 1 MiB for JSON and forms) still refuses a 10 GB upload
   with `413` instead of buffering it in memory. A declared
   `Content-Length` above it is refused before the body is read.
+- `daravel_livekit`: webhooks older than `maxAge` (five minutes, 30 s of
+  skew either way) or dated in the future are refused with 401, closing
+  the replay window a token's lifetime left open
+  (`LivekitWebhookReceiver.maxAge`, `Livekit.webhook(request, maxAge:)`).
 - `daravel_livekit`: `RoomServiceClient` retries a Twirp call whose
   connection failed before it was sent, or that LiveKit answered 502
   or 503, up to `retries` (2) more times with exponential backoff and

@@ -121,9 +121,11 @@ void main() {
   });
 
   group('webhooks', () {
+    // The bodies below are dated 2026-10-27 07:30 UTC.
+    setUp(() => Clock.fake(DateTime.utc(2026, 10, 27, 7, 30)));
     const receiver = LivekitWebhookReceiver(apiKey: _key, apiSecret: _secret);
     final body = utf8.encode(
-      '{"event":"participant_joined","id":"EV_1","createdAt":"1761550200",'
+      '{"event":"participant_joined","id":"EV_1","createdAt":"1793086200",'
       '"room":{"sid":"RM_1","name":"class-7a","maxParticipants":50},'
       '"participant":{"sid":"PA_1","identity":"u-7","state":"ACTIVE"}}',
     );
@@ -144,12 +146,59 @@ void main() {
         final event = await receiver.receive(body, header);
         expect(event.event, 'participant_joined');
         expect(event.id, 'EV_1');
-        expect(event.createdAt, DateTime.utc(2025, 10, 27, 7, 30));
+        expect(event.createdAt, DateTime.utc(2026, 10, 27, 7, 30));
         expect(event.room?.name, 'class-7a');
         expect(event.room?.maxParticipants, 50);
         expect(event.participant?.identity, 'u-7');
         expect(event.participant?.state, 'ACTIVE');
       }
+    });
+
+    test('an event older than maxAge, or from the future, is a replay', () async {
+      // The clock is 2026-10-27 07:30 UTC; a token stays valid for minutes,
+      // so a captured webhook could be sent again until it expires.
+      Future<void> refused(
+        int createdAt, {
+        Duration? maxAge = const Duration(minutes: 5),
+      }) async {
+        final stale = utf8.encode(
+          '{"event":"room_finished","id":"EV_9","createdAt":"$createdAt",'
+          '"room":{"sid":"RM_1","name":"class-7a"}}',
+        );
+        final receiver = LivekitWebhookReceiver(
+          apiKey: _key,
+          apiSecret: _secret,
+          maxAge: maxAge,
+        );
+        await expectLater(
+          receiver.receive(stale, await signed(stale)),
+          throwsA(
+            isA<LivekitWebhookException>().having(
+              (e) => e.status,
+              'status',
+              401,
+            ),
+          ),
+        );
+      }
+
+      await refused(1793086200 - 6 * 60); // six minutes old
+      await refused(1793086200 + 2 * 60); // two minutes ahead
+      final fresh = utf8.encode(
+        '{"event":"room_finished","id":"EV_9","createdAt":"${1793086200 - 4 * 60}",'
+        '"room":{"sid":"RM_1","name":"class-7a"}}',
+      );
+      expect((await receiver.receive(fresh, await signed(fresh))).id, 'EV_9');
+      // Without a window only the token is checked.
+      final old = utf8.encode(
+        '{"event":"x","id":"EV_0","createdAt":"1761550200"}',
+      );
+      final lenient = LivekitWebhookReceiver(
+        apiKey: _key,
+        apiSecret: _secret,
+        maxAge: null,
+      );
+      expect((await lenient.receive(old, await signed(old))).id, 'EV_0');
     });
 
     test('an empty secret verifies nothing', () async {

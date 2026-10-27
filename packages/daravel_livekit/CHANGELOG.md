@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Added: `RoomServiceClient` retries a Twirp call whose connection failed before it was sent, or that LiveKit answered 502 or 503, up to `retries` (2) more times with exponential backoff and jitter from `retryDelay` (200 ms); timeouts and other answers are final. `backoff(attempt)` is public.
+- Added `LivekitWebhookReceiver.maxAge` (`Livekit.webhook(request, maxAge:)`, five minutes, 30 s of skew): an event whose `created_at` is older, or in the future, is a 401, closing the replay window a token's lifetime left open; `null` keeps only the token check.
 - Fixed: an empty API secret no longer signs or verifies anything (`LivekitToken.toJwt`, `LivekitToken.verify` and `LivekitWebhookReceiver.receive` throw `StateError`); with HS256 an empty key verified tokens signed with an empty key, so webhooks could be forged by anyone knowing the API key. Boot fails when `LIVEKIT_API_KEY` is set but `LIVEKIT_API_SECRET` is not.
 
 ## 1.13.0
