@@ -60,6 +60,16 @@ match Laravel more closely.
 
 ### Fixed
 
+- `daravel_teorion` closes three holes a client's query parameters opened:
+  `allowedWiths` is matched by full path (`author` no longer opens
+  `?withs[]=author.posts.comments`, nor a relation the model does not
+  define, which was a 500); `?visibles[]=` un-hides only attributes the
+  filter lists in the new `allowedVisibles` (empty by default: a client
+  could un-hide `password` hashes; `DisallowedVisibleException` in strict
+  mode); and `?per_page=` / `?max_results=` are clamped to the new
+  `TEORION_MAX_PER_PAGE` (`TeorionConfig.maxPerPage`, 100) with values
+  below 1 meaning the default (`-1` dumped the table, `0` divided the
+  paginator by zero).
 - A request whose `Host`, `X-Forwarded-Host` or `X-Forwarded-Proto` header
   does not parse as a URI (`Host: [::1`, a space) is answered with `400`
   and the connection closed. `Request.fromHttpRequest` throws

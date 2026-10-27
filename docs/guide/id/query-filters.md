@@ -1,4 +1,4 @@
-<!-- source: query-filters.md sha256:939033fdcfb4 -->
+<!-- source: query-filters.md sha256:3a35542c571f -->
 # Query filter
 
 `daravel_teorion` mengubah query string sebuah listing menjadi filter, eager
@@ -77,16 +77,21 @@ mengembalikan query, untuk dilanjutkan dengan `.where(...)`, `.get()`, atau
 | `pagination=cursor`, `cursor` | `?pagination=cursor&per_page=20` | `CursorPaginator` |
 | `max_results` | `?max_results=5` | Paling banyak sejumlah itu, tanpa paging |
 | `with_trashed`, `only_trashed` | `?with_trashed=1` | Pada model yang memakai soft delete |
-| `visibles[]`, `hiddens[]` | `?hiddens[]=email` | Menampilkan atau menyembunyikan atribut |
+| `visibles[]`, `hiddens[]` | `?hiddens[]=email` | Menyembunyikan atribut, atau menampilkan atribut tersembunyi yang Anda daftar di `allowedVisibles` |
 
 Tanpa `is_paginate` atau `pagination`, semua baris yang cocok dikembalikan,
 seperti di laravel-teorion (10 per halaman secara default saat paging,
-`TEORION_DEFAULT_PER_PAGE`).
+`TEORION_DEFAULT_PER_PAGE`). `per_page` dan `max_results` dibatasi
+`TEORION_MAX_PER_PAGE` (100, sama dengan `max:100` pada aturan validasi);
+nilai di bawah 1 berarti default.
 
 Kolom sort atau scope di luar whitelist dijawab 400 dengan pesan dari
 laravel-teorion (`Sort column [password] is not in the allowed sorts
 list.`), begitu pula filter wajib yang tidak ada. Relasi di luar
-`allowedWiths`, dan scope yang diizinkan tetapi tidak didefinisikan model,
+`allowedWiths`, yang berisi path lengkap (`author` tidak membuka
+`author.posts`), atribut tersembunyi di luar `allowedVisibles` (kosong
+secara default: laravel-teorion membiarkan client membuka atribut apa pun,
+Daravel tidak), dan scope yang diizinkan tetapi tidak didefinisikan model,
 dilewati, kecuali `TEORION_STRICT` (default mengikuti `APP_DEBUG`) juga
 menolaknya.
 

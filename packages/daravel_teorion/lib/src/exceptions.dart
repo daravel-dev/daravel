@@ -21,6 +21,14 @@ final class DisallowedWithException extends HttpException {
     : super(400, 'Relation [$relation] is not in the allowed withs list.');
 }
 
+/// `?visibles[]=password` asked to see a hidden attribute outside
+/// [QueryFilter.allowedVisibles] (a Daravel addition: laravel-teorion lets
+/// a client un-hide any attribute).
+final class DisallowedVisibleException extends HttpException {
+  DisallowedVisibleException(String attribute)
+    : super(400, 'Attribute [$attribute] is not in the allowed visibles list.');
+}
+
 /// `?withs[]=author:id,password` asked for a column outside
 /// [QueryFilter.allowedWithColumns] (a Daravel addition: laravel-teorion
 /// passes any column through).

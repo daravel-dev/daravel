@@ -74,16 +74,21 @@ returns the query, to go on with `.where(...)`, `.get()` or `.first()`.
 | `pagination=cursor`, `cursor` | `?pagination=cursor&per_page=20` | A `CursorPaginator` |
 | `max_results` | `?max_results=5` | At most that many rows, without paging |
 | `with_trashed`, `only_trashed` | `?with_trashed=1` | On soft-deleting models |
-| `visibles[]`, `hiddens[]` | `?hiddens[]=email` | Shows or hides attributes |
+| `visibles[]`, `hiddens[]` | `?hiddens[]=email` | Hides attributes, or shows hidden ones you list in `allowedVisibles` |
 
 Without `is_paginate` or `pagination`, every matching row comes back, as in
 laravel-teorion (10 per page by default once paging, `TEORION_DEFAULT_PER_PAGE`).
+`per_page` and `max_results` are capped at `TEORION_MAX_PER_PAGE` (100, the
+`max:100` of the validation rules); a value below 1 means the default.
 
 A sort column or scope outside its whitelist answers 400 with
 laravel-teorion's message (`Sort column [password] is not in the allowed
 sorts list.`), as does a required filter that is missing. Relations outside
-`allowedWiths`, and allowed scopes the model does not define, are skipped,
-unless `TEORION_STRICT` (`APP_DEBUG` by default) refuses them too.
+`allowedWiths`, which lists full paths (`author` does not open
+`author.posts`), hidden attributes outside `allowedVisibles` (none by
+default: laravel-teorion lets a client un-hide anything, Daravel does not),
+and allowed scopes the model does not define, are skipped, unless
+`TEORION_STRICT` (`APP_DEBUG` by default) refuses them too.
 
 A client picks a relation's columns only among those you list, by relation
 path; a relation without a list is loaded whole and asking it for columns

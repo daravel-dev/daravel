@@ -100,6 +100,12 @@ final class PostQueryFilter extends QueryFilter<Post> {
   List<String> get defaultSort => ['-id'];
 }
 
+/// The same filter, letting a client see the hidden `body`.
+final class OpenPostQueryFilter extends PostQueryFilter {
+  @override
+  List<String> get allowedVisibles => ['body'];
+}
+
 final class CreateTables extends Migration {
   const CreateTables();
 
@@ -218,9 +224,10 @@ void teorionTests({String? databaseUrl}) {
   });
 
   /// The titles of `GET /posts?<query>`, filtered.
-  Future<Object> list(String query) => app.run(
+  Future<Object> list(String query, [QueryFilter<Post>? filter]) => app.run(
     () => Post.definition.query().filterAndPaginate(
       Request.fake(path: '/posts?$query'),
+      filter,
     ),
   );
 
@@ -354,6 +361,21 @@ void teorionTests({String? databaseUrl}) {
         reason: refused,
       );
     }
+    // `author` in the list opens `author` only: a nested path is checked
+    // whole, so neither a deeper relation nor one the model does not even
+    // define (which would be a 500 from the loader) is reached.
+    for (final nested in [
+      'withs[]=author.comments',
+      'withs[]=author.nothing.deeper',
+      'withs[]=author.nothing:name',
+    ]) {
+      final posts = await list('$nested&sort=id') as ModelCollection<Post>;
+      expect(
+        posts.first.toJson().containsKey('author'),
+        isFalse,
+        reason: nested,
+      );
+    }
   });
 
   test('strict mode refuses relations outside the whitelist', () async {
@@ -391,6 +413,28 @@ void teorionTests({String? databaseUrl}) {
             ),
       ),
     );
+    await expectLater(
+      list('withs[]=author.comments'),
+      throwsA(
+        isA<DisallowedWithException>().having(
+          (e) => e.message,
+          'message',
+          'Relation [author.comments] is not in the allowed withs list.',
+        ),
+      ),
+    );
+    await expectLater(
+      list('visibles[]=body'),
+      throwsA(
+        isA<DisallowedVisibleException>()
+            .having((e) => e.status, 'status', 400)
+            .having(
+              (e) => e.message,
+              'message',
+              'Attribute [body] is not in the allowed visibles list.',
+            ),
+      ),
+    );
   });
 
   test('pagination: is_paginate, per_page, max_results, cursor', () async {
@@ -406,12 +450,63 @@ void teorionTests({String? databaseUrl}) {
     expect(cursor.nextCursor, isNotNull);
   });
 
+  test(
+    'per_page and max_results are clamped to TEORION_MAX_PER_PAGE',
+    () async {
+      await app.shutdown();
+      app = Application.configure(basePath: dir.path)
+          .withQueryFilters({Post: PostQueryFilter.new})
+          .withDatabaseDriver('mysql', MySqlDriver.fromConfig)
+          .withEnv({
+            'APP_ENV': 'testing',
+            ...database(),
+            'TEORION_DEFAULT_PER_PAGE': '1',
+            'TEORION_MAX_PER_PAGE': '2',
+          })
+          .create();
+      await app.boot();
+      expect(
+        App.make<ConfigRepository>()
+            .section<TeorionConfig>()
+            .toMap()['max_per_page'],
+        2,
+      );
+      // Above the cap: cut to it, not the whole table.
+      expect(await titles('max_results=100000000'), hasLength(2));
+      expect(await titles('is_paginate=1&per_page=1000'), hasLength(2));
+      // Below 1 is not a size: the default, not "no limit" (which is how the
+      // builder reads a negative limit) and not a division by zero in the
+      // paginator.
+      expect(await titles('max_results=-1'), hasLength(1));
+      expect(await titles('per_page=0'), hasLength(1));
+      final page =
+          await list('is_paginate=1&per_page=0') as LengthAwarePaginator<Post>;
+      expect(page.items, hasLength(1));
+      expect(page.lastPage, 3);
+      expect(await titles('pagination=cursor&per_page=-5'), hasLength(1));
+    },
+  );
+
   test('soft deletes, visibles and hiddens', () async {
     expect(await titles('with_trashed=1'), contains('Old post'));
     expect(await titles('only_trashed=1'), ['Old post']);
-    final shown =
-        await list('visibles[]=body&sort=id') as ModelCollection<Post>;
+    // A hidden attribute is shown only when the filter lists it in
+    // allowedVisibles; PostQueryFilter lists none, so `body` stays hidden.
+    final kept = await list('visibles[]=body&sort=id') as ModelCollection<Post>;
+    expect(kept.first.toJson().containsKey('body'), isFalse);
+    final shown = await list(
+      'visibles[]=body&sort=id',
+      OpenPostQueryFilter(),
+    ) as ModelCollection<Post>;
     expect(shown.first.toJson()['body'], 'About Dart tips');
+    final one = await app.run(
+      () => Post.definition.query().findFiltered(
+        Request.fake(path: '/posts?visibles[]=body'),
+        1,
+        OpenPostQueryFilter(),
+      ),
+    );
+    expect(one!.toJson()['body'], 'About Dart tips');
     final hidden = await list('hiddens[]=title') as ModelCollection<Post>;
     expect(hidden.first.toJson().containsKey('title'), isFalse);
   });

@@ -33,8 +33,16 @@ abstract class QueryFilter<T extends Model> {
   /// Scopes of the model's definition a client may call (`?scopes[]=`).
   List<String> get allowedScopes => const [];
 
-  /// Relations a client may eager load (`?withs[]=author`).
+  /// Relations a client may eager load (`?withs[]=author`), by full path:
+  /// `author` does not let a client reach `author.posts` or anything
+  /// deeper; list `author.posts` too when it may.
   List<String> get allowedWiths => const [];
+
+  /// Hidden attributes a client may ask to see (`?visibles[]=email`).
+  /// Nothing by default: a model's `hidden` list (password hashes, tokens)
+  /// is yours to open, not the client's. laravel-teorion lets a client
+  /// un-hide anything; `?hiddens[]=` needs no list, hiding more is harmless.
+  List<String> get allowedVisibles => const [];
 
   /// Columns a client may pick, by relation path (`author`,
   /// `author.country`): `?withs[]=author:id,name` loads only those (and the
@@ -158,6 +166,7 @@ abstract class QueryFilter<T extends Model> {
 final class TeorionConfig implements ConfigSection {
   const TeorionConfig({
     this.defaultPerPage = 10,
+    this.maxPerPage = 100,
     this.paginateKey = 'is_paginate',
     this.perPageKey = 'per_page',
     this.maxResultsKey = 'max_results',
@@ -180,6 +189,7 @@ final class TeorionConfig implements ConfigSection {
 
   factory TeorionConfig.fromEnv(Env env) => TeorionConfig(
     defaultPerPage: env.integer('TEORION_DEFAULT_PER_PAGE', 10),
+    maxPerPage: env.integer('TEORION_MAX_PER_PAGE', 100),
     // laravel-teorion: strict on APP_DEBUG.
     strict: env.boolean('TEORION_STRICT', env.boolean('APP_DEBUG', false)),
     audit: env.boolean('TEORION_AUDIT_ENABLED', false),
@@ -189,6 +199,12 @@ final class TeorionConfig implements ConfigSection {
   );
 
   final int defaultPerPage;
+
+  /// The most rows `?per_page=` or `?max_results=` may ask for
+  /// (`TEORION_MAX_PER_PAGE`, 100 like [QueryFilter.baseRules]); more is
+  /// cut to it, and a value below 1 falls back to [defaultPerPage], so no
+  /// client dumps a table or divides a paginator by zero.
+  final int maxPerPage;
   final String paginateKey;
   final String perPageKey;
   final String maxResultsKey;
@@ -218,6 +234,7 @@ final class TeorionConfig implements ConfigSection {
   @override
   Map<String, Object?> toMap() => {
     'default_per_page': defaultPerPage,
+    'max_per_page': maxPerPage,
     'paginate_key': paginateKey,
     'per_page_key': perPageKey,
     'max_results_key': maxResultsKey,
@@ -342,10 +359,11 @@ final class _Pipeline<T extends Model> {
       final relation = '$entry';
       final colon = relation.indexOf(':');
       final path = (colon < 0 ? relation : relation.substring(0, colon)).trim();
-      final root = path.split('.').first;
-      if (!declaration.allowedWiths.contains(root)) {
+      // The whole path: `author` in the list does not open `author.posts`
+      // (every segment is a relation of the one before, loaded whole).
+      if (!declaration.allowedWiths.contains(path)) {
         if (_config.strict) {
-          throw DisallowedWithException(root);
+          throw DisallowedWithException(path);
         }
         continue;
       }
@@ -645,7 +663,7 @@ extension FilterableQuery<T extends Model> on ModelQuery<T> {
       final all = await get();
       (result, items, mode) = (all, all, 'collection');
     }
-    await _visibility(items, request);
+    await _visibility(items, request, declaration, config);
     await _audit(declaration, request, mode, limit, items.length, watch);
     return result;
   }
@@ -663,7 +681,12 @@ extension FilterableQuery<T extends Model> on ModelQuery<T> {
     final key = num.tryParse('$id') != null ? definition.primaryKey : 'uuid';
     final model = await where(key, id).first();
     if (model != null) {
-      await _visibility(ModelCollection<T>([model]), request);
+      await _visibility(
+        ModelCollection<T>([model]),
+        request,
+        declaration,
+        _config,
+      );
     }
     await _audit(declaration, request, 'find', 1, model == null ? 0 : 1, watch);
     return model;
@@ -673,18 +696,35 @@ extension FilterableQuery<T extends Model> on ModelQuery<T> {
     final value =
         await request.input<Object?>(config.maxResultsKey) ??
         await request.input<Object?>(config.perPageKey);
-    return int.tryParse('${value ?? ''}') ?? config.defaultPerPage;
+    final asked = int.tryParse('${value ?? ''}');
+    // Below 1 is not a size (the builder reads a negative limit as none,
+    // and a paginator divides by it); above the cap is cut to it.
+    if (asked == null || asked < 1) {
+      return config.defaultPerPage;
+    }
+    return asked > config.maxPerPage ? config.maxPerPage : asked;
   }
 
   static Future<void> _visibility(
     ModelCollection<Model> items,
     Request request,
+    QueryFilter<Model> declaration,
+    TeorionConfig config,
   ) async {
     List<String> names(Object? value) => [
       for (final item in _Pipeline._entries(value)) '$item',
     ];
-    final visible = names(await request.input<Object?>('visibles'));
+    final asked = names(await request.input<Object?>('visibles'));
     final hidden = names(await request.input<Object?>('hiddens'));
+    final allowed = declaration.allowedVisibles;
+    final visible = <String>[];
+    for (final name in asked) {
+      if (allowed.contains(name)) {
+        visible.add(name);
+      } else if (config.strict) {
+        throw DisallowedVisibleException(name);
+      }
+    }
     if (visible.isNotEmpty) {
       items.makeVisible(visible);
     }
