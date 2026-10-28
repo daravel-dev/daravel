@@ -20,6 +20,7 @@ const List<String> daravelPackages = [
   'daravel_postgres',
   'daravel_permission',
   'daravel_activitylog',
+  'daravel_log_viewer',
   'daravel_redis',
   'daravel_teorion',
   'daravel_livekit',

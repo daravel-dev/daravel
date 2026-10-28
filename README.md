@@ -464,6 +464,7 @@ The monorepo is a Dart pub workspace:
 | [`packages/daravel_mysql`](packages/daravel_mysql) | MySQL and MariaDB driver |
 | [`packages/daravel_permission`](packages/daravel_permission) | Roles and permissions on spatie/laravel-permission's tables |
 | [`packages/daravel_activitylog`](packages/daravel_activitylog) | Model change history and an activity log on spatie/laravel-activitylog's table |
+| [`packages/daravel_log_viewer`](packages/daravel_log_viewer) | A log viewer page: files read from their end, filters, live tail, secrets masked |
 | [`packages/daravel_teorion`](packages/daravel_teorion) | Request-driven query filters, laravel-teorion's format |
 | [`packages/daravel_livekit`](packages/daravel_livekit) | LiveKit server SDK: access tokens, rooms, verified webhooks |
 | [`packages/daravel_google`](packages/daravel_google) | Google: OAuth tokens with refresh, service accounts, Calendar events with Meet links |
@@ -474,13 +475,14 @@ The monorepo is a Dart pub workspace:
 | [`packages/daravel_postgres`](packages/daravel_postgres) | PostgreSQL driver package (`db:install pgsql`) |
 | [`apps/daravel_starter`](apps/daravel_starter) | Reference application and end-to-end tests |
 
-The fifteen packages ([`daravel`](https://pub.dev/packages/daravel),
+The sixteen packages ([`daravel`](https://pub.dev/packages/daravel),
 [`dartisan_cli`](https://pub.dev/packages/dartisan_cli),
 [`daravel_test`](https://pub.dev/packages/daravel_test),
 [`daravel_lints`](https://pub.dev/packages/daravel_lints),
 [`daravel_mysql`](https://pub.dev/packages/daravel_mysql),
 [`daravel_permission`](https://pub.dev/packages/daravel_permission),
 [`daravel_activitylog`](https://pub.dev/packages/daravel_activitylog),
+[`daravel_log_viewer`](https://pub.dev/packages/daravel_log_viewer),
 [`daravel_redis`](https://pub.dev/packages/daravel_redis),
 [`daravel_teorion`](https://pub.dev/packages/daravel_teorion),
 [`daravel_livekit`](https://pub.dev/packages/daravel_livekit),

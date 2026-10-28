@@ -126,6 +126,12 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `php artisan permission:show` | `dartisan permission:show` |  |
 | `app(PermissionRegistrar::class)->forgetCachedPermissions()` | `await PermissionRegistrar.current.forgetCachedPermissions()` | **async** |
 
+## Log viewer (daravel_log_viewer)
+
+| Laravel | Daravel | Notes |
+| :-- | :-- | :-- |
+| `composer require opcodesio/log-viewer (/log-viewer)` | `.withLogViewer(middleware: ['auth', 'can:view-logs'])` | Reads Daravel's JSON logs and Laravel's Monolog files from their end; 403 outside local without middleware. |
+
 ## Activity log (daravel_activitylog)
 
 | Laravel | Daravel | Notes |

@@ -122,6 +122,9 @@ sections:
       - { php: "Route::middleware('role:admin|editor')", dart: ".middleware(['role:admin|editor'])", symbol: RoleMiddleware, note: "Also permission: and role_or_permission:, with Spatie's 403 messages." }
       - { php: "php artisan permission:show", dart: "dartisan permission:show", symbol: PermissionShowCommand }
       - { php: "app(PermissionRegistrar::class)->forgetCachedPermissions()", dart: "await PermissionRegistrar.current.forgetCachedPermissions()", symbol: PermissionRegistrar.forgetCachedPermissions, async: true }
+  - name: Log viewer (daravel_log_viewer)
+    symbols:
+      - { php: "composer require opcodesio/log-viewer (/log-viewer)", dart: ".withLogViewer(middleware: ['auth', 'can:view-logs'])", symbol: LogViewerApplicationBuilder.withLogViewer, note: "Reads Daravel's JSON logs and Laravel's Monolog files from their end; 403 outside local without middleware." }
 
   - name: Activity log (daravel_activitylog)
     symbols:

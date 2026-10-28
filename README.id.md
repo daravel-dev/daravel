@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:9025e2a7cb8a -->
+<!-- source: README.md sha256:ae18802992bd -->
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/brand/svg/daravel-logo-horizontal-on-dark.svg">
@@ -470,6 +470,7 @@ Monorepo ini adalah pub workspace Dart:
 | [`packages/daravel_mysql`](packages/daravel_mysql) | Driver MySQL dan MariaDB |
 | [`packages/daravel_permission`](packages/daravel_permission) | Role dan permission pada tabel spatie/laravel-permission |
 | [`packages/daravel_activitylog`](packages/daravel_activitylog) | Riwayat perubahan model dan activity log pada tabel spatie/laravel-activitylog |
+| [`packages/daravel_log_viewer`](packages/daravel_log_viewer) | Halaman log viewer: file dibaca dari ujungnya, filter, live tail, data rahasia disensor |
 | [`packages/daravel_teorion`](packages/daravel_teorion) | Query filter dari request, format laravel-teorion |
 | [`packages/daravel_livekit`](packages/daravel_livekit) | SDK server LiveKit: access token, room, webhook terverifikasi |
 | [`packages/daravel_google`](packages/daravel_google) | Google: token OAuth dengan refresh, service account, event Calendar dengan link Meet |
@@ -480,13 +481,14 @@ Monorepo ini adalah pub workspace Dart:
 | [`packages/daravel_postgres`](packages/daravel_postgres) | Paket driver PostgreSQL (`db:install pgsql`) |
 | [`apps/daravel_starter`](apps/daravel_starter) | Aplikasi referensi dan test end-to-end |
 
-Kelima belas paket ([`daravel`](https://pub.dev/packages/daravel),
+Keenam belas paket ([`daravel`](https://pub.dev/packages/daravel),
 [`dartisan_cli`](https://pub.dev/packages/dartisan_cli),
 [`daravel_test`](https://pub.dev/packages/daravel_test),
 [`daravel_lints`](https://pub.dev/packages/daravel_lints),
 [`daravel_mysql`](https://pub.dev/packages/daravel_mysql),
 [`daravel_permission`](https://pub.dev/packages/daravel_permission),
 [`daravel_activitylog`](https://pub.dev/packages/daravel_activitylog),
+[`daravel_log_viewer`](https://pub.dev/packages/daravel_log_viewer),
 [`daravel_redis`](https://pub.dev/packages/daravel_redis),
 [`daravel_teorion`](https://pub.dev/packages/daravel_teorion),
 [`daravel_livekit`](https://pub.dev/packages/daravel_livekit),
