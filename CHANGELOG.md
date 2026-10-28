@@ -182,6 +182,10 @@ match Laravel more closely.
   run, since every unnamed closure shared one lock. `LocalDisk.putStream`
   writes through a temporary file, so a failed stream leaves no
   truncated file.
+- Scheduler: `schedule:work` starts each minute's run without waiting
+  for the previous one, as Laravel's does, so a task that hangs or takes
+  minutes no longer stops the scheduler or skips the minutes in between
+  (`withoutOverlapping` keeps such a task from running beside itself).
 - Queue worker: a row whose payload does not decode is removed and
   recorded in `failed_jobs` (it was re-reserved after `retry_after` and
   crashed every worker in turn), a job whose `fromJson` throws fails

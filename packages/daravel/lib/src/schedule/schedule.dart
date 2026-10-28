@@ -568,7 +568,12 @@ final class Scheduler {
     }
   }
 
-  /// Runs due tasks every minute until [stop].
+  /// Runs due tasks every minute until [stop]. A minute's run is not
+  /// awaited before the next tick, so a task that takes minutes, or never
+  /// completes, neither stops the scheduler nor skips the minutes in
+  /// between (as Laravel's `schedule:work` starts a fresh `schedule:run`
+  /// each minute); `withoutOverlapping` keeps such a task from running
+  /// beside itself. Within a minute the tasks still run in order.
   Future<void> work({Duration? tick}) async {
     _stop = false;
     String? lastMinute;
@@ -577,15 +582,16 @@ final class Scheduler {
       final minute = _minuteKey(now);
       if (minute != lastMinute) {
         lastMinute = minute;
-        try {
-          await run(now);
-        } catch (error, stackTrace) {
-          logger?.error(
-            'Scheduler tick failed',
-            error: error,
-            stackTrace: stackTrace,
-          );
-        }
+        unawaited(
+          run(now).then<void>(
+            (_) {},
+            onError: (Object error, StackTrace stackTrace) => logger?.error(
+              'Scheduler tick failed',
+              error: error,
+              stackTrace: stackTrace,
+            ),
+          ),
+        );
       }
       final wait =
           tick ??

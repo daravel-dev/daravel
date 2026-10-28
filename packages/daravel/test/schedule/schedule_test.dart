@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:daravel/daravel.dart';
@@ -305,6 +306,33 @@ void main() {
       });
     },
   );
+
+  test('a task that never completes does not stop the scheduler', () async {
+    await app.run(() async {
+      final schedule = App.make<Schedule>();
+      var ticks = 0;
+      final hung = Completer<void>();
+      schedule.call(() => ticks++).everyMinute().named('ticker');
+      schedule.call(() => hung.future).everyMinute().named('hung');
+      var now = at;
+      final scheduler = Scheduler(
+        schedule,
+        environment: 'testing',
+        clock: () => now,
+      );
+      final working = scheduler.work(tick: const Duration(milliseconds: 20));
+      // The first minute: the ticker runs, then the hung task never returns.
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(ticks, 1);
+      // The next minute still ticks, although the hung task is pending.
+      now = at.add(const Duration(minutes: 1));
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(ticks, 2, reason: 'the scheduler did not wait on the hung task');
+      scheduler.stop();
+      await working.timeout(const Duration(seconds: 2));
+      hung.complete();
+    });
+  });
 
   test('commands run through the command runner', () async {
     await app.run(() async {
