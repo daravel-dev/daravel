@@ -1,0 +1,23 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# 💖 Daravel Funding & Sponsorship Configuration
+# ─────────────────────────────────────────────────────────────────────────────
+# GitHub displays this in the "Sponsor this project" dialog and repository sidebar.
+# Learn more: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/displaying-a-sponsor-button-in-your-repository
+
+# 🐙 GitHub Sponsors
+# Add your GitHub username or organization name eligible for GitHub Sponsors:
+github: [teoprayoga, daravel-dev]
+
+# ☕ Global Community Platforms (Uncomment the ones you use)
+# buy_me_a_coffee: teoprayoga
+# ko_fi: teoprayoga
+# patreon: teoprayoga
+# open_collective: daravel
+# polar: daravel
+
+# 🇮🇩 Indonesian & Custom Direct Support Links (Max 4 custom URLs)
+custom:
+  - https://saweria.co/teoprayoga
+  - https://trakteer.id/teoprayoga
+  - https://github.com/sponsors/teoprayoga
+  - https://daravel.dev/sponsor
