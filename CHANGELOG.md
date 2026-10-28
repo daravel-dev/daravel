@@ -9,7 +9,17 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 wait for a new major version, and Laravel-facing formats change only to
 match Laravel more closely.
 
-## Unreleased
+## 1.16.0
+
+`daravel_medialibrary` joins the release line (first published as 1.15.0):
+files and images attached to models on spatie/laravel-medialibrary's table
+and file layout, with image conversions in pure Dart. `dartisan` gains
+`security:audit`, a black-box check of a running server for deployment
+mistakes, a `coordinator:stats` that reads the running server, and a
+distroless Docker image. `apps/virtual_classroom` shows the first-party
+packages working together. Every package now ships an example, and
+`tool/publish_checks.dart` keeps the publish order and examples in place,
+so every package scores its full pub points again.
 
 ### Added
 
@@ -56,6 +66,11 @@ match Laravel more closely.
   left open, plain HTTP. Only content that proves a leak counts. Reports
   for the terminal, JSON or SARIF (GitHub code scanning); exits 1 at
   `--severity` for CI.
+- `THIRD_PARTY_NOTICES.md` (and one in `daravel`, `daravel_test` and
+  `daravel_medialibrary`): the MIT notices of the Laravel validation
+  messages Daravel reproduces and of the Spatie behaviour
+  `daravel_medialibrary` follows.
+- `daravel_google` and `daravel_teobiefy` ship an example.
 
 ## 1.15.0
 

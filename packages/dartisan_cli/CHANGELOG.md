@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.16.0
+
+- Added `security:audit [--target] [--format=terminal|json|sarif] [--output] [--severity] [--only] [--json-path]`: a black-box audit of a running server for deployment mistakes (13 checks, single harmless requests), exiting 1 at `--severity` for CI.
+- Changed: `coordinator:stats --url=<server>/metrics [--token] [--json]` reads the running server's coordinator (queue, refused calls, round trips by service with p50/p99) and says what to do; without `--url` it still shows the process's own coordinator.
+- Added `build --docker --distroless`: the generated `Dockerfile` runs on `gcr.io/distroless/cc-debian12:nonroot`.
+- `pub:add` lists `daravel_medialibrary` (`media`).
+
 ## 1.15.0
 
 - Added `pub:list [--json]`, `pub:search <term> [--online]` and `pub:add <package...>` (alias `install`, `--yes`, `--no-get`): install a first-party package by name or alias, with its dependency, `.with*()` registration, migrations, commands and `.env.example` settings; the database and Redis packages delegate to `db:install` and `redis:install`. A typo stops with a suggestion; a package outside Daravel needs confirmation or `--yes`.

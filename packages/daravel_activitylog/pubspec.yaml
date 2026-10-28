@@ -1,6 +1,6 @@
 name: daravel_activitylog
 description: Model change history and an activity log for Daravel, on spatie/laravel-activitylog's activity_log table, so a Laravel application can share it.
-version: 1.15.0
+version: 1.16.0
 homepage: https://daravel.dev
 repository: https://github.com/daravel-dev/daravel/tree/main/packages/daravel_activitylog
 issue_tracker: https://github.com/daravel-dev/daravel/issues
@@ -21,9 +21,9 @@ resolution: workspace
 dependencies:
   args: ^2.6.0
   collection: ^1.19.1
-  daravel: ^1.15.0
-  dartisan_cli: ^1.15.0
+  daravel: ^1.16.0
+  dartisan_cli: ^1.16.0
 
 dev_dependencies:
-  daravel_mysql: ^1.15.0
+  daravel_mysql: ^1.16.0
   test: ^1.33.0

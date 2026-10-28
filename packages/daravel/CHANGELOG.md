@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.16.0
+
+- Added coordinator round-trip metrics: `RemoteCoordinatorChannel.onCallDuration` / `onCallTimeout`, recorded by `AppMetrics` as `coordinator_call_duration_seconds{service}` (sub-millisecond buckets, `AppMetrics.coordinatorBuckets`) and `coordinator_call_timeouts_total{service}`; `Coordinator.stats()` adds `in_flight_peak` and `max_queue`, exported as `coordinator_in_flight_peak` and `coordinator_max_queue`.
+- The English validation messages carry Laravel's MIT notice (`THIRD_PARTY_NOTICES.md`).
+
 ## 1.15.0
 
 - Fixed: a command in an application with `withPermissions()` (any package subscribing to a broadcast channel at boot) never exited; cancelling a subscription after `Broadcaster.close()` opened a new port that nothing closed.
