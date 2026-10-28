@@ -1,4 +1,4 @@
-<!-- source: dartisan.md sha256:6061f15c14c8 -->
+<!-- source: dartisan.md sha256:87b5847ff77a -->
 # dartisan
 
 `dartisan` adalah `artisan`-nya Daravel. Pasang sekali, lalu pakai di proyek
@@ -27,6 +27,7 @@ sebuah command.
 | `down [--secret] [--retry]`, `up` | Mode maintenance, lihat [Deployment](deployment.md#mode-maintenance) |
 | `stub:publish` | Menyalin template generator ke `stubs/` |
 | `lint [--json]` | Rule `daravel_lints` dan pengecekan registry |
+| `security:audit [--target] [--format=terminal\|json\|sarif] [--output] [--severity] [--only] [--json-path]` | Audit black-box server yang sedang berjalan untuk kesalahan deployment, lihat [Keamanan](security.md#mengaudit-server-yang-sedang-berjalan) |
 | `mcp:serve [--allow-write]`, `mcp:install` | Konteks proyek untuk agen AI coding lewat MCP, lihat [di bawah](#agen-ai-coding-mcp) |
 | `upgrade [--check] [--to] [--no-global] [--no-get]`, `self-update` | Memindahkan proyek dan CLI global ke sebuah rilis, lihat [di bawah](#upgrade) |
 | `pub:list [--json]`, `pub:search <kata> [--online]`, `pub:add <paket...> [--yes] [--no-get]` | Mencari dan memasang paket first-party, lihat [di bawah](#paket) |

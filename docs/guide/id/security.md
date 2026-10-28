@@ -1,4 +1,4 @@
-<!-- source: security.md sha256:94c5a83ea5cd -->
+<!-- source: security.md sha256:f0294ba40357 -->
 # Keamanan Sistem (Security Guide)
 
 Pelaporan kerentanan keamanan secara privat dijelaskan pada berkas
@@ -99,3 +99,49 @@ Jalankan suite uji keamanan secara lokal:
 ```bash
 cd packages/daravel && dart test --tags security
 ```
+
+## Mengaudit server yang sedang berjalan
+
+Suite di atas menguji framework. `dartisan security:audit` memeriksa
+deployment: command ini mengirim request tunggal yang aman ke server yang
+sedang berjalan (tanpa banjir request, tanpa request yang menulis) dan
+melaporkan konfigurasi yang keliru, beserta cara memperbaikinya.
+
+```bash
+dartisan security:audit                                   # APP_URL
+dartisan security:audit --target=https://staging.example.com --json-path=/api/orders
+dartisan security:audit --format=sarif --output=reports/audit.sarif
+```
+
+| Pemeriksaan | Menemukan |
+| :-- | :-- |
+| `DARAVEL-SEC-001` | `X-Content-Type-Options`, `Referrer-Policy`, perlindungan framing pada HTML, HSTS pada HTTPS yang tidak ada |
+| `DARAVEL-SEC-002` | Versi di `Server` atau `X-Powered-By` |
+| `DARAVEL-SEC-003` | `.env`, `.git`, database SQLite, log, atau `pubspec.yaml` yang tersaji |
+| `DARAVEL-SEC-004` | Path traversal ke `.env` (`/..%2f.env`) |
+| `DARAVEL-SEC-005` | `TRACE` yang memantulkan request |
+| `DARAVEL-SEC-006` | Injeksi CRLF ke header respons |
+| `DARAVEL-SEC-007` | Stack trace di respons error (`APP_DEBUG=true`) |
+| `DARAVEL-SEC-008` | Route yang gagal pada JSON yang sangat dalam (dengan `--json-path`) |
+| `DARAVEL-SEC-009` | CORS yang memantulkan origin apa pun, lebih buruk bila dengan credentials |
+| `DARAVEL-SEC-010` | Cookie tanpa `HttpOnly`, `SameSite`, atau `Secure` di HTTPS |
+| `DARAVEL-SEC-011` | `/metrics` tanpa `METRICS_TOKEN` |
+| `DARAVEL-SEC-012` | Log viewer tanpa autentikasi |
+| `DARAVEL-SEC-013` | Host publik yang disajikan lewat HTTP biasa |
+
+Hanya konten yang membuktikan kebocoran yang dihitung (`.env` yang tersaji
+harus berisi `APP_KEY=` atau sejenisnya), sehingga halaman catch-all yang
+menjawab 200 tidak dianggap temuan. `--only=003,011` menjalankan sebagian
+pemeriksaan. Command ini keluar dengan kode 1 bila ada temuan yang mencapai
+`--severity` (default `high`), sehingga bisa menjadi gate deployment;
+laporan SARIF menampilkan temuan di GitHub code scanning:
+
+```yaml
+- run: dart run bin/dartisan.dart security:audit --target=https://staging.example.com --format=sarif --output=audit.sarif
+- uses: github/codeql-action/upload-sarif@v3
+  if: always()
+  with:
+    sarif_file: audit.sarif
+```
+
+Audit hanya server yang Anda jalankan atau boleh Anda uji.
