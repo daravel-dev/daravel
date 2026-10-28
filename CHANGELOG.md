@@ -26,6 +26,14 @@ match Laravel more closely.
   queued conversions run as `PerformConversionsJob`. File names are
   cleaned and refused as Spatie does (`shell.php.jpg` included);
   `media:regenerate` and `media:clean`.
+- `apps/virtual_classroom` (Blueprint #47): an example application in which
+  the first-party packages work together. Teachers schedule lessons in
+  their classrooms; students join them in LiveKit rooms with a token
+  signed per participant (the teacher as the room's admin), from 15
+  minutes before the start; published lessons are put in Google Calendar
+  with the students as guests by a queued job. Roles, query filters and
+  the activity log are wired in, and the feature tests fake LiveKit and
+  Google over `Http.fake()`.
 
 ## 1.15.0
 

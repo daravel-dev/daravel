@@ -1,0 +1,23 @@
+name: virtual_classroom
+description: Example Daravel application, a virtual classroom - scheduled lessons, LiveKit video rooms, Google Calendar invitations.
+version: 1.15.0
+publish_to: none
+
+environment:
+  sdk: ^3.13.0
+resolution: workspace
+
+dependencies:
+  daravel: any
+  daravel_activitylog: any
+  daravel_google: any
+  daravel_livekit: any
+  daravel_permission: any
+  daravel_teorion: any
+  dartisan_cli: any
+
+dev_dependencies:
+  daravel_test: any
+  lints: ^6.0.0
+  pointycastle: ^4.0.0
+  test: ^1.33.0
