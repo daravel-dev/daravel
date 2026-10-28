@@ -146,6 +146,22 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | :-- | :-- | :-- |
 | `composer require opcodesio/log-viewer (/log-viewer)` | `.withLogViewer(middleware: ['auth', 'can:view-logs'])` | Reads Daravel's JSON logs and Laravel's Monolog files from their end; 403 outside local without middleware. |
 
+## Media library (daravel_medialibrary)
+
+| Laravel | Daravel | Notes |
+| :-- | :-- | :-- |
+| `class User extends Model implements HasMedia { use InteractsWithMedia; }` | `final class User extends Model with InteractsWithMedia (observers: [MediaObserver<User>()])` | spatie/laravel-medialibrary v11's media table and file layout; the observer deletes the media with the model. |
+| `$user->addMedia($request->file('avatar'))->toMediaCollection('avatars')` | `await user.addMedia((await request.file('avatar'))!).toMediaCollection('avatars')` | **async** |
+| `$this->addMediaCollection('avatars')->singleFile()` | `addMediaCollection('avatars').singleFile()` |  |
+| `$this->addMediaConversion('thumb')->fit(Fit::Crop, 200, 200)->nonQueued()` | `addMediaConversion('thumb').fit(Fit.crop, 200, 200).nonQueued()` | Pure Dart (package:image): JPEG by default as Spatie; PNG, GIF, BMP and TIFF too, no WebP or AVIF encoding. |
+| `$user->getFirstMediaUrl('avatars', 'thumb')` | `await user.getFirstMediaUrl('avatars', 'thumb')` | **async** |
+| `$user->getMedia('documents')` | `await user.getMedia('documents')` | **async** |
+| `$user->clearMediaCollection('avatars')` | `await user.clearMediaCollection('avatars')` | **async** |
+| `$media->getUrl('thumb')` | `media.url('thumb')` |  |
+| `$media->human_readable_size` | `media.humanReadableSize` |  |
+| `php artisan media-library:regenerate` | `dartisan media:regenerate` |  |
+| `php artisan media-library:clean` | `dartisan media:clean` |  |
+
 ## Activity log (daravel_activitylog)
 
 | Laravel | Daravel | Notes |

@@ -14,8 +14,10 @@ dependencies:
   daravel_log_viewer: any
   daravel_activitylog: any
   daravel_excel: any
+  daravel_medialibrary: any
   daravel_livekit: any
   daravel_redis: any
+  image: ^4.8.0
   path: ^1.9.0
 
 dev_dependencies:

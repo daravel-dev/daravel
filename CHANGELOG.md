@@ -2,12 +2,30 @@
 
 All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 `daravel_lints`, `daravel_mysql`, `daravel_permission`, `daravel_activitylog`,
-`daravel_excel`, `daravel_log_viewer`, `daravel_redis`, `daravel_sqlite`,
-`daravel_postgres`, `daravel_teorion`,
+`daravel_excel`, `daravel_log_viewer`, `daravel_medialibrary`,
+`daravel_redis`, `daravel_sqlite`, `daravel_postgres`, `daravel_teorion`,
 `daravel_livekit`, `daravel_google`, `daravel_teobiefy`, `daravel_s3`,
 `dartisan_cli`). Versions follow SemVer: breaking changes to the Dart API
 wait for a new major version, and Laravel-facing formats change only to
 match Laravel more closely.
+
+## Unreleased
+
+### Added
+
+- `daravel_medialibrary` (Blueprint #37): files and images attached to
+  models with spatie/laravel-medialibrary v11's `InteractsWithMedia`,
+  collections (`singleFile()`, accepted MIME types, their own disks) and
+  conversions, on Spatie's `media` table and file layout
+  (`<id>/<file>`, `<id>/conversions/<file>-<conversion>.jpg`), so a Laravel
+  application on the same database and disk reads, serves and deletes the
+  media Daravel adds and the other way round
+  (`bench/interop/medialibrary.sh`). Images are converted in pure Dart in
+  a separate isolate, with Spatie's resize rules (`width`, `height`, `fit`
+  and `crop` in order, JPEG at GD's quality by default, EXIF rotation);
+  queued conversions run as `PerformConversionsJob`. File names are
+  cleaned and refused as Spatie does (`shell.php.jpg` included);
+  `media:regenerate` and `media:clean`.
 
 ## 1.15.0
 
