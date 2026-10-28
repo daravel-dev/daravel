@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:35f7b04f4d4d -->
+<!-- source: README.md sha256:e550d1bfa496 -->
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/brand/svg/daravel-logo-horizontal-on-dark.svg">
@@ -483,6 +483,7 @@ Monorepo ini adalah pub workspace Dart:
 | [`packages/daravel_sqlite`](packages/daravel_sqlite) | Paket driver SQLite (`db:install sqlite`) |
 | [`packages/daravel_postgres`](packages/daravel_postgres) | Paket driver PostgreSQL (`db:install pgsql`) |
 | [`apps/daravel_starter`](apps/daravel_starter) | Aplikasi referensi dan test end-to-end |
+| [`apps/virtual_classroom`](apps/virtual_classroom) | Aplikasi contoh: jadwal pelajaran di room LiveKit, undangan Google Calendar, role, query filter, activity log |
 
 Kedelapan belas paket ([`daravel`](https://pub.dev/packages/daravel),
 [`dartisan_cli`](https://pub.dev/packages/dartisan_cli),
