@@ -409,6 +409,7 @@ dependency_overrides:
         'teobiefy',
         'google',
         'teorion',
+        'media',
       ]);
       expect(add.exitCode, 0, reason: '${add.stdout}${add.stderr}');
       final analyze = await run(['analyze', '--fatal-infos']);
@@ -419,6 +420,7 @@ dependency_overrides:
         ['migrate'],
         ['permission:create-role', 'editor'],
         ['activitylog:clean'],
+        ['media:clean', '--dry-run'],
       ]) {
         final process = await Process.start(
           dartExecutable(),

@@ -137,6 +137,20 @@ sections:
     symbols:
       - { php: "composer require opcodesio/log-viewer (/log-viewer)", dart: ".withLogViewer(middleware: ['auth', 'can:view-logs'])", symbol: LogViewerApplicationBuilder.withLogViewer, note: "Reads Daravel's JSON logs and Laravel's Monolog files from their end; 403 outside local without middleware." }
 
+  - name: Media library (daravel_medialibrary)
+    symbols:
+      - { php: "class User extends Model implements HasMedia { use InteractsWithMedia; }", dart: "final class User extends Model with InteractsWithMedia (observers: [MediaObserver<User>()])", symbol: InteractsWithMedia, note: "spatie/laravel-medialibrary v11's media table and file layout; the observer deletes the media with the model." }
+      - { php: "$user->addMedia($request->file('avatar'))->toMediaCollection('avatars')", dart: "await user.addMedia((await request.file('avatar'))!).toMediaCollection('avatars')", symbol: FileAdder.toMediaCollection, async: true }
+      - { php: "$this->addMediaCollection('avatars')->singleFile()", dart: "addMediaCollection('avatars').singleFile()", symbol: MediaCollection.singleFile }
+      - { php: "$this->addMediaConversion('thumb')->fit(Fit::Crop, 200, 200)->nonQueued()", dart: "addMediaConversion('thumb').fit(Fit.crop, 200, 200).nonQueued()", symbol: Conversion.fit, note: "Pure Dart (package:image): JPEG by default as Spatie; PNG, GIF, BMP and TIFF too, no WebP or AVIF encoding." }
+      - { php: "$user->getFirstMediaUrl('avatars', 'thumb')", dart: "await user.getFirstMediaUrl('avatars', 'thumb')", symbol: InteractsWithMedia.getFirstMediaUrl, async: true }
+      - { php: "$user->getMedia('documents')", dart: "await user.getMedia('documents')", symbol: InteractsWithMedia.getMedia, async: true }
+      - { php: "$user->clearMediaCollection('avatars')", dart: "await user.clearMediaCollection('avatars')", symbol: InteractsWithMedia.clearMediaCollection, async: true }
+      - { php: "$media->getUrl('thumb')", dart: "media.url('thumb')", symbol: Media.url }
+      - { php: "$media->human_readable_size", dart: "media.humanReadableSize", symbol: Media.humanReadableSize }
+      - { php: "php artisan media-library:regenerate", dart: "dartisan media:regenerate", symbol: MediaRegenerateCommand }
+      - { php: "php artisan media-library:clean", dart: "dartisan media:clean", symbol: MediaCleanCommand }
+
   - name: Activity log (daravel_activitylog)
     symbols:
       - { php: "use LogsActivity; getActivitylogOptions()", dart: "with LogsActivity, observers: [ActivityLogObserver<T>()]", symbol: LogsActivity, note: "spatie/laravel-activitylog v4's activity_log table: shared with Laravel." }
