@@ -226,7 +226,7 @@ Future<void> main(List<String> args) async {
   }
 }
 
-/// Scenarios 1–6 of §10.2 (7 multipart and 8 SSE wait for Tier 2).
+/// Scenarios 1–8 of §10.2.
 /// Scenario 11: the server under more concurrent connections than it can
 /// serve, without a limit, with `HTTP_MAX_IN_FLIGHT`, and with
 /// `HTTP_MAX_QUEUE_DELAY` added.
@@ -254,6 +254,8 @@ final List<(String, LoadSpec)> _scenarios = [
   ('4-eager-loading', const LoadSpec('GET', '/api/posts')),
   ('5-throttled', const LoadSpec('GET', '/api/throttled')),
   ('6-login-hash', const LoadSpec('POST', '/api/login')),
+  ('7-multipart-upload', LoadSpec.upload('/api/upload')),
+  ('8-sse-stream', const LoadSpec('GET', '/api/events')),
 ];
 
 Future<LoadResult> _measure(
@@ -669,7 +671,7 @@ final class _Options {
             '${max(2, Platform.numberOfProcessors ~/ 2)}',
       ),
       isolates: (value('isolates') ?? '1,4').split(',').map(int.parse).toList(),
-      scenarios: (value('scenarios') ?? '1,2,3,4,5,6,11,12').split(','),
+      scenarios: (value('scenarios') ?? '1,2,3,4,5,6,7,8,11,12').split(','),
       skipBuild: args.contains('--skip-build'),
       threshold: double.parse(value('threshold') ?? '0.10'),
       out: value('out'),
@@ -803,7 +805,7 @@ Future<void> _serve(
   await server.stop();
 }
 
-/// `--external`: scenarios 1–6 against servers that are already running.
+/// `--external`: scenarios 1–8 against servers that are already running.
 /// `--isolates` names their worker count in the report.
 Future<void> _measureExternal(_Options options) async {
   final results = <Map<String, Object?>>[];

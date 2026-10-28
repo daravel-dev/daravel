@@ -1,6 +1,6 @@
 <?php
 
-// The endpoints of bench/lib/bench_app.dart (BLUEPRINT_V2 §10.2 scenarios 2-6).
+// The endpoints of bench/lib/bench_app.dart (BLUEPRINT_V2 §10.2 scenarios 2-8).
 
 use App\Models\Post;
 use App\Models\User;
@@ -35,3 +35,19 @@ Route::post('/login', function () {
         ? response()->json(['ok' => true])
         : response()->json(['message' => 'Invalid credentials.'], 422);
 });
+
+// Scenario 7: a 64 KB multipart upload, parsed and read.
+Route::post('/upload', function (Request $request) {
+    $file = $request->file('file');
+
+    return ['name' => $file->getClientOriginalName(), 'size' => strlen($file->get())];
+});
+
+// Scenario 8: an SSE response of ten events, as Daravel's Response.sse and
+// Laravel's eventStream() write them, read to its end.
+Route::get('/events', fn () => response()->stream(function () {
+    for ($i = 0; $i < 10; $i++) {
+        echo "event: update\ndata: ".json_encode(['n' => $i])."\n\n";
+    }
+    echo "event: update\ndata: </stream>\n\n";
+}, 200, ['Content-Type' => 'text/event-stream', 'Cache-Control' => 'no-cache', 'X-Accel-Buffering' => 'no']));

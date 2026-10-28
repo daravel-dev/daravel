@@ -84,68 +84,79 @@ const String benchPassword = 'bench-password';
 
 /// The benchmarked application (BLUEPRINT_V2 §10.2 scenarios 1–6).
 /// Top-level so supervisor workers can build it in their own isolates.
-Application createBenchApp() =>
-    Application.configure(basePath: Directory.current.path)
-        .withMigrations(const [CreateBenchTables()])
-        .withAuth(
-          (auth) => auth.token<User>(
-            'token',
-            ModelUserProvider<User>(User.definition),
+Application
+createBenchApp() => Application.configure(basePath: Directory.current.path)
+    .withMigrations(const [CreateBenchTables()])
+    .withAuth(
+      (auth) =>
+          auth.token<User>('token', ModelUserProvider<User>(User.definition)),
+    )
+    .withRateLimits(
+      (limiter) => limiter.define(
+        'bench',
+        (request) => Limit.perMinute(1 << 30).by(request.ip),
+      ),
+    )
+    .withRouting(
+      apiPrefix: '/api',
+      health: '/up',
+      web: (r) => r.get('/ping', (_) => Response.text('pong')),
+      api: (r) {
+        r.get(
+          '/users/{id}',
+          (req) => User.definition.query().findOrFail(req.param<int>('id')),
+        );
+        r.post('/users', (req) async {
+          final data = await req.validate({
+            'name': 'required|string|max:255',
+            'email': 'required|email|max:255',
+          });
+          return DB.transaction(
+            () => User.definition.query().create({
+              ...data.toMap(),
+              'password': 'x',
+            }),
+          );
+        });
+        r.get(
+          '/posts',
+          (_) => Post.definition
+              .query()
+              .with_(const ['author', 'comments'])
+              .orderBy('id')
+              .limit(20)
+              .get(),
+        );
+        r.get('/throttled', (_) => Response.text('ok')).middleware(const [
+          'throttle:bench',
+        ]);
+        r.post('/login', (req) async {
+          final user = await Auth.retrieveByCredentials<User>({
+            'email': 'user1@bench.test',
+            'password': benchPassword,
+          });
+          return user == null
+              ? Response.json({'message': 'Invalid credentials.'}, status: 422)
+              : Response.json({'ok': true});
+        });
+        // Scenario 7: a 64 KB multipart upload, parsed and read.
+        r.post('/upload', (req) async {
+          final file = (await req.file('file'))!;
+          return {'name': file.clientName, 'size': (await file.bytes()).length};
+        });
+        // Scenario 8: an SSE response of ten events, read to its end.
+        r.get(
+          '/events',
+          (_) => Response.sse(
+            Stream<Object?>.fromIterable([
+              for (var i = 0; i < 10; i++) {'n': i},
+            ]),
+            heartbeat: null,
           ),
-        )
-        .withRateLimits(
-          (limiter) => limiter.define(
-            'bench',
-            (request) => Limit.perMinute(1 << 30).by(request.ip),
-          ),
-        )
-        .withRouting(
-          apiPrefix: '/api',
-          health: '/up',
-          web: (r) => r.get('/ping', (_) => Response.text('pong')),
-          api: (r) {
-            r.get(
-              '/users/{id}',
-              (req) => User.definition.query().findOrFail(req.param<int>('id')),
-            );
-            r.post('/users', (req) async {
-              final data = await req.validate({
-                'name': 'required|string|max:255',
-                'email': 'required|email|max:255',
-              });
-              return DB.transaction(
-                () => User.definition.query().create({
-                  ...data.toMap(),
-                  'password': 'x',
-                }),
-              );
-            });
-            r.get(
-              '/posts',
-              (_) => Post.definition
-                  .query()
-                  .with_(const ['author', 'comments'])
-                  .orderBy('id')
-                  .limit(20)
-                  .get(),
-            );
-            r.get('/throttled', (_) => Response.text('ok')).middleware(const [
-              'throttle:bench',
-            ]);
-            r.post('/login', (req) async {
-              final user = await Auth.retrieveByCredentials<User>({
-                'email': 'user1@bench.test',
-                'password': benchPassword,
-              });
-              return user == null
-                  ? Response.json({
-                      'message': 'Invalid credentials.',
-                    }, status: 422)
-                  : Response.json({'ok': true});
-            });
-          },
-        )
-        .create();
+        );
+      },
+    )
+    .create();
 
 /// Creates the schema and seeds 1 000 users, 200 posts and 2 000 comments.
 Future<void> seedBenchDatabase(Application app) => app.run(() async {
