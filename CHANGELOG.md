@@ -175,6 +175,13 @@ match Laravel more closely.
   and call Google's token endpoint on every call. `UserCredentials` stores
   a refreshed token before keeping it, so a store that fails is retried on
   the next call instead of leaving memory and database apart.
+- Queue worker: a row whose payload does not decode is removed and
+  recorded in `failed_jobs` (it was re-reserved after `retry_after` and
+  crashed every worker in turn), a job whose `fromJson` throws fails
+  like an unknown job, a transient database or cache error is logged and
+  waited out instead of ending the worker, and a job released after a
+  timeout, whose handler is still running, stops the worker with exit
+  code 1 for a restart so attempt 2 does not run beside attempt 1.
 - Validation: `min`, `max`, `between` and `size` measure a string by
   its numeric value when the attribute also carries `numeric` or
   `integer`, as Laravel does; every form and query input is a string,

@@ -6,6 +6,7 @@ import '../foundation/clock.dart';
 import 'package:uuid/uuid.dart';
 
 import '../database/database_manager.dart';
+import '../foundation/exceptions.dart';
 import '../logging/context.dart';
 import '../database/query/query_builder.dart';
 import '../database/schema/migration.dart';
@@ -151,6 +152,24 @@ final class JobPayload {
 }
 
 /// A reserved job handed to the worker.
+/// A claimed row whose payload is Daravel-shaped but does not decode. The
+/// driver has removed the row; [raw] is what it held, for `failed_jobs`.
+final class CorruptPayloadException extends DaravelException {
+  CorruptPayloadException({
+    required this.id,
+    required this.queue,
+    required this.raw,
+    required this.cause,
+  }) : super(
+         'Job $id on queue [$queue] has a payload that does not decode: $cause',
+       );
+
+  final Object id;
+  final String queue;
+  final String raw;
+  final Object cause;
+}
+
 final class QueuedJob {
   const QueuedJob({
     required this.id,
@@ -563,10 +582,27 @@ final class DatabaseQueue implements WakeableQueueDriver {
           });
       if (claimed == 1) {
         final raw = row['payload'] as String;
+        final JobPayload payload;
+        try {
+          payload = JobPayload.decode(raw);
+        } on Object catch (error) {
+          // A Daravel-shaped row that does not decode (a field of the wrong
+          // type, a payload written by another release): the row is claimed
+          // and would otherwise be re-reserved after retry_after and crash
+          // the next worker too, for ever. It is removed here; the worker
+          // records it in failed_jobs from the exception.
+          await _query().where('id', id).delete();
+          throw CorruptPayloadException(
+            id: id,
+            queue: queue,
+            raw: raw,
+            cause: error,
+          );
+        }
         return QueuedJob(
           id: id,
           queue: queue,
-          payload: JobPayload.decode(raw),
+          payload: payload,
           attempts: (row['attempts'] as num).toInt() + 1,
           raw: raw,
         );
@@ -816,8 +852,19 @@ final class DatabaseFailedJobProvider implements FailedJobProvider {
     required String payload,
     required String exception,
   }) async {
+    // The payload may be the one that could not be decoded (the reason
+    // it failed): its uuid is read leniently, or made up.
+    String uuid;
+    try {
+      uuid = JobPayload.decode(payload).uuid;
+    } on Object {
+      final loose = jsonDecode(payload);
+      uuid = loose is Map && loose['uuid'] is String
+          ? loose['uuid'] as String
+          : const Uuid().v4();
+    }
     final id = await _query().insertGetId(<String, Object?>{
-      'uuid': JobPayload.decode(payload).uuid,
+      'uuid': uuid,
       'connection': connection,
       'queue': queue,
       'payload': payload,

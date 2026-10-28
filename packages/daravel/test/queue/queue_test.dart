@@ -110,8 +110,28 @@ final class Controlled extends Job {
   }
 }
 
+/// Takes longer than its timeout and does not fail on it: released for
+/// another attempt while its future still runs.
+final class Lingering extends Job {
+  const Lingering();
+  @override
+  String get jobName => 'lingering';
+  @override
+  int get tries => 3;
+  @override
+  Duration get timeout => const Duration(milliseconds: 20);
+  @override
+  bool get failOnTimeout => false;
+  @override
+  Map<String, Object?> toJson() => const {};
+  @override
+  Future<void> handle(JobContext ctx) =>
+      Future<void>.delayed(const Duration(milliseconds: 150));
+}
+
 final List<JobDefinition> definitions = [
   JobDefinition('greet', Greet.fromJson),
+  JobDefinition('lingering', (_) => const Lingering()),
   JobDefinition('slow', (_) => const Slow()),
   JobDefinition('exclusive', (j) => Exclusive(j['key']! as String)),
   JobDefinition('controlled', (j) => Controlled(j['action']! as String)),
@@ -490,6 +510,88 @@ void main() {
       });
     });
   });
+
+  test(
+    'a Daravel-shaped payload that does not decode goes to failed_jobs',
+    () async {
+      await boot('database');
+      await app!.run(() async {
+        final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+        // Daravel-shaped (not skipped as foreign), but `backoff` is not a
+        // list of seconds: decoding threw out of pop(), the worker died, and
+        // the row came back after retry_after to kill the next one.
+        await DB.table('jobs').insert({
+          'queue': 'default',
+          'payload':
+              '{"uuid":"u1","job":"greet","displayName":"greet",'
+              '"data":{"name":"x"},"backoff":[null],"createdAt":$now}',
+          'attempts': 0,
+          'reserved_at': null,
+          'available_at': now,
+          'created_at': now,
+        });
+        await Queue.push(const Greet('after'));
+        final code = await QueueWorker(Queue.manager)
+            .run(const WorkerOptions(stopWhenEmpty: true));
+        expect(code, 0);
+        expect(log, ['greet:after:1'], reason: 'the worker went on');
+        expect(await DB.table('jobs').count(), 0);
+        final failed = await Queue.manager.processor.failedJobs.all();
+        expect(failed, hasLength(1));
+        expect(failed.single.payload, contains('"backoff":[null]'));
+        expect(failed.single.exception, contains('does not decode'));
+      });
+    },
+  );
+
+  test(
+    'a job whose fromJson throws fails instead of killing the worker',
+    () async {
+      await boot('database');
+      await app!.run(() async {
+        // `exclusive` needs a `key`; a payload without one (another release
+        // wrote it) made registry.make throw out of the processor.
+        final payload = JobPayload.forJob(const Exclusive('k'))
+            .encode()
+            .replaceFirst('"key":"k"', '"key":null');
+        final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+        await DB.table('jobs').insert({
+          'queue': 'default',
+          'payload': payload,
+          'attempts': 0,
+          'reserved_at': null,
+          'available_at': now,
+          'created_at': now,
+        });
+        final code = await QueueWorker(Queue.manager)
+            .run(const WorkerOptions(stopWhenEmpty: true));
+        expect(code, 0);
+        expect(await DB.table('jobs').count(), 0);
+        expect(await Queue.manager.processor.failedJobs.all(), hasLength(1));
+      });
+    },
+  );
+
+  test(
+    'a job released after a timeout stops the worker for a restart',
+    () async {
+      await boot('database');
+      await app!.run(() async {
+        // Lingering outlives its 20 ms timeout, does not fail on it and
+        // allows 3 tries: attempt 1 is released while its future still runs,
+        // so the worker must not start attempt 2 next to it; it stops with 1
+        // (restart me) and the job stays queued for the next worker.
+        await Queue.push(const Lingering());
+        final worker = QueueWorker(Queue.manager);
+        final code = await worker.run(const WorkerOptions());
+        expect(code, 1, reason: 'a restart, like queue:restart');
+        expect(Queue.manager.processor.timedOutAndReleased, 1);
+        final rows = await DB.table('jobs').get();
+        expect(rows, hasLength(1), reason: 'released for the next worker');
+        expect(await Queue.manager.processor.failedJobs.all(), isEmpty);
+      });
+    },
+  );
 
   test('worker honours max-jobs, delay and restart signals', () async {
     await boot('memory');

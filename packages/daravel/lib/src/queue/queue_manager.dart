@@ -239,6 +239,11 @@ final class JobProcessor {
   final Future<void> Function(String key)? uniqueLockRelease;
   final DateTime Function() _clock;
 
+  /// How many jobs were released after a timeout with their handler still
+  /// running (Dart cannot cancel it): the worker stops when it grows, so
+  /// the process is restarted and attempt 1 does not run next to attempt 2.
+  int timedOutAndReleased = 0;
+
   /// Processes [queued] from [driver]. [tries]/[backoff] override the job's
   /// own values when the worker was started with `--tries/--backoff`.
   Future<JobOutcome> process(
@@ -252,7 +257,10 @@ final class JobProcessor {
     final Job job;
     try {
       job = registry.make(payload.jobName, payload.data);
-    } on UnknownJobException catch (error, stackTrace) {
+    } on Object catch (error, stackTrace) {
+      // An unknown job name, or a fromJson that throws on this payload (one
+      // written by another release): retrying cannot help, and letting it
+      // escape ended the worker with the row re-reserved for the next one.
       await _fail(driver, queued, error, stackTrace, job: null);
       return .failed;
     }
@@ -335,6 +343,14 @@ final class JobProcessor {
         willRetry: !exhausted,
       ),
     );
+    if (timedOut && !exhausted) {
+      // The handler's future was abandoned, not cancelled: it is still
+      // running while the job is released for another attempt. The worker
+      // that sees this stops after its bookkeeping, so the process is
+      // restarted (as Laravel kills a worker on timeout) and attempt 1 does
+      // not go on next to attempt 2.
+      timedOutAndReleased++;
+    }
     if (exhausted) {
       await _fail(driver, queued, error, trace ?? StackTrace.current, job: job);
       return .failed;
@@ -689,6 +705,11 @@ final class QueueWorker {
   bool _paused = false;
   int processed = 0;
 
+  /// Set when the worker must be restarted rather than resumed: a job
+  /// timed out and was released while its handler still runs in this
+  /// process. [run] then returns 1, like `queue:restart`.
+  bool _restart = false;
+
   /// Stops after the current job.
   void stop() {
     _stop = true;
@@ -717,6 +738,7 @@ final class QueueWorker {
   /// Returns the exit code (0, or 1 when stopped by `queue:restart`).
   Future<int> run(WorkerOptions options) async {
     _stop = false;
+    _restart = false;
     final started = DateTime.now().toUtc();
     final restartMark = await manager.restartRequestedAt();
     final driver = manager.connection(options.connection);
@@ -756,7 +778,7 @@ final class QueueWorker {
         await driver.stopWaiting();
       }
     }
-    return 0;
+    return _restart ? 1 : 0;
   }
 
   /// Up to [WorkerOptions.sleep]: less when the driver wakes the worker on
@@ -776,22 +798,59 @@ final class QueueWorker {
     if (_paused) {
       return false;
     }
+    final processor = manager.processor;
     for (final queue in options.queues) {
-      if (await manager.isPaused(queue, connection: options.connection)) {
-        continue;
+      try {
+        if (await manager.isPaused(queue, connection: options.connection)) {
+          continue;
+        }
+        final job = await driver.pop(queue);
+        if (job == null) {
+          continue;
+        }
+        final before = processor.timedOutAndReleased;
+        await processor.process(
+          driver,
+          job,
+          tries: options.tries,
+          backoff: options.backoff,
+          timeout: options.timeout,
+        );
+        if (processor.timedOutAndReleased != before) {
+          _logger?.warning(
+            'Job ${job.payload.displayName} timed out and was released while '
+            'its handler still runs; the worker stops for a restart.',
+          );
+          _restart = true;
+          _stop = true;
+        }
+        return true;
+      } on CorruptPayloadException catch (error, stackTrace) {
+        // The driver removed the row; it goes to failed_jobs like any job
+        // that cannot run, instead of ending the worker.
+        await processor.failedJobs.log(
+          connection: driver.name,
+          queue: error.queue,
+          payload: error.raw,
+          exception: '$error\n$stackTrace',
+        );
+        _logger?.error(
+          'Job ${error.id} failed',
+          error: error,
+          stackTrace: stackTrace,
+        );
+        return true;
+      } on Object catch (error, stackTrace) {
+        // A transient failure of the database or the cache (pop, the pause
+        // flag, bookkeeping): reported, then the loop waits as if the queue
+        // were empty, instead of the worker dying on one hiccup.
+        _logger?.error(
+          'Queue worker error on [$queue]; retrying after the sleep',
+          error: error,
+          stackTrace: stackTrace,
+        );
+        return false;
       }
-      final job = await driver.pop(queue);
-      if (job == null) {
-        continue;
-      }
-      await manager.processor.process(
-        driver,
-        job,
-        tries: options.tries,
-        backoff: options.backoff,
-        timeout: options.timeout,
-      );
-      return true;
     }
     return false;
   }
