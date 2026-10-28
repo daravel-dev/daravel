@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:acbfa051d0f9 -->
+<!-- source: README.md sha256:5f755af0517c -->
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/brand/svg/daravel-logo-horizontal-on-dark.svg">
@@ -24,7 +24,6 @@
   <a href="https://pub.dev/packages/daravel"><img src="https://img.shields.io/pub/v/daravel?include_prereleases&label=pub.dev" alt="pub.dev version"></a>
   <a href="https://pub.dev/publishers/framework.daravel.dev"><img src="https://img.shields.io/pub/publisher/daravel" alt="pub.dev publisher"></a>
   <a href="https://github.com/sponsors/daravel-dev"><img src="https://img.shields.io/badge/Sponsor-@daravel--dev-ea4aaa?logo=github-sponsors&logoColor=white" alt="Sponsor daravel-dev"></a>
-  <a href="https://github.com/sponsors/teoprayoga"><img src="https://img.shields.io/badge/Sponsor-@teoprayoga-ea4aaa?logo=github-sponsors&logoColor=white" alt="Sponsor teoprayoga"></a>
 </p>
 
 <p align="center">
@@ -619,8 +618,7 @@ dart run tool/docs/generate.dart --check
 
 Dukung pengembangan berkelanjutan Daravel melalui GitHub Sponsors:
 
-- [💖 Sponsor @daravel-dev](https://github.com/sponsors/daravel-dev) (Organisasi Daravel)
-- [💖 Sponsor @teoprayoga](https://github.com/sponsors/teoprayoga) (Lead maintainer)
+- [💖 Sponsor @daravel-dev](https://github.com/sponsors/daravel-dev)
 
 ## Berkontribusi
 
