@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.15.0
+
+- Version aligned with Daravel 1.15.0; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).
+
 ## 1.14.0
 
 - Fixed: a request that times out is aborted (its socket leaked until the peer closed it), a response body that goes quiet for `timeout` is cut off with `ConnectionException`, and a connection reset during a send is a `ConnectionException` (it escaped as `dart:io`'s `HttpException`).

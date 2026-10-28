@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.15.0
 
 - Fixed: a command in an application with `withPermissions()` (any package subscribing to a broadcast channel at boot) never exited; cancelling a subscription after `Broadcaster.close()` opened a new port that nothing closed.
 

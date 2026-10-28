@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.15.0
+
+- Version aligned with Daravel 1.15.0; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).
+
 ## 1.14.0
 
 - Added: a revocation is relayed through the coordinator (`PermissionRegistrar.listen`, channel `daravel_permission:invalidate`), so the other worker isolates drop their caches as soon as the message lands instead of at their next read of the shared version (up to a second).

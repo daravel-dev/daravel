@@ -9,7 +9,16 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 wait for a new major version, and Laravel-facing formats change only to
 match Laravel more closely.
 
-## Unreleased
+## 1.15.0
+
+Two first-party packages join the release line: `daravel_excel` (XLSX and
+CSV exports and imports with Laravel Excel 3.1's concerns, streamed in
+constant memory and checked against Laravel Excel both ways) and
+`daravel_log_viewer` (a page that reads the log files from their end,
+filters them and follows them live). `dartisan pub:add` installs any
+first-party package by name or alias and wires it into the project. A
+command in an application with `withPermissions()` no longer hangs after
+its work is done.
 
 ### Added
 

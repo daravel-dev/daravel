@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.15.0
+
+- Version aligned with Daravel 1.15.0; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).
+
 ## 1.14.0
 
 - Fixed: `allowedWiths` is matched by full path, so `author` no longer opens `?withs[]=author.posts` or a relation the model does not define (which was a 500).

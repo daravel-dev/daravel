@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.15.0
+
+- Version aligned with Daravel 1.15.0; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).
+
 ## 1.14.0
 
 - Fixed: `close()` waits for in-flight statements (`inFlight`, up to `drainTimeout`) before closing the pool, since `mysql_dart`'s pool close never completes callers still queued for a connection and a graceful shutdown could hang on them; `connect()`'s probe is bounded by `connectTimeout` plus 5 s, since `mysql_dart` opens its socket without a timeout.

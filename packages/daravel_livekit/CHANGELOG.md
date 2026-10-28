@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.15.0
+
+- Version aligned with Daravel 1.15.0; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).
+
 ## 1.14.0
 
 - Added: `RoomServiceClient` retries a Twirp call whose connection failed before it was sent, or that LiveKit answered 502 or 503, up to `retries` (2) more times with exponential backoff and jitter from `retryDelay` (200 ms); timeouts and other answers are final. `backoff(attempt)` is public.

@@ -1,6 +1,6 @@
 name: daravel_s3
 description: S3 for Daravel. A Storage disk on AWS S3, Cloudflare R2, MinIO and other S3-compatible stores, with pure Dart SigV4, streaming multipart uploads and presigned URLs.
-version: 1.14.0
+version: 1.15.0
 homepage: https://daravel.dev
 repository: https://github.com/daravel-dev/daravel/tree/main/packages/daravel_s3
 issue_tracker: https://github.com/daravel-dev/daravel/issues
@@ -18,7 +18,7 @@ resolution: workspace
 
 dependencies:
   crypto: ^3.0.7
-  daravel: ^1.14.0
+  daravel: ^1.15.0
   mime: ^2.1.0
 
 dev_dependencies:

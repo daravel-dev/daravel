@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.15.0
+
+- Version aligned with Daravel 1.15.0; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).
+
 ## 1.14.0
 
 - Added `LIBSODIUM_STRICT_PAYLOAD` (`TeobiefyConfig.strictPayload`, off): clear keys sent beside `data_enc` are dropped (the Laravel application merges them) and a clear body from a client that holds a session is `406`.

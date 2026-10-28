@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.15.0
+
+- Version aligned with Daravel 1.15.0; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).
+
 ## 1.14.0
 
 - Added `Google.serviceCredentials` and `ServiceAccountCredentialsCache`: `Google.serviceCalendar()` shares one token per isolate, scopes and subject; it used to sign an RS256 assertion and call Google's token endpoint on every call.
