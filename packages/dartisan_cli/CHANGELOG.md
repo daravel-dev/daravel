@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Added `pub:list [--json]`, `pub:search <term> [--online]` and `pub:add <package...>` (alias `install`, `--yes`, `--no-get`): install a first-party package by name or alias, with its dependency, `.with*()` registration, migrations, commands and `.env.example` settings; the database and Redis packages delegate to `db:install` and `redis:install`. A typo stops with a suggestion; a package outside Daravel needs confirmation or `--yes`.
+
 ## 1.14.0
 
 - Changed: `doctor --production` fails unless `APP_ENV=production` (the production-only checks were silently skipped under any other environment, so the gate passed on a configuration never deployed as such); `DoctorCommand.diagnose({production})`.

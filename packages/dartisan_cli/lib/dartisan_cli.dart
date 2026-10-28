@@ -28,6 +28,7 @@ import 'src/daragic_export.dart';
 import 'src/db_install.dart';
 import 'src/db_transfer.dart';
 import 'src/mcp_server.dart';
+import 'src/pub_commands.dart';
 import 'src/redis_install.dart';
 
 export 'src/database_commands.dart';
@@ -35,6 +36,8 @@ export 'src/dev_server.dart';
 export 'src/model_sync.dart';
 export 'src/new_project.dart';
 export 'src/openapi.dart';
+export 'src/package_registry.dart';
+export 'src/pub_commands.dart';
 export 'src/project_commands.dart';
 export 'src/stubs.dart';
 export 'src/generator.dart';
@@ -116,6 +119,9 @@ final class DartisanRunner extends CommandRunner<int> {
     addCommand(KeyGenerateCommand());
     addCommand(DbInstallCommand());
     addCommand(RedisInstallCommand());
+    addCommand(PubListCommand());
+    addCommand(PubSearchCommand());
+    addCommand(PubAddCommand());
     addCommand(EnvEncryptCommand());
     addCommand(EnvDecryptCommand());
     addCommand(EnvObfuscateCommand());

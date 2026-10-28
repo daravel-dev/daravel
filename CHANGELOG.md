@@ -8,6 +8,25 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 wait for a new major version, and Laravel-facing formats change only to
 match Laravel more closely.
 
+## Unreleased
+
+### Added
+
+- `dartisan pub:list`, `pub:search` and `pub:add` (alias `install`): find
+  and install first-party packages by name or alias. `pub:add` adds the
+  dependency, registers the package in `bootstrap/app.dart`, patches its
+  migrations and commands into the registries and documents its settings
+  in `.env.example`; the database and Redis packages go through
+  `db:install` and `redis:install`. Typos stop with a suggestion, and a
+  package outside Daravel is added only after confirmation or `--yes`.
+
+### Fixed
+
+- A command in an application with `withPermissions()` (any package that
+  subscribes to a broadcast channel at boot) never exited: the package
+  cancelled its subscription after the application had closed the
+  `Broadcaster`, which then opened a new port that nothing closed.
+
 ## 1.14.0
 
 Two first-party packages join the release line: `daravel_activitylog`

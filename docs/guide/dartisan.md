@@ -28,7 +28,30 @@ options.
 | `lint [--json]` | `daravel_lints` rules and registry checks |
 | `mcp:serve [--allow-write]`, `mcp:install` | Project context for AI coding agents over MCP, see [below](#ai-coding-agents-mcp) |
 | `upgrade [--check] [--to] [--no-global] [--no-get]`, `self-update` | Move the project and the global CLI to a release, see [below](#upgrading) |
+| `pub:list [--json]`, `pub:search <term> [--online]`, `pub:add <package...> [--yes] [--no-get]` | Find and install first-party packages, see [below](#packages) |
 | `--version` (`-V`) | The version of the CLI or, in a project, of its framework |
+
+### Packages
+
+`dartisan pub:add` (alias `install`) installs a first-party package and
+wires it up: the dependency in `pubspec.yaml`, its `.with*()` call in
+`bootstrap/app.dart`, its migrations and commands in the registries, and
+its settings in `.env.example` (never in `.env`). The database and Redis
+packages run `db:install` and `redis:install`.
+
+```bash
+dartisan pub:list                  # the first-party packages and what is installed
+dartisan pub:search permission     # by name, alias or description
+dartisan pub:search excel --online # also pub.dev
+dartisan pub:add rbac activitylog  # several at once; rbac is an alias of permission
+```
+
+A name must match a package or an alias exactly: a typo stops with
+"Did you mean …?" instead of guessing. A package that is not part of
+Daravel goes through `dart pub add` after you confirm it, or with `--yes`.
+Without a terminal, `pub:add` never asks: an ambiguous name exits with
+code 64. A project on a local checkout (`--path`) gets the package from the
+same checkout.
 
 ### Upgrading
 
