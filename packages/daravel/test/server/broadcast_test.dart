@@ -20,6 +20,16 @@ void main() {
 
     Map<String, Object?> stats() => coordinator.service('broadcast')!.stats();
 
+    test('a subscription cancelled after close leaves no port open', () async {
+      // The application closes the broadcaster before the shutdown hooks
+      // of packages, which then cancel their subscriptions: the isolate
+      // must still be free to exit.
+      final exited = ReceivePort();
+      await Isolate.spawn(_closeThenCancel, null, onExit: exited.sendPort);
+      await exited.first.timeout(const Duration(seconds: 10));
+      exited.close();
+    });
+
     test('delivers to subscribers of the channel only', () async {
       final orders = await broadcaster.subscribe('orders.7');
       final other = await broadcaster.subscribe('orders.8');
@@ -164,6 +174,18 @@ void main() {
       expect(await listening(), 0);
     });
   });
+}
+
+/// Subscribes, closes the broadcaster, then cancels the subscription, as
+/// an application's shutdown does; returns, so the isolate can exit.
+Future<void> _closeThenCancel(Object? _) async {
+  final broadcaster = Broadcaster(
+    LocalCoordinatorChannel(createStandardCoordinator()),
+  );
+  final subscription = await broadcaster.subscribe('permissions');
+  subscription.messages.listen((_) {});
+  await broadcaster.close();
+  await subscription.cancel();
 }
 
 /// A worker isolate: its own Broadcaster over a remote coordinator channel,
