@@ -1,3 +1,7 @@
+// The English messages are Laravel's (laravel/framework,
+// lang/en/validation.php), Copyright (c) Taylor Otwell, MIT License:
+// see THIRD_PARTY_NOTICES.md.
+
 /// Default validation messages (Laravel `lang/en/validation.php` parity)
 /// with an Indonesian translation as the second bundled locale.
 abstract final class ValidationMessages {

@@ -1,3 +1,5 @@
+// Follows spatie/laravel-medialibrary and spatie/image, Copyright (c)
+// Spatie bvba, MIT License: see THIRD_PARTY_NOTICES.md.
 import 'dart:typed_data';
 
 import 'package:daravel/daravel.dart';

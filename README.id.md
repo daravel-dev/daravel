@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:d468f7a1548c -->
+<!-- source: README.md sha256:35f7b04f4d4d -->
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/brand/svg/daravel-logo-horizontal-on-dark.svg">
@@ -642,6 +642,8 @@ Bila Anda menemukan kerentanan keamanan, laporkan secara privat seperti dijelask
 Daravel adalah perangkat lunak open-source berlisensi [MIT](LICENSE). Kode yang dihasilkan
 `dartisan` (`new`, `make:*`, `model:sync`) atau `daragic` di proyek Anda sepenuhnya milik Anda,
 tanpa batasan lisensi tambahan.
+Teks dan logika yang mengikuti Laravel dan Spatie, beserta lisensi MIT
+keduanya, dicantumkan di [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 **Penafian merek dagang:** "Laravel" adalah merek dagang Laravel Holdings Inc. "Dart" dan
 "Flutter" adalah merek dagang Google LLC. Daravel adalah proyek open-source independen dan tidak

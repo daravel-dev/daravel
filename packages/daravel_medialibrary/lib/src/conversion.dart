@@ -1,3 +1,5 @@
+// Follows spatie/laravel-medialibrary and spatie/image, Copyright (c)
+// Spatie bvba, MIT License: see THIRD_PARTY_NOTICES.md.
 import 'dart:isolate';
 import 'dart:math' as math;
 import 'dart:typed_data';
