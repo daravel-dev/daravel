@@ -81,7 +81,7 @@ before moving to a new minor version.
 | :-- | :-- |
 | `serve [--watch] [--isolates=N] [--embed-queue] [--embed-scheduler]` | HTTP server; `--watch` hot-reloads |
 | `test [--conformance] [--security] [--coverage]` | Runs the tests |
-| `build [--with-cli] [--docker] [--no-sqlite]` | Native bundle in `build/server/bundle`, optional `Dockerfile`; `--no-sqlite` leaves the SQLite library out (PostgreSQL/MySQL apps) |
+| `build [--with-cli] [--docker [--distroless]] [--no-sqlite]` | Native bundle in `build/server/bundle`, optional `Dockerfile` (`--distroless`: no shell, non-root, see [Deployment](deployment.md#docker)); `--no-sqlite` leaves the SQLite library out (PostgreSQL/MySQL apps) |
 | `route:list` | The route table |
 | `openapi:generate [--output]` | OpenAPI 3.1 from the routes and their declared metadata |
 | `client:flutter [--output] [--package-name] [--prefix] [--state] [--watch]` | A typed Dart/Flutter client package from the routes, with the server's validation rules ([Flutter client](flutter-client.md)) |

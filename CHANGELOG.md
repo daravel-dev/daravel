@@ -34,7 +34,12 @@ match Laravel more closely.
   with the students as guests by a queued job. Roles, query filters and
   the activity log are wired in, and the feature tests fake LiveKit and
   Google over `Http.fake()`.
-
+- `dartisan build --docker --distroless`: the generated `Dockerfile` runs
+  on `gcr.io/distroless/cc-debian12:nonroot` (no shell or package manager,
+  non-root; about 84 MB for a new project), its writable directories
+  prepared in the build stage.
+- Every published package lists its GitHub Sponsors page as `funding` on
+  pub.dev.
 - `dartisan coordinator:stats --url=<server>/metrics` reads the running
   server's coordinator instead of the command's own (always idle) one: the
   queue against its limit, refused calls, and round trips by service with
@@ -42,7 +47,8 @@ match Laravel more closely.
   `CACHE_PROCESS_L1_TTL`, Redis). `/metrics` gains
   `coordinator_call_duration_seconds{service}`,
   `coordinator_call_timeouts_total{service}`,
-  `coordinator_in_flight_peak` and `coordinator_max_queue`.- `dartisan security:audit`: a black-box audit of a running server for
+  `coordinator_in_flight_peak` and `coordinator_max_queue`.
+- `dartisan security:audit`: a black-box audit of a running server for
   deployment mistakes, with single harmless requests: security headers,
   version banners, `.env` / `.git` / database / logs served, path
   traversal, `TRACE`, CRLF injection, stack traces in errors, deep JSON,
@@ -50,6 +56,7 @@ match Laravel more closely.
   left open, plain HTTP. Only content that proves a leak counts. Reports
   for the terminal, JSON or SARIF (GitHub code scanning); exits 1 at
   `--severity` for CI.
+
 ## 1.15.0
 
 Two first-party packages join the release line: `daravel_excel` (XLSX and
