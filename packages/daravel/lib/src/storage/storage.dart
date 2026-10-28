@@ -142,11 +142,26 @@ final class LocalDisk implements Disk {
   Future<void> putStream(String path, Stream<List<int>> stream) async {
     final file = _file(path);
     await file.parent.create(recursive: true);
-    final sink = file.openWrite();
+    // Through a temporary file and a rename, like put: a stream that fails
+    // half way used to leave a truncated file that exists() reported.
+    final temp = File(
+      '${file.path}.${DateTime.now().microsecondsSinceEpoch}.tmp',
+    );
+    final sink = temp.openWrite();
     try {
       await sink.addStream(stream);
-    } finally {
       await sink.close();
+      await temp.rename(file.path);
+    } on Object {
+      try {
+        await sink.close();
+      } on Object {
+        // Already closed by the failure.
+      }
+      if (await temp.exists()) {
+        await temp.delete();
+      }
+      rethrow;
     }
   }
 

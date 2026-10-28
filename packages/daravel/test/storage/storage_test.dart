@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 void main() {
+  atomicStreamTests();
   controlCharacterTests();
   test('normalizeDiskPath rejects traversal and absolute paths', () {
     expect(normalizeDiskPath('a/./b/../c.txt'), 'a/c.txt');
@@ -181,5 +182,34 @@ void controlCharacterTests() {
       expect(() => normalizeDiskPath(path), throwsA(isA<StorageException>()));
     }
     expect(normalizeDiskPath('report.pdf'), 'report.pdf');
+  });
+}
+
+void atomicStreamTests() {
+  test('a stream that fails leaves no file and no temporary', () async {
+    final dir = Directory.systemTemp.createTempSync('daravel_put_stream');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final disk = LocalDisk('local', dir.path);
+    Stream<List<int>> failing() async* {
+      yield [1, 2, 3];
+      throw StateError('upload reset');
+    }
+
+    await expectLater(
+      disk.putStream('up/file.bin', failing()),
+      throwsStateError,
+    );
+    expect(
+      await disk.exists('up/file.bin'),
+      isFalse,
+      reason: 'not half a file',
+    );
+    expect(
+      dir.listSync(recursive: true).whereType<File>(),
+      isEmpty,
+      reason: 'no temporary left behind',
+    );
+    await disk.putStream('up/file.bin', Stream.value(utf8.encode('ok')));
+    expect(await disk.get('up/file.bin'), 'ok');
   });
 }

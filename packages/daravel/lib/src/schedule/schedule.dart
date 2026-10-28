@@ -445,23 +445,46 @@ final class Scheduler {
           '[${store.scope.name}] is not shared between servers.',
         );
       }
-      final ttl = task.singleServer && !task.overlapProtected
-          ? const Duration(hours: 1)
-          : (task._withoutOverlapping ?? const Duration(hours: 24));
-      final key = task.singleServer
-          ? 'schedule:${task.name}:${_minuteKey(_clock())}'
-          : 'schedule:${task.name}';
-      lock = store.lock(key, ttl: ttl);
-      if (!await lock.acquire()) {
-        final reason = task.singleServer ? 'another server' : 'overlap';
-        await events?.dispatch(ScheduledTaskSkipped(task.name, reason));
-        return TaskRunResult(task, ran: false, skipped: reason);
+      // Two locks, as Laravel's EventMutex and SchedulingMutex: the overlap
+      // lock names the task and its expression (two tasks sharing a name on
+      // different schedules do not block each other) and is released when
+      // the run ends; the single-server lock names the minute and expires
+      // on its own. A task with both used to take only the minute's lock,
+      // which protected nothing against overlap.
+      if (task.overlapProtected) {
+        if (task.action is CallbackAction && task._name == null) {
+          // Every unnamed closure is called `Closure`: they would all share
+          // one lock and the second one due in a minute would always be
+          // skipped as an overlap. Laravel's CallbackEvent refuses too.
+          throw StateError(
+            'A scheduled closure with withoutOverlapping() needs a name '
+            '(named(...)), or every closure shares one lock.',
+          );
+        }
+        lock = store.lock(
+          'schedule:${task.name}:${task.cron.expression}',
+          ttl: task._withoutOverlapping ?? const Duration(hours: 24),
+        );
+        if (!await lock.acquire()) {
+          await events?.dispatch(ScheduledTaskSkipped(task.name, 'overlap'));
+          return TaskRunResult(task, ran: false, skipped: 'overlap');
+        }
+      }
+      if (task.singleServer) {
+        final server = store.lock(
+          'schedule:${task.name}:${_minuteKey(_clock())}',
+          ttl: const Duration(hours: 1),
+        );
+        if (!await server.acquire()) {
+          await lock?.release();
+          await events?.dispatch(
+            ScheduledTaskSkipped(task.name, 'another server'),
+          );
+          return TaskRunResult(task, ran: false, skipped: 'another server');
+        }
       }
     }
-    final execution = _execute(
-      task,
-      releaseLock: task.singleServer ? null : lock,
-    );
+    final execution = _execute(task, releaseLock: lock);
     if (task.runsInBackground) {
       unawaited(execution);
       return TaskRunResult(task, ran: true);

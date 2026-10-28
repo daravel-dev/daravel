@@ -175,6 +175,13 @@ match Laravel more closely.
   and call Google's token endpoint on every call. `UserCredentials` stores
   a refreshed token before keeping it, so a store that fails is retried on
   the next call instead of leaving memory and database apart.
+- Scheduler: `withoutOverlapping` locks name the task and its expression
+  and are taken separately from the single-server minute lock (a task
+  with both used to take only the minute's lock, so nothing prevented
+  overlap); an unnamed closure with `withoutOverlapping` is refused at
+  run, since every unnamed closure shared one lock. `LocalDisk.putStream`
+  writes through a temporary file, so a failed stream leaves no
+  truncated file.
 - Queue worker: a row whose payload does not decode is removed and
   recorded in `failed_jobs` (it was re-reserved after `retry_after` and
   crashed every worker in turn), a job whose `fromJson` throws fails

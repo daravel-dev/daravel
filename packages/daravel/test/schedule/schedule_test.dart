@@ -273,7 +273,9 @@ void main() {
           .withoutOverlapping()
           .named('slow');
       final scheduler = app.scheduler();
-      final lock = Cache.store('process').lock('schedule:slow', owner: 'other');
+      // The overlap lock names the task and its expression.
+      final lock = Cache.store('process')
+          .lock('schedule:slow:* * * * *', owner: 'other');
       expect(await lock.acquire(), isTrue);
       final blocked = await scheduler.run(at);
       expect(blocked.single.skipped, 'overlap');
@@ -291,6 +293,18 @@ void main() {
       );
     });
   });
+
+  test(
+    'an unnamed closure with withoutOverlapping is refused at run',
+    () async {
+      await app.run(() async {
+        // Every unnamed closure is called `Closure`: they would share one
+        // lock and the second one due in a minute would always be skipped.
+        App.make<Schedule>().call(() {}).everyMinute().withoutOverlapping();
+        await expectLater(app.scheduler().run(at), throwsStateError);
+      });
+    },
+  );
 
   test('commands run through the command runner', () async {
     await app.run(() async {
