@@ -22,8 +22,8 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
   <a href="https://pub.dev/packages/daravel"><img src="https://img.shields.io/pub/v/daravel?include_prereleases&label=pub.dev" alt="pub.dev version"></a>
   <a href="https://pub.dev/publishers/framework.daravel.dev"><img src="https://img.shields.io/pub/publisher/daravel" alt="pub.dev publisher"></a>
-  <a href="https://github.com/sponsors/teoprayoga"><img src="https://img.shields.io/badge/Sponsor-@teoprayoga-ea4aaa?logo=github-sponsors&logoColor=white" alt="Sponsor teoprayoga"></a>
   <a href="https://github.com/sponsors/daravel-dev"><img src="https://img.shields.io/badge/Sponsor-@daravel--dev-ea4aaa?logo=github-sponsors&logoColor=white" alt="Sponsor daravel-dev"></a>
+  <a href="https://github.com/sponsors/teoprayoga"><img src="https://img.shields.io/badge/Sponsor-@teoprayoga-ea4aaa?logo=github-sponsors&logoColor=white" alt="Sponsor teoprayoga"></a>
 </p>
 
 <p align="center">
@@ -612,8 +612,8 @@ dart run tool/docs/generate.dart --check
 
 Support the continuous development of Daravel through GitHub Sponsors:
 
-- [💖 Sponsor @teoprayoga](https://github.com/sponsors/teoprayoga) (Lead maintainer)
 - [💖 Sponsor @daravel-dev](https://github.com/sponsors/daravel-dev) (Daravel organization)
+- [💖 Sponsor @teoprayoga](https://github.com/sponsors/teoprayoga) (Lead maintainer)
 
 ## Contributing
 
