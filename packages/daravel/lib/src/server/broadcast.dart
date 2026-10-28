@@ -216,9 +216,16 @@ final class Broadcaster {
       } on Object {
         // It failed: the subscriber has the error; there is nothing to undo.
       }
+      // After close() the port is gone and the coordinator is going with
+      // the application: asking for _sendPort would open a new port that
+      // nothing closes, and the isolate could never exit.
+      final port = _port;
+      if (port == null) {
+        return;
+      }
       await _coordinator.call('broadcast', 'unsubscribe', {
         'channel': channel,
-        'port': _sendPort,
+        'port': port.sendPort,
       });
     }
   }

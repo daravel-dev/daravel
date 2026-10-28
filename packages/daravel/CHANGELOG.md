@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Fixed: a command in an application with `withPermissions()` (any package subscribing to a broadcast channel at boot) never exited; cancelling a subscription after `Broadcaster.close()` opened a new port that nothing closed.
+
 ## 1.14.0
 
 - Added `HTTP_IDLE_TIMEOUT` (`ServeOptions.idleTimeout`, 60 s): how long a keep-alive connection may sit without a request before the server closes it; the field existed but could not be set from the environment.
