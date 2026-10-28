@@ -1,8 +1,8 @@
 # Teobiefy
 
-`daravel_teobiefy` speaks the encrypted payload protocol of Bali Melajah's
-Laravel API (teobiefy, protocol v1), so its web and mobile clients talk to a
-Daravel backend without a line of change, and a Laravel and a Daravel
+`daravel_teobiefy` speaks teobiefy's encrypted payload protocol (v1), as a
+Laravel API implements it, so the web and mobile clients of that API talk
+to a Daravel backend without a line of change, and a Laravel and a Daravel
 backend can serve the same clients during a migration.
 
 The protocol, as the Laravel application implements it:

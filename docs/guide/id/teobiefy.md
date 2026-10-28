@@ -1,11 +1,11 @@
-<!-- source: teobiefy.md sha256:f3a6f5bc4f6a -->
+<!-- source: teobiefy.md sha256:fadcaf2911ba -->
 # Teobiefy
 
-`daravel_teobiefy` berbicara dengan protokol payload terenkripsi dari API
-Laravel Bali Melajah (teobiefy, protokol v1), sehingga client web dan
-mobile-nya bisa berkomunikasi dengan backend Daravel tanpa perubahan satu
-baris pun, dan backend Laravel serta Daravel bisa melayani client yang sama
-selama migrasi.
+`daravel_teobiefy` berbicara dengan protokol payload terenkripsi teobiefy
+(v1) seperti yang diimplementasikan sebuah API Laravel, sehingga client web
+dan mobile dari API tersebut bisa berkomunikasi dengan backend Daravel
+tanpa perubahan satu baris pun, dan backend Laravel serta Daravel bisa
+melayani client yang sama selama migrasi.
 
 Protokolnya, seperti yang diimplementasikan aplikasi Laravel:
 

@@ -28,7 +28,7 @@ Application createApp() => Application.configure(basePath: basePath)
 with their column order and index names, and does nothing when the table
 exists, so a database that ran Spatie's migrations keeps it. Spatie v5
 changed the table (`attribute_changes`, no `batch_uuid`); this package
-follows v4, the version Laravel 12 applications such as Bali Melajah use.
+follows v4 (4.x), which Laravel 12 supports alongside v5.
 
 ## Logging model changes
 

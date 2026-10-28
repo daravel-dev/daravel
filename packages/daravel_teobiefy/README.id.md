@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:2ac503b9b37b -->
+<!-- source: README.md sha256:af5e4814c1ae -->
 <img src="https://raw.githubusercontent.com/daravel-dev/daravel/main/docs/brand/png/daravel-icon-128.png" alt="Daravel" width="64" align="right">
 
 # daravel_teobiefy
@@ -6,8 +6,8 @@
 [English](https://github.com/daravel-dev/daravel/blob/main/packages/daravel_teobiefy/README.md) · Bahasa Indonesia
 
 Payload API terenkripsi untuk [Daravel](https://pub.dev/packages/daravel),
-kompatibel dengan API Laravel Bali Melajah (teobiefy, protokol v1): client
-web dan mobile-nya bisa berkomunikasi dengan backend Daravel tanpa
+kompatibel dengan protokol teobiefy v1 seperti yang diimplementasikan sebuah
+API Laravel: client web dan mobile dari API tersebut bisa berkomunikasi dengan backend Daravel tanpa
 perubahan. Handshake X25519 (`crypto_kx` dari libsodium) memberi setiap
 client sepasang kunci sesi; payload disegel dengan ChaCha20-Poly1305 IETF.
 

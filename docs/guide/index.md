@@ -58,7 +58,7 @@ Performance numbers come from a reproducible harness, never from claims
 12. [Broadcasting](broadcasting.md): Laravel Echo, the Pusher protocol as Reverb, private and presence channels.
 13. [LiveKit](livekit.md): video classrooms and meetings over WebRTC: access tokens, rooms and participants, verified webhooks.
 14. [Google](google.md): users' Google Calendar through OAuth with refresh, service accounts, events with guests and Google Meet links.
-15. [Teobiefy](teobiefy.md): encrypted API payloads compatible with Bali Melajah's Laravel API (X25519 handshake, ChaCha20-Poly1305).
+15. [Teobiefy](teobiefy.md): encrypted API payloads compatible with teobiefy's protocol v1 on Laravel (X25519 handshake, ChaCha20-Poly1305).
 16. [Redis](redis.md): cache, locks, rate limits, queues and broadcasting across servers, when one server is not enough.
 17. [Strings, helpers and collections](helpers.md): `Str`, `retry`, `once`, `pluck`, ...
 18. [HTTP client](http-client.md): outgoing requests with `Http`, retries and `Http.fake()`.

@@ -5,8 +5,8 @@
 English · [Bahasa Indonesia](https://github.com/daravel-dev/daravel/blob/main/packages/daravel_teobiefy/README.id.md)
 
 Encrypted API payloads for [Daravel](https://pub.dev/packages/daravel),
-compatible with Bali Melajah's Laravel API (teobiefy, protocol v1): its web
-and mobile clients talk to a Daravel backend unchanged. An X25519 handshake
+compatible with teobiefy's protocol v1 as a Laravel API implements it: the
+API's web and mobile clients talk to a Daravel backend unchanged. An X25519 handshake
 (libsodium's `crypto_kx`) gives each client a pair of session keys;
 payloads are sealed with ChaCha20-Poly1305 IETF.
 

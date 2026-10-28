@@ -1,4 +1,4 @@
-<!-- source: index.md sha256:23e0aac8fe7c -->
+<!-- source: index.md sha256:f22e74314970 -->
 # Dokumentasi Daravel
 
 Daravel adalah framework backend untuk Dart yang mengikuti filosofi Laravel
@@ -61,7 +61,7 @@ Angka performa berasal dari harness yang bisa direproduksi, bukan dari klaim
 12. [Broadcasting](broadcasting.md): Laravel Echo, protokol Pusher seperti Reverb, channel private dan presence.
 13. [LiveKit](livekit.md): kelas video dan rapat lewat WebRTC: access token, room dan participant, webhook yang terverifikasi.
 14. [Google](google.md): Google Calendar user lewat OAuth dengan refresh, service account, event dengan tamu dan link Google Meet.
-15. [Teobiefy](teobiefy.md): payload API terenkripsi yang kompatibel dengan API Laravel Bali Melajah (handshake X25519, ChaCha20-Poly1305).
+15. [Teobiefy](teobiefy.md): payload API terenkripsi yang kompatibel dengan protokol teobiefy v1 di Laravel (handshake X25519, ChaCha20-Poly1305).
 16. [Redis](redis.md): cache, lock, rate limit, queue, dan broadcasting lintas server, saat satu server tidak cukup.
 17. [String, helper, dan koleksi](helpers.md): `Str`, `retry`, `once`, `pluck`, ...
 18. [HTTP client](http-client.md): request keluar dengan `Http`, retry, dan `Http.fake()`.
