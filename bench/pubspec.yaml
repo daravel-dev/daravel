@@ -12,6 +12,7 @@ dependencies:
   daravel: any
   daravel_permission: any
   daravel_activitylog: any
+  daravel_excel: any
   daravel_livekit: any
   daravel_redis: any
   path: ^1.9.0

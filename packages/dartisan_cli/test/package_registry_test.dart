@@ -100,7 +100,8 @@ Future<void> main() async {
     );
     expect(searchPackages('permision').first.package, 'daravel_permission');
     expect(searchPackages('video').first.package, 'daravel_livekit');
-    expect(searchPackages('spreadsheet'), isEmpty);
+    expect(searchPackages('spreadsheet').first.package, 'daravel_excel');
+    expect(searchPackages('blockchain'), isEmpty);
     expect(levenshtein('kitten', 'sitting'), 3);
   });
 }
