@@ -88,6 +88,15 @@ void main() {
     await app.shutdown();
   });
 
+  test('shutdown is safe before boot, as a failed setUp leaves it', () async {
+    // A test's tearDown shuts down an application whose boot timed out or
+    // threw: that must not hide the real failure behind its own error.
+    final app = Application.configure(basePath: Directory.systemTemp.path)
+        .create();
+    await app.shutdown();
+    expect(app.booted, isFalse);
+  });
+
   test(
     'debug mode in production aborts the boot unless explicitly allowed',
     () async {

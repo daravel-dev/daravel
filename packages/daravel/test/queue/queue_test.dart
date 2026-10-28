@@ -371,6 +371,10 @@ void main() {
           final events = Event.fake();
 
           // First pass: both fail once and are released with 1s backoff.
+          // Domain time stands still, so a slow runner cannot let the
+          // backoff run out during the pass and process a job twice.
+          Clock.freeze();
+          addTearDown(Clock.restore);
           final worker = QueueWorker(manager);
           await worker.run(
             const WorkerOptions(
@@ -391,7 +395,7 @@ void main() {
           );
 
           // After the backoff they come back; cy succeeds, di keeps failing.
-          await Future<void>.delayed(const Duration(milliseconds: 1100));
+          Clock.travel(const Duration(milliseconds: 1100));
           final second = QueueWorker(manager);
           await second.run(
             const WorkerOptions(
@@ -404,7 +408,7 @@ void main() {
           expect(await driver.size('emails'), 0);
 
           // Third attempt of di exhausts tries=3 → failed_jobs + failed() hook.
-          await Future<void>.delayed(const Duration(milliseconds: 5100));
+          Clock.travel(const Duration(milliseconds: 5100));
           await QueueWorker(manager)
               .run(const WorkerOptions(stopWhenEmpty: true));
           expect(log, contains('failed:di'));
