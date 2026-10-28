@@ -43,7 +43,6 @@ void main() {
 
   group('redis:install', () {
     late Directory project;
-    late String previous;
     setUp(() {
       project = Directory.systemTemp.createTempSync('redis_install_');
       final files = newProjectFiles(
@@ -62,20 +61,23 @@ void main() {
           ..createSync(recursive: true)
           ..writeAsStringSync(files[path]!);
       }
-      previous = Directory.current.path;
-      Directory.current = project;
     });
     tearDown(() {
-      Directory.current = previous;
       project.deleteSync(recursive: true);
     });
+
+    // The project is the cwd of the command's zone only: the process cwd
+    // is shared with the other test files, which run at the same time.
+    Future<int?> dartisan(List<String> args) => IOOverrides.runZoned(
+      () => DartisanRunner(() => throw StateError('not booted')).run(args),
+      getCurrentDirectory: () => project,
+    );
 
     String read(String path) =>
         File(p.join(project.path, path)).readAsStringSync();
 
     test('pubspec, bootstrap, commands, .env.example, compose; once', () async {
-      final runner = DartisanRunner(() => throw StateError('not booted'));
-      expect(await runner.run(['redis:install', '--docker', '--no-get']), 0);
+      expect(await dartisan(['redis:install', '--docker', '--no-get']), 0);
       expect(
         read('pubspec.yaml'),
         contains('  daravel_redis: ^$daravelVersion'),
@@ -113,7 +115,7 @@ void main() {
         ])
           read(f),
       ];
-      expect(await runner.run(['redis:install', '--docker', '--no-get']), 0);
+      expect(await dartisan(['redis:install', '--docker', '--no-get']), 0);
       expect([
         for (final f in [
           'pubspec.yaml',
@@ -143,17 +145,15 @@ void main() {
         await GlobalDartisanRunner().execute(['new', target, '--path=$repo']),
         0,
       );
-      final previous = Directory.current.path;
-      Directory.current = target;
-      try {
-        expect(
-          await DartisanRunner(() => throw StateError('not booted'))
-              .run(['redis:install', '--docker', '--no-get']),
-          0,
-        );
-      } finally {
-        Directory.current = previous;
-      }
+      expect(
+        await IOOverrides.runZoned(
+          () =>
+              DartisanRunner(() => throw StateError('not booted'))
+                  .run(['redis:install', '--docker', '--no-get']),
+          getCurrentDirectory: () => Directory(target),
+        ),
+        0,
+      );
       // The unpublished package from this checkout.
       final pubspec = File(p.join(target, 'pubspec.yaml'));
       final path = p
