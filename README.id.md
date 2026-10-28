@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:24008c99874b -->
+<!-- source: README.md sha256:3b0c327fd0c2 -->
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/brand/svg/daravel-logo-horizontal-on-dark.svg">
@@ -23,6 +23,8 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
   <a href="https://pub.dev/packages/daravel"><img src="https://img.shields.io/pub/v/daravel?include_prereleases&label=pub.dev" alt="pub.dev version"></a>
   <a href="https://pub.dev/publishers/framework.daravel.dev"><img src="https://img.shields.io/pub/publisher/daravel" alt="pub.dev publisher"></a>
+  <a href="https://github.com/sponsors/teoprayoga"><img src="https://img.shields.io/badge/Sponsor-@teoprayoga-ea4aaa?logo=github-sponsors&logoColor=white" alt="Sponsor teoprayoga"></a>
+  <a href="https://github.com/sponsors/daravel-dev"><img src="https://img.shields.io/badge/Sponsor-@daravel--dev-ea4aaa?logo=github-sponsors&logoColor=white" alt="Sponsor daravel-dev"></a>
 </p>
 
 <p align="center">
@@ -614,6 +616,13 @@ dart analyze --fatal-infos
 (cd packages/daravel && dart test --tags security)      # hanya suite keamanan
 dart run tool/docs/generate.dart --check
 ```
+
+## Mendukung & Mensponsori Daravel
+
+Dukung pengembangan berkelanjutan Daravel melalui GitHub Sponsors:
+
+- [💖 Sponsor @teoprayoga](https://github.com/sponsors/teoprayoga) (Lead maintainer)
+- [💖 Sponsor @daravel-dev](https://github.com/sponsors/daravel-dev) (Organisasi Daravel)
 
 ## Berkontribusi
 
