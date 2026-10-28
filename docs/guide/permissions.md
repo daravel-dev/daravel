@@ -123,9 +123,11 @@ permissions match by parts:
 A model's roles and permissions are kept in memory after the first check,
 so a check is a set lookup instead of three queries. A change made through
 Daravel (`assignRole`, `givePermissionTo`, the commands, ...) applies at
-once in its isolate and within a second on every other isolate and
-process of the machine; with a cache store shared between servers
-(`CACHE_STORE=database` or `redis`), on every server. A change made by a
+once in its isolate and, relayed through the coordinator, on the other
+worker isolates of the server as soon as the message lands; every other
+process of the machine reads the shared version within a second; with a
+cache store shared between servers (`CACHE_STORE=database` or `redis`),
+on every server. A change made by a
 Laravel application shows within `PERMISSION_CACHE_TTL` (5 minutes).
 
 ## Commands

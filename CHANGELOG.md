@@ -149,6 +149,10 @@ match Laravel more closely.
   sizes in order of last use, dropping the older half when full; every
   key a worker ever limited (one per client IP) stayed until it was asked
   for again (`ProcessRateLimitStore.trackedKeys`).
+- `daravel_permission`: a revocation is relayed through the coordinator
+  to the other worker isolates, which drop their caches as soon as the
+  message lands instead of at their next read of the shared version (up
+  to a second); the version stays as the fallback.
 - `daravel_permission`: the per-isolate access cache is bounded
   (`PermissionRegistrar.maxCachedModels`, 10 000); one entry per model
   ever checked stayed until the isolate exited.

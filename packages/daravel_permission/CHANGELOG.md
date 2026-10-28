@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added: a revocation is relayed through the coordinator (`PermissionRegistrar.listen`, channel `daravel_permission:invalidate`), so the other worker isolates drop their caches as soon as the message lands instead of at their next read of the shared version (up to a second).
+
 - Fixed: the per-isolate access cache is bounded (`PermissionRegistrar.maxCachedModels`, 10 000; `cachedModels`) and kept in order of last use, so a sweep drops cold models, not the ones checked on every request: one entry per model ever checked stayed until the isolate exited.
 - Fixed: `hasRole`, `hasAllRoles` and `hasExactRoles` given a `Role` of another guard no longer match a role of the same name under the model's guard (Spatie compares `Role` objects by key).
 

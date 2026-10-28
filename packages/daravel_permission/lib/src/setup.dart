@@ -41,7 +41,24 @@ extension PermissionApplicationBuilder on ApplicationBuilder {
                 RoleOrPermissionMiddleware.new,
               ),
           )
-          .withPolicies((gate) => gate.before(permissionGateHook));
+          .withPolicies((gate) => gate.before(permissionGateHook))
+          .withProviders([const _InvalidationRelay()])
+          .withShutdown(
+            (container) async =>
+                container.resolved<PermissionRegistrar>()?.close(),
+          );
+}
+
+/// Subscribes the registrar to the coordinator's invalidation channel, so
+/// a role or permission revoked on one worker isolate is forgotten on the
+/// others at once, not at their next read of the shared version.
+final class _InvalidationRelay extends ServiceProvider {
+  const _InvalidationRelay();
+
+  @override
+  Future<void> boot(Container container) => container
+      .make<PermissionRegistrar>()
+      .listen(container.make<Broadcaster>());
 }
 
 /// Spatie's `Gate::before`: a permission the user has answers `true`; any

@@ -1,4 +1,4 @@
-<!-- source: permissions.md sha256:479a028c0444 -->
+<!-- source: permissions.md sha256:fc7a9e506a3d -->
 # Role dan permission
 
 `daravel_permission` menyimpan role dan permission di database, di lima
@@ -127,9 +127,11 @@ Spatie), permission dicocokkan per bagian:
 Role dan permission sebuah model disimpan di memori setelah pengecekan
 pertama, sehingga pengecekan cukup berupa lookup set, bukan tiga query.
 Perubahan lewat Daravel (`assignRole`, `givePermissionTo`, perintah CLI,
-...) langsung berlaku di isolate-nya dan dalam satu detik di semua isolate
-dan proses lain di mesin yang sama; dengan cache store yang dibagi
-antarserver (`CACHE_STORE=database` atau `redis`), di semua server.
+...) langsung berlaku di isolate-nya dan, diteruskan lewat coordinator, di
+worker isolate lain pada server itu begitu pesannya tiba; proses lain di
+mesin yang sama membaca versi bersama dalam satu detik; dengan cache store
+yang dibagi antarserver (`CACHE_STORE=database` atau `redis`), di semua
+server.
 Perubahan yang dibuat aplikasi Laravel terlihat dalam
 `PERMISSION_CACHE_TTL` (5 menit).
 

@@ -61,12 +61,53 @@ final class PermissionRegistrar {
     return _knownVersion = await _shared().get<int>(_versionKey) ?? 0;
   }
 
-  /// Forgets every cached role and permission, on every isolate.
+  /// Forgets every cached role and permission, on every isolate: this one
+  /// at once, the others as soon as the coordinator relays the
+  /// invalidation ([listen]), and in any case within [versionCheck].
   Future<void> forgetCachedPermissions() async {
     _local.clear();
     _allPermissions.clear();
     _knownVersion = await _shared().increment(_versionKey);
     _checkedAt = DateTime.now();
+    final broadcaster = _broadcaster;
+    if (broadcaster != null) {
+      try {
+        await broadcaster.publish(invalidationChannel, '$_knownVersion');
+      } on Object {
+        // The version in the shared store still reaches every isolate
+        // within versionCheck.
+      }
+    }
+  }
+
+  /// The coordinator channel a revocation is announced on, so the other
+  /// worker isolates drop their caches at once instead of at their next
+  /// read of the shared version.
+  static const String invalidationChannel = 'daravel_permission:invalidate';
+
+  Broadcaster? _broadcaster;
+  BroadcastSubscription? _subscription;
+
+  /// Announces this isolate's revocations on [broadcaster] and drops this
+  /// isolate's caches when another announces one. Called at boot.
+  Future<void> listen(Broadcaster broadcaster) async {
+    _broadcaster = broadcaster;
+    final subscription = await broadcaster.subscribe(invalidationChannel);
+    _subscription = subscription;
+    subscription.messages.listen((version) {
+      _local.clear();
+      _allPermissions.clear();
+      // Re-read the shared version on the next check, whatever the poll.
+      _knownVersion = int.tryParse(version) ?? _knownVersion;
+      _checkedAt = DateTime.now();
+    });
+  }
+
+  /// Stops listening (at shutdown).
+  Future<void> close() async {
+    await _subscription?.cancel();
+    _subscription = null;
+    _broadcaster = null;
   }
 
   /// The roles and permissions (direct and through roles) of the model

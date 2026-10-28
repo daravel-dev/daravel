@@ -400,9 +400,17 @@ void permissionTests({String? databaseUrl}) {
     await first.run(() async {
       await (await User.definition.query().find(id))!.assignRole('lead');
     });
-    // Other isolates read the shared version at most once a second.
-    await Future<void>.delayed(const Duration(milliseconds: 1100));
-    expect(await has('lead'), isTrue, reason: 'the version moved');
+    // The coordinator relays the invalidation at once; the shared version,
+    // read at most once a second, is the fallback.
+    final deadline = DateTime.now().add(const Duration(milliseconds: 500));
+    while (!await has('lead') && DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+    expect(
+      await has('lead'),
+      isTrue,
+      reason: 'relayed through the coordinator',
+    );
 
     // A Laravel application writes the pivot itself.
     final start = DateTime.now();
