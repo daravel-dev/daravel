@@ -134,7 +134,10 @@ final class MySqlDriver
     );
     try {
       // Fail fast on bad credentials or hosts instead of at the first query.
-      await pool.execute('SELECT 1');
+      // Bounded: mysql_dart opens its socket without a timeout, so a host
+      // that accepts the TCP connection and never answers the handshake
+      // would hold connect() for ever.
+      await pool.execute('SELECT 1').timeout(connectTimeout + probeGrace);
     } catch (_) {
       await pool.close();
       rethrow;
@@ -142,11 +145,31 @@ final class MySqlDriver
     _pool = pool;
   }
 
+  /// Added to [connectTimeout] for the `SELECT 1` probe of [connect].
+  static const Duration probeGrace = Duration(seconds: 5);
+
+  /// Statements running on the pool right now ([close] waits for them).
+  int get inFlight => _inFlight;
+  int _inFlight = 0;
+
+  /// How long [close] waits for in-flight statements before closing the
+  /// pool under them: `mysql_dart`'s pool close never completes the
+  /// callers still queued for a connection, so draining first keeps a
+  /// graceful shutdown from hanging on them.
+  Duration get drainTimeout => queryTimeout ?? const Duration(seconds: 30);
+
   @override
   Future<void> close() async {
     final pool = _pool;
     _pool = null;
-    await pool?.close();
+    if (pool == null) {
+      return;
+    }
+    final deadline = DateTime.now().add(drainTimeout);
+    while (_inFlight > 0 && DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+    await pool.close();
   }
 
   my.MySQLConnectionPool get _session {
@@ -161,7 +184,15 @@ final class MySqlDriver
 
   Future<T> _withConnection<T>(
     Future<T> Function(my.MySQLConnection connection) body,
-  ) async => await _session.withConnection<T>(body);
+  ) async {
+    final pool = _session;
+    _inFlight++;
+    try {
+      return await pool.withConnection<T>(body);
+    } finally {
+      _inFlight--;
+    }
+  }
 
   @override
   Future<List<Map<String, Object?>>> select(

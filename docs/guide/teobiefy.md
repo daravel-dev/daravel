@@ -50,7 +50,13 @@ LIBSODIUM_SESSION_TTL=1800            # seconds a session lives after its last u
 LIBSODIUM_PAYLOAD_V2_ENABLED=false    # true: seal the zstd bytes, enc_v: 2
 LIBSODIUM_LEGACY_KEY_ENABLED=false    # the old static key; keep it false
 LIBSODIUM_LEGACY_KEY=
+LIBSODIUM_STRICT_PAYLOAD=false        # true: only the decrypted payload reaches the handler
 ```
+
+`LIBSODIUM_STRICT_PAYLOAD=true` drops clear keys sent beside `data_enc`
+(the Laravel application merges them, the payload winning) and answers
+`406` to a clear body from a client that holds a session. Turn it on once
+every client encrypts everything; off, the behaviour is Laravel's.
 
 These are the names the Laravel application reads, so one `.env` serves
 both.

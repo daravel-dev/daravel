@@ -17,6 +17,7 @@ final class TeobiefyConfig implements ConfigSection {
     this.payloadV2 = false,
     this.legacyKeyEnabled = false,
     this.legacyKey = '',
+    this.strictPayload = false,
   });
 
   factory TeobiefyConfig.fromEnv(Env env) => TeobiefyConfig(
@@ -24,9 +25,17 @@ final class TeobiefyConfig implements ConfigSection {
     payloadV2: env.boolean('LIBSODIUM_PAYLOAD_V2_ENABLED', false),
     legacyKeyEnabled: env.boolean('LIBSODIUM_LEGACY_KEY_ENABLED', false),
     legacyKey: env.string('LIBSODIUM_LEGACY_KEY', ''),
+    strictPayload: env.boolean('LIBSODIUM_STRICT_PAYLOAD', false),
   );
 
   final Duration sessionTtl;
+
+  /// Only the decrypted payload reaches the handler: clear keys sent beside
+  /// `data_enc` are dropped, and a clear body from a client that holds a
+  /// session is `406`. Off by default, as the Laravel application merges
+  /// clear keys and accepts clear bodies; turn it on once every client
+  /// encrypts everything (`LIBSODIUM_STRICT_PAYLOAD`).
+  final bool strictPayload;
 
   /// Responses seal the zstd bytes directly (`enc_v: 2`) instead of their
   /// base64; only for clients that recognise it.
@@ -70,6 +79,7 @@ final class TeobiefyConfig implements ConfigSection {
     'payload_v2': payloadV2,
     'legacy_key_enabled': legacyKeyEnabled,
     'legacy_key': legacyKey.isEmpty ? '' : '********',
+    'strict_payload': strictPayload,
   };
 }
 

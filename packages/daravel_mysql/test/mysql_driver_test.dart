@@ -4,6 +4,7 @@ import 'package:mysql_dart/exception.dart';
 import 'package:test/test.dart';
 
 void main() {
+  shutdownTests();
   timeoutOptionTests();
   test('fromConfig reads the DB_* connection like Laravel', () {
     final driver = MySqlDriver.fromConfig(
@@ -93,4 +94,31 @@ void timeoutOptionTests() {
     expect(set.connectTimeout, const Duration(seconds: 2));
     expect(of(const {'query_timeout': '0'}).queryTimeout, isNull);
   });
+}
+
+void shutdownTests() {
+  test(
+    'close() on a driver that never connected is a no-op; probes are bounded',
+    () async {
+      final driver = MySqlDriver(
+        host: '127.0.0.1',
+        // Nothing listens here: the probe fails within the bound.
+        port: 1,
+        database: 'd',
+        connectTimeout: const Duration(milliseconds: 300),
+      );
+      expect(driver.inFlight, 0);
+      expect(driver.drainTimeout, const Duration(seconds: 30));
+      await driver.close();
+      expect(driver.isConnected, isFalse);
+      final watch = Stopwatch()..start();
+      await expectLater(driver.connect(), throwsA(anything));
+      expect(
+        watch.elapsed,
+        lessThan(const Duration(seconds: 10)),
+        reason: 'connectTimeout plus the probe grace, not for ever',
+      );
+      expect(driver.isConnected, isFalse);
+    },
+  );
 }

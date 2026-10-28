@@ -199,6 +199,14 @@ match Laravel more closely.
   `LivekitToken.verify` and `LivekitWebhookReceiver.receive` throw
   `StateError` on an empty secret, and boot fails (not just warns) when
   `LIVEKIT_API_KEY` is set but the secret is not.
+- `daravel_mysql`: `close()` drains in-flight statements before closing
+  the pool (`mysql_dart` never completes callers queued for a connection
+  once the pool is closed, so a graceful shutdown could hang), and the
+  `connect()` probe is bounded, since `mysql_dart` opens its socket
+  without a timeout.
+- `daravel_teobiefy`: `LIBSODIUM_STRICT_PAYLOAD` (off by default) keeps
+  clear keys sent beside `data_enc` out of the input and answers `406` to
+  a clear body from a client that holds a session.
 - `daravel_teobiefy` refuses a replayed request: every nonce a session
   uses is remembered (`TeobiefySessions.useNonce`, the cache's `add` for
   the session's TTL) and a body sent again is `406`, recorded only after

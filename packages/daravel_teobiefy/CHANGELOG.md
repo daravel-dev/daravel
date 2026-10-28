@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added `LIBSODIUM_STRICT_PAYLOAD` (`TeobiefyConfig.strictPayload`, off): clear keys sent beside `data_enc` are dropped (the Laravel application merges them) and a clear body from a client that holds a session is `406`.
+
 - Fixed: a replayed request is `406` (each session's nonces are remembered for its TTL: `TeobiefySessions.useNonce`), a clear body from a client with no key is `409 SESSION_KEY_REQUIRED` before the handler runs, and a presented session id the store does not know is `409` even with the legacy key.
 
 ## 1.13.0

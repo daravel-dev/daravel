@@ -1,4 +1,4 @@
-<!-- source: teobiefy.md sha256:b51b077671bc -->
+<!-- source: teobiefy.md sha256:f3a6f5bc4f6a -->
 # Teobiefy
 
 `daravel_teobiefy` berbicara dengan protokol payload terenkripsi dari API
@@ -52,7 +52,14 @@ LIBSODIUM_SESSION_TTL=1800            # seconds a session lives after its last u
 LIBSODIUM_PAYLOAD_V2_ENABLED=false    # true: seal the zstd bytes, enc_v: 2
 LIBSODIUM_LEGACY_KEY_ENABLED=false    # the old static key; keep it false
 LIBSODIUM_LEGACY_KEY=
+LIBSODIUM_STRICT_PAYLOAD=false        # true: only the decrypted payload reaches the handler
 ```
+
+`LIBSODIUM_STRICT_PAYLOAD=true` membuang key polos yang dikirim di samping
+`data_enc` (aplikasi Laravel menggabungkannya, payload yang menang) dan
+menjawab `406` untuk body polos dari client yang memegang sesi. Aktifkan
+setelah semua client mengenkripsi semuanya; saat mati, perilakunya sama
+dengan Laravel.
 
 Nama-nama ini sama dengan yang dibaca aplikasi Laravel, sehingga satu `.env`
 melayani keduanya.

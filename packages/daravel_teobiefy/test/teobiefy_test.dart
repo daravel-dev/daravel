@@ -303,6 +303,38 @@ void main() {
       expect(await plain.bodyText(), 'plain');
     });
 
+    test('LIBSODIUM_STRICT_PAYLOAD keeps clear data out', () async {
+      app = await boot({'LIBSODIUM_STRICT_PAYLOAD': 'true'});
+      final session = await handshake();
+      // The clear 'extra' sent beside data_enc (see send) is dropped.
+      final body = await json(
+        await send(session.id, session.keys.tx, {'name': 'Ana'}),
+      );
+      final clear = await TeobiefyCrypto.open(
+        base64.decode(body['data_enc']! as String),
+        session.keys.rx,
+        base64.decode(body['nonce']! as String),
+      );
+      final data = jsonDecode(
+        utf8.decode(_unframe(base64.decode(utf8.decode(clear)))),
+      );
+      expect(data, {
+        'echo': 'Ana',
+        'seen': ['name'],
+      });
+      // A clear body from a client that holds a session is refused.
+      final plain = await app.handle(
+        Request.fake(
+          method: 'POST',
+          path: '/api/profile',
+          headers: {'X-Session-Id': session.id},
+          json: {'name': 'clear'},
+        ),
+      );
+      expect(plain.status, 406);
+      expect(profileHits, 1);
+    });
+
     test('a tampered payload is 406', () async {
       app = await boot();
       final session = await handshake();

@@ -81,9 +81,14 @@ final class TeobiefyMiddleware implements Middleware {
         )) {
           throw const FormatException('The nonce was already used.');
         }
+        // As the Laravel application: clear keys beside data_enc are merged
+        // (the payload wins). With LIBSODIUM_STRICT_PAYLOAD only the payload
+        // reaches the handler, so a client cannot slip a clear field past
+        // the encryption.
         request.replace(
           {
-            for (final MapEntry(:key, :value) in body.entries) '$key': value,
+            if (!service.config.strictPayload)
+              for (final MapEntry(:key, :value) in body.entries) '$key': value,
             ...payload,
           }..removeWhere((k, _) => k == 'nonce' || k == 'data_enc'),
         );
@@ -97,6 +102,11 @@ final class TeobiefyMiddleware implements Middleware {
       // The 409 used to come only after the handler had done its work.
       if (await keyFor((keys) => keys.rx) == null) {
         return Teobiefy.sessionKeyRequired();
+      }
+      if (service.config.strictPayload) {
+        // The client holds a key and still sent clear data.
+        Log.warning('Teobiefy: a clear body from a client with a session.');
+        return Teobiefy.invalidPayload();
       }
     }
 

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Fixed: `close()` waits for in-flight statements (`inFlight`, up to `drainTimeout`) before closing the pool, since `mysql_dart`'s pool close never completes callers still queued for a connection and a graceful shutdown could hang on them; `connect()`'s probe is bounded by `connectTimeout` plus 5 s, since `mysql_dart` opens its socket without a timeout.
 - Added `MySqlDriver.queryTimeout` (`DB_QUERY_TIMEOUT`, 30 s; `0` for none) and `DB_CONNECT_TIMEOUT`: statements had no timeout, so one stuck on a lock wait or a half-open connection held its pooled connection for ever. On expiry `mysql_dart` kills the query through a side connection.
 
 ## 1.13.0
