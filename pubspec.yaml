@@ -15,6 +15,7 @@ workspace:
   - packages/daravel_sqlite
   - packages/daravel_permission
   - packages/daravel_activitylog
+  - packages/daravel_excel
   - packages/daravel_log_viewer
   - packages/daravel_postgres
   - packages/daravel_teorion

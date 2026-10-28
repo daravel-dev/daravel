@@ -122,6 +122,17 @@ sections:
       - { php: "Route::middleware('role:admin|editor')", dart: ".middleware(['role:admin|editor'])", symbol: RoleMiddleware, note: "Also permission: and role_or_permission:, with Spatie's 403 messages." }
       - { php: "php artisan permission:show", dart: "dartisan permission:show", symbol: PermissionShowCommand }
       - { php: "app(PermissionRegistrar::class)->forgetCachedPermissions()", dart: "await PermissionRegistrar.current.forgetCachedPermissions()", symbol: PermissionRegistrar.forgetCachedPermissions, async: true }
+  - name: Excel and CSV (daravel_excel)
+    symbols:
+      - { php: "class UsersExport implements FromQuery, WithHeadings, WithMapping", dart: "final class UsersExport implements FromQuery, WithHeadings, WithMapping", symbol: FromQuery, note: "Laravel Excel 3.1's concerns; a query is read a chunk at a time and the file streamed." }
+      - { php: "return Excel::download(new UsersExport, 'users.xlsx')", dart: "return Excel.download(UsersExport(), 'users.xlsx')", symbol: Excel.download }
+      - { php: "Excel::store(new UsersExport, 'users.xlsx', 's3')", dart: "await Excel.store(UsersExport(), 'users.xlsx', disk: 's3')", symbol: Excel.store, async: true }
+      - { php: "Excel::import(new UsersImport, $request->file('file'))", dart: "await Excel.import(UsersImport(), (await request.file('file'))!)", symbol: Excel.import, async: true, note: "In one transaction; failures carry the sheet row." }
+      - { php: "class UsersImport implements ToModel, WithHeadingRow, WithValidation", dart: "final class UsersImport with WithHeadingRow implements ToModel, WithValidation", symbol: ToModel }
+      - { php: "$e->failures() (Maatwebsite\\Excel\\Validators\\ValidationException)", dart: "e.failures (ExcelValidationException)", symbol: ExcelValidationException }
+      - { php: "Excel::toArray(new UsersImport, 'users.xlsx')", dart: "await Excel.toArray('users.xlsx', headingRow: true)", symbol: Excel.toArray, async: true }
+      - { php: "Date::excelToDateTimeObject($value)", dart: "ExcelDate.toDateTime(value)", symbol: ExcelDate.toDateTime }
+      - { php: "php artisan make:export UsersExport --model=User", dart: "dartisan make:export UsersExport --model=User", symbol: MakeExportCommand }
   - name: Log viewer (daravel_log_viewer)
     symbols:
       - { php: "composer require opcodesio/log-viewer (/log-viewer)", dart: ".withLogViewer(middleware: ['auth', 'can:view-logs'])", symbol: LogViewerApplicationBuilder.withLogViewer, note: "Reads Daravel's JSON logs and Laravel's Monolog files from their end; 403 outside local without middleware." }

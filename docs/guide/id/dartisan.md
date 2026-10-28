@@ -1,4 +1,4 @@
-<!-- source: dartisan.md sha256:45cefa4769ad -->
+<!-- source: dartisan.md sha256:fe933b78a700 -->
 # dartisan
 
 `dartisan` adalah `artisan`-nya Daravel. Pasang sekali, lalu pakai di proyek
@@ -29,7 +29,30 @@ sebuah command.
 | `lint [--json]` | Rule `daravel_lints` dan pengecekan registry |
 | `mcp:serve [--allow-write]`, `mcp:install` | Konteks proyek untuk agen AI coding lewat MCP, lihat [di bawah](#agen-ai-coding-mcp) |
 | `upgrade [--check] [--to] [--no-global] [--no-get]`, `self-update` | Memindahkan proyek dan CLI global ke sebuah rilis, lihat [di bawah](#upgrade) |
+| `pub:list [--json]`, `pub:search <kata> [--online]`, `pub:add <paket...> [--yes] [--no-get]` | Mencari dan memasang paket first-party, lihat [di bawah](#paket) |
 | `--version` (`-V`) | Versi CLI atau, di dalam proyek, versi framework-nya |
+
+### Paket
+
+`dartisan pub:add` (alias `install`) memasang paket first-party dan
+menyambungkannya: dependency di `pubspec.yaml`, pemanggilan `.with*()` di
+`bootstrap/app.dart`, migration dan command di registry, serta
+pengaturannya di `.env.example` (tidak pernah di `.env`). Paket database
+dan Redis menjalankan `db:install` dan `redis:install`.
+
+```bash
+dartisan pub:list                  # paket first-party dan yang sudah terpasang
+dartisan pub:search permission     # berdasarkan nama, alias, atau deskripsi
+dartisan pub:search excel --online # juga pub.dev
+dartisan pub:add rbac activitylog  # beberapa sekaligus; rbac adalah alias permission
+```
+
+Nama harus cocok persis dengan paket atau alias: salah ketik berhenti
+dengan "Did you mean …?" alih-alih menebak. Paket di luar Daravel dipasang
+lewat `dart pub add` setelah Anda konfirmasi, atau dengan `--yes`. Tanpa
+terminal, `pub:add` tidak pernah bertanya: nama yang ambigu keluar dengan
+kode 64. Proyek yang memakai checkout lokal (`--path`) mengambil paket dari
+checkout yang sama.
 
 ### Upgrade
 

@@ -2,7 +2,8 @@
 
 All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 `daravel_lints`, `daravel_mysql`, `daravel_permission`, `daravel_activitylog`,
-`daravel_log_viewer`, `daravel_redis`, `daravel_sqlite`, `daravel_postgres`, `daravel_teorion`,
+`daravel_excel`, `daravel_log_viewer`, `daravel_redis`, `daravel_sqlite`,
+`daravel_postgres`, `daravel_teorion`,
 `daravel_livekit`, `daravel_google`, `daravel_teobiefy`, `daravel_s3`,
 `dartisan_cli`). Versions follow SemVer: breaking changes to the Dart API
 wait for a new major version, and Laravel-facing formats change only to
@@ -22,6 +23,37 @@ match Laravel more closely.
   the folder open; the page has a nonce-based Content-Security-Policy and
   no external assets, and answers 403 outside local until it has
   middleware.
+- `daravel_excel` (Blueprint #39): XLSX and CSV exports and imports with
+  Laravel Excel 3.1's concerns. Exports stream from a query (a chunk at a
+  time), a collection or a stream to a download, a disk or bytes, at a
+  constant 24 MB for 10 000 to 500 000 rows; imports map rows to models
+  (one by one or in batches), collections or callbacks, validate each row
+  with Daravel's rules and report failures with their sheet row numbers
+  (a 422 keyed `<row>.<attribute>`), in one transaction. XLSX is written
+  and read with a streaming ZIP and XML pipeline of its own (a limit
+  against ZIP bombs), CSV as PhpSpreadsheet writes and reads it;
+  `make:export` and `make:import`. `bench/interop/excel.sh` checks the
+  files against Laravel Excel.
+- `dartisan pub:list`, `pub:search` and `pub:add` (alias `install`): find
+  and install first-party packages by name or alias. `pub:add` adds the
+  dependency, registers the package in `bootstrap/app.dart`, patches its
+  migrations and commands into the registries and documents its settings
+  in `.env.example`; the database and Redis packages go through
+  `db:install` and `redis:install`. Typos stop with a suggestion, and a
+  package outside Daravel is added only after confirmation or `--yes`.
+
+### Changed
+
+- `ValidationException` can be extended (`base` instead of `final`), so a
+  package can throw a validation error of its own that the exception
+  handler renders as Laravel's 422 (`ExcelValidationException`).
+
+### Fixed
+
+- A command in an application with `withPermissions()` (any package that
+  subscribes to a broadcast channel at boot) never exited: the package
+  cancelled its subscription after the application had closed the
+  `Broadcaster`, which then opened a new port that nothing closed.
 
 ## 1.14.0
 

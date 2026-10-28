@@ -127,6 +127,7 @@ void main() {
     ..scan(p.join(root, 'packages', 'daravel_s3', 'lib'))
     ..scan(p.join(root, 'packages', 'daravel_permission', 'lib'))
     ..scan(p.join(root, 'packages', 'daravel_activitylog', 'lib'))
+    ..scan(p.join(root, 'packages', 'daravel_excel', 'lib'))
     ..scan(p.join(root, 'packages', 'daravel_log_viewer', 'lib'))
     ..scan(p.join(root, 'packages', 'daravel_teorion', 'lib'));
   final parity =

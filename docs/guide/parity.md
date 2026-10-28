@@ -126,6 +126,20 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `php artisan permission:show` | `dartisan permission:show` |  |
 | `app(PermissionRegistrar::class)->forgetCachedPermissions()` | `await PermissionRegistrar.current.forgetCachedPermissions()` | **async** |
 
+## Excel and CSV (daravel_excel)
+
+| Laravel | Daravel | Notes |
+| :-- | :-- | :-- |
+| `class UsersExport implements FromQuery, WithHeadings, WithMapping` | `final class UsersExport implements FromQuery, WithHeadings, WithMapping` | Laravel Excel 3.1's concerns; a query is read a chunk at a time and the file streamed. |
+| `return Excel::download(new UsersExport, 'users.xlsx')` | `return Excel.download(UsersExport(), 'users.xlsx')` |  |
+| `Excel::store(new UsersExport, 'users.xlsx', 's3')` | `await Excel.store(UsersExport(), 'users.xlsx', disk: 's3')` | **async** |
+| `Excel::import(new UsersImport, $request->file('file'))` | `await Excel.import(UsersImport(), (await request.file('file'))!)` | **async**; In one transaction; failures carry the sheet row. |
+| `class UsersImport implements ToModel, WithHeadingRow, WithValidation` | `final class UsersImport with WithHeadingRow implements ToModel, WithValidation` |  |
+| `$e->failures() (Maatwebsite\Excel\Validators\ValidationException)` | `e.failures (ExcelValidationException)` |  |
+| `Excel::toArray(new UsersImport, 'users.xlsx')` | `await Excel.toArray('users.xlsx', headingRow: true)` | **async** |
+| `Date::excelToDateTimeObject($value)` | `ExcelDate.toDateTime(value)` |  |
+| `php artisan make:export UsersExport --model=User` | `dartisan make:export UsersExport --model=User` |  |
+
 ## Log viewer (daravel_log_viewer)
 
 | Laravel | Daravel | Notes |
