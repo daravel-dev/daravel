@@ -2,6 +2,7 @@ import 'package:daravel/daravel.dart';
 import 'package:test/test.dart';
 
 void main() {
+  dayFieldTests();
   test('parses ranges, steps, lists, names and aliases', () {
     final every5 = CronExpression.parse('*/5 * * * *');
     expect(every5.matches(DateTime.utc(2026, 10, 24, 12, 0)), isTrue);
@@ -63,5 +64,40 @@ void main() {
       weekday.next(DateTime.utc(2026, 10, 24, 10)),
       DateTime.utc(2026, 10, 26, 9),
     ); // Sat → Mon
+  });
+}
+
+void dayFieldTests() {
+  test('day-of-month and day-of-week are OR-ed when both are set', () {
+    // `0 0 1 * 1`: the first of the month, and every Monday (Vixie cron,
+    // Laravel's cron-expression); it used to require both at once.
+    final both = CronExpression.parse('0 0 1 * 1');
+    expect(
+      both.matches(DateTime.utc(2026, 7, 1)),
+      isTrue,
+      reason: 'a Wednesday the 1st',
+    );
+    expect(
+      both.matches(DateTime.utc(2026, 6, 8)),
+      isTrue,
+      reason: 'a Monday the 8th',
+    );
+    expect(both.matches(DateTime.utc(2026, 6, 9)), isFalse);
+    expect(both.next(DateTime.utc(2026, 6, 2)), DateTime.utc(2026, 6, 8));
+    // With one field unrestricted the other alone decides.
+    expect(
+      CronExpression.parse('0 0 * * 1').matches(DateTime.utc(2026, 7, 1)),
+      isFalse,
+    );
+    expect(
+      CronExpression.parse('0 0 1 * *').matches(DateTime.utc(2026, 6, 8)),
+      isFalse,
+    );
+    // A step on `*` (`*/15`) is not a restriction in Vixie cron: both must
+    // hold, so a Monday that is not the 1st or 16th does not match.
+    expect(
+      CronExpression.parse('0 0 */15 * 1').matches(DateTime.utc(2026, 6, 8)),
+      isFalse,
+    );
   });
 }

@@ -14,8 +14,11 @@ final class CronExpression {
     this._hours,
     this._days,
     this._months,
-    this._weekdays,
-  );
+    this._weekdays, {
+    this._eitherDay = false,
+  });
+
+  final bool _eitherDay;
 
   /// Parses [expression]; throws [CronFormatException] when invalid.
   factory CronExpression.parse(String expression) {
@@ -34,7 +37,18 @@ final class CronExpression {
       _field(fields[2], 1, 31, const {}),
       _field(fields[3], 1, 12, _monthNames),
       _field(fields[4], 0, 7, _dayNames).map((d) => d == 7 ? 0 : d).toSet(),
+      // Vixie cron, and Laravel's cron-expression: when both day fields
+      // are restricted a day matches either of them, not both.
+      eitherDay: !fields[2].startsWith('*') && !fields[4].startsWith('*'),
     );
+  }
+
+  /// Whether [time]'s day satisfies the day-of-month and day-of-week
+  /// fields: both when one of them is `*`, either when both are set.
+  bool _dayMatches(DateTime time) {
+    final byDate = _days.contains(time.day);
+    final byWeekday = _weekdays.contains(time.weekday % 7);
+    return _eitherDay ? byDate || byWeekday : byDate && byWeekday;
   }
 
   static const Map<String, String> _aliases = {
@@ -84,8 +98,7 @@ final class CronExpression {
       _minutes.contains(time.minute) &&
       _hours.contains(time.hour) &&
       _months.contains(time.month) &&
-      _days.contains(time.day) &&
-      _weekdays.contains(time.weekday % 7);
+      _dayMatches(time);
 
   /// The next matching minute strictly after [after] (within four years).
   DateTime? next(DateTime after) {
@@ -102,8 +115,7 @@ final class CronExpression {
         candidate = DateTime.utc(candidate.year, candidate.month + 1);
         continue;
       }
-      if (!_days.contains(candidate.day) ||
-          !_weekdays.contains(candidate.weekday % 7)) {
+      if (!_dayMatches(candidate)) {
         candidate = DateTime.utc(
           candidate.year,
           candidate.month,

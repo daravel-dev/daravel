@@ -175,6 +175,14 @@ match Laravel more closely.
   and call Google's token endpoint on every call. `UserCredentials` stores
   a refreshed token before keeping it, so a store that fails is retried on
   the next call instead of leaving memory and database apart.
+- Storage, mail and schedule: a disk path with a control character (a
+  NUL, which Windows truncates a name at) is refused; a failed SMTP
+  `AUTH LOGIN` no longer quotes the base64 password into its exception,
+  which reached `failed_jobs` and the log; a `MailAttachment` content type
+  with a line break is refused (header injection); the STARTTLS handshake
+  is bounded by `MAIL_TIMEOUT`; and a cron expression with both day
+  fields set (`0 0 1 * 1`) matches either day, as Vixie cron and Laravel
+  do (it required both, so such schedules never ran).
 - The error of a malformed `DB_URL` masks the password
   (`ConnectionConfig.redactUrl`); it used to quote the whole URL,
   `user:secret@` included, into `doctor`'s output and the boot log.

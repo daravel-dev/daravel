@@ -70,18 +70,32 @@ final class MailAttachment {
   MailAttachment.bytes(List<int> data, this.filename, {String? contentType})
     : _data = data,
       _path = null,
-      contentType =
-          contentType ?? lookupMimeType(filename) ?? 'application/octet-stream';
+      contentType = _checkedType(
+        contentType ?? lookupMimeType(filename) ?? 'application/octet-stream',
+      );
 
   /// Read when the message is rendered; [as] renames it.
   MailAttachment.file(String path, {String? as, String? contentType})
     : _data = null,
       _path = path,
       filename = as ?? path.split(RegExp(r'[\\/]')).last,
-      contentType =
-          contentType ??
-          lookupMimeType(as ?? path) ??
-          'application/octet-stream';
+      contentType = _checkedType(
+        contentType ?? lookupMimeType(as ?? path) ?? 'application/octet-stream',
+      );
+
+  /// The content type goes straight into a part header: a line break in it
+  /// would inject headers, so it must be a plain media type.
+  static String _checkedType(String contentType) {
+    if (MailAddress._breaks.hasMatch(contentType) ||
+        !RegExp(r'^[\w.+-]+/[\w.+-]+(;.*)?$').hasMatch(contentType)) {
+      throw ArgumentError.value(
+        contentType,
+        'contentType',
+        'must be a media type without line breaks',
+      );
+    }
+    return contentType;
+  }
 
   final List<int>? _data;
   final String? _path;

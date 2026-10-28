@@ -153,17 +153,23 @@ final class _SmtpSession {
   Future<({int code, List<String> lines})> _expect(
     Set<int> codes, [
     String? command,
+    String? label,
   ]) async {
     if (command != null) {
       _socket.write('$command\r\n');
     }
     final reply = await _reply();
     if (!codes.contains(reply.code)) {
-      final shown = command == null
-          ? 'greeting'
-          : command.startsWith('AUTH')
-          ? 'AUTH'
-          : command.split(' ').first;
+      // The label names the step, never the line sent: the lines of AUTH
+      // LOGIN are the base64 user and password, and this message reaches
+      // failed_jobs and the log.
+      final shown =
+          label ??
+          (command == null
+              ? 'greeting'
+              : command.startsWith('AUTH')
+              ? 'AUTH'
+              : command.split(' ').first);
       throw SmtpException('$shown: ${reply.lines.join(' ')}', reply.code);
     }
     return reply;
@@ -181,12 +187,14 @@ final class _SmtpSession {
     if (!secure && extensions.contains('STARTTLS')) {
       await _expect({220}, 'STARTTLS');
       await _subscription?.cancel();
+      // Bounded like every other step: a server that answers 220 and then
+      // stalls the handshake would hold the send (and its job) for ever.
       _socket = await SecureSocket.secure(
         _socket,
         host: _config.host,
         context: _transport.securityContext,
         onBadCertificate: _transport.onBadCertificate,
-      );
+      ).timeout(_config.timeout);
       _lines.clear();
       _buffer.clear();
       _listen();
@@ -226,8 +234,8 @@ final class _SmtpSession {
       await _expect({235}, 'AUTH PLAIN $token');
     } else if (auth.contains('LOGIN')) {
       await _expect({334}, 'AUTH LOGIN');
-      await _expect({334}, base64.encode(utf8.encode(user)));
-      await _expect({235}, base64.encode(utf8.encode(password)));
+      await _expect({334}, base64.encode(utf8.encode(user)), 'AUTH');
+      await _expect({235}, base64.encode(utf8.encode(password)), 'AUTH');
     } else {
       throw SmtpException(
         'The server offers no supported AUTH method (${auth.join(', ')}).',

@@ -50,6 +50,7 @@ String decodeQp(String encoded) {
 }
 
 void main() {
+  attachmentTypeTests();
   final date = DateTime.utc(2026, 10, 26, 8, 30, 5);
 
   group('MailAddress', () {
@@ -427,5 +428,26 @@ void main() {
         ),
       );
     });
+  });
+}
+
+void attachmentTypeTests() {
+  test('an attachment content type cannot inject headers', () {
+    for (final bad in ['text/plain\r\nBcc: x@y.test', 'not a type', '']) {
+      expect(
+        () => MailAttachment.bytes(const [1], 'a.txt', contentType: bad),
+        throwsArgumentError,
+        reason: bad,
+      );
+    }
+    expect(
+      MailAttachment.bytes(
+        const [1],
+        'a.txt',
+        contentType: 'text/plain; charset=utf-8',
+      ).contentType,
+      'text/plain; charset=utf-8',
+    );
+    expect(MailAttachment.bytes(const [1], 'a.png').contentType, 'image/png');
   });
 }

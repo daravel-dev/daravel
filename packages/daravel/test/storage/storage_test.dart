@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 void main() {
+  controlCharacterTests();
   test('normalizeDiskPath rejects traversal and absolute paths', () {
     expect(normalizeDiskPath('a/./b/../c.txt'), 'a/c.txt');
     expect(normalizeDiskPath(r'a\b.txt'), 'a/b.txt');
@@ -171,5 +172,14 @@ void main() {
         markTestSkipped('Symlinks unavailable: ${e.message}');
       }
     });
+  });
+}
+
+void controlCharacterTests() {
+  test('a control character in a path is refused (NUL truncation)', () {
+    for (final path in ['report.pdf\u0000.txt', 'a\nb', 'dir/\x7fx']) {
+      expect(() => normalizeDiskPath(path), throwsA(isA<StorageException>()));
+    }
+    expect(normalizeDiskPath('report.pdf'), 'report.pdf');
   });
 }

@@ -68,6 +68,12 @@ abstract interface class Disk {
 
 /// Normalises a disk-relative path, rejecting traversal and absolute paths.
 String normalizeDiskPath(String path) {
+  if (RegExp(r'[\x00-\x1f\x7f]').hasMatch(path)) {
+    // Windows truncates a name at a NUL (`report.pdf\0.txt` lands as
+    // `report.pdf`, past any extension check made on the full name), and no
+    // file name needs a control character.
+    throw StorageException('Path contains a control character: [$path].');
+  }
   final unified = path.replaceAll(r'\', '/');
   if (unified.startsWith('/') || RegExp(r'^[A-Za-z]:').hasMatch(unified)) {
     throw StorageException('Absolute paths are not allowed: [$path].');
