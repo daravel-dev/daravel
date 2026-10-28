@@ -1,4 +1,4 @@
-<!-- source: deployment.md sha256:b2997c802220 -->
+<!-- source: deployment.md sha256:1d450ad23d17 -->
 # Deployment
 
 ## Konsep & Arsitektur Ahead-of-Time (AOT) Single Binary
@@ -100,6 +100,13 @@ dengan PostgreSQL 16. Aplikasi referensi di repository ini menyertakan stage
 runtime yang sama di `apps/daravel_starter/Dockerfile`, di-build dari root
 repository (`docker build -f apps/daravel_starter/Dockerfile .`) karena ia
 bagian dari pub workspace.
+
+`dartisan build --docker --distroless` menulis stage build yang sama dengan
+runtime [distroless](https://github.com/GoogleContainerTools/distroless)
+(`gcr.io/distroless/cc-debian12:nonroot`): glibc dan sertifikat CA, tanpa
+shell, tanpa package manager, dengan user `nonroot`. Image proyek baru
+berukuran sekitar 84 MB. Karena tidak ada shell, command dijalankan dengan
+`docker exec <container> /app/bin/dartisan migrate --force`.
 
 ## Port dan platform container
 

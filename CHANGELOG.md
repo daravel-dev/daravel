@@ -34,7 +34,12 @@ match Laravel more closely.
   with the students as guests by a queued job. Roles, query filters and
   the activity log are wired in, and the feature tests fake LiveKit and
   Google over `Http.fake()`.
-
+- `dartisan build --docker --distroless`: the generated `Dockerfile` runs
+  on `gcr.io/distroless/cc-debian12:nonroot` (no shell or package manager,
+  non-root; about 84 MB for a new project), its writable directories
+  prepared in the build stage.
+- Every published package lists its GitHub Sponsors page as `funding` on
+  pub.dev.
 ## 1.15.0
 
 Two first-party packages join the release line: `daravel_excel` (XLSX and

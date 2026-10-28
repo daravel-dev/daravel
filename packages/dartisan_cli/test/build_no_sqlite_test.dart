@@ -108,4 +108,21 @@ void main() {
       'dart build cli'.allMatches(plain).length,
     );
   });
+
+  test('the distroless Dockerfile needs no shell at run time', () {
+    final image = dockerfileTemplate(distroless: true);
+    final runtime = image.substring(image.lastIndexOf('\nFROM '));
+    expect(runtime, startsWith('\nFROM gcr.io/distroless/cc-debian12:nonroot'));
+    // Nothing runs in the runtime stage: it has no shell.
+    expect(runtime, isNot(contains('\nRUN ')));
+    expect(runtime, contains('USER nonroot'));
+    expect(
+      runtime,
+      contains('COPY --from=build --chown=65532:65532 /runtime/ ./'),
+    );
+    expect(image, contains('mkdir -p /runtime/storage/logs'));
+    final lean = dockerfileTemplate(sqlite: false, distroless: true);
+    expect(lean, contains(r'sqlite3:\n      source: system'));
+    expect(lean, contains('FROM gcr.io/distroless/cc-debian12:nonroot'));
+  });
 }
