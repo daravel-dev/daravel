@@ -23,12 +23,26 @@ match Laravel more closely.
   against ZIP bombs), CSV as PhpSpreadsheet writes and reads it;
   `make:export` and `make:import`. `bench/interop/excel.sh` checks the
   files against Laravel Excel.
+- `dartisan pub:list`, `pub:search` and `pub:add` (alias `install`): find
+  and install first-party packages by name or alias. `pub:add` adds the
+  dependency, registers the package in `bootstrap/app.dart`, patches its
+  migrations and commands into the registries and documents its settings
+  in `.env.example`; the database and Redis packages go through
+  `db:install` and `redis:install`. Typos stop with a suggestion, and a
+  package outside Daravel is added only after confirmation or `--yes`.
 
 ### Changed
 
 - `ValidationException` can be extended (`base` instead of `final`), so a
   package can throw a validation error of its own that the exception
   handler renders as Laravel's 422 (`ExcelValidationException`).
+
+### Fixed
+
+- A command in an application with `withPermissions()` (any package that
+  subscribes to a broadcast channel at boot) never exited: the package
+  cancelled its subscription after the application had closed the
+  `Broadcaster`, which then opened a new port that nothing closed.
 
 ## 1.14.0
 
