@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'docs/i18n.dart';
+import 'publish_checks.dart';
 
 /// Prepares a release: one version for every package of the workspace
 /// (Blueprint #12, part B).
@@ -52,6 +53,19 @@ void main(List<String> args) {
   ).firstMatch(_read('packages/daravel/lib/src/foundation/version.dart'))![1]!;
   if (current == version) {
     stderr.writeln('The workspace is already at $version.');
+    exitCode = 1;
+    return;
+  }
+  // A package without an example or a publish job, or published before
+  // its dependencies, loses pub points (Blueprint #55).
+  final problems = publishProblems(Directory.current.path);
+  if (problems.isNotEmpty) {
+    stderr.writeln(
+      'Fix these before the release (dart run tool/publish_checks.dart):',
+    );
+    for (final problem in problems) {
+      stderr.writeln('- $problem');
+    }
     exitCode = 1;
     return;
   }

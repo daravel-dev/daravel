@@ -38,6 +38,9 @@ jobs:
       - name: Docs up to date (parity table, compiled examples)
         run: dart run tool/docs/generate.dart --check
 
+      - name: Every package has an example and a publish job after its dependencies
+        run: dart run tool/publish_checks.dart
+
       - name: Test (all packages)
         env:
           # `dartisan new` end-to-end (pub get + analyze + test of a generated

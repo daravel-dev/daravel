@@ -140,7 +140,6 @@ dev_dependencies:
 
   group('db:install', () {
     late Directory project;
-    late String previous;
 
     setUp(() async {
       project = await Directory.systemTemp.createTemp('db_install_');
@@ -159,14 +158,18 @@ dev_dependencies:
           ..createSync(recursive: true)
           ..writeAsStringSync(files[path]!);
       }
-      previous = Directory.current.path;
-      Directory.current = project;
     });
 
     tearDown(() async {
-      Directory.current = previous;
       await project.delete(recursive: true);
     });
+
+    // The project is the cwd of the command's zone only: the process cwd
+    // is shared with the other test files, which run at the same time.
+    Future<int?> dartisan(List<String> args) => IOOverrides.runZoned(
+      () => DartisanRunner(() => throw StateError('not booted')).run(args),
+      getCurrentDirectory: () => project,
+    );
 
     String read(String path) =>
         File(p.join(project.path, path)).readAsStringSync();
@@ -174,8 +177,7 @@ dev_dependencies:
     test(
       'updates pubspec, bootstrap and .env.example; then is a no-op',
       () async {
-        final runner = DartisanRunner(() => throw StateError('not booted'));
-        expect(await runner.run(['db:install', 'postgres', '--no-get']), 0);
+        expect(await dartisan(['db:install', 'postgres', '--no-get']), 0);
         expect(
           read('pubspec.yaml'),
           contains('  daravel_postgres: ^$daravelVersion'),
@@ -187,7 +189,7 @@ dev_dependencies:
           read('bootstrap/app.dart'),
           read('.env.example'),
         ];
-        expect(await runner.run(['db:install', 'pgsql', '--no-get']), 0);
+        expect(await dartisan(['db:install', 'pgsql', '--no-get']), 0);
         expect([
           read('pubspec.yaml'),
           read('bootstrap/app.dart'),
@@ -197,9 +199,8 @@ dev_dependencies:
     );
 
     test('rejects an unknown driver', () async {
-      final runner = DartisanRunner(() => throw StateError('not booted'));
       expect(
-        () => runner.run(['db:install', 'oracle', '--no-get']),
+        () => dartisan(['db:install', 'oracle', '--no-get']),
         throwsA(isA<UsageException>()),
       );
     });
