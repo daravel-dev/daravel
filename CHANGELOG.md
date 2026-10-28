@@ -9,6 +9,14 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 wait for a new major version, and Laravel-facing formats change only to
 match Laravel more closely.
 
+## Unreleased
+
+### Fixed
+
+- `Application.shutdown()` after a boot that failed or never ran no longer
+  throws `LateInitializationError` for `logger`, which hid the real error
+  when a test's tearDown shut such an application down.
+
 ## 1.16.0
 
 `daravel_medialibrary` joins the release line (first published as 1.15.0):

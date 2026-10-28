@@ -119,6 +119,10 @@ final class Application {
   late final Logger logger;
   late final HttpKernel kernel;
 
+  /// Whether [boot] got as far as creating [logger]: a shutdown after a
+  /// boot that failed or never ran must not read it.
+  bool _hasLogger = false;
+
   Future<void>? _booting;
   bool _booted = false;
   bool _draining = false;
@@ -158,6 +162,7 @@ final class Application {
       basePath: basePath,
       minimumLevel: _builder._logLevel,
     );
+    _hasLogger = true;
     exceptions.logger = logger;
 
     config = ConfigRepository()
@@ -1015,7 +1020,9 @@ final class Application {
     if (Container.rootOrNull == container) {
       Container.setRoot(null);
     }
-    await logger.close();
+    if (_hasLogger) {
+      await logger.close();
+    }
   }
 }
 

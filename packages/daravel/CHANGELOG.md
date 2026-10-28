@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Fixed: `Application.shutdown()` after a boot that failed or never ran no longer throws `LateInitializationError` (`logger`).
+
 ## 1.16.0
 
 - Added coordinator round-trip metrics: `RemoteCoordinatorChannel.onCallDuration` / `onCallTimeout`, recorded by `AppMetrics` as `coordinator_call_duration_seconds{service}` (sub-millisecond buckets, `AppMetrics.coordinatorBuckets`) and `coordinator_call_timeouts_total{service}`; `Coordinator.stats()` adds `in_flight_peak` and `max_queue`, exported as `coordinator_in_flight_peak` and `coordinator_max_queue`.
