@@ -6,11 +6,48 @@ import 'dart:math';
 
 /// One benchmark request shape.
 final class LoadSpec {
-  const LoadSpec(this.method, this.path, {this.json});
+  const LoadSpec(
+    this.method,
+    this.path, {
+    this.json,
+    this.body,
+    this.contentType,
+  });
+
+  /// A `multipart/form-data` request with one file field [field] holding
+  /// [size] bytes named [fileName].
+  factory LoadSpec.upload(
+    String path, {
+    String field = 'file',
+    String fileName = 'bench.bin',
+    int size = 64 * 1024,
+  }) {
+    const boundary = 'daravel-bench-boundary';
+    final body = <int>[
+      ...utf8.encode(
+        '--$boundary\r\n'
+        'Content-Disposition: form-data; name="$field"; '
+        'filename="$fileName"\r\n'
+        'Content-Type: application/octet-stream\r\n\r\n',
+      ),
+      ...List<int>.generate(size, (i) => i % 251),
+      ...utf8.encode('\r\n--$boundary--\r\n'),
+    ];
+    return LoadSpec(
+      'POST',
+      path,
+      body: body,
+      contentType: 'multipart/form-data; boundary=$boundary',
+    );
+  }
 
   final String method;
   final String path;
   final Object? Function(int sequence)? json;
+
+  /// A body sent as it is with [contentType], instead of [json].
+  final List<int>? body;
+  final String? contentType;
 }
 
 /// Result of a load run: throughput and latency percentiles of the
@@ -84,6 +121,27 @@ Future<LoadResult> runLoad(
 
 typedef _WorkerResult = ({int ok, int errors, int shed, List<int> latencies});
 
+/// Writes [spec]'s body: its raw [LoadSpec.body], or its JSON for
+/// [sequence].
+void _writeBody(HttpClientRequest request, LoadSpec spec, int sequence) {
+  final raw = spec.body;
+  if (raw != null) {
+    request.headers
+      ..set(HttpHeaders.contentTypeHeader, spec.contentType!)
+      ..contentLength = raw.length;
+    request.add(raw);
+    return;
+  }
+  final body = spec.json?.call(sequence);
+  if (body != null) {
+    final bytes = utf8.encode(jsonEncode(body));
+    request.headers
+      ..contentType = ContentType.json
+      ..contentLength = bytes.length;
+    request.add(bytes);
+  }
+}
+
 Future<_WorkerResult> _worker(
   int port,
   LoadSpec spec,
@@ -105,14 +163,7 @@ Future<_WorkerResult> _worker(
           final watch = Stopwatch()..start();
           try {
             final request = await client.openUrl(spec.method, uri);
-            final body = spec.json?.call(sequence++);
-            if (body != null) {
-              final bytes = utf8.encode(jsonEncode(body));
-              request.headers
-                ..contentType = ContentType.json
-                ..contentLength = bytes.length;
-              request.add(bytes);
-            }
+            _writeBody(request, spec, sequence++);
             final response = await request.close();
             await response.drain<void>();
             if (response.statusCode < 400) {
@@ -211,14 +262,7 @@ Future<_WorkerResult> _openWorker(
     int? status;
     try {
       final request = await client.openUrl(spec.method, uri);
-      final body = spec.json?.call(sequence++);
-      if (body != null) {
-        final bytes = utf8.encode(jsonEncode(body));
-        request.headers
-          ..contentType = ContentType.json
-          ..contentLength = bytes.length;
-        request.add(bytes);
-      }
+      _writeBody(request, spec, sequence++);
       final response = await request.close();
       await response.drain<void>();
       status = response.statusCode;
