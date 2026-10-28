@@ -2,7 +2,7 @@ import '../http/http_exceptions.dart';
 
 /// Thrown when validation fails; rendered as a Laravel-compatible `422`:
 /// `{"message": "...", "errors": {"field": ["..."]}}`.
-final class ValidationException extends HttpException {
+base class ValidationException extends HttpException {
   ValidationException(Map<String, List<String>> errors)
     : errors = Map.unmodifiable({
         for (final entry in errors.entries)

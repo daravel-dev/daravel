@@ -13,6 +13,6 @@
 - title: Security
   pages: [auth, permissions, activitylog, security]
 - title: Digging deeper
-  pages: [dartisan, flutter-client, background, mail, broadcasting, livekit, google, teobiefy, redis, s3, helpers, localization, feature-flags]
+  pages: [dartisan, flutter-client, background, mail, broadcasting, excel, livekit, google, teobiefy, redis, s3, helpers, localization, feature-flags]
 - title: Testing and performance
   pages: [testing, performance, benchmarks, operations]

@@ -2,11 +2,33 @@
 
 All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 `daravel_lints`, `daravel_mysql`, `daravel_permission`, `daravel_activitylog`,
-`daravel_redis`, `daravel_sqlite`, `daravel_postgres`, `daravel_teorion`,
+`daravel_excel`, `daravel_redis`, `daravel_sqlite`, `daravel_postgres`, `daravel_teorion`,
 `daravel_livekit`, `daravel_google`, `daravel_teobiefy`, `daravel_s3`,
 `dartisan_cli`). Versions follow SemVer: breaking changes to the Dart API
 wait for a new major version, and Laravel-facing formats change only to
 match Laravel more closely.
+
+## Unreleased
+
+### Added
+
+- `daravel_excel` (Blueprint #39): XLSX and CSV exports and imports with
+  Laravel Excel 3.1's concerns. Exports stream from a query (a chunk at a
+  time), a collection or a stream to a download, a disk or bytes, at a
+  constant 24 MB for 10 000 to 500 000 rows; imports map rows to models
+  (one by one or in batches), collections or callbacks, validate each row
+  with Daravel's rules and report failures with their sheet row numbers
+  (a 422 keyed `<row>.<attribute>`), in one transaction. XLSX is written
+  and read with a streaming ZIP and XML pipeline of its own (a limit
+  against ZIP bombs), CSV as PhpSpreadsheet writes and reads it;
+  `make:export` and `make:import`. `bench/interop/excel.sh` checks the
+  files against Laravel Excel.
+
+### Changed
+
+- `ValidationException` can be extended (`base` instead of `final`), so a
+  package can throw a validation error of its own that the exception
+  handler renders as Laravel's 422 (`ExcelValidationException`).
 
 ## 1.14.0
 
