@@ -23,6 +23,15 @@ final class ChannelMembershipService
   /// (Reverb forgets it when the channel empties).
   static const Duration cacheTtl = Duration(minutes: 30);
 
+  /// The most cache channels whose last frame is kept. A frame was kept
+  /// until its channel was read again, so one cache channel per user or
+  /// document grew the map without bound; past this many the expired
+  /// frames go, then the least recently written.
+  static const int maxCachedFrames = 10000;
+
+  /// Cache channels holding a frame right now.
+  int get cachedFrames => _cached.length;
+
   @override
   String get name => 'channels';
 
@@ -52,10 +61,18 @@ final class ChannelMembershipService
       case 'connections':
         return {for (final sockets in _channels.values) ...sockets.keys}.length;
       case 'cache_set':
-        _cached[args['channel']! as String] = (
-          args['frame']! as String,
-          Clock.now(),
-        );
+        final channel = args['channel']! as String;
+        final now = Clock.now();
+        _cached.remove(channel); // Most recently written last.
+        if (_cached.length >= maxCachedFrames) {
+          _cached.removeWhere(
+            (_, cached) => now.difference(cached.$2) > cacheTtl,
+          );
+          while (_cached.length >= maxCachedFrames) {
+            _cached.remove(_cached.keys.first);
+          }
+        }
+        _cached[channel] = (args['frame']! as String, now);
         return null;
       case 'cache_get':
         final channel = args['channel']! as String;

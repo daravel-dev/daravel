@@ -175,6 +175,13 @@ match Laravel more closely.
   and call Google's token endpoint on every call. `UserCredentials` stores
   a refreshed token before keeping it, so a store that fails is retried on
   the next call instead of leaving memory and database apart.
+- The error of a malformed `DB_URL` masks the password
+  (`ConnectionConfig.redactUrl`); it used to quote the whole URL,
+  `user:secret@` included, into `doctor`'s output and the boot log.
+- The coordinator bounds the last frames it keeps for cache channels
+  (`ChannelMembershipService.maxCachedFrames`, 10 000, expired first);
+  a frame stayed until its channel was read again, so one cache channel
+  per user or document grew it without bound.
 - A worker isolate that exits (a crash, a kill) no longer leaves ghosts
   behind in the coordinator: its presence-channel members vanish from
   `users` and `channel` and its broadcast ports are dropped

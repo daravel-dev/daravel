@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 void main() {
+  redactionTests();
   group('ConnectionConfig.fromUrl', () {
     test('PostgreSQL with credentials, port and options', () {
       final c = ConnectionConfig.fromUrl(
@@ -218,4 +219,32 @@ void main() {
       expect(File(legacy).existsSync(), isTrue);
     },
   );
+}
+
+void redactionTests() {
+  test('a malformed DB_URL is reported without its password', () {
+    for (final url in [
+      'pgsql://app:s3cr3t@db.example.test:5432',
+      'ftp://app:s3cr3t@db.example.test/app',
+    ]) {
+      Object? error;
+      try {
+        ConnectionConfig.fromUrl(url);
+      } on FormatException catch (e) {
+        error = e;
+      }
+      expect(error, isNotNull, reason: url);
+      expect('$error', isNot(contains('s3cr3t')), reason: url);
+      expect('$error', contains('app:***@db.example.test'), reason: url);
+    }
+    expect(
+      ConnectionConfig.redactUrl('mysql://u@h/d'),
+      'mysql://u@h/d',
+      reason: 'nothing to mask',
+    );
+    expect(
+      ConnectionConfig.redactUrl('pgsql://u:p%40ss@h/d'),
+      'pgsql://u:***@h/d',
+    );
+  });
 }

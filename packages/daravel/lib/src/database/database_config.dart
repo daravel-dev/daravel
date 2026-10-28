@@ -70,6 +70,14 @@ final class ConnectionConfig {
     _ => int.tryParse(value) ?? double.tryParse(value) ?? value,
   };
 
+  /// [url] with its password masked, for messages: the error of a
+  /// malformed `DB_URL` reaches `doctor`'s output, the boot log and error
+  /// trackers, where `user:secret@` must not.
+  static String redactUrl(String url) =>
+      url.replaceFirstMapped(RegExp(r'^([a-z]+://[^:/@]*):[^@/]*@'), (m) {
+        return '${m.group(1)}:***@';
+      });
+
   /// A connection from a URL, as Laravel's `DB_URL`:
   /// `pgsql://user:secret@host:5432/app?sslmode=require&pool=5`,
   /// `mysql://user@host/app`, `mariadb://...`, `sqlite:database/app.sqlite`
@@ -82,7 +90,7 @@ final class ConnectionConfig {
         path = path.substring(2); // sqlite:///abs/path is /abs/path
       }
       if (path.isEmpty) {
-        throw FormatException('No SQLite file in "$url".');
+        throw FormatException('No SQLite file in "${redactUrl(url)}".');
       }
       return ConnectionConfig(
         driver: 'sqlite',
@@ -100,13 +108,13 @@ final class ConnectionConfig {
     };
     if (uri == null || driver == null) {
       throw FormatException(
-        'Not a database URL: "$url" (pgsql://, mysql://, mariadb:// or '
-        'sqlite:).',
+        'Not a database URL: "${redactUrl(url)}" (pgsql://, mysql://, '
+        'mariadb:// or sqlite:).',
       );
     }
     final database = uri.pathSegments.where((s) => s.isNotEmpty).join('/');
     if (database.isEmpty) {
-      throw FormatException('No database name in "$url".');
+      throw FormatException('No database name in "${redactUrl(url)}".');
     }
     final user = uri.userInfo.split(':');
     final query = uri.queryParameters;

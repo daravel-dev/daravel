@@ -18,6 +18,7 @@ final class _SlowService implements CoordinatorService {
 
 void main() {
   coordinatorRobustnessTests();
+  cacheFrameTests();
   burstTests();
   workerExitTests();
   rateLimitMemoryTests();
@@ -571,4 +572,35 @@ void burstTests() {
       }
     },
   );
+}
+
+void cacheFrameTests() {
+  test('cache channel frames are bounded and expired ones swept', () async {
+    Clock.fake(DateTime.utc(2026, 10, 28, 8));
+    addTearDown(Clock.restore);
+    final service = ChannelMembershipService();
+    Object? call(String op, Map<String, Object?> args) =>
+        service.handle(op, args);
+    for (var i = 0; i < ChannelMembershipService.maxCachedFrames; i++) {
+      call('cache_set', {'channel': 'cache-doc-$i', 'frame': 'f$i'});
+    }
+    expect(service.cachedFrames, ChannelMembershipService.maxCachedFrames);
+    // One more with every frame still fresh: the least recently written
+    // goes, the newest stays, the rest are served.
+    call('cache_set', {'channel': 'cache-doc-new', 'frame': 'new'});
+    expect(service.cachedFrames, ChannelMembershipService.maxCachedFrames);
+    expect(call('cache_get', {'channel': 'cache-doc-0'}), isNull);
+    expect(call('cache_get', {'channel': 'cache-doc-1'}), 'f1');
+    expect(call('cache_get', {'channel': 'cache-doc-new'}), 'new');
+    // Rewriting a channel moves it to the end instead of growing the map.
+    call('cache_set', {'channel': 'cache-doc-1', 'frame': 'f1b'});
+    expect(service.cachedFrames, ChannelMembershipService.maxCachedFrames);
+    // Past the TTL the expired frames go first, all at once.
+    Clock.travel(
+      ChannelMembershipService.cacheTtl + const Duration(seconds: 1),
+    );
+    call('cache_set', {'channel': 'cache-doc-fresh', 'frame': 'fresh'});
+    expect(service.cachedFrames, 1);
+    expect(call('cache_get', {'channel': 'cache-doc-fresh'}), 'fresh');
+  });
 }
