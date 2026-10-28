@@ -98,3 +98,48 @@ Run the security regression suite locally:
 ```bash
 cd packages/daravel && dart test --tags security
 ```
+
+## Auditing a running server
+
+The suite above tests the framework. `dartisan security:audit` checks a
+deployment: it sends single, harmless requests to a running server (no
+floods, nothing that writes) and reports what is misconfigured, with the
+fix for each finding.
+
+```bash
+dartisan security:audit                                   # APP_URL
+dartisan security:audit --target=https://staging.example.com --json-path=/api/orders
+dartisan security:audit --format=sarif --output=reports/audit.sarif
+```
+
+| Check | Finds |
+| :-- | :-- |
+| `DARAVEL-SEC-001` | `X-Content-Type-Options`, `Referrer-Policy`, framing protection on HTML, HSTS on HTTPS missing |
+| `DARAVEL-SEC-002` | A version in `Server` or `X-Powered-By` |
+| `DARAVEL-SEC-003` | `.env`, `.git`, the SQLite database, logs or `pubspec.yaml` served |
+| `DARAVEL-SEC-004` | Path traversal to `.env` (`/..%2f.env`) |
+| `DARAVEL-SEC-005` | `TRACE` echoing the request |
+| `DARAVEL-SEC-006` | CRLF injection into response headers |
+| `DARAVEL-SEC-007` | Stack traces in error responses (`APP_DEBUG=true`) |
+| `DARAVEL-SEC-008` | A route failing on deeply nested JSON (with `--json-path`) |
+| `DARAVEL-SEC-009` | CORS reflecting any origin, worse with credentials |
+| `DARAVEL-SEC-010` | Cookies without `HttpOnly`, `SameSite`, or `Secure` over HTTPS |
+| `DARAVEL-SEC-011` | `/metrics` without `METRICS_TOKEN` |
+| `DARAVEL-SEC-012` | The log viewer without authentication |
+| `DARAVEL-SEC-013` | A public host served over plain HTTP |
+
+Only content that proves a leak counts (a served `.env` must contain
+`APP_KEY=` or similar), so a catch-all page that answers 200 is not a
+finding. `--only=003,011` runs some checks. The command exits 1 when a
+finding reaches `--severity` (`high` by default), so it can gate a
+deployment; a SARIF report shows the findings in GitHub code scanning:
+
+```yaml
+- run: dart run bin/dartisan.dart security:audit --target=https://staging.example.com --format=sarif --output=audit.sarif
+- uses: github/codeql-action/upload-sarif@v3
+  if: always()
+  with:
+    sarif_file: audit.sarif
+```
+
+Audit only servers you run or may test.

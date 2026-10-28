@@ -26,6 +26,7 @@ options.
 | `down [--secret] [--retry]`, `up` | Maintenance mode, see [Deployment](deployment.md#maintenance-mode) |
 | `stub:publish` | Copies the generator templates into `stubs/` |
 | `lint [--json]` | `daravel_lints` rules and registry checks |
+| `security:audit [--target] [--format=terminal\|json\|sarif] [--output] [--severity] [--only] [--json-path]` | Black-box audit of a running server for deployment mistakes, see [Security](security.md#auditing-a-running-server) |
 | `mcp:serve [--allow-write]`, `mcp:install` | Project context for AI coding agents over MCP, see [below](#ai-coding-agents-mcp) |
 | `upgrade [--check] [--to] [--no-global] [--no-get]`, `self-update` | Move the project and the global CLI to a release, see [below](#upgrading) |
 | `pub:list [--json]`, `pub:search <term> [--online]`, `pub:add <package...> [--yes] [--no-get]` | Find and install first-party packages, see [below](#packages) |

@@ -48,6 +48,15 @@ match Laravel more closely.
   `coordinator_call_duration_seconds{service}`,
   `coordinator_call_timeouts_total{service}`,
   `coordinator_in_flight_peak` and `coordinator_max_queue`.
+- `dartisan security:audit`: a black-box audit of a running server for
+  deployment mistakes, with single harmless requests: security headers,
+  version banners, `.env` / `.git` / database / logs served, path
+  traversal, `TRACE`, CRLF injection, stack traces in errors, deep JSON,
+  CORS reflecting any origin, cookie flags, `/metrics` and the log viewer
+  left open, plain HTTP. Only content that proves a leak counts. Reports
+  for the terminal, JSON or SARIF (GitHub code scanning); exits 1 at
+  `--severity` for CI.
+
 ## 1.15.0
 
 Two first-party packages join the release line: `daravel_excel` (XLSX and
