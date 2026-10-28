@@ -40,6 +40,14 @@ match Laravel more closely.
   prepared in the build stage.
 - Every published package lists its GitHub Sponsors page as `funding` on
   pub.dev.
+- `dartisan coordinator:stats --url=<server>/metrics` reads the running
+  server's coordinator instead of the command's own (always idle) one: the
+  queue against its limit, refused calls, and round trips by service with
+  p50/p99, and says what to do (`CACHE_LIMITER=database`,
+  `CACHE_PROCESS_L1_TTL`, Redis). `/metrics` gains
+  `coordinator_call_duration_seconds{service}`,
+  `coordinator_call_timeouts_total{service}`,
+  `coordinator_in_flight_peak` and `coordinator_max_queue`.
 ## 1.15.0
 
 Two first-party packages join the release line: `daravel_excel` (XLSX and

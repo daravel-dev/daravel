@@ -101,6 +101,15 @@ of every worker are merged.
 | `http_requests_total{status}` | the share of `5xx` |
 | `process_resident_memory_bytes` | steady growth over hours or days |
 | `coordinator_messages_total` | its rate (`rate(...[1m])`) climbing with traffic: every worker asks the coordinator, which answers on the supervisor's event loop |
+| `coordinator_call_duration_seconds{service}` | p99 above about 2 ms: rate limits, process cache reads and locks wait for the coordinator |
+| `coordinator_rejected_total`, `coordinator_in_flight_peak` against `coordinator_max_queue` | any refusal, or a peak near the limit |
+| `coordinator_call_timeouts_total{service}` | any steady rate |
+
+`dartisan coordinator:stats --url=http://127.0.0.1:8000/metrics` reads
+these from a running server and says what to do: back the rate limiter
+with the cache store (`CACHE_LIMITER=database`), keep hot process cache
+keys in each worker for a moment (`CACHE_PROCESS_L1_TTL=1s`), or move
+that state to Redis (`withRedis()`).
 
 Database connections are best watched on the database side
 (`pg_stat_activity` on PostgreSQL), against the formula above.

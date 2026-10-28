@@ -43,6 +43,7 @@ export 'src/stubs.dart';
 export 'src/generator.dart';
 export 'src/global_runner.dart';
 export 'src/cache_commands.dart';
+export 'src/coordinator_report.dart';
 export 'src/env_commands.dart';
 export 'src/adopt_command.dart';
 export 'src/tinker_command.dart';

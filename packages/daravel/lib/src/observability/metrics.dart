@@ -310,6 +310,16 @@ final class MetricsService implements CoordinatorService {
         'Asynchronous coordinator calls not answered yet.',
         'in_flight',
       ),
+      'coordinator_in_flight_peak': metric(
+        'gauge',
+        'The most asynchronous coordinator calls pending at once.',
+        'in_flight_peak',
+      ),
+      'coordinator_max_queue': metric(
+        'gauge',
+        'Pending calls above which the coordinator refuses new ones.',
+        'max_queue',
+      ),
     };
   }
 
@@ -399,7 +409,43 @@ final class AppMetrics {
       'Resident set size of the process.',
       collect: () => ProcessInfo.currentRss.toDouble(),
     );
+    final remote = channel;
+    if (remote is RemoteCoordinatorChannel) {
+      // Under a supervisor every rate limit, process cache read and lock
+      // is a round trip to the coordinator; its p99 says when to move
+      // that state elsewhere (`dartisan coordinator:stats --url`).
+      final calls = registry.histogram(
+        'coordinator_call_duration_seconds',
+        'Round trips from this worker to the coordinator, by service.',
+        buckets: coordinatorBuckets,
+      );
+      final timeouts = registry.counter(
+        'coordinator_call_timeouts_total',
+        'Coordinator calls from this worker that timed out, by service.',
+      );
+      remote.onCallDuration = (String service, Duration roundTrip) =>
+          calls.observe(roundTrip.inMicroseconds / 1e6, {'service': service});
+      remote.onCallTimeout = (String service) =>
+          timeouts.inc({'service': service});
+    }
   }
+
+  /// Buckets of `coordinator_call_duration_seconds`: a call answered in
+  /// place takes tens of microseconds, a queued one milliseconds.
+  static const List<double> coordinatorBuckets = <double>[
+    0.0001,
+    0.00025,
+    0.0005,
+    0.001,
+    0.0025,
+    0.005,
+    0.01,
+    0.025,
+    0.05,
+    0.1,
+    0.25,
+    1,
+  ];
 
   final MetricsRegistry registry;
 
