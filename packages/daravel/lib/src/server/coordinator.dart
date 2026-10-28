@@ -88,6 +88,7 @@ final class Coordinator {
       <String, CoordinatorService>{};
   ReceivePort? _port;
   int _inFlight = 0;
+  int _peakInFlight = 0;
   int _handled = 0;
   int _rejected = 0;
 
@@ -169,7 +170,9 @@ final class Coordinator {
         _reply(message, CoordinatorReply(message.id, result: result));
         return;
       }
-      _inFlight++;
+      if (++_inFlight > _peakInFlight) {
+        _peakInFlight = _inFlight;
+      }
       unawaited(_dispatch(message, result));
     });
     return port.sendPort;
@@ -224,6 +227,10 @@ final class Coordinator {
           ? 0.0
           : double.parse((messages / seconds).toStringAsFixed(1)),
       'in_flight': _inFlight,
+      // How close the asynchronous calls came to [maxQueue], where calls
+      // start to be refused.
+      'in_flight_peak': _peakInFlight,
+      'max_queue': maxQueue,
       'services': <String, Object?>{
         for (final entry in _services.entries) entry.key: entry.value.stats(),
       },
@@ -282,6 +289,14 @@ final class RemoteCoordinatorChannel implements CoordinatorChannel {
 
   final SendPort _target;
   late final ReceivePort _replies;
+
+  /// Receives each answered call's service and round trip, the wait in
+  /// the coordinator's queue included (`coordinator_call_duration_seconds`
+  /// on `/metrics`).
+  void Function(String service, Duration roundTrip)? onCallDuration;
+
+  /// Receives the service of each call that timed out.
+  void Function(String service)? onCallTimeout;
   final Map<int, _PendingCall> _pending = <int, _PendingCall>{};
   int _nextId = 0;
   bool _closed = false;
@@ -317,10 +332,12 @@ final class RemoteCoordinatorChannel implements CoordinatorChannel {
       );
     }
     final id = _nextId++;
+    final now = _clock.elapsedMicroseconds;
     final call = _PendingCall(
       service,
       timeout,
-      _clock.elapsedMicroseconds + timeout.inMicroseconds,
+      now + timeout.inMicroseconds,
+      now,
     );
     _pending[id] = call;
     _sweeper ??= Timer.periodic(sweepInterval, (_) => _sweep());
@@ -345,6 +362,7 @@ final class RemoteCoordinatorChannel implements CoordinatorChannel {
       call.completer.completeError(
         CoordinatorTimeoutException(call.service, call.timeout),
       );
+      onCallTimeout?.call(call.service);
       return true;
     });
     if (_pending.isEmpty) {
@@ -361,6 +379,10 @@ final class RemoteCoordinatorChannel implements CoordinatorChannel {
     if (call == null) {
       return;
     }
+    onCallDuration?.call(
+      call.service,
+      Duration(microseconds: _clock.elapsedMicroseconds - call.started),
+    );
     final error = message.error;
     if (error != null) {
       call.completer.completeError(CoordinatorException(error));
@@ -385,12 +407,15 @@ final class RemoteCoordinatorChannel implements CoordinatorChannel {
 
 /// An in-flight [RemoteCoordinatorChannel.call].
 final class _PendingCall {
-  _PendingCall(this.service, this.timeout, this.deadline);
+  _PendingCall(this.service, this.timeout, this.deadline, this.started);
 
   final String service;
   final Duration timeout;
 
   /// Monotonic microseconds after which the call times out.
   final int deadline;
+
+  /// Monotonic microseconds when the call was sent.
+  final int started;
   final Completer<Object?> completer = Completer<Object?>();
 }

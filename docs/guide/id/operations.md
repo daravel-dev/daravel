@@ -1,4 +1,4 @@
-<!-- source: operations.md sha256:711fdc6d750b -->
+<!-- source: operations.md sha256:4ce08b2e2626 -->
 # Operasional
 
 Menjalankan Daravel di bawah trafik nyata: berapa isolate, berapa koneksi
@@ -107,6 +107,16 @@ setiap worker digabungkan.
 | `http_requests_total{status}` | porsi `5xx` |
 | `process_resident_memory_bytes` | pertumbuhan terus-menerus selama berjam-jam atau berhari-hari |
 | `coordinator_messages_total` | lajunya (`rate(...[1m])`) yang ikut naik bersama trafik: setiap worker bertanya ke coordinator, yang menjawab di event loop supervisor |
+| `coordinator_call_duration_seconds{service}` | p99 di atas sekitar 2 ms: rate limit, baca cache process, dan lock menunggu coordinator |
+| `coordinator_rejected_total`, `coordinator_in_flight_peak` dibandingkan `coordinator_max_queue` | penolakan apa pun, atau puncak yang mendekati batas |
+| `coordinator_call_timeouts_total{service}` | laju yang terus-menerus |
+
+`dartisan coordinator:stats --url=http://127.0.0.1:8000/metrics` membaca
+angka-angka ini dari server yang sedang berjalan dan memberi saran:
+pakai cache store untuk rate limiter (`CACHE_LIMITER=database`), simpan
+key cache process yang sering dibaca di setiap worker sebentar
+(`CACHE_PROCESS_L1_TTL=1s`), atau pindahkan state itu ke Redis
+(`withRedis()`).
 
 Koneksi database paling baik dipantau dari sisi database
 (`pg_stat_activity` di PostgreSQL), dibandingkan dengan rumus di atas.

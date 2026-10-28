@@ -83,6 +83,46 @@ void main() {
     );
   });
 
+  test('round trips, timeouts and the queue peak reach /metrics', () async {
+    final channel = RemoteCoordinatorChannel(coordinator.listen());
+    addTearDown(channel.close);
+    final metrics = AppMetrics(MetricsRegistry(), channel: channel);
+    await ProcessStore(channel).put('a', 1, ttl: const Duration(minutes: 1));
+    await Future.wait([
+      for (var i = 0; i < 3; i++) channel.call('slow', 'x', const {}),
+    ]);
+    await expectLater(
+      channel.call(
+        'slow',
+        'y',
+        const {},
+        timeout: const Duration(milliseconds: 50),
+      ),
+      throwsA(isA<CoordinatorTimeoutException>()),
+    );
+    final stats = coordinator.stats();
+    expect(stats['in_flight_peak'], greaterThanOrEqualTo(3));
+    expect(stats['max_queue'], coordinator.maxQueue);
+    final text = MetricsRegistry.renderSnapshot(metrics.registry.snapshot());
+    expect(
+      text,
+      contains(
+        'coordinator_call_duration_seconds_count{service="processCache"} 1',
+      ),
+    );
+    expect(
+      text,
+      contains('coordinator_call_duration_seconds_count{service="slow"} 3'),
+    );
+    expect(text, contains('coordinator_call_timeouts_total{service="slow"} 1'));
+    expect(
+      MetricsRegistry.renderSnapshot(
+        MetricsService.coordinatorSnapshot(coordinator.stats()),
+      ),
+      contains('coordinator_max_queue ${coordinator.maxQueue}'),
+    );
+  });
+
   test(
     'remote channel round-trips over SendPort with correlation ids',
     () async {
