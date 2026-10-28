@@ -1,4 +1,4 @@
-<!-- source: excel.md sha256:d77a05f151c5 -->
+<!-- source: excel.md sha256:60def1ee0086 -->
 # Excel dan CSV
 
 `daravel_excel` mengekspor dan mengimpor spreadsheet dengan concern dari
@@ -9,11 +9,12 @@ XLSX terkompresi (atau CSV) ke client HTTP atau ke disk, sehingga ekspor
 500.000 baris memakai memori yang sama dengan ekspor 10 baris.
 
 ```bash
-dart pub add daravel_excel
+dartisan pub:add excel
 ```
 
-Tidak perlu setup: `Excel` memakai database, storage, dan validasi
-aplikasi.
+`pub:add` menambahkan dependency dan [command](#command)-nya; dengan
+`dart pub add daravel_excel`, command ditambahkan sendiri. Tidak perlu
+setup lain: `Excel` memakai database, storage, dan validasi aplikasi.
 
 ## Ekspor
 

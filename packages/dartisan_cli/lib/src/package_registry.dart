@@ -161,6 +161,19 @@ const List<PackageManifest> officialPackages = [
     ],
   ),
   PackageManifest(
+    package: 'daravel_excel',
+    title: 'Excel and CSV',
+    category: 'Data',
+    description:
+        "XLSX and CSV exports and imports with Laravel Excel's concerns",
+    aliases: ['excel', 'xlsx', 'csv', 'spreadsheet'],
+    commands: 'excelCommands',
+    next: [
+      'dartisan make:export StudentsExport --model=Student',
+      'dartisan make:import StudentsImport --model=Student',
+    ],
+  ),
+  PackageManifest(
     package: 'daravel_teorion',
     title: 'Query filters',
     category: 'API',

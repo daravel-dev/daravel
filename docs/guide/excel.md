@@ -8,10 +8,12 @@ deflated XLSX (or CSV) straight to the HTTP client or a disk, so an export
 of 500 000 rows uses the memory of an export of 10.
 
 ```bash
-dart pub add daravel_excel
+dartisan pub:add excel
 ```
 
-No setup is needed: `Excel` uses the application's database, storage and
+`pub:add` adds the dependency and the [commands](#commands); with
+`dart pub add daravel_excel` you add the commands yourself. No other setup
+is needed: `Excel` uses the application's database, storage and
 validation.
 
 ## Exports
