@@ -4,6 +4,7 @@ import '../foundation/container.dart';
 import 'messages.dart';
 import 'rule.dart';
 import 'rule_parser.dart';
+import 'rules.dart' show IntegerRule, NumericRule;
 import 'validated_data.dart';
 import 'validation_exception.dart';
 
@@ -116,6 +117,9 @@ final class Validator {
     final nullable = ruleList.any((r) => r is NullableRule);
     final sometimes = ruleList.any((r) => r is SometimesRule);
     final bail = ruleList.any((r) => r is BailRule);
+    // Laravel's hasRule($attribute, $this->numericRules): size rules then
+    // measure a string by its numeric value.
+    final numeric = ruleList.any((r) => r is NumericRule || r is IntegerRule);
 
     if (sometimes && !present) {
       return;
@@ -142,6 +146,7 @@ final class Validator {
         data: data,
         container: container,
         locale: locale,
+        numeric: numeric,
       );
       final failure = await rule.passes(context);
       if (failure != null) {

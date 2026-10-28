@@ -12,7 +12,13 @@ final class ValidationContext {
     required this.data,
     this.container,
     this.locale = 'en',
+    this.numeric = false,
   });
+
+  /// Whether the attribute also carries a `numeric` or `integer` rule, so
+  /// size rules (`min`, `max`, `between`, `size`) measure a string by its
+  /// numeric value, as Laravel does.
+  final bool numeric;
 
   /// Concrete attribute path (`items.2.id`).
   final String attribute;

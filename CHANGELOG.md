@@ -175,6 +175,10 @@ match Laravel more closely.
   and call Google's token endpoint on every call. `UserCredentials` stores
   a refreshed token before keeping it, so a store that fails is retried on
   the next call instead of leaving memory and database apart.
+- Validation: `min`, `max`, `between` and `size` measure a string by
+  its numeric value when the attribute also carries `numeric` or
+  `integer`, as Laravel does; every form and query input is a string,
+  so `numeric|max:100` passed `"500"` by its three characters.
 - Storage, mail and schedule: a disk path with a control character (a
   NUL, which Windows truncates a name at) is refused; a failed SMTP
   `AUTH LOGIN` no longer quotes the base64 password into its exception,

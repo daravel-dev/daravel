@@ -18,6 +18,7 @@ Future<Map<String, List<String>>> errorsOf(
 ).run();
 
 void main() {
+  numericSizeTests();
   group('presence semantics', () {
     test('required, nullable, sometimes, bail and empty strings', () async {
       final errors = await errorsOf(
@@ -470,4 +471,25 @@ final class _StoreForm extends FormRequest {
   @override
   ValidatedData passed(Request request, ValidatedData data) =>
       ValidatedData({'title': data.string('title').toUpperCase()});
+}
+
+void numericSizeTests() {
+  test('numeric and integer rules measure a string by its value', () async {
+    // Every form and query input is a string: `numeric|max:100` must bound
+    // "500" by 500, not by its three characters (Laravel's getSize).
+    final errors = await Validator(
+      {'age': '500', 'score': '7', 'short': '55', 'word': 'abc'},
+      {
+        'age': 'numeric|max:100',
+        'score': 'integer|min:5|max:10',
+        'short': 'min:2',
+        'word': 'numeric|max:1',
+      },
+    ).run();
+    expect(errors.keys, unorderedEquals(['age', 'word']));
+    expect(errors['age']!.single, contains('100'));
+    // Not a number at all: numeric fails, and the size rule falls back to
+    // the string's length rather than passing silently.
+    expect(errors['word'], hasLength(2));
+  });
 }

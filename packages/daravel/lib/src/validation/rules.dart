@@ -534,17 +534,23 @@ final class RegexRule extends Rule {
 /// Size of a value Laravel-style: numbers by value, strings by rune count,
 /// collections by length. `null` for unsupported types.
 /// Uploaded files by size in kilobytes, as Laravel measures them.
-num? sizeOf(Object? value) => switch (value) {
+num? sizeOf(Object? value, {bool numeric = false}) => switch (value) {
   num() => value,
   UploadedFile() => value.size / 1024,
+  // With a `numeric`/`integer` rule on the attribute a string is measured
+  // by its value, as Laravel's getSize does: every form and query input
+  // is a string, so `numeric|max:100` must bound "500" by 500, not by its
+  // three characters.
+  String() when numeric => num.tryParse(value.trim()) ?? value.runes.length,
   String() => value.runes.length,
   List<Object?>() => value.length,
   Map<Object?, Object?>() => value.length,
   _ => null,
 };
 
-String _sizeKind(Object? value) => switch (value) {
+String _sizeKind(Object? value, {bool numeric = false}) => switch (value) {
   num() => 'numeric',
+  String() when numeric && num.tryParse(value.trim()) != null => 'numeric',
   UploadedFile() => 'file',
   List<Object?>() || Map<Object?, Object?>() => 'array',
   _ => 'string',
@@ -561,8 +567,10 @@ final class MinRule extends Rule {
   Map<String, Object?> get schemaHint => {'minimum': min, 'minLength': min};
   @override
   String? passes(ValidationContext c) {
-    final size = sizeOf(c.value);
-    return size != null && size >= min ? null : 'min.${_sizeKind(c.value)}';
+    final size = sizeOf(c.value, numeric: c.numeric);
+    return size != null && size >= min
+        ? null
+        : 'min.${_sizeKind(c.value, numeric: c.numeric)}';
   }
 }
 
@@ -577,8 +585,10 @@ final class MaxRule extends Rule {
   Map<String, Object?> get schemaHint => {'maximum': max, 'maxLength': max};
   @override
   String? passes(ValidationContext c) {
-    final size = sizeOf(c.value);
-    return size != null && size <= max ? null : 'max.${_sizeKind(c.value)}';
+    final size = sizeOf(c.value, numeric: c.numeric);
+    return size != null && size <= max
+        ? null
+        : 'max.${_sizeKind(c.value, numeric: c.numeric)}';
   }
 }
 
@@ -592,10 +602,10 @@ final class BetweenRule extends Rule {
   Map<String, Object?> get parameters => {'min': min, 'max': max};
   @override
   String? passes(ValidationContext c) {
-    final size = sizeOf(c.value);
+    final size = sizeOf(c.value, numeric: c.numeric);
     return size != null && size >= min && size <= max
         ? null
-        : 'between.${_sizeKind(c.value)}';
+        : 'between.${_sizeKind(c.value, numeric: c.numeric)}';
   }
 }
 
@@ -608,7 +618,9 @@ final class SizeRule extends Rule {
   Map<String, Object?> get parameters => {'size': size};
   @override
   String? passes(ValidationContext c) =>
-      sizeOf(c.value) == size ? null : 'size.${_sizeKind(c.value)}';
+      sizeOf(c.value, numeric: c.numeric) == size
+      ? null
+      : 'size.${_sizeKind(c.value, numeric: c.numeric)}';
 }
 
 final class DigitsRule extends Rule {
