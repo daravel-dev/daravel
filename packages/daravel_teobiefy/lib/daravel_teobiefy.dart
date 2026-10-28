@@ -1,5 +1,6 @@
-/// teobiefy for Daravel: the encrypted payloads of Bali Melajah's Laravel
-/// API (protocol v1), so its clients talk to a Daravel backend unchanged.
+/// teobiefy for Daravel: teobiefy's encrypted payloads (protocol v1), as a
+/// Laravel API implements them, so that API's clients talk to a Daravel
+/// backend unchanged.
 /// An X25519 handshake (`crypto_kx`) gives each client a pair of session
 /// keys; request and response payloads are sealed with ChaCha20-Poly1305
 /// IETF, as libsodium does.

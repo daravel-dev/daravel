@@ -6,8 +6,7 @@ import 'crypto.dart';
 import 'middleware.dart';
 import 'sessions.dart';
 
-/// teobiefy's settings, under the names Bali Melajah's Laravel application
-/// reads (`config/app.php`), so one `.env` serves both:
+/// teobiefy's settings, under the names the Laravel application reads (`config/app.php`), so one `.env` serves both:
 /// `LIBSODIUM_SESSION_TTL` (seconds, 1800), `LIBSODIUM_PAYLOAD_V2_ENABLED`
 /// (false), `LIBSODIUM_LEGACY_KEY_ENABLED` (false) and
 /// `LIBSODIUM_LEGACY_KEY`.
@@ -172,8 +171,8 @@ abstract final class Teobiefy {
     'type': 'SESSION_KEY_REQUIRED',
   }, status: 409);
 
-  /// `406` for a body that does not decrypt. (Bali Melajah's Laravel
-  /// middleware calls `api()->error(406, ...)`, whose arguments are
+  /// `406` for a body that does not decrypt. (The Laravel middleware
+  /// calls `api()->error(406, ...)`, whose arguments are
   /// message and data, and so answers 500; this is the 406 it means.)
   static Response invalidPayload() => api(406, 'Invalid payload', null);
 

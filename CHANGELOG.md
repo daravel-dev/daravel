@@ -43,8 +43,8 @@ match Laravel more closely.
   S3 that verifies every signature, and on RustFS in CI.
 
 - `daravel_teobiefy` (Blueprint #34, phase 1): the encrypted API payloads
-  of Bali Melajah's Laravel API (teobiefy protocol v1), so its clients
-  talk to Daravel unchanged. `Teobiefy.handshake` derives a pair of session
+  of teobiefy protocol v1, as a Laravel API implements it, so that API's
+  clients talk to Daravel unchanged. `Teobiefy.handshake` derives a pair of session
   keys per client with X25519 (libsodium's `crypto_kx`), kept in the cache
   under Laravel's key with a sliding TTL; the `teobiefy` middleware opens
   `data_enc` requests and seals the `data` of JSON responses with
