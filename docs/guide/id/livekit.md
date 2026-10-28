@@ -1,4 +1,4 @@
-<!-- source: livekit.md sha256:31084a506672 -->
+<!-- source: livekit.md sha256:f10fb6c90551 -->
 # LiveKit
 
 [LiveKit](https://livekit.io) membawa video, audio, dan berbagi layar
@@ -108,8 +108,9 @@ berlaku, diterbitkan atas API key) dan bahwa klaim `sha256`-nya adalah
 SHA-256 base64 dari body yang persis sama, seperti SDK LiveKit, dan, lebih
 dari SDK itu, bahwa `created_at` event-nya berada dalam `maxAge` (lima
 menit, toleransi skew 30 detik ke dua arah), karena webhook yang tertangkap
-bisa dikirim ulang selama tokennya masih berlaku; selain itu dijawab 401
-dengan `LivekitWebhookException`. Tidak ada opsi untuk melewati
+bisa dikirim ulang selama tokennya masih berlaku, dan bahwa id event-nya
+belum pernah diterima (setiap id disimpan di cache aplikasi selama jendela
+itu); selain itu dijawab 401 dengan `LivekitWebhookException`. Tidak ada opsi untuk melewati
 pengecekan itu: route webhook yang menerima event tanpa tanda tangan
 membuat siapa pun bisa menandai sebuah rapat sudah selesai.
 

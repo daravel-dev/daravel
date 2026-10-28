@@ -40,7 +40,10 @@ match Laravel more closely.
 - `daravel_livekit`: webhooks older than `maxAge` (five minutes, 30 s of
   skew either way) or dated in the future are refused with 401, closing
   the replay window a token's lifetime left open
-  (`LivekitWebhookReceiver.maxAge`, `Livekit.webhook(request, maxAge:)`).
+  (`LivekitWebhookReceiver.maxAge`, `Livekit.webhook(request, maxAge:)`);
+  `Livekit.webhook` also remembers each event id in the cache for that
+  window and refuses a repeat, so a replay inside the window is refused
+  too.
 - `daravel_livekit`: `RoomServiceClient` retries a Twirp call whose
   connection failed before it was sent, or that LiveKit answered 502
   or 503, up to `retries` (2) more times with exponential backoff and

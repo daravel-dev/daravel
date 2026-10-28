@@ -116,16 +116,34 @@ abstract final class Livekit {
   }
 
   /// The verified webhook of [request]; [LivekitWebhookException] (401)
-  /// when it is not LiveKit's.
+  /// when it is not LiveKit's, older than [maxAge], or already received:
+  /// each event id is remembered in the application's cache for [maxAge]
+  /// plus the skew, so a captured webhook replayed inside the window is
+  /// refused too (LiveKit retries a webhook it got no 2xx for under the
+  /// same id, so a handler that failed sees it again only if it answered
+  /// an error; an isolate-scoped cache store sees repeats per isolate).
   static Future<LivekitWebhookEvent> webhook(
     Request request, {
     Duration? maxAge = const Duration(minutes: 5),
-  }) {
+  }) async {
     final config = Livekit.config;
-    return LivekitWebhookReceiver(
+    final event = await LivekitWebhookReceiver(
       apiKey: config.apiKey,
       apiSecret: config.apiSecret,
       maxAge: maxAge,
     ).fromRequest(request);
+    if (maxAge != null && event.id.isNotEmpty) {
+      final fresh = await Cache.add(
+        'livekit:webhook:${event.id}',
+        1,
+        ttl: maxAge + LivekitWebhookReceiver.skew,
+      );
+      if (!fresh) {
+        throw LivekitWebhookException(
+          'Webhook ${event.id} was already received (a replay?).',
+        );
+      }
+    }
+    return event;
   }
 }

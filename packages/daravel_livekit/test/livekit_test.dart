@@ -14,6 +14,7 @@ Map<String, Object?> _payload(String jwt) => jsonDecode(
 ) as Map<String, Object?>;
 
 void main() {
+  webhookReplayTests();
   twirpRetryTests();
   tearDown(Clock.restore);
 
@@ -491,5 +492,57 @@ void twirpRetryTests() {
         expect(far.inMilliseconds, inInclusiveRange(2500, 5000));
       }
     });
+  });
+}
+
+void webhookReplayTests() {
+  test('Livekit.webhook refuses an event id it already received', () async {
+    Clock.fake(DateTime.utc(2026, 10, 27, 7, 30));
+    final app = Application.configure(basePath: '.')
+        .withEnv(const {
+          'APP_ENV': 'testing',
+          'DB_DATABASE': ':memory:',
+          'LIVEKIT_API_KEY': _key,
+          'LIVEKIT_API_SECRET': _secret,
+        })
+        .withLivekit()
+        .withRouting(
+          apiPrefix: '',
+          api: (router) => router.post('/hook', (request) async {
+            final event = await Livekit.webhook(request);
+            return {'id': event.id};
+          }),
+        )
+        .create();
+    await app.boot();
+    addTearDown(app.shutdown);
+    final body = utf8.encode(
+      '{"event":"room_finished","id":"EV_42","createdAt":"1793086200",'
+      '"room":{"sid":"RM_1","name":"class-7a"}}',
+    );
+    final token = await LivekitToken(
+      apiKey: _key,
+      apiSecret: _secret,
+      ttl: const Duration(minutes: 5),
+      sha256: base64.encode(sha256.convert(body).bytes),
+    ).toJwt();
+    Future<Response> deliver() => app.handle(
+      Request.fake(
+        method: 'POST',
+        path: '/hook',
+        body: utf8.decode(body),
+        headers: {
+          'authorization': 'Bearer $token',
+          'content-type': 'application/json',
+        },
+      ),
+    );
+    final first = await deliver();
+    expect(first.status, 200);
+    expect(await first.bodyText(), '{"id":"EV_42"}');
+    // The same signed body again, inside the window: a replay.
+    final again = await deliver();
+    expect(again.status, 401);
+    expect(await again.bodyText(), contains('already received'));
   });
 }
