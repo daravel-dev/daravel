@@ -191,6 +191,26 @@ const List<PackageManifest> officialPackages = [
     ],
   ),
   PackageManifest(
+    package: 'daravel_medialibrary',
+    title: 'Media library',
+    category: 'Storage',
+    description: "Files and images attached to models, on spatie/laravel-medialibrary's media table",
+    aliases: ['medialibrary', 'media-library', 'media', 'uploads'],
+    registration: ['.withMediaLibrary()'],
+    migrations: ['CreateMediaTable'],
+    commands: 'mediaLibraryCommands',
+    env: [
+      'MEDIA_DISK=public',
+      'MEDIA_QUEUE=',
+      'QUEUE_CONVERSIONS_BY_DEFAULT=true',
+    ],
+    next: [
+      'dartisan migrate',
+      'dartisan storage:link',
+      'Add `with InteractsWithMedia` and `observers: [MediaObserver<Post>()]` to a model, and the model to withModels(...).',
+    ],
+  ),
+  PackageManifest(
     package: 'daravel_teorion',
     title: 'Query filters',
     category: 'API',

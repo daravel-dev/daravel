@@ -467,6 +467,7 @@ The monorepo is a Dart pub workspace:
 | [`packages/daravel_activitylog`](packages/daravel_activitylog) | Model change history and an activity log on spatie/laravel-activitylog's table |
 | [`packages/daravel_excel`](packages/daravel_excel) | Excel and CSV exports and imports with Laravel Excel's concerns, streamed with constant memory |
 | [`packages/daravel_log_viewer`](packages/daravel_log_viewer) | A log viewer page: files read from their end, filters, live tail, secrets masked |
+| [`packages/daravel_medialibrary`](packages/daravel_medialibrary) | Files and images attached to models on spatie/laravel-medialibrary's media table, conversions in pure Dart |
 | [`packages/daravel_teorion`](packages/daravel_teorion) | Request-driven query filters, laravel-teorion's format |
 | [`packages/daravel_livekit`](packages/daravel_livekit) | LiveKit server SDK: access tokens, rooms, verified webhooks |
 | [`packages/daravel_google`](packages/daravel_google) | Google: OAuth tokens with refresh, service accounts, Calendar events with Meet links |
@@ -478,7 +479,7 @@ The monorepo is a Dart pub workspace:
 | [`apps/daravel_starter`](apps/daravel_starter) | Reference application and end-to-end tests |
 | [`apps/virtual_classroom`](apps/virtual_classroom) | Example application: scheduled lessons in LiveKit rooms, Google Calendar invitations, roles, query filters, activity log |
 
-The seventeen packages ([`daravel`](https://pub.dev/packages/daravel),
+The eighteen packages ([`daravel`](https://pub.dev/packages/daravel),
 [`dartisan_cli`](https://pub.dev/packages/dartisan_cli),
 [`daravel_test`](https://pub.dev/packages/daravel_test),
 [`daravel_lints`](https://pub.dev/packages/daravel_lints),
@@ -487,6 +488,7 @@ The seventeen packages ([`daravel`](https://pub.dev/packages/daravel),
 [`daravel_activitylog`](https://pub.dev/packages/daravel_activitylog),
 [`daravel_excel`](https://pub.dev/packages/daravel_excel),
 [`daravel_log_viewer`](https://pub.dev/packages/daravel_log_viewer),
+[`daravel_medialibrary`](https://pub.dev/packages/daravel_medialibrary),
 [`daravel_redis`](https://pub.dev/packages/daravel_redis),
 [`daravel_teorion`](https://pub.dev/packages/daravel_teorion),
 [`daravel_livekit`](https://pub.dev/packages/daravel_livekit),
