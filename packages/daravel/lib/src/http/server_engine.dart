@@ -67,6 +67,10 @@ final class ServeOptions {
         'HTTP_REQUEST_TIMEOUT',
         const Duration(seconds: 30),
       ),
+      idleTimeout: env.duration(
+        'HTTP_IDLE_TIMEOUT',
+        const Duration(seconds: 60),
+      ),
       embedQueue: embedQueue ?? env.boolean('SERVER_EMBED_QUEUE'),
       embedScheduler: embedScheduler ?? env.boolean('SERVER_EMBED_SCHEDULER'),
       maxInFlight: maxInFlight == null
@@ -123,6 +127,11 @@ final class ServeOptions {
   /// Above 1, `Application.serveWith` runs a supervisor + workers (ADR-004).
   final int isolates;
   final bool shared;
+
+  /// How long a keep-alive connection may sit without a request before
+  /// the server closes it (`HTTP_IDLE_TIMEOUT`, 60 s): the bound on idle
+  /// sockets a client opens and never uses. A request in progress is
+  /// bounded by [requestTimeout] instead.
   final Duration idleTimeout;
   final Duration shutdownTimeout;
 

@@ -272,7 +272,10 @@ void main() {
 
     test('an idle loop reports no delay', () async {
       await Future<void>.delayed(const Duration(milliseconds: 100));
-      expect(lagged.queueDelay, lessThan(const Duration(milliseconds: 10)));
+      // Windows' default timer resolution is 15.6 ms, so a 5 ms tick reads
+      // up to 10 ms late when no other process has raised it: the idle
+      // reading is bounded by that granularity, not zero.
+      expect(lagged.queueDelay, lessThan(const Duration(milliseconds: 20)));
     });
   });
 

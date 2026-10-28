@@ -19,6 +19,10 @@ match Laravel more closely.
   held its pooled connection for ever and, once the pool was full, every
   request on the isolate queued behind it. `daravel_mysql` now passes the
   timeout to `mysql_dart`, which kills the query on expiry.
+- `HTTP_IDLE_TIMEOUT` (`ServeOptions.idleTimeout`, 60 s): how long a
+  keep-alive connection may sit without a request before the server
+  closes it, so idle sockets a client opens and never uses are bounded;
+  the field existed but had no environment setting.
 - A WebSocket frame limit (`router.ws(..., maxPayloadBytes:)`,
   `Response.webSocket(maxPayloadBytes:)`, 1 MiB by default): a larger
   frame fails the connection as it arrives. `dart:io` sets no limit of
