@@ -682,6 +682,13 @@ final class BuildCommand extends Command<int> {
         negatable: false,
         help: 'Write Dockerfile and .dockerignore.',
       )
+      ..addFlag(
+        'distroless',
+        negatable: false,
+        help:
+            'With --docker: run on gcr.io/distroless/cc (no shell, no package '
+            'manager, non-root) instead of debian:bookworm-slim.',
+      )
       ..addFlag('no-compile', negatable: false, help: 'Skip the native build.')
       ..addFlag(
         'sqlite',
@@ -718,7 +725,10 @@ final class BuildCommand extends Command<int> {
         final connection =
             projectEnvValue(paths.root, 'DB_CONNECTION') ?? 'sqlite';
         dockerfile.writeAsStringSync(
-          dockerfileTemplate(sqlite: connection == 'sqlite'),
+          dockerfileTemplate(
+            sqlite: connection == 'sqlite',
+            distroless: r['distroless'] as bool,
+          ),
         );
         File(p.join(paths.root, '.dockerignore'))
             .writeAsStringSync(dockerignoreTemplate);
@@ -907,12 +917,15 @@ String dartExecutable() {
 /// the bundle (build hooks), so the runtime needs no libsqlite3 package.
 /// The generated `Dockerfile`. Without [sqlite] (an application on
 /// PostgreSQL or MySQL) the image leaves the SQLite library out, as
-/// `dartisan build --no-sqlite` does.
-String dockerfileTemplate({bool sqlite = true}) {
+/// `dartisan build --no-sqlite` does. With [distroless] the runtime is
+/// `gcr.io/distroless/cc-debian12:nonroot`: glibc and CA certificates, no
+/// shell or package manager, the `nonroot` user.
+String dockerfileTemplate({bool sqlite = true, bool distroless = false}) {
+  final dockerfile = distroless ? _distrolessDockerfile : _dockerfile;
   if (sqlite) {
-    return _dockerfile;
+    return dockerfile;
   }
-  return _dockerfile
+  return dockerfile
       .replaceFirst(
         'RUN dart pub get --offline \\\n',
         '# No SQLite library in the bundle (the database is not SQLite).\n'
@@ -954,6 +967,37 @@ ENV APP_ENV=production APP_DEBUG=false APP_HOST=0.0.0.0 PORT=8080 \
     LOG_STACK=json
 EXPOSE 8080
 # Health: GET /up (liveness) and /up/ready (readiness).
+CMD ["/app/bin/server"]
+''';
+
+/// [_dockerfile] on a distroless runtime. It has no shell, so the build
+/// stage prepares the writable directories and the copy gives them to
+/// `nonroot` (65532).
+const String _distrolessDockerfile = r'''
+# syntax=docker/dockerfile:1
+FROM dart:stable AS build
+WORKDIR /app
+COPY pubspec.* ./
+RUN dart pub get
+COPY . .
+RUN dart pub get --offline \
+ && dart build cli -t bin/server.dart -o build/server \
+ && dart build cli -t bin/dartisan.dart -o build/dartisan \
+ && mkdir -p /runtime/storage/logs /runtime/storage/app /runtime/database
+
+FROM gcr.io/distroless/cc-debian12:nonroot
+WORKDIR /app
+# bin/server and bin/dartisan share the bundled lib/ (SQLite).
+COPY --from=build --chown=65532:65532 /app/build/server/bundle/ ./
+COPY --from=build --chown=65532:65532 /app/build/dartisan/bundle/bin/dartisan ./bin/dartisan
+COPY --from=build --chown=65532:65532 /runtime/ ./
+USER nonroot
+# PORT (not APP_PORT) so Cloud Run, Railway, Render and Fly.io can inject theirs.
+ENV APP_ENV=production APP_DEBUG=false APP_HOST=0.0.0.0 PORT=8080 \
+    LOG_STACK=json
+EXPOSE 8080
+# Health: GET /up (liveness) and /up/ready (readiness). No shell here:
+# commands run as `docker exec <container> /app/bin/dartisan migrate`.
 CMD ["/app/bin/server"]
 ''';
 

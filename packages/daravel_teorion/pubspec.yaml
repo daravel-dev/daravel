@@ -4,6 +4,8 @@ version: 1.15.0
 homepage: https://daravel.dev
 repository: https://github.com/daravel-dev/daravel/tree/main/packages/daravel_teorion
 issue_tracker: https://github.com/daravel-dev/daravel/issues
+funding:
+  - https://github.com/sponsors/daravel-dev
 documentation: https://daravel.dev/query-filters.html
 topics: [query, filter, api, server, backend]
 

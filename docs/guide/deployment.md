@@ -97,6 +97,13 @@ runtime stage in `apps/daravel_starter/Dockerfile`, built from the repository
 root (`docker build -f apps/daravel_starter/Dockerfile .`) because it is part
 of the pub workspace.
 
+`dartisan build --docker --distroless` writes the same build stage with a
+[distroless](https://github.com/GoogleContainerTools/distroless) runtime
+(`gcr.io/distroless/cc-debian12:nonroot`): glibc and CA certificates, no
+shell, no package manager, the `nonroot` user. A new project's image is
+about 84 MB. With no shell, commands run as
+`docker exec <container> /app/bin/dartisan migrate --force`.
+
 ## Ports and container platforms
 
 The server listens on `APP_HOST:APP_PORT` (`127.0.0.1:8000` by default). On
