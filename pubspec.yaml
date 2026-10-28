@@ -24,6 +24,7 @@ workspace:
   - packages/daravel_livekit
   - packages/daravel_s3
   - apps/daravel_starter
+  - apps/virtual_classroom
   - bench
 
 dev_dependencies:
