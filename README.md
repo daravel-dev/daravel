@@ -467,7 +467,7 @@ The monorepo is a Dart pub workspace:
 | [`packages/daravel_teorion`](packages/daravel_teorion) | Request-driven query filters, laravel-teorion's format |
 | [`packages/daravel_livekit`](packages/daravel_livekit) | LiveKit server SDK: access tokens, rooms, verified webhooks |
 | [`packages/daravel_google`](packages/daravel_google) | Google: OAuth tokens with refresh, service accounts, Calendar events with Meet links |
-| [`packages/daravel_teobiefy`](packages/daravel_teobiefy) | Encrypted API payloads compatible with Bali Melajah's Laravel API |
+| [`packages/daravel_teobiefy`](packages/daravel_teobiefy) | Encrypted API payloads compatible with teobiefy's protocol v1 on Laravel |
 | [`packages/daravel_s3`](packages/daravel_s3) | S3, Cloudflare R2 and MinIO storage disk: pure Dart SigV4, multipart streaming, presigned URLs |
 | [`packages/daravel_redis`](packages/daravel_redis) | Redis and Valkey for several servers: cache, locks, rate limits, queues, broadcasting |
 | [`packages/daravel_sqlite`](packages/daravel_sqlite) | SQLite driver package (`db:install sqlite`) |

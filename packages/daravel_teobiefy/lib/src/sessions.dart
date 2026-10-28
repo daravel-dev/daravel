@@ -12,7 +12,7 @@ typedef TeobiefyHandshake = ({
   int expiresIn,
 });
 
-/// Session keys of the v1 protocol (Bali Melajah's `SessionKeyService`):
+/// Session keys of the v1 protocol (the Laravel API's `SessionKeyService`):
 /// a handshake derives a pair per client with X25519 (`crypto_kx`) and
 /// keeps it in the cache under a random 64-hex session id, for [ttl] after
 /// its last use. The id is not a credential: it only names the key pair.

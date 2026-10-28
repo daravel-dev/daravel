@@ -7,8 +7,9 @@ import 'crypto.dart';
 import 'sessions.dart';
 import 'setup.dart';
 
-/// `teobiefy`: the v1 payload encryption of Bali Melajah's Laravel API, so
-/// its web and mobile clients talk to Daravel unchanged.
+/// `teobiefy`: teobiefy's v1 payload encryption, as a Laravel API
+/// implements it, so that API's web and mobile clients talk to Daravel
+/// unchanged.
 ///
 /// - A request body with `data_enc` and `nonce` is decrypted with the
 ///   session's `rx` key (ChaCha20-Poly1305 IETF) and its JSON object merged

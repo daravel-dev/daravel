@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Laravel 12 with spatie/laravel-activitylog 4.10 (Bali Melajah's version)
+# Laravel 12 with spatie/laravel-activitylog 4.10
 # and Daravel with daravel_activitylog on one SQLite database (Linux and
 # Docker): Spatie's migrations create the table; activities written by
 # either are read by the other, model changes are stored alike.

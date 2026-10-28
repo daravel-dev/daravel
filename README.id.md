@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:5b01d41a468a -->
+<!-- source: README.md sha256:9025e2a7cb8a -->
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/brand/svg/daravel-logo-horizontal-on-dark.svg">
@@ -473,7 +473,7 @@ Monorepo ini adalah pub workspace Dart:
 | [`packages/daravel_teorion`](packages/daravel_teorion) | Query filter dari request, format laravel-teorion |
 | [`packages/daravel_livekit`](packages/daravel_livekit) | SDK server LiveKit: access token, room, webhook terverifikasi |
 | [`packages/daravel_google`](packages/daravel_google) | Google: token OAuth dengan refresh, service account, event Calendar dengan link Meet |
-| [`packages/daravel_teobiefy`](packages/daravel_teobiefy) | Payload API terenkripsi yang kompatibel dengan API Laravel Bali Melajah |
+| [`packages/daravel_teobiefy`](packages/daravel_teobiefy) | Payload API terenkripsi yang kompatibel dengan protokol teobiefy v1 di Laravel |
 | [`packages/daravel_s3`](packages/daravel_s3) | Disk penyimpanan S3, Cloudflare R2, dan MinIO: SigV4 Dart murni, streaming multipart, presigned URL |
 | [`packages/daravel_redis`](packages/daravel_redis) | Redis dan Valkey untuk beberapa server: cache, lock, rate limit, queue, broadcasting |
 | [`packages/daravel_sqlite`](packages/daravel_sqlite) | Paket driver SQLite (`db:install sqlite`) |
