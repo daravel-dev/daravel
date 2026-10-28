@@ -2,7 +2,8 @@
 
 All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 `daravel_lints`, `daravel_mysql`, `daravel_permission`, `daravel_activitylog`,
-`daravel_excel`, `daravel_redis`, `daravel_sqlite`, `daravel_postgres`, `daravel_teorion`,
+`daravel_excel`, `daravel_log_viewer`, `daravel_redis`, `daravel_sqlite`,
+`daravel_postgres`, `daravel_teorion`,
 `daravel_livekit`, `daravel_google`, `daravel_teobiefy`, `daravel_s3`,
 `dartisan_cli`). Versions follow SemVer: breaking changes to the Dart API
 wait for a new major version, and Laravel-facing formats change only to
@@ -12,6 +13,16 @@ match Laravel more closely.
 
 ### Added
 
+- `daravel_log_viewer` (Blueprint #53): `withLogViewer(middleware: [...])`
+  serves a page that reads the application's log files: Daravel's daily
+  JSON logs and Laravel's Monolog files, newest first, filtered by level
+  or text, with stack traces, and new entries live over server-sent
+  events. Files are read from their end a block at a time (the newest 50
+  entries of a 500 MB file in under a millisecond, 17 MB of process
+  memory); secrets are masked in context and text; only `.log` files of
+  the folder open; the page has a nonce-based Content-Security-Policy and
+  no external assets, and answers 403 outside local until it has
+  middleware.
 - `daravel_excel` (Blueprint #39): XLSX and CSV exports and imports with
   Laravel Excel 3.1's concerns. Exports stream from a query (a chunk at a
   time), a collection or a stream to a download, a disk or bytes, at a

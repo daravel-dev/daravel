@@ -133,6 +133,9 @@ sections:
       - { php: "Excel::toArray(new UsersImport, 'users.xlsx')", dart: "await Excel.toArray('users.xlsx', headingRow: true)", symbol: Excel.toArray, async: true }
       - { php: "Date::excelToDateTimeObject($value)", dart: "ExcelDate.toDateTime(value)", symbol: ExcelDate.toDateTime }
       - { php: "php artisan make:export UsersExport --model=User", dart: "dartisan make:export UsersExport --model=User", symbol: MakeExportCommand }
+  - name: Log viewer (daravel_log_viewer)
+    symbols:
+      - { php: "composer require opcodesio/log-viewer (/log-viewer)", dart: ".withLogViewer(middleware: ['auth', 'can:view-logs'])", symbol: LogViewerApplicationBuilder.withLogViewer, note: "Reads Daravel's JSON logs and Laravel's Monolog files from their end; 403 outside local without middleware." }
 
   - name: Activity log (daravel_activitylog)
     symbols:
