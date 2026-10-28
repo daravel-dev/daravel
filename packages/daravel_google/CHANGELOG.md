@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.14.0
 
 - Added `Google.serviceCredentials` and `ServiceAccountCredentialsCache`: `Google.serviceCalendar()` shares one token per isolate, scopes and subject; it used to sign an RS256 assertion and call Google's token endpoint on every call.
 - Added `GoogleOAuth.isRevoked`: the client remembers refresh tokens Google answered `invalid_grant` for (up to 1 000), so `UserCredentials` built afresh for each request (`Google.calendarFor`) do not ask Google again either; `UserCredentials.replace` also discards a refresh of the old token still in flight.

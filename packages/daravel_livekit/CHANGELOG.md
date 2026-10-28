@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.14.0
 
 - Added: `RoomServiceClient` retries a Twirp call whose connection failed before it was sent, or that LiveKit answered 502 or 503, up to `retries` (2) more times with exponential backoff and jitter from `retryDelay` (200 ms); timeouts and other answers are final. `backoff(attempt)` is public.
 - Added: `Livekit.webhook` remembers each event id in the application's cache for `maxAge` plus the skew and refuses a repeat with 401, so a captured webhook replayed inside the window is refused too.

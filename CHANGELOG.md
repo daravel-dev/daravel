@@ -8,7 +8,18 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 wait for a new major version, and Laravel-facing formats change only to
 match Laravel more closely.
 
-## Unreleased
+## 1.14.0
+
+Two first-party packages join the release line: `daravel_activitylog`
+(spatie/laravel-activitylog v4 on its `activity_log` table, checked against
+Laravel 12 with Spatie both ways) and `daravel_s3` (a `Storage` disk on S3
+and S3-compatible stores, signed with SigV4 in pure Dart), both first
+published as 1.13.0. The server gains limits that hold without extra
+middleware (`HTTP_MAX_BODY`, `HTTP_IDLE_TIMEOUT`, a WebSocket frame limit)
+and database timeouts (`DB_CONNECT_TIMEOUT`, `DB_QUERY_TIMEOUT`). A review
+of the queue worker, the scheduler, storage, mail, the coordinator and the
+packages fixed what could crash a worker, leak a connection or a secret,
+or let a client's input go further than intended; the details are below.
 
 ### Added
 
@@ -196,7 +207,8 @@ match Laravel more closely.
 - Validation: `min`, `max`, `between` and `size` measure a string by
   its numeric value when the attribute also carries `numeric` or
   `integer`, as Laravel does; every form and query input is a string,
-  so `numeric|max:100` passed `"500"` by its three characters.
+  so `numeric|max:100` passed `"500"` by its three characters. The
+  validators `dartisan client:flutter` generates measure it the same way.
 - Storage, mail and schedule: a disk path with a control character (a
   NUL, which Windows truncates a name at) is refused; a failed SMTP
   `AUTH LOGIN` no longer quotes the base64 password into its exception,

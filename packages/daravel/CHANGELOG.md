@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.14.0
 
 - Added `HTTP_IDLE_TIMEOUT` (`ServeOptions.idleTimeout`, 60 s): how long a keep-alive connection may sit without a request before the server closes it; the field existed but could not be set from the environment.
 - Added a WebSocket frame limit: `router.ws(..., maxPayloadBytes:)` and `Response.webSocket(maxPayloadBytes:)` (1 MiB, `Response.defaultWebSocketMaxPayloadBytes`); a larger frame fails the connection as it arrives. `dart:io` sets no limit of its own, so one client could make a worker buffer a frame of any size. The Pusher server caps frames at `REVERB_APP_MAX_MESSAGE_SIZE` plus 1 KiB.

@@ -1,4 +1,4 @@
-<!-- source: releases.md sha256:92fd63729749 -->
+<!-- source: releases.md sha256:accf585bf4c7 -->
 # Rilis dan versioning
 
 Daravel `1.x` adalah lini rilis stabil. Kedua belas paket (`daravel`,
@@ -12,6 +12,7 @@ terverifikasi `framework.daravel.dev`.
 
 | Versi | Sorotan |
 | :-- | :-- |
+| `1.14.0` | Activity log (daravel_activitylog) dan penyimpanan S3 (daravel_s3), batas HTTP (body, idle, frame WebSocket), timeout database, serta penguatan menyeluruh pada queue, scheduler, storage, dan paket-paket |
 | `1.13.0` | LiveKit (daravel_livekit) dan Google (daravel_google), load shedding (HTTP_MAX_IN_FLIGHT, HTTP_MAX_QUEUE_DELAY), catatan doctor, panduan operasional, metrik berlabel worker, perbaikan event presence lintas server |
 | `1.12.0` | Redis dan Valkey (daravel_redis), role dan permission (daravel_permission), query filter (daravel_teorion), cache tags, eager loading kolom tertentu, exception unique violation bertipe, dan createOrFirst |
 | `1.11.0` | Broadcasting lintas server (REVERB_SCALING_ENABLED), channel cache dan terenkripsi, 10k koneksi, rate limit satu statement, worker queue yang bisa dibangunkan |

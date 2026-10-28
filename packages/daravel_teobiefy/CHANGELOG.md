@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.14.0
 
 - Added `LIBSODIUM_STRICT_PAYLOAD` (`TeobiefyConfig.strictPayload`, off): clear keys sent beside `data_enc` are dropped (the Laravel application merges them) and a clear body from a client that holds a session is `406`.
 

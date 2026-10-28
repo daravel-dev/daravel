@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.14.0
 
 - Fixed: `allowedWiths` is matched by full path, so `author` no longer opens `?withs[]=author.posts` or a relation the model does not define (which was a 500).
 - Fixed: `?visibles[]=` un-hides only attributes listed in the new `QueryFilter.allowedVisibles` (empty by default; laravel-teorion lets a client un-hide anything, including `hidden` password hashes); `DisallowedVisibleException` (400) in strict mode.

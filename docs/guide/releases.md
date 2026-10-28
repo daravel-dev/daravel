@@ -11,6 +11,7 @@ publisher `framework.daravel.dev`.
 
 | Version | Highlights |
 | :-- | :-- |
+| `1.14.0` | Activity log (daravel_activitylog) and S3 storage (daravel_s3), HTTP limits (body, idle, WebSocket frames), database timeouts, and broad hardening across queue, scheduler, storage and packages |
 | `1.13.0` | LiveKit (daravel_livekit) and Google (daravel_google), load shedding (HTTP_MAX_IN_FLIGHT, HTTP_MAX_QUEUE_DELAY), doctor notes, an operations guide, worker-labelled metrics, presence events across servers fixed |
 | `1.12.0` | Redis and Valkey (daravel_redis), roles and permissions (daravel_permission), query filters (daravel_teorion), cache tags, eager loading specific columns, typed unique violations and createOrFirst |
 | `1.11.0` | Broadcasting across servers (REVERB_SCALING_ENABLED), cache and encrypted channels, 10k connections, one-statement rate limits, wakeable queue workers |

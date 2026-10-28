@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.14.0
 
 - Fixed: a request that times out is aborted (its socket leaked until the peer closed it), a response body that goes quiet for `timeout` is cut off with `ConnectionException`, and a connection reset during a send is a `ConnectionException` (it escaped as `dart:io`'s `HttpException`).
 - Fixed: `readStream` downloads have the same quiet-body timeout as `get` (`S3Client.bodyStream`); a request whose `openUrl` finishes after the timeout is aborted too; only a connection closed or reset before a response is retried (not every `HttpException`); and `backoff` no longer overflows for large attempts.

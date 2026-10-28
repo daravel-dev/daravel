@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.14.0
 
 - Changed: `doctor --production` fails unless `APP_ENV=production` (the production-only checks were silently skipped under any other environment, so the gate passed on a configuration never deployed as such); `DoctorCommand.diagnose({production})`.
 - Added production checks to `doctor`: a missing `APP_KEY` is an error; `HASH_VERIFY=false`, `BCRYPT_ROUNDS` below 10 and `HTTP_MAX_BODY=0` (no body limit) are warnings; a plain-`http` `APP_URL`, `HASH_DRIVER=pbkdf2` and secrets in a plain `.env` (no `.env.encrypted`) are notes. A missing `.env` is a note, not a warning, when `APP_ENV` comes from the OS environment, so the gate passes inside the image `build --docker` produces.
