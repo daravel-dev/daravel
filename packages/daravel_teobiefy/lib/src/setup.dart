@@ -176,9 +176,10 @@ abstract final class Teobiefy {
   /// message and data, and so answers 500; this is the 406 it means.)
   static Response invalidPayload() => api(406, 'Invalid payload', null);
 
-  /// obiefy/api-response's `api($status, $message, $data)` with Bali
-  /// Melajah's settings: `status`, `message`, `data`, and `data_count` for
-  /// non-empty arrays and objects; the HTTP status matches.
+  /// obiefy/api-response's `api($status, $message, $data)` with the
+  /// Laravel application's settings: `status`, `message`, `data`, and
+  /// `data_count` for non-empty arrays and objects; the HTTP status
+  /// matches.
   static Response api(int status, String message, Object? data) =>
       Response.json({
         'status': status,

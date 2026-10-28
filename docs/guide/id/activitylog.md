@@ -1,4 +1,4 @@
-<!-- source: activitylog.md sha256:9ff363ea2c12 -->
+<!-- source: activitylog.md sha256:7a0e2891082d -->
 # Activity log
 
 `daravel_activitylog` mencatat siapa mengubah apa pada model Anda, juga
@@ -29,8 +29,8 @@ Application createApp() => Application.configure(basePath: basePath)
 dengan urutan kolom dan nama index yang sama, dan tidak melakukan apa pun
 bila tabelnya sudah ada, sehingga database yang sudah menjalankan migration
 Spatie tetap memakainya. Spatie v5 mengubah tabel ini (`attribute_changes`,
-tanpa `batch_uuid`); paket ini mengikuti v4, versi yang dipakai aplikasi
-Laravel 12 seperti Bali Melajah.
+tanpa `batch_uuid`); paket ini mengikuti v4 (4.x), yang didukung Laravel
+12 bersama v5.
 
 ## Mencatat perubahan model
 
