@@ -479,8 +479,10 @@ final class Check {
   bool get implicit => kind == 'required';
 
   /// The failure message, or `null` when [value] passes. [data] holds the
-  /// other fields (for `confirmed`).
-  String? apply(Object? value, Map<String, Object?> data) {
+  /// other fields (for `confirmed`); [numeric] is whether the field also
+  /// has a `numeric` or `integer` rule, which makes the size rules measure
+  /// a string by its value, as on the server.
+  String? apply(Object? value, Map<String, Object?> data, {bool numeric = false}) {
     switch (kind) {
       case 'required':
         return isEmptyValue(value) ? message : null;
@@ -508,7 +510,7 @@ final class Check {
       case 'uppercase':
         return value is String && value == value.toUpperCase() ? null : message;
       case 'min' || 'max' || 'between' || 'size':
-        final size = _sizeOf(value);
+        final size = _sizeOf(value, numeric: numeric);
         final ok = size != null &&
             switch (kind) {
               'min' => size >= a!,
@@ -516,7 +518,9 @@ final class Check {
               'between' => size >= a! && size <= b!,
               _ => size == a!,
             };
-        return ok ? null : (messages[_sizeKind(value)] ?? messages['string']);
+        return ok
+            ? null
+            : (messages[_sizeKind(value, numeric: numeric)] ?? messages['string']);
       case 'digits':
         final text = '$value';
         return RegExp(r'^\d+$').hasMatch(text) && text.length == a ? null : message;
@@ -592,6 +596,8 @@ final class FieldChecks {
       return const <String>[];
     }
     final emptyString = value is String && value.trim().isEmpty;
+    final numeric =
+        checks.any((check) => check.kind == 'numeric' || check.kind == 'integer');
     final failures = <String>[];
     for (final check in checks) {
       if (!check.implicit) {
@@ -602,7 +608,7 @@ final class FieldChecks {
           continue;
         }
       }
-      final failure = check.apply(value, data);
+      final failure = check.apply(value, data, numeric: numeric);
       if (failure != null) {
         failures.add(failure);
         if (bail) {
@@ -674,16 +680,18 @@ bool? _asBool(Object? value) => switch (value) {
       _ => null,
     };
 
-num? _sizeOf(Object? value) => switch (value) {
+num? _sizeOf(Object? value, {bool numeric = false}) => switch (value) {
       num() => value,
+      String() when numeric => num.tryParse(value.trim()) ?? value.runes.length,
       String() => value.runes.length,
       List() => value.length,
       Map() => value.length,
       _ => null,
     };
 
-String _sizeKind(Object? value) => switch (value) {
+String _sizeKind(Object? value, {bool numeric = false}) => switch (value) {
       num() => 'numeric',
+      String() when numeric && num.tryParse(value.trim()) != null => 'numeric',
       List() || Map() => 'array',
       _ => 'string',
     };
