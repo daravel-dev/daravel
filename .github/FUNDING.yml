@@ -2,9 +2,10 @@
 # 💖 Daravel Funding & Sponsorship Configuration
 # ─────────────────────────────────────────────────────────────────────────────
 
-# 🐙 GitHub Sponsors
-github: teoprayoga
+# 🐙 GitHub Sponsors (Personal Account & Organization)
+github: [teoprayoga, daravel-dev]
 
-# 🔗 Direct Sponsorship Link
+# 🔗 Direct Sponsorship Links
 custom:
   - https://github.com/sponsors/teoprayoga
+  - https://github.com/sponsors/daravel-dev
