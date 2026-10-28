@@ -339,9 +339,15 @@ HTTP_MAX_QUEUE_DELAY=200ms
 # Request body limit in bytes (50 MiB; 0 for none). BodyLimitsMiddleware
 # tightens it to 1 MiB for JSON and forms.
 # HTTP_MAX_BODY=52428800
+# Seconds a keep-alive connection may sit idle before the server closes it.
+# HTTP_IDLE_TIMEOUT=60
 
 DB_CONNECTION=sqlite
 DB_DATABASE=database/database.sqlite
+# Seconds to wait for a PostgreSQL or MySQL connection and for one statement
+# (0 for none).
+# DB_CONNECT_TIMEOUT=10
+# DB_QUERY_TIMEOUT=30
 
 LOG_CHANNEL=stack
 LOG_STACK=console
