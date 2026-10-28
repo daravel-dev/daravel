@@ -152,18 +152,41 @@ Iterable<(Object, SheetInfo)> _selectSheets(
   );
 }
 
-/// A CSV field as PhpSpreadsheet's default value binder reads it: numeric
-/// text becomes a number, except with a leading zero (`0123`).
+/// A CSV field as PhpSpreadsheet's CSV reader and default value binder
+/// read it: `true` and `false` in any case are booleans; numeric text is a
+/// number (a float with `.` or an exponent), except with a leading zero
+/// (`0123`) or an integer past fifteen nines, which stay text.
 Object? _csvValue(String text) {
   if (text.isEmpty) {
     return null;
   }
-  if (RegExp(r'^-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][-+]?[0-9]+)?$')
-      .hasMatch(text)) {
-    return int.tryParse(text) ?? double.tryParse(text) ?? text;
+  switch (text.toLowerCase()) {
+    case 'true':
+      return true;
+    case 'false':
+      return false;
   }
-  return text;
+  if (!_numeric.hasMatch(text)) {
+    return text;
+  }
+  final digits = text.replaceFirst(RegExp('^[+-]+'), '');
+  if (digits.length > 1 && digits[0] == '0' && digits[1] != '.') {
+    return text;
+  }
+  final decimal = text.contains(RegExp('[eE.]'));
+  final value = double.tryParse(text);
+  if (value == null || !value.isFinite) {
+    return text;
+  }
+  if (!decimal) {
+    return value.abs() > 999999999999999 ? text : int.parse(text);
+  }
+  return value;
 }
+
+final RegExp _numeric = RegExp(
+  r'^[+-]?(\d+\.?\d*|\d*\.?\d+)([Ee][-+]?[0-2]?\d{1,3})?$',
+);
 
 Future<void> _importRows(
   Object import,

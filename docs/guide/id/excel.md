@@ -1,4 +1,4 @@
-<!-- source: excel.md sha256:0e82b370af57 -->
+<!-- source: excel.md sha256:d77a05f151c5 -->
 # Excel dan CSV
 
 `daravel_excel` mengekspor dan mengimpor spreadsheet dengan concern dari
@@ -169,10 +169,10 @@ dilewati dan baris lainnya tetap disimpan.
 Sel terbaca sebagai `int`, `double`, `bool`, atau `String`. Sel tanggal
 berupa nomor seri Excel, seperti yang dikembalikan Laravel Excel: ubah
 dengan `ExcelDate.toDateTime(row['date']! as num)`. Sel formula memberi
-nilai yang dihitung Excel saat file disimpan. Di CSV, teks berbentuk angka
-menjadi angka kecuali diawali nol (`0123` tetap teks), seperti cara
-PhpSpreadsheet membacanya, dan delimiter dideteksi di antara `,`, `;`, tab,
-dan `|`.
+nilai yang dihitung Excel saat file disimpan. Di CSV, `true` dan `false`
+(huruf besar atau kecil) menjadi boolean dan teks berbentuk angka menjadi
+angka kecuali diawali nol (`0123` tetap teks), seperti cara PhpSpreadsheet
+membacanya, dan delimiter dideteksi di antara `,`, `;`, tab, dan `|`.
 
 `Excel.toArray(source, headingRow: true)` mengembalikan baris dari semua
 sheet.

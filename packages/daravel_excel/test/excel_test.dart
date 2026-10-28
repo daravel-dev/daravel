@@ -341,13 +341,14 @@ void main() {
         ['1', '2', '3'],
       ]);
       final [rows] = await Excel.toArray(
-        utf8.encode('nisn,nilai\n0123,42\n9,4.5\n'),
+        utf8.encode('nisn,nilai,aktif\n0123,42,TRUE\n9,4.5,false\n+7,5.,yes\n'),
         type: ExcelType.csv,
         headingRow: true,
       );
       expect(rows, [
-        {'nisn': '0123', 'nilai': 42},
-        {'nisn': 9, 'nilai': 4.5},
+        {'nisn': '0123', 'nilai': 42, 'aktif': true},
+        {'nisn': 9, 'nilai': 4.5, 'aktif': false},
+        {'nisn': 7, 'nilai': 5.0, 'aktif': 'yes'},
       ]);
     });
   });

@@ -166,10 +166,10 @@ saved.
 Cells come as `int`, `double`, `bool` or `String`. A date cell is its
 Excel serial number, as Laravel Excel returns it: convert it with
 `ExcelDate.toDateTime(row['date']! as num)`. A formula cell gives the
-value Excel computed when the file was saved. In a CSV, numeric text
-becomes a number unless it has a leading zero (`0123` stays text), as
-PhpSpreadsheet reads it, and the delimiter is detected among `,`, `;`, tab
-and `|`.
+value Excel computed when the file was saved. In a CSV, `true` and
+`false` (in any case) become booleans and numeric text becomes a number
+unless it has a leading zero (`0123` stays text), as PhpSpreadsheet reads
+it, and the delimiter is detected among `,`, `;`, tab and `|`.
 
 `Excel.toArray(source, headingRow: true)` returns every sheet's rows.
 

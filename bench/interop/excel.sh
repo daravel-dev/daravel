@@ -42,14 +42,15 @@ check "Daravel wrote" "written" "$(daravel write)"
 read=$(laravel '$rows = Maatwebsite\Excel\Facades\Excel::toArray(new class implements Maatwebsite\Excel\Concerns\WithHeadingRow {}, "/shared/from-daravel.xlsx")[0];
   echo json_encode(["count" => count($rows), "first" => $rows[0], "second" => $rows[1], "last" => $rows[count($rows) - 1],
     "sheet" => Maatwebsite\Excel\Facades\Excel::toCollection(new class {}, "/shared/from-daravel.xlsx")->count(),
-    "date" => PhpOffice\PhpSpreadsheet\Shared\Date::excelToDateTimeObject($rows[1]["tanggal"])->format("Y-m-d H:i")]);')
+    "date" => PhpOffice\PhpSpreadsheet\Shared\Date::excelToDateTimeObject($rows[1]["tanggal"])->format("Y-m-d H:i")], JSON_UNESCAPED_UNICODE);')
 check "row count (3 002 rows after the headings)" '"count":3002' "$read"
 check "text with escapes, integers, decimals, booleans, empty cells" '"first":{"nama":"Ana & \"Bo\" <x>","jumlah":42,"nilai":3.25,"aktif":true,"catatan":null' "$read"
 check "Unicode, a negative, leading and trailing spaces kept" '"second":{"nama":"ünïcødé 🌴","jumlah":-7,"nilai":0.001,"aktif":false,"catatan":"  spasi  "' "$read"
 check "a date written as an Excel date" '"date":"2026-10-28 07:30"' "$read"
 check "the last row" '"last":{"nama":"Baris 3000","jumlah":3000,"nilai":750' "$read"
 csv=$(laravel '$rows = Maatwebsite\Excel\Facades\Excel::toArray(new class implements Maatwebsite\Excel\Concerns\WithHeadingRow {}, "/shared/from-daravel.csv")[0]; echo json_encode([count($rows), $rows[0]]);')
-check "Laravel Excel reads Daravel's CSV" '[3002,{"nama":"Ana & \"Bo\" <x>","jumlah":42,"nilai":3.25,"aktif":"TRUE","catatan":null,"tanggal":"2026-10-28"}]' "$csv"
+# PhpSpreadsheet reads TRUE and FALSE in a CSV as booleans, as Daravel does.
+check "Laravel Excel reads Daravel's CSV" '[3002,{"nama":"Ana & \"Bo\" <x>","jumlah":42,"nilai":3.25,"aktif":true,"catatan":null,"tanggal":"2026-10-28"}]' "$csv"
 
 echo "== Laravel Excel writes; Daravel reads"
 laravel '$export = new class implements Maatwebsite\Excel\Concerns\FromArray, Maatwebsite\Excel\Concerns\WithHeadings {
