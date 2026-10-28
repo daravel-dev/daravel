@@ -101,6 +101,11 @@ Daravel follows Laravel's branch model, one branch per major version:
   whose dependencies cannot be resolved keeps a 50/160 score until its next
   release. A new package is published by hand only after the workflow has
   published its dependencies, then gets automated publishing enabled.
+  `dart run tool/publish_checks.dart --ready packages/<package>` asks
+  pub.dev whether they are there.
+- Every published package needs an `example/` and a job in `publish.yml`
+  that `needs:` the jobs of the workspace packages it depends on. CI and
+  `tool/release.dart` check both (`dart run tool/publish_checks.dart`).
 
 Projects that depend on Daravel through git can pin the release line with
 `dartisan new --source=git --ref=1.x`.
