@@ -270,9 +270,14 @@ void main() {
       await after.drain<void>();
     });
 
-    test('an idle loop reports no delay', () async {
+    test('an idle loop stays under the limit', () async {
       await Future<void>.delayed(const Duration(milliseconds: 100));
-      expect(lagged.queueDelay, lessThan(const Duration(milliseconds: 10)));
+      // Not zero: Windows timers tick every 15.6 ms, so an idle loop can
+      // read 10 to 16 ms late. What matters is that it never sheds.
+      expect(lagged.queueDelay, lessThan(const Duration(milliseconds: 30)));
+      final response = await getLagged('/fast');
+      expect(response.statusCode, 200);
+      await response.drain<void>();
     });
   });
 
