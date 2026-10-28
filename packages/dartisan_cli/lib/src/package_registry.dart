@@ -174,6 +174,23 @@ const List<PackageManifest> officialPackages = [
     ],
   ),
   PackageManifest(
+    package: 'daravel_log_viewer',
+    title: 'Log viewer',
+    category: 'Development',
+    description: 'A page that reads, filters and follows the log files',
+    aliases: ['log-viewer', 'logviewer', 'logs'],
+    registration: ['.withLogViewer()'],
+    env: [
+      'LOG_VIEWER_ENABLED=true',
+      'LOG_VIEWER_PATH=/log-viewer',
+      'LOG_VIEWER_ALLOW_DELETE=false',
+    ],
+    next: [
+      'Log to a file (LOG_STACK=console,daily), then open /log-viewer while APP_ENV=local.',
+      "Outside local, guard it: .withLogViewer(middleware: ['auth', 'can:view-logs'])",
+    ],
+  ),
+  PackageManifest(
     package: 'daravel_teorion',
     title: 'Query filters',
     category: 'API',

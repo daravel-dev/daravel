@@ -7,8 +7,13 @@ from its end, so the last entries of a 500 MB file come back in under a
 millisecond, in the same memory as those of a small one.
 
 ```bash
-dart pub add daravel_log_viewer
+dartisan pub:add log-viewer
 ```
+
+`pub:add` adds the dependency, the `.withLogViewer()` call below (without
+middleware: add it before the page leaves local) and the `LOG_VIEWER_*`
+settings to `.env.example`. With `dart pub add daravel_log_viewer` you
+register it yourself:
 
 ```dart
 // bootstrap/app.dart

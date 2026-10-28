@@ -1,4 +1,4 @@
-<!-- source: log-viewer.md sha256:48351aab4d60 -->
+<!-- source: log-viewer.md sha256:3e249b48169f -->
 # Log viewer
 
 `daravel_log_viewer` menyajikan sebuah halaman, dari aplikasi Anda, yang
@@ -9,8 +9,13 @@ ditulis. File dibaca dari ujungnya, sehingga entri terakhir dari file
 sama seperti file kecil.
 
 ```bash
-dart pub add daravel_log_viewer
+dartisan pub:add log-viewer
 ```
+
+`pub:add` menambahkan dependency, pemanggilan `.withLogViewer()` di bawah
+(tanpa middleware: tambahkan sebelum halaman ini dipakai di luar local),
+dan pengaturan `LOG_VIEWER_*` ke `.env.example`. Dengan
+`dart pub add daravel_log_viewer`, daftarkan sendiri:
 
 ```dart
 // bootstrap/app.dart
