@@ -40,7 +40,8 @@ String _decode(String value) {
 /// lower case, and a lifetime adds both `expires` and `Max-Age`.
 ///
 /// [maxAge] `null` makes a session cookie. [sameSite] is `lax`, `strict`,
-/// `none` or `null` (no attribute).
+/// `none` or `null` (no attribute). [partitioned] adds `partitioned`
+/// (CHIPS) after it, as Symfony 7.4 writes it.
 String formatSetCookie(
   String name,
   String value, {
@@ -50,6 +51,7 @@ String formatSetCookie(
   bool secure = false,
   bool httpOnly = true,
   String? sameSite = 'lax',
+  bool partitioned = false,
 }) {
   _checkName(name);
   final buffer = StringBuffer('$name=');
@@ -83,6 +85,10 @@ String formatSetCookie(
       throw ArgumentError.value(sameSite, 'sameSite', 'lax, strict or none');
     }
     buffer.write('; samesite=$lower');
+  }
+  if (partitioned) {
+    // CHIPS, written after SameSite as Symfony 7.4's Cookie::__toString.
+    buffer.write('; partitioned');
   }
   return buffer.toString();
 }

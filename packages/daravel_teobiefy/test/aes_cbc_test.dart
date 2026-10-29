@@ -238,6 +238,16 @@ void main() {
               router
                   .get('/text', (request) => Response.text('plain'))
                   .middleware(const ['teobiefy.aes']);
+              router
+                  .get(
+                    '/php',
+                    (request) => Teobiefy.api(200, 'ok', {
+                      'url': 'https://x.id/a',
+                      'nama': String.fromCharCode(0xC9),
+                      'tags': <String, Object?>{},
+                    }),
+                  )
+                  .middleware(const ['teobiefy.aes:php']);
             },
           )
           .create();
@@ -374,6 +384,31 @@ void main() {
       }
     });
 
+    test('teobiefy.aes:php writes json_encode bytes, inside and out', () async {
+      await boot();
+      final response = await client.get('/api/php');
+      final raw = response.body;
+      // The envelope as Laravel's response()->json writes it: every `/`
+      // of the base64 escaped, none left bare.
+      final backslash = String.fromCharCode(0x5C);
+      expect(raw.replaceAll('$backslash/', ''), isNot(contains('/')));
+      final body = response.jsonMap;
+      final clear = utf8.decode(
+        await cipher.decryptBytes(
+          base64.decode(body['data_enc']! as String),
+          base64.decode(body['iv']! as String),
+        ),
+      );
+      expect(clear, contains('https:$backslash/$backslash/x.id$backslash/a'));
+      expect(clear, contains('${backslash}u00c9'));
+      // An empty object stays {} (jsonDecode keeps it a map).
+      expect(clear, contains('"tags":{}'));
+      expect(await cipher.decrypt(body), {
+        'url': 'https://x.id/a',
+        'nama': String.fromCharCode(0xC9),
+        'tags': <String, Object?>{},
+      });
+    });
     test('unknown alias parameters are refused', () {
       expect(
         () => TeobiefyAesCbcMiddleware.fromParams(const ['strict']),

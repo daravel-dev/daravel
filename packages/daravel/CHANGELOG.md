@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Added the `date_format` rule (`DateFormatRule`, `Rules.dateFormat`, `phpDateMatchesFormat`), as Laravel's `validateDateFormat`.
+- Added `partitioned` to `Response.withCookie`; `Response.json(phpCompatible: true)` (`Response.encodePhpJson`) writes a `PhpObject` as an object, `{}` when empty.
+
 ## 1.18.1
 
 - Fixed: error bodies are pretty-printed like Laravel's `Handler::prepareJsonResponse` (every HTTP error, 500, 413), with 401 `Unauthenticated.` and 422 compact; `laravelErrorResponse`, `HttpException.prettyJson`, `phpJsonFromDart(escapeSlashes:)`.

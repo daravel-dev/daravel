@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import '../foundation/clock.dart';
 import '../foundation/php.dart';
+import '../foundation/php_serialize.dart';
 import 'cookies.dart';
 import 'headers.dart';
 import 'realtime.dart';
@@ -78,11 +79,7 @@ final class Response {
     status: status,
     headers: _headersWithType('application/json', headers),
     body: BytesBody(
-      utf8.encode(
-        phpCompatible
-            ? phpJsonFromDart(encodeJson(data), emptyMapsAsArrays: true)
-            : encodeJson(data),
-      ),
+      utf8.encode(phpCompatible ? encodePhpJson(data) : encodeJson(data)),
     ),
   );
 
@@ -223,8 +220,33 @@ final class Response {
     if (value is Enum) {
       return value.name;
     }
+    if (value is PhpObject) {
+      return value.properties;
+    }
     throw JsonUnsupportedObjectError(value);
   }
+
+  /// The bytes of PHP's `json_encode()` for [data] (`phpCompatible`):
+  /// escaped slashes and non-ASCII, an empty map as `[]` (an empty PHP
+  /// array) and a [PhpObject] as an object, so
+  /// `const PhpObject('stdClass', {})` is `{}` as `(object) []` is in PHP.
+  static String encodePhpJson(Object? data) {
+    final text = JsonEncoder((Object? value) {
+      if (value is PhpObject && value.properties.isEmpty) {
+        return _emptyObjectMarker;
+      }
+      return _toEncodable(value);
+    }).convert(data);
+    return phpJsonFromDart(
+      text,
+      emptyMapsAsArrays: true,
+    ).replaceAll('"$_emptyObjectMarker"', '{}');
+  }
+
+  /// Stands for an empty [PhpObject] while the native encoder runs (which
+  /// cannot tell `{}` from `[]`); plain ASCII so no escape touches it.
+  static const String _emptyObjectMarker =
+      '__daravel_php_empty_object_c3f19e7a42__';
 
   static Headers _headersWithType(
     String contentType,
@@ -265,6 +287,8 @@ final class Response {
   /// the format Laravel writes. [maxAge] `null` makes a session cookie;
   /// the defaults are Laravel's (`path=/`, `httponly`, `samesite=lax`).
   /// The value is sent as is: Laravel's `EncryptCookies` is not applied.
+  /// [partitioned] adds `Partitioned` (CHIPS), as Laravel's
+  /// `SESSION_PARTITIONED_COOKIE`.
   Response withCookie(
     String name,
     String value, {
@@ -274,6 +298,7 @@ final class Response {
     bool secure = false,
     bool httpOnly = true,
     String? sameSite = 'lax',
+    bool partitioned = false,
   }) {
     final copy = headers.copy()
       ..add(
@@ -287,6 +312,7 @@ final class Response {
           secure: secure,
           httpOnly: httpOnly,
           sameSite: sameSite,
+          partitioned: partitioned,
         ),
       );
     return _copyWith(headers: copy);

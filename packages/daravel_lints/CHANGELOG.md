@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- `invalid_validation_rule` knows `date_format`.
+
 ## 1.18.1
 
 - Version aligned with Daravel 1.18.1; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).

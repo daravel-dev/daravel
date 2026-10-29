@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:55bf4c309bc9 -->
+<!-- source: README.md sha256:6149173bf49f -->
 <img src="https://raw.githubusercontent.com/daravel-dev/daravel/main/docs/brand/png/daravel-icon-128.png" alt="Daravel" width="64" align="right">
 
 # daravel_session
@@ -43,7 +43,7 @@ await session.regenerate();
 await session.invalidate();        // logout
 ```
 
-- `SESSION_DRIVER=file|database|array`, `SESSION_LIFETIME=120`,
+- `SESSION_DRIVER=database|file|array` (default `database`), `SESSION_LIFETIME=120`,
   `SESSION_COOKIE` (`<nama app>_session`), `SESSION_SECURE_COOKIE`,
   `SESSION_SAME_SITE=lax`, seperti `config/session.php` Laravel.
 - Cookie dienkripsi dengan `Crypt` dan prefix nilai Laravel; cookie yang

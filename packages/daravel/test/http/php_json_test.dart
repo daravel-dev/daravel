@@ -56,6 +56,31 @@ void main() {
     expect(await Response.json({'path': '/x'}).bodyText(), '{"path":"/x"}');
   });
 
+  test(
+    'a PhpObject keeps {} where an empty map is [] (phpCompatible)',
+    () async {
+      final body = await Response.json({
+        'empty_array': <String, Object?>{},
+        'empty_object': const PhpObject('stdClass', {}),
+        'object': const PhpObject('stdClass', {
+          'a': 1,
+          'list': <String, Object?>{},
+        }),
+        'text': '__not_the_marker__',
+      }, phpCompatible: true).bodyText();
+      expect(
+        body,
+        '{"empty_array":[],"empty_object":{},"object":{"a":1,"list":[]},'
+        '"text":"__not_the_marker__"}',
+      );
+      // Without phpCompatible a PhpObject is its properties.
+      expect(
+        await Response.json(const PhpObject('X', {'a': 1})).bodyText(),
+        '{"a":1}',
+      );
+    },
+  );
+
   test('phpRawUrlEncode is rawurlencode', () {
     expect(phpRawUrlEncode('a b+c/é~'), 'a%20b%2Bc%2F%C3%A9~');
   });

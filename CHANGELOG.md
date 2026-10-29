@@ -9,6 +9,19 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 wait for a new major version, and Laravel-facing formats change only to
 match Laravel more closely.
 
+## Unreleased
+
+### Added
+
+- The `date_format` validation rule (`date_format:Y-m-d,d/m/Y`, `Rules.dateFormat`), as Laravel's `validateDateFormat`: the value must read with PHP's `createFromFormat('!' . $format)` and format back exactly, so `2026-02-30` fails `Y-m-d`; `phpDateMatchesFormat`.
+- `daravel_session`: `SESSION_ENCRYPT` (the payload encrypted with `Crypt`, as Laravel's `EncryptedStore`) and `SESSION_PARTITIONED_COOKIE` (`Partitioned` on the session and `XSRF-TOKEN` cookies); `Response.withCookie(partitioned:)`.
+- `teobiefy.aes:php` and `TeobiefyAesCbc.encrypt(phpJson:)`: the clear text and the envelope written as PHP's `json_encode`.
+- `Response.json(phpCompatible: true)` writes a `PhpObject` as an object, so `const PhpObject('stdClass', {})` is `{}` (`(object) []`) while an empty map stays `[]`.
+
+### Changed
+
+- `daravel_session` defaults to `SESSION_DRIVER=database`, as laravel/laravel 11 to 13 (`config/session.php`); 1.18 took `file` from an old skeleton. Set `SESSION_DRIVER=file` to keep the files, or run `CreateSessionsTable`.
+
 ## 1.18.1
 
 Two Laravel parity fixes found while moving a Laravel 8 port onto 1.18.0:

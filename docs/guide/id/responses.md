@@ -1,4 +1,4 @@
-<!-- source: responses.md sha256:8fca9d168660 -->
+<!-- source: responses.md sha256:96a863fb0e1f -->
 # Respons dan resource
 
 Handler bisa mengembalikan `Response.json(data, status: 201)`,
@@ -9,8 +9,10 @@ Carbon: UTC dengan mikrodetik, `2026-01-02T03:04:05.000000Z`.
 
 `Response.json(data, phpCompatible: true)` menulis byte `json_encode()` PHP
 sebagai gantinya: `/` menjadi `\/`, karakter non-ASCII menjadi escape `\u`,
-dan map kosong menjadi `[]` (array PHP kosong). Pakai opsi ini saat client
-membandingkan atau menandatangani body yang dulu dikirim endpoint Laravel.
+dan map kosong menjadi `[]` (array PHP kosong). Objek yang harus tetap
+`{}` saat kosong, seperti `(object) []` di PHP, ditulis sebagai
+`PhpObject('stdClass', {...})`. Pakai opsi ini saat client membandingkan
+atau menandatangani body yang dulu dikirim endpoint Laravel.
 
 ## Cookie
 

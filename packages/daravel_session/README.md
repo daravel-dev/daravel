@@ -42,7 +42,7 @@ await session.regenerate();
 await session.invalidate();        // logout
 ```
 
-- `SESSION_DRIVER=file|database|array`, `SESSION_LIFETIME=120`,
+- `SESSION_DRIVER=database|file|array` (default `database`), `SESSION_LIFETIME=120`,
   `SESSION_COOKIE` (`<app name>_session`), `SESSION_SECURE_COOKIE`,
   `SESSION_SAME_SITE=lax`, as Laravel's `config/session.php`.
 - Cookies are encrypted with `Crypt` and Laravel's value prefix; a cookie

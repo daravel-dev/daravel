@@ -108,6 +108,7 @@ abstract final class RuleParser {
       'starts_with' => Rules.startsWith(args),
       'ends_with' => Rules.endsWith(args),
       'date' => Rules.date(),
+      'date_format' => Rules.dateFormat(args),
       'after' => Rules.after(args[0]),
       'after_or_equal' => Rules.afterOrEqual(args[0]),
       'before' => Rules.before(args[0]),

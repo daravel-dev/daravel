@@ -74,6 +74,16 @@ void main() {
       );
     });
 
+    test('partitioned comes last, as Symfony 7.4 writes it', () {
+      final response = Response.text(
+        'ok',
+      ).withCookie('a', 'b', secure: true, sameSite: 'none', partitioned: true);
+      expect(
+        response.headers.first('set-cookie'),
+        'a=b; path=/; secure; httponly; samesite=none; partitioned',
+      );
+    });
+
     test('does not change the original response', () {
       final original = Response.text('ok');
       original.withCookie('a', 'b');

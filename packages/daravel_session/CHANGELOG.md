@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Changed: the default `SESSION_DRIVER` is `database`, as laravel/laravel 11 to 13 (was `file`).
+- Added `SESSION_ENCRYPT` (Laravel's `EncryptedStore` payload) and `SESSION_PARTITIONED_COOKIE`.
+
 ## 1.18.1
 
 - Version aligned with Daravel 1.18.1; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).

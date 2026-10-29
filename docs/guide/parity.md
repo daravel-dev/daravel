@@ -217,6 +217,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | Laravel | Daravel | Notes |
 | :-- | :-- | :-- |
 | `Validator::make($data, $rules)` | `Validator(data, rules)` |  |
+| `'date_format:Y-m-d'` | `'date_format:Y-m-d' or Rules.dateFormat(['M d, Y'])` | createFromFormat('!' . $format) and the value must format back exactly, as Laravel. |
 | `$validator->fails()` | `await validator.fails()` | **async** |
 | `$validator->validate()` | `await validator.validate()` | **async** |
 | `ValidationException` | `ValidationException` |  |

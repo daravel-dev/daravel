@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Added `teobiefy.aes:php` and `TeobiefyAesCbc.encrypt(phpJson:)` / `seal(phpJson:)`: PHP `json_encode` bytes inside and outside the envelope.
+
 ## 1.18.1
 
 - Version aligned with Daravel 1.18.1; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).

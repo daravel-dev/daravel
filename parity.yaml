@@ -195,6 +195,7 @@ sections:
   - name: Validation
     symbols:
       - { php: "Validator::make($data, $rules)", dart: "Validator(data, rules)", symbol: Validator }
+      - { php: "'date_format:Y-m-d'", dart: "'date_format:Y-m-d' or Rules.dateFormat(['M d, Y'])", symbol: DateFormatRule, note: "createFromFormat('!' . $format) and the value must format back exactly, as Laravel." }
       - { php: "$validator->fails()", dart: "await validator.fails()", symbol: Validator.fails, async: true }
       - { php: "$validator->validate()", dart: "await validator.validate()", symbol: Validator.validate, async: true }
       - { php: "ValidationException", dart: "ValidationException", symbol: ValidationException }

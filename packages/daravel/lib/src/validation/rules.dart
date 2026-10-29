@@ -4,6 +4,7 @@ import 'dart:io';
 
 import '../database/database_manager.dart';
 import '../http/uploaded_file.dart';
+import 'php_date_format.dart';
 import 'rule.dart';
 
 /// Factory facade for built-in rules (`Rule.required()`, `Rule.email()`...).
@@ -68,6 +69,9 @@ abstract final class Rules {
   static Rule startsWith(List<String> prefixes) => StartsWithRule(prefixes);
   static Rule endsWith(List<String> suffixes) => EndsWithRule(suffixes);
   static Rule date() => const DateRule();
+
+  /// Laravel's `date_format:Y-m-d` (several formats: any of them).
+  static Rule dateFormat(List<String> formats) => DateFormatRule(formats);
   static Rule after(String dateOrField) =>
       DateCompareRule('after', dateOrField);
   static Rule afterOrEqual(String dateOrField) =>
@@ -1081,5 +1085,42 @@ final class ExtensionsRule extends Rule {
       return name;
     }
     return extensions.contains(value.clientExtension) ? null : name;
+  }
+}
+
+/// `date_format:Y-m-d[,d/m/Y]`: the value, a string or a number, reads
+/// back exactly in one of [formats] (Laravel's `validateDateFormat`).
+final class DateFormatRule extends Rule {
+  DateFormatRule(this.formats) {
+    if (formats.isEmpty) {
+      throw ArgumentError.value(
+        formats,
+        'formats',
+        'date_format needs at least one format',
+      );
+    }
+  }
+
+  final List<String> formats;
+
+  @override
+  String get name => 'date_format';
+
+  @override
+  Map<String, Object?> get parameters => {'format': formats.first};
+
+  @override
+  Map<String, Object?> get schemaHint => const {'type': 'string'};
+
+  @override
+  String? passes(ValidationContext c) {
+    final value = c.value;
+    if (value is! String && value is! num) {
+      return 'date_format';
+    }
+    final text = '$value';
+    return formats.any((format) => phpDateMatchesFormat(text, format))
+        ? null
+        : 'date_format';
   }
 }

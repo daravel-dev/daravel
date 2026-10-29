@@ -131,13 +131,13 @@ const List<PackageManifest> officialPackages = [
     registration: ['.withSession()'],
     migrations: ['CreateSessionsTable'],
     env: [
-      'SESSION_DRIVER=file',
+      'SESSION_DRIVER=database',
       'SESSION_LIFETIME=120',
       'SESSION_SECURE_COOKIE=false',
       'SESSION_SAME_SITE=lax',
     ],
     next: [
-      'dartisan migrate   # with SESSION_DRIVER=database',
+      'dartisan migrate   # creates the sessions table (SESSION_DRIVER=database)',
       "router.group((r) {...}, middleware: ['web'])",
       "request.session.put('key', value); request.session.token",
     ],

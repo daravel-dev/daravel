@@ -122,12 +122,18 @@ final class TeobiefyAesCbc {
     }
   }
 
-  /// [json] encoded (`json_encode`) and encrypted under a fresh IV:
-  /// `{"data_enc": base64(ciphertext), "iv": base64(iv)}`.
-  Future<Map<String, Object?>> encrypt(Object? json) async {
+  /// [json] encoded and encrypted under a fresh IV:
+  /// `{"data_enc": base64(ciphertext), "iv": base64(iv)}`. With [phpJson]
+  /// the clear text is the bytes PHP's `json_encode` writes (`/`, ``
+  /// escapes), as the Laravel API being ported encrypted it.
+  Future<Map<String, Object?>> encrypt(
+    Object? json, {
+    bool phpJson = false,
+  }) async {
     final iv = randomIv();
+    final text = jsonEncode(json);
     final cipherText = await encryptBytes(
-      utf8.encode(jsonEncode(json)),
+      utf8.encode(phpJson ? phpJsonFromDart(text) : text),
       iv: iv,
     );
     return <String, Object?>{
@@ -160,11 +166,12 @@ final class TeobiefyAesCbc {
   Future<Map<String, Object?>> seal(
     Map<String, Object?> envelope, {
     String key = 'data',
+    bool phpJson = false,
   }) async {
     if (!envelope.containsKey(key)) {
       return envelope;
     }
-    final sealed = await encrypt(envelope[key]);
+    final sealed = await encrypt(envelope[key], phpJson: phpJson);
     return <String, Object?>{
       for (final MapEntry(key: k, :value) in envelope.entries)
         if (k != key) k: value,
@@ -253,6 +260,7 @@ final class TeobiefyAesCbcMiddleware implements Middleware {
   const TeobiefyAesCbcMiddleware({
     this.decryptRequests = false,
     this.wholeBody = false,
+    this.phpJson = false,
   });
 
   /// The alias parameters (`decrypt`, `body`); [ArgumentError] for any
@@ -260,6 +268,7 @@ final class TeobiefyAesCbcMiddleware implements Middleware {
   factory TeobiefyAesCbcMiddleware.fromParams(List<String> params) {
     var decrypt = false;
     var body = false;
+    var php = false;
     for (final param in params) {
       switch (param) {
         case '':
@@ -268,15 +277,21 @@ final class TeobiefyAesCbcMiddleware implements Middleware {
           decrypt = true;
         case 'body':
           body = true;
+        case 'php':
+          php = true;
         default:
           throw ArgumentError.value(
             param,
             'params',
-            'teobiefy.aes accepts "decrypt" and "body"',
+            'teobiefy.aes accepts "decrypt", "body" and "php"',
           );
       }
     }
-    return TeobiefyAesCbcMiddleware(decryptRequests: decrypt, wholeBody: body);
+    return TeobiefyAesCbcMiddleware(
+      decryptRequests: decrypt,
+      wholeBody: body,
+      phpJson: php,
+    );
   }
 
   /// Decrypt a request body sent as `{data_enc, iv}`.
@@ -284,6 +299,11 @@ final class TeobiefyAesCbcMiddleware implements Middleware {
 
   /// Encrypt the whole JSON body instead of the `data` of an envelope.
   final bool wholeBody;
+
+  /// `teobiefy.aes:php`: the clear text and the envelope are written as
+  /// PHP's `json_encode` writes them (`/` inside `data_enc` and `iv`),
+  /// for clients of a Laravel API that compare or sign those bytes.
+  final bool phpJson;
 
   @override
   Future<Response> handle(Request request, Next next) async {
@@ -331,15 +351,16 @@ final class TeobiefyAesCbcMiddleware implements Middleware {
     }
     final Map<String, Object?> sealed;
     if (wholeBody) {
-      sealed = await cipher.encrypt(json);
+      sealed = await cipher.encrypt(json, phpJson: phpJson);
     } else if (json is Map<String, Object?> &&
         json.containsKey('data') &&
         !json.containsKey('data_enc')) {
-      sealed = await cipher.seal(json);
+      sealed = await cipher.seal(json, phpJson: phpJson);
     } else {
       return withBody(raw);
     }
-    return withBody(utf8.encode(jsonEncode(sealed)));
+    final text = jsonEncode(sealed);
+    return withBody(utf8.encode(phpJson ? phpJsonFromDart(text) : text));
   }
 }
 

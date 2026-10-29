@@ -10,8 +10,12 @@ import 'handlers.dart';
 /// Flash data (`_flash.new`, `_flash.old`), the CSRF token (`_token`) and
 /// the previous URL (`_previous.url`) use Laravel's keys.
 final class Session {
-  Session({required this.name, required this.handler, String? id})
-    : _id = id != null && isValidId(id) ? id : generateId();
+  Session({
+    required this.name,
+    required this.handler,
+    String? id,
+    this.encrypter,
+  }) : _id = id != null && isValidId(id) ? id : generateId();
 
   /// Length of a session id and of the CSRF token.
   static const int idLength = 40;
@@ -19,6 +23,11 @@ final class Session {
   /// The cookie name.
   final String name;
   final SessionHandler handler;
+
+  /// With `SESSION_ENCRYPT`, the encrypter of the payload: Laravel's
+  /// `EncryptedStore` stores `Crypt::encrypt(serialize($attributes))`, a
+  /// serialized string inside the `Crypt` payload.
+  final Encrypter? encrypter;
 
   String _id;
   final Map<String, Object?> _attributes = <String, Object?>{};
@@ -53,7 +62,15 @@ final class Session {
   /// Loads the attributes from the handler and makes sure a CSRF token
   /// exists.
   Future<void> start() async {
-    final payload = await handler.read(_id);
+    var payload = await handler.read(_id);
+    if (payload != null && payload.isNotEmpty && encrypter != null) {
+      try {
+        payload = await encrypter!.decrypt<String>(payload);
+      } on DecryptException {
+        // EncryptedStore::prepareForUnserialize: an empty session.
+        payload = null;
+      }
+    }
     if (payload != null && payload.isNotEmpty) {
       try {
         final data = looksPhpSerialized(payload)
@@ -75,7 +92,12 @@ final class Session {
   /// Ages the flash data and writes the attributes back.
   Future<void> save({Request? request}) async {
     ageFlashData();
-    await handler.write(_id, phpSerialize(_attributes), request: request);
+    final serialized = phpSerialize(_attributes);
+    await handler.write(
+      _id,
+      encrypter == null ? serialized : await encrypter!.encrypt(serialized),
+      request: request,
+    );
     _started = false;
   }
 
