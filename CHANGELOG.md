@@ -13,6 +13,14 @@ match Laravel more closely.
 
 ### Added
 
+- SQLite replication (Blueprint #30): `dartisan db:replicate` streams a
+  SQLite database to a storage disk (S3, R2, ...) as it changes, as
+  Litestream does: a page-exact snapshot, then the committed frames of the
+  write-ahead log, checked as SQLite checks them, and a new snapshot
+  whenever continuity cannot be proven. `db:restore` rebuilds the newest
+  state or the state as of a moment (`--at`), and `--if-missing` suits a
+  container start. Chaos tests restore under concurrent writes and after
+  the replicator is killed.
 - The strangler fig proxy (Blueprint #29): `withUpstream()` puts Daravel
   in front of the Laravel application being migrated. Routes Daravel has
   answer from Daravel; every other request, whatever its method, streams

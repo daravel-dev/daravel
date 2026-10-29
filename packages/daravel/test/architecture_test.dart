@@ -13,6 +13,8 @@ const Map<String, Set<String>> allowedDependencies = {
   'foundation': {},
   'logging': {'foundation'},
   'storage': {'foundation'},
+  // Ships SQLite's write-ahead log to a disk (Blueprint #30).
+  'replication': {'foundation', 'storage'},
   'view': {'http'},
   'translation': {'foundation', 'http'},
   'features': {'foundation', 'database', 'auth', 'http'},
