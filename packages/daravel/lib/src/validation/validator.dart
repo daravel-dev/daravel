@@ -138,6 +138,12 @@ final class Validator {
           continue;
         }
       }
+      // Laravel's hasNotFailedPreviousRuleIfPresenceRule: no query for an
+      // attribute that already failed another rule.
+      if ((rule.name == 'unique' || rule.name == 'exists') &&
+          (_errors?[attribute]?.isNotEmpty ?? false)) {
+        continue;
+      }
       final context = ValidationContext(
         attribute: attribute,
         pattern: pattern,
@@ -151,7 +157,11 @@ final class Validator {
       final failure = await rule.passes(context);
       if (failure != null) {
         addError(attribute, _message(failure, attribute, pattern, rule));
-        if (bail) {
+        // Laravel's shouldStopValidating: `bail` stops at any failure; a
+        // failed rule of Laravel's $implicitRules stops too, since the other
+        // rules would only describe the empty field again ("must be a
+        // string" after "is required").
+        if (bail || laravelImplicitRules.contains(rule.name)) {
           return;
         }
       }
@@ -259,3 +269,33 @@ final class Validator {
     return results;
   }
 }
+
+/// Laravel's `Validator::$implicitRules` (laravel/framework 8 to 13, the
+/// same list), by rule name: a failure of one of these ends the
+/// validation of its attribute. `prohibited` is not one of them.
+const Set<String> laravelImplicitRules = {
+  'accepted',
+  'accepted_if',
+  'declined',
+  'declined_if',
+  'filled',
+  'missing',
+  'missing_if',
+  'missing_unless',
+  'missing_with',
+  'missing_with_all',
+  'present',
+  'present_if',
+  'present_unless',
+  'present_with',
+  'present_with_all',
+  'required',
+  'required_if',
+  'required_if_accepted',
+  'required_if_declined',
+  'required_unless',
+  'required_with',
+  'required_with_all',
+  'required_without',
+  'required_without_all',
+};

@@ -233,6 +233,9 @@ Exceptions are rendered by the exception handler with Laravel's bodies. With
 
 These are Laravel 10 to 13's messages; `COMPAT_LARAVEL_VERSION=8` or `9`
 answers with an older Laravel's ([Laravel coexistence](laravel-coexistence.md#older-laravel-versions)).
+As in Laravel, every error but 401 and 422 is written pretty-printed (four
+spaces, `/` unescaped: `Handler::prepareJsonResponse`), and 401 `Unauthenticated.`
+and 422 bodies are compact, so clients that compare bytes see the same body.
 
 Register custom renderers with `withExceptions((e) => e.render<MyError>((error,
 request) => Response.json({...}, status: 409)))`. A renderer may be

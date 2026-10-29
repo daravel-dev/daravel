@@ -186,6 +186,7 @@ void main() {
     );
     expect(second.status, 500);
     final body = await second.bodyText();
-    expect(body, '{"message":"Server Error"}');
+    // Laravel's prepareJsonResponse: JSON_PRETTY_PRINT.
+    expect(body, '{\n    "message": "Server Error"\n}');
   });
 }

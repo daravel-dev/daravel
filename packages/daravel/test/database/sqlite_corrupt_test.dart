@@ -54,7 +54,8 @@ void main() {
     );
     final response = await app.handle(Request.fake(path: '/rows'));
     expect(response.status, 500);
-    expect(await response.bodyText(), '{"message":"Server Error"}');
+    // Laravel's prepareJsonResponse: JSON_PRETTY_PRINT.
+    expect(await response.bodyText(), '{\n    "message": "Server Error"\n}');
     // A later request fails the same way instead of hanging on a
     // half-open connection.
     expect((await app.handle(Request.fake(path: '/rows'))).status, 500);
