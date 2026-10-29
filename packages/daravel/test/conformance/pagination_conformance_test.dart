@@ -10,7 +10,7 @@ import 'package:test/test.dart';
 
 import 'conformance_app.dart';
 
-/// Paginator and resource JSON locked to Laravel 12 (`Pagination/*`,
+/// Paginator and resource JSON locked to Laravel 13 (`Pagination/*`,
 /// `UrlWindow`, `PaginatedResourceResponse`, `Cursor`).
 void main() {
   group('UrlWindow', () {

@@ -306,6 +306,68 @@ void main() {
       );
     },
   );
+
+  test('values read the same through the text and binary protocols', () async {
+    // 'strict' false: the server accepts the zero date.
+    final manager = DatabaseManager(
+      DatabaseConfig(
+        defaultConnection: 'mysql',
+        connections: {
+          'mysql': ConnectionConfig(
+            driver: 'mysql',
+            database: connection.database,
+            host: connection.host,
+            port: connection.port,
+            username: connection.username,
+            password: connection.password,
+            options: const {'pool': 1, 'strict': 'false'},
+          ),
+        },
+      ),
+      drivers: const {'mysql': MySqlDriver.fromConfig},
+    );
+    try {
+      await manager.statement('DROP TABLE IF EXISTS my_types');
+      await manager.statement(
+        'CREATE TABLE my_types (id INT AUTO_INCREMENT PRIMARY KEY, '
+        'flag TINYINT(1), small TINYINT, big BIGINT UNSIGNED, ratio DOUBLE, '
+        'amount DECIMAL(8,2), day DATE, at DATETIME, stamp TIMESTAMP NULL, '
+        'yr YEAR, zero DATE, zero_at DATETIME, nothing INT)',
+      );
+      await manager.statement(
+        'INSERT INTO my_types (flag, small, big, ratio, amount, day, at, '
+        'stamp, yr, zero, zero_at) VALUES (1, -5, 18446744073709551615, 1.5, '
+        "12.34, '2026-02-28', '2026-02-28 13:14:15', '2026-02-28 13:14:15', "
+        "2026, '0000-00-00', '0000-00-00 00:00:00')",
+      );
+      // No bindings: text protocol. A binding: a prepared statement, whose
+      // binary rows mysql_dart formats as text again.
+      final text = (await manager.select('SELECT * FROM my_types')).single;
+      final binary = (await manager.select(
+        'SELECT * FROM my_types WHERE id = ?',
+        [1],
+      )).single;
+      expect(text, {
+        'id': 1,
+        'flag': 1,
+        'small': -5,
+        'big': BigInt.parse('18446744073709551615'),
+        'ratio': 1.5,
+        'amount': '12.34',
+        'day': '2026-02-28',
+        'at': '2026-02-28 13:14:15',
+        'stamp': '2026-02-28 13:14:15',
+        'yr': 2026,
+        'zero': null,
+        'zero_at': null,
+        'nothing': null,
+      });
+      expect(binary, text, reason: 'DATE is a date, not a midnight datetime');
+      await manager.statement('DROP TABLE my_types');
+    } finally {
+      await manager.closeAll();
+    }
+  });
 }
 
 final class _Item extends Model {

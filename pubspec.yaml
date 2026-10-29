@@ -26,6 +26,7 @@ workspace:
   - packages/daravel_teobiefy
   - packages/daravel_livekit
   - packages/daravel_s3
+  - packages/daravel_session
   - apps/daravel_starter
   - apps/virtual_classroom
   - bench

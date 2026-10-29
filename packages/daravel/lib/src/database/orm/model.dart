@@ -10,6 +10,7 @@ import '../../http/request.dart';
 import '../../http/response.dart';
 import '../database_manager.dart';
 import '../query/query_ast.dart';
+import 'casts.dart';
 import 'keys.dart';
 import 'model_collection.dart';
 import 'model_definition.dart';
@@ -597,7 +598,10 @@ abstract base class Model implements JsonSerializable, Responsable {
   };
 
   /// JSON representation: visible attributes, appends and loaded relations
-  /// (relation names snake_cased as given).
+  /// (relation names snake_cased as given), in the order Laravel 8 to 13
+  /// write them (`HasAttributes::attributesToArray`): an append that names
+  /// an existing attribute replaces it in place, and a
+  /// [Cast.dateTimeFormat] attribute is written in its format, in UTC.
   @override
   Map<String, Object?> toJson() {
     final result = <String, Object?>{};
@@ -609,7 +613,7 @@ abstract base class Model implements JsonSerializable, Responsable {
 
     for (final key in _attributes.keys) {
       if (show(key)) {
-        result[key] = _serialize(getAttr<Object?>(key));
+        result[key] = _serializeAttribute(key);
       }
     }
     for (final key in {...modelDefinition.appends, ..._appendsExtra}) {
@@ -626,6 +630,20 @@ abstract base class Model implements JsonSerializable, Responsable {
       result['pivot'] = pivot;
     }
     return result;
+  }
+
+  /// [key] as `toJson` writes it. A [Cast.dateTimeFormat] attribute is
+  /// formatted unless an accessor replaces it: Laravel skips the cast of a
+  /// mutated attribute (`addCastAttributesToArray`).
+  Object? _serializeAttribute(String key) {
+    final value = getAttr<Object?>(key);
+    final cast = modelDefinition.casts[key];
+    if (cast is DateTimeFormatCast &&
+        value is DateTime &&
+        !modelDefinition.accessors.containsKey(key)) {
+      return cast.serialize(value);
+    }
+    return _serialize(value);
   }
 
   static Object? _serialize(Object? value) => switch (value) {

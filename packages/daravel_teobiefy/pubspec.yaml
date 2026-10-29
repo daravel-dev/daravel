@@ -23,4 +23,5 @@ dependencies:
   daravel: ^1.17.0
 
 dev_dependencies:
+  daravel_test: ^1.17.0
   test: ^1.33.0

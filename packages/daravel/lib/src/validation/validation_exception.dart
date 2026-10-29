@@ -1,3 +1,4 @@
+import '../foundation/config.dart';
 import '../http/http_exceptions.dart';
 
 /// Thrown when validation fails; rendered as a Laravel-compatible `422`:
@@ -23,10 +24,15 @@ base class ValidationException extends HttpException {
   /// Errors keyed by attribute (`items.0.id`).
   final Map<String, List<String>> errors;
 
-  /// Laravel 12 summary: the first message plus `(and N more errors)`.
-  static String summarize(Map<String, List<String>> errors) {
+  /// Laravel 9 to 13 summary: the first message plus `(and N more
+  /// errors)`. Laravel 8 (`COMPAT_LARAVEL_VERSION=8`) always answered
+  /// `The given data was invalid.`
+  static String summarize(
+    Map<String, List<String>> errors, {
+    int? laravelCompat,
+  }) {
     final all = errors.values.expand((messages) => messages).toList();
-    if (all.isEmpty) {
+    if (all.isEmpty || (laravelCompat ?? currentLaravelCompat()) <= 8) {
       return 'The given data was invalid.';
     }
     final remaining = all.length - 1;

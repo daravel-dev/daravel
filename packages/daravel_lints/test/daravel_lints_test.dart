@@ -44,14 +44,18 @@ class A {
   static const limit = 3;
   int instance = 0;
   static int get computed => 1;
+  static final Map<String, Object> rules = {'a': 1};
+  static final Set<String> seen = Set();
+  static final blocked = const <String>[];
+  final Map<String, int> perInstance = {};
 }
+final queue = <int>[];
 ''';
       final issues = lintSource(source, 'lib/app/services/a.dart');
-      expect(rulesOf(issues), [
-        'no_mutable_static_in_app',
-        'no_mutable_static_in_app',
-      ]);
-      expect(issues.map((i) => i.line), [1, 4]);
+      expect(rulesOf(issues).toSet(), {'no_mutable_static_in_app'});
+      expect(issues.map((i) => i.line), [1, 4, 5, 10, 14]);
+      expect(issues.first.message, contains("Cache.store('process')"));
+      expect(issues[2].message, contains('empty collection'));
       expect(lintSource(source, 'lib/src/a.dart'), isEmpty);
     },
   );
@@ -76,6 +80,31 @@ Future<void> f(String name, int id) async {
       expect(issues.first.toString(), startsWith('lib/app/repo.dart:3:'));
     },
   );
+
+  test('no_sql_string_interpolation: generic names need a database receiver, '
+      'constants are safe', () {
+    const source = r'''
+const jsonPath = '$.meta.flags';
+final class Paths {
+  static const status = 'status';
+}
+Future<void> f(User user, String column, String input) async {
+  user.raw('${column}_at');
+  form.select('$column');
+  raw('$column');
+  query.whereRaw("json_extract(data, '${jsonPath}') = ?", [input]);
+  query.whereRaw('${Paths.status} = ?' + ' AND 1 = 1', [input]);
+  await DB.raw('count(${column})');
+  await DB.table('users').select('$column');
+  await User.query().where('a', 1).select('$column');
+  await usersQuery.statement('DROP TABLE ' + input);
+  query.whereRaw("json_extract(data, '${jsonPath}') = $input");
+}
+''';
+    final issues = lintSource(source, 'lib/app/repo.dart');
+    expect(rulesOf(issues).toSet(), {'no_sql_string_interpolation'});
+    expect(issues.map((i) => i.line), [11, 12, 13, 14, 15]);
+  });
 
   test(
     'unawaited_in_db_transaction flags queries that outlive the transaction',

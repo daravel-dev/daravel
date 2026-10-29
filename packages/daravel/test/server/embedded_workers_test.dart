@@ -41,6 +41,23 @@ final class RecordMark extends Job {
   }
 }
 
+/// Writes to the `process` cache store: visible to the server only when
+/// the embedded isolate shares its coordinator.
+final class MarkProcessCache extends Job {
+  const MarkProcessCache();
+
+  @override
+  String get jobName => 'mark-process-cache';
+
+  @override
+  Map<String, Object?> toJson() => const {};
+
+  @override
+  Future<void> handle(JobContext ctx) => Cache.store(
+    'process',
+  ).put('embedded.mark', 'seen by the server', ttl: const Duration(minutes: 5));
+}
+
 /// Top-level, so it can be sent to the embedded isolates.
 Application embeddedApp() =>
     Application.configure(basePath: Directory.systemTemp.path)
@@ -56,6 +73,7 @@ Application embeddedApp() =>
             'record-mark',
             (json) => RecordMark(json['label']! as String),
           ),
+          JobDefinition('mark-process-cache', (_) => const MarkProcessCache()),
         ])
         .withSchedule((schedule) {
           schedule(() => DB.table('marks').insert({'label': 'scheduled'}))
@@ -128,6 +146,43 @@ void main() {
       // The scheduler wakes from its minute sleep; the queue finishes its
       // poll sleep (3 s).
       expect(stopwatch.elapsed, lessThan(const Duration(seconds: 15)));
+    },
+  );
+
+  test(
+    'an embedded isolate shares the process cache of the coordinator it '
+    'is given',
+    timeout: const Timeout(Duration(minutes: 2)),
+    () async {
+      // The server: one coordinator, its process store read from here.
+      final coordinator = createStandardCoordinator();
+      final server = embeddedApp()
+        ..coordinator = LocalCoordinatorChannel(coordinator);
+      await server.boot();
+      addTearDown(server.shutdown);
+      await server.run(() => Queue.dispatch(const MarkProcessCache()));
+
+      final embedded = EmbeddedWorkers(
+        embeddedApp,
+        roles: const [EmbeddedRole.queue],
+        logger: Logger(minimumLevel: .warning),
+        coordinator: coordinator.listen(),
+      );
+      await embedded.start();
+      addTearDown(() => embedded.stop(timeout: const Duration(seconds: 20)));
+
+      final deadline = DateTime.now().add(const Duration(seconds: 30));
+      Object? seen;
+      while (seen == null) {
+        seen = await server.run(
+          () => Cache.store('process').get<String>('embedded.mark'),
+        );
+        if (seen == null && DateTime.now().isAfter(deadline)) {
+          fail('the job ran on a coordinator of its own');
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      }
+      expect(seen, 'seen by the server');
     },
   );
 

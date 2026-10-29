@@ -4,6 +4,8 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import '../foundation/clock.dart';
+import '../foundation/php.dart';
+import 'cookies.dart';
 import 'headers.dart';
 import 'realtime.dart';
 import 'request.dart';
@@ -62,14 +64,26 @@ final class Response {
   /// JSON response (`application/json`). [data] may contain maps, lists,
   /// numbers, strings, booleans, `null`, [DateTime] (ISO-8601 UTC), enums and
   /// [JsonSerializable] objects.
+  ///
+  /// [phpCompatible] writes the bytes of PHP's `json_encode()` (what a
+  /// Laravel response sends), for clients that compare or sign them: `/`,
+  /// `Xxxx` for non-ASCII, and `[]` for an empty map (an empty PHP
+  /// array). Same values, so any JSON parser reads both alike.
   factory Response.json(
     Object? data, {
     int status = 200,
     Map<String, String>? headers,
+    bool phpCompatible = false,
   }) => Response(
     status: status,
     headers: _headersWithType('application/json', headers),
-    body: BytesBody(utf8.encode(encodeJson(data))),
+    body: BytesBody(
+      utf8.encode(
+        phpCompatible
+            ? phpJsonFromDart(encodeJson(data), emptyMapsAsArrays: true)
+            : encodeJson(data),
+      ),
+    ),
   );
 
   /// `201 Created` JSON response with optional `Location` header.
@@ -234,8 +248,55 @@ final class Response {
     return _copyWith(headers: copy);
   }
 
+  /// Copy with every value of [name] replaced by [values] (a multi-valued
+  /// header such as `Set-Cookie`); an empty list removes the header.
+  Response withHeaderList(String name, List<String> values) {
+    final copy = headers.copy()..remove(name);
+    for (final value in values) {
+      copy.add(name, value);
+    }
+    return _copyWith(headers: copy);
+  }
+
   /// Copy with a different [status].
   Response withStatus(int status) => _copyWith(status: status);
+
+  /// Copy with a `Set-Cookie` header added (Laravel's `withCookie`), in
+  /// the format Laravel writes. [maxAge] `null` makes a session cookie;
+  /// the defaults are Laravel's (`path=/`, `httponly`, `samesite=lax`).
+  /// The value is sent as is: Laravel's `EncryptCookies` is not applied.
+  Response withCookie(
+    String name,
+    String value, {
+    Duration? maxAge,
+    String path = '/',
+    String? domain,
+    bool secure = false,
+    bool httpOnly = true,
+    String? sameSite = 'lax',
+  }) {
+    final copy = headers.copy()
+      ..add(
+        'set-cookie',
+        formatSetCookie(
+          name,
+          value,
+          maxAge: maxAge,
+          path: path,
+          domain: domain,
+          secure: secure,
+          httpOnly: httpOnly,
+          sameSite: sameSite,
+        ),
+      );
+    return _copyWith(headers: copy);
+  }
+
+  /// Copy that tells the client to delete the cookie [name] (Laravel's
+  /// `withoutCookie` / `Cookie::forget`); [path] and [domain] must match
+  /// the ones it was set with.
+  Response withoutCookie(String name, {String path = '/', String? domain}) =>
+      withCookie(name, '', path: path, domain: domain);
 
   /// Copy without a body (used for `HEAD`), keeping the advertised length.
   Response withoutBody() {

@@ -73,7 +73,10 @@ frozen after boot.
 | `APP_KEY`, `APP_PREVIOUS_KEYS` | none | Encryption, signed URLs, tokens; key rotation |
 | `APP_CIPHER` | `AES-256-CBC` | `Crypt` cipher (as Laravel) |
 | `APP_HOST`, `APP_PORT`, `PORT` | `127.0.0.1`, `8000` | Server address; `PORT` for container platforms |
-| `APP_ISOLATES` | `1` | HTTP worker isolates |
+| `APP_ISOLATES` | `1` | HTTP worker isolates ([Operations](operations.md#isolates)) |
+| `APP_PROCESSES` | `1` | Server processes on consecutive ports behind a proxy ([Deployment](deployment.md#several-processes)); needs shared stores or `APP_PROCESSES_ALLOW_UNSHARED_STATE` |
+| `SESSION_DRIVER`, `SESSION_LIFETIME`, `SESSION_COOKIE` | `file`, `120`, `<app>_session` | Sessions, encrypted cookies and CSRF, with `daravel_session` ([Sessions](sessions.md)) |
+| `COMPAT_LARAVEL_VERSION` | `12` | The Laravel major (8 to 13) whose error and validation bodies the app answers with ([Laravel coexistence](laravel-coexistence.md#older-laravel-versions)) |
 | `DB_CONNECTION`, `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD` | `sqlite` | `sqlite`, `pgsql`, `mysql` or `mariadb` (a path in `DB_HOST` is a PostgreSQL Unix socket) |
 | `DB_URL` | | One URL instead of the keys above, as in Laravel 12: `postgres://user:pass@host:5432/app?sslmode=require`. Its parts replace the matching `DB_*` values; those it leaves out stay ([Database](database.md#database-urls)) |
 | `MAIL_MAILER` | `log` (`array` in tests) | `smtp`, `log`, `array` or a registered transport ([Mail](mail.md)) |
@@ -91,6 +94,7 @@ frozen after boot.
 | `DB_POOL_SIZE`, `DB_SSLMODE` | `10`, `disable` | Connection pool per isolate, TLS (`require`, `verify-full`) |
 | `DB_CONNECT_TIMEOUT`, `DB_QUERY_TIMEOUT` | `10`, `30` | Seconds a PostgreSQL or MySQL connection may take to open, and a statement to run (`0` for none; a stuck statement would otherwise hold its pooled connection for ever) |
 | `CACHE_STORE`, `CACHE_PREFIX` | `memory` | Cache store and key prefix |
+| `CACHE_PROCESS_MAX_ENTRIES` | `10000` | Entries the `process` store keeps for the whole server; the least recently used go first, so raise it when it holds many keys that must last until they expire (revoked JWTs, per-client counters), or keep those in `database` or Redis |
 | `CACHE_PROCESS_L1_TTL` | `0` (off) | With the `process` store, how long each worker isolate reuses a value it read (`250ms`) before asking the coordinator again |
 | `CACHE_LIMITER` | coordinator | Cache store for rate limits (Laravel's `cache.limiter`); `database` shares them between machines, with one statement per attempt |
 | `QUEUE_CONNECTION` | `sync` | `sync`, `memory`, `database` or `redis` ([Redis](redis.md)) |

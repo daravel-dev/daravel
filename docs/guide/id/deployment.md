@@ -1,4 +1,4 @@
-<!-- source: deployment.md sha256:1d450ad23d17 -->
+<!-- source: deployment.md sha256:391ea9d0f728 -->
 # Deployment
 
 ## Konsep & Arsitektur Ahead-of-Time (AOT) Single Binary
@@ -91,6 +91,22 @@ memakai SQLite bawaan yang biasanya diandalkan test. Opsi ini menolak bila
 yang punya `libsqlite3`); server yang kemudian membuka SQLite tanpa library
 itu mendapat error yang menjelaskannya.
 
+### Waktu build dan memori
+
+`dartisan build` mengompilasi seluruh aplikasi secara ahead-of-time; di
+laptop prosesnya satu sampai tiga menit. Di WSL2 dengan proyek pada bind
+mount Windows (`/mnt/d/...`) terukur sebelas menit, sebagian besar untuk
+akses file: simpan checkout di filesystem Linux (atau build di CI, atau di
+filesystem container itu sendiri) dan waktunya kembali turun. Bundle-nya
+sekitar 15 MB.
+
+Ukur kebutuhan production dari biner, bukan dari server development:
+`dartisan serve --watch` menahan analyzer dan JIT VM di memori (sekitar 1 GB
+pada aplikasi berukuran sedang), sedangkan biner AOT diam di sekitar 15 MB
+dan tetap di ratusan megabyte rendah di bawah beban dengan beberapa isolate
+(115 MB dengan satu, sekitar 330 MB dengan delapan, pada aplikasi yang
+sama).
+
 ## Docker
 
 `dartisan build --docker` menulis `Dockerfile` multi-stage (builder Dart SDK,
@@ -128,6 +144,26 @@ development, test, dan deployment dengan satu isolate; pakai PostgreSQL
 untuk production dengan `APP_ISOLATES` lebih dari 1
 ([alasannya](database.md#sqlite-atau-postgresql)). Cara menentukan jumlah
 isolate, koneksi, dan batas ada di [Operasional](operations.md).
+
+### Beberapa proses
+
+Isolate berbagi satu heap, sehingga endpoint yang banyak melakukan alokasi
+per request (seribu baris lebar yang di-decode dan di-encode menjadi JSON)
+hanya sedikit terbantu oleh isolate tambahan: dalam pengukuran, empat
+isolate tetap di throughput satu isolate, sedangkan empat proses memberi
+2,6×. `APP_PROCESSES=N` (atau `serve --processes=N`) menjalankan N proses
+server di port berurutan, `APP_PORT` sampai `APP_PORT + N - 1`,
+menjalankan ulang proses yang mati, dan menghentikan semuanya bersama saat
+`SIGTERM`; perintah ini mencetak blok `upstream` nginx untuk dipasang di
+depannya (Caddy: `reverse_proxy` dengan alamat yang sama). Setiap proses
+punya penyimpanan cache `process`, rate limit, dan lock sendiri, sehingga
+server menolak start sampai `CACHE_STORE`, `CACHE_LIMITER`, dan
+`QUEUE_UNIQUE_LOCK_STORE` menunjuk ke `database` atau Redis
+(`APP_PROCESSES_ALLOW_UNSHARED_STATE=true` menerima state per proses).
+Gabungkan dengan `APP_ISOLATES` untuk endpoint yang terikat I/O: empat
+proses berisi dua isolate di mesin delapan core. Platform container
+melakukan hal yang sama dengan replika; pakai satu proses per replika di
+sana.
 
 ## Load shedding
 
@@ -232,7 +268,10 @@ SERVER_EMBED_QUEUE=true SERVER_EMBED_SCHEDULER=true bin/server   # sama, dari bu
 
 Queue worker (di `SERVER_EMBED_QUEUES`, default-nya queue default) dan
 scheduler masing-masing berjalan di isolate sendiri, sehingga job tidak
-pernah memblokir event loop HTTP. Isolate yang crash dijalankan ulang; saat
+pernah memblokir event loop HTTP. Keduanya memakai coordinator server yang
+sama, sehingga penyimpanan cache `process`, rate limit, dan lock-nya sama
+dengan yang dilihat worker HTTP: token yang dicabut sebuah job ditolak pada
+request berikutnya. Isolate yang crash dijalankan ulang; saat
 `SIGTERM`, job atau tick yang sedang berjalan diselesaikan sebelum proses
 keluar. Console command yang terjadwal berjalan bila server dijalankan dengan
 `dartisan serve`; bila dijalankan sebagai `bin/server`, scheduler tertanam

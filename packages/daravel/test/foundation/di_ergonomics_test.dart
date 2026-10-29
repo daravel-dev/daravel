@@ -51,6 +51,35 @@ void main() {
     expect(container<OrderService>(), same(orders));
   });
 
+  test('facades work while providers boot and routes register', () async {
+    final base = Directory.systemTemp.createTempSync('daravel_boot_zone');
+    addTearDown(() => base.deleteSync(recursive: true));
+    // No root container yet: only the boot zone can answer.
+    Container.setRoot(null);
+    String? seenName;
+    Application? seenApp;
+    final app = Application.configure(basePath: base.path)
+        .withEnv(const {
+          'APP_ENV': 'testing',
+          'APP_NAME': 'zoned',
+          'DB_DATABASE': ':memory:',
+        })
+        .withRouting(
+          web: (r) {
+            seenName = env('APP_NAME');
+            seenApp = App.instance;
+            final greeting = 'hello ${Config.get<String>('app.name')}';
+            r.get('/greet', (_) => greeting);
+          },
+        )
+        .create();
+    addTearDown(app.shutdown);
+    await app.boot();
+    expect(seenName, 'zoned');
+    expect(seenApp, same(app));
+    final response = await app.handle(Request.fake(path: '/greet'));
+    expect(await response.bodyText(), 'hello zoned');
+  });
   group('withBindings and inject()', () {
     late Application app;
     late Directory base;

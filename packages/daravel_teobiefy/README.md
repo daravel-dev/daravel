@@ -31,6 +31,18 @@ router.group(middleware: const ['teobiefy'], (r) {
 - Sessions survive several worker isolates (the `process` cache store when
   the default keeps a copy per isolate).
 
+For an API whose clients open an OpenSSL `{data_enc, iv}` envelope instead
+(`openssl_encrypt(json_encode($data), 'aes-256-cbc', $key, OPENSSL_RAW_DATA, $iv)`
+with a static key), `withTeobiefyAesCbc()` reads the key from `OPENSSL_KEY`
+and `teobiefy.aes` seals the `data` of selected routes (`:body` for the
+whole body, `:decrypt` to open request envelopes). It has no MAC: legacy
+compatibility only, checked against NIST SP 800-38A and `openssl enc`.
+
+```dart
+router.post('/admin/v1/user/login', AuthController.login)
+    .middleware(const ['teobiefy.aes']); // {status, message, data_enc, iv}
+```
+
 Documentation: <https://github.com/daravel-dev/daravel/blob/main/docs/guide/teobiefy.md>.
 
 ## License and trademarks

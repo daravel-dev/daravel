@@ -1,9 +1,10 @@
 import 'package:collection/collection.dart';
 import 'package:test/test.dart';
 
-/// Laravel 12 wire and storage contracts that Daravel locks (BLUEPRINT_V2
+/// Laravel 13 wire and storage contracts that Daravel locks (BLUEPRINT_V2
 /// §11.2). Each value cites the Laravel / Sanctum source it was taken from
-/// (laravel/framework `12.x`, laravel/sanctum `4.x`, laravel/laravel `12.x`),
+/// (laravel/framework `13.x`, laravel/sanctum `4.x`, laravel/laravel `13.x`;
+/// Laravel 10 to 12 write the same formats, see ADR-025),
 /// so a change in either framework is traceable. Changing a value here is a
 /// compatibility decision and needs an ADR.
 abstract final class LaravelContract {
@@ -182,7 +183,7 @@ abstract final class LaravelContract {
     r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$',
   );
 
-  // -- Schema (laravel/laravel 12.x migrations, DatabaseMigrationRepository,
+  // -- Schema (laravel/laravel 13.x migrations, DatabaseMigrationRepository,
   //    sanctum migration) -------------------------------------------------
 
   /// Columns (in order) and nullability of the tables Laravel and Daravel

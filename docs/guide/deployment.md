@@ -87,6 +87,22 @@ SQLite that tests usually rely on. It refuses when `DB_CONNECTION` is
 server that then opens SQLite without the library gets an error that says
 so.
 
+### Build time and memory
+
+`dartisan build` compiles the whole application ahead of time; on a laptop
+it takes one to three minutes. On WSL2 with the project on a Windows bind
+mount (`/mnt/d/...`) it has been measured at eleven minutes, most of it
+file access: keep the checkout on the Linux filesystem (or build in CI, or
+in the container's own filesystem) and the time comes back down. The
+bundle is about 15 MB.
+
+Size production from the binary, not from the development server:
+`dartisan serve --watch` keeps the analyzer and a JIT VM in memory (about
+1 GB on a mid-sized application), while the AOT binary idles at about
+15 MB and stays in the low hundreds of megabytes under load with several
+isolates (115 MB with one, about 330 MB with eight, on the same
+application).
+
 ## Docker
 
 `dartisan build --docker` writes a multi-stage `Dockerfile` (Dart SDK
@@ -124,6 +140,24 @@ development, tests and single-isolate deployments; use PostgreSQL for
 production with `APP_ISOLATES` greater than 1
 ([why](database.md#sqlite-or-postgresql)). Sizing isolates, connections and
 limits is in [Operations](operations.md).
+
+### Several processes
+
+Isolates share one heap, so an endpoint that allocates a lot per request
+(a thousand wide rows decoded and encoded as JSON) gains little from more
+isolates: measured, four isolates stayed at the throughput of one while
+four processes gave 2.6×. `APP_PROCESSES=N` (or `serve --processes=N`)
+runs N server processes on consecutive ports, `APP_PORT` to
+`APP_PORT + N - 1`, restarts one that exits and stops them together on
+`SIGTERM`; it prints the nginx `upstream` block to put in front of them
+(Caddy: `reverse_proxy` with the same addresses). Each process keeps its
+own `process` cache store, rate limits and locks, so the server refuses to
+start until `CACHE_STORE`, `CACHE_LIMITER` and `QUEUE_UNIQUE_LOCK_STORE`
+point at `database` or Redis (`APP_PROCESSES_ALLOW_UNSHARED_STATE=true`
+accepts per-process state). Combine with `APP_ISOLATES` for I/O-bound
+endpoints: four processes of two isolates on an eight-core machine.
+Container platforms do the same with replicas; use one process per
+replica there.
 
 ## Load shedding
 
@@ -222,8 +256,11 @@ SERVER_EMBED_QUEUE=true SERVER_EMBED_SCHEDULER=true bin/server   # same, from th
 
 The queue worker (on `SERVER_EMBED_QUEUES`, default the default queue) and
 the scheduler each run in their own isolate, so jobs never block the HTTP
-event loop. A crashed isolate is respawned; on `SIGTERM` the current job or
-tick finishes before the process exits. Scheduled console commands run when
+event loop. They share the server's coordinator, so the `process` cache
+store, rate limits and locks are the same ones the HTTP workers see: a
+token a job revokes is refused on the next request. A crashed isolate is
+respawned; on `SIGTERM` the current job or tick finishes before the process
+exits. Scheduled console commands run when
 the server is started with `dartisan serve`; started as `bin/server`, the
 embedded scheduler runs jobs, closures and `exec` tasks. Embedding needs a
 file or PostgreSQL database (an in-memory SQLite database is refused). For

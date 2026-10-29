@@ -1,4 +1,4 @@
-<!-- source: auth.md sha256:659dafeae66c -->
+<!-- source: auth.md sha256:aa054864ac3c -->
 # Autentikasi dan otorisasi
 
 Guard didaftarkan di `bootstrap/app.dart`:
@@ -79,9 +79,11 @@ sekitar 1,5 kali lebih lambat. Keduanya membaca hash `$2a$`, `$2b$`, dan
 adalah `APP_CIPHER`: `AES-256-CBC` (default, seperti Laravel;
 encrypt-then-MAC dengan HMAC-SHA256) atau `AES-256-GCM`. Pakai nilai yang
 sama dengan aplikasi Laravel mana pun yang berbagi data dengan Anda.
-`APP_PREVIOUS_KEYS` memungkinkan rotasi kunci. `Crypt.encrypt` meng-encode
-nilai ke JSON (Laravel memakai PHP `serialize()`), jadi hanya varian string
-yang lintas runtime.
+`APP_PREVIOUS_KEYS` memungkinkan rotasi kunci. `Crypt.encrypt` membawa nilai
+sebagai teks PHP `serialize()`, seperti `Crypt::encrypt` di Laravel: map atau
+list yang dienkripsi di sini menjadi array di Laravel, dan sebaliknya (objek
+PHP tiba sebagai `PhpObject`). Payload buatan Daravel 1.17 atau sebelumnya,
+yang berisi JSON, tetap bisa didekripsi.
 
 ## Otorisasi
 

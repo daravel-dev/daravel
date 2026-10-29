@@ -185,6 +185,29 @@ final class ServeOptions {
   final int? maxBodyBytes;
 }
 
+/// Why a production server with one HTTP isolate on a machine with several
+/// cores may be undersized, or `null` when it is not the case: one isolate
+/// runs one CPU-bound request at a time, so heavy endpoints stop scaling
+/// with concurrency. `serve` logs it and `dartisan doctor` reports it.
+String? isolateSizingAdvice({
+  required bool production,
+  required int isolates,
+  int? processors,
+}) {
+  final cores = processors ?? Platform.numberOfProcessors;
+  if (!production || isolates != 1 || cores <= 1) {
+    return null;
+  }
+  return 'APP_ISOLATES=1 on $cores cores: one isolate serves one CPU-bound '
+      'request at a time. Set APP_ISOLATES to about the number of cores '
+      '(Deployment guide, "Concurrency"), after moving state kept in '
+      'statics to a shared store, since each isolate has its own memory: '
+      "RateLimiter for limits, Cache.store('process') for short-lived "
+      'values on one machine, the database or Redis cache for what must '
+      'survive a restart (revoked tokens). Keep 1 when instances are '
+      'scaled out instead.';
+}
+
 /// Binds the `dart:io` server, wraps every request in a request scope and
 /// performs graceful shutdown on `SIGINT` (and `SIGTERM` outside Windows).
 final class ServerEngine {

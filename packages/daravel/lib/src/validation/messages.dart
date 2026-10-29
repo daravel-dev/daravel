@@ -2,6 +2,8 @@
 // lang/en/validation.php), Copyright (c) Taylor Otwell, MIT License:
 // see THIRD_PARTY_NOTICES.md.
 
+import '../foundation/config.dart';
+
 /// Default validation messages (Laravel `lang/en/validation.php` parity)
 /// with an Indonesian translation as the second bundled locale.
 abstract final class ValidationMessages {
@@ -186,6 +188,73 @@ abstract final class ValidationMessages {
     },
   };
 
+  /// The English messages of Laravel 8 and 9 (`The :attribute must be a
+  /// string.`) where they differ from 10 to 13, used under
+  /// `COMPAT_LARAVEL_VERSION` 8 or 9. Source: laravel/laravel 9.x
+  /// `lang/en/validation.php` (8.x `resources/lang/en/validation.php`
+  /// has the same text for every rule it knows).
+  static const Map<String, String> legacyEnglish = {
+    'string': 'The :attribute must be a string.',
+    'integer': 'The :attribute must be an integer.',
+    'numeric': 'The :attribute must be a number.',
+    'array': 'The :attribute must be an array.',
+    'email': 'The :attribute must be a valid email address.',
+    'url': 'The :attribute must be a valid URL.',
+    'uuid': 'The :attribute must be a valid UUID.',
+    'ulid': 'The :attribute must be a valid ULID.',
+    'ip': 'The :attribute must be a valid IP address.',
+    'ipv4': 'The :attribute must be a valid IPv4 address.',
+    'ipv6': 'The :attribute must be a valid IPv6 address.',
+    'json': 'The :attribute must be a valid JSON string.',
+    'alpha': 'The :attribute must only contain letters.',
+    'alpha_num': 'The :attribute must only contain letters and numbers.',
+    'alpha_dash': 'The :attribute must only contain letters, numbers, dashes and underscores.',
+    'ascii': 'The :attribute must only contain single-byte alphanumeric characters and symbols.',
+    'lowercase': 'The :attribute must be lowercase.',
+    'uppercase': 'The :attribute must be uppercase.',
+    'regex': 'The :attribute format is invalid.',
+    'not_regex': 'The :attribute format is invalid.',
+    'min.numeric': 'The :attribute must be at least :min.',
+    'min.string': 'The :attribute must be at least :min characters.',
+    'min.array': 'The :attribute must have at least :min items.',
+    'max.numeric': 'The :attribute must not be greater than :max.',
+    'max.string': 'The :attribute must not be greater than :max characters.',
+    'max.array': 'The :attribute must not have more than :max items.',
+    'between.numeric': 'The :attribute must be between :min and :max.',
+    'between.string':
+        'The :attribute must be between :min and :max characters.',
+    'between.array': 'The :attribute must have between :min and :max items.',
+    'size.numeric': 'The :attribute must be :size.',
+    'size.string': 'The :attribute must be :size characters.',
+    'size.array': 'The :attribute must contain :size items.',
+    'min.file': 'The :attribute must be at least :min kilobytes.',
+    'max.file': 'The :attribute must not be greater than :max kilobytes.',
+    'between.file': 'The :attribute must be between :min and :max kilobytes.',
+    'size.file': 'The :attribute must be :size kilobytes.',
+    'file': 'The :attribute must be a file.',
+    'image': 'The :attribute must be an image.',
+    'mimes': 'The :attribute must be a file of type: :values.',
+    'mimetypes': 'The :attribute must be a file of type: :values.',
+    'digits': 'The :attribute must be :digits digits.',
+    'digits_between': 'The :attribute must be between :min and :max digits.',
+    'confirmed': 'The :attribute confirmation does not match.',
+    'same': 'The :attribute and :other must match.',
+    'different': 'The :attribute and :other must be different.',
+    'starts_with':
+        'The :attribute must start with one of the following: :values.',
+    'ends_with': 'The :attribute must end with one of the following: :values.',
+    'date': 'The :attribute is not a valid date.',
+    'after': 'The :attribute must be a date after :date.',
+    'after_or_equal': 'The :attribute must be a date after or equal to :date.',
+    'before': 'The :attribute must be a date before :date.',
+    'before_or_equal':
+        'The :attribute must be a date before or equal to :date.',
+    'password.letters': 'The :attribute must contain at least one letter.',
+    'password.mixed': 'The :attribute must contain at least one uppercase and one lowercase letter.',
+    'password.numbers': 'The :attribute must contain at least one number.',
+    'password.symbols': 'The :attribute must contain at least one symbol.',
+  };
+
   /// Resolves [key] for [locale] (falling back to `en`, then the key itself)
   /// and substitutes `:attribute` plus every entry of [parameters].
   static String resolve(
@@ -194,10 +263,13 @@ abstract final class ValidationMessages {
     required String attribute,
     Map<String, Object?> parameters = const {},
     Map<String, String> overrides = const {},
+    int? laravelCompat,
   }) {
+    final legacy = (laravelCompat ?? currentLaravelCompat()) <= 9;
     final template =
         overrides[key] ??
-        translations[locale]?[key] ??
+        (locale == 'en' ? null : translations[locale]?[key]) ??
+        (legacy ? legacyEnglish[key] : null) ??
         translations['en']![key] ??
         (key.contains(' ') ? key : translations['en']!['custom']!);
     var message = template.replaceAll(':attribute', attribute);

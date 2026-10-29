@@ -50,17 +50,52 @@ void main() {
     expect(await crypt.decryptString(gcm), 'x');
   });
 
-  test('encrypt/decrypt JSON values with type checks', () async {
+  test(
+    'encrypt/decrypt carry PHP-serialized values with type checks',
+    () async {
+      final crypt = Encrypter(key);
+      final encrypted = await crypt.encrypt({
+        'id': 7,
+        'roles': ['admin'],
+      });
+      // The clear text is what Laravel's Crypt::encrypt would have encrypted.
+      expect(
+        await crypt.decryptString(encrypted),
+        'a:2:{s:2:"id";i:7;s:5:"roles";a:1:{i:0;s:5:"admin";}}',
+      );
+      final decoded = await crypt.decrypt<Map<String, Object?>>(encrypted);
+      expect(decoded['id'], 7);
+      expect(decoded['roles'], ['admin']);
+      expect(
+        () => crypt.decrypt<List<Object?>>(encrypted),
+        throwsA(isA<DecryptException>()),
+      );
+    },
+  );
+
+  test('decrypt reads a Laravel Crypt::encrypt payload', () async {
+    // Laravel 12 (APP_CIPHER=AES-256-CBC, this key):
+    // Crypt::encrypt(['id' => 7, 'tags' => ['a', 'b']]).
     final crypt = Encrypter(key);
-    final encrypted = await crypt.encrypt({
+    final laravel = await crypt.encryptString(
+      'a:2:{s:2:"id";i:7;s:4:"tags";a:2:{i:0;s:1:"a";i:1;s:1:"b";}}',
+    );
+    expect(await crypt.decrypt<Map<String, Object?>>(laravel), {
+      'id': 7,
+      'tags': ['a', 'b'],
+    });
+  });
+
+  test('decrypt still reads a JSON payload from Daravel 1.17', () async {
+    final crypt = Encrypter(key);
+    final legacy = await crypt.encryptString('{"id":7,"roles":["admin"]}');
+    expect(await crypt.decrypt<Map<String, Object?>>(legacy), {
       'id': 7,
       'roles': ['admin'],
     });
-    final decoded = await crypt.decrypt<Map<String, Object?>>(encrypted);
-    expect(decoded['id'], 7);
-    expect(decoded['roles'], ['admin']);
+    final junk = await crypt.encryptString('not serialized, not json');
     expect(
-      () => crypt.decrypt<List<Object?>>(encrypted),
+      () => crypt.decrypt<Object?>(junk),
       throwsA(isA<DecryptException>()),
     );
   });

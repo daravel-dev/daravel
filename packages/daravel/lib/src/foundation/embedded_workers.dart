@@ -26,12 +26,20 @@ final class EmbeddedWorkers {
     required this.roles,
     required this.logger,
     this.commandRunner,
+    this.coordinator,
   });
 
   final ApplicationFactory factory;
   final List<EmbeddedRole> roles;
   final Logger logger;
   ScheduleCommandRunner? commandRunner;
+
+  /// The server's coordinator (`Coordinator.listen()`), so the embedded
+  /// isolates share its `process` cache store, rate limits and locks with
+  /// the HTTP workers: a token a job revokes is refused by the server, a
+  /// limit a scheduled task raises holds for the next request. Without it
+  /// each isolate has a coordinator of its own.
+  final SendPort? coordinator;
 
   final Map<EmbeddedRole, _EmbeddedIsolate> _running = {};
   final Map<EmbeddedRole, List<DateTime>> _crashes = {};
@@ -52,7 +60,13 @@ final class EmbeddedWorkers {
     try {
       isolate = await Isolate.spawn(
         _embeddedMain,
-        _EmbeddedStart(factory, role, control.sendPort, commandRunner),
+        _EmbeddedStart(
+          factory,
+          role,
+          control.sendPort,
+          commandRunner,
+          coordinator,
+        ),
         onExit: exit.sendPort,
         debugName: 'daravel-${role.name}',
       );
@@ -149,18 +163,28 @@ final class _EmbeddedIsolate {
 }
 
 final class _EmbeddedStart {
-  const _EmbeddedStart(this.factory, this.role, this.control, this.commands);
+  const _EmbeddedStart(
+    this.factory,
+    this.role,
+    this.control,
+    this.commands,
+    this.coordinator,
+  );
 
   final ApplicationFactory factory;
   final EmbeddedRole role;
   final SendPort control;
   final ScheduleCommandRunner? commands;
+  final SendPort? coordinator;
 }
 
 Future<void> _embeddedMain(_EmbeddedStart start) async {
   final inbox = ReceivePort();
   start.control.send(inbox.sendPort);
   final app = start.factory();
+  if (start.coordinator case final port?) {
+    app.coordinator = RemoteCoordinatorChannel(port);
+  }
   var outcome = 'stopped';
   try {
     await app.boot();

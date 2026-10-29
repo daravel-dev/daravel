@@ -1,4 +1,4 @@
-<!-- source: teobiefy.md sha256:fadcaf2911ba -->
+<!-- source: teobiefy.md sha256:5d7edd3f2ed1 -->
 # Teobiefy
 
 `daravel_teobiefy` berbicara dengan protokol payload terenkripsi teobiefy
@@ -131,6 +131,70 @@ tanpa sesi. Kunci itu pernah terkirim ke browser dan harus dianggap publik:
 ia hanya jembatan untuk frontend lama yang masih ter-cache selama rollout,
 bukan perlindungan. Saat boot muncul warning selama kunci ini aktif, dan
 boot gagal bila nilainya bukan kunci base64 32 byte.
+
+## Envelope OpenSSL (`teobiefy.aes`)
+
+Sebagian API Laravel tidak memakai libsodium, melainkan override
+obiefy/api-response yang mengenkripsi `data` dengan OpenSSL dan kunci statis
+(`App\Helpers\OpenSslHelper`):
+
+```php
+$key = base64_decode(config('openssl.openssl_key')); // 32 bytes
+$iv = random_bytes(16);
+$data = json_encode($json['data']);
+$json['data_enc'] = base64_encode(openssl_encrypt($data, 'aes-256-cbc', $key, OPENSSL_RAW_DATA, $iv));
+$json['iv'] = base64_encode($iv);
+unset($json['data']);
+```
+
+`withTeobiefyAesCbc()` menambahkan envelope itu ke aplikasi Daravel:
+AES-256-CBC dengan padding PKCS#7, kunci dari `OPENSSL_KEY` (base64 dari 32
+byte, dengan atau tanpa `base64:`; boot gagal bila nilainya bukan kunci),
+dan IV 16 byte acak per pesan. Pasang `teobiefy.aes` di route yang
+dienkripsi aplikasi Laravel (aplikasi itu memutuskannya dari nama route,
+`request()->routeIs('admin.user.login')`), dan `DecryptInterceptor` di
+client membuka jawabannya seperti sebelumnya:
+
+```dart
+Application.configure(basePath: basePath).withTeobiefyAesCbc() // OPENSSL_KEY
+
+router.post('/admin/v1/user/login', AuthController.login)
+    .middleware(const ['teobiefy.aes']);
+```
+
+```json
+{"status": 200, "message": "ok", "data_count": 1, "data_enc": "…base64…", "iv": "…base64…"}
+```
+
+- Tanpa parameter, `data` dari response objek JSON diganti dengan `data_enc`
+  dan `iv`; key lain (`status`, `message`, `data_count`, `errors`) tetap
+  terbuka, sebagaimana `OpenSslHelper` membiarkannya. Response JSON tanpa
+  `data`, dan apa pun yang bukan JSON, diteruskan apa adanya; status code
+  dan header dipertahankan.
+- `teobiefy.aes:body` mengenkripsi seluruh body JSON, apa pun isinya,
+  menjadi `{"data_enc": …, "iv": …}`.
+- `teobiefy.aes:decrypt` juga membuka body request yang dikirim sebagai
+  `{"data_enc": …, "iv": …}` dan menggabungkan objek JSON-nya ke input (key
+  polos di sampingnya tetap ada, payload yang menang; `data_enc` dan `iv`
+  dihapus). Body yang tidak bisa dibuka dijawab `406 Invalid payload`. Body
+  polos tetap lolos: mode ini tidak bisa membedakan client tanpa kunci dari
+  client yang memilih tidak mengenkripsi. Parameter bisa digabung:
+  `teobiefy.aes:body,decrypt`.
+- `TeobiefyAesCbc.current.encrypt(value)` dan `.decrypt(envelope)` melakukan
+  hal yang sama secara manual (misalnya payload yang dibangun di job);
+  `TeobiefyAesCbc.fromKey(key)` memberi cipher di luar container.
+
+Implementasinya dicek terhadap NIST SP 800-38A (F.2.5, CBC-AES256) dan
+terhadap `openssl enc`, library yang dipanggil sisi Laravel.
+
+**Mode ini tidak punya MAC.** Kuncinya statis dan ikut terkirim bersama
+client, jadi tidak menyembunyikan apa pun dari siapa pun yang memegang
+client, dan tidak ada yang mencegah ciphertext yang diubah sampai ke
+handler: blok yang diubah terdekripsi menjadi sampah atau, bila penyerang
+beruntung, menjadi sesuatu yang bisa di-parse. Mode ini ada agar client
+dari API yang di-port tetap berjalan; ini bukan perlindungan. Pekerjaan
+baru, dan client tersebut begitu bisa diperbarui, sebaiknya memakai
+protokol X25519 + ChaCha20-Poly1305 di atas.
 
 ## Bersama Laravel
 

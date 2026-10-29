@@ -35,9 +35,14 @@ import 'package:path/path.dart' as p;
 ///
 /// `--database=pgsql://user:secret@host:5432/db?pool=4` (or `--db-url`)
 /// runs every selected scenario against PostgreSQL, seeded with the same
-/// users, posts and comments; 2–4 and 11 are the ones that query. When
-/// nothing answers at that address the harness prints "postgres scenarios
-/// skipped" and exits 0, so a run without PostgreSQL does not fail.
+/// users, posts and comments; 2–4, 11 and 13 are the ones that query.
+/// `mysql://` and `mariadb://` URLs run them against MySQL or MariaDB
+/// (`daravel_mysql`). When nothing answers at that address the harness
+/// prints "database scenarios skipped" and exits 0, so a run without the
+/// server does not fail.
+///
+/// Scenario 13 returns 1 000 rows of a 40-column table per request; run it
+/// at `--isolates=1,2,4,8` to see how row decoding and JSON encoding scale.
 Future<void> main(List<String> args) async {
   final options = _Options.parse(args);
   if (options.external.isNotEmpty) {
@@ -47,7 +52,7 @@ Future<void> main(List<String> args) async {
   if (options.dbUrl case final url?) {
     final address = await _postgresAddress(url);
     if (address != null) {
-      stdout.writeln('postgres scenarios skipped: nothing answers at $address');
+      stdout.writeln('database scenarios skipped: nothing answers at $address');
       return;
     }
   }
@@ -79,7 +84,7 @@ Future<void> main(List<String> args) async {
     'APP_KEY': 'base64:${base64.encode(List<int>.filled(32, 7))}',
     'APP_HOST': '127.0.0.1',
     if (options.dbUrl case final url?) ...{
-      'DB_CONNECTION': 'pgsql',
+      'DB_CONNECTION': _driverOf(url),
       'DB_URL': url,
     } else
       'DB_DATABASE': database,
@@ -103,12 +108,22 @@ Future<void> main(List<String> args) async {
   ) as Map<String, Object?>;
   stdout.writeln('zone microbenchmark: $micro');
 
+  final processes = options.processes;
   for (final isolates in options.isolates) {
-    final port = 18500 + isolates;
+    // With --processes the server takes `processes` consecutive ports.
+    final port = 18500 + isolates * (processes > 1 ? 16 : 1);
     final serverEnv = {
       ...env,
       'APP_PORT': '$port',
       'APP_ISOLATES': '$isolates',
+    };
+    final daravelEnv = {
+      ...serverEnv,
+      if (processes > 1) ...{
+        'APP_PROCESSES': '$processes',
+        // The bench measures throughput; per-process caches are fine.
+        'APP_PROCESSES_ALLOW_UNSHARED_STATE': 'true',
+      },
     };
 
     final baseline = await _Server.start(
@@ -139,10 +154,13 @@ Future<void> main(List<String> args) async {
 
     final server = await _Server.start(
       exe('server'),
-      serverEnv,
+      daravelEnv,
       port,
       cpus: options.serverCpus,
     );
+    for (var i = 1; i < processes; i++) {
+      await _waitUp(port + i);
+    }
     startup.add({
       'isolates': isolates,
       'startup_ms': server.startup.inMilliseconds,
@@ -153,11 +171,18 @@ Future<void> main(List<String> args) async {
         continue;
       }
       for (final connections in options.connections) {
-        final result = await _measure(options, port, spec, connections);
+        final result = await _measure(
+          options,
+          port,
+          spec,
+          connections,
+          ports: processes,
+        );
         final ping = pings[connections]!;
         results.add({
           'scenario': name,
           'isolates': isolates,
+          if (processes > 1) 'processes': processes,
           'connections': connections,
           ...result.toJson(),
           'relative_to_dartio': double.parse(
@@ -201,7 +226,10 @@ Future<void> main(List<String> args) async {
       'cpus': Platform.numberOfProcessors,
       'duration_s': options.duration.inSeconds,
       'connections': options.connections,
-      'database': options.dbUrl == null ? 'sqlite' : 'pgsql',
+      'database': switch (options.dbUrl) {
+        null => 'sqlite',
+        final url => _driverOf(url),
+      },
     },
     'startup': startup,
     'zone': micro,
@@ -256,20 +284,54 @@ final List<(String, LoadSpec)> _scenarios = [
   ('6-login-hash', const LoadSpec('POST', '/api/login')),
   ('7-multipart-upload', LoadSpec.upload('/api/upload')),
   ('8-sse-stream', const LoadSpec('GET', '/api/events')),
+  // 1 000 rows x 40 columns: row decoding and JSON encoding per request,
+  // the endpoint that scales worst from 1 to N isolates (Review #57).
+  ('13-large-result-set', const LoadSpec('GET', '/api/wide')),
 ];
 
 Future<LoadResult> _measure(
   _Options options,
   int port,
   LoadSpec spec,
-  int connections,
-) => runLoad(
+  int connections, {
+  int ports = 1,
+}) => runLoad(
   port,
   spec,
   connections: connections,
-  clientIsolates: min(options.clientIsolates, connections),
+  // At least one client isolate per server process.
+  clientIsolates: max(ports, min(options.clientIsolates, connections)),
   duration: options.duration,
+  ports: ports,
 );
+
+/// Waits until `/up` answers on [port] (another process of `--processes`).
+Future<void> _waitUp(int port) async {
+  final deadline = DateTime.now().add(const Duration(seconds: 60));
+  final client = HttpClient();
+  try {
+    while (true) {
+      try {
+        final request = await client.getUrl(
+          Uri.parse('http://127.0.0.1:$port/up'),
+        );
+        final response = await request.close();
+        await response.drain<void>();
+        if (response.statusCode == 200) {
+          return;
+        }
+      } on SocketException {
+        // Not listening yet.
+      }
+      if (DateTime.now().isAfter(deadline)) {
+        throw StateError('No server on port $port after 60 s.');
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    }
+  } finally {
+    client.close(force: true);
+  }
+}
 
 /// Scenario 11. Floods scenario 2's endpoint with `--overload-connections`
 /// keep-alive connections (far above what the workers can serve at once)
@@ -634,6 +696,7 @@ final class _Options {
     required this.connections,
     required this.clientIsolates,
     required this.isolates,
+    required this.processes,
     required this.scenarios,
     required this.skipBuild,
     required this.threshold,
@@ -671,7 +734,8 @@ final class _Options {
             '${max(2, Platform.numberOfProcessors ~/ 2)}',
       ),
       isolates: (value('isolates') ?? '1,4').split(',').map(int.parse).toList(),
-      scenarios: (value('scenarios') ?? '1,2,3,4,5,6,7,8,11,12').split(','),
+      processes: int.parse(value('processes') ?? '1'),
+      scenarios: (value('scenarios') ?? '1,2,3,4,5,6,7,8,11,12,13').split(','),
       skipBuild: args.contains('--skip-build'),
       threshold: double.parse(value('threshold') ?? '0.10'),
       out: value('out'),
@@ -686,10 +750,10 @@ final class _Options {
       ],
       // `--database` takes a SQLite path or, like `--db-url`, a PostgreSQL
       // URL.
-      database: _isPostgresUrl(value('database')) ? null : value('database'),
+      database: _isServerUrl(value('database')) ? null : value('database'),
       dbUrl:
           value('db-url') ??
-          (_isPostgresUrl(value('database')) ? value('database') : null),
+          (_isServerUrl(value('database')) ? value('database') : null),
       serverCpus: value('server-cpus'),
       serve: args.contains('--serve'),
       port: int.parse(value('port') ?? '18600'),
@@ -713,6 +777,11 @@ final class _Options {
   final List<int> connections;
   final int clientIsolates;
   final List<int> isolates;
+
+  /// `--processes=N`: the Daravel server runs as N processes on
+  /// consecutive ports (`APP_PROCESSES`, ADR-027), and the client isolates
+  /// spread over them. The `dart:io` reference stays one process.
+  final int processes;
   final List<String> scenarios;
   final bool skipBuild;
   final double threshold;
@@ -754,15 +823,25 @@ final class _Options {
   final int port;
 }
 
-bool _isPostgresUrl(String? value) =>
-    value != null && RegExp(r'^(pgsql|postgres|postgresql)://').hasMatch(value);
+bool _isServerUrl(String? value) =>
+    value != null &&
+    RegExp(r'^(pgsql|postgres|postgresql|mysql|mariadb)://').hasMatch(value);
+
+/// The driver of a database URL (`pgsql`, `mysql` or `mariadb`).
+String _driverOf(String url) => switch (Uri.parse(url).scheme) {
+  'mysql' => 'mysql',
+  'mariadb' => 'mariadb',
+  _ => 'pgsql',
+};
 
 /// `host:port` of [url] when nothing accepts a connection there (within
 /// 3 s), else `null`. Only the address is printed, never the credentials.
 Future<String?> _postgresAddress(String url) async {
   final uri = Uri.parse(url);
   final host = uri.host.isEmpty ? '127.0.0.1' : uri.host;
-  final port = uri.hasPort ? uri.port : 5432;
+  final port = uri.hasPort
+      ? uri.port
+      : (_driverOf(url) == 'pgsql' ? 5432 : 3306);
   try {
     final socket = await Socket.connect(
       host,

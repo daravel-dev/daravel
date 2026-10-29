@@ -66,6 +66,7 @@ String castName(Cast cast) => switch (cast) {
   BoolCast() => 'boolean',
   StringCast() => 'string',
   DateTimeCast() => 'datetime',
+  DateTimeFormatCast(:final format) => 'datetime:$format',
   DateCast() => 'date',
   JsonCast() => 'json',
   EnumCast() => 'enum',

@@ -51,7 +51,10 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `$request->url()` | `request.url` |  |
 | `$request->route('id')` | `request.param<int>('id')` |  |
 | `$request->expectsJson()` | `request.expectsJson` |  |
-| `response()->json($data, $status)` | `Response.json(data, status: status)` |  |
+| `$request->cookie('theme') / ->cookies->all()` | `request.cookie('theme') / request.cookies` | Decoded like $_COOKIE; EncryptCookies is not applied. |
+| `response(...)->withCookie(cookie('theme', 'dark', 60))` | `response.withCookie('theme', 'dark', maxAge: Duration(minutes: 60))` | Same Set-Cookie text as Symfony's Cookie. |
+| `response(...)->withoutCookie('theme') / Cookie::forget('theme')` | `response.withoutCookie('theme')` |  |
+| `response()->json($data, $status)` | `Response.json(data, status: status)` | phpCompatible: true writes json_encode's bytes (\/, \u escapes, [] for an empty map). |
 | `Blade views ({{ $name }}, {!! $html !!})` | `div([user.name]) / raw(html) from package:daravel/html.dart` | Typed builder, escaped by default; a separate import. |
 | `response()->noContent()` | `Response.noContent()` |  |
 | `redirect($to)` | `Response.redirect(to)` |  |
@@ -111,6 +114,21 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `Cache::lock('report')->get(...) on Redis` | `Cache.lock('report') on CACHE_STORE=redis` | **async**; Laravel's RedisLock: the same keys and release script. |
 | `QUEUE_CONNECTION=redis` | `QUEUE_CONNECTION=redis` | BLPOP wakes idle workers; keys under daravel:, apart from Laravel's queues:. |
 | `REVERB_SCALING_ENABLED=true (Redis)` | `REVERB_SCALING_DRIVER=redis` | Pub/Sub between servers; presence members shared across them. |
+
+## Sessions (daravel_session)
+
+| Laravel | Daravel | Notes |
+| :-- | :-- | :-- |
+| `Route::middleware('web')` | `.group(routes, middleware: ['web'])` | withSession() registers encrypt_cookies, session and csrf, and the web group that runs them in Laravel's order. |
+| `$request->session() / session()` | `request.session / Session.current` |  |
+| `session()->get('key', $default) / put / has / forget` | `session.get<T>('key', fallback) / put / has / forget` | Dot keys nest as in Laravel; stored as PHP serialize() with Laravel's _token, _flash and _previous keys. |
+| `session()->flash('status', 'Saved') / reflash / keep / now` | `session.flash('status', 'Saved') / reflash / keep / now` |  |
+| `session()->regenerate() / invalidate()` | `await session.regenerate() / invalidate()` | **async** |
+| `csrf_token()` | `session.token` |  |
+| `EncryptCookies middleware` | `EncryptCookiesMiddleware` | Crypt payload with CookieValuePrefix (hmac_sha1(name.'v2', key).'|'), so cookies are shared with the Laravel app. |
+| `VerifyCsrfToken ($except, X-CSRF-TOKEN, X-XSRF-TOKEN)` | `VerifyCsrfTokenMiddleware(except: [...])` | 419 CSRF token mismatch.; the XSRF-TOKEN cookie is set on every response. |
+| `SESSION_DRIVER=file\|database` | `SESSION_DRIVER=file\|database (array for tests)` | Laravel's sessions table (payload base64(serialize()), last_activity) and file format; extend() adds a driver. |
+| `create_sessions_table migration` | `CreateSessionsTable` | Does nothing when the table exists already. |
 
 ## Permissions (daravel_permission)
 
@@ -211,6 +229,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | :-- | :-- | :-- |
 | `class User extends Model` | `final class User extends Model` |  |
 | `protected $table / $fillable / $hidden / $casts` | `ModelDefinition<User>(table:, fillable:, hidden:, casts:)` |  |
+| `'published_at' => 'datetime:Y-m-d H:i' (casts)` | `casts: {'published_at': Cast.dateTimeFormat('Y-m-d H:i')}` | PHP date() tokens, formatted in UTC as Laravel 8 to 13 do; formatPhpDate() for other values. |
 | `php artisan model:show User` | `dartisan model:show User (models listed in bootstrap/models.dart)` | No class discovery: the registry is explicit, like migrations and jobs. |
 | `$model->getMorphClass()` | `Relation.morphClassOf(User.definition)` | The morph alias, else `ModelDefinition.morphClass` (`App\Models\User` by default). |
 | `User::query()` | `User.query()` |  |
@@ -297,7 +316,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `$user->tokenCan('posts:read')` | `await Auth.tokenGuard().tokenCan('posts:read')` | **async** |
 | `Hash::make / check / needsRehash` | `await Hash.make / check, Hash.needsRehash` |  |
 | `Crypt::encryptString / decryptString` | `await Crypt.encryptString / decryptString` | **async**; Byte-compatible with APP_CIPHER=AES-256-CBC or AES-256-GCM. |
-| `Crypt::encrypt / decrypt` | `await Crypt.encrypt / decrypt` | **async**; Values are JSON-encoded, not PHP-serialized: not cross-runtime. |
+| `Crypt::encrypt / decrypt` | `await Crypt.encrypt / decrypt` | **async**; PHP serialize() inside, as Laravel: maps and lists are arrays on both sides. |
 | `php artisan env:encrypt / env:decrypt` | `dartisan env:encrypt / env:decrypt` | Same .env.encrypted file (default and --readable); decrypted in memory at boot with DARAVEL_ENV_ENCRYPTION_KEY or LARAVEL_ENV_ENCRYPTION_KEY. |
 | `Gate::define / allows / denies / authorize` | `Gate.define / allows / denies / authorize` | **async** |
 | `class PostPolicy` | `final class PostPolicy extends Policy<Post>` |  |
@@ -426,7 +445,6 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | Laravel | Plan |
 | :-- | :-- |
 | Sessions, CSRF, SPA cookie auth | Tier 2 |
-| PHP serialize() for Crypt::encrypt payloads | Tier 2 (Laravel-compatible Crypt mode) |
 | optional() helper | Not planned: Dart has ?. and ?? |
 | app() / route() / url() global helpers | Use App.make<T>(), router.url(...); a global app() would be shadowed by the idiomatic app variable |
 | dd() / dump() | Not planned: use print or Log in development |

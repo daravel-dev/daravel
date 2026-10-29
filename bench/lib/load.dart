@@ -100,14 +100,19 @@ Future<LoadResult> runLoad(
   int clientIsolates = 4,
   Duration duration = const Duration(seconds: 10),
   Duration warmup = const Duration(seconds: 2),
+  int ports = 1,
 }) async {
   final perIsolate = max(1, connections ~/ clientIsolates);
-  Future<_WorkerResult> spawn(Duration d) =>
-      Isolate.run(() => _worker(port, spec, perIsolate, d));
-  await Future.wait([for (var i = 0; i < clientIsolates; i++) spawn(warmup)]);
+  // With [ports] > 1 (servers on consecutive ports, `APP_PROCESSES`), client
+  // isolate i loads port + i % ports, as a proxy would spread connections.
+  Future<_WorkerResult> spawn(int i, Duration d) =>
+      Isolate.run(() => _worker(port + i % ports, spec, perIsolate, d));
+  await Future.wait([
+    for (var i = 0; i < clientIsolates; i++) spawn(i, warmup),
+  ]);
   final watch = Stopwatch()..start();
   final parts = await Future.wait([
-    for (var i = 0; i < clientIsolates; i++) spawn(duration),
+    for (var i = 0; i < clientIsolates; i++) spawn(i, duration),
   ]);
   final elapsed = watch.elapsed;
   return LoadResult(

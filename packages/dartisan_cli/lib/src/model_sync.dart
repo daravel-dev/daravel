@@ -111,7 +111,7 @@ final class AccessorPlan {
 /// SQLite returns them as integers/strings.
 ({String type, String? hint}) dartTypeFor(ColumnInfo column, String? cast) {
   switch (cast) {
-    case 'dateTime' || 'date' || 'immutableDateTime':
+    case 'dateTime' || 'date' || 'immutableDateTime' || 'dateTimeFormat':
       return (type: 'DateTime', hint: null);
     case 'boolean' || 'bool':
       return (type: 'bool', hint: null);

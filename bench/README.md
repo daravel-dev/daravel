@@ -30,6 +30,7 @@ default half the CPUs), `--threshold=0.10`.
 | 10 | startup to first `/up` and idle RSS | every isolate count |
 | 11 | overload: scenario 2 under `--overload-connections` (512) against three servers: no limit, `HTTP_MAX_IN_FLIGHT=--max-in-flight` (32), and `HTTP_MAX_QUEUE_DELAY=--max-queue-delay` (50 ms) added | `GET /api/users/42` |
 | 12 | open loop: the capacity of scenario 2 is measured, then `--open-loop-factor` (1.5) times it is offered at a fixed rate to the same three servers, with up to `--overload-connections` | `GET /api/users/42` |
+| 13 | large result set: 1 000 rows of a 40-column table (`wide_rows`), decoded and encoded as JSON per request (`?php=1` adds the `json_encode` rewrite) | `GET /api/wide` |
 
 Scenarios 7 (5 MB multipart) and 8 (1 000 idle SSE connections) wait for
 multipart and SSE support (Tier 2).
@@ -62,10 +63,11 @@ dart run bin/bench.dart --database='pgsql://user:secret@127.0.0.1:5432/bench?poo
   --scenarios=2,3,4,11 --isolates=1,4
 ```
 
-`--database` takes a SQLite path or a `pgsql://`, `postgres://` or
-`postgresql://` URL (`--db-url` is the same). Scenarios 2–4 and 11 are the
-ones that query. When nothing answers at that address the harness prints
-`postgres scenarios skipped: nothing answers at host:port` and exits 0, so
+`--database` takes a SQLite path or a `pgsql://`, `postgres://`,
+`postgresql://`, `mysql://` or `mariadb://` URL (`--db-url` is the same).
+Scenarios 2–4, 11 and 13 are the ones that query. When nothing answers at
+that address the harness prints
+`database scenarios skipped: nothing answers at host:port` and exits 0, so
 the nightly workflow, which runs these four against a PostgreSQL service
 container, does not fail when the database is missing.
 
@@ -84,6 +86,47 @@ ping overhead ≤ 25% against `dart:io`, throttling adds ≤ 100 µs of service
 time per request (measured as `1/rps` on one isolate, since latency percentiles
 under concurrent load are mostly queueing), and four
 isolates give ≥ 3× the ping throughput of one on a 4+ core machine.
+
+### Scenario 13 and isolates
+
+`bin/wide_profile.dart` splits scenario 13 into query, row decoding and
+JSON encoding without HTTP. Measured on 2026-10-29 (Dart 3.13.4 AOT,
+Linux container, 16 vCPU, MariaDB 12.3 on the same Docker network, pool 4):
+
+| Run | Full query of 1 000 × 40 rows |
+| :-- | --: |
+| one isolate | 19 ms (`id` only: 1.7 ms; JSON encoding: 8 ms more) |
+| four queries at once in one isolate | 89 ms |
+| four isolates of one process in parallel | 81–90 ms each |
+| four processes in parallel | 28 ms each |
+
+Decoding a large result is CPU and allocation work in the isolate, and it
+does not scale across the isolates of one process, while separate
+processes do. The likely cause is that the worker isolates of one process
+share a heap (an isolate group), so a garbage collection pauses all of
+them; the run above logged 283 collections. A larger new generation helps a little
+(`DART_VM_OPTIONS=--new_gen_semi_max_size=128`: 70–77 ms each). Run from
+Windows against a database in WSL, the port relay adds about 80 ms per
+query, so measure on Linux.
+
+Most of the one-isolate time was Daravel's own row conversion, not
+`mysql_dart`: `MySqlDriver.select` built three 40-entry maps per row and
+parsed every DATETIME into a `DateTime` it then discarded. Reading each row
+in one pass (daravel_mysql, unreleased) brought the driver-level time of
+the full query from 21 ms to 10 ms (p50, same setup); `mysql_dart` itself
+takes about 10 ms for the 788 KB result, of which UTF-8 decoding of the
+40 000 fields is about 4.5 ms, and `package:postgres` takes about 33 ms
+for the same rows.
+
+`--processes=N` runs the Daravel server as N processes on consecutive ports
+(`APP_PROCESSES`, ADR-027) and spreads the client isolates over them, for
+endpoints that do not scale across isolates. On Windows with SQLite, one
+isolate and 16 connections, scenario 13 went from 28 req/s with one process
+to 46 req/s with two (2026-10-29):
+
+```bash
+dart run bin/bench.dart --scenarios=13 --isolates=1 --processes=2
+```
 
 ## Interop with Laravel's broadcasting
 

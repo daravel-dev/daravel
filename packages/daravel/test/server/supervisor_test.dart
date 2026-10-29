@@ -126,7 +126,18 @@ void main() {
 
       await supervisor.stop();
       expect(supervisor.exitCode, 0);
-      await expectLater(get('/whoami'), throwsA(isA<SocketException>()));
+      // Nothing listens any more: the connection is refused, or a socket
+      // the OS still had open is closed before any header (under load).
+      // (`dart:io`'s HttpException is shadowed by Daravel's here.)
+      await expectLater(
+        get('/whoami'),
+        throwsA(
+          predicate<Object>(
+            (e) => e is SocketException || '$e'.contains('Connection closed'),
+            'a refused or closed connection',
+          ),
+        ),
+      );
     },
     timeout: const Timeout(Duration(minutes: 2)),
   );
