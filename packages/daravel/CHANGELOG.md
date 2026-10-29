@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.19.0
 
 - Fixed: `ProcessSupervisor` readiness ignores a TCP self-connection (Linux, ephemeral ports).
 - Added the `date_format` rule (`DateFormatRule`, `Rules.dateFormat`, `phpDateMatchesFormat`), as Laravel's `validateDateFormat`.

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.19.0
 
 - Added `teobiefy.aes:php` and `TeobiefyAesCbc.encrypt(phpJson:)` / `seal(phpJson:)`: PHP `json_encode` bytes inside and outside the envelope.
 

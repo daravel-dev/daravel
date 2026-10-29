@@ -1,6 +1,6 @@
 name: daravel_log_viewer
 description: A log viewer page for Daravel. Reads log files from their end in constant memory, filters and follows them live, masks secrets. Daravel and Laravel log formats.
-version: 1.18.1
+version: 1.19.0
 homepage: https://daravel.dev
 repository: https://github.com/daravel-dev/daravel/tree/main/packages/daravel_log_viewer
 issue_tracker: https://github.com/daravel-dev/daravel/issues
@@ -19,7 +19,7 @@ environment:
 resolution: workspace
 
 dependencies:
-  daravel: ^1.18.1
+  daravel: ^1.19.0
   path: ^1.9.0
 
 dev_dependencies:

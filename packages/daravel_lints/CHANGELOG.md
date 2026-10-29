@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.19.0
 
 - `invalid_validation_rule` knows `date_format`.
 

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.19.0
 
 - Changed: the default `SESSION_DRIVER` is `database`, as laravel/laravel 11 to 13 (was `file`).
 - Added `SESSION_ENCRYPT` (Laravel's `EncryptedStore` payload) and `SESSION_PARTITIONED_COOKIE`.

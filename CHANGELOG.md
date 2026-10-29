@@ -9,7 +9,13 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 wait for a new major version, and Laravel-facing formats change only to
 match Laravel more closely.
 
-## Unreleased
+## 1.19.0
+
+The rest of what a Laravel 8 port onto 1.18 asked for, each checked against
+Laravel on GitHub: the `date_format` rule, sessions that Laravel 11 to 13
+would write by default (the `sessions` table, `SESSION_ENCRYPT`,
+partitioned cookies), and `json_encode` bytes where clients compare them.
+`daravel_session` now defaults to `SESSION_DRIVER=database`.
 
 ### Fixed
 
