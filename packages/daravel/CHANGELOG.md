@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Fixed: `ProcessSupervisor` readiness ignores a TCP self-connection (Linux, ephemeral ports).
 - Added the `date_format` rule (`DateFormatRule`, `Rules.dateFormat`, `phpDateMatchesFormat`), as Laravel's `validateDateFormat`.
 - Added `partitioned` to `Response.withCookie`; `Response.json(phpCompatible: true)` (`Response.encodePhpJson`) writes a `PhpObject` as an object, `{}` when empty.
 

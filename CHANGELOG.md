@@ -11,6 +11,12 @@ match Laravel more closely.
 
 ## Unreleased
 
+### Fixed
+
+- `ProcessSupervisor` no longer takes a socket connected to itself for a
+  ready child: on Linux, dialling a free port of the ephemeral range can
+  open a TCP connection to itself.
+
 ### Added
 
 - The `date_format` validation rule (`date_format:Y-m-d,d/m/Y`, `Rules.dateFormat`), as Laravel's `validateDateFormat`: the value must read with PHP's `createFromFormat('!' . $format)` and format back exactly, so `2026-02-30` fails `Y-m-d`; `phpDateMatchesFormat`.
