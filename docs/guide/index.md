@@ -14,7 +14,8 @@ suite keeps them that way. See [Laravel coexistence](laravel-coexistence.md).
 The official packages are `daravel`, `dartisan_cli`, `daravel_test`,
 `daravel_lints`, `daravel_mysql`, `daravel_sqlite`, `daravel_postgres`,
 `daravel_redis`, `daravel_permission`, `daravel_activitylog`,
-`daravel_excel`, `daravel_log_viewer`, `daravel_pulse`, `daravel_medialibrary` and
+`daravel_excel`, `daravel_log_viewer`, `daravel_pulse`, `daravel_payments`,
+`daravel_medialibrary` and
 `daravel_teorion`,
 released together by the verified
 publisher [`framework.daravel.dev`](https://pub.dev/publishers/framework.daravel.dev)
@@ -62,22 +63,23 @@ Performance numbers come from a reproducible harness, never from claims
 15. [Broadcasting](broadcasting.md): Laravel Echo, the Pusher protocol as Reverb, private and presence channels.
 16. [Excel and CSV](excel.md): exports and imports with Laravel Excel's concerns, streamed with constant memory, validated imports with row numbers.
 17. [Media library](medialibrary.md): files and images attached to models on Spatie's media table, with image conversions in pure Dart.
-18. [LiveKit](livekit.md): video classrooms and meetings over WebRTC: access tokens, rooms and participants, verified webhooks.
-19. [Google](google.md): users' Google Calendar through OAuth with refresh, service accounts, events with guests and Google Meet links.
-20. [Teobiefy](teobiefy.md): encrypted API payloads compatible with teobiefy's protocol v1 on Laravel (X25519 handshake, ChaCha20-Poly1305).
-21. [Redis](redis.md): cache, locks, rate limits, queues and broadcasting across servers, when one server is not enough.
-22. [Strings, helpers and collections](helpers.md): `Str`, `retry`, `once`, `pluck`, ...
-23. [HTTP client](http-client.md): outgoing requests with `Http`, retries and `Http.fake()`.
-24. [Flutter client](flutter-client.md): a typed client generated from the routes, with on-device validation.
-25. [Testing](testing.md): `TestClient`, database helpers, fakes, conformance.
-26. [Deployment](deployment.md): native bundles, Docker, Cloud Run, VPS (systemd + Caddy).
-27. [Laravel coexistence](laravel-coexistence.md): the compatibility contract.
-28. [Migrating from Laravel](migrating-from-laravel.md): move endpoints one at a time behind a proxy.
-29. [Security](security.md): secure defaults and the security suite.
-30. [Performance](performance.md): the benchmark harness.
-31. [Operations](operations.md): isolates, database connections, load shedding, metrics and shutdown in production.
-32. [Benchmarks](benchmarks.md): Daravel against Laravel Octane and classic, and how to reproduce it.
-33. [Laravel ⇄ Daravel parity table](parity.md) (generated).
+18. [Payments](payments.md): Midtrans, Xendit and Stripe behind one API, with webhooks verified and applied exactly once.
+19. [LiveKit](livekit.md): video classrooms and meetings over WebRTC: access tokens, rooms and participants, verified webhooks.
+20. [Google](google.md): users' Google Calendar through OAuth with refresh, service accounts, events with guests and Google Meet links.
+21. [Teobiefy](teobiefy.md): encrypted API payloads compatible with teobiefy's protocol v1 on Laravel (X25519 handshake, ChaCha20-Poly1305).
+22. [Redis](redis.md): cache, locks, rate limits, queues and broadcasting across servers, when one server is not enough.
+23. [Strings, helpers and collections](helpers.md): `Str`, `retry`, `once`, `pluck`, ...
+24. [HTTP client](http-client.md): outgoing requests with `Http`, retries and `Http.fake()`.
+25. [Flutter client](flutter-client.md): a typed client generated from the routes, with on-device validation.
+26. [Testing](testing.md): `TestClient`, database helpers, fakes, conformance.
+27. [Deployment](deployment.md): native bundles, Docker, Cloud Run, VPS (systemd + Caddy).
+28. [Laravel coexistence](laravel-coexistence.md): the compatibility contract.
+29. [Migrating from Laravel](migrating-from-laravel.md): move endpoints one at a time behind a proxy.
+30. [Security](security.md): secure defaults and the security suite.
+31. [Performance](performance.md): the benchmark harness.
+32. [Operations](operations.md): isolates, database connections, load shedding, metrics and shutdown in production.
+33. [Benchmarks](benchmarks.md): Daravel against Laravel Octane and classic, and how to reproduce it.
+34. [Laravel ⇄ Daravel parity table](parity.md) (generated).
 
 Bahasa Indonesia: [Dokumentasi Daravel](id/index.md).
 

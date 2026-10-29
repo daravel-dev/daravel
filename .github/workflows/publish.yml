@@ -38,6 +38,7 @@ jobs:
       daravel_excel: ${{ steps.published.outputs.daravel_excel }}
       daravel_log_viewer: ${{ steps.published.outputs.daravel_log_viewer }}
       daravel_pulse: ${{ steps.published.outputs.daravel_pulse }}
+      daravel_payments: ${{ steps.published.outputs.daravel_payments }}
       daravel_medialibrary: ${{ steps.published.outputs.daravel_medialibrary }}
     steps:
       - uses: actions/checkout@v4
@@ -55,7 +56,7 @@ jobs:
         id: published
         run: |
           version="${GITHUB_REF_NAME#v}"
-          for package in daravel_lints daravel daravel_test daravel_mysql daravel_sqlite daravel_postgres dartisan_cli daravel_teorion daravel_permission daravel_activitylog daravel_redis daravel_livekit daravel_google daravel_teobiefy daravel_s3 daravel_excel daravel_log_viewer daravel_pulse daravel_medialibrary; do
+          for package in daravel_lints daravel daravel_test daravel_mysql daravel_sqlite daravel_postgres dartisan_cli daravel_teorion daravel_permission daravel_activitylog daravel_redis daravel_livekit daravel_google daravel_teobiefy daravel_s3 daravel_excel daravel_log_viewer daravel_pulse daravel_payments daravel_medialibrary; do
             status=$(curl -s -o /dev/null -w '%{http_code}' "https://pub.dev/api/packages/$package/versions/$version")
             if [ "$status" = "200" ]; then state=published; else state=pending; fi
             echo "$package $version: $state"
@@ -190,6 +191,13 @@ jobs:
     uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
     with:
       working-directory: packages/daravel_pulse
+
+  daravel_payments:
+    needs: [verify, daravel, dartisan_cli]
+    if: ${{ !failure() && !cancelled() && needs.verify.outputs.daravel_payments != 'published' }}
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
+    with:
+      working-directory: packages/daravel_payments
 
   daravel_medialibrary:
     needs: [verify, daravel, dartisan_cli]

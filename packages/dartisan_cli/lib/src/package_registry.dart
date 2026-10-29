@@ -209,6 +209,29 @@ const List<PackageManifest> officialPackages = [
     ],
   ),
   PackageManifest(
+    package: 'daravel_payments',
+    title: 'Payments',
+    category: 'Payments',
+    description:
+        'Midtrans, Xendit and Stripe, with verified webhooks applied once',
+    aliases: ['payments', 'payment', 'midtrans', 'xendit', 'stripe'],
+    registration: ['.withPayments()'],
+    env: [
+      'PAYMENT_GATEWAY=midtrans',
+      'MIDTRANS_SERVER_KEY=',
+      'MIDTRANS_IS_PRODUCTION=false',
+      'XENDIT_SECRET_KEY=',
+      'XENDIT_WEBHOOK_TOKEN=',
+      'STRIPE_SECRET=',
+      'STRIPE_WEBHOOK_SECRET=',
+    ],
+    next: [
+      'Add CreatePaymentTables() to bootstrap/migrations.dart, then migrate.',
+      'Point the gateway\'s notification URL at /payments/webhook/<gateway>.',
+      'Listen for PaymentPaid to fulfil orders.',
+    ],
+  ),
+  PackageManifest(
     package: 'daravel_medialibrary',
     title: 'Media library',
     category: 'Storage',

@@ -2,9 +2,9 @@
 
 All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 `daravel_lints`, `daravel_mysql`, `daravel_permission`, `daravel_activitylog`,
-`daravel_excel`, `daravel_log_viewer`, `daravel_pulse`, `daravel_medialibrary`,
-`daravel_redis`, `daravel_sqlite`, `daravel_postgres`, `daravel_teorion`,
-`daravel_livekit`, `daravel_google`, `daravel_teobiefy`, `daravel_s3`,
+`daravel_excel`, `daravel_log_viewer`, `daravel_pulse`, `daravel_payments`,
+`daravel_medialibrary`, `daravel_redis`, `daravel_sqlite`, `daravel_postgres`,
+`daravel_teorion`, `daravel_livekit`, `daravel_google`, `daravel_teobiefy`, `daravel_s3`,
 `dartisan_cli`). Versions follow SemVer: breaking changes to the Dart API
 wait for a new major version, and Laravel-facing formats change only to
 match Laravel more closely.
@@ -21,6 +21,16 @@ match Laravel more closely.
   state or the state as of a moment (`--at`), and `--if-missing` suits a
   container start. Chaos tests restore under concurrent writes and after
   the replicator is killed.
+- `daravel_payments` (Blueprint #40): Midtrans (Snap), Xendit (invoices)
+  and Stripe (Checkout) behind one `Payment.checkout()`. Webhooks are
+  verified as each gateway documents it (Midtrans' SHA-512 signature,
+  Xendit's callback token, Stripe's timestamped HMAC with its five-minute
+  tolerance) and applied exactly once: an idempotency log, the payment
+  row locked, the amount compared with the order's, status moves that
+  only go forward, and `PaymentPaid` (and failed, expired, refunded,
+  amount mismatch) dispatched after the commit. `Payment.fake()`,
+  `dartisan payment:check` for a missed webhook, and the
+  `CreatePaymentTables` migration.
 - The strangler fig proxy (Blueprint #29): `withUpstream()` puts Daravel
   in front of the Laravel application being migrated. Routes Daravel has
   answer from Daravel; every other request, whatever its method, streams
