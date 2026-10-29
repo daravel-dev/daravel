@@ -22,7 +22,9 @@ isolate leaves the other cores idle.
   measured, four isolates gained almost nothing while four processes
   gained 2.6×, most likely because the isolates share one heap and its
   garbage collections pause them all.
-  Paginate such endpoints, or run several server processes behind the
+  Paginate such endpoints, stream them a page at a time
+  (`Response.streamJson`, [Responses](responses.md#streaming-a-large-json-array)),
+  or run several server processes behind the
   proxy instead of more isolates: `APP_PROCESSES=N`
   ([Deployment](deployment.md#several-processes)); benchmark scenario 13
   measures it (`bench/README.md`).
@@ -47,13 +49,17 @@ Every isolate opens its own pool of `DB_POOL_SIZE` connections (10 by
 default, or `pool=` in `DB_URL`), so a deployment opens up to:
 
 ```text
-instances × APP_ISOLATES × DB_POOL_SIZE
+instances × APP_PROCESSES × (APP_ISOLATES + embedded workers) × DB_POOL_SIZE
 ```
 
-connections, plus the queue workers, the scheduler, migrations and any
-Laravel application on the same database. Keep that under about 80% of
-PostgreSQL's `max_connections` (100 by default). `dartisan doctor` compares
-one instance against `max_connections` and warns above 80%.
+connections (the embedded queue worker and scheduler, `SERVER_EMBED_QUEUE`
+/ `SERVER_EMBED_SCHEDULER`, are isolates with a pool of their own), plus
+separate queue workers, the scheduler, migrations and any Laravel
+application on the same database. Keep that under about 80% of the
+server's `max_connections` (100 by default on PostgreSQL, 151 on MySQL and
+MariaDB). `dartisan doctor` computes one instance's product for
+PostgreSQL, MySQL and MariaDB, compares it with the server's
+`max_connections` and warns above 80%.
 
 When the product is too large, lower `DB_POOL_SIZE` first: a worker rarely
 needs more connections than it has requests waiting on the database at

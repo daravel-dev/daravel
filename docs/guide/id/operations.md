@@ -1,4 +1,4 @@
-<!-- source: operations.md sha256:ff927173c866 -->
+<!-- source: operations.md sha256:d9a4f6c0f60d -->
 # Operasional
 
 Menjalankan Daravel di bawah trafik nyata: berapa isolate, berapa koneksi
@@ -26,7 +26,9 @@ banyak satu core; satu isolate membiarkan core lainnya menganggur.
   menambah throughput sementara empat proses menambah 2,6×, kemungkinan
   besar karena isolate-isolate itu berbagi satu heap dan garbage
   collection-nya menghentikan semuanya. Pakai pagination untuk endpoint
-  seperti itu, atau jalankan beberapa proses server di belakang proxy
+  seperti itu, stream per halaman (`Response.streamJson`,
+  [Response](responses.md#streaming-array-json-besar)), atau jalankan
+  beberapa proses server di belakang proxy
   alih-alih menambah isolate: `APP_PROCESSES=N`
   ([Deployment](deployment.md#beberapa-proses)); skenario benchmark 13
   mengukurnya (`bench/README.md`).
@@ -50,14 +52,17 @@ Setiap isolate membuka pool sendiri berisi `DB_POOL_SIZE` koneksi (default
 10, atau `pool=` di `DB_URL`), sehingga sebuah deployment membuka sampai:
 
 ```text
-instances × APP_ISOLATES × DB_POOL_SIZE
+instances × APP_PROCESSES × (APP_ISOLATES + embedded worker) × DB_POOL_SIZE
 ```
 
-koneksi, ditambah queue worker, scheduler, migrasi, dan aplikasi Laravel
-mana pun di database yang sama. Jaga agar angka itu di bawah sekitar 80%
-dari `max_connections` PostgreSQL (default 100). `dartisan doctor`
-membandingkan satu instance dengan `max_connections` dan memberi warning di
-atas 80%.
+koneksi (queue worker dan scheduler embedded, `SERVER_EMBED_QUEUE` /
+`SERVER_EMBED_SCHEDULER`, adalah isolate dengan pool sendiri), ditambah
+queue worker terpisah, scheduler, migrasi, dan aplikasi Laravel mana pun di
+database yang sama. Jaga agar angka itu di bawah sekitar 80% dari
+`max_connections` server (default 100 di PostgreSQL, 151 di MySQL dan
+MariaDB). `dartisan doctor` menghitung hasil kali satu instance untuk
+PostgreSQL, MySQL, dan MariaDB, membandingkannya dengan `max_connections`
+server, dan memberi warning di atas 80%.
 
 Jika hasil perkaliannya terlalu besar, turunkan `DB_POOL_SIZE` lebih dulu:
 sebuah worker jarang butuh koneksi lebih banyak daripada jumlah request yang

@@ -9,6 +9,7 @@ export 'src/http/client.dart';
 export 'src/http/exception_handler.dart';
 export 'src/http/headers.dart';
 export 'src/http/http_exceptions.dart';
+export 'src/http/json_stream.dart';
 export 'src/http/kernel.dart';
 export 'src/http/proxy/upstream_proxy.dart';
 export 'src/http/middleware.dart';

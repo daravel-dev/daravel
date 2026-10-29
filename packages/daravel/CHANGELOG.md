@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Fixed: `Application.serveWith` with one isolate and embedded workers left the coordinator's port open after the server stopped (`Coordinator.isListening`).
+- `Response.json(phpCompatible: true)` encodes in one pass (`PhpJsonEncoder`), the same bytes as before.
+- `Response.streamJson`, `jsonArrayBytes` and `QueryBuilder.streamJson`: a JSON array written as the rows arrive, a page at a time.
+
 ## 1.19.0
 
 - Fixed: `SqliteReplicator.sync` retries its marker row instead of failing when a writer holds the lock past `busy_timeout`.

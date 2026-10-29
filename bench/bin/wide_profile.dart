@@ -57,6 +57,8 @@ Future<void> main(List<String> args) async {
         'rows': rows.length,
         'columns': rows.isEmpty ? 0 : rows.first.length,
         'json_bytes': utf8.encode(json).length,
+        // Longer: `\/` and `\uxxxx` for every slash and non-ASCII unit.
+        'php_json_bytes': utf8.encode(Response.encodePhpJson(rows)).length,
         'query_id_only_ms': await time(
           () => DB.table('wide_rows').orderBy('id').select(['id']).get(),
         ),
@@ -72,10 +74,28 @@ Future<void> main(List<String> args) async {
           ]),
         ),
         'encode_json_ms': await time(() async => Response.encodeJson(rows)),
+        // `phpCompatible: true` since 1.20: one pass over the values.
+        'encode_php_json_ms': await time(
+          () async => Response.encodePhpJson(rows),
+        ),
+        // The rewrite of an encoded string (`phpJsonFromDart`), what
+        // `phpCompatible` cost on top of `encode_json_ms` before 1.20.
         'php_rewrite_ms': await time(
           () async => phpJsonFromDart(json, emptyMapsAsArrays: true),
         ),
         'php_rewrite_per_char_ms': await time(() async => _perCharacter(json)),
+        // The 1.0 MB JSON array a streamed response writes, chunk by chunk,
+        // without holding every row at once (`streamJson`, 1.20).
+        'stream_json_ms': await time(
+          () => DB.table('wide_rows').orderBy('id').streamJson().drain<void>(),
+        ),
+        'stream_json_php_ms': await time(
+          () => DB
+              .table('wide_rows')
+              .orderBy('id')
+              .streamJson(phpCompatible: true)
+              .drain<void>(),
+        ),
       };
       stdout.writeln(const JsonEncoder.withIndent('  ').convert(report));
     });

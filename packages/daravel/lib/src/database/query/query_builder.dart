@@ -2,6 +2,7 @@ import 'dart:async';
 
 import '../../foundation/clock.dart';
 import '../../http/http_exceptions.dart';
+import '../../http/json_stream.dart';
 import '../database_manager.dart';
 import 'paginator.dart';
 import 'query_ast.dart';
@@ -864,6 +865,15 @@ final class QueryBuilder {
       page++;
     }
   }
+
+  /// The rows as the bytes of a JSON array, written [chunk] rows at a time
+  /// ([lazy]) for `Response.stream(..., contentType: 'application/json')`:
+  /// a large result set reaches the client without being held whole in the
+  /// isolate, and no model is built on the way. [phpCompatible] writes
+  /// PHP's `json_encode()` bytes. Order the query (`orderBy('id')`): the
+  /// chunks are separate page queries, as with [lazy].
+  Stream<List<int>> streamJson({int chunk = 500, bool phpCompatible = false}) =>
+      jsonArrayBytes(lazy(chunk), phpCompatible: phpCompatible);
 
   // ---------------------------------------------------------------------------
   // Writes

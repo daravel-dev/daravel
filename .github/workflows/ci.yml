@@ -116,7 +116,7 @@ jobs:
         run: |
           (cd packages/daravel && dart test --tags integration --reporter=expanded)
           (cd packages/daravel && dart test test/notifications --reporter=expanded)
-          (cd packages/dartisan_cli && dart test test/db_transfer_test.dart --reporter=expanded)
+          (cd packages/dartisan_cli && dart test test/db_transfer_test.dart test/doctor_test.dart --reporter=expanded)
           (cd packages/daravel_permission && dart test --tags integration --reporter=expanded)
           (cd packages/daravel_activitylog && dart test --tags integration --reporter=expanded)
           (cd packages/daravel_teorion && dart test --tags integration --reporter=expanded)
@@ -284,4 +284,4 @@ jobs:
           (cd packages/daravel_permission && dart test --tags integration --reporter=expanded)
           (cd packages/daravel_activitylog && dart test --tags integration --reporter=expanded)
           (cd packages/daravel_teorion && dart test --tags integration --reporter=expanded)
-          (cd packages/dartisan_cli && dart test test/db_transfer_test.dart --reporter=expanded)
+          (cd packages/dartisan_cli && dart test test/db_transfer_test.dart test/doctor_test.dart --reporter=expanded)

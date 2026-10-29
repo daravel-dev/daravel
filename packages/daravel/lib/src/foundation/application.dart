@@ -1025,6 +1025,10 @@ final class Application {
       return await supervisor.run();
     } finally {
       await embedded?.stop(timeout: options.shutdownTimeout);
+      // With one isolate the embedded workers listened on the application's
+      // own coordinator; its port would keep the main isolate alive after
+      // the server stopped. (The supervisor closes its own coordinator.)
+      coordinator?.close();
     }
   }
 

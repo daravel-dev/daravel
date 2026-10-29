@@ -8,6 +8,7 @@ import '../foundation/php.dart';
 import '../foundation/php_serialize.dart';
 import 'cookies.dart';
 import 'headers.dart';
+import 'json_stream.dart';
 import 'realtime.dart';
 import 'request.dart';
 
@@ -187,6 +188,26 @@ final class Response {
     body: StreamBody(stream, contentLength: contentLength),
   );
 
+  /// A JSON array of [items] written as they arrive (Laravel's
+  /// `response()->streamJson()`): the same bytes as [Response.json] of the
+  /// collected list, in chunks, so a large result set is never held whole.
+  /// Feed it `DB.table('users').lazy()` or any stream of encodable values;
+  /// [wrap] puts the array under a key, `{"data":[...]}`, and
+  /// [phpCompatible] writes PHP's `json_encode()` bytes. See
+  /// [jsonArrayBytes].
+  factory Response.streamJson(
+    Stream<Object?> items, {
+    int status = 200,
+    Map<String, String>? headers,
+    bool phpCompatible = false,
+    String? wrap,
+  }) => Response.stream(
+    jsonArrayBytes(items, phpCompatible: phpCompatible, wrap: wrap),
+    contentType: 'application/json',
+    status: status,
+    headers: headers,
+  );
+
   final int status;
   final Headers headers;
   final ResponseBody body;
@@ -230,23 +251,14 @@ final class Response {
   /// escaped slashes and non-ASCII, an empty map as `[]` (an empty PHP
   /// array) and a [PhpObject] as an object, so
   /// `const PhpObject('stdClass', {})` is `{}` as `(object) []` is in PHP.
-  static String encodePhpJson(Object? data) {
-    final text = JsonEncoder((Object? value) {
-      if (value is PhpObject && value.properties.isEmpty) {
-        return _emptyObjectMarker;
-      }
-      return _toEncodable(value);
-    }).convert(data);
-    return phpJsonFromDart(
-      text,
-      emptyMapsAsArrays: true,
-    ).replaceAll('"$_emptyObjectMarker"', '{}');
-  }
+  ///
+  /// One pass ([PhpJsonEncoder]): the same bytes as `jsonEncode` followed by
+  /// [phpJsonFromDart], without the intermediate string and its rewrite.
+  static String encodePhpJson(Object? data) => _phpEncoder.convert(data);
 
-  /// Stands for an empty [PhpObject] while the native encoder runs (which
-  /// cannot tell `{}` from `[]`); plain ASCII so no escape touches it.
-  static const String _emptyObjectMarker =
-      '__daravel_php_empty_object_c3f19e7a42__';
+  static const PhpJsonEncoder _phpEncoder = PhpJsonEncoder(
+    toEncodable: _toEncodable,
+  );
 
   static Headers _headersWithType(
     String contentType,
