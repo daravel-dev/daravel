@@ -2,6 +2,7 @@
 
 ## 1.19.0
 
+- Fixed: `SqliteReplicator.sync` retries its marker row instead of failing when a writer holds the lock past `busy_timeout`.
 - Fixed: `ProcessSupervisor` readiness ignores a TCP self-connection (Linux, ephemeral ports).
 - Added the `date_format` rule (`DateFormatRule`, `Rules.dateFormat`, `phpDateMatchesFormat`), as Laravel's `validateDateFormat`.
 - Added `partitioned` to `Response.withCookie`; `Response.json(phpCompatible: true)` (`Response.encodePhpJson`) writes a `PhpObject` as an object, `{}` when empty.

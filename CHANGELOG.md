@@ -19,6 +19,9 @@ partitioned cookies), and `json_encode` bytes where clients compare them.
 
 ### Fixed
 
+- `db:replicate` no longer fails its first sync when the application holds
+  the write lock for longer than `busy_timeout`: the marker row it writes to
+  start a log is retried, since that writer is writing the log anyway.
 - `ProcessSupervisor` no longer takes a socket connected to itself for a
   ready child: on Linux, dialling a free port of the ephemeral range can
   open a TCP connection to itself.
