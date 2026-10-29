@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Added `route:diff (--laravel=<dir> | --laravel-json=<file>) [--json]`: the Laravel application's routes against this one's, method by method: answered by Daravel, still Laravel, Daravel only, and the share migrated.
+
 ## 1.17.0
 
 - Added `test:stress [--url] [--scenario] [--path] [--rounds] [--requests] [--concurrency] [--isolates] [--warmup] [--cooldown] [--max-p95] [--min-rps] [--json] [--export-public]`: load against a running application in rounds (health, ping, 404, an authenticated `me`, a rate-limited login, custom routes), with throughput mean ± stdev and p50/p95/p99, failing on a 5xx, a missing response, an unexpected status or a threshold; `--export-public` writes only allowed fields, never the target, tokens or custom routes.

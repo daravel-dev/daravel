@@ -29,6 +29,7 @@ import '../events/events.dart';
 import '../http/client.dart';
 import '../http/exception_handler.dart';
 import '../http/headers.dart';
+import '../http/proxy/upstream_proxy.dart';
 import '../http/middleware/maintenance_mode.dart';
 import '../http/middleware/validate_signature.dart';
 import '../http/kernel.dart';
@@ -494,6 +495,23 @@ final class Application {
       logger: logger,
     );
     container.instance<HttpKernel>(kernel);
+    final upstream = _builder._upstream;
+    if (upstream != null) {
+      final url = upstream.url ?? env.maybeString('UPSTREAM_URL');
+      if (url == null || url.isEmpty) {
+        throw const ConfigException(
+          'withUpstream() needs a URL: pass one or set UPSTREAM_URL.',
+        );
+      }
+      final proxy = UpstreamProxy(
+        Uri.parse(url),
+        preserveHost: upstream.preserveHost,
+        stripResponseHeaders: upstream.stripResponseHeaders,
+        timeout: upstream.timeout,
+      );
+      container.instance<UpstreamProxy>(proxy);
+      kernel.unmatched = proxy.forward;
+    }
 
     config.freeze();
     Container.setRoot(container);
@@ -1007,6 +1025,7 @@ final class Application {
     _metricsTimer?.cancel();
     _metricsTimer = null;
     container.resolved<HttpClientFactory>()?.close();
+    container.resolved<UpstreamProxy>()?.close();
     await container.resolved<Mailer>()?.transport.close();
     await container.resolved<BroadcastManager>()?.server?.close();
     await container.resolved<Broadcaster>()?.close();
@@ -1047,6 +1066,7 @@ final class ApplicationBuilder {
   void Function(Schedule schedule)? _scheduleConfig;
   final List<JobDefinition> _jobs = <JobDefinition>[];
   final List<HealthCheck> _healthChecks = <HealthCheck>[];
+  _UpstreamConfig? _upstream;
   bool _defaultHealthChecks = true;
   final List<ServiceProvider> _providers = <ServiceProvider>[];
   final List<void Function(Container container)> _bindings =
@@ -1136,6 +1156,26 @@ final class ApplicationBuilder {
   }) {
     _jobs.addAll(jobs);
     _jobsConfig = configure;
+    return this;
+  }
+
+  /// Forwards every request Daravel has no route for, whatever its method,
+  /// to [url] (`UPSTREAM_URL` when null): the Laravel application being
+  /// migrated route by route (the strangler fig pattern). Migrated routes
+  /// answer from Daravel; the rest stream through to Laravel unchanged.
+  /// See `UpstreamProxy`.
+  ApplicationBuilder withUpstream({
+    String? url,
+    bool preserveHost = false,
+    List<String> stripResponseHeaders = const ['x-powered-by'],
+    Duration timeout = const Duration(seconds: 60),
+  }) {
+    _upstream = _UpstreamConfig(
+      url,
+      preserveHost,
+      stripResponseHeaders,
+      timeout,
+    );
     return this;
   }
 
@@ -1383,4 +1423,18 @@ final class ApplicationBuilder {
 
   /// Creates the (not yet booted) application.
   Application create() => Application._(this);
+}
+
+final class _UpstreamConfig {
+  const _UpstreamConfig(
+    this.url,
+    this.preserveHost,
+    this.stripResponseHeaders,
+    this.timeout,
+  );
+
+  final String? url;
+  final bool preserveHost;
+  final List<String> stripResponseHeaders;
+  final Duration timeout;
 }

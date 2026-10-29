@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Added `withUpstream(url:, preserveHost:, stripResponseHeaders:, timeout:)` and `UpstreamProxy`: requests no route matches, whatever their method, are streamed to another server (the Laravel application being migrated, `UPSTREAM_URL`) with `X-Forwarded-*` headers, cookies, redirects and compressed bodies passed through, 502 when it is down and 504 when it is too slow; `HttpKernel.unmatched`; `Request.bodyStream()`.
+
 ## 1.17.0
 
 - Added `WorkerReportService` (in the standard coordinator) and `WorkerReports`: each worker isolate publishes its latest report on a topic and any worker collects them all; a worker that exits is forgotten.

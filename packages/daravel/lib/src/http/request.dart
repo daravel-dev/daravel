@@ -327,6 +327,11 @@ final class Request {
     _bodyBytes ??= const <int>[];
   }
 
+  /// The raw body as it arrives, once, never above [maxBodyBytes]: for
+  /// forwarding it ([UpstreamProxy]) or writing it somewhere without
+  /// buffering. After [bytes] it replays the cached bytes.
+  Stream<List<int>> bodyStream() => _limitedBody();
+
   /// The body as a stream that never exceeds [maxBodyBytes] (multipart
   /// bodies are parsed as they arrive instead of being buffered).
   Stream<List<int>> _limitedBody() async* {

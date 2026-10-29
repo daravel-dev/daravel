@@ -1,4 +1,4 @@
-<!-- source: migrating-from-laravel.md sha256:0b5bed57f952 -->
+<!-- source: migrating-from-laravel.md sha256:590c52d6c851 -->
 # Migrasi dari Laravel, route demi route
 
 Anda tidak harus menulis ulang aplikasi Laravel sekaligus. Karena Daravel
@@ -184,6 +184,42 @@ port-nya masing-masing.
 
 Mengembalikan sebuah endpoint cukup dengan mengubah satu baris di proxy,
 karena kedua aplikasi tetap bekerja dengan data yang sama.
+### Atau Daravel di depan
+
+Tanpa proxy sendiri, Daravel bisa berdiri di depan Laravel: request yang
+punya route di Daravel dijawab Daravel; selebihnya, apa pun method-nya,
+diteruskan ke Laravel.
+
+```dart
+Application.configure(basePath: basePath)
+    .withUpstream(url: 'http://127.0.0.1:8080')   // atau UPSTREAM_URL di .env
+    // ...
+```
+
+Route baru di Daravel mengambil alih method dan path itu pada deploy
+berikutnya, tanpa konfigurasi proxy yang perlu diubah. `GET /api/orders` di
+Daravel tidak membuat `POST /api/orders` menjadi 405: request itu tetap
+diteruskan ke Laravel. Body di-stream ke dua arah (upload dan download tidak
+ditahan di memori), redirect, cookie (setiap `Set-Cookie`), dan body yang
+terkompresi diteruskan apa adanya, dan `X-Powered-By` dihapus. Laravel
+menerima alamat klien di `X-Forwarded-For`, `-Proto`, `-Host`, dan `-Port`,
+jadi percayai Daravel di middleware `TrustProxies` Laravel
+(`$middleware->trustProxies(at: '127.0.0.1')`). Jika Laravel tidak
+menjawab, klien menerima 502; jika terlalu lambat (`timeout:`, 60 detik),
+504. WebSocket tidak diteruskan.
+
+### Progres
+
+`dartisan route:diff` membandingkan route Laravel dengan route Daravel:
+mana yang sudah dijawab Daravel, mana yang masih diteruskan ke Laravel, dan
+mana yang hanya ada di Daravel. Nama parameter tidak berpengaruh (`{order}`
+cocok dengan `{id}`).
+
+```bash
+dart run bin/dartisan.dart route:diff --laravel=/var/www/shop     # menjalankan php artisan route:list --json
+dart run bin/dartisan.dart route:diff --laravel-json=routes.json  # output yang sudah disimpan
+dart run bin/dartisan.dart route:diff --laravel=/var/www/shop --json
+```
 
 ## 5. Pekerjaan latar belakang
 
