@@ -23,7 +23,7 @@ dependencies:
   daravel: ^1.17.0
   dartisan_cli: ^1.17.0
   path: ^1.9.0
-  xml: ^6.6.1
+  xml: ^7.0.0
 
 dev_dependencies:
   daravel_mysql: ^1.17.0

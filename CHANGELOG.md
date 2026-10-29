@@ -9,6 +9,13 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 wait for a new major version, and Laravel-facing formats change only to
 match Laravel more closely.
 
+## Unreleased
+
+### Changed
+
+- `daravel_excel` depends on `xml` ^7.0.0 (was ^6.6.1): pub.dev took 10
+  points off 1.17.0 because the constraint left out xml 7.
+
 ## 1.17.0
 
 `daravel_pulse` joins the release line: a dashboard of the running
