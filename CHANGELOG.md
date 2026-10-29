@@ -9,6 +9,27 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 wait for a new major version, and Laravel-facing formats change only to
 match Laravel more closely.
 
+## 1.18.1
+
+Two Laravel parity fixes found while moving a Laravel 8 port onto 1.18.0:
+error bodies are written byte for byte as Laravel writes them, and the
+validator stops on an attribute after a failed `required` as Laravel does.
+
+### Fixed
+
+- Error bodies are written as Laravel 8 to 13 write them
+  (`Handler::prepareJsonResponse`): pretty-printed with four spaces and `/`
+  unescaped for every HTTP error, the 500 and the 413, while 401
+  `Unauthenticated.` and 422 stay compact. The JSON values do not change;
+  clients that compare bytes now get the same body from both frameworks.
+- The validator stops on an attribute once one of Laravel's implicit rules
+  fails (`required`, `present`, `filled`, `required_*`, as
+  `Validator::shouldStopValidating`): `{"code": null}` against
+  `required|string` now reports only "The code field is required.", not
+  "must be a string" too. `unique` and `exists` are not queried for an
+  attribute that already failed another rule
+  (`hasNotFailedPreviousRuleIfPresenceRule`).
+
 ## 1.18.0
 
 Lessons from porting a Laravel 8 application to Daravel, made general.

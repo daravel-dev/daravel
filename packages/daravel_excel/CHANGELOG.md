@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.18.1
+
+- Version aligned with Daravel 1.18.1; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).
+
 ## 1.18.0
 
 - Changed: `xml` ^7.0.0 (was ^6.6.1), so the dependencies are up to date on pub.dev again; tested on xml 7.0.0 and 7.1.0.

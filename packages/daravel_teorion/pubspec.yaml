@@ -1,6 +1,6 @@
 name: daravel_teorion
 description: Request-driven query filters for Daravel with whitelists for filters, scopes, relations and sorts, the request format of laravel-teorion.
-version: 1.18.0
+version: 1.18.1
 homepage: https://daravel.dev
 repository: https://github.com/daravel-dev/daravel/tree/main/packages/daravel_teorion
 issue_tracker: https://github.com/daravel-dev/daravel/issues
@@ -20,8 +20,8 @@ resolution: workspace
 
 dependencies:
   crypto: ^3.0.7
-  daravel: ^1.18.0
+  daravel: ^1.18.1
 
 dev_dependencies:
-  daravel_mysql: ^1.18.0
+  daravel_mysql: ^1.18.1
   test: ^1.33.0

@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.18.1
+
+- Version aligned with Daravel 1.18.1; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).
+
 ## 1.18.0
 
 - `doctor`: the one-isolate notice says which shared stores replace state kept in statics before `APP_ISOLATES` is raised.
