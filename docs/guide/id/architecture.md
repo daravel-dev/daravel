@@ -1,4 +1,4 @@
-<!-- source: architecture.md sha256:4452b41251b6 -->
+<!-- source: architecture.md sha256:8dec452119d7 -->
 # Arsitektur
 
 Daravel mempertahankan konsep Laravel dan mengubah mekanisme yang tidak bisa
@@ -94,6 +94,20 @@ menjadi list eksplisit di `bootstrap/`: `migrations.dart`, `seeders.dart`,
 `jobs.dart`, `policies.dart`, `listeners.dart`, dan `commands.dart`.
 `dartisan make:*` merawatnya, dan `dartisan lint` melaporkan file yang
 tertinggal dari registry.
+
+## Import
+
+`package:daravel/daravel.dart` mengekspor seluruh framework. File yang hanya
+membutuhkan satu area, atau yang namanya sendiri bertabrakan dengan nama di
+barrel (`JwtException`, `UniqueRule`, `ModelNotFoundException`, atau
+`CorsMiddleware` milik aplikasi), mengimpor subset-nya saja:
+`package:daravel/foundation.dart` (application, container, konfigurasi,
+facade, logging), `package:daravel/http.dart` (request, response,
+middleware, routing), `package:daravel/database.dart` (query builder, ORM,
+schema, seeding), `package:daravel/auth.dart`, dan
+`package:daravel/validation.dart`. Semuanya mengekspor deklarasi yang sama
+dengan barrel, sehingga `hide` pada import penuh juga bisa dipakai:
+`import 'package:daravel/daravel.dart' hide JwtException;`.
 
 ## Konkurensi
 

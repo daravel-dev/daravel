@@ -1,6 +1,6 @@
 name: daravel_bench
 description: Daravel benchmark harness (BLUEPRINT_V2 §10.2).
-version: 1.17.0
+version: 1.18.0
 publish_to: none
 
 environment:
@@ -15,6 +15,7 @@ dependencies:
   daravel_activitylog: any
   daravel_excel: any
   daravel_medialibrary: any
+  daravel_mysql: any
   daravel_livekit: any
   daravel_redis: any
   image: ^4.8.0

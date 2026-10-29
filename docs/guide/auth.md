@@ -75,9 +75,11 @@ gives the same hashes about 1.5 times slower. Both read `$2a$`, `$2b$` and
 `APP_CIPHER`: `AES-256-CBC` (the default, like Laravel; encrypt-then-MAC
 with HMAC-SHA256) or `AES-256-GCM`. Use the same value as any Laravel app
 you share data with.
-`APP_PREVIOUS_KEYS` enables key rotation. `Crypt.encrypt` JSON-encodes
-values (Laravel uses PHP `serialize()`), so only the string variants are
-cross-runtime.
+`APP_PREVIOUS_KEYS` enables key rotation. `Crypt.encrypt` carries values
+as PHP `serialize()` text, as Laravel's `Crypt::encrypt` does: a map or
+list encrypted here is an array in Laravel and the other way round (a PHP
+object arrives as `PhpObject`). Payloads made by Daravel 1.17 or earlier,
+which held JSON, still decrypt.
 
 ## Authorization
 

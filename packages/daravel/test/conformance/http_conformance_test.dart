@@ -8,7 +8,7 @@ import 'package:test/test.dart';
 
 import 'conformance_app.dart';
 
-/// Error bodies, status codes, headers and JSON dates locked to Laravel 12
+/// Error bodies, status codes, headers and JSON dates locked to Laravel 13
 /// (`Foundation/Exceptions/Handler.php`, routing, throttle, validation).
 void main() {
   late Application app;
@@ -203,7 +203,7 @@ void main() {
       );
     });
 
-    test('default English messages equal Laravel 12 lang/en/validation.php', () {
+    test('default English messages equal Laravel 13 lang/en/validation.php', () {
       final daravel = ValidationMessages.translations['en']!;
       final mismatches = <String>[
         for (final entry in daravel.entries)

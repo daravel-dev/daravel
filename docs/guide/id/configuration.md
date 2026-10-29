@@ -1,4 +1,4 @@
-<!-- source: configuration.md sha256:04aee237b24c -->
+<!-- source: configuration.md sha256:6a03cea95502 -->
 # Konfigurasi
 
 ## File environment
@@ -76,7 +76,10 @@ setelah boot.
 | `APP_KEY`, `APP_PREVIOUS_KEYS` | tidak ada | Enkripsi, signed URL, token; rotasi kunci |
 | `APP_CIPHER` | `AES-256-CBC` | Cipher `Crypt` (seperti Laravel) |
 | `APP_HOST`, `APP_PORT`, `PORT` | `127.0.0.1`, `8000` | Alamat server; `PORT` untuk platform container |
-| `APP_ISOLATES` | `1` | Worker isolate HTTP |
+| `APP_ISOLATES` | `1` | Worker isolate HTTP ([Operasional](operations.md#isolate)) |
+| `APP_PROCESSES` | `1` | Proses server di port berurutan di belakang proxy ([Deployment](deployment.md#beberapa-proses)); butuh penyimpanan bersama atau `APP_PROCESSES_ALLOW_UNSHARED_STATE` |
+| `SESSION_DRIVER`, `SESSION_LIFETIME`, `SESSION_COOKIE` | `file`, `120`, `<app>_session` | Session, cookie terenkripsi, dan CSRF, dengan `daravel_session` ([Session](sessions.md)) |
+| `COMPAT_LARAVEL_VERSION` | `12` | Versi mayor Laravel (8 sampai 13) yang body error dan validasinya dipakai aplikasi ([Koeksistensi dengan Laravel](laravel-coexistence.md#versi-laravel-yang-lebih-lama)) |
 | `DB_CONNECTION`, `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD` | `sqlite` | `sqlite`, `pgsql`, `mysql`, atau `mariadb` (path di `DB_HOST` berarti Unix socket PostgreSQL) |
 | `DB_URL` | | Satu URL sebagai pengganti key di atas, seperti di Laravel 12: `postgres://user:pass@host:5432/app?sslmode=require`. Bagian-bagiannya menggantikan nilai `DB_*` yang sesuai; yang tidak disebut tetap ([Database](database.md#url-database)) |
 | `MAIL_MAILER` | `log` (`array` di test) | `smtp`, `log`, `array`, atau transport yang didaftarkan ([Mail](mail.md)) |
@@ -94,6 +97,7 @@ setelah boot.
 | `DB_POOL_SIZE`, `DB_SSLMODE` | `10`, `disable` | Pool koneksi per isolate, TLS (`require`, `verify-full`) |
 | `DB_CONNECT_TIMEOUT`, `DB_QUERY_TIMEOUT` | `10`, `30` | Detik yang boleh dipakai koneksi PostgreSQL atau MySQL untuk terbuka, dan sebuah statement untuk berjalan (`0` untuk tanpa batas; statement yang macet akan menahan koneksi pool-nya selamanya) |
 | `CACHE_STORE`, `CACHE_PREFIX` | `memory` | Penyimpanan cache dan prefix key |
+| `CACHE_PROCESS_MAX_ENTRIES` | `10000` | Jumlah entri yang disimpan store `process` untuk seluruh server; yang paling lama tidak dipakai dibuang lebih dulu, jadi naikkan bila store ini menampung banyak key yang harus bertahan sampai kedaluwarsa (JWT yang dicabut, counter per client), atau simpan key itu di `database` atau Redis |
 | `CACHE_PROCESS_L1_TTL` | `0` (mati) | Dengan store `process`, berapa lama setiap worker isolate memakai ulang nilai yang dibacanya (`250ms`) sebelum bertanya lagi ke coordinator |
 | `CACHE_LIMITER` | coordinator | Penyimpanan cache untuk rate limit (`cache.limiter` dari Laravel); `database` membaginya antarmesin, dengan satu statement per percobaan |
 | `QUEUE_CONNECTION` | `sync` | `sync`, `memory`, `database`, atau `redis` ([Redis](redis.md)) |

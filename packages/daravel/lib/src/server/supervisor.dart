@@ -20,11 +20,16 @@ typedef ApplicationFactory = Application Function();
 /// Builds the standard coordinator: rate limiting, process cache, merged
 /// metrics (with the coordinator's own counters), broadcast fan-out,
 /// channel membership and worker reports.
-Coordinator createStandardCoordinator() {
+///
+/// [processCacheMaxEntries] bounds the `process` cache store
+/// (`CACHE_PROCESS_MAX_ENTRIES`); the least recently used entries go first.
+Coordinator createStandardCoordinator({int processCacheMaxEntries = 10000}) {
   final coordinator = Coordinator();
   return coordinator
     ..register(RateLimitService())
-    ..register(ProcessCacheService())
+    ..register(
+      ProcessCacheService(MemoryStore(maxEntries: processCacheMaxEntries)),
+    )
     ..register(MetricsService(coordinatorStats: coordinator.stats))
     ..register(BroadcastService())
     ..register(ChannelMembershipService())

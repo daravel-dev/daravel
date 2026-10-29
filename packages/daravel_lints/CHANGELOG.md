@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.18.0
+
+- `no_sql_string_interpolation` reports `raw`, `select`, `statement` and `insertGetId` only on a database receiver (`DB`, a connection or query builder, a builder chain) and accepts interpolation of literals and `const` names declared in the file.
+- `no_mutable_static_in_app` also reports a final static or top-level variable that starts as an empty collection (`static final _hits = <String, int>{}`), and its messages name the shared stores that replace one.
+
 ## 1.17.0
 
 - Version aligned with Daravel 1.17.0; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).

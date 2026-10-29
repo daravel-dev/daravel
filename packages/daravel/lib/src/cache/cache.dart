@@ -177,6 +177,7 @@ final class CacheConfig implements ConfigSection {
     this.table = 'cache',
     this.lockTable = 'cache_locks',
     this.maxEntries = 10000,
+    this.processMaxEntries = 10000,
     this.processL1Ttl = Duration.zero,
     this.limiter,
   });
@@ -193,6 +194,7 @@ final class CacheConfig implements ConfigSection {
       table: env.string('CACHE_TABLE', 'cache'),
       lockTable: env.string('CACHE_LOCK_TABLE', 'cache_locks'),
       maxEntries: env.integer('CACHE_MAX_ENTRIES', 10000),
+      processMaxEntries: env.integer('CACHE_PROCESS_MAX_ENTRIES', 10000),
       processL1Ttl: env.duration('CACHE_PROCESS_L1_TTL', Duration.zero),
       limiter: switch (env.string('CACHE_LIMITER', '')) {
         '' => null,
@@ -208,6 +210,13 @@ final class CacheConfig implements ConfigSection {
   final String table;
   final String lockTable;
   final int maxEntries;
+
+  /// Entries the `process` store keeps for the whole server
+  /// (`CACHE_PROCESS_MAX_ENTRIES`, 10 000); the least recently used go
+  /// first, silently. Raise it when the store holds many keys that must
+  /// not be lost before they expire (revoked tokens, counters per client),
+  /// or move those to a persistent store.
+  final int processMaxEntries;
 
   /// How long each worker isolate may reuse a value read from the `process`
   /// store before asking the coordinator again (`CACHE_PROCESS_L1_TTL`, e.g.
@@ -230,7 +239,11 @@ final class CacheConfig implements ConfigSection {
     'prefix': prefix,
     'stores': {
       'memory': {'driver': 'memory', 'max_entries': maxEntries},
-      'process': {'driver': 'process', 'l1_ttl': processL1Ttl.inMilliseconds},
+      'process': {
+        'driver': 'process',
+        'max_entries': processMaxEntries,
+        'l1_ttl': processL1Ttl.inMilliseconds,
+      },
       'file': {'driver': 'file', 'path': path},
       'database': {
         'driver': 'database',

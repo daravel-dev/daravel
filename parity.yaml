@@ -56,7 +56,10 @@ sections:
       - { php: "$request->url()", dart: "request.url", symbol: Request.url }
       - { php: "$request->route('id')", dart: "request.param<int>('id')", symbol: Request.param }
       - { php: "$request->expectsJson()", dart: "request.expectsJson", symbol: Request.expectsJson }
-      - { php: "response()->json($data, $status)", dart: "Response.json(data, status: status)", symbol: Response.json }
+      - { php: "$request->cookie('theme') / ->cookies->all()", dart: "request.cookie('theme') / request.cookies", symbol: Request.cookie, note: "Decoded like $_COOKIE; EncryptCookies is not applied." }
+      - { php: "response(...)->withCookie(cookie('theme', 'dark', 60))", dart: "response.withCookie('theme', 'dark', maxAge: Duration(minutes: 60))", symbol: Response.withCookie, note: "Same Set-Cookie text as Symfony's Cookie." }
+      - { php: "response(...)->withoutCookie('theme') / Cookie::forget('theme')", dart: "response.withoutCookie('theme')", symbol: Response.withoutCookie }
+      - { php: "response()->json($data, $status)", dart: "Response.json(data, status: status)", symbol: Response.json, note: "phpCompatible: true writes json_encode's bytes (\\/, \\u escapes, [] for an empty map)." }
       - { php: "Blade views ({{ $name }}, {!! $html !!})", dart: "div([user.name]) / raw(html) from package:daravel/html.dart", symbol: HtmlNode, note: "Typed builder, escaped by default; a separate import." }
       - { php: "response()->noContent()", dart: "Response.noContent()", symbol: Response.noContent }
       - { php: "redirect($to)", dart: "Response.redirect(to)", symbol: Response.redirect }
@@ -110,6 +113,19 @@ sections:
       - { php: "Cache::lock('report')->get(...) on Redis", dart: "Cache.lock('report') on CACHE_STORE=redis", symbol: RedisStore.acquireLock, async: true, note: "Laravel's RedisLock: the same keys and release script." }
       - { php: "QUEUE_CONNECTION=redis", dart: "QUEUE_CONNECTION=redis", symbol: RedisQueue, note: "BLPOP wakes idle workers; keys under daravel:, apart from Laravel's queues:." }
       - { php: "REVERB_SCALING_ENABLED=true (Redis)", dart: "REVERB_SCALING_DRIVER=redis", symbol: RedisBroadcastRelay, note: "Pub/Sub between servers; presence members shared across them." }
+
+  - name: Sessions (daravel_session)
+    symbols:
+      - { php: "Route::middleware('web')", dart: ".group(routes, middleware: ['web'])", symbol: SessionApplicationBuilder, note: "withSession() registers encrypt_cookies, session and csrf, and the web group that runs them in Laravel's order." }
+      - { php: "$request->session() / session()", dart: "request.session / Session.current", symbol: Session.current }
+      - { php: "session()->get('key', $default) / put / has / forget", dart: "session.get<T>('key', fallback) / put / has / forget", symbol: Session.get, note: "Dot keys nest as in Laravel; stored as PHP serialize() with Laravel's _token, _flash and _previous keys." }
+      - { php: "session()->flash('status', 'Saved') / reflash / keep / now", dart: "session.flash('status', 'Saved') / reflash / keep / now", symbol: Session.flash }
+      - { php: "session()->regenerate() / invalidate()", dart: "await session.regenerate() / invalidate()", symbol: Session.invalidate, async: true }
+      - { php: "csrf_token()", dart: "session.token", symbol: Session.token }
+      - { php: "EncryptCookies middleware", dart: "EncryptCookiesMiddleware", symbol: EncryptCookiesMiddleware, note: "Crypt payload with CookieValuePrefix (hmac_sha1(name.'v2', key).'|'), so cookies are shared with the Laravel app." }
+      - { php: "VerifyCsrfToken ($except, X-CSRF-TOKEN, X-XSRF-TOKEN)", dart: "VerifyCsrfTokenMiddleware(except: [...])", symbol: VerifyCsrfTokenMiddleware, note: "419 CSRF token mismatch.; the XSRF-TOKEN cookie is set on every response." }
+      - { php: "SESSION_DRIVER=file|database", dart: "SESSION_DRIVER=file|database (array for tests)", symbol: SessionManager.extend, note: "Laravel's sessions table (payload base64(serialize()), last_activity) and file format; extend() adds a driver." }
+      - { php: "create_sessions_table migration", dart: "CreateSessionsTable", symbol: CreateSessionsTable, note: "Does nothing when the table exists already." }
 
   - name: Permissions (daravel_permission)
     symbols:
@@ -189,6 +205,7 @@ sections:
     symbols:
       - { php: "class User extends Model", dart: "final class User extends Model", symbol: Model }
       - { php: "protected $table / $fillable / $hidden / $casts", dart: "ModelDefinition<User>(table:, fillable:, hidden:, casts:)", symbol: ModelDefinition }
+      - { php: "'published_at' => 'datetime:Y-m-d H:i' (casts)", dart: "casts: {'published_at': Cast.dateTimeFormat('Y-m-d H:i')}", symbol: Cast.dateTimeFormat, note: "PHP date() tokens, formatted in UTC as Laravel 8 to 13 do; formatPhpDate() for other values." }
       - { php: "php artisan model:show User", dart: "dartisan model:show User (models listed in bootstrap/models.dart)", symbol: ModelRegistry, note: "No class discovery: the registry is explicit, like migrations and jobs." }
       - { php: "$model->getMorphClass()", dart: "Relation.morphClassOf(User.definition)", symbol: Relation.morphClassOf, note: "The morph alias, else `ModelDefinition.morphClass` (`App\\Models\\User` by default)." }
       - { php: "User::query()", dart: "User.query()", symbol: ModelDefinition.query }
@@ -269,7 +286,7 @@ sections:
       - { php: "$user->tokenCan('posts:read')", dart: "await Auth.tokenGuard().tokenCan('posts:read')", symbol: TokenGuard.tokenCan, async: true }
       - { php: "Hash::make / check / needsRehash", dart: "await Hash.make / check, Hash.needsRehash", symbol: Hash.needsRehash }
       - { php: "Crypt::encryptString / decryptString", dart: "await Crypt.encryptString / decryptString", symbol: Crypt.decryptString, async: true, note: "Byte-compatible with APP_CIPHER=AES-256-CBC or AES-256-GCM." }
-      - { php: "Crypt::encrypt / decrypt", dart: "await Crypt.encrypt / decrypt", symbol: Crypt.encrypt, async: true, note: "Values are JSON-encoded, not PHP-serialized: not cross-runtime." }
+      - { php: "Crypt::encrypt / decrypt", dart: "await Crypt.encrypt / decrypt", symbol: Crypt.encrypt, async: true, note: "PHP serialize() inside, as Laravel: maps and lists are arrays on both sides." }
       - { php: "php artisan env:encrypt / env:decrypt", dart: "dartisan env:encrypt / env:decrypt", symbol: EnvironmentEncrypter, note: "Same .env.encrypted file (default and --readable); decrypted in memory at boot with DARAVEL_ENV_ENCRYPTION_KEY or LARAVEL_ENV_ENCRYPTION_KEY." }
       - { php: "Gate::define / allows / denies / authorize", dart: "Gate.define / allows / denies / authorize", symbol: Gate.authorize, async: true }
       - { php: "class PostPolicy", dart: "final class PostPolicy extends Policy<Post>", symbol: Policy }
@@ -386,7 +403,6 @@ exceptions:
 # Laravel features without a Daravel equivalent yet (BLUEPRINT_V2 Tier 2/3).
 missing:
   - { php: "Sessions, CSRF, SPA cookie auth", plan: "Tier 2" }
-  - { php: "PHP serialize() for Crypt::encrypt payloads", plan: "Tier 2 (Laravel-compatible Crypt mode)" }
   - { php: "optional() helper", plan: "Not planned: Dart has ?. and ??" }
   - { php: "app() / route() / url() global helpers", plan: "Use App.make<T>(), router.url(...); a global app() would be shadowed by the idiomatic app variable" }
   - { php: "dd() / dump()", plan: "Not planned: use print or Log in development" }

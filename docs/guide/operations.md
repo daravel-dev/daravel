@@ -17,6 +17,25 @@ isolate leaves the other cores idle.
 - On a container platform the number of cores is the container's CPU
   limit, not the host's: two vCPUs means `APP_ISOLATES=2`.
 - More isolates than cores adds context switches, not throughput.
+- Endpoints that allocate a lot per request (a thousand wide rows decoded
+  and encoded as JSON) scale poorly across the isolates of one process:
+  measured, four isolates gained almost nothing while four processes
+  gained 2.6×, most likely because the isolates share one heap and its
+  garbage collections pause them all.
+  Paginate such endpoints, or run several server processes behind the
+  proxy instead of more isolates: `APP_PROCESSES=N`
+  ([Deployment](deployment.md#several-processes)); benchmark scenario 13
+  measures it (`bench/README.md`).
+- Each isolate has its own memory, so state an application keeps in a
+  static (a revoked-token list, a counter, a cached value) exists once per
+  isolate. Keep it in a shared store before raising `APP_ISOLATES`:
+  `RateLimiter` for limits and counters, `Cache.store('process')` for
+  short-lived values on one machine, the `database` or Redis cache store
+  for what must survive a restart or reach every server (the `process`
+  store keeps `CACHE_PROCESS_MAX_ENTRIES` entries, 10 000 by default, and
+  starts empty), and
+  `Auth.jwtGuard().invalidate()` for JWTs. `dartisan lint` reports such
+  statics (`no_mutable_static_in_app`).
 - Process-wide state (rate limits, the `process` cache store, locks,
   metrics) goes through the coordinator in the supervisor isolate, so a
   limit such as `throttle:60,1` holds for the whole server, not per

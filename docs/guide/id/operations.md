@@ -1,4 +1,4 @@
-<!-- source: operations.md sha256:4ce08b2e2626 -->
+<!-- source: operations.md sha256:ff927173c866 -->
 # Operasional
 
 Menjalankan Daravel di bawah trafik nyata: berapa isolate, berapa koneksi
@@ -20,6 +20,26 @@ banyak satu core; satu isolate membiarkan core lainnya menganggur.
   jumlah core host: dua vCPU berarti `APP_ISOLATES=2`.
 - Isolate yang lebih banyak daripada core hanya menambah context switch,
   bukan throughput.
+- Endpoint yang banyak melakukan alokasi per request (seribu baris lebar
+  yang di-decode lalu di-encode menjadi JSON) kurang bisa scale di antara
+  isolate dalam satu proses: dalam pengukuran, empat isolate hampir tidak
+  menambah throughput sementara empat proses menambah 2,6×, kemungkinan
+  besar karena isolate-isolate itu berbagi satu heap dan garbage
+  collection-nya menghentikan semuanya. Pakai pagination untuk endpoint
+  seperti itu, atau jalankan beberapa proses server di belakang proxy
+  alih-alih menambah isolate: `APP_PROCESSES=N`
+  ([Deployment](deployment.md#beberapa-proses)); skenario benchmark 13
+  mengukurnya (`bench/README.md`).
+- Setiap isolate punya memori sendiri, sehingga state yang disimpan aplikasi
+  di static (daftar token yang dicabut, counter, nilai cache) ada satu per
+  isolate. Simpan state itu di penyimpanan bersama sebelum menaikkan
+  `APP_ISOLATES`: `RateLimiter` untuk batas dan counter,
+  `Cache.store('process')` untuk nilai berumur pendek di satu mesin,
+  penyimpanan cache `database` atau Redis untuk yang harus bertahan saat
+  restart atau sampai ke setiap server (penyimpanan `process` menampung
+  `CACHE_PROCESS_MAX_ENTRIES` entri, default 10.000, dan mulai kosong), dan `Auth.jwtGuard().invalidate()` untuk
+  JWT. `dartisan lint` melaporkan static seperti itu
+  (`no_mutable_static_in_app`).
 - State per proses (rate limit, penyimpanan cache `process`, lock, metrik)
   melewati coordinator di isolate supervisor, sehingga batas seperti
   `throttle:60,1` berlaku untuk seluruh server, bukan per worker.

@@ -46,7 +46,7 @@ final class PostResource extends JsonResource<Post> {
   };
 }
 
-/// laravel/laravel 12.x `0001_01_01_000000_create_users_table` (users only).
+/// laravel/laravel 13.x `0001_01_01_000000_create_users_table` (users only).
 final class CreateUsersTable extends Migration {
   const CreateUsersTable();
 

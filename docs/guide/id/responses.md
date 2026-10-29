@@ -1,4 +1,4 @@
-<!-- source: responses.md sha256:a002ce4d4844 -->
+<!-- source: responses.md sha256:5efb84b1f917 -->
 # Respons dan resource
 
 Handler bisa mengembalikan `Response.json(data, status: 201)`,
@@ -6,6 +6,28 @@ Handler bisa mengembalikan `Response.json(data, status: 201)`,
 `Response.noContent()`, `JsonSerializable` atau `Responsable` apa pun, map,
 list, model, dan paginator. Tanggal diserialisasi seperti `toJSON()` dari
 Carbon: UTC dengan mikrodetik, `2026-01-02T03:04:05.000000Z`.
+
+`Response.json(data, phpCompatible: true)` menulis byte `json_encode()` PHP
+sebagai gantinya: `/` menjadi `\/`, karakter non-ASCII menjadi escape `\u`,
+dan map kosong menjadi `[]` (array PHP kosong). Pakai opsi ini saat client
+membandingkan atau menandatangani body yang dulu dikirim endpoint Laravel.
+
+## Cookie
+
+```dart
+final theme = request.cookie('theme', 'light');
+return Response.json({'theme': theme})
+    .withCookie('theme', 'dark', maxAge: const Duration(days: 30))
+    .withoutCookie('legacy');
+```
+
+`request.cookies` berisi semua cookie, di-decode seperti `$_COOKIE` di PHP.
+`withCookie` menambahkan header `Set-Cookie` dengan format yang dikirim
+Laravel, dengan default Laravel (`path=/`, `httponly`, `samesite=lax`);
+tanpa `maxAge`, cookie berlaku selama sesi browser. Nilai dikirim apa
+adanya: middleware `EncryptCookies` dari Laravel belum punya padanan,
+sehingga cookie yang dienkripsi Laravel terbaca sebagai payload
+terenkripsinya.
 
 ## API resource
 
@@ -221,6 +243,10 @@ Exception dirender exception handler dengan body dari Laravel. Dengan
 | Terkena rate limit | 429 | `Too Many Attempts.` |
 | `abort(404)` tanpa pesan | 404 | string kosong, seperti Laravel |
 | Selain itu | 500 | `Server Error` |
+
+Ini adalah pesan Laravel 10 sampai 13; `COMPAT_LARAVEL_VERSION=8` atau `9`
+menjawab dengan pesan Laravel yang lebih lama ([Koeksistensi dengan
+Laravel](laravel-coexistence.md#versi-laravel-yang-lebih-lama)).
 
 Daftarkan renderer sendiri dengan `withExceptions((e) =>
 e.render<MyError>((error, request) => Response.json({...}, status: 409)))`.

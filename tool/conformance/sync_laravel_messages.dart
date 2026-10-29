@@ -5,7 +5,8 @@ import 'dart:io';
 /// conformance suite:
 ///
 /// ```bash
-/// dart run tool/conformance/sync_laravel_messages.dart            # 12.x
+/// dart run tool/conformance/sync_laravel_messages.dart              # 13.x
+/// dart run tool/conformance/sync_laravel_messages.dart --branch=12.x
 /// dart run tool/conformance/sync_laravel_messages.dart path/to/validation.php
 /// ```
 ///
@@ -15,13 +16,19 @@ import 'dart:io';
 /// Nested size rules become dotted keys (`min.string`), as in Daravel's
 /// catalog. The `custom` and `attributes` sections are skipped.
 Future<void> main(List<String> args) async {
-  const branch = '12.x';
-  const source =
+  final branch =
+      args
+          .where((a) => a.startsWith('--branch='))
+          .map((a) => a.substring('--branch='.length))
+          .firstOrNull ??
+      '13.x';
+  final files = args.where((a) => !a.startsWith('--')).toList();
+  final source =
       'https://raw.githubusercontent.com/laravel/framework/$branch/'
       'src/Illuminate/Translation/lang/en/validation.php';
-  final php = args.isEmpty
+  final php = files.isEmpty
       ? await _download(source)
-      : File(args.first).readAsStringSync();
+      : File(files.first).readAsStringSync();
   final messages = parseValidationPhp(php);
   if (messages.length < 50) {
     stderr.writeln('Parsed only ${messages.length} messages; aborting.');

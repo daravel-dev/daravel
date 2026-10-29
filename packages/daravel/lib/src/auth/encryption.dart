@@ -6,6 +6,7 @@ import 'package:crypto/crypto.dart' as crypto;
 import 'package:cryptography/cryptography.dart' as cg;
 
 import '../foundation/exceptions.dart';
+import '../foundation/php_serialize.dart';
 import 'hashing.dart' show constantTimeEquals;
 
 /// Symmetric ciphers supported by [Encrypter].
@@ -51,8 +52,10 @@ final class EncryptException extends DaravelException {
 /// configured with the same cipher. Like Laravel, the default is AES-256-CBC
 /// (ADR-024); `APP_CIPHER=AES-256-GCM` selects GCM.
 /// Decryption accepts either payload shape.
-/// [encrypt]/[decrypt] JSON-encode arbitrary values, where Laravel uses PHP
-/// `serialize()`, so only the string variants are cross-runtime.
+/// [encrypt]/[decrypt] carry arbitrary values as PHP `serialize()` text, as
+/// Laravel's `Crypt::encrypt` does, so both runtimes read each other's
+/// payloads; a payload made by Daravel 1.17 or earlier (JSON inside) is
+/// still decrypted.
 final class Encrypter {
   Encrypter(
     List<int> key, {
@@ -89,6 +92,10 @@ final class Encrypter {
   /// The active (first) key.
   List<int> get key => _keys.first;
 
+  /// Every key that decrypts: the active one first, then
+  /// `APP_PREVIOUS_KEYS` (Laravel's `getAllKeys()`).
+  List<List<int>> get keys => List.unmodifiable(_keys);
+
   /// Decodes `base64:<key>` (or raw base64) into bytes.
   static List<int> parseKey(String value) {
     final raw = value.startsWith('base64:') ? value.substring(7) : value;
@@ -105,12 +112,28 @@ final class Encrypter {
   /// Generates a fresh `base64:<32 random bytes>` key.
   static String generateKey() => 'base64:${base64.encode(_randomBytes(32))}';
 
-  /// JSON-encodes [value] then encrypts it.
-  Future<String> encrypt(Object? value) => encryptString(jsonEncode(value));
+  /// Serializes [value] as PHP `serialize()` would (Laravel's
+  /// `Crypt::encrypt`) then encrypts it: maps and lists become PHP arrays,
+  /// so a Laravel application with the same key reads the value back.
+  Future<String> encrypt(Object? value) => encryptString(phpSerialize(value));
 
-  /// Decrypts a payload produced by [encrypt] and JSON-decodes it.
+  /// Decrypts a payload produced by [encrypt] or by Laravel's
+  /// `Crypt::encrypt` and unserializes it (a PHP array with keys 0..n-1 is
+  /// a `List`, any other a `Map<String, Object?>`, an object a
+  /// [PhpObject]). A JSON payload from Daravel 1.17 or earlier is decoded
+  /// as before.
   Future<T> decrypt<T>(String payload) async {
-    final decoded = jsonDecode(await decryptString(payload));
+    final text = await decryptString(payload);
+    final Object? decoded;
+    try {
+      decoded = looksPhpSerialized(text)
+          ? phpUnserialize(text)
+          : jsonDecode(text);
+    } on FormatException catch (error) {
+      throw DecryptException(
+        'Decrypted value is not readable: ${error.message}',
+      );
+    }
     if (decoded is! T) {
       throw DecryptException(
         'Decrypted value is ${decoded.runtimeType}, expected $T.',

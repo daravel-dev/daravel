@@ -1,4 +1,4 @@
-<!-- source: laravel-coexistence.md sha256:65d309fce86e -->
+<!-- source: laravel-coexistence.md sha256:faafbd025598 -->
 # Koeksistensi dengan Laravel
 
 Tujuan produk Daravel adalah aplikasi Laravel dan aplikasi Daravel bisa
@@ -9,7 +9,8 @@ menguncinya:
 
 - `packages/daravel/test/conformance/` menjalankan setiap kontrak di bawah ini
   terhadap framework (`dart test --tags conformance`);
-- fixture-nya mengutip sumber Laravel 12 / Sanctum 4 asalnya
+- fixture-nya mengutip sumber Laravel 13 / Sanctum 4 asalnya (Laravel 10
+  sampai 12 menulis format yang sama, ADR-025)
   (`packages/daravel_test/lib/src/conformance/`), dan pesan validasi
   dibangkitkan dari `lang/en/validation.php` dari Laravel
   (`dart run tool/conformance/sync_laravel_messages.dart`);
@@ -26,16 +27,47 @@ Hanya itu: default Daravel sama dengan Laravel (ADR-024), yaitu
 `APP_CIPHER=AES-256-CBC` dan `HASH_DRIVER=bcrypt`. Jika aplikasi Laravel
 mengubahnya, samakan nilainya.
 
+### Versi Laravel yang lebih lama
+
+Laravel 10, 11, 12 dan 13 mengirim pesan validasi, ringkasan 422, dan pesan
+404/405 yang sama, sehingga tidak perlu pengaturan tambahan. Untuk aplikasi
+di Laravel yang lebih lama, yang client-nya mungkin menampilkan atau
+membandingkan string ini, set versi mayornya:
+
+```dotenv
+COMPAT_LARAVEL_VERSION=8
+```
+
+| `COMPAT_LARAVEL_VERSION` | Pesan validasi | `message` 422 | Route tidak dikenal (404) | Method salah (405) |
+| :-- | :-- | :-- | :-- | :-- |
+| `10` sampai `13` (default `12`) | `The email field must be a valid email address.` | error pertama + `(and N more errors)` | `The route api/x could not be found.` | `... not supported for route api/x. ...` |
+| `9` | `The email must be a valid email address.` | sama dengan 10 | sama dengan 10 | sama dengan 10 |
+| `8` | sama dengan 9 | `The given data was invalid.` | kosong | `... not supported for this route. ...` |
+
+Pesan yang di-set aplikasi sendiri (`messages:` atau translation) dipakai
+apa adanya. `Response.json(data, phpCompatible: true)` menulis byte yang
+sama dengan `json_encode()` PHP (`\/`, escape `\u`, `[]` untuk map kosong),
+untuk client yang membandingkan atau menandatangani body respons.
+
+JSON model tidak memerlukan switch versi: Laravel 8 sampai 13 menyerialkan
+model dengan cara yang sama, dan `Model.toJson` mengikutinya. Entri
+`appends:` yang menamai atribut yang sudah ada menggantikannya di tempat
+(posisi key sama), dan cast `datetime:FORMAT`, di Daravel
+`Cast.dateTimeFormat('Y-m-d H:i:s')`, ditulis dalam format `date()` PHP
+tersebut dalam UTC, seperti Laravel menulis `created_at` yang diformat
+(timestamp diserialkan ke UTC sebelum diformat). Tanggal tanpa format tetap
+ISO-8601 UTC (`Carbon::toJSON()`).
+
 ## Apa yang dibagi, dan bagaimana
 
 | Area | Kontrak |
 | :-- | :-- |
 | Tabel `migrations` | `id`, `migration`, `batch`; migrasi framework memakai nama dari Laravel (`0001_01_01_000001_create_cache_table`, ...) |
-| `users` | kolom skeleton Laravel 12 |
-| `cache`, `cache_locks` | skema Laravel 12, termasuk index `expiration` |
-| `jobs`, `job_batches`, `failed_jobs` | skema Laravel 12 |
+| `users` | kolom skeleton Laravel 13 |
+| `cache`, `cache_locks` | skema Laravel 13, termasuk index `expiration` |
+| `jobs`, `job_batches`, `failed_jobs` | skema Laravel 13 |
 | `personal_access_tokens` | skema Sanctum 4; token `{id}\|{40 karakter}{crc32b}`, yang disimpan SHA-256-nya; `tokenable_type` = `App\Models\User` |
-| `notifications` | skema Laravel 12; `type` `App\Notifications\...`, `notifiable_type` adalah `morphClass` model, `data` JSON ([Mail](mail.md)) |
+| `notifications` | skema Laravel 13; `type` `App\Notifications\...`, `notifiable_type` adalah `morphClass` model, `data` JSON ([Mail](mail.md)) |
 | `features` | skema dan serialisasi scope Pennant ([Feature flag](feature-flags.md)) |
 | Broadcasting | protokol Pusher dari Laravel Reverb: Echo terhubung ke Daravel, `/broadcasting/auth` menandatangani seperti Laravel, Laravel mem-broadcast lewat Daravel dan Daravel lewat Reverb, notifikasi di `private-App.Models.User.{id}` ([Broadcasting](broadcasting.md)) |
 | Password | bcrypt `$2y$` dua arah (hash argon2id butuh dukungan argon2 di PHP) |

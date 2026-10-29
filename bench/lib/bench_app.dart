@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:daravel/daravel.dart';
+import 'package:daravel_mysql/daravel_mysql.dart';
 
 /// `users` row of the benchmark database.
 final class User extends Model with AuthenticatableModel {
@@ -69,10 +70,26 @@ final class CreateBenchTables extends Migration {
       t.foreignId('post_id').index();
       t.string('body');
     });
+    // Scenario 13: a wide table like a Laravel `users` table that grew.
+    await schema.create('wide_rows', (t) {
+      t.id();
+      for (var i = 1; i <= wideStringColumns; i++) {
+        t.string('s$i').nullable();
+      }
+      for (var i = 1; i <= wideIntColumns; i++) {
+        t.integer('n$i').nullable();
+      }
+      for (var i = 1; i <= wideDateColumns; i++) {
+        t.timestamp('d$i').nullable();
+      }
+      t.boolean('active').defaultTo(true);
+      t.decimal('balance', precision: 12).nullable();
+    });
   }
 
   @override
   Future<void> down(SchemaBuilder schema) async {
+    await schema.dropIfExists('wide_rows');
     await schema.dropIfExists('comments');
     await schema.dropIfExists('posts');
     await schema.dropIfExists('users');
@@ -86,6 +103,8 @@ const String benchPassword = 'bench-password';
 /// Top-level so supervisor workers can build it in their own isolates.
 Application
 createBenchApp() => Application.configure(basePath: Directory.current.path)
+    .withDatabaseDriver('mysql', MySqlDriver.fromConfig)
+    .withDatabaseDriver('mariadb', MySqlDriver.fromConfig)
     .withMigrations(const [CreateBenchTables()])
     .withAuth(
       (auth) =>
@@ -144,6 +163,15 @@ createBenchApp() => Application.configure(basePath: Directory.current.path)
           final file = (await req.file('file'))!;
           return {'name': file.clientName, 'size': (await file.bytes()).length};
         });
+        // Scenario 13: every row of a 40-column table (row decoding and
+        // JSON encoding dominate; `?php=1` adds the json_encode rewrite).
+        r.get(
+          '/wide',
+          (req) async => Response.json(
+            await DB.table('wide_rows').orderBy('id').get(),
+            phpCompatible: req.query['php'] == '1',
+          ),
+        );
         // Scenario 8: an SSE response of ten events, read to its end.
         r.get(
           '/events',
@@ -177,5 +205,25 @@ Future<void> seedBenchDatabase(Application app) => app.run(() async {
         await DB.table('comments').insert({'post_id': i, 'body': 'Comment $c'});
       }
     }
+    final stamp = DateTime.utc(2026);
+    for (var i = 1; i <= wideRowCount; i++) {
+      await DB.table('wide_rows').insert({
+        for (var c = 1; c <= wideStringColumns; c++)
+          's$c': 'Value $c of row $i, café/$i',
+        for (var c = 1; c <= wideIntColumns; c++) 'n$c': i * c,
+        for (var c = 1; c <= wideDateColumns; c++)
+          'd$c': stamp.add(Duration(minutes: i + c)),
+        'active': i.isEven,
+        'balance': '${i * 3}.25',
+      });
+    }
   });
 });
+
+/// Column counts of `wide_rows` (with `id`, `active` and `balance`: 40).
+const int wideStringColumns = 22;
+const int wideIntColumns = 10;
+const int wideDateColumns = 5;
+
+/// Rows seeded into `wide_rows`, all returned by scenario 13.
+const int wideRowCount = 1000;

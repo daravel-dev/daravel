@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import '../foundation/config.dart';
 import '../foundation/container.dart';
 import '../logging/logger.dart';
 import '../routing/route_entry.dart';
@@ -103,9 +104,11 @@ final class HttpKernel {
           return await forward(request);
         }
         final allowed = router.allowedMethods(request.path);
+        // Laravel 8 threw both without the route (`{"message": ""}`).
+        final legacy = currentLaravelCompat() <= 8;
         if (allowed.isEmpty) {
           throw NotFoundHttpException(
-            'The route ${_label(request)} could not be found.',
+            legacy ? '' : 'The route ${_label(request)} could not be found.',
           );
         }
         if (request.method == 'OPTIONS') {
@@ -115,8 +118,9 @@ final class HttpKernel {
         }
         throw MethodNotAllowedHttpException(
           allowed,
-          'The ${request.method} method is not supported for route '
-          '${_label(request)}. Supported methods: ${allowed.join(', ')}.',
+          'The ${request.method} method is not supported for '
+          '${legacy ? 'this route' : 'route ${_label(request)}'}. '
+          'Supported methods: ${allowed.join(', ')}.',
         );
       }
       final route = match.value;

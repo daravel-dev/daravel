@@ -8,6 +8,7 @@ import '../foundation/locale.dart';
 import '../routing/route_entry.dart';
 import '../validation/validated_data.dart';
 import '../validation/validator.dart';
+import 'cookies.dart';
 import 'headers.dart';
 import 'http_exceptions.dart';
 import 'multipart.dart';
@@ -215,6 +216,25 @@ final class Request {
 
   /// Whether the client connection used HTTPS.
   bool get isSecure => scheme == 'https';
+
+  /// The request cookies (Laravel's `$request->cookies->all()`), parsed
+  /// like PHP's `$_COOKIE`: URL-decoded, first occurrence wins. Values are
+  /// as sent; Laravel's `EncryptCookies` is not applied.
+  Map<String, String> get cookies =>
+      _cookies ??= Map.unmodifiable(parseRequestCookies(headers));
+  Map<String, String>? _cookies;
+
+  /// Replaces the parsed cookies: what a middleware that decrypts them
+  /// (`EncryptCookies`) calls, as Laravel's `$request->cookies->set()`.
+  void replaceCookies(Map<String, String> cookies) {
+    _cookies = Map.unmodifiable(Map<String, String>.of(cookies));
+  }
+
+  /// The cookie [name], or [fallback] (Laravel's `$request->cookie()`).
+  String? cookie(String name, [String? fallback]) => cookies[name] ?? fallback;
+
+  /// Whether the request carries the cookie [name].
+  bool hasCookie(String name) => cookies.containsKey(name);
 
   /// Host as seen by the client (`X-Forwarded-Host` when trusted).
   String get host => _forwardedHost ?? uri.host;

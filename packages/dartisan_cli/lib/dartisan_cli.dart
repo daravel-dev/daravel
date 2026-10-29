@@ -270,6 +270,12 @@ final class ServeCommand extends DaravelCommand {
         help: 'HTTP worker isolates (default: APP_ISOLATES or 1).',
       )
       ..addOption(
+        'processes',
+        help:
+            'Run this many server processes on consecutive ports, for a '
+            'reverse proxy to balance (default: APP_PROCESSES or 1).',
+      )
+      ..addOption(
         'max-in-flight',
         help:
             'Requests one worker handles at once before answering 503 '
@@ -318,6 +324,13 @@ final class ServeCommand extends DaravelCommand {
     final isolates = isolatesValue == null ? null : int.tryParse(isolatesValue);
     if (isolatesValue != null && (isolates == null || isolates < 1)) {
       usageException('--isolates must be a positive integer.');
+    }
+    final processesValue = results['processes'] as String?;
+    final processes = processesValue == null
+        ? null
+        : int.tryParse(processesValue);
+    if (processesValue != null && (processes == null || processes < 1)) {
+      usageException('--processes must be a positive integer.');
     }
     final maxInFlightValue = results['max-in-flight'] as String?;
     final maxInFlight = maxInFlightValue == null
@@ -375,6 +388,10 @@ final class ServeCommand extends DaravelCommand {
       maxInFlight: maxInFlight,
       maxQueueDelay: maxQueueDelay,
       commandRunner: dartisan is DartisanRunner ? dartisan.runNamed : null,
+      processes: processes,
+      // Each child runs `serve` again with the same options, minus
+      // --processes (the parent sets APP_PROCESSES=1 for it).
+      childArguments: ['serve', ..._withoutProcesses(results.arguments)],
     );
   }
 }
@@ -654,4 +671,21 @@ final class AboutCommand extends DaravelCommand {
     );
     return 0;
   });
+}
+
+/// [arguments] without `--processes=N` / `--processes N`.
+List<String> _withoutProcesses(List<String> arguments) {
+  final result = <String>[];
+  for (var i = 0; i < arguments.length; i++) {
+    final argument = arguments[i];
+    if (argument == '--processes') {
+      i++;
+      continue;
+    }
+    if (argument.startsWith('--processes=')) {
+      continue;
+    }
+    result.add(argument);
+  }
+  return result;
 }

@@ -1,8 +1,9 @@
 # Changelog
 
-## Unreleased
+## 1.18.0
 
 - Added Laravel's `'strict'`, `'modes'` and `'isolation_level'` (`DB_STRICT`, `DB_SQL_MODES`, `DB_ISOLATION_LEVEL`), with the `sql_mode` Laravel 12's `MySqlConnector` sets; `MySqlDriver(initCommands:, onConnectionOpen:)` for anything else on each new connection.
+- `select` reads each row in one pass with a reader per column instead of `assoc()` + `typedAssoc()` + a third map, which parsed every DATETIME into a `DateTime` it then discarded: a 1 000 × 40 result takes 10 ms instead of 21 ms (AOT, MariaDB on the same Docker network). Values and types are unchanged, now pinned by an integration test over the text and binary protocols.
 
 ## 1.17.0
 

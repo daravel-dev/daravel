@@ -1,7 +1,11 @@
 # Changelog
 
-## Unreleased
+## 1.18.0
 
+- `doctor`: the one-isolate notice says which shared stores replace state kept in statics before `APP_ISOLATES` is raised.
+- `doctor --fix-tooling` runs `dart pub get` on this system when `package_config.json` was resolved on another; `serve --processes=N` runs several server processes on consecutive ports (ADR-027).
+- `pub:add` lists `daravel_session` (`session`, `csrf`, `cookies`).
+- `doctor --production` warns when a JWT guard keeps its denylist in the `memory` or `process` cache store, which forget revoked tokens on restart and on eviction.
 - `doctor` reports a `.dart_tool/package_config.json` resolved on another system (Windows paths read in WSL or a container, or the other way round), with the command that fixes it.
 - Added `db:replicate [--disk] [--path] [--interval] [--once] [--checkpoint-pages] [--snapshot-hours] [--retain]`, `db:restore [--to] [--generation] [--at] [--if-missing] [--force]` and `db:replicas`: SQLite streamed to a storage disk and restored from it.
 - `pub:add` lists `daravel_payments` (`payments`, `midtrans`, `xendit`, `stripe`), and `upgrade` updates it.

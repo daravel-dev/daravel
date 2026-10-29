@@ -6,6 +6,27 @@ Handlers can return `Response.json(data, status: 201)`, `Response.text`,
 lists, models and paginators. Dates serialize like Carbon's `toJSON()`:
 UTC with microseconds, `2026-01-02T03:04:05.000000Z`.
 
+`Response.json(data, phpCompatible: true)` writes the bytes of PHP's
+`json_encode()` instead: `/` as `\/`, non-ASCII characters as `\u`
+escapes, and an empty map as `[]` (an empty PHP array). Use it when a
+client compares or signs the body a Laravel endpoint used to send.
+
+## Cookies
+
+```dart
+final theme = request.cookie('theme', 'light');
+return Response.json({'theme': theme})
+    .withCookie('theme', 'dark', maxAge: const Duration(days: 30))
+    .withoutCookie('legacy');
+```
+
+`request.cookies` holds every cookie, decoded like PHP's `$_COOKIE`.
+`withCookie` adds a `Set-Cookie` header in the format Laravel sends, with
+Laravel's defaults (`path=/`, `httponly`, `samesite=lax`); without
+`maxAge` the cookie lasts for the browser session. Values are sent as
+given: Laravel's `EncryptCookies` middleware has no counterpart yet, so a
+cookie Laravel encrypted reads as its encrypted payload.
+
 ## API resources
 
 <!-- include: packages/daravel/test/docs/guide_examples_test.dart#resource -->
@@ -209,6 +230,9 @@ Exceptions are rendered by the exception handler with Laravel's bodies. With
 | Rate limited | 429 | `Too Many Attempts.` |
 | `abort(404)` without message | 404 | empty string, like Laravel |
 | Anything else | 500 | `Server Error` |
+
+These are Laravel 10 to 13's messages; `COMPAT_LARAVEL_VERSION=8` or `9`
+answers with an older Laravel's ([Laravel coexistence](laravel-coexistence.md#older-laravel-versions)).
 
 Register custom renderers with `withExceptions((e) => e.render<MyError>((error,
 request) => Response.json({...}, status: 409)))`. A renderer may be

@@ -288,6 +288,12 @@ final class Container {
   /// The [Scope] of the current zone, if any.
   Scope? get currentScope => Zone.current[_scopeKey] as Scope?;
 
+  /// Runs [body] with this container as [Container.current] in a child zone,
+  /// without a [Scope]: what boot uses so facades (`App`, `Config`, `env`)
+  /// work while providers boot and routes register, before [setRoot].
+  R runBound<R>(R Function() body) =>
+      runZoned(body, zoneValues: <Object?, Object?>{_containerKey: this});
+
   /// Runs [body] inside a new [Scope] named [scopeName].
   ///
   /// The scope and this container are stored in a child [Zone] so that
@@ -370,6 +376,10 @@ final class Container {
     }
     return root;
   }
+
+  /// [current], or `null` where no container is active.
+  static Container? get currentOrNull =>
+      Zone.current[_containerKey] as Container? ?? _root;
 
   /// The per-isolate root container, if one has been registered.
   static Container? get rootOrNull => _root;

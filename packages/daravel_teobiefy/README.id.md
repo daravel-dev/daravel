@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:af5e4814c1ae -->
+<!-- source: README.md sha256:528991e27159 -->
 <img src="https://raw.githubusercontent.com/daravel-dev/daravel/main/docs/brand/png/daravel-icon-128.png" alt="Daravel" width="64" align="right">
 
 # daravel_teobiefy
@@ -32,6 +32,19 @@ router.group(middleware: const ['teobiefy'], (r) {
   polos.
 - Sesi tetap berlaku di beberapa worker isolate (store cache `process` bila
   store default menyimpan salinan per isolate).
+
+Untuk API yang client-nya membuka envelope OpenSSL `{data_enc, iv}`
+(`openssl_encrypt(json_encode($data), 'aes-256-cbc', $key, OPENSSL_RAW_DATA, $iv)`
+dengan kunci statis), `withTeobiefyAesCbc()` membaca kunci dari
+`OPENSSL_KEY` dan `teobiefy.aes` menyegel `data` pada route yang Anda pilih
+(`:body` untuk seluruh body, `:decrypt` untuk membuka envelope request).
+Mode ini tidak punya MAC: hanya untuk kompatibilitas legacy, dicek terhadap
+NIST SP 800-38A dan `openssl enc`.
+
+```dart
+router.post('/admin/v1/user/login', AuthController.login)
+    .middleware(const ['teobiefy.aes']); // {status, message, data_enc, iv}
+```
 
 Dokumentasi: <https://github.com/daravel-dev/daravel/blob/main/docs/guide/id/teobiefy.md>.
 

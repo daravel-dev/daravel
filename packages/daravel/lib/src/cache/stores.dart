@@ -637,8 +637,14 @@ final class DatabaseStore implements TouchableCacheStore, WindowCounterStore {
   final String lockTable;
   final String? connection;
 
-  /// Laravel stores "forever" as this far-future timestamp.
-  static const int foreverExpiration = 9999999999;
+  /// Laravel's `DatabaseStore::forever` puts the value for ten years
+  /// (315 360 000 s): a relative time that fits the `integer` column of its
+  /// `cache` table on MySQL and MariaDB, where a far-future constant would
+  /// overflow (2038).
+  static const int foreverTtlSeconds = 315360000;
+
+  /// The `expiration` written by [forever] right now.
+  static int get foreverExpiration => _now + foreverTtlSeconds;
 
   @override
   StateScope get scope => StateScope.cluster;

@@ -139,6 +139,46 @@ void main() {
     );
   });
 
+  test('production: a JWT denylist in a volatile cache store warns', () async {
+    AppFactory jwtApp(Map<String, String> env) =>
+        () => Application.configure(basePath: root.path)
+            .withEnv({
+              'APP_ENV': 'production',
+              'APP_KEY': 'base64:${base64.encode(List<int>.filled(32, 7))}',
+              'APP_PORT': '0',
+              'DB_DATABASE': p.join(root.path, 'database.sqlite'),
+              ...env,
+            })
+            .withAuth(
+              (auth) => auth.jwt<DoctorUser>(
+                'jwt',
+                ModelUserProvider<DoctorUser>(DoctorUser.definition),
+              ),
+            )
+            .create();
+    Future<List<String>> warnings(Map<String, String> env) async => titled(
+      await inProject(() => DoctorCommand(jwtApp(env)).diagnose()),
+      CheckStatus.warning,
+    );
+    expect(
+      await warnings(const {}),
+      contains('JWT denylist in the memory cache store in production'),
+    );
+    expect(
+      await warnings(const {'CACHE_STORE': 'process'}),
+      contains('JWT denylist in the process cache store in production'),
+    );
+    expect(
+      await warnings(const {'CACHE_STORE': 'database'}),
+      isNot(contains(startsWith('JWT denylist'))),
+    );
+    // Without a JWT guard the store does not matter.
+    expect(
+      titled(await diagnose({'APP_ENV': 'production'}), CheckStatus.warning),
+      isNot(contains(startsWith('JWT denylist'))),
+    );
+  });
+
   test('production: no APP_KEY is an error, weak hashing warns', () async {
     final checks = await diagnose({
       'APP_ENV': 'production',
@@ -210,4 +250,52 @@ void main() {
       CheckStatus.error,
     );
   });
+
+  test(
+    'doctor --fix-tooling resolves the packages again on this system',
+    timeout: const Timeout(Duration(minutes: 2)),
+    () async {
+      // A package_config.json from the other kind of system.
+      final dir = Directory(p.join(root.path, '.dart_tool'))..createSync();
+      final foreign = Platform.isWindows
+          ? 'file:///home/dev/.pub-cache/hosted/pub.dev/path-1.9.0'
+          : 'file:///C:/Users/dev/AppData/Local/Pub/Cache/hosted/pub.dev/path-1.9.0';
+      File(p.join(dir.path, 'package_config.json')).writeAsStringSync(
+        '{"configVersion": 2, "packages": [{"name": "path", "rootUri": "$foreign", "packageUri": "lib/"}]}',
+      );
+      File(p.join(root.path, 'pubspec.yaml'))
+          .writeAsStringSync('name: demo\nenvironment:\n  sdk: ^3.0.0\n');
+      final broken = await inProject(
+        () => DoctorCommand(appWith(const {})).diagnose(),
+      );
+      expect(
+        titled(broken, CheckStatus.error),
+        contains(startsWith('Packages resolved on')),
+      );
+      final fixed = await inProject(
+        () => DoctorCommand(appWith(const {})).diagnose(fixTooling: true),
+      );
+      expect(
+        titled(fixed, CheckStatus.error),
+        isNot(contains(startsWith('Packages resolved on'))),
+      );
+      expect(
+        titled(fixed, CheckStatus.ok),
+        contains('Packages resolved again on this system (--fix-tooling)'),
+      );
+      expect(
+        packageConfigCheck(root.path, windows: Platform.isWindows),
+        isNull,
+      );
+    },
+  );
+}
+
+/// A user model for the JWT guard of the denylist check.
+final class DoctorUser extends Model with AuthenticatableModel {
+  static final ModelDefinition<DoctorUser> definition =
+      ModelDefinition<DoctorUser>(table: 'users', factory: DoctorUser.new);
+
+  @override
+  ModelDefinition<DoctorUser> get modelDefinition => DoctorUser.definition;
 }

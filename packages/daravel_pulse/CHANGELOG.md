@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.18.0
+
+- Version aligned with Daravel 1.18.0; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).
+
 ## 1.17.0
 
 - Requires `daravel` 1.17.0, which brings the coordinator's `WorkerReportService`. 1.16.0 was published against `daravel` 1.16.0, which lacks it, and does not compile: use 1.17.0.

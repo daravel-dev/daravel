@@ -21,10 +21,12 @@ also works in the other direction.
 - **The same database server.** Daravel runs on MySQL, MariaDB, PostgreSQL
   and SQLite, so it can use the Laravel application's database as it is.
 - **API with bearer tokens.** Sanctum personal access tokens work on both
-  sides. Session cookies, CSRF and Sanctum's stateful SPA mode are not
-  shared yet, so routes that depend on a Laravel session stay in Laravel.
-- **Laravel 11 or 12** formats. The [conformance suite](laravel-coexistence.md)
-  pins Laravel 12 and Sanctum 4.
+  sides. Session cookies and CSRF are shared with [daravel_session](sessions.md)
+  (same `APP_KEY` and store); Sanctum's stateful SPA mode is not, so routes
+  that depend on it stay in Laravel.
+- **Laravel 10 to 13** formats out of the box; the [conformance suite](laravel-coexistence.md)
+  pins Laravel 13 and Sanctum 4. Laravel 8 and 9 applications set
+  `COMPAT_LARAVEL_VERSION` (see the end of this page).
 
 ## 1. Share the secrets and the database
 
@@ -234,6 +236,48 @@ owner (step 2: give its migrations Laravel's recorded names, or insert
 the matching rows), move the scheduler and queue workers, and remove the
 `handle` / `location` block for Laravel. See [Deployment](deployment.md) for
 running Daravel on its own.
+
+## Laravel 8 and 9 applications
+
+Everything above applies; four things differ for an application that was
+never upgraded to Laravel 10 or later, learned from a real port of a
+Laravel 8.83 application on MariaDB:
+
+- **Error bodies.** Set `COMPAT_LARAVEL_VERSION=8` (or `9`) so validation
+  messages, the 422 summary and the 404/405 messages match what the
+  application's clients already parse ([Laravel coexistence](laravel-coexistence.md#older-laravel-versions)).
+- **MySQL strict mode.** Laravel sets `sql_mode` on every connection;
+  `'strict' => false` in the old `config/database.php` lets inserts without
+  every `NOT NULL` value through. Mirror it with `DB_STRICT=false` (or
+  `DB_SQL_MODES`), or MariaDB's default strict mode rejects rows the
+  Laravel application accepts ([Database](database.md)).
+- **State kept in statics.** PHP forgets everything between requests, so a
+  port tends to keep what Laravel put in `Cache::remember`, a rate limiter
+  or a JWT blacklist in a static field. Each worker isolate has its own
+  copy of a static, and it is gone after a restart. Use the same shared
+  stores Laravel used:
+
+  ```dart
+  // Laravel: Cache::remember('config.is_sqd', 600, fn () => ...)
+  final isSqd = await Cache.remember<bool>(
+    'config.is_sqd',
+    const Duration(minutes: 10),
+    () => Setting.query().where('key', 'is_sqd').exists(),
+  );
+  // Laravel: RateLimiter::tooManyAttempts('places:'.$ip, 5)
+  final limiter = App.make<RateLimiter>();
+  // Laravel: JWTAuth::invalidate($token) -> cache blacklist
+  await Auth.jwtGuard().invalidate(token);
+  ```
+
+  With `CACHE_STORE=database` (Laravel's `cache` table) the values survive
+  restarts and reach the scheduler, as Laravel's file cache did;
+  `dartisan lint` reports statics that collect state
+  (`no_mutable_static_in_app`).
+- **Encrypted response envelopes.** Applications that wrap JSON in
+  `openssl_encrypt(..., 'aes-256-cbc')` with a static key keep working with
+  `daravel_teobiefy`'s AES-CBC mode ([teobiefy](teobiefy.md)); new
+  endpoints should use its X25519 protocol instead.
 
 ## The application model (daragic)
 

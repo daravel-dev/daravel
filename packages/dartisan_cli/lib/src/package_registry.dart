@@ -122,6 +122,27 @@ const List<PackageManifest> officialPackages = [
     ],
   ),
   PackageManifest(
+    package: 'daravel_session',
+    title: 'Sessions, encrypted cookies and CSRF',
+    category: 'Security',
+    description:
+        "Laravel's sessions (file or database), EncryptCookies and CSRF",
+    aliases: ['session', 'sessions', 'csrf', 'cookies'],
+    registration: ['.withSession()'],
+    migrations: ['CreateSessionsTable'],
+    env: [
+      'SESSION_DRIVER=file',
+      'SESSION_LIFETIME=120',
+      'SESSION_SECURE_COOKIE=false',
+      'SESSION_SAME_SITE=lax',
+    ],
+    next: [
+      'dartisan migrate   # with SESSION_DRIVER=database',
+      "router.group((r) {...}, middleware: ['web'])",
+      "request.session.put('key', value); request.session.token",
+    ],
+  ),
+  PackageManifest(
     package: 'daravel_permission',
     title: 'Roles and permissions',
     category: 'Security',

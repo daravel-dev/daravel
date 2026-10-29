@@ -127,6 +127,66 @@ public: it is a bridge for cached old frontends during a rollout, not a
 protection. Boot warns while it is enabled and fails when it is not a
 base64 32-byte key.
 
+## The OpenSSL envelope (`teobiefy.aes`)
+
+Some Laravel APIs do not use libsodium but an obiefy/api-response override
+that encrypts `data` with OpenSSL and a static key (`App\Helpers\OpenSslHelper`):
+
+```php
+$key = base64_decode(config('openssl.openssl_key')); // 32 bytes
+$iv = random_bytes(16);
+$data = json_encode($json['data']);
+$json['data_enc'] = base64_encode(openssl_encrypt($data, 'aes-256-cbc', $key, OPENSSL_RAW_DATA, $iv));
+$json['iv'] = base64_encode($iv);
+unset($json['data']);
+```
+
+`withTeobiefyAesCbc()` adds that envelope to a Daravel application: AES-256-CBC
+with PKCS#7 padding, the key from `OPENSSL_KEY` (base64 of 32 bytes, with or
+without `base64:`; boot fails when it is not a key) and a random 16-byte IV
+per message. Put `teobiefy.aes` on the routes the Laravel application
+encrypts (it decides by route name, `request()->routeIs('admin.user.login')`),
+and the clients' `DecryptInterceptor` opens the answers as before:
+
+```dart
+Application.configure(basePath: basePath).withTeobiefyAesCbc() // OPENSSL_KEY
+
+router.post('/admin/v1/user/login', AuthController.login)
+    .middleware(const ['teobiefy.aes']);
+```
+
+```json
+{"status": 200, "message": "ok", "data_count": 1, "data_enc": "…base64…", "iv": "…base64…"}
+```
+
+- Without parameters the `data` of a JSON object response is replaced by
+  `data_enc` and `iv`; the other keys (`status`, `message`, `data_count`,
+  `errors`) stay in clear, as `OpenSslHelper` leaves them. A JSON response
+  without `data`, and anything that is not JSON, pass as they are; the
+  status code and the headers are kept.
+- `teobiefy.aes:body` encrypts the whole JSON body, whatever it is, into
+  `{"data_enc": …, "iv": …}`.
+- `teobiefy.aes:decrypt` also opens a request body sent as
+  `{"data_enc": …, "iv": …}` and merges its JSON object into the input
+  (clear keys beside it stay, the payload winning; `data_enc` and `iv` are
+  removed). A body that does not open is `406 Invalid payload`. Clear
+  bodies still pass: this mode cannot tell a client without the key from
+  one that chose not to encrypt. Parameters combine: `teobiefy.aes:body,decrypt`.
+- `TeobiefyAesCbc.current.encrypt(value)` and `.decrypt(envelope)` do the
+  same by hand (a payload built in a job, say); `TeobiefyAesCbc.fromKey(key)`
+  gives a cipher outside the container.
+
+The implementation is checked against NIST SP 800-38A (F.2.5, CBC-AES256)
+and against `openssl enc`, the library the Laravel side calls.
+
+**This mode has no MAC.** The key is static and was shipped with the
+clients, so it hides nothing from whoever has a client, and nothing stops
+an altered ciphertext from reaching the handler: an altered block decrypts
+to garbage or, with luck for the attacker, to something that parses. It
+exists so the clients of a ported API keep working; it is not a protection.
+New work, and those clients once they can be updated, belong on the X25519
++ ChaCha20-Poly1305 protocol above.
+
 ## With Laravel
 
 The tests check the key exchange and the cipher against vectors made by

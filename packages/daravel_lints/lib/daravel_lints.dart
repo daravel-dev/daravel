@@ -123,40 +123,81 @@ final class NoMutableStaticInApp extends LintRule {
   String get name => 'no_mutable_static_in_app';
 
   @override
-  String get description => 'Static fields in lib/app must be final or const.';
+  String get description =>
+      'Static fields in lib/app must be final or const, and not collect '
+      'state in a collection.';
 
   @override
   bool appliesTo(String relativePath) => relativePath.startsWith('lib/app/');
 
+  /// Where the state belongs instead: each isolate (`APP_ISOLATES` > 1) and
+  /// each server has its own copy of a static.
+  static const String replacement =
+      'With APP_ISOLATES > 1 each isolate has its own copy. Keep shared '
+      "state in a shared store: Cache.store('process') (one machine) or "
+      'Redis (several), RateLimiter for counters and limits, '
+      'Auth.jwtGuard().invalidate() for revoked tokens, or the container '
+      'for per-request services.';
+
   @override
   void check(CompilationUnit unit, void Function(AstNode, String) report) {
+    void inspect(VariableDeclarationList list, String kind) {
+      if (list.isConst) {
+        return;
+      }
+      for (final variable in list.variables) {
+        final label = '$kind `${variable.name.lexeme}`';
+        if (!list.isFinal) {
+          report(variable, '$label is mutable state. $replacement');
+        } else if (_emptyMutableCollection(variable.initializer)) {
+          report(
+            variable,
+            '$label is final but starts as an empty collection that '
+            'collects state. $replacement',
+          );
+        }
+      }
+    }
+
     unit.accept(
       _Visitor(
         onField: (node) {
-          if (node.isStatic && !node.fields.isFinal && !node.fields.isConst) {
-            for (final variable in node.fields.variables) {
-              report(
-                variable,
-                'Static field `${variable.name.lexeme}` is mutable and shared by every '
-                'request in the isolate; make it final/const or use the container.',
-              );
-            }
+          if (node.isStatic) {
+            inspect(node.fields, 'Static field');
           }
         },
-        onTopLevel: (node) {
-          if (!node.variables.isFinal && !node.variables.isConst) {
-            for (final variable in node.variables.variables) {
-              report(
-                variable,
-                'Top-level variable `${variable.name.lexeme}` is mutable global state; '
-                'make it final/const or use the container.',
-              );
-            }
-          }
-        },
+        onTopLevel: (node) => inspect(node.variables, 'Top-level variable'),
       ),
     );
   }
+
+  /// `{}`, `[]`, `<K, V>{}`, `Map()`, `<T>[]` without `const`: a lookup
+  /// table with entries stays allowed.
+  static bool _emptyMutableCollection(Expression? initializer) =>
+      switch (initializer) {
+        SetOrMapLiteral(:final constKeyword, :final elements) =>
+          constKeyword == null && elements.isEmpty,
+        ListLiteral(:final constKeyword, :final elements) =>
+          constKeyword == null && elements.isEmpty,
+        InstanceCreationExpression(:final keyword, :final constructorName) =>
+          keyword?.lexeme != 'const' &&
+              _collectionTypes.contains(constructorName.type.name.lexeme),
+        MethodInvocation(:final methodName, :final target) =>
+          target == null && _collectionTypes.contains(methodName.name),
+        _ => false,
+      };
+
+  static const Set<String> _collectionTypes = <String>{
+    'Map',
+    'Set',
+    'List',
+    'HashMap',
+    'HashSet',
+    'LinkedHashMap',
+    'LinkedHashSet',
+    'Queue',
+    'ListQueue',
+  };
 }
 
 /// String interpolation into raw SQL is an injection risk; pass bindings.
@@ -164,10 +205,7 @@ final class NoSqlStringInterpolation extends LintRule {
   const NoSqlStringInterpolation();
 
   static const Set<String> sqlMethods = <String>{
-    'select',
-    'statement',
-    'insertGetId',
-    'raw',
+    ...genericSqlMethods,
     'selectRaw',
     'whereRaw',
     'orWhereRaw',
@@ -177,6 +215,35 @@ final class NoSqlStringInterpolation extends LintRule {
     'fromRaw',
     // Unresolved ASTs parse `RawExpression(...)` as an invocation.
     'RawExpression',
+  };
+
+  /// Names common outside SQL (a model's own `raw('column')`, a UI
+  /// `select(...)`): they count only on a database receiver, that is `DB`,
+  /// a variable named like a connection or query builder, or a builder
+  /// chain (`DB.table('t')`, `User.query()`).
+  static const Set<String> genericSqlMethods = <String>{
+    'select',
+    'statement',
+    'insertGetId',
+    'raw',
+  };
+
+  static final RegExp _dbReceiverName = RegExp(
+    r'^(db|database|conn|connection|query|builder|qb|q|schema)$|'
+    r'(Query|Builder|Connection|Db|DB)$',
+  );
+
+  static const Set<String> _builderMethods = <String>{
+    'table',
+    'query',
+    'newQuery',
+    'connection',
+    'from',
+    'select',
+    'join',
+    'leftJoin',
+    'orderBy',
+    'groupBy',
   };
 
   @override
@@ -192,12 +259,14 @@ final class NoSqlStringInterpolation extends LintRule {
 
   @override
   void check(CompilationUnit unit, void Function(AstNode, String) report) {
+    final constants = <String>{};
+    unit.accept(_ConstCollector(constants));
     void inspect(AstNode node, String callee, NodeList<Argument> arguments) {
       if (arguments.isEmpty) {
         return;
       }
       final sql = arguments.first.argumentExpression;
-      if (_interpolates(sql)) {
+      if (_interpolates(sql, constants)) {
         report(
           sql,
           'SQL passed to $callee is built with interpolation/concatenation; '
@@ -209,8 +278,11 @@ final class NoSqlStringInterpolation extends LintRule {
     unit.accept(
       _Visitor(
         onMethod: (node) {
-          if (sqlMethods.contains(node.methodName.name)) {
-            inspect(node, node.methodName.name, node.argumentList.arguments);
+          final method = node.methodName.name;
+          if (sqlMethods.contains(method) &&
+              (!genericSqlMethods.contains(method) ||
+                  _isDbReceiver(node.realTarget))) {
+            inspect(node, method, node.argumentList.arguments);
           }
         },
         onCreation: (node) {
@@ -222,22 +294,83 @@ final class NoSqlStringInterpolation extends LintRule {
     );
   }
 
-  static bool _interpolates(Expression expression) => switch (expression) {
-    StringInterpolation() => true,
-    AdjacentStrings(:final strings) => strings.any(_interpolates),
-    BinaryExpression(
-      :final operator,
-      :final leftOperand,
-      :final rightOperand,
-    ) =>
-      operator.type == TokenType.PLUS &&
-          (leftOperand is StringLiteral ||
-              rightOperand is StringLiteral ||
-              _interpolates(leftOperand) ||
-              _interpolates(rightOperand)),
-    ParenthesizedExpression(:final expression) => _interpolates(expression),
+  /// Whether [target] looks like the database: `DB`, a variable named like
+  /// a connection or builder, or a chain that starts or continues a query.
+  static bool _isDbReceiver(Expression? target) => switch (target) {
+    null => false,
+    SimpleIdentifier(:final name) => _dbReceiverName.hasMatch(name),
+    PrefixedIdentifier(:final identifier) => _isDbReceiver(identifier),
+    PropertyAccess(:final propertyName) => _isDbReceiver(propertyName),
+    MethodInvocation(:final methodName, :final realTarget) =>
+      _builderMethods.contains(methodName.name) ||
+          methodName.name.startsWith('where') ||
+          _isDbReceiver(realTarget),
+    ParenthesizedExpression(:final expression) => _isDbReceiver(expression),
+    AwaitExpression(:final expression) => _isDbReceiver(expression),
     _ => false,
   };
+
+  /// Literals and `const` names declared in this file: SQL built only from
+  /// them is compile-time text and cannot carry input.
+  static bool _isConstant(Expression expression, Set<String> constants) =>
+      switch (expression) {
+        StringLiteral() => !_interpolates(expression, constants),
+        IntegerLiteral() || DoubleLiteral() || BooleanLiteral() => true,
+        SimpleIdentifier(:final name) => constants.contains(name),
+        PrefixedIdentifier(:final identifier) => constants.contains(
+          identifier.name,
+        ),
+        ParenthesizedExpression(:final expression) => _isConstant(
+          expression,
+          constants,
+        ),
+        _ => false,
+      };
+
+  static bool _interpolates(Expression expression, Set<String> constants) =>
+      switch (expression) {
+        StringInterpolation(:final elements) =>
+          elements.whereType<InterpolationExpression>().any(
+            (element) => !_isConstant(element.expression, constants),
+          ),
+        AdjacentStrings(:final strings) => strings.any(
+          (string) => _interpolates(string, constants),
+        ),
+        BinaryExpression(
+          :final operator,
+          :final leftOperand,
+          :final rightOperand,
+        ) =>
+          operator.type == TokenType.PLUS &&
+              ((leftOperand is StringLiteral ||
+                          rightOperand is StringLiteral) &&
+                      !(_isConstant(leftOperand, constants) &&
+                          _isConstant(rightOperand, constants)) ||
+                  _interpolates(leftOperand, constants) ||
+                  _interpolates(rightOperand, constants)),
+        ParenthesizedExpression(:final expression) => _interpolates(
+          expression,
+          constants,
+        ),
+        _ => false,
+      };
+}
+
+/// Collects the names of `const` variables (top level, static, local).
+final class _ConstCollector extends RecursiveAstVisitor<void> {
+  _ConstCollector(this.names);
+
+  final Set<String> names;
+
+  @override
+  void visitVariableDeclarationList(VariableDeclarationList node) {
+    if (node.isConst) {
+      for (final variable in node.variables) {
+        names.add(variable.name.lexeme);
+      }
+    }
+    super.visitVariableDeclarationList(node);
+  }
 }
 
 /// Validation rule strings (`'required|emial|max:255'`) are parsed when

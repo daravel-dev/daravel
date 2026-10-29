@@ -61,6 +61,7 @@ import '../broadcasting/cluster.dart';
 import '../broadcasting/pusher_server.dart';
 import '../server/broadcast.dart';
 import '../server/coordinator.dart';
+import '../server/process_supervisor.dart';
 import '../server/supervisor.dart';
 import 'config.dart';
 import 'config_validator.dart';
@@ -148,8 +149,10 @@ final class Application {
   /// The running server engine, if any.
   ServerEngine? get engine => _engine;
 
-  /// Boots the application exactly once (safe to call concurrently).
-  Future<void> boot() => _booting ??= _boot();
+  /// Boots the application exactly once (safe to call concurrently). Boot
+  /// runs with this container as [Container.current], so facades work in
+  /// providers, bindings and routing callbacks.
+  Future<void> boot() => _booting ??= container.runBound<Future<void>>(_boot);
 
   Future<void> _boot() async {
     env = await Env.load(
@@ -216,7 +219,14 @@ final class Application {
     );
     final gate = AuthorizationGate(userResolver: () => _currentUser(auth));
     final channel =
-        coordinator ?? LocalCoordinatorChannel(createStandardCoordinator());
+        coordinator ??
+        LocalCoordinatorChannel(
+          createStandardCoordinator(
+            processCacheMaxEntries: config
+                .section<CacheConfig>()
+                .processMaxEntries,
+          ),
+        );
     final events = EventDispatcher();
     final metrics = AppMetrics(MetricsRegistry(), channel: channel);
     events
@@ -902,9 +912,36 @@ final class Application {
     int? maxInFlight,
     Duration? maxQueueDelay,
     ScheduleCommandRunner? commandRunner,
+    int? processes,
+    List<String> childArguments = const <String>[],
   }) async {
     final probe = factory();
     await probe.boot();
+    // ADR-027: several processes on consecutive ports behind a proxy. A
+    // child (DARAVEL_PROCESS_INDEX set) serves normally.
+    final processCount = processes ?? probe.env.integer('APP_PROCESSES', 1);
+    if (processCount > 1 && !probe.env.has('DARAVEL_PROCESS_INDEX')) {
+      final options = ServeOptions.fromEnv(probe.env, host: host, port: port);
+      probe._ensureProcessesShareState(processCount);
+      final logger = probe.logger;
+      await probe.shutdown();
+      return await ProcessSupervisor(
+        executable: Platform.resolvedExecutable,
+        arguments: selfArguments(childArguments),
+        options: options,
+        processes: processCount,
+        logger: logger,
+        environment: <String, String>{
+          if (isolates != null) 'APP_ISOLATES': '$isolates',
+          if (embedQueue != null) 'SERVER_EMBED_QUEUE': '$embedQueue',
+          if (embedScheduler != null)
+            'SERVER_EMBED_SCHEDULER': '$embedScheduler',
+          if (maxInFlight != null) 'HTTP_MAX_IN_FLIGHT': '$maxInFlight',
+          if (maxQueueDelay != null)
+            'HTTP_MAX_QUEUE_DELAY': '${maxQueueDelay.inMilliseconds}ms',
+        },
+      ).run();
+    }
     final options = ServeOptions.fromEnv(
       probe.env,
       host: host,
@@ -928,10 +965,32 @@ final class Application {
         '"Concurrency").',
       );
     }
+    final sizing = isolateSizingAdvice(
+      production: probe.config.section<AppConfig>().isProduction,
+      isolates: options.isolates,
+    );
+    if (sizing != null) {
+      probe.logger.notice(sizing);
+    }
     final roles = [
       if (options.embedQueue) EmbeddedRole.queue,
       if (options.embedScheduler) EmbeddedRole.scheduler,
     ];
+    // One coordinator for the whole process: the server's isolates and the
+    // embedded workers share its process cache, rate limits and locks.
+    final Coordinator? coordinator;
+    if (options.isolates <= 1) {
+      final channel = probe.container.make<CoordinatorChannel>();
+      coordinator = channel is LocalCoordinatorChannel
+          ? channel.coordinator
+          : null;
+    } else {
+      coordinator = createStandardCoordinator(
+        processCacheMaxEntries: probe.config
+            .section<CacheConfig>()
+            .processMaxEntries,
+      );
+    }
     final embedded = roles.isEmpty
         ? null
         : EmbeddedWorkers(
@@ -939,8 +998,17 @@ final class Application {
             roles: roles,
             logger: probe.logger,
             commandRunner: commandRunner,
+            coordinator: coordinator?.listen(),
           );
     await embedded?.start();
+    // A child of APP_PROCESSES: drain and stop when the parent goes away.
+    Supervisor? supervisor;
+    watchSupervisorParent(Platform.environment, () async {
+      probe.logger.warning('Parent process is gone; stopping.');
+      await (supervisor?.stop() ?? probe._engine?.stop() ?? Future.value())
+          .timeout(options.shutdownTimeout, onTimeout: () {});
+      exit(0);
+    });
     try {
       if (options.isolates <= 1) {
         await probe.serve(options: options);
@@ -948,7 +1016,13 @@ final class Application {
       }
       final logger = probe.logger;
       await probe.shutdown();
-      return await Supervisor(factory, options, logger: logger).run();
+      supervisor = Supervisor(
+        factory,
+        options,
+        logger: logger,
+        coordinator: coordinator,
+      );
+      return await supervisor.run();
     } finally {
       await embedded?.stop(timeout: options.shutdownTimeout);
     }
@@ -978,6 +1052,36 @@ final class Application {
     await engine.done;
     _engine = null;
     await _closeResources();
+  }
+
+  /// With several processes the `process` cache store, the coordinator's
+  /// rate limits and the unique-job locks are per process: refuse unless
+  /// they are on a shared store, or the operator accepts that.
+  void _ensureProcessesShareState(int processes) {
+    if (env.boolean('APP_PROCESSES_ALLOW_UNSHARED_STATE')) {
+      return;
+    }
+    final cache = config.section<CacheConfig>();
+    final queue = config.section<QueueConfig>();
+    const local = {'memory', 'process'};
+    final unshared = <String>[
+      if (local.contains(cache.defaultStore))
+        'CACHE_STORE=${cache.defaultStore}',
+      if (cache.limiter == null || local.contains(cache.limiter))
+        'CACHE_LIMITER=${cache.limiter ?? 'process'}',
+      if (local.contains(queue.uniqueLockStore))
+        'QUEUE_UNIQUE_LOCK_STORE=${queue.uniqueLockStore}',
+    ];
+    if (unshared.isNotEmpty) {
+      throw ConfigException(
+        'APP_PROCESSES=$processes runs $processes separate processes, so '
+        'state in these stores would not be shared between them: '
+        '${unshared.join(', ')}. Point them at database or redis '
+        '(CACHE_STORE, CACHE_LIMITER, QUEUE_UNIQUE_LOCK_STORE), or set '
+        'APP_PROCESSES_ALLOW_UNSHARED_STATE=true to accept per-process '
+        'caches, rate limits and locks.',
+      );
+    }
   }
 
   void _ensureServeable(ServeOptions resolved) {

@@ -1,4 +1,4 @@
-<!-- source: migrating-from-laravel.md sha256:590c52d6c851 -->
+<!-- source: migrating-from-laravel.md sha256:bb2e4f843643 -->
 # Migrasi dari Laravel, route demi route
 
 Anda tidak harus menulis ulang aplikasi Laravel sekaligus. Karena Daravel
@@ -23,10 +23,12 @@ Laravel bisa dimatikan. Pola ini juga berlaku ke arah sebaliknya.
   PostgreSQL, dan SQLite, jadi bisa memakai database aplikasi Laravel apa
   adanya.
 - **API dengan bearer token.** Personal access token Sanctum bekerja di
-  kedua sisi. Cookie session, CSRF, dan mode SPA stateful dari Sanctum belum
-  dibagi, jadi route yang bergantung pada session Laravel tetap di Laravel.
-- Format **Laravel 11 atau 12**. [Suite konformansi](laravel-coexistence.md)
-  mengunci Laravel 12 dan Sanctum 4.
+  kedua sisi. Cookie session dan CSRF dibagi lewat [daravel_session](sessions.md)
+  (`APP_KEY` dan penyimpanan yang sama); mode SPA stateful dari Sanctum
+  belum, jadi route yang bergantung padanya tetap di Laravel.
+- Format **Laravel 10 sampai 13** langsung tersedia; [suite konformansi](laravel-coexistence.md)
+  mengunci Laravel 13 dan Sanctum 4. Aplikasi Laravel 8 dan 9 men-set
+  `COMPAT_LARAVEL_VERSION` (lihat akhir halaman ini).
 
 ## 1. Bagikan secret dan database
 
@@ -241,6 +243,48 @@ pemilik skema (langkah 2: beri migrasinya nama yang tercatat di Laravel,
 atau insert baris yang sesuai), pindahkan scheduler dan queue worker, lalu
 hapus blok `handle` / `location` untuk Laravel. Lihat
 [Deployment](deployment.md) untuk menjalankan Daravel sendirian.
+
+## Aplikasi Laravel 8 dan 9
+
+Semua yang di atas berlaku; empat hal berbeda untuk aplikasi yang tidak
+pernah di-upgrade ke Laravel 10 atau lebih baru, dipelajari dari port nyata
+sebuah aplikasi Laravel 8.83 di MariaDB:
+
+- **Body error.** Set `COMPAT_LARAVEL_VERSION=8` (atau `9`) agar pesan
+  validasi, ringkasan 422, dan pesan 404/405 sama dengan yang sudah di-parse
+  client aplikasi ([Koeksistensi dengan Laravel](laravel-coexistence.md#versi-laravel-yang-lebih-lama)).
+- **Strict mode MySQL.** Laravel men-set `sql_mode` pada setiap koneksi;
+  `'strict' => false` di `config/database.php` lama meloloskan insert tanpa
+  semua nilai `NOT NULL`. Tirukan dengan `DB_STRICT=false` (atau
+  `DB_SQL_MODES`), atau strict mode default MariaDB menolak baris yang
+  diterima aplikasi Laravel ([Database](database.md)).
+- **State yang disimpan di static.** PHP melupakan semuanya di antara
+  request, sehingga sebuah port cenderung menyimpan apa yang Laravel taruh
+  di `Cache::remember`, rate limiter, atau blacklist JWT ke field static.
+  Setiap worker isolate punya salinan static sendiri, dan hilang setelah
+  restart. Pakai penyimpanan bersama yang sama seperti yang dipakai Laravel:
+
+  ```dart
+  // Laravel: Cache::remember('config.is_sqd', 600, fn () => ...)
+  final isSqd = await Cache.remember<bool>(
+    'config.is_sqd',
+    const Duration(minutes: 10),
+    () => Setting.query().where('key', 'is_sqd').exists(),
+  );
+  // Laravel: RateLimiter::tooManyAttempts('places:'.$ip, 5)
+  final limiter = App.make<RateLimiter>();
+  // Laravel: JWTAuth::invalidate($token) -> blacklist di cache
+  await Auth.jwtGuard().invalidate(token);
+  ```
+
+  Dengan `CACHE_STORE=database` (tabel `cache` Laravel) nilainya bertahan
+  saat restart dan sampai ke scheduler, seperti cache file Laravel;
+  `dartisan lint` melaporkan static yang mengumpulkan state
+  (`no_mutable_static_in_app`).
+- **Envelope respons terenkripsi.** Aplikasi yang membungkus JSON dengan
+  `openssl_encrypt(..., 'aes-256-cbc')` berkunci statis tetap berjalan
+  dengan mode AES-CBC dari `daravel_teobiefy` ([teobiefy](teobiefy.md));
+  endpoint baru sebaiknya memakai protokol X25519-nya.
 
 ## Model aplikasi (daragic)
 

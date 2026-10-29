@@ -5,11 +5,22 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 `daravel_excel`, `daravel_log_viewer`, `daravel_pulse`, `daravel_payments`,
 `daravel_medialibrary`, `daravel_redis`, `daravel_sqlite`, `daravel_postgres`,
 `daravel_teorion`, `daravel_livekit`, `daravel_google`, `daravel_teobiefy`, `daravel_s3`,
-`dartisan_cli`). Versions follow SemVer: breaking changes to the Dart API
+`daravel_session`, `dartisan_cli`). Versions follow SemVer: breaking changes to the Dart API
 wait for a new major version, and Laravel-facing formats change only to
 match Laravel more closely.
 
-## Unreleased
+## 1.18.0
+
+Lessons from porting a Laravel 8 application to Daravel, made general.
+`daravel_session` joins the release line: Laravel's sessions in a file or the
+`sessions` table, encrypted cookies and CSRF, shared with a Laravel
+application on the same `APP_KEY`. `COMPAT_LARAVEL_VERSION` answers with the
+error and validation bodies of Laravel 8 to 13, the conformance suite now
+pins Laravel 13, and `Crypt.encrypt` carries PHP `serialize()` so values move
+between the two frameworks. `APP_PROCESSES` runs several server processes
+behind a proxy for endpoints that do not scale across isolates, embedded
+workers share the server's coordinator, and the MySQL driver reads rows in
+half the time.
 
 ### Added
 
@@ -47,9 +58,56 @@ match Laravel more closely.
   `X-Forwarded-*` headers, 502 when Laravel is down and 504 when it is too
   slow. `dartisan route:diff` shows which Laravel routes Daravel answers
   already, from `php artisan route:list --json`.
+- `daravel_teobiefy`: the OpenSSL AES-256-CBC `{data_enc, iv}` envelope of Laravel APIs that encrypt with `openssl_encrypt`: `TeobiefyAesCbc`, `withTeobiefyAesCbc()` (key from `OPENSSL_KEY`) and the `teobiefy.aes` middleware (`:body`, `:decrypt`), checked against NIST SP 800-38A and `openssl enc`; no MAC, legacy compatibility only (review #56 §2.6).
+- `Cast.dateTimeFormat` (Laravel `datetime:FORMAT` / `date:FORMAT`, formatted in UTC as Laravel 8 to 13 do) and `formatPhpDate`; appends keep an existing attribute's position. No `COMPAT_LARAVEL_VERSION` switch is needed: the behaviour is the same in every version (ADR-025 §4).
+- `APP_PROCESSES` / `serve --processes=N` (ADR-027): several server processes on consecutive ports behind a reverse proxy, for endpoints that gain nothing from more isolates (shared heap); refused with per-process stores unless `APP_PROCESSES_ALLOW_UNSHARED_STATE=true`.
+- `package:daravel/foundation.dart`, `http.dart`, `database.dart`, `auth.dart`, `validation.dart`: subsets of the barrel for files whose names collide with it.
+- `doctor --fix-tooling`.
+- `daravel_session` (Blueprint: sessions, Tier 2 gap closed): Laravel-compatible sessions in a file or the `sessions` table (`base64(serialize($attributes))`), `EncryptCookiesMiddleware` with Laravel's cookie value prefix, `VerifyCsrfTokenMiddleware` (`_token`, `X-CSRF-TOKEN`, `X-XSRF-TOKEN`, the `XSRF-TOKEN` cookie, 419), `request.session`, flash data, `regenerate`, `invalidate`, `CreateSessionsTable`; `withSession()` registers the `web` middleware group.
+- `Crypt.encrypt`/`decrypt` use PHP `serialize()` like Laravel (ADR-026): values encrypted by either framework are read by the other; JSON payloads from 1.17 still decrypt.
+- `COMPAT_LARAVEL_VERSION` (8 to 13, default 12; ADR-025): the Laravel
+  major whose wire formats the application answers with. 10 to 13 share
+  them (checked against each release's source). 9 uses the older
+  validation messages (`The email must be a valid email address.`); 8
+  also answers `The given data was invalid.` for every 422, an empty
+  404 message and `... not supported for this route.` for a 405.
+- `Request.cookies`, `Request.cookie(name)`, `Request.hasCookie(name)`,
+  `Response.withCookie(...)` and `Response.withoutCookie(name)`, written in
+  the format Laravel 11 to 13 send (Symfony's `Cookie`).
+- `Response.json(data, phpCompatible: true)`: the bytes of PHP's
+  `json_encode()` (`\/`, `\u` escapes, `[]` for an empty map), in one pass
+  over the native encoder's output; `phpJsonFromDart` and `phpRawUrlEncode`.
+- `isolateSizingAdvice`: `serve` notes one HTTP isolate in production on a
+  machine with more cores, and `doctor` says which shared stores replace
+  state kept in statics.
+- Benchmark scenario 13 (1 000 rows of a 40-column table) and
+  `bench/bin/wide_profile.dart`; the harness also runs against MySQL and
+  MariaDB (`--database=mariadb://...`).
+- `CACHE_PROCESS_MAX_ENTRIES` bounds the `process` cache store (10 000 by
+  default, fixed before); `doctor --production` warns when a JWT denylist
+  lives in the `memory` or `process` store.
 
 ### Changed
 
+- `daravel_mysql` reads rows in one pass instead of three maps per row: a 1 000 × 40 `SELECT` takes about half the time (21 ms to 10 ms).
+- The database cache store writes `forever` entries as ten years from now (Laravel's `DatabaseStore::forever`), not the constant 9999999999 that overflowed MySQL's `integer` column.
+- `Request.replaceCookies`, `Response.withHeaderList`, `Encrypter.keys`.
+- Boot runs with the application's container as `Container.current`, so
+  `App`, `Config` and `env` work in providers, bindings and routing
+  callbacks (they threw "No Daravel container is active" there).
+- Embedded queue and scheduler isolates share the server's coordinator
+  (process cache, rate limits, locks); each had its own before, so a token
+  revoked by a job stayed valid for the HTTP workers.
+- The conformance suite cites laravel/framework 13.x; Laravel 10 to 12
+  write the same formats (ADR-025).
+- `no_sql_string_interpolation` reports `raw`, `select`, `statement` and
+  `insertGetId` only on a database receiver (`DB`, a connection or query
+  builder, a builder chain), and accepts interpolation of literals and
+  `const` names of the file. `no_mutable_static_in_app` also reports a
+  final static that starts as an empty collection (`static final _hits =
+  <String, int>{}`), and both of its messages name the shared stores.
+- `phpJsonEncode` (cursor pagination) runs in one pass instead of one
+  write per character.
 - `daravel_excel` depends on `xml` ^7.0.0 (was ^6.6.1): pub.dev took 10
   points off 1.17.0 because the constraint left out xml 7.
 

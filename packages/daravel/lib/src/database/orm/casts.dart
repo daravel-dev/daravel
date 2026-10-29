@@ -14,6 +14,15 @@ sealed class Cast {
   static const Cast date = DateCast();
   static const Cast json = JsonCast();
 
+  /// Laravel's `datetime:FORMAT` and `date:FORMAT` casts: the attribute
+  /// reads as a [DateTime] and `Model.toJson` writes it with the PHP
+  /// `date()` [format] (`'Y-m-d H:i:s'`, `'d/m/Y'`, ...), in UTC, as
+  /// Laravel 8 to 13 write a formatted timestamp
+  /// (`HasAttributes::addDateAttributesToArray` serializes it to UTC before
+  /// `addCastAttributesToArray` formats it). The value is stored as
+  /// `Y-m-d H:i:s`, like [dateTime].
+  static Cast dateTimeFormat(String format) => DateTimeFormatCast(format);
+
   /// Casts a backed string column to an enum by `name`.
   static Cast enumeration<E extends Enum>(List<E> values) =>
       EnumCast<E>(values);
@@ -162,6 +171,174 @@ final class DateCast extends Cast {
     null => null,
     DateTime() => formatDate(value),
     _ => value,
+  };
+}
+
+/// [Cast.dateTimeFormat]: a [DateTime] attribute that `Model.toJson`
+/// writes with a PHP `date()` [format].
+final class DateTimeFormatCast extends Cast {
+  const DateTimeFormatCast(this.format);
+
+  /// The PHP `date()` format (`Y-m-d H:i:s`) applied by `Model.toJson`.
+  final String format;
+
+  @override
+  Object? get(Object? raw) => parseDateTime(raw);
+
+  @override
+  Object? set(Object? value) => const DateTimeCast().set(value);
+
+  /// [value] in [format], in UTC: what `toJson` writes.
+  String serialize(DateTime value) => formatPhpDate(value, format);
+}
+
+const List<String> _dayNames = [
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+  'Sunday',
+];
+
+const List<String> _monthNames = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+];
+
+/// Formats [value], converted to UTC, with a PHP `date()` [format]:
+/// `Y-m-d H:i:s`, `D, d M Y`, `c`, `U`, ... Every PHP token is supported,
+/// `\` escapes the next character and any other character is copied.
+/// Zone tokens (`e`, `T`, `O`, `P`, `p`, `Z`, `I`) describe UTC.
+String formatPhpDate(DateTime value, String format) {
+  final t = value.toUtc();
+  final out = StringBuffer();
+  String pad(int n, [int width = 2]) => n.toString().padLeft(width, '0');
+  final hour12 = t.hour % 12 == 0 ? 12 : t.hour % 12;
+  final dayOfYear =
+      DateTime.utc(
+        t.year,
+        t.month,
+        t.day,
+      ).difference(DateTime.utc(t.year)).inDays +
+      1;
+  // ISO-8601 week: the week of the Thursday closest to this day.
+  final thursday = DateTime.utc(t.year, t.month, t.day + 4 - t.weekday);
+  final isoWeek =
+      thursday.difference(DateTime.utc(thursday.year)).inDays ~/ 7 + 1;
+  String year(int y) => y < 0 ? '-${pad(-y, 4)}' : pad(y, 4);
+
+  for (var i = 0; i < format.length; i++) {
+    final c = format[i];
+    switch (c) {
+      case r'\':
+        if (i + 1 < format.length) {
+          out.write(format[++i]);
+        }
+      case 'd':
+        out.write(pad(t.day));
+      case 'D':
+        out.write(_dayNames[t.weekday - 1].substring(0, 3));
+      case 'j':
+        out.write(t.day);
+      case 'l':
+        out.write(_dayNames[t.weekday - 1]);
+      case 'N':
+        out.write(t.weekday);
+      case 'S':
+        out.write(_ordinalSuffix(t.day));
+      case 'w':
+        out.write(t.weekday % 7);
+      case 'z':
+        out.write(dayOfYear - 1);
+      case 'W':
+        out.write(pad(isoWeek));
+      case 'F':
+        out.write(_monthNames[t.month - 1]);
+      case 'm':
+        out.write(pad(t.month));
+      case 'M':
+        out.write(_monthNames[t.month - 1].substring(0, 3));
+      case 'n':
+        out.write(t.month);
+      case 't':
+        out.write(DateTime.utc(t.year, t.month + 1, 0).day);
+      case 'L':
+        out.write(DateTime.utc(t.year, 2, 29).month == 2 ? 1 : 0);
+      case 'o':
+        out.write(year(thursday.year));
+      case 'Y':
+        out.write(year(t.year));
+      case 'y':
+        out.write(pad(t.year % 100));
+      case 'a':
+        out.write(t.hour < 12 ? 'am' : 'pm');
+      case 'A':
+        out.write(t.hour < 12 ? 'AM' : 'PM');
+      case 'B':
+        final beat =
+            ((t.hour * 3600 + t.minute * 60 + t.second + 3600) / 86.4).floor() %
+            1000;
+        out.write(pad(beat, 3));
+      case 'g':
+        out.write(hour12);
+      case 'G':
+        out.write(t.hour);
+      case 'h':
+        out.write(pad(hour12));
+      case 'H':
+        out.write(pad(t.hour));
+      case 'i':
+        out.write(pad(t.minute));
+      case 's':
+        out.write(pad(t.second));
+      case 'u':
+        out.write(pad(t.millisecond * 1000 + t.microsecond, 6));
+      case 'v':
+        out.write(pad(t.millisecond, 3));
+      case 'e' || 'T':
+        out.write('UTC');
+      case 'I' || 'Z':
+        out.write('0');
+      case 'O':
+        out.write('+0000');
+      case 'P':
+        out.write('+00:00');
+      case 'p':
+        out.write('Z');
+      case 'c':
+        out.write(formatPhpDate(t, r'Y-m-d\TH:i:sP'));
+      case 'r':
+        out.write(formatPhpDate(t, 'D, d M Y H:i:s O'));
+      case 'U':
+        out.write((t.millisecondsSinceEpoch / 1000).floor());
+      default:
+        out.write(c);
+    }
+  }
+  return out.toString();
+}
+
+String _ordinalSuffix(int day) {
+  if (day >= 11 && day <= 13) {
+    return 'th';
+  }
+  return switch (day % 10) {
+    1 => 'st',
+    2 => 'nd',
+    3 => 'rd',
+    _ => 'th',
   };
 }
 

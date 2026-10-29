@@ -142,11 +142,20 @@ DoctorCheck? packageConfigCheck(String root, {required bool windows}) {
 /// `doctor [--production]` — environment and configuration pre-flight.
 final class DoctorCommand extends DaravelCommand {
   DoctorCommand(super.createApp) {
-    argParser.addFlag(
-      'production',
-      negatable: false,
-      help: 'Treat warnings as failures (container entrypoint pre-flight).',
-    );
+    argParser
+      ..addFlag(
+        'production',
+        negatable: false,
+        help: 'Treat warnings as failures (container entrypoint pre-flight).',
+      )
+      ..addFlag(
+        'fix-tooling',
+        negatable: false,
+        help:
+            'Run `dart pub get` here when .dart_tool/package_config.json '
+            'was resolved on another system (Windows host vs WSL or a '
+            'container).',
+      );
   }
 
   @override
@@ -158,7 +167,10 @@ final class DoctorCommand extends DaravelCommand {
   @override
   Future<int> run() async {
     final strict = argResults!['production'] as bool;
-    final checks = await diagnose(production: strict);
+    final checks = await diagnose(
+      production: strict,
+      fixTooling: argResults!['fix-tooling'] as bool,
+    );
     for (final check in checks) {
       stdout.writeln(
         '${check.symbol} ${check.title}'
@@ -181,7 +193,12 @@ final class DoctorCommand extends DaravelCommand {
   /// `APP_ENV=production`, since the checks that only apply there would
   /// otherwise be skipped and the gate would pass on a configuration that
   /// was never the deployed one.
-  Future<List<DoctorCheck>> diagnose({bool production = false}) async {
+  /// [fixTooling] (`--fix-tooling`) resolves the packages again on this
+  /// system when `package_config.json` came from another one.
+  Future<List<DoctorCheck>> diagnose({
+    bool production = false,
+    bool fixTooling = false,
+  }) async {
     final checks = <DoctorCheck>[];
     final version = RegExp(r'^(\d+)\.(\d+)').firstMatch(Platform.version);
     final major = int.parse(version?.group(1) ?? '0');
@@ -213,10 +230,24 @@ final class DoctorCommand extends DaravelCommand {
       checks.add(DoctorCheck(CheckStatus.error, 'Project root', e.message));
     }
     if (paths != null) {
-      final tooling = packageConfigCheck(
-        paths.root,
-        windows: Platform.isWindows,
-      );
+      var tooling = packageConfigCheck(paths.root, windows: Platform.isWindows);
+      if (tooling != null && fixTooling) {
+        final result = await Process.run(Platform.resolvedExecutable, const [
+          'pub',
+          'get',
+        ], workingDirectory: paths.root);
+        tooling = result.exitCode == 0
+            ? packageConfigCheck(paths.root, windows: Platform.isWindows) ??
+                  const DoctorCheck(
+                    CheckStatus.ok,
+                    'Packages resolved again on this system (--fix-tooling)',
+                  )
+            : DoctorCheck(
+                CheckStatus.error,
+                '`dart pub get` failed (--fix-tooling)',
+                '${result.stderr}'.trim(),
+              );
+      }
       if (tooling != null) {
         checks.add(tooling);
       }
@@ -456,8 +487,12 @@ final class DoctorCommand extends DaravelCommand {
         DoctorCheck(
           CheckStatus.notice,
           'APP_ISOLATES=1: you are using 1 of $cores cores',
-          'Set APP_ISOLATES to the number of cores (or vCPUs) the server '
-              'may use, and measure.',
+          isolateSizingAdvice(
+                production: true,
+                isolates: 1,
+                processors: cores,
+              ) ??
+              '',
         ),
       );
     }
@@ -562,6 +597,26 @@ final class DoctorCommand extends DaravelCommand {
           'APP_KEY is not set in production',
           'Encryption, signed URLs and tokens need it: run '
               '`dartisan key:generate`.',
+        ),
+      );
+    }
+    // A revoked JWT lives in the default cache store (or `process` when
+    // that is per isolate); `memory` and `process` are emptied by a
+    // restart and evict silently, so a revoked token comes back.
+    final auth = app.container.make<AuthManager>();
+    final hasJwt = auth.guardNames.any(
+      (name) => auth.guard(name) is JwtGuard<Authenticatable>,
+    );
+    final cacheStore = app.config.section<CacheConfig>().defaultStore;
+    if (hasJwt && (cacheStore == 'memory' || cacheStore == 'process')) {
+      checks.add(
+        DoctorCheck(
+          CheckStatus.warning,
+          'JWT denylist in the $cacheStore cache store in production',
+          'Revoked tokens are forgotten on restart and when the store '
+              'evicts entries (CACHE_PROCESS_MAX_ENTRIES). Set '
+              'CACHE_STORE=database (Laravel\'s cache table) or redis, or '
+              'pass the JWT guard a persistent denylist.',
         ),
       );
     }

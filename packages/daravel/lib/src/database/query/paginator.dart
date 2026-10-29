@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import '../../foundation/container.dart';
+import '../../foundation/php.dart';
 import '../../http/request.dart';
 import '../../http/response.dart';
 
@@ -342,41 +343,9 @@ final class CursorPaginator<T> extends _UrlPaginator
 /// (Laravel `Arr::query`): `rawurlencode` keys and values joined by `&`.
 String rfc3986Query(Map<String, String> parameters) => [
   for (final entry in parameters.entries)
-    '${_rawUrlEncode(entry.key)}=${_rawUrlEncode(entry.value)}',
+    '${phpRawUrlEncode(entry.key)}=${phpRawUrlEncode(entry.value)}',
 ].join('&');
-
-String _rawUrlEncode(String value) {
-  final out = StringBuffer();
-  for (final byte in utf8.encode(value)) {
-    final unreserved =
-        (byte >= 0x41 && byte <= 0x5A) ||
-        (byte >= 0x61 && byte <= 0x7A) ||
-        (byte >= 0x30 && byte <= 0x39) ||
-        byte == 0x2D ||
-        byte == 0x2E ||
-        byte == 0x5F ||
-        byte == 0x7E;
-    out.write(
-      unreserved
-          ? String.fromCharCode(byte)
-          : '%${byte.toRadixString(16).toUpperCase().padLeft(2, '0')}',
-    );
-  }
-  return out.toString();
-}
 
 /// PHP `json_encode()` with default flags: like [jsonEncode], but `/` is
 /// escaped as `\/` and non-ASCII characters as `\uXXXX` (UTF-16 units).
-String phpJsonEncode(Object? value) {
-  final out = StringBuffer();
-  for (final unit in jsonEncode(value).codeUnits) {
-    if (unit == 0x2F) {
-      out.write(r'\/');
-    } else if (unit > 0x7F) {
-      out.write('\\u${unit.toRadixString(16).padLeft(4, '0')}');
-    } else {
-      out.writeCharCode(unit);
-    }
-  }
-  return out.toString();
-}
+String phpJsonEncode(Object? value) => phpJsonFromDart(jsonEncode(value));

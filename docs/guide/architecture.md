@@ -91,6 +91,19 @@ list in `bootstrap/`: `migrations.dart`, `seeders.dart`, `jobs.dart`,
 `policies.dart`, `listeners.dart` and `commands.dart`. `dartisan make:*`
 maintains them, and `dartisan lint` reports files left out of a registry.
 
+## Imports
+
+`package:daravel/daravel.dart` exports the whole framework. A file that
+needs one area, or whose own names collide with the barrel's (an
+application's `JwtException`, `UniqueRule`, `ModelNotFoundException` or
+`CorsMiddleware`), imports a subset instead: `package:daravel/foundation.dart`
+(application, container, configuration, facades, logging),
+`package:daravel/http.dart` (requests, responses, middleware, routing),
+`package:daravel/database.dart` (query builder, ORM, schema, seeding),
+`package:daravel/auth.dart` and `package:daravel/validation.dart`. They export
+the same declarations as the barrel, so a `hide` on the full import works
+as well: `import 'package:daravel/daravel.dart' hide JwtException;`.
+
 ## Concurrency
 
 With `APP_ISOLATES=N` (or `serve --isolates=N`), a supervisor starts N

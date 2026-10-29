@@ -1,3 +1,4 @@
+import 'container.dart';
 import 'env.dart';
 import 'exceptions.dart';
 
@@ -125,6 +126,7 @@ final class AppConfig implements ConfigSection {
     required this.url,
     required this.timezone,
     required this.locale,
+    this.laravelCompat = defaultLaravelCompat,
   });
 
   /// Reads `APP_*` variables with Laravel-compatible defaults.
@@ -135,6 +137,9 @@ final class AppConfig implements ConfigSection {
     url: env.string('APP_URL', 'http://localhost:8000'),
     timezone: env.string('APP_TIMEZONE', 'UTC'),
     locale: env.string('APP_LOCALE', 'en'),
+    laravelCompat: parseLaravelCompat(
+      env.maybeString('COMPAT_LARAVEL_VERSION'),
+    ),
   );
 
   final String name;
@@ -143,6 +148,31 @@ final class AppConfig implements ConfigSection {
   final String url;
   final String timezone;
   final String locale;
+
+  /// The Laravel major version whose wire formats the application answers
+  /// with (`COMPAT_LARAVEL_VERSION`, 8 to 13, default 12). 10 to 13 share
+  /// them. 9 uses the older validation messages (`The email must be ...`);
+  /// 8 also answers `The given data was invalid.` for every 422, an empty
+  /// 404 message and `... not supported for this route.` for a 405.
+  final int laravelCompat;
+
+  /// The default of [laravelCompat]: the Laravel the conformance suite pins.
+  static const int defaultLaravelCompat = 12;
+
+  /// Parses `COMPAT_LARAVEL_VERSION`: a major version (`8`), optionally
+  /// as `8.x` or a full version (`8.83.27`).
+  static int parseLaravelCompat(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return defaultLaravelCompat;
+    }
+    final major = int.tryParse(value.trim().split('.').first);
+    if (major == null || major < 8 || major > 13) {
+      throw ConfigException(
+        'COMPAT_LARAVEL_VERSION=$value is not supported: use 8 to 13.',
+      );
+    }
+    return major;
+  }
 
   bool get isProduction => env == 'production';
   bool get isTesting => env == 'testing';
@@ -159,5 +189,21 @@ final class AppConfig implements ConfigSection {
     'url': url,
     'timezone': timezone,
     'locale': locale,
+    'laravel_compat': laravelCompat,
   };
+}
+
+/// The `COMPAT_LARAVEL_VERSION` of the active application, or
+/// [AppConfig.defaultLaravelCompat] outside one (a unit test of a
+/// validator, a script).
+int currentLaravelCompat() {
+  final config = Container.currentOrNull?.tryMake<ConfigRepository>();
+  if (config == null) {
+    return AppConfig.defaultLaravelCompat;
+  }
+  try {
+    return config.section<AppConfig>().laravelCompat;
+  } on ConfigException {
+    return AppConfig.defaultLaravelCompat;
+  }
 }

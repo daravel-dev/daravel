@@ -365,33 +365,122 @@ final class _MySqlExecutor implements QueryExecutor {
     List<Object?> bindings = const [],
   ]) async {
     final result = await _run(sql, bindings);
-    // DATE (0x0a) and NEWDATE (0x0e): the binary protocol decoder adds a
-    // midnight time that Laravel never sees.
-    final dates = {
-      for (final column in result.cols)
-        if (column.type.intVal == 0x0a || column.type.intVal == 0x0e)
-          column.name,
-    };
-    return [for (final row in result.rows) _row(row, dates)];
+    final columns = result.cols.toList(growable: false);
+    final names = [for (final column in columns) column.name];
+    final readers = [for (final column in columns) _reader(column)];
+    return [for (final row in result.rows) _row(row, names, readers)];
   }
 
   /// A row as Laravel reads it: numbers as numbers, TINYINT(1) as 0/1 (not
   /// bool), and dates and times as the server's `Y-m-d H:i:s` text rather
   /// than a local-time `DateTime` (the ORM parses them as UTC).
-  static Map<String, Object?> _row(my.ResultSetRow row, Set<String> dates) {
-    final raw = row.assoc();
-    return {
-      for (final MapEntry(:key, :value) in row.typedAssoc().entries)
-        key: switch (value) {
-          bool() => value ? 1 : 0,
-          DateTime() => _text(raw[key], date: dates.contains(key)),
-          _ => value,
-        },
-    };
+  ///
+  /// One pass over the values with the column's [_reader]. It replaced
+  /// `assoc()` + `typedAssoc()` + a third map per row, which parsed every
+  /// DATETIME into a `DateTime` only to read the text back and built three
+  /// 40-entry maps per row: half of the time a 1 000 x 40 result took.
+  static Map<String, Object?> _row(
+    my.ResultSetRow row,
+    List<String> names,
+    List<_Reader?> readers,
+  ) {
+    final values = <String, Object?>{};
+    for (var i = 0; i < names.length; i++) {
+      final Object? value = row.colAt(i);
+      final reader = readers[i];
+      values[names[i]] = reader == null || value is! String
+          ? value
+          : reader(value);
+    }
+    return values;
   }
 
-  static Object? _text(Object? raw, {required bool date}) =>
-      date && raw is String && raw.length > 10 ? raw.substring(0, 10) : raw;
+  /// How the text of [column] is read, or `null` to keep it as it comes
+  /// (strings, decimals, JSON, bytes). Both protocols deliver these types as
+  /// text: `mysql_dart` formats binary-protocol numbers and dates too.
+  static _Reader? _reader(my.ResultSetColumn column) =>
+      switch (column.type.intVal) {
+        // TINYINT(1) is a boolean to mysql_dart; Laravel reads 0/1.
+        0x01 when column.length == 1 => (text) => int.parse(text) > 0 ? 1 : 0,
+        // TINY, SHORT, LONG, LONGLONG, INT24, YEAR; BIGINT UNSIGNED above
+        // 2^63 - 1 does not fit a Dart int.
+        0x01 ||
+        0x02 ||
+        0x03 ||
+        0x08 ||
+        0x09 ||
+        0x0d => (text) => int.tryParse(text) ?? BigInt.parse(text),
+        // FLOAT, DOUBLE.
+        0x04 || 0x05 => double.parse,
+        // DATE and NEWDATE: the binary protocol decoder adds a midnight time
+        // that Laravel never sees.
+        0x0a || 0x0e =>
+          (text) => !_representableDate(text)
+              ? null
+              : text.length > 10
+              ? text.substring(0, 10)
+              : text,
+        // TIMESTAMP, DATETIME, TIMESTAMP2, DATETIME2.
+        0x07 ||
+        0x0c ||
+        0x11 ||
+        0x12 => (text) => _representableDate(text) ? text : null,
+        _ => null,
+      };
+
+  /// Whether the date in [text] (`Y-m-d`, with or without a time) is one a
+  /// `DateTime` can represent. The zero date `0000-00-00`, a zero month or
+  /// day and an invalid day (`2024-02-30` under ALLOW_INVALID_DATES) read as
+  /// null, as `mysql_dart`'s `ZeroDateBehavior.convertToNull` did. Text in
+  /// another form is kept as it is.
+  static bool _representableDate(String text) {
+    if (text.length < 10) {
+      return true;
+    }
+    final year = _digits(text, 0, 4);
+    final month = _digits(text, 5, 7);
+    final day = _digits(text, 8, 10);
+    if (year < 0 || month < 0 || day < 0) {
+      return true;
+    }
+    if (month < 1 || month > 12 || day < 1) {
+      return false;
+    }
+    final int daysInMonth;
+    if (month == 2) {
+      final leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+      daysInMonth = leap ? 29 : 28;
+    } else {
+      daysInMonth = const [
+        31,
+        0,
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+      ][month - 1];
+    }
+    return day <= daysInMonth;
+  }
+
+  /// The decimal number in `text[start, end)`, or -1 for a non-digit.
+  static int _digits(String text, int start, int end) {
+    var value = 0;
+    for (var i = start; i < end; i++) {
+      final digit = text.codeUnitAt(i) - 0x30;
+      if (digit < 0 || digit > 9) {
+        return -1;
+      }
+      value = value * 10 + digit;
+    }
+    return value;
+  }
 
   @override
   Future<int> execute(String sql, [List<Object?> bindings = const []]) async =>
@@ -406,3 +495,6 @@ final class _MySqlExecutor implements QueryExecutor {
     return id == BigInt.zero ? null : id.toInt();
   }
 }
+
+/// Reads a column's text into the value Laravel sees.
+typedef _Reader = Object? Function(String text);

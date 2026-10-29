@@ -174,7 +174,8 @@ void main() {
               .table('cache')
               .where('key', 'test_f')
               .first())!['expiration'],
-          DatabaseStore.foreverExpiration,
+          // Ten years from now, as Laravel writes it (fits MySQL's integer).
+          closeTo(DatabaseStore.foreverExpiration, 5),
         );
         expect(await cache.pull<String>('f'), 'v');
         expect(await cache.has('f'), isFalse);
