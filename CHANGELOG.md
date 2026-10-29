@@ -13,6 +13,13 @@ match Laravel more closely.
 
 ### Added
 
+- `dartisan e2e:install`, `make:e2e` and `test:e2e` (Blueprint #46): a
+  Playwright suite in `tests/e2e`, over HTTP and in Chromium: health and
+  404 bodies, token authentication from register to logout, Laravel's 422
+  body, login rate limiting, the welcome page without console errors and
+  its security headers. `test:e2e --serve` starts the application on a
+  fresh `database/e2e.sqlite` first; `--url` tests a DDEV site or staging.
+  The starter carries the suite and CI runs it on every commit.
 - `daravel_pulse` (Blueprint #32): a dashboard at `/pulse` after Laravel
   Pulse. Requests by minute (count, server errors, latency), slow requests
   by route pattern, slow queries by SQL (never the bindings), exceptions by

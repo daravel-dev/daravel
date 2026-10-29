@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added `e2e:install`, `make:e2e <Name> [--api]` and `test:e2e [--serve] [--url] [--api] [--ui] [-- playwright args]`: a Playwright end-to-end suite in `tests/e2e` (health, token authentication, the 422 body, login rate limiting, the welcome page and its headers), run against a fresh database or any URL.
 - `pub:add` lists `daravel_pulse` (`pulse`), and `upgrade` updates it.
 
 ## 1.16.0
