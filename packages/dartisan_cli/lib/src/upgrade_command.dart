@@ -23,6 +23,7 @@ const List<String> daravelPackages = [
   'daravel_excel',
   'daravel_log_viewer',
   'daravel_pulse',
+  'daravel_payments',
   'daravel_medialibrary',
   'daravel_redis',
   'daravel_teorion',

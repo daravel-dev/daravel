@@ -18,6 +18,7 @@ workspace:
   - packages/daravel_excel
   - packages/daravel_log_viewer
   - packages/daravel_pulse
+  - packages/daravel_payments
   - packages/daravel_medialibrary
   - packages/daravel_postgres
   - packages/daravel_teorion
