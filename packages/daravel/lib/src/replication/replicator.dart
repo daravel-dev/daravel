@@ -7,6 +7,7 @@ import 'package:sqlite3/sqlite3.dart';
 
 import '../foundation/exceptions.dart';
 import '../storage/storage.dart';
+import 'sqlite_lock.dart';
 import 'wal.dart';
 
 /// Thrown when a database cannot be replicated or restored.
@@ -342,7 +343,9 @@ final class SqliteReplicator {
       (_) => math.Random.secure().nextInt(256),
     ).map((b) => b.toRadixString(16).padLeft(2, '0')).join();
     final WalRead tail;
-    db.execute('BEGIN IMMEDIATE');
+    if (!tryBeginImmediate(db)) {
+      return 0; // A writer kept the lock past busy_timeout; try next time.
+    }
     try {
       final bytes = _readWal();
       final header = WalHeader.parse(bytes);
@@ -509,7 +512,7 @@ final class SqliteReplicator {
             // SQLITE_BUSY / SQLITE_LOCKED past busy_timeout: a writer holds
             // the lock, so the log it writes is the one to follow. Try
             // again instead of failing the sync.
-            if (error.resultCode != 5 && error.resultCode != 6) {
+            if (!isSqliteBusy(error)) {
               rethrow;
             }
             continue;
