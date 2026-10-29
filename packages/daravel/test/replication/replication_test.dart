@@ -236,7 +236,9 @@ void main() {
     final got = ids(restored());
     expectPrefix(got);
     expect(got.length, last, reason: 'nothing committed is missing');
-    expect(last, greaterThan(500), reason: 'the writer kept writing');
+    // Proof that writes ran alongside the syncs, not a speed target: a
+    // loaded Windows runner managed 324 rows in the four seconds.
+    expect(last, greaterThan(100), reason: 'the writer kept writing');
     // ignore: avoid_print
     print(
       '$last rows, $newGenerations generations after the first, '
