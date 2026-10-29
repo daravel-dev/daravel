@@ -11,6 +11,7 @@ publisher `framework.daravel.dev`.
 
 | Version | Highlights |
 | :-- | :-- |
+| `1.18.0` | Sessions, encrypted cookies and CSRF (daravel_session), COMPAT_LARAVEL_VERSION for Laravel 8 to 13, Crypt with PHP serialize(), APP_PROCESSES multi-process serving, a MySQL driver twice as fast |
 | `1.17.0` | Pulse dashboard (daravel_pulse), `dartisan test:stress`, Playwright end-to-end suites (`e2e:install`, `test:e2e`) |
 | `1.16.0` | Media library (daravel_medialibrary), `dartisan security:audit`, `coordinator:stats --url`, distroless Docker images, an example application, and full pub points for every package |
 | `1.15.0` | Excel and CSV (daravel_excel), a log viewer (daravel_log_viewer), `dartisan pub:add` to install packages, and a fix for commands that never exited with `withPermissions()` |
