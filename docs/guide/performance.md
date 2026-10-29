@@ -38,6 +38,45 @@ request, and four isolates give at least three times the throughput of one on a 
 [bench/README.md](https://github.com/daravel-dev/daravel/blob/main/bench/README.md)
 for the methodology.
 
+## Your application under load
+
+`bench/` measures the framework. `dartisan test:stress` measures your
+application, running wherever you point it (local, DDEV, staging): it
+finds what the application has, warms it up, sends rounds of requests over
+several connections and client isolates, and reports the throughput of the
+rounds (mean ± standard deviation) and the p50/p95/p99 latency.
+
+```bash
+dartisan serve                                   # in another terminal
+dartisan test:stress --rounds=5 --requests=2000 --concurrency=50
+dartisan test:stress --url=https://shop.ddev.site --path=/api/products
+```
+
+| Scenario | Request | Expected |
+|---|---|---|
+| `health` | `GET /up` | 200 |
+| `ping` | `GET /api/ping` | 200 |
+| `not_found` | an unknown route | 404 |
+| `auth_me` | `GET /api/auth/me` with the token of a user it registers (`stress_…@example.test`) | 200 |
+| `rate_limit` | failed logins for one email | 422, then 429 |
+| `custom_N` | `GET` of each `--path` | 200 |
+
+Only the scenarios the application answers run; `--scenario=ping,auth_me`
+picks some. Any 5xx, request without a response or unexpected status
+fails the run (exit 1), and so do `--max-p95=150` (milliseconds) and
+`--min-rps=500`, which makes it a performance gate in CI. The login
+scenario is held to its statuses only, since password hashing makes it slow
+on purpose.
+
+`--json=report.json` keeps everything, the target included.
+`--export-public=benchmarks.json` writes what may be published: statistics
+by scenario, statuses by class (`2xx`, `4xx`), the settings, and the
+operating system, CPU count and Dart and Daravel versions. It is built from
+a list of allowed fields, so the URL, host and port, tokens, the synthetic
+user and the `--path` routes cannot reach it. Before you publish a number,
+say what produced it: the machine, whether the load generator shared it,
+and how many rounds.
+
 ## Against Laravel
 
 Daravel against Laravel 12 (Octane and classic) on the same scenarios,

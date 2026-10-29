@@ -1,4 +1,4 @@
-<!-- source: performance.md sha256:0c49c841f41c -->
+<!-- source: performance.md sha256:3d0b47bdc9d5 -->
 # Performa
 
 Daravel tidak membuat klaim performa tanpa angka yang bisa direproduksi
@@ -40,6 +40,46 @@ request, dan empat isolate memberi setidaknya tiga kali throughput satu
 isolate di mesin dengan 4 core atau lebih. Lihat
 [bench/README.md](https://github.com/daravel-dev/daravel/blob/main/bench/README.md)
 untuk metodologinya.
+
+## Aplikasi Anda di bawah beban
+
+`bench/` mengukur framework. `dartisan test:stress` mengukur aplikasi Anda,
+di mana pun aplikasi itu berjalan (lokal, DDEV, staging): perintah ini
+mencari skenario yang tersedia di aplikasi, melakukan warm-up, mengirim
+beberapa round request lewat beberapa koneksi dan client isolate, lalu
+melaporkan throughput antar-round (rata-rata ± standar deviasi) serta
+latensi p50/p95/p99.
+
+```bash
+dartisan serve                                   # di terminal lain
+dartisan test:stress --rounds=5 --requests=2000 --concurrency=50
+dartisan test:stress --url=https://shop.ddev.site --path=/api/products
+```
+
+| Skenario | Request | Yang diharapkan |
+|---|---|---|
+| `health` | `GET /up` | 200 |
+| `ping` | `GET /api/ping` | 200 |
+| `not_found` | route yang tidak ada | 404 |
+| `auth_me` | `GET /api/auth/me` dengan token user yang didaftarkannya (`stress_…@example.test`) | 200 |
+| `rate_limit` | login gagal untuk satu email | 422, lalu 429 |
+| `custom_N` | `GET` setiap `--path` | 200 |
+
+Hanya skenario yang dijawab aplikasi yang dijalankan; `--scenario=ping,auth_me`
+memilih sebagian. Setiap 5xx, request tanpa response, atau status yang
+tidak diharapkan menggagalkan run (exit 1), begitu juga `--max-p95=150`
+(milidetik) dan `--min-rps=500`, sehingga perintah ini bisa menjadi
+performance gate di CI. Skenario login hanya dinilai dari status-nya,
+karena hashing password memang sengaja membuatnya lambat.
+
+`--json=report.json` menyimpan semuanya, termasuk target.
+`--export-public=benchmarks.json` menulis apa yang boleh dipublikasikan:
+statistik per skenario, status per kelas (`2xx`, `4xx`), pengaturan, serta
+sistem operasi, jumlah CPU, dan versi Dart dan Daravel. File ini dibangun
+dari daftar field yang diizinkan, sehingga URL, host dan port, token, user
+sintetis, dan route `--path` tidak mungkin masuk. Sebelum mempublikasikan
+sebuah angka, sebutkan apa yang menghasilkannya: mesinnya, apakah load
+generator berbagi mesin yang sama, dan berapa round.
 
 ## Dibandingkan dengan Laravel
 

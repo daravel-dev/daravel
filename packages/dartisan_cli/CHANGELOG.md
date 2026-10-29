@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added `test:stress [--url] [--scenario] [--path] [--rounds] [--requests] [--concurrency] [--isolates] [--warmup] [--cooldown] [--max-p95] [--min-rps] [--json] [--export-public]`: load against a running application in rounds (health, ping, 404, an authenticated `me`, a rate-limited login, custom routes), with throughput mean ± stdev and p50/p95/p99, failing on a 5xx, a missing response, an unexpected status or a threshold; `--export-public` writes only allowed fields, never the target, tokens or custom routes.
 - Added `e2e:install`, `make:e2e <Name> [--api]` and `test:e2e [--serve] [--url] [--api] [--ui] [-- playwright args]`: a Playwright end-to-end suite in `tests/e2e` (health, token authentication, the 422 body, login rate limiting, the welcome page and its headers), run against a fresh database or any URL.
 - `pub:add` lists `daravel_pulse` (`pulse`), and `upgrade` updates it.
 
