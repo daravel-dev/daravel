@@ -1,4 +1,4 @@
-<!-- source: testing.md sha256:bc1e48e0eb25 -->
+<!-- source: testing.md sha256:60e4c904fcaf -->
 # Testing
 
 `package:daravel_test` menjalankan aplikasi Anda tanpa membuka socket:
@@ -60,6 +60,35 @@ header yang tidak bisa dikirim `HttpClient` (nilai non-ASCII, seperti pada
 fuzzing). Di bawah `refreshDatabase`, server berjalan di dalam transaksi
 milik test. Menjalankan suite dengan kedua cara di CI menangkap apa yang
 tidak terlihat oleh test di dalam proses.
+
+## Di browser (Playwright)
+
+`TestClient` menguji aplikasi dari dalam. Suite end-to-end mengujinya dari
+luar, seperti yang dilihat browser dan HTTP client: halaman tampil tanpa
+error di console, header terkirim, token dari login membuka
+`/api/auth/me` sampai logout, dan login keenam dalam satu menit dijawab
+429. Daravel memakai [Playwright](https://playwright.dev) (Laravel memakai
+Dusk), yang membutuhkan Node.js 20+:
+
+```bash
+dartisan e2e:install            # tests/e2e: konfigurasi dan spec
+cd tests/e2e && npm install && npx playwright install chromium
+dartisan test:e2e --serve       # menyalakan aplikasi dengan database baru, lalu menjalankan suite
+```
+
+`--serve` menjalankan `migrate:fresh --seed` pada `database/e2e.sqlite` dan
+`serve` di port 8000 (`--port`), dan memakai ulang server yang sudah
+berjalan di sana. Untuk server lain, situs DDEV atau staging: `dartisan
+test:e2e --url=https://shop.ddev.site` (sertifikat TLS lokal diterima).
+`--api` hanya menjalankan spec `*.api.spec.ts`, lewat HTTP tanpa browser;
+`--ui` membuka UI mode Playwright; argumen setelah `--` diteruskan ke
+Playwright (`dartisan test:e2e -- -g login`). `dartisan make:e2e Checkout`
+menambahkan `specs/web/checkout.spec.ts`, dan `--api` membuat spec API.
+
+Spec-spec ini memakai satu server bersama, jadi berjalan di satu worker:
+database dan rate limit-nya adalah yang sebenarnya (lima registrasi per
+menit per IP di project baru). Suite di starter berjalan di CI pada
+setiap commit.
 
 ## Test konformansi
 

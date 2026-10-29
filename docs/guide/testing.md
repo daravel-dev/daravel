@@ -57,6 +57,34 @@ headers `HttpClient` cannot send (non-ASCII values, as in fuzzing). Under
 `refreshDatabase` the server runs inside the test's transaction. Running
 the suite both ways in CI catches what in-process tests cannot see.
 
+## In a browser (Playwright)
+
+`TestClient` tests the application from inside. An end-to-end suite tests
+it from outside, as a browser and an HTTP client see it: the page renders
+without console errors, the headers arrive, a token issued at login opens
+`/api/auth/me` until logout, the sixth login in a minute answers 429.
+Daravel uses [Playwright](https://playwright.dev) (Laravel has Dusk), which
+needs Node.js 20+:
+
+```bash
+dartisan e2e:install            # tests/e2e: config and specs
+cd tests/e2e && npm install && npx playwright install chromium
+dartisan test:e2e --serve       # starts the app on a fresh database, runs the suite
+```
+
+`--serve` runs `migrate:fresh --seed` on `database/e2e.sqlite` and `serve`
+on port 8000 (`--port`), and reuses a server already running there. Against
+another server, a DDEV site or staging: `dartisan test:e2e
+--url=https://shop.ddev.site` (local TLS certificates are accepted).
+`--api` runs only the `*.api.spec.ts` specs, over HTTP without a browser;
+`--ui` opens Playwright's UI mode; what follows `--` goes to Playwright
+(`dartisan test:e2e -- -g login`). `dartisan make:e2e Checkout` adds
+`specs/web/checkout.spec.ts`, and `--api` an API spec.
+
+The specs share one server, so they run on one worker: its database and
+its rate limits (five registrations a minute per IP in new projects) are
+the real ones. The starter's suite runs in CI on every commit.
+
 ## Conformance tests
 
 `package:daravel_test/conformance.dart` exposes Laravel 12's wire contracts

@@ -180,6 +180,41 @@ jobs:
       - name: Test against LiveKit
         run: (cd packages/daravel_livekit && dart test --tags integration --reporter=expanded)
 
+  e2e:
+    # Blueprint #46: the starter in a real browser and over HTTP, with the
+    # Playwright suite `dartisan e2e:install` writes.
+    name: Playwright E2E
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dart-lang/setup-dart@v1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Resolve workspace
+        run: dart pub get
+
+      - name: Install Playwright and Chromium
+        working-directory: apps/daravel_starter/tests/e2e
+        run: |
+          npm install --no-audit --no-fund
+          npx playwright install --with-deps chromium
+
+      - name: Run the suite (starts the starter on a fresh database)
+        working-directory: apps/daravel_starter
+        run: dart run bin/dartisan.dart test:e2e --serve
+
+      - name: Keep the report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: apps/daravel_starter/tests/e2e/report
+          retention-days: 7
+
   s3:
     # Blueprint #52: the disk contract, multipart and presigned URLs on a real
     # S3-compatible server. RustFS rather than MinIO, whose images are no
