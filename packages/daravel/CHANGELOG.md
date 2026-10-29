@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Changed: `daravelLogoDataUri` and `daravelFaviconDataUri` carry the new Daravel logo (an infinity loop).
+
 ## 1.19.0
 
 - Fixed: `SqliteReplicator.sync` retries its marker row instead of failing when a writer holds the lock past `busy_timeout`.
