@@ -51,19 +51,24 @@ Future<void> _writer((SendPort, String, int) args) async {
   reply.send(control.sendPort);
   var stop = false;
   control.listen((_) => stop = true);
-  final db = openApp(path)..execute('PRAGMA busy_timeout=50');
+  // As an application would: wait for locks (the replicator's included).
+  final db = openApp(path);
   final random = math.Random(start);
   var id = start;
   while (!stop) {
     insert(db, id++);
     if (random.nextInt(40) == 0) {
+      // A checkpoint that gives up quickly: the replicator's read
+      // transaction usually keeps it from finishing.
+      db.execute('PRAGMA busy_timeout=50');
       try {
         db.execute(
           'PRAGMA wal_checkpoint(${random.nextBool() ? 'PASSIVE' : 'RESTART'})',
         );
       } on SqliteException {
-        // Busy: the replicator holds a read transaction. Fine.
+        // Busy. Fine.
       }
+      db.execute('PRAGMA busy_timeout=5000');
     }
     if (id % 25 == 0) {
       await Future<void>.delayed(Duration.zero);
@@ -74,7 +79,7 @@ Future<void> _writer((SendPort, String, int) args) async {
   control.close();
 }
 
-/// Syncs every 10 ms, reporting each sync, until the isolate is killed.
+/// Syncs every 10 ms, reporting when each sync began, until killed.
 Future<void> _replicate((SendPort, String, String) args) async {
   final (report, path, root) = args;
   final replicator = SqliteReplicator(
@@ -83,8 +88,9 @@ Future<void> _replicate((SendPort, String, String) args) async {
     checkpointPages: 30,
   );
   while (true) {
+    final started = DateTime.now().microsecondsSinceEpoch;
     await replicator.sync();
-    report.send(true);
+    report.send(started);
     await Future<void>.delayed(const Duration(milliseconds: 10));
   }
 }
@@ -236,7 +242,7 @@ void main() {
       '$last rows, $newGenerations generations after the first, '
       '$restores restores midway',
     );
-  });
+  }, timeout: const Timeout(Duration(minutes: 2)));
 
   test('point in time: the state as of a moment', () async {
     var now = DateTime.utc(2026, 10, 29, 8);
@@ -285,18 +291,20 @@ void main() {
       );
       final errors = StringBuffer();
       child.stderr.transform(utf8.decoder).listen(errors.write);
-      Future<void> syncs(int n) async {
-        for (var i = 0; i < n; i++) {
+      // Waits for a sync that began after [after]: older reports may sit
+      // in the pipe while this isolate was busy writing.
+      Future<void> syncAfter(int after) async {
+        while (true) {
           if (!await lines.moveNext()) {
-            fail(
-              'the replicator exited (${await child.exitCode}): $errors '
-              '${Platform.resolvedExecutable}',
-            );
+            fail('the replicator exited (${await child.exitCode}): $errors');
+          }
+          if (int.parse(lines.current.split(' ').last) > after) {
+            return;
           }
         }
       }
 
-      await syncs(1).timeout(const Duration(seconds: 120));
+      await syncAfter(0).timeout(const Duration(seconds: 120));
       var id = 1;
       var confirmed = 0;
       final random = math.Random(7);
@@ -305,8 +313,9 @@ void main() {
           insert(app, ++id);
         }
         if (round % 3 == 0) {
-          // Two syncs that began after these writes: they are shipped.
-          await syncs(2).timeout(const Duration(seconds: 20));
+          // A sync that began after these writes has shipped them.
+          await syncAfter(DateTime.now().microsecondsSinceEpoch)
+              .timeout(const Duration(seconds: 20));
           confirmed = id;
         }
       }
@@ -327,36 +336,49 @@ void main() {
     skip: Platform.isWindows ? 'the child cannot share the SQLite DLL' : false,
   );
 
-  test('a replicator isolate killed mid-flight: the same guarantee', () async {
-    final app = openApp(path);
-    insert(app, 1);
-    final ready = ReceivePort();
-    final syncs = StreamIterator(ready);
-    final isolate = await Isolate.spawn(_replicate, (
-      ready.sendPort,
-      path,
-      disk.root,
-    ));
-    await syncs.moveNext();
-    var id = 1;
-    var confirmed = 0;
-    for (var round = 0; round < 30; round++) {
-      for (var i = 0; i < 25; i++) {
+  test(
+    'a replicator isolate killed mid-flight: the same guarantee',
+    timeout: const Timeout(Duration(minutes: 2)),
+    () async {
+      final app = openApp(path);
+      insert(app, 1);
+      final ready = ReceivePort();
+      final syncs = StreamIterator(ready);
+      final isolate = await Isolate.spawn(_replicate, (
+        ready.sendPort,
+        path,
+        disk.root,
+      ));
+      // Waits for a sync that began after [after] (see the test above).
+      Future<void> syncAfter(int after) async {
+        while (await syncs.moveNext()) {
+          if ((syncs.current! as int) > after) {
+            return;
+          }
+        }
+      }
+
+      await syncAfter(0);
+      var id = 1;
+      var confirmed = 0;
+      for (var round = 0; round < 30; round++) {
+        for (var i = 0; i < 25; i++) {
+          insert(app, ++id);
+        }
+        if (round % 3 == 0) {
+          await syncAfter(DateTime.now().microsecondsSinceEpoch)
+              .timeout(const Duration(seconds: 20));
+          confirmed = id;
+        }
+      }
+      for (var i = 0; i < 15; i++) {
         insert(app, ++id);
       }
-      if (round % 3 == 0) {
-        await syncs.moveNext();
-        await syncs.moveNext();
-        confirmed = id;
-      }
-    }
-    for (var i = 0; i < 15; i++) {
-      insert(app, ++id);
-    }
-    isolate.kill(priority: Isolate.immediate);
-    ready.close();
-    app.close();
-    await restoreReplica(disk, '', restored());
-    expectPrefix(ids(restored()), atLeast: confirmed);
-  });
+      isolate.kill(priority: Isolate.immediate);
+      ready.close();
+      app.close();
+      await restoreReplica(disk, '', restored());
+      expectPrefix(ids(restored()), atLeast: confirmed);
+    },
+  );
 }

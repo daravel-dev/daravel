@@ -341,7 +341,7 @@ final class SqliteReplicator {
       16,
       (_) => math.Random.secure().nextInt(256),
     ).map((b) => b.toRadixString(16).padLeft(2, '0')).join();
-    var shipped = 0;
+    final WalRead tail;
     db.execute('BEGIN IMMEDIATE');
     try {
       final bytes = _readWal();
@@ -351,7 +351,15 @@ final class SqliteReplicator {
         db.execute('ROLLBACK');
         return 0;
       }
-      shipped = await _ship(bytes, header);
+      // Only read under the lock, so writers wait for a file read and one
+      // small write, never for an upload.
+      tail = readWalFrames(
+        bytes,
+        header,
+        offset: _offset,
+        checksum1: _checksum1,
+        checksum2: _checksum2,
+      );
       _ensureMarkerTable(db);
       db
         ..execute(
@@ -365,6 +373,15 @@ final class SqliteReplicator {
       }
       rethrow;
     }
+    // Should the upload fail, the state stays on the old log and the next
+    // sync reads the tail again (or starts a generation).
+    if (tail.frames.isNotEmpty) {
+      await _upload(tail.frames, old.pageSize);
+    }
+    _offset = tail.offset;
+    _checksum1 = tail.checksum1;
+    _checksum2 = tail.checksum2;
+    final shipped = tail.frames.length;
     final bytes = _readWal();
     final header = WalHeader.parse(bytes);
     if (header == null || header.sameLog(old)) {
@@ -475,19 +492,26 @@ final class SqliteReplicator {
   Future<ReplicationSync> _startGeneration(Database db, String reason) async {
     _endRead(db);
     try {
-      for (var attempt = 0; attempt < 10; attempt++) {
-        var before = WalHeader.parse(_readWal());
-        if (before == null) {
+      for (var attempt = 0; attempt < 50; attempt++) {
+        if (attempt > 0) {
+          _endRead(db);
+          await Future<void>.delayed(Duration(milliseconds: 5 * attempt));
+        }
+        if (WalHeader.parse(_readWal()) == null) {
           // Give the database a log to follow.
           _ensureMarkerTable(db);
           db.execute(
             'INSERT OR REPLACE INTO _daravel_replication VALUES (1, ?, ?)',
             [reason, _clock().millisecondsSinceEpoch],
           );
-          before = WalHeader.parse(_readWal());
-          if (before == null) {
-            continue;
-          }
+        }
+        // Read under a read transaction, which keeps SQLite from
+        // restarting the log while the snapshot is copied; the two header
+        // reads below are what correctness rests on all the same.
+        _beginRead(db);
+        final before = WalHeader.parse(_readWal());
+        if (before == null) {
+          continue;
         }
         final snapshot = await _snapshot(db);
         final after = WalHeader.parse(_readWal());
