@@ -6,6 +6,61 @@ import 'package:test/test.dart';
 void main() {
   shutdownTests();
   timeoutOptionTests();
+  test("sql_mode as Laravel 12's MySqlConnector sets it", () {
+    const strict =
+        'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,'
+        'ERROR_FOR_DIVISION_BY_ZERO';
+    expect(MySqlDriver.sqlModeFor(), isNull, reason: "the server's mode");
+    expect(MySqlDriver.sqlModeFor(strict: false), 'NO_ENGINE_SUBSTITUTION');
+    expect(
+      MySqlDriver.sqlModeFor(strict: true, version: '8.4.3'),
+      '$strict,NO_ENGINE_SUBSTITUTION',
+    );
+    expect(
+      MySqlDriver.sqlModeFor(strict: true, version: '11.4.2-MariaDB-ubu2404'),
+      '$strict,NO_ENGINE_SUBSTITUTION',
+      reason: 'version_compare sees MariaDB 10+ as newer than 8.0.11',
+    );
+    expect(
+      MySqlDriver.sqlModeFor(strict: true, version: '5.7.44'),
+      '$strict,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION',
+    );
+    expect(
+      MySqlDriver.sqlModeFor(strict: true, modes: ['ANSI_QUOTES']),
+      'ANSI_QUOTES',
+      reason: 'modes win',
+    );
+
+    final driver = MySqlDriver.fromConfig(
+      'mysql',
+      const ConnectionConfig(
+        driver: 'mysql',
+        database: 'legacy',
+        options: {
+          'strict': 'false',
+          'isolation_level': 'READ COMMITTED',
+          'modes': null,
+        },
+      ),
+    );
+    expect(driver.strict, isFalse);
+    expect(driver.sessionStatements('10.6.16-MariaDB'), [
+      'SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED',
+      "SET SESSION sql_mode='NO_ENGINE_SUBSTITUTION'",
+    ]);
+    expect(
+      MySqlDriver.fromConfig(
+        'mysql',
+        const ConnectionConfig(
+          driver: 'mysql',
+          database: 'x',
+          options: {'modes': 'STRICT_TRANS_TABLES, NO_ZERO_DATE'},
+        ),
+      ).modes,
+      ['STRICT_TRANS_TABLES', 'NO_ZERO_DATE'],
+    );
+  });
+
   test('fromConfig reads the DB_* connection like Laravel', () {
     final driver = MySqlDriver.fromConfig(
       'mariadb',

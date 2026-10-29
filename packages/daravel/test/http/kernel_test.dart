@@ -58,6 +58,9 @@ Application _buildApp() =>
               '/users/{id}',
               (req) => <String, Object?>{'id': req.param<int>('id')},
             );
+            // A helper deep in the call chain, with no request passed in.
+            r.get('/ambient', (_) => {'path': _currentPath()});
+            r.get('/teapot', (_) => throw const _Teapot());
             r.post(
               '/echo',
               (req) async => <String, Object?>{
@@ -77,6 +80,13 @@ Application _buildApp() =>
           ]),
         )
         .withExceptions((e) {
+          // An asynchronous renderer: it awaits before answering.
+          e.render<_Teapot>((error, req) async {
+            await Future<void>.delayed(const Duration(milliseconds: 5));
+            return Response.json({
+              'teapot': Request.current?.path,
+            }, status: 418);
+          });
           e.render<StateError>(
             (error, req) => Response.json(<String, Object?>{
               'message': 'custom: ${error.message}',
@@ -86,6 +96,12 @@ Application _buildApp() =>
           e.dontReport<UnimplementedError>();
         })
         .create();
+
+final class _Teapot implements Exception {
+  const _Teapot();
+}
+
+String? _currentPath() => Request.current?.path;
 
 void main() {
   late Application app;
@@ -113,6 +129,15 @@ void main() {
       expect(response.headers['x-trace-global'], 'done');
     },
   );
+
+  test('Request.current inside a request; async renderers', () async {
+    expect(Request.current, isNull, reason: 'outside a request');
+    final ambient = await app.handle(Request.fake(path: '/api/ambient'));
+    expect(await jsonOf(ambient), {'path': '/api/ambient'});
+    final teapot = await app.handle(Request.fake(path: '/api/teapot'));
+    expect(teapot.status, 418);
+    expect(await jsonOf(teapot), {'teapot': '/api/teapot'});
+  });
 
   test('maps become JSON with ISO-8601 UTC dates', () async {
     final response = await app.handle(Request.fake(path: '/api/json'));

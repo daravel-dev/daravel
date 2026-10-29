@@ -38,6 +38,27 @@ void apiRoutes(Router router) {
 ```
 <!-- /include -->
 
+### Routes outside `/api`
+
+`api:` routes are mounted under `apiPrefix` (`/api`). An application whose
+API lives elsewhere, or in several roots, mounts them itself with `then:`:
+
+```dart
+.withRouting(
+  web: webRoutes,
+  apiPrefix: '',                        // or leave api: out
+  then: [
+    (router) => router.group(adminV1, prefix: '/admin/v1'),
+    (router) => router.group(adminV2, prefix: '/admin/v2'),
+    (router) => router.group(mobile, prefix: '/{tenant}/v2'),
+  ],
+)
+```
+
+`Request.current` gives the request being handled anywhere in its call
+chain (a helper, an observer), as Laravel's `request()` does; it is `null`
+outside a request.
+
 ## Route features
 
 - Verbs: `get`, `post`, `put`, `patch`, `delete`, `options`, `any`,

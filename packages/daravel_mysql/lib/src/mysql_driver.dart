@@ -37,6 +37,11 @@ final class MySqlDriver
     this.timeZone,
     this.connectTimeout = const Duration(seconds: 10),
     this.queryTimeout = const Duration(seconds: 30),
+    this.strict,
+    this.modes,
+    this.isolationLevel,
+    this.initCommands = const [],
+    this.onConnectionOpen,
   });
 
   /// Builds the driver from a connection of `config/database` (`DB_*`).
@@ -68,6 +73,20 @@ final class MySqlDriver
         connection.options['query_timeout'],
         const Duration(seconds: 30),
       ),
+      strict: switch (connection.options['strict']) {
+        final bool value => value,
+        'true' || '1' => true,
+        'false' || '0' => false,
+        _ => null,
+      },
+      modes: switch (connection.options['modes']) {
+        final List<Object?> list => [for (final m in list) '$m'],
+        final String text when text.trim().isNotEmpty => [
+          for (final m in text.split(',')) m.trim(),
+        ],
+        _ => null,
+      },
+      isolationLevel: connection.options['isolation_level'] as String?,
     );
   }
 
@@ -89,6 +108,91 @@ final class MySqlDriver
   /// request on the isolate queued behind them. On expiry `mysql_dart`
   /// issues `KILL QUERY` through a side connection.
   final Duration? queryTimeout;
+
+  /// Laravel's `'strict'` (`DB_STRICT`): `true` sets the strict
+  /// `sql_mode` Laravel sets, `false` sets `NO_ENGINE_SUBSTITUTION` (no
+  /// strict mode: a missing `NOT NULL` value becomes `''` or `0` as the
+  /// server allows), `null` leaves the server's mode. A Laravel
+  /// application's `config/database.php` usually has `'strict' => true`.
+  final bool? strict;
+
+  /// Laravel's `'modes'` (`DB_SQL_MODES`): an explicit `sql_mode`, over
+  /// [strict].
+  final List<String>? modes;
+
+  /// Laravel's `'isolation_level'` (`DB_ISOLATION_LEVEL`), e.g.
+  /// `READ COMMITTED`.
+  final String? isolationLevel;
+
+  /// Statements run on every new connection, after the session settings.
+  final List<String> initCommands;
+
+  /// Runs on every new connection of the pool, last.
+  final FutureOr<void> Function(my.MySQLConnection connection)?
+  onConnectionOpen;
+
+  /// The `sql_mode` Laravel 12's `MySqlConnector::getSqlMode` sets for
+  /// [strict] and [modes] on a server of [version] (`null`: none).
+  static String? sqlModeFor({
+    bool? strict,
+    List<String>? modes,
+    String? version,
+  }) {
+    if (modes != null) {
+      return modes.join(',');
+    }
+    if (strict == null) {
+      return null;
+    }
+    if (!strict) {
+      return 'NO_ENGINE_SUBSTITUTION';
+    }
+    const base =
+        'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,'
+        'NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO';
+    // MySQL 8.0.11 removed NO_AUTO_CREATE_USER; PHP's version_compare sees
+    // MariaDB 10+ as newer too.
+    return _atLeast(version ?? '0', const [8, 0, 11])
+        ? '$base,NO_ENGINE_SUBSTITUTION'
+        : '$base,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION';
+  }
+
+  static bool _atLeast(String version, List<int> wanted) {
+    final parts = [
+      for (final part in RegExp(r'\d+').allMatches(version).take(3))
+        int.parse(part.group(0)!),
+    ];
+    for (var i = 0; i < wanted.length; i++) {
+      final have = i < parts.length ? parts[i] : 0;
+      if (have != wanted[i]) {
+        return have > wanted[i];
+      }
+    }
+    return true;
+  }
+
+  /// The session settings for a new connection to a server of [version].
+  List<String> sessionStatements(String? version) {
+    final mode = sqlModeFor(strict: strict, modes: modes, version: version);
+    return [
+      if (isolationLevel != null)
+        'SET SESSION TRANSACTION ISOLATION LEVEL $isolationLevel',
+      if (mode != null) "SET SESSION sql_mode='$mode'",
+      ...initCommands,
+    ];
+  }
+
+  Future<void> _configure(my.MySQLConnection connection) async {
+    String? version;
+    if (strict == true && modes == null) {
+      final result = await connection.execute('SELECT VERSION() AS v');
+      version = result.rows.first.colByName('v') as String?;
+    }
+    for (final statement in sessionStatements(version)) {
+      await connection.execute(statement);
+    }
+    await onConnectionOpen?.call(connection);
+  }
 
   @override
   final String name;
@@ -131,6 +235,7 @@ final class MySqlDriver
       timeoutMs: connectTimeout.inMilliseconds,
       allowPublicKeyRetrieval: !secure,
       timeZone: timeZone,
+      onConnectionOpen: _configure,
     );
     try {
       // Fail fast on bad credentials or hosts instead of at the first query.

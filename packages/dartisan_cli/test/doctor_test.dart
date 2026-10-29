@@ -183,4 +183,31 @@ void main() {
       ...titled(local, CheckStatus.warning),
     ], isNot(contains(contains('in production'))));
   });
+
+  test("package_config.json resolved on another system", () {
+    final dir = Directory(p.join(root.path, ".dart_tool"))..createSync();
+    final config = File(p.join(dir.path, "package_config.json"));
+    expect(
+      packageConfigCheck(root.path, windows: false),
+      isNull,
+      reason: "no file",
+    );
+
+    config.writeAsStringSync(
+      '{"packages": [{"name": "daravel", "rootUri": "file:///C:/Users/dev/AppData/Local/Pub/Cache/hosted/pub.dev/daravel-1.17.0"}]}',
+    );
+    final linux = packageConfigCheck(root.path, windows: false);
+    expect(linux?.status, CheckStatus.error);
+    expect(linux?.detail, contains("ddev exec dart pub get"));
+    expect(packageConfigCheck(root.path, windows: true), isNull);
+
+    config.writeAsStringSync(
+      '{"packages": [{"name": "daravel", "rootUri": "file:///home/dev/.pub-cache/hosted/pub.dev/daravel-1.17.0"}, {"name": "app", "rootUri": "../"}]}',
+    );
+    expect(packageConfigCheck(root.path, windows: false), isNull);
+    expect(
+      packageConfigCheck(root.path, windows: true)?.status,
+      CheckStatus.error,
+    );
+  });
 }

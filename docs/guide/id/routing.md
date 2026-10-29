@@ -1,4 +1,4 @@
-<!-- source: routing.md sha256:3a8f1fafe5cd -->
+<!-- source: routing.md sha256:68aed0385987 -->
 # Routing
 
 Route didaftarkan di `routes/api.dart` (di-mount di bawah `/api`) dan
@@ -38,6 +38,28 @@ void apiRoutes(Router router) {
 }
 ```
 <!-- /include -->
+
+### Route di luar `/api`
+
+Route `api:` dipasang di bawah `apiPrefix` (`/api`). Aplikasi yang API-nya
+berada di tempat lain, atau di beberapa root, memasangnya sendiri dengan
+`then:`:
+
+```dart
+.withRouting(
+  web: webRoutes,
+  apiPrefix: '',                        // atau jangan isi api:
+  then: [
+    (router) => router.group(adminV1, prefix: '/admin/v1'),
+    (router) => router.group(adminV2, prefix: '/admin/v2'),
+    (router) => router.group(mobile, prefix: '/{tenant}/v2'),
+  ],
+)
+```
+
+`Request.current` memberikan request yang sedang ditangani di mana pun
+dalam rantai pemanggilannya (sebuah helper, sebuah observer), seperti
+`request()` di Laravel; nilainya `null` di luar request.
 
 ## Fitur route
 

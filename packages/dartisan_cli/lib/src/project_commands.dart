@@ -103,6 +103,42 @@ final class DoctorCheck {
   };
 }
 
+/// `.dart_tool/package_config.json` written by `dart pub get` on another
+/// operating system: Windows paths (`file:///C:/...`) read on Linux, as
+/// when `pub get` ran on the Windows host of a WSL or DDEV project, or
+/// Linux paths read on Windows. The packages then do not resolve at all.
+/// `null` when there is no file or it suits this system.
+DoctorCheck? packageConfigCheck(String root, {required bool windows}) {
+  final file = File(p.join(root, '.dart_tool', 'package_config.json'));
+  if (!file.existsSync()) {
+    return null;
+  }
+  final text = file.readAsStringSync();
+  final windowsPaths = RegExp(r'"rootUri":\s*"file:///[A-Za-z]:/')
+      .hasMatch(text);
+  final unixPaths = RegExp(r'"rootUri":\s*"file:///(?![A-Za-z]:/)')
+      .hasMatch(text);
+  if (!windows && windowsPaths) {
+    return const DoctorCheck(
+      CheckStatus.error,
+      'Packages resolved on Windows, read on Linux',
+      '.dart_tool/package_config.json has file:///C:/ paths: `dart pub get` '
+          'ran on the Windows host. Run it again here, inside WSL or the '
+          'container (`ddev exec dart pub get`).',
+    );
+  }
+  if (windows && unixPaths && !windowsPaths) {
+    return const DoctorCheck(
+      CheckStatus.error,
+      'Packages resolved on Linux, read on Windows',
+      '.dart_tool/package_config.json has Linux paths: `dart pub get` ran in '
+          'WSL or a container. Run it again on Windows, or run dartisan '
+          'where the packages were resolved.',
+    );
+  }
+  return null;
+}
+
 /// `doctor [--production]` — environment and configuration pre-flight.
 final class DoctorCommand extends DaravelCommand {
   DoctorCommand(super.createApp) {
@@ -177,6 +213,13 @@ final class DoctorCommand extends DaravelCommand {
       checks.add(DoctorCheck(CheckStatus.error, 'Project root', e.message));
     }
     if (paths != null) {
+      final tooling = packageConfigCheck(
+        paths.root,
+        windows: Platform.isWindows,
+      );
+      if (tooling != null) {
+        checks.add(tooling);
+      }
       final env = File(p.join(paths.root, '.env'));
       final example = File(p.join(paths.root, '.env.example'));
       final encrypted = File(p.join(paths.root, '.env.encrypted'));

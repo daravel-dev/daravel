@@ -7,8 +7,9 @@ import 'request.dart';
 import 'response.dart';
 
 /// Renders an exception of type [T] into a [Response], or returns `null` to
-/// fall through to the next renderer.
-typedef ExceptionRenderer<T extends Object> = Response? Function(
+/// fall through to the next renderer. It may be asynchronous: write an audit
+/// row, read a translation, encrypt the body.
+typedef ExceptionRenderer<T extends Object> = FutureOr<Response?> Function(
   T exception,
   Request request,
 );
@@ -25,7 +26,7 @@ final class _Renderer<T extends Object> {
 
   final ExceptionRenderer<T> render;
 
-  Response? tryRender(Object error, Request request) =>
+  FutureOr<Response?> tryRender(Object error, Request request) =>
       error is T ? render(error, request) : null;
 }
 
@@ -87,7 +88,7 @@ final class ExceptionHandler {
     }
     await _report(error, stackTrace, request);
     for (final renderer in _renderers) {
-      final response = renderer.tryRender(error, request);
+      final response = await renderer.tryRender(error, request);
       if (response != null) {
         return response;
       }

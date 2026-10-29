@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added `Request.current` (the request being handled, from anywhere in its zone; Laravel's `request()`), and exception renderers may be asynchronous (`ExceptionRenderer` returns `FutureOr<Response?>`; synchronous renderers are unchanged). `DB_STRICT`, `DB_SQL_MODES` and `DB_ISOLATION_LEVEL` reach the MySQL connection options.
 - Added SQLite replication (Blueprint #30): `SqliteReplicator` ships a WAL-mode database to a `Disk` as a page-exact snapshot then its committed log frames, starting a new generation whenever it cannot prove it saw every frame; `restoreReplica` (newest, a generation, or a point in time, checked with `integrity_check`); `listReplicaGenerations`; the WAL reader (`WalHeader`, `readWalFrames`, `applyWalFrames`).
 - Added `withUpstream(url:, preserveHost:, stripResponseHeaders:, timeout:)` and `UpstreamProxy`: requests no route matches, whatever their method, are streamed to another server (the Laravel application being migrated, `UPSTREAM_URL`) with `X-Forwarded-*` headers, cookies, redirects and compressed bodies passed through, 502 when it is down and 504 when it is too slow; `HttpKernel.unmatched`; `Request.bodyStream()`.
 

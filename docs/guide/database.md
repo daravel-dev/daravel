@@ -20,6 +20,17 @@ server's unless `DB_TIMEZONE` is set, so `TIMESTAMP` columns read the same
 from both frameworks. MySQL 8.4 and MariaDB 11 run in CI on every commit.
 Every query is built by a grammar with bound values; identifiers are quoted.
 
+Laravel sets `sql_mode` on each MySQL connection from the connection's
+`'strict'` key (`true` in its default `config/database.php`). Daravel
+leaves the server's mode unless told otherwise: `DB_STRICT=true` sets the
+strict modes Laravel sets, `DB_STRICT=false` sets `NO_ENGINE_SUBSTITUTION`
+as Laravel does with `'strict' => false` (an `INSERT` without a value for
+a `NOT NULL` column then stores `''` or `0` instead of failing), and
+`DB_SQL_MODES` sets an explicit list. Match the Laravel application that
+shares the database. `DB_ISOLATION_LEVEL` sets the transaction isolation
+level, and `MySqlDriver(initCommands: [...], onConnectionOpen: ...)` runs
+anything else on each new connection.
+
 ## Drivers and connections
 
 Each database client is a package. MySQL and MariaDB already work this way.

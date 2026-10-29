@@ -211,4 +211,5 @@ Exceptions are rendered by the exception handler with Laravel's bodies. With
 | Anything else | 500 | `Server Error` |
 
 Register custom renderers with `withExceptions((e) => e.render<MyError>((error,
-request) => Response.json({...}, status: 409)))`.
+request) => Response.json({...}, status: 409)))`. A renderer may be
+`async`: it can write an audit row or read a translation before it answers.

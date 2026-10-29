@@ -243,6 +243,69 @@ void main() {
       expect(await db.table('my_items').where('name', 'race').count(), 1);
     },
   );
+
+  test(
+    "DB_STRICT as Laravel's 'strict': legacy inserts and the mode",
+    () async {
+      Future<(String, Object?)> run(String? strict) async {
+        final manager = DatabaseManager(
+          DatabaseConfig(
+            defaultConnection: 'mysql',
+            connections: {
+              'mysql': ConnectionConfig(
+                driver: 'mysql',
+                database: connection.database,
+                host: connection.host,
+                port: connection.port,
+                username: connection.username,
+                password: connection.password,
+                options: {'pool': 1, 'strict': strict},
+              ),
+            },
+          ),
+          drivers: const {'mysql': MySqlDriver.fromConfig},
+        );
+        try {
+          final mode =
+              (await manager.select('SELECT @@SESSION.sql_mode AS m'))
+                      .first['m']
+                  as String;
+          await manager.statement('DROP TABLE IF EXISTS my_legacy');
+          await manager.statement(
+            'CREATE TABLE my_legacy (id INT AUTO_INCREMENT PRIMARY KEY, '
+            'name VARCHAR(20) NOT NULL, merchant_id INT NOT NULL)',
+          );
+          Object? error;
+          try {
+            // merchant_id has no value and no default: what a Laravel 8
+            // application with 'strict' => false relies on.
+            await manager.statement(
+              "INSERT INTO my_legacy (name) VALUES ('a')",
+            );
+          } on Object catch (e) {
+            error = e;
+          }
+          await manager.statement('DROP TABLE my_legacy');
+          return (mode, error);
+        } finally {
+          await manager.closeAll();
+        }
+      }
+
+      final (loose, looseError) = await run('false');
+      expect(loose, 'NO_ENGINE_SUBSTITUTION');
+      expect(looseError, isNull, reason: 'merchant_id becomes 0');
+
+      final (strict, strictError) = await run('true');
+      expect(strict, contains('STRICT_TRANS_TABLES'));
+      expect(strict, contains('ONLY_FULL_GROUP_BY'));
+      expect(
+        strictError,
+        isNotNull,
+        reason: "Field 'merchant_id' doesn't have a default value",
+      );
+    },
+  );
 }
 
 final class _Item extends Model {

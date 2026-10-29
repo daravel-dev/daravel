@@ -13,6 +13,15 @@ match Laravel more closely.
 
 ### Added
 
+- From a real migration of a Laravel 8 application (review #56):
+  `DB_STRICT`, `DB_SQL_MODES` and `DB_ISOLATION_LEVEL` on MySQL and
+  MariaDB, with the `sql_mode` Laravel sets (`'strict' => false` lets
+  legacy inserts without every `NOT NULL` value through, as in Laravel);
+  `Request.current` for the request being handled anywhere in its call
+  chain; asynchronous exception renderers; `doctor` flags packages
+  resolved on another operating system (a `pub get` on the Windows host
+  of a WSL or DDEV project); and the guide shows API groups outside
+  `/api`.
 - SQLite replication (Blueprint #30): `dartisan db:replicate` streams a
   SQLite database to a storage disk (S3, R2, ...) as it changes, as
   Litestream does: a page-exact snapshot, then the committed frames of the

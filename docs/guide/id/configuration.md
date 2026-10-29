@@ -1,4 +1,4 @@
-<!-- source: configuration.md sha256:3dd02884822d -->
+<!-- source: configuration.md sha256:04aee237b24c -->
 # Konfigurasi
 
 ## File environment
@@ -90,6 +90,7 @@ setelah boot.
 | `REVERB_SCALING_POLL`, `REVERB_SERVER_ID` | `100ms`, nama host dan id proses | Seberapa sering server membaca event server lain tanpa `NOTIFY` (PostgreSQL memilikinya), dan nama server ini |
 | `REVERB_ENCRYPTION_MASTER_KEY_BASE64` | tidak ada | 32 byte dalam base64 untuk mengenkripsi channel `private-encrypted-` (`PUSHER_ENCRYPTION_MASTER_KEY_BASE64` dengan `pusher`) |
 | `DB_CHARSET`, `DB_COLLATION`, `DB_TIMEZONE` | `utf8mb4`, `utf8mb4_unicode_ci`, server | MySQL dan MariaDB, sebagaimana dibaca Laravel |
+| `DB_STRICT`, `DB_SQL_MODES`, `DB_ISOLATION_LEVEL` | dari server | Pengaturan session MySQL dan MariaDB, seperti `'strict'`, `'modes'`, dan `'isolation_level'` di Laravel ([Database](database.md)) |
 | `DB_POOL_SIZE`, `DB_SSLMODE` | `10`, `disable` | Pool koneksi per isolate, TLS (`require`, `verify-full`) |
 | `DB_CONNECT_TIMEOUT`, `DB_QUERY_TIMEOUT` | `10`, `30` | Detik yang boleh dipakai koneksi PostgreSQL atau MySQL untuk terbuka, dan sebuah statement untuk berjalan (`0` untuk tanpa batas; statement yang macet akan menahan koneksi pool-nya selamanya) |
 | `CACHE_STORE`, `CACHE_PREFIX` | `memory` | Penyimpanan cache dan prefix key |

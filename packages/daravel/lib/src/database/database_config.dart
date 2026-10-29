@@ -232,6 +232,10 @@ final class DatabaseConfig implements ConfigSection {
             'charset': env.string('DB_CHARSET', 'utf8mb4'),
             'collation': env.string('DB_COLLATION', 'utf8mb4_unicode_ci'),
             'timezone': env.maybeString('DB_TIMEZONE'),
+            // Laravel's 'strict', 'modes' and 'isolation_level'.
+            'strict': env.maybeString('DB_STRICT'),
+            'modes': env.maybeString('DB_SQL_MODES'),
+            'isolation_level': env.maybeString('DB_ISOLATION_LEVEL'),
           },
         ),
     };
