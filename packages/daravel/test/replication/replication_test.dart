@@ -222,10 +222,12 @@ void main() {
     await Isolate.spawn(_holdWriteLock, (
       ready.sendPort,
       path,
-      6000,
+      3000,
     ), onExit: done.sendPort);
     await ready.first;
-    final db = sqlite3.open(path)..execute('PRAGMA busy_timeout = 5000');
+    // A short busy_timeout here, well inside the writer's hold: SQLite's
+    // busy handler can sleep past its timeout (macOS).
+    final db = sqlite3.open(path)..execute('PRAGMA busy_timeout = 200');
     expect(tryBeginImmediate(db), isFalse);
     await done.first;
     expect(tryBeginImmediate(db), isTrue);
