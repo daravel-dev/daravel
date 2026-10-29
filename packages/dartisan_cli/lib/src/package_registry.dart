@@ -191,6 +191,24 @@ const List<PackageManifest> officialPackages = [
     ],
   ),
   PackageManifest(
+    package: 'daravel_pulse',
+    title: 'Pulse',
+    category: 'Development',
+    description: 'A dashboard of requests, slow queries, exceptions and queues',
+    aliases: ['pulse', 'monitoring', 'dashboard'],
+    registration: ['.withPulse()'],
+    env: [
+      'PULSE_ENABLED=true',
+      'PULSE_PATH=/pulse',
+      'PULSE_SLOW_REQUESTS_THRESHOLD=1000',
+      'PULSE_SLOW_QUERIES_THRESHOLD=1000',
+    ],
+    next: [
+      'Open /pulse while APP_ENV=local.',
+      "Outside local, guard it: .withPulse(middleware: ['auth', 'can:viewPulse'])",
+    ],
+  ),
+  PackageManifest(
     package: 'daravel_medialibrary',
     title: 'Media library',
     category: 'Storage',
