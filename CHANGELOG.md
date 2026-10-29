@@ -13,6 +13,16 @@ match Laravel more closely.
 
 ### Added
 
+- `dartisan test:stress` (Blueprint #45): your application under load,
+  wherever it runs. It finds the scenarios the application answers (health
+  check, ping, a 404, `/api/auth/me` with a synthetic user's token, a
+  rate-limited login, `--path` routes), warms up, runs rounds over several
+  connections and client isolates, and reports throughput (mean ±
+  standard deviation) and p50/p95/p99 latency. A 5xx, a request without a
+  response, an unexpected status, `--max-p95` or `--min-rps` fails it, for
+  CI. `--export-public` writes a report safe to publish from a list of
+  allowed fields: never the target, tokens, the synthetic user or custom
+  routes.
 - `dartisan e2e:install`, `make:e2e` and `test:e2e` (Blueprint #46): a
   Playwright suite in `tests/e2e`, over HTTP and in Chromium: health and
   404 bodies, token authentication from register to logout, Laravel's 422
