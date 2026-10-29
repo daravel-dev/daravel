@@ -1,4 +1,4 @@
-<!-- source: responses.md sha256:80e255d1e8f8 -->
+<!-- source: responses.md sha256:a002ce4d4844 -->
 # Respons dan resource
 
 Handler bisa mengembalikan `Response.json(data, status: 201)`,
@@ -224,3 +224,5 @@ Exception dirender exception handler dengan body dari Laravel. Dengan
 
 Daftarkan renderer sendiri dengan `withExceptions((e) =>
 e.render<MyError>((error, request) => Response.json({...}, status: 409)))`.
+Renderer boleh `async`: renderer bisa menulis baris audit atau membaca
+terjemahan sebelum menjawab.

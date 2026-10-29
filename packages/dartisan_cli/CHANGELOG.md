@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `doctor` reports a `.dart_tool/package_config.json` resolved on another system (Windows paths read in WSL or a container, or the other way round), with the command that fixes it.
 - Added `db:replicate [--disk] [--path] [--interval] [--once] [--checkpoint-pages] [--snapshot-hours] [--retain]`, `db:restore [--to] [--generation] [--at] [--if-missing] [--force]` and `db:replicas`: SQLite streamed to a storage disk and restored from it.
 - `pub:add` lists `daravel_payments` (`payments`, `midtrans`, `xendit`, `stripe`), and `upgrade` updates it.
 - Added `route:diff (--laravel=<dir> | --laravel-json=<file>) [--json]`: the Laravel application's routes against this one's, method by method: answered by Daravel, still Laravel, Daravel only, and the share migrated.

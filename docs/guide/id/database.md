@@ -1,4 +1,4 @@
-<!-- source: database.md sha256:d35d3231ae6e -->
+<!-- source: database.md sha256:e10f06c0750e -->
 # Database
 
 `DB_CONNECTION` memilih SQLite (`sqlite`, default), PostgreSQL (`pgsql`),
@@ -23,6 +23,18 @@ Di MySQL, hasil query terbaca seperti di Laravel (`TINYINT(1)` sebagai
 framework. MySQL 8.4 dan MariaDB 11 dijalankan di CI pada setiap commit.
 Setiap query dibangun oleh grammar dengan nilai terikat (parameter binding);
 identifier selalu dikutip.
+
+Laravel mengatur `sql_mode` pada setiap koneksi MySQL berdasarkan key
+`'strict'` koneksinya (`true` di `config/database.php` bawaannya). Daravel
+membiarkan mode dari server kecuali diatur: `DB_STRICT=true` memasang mode
+strict yang dipasang Laravel, `DB_STRICT=false` memasang
+`NO_ENGINE_SUBSTITUTION` seperti Laravel dengan `'strict' => false`
+(`INSERT` tanpa nilai untuk kolom `NOT NULL` lalu menyimpan `''` atau `0`
+alih-alih gagal), dan `DB_SQL_MODES` memasang daftar mode yang eksplisit.
+Samakan dengan aplikasi Laravel yang memakai database yang sama.
+`DB_ISOLATION_LEVEL` mengatur isolation level transaksi, dan
+`MySqlDriver(initCommands: [...], onConnectionOpen: ...)` menjalankan
+perintah lain pada setiap koneksi baru.
 
 ## Driver dan koneksi
 

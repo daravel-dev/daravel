@@ -150,6 +150,18 @@ final class Request {
   /// middleware and `RouteEntry.bodyLimit` with theirs.
   static const int defaultMaxBodyBytes = 50 << 20;
 
+  /// The request being handled, from anywhere in its zone (Laravel's
+  /// `request()`): a helper, an observer, a listener run synchronously.
+  /// `null` outside a request (a job, a command, a test without one).
+  /// Prefer the handler's `request` parameter where there is one.
+  static Request? get current {
+    try {
+      return Container.current.currentScope?.get<Request>();
+    } on StateError {
+      return null; // No application at all.
+    }
+  }
+
   /// Maximum JSON nesting depth accepted by [body]; `null` means unlimited.
   int? maxJsonDepth;
 

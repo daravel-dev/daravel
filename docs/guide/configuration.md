@@ -87,6 +87,7 @@ frozen after boot.
 | `REVERB_SCALING_POLL`, `REVERB_SERVER_ID` | `100ms`, host and process id | How often servers read each other's events without `NOTIFY` (PostgreSQL has it), and this server's name |
 | `REVERB_ENCRYPTION_MASTER_KEY_BASE64` | none | 32 bytes in base64 that `private-encrypted-` channels are encrypted with (`PUSHER_ENCRYPTION_MASTER_KEY_BASE64` with `pusher`) |
 | `DB_CHARSET`, `DB_COLLATION`, `DB_TIMEZONE` | `utf8mb4`, `utf8mb4_unicode_ci`, server | MySQL and MariaDB, as Laravel reads them |
+| `DB_STRICT`, `DB_SQL_MODES`, `DB_ISOLATION_LEVEL` | server's | MySQL and MariaDB session settings, as Laravel's `'strict'`, `'modes'` and `'isolation_level'` ([Database](database.md)) |
 | `DB_POOL_SIZE`, `DB_SSLMODE` | `10`, `disable` | Connection pool per isolate, TLS (`require`, `verify-full`) |
 | `DB_CONNECT_TIMEOUT`, `DB_QUERY_TIMEOUT` | `10`, `30` | Seconds a PostgreSQL or MySQL connection may take to open, and a statement to run (`0` for none; a stuck statement would otherwise hold its pooled connection for ever) |
 | `CACHE_STORE`, `CACHE_PREFIX` | `memory` | Cache store and key prefix |
