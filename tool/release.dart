@@ -14,8 +14,9 @@ import 'publish_checks.dart';
 ///
 /// It sets the version of every workspace pubspec and their constraints on
 /// each other, `daravelVersion`, the bug report template, turns
-/// `## Unreleased` of CHANGELOG.md into `## <version>`, adds the version to
-/// each package's CHANGELOG.md (unless it already has an entry), and adds
+/// `## Unreleased` of CHANGELOG.md into `## <version>`, does the same in
+/// each package's CHANGELOG.md or else adds the version there (unless it
+/// already has an entry), and adds
 /// the summary to the release table of the guide in both languages. The
 /// release notes themselves are written by hand under `## Unreleased`
 /// before; the tool refuses to run without them.
@@ -117,7 +118,12 @@ void main(List<String> args) {
 
   for (final member in members.where((m) => m.startsWith('packages/'))) {
     final path = '$member/CHANGELOG.md';
-    final text = _read(path);
+    var text = _read(path);
+    // Notes written ahead under `## Unreleased` become the version's.
+    if (text.contains('## Unreleased\n') && !text.contains('## $version\n')) {
+      _replace(path, '## Unreleased\n', '## $version\n');
+      text = _read(path);
+    }
     if (!text.contains('## $version\n')) {
       _replace(
         path,

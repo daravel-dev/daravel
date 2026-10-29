@@ -126,6 +126,7 @@ export 'src/server/broadcast.dart';
 export 'src/server/channels.dart';
 export 'src/server/coordinator.dart';
 export 'src/server/supervisor.dart';
+export 'src/server/worker_reports.dart';
 export 'src/support/cache_facade.dart';
 export 'src/events/events.dart';
 export 'src/queue/drivers.dart';

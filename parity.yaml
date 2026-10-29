@@ -136,6 +136,10 @@ sections:
   - name: Log viewer (daravel_log_viewer)
     symbols:
       - { php: "composer require opcodesio/log-viewer (/log-viewer)", dart: ".withLogViewer(middleware: ['auth', 'can:view-logs'])", symbol: LogViewerApplicationBuilder.withLogViewer, note: "Reads Daravel's JSON logs and Laravel's Monolog files from their end; 403 outside local without middleware." }
+  - name: Pulse (daravel_pulse)
+    symbols:
+      - { php: "composer require laravel/pulse (/pulse)", dart: ".withPulse(middleware: ['auth', 'can:viewPulse'])", symbol: PulseApplicationBuilder.withPulse, note: "Kept in memory by each isolate and merged through the coordinator, not in pulse_* tables; 403 outside local without middleware." }
+      - { php: "PULSE_SLOW_QUERIES_THRESHOLD, PULSE_SLOW_REQUESTS_THRESHOLD, PULSE_SLOW_JOBS_THRESHOLD", dart: "the same .env keys", symbol: PulseConfig.fromEnv }
 
   - name: Media library (daravel_medialibrary)
     symbols:

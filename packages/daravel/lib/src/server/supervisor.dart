@@ -11,14 +11,15 @@ import '../observability/metrics.dart';
 import 'broadcast.dart';
 import 'channels.dart';
 import 'coordinator.dart';
+import 'worker_reports.dart';
 
 /// Creates an unbooted [Application]. Must be a top-level function (or a
 /// closure capturing nothing) so it can be sent to worker isolates.
 typedef ApplicationFactory = Application Function();
 
 /// Builds the standard coordinator: rate limiting, process cache, merged
-/// metrics (with the coordinator's own counters), broadcast fan-out and
-/// channel membership.
+/// metrics (with the coordinator's own counters), broadcast fan-out,
+/// channel membership and worker reports.
 Coordinator createStandardCoordinator() {
   final coordinator = Coordinator();
   return coordinator
@@ -26,7 +27,8 @@ Coordinator createStandardCoordinator() {
     ..register(ProcessCacheService())
     ..register(MetricsService(coordinatorStats: coordinator.stats))
     ..register(BroadcastService())
-    ..register(ChannelMembershipService());
+    ..register(ChannelMembershipService())
+    ..register(WorkerReportService());
 }
 
 /// Sent by a worker once its server is bound.

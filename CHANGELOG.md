@@ -2,7 +2,7 @@
 
 All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 `daravel_lints`, `daravel_mysql`, `daravel_permission`, `daravel_activitylog`,
-`daravel_excel`, `daravel_log_viewer`, `daravel_medialibrary`,
+`daravel_excel`, `daravel_log_viewer`, `daravel_pulse`, `daravel_medialibrary`,
 `daravel_redis`, `daravel_sqlite`, `daravel_postgres`, `daravel_teorion`,
 `daravel_livekit`, `daravel_google`, `daravel_teobiefy`, `daravel_s3`,
 `dartisan_cli`). Versions follow SemVer: breaking changes to the Dart API
@@ -10,6 +10,23 @@ wait for a new major version, and Laravel-facing formats change only to
 match Laravel more closely.
 
 ## Unreleased
+
+### Added
+
+- `daravel_pulse` (Blueprint #32): a dashboard at `/pulse` after Laravel
+  Pulse. Requests by minute (count, server errors, latency), slow requests
+  by route pattern, slow queries by SQL (never the bindings), exceptions by
+  class and first application frame with their trace, slow and failed jobs,
+  queue sizes and the `failed_jobs` of the period, over 1, 6 or 24 hours.
+  Each isolate records in bounded memory; under a supervisor the workers
+  send their reports to the coordinator, so the page shows the whole
+  process. Laravel Pulse's threshold keys
+  (`PULSE_SLOW_REQUESTS_THRESHOLD`, ...), the `viewPulse` gate in the
+  examples, 403 outside local without middleware, and a nonce-based CSP
+  with no external assets. `dartisan pub:add pulse` installs it.
+- `WorkerReportService` and `WorkerReports` in `daravel`: a coordinator
+  service that keeps the latest report of each worker isolate by topic and
+  forgets a worker that exits, for pages that show the whole process.
 
 ### Fixed
 

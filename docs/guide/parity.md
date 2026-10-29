@@ -146,6 +146,13 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | :-- | :-- | :-- |
 | `composer require opcodesio/log-viewer (/log-viewer)` | `.withLogViewer(middleware: ['auth', 'can:view-logs'])` | Reads Daravel's JSON logs and Laravel's Monolog files from their end; 403 outside local without middleware. |
 
+## Pulse (daravel_pulse)
+
+| Laravel | Daravel | Notes |
+| :-- | :-- | :-- |
+| `composer require laravel/pulse (/pulse)` | `.withPulse(middleware: ['auth', 'can:viewPulse'])` | Kept in memory by each isolate and merged through the coordinator, not in pulse_* tables; 403 outside local without middleware. |
+| `PULSE_SLOW_QUERIES_THRESHOLD, PULSE_SLOW_REQUESTS_THRESHOLD, PULSE_SLOW_JOBS_THRESHOLD` | `the same .env keys` |  |
+
 ## Media library (daravel_medialibrary)
 
 | Laravel | Daravel | Notes |

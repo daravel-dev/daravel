@@ -59,6 +59,28 @@ void main() {
     );
   });
 
+  test('worker reports keep the latest report of each worker', () async {
+    final channel = LocalCoordinatorChannel(coordinator);
+    final one = WorkerReports(channel, worker: 'daravel-worker-0');
+    final two = WorkerReports(channel, worker: 'daravel-worker-1');
+    await one.publish('pulse', {'requests': 1});
+    await one.publish('pulse', {'requests': 3});
+    await two.publish('pulse', {'requests': 2});
+    await two.publish('other', 'x');
+    expect(await one.collect('pulse'), {
+      'daravel-worker-0': {'requests': 3},
+      'daravel-worker-1': {'requests': 2},
+    });
+    expect(await one.collect('none'), isEmpty);
+
+    await one.forget('pulse');
+    expect((await two.collect('pulse')).keys, ['daravel-worker-1']);
+    // A crashed worker's reports go with it, on every topic.
+    coordinator.forgetWorker('daravel-worker-1');
+    expect(await two.collect('pulse'), isEmpty);
+    expect(await two.collect('other'), isEmpty);
+  });
+
   test('merged metrics carry the coordinator message counters', () async {
     final channel = LocalCoordinatorChannel(coordinator);
     await channel.call('rateLimiter', 'attempts', const {

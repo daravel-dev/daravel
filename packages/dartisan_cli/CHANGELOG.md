@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- `pub:add` lists `daravel_pulse` (`pulse`), and `upgrade` updates it.
+
 ## 1.16.0
 
 - Added `security:audit [--target] [--format=terminal|json|sarif] [--output] [--severity] [--only] [--json-path]`: a black-box audit of a running server for deployment mistakes (13 checks, single harmless requests), exiting 1 at `--severity` for CI.
