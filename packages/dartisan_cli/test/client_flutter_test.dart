@@ -400,12 +400,16 @@ void main() {
     File(p.join(root.path, 'routes', 'api.dart')).writeAsStringSync('// x');
     await next;
     expect(count, 1);
+    // macOS (FSEvents) can deliver one save in two batches about a second
+    // apart, which is a second run; let them settle before the baseline.
+    await Future<void>.delayed(const Duration(milliseconds: 1500));
+    final settled = count;
     // Not Dart, or inside the generated package: ignored.
     File(p.join(root.path, 'lib', 'notes.txt')).writeAsStringSync('x');
     Directory(p.join(root.path, 'lib', 'out')).createSync();
     File(p.join(root.path, 'out', 'api.dart')).writeAsStringSync('// y');
-    await Future<void>.delayed(const Duration(milliseconds: 600));
-    expect(count, 1);
+    await Future<void>.delayed(const Duration(milliseconds: 1500));
+    expect(count, settled);
   });
 
   group(
