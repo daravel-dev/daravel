@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.18.1
+
+- Fixed: error bodies are pretty-printed like Laravel's `Handler::prepareJsonResponse` (every HTTP error, 500, 413), with 401 `Unauthenticated.` and 422 compact; `laravelErrorResponse`, `HttpException.prettyJson`, `phpJsonFromDart(escapeSlashes:)`.
+- Fixed: the validator stops on an attribute after a failed implicit rule, and skips `unique`/`exists` after an earlier failure, as Laravel does (`laravelImplicitRules`).
+
 ## 1.18.0
 
 - Added `Cast.dateTimeFormat('Y-m-d H:i:s')` (Laravel's `datetime:FORMAT` and `date:FORMAT` casts; `DateTimeFormatCast`) and `formatPhpDate` (every PHP `date()` token): `Model.toJson` writes the attribute in that format, in UTC, as Laravel 8 to 13 write a formatted timestamp; `model:show` names it `datetime:FORMAT`. An append that names an existing attribute keeps its position, as in Laravel. Both behaviours are the same in Laravel 8, 9 and 12 (ADR-025 §4), so `COMPAT_LARAVEL_VERSION` does not change them.

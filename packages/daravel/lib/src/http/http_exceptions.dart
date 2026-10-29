@@ -13,6 +13,12 @@ class HttpException extends DaravelException {
 
   /// Extra headers to send with the rendered response.
   final Map<String, String> headers;
+
+  /// Whether the default renderer writes the body pretty-printed, as
+  /// Laravel's `Handler::prepareJsonResponse` does for every HTTP error
+  /// (`JSON_PRETTY_PRINT`). `AuthenticationException` overrides it: Laravel
+  /// answers that one with a plain `response()->json`.
+  bool get prettyJson => true;
 }
 
 final class BadRequestHttpException extends HttpException {

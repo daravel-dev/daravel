@@ -30,13 +30,20 @@ String phpRawUrlEncode(String value) {
 /// as two escapes). Control characters and quotes are already escaped the
 /// same way by both.
 ///
+/// [escapeSlashes] `false` is `JSON_UNESCAPED_SLASHES` (Laravel's error
+/// bodies): `/` stays as is, non-ASCII is still escaped.
+///
 /// With [emptyMapsAsArrays], an empty object `{}` becomes `[]`, as an
 /// empty PHP array encodes; Dart maps stand for PHP arrays in a port.
 ///
 /// One pass that copies unchanged runs as substrings, so the cost stays
 /// close to the native encoder's (a per-character rewrite of a large
 /// response costs several times more).
-String phpJsonFromDart(String json, {bool emptyMapsAsArrays = false}) {
+String phpJsonFromDart(
+  String json, {
+  bool emptyMapsAsArrays = false,
+  bool escapeSlashes = true,
+}) {
   StringBuffer? out;
   var start = 0;
   var inString = false;
@@ -49,7 +56,7 @@ String phpJsonFromDart(String json, {bool emptyMapsAsArrays = false}) {
         i++;
       } else if (unit == 0x22) {
         inString = false;
-      } else if (unit == 0x2F || unit > 0x7F) {
+      } else if ((unit == 0x2F && escapeSlashes) || unit > 0x7F) {
         (out ??= StringBuffer())
           ..write(json.substring(start, i))
           ..write(

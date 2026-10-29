@@ -1,4 +1,4 @@
-<!-- source: responses.md sha256:5efb84b1f917 -->
+<!-- source: responses.md sha256:8fca9d168660 -->
 # Respons dan resource
 
 Handler bisa mengembalikan `Response.json(data, status: 201)`,
@@ -247,6 +247,10 @@ Exception dirender exception handler dengan body dari Laravel. Dengan
 Ini adalah pesan Laravel 10 sampai 13; `COMPAT_LARAVEL_VERSION=8` atau `9`
 menjawab dengan pesan Laravel yang lebih lama ([Koeksistensi dengan
 Laravel](laravel-coexistence.md#versi-laravel-yang-lebih-lama)).
+Seperti di Laravel, setiap error kecuali 401 dan 422 ditulis pretty-print
+(empat spasi, `/` tidak di-escape: `Handler::prepareJsonResponse`), sedangkan
+body 401 `Unauthenticated.` dan 422 compact, sehingga client yang membandingkan
+byte melihat body yang sama.
 
 Daftarkan renderer sendiri dengan `withExceptions((e) =>
 e.render<MyError>((error, request) => Response.json({...}, status: 409)))`.

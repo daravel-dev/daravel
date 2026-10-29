@@ -1,6 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
 
+import '../foundation/php.dart';
 import '../logging/logger.dart';
+import 'headers.dart';
 import 'http_exceptions.dart';
 import '../validation/validation_exception.dart';
 import 'request.dart';
@@ -127,11 +130,17 @@ final class ExceptionHandler {
       return Response.json(error.toJson(), status: 422);
     }
     if (error is HttpException) {
-      return Response.json(
-        <String, Object?>{'message': error.message},
-        status: error.status,
-        headers: error.headers,
-      );
+      final body = <String, Object?>{'message': error.message};
+      // Laravel answers `AuthenticationException` with a plain
+      // response()->json (Handler::unauthenticated); every other HTTP
+      // exception goes through prepareJsonResponse.
+      return !error.prettyJson
+          ? Response.json(body, status: 401, headers: error.headers)
+          : laravelErrorResponse(
+              body,
+              status: error.status,
+              headers: error.headers,
+            );
     }
     final payload = <String, Object?>{'message': 'Server Error'};
     if (debug) {
@@ -139,6 +148,28 @@ final class ExceptionHandler {
       payload['error'] = error.toString();
       payload['trace'] = stackTrace.toString().trimRight().split('\n');
     }
-    return Response.json(payload, status: 500);
+    return laravelErrorResponse(payload, status: 500);
   }
+}
+
+/// Laravel's `Handler::prepareJsonResponse` body: the error as JSON with
+/// `JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES` (four-space indent, `/`
+/// kept, non-ASCII as `` escapes), as Laravel 8 to 13 send every error
+/// but 401 `Unauthenticated.` and 422 validation errors.
+Response laravelErrorResponse(
+  Map<String, Object?> body, {
+  required int status,
+  Map<String, String> headers = const <String, String>{},
+}) {
+  final pretty = const JsonEncoder.withIndent('    ')
+      .convert(jsonDecode(Response.encodeJson(body)));
+  final encoded = phpJsonFromDart(pretty, escapeSlashes: false);
+  return Response(
+    status: status,
+    headers: Headers(<String, Object>{
+      ...headers,
+      'content-type': 'application/json',
+    }),
+    body: BytesBody(utf8.encode(encoded)),
+  );
 }

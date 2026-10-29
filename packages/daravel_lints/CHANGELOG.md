@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.18.1
+
+- Version aligned with Daravel 1.18.1; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).
+
 ## 1.18.0
 
 - `no_sql_string_interpolation` reports `raw`, `select`, `statement` and `insertGetId` only on a database receiver (`DB`, a connection or query builder, a builder chain) and accepts interpolation of literals and `const` names declared in the file.
