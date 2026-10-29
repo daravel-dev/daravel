@@ -32,6 +32,11 @@ final class HttpKernel {
   /// Default handler timeout applied when a route sets none (`null` = none).
   Duration? defaultTimeout;
 
+  /// Answers requests no route matches, for any method, instead of the
+  /// 404 or 405 (`withUpstream`: the strangler fig proxy). The global
+  /// middleware still applies; route middleware, of course, does not.
+  Future<Response> Function(Request request)? unmatched;
+
   final _Deadlines _deadlines = _Deadlines();
 
   /// Handles a single request and always yields a response.
@@ -93,6 +98,10 @@ final class HttpKernel {
     try {
       final match = router.lookup(request.method, request.path);
       if (match == null) {
+        final forward = unmatched;
+        if (forward != null) {
+          return await forward(request);
+        }
         final allowed = router.allowedMethods(request.path);
         if (allowed.isEmpty) {
           throw NotFoundHttpException(

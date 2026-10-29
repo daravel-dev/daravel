@@ -11,6 +11,16 @@ match Laravel more closely.
 
 ## Unreleased
 
+### Added
+
+- The strangler fig proxy (Blueprint #29): `withUpstream()` puts Daravel
+  in front of the Laravel application being migrated. Routes Daravel has
+  answer from Daravel; every other request, whatever its method, streams
+  to Laravel unchanged (bodies, cookies, redirects, compression), with
+  `X-Forwarded-*` headers, 502 when Laravel is down and 504 when it is too
+  slow. `dartisan route:diff` shows which Laravel routes Daravel answers
+  already, from `php artisan route:list --json`.
+
 ### Changed
 
 - `daravel_excel` depends on `xml` ^7.0.0 (was ^6.6.1): pub.dev took 10

@@ -179,6 +179,40 @@ route; let monitoring call each application on its own port.
 
 Rolling back an endpoint is a one-line change in the proxy, because both
 applications keep working on the same data.
+### Or Daravel in front
+
+Without a proxy of your own, Daravel can stand in front of Laravel: what it
+has a route for, it answers; everything else, whatever the method, it
+forwards to Laravel.
+
+```dart
+Application.configure(basePath: basePath)
+    .withUpstream(url: 'http://127.0.0.1:8080')   // or UPSTREAM_URL in .env
+    // ...
+```
+
+A new route in Daravel takes over that method and path at the next deploy,
+with no proxy configuration to change. A `GET /api/orders` in Daravel does
+not turn a `POST /api/orders` into a 405: it still goes to Laravel. Bodies
+stream both ways (uploads and downloads are not held in memory), redirects,
+cookies (every `Set-Cookie`) and compressed bodies pass through as they
+are, and `X-Powered-By` is removed. Laravel receives the client's address in
+`X-Forwarded-For`, `-Proto`, `-Host` and `-Port`, so trust Daravel in its
+`TrustProxies` middleware (`$middleware->trustProxies(at: '127.0.0.1')`).
+If Laravel does not answer, the client gets 502; if it is too slow
+(`timeout:`, 60 seconds), 504. WebSockets are not forwarded.
+
+### Progress
+
+`dartisan route:diff` compares Laravel's routes with Daravel's: which ones
+Daravel answers, which ones still go to Laravel, and which ones exist only
+in Daravel. Parameter names do not matter (`{order}` matches `{id}`).
+
+```bash
+dart run bin/dartisan.dart route:diff --laravel=/var/www/shop     # runs php artisan route:list --json
+dart run bin/dartisan.dart route:diff --laravel-json=routes.json  # its saved output
+dart run bin/dartisan.dart route:diff --laravel=/var/www/shop --json
+```
 
 ## 5. Background work
 
