@@ -1,4 +1,4 @@
-<!-- source: releases.md sha256:f144b2b9d380 -->
+<!-- source: releases.md sha256:6ada4a4753bd -->
 # Rilis dan versioning
 
 Daravel `1.x` adalah lini rilis stabil. Kedua belas paket (`daravel`,
@@ -12,6 +12,7 @@ terverifikasi `framework.daravel.dev`.
 
 | Versi | Sorotan |
 | :-- | :-- |
+| `1.17.0` | Dashboard Pulse (daravel_pulse), `dartisan test:stress`, suite end-to-end Playwright (`e2e:install`, `test:e2e`) |
 | `1.16.0` | Media library (daravel_medialibrary), `dartisan security:audit`, `coordinator:stats --url`, image Docker distroless, aplikasi contoh, dan pub points penuh untuk setiap paket |
 | `1.15.0` | Excel dan CSV (daravel_excel), log viewer (daravel_log_viewer), `dartisan pub:add` untuk memasang paket, dan perbaikan command yang tidak pernah selesai dengan `withPermissions()` |
 | `1.14.0` | Activity log (daravel_activitylog) dan penyimpanan S3 (daravel_s3), batas HTTP (body, idle, frame WebSocket), timeout database, serta penguatan menyeluruh pada queue, scheduler, storage, dan paket-paket |

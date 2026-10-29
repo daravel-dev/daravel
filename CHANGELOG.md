@@ -9,7 +9,14 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 wait for a new major version, and Laravel-facing formats change only to
 match Laravel more closely.
 
-## Unreleased
+## 1.17.0
+
+`daravel_pulse` joins the release line: a dashboard of the running
+application after Laravel Pulse, merged across its worker isolates through
+the coordinator's new worker reports. `dartisan` gains `test:stress`, an
+application under load with a report safe to publish, and `e2e:install`,
+`make:e2e` and `test:e2e`, Playwright suites that CI now runs against the
+starter.
 
 ### Added
 

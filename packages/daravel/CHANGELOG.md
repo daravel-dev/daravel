@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.17.0
 
 - Added `WorkerReportService` (in the standard coordinator) and `WorkerReports`: each worker isolate publishes its latest report on a topic and any worker collects them all; a worker that exits is forgotten.
 - Fixed: `Application.shutdown()` after a boot that failed or never ran no longer throws `LateInitializationError` (`logger`).
