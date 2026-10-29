@@ -42,13 +42,15 @@ tokens or JWTs do not need it, and do not pay for it.
 
 | Variable | Default | Purpose |
 | :-- | :-- | :-- |
-| `SESSION_DRIVER` | `file` | `file` (`storage/framework/sessions`), `database` (the `sessions` table) or `array` (tests) |
+| `SESSION_DRIVER` | `database` | `database` (the `sessions` table, as laravel/laravel 11 to 13), `file` (`storage/framework/sessions`) or `array` (tests). 1.18 defaulted to `file`: set `SESSION_DRIVER=file` to keep it |
 | `SESSION_LIFETIME` | `120` | Minutes a session may stay idle |
 | `SESSION_EXPIRE_ON_CLOSE` | `false` | Session cookie without an expiry |
 | `SESSION_COOKIE` | `<app name>_session` | Cookie name, `Str::slug(APP_NAME, '_')` as Laravel derives it (`my_app_session`) |
 | `SESSION_TABLE`, `SESSION_CONNECTION` | `sessions`, default | The `database` driver's table and connection |
 | `SESSION_PATH`, `SESSION_DOMAIN` | `/`, none | Cookie scope |
 | `SESSION_SECURE_COOKIE`, `SESSION_HTTP_ONLY`, `SESSION_SAME_SITE` | `false`, `true`, `lax` | Cookie flags; `SESSION_SAME_SITE=none` needs the secure flag |
+| `SESSION_ENCRYPT` | `false` | Store the payload encrypted with `Crypt`, as Laravel's `EncryptedStore` (`Crypt::encrypt(serialize($attributes))`) |
+| `SESSION_PARTITIONED_COOKIE` | `false` | `Partitioned` (CHIPS) on the session and `XSRF-TOKEN` cookies, for an application embedded in another site |
 
 With several isolates or servers use `database` (or the `file` driver on
 one machine): the `array` driver is one isolate's memory. `CreateSessionsTable`

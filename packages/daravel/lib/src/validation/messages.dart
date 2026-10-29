@@ -84,6 +84,7 @@ abstract final class ValidationMessages {
       'ends_with':
           'The :attribute field must end with one of the following: :values.',
       'date': 'The :attribute field must be a valid date.',
+      'date_format': 'The :attribute field must match the format :format.',
       'after': 'The :attribute field must be a date after :date.',
       'after_or_equal':
           'The :attribute field must be a date after or equal to :date.',
@@ -169,6 +170,7 @@ abstract final class ValidationMessages {
       'starts_with': 'Kolom :attribute harus diawali salah satu dari: :values.',
       'ends_with': 'Kolom :attribute harus diakhiri salah satu dari: :values.',
       'date': 'Kolom :attribute harus berupa tanggal yang valid.',
+      'date_format': 'Kolom :attribute harus sesuai dengan format :format.',
       'after': 'Kolom :attribute harus tanggal setelah :date.',
       'after_or_equal':
           'Kolom :attribute harus tanggal setelah atau sama dengan :date.',
@@ -244,6 +246,7 @@ abstract final class ValidationMessages {
         'The :attribute must start with one of the following: :values.',
     'ends_with': 'The :attribute must end with one of the following: :values.',
     'date': 'The :attribute is not a valid date.',
+    'date_format': 'The :attribute does not match the format :format.',
     'after': 'The :attribute must be a date after :date.',
     'after_or_equal': 'The :attribute must be a date after or equal to :date.',
     'before': 'The :attribute must be a date before :date.',

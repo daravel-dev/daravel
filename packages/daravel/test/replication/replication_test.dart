@@ -95,6 +95,19 @@ Future<void> _replicate((SendPort, String, String) args) async {
   }
 }
 
+/// Holds the write lock of a database that has no log yet for [hold], then
+/// writes a row and commits: a writer the first sync has to wait out.
+void _holdWriteLock((SendPort, String, int) args) {
+  final (ready, path, holdMs) = args;
+  final db = sqlite3.open(path)..execute('PRAGMA busy_timeout=5000');
+  db.execute('BEGIN IMMEDIATE');
+  ready.send(true);
+  sleep(Duration(milliseconds: holdMs));
+  db.execute("INSERT INTO rows (id, body) VALUES (1, 'held')");
+  db.execute('COMMIT');
+  db.close();
+}
+
 void main() {
   late Directory dir;
   late String path;
@@ -171,6 +184,32 @@ void main() {
     },
   );
 
+  test('a writer holding the lock past busy_timeout delays the first sync, '
+      'it does not fail it', () async {
+    // A database with no log yet: the first sync writes its marker row.
+    final setup = openApp(path);
+    setup.execute('PRAGMA wal_checkpoint(TRUNCATE)');
+    setup.close();
+    File('$path-wal').writeAsBytesSync(const <int>[]);
+    final ready = ReceivePort();
+    final done = ReceivePort();
+    await Isolate.spawn(_holdWriteLock, (
+      ready.sendPort,
+      path,
+      6000,
+    ), onExit: done.sendPort);
+    await ready.first;
+    final replicator = SqliteReplicator(path, disk);
+    // The replicator waits 5 s (busy_timeout) for the lock the writer
+    // keeps for 6 s, then tries again rather than throwing.
+    final sync = await replicator.sync();
+    expect(sync.newGeneration, isTrue);
+    await done.first;
+    await replicator.sync();
+    replicator.close();
+    await restoreReplica(disk, '', restored());
+    expect(ids(restored()), [1]);
+  }, timeout: const Timeout(Duration(minutes: 1)));
   test('a log truncated behind its back starts a generation, losing '
       'nothing', () async {
     final app = openApp(path);

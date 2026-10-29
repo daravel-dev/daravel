@@ -55,6 +55,10 @@ final class SessionManager {
   }
 
   /// A session for the id the request's cookie carried (or a new one).
-  Session session([String? id]) =>
-      Session(name: config.cookie, handler: handler, id: id);
+  Session session([String? id]) => Session(
+    name: config.cookie,
+    handler: handler,
+    id: id,
+    encrypter: config.encrypt ? Crypt.encrypter : null,
+  );
 }

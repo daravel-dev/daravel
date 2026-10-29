@@ -48,6 +48,7 @@ final class StartSessionMiddleware implements Middleware {
       secure: config.secure,
       httpOnly: config.httpOnly,
       sameSite: config.sameSite,
+      partitioned: config.partitioned,
     );
   }
 
@@ -214,6 +215,7 @@ final class VerifyCsrfTokenMiddleware implements Middleware {
         secure: config.secure,
         httpOnly: false,
         sameSite: config.sameSite,
+        partitioned: config.partitioned,
       );
     }
     throw const TokenMismatchException();

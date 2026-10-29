@@ -499,11 +499,21 @@ final class SqliteReplicator {
         }
         if (WalHeader.parse(_readWal()) == null) {
           // Give the database a log to follow.
-          _ensureMarkerTable(db);
-          db.execute(
-            'INSERT OR REPLACE INTO _daravel_replication VALUES (1, ?, ?)',
-            [reason, _clock().millisecondsSinceEpoch],
-          );
+          try {
+            _ensureMarkerTable(db);
+            db.execute(
+              'INSERT OR REPLACE INTO _daravel_replication VALUES (1, ?, ?)',
+              [reason, _clock().millisecondsSinceEpoch],
+            );
+          } on SqliteException catch (error) {
+            // SQLITE_BUSY / SQLITE_LOCKED past busy_timeout: a writer holds
+            // the lock, so the log it writes is the one to follow. Try
+            // again instead of failing the sync.
+            if (error.resultCode != 5 && error.resultCode != 6) {
+              rethrow;
+            }
+            continue;
+          }
         }
         // Read under a read transaction, which keeps SQLite from
         // restarting the log while the snapshot is copied; the two header

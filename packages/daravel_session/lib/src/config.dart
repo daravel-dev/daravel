@@ -3,7 +3,7 @@ import 'package:daravel/daravel.dart';
 /// `SESSION_*` settings (Laravel's `config/session.php`).
 final class SessionConfig implements ConfigSection {
   const SessionConfig({
-    this.driver = 'file',
+    this.driver = 'database',
     this.lifetime = const Duration(minutes: 120),
     this.expireOnClose = false,
     this.files = 'storage/framework/sessions',
@@ -16,6 +16,8 @@ final class SessionConfig implements ConfigSection {
     this.httpOnly = true,
     this.sameSite = 'lax',
     this.lottery = (2, 100),
+    this.encrypt = false,
+    this.partitioned = false,
   });
 
   /// Reads the `SESSION_*` variables with Laravel's defaults; the cookie
@@ -24,7 +26,7 @@ final class SessionConfig implements ConfigSection {
     final appName = env.string('APP_NAME', 'daravel');
     final sameSite = env.string('SESSION_SAME_SITE', 'lax');
     return SessionConfig(
-      driver: env.string('SESSION_DRIVER', 'file'),
+      driver: env.string('SESSION_DRIVER', 'database'),
       lifetime: Duration(minutes: env.integer('SESSION_LIFETIME', 120)),
       expireOnClose: env.boolean('SESSION_EXPIRE_ON_CLOSE', false),
       files: env.string('SESSION_FILES', 'storage/framework/sessions'),
@@ -39,6 +41,8 @@ final class SessionConfig implements ConfigSection {
       secure: env.boolean('SESSION_SECURE_COOKIE', false),
       httpOnly: env.boolean('SESSION_HTTP_ONLY', true),
       sameSite: sameSite == 'null' || sameSite.isEmpty ? null : sameSite,
+      encrypt: env.boolean('SESSION_ENCRYPT', false),
+      partitioned: env.boolean('SESSION_PARTITIONED_COOKIE', false),
     );
   }
 
@@ -69,6 +73,14 @@ final class SessionConfig implements ConfigSection {
   /// sessions.
   final (int, int) lottery;
 
+  /// `SESSION_ENCRYPT`: the payload is stored encrypted with `Crypt`, as
+  /// Laravel's `EncryptedStore` (`Crypt::encrypt(serialize())`).
+  final bool encrypt;
+
+  /// `SESSION_PARTITIONED_COOKIE`: the session and `XSRF-TOKEN` cookies
+  /// get the `Partitioned` attribute (CHIPS).
+  final bool partitioned;
+
   /// Laravel's `Str::slug($name, '_')`: lower case, letters and digits,
   /// runs of anything else as one `_`.
   static String slug(String value) => value
@@ -94,6 +106,8 @@ final class SessionConfig implements ConfigSection {
     'http_only': httpOnly,
     'same_site': sameSite,
     'lottery': [lottery.$1, lottery.$2],
+    'encrypt': encrypt,
+    'partitioned': partitioned,
   };
 
   /// Rejects an unknown `SESSION_SAME_SITE` and a non-positive lifetime.

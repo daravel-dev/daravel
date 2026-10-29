@@ -172,6 +172,10 @@ router.post('/admin/v1/user/login', AuthController.login)
   removed). A body that does not open is `406 Invalid payload`. Clear
   bodies still pass: this mode cannot tell a client without the key from
   one that chose not to encrypt. Parameters combine: `teobiefy.aes:body,decrypt`.
+- `teobiefy.aes:php` writes the clear text and the envelope as PHP's
+  `json_encode` does (escaped slashes inside `data_enc` and `iv`, non-ASCII
+  as escapes), for clients that compare or sign the bytes a Laravel API
+  sent.
 - `TeobiefyAesCbc.current.encrypt(value)` and `.decrypt(envelope)` do the
   same by hand (a payload built in a job, say); `TeobiefyAesCbc.fromKey(key)`
   gives a cipher outside the container.

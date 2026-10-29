@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.19.0
+
+- Fixed: `SqliteReplicator.sync` retries its marker row instead of failing when a writer holds the lock past `busy_timeout`.
+- Fixed: `ProcessSupervisor` readiness ignores a TCP self-connection (Linux, ephemeral ports).
+- Added the `date_format` rule (`DateFormatRule`, `Rules.dateFormat`, `phpDateMatchesFormat`), as Laravel's `validateDateFormat`.
+- Added `partitioned` to `Response.withCookie`; `Response.json(phpCompatible: true)` (`Response.encodePhpJson`) writes a `PhpObject` as an object, `{}` when empty.
+
+## 1.18.1
+
+- Fixed: error bodies are pretty-printed like Laravel's `Handler::prepareJsonResponse` (every HTTP error, 500, 413), with 401 `Unauthenticated.` and 422 compact; `laravelErrorResponse`, `HttpException.prettyJson`, `phpJsonFromDart(escapeSlashes:)`.
+- Fixed: the validator stops on an attribute after a failed implicit rule, and skips `unique`/`exists` after an earlier failure, as Laravel does (`laravelImplicitRules`).
+
 ## 1.18.0
 
 - Added `Cast.dateTimeFormat('Y-m-d H:i:s')` (Laravel's `datetime:FORMAT` and `date:FORMAT` casts; `DateTimeFormatCast`) and `formatPhpDate` (every PHP `date()` token): `Model.toJson` writes the attribute in that format, in UTC, as Laravel 8 to 13 write a formatted timestamp; `model:show` names it `datetime:FORMAT`. An append that names an existing attribute keeps its position, as in Laravel. Both behaviours are the same in Laravel 8, 9 and 12 (ADR-025 §4), so `COMPAT_LARAVEL_VERSION` does not change them.

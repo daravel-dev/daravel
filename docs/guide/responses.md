@@ -8,8 +8,10 @@ UTC with microseconds, `2026-01-02T03:04:05.000000Z`.
 
 `Response.json(data, phpCompatible: true)` writes the bytes of PHP's
 `json_encode()` instead: `/` as `\/`, non-ASCII characters as `\u`
-escapes, and an empty map as `[]` (an empty PHP array). Use it when a
-client compares or signs the body a Laravel endpoint used to send.
+escapes, and an empty map as `[]` (an empty PHP array). An object that
+must stay `{}` when empty, as PHP's `(object) []`, is a
+`PhpObject('stdClass', {...})`. Use it when a client compares or signs
+the body a Laravel endpoint used to send.
 
 ## Cookies
 
@@ -233,6 +235,9 @@ Exceptions are rendered by the exception handler with Laravel's bodies. With
 
 These are Laravel 10 to 13's messages; `COMPAT_LARAVEL_VERSION=8` or `9`
 answers with an older Laravel's ([Laravel coexistence](laravel-coexistence.md#older-laravel-versions)).
+As in Laravel, every error but 401 and 422 is written pretty-printed (four
+spaces, `/` unescaped: `Handler::prepareJsonResponse`), and 401 `Unauthenticated.`
+and 422 bodies are compact, so clients that compare bytes see the same body.
 
 Register custom renderers with `withExceptions((e) => e.render<MyError>((error,
 request) => Response.json({...}, status: 409)))`. A renderer may be

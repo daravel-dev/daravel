@@ -11,6 +11,8 @@ publisher `framework.daravel.dev`.
 
 | Version | Highlights |
 | :-- | :-- |
+| `1.19.0` | date_format, encrypted and partitioned sessions (database by default), PHP JSON options for teobiefy and phpCompatible |
+| `1.18.1` | Laravel's pretty-printed error bodies, the validator stops after a failed required rule |
 | `1.18.0` | Sessions, encrypted cookies and CSRF (daravel_session), COMPAT_LARAVEL_VERSION for Laravel 8 to 13, Crypt with PHP serialize(), APP_PROCESSES multi-process serving, a MySQL driver twice as fast |
 | `1.17.0` | Pulse dashboard (daravel_pulse), `dartisan test:stress`, Playwright end-to-end suites (`e2e:install`, `test:e2e`) |
 | `1.16.0` | Media library (daravel_medialibrary), `dartisan security:audit`, `coordinator:stats --url`, distroless Docker images, an example application, and full pub points for every package |

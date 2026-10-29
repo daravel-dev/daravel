@@ -122,6 +122,61 @@ void main() {
     });
   });
 
+  group('error body bytes (Handler::prepareJsonResponse)', () {
+    // JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES: four spaces, `": "`, no
+    // trailing newline. 401 (Handler::unauthenticated) and 422
+    // (invalidJson) are plain response()->json, compact.
+    String pretty(String message) => '{\n    "message": "$message"\n}';
+
+    test('404, 405, 403, 500, 413 and abort() are pretty-printed', () async {
+      expect(
+        (await client.get('/api/nope/deeper')).body,
+        pretty('The route api/nope/deeper could not be found.'),
+      );
+      expect(
+        (await client.delete('/api/echo')).body,
+        pretty(
+          'The DELETE method is not supported for route api/echo. '
+          'Supported methods: POST.',
+        ),
+      );
+      expect(
+        (await client.get('/api/forbidden')).body,
+        pretty(LaravelContract.unauthorized),
+      );
+      expect(
+        (await client.get('/api/boom')).body,
+        pretty(LaravelContract.serverError),
+      );
+      expect((await client.get('/api/abort/404')).body, pretty(''));
+      final tooLarge = await client.post(
+        '/api/echo',
+        json: <String, Object?>{'blob': 'x' * 1000},
+      );
+      expect(tooLarge.body, pretty(LaravelContract.postTooLarge));
+      expect(tooLarge.headers.first('content-type'), 'application/json');
+    });
+
+    test('401 Unauthenticated. and 422 stay compact', () async {
+      expect(
+        (await client.get('/api/me')).body,
+        '{"message":"${LaravelContract.unauthenticated}"}',
+      );
+      final invalid = await client.post(
+        '/api/validate',
+        json: <String, Object?>{
+          'name': 'ok',
+          'email': 'a@b.c',
+          'password': 'password1',
+          'password_confirmation': 'password1',
+          'age': 'x',
+        },
+      );
+      expect(invalid.status, 422);
+      expect(invalid.body, isNot(contains('\n')));
+    });
+  });
+
   group('validation (422)', () {
     test('body is {message, errors} with the Laravel summary', () async {
       final res = await client.post(

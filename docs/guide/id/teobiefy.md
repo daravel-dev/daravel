@@ -1,4 +1,4 @@
-<!-- source: teobiefy.md sha256:5d7edd3f2ed1 -->
+<!-- source: teobiefy.md sha256:94e80bc2348e -->
 # Teobiefy
 
 `daravel_teobiefy` berbicara dengan protokol payload terenkripsi teobiefy
@@ -180,6 +180,10 @@ router.post('/admin/v1/user/login', AuthController.login)
   polos tetap lolos: mode ini tidak bisa membedakan client tanpa kunci dari
   client yang memilih tidak mengenkripsi. Parameter bisa digabung:
   `teobiefy.aes:body,decrypt`.
+- `teobiefy.aes:php` menulis teks polos dan envelope seperti `json_encode`
+  PHP (slash di dalam `data_enc` dan `iv` di-escape, karakter non-ASCII
+  menjadi escape), untuk client yang membandingkan atau menandatangani byte
+  yang dikirim API Laravel.
 - `TeobiefyAesCbc.current.encrypt(value)` dan `.decrypt(envelope)` melakukan
   hal yang sama secara manual (misalnya payload yang dibangun di job);
   `TeobiefyAesCbc.fromKey(key)` memberi cipher di luar container.

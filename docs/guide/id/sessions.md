@@ -1,4 +1,4 @@
-<!-- source: sessions.md sha256:c6227d72bed1 -->
+<!-- source: sessions.md sha256:801b73c34e08 -->
 # Session, cookie, dan CSRF
 
 `daravel_session` memberi route web sebuah session seperti di Laravel: id
@@ -43,13 +43,15 @@ token atau JWT tidak membutuhkannya, dan tidak menanggung biayanya.
 
 | Variabel | Default | Fungsi |
 | :-- | :-- | :-- |
-| `SESSION_DRIVER` | `file` | `file` (`storage/framework/sessions`), `database` (tabel `sessions`), atau `array` (test) |
+| `SESSION_DRIVER` | `database` | `database` (tabel `sessions`, seperti laravel/laravel 11 sampai 13), `file` (`storage/framework/sessions`), atau `array` (test). Versi 1.18 memakai default `file`: set `SESSION_DRIVER=file` untuk mempertahankannya |
 | `SESSION_LIFETIME` | `120` | Menit session boleh menganggur |
 | `SESSION_EXPIRE_ON_CLOSE` | `false` | Cookie session tanpa masa berlaku |
 | `SESSION_COOKIE` | `<nama app>_session` | Nama cookie, `Str::slug(APP_NAME, '_')` seperti Laravel menurunkannya (`my_app_session`) |
 | `SESSION_TABLE`, `SESSION_CONNECTION` | `sessions`, default | Tabel dan koneksi driver `database` |
 | `SESSION_PATH`, `SESSION_DOMAIN` | `/`, tidak ada | Cakupan cookie |
 | `SESSION_SECURE_COOKIE`, `SESSION_HTTP_ONLY`, `SESSION_SAME_SITE` | `false`, `true`, `lax` | Flag cookie; `SESSION_SAME_SITE=none` butuh flag secure |
+| `SESSION_ENCRYPT` | `false` | Simpan payload terenkripsi dengan `Crypt`, seperti `EncryptedStore` Laravel (`Crypt::encrypt(serialize($attributes))`) |
+| `SESSION_PARTITIONED_COOKIE` | `false` | `Partitioned` (CHIPS) pada cookie session dan `XSRF-TOKEN`, untuk aplikasi yang disematkan di situs lain |
 
 Dengan beberapa isolate atau server, pakai `database` (atau driver `file` di
 satu mesin): driver `array` hanya memori satu isolate. `CreateSessionsTable`

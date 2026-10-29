@@ -6,6 +6,7 @@ import '../foundation/application.dart';
 import '../foundation/env.dart';
 import '../logging/logger.dart';
 import '../support/request_id.dart';
+import 'exception_handler.dart';
 import 'http_exceptions.dart';
 import 'kernel.dart';
 import 'request.dart';
@@ -616,7 +617,7 @@ final class ServerEngine {
                     stackTrace: stackTrace,
                     context: <String, Object?>{'request_id': id},
                   );
-                  response = Response.json(const <String, Object?>{
+                  response = laravelErrorResponse(const <String, Object?>{
                     'message': 'Server Error',
                   }, status: 500);
                 }

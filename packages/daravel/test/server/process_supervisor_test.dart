@@ -10,11 +10,22 @@ import 'package:test/test.dart';
 void main() {
   final script = p.join('test', 'server', 'fixtures', 'child_server.dart');
 
+  /// A port whose next one is free too: the children take `port` and
+  /// `port + 1`. Checking only `port` let another test's server sit on
+  /// `port + 1` and pass the readiness probe for child 1 (CI, Dart 3.13.0).
   Future<int> freePort() async {
-    final socket = await ServerSocket.bind('127.0.0.1', 0);
-    final port = socket.port;
-    await socket.close();
-    return port;
+    while (true) {
+      final first = await ServerSocket.bind('127.0.0.1', 0);
+      try {
+        final second = await ServerSocket.bind('127.0.0.1', first.port + 1);
+        await second.close();
+        return first.port;
+      } on SocketException {
+        // port + 1 is taken: try another pair.
+      } finally {
+        await first.close();
+      }
+    }
   }
 
   Future<Map<String, Object?>> ask(int port) async {

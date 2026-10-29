@@ -1,4 +1,4 @@
-<!-- source: responses.md sha256:5efb84b1f917 -->
+<!-- source: responses.md sha256:96a863fb0e1f -->
 # Respons dan resource
 
 Handler bisa mengembalikan `Response.json(data, status: 201)`,
@@ -9,8 +9,10 @@ Carbon: UTC dengan mikrodetik, `2026-01-02T03:04:05.000000Z`.
 
 `Response.json(data, phpCompatible: true)` menulis byte `json_encode()` PHP
 sebagai gantinya: `/` menjadi `\/`, karakter non-ASCII menjadi escape `\u`,
-dan map kosong menjadi `[]` (array PHP kosong). Pakai opsi ini saat client
-membandingkan atau menandatangani body yang dulu dikirim endpoint Laravel.
+dan map kosong menjadi `[]` (array PHP kosong). Objek yang harus tetap
+`{}` saat kosong, seperti `(object) []` di PHP, ditulis sebagai
+`PhpObject('stdClass', {...})`. Pakai opsi ini saat client membandingkan
+atau menandatangani body yang dulu dikirim endpoint Laravel.
 
 ## Cookie
 
@@ -247,6 +249,10 @@ Exception dirender exception handler dengan body dari Laravel. Dengan
 Ini adalah pesan Laravel 10 sampai 13; `COMPAT_LARAVEL_VERSION=8` atau `9`
 menjawab dengan pesan Laravel yang lebih lama ([Koeksistensi dengan
 Laravel](laravel-coexistence.md#versi-laravel-yang-lebih-lama)).
+Seperti di Laravel, setiap error kecuali 401 dan 422 ditulis pretty-print
+(empat spasi, `/` tidak di-escape: `Handler::prepareJsonResponse`), sedangkan
+body 401 `Unauthenticated.` dan 422 compact, sehingga client yang membandingkan
+byte melihat body yang sama.
 
 Daftarkan renderer sendiri dengan `withExceptions((e) =>
 e.render<MyError>((error, request) => Response.json({...}, status: 409)))`.

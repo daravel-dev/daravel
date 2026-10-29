@@ -440,6 +440,7 @@ final class InvalidValidationRule extends LintRule {
     'starts_with',
     'ends_with',
     'date',
+    'date_format',
     'after',
     'after_or_equal',
     'before',

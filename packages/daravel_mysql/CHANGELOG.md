@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.19.0
+
+- Version aligned with Daravel 1.19.0; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).
+
+## 1.18.1
+
+- Version aligned with Daravel 1.18.1; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).
+
 ## 1.18.0
 
 - Added Laravel's `'strict'`, `'modes'` and `'isolation_level'` (`DB_STRICT`, `DB_SQL_MODES`, `DB_ISOLATION_LEVEL`), with the `sql_mode` Laravel 12's `MySqlConnector` sets; `MySqlDriver(initCommands:, onConnectionOpen:)` for anything else on each new connection.

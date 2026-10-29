@@ -147,8 +147,15 @@ final class ProcessSupervisor {
           portOf(index),
           timeout: const Duration(seconds: 1),
         );
+        // Linux can connect a socket to itself when it dials a free port
+        // of the ephemeral range (TCP simultaneous open): source port ==
+        // target port, nobody listening. Not a ready child.
+        final selfConnected = socket.port == socket.remotePort;
         socket.destroy();
-        return;
+        if (!selfConnected) {
+          return;
+        }
+        throw const SocketException('connected to itself');
       } on SocketException {
         if (DateTime.now().isAfter(deadline)) {
           throw TimeoutException(

@@ -9,6 +9,55 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 wait for a new major version, and Laravel-facing formats change only to
 match Laravel more closely.
 
+## 1.19.0
+
+The rest of what a Laravel 8 port onto 1.18 asked for, each checked against
+Laravel on GitHub: the `date_format` rule, sessions that Laravel 11 to 13
+would write by default (the `sessions` table, `SESSION_ENCRYPT`,
+partitioned cookies), and `json_encode` bytes where clients compare them.
+`daravel_session` now defaults to `SESSION_DRIVER=database`.
+
+### Fixed
+
+- `db:replicate` no longer fails its first sync when the application holds
+  the write lock for longer than `busy_timeout`: the marker row it writes to
+  start a log is retried, since that writer is writing the log anyway.
+- `ProcessSupervisor` no longer takes a socket connected to itself for a
+  ready child: on Linux, dialling a free port of the ephemeral range can
+  open a TCP connection to itself.
+
+### Added
+
+- The `date_format` validation rule (`date_format:Y-m-d,d/m/Y`, `Rules.dateFormat`), as Laravel's `validateDateFormat`: the value must read with PHP's `createFromFormat('!' . $format)` and format back exactly, so `2026-02-30` fails `Y-m-d`; `phpDateMatchesFormat`.
+- `daravel_session`: `SESSION_ENCRYPT` (the payload encrypted with `Crypt`, as Laravel's `EncryptedStore`) and `SESSION_PARTITIONED_COOKIE` (`Partitioned` on the session and `XSRF-TOKEN` cookies); `Response.withCookie(partitioned:)`.
+- `teobiefy.aes:php` and `TeobiefyAesCbc.encrypt(phpJson:)`: the clear text and the envelope written as PHP's `json_encode`.
+- `Response.json(phpCompatible: true)` writes a `PhpObject` as an object, so `const PhpObject('stdClass', {})` is `{}` (`(object) []`) while an empty map stays `[]`.
+
+### Changed
+
+- `daravel_session` defaults to `SESSION_DRIVER=database`, as laravel/laravel 11 to 13 (`config/session.php`); 1.18 took `file` from an old skeleton. Set `SESSION_DRIVER=file` to keep the files, or run `CreateSessionsTable`.
+
+## 1.18.1
+
+Two Laravel parity fixes found while moving a Laravel 8 port onto 1.18.0:
+error bodies are written byte for byte as Laravel writes them, and the
+validator stops on an attribute after a failed `required` as Laravel does.
+
+### Fixed
+
+- Error bodies are written as Laravel 8 to 13 write them
+  (`Handler::prepareJsonResponse`): pretty-printed with four spaces and `/`
+  unescaped for every HTTP error, the 500 and the 413, while 401
+  `Unauthenticated.` and 422 stay compact. The JSON values do not change;
+  clients that compare bytes now get the same body from both frameworks.
+- The validator stops on an attribute once one of Laravel's implicit rules
+  fails (`required`, `present`, `filled`, `required_*`, as
+  `Validator::shouldStopValidating`): `{"code": null}` against
+  `required|string` now reports only "The code field is required.", not
+  "must be a string" too. `unique` and `exists` are not queried for an
+  attribute that already failed another rule
+  (`hasNotFailedPreviousRuleIfPresenceRule`).
+
 ## 1.18.0
 
 Lessons from porting a Laravel 8 application to Daravel, made general.

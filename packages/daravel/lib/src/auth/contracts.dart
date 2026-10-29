@@ -235,6 +235,10 @@ final class AuthenticationException extends HttpException {
 
   final List<String> guards;
   final String? redirectTo;
+
+  /// Laravel's `Handler::unauthenticated` writes compact JSON.
+  @override
+  bool get prettyJson => false;
 }
 
 /// 403 — the user may not perform the ability (`Gate.authorize`).

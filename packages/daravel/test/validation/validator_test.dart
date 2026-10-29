@@ -60,6 +60,30 @@ void main() {
         expect(errors.keys, ['name']);
       },
     );
+
+    test('a failed implicit rule ends the attribute, as Laravel stops '
+        '(Validator::shouldStopValidating)', () async {
+      final errors = await errorsOf(
+        {'code': null, 'qty': null, 'nick': '', 'x': 5, 'p': 'v'},
+        {
+          'code': 'required|string',
+          'qty': 'required|numeric|min:1',
+          'nick': 'filled|email',
+          // A rule that is not implicit does not stop the others.
+          'x': 'required|string|email',
+          // `prohibited` is not in Laravel's $implicitRules.
+          'p': 'prohibited|integer',
+        },
+      );
+      expect(errors['code'], ['The code field is required.']);
+      expect(errors['qty'], ['The qty field is required.']);
+      expect(errors['nick'], ['The nick field must have a value.']);
+      expect(errors['x'], [
+        'The x field must be a string.',
+        'The x field must be a valid email address.',
+      ]);
+      expect(errors['p'], hasLength(2));
+    });
   });
 
   group('rule catalog', () {
@@ -397,6 +421,28 @@ void main() {
     });
 
     tearDown(() => app.shutdown());
+
+    test('unique and exists are not queried after another rule failed '
+        '(hasNotFailedPreviousRuleIfPresenceRule)', () async {
+      final taken = await app.run(
+        () => Validator(
+          {'email': 'taken@x.test'},
+          {'email': 'required|unique:users,email'},
+          container: Container.current,
+        ).run(),
+      );
+      expect(taken['email'], ['The email has already been taken.']);
+      final tooLong = await app.run(
+        () => Validator(
+          {'email': 'taken@x.test'},
+          {'email': 'required|max:5|unique:users,email'},
+          container: Container.current,
+        ).run(),
+      );
+      expect(tooLong['email'], [
+        'The email field must not be greater than 5 characters.',
+      ]);
+    });
 
     test('request.validate renders 422 with Laravel JSON and unique hits the database', () async {
       final response = await app.handle(

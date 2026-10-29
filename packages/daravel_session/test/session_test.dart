@@ -426,6 +426,95 @@ void main() {
     });
   });
 
+  test('defaults follow laravel/laravel 11 to 13 (config/session.php)', () {
+    final config = SessionConfig.fromEnv(Env.fromMap(const {}));
+    expect(config.driver, 'database');
+    expect(config.encrypt, isFalse);
+    expect(config.partitioned, isFalse);
+    expect(config.lifetime, const Duration(minutes: 120));
+    expect(config.sameSite, 'lax');
+    final set = SessionConfig.fromEnv(
+      Env.fromMap(const {
+        'SESSION_ENCRYPT': 'true',
+        'SESSION_PARTITIONED_COOKIE': 'true',
+      }),
+    );
+    expect(set.encrypt, isTrue);
+    expect(set.partitioned, isTrue);
+  });
+
+  group('SESSION_ENCRYPT and SESSION_PARTITIONED_COOKIE', () {
+    setUp(() async {
+      await app.shutdown();
+      app = build(const {
+        'SESSION_ENCRYPT': 'true',
+        'SESSION_PARTITIONED_COOKIE': 'true',
+      });
+      await app.boot();
+      client = TestClient(app);
+    });
+
+    test('the payload is Crypt::encrypt(serialize(\$attributes)), as '
+        'EncryptedStore stores it', () async {
+      final first = await client.get('/put');
+      final id = first.jsonMap['id'] as String;
+      final handler =
+          app.container.make<SessionManager>().handler as ArraySessionHandler;
+      final stored = handler.payloads[id]!;
+      expect(stored, isNot(startsWith('a:')));
+      final clear = await app.run(() => Crypt.encrypter.decryptString(stored));
+      // Crypt::encrypt serializes the serialized attributes once more.
+      expect(clear, startsWith('s:'));
+      final attributes = phpUnserialize(phpUnserialize(clear)! as String);
+      expect((attributes! as Map)['name'], 'Jane');
+
+      final cookie = cookieValue(first, 'my_app_session')!;
+      final second = await client.get(
+        '/get',
+        headers: {'cookie': 'my_app_session=${Uri.encodeComponent(cookie)}'},
+      );
+      expect(second.jsonMap['name'], 'Jane');
+    });
+
+    test(
+      'a session Laravel encrypted is read, a broken one starts empty',
+      () async {
+        const laravelId = 'EncryptedByLaravelSessionIdOfFortyChars1';
+        final payload = await app.run(
+          () => Crypt.encrypter.encryptString(
+            phpSerialize(phpSerialize({'_token': 't' * 40, 'name': 'Joe'})),
+          ),
+        );
+        final handler =
+            app.container.make<SessionManager>().handler as ArraySessionHandler;
+        await handler.write(laravelId, payload);
+        await handler.write('BrokenPayloadSessionIdOfFortyCharacters1', 'junk');
+        for (final (id, name) in [
+          (laravelId, 'Joe'),
+          ('BrokenPayloadSessionIdOfFortyCharacters1', null),
+        ]) {
+          final cookie = await encryptCookie(app, 'my_app_session', id);
+          final response = await client.get(
+            '/get',
+            headers: {
+              'cookie': 'my_app_session=${Uri.encodeComponent(cookie)}',
+            },
+          );
+          expect(response.jsonMap['name'], name);
+        }
+      },
+    );
+
+    test('both cookies are Partitioned, as Symfony 7.4 writes it', () async {
+      final response = await client.get('/get');
+      for (final name in ['my_app_session', 'XSRF-TOKEN']) {
+        final line = response.headers
+            .all('set-cookie')
+            .firstWhere((l) => l.startsWith('$name='));
+        expect(line, endsWith('; samesite=lax; partitioned'));
+      }
+    });
+  });
   test('SessionConfig reads Laravel\'s variables', () {
     final config = SessionConfig.fromEnv(
       Env.fromMap(const {
