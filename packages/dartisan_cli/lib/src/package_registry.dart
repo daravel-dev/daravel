@@ -212,7 +212,8 @@ const List<PackageManifest> officialPackages = [
     package: 'daravel_payments',
     title: 'Payments',
     category: 'Payments',
-    description: 'Midtrans, Xendit and Stripe, with verified webhooks applied once',
+    description:
+        'Midtrans, Xendit and Stripe, with verified webhooks applied once',
     aliases: ['payments', 'payment', 'midtrans', 'xendit', 'stripe'],
     registration: ['.withPayments()'],
     env: [
