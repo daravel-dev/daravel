@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:daravel/daravel.dart';
 import 'package:path/path.dart' as p;
@@ -13,28 +15,41 @@ void main() {
   /// A port whose next one is free too: the children take `port` and
   /// `port + 1`. Checking only `port` let another test's server sit on
   /// `port + 1` and pass the readiness probe for child 1 (CI, Dart 3.13.0).
+  ///
+  /// Picked below every ephemeral range (Linux 32768+, macOS and Windows
+  /// 49152+): a port the OS hands out for `bind(0)` is also handed out as
+  /// the source port of outgoing connections, and the parallel test files
+  /// make many, so `port + 1` could be taken before a child bound it
+  /// (CI, ubuntu, "Address already in use").
   Future<int> freePort() async {
+    final random = Random();
     while (true) {
-      final first = await ServerSocket.bind('127.0.0.1', 0);
+      final port = 20000 + random.nextInt(12000);
+      ServerSocket? first;
       try {
-        final second = await ServerSocket.bind('127.0.0.1', first.port + 1);
+        first = await ServerSocket.bind('127.0.0.1', port);
+        final second = await ServerSocket.bind('127.0.0.1', port + 1);
         await second.close();
-        return first.port;
+        return port;
       } on SocketException {
-        // port + 1 is taken: try another pair.
+        // Taken: try another pair.
       } finally {
-        await first.close();
+        await first?.close();
       }
     }
   }
 
+  /// The child's answer on [port]. Bounded, so a child that accepts and
+  /// never answers fails the test with a reason instead of hanging it.
   Future<Map<String, Object?>> ask(int port) async {
-    final client = HttpClient();
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 5);
     try {
-      final request = await client.get('127.0.0.1', port, '/');
-      final response = await request.close();
-      final body = await response.transform(utf8.decoder).join();
-      return jsonDecode(body) as Map<String, Object?>;
+      return await () async {
+        final request = await client.get('127.0.0.1', port, '/');
+        final response = await request.close();
+        final body = await response.transform(utf8.decoder).join();
+        return jsonDecode(body) as Map<String, Object?>;
+      }().timeout(const Duration(seconds: 10));
     } finally {
       client.close(force: true);
     }
@@ -115,24 +130,47 @@ void main() {
         p.join('test', 'server', 'fixtures', 'supervisor_main.dart'),
         '$port',
       ]);
-      final lines = parent.stdout
+      // Both pipes are read to the end, so the supervisor (which forwards
+      // its children's output) never blocks on a full pipe, and what it
+      // printed explains a failure.
+      final output = <String>[];
+      final ready = Completer<void>();
+      parent.stdout
           .transform(utf8.decoder)
-          .transform(const LineSplitter());
-      await lines.firstWhere((line) => line == 'ready');
+          .transform(const LineSplitter())
+          .listen((line) {
+            output.add(line);
+            if (line == 'ready' && !ready.isCompleted) {
+              ready.complete();
+            }
+          });
+      parent.stderr
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .listen(output.add);
+      await ready.future.timeout(
+        const Duration(seconds: 90),
+        onTimeout: () => fail('no "ready":\n${output.join('\n')}'),
+      );
       expect(await ask(port + 1), containsPair('index', 1));
       // No signal handler runs: TerminateProcess on Windows, SIGKILL here.
       parent.kill(ProcessSignal.sigkill);
-      await parent.exitCode;
+      await parent.exitCode.timeout(const Duration(seconds: 20));
       final deadline = DateTime.now().add(const Duration(seconds: 20));
       for (final target in [port, port + 1]) {
         while (true) {
           try {
             await ask(target);
+          } on TimeoutException {
+            // Accepts but does not answer: still there, keep waiting.
           } on Object {
-            break;
+            break; // Refused: the child is gone.
           }
           if (DateTime.now().isAfter(deadline)) {
-            fail('the child on port $target outlived its supervisor');
+            fail(
+              'the child on port $target outlived its supervisor:\n'
+              '${output.join('\n')}',
+            );
           }
           await Future<void>.delayed(const Duration(milliseconds: 200));
         }
