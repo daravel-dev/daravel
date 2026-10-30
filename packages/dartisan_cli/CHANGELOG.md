@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.20.0
 
 - `doctor` compares the connection pool with `max_connections` on MySQL and MariaDB too, and counts `APP_PROCESSES` and the embedded queue worker and scheduler: `DB_POOL_SIZE × (APP_ISOLATES + embedded) × APP_PROCESSES`.
 

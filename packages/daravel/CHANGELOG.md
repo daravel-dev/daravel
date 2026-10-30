@@ -1,11 +1,10 @@
 # Changelog
 
-## Unreleased
+## 1.20.0
 
 - Fixed: `Application.serveWith` with one isolate and embedded workers left the coordinator's port open after the server stopped (`Coordinator.isListening`).
-- `Response.json(phpCompatible: true)` encodes in one pass (`PhpJsonEncoder`), the same bytes as before.
-- `Response.streamJson`, `jsonArrayBytes` and `QueryBuilder.streamJson`: a JSON array written as the rows arrive, a page at a time.
-
+- Added: `Response.json(phpCompatible: true)` encodes in one pass (`PhpJsonEncoder`), the same bytes as before.
+- Added: `Response.streamJson`, `jsonArrayBytes` and `QueryBuilder.streamJson`: a JSON array written as the rows arrive, a page at a time.
 - Changed: `daravelLogoDataUri` and `daravelFaviconDataUri` carry the new Daravel logo (an infinity loop).
 
 ## 1.19.1
