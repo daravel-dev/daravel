@@ -33,5 +33,6 @@ workspace:
 
 dev_dependencies:
   crypto: ^3.0.7
+  image: ^4.5.0
   markdown: ^7.3.0
   yaml: ^3.1.3

@@ -1,379 +1,304 @@
 // Generates the Daravel brand assets (BLUEPRINT_V2 §8 / docs/brand).
 //
 //   dart run tool/brand/generate.dart            # SVG + PNG + ICO + starter data
-//   dart run tool/brand/generate.dart --svg-only # skip rasterising
+//   dart run tool/brand/generate.dart --svg-only # SVG only (no Chrome needed)
 //
-// The mark is defined here as geometry so it can be reproduced and edited
-// in code review. PNGs are rendered with headless Chrome (CHROME env var or
-// the default install path); the favicon.ico packs PNG-encoded frames.
+// The source of truth is the illustration in docs/brand/source: the navy
+// tile is found in it, cropped and given the icon's rounded corners; the
+// transparent mark is keyed out of the tile's navy background. The SVGs
+// wrap those rasters (and the stroke-built wordmark), the icon and mark
+// PNGs are resized here, and the lockups and the social preview are
+// rendered with headless Chrome (CHROME env var or the default install
+// path). The favicon.ico packs PNG-encoded frames.
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
-import 'dart:typed_data' show BytesBuilder;
+import 'dart:typed_data' show BytesBuilder, Uint8List;
+
+import 'package:image/image.dart' as img;
 
 const String navy = '#11133a';
 const String navyDeep = '#0b0d2a';
-const String gap = '#0b0d2a';
 
-/// A filled part of the mark.
-/// A filled part of the mark, or a [cut] line carved out of the parts
-/// drawn before it.
-final class Part {
-  const Part(this.d, this.fill, {this.simple = true}) : cut = false;
+/// The illustration every asset is made from.
+const String sourcePath = 'docs/brand/source/daravel-icon-source.jpg';
 
-  const Part.cut(this.d, {this.simple = false}) : fill = 'none', cut = true;
-
-  final String d;
-  final String fill;
-  final bool cut;
-
-  /// Kept in the simplified (≤ 48 px) variant.
-  final bool simple;
-}
+/// Corner radius of the icon tile, as a fraction of its side (112 / 512).
+const double cornerRatio = 112 / 512;
 
 String _n(num v) => v.toStringAsFixed(1).replaceAll(RegExp(r'\.0$'), '');
 
-String _poly(List<List<num>> points) =>
-    'M${points.map((p) => '${_n(p[0])} ${_n(p[1])}').join(' L')} Z';
+/// The navy tile of [source]: the square of dark pixels around the
+/// centre, inset a little so no light margin or soft edge survives. Its
+/// corners are cut again by [roundCorners], with a radius larger than the
+/// illustration's own.
+img.Image cropTile(img.Image source) {
+  bool dark(int x, int y) {
+    final p = source.getPixel(x, y);
+    return p.r + p.g + p.b < 200;
+  }
 
-String _line(List<List<num>> points) =>
-    'M${points.map((p) => '${_n(p[0])} ${_n(p[1])}').join(' L')}';
-
-/// A crescent blade from [base] to [tip]: [halfWidth] at the base, curving
-/// to the left of the base→tip direction by [bend], [thickness] at the
-/// middle.
-String _blade(
-  List<num> base,
-  List<num> tip, {
-  num bend = 36,
-  num thickness = 24,
-  num halfWidth = 14,
-}) {
-  final bx = base[0].toDouble(), by = base[1].toDouble();
-  final tx = tip[0].toDouble(), ty = tip[1].toDouble();
-  final dx = tx - bx, dy = ty - by;
-  final len = math.sqrt(dx * dx + dy * dy);
-  final nx = -dy / len, ny = dx / len;
-  final mx = (bx + tx) / 2, my = (by + ty) / 2;
-  final b1 = [bx + nx * halfWidth, by + ny * halfWidth];
-  final b2 = [bx - nx * halfWidth, by - ny * halfWidth];
-  final outer = [mx + nx * (bend + thickness), my + ny * (bend + thickness)];
-  final inner = [mx + nx * (bend - thickness), my + ny * (bend - thickness)];
-  return 'M${_n(b1[0])} ${_n(b1[1])} Q${_n(outer[0])} ${_n(outer[1])} ${_n(tx)} ${_n(ty)} '
-      'Q${_n(inner[0])} ${_n(inner[1])} ${_n(b2[0])} ${_n(b2[1])} Z';
-}
-
-/// The dragon, drawn back to front on a 512 × 512 canvas: wing, tail fin,
-/// blue belly, red serpentine body with scale cuts, mane, horns, head.
-List<Part> dragonParts() => [
-  // Wing: broad crescent feathers fanning from the shoulder to the upper
-  // left (outer row), with a shorter, lighter inner row.
-  Part(
-    _blade([246, 296], [78, 96], bend: 46, thickness: 30, halfWidth: 20),
-    'url(#wingA)',
-  ),
-  Part(
-    _blade([240, 312], [52, 176], bend: 38, thickness: 26, halfWidth: 18),
-    'url(#wingB)',
-  ),
-  Part(
-    _blade([240, 326], [60, 252], bend: 30, thickness: 22, halfWidth: 16),
-    'url(#wingA)',
-  ),
-  Part(
-    _blade([248, 340], [104, 310], bend: 22, thickness: 18, halfWidth: 14),
-    'url(#wingB)',
-    simple: false,
-  ),
-  Part(
-    _blade([256, 306], [140, 186], bend: 24, thickness: 16, halfWidth: 12),
-    'url(#wingC)',
-    simple: false,
-  ),
-  Part(
-    _blade([258, 320], [134, 246], bend: 18, thickness: 14, halfWidth: 11),
-    'url(#wingC)',
-    simple: false,
-  ),
-  Part(
-    _blade([262, 334], [156, 296], bend: 12, thickness: 12, halfWidth: 10),
-    'url(#wingC)',
-    simple: false,
-  ),
-  // Tail fin fanning to the lower left.
-  Part(
-    _poly([
-      [286, 350],
-      [96, 376],
-      [186, 392],
-      [118, 424],
-      [204, 418],
-      [146, 458],
-      [222, 440],
-      [206, 470],
-      [270, 446],
-      [304, 412],
-    ]),
-    'url(#fire)',
-  ),
-  Part.cut(
-    _line([
-      [280, 360],
-      [190, 390],
-    ]),
-  ),
-  Part.cut(
-    _line([
-      [292, 396],
-      [208, 418],
-    ]),
-  ),
-  // Purple depth between belly and body.
-  Part(
-    'M262 168 C276 230, 318 262, 338 320 C350 360, 352 400, 356 440 '
-        'L330 420 C324 380, 316 350, 298 320 C276 284, 258 240, 262 168 Z',
-    'url(#violet)',
-    simple: false,
-  ),
-  // Blue belly sweeping from the wing root to the tail tip.
-  Part(
-    'M204 176 C212 244, 262 282, 296 318 C326 350, 338 394, 352 440 '
-        'L306 426 C296 396, 286 376, 266 358 C232 328, 200 290, 204 176 Z',
-    'url(#ice)',
-  ),
-  // Red serpentine body (neck to tail).
-  Part(
-    'M262 158 C300 150, 336 168, 352 200 C372 236, 404 262, 408 326 '
-        'C412 382, 394 414, 360 440 C366 408, 356 380, 348 352 '
-        'C338 314, 300 284, 286 246 C276 218, 274 190, 262 158 Z',
-    'url(#fire)',
-  ),
-  // Light facet along the outer edge of the body.
-  Part(
-    'M352 200 C372 236, 404 262, 408 326 C410 360, 404 386, 392 404 '
-        'C392 370, 388 330, 376 296 C366 266, 356 236, 352 200 Z',
-    'url(#fireLight)',
-    simple: false,
-  ),
-  // Scale cuts (chevrons across the body).
-  Part.cut(
-    _line([
-      [282, 232],
-      [326, 244],
-      [368, 222],
-    ]),
-  ),
-  Part.cut(
-    _line([
-      [312, 284],
-      [356, 298],
-      [400, 280],
-    ]),
-  ),
-  Part.cut(
-    _line([
-      [338, 336],
-      [376, 348],
-      [408, 334],
-    ]),
-  ),
-  Part.cut(
-    _line([
-      [346, 384],
-      [378, 394],
-      [402, 382],
-    ]),
-  ),
-  // Mane spikes behind the neck.
-  Part(
-    _poly([
-      [270, 146],
-      [236, 122],
-      [258, 166],
-      [208, 168],
-      [256, 194],
-      [222, 238],
-      [278, 212],
-      [290, 168],
-    ]),
-    'url(#fire)',
-  ),
-  // Horns sweeping back from the crown (back horn first).
-  Part(
-    _poly([
-      [338, 100],
-      [300, 26],
-      [330, 70],
-      [368, 102],
-    ]),
-    'url(#ice)',
-  ),
-  Part(
-    _poly([
-      [296, 114],
-      [226, 36],
-      [282, 76],
-      [334, 98],
-    ]),
-    'url(#iceLight)',
-  ),
-  // Head facets: skull, brow, nose bridge, cheek, upper lip, lower jaw.
-  Part(
-    _poly([
-      [258, 112],
-      [330, 96],
-      [318, 150],
-      [298, 160],
-    ]),
-    'url(#iceDeep)',
-  ),
-  Part(
-    _poly([
-      [330, 96],
-      [374, 104],
-      [370, 140],
-      [318, 150],
-    ]),
-    'url(#ice)',
-  ),
-  Part(
-    _poly([
-      [374, 104],
-      [422, 126],
-      [460, 150],
-      [404, 152],
-      [370, 140],
-    ]),
-    'url(#iceLight)',
-  ),
-  Part(
-    _poly([
-      [298, 160],
-      [318, 150],
-      [370, 140],
-      [404, 152],
-      [382, 172],
-      [332, 196],
-    ]),
-    'url(#iceDeep)',
-  ),
-  Part(
-    _poly([
-      [404, 152],
-      [460, 150],
-      [458, 166],
-      [382, 172],
-    ]),
-    'url(#ice)',
-  ),
-  Part(
-    _poly([
-      [332, 196],
-      [382, 172],
-      [442, 178],
-      [426, 208],
-      [404, 196],
-      [370, 210],
-    ]),
-    'url(#ice)',
-  ),
-  // Mouth line and brow crest.
-  Part.cut(
-    _line([
-      [458, 168],
-      [384, 172],
-    ]),
-  ),
-  Part(
-    _poly([
-      [420, 124],
-      [436, 100],
-      [440, 134],
-    ]),
-    'url(#iceLight)',
-    simple: false,
-  ),
-  // Eye.
-  Part(
-    _poly([
-      [352, 118],
-      [392, 126],
-      [360, 134],
-    ]),
-    '#e0f7ff',
-  ),
-];
-
-String defs() =>
-    '''
-<defs>
-  <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
-    <stop offset="0" stop-color="#161a4a"/><stop offset="1" stop-color="$navyDeep"/>
-  </linearGradient>
-  <linearGradient id="wingA" x1="0" y1="0" x2="1" y2="1">
-    <stop offset="0" stop-color="#7dd3fc"/><stop offset="1" stop-color="#2563eb"/>
-  </linearGradient>
-  <linearGradient id="wingB" x1="0" y1="0" x2="1" y2="1">
-    <stop offset="0" stop-color="#67e8f9"/><stop offset="1" stop-color="#1d4ed8"/>
-  </linearGradient>
-  <linearGradient id="wingC" x1="0" y1="0" x2="1" y2="1">
-    <stop offset="0" stop-color="#a5f3fc"/><stop offset="1" stop-color="#0ea5e9"/>
-  </linearGradient>
-  <linearGradient id="ice" x1="0" y1="0" x2="1" y2="1">
-    <stop offset="0" stop-color="#38bdf8"/><stop offset="1" stop-color="#1d4ed8"/>
-  </linearGradient>
-  <linearGradient id="iceLight" x1="0" y1="0" x2="1" y2="1">
-    <stop offset="0" stop-color="#a5f3fc"/><stop offset="1" stop-color="#38bdf8"/>
-  </linearGradient>
-  <linearGradient id="iceDeep" x1="0" y1="0" x2="1" y2="1">
-    <stop offset="0" stop-color="#2563eb"/><stop offset="1" stop-color="#1e3a8a"/>
-  </linearGradient>
-  <linearGradient id="violet" x1="0" y1="0" x2="0" y2="1">
-    <stop offset="0" stop-color="#6d28d9"/><stop offset="1" stop-color="#4c1d95"/>
-  </linearGradient>
-  <linearGradient id="fire" x1="0" y1="0" x2="0.35" y2="1">
-    <stop offset="0" stop-color="#fb923c"/><stop offset="0.5" stop-color="#ef4444"/><stop offset="1" stop-color="#e11d48"/>
-  </linearGradient>
-  <linearGradient id="fireLight" x1="0" y1="0" x2="0" y2="1">
-    <stop offset="0" stop-color="#fdba74"/><stop offset="1" stop-color="#fb7185"/>
-  </linearGradient>
-  <linearGradient id="fireDeep" x1="0" y1="0" x2="1" y2="1">
-    <stop offset="0" stop-color="#f97316"/><stop offset="1" stop-color="#be123c"/>
-  </linearGradient>
-</defs>''';
-
-/// The mark: coloured parts masked by dark gaps (later parts carve a thin
-/// gap into earlier ones; cuts carve lines), so it works on any background.
-/// [mono] paints every part in one colour.
-String markGroup({bool simple = false, String? mono, String id = 'm'}) {
-  final parts = dragonParts().where((p) => !simple || p.simple).toList();
-  final gapWidth = simple ? 10 : 6;
-  final mask = parts
-      .map(
-        (p) => p.cut
-            ? '<path d="${p.d}" fill="none" stroke="#000" stroke-width="$gapWidth" stroke-linecap="round" stroke-linejoin="round"/>'
-            : '<path d="${p.d}" fill="#fff" stroke="#000" stroke-width="$gapWidth" stroke-linejoin="round"/>',
+  final cx = source.width ~/ 2, cy = source.height ~/ 2;
+  var left = cx, right = cx, top = cy, bottom = cy;
+  for (var x = 0; x < source.width; x++) {
+    if (dark(x, cy)) {
+      left = math.min(left, x);
+      right = math.max(right, x);
+    }
+  }
+  for (var y = 0; y < source.height; y++) {
+    if (dark(cx, y)) {
+      top = math.min(top, y);
+      bottom = math.max(bottom, y);
+    }
+  }
+  final side = math.min(right - left, bottom - top) + 1;
+  final inset = (side * 0.004).ceil();
+  final size = side - 2 * inset;
+  return img
+      .copyCrop(
+        source,
+        x: left + inset,
+        y: top + inset,
+        width: size,
+        height: size,
       )
-      .join();
-  final fills = parts
-      .where((p) => !p.cut)
-      .map((p) => '<path d="${p.d}" fill="${mono ?? p.fill}"/>')
-      .join();
-  return '<mask id="$id" maskUnits="userSpaceOnUse" x="0" y="0" width="512" height="512">'
-      '<rect width="512" height="512" fill="#000"/>$mask</mask>'
-      '<g mask="url(#$id)">$fills</g>';
+      .convert(numChannels: 4);
 }
 
-/// App icon: dark rounded tile + mark.
-String iconSvg({bool simple = false, int size = 512}) =>
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="$size" height="$size" role="img" aria-label="Daravel">'
-    '${defs()}<rect width="512" height="512" rx="112" fill="url(#tile)"/>'
-    '${simple ? '<g transform="translate(-36 -28) scale(1.14)">' : '<g>'}${markGroup(simple: simple)}</g></svg>';
+/// [image] resized to [width] (and [height]) by averaging, which keeps
+/// detail at every downscale.
+img.Image resized(img.Image image, int width, [int? height]) => img.copyResize(
+  image,
+  width: width,
+  height: height ?? (image.height * width / image.width).round(),
+  interpolation: img.Interpolation.average,
+);
 
-/// Mark without tile (transparent).
-String markSvg({String? mono, int size = 512}) =>
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="40 30 432 440" width="$size" height="${(size * 440 / 432).round()}" role="img" aria-label="Daravel">'
-    '${defs()}${markGroup(mono: mono)}</svg>';
+/// [tile] with transparent rounded corners (radius [cornerRatio] of the
+/// side), anti-aliased by 4 × 4 supersampling.
+img.Image roundCorners(img.Image tile) {
+  final out = tile.clone();
+  final w = out.width, h = out.height;
+  final r = w * cornerRatio;
+  double coverage(int x, int y) {
+    var inside = 0;
+    for (var sy = 0; sy < 4; sy++) {
+      for (var sx = 0; sx < 4; sx++) {
+        final px = x + (sx + 0.5) / 4, py = y + (sy + 0.5) / 4;
+        final dx = px < r ? r - px : (px > w - r ? px - (w - r) : 0.0);
+        final dy = py < r ? r - py : (py > h - r ? py - (h - r) : 0.0);
+        if (dx * dx + dy * dy <= r * r) {
+          inside++;
+        }
+      }
+    }
+    return inside / 16;
+  }
+
+  final reach = r.ceil() + 1;
+  for (var y = 0; y < h; y++) {
+    for (var x = 0; x < w; x++) {
+      final nearX = x < reach || x >= w - reach;
+      final nearY = y < reach || y >= h - reach;
+      if (!nearX || !nearY) {
+        continue;
+      }
+      final c = coverage(x, y);
+      if (c < 1) {
+        final p = out.getPixel(x, y);
+        p.a = (p.a * c).round();
+      }
+    }
+  }
+  return out;
+}
+
+/// The icon at [size] pixels.
+img.Image iconImage(img.Image tile, int size) =>
+    roundCorners(resized(tile, size));
+
+/// The mark without its tile: every pixel's alpha is how far its colour
+/// rises above the navy background behind it, and its colour is that
+/// background taken back out. Dark outlines and drop shadows go
+/// transparent. The background is a Coons patch through strips along the
+/// four edges of the tile, so the lighter glow at the top is modelled;
+/// the corners, light in the illustration, are skipped. Cropped to the
+/// mark with a small margin.
+img.Image keyMark(img.Image tile) {
+  final w = tile.width, h = tile.height;
+  final from = (w * 0.02).round(), to = (w * 0.06).round();
+  final corner = (w * 0.21).round();
+  List<double> average(Iterable<img.Pixel> pixels) {
+    final sum = [0.0, 0.0, 0.0];
+    var n = 0;
+    for (final p in pixels) {
+      sum[0] += p.r;
+      sum[1] += p.g;
+      sum[2] += p.b;
+      n++;
+    }
+    return [for (final s in sum) s / n];
+  }
+
+  Iterable<img.Pixel> rowStrip(int y, int x0, int x1) sync* {
+    for (var x = x0; x < x1; x++) {
+      yield tile.getPixel(x, y);
+    }
+  }
+
+  Iterable<img.Pixel> columnStrip(int x, int y0, int y1) sync* {
+    for (var y = y0; y < y1; y++) {
+      yield tile.getPixel(x, y);
+    }
+  }
+
+  // Edge profiles, measured away from the corners and held flat into them.
+  final left = [
+    for (var y = 0; y < h; y++)
+      average(rowStrip(y.clamp(corner, h - 1 - corner), from, to)),
+  ];
+  final right = [
+    for (var y = 0; y < h; y++)
+      average(rowStrip(y.clamp(corner, h - 1 - corner), w - to, w - from)),
+  ];
+  final top = [
+    for (var x = 0; x < w; x++)
+      average(columnStrip(x.clamp(corner, w - 1 - corner), from, to)),
+  ];
+  final bottom = [
+    for (var x = 0; x < w; x++)
+      average(columnStrip(x.clamp(corner, w - 1 - corner), h - to, h - from)),
+  ];
+  List<double> mean(List<double> a, List<double> b) => [
+    for (var c = 0; c < 3; c++) (a[c] + b[c]) / 2,
+  ];
+  final p00 = mean(left.first, top.first);
+  final p10 = mean(right.first, top.last);
+  final p01 = mean(left.last, bottom.first);
+  final p11 = mean(right.last, bottom.last);
+
+  const low = 28.0, high = 80.0;
+  final out = img.Image(width: w, height: h, numChannels: 4);
+  var minX = w, minY = h, maxX = 0, maxY = 0;
+  for (var y = 0; y < h; y++) {
+    final v = y / (h - 1);
+    for (var x = 0; x < w; x++) {
+      final dx = x < corner
+          ? corner - x
+          : (x >= w - corner ? x - (w - 1 - corner) : 0);
+      final dy = y < corner
+          ? corner - y
+          : (y >= h - corner ? y - (h - 1 - corner) : 0);
+      if (dx * dx + dy * dy > corner * corner) {
+        continue;
+      }
+      final u = x / (w - 1);
+      final bg = [
+        for (var c = 0; c < 3; c++)
+          (1 - u) * left[y][c] +
+              u * right[y][c] +
+              (1 - v) * top[x][c] +
+              v * bottom[x][c] -
+              ((1 - u) * (1 - v) * p00[c] +
+                  u * (1 - v) * p10[c] +
+                  (1 - u) * v * p01[c] +
+                  u * v * p11[c]),
+      ];
+      final p = tile.getPixel(x, y);
+      final rgb = [p.r.toDouble(), p.g.toDouble(), p.b.toDouble()];
+      final rise = math.max(
+        rgb[0] - bg[0],
+        math.max(rgb[1] - bg[1], rgb[2] - bg[2]),
+      );
+      final a = ((rise - low) / (high - low)).clamp(0.0, 1.0);
+      if (a <= 0) {
+        continue;
+      }
+      final alpha = a * a * (3 - 2 * a);
+      final clean = [
+        for (var c = 0; c < 3; c++)
+          (bg[c] + (rgb[c] - bg[c]) / alpha).clamp(0.0, 255.0).round(),
+      ];
+      out.setPixelRgba(
+        x,
+        y,
+        clean[0],
+        clean[1],
+        clean[2],
+        (alpha * 255).round(),
+      );
+      if (alpha > 0.05) {
+        minX = math.min(minX, x);
+        maxX = math.max(maxX, x);
+        minY = math.min(minY, y);
+        maxY = math.max(maxY, y);
+      }
+    }
+  }
+  final margin = (w * 0.01).round();
+  final x0 = math.max(0, minX - margin), y0 = math.max(0, minY - margin);
+  return img.copyCrop(
+    out,
+    x: x0,
+    y: y0,
+    width: math.min(w, maxX + margin + 1) - x0,
+    height: math.min(h, maxY + margin + 1) - y0,
+  );
+}
+
+/// [mark] in one colour ([hex], `#rrggbb`): its alpha blurred a little and
+/// thresholded, so the silhouette has clean edges, thin ornaments stay
+/// solid and the specks where the ribbons' darkest shading keyed out are
+/// filled.
+img.Image monoMark(img.Image mark, String hex) {
+  final r = int.parse(hex.substring(1, 3), radix: 16);
+  final g = int.parse(hex.substring(3, 5), radix: 16);
+  final b = int.parse(hex.substring(5, 7), radix: 16);
+  final coverage = img.Image(width: mark.width, height: mark.height);
+  for (final p in mark) {
+    coverage.setPixelRgb(p.x, p.y, p.a, p.a, p.a);
+  }
+  final blurred = img.gaussianBlur(
+    coverage,
+    radius: math.max(1, (mark.width * 0.006).round()),
+  );
+  final out = img.Image(width: mark.width, height: mark.height, numChannels: 4);
+  for (final p in blurred) {
+    final t = ((p.r / 255 - 0.15) / 0.25).clamp(0.0, 1.0);
+    final a = t * t * (3 - 2 * t);
+    out.setPixelRgba(p.x, p.y, r, g, b, (a * 255).round());
+  }
+  return out;
+}
+
+String _dataUri(String type, List<int> bytes) =>
+    'data:$type;base64,${base64.encode(bytes)}';
+
+/// The icon tile as an SVG `<image>` at ([x], [y]), [size] wide, clipped to
+/// the rounded tile. [jpeg] is the tile without its corners cut.
+String tileImage(
+  Uint8List jpeg, {
+  num x = 0,
+  num y = 0,
+  num size = 512,
+  String id = 't',
+}) =>
+    '<clipPath id="$id"><rect x="${_n(x)}" y="${_n(y)}" width="${_n(size)}" height="${_n(size)}" '
+    'rx="${_n(size * cornerRatio)}"/></clipPath>'
+    '<image href="${_dataUri('image/jpeg', jpeg)}" x="${_n(x)}" y="${_n(y)}" '
+    'width="${_n(size)}" height="${_n(size)}" clip-path="url(#$id)"/>';
+
+/// App icon: the navy tile with the mark.
+String iconSvg(Uint8List jpeg, {int size = 512}) =>
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="$size" height="$size" '
+    'role="img" aria-label="Daravel">${tileImage(jpeg)}</svg>';
+
+/// Mark without tile (transparent), from a PNG of [width] × [height].
+String markSvg(Uint8List png, int width, int height) =>
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 $width $height" width="$width" '
+    'height="$height" role="img" aria-label="Daravel">'
+    '<image href="${_dataUri('image/png', png)}" width="$width" height="$height"/></svg>';
 
 /// Stroke-built geometric wordmark (no font dependency).
 String wordmarkPaths(String color, {num x = 0, num y = 0, num scale = 1}) {
@@ -405,22 +330,22 @@ String wordmarkPaths(String color, {num x = 0, num y = 0, num scale = 1}) {
 const num wordmarkWidth = 84 * 5 + 76 + 72 + 18 * 6;
 
 /// Icon + wordmark lockup. [onDark] picks the text colour.
-String horizontalSvg({required bool onDark, int height = 160}) {
+String horizontalSvg(Uint8List jpeg, {required bool onDark, int height = 160}) {
   const h = 512.0;
   const textScale = 1.9;
   final width = 512 + 70 + wordmarkWidth * textScale;
   final text = onDark ? '#f8fafc' : navy;
   return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${_n(width)} ${_n(h)}" '
       'width="${(height * width / h).round()}" height="$height" role="img" aria-label="Daravel">'
-      '${defs()}<rect width="512" height="512" rx="112" fill="url(#tile)"/>${markGroup()}'
+      '${tileImage(jpeg)}'
       '${wordmarkPaths(text, x: 582, y: h / 2 - 54 * textScale, scale: textScale)}</svg>';
 }
 
 /// GitHub/OpenGraph social preview (1280 × 640).
-String socialSvg() =>
+String socialSvg(Uint8List jpeg) =>
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640">'
-    '${defs()}<rect width="1280" height="640" fill="$navyDeep"/>'
-    '<g transform="translate(110 170) scale(0.586)"><rect width="512" height="512" rx="112" fill="url(#tile)"/>${markGroup(id: 's')}</g>'
+    '<rect width="1280" height="640" fill="$navyDeep"/>'
+    '${tileImage(jpeg, x: 110, y: 170, size: 300)}'
     '${wordmarkPaths('#f8fafc', x: 470, y: 214, scale: 1.0)}'
     '<g fill="#94a3b8" font-family="Segoe UI, Inter, Helvetica, Arial, sans-serif" font-size="32">'
     '<text x="474" y="392">The Laravel experience,</text>'
@@ -432,15 +357,36 @@ Future<void> main(List<String> args) async {
   final svgDir = Directory('${out.path}/svg')..createSync(recursive: true);
   final pngDir = Directory('${out.path}/png')..createSync(recursive: true);
 
+  final source = img.decodeJpg(File('$root/$sourcePath').readAsBytesSync());
+  if (source == null) {
+    throw StateError('$sourcePath is not a JPEG.');
+  }
+  final tile = cropTile(source);
+  final mark = keyMark(tile);
+  int markHeight(int width) => (width * mark.height / mark.width).round();
+  Uint8List jpeg(int size) =>
+      img.encodeJpg(resized(tile.convert(numChannels: 3), size), quality: 90);
+  Uint8List png(img.Image image) => img.encodePng(image, level: 9);
+
+  final tileJpeg = jpeg(512);
+  final mark512 = resized(mark, 512);
   final svgs = <String, String>{
-    'daravel-icon': iconSvg(),
-    'daravel-icon-small': iconSvg(simple: true),
-    'daravel-mark': markSvg(),
-    'daravel-mark-mono-white': markSvg(mono: '#ffffff'),
-    'daravel-mark-mono-navy': markSvg(mono: navy),
-    'daravel-logo-horizontal-on-dark': horizontalSvg(onDark: true),
-    'daravel-logo-horizontal-on-light': horizontalSvg(onDark: false),
-    'daravel-social': socialSvg(),
+    'daravel-icon': iconSvg(tileJpeg),
+    'daravel-icon-small': iconSvg(jpeg(128), size: 48),
+    'daravel-mark': markSvg(png(mark512), 512, mark512.height),
+    'daravel-mark-mono-white': markSvg(
+      png(monoMark(mark512, '#ffffff')),
+      512,
+      mark512.height,
+    ),
+    'daravel-mark-mono-navy': markSvg(
+      png(monoMark(mark512, navy)),
+      512,
+      mark512.height,
+    ),
+    'daravel-logo-horizontal-on-dark': horizontalSvg(tileJpeg, onDark: true),
+    'daravel-logo-horizontal-on-light': horizontalSvg(tileJpeg, onDark: false),
+    'daravel-social': socialSvg(tileJpeg),
   };
   for (final entry in svgs.entries) {
     File('${svgDir.path}/${entry.key}.svg')
@@ -451,52 +397,40 @@ Future<void> main(List<String> args) async {
     return;
   }
 
+  final rasters = <String, img.Image>{
+    for (final s in [16, 32, 48, 64, 128, 180, 192, 256, 512, 1024])
+      'daravel-icon-$s': iconImage(tile, s),
+    for (final s in [128, 256, 512, 1024]) 'daravel-mark-$s': resized(mark, s),
+    for (final s in [256, 512]) ...{
+      'daravel-mark-mono-white-$s': monoMark(resized(mark, s), '#ffffff'),
+      'daravel-mark-mono-navy-$s': monoMark(resized(mark, s), navy),
+    },
+  };
+  for (final entry in rasters.entries) {
+    File('${pngDir.path}/${entry.key}.png').writeAsBytesSync(png(entry.value));
+  }
+
   final renders = <({String name, String svg, int w, int h})>[
-    for (final s in [16, 32, 48])
-      (
-        name: 'daravel-icon-$s',
-        svg: iconSvg(simple: true, size: s),
-        w: s,
-        h: s,
-      ),
-    for (final s in [64, 128, 180, 192, 256, 512, 1024])
-      (name: 'daravel-icon-$s', svg: iconSvg(size: s), w: s, h: s),
-    for (final s in [128, 256, 512, 1024])
-      (
-        name: 'daravel-mark-$s',
-        svg: markSvg(size: s),
-        w: s,
-        h: (s * 440 / 432).round(),
-      ),
-    for (final s in [256, 512])
-      (
-        name: 'daravel-mark-mono-white-$s',
-        svg: markSvg(mono: '#ffffff', size: s),
-        w: s,
-        h: (s * 440 / 432).round(),
-      ),
-    for (final s in [256, 512])
-      (
-        name: 'daravel-mark-mono-navy-$s',
-        svg: markSvg(mono: navy, size: s),
-        w: s,
-        h: (s * 440 / 432).round(),
-      ),
     for (final h in [64, 128, 256])
       (
         name: 'daravel-logo-horizontal-on-dark-$h',
-        svg: horizontalSvg(onDark: true, height: h),
+        svg: horizontalSvg(tileJpeg, onDark: true, height: h),
         w: _hw(h),
         h: h,
       ),
     for (final h in [64, 128, 256])
       (
         name: 'daravel-logo-horizontal-on-light-$h',
-        svg: horizontalSvg(onDark: false, height: h),
+        svg: horizontalSvg(tileJpeg, onDark: false, height: h),
         w: _hw(h),
         h: h,
       ),
-    (name: 'daravel-social-1280x640', svg: socialSvg(), w: 1280, h: 640),
+    (
+      name: 'daravel-social-1280x640',
+      svg: socialSvg(tileJpeg),
+      w: 1280,
+      h: 640,
+    ),
   ];
   final chrome = _chrome();
   final tmp = Directory.systemTemp.createTempSync('daravel_brand_');
@@ -523,7 +457,11 @@ Future<void> main(List<String> args) async {
     }
   }
   tmp.deleteSync(recursive: true);
-  stdout.writeln('Rendered ${renders.length} PNGs to docs/brand/png');
+  stdout.writeln(
+    'Wrote ${rasters.length + renders.length} PNGs to docs/brand/png '
+    '(mark ${mark.width} x ${mark.height} at source scale, '
+    '1024 px wide: ${markHeight(1024)} px high)',
+  );
 
   _writeIco(
     '${out.path}/favicon.ico',
@@ -547,7 +485,7 @@ Future<void> main(List<String> args) async {
     '/// so an AOT binary serves it without static files. Unused constants are\n'
     '/// tree-shaken from builds.\n'
     "const String daravelLogoDataUri =\n    'data:image/png;base64,$logo';\n\n"
-    '/// The Daravel favicon (32 px PNG, simplified mark) as a data URI.\n'
+    '/// The Daravel favicon (32 px PNG) as a data URI.\n'
     "const String daravelFaviconDataUri =\n    'data:image/png;base64,$favicon';\n",
   );
   stdout.writeln('Updated packages/daravel/lib/src/support/brand.dart');

@@ -20,6 +20,28 @@ checklist that 1.18 and 1.19 had not already shipped.
 - `Response.streamJson(items, wrap:, phpCompatible:)` (Laravel's `response()->streamJson()`), `jsonArrayBytes()` and `QueryBuilder.streamJson(chunk:)`: a JSON array written as the rows arrive, a page at a time, byte for byte what `Response.json` writes for the collected list, so a large result set is never held whole and no model is built. It bounds memory, not CPU: 30 ms streamed against 23 ms for `get()` plus `Response.json` on the same 1 000 × 40 rows.
 - `bench/bin/wide_profile.dart` reports `encode_php_json_ms`, `php_json_bytes`, `stream_json_ms` and `stream_json_php_ms`.
 
+### Changed
+
+- New Daravel logo: an infinity loop, blue for Dart and red for the Laravel heritage, framed
+  in gold ornament, replacing the geometric dragon. `docs/brand` now starts from the
+  illustration in `docs/brand/source`: `tool/brand/generate.dart` crops and rounds its tile,
+  keys the transparent and single-colour marks out of the navy background and keeps the
+  stroke-built wordmark for the lockups. `daravelLogoDataUri` and `daravelFaviconDataUri`
+  carry the new icon, so the starter's welcome page and the API reference page show it.
+
+## 1.19.1
+
+A fix-only patch: `db:replicate` no longer fails a sync when an application
+writer keeps the write lock past `busy_timeout` at the moment the replicator
+rolls its log over.
+
+### Fixed
+
+- `db:replicate` no longer fails a sync when an application writer takes the write lock
+  between the replicator's checkpoint and its roll-over and keeps it past `busy_timeout`:
+  the roll-over waits for the next sync, as it already did when a reader blocked the
+  checkpoint.
+
 ## 1.19.0
 
 The rest of what a Laravel 8 port onto 1.18 asked for, each checked against

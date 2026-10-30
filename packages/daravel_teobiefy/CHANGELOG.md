@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.19.1
+
+- Version aligned with Daravel 1.19.1; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).
+
 ## 1.19.0
 
 - Added `teobiefy.aes:php` and `TeobiefyAesCbc.encrypt(phpJson:)` / `seal(phpJson:)`: PHP `json_encode` bytes inside and outside the envelope.

@@ -1,4 +1,4 @@
-<!-- source: releases.md sha256:fb9ba6f45c4f -->
+<!-- source: releases.md sha256:7abee72d5dcf -->
 # Rilis dan versioning
 
 Daravel `1.x` adalah lini rilis stabil. Kedua belas paket (`daravel`,
@@ -12,6 +12,7 @@ terverifikasi `framework.daravel.dev`.
 
 | Versi | Sorotan |
 | :-- | :-- |
+| `1.19.1` | Roll-over replikasi menunggu write lock yang sibuk |
 | `1.19.0` | date_format, session terenkripsi dan partitioned (database sebagai default), opsi JSON PHP untuk teobiefy dan phpCompatible |
 | `1.18.1` | Body error pretty-print seperti Laravel, validator berhenti setelah aturan required gagal |
 | `1.18.0` | Session, cookie terenkripsi, dan CSRF (daravel_session), COMPAT_LARAVEL_VERSION untuk Laravel 8 sampai 13, Crypt dengan PHP serialize(), APP_PROCESSES untuk server multi-proses, driver MySQL dua kali lebih cepat |

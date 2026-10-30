@@ -4,6 +4,10 @@
 
 - `doctor` compares the connection pool with `max_connections` on MySQL and MariaDB too, and counts `APP_PROCESSES` and the embedded queue worker and scheduler: `DB_POOL_SIZE × (APP_ISOLATES + embedded) × APP_PROCESSES`.
 
+## 1.19.1
+
+- Version aligned with Daravel 1.19.1; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).
+
 ## 1.19.0
 
 - Version aligned with Daravel 1.19.0; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).

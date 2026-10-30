@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:2c4c3c3b7009 -->
+<!-- source: README.md sha256:64b7c9d4c0ba -->
 | [`packages/daravel_session`](packages/daravel_session) | Session yang kompatibel dengan Laravel (file atau tabel `sessions`), cookie terenkripsi, dan proteksi CSRF |
 <!-- source: README.md sha256:5b04c2e6d073 -->
 <p align="center">
@@ -54,7 +54,7 @@ diberikan Dart: satu executable native, tipe statis dari route sampai database, 
 di satu port.
 
 > **Status.** Daravel stabil sejak `1.0.0`; rilis saat ini adalah
-> `<!-- release -->1.19.0<!-- /release -->`, dipublikasikan di
+> `<!-- release -->1.19.1<!-- /release -->`, dipublikasikan di
 > [pub.dev](https://pub.dev/packages/daravel) oleh publisher terverifikasi
 > `framework.daravel.dev`. API Dart mengikuti SemVer di lini `1.x`; format yang berhadapan
 > dengan Laravel dikunci oleh suite konformansi.
@@ -574,7 +574,7 @@ created lib/app/http/resources/post_resource.dart
 | **0** | Kerangka berjalan: container, kernel HTTP, router, SQLite, migrasi, test client, CLI, CI | ✅ selesai |
 | **1** | S1 fondasi · S2 pengerasan HTTP · S3 routing · S4 validasi · S5 database · S6 ORM · S7 skema, seeding & generator · S8 auth · S9 multi-isolate & cache · S10 event, queue & scheduler · S11 resource, storage & observabilitas · S12 CLI (`new`, hot reload, `build --docker`, `doctor`, `openapi:generate`, `model:sync`, stub) · S13 toolkit testing, lint & test arsitektur | ✅ selesai |
 | **1** | S14 suite konformansi, suite keamanan, `parity.yaml`, harness benchmark, situs dokumentasi, template `api`/`minimal` → beta publik pertama, lalu **1.0.0** | ✅ selesai |
-| **1.x** | Dirilis setelah 1.0: lokalisasi, feature flag, SSE dan WebSocket, generator client Flutter, paket driver dan `db:transfer`, mail dan notifikasi, broadcasting untuk Laravel Echo, Redis dan Valkey (`daravel_redis`), role dan permission (`daravel_permission`), activity log (`daravel_activitylog`), query filter (`daravel_teorion`); terbaru **<!-- release -->1.19.0<!-- /release -->** | ✅ selesai |
+| **1.x** | Dirilis setelah 1.0: lokalisasi, feature flag, SSE dan WebSocket, generator client Flutter, paket driver dan `db:transfer`, mail dan notifikasi, broadcasting untuk Laravel Echo, Redis dan Valkey (`daravel_redis`), role dan permission (`daravel_permission`), activity log (`daravel_activitylog`), query filter (`daravel_teorion`); terbaru **<!-- release -->1.19.1<!-- /release -->** | ✅ selesai |
 | **2** | Session/CSRF, S3, OpenTelemetry, view terkompilasi yang kompatibel dengan Blade; client database hanya di paket driver | direncanakan |
 | **daragic** | Generator dua arah Laravel ⇄ Daravel: introspeksi runtime → IR → proyek hasil generate, test yang dikonversi, differential replay | sudah didesain |
 | **Ekosistem** | Paket first-party di bawah `daravel-dev`: `daravel_horizon` (supervisor dan dashboard queue), `daravel_socialite` (OAuth dan Sign in with Apple/Google), lalu `daravel_telescope` dan `daravel_scout` | direncanakan |
@@ -601,11 +601,13 @@ default untuk koeksistensi dengan Laravel) dituliskan di [`docs/adr`](docs/adr/R
 
 <img src="docs/brand/svg/daravel-icon.svg" alt="Daravel icon" width="72" align="right">
 
-Logo Daravel adalah naga geometris: sayap dan kepala biru untuk Dart, dan tubuh merah yang
-meliuk untuk warisan Laravel. Ikon dari 16 sampai 1024 px, logo transparan, versi satu warna,
-lockup terang dan gelap, social preview, dan `favicon.ico` ada di [`docs/brand`](docs/brand),
-bersama aturan pemakaiannya. Setiap file dihasilkan dari geometri di `tool/brand/generate.dart`
-(`dart run tool/brand/generate.dart`), jadi SVG-nya adalah sumber kebenaran.
+Logo Daravel adalah simpul tak hingga: lengkung biru untuk Dart dan lengkung merah untuk
+warisan Laravel, untuk aplikasi yang berjalan di keduanya berdampingan dan bisa bermigrasi ke
+dua arah, dibingkai ornamen emas. Ikon dari 16 sampai 1024 px, logo transparan, versi satu
+warna, lockup terang dan gelap, social preview, dan `favicon.ico` ada di
+[`docs/brand`](docs/brand), bersama aturan pemakaiannya. Setiap file dihasilkan oleh
+`tool/brand/generate.dart` (`dart run tool/brand/generate.dart`) dari ilustrasi di
+`docs/brand/source`, yang menjadi sumber kebenaran.
 
 ## Gerbang kualitas
 
