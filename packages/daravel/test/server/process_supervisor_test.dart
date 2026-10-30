@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:daravel/daravel.dart';
 import 'package:path/path.dart' as p;
@@ -14,17 +15,26 @@ void main() {
   /// A port whose next one is free too: the children take `port` and
   /// `port + 1`. Checking only `port` let another test's server sit on
   /// `port + 1` and pass the readiness probe for child 1 (CI, Dart 3.13.0).
+  ///
+  /// Picked below every ephemeral range (Linux 32768+, macOS and Windows
+  /// 49152+): a port the OS hands out for `bind(0)` is also handed out as
+  /// the source port of outgoing connections, and the parallel test files
+  /// make many, so `port + 1` could be taken before a child bound it
+  /// (CI, ubuntu, "Address already in use").
   Future<int> freePort() async {
+    final random = Random();
     while (true) {
-      final first = await ServerSocket.bind('127.0.0.1', 0);
+      final port = 20000 + random.nextInt(12000);
+      ServerSocket? first;
       try {
-        final second = await ServerSocket.bind('127.0.0.1', first.port + 1);
+        first = await ServerSocket.bind('127.0.0.1', port);
+        final second = await ServerSocket.bind('127.0.0.1', port + 1);
         await second.close();
-        return first.port;
+        return port;
       } on SocketException {
-        // port + 1 is taken: try another pair.
+        // Taken: try another pair.
       } finally {
-        await first.close();
+        await first?.close();
       }
     }
   }
