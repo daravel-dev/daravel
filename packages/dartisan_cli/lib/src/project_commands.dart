@@ -425,15 +425,37 @@ final class DoctorCommand extends DaravelCommand {
         ),
       );
     }
-    if (connection?.driver == 'pgsql') {
-      // Each isolate has its own pool; leave room for workers, migrations
-      // and other clients (a Laravel app on the same database).
-      final total = pool * serve.isolates;
+    final driver = connection?.driver;
+    if (driver == 'pgsql' || driver == 'mysql' || driver == 'mariadb') {
+      // Every isolate opens a pool of its own: the HTTP workers, the
+      // embedded queue worker and scheduler, in each of APP_PROCESSES
+      // processes. Leave room for separate workers, migrations and other
+      // clients (a Laravel app on the same database).
+      final processes = env.integer('APP_PROCESSES', 1);
+      final embedded =
+          (serve.embedQueue ? 1 : 0) + (serve.embedScheduler ? 1 : 0);
+      final total = pool * (serve.isolates + embedded) * processes;
+      final formula = [
+        '$pool × ',
+        if (embedded > 0) '(',
+        '${serve.isolates} isolates',
+        if (embedded > 0) ' + $embedded embedded)',
+        if (processes > 1) ' × $processes processes',
+        ' = $total',
+      ].join();
+      final isPostgres = driver == 'pgsql';
       int? limit;
       if (reachable) {
         try {
-          final rows = await DB.manager.select('SHOW max_connections');
-          limit = int.tryParse('${rows.first['max_connections']}');
+          // MySQL and MariaDB answer a (Variable_name, Value) row.
+          final rows = await DB.manager.select(
+            isPostgres
+                ? 'SHOW max_connections'
+                : "SHOW VARIABLES LIKE 'max_connections'",
+          );
+          limit = int.tryParse(
+            '${rows.first[isPostgres ? 'max_connections' : 'Value']}',
+          );
         } catch (_) {
           // A proxy such as PgBouncer may not answer SHOW: skipped below.
         }
@@ -442,8 +464,8 @@ final class DoctorCommand extends DaravelCommand {
         checks.add(
           DoctorCheck(
             CheckStatus.notice,
-            'Connection pool: $pool × ${serve.isolates} isolates = $total '
-            'per instance (max_connections check skipped)',
+            'Connection pool: $formula per instance '
+            '(max_connections check skipped)',
             reachable
                 ? 'The server did not answer SHOW max_connections.'
                 : 'The database is unreachable.',
@@ -453,18 +475,17 @@ final class DoctorCommand extends DaravelCommand {
         checks.add(
           DoctorCheck(
             CheckStatus.warning,
-            'Connection pool: $pool × ${serve.isolates} isolates = $total '
-                'of max_connections=$limit',
-            'Each instance can open $total connections; lower DB_POOL_SIZE '
-                'or APP_ISOLATES, or put PgBouncer in front.',
+            'Connection pool: $formula of max_connections=$limit',
+            'Each instance can open $total connections; lower DB_POOL_SIZE, '
+                'APP_ISOLATES or APP_PROCESSES, raise max_connections, or '
+                'put ${isPostgres ? 'PgBouncer' : 'ProxySQL'} in front.',
           ),
         );
       } else {
         checks.add(
           DoctorCheck(
             CheckStatus.ok,
-            'Connection pool: $pool × ${serve.isolates} isolates = $total '
-            'of max_connections=$limit',
+            'Connection pool: $formula of max_connections=$limit',
           ),
         );
       }

@@ -1,4 +1,4 @@
-<!-- source: responses.md sha256:96a863fb0e1f -->
+<!-- source: responses.md sha256:7368ceaaddc8 -->
 # Respons dan resource
 
 Handler bisa mengembalikan `Response.json(data, status: 201)`,
@@ -130,6 +130,37 @@ middleware ini.
   middleware.use(const [CompressResponseMiddleware()]);
 })
 ```
+
+## Streaming array JSON besar
+
+`Response.streamJson` adalah `response()->streamJson()` dari Laravel: item
+sebuah stream dikirim sebagai satu array JSON, di-encode begitu tiba,
+sehingga laporan ribuan baris tidak pernah ditahan utuh di isolate.
+Byte-nya persis yang ditulis `Response.json` untuk list yang sudah
+dikumpulkan, jadi klien tidak perlu berubah; `wrap: 'data'` menaruh array di
+bawah sebuah key (`{"data":[...]}`) dan `phpCompatible: true` menulis byte
+`json_encode()` PHP. `QueryBuilder.streamJson()` melakukan hal yang sama
+langsung dari query, tanpa membangun model: baris dibaca per halaman
+`chunk` (500) seperti `lazy()`, jadi beri `orderBy` pada query.
+
+```dart
+r.get('/users/export', (req) => Response.streamJson(
+  DB.table('users').select(['id', 'name', 'email']).orderBy('id').lazy(),
+  wrap: 'data',
+));
+
+// Byte yang sama, dari query builder.
+r.get('/users/export', (req) => Response.stream(
+  DB.table('users').orderBy('id').streamJson(),
+  contentType: 'application/json',
+));
+```
+
+Streaming membatasi memori, bukan CPU: baris tetap di-decode dan di-encode
+(1.000 baris × 40 kolom memakan 30 ms saat di-stream, dibanding 23 ms untuk
+`get()` plus `Response.json`, AOT, SQLite). Gunakan untuk response yang
+terlalu besar untuk ditahan, atau yang perlu mulai dibaca klien sebelum
+query halaman terakhir berjalan; gunakan paginasi bila memungkinkan.
 
 ## Server-sent events dan WebSocket
 

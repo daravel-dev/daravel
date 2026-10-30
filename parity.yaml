@@ -64,6 +64,7 @@ sections:
       - { php: "response()->noContent()", dart: "Response.noContent()", symbol: Response.noContent }
       - { php: "redirect($to)", dart: "Response.redirect(to)", symbol: Response.redirect }
       - { php: "response()->streamDownload(...)", dart: "Response.stream(...)", symbol: Response.stream }
+      - { php: "response()->streamJson(['data' => $generator])", dart: "Response.streamJson(stream, wrap: 'data')", symbol: Response.streamJson, note: "One JSON array written as the items arrive, the bytes of `Response.json` for the collected list; `phpCompatible: true` for `json_encode()` bytes." }
       - { php: "response()->eventStream(fn () => ...)", dart: "Response.sse(stream)", symbol: Response.sse, note: "Same frames and `</stream>` end event; adds heartbeats and ends on shutdown." }
       - { php: "new StreamedEvent(event: 'tick', data: $data)", dart: "SseEvent(data, event: 'tick')", symbol: SseEvent }
       - { php: "A custom WebSocket endpoint (outside Reverb channels)", dart: "router.ws('/ws/x', (socket, request) {...})", symbol: Router.ws, note: "A plain WebSocket after the route's middleware; Reverb and Pusher channels are under Broadcasting." }
@@ -262,6 +263,8 @@ sections:
       - { php: "->insertGetId($values)", dart: "await DB.table(t).insertGetId(values)", symbol: QueryBuilder.insertGetId, async: true }
       - { php: "->upsert($values, $uniqueBy)", dart: ".upsert(values, uniqueBy)", symbol: QueryBuilder.upsert, async: true }
       - { php: "->chunkById(100, fn)", dart: ".chunkById(100, (rows) async {...})", symbol: QueryBuilder.chunkById, async: true }
+      - { php: "->lazy(500) / ->cursor()", dart: ".lazy(500)", symbol: QueryBuilder.lazy, note: "A stream of rows read a page at a time; order the query." }
+      - { php: "response()->streamJson(['data' => $query->cursor()])", dart: "Response.stream(query.streamJson(), contentType: 'application/json')", symbol: QueryBuilder.streamJson, note: "The rows as the bytes of one JSON array, a page at a time, without building models; or `Response.streamJson(query.lazy(), wrap: 'data')`." }
       - { php: "->toSql() / toRawSql()", dart: ".toSql() / .toRawSql()", symbol: QueryBuilder.toRawSql }
       - { php: "->selectSub($query, 'alias')", dart: ".selectSub(query, 'alias')", symbol: QueryBuilder.selectSub }
 

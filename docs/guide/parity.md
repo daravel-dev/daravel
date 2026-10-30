@@ -59,6 +59,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `response()->noContent()` | `Response.noContent()` |  |
 | `redirect($to)` | `Response.redirect(to)` |  |
 | `response()->streamDownload(...)` | `Response.stream(...)` |  |
+| `response()->streamJson(['data' => $generator])` | `Response.streamJson(stream, wrap: 'data')` | One JSON array written as the items arrive, the bytes of `Response.json` for the collected list; `phpCompatible: true` for `json_encode()` bytes. |
 | `response()->eventStream(fn () => ...)` | `Response.sse(stream)` | Same frames and `</stream>` end event; adds heartbeats and ends on shutdown. |
 | `new StreamedEvent(event: 'tick', data: $data)` | `SseEvent(data, event: 'tick')` |  |
 | `A custom WebSocket endpoint (outside Reverb channels)` | `router.ws('/ws/x', (socket, request) {...})` | A plain WebSocket after the route's middleware; Reverb and Pusher channels are under Broadcasting. |
@@ -288,6 +289,8 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `->insertGetId($values)` | `await DB.table(t).insertGetId(values)` | **async** |
 | `->upsert($values, $uniqueBy)` | `.upsert(values, uniqueBy)` | **async** |
 | `->chunkById(100, fn)` | `.chunkById(100, (rows) async {...})` | **async** |
+| `->lazy(500) / ->cursor()` | `.lazy(500)` | A stream of rows read a page at a time; order the query. |
+| `response()->streamJson(['data' => $query->cursor()])` | `Response.stream(query.streamJson(), contentType: 'application/json')` | The rows as the bytes of one JSON array, a page at a time, without building models; or `Response.streamJson(query.lazy(), wrap: 'data')`. |
 | `->toSql() / toRawSql()` | `.toSql() / .toRawSql()` |  |
 | `->selectSub($query, 'alias')` | `.selectSub(query, 'alias')` |  |
 

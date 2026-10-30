@@ -124,6 +124,38 @@ already compresses (Caddy's `encode`, nginx's `gzip`), leave it out.
   middleware.use(const [CompressResponseMiddleware()]);
 })
 ```
+
+## Streaming a large JSON array
+
+`Response.streamJson` is Laravel's `response()->streamJson()`: the items of
+a stream go out as one JSON array, encoded as they arrive, so a report of
+thousands of rows is never held whole in the isolate. The bytes are exactly
+what `Response.json` writes for the collected list, so clients need no
+change; `wrap: 'data'` puts the array under a key (`{"data":[...]}`) and
+`phpCompatible: true` writes PHP's `json_encode()` bytes.
+`QueryBuilder.streamJson()` does the same straight from a query, without
+building models: it reads the rows in pages of `chunk` (500) like `lazy()`,
+so order the query.
+
+```dart
+r.get('/users/export', (req) => Response.streamJson(
+  DB.table('users').select(['id', 'name', 'email']).orderBy('id').lazy(),
+  wrap: 'data',
+));
+
+// The same bytes, from the query builder.
+r.get('/users/export', (req) => Response.stream(
+  DB.table('users').orderBy('id').streamJson(),
+  contentType: 'application/json',
+));
+```
+
+Streaming bounds memory, not CPU: the rows are still decoded and encoded
+(1 000 rows of 40 columns took 30 ms streamed against 23 ms for
+`get()` plus `Response.json`, AOT, SQLite). It is for responses too large
+to hold comfortably, or that a client should start reading before the last
+page query has run; paginate when it can.
+
 ## Server-sent events and WebSockets
 
 `Response.sse` is Laravel's `response()->eventStream()`: each item of the

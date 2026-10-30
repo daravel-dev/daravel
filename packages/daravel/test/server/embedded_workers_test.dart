@@ -81,6 +81,19 @@ Application embeddedApp() =>
         })
         .create();
 
+/// The coordinator of the application `serveWith` boots in this isolate
+/// (single-isolate mode); the embedded isolates get its port.
+final Coordinator servedCoordinator = createStandardCoordinator();
+
+/// The last application [servedApp] built in this isolate: in the main
+/// isolate, the one `serveWith` serves, so the test can stop it.
+Application? servedProbe;
+
+/// Top-level, so it can be sent to the embedded isolates.
+Application servedApp() =>
+    servedProbe = embeddedApp()
+      ..coordinator = LocalCoordinatorChannel(servedCoordinator);
+
 Future<List<String>> labels() async {
   final app = embeddedApp();
   await app.boot();
@@ -183,6 +196,34 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 100));
       }
       expect(seen, 'seen by the server');
+    },
+  );
+
+  test(
+    'serveWith with one isolate closes the coordinator port the embedded '
+    'workers used, so the process can exit',
+    timeout: const Timeout(Duration(minutes: 2)),
+    () async {
+      final served = Application.serveWith(
+        servedApp,
+        isolates: 1,
+        port: 0,
+        embedQueue: true,
+      );
+      final deadline = DateTime.now().add(const Duration(seconds: 30));
+      while (servedProbe?.engine?.port == null) {
+        if (DateTime.now().isAfter(deadline)) {
+          fail('the server did not start');
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      }
+      // The embedded queue isolate reaches the server's coordinator through
+      // this port while the server runs...
+      expect(servedCoordinator.isListening, isTrue);
+      await servedProbe!.shutdown();
+      expect(await served, 0);
+      // ...and nothing keeps it open once the server has stopped.
+      expect(servedCoordinator.isListening, isFalse);
     },
   );
 

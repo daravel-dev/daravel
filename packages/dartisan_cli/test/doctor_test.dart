@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:args/command_runner.dart';
 import 'package:daravel/daravel.dart';
+import 'package:daravel_mysql/daravel_mysql.dart';
 import 'package:dartisan_cli/dartisan_cli.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -91,6 +92,90 @@ void main() {
         ),
       );
     },
+  );
+
+  test(
+    'the pool formula counts APP_PROCESSES and the embedded workers',
+    () async {
+      // Each of the 2 processes runs 3 HTTP isolates plus the embedded
+      // queue worker and scheduler, each with a pool of 5: 50 connections.
+      final checks = await diagnose({
+        'DB_CONNECTION': 'pgsql',
+        'DB_HOST': '127.0.0.1',
+        'DB_PORT': '1',
+        'DB_POOL_SIZE': '5',
+        'APP_ISOLATES': '3',
+        'APP_PROCESSES': '2',
+        'SERVER_EMBED_QUEUE': 'true',
+        'SERVER_EMBED_SCHEDULER': 'true',
+      });
+      expect(
+        notices(checks),
+        contains(
+          'Connection pool: 5 × (3 isolates + 2 embedded) × 2 processes = 50 '
+          'per instance (max_connections check skipped)',
+        ),
+      );
+    },
+  );
+
+  test('the pool check covers MySQL and MariaDB too', () async {
+    for (final driver in ['mysql', 'mariadb']) {
+      final checks = await diagnose({
+        'DB_CONNECTION': driver,
+        'DB_HOST': '127.0.0.1',
+        'DB_PORT': '1',
+        'DB_POOL_SIZE': '4',
+        'APP_ISOLATES': '2',
+      });
+      expect(
+        notices(checks),
+        contains(
+          'Connection pool: 4 × 2 isolates = 8 per instance '
+          '(max_connections check skipped)',
+        ),
+        reason: driver,
+      );
+    }
+  });
+
+  test(
+    'compares the pool with max_connections of a MySQL/MariaDB server',
+    () async {
+      final url = Platform.environment['DARAVEL_TEST_MYSQL']!;
+      Application factory() => Application.configure(basePath: root.path)
+          .withDatabaseDriver('mysql', MySqlDriver.fromConfig)
+          .withDatabaseDriver('mariadb', MySqlDriver.fromConfig)
+          .withEnv({
+            'APP_ENV': 'local',
+            'APP_KEY': 'base64:${base64.encode(List<int>.filled(32, 7))}',
+            'APP_PORT': '0',
+            'DB_URL': url,
+            'APP_ISOLATES': '2',
+          })
+          .create();
+      final checks = await inProject(() => DoctorCommand(factory).diagnose());
+      final pool = [
+        for (final c in checks)
+          if (c.title.startsWith('Connection pool:')) c,
+      ];
+      expect(pool, hasLength(1));
+      // `pool=` in the URL or DB_POOL_SIZE (10) times 2 isolates, against
+      // the server's real limit (151 on MySQL, 151 on MariaDB by default).
+      expect(
+        pool.single.title,
+        matches(
+          RegExp(
+            r'^Connection pool: \d+ × 2 isolates = \d+ of '
+            r'max_connections=\d+$',
+          ),
+        ),
+      );
+      expect(pool.single.status, isNot(CheckStatus.notice));
+    },
+    skip: (Platform.environment['DARAVEL_TEST_MYSQL'] ?? '').isEmpty
+        ? 'DARAVEL_TEST_MYSQL not set'
+        : false,
   );
 
   Future<int> gate(Map<String, String> env) async {

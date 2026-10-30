@@ -237,6 +237,11 @@ final class Coordinator {
     };
   }
 
+  /// Whether [listen] opened a port that [close] has not closed yet. An
+  /// open port keeps its isolate alive, so a server that stopped must
+  /// have closed it.
+  bool get isListening => _port != null;
+
   void close() {
     _port?.close();
     _port = null;
