@@ -9,6 +9,17 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 wait for a new major version, and Laravel-facing formats change only to
 match Laravel more closely.
 
+## Unreleased
+
+### Changed
+
+- New Daravel logo: an infinity loop, blue for Dart and red for the Laravel heritage, framed
+  in gold ornament, replacing the geometric dragon. `docs/brand` now starts from the
+  illustration in `docs/brand/source`: `tool/brand/generate.dart` crops and rounds its tile,
+  keys the transparent and single-colour marks out of the navy background and keeps the
+  stroke-built wordmark for the lockups. `daravelLogoDataUri` and `daravelFaviconDataUri`
+  carry the new icon, so the starter's welcome page and the API reference page show it.
+
 ## 1.19.0
 
 The rest of what a Laravel 8 port onto 1.18 asked for, each checked against

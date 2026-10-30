@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:2c4c3c3b7009 -->
+<!-- source: README.md sha256:64b7c9d4c0ba -->
 | [`packages/daravel_session`](packages/daravel_session) | Session yang kompatibel dengan Laravel (file atau tabel `sessions`), cookie terenkripsi, dan proteksi CSRF |
 <!-- source: README.md sha256:5b04c2e6d073 -->
 <p align="center">
@@ -601,11 +601,13 @@ default untuk koeksistensi dengan Laravel) dituliskan di [`docs/adr`](docs/adr/R
 
 <img src="docs/brand/svg/daravel-icon.svg" alt="Daravel icon" width="72" align="right">
 
-Logo Daravel adalah naga geometris: sayap dan kepala biru untuk Dart, dan tubuh merah yang
-meliuk untuk warisan Laravel. Ikon dari 16 sampai 1024 px, logo transparan, versi satu warna,
-lockup terang dan gelap, social preview, dan `favicon.ico` ada di [`docs/brand`](docs/brand),
-bersama aturan pemakaiannya. Setiap file dihasilkan dari geometri di `tool/brand/generate.dart`
-(`dart run tool/brand/generate.dart`), jadi SVG-nya adalah sumber kebenaran.
+Logo Daravel adalah simpul tak hingga: lengkung biru untuk Dart dan lengkung merah untuk
+warisan Laravel, untuk aplikasi yang berjalan di keduanya berdampingan dan bisa bermigrasi ke
+dua arah, dibingkai ornamen emas. Ikon dari 16 sampai 1024 px, logo transparan, versi satu
+warna, lockup terang dan gelap, social preview, dan `favicon.ico` ada di
+[`docs/brand`](docs/brand), bersama aturan pemakaiannya. Setiap file dihasilkan oleh
+`tool/brand/generate.dart` (`dart run tool/brand/generate.dart`) dari ilustrasi di
+`docs/brand/source`, yang menjadi sumber kebenaran.
 
 ## Gerbang kualitas
 
