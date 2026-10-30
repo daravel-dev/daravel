@@ -11,6 +11,7 @@ publisher `framework.daravel.dev`.
 
 | Version | Highlights |
 | :-- | :-- |
+| `1.20.0` | New logo, single-pass PHP JSON, streamJson, doctor pool sizing for MySQL/MariaDB |
 | `1.19.1` | Replication roll-over waits out a busy write lock |
 | `1.19.0` | date_format, encrypted and partitioned sessions (database by default), PHP JSON options for teobiefy and phpCompatible |
 | `1.18.1` | Laravel's pretty-printed error bodies, the validator stops after a failed required rule |

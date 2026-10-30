@@ -9,12 +9,20 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 wait for a new major version, and Laravel-facing formats change only to
 match Laravel more closely.
 
-## Unreleased
+## 1.20.0
 
-Blueprint #58 (runtime hardening P0/P1, streaming): the items of its
-checklist that 1.18 and 1.19 had not already shipped.
+A new logo, and the items of Blueprint #58 (runtime hardening and
+streaming) that 1.18 and 1.19 had not already shipped: a coordinator port
+that kept a single-isolate server alive, connection-pool sizing in
+`doctor` for MySQL and MariaDB, a single-pass PHP JSON encoder and
+streamed JSON arrays from the query builder.
 
-- Fixed: `Application.serveWith` with one isolate and an embedded queue worker or scheduler (`SERVER_EMBED_QUEUE` / `SERVER_EMBED_SCHEDULER`) left the coordinator's `ReceivePort` open after the server stopped, so the process did not exit on its own; the port is closed with the embedded workers (`Coordinator.isListening`).
+### Fixed
+
+- `Application.serveWith` with one isolate and an embedded queue worker or scheduler (`SERVER_EMBED_QUEUE` / `SERVER_EMBED_SCHEDULER`) left the coordinator's `ReceivePort` open after the server stopped, so the process did not exit on its own; the port is closed with the embedded workers (`Coordinator.isListening`).
+
+### Added
+
 - `dartisan doctor` compares the connection pool with the server's `max_connections` on MySQL and MariaDB too (`SHOW VARIABLES LIKE 'max_connections'`), and the product counts `APP_PROCESSES` and the embedded queue worker and scheduler: `DB_POOL_SIZE × (APP_ISOLATES + embedded) × APP_PROCESSES`. The MySQL/MariaDB CI job runs the doctor tests.
 - `Response.json(phpCompatible: true)` encodes in one pass (`PhpJsonEncoder`): the same bytes as before (a 2 000-value randomised test and the fixtures check it), without the intermediate string and its rewrite. 1 000 rows × 40 columns (1.24 MB of PHP JSON, AOT, SQLite): 17–18 ms against 21–23 ms (plain JSON of the same rows: 9–10 ms).
 - `Response.streamJson(items, wrap:, phpCompatible:)` (Laravel's `response()->streamJson()`), `jsonArrayBytes()` and `QueryBuilder.streamJson(chunk:)`: a JSON array written as the rows arrive, a page at a time, byte for byte what `Response.json` writes for the collected list, so a large result set is never held whole and no model is built. It bounds memory, not CPU: 30 ms streamed against 23 ms for `get()` plus `Response.json` on the same 1 000 × 40 rows.
