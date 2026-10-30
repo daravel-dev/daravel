@@ -9,6 +9,19 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 wait for a new major version, and Laravel-facing formats change only to
 match Laravel more closely.
 
+## 1.19.1
+
+A fix-only patch: `db:replicate` no longer fails a sync when an application
+writer keeps the write lock past `busy_timeout` at the moment the replicator
+rolls its log over.
+
+### Fixed
+
+- `db:replicate` no longer fails a sync when an application writer takes the write lock
+  between the replicator's checkpoint and its roll-over and keeps it past `busy_timeout`:
+  the roll-over waits for the next sync, as it already did when a reader blocked the
+  checkpoint.
+
 ## 1.19.0
 
 The rest of what a Laravel 8 port onto 1.18 asked for, each checked against

@@ -5,6 +5,7 @@ import 'dart:isolate';
 import 'dart:math' as math;
 
 import 'package:daravel/daravel.dart';
+import 'package:daravel/src/replication/sqlite_lock.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
@@ -209,6 +210,30 @@ void main() {
     replicator.close();
     await restoreReplica(disk, '', restored());
     expect(ids(restored()), [1]);
+  }, timeout: const Timeout(Duration(minutes: 1)));
+  test('the roll-over waits for a writer that keeps the lock past '
+      'busy_timeout, it does not fail the sync', () async {
+    // Under concurrent writes an application writer can take the lock
+    // between the replicator's checkpoint and its BEGIN IMMEDIATE (CI,
+    // ubuntu). The roll-over then returns and the next sync tries again.
+    openApp(path).close();
+    final ready = ReceivePort();
+    final done = ReceivePort();
+    await Isolate.spawn(_holdWriteLock, (
+      ready.sendPort,
+      path,
+      3000,
+    ), onExit: done.sendPort);
+    await ready.first;
+    // A short busy_timeout here, well inside the writer's hold: SQLite's
+    // busy handler can sleep past its timeout (macOS).
+    final db = sqlite3.open(path)..execute('PRAGMA busy_timeout = 200');
+    expect(tryBeginImmediate(db), isFalse);
+    await done.first;
+    expect(tryBeginImmediate(db), isTrue);
+    db
+      ..execute('ROLLBACK')
+      ..close();
   }, timeout: const Timeout(Duration(minutes: 1)));
   test('a log truncated behind its back starts a generation, losing '
       'nothing', () async {

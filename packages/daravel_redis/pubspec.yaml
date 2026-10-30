@@ -1,6 +1,6 @@
 name: daravel_redis
 description: Redis and Valkey for Daravel across servers. Cache, locks, one-round-trip rate limits, queues without polling and broadcasting between servers.
-version: 1.19.0
+version: 1.19.1
 homepage: https://daravel.dev
 repository: https://github.com/daravel-dev/daravel/tree/main/packages/daravel_redis
 issue_tracker: https://github.com/daravel-dev/daravel/issues
@@ -20,8 +20,8 @@ resolution: workspace
 
 dependencies:
   crypto: ^3.0.7
-  daravel: ^1.19.0
-  dartisan_cli: ^1.19.0
+  daravel: ^1.19.1
+  dartisan_cli: ^1.19.1
 
 dev_dependencies:
   test: ^1.33.0
