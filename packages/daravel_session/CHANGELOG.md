@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.19.1
+
+- Version aligned with Daravel 1.19.1; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).
+
 ## 1.19.0
 
 - Changed: the default `SESSION_DRIVER` is `database`, as laravel/laravel 11 to 13 (was `file`).

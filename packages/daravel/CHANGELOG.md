@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.19.1
 
 - Fixed: `SqliteReplicator.sync` leaves the roll-over to the next sync when a writer keeps the lock past `busy_timeout`, instead of failing.
 

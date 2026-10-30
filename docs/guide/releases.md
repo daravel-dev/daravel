@@ -11,6 +11,7 @@ publisher `framework.daravel.dev`.
 
 | Version | Highlights |
 | :-- | :-- |
+| `1.19.1` | Replication roll-over waits out a busy write lock |
 | `1.19.0` | date_format, encrypted and partitioned sessions (database by default), PHP JSON options for teobiefy and phpCompatible |
 | `1.18.1` | Laravel's pretty-printed error bodies, the validator stops after a failed required rule |
 | `1.18.0` | Sessions, encrypted cookies and CSRF (daravel_session), COMPAT_LARAVEL_VERSION for Laravel 8 to 13, Crypt with PHP serialize(), APP_PROCESSES multi-process serving, a MySQL driver twice as fast |

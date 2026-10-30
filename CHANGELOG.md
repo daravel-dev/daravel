@@ -9,7 +9,11 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 wait for a new major version, and Laravel-facing formats change only to
 match Laravel more closely.
 
-## Unreleased
+## 1.19.1
+
+A fix-only patch: `db:replicate` no longer fails a sync when an application
+writer keeps the write lock past `busy_timeout` at the moment the replicator
+rolls its log over.
 
 ### Fixed
 
