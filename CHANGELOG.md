@@ -9,6 +9,12 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 wait for a new major version, and Laravel-facing formats change only to
 match Laravel more closely.
 
+## Unreleased
+
+### Added
+
+- Transaction events: `DB.listenTransactions`, with `poolWait` and `depth`, forwarded as `TransactionBeginning`, `TransactionCommitted` and `TransactionRolledBack`, of which the last two existed and were never sent. Pulse counts a transaction's wait for a connection.
+
 ## 1.22.0
 
 What most Laravel applications reach for every day: forms that post `_method`, validation that redirects back, file downloads with `Range`, 22 more validation rules, route model binding with scoping, subdomains, JSON columns, and helpers on relations. `daravel_pulse` now shows N+1 queries and connection waits, and `daravel_teobiefy` reads the Zstandard frames real clients send.

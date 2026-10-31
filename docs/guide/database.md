@@ -401,6 +401,22 @@ final (users, count, queries) = await DB.withQueryCount(
 expect(count, 2); // users, then every post in one query
 ```
 
+`DB.listenTransactions` sees transactions begin and end. `poolWait` is how long
+one waited for a connection, which tells a small pool from a slow database, and
+`depth` is above 1 for savepoints.
+
+```dart
+DB.listenTransactions((event) {
+  if (event is DbTransactionBeginning && event.depth == 1) {
+    metrics.record(event.poolWait);
+  }
+});
+```
+
+The application also sends them as the events `TransactionBeginning`,
+`TransactionCommitted` and `TransactionRolledBack`, for `Event.listen`. A failing
+listener does not touch the transaction.
+
 ## Dates in queries
 
 `whereDate`, `whereYear`, `whereMonth` and `whereDay` compare a part of a
