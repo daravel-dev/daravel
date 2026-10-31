@@ -47,9 +47,18 @@ final class ConcurrencyFake {
 /// ```
 abstract final class Concurrency {
   /// Workers per isolate. With `serve --isolates=N` each has its own pool.
-  static int maxWorkers = math.min(Platform.numberOfProcessors, 4);
+  static int get maxWorkers => _maxWorkers;
 
-  static final ComputePool _pool = ComputePool(() => maxWorkers);
+  static set maxWorkers(int value) {
+    if (value < 1) {
+      throw RangeError.range(value, 1, null, 'maxWorkers');
+    }
+    _maxWorkers = value;
+  }
+
+  static int _maxWorkers = math.min(Platform.numberOfProcessors, 4);
+
+  static final ComputePool _pool = ComputePool(() => _maxWorkers);
 
   static final Object _zoneKey = Object();
 

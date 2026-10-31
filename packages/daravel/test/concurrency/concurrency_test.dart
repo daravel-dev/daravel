@@ -137,6 +137,32 @@ void main() {
     expect(await Concurrency.run<int>([() => 1]), [1]);
   });
 
+  test('a worker that dies while idle is not used again', () async {
+    Concurrency.maxWorkers = 1;
+    await Concurrency.run<void>([
+      () {
+        Timer(const Duration(milliseconds: 20), Isolate.exit);
+      },
+    ]);
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    expect(
+      await Concurrency.run<int>([() => 1])
+          .timeout(const Duration(seconds: 10)),
+      [1],
+    );
+  });
+
+  test('a shutdown during a spawn leaves no worker behind', () async {
+    final run = Concurrency.run<int>([() => 1]);
+    await Concurrency.shutdown();
+    await expectLater(run, throwsStateError);
+    expect(await Concurrency.run<int>([() => 2]), [2]);
+  });
+
+  test('maxWorkers must be at least 1', () {
+    expect(() => Concurrency.maxWorkers = 0, throwsRangeError);
+  });
+
   test('concurrency must be at least 1', () {
     expect(Concurrency.run<int>([() => 1], concurrency: 0), throwsRangeError);
   });

@@ -1,12 +1,11 @@
 import 'dart:async';
 import 'dart:isolate';
-
-const String _exited = 'daravel.compute.exited';
+import 'dart:math' as math;
 
 /// Warm worker isolates, spawned on demand up to [maxWorkers].
 ///
-/// The caller holds only `SendPort`s between tasks. A port is open just while
-/// a task runs, so an idle pool never keeps a CLI or a test process alive.
+/// Between tasks the caller holds only `SendPort`s and an exit port that does
+/// not keep it alive, so an idle pool never holds a CLI or a test process open.
 final class ComputePool {
   ComputePool(this.maxWorkers);
 
@@ -17,6 +16,9 @@ final class ComputePool {
   final List<_Worker> _idle = <_Worker>[];
   final List<Completer<_Worker>> _waiters = <Completer<_Worker>>[];
   int _spawning = 0;
+
+  /// Bumped by [shutdown], so a spawn in flight knows it is too late.
+  int _epoch = 0;
 
   /// Workers alive right now.
   int get size => _workers.length;
@@ -36,27 +38,41 @@ final class ComputePool {
     if (_idle.isNotEmpty) {
       return _idle.removeLast();
     }
-    if (_workers.length + _spawning >= maxWorkers()) {
+    if (_workers.length + _spawning >= math.max(1, maxWorkers())) {
       final waiter = Completer<_Worker>();
       _waiters.add(waiter);
       return waiter.future;
     }
     _spawning++;
     try {
-      final worker = await _Worker.spawn();
-      _workers.add(worker);
-      return worker;
+      return await _spawn();
     } finally {
       _spawning--;
     }
   }
 
+  Future<_Worker> _spawn() async {
+    final epoch = _epoch;
+    final worker = await _Worker.spawn(_forget);
+    if (epoch != _epoch) {
+      await worker.stop();
+      throw StateError('The compute pool was shut down.');
+    }
+    _workers.add(worker);
+    return worker;
+  }
+
+  /// A worker went away, perhaps while idle: nothing may be sent to it again.
+  void _forget(_Worker worker) {
+    _workers.remove(worker);
+    _idle.remove(worker);
+  }
+
   void _release(_Worker worker) {
     if (!worker.alive) {
-      _workers.remove(worker);
+      _forget(worker);
       if (_waiters.isNotEmpty) {
-        final waiter = _waiters.removeAt(0);
-        unawaited(_replace(waiter));
+        unawaited(_replace(_waiters.removeAt(0)));
       }
       return;
     }
@@ -69,9 +85,7 @@ final class ComputePool {
 
   Future<void> _replace(Completer<_Worker> waiter) async {
     try {
-      final worker = await _Worker.spawn();
-      _workers.add(worker);
-      waiter.complete(worker);
+      waiter.complete(await _spawn());
     } catch (error, stackTrace) {
       waiter.completeError(error, stackTrace);
     }
@@ -79,6 +93,7 @@ final class ComputePool {
 
   /// Stops every worker. Tasks still running fail; the next run spawns anew.
   Future<void> shutdown() async {
+    _epoch++;
     final workers = _workers.toList();
     _workers.clear();
     _idle.clear();
@@ -92,29 +107,59 @@ final class ComputePool {
 }
 
 final class _Worker {
-  _Worker(this._isolate, this._port);
+  _Worker(this._isolate, this._port, this._exit, this._onDeath);
 
-  static Future<_Worker> spawn() async {
+  static Future<_Worker> spawn(void Function(_Worker) onDeath) async {
     final ready = Completer<SendPort>();
-    final port = RawReceivePort((Object? message) {
+    final handshake = RawReceivePort((Object? message) {
       ready.complete(message! as SendPort);
     });
+    // Given to `spawn`, not added later: `addOnExitListener` sends nothing for
+    // an isolate that is already gone. It does not keep this isolate alive.
+    final exit = RawReceivePort()..keepIsolateAlive = false;
+    _Worker? worker;
+    exit.handler = (Object? _) {
+      if (!ready.isCompleted) {
+        ready.completeError(StateError('The worker exited at start.'));
+        exit.close();
+      }
+      worker?._died();
+    };
     try {
       final isolate = await Isolate.spawn(
         _workerMain,
-        port.sendPort,
+        handshake.sendPort,
         errorsAreFatal: false,
+        onExit: exit.sendPort,
         debugName: 'daravel-compute',
       );
-      return _Worker(isolate, await ready.future);
+      return worker = _Worker(isolate, await ready.future, exit, onDeath);
     } finally {
-      port.close();
+      handshake.close();
     }
   }
 
   final Isolate _isolate;
   final SendPort _port;
+  final RawReceivePort _exit;
+  final void Function(_Worker) _onDeath;
+
   bool alive = true;
+  bool _gone = false;
+  void Function()? _abort;
+  Completer<void>? _stopped;
+
+  void _died() {
+    if (_gone) {
+      return;
+    }
+    _gone = true;
+    alive = false;
+    _exit.close();
+    _onDeath(this);
+    _abort?.call();
+    _stopped?.complete();
+  }
 
   Future<Object?> run(Object? task, Duration? timeout) {
     final done = Completer<Object?>();
@@ -126,7 +171,7 @@ final class _Worker {
         return;
       }
       timer?.cancel();
-      _isolate.removeOnExitListener(reply.sendPort);
+      _abort = null;
       reply.close();
       complete();
     }
@@ -138,18 +183,18 @@ final class _Worker {
             done.complete(value);
           case (false, final Object error, final String stack):
             done.completeError(error, StackTrace.fromString(stack));
-          default:
-            // The isolate went away with the task: `Isolate.exit`, or a
-            // shutdown. Without this the caller would wait for ever.
-            alive = false;
-            done.completeError(
-              RemoteError('The worker exited before the task finished.', ''),
-              StackTrace.current,
-            );
         }
       });
     };
-    _isolate.addOnExitListener(reply.sendPort, response: _exited);
+    // Without this the caller would wait for ever on `Isolate.exit`.
+    _abort = () {
+      finish(() {
+        done.completeError(
+          RemoteError('The worker exited before the task finished.', ''),
+          StackTrace.current,
+        );
+      });
+    };
     if (timeout != null) {
       timer = Timer(timeout, () {
         finish(() {
@@ -176,15 +221,12 @@ final class _Worker {
   }
 
   Future<void> stop() {
-    final gone = Completer<void>();
-    final exit = RawReceivePort((Object? _) {
-      if (!gone.isCompleted) {
-        gone.complete();
-      }
-    });
-    _isolate.addOnExitListener(exit.sendPort);
+    if (_gone) {
+      return Future<void>.value();
+    }
+    final stopped = _stopped ??= Completer<void>();
     _kill();
-    return gone.future.whenComplete(exit.close);
+    return stopped.future;
   }
 }
 
