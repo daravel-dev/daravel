@@ -11,6 +11,7 @@ publisher `framework.daravel.dev`.
 
 | Version | Highlights |
 | :-- | :-- |
+| `1.22.0` | Forms and files, 22 validation rules, route model binding, subdomains, JSON columns, Pulse N+1 detection |
 | `1.21.1` | Exceptions pass through middleware, insert columns, integer cast, overlap lock |
 | `1.21.0` | Session guard, bindings after auth, snake_case relations, PostgreSQL schemas and views, Cast.decimalString, accepted and declined rules |
 | `1.20.1` | JSON sessions of Laravel 13 are kept, test:e2e --serve stays off the project database, adopt for Laravel 8 to 13 |
