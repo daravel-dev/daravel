@@ -33,6 +33,7 @@ match Laravel more closely.
 - `DB_SEARCH_PATH` (or `DB_SCHEMA`) and `Schema.hasView`.
 - `Teobiefy.api(..., includeDataCount: false)`.
 - `SESSION_SERIALIZATION` (`php` or `json`): the format of new sessions, `php` by default and `json` with `COMPAT_LARAVEL_VERSION=13`. `dartisan adopt` copies it from the Laravel project's `config/session.php`, because a Laravel application upgraded to 13 keeps `php` unless it added the key.
+- `bench/interop/laravel_matrix.sh`: Daravel beside real Laravel 8 to 13 applications on one database (sessions both ways in both formats, encrypted or not; `Crypt` and bcrypt both ways; 422, 404 and 405 bodies byte for byte; `dartisan adopt`).
 
 ## 1.20.0
 
