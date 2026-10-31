@@ -147,6 +147,8 @@ export 'src/queue/queue_manager.dart';
 export 'src/schedule/cron.dart';
 export 'src/schedule/schedule.dart';
 export 'src/support/queue_facades.dart';
+export 'src/http/json_api/json_api_request.dart';
+export 'src/http/json_api/json_api_resource.dart';
 export 'src/http/resources.dart';
 export 'src/observability/health.dart';
 export 'src/observability/metrics.dart';
