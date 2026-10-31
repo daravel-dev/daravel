@@ -39,7 +39,24 @@ final class StartSessionMiddleware implements RunsBeforeBindings {
       session.previousUrl = request.url;
     }
     await session.save(request: request);
-    return response.withCookie(
+    var result = response;
+    for (final MapEntry(key: name, value: (value, maxAge))
+        in session.queuedCookies.entries) {
+      result = value == null
+          ? result.withoutCookie(name, path: config.path, domain: config.domain)
+          : result.withCookie(
+              name,
+              value,
+              maxAge: maxAge,
+              path: config.path,
+              domain: config.domain,
+              secure: config.secure,
+              httpOnly: config.httpOnly,
+              sameSite: config.sameSite,
+              partitioned: config.partitioned,
+            );
+    }
+    return result.withCookie(
       config.cookie,
       session.id,
       maxAge: config.expireOnClose ? null : config.lifetime,

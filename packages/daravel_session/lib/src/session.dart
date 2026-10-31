@@ -42,6 +42,10 @@ final class Session {
   /// yet (`SESSION_SERIALIZATION`).
   final String serialization;
 
+  /// Cookies [StartSessionMiddleware] adds to the response, by name: a
+  /// `null` value forgets the cookie.
+  final Map<String, (String?, Duration?)> queuedCookies = {};
+
   String _id;
   String _format;
   final Map<String, Object?> _attributes = <String, Object?>{};

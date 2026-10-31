@@ -10,7 +10,9 @@ import 'session.dart';
 /// store is logged in on both.
 ///
 /// Register it with `auth.session<User>('web', provider)` in `withAuth`, on
-/// routes in the `web` group. "Remember me" cookies are not supported.
+/// routes in the `web` group. "Remember me" uses Laravel's
+/// `remember_web_<sha1>` cookie, the `remember_token` column and the third
+/// segment each version writes, and needs `EncryptCookiesMiddleware`.
 final class SessionGuard<T extends Authenticatable> extends RequestGuard<T>
     implements StatefulGuard<T> {
   SessionGuard({
@@ -28,6 +30,12 @@ final class SessionGuard<T extends Authenticatable> extends RequestGuard<T>
   /// Laravel's `getName()`.
   String get sessionKey => 'login_${name}_$_classHash';
 
+  /// Laravel's `getRecallerName()`.
+  String get recallerName => 'remember_${name}_$_classHash';
+
+  /// `SessionGuard::$rememberDuration`: five years.
+  static const Duration rememberDuration = Duration(minutes: 2628000);
+
   /// The session key `AuthenticateSession` compares.
   String get passwordHashKey => 'password_hash_$name';
 
@@ -40,8 +48,50 @@ final class SessionGuard<T extends Authenticatable> extends RequestGuard<T>
 
   @override
   Future<T?> resolveUser(Request request) async {
-    final id = Session.current?.get<Object>(sessionKey);
-    return id == null ? null : provider!.retrieveById(id);
+    final session = Session.current;
+    if (session == null) {
+      return null;
+    }
+    final id = session.get<Object>(sessionKey);
+    final user = id == null ? null : await provider!.retrieveById(id);
+    if (user != null) {
+      return user;
+    }
+    final remembered = await _userFromRecaller(request);
+    if (remembered != null) {
+      await _updateSession(session, remembered);
+    }
+    return remembered;
+  }
+
+  /// `userFromRecaller`: `id|token|hash`. From Laravel 12 the hash must
+  /// be the password's HMAC, or the bare hash older versions wrote.
+  Future<T?> _userFromRecaller(Request request) async {
+    final segments = request.cookie(recallerName)?.split('|');
+    if (segments == null ||
+        segments.length < 3 ||
+        segments[0].trim().isEmpty ||
+        segments[1].trim().isEmpty) {
+      return null;
+    }
+    final Object id = int.tryParse(segments[0]) ?? segments[0];
+    final user = await provider!.retrieveByToken(id, segments[1]);
+    if (user == null || currentLaravelCompat() < 12) {
+      return user;
+    }
+    final password = user.authPassword;
+    if (password == null) {
+      return null;
+    }
+    return constantTimeEquals(hashPasswordForCookie(password), segments[2]) ||
+            constantTimeEquals(password, segments[2])
+        ? user
+        : null;
+  }
+
+  Future<void> _updateSession(Session session, T user) async {
+    session.put(sessionKey, user.authIdentifier);
+    await session.regenerate(destroy: true);
   }
 
   /// Logs in the user the [credentials] identify. Failed attempts take the
@@ -69,13 +119,8 @@ final class SessionGuard<T extends Authenticatable> extends RequestGuard<T>
   /// an id fixed before the login is worthless after it.
   @override
   Future<void> login(T user, {bool remember = false}) async {
-    if (remember) {
-      throw UnsupportedError(
-        'SessionGuard does not support "remember me" cookies.',
-      );
-    }
-    final session = _session..put(sessionKey, user.authIdentifier);
-    await session.regenerate(destroy: true);
+    final session = _session;
+    await _updateSession(session, user);
     // Laravel 12 added this entry; older versions keep none on login.
     if (currentLaravelCompat() >= 12) {
       final password = user.authPassword;
@@ -83,14 +128,47 @@ final class SessionGuard<T extends Authenticatable> extends RequestGuard<T>
         session.put(passwordHashKey, hashPasswordForCookie(password));
       }
     }
+    if (remember) {
+      await _queueRecaller(session, user);
+    }
     setUser(user);
+  }
+
+  Future<void> _queueRecaller(Session session, T user) async {
+    var token = user.rememberToken;
+    if (token == null || token.isEmpty) {
+      token = await _cycleRememberToken(user);
+    }
+    final password = user.authPassword ?? '';
+    final hash = currentLaravelCompat() >= 12
+        ? hashPasswordForCookie(password)
+        : password;
+    session.queuedCookies[recallerName] = (
+      '${user.authIdentifier}|$token|$hash',
+      rememberDuration,
+    );
+  }
+
+  Future<String> _cycleRememberToken(T user) async {
+    final token = Str.random(60);
+    await provider!.updateRememberToken(user, token);
+    return token;
   }
 
   /// Forgets the user. Like Laravel's guard this keeps the session itself:
   /// call `session.invalidate()` too on a logout route.
   @override
   Future<void> logout() async {
-    _session.forget(sessionKey);
+    final session = _session;
+    final current = await user();
+    session.forget(sessionKey);
+    if (AuthScope.request()?.cookie(recallerName) != null) {
+      session.queuedCookies[recallerName] = (null, null);
+    }
+    final token = current?.rememberToken;
+    if (current != null && token != null && token.isNotEmpty) {
+      await _cycleRememberToken(current);
+    }
     forgetUser();
   }
 
