@@ -732,7 +732,7 @@ final class ThrottleRequestsException extends HttpException {
 /// `throttle:60,1` (max attempts, decay minutes) or `throttle:api`
 /// (named limiter). Adds `X-RateLimit-Limit`/`X-RateLimit-Remaining` to
 /// responses and answers 429 with `Retry-After` when exceeded.
-final class ThrottleMiddleware implements Middleware {
+final class ThrottleMiddleware implements RunsBeforeBindings {
   const ThrottleMiddleware({
     this.maxAttempts = 60,
     this.decay = const Duration(minutes: 1),

@@ -9,6 +9,32 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 wait for a new major version, and Laravel-facing formats change only to
 match Laravel more closely.
 
+## Unreleased
+
+### Fixed
+
+- `daravel_session` treated a JSON session (`'serialization' => 'json'`, the laravel/laravel 13 skeleton) as empty and overwrote its row in PHP `serialize()` format, which logged the user out of the Laravel application sharing the store. Both formats are now read, also with `SESSION_ENCRYPT`, and a stored session is written back in the format it has.
+- `dartisan e2e:install` overrode only `DB_DATABASE` for `test:e2e --serve`, so a `DB_URL` in the project's `.env` sent `migrate:fresh --seed` to the real database. `playwright.config.ts` now sets `DB_CONNECTION=sqlite` and `DB_URL=sqlite:<E2E_DATABASE>`. **Run `dartisan e2e:install --force` in existing projects, or make the same change by hand.** Projects whose migrations need PostgreSQL or MySQL test a running server with `--url`.
+- The tests from `dartisan new` and `make:test` had the same gap with `DB_DATABASE=:memory:`; they now set `DB_CONNECTION=sqlite` and `DB_URL=sqlite::memory:`. Existing projects with a `DB_URL` should change their tests' `env:` the same way.
+- `dartisan adopt` treats Laravel 8 to 13 as supported and writes `COMPAT_LARAVEL_VERSION` for the version it finds: an adopted Laravel 8 application answered with Laravel 12's error and validation formats. The old message still said the conformance suite pins Laravel 12.
+- Route bindings ran before every route middleware, so a guest got a 404 that told which records exist (and paid for a query) where Laravel answers 401 or 429, and a binder could not read the authenticated user. They now run where `SubstituteBindings` runs: after the cookies, session, CSRF, authentication and rate limit middleware (the new `RunsBeforeBindings` marker), before the rest. **A middleware placed before `auth` on a route no longer sees bindings.**
+- The `accepted`, `accepted_if`, `declined` and `declined_if` rules did not exist: the rule string threw, which answered 500 instead of 422. `Rules.accepted()` and the others, in the `RuleBuilder`, and known to `invalid_validation_rule`.
+- `Model.toJson` wrote relation keys as declared (`tipeUjian`); Laravel writes `tipe_ujian`. **This changes the JSON of camelCase relations.** `Model.snakeAttributes = false` or `snakeAttributes: false` on a `ModelDefinition` keeps the old keys.
+- PostgreSQL date columns without a cast reached JSON as ISO-8601; Laravel gets PDO's text (`2024-01-02 10:20:30`). They are still `DateTime` in Dart (`DatabaseDateTime`). `created_at`, `updated_at`, `deleted_at` and cast columns are unchanged.
+- `Schema.hasTable`, `getColumns` and `model:sync` looked only in the current PostgreSQL schema, and missed partitioned tables and views: `schema.table` now works as in Laravel, and `model:sync` and `model:show` see views.
+- `model:sync` typed `Cast.decimal` as `String`, and on PostgreSQL gave `String` for dates and booleans, whose getters crashed, and `int` for `interval`. Types now follow what each driver returns.
+- Paginator links always carried `page`, which Laravel 8 to 11 do not write: it now follows `COMPAT_LARAVEL_VERSION` (12 and later).
+- Paginator labels were always English: they come from `pagination.previous` and `pagination.next` when the application has them. `validation.*` lines (`withTranslations`, `lang/<locale>.json`) now win over the bundled messages of the same locale.
+
+### Added
+
+- `SessionGuard` (`auth.session<User>('web', provider)`, `daravel_session`): Laravel's session guard on the same `login_web_<sha1>` key and, from `COMPAT_LARAVEL_VERSION=12`, `password_hash_web`. A login holds on both sides of a shared store. Remember-me cookies are not supported yet.
+- `Cast.decimalString(places)`: Laravel's `decimal:N`, a string rounded half up without a double.
+- `DB_SEARCH_PATH` (or `DB_SCHEMA`) and `Schema.hasView`.
+- `Teobiefy.api(..., includeDataCount: false)`.
+- `SESSION_SERIALIZATION` (`php` or `json`): the format of new sessions, `php` by default and `json` with `COMPAT_LARAVEL_VERSION=13`. `dartisan adopt` copies it from the Laravel project's `config/session.php`, because a Laravel application upgraded to 13 keeps `php` unless it added the key.
+- `bench/interop/laravel_matrix.sh`: Daravel beside real Laravel 8 to 13 applications on one database (sessions both ways in both formats, encrypted or not; `Crypt` and bcrypt both ways; 422, 404 and 405 bodies byte for byte; `dartisan adopt`).
+
 ## 1.20.0
 
 A new logo, and the items of Blueprint #58 (runtime hardening and

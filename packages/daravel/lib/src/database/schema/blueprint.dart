@@ -518,13 +518,20 @@ abstract class SchemaGrammar {
   /// Whether enum columns need a CHECK constraint.
   bool get enumAsCheck => true;
 
-  /// Query returning one row when [table] exists (one binding: table name).
+  /// The bindings of [compileTableExists], [compileViewExists] and
+  /// [compileColumns] for [table].
+  List<Object?> tableBindings(String table) => <Object?>[table];
+
+  /// Query returning one row when the table exists ([tableBindings]).
   String compileTableExists();
+
+  /// Query returning one row when the view exists ([tableBindings]).
+  String compileViewExists();
 
   /// Query listing user table names (column `name`).
   String compileListTables();
 
-  /// Query returning raw column rows for [table] (one binding: table name).
+  /// Query returning raw column rows of a table ([tableBindings]).
   String compileColumns();
 
   /// Normalizes a raw column row from [compileColumns].

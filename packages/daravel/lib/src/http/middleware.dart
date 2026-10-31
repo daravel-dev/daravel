@@ -20,6 +20,14 @@ abstract interface class TerminableMiddleware implements Middleware {
   FutureOr<void> terminate(Request request, Response response);
 }
 
+/// Route middleware that runs before route bindings, as the entries above
+/// `SubstituteBindings` in Laravel's `$middlewarePriority` (the same from 8
+/// to 13): cookies, the session, authentication and rate limits. So a guest
+/// gets 401 rather than a 404 that tells which records exist, and a binder
+/// can use the authenticated user. The bindings run right after the last of
+/// these on a route, or first when it has none.
+abstract interface class RunsBeforeBindings implements Middleware {}
+
 /// Middleware backed by a closure.
 final class FunctionalMiddleware implements Middleware {
   const FunctionalMiddleware(this._handler);

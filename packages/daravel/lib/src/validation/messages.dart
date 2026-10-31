@@ -3,6 +3,7 @@
 // see THIRD_PARTY_NOTICES.md.
 
 import '../foundation/config.dart';
+import '../foundation/locale.dart';
 
 /// Default validation messages (Laravel `lang/en/validation.php` parity)
 /// with an Indonesian translation as the second bundled locale.
@@ -13,6 +14,12 @@ abstract final class ValidationMessages {
       'present': 'The :attribute field must be present.',
       'filled': 'The :attribute field must have a value.',
       'prohibited': 'The :attribute field is prohibited.',
+      'accepted': 'The :attribute field must be accepted.',
+      'accepted_if':
+          'The :attribute field must be accepted when :other is :value.',
+      'declined': 'The :attribute field must be declined.',
+      'declined_if':
+          'The :attribute field must be declined when :other is :value.',
       'required_if': 'The :attribute field is required when :other is :value.',
       'required_unless':
           'The :attribute field is required unless :other is in :values.',
@@ -107,6 +114,12 @@ abstract final class ValidationMessages {
       'present': 'Kolom :attribute harus ada.',
       'filled': 'Kolom :attribute harus memiliki nilai.',
       'prohibited': 'Kolom :attribute tidak diperbolehkan.',
+      'accepted': 'Kolom :attribute harus diterima.',
+      'accepted_if':
+          'Kolom :attribute harus diterima bila :other bernilai :value.',
+      'declined': 'Kolom :attribute harus ditolak.',
+      'declined_if':
+          'Kolom :attribute harus ditolak bila :other bernilai :value.',
       'required_if':
           'Kolom :attribute wajib diisi bila :other bernilai :value.',
       'required_unless':
@@ -196,6 +209,10 @@ abstract final class ValidationMessages {
   /// `lang/en/validation.php` (8.x `resources/lang/en/validation.php`
   /// has the same text for every rule it knows).
   static const Map<String, String> legacyEnglish = {
+    'accepted': 'The :attribute must be accepted.',
+    'accepted_if': 'The :attribute must be accepted when :other is :value.',
+    'declined': 'The :attribute must be declined.',
+    'declined_if': 'The :attribute must be declined when :other is :value.',
     'string': 'The :attribute must be a string.',
     'integer': 'The :attribute must be an integer.',
     'numeric': 'The :attribute must be a number.',
@@ -271,6 +288,8 @@ abstract final class ValidationMessages {
     final legacy = (laravelCompat ?? currentLaravelCompat()) <= 9;
     final template =
         overrides[key] ??
+        // `lang/<locale>/validation.php`: the application's own lines.
+        translationLine('validation.$key', locale: locale, fallback: false) ??
         (locale == 'en' ? null : translations[locale]?[key]) ??
         (legacy ? legacyEnglish[key] : null) ??
         translations['en']![key] ??

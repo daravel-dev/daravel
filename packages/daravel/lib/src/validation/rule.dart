@@ -112,6 +112,10 @@ abstract class Rule {
   /// Placeholder values for messages (`:min`, `:other`, `:values`).
   Map<String, Object?> get parameters => const <String, Object?>{};
 
+  /// [parameters] for a failure on [context], for a placeholder that shows
+  /// the input (`accepted_if`'s `:value`).
+  Map<String, Object?> parametersFor(ValidationContext context) => parameters;
+
   /// Hint for OpenAPI generation (`{'type': 'string', 'maxLength': 32}`).
   Map<String, Object?> get schemaHint => const <String, Object?>{};
 

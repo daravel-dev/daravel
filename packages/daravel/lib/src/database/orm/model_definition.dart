@@ -69,6 +69,7 @@ final class ModelDefinition<T extends Model> {
     this.perPage = 15,
     this.touches = const <String>[],
     this.withRelations = const <String>[],
+    this.snakeAttributes,
     String? morphClass,
   }) : morphClass = morphClass ?? 'App\\Models\\$T',
        _relationFactories = relations,
@@ -134,6 +135,10 @@ final class ModelDefinition<T extends Model> {
 
   /// Relations eager loaded on every query (`$with`).
   final List<String> withRelations;
+
+  /// `public static $snakeAttributes` on one model: overrides
+  /// [Model.snakeAttributes] when set.
+  final bool? snakeAttributes;
 
   final Map<String, RelationFactory> _relationFactories;
   final Map<String, Relation<Model>> _relationCache = {};

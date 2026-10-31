@@ -1,5 +1,21 @@
 import 'container.dart';
 
+/// The application's keyed translation lines, for the modules below
+/// `translation` (validation messages, paginator labels).
+abstract interface class TranslationLines {
+  /// The line for [key] in [locale] (the current one by default), or `null`;
+  /// with [fallback] also in the fallback locale.
+  String? line(String key, {String? locale, bool fallback = true});
+}
+
+/// [TranslationLines.line] of the active application; `null` outside one.
+String? translationLine(String key, {String? locale, bool fallback = true}) =>
+    Container.currentOrNull?.tryMake<TranslationLines>()?.line(
+      key,
+      locale: locale,
+      fallback: fallback,
+    );
+
 final class _ActiveLocale {
   _ActiveLocale(this.value);
   final String value;

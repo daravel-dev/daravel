@@ -39,6 +39,41 @@ const List<String> sharedTables = [
   'failed_jobs',
 ];
 
+/// The Laravel majors `COMPAT_LARAVEL_VERSION` accepts, or `null` for
+/// [version] outside them.
+int? laravelCompatFor(String version) {
+  final major = int.tryParse(version.split('.').first);
+  return major != null && major >= 8 && major <= 13 ? major : null;
+}
+
+/// What to check for Laravel [version], or `null` for a supported one.
+String? laravelVersionAdvice(String version) =>
+    laravelCompatFor(version) != null
+    ? null
+    : 'Daravel coexists with Laravel 8 to 13 (COMPAT_LARAVEL_VERSION). '
+          'Check the coexistence guide for changes in this version.';
+
+/// `session.serialization` of the Laravel project at [laravel]: `json` or
+/// `php`, the framework's default when `config/session.php` does not set
+/// it (only the laravel/laravel 13 skeleton does, so an application
+/// upgraded to 13 can still be on `php`). [env] is its `.env`.
+String laravelSessionSerialization(String laravel, Map<String, String> env) {
+  final file = File(p.join(laravel, 'config', 'session.php'));
+  if (!file.existsSync()) {
+    return 'php';
+  }
+  final match = RegExp(
+    r"""^\s*['"]serialization['"]\s*=>\s*"""
+    r"""(?:env\(\s*['"](\w+)['"]\s*,\s*)?['"](json|php)['"]""",
+    multiLine: true,
+  ).firstMatch(file.readAsStringSync());
+  if (match == null) {
+    return 'php';
+  }
+  final fromEnv = env[match[1]];
+  return fromEnv == 'json' || fromEnv == 'php' ? fromEnv! : match[2]!;
+}
+
 /// `adopt <laravel-path> [--check]` — prepares this project to run next to
 /// an existing Laravel application on the same database: copies the shared
 /// settings from its `.env` and checks that coexistence will work. The
@@ -88,15 +123,10 @@ final class AdoptCommand extends Command<int> {
       );
       return 1;
     }
-    final major = int.tryParse(version.split('.').first) ?? 0;
-    if (major == 11 || major == 12) {
-      report.ok('Laravel $version');
+    if (laravelVersionAdvice(version) case final advice?) {
+      report.warn('Laravel $version', advice);
     } else {
-      report.warn(
-        'Laravel $version',
-        'The conformance suite pins Laravel 12 (11 shares its formats). '
-            'Check the coexistence guide for changes in this version.',
-      );
+      report.ok('Laravel $version');
     }
 
     final envFile = File(p.join(laravel, '.env'));
@@ -119,6 +149,14 @@ final class AdoptCommand extends Command<int> {
                 ? database
                 : p.normalize(p.join(laravel, database)));
     }
+    // Errors and validation messages as this Laravel writes them.
+    if (laravelCompatFor(version) case final compat?) {
+      adopted['COMPAT_LARAVEL_VERSION'] = '$compat';
+    }
+    // New sessions must be readable by Laravel too.
+    final serialization = laravelSessionSerialization(laravel, source);
+    adopted['SESSION_SERIALIZATION'] = serialization;
+    report.ok('Session format $serialization');
     // Keep cache values apart: Laravel stores PHP-serialized values.
     final appName = source['APP_NAME'] ?? 'laravel';
     adopted['CACHE_PREFIX'] = 'daravel_cache_';

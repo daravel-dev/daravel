@@ -19,6 +19,102 @@ Future<Map<String, List<String>>> errorsOf(
 
 void main() {
   numericSizeTests();
+  group('accepted and declined', () {
+    test('accepted takes what Laravel takes, strictly', () async {
+      for (final value in <Object?>['yes', 'on', '1', 1, true, 'true']) {
+        expect(await errorsOf({'tos': value}, {'tos': 'accepted'}), isEmpty);
+      }
+      for (final value in <Object?>[
+        'no',
+        'Yes',
+        '0',
+        0,
+        2,
+        1.0,
+        false,
+        '',
+        null,
+        <Object?>[],
+      ]) {
+        expect(await errorsOf({'tos': value}, {'tos': 'accepted'}), {
+          'tos': ['The tos field must be accepted.'],
+        }, reason: '$value');
+      }
+    });
+
+    test('declined takes what Laravel takes, strictly', () async {
+      for (final value in <Object?>['no', 'off', '0', 0, false, 'false']) {
+        expect(await errorsOf({'ads': value}, {'ads': 'declined'}), isEmpty);
+      }
+      for (final value in <Object?>['yes', 1, true, 0.0, '']) {
+        expect(await errorsOf({'ads': value}, {'ads': 'declined'}), {
+          'ads': ['The ads field must be declined.'],
+        }, reason: '$value');
+      }
+    });
+
+    test('a missing attribute fails, and stops its other rules', () async {
+      expect(await errorsOf({}, {'tos': 'accepted|string'}), {
+        'tos': ['The tos field must be accepted.'],
+      });
+    });
+
+    test('the conditional rules apply only for the listed values', () async {
+      const rules = {'tos': 'accepted_if:user_type,admin,owner'};
+      expect(await errorsOf({'user_type': 'guest'}, rules), isEmpty);
+      expect(await errorsOf({}, rules), isEmpty);
+      expect(
+        await errorsOf({'user_type': 'owner', 'tos': 'yes'}, rules),
+        isEmpty,
+      );
+      // :value is the input, not the first listed value.
+      expect(await errorsOf({'user_type': 'owner'}, rules), {
+        'tos': ['The tos field must be accepted when user type is owner.'],
+      });
+      expect(
+        await errorsOf(
+          {'paid': true, 'refund': 'yes'},
+          {'refund': 'declined_if:paid,true'},
+        ),
+        {
+          'refund': ['The refund field must be declined when paid is true.'],
+        },
+      );
+      expect(await errorsOf({'tos': 'no'}, {'tos': 'accepted_if:other,null'}), {
+        'tos': ['The tos field must be accepted when other is empty.'],
+      });
+    });
+
+    test('Rules factories and the Indonesian messages', () async {
+      expect(
+        await errorsOf(
+          {'a': 'no'},
+          {
+            'a': [Rules.accepted()],
+          },
+          locale: 'id',
+        ),
+        {
+          'a': ['Kolom a harus diterima.'],
+        },
+      );
+      expect(
+        await errorsOf(
+          {'a': 'yes', 'b': 'x'},
+          {
+            'a': [
+              Rules.declinedIf('b', ['x']),
+            ],
+          },
+          locale: 'id',
+        ),
+        {
+          'a': ['Kolom a harus ditolak bila b bernilai x.'],
+        },
+      );
+    });
+  });
+
   group('presence semantics', () {
     test('required, nullable, sometimes, bail and empty strings', () async {
       final errors = await errorsOf(

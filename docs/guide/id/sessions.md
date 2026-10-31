@@ -1,10 +1,10 @@
-<!-- source: sessions.md sha256:801b73c34e08 -->
+<!-- source: sessions.md sha256:acfd93fd7d86 -->
 # Session, cookie, dan CSRF
 
 `daravel_session` memberi route web sebuah session seperti di Laravel: id
 session dibawa dalam cookie terenkripsi, atributnya disimpan di file atau di
-tabel `sessions` Laravel sebagai teks PHP `serialize()`, dan request yang
-mengubah state harus membawa token CSRF. Aplikasi Laravel dan aplikasi
+tabel `sessions` Laravel sebagai teks PHP `serialize()` atau JSON, dan request
+yang mengubah state harus membawa token CSRF. Aplikasi Laravel dan aplikasi
 Daravel dengan `APP_KEY` dan penyimpanan yang sama berbagi session, cookie,
 dan token seorang pengunjung.
 
@@ -52,6 +52,15 @@ token atau JWT tidak membutuhkannya, dan tidak menanggung biayanya.
 | `SESSION_SECURE_COOKIE`, `SESSION_HTTP_ONLY`, `SESSION_SAME_SITE` | `false`, `true`, `lax` | Flag cookie; `SESSION_SAME_SITE=none` butuh flag secure |
 | `SESSION_ENCRYPT` | `false` | Simpan payload terenkripsi dengan `Crypt`, seperti `EncryptedStore` Laravel (`Crypt::encrypt(serialize($attributes))`) |
 | `SESSION_PARTITIONED_COOKIE` | `false` | `Partitioned` (CHIPS) pada cookie session dan `XSRF-TOKEN`, untuk aplikasi yang disematkan di situs lain |
+| `SESSION_SERIALIZATION` | `php`, `json` dengan `COMPAT_LARAVEL_VERSION=13` | Format session baru, `session.serialization` dari Laravel |
+
+Kedua format selalu dibaca, dan session yang tersimpan ditulis kembali dalam
+format aslinya, sehingga Daravel tidak pernah me-logout pengguna dari aplikasi
+Laravel yang berbagi penyimpanan yang sama. `SESSION_SERIALIZATION` menentukan
+format session yang dibuat Daravel, dan Laravel harus bisa membacanya: hanya
+skeleton laravel/laravel 13 yang menetapkan `'serialization' => 'json'`,
+sehingga aplikasi yang di-upgrade ke 13 bisa saja masih memakai `php`.
+`dartisan adopt` membaca nilainya dari `config/session.php` proyek Laravel.
 
 Dengan beberapa isolate atau server, pakai `database` (atau driver `file` di
 satu mesin): driver `array` hanya memori satu isolate. `CreateSessionsTable`
@@ -115,9 +124,33 @@ lewat `withSession(csrfExcept: ['webhooks/*'])`.
 </form>
 ```
 
+## Login
+
+`SessionGuard` adalah session guard Laravel. Guard ini menyimpan id user pada
+key `login_web_<sha1>` yang sama, sehingga user yang login di salah satu
+aplikasi juga login di aplikasi lainnya.
+
+```dart
+.withAuth((auth) => auth.session<User>('web', ModelUserProvider<User>(User.definition)))
+```
+
+```dart
+final guard = App.make<AuthManager>().guard('web') as SessionGuard<User>;
+
+await guard.attempt({'email': email, 'password': password}); // false bila tidak cocok
+await guard.login(user);                                     // id session dan token baru
+await guard.logout();
+await request.session.invalidate();
+```
+
+Pasang `auth:web` setelah grup `web` pada route yang dilindungi. Mulai
+`COMPAT_LARAVEL_VERSION=12`, login juga menyimpan `password_hash_web` yang
+dibandingkan oleh `AuthenticateSession` dari Laravel.
+
 ## Belum tercakup
 
 Driver session `cookie`, `ViewErrorBag` (`back()->withErrors()`), session
-blocking (`Route::block`), dan cookie remember-me pada guard `web`. Tabel
+blocking (`Route::block`), dan cookie remember-me pada guard `web`
+(`attempt(..., remember: true)` melempar error). Tabel
 `sessions` dan format cookie Laravel adalah kontraknya; selebihnya adalah
 API Daravel sendiri.

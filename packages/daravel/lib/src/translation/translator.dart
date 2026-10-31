@@ -17,7 +17,7 @@ import 'plural_rules.g.dart';
 /// (`:name`, `:Name` capitalised, `:NAME` upper-cased, longest first, in one
 /// pass) and plural lines (`'{0} none|{1} one|[2,*] :count'`) use Laravel's
 /// selector and plural rules for 280 locales.
-final class Translator {
+final class Translator implements TranslationLines {
   Translator({this.fallback = 'en'});
 
   /// The locale keyed lines fall back to (`APP_FALLBACK_LOCALE`).
@@ -79,6 +79,10 @@ final class Translator {
     }
     return _lines[this.fallback]?[key];
   }
+
+  @override
+  String? line(String key, {String? locale, bool fallback = true}) =>
+      _line(key, locale ?? currentLocale(), fallback: fallback);
 
   /// Whether [key] has a line in [locale] (the current one by default).
   bool has(String key, {String? locale, bool fallback = true}) =>

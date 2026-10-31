@@ -13,6 +13,19 @@ import 'middleware.dart';
 import 'request.dart';
 import 'response.dart';
 
+/// Laravel's `SubstituteBindings`, in the place [RouteEntry] gives it.
+final class _SubstituteBindings implements Middleware {
+  const _SubstituteBindings(this._router);
+
+  final Router _router;
+
+  @override
+  Future<Response> handle(Request request, Next next) async {
+    await _router.resolveBindings(request);
+    return next(request);
+  }
+}
+
 /// Orchestrates the request lifecycle (BLUEPRINT_V2 §5.4):
 /// global middleware → routing → route middleware → handler → response
 /// conversion, with exception rendering at both the route and global layers,
@@ -39,6 +52,7 @@ final class HttpKernel {
   Future<Response> Function(Request request)? unmatched;
 
   final _Deadlines _deadlines = _Deadlines();
+  late final Middleware _bindings = _SubstituteBindings(router);
 
   /// Handles a single request and always yields a response.
   Future<Response> handle(Request request) async {
@@ -129,16 +143,15 @@ final class HttpKernel {
           if (entry.value != null) entry.key: '${entry.value}',
         ...match.params,
       });
-      // Skipping empty awaits keeps the per-request path short.
-      if (router.hasBindings) {
-        await router.resolveBindings(request);
-      }
       final limit = route.bodyLimitBytes;
       if (limit != null) {
         request.maxBodyBytes = limit;
       }
+      // Without binders the route's list is used as it is: no extra layer.
       Future<Response> run() => MiddlewarePipeline.run(
-        route.resolvedMiddleware,
+        router.hasBindings
+            ? route.middlewareWithBindings(_bindings)
+            : route.resolvedMiddleware,
         request,
         (req) async {
           if (route.formRequest != null || route.declaredRules != null) {

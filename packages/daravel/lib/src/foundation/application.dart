@@ -284,6 +284,7 @@ final class Application {
       ..instance<SeederRegistry>(SeederRegistry(_builder._seeders))
       ..instance<ModelRegistry>(ModelRegistry(_builder._models))
       ..instance<Translator>(_translator())
+      ..singleton<TranslationLines>((c) => c.make<Translator>())
       ..instance<DrainSignal>(drainSignal)
       ..singleton<FeatureManager>(
         (c) => FeatureManager(switch (env.string(

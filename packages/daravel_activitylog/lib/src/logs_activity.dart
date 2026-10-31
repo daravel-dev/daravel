@@ -279,9 +279,14 @@ Object? _value(Model model, String attribute, {bool raw = false}) {
   if (value == null) {
     return null;
   }
-  if (_isDate(model.modelDefinition, attribute) || value is DateTime) {
+  if (_isDate(model.modelDefinition, attribute)) {
     final date = value is DateTime ? value : parseDateTime(value);
-    return date == null ? value : jsonDate(date);
+    return date == null
+        ? value
+        : jsonDate(date is DatabaseDateTime ? date.plain : date);
+  }
+  if (value is DateTime) {
+    return jsonDate(value);
   }
   if (value is Enum) {
     return model.attributes[attribute];

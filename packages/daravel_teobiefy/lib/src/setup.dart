@@ -189,15 +189,21 @@ abstract final class Teobiefy {
   /// obiefy/api-response's `api($status, $message, $data)` with the
   /// Laravel application's settings: `status`, `message`, `data`, and
   /// `data_count` for non-empty arrays and objects; the HTTP status
-  /// matches.
-  static Response api(int status, String message, Object? data) =>
-      Response.json({
-        'status': status,
-        'message': message,
-        'data': data,
-        if (data case Map<Object?, Object?>(isNotEmpty: true))
-          'data_count': data.length
-        else if (data case List<Object?>(isNotEmpty: true))
-          'data_count': data.length,
-      }, status: status);
+  /// matches. [includeDataCount] false leaves the count out, as
+  /// teobiefy-laravel-api-response v0.3's `include_data_count` default.
+  static Response api(
+    int status,
+    String message,
+    Object? data, {
+    bool includeDataCount = true,
+  }) => Response.json({
+    'status': status,
+    'message': message,
+    'data': data,
+    if (includeDataCount)
+      if (data case Map<Object?, Object?>(isNotEmpty: true))
+        'data_count': data.length
+      else if (data case List<Object?>(isNotEmpty: true))
+        'data_count': data.length,
+  }, status: status);
 }

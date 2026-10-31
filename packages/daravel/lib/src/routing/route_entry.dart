@@ -50,6 +50,7 @@ final class RouteEntry {
   final Map<String, Object?> _defaults = <String, Object?>{};
   String? _name;
   List<Middleware> _resolved = const <Middleware>[];
+  List<Middleware>? _withBindings;
   Duration? _timeout;
   int? _bodyLimitBytes;
   bool _isFallback = false;
@@ -265,6 +266,21 @@ final class RouteEntry {
   /// Resolves aliases into instances. Called by `Router.compile`.
   void resolveMiddleware(MiddlewareRegistry registry) {
     _resolved = List.unmodifiable(registry.resolveAll(_middleware));
+    _withBindings = null;
+  }
+
+  /// [resolvedMiddleware] with [bindings] in its place: after the last
+  /// [RunsBeforeBindings]. Computed once per route.
+  List<Middleware> middlewareWithBindings(Middleware bindings) {
+    if (_withBindings case final cached?) {
+      return cached;
+    }
+    final at = _resolved.lastIndexWhere((m) => m is RunsBeforeBindings) + 1;
+    return _withBindings = List.unmodifiable(<Middleware>[
+      ..._resolved.take(at),
+      bindings,
+      ..._resolved.skip(at),
+    ]);
   }
 
   @override

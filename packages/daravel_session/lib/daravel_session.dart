@@ -12,6 +12,7 @@
 library;
 
 export 'src/config.dart';
+export 'src/guard.dart';
 export 'src/handlers.dart';
 export 'src/manager.dart';
 export 'src/middleware.dart';

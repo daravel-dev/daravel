@@ -1212,13 +1212,18 @@ final class ModelSyncCommand extends DaravelCommand {
       if (model == null) {
         continue;
       }
-      if (!await Schema.hasTable(model.table)) {
+      if (!await Schema.hasTable(model.table) &&
+          !await Schema.hasView(model.table)) {
         stdout.writeln(
           '${model.className}: table [${model.table}] does not exist; run migrate first.',
         );
         continue;
       }
-      final plan = planAccessors(model, await Schema.getColumns(model.table));
+      final plan = planAccessors(
+        model,
+        await Schema.getColumns(model.table),
+        dialect: App.make<DatabaseManager>().dialectOf(),
+      );
       for (final warning in plan.warnings) {
         stdout.writeln('${model.className}: $warning');
       }

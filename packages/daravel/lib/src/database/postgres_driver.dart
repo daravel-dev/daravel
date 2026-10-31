@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:postgres/postgres.dart' as pg;
 
+import '../foundation/clock.dart';
 import 'database_config.dart';
 import 'query_executor.dart';
 
@@ -32,6 +33,7 @@ final class PostgresDriver implements NotifyingDriver, QueryErrors {
     this.connectTimeout = const Duration(seconds: 10),
     this.queryTimeout = const Duration(seconds: 30),
     this.applicationName = 'daravel',
+    this.searchPath = const <String>[],
   });
 
   /// The driver for a configured connection (`DB_HOST`, `DB_PORT`,
@@ -63,7 +65,18 @@ final class PostgresDriver implements NotifyingDriver, QueryErrors {
               const Duration(seconds: 30),
             ) ??
             noTimeout,
+        searchPath: parseSearchPath(connection.options['search_path']),
       );
+
+  /// `DB_SEARCH_PATH` (`billing, hr, public`), as Laravel's
+  /// `ParsesSearchPath`: names separated by commas or spaces, quotes dropped.
+  static List<String> parseSearchPath(Object? value) => value is String
+      ? [for (final m in RegExp(r'''[^\s,"']+''').allMatches(value)) m[0]!]
+      : const <String>[];
+
+  /// `set search_path to ...` as `PostgresConnector` quotes it.
+  static String searchPathStatement(List<String> schemas) =>
+      'set search_path to "${schemas.join('", "')}"';
 
   /// What `DB_QUERY_TIMEOUT=0` means for a driver whose timeout cannot be
   /// absent: longer than any deployment.
@@ -93,6 +106,9 @@ final class PostgresDriver implements NotifyingDriver, QueryErrors {
   final Duration connectTimeout;
   final Duration queryTimeout;
   final String applicationName;
+
+  /// Set on every connection of the pool; the server's default when empty.
+  final List<String> searchPath;
 
   @override
   final String name;
@@ -143,6 +159,11 @@ final class PostgresDriver implements NotifyingDriver, QueryErrors {
         connectTimeout: connectTimeout,
         queryTimeout: queryTimeout,
         applicationName: applicationName,
+        onOpen: searchPath.isEmpty
+            ? null
+            : (connection) async {
+                await connection.execute(searchPathStatement(searchPath));
+              },
       ),
     );
     // Fail fast on bad credentials/hosts instead of at the first query.
@@ -283,7 +304,53 @@ final class _PgExecutor implements QueryExecutor {
       pg.Sql(sql),
       parameters: _normalize(bindings),
     );
-    return [for (final row in result) row.toColumnMap()];
+    final dates = <String, int>{
+      for (final column in result.schema.columns)
+        if (_dateTypes.contains(column.typeOid))
+          column.columnName ?? '': column.typeOid,
+    };
+    return [
+      for (final row in result)
+        if (dates.isEmpty) row.toColumnMap() else _withDateText(row, dates),
+    ];
+  }
+
+  // pg_type: date, timestamp, timestamptz.
+  static const int _date = 1082;
+  static const int _timestamp = 1114;
+  static const int _timestamptz = 1184;
+  static const Set<int> _dateTypes = {_date, _timestamp, _timestamptz};
+
+  static Map<String, Object?> _withDateText(
+    pg.ResultRow row,
+    Map<String, int> dates,
+  ) {
+    final map = row.toColumnMap();
+    for (final MapEntry(:key, :value) in dates.entries) {
+      if (map[key] case final DateTime date) {
+        map[key] = DatabaseDateTime(date, dateText(date, value));
+      }
+    }
+    return map;
+  }
+
+  /// [date] as PostgreSQL's text output for the type [oid] (what PDO gives
+  /// Laravel): `2024-01-01`, `2024-01-01 10:00:00.5`, `...+00` for a
+  /// `timestamptz`, which the driver reads in UTC.
+  static String dateText(DateTime date, int oid) {
+    String two(int value) => value.toString().padLeft(2, '0');
+    final utc = date.toUtc();
+    final day =
+        '${utc.year.toString().padLeft(4, '0')}-${two(utc.month)}-${two(utc.day)}';
+    if (oid == _date) {
+      return day;
+    }
+    final micros = utc.millisecond * 1000 + utc.microsecond;
+    final fraction = micros == 0
+        ? ''
+        : '.${micros.toString().padLeft(6, '0').replaceFirst(RegExp(r'0+$'), '')}';
+    return '$day ${two(utc.hour)}:${two(utc.minute)}:${two(utc.second)}'
+        '$fraction${oid == _timestamptz ? '+00' : ''}';
   }
 
   @override

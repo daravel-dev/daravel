@@ -2,8 +2,8 @@
 
 `daravel_session` gives web routes a session the way Laravel does: the
 session id travels in an encrypted cookie, the attributes live in a file or
-in Laravel's `sessions` table as PHP `serialize()` text, and state-changing
-requests must carry the CSRF token. A Laravel application and a Daravel
+in Laravel's `sessions` table as PHP `serialize()` text or JSON, and
+state-changing requests must carry the CSRF token. A Laravel application and a Daravel
 application with the same `APP_KEY` and the same store share a visitor's
 session, cookies and token.
 
@@ -51,6 +51,15 @@ tokens or JWTs do not need it, and do not pay for it.
 | `SESSION_SECURE_COOKIE`, `SESSION_HTTP_ONLY`, `SESSION_SAME_SITE` | `false`, `true`, `lax` | Cookie flags; `SESSION_SAME_SITE=none` needs the secure flag |
 | `SESSION_ENCRYPT` | `false` | Store the payload encrypted with `Crypt`, as Laravel's `EncryptedStore` (`Crypt::encrypt(serialize($attributes))`) |
 | `SESSION_PARTITIONED_COOKIE` | `false` | `Partitioned` (CHIPS) on the session and `XSRF-TOKEN` cookies, for an application embedded in another site |
+| `SESSION_SERIALIZATION` | `php`, `json` with `COMPAT_LARAVEL_VERSION=13` | Format of new sessions, Laravel's `session.serialization` |
+
+Both formats are always read, and a stored session is written back in the
+format it has, so Daravel never logs anyone out of a Laravel application
+that shares the store. `SESSION_SERIALIZATION` decides for sessions Daravel
+creates, and Laravel must be able to read those: only the laravel/laravel 13
+skeleton sets `'serialization' => 'json'`, so an application upgraded to 13
+may still be on `php`. `dartisan adopt` reads the value from the Laravel
+project's `config/session.php`.
 
 With several isolates or servers use `database` (or the `file` driver on
 one machine): the `array` driver is one isolate's memory. `CreateSessionsTable`
@@ -114,9 +123,32 @@ other endpoints called without a session skip the check with
 </form>
 ```
 
+## Logging in
+
+`SessionGuard` is Laravel's session guard. It keeps the user id under the
+same `login_web_<sha1>` key, so a user logged in on either application is
+logged in on both.
+
+```dart
+.withAuth((auth) => auth.session<User>('web', ModelUserProvider<User>(User.definition)))
+```
+
+```dart
+final guard = App.make<AuthManager>().guard('web') as SessionGuard<User>;
+
+await guard.attempt({'email': email, 'password': password}); // false on a mismatch
+await guard.login(user);                                     // new session id and token
+await guard.logout();
+await request.session.invalidate();
+```
+
+Put `auth:web` after the `web` group on protected routes. From
+`COMPAT_LARAVEL_VERSION=12` the login also stores `password_hash_web`, which
+Laravel's `AuthenticateSession` compares.
+
 ## Not covered
 
 The `cookie` session driver, `ViewErrorBag` (`back()->withErrors()`),
 session blocking (`Route::block`) and remember-me cookies of the `web`
-guard. Laravel's `sessions` table and cookie formats are the contract; the
+guard (`attempt(..., remember: true)` throws). Laravel's `sessions` table and cookie formats are the contract; the
 rest is Daravel's own API.

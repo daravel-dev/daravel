@@ -13,6 +13,35 @@ import 'package:test/test.dart';
 /// `Routing/AbstractRouteCollection`, and the `lang/en/validation.php` of
 /// laravel/laravel 8.x and 9.x and laravel/framework 10.x to 13.x).
 void main() {
+  test('paginator links carry `page` from Laravel 12', () async {
+    Future<List<Map<String, Object?>>> linksOf(String version) async {
+      final base = Directory.systemTemp.createTempSync('daravel_compat');
+      final app = Application.configure(basePath: base.path).withEnv({
+        'APP_ENV': 'testing',
+        'DB_DATABASE': ':memory:',
+        'COMPAT_LARAVEL_VERSION': version,
+      }).create();
+      await app.boot();
+      addTearDown(app.shutdown);
+      return app.run(
+        () async => LengthAwarePaginator<int>(
+          items: const [1],
+          total: 1,
+          perPage: 15,
+          currentPage: 1,
+        ).links,
+      );
+    }
+
+    expect((await linksOf('11')).first.keys, ['url', 'label', 'active']);
+    expect((await linksOf('12')).first.keys, [
+      'url',
+      'label',
+      'page',
+      'active',
+    ]);
+  });
+
   Future<TestClient> boot(String? version) async {
     final base = Directory.systemTemp.createTempSync('daravel_compat');
     final app = Application.configure(basePath: base.path)

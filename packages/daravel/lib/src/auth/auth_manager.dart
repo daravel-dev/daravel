@@ -107,6 +107,9 @@ final class AuthManager {
   final AuthConfig config;
   final String? _appKey;
 
+  /// `APP_KEY` as written, which session guards sign with.
+  String? get appKey => _appKey;
+
   /// The denylist of [jwt] guards that are not given one: shared by every
   /// isolate when the application builds it (`CacheJwtDenylist`).
   final JwtDenylist? jwtDenylist;
@@ -367,7 +370,7 @@ final class AuthManager {
 
 /// `auth` / `auth:token,jwt` — tries each guard in order and activates the
 /// first that authenticates; otherwise 401 `{"message":"Unauthenticated."}`.
-final class AuthenticateMiddleware implements Middleware {
+final class AuthenticateMiddleware implements RunsBeforeBindings {
   const AuthenticateMiddleware([this.guards = const <String>[]]);
 
   final List<String> guards;

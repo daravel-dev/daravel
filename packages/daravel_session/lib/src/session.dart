@@ -1,11 +1,18 @@
+import 'dart:convert';
+
 import 'package:daravel/daravel.dart';
 
 import 'handlers.dart';
 
 /// One request's session (Laravel's `Illuminate\Session\Store`): a map of
 /// attributes loaded from a [SessionHandler] at the start of the request
-/// and written back at its end as PHP `serialize()` text, so a Laravel
-/// application sharing the store reads the same session.
+/// and written back at its end, so a Laravel application sharing the store
+/// reads the same session.
+///
+/// Both of Laravel's formats are read, PHP `serialize()` and JSON. A session
+/// is written back in the format it was read in, whatever [serialization]
+/// says: rewriting a row in the other format would log the user out of the
+/// Laravel application. [serialization] decides for new sessions only.
 ///
 /// Flash data (`_flash.new`, `_flash.old`), the CSRF token (`_token`) and
 /// the previous URL (`_previous.url`) use Laravel's keys.
@@ -15,7 +22,9 @@ final class Session {
     required this.handler,
     String? id,
     this.encrypter,
-  }) : _id = id != null && isValidId(id) ? id : generateId();
+    this.serialization = 'php',
+  }) : _id = id != null && isValidId(id) ? id : generateId(),
+       _format = serialization;
 
   /// Length of a session id and of the CSRF token.
   static const int idLength = 40;
@@ -29,7 +38,12 @@ final class Session {
   /// serialized string inside the `Crypt` payload.
   final Encrypter? encrypter;
 
+  /// `php` or `json`: the format of a session that has no stored payload
+  /// yet (`SESSION_SERIALIZATION`).
+  final String serialization;
+
   String _id;
+  String _format;
   final Map<String, Object?> _attributes = <String, Object?>{};
   bool _started = false;
 
@@ -73,11 +87,13 @@ final class Session {
     }
     if (payload != null && payload.isNotEmpty) {
       try {
-        final data = looksPhpSerialized(payload)
+        final php = looksPhpSerialized(payload);
+        final Object? data = php
             ? phpUnserialize(payload)
-            : null;
+            : jsonDecode(payload);
         if (data is Map) {
           data.forEach((key, value) => _attributes['$key'] = value);
+          _format = php ? 'php' : 'json';
         }
       } on FormatException {
         // An unreadable session starts empty, as Laravel's does.
@@ -92,7 +108,9 @@ final class Session {
   /// Ages the flash data and writes the attributes back.
   Future<void> save({Request? request}) async {
     ageFlashData();
-    final serialized = phpSerialize(_attributes);
+    final serialized = _format == 'json'
+        ? jsonEncode(_attributes)
+        : phpSerialize(_attributes);
     await handler.write(
       _id,
       encrypter == null ? serialized : await encrypter!.encrypt(serialized),
@@ -230,6 +248,7 @@ final class Session {
   Future<void> invalidate() async {
     flush();
     await migrate(destroy: true);
+    _format = serialization;
   }
 
   String? get previousUrl => get<String>('_previous.url');

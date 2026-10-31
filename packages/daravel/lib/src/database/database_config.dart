@@ -212,6 +212,9 @@ final class DatabaseConfig implements ConfigSection {
           // Seconds; 0 for none. The drivers' defaults apply when unset.
           'connect_timeout': env.maybeString('DB_CONNECT_TIMEOUT'),
           'query_timeout': env.maybeString('DB_QUERY_TIMEOUT'),
+          // Laravel's 'search_path' (8 calls it 'schema').
+          'search_path':
+              env.maybeString('DB_SEARCH_PATH') ?? env.maybeString('DB_SCHEMA'),
         },
       ),
       // MySQL and MariaDB (Laravel 11+ names both); the driver comes from

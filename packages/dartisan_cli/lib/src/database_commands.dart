@@ -120,7 +120,7 @@ Future<List<List<String>>?> describeTable(
   String table,
 ) async {
   final schema = SchemaBuilder(await db.executor());
-  if (!await schema.hasTable(table)) {
+  if (!await schema.hasTable(table) && !await schema.hasView(table)) {
     return null;
   }
   return [
@@ -222,9 +222,7 @@ Future<Map<String, Object?>> modelDetails(
 ) async {
   final details = describeModel(model);
   final schema = SchemaBuilder(await db.executor(model.connection));
-  final columns = await schema.hasTable(model.table)
-      ? await schema.getColumns(model.table)
-      : const <ColumnInfo>[];
+  final columns = await schema.getColumns(model.table);
   return {
     ...details,
     'attributes': [

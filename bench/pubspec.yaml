@@ -18,6 +18,8 @@ dependencies:
   daravel_mysql: any
   daravel_livekit: any
   daravel_redis: any
+  daravel_session: any
+  daravel_test: any
   image: ^4.8.0
   path: ^1.9.0
 
