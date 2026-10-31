@@ -4,6 +4,7 @@ import '../foundation/clock.dart';
 
 import '../cache/cache.dart';
 import '../database/database_manager.dart';
+import '../database/orm/model.dart';
 import '../events/events.dart';
 import '../foundation/config.dart';
 import '../foundation/config_validator.dart';
@@ -332,9 +333,17 @@ final class JobProcessor {
       );
       return .processed;
     }
+    // `CallQueuedHandler::handleModelNotFound`: another attempt cannot bring
+    // the row back.
+    final missingModel = error is ModelNotFoundException;
+    if (missingModel && job.deleteWhenMissingModels) {
+      await _finish(driver, queued, payload);
+      return .deleted;
+    }
     final exhausted =
         _exhausted(payload, queued.attempts, maxTries) ||
         failure != null ||
+        missingModel ||
         (timedOut && payload.failOnTimeout);
     await events.dispatch(
       JobExceptionOccurred(

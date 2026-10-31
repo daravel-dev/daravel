@@ -43,6 +43,10 @@ abstract class Job {
 
   int get maxExceptions => tries;
 
+  /// Laravel's `$deleteWhenMissingModels`: a job whose [ModelRef] row is gone
+  /// is dropped, not failed.
+  bool get deleteWhenMissingModels => false;
+
   /// Whether a timeout fails the job immediately instead of retrying.
   bool get failOnTimeout => false;
 

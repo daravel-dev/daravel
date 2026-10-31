@@ -112,6 +112,23 @@ final class Controlled extends Job {
 
 /// Takes longer than its timeout and does not fail on it: released for
 /// another attempt while its future still runs.
+final class Stale extends Job {
+  const Stale({required this.drop});
+  final bool drop;
+  @override
+  String get jobName => 'stale';
+  @override
+  int get tries => 3;
+  @override
+  bool get deleteWhenMissingModels => drop;
+  @override
+  Map<String, Object?> toJson() => {'drop': drop};
+  @override
+  Future<void> handle(JobContext ctx) async {
+    throw ModelNotFoundException(r'App\Models\User', const [7]);
+  }
+}
+
 final class Lingering extends Job {
   const Lingering();
   @override
@@ -132,6 +149,7 @@ final class Lingering extends Job {
 final List<JobDefinition> definitions = [
   JobDefinition('greet', Greet.fromJson),
   JobDefinition('lingering', (_) => const Lingering()),
+  JobDefinition('stale', (j) => Stale(drop: j['drop']! as bool)),
   JobDefinition('slow', (_) => const Slow()),
   JobDefinition('exclusive', (j) => Exclusive(j['key']! as String)),
   JobDefinition('controlled', (j) => Controlled(j['action']! as String)),
@@ -339,6 +357,16 @@ void main() {
         });
       },
     );
+  });
+
+  test('a missing model drops the job, or fails it at once', () async {
+    await boot('sync');
+    await app!.run(() async {
+      await Queue.push(const Stale(drop: true));
+      expect(await Queue.manager.processor.failedJobs.all(), isEmpty);
+      await Queue.push(const Stale(drop: false));
+      expect(await Queue.manager.processor.failedJobs.all(), hasLength(1));
+    });
   });
 
   test('sync connection runs jobs inline and records failures', () async {
