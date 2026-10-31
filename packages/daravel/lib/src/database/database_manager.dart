@@ -108,6 +108,20 @@ final class DatabaseManager {
   void listen(void Function(QueryExecuted event) listener) =>
       _queryListeners.add(listener);
 
+  final List<void Function(TransactionEvent event)> _transactionListeners =
+      <void Function(TransactionEvent event)>[];
+
+  /// Calls [listener] when a transaction or savepoint begins, commits and
+  /// rolls back, synchronously; keep it cheap.
+  void listenTransactions(void Function(TransactionEvent event) listener) =>
+      _transactionListeners.add(listener);
+
+  void _notifyTransaction(TransactionEvent event) {
+    for (final listener in List.of(_transactionListeners)) {
+      listener(event);
+    }
+  }
+
   /// Removes every query listener.
   void forgetListeners() => _queryListeners.clear();
 
@@ -389,20 +403,40 @@ final class DatabaseManager {
     for (var attempt = 1; ; attempt++) {
       final callbacks = <FutureOr<void> Function()>[];
       final T result;
+      final probe = PoolWaitProbe();
+      final watch = Stopwatch();
+      final watched = _transactionListeners.isNotEmpty;
+      Future<T> run() => driver.transaction<T>((tx) {
+        if (watched) {
+          _notifyTransaction(
+            DbTransactionBeginning(connectionName, 1, poolWait: probe.waited),
+          );
+          watch.start();
+        }
+        final scope = _TransactionScope(tx, this, connectionName);
+        return runZoned<Future<T>>(
+          body,
+          zoneValues: <Object?, Object?>{
+            transactionKey: scope.executor,
+            _scopeKey: scope,
+            depthKey: 1,
+            afterCommitKey: callbacks,
+          },
+        ).whenComplete(scope.close);
+      });
       try {
-        result = await driver.transaction<T>((tx) {
-          final scope = _TransactionScope(tx, this, connectionName);
-          return runZoned<Future<T>>(
-            body,
-            zoneValues: <Object?, Object?>{
-              transactionKey: scope.executor,
-              _scopeKey: scope,
-              depthKey: 1,
-              afterCommitKey: callbacks,
-            },
-          ).whenComplete(scope.close);
-        });
+        result = await (watched ? probe.run(run) : run());
+        if (watched) {
+          _notifyTransaction(
+            DbTransactionCommitted(connectionName, 1, watch.elapsed),
+          );
+        }
       } catch (error) {
+        if (watched) {
+          _notifyTransaction(
+            DbTransactionRolledBack(connectionName, 1, watch.elapsed, error),
+          );
+        }
         if (attempt >= attempts || !_isRetryable(driver, error)) {
           rethrow;
         }
@@ -440,6 +474,8 @@ final class DatabaseManager {
       final callbacks = <FutureOr<void> Function()>[];
       final scope = _TransactionScope(tx, this, parent.connectionName);
       await tx.execute('SAVEPOINT $name');
+      final watch = Stopwatch()..start();
+      _notifyTransaction(DbTransactionBeginning(parent.connectionName, depth));
       try {
         final result = await runZoned<Future<T>>(
           body,
@@ -452,6 +488,9 @@ final class DatabaseManager {
         );
         scope.close();
         await tx.execute('RELEASE SAVEPOINT $name');
+        _notifyTransaction(
+          DbTransactionCommitted(parent.connectionName, depth, watch.elapsed),
+        );
         final pending =
             Zone.current[afterCommitKey] as List<FutureOr<void> Function()>?;
         if (pending != null && identical(pending, Zone.current[baselineKey])) {
@@ -463,9 +502,17 @@ final class DatabaseManager {
           pending?.addAll(callbacks);
         }
         return result;
-      } catch (_) {
+      } catch (error) {
         scope.close();
         await tx.execute('ROLLBACK TO SAVEPOINT $name');
+        _notifyTransaction(
+          DbTransactionRolledBack(
+            parent.connectionName,
+            depth,
+            watch.elapsed,
+            error,
+          ),
+        );
         rethrow;
       }
     });
