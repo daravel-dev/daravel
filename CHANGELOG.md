@@ -16,6 +16,10 @@ match Laravel more closely.
 - PostgreSQL `inet`, `cidr`, `macaddr` and `macaddr8` columns came back as undecoded bytes, so comparing one with `request.ip` always failed. They are text now, as PostgreSQL prints them, and `model:sync` types them as `String`.
 - `accepted_if` and `declined_if`: with a `boolean` rule on the other attribute, `true` and `false` compare as booleans, and `:other` uses the custom attribute names.
 
+### Changed
+
+- `Request.expectsJson` follows Laravel: an XHR that asks for HTML, as an Inertia visit does, no longer counts as JSON.
+
 ### Added
 
 - Route model binding: `router.bindModel('post', Post.definition)`, `{post:slug}`, `.scopeBindings()` (implied by a custom column, as in Laravel) so another owner's row is a 404, `.withoutScopedBindings()`, `.withTrashed()` and `.missing()`. It is explicit: a Dart handler has no parameter types to tell a model from an id.
