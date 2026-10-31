@@ -16,7 +16,8 @@ void main() {
       env: <String, String>{
         'APP_ENV': 'testing',
         'APP_NAME': 'Starter',
-        'DB_DATABASE': ':memory:',
+        'DB_CONNECTION': 'sqlite',
+        'DB_URL': 'sqlite::memory:',
       },
     );
     await app.boot();

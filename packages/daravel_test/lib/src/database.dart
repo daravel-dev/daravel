@@ -9,7 +9,7 @@ import '../daravel_test.dart';
 /// wrapped in a transaction that is rolled back (Laravel `RefreshDatabase`).
 ///
 /// ```dart
-/// final db = refreshDatabase(() => createApp(env: {'APP_ENV': 'testing', 'DB_DATABASE': ':memory:'}));
+/// final db = refreshDatabase(() => createApp(env: {'APP_ENV': 'testing', 'DB_CONNECTION': 'sqlite', 'DB_URL': 'sqlite::memory:'}));
 ///
 /// void main() {
 ///   db.test('creates a user', () async {

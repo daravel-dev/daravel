@@ -9,7 +9,11 @@ void main() {
   final db = refreshDatabase(
     () => createApp(
       basePath: Directory.current.path,
-      env: <String, String>{'APP_ENV': 'testing', 'DB_DATABASE': ':memory:'},
+      env: <String, String>{
+        'APP_ENV': 'testing',
+        'DB_CONNECTION': 'sqlite',
+        'DB_URL': 'sqlite::memory:',
+      },
     ),
   );
 

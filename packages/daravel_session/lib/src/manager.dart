@@ -60,5 +60,6 @@ final class SessionManager {
     handler: handler,
     id: id,
     encrypter: config.encrypt ? Crypt.encrypter : null,
+    serialization: config.serialization,
   );
 }

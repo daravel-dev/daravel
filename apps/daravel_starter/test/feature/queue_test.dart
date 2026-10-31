@@ -16,7 +16,8 @@ void main() {
       basePath: Directory.current.path,
       env: <String, String>{
         'APP_ENV': 'testing',
-        'DB_DATABASE': ':memory:',
+        'DB_CONNECTION': 'sqlite',
+        'DB_URL': 'sqlite::memory:',
         ...env,
       },
     );

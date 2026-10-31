@@ -1,10 +1,10 @@
-<!-- source: sessions.md sha256:801b73c34e08 -->
+<!-- source: sessions.md sha256:dbac46870664 -->
 # Session, cookie, dan CSRF
 
 `daravel_session` memberi route web sebuah session seperti di Laravel: id
 session dibawa dalam cookie terenkripsi, atributnya disimpan di file atau di
-tabel `sessions` Laravel sebagai teks PHP `serialize()`, dan request yang
-mengubah state harus membawa token CSRF. Aplikasi Laravel dan aplikasi
+tabel `sessions` Laravel sebagai teks PHP `serialize()` atau JSON, dan request
+yang mengubah state harus membawa token CSRF. Aplikasi Laravel dan aplikasi
 Daravel dengan `APP_KEY` dan penyimpanan yang sama berbagi session, cookie,
 dan token seorang pengunjung.
 
@@ -52,6 +52,15 @@ token atau JWT tidak membutuhkannya, dan tidak menanggung biayanya.
 | `SESSION_SECURE_COOKIE`, `SESSION_HTTP_ONLY`, `SESSION_SAME_SITE` | `false`, `true`, `lax` | Flag cookie; `SESSION_SAME_SITE=none` butuh flag secure |
 | `SESSION_ENCRYPT` | `false` | Simpan payload terenkripsi dengan `Crypt`, seperti `EncryptedStore` Laravel (`Crypt::encrypt(serialize($attributes))`) |
 | `SESSION_PARTITIONED_COOKIE` | `false` | `Partitioned` (CHIPS) pada cookie session dan `XSRF-TOKEN`, untuk aplikasi yang disematkan di situs lain |
+| `SESSION_SERIALIZATION` | `php`, `json` dengan `COMPAT_LARAVEL_VERSION=13` | Format session baru, `session.serialization` dari Laravel |
+
+Kedua format selalu dibaca, dan session yang tersimpan ditulis kembali dalam
+format aslinya, sehingga Daravel tidak pernah me-logout pengguna dari aplikasi
+Laravel yang berbagi penyimpanan yang sama. `SESSION_SERIALIZATION` menentukan
+format session yang dibuat Daravel, dan Laravel harus bisa membacanya: hanya
+skeleton laravel/laravel 13 yang menetapkan `'serialization' => 'json'`,
+sehingga aplikasi yang di-upgrade ke 13 bisa saja masih memakai `php`.
+`dartisan adopt` membaca nilainya dari `config/session.php` proyek Laravel.
 
 Dengan beberapa isolate atau server, pakai `database` (atau driver `file` di
 satu mesin): driver `array` hanya memori satu isolate. `CreateSessionsTable`

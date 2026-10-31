@@ -11,6 +11,7 @@ publisher `framework.daravel.dev`.
 
 | Version | Highlights |
 | :-- | :-- |
+| `1.20.1` | JSON sessions of Laravel 13 are kept, test:e2e --serve stays off the project database, adopt for Laravel 8 to 13 |
 | `1.20.0` | New logo, single-pass PHP JSON, streamJson, doctor pool sizing for MySQL/MariaDB |
 | `1.19.1` | Replication roll-over waits out a busy write lock |
 | `1.19.0` | date_format, encrypted and partitioned sessions (database by default), PHP JSON options for teobiefy and phpCompatible |

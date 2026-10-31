@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.20.1
+
+- Fixed: a JSON session (`'serialization' => 'json'`, the laravel/laravel 13 skeleton) read as empty and its row was replaced in PHP `serialize()` format, which logged the user out of Laravel. Both formats are read, also with `SESSION_ENCRYPT`, and a stored session keeps its format.
+- Added: `SESSION_SERIALIZATION` (`php` or `json`), the format of new sessions; `json` by default with `COMPAT_LARAVEL_VERSION=13`.
+
 ## 1.20.0
 
 - Version aligned with Daravel 1.20.0; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).

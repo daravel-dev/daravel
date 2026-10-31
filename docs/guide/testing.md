@@ -73,8 +73,11 @@ dartisan test:e2e --serve       # starts the app on a fresh database, runs the s
 ```
 
 `--serve` runs `migrate:fresh --seed` on `database/e2e.sqlite` and `serve`
-on port 8000 (`--port`), and reuses a server already running there. Against
-another server, a DDEV site or staging: `dartisan test:e2e
+on port 8000 (`--port`), and reuses a server already running there. It
+always uses that SQLite file (`E2E_DATABASE` names another one), never the
+database in `.env`, so it cannot wipe tables shared with Laravel; a project
+whose migrations need PostgreSQL or MySQL tests a running server with
+`--url`. Against another server, a DDEV site or staging: `dartisan test:e2e
 --url=https://shop.ddev.site` (local TLS certificates are accepted).
 `--api` runs only the `*.api.spec.ts` specs, over HTTP without a browser;
 `--ui` opens Playwright's UI mode; what follows `--` goes to Playwright

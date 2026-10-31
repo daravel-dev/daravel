@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:daravel/daravel.dart';
 import 'package:dartisan_cli/dartisan_cli.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -93,6 +94,35 @@ void main() {
       expect(await dartisan(['make:e2e', 'Orders', '--api']), 0);
       expect(file('specs/api/orders.api.spec.ts').existsSync(), isTrue);
       expect(await dartisan(['make:e2e', 'Orders', '--api']), 1);
+    });
+
+    test('--serve never reaches the database in the project\'s .env', () async {
+      expect(await dartisan(['e2e:install']), 0);
+      final config = file('playwright.config.ts').readAsStringSync();
+      expect(config, contains('migrate:fresh --seed'));
+      expect(config, contains("DB_CONNECTION: 'sqlite'"));
+      expect(config, contains(r'DB_URL: `sqlite:${database}`'));
+
+      // What the server boots with, on a project shared with Laravel.
+      File(p.join(project.path, '.env')).writeAsStringSync(
+        'DB_CONNECTION=pgsql\n'
+        'DB_URL=pgsql://laravel:secret@db.example.com:5432/shared\n',
+      );
+      final env = await Env.load(
+        basePath: project.path,
+        includePlatform: false,
+        overrides: const {
+          'DB_CONNECTION': 'sqlite',
+          'DB_URL': 'sqlite:database/e2e.sqlite',
+        },
+      );
+      final connection = () {
+        final config = DatabaseConfig.fromEnv(env, basePath: project.path);
+        return config.connections[config.defaultConnection]!;
+      }();
+      expect(connection.driver, 'sqlite');
+      expect(connection.database, p.join(project.path, 'database/e2e.sqlite'));
+      expect(connection.host, isNull);
     });
 
     test('test:e2e explains what is missing', () async {
