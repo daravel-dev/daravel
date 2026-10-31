@@ -229,6 +229,10 @@ sections:
     symbols:
       - { php: "class User extends Model", dart: "final class User extends Model", symbol: Model }
       - { php: "protected $table / $fillable / $hidden / $casts", dart: "ModelDefinition<User>(table:, fillable:, hidden:, casts:)", symbol: ModelDefinition }
+      - { php: "$table->vector('embedding', dimensions: 1536)", dart: "table.vector('embedding', dimensions: 1536)", symbol: Blueprint.vector }
+      - { php: "$table->vectorIndex('embedding')", dart: "table.vectorIndex('embedding')", symbol: Blueprint.vectorIndex, note: "PostgreSQL; MariaDB not yet" }
+      - { php: "->whereVectorSimilarTo('embedding', $vector, 0.7)", dart: ".whereVectorSimilarTo('embedding', vector, minSimilarity: 0.7)", symbol: QueryBuilder.whereVectorSimilarTo, note: "PostgreSQL; MariaDB not yet" }
+      - { php: "'embedding' => AsVector::class (casts)", dart: "casts: {'embedding': Cast.vector}", symbol: Cast.vector }
       - { php: "'published_at' => 'datetime:Y-m-d H:i' (casts)", dart: "casts: {'published_at': Cast.dateTimeFormat('Y-m-d H:i')}", symbol: Cast.dateTimeFormat, note: "PHP date() tokens, formatted in UTC as Laravel 8 to 13 do; formatPhpDate() for other values." }
       - { php: "php artisan model:show User", dart: "dartisan model:show User (models listed in bootstrap/models.dart)", symbol: ModelRegistry, note: "No class discovery: the registry is explicit, like migrations and jobs." }
       - { php: "$model->getMorphClass()", dart: "Relation.morphClassOf(User.definition)", symbol: Relation.morphClassOf, note: "The morph alias, else `ModelDefinition.morphClass` (`App\\Models\\User` by default)." }

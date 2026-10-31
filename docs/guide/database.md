@@ -318,6 +318,37 @@ as an invalid column is. An update keeps the other keys and the JSON type of the
 value, also on a `NULL` column. A nested path needs its parent on PostgreSQL and
 MySQL, as in Laravel; SQLite creates it.
 
+## Vector columns
+
+On PostgreSQL with [pgvector](https://github.com/pgvector/pgvector), a column can
+hold an embedding, and queries can sort by cosine distance. The names and the SQL
+are Laravel's.
+
+```dart
+await Schema.ensureVectorExtensionExists();
+
+await Schema.create('documents', (table) {
+  table.id();
+  table.vector('embedding', dimensions: 1536);
+  table.vectorIndex('embedding');              // HNSW, cosine
+  table.tsvector('search').nullable();
+});
+
+final nearest = await Document.query()
+    .whereVectorSimilarTo('embedding', queryVector, minSimilarity: 0.7)
+    .limit(10)
+    .get();
+```
+
+`whereVectorSimilarTo` keeps rows at least that alike, nearest first; pass
+`order: false` to keep your own order. `whereVectorDistanceLessThan`,
+`orderByVectorDistance` and `selectVectorDistance` are the parts of it. `Cast.vector`
+reads the column as a `List<double>`.
+
+SQLite stores these columns as text and leaves the index out, so a migration still
+runs in tests, but distance queries throw there. On MySQL and MariaDB, `vector` adds
+the column only: indexes and distance queries are not supported yet.
+
 ## Query errors
 
 A query the database refuses throws `QueryException`, with `sql`,
