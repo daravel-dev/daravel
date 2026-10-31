@@ -44,15 +44,32 @@ final class MiddlewarePipeline {
   const MiddlewarePipeline._();
 
   /// Executes [middleware] in order (first = outermost) around [core].
+  ///
+  /// With [rescue], an exception becomes a response at the layer that
+  /// threw it, as `Illuminate\Pipeline\Pipeline::carry()`, so every outer
+  /// middleware still finishes: the session is saved, cookies are
+  /// encrypted, rate limit headers are added. A middleware that wraps
+  /// `next` in a transaction therefore sees a response, not an exception.
   static Future<Response> run(
     List<Middleware> middleware,
     Request request,
-    Next core,
-  ) {
-    var next = core;
+    Next core, {
+    Future<Response> Function(Object error, StackTrace stack, Request req)?
+    rescue,
+  }) {
+    Next guarded(Next step) => rescue == null
+        ? step
+        : (Request req) async {
+            try {
+              return await step(req);
+            } catch (error, stackTrace) {
+              return rescue(error, stackTrace, req);
+            }
+          };
+    var next = guarded(core);
     for (final layer in middleware.reversed) {
       final downstream = next;
-      next = (Request req) => layer.handle(req, downstream);
+      next = guarded((Request req) => layer.handle(req, downstream));
     }
     return next(request);
   }

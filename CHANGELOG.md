@@ -9,6 +9,15 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 wait for a new major version, and Laravel-facing formats change only to
 match Laravel more closely.
 
+## Unreleased
+
+### Fixed
+
+- An exception skipped the route middleware around it: a handler that failed lost its session changes and its `Set-Cookie`, so a `logout` followed by an error left the user logged in, and error responses had no `X-RateLimit-*` headers. It now becomes a response at the layer that threw it, as Laravel's pipeline does, and every outer middleware finishes. Metrics and Pulse record the real status instead of 500 for every exception. **A middleware that wraps `next` in a transaction now gets a response, not an exception, so it does not roll back on its own.**
+- `insert()` with several rows dropped the columns the first row did not name, silently. A row with other columns than the first is now an `ArgumentError` before any SQL runs, also when it names fewer: Laravel's statement fails too.
+- `Cast.integer` turned the string `168.6`, as PostgreSQL returns `numeric`, into `null`. It now reads strings as PHP's `(int)`: `168`, and `0` for text with no leading number.
+- `WithoutOverlapping` kept its lock in the `process` store whatever `QUEUE_UNIQUE_LOCK_STORE` said, so workers in other processes ran the same job together. It now uses that setting.
+
 ## 1.21.0
 
 The web session guard, and a round of fixes from running beside real Laravel

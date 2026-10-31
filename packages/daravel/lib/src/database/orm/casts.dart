@@ -50,11 +50,28 @@ final class IntCast extends Cast {
   Object? get(Object? raw) => switch (raw) {
     null => null,
     int() => raw,
-    num() => raw.toInt(),
-    String() => int.tryParse(raw),
+    num() => raw.isFinite ? raw.toInt() : 0,
+    String() => _fromString(raw),
     bool() => raw ? 1 : 0,
     _ => raw,
   };
+
+  static final RegExp _numericPrefix = RegExp(
+    r'^\s*[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?',
+  );
+
+  /// PHP's `(int) $string`: the leading number, truncated, or 0. A
+  /// PostgreSQL `numeric` arrives as a string with decimals.
+  static int _fromString(String raw) {
+    final exact = int.tryParse(raw.trim());
+    if (exact != null) {
+      return exact;
+    }
+    final prefix = _numericPrefix.stringMatch(raw)?.trim();
+    final number = prefix == null ? null : double.tryParse(prefix);
+    return number == null || !number.isFinite ? 0 : number.toInt();
+  }
+
   @override
   Object? set(Object? value) => get(value);
 }

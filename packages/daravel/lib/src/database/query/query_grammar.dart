@@ -362,6 +362,15 @@ abstract class QueryGrammar {
     }
     final c = Compilation(this);
     final columns = rows.first.keys.toList();
+    for (final (index, row) in rows.indexed) {
+      if (row.length != columns.length || !columns.every(row.containsKey)) {
+        throw ArgumentError(
+          'insert(): row $index has the columns '
+          '${row.keys.join(', ')}, not ${columns.join(', ')}. Every row must '
+          'name the same columns.',
+        );
+      }
+    }
     final values = rows
         .map(
           (row) => '(${columns.map((col) => _value(row[col], c)).join(', ')})',
