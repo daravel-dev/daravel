@@ -48,8 +48,8 @@ final class MiddlewarePipeline {
   /// With [rescue], an exception becomes a response at the layer that
   /// threw it, as `Illuminate\Pipeline\Pipeline::carry()`, so every outer
   /// middleware still finishes: the session is saved, cookies are
-  /// encrypted, rate limit headers are added. A middleware that wraps
-  /// `next` in a transaction therefore sees a response, not an exception.
+  /// encrypted, rate limit headers are added. A `try` around `next`
+  /// therefore catches nothing: look at [Response.exception] instead.
   static Future<Response> run(
     List<Middleware> middleware,
     Request request,
@@ -63,7 +63,11 @@ final class MiddlewarePipeline {
             try {
               return await step(req);
             } catch (error, stackTrace) {
-              return rescue(error, stackTrace, req);
+              return (await rescue(
+                error,
+                stackTrace,
+                req,
+              )).withException(error);
             }
           };
     var next = guarded(core);

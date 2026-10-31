@@ -11,16 +11,21 @@ void main() {
   late Application app;
   late TestClient client;
   late List<String> seen;
+  late List<Object> caught;
   late int reported;
 
   Middleware spy(String name) => FunctionalMiddleware((request, next) async {
     final response = await next(request);
     seen.add('$name:${response.status}');
+    if (name == 'outer' && response.exception != null) {
+      caught.add(response.exception!);
+    }
     return response.withHeader('x-$name', 'yes');
   });
 
   setUp(() async {
     seen = [];
+    caught = [];
     reported = 0;
     base = Directory.systemTemp.createTempSync('daravel_pipeline');
     app = Application.configure(basePath: base.path)
@@ -101,6 +106,21 @@ void main() {
     expect(response.status, 500);
     expect(reported, 1);
     expect(seen, ['inner:500', 'outer:500', 'global:500']);
+  });
+
+  test('an outer middleware sees the exception on the response', () async {
+    await client.get('/handler');
+    await client.get('/crash');
+    expect(caught, [isA<HttpException>(), isA<StateError>()]);
+  });
+
+  test('withException leaves a shared response alone', () {
+    final shared = Response.json(const {'denied': true}, status: 403);
+    final first = shared.withException(StateError('one'));
+    expect(shared.exception, isNull);
+    expect(first.exception, isA<StateError>());
+    expect(first.withHeader('x-a', '1').exception, isA<StateError>());
+    expect(first.withoutBody().exception, isA<StateError>());
   });
 
   test('throttle headers survive an exception', () async {

@@ -273,7 +273,11 @@ final class Session {
                 }),
               },
             })
-          : {bag: messages},
+          // `Store::prepareErrorBagForSerialization`: `marshalErrors` reads
+          // these two keys back on Laravel 13.
+          : {
+              bag: {'format': ':message', 'messages': messages},
+            },
     );
   }
 
@@ -288,7 +292,8 @@ final class Session {
           ? messages.properties['\x00*\x00messages']
           : null;
     } else if (bag is Map) {
-      bag = bag['default'];
+      final entry = bag['default'];
+      bag = entry is Map ? entry['messages'] ?? entry : entry;
     }
     return bag is Map
         ? {for (final MapEntry(:key, :value) in bag.entries) '$key': value}

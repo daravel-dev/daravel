@@ -1,4 +1,4 @@
-<!-- source: routing.md sha256:89c80f34c7b2 -->
+<!-- source: routing.md sha256:d73632b9fe72 -->
 # Routing
 
 Route didaftarkan di `routes/api.dart` (di-mount di bawah `/api`) dan
@@ -153,6 +153,9 @@ dan per route dengan `.middleware(const ['auth', 'can:update,post'])`.
 Urutannya global → grup → route, diurutkan menurut daftar prioritas
 middleware.
 
+Exception menjadi response di tempat ia dilempar, sehingga middleware luar tetap
+selesai dan `try` di sekitar `next` tidak menangkap apa pun. Baca
+`response.exception`, sama seperti Laravel.
 `.withoutMiddleware(['csrf'])` melepas middleware dari sebuah route, berupa
 alias, group, tipe, atau instance, juga yang berasal dari group di luarnya.
 

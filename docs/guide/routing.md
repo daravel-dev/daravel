@@ -146,6 +146,10 @@ is global → group → route, sorted by the middleware priority list.
 `.withoutMiddleware(['csrf'])` takes one off a route, as an alias, a group, a
 type or an instance, also when an outer group brought it in.
 
+An exception becomes a response where it was thrown, so outer middleware still
+finish and a `try` around `next` catches nothing. Read `response.exception`
+instead, as in Laravel.
+
 ## Rate limiting
 
 Named limiters are defined in `withRateLimits` and applied with

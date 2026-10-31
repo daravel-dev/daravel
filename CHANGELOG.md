@@ -14,6 +14,7 @@ match Laravel more closely.
 ### Fixed
 
 - PostgreSQL `inet`, `cidr`, `macaddr` and `macaddr8` columns came back as undecoded bytes, so comparing one with `request.ip` always failed. They are text now, as PostgreSQL prints them, and `model:sync` types them as `String`.
+- Validation errors in a JSON session use the bag format of Laravel 13 (`{default: {format, messages}}`), which its `Store::marshalErrors` needs.
 - `whereJsonContains` sends a JSON document on MySQL and PostgreSQL, as Laravel: a plain number or string failed there.
 - `daravel_teobiefy`: refusals (406, 409, 413, 401) follow the route's response profile, as upstream's `api()->response()`.
 - `accepted_if` and `declined_if`: with a `boolean` rule on the other attribute, `true` and `false` compare as booleans, and `:other` uses the custom attribute names.
@@ -24,6 +25,7 @@ match Laravel more closely.
 
 ### Added
 
+- `Response.exception`, Laravel's `$response->exception`: since 1.21.1 an exception no longer passes through `next`, so a `try` around `next` catches nothing, not only in transaction middleware. A middleware reads it here instead.
 - `DB.transaction(attempts: n)` waits a short random time between retries (decorrelated jitter, 2 to 250 ms), so isolates that collided do not collide again. Frozen test clocks retry at once.
 - `QueryExecuted.poolWait`: the time a query waited for a connection, apart from `time`. PostgreSQL and MySQL measure it while a listener is registered.
 - `daravel_pulse`: cards for N+1 queries and query storms (`PULSE_N_PLUS_ONE_THRESHOLD`, `PULSE_QUERY_STORM_THRESHOLD`) and for connection waits (`PULSE_POOL_WAIT_THRESHOLD`).

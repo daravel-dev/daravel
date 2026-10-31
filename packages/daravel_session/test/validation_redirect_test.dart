@@ -11,54 +11,68 @@ void main() {
   late Directory base;
   late Application app;
   late TestClient client;
+  late TestClient json;
+  late Application jsonApp;
+
+  Application build(String serialization) =>
+      Application.configure(basePath: base.path)
+          .withEnv({
+            'APP_ENV': 'testing',
+            'APP_KEY': 'base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+            'DB_DATABASE': ':memory:',
+            'SESSION_DRIVER': 'array',
+            'SESSION_SERIALIZATION': serialization,
+          })
+          .withLogLevel(LogLevel.critical)
+          .withSession()
+          .withRouting(
+            web: (router) {
+              router.group((r) {
+                Future<Object?> save(Request request) async {
+                  await request.validate({'title': 'required'});
+                  return {'ok': true};
+                }
+
+                r.post('/items', save);
+                r.put('/items', save);
+                r.get(
+                  '/raw',
+                  (request) => {
+                    'class': switch (request.session.get<Object>('errors')) {
+                      final PhpObject object => object.className,
+                      final other => '${other.runtimeType}',
+                    },
+                  },
+                );
+                r.get(
+                  '/shape',
+                  (request) => request.session.get<Object>('errors'),
+                );
+                r.get('/form', (request) {
+                  return {
+                    'errors': request.session.errors,
+                    'old': request.session.old<String>('name'),
+                    'password': request.session.old<String>('password'),
+                  };
+                });
+              }, middleware: const ['encrypt_cookies', 'session']);
+            },
+          )
+          .create();
 
   setUp(() async {
     base = Directory.systemTemp.createTempSync('daravel_redirect');
-    app = Application.configure(basePath: base.path)
-        .withEnv({
-          'APP_ENV': 'testing',
-          'APP_KEY': 'base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
-          'DB_DATABASE': ':memory:',
-          'SESSION_DRIVER': 'array',
-        })
-        .withLogLevel(LogLevel.critical)
-        .withSession()
-        .withRouting(
-          web: (router) {
-            router.group((r) {
-              Future<Object?> save(Request request) async {
-                await request.validate({'title': 'required'});
-                return {'ok': true};
-              }
-
-              r.post('/items', save);
-              r.put('/items', save);
-              r.get(
-                '/raw',
-                (request) => {
-                  'class': switch (request.session.get<Object>('errors')) {
-                    final PhpObject object => object.className,
-                    final other => '${other.runtimeType}',
-                  },
-                },
-              );
-              r.get('/form', (request) {
-                return {
-                  'errors': request.session.errors,
-                  'old': request.session.old<String>('name'),
-                  'password': request.session.old<String>('password'),
-                };
-              });
-            }, middleware: const ['encrypt_cookies', 'session']);
-          },
-        )
-        .create();
+    app = build('php');
     await app.boot();
     client = TestClient(app);
+    jsonApp = build('json');
+    await jsonApp.boot();
+    json = TestClient(jsonApp);
   });
 
   tearDown(() async {
     await app.shutdown();
+    await jsonApp.shutdown();
     base.deleteSync(recursive: true);
   });
 
@@ -92,6 +106,27 @@ void main() {
     final cookie = failed.headers.all('set-cookie').first.split(';').first;
     final raw = await client.get('/raw', headers: {'cookie': cookie});
     expect(raw.jsonMap['class'], r'Illuminate\Support\ViewErrorBag');
+  });
+
+  test('a JSON session holds what Laravel 13 reads back', () async {
+    final failed = await json.post('/items', form: form, headers: browser);
+    final cookie = failed.headers.all('set-cookie').first.split(';').first;
+    final raw = await json.get('/shape', headers: {'cookie': cookie});
+    expect(raw.jsonMap['default'], {
+      'format': ':message',
+      'messages': {
+        'title': ['The title field is required.'],
+      },
+    });
+  });
+
+  test('a JSON session reads its own errors back', () async {
+    final failed = await json.post('/items', form: form, headers: browser);
+    final cookie = failed.headers.all('set-cookie').first.split(';').first;
+    final next = await json.get('/form', headers: {'cookie': cookie});
+    expect(next.jsonMap['errors'], {
+      'title': ['The title field is required.'],
+    });
   });
 
   test('a foreign Referer is not followed', () async {
