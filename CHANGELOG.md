@@ -36,7 +36,7 @@ match Laravel more closely.
 - `_method` and `X-HTTP-Method-Override` turn a POST into PUT, PATCH or DELETE, on by default as in Laravel; only form bodies are read. `Request.originalMethod` keeps the verb on the wire.
 - A failed validation in the `web` group redirects browsers and Inertia back, with errors and old input flashed (`session.errors`, `session.old`); clients expecting JSON keep the 422. `Response.back` ignores a foreign `Referer`.
 - Remember-me cookies in `SessionGuard`: `attempt(..., remember: true)` and `login(user, remember: true)` write Laravel's `remember_web_<sha1>` cookie, and either side can log in from the other's.
-- Payload profiles of teobiefy-laravel-api-response 0.3 in `daravel_teobiefy`: `withTeobiefyProfiles()` and the `teobiefy.profile` middleware (route patterns, XChaCha20, ChaCha20 and AES-256-GCM with key ids, HMAC-SHA256, replay protection). Requests with compressed zstd blocks are refused: responses and requests use raw frames.
+- Payload profiles of teobiefy-laravel-api-response 0.3 in `daravel_teobiefy`: `withTeobiefyProfiles()` and the `teobiefy.profile` middleware (route patterns, XChaCha20, ChaCha20 and AES-256-GCM with key ids, HMAC-SHA256, replay protection). Responses are raw frames; requests may use any frame `ext-zstd` writes, read by a pure Dart decoder.
 - `ModelQuery.orderByRaw`, `KeyType.manualInt` (Laravel's `$incrementing = false` on an integer key), `Request.inputSync` for model scopes, and `Clock.nowIn('Asia/Makassar')`.
 
 ## 1.21.0

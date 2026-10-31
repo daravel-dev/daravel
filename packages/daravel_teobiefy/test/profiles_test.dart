@@ -212,15 +212,14 @@ void main() {
     });
 
     test('a frame with compressed blocks, and a zip bomb', () async {
-      final compressed = Uint8List.fromList([
-        0x28, 0xB5, 0x2F, 0xFD, 0x20, 4, 0x25, 0, 0, 0, //
-      ]);
+      // A real frame of PHP's zstd_compress().
+      final compressed = File('test/fixtures/zstd/small.zst').readAsBytesSync();
       expect(
-        _profiles().decodeRequest({
+        await _profiles().decodeRequest({
           'data_comp': base64.encode(compressed),
           'compression': 'zstd',
         }, TeobiefyProfile.compressed),
-        throwsA(isA<TeobiefyInvalidPayload>()),
+        containsPair('status', 'ok'),
       );
       // One RLE block of 1000 bytes.
       final header = 1 | (1 << 1) | (1000 << 3);

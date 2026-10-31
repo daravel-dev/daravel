@@ -240,5 +240,6 @@ the response and request profiles, as the `ResponseProfile` and
 names.
 
 Responses are Zstandard frames of raw blocks: every decoder reads them, but
-they are not smaller. A request whose frame has compressed blocks answers
-`406`, because this package has no entropy decoder.
+they are not smaller. Requests may use any frame `ext-zstd` or a mobile library
+writes; dictionaries are refused. The decoder is pure Dart, so the server stays
+one binary.
