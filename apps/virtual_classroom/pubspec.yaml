@@ -1,6 +1,6 @@
 name: virtual_classroom
 description: Example Daravel application, a virtual classroom - scheduled lessons, LiveKit video rooms, Google Calendar invitations.
-version: 1.20.0
+version: 1.20.1
 publish_to: none
 
 environment:

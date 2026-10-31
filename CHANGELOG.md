@@ -13,10 +13,6 @@ match Laravel more closely.
 
 ### Fixed
 
-- `daravel_session` treated a JSON session (`'serialization' => 'json'`, the laravel/laravel 13 skeleton) as empty and overwrote its row in PHP `serialize()` format, which logged the user out of the Laravel application sharing the store. Both formats are now read, also with `SESSION_ENCRYPT`, and a stored session is written back in the format it has.
-- `dartisan e2e:install` overrode only `DB_DATABASE` for `test:e2e --serve`, so a `DB_URL` in the project's `.env` sent `migrate:fresh --seed` to the real database. `playwright.config.ts` now sets `DB_CONNECTION=sqlite` and `DB_URL=sqlite:<E2E_DATABASE>`. **Run `dartisan e2e:install --force` in existing projects, or make the same change by hand.** Projects whose migrations need PostgreSQL or MySQL test a running server with `--url`.
-- The tests from `dartisan new` and `make:test` had the same gap with `DB_DATABASE=:memory:`; they now set `DB_CONNECTION=sqlite` and `DB_URL=sqlite::memory:`. Existing projects with a `DB_URL` should change their tests' `env:` the same way.
-- `dartisan adopt` treats Laravel 8 to 13 as supported and writes `COMPAT_LARAVEL_VERSION` for the version it finds: an adopted Laravel 8 application answered with Laravel 12's error and validation formats. The old message still said the conformance suite pins Laravel 12.
 - Route bindings ran before every route middleware, so a guest got a 404 that told which records exist (and paid for a query) where Laravel answers 401 or 429, and a binder could not read the authenticated user. They now run where `SubstituteBindings` runs: after the cookies, session, CSRF, authentication and rate limit middleware (the new `RunsBeforeBindings` marker), before the rest. **A middleware placed before `auth` on a route no longer sees bindings.**
 - The `accepted`, `accepted_if`, `declined` and `declined_if` rules did not exist: the rule string threw, which answered 500 instead of 422. `Rules.accepted()` and the others, in the `RuleBuilder`, and known to `invalid_validation_rule`.
 - `Model.toJson` wrote relation keys as declared (`tipeUjian`); Laravel writes `tipe_ujian`. **This changes the JSON of camelCase relations.** `Model.snakeAttributes = false` or `snakeAttributes: false` on a `ModelDefinition` keeps the old keys.
@@ -32,8 +28,25 @@ match Laravel more closely.
 - `Cast.decimalString(places)`: Laravel's `decimal:N`, a string rounded half up without a double.
 - `DB_SEARCH_PATH` (or `DB_SCHEMA`) and `Schema.hasView`.
 - `Teobiefy.api(..., includeDataCount: false)`.
-- `SESSION_SERIALIZATION` (`php` or `json`): the format of new sessions, `php` by default and `json` with `COMPAT_LARAVEL_VERSION=13`. `dartisan adopt` copies it from the Laravel project's `config/session.php`, because a Laravel application upgraded to 13 keeps `php` unless it added the key.
 - `bench/interop/laravel_matrix.sh`: Daravel beside real Laravel 8 to 13 applications on one database (sessions both ways in both formats, encrypted or not; `Crypt` and bcrypt both ways; 422, 404 and 405 bodies byte for byte; `dartisan adopt`).
+
+## 1.20.1
+
+Three fixes found while adopting a Laravel 13 application. Sessions written
+as JSON were overwritten, which logged users out of Laravel; `test:e2e --serve`
+could run `migrate:fresh` on the database of a `DB_URL` in `.env`; and
+`dartisan adopt` left an application on another version's formats.
+
+### Fixed
+
+- `daravel_session` treated a JSON session (`'serialization' => 'json'`, the laravel/laravel 13 skeleton) as empty and overwrote its row in PHP `serialize()` format, which logged the user out of the Laravel application sharing the store. Both formats are now read, also with `SESSION_ENCRYPT`, and a stored session is written back in the format it has.
+- `dartisan e2e:install` overrode only `DB_DATABASE` for `test:e2e --serve`, so a `DB_URL` in the project's `.env` sent `migrate:fresh --seed` to the real database. `playwright.config.ts` now sets `DB_CONNECTION=sqlite` and `DB_URL=sqlite:<E2E_DATABASE>`. **Run `dartisan e2e:install --force` in existing projects, or make the same change by hand.** Projects whose migrations need PostgreSQL or MySQL test a running server with `--url`.
+- The tests from `dartisan new` and `make:test` had the same gap with `DB_DATABASE=:memory:`; they now set `DB_CONNECTION=sqlite` and `DB_URL=sqlite::memory:`. Existing projects with a `DB_URL` should change their tests' `env:` the same way.
+- `dartisan adopt` treats Laravel 8 to 13 as supported and writes `COMPAT_LARAVEL_VERSION` for the version it finds: an adopted Laravel 8 application answered with Laravel 12's error and validation formats. The old message still said the conformance suite pins Laravel 12.
+
+### Added
+
+- `SESSION_SERIALIZATION` (`php` or `json`): the format of new sessions, `php` by default and `json` with `COMPAT_LARAVEL_VERSION=13`. `dartisan adopt` copies it from the Laravel project's `config/session.php`, because a Laravel application upgraded to 13 keeps `php` unless it added the key.
 
 ## 1.20.0
 
