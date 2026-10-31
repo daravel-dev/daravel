@@ -9,7 +9,11 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 wait for a new major version, and Laravel-facing formats change only to
 match Laravel more closely.
 
-## Unreleased
+## 1.21.1
+
+Four fixes in the core. The first matters most: a handler that failed lost its session changes, so a logout followed by an error left the user logged in.
+
+**Three of them can change what an application sees:** a middleware that wraps `next` in a transaction now gets a response instead of an exception, so it does not roll back on its own, as in Laravel; `insert()` refuses a row with other columns than the first, where a missing one used to write `NULL`; `Cast.integer` gives `0` for text with no leading number, not `null`.
 
 ### Fixed
 

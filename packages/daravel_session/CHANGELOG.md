@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.21.1
+
+- Version aligned with Daravel 1.21.1; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).
+
 ## 1.21.0
 
 - Added: `SessionGuard` (`auth.session<User>('web', provider)`), Laravel's session guard on the same `login_web_<sha1>` key, so a login holds on both sides of a shared store. Remember-me cookies are not supported yet.
