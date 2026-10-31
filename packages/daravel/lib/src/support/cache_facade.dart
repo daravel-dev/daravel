@@ -42,6 +42,9 @@ abstract final class Cache {
   static Future<void> forever(String key, Object? value) =>
       store().forever(key, value);
 
+  static Future<bool> touch(String key, Duration ttl) =>
+      store().touch(key, ttl);
+
   static Future<bool> forget(String key) => store().forget(key);
 
   static Future<T?> pull<T>(String key, [T? fallback]) =>
