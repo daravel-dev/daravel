@@ -38,7 +38,8 @@ Keep the explicit `ModelDefinition<User>` type and write relations as
 functions: models that refer to each other would otherwise form an
 inference cycle.
 
-Other options: `primaryKey`, `keyType` (auto-increment, UUID, ULID or string),
+Other options: `primaryKey`, `keyType` (auto-increment, UUID, ULID, string or `manualInt`, Laravel's
+`$incrementing = false`),
 `connection`, `guarded`, `visible`, `appends`, `timestamps` and the
 `createdAt` / `updatedAt` / `deletedAt` column names, `perPage`, `touches`,
 `withRelations` (Eloquent's `$with`) and `morphClass` (the Laravel class

@@ -1,4 +1,4 @@
-<!-- source: orm.md sha256:2b5a5501be95 -->
+<!-- source: orm.md sha256:3e8eda657ffe -->
 # ORM
 
 Model mengikuti API Eloquent. Karena Dart tidak punya property ajaib, setiap
@@ -39,8 +39,8 @@ Pertahankan tipe eksplisit `ModelDefinition<User>` dan tulis relasi sebagai
 fungsi: tanpa itu, model yang saling merujuk akan membentuk siklus inferensi
 tipe.
 
-Opsi lain: `primaryKey`, `keyType` (auto-increment, UUID, ULID, atau
-string), `connection`, `guarded`, `visible`, `appends`, `timestamps` dan
+Opsi lain: `primaryKey`, `keyType` (auto-increment, UUID, ULID, string, atau `manualInt`, yaitu
+`$incrementing = false` dari Laravel), `connection`, `guarded`, `visible`, `appends`, `timestamps` dan
 nama kolom `createdAt` / `updatedAt` / `deletedAt`, `perPage`, `touches`,
 `withRelations` (`$with` dari Eloquent), dan `morphClass` (nama kelas
 Laravel yang disimpan di kolom polimorfik, `App\Models\User` secara
