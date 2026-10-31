@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.21.0
+
+- **Behaviour change:** `Model.toJson` writes relation keys in snake_case, as Laravel. `Model.snakeAttributes = false`, or `snakeAttributes: false` on a `ModelDefinition`, keeps the declared names.
+- **Behaviour change:** route bindings run after authentication and rate limits, as `SubstituteBindings` (`RunsBeforeBindings`). A guest gets 401, not a 404 that tells which records exist. A middleware placed before `auth` no longer sees bindings.
+- **Behaviour change:** PostgreSQL date columns without a cast reach JSON as PDO's text; they are still `DateTime` in Dart (`DatabaseDateTime`).
+- Added: the `accepted`, `accepted_if`, `declined` and `declined_if` rules, which answered 500.
+- Added: `Cast.decimalString`, `DB_SEARCH_PATH`, `Schema.hasView`; `schema.table` and partitioned tables on PostgreSQL.
+- Fixed: paginator labels and validation messages use the application's lines; `page` in paginator links follows `COMPAT_LARAVEL_VERSION`.
+
 ## 1.20.1
 
 - Version aligned with Daravel 1.20.1; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).

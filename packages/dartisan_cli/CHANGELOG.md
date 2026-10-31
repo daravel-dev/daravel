@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.21.0
+
+- Fixed: `model:sync` types follow each database, and it and `model:show` see other PostgreSQL schemas and views.
+
 ## 1.20.1
 
 - Fixed: `test:e2e --serve` could run `migrate:fresh` on the database of a `DB_URL` in `.env`, and the tests from `new` and `make:test` could reach it too. New projects are safe; run `e2e:install --force` in existing ones or make the same edit by hand.
