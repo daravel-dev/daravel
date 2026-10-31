@@ -174,3 +174,26 @@ A fixed window lets up to twice the limit through around a reset.
 whole limit as a burst after a quiet period). Both need
 `CACHE_LIMITER=redis` with [daravel_redis](redis.md#rate-limit-algorithms);
 other stores count them as a fixed window.
+
+## Route model binding
+
+Bind a parameter to a model, explicitly, because a Dart handler has no
+parameter types to tell a model from an id:
+
+```dart
+router.bindModel('author', Author.definition);
+router.bindModel('post', Post.definition);
+
+router.get('/posts/{post}', (request) => request.binding<Post>('post'));
+router.get('/blog/{post:slug}', show);                  // by another column
+router.get('/authors/{author}/posts/{post}', show).scopeBindings();
+```
+
+`scopeBindings()` looks each model up through the relation of the one before
+it, so another author's post is a 404. A custom column such as
+`{author}/{post:slug}` implies it, as in Laravel; `withoutScopedBindings()`
+turns it off, and `router.group(..., scopeBindings: true)` sets it for a group.
+Without either, a nested path does not check ownership.
+
+`withTrashed()` also finds soft deleted models, and `missing((request) => ...)`
+replaces the 404.

@@ -207,6 +207,10 @@ sections:
       - { php: "'prohibited_if:a,b' / 'prohibits:a' / 'required_with_all:a,b'", dart: "same strings", symbol: Rules.prohibitedIf }
       - { php: "Rule::enum(Status::class)", dart: "Rules.enum_(Status.values)", symbol: Rules.enum_ }
       - { php: "->withoutMiddleware('csrf')", dart: ".withoutMiddleware(['csrf'])", symbol: RouteEntry.withoutMiddleware }
+      - { php: "Route::get('/posts/{post}', fn (Post $post) => ...)", dart: "router.bindModel('post', Post.definition)", symbol: Router.bindModel }
+      - { php: "/users/{user}/posts/{post:slug}", dart: "the same path", symbol: RouteEntry.bindingFields }
+      - { php: "->scopeBindings() / ->withoutScopedBindings()", dart: ".scopeBindings() / .withoutScopedBindings()", symbol: RouteEntry.scopeBindings }
+      - { php: "->withTrashed() / ->missing(fn () => ...)", dart: ".withTrashed() / .missing((request) => ...)", symbol: RouteEntry.missing }
       - { php: "where('meta->lang', 'id') / update(['meta->lang' => 'en'])", dart: "where('meta->lang', 'id') / update({'meta->lang': 'en'})", symbol: QueryGrammar.jsonSelector }
       - { php: "whereNone(['a', 'b'], 'like', '%x%')", dart: "whereNone(['a', 'b'], 'like', '%x%')", symbol: QueryBuilder.whereNone }
       - { php: "belongsTo(User::class)->withDefault()", dart: "BelongsTo<User>(...).withDefault()", symbol: BelongsTo.withDefault }

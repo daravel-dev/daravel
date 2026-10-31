@@ -26,6 +26,7 @@ match Laravel more closely.
 
 ### Added
 
+- Route model binding: `router.bindModel('post', Post.definition)`, `{post:slug}`, `.scopeBindings()` (implied by a custom column, as in Laravel) so another owner's row is a 404, `.withoutScopedBindings()`, `.withTrashed()` and `.missing()`. It is explicit: a Dart handler has no parameter types to tell a model from an id.
 - ORM helpers: `BelongsTo.withDefault`, `HasOne.latestOfMany`, `oldestOfMany` and `ofMany` (one query when eager loading), `syncWithoutDetaching`, `toggle` and `updateExistingPivot` on `BelongsToMany`, `updateQuietly`, `deleteQuietly`, `namedGlobalScopes` with `withoutGlobalScope(name)`, and `QueryBuilder.whereNone`.
 - JSON columns: `where('meta->lang', 'id')`, `orderBy` and `update({'meta->lang': 'en'})` on SQLite, PostgreSQL and MySQL, as Laravel compiles them. Writing a nested path needs its parent on PostgreSQL and MySQL, as in Laravel; SQLite creates it. Tested live on SQLite and PostgreSQL; the MySQL SQL is tested as text only.
 - `withoutMiddleware(['csrf'])` takes aliases, groups, types and instances, also those from an outer group.

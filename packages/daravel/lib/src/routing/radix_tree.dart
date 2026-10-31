@@ -179,7 +179,9 @@ final class RadixTree<T extends Object> {
       if (inner.endsWith('?')) {
         inner = inner.substring(0, inner.length - 1);
       }
-      return inner;
+      // `{post:slug}`: the column belongs to the binding, not the name.
+      final colon = inner.indexOf(':');
+      return colon == -1 ? inner : inner.substring(0, colon);
     }
     if (segment.length > 1 && segment.startsWith(':')) {
       return segment.substring(1);

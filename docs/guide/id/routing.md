@@ -1,4 +1,4 @@
-<!-- source: routing.md sha256:68aed0385987 -->
+<!-- source: routing.md sha256:151ff62972f2 -->
 # Routing
 
 Route didaftarkan di `routes/api.dart` (di-mount di bawah `/api`) dan
@@ -184,3 +184,26 @@ dan `.gcra()` meratakan batasnya (satu percobaan setiap decay / batas,
 seluruh batas sebagai burst setelah periode sepi). Keduanya membutuhkan
 `CACHE_LIMITER=redis` dengan [daravel_redis](redis.md#algoritma-rate-limit);
 store lain menghitungnya sebagai fixed window.
+
+## Route model binding
+
+Ikat parameter ke model secara eksplisit, karena handler Dart tidak punya tipe
+parameter yang membedakan model dari id:
+
+```dart
+router.bindModel('author', Author.definition);
+router.bindModel('post', Post.definition);
+
+router.get('/posts/{post}', (request) => request.binding<Post>('post'));
+router.get('/blog/{post:slug}', show);                  // lewat kolom lain
+router.get('/authors/{author}/posts/{post}', show).scopeBindings();
+```
+
+`scopeBindings()` mencari setiap model lewat relasi model sebelumnya, sehingga
+post milik author lain menjadi 404. Kolom kustom seperti `{author}/{post:slug}`
+mengaktifkannya secara otomatis, sama seperti Laravel; `withoutScopedBindings()`
+mematikannya, dan `router.group(..., scopeBindings: true)` memasangnya untuk satu
+grup. Tanpa salah satunya, path bersarang tidak memeriksa kepemilikan.
+
+`withTrashed()` juga menemukan model yang di-soft delete, dan
+`missing((request) => ...)` menggantikan 404.

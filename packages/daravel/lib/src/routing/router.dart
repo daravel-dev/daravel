@@ -1,6 +1,12 @@
 import 'dart:async';
 
+import '../database/database_manager.dart';
+import '../database/orm/model.dart';
+import '../database/orm/model_definition.dart';
+import '../database/orm/keys.dart';
+import '../database/orm/relations.dart';
 import '../foundation/clock.dart';
+import '../foundation/container.dart';
 
 import '../http/http_exceptions.dart';
 import '../http/middleware.dart';
@@ -9,6 +15,7 @@ import '../http/request.dart';
 import '../http/response.dart';
 import 'radix_tree.dart';
 import 'resource_controller.dart';
+import '../support/str.dart';
 import 'route_entry.dart';
 import 'url_signer.dart';
 
@@ -22,12 +29,14 @@ final class _GroupAttributes {
     this.namePrefix = '',
     this.middleware = const <Object>[],
     this.wheres = const <String, RegExp>{},
+    this.scopeBindings = false,
   });
 
   final String prefix;
   final String namePrefix;
   final List<Object> middleware;
   final Map<String, RegExp> wheres;
+  final bool scopeBindings;
 }
 
 final class _Binder {
@@ -45,6 +54,8 @@ final class Router {
   final List<_GroupAttributes> _groups = <_GroupAttributes>[];
   final Map<String, RegExp> _patterns = <String, RegExp>{};
   final Map<String, _Binder> _binders = <String, _Binder>{};
+  final Map<String, ModelDefinition<Model>> _models =
+      <String, ModelDefinition<Model>>{};
   RouteEntry? _fallback;
   bool _compiled = false;
 
@@ -137,6 +148,7 @@ final class Router {
       middleware: attributes.middleware,
       namePrefix: attributes.namePrefix,
       wheres: attributes.wheres,
+      scopeBindings: attributes.scopeBindings ? true : null,
     );
     _routes.add(entry);
     return entry;
@@ -172,6 +184,7 @@ final class Router {
     String name = '',
     List<Object> middleware = const <Object>[],
     Map<String, Object> where = const <String, Object>{},
+    bool scopeBindings = false,
   }) {
     _ensureNotCompiled();
     final parent = _current;
@@ -180,6 +193,7 @@ final class Router {
         prefix: joinPaths(parent.prefix, prefix),
         namePrefix: '${parent.namePrefix}$name',
         middleware: <Object>[...parent.middleware, ...middleware],
+        scopeBindings: parent.scopeBindings || scopeBindings,
         wheres: <String, RegExp>{
           ...parent.wheres,
           for (final entry in where.entries) entry.key: _toRegExp(entry.value),
@@ -308,27 +322,111 @@ final class Router {
   void bind(String param, RouteBinder resolver, {bool orFail = true}) =>
       _binders[param] = _Binder(resolver, orFail: orFail);
 
-  /// Runs the registered binders for the matched route of [request].
-  /// Whether any route model binding is registered.
-  bool get hasBindings => _binders.isNotEmpty;
+  /// Route model binding: `{post}` becomes a `Post`, read with
+  /// `request.binding<Post>('post')`, or a 404. Explicit, because a Dart
+  /// handler has no parameter types to tell a model from an id.
+  void bindModel<T extends Model>(
+    String param,
+    ModelDefinition<T> definition,
+  ) => _models[param] = definition;
 
-  Future<void> resolveBindings(Request request) async {
-    if (_binders.isEmpty) {
-      return;
-    }
-    for (final entry in request.routeParams.entries) {
-      final binder = _binders[entry.key];
-      if (binder == null) {
+  /// Whether any route model binding is registered.
+  bool get hasBindings => _binders.isNotEmpty || _models.isNotEmpty;
+
+  /// Runs the binders for the matched route of [request], in path order.
+  /// Answers the route's `missing` handler when it should reply instead.
+  Future<Handler?> resolveBindings(Request request) async {
+    final route = request.route;
+    Object? previous;
+    for (final MapEntry(:key, :value) in request.routeParams.entries) {
+      final binder = _binders[key];
+      final definition = _models[key];
+      Object? bound;
+      if (binder != null) {
+        bound = await binder.resolve(value, request);
+        if (bound == null && binder.orFail) {
+          throw NotFoundHttpException(
+            'No resource found for route parameter [$key] = "$value".',
+          );
+        }
+      } else if (definition != null) {
+        bound = await _findModel(route, key, value, definition, previous);
+        if (bound == null) {
+          final missing = route?.missingHandler;
+          if (missing != null) {
+            return missing;
+          }
+          throw ModelNotFoundException(definition.morphClass, [value]);
+        }
+      } else {
+        previous = null;
         continue;
       }
-      final bound = await binder.resolve(entry.value, request);
-      if (bound == null && binder.orFail) {
-        throw NotFoundHttpException(
-          'No resource found for route parameter [${entry.key}] = "${entry.value}".',
-        );
-      }
-      request.setBinding(entry.key, bound);
+      request.setBinding(key, bound);
+      previous = bound;
     }
+    return null;
+  }
+
+  Future<Model?> _findModel(
+    RouteEntry? route,
+    String param,
+    String value,
+    ModelDefinition<Model> definition,
+    Object? parent,
+  ) async {
+    final column = route?.bindingFields[param] ?? definition.primaryKey;
+    final Object? key = _keyValue(definition, column, value);
+    if (key == null) {
+      return null;
+    }
+    final scoped =
+        parent is Model &&
+        !(route?.preventsScopedBindings ?? false) &&
+        ((route?.enforcesScopedBindings ?? false) ||
+            (route?.bindingFields.containsKey(param) ?? false));
+    final query = scoped
+        ? _relationOn(
+            parent,
+            param,
+          ).queryFor(parent, Container.current.make<DatabaseManager>())
+        : definition.query();
+    if ((route?.includesTrashed ?? false) && definition.softDeletes) {
+      query.withTrashed();
+    }
+    // Qualified: a BelongsToMany joins a pivot that has an `id` too.
+    return query.where('${definition.table}.$column', key).first();
+  }
+
+  /// A word in an integer key can only miss, and PostgreSQL would refuse it.
+  Object? _keyValue(
+    ModelDefinition<Model> definition,
+    String column,
+    String value,
+  ) {
+    final integer =
+        column == definition.primaryKey &&
+        const {KeyType.autoInt, KeyType.manualInt}.contains(definition.keyType);
+    return integer ? int.tryParse(value) : value;
+  }
+
+  Relation<Model> _relationOn(Model parent, String param) {
+    final definition = parent.modelDefinition;
+    for (final name in {
+      Str.plural(Str.camel(param)),
+      Str.camel(param),
+      Str.plural(param),
+      param,
+    }) {
+      final relation = definition.relation(name);
+      if (relation != null) {
+        return relation;
+      }
+    }
+    throw StateError(
+      'Cannot scope route parameter [$param] on [${definition.table}]: '
+      'declare the relation in ${parent.runtimeType}.definition.relations.',
+    );
   }
 
   /// Builds the lookup trees and resolves middleware aliases. Validates that

@@ -229,6 +229,10 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `'prohibited_if:a,b' / 'prohibits:a' / 'required_with_all:a,b'` | `same strings` |  |
 | `Rule::enum(Status::class)` | `Rules.enum_(Status.values)` |  |
 | `->withoutMiddleware('csrf')` | `.withoutMiddleware(['csrf'])` |  |
+| `Route::get('/posts/{post}', fn (Post $post) => ...)` | `router.bindModel('post', Post.definition)` |  |
+| `/users/{user}/posts/{post:slug}` | `the same path` |  |
+| `->scopeBindings() / ->withoutScopedBindings()` | `.scopeBindings() / .withoutScopedBindings()` |  |
+| `->withTrashed() / ->missing(fn () => ...)` | `.withTrashed() / .missing((request) => ...)` |  |
 | `where('meta->lang', 'id') / update(['meta->lang' => 'en'])` | `where('meta->lang', 'id') / update({'meta->lang': 'en'})` |  |
 | `whereNone(['a', 'b'], 'like', '%x%')` | `whereNone(['a', 'b'], 'like', '%x%')` |  |
 | `belongsTo(User::class)->withDefault()` | `BelongsTo<User>(...).withDefault()` |  |

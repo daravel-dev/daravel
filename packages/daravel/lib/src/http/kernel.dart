@@ -21,8 +21,10 @@ final class _SubstituteBindings implements Middleware {
 
   @override
   Future<Response> handle(Request request, Next next) async {
-    await _router.resolveBindings(request);
-    return next(request);
+    final missing = await _router.resolveBindings(request);
+    return missing == null
+        ? next(request)
+        : HttpKernel.toResponse(await missing(request), request);
   }
 }
 

@@ -32,8 +32,60 @@ final class RouteEntry {
     List<Object> middleware = const <Object>[],
     this._namePrefix = '',
     Map<String, RegExp> wheres = const <String, RegExp>{},
+    this._scopeBindings,
   }) : _middleware = List<Object>.of(middleware),
-       _wheres = Map<String, RegExp>.of(wheres);
+       _wheres = Map<String, RegExp>.of(wheres),
+       bindingFields = _bindingFieldsOf(path);
+
+  /// The columns of `{post:slug}` segments, by parameter. A column goes
+  /// into SQL, so only an identifier is accepted.
+  final Map<String, String> bindingFields;
+
+  static Map<String, String> _bindingFieldsOf(String path) {
+    final fields = <String, String>{};
+    for (final match in RegExp(r'\{([^{}:]+):([^{}]*)\}').allMatches(path)) {
+      final column = match[2]!.replaceFirst(RegExp(r'\?$'), '');
+      if (!RegExp(r'^[A-Za-z_]\w*$').hasMatch(column)) {
+        throw ArgumentError.value(path, 'path', 'Invalid binding column');
+      }
+      fields[match[1]!] = column;
+    }
+    return Map.unmodifiable(fields);
+  }
+
+  bool? _scopeBindings;
+  bool _withTrashed = false;
+  Handler? _missing;
+
+  /// `scopeBindings()`: each bound model is looked up through the one before
+  /// it, so `/users/{user}/posts/{post}` is a 404 for another user's post.
+  RouteEntry scopeBindings() {
+    _scopeBindings = true;
+    return this;
+  }
+
+  /// Turns scoping off, also the one a `{post:slug}` column implies.
+  RouteEntry withoutScopedBindings() {
+    _scopeBindings = false;
+    return this;
+  }
+
+  /// Binds soft deleted models too.
+  RouteEntry withTrashed() {
+    _withTrashed = true;
+    return this;
+  }
+
+  /// Runs [handler] instead of the 404 when a model is missing.
+  RouteEntry missing(Handler handler) {
+    _missing = handler;
+    return this;
+  }
+
+  bool get enforcesScopedBindings => _scopeBindings ?? false;
+  bool get preventsScopedBindings => _scopeBindings == false;
+  bool get includesTrashed => _withTrashed;
+  Handler? get missingHandler => _missing;
 
   /// Upper-cased HTTP methods served by this route.
   final List<String> methods;
