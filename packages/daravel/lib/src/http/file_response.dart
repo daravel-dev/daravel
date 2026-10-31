@@ -82,13 +82,14 @@ Response _serve({
   String? disposition,
   Map<String, String>? headers,
   Request? request,
+  bool ranges = true,
 }) {
   final etag =
       '"${size.toRadixString(16)}-${modified.millisecondsSinceEpoch.toRadixString(16)}"';
   final lastModified = HttpDate.format(modified);
   final common = <String, Object>{
     'content-type': contentType,
-    'accept-ranges': 'bytes',
+    if (ranges) 'accept-ranges': 'bytes',
     'etag': etag,
     'last-modified': lastModified,
     // A browser must not turn an upload into a page by sniffing it.
@@ -102,7 +103,7 @@ Response _serve({
   }
   final ifRange = request?.headers.first('if-range');
   final current = ifRange == null || ifRange == etag || ifRange == lastModified;
-  final range = readable && current
+  final range = ranges && readable && current
       ? _parseRange(request!.headers.first('range'), size)
       : null;
   if (identical(range, _unsatisfiable)) {
@@ -164,6 +165,9 @@ Future<Response> sendFile(
     disposition: contentDisposition(base, inline: inline),
     headers: headers,
     request: request,
+    // A viewer probing with `Range: bytes=0-1023` would delete the file
+    // before its real request.
+    ranges: !deleteAfterSend,
     open: (start, end) => _read(file, start, end, deleteAfterSend),
   );
 }

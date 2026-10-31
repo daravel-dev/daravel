@@ -183,6 +183,17 @@ void main() {
       expect(file.existsSync(), isFalse);
     });
 
+    test('a file deleted after sending offers no ranges', () async {
+      final response = await Response.download(
+        file,
+        deleteFileAfterSend: true,
+        request: get({'range': 'bytes=0-1'}),
+      );
+      expect(response.status, 200);
+      expect(response.headers.first('accept-ranges'), isNull);
+      expect(await text(response), '0123456789');
+    });
+
     test('a download nobody reads keeps the file', () async {
       await Response.download(file, deleteFileAfterSend: true);
       expect(file.existsSync(), isTrue);
