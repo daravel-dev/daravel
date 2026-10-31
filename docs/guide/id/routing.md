@@ -1,4 +1,4 @@
-<!-- source: routing.md sha256:2409fe9b5bbb -->
+<!-- source: routing.md sha256:4bb7eb252560 -->
 # Routing
 
 Route didaftarkan di `routes/api.dart` (di-mount di bawah `/api`) dan
@@ -152,6 +152,10 @@ Middleware global dikonfigurasi di `bootstrap/app.dart`
 dan per route dengan `.middleware(const ['auth', 'can:update,post'])`.
 Urutannya global → grup → route, diurutkan menurut daftar prioritas
 middleware.
+
+Exception menjadi response di tempat ia dilempar, sehingga middleware luar tetap
+selesai dan `try` di sekitar `next` tidak menangkap apa pun. Baca
+`response.exception`, sama seperti Laravel.
 
 ## Rate limiting
 

@@ -55,7 +55,20 @@ final class Response {
     this.webSocket,
     this.webSocketCompression = true,
     this.webSocketMaxPayloadBytes = defaultWebSocketMaxPayloadBytes,
+    this.exception,
   }) : headers = headers ?? Headers();
+
+  /// Laravel's `$response->exception`: what this response was rendered
+  /// from. An exception never passes through `next`, so this is how a
+  /// middleware that used to catch one sees it, and how one wrapping a
+  /// transaction knows to roll back.
+  Object? exception;
+
+  /// Laravel's `withException`.
+  Response withException(Object error) {
+    exception = error;
+    return this;
+  }
 
   /// The largest WebSocket frame a route accepts unless it says otherwise:
   /// 1 MiB. `dart:io` sets no limit of its own (its default is the largest
@@ -423,6 +436,7 @@ final class Response {
     webSocket: webSocket,
     webSocketCompression: webSocketCompression,
     webSocketMaxPayloadBytes: webSocketMaxPayloadBytes,
+    exception: exception,
   );
 
   /// Collects the body as bytes (consumes stream bodies).

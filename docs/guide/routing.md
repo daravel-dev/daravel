@@ -144,6 +144,10 @@ Global middleware is configured in `bootstrap/app.dart`
 and routes with `.middleware(const ['auth', 'can:update,post'])`. The order
 is global → group → route, sorted by the middleware priority list.
 
+An exception becomes a response where it was thrown, so outer middleware still
+finish and a `try` around `next` catches nothing. Read `response.exception`
+instead, as in Laravel.
+
 ## Rate limiting
 
 Named limiters are defined in `withRateLimits` and applied with

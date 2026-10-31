@@ -140,7 +140,8 @@ for major in $VERSIONS; do
       check "Laravel reads a session Daravel created" '"daravel":"héllo"' "$read"
       check "with its CSRF token" '"token":40' "$read"
 
-      if [ "$format" = php ]; then
+      # Laravel 13 is the first to keep the bag in a JSON session.
+      if [ "$format" = php ] || [ "$major" = 13 ]; then
         check "Daravel redirects back" '"status":302' \
           "$(daravel "${opts[@]}" -- invalid "$cookie")"
         check "Laravel reads Daravel's validation errors" \
