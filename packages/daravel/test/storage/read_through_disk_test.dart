@@ -1,7 +1,25 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:daravel/daravel.dart';
 import 'package:test/test.dart';
+
+/// A disk that cannot be written: full, read-only, or out of reach.
+final class _ReadOnly implements Disk {
+  @override
+  Future<bool> exists(String path) async => false;
+
+  @override
+  Future<void> put(String path, Object contents) async =>
+      throw const FileSystemException('read-only');
+
+  @override
+  Future<void> putStream(String path, Stream<List<int>> stream) async =>
+      throw const FileSystemException('read-only');
+
+  @override
+  Object? noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
 
 void main() {
   late MemoryDisk primary;
@@ -26,6 +44,23 @@ void main() {
     final bytes = await disk.readStream('s.txt').expand((c) => c).toList();
     expect(utf8.decode(bytes), 'stream');
     expect(await primary.exists('s.txt'), isTrue);
+  });
+
+  test('a failed promotion does not fail the read', () async {
+    final broken = ReadThroughDisk(primary: _ReadOnly(), fallback: fallback);
+    expect(await broken.get('old.txt'), 'from the old disk');
+    expect(utf8.decode(await broken.getBytes('old.txt')), 'from the old disk');
+    final bytes = await broken.readStream('old.txt').expand((c) => c).toList();
+    expect(utf8.decode(bytes), 'from the old disk');
+  });
+
+  test('unless it should', () {
+    final strict = ReadThroughDisk(
+      primary: _ReadOnly(),
+      fallback: fallback,
+      throwOnPromotionFailure: true,
+    );
+    expect(strict.get('old.txt'), throwsA(isA<FileSystemException>()));
   });
 
   test('the primary wins', () async {

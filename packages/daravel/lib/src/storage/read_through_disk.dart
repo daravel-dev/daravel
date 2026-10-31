@@ -28,12 +28,13 @@ final class ReadThroughDisk implements Disk {
   Future<Disk> _readerFor(String path) async =>
       await primary.exists(path) ? primary : fallback;
 
-  /// Copies [path] up; answers whether [primary] now has it.
-  Future<bool> _promote(String path) async {
+  /// Writes to [primary]; answers whether that worked. Any failure counts: a
+  /// local disk throws `FileSystemException`, S3 its own.
+  Future<bool> _promote(Future<void> Function() write) async {
     try {
-      await primary.putStream(path, fallback.readStream(path));
+      await write();
       return true;
-    } on StorageException {
+    } on Exception {
       if (throwOnPromotionFailure) {
         rethrow;
       }
@@ -63,7 +64,7 @@ final class ReadThroughDisk implements Disk {
     }
     final contents = await fallback.get(path);
     if (promote) {
-      await _promote(path);
+      await _promote(() => primary.put(path, contents));
     }
     return contents;
   }
@@ -75,7 +76,7 @@ final class ReadThroughDisk implements Disk {
     }
     final contents = await fallback.getBytes(path);
     if (promote) {
-      await _promote(path);
+      await _promote(() => primary.put(path, contents));
     }
     return contents;
   }
@@ -84,7 +85,10 @@ final class ReadThroughDisk implements Disk {
   Stream<List<int>> readStream(String path) async* {
     if (await primary.exists(path)) {
       yield* primary.readStream(path);
-    } else if (promote && await _promote(path)) {
+    } else if (promote &&
+        await _promote(
+          () => primary.putStream(path, fallback.readStream(path)),
+        )) {
       yield* primary.readStream(path);
     } else {
       yield* fallback.readStream(path);
