@@ -68,6 +68,28 @@ final class ModelQuery<T extends Model> {
   ModelQuery<T> whereKeyNot(Object? key) =>
       where(_qualify(definition.primaryKey), '<>', key);
 
+  /// [QueryBuilder.whereVectorSimilarTo].
+  ModelQuery<T> whereVectorSimilarTo(
+    String column,
+    List<num> vector, {
+    double minSimilarity = 0.6,
+    bool order = true,
+  }) {
+    builder.whereVectorSimilarTo(
+      column,
+      vector,
+      minSimilarity: minSimilarity,
+      order: order,
+    );
+    return this;
+  }
+
+  /// [QueryBuilder.orderByVectorDistance].
+  ModelQuery<T> orderByVectorDistance(String column, List<num> vector) {
+    builder.orderByVectorDistance(column, vector);
+    return this;
+  }
+
   ModelQuery<T> whereIn(String column, Object values) {
     builder.whereIn(column, values);
     return this;

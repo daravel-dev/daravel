@@ -70,6 +70,7 @@ String castName(Cast cast) => switch (cast) {
   DateTimeFormatCast(:final format) => 'datetime:$format',
   DateCast() => 'date',
   JsonCast() => 'json',
+  VectorCast() => 'vector',
   EnumCast() => 'enum',
   CustomCast() => 'custom',
 };

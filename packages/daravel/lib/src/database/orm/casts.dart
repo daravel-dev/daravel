@@ -1,4 +1,7 @@
 import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:postgres/postgres.dart' as pg;
 
 /// Attribute casting (Laravel `$casts`). [get] converts a raw database
 /// value into the Dart value exposed by the model; [set] converts a Dart
@@ -19,6 +22,9 @@ sealed class Cast {
   static const Cast dateTime = DateTimeCast();
   static const Cast date = DateCast();
   static const Cast json = JsonCast();
+
+  /// Laravel's `AsVector`: a pgvector column as a `List<double>`.
+  static const Cast vector = VectorCast();
 
   /// Laravel's `datetime:FORMAT` and `date:FORMAT` casts: the attribute
   /// reads as a [DateTime] and `Model.toJson` writes it with the PHP
@@ -392,6 +398,62 @@ String _ordinalSuffix(int day) {
     2 => 'nd',
     3 => 'rd',
     _ => 'th',
+  };
+}
+
+final class VectorCast extends Cast {
+  const VectorCast();
+
+  @override
+  Object? get(Object? raw) => switch (raw) {
+    null => null,
+    String() => [
+      for (final value in jsonDecode(raw) as List<Object?>)
+        (value! as num).toDouble(),
+    ],
+    final List<Object?> values => [
+      for (final value in values) (value! as num).toDouble(),
+    ],
+    // The driver cannot name an extension's type: its OID differs per database.
+    final pg.UndecodedBytes bytes when bytes.isBinary => _binary(bytes.bytes),
+    final pg.UndecodedBytes text => get(text.asString),
+    _ => throw ArgumentError.value(raw, 'raw', 'Not a vector'),
+  };
+
+  /// pgvector's binary form: dimensions, a reserved field, then floats.
+  static List<double> _binary(Uint8List bytes) {
+    final data = ByteData.sublistView(bytes);
+    return [
+      for (var i = 0; i < data.getUint16(0); i++)
+        _shortest(data.getFloat32(4 + i * 4)),
+    ];
+  }
+
+  /// The shortest decimal that is this `float4`, which is what pgvector prints
+  /// and Laravel reads: 0.9, not 0.8999999761581421.
+  static double _shortest(double value) {
+    final float = Float32List(1);
+    for (var digits = 1; digits < 9; digits++) {
+      final candidate = double.parse(value.toStringAsPrecision(digits));
+      float[0] = candidate;
+      if (float[0] == value) {
+        return candidate;
+      }
+    }
+    return value;
+  }
+
+  @override
+  Object? set(Object? value) => switch (value) {
+    null => null,
+    final Iterable<num> values => jsonEncode([
+      for (final item in values) item.toDouble(),
+    ]),
+    _ => throw ArgumentError.value(
+      value,
+      'value',
+      'Expected a list of numbers',
+    ),
   };
 }
 

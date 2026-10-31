@@ -61,6 +61,21 @@ final class SchemaBuilder {
   Future<void> drop(String table) =>
       _executor.execute(grammar.compileDrop(table));
 
+  /// Creates the `pgvector` extension (`Schema::ensureVectorExtensionExists`).
+  Future<void> ensureVectorExtensionExists({String? schema}) =>
+      ensureExtensionExists('vector', schema: schema);
+
+  /// Creates a PostgreSQL extension unless it exists.
+  Future<void> ensureExtensionExists(String name, {String? schema}) {
+    if (grammar.dialect != .postgres) {
+      throw UnsupportedError('Extensions are only supported by PostgreSQL.');
+    }
+    final into = schema == null ? '' : ' SCHEMA ${grammar.wrap(schema)}';
+    return _executor.execute(
+      'CREATE EXTENSION IF NOT EXISTS ${grammar.wrap(name)}$into',
+    );
+  }
+
   Future<void> dropIfExists(String table) =>
       _executor.execute(grammar.compileDropIfExists(table));
 

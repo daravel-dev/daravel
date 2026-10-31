@@ -201,6 +201,10 @@ abstract final class Schema {
   static Future<void> dropIfExists(String table) async =>
       (await builder()).dropIfExists(table);
 
+  /// Creates the `pgvector` extension.
+  static Future<void> ensureVectorExtensionExists({String? schema}) async =>
+      (await builder()).ensureVectorExtensionExists(schema: schema);
+
   /// Columns of [table] (`Schema::getColumns`).
   static Future<List<ColumnInfo>> getColumns(String table) async =>
       (await builder()).getColumns(table);
