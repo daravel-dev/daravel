@@ -1,4 +1,4 @@
-<!-- source: pulse.md sha256:5b65821458b1 -->
+<!-- source: pulse.md sha256:c17b24dc2301 -->
 # Pulse
 
 `daravel_pulse` menyajikan sebuah dashboard, dari aplikasi Anda, tentang apa
@@ -62,8 +62,8 @@ gate.define('viewPulse', (user, args) => user is User && user.isAdmin);
   ambang query lambat tidak akan menangkapnya.
 - **Tunggu koneksi.** Query yang menunggu koneksi bebas selama
   `PULSE_POOL_WAIT_THRESHOLD`, per koneksi. Artinya pool terlalu kecil, bukan
-  database yang lambat. Query di dalam transaksi memegang koneksinya sendiri
-  sehingga tidak dihitung, dan SQLite tidak punya pool.
+  database yang lambat. Transaksi dihitung sekali, saat mengambil koneksinya,
+  dan SQLite tidak punya pool.
 - **Queue dan job.** Job yang menunggu di setiap queue pada `PULSE_QUEUES`,
   baris `failed_jobs` dalam periode itu (dari semua proses worker, karena
   diambil dari tabel), dan job lambat atau gagal yang dijalankan isolate

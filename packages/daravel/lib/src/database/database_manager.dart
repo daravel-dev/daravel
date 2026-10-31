@@ -406,8 +406,10 @@ final class DatabaseManager {
       final probe = PoolWaitProbe();
       final watch = Stopwatch();
       final watched = _transactionListeners.isNotEmpty;
+      var begun = false;
       Future<T> run() => driver.transaction<T>((tx) {
         if (watched) {
+          begun = true;
           _notifyTransaction(
             DbTransactionBeginning(connectionName, 1, poolWait: probe.waited),
           );
@@ -432,7 +434,8 @@ final class DatabaseManager {
           );
         }
       } catch (error) {
-        if (watched) {
+        // No connection, no BEGIN: nothing to pair a rollback with.
+        if (begun) {
           _notifyTransaction(
             DbTransactionRolledBack(connectionName, 1, watch.elapsed, error),
           );
