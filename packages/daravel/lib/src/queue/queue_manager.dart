@@ -177,6 +177,9 @@ final class PendingDispatch implements Future<Object?> {
 
   PendingDispatch delay(Duration delay) => this.._delay = delay;
 
+  /// Laravel's `withoutDelay()`: at once, whatever delay the job declares.
+  PendingDispatch withoutDelay() => this.._delay = Duration.zero;
+
   PendingDispatch afterCommit() => this.._afterCommit = true;
 
   PendingDispatch beforeCommit() => this.._afterCommit = false;
@@ -516,6 +519,15 @@ final class QueueManager {
 
   /// Pushes [job]; returns the driver id or `null` when a unique job with
   /// the same id is already pending.
+  final Map<Type, ({String? queue, String? connection})> _routes = {};
+
+  /// Laravel's `Queue::route()`: where jobs of type [T] go, kept in one place
+  /// instead of on each class. A dispatch's own `onQueue` and the job's own
+  /// `queue` still win. The type must match exactly, as a route is looked up
+  /// by the job's class.
+  void route<T extends Job>({String? queue, String? connection}) =>
+      _routes[T] = (queue: queue, connection: connection);
+
   Future<Object?> push(
     Job job, {
     String? queue,
@@ -524,9 +536,14 @@ final class QueueManager {
     bool? afterCommit,
   }) async {
     final fake = _fake;
-    final targetQueue = queue ?? job.queue ?? config.defaultQueue;
+    final routed = _routes[job.runtimeType];
+    final targetQueue =
+        queue ?? job.queue ?? routed?.queue ?? config.defaultQueue;
     final targetConnection =
-        connection ?? job.connection ?? config.defaultConnection;
+        connection ??
+        job.connection ??
+        routed?.connection ??
+        config.defaultConnection;
     if (fake != null) {
       fake.pushed.add((
         job: job,
