@@ -127,9 +127,16 @@ final class DaravelUri {
   /// This URI with its query readable.
   String decode() {
     final text = '$this';
-    return raw.query.isEmpty
-        ? text
-        : text.replaceFirst(raw.query, Uri.decodeComponent(raw.query));
+    final start = text.indexOf('?');
+    if (start == -1) {
+      return text;
+    }
+    // Only the query: the path may hold the same text.
+    return text.replaceRange(
+      start + 1,
+      start + 1 + raw.query.length,
+      Uri.decodeComponent(raw.query),
+    );
   }
 
   /// The URI, for JSON.

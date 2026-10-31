@@ -138,10 +138,17 @@ abstract final class Process {
       collect(process.stdout, output, ProcessOutputType.stdout),
       collect(process.stderr, errorOutput, ProcessOutputType.stderr),
     ]);
-    if (input != null) {
-      process.stdin.write(input);
+    // A command may exit without reading it all (`head -n 1`): a broken pipe
+    // is not a failure of this call.
+    process.stdin.done.ignore();
+    try {
+      if (input != null) {
+        process.stdin.write(input);
+      }
+      await process.stdin.close();
+    } on io.IOException {
+      // The exit code says how it went.
     }
-    await process.stdin.close();
     final int exitCode;
     try {
       exitCode = timeout == null
@@ -196,6 +203,9 @@ abstract final class Process {
     Duration? timeout = const Duration(seconds: 60),
     int concurrency = 4,
   }) async {
+    if (concurrency < 1) {
+      throw RangeError.range(concurrency, 1, null, 'concurrency');
+    }
     final results = List<ProcessResultData?>.filled(commands.length, null);
     var next = 0;
     Future<void> worker() async {

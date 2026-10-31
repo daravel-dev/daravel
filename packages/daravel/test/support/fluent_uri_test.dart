@@ -89,6 +89,11 @@ void main() {
       expect('$uri', 'http://e.test/?f%5Ba%5D=1&l%5B0%5D=x&l%5B1%5D=y%20z');
     });
 
+    test('decode leaves a path with the same text alone', () {
+      final uri = DaravelUri.of('http://e.test/a%20b?a%20b');
+      expect(uri.decode(), 'http://e.test/a%20b?a b');
+    });
+
     test('decode shows the brackets again', () {
       final uri = DaravelUri.of('http://e.test/').withQuery({
         'l': ['y z'],

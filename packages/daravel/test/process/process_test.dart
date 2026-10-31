@@ -121,6 +121,20 @@ void main() {
     });
   });
 
+  test('a command that ignores its input is no error', () async {
+    final result = await Process.run([dart, '--version'], input: 'x' * 1000000);
+    expect(result.successful, isTrue);
+  });
+
+  test('a pool needs a worker', () {
+    expect(
+      Process.pool(const [
+        ['a'],
+      ], concurrency: 0),
+      throwsRangeError,
+    );
+  });
+
   test('an empty command is refused', () {
     expect(Process.run(const []), throwsArgumentError);
   });
