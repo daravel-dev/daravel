@@ -1,4 +1,4 @@
-<!-- source: testing.md sha256:60e4c904fcaf -->
+<!-- source: testing.md sha256:87867131dce6 -->
 # Testing
 
 `package:daravel_test` menjalankan aplikasi Anda tanpa membuka socket:
@@ -78,7 +78,11 @@ dartisan test:e2e --serve       # menyalakan aplikasi dengan database baru, lalu
 
 `--serve` menjalankan `migrate:fresh --seed` pada `database/e2e.sqlite` dan
 `serve` di port 8000 (`--port`), dan memakai ulang server yang sudah
-berjalan di sana. Untuk server lain, situs DDEV atau staging: `dartisan
+berjalan di sana. `--serve` selalu memakai file SQLite tersebut
+(`E2E_DATABASE` menunjuk file lain), bukan database di `.env`, sehingga tidak
+bisa menghapus tabel yang dipakai bersama Laravel; proyek yang migrasinya
+membutuhkan PostgreSQL atau MySQL menguji server yang sudah berjalan dengan
+`--url`. Untuk server lain, situs DDEV atau staging: `dartisan
 test:e2e --url=https://shop.ddev.site` (sertifikat TLS lokal diterima).
 `--api` hanya menjalankan spec `*.api.spec.ts`, lewat HTTP tanpa browser;
 `--ui` membuka UI mode Playwright; argumen setelah `--` diteruskan ke
