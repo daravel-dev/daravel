@@ -116,6 +116,25 @@ await user.detach('roles', [3]);
 `Model.preventLazyLoading` turns an unloaded relation into an error, which
 catches N+1 queries in tests.
 
+`Model.automaticallyEagerLoad = true`, or `withRelationshipAutoloading()` on one
+query, makes the models of a result load together: the first `load` or
+`loadMissing` of a relation fetches it for all of them, and the models it
+brings form a group of their own.
+
+```dart
+Model.automaticallyEagerLoad = true;
+
+final posts = await Post.query().get();
+for (final post in posts) {
+  await post.load('author'); // One query for the whole loop.
+}
+```
+
+The first `load` on a model that a sibling already served reads nothing; the
+next one reads again, as `load` always does. `load('author:name')` and
+`load('author.team')` stay on the one model. `related` never queries, so
+`preventLazyLoading` works as before.
+
 ### Eager loading specific columns
 
 As in Laravel, `relation:column,column` reads only those columns of a

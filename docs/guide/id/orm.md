@@ -1,4 +1,4 @@
-<!-- source: orm.md sha256:bf1c737f7f02 -->
+<!-- source: orm.md sha256:d37b14475318 -->
 # ORM
 
 Model mengikuti API Eloquent. Karena Dart tidak punya property ajaib, setiap
@@ -117,6 +117,25 @@ await user.detach('roles', [3]);
 `load` dan `loadMissing` memuat relasi ke model yang sudah Anda punya.
 `Model.preventLazyLoading` mengubah relasi yang belum dimuat menjadi error,
 sehingga query N+1 tertangkap di test.
+
+`Model.automaticallyEagerLoad = true`, atau `withRelationshipAutoloading()` pada
+satu query, membuat model dalam satu hasil dimuat bersama: `load` atau
+`loadMissing` pertama pada sebuah relasi mengambilnya untuk semua model itu, dan
+model yang terbawa membentuk grup sendiri.
+
+```dart
+Model.automaticallyEagerLoad = true;
+
+final posts = await Post.query().get();
+for (final post in posts) {
+  await post.load('author'); // Satu query untuk seluruh loop.
+}
+```
+
+`load` pertama pada model yang sudah terlayani model lain tidak membaca apa pun;
+`load` berikutnya membaca ulang, seperti `load` biasa. `load('author:name')` dan
+`load('author.team')` tetap hanya untuk model itu. `related` tidak pernah
+menjalankan query, jadi `preventLazyLoading` berlaku seperti sebelumnya.
 
 ### Eager loading kolom tertentu
 
