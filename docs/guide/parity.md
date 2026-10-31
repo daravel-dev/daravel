@@ -382,6 +382,10 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | Laravel | Daravel | Notes |
 | :-- | :-- | :-- |
 | `class UserResource extends JsonResource { toArray }` | `final class UserResource extends JsonResource<User> { toArray }` |  |
+| `class PostResource extends JsonApiResource` | `final class PostResource extends JsonApiResource<Post>` | toType is required: no reflection |
+| `PostResource::collection($posts)` | `JsonApiResource.collection<Post>(posts, PostResource.new)` |  |
+| `JsonApiResource::configure(version: '1.1')` | `JsonApiResource.configure(version: '1.1')` |  |
+| `JsonSchema::object([...])` | `JsonSchema.object({...})` |  |
 | `UserResource::collection($users)` | `JsonResource.collection(users, UserResource.new)` |  |
 | `->additional([...])` | `.additional({...})` |  |
 | `$this->when($cond, $value) / whenLoaded('posts')` | `when(cond, value) / whenLoaded('posts')` |  |

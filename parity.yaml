@@ -348,6 +348,10 @@ sections:
   - name: Resources, storage, logging, config
     symbols:
       - { php: "class UserResource extends JsonResource { toArray }", dart: "final class UserResource extends JsonResource<User> { toArray }", symbol: JsonResource.toArray }
+      - { php: "class PostResource extends JsonApiResource", dart: "final class PostResource extends JsonApiResource<Post>", symbol: JsonApiResource, note: "toType is required: no reflection" }
+      - { php: "PostResource::collection($posts)", dart: "JsonApiResource.collection<Post>(posts, PostResource.new)", symbol: JsonApiResource.collection }
+      - { php: "JsonApiResource::configure(version: '1.1')", dart: "JsonApiResource.configure(version: '1.1')", symbol: JsonApiResource.configure }
+      - { php: "JsonSchema::object([...])", dart: "JsonSchema.object({...})", symbol: JsonSchema.object }
       - { php: "UserResource::collection($users)", dart: "JsonResource.collection(users, UserResource.new)", symbol: JsonResource.collection }
       - { php: "->additional([...])", dart: ".additional({...})", symbol: JsonResource.additional }
       - { php: "$this->when($cond, $value) / whenLoaded('posts')", dart: "when(cond, value) / whenLoaded('posts')", symbol: JsonResource.whenLoaded }
