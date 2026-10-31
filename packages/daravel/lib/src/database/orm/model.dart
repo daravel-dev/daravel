@@ -287,6 +287,11 @@ abstract base class Model implements JsonSerializable, Responsable {
             _attributes[modelDefinition.primaryKey] = KeyGenerator.uuid();
           case .ulid:
             _attributes[modelDefinition.primaryKey] = KeyGenerator.ulid();
+          case .manualInt:
+            throw StateError(
+              '${modelDefinition.table}.${modelDefinition.primaryKey} is '
+              'not generated: set it before saving.',
+            );
           case .autoInt:
           case .string:
             break;

@@ -572,6 +572,18 @@ final class Request {
     return converted ?? fallback;
   }
 
+  /// [input] for code that cannot wait, such as a model scope. It sees the
+  /// body only once something awaited the input of this request (a
+  /// validation, a filter, [all]); until then the query string.
+  T? inputSync<T>(String key, [T? fallback]) {
+    final value = _dig(_allInput ?? queryInput, key);
+    if (value is T) {
+      return value;
+    }
+    final converted = value is String ? _convert<T>(value) : null;
+    return converted ?? fallback;
+  }
+
   /// `$request->integer('page', 1)`: the input as an `int`, or [fallback]
   /// when it is missing or not a number.
   Future<int> integer(String key, [int fallback = 0]) async =>
