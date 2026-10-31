@@ -123,9 +123,32 @@ other endpoints called without a session skip the check with
 </form>
 ```
 
+## Logging in
+
+`SessionGuard` is Laravel's session guard. It keeps the user id under the
+same `login_web_<sha1>` key, so a user logged in on either application is
+logged in on both.
+
+```dart
+.withAuth((auth) => auth.session<User>('web', ModelUserProvider<User>(User.definition)))
+```
+
+```dart
+final guard = App.make<AuthManager>().guard('web') as SessionGuard<User>;
+
+await guard.attempt({'email': email, 'password': password}); // false on a mismatch
+await guard.login(user);                                     // new session id and token
+await guard.logout();
+await request.session.invalidate();
+```
+
+Put `auth:web` after the `web` group on protected routes. From
+`COMPAT_LARAVEL_VERSION=12` the login also stores `password_hash_web`, which
+Laravel's `AuthenticateSession` compares.
+
 ## Not covered
 
 The `cookie` session driver, `ViewErrorBag` (`back()->withErrors()`),
 session blocking (`Route::block`) and remember-me cookies of the `web`
-guard. Laravel's `sessions` table and cookie formats are the contract; the
+guard (`attempt(..., remember: true)` throws). Laravel's `sessions` table and cookie formats are the contract; the
 rest is Daravel's own API.

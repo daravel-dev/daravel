@@ -1,4 +1,4 @@
-<!-- source: configuration.md sha256:6a03cea95502 -->
+<!-- source: configuration.md sha256:e4b7ee963c39 -->
 # Konfigurasi
 
 ## File environment
@@ -95,6 +95,7 @@ setelah boot.
 | `DB_CHARSET`, `DB_COLLATION`, `DB_TIMEZONE` | `utf8mb4`, `utf8mb4_unicode_ci`, server | MySQL dan MariaDB, sebagaimana dibaca Laravel |
 | `DB_STRICT`, `DB_SQL_MODES`, `DB_ISOLATION_LEVEL` | dari server | Pengaturan session MySQL dan MariaDB, seperti `'strict'`, `'modes'`, dan `'isolation_level'` di Laravel ([Database](database.md)) |
 | `DB_POOL_SIZE`, `DB_SSLMODE` | `10`, `disable` | Pool koneksi per isolate, TLS (`require`, `verify-full`) |
+| `DB_SEARCH_PATH` (atau `DB_SCHEMA`) | dari server | Schema PostgreSQL pada setiap koneksi (`billing, hr, public`), `'search_path'` dari Laravel |
 | `DB_CONNECT_TIMEOUT`, `DB_QUERY_TIMEOUT` | `10`, `30` | Detik yang boleh dipakai koneksi PostgreSQL atau MySQL untuk terbuka, dan sebuah statement untuk berjalan (`0` untuk tanpa batas; statement yang macet akan menahan koneksi pool-nya selamanya) |
 | `CACHE_STORE`, `CACHE_PREFIX` | `memory` | Penyimpanan cache dan prefix key |
 | `CACHE_PROCESS_MAX_ENTRIES` | `10000` | Jumlah entri yang disimpan store `process` untuk seluruh server; yang paling lama tidak dipakai dibuang lebih dulu, jadi naikkan bila store ini menampung banyak key yang harus bertahan sampai kedaluwarsa (JWT yang dicabut, counter per client), atau simpan key itu di `database` atau Redis |

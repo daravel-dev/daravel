@@ -1,4 +1,4 @@
-<!-- source: orm.md sha256:dbd8414716a4 -->
+<!-- source: orm.md sha256:2b5a5501be95 -->
 # ORM
 
 Model mengikuti API Eloquent. Karena Dart tidak punya property ajaib, setiap
@@ -50,9 +50,20 @@ default).
 
 Cast: `Cast.integer`, `decimal`, `boolean`, `string`, `dateTime`, `date`,
 `json`, `Cast.enumeration(MyEnum.values)`, dan `Cast.custom(...)`.
+`Cast.decimalString(2)` adalah `decimal:2` dari Laravel: string `"12.50"`,
+dibulatkan half up tanpa melewati double. `Cast.decimal` membaca `double`.
 `accessors:` dan `mutators:` menggantikan method atribut dari Laravel, dan
 `dartisan model:sync` menulis getter dan setter bertipe dari tabel, sehingga
-`user.email` adalah `String` yang dicek compiler.
+`user.email` adalah `String` yang dicek compiler. Tipenya mengikuti database:
+di PostgreSQL kolom `timestamp` adalah `DateTime`, sedangkan di SQLite dan
+MySQL kolom itu butuh `Cast.dateTime`.
+
+`toJson` menulis key relasi dalam snake_case seperti Laravel: `tipeUjian`
+menjadi `tipe_ujian`. `Model.snakeAttributes = false` saat boot mempertahankan
+nama yang dideklarasikan untuk seluruh aplikasi, dan `snakeAttributes: false`
+pada `ModelDefinition` untuk satu model. Kolom tanggal PostgreSQL tanpa cast
+masuk ke JSON sebagai teks PDO (`2024-01-02 10:20:30`); `created_at`,
+`updated_at`, `deleted_at`, dan kolom yang di-cast memakai ISO-8601.
 
 ## Registry model
 

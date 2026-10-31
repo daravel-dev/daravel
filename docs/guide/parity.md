@@ -126,6 +126,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `session()->flash('status', 'Saved') / reflash / keep / now` | `session.flash('status', 'Saved') / reflash / keep / now` |  |
 | `session()->regenerate() / invalidate()` | `await session.regenerate() / invalidate()` | **async** |
 | `csrf_token()` | `session.token` |  |
+| `Auth::guard('web')->attempt($credentials) / login($user) / logout()` | `guard.attempt(credentials) / login(user) / logout()` | **async**; auth.session<User>('web', provider). The login_web_<sha1> key and, from Laravel 12, password_hash_web, so a login holds on both sides. No remember-me cookies. |
 | `EncryptCookies middleware` | `EncryptCookiesMiddleware` | Crypt payload with CookieValuePrefix (hmac_sha1(name.'v2', key).'|'), so cookies are shared with the Laravel app. |
 | `VerifyCsrfToken ($except, X-CSRF-TOKEN, X-XSRF-TOKEN)` | `VerifyCsrfTokenMiddleware(except: [...])` | 419 CSRF token mismatch.; the XSRF-TOKEN cookie is set on every response. |
 | `SESSION_DRIVER=file\|database` | `SESSION_DRIVER=file\|database (array for tests)` | Laravel's sessions table (payload base64(serialize()) or base64(json_encode()), last_activity) and file format; extend() adds a driver. |
@@ -224,6 +225,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `ValidationException` | `ValidationException` |  |
 | `Rule::in([...]) / Rule::unique('users')` | `Rules.inList([...]) / Rules.unique('users')` |  |
 | `['required', 'email', 'max:255']` | `Rules.required().email().max(255)` | Chained rule objects, checked by the compiler. |
+| `'accepted' / 'accepted_if:plan,paid' / 'declined' / 'declined_if:plan,paid'` | `the same strings, or Rules.accepted() / acceptedIf('plan', ['paid']) / declined() / declinedIf(...)` |  |
 
 ## Eloquent
 
@@ -448,7 +450,6 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 
 | Laravel | Plan |
 | :-- | :-- |
-| Sessions, CSRF, SPA cookie auth | Tier 2 |
 | optional() helper | Not planned: Dart has ?. and ?? |
 | app() / route() / url() global helpers | Use App.make<T>(), router.url(...); a global app() would be shadowed by the idiomatic app variable |
 | dd() / dump() | Not planned: use print or Log in development |

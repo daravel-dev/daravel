@@ -92,6 +92,7 @@ frozen after boot.
 | `DB_CHARSET`, `DB_COLLATION`, `DB_TIMEZONE` | `utf8mb4`, `utf8mb4_unicode_ci`, server | MySQL and MariaDB, as Laravel reads them |
 | `DB_STRICT`, `DB_SQL_MODES`, `DB_ISOLATION_LEVEL` | server's | MySQL and MariaDB session settings, as Laravel's `'strict'`, `'modes'` and `'isolation_level'` ([Database](database.md)) |
 | `DB_POOL_SIZE`, `DB_SSLMODE` | `10`, `disable` | Connection pool per isolate, TLS (`require`, `verify-full`) |
+| `DB_SEARCH_PATH` (or `DB_SCHEMA`) | server's | PostgreSQL schemas of every connection (`billing, hr, public`), Laravel's `'search_path'` |
 | `DB_CONNECT_TIMEOUT`, `DB_QUERY_TIMEOUT` | `10`, `30` | Seconds a PostgreSQL or MySQL connection may take to open, and a statement to run (`0` for none; a stuck statement would otherwise hold its pooled connection for ever) |
 | `CACHE_STORE`, `CACHE_PREFIX` | `memory` | Cache store and key prefix |
 | `CACHE_PROCESS_MAX_ENTRIES` | `10000` | Entries the `process` store keeps for the whole server; the least recently used go first, so raise it when it holds many keys that must last until they expire (revoked JWTs, per-client counters), or keep those in `database` or Redis |

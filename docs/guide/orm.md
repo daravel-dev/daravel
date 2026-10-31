@@ -48,9 +48,20 @@ name stored in polymorphic columns, `App\Models\User` by default).
 
 Casts: `Cast.integer`, `decimal`, `boolean`, `string`, `dateTime`, `date`,
 `json`, `Cast.enumeration(MyEnum.values)` and `Cast.custom(...)`.
-`accessors:` and `mutators:` replace Laravel's attribute methods, and
-`dartisan model:sync` writes typed getters and setters from the table, so
-`user.email` is a `String` checked by the compiler.
+`Cast.decimalString(2)` is Laravel's `decimal:2`: the string `"12.50"`,
+rounded half up without going through a double. `Cast.decimal` reads a
+`double`. `accessors:` and `mutators:` replace Laravel's attribute methods,
+and `dartisan model:sync` writes typed getters and setters from the table, so
+`user.email` is a `String` checked by the compiler. The types follow the
+database: on PostgreSQL a `timestamp` column is a `DateTime`, on SQLite and
+MySQL it needs `Cast.dateTime`.
+
+`toJson` writes relation keys in snake_case, as Laravel: `tipeUjian` becomes
+`tipe_ujian`. `Model.snakeAttributes = false` at boot keeps the declared names
+for the whole application, and `snakeAttributes: false` on a
+`ModelDefinition` for one model. A PostgreSQL date column without a cast
+reaches JSON as PDO's text (`2024-01-02 10:20:30`); `created_at`,
+`updated_at`, `deleted_at` and cast columns are ISO-8601.
 
 ## Model registry
 
