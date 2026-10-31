@@ -74,6 +74,11 @@ abstract base class Model implements JsonSerializable, Responsable {
   /// instead of querying lazily (catches N+1 problems in tests).
   static bool preventLazyLoading = false;
 
+  /// Laravel's `Model::$snakeAttributes`: `toJson` writes the relation
+  /// `tipeUjian` as `tipe_ujian`. Set it to `false` at boot to keep the names
+  /// as declared, or per model with [ModelDefinition.snakeAttributes].
+  static bool snakeAttributes = true;
+
   /// Static metadata; override as `ModelDefinition<User> get modelDefinition`.
   ModelDefinition<Model> get modelDefinition;
 
@@ -621,9 +626,10 @@ abstract base class Model implements JsonSerializable, Responsable {
         result[key] = _serialize(getAttr<Object?>(key));
       }
     }
+    final snake = modelDefinition.snakeAttributes ?? snakeAttributes;
     for (final entry in _relations.entries) {
       if (show(entry.key)) {
-        result[entry.key] = _serialize(entry.value);
+        result[snake ? _snake(entry.key) : entry.key] = _serialize(entry.value);
       }
     }
     if (pivot != null && show('pivot')) {
@@ -645,6 +651,15 @@ abstract base class Model implements JsonSerializable, Responsable {
     }
     return _serialize(value);
   }
+
+  /// Laravel's `Str::snake` on a relation name, kept once per name.
+  static String _snake(String name) => _snakeNames.putIfAbsent(
+    name,
+    () => name
+        .replaceAllMapped(RegExp('(.)(?=[A-Z])'), (m) => '${m[1]}_')
+        .toLowerCase(),
+  );
+  static final Map<String, String> _snakeNames = <String, String>{};
 
   static Object? _serialize(Object? value) => switch (value) {
     Model() => value.toJson(),

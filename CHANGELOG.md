@@ -19,6 +19,7 @@ match Laravel more closely.
 - `dartisan adopt` treats Laravel 8 to 13 as supported and writes `COMPAT_LARAVEL_VERSION` for the version it finds: an adopted Laravel 8 application answered with Laravel 12's error and validation formats. The old message still said the conformance suite pins Laravel 12.
 - Route bindings ran before every route middleware, so a guest got a 404 that told which records exist (and paid for a query) where Laravel answers 401 or 429, and a binder could not read the authenticated user. They now run where `SubstituteBindings` runs: after the cookies, session, CSRF, authentication and rate limit middleware (the new `RunsBeforeBindings` marker), before the rest. **A middleware placed before `auth` on a route no longer sees bindings.**
 - The `accepted`, `accepted_if`, `declined` and `declined_if` rules did not exist: the rule string threw, which answered 500 instead of 422. `Rules.accepted()` and the others, in the `RuleBuilder`, and known to `invalid_validation_rule`.
+- `Model.toJson` wrote relation keys as declared (`tipeUjian`); Laravel writes `tipe_ujian`. **This changes the JSON of camelCase relations.** `Model.snakeAttributes = false` or `snakeAttributes: false` on a `ModelDefinition` keeps the old keys.
 
 ### Added
 
