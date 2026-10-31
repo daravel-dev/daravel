@@ -56,6 +56,8 @@ final class Res {
 }
 
 void main() {
+  var mineBinderCalls = 0;
+  final bindingsSeen = <String, String?>{};
   late Application app;
   late TestUser ana;
   late TestUser bo;
@@ -131,6 +133,28 @@ void main() {
                   (req) => {'updated': req.binding<TestUser>('user').id},
                 )
                 .middleware(['auth', 'can:update,user']);
+            router.bind('mine', (value, _) async {
+              mineBinderCalls++;
+              return '$value, logged in: ${await Auth.check()}';
+            });
+            String? seen(Request request) {
+              try {
+                return request.binding<String>('mine');
+              } on StateError {
+                return null;
+              }
+            }
+
+            Middleware spy(String name) => FunctionalMiddleware((r, next) {
+              bindingsSeen[name] = seen(r);
+              return next(r);
+            });
+            router
+                .get('/mine/{mine}', (req) => {'bound': seen(req)})
+                .middleware([spy('before'), 'auth', spy('after')]);
+            router
+                .get('/mine-limited/{mine}', (req) => {'bound': seen(req)})
+                .middleware(['throttle:tiny']);
           },
         )
         .create();
@@ -301,6 +325,32 @@ void main() {
     },
   );
 
+  test('bindings run after auth and throttle, as SubstituteBindings', () async {
+    mineBinderCalls = 0;
+    bindingsSeen.clear();
+    final guest = await send(Request.fake(path: '/mine/a'));
+    expect(guest.status, 401);
+    expect(mineBinderCalls, 0, reason: 'no query for a guest');
+
+    final token = await app.run(() => Auth.issueToken(ana, 't'));
+    final user = await send(
+      Request.fake(
+        path: '/mine/a',
+        headers: {'authorization': 'Bearer ${token.plainTextToken}'},
+      ),
+    );
+    expect(user.json, {'bound': 'a, logged in: true'});
+    expect(bindingsSeen, {'before': null, 'after': 'a, logged in: true'});
+
+    mineBinderCalls = 0;
+    final passed = await send(Request.fake(path: '/mine-limited/a'));
+    expect(passed.status, 200);
+    expect(mineBinderCalls, 1);
+    final blocked = await send(Request.fake(path: '/mine-limited/a'));
+    expect(blocked.status, 429);
+    expect(mineBinderCalls, 1, reason: 'no query past the rate limit');
+  });
+
   test('Gate and can: middleware use the authenticated user', () async {
     final anaToken = await app.run(() => Auth.issueToken(ana, 't'));
     final boToken = await app.run(() => Auth.issueToken(bo, 't'));
@@ -318,6 +368,8 @@ void main() {
     expect(forbidden.status, 403);
     expect(forbidden.json, {'message': 'This action is unauthorized.'});
     expect((await patch(anaToken.plainTextToken, 999)).status, 404);
+    final guest = await send(Request.fake(method: 'PATCH', path: '/users/999'));
+    expect(guest.status, 401, reason: 'a guest learns nothing about 999');
 
     await app.run(() async {
       Auth.setUser(ana);

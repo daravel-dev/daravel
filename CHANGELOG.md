@@ -17,6 +17,7 @@ match Laravel more closely.
 - `dartisan e2e:install` overrode only `DB_DATABASE` for `test:e2e --serve`, so a `DB_URL` in the project's `.env` sent `migrate:fresh --seed` to the real database. `playwright.config.ts` now sets `DB_CONNECTION=sqlite` and `DB_URL=sqlite:<E2E_DATABASE>`. **Run `dartisan e2e:install --force` in existing projects, or make the same change by hand.** Projects whose migrations need PostgreSQL or MySQL test a running server with `--url`.
 - The tests from `dartisan new` and `make:test` had the same gap with `DB_DATABASE=:memory:`; they now set `DB_CONNECTION=sqlite` and `DB_URL=sqlite::memory:`. Existing projects with a `DB_URL` should change their tests' `env:` the same way.
 - `dartisan adopt` treats Laravel 8 to 13 as supported and writes `COMPAT_LARAVEL_VERSION` for the version it finds: an adopted Laravel 8 application answered with Laravel 12's error and validation formats. The old message still said the conformance suite pins Laravel 12.
+- Route bindings ran before every route middleware, so a guest got a 404 that told which records exist (and paid for a query) where Laravel answers 401 or 429, and a binder could not read the authenticated user. They now run where `SubstituteBindings` runs: after the cookies, session, CSRF, authentication and rate limit middleware (the new `RunsBeforeBindings` marker), before the rest. **A middleware placed before `auth` on a route no longer sees bindings.**
 
 ### Added
 

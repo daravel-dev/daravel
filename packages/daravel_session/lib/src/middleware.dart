@@ -14,7 +14,7 @@ import 'session.dart';
 /// attributes from the handler; the response gets the cookie back, the
 /// previous URL is recorded for `GET` page requests, and 2 requests in 100
 /// sweep expired sessions.
-final class StartSessionMiddleware implements Middleware {
+final class StartSessionMiddleware implements RunsBeforeBindings {
   const StartSessionMiddleware({this.lottery});
 
   /// The random source of the garbage-collection lottery (tests).
@@ -101,7 +101,7 @@ abstract final class CookieValuePrefix {
 /// reads and writes the same cookies. A cookie that does not decrypt, or
 /// was made for another name, is dropped from the request. [except]
 /// names cookies left in clear.
-final class EncryptCookiesMiddleware implements Middleware {
+final class EncryptCookiesMiddleware implements RunsBeforeBindings {
   const EncryptCookiesMiddleware({this.except = const <String>[]});
 
   final List<String> except;
@@ -178,7 +178,7 @@ final class TokenMismatchException extends HttpException {
 /// `XSRF-TOKEN` cookie, which this middleware sets on every response so
 /// Axios and Angular send it back). [except] lists paths that skip the
 /// check (`'webhooks/*'`). Needs [StartSessionMiddleware] before it.
-final class VerifyCsrfTokenMiddleware implements Middleware {
+final class VerifyCsrfTokenMiddleware implements RunsBeforeBindings {
   const VerifyCsrfTokenMiddleware({
     this.except = const <String>[],
     this.addHttpCookie = true,

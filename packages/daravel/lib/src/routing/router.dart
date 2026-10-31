@@ -301,9 +301,10 @@ final class Router {
     }
   }
 
-  /// Resolves every route parameter named [param] through [resolver] before
-  /// the handler runs; the result is available via `request.binding<T>()`.
-  /// With [orFail], a `null` result renders a 404.
+  /// Resolves every route parameter named [param] through [resolver] after
+  /// the route's [RunsBeforeBindings] middleware (authentication, rate
+  /// limits) and before the rest; the result is available via
+  /// `request.binding<T>()`. With [orFail], a `null` result renders a 404.
   void bind(String param, RouteBinder resolver, {bool orFail = true}) =>
       _binders[param] = _Binder(resolver, orFail: orFail);
 
