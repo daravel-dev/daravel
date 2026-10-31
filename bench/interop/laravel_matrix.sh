@@ -142,6 +142,16 @@ for major in $VERSIONS; do
     done
   done
 
+  echo " remember me"
+  name_of() { sed -E 's/.*"name":"([^"]*)".*/\1/' <<<"$1"; }
+  cookie_of() { sed -E 's/.*"cookie":"([^"]*)".*/\1/; s/\\\//\//g' <<<"$1"; }
+  written=$(laravel -- remember-write)
+  check "Daravel logs in from Laravel's cookie" '"user":7' \
+    "$(daravel -- recall "$(name_of "$written")" "$(cookie_of "$written")")"
+  written=$(daravel -- remember)
+  check "Laravel logs in from Daravel's cookie" '"user":7' \
+    "$(laravel -- recall "$(name_of "$written")" "$(cookie_of "$written")")"
+
   echo " Crypt and bcrypt"
   from=$(laravel -- crypt)
   a=$(sed -E 's/.*"encrypt":"([^"]*)".*/\1/' <<<"$from")
