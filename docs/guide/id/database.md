@@ -1,4 +1,4 @@
-<!-- source: database.md sha256:e409b7119dc6 -->
+<!-- source: database.md sha256:1dd531cdfedb -->
 # Database
 
 `DB_CONNECTION` memilih SQLite (`sqlite`, default), PostgreSQL (`pgsql`),
@@ -413,6 +413,22 @@ final (users, count, queries) = await DB.withQueryCount(
 );
 expect(count, 2); // users, lalu semua post dalam satu query
 ```
+
+`DB.listenTransactions` melihat transaksi dimulai dan berakhir. `poolWait` adalah
+lama transaksi menunggu koneksi, yang membedakan pool yang terlalu kecil dari
+database yang lambat, dan `depth` lebih dari 1 untuk savepoint.
+
+```dart
+DB.listenTransactions((event) {
+  if (event is DbTransactionBeginning && event.depth == 1) {
+    metrics.record(event.poolWait);
+  }
+});
+```
+
+Aplikasi juga mengirimnya sebagai event `TransactionBeginning`,
+`TransactionCommitted`, dan `TransactionRolledBack`, untuk `Event.listen`. Listener
+yang gagal tidak memengaruhi transaksi.
 
 ## Tanggal dalam query
 
