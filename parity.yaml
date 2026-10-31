@@ -334,6 +334,10 @@ sections:
       - { php: "Cache::tags(['people'])->put($key, $value, $ttl)", dart: "await Cache.tags(['people']).put(key, value, ttl: ttl)", symbol: Cache.tags, async: true, note: "memory, process and redis stores (Laravel's layout on Redis); file and database cannot tag, as in Laravel." }
       - { php: "Cache::lock('name', 10)->get(fn)", dart: "await Cache.lock('name', ...)", symbol: Cache.lock }
       - { php: "SendEmail::dispatch($user)", dart: "await Queue.dispatch(SendEmail(user))", symbol: Queue.dispatch, async: true }
+      - { php: "Queue::route(SendEmail::class, 'emails')", dart: "Queue.manager.route<SendEmail>(queue: 'emails')", symbol: QueueManager.route }
+      - { php: "SendEmail::dispatch()->withoutDelay()", dart: ".withoutDelay()", symbol: PendingDispatch.withoutDelay }
+      - { php: "public $deleteWhenMissingModels = true", dart: "bool get deleteWhenMissingModels => true", symbol: Job.deleteWhenMissingModels }
+      - { php: "#[DebounceFor(60)]", dart: "Duration? get debounceFor => ...", symbol: Job.debounceFor }
       - { php: "Queue::later($delay, $job)", dart: "await Queue.later(delay, job)", symbol: Queue.later, async: true }
       - { php: "public function tags() (Horizon)", dart: "List<String> get tags", symbol: Job.tags }
       - { php: "php artisan queue:pause database:default / queue:continue", dart: "dartisan queue:pause database:default / queue:continue", symbol: QueueManager.pause }

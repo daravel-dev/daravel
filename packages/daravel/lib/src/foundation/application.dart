@@ -595,6 +595,7 @@ final class Application {
       failedJobs: failed,
       container: c,
       logger: logger,
+      debounceStore: () => lockStore,
       uniqueLockRelease: (key) => manager.releaseUniqueLock(key),
     );
     manager =

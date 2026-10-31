@@ -1,9 +1,12 @@
 import 'dart:async';
 
+import 'package:uuid/uuid.dart';
+
 import '../foundation/clock.dart';
 
 import '../cache/cache.dart';
 import '../database/database_manager.dart';
+import '../database/orm/model.dart';
 import '../events/events.dart';
 import '../foundation/config.dart';
 import '../foundation/config_validator.dart';
@@ -177,6 +180,9 @@ final class PendingDispatch implements Future<Object?> {
 
   PendingDispatch delay(Duration delay) => this.._delay = delay;
 
+  /// Laravel's `withoutDelay()`: at once, whatever delay the job declares.
+  PendingDispatch withoutDelay() => this.._delay = Duration.zero;
+
   PendingDispatch afterCommit() => this.._afterCommit = true;
 
   PendingDispatch beforeCommit() => this.._afterCommit = false;
@@ -226,6 +232,7 @@ final class JobProcessor {
     required this.container,
     this.logger,
     this.uniqueLockRelease,
+    this.debounceStore,
     DateTime Function()? clock,
   }) : _clock = clock ?? _utcNow;
 
@@ -237,6 +244,12 @@ final class JobProcessor {
 
   /// Releases the unique-job lock named by the payload.
   final Future<void> Function(String key)? uniqueLockRelease;
+
+  /// Holds the owner of each debounced job.
+  final CacheRepository? Function()? debounceStore;
+
+  static String debounceKey(Job job) =>
+      'debounced_job:${job.jobName}:${job.debounceId}';
   final DateTime Function() _clock;
 
   /// How many jobs were released after a timeout with their handler still
@@ -263,6 +276,19 @@ final class JobProcessor {
       // escape ended the worker with the row re-reserved for the next one.
       await _fail(driver, queued, error, stackTrace, job: null);
       return .failed;
+    }
+    final owner = payload.debounceOwner;
+    final debounce = owner == null ? null : debounceStore?.call();
+    final debounced = debounceKey(job);
+    if (debounce != null) {
+      // A newer dispatch took over. No owner at all is run: the cache may
+      // have lost it, and a lost update is worse than an extra run.
+      final current = await debounce.get<String>(debounced);
+      if (current != null && current != owner) {
+        await _finish(driver, queued, payload);
+        return .deleted;
+      }
+      await debounce.forget('$debounced:first_dispatched_at');
     }
     final maxTries = (tries ?? payload.maxTries);
     final ctx = JobContext(
@@ -318,6 +344,9 @@ final class JobProcessor {
         return .released;
       }
       await _finish(driver, queued, payload);
+      if (debounce != null && await debounce.get<String>(debounced) == owner) {
+        await debounce.forget(debounced);
+      }
       await events.dispatch(
         JobProcessed(
           connection: driver.name,
@@ -329,9 +358,17 @@ final class JobProcessor {
       );
       return .processed;
     }
+    // `CallQueuedHandler::handleModelNotFound`: another attempt cannot bring
+    // the row back.
+    final missingModel = error is ModelNotFoundException;
+    if (missingModel && job.deleteWhenMissingModels) {
+      await _finish(driver, queued, payload);
+      return .deleted;
+    }
     final exhausted =
         _exhausted(payload, queued.attempts, maxTries) ||
         failure != null ||
+        missingModel ||
         (timedOut && payload.failOnTimeout);
     await events.dispatch(
       JobExceptionOccurred(
@@ -350,6 +387,12 @@ final class JobProcessor {
       // restarted (as Laravel kills a worker on timeout) and attempt 1 does
       // not go on next to attempt 2.
       timedOutAndReleased++;
+    }
+    // A job that failed for good must not keep later dispatches waiting.
+    if (exhausted &&
+        debounce != null &&
+        await debounce.get<String>(debounced) == owner) {
+      await debounce.forget(debounced);
     }
     if (exhausted) {
       await _fail(driver, queued, error, trace ?? StackTrace.current, job: job);
@@ -516,6 +559,15 @@ final class QueueManager {
 
   /// Pushes [job]; returns the driver id or `null` when a unique job with
   /// the same id is already pending.
+  final Map<Type, ({String? queue, String? connection})> _routes = {};
+
+  /// Laravel's `Queue::route()`: where jobs of type [T] go, kept in one place
+  /// instead of on each class. A dispatch's own `onQueue` and the job's own
+  /// `queue` still win. The type must match exactly, as a route is looked up
+  /// by the job's class.
+  void route<T extends Job>({String? queue, String? connection}) =>
+      _routes[T] = (queue: queue, connection: connection);
+
   Future<Object?> push(
     Job job, {
     String? queue,
@@ -523,10 +575,19 @@ final class QueueManager {
     Duration? delay,
     bool? afterCommit,
   }) async {
+    // Before the fake, so a test catches the mistake too.
+    if (job.uniqueId != null && job.debounceFor != null) {
+      throw StateError('A debounced job cannot also be unique.');
+    }
     final fake = _fake;
-    final targetQueue = queue ?? job.queue ?? config.defaultQueue;
+    final routed = _routes[job.runtimeType];
+    final targetQueue =
+        queue ?? job.queue ?? routed?.queue ?? config.defaultQueue;
     final targetConnection =
-        connection ?? job.connection ?? config.defaultConnection;
+        connection ??
+        job.connection ??
+        routed?.connection ??
+        config.defaultConnection;
     if (fake != null) {
       fake.pushed.add((
         job: job,
@@ -546,6 +607,39 @@ final class QueueManager {
       return null;
     }
     return _pushNow(job, targetQueue, targetConnection, delay);
+  }
+
+  /// `DebounceLock::acquire`: the last dispatch owns the key, and each job
+  /// checks it when it runs, so this works on every driver. Answers the
+  /// token, and whether the burst passed [Job.debounceMaxWait].
+  Future<(String, bool)> _acquireDebounce(
+    CacheRepository store,
+    Job job,
+    Duration debounce,
+  ) async {
+    final key = JobProcessor.debounceKey(job);
+    final tenfold = debounce * 10;
+    final ttl = tenfold > const Duration(minutes: 5)
+        ? tenfold
+        : const Duration(minutes: 5);
+    final owner = const Uuid().v4();
+    await store.put(key, owner, ttl: ttl);
+    final maxWait = job.debounceMaxWait;
+    if (maxWait == null) {
+      return (owner, false);
+    }
+    final firstKey = '$key:first_dispatched_at';
+    final now = Clock.now().millisecondsSinceEpoch;
+    final first = await store.get<int>(firstKey);
+    if (first == null) {
+      await store.put(firstKey, now, ttl: ttl);
+      return (owner, false);
+    }
+    if (now - first >= maxWait.inMilliseconds) {
+      await store.forget(firstKey);
+      return (owner, true);
+    }
+    return (owner, false);
   }
 
   Future<Object?> _pushNow(
@@ -572,10 +666,24 @@ final class QueueManager {
         return null;
       }
     }
-    final payload = JobPayload.forJob(job, uniqueKey: uniqueKey);
-    return this
-        .connection(connection)
-        .push(payload, queue: queue, delay: delay);
+    String? owner;
+    var wait = delay;
+    final debounce = job.debounceFor;
+    if (debounce != null) {
+      final store = lockStore;
+      if (store == null) {
+        throw const ConfigException('Debounced jobs need a cache store.');
+      }
+      final (token, overdue) = await _acquireDebounce(store, job, debounce);
+      owner = token;
+      wait ??= overdue ? Duration.zero : debounce;
+    }
+    final payload = JobPayload.forJob(
+      job,
+      uniqueKey: uniqueKey,
+      debounceOwner: owner,
+    );
+    return this.connection(connection).push(payload, queue: queue, delay: wait);
   }
 
   /// Pushes after [delay].
