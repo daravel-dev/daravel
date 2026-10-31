@@ -81,6 +81,10 @@ void main() {
                 });
                 return {'ok': ok, 'id': request.session.id};
               });
+              r.post('/logout-then-fail', (request) async {
+                await guard().logout();
+                throw const HttpException(500, 'after logout');
+              });
               r.post('/logout', (request) async {
                 await guard().logout();
                 await request.session.invalidate();
@@ -247,6 +251,15 @@ void main() {
       headers: {'cookie': '$cookie=${Uri.encodeComponent(encrypted)}'},
     );
     expect(me.jsonMap['id'], 1);
+  });
+
+  test('a logout holds when the handler fails afterwards', () async {
+    await login();
+    final failed = keep(
+      await client.post('/logout-then-fail', headers: headers()),
+    );
+    expect(failed.status, 500);
+    expect((await client.get('/me', headers: headers())).status, 401);
   });
 
   test('logout ends it', () async {

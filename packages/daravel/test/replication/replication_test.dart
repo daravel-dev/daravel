@@ -1,3 +1,8 @@
+// A loaded Windows runner took over 30 s for the plain tests here: one went
+// on working after its timeout, so it was slow, not stuck.
+@Timeout(Duration(minutes: 3))
+library;
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -14,6 +19,8 @@ import 'package:test/test.dart';
 Database openApp(String path) {
   final db = sqlite3.open(path)
     ..execute('PRAGMA journal_mode=WAL')
+    // No fsync per row: these tests are about the log, not about power loss.
+    ..execute('PRAGMA synchronous=NORMAL')
     ..execute('PRAGMA busy_timeout=5000')
     ..execute(
       'CREATE TABLE IF NOT EXISTS rows (id INTEGER PRIMARY KEY, body TEXT)',
@@ -269,9 +276,24 @@ void main() {
     openApp(path).close();
     final replies = ReceivePort();
     final events = StreamIterator(replies);
-    await Isolate.spawn(_writer, (replies.sendPort, path, 1));
-    await events.moveNext();
-    final control = events.current as SendPort;
+    // A writer that dies must fail the test, not leave it waiting for an
+    // answer: an insert can hit SQLITE_BUSY on a loaded machine.
+    await Isolate.spawn(
+      _writer,
+      (replies.sendPort, path, 1),
+      onError: replies.sendPort,
+      onExit: replies.sendPort,
+    );
+    Future<Object?> reply() async {
+      await events.moveNext();
+      return switch (events.current) {
+        final List<Object?> error => fail('The writer died: ${error.first}'),
+        null => fail('The writer exited without answering.'),
+        final Object? value => value,
+      };
+    }
+
+    final control = await reply() as SendPort;
 
     final replicator = SqliteReplicator(path, disk, checkpointPages: 20);
     final deadline = DateTime.now().add(const Duration(seconds: 4));
@@ -290,8 +312,7 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 30));
     }
     control.send('stop');
-    await events.moveNext();
-    final last = events.current as int;
+    final last = await reply() as int;
     replies.close();
     await replicator.sync();
     replicator.close();
