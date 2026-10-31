@@ -205,7 +205,7 @@ void main() {
               'DB_DATABASE': ':memory:',
               'QUEUE_CONNECTION': connection,
             })
-            .withMigrations(const [CreateJobsTable()])
+            .withMigrations(const [CreateJobsTable(), CreateCacheTable()])
             .withJobs(definitions)
             .create();
     await app!.boot();
@@ -425,6 +425,32 @@ void main() {
         await Queue.push(const Saved(2, maxWait: maxWait));
         await drain();
         expect(log, ['saved:2'], reason: 'no delay past the limit');
+      });
+    });
+
+    test('on the database driver too', () async {
+      await boot('database');
+      Clock.fake(DateTime.utc(2026, 11, 1, 8));
+      await app!.run(() async {
+        await Queue.push(const Saved(1));
+        await Queue.push(const Saved(2));
+        await drain();
+        expect(log, isEmpty);
+        Clock.travel(const Duration(minutes: 2));
+        await drain();
+        expect(log, ['saved:2']);
+        expect(await Queue.manager.processor.failedJobs.all(), isEmpty);
+      });
+    });
+
+    test('a fake refuses the mistake too', () async {
+      await boot('memory');
+      await app!.run(() async {
+        Queue.fake();
+        await expectLater(
+          Queue.push(const SavedUnique()),
+          throwsA(isA<StateError>()),
+        );
       });
     });
 

@@ -388,6 +388,12 @@ final class JobProcessor {
       // not go on next to attempt 2.
       timedOutAndReleased++;
     }
+    // A job that failed for good must not keep later dispatches waiting.
+    if (exhausted &&
+        debounce != null &&
+        await debounce.get<String>(debounced) == owner) {
+      await debounce.forget(debounced);
+    }
     if (exhausted) {
       await _fail(driver, queued, error, trace ?? StackTrace.current, job: job);
       return .failed;
@@ -569,6 +575,10 @@ final class QueueManager {
     Duration? delay,
     bool? afterCommit,
   }) async {
+    // Before the fake, so a test catches the mistake too.
+    if (job.uniqueId != null && job.debounceFor != null) {
+      throw StateError('A debounced job cannot also be unique.');
+    }
     final fake = _fake;
     final routed = _routes[job.runtimeType];
     final targetQueue =
@@ -640,9 +650,6 @@ final class QueueManager {
   ) async {
     String? uniqueKey;
     final uniqueId = job.uniqueId;
-    if (uniqueId != null && job.debounceFor != null) {
-      throw StateError('A debounced job cannot also be unique.');
-    }
     if (uniqueId != null) {
       final store = lockStore;
       if (store == null) {
