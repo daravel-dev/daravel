@@ -31,6 +31,7 @@ final class JobPayload {
     required this.pushedAt,
     this.retryUntil,
     this.uniqueKey,
+    this.debounceOwner,
     this.tags = const <String>[],
     this.context,
   });
@@ -40,6 +41,7 @@ final class JobPayload {
     String? uuid,
     DateTime? now,
     String? uniqueKey,
+    String? debounceOwner,
   }) {
     final pushed = (now ?? Clock.now().toUtc()).millisecondsSinceEpoch ~/ 1000;
     final retryUntil = job.retryUntil;
@@ -56,6 +58,7 @@ final class JobPayload {
       pushedAt: pushed,
       retryUntil: retryUntil == null ? null : pushed + retryUntil.inSeconds,
       uniqueKey: uniqueKey,
+      debounceOwner: debounceOwner,
       tags: List.unmodifiable(job.tags),
       // The dispatching request's Context travels with the job.
       context: Context.current.dehydrate(),
@@ -77,6 +80,7 @@ final class JobPayload {
     pushedAt: (json['pushedAt'] as num?)?.toInt() ?? 0,
     retryUntil: (json['retryUntil'] as num?)?.toInt(),
     uniqueKey: json['uniqueKey'] as String?,
+    debounceOwner: json['debounceOwner'] as String?,
     tags: [
       for (final tag in (json['tags'] as List<Object?>?) ?? const <Object?>[])
         if (tag is String) tag,
@@ -125,6 +129,9 @@ final class JobPayload {
   /// Unique-job lock key to release after processing.
   final String? uniqueKey;
 
+  /// The dispatch this payload belongs to; see [Job.debounceFor].
+  final String? debounceOwner;
+
   /// Monitoring tags ([Job.tags]; Laravel Horizon's `tags` payload key).
   /// The dispatching scope's `Context` (visible and hidden entries).
   final Map<String, Object?>? context;
@@ -143,6 +150,7 @@ final class JobPayload {
     'retryUntil': retryUntil,
     'pushedAt': pushedAt,
     'uniqueKey': uniqueKey,
+    if (debounceOwner != null) 'debounceOwner': debounceOwner,
     'tags': tags,
     if (context != null) 'context': context,
     'data': data,

@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:uuid/uuid.dart';
+
 import '../foundation/clock.dart';
 
 import '../cache/cache.dart';
@@ -230,6 +232,7 @@ final class JobProcessor {
     required this.container,
     this.logger,
     this.uniqueLockRelease,
+    this.debounceStore,
     DateTime Function()? clock,
   }) : _clock = clock ?? _utcNow;
 
@@ -241,6 +244,12 @@ final class JobProcessor {
 
   /// Releases the unique-job lock named by the payload.
   final Future<void> Function(String key)? uniqueLockRelease;
+
+  /// Holds the owner of each debounced job.
+  final CacheRepository? Function()? debounceStore;
+
+  static String debounceKey(Job job) =>
+      'debounced_job:${job.jobName}:${job.debounceId}';
   final DateTime Function() _clock;
 
   /// How many jobs were released after a timeout with their handler still
@@ -267,6 +276,19 @@ final class JobProcessor {
       // escape ended the worker with the row re-reserved for the next one.
       await _fail(driver, queued, error, stackTrace, job: null);
       return .failed;
+    }
+    final owner = payload.debounceOwner;
+    final debounce = owner == null ? null : debounceStore?.call();
+    final debounced = debounceKey(job);
+    if (debounce != null) {
+      // A newer dispatch took over. No owner at all is run: the cache may
+      // have lost it, and a lost update is worse than an extra run.
+      final current = await debounce.get<String>(debounced);
+      if (current != null && current != owner) {
+        await _finish(driver, queued, payload);
+        return .deleted;
+      }
+      await debounce.forget('$debounced:first_dispatched_at');
     }
     final maxTries = (tries ?? payload.maxTries);
     final ctx = JobContext(
@@ -322,6 +344,9 @@ final class JobProcessor {
         return .released;
       }
       await _finish(driver, queued, payload);
+      if (debounce != null && await debounce.get<String>(debounced) == owner) {
+        await debounce.forget(debounced);
+      }
       await events.dispatch(
         JobProcessed(
           connection: driver.name,
@@ -574,6 +599,39 @@ final class QueueManager {
     return _pushNow(job, targetQueue, targetConnection, delay);
   }
 
+  /// `DebounceLock::acquire`: the last dispatch owns the key, and each job
+  /// checks it when it runs, so this works on every driver. Answers the
+  /// token, and whether the burst passed [Job.debounceMaxWait].
+  Future<(String, bool)> _acquireDebounce(
+    CacheRepository store,
+    Job job,
+    Duration debounce,
+  ) async {
+    final key = JobProcessor.debounceKey(job);
+    final tenfold = debounce * 10;
+    final ttl = tenfold > const Duration(minutes: 5)
+        ? tenfold
+        : const Duration(minutes: 5);
+    final owner = const Uuid().v4();
+    await store.put(key, owner, ttl: ttl);
+    final maxWait = job.debounceMaxWait;
+    if (maxWait == null) {
+      return (owner, false);
+    }
+    final firstKey = '$key:first_dispatched_at';
+    final now = Clock.now().millisecondsSinceEpoch;
+    final first = await store.get<int>(firstKey);
+    if (first == null) {
+      await store.put(firstKey, now, ttl: ttl);
+      return (owner, false);
+    }
+    if (now - first >= maxWait.inMilliseconds) {
+      await store.forget(firstKey);
+      return (owner, true);
+    }
+    return (owner, false);
+  }
+
   Future<Object?> _pushNow(
     Job job,
     String queue,
@@ -582,6 +640,9 @@ final class QueueManager {
   ) async {
     String? uniqueKey;
     final uniqueId = job.uniqueId;
+    if (uniqueId != null && job.debounceFor != null) {
+      throw StateError('A debounced job cannot also be unique.');
+    }
     if (uniqueId != null) {
       final store = lockStore;
       if (store == null) {
@@ -598,10 +659,24 @@ final class QueueManager {
         return null;
       }
     }
-    final payload = JobPayload.forJob(job, uniqueKey: uniqueKey);
-    return this
-        .connection(connection)
-        .push(payload, queue: queue, delay: delay);
+    String? owner;
+    var wait = delay;
+    final debounce = job.debounceFor;
+    if (debounce != null) {
+      final store = lockStore;
+      if (store == null) {
+        throw const ConfigException('Debounced jobs need a cache store.');
+      }
+      final (token, overdue) = await _acquireDebounce(store, job, debounce);
+      owner = token;
+      wait ??= overdue ? Duration.zero : debounce;
+    }
+    final payload = JobPayload.forJob(
+      job,
+      uniqueKey: uniqueKey,
+      debounceOwner: owner,
+    );
+    return this.connection(connection).push(payload, queue: queue, delay: wait);
   }
 
   /// Pushes after [delay].
