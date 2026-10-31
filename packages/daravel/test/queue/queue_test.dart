@@ -147,6 +147,18 @@ final class Saved extends Job {
   Future<void> handle(JobContext ctx) async => log.add('saved:$value');
 }
 
+final class SavedFailing extends Job {
+  const SavedFailing();
+  @override
+  String get jobName => 'saved-failing';
+  @override
+  Duration? get debounceFor => const Duration(minutes: 1);
+  @override
+  Map<String, Object?> toJson() => const {};
+  @override
+  Future<void> handle(JobContext ctx) async => throw StateError('no');
+}
+
 final class SavedUnique extends Job {
   const SavedUnique();
   @override
@@ -182,6 +194,7 @@ final List<JobDefinition> definitions = [
   JobDefinition('greet', Greet.fromJson),
   JobDefinition('lingering', (_) => const Lingering()),
   JobDefinition('saved', (j) => Saved(j['value']! as int)),
+  JobDefinition('saved-failing', (_) => const SavedFailing()),
   JobDefinition('stale', (j) => Stale(drop: j['drop']! as bool)),
   JobDefinition('slow', (_) => const Slow()),
   JobDefinition('exclusive', (j) => Exclusive(j['key']! as String)),
@@ -440,6 +453,22 @@ void main() {
         await drain();
         expect(log, ['saved:2']);
         expect(await Queue.manager.processor.failedJobs.all(), isEmpty);
+      });
+    });
+
+    test('a job that fails for good gives up its place', () async {
+      await boot('memory');
+      Clock.fake(DateTime.utc(2026, 11, 1, 8));
+      await app!.run(() async {
+        const job = SavedFailing();
+        final store = Queue.manager.processor.debounceStore!()!;
+        final key = JobProcessor.debounceKey(job);
+        await Queue.push(job);
+        expect(await store.get<String>(key), isNotNull);
+        Clock.travel(const Duration(minutes: 2));
+        await drain();
+        expect(await Queue.manager.processor.failedJobs.all(), hasLength(1));
+        expect(await store.get<String>(key), isNull);
       });
     });
 
