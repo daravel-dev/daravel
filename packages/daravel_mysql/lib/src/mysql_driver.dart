@@ -42,6 +42,7 @@ final class MySqlDriver
     this.isolationLevel,
     this.initCommands = const [],
     this.onConnectionOpen,
+    this.dialect = SqlDialect.mysql,
   });
 
   /// Builds the driver from a connection of `config/database` (`DB_*`).
@@ -53,6 +54,9 @@ final class MySqlDriver
     final sslMode = '${connection.options['sslmode'] ?? 'disable'}';
     return MySqlDriver(
       name: name,
+      dialect: connection.driver == 'mariadb'
+          ? SqlDialect.mariadb
+          : SqlDialect.mysql,
       host: connection.host ?? '127.0.0.1',
       port: connection.port ?? 3306,
       database: connection.database,
@@ -199,8 +203,9 @@ final class MySqlDriver
 
   my.MySQLConnectionPool? _pool;
 
+  /// [SqlDialect.mariadb] for a `mariadb` connection, for what MariaDB adds.
   @override
-  SqlDialect get dialect => SqlDialect.mysql;
+  final SqlDialect dialect;
 
   @override
   bool get isConnected => _pool != null;
@@ -312,13 +317,13 @@ final class MySqlDriver
     String sql, [
     List<Object?> bindings = const [],
   ]) => _withConnection(
-    (c) => _MySqlExecutor(c, queryTimeout).select(sql, bindings),
+    (c) => _MySqlExecutor(c, queryTimeout, dialect).select(sql, bindings),
   );
 
   @override
   Future<int> execute(String sql, [List<Object?> bindings = const []]) =>
       _withConnection(
-        (c) => _MySqlExecutor(c, queryTimeout).execute(sql, bindings),
+        (c) => _MySqlExecutor(c, queryTimeout, dialect).execute(sql, bindings),
       );
 
   @override
@@ -326,27 +331,27 @@ final class MySqlDriver
     String sql, [
     List<Object?> bindings = const [],
   ]) => _withConnection(
-    (c) => _MySqlExecutor(c, queryTimeout).insertGetId(sql, bindings),
+    (c) => _MySqlExecutor(c, queryTimeout, dialect).insertGetId(sql, bindings),
   );
 
   @override
   Future<T> transaction<T>(Future<T> Function(QueryExecutor tx) body) =>
       _withConnection(
         (connection) => connection.transactional<T>(
-          (tx) => body(_MySqlExecutor(tx, queryTimeout)),
+          (tx) => body(_MySqlExecutor(tx, queryTimeout, dialect)),
         ),
       );
 }
 
 /// Runs statements on one connection (a pooled one, or a transaction's).
 final class _MySqlExecutor implements QueryExecutor {
-  _MySqlExecutor(this._connection, this._queryTimeout);
+  _MySqlExecutor(this._connection, this._queryTimeout, this.dialect);
 
   final my.MySQLConnection _connection;
   final Duration? _queryTimeout;
 
   @override
-  SqlDialect get dialect => SqlDialect.mysql;
+  final SqlDialect dialect;
 
   /// Prepared-statement parameters in the form MySQL stores what Laravel
   /// writes.

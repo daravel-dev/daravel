@@ -156,7 +156,7 @@ final class DatabaseTransfer {
       switch (dialect) {
         case SqlDialect.sqlite:
           await executor.execute('PRAGMA defer_foreign_keys = ON');
-        case SqlDialect.mysql:
+        case SqlDialect.mysql || SqlDialect.mariadb:
           await executor.execute('SET FOREIGN_KEY_CHECKS = 0');
         case SqlDialect.postgres:
           // Checked per statement otherwise: a self-reference to a later
@@ -177,7 +177,7 @@ final class DatabaseTransfer {
         );
         log?.call('$table: ${report.rows[table]} row(s)');
       }
-      if (dialect == SqlDialect.mysql) {
+      if (dialect.isMySqlFamily) {
         await executor.execute('SET FOREIGN_KEY_CHECKS = 1');
       }
       if (dialect == SqlDialect.postgres) {
@@ -370,7 +370,7 @@ final class DatabaseTransfer {
           'AND tc.table_schema = current_schema()',
         );
         return [for (final r in rows) ('${r['child']}', '${r['parent']}')];
-      case SqlDialect.mysql:
+      case SqlDialect.mysql || SqlDialect.mariadb:
         final rows = await executor.select(
           'SELECT TABLE_NAME AS child, REFERENCED_TABLE_NAME AS parent '
           'FROM information_schema.KEY_COLUMN_USAGE '
