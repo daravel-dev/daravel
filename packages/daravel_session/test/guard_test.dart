@@ -96,6 +96,13 @@ void main() {
                     },
                   )
                   .middleware(['auth:web']);
+              r.get(
+                '/via',
+                (request) async => {
+                  'id': await guard().id(),
+                  'via': guard().viaRemember,
+                },
+              );
               r.post('/remember', (request) async {
                 final ok = await guard().attempt({
                   'email': 'ana@x.io',
@@ -267,6 +274,24 @@ void main() {
       keep(await client.post('/remember', headers: headers()));
       jar.remove(cookie);
     }
+
+    test('viaRemember is true for the request the cookie logged in', () async {
+      await rememberThenLoseTheSession();
+      final first = keep(await client.get('/via', headers: headers()));
+      expect(first.jsonMap, {'id': 1, 'via': true});
+      final second = keep(await client.get('/via', headers: headers()));
+      expect(second.jsonMap, {'id': 1, 'via': false});
+    });
+
+    test(
+      'viaRemember does not leak into a request without the cookie',
+      () async {
+        await rememberThenLoseTheSession();
+        keep(await client.get('/via', headers: headers()));
+        final other = await client.get('/via');
+        expect(other.jsonMap, {'id': null, 'via': false});
+      },
+    );
 
     test('the cookie logs in after the session is gone', () async {
       await rememberThenLoseTheSession();

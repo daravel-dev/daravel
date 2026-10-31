@@ -145,7 +145,8 @@ await request.session.invalidate();
 `attempt(..., remember: true)` also writes Laravel's `remember_web_<sha1>`
 cookie, which needs a nullable `remember_token` column and logs the user in
 on either application once the session is gone; `logout` forgets it and
-changes the token.
+changes the token. `guard.viaRemember` tells whether this
+request's user came from that cookie.
 
 Put `auth:web` after the `web` group on protected routes. From
 `COMPAT_LARAVEL_VERSION=12` the login also stores `password_hash_web`, which

@@ -317,6 +317,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `auth()->user() / Auth::user()` | `await Auth.user()` | **async** |
 | `Auth::id() / check() / guest()` | `await Auth.id() / check() / guest()` | **async** |
 | `Auth::guard('api')` | `Auth.guard('api')` |  |
+| `Auth::viaRemember()` | `guard.viaRemember` |  |
 | `$user->createToken($name, $abilities)` | `await Auth.issueToken(user, name, abilities: [...])` | **async** |
 | `$user->currentAccessToken()->delete()` | `await Auth.tokenGuard().revokeCurrent()` | **async** |
 | `$user->tokenCan('posts:read')` | `await Auth.tokenGuard().tokenCan('posts:read')` | **async** |

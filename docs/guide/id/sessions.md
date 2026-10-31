@@ -1,4 +1,4 @@
-<!-- source: sessions.md sha256:d1cb6abca414 -->
+<!-- source: sessions.md sha256:7a38ce125cb4 -->
 # Session, cookie, dan CSRF
 
 `daravel_session` memberi route web sebuah session seperti di Laravel: id
@@ -147,6 +147,7 @@ await request.session.invalidate();
 Laravel. Cookie ini butuh kolom `remember_token` yang nullable, dan me-login-kan
 user di kedua aplikasi setelah session habis; `logout` menghapusnya dan
 mengganti token.
+`guard.viaRemember` memberi tahu apakah user request ini berasal dari cookie itu.
 
 Pasang `auth:web` setelah grup `web` pada route yang dilindungi. Mulai
 `COMPAT_LARAVEL_VERSION=12`, login juga menyimpan `password_hash_web` yang

@@ -36,6 +36,15 @@ final class SessionGuard<T extends Authenticatable> extends RequestGuard<T>
   /// `SessionGuard::$rememberDuration`: five years.
   static const Duration rememberDuration = Duration(minutes: 2628000);
 
+  String get _viaRememberAttribute => 'daravel.via_remember.$name';
+
+  /// Laravel's `viaRemember()`: this request's user came from the remember
+  /// cookie. Kept on the request, because the guard is shared by every
+  /// request of the isolate. As in Laravel, it is known once the user was
+  /// resolved, and the next request has a session instead.
+  bool get viaRemember =>
+      AuthScope.request()?.attributes[_viaRememberAttribute] == true;
+
   /// The session key `AuthenticateSession` compares.
   String get passwordHashKey => 'password_hash_$name';
 
@@ -59,6 +68,7 @@ final class SessionGuard<T extends Authenticatable> extends RequestGuard<T>
     }
     final remembered = await _userFromRecaller(request);
     if (remembered != null) {
+      request.attributes[_viaRememberAttribute] = true;
       await _updateSession(session, remembered);
     }
     return remembered;

@@ -287,6 +287,7 @@ sections:
       - { php: "auth()->user() / Auth::user()", dart: "await Auth.user()", symbol: Auth.user, async: true }
       - { php: "Auth::id() / check() / guest()", dart: "await Auth.id() / check() / guest()", symbol: Auth.check, async: true }
       - { php: "Auth::guard('api')", dart: "Auth.guard('api')", symbol: Auth.guard }
+      - { php: "Auth::viaRemember()", dart: "guard.viaRemember", symbol: SessionGuard.viaRemember }
       - { php: "$user->createToken($name, $abilities)", dart: "await Auth.issueToken(user, name, abilities: [...])", symbol: Auth.issueToken, async: true }
       - { php: "$user->currentAccessToken()->delete()", dart: "await Auth.tokenGuard().revokeCurrent()", symbol: TokenGuard.revokeCurrent, async: true }
       - { php: "$user->tokenCan('posts:read')", dart: "await Auth.tokenGuard().tokenCan('posts:read')", symbol: TokenGuard.tokenCan, async: true }
