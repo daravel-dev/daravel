@@ -1,4 +1,4 @@
-<!-- source: validation.md sha256:01e03da96d6a -->
+<!-- source: validation.md sha256:a6fd03dbe259 -->
 # Validasi
 
 Validasi request secara inline dengan string rule Laravel, atau dengan objek
@@ -61,6 +61,35 @@ sebuah middleware).
 - `confirmed` mencari `{field}_confirmation`.
 - `bail` berhenti pada kegagalan pertama sebuah field.
 - Data bersarang memakai path bertitik dan wildcard `*`.
+
+## Aturan lainnya
+
+- **Perbandingan:** `gt`, `gte`, `lt`, dan `lte` menerima angka jika nilainya
+  numerik, atau field lain dengan tipe yang sama. Angka dibandingkan sebagai
+  desimal eksak.
+- **Angka:** `decimal:2` dan `decimal:0,4`, `multiple_of:5`, `min_digits:3`,
+  `max_digits:5`.
+- **Kondisi:** `required_with_all`, `required_without_all`,
+  `required_if_accepted`, `present_if`, `prohibited_if`, `prohibited_unless`,
+  `prohibits`.
+- **Mengeluarkan field:** `exclude`, `exclude_if`, `exclude_unless`,
+  `exclude_with`, `exclude_without`. Field dikeluarkan dari `validated()`, aturan
+  sesudahnya berhenti, dan aturan berikutnya melihatnya sebagai tidak ada.
+- **Lainnya:** `date_equals`, dan `timezone` atau `timezone:Asia`. Aturan ini juga
+  menerima alias IANA lama seperti `Asia/Calcutta`, dan tidak mendukung
+  `per_country`.
+
+Aturan yang membutuhkan objek:
+
+```dart
+Rules.enum_(Status.values);
+Rules.enum_(Status.values, only: [Status.draft], toValue: (s) => s.index);
+
+Rules.unique('users', 'email').ignore(user.id);
+Rules.unique('users', 'email').ignore(id, idColumn: 'staff_id');
+Rules.unique('users', 'email').where((QueryBuilder q) => q.whereNull('deleted_at'));
+Rules.exists('billing.invoices', 'id').where((QueryBuilder q) => q.where('open', true));
+```
 
 ## Form request
 

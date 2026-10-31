@@ -176,6 +176,30 @@ final users = await User.query()
 returns them: numbers on SQLite, strings for `DECIMAL`/`numeric` results on
 MySQL and PostgreSQL, as with Laravel's PDO.
 
+### More on relations
+
+```dart
+BelongsTo<User>(() => User.definition, foreignKey: 'user_id').withDefault();
+BelongsTo<User>(...).withDefault((post) => User()..setAttr('name', 'Guest'));
+
+HasOne<Order>(() => Order.definition, foreignKey: 'user_id').latestOfMany();
+HasOne<Attempt>(...).latestOfMany('score');
+HasOne<Order>(...).oldestOfMany();
+HasOne<Attempt>(...).ofMany('score', 'max');
+
+await user.syncWithoutDetaching('roles', [1, 2]);
+await user.toggle('roles', [1, 2]);
+await user.updateExistingPivot('roles', 1, {'note': 'x'});
+```
+
+`withDefault` stands in for a missing owner when the relation is loaded, and it
+is not saved. `latestOfMany` reads one row per parent when eager loading, in one
+query, ignoring soft deleted rows; rows with the same value go by the primary key.
+
+`updateQuietly` and `deleteQuietly` fire no events, as `saveQuietly`. A global
+scope in `namedGlobalScopes` comes off with `withoutGlobalScope('active')`, and
+`whereNone(['a', 'b'], 'like', '%x%')` matches rows where no column does.
+
 ## Polymorphic relations
 
 A polymorphic relation lets one table belong to several models: comments on

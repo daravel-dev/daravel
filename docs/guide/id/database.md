@@ -1,4 +1,4 @@
-<!-- source: database.md sha256:e10f06c0750e -->
+<!-- source: database.md sha256:e409b7119dc6 -->
 # Database
 
 `DB_CONNECTION` memilih SQLite (`sqlite`, default), PostgreSQL (`pgsql`),
@@ -308,6 +308,25 @@ yang tidak bisa dilakukan PHP, jadi dua aturan menjaganya tetap aman:
   (`unawaited_in_db_transaction`) menunjukkan yang tidak, termasuk
   `unawaited(...)` dan `.ignore()`.
 
+## Kolom JSON
+
+`->` membaca dan menulis di dalam kolom JSON, di semua driver:
+
+```dart
+await DB.table('users').where('meta->lang', 'id').get();
+await DB.table('users').orderBy('meta->lang').get();
+await DB.table('users').whereJsonContains('meta->roles', 'admin').get();
+await DB.table('users').where('id', 1).update({
+  'meta->lang': 'en',
+  'meta->flags': [1, 2],
+});
+```
+
+Path hanya berisi key dan indeks biasa (`items[0]->id`); selain itu adalah error,
+sama seperti kolom yang tidak valid. Update mempertahankan key lain dan tipe JSON
+nilainya, juga pada kolom `NULL`. Path bersarang butuh induknya di PostgreSQL dan
+MySQL, sama seperti Laravel; SQLite membuatnya.
+
 ## Error query
 
 Query yang ditolak database melempar `QueryException`, berisi `sql`,
@@ -338,6 +357,23 @@ Berbeda dengan Laravel, pesannya mempertahankan placeholder `?` dan hanya
 baris pertama dari error driver, sehingga nilai binding (hash password,
 email) tidak masuk log; kata-kata database sendiri masih bisa menyebut
 nilai yang bentrok (`Duplicate entry` di MySQL, detail di PostgreSQL).
+
+## Mengulang transaksi
+
+```dart
+await DB.transaction(() async {
+  // ...
+}, attempts: 5);
+```
+
+Deadlock dan kegagalan serialisasi menjalankan seluruh callback lagi. Di antara
+percobaan ada jeda acak 2 sampai 250 ms tanpa memegang koneksi, sehingga isolate
+yang bertabrakan tidak bertabrakan lagi. Clock test yang dibekukan langsung
+mengulang.
+
+`query.poolWait` pada `DB.listen` adalah waktu menunggu koneksi, terpisah dari
+`query.time`: nilai tinggi berarti pool terlalu kecil, bukan database yang lambat.
+Nilainya nol di dalam transaksi, yang memegang koneksinya sendiri, dan di SQLite.
 
 ## Mendengarkan query
 
