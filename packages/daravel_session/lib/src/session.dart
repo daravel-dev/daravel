@@ -255,6 +255,19 @@ final class Session {
     _format = serialization;
   }
 
+  /// The validation errors a failed request flashed, by field.
+  Map<String, Object?> get errors => switch (get<Object>('errors')) {
+    {'default': final Map<String, Object?> bag} => bag,
+    _ => const {},
+  };
+
+  /// `old('name')`: the input of the failed request.
+  T? old<T>(String key, [T? fallback]) {
+    final input = get<Object>('_old_input');
+    final value = input is Map ? input[key] : null;
+    return value is T ? value : fallback;
+  }
+
   String? get previousUrl => get<String>('_previous.url');
 
   set previousUrl(String? url) => put('_previous.url', url);

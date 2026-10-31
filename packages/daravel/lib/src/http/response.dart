@@ -124,6 +124,34 @@ final class Response {
   );
 
   /// Raw bytes with an explicit content type.
+  /// Laravel's `back()`: to the `Referer` when it is this site, else
+  /// [previous] (the session's previous URL), else [fallback]. A foreign
+  /// `Referer` is ignored, so it cannot make this an open redirect.
+  ///
+  /// Inertia needs 303 after PUT, PATCH and DELETE: browsers repeat the
+  /// method on a 302.
+  factory Response.back(
+    Request request, {
+    String fallback = '/',
+    String? previous,
+    int? status,
+  }) {
+    final referer = Uri.tryParse(request.headers.first('referer') ?? '');
+    final sameSite =
+        referer != null &&
+        referer.hasAuthority &&
+        referer.authority == request.uri.authority;
+    return Response.redirect(
+      sameSite ? referer.toString() : previous ?? fallback,
+      status:
+          status ??
+          (request.headers.first('x-inertia') == 'true' &&
+                  const {'PUT', 'PATCH', 'DELETE'}.contains(request.method)
+              ? 303
+              : 302),
+    );
+  }
+
   factory Response.bytes(
     List<int> bytes, {
     required String contentType,
