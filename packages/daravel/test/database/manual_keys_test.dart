@@ -70,7 +70,28 @@ void main() {
     );
     expect(request.inputSync<int>('page'), 5);
     expect(request.inputSync<String>('name'), 'query');
+    await request.all();
+    expect(request.inputSync<String>('name'), 'body');
     expect(request.inputSync<int>('missing', 3), 3);
+  });
+
+  test('inputSync fails loudly when an unread body would be skipped', () async {
+    final body = jsonEncode({'name': 'body'});
+    final request = Request.fake(
+      method: 'POST',
+      path: '/x',
+      query: const {'page': '5'},
+      headers: {
+        'content-type': 'application/json',
+        'content-length': '${body.length}',
+      },
+      body: body,
+    );
+    expect(request.inputSync<int>('page'), 5, reason: 'the query answers');
+    expect(
+      () => request.inputSync<String>('name'),
+      throwsA(isA<AssertionError>()),
+    );
     await request.all();
     expect(request.inputSync<String>('name'), 'body');
   });
