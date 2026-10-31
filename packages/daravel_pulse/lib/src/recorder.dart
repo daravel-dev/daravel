@@ -26,6 +26,8 @@ final class PulseRecorder {
     'queries',
     'exceptions',
     'jobs',
+    'storms',
+    'pool_waits',
   ];
 
   final int maxGroups;
@@ -84,6 +86,35 @@ final class PulseRecorder {
   }
 
   /// Lists a slow query under its SQL (bindings are never kept).
+  /// Lists a request that ran [statement] [count] times, or [total] queries
+  /// in all; fast queries add up, so no threshold of time would catch it.
+  void recordStorm({
+    required String method,
+    required String route,
+    required String statement,
+    required int count,
+    required int total,
+    required Duration duration,
+  }) {
+    final now = Clock.now();
+    final text = _clip(statement, 1000);
+    _group('storms', '$method $route|$text', now, duration, {
+      'method': method,
+      'route': route,
+      'sql': text,
+      'repeats': count,
+      'queries': total,
+    });
+    _recorded(now);
+  }
+
+  /// Lists a query that waited [waited] for a connection.
+  void recordPoolWait(String connection, Duration waited) {
+    final now = Clock.now();
+    _group('pool_waits', connection, now, waited, {'connection': connection});
+    _recorded(now);
+  }
+
   void recordQuery(String sql, String connection, Duration duration) {
     final now = Clock.now();
     final text = sql.replaceAll(RegExp(r'\s+'), ' ').trim();
@@ -271,6 +302,8 @@ abstract final class PulseSnapshot {
     'queries': 'slow_queries',
     'exceptions': 'exceptions',
     'jobs': 'jobs',
+    'storms': 'query_storms',
+    'pool_waits': 'pool_waits',
   };
 
   /// Merges [reports] over [window] ending at [now]: totals, a 60-point

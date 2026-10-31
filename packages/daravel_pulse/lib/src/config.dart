@@ -10,6 +10,9 @@ final class PulseConfig implements ConfigSection {
     this.slowJobThreshold = const Duration(seconds: 1),
     this.queues = const ['default'],
     this.publishEvery = const Duration(seconds: 5),
+    this.nPlusOneThreshold = 5,
+    this.queryStormThreshold = 25,
+    this.poolWaitThreshold = const Duration(milliseconds: 20),
   });
 
   factory PulseConfig.fromEnv(Env env) => PulseConfig(
@@ -23,6 +26,11 @@ final class PulseConfig implements ConfigSection {
     ),
     slowJobThreshold: Duration(
       milliseconds: env.integer('PULSE_SLOW_JOBS_THRESHOLD', 1000),
+    ),
+    nPlusOneThreshold: env.integer('PULSE_N_PLUS_ONE_THRESHOLD', 5),
+    queryStormThreshold: env.integer('PULSE_QUERY_STORM_THRESHOLD', 25),
+    poolWaitThreshold: Duration(
+      milliseconds: env.integer('PULSE_POOL_WAIT_THRESHOLD', 20),
     ),
     queues: env.list('PULSE_QUEUES', const ['default']),
     publishEvery: Duration(
@@ -52,6 +60,18 @@ final class PulseConfig implements ConfigSection {
   /// (`PULSE_QUEUES`, comma separated).
   final List<String> queues;
 
+  /// One statement this often in a request is listed as an N+1
+  /// (`PULSE_N_PLUS_ONE_THRESHOLD`).
+  final int nPlusOneThreshold;
+
+  /// This many queries in a request are listed as a storm, whatever they are
+  /// (`PULSE_QUERY_STORM_THRESHOLD`).
+  final int queryStormThreshold;
+
+  /// Queries that waited this long for a connection are listed
+  /// (`PULSE_POOL_WAIT_THRESHOLD`, in milliseconds).
+  final Duration poolWaitThreshold;
+
   /// How often a worker isolate sends what it recorded to the coordinator,
   /// under a supervisor (`PULSE_PUBLISH_SECONDS`).
   final Duration publishEvery;
@@ -68,5 +88,8 @@ final class PulseConfig implements ConfigSection {
     'slow_jobs_threshold_ms': slowJobThreshold.inMilliseconds,
     'queues': queues,
     'publish_seconds': publishEvery.inSeconds,
+    'n_plus_one_threshold': nPlusOneThreshold,
+    'query_storm_threshold': queryStormThreshold,
+    'pool_wait_threshold_ms': poolWaitThreshold.inMilliseconds,
   };
 }

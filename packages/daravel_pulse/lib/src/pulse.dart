@@ -70,6 +70,10 @@ abstract final class Pulse {
       if (query.time >= config.slowQueryThreshold) {
         recorder.recordQuery(query.sql, query.connectionName, query.time);
       }
+      if (query.poolWait >= config.poolWaitThreshold) {
+        recorder.recordPoolWait(query.connectionName, query.poolWait);
+      }
+      QueryTally.current?.add(query.sql, query.time);
     });
     container.make<EventDispatcher>()
       ..listen<JobProcessed>((JobProcessed job) {
@@ -181,6 +185,7 @@ abstract final class Pulse {
       'requests_ms': _config.slowRequestThreshold.inMilliseconds,
       'queries_ms': _config.slowQueryThreshold.inMilliseconds,
       'jobs_ms': _config.slowJobThreshold.inMilliseconds,
+      'pool_ms': _config.poolWaitThreshold.inMilliseconds,
     };
     return Response.json(snapshot, headers: {'cache-control': 'no-store'});
   }
@@ -272,6 +277,49 @@ abstract final class Pulse {
 
 /// Times every request except the dashboard's own, and lists the slow
 /// ones under their route pattern (`/users/{id}`, never the raw path).
+/// The queries of one request, by statement. The bindings are already out
+/// of the SQL, so `WHERE id = $1` is the same statement for every id; a list
+/// of placeholders collapses, or each length of an `IN` would count apart.
+final class QueryTally {
+  static final Object _key = Object();
+  static final RegExp _placeholder = RegExp(r'\$\d+');
+  static final RegExp _list = RegExp(r'\(\s*\?(\s*,\s*\?)+\s*\)');
+  static final RegExp _space = RegExp(r'\s+');
+
+  /// The tally of the running request, if Pulse watches it.
+  static QueryTally? get current => Zone.current[_key] as QueryTally?;
+
+  final Map<String, int> _counts = {};
+  int total = 0;
+  Duration time = Duration.zero;
+
+  Future<T> run<T>(Future<T> Function() body) =>
+      runZoned(body, zoneValues: {_key: this});
+
+  void add(String sql, Duration duration) {
+    total++;
+    time += duration;
+    _counts.update(fingerprint(sql), (n) => n + 1, ifAbsent: () => 1);
+  }
+
+  /// The statement run most often, and how often.
+  (String, int)? get worst {
+    (String, int)? top;
+    for (final MapEntry(:key, :value) in _counts.entries) {
+      if (top == null || value > top.$2) {
+        top = (key, value);
+      }
+    }
+    return top;
+  }
+
+  static String fingerprint(String sql) => sql
+      .replaceAll(_placeholder, '?')
+      .replaceAll(_list, '(?)')
+      .replaceAll(_space, ' ')
+      .trim();
+}
+
 final class PulseMiddleware implements Middleware {
   const PulseMiddleware(this.recorder, this.config, {required this.except});
 
@@ -290,12 +338,26 @@ final class PulseMiddleware implements Middleware {
     final stopwatch = Stopwatch()..start();
     recorder.requestStarted();
     var status = 500;
+    final tally = QueryTally();
     try {
-      final response = await next(request);
+      final response = await tally.run(() => next(request));
       status = response.status;
       return response;
     } finally {
       final elapsed = stopwatch.elapsed;
+      final worst = tally.worst;
+      if (worst != null &&
+          (worst.$2 >= config.nPlusOneThreshold ||
+              tally.total >= config.queryStormThreshold)) {
+        recorder.recordStorm(
+          method: request.method,
+          route: request.route?.path ?? 'unmatched',
+          statement: worst.$1,
+          count: worst.$2,
+          total: tally.total,
+          duration: tally.time,
+        );
+      }
       recorder.recordRequest(
         method: request.method,
         route: request.route?.path ?? 'unmatched',
