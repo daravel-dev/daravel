@@ -325,6 +325,7 @@ final class _PgExecutor implements QueryExecutor {
   static const int _cidr = 650;
   static const int _inet = 869;
   static const int _macaddr = 829;
+  static const int _macaddr8 = 774;
   static const Set<int> _textTypes = {
     _date,
     _timestamp,
@@ -332,6 +333,7 @@ final class _PgExecutor implements QueryExecutor {
     _cidr,
     _inet,
     _macaddr,
+    _macaddr8,
   };
 
   static Map<String, Object?> _withText(
@@ -352,10 +354,10 @@ final class _PgExecutor implements QueryExecutor {
     return map;
   }
 
-  /// A binary `inet`, `cidr` or `macaddr` value as PostgreSQL prints it:
+  /// A binary `inet`, `cidr` or `macaddr[8]` value as PostgreSQL prints it:
   /// `10.0.0.1`, `2001:db8::1/64`, `10.0.0.0/8`, `08:00:2b:01:02:03`.
   static String networkText(List<int> bytes, int oid) {
-    if (oid == _macaddr) {
+    if (oid == _macaddr || oid == _macaddr8) {
       return [for (final byte in bytes) byte.toRadixString(16).padLeft(2, '0')]
           .join(':');
     }

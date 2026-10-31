@@ -174,6 +174,7 @@ String _postgresType(String dataType) => switch (dataType) {
   'inet' ||
   'cidr' ||
   'macaddr' => 'String',
+  'macaddr8' => 'String',
   'bytea' => 'List<int>',
   _ => 'Object',
 };

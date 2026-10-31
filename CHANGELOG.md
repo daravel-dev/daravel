@@ -13,7 +13,7 @@ match Laravel more closely.
 
 ### Fixed
 
-- PostgreSQL `inet`, `cidr` and `macaddr` columns came back as undecoded bytes, so comparing one with `request.ip` always failed. They are text now, as PostgreSQL prints them, and `model:sync` types them as `String`.
+- PostgreSQL `inet`, `cidr`, `macaddr` and `macaddr8` columns came back as undecoded bytes, so comparing one with `request.ip` always failed. They are text now, as PostgreSQL prints them, and `model:sync` types them as `String`.
 - `accepted_if` and `declined_if`: with a `boolean` rule on the other attribute, `true` and `false` compare as booleans, and `:other` uses the custom attribute names.
 
 ### Added
