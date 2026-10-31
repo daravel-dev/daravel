@@ -441,6 +441,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `Str::contains / startsWith / endsWith` | `Str.contains / startsWith / endsWith` |  |
 | `Str::plural / singular / pluralStudly` | `Str.plural / singular / pluralStudly` | English rules with common irregulars. |
 | `Str::random / uuid / ulid / isUuid / isJson` | `Str.random / uuid / ulid / isUuid / isJson` |  |
+| `Uri::of($url)->withQuery([...])` | `DaravelUri.of(url).withQuery({...})` |  |
 | `Str::of($title)->after(':')->squish()->slug()` | `title.after(':').squish().slug()` | Str methods chain on the string itself. |
 | `now()->addMinutes(10) / Carbon::now()->subDays(7)` | `10.minutes.fromNow / 7.days.ago` |  |
 | `$date->diffForHumans() / isPast() / isToday() / startOfDay()` | `date.diffForHumans() / isPast / isToday / startOfDay` | Carbon's units and wording, en and id. |

@@ -399,6 +399,7 @@ sections:
       - { php: "Str::contains / startsWith / endsWith", dart: "Str.contains / startsWith / endsWith", symbol: Str.contains }
       - { php: "Str::plural / singular / pluralStudly", dart: "Str.plural / singular / pluralStudly", symbol: Str.pluralStudly, note: "English rules with common irregulars." }
       - { php: "Str::random / uuid / ulid / isUuid / isJson", dart: "Str.random / uuid / ulid / isUuid / isJson", symbol: Str.ulid }
+      - { php: "Uri::of($url)->withQuery([...])", dart: "DaravelUri.of(url).withQuery({...})", symbol: DaravelUri.withQuery }
       - { php: "Str::of($title)->after(':')->squish()->slug()", dart: "title.after(':').squish().slug()", symbol: DaravelString, note: "Str methods chain on the string itself." }
       - { php: "now()->addMinutes(10) / Carbon::now()->subDays(7)", dart: "10.minutes.fromNow / 7.days.ago", symbol: DaravelDuration }
       - { php: "$date->diffForHumans() / isPast() / isToday() / startOfDay()", dart: "date.diffForHumans() / isPast / isToday / startOfDay", symbol: DaravelDateTime, note: "Carbon's units and wording, en and id." }
