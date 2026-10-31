@@ -77,6 +77,10 @@ void main() {
                 };
               });
               r.post('/submit', (request) => {'ok': true});
+              r.get('/put-then-fail', (request) {
+                request.session.put('name', 'Jane');
+                throw const HttpException(403, 'no');
+              });
               r.post('/webhooks/pay', (_) => {'ok': true});
               r.post('/logout', (request) async {
                 await request.session.invalidate();
@@ -204,6 +208,26 @@ void main() {
       expect(data.containsKey('name'), isFalse);
     });
   });
+
+  test(
+    'a failing handler still saves the session and sets its cookie',
+    () async {
+      final failed = await client.get('/put-then-fail');
+      expect(failed.status, 403);
+      final cookie = cookieValue(failed, 'my_app_session');
+      expect(cookie, isNotNull, reason: 'no Set-Cookie on an error response');
+      expect(
+        await decryptCookie(app, 'my_app_session', cookie!),
+        hasLength(Session.idLength),
+        reason: 'the cookie is encrypted like any other',
+      );
+      final next = await client.get(
+        '/get',
+        headers: {'cookie': 'my_app_session=${Uri.encodeComponent(cookie)}'},
+      );
+      expect(next.jsonMap['name'], 'Jane');
+    },
+  );
 
   group('VerifyCsrfToken', () {
     late String cookie;
