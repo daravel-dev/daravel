@@ -197,6 +197,10 @@ final class _Huffman {
   _Huffman(this.maxBits, this.symbols, this.bits);
 
   factory _Huffman.fromWeights(List<int> weights) {
+    // With the implied last weight: 256 symbols at most.
+    if (weights.length > 255) {
+      _bad('Too many Huffman weights.');
+    }
     var sum = 0;
     for (final weight in weights) {
       if (weight > 12) {

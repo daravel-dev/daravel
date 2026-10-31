@@ -37,6 +37,18 @@ void main() {
     });
   });
 
+  test('RLE_Mode, then Repeat_Mode on all three sequence tables', () {
+    final frame = Uint8List.fromList([
+      0x28, 0xB5, 0x2F, 0xFD, 0x20, 0x10, //
+      0x44, 0x00, 0x00, 0x08, 0x61, 0x01, 0x54, 0x01, 0x02, 0x04, 0x04,
+      0x2D, 0x00, 0x00, 0x08, 0x62, 0x01, 0xFC, 0x04,
+    ]);
+    expect(
+      utf8.decode(zstdDecompress(frame, maxOutput: 64)),
+      'aaaaaaaabbbbbbbb',
+    );
+  });
+
   group('xxh64', () {
     test('known values', () {
       expect(xxh64(Uint8List(0)), 0xEF46DB3751D8E999);
