@@ -114,13 +114,17 @@ final class HttpKernel {
 
   Future<Response> _dispatch(Request request) async {
     try {
-      final match = router.lookup(request.method, request.path);
+      final match = router.lookup(
+        request.method,
+        request.path,
+        host: request.host,
+      );
       if (match == null) {
         final forward = unmatched;
         if (forward != null) {
           return await forward(request);
         }
-        final allowed = router.allowedMethods(request.path);
+        final allowed = router.allowedMethods(request.path, host: request.host);
         // Laravel 8 threw both without the route (`{"message": ""}`).
         final legacy = currentLaravelCompat() <= 8;
         if (allowed.isEmpty) {

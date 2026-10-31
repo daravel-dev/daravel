@@ -175,6 +175,28 @@ whole limit as a burst after a quiet period). Both need
 `CACHE_LIMITER=redis` with [daravel_redis](redis.md#rate-limit-algorithms);
 other stores count them as a fixed window.
 
+## Subdomains
+
+A group or a route can answer on one host only:
+
+```dart
+router.group((r) {
+  r.get('/', dashboard);
+}, domain: 'admin.example.com');
+
+router.group((r) {
+  r.get('/exams/{exam}', show).scopeBindings();
+}, domain: '{tenant:slug}.example.com');
+
+router.get('/health', health).domain('api.example.com');
+```
+
+A parameter is one label and lands in `request.routeParams` before the path's,
+so a bound `{tenant}` scopes the models after it. Routes with a domain are tried
+first, and the host is matched without its port or case. `router.url()` answers
+an absolute URL on that host, with the scheme of the base URL. Behind a proxy,
+`TrustProxies` decides which host counts.
+
 ## Route model binding
 
 Bind a parameter to a model, explicitly, because a Dart handler has no

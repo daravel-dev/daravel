@@ -391,6 +391,19 @@ void main() {
       );
     });
 
+    test(
+      'a refusal follows the response profile, as api()->response()',
+      () async {
+        final refused = await client.post(
+          '/secret/echo',
+          json: {'data_enc': 'x'},
+        );
+        expect(refused.status, 406);
+        expect(refused.jsonMap.containsKey('data_enc'), isTrue);
+        expect(refused.jsonMap.containsKey('data'), isFalse);
+      },
+    );
+
     test('statuses as PayloadDecryptMiddleware answers', () async {
       final invalid = await client.post(
         '/secret/echo',

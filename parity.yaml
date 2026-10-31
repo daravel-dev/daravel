@@ -212,6 +212,7 @@ sections:
       - { php: "Route::get('/posts/{post}', fn (Post $post) => ...)", dart: "router.bindModel('post', Post.definition)", symbol: Router.bindModel }
       - { php: "/users/{user}/posts/{post:slug}", dart: "the same path", symbol: RouteEntry.bindingFields }
       - { php: "->scopeBindings() / ->withoutScopedBindings()", dart: ".scopeBindings() / .withoutScopedBindings()", symbol: RouteEntry.scopeBindings }
+      - { php: "Route::domain('{tenant}.example.com')->group(...)", dart: "router.group(..., domain: '{tenant}.example.com')", symbol: RouteEntry.domain }
       - { php: "->withTrashed() / ->missing(fn () => ...)", dart: ".withTrashed() / .missing((request) => ...)", symbol: RouteEntry.missing }
       - { php: "where('meta->lang', 'id') / update(['meta->lang' => 'en'])", dart: "where('meta->lang', 'id') / update({'meta->lang': 'en'})", symbol: QueryGrammar.jsonSelector }
       - { php: "whereNone(['a', 'b'], 'like', '%x%')", dart: "whereNone(['a', 'b'], 'like', '%x%')", symbol: QueryBuilder.whereNone }

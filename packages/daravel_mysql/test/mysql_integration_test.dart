@@ -307,6 +307,77 @@ void main() {
     },
   );
 
+  group('JSON columns', () {
+    setUp(() async {
+      await db.table('my_items').insert([
+        {
+          'id': 1,
+          'name': 'a',
+          'tags': '{"lang":"id","n":{"x":1},"list":[1,2],"on":true}',
+        },
+        {'id': 2, 'name': 'b', 'tags': '{"lang":"en","count":7}'},
+        {'id': 3, 'name': 'c', 'tags': null},
+      ]);
+    });
+
+    Future<List<Object?>> ids(QueryBuilder query) async => [
+      for (final row in await query.orderBy('id').get()) row['id'],
+    ];
+
+    test('where, with text, a number and a boolean', () async {
+      final items = db.table('my_items');
+      expect(await ids(items.where('tags->lang', 'id')), [1]);
+      expect(await ids(db.table('my_items').where('tags->n->x', 1)), [1]);
+      expect(await ids(db.table('my_items').where('tags->count', 7)), [2]);
+      expect(await ids(db.table('my_items').where('tags->on', true)), [1]);
+    });
+
+    test('orderBy', () async {
+      final rows = await db
+          .table('my_items')
+          .whereNotNull('tags')
+          .orderBy('tags->lang')
+          .get();
+      expect([for (final row in rows) row['id']], [2, 1]);
+    });
+
+    test('whereJsonContains, also on a path', () async {
+      expect(
+        await ids(db.table('my_items').whereJsonContains('tags->list', 2)),
+        [1],
+      );
+      expect(
+        await ids(db.table('my_items').whereJsonContains('tags->list', 9)),
+        isEmpty,
+      );
+    });
+
+    test('update keeps the other keys and the JSON types', () async {
+      await db.table('my_items').where('id', 1).update({
+        'qty': 5,
+        'tags->lang': 'en',
+        'tags->flag': true,
+        'tags->count': 3,
+        'tags->more': [1, 2],
+        'tags->n->x': 2,
+      });
+      expect(await ids(db.table('my_items').where('tags->n->x', 2)), [1]);
+      expect(await ids(db.table('my_items').where('tags->flag', true)), [1]);
+      expect(await ids(db.table('my_items').where('tags->lang', 'en')), [1, 2]);
+      expect(
+        await ids(db.table('my_items').whereJsonContains('tags->more', 2)),
+        [1],
+      );
+      final row = (await db.table('my_items').where('id', 1).first())!;
+      expect(row['qty'], 5);
+    });
+
+    test('a write to a NULL column keeps its value', () async {
+      await db.table('my_items').where('id', 3).update({'tags->lang': 'fr'});
+      expect(await ids(db.table('my_items').where('tags->lang', 'fr')), [3]);
+    });
+  });
+
   test('values read the same through the text and binary protocols', () async {
     // 'strict' false: the server accepts the zero date.
     final manager = DatabaseManager(
