@@ -8,6 +8,12 @@ sealed class Cast {
 
   static const Cast integer = IntCast();
   static const Cast decimal = DoubleCast();
+
+  /// Laravel's `decimal:N` cast: a string with exactly [places] decimals
+  /// (`"12.50"`), rounded half up without going through a double, so
+  /// `toJson` writes what Laravel writes and no precision is lost.
+  static Cast decimalString(int places) => DecimalStringCast(places);
+
   static const Cast boolean = BoolCast();
   static const Cast string = StringCast();
   static const Cast dateTime = DateTimeCast();
@@ -62,6 +68,36 @@ final class DoubleCast extends Cast {
     String() => double.tryParse(raw),
     _ => raw,
   };
+  @override
+  Object? set(Object? value) => get(value);
+}
+
+final class DecimalStringCast extends Cast {
+  const DecimalStringCast(this.places);
+  final int places;
+
+  static final RegExp _number = RegExp(r'^([+-]?)(\d*)(?:\.(\d*))?$');
+
+  @override
+  Object? get(Object? raw) {
+    if (raw == null) {
+      return null;
+    }
+    final match = _number.firstMatch('$raw'.trim());
+    final fraction = (match?[3] ?? '').padRight(places + 1, '0');
+    if (match == null || '${match[2]}${match[3] ?? ''}'.isEmpty) {
+      throw FormatException('Unable to cast value to a decimal.', raw);
+    }
+    final scaled =
+        BigInt.parse('${match[2]}${fraction.substring(0, places)}') +
+        (fraction.codeUnitAt(places) >= 0x35 ? BigInt.one : BigInt.zero);
+    final digits = scaled.toString().padLeft(places + 1, '0');
+    final whole = digits.substring(0, digits.length - places);
+    final decimals = digits.substring(digits.length - places);
+    final sign = match[1] == '-' && scaled != BigInt.zero ? '-' : '';
+    return places == 0 ? '$sign$whole' : '$sign$whole.$decimals';
+  }
+
   @override
   Object? set(Object? value) => get(value);
 }

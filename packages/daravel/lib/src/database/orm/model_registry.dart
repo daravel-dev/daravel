@@ -63,6 +63,7 @@ Map<String, Object?> describeModel(ModelDefinition<Model> definition) => {
 String castName(Cast cast) => switch (cast) {
   IntCast() => 'integer',
   DoubleCast() => 'double',
+  DecimalStringCast(:final places) => 'decimal:$places',
   BoolCast() => 'boolean',
   StringCast() => 'string',
   DateTimeCast() => 'datetime',

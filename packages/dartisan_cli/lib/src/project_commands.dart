@@ -1218,7 +1218,11 @@ final class ModelSyncCommand extends DaravelCommand {
         );
         continue;
       }
-      final plan = planAccessors(model, await Schema.getColumns(model.table));
+      final plan = planAccessors(
+        model,
+        await Schema.getColumns(model.table),
+        dialect: App.make<DatabaseManager>().dialectOf(),
+      );
       for (final warning in plan.warnings) {
         stdout.writeln('${model.className}: $warning');
       }

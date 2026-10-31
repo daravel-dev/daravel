@@ -107,9 +107,14 @@ final class AccessorPlan {
 }
 
 /// Maps a column to a Dart type: casts win, then the database type.
-/// Booleans, dates and JSON without a cast stay raw (with a hint), because
-/// SQLite returns them as integers/strings.
-({String type, String? hint}) dartTypeFor(ColumnInfo column, String? cast) {
+/// Booleans, dates and JSON without a cast stay raw (with a hint) on SQLite
+/// and MySQL, which return them as integers and strings; PostgreSQL returns
+/// them as Dart values.
+({String type, String? hint}) dartTypeFor(
+  ColumnInfo column,
+  String? cast, {
+  SqlDialect dialect = SqlDialect.sqlite,
+}) {
   switch (cast) {
     case 'dateTime' || 'date' || 'immutableDateTime' || 'dateTimeFormat':
       return (type: 'DateTime', hint: null);
@@ -117,12 +122,17 @@ final class AccessorPlan {
       return (type: 'bool', hint: null);
     case 'integer' || 'int':
       return (type: 'int', hint: null);
-    case 'double' || 'float':
+    case 'double' || 'float' || 'decimal':
       return (type: 'double', hint: null);
+    case 'decimalString':
+      return (type: 'String', hint: null);
     case 'json' || 'array' || 'map':
       return (type: 'Object', hint: null);
     case 'string':
       return (type: 'String', hint: null);
+  }
+  if (dialect == SqlDialect.postgres) {
+    return (type: _postgresType(column.type.toLowerCase()), hint: null);
   }
   final t = column.type.toLowerCase();
   if (t.contains('bool')) {
@@ -146,9 +156,30 @@ final class AccessorPlan {
   return (type: 'String', hint: null);
 }
 
+/// What the PostgreSQL driver returns for a column of [dataType]
+/// (`information_schema.columns.data_type`); `Object` for the types without
+/// a plain Dart value (`time`, `interval`, `inet`, arrays, enums).
+String _postgresType(String dataType) => switch (dataType) {
+  'boolean' => 'bool',
+  'smallint' || 'integer' || 'bigint' => 'int',
+  'real' || 'double precision' => 'double',
+  'numeric' => 'String',
+  'date' ||
+  'timestamp without time zone' ||
+  'timestamp with time zone' => 'DateTime',
+  'character varying' || 'character' || 'text' || 'uuid' => 'String',
+  'bytea' => 'List<int>',
+  _ => 'Object',
+};
+
 /// Accessor lines for [columns] (getters for all, setters except for the
-/// primary key and timestamps).
-AccessorPlan planAccessors(ModelSource model, List<ColumnInfo> columns) {
+/// primary key and timestamps), typed for the [dialect] the columns come
+/// from.
+AccessorPlan planAccessors(
+  ModelSource model,
+  List<ColumnInfo> columns, {
+  SqlDialect dialect = SqlDialect.sqlite,
+}) {
   final lines = <String>[];
   final warnings = <String>[];
   const readOnly = {'created_at', 'updated_at', 'deleted_at'};
@@ -161,7 +192,11 @@ AccessorPlan planAccessors(ModelSource model, List<ColumnInfo> columns) {
       );
       continue;
     }
-    final mapped = dartTypeFor(column, model.casts[column.name]);
+    final mapped = dartTypeFor(
+      column,
+      model.casts[column.name],
+      dialect: dialect,
+    );
     if (mapped.hint != null) {
       warnings.add('Column [${column.name}]: ${mapped.hint}.');
     }

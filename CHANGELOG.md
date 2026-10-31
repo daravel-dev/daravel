@@ -20,9 +20,11 @@ match Laravel more closely.
 - Route bindings ran before every route middleware, so a guest got a 404 that told which records exist (and paid for a query) where Laravel answers 401 or 429, and a binder could not read the authenticated user. They now run where `SubstituteBindings` runs: after the cookies, session, CSRF, authentication and rate limit middleware (the new `RunsBeforeBindings` marker), before the rest. **A middleware placed before `auth` on a route no longer sees bindings.**
 - The `accepted`, `accepted_if`, `declined` and `declined_if` rules did not exist: the rule string threw, which answered 500 instead of 422. `Rules.accepted()` and the others, in the `RuleBuilder`, and known to `invalid_validation_rule`.
 - `Model.toJson` wrote relation keys as declared (`tipeUjian`); Laravel writes `tipe_ujian`. **This changes the JSON of camelCase relations.** `Model.snakeAttributes = false` or `snakeAttributes: false` on a `ModelDefinition` keeps the old keys.
+- `model:sync` typed `Cast.decimal` as `String`, and on PostgreSQL gave `String` for dates and booleans, whose getters crashed, and `int` for `interval`. Types now follow what each driver returns.
 
 ### Added
 
+- `Cast.decimalString(places)`: Laravel's `decimal:N`, a string rounded half up without a double.
 - `SESSION_SERIALIZATION` (`php` or `json`): the format of new sessions, `php` by default and `json` with `COMPAT_LARAVEL_VERSION=13`. `dartisan adopt` copies it from the Laravel project's `config/session.php`, because a Laravel application upgraded to 13 keeps `php` unless it added the key.
 
 ## 1.20.0
