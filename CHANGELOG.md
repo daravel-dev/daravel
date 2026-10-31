@@ -25,6 +25,7 @@ match Laravel more closely.
 
 ### Added
 
+- `Concurrency`: `run`, `defer`, `runIfLarge`, `sync` and `fake`, on a pool of warm worker isolates, also as `package:daravel/concurrency.dart`.
 - `Response.exception`, Laravel's `$response->exception`: since 1.21.1 an exception no longer passes through `next`, so a `try` around `next` catches nothing, not only in transaction middleware. A middleware reads it here instead.
 - `DB.transaction(attempts: n)` waits a short random time between retries (decorrelated jitter, 2 to 250 ms), so isolates that collided do not collide again. Frozen test clocks retry at once.
 - `QueryExecuted.poolWait`: the time a query waited for a connection, apart from `time`. PostgreSQL and MySQL measure it while a listener is registered.
