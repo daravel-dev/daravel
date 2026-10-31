@@ -569,7 +569,11 @@ void main() {
   setUp(() async {
     app = createApp(
       basePath: Directory.current.path,
-      env: <String, String>{'APP_ENV': 'testing', 'DB_DATABASE': ':memory:'},
+      env: <String, String>{
+        'APP_ENV': 'testing',
+        'DB_CONNECTION': 'sqlite',
+        'DB_URL': 'sqlite::memory:',
+      },
     );
     await app.boot();
     await app.run(() => App.make<Migrator>().run());
