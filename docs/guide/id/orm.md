@@ -1,4 +1,4 @@
-<!-- source: orm.md sha256:3e8eda657ffe -->
+<!-- source: orm.md sha256:bf1c737f7f02 -->
 # ORM
 
 Model mengikuti API Eloquent. Karena Dart tidak punya property ajaib, setiap
@@ -180,6 +180,32 @@ final users = await User.query()
 `*_exists` terbaca sebagai `bool`. Jumlah dan rata-rata dikembalikan apa
 adanya dari driver: angka di SQLite, string untuk hasil `DECIMAL`/`numeric`
 di MySQL dan PostgreSQL, sama seperti PDO di Laravel.
+
+### Tambahan untuk relasi
+
+```dart
+BelongsTo<User>(() => User.definition, foreignKey: 'user_id').withDefault();
+BelongsTo<User>(...).withDefault((post) => User()..setAttr('name', 'Guest'));
+
+HasOne<Order>(() => Order.definition, foreignKey: 'user_id').latestOfMany();
+HasOne<Attempt>(...).latestOfMany('score');
+HasOne<Order>(...).oldestOfMany();
+HasOne<Attempt>(...).ofMany('score', 'max');
+
+await user.syncWithoutDetaching('roles', [1, 2]);
+await user.toggle('roles', [1, 2]);
+await user.updateExistingPivot('roles', 1, {'note': 'x'});
+```
+
+`withDefault` menggantikan owner yang tidak ada saat relasi dimuat, dan tidak
+disimpan. `latestOfMany` membaca satu baris per parent saat eager loading, dalam
+satu query, tanpa baris soft delete; baris dengan nilai sama diurutkan menurut
+primary key.
+
+`updateQuietly` dan `deleteQuietly` tidak memicu event, sama seperti
+`saveQuietly`. Global scope di `namedGlobalScopes` dilepas dengan
+`withoutGlobalScope('active')`, dan `whereNone(['a', 'b'], 'like', '%x%')` memilih
+baris yang tidak satu pun kolomnya cocok.
 
 ## Relasi polimorfik
 

@@ -557,6 +557,31 @@ abstract base class Model implements JsonSerializable, Responsable {
     return relation.detach(this, database, ids);
   }
 
+  BelongsToMany<Model> _pivotRelation(String name) {
+    final relation = modelDefinition.requireRelation(name);
+    if (relation is! BelongsToMany<Model>) {
+      throw StateError('Relation [$name] is not BelongsToMany.');
+    }
+    return relation;
+  }
+
+  /// [sync] that leaves the other rows.
+  Future<Map<String, List<Object?>>> syncWithoutDetaching(
+    String name,
+    Object ids,
+  ) => _pivotRelation(name).syncWithoutDetaching(this, database, ids);
+
+  /// Attaches the [ids] that are not attached, detaches those that are.
+  Future<Map<String, List<Object?>>> toggle(String name, Object ids) =>
+      _pivotRelation(name).toggle(this, database, ids);
+
+  /// Updates the pivot row of [id].
+  Future<int> updateExistingPivot(
+    String name,
+    Object id,
+    Map<String, Object?> attributes,
+  ) => _pivotRelation(name).updateExistingPivot(this, database, id, attributes);
+
   /// Syncs pivot rows through a `BelongsToMany` relation [name].
   Future<Map<String, List<Object?>>> sync(
     String name,

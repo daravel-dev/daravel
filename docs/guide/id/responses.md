@@ -1,4 +1,4 @@
-<!-- source: responses.md sha256:7368ceaaddc8 -->
+<!-- source: responses.md sha256:769699dc1abc -->
 # Respons dan resource
 
 Handler bisa mengembalikan `Response.json(data, status: 201)`,
@@ -258,6 +258,32 @@ atau queue.
 Untuk client Laravel Echo, event dikirim melalui protokol Pusher
 ([Broadcasting](broadcasting.md)), yang berjalan di atas channel-channel
 ini.
+
+## File
+
+```dart
+return Response.download('storage/report.xlsx', name: 'Report.xlsx');
+return Response.download(tmp, deleteFileAfterSend: true);
+return Response.file('storage/manual.pdf', request: request);
+
+return Storage.download('reports/q3.pdf', request: request);
+return Storage.disk('s3').response('videos/intro.mp4', request: request);
+```
+
+`download` menjawab sebagai attachment dan `file` menampilkan file di browser,
+dengan tipe dari namanya, `ETag`, dan `Last-Modified`. Nama file yang bukan ASCII
+biasa mendapat `filename*`, dan nama berisi path atau karakter kontrol adalah
+error. File yang tidak ada menjadi 404.
+
+Kirim `request` untuk `Range`: 206 untuk satu range, 416 jika melewati akhir file,
+seperti yang dibutuhkan penampil PDF dan pemutar iOS, serta 304 untuk
+`If-None-Match`. Request dengan beberapa range menerima file utuh.
+`deleteFileAfterSend` menghapus file setelah terkirim dan tidak menawarkan range,
+karena range kecil pertama dari penampil akan menghapusnya.
+
+Disk membaca dari awal untuk mencapai sebuah range, yang di S3 berarti mengunduh
+bagian sebelumnya. Jangan menyusun path `Response.file` dari input pengguna; disk
+memeriksa path-nya sendiri.
 
 ## Error
 
