@@ -3,6 +3,25 @@ import 'dart:io';
 import 'package:daravel/daravel.dart';
 import 'package:test/test.dart';
 
+/// Fails before `BEGIN`, as a pool that times out does.
+final class _Refusing implements DatabaseDriver {
+  @override
+  SqlDialect get dialect => SqlDialect.sqlite;
+  @override
+  String get name => 'refusing';
+  @override
+  bool get isConnected => true;
+  @override
+  Future<void> connect() async {}
+  @override
+  Future<void> close() async {}
+  @override
+  Future<T> transaction<T>(Future<T> Function(QueryExecutor tx) body) =>
+      throw StateError('no connection');
+  @override
+  Object? noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
 void main() {
   late DatabaseManager db;
   late List<TransactionEvent> events;
@@ -97,6 +116,23 @@ void main() {
       TransactionRolledBack,
     ]);
     expect((seen.last as TransactionRolledBack).error, isA<StateError>());
+  });
+
+  test('no connection: no rollback without a beginning', () async {
+    final broken = DatabaseManager(
+      const DatabaseConfig(
+        defaultConnection: 'refusing',
+        connections: {
+          'refusing': ConnectionConfig(driver: 'refusing', database: 'x'),
+        },
+      ),
+      drivers: {'refusing': (name, connection) => _Refusing()},
+    );
+    addTearDown(broken.closeAll);
+    final seen = <TransactionEvent>[];
+    broken.listenTransactions(seen.add);
+    await expectLater(broken.transaction(() async => 1), throwsStateError);
+    expect(seen, isEmpty);
   });
 
   test('no listener, no change', () async {
