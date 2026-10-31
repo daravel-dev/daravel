@@ -33,6 +33,20 @@ final class Book extends Model {
   ModelDefinition<Book> get modelDefinition => definition;
 }
 
+final class Note extends Model {
+  static final ModelDefinition<Note> definition = ModelDefinition<Note>(
+    table: 'notes',
+    factory: Note.new,
+    timestamps: false,
+    relations: {
+      'subject': () =>
+          MorphTo(types: [() => Book.definition, () => Writer.definition]),
+    },
+  );
+  @override
+  ModelDefinition<Note> get modelDefinition => definition;
+}
+
 final class Page extends Model {
   static final ModelDefinition<Page> definition = ModelDefinition<Page>(
     table: 'pages',
@@ -59,6 +73,8 @@ void main() {
         'CREATE TABLE writers (id INTEGER PRIMARY KEY)',
         'CREATE TABLE books (id INTEGER PRIMARY KEY, writer_id INTEGER)',
         'CREATE TABLE pages (id INTEGER PRIMARY KEY, book_id INTEGER)',
+        'CREATE TABLE notes (id INTEGER PRIMARY KEY, subject_type TEXT, '
+            'subject_id INTEGER)',
       ]) {
         await DB.statement(sql);
       }
@@ -159,13 +175,173 @@ void main() {
     expect(count, 2);
   });
 
-  test('constraints and nesting stay on the one model', () async {
+  test('several names load together too', () async {
     Model.automaticallyEagerLoad = true;
     final count = await counted(() async {
       final books = await Book.definition.query().get();
-      await books.first.load(['writer', 'pages']);
+      for (final book in books) {
+        await book.load(['writer', 'pages']);
+      }
     });
     expect(count, 3);
+  });
+
+  test('columns stay on the one model', () async {
+    Model.automaticallyEagerLoad = true;
+    final count = await counted(() async {
+      final books = await Book.definition.query().get();
+      await books.first.load('writer:id');
+      expect(books.first.relationLoaded('writer'), isTrue);
+      expect(books[1].relationLoaded('writer'), isFalse);
+    });
+    expect(count, 2);
+  });
+
+  test('nesting stays on the one model', () async {
+    Model.automaticallyEagerLoad = true;
+    final count = await counted(() async {
+      final books = await Book.definition.query().get();
+      await books.first.load('writer.books');
+      expect(books[1].relationLoaded('writer'), isFalse);
+    });
+    expect(count, 3);
+  });
+
+  test('loading again reads again', () async {
+    Model.automaticallyEagerLoad = true;
+    final count = await counted(() async {
+      final books = await Book.definition.query().get();
+      await books[0].load('writer');
+      await books[1].load('writer'); // Served by the first.
+      await books[0].load('writer'); // A refresh.
+      await books[1].load('writer'); // A refresh too, now it has asked.
+    });
+    expect(count, 4);
+  });
+
+  test('a refresh sees the changed row', () async {
+    Model.automaticallyEagerLoad = true;
+    await app.run(() async {
+      final books = await Book.definition.query().orderBy('id').get();
+      await books[0].load('writer');
+      await DB.table('books').where('id', 1).update({'writer_id': 2});
+      final fresh = await Book.definition.query().orderBy('id').get();
+      await fresh[0].load('writer');
+      fresh[0].setAttr('writer_id', 1);
+      await fresh[0].load('writer');
+      expect(fresh[0].related<Writer>('writer').key, 1);
+    });
+  });
+
+  test('a relation from with_ can still be refreshed', () async {
+    Model.automaticallyEagerLoad = true;
+    final count = await counted(() async {
+      final books = await Book.definition.query().with_(['writer']).get();
+      await books.first.load('writer');
+    });
+    expect(count, 3);
+  });
+
+  test('loadMissing loads together', () async {
+    Model.automaticallyEagerLoad = true;
+    final count = await counted(() async {
+      final books = await Book.definition.query().get();
+      for (final book in books) {
+        await book.loadMissing(['writer', 'pages']);
+      }
+    });
+    expect(count, 3);
+  });
+
+  test('after loadMissing, load refreshes', () async {
+    Model.automaticallyEagerLoad = true;
+    final count = await counted(() async {
+      final books = await Book.definition.query().get();
+      await books[0].load('writer');
+      await books[1].loadMissing(['writer']); // Has it: no query.
+      await books[1].load('writer');
+    });
+    expect(count, 3);
+  });
+
+  test('a failed load leaves nothing behind', () async {
+    Model.automaticallyEagerLoad = true;
+    await app.run(() async {
+      final books = await Book.definition.query().get();
+      await expectLater(books.first.load('nothing'), throwsA(anything));
+      await books.first.load('writer');
+      expect(books.first.relationLoaded('writer'), isTrue);
+    });
+  });
+
+  test('children of with_ form a group too', () async {
+    Model.automaticallyEagerLoad = true;
+    final count = await counted(() async {
+      final writers = await Writer.definition.query().with_(['books']).get();
+      for (final writer in writers) {
+        for (final book in writer.related<List<Book>>('books')) {
+          await book.load('pages');
+        }
+      }
+    });
+    expect(count, 3);
+  });
+
+  test('withRelationshipAutoloading reaches the children of with_', () async {
+    final count = await counted(() async {
+      final writers = await Writer.definition
+          .query()
+          .with_(['books'])
+          .withRelationshipAutoloading()
+          .get();
+      for (final writer in writers) {
+        for (final book in writer.related<List<Book>>('books')) {
+          await book.load('pages');
+        }
+      }
+    });
+    expect(count, 3);
+  });
+
+  test('a MorphTo keeps its types apart', () async {
+    Model.automaticallyEagerLoad = true;
+    await app.run(() async {
+      await DB.table('notes').insert([
+        {'id': 1, 'subject_type': r'App\Models\Book', 'subject_id': 1},
+        {'id': 2, 'subject_type': r'App\Models\Book', 'subject_id': 2},
+        {'id': 3, 'subject_type': r'App\Models\Writer', 'subject_id': 1},
+        {'id': 4, 'subject_type': r'App\Models\Writer', 'subject_id': 2},
+      ]);
+    });
+    final count = await counted(() async {
+      final notes = await Note.definition.query().orderBy('id').get();
+      for (final note in notes) {
+        await note.load('subject');
+      }
+      for (final note in notes) {
+        switch (note.related<Model>('subject')) {
+          case final Book book:
+            await book.load('writer');
+            expect(book.relationLoaded('writer'), isTrue);
+          case final Writer writer:
+            await writer.load('books');
+            expect(writer.relationLoaded('books'), isTrue);
+        }
+      }
+    });
+    expect(count, 5, reason: 'notes, books, writers, then one load per type');
+  });
+
+  test('parents sharing a child do not load it twice', () async {
+    Model.automaticallyEagerLoad = true;
+    final count = await counted(() async {
+      final books = await Book.definition.query().get();
+      await Future.wait([for (final book in books) book.load('writer')]);
+      await Future.wait([
+        for (final book in books) book.related<Writer>('writer').load('books'),
+      ]);
+    });
+    expect(count, 3, reason: 'books, writers, their books');
   });
 
   test('related stays strict: it never loads', () async {

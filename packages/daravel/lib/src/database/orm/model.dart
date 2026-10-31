@@ -57,33 +57,60 @@ final class _ModelBatch {
   final List<Model> models;
 
   /// Loads in progress, so `Future.wait` over the group runs one query.
-  final Map<String, Future<void>> _loading = <String, Future<void>>{};
+  final Map<String, _GroupLoad> _inFlight = <String, _GroupLoad>{};
+
+  /// Models a sibling's load served before they asked. The first `load` of
+  /// one of them reads nothing; the next is a refresh, as `load` always is.
+  final Map<String, Set<Model>> _preloaded = <String, Set<Model>>{};
+
+  bool takePreloaded(Model model, String name) =>
+      _preloaded[name]?.remove(model) ?? false;
 
   Future<void> load(Model model, String name) {
-    if (model.relationLoaded(name)) {
+    if (takePreloaded(model, name)) {
       return Future<void>.value();
     }
-    return _loading[name] ??= _load(model, name).whenComplete(() {
+    final running = _inFlight[name];
+    if (running != null && running.waiting.contains(model)) {
+      running.callers.add(model);
+      return running.future;
+    }
+    if (running != null || model.relationLoaded(name)) {
+      return model.modelDefinition.eagerLoad([model], name, db: model._db);
+    }
+    final group = _GroupLoad({
+      for (final other in models)
+        if (!other.relationLoaded(name)) other,
+    }, model);
+    _inFlight[name] = group;
+    return group.future = _run(model, name, group).whenComplete(() {
       // A block: returning the removed future would make it wait for itself.
-      _loading.remove(name);
+      _inFlight.remove(name);
     });
   }
 
-  Future<void> _load(Model model, String name) async {
-    final waiting = [
-      for (final other in models)
-        if (!other.relationLoaded(name)) other,
-    ];
-    await model.modelDefinition.eagerLoad(waiting, name, db: model._db);
-    Model.groupForAutoloading([
-      for (final other in waiting)
-        ...switch (other._relations[name]) {
-          final Model child => [child],
-          final Iterable<Object?> children => children.whereType<Model>(),
-          _ => const <Model>[],
-        },
-    ]);
+  Future<void> _run(Model model, String name, _GroupLoad group) async {
+    final waiting = group.waiting.toList();
+    final definition = model.modelDefinition;
+    await definition.eagerLoad(waiting, name, db: model._db);
+    _preloaded
+        .putIfAbsent(name, Set<Model>.identity)
+        .addAll(group.waiting.difference(group.callers));
+    Model.groupForAutoloading(
+      definition.requireRelation(name).loadedModels(waiting),
+    );
   }
+}
+
+/// One query for a group: who it covers, and who asked for it.
+final class _GroupLoad {
+  _GroupLoad(Set<Model> waiting, Model first)
+    : waiting = Set<Model>.identity()..addAll(waiting),
+      callers = Set<Model>.identity()..add(first);
+
+  final Set<Model> waiting;
+  final Set<Model> callers;
+  late final Future<void> future;
 }
 
 /// Base for Hybrid Active Record models (ADR-006): an attribute bag with
@@ -120,14 +147,46 @@ abstract base class Model implements JsonSerializable, Responsable {
   static final Expando<_ModelBatch> _batches = Expando<_ModelBatch>('batch');
 
   /// Makes [models] load their relations together.
-  static void groupForAutoloading(List<Model> models) {
-    if (models.length < 2) {
-      return;
-    }
-    final batch = _ModelBatch(models);
+  static void groupForAutoloading(Iterable<Model> models) {
+    // By definition: a MorphTo brings posts and videos, and a batch loads
+    // through one definition. By identity: parents can share a child.
+    final seen = Set<Model>.identity();
+    final byDefinition = <ModelDefinition<Model>, List<Model>>{};
     for (final model in models) {
-      _batches[model] = batch;
+      if (seen.add(model)) {
+        byDefinition.putIfAbsent(model.modelDefinition, () => []).add(model);
+      }
     }
+    for (final group in byDefinition.values) {
+      if (group.length < 2) {
+        continue;
+      }
+      final batch = _ModelBatch(group);
+      for (final model in group) {
+        _batches[model] = batch;
+      }
+    }
+  }
+
+  /// [relations] as relation names a batch can share, or null: nesting and
+  /// `:columns` are what this model asked for, not what its siblings want.
+  static List<String>? _plainNames(Object relations) {
+    final names = switch (relations) {
+      final String one => [one],
+      final List<Object?> many => many,
+      _ => null,
+    };
+    if (names == null) {
+      return null;
+    }
+    final plain = <String>[];
+    for (final name in names) {
+      if (name is! String || name.contains('.') || name.contains(':')) {
+        return null;
+      }
+      plain.add(name.trim());
+    }
+    return plain;
   }
 
   /// When true, accessing a relation that was not eager loaded throws
@@ -581,14 +640,18 @@ abstract base class Model implements JsonSerializable, Responsable {
   /// Loads [relations] (list or map with constraints) onto this model.
   Future<Model> load(Object relations) async {
     final batch = _batches[this];
-    final name = switch (relations) {
-      final String one => one,
-      [final String one] => one,
-      _ => null,
-    };
-    if (batch != null && name != null && !name.contains('.')) {
-      await batch.load(this, name);
+    final names = batch == null ? null : _plainNames(relations);
+    if (names != null) {
+      for (final name in names) {
+        await batch!.load(this, name);
+      }
       return this;
+    }
+    if (batch != null) {
+      // This load replaces what a sibling's brought in.
+      for (final key in ModelQuery.parseWith(relations).keys) {
+        batch.takePreloaded(this, key.split('.').first);
+      }
     }
     await modelDefinition.eagerLoad([this], relations, db: _db);
     return this;
@@ -596,10 +659,22 @@ abstract base class Model implements JsonSerializable, Responsable {
 
   /// Loads the relations that are not loaded yet.
   Future<Model> loadMissing(List<String> relations) async {
-    final missing = relations
-        .where((r) => !relationLoaded(r.split('.').first))
-        .toList();
-    if (missing.isNotEmpty) {
+    final batch = _batches[this];
+    final missing = <String>[];
+    for (final relation in relations) {
+      final root = relation.split('.').first.split(':').first.trim();
+      if (!relationLoaded(root)) {
+        missing.add(relation);
+      } else {
+        batch?.takePreloaded(this, root);
+      }
+    }
+    final names = batch == null ? null : _plainNames(missing);
+    if (names != null) {
+      for (final name in names) {
+        await batch!.load(this, name);
+      }
+    } else if (missing.isNotEmpty) {
       await modelDefinition.eagerLoad([this], missing, db: _db);
     }
     return this;
