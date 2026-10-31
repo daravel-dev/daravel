@@ -727,7 +727,8 @@ final class MySqlQueryGrammar extends QueryGrammar {
       };
       return "'${QueryGrammar.jsonPath(v.$1)}', $value";
     });
-    return 'json_set($column, ${pairs.join(', ')})';
+    // JSON_SET on NULL is NULL, which would lose the write.
+    return "json_set(coalesce($column, '{}'), ${pairs.join(', ')})";
   }
 
   @override

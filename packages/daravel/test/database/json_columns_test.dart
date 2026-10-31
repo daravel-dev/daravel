@@ -24,6 +24,14 @@ void main() {
       );
     });
 
+    test('MySQL keeps a write to a NULL column', () {
+      final sql = QueryGrammar.forDialect(SqlDialect.mysql)
+          .jsonUpdate('`meta`', [
+            (['a'], 1),
+          ], Compilation(QueryGrammar.forDialect(SqlDialect.mysql)));
+      expect(sql, startsWith("json_set(coalesce(`meta`, '{}'), "));
+    });
+
     test('a table prefix and array indexes', () {
       final pg = QueryGrammar.forDialect(SqlDialect.postgres);
       final sqlite = QueryGrammar.forDialect(SqlDialect.sqlite);
