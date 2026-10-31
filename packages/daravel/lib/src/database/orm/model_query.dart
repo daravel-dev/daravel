@@ -40,6 +40,7 @@ final class ModelQuery<T extends Model> {
   bool _withTrashed = false;
   bool _onlyTrashed = false;
   bool _withoutGlobalScopes = false;
+  final Set<String> _withoutNamedScopes = <String>{};
   bool _globalScopesApplied = false;
 
   DatabaseManager get database => _db;
@@ -330,10 +331,18 @@ final class ModelQuery<T extends Model> {
     return this;
   }
 
-  ModelQuery<T> withoutGlobalScopes() {
-    _withoutGlobalScopes = true;
+  /// Without every global scope, soft deletes included; with [names], only
+  /// those of `namedGlobalScopes`.
+  ModelQuery<T> withoutGlobalScopes([List<String>? names]) {
+    if (names == null) {
+      _withoutGlobalScopes = true;
+    } else {
+      _withoutNamedScopes.addAll(names);
+    }
     return this;
   }
+
+  ModelQuery<T> withoutGlobalScope(String name) => withoutGlobalScopes([name]);
 
   ModelQuery<T> withTrashed() {
     _withTrashed = true;
@@ -671,6 +680,12 @@ final class ModelQuery<T extends Model> {
       _globalScopesApplied = true;
       for (final scope in definition.globalScopes) {
         scope(this);
+      }
+      for (final MapEntry(:key, :value)
+          in definition.namedGlobalScopes.entries) {
+        if (!_withoutNamedScopes.contains(key)) {
+          value(this);
+        }
       }
     }
     final query = builder.clone();
@@ -1065,7 +1080,8 @@ final class ModelQuery<T extends Model> {
     final copy = ModelQuery<T>(definition, db: _db)
       .._withTrashed = _withTrashed
       .._onlyTrashed = _onlyTrashed
-      .._withoutGlobalScopes = _withoutGlobalScopes;
+      .._withoutGlobalScopes = _withoutGlobalScopes
+      .._withoutNamedScopes.addAll(_withoutNamedScopes);
     final alias = _tableAlias;
     if (alias != null) {
       copy.aliasTable(alias);

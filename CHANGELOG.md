@@ -26,6 +26,7 @@ match Laravel more closely.
 
 ### Added
 
+- ORM helpers: `BelongsTo.withDefault`, `HasOne.latestOfMany`, `oldestOfMany` and `ofMany` (one query when eager loading), `syncWithoutDetaching`, `toggle` and `updateExistingPivot` on `BelongsToMany`, `updateQuietly`, `deleteQuietly`, `namedGlobalScopes` with `withoutGlobalScope(name)`, and `QueryBuilder.whereNone`.
 - JSON columns: `where('meta->lang', 'id')`, `orderBy` and `update({'meta->lang': 'en'})` on SQLite, PostgreSQL and MySQL, as Laravel compiles them. Writing a nested path needs its parent on PostgreSQL and MySQL, as in Laravel; SQLite creates it. Tested live on SQLite and PostgreSQL; the MySQL SQL is tested as text only.
 - `withoutMiddleware(['csrf'])` takes aliases, groups, types and instances, also those from an outer group.
 - 22 validation rules: `gt`, `gte`, `lt`, `lte`, `decimal`, `multiple_of`, `min_digits`, `max_digits`, `date_equals`, `timezone`, `required_with_all`, `required_without_all`, `required_if_accepted`, `present_if`, `prohibited_if`, `prohibited_unless`, `prohibits`, and the `exclude` family, which leaves attributes out of `validated()`. Numbers compare as exact decimals. `timezone` also accepts old IANA aliases, and not `per_country`.

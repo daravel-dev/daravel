@@ -63,6 +63,7 @@ final class ModelDefinition<T extends Model> {
     Map<String, RelationFactory> relations = const <String, RelationFactory>{},
     Map<String, ScopeFn<T>> scopes = const {},
     List<GlobalScopeFn<T>> globalScopes = const [],
+    Map<String, GlobalScopeFn<T>> namedGlobalScopes = const {},
     Map<String, AccessorFn<T>> accessors = const {},
     Map<String, MutatorFn<T>> mutators = const {},
     this.observers = const [],
@@ -82,6 +83,10 @@ final class ModelDefinition<T extends Model> {
          for (final scope in globalScopes)
            (ModelQuery<Model> query) => scope(query as ModelQuery<T>),
        ],
+       namedGlobalScopes = {
+         for (final MapEntry(:key, :value) in namedGlobalScopes.entries)
+           key: (ModelQuery<Model> query) => value(query as ModelQuery<T>),
+       },
        accessors = {
          for (final entry in accessors.entries)
            entry.key: (Model model) => entry.value(model as T),
@@ -120,6 +125,10 @@ final class ModelDefinition<T extends Model> {
 
   /// Global scopes (wrapped to `Model`-typed functions).
   final List<GlobalScopeFn<Model>> globalScopes;
+
+  /// Global scopes a query can take off one at a time, with
+  /// `withoutGlobalScope('active')`.
+  final Map<String, GlobalScopeFn<Model>> namedGlobalScopes;
 
   /// Accessors (wrapped to `Model`-typed functions).
   final Map<String, AccessorFn<Model>> accessors;

@@ -208,6 +208,12 @@ sections:
       - { php: "Rule::enum(Status::class)", dart: "Rules.enum_(Status.values)", symbol: Rules.enum_ }
       - { php: "->withoutMiddleware('csrf')", dart: ".withoutMiddleware(['csrf'])", symbol: RouteEntry.withoutMiddleware }
       - { php: "where('meta->lang', 'id') / update(['meta->lang' => 'en'])", dart: "where('meta->lang', 'id') / update({'meta->lang': 'en'})", symbol: QueryGrammar.jsonSelector }
+      - { php: "whereNone(['a', 'b'], 'like', '%x%')", dart: "whereNone(['a', 'b'], 'like', '%x%')", symbol: QueryBuilder.whereNone }
+      - { php: "belongsTo(User::class)->withDefault()", dart: "BelongsTo<User>(...).withDefault()", symbol: BelongsTo.withDefault }
+      - { php: "hasOne(Order::class)->latestOfMany('score')", dart: "HasOne<Order>(...).latestOfMany('score')", symbol: HasOne.latestOfMany }
+      - { php: "$user->roles()->syncWithoutDetaching($ids) / toggle($ids) / updateExistingPivot($id, $attrs)", dart: "relation.syncWithoutDetaching(user, db, ids) / toggle / updateExistingPivot", symbol: BelongsToMany.toggle }
+      - { php: "$model->updateQuietly($attrs) / deleteQuietly()", dart: "model.updateQuietly(attrs) / deleteQuietly()", symbol: Model.updateQuietly }
+      - { php: "withoutGlobalScope('active')", dart: "withoutGlobalScope('active')", symbol: ModelQuery.withoutGlobalScope }
       - { php: "Rule::unique('users')->ignore($id)->where(fn ($q) => $q->whereNull('deleted_at'))", dart: "Rules.unique('users').ignore(id).where((QueryBuilder q) => q.whereNull('deleted_at'))", symbol: UniqueRule.ignore }
       - { php: "['required', 'email', 'max:255']", dart: "Rules.required().email().max(255)", symbol: RuleBuilder, note: "Chained rule objects, checked by the compiler." }
       - { php: "'accepted' / 'accepted_if:plan,paid' / 'declined' / 'declined_if:plan,paid'", dart: "the same strings, or Rules.accepted() / acceptedIf('plan', ['paid']) / declined() / declinedIf(...)", symbol: AcceptanceRule }

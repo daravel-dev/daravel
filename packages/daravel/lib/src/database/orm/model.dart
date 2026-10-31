@@ -322,6 +322,13 @@ abstract base class Model implements JsonSerializable, Responsable {
   /// Saves without firing events.
   Future<bool> saveQuietly() => withoutEvents(save);
 
+  /// Mass assigns and saves without firing events.
+  Future<bool> updateQuietly(Map<String, Object?> attributes) =>
+      withoutEvents(() => update(attributes));
+
+  /// Deletes without firing events.
+  Future<bool> deleteQuietly() => withoutEvents(delete);
+
   /// Mass assigns and saves.
   Future<bool> update(Map<String, Object?> attributes) {
     fill(attributes);

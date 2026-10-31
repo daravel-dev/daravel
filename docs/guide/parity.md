@@ -230,6 +230,12 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `Rule::enum(Status::class)` | `Rules.enum_(Status.values)` |  |
 | `->withoutMiddleware('csrf')` | `.withoutMiddleware(['csrf'])` |  |
 | `where('meta->lang', 'id') / update(['meta->lang' => 'en'])` | `where('meta->lang', 'id') / update({'meta->lang': 'en'})` |  |
+| `whereNone(['a', 'b'], 'like', '%x%')` | `whereNone(['a', 'b'], 'like', '%x%')` |  |
+| `belongsTo(User::class)->withDefault()` | `BelongsTo<User>(...).withDefault()` |  |
+| `hasOne(Order::class)->latestOfMany('score')` | `HasOne<Order>(...).latestOfMany('score')` |  |
+| `$user->roles()->syncWithoutDetaching($ids) / toggle($ids) / updateExistingPivot($id, $attrs)` | `relation.syncWithoutDetaching(user, db, ids) / toggle / updateExistingPivot` |  |
+| `$model->updateQuietly($attrs) / deleteQuietly()` | `model.updateQuietly(attrs) / deleteQuietly()` |  |
+| `withoutGlobalScope('active')` | `withoutGlobalScope('active')` |  |
 | `Rule::unique('users')->ignore($id)->where(fn ($q) => $q->whereNull('deleted_at'))` | `Rules.unique('users').ignore(id).where((QueryBuilder q) => q.whereNull('deleted_at'))` |  |
 | `['required', 'email', 'max:255']` | `Rules.required().email().max(255)` | Chained rule objects, checked by the compiler. |
 | `'accepted' / 'accepted_if:plan,paid' / 'declined' / 'declined_if:plan,paid'` | `the same strings, or Rules.accepted() / acceptedIf('plan', ['paid']) / declined() / declinedIf(...)` |  |

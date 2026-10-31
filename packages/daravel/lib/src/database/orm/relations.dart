@@ -283,13 +283,77 @@ class HasMany<R extends Model> extends Relation<R> {
 final class HasOne<R extends Model> extends HasMany<R> {
   HasOne(super.related, {required super.foreignKey, super.localKey});
 
+  String? _ofColumn;
+  String _ofAggregate = 'max';
+
+  /// `latestOfMany()`: the row with the largest [column] of a has-many.
+  HasOne<R> latestOfMany([String column = 'id']) => ofMany(column, 'max');
+
+  /// `oldestOfMany()`: the row with the smallest [column].
+  HasOne<R> oldestOfMany([String column = 'id']) => ofMany(column, 'min');
+
+  /// `ofMany('score', 'max')`. Eager loading reads one row per parent, with a
+  /// correlated subquery. Rows with the same [column] go by the primary key.
+  HasOne<R> ofMany(String column, String aggregate) {
+    if (aggregate != 'max' && aggregate != 'min') {
+      throw ArgumentError.value(aggregate, 'aggregate', "'max' or 'min'");
+    }
+    _ofColumn = column;
+    _ofAggregate = aggregate;
+    return this;
+  }
+
+  void _order(ModelQuery<Model> query) {
+    final direction = _ofAggregate == 'max' ? 'desc' : 'asc';
+    query
+      ..orderBy(_ofColumn!, direction)
+      ..orderBy(related.primaryKey, direction);
+  }
+
+  @override
+  ModelQuery<R> queryFor(Model parent, DatabaseManager db) {
+    final query = super.queryFor(parent, db);
+    if (_ofColumn != null) {
+      _order(query as ModelQuery<Model>);
+    }
+    return query;
+  }
+
+  /// The rows holding the aggregate of their parent.
+  void _onlyAggregate(ModelQuery<Model> query, DatabaseManager db) {
+    final column = _ofColumn!;
+    final table = query.tableName;
+    final grammar = db.grammarFor(related.connection);
+    const alias = 'of_many';
+    final live = related.softDeletes
+        ? ' AND ${grammar.wrap('$alias.${related.deletedAt}')} IS NULL'
+        : '';
+    query.whereRaw(
+      '${grammar.wrap('$table.$column')} = (SELECT '
+      '${_ofAggregate.toUpperCase()}(${grammar.wrap('$alias.$column')}) '
+      'FROM ${grammar.wrap(table)} ${grammar.wrap(alias)} WHERE '
+      '${grammar.wrap('$alias.$foreignKey')} = '
+      '${grammar.wrap('$table.$foreignKey')}$live)',
+    );
+    _order(query);
+  }
+
   @override
   Future<void> eagerLoad(
     List<Model> parents,
     DatabaseManager db, [
     RelationConstraint? constraint,
   ]) async {
-    await super.eagerLoad(parents, db, constraint);
+    await super.eagerLoad(
+      parents,
+      db,
+      _ofColumn == null
+          ? constraint
+          : (query) {
+              constraint?.call(query);
+              _onlyAggregate(query, db);
+            },
+    );
     for (final parent in parents) {
       final list = parent.relations[name] as List<Model>;
       parent.setRelation(name, list.isEmpty ? null : list.first);
@@ -303,6 +367,15 @@ final class BelongsTo<R extends Model> extends Relation<R> {
 
   final String foreignKey;
   final String ownerKey;
+
+  R Function(Model parent)? _default;
+
+  /// A model for a parent without an owner, so views need no null check:
+  /// an empty one, or what [build] makes. It is never saved by itself.
+  BelongsTo<R> withDefault([R Function(Model parent)? build]) {
+    _default = build ?? (_) => related.factory();
+    return this;
+  }
 
   @override
   ModelQuery<R> queryFor(Model parent, DatabaseManager db) =>
@@ -332,7 +405,10 @@ final class BelongsTo<R extends Model> extends Relation<R> {
       }
     }
     for (final parent in parents) {
-      parent.setRelation(name, byKey[parent.attributes[foreignKey]]);
+      parent.setRelation(
+        name,
+        byKey[parent.attributes[foreignKey]] ?? _default?.call(parent),
+      );
     }
   }
 
@@ -548,6 +624,46 @@ final class BelongsToMany<R extends Model> extends Relation<R> {
     }
     return {'attached': toAttach, 'detached': toDetach, 'updated': const []};
   }
+
+  /// `sync` that leaves the other rows.
+  Future<Map<String, List<Object?>>> syncWithoutDetaching(
+    Model parent,
+    DatabaseManager db,
+    Object ids,
+  ) => sync(parent, db, ids, detaching: false);
+
+  /// Attaches the [ids] that are not attached, detaches those that are.
+  Future<Map<String, List<Object?>>> toggle(
+    Model parent,
+    DatabaseManager db,
+    Object ids,
+  ) async {
+    final wanted = _ids(ids);
+    final current = (await _parentPivot(
+      parent,
+      db,
+    ).pluck(relatedPivotKey)) as List<Object?>;
+    final toDetach = wanted.where(current.contains).toList();
+    final toAttach = wanted.where((id) => !current.contains(id)).toList();
+    if (toDetach.isNotEmpty) {
+      await detach(parent, db, toDetach);
+    }
+    if (toAttach.isNotEmpty) {
+      await attach(parent, db, toAttach, const {});
+    }
+    return {'attached': toAttach, 'detached': toDetach};
+  }
+
+  /// Updates the pivot row of [id].
+  Future<int> updateExistingPivot(
+    Model parent,
+    DatabaseManager db,
+    Object id,
+    Map<String, Object?> attributes,
+  ) => _parentPivot(parent, db).where(relatedPivotKey, id).update({
+    ...attributes,
+    if (withTimestamps) 'updated_at': formatNow(),
+  });
 
   static String formatNow() {
     final now = Clock.now().toUtc();
