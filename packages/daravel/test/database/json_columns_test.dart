@@ -122,6 +122,26 @@ void main() {
         expect(flag.single['id'], 2);
       });
 
+      test('whereJsonContains on a path', () async {
+        await db.table('json_rows').where('id', 1).update({
+          'meta->list': [1, 'two'],
+        });
+        final contains = db.table('json_rows').whereJsonContains;
+        expect((await contains('meta->list', 1).get()).single['id'], 1);
+        expect(
+          (await db
+                  .table('json_rows')
+                  .whereJsonContains('meta->list', 'two')
+                  .get())
+              .single['id'],
+          1,
+        );
+        expect(
+          await db.table('json_rows').whereJsonContains('meta->list', 9).get(),
+          isEmpty,
+        );
+      });
+
       test('orderBy', () async {
         final rows = await db
             .table('json_rows')
