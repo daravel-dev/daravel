@@ -36,6 +36,7 @@ final class CreateUsers extends Migration {
     table.string('name');
     table.string('email').unique();
     table.string('password');
+    table.string('remember_token').nullable();
     table.timestamps();
   });
 
@@ -95,9 +96,19 @@ void main() {
                     },
                   )
                   .middleware(['auth:web']);
-              r.get('/remember', (request) async {
-                await guard().login(User(), remember: true);
-                return {};
+              r.get(
+                '/via',
+                (request) async => {
+                  'id': await guard().id(),
+                  'via': guard().viaRemember,
+                },
+              );
+              r.post('/remember', (request) async {
+                final ok = await guard().attempt({
+                  'email': 'ana@x.io',
+                  'password': 'secret',
+                }, remember: true);
+                return {'ok': ok};
               });
             }, middleware: const ['web']),
           )
@@ -121,17 +132,25 @@ void main() {
   /// Keeps the session cookie between requests, as a browser.
   Map<String, String> headers() => {
     'accept': 'application/json',
-    if (jar[cookie] != null)
-      'cookie': '$cookie=${Uri.encodeComponent(jar[cookie]!)}',
+    if (jar.isNotEmpty)
+      'cookie': [
+        for (final MapEntry(:key, :value) in jar.entries)
+          '$key=${Uri.encodeComponent(value)}',
+      ].join('; '),
   };
 
   T keep<T extends TestResponse>(T response) {
     for (final line in response.headers.all('set-cookie')) {
-      if (line.startsWith('$cookie=')) {
-        final end = line.indexOf(';');
-        jar[cookie] = Uri.decodeComponent(
-          line.substring(cookie.length + 1, end),
-        );
+      final equals = line.indexOf('=');
+      final name = line.substring(0, equals);
+      final value = line.substring(equals + 1, line.indexOf(';'));
+      if (name == 'XSRF-TOKEN') {
+        continue;
+      }
+      if (value.isEmpty || value == 'deleted') {
+        jar.remove(name);
+      } else {
+        jar[name] = Uri.decodeComponent(value);
       }
     }
     return response;
@@ -237,9 +256,106 @@ void main() {
     expect((await client.get('/me', headers: headers())).status, 401);
   });
 
-  test('"remember me" is refused rather than ignored', () async {
-    final response = await client.get('/remember', headers: headers());
-    expect(response.status, 500);
+  group('remember me', () {
+    String recaller() =>
+        'remember_web_${sha1.convert(utf8.encode(r'Illuminate\Auth\SessionGuard'))}';
+
+    /// The cookie's clear text, as Laravel's guard would read it.
+    Future<String> clearCookie() => app.run(() async {
+      final encrypter = Crypt.encrypter;
+      final clear = await encrypter.decryptString(jar[recaller()]!);
+      return CookieValuePrefix.remove(clear);
+    });
+
+    Future<Map<String, Object?>> row() =>
+        app.run(() async => (await DB.table('users').first())!);
+
+    Future<void> rememberThenLoseTheSession() async {
+      keep(await client.post('/remember', headers: headers()));
+      jar.remove(cookie);
+    }
+
+    test('viaRemember is true for the request the cookie logged in', () async {
+      await rememberThenLoseTheSession();
+      final first = keep(await client.get('/via', headers: headers()));
+      expect(first.jsonMap, {'id': 1, 'via': true});
+      final second = keep(await client.get('/via', headers: headers()));
+      expect(second.jsonMap, {'id': 1, 'via': false});
+    });
+
+    test(
+      'viaRemember does not leak into a request without the cookie',
+      () async {
+        await rememberThenLoseTheSession();
+        keep(await client.get('/via', headers: headers()));
+        final other = await client.get('/via');
+        expect(other.jsonMap, {'id': null, 'via': false});
+      },
+    );
+
+    test('the cookie logs in after the session is gone', () async {
+      await rememberThenLoseTheSession();
+      final me = keep(await client.get('/me', headers: headers()));
+      me.assertOk();
+      expect(me.jsonMap['id'], 1);
+      expect((me.jsonMap['all']! as Map)[loginKey], 1);
+    });
+
+    test('the cookie is id|token|HMAC of the password', () async {
+      keep(await client.post('/remember', headers: headers()));
+      final user = await row();
+      final token = user['remember_token']! as String;
+      expect(token, hasLength(60));
+      final mac = Hmac(sha256, utf8.encode(appKey));
+      final hash = mac.convert(utf8.encode('${user['password']}'));
+      expect(await clearCookie(), '1|$token|$hash');
+    });
+
+    test('Laravel 11 wrote the password hash itself', () async {
+      await app.shutdown();
+      await start(const {'COMPAT_LARAVEL_VERSION': '11'});
+      await rememberThenLoseTheSession();
+      final user = await row();
+      expect(
+        await clearCookie(),
+        '1|${user['remember_token']}|${user['password']}',
+      );
+      expect((await client.get('/me', headers: headers())).status, 200);
+    });
+
+    test('a wrong token or password hash is refused', () async {
+      await rememberThenLoseTheSession();
+      final good = jar[recaller()]!;
+      Future<void> forge(String clear) async {
+        jar[recaller()] = await app.run(() async {
+          final encrypter = Crypt.encrypter;
+          final prefix = CookieValuePrefix.create(recaller(), encrypter.key);
+          return encrypter.encryptString('$prefix$clear');
+        });
+      }
+
+      final user = await row();
+      await forge('1|${'x' * 60}|abc');
+      expect((await client.get('/me', headers: headers())).status, 401);
+      await forge('1|${user['remember_token']}|abc');
+      expect((await client.get('/me', headers: headers())).status, 401);
+      await forge('1|${user['remember_token']}');
+      expect((await client.get('/me', headers: headers())).status, 401);
+      jar[recaller()] = good;
+      expect((await client.get('/me', headers: headers())).status, 200);
+    });
+
+    test('logout forgets the cookie and cycles the token', () async {
+      keep(await client.post('/remember', headers: headers()));
+      final before = (await row())['remember_token'];
+      final stolen = jar[recaller()]!;
+      keep(await client.post('/logout', headers: headers()));
+      expect(jar.containsKey(recaller()), isFalse);
+      expect((await row())['remember_token'], isNot(before));
+
+      jar[recaller()] = stolen;
+      expect((await client.get('/me', headers: headers())).status, 401);
+    });
   });
 
   test('the guard needs a session', () async {

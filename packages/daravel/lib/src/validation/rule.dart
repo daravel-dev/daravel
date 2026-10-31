@@ -13,7 +13,20 @@ final class ValidationContext {
     this.container,
     this.locale = 'en',
     this.numeric = false,
+    this.booleans = const <String>{},
+    this.attributeNames = const <String, String>{},
   });
+
+  /// The attributes with a `boolean` rule (Laravel's
+  /// `shouldConvertToBoolean`).
+  final Set<String> booleans;
+
+  /// The custom attribute names of this validation.
+  final Map<String, String> attributeNames;
+
+  /// [attribute] as a message shows it.
+  String displayName(String attribute) =>
+      attributeNames[attribute] ?? attribute.replaceAll('_', ' ');
 
   /// Whether the attribute also carries a `numeric` or `integer` rule, so
   /// size rules (`min`, `max`, `between`, `size`) measure a string by its

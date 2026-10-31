@@ -9,6 +9,19 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 wait for a new major version, and Laravel-facing formats change only to
 match Laravel more closely.
 
+## Unreleased
+
+### Fixed
+
+- PostgreSQL `inet`, `cidr`, `macaddr` and `macaddr8` columns came back as undecoded bytes, so comparing one with `request.ip` always failed. They are text now, as PostgreSQL prints them, and `model:sync` types them as `String`.
+- `accepted_if` and `declined_if`: with a `boolean` rule on the other attribute, `true` and `false` compare as booleans, and `:other` uses the custom attribute names.
+
+### Added
+
+- Remember-me cookies in `SessionGuard`: `attempt(..., remember: true)` and `login(user, remember: true)` write Laravel's `remember_web_<sha1>` cookie, and either side can log in from the other's.
+- Payload profiles of teobiefy-laravel-api-response 0.3 in `daravel_teobiefy`: `withTeobiefyProfiles()` and the `teobiefy.profile` middleware (route patterns, XChaCha20, ChaCha20 and AES-256-GCM with key ids, HMAC-SHA256, replay protection). Requests with compressed zstd blocks are refused: responses and requests use raw frames.
+- `ModelQuery.orderByRaw`, `KeyType.manualInt` (Laravel's `$incrementing = false` on an integer key), `Request.inputSync` for model scopes, and `Clock.nowIn('Asia/Makassar')`.
+
 ## 1.21.0
 
 The web session guard, and a round of fixes from running beside real Laravel

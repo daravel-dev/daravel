@@ -572,6 +572,31 @@ final class Request {
     return converted ?? fallback;
   }
 
+  bool get _mayHaveBody =>
+      !const {'GET', 'HEAD', 'OPTIONS'}.contains(method) &&
+      (int.tryParse(headers.first('content-length') ?? '') ?? 0) > 0;
+
+  /// [input] for code that cannot wait, such as a model scope. It sees the
+  /// body only once something awaited the input of this request (a
+  /// validation, a filter, [all]); until then the query string.
+  ///
+  /// With asserts on (tests, `dart run --enable-asserts`) a key the query
+  /// lacks on a request whose body was not read yet fails loudly, because
+  /// the body would be skipped without a word.
+  T? inputSync<T>(String key, [T? fallback]) {
+    final value = _dig(_allInput ?? queryInput, key);
+    assert(
+      _allInput != null || value != null || !_mayHaveBody,
+      'Request.inputSync("$key") ran before the body was read: await '
+      'request.all() or validate() first.',
+    );
+    if (value is T) {
+      return value;
+    }
+    final converted = value is String ? _convert<T>(value) : null;
+    return converted ?? fallback;
+  }
+
   /// `$request->integer('page', 1)`: the input as an `int`, or [fallback]
   /// when it is missing or not a number.
   Future<int> integer(String key, [int fallback = 0]) async =>

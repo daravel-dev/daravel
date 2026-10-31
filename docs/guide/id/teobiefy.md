@@ -1,4 +1,4 @@
-<!-- source: teobiefy.md sha256:94e80bc2348e -->
+<!-- source: teobiefy.md sha256:aaea7c9790c3 -->
 # Teobiefy
 
 `daravel_teobiefy` berbicara dengan protokol payload terenkripsi teobiefy
@@ -224,3 +224,32 @@ Protokol v2 di blueprint (kunci diturunkan dari bearer token, tanda tangan
 request) tidak diimplementasikan: kunci yang diturunkan dari token yang
 ikut dikirim di request yang sama tidak melindungi apa pun yang belum
 dilindungi koneksi TLS.
+
+## Profil payload
+
+teobiefy-laravel-api-response 0.3 mengganti session dengan profil per route.
+`withTeobiefyProfiles()` menambahkan profil dan middleware
+`teobiefy.profile`:
+
+```dart
+.withTeobiefyProfiles(
+  keys: {'v1': env.string('TEOBIEFY_ENCRYPTION_KEY_V1')},
+  responseProfiles: {'api/v1/exams/*': 'encrypted'},
+  requestProfiles: {'api/v1/exams/*': 'encrypted'},
+)
+```
+
+Pola dicocokkan dengan nama atau path route, seperti `route_profiles` di
+`config/teobiefy.php`. `'teobiefy.profile:encrypted,plain'` pada route
+menetapkan profil response dan request, seperti attribute `ResponseProfile`
+dan `RequestProfile`. Profilnya adalah `plain`, `compressed`, `encrypted`,
+`compressed_encrypted`, `signed`, dan `compressed_signed`.
+`TEOBIEFY_ENCRYPTION_DRIVER` bernilai `xchacha20-poly1305`,
+`chacha20-poly1305-ietf`, atau `aes-256-gcm`; `TEOBIEFY_ENCRYPTION_KEY`,
+`TEOBIEFY_ENCRYPTION_ACTIVE_KID`, `TEOBIEFY_SIGNING_KEY`,
+`TEOBIEFY_SIGNING_ACTIVE_KID`, dan `TEOBIEFY_REPLAY_PROTECTION` tetap memakai
+nama yang sama.
+
+Response berupa frame Zstandard dengan blok raw: semua decoder bisa membacanya,
+tetapi ukurannya tidak mengecil. Request yang frame-nya memuat blok terkompresi
+dijawab `406`, karena paket ini tidak punya entropy decoder.

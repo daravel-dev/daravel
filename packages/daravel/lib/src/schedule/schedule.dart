@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:timezone/data/latest_all.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
 
 import '../foundation/clock.dart';
@@ -95,8 +94,6 @@ final class ScheduledTask {
     String two(int n) => n.toString().padLeft(2, '0');
     return '$sign${two(minutes ~/ 60)}:${two(minutes % 60)}';
   }
-
-  static bool _zonesLoaded = false;
 
   /// [utc] as wall-clock time in [zone] (an IANA name or a `Duration`), for
   /// display (`schedule:list --timezone`).
@@ -195,15 +192,7 @@ final class ScheduledTask {
         _offset = offset;
         _location = null;
       case final String name:
-        if (!_zonesLoaded) {
-          tzdata.initializeTimeZones();
-          _zonesLoaded = true;
-        }
-        try {
-          _location = tz.getLocation(name);
-        } on tz.LocationNotFoundException {
-          throw ArgumentError.value(name, 'zone', 'Unknown time zone');
-        }
+        _location = Clock.timeZone(name);
       default:
         throw ArgumentError.value(zone, 'zone', 'A zone name or a Duration');
     }

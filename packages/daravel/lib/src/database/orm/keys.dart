@@ -17,6 +17,11 @@ enum KeyType {
 
   /// Application supplied string key.
   string,
+
+  /// Application supplied integer key (Laravel's
+  /// `$incrementing = false`): nothing is generated or read back, and
+  /// saving a new model without one is an error.
+  manualInt,
 }
 
 /// Generates client-side keys.

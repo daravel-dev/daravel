@@ -18,5 +18,6 @@ library;
 export 'src/aes_cbc.dart';
 export 'src/crypto.dart';
 export 'src/middleware.dart';
+export 'src/profiles.dart';
 export 'src/sessions.dart';
 export 'src/setup.dart';

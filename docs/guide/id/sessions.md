@@ -1,4 +1,4 @@
-<!-- source: sessions.md sha256:acfd93fd7d86 -->
+<!-- source: sessions.md sha256:7a38ce125cb4 -->
 # Session, cookie, dan CSRF
 
 `daravel_session` memberi route web sebuah session seperti di Laravel: id
@@ -143,14 +143,19 @@ await guard.logout();
 await request.session.invalidate();
 ```
 
+`attempt(..., remember: true)` juga menulis cookie `remember_web_<sha1>` dari
+Laravel. Cookie ini butuh kolom `remember_token` yang nullable, dan me-login-kan
+user di kedua aplikasi setelah session habis; `logout` menghapusnya dan
+mengganti token.
+`guard.viaRemember` memberi tahu apakah user request ini berasal dari cookie itu.
+
 Pasang `auth:web` setelah grup `web` pada route yang dilindungi. Mulai
 `COMPAT_LARAVEL_VERSION=12`, login juga menyimpan `password_hash_web` yang
 dibandingkan oleh `AuthenticateSession` dari Laravel.
 
 ## Belum tercakup
 
-Driver session `cookie`, `ViewErrorBag` (`back()->withErrors()`), session
-blocking (`Route::block`), dan cookie remember-me pada guard `web`
-(`attempt(..., remember: true)` melempar error). Tabel
+Driver session `cookie`, `ViewErrorBag` (`back()->withErrors()`), dan session
+blocking (`Route::block`). Tabel
 `sessions` dan format cookie Laravel adalah kontraknya; selebihnya adalah
 API Daravel sendiri.

@@ -158,7 +158,7 @@ final class AccessorPlan {
 
 /// What the PostgreSQL driver returns for a column of [dataType]
 /// (`information_schema.columns.data_type`); `Object` for the types without
-/// a plain Dart value (`time`, `interval`, `inet`, arrays, enums).
+/// a plain Dart value (`time`, `interval`, arrays, enums).
 String _postgresType(String dataType) => switch (dataType) {
   'boolean' => 'bool',
   'smallint' || 'integer' || 'bigint' => 'int',
@@ -167,7 +167,14 @@ String _postgresType(String dataType) => switch (dataType) {
   'date' ||
   'timestamp without time zone' ||
   'timestamp with time zone' => 'DateTime',
-  'character varying' || 'character' || 'text' || 'uuid' => 'String',
+  'character varying' ||
+  'character' ||
+  'text' ||
+  'uuid' ||
+  'inet' ||
+  'cidr' ||
+  'macaddr' => 'String',
+  'macaddr8' => 'String',
   'bytea' => 'List<int>',
   _ => 'Object',
 };

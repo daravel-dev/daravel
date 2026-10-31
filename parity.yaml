@@ -123,7 +123,7 @@ sections:
       - { php: "session()->flash('status', 'Saved') / reflash / keep / now", dart: "session.flash('status', 'Saved') / reflash / keep / now", symbol: Session.flash }
       - { php: "session()->regenerate() / invalidate()", dart: "await session.regenerate() / invalidate()", symbol: Session.invalidate, async: true }
       - { php: "csrf_token()", dart: "session.token", symbol: Session.token }
-      - { php: "Auth::guard('web')->attempt($credentials) / login($user) / logout()", dart: "guard.attempt(credentials) / login(user) / logout()", symbol: SessionGuard, async: true, note: "auth.session<User>('web', provider). The login_web_<sha1> key and, from Laravel 12, password_hash_web, so a login holds on both sides. No remember-me cookies." }
+      - { php: "Auth::guard('web')->attempt($credentials) / login($user) / logout()", dart: "guard.attempt(credentials) / login(user) / logout()", symbol: SessionGuard, async: true, note: "auth.session<User>('web', provider). The login_web_<sha1> key and, from Laravel 12, password_hash_web, so a login holds on both sides, with remember-me cookies." }
       - { php: "EncryptCookies middleware", dart: "EncryptCookiesMiddleware", symbol: EncryptCookiesMiddleware, note: "Crypt payload with CookieValuePrefix (hmac_sha1(name.'v2', key).'|'), so cookies are shared with the Laravel app." }
       - { php: "VerifyCsrfToken ($except, X-CSRF-TOKEN, X-XSRF-TOKEN)", dart: "VerifyCsrfTokenMiddleware(except: [...])", symbol: VerifyCsrfTokenMiddleware, note: "419 CSRF token mismatch.; the XSRF-TOKEN cookie is set on every response." }
       - { php: "SESSION_DRIVER=file|database", dart: "SESSION_DRIVER=file|database (array for tests)", symbol: SessionManager.extend, note: "Laravel's sessions table (payload base64(serialize()) or base64(json_encode()), last_activity) and file format; extend() adds a driver." }
@@ -287,6 +287,7 @@ sections:
       - { php: "auth()->user() / Auth::user()", dart: "await Auth.user()", symbol: Auth.user, async: true }
       - { php: "Auth::id() / check() / guest()", dart: "await Auth.id() / check() / guest()", symbol: Auth.check, async: true }
       - { php: "Auth::guard('api')", dart: "Auth.guard('api')", symbol: Auth.guard }
+      - { php: "Auth::viaRemember()", dart: "guard.viaRemember", symbol: SessionGuard.viaRemember }
       - { php: "$user->createToken($name, $abilities)", dart: "await Auth.issueToken(user, name, abilities: [...])", symbol: Auth.issueToken, async: true }
       - { php: "$user->currentAccessToken()->delete()", dart: "await Auth.tokenGuard().revokeCurrent()", symbol: TokenGuard.revokeCurrent, async: true }
       - { php: "$user->tokenCan('posts:read')", dart: "await Auth.tokenGuard().tokenCan('posts:read')", symbol: TokenGuard.tokenCan, async: true }
@@ -340,6 +341,7 @@ sections:
       - { php: "app(Service::class)", dart: "App.make<Service>()", symbol: App.make }
       - { php: "resolve(Service::class)", dart: "inject<Service>() / maybeInject<Service>()", symbol: inject, note: "The type is inferred where the value goes: `orders ?? inject()`." }
       - { php: "$this->app->singleton(...) in AppServiceProvider::register()", dart: ".withBindings((c) => c.singleton((c) => OrderService(c(), c())))", symbol: ApplicationBuilder.withBindings, note: "Calling the container (`c()`) resolves the type each argument needs." }
+      - { php: "now('Asia/Makassar')", dart: "Clock.nowIn('Asia/Makassar')", symbol: Clock.nowIn }
       - { php: "now()", dart: "Clock.now()", symbol: Clock.now, note: "Frozen by freezeTime()/travel() in tests." }
 
   - name: Localization

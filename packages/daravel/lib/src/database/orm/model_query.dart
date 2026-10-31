@@ -249,6 +249,14 @@ final class ModelQuery<T extends Model> {
   }
 
   ModelQuery<T> orderByDesc(Object column) => orderBy(column, 'desc');
+
+  /// Orders by raw SQL: [sql] is used as written, so values go in
+  /// [bindings].
+  ModelQuery<T> orderByRaw(String sql, [List<Object?> bindings = const []]) {
+    builder.orderByRaw(sql, bindings);
+    return this;
+  }
+
   ModelQuery<T> latest([String? column]) =>
       orderBy(column ?? definition.createdAt, 'desc');
   ModelQuery<T> oldest([String? column]) =>

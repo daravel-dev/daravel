@@ -213,3 +213,32 @@ ChaCha20-Poly1305 IETF both ways. Differences:
 The blueprint's protocol v2 (keys derived from the bearer token, request
 signatures) is not implemented: a key derived from a token that travels
 in the same request protects nothing the TLS connection does not.
+
+## Payload profiles
+
+teobiefy-laravel-api-response 0.3 replaces the session with a profile per
+route. `withTeobiefyProfiles()` adds them and the `teobiefy.profile`
+middleware:
+
+```dart
+.withTeobiefyProfiles(
+  keys: {'v1': env.string('TEOBIEFY_ENCRYPTION_KEY_V1')},
+  responseProfiles: {'api/v1/exams/*': 'encrypted'},
+  requestProfiles: {'api/v1/exams/*': 'encrypted'},
+)
+```
+
+Patterns match a route name or path, as `route_profiles` in
+`config/teobiefy.php`. `'teobiefy.profile:encrypted,plain'` on a route sets
+the response and request profiles, as the `ResponseProfile` and
+`RequestProfile` attributes. The profiles are `plain`, `compressed`,
+`encrypted`, `compressed_encrypted`, `signed` and `compressed_signed`.
+`TEOBIEFY_ENCRYPTION_DRIVER` is `xchacha20-poly1305`,
+`chacha20-poly1305-ietf` or `aes-256-gcm`; `TEOBIEFY_ENCRYPTION_KEY`,
+`TEOBIEFY_ENCRYPTION_ACTIVE_KID`, `TEOBIEFY_SIGNING_KEY`,
+`TEOBIEFY_SIGNING_ACTIVE_KID` and `TEOBIEFY_REPLAY_PROTECTION` keep their
+names.
+
+Responses are Zstandard frames of raw blocks: every decoder reads them, but
+they are not smaller. A request whose frame has compressed blocks answers
+`406`, because this package has no entropy decoder.

@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cookie;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -151,6 +152,29 @@ switch ($step) {
                 ? hash_equals($guard->hashPasswordForCookie($user->password), (string) $store->get('password_hash_web'))
                 : null,
         ], JSON_UNESCAPED_UNICODE), "\n";
+        break;
+
+    case 'remember-write':
+        $session()->start();
+        $guard = Auth::guard('web');
+        $guard->login(App\Models\User::find(7), true);
+        $name = $guard->getRecallerName();
+        foreach (Cookie::getQueuedCookies() as $queued) {
+            if ($queued->getName() === $name) {
+                echo json_encode(['name' => $name, 'cookie' => app('encrypter')->encrypt(
+                    CookieValuePrefix::create($name, app('encrypter')->getKey()).$queued->getValue(),
+                    false,
+                )]), "\n";
+            }
+        }
+        break;
+
+    case 'recall':
+        $session()->start();
+        $clear = CookieValuePrefix::remove(app('encrypter')->decrypt($argv[3], false));
+        $guard = Auth::guard('web');
+        $guard->setRequest(Request::create('/', 'GET', [], [$argv[2] => $clear]));
+        echo json_encode(['user' => $guard->user()?->id]), "\n";
         break;
 
     case 'format':

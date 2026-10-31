@@ -4,6 +4,7 @@ import 'package:daravel/daravel.dart';
 
 import 'crypto.dart';
 import 'middleware.dart';
+import 'profiles.dart';
 import 'sessions.dart';
 
 /// teobiefy's settings, under the names the Laravel application reads (`config/app.php`), so one `.env` serves both:
@@ -133,6 +134,67 @@ extension TeobiefyApplicationBuilder on ApplicationBuilder {
           );
 }
 
+/// `withTeobiefyProfiles()` on the application builder.
+extension TeobiefyProfilesApplicationBuilder on ApplicationBuilder {
+  /// Adds the payload profiles of teobiefy-laravel-api-response 0.3 and
+  /// the `teobiefy.profile` middleware: [TeobiefyProfilesConfig] from
+  /// `.env`, plus what `config/teobiefy.php` keeps in arrays: [keys] and
+  /// [signingKeys] by id, and the `route_profiles` patterns (`api/v1/*`,
+  /// a route name) of each direction.
+  ApplicationBuilder withTeobiefyProfiles({
+    Map<String, String> keys = const {},
+    Map<String, String> signingKeys = const {},
+    Map<String, String> responseProfiles = const {},
+    Map<String, String> requestProfiles = const {},
+    TeobiefyProfile defaultResponse = TeobiefyProfile.plain,
+    TeobiefyProfile defaultRequest = TeobiefyProfile.plain,
+  }) => withConfig<TeobiefyProfilesConfig>(TeobiefyProfilesConfig.fromEnv)
+      .withConfigCheck(TeobiefyProfilesConfig.check)
+      .withBindings(
+        (container) => container.singleton<TeobiefyProfiles>((c) {
+          final config = c
+              .make<ConfigRepository>()
+              .section<TeobiefyProfilesConfig>();
+          final cache = c.make<CacheManager>();
+          final store = cache.store();
+          return TeobiefyProfiles(
+            config,
+            encryption: TeobiefyKeyRing(
+              keys: keys,
+              activeKid: config.encryptionKid,
+              legacyKey: config.encryptionKey,
+            ),
+            signing: TeobiefyKeyRing(
+              keys: signingKeys,
+              activeKid: config.signingKid,
+              legacyKey: config.signingKey,
+            ),
+            // A nonce must be seen by every worker.
+            replayStore: store.store.scope == StateScope.isolate
+                ? cache.store('process')
+                : store,
+          );
+        }),
+      )
+      .withMiddleware(
+        (middleware) => middleware.aliasFactory('teobiefy.profile', (params) {
+          final response = params.isEmpty
+              ? null
+              : TeobiefyProfile.from(params.first);
+          return TeobiefyProfileMiddleware(
+            routeResponses: responseProfiles,
+            routeRequests: requestProfiles,
+            defaultResponse: defaultResponse,
+            defaultRequest: defaultRequest,
+            response: response,
+            request: params.length > 1
+                ? TeobiefyProfile.from(params[1])
+                : response,
+          );
+        }),
+      );
+}
+
 /// teobiefy from anywhere in a request.
 abstract final class Teobiefy {
   static TeobiefyService get service =>
@@ -189,8 +251,8 @@ abstract final class Teobiefy {
   /// obiefy/api-response's `api($status, $message, $data)` with the
   /// Laravel application's settings: `status`, `message`, `data`, and
   /// `data_count` for non-empty arrays and objects; the HTTP status
-  /// matches. [includeDataCount] false leaves the count out, as
-  /// teobiefy-laravel-api-response v0.3's `include_data_count` default.
+  /// matches. [includeDataCount] false is `include_data_count => false`
+  /// in `config/teobiefy.php`.
   static Response api(
     int status,
     String message,

@@ -126,7 +126,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `session()->flash('status', 'Saved') / reflash / keep / now` | `session.flash('status', 'Saved') / reflash / keep / now` |  |
 | `session()->regenerate() / invalidate()` | `await session.regenerate() / invalidate()` | **async** |
 | `csrf_token()` | `session.token` |  |
-| `Auth::guard('web')->attempt($credentials) / login($user) / logout()` | `guard.attempt(credentials) / login(user) / logout()` | **async**; auth.session<User>('web', provider). The login_web_<sha1> key and, from Laravel 12, password_hash_web, so a login holds on both sides. No remember-me cookies. |
+| `Auth::guard('web')->attempt($credentials) / login($user) / logout()` | `guard.attempt(credentials) / login(user) / logout()` | **async**; auth.session<User>('web', provider). The login_web_<sha1> key and, from Laravel 12, password_hash_web, so a login holds on both sides, with remember-me cookies. |
 | `EncryptCookies middleware` | `EncryptCookiesMiddleware` | Crypt payload with CookieValuePrefix (hmac_sha1(name.'v2', key).'|'), so cookies are shared with the Laravel app. |
 | `VerifyCsrfToken ($except, X-CSRF-TOKEN, X-XSRF-TOKEN)` | `VerifyCsrfTokenMiddleware(except: [...])` | 419 CSRF token mismatch.; the XSRF-TOKEN cookie is set on every response. |
 | `SESSION_DRIVER=file\|database` | `SESSION_DRIVER=file\|database (array for tests)` | Laravel's sessions table (payload base64(serialize()) or base64(json_encode()), last_activity) and file format; extend() adds a driver. |
@@ -317,6 +317,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `auth()->user() / Auth::user()` | `await Auth.user()` | **async** |
 | `Auth::id() / check() / guest()` | `await Auth.id() / check() / guest()` | **async** |
 | `Auth::guard('api')` | `Auth.guard('api')` |  |
+| `Auth::viaRemember()` | `guard.viaRemember` |  |
 | `$user->createToken($name, $abilities)` | `await Auth.issueToken(user, name, abilities: [...])` | **async** |
 | `$user->currentAccessToken()->delete()` | `await Auth.tokenGuard().revokeCurrent()` | **async** |
 | `$user->tokenCan('posts:read')` | `await Auth.tokenGuard().tokenCan('posts:read')` | **async** |
@@ -374,6 +375,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `app(Service::class)` | `App.make<Service>()` |  |
 | `resolve(Service::class)` | `inject<Service>() / maybeInject<Service>()` | The type is inferred where the value goes: `orders ?? inject()`. |
 | `$this->app->singleton(...) in AppServiceProvider::register()` | `.withBindings((c) => c.singleton((c) => OrderService(c(), c())))` | Calling the container (`c()`) resolves the type each argument needs. |
+| `now('Asia/Makassar')` | `Clock.nowIn('Asia/Makassar')` |  |
 | `now()` | `Clock.now()` | Frozen by freezeTime()/travel() in tests. |
 
 ## Localization

@@ -57,6 +57,13 @@ Future<void> main(List<String> args) async {
             r
                 .get('/whoami', (request) async => {'user': await guard().id()})
                 .middleware(['auth:web']);
+            r.get('/remember', (request) async {
+              final ok = await guard().attempt({
+                'email': 'ana@example.com',
+                'password': 'secret',
+              }, remember: true);
+              return {'ok': ok};
+            });
             r.get('/signin', (request) async {
               final ok = await guard().attempt({
                 'email': 'ana@example.com',
@@ -129,6 +136,27 @@ Future<void> main(List<String> args) async {
           headers: {...json, ...cookie(args)},
         );
         return response.body;
+      case 'recall': // <cookie name> <cookie>
+        final response = await client.get(
+          '/whoami',
+          headers: {
+            ...json,
+            'cookie': '${args[1]}=${Uri.encodeComponent(args[2])}',
+          },
+        );
+        return response.body;
+      case 'remember':
+        final response = await client.get('/remember');
+        final line = response.headers
+            .all('set-cookie')
+            .firstWhere((l) => l.startsWith('remember_web_'));
+        final equals = line.indexOf('=');
+        return jsonEncode({
+          'name': line.substring(0, equals),
+          'cookie': Uri.decodeComponent(
+            line.substring(equals + 1, line.indexOf(';')),
+          ),
+        });
       case 'signin':
         return (await client.get('/signin')).body;
       case 'crypt':
