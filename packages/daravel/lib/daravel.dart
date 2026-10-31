@@ -30,6 +30,7 @@ export 'src/http/headers.dart';
 export 'src/http/http_exceptions.dart';
 export 'src/http/json_stream.dart';
 export 'src/http/kernel.dart';
+export 'src/http/proxy/shadow_parity.dart';
 export 'src/http/proxy/upstream_proxy.dart';
 export 'src/http/middleware.dart';
 export 'src/http/multipart.dart' show MultipartLimits, multipartBoundary;

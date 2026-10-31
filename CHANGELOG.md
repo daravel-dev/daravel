@@ -25,6 +25,7 @@ match Laravel more closely.
 
 ### Added
 
+- Shadow parity: `withUpstream(shadowSampleRate:)` replays a sample of the `GET` and `HEAD` requests Daravel answers to the upstream, after the response, and reports differences in status, content type and JSON shape to the log and `ShadowParityDrift`.
 - `Response.exception`, Laravel's `$response->exception`: since 1.21.1 an exception no longer passes through `next`, so a `try` around `next` catches nothing, not only in transaction middleware. A middleware reads it here instead.
 - `DB.transaction(attempts: n)` waits a short random time between retries (decorrelated jitter, 2 to 250 ms), so isolates that collided do not collide again. Frozen test clocks retry at once.
 - `QueryExecuted.poolWait`: the time a query waited for a connection, apart from `time`. PostgreSQL and MySQL measure it while a listener is registered.
