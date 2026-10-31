@@ -4,6 +4,7 @@
 /// HTTP kernel, radix router, SQLite database access, schema migrations.
 library;
 
+export 'src/concurrency/concurrency.dart';
 export 'src/database/database_config.dart';
 export 'src/database/database_manager.dart';
 export 'src/database/query_executor.dart';

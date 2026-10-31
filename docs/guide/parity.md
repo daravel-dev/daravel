@@ -364,6 +364,9 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `Cache::tags(['people'])->put($key, $value, $ttl)` | `await Cache.tags(['people']).put(key, value, ttl: ttl)` | **async**; memory, process and redis stores (Laravel's layout on Redis); file and database cannot tag, as in Laravel. |
 | `Cache::lock('name', 10)->get(fn)` | `await Cache.lock('name', ...)` |  |
 | `SendEmail::dispatch($user)` | `await Queue.dispatch(SendEmail(user))` | **async** |
+| `Concurrency::run([fn () => 1, fn () => 2])` | `await Concurrency.run<int>([() => 1, () => 2])` | **async**; on worker isolates: no facades in a task |
+| `Concurrency::defer([fn () => report()])` | `await Concurrency.defer([report])` | **async** |
+| `Concurrency::driver('sync')->run($tasks)` | `await Concurrency.sync(() => Concurrency.run(tasks))` | **async** |
 | `Queue::later($delay, $job)` | `await Queue.later(delay, job)` | **async** |
 | `public function tags() (Horizon)` | `List<String> get tags` |  |
 | `php artisan queue:pause database:default / queue:continue` | `dartisan queue:pause database:default / queue:continue` |  |

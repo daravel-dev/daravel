@@ -87,6 +87,42 @@ on):
   database:emails`; `QueueWorker.pause()` / `resume()` do the same for one
   worker.
 
+## Concurrency
+
+`Concurrency.run` runs tasks at once on a pool of warm worker isolates, and
+returns the results in order. It is Laravel's `Concurrency` facade, without
+starting a process per task.
+
+```dart
+final [users, orders] = await Concurrency.run<int>([
+  () => countLines(userFile),
+  () => countLines(orderFile),
+], timeout: const Duration(seconds: 30));
+```
+
+Every task runs. Then the first failure, by position, is rethrown with its stack
+trace. A task past `timeout` fails with a `TimeoutException`. `concurrency` caps
+a run, and `Concurrency.maxWorkers` caps the pool, by default the smaller of the
+processor count and 4. With `serve --isolates=N`, each isolate has its own pool.
+
+A task runs in another isolate, and this is where it differs from Laravel, whose
+tasks boot the application:
+
+- Facades do not work there. Pass the values a task needs, and return a result.
+- A closure sends all it captures, and closures in an async function capture its
+  whole scope. A `Request` or a socket in scope fails with an `ArgumentError`, so
+  build tasks in a small function, or use static ones.
+
+`Concurrency.defer` runs tasks on the workers after the response is sent, and logs
+failures. For deferred work that needs facades, use `Request.defer`.
+
+`Concurrency.runIfLarge(payloadBytes, task)` runs small work here, where crossing
+to a worker costs more than it saves, and large work on a worker.
+
+In tests, `Concurrency.sync(body)` runs tasks one by one in this isolate, and
+`Concurrency.fake((fake) async { … })` also counts them with `assertRanCount` and
+`assertDeferredCount`.
+
 ## Context
 
 Laravel 11's `Context` holds data about the current request, job or

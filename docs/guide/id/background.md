@@ -1,4 +1,4 @@
-<!-- source: background.md sha256:d4dce3d223ca -->
+<!-- source: background.md sha256:6d6e22eff2d8 -->
 # Cache, event, queue, dan penjadwalan
 
 <!-- include: packages/daravel/test/docs/guide_examples_test.dart#cache-events-queue -->
@@ -89,6 +89,47 @@ Horizon):
   mengambil job dari queue itu (job yang sedang berjalan tetap selesai)
   sampai `dartisan queue:continue database:emails`; `QueueWorker.pause()` /
   `resume()` melakukan hal yang sama untuk satu worker.
+
+## Concurrency
+
+`Concurrency.run` menjalankan beberapa task sekaligus di pool worker isolate yang
+sudah hangat, lalu mengembalikan hasilnya sesuai urutan. Ini adalah facade
+`Concurrency` Laravel, tanpa memulai satu proses untuk setiap task.
+
+```dart
+final [users, orders] = await Concurrency.run<int>([
+  () => countLines(userFile),
+  () => countLines(orderFile),
+], timeout: const Duration(seconds: 30));
+```
+
+Semua task tetap berjalan. Setelah itu kegagalan pertama menurut posisi dilempar
+ulang beserta stack trace-nya. Task yang melewati `timeout` gagal dengan
+`TimeoutException`. `concurrency` membatasi satu `run`, dan
+`Concurrency.maxWorkers` membatasi pool, secara default yang lebih kecil antara
+jumlah prosesor dan 4. Dengan `serve --isolates=N`, setiap isolate punya pool
+sendiri.
+
+Task berjalan di isolate lain, dan di sinilah bedanya dengan Laravel, yang
+mem-boot aplikasi untuk setiap task:
+
+- Facade tidak berfungsi di sana. Kirim nilai yang dibutuhkan task, lalu kembalikan
+  hasilnya.
+- Closure mengirim semua yang ditangkapnya, dan closure di dalam fungsi async
+  menangkap seluruh scope-nya. `Request` atau socket di scope itu gagal dengan
+  `ArgumentError`, jadi buat task di fungsi kecil, atau pakai fungsi static.
+
+`Concurrency.defer` menjalankan task di worker setelah response terkirim, dan
+mencatat kegagalannya ke log. Untuk pekerjaan tertunda yang butuh facade, pakai
+`Request.defer`.
+
+`Concurrency.runIfLarge(payloadBytes, task)` menjalankan pekerjaan kecil di sini,
+karena menyeberang ke worker lebih mahal daripada hasilnya, dan pekerjaan besar di
+worker.
+
+Di test, `Concurrency.sync(body)` menjalankan task satu per satu di isolate ini,
+dan `Concurrency.fake((fake) async { … })` juga menghitungnya dengan
+`assertRanCount` dan `assertDeferredCount`.
 
 ## Context
 
