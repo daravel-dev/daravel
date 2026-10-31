@@ -1,6 +1,8 @@
 import 'dart:convert';
 
+import '../../foundation/config.dart';
 import '../../foundation/container.dart';
+import '../../foundation/locale.dart';
 import '../../foundation/php.dart';
 import '../../http/request.dart';
 import '../../http/response.dart';
@@ -90,31 +92,34 @@ final class LengthAwarePaginator<T> extends _UrlPaginator
   String? get previousPageUrl => currentPage > 1 ? url(currentPage - 1) : null;
 
   /// Laravel's `linkCollection()`: previous, the `UrlWindow` pages with
-  /// `...` separators, next.
-  List<Map<String, Object?>> get links => <Map<String, Object?>>[
-    {
-      'url': previousPageUrl,
-      'label': '&laquo; Previous',
-      'page': currentPage > 1 ? currentPage - 1 : null,
-      'active': false,
-    },
-    for (final page in urlWindow(currentPage, lastPage, onEachSide))
-      if (page == null)
-        {'url': null, 'label': '...', 'active': false}
-      else
-        {
-          'url': url(page),
-          'label': '$page',
-          'page': page,
-          'active': page == currentPage,
-        },
-    {
-      'url': nextPageUrl,
-      'label': 'Next &raquo;',
-      'page': hasMorePages ? currentPage + 1 : null,
-      'active': false,
-    },
-  ];
+  /// `...` separators, next. Laravel 12 added the `page` key.
+  List<Map<String, Object?>> get links {
+    final withPage = currentLaravelCompat() >= 12;
+    return <Map<String, Object?>>[
+      {
+        'url': previousPageUrl,
+        'label': translationLine('pagination.previous') ?? '&laquo; Previous',
+        if (withPage) 'page': currentPage > 1 ? currentPage - 1 : null,
+        'active': false,
+      },
+      for (final page in urlWindow(currentPage, lastPage, onEachSide))
+        if (page == null)
+          {'url': null, 'label': '...', 'active': false}
+        else
+          {
+            'url': url(page),
+            'label': '$page',
+            if (withPage) 'page': page,
+            'active': page == currentPage,
+          },
+      {
+        'url': nextPageUrl,
+        'label': translationLine('pagination.next') ?? 'Next &raquo;',
+        if (withPage) 'page': hasMorePages ? currentPage + 1 : null,
+        'active': false,
+      },
+    ];
+  }
 
   /// Keeps the current request's query string in page URLs.
   LengthAwarePaginator<T> withQueryString() =>

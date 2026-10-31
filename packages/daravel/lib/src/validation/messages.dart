@@ -3,6 +3,7 @@
 // see THIRD_PARTY_NOTICES.md.
 
 import '../foundation/config.dart';
+import '../foundation/locale.dart';
 
 /// Default validation messages (Laravel `lang/en/validation.php` parity)
 /// with an Indonesian translation as the second bundled locale.
@@ -287,6 +288,8 @@ abstract final class ValidationMessages {
     final legacy = (laravelCompat ?? currentLaravelCompat()) <= 9;
     final template =
         overrides[key] ??
+        // `lang/<locale>/validation.php`: the application's own lines.
+        translationLine('validation.$key', locale: locale, fallback: false) ??
         (locale == 'en' ? null : translations[locale]?[key]) ??
         (legacy ? legacyEnglish[key] : null) ??
         translations['en']![key] ??

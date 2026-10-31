@@ -21,6 +21,8 @@ match Laravel more closely.
 - The `accepted`, `accepted_if`, `declined` and `declined_if` rules did not exist: the rule string threw, which answered 500 instead of 422. `Rules.accepted()` and the others, in the `RuleBuilder`, and known to `invalid_validation_rule`.
 - `Model.toJson` wrote relation keys as declared (`tipeUjian`); Laravel writes `tipe_ujian`. **This changes the JSON of camelCase relations.** `Model.snakeAttributes = false` or `snakeAttributes: false` on a `ModelDefinition` keeps the old keys.
 - `model:sync` typed `Cast.decimal` as `String`, and on PostgreSQL gave `String` for dates and booleans, whose getters crashed, and `int` for `interval`. Types now follow what each driver returns.
+- Paginator links always carried `page`, which Laravel 8 to 11 do not write: it now follows `COMPAT_LARAVEL_VERSION` (12 and later).
+- Paginator labels were always English: they come from `pagination.previous` and `pagination.next` when the application has them. `validation.*` lines (`withTranslations`, `lang/<locale>.json`) now win over the bundled messages of the same locale.
 
 ### Added
 
