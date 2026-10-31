@@ -154,6 +154,37 @@ switch ($step) {
         ], JSON_UNESCAPED_UNICODE), "\n";
         break;
 
+    case 'errors-write':
+        $store = $session();
+        $store->start();
+        $store->flash('errors', (new Illuminate\Support\ViewErrorBag)->put(
+            'default',
+            new Illuminate\Support\MessageBag(['title' => ['Laravel says.']]),
+        ));
+        $store->save();
+        echo json_encode([
+            'id' => $store->getId(),
+            'cookie' => app('encrypter')->encrypt(
+                CookieValuePrefix::create($cookie, app('encrypter')->getKey()).$store->getId(),
+                false,
+            ),
+        ]), "\n";
+        break;
+
+    case 'errors-read':
+        $store = $session();
+        $store->setId($argv[2]);
+        $store->start();
+        $errors = $store->get('errors');
+        // What ShareErrorsFromSession and Inertia call.
+        echo json_encode([
+            'bag' => $errors instanceof Illuminate\Support\ViewErrorBag,
+            'any' => $errors->any(),
+            'first' => $errors->getBag('default')->first('title'),
+            'bags' => array_keys($errors->getBags()),
+        ]), "\n";
+        break;
+
     case 'remember-write':
         $session()->start();
         $guard = Auth::guard('web');

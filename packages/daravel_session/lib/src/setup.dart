@@ -16,8 +16,7 @@ const Set<String> _dontFlash = {
 /// errors and its input flashed. Clients expecting JSON, and requests
 /// without a session, fall through to the 422.
 ///
-/// The errors are JSON, not Laravel's `ViewErrorBag` object: a page of
-/// a Laravel application reading this session does not see them.
+/// See [Session.flashErrors] for a page Laravel renders from this session.
 Future<Response?> redirectInvalidRequest(
   ValidationException error,
   Request request,
@@ -28,7 +27,7 @@ Future<Response?> redirectInvalidRequest(
   }
   final input = await request.all();
   session
-    ..flash('errors', {'default': error.errors})
+    ..flashErrors(error.errors)
     ..flash('_old_input', {
       for (final MapEntry(:key, :value) in input.entries)
         if (!_dontFlash.contains(key) && value is! UploadedFile) key: value,

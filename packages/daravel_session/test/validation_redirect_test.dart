@@ -33,6 +33,15 @@ void main() {
 
               r.post('/items', save);
               r.put('/items', save);
+              r.get(
+                '/raw',
+                (request) => {
+                  'class': switch (request.session.get<Object>('errors')) {
+                    final PhpObject object => object.className,
+                    final other => '${other.runtimeType}',
+                  },
+                },
+              );
               r.get('/form', (request) {
                 return {
                   'errors': request.session.errors,
@@ -76,6 +85,13 @@ void main() {
     });
     expect(next.jsonMap['old'], 'Ana');
     expect(next.jsonMap['password'], isNull, reason: 'never flashed');
+  });
+
+  test('a PHP session holds a ViewErrorBag, not an array', () async {
+    final failed = await client.post('/items', form: form, headers: browser);
+    final cookie = failed.headers.all('set-cookie').first.split(';').first;
+    final raw = await client.get('/raw', headers: {'cookie': cookie});
+    expect(raw.jsonMap['class'], r'Illuminate\Support\ViewErrorBag');
   });
 
   test('a foreign Referer is not followed', () async {

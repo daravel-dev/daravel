@@ -57,6 +57,12 @@ Future<void> main(List<String> args) async {
             r
                 .get('/whoami', (request) async => {'user': await guard().id()})
                 .middleware(['auth:web']);
+            r.get('/invalid', (request) {
+              throw ValidationException({
+                'title': ['Title is required.'],
+              });
+            });
+            r.get('/errors', (request) => {'errors': request.session.errors});
             r.get('/remember', (request) async {
               final ok = await guard().attempt({
                 'email': 'ana@example.com',
@@ -130,6 +136,14 @@ Future<void> main(List<String> args) async {
     switch (args.first) {
       case 'touch': // [cookie]: a request carrying Laravel's cookie, or none.
         return (await client.get('/touch', headers: cookie(args))).body;
+      case 'invalid': // <cookie>: fails validation, as a browser.
+        final response = await client.get(
+          '/invalid',
+          headers: {'accept': 'text/html', ...cookie(args)},
+        );
+        return jsonEncode({'status': response.status});
+      case 'errors': // <cookie>
+        return (await client.get('/errors', headers: cookie(args))).body;
       case 'whoami': // <cookie>
         final response = await client.get(
           '/whoami',

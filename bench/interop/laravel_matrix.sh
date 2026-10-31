@@ -139,6 +139,17 @@ for major in $VERSIONS; do
       read=$(laravel "${opts[@]}" -- read "$new")
       check "Laravel reads a session Daravel created" '"daravel":"héllo"' "$read"
       check "with its CSRF token" '"token":40' "$read"
+
+      if [ "$format" = php ]; then
+        check "Daravel redirects back" '"status":302' \
+          "$(daravel "${opts[@]}" -- invalid "$cookie")"
+        check "Laravel reads Daravel's validation errors" \
+          '"bag":true,"any":true,"first":"Title is required.","bags":["default"]' \
+          "$(laravel "${opts[@]}" -- errors-read "$id")"
+        written=$(laravel "${opts[@]}" -- errors-write)
+        check "Daravel reads Laravel's validation errors" '"title":["Laravel says."]' \
+          "$(daravel "${opts[@]}" -- errors "$(sed -E 's/.*"cookie":"([^"]*)".*/\1/; s/\\\//\//g' <<<"$written")")"
+      fi
     done
   done
 
