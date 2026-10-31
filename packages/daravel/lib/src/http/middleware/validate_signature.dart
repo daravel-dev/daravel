@@ -13,7 +13,7 @@ final class ValidateSignatureMiddleware implements Middleware {
 
   @override
   Future<Response> handle(Request request, Next next) {
-    if (!signer.verify(request.uri)) {
+    if (!signer.verify(request.uri, host: request.signedHost)) {
       throw const ForbiddenHttpException('Invalid signature.');
     }
     return next(request);

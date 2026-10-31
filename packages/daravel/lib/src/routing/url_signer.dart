@@ -26,8 +26,11 @@ final class UrlSigner {
 
   final Hmac _hmac;
 
-  /// Appends `expires` (optional) and `signature` to [pathAndQuery].
-  String sign(String pathAndQuery, {DateTime? expires}) {
+  /// Appends `expires` (optional) and `signature` to [pathAndQuery]. With
+  /// [host], the route's host is part of what is signed: a URL signed for
+  /// one tenant must not work on another's. The scheme is not, because a
+  /// proxy may end TLS in front of the application.
+  String sign(String pathAndQuery, {DateTime? expires, String? host}) {
     var base = pathAndQuery;
     if (expires != null) {
       base = _append(
@@ -36,11 +39,11 @@ final class UrlSigner {
         '${expires.toUtc().millisecondsSinceEpoch ~/ 1000}',
       );
     }
-    return _append(base, signatureParam, _signature(base));
+    return _append(base, signatureParam, _signature(_bound(base, host)));
   }
 
   /// Whether [uri] carries a valid, unexpired signature.
-  bool verify(Uri uri, {DateTime? now}) {
+  bool verify(Uri uri, {DateTime? now, String? host}) {
     final signature = uri.queryParameters[signatureParam];
     if (signature == null || signature.isEmpty) {
       return false;
@@ -58,8 +61,11 @@ final class UrlSigner {
       }
     }
     final stripped = _stripSignature(uri);
-    return _constantTimeEquals(_signature(stripped), signature);
+    return _constantTimeEquals(_signature(_bound(stripped, host)), signature);
   }
+
+  static String _bound(String data, String? host) =>
+      host == null ? data : '//${host.toLowerCase()}$data';
 
   String _signature(String data) => _hmac.convert(utf8.encode(data)).toString();
 

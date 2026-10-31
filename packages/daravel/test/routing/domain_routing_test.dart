@@ -36,13 +36,32 @@ void main() {
   setUp(() async {
     base = Directory.systemTemp.createTempSync('daravel_domain');
     app = Application.configure(basePath: base.path)
-        .withEnv({'APP_ENV': 'testing', 'DB_DATABASE': ':memory:'})
+        .withEnv({
+          'APP_ENV': 'testing',
+          'DB_DATABASE': ':memory:',
+          'APP_KEY': 'base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+        })
         .withLogLevel(LogLevel.critical)
         .withRouting(
           web: (router) {
             router
               ..bindModel('tenant', Tenant.definition)
               ..bindModel('exam', Exam.definition);
+            router.group((r) {
+              r.get('/who', (q) => 'tenant ${q.routeParams['org']}');
+            }, domain: '{org}.first.test');
+            router.group((r) {
+              r.get('/who', (_) => 'admin');
+            }, domain: 'admin.first.test');
+            router
+                .get('/export', (_) => 'exported')
+                .domain('{org}.sign.test')
+                .name('export')
+                .middleware(['signed']);
+            router
+                .get('/plain-signed', (_) => 'ok')
+                .name('plain-signed')
+                .middleware(['signed']);
             router.get('/', (_) => 'plain');
             router.get('/same', (_) => 'plain');
             router.post('/only-post', (_) => 'plain');
@@ -111,6 +130,24 @@ void main() {
     expect((await at('admin.example.com.', '/')).body, 'admin');
   });
 
+  test('a literal host wins over a parameter registered first', () async {
+    expect((await at('admin.first.test', '/who')).body, 'admin');
+    expect((await at('acme.first.test', '/who')).body, 'tenant acme');
+  });
+
+  test('a Host header in any case, and IPv6', () async {
+    final capital = await client.get(
+      '/same',
+      headers: {'Host': 'admin.example.com'},
+    );
+    expect(capital.body, 'admin');
+    expect(
+      Request.fake(path: '/', headers: {'host': '[::1]:8080'}).host,
+      '::1',
+    );
+    expect(Request.fake(path: '/', headers: {'host': '[::1]'}).host, '::1');
+  });
+
   test('a parameter comes from the host', () async {
     expect((await at('acme.example.org', '/')).body, 'site acme');
     final page = await at('acme.example.org', '/page/7');
@@ -169,11 +206,23 @@ void main() {
       expect(r.url('admin.home'), 'https://admin.example.com/');
     });
 
-    test('a signed URL keeps its host, and the signature its path', () {
-      final r = router()..signer = UrlSigner('secret-key'.codeUnits);
-      final signed = r.signedUrl('admin.home');
-      expect(signed, startsWith('http://admin.example.com/?signature='));
-      expect(r.signer!.verify(Uri.parse(signed)), isTrue);
+    test('a signed URL works on its tenant, and on no other', () async {
+      final signed = Uri.parse(
+        router().signedUrl('export', params: {'org': 'one'}),
+      );
+      expect(signed.host, 'one.sign.test');
+      final path = '${signed.path}?${signed.query}';
+      expect((await at('one.sign.test', path)).body, 'exported');
+      expect((await at('ONE.sign.test:8080', path)).body, 'exported');
+      expect((await at('two.sign.test', path)).status, 403);
+    });
+
+    test('a plain signed URL does not depend on the host', () async {
+      final signed = Uri.parse(
+        router().signedUrl('plain-signed', absolute: false),
+      );
+      final path = '${signed.path}?${signed.query}';
+      expect((await at('behind.a.proxy', path)).status, 200);
     });
 
     test('a missing parameter is named', () {

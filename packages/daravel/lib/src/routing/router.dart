@@ -443,10 +443,16 @@ final class Router {
   void compile(MiddlewareRegistry registry) {
     _trees.clear();
     final names = <String>{};
-    // A leaf tries its routes in order: those with a domain go first, so a
-    // plain route registered earlier does not shadow them.
+    // A leaf tries its routes in order: the more specific goes first, as a
+    // static segment does before a parameter. Otherwise `{tenant}.example.com`
+    // would swallow `admin.example.com`, or a plain route any domain route.
+    bool literal(RouteEntry route) =>
+        route.domainPattern?.names.isEmpty ?? false;
+    bool parameter(RouteEntry route) =>
+        route.domainPattern?.names.isNotEmpty ?? false;
     final all = <RouteEntry>[
-      ..._routes.where((route) => route.domainPattern != null),
+      ..._routes.where(literal),
+      ..._routes.where(parameter),
       ..._routes.where((route) => route.domainPattern == null),
       ?_fallback,
     ];
@@ -628,6 +634,9 @@ final class Router {
     final signed = signer.sign(
       origin == null ? target : target.substring(origin.length),
       expires: expires == null ? null : Clock.now().add(expires),
+      host: origin == null
+          ? null
+          : DomainPattern.normalize(Uri.parse(target).host),
     );
     if (origin != null) {
       return '$origin$signed';
@@ -637,7 +646,7 @@ final class Router {
 
   /// Whether [request] carries a valid signature produced by [signedUrl].
   bool hasValidSignature(Request request) =>
-      signer?.verify(request.uri) ?? false;
+      signer?.verify(request.uri, host: request.signedHost) ?? false;
 
   /// Expands trailing optional parameters into every path variant.
   static List<String> expandOptional(String path) {
