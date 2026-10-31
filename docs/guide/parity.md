@@ -317,6 +317,10 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `auth()->user() / Auth::user()` | `await Auth.user()` | **async** |
 | `Auth::id() / check() / guest()` | `await Auth.id() / check() / guest()` | **async** |
 | `Auth::guard('api')` | `Auth.guard('api')` |  |
+| `$request->getRealMethod()` | `request.originalMethod` |  |
+| `<input name="_method"> / X-HTTP-Method-Override` | `on by default; middleware.methodOverride = false` |  |
+| `back()` | `Response.back(request)` |  |
+| `session()->get('errors') / old('name')` | `session.errors / session.old('name')` |  |
 | `Auth::viaRemember()` | `guard.viaRemember` |  |
 | `$user->createToken($name, $abilities)` | `await Auth.issueToken(user, name, abilities: [...])` | **async** |
 | `$user->currentAccessToken()->delete()` | `await Auth.tokenGuard().revokeCurrent()` | **async** |

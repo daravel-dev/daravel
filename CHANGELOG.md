@@ -15,16 +15,22 @@ match Laravel more closely.
 
 - PostgreSQL `inet`, `cidr`, `macaddr` and `macaddr8` columns came back as undecoded bytes, so comparing one with `request.ip` always failed. They are text now, as PostgreSQL prints them, and `model:sync` types them as `String`.
 - `accepted_if` and `declined_if`: with a `boolean` rule on the other attribute, `true` and `false` compare as booleans, and `:other` uses the custom attribute names.
-
-### Added
-
-- Remember-me cookies in `SessionGuard`: `attempt(..., remember: true)` and `login(user, remember: true)` write Laravel's `remember_web_<sha1>` cookie, and either side can log in from the other's.
-- Payload profiles of teobiefy-laravel-api-response 0.3 in `daravel_teobiefy`: `withTeobiefyProfiles()` and the `teobiefy.profile` middleware (route patterns, XChaCha20, ChaCha20 and AES-256-GCM with key ids, HMAC-SHA256, replay protection). Requests with compressed zstd blocks are refused: responses and requests use raw frames.
-- `ModelQuery.orderByRaw`, `KeyType.manualInt` (Laravel's `$incrementing = false` on an integer key), `Request.inputSync` for model scopes, and `Clock.nowIn('Asia/Makassar')`.
 - An exception skipped the route middleware around it: a handler that failed lost its session changes and its `Set-Cookie`, so a `logout` followed by an error left the user logged in, and error responses had no `X-RateLimit-*` headers. It now becomes a response at the layer that threw it, as Laravel's pipeline does, and every outer middleware finishes. Metrics and Pulse record the real status instead of 500 for every exception. **A middleware that wraps `next` in a transaction now gets a response, not an exception, so it does not roll back on its own.**
 - `insert()` with several rows dropped the columns the first row did not name, silently. A row with other columns than the first is now an `ArgumentError` before any SQL runs, also when it names fewer: Laravel's statement fails too.
 - `Cast.integer` turned the string `168.6`, as PostgreSQL returns `numeric`, into `null`. It now reads strings as PHP's `(int)`: `168`, and `0` for text with no leading number.
 - `WithoutOverlapping` kept its lock in the `process` store whatever `QUEUE_UNIQUE_LOCK_STORE` said, so workers in other processes ran the same job together. It now uses that setting.
+
+### Changed
+
+- `Request.expectsJson` follows Laravel: an XHR that asks for HTML, as an Inertia visit does, no longer counts as JSON.
+
+### Added
+
+- `_method` and `X-HTTP-Method-Override` turn a POST into PUT, PATCH or DELETE, on by default as in Laravel; only form bodies are read. `Request.originalMethod` keeps the verb on the wire.
+- A failed validation in the `web` group redirects browsers and Inertia back, with errors and old input flashed (`session.errors`, `session.old`); clients expecting JSON keep the 422. `Response.back` ignores a foreign `Referer`.
+- Remember-me cookies in `SessionGuard`: `attempt(..., remember: true)` and `login(user, remember: true)` write Laravel's `remember_web_<sha1>` cookie, and either side can log in from the other's.
+- Payload profiles of teobiefy-laravel-api-response 0.3 in `daravel_teobiefy`: `withTeobiefyProfiles()` and the `teobiefy.profile` middleware (route patterns, XChaCha20, ChaCha20 and AES-256-GCM with key ids, HMAC-SHA256, replay protection). Requests with compressed zstd blocks are refused: responses and requests use raw frames.
+- `ModelQuery.orderByRaw`, `KeyType.manualInt` (Laravel's `$incrementing = false` on an integer key), `Request.inputSync` for model scopes, and `Clock.nowIn('Asia/Makassar')`.
 
 ## 1.21.0
 

@@ -148,6 +148,13 @@ on either application once the session is gone; `logout` forgets it and
 changes the token. `guard.viaRemember` tells whether this
 request's user came from that cookie.
 
+A failed validation in the `web` group sends a browser or an Inertia visit
+back, 303 after an Inertia PUT, PATCH or DELETE, with `session.errors` and
+`session.old('name')` on the next request; passwords are never flashed. Clients
+expecting JSON keep the 422. Forms name their verb with `_method`, or the
+`X-HTTP-Method-Override` header does; `middleware.methodOverride = false` turns
+this off.
+
 Put `auth:web` after the `web` group on protected routes. From
 `COMPAT_LARAVEL_VERSION=12` the login also stores `password_hash_web`, which
 Laravel's `AuthenticateSession` compares.
