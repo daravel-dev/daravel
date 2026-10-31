@@ -49,6 +49,26 @@ void main() {
     );
   });
 
+  test('more Huffman weights than symbols are refused', () {
+    final frame = Uint8List.fromList([
+      0x28, 0xB5, 0x2F, 0xFD, 0x20, 0x01, //
+      0x55, 0x01, 0x00,
+      0x12, 0x80, 0x09,
+      0x24, 0x10, 0x3F, ...List<int>.filled(33, 0), 0x01,
+      0x01, 0x00,
+    ]);
+    expect(
+      () => zstdDecompress(frame, maxOutput: 64),
+      throwsA(
+        isA<ZstdFormatException>().having(
+          (e) => e.message,
+          'message',
+          'Too many Huffman weights.',
+        ),
+      ),
+    );
+  });
+
   group('xxh64', () {
     test('known values', () {
       expect(xxh64(Uint8List(0)), 0xEF46DB3751D8E999);
