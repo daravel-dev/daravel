@@ -1,4 +1,4 @@
-<!-- source: migrating-from-laravel.md sha256:bb2e4f843643 -->
+<!-- source: migrating-from-laravel.md sha256:2fd9f1680c32 -->
 # Migrasi dari Laravel, route demi route
 
 Anda tidak harus menulis ulang aplikasi Laravel sekaligus. Karena Daravel
@@ -221,6 +221,7 @@ cocok dengan `{id}`).
 dart run bin/dartisan.dart route:diff --laravel=/var/www/shop     # menjalankan php artisan route:list --json
 dart run bin/dartisan.dart route:diff --laravel-json=routes.json  # output yang sudah disimpan
 dart run bin/dartisan.dart route:diff --laravel=/var/www/shop --json
+dart run bin/dartisan.dart route:diff --laravel=/var/www/shop --by-prefix
 ```
 
 ## 5. Pekerjaan latar belakang

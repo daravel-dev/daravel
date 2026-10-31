@@ -214,6 +214,7 @@ in Daravel. Parameter names do not matter (`{order}` matches `{id}`).
 dart run bin/dartisan.dart route:diff --laravel=/var/www/shop     # runs php artisan route:list --json
 dart run bin/dartisan.dart route:diff --laravel-json=routes.json  # its saved output
 dart run bin/dartisan.dart route:diff --laravel=/var/www/shop --json
+dart run bin/dartisan.dart route:diff --laravel=/var/www/shop --by-prefix
 ```
 
 ## 5. Background work

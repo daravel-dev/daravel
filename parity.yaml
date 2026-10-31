@@ -158,6 +158,8 @@ sections:
     symbols:
       - { php: "composer require laravel/pulse (/pulse)", dart: ".withPulse(middleware: ['auth', 'can:viewPulse'])", symbol: PulseApplicationBuilder.withPulse, note: "Kept in memory by each isolate and merged through the coordinator, not in pulse_* tables; 403 outside local without middleware." }
       - { php: "PULSE_SLOW_QUERIES_THRESHOLD, PULSE_SLOW_REQUESTS_THRESHOLD, PULSE_SLOW_JOBS_THRESHOLD", dart: "the same .env keys", symbol: PulseConfig.fromEnv }
+      - { php: "DB::transaction($fn, attempts: 5)", dart: "DB.transaction(fn, attempts: 5), with jitter between retries", symbol: DatabaseManager.retryDelay }
+      - { php: "(none)", dart: "QueryExecuted.poolWait", symbol: QueryExecuted.poolWait }
 
   - name: Media library (daravel_medialibrary)
     symbols:

@@ -1,4 +1,4 @@
-<!-- source: pulse.md sha256:1f51dc620fea -->
+<!-- source: pulse.md sha256:5b65821458b1 -->
 # Pulse
 
 `daravel_pulse` menyajikan sebuah dashboard, dari aplikasi Anda, tentang apa
@@ -56,6 +56,14 @@ gate.define('viewPulse', (user, args) => user is User && user.isAdmin);
 - **Exception.** Server error dikelompokkan per class dan per frame pertama
   di kode Anda, dengan pesan dan stack trace terakhir. Response 4xx
   (validasi, not found, forbidden) tidak dihitung sebagai exception di sini.
+- **N+1 dan query storm.** Request yang menjalankan satu statement sebanyak
+  `PULSE_N_PLUS_ONE_THRESHOLD` kali, atau total `PULSE_QUERY_STORM_THRESHOLD`
+  query, beserta statement dan route-nya. Query cepat pun bisa menumpuk, jadi
+  ambang query lambat tidak akan menangkapnya.
+- **Tunggu koneksi.** Query yang menunggu koneksi bebas selama
+  `PULSE_POOL_WAIT_THRESHOLD`, per koneksi. Artinya pool terlalu kecil, bukan
+  database yang lambat. Query di dalam transaksi memegang koneksinya sendiri
+  sehingga tidak dihitung, dan SQLite tidak punya pool.
 - **Queue dan job.** Job yang menunggu di setiap queue pada `PULSE_QUEUES`,
   baris `failed_jobs` dalam periode itu (dari semua proses worker, karena
   diambil dari tabel), dan job lambat atau gagal yang dijalankan isolate
@@ -71,6 +79,9 @@ gate.define('viewPulse', (user, args) => user is User && user.isAdmin);
 | `PULSE_PATH` | `/pulse` | Path dashboard |
 | `PULSE_SLOW_REQUESTS_THRESHOLD` | `1000` | Milidetik mulai sebuah request dicatat |
 | `PULSE_SLOW_QUERIES_THRESHOLD` | `1000` | Milidetik mulai sebuah query dicatat |
+| `PULSE_N_PLUS_ONE_THRESHOLD` | `5` | Jumlah pengulangan satu statement dalam satu request yang dicatat |
+| `PULSE_QUERY_STORM_THRESHOLD` | `25` | Jumlah query dalam satu request yang dicatat, apa pun isinya |
+| `PULSE_POOL_WAIT_THRESHOLD` | `20` | Milidetik menunggu koneksi yang dicatat |
 | `PULSE_SLOW_JOBS_THRESHOLD` | `1000` | Milidetik mulai sebuah job dicatat |
 | `PULSE_QUEUES` | `default` | Queue di koneksi default yang ukurannya ditampilkan |
 | `PULSE_PUBLISH_SECONDS` | `5` | Seberapa sering worker mengirim laporannya, di bawah supervisor |
