@@ -63,6 +63,7 @@ final class HttpKernel {
         middleware.orderedGlobal,
         request,
         _dispatch,
+        rescue: exceptions.handle,
       );
     } catch (error, stackTrace) {
       response = await exceptions.handle(error, stackTrace, request);
@@ -159,6 +160,7 @@ final class HttpKernel {
           }
           return toResponse(await route.handler(req), req);
         },
+        rescue: exceptions.handle,
       );
       final timeout = route.timeoutDuration ?? defaultTimeout;
       final response = timeout == null
