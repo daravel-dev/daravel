@@ -263,6 +263,8 @@ sections:
       - { php: "$model->getChanges()", dart: "model.getChanges()", symbol: Model.getChanges }
       - { php: "$model->refresh() / fresh()", dart: "await model.refresh() / fresh()", symbol: Model.refresh, async: true }
       - { php: "$model->load('posts')", dart: "await model.load('posts')", symbol: Model.load, async: true }
+      - { php: "Model::automaticallyEagerLoadRelationships()", dart: "Model.automaticallyEagerLoad = true", symbol: Model.automaticallyEagerLoad, note: "through load and loadMissing: related never queries" }
+      - { php: "->withRelationshipAutoloading()", dart: ".withRelationshipAutoloading()", symbol: ModelQuery.withRelationshipAutoloading }
       - { php: "$model->toArray() / toJson()", dart: "model.toJson()", symbol: Model.toJson }
       - { php: "ModelNotFoundException", dart: "ModelNotFoundException", symbol: ModelNotFoundException }
 

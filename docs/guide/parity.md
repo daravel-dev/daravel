@@ -287,6 +287,8 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `$model->getChanges()` | `model.getChanges()` |  |
 | `$model->refresh() / fresh()` | `await model.refresh() / fresh()` | **async** |
 | `$model->load('posts')` | `await model.load('posts')` | **async** |
+| `Model::automaticallyEagerLoadRelationships()` | `Model.automaticallyEagerLoad = true` | through load and loadMissing: related never queries |
+| `->withRelationshipAutoloading()` | `.withRelationshipAutoloading()` |  |
 | `$model->toArray() / toJson()` | `model.toJson()` |  |
 | `ModelNotFoundException` | `ModelNotFoundException` |  |
 
