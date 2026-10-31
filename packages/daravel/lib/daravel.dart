@@ -54,6 +54,7 @@ export 'src/routing/radix_tree.dart';
 export 'src/routing/openapi.dart';
 export 'src/translation/set_locale_middleware.dart';
 export 'src/translation/translator.dart';
+export 'src/routing/domain_pattern.dart';
 export 'src/routing/route_entry.dart';
 export 'src/routing/router.dart';
 export 'src/support/notification_facade.dart';

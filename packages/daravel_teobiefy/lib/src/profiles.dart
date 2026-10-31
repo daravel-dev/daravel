@@ -194,9 +194,8 @@ final class TeobiefyProfilesConfig implements ConfigSection {
 ///
 /// Compressed responses are Zstandard frames of raw blocks
 /// ([TeobiefyCrypto.zstdFrame]), which every decoder reads but which are not
-/// smaller. Requests may carry raw and RLE frames; a frame with compressed
-/// blocks is refused as an invalid payload, since this package has no
-/// entropy decoder.
+/// smaller. Requests may carry any frame `ext-zstd` writes, read by
+/// [zstdDecompress].
 final class TeobiefyProfiles {
   TeobiefyProfiles(
     this.config, {
@@ -580,13 +579,13 @@ final class TeobiefyProfileMiddleware implements Middleware {
     final requestProfile =
         this.request ??
         resolveTeobiefyProfile(request, routeRequests, defaultRequest);
+    Response? refused;
     if (requestProfile != TeobiefyProfile.plain) {
-      final refused = await _decode(request, profiles, requestProfile);
-      if (refused != null) {
-        return refused;
-      }
+      refused = await _decode(request, profiles, requestProfile);
     }
-    final answer = await next(request);
+    // A refusal goes through the response profile too, as upstream's
+    // `api()->response()`.
+    final answer = refused ?? await next(request);
     final responseProfile =
         response ??
         resolveTeobiefyProfile(request, routeResponses, defaultResponse);

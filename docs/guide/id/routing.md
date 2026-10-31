@@ -1,4 +1,4 @@
-<!-- source: routing.md sha256:151ff62972f2 -->
+<!-- source: routing.md sha256:2409fe9b5bbb -->
 # Routing
 
 Route didaftarkan di `routes/api.dart` (di-mount di bawah `/api`) dan
@@ -184,6 +184,29 @@ dan `.gcra()` meratakan batasnya (satu percobaan setiap decay / batas,
 seluruh batas sebagai burst setelah periode sepi). Keduanya membutuhkan
 `CACHE_LIMITER=redis` dengan [daravel_redis](redis.md#algoritma-rate-limit);
 store lain menghitungnya sebagai fixed window.
+
+## Subdomain
+
+Group atau route bisa dibatasi untuk satu host:
+
+```dart
+router.group((r) {
+  r.get('/', dashboard);
+}, domain: 'admin.example.com');
+
+router.group((r) {
+  r.get('/exams/{exam}', show).scopeBindings();
+}, domain: '{tenant:slug}.example.com');
+
+router.get('/health', health).domain('api.example.com');
+```
+
+Parameter hanya satu label dan masuk ke `request.routeParams` sebelum parameter
+path, sehingga `{tenant}` yang di-bind menjadi cakupan model sesudahnya. Route
+dengan domain dicoba lebih dulu, dan host dicocokkan tanpa port serta tanpa
+membedakan huruf besar. `router.url()` menghasilkan URL absolut pada host itu,
+dengan skema dari base URL. Di belakang proxy, `TrustProxies` menentukan host
+yang dipakai.
 
 ## Route model binding
 

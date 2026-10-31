@@ -13,6 +13,7 @@ import '../http/middleware.dart';
 import '../http/realtime.dart';
 import '../http/request.dart';
 import '../http/response.dart';
+import 'domain_pattern.dart';
 import 'radix_tree.dart';
 import 'resource_controller.dart';
 import '../support/str.dart';
@@ -30,6 +31,7 @@ final class _GroupAttributes {
     this.middleware = const <Object>[],
     this.wheres = const <String, RegExp>{},
     this.scopeBindings = false,
+    this.domain,
   });
 
   final String prefix;
@@ -37,6 +39,7 @@ final class _GroupAttributes {
   final List<Object> middleware;
   final Map<String, RegExp> wheres;
   final bool scopeBindings;
+  final String? domain;
 }
 
 final class _Binder {
@@ -61,6 +64,8 @@ final class Router {
 
   /// Base URL used for absolute URLs (set from `APP_URL` at boot).
   String baseUrl = 'http://localhost';
+
+  bool _hasDomains = false;
 
   /// Signer used by [signedUrl] (set from `APP_KEY` at boot).
   UrlSigner? signer;
@@ -149,6 +154,7 @@ final class Router {
       namePrefix: attributes.namePrefix,
       wheres: attributes.wheres,
       scopeBindings: attributes.scopeBindings ? true : null,
+      domain: attributes.domain,
     );
     _routes.add(entry);
     return entry;
@@ -185,6 +191,7 @@ final class Router {
     List<Object> middleware = const <Object>[],
     Map<String, Object> where = const <String, Object>{},
     bool scopeBindings = false,
+    String? domain,
   }) {
     _ensureNotCompiled();
     final parent = _current;
@@ -194,6 +201,7 @@ final class Router {
         namePrefix: '${parent.namePrefix}$name',
         middleware: <Object>[...parent.middleware, ...middleware],
         scopeBindings: parent.scopeBindings || scopeBindings,
+        domain: domain ?? parent.domain,
         wheres: <String, RegExp>{
           ...parent.wheres,
           for (final entry in where.entries) entry.key: _toRegExp(entry.value),
@@ -435,7 +443,20 @@ final class Router {
   void compile(MiddlewareRegistry registry) {
     _trees.clear();
     final names = <String>{};
-    final all = <RouteEntry>[..._routes, ?_fallback];
+    // A leaf tries its routes in order: the more specific goes first, as a
+    // static segment does before a parameter. Otherwise `{tenant}.example.com`
+    // would swallow `admin.example.com`, or a plain route any domain route.
+    bool literal(RouteEntry route) =>
+        route.domainPattern?.names.isEmpty ?? false;
+    bool parameter(RouteEntry route) =>
+        route.domainPattern?.names.isNotEmpty ?? false;
+    final all = <RouteEntry>[
+      ..._routes.where(literal),
+      ..._routes.where(parameter),
+      ..._routes.where((route) => route.domainPattern == null),
+      ?_fallback,
+    ];
+    _hasDomains = all.any((route) => route.domainPattern != null);
     for (final route in all) {
       route.resolveMiddleware(registry);
       final name = route.routeName;
@@ -458,15 +479,16 @@ final class Router {
   /// Looks up the route for [method] + [path], honouring constraints.
   /// `HEAD` falls back to `GET`. The fallback route (if any) answers `GET`
   /// requests that match nothing else.
-  RouteMatch<RouteEntry>? lookup(String method, String path) {
+  RouteMatch<RouteEntry>? lookup(String method, String path, {String? host}) {
     _ensureCompiled();
     final upper = method.toUpperCase();
-    final direct = _lookupIn(upper, path);
+    final name = _hostName(host);
+    final direct = _lookupIn(upper, path, name);
     if (direct != null) {
       return direct;
     }
     if (upper == 'HEAD') {
-      final viaGet = _lookupIn('GET', path);
+      final viaGet = _lookupIn('GET', path, name);
       if (viaGet != null) {
         return viaGet;
       }
@@ -478,18 +500,40 @@ final class Router {
     return null;
   }
 
-  RouteMatch<RouteEntry>? _lookupIn(String method, String path) =>
-      _trees[method]?.lookup(
-        path,
-        accept: (route, params) => route.matchesConstraints(params, _patterns),
-      );
+  String? _hostName(String? host) =>
+      host == null || !_hasDomains ? null : DomainPattern.normalize(host);
+
+  RouteMatch<RouteEntry>? _lookupIn(String method, String path, String? host) {
+    final match = _trees[method]?.lookup(
+      path,
+      accept: (route, params) {
+        final domain = route.domainPattern;
+        if (domain == null) {
+          return route.matchesConstraints(params, _patterns);
+        }
+        final captured = host == null ? null : domain.match(host);
+        return captured != null &&
+            route.matchesConstraints({...captured, ...params}, _patterns);
+      },
+    );
+    final domain = match?.value.domainPattern;
+    if (match == null || domain == null || domain.names.isEmpty) {
+      return match;
+    }
+    // Host parameters first, so a model from the host scopes those after it.
+    return RouteMatch<RouteEntry>(match.value, {
+      ...domain.match(host!)!,
+      ...match.params,
+    });
+  }
 
   /// Methods that have a route for [path] (used for `405` / `OPTIONS`).
-  List<String> allowedMethods(String path) {
+  List<String> allowedMethods(String path, {String? host}) {
     _ensureCompiled();
+    final name = _hostName(host);
     final allowed = <String>{};
     for (final method in _trees.keys) {
-      if (_lookupIn(method, path) != null) {
+      if (_lookupIn(method, path, name) != null) {
         allowed.add(method);
       }
     }
@@ -556,6 +600,16 @@ final class Router {
     if (queryString.isNotEmpty) {
       path = '$path?$queryString';
     }
+    final domain = route.domainPattern;
+    if (domain != null) {
+      final host = domain.fill(
+        params,
+        (parameter) => throw ArgumentError(
+          'Missing required parameter [$parameter] for route [$name].',
+        ),
+      );
+      return '${Uri.parse(baseUrl).scheme}://$host$path';
+    }
     return absolute ? '${_trimmedBase()}$path' : path;
   }
 
@@ -574,17 +628,25 @@ final class Router {
         'Signed URLs require APP_KEY (run `dartisan key:generate`).',
       );
     }
-    final relative = url(name, params: params, query: query);
+    final target = url(name, params: params, query: query);
+    // A domain route comes back absolute; the signature covers the path.
+    final origin = target.startsWith('/') ? null : Uri.parse(target).origin;
     final signed = signer.sign(
-      relative,
+      origin == null ? target : target.substring(origin.length),
       expires: expires == null ? null : Clock.now().add(expires),
+      host: origin == null
+          ? null
+          : DomainPattern.normalize(Uri.parse(target).host),
     );
+    if (origin != null) {
+      return '$origin$signed';
+    }
     return absolute ? '${_trimmedBase()}$signed' : signed;
   }
 
   /// Whether [request] carries a valid signature produced by [signedUrl].
   bool hasValidSignature(Request request) =>
-      signer?.verify(request.uri) ?? false;
+      signer?.verify(request.uri, host: request.signedHost) ?? false;
 
   /// Expands trailing optional parameters into every path variant.
   static List<String> expandOptional(String path) {

@@ -670,7 +670,8 @@ final class PostgresQueryGrammar extends QueryGrammar {
     if (kind == 'length') {
       return 'jsonb_array_length((${wrap(column)})::jsonb) $operator ${c.bind(value)}';
     }
-    return '${not ? 'NOT ' : ''}((${wrap(column)})::jsonb @> ${c.bind(value)}::jsonb)';
+    final candidate = c.bind(jsonEncode(value));
+    return '${not ? 'NOT ' : ''}((${wrap(column)})::jsonb @> $candidate::jsonb)';
   }
 
   @override
@@ -710,6 +711,9 @@ final class MySqlQueryGrammar extends QueryGrammar {
   String jsonSelector(String column, List<String> path) =>
       "json_unquote(json_extract($column, '${QueryGrammar.jsonPath(path)}'))";
 
+  static String _jsonValue(String placeholder) =>
+      "json_extract($placeholder, '${QueryGrammar.jsonPath(const [])}')";
+
   /// Laravel's `compileJsonUpdateColumn`.
   @override
   String jsonUpdate(
@@ -720,9 +724,9 @@ final class MySqlQueryGrammar extends QueryGrammar {
     final pairs = values.map((v) {
       final value = switch (v.$2) {
         final bool flag => '$flag',
-        final List<Object?> list => 'cast(${c.bind(jsonEncode(list))} as json)',
-        final Map<Object?, Object?> map =>
-          'cast(${c.bind(jsonEncode(map))} as json)',
+        // MariaDB has no `cast(? as json)`; both read this as JSON.
+        final List<Object?> list => _jsonValue(c.bind(jsonEncode(list))),
+        final Map<Object?, Object?> map => _jsonValue(c.bind(jsonEncode(map))),
         final other => c.bind(other),
       };
       return "'${QueryGrammar.jsonPath(v.$1)}', $value";
@@ -780,10 +784,17 @@ final class MySqlQueryGrammar extends QueryGrammar {
     bool not,
     Compilation c,
   ) {
+    // A path is an argument here: `json_unquote` would give text, not JSON.
+    final (target, path) = column.contains('->')
+        ? _jsonParts(column)
+        : (wrap(column), const <String>[]);
+    final at = path.isEmpty ? '' : ", '${QueryGrammar.jsonPath(path)}'";
     if (kind == 'length') {
-      return 'JSON_LENGTH(${wrap(column)}) $operator ${c.bind(value)}';
+      return 'JSON_LENGTH($target$at) $operator ${c.bind(value)}';
     }
-    return '${not ? 'NOT ' : ''}JSON_CONTAINS(${wrap(column)}, ${c.bind(value)})';
+    // `prepareBindingForJsonContains`: a JSON document, not a value.
+    final candidate = c.bind(jsonEncode(value));
+    return '${not ? 'NOT ' : ''}JSON_CONTAINS($target, $candidate$at)';
   }
 
   @override

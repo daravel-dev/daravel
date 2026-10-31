@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import '../foundation/container.dart';
 import '../foundation/locale.dart';
+import '../routing/domain_pattern.dart';
 import '../routing/route_entry.dart';
 import '../validation/validated_data.dart';
 import '../validation/validator.dart';
@@ -87,12 +88,25 @@ final class Request {
     var uri = Uri.parse(
       path.startsWith('/') ? 'http://localhost$path' : 'http://localhost/$path',
     );
+    final requestHeaders = Headers(headers);
+    // The socket path takes the host from this header too.
+    final hostHeader = requestHeaders.first('host');
+    if (hostHeader != null) {
+      // `[::1]:8080`: the colons of an IPv6 address are not a port.
+      final bracket = hostHeader.lastIndexOf(']');
+      final colon = hostHeader.indexOf(':', bracket + 1);
+      uri = colon == -1
+          ? uri.replace(host: hostHeader)
+          : uri.replace(
+              host: hostHeader.substring(0, colon),
+              port: int.tryParse(hostHeader.substring(colon + 1)),
+            );
+    }
     if (query != null && query.isNotEmpty) {
       uri = uri.replace(
         queryParameters: <String, String>{...uri.queryParameters, ...query},
       );
     }
-    final requestHeaders = Headers(headers);
     List<int>? bytes;
     if (files != null) {
       // Real multipart bytes, parsed like a browser upload.
@@ -246,6 +260,11 @@ final class Request {
 
   /// Host as seen by the client (`X-Forwarded-Host` when trusted).
   String get host => _forwardedHost ?? uri.host;
+
+  /// The host a signed URL of this route covers: the route's own, and
+  /// none for a route that answers on any host.
+  String? get signedHost =>
+      route?.domainPattern == null ? null : DomainPattern.normalize(host);
 
   /// Scheme, host (with a non-default port) and path, without the query
   /// string or trailing slash (Laravel `$request->url()`), e.g.
