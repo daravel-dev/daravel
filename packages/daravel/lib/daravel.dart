@@ -149,6 +149,7 @@ export 'src/support/queue_facades.dart';
 export 'src/http/resources.dart';
 export 'src/observability/health.dart';
 export 'src/observability/metrics.dart';
+export 'src/storage/read_through_disk.dart';
 export 'src/storage/storage.dart';
 export 'src/support/storage_facade.dart';
 export 'src/foundation/clock.dart';

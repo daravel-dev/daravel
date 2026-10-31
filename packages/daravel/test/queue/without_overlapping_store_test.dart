@@ -62,6 +62,25 @@ void main() {
     });
   });
 
+  test('shared: another job with the key waits too', () async {
+    await app.run(() async {
+      final held = App.make<CacheManager>()
+          .store('locks')
+          .lock('overlap:report', ttl: const Duration(minutes: 1));
+      expect(await held.acquire(), isTrue);
+      var ran = false;
+      await const WithoutOverlapping('report', shared: true).handle(
+        context(),
+        const Exclusive(),
+        () async {
+          ran = true;
+        },
+      );
+      expect(ran, isFalse);
+      await held.release();
+    });
+  });
+
   test('an explicit store still wins', () async {
     await app.run(() async {
       var ran = false;

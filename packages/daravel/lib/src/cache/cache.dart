@@ -331,6 +331,25 @@ final class CacheRepository {
 
   Future<bool> forget(String key) => store.forget(_key(key));
 
+  /// Laravel's `Cache::touch()`: a new [ttl] for [key], keeping its value.
+  /// `false` when it is missing, and a [ttl] of zero or less forgets it.
+  Future<bool> touch(String key, Duration ttl) async {
+    if (ttl <= Duration.zero) {
+      return forget(key);
+    }
+    final target = store;
+    if (target is TouchableCacheStore) {
+      return target.touch(_key(key), ttl);
+    }
+    // A store without an atomic touch: another writer can slip in between.
+    final value = await target.get(_key(key));
+    if (value == null) {
+      return false;
+    }
+    await target.put(_key(key), value, ttl: ttl);
+    return true;
+  }
+
   /// Returns and removes the value.
   Future<T?> pull<T>(String key, [T? fallback]) async {
     final value = await get<T>(key, fallback);
