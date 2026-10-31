@@ -114,6 +114,25 @@ void main() {
       expect(jsonDate(row['at_zone']! as DateTime), '2024-01-02 10:20:30+00');
     });
 
+    test('network types come back as PostgreSQL prints them', () async {
+      final admin = manager();
+      addTearDown(admin.closeAll);
+      final row = (await admin.select('''
+        SELECT '10.0.0.1'::inet a, '10.0.0.1/24'::inet b,
+          '2001:db8::1'::inet c, '2001:db8::1/64'::inet d,
+          '10.0.0.0/8'::cidr e, '08:00:2b:01:02:03'::macaddr f,
+          NULL::inet g''')).single;
+      expect(row, {
+        'a': '10.0.0.1',
+        'b': '10.0.0.1/24',
+        'c': '2001:db8::1',
+        'd': '2001:db8::1/64',
+        'e': '10.0.0.0/8',
+        'f': '08:00:2b:01:02:03',
+        'g': null,
+      });
+    });
+
     test('search_path applies to every connection of the pool', () async {
       final scoped = manager({'search_path': 'daravel_hr, public'});
       addTearDown(scoped.closeAll);

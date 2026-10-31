@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:postgres/postgres.dart' as pg;
 
@@ -304,14 +306,14 @@ final class _PgExecutor implements QueryExecutor {
       pg.Sql(sql),
       parameters: _normalize(bindings),
     );
-    final dates = <String, int>{
+    final text = <String, int>{
       for (final column in result.schema.columns)
-        if (_dateTypes.contains(column.typeOid))
+        if (_textTypes.contains(column.typeOid))
           column.columnName ?? '': column.typeOid,
     };
     return [
       for (final row in result)
-        if (dates.isEmpty) row.toColumnMap() else _withDateText(row, dates),
+        if (text.isEmpty) row.toColumnMap() else _withText(row, text),
     ];
   }
 
@@ -319,19 +321,49 @@ final class _PgExecutor implements QueryExecutor {
   static const int _date = 1082;
   static const int _timestamp = 1114;
   static const int _timestamptz = 1184;
-  static const Set<int> _dateTypes = {_date, _timestamp, _timestamptz};
+  // pg_type: cidr, inet, macaddr. package:postgres leaves them undecoded.
+  static const int _cidr = 650;
+  static const int _inet = 869;
+  static const int _macaddr = 829;
+  static const Set<int> _textTypes = {
+    _date,
+    _timestamp,
+    _timestamptz,
+    _cidr,
+    _inet,
+    _macaddr,
+  };
 
-  static Map<String, Object?> _withDateText(
+  static Map<String, Object?> _withText(
     pg.ResultRow row,
-    Map<String, int> dates,
+    Map<String, int> columns,
   ) {
     final map = row.toColumnMap();
-    for (final MapEntry(:key, :value) in dates.entries) {
-      if (map[key] case final DateTime date) {
-        map[key] = DatabaseDateTime(date, dateText(date, value));
+    for (final MapEntry(:key, :value) in columns.entries) {
+      switch (map[key]) {
+        case final DateTime date:
+          map[key] = DatabaseDateTime(date, dateText(date, value));
+        case final pg.UndecodedBytes raw:
+          map[key] = raw.isBinary
+              ? networkText(raw.bytes, value)
+              : raw.asString;
       }
     }
     return map;
+  }
+
+  /// A binary `inet`, `cidr` or `macaddr` value as PostgreSQL prints it:
+  /// `10.0.0.1`, `2001:db8::1/64`, `10.0.0.0/8`, `08:00:2b:01:02:03`.
+  static String networkText(List<int> bytes, int oid) {
+    if (oid == _macaddr) {
+      return [for (final byte in bytes) byte.toRadixString(16).padLeft(2, '0')]
+          .join(':');
+    }
+    // family, netmask bits, is_cidr, address length, address.
+    final raw = Uint8List.fromList(bytes.sublist(4));
+    final bits = bytes[1];
+    final address = InternetAddress.fromRawAddress(raw).address;
+    return oid == _cidr || bits != raw.length * 8 ? '$address/$bits' : address;
   }
 
   /// [date] as PostgreSQL's text output for the type [oid] (what PDO gives
