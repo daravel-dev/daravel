@@ -1,6 +1,9 @@
 import 'dart:typed_data';
 
 import '../foundation/container.dart';
+import '../http/file_response.dart';
+import '../http/request.dart';
+import '../http/response.dart';
 import '../storage/storage.dart';
 
 /// Filesystem access (`Storage::disk('public')->put(...)`).
@@ -28,6 +31,22 @@ abstract final class Storage {
   static Future<int> size(String path) => disk().size(path);
 
   static String url(String path) => disk().url(path);
+
+  /// The file at [path] as an attachment, from the default disk.
+  static Future<Response> download(
+    String path, {
+    String? name,
+    Map<String, String>? headers,
+    Request? request,
+  }) => disk().download(path, name: name, headers: headers, request: request);
+
+  /// The file at [path], shown by the browser, from the default disk.
+  static Future<Response> response(
+    String path, {
+    String? name,
+    Map<String, String>? headers,
+    Request? request,
+  }) => disk().response(path, name: name, headers: headers, request: request);
 
   static Future<List<String>> files([String directory = '']) =>
       disk().files(directory);

@@ -69,6 +69,8 @@ const Map<String, Set<String>> allowedDependencies = {
     'server',
     'broadcasting',
     'storage',
+    // Storage.download and Storage.response answer with a Response.
+    'http',
   },
 };
 

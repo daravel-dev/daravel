@@ -334,6 +334,10 @@ sections:
       - { php: "public function with($request)", dart: "Map<String, Object?> withMeta(Request? request)", symbol: JsonResource.withMeta, note: "`with` is a reserved word in Dart." }
       - { php: "Storage::disk('public')->put($path, $contents)", dart: "await Storage.disk('public').put(path, contents)", symbol: Storage.disk }
       - { php: "Storage::url($path)", dart: "Storage.url(path)", symbol: Storage.url }
+      - { php: "Storage::download($path, $name)", dart: "await Storage.download(path, name: name)", symbol: Storage.download }
+      - { php: "Storage::response($path)", dart: "await Storage.response(path, request: request)", symbol: Storage.response }
+      - { php: "response()->download($path, $name)->deleteFileAfterSend()", dart: "await Response.download(path, name: name, deleteFileAfterSend: true)", symbol: Response.download }
+      - { php: "response()->file($path)", dart: "await Response.file(path, request: request)", symbol: Response.file }
       - { php: "Storage::disk('s3')->temporaryUrl($path, now()->addMinutes(30))", dart: "Storage.disk('s3').temporaryUrl(path, expiration: 30.minutes.fromNow)", symbol: S3Disk.temporaryUrl, note: "package:daravel_s3 (withS3()); same AWS_* variables." }
       - { php: "Storage::disk('s3')->temporaryUploadUrl($path, $expiration)", dart: "Storage.disk('s3').temporaryUploadUrl(path, expiration: ...)", symbol: S3Disk.temporaryUploadUrl, note: "Returns url and headers, as Laravel's array." }
       - { php: "Http::withToken($t)->retry(3, 100)->post($url, $data)", dart: "await Http.withToken(t).retry(3).post(url, json: data)", symbol: Http.withToken, async: true }

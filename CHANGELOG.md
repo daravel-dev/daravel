@@ -26,6 +26,7 @@ match Laravel more closely.
 
 ### Added
 
+- `Response.download`, `Response.file`, `Storage.download` and `Storage.response`, with RFC 6266 file names, `ETag`, and `Range` (206) when given the request. `deleteFileAfterSend` removes a temporary file once it was sent. Several ranges in one request get the whole file.
 - `_method` and `X-HTTP-Method-Override` turn a POST into PUT, PATCH or DELETE, on by default as in Laravel; only form bodies are read. `Request.originalMethod` keeps the verb on the wire.
 - A failed validation in the `web` group redirects browsers and Inertia back, with errors and old input flashed (`session.errors`, `session.old`); clients expecting JSON keep the 422. `Response.back` ignores a foreign `Referer`.
 - Remember-me cookies in `SessionGuard`: `attempt(..., remember: true)` and `login(user, remember: true)` write Laravel's `remember_web_<sha1>` cookie, and either side can log in from the other's.

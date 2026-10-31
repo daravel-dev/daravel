@@ -16,6 +16,7 @@ export 'src/http/middleware.dart';
 export 'src/http/multipart.dart' show MultipartLimits, multipartBoundary;
 export 'src/http/realtime.dart';
 export 'src/http/request.dart';
+export 'src/http/file_response.dart' show DiskResponses, contentDisposition;
 export 'src/http/uploaded_file.dart';
 export 'src/http/response.dart';
 export 'src/http/server_engine.dart';
