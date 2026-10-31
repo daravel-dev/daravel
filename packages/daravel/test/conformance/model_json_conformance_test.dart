@@ -181,6 +181,16 @@ void main() {
     });
   });
 
+  test('Clock.nowIn reads the wall clock of an IANA zone', () {
+    Clock.travelTo(DateTime.utc(2026, 1, 2, 23, 30));
+    addTearDown(Clock.restore);
+    final wita = Clock.nowIn('Asia/Makassar');
+    expect([wita.day, wita.hour, wita.minute], [3, 7, 30]);
+    expect(wita.isAtSameMomentAs(Clock.now()), isTrue);
+    expect(jsonDate(wita), '2026-01-02T23:30:00.000000Z');
+    expect(() => Clock.nowIn('Mars/Base'), throwsArgumentError);
+  });
+
   test('opting out: for the application or one model', () {
     expect((Legacy()..setRelation('tipeUjian', null)).toJson().keys, [
       'tipeUjian',

@@ -1,3 +1,6 @@
+import 'package:timezone/data/latest_all.dart' as tzdata;
+import 'package:timezone/timezone.dart' as tz;
+
 /// The framework's source of "now" (BLUEPRINT_V2 §7.11).
 ///
 /// Domain time — model timestamps, token and JWT expiry, cache TTLs, rate
@@ -13,6 +16,27 @@ abstract final class Clock {
 
   /// The current time in UTC.
   static DateTime nowUtc() => now().toUtc();
+
+  /// Laravel's `now('Asia/Makassar')`: the current time in the IANA
+  /// [zone], frozen with [now] in tests. Its `hour` and friends read the
+  /// wall clock there; it compares and serializes as the same instant.
+  static DateTime nowIn(String zone) =>
+      tz.TZDateTime.from(now(), timeZone(zone));
+
+  /// The IANA [zone]; an [ArgumentError] for an unknown name.
+  static tz.Location timeZone(String zone) {
+    if (!_zonesLoaded) {
+      tzdata.initializeTimeZones();
+      _zonesLoaded = true;
+    }
+    try {
+      return tz.getLocation(zone);
+    } on tz.LocationNotFoundException {
+      throw ArgumentError.value(zone, 'zone', 'Unknown time zone');
+    }
+  }
+
+  static bool _zonesLoaded = false;
 
   /// Whether time is currently faked.
   static bool get isFaked => _frozen != null;
