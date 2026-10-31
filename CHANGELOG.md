@@ -19,6 +19,7 @@ match Laravel more closely.
 - `Queue.route`: where a job type goes, in one place, and `withoutDelay()` on a dispatch.
 - `deleteWhenMissingModels`. A missing model now fails a job at once, as in Laravel, instead of using up its tries.
 - `debounceFor`, `debounceMaxWait` and `debounceId`: only the last dispatch of a burst runs.
+- `Model.automaticallyEagerLoad` and `withRelationshipAutoloading()`: the models of a result load their relations together, through `load` and `loadMissing`, and so do the models those bring in. An N+1 loop becomes one query per relation, and a later `load` still refreshes.
 
 ## 1.22.0
 
@@ -46,7 +47,6 @@ What most Laravel applications reach for every day: forms that post `_method`, v
 
 ### Added
 
-- `Model.automaticallyEagerLoad` and `withRelationshipAutoloading()`: the models of a result load their relations together, through `load` and `loadMissing`, and so do the models those bring in. An N+1 loop becomes one query per relation, and a later `load` still refreshes.
 - `Response.exception`, Laravel's `$response->exception`: since 1.21.1 an exception no longer passes through `next`, so a `try` around `next` catches nothing, not only in transaction middleware. A middleware reads it here instead.
 - `DB.transaction(attempts: n)` waits a short random time between retries (decorrelated jitter, 2 to 250 ms), so isolates that collided do not collide again. Frozen test clocks retry at once.
 - `QueryExecuted.poolWait`: the time a query waited for a connection, apart from `time`. PostgreSQL and MySQL measure it while a listener is registered.
