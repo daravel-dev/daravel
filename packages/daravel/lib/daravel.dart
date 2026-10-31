@@ -70,6 +70,7 @@ export 'src/support/time_extensions.dart';
 export 'src/http/middleware/cache_headers.dart';
 export 'src/http/middleware/body_limits.dart';
 export 'src/http/middleware/cors.dart';
+export 'src/http/middleware/method_override.dart';
 export 'src/http/middleware/input_normalization.dart';
 export 'src/http/middleware/security_headers.dart';
 export 'src/http/middleware/trust_proxies.dart';

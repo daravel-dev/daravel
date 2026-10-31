@@ -25,14 +25,15 @@ typedef InputTransformer = Object? Function(String key, Object? value);
 /// beyond [maxBodyBytes].
 final class Request {
   Request._({
-    required this.method,
+    required String method,
     required this.uri,
     required this.headers,
     required this.remoteAddress,
     required this.id,
     this._bodyStream,
     this._bodyBytes,
-  });
+  }) : _method = method,
+       originalMethod = method;
 
   /// Wraps a `dart:io` request.
   ///
@@ -123,8 +124,15 @@ final class Request {
     );
   }
 
-  /// Upper-cased HTTP method.
-  final String method;
+  /// Upper-cased HTTP method, after a `_method` override.
+  String get method => _method;
+  String _method;
+
+  /// The method on the wire (Laravel's `getRealMethod`).
+  final String originalMethod;
+
+  /// Used by [MethodOverrideMiddleware].
+  void overrideMethod(String method) => _method = method.toUpperCase();
 
   /// Full request URI as received by the server.
   final Uri uri;
@@ -302,9 +310,14 @@ final class Request {
   /// Whether the client expects a JSON response.
   bool get expectsJson {
     final accept = (headers.first('accept') ?? '').toLowerCase();
-    return accept.contains('/json') ||
-        accept.contains('+json') ||
-        headers.first('x-requested-with') == 'XMLHttpRequest';
+    if (accept.contains('/json') || accept.contains('+json')) {
+      return true;
+    }
+    // Laravel's `ajax() && acceptsAnyContentType()`: an Inertia visit is an
+    // XHR that asks for HTML.
+    final first = accept.split(',').first.split(';').first.trim();
+    return headers.first('x-requested-with') == 'XMLHttpRequest' &&
+        (first.isEmpty || first == '*/*' || first == '*');
   }
 
   /// Whether the client accepts HTML.
