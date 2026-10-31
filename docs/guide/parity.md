@@ -232,6 +232,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `Route::get('/posts/{post}', fn (Post $post) => ...)` | `router.bindModel('post', Post.definition)` |  |
 | `/users/{user}/posts/{post:slug}` | `the same path` |  |
 | `->scopeBindings() / ->withoutScopedBindings()` | `.scopeBindings() / .withoutScopedBindings()` |  |
+| `Route::domain('{tenant}.example.com')->group(...)` | `router.group(..., domain: '{tenant}.example.com')` |  |
 | `->withTrashed() / ->missing(fn () => ...)` | `.withTrashed() / .missing((request) => ...)` |  |
 | `where('meta->lang', 'id') / update(['meta->lang' => 'en'])` | `where('meta->lang', 'id') / update({'meta->lang': 'en'})` |  |
 | `whereNone(['a', 'b'], 'like', '%x%')` | `whereNone(['a', 'b'], 'like', '%x%')` |  |
