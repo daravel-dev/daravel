@@ -1,4 +1,4 @@
-<!-- source: releases.md sha256:3d1f866f23e5 -->
+<!-- source: releases.md sha256:3a08ac67fed3 -->
 # Rilis dan versioning
 
 Daravel `1.x` adalah lini rilis stabil. Kedua belas paket (`daravel`,
@@ -12,6 +12,7 @@ terverifikasi `framework.daravel.dev`.
 
 | Versi | Sorotan |
 | :-- | :-- |
+| `1.20.1` | Session JSON Laravel 13 tetap utuh, test:e2e --serve tidak menyentuh database proyek, adopt untuk Laravel 8 sampai 13 |
 | `1.20.0` | Logo baru, JSON PHP sekali jalan, streamJson, ukuran pool di doctor untuk MySQL/MariaDB |
 | `1.19.1` | Roll-over replikasi menunggu write lock yang sibuk |
 | `1.19.0` | date_format, session terenkripsi dan partitioned (database sebagai default), opsi JSON PHP untuk teobiefy dan phpCompatible |

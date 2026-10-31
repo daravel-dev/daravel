@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.20.1
+
+- Version aligned with Daravel 1.20.1; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).
+
 ## 1.20.0
 
 - Fixed: `Application.serveWith` with one isolate and embedded workers left the coordinator's port open after the server stopped (`Coordinator.isListening`).

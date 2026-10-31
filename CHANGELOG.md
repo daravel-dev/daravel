@@ -9,7 +9,12 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 wait for a new major version, and Laravel-facing formats change only to
 match Laravel more closely.
 
-## Unreleased
+## 1.20.1
+
+Three fixes found while adopting a Laravel 13 application. Sessions written
+as JSON were overwritten, which logged users out of Laravel; `test:e2e --serve`
+could run `migrate:fresh` on the database of a `DB_URL` in `.env`; and
+`dartisan adopt` left an application on another version's formats.
 
 ### Fixed
 
