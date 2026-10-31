@@ -107,6 +107,9 @@ final class AuthManager {
   final AuthConfig config;
   final String? _appKey;
 
+  /// `APP_KEY` as written, which session guards sign with.
+  String? get appKey => _appKey;
+
   /// The denylist of [jwt] guards that are not given one: shared by every
   /// isolate when the application builds it (`CacheJwtDenylist`).
   final JwtDenylist? jwtDenylist;

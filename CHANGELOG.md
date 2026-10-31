@@ -28,6 +28,7 @@ match Laravel more closely.
 
 ### Added
 
+- `SessionGuard` (`auth.session<User>('web', provider)`, `daravel_session`): Laravel's session guard on the same `login_web_<sha1>` key and, from `COMPAT_LARAVEL_VERSION=12`, `password_hash_web`. A login holds on both sides of a shared store. Remember-me cookies are not supported yet.
 - `Cast.decimalString(places)`: Laravel's `decimal:N`, a string rounded half up without a double.
 - `DB_SEARCH_PATH` (or `DB_SCHEMA`) and `Schema.hasView`.
 - `SESSION_SERIALIZATION` (`php` or `json`): the format of new sessions, `php` by default and `json` with `COMPAT_LARAVEL_VERSION=13`. `dartisan adopt` copies it from the Laravel project's `config/session.php`, because a Laravel application upgraded to 13 keeps `php` unless it added the key.
