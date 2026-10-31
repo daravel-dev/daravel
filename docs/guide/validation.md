@@ -58,6 +58,33 @@ upstream file). Indonesian ships as the second locale: set
 - `bail` stops at the first failure of a field.
 - Nested data uses dot paths and `*` wildcards.
 
+## More rules
+
+- **Comparing:** `gt`, `gte`, `lt` and `lte` take a number when the value is
+  numeric, or another field of the same type. Numbers compare as exact decimals.
+- **Numbers:** `decimal:2` and `decimal:0,4`, `multiple_of:5`, `min_digits:3`,
+  `max_digits:5`.
+- **Conditions:** `required_with_all`, `required_without_all`,
+  `required_if_accepted`, `present_if`, `prohibited_if`, `prohibited_unless`,
+  `prohibits`.
+- **Leaving a field out:** `exclude`, `exclude_if`, `exclude_unless`,
+  `exclude_with`, `exclude_without`. The field is left out of `validated()`, the
+  rules after it stop, and later rules see it as missing.
+- **Others:** `date_equals`, and `timezone` or `timezone:Asia`. It also accepts
+  old IANA aliases such as `Asia/Calcutta`, and not `per_country`.
+
+Rules that need objects:
+
+```dart
+Rules.enum_(Status.values);
+Rules.enum_(Status.values, only: [Status.draft], toValue: (s) => s.index);
+
+Rules.unique('users', 'email').ignore(user.id);
+Rules.unique('users', 'email').ignore(id, idColumn: 'staff_id');
+Rules.unique('users', 'email').where((QueryBuilder q) => q.whereNull('deleted_at'));
+Rules.exists('billing.invoices', 'id').where((QueryBuilder q) => q.where('open', true));
+```
+
 ## Form requests
 
 <!-- include: packages/daravel/test/docs/guide_examples_test.dart#form-request -->
