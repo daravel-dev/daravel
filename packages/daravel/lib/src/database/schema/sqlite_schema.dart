@@ -36,6 +36,10 @@ final class SqliteSchemaGrammar extends SchemaGrammar {
       "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?";
 
   @override
+  String compileViewExists() =>
+      "SELECT name FROM sqlite_master WHERE type = 'view' AND name = ?";
+
+  @override
   String compileListTables() =>
       "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'";
 

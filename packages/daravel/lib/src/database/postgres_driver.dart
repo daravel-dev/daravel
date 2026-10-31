@@ -32,6 +32,7 @@ final class PostgresDriver implements NotifyingDriver, QueryErrors {
     this.connectTimeout = const Duration(seconds: 10),
     this.queryTimeout = const Duration(seconds: 30),
     this.applicationName = 'daravel',
+    this.searchPath = const <String>[],
   });
 
   /// The driver for a configured connection (`DB_HOST`, `DB_PORT`,
@@ -63,7 +64,18 @@ final class PostgresDriver implements NotifyingDriver, QueryErrors {
               const Duration(seconds: 30),
             ) ??
             noTimeout,
+        searchPath: parseSearchPath(connection.options['search_path']),
       );
+
+  /// `DB_SEARCH_PATH` (`billing, hr, public`), as Laravel's
+  /// `ParsesSearchPath`: names separated by commas or spaces, quotes dropped.
+  static List<String> parseSearchPath(Object? value) => value is String
+      ? [for (final m in RegExp(r'''[^\s,"']+''').allMatches(value)) m[0]!]
+      : const <String>[];
+
+  /// `set search_path to ...` as `PostgresConnector` quotes it.
+  static String searchPathStatement(List<String> schemas) =>
+      'set search_path to "${schemas.join('", "')}"';
 
   /// What `DB_QUERY_TIMEOUT=0` means for a driver whose timeout cannot be
   /// absent: longer than any deployment.
@@ -93,6 +105,9 @@ final class PostgresDriver implements NotifyingDriver, QueryErrors {
   final Duration connectTimeout;
   final Duration queryTimeout;
   final String applicationName;
+
+  /// Set on every connection of the pool; the server's default when empty.
+  final List<String> searchPath;
 
   @override
   final String name;
@@ -143,6 +158,11 @@ final class PostgresDriver implements NotifyingDriver, QueryErrors {
         connectTimeout: connectTimeout,
         queryTimeout: queryTimeout,
         applicationName: applicationName,
+        onOpen: searchPath.isEmpty
+            ? null
+            : (connection) async {
+                await connection.execute(searchPathStatement(searchPath));
+              },
       ),
     );
     // Fail fast on bad credentials/hosts instead of at the first query.

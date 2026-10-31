@@ -208,6 +208,9 @@ abstract final class Schema {
   static Future<bool> hasTable(String table) async =>
       (await builder()).hasTable(table);
 
+  static Future<bool> hasView(String view) async =>
+      (await builder()).hasView(view);
+
   static Future<void> table(
     String table,
     void Function(Blueprint table) define,

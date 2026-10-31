@@ -68,9 +68,20 @@ final class SchemaBuilder {
       _executor.execute(grammar.compileRename(from, to));
 
   Future<bool> hasTable(String table) async {
-    final rows = await _executor.select(grammar.compileTableExists(), <Object?>[
-      table,
-    ]);
+    final rows = await _executor.select(
+      grammar.compileTableExists(),
+      grammar.tableBindings(table),
+    );
+    return rows.isNotEmpty;
+  }
+
+  /// Whether the view [view] exists (`schema.view` on PostgreSQL, like
+  /// [hasTable]).
+  Future<bool> hasView(String view) async {
+    final rows = await _executor.select(
+      grammar.compileViewExists(),
+      grammar.tableBindings(view),
+    );
     return rows.isNotEmpty;
   }
 
@@ -87,7 +98,7 @@ final class SchemaBuilder {
     final g = grammar;
     final rows = g is SqliteSchemaGrammar
         ? await _executor.select('PRAGMA table_info(${g.wrap(table)})')
-        : await _executor.select(g.compileColumns(), <Object?>[table]);
+        : await _executor.select(g.compileColumns(), g.tableBindings(table));
     if (g is SqliteSchemaGrammar && rows.isNotEmpty) {
       final sql = await _executor.select(
         "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",

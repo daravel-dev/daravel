@@ -40,8 +40,27 @@ final class PostgresSchemaGrammar extends SchemaGrammar {
   };
 
   @override
+  List<Object?> tableBindings(String table) {
+    final segments = table.split('.');
+    if (segments.length > 2) {
+      throw ArgumentError.value(
+        table,
+        'table',
+        'Three-part references are not supported',
+      );
+    }
+    return segments.length == 2 ? segments : <Object?>[null, table];
+  }
+
+  @override
   String compileTableExists() =>
-      r'SELECT tablename AS name FROM pg_tables WHERE schemaname = current_schema() AND tablename = $1';
+      'SELECT c.relname AS name FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace '
+      r"WHERE n.nspname = COALESCE($1::text, current_schema()) AND c.relname = $2::text AND c.relkind IN ('r', 'p')";
+
+  @override
+  String compileViewExists() =>
+      'SELECT c.relname AS name FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace '
+      r"WHERE n.nspname = COALESCE($1::text, current_schema()) AND c.relname = $2::text AND c.relkind IN ('v', 'm')";
 
   @override
   String compileListTables() =>
@@ -50,7 +69,7 @@ final class PostgresSchemaGrammar extends SchemaGrammar {
   @override
   String compileColumns() =>
       'SELECT column_name AS name, data_type AS type, is_nullable AS nullable, column_default AS dflt '
-      r'FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = $1 ORDER BY ordinal_position';
+      r'FROM information_schema.columns WHERE table_schema = COALESCE($1::text, current_schema()) AND table_name = $2::text ORDER BY ordinal_position';
 
   @override
   ColumnInfo columnInfo(Map<String, Object?> row) {
@@ -142,6 +161,10 @@ final class MySqlSchemaGrammar extends SchemaGrammar {
   @override
   String compileTableExists() =>
       'SELECT table_name AS name FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?';
+
+  @override
+  String compileViewExists() =>
+      'SELECT table_name AS name FROM information_schema.views WHERE table_schema = DATABASE() AND table_name = ?';
 
   @override
   String compileListTables() =>

@@ -1212,7 +1212,8 @@ final class ModelSyncCommand extends DaravelCommand {
       if (model == null) {
         continue;
       }
-      if (!await Schema.hasTable(model.table)) {
+      if (!await Schema.hasTable(model.table) &&
+          !await Schema.hasView(model.table)) {
         stdout.writeln(
           '${model.className}: table [${model.table}] does not exist; run migrate first.',
         );
