@@ -46,6 +46,59 @@ final class RouteDiff {
 
   int get total => migrated.length + legacy.length;
 
+  /// Progress per module, most routes left first: the first segment after
+  /// `api` and a version (`api/v1/ikk/rekap` is `ikk`).
+  List<({String prefix, int migrated, int total})> byPrefix() {
+    final done = <String, int>{};
+    final all = <String, int>{};
+    for (final route in migrated) {
+      final prefix = _prefix(route.uri);
+      done[prefix] = (done[prefix] ?? 0) + 1;
+      all[prefix] = (all[prefix] ?? 0) + 1;
+    }
+    for (final route in legacy) {
+      final prefix = _prefix(route.uri);
+      all[prefix] = (all[prefix] ?? 0) + 1;
+    }
+    final rows = [
+      for (final MapEntry(:key, :value) in all.entries)
+        (prefix: key, migrated: done[key] ?? 0, total: value),
+    ];
+    return rows..sort((a, b) {
+      final left = (b.total - b.migrated).compareTo(a.total - a.migrated);
+      return left != 0 ? left : a.prefix.compareTo(b.prefix);
+    });
+  }
+
+  static String _prefix(String uri) {
+    final segments = _strip(uri).split('/').where((s) => s.isNotEmpty).toList();
+    if (segments.isNotEmpty && segments.first == 'api') {
+      segments.removeAt(0);
+    }
+    if (segments.isNotEmpty && RegExp(r'^v\d+$').hasMatch(segments.first)) {
+      segments.removeAt(0);
+    }
+    return segments.isEmpty || segments.first.startsWith('{')
+        ? '/'
+        : segments.first;
+  }
+
+  /// The table of [byPrefix].
+  String renderByPrefix() {
+    final rows = byPrefix();
+    final width = rows.fold(
+      6,
+      (w, r) => r.prefix.length > w ? r.prefix.length : w,
+    );
+    return [
+      '${'Prefix'.padRight(width)}  Migrated  Left',
+      for (final r in rows)
+        '${r.prefix.padRight(width)}  '
+            '${'${r.migrated}/${r.total}'.padLeft(8)}  '
+            '${'${r.total - r.migrated}'.padLeft(4)}',
+    ].join('\n');
+  }
+
   /// The share of Laravel's routes Daravel answers, 0 to 100.
   double get percent => total == 0 ? 100 : migrated.length * 100 / total;
 
@@ -110,6 +163,10 @@ final class RouteDiff {
       'legacy': list(legacy),
       'daravel_only': list(daravelOnly),
       'percent': (percent * 10).roundToDouble() / 10,
+      'by_prefix': [
+        for (final r in byPrefix())
+          {'prefix': r.prefix, 'migrated': r.migrated, 'total': r.total},
+      ],
     };
   }
 
@@ -162,7 +219,12 @@ final class RouteDiffCommand extends DaravelCommand {
         'laravel-json',
         help: 'The saved output of `php artisan route:list --json`.',
       )
-      ..addFlag('json', negatable: false, help: 'Print the diff as JSON.');
+      ..addFlag('json', negatable: false, help: 'Print the diff as JSON.')
+      ..addFlag(
+        'by-prefix',
+        negatable: false,
+        help: 'Print progress per module instead of every route.',
+      );
   }
 
   @override
@@ -218,6 +280,8 @@ final class RouteDiffCommand extends DaravelCommand {
       stdout.writeln(
         r['json'] == true
             ? const JsonEncoder.withIndent('  ').convert(diff.toJson())
+            : r['by-prefix'] == true
+            ? diff.renderByPrefix()
             : diff.render(),
       );
       return 0;
