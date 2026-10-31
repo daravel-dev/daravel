@@ -85,6 +85,36 @@ void main() {
       });
     });
 
+    test('a boolean other compares as a boolean', () async {
+      const rules = {'paid': 'boolean', 'tos': 'accepted_if:paid,true'};
+      for (final paid in <Object?>[true, 1, '1', 'true']) {
+        expect(await errorsOf({'paid': paid}, rules), {
+          'tos': ['The tos field must be accepted when paid is $paid.'],
+        }, reason: '$paid');
+      }
+      for (final paid in <Object?>[false, 0, '0', 'false']) {
+        expect(await errorsOf({'paid': paid}, rules), isEmpty);
+      }
+      expect(
+        await errorsOf({'paid': '1'}, {'tos': 'accepted_if:paid,true'}),
+        isEmpty,
+        reason: 'no boolean rule: the strings differ',
+      );
+    });
+
+    test(':other uses the custom attribute name', () async {
+      expect(
+        await errorsOf(
+          {'user_type': 'owner'},
+          {'tos': 'accepted_if:user_type,owner'},
+          attributes: {'user_type': 'account kind'},
+        ),
+        {
+          'tos': ['The tos field must be accepted when account kind is owner.'],
+        },
+      );
+    });
+
     test('Rules factories and the Indonesian messages', () async {
       expect(
         await errorsOf(

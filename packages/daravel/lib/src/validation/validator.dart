@@ -4,7 +4,7 @@ import '../foundation/container.dart';
 import 'messages.dart';
 import 'rule.dart';
 import 'rule_parser.dart';
-import 'rules.dart' show IntegerRule, NumericRule;
+import 'rules.dart' show BooleanRule, IntegerRule, NumericRule;
 import 'validated_data.dart';
 import 'validation_exception.dart';
 
@@ -30,6 +30,11 @@ final class Validator {
 
   final Map<String, Object?> data;
   final Map<String, List<Rule>> rules;
+
+  late final Set<String> _booleans = {
+    for (final MapEntry(:key, :value) in rules.entries)
+      if (value.any((rule) => rule is BooleanRule)) key,
+  };
 
   /// Custom messages keyed by `attribute.rule` or `rule`.
   final Map<String, String> messages;
@@ -153,6 +158,8 @@ final class Validator {
         container: container,
         locale: locale,
         numeric: numeric,
+        booleans: _booleans,
+        attributeNames: attributes,
       );
       final failure = await rule.passes(context);
       if (failure != null) {

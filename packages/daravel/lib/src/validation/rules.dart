@@ -244,7 +244,7 @@ final class AcceptanceRule extends Rule {
       return const <String, Object?>{};
     }
     return {
-      'other': other.replaceAll('_', ' '),
+      'other': context.displayName(other),
       'value': switch (context.root(other)) {
         null => 'empty',
         List<Object?>() || Map<Object?, Object?>() => 'array',
@@ -256,10 +256,23 @@ final class AcceptanceRule extends Rule {
   @override
   String? passes(ValidationContext c) {
     final other = this.other;
-    if (other != null && !values.contains('${c.root(other)}')) {
+    if (other != null && !_applies(c, other)) {
       return null;
     }
     return _test(c.value) ? null : name;
+  }
+
+  /// `parseDependentRuleParameters`: with a `boolean` rule on [other],
+  /// `true` and `false` compare as booleans, so `'1'` matches `true`.
+  bool _applies(ValidationContext c, String other) {
+    final value = c.root(other);
+    if (c.booleans.contains(other)) {
+      final flag = BooleanRule.asBool(value);
+      if (flag != null && values.contains('$flag')) {
+        return true;
+      }
+    }
+    return values.contains('$value');
   }
 }
 
