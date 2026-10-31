@@ -390,6 +390,10 @@ final class InvalidValidationRule extends LintRule {
     'present',
     'filled',
     'prohibited',
+    'accepted',
+    'accepted_if',
+    'declined',
+    'declined_if',
     'required_if',
     'required_unless',
     'required_with',
@@ -452,6 +456,8 @@ final class InvalidValidationRule extends LintRule {
 
   /// Rules that need at least this many arguments.
   static const Map<String, int> requiredArguments = <String, int>{
+    'accepted_if': 2,
+    'declined_if': 2,
     'required_if': 2,
     'required_unless': 2,
     'required_with': 1,

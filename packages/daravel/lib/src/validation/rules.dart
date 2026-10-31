@@ -22,6 +22,12 @@ abstract final class Rules {
       RequiredIfRule(other, value);
   static Rule requiredUnless(String other, Object? value) =>
       RequiredUnlessRule(other, value);
+  static Rule accepted() => const AcceptanceRule('accepted', _isAccepted);
+  static Rule acceptedIf(String other, List<String> values) =>
+      AcceptanceRule('accepted_if', _isAccepted, other: other, values: values);
+  static Rule declined() => const AcceptanceRule('declined', _isDeclined);
+  static Rule declinedIf(String other, List<String> values) =>
+      AcceptanceRule('declined_if', _isDeclined, other: other, values: values);
   static Rule requiredWith(List<String> others) => RequiredWithRule(others);
   static Rule requiredWithout(List<String> others) =>
       RequiredWithoutRule(others);
@@ -191,6 +197,69 @@ final class RequiredUnlessRule extends Rule {
       return 'required_unless';
     }
     return null;
+  }
+}
+
+// `in_array($value, $acceptable, true)`: strict, so 1.0 is neither.
+bool _isAccepted(Object? value) => switch (value) {
+  bool() => value,
+  int() => value == 1,
+  String() => const {'yes', 'on', '1', 'true'}.contains(value),
+  _ => false,
+};
+
+bool _isDeclined(Object? value) => switch (value) {
+  bool() => !value,
+  int() => value == 0,
+  String() => const {'no', 'off', '0', 'false'}.contains(value),
+  _ => false,
+};
+
+/// `accepted`, `declined` and, with [other], `accepted_if` and `declined_if`
+/// (laravel/framework `ValidatesAttributes`, the same from 8 to 13): the
+/// value must pass [_test], only while [other] is one of [values] for the
+/// conditional rules. Implicit, so a missing attribute fails.
+final class AcceptanceRule extends Rule {
+  const AcceptanceRule(
+    this.name,
+    this._test, {
+    this.other,
+    this.values = const <String>[],
+  });
+
+  @override
+  final String name;
+  final bool Function(Object?) _test;
+  final String? other;
+  final List<String> values;
+
+  @override
+  bool get implicit => true;
+
+  /// `replaceAcceptedIf`: `:value` is the input, not the rule's argument.
+  @override
+  Map<String, Object?> parametersFor(ValidationContext context) {
+    final other = this.other;
+    if (other == null) {
+      return const <String, Object?>{};
+    }
+    return {
+      'other': other.replaceAll('_', ' '),
+      'value': switch (context.root(other)) {
+        null => 'empty',
+        List<Object?>() || Map<Object?, Object?>() => 'array',
+        final value => '$value',
+      },
+    };
+  }
+
+  @override
+  String? passes(ValidationContext c) {
+    final other = this.other;
+    if (other != null && !values.contains('${c.root(other)}')) {
+      return null;
+    }
+    return _test(c.value) ? null : name;
   }
 }
 

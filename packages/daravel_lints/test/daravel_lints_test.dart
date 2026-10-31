@@ -150,6 +150,7 @@ void routes(Router r) {
     'age': ['nullable', 'integer', 'between:18'],
     'code': 'size:abc',
     'ok': 'required|string|max:255|in:a,b|unique:users,email',
+    'terms': 'accepted|declined|accepted_if:a,b|declined_if:a,b',
     'dynamic': 'required|\$rule',
   });
 }
@@ -167,7 +168,7 @@ Future<void> f(Request request, Map<String, Object?> data) async {
 ''';
     final issues = lintSource(source, 'lib/app/http/routes.dart');
     expect(rulesOf(issues).toSet(), {'invalid_validation_rule'});
-    expect(issues.map((i) => i.line), [3, 4, 5, 6, 14, 18, 20]);
+    expect(issues.map((i) => i.line), [3, 4, 5, 6, 15, 19, 21]);
     expect(
       issues[0].message,
       'Unknown validation rule "emial" in '

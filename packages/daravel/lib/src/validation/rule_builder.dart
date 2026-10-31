@@ -38,6 +38,12 @@ final class RuleBuilder {
   RuleBuilder present() => _add(Rules.present());
   RuleBuilder filled() => _add(Rules.filled());
   RuleBuilder prohibited() => _add(Rules.prohibited());
+  RuleBuilder accepted() => _add(Rules.accepted());
+  RuleBuilder acceptedIf(String other, List<String> values) =>
+      _add(Rules.acceptedIf(other, values));
+  RuleBuilder declined() => _add(Rules.declined());
+  RuleBuilder declinedIf(String other, List<String> values) =>
+      _add(Rules.declinedIf(other, values));
   RuleBuilder requiredIf(String other, Object? value) =>
       _add(Rules.requiredIf(other, value));
   RuleBuilder requiredUnless(String other, Object? value) =>
@@ -144,6 +150,12 @@ extension RuleChain on Rule {
   RuleBuilder present() => _chain.present();
   RuleBuilder filled() => _chain.filled();
   RuleBuilder prohibited() => _chain.prohibited();
+  RuleBuilder accepted() => _chain.accepted();
+  RuleBuilder acceptedIf(String other, List<String> values) =>
+      _chain.acceptedIf(other, values);
+  RuleBuilder declined() => _chain.declined();
+  RuleBuilder declinedIf(String other, List<String> values) =>
+      _chain.declinedIf(other, values);
   RuleBuilder requiredIf(String other, Object? value) =>
       _chain.requiredIf(other, value);
   RuleBuilder requiredUnless(String other, Object? value) =>

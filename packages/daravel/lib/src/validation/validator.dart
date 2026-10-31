@@ -156,7 +156,7 @@ final class Validator {
       );
       final failure = await rule.passes(context);
       if (failure != null) {
-        addError(attribute, _message(failure, attribute, pattern, rule));
+        addError(attribute, _message(failure, context, rule));
         // Laravel's shouldStopValidating: `bail` stops at any failure; a
         // failed rule of Laravel's $implicitRules stops too, since the other
         // rules would only describe the empty field again ("must be a
@@ -168,7 +168,8 @@ final class Validator {
     }
   }
 
-  String _message(String key, String attribute, String pattern, Rule rule) {
+  String _message(String key, ValidationContext context, Rule rule) {
+    final ValidationContext(:attribute, :pattern) = context;
     final display =
         attributes[pattern] ??
         attributes[attribute] ??
@@ -183,7 +184,7 @@ final class Validator {
       key,
       locale: locale,
       attribute: display,
-      parameters: rule.parameters,
+      parameters: rule.parametersFor(context),
       overrides: overrides,
     );
   }
