@@ -426,6 +426,174 @@ void main() {
     });
   });
 
+  group('Laravel 13 JSON sessions', () {
+    // SessionGuard::getName() for the `web` guard.
+    const loginKey = 'login_web_59ba36addc2b2f9401580f014c7f58ea4e30989d';
+    const laravelId = 'JsonWrittenByLaravelSessionIdOfFortyChar';
+
+    /// A row as Laravel 13 writes it: `base64(json_encode($attributes))`.
+    Future<void> insertRow(String payload) => app.run(
+      () => DB.table('sessions').insert({
+        'id': laravelId,
+        'payload': base64.encode(utf8.encode(payload)),
+        'last_activity': Clock.now().millisecondsSinceEpoch ~/ 1000,
+      }),
+    );
+
+    Future<String> storedPayload() async {
+      final row = await app.run(
+        () => DB.table('sessions').where('id', laravelId).first(),
+      );
+      return utf8.decode(base64.decode('${row!['payload']}'));
+    }
+
+    Future<TestResponse> visit(String path) async {
+      final cookie = await encryptCookie(app, 'my_app_session', laravelId);
+      return client.get(
+        path,
+        headers: {'cookie': 'my_app_session=${Uri.encodeComponent(cookie)}'},
+      );
+    }
+
+    setUp(() async {
+      await app.shutdown();
+      app = build(const {'SESSION_DRIVER': 'database'});
+      await app.boot();
+      await app.run(() => App.make<Migrator>().run());
+      client = TestClient(app);
+    });
+
+    test('are read, and stay JSON with the login key intact', () async {
+      await insertRow(
+        jsonEncode({
+          '_token': 't' * 40,
+          '_flash': {'old': <Object?>[], 'new': <Object?>[]},
+          loginKey: 7,
+          'name': 'Joe',
+        }),
+      );
+
+      expect((await visit('/get')).jsonMap['name'], 'Joe');
+
+      final attributes = jsonDecode(await storedPayload()) as Map;
+      expect(attributes[loginKey], 7, reason: 'Laravel keeps the user logged');
+      expect(attributes['_token'], 't' * 40);
+      expect(attributes['name'], 'Joe');
+    });
+
+    test('keep Laravel\'s flash data and untouched attributes', () async {
+      await insertRow(
+        '{"_token":"${'t' * 40}","_flash":{"old":[],"new":["status"]},'
+        '"status":"Saved \\u00e9","errors":{"default":{"format":":message",'
+        '"messages":{"email":["Required."]}}},"empty":[]}',
+      );
+
+      expect((await visit('/get')).jsonMap['status'], 'Saved é');
+
+      final attributes = jsonDecode(await storedPayload()) as Map;
+      expect(attributes['_flash'], {
+        'old': ['status'],
+        'new': <Object?>[],
+      });
+      expect(attributes['errors'], {
+        'default': {
+          'format': ':message',
+          'messages': {
+            'email': ['Required.'],
+          },
+        },
+      });
+      expect(attributes['empty'], isEmpty);
+    });
+
+    test('a PHP session stays PHP when the configured format is JSON, '
+        'with the objects Laravel stored in it', () async {
+      await app.shutdown();
+      app = build(const {
+        'SESSION_DRIVER': 'database',
+        'SESSION_SERIALIZATION': 'json',
+      });
+      await app.boot();
+      await app.run(() => App.make<Migrator>().run());
+      client = TestClient(app);
+      const object = PhpObject('App\\Cart', {'total': 3});
+      await insertRow(
+        phpSerialize({'_token': 't' * 40, 'name': 'Joe', 'cart': object}),
+      );
+
+      expect((await visit('/get')).jsonMap['name'], 'Joe');
+
+      final attributes = phpUnserialize(await storedPayload())! as Map;
+      expect(attributes['cart'], object);
+    });
+
+    test('new sessions use SESSION_SERIALIZATION; a logout starts over in '
+        'it', () async {
+      final handler = ArraySessionHandler(lifetime: const Duration(hours: 1));
+      final session = Session(
+        name: 's',
+        handler: handler,
+        serialization: 'json',
+      );
+      await session.start();
+      session.put('name', 'Jane');
+      await session.save();
+      expect(
+        jsonDecode(handler.payloads[session.id]!),
+        containsPair('name', 'Jane'),
+      );
+
+      await handler.write(session.id, phpSerialize({'_token': 't' * 40}));
+      final read = Session(
+        name: 's',
+        handler: handler,
+        id: session.id,
+        serialization: 'json',
+      );
+      await read.start();
+      await read.invalidate();
+      await read.save();
+      expect(
+        jsonDecode(handler.payloads[read.id]!),
+        isA<Map<String, Object?>>(),
+      );
+    });
+
+    test('with SESSION_ENCRYPT, Crypt::encrypt(json_encode()) is read and '
+        'stays JSON', () async {
+      await app.shutdown();
+      app = build(const {'SESSION_ENCRYPT': 'true'});
+      await app.boot();
+      client = TestClient(app);
+      final handler =
+          app.container.make<SessionManager>().handler as ArraySessionHandler;
+      final payload = await app.run(
+        () => Crypt.encrypter.encrypt(
+          jsonEncode({'_token': 't' * 40, 'name': 'Joe'}),
+        ),
+      );
+      await handler.write(laravelId, payload);
+
+      expect((await visit('/get')).jsonMap['name'], 'Joe');
+
+      final clear = await app.run(
+        () => Crypt.encrypter.decrypt<String>(handler.payloads[laravelId]!),
+      );
+      expect((jsonDecode(clear) as Map)['name'], 'Joe');
+    });
+
+    test('unreadable JSON starts an empty session', () async {
+      await insertRow('{"_token":');
+
+      expect((await visit('/get')).jsonMap['name'], isNull);
+    });
+
+    test('an unknown SESSION_SERIALIZATION stops the boot', () async {
+      final broken = build(const {'SESSION_SERIALIZATION': 'yaml'});
+      await expectLater(broken.boot, throwsA(isA<ConfigException>()));
+    });
+  });
+
   test('defaults follow laravel/laravel 11 to 13 (config/session.php)', () {
     final config = SessionConfig.fromEnv(Env.fromMap(const {}));
     expect(config.driver, 'database');
@@ -433,6 +601,23 @@ void main() {
     expect(config.partitioned, isFalse);
     expect(config.lifetime, const Duration(minutes: 120));
     expect(config.sameSite, 'lax');
+    expect(config.serialization, 'php', reason: 'Laravel 12 has no such key');
+    for (final (env, expected) in [
+      (const {'COMPAT_LARAVEL_VERSION': '12'}, 'php'),
+      (const {'COMPAT_LARAVEL_VERSION': '13'}, 'json'),
+      (const {'COMPAT_LARAVEL_VERSION': '8.x'}, 'php'),
+      (
+        const {'COMPAT_LARAVEL_VERSION': '13', 'SESSION_SERIALIZATION': 'php'},
+        'php',
+      ),
+      (const {'SESSION_SERIALIZATION': 'json'}, 'json'),
+    ]) {
+      expect(
+        SessionConfig.fromEnv(Env.fromMap(env)).serialization,
+        expected,
+        reason: '$env',
+      );
+    }
     final set = SessionConfig.fromEnv(
       Env.fromMap(const {
         'SESSION_ENCRYPT': 'true',

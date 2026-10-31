@@ -18,10 +18,14 @@ final class SessionConfig implements ConfigSection {
     this.lottery = (2, 100),
     this.encrypt = false,
     this.partitioned = false,
+    this.serialization = 'php',
   });
 
   /// Reads the `SESSION_*` variables with Laravel's defaults; the cookie
   /// name is `<app name as a slug>_session`, as Laravel derives it.
+  /// `SESSION_SERIALIZATION` defaults to `json` from
+  /// `COMPAT_LARAVEL_VERSION=13`: only the laravel/laravel 13 skeleton sets
+  /// `'serialization' => 'json'`, the framework's own default stays `php`.
   factory SessionConfig.fromEnv(Env env) {
     final appName = env.string('APP_NAME', 'daravel');
     final sameSite = env.string('SESSION_SAME_SITE', 'lax');
@@ -43,6 +47,15 @@ final class SessionConfig implements ConfigSection {
       sameSite: sameSite == 'null' || sameSite.isEmpty ? null : sameSite,
       encrypt: env.boolean('SESSION_ENCRYPT', false),
       partitioned: env.boolean('SESSION_PARTITIONED_COOKIE', false),
+      serialization: env.string(
+        'SESSION_SERIALIZATION',
+        AppConfig.parseLaravelCompat(
+                  env.maybeString('COMPAT_LARAVEL_VERSION'),
+                ) >=
+                13
+            ? 'json'
+            : 'php',
+      ),
     );
   }
 
@@ -81,6 +94,11 @@ final class SessionConfig implements ConfigSection {
   /// get the `Partitioned` attribute (CHIPS).
   final bool partitioned;
 
+  /// `SESSION_SERIALIZATION`: `php` or `json`, Laravel's
+  /// `session.serialization`. Sets the format of new sessions; a stored
+  /// session keeps the format it has (`Session`).
+  final String serialization;
+
   /// Laravel's `Str::slug($name, '_')`: lower case, letters and digits,
   /// runs of anything else as one `_`.
   static String slug(String value) => value
@@ -108,11 +126,19 @@ final class SessionConfig implements ConfigSection {
     'lottery': [lottery.$1, lottery.$2],
     'encrypt': encrypt,
     'partitioned': partitioned,
+    'serialization': serialization,
   };
 
-  /// Rejects an unknown `SESSION_SAME_SITE` and a non-positive lifetime.
+  /// Rejects an unknown `SESSION_SAME_SITE` or `SESSION_SERIALIZATION` and
+  /// a non-positive lifetime.
   static Iterable<ConfigIssue> check(Env env, ConfigRepository config) sync* {
     final session = config.section<SessionConfig>();
+    if (!const {'php', 'json'}.contains(session.serialization)) {
+      yield ConfigIssue(
+        ConfigIssueLevel.error,
+        'SESSION_SERIALIZATION=${session.serialization} is not php or json.',
+      );
+    }
     if (session.sameSite case final value?
         when !const {'lax', 'strict', 'none'}.contains(value)) {
       yield ConfigIssue(

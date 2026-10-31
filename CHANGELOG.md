@@ -9,6 +9,16 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 wait for a new major version, and Laravel-facing formats change only to
 match Laravel more closely.
 
+## Unreleased
+
+### Fixed
+
+- `daravel_session` treated a JSON session (`'serialization' => 'json'`, the laravel/laravel 13 skeleton) as empty and overwrote its row in PHP `serialize()` format, which logged the user out of the Laravel application sharing the store. Both formats are now read, also with `SESSION_ENCRYPT`, and a stored session is written back in the format it has.
+
+### Added
+
+- `SESSION_SERIALIZATION` (`php` or `json`): the format of new sessions, `php` by default and `json` with `COMPAT_LARAVEL_VERSION=13`. `dartisan adopt` copies it from the Laravel project's `config/session.php`, because a Laravel application upgraded to 13 keeps `php` unless it added the key.
+
 ## 1.20.0
 
 A new logo, and the items of Blueprint #58 (runtime hardening and
