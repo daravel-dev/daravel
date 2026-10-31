@@ -114,6 +114,15 @@ void main() {
     expect(caught, [isA<HttpException>(), isA<StateError>()]);
   });
 
+  test('withException leaves a shared response alone', () {
+    final shared = Response.json(const {'denied': true}, status: 403);
+    final first = shared.withException(StateError('one'));
+    expect(shared.exception, isNull);
+    expect(first.exception, isA<StateError>());
+    expect(first.withHeader('x-a', '1').exception, isA<StateError>());
+    expect(first.withoutBody().exception, isA<StateError>());
+  });
+
   test('throttle headers survive an exception', () async {
     final response = await client.get('/limited');
     expect(response.status, 403);
