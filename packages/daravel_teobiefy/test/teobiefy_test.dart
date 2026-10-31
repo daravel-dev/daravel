@@ -439,6 +439,24 @@ void main() {
     });
   });
 
+  test('api() leaves data_count out on request (v0.3)', () async {
+    Future<Map<String, Object?>> body(
+      Object? data, {
+      required bool count,
+    }) async {
+      final response = Teobiefy.api(200, 'ok', data, includeDataCount: count);
+      return jsonDecode(await response.bodyText()) as Map<String, Object?>;
+    }
+
+    expect(await body([1, 2], count: true), containsPair('data_count', 2));
+    expect(await body({'a': 1}, count: true), containsPair('data_count', 1));
+    expect((await body([1, 2], count: false)).keys, [
+      'status',
+      'message',
+      'data',
+    ]);
+  });
+
   test('no key file or secret in the package', () {
     for (final file in Directory('lib').listSync(recursive: true)) {
       if (file is File) {
