@@ -44,10 +44,36 @@ abstract final class Clock {
   }
 }
 
+/// A date read from a driver that returns [DateTime]s, with the [text] PDO
+/// would have returned. An uncast column reaches Laravel's JSON as that
+/// text (`2024-01-01 10:00:00`), not as an ISO-8601 date.
+final class DatabaseDateTime extends DateTime {
+  DatabaseDateTime(DateTime value, this.text)
+    : super.utc(
+        value.year,
+        value.month,
+        value.day,
+        value.hour,
+        value.minute,
+        value.second,
+        value.millisecond,
+        value.microsecond,
+      );
+
+  final String text;
+
+  /// This date without its text, for a cast or timestamp attribute.
+  DateTime get plain =>
+      DateTime.fromMicrosecondsSinceEpoch(microsecondsSinceEpoch, isUtc: true);
+}
+
 /// Serializes [time] the way Laravel serializes dates to JSON
 /// (`Carbon::toJSON()`): UTC ISO-8601 with microseconds,
-/// `2026-01-02T03:04:05.000000Z`.
+/// `2026-01-02T03:04:05.000000Z`; a [DatabaseDateTime] as its text.
 String jsonDate(DateTime time) {
+  if (time is DatabaseDateTime) {
+    return time.text;
+  }
   final utc = time.toUtc();
   String two(int v) => v.toString().padLeft(2, '0');
   final year = utc.year.toString().padLeft(4, '0');

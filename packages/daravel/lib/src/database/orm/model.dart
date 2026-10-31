@@ -149,7 +149,20 @@ abstract base class Model implements JsonSerializable, Responsable {
     }
     final raw = _attributes[key];
     final cast = modelDefinition.casts[key];
-    return (cast == null ? raw : cast.get(raw)) as R;
+    final value = cast == null ? raw : cast.get(raw);
+    // Laravel's getDates and `datetime` casts give a Carbon; only an uncast
+    // column keeps the driver's text.
+    return (value is DatabaseDateTime && (cast != null || _isTimestamp(key))
+            ? value.plain
+            : value)
+        as R;
+  }
+
+  bool _isTimestamp(String key) {
+    final definition = modelDefinition;
+    return (definition.timestamps &&
+            (key == definition.createdAt || key == definition.updatedAt)) ||
+        (definition.softDeletes && key == definition.deletedAt);
   }
 
   /// Attribute write with mutators and casts applied.

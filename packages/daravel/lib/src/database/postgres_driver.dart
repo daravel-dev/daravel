@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:postgres/postgres.dart' as pg;
 
+import '../foundation/clock.dart';
 import 'database_config.dart';
 import 'query_executor.dart';
 
@@ -303,7 +304,53 @@ final class _PgExecutor implements QueryExecutor {
       pg.Sql(sql),
       parameters: _normalize(bindings),
     );
-    return [for (final row in result) row.toColumnMap()];
+    final dates = <String, int>{
+      for (final column in result.schema.columns)
+        if (_dateTypes.contains(column.typeOid))
+          column.columnName ?? '': column.typeOid,
+    };
+    return [
+      for (final row in result)
+        if (dates.isEmpty) row.toColumnMap() else _withDateText(row, dates),
+    ];
+  }
+
+  // pg_type: date, timestamp, timestamptz.
+  static const int _date = 1082;
+  static const int _timestamp = 1114;
+  static const int _timestamptz = 1184;
+  static const Set<int> _dateTypes = {_date, _timestamp, _timestamptz};
+
+  static Map<String, Object?> _withDateText(
+    pg.ResultRow row,
+    Map<String, int> dates,
+  ) {
+    final map = row.toColumnMap();
+    for (final MapEntry(:key, :value) in dates.entries) {
+      if (map[key] case final DateTime date) {
+        map[key] = DatabaseDateTime(date, dateText(date, value));
+      }
+    }
+    return map;
+  }
+
+  /// [date] as PostgreSQL's text output for the type [oid] (what PDO gives
+  /// Laravel): `2024-01-01`, `2024-01-01 10:00:00.5`, `...+00` for a
+  /// `timestamptz`, which the driver reads in UTC.
+  static String dateText(DateTime date, int oid) {
+    String two(int value) => value.toString().padLeft(2, '0');
+    final utc = date.toUtc();
+    final day =
+        '${utc.year.toString().padLeft(4, '0')}-${two(utc.month)}-${two(utc.day)}';
+    if (oid == _date) {
+      return day;
+    }
+    final micros = utc.millisecond * 1000 + utc.microsecond;
+    final fraction = micros == 0
+        ? ''
+        : '.${micros.toString().padLeft(6, '0').replaceFirst(RegExp(r'0+$'), '')}';
+    return '$day ${two(utc.hour)}:${two(utc.minute)}:${two(utc.second)}'
+        '$fraction${oid == _timestamptz ? '+00' : ''}';
   }
 
   @override

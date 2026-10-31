@@ -26,6 +26,107 @@ void main() {
 
   late DatabaseManager db;
 
+  group('schemas other than the current one', () {
+    DatabaseManager manager([Map<String, Object?> options = const {}]) =>
+        DatabaseManager(
+          DatabaseConfig(
+            defaultConnection: 'pgsql',
+            connections: {
+              'pgsql': ConnectionConfig(
+                driver: 'pgsql',
+                database: uri.path.replaceFirst('/', ''),
+                host: uri.host,
+                port: uri.hasPort ? uri.port : 5432,
+                username: userInfo.first,
+                password: userInfo.length > 1 ? userInfo[1] : null,
+                options: {'pool': 2, 'sslmode': 'disable', ...options},
+              ),
+            },
+          ),
+        );
+
+    setUp(() async {
+      final admin = manager();
+      await admin.statement('DROP SCHEMA IF EXISTS daravel_hr CASCADE');
+      await admin.statement('CREATE SCHEMA daravel_hr');
+      await admin.statement(
+        'CREATE TABLE daravel_hr.staff (id INT PRIMARY KEY, name TEXT NOT NULL)',
+      );
+      await admin.statement(
+        'CREATE TABLE daravel_hr.answers (id INT, exam INT) PARTITION BY LIST (exam)',
+      );
+      await admin.statement(
+        'CREATE VIEW daravel_hr.staff_names AS SELECT name FROM daravel_hr.staff',
+      );
+      await admin.statement(
+        'CREATE MATERIALIZED VIEW daravel_hr.staff_count AS SELECT count(*) AS total FROM daravel_hr.staff',
+      );
+      await admin.closeAll();
+    });
+
+    tearDown(() async {
+      final admin = manager();
+      await admin.statement('DROP SCHEMA IF EXISTS daravel_hr CASCADE');
+      await admin.closeAll();
+    });
+
+    test('schema.table, views and partitioned tables are seen', () async {
+      final admin = manager();
+      addTearDown(admin.closeAll);
+      final schema = SchemaBuilder(await admin.executor());
+      expect(await schema.hasTable('daravel_hr.staff'), isTrue);
+      expect(await schema.hasTable('daravel_hr.answers'), isTrue);
+      expect(await schema.hasTable('staff'), isFalse);
+      expect(await schema.hasTable('daravel_hr.nope'), isFalse);
+      expect(await schema.hasTable('daravel_hr.staff_names'), isFalse);
+      expect(await schema.hasView('daravel_hr.staff_names'), isTrue);
+      expect(await schema.hasView('daravel_hr.staff_count'), isTrue);
+      expect(await schema.hasView('daravel_hr.staff'), isFalse);
+      expect((await schema.getColumns('daravel_hr.staff')).map((c) => c.name), [
+        'id',
+        'name',
+      ]);
+      expect(
+        (await schema.getColumns('daravel_hr.staff_names')).single.name,
+        'name',
+      );
+      expect(() => schema.hasTable('a.b.c'), throwsArgumentError);
+    });
+
+    test('uncast dates reach JSON as PDO text, in every type', () async {
+      final admin = manager();
+      addTearDown(admin.closeAll);
+      await admin.statement('''
+        CREATE TABLE daravel_hr.moments (
+          day DATE, at TIMESTAMP(6), at_zone TIMESTAMPTZ, empty TIMESTAMP
+        )''');
+      await admin.statement('''
+        INSERT INTO daravel_hr.moments VALUES (
+          '2024-01-02', '2024-01-02 10:20:30.5', '2024-01-02 10:20:30+00', NULL
+        )''');
+      final row = (await admin.select('SELECT * FROM daravel_hr.moments'))
+          .single;
+      expect(row['day'], isA<DateTime>());
+      expect(row['empty'], isNull);
+      expect(Response.json(row).bodyBytes, isNotNull);
+      expect(jsonDate(row['day']! as DateTime), '2024-01-02');
+      expect(jsonDate(row['at']! as DateTime), '2024-01-02 10:20:30.5');
+      expect(jsonDate(row['at_zone']! as DateTime), '2024-01-02 10:20:30+00');
+    });
+
+    test('search_path applies to every connection of the pool', () async {
+      final scoped = manager({'search_path': 'daravel_hr, public'});
+      addTearDown(scoped.closeAll);
+      final schema = SchemaBuilder(await scoped.executor());
+      expect(await schema.hasTable('staff'), isTrue);
+      final rows = await Future.wait([
+        for (var i = 0; i < 4; i++)
+          scoped.select('SELECT current_schema() AS s, pg_sleep(0.05)'),
+      ]);
+      expect(rows.map((r) => r.single['s']).toSet(), {'daravel_hr'});
+    });
+  });
+
   setUp(() async {
     db = DatabaseManager(
       DatabaseConfig(
