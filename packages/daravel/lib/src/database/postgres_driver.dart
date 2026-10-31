@@ -287,8 +287,18 @@ final class PostgresDriver implements NotifyingDriver, QueryErrors {
   }
 
   @override
-  Future<T> transaction<T>(Future<T> Function(QueryExecutor tx) body) =>
-      _session.runTx<T>((session) => body(_PgExecutor(session)));
+  Future<T> transaction<T>(Future<T> Function(QueryExecutor tx) body) {
+    final pool = _session;
+    final probe = PoolWaitProbe.current;
+    if (probe == null) {
+      return pool.runTx<T>((session) => body(_PgExecutor(session)));
+    }
+    final watch = Stopwatch()..start();
+    return pool.withConnection((connection) {
+      probe.waited = watch.elapsed;
+      return connection.runTx<T>((session) => body(_PgExecutor(session)));
+    });
+  }
 }
 
 final class _PgExecutor implements QueryExecutor {
