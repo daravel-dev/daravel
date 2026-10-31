@@ -245,6 +245,17 @@ void main() {
     }
 
     test(
+      'the same on the model',
+      () => app.run(() async {
+        final member = (await Member.definition.query().find(1))!;
+        await member.syncWithoutDetaching('tags', [1]);
+        await member.toggle('tags', [1, 2]);
+        expect(await attached(), [2]);
+        expect(await member.updateExistingPivot('tags', 2, {'note': 'x'}), 1);
+      }),
+    );
+
+    test(
       'syncWithoutDetaching keeps the others',
       () => app.run(() async {
         final member = (await Member.definition.query().find(1))!;

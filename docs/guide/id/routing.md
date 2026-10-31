@@ -1,4 +1,4 @@
-<!-- source: routing.md sha256:2409fe9b5bbb -->
+<!-- source: routing.md sha256:89c80f34c7b2 -->
 # Routing
 
 Route didaftarkan di `routes/api.dart` (di-mount di bawah `/api`) dan
@@ -152,6 +152,9 @@ Middleware global dikonfigurasi di `bootstrap/app.dart`
 dan per route dengan `.middleware(const ['auth', 'can:update,post'])`.
 Urutannya global → grup → route, diurutkan menurut daftar prioritas
 middleware.
+
+`.withoutMiddleware(['csrf'])` melepas middleware dari sebuah route, berupa
+alias, group, tipe, atau instance, juga yang berasal dari group di luarnya.
 
 ## Rate limiting
 

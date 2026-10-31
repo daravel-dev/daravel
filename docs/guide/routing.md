@@ -143,6 +143,8 @@ Global middleware is configured in `bootstrap/app.dart`
 (`withMiddleware((m) => m.use([...]))`), groups with `m.group('api', [...])`,
 and routes with `.middleware(const ['auth', 'can:update,post'])`. The order
 is global → group → route, sorted by the middleware priority list.
+`.withoutMiddleware(['csrf'])` takes one off a route, as an alias, a group, a
+type or an instance, also when an outer group brought it in.
 
 ## Rate limiting
 

@@ -247,6 +247,31 @@ something they share, such as a database table or a queue.
 For Laravel Echo clients, events go through the Pusher protocol instead
 ([Broadcasting](broadcasting.md)), which runs on top of these channels.
 
+## Files
+
+```dart
+return Response.download('storage/report.xlsx', name: 'Report.xlsx');
+return Response.download(tmp, deleteFileAfterSend: true);
+return Response.file('storage/manual.pdf', request: request);
+
+return Storage.download('reports/q3.pdf', request: request);
+return Storage.disk('s3').response('videos/intro.mp4', request: request);
+```
+
+`download` answers an attachment and `file` shows the file in the browser, with
+the type from its name, an `ETag` and `Last-Modified`. File names that are not
+plain ASCII get `filename*`, and a name with a path or a control character is
+an error. A missing file is a 404.
+
+Pass `request` for `Range`: 206 for one range, 416 past the end, as PDF viewers
+and iOS players need, and 304 for `If-None-Match`. A request for several ranges
+gets the whole file. `deleteFileAfterSend` removes the file once it was sent and
+offers no ranges, because a viewer's first small range would delete it.
+
+A disk reads from the start to reach a range, which on S3 means downloading what
+comes before it. Do not build the path of `Response.file` from user input; a
+disk checks its paths.
+
 ## Errors
 
 Exceptions are rendered by the exception handler with Laravel's bodies. With

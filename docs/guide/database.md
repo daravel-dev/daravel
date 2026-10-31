@@ -299,6 +299,25 @@ cannot, so two rules keep it safe:
   (`unawaited_in_db_transaction`) points out the ones that are not,
   including `unawaited(...)` and `.ignore()`.
 
+## JSON columns
+
+`->` reads and writes inside a JSON column, on every driver:
+
+```dart
+await DB.table('users').where('meta->lang', 'id').get();
+await DB.table('users').orderBy('meta->lang').get();
+await DB.table('users').whereJsonContains('meta->roles', 'admin').get();
+await DB.table('users').where('id', 1).update({
+  'meta->lang': 'en',
+  'meta->flags': [1, 2],
+});
+```
+
+A path holds plain keys and indexes (`items[0]->id`); anything else is an error,
+as an invalid column is. An update keeps the other keys and the JSON type of the
+value, also on a `NULL` column. A nested path needs its parent on PostgreSQL and
+MySQL, as in Laravel; SQLite creates it.
+
 ## Query errors
 
 A query the database refuses throws `QueryException`, with `sql`,
@@ -330,11 +349,26 @@ line of the driver's error, so binding values (a password hash, an email)
 stay out of logs; the database's own words may still name a conflicting
 value (MySQL's `Duplicate entry`, PostgreSQL's detail).
 
+## Retrying transactions
+
+```dart
+await DB.transaction(() async {
+  // ...
+}, attempts: 5);
+```
+
+Deadlocks and serialization failures run the whole callback again. Between
+attempts it waits a random 2 to 250 ms, holding no connection, so isolates that
+collided do not collide again. A frozen test clock retries at once.
+
 ## Listening to queries
 
 `DB.listen((QueryExecuted query) { ... })` is called after every query of
 the builder, the ORM, raw SQL and migrations, with its SQL, bindings,
-duration and connection, for example to log slow queries:
+duration and connection. `query.poolWait` is the time it waited for a
+connection, apart from `query.time`: a high value means the pool is too small,
+not that the database is slow. It is zero inside a transaction, which holds its
+connection, and on SQLite. For example, to log slow queries:
 
 ```dart
 DB.listen((query) {
