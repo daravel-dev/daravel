@@ -215,6 +215,21 @@ void main() {
     });
   });
 
+  test('OpenAPI shows {post:slug} as a plain parameter', () {
+    final router = Router()..get('/x/{post:slug}/{page:num?}', (_) => null);
+    router.compile(MiddlewareRegistry());
+    final paths =
+        buildOpenApi(router.routes, title: 'x', version: '1')['paths']!
+            as Map<String, Object?>;
+    expect(paths.keys, ['/x/{post}/{page}']);
+    final get = (paths.values.single! as Map)['get'] as Map;
+    final parameters = get['parameters'] as List<Object?>;
+    expect(
+      [for (final p in parameters) (p! as Map)['required']],
+      [true, false],
+    );
+  });
+
   test('a column that is no identifier is refused', () {
     expect(
       () => RouteEntry(

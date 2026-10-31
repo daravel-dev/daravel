@@ -30,7 +30,10 @@ Map<String, Object?> buildOpenApi(
     // `{post:slug?}` is `{post}`: OpenAPI has no optional or typed segments.
     final path = route.path
         .replaceAll('?}', '}')
-        .replaceAllMapped(RegExp(r'{(w+):w+}'), (match) => '{${match[1]}}');
+        .replaceAllMapped(
+          RegExp(r'\{([^{}:]+):[^{}]+\}'),
+          (match) => '{${match[1]}}',
+        );
     final middleware = route.middlewareEntries.whereType<String>().toList();
     final authenticated = middleware.any(
       (m) => m == 'auth' || m.startsWith('auth:'),
