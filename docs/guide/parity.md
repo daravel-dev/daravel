@@ -366,6 +366,10 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `Cache::tags(['people'])->put($key, $value, $ttl)` | `await Cache.tags(['people']).put(key, value, ttl: ttl)` | **async**; memory, process and redis stores (Laravel's layout on Redis); file and database cannot tag, as in Laravel. |
 | `Cache::lock('name', 10)->get(fn)` | `await Cache.lock('name', ...)` |  |
 | `SendEmail::dispatch($user)` | `await Queue.dispatch(SendEmail(user))` | **async** |
+| `Queue::route(SendEmail::class, 'emails')` | `Queue.manager.route<SendEmail>(queue: 'emails')` |  |
+| `SendEmail::dispatch()->withoutDelay()` | `.withoutDelay()` |  |
+| `public $deleteWhenMissingModels = true` | `bool get deleteWhenMissingModels => true` |  |
+| `#[DebounceFor(60)]` | `Duration? get debounceFor => ...` |  |
 | `Queue::later($delay, $job)` | `await Queue.later(delay, job)` | **async** |
 | `public function tags() (Horizon)` | `List<String> get tags` |  |
 | `php artisan queue:pause database:default / queue:continue` | `dartisan queue:pause database:default / queue:continue` |  |

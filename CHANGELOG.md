@@ -16,6 +16,9 @@ match Laravel more closely.
 - Transaction events: `DB.listenTransactions`, with `poolWait` and `depth`, forwarded as `TransactionBeginning`, `TransactionCommitted` and `TransactionRolledBack`, of which the last two existed and were never sent. Pulse counts a transaction's wait for a connection.
 - `DaravelUri`: Laravel's fluent `Uri`, with PHP's reading and writing of the query.
 - `package:daravel/process.dart`: `Process.run`, `pipe`, `pool` and `fake`.
+- `Queue.route`: where a job type goes, in one place, and `withoutDelay()` on a dispatch.
+- `deleteWhenMissingModels`. A missing model now fails a job at once, as in Laravel, instead of using up its tries.
+- `debounceFor`, `debounceMaxWait` and `debounceId`: only the last dispatch of a burst runs.
 
 ## 1.22.0
 
