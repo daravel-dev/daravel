@@ -45,6 +45,7 @@ final class RouteEntry {
   final Handler handler;
 
   final List<Object> _middleware;
+  final List<Object> _excluded = <Object>[];
   final String _namePrefix;
   final Map<String, RegExp> _wheres;
   final Map<String, Object?> _defaults = <String, Object?>{};
@@ -152,9 +153,17 @@ final class RouteEntry {
     return this;
   }
 
-  /// Removes middleware of type [T] from this route.
-  RouteEntry withoutMiddleware<T extends Middleware>() {
-    _middleware.removeWhere((entry) => entry is T);
+  /// Removes middleware from this route: of type [T], or the [excluded]
+  /// aliases, groups, types and instances, also those a group of an outer
+  /// `router.group` brought in: `.withoutMiddleware(['csrf'])` on a webhook
+  /// inside `web`. Applied after the groups are expanded.
+  RouteEntry withoutMiddleware<T extends Middleware>([
+    List<Object> excluded = const <Object>[],
+  ]) {
+    if (T != Middleware) {
+      _excluded.add(T);
+    }
+    _excluded.addAll(excluded);
     return this;
   }
 
@@ -265,7 +274,29 @@ final class RouteEntry {
 
   /// Resolves aliases into instances. Called by `Router.compile`.
   void resolveMiddleware(MiddlewareRegistry registry) {
-    _resolved = List.unmodifiable(registry.resolveAll(_middleware));
+    final types = <Type>{};
+    final instances = <Middleware>{};
+    for (final entry in _excluded) {
+      if (entry is Type) {
+        types.add(entry);
+        continue;
+      }
+      for (final middleware in registry.resolve(entry)) {
+        // Closures all share one type, so they go by identity.
+        if (middleware is FunctionalMiddleware) {
+          instances.add(middleware);
+        } else {
+          types.add(middleware.runtimeType);
+        }
+      }
+    }
+    _resolved = List.unmodifiable(
+      registry
+          .resolveAll(_middleware)
+          .where(
+            (m) => !types.contains(m.runtimeType) && !instances.contains(m),
+          ),
+    );
     _withBindings = null;
   }
 
