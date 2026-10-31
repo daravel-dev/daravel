@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:math' as math;
 
+import '../foundation/clock.dart';
 import '../foundation/container.dart';
 import '../foundation/exceptions.dart';
 import '../logging/logger.dart';
@@ -351,10 +353,28 @@ final class DatabaseManager {
     );
   }
 
+  static const Duration retryBaseDelay = Duration(milliseconds: 2);
+  static const Duration retryMaxDelay = Duration(milliseconds: 250);
+  static final math.Random _retryRandom = math.Random();
+
+  /// The next wait of a retry, decorrelated jitter: anywhere from the base
+  /// to three times [previous]. Fifty isolates that collided do not collide
+  /// again on the same microsecond.
+  static Duration retryDelay(Duration previous, math.Random random) {
+    final base = retryBaseDelay.inMicroseconds;
+    final span = previous.inMicroseconds * 3 - base;
+    final next = base + random.nextInt(span < 1 ? 1 : span);
+    return Duration(
+      microseconds: next < retryMaxDelay.inMicroseconds
+          ? next
+          : retryMaxDelay.inMicroseconds,
+    );
+  }
+
   /// Runs [body] in a transaction on [connection] (default when `null`).
   /// Nested calls create a savepoint that is released or rolled back with
   /// the nested callback. With [attempts] > 1, deadlocks and serialization
-  /// failures retry the whole transaction.
+  /// failures retry the whole transaction, after a short random wait.
   Future<T> transaction<T>(
     Future<T> Function() body, {
     String? connection,
@@ -365,6 +385,7 @@ final class DatabaseManager {
     }
     final connectionName = connection ?? config.defaultConnection;
     final driver = await this.connection(connection);
+    var wait = retryBaseDelay;
     for (var attempt = 1; ; attempt++) {
       final callbacks = <FutureOr<void> Function()>[];
       final T result;
@@ -388,6 +409,12 @@ final class DatabaseManager {
         _logger?.warning(
           'Transaction attempt $attempt failed with a retryable error; retrying.',
         );
+        // Wall clock: a frozen test clock must not slow the retry, and a
+        // delay needs no connection, so the others get theirs meanwhile.
+        if (!Clock.isFaked) {
+          wait = retryDelay(wait, _retryRandom);
+          await Future<void>.delayed(wait);
+        }
         continue;
       }
       // Committed. The callbacks run outside the retry above: one that
