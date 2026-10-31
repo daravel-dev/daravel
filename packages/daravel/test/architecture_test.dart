@@ -11,6 +11,8 @@ import 'package:test/test.dart';
 /// accidental coupling (and new cycles) visible in review.
 const Map<String, Set<String>> allowedDependencies = {
   'foundation': {},
+  // Plain schema documents: nothing else.
+  'json_schema': {},
   'logging': {'foundation'},
   'storage': {'foundation'},
   // Ships SQLite's write-ahead log to a disk (Blueprint #30).

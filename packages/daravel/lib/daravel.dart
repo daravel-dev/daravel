@@ -80,6 +80,7 @@ export 'src/http/middleware/maintenance_mode.dart';
 export 'src/http/middleware/validate_signature.dart';
 export 'src/routing/resource_controller.dart';
 export 'src/routing/url_signer.dart';
+export 'src/json_schema/json_schema.dart';
 export 'src/validation/form_request.dart';
 export 'src/validation/messages.dart';
 export 'src/validation/php_date_format.dart';
