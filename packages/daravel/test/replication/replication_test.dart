@@ -1,3 +1,8 @@
+// A loaded Windows runner took over 30 s for the plain tests here: one went
+// on working after its timeout, so it was slow, not stuck.
+@Timeout(Duration(minutes: 3))
+library;
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -14,6 +19,8 @@ import 'package:test/test.dart';
 Database openApp(String path) {
   final db = sqlite3.open(path)
     ..execute('PRAGMA journal_mode=WAL')
+    // No fsync per row: these tests are about the log, not about power loss.
+    ..execute('PRAGMA synchronous=NORMAL')
     ..execute('PRAGMA busy_timeout=5000')
     ..execute(
       'CREATE TABLE IF NOT EXISTS rows (id INTEGER PRIMARY KEY, body TEXT)',
