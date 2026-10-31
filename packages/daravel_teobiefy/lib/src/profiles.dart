@@ -273,7 +273,11 @@ final class TeobiefyProfiles {
       return body;
     }
     final field = profile.encrypts ? 'data_enc' : 'data_comp';
-    var decoded = _base64(_required(body, field), field);
+    final encoded = _required(body, field);
+    if (encoded.length > _maxEncodedChars) {
+      throw const TeobiefyPayloadTooLarge();
+    }
+    var decoded = _base64(encoded, field);
     if (profile.signs) {
       _verify(decoded, body);
     }
@@ -297,6 +301,13 @@ final class TeobiefyProfiles {
     }
     return json;
   }
+
+  /// The longest field a payload of [TeobiefyConfig.maxDecompressedBytes]
+  /// can give: a replay envelope holds it as base64, plus the cipher's and
+  /// the frame's overhead, all as base64. Longer ones are refused before
+  /// the buffers of decoding and decrypting are allocated.
+  int get _maxEncodedChars =>
+      ((config.maxDecompressedBytes * 4 ~/ 3 + 4096) * 4) ~/ 3;
 
   String _required(Map<String, Object?> body, String key) =>
       switch (body[key]) {

@@ -238,6 +238,28 @@ void main() {
     });
   });
 
+  test('an oversized field is refused before it is decoded', () {
+    final profiles = _profiles(maxBytes: 100);
+    // Not base64, so reaching the decoder would answer otherwise.
+    expect(
+      profiles.decodeRequest({
+        'data_comp': '!' * 10000,
+        'compression': 'zstd',
+      }, TeobiefyProfile.compressed),
+      throwsA(isA<TeobiefyPayloadTooLarge>()),
+    );
+  });
+
+  test('a field within the limit reaches the decoder', () {
+    expect(
+      _profiles(maxBytes: 100).decodeRequest({
+        'data_comp': '!' * 100,
+        'compression': 'zstd',
+      }, TeobiefyProfile.compressed),
+      throwsA(isA<TeobiefyInvalidPayload>()),
+    );
+  });
+
   group('replay protection', () {
     late Directory base;
     late Application app;
