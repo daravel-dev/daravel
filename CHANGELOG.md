@@ -14,6 +14,8 @@ match Laravel more closely.
 ### Added
 
 - Transaction events: `DB.listenTransactions`, with `poolWait` and `depth`, forwarded as `TransactionBeginning`, `TransactionCommitted` and `TransactionRolledBack`, of which the last two existed and were never sent. Pulse counts a transaction's wait for a connection.
+- `DaravelUri`: Laravel's fluent `Uri`, with PHP's reading and writing of the query.
+- `package:daravel/process.dart`: `Process.run`, `pipe`, `pool` and `fake`.
 
 ## 1.22.0
 
