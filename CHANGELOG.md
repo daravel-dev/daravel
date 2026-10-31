@@ -25,6 +25,8 @@ match Laravel more closely.
 
 ### Added
 
+- `JsonApiResource` and `JsonApiCollection`: Laravel 13's JSON:API v1.1 shape, with `?fields[type]=` and `?include=`. The kernel awaits a new `PreparedResponsable.prepare` before `toResponse`, so a route that returns a resource loads what the query asks for.
+- `JsonSchema`: a typed builder for JSON Schema documents, like `Illuminate\JsonSchema`.
 - `Response.exception`, Laravel's `$response->exception`: since 1.21.1 an exception no longer passes through `next`, so a `try` around `next` catches nothing, not only in transaction middleware. A middleware reads it here instead.
 - `DB.transaction(attempts: n)` waits a short random time between retries (decorrelated jitter, 2 to 250 ms), so isolates that collided do not collide again. Frozen test clocks retry at once.
 - `QueryExecuted.poolWait`: the time a query waited for a connection, apart from `time`. PostgreSQL and MySQL measure it while a listener is registered.
