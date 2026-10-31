@@ -87,6 +87,17 @@ final class Request {
     var uri = Uri.parse(
       path.startsWith('/') ? 'http://localhost$path' : 'http://localhost/$path',
     );
+    // The socket path takes the host from this header too.
+    final hostHeader = headers?['host'];
+    if (hostHeader != null) {
+      final colon = hostHeader.lastIndexOf(':');
+      uri = colon == -1
+          ? uri.replace(host: hostHeader)
+          : uri.replace(
+              host: hostHeader.substring(0, colon),
+              port: int.tryParse(hostHeader.substring(colon + 1)),
+            );
+    }
     if (query != null && query.isNotEmpty) {
       uri = uri.replace(
         queryParameters: <String, String>{...uri.queryParameters, ...query},

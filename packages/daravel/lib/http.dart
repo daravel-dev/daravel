@@ -33,6 +33,7 @@ export 'src/http/rate_limiter.dart';
 export 'src/http/resources.dart';
 export 'src/routing/radix_tree.dart';
 export 'src/routing/openapi.dart';
+export 'src/routing/domain_pattern.dart';
 export 'src/routing/route_entry.dart';
 export 'src/routing/router.dart';
 export 'src/routing/resource_controller.dart';

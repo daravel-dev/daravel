@@ -3,6 +3,7 @@ import 'dart:async';
 import '../http/middleware.dart';
 import '../http/request.dart';
 import '../validation/form_request.dart';
+import 'domain_pattern.dart';
 import 'radix_tree.dart';
 
 /// A route handler. May return a `Response`, a `Responsable`, a JSON-able
@@ -33,13 +34,33 @@ final class RouteEntry {
     this._namePrefix = '',
     Map<String, RegExp> wheres = const <String, RegExp>{},
     this._scopeBindings,
+    String? domain,
   }) : _middleware = List<Object>.of(middleware),
        _wheres = Map<String, RegExp>.of(wheres),
-       bindingFields = _bindingFieldsOf(path);
+       _domain = domain == null ? null : DomainPattern(domain),
+       _pathFields = _bindingFieldsOf(path);
 
   /// The columns of `{post:slug}` segments, by parameter. A column goes
   /// into SQL, so only an identifier is accepted.
-  final Map<String, String> bindingFields;
+  Map<String, String> get bindingFields {
+    final domain = _domain;
+    return domain == null || domain.fields.isEmpty
+        ? _pathFields
+        : {...domain.fields, ..._pathFields};
+  }
+
+  final Map<String, String> _pathFields;
+  DomainPattern? _domain;
+
+  /// The host pattern, `null` for any host.
+  DomainPattern? get domainPattern => _domain;
+
+  /// Serves this route on [pattern] only: `admin.example.com`, or
+  /// `{tenant}.example.com` with the parameter in `request.routeParams`.
+  RouteEntry domain(String pattern) {
+    _domain = DomainPattern(pattern);
+    return this;
+  }
 
   static Map<String, String> _bindingFieldsOf(String path) {
     final fields = <String, String>{};
