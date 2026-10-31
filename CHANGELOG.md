@@ -9,7 +9,17 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 wait for a new major version, and Laravel-facing formats change only to
 match Laravel more closely.
 
-## Unreleased
+## 1.22.0
+
+What most Laravel applications reach for every day: forms that post `_method`, validation that redirects back, file downloads with `Range`, 22 more validation rules, route model binding with scoping, subdomains, JSON columns, and helpers on relations. `daravel_pulse` now shows N+1 queries and connection waits, and `daravel_teobiefy` reads the Zstandard frames real clients send.
+
+**Upgrading can change what an application sees:**
+
+- A failed validation in the `web` group redirects back, unless the client expects JSON. `Request.expectsJson` follows Laravel: an XHR that asks for HTML is not JSON.
+- `_method` is on by default. A POST route that streams a form body needs `middleware.methodOverride = false`.
+- Since 1.21.1 a `try` around `next` catches nothing, in any middleware. Read the new `response.exception` instead.
+- `whereJsonContains` sends JSON on MySQL and PostgreSQL. Code that encoded the value itself now encodes it twice.
+- `UniqueRule.ignore` is a method; the field is `ignored`.
 
 ### Fixed
 
