@@ -3,9 +3,11 @@ import 'dart:async';
 import '../cache/cache.dart';
 import '../database/orm/model.dart';
 import '../database/orm/model_definition.dart';
+import '../foundation/config.dart';
 import '../foundation/container.dart';
 import '../foundation/exceptions.dart';
 import '../http/rate_limiter.dart';
+import 'queue_manager.dart';
 
 /// A unit of background work (BLUEPRINT_V2 §7.9.1). Jobs are plain Dart
 /// objects serialised to JSON through [toJson] and rebuilt by the factory
@@ -200,14 +202,20 @@ final class WithoutOverlapping implements JobMiddleware {
   final Duration releaseAfter;
   final bool dontRelease;
 
-  /// Cache store holding the lock (default: the configured lock store).
+  /// Cache store holding the lock (default: `QUEUE_UNIQUE_LOCK_STORE`).
   final String? store;
 
   @override
   Future<void> handle(JobContext ctx, Job job, JobNext next) async {
     final lock = Container.current
         .make<CacheManager>()
-        .store(store ?? 'process')
+        .store(
+          store ??
+              Container.current
+                  .make<ConfigRepository>()
+                  .section<QueueConfig>()
+                  .uniqueLockStore,
+        )
         .lock('overlap:${job.jobName}:$key', ttl: expiresAfter);
     if (!await lock.acquire()) {
       if (dontRelease) {
