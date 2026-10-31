@@ -23,6 +23,16 @@ abstract final class Clock {
   static DateTime nowIn(String zone) =>
       tz.TZDateTime.from(now(), timeZone(zone));
 
+  /// Whether [zone] is an IANA name.
+  static bool isTimeZone(String zone) {
+    try {
+      timeZone(zone);
+      return true;
+    } on ArgumentError {
+      return false;
+    }
+  }
+
   /// The IANA [zone]; an [ArgumentError] for an unknown name.
   static tz.Location timeZone(String zone) {
     if (!_zonesLoaded) {

@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../database/database_manager.dart';
+import '../database/query/query_builder.dart';
+import '../foundation/clock.dart';
 import '../http/uploaded_file.dart';
 import 'php_date_format.dart';
 import 'rule.dart';
@@ -11,6 +13,47 @@ import 'rule.dart';
 /// Each factory returns a `const`-friendly [Rule] subclass that can be
 /// introspected for messages and OpenAPI hints.
 abstract final class Rules {
+  static Rule gt(Object target) => CompareRule('gt', '$target');
+  static Rule gte(Object target) => CompareRule('gte', '$target');
+  static Rule lt(Object target) => CompareRule('lt', '$target');
+  static Rule lte(Object target) => CompareRule('lte', '$target');
+  static Rule decimal(int min, [int? max]) => DecimalRule(min, max);
+  static Rule multipleOf(Object factor) => MultipleOfRule(factor);
+  static Rule minDigits(int digits) => DigitCountRule('min_digits', digits);
+  static Rule maxDigits(int digits) => DigitCountRule('max_digits', digits);
+  static Rule dateEquals(String dateOrField) =>
+      DateCompareRule('date_equals', dateOrField);
+  static Rule timezone([String group = 'all']) => TimezoneRule(group);
+  static Rule requiredWithAll(List<String> others) =>
+      RequiredWithAllRule(others);
+  static Rule requiredWithoutAll(List<String> others) =>
+      RequiredWithoutAllRule(others);
+  static Rule requiredIfAccepted(String other) => RequiredIfAcceptedRule(other);
+  static Rule presentIf(String other, List<String> values) =>
+      DependentRule('present_if', other, values);
+  static Rule prohibitedIf(String other, List<String> values) =>
+      DependentRule('prohibited_if', other, values);
+  static Rule prohibitedUnless(String other, List<String> values) =>
+      DependentRule('prohibited_unless', other, values);
+  static Rule prohibits(List<String> others) => ProhibitsRule(others);
+  static Rule exclude() => const ExcludeRule('exclude');
+  static Rule excludeIf(String other, List<String> values) =>
+      ExcludeRule('exclude_if', other: other, values: values);
+  static Rule excludeUnless(String other, List<String> values) =>
+      ExcludeRule('exclude_unless', other: other, values: values);
+  static Rule excludeWith(String other) =>
+      ExcludeRule('exclude_with', other: other);
+  static Rule excludeWithout(String other) =>
+      ExcludeRule('exclude_without', other: other);
+
+  /// `Rule::enum()`: the value is the enum's name, or [toValue] of it.
+  static EnumRule<E> enum_<E extends Enum>(
+    List<E> values, {
+    Object? Function(E value)? toValue,
+    List<E>? only,
+    List<E>? except,
+  }) => EnumRule<E>(values, toValue: toValue, only: only, except: except);
+
   static Rule required() => const RequiredRule();
   static Rule nullable() => const NullableRule();
   static Rule sometimes() => const SometimesRule();
@@ -86,13 +129,13 @@ abstract final class Rules {
       DateCompareRule('before', dateOrField);
   static Rule beforeOrEqual(String dateOrField) =>
       DateCompareRule('before_or_equal', dateOrField);
-  static Rule unique(
+  static UniqueRule unique(
     String table, [
     String? column,
     Object? ignore,
     String idColumn = 'id',
   ]) => UniqueRule(table, column: column, ignore: ignore, idColumn: idColumn);
-  static Rule exists(String table, [String? column]) =>
+  static ExistsRule exists(String table, [String? column]) =>
       ExistsRule(table, column: column);
   static Rule password({
     int min = 8,
@@ -200,6 +243,29 @@ final class RequiredUnlessRule extends Rule {
   }
 }
 
+/// `parseDependentRuleParameters`: with a `boolean` rule on [other], `true`
+/// and `false` compare as booleans, so `'1'` matches `true`.
+bool _otherMatches(ValidationContext c, String other, List<String> values) {
+  final value = c.root(other);
+  if (c.booleans.contains(other)) {
+    final flag = BooleanRule.asBool(value);
+    if (flag != null && values.contains('$flag')) {
+      return true;
+    }
+  }
+  return values.contains('$value');
+}
+
+/// `replaceAcceptedIf`: `:value` is the input, not the rule's argument.
+Map<String, Object?> _otherParameters(ValidationContext c, String other) => {
+  'other': c.displayName(other),
+  'value': switch (c.root(other)) {
+    null => 'empty',
+    List<Object?>() || Map<Object?, Object?>() => 'array',
+    final value => '$value',
+  },
+};
+
 // `in_array($value, $acceptable, true)`: strict, so 1.0 is neither.
 bool _isAccepted(Object? value) => switch (value) {
   bool() => value,
@@ -236,43 +302,21 @@ final class AcceptanceRule extends Rule {
   @override
   bool get implicit => true;
 
-  /// `replaceAcceptedIf`: `:value` is the input, not the rule's argument.
   @override
   Map<String, Object?> parametersFor(ValidationContext context) {
     final other = this.other;
-    if (other == null) {
-      return const <String, Object?>{};
-    }
-    return {
-      'other': context.displayName(other),
-      'value': switch (context.root(other)) {
-        null => 'empty',
-        List<Object?>() || Map<Object?, Object?>() => 'array',
-        final value => '$value',
-      },
-    };
+    return other == null
+        ? const <String, Object?>{}
+        : _otherParameters(context, other);
   }
 
   @override
   String? passes(ValidationContext c) {
     final other = this.other;
-    if (other != null && !_applies(c, other)) {
+    if (other != null && !_otherMatches(c, other, values)) {
       return null;
     }
     return _test(c.value) ? null : name;
-  }
-
-  /// `parseDependentRuleParameters`: with a `boolean` rule on [other],
-  /// `true` and `false` compare as booleans, so `'1'` matches `true`.
-  bool _applies(ValidationContext c, String other) {
-    final value = c.root(other);
-    if (c.booleans.contains(other)) {
-      final flag = BooleanRule.asBool(value);
-      if (flag != null && values.contains('$flag')) {
-        return true;
-      }
-    }
-    return values.contains('$value');
   }
 }
 
@@ -899,9 +943,357 @@ final class DateCompareRule extends Rule {
       'after_or_equal' => !value.isBefore(other),
       'before' => value.isBefore(other),
       'before_or_equal' => !value.isAfter(other),
+      'date_equals' => value.isAtSameMomentAs(other),
       _ => false,
     };
     return ok ? null : operator;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Comparisons (laravel/framework `ValidatesAttributes`)
+// ---------------------------------------------------------------------------
+
+/// An exact decimal, as Brick's `BigDecimal` in Laravel: `0.3` is a multiple
+/// of `0.1` here, and never in floating point. `null` unless `is_numeric`.
+(BigInt, int)? _decimalOf(Object? value) {
+  if (value is! String && value is! num) {
+    return null;
+  }
+  final match = RegExp(
+    r'^\s*([+-]?)(\d*)(?:\.(\d*))?(?:[eE]([+-]?\d{1,4}))?\s*$',
+  ).firstMatch('$value');
+  if (match == null) {
+    return null;
+  }
+  final whole = match[2]!;
+  final fraction = match[3] ?? '';
+  if (whole.isEmpty && fraction.isEmpty) {
+    return null;
+  }
+  final digits = BigInt.parse('$whole$fraction');
+  final exponent = int.parse(match[4] ?? '0');
+  var scale = fraction.length - exponent;
+  var unscaled = match[1] == '-' ? -digits : digits;
+  if (scale < 0) {
+    unscaled *= BigInt.from(10).pow(-scale);
+    scale = 0;
+  }
+  return (unscaled, scale);
+}
+
+/// Both at the larger scale, so they compare as integers.
+(BigInt, BigInt) _aligned((BigInt, int) a, (BigInt, int) b) {
+  final scale = a.$2 > b.$2 ? a.$2 : b.$2;
+  BigInt at((BigInt, int) n) => n.$1 * BigInt.from(10).pow(scale - n.$2);
+  return (at(a), at(b));
+}
+
+/// PHP's `gettype` equality (`isSameType`): an int and a float differ.
+bool _sameType(Object? a, Object? b) => switch ((a, b)) {
+  (int(), int()) || (double(), double()) || (String(), String()) => true,
+  (List<Object?>() || Map<Object?, Object?>(), List<Object?>()) => true,
+  (List<Object?>() || Map<Object?, Object?>(), Map<Object?, Object?>()) => true,
+  (UploadedFile(), UploadedFile()) => true,
+  _ => false,
+};
+
+/// `gt`, `gte`, `lt` and `lte`: against another field of the same type, or a
+/// number when the value is numeric too.
+final class CompareRule extends Rule {
+  const CompareRule(this.name, this.target);
+  @override
+  final String name;
+  final String target;
+
+  bool _holds(int order) => switch (name) {
+    'gt' => order > 0,
+    'gte' => order >= 0,
+    'lt' => order < 0,
+    _ => order <= 0,
+  };
+
+  @override
+  Map<String, Object?> parametersFor(ValidationContext context) {
+    final compared = context.root(target);
+    final numeric = context.numeric || _decimalOf(context.value) != null;
+    return {
+      'value': compared == null
+          ? context.displayName(target)
+          : sizeOf(compared, numeric: numeric),
+    };
+  }
+
+  @override
+  String? passes(ValidationContext c) {
+    final value = c.value;
+    final compared = c.root(target);
+    final literal = _decimalOf(target);
+    final decimal = _decimalOf(value);
+    final numeric = c.numeric || decimal != null;
+    final failure = '$name.${_sizeKind(value, numeric: numeric)}';
+    if (literal != null) {
+      if (compared != null || decimal == null) {
+        return failure;
+      }
+      final (a, b) = _aligned(decimal, literal);
+      return _holds(a.compareTo(b)) ? null : failure;
+    }
+    final other = _decimalOf(compared);
+    if (decimal != null && other != null) {
+      final (a, b) = _aligned(decimal, other);
+      return _holds(a.compareTo(b)) ? null : failure;
+    }
+    if (!_sameType(value, compared)) {
+      return failure;
+    }
+    final size = sizeOf(value, numeric: numeric);
+    final otherSize = sizeOf(compared, numeric: numeric);
+    return size != null &&
+            otherSize != null &&
+            _holds(size.compareTo(otherSize))
+        ? null
+        : failure;
+  }
+}
+
+/// `decimal:2` and `decimal:0,4`.
+final class DecimalRule extends Rule {
+  const DecimalRule(this.min, [this.max]);
+  final int min;
+  final int? max;
+  @override
+  String get name => 'decimal';
+  @override
+  Map<String, Object?> get parameters => {
+    'decimal': max == null ? '$min' : '$min-$max',
+  };
+  @override
+  String? passes(ValidationContext c) {
+    final match = RegExp(r'^[+-]?\d*\.?(\d*)$').firstMatch('${c.value}');
+    if (_decimalOf(c.value) == null || match == null) {
+      return 'decimal';
+    }
+    final places = match[1]!.length;
+    final ok = max == null ? places == min : places >= min && places <= max!;
+    return ok ? null : 'decimal';
+  }
+}
+
+final class MultipleOfRule extends Rule {
+  const MultipleOfRule(this.factor);
+  final Object factor;
+  @override
+  String get name => 'multiple_of';
+  @override
+  Map<String, Object?> get parameters => {'value': factor};
+  @override
+  String? passes(ValidationContext c) {
+    final value = _decimalOf(c.value);
+    final divisor = _decimalOf(factor);
+    if (value == null || divisor == null) {
+      return 'multiple_of';
+    }
+    if (divisor.$1 == BigInt.zero) {
+      return 'multiple_of';
+    }
+    final (a, b) = _aligned(value, divisor);
+    return a.remainder(b) == BigInt.zero ? null : 'multiple_of';
+  }
+}
+
+/// `min_digits` and `max_digits`: the length of a number made of digits.
+final class DigitCountRule extends Rule {
+  const DigitCountRule(this.name, this.limit);
+  @override
+  final String name;
+  final int limit;
+  @override
+  Map<String, Object?> get parameters => {
+    name == 'min_digits' ? 'min' : 'max': limit,
+  };
+  @override
+  String? passes(ValidationContext c) {
+    final text = '${c.value}';
+    final ok = name == 'min_digits'
+        ? text.length >= limit
+        : text.length <= limit;
+    return ok && !text.contains(RegExp('[^0-9]')) ? null : name;
+  }
+}
+
+/// PHP's `timezone_identifiers_list` by the group of the name. The database
+/// here also knows old aliases such as `Asia/Calcutta`, which PHP's list
+/// leaves out.
+final class TimezoneRule extends Rule {
+  const TimezoneRule([this.group = 'all']);
+  final String group;
+  @override
+  String get name => 'timezone';
+  @override
+  String? passes(ValidationContext c) {
+    final value = c.value;
+    final ok =
+        value is String &&
+        Clock.isTimeZone(value) &&
+        (group == 'all' || value.toLowerCase().startsWith(group.toLowerCase()));
+    return ok ? null : 'timezone';
+  }
+}
+
+/// `Rule::enum()`: the value of one of [values], by name or by [toValue].
+final class EnumRule<E extends Enum> extends Rule {
+  const EnumRule(this.values, {this.toValue, this.only, this.except});
+  final List<E> values;
+  final Object? Function(E value)? toValue;
+  final List<E>? only;
+  final List<E>? except;
+  @override
+  String get name => 'enum';
+  @override
+  Map<String, Object?> get schemaHint => {
+    'enum': [for (final e in _allowed) _wire(e)],
+  };
+
+  Iterable<E> get _allowed => values.where(
+    (e) => (only?.contains(e) ?? true) && !(except?.contains(e) ?? false),
+  );
+
+  Object? _wire(E value) => toValue?.call(value) ?? value.name;
+
+  @override
+  String? passes(ValidationContext c) =>
+      _allowed.any((e) => '${_wire(e)}' == '${c.value}') ? null : 'enum';
+}
+
+/// `prohibited_if`, `prohibited_unless` and `present_if`.
+final class DependentRule extends Rule {
+  const DependentRule(this.name, this.other, this.values);
+  @override
+  final String name;
+  final String other;
+  final List<String> values;
+
+  @override
+  Map<String, Object?> parametersFor(ValidationContext context) =>
+      name == 'prohibited_unless'
+      ? {'other': context.displayName(other), 'values': values.join(', ')}
+      : _otherParameters(context, other);
+
+  @override
+  bool get implicit => name == 'present_if';
+
+  @override
+  String? passes(ValidationContext c) {
+    final matches = _otherMatches(c, other, values);
+    return switch (name) {
+      'present_if' => matches && !c.present ? name : null,
+      'prohibited_if' => matches && !isEmptyValue(c.value) ? name : null,
+      _ => !matches && !isEmptyValue(c.value) ? name : null,
+    };
+  }
+}
+
+/// `prohibits`: the others must be empty while this one is not.
+final class ProhibitsRule extends Rule {
+  const ProhibitsRule(this.others);
+  final List<String> others;
+  @override
+  String get name => 'prohibits';
+  @override
+  Map<String, Object?> parametersFor(ValidationContext context) => {
+    'other': others.map(context.displayName).join(' / '),
+  };
+  @override
+  String? passes(ValidationContext c) =>
+      !isEmptyValue(c.value) && others.any((o) => !isEmptyValue(c.root(o)))
+      ? 'prohibits'
+      : null;
+}
+
+final class RequiredWithAllRule extends Rule {
+  const RequiredWithAllRule(this.others);
+  final List<String> others;
+  @override
+  String get name => 'required_with_all';
+  @override
+  bool get implicit => true;
+  @override
+  Map<String, Object?> get parameters => {'values': others.join(' / ')};
+  @override
+  String? passes(ValidationContext c) =>
+      others.every((o) => !isEmptyValue(c.root(o))) && isEmptyValue(c.value)
+      ? name
+      : null;
+}
+
+final class RequiredWithoutAllRule extends Rule {
+  const RequiredWithoutAllRule(this.others);
+  final List<String> others;
+  @override
+  String get name => 'required_without_all';
+  @override
+  bool get implicit => true;
+  @override
+  Map<String, Object?> get parameters => {'values': others.join(' / ')};
+  @override
+  String? passes(ValidationContext c) =>
+      others.every((o) => isEmptyValue(c.root(o))) && isEmptyValue(c.value)
+      ? name
+      : null;
+}
+
+final class RequiredIfAcceptedRule extends Rule {
+  const RequiredIfAcceptedRule(this.other);
+  final String other;
+  @override
+  String get name => 'required_if_accepted';
+  @override
+  bool get implicit => true;
+  @override
+  Map<String, Object?> parametersFor(ValidationContext context) => {
+    'other': context.displayName(other),
+  };
+  @override
+  String? passes(ValidationContext c) =>
+      _isAccepted(c.root(other)) && isEmptyValue(c.value) ? name : null;
+}
+
+/// The rules that drop an attribute: [passes] answers its name when the
+/// attribute leaves the validated data, and no error is added.
+final class ExcludeRule extends Rule {
+  const ExcludeRule(this.name, {this.other, this.values = const <String>[]});
+  @override
+  final String name;
+  final String? other;
+  final List<String> values;
+
+  /// `Validator::$excludeRules`.
+  static const Set<String> names = {
+    'exclude',
+    'exclude_if',
+    'exclude_unless',
+    'exclude_with',
+    'exclude_without',
+  };
+
+  // `isValidatable` always runs them, also on an empty value.
+  @override
+  bool get implicit => true;
+
+  @override
+  String? passes(ValidationContext c) {
+    final other = this.other;
+    final excluded = switch (name) {
+      'exclude_if' =>
+        ValidationContext.exists(c.data, other!) &&
+            _otherMatches(c, other, values),
+      'exclude_unless' => !_otherMatches(c, other!, values),
+      'exclude_with' => ValidationContext.exists(c.data, other!),
+      'exclude_without' => isEmptyValue(c.root(other!)),
+      _ => true,
+    };
+    return excluded ? name : null;
   }
 }
 
@@ -922,6 +1314,28 @@ String _identifier(String identifier) {
   return identifier;
 }
 
+/// `table` or `schema.table`, as Laravel's `parseTable` allows.
+String _table(String table) {
+  table.split('.').forEach(_identifier);
+  return table;
+}
+
+typedef QueryConstraint = Object? Function(QueryBuilder query);
+
+QueryBuilder _constrained(
+  QueryBuilder query,
+  List<QueryConstraint> constraints,
+) {
+  var result = query;
+  for (final constraint in constraints) {
+    final next = constraint(result);
+    if (next is QueryBuilder) {
+      result = next;
+    }
+  }
+  return result;
+}
+
 String _columnFor(ValidationContext c, String? column) {
   if (column != null) {
     return column;
@@ -936,13 +1350,33 @@ final class UniqueRule extends Rule {
   const UniqueRule(
     this.table, {
     this.column,
-    this.ignore,
+    Object? ignore,
     this.idColumn = 'id',
-  });
+    this.constraints = const <QueryConstraint>[],
+  }) : ignored = ignore;
   final String table;
   final String? column;
-  final Object? ignore;
+  final Object? ignored;
   final String idColumn;
+  final List<QueryConstraint> constraints;
+
+  /// `->ignore($id, 'staff_id')`: skips the row being edited.
+  UniqueRule ignore(Object? id, {String? idColumn}) => UniqueRule(
+    table,
+    column: column,
+    ignore: id,
+    idColumn: idColumn ?? this.idColumn,
+    constraints: constraints,
+  );
+
+  /// `->where(fn ($q) => $q->whereNull('deleted_at'))`.
+  UniqueRule where(QueryConstraint constraint) => UniqueRule(
+    table,
+    column: column,
+    ignore: ignored,
+    idColumn: idColumn,
+    constraints: [...constraints, constraint],
+  );
   @override
   String get name => 'unique';
   @override
@@ -954,19 +1388,32 @@ final class UniqueRule extends Rule {
     final db = container.make<DatabaseManager>();
     final col = _columnFor(c, column);
     // The builder quotes identifiers for the connection's dialect.
-    var query = db.table(_identifier(table)).where(_identifier(col), c.value);
-    if (ignore != null) {
-      query = query.where(_identifier(idColumn), '<>', ignore);
+    var query = db.table(_table(table)).where(_identifier(col), c.value);
+    if (ignored != null) {
+      query = query.where(_identifier(idColumn), '<>', ignored);
     }
+    query = _constrained(query, constraints);
     return await query.count() > 0 ? 'unique' : null;
   }
 }
 
 /// `exists:table,column` — the value must be present in the table.
 final class ExistsRule extends Rule {
-  const ExistsRule(this.table, {this.column});
+  const ExistsRule(
+    this.table, {
+    this.column,
+    this.constraints = const <QueryConstraint>[],
+  });
   final String table;
   final String? column;
+  final List<QueryConstraint> constraints;
+
+  /// `->where(fn ($q) => $q->whereNull('deleted_at'))`.
+  ExistsRule where(QueryConstraint constraint) => ExistsRule(
+    table,
+    column: column,
+    constraints: [...constraints, constraint],
+  );
   @override
   String get name => 'exists';
   @override
@@ -977,10 +1424,10 @@ final class ExistsRule extends Rule {
     }
     final db = container.make<DatabaseManager>();
     final col = _columnFor(c, column);
-    final count = await db
-        .table(_identifier(table))
-        .where(_identifier(col), c.value)
-        .count();
+    final count = await _constrained(
+      db.table(_table(table)).where(_identifier(col), c.value),
+      constraints,
+    ).count();
     return count > 0 ? null : 'exists';
   }
 }

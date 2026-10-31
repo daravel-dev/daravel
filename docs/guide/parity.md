@@ -224,6 +224,11 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `$validator->validate()` | `await validator.validate()` | **async** |
 | `ValidationException` | `ValidationException` |  |
 | `Rule::in([...]) / Rule::unique('users')` | `Rules.inList([...]) / Rules.unique('users')` |  |
+| `'gt:field' / 'decimal:2' / 'multiple_of:5' / 'min_digits:3'` | `same strings, or Rules.gt(field)` |  |
+| `'exclude_if:type,free'` | `same string, or Rules.excludeIf('type', ['free'])` |  |
+| `'prohibited_if:a,b' / 'prohibits:a' / 'required_with_all:a,b'` | `same strings` |  |
+| `Rule::enum(Status::class)` | `Rules.enum_(Status.values)` |  |
+| `Rule::unique('users')->ignore($id)->where(fn ($q) => $q->whereNull('deleted_at'))` | `Rules.unique('users').ignore(id).where((QueryBuilder q) => q.whereNull('deleted_at'))` |  |
 | `['required', 'email', 'max:255']` | `Rules.required().email().max(255)` | Chained rule objects, checked by the compiler. |
 | `'accepted' / 'accepted_if:plan,paid' / 'declined' / 'declined_if:plan,paid'` | `the same strings, or Rules.accepted() / acceptedIf('plan', ['paid']) / declined() / declinedIf(...)` |  |
 

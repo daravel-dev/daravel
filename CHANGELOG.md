@@ -26,6 +26,8 @@ match Laravel more closely.
 
 ### Added
 
+- 22 validation rules: `gt`, `gte`, `lt`, `lte`, `decimal`, `multiple_of`, `min_digits`, `max_digits`, `date_equals`, `timezone`, `required_with_all`, `required_without_all`, `required_if_accepted`, `present_if`, `prohibited_if`, `prohibited_unless`, `prohibits`, and the `exclude` family, which leaves attributes out of `validated()`. Numbers compare as exact decimals. `timezone` also accepts old IANA aliases, and not `per_country`.
+- `Rules.enum_`, and `Rules.unique(...).ignore(id)`, `.where(...)` and `Rules.exists(...).where(...)`. Both rules accept `schema.table`, which failed with an `ArgumentError`.
 - `Response.download`, `Response.file`, `Storage.download` and `Storage.response`, with RFC 6266 file names, `ETag`, and `Range` (206) when given the request. `deleteFileAfterSend` removes a temporary file once it was sent. Several ranges in one request get the whole file.
 - `_method` and `X-HTTP-Method-Override` turn a POST into PUT, PATCH or DELETE, on by default as in Laravel; only form bodies are read. `Request.originalMethod` keeps the verb on the wire.
 - A failed validation in the `web` group redirects browsers and Inertia back, with errors and old input flashed (`session.errors`, `session.old`); clients expecting JSON keep the 422. `Response.back` ignores a foreign `Referer`.

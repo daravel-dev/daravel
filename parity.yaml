@@ -202,6 +202,11 @@ sections:
       - { php: "$validator->validate()", dart: "await validator.validate()", symbol: Validator.validate, async: true }
       - { php: "ValidationException", dart: "ValidationException", symbol: ValidationException }
       - { php: "Rule::in([...]) / Rule::unique('users')", dart: "Rules.inList([...]) / Rules.unique('users')", symbol: Rules }
+      - { php: "'gt:field' / 'decimal:2' / 'multiple_of:5' / 'min_digits:3'", dart: "same strings, or Rules.gt(field)", symbol: Rules.gt }
+      - { php: "'exclude_if:type,free'", dart: "same string, or Rules.excludeIf('type', ['free'])", symbol: Rules.excludeIf }
+      - { php: "'prohibited_if:a,b' / 'prohibits:a' / 'required_with_all:a,b'", dart: "same strings", symbol: Rules.prohibitedIf }
+      - { php: "Rule::enum(Status::class)", dart: "Rules.enum_(Status.values)", symbol: Rules.enum_ }
+      - { php: "Rule::unique('users')->ignore($id)->where(fn ($q) => $q->whereNull('deleted_at'))", dart: "Rules.unique('users').ignore(id).where((QueryBuilder q) => q.whereNull('deleted_at'))", symbol: UniqueRule.ignore }
       - { php: "['required', 'email', 'max:255']", dart: "Rules.required().email().max(255)", symbol: RuleBuilder, note: "Chained rule objects, checked by the compiler." }
       - { php: "'accepted' / 'accepted_if:plan,paid' / 'declined' / 'declined_if:plan,paid'", dart: "the same strings, or Rules.accepted() / acceptedIf('plan', ['paid']) / declined() / declinedIf(...)", symbol: AcceptanceRule }
 
