@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.20.1
+
+- Fixed: `test:e2e --serve` could run `migrate:fresh` on the database of a `DB_URL` in `.env`, and the tests from `new` and `make:test` could reach it too. New projects are safe; run `e2e:install --force` in existing ones or make the same edit by hand.
+- Fixed: `adopt` treats Laravel 8 to 13 as supported and writes `COMPAT_LARAVEL_VERSION` and `SESSION_SERIALIZATION`.
+
 ## 1.20.0
 
 - `doctor` compares the connection pool with `max_connections` on MySQL and MariaDB too, and counts `APP_PROCESSES` and the embedded queue worker and scheduler: `DB_POOL_SIZE × (APP_ISOLATES + embedded) × APP_PROCESSES`.
