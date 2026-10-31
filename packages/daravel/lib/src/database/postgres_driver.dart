@@ -259,17 +259,32 @@ final class PostgresDriver implements NotifyingDriver, QueryErrors {
   Future<List<Map<String, Object?>>> select(
     String sql, [
     List<Object?> bindings = const [],
-  ]) => _PgExecutor(_session).select(sql, bindings);
+  ]) => _measured((e) => e.select(sql, bindings));
 
   @override
   Future<int> execute(String sql, [List<Object?> bindings = const []]) =>
-      _PgExecutor(_session).execute(sql, bindings);
+      _measured((e) => e.execute(sql, bindings));
 
   @override
   Future<Object?> insertGetId(
     String sql, [
     List<Object?> bindings = const [],
-  ]) => _PgExecutor(_session).insertGetId(sql, bindings);
+  ]) => _measured((e) => e.insertGetId(sql, bindings));
+
+  /// Asks for the connection itself when a listener wants the wait; the
+  /// pool's own `execute` hides it.
+  Future<T> _measured<T>(Future<T> Function(_PgExecutor executor) run) {
+    final pool = _session;
+    final probe = PoolWaitProbe.current;
+    if (probe == null) {
+      return run(_PgExecutor(pool));
+    }
+    final watch = Stopwatch()..start();
+    return pool.withConnection((connection) {
+      probe.waited = watch.elapsed;
+      return run(_PgExecutor(connection));
+    });
+  }
 
   @override
   Future<T> transaction<T>(Future<T> Function(QueryExecutor tx) body) =>

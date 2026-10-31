@@ -26,6 +26,39 @@ void main() {
 
   late DatabaseManager db;
 
+  test('poolWait is the time a query waited for a connection', () async {
+    final uri = Uri.parse(url);
+    final user = uri.userInfo.split(':');
+    final db = DatabaseManager(
+      DatabaseConfig(
+        defaultConnection: 'pgsql',
+        connections: {
+          'pgsql': ConnectionConfig(
+            driver: 'pgsql',
+            database: uri.path.replaceFirst('/', ''),
+            host: uri.host,
+            port: uri.port,
+            username: user.first,
+            password: user[1],
+            options: const {'pool': 1, 'sslmode': 'disable'},
+          ),
+        },
+      ),
+    );
+    addTearDown(db.closeAll);
+    final events = <QueryExecuted>[];
+    db.listen(events.add);
+    await Future.wait([
+      db.select('SELECT pg_sleep(0.2)'),
+      db.select('SELECT pg_sleep(0.2)'),
+    ]);
+    final waits = [for (final e in events) e.poolWait.inMilliseconds]..sort();
+    expect(waits.last, greaterThan(100), reason: 'one queued behind the other');
+    for (final event in events) {
+      expect(event.time.inMilliseconds, inInclusiveRange(150, 1000));
+    }
+  });
+
   group('schemas other than the current one', () {
     DatabaseManager manager([Map<String, Object?> options = const {}]) =>
         DatabaseManager(

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 /// SQL dialects known to the framework.
 enum SqlDialect { sqlite, postgres, mysql }
 
@@ -56,16 +58,38 @@ final class QueryExecuted {
     required this.bindings,
     required this.time,
     required this.connectionName,
+    this.poolWait = Duration.zero,
   });
 
   final String sql;
   final List<Object?> bindings;
+
+  /// Time in the database, without [poolWait].
   final Duration time;
   final String connectionName;
+
+  /// Time spent waiting for a free connection. Zero inside a transaction,
+  /// which holds its connection, and on SQLite. A high value with a low
+  /// [time] means the pool is too small, not that the database is slow.
+  final Duration poolWait;
 
   @override
   String toString() =>
       'QueryExecuted($connectionName, ${time.inMicroseconds} µs: $sql)';
+}
+
+/// Filled by a pooled driver with the time a query waited for a connection.
+/// It sits in the zone of a query only while a listener wants the number.
+final class PoolWaitProbe {
+  static final Object _key = Object();
+
+  /// The probe of the running query, if any.
+  static PoolWaitProbe? get current => Zone.current[_key] as PoolWaitProbe?;
+
+  Duration waited = Duration.zero;
+
+  Future<T> run<T>(Future<T> Function() body) =>
+      runZoned(body, zoneValues: {_key: this});
 }
 
 /// Wraps an executor to report every query to [listeners]. Only used while
@@ -86,12 +110,14 @@ final class ListeningQueryExecutor implements QueryExecutor {
     Future<T> Function() run,
   ) async {
     final watch = Stopwatch()..start();
-    final result = await run();
+    final probe = PoolWaitProbe();
+    final result = await probe.run(run);
     final event = QueryExecuted(
       sql: sql,
       bindings: bindings,
-      time: watch.elapsed,
+      time: watch.elapsed - probe.waited,
       connectionName: connectionName,
+      poolWait: probe.waited,
     );
     for (final listener in List.of(listeners)) {
       listener(event);

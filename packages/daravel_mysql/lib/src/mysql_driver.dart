@@ -293,7 +293,15 @@ final class MySqlDriver
     final pool = _session;
     _inFlight++;
     try {
-      return await pool.withConnection<T>(body);
+      final probe = PoolWaitProbe.current;
+      if (probe == null) {
+        return await pool.withConnection<T>(body);
+      }
+      final watch = Stopwatch()..start();
+      return await pool.withConnection<T>((connection) {
+        probe.waited = watch.elapsed;
+        return body(connection);
+      });
     } finally {
       _inFlight--;
     }
