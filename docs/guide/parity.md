@@ -172,6 +172,8 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | :-- | :-- | :-- |
 | `composer require laravel/pulse (/pulse)` | `.withPulse(middleware: ['auth', 'can:viewPulse'])` | Kept in memory by each isolate and merged through the coordinator, not in pulse_* tables; 403 outside local without middleware. |
 | `PULSE_SLOW_QUERIES_THRESHOLD, PULSE_SLOW_REQUESTS_THRESHOLD, PULSE_SLOW_JOBS_THRESHOLD` | `the same .env keys` |  |
+| `DB::transaction($fn, attempts: 5)` | `DB.transaction(fn, attempts: 5), with jitter between retries` |  |
+| `(none)` | `QueryExecuted.poolWait` |  |
 
 ## Media library (daravel_medialibrary)
 

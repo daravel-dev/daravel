@@ -10,7 +10,7 @@ import 'support/test_databases.dart';
 
 final class User extends Model {
   static final ModelDefinition<User> definition = ModelDefinition<User>(
-    table: 'users',
+    table: 'poly_users',
     factory: User.new,
     guarded: [],
     timestamps: false,
@@ -26,7 +26,7 @@ final class User extends Model {
 
 final class Post extends Model {
   static final ModelDefinition<Post> definition = ModelDefinition<Post>(
-    table: 'posts',
+    table: 'poly_posts',
     factory: Post.new,
     guarded: [],
     softDeletes: true,
@@ -54,7 +54,7 @@ final class Post extends Model {
 
 final class Video extends Model {
   static final ModelDefinition<Video> definition = ModelDefinition<Video>(
-    table: 'videos',
+    table: 'poly_videos',
     factory: Video.new,
     guarded: [],
     timestamps: false,
@@ -80,7 +80,7 @@ final class Video extends Model {
 
 final class Comment extends Model {
   static final ModelDefinition<Comment> definition = ModelDefinition<Comment>(
-    table: 'comments',
+    table: 'poly_comments',
     factory: Comment.new,
     guarded: [],
     timestamps: false,
@@ -102,7 +102,7 @@ final class Comment extends Model {
 
 final class Reaction extends Model {
   static final ModelDefinition<Reaction> definition = ModelDefinition<Reaction>(
-    table: 'reactions',
+    table: 'poly_reactions',
     factory: Reaction.new,
     guarded: [],
     timestamps: false,
@@ -113,7 +113,7 @@ final class Reaction extends Model {
 
 final class Image extends Model {
   static final ModelDefinition<Image> definition = ModelDefinition<Image>(
-    table: 'images',
+    table: 'poly_images',
     factory: Image.new,
     guarded: [],
     timestamps: false,
@@ -125,7 +125,7 @@ final class Image extends Model {
 
 final class Tag extends Model {
   static final ModelDefinition<Tag> definition = ModelDefinition<Tag>(
-    table: 'tags',
+    table: 'poly_tags',
     factory: Tag.new,
     guarded: [],
     timestamps: false,
@@ -148,52 +148,52 @@ final class Tag extends Model {
 }
 
 const List<String> _tables = [
-  'users',
-  'posts',
-  'videos',
-  'comments',
-  'reactions',
-  'images',
-  'tags',
+  'poly_users',
+  'poly_posts',
+  'poly_videos',
+  'poly_comments',
+  'poly_reactions',
+  'poly_images',
+  'poly_tags',
   'taggables',
 ];
 
 Future<DatabaseManager> _database(DatabaseOpener open) async {
   final db = open();
   final schema = await freshSchema(db, _tables);
-  await schema.create('users', (t) {
+  await schema.create('poly_users', (t) {
     t.id();
     t.string('name');
   });
-  await schema.create('posts', (t) {
+  await schema.create('poly_posts', (t) {
     t.id();
     t.integer('user_id');
     t.string('title');
     t.timestamp('deleted_at').nullable();
     t.timestamps();
   });
-  await schema.create('videos', (t) {
+  await schema.create('poly_videos', (t) {
     t.id();
     t.integer('user_id');
     t.string('title');
   });
-  await schema.create('comments', (t) {
+  await schema.create('poly_comments', (t) {
     t.id();
     t.nullableMorphs('commentable');
     t.string('body');
     t.boolean('approved').defaultTo(false);
   });
-  await schema.create('reactions', (t) {
+  await schema.create('poly_reactions', (t) {
     t.id();
     t.integer('comment_id');
     t.string('emoji');
   });
-  await schema.create('images', (t) {
+  await schema.create('poly_images', (t) {
     t.id();
     t.morphs('imageable');
     t.string('url');
   });
-  await schema.create('tags', (t) {
+  await schema.create('poly_tags', (t) {
     t.id();
     t.string('name');
   });
@@ -247,19 +247,19 @@ void polymorphicTests(DatabaseOpener open) {
         markTestSkipped('Reads the schema with SQLite PRAGMAs.');
         return;
       }
-      final columns = await db.select('PRAGMA table_info(images)');
+      final columns = await db.select('PRAGMA table_info(poly_images)');
       final byName = {for (final c in columns) c['name']: c};
       expect(byName['imageable_type']?['type'], contains('VARCHAR'));
       expect(byName['imageable_id']?['notnull'], 1);
-      final nullable = await db.select('PRAGMA table_info(comments)');
+      final nullable = await db.select('PRAGMA table_info(poly_comments)');
       expect(
         nullable.firstWhere((c) => c['name'] == 'commentable_id')['notnull'],
         0,
       );
-      final indexes = await db.select('PRAGMA index_list(images)');
+      final indexes = await db.select('PRAGMA index_list(poly_images)');
       expect(
         indexes.map((i) => i['name']),
-        contains('images_imageable_type_imageable_id_index'),
+        contains('poly_images_imageable_type_imageable_id_index'),
       );
     });
   });
@@ -372,7 +372,9 @@ void polymorphicTests(DatabaseOpener open) {
       relation.dissociate(comment);
       expect(comment.getAttr<Object?>('commentable_type'), isNull);
 
-      await db.table('posts').update({'updated_at': '2000-01-01 00:00:00'});
+      await db.table('poly_posts').update({
+        'updated_at': '2000-01-01 00:00:00',
+      });
       onPost.setAttr('body', 'edited');
       await onPost.save();
       final touched = await Post.definition.query(db: db).first();
@@ -414,7 +416,7 @@ void polymorphicTests(DatabaseOpener open) {
     });
 
     test('unknown stored types fail with a clear message', () async {
-      await db.table('comments').insert({
+      await db.table('poly_comments').insert({
         'commentable_type': r'App\Models\Podcast',
         'commentable_id': 1,
         'body': 'orphan',
@@ -460,7 +462,7 @@ void polymorphicTests(DatabaseOpener open) {
 
       // A soft-deleted post no longer counts as an owner.
       await post.delete();
-      await db.table('comments').insert({'body': 'no owner'});
+      await db.table('poly_comments').insert({'body': 'no owner'});
       expect(bodies(await query().whereDoesntHave('commentable').get()), [
         'on post',
         'no owner',
@@ -481,7 +483,7 @@ void polymorphicTests(DatabaseOpener open) {
     setUp(() async {
       final c = await comments(Post.definition)
           .create(post, db, {'body': 'approved', 'approved': true});
-      await db.table('reactions').insert({
+      await db.table('poly_reactions').insert({
         'comment_id': c.key,
         'emoji': 'fire',
       });

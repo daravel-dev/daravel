@@ -52,6 +52,14 @@ gate.define('viewPulse', (user, args) => user is User && user.isAdmin);
   path), with their count and the slowest.
 - **Slow queries.** Grouped by SQL and connection. The bindings are never
   kept, so the values in a `where` do not reach the page.
+- **N+1 and query storms.** A request that ran one statement
+  `PULSE_N_PLUS_ONE_THRESHOLD` times, or `PULSE_QUERY_STORM_THRESHOLD` queries
+  in all, with the statement and the route. Fast queries add up, so no slow
+  query threshold would catch these.
+- **Connection waits.** Queries that waited `PULSE_POOL_WAIT_THRESHOLD` for a
+  free connection, by connection. These mean the pool is too small, not that
+  the database is slow. Queries inside a transaction hold their connection and
+  are not counted, and SQLite has no pool.
 - **Exceptions.** Server errors grouped by class and by the first frame in
   your code, with the latest message and stack trace. 4xx responses
   (validation, not found, forbidden) are not exceptions here.
@@ -69,6 +77,9 @@ gate.define('viewPulse', (user, args) => user is User && user.isAdmin);
 | `PULSE_PATH` | `/pulse` | The dashboard's path |
 | `PULSE_SLOW_REQUESTS_THRESHOLD` | `1000` | Milliseconds from which a request is listed |
 | `PULSE_SLOW_QUERIES_THRESHOLD` | `1000` | Milliseconds from which a query is listed |
+| `PULSE_N_PLUS_ONE_THRESHOLD` | `5` | Repeats of one statement in a request that are listed |
+| `PULSE_QUERY_STORM_THRESHOLD` | `25` | Queries in a request that are listed, whatever they are |
+| `PULSE_POOL_WAIT_THRESHOLD` | `20` | Milliseconds of waiting for a connection that are listed |
 | `PULSE_SLOW_JOBS_THRESHOLD` | `1000` | Milliseconds from which a job is listed |
 | `PULSE_QUEUES` | `default` | Queues of the default connection whose size is shown |
 | `PULSE_PUBLISH_SECONDS` | `5` | How often a worker sends its report, under a supervisor |

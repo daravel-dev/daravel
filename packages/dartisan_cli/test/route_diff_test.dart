@@ -64,6 +64,35 @@ void main() {
     );
   });
 
+  test('progress per module, most routes left first', () {
+    final diff = RouteDiff.compute(
+      [
+        (method: 'GET', uri: 'api/v1/ikk/rekap'),
+        (method: 'POST', uri: 'api/v1/ikk/rekap'),
+        (method: 'GET', uri: 'api/v1/ikk/{id}'),
+        (method: 'GET', uri: 'api/v1/suksesi'),
+        (method: 'GET', uri: 'api/orders'),
+        (method: 'GET', uri: 'login'),
+        (method: 'GET', uri: '/'),
+      ],
+      [
+        (method: 'GET', uri: '/api/v1/ikk/rekap'),
+        (method: 'GET', uri: '/login'),
+      ],
+    );
+    expect(diff.byPrefix(), [
+      (prefix: 'ikk', migrated: 1, total: 3),
+      (prefix: '/', migrated: 0, total: 1),
+      (prefix: 'orders', migrated: 0, total: 1),
+      (prefix: 'suksesi', migrated: 0, total: 1),
+      (prefix: 'login', migrated: 1, total: 1),
+    ]);
+    final table = diff.renderByPrefix().split('\n');
+    expect(table.first, startsWith('Prefix'));
+    expect(table[1], matches(RegExp(r'^ikk\s+1/3\s+2$')));
+    expect(diff.toJson()['by_prefix'], hasLength(5));
+  });
+
   test('migrated, still Laravel and Daravel only; parameter names do not '
       'matter', () {
     final diff = RouteDiff.compute(RouteDiff.parseLaravel(laravelRoutes), [

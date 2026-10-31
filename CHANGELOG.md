@@ -24,6 +24,10 @@ match Laravel more closely.
 
 ### Added
 
+- `DB.transaction(attempts: n)` waits a short random time between retries (decorrelated jitter, 2 to 250 ms), so isolates that collided do not collide again. Frozen test clocks retry at once.
+- `QueryExecuted.poolWait`: the time a query waited for a connection, apart from `time`. PostgreSQL and MySQL measure it while a listener is registered.
+- `daravel_pulse`: cards for N+1 queries and query storms (`PULSE_N_PLUS_ONE_THRESHOLD`, `PULSE_QUERY_STORM_THRESHOLD`) and for connection waits (`PULSE_POOL_WAIT_THRESHOLD`).
+- `dartisan route:diff --by-prefix`: progress per module.
 - Subdomain routing: `router.group(domain: '{tenant}.example.com')` and `.domain()`, with routes of the same path on different hosts, host parameters before path ones, and `router.url()` on that host. `Request.fake` now takes its host from a `host` header, as the socket path does.
 - Route model binding: `router.bindModel('post', Post.definition)`, `{post:slug}`, `.scopeBindings()` (implied by a custom column, as in Laravel) so another owner's row is a 404, `.withoutScopedBindings()`, `.withTrashed()` and `.missing()`. It is explicit: a Dart handler has no parameter types to tell a model from an id.
 - ORM helpers: `BelongsTo.withDefault`, `HasOne.latestOfMany`, `oldestOfMany` and `ofMany` (one query when eager loading), `syncWithoutDetaching`, `toggle` and `updateExistingPivot` on `BelongsToMany`, `updateQuietly`, `deleteQuietly`, `namedGlobalScopes` with `withoutGlobalScope(name)`, and `QueryBuilder.whereNone`.

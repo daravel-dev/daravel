@@ -63,6 +63,8 @@ pre{margin:8px 0 0;padding:10px 12px;background:var(--soft);border-radius:6px;ov
 <section class="card wide"><h2>Requests</h2><div class="stats" id="overview"></div><svg class="chart" id="chart" viewBox="0 0 600 120" preserveAspectRatio="none" role="img" aria-label="Requests over time"></svg></section>
 <section class="card"><h2>Slow requests <span class="note" id="t-requests"></span></h2><div id="requests"></div></section>
 <section class="card"><h2>Slow queries <span class="note" id="t-queries"></span></h2><div id="queries"></div></section>
+<section class="card"><h2>N+1 and query storms</h2><div id="storms"></div></section>
+<section class="card"><h2>Connection waits <span class="note" id="t-pool"></span></h2><div id="pool"></div></section>
 <section class="card wide"><h2>Exceptions</h2><div id="exceptions"></div></section>
 <section class="card third"><h2>Queues</h2><div id="queues"></div></section>
 <section class="card third"><h2>Slow and failed jobs <span class="note" id="t-jobs"></span></h2><div id="jobs"></div></section>
@@ -89,9 +91,11 @@ if(p[2]){const eh=p[2]/max*116;const e=document.createElementNS(ns,'rect');e.set
 function render(d){const r=d.requests;const o=document.getElementById('overview');o.replaceChildren();
 for(const [v,l,c] of [[fmt(r.total),'requests',''],[fmt(r.errors),'server errors','err'],[fmt(r.slow),'slow','slow'],[ms(r.avg_ms),'average',''],[bytes(d.memory_bytes),'memory',''],[fmt(d.workers.length),d.workers.length===1?'isolate':'isolates','']]){const s=el('div','stat '+c);s.append(el('div','v',v),el('div','l',l));o.append(s);}
 chart(r.series);
-const th=d.thresholds;for(const k of ['requests','queries','jobs'])document.getElementById('t-'+k).textContent='≥ '+ms(th[k+'_ms']);
+const th=d.thresholds;for(const k of ['requests','queries','jobs','pool'])document.getElementById('t-'+k).textContent='≥ '+ms(th[k+'_ms']);
 table('requests',[{label:'Route',cell:x=>two(x.route,x.method+' · last '+ago(x.last_at),true)},{label:'Count',n:1,cell:x=>fmt(x.count)},{label:'Slowest',n:1,cell:x=>ms(x.max_ms)}],d.slow_requests,'No slow requests.');
 table('queries',[{label:'Query',cell:x=>two(x.sql,x.connection+' · last '+ago(x.last_at),true)},{label:'Count',n:1,cell:x=>fmt(x.count)},{label:'Slowest',n:1,cell:x=>ms(x.max_ms)}],d.slow_queries,'No slow queries.');
+table('storms',[{label:'Statement',cell:x=>two(x.sql,x.method+' '+x.route+' · '+x.queries+' queries · last '+ago(x.last_at),true)},{label:'Repeats',n:1,cell:x=>fmt(x.repeats)},{label:'Requests',n:1,cell:x=>fmt(x.count)}],d.query_storms,'No N+1 queries.');
+table('pool',[{label:'Connection',cell:x=>two(x.connection,'last '+ago(x.last_at),true)},{label:'Count',n:1,cell:x=>fmt(x.count)},{label:'Longest',n:1,cell:x=>ms(x.max_ms)}],d.pool_waits,'No waits for a connection.');
 table('exceptions',[{label:'Exception',cell:x=>{const det=el('details'),s=el('summary');s.append(two(x.class+': '+x.message,x.location+' · last '+ago(x.last_at),false));det.append(s,el('pre','',x.trace));return det;}},{label:'Count',n:1,cell:x=>fmt(x.count)}],d.exceptions,'No exceptions.');
 table('queues',[{label:'Queue',cell:x=>two(x.queue,x.connection)},{label:'Pending',n:1,cell:x=>fmt(x.size)}],d.queues,'No queues.');
 table('jobs',[{label:'Job',cell:x=>{const d2=two(x.job,x.queue+' · last '+ago(x.last_at),true);if(x.failed){d2.append(el('span','badge err',x.failed+' failed'));}return d2;}},{label:'Slowest',n:1,cell:x=>ms(x.max_ms)}],d.jobs,'No slow or failed jobs.');
