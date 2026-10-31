@@ -90,7 +90,9 @@ void main() {
       );
       await manager.stop();
       expect(manager.exitCode, 0);
-      expect(ask(port), throwsA(isA<SocketException>()));
+      // Refused, or cut off mid-header on a loaded Windows runner: both mean
+      // the server is gone.
+      await expectLater(ask(port), throwsA(isA<IOException>()));
     },
   );
 
