@@ -48,6 +48,44 @@ final class ModelNotFoundException extends HttpException {
   final List<Object?> ids;
 }
 
+/// Models from one query, which load their relations together. It hangs off
+/// an [Expando], so a model outside a group costs nothing, and the group goes
+/// when its models do.
+final class _ModelBatch {
+  _ModelBatch(this.models);
+
+  final List<Model> models;
+
+  /// Loads in progress, so `Future.wait` over the group runs one query.
+  final Map<String, Future<void>> _loading = <String, Future<void>>{};
+
+  Future<void> load(Model model, String name) {
+    if (model.relationLoaded(name)) {
+      return Future<void>.value();
+    }
+    return _loading[name] ??= _load(model, name).whenComplete(() {
+      // A block: returning the removed future would make it wait for itself.
+      _loading.remove(name);
+    });
+  }
+
+  Future<void> _load(Model model, String name) async {
+    final waiting = [
+      for (final other in models)
+        if (!other.relationLoaded(name)) other,
+    ];
+    await model.modelDefinition.eagerLoad(waiting, name, db: model._db);
+    Model.groupForAutoloading([
+      for (final other in waiting)
+        ...switch (other._relations[name]) {
+          final Model child => [child],
+          final Iterable<Object?> children => children.whereType<Model>(),
+          _ => const <Model>[],
+        },
+    ]);
+  }
+}
+
 /// Base for Hybrid Active Record models (ADR-006): an attribute bag with
 /// typed accessors written by the developer (or `dartisan make:model`),
 /// dirty tracking, casts, timestamps, soft deletes, relations and events.
@@ -69,6 +107,28 @@ abstract base class Model implements JsonSerializable, Responsable {
   /// When true, assigning a guarded attribute throws instead of being
   /// silently dropped (recommended outside production).
   static bool preventSilentlyDiscardingAttributes = false;
+
+  /// Laravel's `Model::automaticallyEagerLoadRelationships()`: `load('author')`
+  /// on one model of a query's results loads it for all of them, in one
+  /// query, so a loop over `await post.load('author')` is no N+1. The models
+  /// a load brings in form a group of their own, so this reaches down too.
+  ///
+  /// In a group, `load` of a relation already there does not read it again.
+  /// [ModelQuery.withRelationshipAutoloading] turns it on for one query.
+  static bool automaticallyEagerLoad = false;
+
+  static final Expando<_ModelBatch> _batches = Expando<_ModelBatch>('batch');
+
+  /// Makes [models] load their relations together.
+  static void groupForAutoloading(List<Model> models) {
+    if (models.length < 2) {
+      return;
+    }
+    final batch = _ModelBatch(models);
+    for (final model in models) {
+      _batches[model] = batch;
+    }
+  }
 
   /// When true, accessing a relation that was not eager loaded throws
   /// instead of querying lazily (catches N+1 problems in tests).
@@ -520,6 +580,16 @@ abstract base class Model implements JsonSerializable, Responsable {
 
   /// Loads [relations] (list or map with constraints) onto this model.
   Future<Model> load(Object relations) async {
+    final batch = _batches[this];
+    final name = switch (relations) {
+      final String one => one,
+      [final String one] => one,
+      _ => null,
+    };
+    if (batch != null && name != null && !name.contains('.')) {
+      await batch.load(this, name);
+      return this;
+    }
     await modelDefinition.eagerLoad([this], relations, db: _db);
     return this;
   }

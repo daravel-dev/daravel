@@ -40,6 +40,7 @@ final class ModelQuery<T extends Model> {
   bool _withTrashed = false;
   bool _onlyTrashed = false;
   bool _withoutGlobalScopes = false;
+  bool _autoload = false;
   final Set<String> _withoutNamedScopes = <String>{};
   bool _globalScopesApplied = false;
 
@@ -343,6 +344,12 @@ final class ModelQuery<T extends Model> {
   }
 
   ModelQuery<T> withoutGlobalScope(String name) => withoutGlobalScopes([name]);
+
+  /// [Model.automaticallyEagerLoad] for the results of this query.
+  ModelQuery<T> withRelationshipAutoloading() {
+    _autoload = true;
+    return this;
+  }
 
   ModelQuery<T> withTrashed() {
     _withTrashed = true;
@@ -764,6 +771,9 @@ final class ModelQuery<T extends Model> {
     if (_with.isNotEmpty && models.isNotEmpty) {
       await loadRelationsOn(models, _with);
     }
+    if (_autoload || Model.automaticallyEagerLoad) {
+      Model.groupForAutoloading(models);
+    }
     return models;
   }
 
@@ -1081,6 +1091,7 @@ final class ModelQuery<T extends Model> {
       .._withTrashed = _withTrashed
       .._onlyTrashed = _onlyTrashed
       .._withoutGlobalScopes = _withoutGlobalScopes
+      .._autoload = _autoload
       .._withoutNamedScopes.addAll(_withoutNamedScopes);
     final alias = _tableAlias;
     if (alias != null) {
