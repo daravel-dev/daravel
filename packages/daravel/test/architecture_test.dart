@@ -11,6 +11,7 @@ import 'package:test/test.dart';
 /// accidental coupling (and new cycles) visible in review.
 const Map<String, Set<String>> allowedDependencies = {
   'foundation': {},
+  'concurrency': {'foundation', 'http', 'logging'},
   'logging': {'foundation'},
   'storage': {'foundation'},
   // Ships SQLite's write-ahead log to a disk (Blueprint #30).

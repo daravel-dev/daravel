@@ -14,6 +14,7 @@ import '../auth/hashing.dart';
 import '../auth/jwt.dart';
 import '../cache/cache.dart';
 import '../database/database_config.dart';
+import '../concurrency/concurrency.dart';
 import '../database/database_manager.dart';
 import '../database/orm/model.dart';
 import '../database/orm/model_definition.dart';
@@ -1146,6 +1147,7 @@ final class Application {
     for (final hook in _builder._shutdownHooks) {
       await hook(container);
     }
+    await Concurrency.shutdown();
     final db = container.resolved<DatabaseManager>();
     if (db != null) {
       await db.closeAll();
