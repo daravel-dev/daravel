@@ -195,6 +195,7 @@ final class WithoutOverlapping implements JobMiddleware {
     this.releaseAfter = Duration.zero,
     this.dontRelease = false,
     this.store,
+    this.shared = false,
   });
 
   final String key;
@@ -204,6 +205,10 @@ final class WithoutOverlapping implements JobMiddleware {
 
   /// Cache store holding the lock (default: `QUEUE_UNIQUE_LOCK_STORE`).
   final String? store;
+
+  /// Laravel's `shared()`: different job classes with this [key] exclude
+  /// each other.
+  final bool shared;
 
   @override
   Future<void> handle(JobContext ctx, Job job, JobNext next) async {
@@ -216,7 +221,10 @@ final class WithoutOverlapping implements JobMiddleware {
                   .section<QueueConfig>()
                   .uniqueLockStore,
         )
-        .lock('overlap:${job.jobName}:$key', ttl: expiresAfter);
+        .lock(
+          shared ? 'overlap:$key' : 'overlap:${job.jobName}:$key',
+          ttl: expiresAfter,
+        );
     if (!await lock.acquire()) {
       if (dontRelease) {
         ctx.delete();

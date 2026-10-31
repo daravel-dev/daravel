@@ -388,6 +388,9 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `public function with($request)` | `Map<String, Object?> withMeta(Request? request)` | `with` is a reserved word in Dart. |
 | `Storage::disk('public')->put($path, $contents)` | `await Storage.disk('public').put(path, contents)` |  |
 | `Storage::url($path)` | `Storage.url(path)` |  |
+| `Storage read-through driver` | `ReadThroughDisk(primary: a, fallback: b)` |  |
+| `Cache::touch($key, $ttl)` | `Cache.touch(key, ttl)` |  |
+| `(new WithoutOverlapping($key))->shared()` | `WithoutOverlapping(key, shared: true)` |  |
 | `Storage::download($path, $name)` | `await Storage.download(path, name: name)` |  |
 | `Storage::response($path)` | `await Storage.response(path, request: request)` |  |
 | `response()->download($path, $name)->deleteFileAfterSend()` | `await Response.download(path, name: name, deleteFileAfterSend: true)` |  |

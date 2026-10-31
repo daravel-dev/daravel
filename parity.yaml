@@ -354,6 +354,9 @@ sections:
       - { php: "public function with($request)", dart: "Map<String, Object?> withMeta(Request? request)", symbol: JsonResource.withMeta, note: "`with` is a reserved word in Dart." }
       - { php: "Storage::disk('public')->put($path, $contents)", dart: "await Storage.disk('public').put(path, contents)", symbol: Storage.disk }
       - { php: "Storage::url($path)", dart: "Storage.url(path)", symbol: Storage.url }
+      - { php: "Storage read-through driver", dart: "ReadThroughDisk(primary: a, fallback: b)", symbol: ReadThroughDisk }
+      - { php: "Cache::touch($key, $ttl)", dart: "Cache.touch(key, ttl)", symbol: Cache.touch }
+      - { php: "(new WithoutOverlapping($key))->shared()", dart: "WithoutOverlapping(key, shared: true)", symbol: WithoutOverlapping.shared }
       - { php: "Storage::download($path, $name)", dart: "await Storage.download(path, name: name)", symbol: Storage.download }
       - { php: "Storage::response($path)", dart: "await Storage.response(path, request: request)", symbol: Storage.response }
       - { php: "response()->download($path, $name)->deleteFileAfterSend()", dart: "await Response.download(path, name: name, deleteFileAfterSend: true)", symbol: Response.download }
