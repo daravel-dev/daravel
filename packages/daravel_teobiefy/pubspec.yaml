@@ -19,6 +19,7 @@ environment:
 resolution: workspace
 
 dependencies:
+  crypto: ^3.0.7
   cryptography: ^2.9.0
   daravel: ^1.21.0
 
