@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.21.1
+
+- **Behaviour change:** an exception becomes a response at the layer that threw it, so every outer middleware finishes; one that wraps `next` in a transaction no longer sees the exception.
+- **Behaviour change:** `insert()` refuses a row with other columns than the first; it dropped them, or wrote `NULL`.
+- **Behaviour change:** `Cast.integer` reads strings as PHP's `(int)`: `168.6` is `168`, not `null`, and text with no leading number is `0`.
+- Fixed: `WithoutOverlapping` locks in `QUEUE_UNIQUE_LOCK_STORE`, not always `process`.
+
 ## 1.21.0
 
 - **Behaviour change:** `Model.toJson` writes relation keys in snake_case, as Laravel. `Model.snakeAttributes = false`, or `snakeAttributes: false` on a `ModelDefinition`, keeps the declared names.

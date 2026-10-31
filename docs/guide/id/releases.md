@@ -1,4 +1,4 @@
-<!-- source: releases.md sha256:a453b7084884 -->
+<!-- source: releases.md sha256:497a48c570bf -->
 # Rilis dan versioning
 
 Daravel `1.x` adalah lini rilis stabil. Kedua belas paket (`daravel`,
@@ -12,6 +12,7 @@ terverifikasi `framework.daravel.dev`.
 
 | Versi | Sorotan |
 | :-- | :-- |
+| `1.21.1` | Exception melewati middleware, kolom insert, cast integer, lock overlap |
 | `1.21.0` | Session guard, binding setelah auth, relasi snake_case, schema dan view PostgreSQL, Cast.decimalString, rule accepted dan declined |
 | `1.20.1` | Session JSON Laravel 13 tetap utuh, test:e2e --serve tidak menyentuh database proyek, adopt untuk Laravel 8 sampai 13 |
 | `1.20.0` | Logo baru, JSON PHP sekali jalan, streamJson, ukuran pool di doctor untuk MySQL/MariaDB |
