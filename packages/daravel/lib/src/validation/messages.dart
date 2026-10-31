@@ -86,6 +86,45 @@ abstract final class ValidationMessages {
       'confirmed': 'The :attribute field confirmation does not match.',
       'same': 'The :attribute field must match :other.',
       'different': 'The :attribute field and :other must be different.',
+      'gt.numeric': 'The :attribute field must be greater than :value.',
+      'gt.string':
+          'The :attribute field must be greater than :value characters.',
+      'gt.file': 'The :attribute field must be greater than :value kilobytes.',
+      'gt.array': 'The :attribute field must have more than :value items.',
+      'gte.numeric':
+          'The :attribute field must be greater than or equal to :value.',
+      'gte.string': 'The :attribute field must be greater than or equal to :value characters.',
+      'gte.file': 'The :attribute field must be greater than or equal to :value kilobytes.',
+      'gte.array': 'The :attribute field must have :value items or more.',
+      'lt.numeric': 'The :attribute field must be less than :value.',
+      'lt.string': 'The :attribute field must be less than :value characters.',
+      'lt.file': 'The :attribute field must be less than :value kilobytes.',
+      'lt.array': 'The :attribute field must have less than :value items.',
+      'lte.numeric':
+          'The :attribute field must be less than or equal to :value.',
+      'lte.string': 'The :attribute field must be less than or equal to :value characters.',
+      'lte.file': 'The :attribute field must be less than or equal to :value kilobytes.',
+      'lte.array': 'The :attribute field must not have more than :value items.',
+      'date_equals': 'The :attribute field must be a date equal to :date.',
+      'decimal': 'The :attribute field must have :decimal decimal places.',
+      'enum': 'The selected :attribute is invalid.',
+      'max_digits': 'The :attribute field must not have more than :max digits.',
+      'min_digits': 'The :attribute field must have at least :min digits.',
+      'multiple_of': 'The :attribute field must be a multiple of :value.',
+      'present_if':
+          'The :attribute field must be present when :other is :value.',
+      'prohibited_if':
+          'The :attribute field is prohibited when :other is :value.',
+      'prohibited_unless':
+          'The :attribute field is prohibited unless :other is in :values.',
+      'prohibits': 'The :attribute field prohibits :other from being present.',
+      'required_if_accepted':
+          'The :attribute field is required when :other is accepted.',
+      'required_with_all':
+          'The :attribute field is required when :values are present.',
+      'required_without_all':
+          'The :attribute field is required when none of :values are present.',
+      'timezone': 'The :attribute field must be a valid timezone.',
       'starts_with':
           'The :attribute field must start with one of the following: :values.',
       'ends_with':
@@ -180,6 +219,46 @@ abstract final class ValidationMessages {
       'confirmed': 'Konfirmasi kolom :attribute tidak cocok.',
       'same': 'Kolom :attribute harus sama dengan :other.',
       'different': 'Kolom :attribute dan :other harus berbeda.',
+      'gt.numeric': 'Kolom :attribute harus lebih besar dari :value.',
+      'gt.string': 'Kolom :attribute harus lebih dari :value karakter.',
+      'gt.file': 'Kolom :attribute harus lebih besar dari :value kilobyte.',
+      'gt.array': 'Kolom :attribute harus memiliki lebih dari :value item.',
+      'gte.numeric':
+          'Kolom :attribute harus lebih besar dari atau sama dengan :value.',
+      'gte.string':
+          'Kolom :attribute harus sekurang-kurangnya :value karakter.',
+      'gte.file': 'Kolom :attribute harus sekurang-kurangnya :value kilobyte.',
+      'gte.array': 'Kolom :attribute harus memiliki :value item atau lebih.',
+      'lt.numeric': 'Kolom :attribute harus lebih kecil dari :value.',
+      'lt.string': 'Kolom :attribute harus kurang dari :value karakter.',
+      'lt.file': 'Kolom :attribute harus lebih kecil dari :value kilobyte.',
+      'lt.array': 'Kolom :attribute harus memiliki kurang dari :value item.',
+      'lte.numeric':
+          'Kolom :attribute harus lebih kecil dari atau sama dengan :value.',
+      'lte.string': 'Kolom :attribute tidak boleh lebih dari :value karakter.',
+      'lte.file': 'Kolom :attribute tidak boleh lebih dari :value kilobyte.',
+      'lte.array':
+          'Kolom :attribute tidak boleh memiliki lebih dari :value item.',
+      'date_equals':
+          'Kolom :attribute harus berupa tanggal yang sama dengan :date.',
+      'decimal': 'Kolom :attribute harus memiliki :decimal angka desimal.',
+      'enum': 'Kolom :attribute yang dipilih tidak valid.',
+      'max_digits':
+          'Kolom :attribute tidak boleh memiliki lebih dari :max digit.',
+      'min_digits':
+          'Kolom :attribute harus memiliki sekurang-kurangnya :min digit.',
+      'multiple_of': 'Kolom :attribute harus kelipatan dari :value.',
+      'present_if': 'Kolom :attribute harus ada ketika :other bernilai :value.',
+      'prohibited_if':
+          'Kolom :attribute dilarang ketika :other bernilai :value.',
+      'prohibited_unless':
+          'Kolom :attribute dilarang kecuali :other ada di :values.',
+      'prohibits': 'Kolom :attribute melarang :other untuk diisi.',
+      'required_if_accepted':
+          'Kolom :attribute wajib diisi ketika :other diterima.',
+      'required_with_all': 'Kolom :attribute wajib diisi ketika :values ada.',
+      'required_without_all': 'Kolom :attribute wajib diisi ketika tidak ada satu pun dari :values.',
+      'timezone': 'Kolom :attribute harus berupa zona waktu yang valid.',
       'starts_with': 'Kolom :attribute harus diawali salah satu dari: :values.',
       'ends_with': 'Kolom :attribute harus diakhiri salah satu dari: :values.',
       'date': 'Kolom :attribute harus berupa tanggal yang valid.',
@@ -291,7 +370,10 @@ abstract final class ValidationMessages {
         // `lang/<locale>/validation.php`: the application's own lines.
         translationLine('validation.$key', locale: locale, fallback: false) ??
         (locale == 'en' ? null : translations[locale]?[key]) ??
-        (legacy ? legacyEnglish[key] : null) ??
+        (legacy
+            ? legacyEnglish[key] ??
+                  translations['en']![key]?.replaceFirst(' field must', ' must')
+            : null) ??
         translations['en']![key] ??
         (key.contains(' ') ? key : translations['en']!['custom']!);
     var message = template.replaceAll(':attribute', attribute);

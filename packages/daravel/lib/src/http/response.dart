@@ -7,6 +7,7 @@ import '../foundation/clock.dart';
 import '../foundation/php.dart';
 import '../foundation/php_serialize.dart';
 import 'cookies.dart';
+import 'file_response.dart';
 import 'headers.dart';
 import 'json_stream.dart';
 import 'realtime.dart';
@@ -124,6 +125,70 @@ final class Response {
   );
 
   /// Raw bytes with an explicit content type.
+  /// Laravel's `back()`: to the `Referer` when it is this site, else
+  /// [previous] (the session's previous URL), else [fallback]. A foreign
+  /// `Referer` is ignored, so it cannot make this an open redirect.
+  ///
+  /// Inertia needs 303 after PUT, PATCH and DELETE: browsers repeat the
+  /// method on a 302.
+  factory Response.back(
+    Request request, {
+    String fallback = '/',
+    String? previous,
+    int? status,
+  }) {
+    final referer = Uri.tryParse(request.headers.first('referer') ?? '');
+    final sameSite =
+        referer != null &&
+        referer.hasAuthority &&
+        referer.authority == request.uri.authority;
+    return Response.redirect(
+      sameSite ? referer.toString() : previous ?? fallback,
+      status:
+          status ??
+          (request.headers.first('x-inertia') == 'true' &&
+                  const {'PUT', 'PATCH', 'DELETE'}.contains(request.method)
+              ? 303
+              : 302),
+    );
+  }
+
+  /// `response()->download()`: [fileOrPath], a `File` or a path, as an
+  /// attachment. [deleteFileAfterSend] removes it once it was sent, for a
+  /// report made for this request. A missing file is a 404.
+  static Future<Response> download(
+    Object fileOrPath, {
+    String? name,
+    Map<String, String>? headers,
+    bool deleteFileAfterSend = false,
+    Request? request,
+  }) => sendFile(
+    fileOrPath,
+    inline: false,
+    name: name,
+    headers: headers,
+    request: request,
+    deleteAfterSend: deleteFileAfterSend,
+  );
+
+  /// `response()->file()`: shown by the browser. Pass [request] to answer
+  /// `Range` (206), which PDF viewers and iOS media players need, and
+  /// conditional requests. Never build [fileOrPath] from user input.
+  static Future<Response> file(
+    Object fileOrPath, {
+    Request? request,
+    String? name,
+    String? contentType,
+    Map<String, String>? headers,
+  }) => sendFile(
+    fileOrPath,
+    inline: true,
+    name: name,
+    contentType: contentType,
+    headers: headers,
+    request: request,
+  );
+
   factory Response.bytes(
     List<int> bytes, {
     required String contentType,

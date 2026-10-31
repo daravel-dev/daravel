@@ -365,6 +365,17 @@ final class QueryBuilder {
         }
       });
 
+  /// `whereNone(['a','b'], 'like', '%x%')` — no column matches.
+  QueryBuilder whereNone(
+    List<String> columns,
+    String operator,
+    Object? value,
+  ) => whereNot((QueryBuilder q) {
+    for (final column in columns) {
+      q.orWhere(column, operator, value);
+    }
+  });
+
   /// `whereAll(['a','b'], 'like', '%x%')` — every column matches.
   QueryBuilder whereAll(List<String> columns, String operator, Object? value) =>
       where((QueryBuilder q) {

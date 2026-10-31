@@ -86,6 +86,11 @@ final class MiddlewareRegistry {
   final Map<String, List<Object>> _groups = <String, List<Object>>{};
   List<Type> _priority = const <Type>[];
 
+  /// Whether a POST may become PUT, PATCH or DELETE, as in Laravel. Turn it
+  /// off for a POST route that streams a form body with
+  /// `request.bodyStream()`: the override reads form bodies.
+  bool methodOverride = true;
+
   /// Global middleware in execution order.
   List<Middleware> get global => List.unmodifiable(_global);
 

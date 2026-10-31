@@ -6,6 +6,7 @@ import 'package:cryptography/cryptography.dart';
 import 'package:daravel/daravel.dart';
 
 import 'crypto.dart';
+import 'zstd_decoder.dart';
 
 /// teobiefy-laravel-api-response 0.3 payload profiles (`Profile`): what is
 /// done to the `data` of a response and to the body of a request.
@@ -505,62 +506,14 @@ final class TeobiefyProfiles {
 
   // -- Zstandard -------------------------------------------------------------
 
-  /// Reads a frame of raw and RLE blocks, up to [maxDecompressedBytes].
+  /// Reads any frame `ext-zstd` writes, up to [maxDecompressedBytes].
   Uint8List _decompress(Uint8List frame) {
-    const invalid = TeobiefyInvalidPayload('Unable to decompress the payload.');
-    if (frame.length < 5 ||
-        frame[0] != 0x28 ||
-        frame[1] != 0xB5 ||
-        frame[2] != 0x2F ||
-        frame[3] != 0xFD) {
-      throw invalid;
-    }
-    final descriptor = frame[4];
-    final single = descriptor & 0x20 != 0;
-    final fcsFlag = descriptor >> 6;
-    final fcsBytes = switch (fcsFlag) {
-      0 => single ? 1 : 0,
-      1 => 2,
-      2 => 4,
-      _ => 8,
-    };
-    final dictBytes = const [0, 1, 2, 4][descriptor & 3];
-    var offset = 5 + (single ? 0 : 1) + dictBytes + fcsBytes;
-    final out = BytesBuilder(copy: false);
-    while (true) {
-      if (offset + 3 > frame.length) {
-        throw invalid;
-      }
-      final header =
-          frame[offset] | frame[offset + 1] << 8 | frame[offset + 2] << 16;
-      offset += 3;
-      final last = header & 1 == 1;
-      final type = (header >> 1) & 3;
-      final size = header >> 3;
-      switch (type) {
-        case 0:
-          if (offset + size > frame.length) {
-            throw invalid;
-          }
-          out.add(Uint8List.sublistView(frame, offset, offset + size));
-          offset += size;
-        case 1:
-          if (offset >= frame.length) {
-            throw invalid;
-          }
-          out.add(Uint8List(size)..fillRange(0, size, frame[offset]));
-          offset += 1;
-        default:
-          throw const TeobiefyInvalidPayload(
-            'Compressed zstd blocks are not supported in requests.',
-          );
-      }
-      if (out.length > config.maxDecompressedBytes) {
-        throw const TeobiefyPayloadTooLarge();
-      }
-      if (last) {
-        return out.takeBytes();
-      }
+    try {
+      return zstdDecompress(frame, maxOutput: config.maxDecompressedBytes);
+    } on ZstdTooLargeException {
+      throw const TeobiefyPayloadTooLarge();
+    } on ZstdFormatException {
+      throw const TeobiefyInvalidPayload('Unable to decompress the payload.');
     }
   }
 }

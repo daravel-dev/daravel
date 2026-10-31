@@ -1,4 +1,4 @@
-<!-- source: teobiefy.md sha256:aaea7c9790c3 -->
+<!-- source: teobiefy.md sha256:2207c694a303 -->
 # Teobiefy
 
 `daravel_teobiefy` berbicara dengan protokol payload terenkripsi teobiefy
@@ -250,6 +250,7 @@ dan `RequestProfile`. Profilnya adalah `plain`, `compressed`, `encrypted`,
 `TEOBIEFY_SIGNING_ACTIVE_KID`, dan `TEOBIEFY_REPLAY_PROTECTION` tetap memakai
 nama yang sama.
 
-Response berupa frame Zstandard dengan blok raw: semua decoder bisa membacanya,
-tetapi ukurannya tidak mengecil. Request yang frame-nya memuat blok terkompresi
-dijawab `406`, karena paket ini tidak punya entropy decoder.
+Response berupa frame Zstandard dengan raw block: semua decoder bisa membacanya,
+tetapi ukurannya tidak mengecil. Request boleh memakai frame apa pun yang ditulis
+`ext-zstd` atau library mobile; dictionary ditolak. Decoder-nya murni Dart,
+sehingga server tetap satu binary.

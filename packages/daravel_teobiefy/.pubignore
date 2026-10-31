@@ -1,0 +1,5 @@
+build/
+coverage/
+*.sqlite
+.dart_tool/
+test/fixtures/

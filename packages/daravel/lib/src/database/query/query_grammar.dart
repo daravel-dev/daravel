@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import '../query_executor.dart';
 import 'query_ast.dart';
 
@@ -82,6 +84,9 @@ abstract class QueryGrammar {
       return identifier.sql;
     }
     final text = '$identifier';
+    if (text.contains('->') && !_alias.hasMatch(text)) {
+      return _wrapJson(text);
+    }
     final alias = _alias.firstMatch(text);
     if (alias != null) {
       return '${wrap(alias.group(1)!)} AS ${_quote(alias.group(2)!.trim())}';
@@ -90,6 +95,55 @@ abstract class QueryGrammar {
         .split('.')
         .map((part) => part == '*' ? '*' : _quote(part))
         .join('.');
+  }
+
+  static final RegExp _jsonSegment = RegExp(r'^[A-Za-z0-9_\-]+(\[\d+\])*$');
+
+  /// `meta->a->b` as column and path. Path parts go into the SQL as text,
+  /// so anything but a plain key throws, as an identifier does.
+  (String, List<String>) _jsonParts(String selector) {
+    final parts = selector.split('->').map((p) => p.trim()).toList();
+    final path = parts.sublist(1);
+    if (!path.every(_jsonSegment.hasMatch)) {
+      throw ArgumentError.value(selector, 'identifier', 'Invalid JSON path');
+    }
+    return (wrap(parts.first), path);
+  }
+
+  String _wrapJson(String selector) {
+    final (column, path) = _jsonParts(selector);
+    return jsonSelector(column, path);
+  }
+
+  Object? _operand(Object column, Object? value) =>
+      column is String && column.contains('->') ? jsonOperand(value) : value;
+
+  /// [value] as the text a [jsonSelector] gives, where the dialect compares
+  /// strictly.
+  Object? jsonOperand(Object? value) => value;
+
+  /// Reads a JSON path as text.
+  String jsonSelector(String column, List<String> path);
+
+  /// [column] with [values], path to value, written into it.
+  String jsonUpdate(
+    String column,
+    List<(List<String>, Object?)> values,
+    Compilation c,
+  );
+
+  /// `$."a"."b"[0]`: the path of SQLite and MySQL.
+  static String jsonPath(List<String> path) {
+    final buffer = StringBuffer(r'$');
+    for (final segment in path) {
+      final bracket = segment.indexOf('[');
+      final key = bracket == -1 ? segment : segment.substring(0, bracket);
+      buffer.write('."$key"');
+      if (bracket != -1) {
+        buffer.write(segment.substring(bracket));
+      }
+    }
+    return buffer.toString();
   }
 
   String _quote(String part) {
@@ -234,7 +288,7 @@ abstract class QueryGrammar {
   String _where(WhereClause where, Compilation c) => switch (where) {
     BasicWhere(:final column, :final operator, :final value) =>
       '${column is RawExpression ? c.raw(column) : wrap(column)} $operator '
-          '${value is RawExpression ? c.raw(value) : c.bind(value)}',
+          '${value is RawExpression ? c.raw(value) : c.bind(_operand(column, value))}',
     ColumnWhere(:final first, :final operator, :final second) =>
       '${wrap(first)} $operator ${wrap(second)}',
     InWhere(:final column, :final values, :final subQuery, :final not) => _in(
@@ -408,10 +462,23 @@ abstract class QueryGrammar {
 
   CompiledQuery compileUpdate(QueryAst query, Map<String, Object?> values) {
     final c = Compilation(this);
-    final sets = values.entries
-        .map((e) => '${wrap(e.key)} = ${_value(e.value, c)}')
-        .join(', ');
-    final buffer = StringBuffer('UPDATE ${wrap(query.table)} SET $sets');
+    final json = <String, List<(List<String>, Object?)>>{};
+    final sets = <String>[];
+    for (final MapEntry(:key, :value) in values.entries) {
+      if (key.contains('->')) {
+        final (column, path) = _jsonParts(key);
+        (json[column] ??= []).add((path, value));
+      } else {
+        sets.add('${wrap(key)} = ${_value(value, c)}');
+      }
+    }
+    // One assignment per column: a second one would be refused, or lost.
+    for (final MapEntry(:key, :value) in json.entries) {
+      sets.add('$key = ${jsonUpdate(key, value, c)}');
+    }
+    final buffer = StringBuffer(
+      'UPDATE ${wrap(query.table)} SET ${sets.join(', ')}',
+    );
     final where = _wheres(query.wheres, c);
     if (where.isNotEmpty) {
       buffer.write(' WHERE $where');
@@ -450,6 +517,24 @@ abstract class QueryGrammar {
 /// SQLite grammar: `?` placeholders, `INSERT OR IGNORE`, `ON CONFLICT`.
 final class SqliteQueryGrammar extends QueryGrammar {
   const SqliteQueryGrammar();
+
+  @override
+  String jsonSelector(String column, List<String> path) =>
+      "json_extract($column, '${QueryGrammar.jsonPath(path)}')";
+
+  @override
+  String jsonUpdate(
+    String column,
+    List<(List<String>, Object?)> values,
+    Compilation c,
+  ) {
+    // Through json() so that true, a map and a string keep their JSON type.
+    final pairs = values.map(
+      (v) =>
+          "'${QueryGrammar.jsonPath(v.$1)}', json(${c.bind(jsonEncode(v.$2))})",
+    );
+    return "json_set(ifnull($column, '{}'), ${pairs.join(', ')})";
+  }
 
   @override
   SqlDialect get dialect => SqlDialect.sqlite;
@@ -510,6 +595,40 @@ final class SqliteQueryGrammar extends QueryGrammar {
 /// PostgreSQL grammar: `$n` placeholders, `RETURNING`, `ON CONFLICT`.
 final class PostgresQueryGrammar extends QueryGrammar {
   const PostgresQueryGrammar();
+
+  // `->>` is text, and PostgreSQL has no implicit cast from a number.
+  @override
+  Object? jsonOperand(Object? value) =>
+      value is num || value is bool ? '$value' : value;
+
+  static Iterable<String> _keys(List<String> path) => path.expand(
+    (segment) => segment.split(RegExp(r'[\[\]]')).where((p) => p.isNotEmpty),
+  );
+
+  @override
+  String jsonSelector(String column, List<String> path) {
+    final keys = _keys(path).toList();
+    final buffer = StringBuffer(column);
+    for (final (index, key) in keys.indexed) {
+      buffer.write(index == keys.length - 1 ? '->>' : '->');
+      buffer.write(int.tryParse(key) != null ? key : "'$key'");
+    }
+    return buffer.toString();
+  }
+
+  @override
+  String jsonUpdate(
+    String column,
+    List<(List<String>, Object?)> values,
+    Compilation c,
+  ) {
+    var sql = "coalesce($column::jsonb, '{}'::jsonb)";
+    for (final (path, value) in values) {
+      final keys = _keys(path).join(',');
+      sql = "jsonb_set($sql, '{$keys}', ${c.bind(jsonEncode(value))}::jsonb)";
+    }
+    return sql;
+  }
 
   @override
   SqlDialect get dialect => SqlDialect.postgres;
@@ -582,6 +701,35 @@ final class PostgresQueryGrammar extends QueryGrammar {
 /// MySQL/MariaDB grammar: backtick quoting, `?` placeholders, no RETURNING.
 final class MySqlQueryGrammar extends QueryGrammar {
   const MySqlQueryGrammar();
+
+  // `json_unquote` gives 'true', which the driver's 1 would not match.
+  @override
+  Object? jsonOperand(Object? value) => value is bool ? '$value' : value;
+
+  @override
+  String jsonSelector(String column, List<String> path) =>
+      "json_unquote(json_extract($column, '${QueryGrammar.jsonPath(path)}'))";
+
+  /// Laravel's `compileJsonUpdateColumn`.
+  @override
+  String jsonUpdate(
+    String column,
+    List<(List<String>, Object?)> values,
+    Compilation c,
+  ) {
+    final pairs = values.map((v) {
+      final value = switch (v.$2) {
+        final bool flag => '$flag',
+        final List<Object?> list => 'cast(${c.bind(jsonEncode(list))} as json)',
+        final Map<Object?, Object?> map =>
+          'cast(${c.bind(jsonEncode(map))} as json)',
+        final other => c.bind(other),
+      };
+      return "'${QueryGrammar.jsonPath(v.$1)}', $value";
+    });
+    // JSON_SET on NULL is NULL, which would lose the write.
+    return "json_set(coalesce($column, '{}'), ${pairs.join(', ')})";
+  }
 
   @override
   SqlDialect get dialect => SqlDialect.mysql;

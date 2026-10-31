@@ -31,6 +31,7 @@ import '../http/exception_handler.dart';
 import '../http/headers.dart';
 import '../http/proxy/upstream_proxy.dart';
 import '../http/middleware/maintenance_mode.dart';
+import '../http/middleware/method_override.dart';
 import '../http/middleware/validate_signature.dart';
 import '../http/kernel.dart';
 import '../features/feature.dart';
@@ -437,6 +438,10 @@ final class Application {
 
     for (final configure in _builder._middlewareConfigs) {
       configure(middleware);
+    }
+    if (middleware.methodOverride) {
+      // Last of the global stack: the body limits come first.
+      middleware.use([const MethodOverrideMiddleware()]);
     }
     // `dartisan down`: answer 503 except for the health probes.
     final health = _builder._routing?.health;

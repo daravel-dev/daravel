@@ -16,10 +16,23 @@ match Laravel more closely.
 - PostgreSQL `inet`, `cidr`, `macaddr` and `macaddr8` columns came back as undecoded bytes, so comparing one with `request.ip` always failed. They are text now, as PostgreSQL prints them, and `model:sync` types them as `String`.
 - `accepted_if` and `declined_if`: with a `boolean` rule on the other attribute, `true` and `false` compare as booleans, and `:other` uses the custom attribute names.
 
+### Changed
+
+- `Request.expectsJson` follows Laravel: an XHR that asks for HTML, as an Inertia visit does, no longer counts as JSON.
+
 ### Added
 
+- Route model binding: `router.bindModel('post', Post.definition)`, `{post:slug}`, `.scopeBindings()` (implied by a custom column, as in Laravel) so another owner's row is a 404, `.withoutScopedBindings()`, `.withTrashed()` and `.missing()`. It is explicit: a Dart handler has no parameter types to tell a model from an id.
+- ORM helpers: `BelongsTo.withDefault`, `HasOne.latestOfMany`, `oldestOfMany` and `ofMany` (one query when eager loading), `syncWithoutDetaching`, `toggle` and `updateExistingPivot` on `BelongsToMany`, `updateQuietly`, `deleteQuietly`, `namedGlobalScopes` with `withoutGlobalScope(name)`, and `QueryBuilder.whereNone`.
+- JSON columns: `where('meta->lang', 'id')`, `orderBy` and `update({'meta->lang': 'en'})` on SQLite, PostgreSQL and MySQL, as Laravel compiles them. Writing a nested path needs its parent on PostgreSQL and MySQL, as in Laravel; SQLite creates it. Tested live on SQLite and PostgreSQL; the MySQL SQL is tested as text only.
+- `withoutMiddleware(['csrf'])` takes aliases, groups, types and instances, also those from an outer group.
+- 22 validation rules: `gt`, `gte`, `lt`, `lte`, `decimal`, `multiple_of`, `min_digits`, `max_digits`, `date_equals`, `timezone`, `required_with_all`, `required_without_all`, `required_if_accepted`, `present_if`, `prohibited_if`, `prohibited_unless`, `prohibits`, and the `exclude` family, which leaves attributes out of `validated()`. Numbers compare as exact decimals. `timezone` also accepts old IANA aliases, and not `per_country`.
+- `Rules.enum_`, and `Rules.unique(...).ignore(id)`, `.where(...)` and `Rules.exists(...).where(...)`. Both rules accept `schema.table`, which failed with an `ArgumentError`.
+- `Response.download`, `Response.file`, `Storage.download` and `Storage.response`, with RFC 6266 file names, `ETag`, and `Range` (206) when given the request. `deleteFileAfterSend` removes a temporary file once it was sent. Several ranges in one request get the whole file.
+- `_method` and `X-HTTP-Method-Override` turn a POST into PUT, PATCH or DELETE, on by default as in Laravel; only form bodies are read. `Request.originalMethod` keeps the verb on the wire.
+- A failed validation in the `web` group redirects browsers and Inertia back, with errors and old input flashed (`session.errors`, `session.old`); clients expecting JSON keep the 422. `Response.back` ignores a foreign `Referer`.
 - Remember-me cookies in `SessionGuard`: `attempt(..., remember: true)` and `login(user, remember: true)` write Laravel's `remember_web_<sha1>` cookie, and either side can log in from the other's.
-- Payload profiles of teobiefy-laravel-api-response 0.3 in `daravel_teobiefy`: `withTeobiefyProfiles()` and the `teobiefy.profile` middleware (route patterns, XChaCha20, ChaCha20 and AES-256-GCM with key ids, HMAC-SHA256, replay protection). Requests with compressed zstd blocks are refused: responses and requests use raw frames.
+- Payload profiles of teobiefy-laravel-api-response 0.3 in `daravel_teobiefy`: `withTeobiefyProfiles()` and the `teobiefy.profile` middleware (route patterns, XChaCha20, ChaCha20 and AES-256-GCM with key ids, HMAC-SHA256, replay protection). Responses are raw frames; requests may use any frame `ext-zstd` writes, read by a pure Dart decoder.
 - `ModelQuery.orderByRaw`, `KeyType.manualInt` (Laravel's `$incrementing = false` on an integer key), `Request.inputSync` for model scopes, and `Clock.nowIn('Asia/Makassar')`.
 
 ## 1.21.1

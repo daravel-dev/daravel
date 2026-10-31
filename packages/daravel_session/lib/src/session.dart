@@ -255,6 +255,53 @@ final class Session {
     _format = serialization;
   }
 
+  /// Flashes validation [messages] under [bag]. A PHP session gets Laravel's
+  /// `ViewErrorBag`: `ShareErrorsFromSession` passes on anything truthy, so
+  /// an array would fail with `getBags() on array` on a page Laravel renders.
+  void flashErrors(
+    Map<String, List<String>> messages, {
+    String bag = 'default',
+  }) {
+    flash(
+      'errors',
+      _format == 'php'
+          ? PhpObject(r'Illuminate\Support\ViewErrorBag', {
+              '\x00*\x00bags': {
+                bag: PhpObject(r'Illuminate\Support\MessageBag', {
+                  '\x00*\x00messages': messages,
+                  '\x00*\x00format': ':message',
+                }),
+              },
+            })
+          : {bag: messages},
+    );
+  }
+
+  /// The validation errors a failed request flashed, by field, whichever
+  /// application flashed them.
+  Map<String, Object?> get errors {
+    var bag = get<Object>('errors');
+    if (bag is PhpObject) {
+      final bags = bag.properties['\x00*\x00bags'];
+      final messages = bags is Map ? bags['default'] : null;
+      bag = messages is PhpObject
+          ? messages.properties['\x00*\x00messages']
+          : null;
+    } else if (bag is Map) {
+      bag = bag['default'];
+    }
+    return bag is Map
+        ? {for (final MapEntry(:key, :value) in bag.entries) '$key': value}
+        : const {};
+  }
+
+  /// `old('name')`: the input of the failed request.
+  T? old<T>(String key, [T? fallback]) {
+    final input = get<Object>('_old_input');
+    final value = input is Map ? input[key] : null;
+    return value is T ? value : fallback;
+  }
+
   String? get previousUrl => get<String>('_previous.url');
 
   set previousUrl(String? url) => put('_previous.url', url);

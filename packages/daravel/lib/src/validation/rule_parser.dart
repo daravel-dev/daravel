@@ -69,6 +69,31 @@ abstract final class RuleParser {
       'declined' => Rules.declined(),
       'declined_if' => Rules.declinedIf(args[0], args.sublist(1)),
       'required_with' => Rules.requiredWith(args),
+      'required_with_all' => Rules.requiredWithAll(args),
+      'required_without_all' => Rules.requiredWithoutAll(args),
+      'required_if_accepted' => Rules.requiredIfAccepted(args[0]),
+      'present_if' => Rules.presentIf(args[0], args.sublist(1)),
+      'prohibited_if' => Rules.prohibitedIf(args[0], args.sublist(1)),
+      'prohibited_unless' => Rules.prohibitedUnless(args[0], args.sublist(1)),
+      'prohibits' => Rules.prohibits(args),
+      'exclude' => Rules.exclude(),
+      'exclude_if' => Rules.excludeIf(args[0], args.sublist(1)),
+      'exclude_unless' => Rules.excludeUnless(args[0], args.sublist(1)),
+      'exclude_with' => Rules.excludeWith(args[0]),
+      'exclude_without' => Rules.excludeWithout(args[0]),
+      'gt' => Rules.gt(args[0]),
+      'gte' => Rules.gte(args[0]),
+      'lt' => Rules.lt(args[0]),
+      'lte' => Rules.lte(args[0]),
+      'decimal' => Rules.decimal(
+        integer(0),
+        args.length > 1 ? integer(1) : null,
+      ),
+      'multiple_of' => Rules.multipleOf(args[0]),
+      'min_digits' => Rules.minDigits(integer(0)),
+      'max_digits' => Rules.maxDigits(integer(0)),
+      'date_equals' => Rules.dateEquals(args[0]),
+      'timezone' => Rules.timezone(_timezoneGroup(args)),
       'required_without' => Rules.requiredWithout(args),
       'string' => Rules.string(),
       'integer' || 'int' => Rules.integer(),
@@ -131,6 +156,18 @@ abstract final class RuleParser {
         'Unknown validation rule "$name"',
       ),
     };
+  }
+
+  /// `timezone:Asia`; `per_country` needs data this database does not have.
+  static String _timezoneGroup(List<String> args) {
+    if (args.length > 1) {
+      throw ArgumentError.value(
+        args.join(','),
+        'rule',
+        'timezone takes a group, not a country',
+      );
+    }
+    return args.isEmpty ? 'all' : args[0];
   }
 
   /// `regex:/^[a-z]+$/i` → [RegExp] (delimiters stripped; the `i`, `m`,

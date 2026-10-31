@@ -441,7 +441,8 @@ void permissionTests({String? databaseUrl}) {
         reason: 'one entry per model ever checked used to stay for ever',
       );
     });
-  });
+    // One query per model: over 30 s on a slow PostgreSQL connection.
+  }, timeout: const Timeout(Duration(minutes: 3)));
 
   test('the permission:* commands', () async {
     final app = await migrated();

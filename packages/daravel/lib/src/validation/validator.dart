@@ -4,7 +4,7 @@ import '../foundation/container.dart';
 import 'messages.dart';
 import 'rule.dart';
 import 'rule_parser.dart';
-import 'rules.dart' show BooleanRule, IntegerRule, NumericRule;
+import 'rules.dart' show BooleanRule, ExcludeRule, IntegerRule, NumericRule;
 import 'validated_data.dart';
 import 'validation_exception.dart';
 
@@ -65,9 +65,14 @@ final class Validator {
   /// Runs validation and returns the errors (empty when valid).
   Future<Map<String, List<String>>> run() async {
     _errors = {};
+    _excluded.clear();
+    _input = data;
     outer:
     for (final entry in rules.entries) {
-      for (final attribute in expandPattern(data, entry.key)) {
+      for (final attribute in expandPattern(_input, entry.key).toList()) {
+        if (_isExcluded(attribute)) {
+          continue;
+        }
         await _validateAttribute(attribute, entry.key, entry.value);
         if (stopOnFirstFailure && _errors!.isNotEmpty) {
           break outer;
@@ -98,18 +103,56 @@ final class Validator {
   ValidatedData validated() {
     final result = <String, Object?>{};
     for (final pattern in rules.keys) {
-      for (final attribute in expandPattern(data, pattern)) {
-        if (!ValidationContext.exists(data, attribute)) {
+      for (final attribute in expandPattern(_input, pattern)) {
+        if (_isExcluded(attribute) ||
+            !ValidationContext.exists(_input, attribute)) {
           continue;
         }
         _assign(
           result,
           attribute.split('.'),
-          ValidationContext.dig(data, attribute),
+          ValidationContext.dig(_input, attribute),
         );
       }
     }
     return ValidatedData(result);
+  }
+
+  /// [data] without the excluded attributes, as Laravel's `removeAttribute`:
+  /// a later rule sees them as missing. [data] itself stays as given.
+  late Map<String, Object?> _input = data;
+  final Set<String> _excluded = <String>{};
+
+  bool _isExcluded(String attribute) =>
+      _excluded.any((e) => attribute == e || attribute.startsWith('$e.'));
+
+  void _exclude(String attribute) {
+    _excluded.add(attribute);
+    _input = _without(_input, attribute.split('.')) as Map<String, Object?>;
+  }
+
+  /// Copies the path, so nothing the caller holds changes. An element of a
+  /// list stays, or the indexes after it would shift.
+  static Object? _without(Object? source, List<String> path) {
+    final key = path.first;
+    if (source is Map<String, Object?> && source.containsKey(key)) {
+      final copy = {...source};
+      if (path.length == 1) {
+        copy.remove(key);
+      } else {
+        copy[key] = _without(source[key], path.sublist(1));
+      }
+      return copy;
+    }
+    final index = int.tryParse(key);
+    if (source is List<Object?> &&
+        path.length > 1 &&
+        index != null &&
+        index >= 0 &&
+        index < source.length) {
+      return [...source]..[index] = _without(source[index], path.sublist(1));
+    }
+    return source;
   }
 
   Future<void> _validateAttribute(
@@ -117,8 +160,8 @@ final class Validator {
     String pattern,
     List<Rule> ruleList,
   ) async {
-    final present = ValidationContext.exists(data, attribute);
-    final value = present ? ValidationContext.dig(data, attribute) : null;
+    final present = ValidationContext.exists(_input, attribute);
+    final value = present ? ValidationContext.dig(_input, attribute) : null;
     final nullable = ruleList.any((r) => r is NullableRule);
     final sometimes = ruleList.any((r) => r is SometimesRule);
     final bail = ruleList.any((r) => r is BailRule);
@@ -154,7 +197,7 @@ final class Validator {
         pattern: pattern,
         value: value,
         present: present,
-        data: data,
+        data: _input,
         container: container,
         locale: locale,
         numeric: numeric,
@@ -162,6 +205,10 @@ final class Validator {
         attributeNames: attributes,
       );
       final failure = await rule.passes(context);
+      if (failure != null && ExcludeRule.names.contains(rule.name)) {
+        _exclude(attribute);
+        return;
+      }
       if (failure != null) {
         addError(attribute, _message(failure, context, rule));
         // Laravel's shouldStopValidating: `bail` stops at any failure; a

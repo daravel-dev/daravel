@@ -1,4 +1,4 @@
-<!-- source: sessions.md sha256:7a38ce125cb4 -->
+<!-- source: sessions.md sha256:486f1fe9bcc5 -->
 # Session, cookie, dan CSRF
 
 `daravel_session` memberi route web sebuah session seperti di Laravel: id
@@ -148,6 +148,13 @@ Laravel. Cookie ini butuh kolom `remember_token` yang nullable, dan me-login-kan
 user di kedua aplikasi setelah session habis; `logout` menghapusnya dan
 mengganti token.
 `guard.viaRemember` memberi tahu apakah user request ini berasal dari cookie itu.
+
+Validasi yang gagal di grup `web` mengembalikan browser atau kunjungan Inertia
+ke halaman sebelumnya, dengan status 303 setelah PUT, PATCH, atau DELETE dari
+Inertia. `session.errors` dan `session.old('name')` tersedia di request
+berikutnya, dan password tidak pernah di-flash. Client yang mengharapkan JSON
+tetap menerima 422. Form menyebut verb-nya dengan `_method`, atau lewat header
+`X-HTTP-Method-Override`; `middleware.methodOverride = false` mematikannya.
 
 Pasang `auth:web` setelah grup `web` pada route yang dilindungi. Mulai
 `COMPAT_LARAVEL_VERSION=12`, login juga menyimpan `password_hash_web` yang

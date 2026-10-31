@@ -28,7 +28,7 @@ const Map<String, Set<String>> allowedDependencies = {
     'logging',
     'server',
   },
-  'routing': {'foundation', 'http', 'validation'},
+  'routing': {'foundation', 'http', 'validation', 'database', 'support'},
   'validation': {'foundation', 'http', 'database'},
   'database': {'foundation', 'http', 'logging'},
   'http': {
@@ -69,6 +69,8 @@ const Map<String, Set<String>> allowedDependencies = {
     'server',
     'broadcasting',
     'storage',
+    // Storage.download and Storage.response answer with a Response.
+    'http',
   },
 };
 

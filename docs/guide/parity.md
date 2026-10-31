@@ -224,6 +224,23 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `$validator->validate()` | `await validator.validate()` | **async** |
 | `ValidationException` | `ValidationException` |  |
 | `Rule::in([...]) / Rule::unique('users')` | `Rules.inList([...]) / Rules.unique('users')` |  |
+| `'gt:field' / 'decimal:2' / 'multiple_of:5' / 'min_digits:3'` | `same strings, or Rules.gt(field)` |  |
+| `'exclude_if:type,free'` | `same string, or Rules.excludeIf('type', ['free'])` |  |
+| `'prohibited_if:a,b' / 'prohibits:a' / 'required_with_all:a,b'` | `same strings` |  |
+| `Rule::enum(Status::class)` | `Rules.enum_(Status.values)` |  |
+| `->withoutMiddleware('csrf')` | `.withoutMiddleware(['csrf'])` |  |
+| `Route::get('/posts/{post}', fn (Post $post) => ...)` | `router.bindModel('post', Post.definition)` |  |
+| `/users/{user}/posts/{post:slug}` | `the same path` |  |
+| `->scopeBindings() / ->withoutScopedBindings()` | `.scopeBindings() / .withoutScopedBindings()` |  |
+| `->withTrashed() / ->missing(fn () => ...)` | `.withTrashed() / .missing((request) => ...)` |  |
+| `where('meta->lang', 'id') / update(['meta->lang' => 'en'])` | `where('meta->lang', 'id') / update({'meta->lang': 'en'})` |  |
+| `whereNone(['a', 'b'], 'like', '%x%')` | `whereNone(['a', 'b'], 'like', '%x%')` |  |
+| `belongsTo(User::class)->withDefault()` | `BelongsTo<User>(...).withDefault()` |  |
+| `hasOne(Order::class)->latestOfMany('score')` | `HasOne<Order>(...).latestOfMany('score')` |  |
+| `$user->roles()->syncWithoutDetaching($ids) / toggle($ids) / updateExistingPivot($id, $attrs)` | `relation.syncWithoutDetaching(user, db, ids) / toggle / updateExistingPivot` |  |
+| `$model->updateQuietly($attrs) / deleteQuietly()` | `model.updateQuietly(attrs) / deleteQuietly()` |  |
+| `withoutGlobalScope('active')` | `withoutGlobalScope('active')` |  |
+| `Rule::unique('users')->ignore($id)->where(fn ($q) => $q->whereNull('deleted_at'))` | `Rules.unique('users').ignore(id).where((QueryBuilder q) => q.whereNull('deleted_at'))` |  |
 | `['required', 'email', 'max:255']` | `Rules.required().email().max(255)` | Chained rule objects, checked by the compiler. |
 | `'accepted' / 'accepted_if:plan,paid' / 'declined' / 'declined_if:plan,paid'` | `the same strings, or Rules.accepted() / acceptedIf('plan', ['paid']) / declined() / declinedIf(...)` |  |
 
@@ -317,6 +334,10 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `auth()->user() / Auth::user()` | `await Auth.user()` | **async** |
 | `Auth::id() / check() / guest()` | `await Auth.id() / check() / guest()` | **async** |
 | `Auth::guard('api')` | `Auth.guard('api')` |  |
+| `$request->getRealMethod()` | `request.originalMethod` |  |
+| `<input name="_method"> / X-HTTP-Method-Override` | `on by default; middleware.methodOverride = false` |  |
+| `back()` | `Response.back(request)` |  |
+| `session()->get('errors') / old('name')` | `session.errors / session.old('name')` |  |
 | `Auth::viaRemember()` | `guard.viaRemember` |  |
 | `$user->createToken($name, $abilities)` | `await Auth.issueToken(user, name, abilities: [...])` | **async** |
 | `$user->currentAccessToken()->delete()` | `await Auth.tokenGuard().revokeCurrent()` | **async** |
@@ -364,6 +385,10 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `public function with($request)` | `Map<String, Object?> withMeta(Request? request)` | `with` is a reserved word in Dart. |
 | `Storage::disk('public')->put($path, $contents)` | `await Storage.disk('public').put(path, contents)` |  |
 | `Storage::url($path)` | `Storage.url(path)` |  |
+| `Storage::download($path, $name)` | `await Storage.download(path, name: name)` |  |
+| `Storage::response($path)` | `await Storage.response(path, request: request)` |  |
+| `response()->download($path, $name)->deleteFileAfterSend()` | `await Response.download(path, name: name, deleteFileAfterSend: true)` |  |
+| `response()->file($path)` | `await Response.file(path, request: request)` |  |
 | `Storage::disk('s3')->temporaryUrl($path, now()->addMinutes(30))` | `Storage.disk('s3').temporaryUrl(path, expiration: 30.minutes.fromNow)` | package:daravel_s3 (withS3()); same AWS_* variables. |
 | `Storage::disk('s3')->temporaryUploadUrl($path, $expiration)` | `Storage.disk('s3').temporaryUploadUrl(path, expiration: ...)` | Returns url and headers, as Laravel's array. |
 | `Http::withToken($t)->retry(3, 100)->post($url, $data)` | `await Http.withToken(t).retry(3).post(url, json: data)` | **async** |

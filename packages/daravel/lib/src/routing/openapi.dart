@@ -1,3 +1,4 @@
+import 'radix_tree.dart';
 import '../validation/schema.dart';
 import 'route_entry.dart';
 
@@ -26,7 +27,13 @@ Map<String, Object?> buildOpenApi(
     if ((route.routeName ?? '').startsWith('daravel.') || route.isWebSocket) {
       continue;
     }
-    final path = route.path.replaceAll('?}', '}');
+    // `{post:slug?}` is `{post}`: OpenAPI has no optional or typed segments.
+    final path = route.path
+        .replaceAll('?}', '}')
+        .replaceAllMapped(
+          RegExp(r'\{([^{}:]+):[^{}]+\}'),
+          (match) => '{${match[1]}}',
+        );
     final middleware = route.middlewareEntries.whereType<String>().toList();
     final authenticated = middleware.any(
       (m) => m == 'auth' || m.startsWith('auth:'),
@@ -62,7 +69,10 @@ Map<String, Object?> buildOpenApi(
               <String, Object?>{
                 'name': name,
                 'in': 'path',
-                'required': !route.path.contains('{$name?}'),
+                'required': !RadixTree.splitPath(route.path).any(
+                  (s) =>
+                      RadixTree.isOptional(s) && RadixTree.paramName(s) == name,
+                ),
                 'schema': _schema(route.constraints[name]),
               },
             for (final MapEntry(key: name, value: schema)
