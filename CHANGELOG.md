@@ -9,7 +9,15 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 wait for a new major version, and Laravel-facing formats change only to
 match Laravel more closely.
 
-## Unreleased
+## 1.21.0
+
+The web session guard, and a round of fixes from running beside real Laravel
+8 to 13 applications (`bench/interop/laravel_matrix.sh`).
+
+**Three changes can affect a running application:** relation keys in
+`Model.toJson` are now snake_case (`Model.snakeAttributes = false` keeps the old
+keys); a middleware placed before `auth` on a route no longer sees bindings;
+PostgreSQL date columns without a cast are text in JSON, not ISO-8601.
 
 ### Fixed
 

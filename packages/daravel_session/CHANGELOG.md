@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.21.0
+
+- Added: `SessionGuard` (`auth.session<User>('web', provider)`), Laravel's session guard on the same `login_web_<sha1>` key, so a login holds on both sides of a shared store. Remember-me cookies are not supported yet.
+
 ## 1.20.1
 
 - Fixed: a JSON session (`'serialization' => 'json'`, the laravel/laravel 13 skeleton) read as empty and its row was replaced in PHP `serialize()` format, which logged the user out of Laravel. Both formats are read, also with `SESSION_ENCRYPT`, and a stored session keeps its format.

@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.21.0
+
+- Added: `Teobiefy.api(..., includeDataCount: false)`.
+
 ## 1.20.1
 
 - Version aligned with Daravel 1.20.1; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).
