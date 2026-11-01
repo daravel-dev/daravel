@@ -509,16 +509,29 @@ final class QueryBuilder {
     return this;
   }
 
-  /// `("embedding" <=> ?)`, pgvector's cosine distance. MariaDB is not
-  /// supported yet: `vec_fromtext` needs its own dialect.
+  /// Cosine distance from a bound vector, as Laravel's grammars write it.
   String _vectorDistance(String column) {
     final grammar = _db.grammarFor(_connection);
-    if (grammar.dialect != .postgres) {
-      throw StateError(
-        'Vector distance queries are only supported by PostgreSQL.',
-      );
+    return switch (grammar.dialect) {
+      .postgres => '(${grammar.wrap(column)} <=> ?)',
+      .mariadb =>
+        'vec_distance_cosine(${grammar.wrap(column)}, vec_fromtext(?))',
+      _ => throw StateError(
+        'Vector distance queries are only supported by PostgreSQL and MariaDB.',
+      ),
+    };
+  }
+
+  /// Selects a vector column so [Cast.vector] can read it. On MariaDB that is
+  /// `vec_totext`: the client reads the column's float32 bytes as UTF-8 and
+  /// they do not survive it, so a plain `SELECT *` loses a vector there.
+  QueryBuilder selectVector(String column) {
+    final grammar = _db.grammarFor(_connection);
+    if (grammar.dialect != .mariadb) {
+      return addSelect([column]);
     }
-    return '(${grammar.wrap(column)} <=> ?)';
+    final name = grammar.wrap(column);
+    return selectRaw('vec_totext($name) AS $name');
   }
 
   /// Adds the distance from [vector] to the select list, as [alias] or
@@ -563,7 +576,7 @@ final class QueryBuilder {
       orderByRaw(_vectorDistance(column), [jsonEncode(vector)]);
 
   QueryBuilder inRandomOrder() => orderByRaw(
-    _db.grammarFor(_connection).dialect == .mysql ? 'RAND()' : 'RANDOM()',
+    _db.grammarFor(_connection).dialect.isMySqlFamily ? 'RAND()' : 'RANDOM()',
   );
 
   QueryBuilder reorder([Object? column, String direction = 'asc']) {

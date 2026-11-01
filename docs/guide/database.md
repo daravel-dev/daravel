@@ -320,9 +320,10 @@ MySQL, as in Laravel; SQLite creates it.
 
 ## Vector columns
 
-On PostgreSQL with [pgvector](https://github.com/pgvector/pgvector), a column can
-hold an embedding, and queries can sort by cosine distance. The names and the SQL
-are Laravel's.
+On PostgreSQL with [pgvector](https://github.com/pgvector/pgvector) and on MariaDB
+11.7 or newer, a column can hold an embedding, and queries can sort by cosine
+distance. The names and the SQL are Laravel's. `ensureVectorExtensionExists` is
+for PostgreSQL, and MariaDB needs the `mariadb` driver, not `mysql`.
 
 ```dart
 await Schema.ensureVectorExtensionExists();
@@ -345,9 +346,19 @@ final nearest = await Document.query()
 `orderByVectorDistance` and `selectVectorDistance` are the parts of it. `Cast.vector`
 reads the column as a `List<double>`.
 
+On MariaDB, read a vector with `selectVector`. The client reads the column's bytes
+as text, so a plain `SELECT *` does not keep them:
+
+```dart
+final document = await Document.query()
+    .selectVector('embedding')
+    .where('id', id)
+    .first();
+```
+
 SQLite stores these columns as text and leaves the index out, so a migration still
-runs in tests, but distance queries throw there. On MySQL and MariaDB, `vector` adds
-the column only: indexes and distance queries are not supported yet.
+runs in tests, but distance queries throw there. On MySQL, `vector` adds the column
+only: indexes and distance queries are not supported.
 
 ## Query errors
 

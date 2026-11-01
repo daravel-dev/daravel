@@ -80,7 +80,7 @@ void main() {
       ),
     );
     expect(driver.name, 'mariadb');
-    expect(driver.dialect, SqlDialect.mysql);
+    expect(driver.dialect, SqlDialect.mariadb);
     expect(driver.host, 'db.internal');
     expect(driver.port, 3307);
     expect(driver.maxConnections, 4);

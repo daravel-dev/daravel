@@ -114,10 +114,18 @@ final class PostgresSchemaGrammar extends SchemaGrammar {
 
 /// MySQL/MariaDB DDL grammar.
 final class MySqlSchemaGrammar extends SchemaGrammar {
-  const MySqlSchemaGrammar();
+  const MySqlSchemaGrammar([this.dialect = SqlDialect.mysql]);
 
   @override
-  SqlDialect get dialect => SqlDialect.mysql;
+  final SqlDialect dialect;
+
+  @override
+  String compileVectorIndex(String table, IndexDefinition index) =>
+      dialect == .mariadb
+      ? 'ALTER TABLE ${wrap(table)} ADD VECTOR INDEX '
+            '${wrap(index.nameFor(table))} '
+            '(${index.columns.map(wrap).join(', ')}) M=6 DISTANCE=cosine'
+      : super.compileVectorIndex(table, index);
 
   @override
   String get quoteOpen => '`';

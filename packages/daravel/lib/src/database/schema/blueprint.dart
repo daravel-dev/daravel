@@ -530,6 +530,7 @@ abstract class SchemaGrammar {
     .sqlite => const SqliteSchemaGrammar(),
     .postgres => const PostgresSchemaGrammar(),
     .mysql => const MySqlSchemaGrammar(),
+    .mariadb => const MySqlSchemaGrammar(SqlDialect.mariadb),
   };
 
   // --- hooks -----------------------------------------------------------------
@@ -664,7 +665,7 @@ abstract class SchemaGrammar {
   bool get skipsVectorIndex => false;
 
   String compileVectorIndex(String table, IndexDefinition index) =>
-      throw UnsupportedError('Vector indexes need PostgreSQL with pgvector.');
+      throw UnsupportedError('Vector indexes need PostgreSQL or MariaDB.');
 
   /// Indexes implied by `.index()` / `.unique()` column modifiers.
   List<IndexDefinition> columnIndexes(Blueprint blueprint) => [

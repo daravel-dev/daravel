@@ -1,7 +1,15 @@
 import 'dart:async';
 
 /// SQL dialects known to the framework.
-enum SqlDialect { sqlite, postgres, mysql }
+enum SqlDialect {
+  sqlite,
+  postgres,
+  mysql,
+  mariadb;
+
+  /// MySQL or MariaDB: the same grammar, but for what MariaDB adds.
+  bool get isMySqlFamily => this == mysql || this == mariadb;
+}
 
 /// Executes parameterized SQL. Bindings use `?` placeholders in Tier 0; the
 /// dialect-aware grammar (ADR-005) takes over placeholder emission in S5.

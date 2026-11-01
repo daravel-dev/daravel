@@ -3,6 +3,8 @@ import 'dart:typed_data';
 
 import 'package:postgres/postgres.dart' as pg;
 
+import '../query_executor.dart';
+
 /// Attribute casting (Laravel `$casts`). [get] converts a raw database
 /// value into the Dart value exposed by the model; [set] converts a Dart
 /// value into what is stored.
@@ -23,7 +25,7 @@ sealed class Cast {
   static const Cast date = DateCast();
   static const Cast json = JsonCast();
 
-  /// Laravel's `AsVector`: a pgvector column as a `List<double>`.
+  /// Laravel's `AsVector`: a vector column as a `List<double>`.
   static const Cast vector = VectorCast();
 
   /// Laravel's `datetime:FORMAT` and `date:FORMAT` casts: the attribute
@@ -407,6 +409,8 @@ final class VectorCast extends Cast {
   @override
   Object? get(Object? raw) => switch (raw) {
     null => null,
+    // MariaDB answers with little-endian float32 bytes.
+    final Uint8List bytes => _littleEndian(bytes),
     String() => [
       for (final value in jsonDecode(raw) as List<Object?>)
         (value! as num).toDouble(),
@@ -419,6 +423,29 @@ final class VectorCast extends Cast {
     final pg.UndecodedBytes text => get(text.asString),
     _ => throw ArgumentError.value(raw, 'raw', 'Not a vector'),
   };
+
+  /// [set] for a connection. MariaDB takes the bytes it stores: that needs no
+  /// `vec_fromtext`, which a bound value cannot call.
+  Object? setFor(Object? value, SqlDialect dialect) {
+    final stored = set(value);
+    if (dialect != .mariadb || stored is! String) {
+      return stored;
+    }
+    final numbers = (jsonDecode(stored) as List<Object?>).cast<num>();
+    final bytes = ByteData(numbers.length * 4);
+    for (var i = 0; i < numbers.length; i++) {
+      bytes.setFloat32(i * 4, numbers[i].toDouble(), Endian.little);
+    }
+    return bytes.buffer.asUint8List();
+  }
+
+  static List<double> _littleEndian(Uint8List bytes) {
+    final data = ByteData.sublistView(bytes);
+    return [
+      for (var i = 0; i < data.lengthInBytes ~/ 4; i++)
+        _shortest(data.getFloat32(i * 4, Endian.little)),
+    ];
+  }
 
   /// pgvector's binary form: dimensions, a reserved field, then floats.
   static List<double> _binary(Uint8List bytes) {
