@@ -164,7 +164,11 @@ final class HttpKernel {
           if (route.formRequest != null || route.declaredRules != null) {
             await _validateDeclared(route, req);
           }
-          return toResponse(await route.handler(req), req);
+          final result = await route.handler(req);
+          if (result is PreparedResponsable) {
+            await result.prepare(req);
+          }
+          return toResponse(result, req);
         },
         rescue: exceptions.handle,
       );

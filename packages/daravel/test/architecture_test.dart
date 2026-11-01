@@ -11,6 +11,8 @@ import 'package:test/test.dart';
 /// accidental coupling (and new cycles) visible in review.
 const Map<String, Set<String>> allowedDependencies = {
   'foundation': {},
+  // Plain schema documents: nothing else.
+  'json_schema': {},
   'concurrency': {'foundation', 'http', 'logging'},
   'process': {'foundation'},
   'logging': {'foundation'},

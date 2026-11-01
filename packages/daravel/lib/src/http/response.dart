@@ -18,6 +18,13 @@ abstract interface class Responsable {
   Response toResponse(Request request);
 }
 
+/// A [Responsable] with async work to do first. The kernel awaits [prepare]
+/// on what a route returns, then calls `toResponse`: a JSON:API resource loads
+/// what `?include=` asks for there, because `toResponse` is synchronous.
+abstract interface class PreparedResponsable implements Responsable {
+  Future<void> prepare(Request request);
+}
+
 /// Objects that provide a JSON representation.
 abstract interface class JsonSerializable {
   Object? toJson();

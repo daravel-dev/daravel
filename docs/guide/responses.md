@@ -63,6 +63,66 @@ final class PostResource extends JsonResource<Post> {
 - `when`, `whenLoaded`, `mergeWhen`, `additional({...})` and
   `withMeta(request)` (Laravel's `with()`) are available.
 
+### JSON:API
+
+`JsonApiResource` writes the JSON:API v1.1 shape Laravel 13 writes, with the
+`application/vnd.api+json` content type.
+
+```dart
+final class PostResource extends JsonApiResource<Post> {
+  PostResource(super.resource);
+
+  @override
+  String toType(Request? request) => 'posts';
+
+  @override
+  Map<String, Object?> toArray(Request? request) => {'title': resource.title};
+
+  @override
+  Map<String, JsonApiRelationship<Model>> toRelationships(Request? request) => {
+    'author': JsonApiRelationship<User>(UserResource.new),
+  };
+}
+
+router.get('/posts/{post}', (Request request) async {
+  return PostResource((await Post.find(request.param('post')))!);
+});
+
+router.get('/posts', (Request request) async {
+  return JsonApiResource.collection<Post>(
+    await Post.query().paginate(perPage: 20),
+    PostResource.new,
+  );
+});
+```
+
+`?fields[posts]=title` narrows the attributes, and `?include=author,comments.user`
+adds relationships and `included`. A relationship shows only when asked for, and
+an unknown name is ignored, as in Laravel. For a resource a route returns, the
+kernel loads what the query asks for before it writes the response, a page at a
+time. Called anywhere else, what is not loaded is left out.
+
+`toType` has no default, because naming it after the class would need reflection.
+`toId` defaults to the model's key. `toLinks` and `toMeta` add those members, and
+`JsonApiResource.configure(version: '1.1')` adds `jsonapi`. `maxRelationshipDepth`
+limits how deep `include` reaches, 5 by default.
+
+### JSON Schema
+
+`JsonSchema` builds schema documents, like Laravel's `Illuminate\JsonSchema`.
+
+```dart
+final schema = JsonSchema.object({
+  'name': JsonSchema.string().required().max(255),
+  'age': JsonSchema.integer().min(0).nullable(),
+  'tags': JsonSchema.array().items(JsonSchema.string()),
+}).withoutAdditionalProperties();
+
+schema.toArray();
+```
+
+`default` and `enum` are reserved in Dart, so they are `defaultTo` and `enumValues`.
+
 ## HTML
 
 `package:daravel/html.dart` builds pages from Dart functions instead of Blade
