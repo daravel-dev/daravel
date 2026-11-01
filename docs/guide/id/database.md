@@ -1,4 +1,4 @@
-<!-- source: database.md sha256:a23773d79180 -->
+<!-- source: database.md sha256:df1a9ee6def0 -->
 # Database
 
 `DB_CONNECTION` memilih SQLite (`sqlite`, default), PostgreSQL (`pgsql`),
