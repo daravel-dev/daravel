@@ -289,7 +289,14 @@ abstract base class Model implements JsonSerializable, Responsable {
     final mutator = modelDefinition.mutators[key];
     final mutated = mutator == null ? value : mutator(this, value);
     final cast = modelDefinition.casts[key];
-    _attributes[key] = cast == null ? mutated : cast.set(mutated);
+    _attributes[key] = switch (cast) {
+      null => mutated,
+      final VectorCast vector => vector.setFor(
+        mutated,
+        database.dialectOf(modelDefinition.connection),
+      ),
+      _ => cast.set(mutated),
+    };
   }
 
   Object? operator [](String key) => getAttr<Object?>(key);

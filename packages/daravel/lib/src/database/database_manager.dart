@@ -276,7 +276,8 @@ final class DatabaseManager {
     return switch (connection.driver) {
       'sqlite' => SqlDialect.sqlite,
       'pgsql' || 'postgres' || 'postgresql' => SqlDialect.postgres,
-      'mysql' || 'mariadb' => SqlDialect.mysql,
+      'mysql' => SqlDialect.mysql,
+      'mariadb' => SqlDialect.mariadb,
       final other => throw UnsupportedError(
         'Unknown database driver [$other].',
       ),

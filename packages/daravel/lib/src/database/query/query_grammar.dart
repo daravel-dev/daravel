@@ -75,6 +75,7 @@ abstract class QueryGrammar {
     .sqlite => const SqliteQueryGrammar(),
     .postgres => const PostgresQueryGrammar(),
     .mysql => const MySqlQueryGrammar(),
+    .mariadb => const MySqlQueryGrammar(SqlDialect.mariadb),
   };
 
   /// Quotes `table.column`, `column as alias`, `table.*` or `*`. Invalid
@@ -701,7 +702,7 @@ final class PostgresQueryGrammar extends QueryGrammar {
 
 /// MySQL/MariaDB grammar: backtick quoting, `?` placeholders, no RETURNING.
 final class MySqlQueryGrammar extends QueryGrammar {
-  const MySqlQueryGrammar();
+  const MySqlQueryGrammar([this.dialect = SqlDialect.mysql]);
 
   // `json_unquote` gives 'true', which the driver's 1 would not match.
   @override
@@ -736,7 +737,7 @@ final class MySqlQueryGrammar extends QueryGrammar {
   }
 
   @override
-  SqlDialect get dialect => SqlDialect.mysql;
+  final SqlDialect dialect;
 
   @override
   String parameter(int index) => '?';

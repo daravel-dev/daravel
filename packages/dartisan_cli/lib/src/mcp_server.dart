@@ -594,7 +594,7 @@ Future<({List<Map<String, Object?>> rows, bool truncated})> readOnlySelect(
           await db.statement('SET TRANSACTION READ ONLY');
         case SqlDialect.sqlite:
           await db.statement('PRAGMA query_only = ON');
-        case SqlDialect.mysql:
+        case SqlDialect.mysql || SqlDialect.mariadb:
           break;
       }
       try {

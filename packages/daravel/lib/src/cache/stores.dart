@@ -798,7 +798,7 @@ final class DatabaseStore implements TouchableCacheStore, WindowCounterStore {
     final dialect = db.dialectOf(connection);
     final (number, text) = switch (dialect) {
       .postgres => ('BIGINT', 'TEXT'),
-      .mysql => ('SIGNED', 'CHAR'),
+      .mysql || .mariadb => ('SIGNED', 'CHAR'),
       .sqlite => ('INTEGER', 'TEXT'),
     };
     final t = grammar.wrap(table);
@@ -817,7 +817,7 @@ final class DatabaseStore implements TouchableCacheStore, WindowCounterStore {
         'ELSE CAST(-$hits AS $text) END, '
         '$e = CASE WHEN $oldEnd <= ? THEN ? ELSE $oldEnd END';
     final insert = "INSERT INTO $t ($k, $v, $e) VALUES (?, '1', ?)";
-    final upsert = dialect == .mysql
+    final upsert = dialect.isMySqlFamily
         ? '$insert ON DUPLICATE KEY UPDATE $sets'
         : '$insert ON CONFLICT ($k) DO UPDATE SET $sets';
     final bindings = <Object?>[key, end, now, maxHits, now, end];

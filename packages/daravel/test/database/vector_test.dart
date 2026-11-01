@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:daravel/daravel.dart';
 import 'package:test/test.dart';
@@ -71,6 +72,25 @@ void main() {
       expect(sql, isNot(contains('INDEX')));
     });
 
+    test('MariaDB adds its vector index', () {
+      final sql = const MySqlSchemaGrammar(SqlDialect.mariadb)
+          .compileCreate(
+            items((table) {
+              table.vector('embedding', dimensions: 3);
+              table.vectorIndex('embedding');
+            }),
+          )
+          .join(';');
+      expect(sql, contains('`embedding` vector(3)'));
+      expect(
+        sql,
+        contains(
+          'ALTER TABLE `items` ADD VECTOR INDEX `items_embedding_vectorindex` '
+          '(`embedding`) M=6 DISTANCE=cosine',
+        ),
+      );
+    });
+
     test('MySQL has the column; its index is refused', () {
       const grammar = MySqlSchemaGrammar();
       expect(
@@ -100,6 +120,16 @@ void main() {
       expect(Cast.vector.set([1, 2.5]), '[1.0,2.5]');
       expect(Cast.vector.set(null), isNull);
       expect(() => Cast.vector.set('x'), throwsArgumentError);
+    });
+
+    test('MariaDB takes and gives little-endian float32', () {
+      const cast = VectorCast();
+      final bytes = cast.setFor([1, 0.9], SqlDialect.mariadb)! as Uint8List;
+      expect(bytes, hasLength(8));
+      expect(bytes.sublist(0, 4), [0, 0, 128, 63]);
+      expect(cast.get(bytes), [1.0, 0.9]);
+      expect(cast.setFor([1], SqlDialect.postgres), '[1.0]');
+      expect(cast.setFor(null, SqlDialect.mariadb), isNull);
     });
   });
 

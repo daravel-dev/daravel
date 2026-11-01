@@ -1,4 +1,4 @@
-<!-- source: database.md sha256:df1a9ee6def0 -->
+<!-- source: database.md sha256:3f5311d1dd1b -->
 # Database
 
 `DB_CONNECTION` memilih SQLite (`sqlite`, default), PostgreSQL (`pgsql`),
@@ -329,9 +329,11 @@ MySQL, sama seperti Laravel; SQLite membuatnya.
 
 ## Kolom vector
 
-Di PostgreSQL dengan [pgvector](https://github.com/pgvector/pgvector), kolom bisa
-menyimpan embedding, dan query bisa mengurutkan berdasarkan jarak cosine. Nama dan
-SQL-nya sama dengan Laravel.
+Di PostgreSQL dengan [pgvector](https://github.com/pgvector/pgvector) dan di MariaDB
+11.7 atau lebih baru, kolom bisa menyimpan embedding, dan query bisa mengurutkan
+berdasarkan jarak cosine. Nama dan SQL-nya sama dengan Laravel.
+`ensureVectorExtensionExists` khusus PostgreSQL, dan MariaDB butuh driver `mariadb`,
+bukan `mysql`.
 
 ```dart
 await Schema.ensureVectorExtensionExists();
@@ -354,9 +356,19 @@ lebih dulu; berikan `order: false` untuk memakai urutan Anda sendiri.
 `whereVectorDistanceLessThan`, `orderByVectorDistance`, dan `selectVectorDistance`
 adalah bagian-bagiannya. `Cast.vector` membaca kolom sebagai `List<double>`.
 
+Di MariaDB, baca vector dengan `selectVector`. Client membaca byte kolom itu sebagai
+teks, jadi `SELECT *` biasa tidak mempertahankannya:
+
+```dart
+final document = await Document.query()
+    .selectVector('embedding')
+    .where('id', id)
+    .first();
+```
+
 SQLite menyimpan kolom ini sebagai teks dan melewati index-nya, jadi migrasi tetap
-berjalan di test, tetapi query jarak melempar error di sana. Di MySQL dan MariaDB,
-`vector` hanya menambah kolom: index dan query jarak belum didukung.
+berjalan di test, tetapi query jarak melempar error di sana. Di MySQL, `vector` hanya
+menambah kolom: index dan query jarak tidak didukung.
 
 ## Error query
 

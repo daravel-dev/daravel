@@ -85,6 +85,12 @@ final class ModelQuery<T extends Model> {
     return this;
   }
 
+  /// [QueryBuilder.selectVector].
+  ModelQuery<T> selectVector(String column) {
+    builder.selectVector(column);
+    return this;
+  }
+
   /// [QueryBuilder.orderByVectorDistance].
   ModelQuery<T> orderByVectorDistance(String column, List<num> vector) {
     builder.orderByVectorDistance(column, vector);
