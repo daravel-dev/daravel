@@ -204,6 +204,43 @@ are, and `X-Powered-By` is removed. Laravel receives the client's address in
 If Laravel does not answer, the client gets 502; if it is too slow
 (`timeout:`, 60 seconds), 504. WebSockets are not forwarded.
 
+### Compare a moved route with Laravel
+
+With Daravel in front, a route that has moved can still be checked against
+Laravel under real traffic. Daravel answers the client, then replays a sample of
+the `GET` and `HEAD` requests it answered to Laravel and compares the two.
+
+```dart
+.withUpstream(
+  url: 'http://127.0.0.1:8080',
+  shadowSampleRate: 0.01,                 // or UPSTREAM_SHADOW_SAMPLE
+  shadowIgnoreKeys: {'meta.took_ms'},     // or UPSTREAM_SHADOW_IGNORE_KEYS
+  shadowExcept: ['/orders/export'],
+)
+```
+
+It compares the status, the content type and, for JSON, the keys, the types and
+the list lengths, not the values, because the replay comes later and a value may
+rightly have changed. `data.*.updated_at` ignores a key in every item of a list.
+A difference goes to the log as a warning, and to `ShadowParityDrift` for your own
+listeners, with paths and types only, never values:
+
+```dart
+.withEvents((events) {
+  events.listen<ShadowParityDrift>(report);
+})
+```
+
+The client waits for none of this. At most `shadowMaxConcurrency` replays run at
+once per isolate (`UPSTREAM_SHADOW_MAX_CONCURRENCY`, 4 by default), and past that a
+sample is dropped, so Laravel never takes more than this from Daravel. Replays
+carry `X-Daravel-Shadow: 1` and are never replayed themselves.
+
+A replay carries the client's cookies and `Authorization`, and runs for real in
+Laravel. A `GET` that counts a view counts it twice, and in a shared session it
+can use up a flash message. Put such paths in `shadowExcept`, and start with a
+small rate.
+
 ### Progress
 
 `dartisan route:diff` compares Laravel's routes with Daravel's: which ones

@@ -4,6 +4,7 @@
 /// HTTP kernel, radix router, SQLite database access, schema migrations.
 library;
 
+export 'src/concurrency/concurrency.dart';
 export 'src/database/database_config.dart';
 export 'src/database/database_manager.dart';
 export 'src/database/query_executor.dart';
@@ -30,6 +31,7 @@ export 'src/http/headers.dart';
 export 'src/http/http_exceptions.dart';
 export 'src/http/json_stream.dart';
 export 'src/http/kernel.dart';
+export 'src/http/proxy/shadow_parity.dart';
 export 'src/http/proxy/upstream_proxy.dart';
 export 'src/http/middleware.dart';
 export 'src/http/multipart.dart' show MultipartLimits, multipartBoundary;
@@ -80,6 +82,7 @@ export 'src/http/middleware/maintenance_mode.dart';
 export 'src/http/middleware/validate_signature.dart';
 export 'src/routing/resource_controller.dart';
 export 'src/routing/url_signer.dart';
+export 'src/json_schema/json_schema.dart';
 export 'src/validation/form_request.dart';
 export 'src/validation/messages.dart';
 export 'src/validation/php_date_format.dart';
@@ -146,10 +149,13 @@ export 'src/queue/queue_manager.dart';
 export 'src/schedule/cron.dart';
 export 'src/schedule/schedule.dart';
 export 'src/support/queue_facades.dart';
+export 'src/http/json_api/json_api_request.dart';
+export 'src/http/json_api/json_api_resource.dart';
 export 'src/http/resources.dart';
 export 'src/observability/health.dart';
 export 'src/observability/metrics.dart';
 export 'src/storage/read_through_disk.dart';
 export 'src/storage/storage.dart';
+export 'src/support/fluent_uri.dart';
 export 'src/support/storage_facade.dart';
 export 'src/foundation/clock.dart';

@@ -14,7 +14,9 @@ import '../auth/hashing.dart';
 import '../auth/jwt.dart';
 import '../cache/cache.dart';
 import '../database/database_config.dart';
+import '../concurrency/concurrency.dart';
 import '../database/database_manager.dart';
+import '../database/query_executor.dart';
 import '../database/orm/model.dart';
 import '../database/orm/model_definition.dart';
 import '../database/orm/model_registry.dart';
@@ -29,6 +31,7 @@ import '../events/events.dart';
 import '../http/client.dart';
 import '../http/exception_handler.dart';
 import '../http/headers.dart';
+import '../http/proxy/shadow_parity.dart';
 import '../http/proxy/upstream_proxy.dart';
 import '../http/middleware/maintenance_mode.dart';
 import '../http/middleware/method_override.dart';
@@ -272,13 +275,41 @@ final class Application {
       ..instance<Router>(router)
       ..instance<MiddlewareRegistry>(middleware)
       ..instance<ExceptionHandler>(exceptions)
-      ..singleton<DatabaseManager>(
-        (c) => DatabaseManager(
+      ..singleton<DatabaseManager>((c) {
+        final dispatcher = c.make<EventDispatcher>();
+        return DatabaseManager(
           c.make<ConfigRepository>().section<DatabaseConfig>(),
           logger: c.make<Logger>(),
           drivers: _builder._databaseDrivers,
-        ),
-      )
+        )..listenTransactions((event) {
+          // `database` may not import `events`, so this is where they meet.
+          final Future<void> sent = switch (event) {
+            DbTransactionBeginning() => dispatcher.dispatch(
+              TransactionBeginning(
+                event.connectionName,
+                depth: event.depth,
+                poolWait: event.poolWait,
+              ),
+            ),
+            DbTransactionCommitted() => dispatcher.dispatch(
+              TransactionCommitted(
+                event.connectionName,
+                depth: event.depth,
+                elapsed: event.elapsed,
+              ),
+            ),
+            DbTransactionRolledBack() => dispatcher.dispatch(
+              TransactionRolledBack(
+                event.connectionName,
+                depth: event.depth,
+                elapsed: event.elapsed,
+                error: event.error,
+              ),
+            ),
+          };
+          unawaited(sent);
+        });
+      })
       ..singleton<Migrator>(
         (c) => Migrator(c.make<DatabaseManager>(), _builder._migrations),
       )
@@ -527,6 +558,37 @@ final class Application {
       );
       container.instance<UpstreamProxy>(proxy);
       kernel.unmatched = proxy.forward;
+      final sample =
+          upstream.shadowSampleRate ??
+          double.tryParse(env.maybeString('UPSTREAM_SHADOW_SAMPLE') ?? '') ??
+          0;
+      if (sample < 0 || sample > 1) {
+        throw ConfigException(
+          'The shadow sample rate is a share from 0 to 1, not $sample.',
+        );
+      }
+      if (sample > 0) {
+        final dispatcher = container.make<EventDispatcher>();
+        kernel.observeRoute = ShadowParityRunner(
+          proxy,
+          sampleRate: sample,
+          maxConcurrency:
+              upstream.shadowMaxConcurrency ??
+              int.tryParse(
+                env.maybeString('UPSTREAM_SHADOW_MAX_CONCURRENCY') ?? '',
+              ) ??
+              4,
+          ignoreKeys:
+              upstream.shadowIgnoreKeys ??
+              (env.maybeString('UPSTREAM_SHADOW_IGNORE_KEYS') ?? '')
+                  .split(',')
+                  .map((key) => key.trim())
+                  .where((key) => key.isNotEmpty),
+          except: upstream.shadowExcept,
+          logger: logger,
+          onDrift: (drift) => unawaited(dispatcher.dispatch(drift)),
+        ).observe;
+      }
     }
 
     config.freeze();
@@ -566,6 +628,7 @@ final class Application {
       failedJobs: failed,
       container: c,
       logger: logger,
+      debounceStore: () => lockStore,
       uniqueLockRelease: (key) => manager.releaseUniqueLock(key),
     );
     manager =
@@ -1146,6 +1209,7 @@ final class Application {
     for (final hook in _builder._shutdownHooks) {
       await hook(container);
     }
+    await Concurrency.shutdown();
     final db = container.resolved<DatabaseManager>();
     if (db != null) {
       await db.closeAll();
@@ -1278,17 +1342,29 @@ final class ApplicationBuilder {
   /// migrated route by route (the strangler fig pattern). Migrated routes
   /// answer from Daravel; the rest stream through to Laravel unchanged.
   /// See `UpstreamProxy`.
+  ///
+  /// [shadowSampleRate] (`UPSTREAM_SHADOW_SAMPLE`) replays that share of the
+  /// `GET` and `HEAD` requests Daravel answers to the upstream, after the
+  /// response, and reports differences in shape. See `ShadowParityRunner`.
   ApplicationBuilder withUpstream({
     String? url,
     bool preserveHost = false,
     List<String> stripResponseHeaders = const ['x-powered-by'],
     Duration timeout = const Duration(seconds: 60),
+    double? shadowSampleRate,
+    int? shadowMaxConcurrency,
+    Set<String>? shadowIgnoreKeys,
+    List<String> shadowExcept = const [],
   }) {
     _upstream = _UpstreamConfig(
       url,
       preserveHost,
       stripResponseHeaders,
       timeout,
+      shadowSampleRate,
+      shadowMaxConcurrency,
+      shadowIgnoreKeys,
+      shadowExcept,
     );
     return this;
   }
@@ -1545,10 +1621,18 @@ final class _UpstreamConfig {
     this.preserveHost,
     this.stripResponseHeaders,
     this.timeout,
+    this.shadowSampleRate,
+    this.shadowMaxConcurrency,
+    this.shadowIgnoreKeys,
+    this.shadowExcept,
   );
 
   final String? url;
   final bool preserveHost;
   final List<String> stripResponseHeaders;
   final Duration timeout;
+  final double? shadowSampleRate;
+  final int? shadowMaxConcurrency;
+  final Set<String>? shadowIgnoreKeys;
+  final List<String> shadowExcept;
 }

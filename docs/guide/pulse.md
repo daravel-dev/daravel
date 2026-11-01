@@ -58,8 +58,8 @@ gate.define('viewPulse', (user, args) => user is User && user.isAdmin);
   query threshold would catch these.
 - **Connection waits.** Queries that waited `PULSE_POOL_WAIT_THRESHOLD` for a
   free connection, by connection. These mean the pool is too small, not that
-  the database is slow. Queries inside a transaction hold their connection and
-  are not counted, and SQLite has no pool.
+  the database is slow. A transaction counts once, when it takes its connection,
+  and SQLite has no pool.
 - **Exceptions.** Server errors grouped by class and by the first frame in
   your code, with the latest message and stack trace. 4xx responses
   (validation, not found, forbidden) are not exceptions here.

@@ -40,6 +40,7 @@ final class ModelQuery<T extends Model> {
   bool _withTrashed = false;
   bool _onlyTrashed = false;
   bool _withoutGlobalScopes = false;
+  bool _autoload = false;
   final Set<String> _withoutNamedScopes = <String>{};
   bool _globalScopesApplied = false;
 
@@ -371,6 +372,12 @@ final class ModelQuery<T extends Model> {
   }
 
   ModelQuery<T> withoutGlobalScope(String name) => withoutGlobalScopes([name]);
+
+  /// [Model.automaticallyEagerLoad] for the results of this query.
+  ModelQuery<T> withRelationshipAutoloading() {
+    _autoload = true;
+    return this;
+  }
 
   ModelQuery<T> withTrashed() {
     _withTrashed = true;
@@ -785,12 +792,16 @@ final class ModelQuery<T extends Model> {
           },
       ];
     }
+    final autoload = _autoload || Model.automaticallyEagerLoad;
     final models = ModelCollection<T>([for (final row in rows) _hydrate(row)]);
     for (final model in models) {
       await model.fireEvent(ModelEvent.retrieved);
     }
     if (_with.isNotEmpty && models.isNotEmpty) {
-      await loadRelationsOn(models, _with);
+      await loadRelationsOn(models, _with, autoload: autoload);
+    }
+    if (autoload) {
+      Model.groupForAutoloading(models);
     }
     return models;
   }
@@ -798,8 +809,9 @@ final class ModelQuery<T extends Model> {
   /// Eager loads [wants] (possibly nested `a.b.c`) onto [models].
   Future<void> loadRelationsOn(
     List<Model> models,
-    Map<String, RelationConstraint?> wants,
-  ) async {
+    Map<String, RelationConstraint?> wants, {
+    bool autoload = false,
+  }) async {
     final byRoot = <String, Map<String, RelationConstraint?>>{};
     final rootConstraints = <String, RelationConstraint?>{};
     for (final entry in wants.entries) {
@@ -832,6 +844,9 @@ final class ModelQuery<T extends Model> {
                 ]);
               },
       );
+      if (autoload) {
+        Model.groupForAutoloading(relation.loadedModels(models));
+      }
       if (entry.value.isNotEmpty) {
         // Grouped by definition: a MorphTo loads posts and videos together,
         // and each needs its own relations.
@@ -843,7 +858,7 @@ final class ModelQuery<T extends Model> {
             in byDefinition.entries) {
           await childDefinition
               .query(db: _db)
-              .loadRelationsOn(children, entry.value);
+              .loadRelationsOn(children, entry.value, autoload: autoload);
         }
       }
     }
@@ -1109,6 +1124,7 @@ final class ModelQuery<T extends Model> {
       .._withTrashed = _withTrashed
       .._onlyTrashed = _onlyTrashed
       .._withoutGlobalScopes = _withoutGlobalScopes
+      .._autoload = _autoload
       .._withoutNamedScopes.addAll(_withoutNamedScopes);
     final alias = _tableAlias;
     if (alias != null) {

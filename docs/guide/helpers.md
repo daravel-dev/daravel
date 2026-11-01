@@ -99,6 +99,40 @@ Rounding is half to even, as ICU rounds (`Number.format(2.5, precision: 0)`
 is `2`). Shortcuts: `5242880.toFileSize()`, `1500.abbreviate()`,
 `150000.toCurrency(code: 'IDR')`, `22.ordinal()`.
 
+## `DaravelUri`
+
+Laravel's fluent `Uri`, under another name because `Uri` is `dart:core`'s. Each
+method returns a new one, and the query is read and written as PHP does.
+
+```dart
+final url = DaravelUri.of('https://shop.test/orders?page=1')
+    .withQuery({'status': 'open'})
+    .withoutQuery('page')
+    .withFragment('top');
+
+return url.redirect();
+```
+
+## Processes
+
+`package:daravel/process.dart` runs other programs. It is a library of its own,
+because its `Process` would collide with `dart:io`'s in any file that uses both.
+
+```dart
+import 'package:daravel/process.dart';
+
+final result = await Process.run(['git', 'status']);
+if (result.successful) print(result.output);
+
+final count = await Process.pipe([
+  ['git', 'log', '--oneline'],
+  ['wc', '-l'],
+]);
+final results = await Process.pool(commands, concurrency: 4);
+```
+
+`Process.fake` replaces commands inside its body, so a test runs nothing.
+
 ## Global helpers
 
 | Helper | Notes |

@@ -1,10 +1,21 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
 import '../headers.dart';
 import '../http_exceptions.dart';
 import '../request.dart';
 import '../response.dart';
+import 'shadow_parity.dart';
+
+/// The upstream's answer to a replay.
+final class ShadowAnswer {
+  const ShadowAnswer(this.status, this.contentType, this.body);
+
+  final int status;
+  final String? contentType;
+  final List<int> body;
+}
 
 /// Forwards requests Daravel has no route for to another server, usually
 /// the Laravel application being migrated (the strangler fig pattern,
@@ -124,6 +135,41 @@ final class UpstreamProxy {
       headers: headers,
       body: StreamBody(answer, contentLength: length >= 0 ? length : null),
     );
+  }
+
+  /// Replays [request] and reads the answer, or null when there is none to
+  /// compare: the upstream failed, took too long, or sent over [maxBytes].
+  Future<ShadowAnswer?> shadow(Request request, {required int maxBytes}) async {
+    try {
+      final outgoing = await _client
+          .openUrl(request.method, target(request))
+          .timeout(timeout);
+      outgoing
+        ..followRedirects = false
+        ..persistentConnection = true;
+      _copyRequestHeaders(request, outgoing.headers);
+      outgoing.headers
+        ..set(ShadowParityRunner.header, '1')
+        // A body to compare, not to decompress.
+        ..set(HttpHeaders.acceptEncodingHeader, 'identity');
+      final answer = await outgoing.close().timeout(timeout);
+      final body = BytesBuilder(copy: false);
+      await for (final chunk in answer.timeout(timeout)) {
+        body.add(chunk);
+        if (body.length > maxBytes) {
+          return null;
+        }
+      }
+      return ShadowAnswer(
+        answer.statusCode,
+        answer.headers.value(HttpHeaders.contentTypeHeader),
+        body.takeBytes(),
+      );
+    } on TimeoutException {
+      return null;
+    } on IOException {
+      return null;
+    }
   }
 
   void _copyRequestHeaders(Request request, HttpHeaders out) {

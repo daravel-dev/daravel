@@ -53,6 +53,9 @@ final class HttpKernel {
   /// middleware still applies; route middleware, of course, does not.
   Future<Response> Function(Request request)? unmatched;
 
+  /// Sees the answer of every route (`withUpstream(shadowSampleRate:)`).
+  void Function(Request request, Response response)? observeRoute;
+
   final _Deadlines _deadlines = _Deadlines();
   late final Middleware _bindings = _SubstituteBindings(router);
 
@@ -164,7 +167,11 @@ final class HttpKernel {
           if (route.formRequest != null || route.declaredRules != null) {
             await _validateDeclared(route, req);
           }
-          return toResponse(await route.handler(req), req);
+          final result = await route.handler(req);
+          if (result is PreparedResponsable) {
+            await result.prepare(req);
+          }
+          return toResponse(result, req);
         },
         rescue: exceptions.handle,
       );
@@ -172,6 +179,7 @@ final class HttpKernel {
       final response = timeout == null
           ? await run()
           : await _deadlines.guard(run(), timeout);
+      observeRoute?.call(request, response);
       return response;
     } catch (error, stackTrace) {
       return exceptions.handle(error, stackTrace, request);

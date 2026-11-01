@@ -86,6 +86,44 @@ final class QueryExecuted {
       'QueryExecuted($connectionName, ${time.inMicroseconds} µs: $sql)';
 }
 
+/// The life of a transaction, for `DB.listenTransactions`. [depth] is 1 for
+/// `BEGIN` and above that for a savepoint, as `transactionLevel()`.
+sealed class TransactionEvent {
+  const TransactionEvent(this.connectionName, this.depth);
+
+  final String connectionName;
+  final int depth;
+}
+
+final class DbTransactionBeginning extends TransactionEvent {
+  const DbTransactionBeginning(
+    super.connectionName,
+    super.depth, {
+    this.poolWait = Duration.zero,
+  });
+
+  /// The wait for a connection; zero for a savepoint, which has one.
+  final Duration poolWait;
+}
+
+final class DbTransactionCommitted extends TransactionEvent {
+  const DbTransactionCommitted(super.connectionName, super.depth, this.elapsed);
+
+  final Duration elapsed;
+}
+
+final class DbTransactionRolledBack extends TransactionEvent {
+  const DbTransactionRolledBack(
+    super.connectionName,
+    super.depth,
+    this.elapsed,
+    this.error,
+  );
+
+  final Duration elapsed;
+  final Object error;
+}
+
 /// Filled by a pooled driver with the time a query waited for a connection.
 /// It sits in the zone of a query only while a listener wants the number.
 final class PoolWaitProbe {
