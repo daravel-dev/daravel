@@ -336,6 +336,9 @@ sections:
       - { php: "Cache::tags(['people'])->put($key, $value, $ttl)", dart: "await Cache.tags(['people']).put(key, value, ttl: ttl)", symbol: Cache.tags, async: true, note: "memory, process and redis stores (Laravel's layout on Redis); file and database cannot tag, as in Laravel." }
       - { php: "Cache::lock('name', 10)->get(fn)", dart: "await Cache.lock('name', ...)", symbol: Cache.lock }
       - { php: "SendEmail::dispatch($user)", dart: "await Queue.dispatch(SendEmail(user))", symbol: Queue.dispatch, async: true }
+      - { php: "Concurrency::run([fn () => 1, fn () => 2])", dart: "await Concurrency.run<int>([() => 1, () => 2])", symbol: Concurrency.run, async: true, note: "on worker isolates: no facades in a task" }
+      - { php: "Concurrency::defer([fn () => report()])", dart: "await Concurrency.defer([report])", symbol: Concurrency.defer, async: true }
+      - { php: "Concurrency::driver('sync')->run($tasks)", dart: "await Concurrency.sync(() => Concurrency.run(tasks))", symbol: Concurrency.sync, async: true }
       - { php: "Queue::route(SendEmail::class, 'emails')", dart: "Queue.manager.route<SendEmail>(queue: 'emails')", symbol: QueueManager.route }
       - { php: "SendEmail::dispatch()->withoutDelay()", dart: ".withoutDelay()", symbol: PendingDispatch.withoutDelay }
       - { php: "public $deleteWhenMissingModels = true", dart: "bool get deleteWhenMissingModels => true", symbol: Job.deleteWhenMissingModels }

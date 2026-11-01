@@ -20,6 +20,7 @@ match Laravel more closely.
 - `deleteWhenMissingModels`. A missing model now fails a job at once, as in Laravel, instead of using up its tries.
 - `debounceFor`, `debounceMaxWait` and `debounceId`: only the last dispatch of a burst runs.
 - `Model.automaticallyEagerLoad` and `withRelationshipAutoloading()`: the models of a result load their relations together, through `load` and `loadMissing`, and so do the models those bring in. An N+1 loop becomes one query per relation, and a later `load` still refreshes.
+- `Concurrency`: `run`, `defer`, `runIfLarge`, `sync` and `fake`, on a pool of warm worker isolates, also as `package:daravel/concurrency.dart`.
 
 ## 1.22.0
 
