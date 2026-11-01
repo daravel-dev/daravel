@@ -19,6 +19,7 @@ match Laravel more closely.
 - `Queue.route`: where a job type goes, in one place, and `withoutDelay()` on a dispatch.
 - `deleteWhenMissingModels`. A missing model now fails a job at once, as in Laravel, instead of using up its tries.
 - `debounceFor`, `debounceMaxWait` and `debounceId`: only the last dispatch of a burst runs.
+- `Model.automaticallyEagerLoad` and `withRelationshipAutoloading()`: the models of a result load their relations together, through `load` and `loadMissing`, and so do the models those bring in. An N+1 loop becomes one query per relation, and a later `load` still refreshes.
 
 ## 1.22.0
 
