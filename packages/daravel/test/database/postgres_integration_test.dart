@@ -26,6 +26,43 @@ void main() {
 
   late DatabaseManager db;
 
+  test('a transaction reports its wait for a connection', () async {
+    final uri = Uri.parse(url);
+    final user = uri.userInfo.split(':');
+    final db = DatabaseManager(
+      DatabaseConfig(
+        defaultConnection: 'pgsql',
+        connections: {
+          'pgsql': ConnectionConfig(
+            driver: 'pgsql',
+            database: uri.path.replaceFirst('/', ''),
+            host: uri.host,
+            port: uri.port,
+            username: user.first,
+            password: user[1],
+            options: const {'pool': 1, 'sslmode': 'disable'},
+          ),
+        },
+      ),
+    );
+    addTearDown(db.closeAll);
+    final waits = <Duration>[];
+    db.listenTransactions((event) {
+      if (event is DbTransactionBeginning) {
+        waits.add(event.poolWait);
+      }
+    });
+    Future<void> hold() =>
+        db.transaction(() => db.select('SELECT pg_sleep(0.2)'));
+    await Future.wait([hold(), hold()]);
+    final sorted = [for (final w in waits) w.inMilliseconds]..sort();
+    expect(
+      sorted.last,
+      greaterThan(100),
+      reason: 'one queued behind the other',
+    );
+  });
+
   test('poolWait is the time a query waited for a connection', () async {
     final uri = Uri.parse(url);
     final user = uri.userInfo.split(':');
