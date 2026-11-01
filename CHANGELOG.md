@@ -21,6 +21,8 @@ match Laravel more closely.
 - `debounceFor`, `debounceMaxWait` and `debounceId`: only the last dispatch of a burst runs.
 - `Model.automaticallyEagerLoad` and `withRelationshipAutoloading()`: the models of a result load their relations together, through `load` and `loadMissing`, and so do the models those bring in. An N+1 loop becomes one query per relation, and a later `load` still refreshes.
 - `Concurrency`: `run`, `defer`, `runIfLarge`, `sync` and `fake`, on a pool of warm worker isolates, also as `package:daravel/concurrency.dart`.
+- `JsonApiResource` and `JsonApiCollection`: Laravel 13's JSON:API v1.1 shape, with `?fields[type]=` and `?include=`. The kernel awaits a new `PreparedResponsable.prepare` before `toResponse`, so a route that returns a resource loads what the query asks for.
+- `JsonSchema`: a typed builder for JSON Schema documents, like `Illuminate\JsonSchema`.
 
 ## 1.22.0
 
@@ -48,8 +50,6 @@ What most Laravel applications reach for every day: forms that post `_method`, v
 
 ### Added
 
-- `JsonApiResource` and `JsonApiCollection`: Laravel 13's JSON:API v1.1 shape, with `?fields[type]=` and `?include=`. The kernel awaits a new `PreparedResponsable.prepare` before `toResponse`, so a route that returns a resource loads what the query asks for.
-- `JsonSchema`: a typed builder for JSON Schema documents, like `Illuminate\JsonSchema`.
 - `Response.exception`, Laravel's `$response->exception`: since 1.21.1 an exception no longer passes through `next`, so a `try` around `next` catches nothing, not only in transaction middleware. A middleware reads it here instead.
 - `DB.transaction(attempts: n)` waits a short random time between retries (decorrelated jitter, 2 to 250 ms), so isolates that collided do not collide again. Frozen test clocks retry at once.
 - `QueryExecuted.poolWait`: the time a query waited for a connection, apart from `time`. PostgreSQL and MySQL measure it while a listener is registered.
