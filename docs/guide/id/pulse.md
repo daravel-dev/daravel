@@ -1,4 +1,4 @@
-<!-- source: pulse.md sha256:c17b24dc2301 -->
+<!-- source: pulse.md sha256:5129f804d7fb -->
 # Pulse
 
 `daravel_pulse` menyajikan sebuah dashboard, dari aplikasi Anda, tentang apa
@@ -53,6 +53,9 @@ gate.define('viewPulse', (user, args) => user is User && user.isAdmin);
   path mentah), dengan jumlah dan yang paling lambat.
 - **Query lambat.** Dikelompokkan per SQL dan koneksi. Binding tidak pernah
   disimpan, jadi nilai di dalam `where` tidak sampai ke halaman.
+- **Shadow parity drift.** Route yang jawabannya berbeda dari Laravel, dengan
+  `withUpstream(shadowSampleRate:)`: path dan jenis perbedaannya, tidak pernah
+  nilainya.
 - **Exception.** Server error dikelompokkan per class dan per frame pertama
   di kode Anda, dengan pesan dan stack trace terakhir. Response 4xx
   (validasi, not found, forbidden) tidak dihitung sebagai exception di sini.
