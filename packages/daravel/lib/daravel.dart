@@ -7,6 +7,7 @@ library;
 export 'src/concurrency/concurrency.dart';
 export 'src/database/database_config.dart';
 export 'src/database/database_manager.dart';
+export 'src/database/legacy_key.dart';
 export 'src/database/query_executor.dart';
 export 'src/database/schema/blueprint.dart';
 export 'src/database/schema/migration.dart';
