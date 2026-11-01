@@ -65,6 +65,7 @@ pre{margin:8px 0 0;padding:10px 12px;background:var(--soft);border-radius:6px;ov
 <section class="card"><h2>Slow queries <span class="note" id="t-queries"></span></h2><div id="queries"></div></section>
 <section class="card"><h2>N+1 and query storms</h2><div id="storms"></div></section>
 <section class="card"><h2>Connection waits <span class="note" id="t-pool"></span></h2><div id="pool"></div></section>
+<section class="card"><h2>Shadow parity drift</h2><div id="parity"></div></section>
 <section class="card wide"><h2>Exceptions</h2><div id="exceptions"></div></section>
 <section class="card third"><h2>Queues</h2><div id="queues"></div></section>
 <section class="card third"><h2>Slow and failed jobs <span class="note" id="t-jobs"></span></h2><div id="jobs"></div></section>
@@ -96,6 +97,7 @@ table('requests',[{label:'Route',cell:x=>two(x.route,x.method+' · last '+ago(x.
 table('queries',[{label:'Query',cell:x=>two(x.sql,x.connection+' · last '+ago(x.last_at),true)},{label:'Count',n:1,cell:x=>fmt(x.count)},{label:'Slowest',n:1,cell:x=>ms(x.max_ms)}],d.slow_queries,'No slow queries.');
 table('storms',[{label:'Statement',cell:x=>two(x.sql,x.method+' '+x.route+' · '+x.queries+' queries · last '+ago(x.last_at),true)},{label:'Repeats',n:1,cell:x=>fmt(x.repeats)},{label:'Requests',n:1,cell:x=>fmt(x.count)}],d.query_storms,'No N+1 queries.');
 table('pool',[{label:'Connection',cell:x=>two(x.connection,'last '+ago(x.last_at),true)},{label:'Count',n:1,cell:x=>fmt(x.count)},{label:'Longest',n:1,cell:x=>ms(x.max_ms)}],d.pool_waits,'No waits for a connection.');
+table('parity',[{label:'Route',cell:x=>two(x.method+' '+x.path,x.drifts+' · last '+ago(x.last_at),true)},{label:'Count',n:1,cell:x=>fmt(x.count)}],d.parity_drifts,'No drift in this period.');
 table('exceptions',[{label:'Exception',cell:x=>{const det=el('details'),s=el('summary');s.append(two(x.class+': '+x.message,x.location+' · last '+ago(x.last_at),false));det.append(s,el('pre','',x.trace));return det;}},{label:'Count',n:1,cell:x=>fmt(x.count)}],d.exceptions,'No exceptions.');
 table('queues',[{label:'Queue',cell:x=>two(x.queue,x.connection)},{label:'Pending',n:1,cell:x=>fmt(x.size)}],d.queues,'No queues.');
 table('jobs',[{label:'Job',cell:x=>{const d2=two(x.job,x.queue+' · last '+ago(x.last_at),true);if(x.failed){d2.append(el('span','badge err',x.failed+' failed'));}return d2;}},{label:'Slowest',n:1,cell:x=>ms(x.max_ms)}],d.jobs,'No slow or failed jobs.');

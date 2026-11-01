@@ -88,6 +88,7 @@ abstract final class Pulse {
           recorder.recordJob(job.jobName, job.queue, job.duration);
         }
       })
+      ..listen<ShadowParityDrift>(recorder.recordParityDrift)
       ..listen<JobFailed>(
         (JobFailed job) => recorder.recordJob(
           job.jobName,

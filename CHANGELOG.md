@@ -25,6 +25,7 @@ match Laravel more closely.
 - `JsonSchema`: a typed builder for JSON Schema documents, like `Illuminate\JsonSchema`.
 - Shadow parity: `withUpstream(shadowSampleRate:)` replays a sample of the `GET` and `HEAD` requests Daravel answers to the upstream, after the response, and reports differences in status, content type and JSON shape to the log and `ShadowParityDrift`.
 - pgvector: `Blueprint.vector`, `tsvector` and `vectorIndex`, `Schema.ensureVectorExtensionExists`, `Cast.vector`, `whereVectorSimilarTo`, `whereVectorDistanceLessThan`, `orderByVectorDistance` and `selectVectorDistance`. On PostgreSQL and MariaDB 11.7 or newer; MySQL gets the column. MariaDB reads a vector through `selectVector`.
+- Pulse: a Shadow parity drift card, from `ShadowParityDrift`.
 
 ## 1.22.0
 

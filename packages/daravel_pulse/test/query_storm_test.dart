@@ -121,6 +121,32 @@ void main() {
     });
   });
 
+  test('a parity drift is listed by route, with no value', () {
+    final recorder = PulseRecorder()
+      ..recordParityDrift(
+        const ShadowParityDrift(
+          method: 'GET',
+          path: '/orders',
+          drifts: [
+            ShadowDrift('', 'status', ours: 200, theirs: 500),
+            ShadowDrift('data.0.id', 'type', ours: 'integer', theirs: 'string'),
+            ShadowDrift('data.0.name', 'missing_key'),
+          ],
+        ),
+      )
+      ..recordParityDrift(
+        const ShadowParityDrift(method: 'GET', path: '/orders', drifts: []),
+      );
+    final snapshot = PulseSnapshot.build(
+      [recorder.report()],
+      window: const Duration(hours: 1),
+      now: Clock.now(),
+    );
+    final drift = (snapshot['parity_drifts']! as List<Object?>).single;
+    expect(drift, containsPair('path', '/orders'));
+    expect(drift, containsPair('count', 2));
+  });
+
   test('a pool wait is listed by connection', () {
     final recorder = PulseRecorder()
       ..recordPoolWait('pgsql', const Duration(milliseconds: 40))
