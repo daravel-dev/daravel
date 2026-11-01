@@ -254,8 +254,8 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `class User extends Model` | `final class User extends Model` |  |
 | `protected $table / $fillable / $hidden / $casts` | `ModelDefinition<User>(table:, fillable:, hidden:, casts:)` |  |
 | `$table->vector('embedding', dimensions: 1536)` | `table.vector('embedding', dimensions: 1536)` |  |
-| `$table->vectorIndex('embedding')` | `table.vectorIndex('embedding')` | PostgreSQL; MariaDB not yet |
-| `->whereVectorSimilarTo('embedding', $vector, 0.7)` | `.whereVectorSimilarTo('embedding', vector, minSimilarity: 0.7)` | PostgreSQL; MariaDB not yet |
+| `$table->vectorIndex('embedding')` | `table.vectorIndex('embedding')` |  |
+| `->whereVectorSimilarTo('embedding', $vector, 0.7)` | `.whereVectorSimilarTo('embedding', vector, minSimilarity: 0.7)` |  |
 | `'embedding' => AsVector::class (casts)` | `casts: {'embedding': Cast.vector}` |  |
 | `'published_at' => 'datetime:Y-m-d H:i' (casts)` | `casts: {'published_at': Cast.dateTimeFormat('Y-m-d H:i')}` | PHP date() tokens, formatted in UTC as Laravel 8 to 13 do; formatPhpDate() for other values. |
 | `php artisan model:show User` | `dartisan model:show User (models listed in bootstrap/models.dart)` | No class discovery: the registry is explicit, like migrations and jobs. |
