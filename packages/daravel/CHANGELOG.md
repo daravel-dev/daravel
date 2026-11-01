@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.22.0
+
+- Version aligned with Daravel 1.22.0; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).
+
 ## 1.21.1
 
 - **Behaviour change:** an exception becomes a response at the layer that threw it, so every outer middleware finishes; one that wraps `next` in a transaction no longer sees the exception.

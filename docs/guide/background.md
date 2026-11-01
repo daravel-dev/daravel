@@ -86,6 +86,14 @@ on):
   that queue (running jobs finish) until `dartisan queue:continue
   database:emails`; `QueueWorker.pause()` / `resume()` do the same for one
   worker.
+- `Queue.manager.route<SendEmail>(queue: 'emails')` says where a job type goes,
+  in one place. `withoutDelay()` on a dispatch ignores the delay a job declares.
+- `bool get deleteWhenMissingModels => true` drops a job whose model is gone. A
+  missing model now fails a job at once, as in Laravel, instead of using up its
+  tries.
+- `Duration? get debounceFor` runs only the last dispatch of a burst with the same
+  `debounceId`, that long after it. `debounceMaxWait` lets a long burst through,
+  and a job cannot be both debounced and unique.
 
 ## Concurrency
 

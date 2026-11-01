@@ -16,6 +16,7 @@ import '../cache/cache.dart';
 import '../database/database_config.dart';
 import '../concurrency/concurrency.dart';
 import '../database/database_manager.dart';
+import '../database/query_executor.dart';
 import '../database/orm/model.dart';
 import '../database/orm/model_definition.dart';
 import '../database/orm/model_registry.dart';
@@ -273,13 +274,41 @@ final class Application {
       ..instance<Router>(router)
       ..instance<MiddlewareRegistry>(middleware)
       ..instance<ExceptionHandler>(exceptions)
-      ..singleton<DatabaseManager>(
-        (c) => DatabaseManager(
+      ..singleton<DatabaseManager>((c) {
+        final dispatcher = c.make<EventDispatcher>();
+        return DatabaseManager(
           c.make<ConfigRepository>().section<DatabaseConfig>(),
           logger: c.make<Logger>(),
           drivers: _builder._databaseDrivers,
-        ),
-      )
+        )..listenTransactions((event) {
+          // `database` may not import `events`, so this is where they meet.
+          final Future<void> sent = switch (event) {
+            DbTransactionBeginning() => dispatcher.dispatch(
+              TransactionBeginning(
+                event.connectionName,
+                depth: event.depth,
+                poolWait: event.poolWait,
+              ),
+            ),
+            DbTransactionCommitted() => dispatcher.dispatch(
+              TransactionCommitted(
+                event.connectionName,
+                depth: event.depth,
+                elapsed: event.elapsed,
+              ),
+            ),
+            DbTransactionRolledBack() => dispatcher.dispatch(
+              TransactionRolledBack(
+                event.connectionName,
+                depth: event.depth,
+                elapsed: event.elapsed,
+                error: event.error,
+              ),
+            ),
+          };
+          unawaited(sent);
+        });
+      })
       ..singleton<Migrator>(
         (c) => Migrator(c.make<DatabaseManager>(), _builder._migrations),
       )
@@ -567,6 +596,7 @@ final class Application {
       failedJobs: failed,
       container: c,
       logger: logger,
+      debounceStore: () => lockStore,
       uniqueLockRelease: (key) => manager.releaseUniqueLock(key),
     );
     manager =

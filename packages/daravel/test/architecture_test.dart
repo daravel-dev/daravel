@@ -12,6 +12,7 @@ import 'package:test/test.dart';
 const Map<String, Set<String>> allowedDependencies = {
   'foundation': {},
   'concurrency': {'foundation', 'http', 'logging'},
+  'process': {'foundation'},
   'logging': {'foundation'},
   'storage': {'foundation'},
   // Ships SQLite's write-ahead log to a disk (Blueprint #30).

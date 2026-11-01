@@ -89,6 +89,15 @@ Horizon):
   mengambil job dari queue itu (job yang sedang berjalan tetap selesai)
   sampai `dartisan queue:continue database:emails`; `QueueWorker.pause()` /
   `resume()` melakukan hal yang sama untuk satu worker.
+- `Queue.manager.route<SendEmail>(queue: 'emails')` menentukan tujuan satu tipe job,
+  di satu tempat. `withoutDelay()` pada dispatch mengabaikan delay yang dideklarasikan
+  job.
+- `bool get deleteWhenMissingModels => true` membuang job yang modelnya sudah hilang.
+  Model yang hilang kini langsung menggagalkan job, seperti di Laravel, bukan
+  menghabiskan jatah percobaan.
+- `Duration? get debounceFor` hanya menjalankan dispatch terakhir dari satu burst
+  dengan `debounceId` yang sama, selama itu setelahnya. `debounceMaxWait` meloloskan
+  burst yang panjang, dan job tidak bisa debounced sekaligus unique.
 
 ## Concurrency
 

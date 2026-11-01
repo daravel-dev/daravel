@@ -1,4 +1,4 @@
-<!-- source: helpers.md sha256:72ad1806d86f -->
+<!-- source: helpers.md sha256:b8253d676ae2 -->
 # String, helper, dan koleksi
 
 Utilitas sehari-hari Laravel, dengan nama dan semantik yang sama sejauh
@@ -103,6 +103,42 @@ untuk locale `en` dan `id` (`Number.useLocale('id')` menetapkan default):
 Pembulatannya half to even, seperti ICU (`Number.format(2.5, precision: 0)`
 menghasilkan `2`). Shortcut: `5242880.toFileSize()`, `1500.abbreviate()`,
 `150000.toCurrency(code: 'IDR')`, `22.ordinal()`.
+
+## `DaravelUri`
+
+`Uri` fluent Laravel, dengan nama lain karena `Uri` sudah dipakai `dart:core`. Setiap method
+mengembalikan objek baru, dan query dibaca serta ditulis seperti di PHP.
+
+```dart
+final url = DaravelUri.of('https://shop.test/orders?page=1')
+    .withQuery({'status': 'open'})
+    .withoutQuery('page')
+    .withFragment('top');
+
+return url.redirect();
+```
+
+## Proses
+
+`package:daravel/process.dart` menjalankan program lain. Library ini terpisah,
+karena `Process` di dalamnya akan bentrok dengan `Process` dari `dart:io` di file
+yang memakai keduanya.
+
+```dart
+import 'package:daravel/process.dart';
+
+final result = await Process.run(['git', 'status']);
+if (result.successful) print(result.output);
+
+final count = await Process.pipe([
+  ['git', 'log', '--oneline'],
+  ['wc', '-l'],
+]);
+final results = await Process.pool(commands, concurrency: 4);
+```
+
+`Process.fake` mengganti perintah di dalam body-nya, jadi test tidak menjalankan
+apa pun.
 
 ## Helper global
 
