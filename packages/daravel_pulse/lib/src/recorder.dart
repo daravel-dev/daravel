@@ -28,6 +28,7 @@ final class PulseRecorder {
     'jobs',
     'storms',
     'pool_waits',
+    'parity_drifts',
   ];
 
   final int maxGroups;
@@ -112,6 +113,31 @@ final class PulseRecorder {
   void recordPoolWait(String connection, Duration waited) {
     final now = Clock.now();
     _group('pool_waits', connection, now, waited, {'connection': connection});
+    _recorded(now);
+  }
+
+  /// Lists a route that answered differently from the upstream. It holds the
+  /// paths and kinds of the differences, never values.
+  void recordParityDrift(ShadowParityDrift drift) {
+    final now = Clock.now();
+    _group(
+      'parity_drifts',
+      '${drift.method} ${drift.path}',
+      now,
+      Duration.zero,
+      {
+        'method': drift.method,
+        'path': _clip(drift.path, 200),
+        'drifts': [
+          for (final item in drift.drifts)
+            item.path.isEmpty
+                ? '${item.kind}: ${item.ours} vs ${item.theirs}'
+                : item.ours == null
+                ? '${item.kind}: ${item.path}'
+                : '${item.kind}: ${item.path} (${item.ours} vs ${item.theirs})',
+        ].join(', '),
+      },
+    );
     _recorded(now);
   }
 
@@ -304,6 +330,7 @@ abstract final class PulseSnapshot {
     'jobs': 'jobs',
     'storms': 'query_storms',
     'pool_waits': 'pool_waits',
+    'parity_drifts': 'parity_drifts',
   };
 
   /// Merges [reports] over [window] ending at [now]: totals, a 60-point
