@@ -112,6 +112,67 @@ final class Controlled extends Job {
 
 /// Takes longer than its timeout and does not fail on it: released for
 /// another attempt while its future still runs.
+final class Stale extends Job {
+  const Stale({required this.drop});
+  final bool drop;
+  @override
+  String get jobName => 'stale';
+  @override
+  int get tries => 3;
+  @override
+  bool get deleteWhenMissingModels => drop;
+  @override
+  Map<String, Object?> toJson() => {'drop': drop};
+  @override
+  Future<void> handle(JobContext ctx) async {
+    throw ModelNotFoundException(r'App\Models\User', const [7]);
+  }
+}
+
+final class Saved extends Job {
+  const Saved(this.value, {this.maxWait});
+  final int value;
+  final Duration? maxWait;
+  @override
+  String get jobName => 'saved';
+  @override
+  Duration? get debounceFor => const Duration(minutes: 1);
+  @override
+  Duration? get debounceMaxWait => maxWait;
+  @override
+  String get debounceId => 'doc-1';
+  @override
+  Map<String, Object?> toJson() => {'value': value};
+  @override
+  Future<void> handle(JobContext ctx) async => log.add('saved:$value');
+}
+
+final class SavedFailing extends Job {
+  const SavedFailing();
+  @override
+  String get jobName => 'saved-failing';
+  @override
+  Duration? get debounceFor => const Duration(minutes: 1);
+  @override
+  Map<String, Object?> toJson() => const {};
+  @override
+  Future<void> handle(JobContext ctx) async => throw StateError('no');
+}
+
+final class SavedUnique extends Job {
+  const SavedUnique();
+  @override
+  String get jobName => 'saved-unique';
+  @override
+  String? get uniqueId => 'x';
+  @override
+  Duration? get debounceFor => const Duration(minutes: 1);
+  @override
+  Map<String, Object?> toJson() => const {};
+  @override
+  Future<void> handle(JobContext ctx) async {}
+}
+
 final class Lingering extends Job {
   const Lingering();
   @override
@@ -132,6 +193,9 @@ final class Lingering extends Job {
 final List<JobDefinition> definitions = [
   JobDefinition('greet', Greet.fromJson),
   JobDefinition('lingering', (_) => const Lingering()),
+  JobDefinition('saved', (j) => Saved(j['value']! as int)),
+  JobDefinition('saved-failing', (_) => const SavedFailing()),
+  JobDefinition('stale', (j) => Stale(drop: j['drop']! as bool)),
   JobDefinition('slow', (_) => const Slow()),
   JobDefinition('exclusive', (j) => Exclusive(j['key']! as String)),
   JobDefinition('controlled', (j) => Controlled(j['action']! as String)),
@@ -154,7 +218,7 @@ void main() {
               'DB_DATABASE': ':memory:',
               'QUEUE_CONNECTION': connection,
             })
-            .withMigrations(const [CreateJobsTable()])
+            .withMigrations(const [CreateJobsTable(), CreateCacheTable()])
             .withJobs(definitions)
             .create();
     await app!.boot();
@@ -339,6 +403,105 @@ void main() {
         });
       },
     );
+  });
+
+  group('debounce', () {
+    tearDown(Clock.restore);
+
+    Future<void> drain() =>
+        QueueWorker(Queue.manager)
+            .run(const WorkerOptions(stopWhenEmpty: true));
+
+    test('only the last of a burst runs, and it waits', () async {
+      await boot('memory');
+      Clock.fake(DateTime.utc(2026, 11, 1, 8));
+      await app!.run(() async {
+        await Queue.push(const Saved(1));
+        await Queue.push(const Saved(2));
+        await Queue.push(const Saved(3));
+        await drain();
+        expect(log, isEmpty, reason: 'still in the window');
+        Clock.travel(const Duration(minutes: 2));
+        await drain();
+        expect(log, ['saved:3']);
+        expect(await Queue.manager.processor.failedJobs.all(), isEmpty);
+      });
+    });
+
+    test('maxWait lets a long burst through', () async {
+      await boot('memory');
+      Clock.fake(DateTime.utc(2026, 11, 1, 8));
+      await app!.run(() async {
+        const maxWait = Duration(minutes: 3);
+        await Queue.push(const Saved(1, maxWait: maxWait));
+        Clock.travel(const Duration(minutes: 4));
+        await Queue.push(const Saved(2, maxWait: maxWait));
+        await drain();
+        expect(log, ['saved:2'], reason: 'no delay past the limit');
+      });
+    });
+
+    test('on the database driver too', () async {
+      await boot('database');
+      Clock.fake(DateTime.utc(2026, 11, 1, 8));
+      await app!.run(() async {
+        await Queue.push(const Saved(1));
+        await Queue.push(const Saved(2));
+        await drain();
+        expect(log, isEmpty);
+        Clock.travel(const Duration(minutes: 2));
+        await drain();
+        expect(log, ['saved:2']);
+        expect(await Queue.manager.processor.failedJobs.all(), isEmpty);
+      });
+    });
+
+    test('a job that fails for good gives up its place', () async {
+      await boot('memory');
+      Clock.fake(DateTime.utc(2026, 11, 1, 8));
+      await app!.run(() async {
+        const job = SavedFailing();
+        final store = Queue.manager.processor.debounceStore!()!;
+        final key = JobProcessor.debounceKey(job);
+        await Queue.push(job);
+        expect(await store.get<String>(key), isNotNull);
+        Clock.travel(const Duration(minutes: 2));
+        await drain();
+        expect(await Queue.manager.processor.failedJobs.all(), hasLength(1));
+        expect(await store.get<String>(key), isNull);
+      });
+    });
+
+    test('a fake refuses the mistake too', () async {
+      await boot('memory');
+      await app!.run(() async {
+        Queue.fake();
+        await expectLater(
+          Queue.push(const SavedUnique()),
+          throwsA(isA<StateError>()),
+        );
+      });
+    });
+
+    test('a debounced job cannot be unique', () async {
+      await boot('memory');
+      await app!.run(() async {
+        await expectLater(
+          Queue.push(const SavedUnique()),
+          throwsA(isA<StateError>()),
+        );
+      });
+    });
+  });
+
+  test('a missing model drops the job, or fails it at once', () async {
+    await boot('sync');
+    await app!.run(() async {
+      await Queue.push(const Stale(drop: true));
+      expect(await Queue.manager.processor.failedJobs.all(), isEmpty);
+      await Queue.push(const Stale(drop: false));
+      expect(await Queue.manager.processor.failedJobs.all(), hasLength(1));
+    });
   });
 
   test('sync connection runs jobs inline and records failures', () async {

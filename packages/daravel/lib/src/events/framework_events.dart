@@ -97,16 +97,45 @@ final class ScheduledTaskSkipped {
   final String reason;
 }
 
-/// A database transaction committed.
-final class TransactionCommitted {
-  const TransactionCommitted(this.connection);
+/// A database transaction or savepoint began. [depth] is 1 for `BEGIN`.
+final class TransactionBeginning {
+  const TransactionBeginning(
+    this.connection, {
+    this.depth = 1,
+    this.poolWait = Duration.zero,
+  });
 
   final String connection;
+  final int depth;
+
+  /// The wait for a free connection.
+  final Duration poolWait;
 }
 
-/// A database transaction rolled back.
-final class TransactionRolledBack {
-  const TransactionRolledBack(this.connection);
+/// A database transaction committed, or a savepoint was released.
+final class TransactionCommitted {
+  const TransactionCommitted(
+    this.connection, {
+    this.depth = 1,
+    this.elapsed = Duration.zero,
+  });
 
   final String connection;
+  final int depth;
+  final Duration elapsed;
+}
+
+/// A database transaction or savepoint rolled back.
+final class TransactionRolledBack {
+  const TransactionRolledBack(
+    this.connection, {
+    this.depth = 1,
+    this.elapsed = Duration.zero,
+    this.error,
+  });
+
+  final String connection;
+  final int depth;
+  final Duration elapsed;
+  final Object? error;
 }

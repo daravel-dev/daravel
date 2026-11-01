@@ -4,6 +4,7 @@
 /// HTTP kernel, radix router, SQLite database access, schema migrations.
 library;
 
+export 'src/concurrency/concurrency.dart';
 export 'src/database/database_config.dart';
 export 'src/database/database_manager.dart';
 export 'src/database/query_executor.dart';
@@ -154,5 +155,6 @@ export 'src/observability/health.dart';
 export 'src/observability/metrics.dart';
 export 'src/storage/read_through_disk.dart';
 export 'src/storage/storage.dart';
+export 'src/support/fluent_uri.dart';
 export 'src/support/storage_facade.dart';
 export 'src/foundation/clock.dart';

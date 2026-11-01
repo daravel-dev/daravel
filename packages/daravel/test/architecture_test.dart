@@ -13,6 +13,8 @@ const Map<String, Set<String>> allowedDependencies = {
   'foundation': {},
   // Plain schema documents: nothing else.
   'json_schema': {},
+  'concurrency': {'foundation', 'http', 'logging'},
+  'process': {'foundation'},
   'logging': {'foundation'},
   'storage': {'foundation'},
   // Ships SQLite's write-ahead log to a disk (Blueprint #30).

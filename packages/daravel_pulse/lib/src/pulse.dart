@@ -75,6 +75,13 @@ abstract final class Pulse {
       }
       QueryTally.current?.add(query.sql, query.time);
     });
+    container.make<DatabaseManager>().listenTransactions((event) {
+      if (event is DbTransactionBeginning &&
+          event.depth == 1 &&
+          event.poolWait >= config.poolWaitThreshold) {
+        recorder.recordPoolWait(event.connectionName, event.poolWait);
+      }
+    });
     container.make<EventDispatcher>()
       ..listen<JobProcessed>((JobProcessed job) {
         if (job.duration >= config.slowJobThreshold) {

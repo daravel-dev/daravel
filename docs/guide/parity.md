@@ -287,6 +287,8 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `$model->getChanges()` | `model.getChanges()` |  |
 | `$model->refresh() / fresh()` | `await model.refresh() / fresh()` | **async** |
 | `$model->load('posts')` | `await model.load('posts')` | **async** |
+| `Model::automaticallyEagerLoadRelationships()` | `Model.automaticallyEagerLoad = true` | through load and loadMissing: related never queries |
+| `->withRelationshipAutoloading()` | `.withRelationshipAutoloading()` |  |
 | `$model->toArray() / toJson()` | `model.toJson()` |  |
 | `ModelNotFoundException` | `ModelNotFoundException` |  |
 
@@ -304,6 +306,8 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `'connections' => ['legacy' => ['url' => env('LEGACY_DB_URL')]]` | `withDatabaseConnection('legacy', (env) => ConnectionConfig.fromUrl(env.string('LEGACY_DB_URL')))` |  |
 | `DB::connection('legacy')->transaction(fn)` | `DB.transaction(() async {...}, connection: 'legacy')` | **async**; Transactions are per connection, as in Laravel. |
 | `DB::raw($sql)` | `DB.raw(sql)` |  |
+| `Event::listen(TransactionCommitted::class, fn)` | `Event.listen<TransactionCommitted>(fn)` |  |
+| `DB::listen(...) for transactions` | `DB.listenTransactions((e) {...})` | with poolWait |
 | `DB::listen(fn (QueryExecuted $q) => ...)` | `DB.listen((QueryExecuted q) {...})` |  |
 | `DB::whenQueryingForLongerThan(500, fn)` | `DB.whenQueryingForLongerThan(const Duration(milliseconds: 500), (q) {...})` | Total per request, job or command; once. |
 | `DB::enableQueryLog(); ... count(DB::getQueryLog())` | `final (result, count, queries) = await DB.withQueryCount(() => ...)` |  |
@@ -364,6 +368,13 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `Cache::tags(['people'])->put($key, $value, $ttl)` | `await Cache.tags(['people']).put(key, value, ttl: ttl)` | **async**; memory, process and redis stores (Laravel's layout on Redis); file and database cannot tag, as in Laravel. |
 | `Cache::lock('name', 10)->get(fn)` | `await Cache.lock('name', ...)` |  |
 | `SendEmail::dispatch($user)` | `await Queue.dispatch(SendEmail(user))` | **async** |
+| `Concurrency::run([fn () => 1, fn () => 2])` | `await Concurrency.run<int>([() => 1, () => 2])` | **async**; on worker isolates: no facades in a task |
+| `Concurrency::defer([fn () => report()])` | `await Concurrency.defer([report])` | **async** |
+| `Concurrency::driver('sync')->run($tasks)` | `await Concurrency.sync(() => Concurrency.run(tasks))` | **async** |
+| `Queue::route(SendEmail::class, 'emails')` | `Queue.manager.route<SendEmail>(queue: 'emails')` |  |
+| `SendEmail::dispatch()->withoutDelay()` | `.withoutDelay()` |  |
+| `public $deleteWhenMissingModels = true` | `bool get deleteWhenMissingModels => true` |  |
+| `#[DebounceFor(60)]` | `Duration? get debounceFor => ...` |  |
 | `Queue::later($delay, $job)` | `await Queue.later(delay, job)` | **async** |
 | `public function tags() (Horizon)` | `List<String> get tags` |  |
 | `php artisan queue:pause database:default / queue:continue` | `dartisan queue:pause database:default / queue:continue` |  |
@@ -443,6 +454,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `Str::contains / startsWith / endsWith` | `Str.contains / startsWith / endsWith` |  |
 | `Str::plural / singular / pluralStudly` | `Str.plural / singular / pluralStudly` | English rules with common irregulars. |
 | `Str::random / uuid / ulid / isUuid / isJson` | `Str.random / uuid / ulid / isUuid / isJson` |  |
+| `Uri::of($url)->withQuery([...])` | `DaravelUri.of(url).withQuery({...})` |  |
 | `Str::of($title)->after(':')->squish()->slug()` | `title.after(':').squish().slug()` | Str methods chain on the string itself. |
 | `now()->addMinutes(10) / Carbon::now()->subDays(7)` | `10.minutes.fromNow / 7.days.ago` |  |
 | `$date->diffForHumans() / isPast() / isToday() / startOfDay()` | `date.diffForHumans() / isPast / isToday / startOfDay` | Carbon's units and wording, en and id. |

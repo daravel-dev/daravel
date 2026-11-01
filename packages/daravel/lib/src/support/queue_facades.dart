@@ -43,6 +43,11 @@ abstract final class Queue {
 
   static QueueDriver connection([String? name]) => manager.connection(name);
 
+  /// Sends jobs of type [T] to [queue] or [connection]; see
+  /// [QueueManager.route].
+  static void route<T extends Job>({String? queue, String? connection}) =>
+      manager.route<T>(queue: queue, connection: connection);
+
   /// Fluent dispatch: `await Queue.dispatch(job).onQueue('emails')`.
   static PendingDispatch dispatch(Job job) => manager.dispatch(job);
 
