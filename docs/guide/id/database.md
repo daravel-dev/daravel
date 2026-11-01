@@ -1,4 +1,4 @@
-<!-- source: database.md sha256:3f5311d1dd1b -->
+<!-- source: database.md sha256:19704fd52478 -->
 # Database
 
 `DB_CONNECTION` memilih SQLite (`sqlite`, default), PostgreSQL (`pgsql`),
@@ -326,6 +326,29 @@ Path hanya berisi key dan indeks biasa (`items[0]->id`); selain itu adalah error
 sama seperti kolom yang tidak valid. Update mempertahankan key lain dan tipe JSON
 nilainya, juga pada kolom `NULL`. Path bersarang butuh induknya di PostgreSQL dan
 MySQL, sama seperti Laravel; SQLite membuatnya.
+
+## Tabel tanpa sequence
+
+Skema lama sering tidak punya auto-increment, dan kode Laravel menulis `MAX(id) + 1`.
+Dua request yang melakukannya bersamaan membaca nilai maksimum yang sama. `LegacyKey`
+membuat masing-masing menunggu yang sebelumnya:
+
+```dart
+final id = await LegacyKey.insert('kandidat', {'nama': nama});
+
+await DB.transaction(() async {
+  final id = await LegacyKey.next('kandidat');
+  await DB.table('kandidat').insert({'id': id, 'nama': nama});
+  await DB.table('kandidat_log').insert({'kandidat_id': id});
+});
+```
+
+`next` melempar error di luar transaksi, karena key hanya tertahan sampai transaksi
+berakhir. Kode Laravel di tabel yang sama tidak mengambil lock, jadi `insert` mencoba
+lagi saat key sudah terpakai; hanya `insert` yang melakukannya, dan `next` Anda akan
+gagal dengan `UniqueConstraintViolationException`. Di MySQL dan MariaDB, penulis yang
+bersamaan bisa deadlock. `insert` mengulanginya sendiri, tetapi di dalam transaksi
+Anda seluruh transaksi hilang, jadi berikan `attempts:`.
 
 ## Kolom vector
 
