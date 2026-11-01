@@ -1,4 +1,4 @@
-<!-- source: migrating-from-laravel.md sha256:2fd9f1680c32 -->
+<!-- source: migrating-from-laravel.md sha256:5aa2bf6b3650 -->
 # Migrasi dari Laravel, route demi route
 
 Anda tidak harus menulis ulang aplikasi Laravel sekaligus. Karena Daravel
@@ -209,6 +209,43 @@ jadi percayai Daravel di middleware `TrustProxies` Laravel
 (`$middleware->trustProxies(at: '127.0.0.1')`). Jika Laravel tidak
 menjawab, klien menerima 502; jika terlalu lambat (`timeout:`, 60 detik),
 504. WebSocket tidak diteruskan.
+
+### Bandingkan route yang sudah pindah dengan Laravel
+
+Dengan Daravel di depan, route yang sudah pindah tetap bisa diperiksa terhadap
+Laravel di bawah trafik nyata. Daravel menjawab klien, lalu memutar ulang sampel
+request `GET` dan `HEAD` yang dijawabnya ke Laravel dan membandingkan keduanya.
+
+```dart
+.withUpstream(
+  url: 'http://127.0.0.1:8080',
+  shadowSampleRate: 0.01,                 // atau UPSTREAM_SHADOW_SAMPLE
+  shadowIgnoreKeys: {'meta.took_ms'},     // atau UPSTREAM_SHADOW_IGNORE_KEYS
+  shadowExcept: ['/orders/export'],
+)
+```
+
+Yang dibandingkan adalah status, content type, dan untuk JSON: key, tipe, dan
+panjang list, bukan nilainya, karena replay datang belakangan dan nilainya bisa
+saja memang sudah berubah. `data.*.updated_at` mengabaikan key di setiap item list.
+Perbedaan masuk ke log sebagai warning, dan ke `ShadowParityDrift` untuk listener
+Anda, hanya berisi path dan tipe, tidak pernah nilai:
+
+```dart
+.withEvents((events) {
+  events.listen<ShadowParityDrift>(report);
+})
+```
+
+Klien tidak menunggu semua ini. Paling banyak `shadowMaxConcurrency` replay berjalan
+bersamaan per isolate (`UPSTREAM_SHADOW_MAX_CONCURRENCY`, default 4), dan lebih dari
+itu sampel dibuang, jadi Laravel tidak pernah menerima lebih dari itu dari Daravel.
+Replay membawa `X-Daravel-Shadow: 1` dan tidak pernah diputar ulang.
+
+Replay membawa cookie dan `Authorization` klien, dan benar-benar dijalankan di
+Laravel. `GET` yang menghitung view akan menghitungnya dua kali, dan di session
+bersama bisa menghabiskan flash message. Masukkan path seperti itu ke
+`shadowExcept`, dan mulai dari rate kecil.
 
 ### Progres
 
