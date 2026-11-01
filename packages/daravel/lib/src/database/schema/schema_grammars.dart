@@ -31,7 +31,14 @@ final class PostgresSchemaGrammar extends SchemaGrammar {
     .uuid => 'UUID',
     .binary => 'BYTEA',
     .enumeration => 'VARCHAR(255)',
+    .vector => column.length == null ? 'vector' : 'vector(${column.length})',
+    .tsvector => 'tsvector',
   };
+
+  @override
+  String compileVectorIndex(String table, IndexDefinition index) =>
+      'CREATE INDEX ${wrap(index.nameFor(table))} ON ${wrap(table)} USING hnsw '
+      '(${index.columns.map((c) => '${wrap(c)} vector_cosine_ops').join(', ')})';
 
   @override
   String literal(Object? value) => switch (value) {
@@ -156,6 +163,8 @@ final class MySqlSchemaGrammar extends SchemaGrammar {
     .uuid => 'CHAR(36)',
     .binary => 'BLOB',
     .enumeration => 'ENUM(${column.allowed.map(literal).join(', ')})',
+    .vector => column.length == null ? 'vector' : 'vector(${column.length})',
+    .tsvector => throw UnsupportedError('tsvector needs PostgreSQL.'),
   };
 
   @override

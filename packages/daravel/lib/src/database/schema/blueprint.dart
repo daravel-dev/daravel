@@ -26,6 +26,8 @@ enum ColumnType {
   uuid,
   binary,
   enumeration,
+  vector,
+  tsvector,
 }
 
 /// A column being defined (or changed) inside a [Blueprint].
@@ -209,14 +211,28 @@ final class ForeignKeyDefinition {
 
 /// A table-level index.
 final class IndexDefinition {
-  const IndexDefinition(this.columns, {required this.unique, this.name});
+  const IndexDefinition(
+    this.columns, {
+    required this.unique,
+    this.name,
+    this.vector = false,
+  });
 
   final List<String> columns;
   final bool unique;
   final String? name;
 
+  /// An approximate index for distance queries ([Blueprint.vectorIndex]).
+  final bool vector;
+
   String nameFor(String table) =>
-      name ?? '${table}_${columns.join('_')}_${unique ? 'unique' : 'index'}';
+      name ??
+      '${table}_${columns.join('_')}_'
+          '${vector
+              ? 'vectorindex'
+              : unique
+              ? 'unique'
+              : 'index'}';
 }
 
 /// Collects column, index and foreign key definitions for `Schema.create`
@@ -382,6 +398,15 @@ final class Blueprint {
       _add(ColumnDefinition(name, ColumnType.json));
   ColumnDefinition jsonb(String name) => json(name);
 
+  /// A `pgvector` column of [dimensions] numbers. SQLite stores it as text, so
+  /// a migration still runs in tests, without distance queries.
+  ColumnDefinition vector(String name, {int? dimensions}) =>
+      _add(ColumnDefinition(name, ColumnType.vector, length: dimensions));
+
+  /// A PostgreSQL `tsvector` column; text on SQLite.
+  ColumnDefinition tsvector(String name) =>
+      _add(ColumnDefinition(name, ColumnType.tsvector));
+
   ColumnDefinition binary(String name) =>
       _add(ColumnDefinition(name, ColumnType.binary));
 
@@ -402,6 +427,12 @@ final class Blueprint {
   /// Nullable `remember_token` column.
   ColumnDefinition rememberToken() =>
       string('remember_token', length: 100).nullable();
+
+  /// An HNSW index with cosine distance, as Laravel's `vectorIndex`. SQLite
+  /// has none, and goes without.
+  void vectorIndex(String column, {String? name}) => indexes.add(
+    IndexDefinition([column], unique: false, name: name, vector: true),
+  );
 
   void index(List<String> columns, {String? name}) =>
       indexes.add(IndexDefinition(columns, unique: false, name: name));
@@ -623,14 +654,27 @@ abstract class SchemaGrammar {
     return buffer.toString();
   }
 
-  String compileIndex(String table, IndexDefinition index) =>
-      'CREATE ${index.unique ? 'UNIQUE ' : ''}INDEX ${wrap(index.nameFor(table))} ON '
-      '${wrap(table)} (${index.columns.map(wrap).join(', ')})';
+  String compileIndex(String table, IndexDefinition index) => index.vector
+      ? compileVectorIndex(table, index)
+      : 'CREATE ${index.unique ? 'UNIQUE ' : ''}INDEX ${wrap(index.nameFor(table))} ON '
+            '${wrap(table)} (${index.columns.map(wrap).join(', ')})';
+
+  /// Whether [compileVectorIndex] gives a statement. Without it a vector index
+  /// is left out, as SQLite does, or refused, as MySQL does.
+  bool get skipsVectorIndex => false;
+
+  String compileVectorIndex(String table, IndexDefinition index) =>
+      throw UnsupportedError('Vector indexes need PostgreSQL with pgvector.');
 
   /// Indexes implied by `.index()` / `.unique()` column modifiers.
   List<IndexDefinition> columnIndexes(Blueprint blueprint) => [
     for (final column in blueprint.addedColumns)
-      if (column.hasIndex) IndexDefinition([column.name], unique: false),
+      if (column.hasIndex)
+        IndexDefinition(
+          [column.name],
+          unique: false,
+          vector: column.type == .vector,
+        ),
     for (final column in blueprint.addedColumns)
       if (column.isUnique && !inlineUnique)
         IndexDefinition([column.name], unique: true),
@@ -648,7 +692,8 @@ abstract class SchemaGrammar {
     return <String>[
       'CREATE TABLE ${wrap(blueprint.table)} (${parts.join(', ')})$createSuffix',
       for (final index in [...columnIndexes(blueprint), ...blueprint.indexes])
-        compileIndex(blueprint.table, index),
+        if (!index.vector || !skipsVectorIndex)
+          compileIndex(blueprint.table, index),
     ];
   }
 
@@ -674,7 +719,8 @@ abstract class SchemaGrammar {
       for (final key in blueprint.foreignKeys)
         'ALTER TABLE $table ADD ${compileForeignClause(blueprint.table, key)}',
       for (final index in [...columnIndexes(blueprint), ...blueprint.indexes])
-        compileIndex(blueprint.table, index),
+        if (!index.vector || !skipsVectorIndex)
+          compileIndex(blueprint.table, index),
     ];
   }
 

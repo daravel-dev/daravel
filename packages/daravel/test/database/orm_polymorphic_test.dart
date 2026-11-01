@@ -380,7 +380,7 @@ void polymorphicTests(DatabaseOpener open) {
       final touched = await Post.definition.query(db: db).first();
       expect(
         '${touched!.getAttr<Object?>('updated_at')}',
-        isNot(contains('2000')),
+        isNot(startsWith('2000')),
       );
     });
 

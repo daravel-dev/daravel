@@ -1,4 +1,4 @@
-<!-- source: database.md sha256:1dd531cdfedb -->
+<!-- source: database.md sha256:df1a9ee6def0 -->
 # Database
 
 `DB_CONNECTION` memilih SQLite (`sqlite`, default), PostgreSQL (`pgsql`),
@@ -326,6 +326,37 @@ Path hanya berisi key dan indeks biasa (`items[0]->id`); selain itu adalah error
 sama seperti kolom yang tidak valid. Update mempertahankan key lain dan tipe JSON
 nilainya, juga pada kolom `NULL`. Path bersarang butuh induknya di PostgreSQL dan
 MySQL, sama seperti Laravel; SQLite membuatnya.
+
+## Kolom vector
+
+Di PostgreSQL dengan [pgvector](https://github.com/pgvector/pgvector), kolom bisa
+menyimpan embedding, dan query bisa mengurutkan berdasarkan jarak cosine. Nama dan
+SQL-nya sama dengan Laravel.
+
+```dart
+await Schema.ensureVectorExtensionExists();
+
+await Schema.create('documents', (table) {
+  table.id();
+  table.vector('embedding', dimensions: 1536);
+  table.vectorIndex('embedding');              // HNSW, cosine
+  table.tsvector('search').nullable();
+});
+
+final nearest = await Document.query()
+    .whereVectorSimilarTo('embedding', queryVector, minSimilarity: 0.7)
+    .limit(10)
+    .get();
+```
+
+`whereVectorSimilarTo` menyisakan baris yang setidaknya semirip itu, yang terdekat
+lebih dulu; berikan `order: false` untuk memakai urutan Anda sendiri.
+`whereVectorDistanceLessThan`, `orderByVectorDistance`, dan `selectVectorDistance`
+adalah bagian-bagiannya. `Cast.vector` membaca kolom sebagai `List<double>`.
+
+SQLite menyimpan kolom ini sebagai teks dan melewati index-nya, jadi migrasi tetap
+berjalan di test, tetapi query jarak melempar error di sana. Di MySQL dan MariaDB,
+`vector` hanya menambah kolom: index dan query jarak belum didukung.
 
 ## Error query
 

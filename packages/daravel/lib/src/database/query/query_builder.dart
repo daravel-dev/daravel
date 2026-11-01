@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'dart:async';
 
 import '../../foundation/clock.dart';
@@ -506,6 +508,59 @@ final class QueryBuilder {
     _ast.orders.add(OrderClause('', '', raw: RawExpression(sql, bindings)));
     return this;
   }
+
+  /// `("embedding" <=> ?)`, pgvector's cosine distance. MariaDB is not
+  /// supported yet: `vec_fromtext` needs its own dialect.
+  String _vectorDistance(String column) {
+    final grammar = _db.grammarFor(_connection);
+    if (grammar.dialect != .postgres) {
+      throw StateError(
+        'Vector distance queries are only supported by PostgreSQL.',
+      );
+    }
+    return '(${grammar.wrap(column)} <=> ?)';
+  }
+
+  /// Adds the distance from [vector] to the select list, as [alias] or
+  /// `{column}_distance`.
+  QueryBuilder selectVectorDistance(
+    String column,
+    List<num> vector, {
+    String? alias,
+  }) {
+    final distance = _vectorDistance(column);
+    final name = _db
+        .grammarFor(_connection)
+        .wrap(alias ?? '${column}_distance');
+    return selectRaw('$distance AS $name', [jsonEncode(vector)]);
+  }
+
+  /// Keeps rows within [maxDistance] of [vector].
+  QueryBuilder whereVectorDistanceLessThan(
+    String column,
+    List<num> vector,
+    double maxDistance, {
+    String boolean = 'AND',
+  }) => whereRaw('${_vectorDistance(column)} <= ?', [
+    jsonEncode(vector),
+    maxDistance,
+  ], boolean);
+
+  /// Keeps rows at least [minSimilarity] alike, nearest first unless [order]
+  /// is false. Cosine distance is 1 minus the similarity.
+  QueryBuilder whereVectorSimilarTo(
+    String column,
+    List<num> vector, {
+    double minSimilarity = 0.6,
+    bool order = true,
+  }) {
+    whereVectorDistanceLessThan(column, vector, 1 - minSimilarity);
+    return order ? orderByVectorDistance(column, vector) : this;
+  }
+
+  /// Nearest to [vector] first.
+  QueryBuilder orderByVectorDistance(String column, List<num> vector) =>
+      orderByRaw(_vectorDistance(column), [jsonEncode(vector)]);
 
   QueryBuilder inRandomOrder() => orderByRaw(
     _db.grammarFor(_connection).dialect == .mysql ? 'RAND()' : 'RANDOM()',

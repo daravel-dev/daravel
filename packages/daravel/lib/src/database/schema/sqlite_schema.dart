@@ -9,6 +9,9 @@ final class SqliteSchemaGrammar extends SchemaGrammar {
   SqlDialect get dialect => SqlDialect.sqlite;
 
   @override
+  bool get skipsVectorIndex => true;
+
+  @override
   String get autoIncrementClause => ' PRIMARY KEY AUTOINCREMENT NOT NULL';
 
   @override
@@ -29,6 +32,7 @@ final class SqliteSchemaGrammar extends SchemaGrammar {
     .uuid => 'VARCHAR(36)',
     .binary => 'BLOB',
     .enumeration => 'VARCHAR(255)',
+    .vector || .tsvector => 'TEXT',
   };
 
   @override
