@@ -263,6 +263,8 @@ sections:
       - { php: "$model->getChanges()", dart: "model.getChanges()", symbol: Model.getChanges }
       - { php: "$model->refresh() / fresh()", dart: "await model.refresh() / fresh()", symbol: Model.refresh, async: true }
       - { php: "$model->load('posts')", dart: "await model.load('posts')", symbol: Model.load, async: true }
+      - { php: "Model::automaticallyEagerLoadRelationships()", dart: "Model.automaticallyEagerLoad = true", symbol: Model.automaticallyEagerLoad, note: "through load and loadMissing: related never queries" }
+      - { php: "->withRelationshipAutoloading()", dart: ".withRelationshipAutoloading()", symbol: ModelQuery.withRelationshipAutoloading }
       - { php: "$model->toArray() / toJson()", dart: "model.toJson()", symbol: Model.toJson }
       - { php: "ModelNotFoundException", dart: "ModelNotFoundException", symbol: ModelNotFoundException }
 
@@ -278,6 +280,8 @@ sections:
       - { php: "'connections' => ['legacy' => ['url' => env('LEGACY_DB_URL')]]", dart: "withDatabaseConnection('legacy', (env) => ConnectionConfig.fromUrl(env.string('LEGACY_DB_URL')))", symbol: ApplicationBuilder.withDatabaseConnection }
       - { php: "DB::connection('legacy')->transaction(fn)", dart: "DB.transaction(() async {...}, connection: 'legacy')", symbol: DB.transaction, async: true, note: "Transactions are per connection, as in Laravel." }
       - { php: "DB::raw($sql)", dart: "DB.raw(sql)", symbol: DB.raw }
+      - { php: "Event::listen(TransactionCommitted::class, fn)", dart: "Event.listen<TransactionCommitted>(fn)", symbol: TransactionCommitted }
+      - { php: "DB::listen(...) for transactions", dart: "DB.listenTransactions((e) {...})", symbol: DB.listenTransactions, note: "with poolWait" }
       - { php: "DB::listen(fn (QueryExecuted $q) => ...)", dart: "DB.listen((QueryExecuted q) {...})", symbol: DB.listen }
       - { php: "DB::whenQueryingForLongerThan(500, fn)", dart: "DB.whenQueryingForLongerThan(const Duration(milliseconds: 500), (q) {...})", symbol: DB.whenQueryingForLongerThan, note: "Total per request, job or command; once." }
       - { php: "DB::enableQueryLog(); ... count(DB::getQueryLog())", dart: "final (result, count, queries) = await DB.withQueryCount(() => ...)", symbol: DB.withQueryCount }
@@ -332,6 +336,13 @@ sections:
       - { php: "Cache::tags(['people'])->put($key, $value, $ttl)", dart: "await Cache.tags(['people']).put(key, value, ttl: ttl)", symbol: Cache.tags, async: true, note: "memory, process and redis stores (Laravel's layout on Redis); file and database cannot tag, as in Laravel." }
       - { php: "Cache::lock('name', 10)->get(fn)", dart: "await Cache.lock('name', ...)", symbol: Cache.lock }
       - { php: "SendEmail::dispatch($user)", dart: "await Queue.dispatch(SendEmail(user))", symbol: Queue.dispatch, async: true }
+      - { php: "Concurrency::run([fn () => 1, fn () => 2])", dart: "await Concurrency.run<int>([() => 1, () => 2])", symbol: Concurrency.run, async: true, note: "on worker isolates: no facades in a task" }
+      - { php: "Concurrency::defer([fn () => report()])", dart: "await Concurrency.defer([report])", symbol: Concurrency.defer, async: true }
+      - { php: "Concurrency::driver('sync')->run($tasks)", dart: "await Concurrency.sync(() => Concurrency.run(tasks))", symbol: Concurrency.sync, async: true }
+      - { php: "Queue::route(SendEmail::class, 'emails')", dart: "Queue.manager.route<SendEmail>(queue: 'emails')", symbol: QueueManager.route }
+      - { php: "SendEmail::dispatch()->withoutDelay()", dart: ".withoutDelay()", symbol: PendingDispatch.withoutDelay }
+      - { php: "public $deleteWhenMissingModels = true", dart: "bool get deleteWhenMissingModels => true", symbol: Job.deleteWhenMissingModels }
+      - { php: "#[DebounceFor(60)]", dart: "Duration? get debounceFor => ...", symbol: Job.debounceFor }
       - { php: "Queue::later($delay, $job)", dart: "await Queue.later(delay, job)", symbol: Queue.later, async: true }
       - { php: "public function tags() (Horizon)", dart: "List<String> get tags", symbol: Job.tags }
       - { php: "php artisan queue:pause database:default / queue:continue", dart: "dartisan queue:pause database:default / queue:continue", symbol: QueueManager.pause }
@@ -348,6 +359,10 @@ sections:
   - name: Resources, storage, logging, config
     symbols:
       - { php: "class UserResource extends JsonResource { toArray }", dart: "final class UserResource extends JsonResource<User> { toArray }", symbol: JsonResource.toArray }
+      - { php: "class PostResource extends JsonApiResource", dart: "final class PostResource extends JsonApiResource<Post>", symbol: JsonApiResource, note: "toType is required: no reflection" }
+      - { php: "PostResource::collection($posts)", dart: "JsonApiResource.collection<Post>(posts, PostResource.new)", symbol: JsonApiResource.collection }
+      - { php: "JsonApiResource::configure(version: '1.1')", dart: "JsonApiResource.configure(version: '1.1')", symbol: JsonApiResource.configure }
+      - { php: "JsonSchema::object([...])", dart: "JsonSchema.object({...})", symbol: JsonSchema.object }
       - { php: "UserResource::collection($users)", dart: "JsonResource.collection(users, UserResource.new)", symbol: JsonResource.collection }
       - { php: "->additional([...])", dart: ".additional({...})", symbol: JsonResource.additional }
       - { php: "$this->when($cond, $value) / whenLoaded('posts')", dart: "when(cond, value) / whenLoaded('posts')", symbol: JsonResource.whenLoaded }
@@ -397,6 +412,7 @@ sections:
       - { php: "Str::contains / startsWith / endsWith", dart: "Str.contains / startsWith / endsWith", symbol: Str.contains }
       - { php: "Str::plural / singular / pluralStudly", dart: "Str.plural / singular / pluralStudly", symbol: Str.pluralStudly, note: "English rules with common irregulars." }
       - { php: "Str::random / uuid / ulid / isUuid / isJson", dart: "Str.random / uuid / ulid / isUuid / isJson", symbol: Str.ulid }
+      - { php: "Uri::of($url)->withQuery([...])", dart: "DaravelUri.of(url).withQuery({...})", symbol: DaravelUri.withQuery }
       - { php: "Str::of($title)->after(':')->squish()->slug()", dart: "title.after(':').squish().slug()", symbol: DaravelString, note: "Str methods chain on the string itself." }
       - { php: "now()->addMinutes(10) / Carbon::now()->subDays(7)", dart: "10.minutes.fromNow / 7.days.ago", symbol: DaravelDuration }
       - { php: "$date->diffForHumans() / isPast() / isToday() / startOfDay()", dart: "date.diffForHumans() / isPast / isToday / startOfDay", symbol: DaravelDateTime, note: "Carbon's units and wording, en and id." }

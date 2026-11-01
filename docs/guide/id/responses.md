@@ -1,4 +1,4 @@
-<!-- source: responses.md sha256:769699dc1abc -->
+<!-- source: responses.md sha256:62c825683c29 -->
 # Respons dan resource
 
 Handler bisa mengembalikan `Response.json(data, status: 201)`,
@@ -65,6 +65,67 @@ final class PostResource extends JsonResource<Post> {
   URL-nya.
 - `when`, `whenLoaded`, `mergeWhen`, `additional({...})`, dan
   `withMeta(request)` (`with()` dari Laravel) tersedia.
+
+### JSON:API
+
+`JsonApiResource` menulis bentuk JSON:API v1.1 yang sama dengan Laravel 13, dengan
+content type `application/vnd.api+json`.
+
+```dart
+final class PostResource extends JsonApiResource<Post> {
+  PostResource(super.resource);
+
+  @override
+  String toType(Request? request) => 'posts';
+
+  @override
+  Map<String, Object?> toArray(Request? request) => {'title': resource.title};
+
+  @override
+  Map<String, JsonApiRelationship<Model>> toRelationships(Request? request) => {
+    'author': JsonApiRelationship<User>(UserResource.new),
+  };
+}
+
+router.get('/posts/{post}', (Request request) async {
+  return PostResource((await Post.find(request.param('post')))!);
+});
+
+router.get('/posts', (Request request) async {
+  return JsonApiResource.collection<Post>(
+    await Post.query().paginate(perPage: 20),
+    PostResource.new,
+  );
+});
+```
+
+`?fields[posts]=title` mempersempit attribute, dan `?include=author,comments.user`
+menambahkan relationship dan `included`. Relationship hanya muncul kalau diminta,
+dan nama yang tidak dikenal diabaikan, seperti di Laravel. Untuk resource yang
+dikembalikan route, kernel memuat yang diminta query sebelum menulis response, per
+halaman. Kalau dipanggil di tempat lain, yang belum dimuat tidak disertakan.
+
+`toType` tidak punya default, karena menamainya dari nama class butuh reflection.
+`toId` default-nya primary key model. `toLinks` dan `toMeta` menambahkan member itu,
+dan `JsonApiResource.configure(version: '1.1')` menambahkan `jsonapi`.
+`maxRelationshipDepth` membatasi kedalaman `include`, default 5.
+
+### JSON Schema
+
+`JsonSchema` membangun dokumen schema, seperti `Illuminate\JsonSchema` di Laravel.
+
+```dart
+final schema = JsonSchema.object({
+  'name': JsonSchema.string().required().max(255),
+  'age': JsonSchema.integer().min(0).nullable(),
+  'tags': JsonSchema.array().items(JsonSchema.string()),
+}).withoutAdditionalProperties();
+
+schema.toArray();
+```
+
+`default` dan `enum` adalah kata kunci Dart, jadi namanya `defaultTo` dan
+`enumValues`.
 
 ## HTML
 

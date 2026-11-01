@@ -43,6 +43,10 @@ abstract class Job {
 
   int get maxExceptions => tries;
 
+  /// Laravel's `$deleteWhenMissingModels`: a job whose [ModelRef] row is gone
+  /// is dropped, not failed.
+  bool get deleteWhenMissingModels => false;
+
   /// Whether a timeout fails the job immediately instead of retrying.
   bool get failOnTimeout => false;
 
@@ -56,6 +60,16 @@ abstract class Job {
   String? get uniqueId => null;
 
   Duration get uniqueFor => Duration.zero;
+
+  /// Laravel 13's `DebounceFor`: when set, a dispatch replaces the pending
+  /// one with the same [debounceId], and only the last runs, this long after
+  /// it. Cannot be combined with [uniqueId].
+  Duration? get debounceFor => null;
+
+  /// Runs at the latest this long after the first of a burst.
+  Duration? get debounceMaxWait => null;
+
+  String get debounceId => '';
 
   /// Human readable name (`displayName` in the payload).
   String get displayName => runtimeType.toString();

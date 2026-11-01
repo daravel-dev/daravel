@@ -31,6 +31,8 @@ export 'src/http/middleware/trust_proxies.dart';
 export 'src/http/middleware/maintenance_mode.dart';
 export 'src/http/middleware/validate_signature.dart';
 export 'src/http/rate_limiter.dart';
+export 'src/http/json_api/json_api_request.dart';
+export 'src/http/json_api/json_api_resource.dart';
 export 'src/http/resources.dart';
 export 'src/routing/radix_tree.dart';
 export 'src/routing/openapi.dart';

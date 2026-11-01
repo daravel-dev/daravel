@@ -1,3 +1,5 @@
+import 'package:meta/meta.dart';
+
 import '../database/orm/model.dart';
 import '../database/query/paginator.dart';
 import 'request.dart';
@@ -56,6 +58,16 @@ abstract class JsonResource<T> implements JsonSerializable, Responsable {
   /// Attributes of the resource. [request] is `null` when serialised
   /// outside a response (nested in a map, logged, …).
   Map<String, Object?> toArray(Request? request);
+
+  /// Data given to [additional].
+  @protected
+  Map<String, Object?> get additionalData => _additional;
+
+  /// [data] with missing values dropped, merges flattened and nested resources
+  /// resolved.
+  @protected
+  Map<String, Object?> filtered(Map<String, Object?> data, Request? request) =>
+      _filter(data, request);
 
   /// Top-level data next to the wrapper (Laravel `with()`).
   Map<String, Object?> withMeta(Request? request) => const <String, Object?>{};
@@ -237,41 +249,48 @@ final class ResourceCollection<T> implements JsonSerializable, Responsable {
 
   bool get isPaginated => source is! Iterable<T>;
 
-  /// `{data, links, meta}` for paginators; `{data}` (or a bare list when
-  /// wrapping is disabled) otherwise.
-  Object toPayload([Request? request]) {
-    final data = resolveItems(request);
-    final extra = <String, Object?>{..._additional};
+  /// Laravel's PaginatedResourceResponse: `links` from the URL keys, and
+  /// `meta` is the paginator array minus data and URLs (same key order). Null
+  /// without a paginator.
+  Map<String, Object?>? paginationMembers() {
     final paginated = switch (source) {
       final LengthAwarePaginator<T> page => page.toJson(),
       final SimplePaginator<T> page => page.toJson(),
       final CursorPaginator<T> page => page.toJson(),
       _ => null,
     };
-    if (paginated != null) {
-      // Laravel's PaginatedResourceResponse: links from the URL keys, meta
-      // is the paginator array minus data and URLs (same key order).
-      const urlKeys = {
-        'data',
-        'first_page_url',
-        'last_page_url',
-        'prev_page_url',
-        'next_page_url',
-      };
-      return <String, Object?>{
-        'data': data,
-        'links': <String, Object?>{
-          'first': paginated['first_page_url'],
-          'last': paginated['last_page_url'],
-          'prev': paginated['prev_page_url'],
-          'next': paginated['next_page_url'],
-        },
-        'meta': <String, Object?>{
-          for (final entry in paginated.entries)
-            if (!urlKeys.contains(entry.key)) entry.key: entry.value,
-        },
-        ...extra,
-      };
+    if (paginated == null) {
+      return null;
+    }
+    const urlKeys = {
+      'data',
+      'first_page_url',
+      'last_page_url',
+      'prev_page_url',
+      'next_page_url',
+    };
+    return <String, Object?>{
+      'links': <String, Object?>{
+        'first': paginated['first_page_url'],
+        'last': paginated['last_page_url'],
+        'prev': paginated['prev_page_url'],
+        'next': paginated['next_page_url'],
+      },
+      'meta': <String, Object?>{
+        for (final entry in paginated.entries)
+          if (!urlKeys.contains(entry.key)) entry.key: entry.value,
+      },
+    };
+  }
+
+  /// `{data, links, meta}` for paginators; `{data}` (or a bare list when
+  /// wrapping is disabled) otherwise.
+  Object toPayload([Request? request]) {
+    final data = resolveItems(request);
+    final extra = <String, Object?>{..._additional};
+    final pagination = paginationMembers();
+    if (pagination != null) {
+      return <String, Object?>{'data': data, ...pagination, ...extra};
     }
     final key = ResourceWrapping.key;
     if (key == null && extra.isEmpty) {

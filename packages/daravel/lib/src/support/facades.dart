@@ -161,6 +161,11 @@ abstract final class DB {
   static void listen(void Function(QueryExecuted event) listener) =>
       manager.listen(listener);
 
+  /// Calls [listener] when a transaction begins, commits and rolls back.
+  static void listenTransactions(
+    void Function(TransactionEvent event) listener,
+  ) => manager.listenTransactions(listener);
+
   /// Calls [handler] once the current request, job or command has spent
   /// more than [threshold] in queries (`DB::whenQueryingForLongerThan`).
   static void whenQueryingForLongerThan(
