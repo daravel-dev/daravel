@@ -17,11 +17,13 @@ import 'package:test/test.dart';
 
 /// Opens [path] in WAL mode with a table of sequential ids.
 Database openApp(String path) {
+  // busy_timeout first: without it the journal_mode pragma fails at once
+  // (SQLITE_BUSY_RECOVERY, 261) while the replicator holds a lock.
   final db = sqlite3.open(path)
+    ..execute('PRAGMA busy_timeout=5000')
     ..execute('PRAGMA journal_mode=WAL')
     // No fsync per row: these tests are about the log, not about power loss.
     ..execute('PRAGMA synchronous=NORMAL')
-    ..execute('PRAGMA busy_timeout=5000')
     ..execute(
       'CREATE TABLE IF NOT EXISTS rows (id INTEGER PRIMARY KEY, body TEXT)',
     );
