@@ -20,6 +20,7 @@ void main() {
       'packages/daravel_teorion',
       'packages/daravel_livekit',
       'packages/daravel_s3',
+      'packages/daravel_scout',
       'packages/daravel_session',
       'packages/daravel_sqlite',
       'packages/daravel_postgres',
