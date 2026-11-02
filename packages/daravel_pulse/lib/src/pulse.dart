@@ -194,6 +194,7 @@ abstract final class Pulse {
       'queries_ms': _config.slowQueryThreshold.inMilliseconds,
       'jobs_ms': _config.slowJobThreshold.inMilliseconds,
       'pool_ms': _config.poolWaitThreshold.inMilliseconds,
+      'parity_drifts': _config.parityDriftThreshold,
     };
     return Response.json(snapshot, headers: {'cache-control': 'no-store'});
   }

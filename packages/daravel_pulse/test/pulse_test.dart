@@ -237,6 +237,16 @@ void main() {
       expect(data['workers'], hasLength(1));
       expect(data['memory_bytes'], greaterThan(0));
       expect(data['thresholds'], containsPair('requests_ms', 0));
+      expect(data['thresholds'], containsPair('parity_drifts', 5));
+    });
+
+    test('the parity drift threshold comes from the environment', () async {
+      app = await boot(env: const {'PULSE_PARITY_DRIFT_THRESHOLD': '2'});
+      expect((await stats())['thresholds'], containsPair('parity_drifts', 2));
+      final (_, page) = await get('/pulse');
+      final html = await page.bodyText();
+      expect(html, contains("'breached'"));
+      expect(html, contains('id="t-parity"'));
     });
 
     test('jobs that fail are listed with their queue', () async {
