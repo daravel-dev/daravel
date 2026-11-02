@@ -9,7 +9,15 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 wait for a new major version, and Laravel-facing formats change only to
 match Laravel more closely.
 
-## Unreleased
+## 1.23.0
+
+The parts of Laravel 13 a growing application reaches for: JSON:API resources, checked byte for byte against a real Laravel 13, `Concurrency` on warm isolates, `Process`, vector columns on PostgreSQL and MariaDB, debounced jobs, and automatic eager loading. For a migration: shadow parity compares a moved route with Laravel under real traffic, and `LegacyKey` makes `MAX(id) + 1` safe with parallel writers. Tested beside real Laravel 8 to 13.
+
+**Upgrading can change what an application sees:**
+
+- A `mariadb` connection now has `SqlDialect.mariadb`, not `mysql`. Code that compares `dialect == .mysql` should use `dialect.isMySqlFamily`, and an exhaustive `switch` on `SqlDialect` or on `Cast`, which gained `VectorCast`, stops compiling until it names the new case.
+- A job whose model is gone now fails at once, as in Laravel, instead of using up its tries. `deleteWhenMissingModels` drops it instead.
+- `TransactionCommitted` and `TransactionRolledBack` are now sent. They existed before and never fired, so a listener registered long ago starts to run.
 
 ### Added
 

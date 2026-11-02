@@ -1,3 +1,3 @@
 /// The Daravel release (kept equal to every workspace `pubspec.yaml`
 /// version by `test/foundation/version_test.dart`).
-const String daravelVersion = '1.22.0';
+const String daravelVersion = '1.23.0';
