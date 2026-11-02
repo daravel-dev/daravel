@@ -318,6 +318,29 @@ as an invalid column is. An update keeps the other keys and the JSON type of the
 value, also on a `NULL` column. A nested path needs its parent on PostgreSQL and
 MySQL, as in Laravel; SQLite creates it.
 
+## Tables without a sequence
+
+Older schemas often have no auto-increment, and Laravel code writes `MAX(id) + 1`.
+Two requests doing that at once read the same maximum. `LegacyKey` makes each wait
+for the one before it:
+
+```dart
+final id = await LegacyKey.insert('kandidat', {'nama': nama});
+
+await DB.transaction(() async {
+  final id = await LegacyKey.next('kandidat');
+  await DB.table('kandidat').insert({'id': id, 'nama': nama});
+  await DB.table('kandidat_log').insert({'kandidat_id': id});
+});
+```
+
+`next` throws outside a transaction, because the key is only held until the
+transaction ends. Laravel code on the same table takes no lock, so `insert` tries
+again when a key is taken; only `insert` does that, and a `next` of yours fails with
+`UniqueConstraintViolationException`. On MySQL and MariaDB, writers at once can
+deadlock. `insert` retries that on its own, but inside your transaction the whole
+transaction is lost, so give it `attempts:`.
+
 ## Vector columns
 
 On PostgreSQL with [pgvector](https://github.com/pgvector/pgvector) and on MariaDB
