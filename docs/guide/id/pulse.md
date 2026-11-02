@@ -1,4 +1,4 @@
-<!-- source: pulse.md sha256:5129f804d7fb -->
+<!-- source: pulse.md sha256:ae1b2177a58b -->
 # Pulse
 
 `daravel_pulse` menyajikan sebuah dashboard, dari aplikasi Anda, tentang apa
@@ -85,6 +85,7 @@ gate.define('viewPulse', (user, args) => user is User && user.isAdmin);
 | `PULSE_N_PLUS_ONE_THRESHOLD` | `5` | Jumlah pengulangan satu statement dalam satu request yang dicatat |
 | `PULSE_QUERY_STORM_THRESHOLD` | `25` | Jumlah query dalam satu request yang dicatat, apa pun isinya |
 | `PULSE_POOL_WAIT_THRESHOLD` | `20` | Milidetik menunggu koneksi yang dicatat |
+| `PULSE_PARITY_DRIFT_THRESHOLD` | `5` | Jumlah drift satu route dalam periode, mulai dari mana kartu Shadow parity drift menandainya; khusus Daravel |
 | `PULSE_SLOW_JOBS_THRESHOLD` | `1000` | Milidetik mulai sebuah job dicatat |
 | `PULSE_QUEUES` | `default` | Queue di koneksi default yang ukurannya ditampilkan |
 | `PULSE_PUBLISH_SECONDS` | `5` | Seberapa sering worker mengirim laporannya, di bawah supervisor |

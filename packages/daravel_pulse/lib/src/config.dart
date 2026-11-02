@@ -13,6 +13,7 @@ final class PulseConfig implements ConfigSection {
     this.nPlusOneThreshold = 5,
     this.queryStormThreshold = 25,
     this.poolWaitThreshold = const Duration(milliseconds: 20),
+    this.parityDriftThreshold = 5,
   });
 
   factory PulseConfig.fromEnv(Env env) => PulseConfig(
@@ -32,6 +33,7 @@ final class PulseConfig implements ConfigSection {
     poolWaitThreshold: Duration(
       milliseconds: env.integer('PULSE_POOL_WAIT_THRESHOLD', 20),
     ),
+    parityDriftThreshold: env.integer('PULSE_PARITY_DRIFT_THRESHOLD', 5),
     queues: env.list('PULSE_QUEUES', const ['default']),
     publishEvery: Duration(
       seconds: env.integer('PULSE_PUBLISH_SECONDS', 5).clamp(1, 60),
@@ -72,6 +74,11 @@ final class PulseConfig implements ConfigSection {
   /// (`PULSE_POOL_WAIT_THRESHOLD`, in milliseconds).
   final Duration poolWaitThreshold;
 
+  /// Drifts of one route in the period from which its row is marked, and the
+  /// card with it (`PULSE_PARITY_DRIFT_THRESHOLD`). Daravel's own: Laravel
+  /// Pulse has no shadow parity.
+  final int parityDriftThreshold;
+
   /// How often a worker isolate sends what it recorded to the coordinator,
   /// under a supervisor (`PULSE_PUBLISH_SECONDS`).
   final Duration publishEvery;
@@ -91,5 +98,6 @@ final class PulseConfig implements ConfigSection {
     'n_plus_one_threshold': nPlusOneThreshold,
     'query_storm_threshold': queryStormThreshold,
     'pool_wait_threshold_ms': poolWaitThreshold.inMilliseconds,
+    'parity_drift_threshold': parityDriftThreshold,
   };
 }
