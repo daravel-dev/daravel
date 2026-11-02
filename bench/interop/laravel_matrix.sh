@@ -19,6 +19,7 @@
 #    accepted and declined messages, model JSON (snake_case relations,
 #    decimal:N), paginator JSON and the 401 a guest gets before bindings run.
 # D. dartisan adopt on the real project.
+# E. Laravel 13 only: JsonApiResource, byte for byte after dropping PHP's \/.
 set -uo pipefail
 
 WORK=${WORK:-$HOME/daravel-bench}
@@ -188,6 +189,20 @@ for major in $VERSIONS; do
     echo "   Laravel: $expected"
     echo "   Daravel: $actual"
     status=1
+  fi
+
+  if [ "$major" = 13 ]; then
+    echo " JSON:API"
+    expected=$(laravel -- jsonapi)
+    actual=$(daravel -- jsonapi)
+    if [ "$expected" = "$actual" ]; then
+      echo "  PASS identical"
+    else
+      echo "  FAIL JSON:API bodies differ"
+      echo "   Laravel: $expected"
+      echo "   Daravel: $actual"
+      status=1
+    fi
   fi
 
   echo " dartisan adopt"

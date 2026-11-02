@@ -33,6 +33,118 @@ final class Exam extends Model {
   ModelDefinition<Exam> get modelDefinition => Exam.definition;
 }
 
+final class Author extends Model {
+  static final ModelDefinition<Author> definition = ModelDefinition<Author>(
+    table: 'authors',
+    factory: Author.new,
+    timestamps: false,
+  );
+
+  @override
+  ModelDefinition<Author> get modelDefinition => Author.definition;
+}
+
+final class Comment extends Model {
+  static final ModelDefinition<Comment> definition = ModelDefinition<Comment>(
+    table: 'comments',
+    factory: Comment.new,
+    timestamps: false,
+    relations: {
+      'author': () =>
+          BelongsTo<Author>(() => Author.definition, foreignKey: 'author_id'),
+    },
+  );
+
+  @override
+  ModelDefinition<Comment> get modelDefinition => Comment.definition;
+}
+
+final class Post extends Model {
+  static final ModelDefinition<Post> definition = ModelDefinition<Post>(
+    table: 'posts',
+    factory: Post.new,
+    timestamps: false,
+    relations: {
+      'author': () =>
+          BelongsTo<Author>(() => Author.definition, foreignKey: 'author_id'),
+      'comments': () =>
+          HasMany<Comment>(() => Comment.definition, foreignKey: 'post_id'),
+    },
+  );
+
+  @override
+  ModelDefinition<Post> get modelDefinition => Post.definition;
+}
+
+final class AuthorResource extends JsonApiResource<Author> {
+  AuthorResource(super.resource);
+
+  @override
+  String toType(Request? request) => 'authors';
+
+  @override
+  Map<String, Object?> toAttributes(Request? request) => {
+    'name': resource.getAttr<String>('name'),
+  };
+}
+
+final class CommentResource extends JsonApiResource<Comment> {
+  CommentResource(super.resource);
+
+  @override
+  String toType(Request? request) => 'comments';
+
+  @override
+  Map<String, Object?> toAttributes(Request? request) => {
+    'body': resource.getAttr<String>('body'),
+    'stars': resource.getAttr<int>('stars'),
+  };
+
+  @override
+  Map<String, JsonApiRelationship<Model>> toRelationships(Request? request) => {
+    'author': JsonApiRelationship<Author>(AuthorResource.new),
+  };
+}
+
+final class PostResource extends JsonApiResource<Post> {
+  PostResource(super.resource);
+
+  @override
+  String toType(Request? request) => 'posts';
+
+  @override
+  Map<String, Object?> toAttributes(Request? request) => {
+    'title': resource.getAttr<String>('title'),
+    'body': resource.getAttr<String>('body'),
+  };
+
+  @override
+  Map<String, JsonApiRelationship<Model>> toRelationships(Request? request) => {
+    'author': JsonApiRelationship<Author>(AuthorResource.new),
+    'comments': JsonApiRelationship<Comment>(CommentResource.new),
+  };
+
+  @override
+  Map<String, Object?> toLinks(Request? request) => {
+    'self': '/posts/${resource.key}',
+  };
+
+  @override
+  Map<String, Object?> toMeta(Request? request) => {'views': 3};
+}
+
+Author author(int id, String name) =>
+    Author()..forceFill({'id': id, 'name': name});
+
+Comment comment(int id, String body, Author by) => Comment()
+  ..forceFill({'id': id, 'body': body, 'stars': id * 2})
+  ..setRelation('author', by);
+
+Post post(int id, Author? by, List<Comment> comments) => Post()
+  ..forceFill({'id': id, 'title': 'T$id', 'body': 'B$id'})
+  ..setRelation('author', by)
+  ..setRelation('comments', comments);
+
 Future<void> main(List<String> args) async {
   final app = Application.configure(basePath: Directory.current.path)
       .withSession()
@@ -96,6 +208,36 @@ Future<void> main(List<String> args) async {
             });
             return {'ok': true};
           });
+          final ana = author(1, 'Ana');
+          final one = post(1, ana, [
+            comment(1, 'c1', author(2, 'Budi')),
+            comment(2, 'c2', ana),
+          ]);
+          final two = post(2, ana, []);
+          router
+            ..get('/jsonapi/post', (_) => PostResource(one))
+            ..get('/jsonapi/empty', (_) => PostResource(two))
+            ..get('/jsonapi/none', (_) => PostResource(post(3, null, [])))
+            ..get(
+              '/jsonapi/posts',
+              (_) => JsonApiResource.collection<Post>([
+                one,
+                two,
+              ], PostResource.new),
+            )
+            ..get(
+              '/jsonapi/page',
+              (_) => JsonApiResource.collection<Post>(
+                LengthAwarePaginator<Post>(
+                  items: [one, two],
+                  total: 30,
+                  perPage: 2,
+                  currentPage: 2,
+                  path: 'http://localhost/posts',
+                ),
+                PostResource.new,
+              ),
+            );
           router.get('/wire/model', (_) {
             final exam = Exam()
               ..forceFill({'id': 1, 'price': '12.5', 'ratio': '0.1255'})
@@ -206,6 +348,37 @@ Future<void> main(List<String> args) async {
         return jsonEncode([
           for (final response in responses)
             {'status': response.status, 'body': response.body},
+        ]);
+      case 'jsonapi':
+        return jsonEncode([
+          for (final uri in const [
+            '/jsonapi/post',
+            '/jsonapi/post?include=author',
+            '/jsonapi/post?include=comments',
+            '/jsonapi/post?include=comments.author',
+            '/jsonapi/post?include=author,comments.author',
+            '/jsonapi/post?fields[posts]=title',
+            '/jsonapi/post?fields[posts]=',
+            '/jsonapi/post?include=comments&fields[comments]=body',
+            '/jsonapi/post?include=nothing',
+            '/jsonapi/empty?include=comments',
+            '/jsonapi/none?include=author',
+            '/jsonapi/posts?include=author',
+            '/jsonapi/posts?include=comments.author',
+            '/jsonapi/page?include=author',
+          ])
+            await () async {
+              final response = await client.get(
+                uri,
+                headers: {'accept': 'application/vnd.api+json'},
+              );
+              return {
+                'uri': uri,
+                'status': response.status,
+                'type': response.headers['content-type'],
+                'body': response.body,
+              };
+            }(),
         ]);
       default:
         throw ArgumentError(args.first);

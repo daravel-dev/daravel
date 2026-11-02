@@ -85,6 +85,88 @@ if ($step === 'wire') {
     exit(0);
 }
 
+if ($step === 'jsonapi') {
+    $classes = <<<'PHP'
+    class MatrixAuthor extends \Illuminate\Database\Eloquent\Model { protected $table = 'authors'; public $timestamps = false; }
+    class MatrixComment extends \Illuminate\Database\Eloquent\Model {
+        protected $table = 'comments'; public $timestamps = false;
+        public function author() { return $this->belongsTo(MatrixAuthor::class, 'author_id'); }
+    }
+    class MatrixPost extends \Illuminate\Database\Eloquent\Model {
+        protected $table = 'posts'; public $timestamps = false;
+        public function author() { return $this->belongsTo(MatrixAuthor::class, 'author_id'); }
+        public function comments() { return $this->hasMany(MatrixComment::class, 'post_id'); }
+    }
+    class MatrixAuthorResource extends Illuminate\Http\Resources\JsonApi\JsonApiResource {
+        public function toType($request) { return 'authors'; }
+        public function toAttributes($request) { return ['name' => $this->resource->name]; }
+    }
+    class MatrixCommentResource extends Illuminate\Http\Resources\JsonApi\JsonApiResource {
+        public function toType($request) { return 'comments'; }
+        public function toAttributes($request) { return ['body' => $this->resource->body, 'stars' => $this->resource->stars]; }
+        public function toRelationships($request) { return ['author' => MatrixAuthorResource::class]; }
+    }
+    class MatrixPostResource extends Illuminate\Http\Resources\JsonApi\JsonApiResource {
+        public function toType($request) { return 'posts'; }
+        public function toAttributes($request) { return ['title' => $this->resource->title, 'body' => $this->resource->body]; }
+        public function toRelationships($request) { return ['author' => MatrixAuthorResource::class, 'comments' => MatrixCommentResource::class]; }
+        public function toLinks($request) { return ['self' => '/posts/'.$this->resource->id]; }
+        public function toMeta($request) { return ['views' => 3]; }
+    }
+    PHP;
+    eval($classes);
+    $author = fn (int $id, string $name) => (new MatrixAuthor)->forceFill(['id' => $id, 'name' => $name]);
+    $comment = fn (int $id, string $body, $by) => (new MatrixComment)
+        ->forceFill(['id' => $id, 'body' => $body, 'stars' => $id * 2])->setRelation('author', $by);
+    $post = function (int $id, $by, array $comments) {
+        return (new MatrixPost)->forceFill(['id' => $id, 'title' => "T$id", 'body' => "B$id"])
+            ->setRelation('author', $by)
+            ->setRelation('comments', new Illuminate\Database\Eloquent\Collection($comments));
+    };
+    $ana = $author(1, 'Ana');
+    $budi = $author(2, 'Budi');
+    $one = $post(1, $ana, [$comment(1, 'c1', $budi), $comment(2, 'c2', $ana)]);
+    $two = $post(2, $ana, []);
+    $three = $post(3, null, []);
+    $app->booted(function () use ($one, $two, $three) {
+        Route::get('/jsonapi/post', fn () => new MatrixPostResource($one));
+        Route::get('/jsonapi/empty', fn () => new MatrixPostResource($two));
+        Route::get('/jsonapi/none', fn () => new MatrixPostResource($three));
+        Route::get('/jsonapi/posts', fn () => MatrixPostResource::collection(collect([$one, $two])));
+        Route::get('/jsonapi/page', fn () => MatrixPostResource::collection(
+            new LengthAwarePaginator([$one, $two], 30, 2, 2, ['path' => 'http://localhost/posts'])
+        ));
+    });
+    $kernel = $app->make(Illuminate\Contracts\Http\Kernel::class);
+    $result = [];
+    foreach ([
+        '/jsonapi/post',
+        '/jsonapi/post?include=author',
+        '/jsonapi/post?include=comments',
+        '/jsonapi/post?include=comments.author',
+        '/jsonapi/post?include=author,comments.author',
+        '/jsonapi/post?fields[posts]=title',
+        '/jsonapi/post?fields[posts]=',
+        '/jsonapi/post?include=comments&fields[comments]=body',
+        '/jsonapi/post?include=nothing',
+        '/jsonapi/empty?include=comments',
+        '/jsonapi/none?include=author',
+        '/jsonapi/posts?include=author',
+        '/jsonapi/posts?include=comments.author',
+        '/jsonapi/page?include=author',    ] as $uri) {
+        $response = $kernel->handle(Request::create($uri, 'GET', [], [], [], ['HTTP_ACCEPT' => 'application/vnd.api+json']));
+        // Without \/, and with the keys in the order Laravel wrote them.
+        $result[] = [
+            'uri' => $uri,
+            'status' => $response->getStatusCode(),
+            'type' => $response->headers->get('content-type'),
+            'body' => json_encode(json_decode($response->getContent()), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        ];
+    }
+    echo json_encode($result, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), "\n";
+    exit(0);
+}
+
 $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
 config([
     'session.driver' => 'database',
