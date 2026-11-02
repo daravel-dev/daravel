@@ -96,6 +96,12 @@ if ($step === 'jsonapi') {
         protected $table = 'posts'; public $timestamps = false;
         public function author() { return $this->belongsTo(MatrixAuthor::class, 'author_id'); }
         public function comments() { return $this->hasMany(MatrixComment::class, 'post_id'); }
+        public function labels() { return $this->belongsToMany(MatrixLabel::class, 'label_post', 'post_id', 'label_id'); }
+    }
+    class MatrixLabel extends \Illuminate\Database\Eloquent\Model { protected $table = 'labels'; public $timestamps = false; }
+    class MatrixNote extends \Illuminate\Database\Eloquent\Model {
+        protected $table = 'notes'; public $timestamps = false;
+        public function subject() { return $this->morphTo(); }
     }
     class MatrixAuthorResource extends Illuminate\Http\Resources\JsonApi\JsonApiResource {
         public function toType($request) { return 'authors'; }
@@ -106,10 +112,23 @@ if ($step === 'jsonapi') {
         public function toAttributes($request) { return ['body' => $this->resource->body, 'stars' => $this->resource->stars]; }
         public function toRelationships($request) { return ['author' => MatrixAuthorResource::class]; }
     }
+    class MatrixLabelResource extends Illuminate\Http\Resources\JsonApi\JsonApiResource {
+        public function toType($request) { return 'labels'; }
+        public function toAttributes($request) { return ['name' => $this->resource->name]; }
+    }
+    class MatrixNoteResource extends Illuminate\Http\Resources\JsonApi\JsonApiResource {
+        public function toType($request) { return 'notes'; }
+        public function toAttributes($request) { return ['body' => $this->resource->body]; }
+        public function toRelationships($request) {
+            return ['subject' => fn ($note) => $note->subject instanceof MatrixPost
+                ? new MatrixPostResource($note->subject)
+                : new MatrixAuthorResource($note->subject)];
+        }
+    }
     class MatrixPostResource extends Illuminate\Http\Resources\JsonApi\JsonApiResource {
         public function toType($request) { return 'posts'; }
         public function toAttributes($request) { return ['title' => $this->resource->title, 'body' => $this->resource->body]; }
-        public function toRelationships($request) { return ['author' => MatrixAuthorResource::class, 'comments' => MatrixCommentResource::class]; }
+        public function toRelationships($request) { return ['author' => MatrixAuthorResource::class, 'comments' => MatrixCommentResource::class, 'labels' => MatrixLabelResource::class]; }
         public function toLinks($request) { return ['self' => '/posts/'.$this->resource->id]; }
         public function toMeta($request) { return ['views' => 3]; }
     }
@@ -128,7 +147,18 @@ if ($step === 'jsonapi') {
     $one = $post(1, $ana, [$comment(1, 'c1', $budi), $comment(2, 'c2', $ana)]);
     $two = $post(2, $ana, []);
     $three = $post(3, null, []);
-    $app->booted(function () use ($one, $two, $three) {
+    $label = (new MatrixLabel)->forceFill(['id' => 1, 'name' => 'dart']);
+    $one->setRelation('labels', new Illuminate\Database\Eloquent\Collection([$label]));
+    $two->setRelation('labels', new Illuminate\Database\Eloquent\Collection([$label]));
+    $note = fn (int $id, $subject) => (new MatrixNote)->forceFill(['id' => $id, 'body' => "n$id"])->setRelation('subject', $subject);
+    $notes = [$note(1, $one), $note(2, $ana), $note(3, $two)];
+    $app->booted(function () use ($one, $two, $three, $notes) {
+        Route::get('/jsonapi/notes', fn () => MatrixNoteResource::collection(collect($notes)));
+        Route::get('/jsonapi/configured', function () use ($two) {
+            Illuminate\Http\Resources\JsonApi\JsonApiResource::configure(version: '1.1', ext: ['atomic'], meta: ['a' => 1]);
+
+            return new MatrixPostResource($two);
+        });
         Route::get('/jsonapi/post', fn () => new MatrixPostResource($one));
         Route::get('/jsonapi/empty', fn () => new MatrixPostResource($two));
         Route::get('/jsonapi/none', fn () => new MatrixPostResource($three));
@@ -153,7 +183,14 @@ if ($step === 'jsonapi') {
         '/jsonapi/none?include=author',
         '/jsonapi/posts?include=author',
         '/jsonapi/posts?include=comments.author',
-        '/jsonapi/page?include=author',    ] as $uri) {
+        '/jsonapi/page?include=author',
+        '/jsonapi/post?include=labels',
+        '/jsonapi/posts?include=labels',
+        '/jsonapi/notes?include=subject',
+        '/jsonapi/notes?include=subject.author',
+        '/jsonapi/notes?include=subject&fields[authors]=name',
+        '/jsonapi/configured',
+    ] as $uri) {
         $response = $kernel->handle(Request::create($uri, 'GET', [], [], [], ['HTTP_ACCEPT' => 'application/vnd.api+json']));
         // Without \/, and with the keys in the order Laravel wrote them.
         $result[] = [
