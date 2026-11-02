@@ -1,0 +1,3 @@
+tags:
+  # Needs PostgreSQL (DARAVEL_TEST_PG) or MySQL (DARAVEL_TEST_MYSQL).
+  integration:

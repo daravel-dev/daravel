@@ -476,6 +476,7 @@ The monorepo is a Dart pub workspace:
 | [`packages/daravel_google`](packages/daravel_google) | Google: OAuth tokens with refresh, service accounts, Calendar events with Meet links |
 | [`packages/daravel_teobiefy`](packages/daravel_teobiefy) | Encrypted API payloads compatible with teobiefy's protocol v1 on Laravel |
 | [`packages/daravel_s3`](packages/daravel_s3) | S3, Cloudflare R2 and MinIO storage disk: pure Dart SigV4, multipart streaming, presigned URLs |
+| [`packages/daravel_scout`](packages/daravel_scout) | Laravel Scout on the database: `LIKE`, full text, and semantic and hybrid search on pgvector or MariaDB |
 | [`packages/daravel_redis`](packages/daravel_redis) | Redis and Valkey for several servers: cache, locks, rate limits, queues, broadcasting |
 | [`packages/daravel_sqlite`](packages/daravel_sqlite) | SQLite driver package (`db:install sqlite`) |
 | [`packages/daravel_postgres`](packages/daravel_postgres) | PostgreSQL driver package (`db:install pgsql`) |
@@ -501,6 +502,7 @@ The eighteen packages ([`daravel`](https://pub.dev/packages/daravel),
 [`daravel_google`](https://pub.dev/packages/daravel_google),
 [`daravel_teobiefy`](https://pub.dev/packages/daravel_teobiefy),
 [`daravel_s3`](https://pub.dev/packages/daravel_s3),
+[`daravel_scout`](https://pub.dev/packages/daravel_scout),
 [`daravel_sqlite`](https://pub.dev/packages/daravel_sqlite),
 [`daravel_postgres`](https://pub.dev/packages/daravel_postgres)) are released together
 under one version by the verified publisher

@@ -89,6 +89,7 @@ Future<void> main() async {
     expect(one('calendar'), 'daravel_google');
     expect(one('daravel_teorion'), 'daravel_teorion');
     expect(one('pg'), 'daravel_postgres');
+    expect(one('scout'), 'daravel_scout');
     expect(resolvePackages('cloud').map((m) => m.package), [
       'daravel_s3',
       'daravel_google',

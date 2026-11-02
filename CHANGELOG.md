@@ -14,6 +14,7 @@ match Laravel more closely.
 ### Added
 
 - Pulse: `PULSE_PARITY_DRIFT_THRESHOLD` marks a route on the Shadow parity drift card once it drifts that often in the period.
+- `daravel_scout`: Laravel Scout on the database engine, with `LIKE` and full text search on the model's table, and `semantic()` and `hybrid()` on PostgreSQL with pgvector or MariaDB.
 
 ## 1.23.1
 
