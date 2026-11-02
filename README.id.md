@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:64b7c9d4c0ba -->
+<!-- source: README.md sha256:8e967adafe26 -->
 | [`packages/daravel_session`](packages/daravel_session) | Session yang kompatibel dengan Laravel (file atau tabel `sessions`), cookie terenkripsi, dan proteksi CSRF |
 <!-- source: README.md sha256:5b04c2e6d073 -->
 <p align="center">
@@ -483,6 +483,7 @@ Monorepo ini adalah pub workspace Dart:
 | [`packages/daravel_google`](packages/daravel_google) | Google: token OAuth dengan refresh, service account, event Calendar dengan link Meet |
 | [`packages/daravel_teobiefy`](packages/daravel_teobiefy) | Payload API terenkripsi yang kompatibel dengan protokol teobiefy v1 di Laravel |
 | [`packages/daravel_s3`](packages/daravel_s3) | Disk penyimpanan S3, Cloudflare R2, dan MinIO: SigV4 Dart murni, streaming multipart, presigned URL |
+| [`packages/daravel_scout`](packages/daravel_scout) | Laravel Scout di database: `LIKE`, full text, serta pencarian semantik dan hybrid di pgvector atau MariaDB |
 | [`packages/daravel_redis`](packages/daravel_redis) | Redis dan Valkey untuk beberapa server: cache, lock, rate limit, queue, broadcasting |
 | [`packages/daravel_sqlite`](packages/daravel_sqlite) | Paket driver SQLite (`db:install sqlite`) |
 | [`packages/daravel_postgres`](packages/daravel_postgres) | Paket driver PostgreSQL (`db:install pgsql`) |
@@ -508,6 +509,7 @@ Kedelapan belas paket ([`daravel`](https://pub.dev/packages/daravel),
 [`daravel_google`](https://pub.dev/packages/daravel_google),
 [`daravel_teobiefy`](https://pub.dev/packages/daravel_teobiefy),
 [`daravel_s3`](https://pub.dev/packages/daravel_s3),
+[`daravel_scout`](https://pub.dev/packages/daravel_scout),
 [`daravel_sqlite`](https://pub.dev/packages/daravel_sqlite),
 [`daravel_postgres`](https://pub.dev/packages/daravel_postgres)) dirilis bersama dengan satu
 versi oleh publisher terverifikasi

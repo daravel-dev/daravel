@@ -9,6 +9,12 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 wait for a new major version, and Laravel-facing formats change only to
 match Laravel more closely.
 
+## Unreleased
+
+### Added
+
+- `daravel_scout`: Laravel Scout on the database engine, with `LIKE` and full text search on the model's table, and `semantic()` and `hybrid()` on PostgreSQL with pgvector or MariaDB.
+
 ## 1.23.1
 
 A fix for applications that share their database with Laravel.

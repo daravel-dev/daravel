@@ -102,6 +102,16 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `REVERB_SCALING_ENABLED=true (Reverb with Redis)` | `REVERB_SCALING_ENABLED=true (the database)` | Frames, presence members (here included) and cache channels span every server; PostgreSQL NOTIFY, MySQL polling. |
 | `(Reverb's internal pub/sub)` | `await Broadcast.publish('orders.7', data)` | **async**; Daravel's own channels between isolates, for custom WebSocket and SSE routes. |
 
+## Scout (daravel_scout)
+
+| Laravel | Daravel | Notes |
+| :-- | :-- | :-- |
+| `use Searchable; public function toSearchableArray()` | `with Searchable; toSearchableArray()` | the database engine only |
+| `Post::search('laravel')->where('a', 1)->get()` | `Scout.search(Post.definition, 'laravel').where('a', 1).get()` | **async** |
+| `Post::search($q)->semantic()->get()` | `Scout.search(def, q).semantic().get()` | **async**; embeddings through Scout.embedder, not laravel/ai |
+| `Post::search($q)->hybrid()->get()` | `Scout.search(def, q).hybrid().get()` | **async** |
+| `#[SearchUsingFullText(['body'])]` | `List<String> get searchUsingFullText => ['body']` |  |
+
 ## Redis (daravel_redis)
 
 | Laravel | Daravel | Notes |
