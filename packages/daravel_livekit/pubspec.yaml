@@ -1,6 +1,6 @@
 name: daravel_livekit
 description: LiveKit server SDK for Daravel. Access tokens with video grants, the room service (rooms, participants, data) and verified webhooks.
-version: 1.22.0
+version: 1.23.0
 homepage: https://daravel.dev
 repository: https://github.com/daravel-dev/daravel/tree/main/packages/daravel_livekit
 issue_tracker: https://github.com/daravel-dev/daravel/issues
@@ -20,7 +20,7 @@ resolution: workspace
 
 dependencies:
   crypto: ^3.0.7
-  daravel: ^1.22.0
+  daravel: ^1.23.0
 
 dev_dependencies:
   test: ^1.33.0
