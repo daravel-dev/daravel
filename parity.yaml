@@ -103,6 +103,13 @@ sections:
       - { php: "REVERB_SCALING_ENABLED=true (Reverb with Redis)", dart: "REVERB_SCALING_ENABLED=true (the database)", symbol: DatabaseBroadcastRelay, note: "Frames, presence members (here included) and cache channels span every server; PostgreSQL NOTIFY, MySQL polling." }
       - { php: "(Reverb's internal pub/sub)", dart: "await Broadcast.publish('orders.7', data)", symbol: Broadcast.publish, async: true, note: "Daravel's own channels between isolates, for custom WebSocket and SSE routes." }
 
+  - name: Scout (daravel_scout)
+    symbols:
+      - { php: "use Searchable; public function toSearchableArray()", dart: "with Searchable; toSearchableArray()", symbol: Searchable.toSearchableArray, note: "the database engine only" }
+      - { php: "Post::search('laravel')->where('a', 1)->get()", dart: "Scout.search(Post.definition, 'laravel').where('a', 1).get()", symbol: Scout.search, async: true }
+      - { php: "Post::search($q)->semantic()->get()", dart: "Scout.search(def, q).semantic().get()", symbol: ScoutBuilder.semantic, async: true, note: "embeddings through Scout.embedder, not laravel/ai" }
+      - { php: "Post::search($q)->hybrid()->get()", dart: "Scout.search(def, q).hybrid().get()", symbol: ScoutBuilder.hybrid, async: true }
+      - { php: "#[SearchUsingFullText(['body'])]", dart: "List<String> get searchUsingFullText => ['body']", symbol: Searchable.searchUsingFullText }
   - name: Redis (daravel_redis)
     symbols:
       - { php: "Redis::command('HSET', [...])", dart: "await Redis.command(['HSET', ...])", symbol: Redis.command, async: true }

@@ -31,6 +31,7 @@ const List<String> daravelPackages = [
   'daravel_google',
   'daravel_teobiefy',
   'daravel_s3',
+  'daravel_scout',
 ];
 
 /// Reads the latest stable `daravel` version from pub.dev.

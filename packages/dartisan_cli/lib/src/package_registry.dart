@@ -273,6 +273,25 @@ const List<PackageManifest> officialPackages = [
     ],
   ),
   PackageManifest(
+    package: 'daravel_scout',
+    title: 'Scout search',
+    category: 'Database',
+    description:
+        'Laravel Scout on the database: LIKE, full text, and semantic and '
+        'hybrid search on pgvector or MariaDB',
+    aliases: [
+      'scout',
+      'search',
+      'full-text',
+      'semantic-search',
+      'vector-search',
+    ],
+    next: [
+      'Mix Searchable into a model and override toSearchableArray',
+      "Scout.search(Post.definition, 'laravel').get()",
+    ],
+  ),
+  PackageManifest(
     package: 'daravel_teorion',
     title: 'Query filters',
     category: 'API',
