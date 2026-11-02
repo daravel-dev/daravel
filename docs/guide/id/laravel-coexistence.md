@@ -1,4 +1,4 @@
-<!-- source: laravel-coexistence.md sha256:faafbd025598 -->
+<!-- source: laravel-coexistence.md sha256:6563b0e767b9 -->
 # Koeksistensi dengan Laravel
 
 Tujuan produk Daravel adalah aplikasi Laravel dan aplikasi Daravel bisa
@@ -64,7 +64,7 @@ ISO-8601 UTC (`Carbon::toJSON()`).
 | :-- | :-- |
 | Tabel `migrations` | `id`, `migration`, `batch`; migrasi framework memakai nama dari Laravel (`0001_01_01_000001_create_cache_table`, ...) |
 | `users` | kolom skeleton Laravel 13 |
-| `cache`, `cache_locks` | skema Laravel 13, termasuk index `expiration` |
+| `cache`, `cache_locks` | skema Laravel 13, termasuk index `expiration`. Nilainya tidak dibagi: lihat di bawah |
 | `jobs`, `job_batches`, `failed_jobs` | skema Laravel 13 |
 | `personal_access_tokens` | skema Sanctum 4; token `{id}\|{40 karakter}{crc32b}`, yang disimpan SHA-256-nya; `tokenable_type` = `App\Models\User` |
 | `notifications` | skema Laravel 13; `type` `App\Notifications\...`, `notifiable_type` adalah `morphClass` model, `data` JSON ([Mail](mail.md)) |
@@ -106,7 +106,10 @@ bertipe statis. Daravel mempertahankan tujuannya dan mengubah mekanismenya:
 
 ## Yang belum dibagi
 
-Session, CSRF, dan cookie (Tier 2).
+**Nilai cache.** Kedua framework bisa memakai satu tabel `cache`, tetapi Laravel
+menyimpan teks `serialize()` dan Daravel menyimpan JSON. Nilai tulisan pihak lain
+dibaca sebagai cache miss di sini, jadi beri masing-masing `CACHE_PREFIX` sendiri:
+dengan key yang sama, keduanya akan saling menimpa.
 
 **Queue.** Kedua framework bisa memakai satu tabel `jobs`, tetapi
 masing-masing hanya menjalankan job miliknya sendiri: payload Laravel

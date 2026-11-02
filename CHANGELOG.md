@@ -9,6 +9,14 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 wait for a new major version, and Laravel-facing formats change only to
 match Laravel more closely.
 
+## 1.23.1
+
+A fix for applications that share their database with Laravel.
+
+### Fixed
+
+- The database cache store read a value Laravel wrote to a shared table as an error. It is now a cache miss.
+
 ## 1.23.0
 
 The parts of Laravel 13 a growing application reaches for: JSON:API resources, checked byte for byte against a real Laravel 13, `Concurrency` on warm isolates, `Process`, vector columns on PostgreSQL and MariaDB, debounced jobs, and automatic eager loading. For a migration: shadow parity compares a moved route with Laravel under real traffic, and `LegacyKey` makes `MAX(id) + 1` safe with parallel writers. Tested beside real Laravel 8 to 13.

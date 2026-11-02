@@ -154,6 +154,38 @@ void main() {
 
     tearDown(() => app.shutdown());
 
+    test('a value Laravel wrote is a miss, not an error', () async {
+      await app.run(() async {
+        final cache = Cache.store('database');
+        final expiration = DateTime.now().millisecondsSinceEpoch ~/ 1000 + 60;
+        for (final (key, value) in const [
+          ('test_string', 's:5:"hello";'),
+          ('test_array', 'a:1:{s:1:"a";i:1;}'),
+          ('test_number', '5'),
+          ('test_list', '[1]'),
+          ('test_base64', 'czo1OiJoZWxsbyI7'),
+        ]) {
+          await DB.table('cache').insert({
+            'key': key,
+            'value': value,
+            'expiration': expiration,
+          });
+        }
+        for (final key in const [
+          'string',
+          'array',
+          'number',
+          'list',
+          'base64',
+        ]) {
+          expect(await cache.get<Object?>(key), isNull, reason: key);
+        }
+        // This store's own value still replaces it.
+        await cache.put('string', 'mine', ttl: const Duration(minutes: 1));
+        expect(await cache.get<String>('string'), 'mine');
+      });
+    });
+
     test('database store uses the Laravel cache tables', () async {
       await app.run(() async {
         final cache = Cache.store('database');

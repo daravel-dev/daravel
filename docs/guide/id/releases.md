@@ -1,4 +1,4 @@
-<!-- source: releases.md sha256:674f015fd0fa -->
+<!-- source: releases.md sha256:5b735e0550ae -->
 # Rilis dan versioning
 
 Daravel `1.x` adalah lini rilis stabil. Kedua belas paket (`daravel`,
@@ -12,6 +12,7 @@ terverifikasi `framework.daravel.dev`.
 
 | Versi | Sorotan |
 | :-- | :-- |
+| `1.23.1` | Perbaikan: nilai cache tulisan Laravel di tabel bersama dibaca sebagai miss, bukan error |
 | `1.23.0` | Resource JSON:API yang dicek terhadap Laravel 13, `Concurrency`, `Process`, kolom vector di PostgreSQL dan MariaDB, job debounce, eager loading otomatis, shadow parity, dan `LegacyKey` untuk migrasi |
 | `1.22.0` | Form dan file, 22 aturan validasi, route model binding, subdomain, kolom JSON, deteksi N+1 di Pulse |
 | `1.21.1` | Exception melewati middleware, kolom insert, cast integer, lock overlap |
