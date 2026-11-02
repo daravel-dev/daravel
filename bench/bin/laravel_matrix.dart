@@ -69,11 +69,77 @@ final class Post extends Model {
           BelongsTo<Author>(() => Author.definition, foreignKey: 'author_id'),
       'comments': () =>
           HasMany<Comment>(() => Comment.definition, foreignKey: 'post_id'),
+      'labels': () => BelongsToMany<Label>(
+        () => Label.definition,
+        pivotTable: 'label_post',
+        foreignPivotKey: 'post_id',
+        relatedPivotKey: 'label_id',
+      ),
     },
   );
 
   @override
   ModelDefinition<Post> get modelDefinition => Post.definition;
+}
+
+final class Label extends Model {
+  static final ModelDefinition<Label> definition = ModelDefinition<Label>(
+    table: 'labels',
+    factory: Label.new,
+    timestamps: false,
+  );
+
+  @override
+  ModelDefinition<Label> get modelDefinition => Label.definition;
+}
+
+final class Note extends Model {
+  static final ModelDefinition<Note> definition = ModelDefinition<Note>(
+    table: 'notes',
+    factory: Note.new,
+    timestamps: false,
+    relations: {
+      'subject': () =>
+          MorphTo(types: [() => Post.definition, () => Author.definition]),
+    },
+  );
+
+  @override
+  ModelDefinition<Note> get modelDefinition => Note.definition;
+}
+
+final class LabelResource extends JsonApiResource<Label> {
+  LabelResource(super.resource);
+
+  @override
+  String toType(Request? request) => 'labels';
+
+  @override
+  Map<String, Object?> toAttributes(Request? request) => {
+    'name': resource.getAttr<String>('name'),
+  };
+}
+
+final class NoteResource extends JsonApiResource<Note> {
+  NoteResource(super.resource);
+
+  @override
+  String toType(Request? request) => 'notes';
+
+  @override
+  Map<String, Object?> toAttributes(Request? request) => {
+    'body': resource.getAttr<String>('body'),
+  };
+
+  @override
+  Map<String, JsonApiRelationship<Model>> toRelationships(Request? request) => {
+    'subject': JsonApiRelationship<Model>(
+      (Model subject) => switch (subject) {
+        final Post post => PostResource(post),
+        _ => AuthorResource(subject as Author),
+      },
+    ),
+  };
 }
 
 final class AuthorResource extends JsonApiResource<Author> {
@@ -122,6 +188,7 @@ final class PostResource extends JsonApiResource<Post> {
   Map<String, JsonApiRelationship<Model>> toRelationships(Request? request) => {
     'author': JsonApiRelationship<Author>(AuthorResource.new),
     'comments': JsonApiRelationship<Comment>(CommentResource.new),
+    'labels': JsonApiRelationship<Label>(LabelResource.new),
   };
 
   @override
@@ -214,7 +281,26 @@ Future<void> main(List<String> args) async {
             comment(2, 'c2', ana),
           ]);
           final two = post(2, ana, []);
+          final label = Label()..forceFill({'id': 1, 'name': 'dart'});
+          one.setRelation('labels', [label]);
+          two.setRelation('labels', [label]);
+          Note note(int id, Model subject) => Note()
+            ..forceFill({'id': id, 'body': 'n$id'})
+            ..setRelation('subject', subject);
+          final notes = [note(1, one), note(2, ana), note(3, two)];
           router
+            ..get(
+              '/jsonapi/notes',
+              (_) => JsonApiResource.collection<Note>(notes, NoteResource.new),
+            )
+            ..get('/jsonapi/configured', (_) {
+              JsonApiResource.configure(
+                version: '1.1',
+                ext: ['atomic'],
+                meta: {'a': 1},
+              );
+              return PostResource(two);
+            })
             ..get('/jsonapi/post', (_) => PostResource(one))
             ..get('/jsonapi/empty', (_) => PostResource(two))
             ..get('/jsonapi/none', (_) => PostResource(post(3, null, [])))
@@ -366,6 +452,12 @@ Future<void> main(List<String> args) async {
             '/jsonapi/posts?include=author',
             '/jsonapi/posts?include=comments.author',
             '/jsonapi/page?include=author',
+            '/jsonapi/post?include=labels',
+            '/jsonapi/posts?include=labels',
+            '/jsonapi/notes?include=subject',
+            '/jsonapi/notes?include=subject.author',
+            '/jsonapi/notes?include=subject&fields[authors]=name',
+            '/jsonapi/configured',
           ])
             await () async {
               final response = await client.get(
