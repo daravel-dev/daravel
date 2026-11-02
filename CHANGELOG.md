@@ -9,6 +9,12 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 wait for a new major version, and Laravel-facing formats change only to
 match Laravel more closely.
 
+## Unreleased
+
+### Added
+
+- Pulse: `PULSE_PARITY_DRIFT_THRESHOLD` marks a route on the Shadow parity drift card once it drifts that often in the period.
+
 ## 1.23.1
 
 A fix for applications that share their database with Laravel.

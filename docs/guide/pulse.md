@@ -83,6 +83,7 @@ gate.define('viewPulse', (user, args) => user is User && user.isAdmin);
 | `PULSE_N_PLUS_ONE_THRESHOLD` | `5` | Repeats of one statement in a request that are listed |
 | `PULSE_QUERY_STORM_THRESHOLD` | `25` | Queries in a request that are listed, whatever they are |
 | `PULSE_POOL_WAIT_THRESHOLD` | `20` | Milliseconds of waiting for a connection that are listed |
+| `PULSE_PARITY_DRIFT_THRESHOLD` | `5` | Drifts of one route in the period from which the Shadow parity drift card marks it; Daravel's own |
 | `PULSE_SLOW_JOBS_THRESHOLD` | `1000` | Milliseconds from which a job is listed |
 | `PULSE_QUEUES` | `default` | Queues of the default connection whose size is shown |
 | `PULSE_PUBLISH_SECONDS` | `5` | How often a worker sends its report, under a supervisor |
