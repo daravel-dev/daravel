@@ -11,6 +11,7 @@ publisher `framework.daravel.dev`.
 
 | Version | Highlights |
 | :-- | :-- |
+| `1.23.1` | Fix: a cache value Laravel wrote to a shared table is a miss, not an error |
 | `1.23.0` | JSON:API resources checked against Laravel 13, `Concurrency`, `Process`, vector columns on PostgreSQL and MariaDB, debounced jobs, automatic eager loading, shadow parity and `LegacyKey` for migrations |
 | `1.22.0` | Forms and files, 22 validation rules, route model binding, subdomains, JSON columns, Pulse N+1 detection |
 | `1.21.1` | Exceptions pass through middleware, insert columns, integer cast, overlap lock |

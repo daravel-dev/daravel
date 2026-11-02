@@ -9,7 +9,9 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 wait for a new major version, and Laravel-facing formats change only to
 match Laravel more closely.
 
-## Unreleased
+## 1.23.1
+
+A fix for applications that share their database with Laravel.
 
 ### Fixed
 
