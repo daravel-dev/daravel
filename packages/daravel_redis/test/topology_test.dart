@@ -375,6 +375,8 @@ Future<Object?> _node(String address, List<Object?> args) async {
     RedisConnectionConfig(
       host: address.substring(0, colon),
       port: int.parse(address.substring(colon + 1)),
+      // CLUSTER commands can pass the default second on a busy runner.
+      commandTimeout: const Duration(seconds: 10),
     ),
   );
   try {
