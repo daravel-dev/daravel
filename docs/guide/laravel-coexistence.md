@@ -60,7 +60,7 @@ them). Dates without a format stay ISO-8601 UTC (`Carbon::toJSON()`).
 | :-- | :-- |
 | `migrations` table | `id`, `migration`, `batch`; framework migrations use Laravel's names (`0001_01_01_000001_create_cache_table`, ...) |
 | `users` | Laravel 13 skeleton columns |
-| `cache`, `cache_locks` | Laravel 13 schema, including the `expiration` indexes |
+| `cache`, `cache_locks` | Laravel 13 schema, including the `expiration` indexes. Values are not shared: see below |
 | `jobs`, `job_batches`, `failed_jobs` | Laravel 13 schema |
 | `personal_access_tokens` | Sanctum 4 schema; tokens `{id}\|{40 chars}{crc32b}`, SHA-256 stored; `tokenable_type` = `App\Models\User` |
 | `notifications` | Laravel 13 schema; `type` `App\Notifications\...`, `notifiable_type` the model's `morphClass`, `data` JSON ([Mail](mail.md)) |
@@ -102,7 +102,10 @@ language. Daravel keeps the intent and changes the mechanism:
 
 ## Not shared yet
 
-Sessions, CSRF and cookies (Tier 2).
+**Cache values.** Both frameworks can use one `cache` table, but Laravel stores
+`serialize()` text and Daravel JSON. A value the other side wrote is a cache miss
+here, so give each its own `CACHE_PREFIX`: with the same key, each would overwrite
+the other's value.
 
 **Queues.** Both frameworks can use one `jobs` table, but each runs only its
 own jobs: Laravel's payloads carry a PHP-serialized command and Daravel's a
