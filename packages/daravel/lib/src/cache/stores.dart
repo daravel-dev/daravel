@@ -671,8 +671,21 @@ final class DatabaseStore implements TouchableCacheStore, WindowCounterStore {
     return row;
   }
 
-  static Object? _decode(Object? raw) =>
-      raw is String ? (jsonDecode(raw) as Map<String, Object?>)['v'] : null;
+  /// A value this store wrote, or null. Laravel can share the table: its
+  /// `serialize()` text and plain integers are misses here, not errors.
+  static Object? _decode(Object? raw) {
+    if (raw is! String) {
+      return null;
+    }
+    try {
+      return switch (jsonDecode(raw)) {
+        final Map<String, Object?> entry => entry['v'],
+        _ => null,
+      };
+    } on FormatException {
+      return null;
+    }
+  }
 
   static String _encode(Object? value) =>
       jsonEncode(<String, Object?>{'v': value});
