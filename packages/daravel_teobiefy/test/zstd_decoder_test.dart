@@ -135,6 +135,36 @@ void main() {
         isNot(refusedWith('Huffman weight is too high.')),
       );
     });
+
+    test('every weight set of one to four symbols decodes or is refused', () {
+      // 16 + 256 + 4096 + 65536 descriptions, each with a few stream
+      // bytes: a damaged table may only end in ZstdFormatException (or a
+      // result), never another error, a hang or an index out of range.
+      var decoded = 0;
+      var refused = 0;
+      void tryAll(List<int> weights) {
+        for (final stream in const [0x01, 0x04, 0x80, 0xFF]) {
+          try {
+            zstdDecompress(
+              directWeights(weights, stream: stream),
+              maxOutput: 64,
+            );
+            decoded++;
+          } on ZstdFormatException {
+            refused++;
+          }
+        }
+      }
+
+      for (var count = 1; count <= 4; count++) {
+        final total = 1 << (4 * count);
+        for (var code = 0; code < total; code++) {
+          tryAll([for (var i = 0; i < count; i++) (code >> (4 * i)) & 15]);
+        }
+      }
+      expect(decoded + refused, 4 * (16 + 256 + 4096 + 65536));
+      expect(decoded, greaterThan(0), reason: 'legal sets still decode');
+    }, timeout: const Timeout(Duration(minutes: 2)));
   });
 
   group('xxh64', () {
