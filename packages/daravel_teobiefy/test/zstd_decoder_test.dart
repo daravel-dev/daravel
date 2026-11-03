@@ -69,6 +69,74 @@ void main() {
     );
   });
 
+  group('Huffman weight guards', () {
+    /// A one-byte frame whose literals carry [weights] in the direct
+    /// (4 bits each) Huffman description, then the one-byte [stream] and
+    /// no sequences, so decoding reaches the checks on the weights at once.
+    Uint8List directWeights(List<int> weights, {int stream = 0x04}) {
+      final description = [
+        127 + weights.length,
+        for (var i = 0; i < weights.length; i += 2)
+          (weights[i] << 4) | (i + 1 < weights.length ? weights[i + 1] : 0),
+      ];
+      // Compressed literals, one stream, 1 byte regenerated.
+      final header = 2 | (1 << 4) | ((description.length + 1) << 14);
+      final body = [
+        header & 255,
+        (header >> 8) & 255,
+        header >> 16,
+        ...description,
+        stream,
+        0x00, // no sequences
+      ];
+      final block = 1 | (2 << 1) | (body.length << 3);
+      return Uint8List.fromList([
+        0x28, 0xB5, 0x2F, 0xFD, 0x20, 0x01, //
+        block & 255, (block >> 8) & 255, block >> 16,
+        ...body,
+      ]);
+    }
+
+    Matcher refusedWith(String message) => throwsA(
+      isA<ZstdFormatException>().having((e) => e.message, 'message', message),
+    );
+
+    test('the same frame with legal weights decodes', () {
+      // Weights 1, 1 and the implied 2: symbols 0 and 1 get 2-bit codes,
+      // symbol 2 a 1-bit code. Each stream is one code and its end mark.
+      for (final (stream, symbol) in const [(0x04, 0), (0x05, 1), (0x03, 2)]) {
+        expect(
+          zstdDecompress(directWeights([1, 1], stream: stream), maxOutput: 64),
+          [symbol],
+        );
+      }
+    });
+
+    for (final (weights, message, why) in const [
+      ([13, 1], 'Huffman weight is too high.', 'a weight over 12'),
+      ([15], 'Huffman weight is too high.', 'the largest 4-bit weight'),
+      ([0, 0, 0], 'Huffman weights are empty.', 'only zero weights'),
+      ([12], 'Huffman code is too long.', 'codes longer than 11 bits'),
+      ([3, 1], 'Huffman weights do not complete a tree.', 'no full tree'),
+    ]) {
+      test('$why: $message', () {
+        expect(
+          () => zstdDecompress(directWeights(weights), maxOutput: 64),
+          refusedWith(message),
+        );
+      });
+    }
+
+    test('weights up to 12 pass the weight check itself', () {
+      // 12 is allowed by the first check and refused only by the length
+      // check, so the bound is the documented one and not off by one.
+      expect(
+        () => zstdDecompress(directWeights([12]), maxOutput: 64),
+        isNot(refusedWith('Huffman weight is too high.')),
+      );
+    });
+  });
+
   group('xxh64', () {
     test('known values', () {
       expect(xxh64(Uint8List(0)), 0xEF46DB3751D8E999);

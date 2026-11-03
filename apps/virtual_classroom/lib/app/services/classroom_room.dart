@@ -45,9 +45,12 @@ abstract final class ClassroomRoom {
         emptyTimeout: const Duration(minutes: 10),
       );
     } on Object catch (e) {
-      // Without a LiveKit server the page still runs (tokens are signed
-      // locally); in production a failure to open the room is an error.
-      if (Config.section<AppConfig>().isProduction) {
+      // Without a LiveKit server the demo still runs (tokens are signed
+      // locally). Only local and testing tolerate that, the same
+      // environments the demo routes are served in; anywhere else, staging
+      // included, a failure to open the room is an error.
+      final app = Config.section<AppConfig>();
+      if (!app.isLocal && !app.isTesting) {
         rethrow;
       }
       Log.warning('LiveKit is not reachable; the room was not created: $e');
