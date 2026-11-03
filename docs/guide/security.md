@@ -127,6 +127,7 @@ dartisan security:audit --format=sarif --output=reports/audit.sarif
 | `DARAVEL-SEC-011` | `/metrics` without `METRICS_TOKEN` |
 | `DARAVEL-SEC-012` | The log viewer without authentication |
 | `DARAVEL-SEC-013` | A public host served over plain HTTP |
+| `DARAVEL-SEC-014` | A script or stylesheet from another origin (a CDN) without `integrity` on the page |
 
 Only content that proves a leak counts (a served `.env` must contain
 `APP_KEY=` or similar), so a catch-all page that answers 200 is not a

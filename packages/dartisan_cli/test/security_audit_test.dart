@@ -52,7 +52,13 @@ Future<HttpServer> vulnerableServer() async {
             );
           } else {
             response.headers.add('set-cookie', 'session=abc; Path=/');
-            send(200, '<html><body>home</body></html>', type: 'text/html');
+            send(
+              200,
+              '<html><body>home<script '
+              'src="https://cdn.example.test/lib@1.0.0/lib.js"></script>'
+              '</body></html>',
+              type: 'text/html',
+            );
           }
         case '/.env':
           send(200, env);
@@ -181,6 +187,62 @@ void main() {
     expect(
       (await on('http://example.com')).single.severity,
       AuditSeverity.medium,
+    );
+  });
+
+  test('scripts and stylesheets from another origin need integrity', () async {
+    Future<List<AuditFinding>> audit(
+      String html, {
+      String type = 'text/html; charset=utf-8',
+    }) async => (await SecurityAudit(
+      Uri.parse('https://app.example.com'),
+      transport: (method, path, {headers = const {}, body}) async =>
+          ProbeResponse(200, {
+            'content-type': [type],
+          }, html),
+    ).run(only: {'subresourceintegrity'})).findings;
+
+    const pinned =
+        '<script src="https://cdn.jsdelivr.net/npm/x@1.2.3/x.js" '
+        'integrity="sha384-abc" crossorigin="anonymous"></script>';
+    const local =
+        '<script src="/js/app.js"></script>'
+        '<script src="https://app.example.com/js/b.js"></script>'
+        '<script>inline()</script>'
+        '<link rel="icon" href="https://cdn.example.net/favicon.ico">'
+        '<link rel="stylesheet" '
+        'href="https://fonts.googleapis.com/css2?family=Inter">';
+    expect(await audit(pinned + local), isEmpty);
+
+    final found = await audit(
+      '<SCRIPT SRC=//cdn.example.net/a.js></SCRIPT>'
+      "<script src='https://unpkg.com/b@2/b.js' integrity=''></script>"
+      '<link href="https://cdn.example.net/c.css" rel="preload stylesheet">'
+      '<link rel="modulepreload" href="https://cdn.example.net/m.js">',
+    );
+    expect(
+      [for (final f in found) f.severity],
+      [
+        AuditSeverity.medium,
+        AuditSeverity.medium,
+        AuditSeverity.low,
+        AuditSeverity.medium,
+      ],
+    );
+    expect(found.first.message, contains('https://cdn.example.net/a.js'));
+    expect(found[2].message, startsWith('Stylesheet'));
+    expect(
+      found.last.message,
+      startsWith('Script https://cdn.example.net/m.js'),
+    );
+
+    // Only HTML pages are read.
+    expect(
+      await audit(
+        '<script src="https://cdn.example.net/a.js"></script>',
+        type: 'application/json',
+      ),
+      isEmpty,
     );
   });
 
