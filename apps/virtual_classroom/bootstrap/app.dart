@@ -6,19 +6,35 @@ import 'package:daravel_google/daravel_google.dart';
 import 'package:daravel_livekit/daravel_livekit.dart';
 import 'package:daravel_permission/daravel_permission.dart';
 import 'package:virtual_classroom/app/models/meeting.dart';
+import 'package:virtual_classroom/lang/classroom_lines.dart';
 import 'package:virtual_classroom/app/models/user.dart';
 import 'package:virtual_classroom/app/policies/meeting_policy.dart';
 
 import '../routes/api.dart';
+import '../routes/web.dart';
 import 'jobs.dart';
 import 'migrations.dart';
 import 'models.dart';
 import 'seeders.dart';
 
+/// Detects base path whether run from root monorepo or app subfolder.
+String _resolveBasePath() {
+  final current = Directory.current.path;
+  final candidate = Directory(
+    Platform.isWindows
+        ? '$current\\apps\\virtual_classroom'
+        : '$current/apps/virtual_classroom',
+  );
+  if (candidate.existsSync()) {
+    return candidate.path;
+  }
+  return current;
+}
+
 /// Builds the (unbooted) application. [env] overrides `.env` and the OS
 /// environment, which is how tests pick their database and fakes.
 Application createApp({String? basePath, Map<String, String>? env}) =>
-    Application.configure(basePath: basePath ?? Directory.current.path)
+    Application.configure(basePath: basePath ?? _resolveBasePath())
         .withEnv(env ?? const <String, String>{})
         .withLivekit()
         .withGoogle()
@@ -29,11 +45,29 @@ Application createApp({String? basePath, Map<String, String>? env}) =>
         .withModels(models)
         .withJobs(jobs)
         .withPolicies((gate) => gate.policy<Meeting>(const MeetingPolicy()))
-        .withRouting(api: apiRoutes, apiPrefix: '/api', health: '/up')
+        // English by default; `?lang=id` or `Accept-Language: id` switches
+        // a request to Indonesian.
+        .withTranslations(classroomLines)
+        .withMiddleware((middleware) {
+          middleware.use(const [
+            SetLocaleMiddleware(supported: ['en', 'id']),
+          ]);
+        })
+        .withRouting(
+          api: apiRoutes,
+          web: webRoutes,
+          apiPrefix: '/api',
+          health: '/up',
+        )
         .withAuth((auth) {
           auth.token<User>('token', ModelUserProvider<User>(User.definition));
         })
         .withRateLimits((limiter) {
+          // Five password tries a minute per email and address.
+          limiter.define('login', (request) async {
+            final email = (await request.all())['email'];
+            return Limit.perMinute(5).by('$email|${request.ip}');
+          });
           // Ten tries a minute per user and meeting.
           limiter.define(
             'join',

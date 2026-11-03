@@ -1,2 +1,9 @@
 # Runtime files of a local run.
 storage/
+
+# External services are installed apart from the repository: never
+# commit their binaries, configuration or credentials.
+livekit-server
+livekit-server.exe
+livekit*.yaml
+*service-account*.json
