@@ -5,6 +5,7 @@ import '../../foundation/clock.dart';
 /// Minimal, dependency-free fake data generator for seeders and factories.
 /// Deterministic when constructed with a [seed] (`Faker(seed: 42)`).
 final class Faker {
+  /// A generator, repeatable when given a [seed].
   Faker({int? seed}) : _random = seed == null ? Random() : Random(seed);
 
   final Random _random;
@@ -150,8 +151,13 @@ final class Faker {
 
   // --- people -----------------------------------------------------------------
 
+  /// A first name.
   String firstName() => pick(_firstNames);
+
+  /// A last name.
   String lastName() => pick(_lastNames);
+
+  /// A full name.
   String name() => '${firstName()} ${lastName()}';
 
   /// Unique-ish lowercase username.
@@ -167,15 +173,19 @@ final class Faker {
 
   // --- text -------------------------------------------------------------------
 
+  /// A lorem ipsum word.
   String word() => pick(_words);
 
+  /// [count] words.
   List<String> words([int count = 3]) => List.generate(count, (_) => word());
 
+  /// A sentence of [words] words, capitalized, ending with a period.
   String sentence([int words = 8]) {
     final text = this.words(words).join(' ');
     return '${text[0].toUpperCase()}${text.substring(1)}.';
   }
 
+  /// A paragraph of [sentences] sentences.
   String paragraph([int sentences = 3]) =>
       List.generate(sentences, (_) => sentence()).join(' ');
 
@@ -188,8 +198,10 @@ final class Faker {
     return buffer.toString().substring(0, length).trimRight();
   }
 
+  /// A slug of [words] words joined with hyphens.
   String slug([int words = 3]) => this.words(words).join('-');
 
+  /// A title of [words] capitalized words.
   String title([int words = 4]) => this
       .words(words)
       .map((w) => '${w[0].toUpperCase()}${w.substring(1)}')
@@ -197,11 +209,14 @@ final class Faker {
 
   // --- misc -------------------------------------------------------------------
 
+  /// A city name.
   String city() => pick(_cities);
 
+  /// A company name.
   String company() =>
       '${lastName()} ${pick(const ['Group', 'Labs', 'Studio', 'Corp', 'Co'])}';
 
+  /// A unique `https://` URL.
   String url() => 'https://${word()}${unique()}.${pick(_tlds)}';
 
   /// RFC 4122 v4 UUID from this generator's randomness (deterministic with a seed).
@@ -220,11 +235,13 @@ final class Faker {
     return start.add(Duration(seconds: span <= 0 ? 0 : _random.nextInt(span)));
   }
 
+  /// A time within the last [days] days.
   DateTime pastDate({int days = 365}) => dateTimeBetween(
     Clock.now().toUtc().subtract(Duration(days: days)),
     Clock.now().toUtc(),
   );
 
+  /// A time within the next [days] days.
   DateTime futureDate({int days = 365}) => dateTimeBetween(
     Clock.now().toUtc(),
     Clock.now().toUtc().add(Duration(days: days)),

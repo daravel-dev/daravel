@@ -6,6 +6,7 @@ import '../foundation/env.dart';
 
 /// A single named connection (`config/database.php` parity).
 final class ConnectionConfig {
+  /// One connection's settings, read from `DB_*` or `DB_URL` in `.env`.
   const ConnectionConfig({
     required this.driver,
     required this.database,
@@ -139,14 +140,29 @@ final class ConnectionConfig {
     );
   }
 
+  /// The driver: `sqlite`, `pgsql`, `mysql` or `mariadb`.
   final String driver;
+
+  /// The database name, or the file path for SQLite.
   final String database;
+
+  /// The server host; null for SQLite.
   final String? host;
+
+  /// The server port; null for SQLite or the driver's default.
   final int? port;
+
+  /// The user name.
   final String? username;
+
+  /// The password.
   final String? password;
+
+  /// Driver-specific options, such as `sslmode` or `charset`.
   final Map<String, Object?> options;
 
+  /// The settings as a map, for `config:show` and driver factories; the
+  /// password is included, so never log it.
   Map<String, Object?> toMap() => <String, Object?>{
     'driver': driver,
     'database': database,
@@ -178,6 +194,7 @@ final class DatabaseConfig implements ConfigSection {
     return const [];
   }
 
+  /// The [defaultConnection] and every named connection.
   const DatabaseConfig({
     required this.defaultConnection,
     required this.connections,
@@ -255,7 +272,10 @@ final class DatabaseConfig implements ConfigSection {
     );
   }
 
+  /// The connection used when none is named (`DB_CONNECTION`).
   final String defaultConnection;
+
+  /// The connections by name.
   final Map<String, ConnectionConfig> connections;
 
   /// Whether the default connection is a SQLite *file* that [isolates]

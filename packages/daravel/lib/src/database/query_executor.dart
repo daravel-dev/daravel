@@ -2,9 +2,16 @@ import 'dart:async';
 
 /// SQL dialects known to the framework.
 enum SqlDialect {
+  /// SQLite, through `package:sqlite3`.
   sqlite,
+
+  /// PostgreSQL, through `package:postgres`.
   postgres,
+
+  /// MySQL (`daravel_mysql`).
   mysql,
+
+  /// MariaDB (`daravel_mysql`); MySQL's grammar with MariaDB's vectors.
   mariadb;
 
   /// MySQL or MariaDB: the same grammar, but for what MariaDB adds.
@@ -14,6 +21,7 @@ enum SqlDialect {
 /// Executes parameterized SQL. Bindings use `?` placeholders in Tier 0; the
 /// dialect-aware grammar (ADR-005) takes over placeholder emission in S5.
 abstract interface class QueryExecutor {
+  /// The SQL dialect of this connection.
   SqlDialect get dialect;
 
   /// Runs a query and returns the rows as column → value maps.
@@ -37,10 +45,13 @@ abstract interface class DatabaseDriver implements QueryExecutor {
   /// Connection name as configured (`sqlite`, `pgsql`, ...).
   String get name;
 
+  /// Whether the connection is open.
   bool get isConnected;
 
+  /// Opens the connection; called before the first query.
   Future<void> connect();
 
+  /// Closes the connection and its pool.
   Future<void> close();
 
   /// Runs [body] inside a transaction; rolls back when it throws.
@@ -61,6 +72,7 @@ abstract interface class NotifyingDriver implements DatabaseDriver {
 /// duration and connection. For debugging, slow-query logging, N+1
 /// detection and inspection tools.
 final class QueryExecuted {
+  /// A query that ran, as `DB.listen` reports it.
   const QueryExecuted({
     required this.sql,
     required this.bindings,
@@ -69,11 +81,16 @@ final class QueryExecuted {
     this.poolWait = Duration.zero,
   });
 
+  /// The SQL, with placeholders.
   final String sql;
+
+  /// The bound values.
   final List<Object?> bindings;
 
   /// Time in the database, without [poolWait].
   final Duration time;
+
+  /// The connection it ran on.
   final String connectionName;
 
   /// Time spent waiting for a free connection. Zero inside a transaction,
@@ -89,13 +106,20 @@ final class QueryExecuted {
 /// The life of a transaction, for `DB.listenTransactions`. [depth] is 1 for
 /// `BEGIN` and above that for a savepoint, as `transactionLevel()`.
 sealed class TransactionEvent {
+  /// An event of the transaction at [depth] (1 for the outer one) on
+  /// [connectionName].
   const TransactionEvent(this.connectionName, this.depth);
 
+  /// The connection of the transaction.
   final String connectionName;
+
+  /// The nesting level: 1 for the outer transaction, more for savepoints.
   final int depth;
 }
 
+/// A transaction or savepoint is starting.
 final class DbTransactionBeginning extends TransactionEvent {
+  /// Reports a transaction beginning on [connectionName] at [depth].
   const DbTransactionBeginning(
     super.connectionName,
     super.depth, {
@@ -106,13 +130,18 @@ final class DbTransactionBeginning extends TransactionEvent {
   final Duration poolWait;
 }
 
+/// A transaction or savepoint committed.
 final class DbTransactionCommitted extends TransactionEvent {
+  /// Reports a commit after [elapsed].
   const DbTransactionCommitted(super.connectionName, super.depth, this.elapsed);
 
+  /// How long the transaction ran.
   final Duration elapsed;
 }
 
+/// A transaction or savepoint rolled back.
 final class DbTransactionRolledBack extends TransactionEvent {
+  /// Reports a rollback after [elapsed], caused by [error].
   const DbTransactionRolledBack(
     super.connectionName,
     super.depth,
@@ -120,7 +149,10 @@ final class DbTransactionRolledBack extends TransactionEvent {
     this.error,
   );
 
+  /// How long the transaction ran.
   final Duration elapsed;
+
+  /// The error that rolled it back.
   final Object error;
 }
 
@@ -132,8 +164,10 @@ final class PoolWaitProbe {
   /// The probe of the running query, if any.
   static PoolWaitProbe? get current => Zone.current[_key] as PoolWaitProbe?;
 
+  /// The time the query waited for a pooled connection.
   Duration waited = Duration.zero;
 
+  /// Runs [body] with this probe in its zone.
   Future<T> run<T>(Future<T> Function() body) =>
       runZoned(body, zoneValues: {_key: this});
 }
@@ -141,10 +175,16 @@ final class PoolWaitProbe {
 /// Wraps an executor to report every query to [listeners]. Only used while
 /// listeners are registered, so queries cost nothing extra otherwise.
 final class ListeningQueryExecutor implements QueryExecutor {
+  /// Reports the queries of [inner] on [connectionName] to [listeners].
   ListeningQueryExecutor(this.inner, this.connectionName, this.listeners);
 
+  /// The wrapped executor.
   final QueryExecutor inner;
+
+  /// The connection name reported.
   final String connectionName;
+
+  /// The `DB.listen` callbacks.
   final List<void Function(QueryExecuted event)> listeners;
 
   @override
@@ -193,6 +233,8 @@ final class ListeningQueryExecutor implements QueryExecutor {
 /// A driver that recognises its own transient errors (deadlocks, lock
 /// timeouts), so `DB.transaction(attempts: n)` retries them.
 abstract interface class RetryableErrors {
+  /// Whether [error] is transient (a deadlock or lock timeout) and the
+  /// transaction may be retried.
   bool isRetryableError(Object error);
 }
 
@@ -200,6 +242,7 @@ abstract interface class RetryableErrors {
 /// among its errors (Laravel's `isUniqueConstraintError`), so it surfaces
 /// as [UniqueConstraintViolationException].
 abstract interface class QueryErrors {
+  /// Whether [error] is a unique index or primary key refusing a row.
   bool isUniqueConstraintError(Object error);
 }
 
@@ -213,16 +256,23 @@ abstract interface class QueryErrors {
 /// database's own words may still name a conflicting value (MySQL's
 /// `Duplicate entry '...'`, PostgreSQL's detail), as in Laravel.
 class QueryException implements Exception {
+  /// The error [previous] of [sql] with [bindings] on [connectionName].
   QueryException(this.connectionName, this.sql, this.bindings, this.previous);
 
+  /// The connection the query ran on.
   final String connectionName;
+
+  /// The SQL, with placeholders.
   final String sql;
+
+  /// The bound values; kept out of [message].
   final List<Object?> bindings;
 
   /// The driver's own error (`SqliteException`, `ServerException`,
   /// `MySQLServerException`, ...).
   final Object previous;
 
+  /// The driver's first line of error, with the connection and the SQL.
   String get message =>
       '${'$previous'.split('\n').first.trim()} '
       '(Connection: $connectionName, SQL: $sql)';
@@ -236,6 +286,7 @@ class QueryException implements Exception {
 /// same email at once, say. As in Laravel it is a server error unless
 /// caught; `createOrFirst` and `firstOrCreate` catch it for you.
 final class UniqueConstraintViolationException extends QueryException {
+  /// A refused row; see [QueryException].
   UniqueConstraintViolationException(
     super.connectionName,
     super.sql,
@@ -248,10 +299,16 @@ final class UniqueConstraintViolationException extends QueryException {
 /// [UniqueConstraintViolationException] when [errors] recognises one, as
 /// Laravel's `runQueryCallback` does.
 final class QueryExceptionExecutor implements QueryExecutor {
+  /// Wraps [inner], recognising unique violations through [errors].
   QueryExceptionExecutor(this.inner, this.connectionName, this.errors);
 
+  /// The wrapped executor.
   final QueryExecutor inner;
+
+  /// The connection name reported in errors.
   final String connectionName;
+
+  /// The driver's error classifier, when it has one.
   final QueryErrors? errors;
 
   @override

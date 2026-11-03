@@ -58,6 +58,8 @@ abstract base class _UrlPaginator {
 /// `LengthAwarePaginator` (key order, `links` with `page`, URL window).
 final class LengthAwarePaginator<T> extends _UrlPaginator
     implements JsonSerializable, Responsable {
+  /// A page of [items] out of [total], as Laravel's `LengthAwarePaginator`;
+  /// `toJson` writes Laravel's paginator JSON with links.
   LengthAwarePaginator({
     required this.items,
     required this.total,
@@ -69,26 +71,48 @@ final class LengthAwarePaginator<T> extends _UrlPaginator
     this.onEachSide = 3,
   });
 
+  /// The models or rows of this page.
   final List<T> items;
+
+  /// The number of matching rows on every page.
   final int total;
+
+  /// The rows per page.
   final int perPage;
+
+  /// The page number, from 1.
   final int currentPage;
+
+  /// The query parameter holding the page number (`page`).
   final String pageName;
 
   /// Pages shown on each side of the current one in [links].
   final int onEachSide;
 
+  /// The number of the last page, at least 1.
   int get lastPage => total == 0 ? 1 : (total / perPage).ceil();
+
+  /// The position of this page's first row, from 1, or null when empty.
   int? get from => items.isEmpty ? null : (currentPage - 1) * perPage + 1;
+
+  /// The position of this page's last row, or null when empty.
   int? get to =>
       items.isEmpty ? null : (currentPage - 1) * perPage + items.length;
+
+  /// Whether a page follows this one.
   bool get hasMorePages => currentPage < lastPage;
+
+  /// Whether this is the first page.
   bool get onFirstPage => currentPage <= 1;
 
+  /// The URL of page [page], keeping the other query parameters.
   String url(int page) =>
       _build(<String, String>{...query, pageName: '${page < 1 ? 1 : page}'});
 
+  /// The URL of the next page, or null on the last.
   String? get nextPageUrl => hasMorePages ? url(currentPage + 1) : null;
+
+  /// The URL of the previous page, or null on the first.
   String? get previousPageUrl => currentPage > 1 ? url(currentPage - 1) : null;
 
   /// Laravel's `linkCollection()`: previous, the `UrlWindow` pages with
@@ -201,6 +225,7 @@ List<int?> urlWindow(int current, int last, [int onEachSide = 3]) {
 /// `simplePaginate()` result: no total, only next/previous.
 final class SimplePaginator<T> extends _UrlPaginator
     implements JsonSerializable, Responsable {
+  /// A page of [items] without a total, as Laravel's `Paginator`.
   SimplePaginator({
     required this.items,
     required this.perPage,
@@ -211,20 +236,36 @@ final class SimplePaginator<T> extends _UrlPaginator
     super.query = const <String, String>{},
   });
 
+  /// The models or rows of this page.
   final List<T> items;
+
+  /// The rows per page.
   final int perPage;
+
+  /// The page number, from 1.
   final int currentPage;
+
+  /// Whether a page follows this one.
   final bool hasMorePages;
+
+  /// The query parameter holding the page number (`page`).
   final String pageName;
 
+  /// The position of this page's first row, from 1, or null when empty.
   int? get from => items.isEmpty ? null : (currentPage - 1) * perPage + 1;
+
+  /// The position of this page's last row, or null when empty.
   int? get to =>
       items.isEmpty ? null : (currentPage - 1) * perPage + items.length;
 
+  /// The URL of page [page], keeping the other query parameters.
   String url(int page) =>
       _build(<String, String>{...query, pageName: '${page < 1 ? 1 : page}'});
 
+  /// The URL of the next page, or null on the last.
   String? get nextPageUrl => hasMorePages ? url(currentPage + 1) : null;
+
+  /// The URL of the previous page, or null on the first.
   String? get previousPageUrl => currentPage > 1 ? url(currentPage - 1) : null;
 
   /// Keeps the current request's query string in page URLs.
@@ -265,11 +306,18 @@ final class SimplePaginator<T> extends _UrlPaginator
 /// column values plus `_pointsToNextItems`, so cursors are interchangeable
 /// with a Laravel app over the same table.
 final class Cursor {
+  /// The position after (or before, unless [pointsToNext]) the row whose
+  /// ordered columns hold [values].
   const Cursor(this.values, {this.pointsToNext = true});
 
+  /// The ordered columns' values of the row the cursor points past.
   final Map<String, Object?> values;
+
+  /// Whether the cursor reads forward (the next page) or backward.
   final bool pointsToNext;
 
+  /// The cursor in a `?cursor=` value, or null when it is missing or
+  /// invalid.
   static Cursor? decode(String? encoded) {
     if (encoded == null || encoded.isEmpty) {
       return null;
@@ -288,6 +336,7 @@ final class Cursor {
     }
   }
 
+  /// The cursor as a URL-safe base64 string, as Laravel encodes it.
   String encode() => base64Url
       .encode(
         utf8.encode(
@@ -303,6 +352,7 @@ final class Cursor {
 /// `cursorPaginate()` result (keyset pagination).
 final class CursorPaginator<T> extends _UrlPaginator
     implements JsonSerializable, Responsable {
+  /// A page of [items] read from a cursor, as Laravel's `CursorPaginator`.
   CursorPaginator({
     required this.items,
     required this.perPage,
@@ -313,10 +363,19 @@ final class CursorPaginator<T> extends _UrlPaginator
     super.query = const <String, String>{},
   });
 
+  /// The models or rows of this page.
   final List<T> items;
+
+  /// The rows per page.
   final int perPage;
+
+  /// The cursor of the next page, or null on the last.
   final Cursor? nextCursor;
+
+  /// The cursor of the previous page, or null on the first.
   final Cursor? previousCursor;
+
+  /// The query parameter holding the cursor (`cursor`).
   final String cursorName;
 
   /// URL of the next page (`null` on the last page).

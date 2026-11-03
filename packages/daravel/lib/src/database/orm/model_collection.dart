@@ -7,6 +7,7 @@ import 'model.dart';
 /// A list of models with Laravel `Collection` conveniences.
 final class ModelCollection<T extends Model> extends DelegatingList<T>
     implements JsonSerializable, Responsable {
+  /// A collection of [models], empty by default.
   ModelCollection([List<T>? models]) : super(models ?? <T>[]);
 
   /// Primary keys in order.

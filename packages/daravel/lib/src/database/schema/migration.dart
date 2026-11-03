@@ -5,33 +5,48 @@ import 'schema_builder.dart';
 /// A schema migration. [name] must be unique and stable (it is recorded in
 /// the `migrations` table, Laravel-compatible: `id`, `migration`, `batch`).
 abstract class Migration {
+  /// Migrations are usually const.
   const Migration();
 
+  /// The migration's name, stored in the `migrations` table: the file name
+  /// without `.dart` (`2026_01_01_000000_create_users_table`).
   String get name;
 
+  /// Applies the migration.
   Future<void> up(SchemaBuilder schema);
 
+  /// Reverts what [up] did.
   Future<void> down(SchemaBuilder schema);
 }
 
 /// Status row reported by `migrate:status`.
 final class MigrationStatus {
+  /// Whether the migration [name] [ran], and in which [batch].
   const MigrationStatus({required this.name, required this.ran, this.batch});
 
+  /// The migration's name.
   final String name;
+
+  /// Whether it has run.
   final bool ran;
+
+  /// The batch it ran in, or null when it has not.
   final int? batch;
 }
 
 /// Runs migrations in batches (`migrate`, `migrate:rollback`,
 /// `migrate:status`, `migrate:reset`).
 final class Migrator {
+  /// A migrator for [migrations] (`bootstrap/migrations.dart`).
   Migrator(this._db, List<Migration> migrations)
     : migrations = List<Migration>.unmodifiable(migrations);
 
+  /// The table recording the migrations that ran, shared with Laravel.
   static const String table = 'migrations';
 
   final DatabaseManager _db;
+
+  /// The registered migrations, in order.
   final List<Migration> migrations;
 
   /// Creates the `migrations` table when missing.

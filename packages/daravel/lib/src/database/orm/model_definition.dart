@@ -43,6 +43,8 @@ typedef RelationFactory = Relation<Model> Function();
 /// construction time, because Dart function parameters are contravariant and
 /// a `Map<String, Fn(User)>` cannot be read through `ModelDefinition<Model>`.
 final class ModelDefinition<T extends Model> {
+  /// Describes a model: its [table], [factory] and everything Eloquent reads
+  /// from a model's properties (`$fillable`, `$casts`, `$hidden`...).
   ModelDefinition({
     required this.table,
     required this.factory,
@@ -97,6 +99,7 @@ final class ModelDefinition<T extends Model> {
                entry.value(model as T, value),
        };
 
+  /// The table (`$table`).
   final String table;
 
   /// Laravel class name of the model (`App\Models\User` by default), used
@@ -104,20 +107,50 @@ final class ModelDefinition<T extends Model> {
   /// and in [ModelNotFoundException] messages. Override it when the Laravel
   /// model lives elsewhere.
   final String morphClass;
+
+  /// Creates an empty instance, usually the model's constructor tear-off.
   final T Function() factory;
+
+  /// The primary key column (`$primaryKey`, `id`).
   final String primaryKey;
+
+  /// How primary keys are made: auto-increment, UUID or ULID.
   final KeyType keyType;
+
+  /// The connection name (`$connection`); the default one when null.
   final String? connection;
+
+  /// Mass assignable attributes (`$fillable`).
   final List<String> fillable;
+
+  /// Attributes refused by mass assignment (`$guarded`).
   final List<String> guarded;
+
+  /// Attribute casts (`$casts`), by attribute name.
   final Map<String, Cast> casts;
+
+  /// Attributes left out of `toJson` (`$hidden`).
   final List<String> hidden;
+
+  /// When not empty, the only attributes `toJson` writes (`$visible`).
   final List<String> visible;
+
+  /// Accessors added to `toJson` (`$appends`).
   final List<String> appends;
+
+  /// Whether `created_at` and `updated_at` are maintained (`$timestamps`).
   final bool timestamps;
+
+  /// The created at column (`CREATED_AT`).
   final String createdAt;
+
+  /// The updated at column (`UPDATED_AT`).
   final String updatedAt;
+
+  /// Whether deleting sets [deletedAt] instead (`SoftDeletes`).
   final bool softDeletes;
+
+  /// The soft delete column (`DELETED_AT`).
   final String deletedAt;
 
   /// Local scopes (wrapped to `Model`-typed functions).
@@ -136,7 +169,10 @@ final class ModelDefinition<T extends Model> {
   /// Mutators (wrapped to `Model`-typed functions).
   final Map<String, MutatorFn<Model>> mutators;
 
+  /// Observers called on the model's lifecycle events.
   final List<ModelObserver<T>> observers;
+
+  /// Models per page of `paginate` (`$perPage`, 15).
   final int perPage;
 
   /// Relations whose parent `updated_at` is touched when this model saves.

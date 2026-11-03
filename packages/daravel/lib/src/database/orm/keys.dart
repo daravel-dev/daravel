@@ -30,6 +30,7 @@ abstract final class KeyGenerator {
   static final Random _random = Random.secure();
   static const String _alphabet = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
 
+  /// A random (version 4) UUID string.
   static String uuid() => _uuid.v4();
 
   /// Crockford base32 ULID: 10 chars timestamp + 16 chars randomness.
