@@ -38,11 +38,15 @@ abstract final class ClassroomRoom {
   /// the room's admin (mute, remove); students join and publish.
   static Future<RoomPass> pass(Meeting meeting, User user) async {
     final teacher = (await meeting.classroom()).taughtBy(user);
-    await Livekit.rooms.createRoom(
-      meeting.roomName,
-      maxParticipants: meeting.maxParticipants,
-      emptyTimeout: const Duration(minutes: 10),
-    );
+    try {
+      await Livekit.rooms.createRoom(
+        meeting.roomName,
+        maxParticipants: meeting.maxParticipants,
+        emptyTimeout: const Duration(minutes: 10),
+      );
+    } catch (e) {
+      Log.warning('LiveKit RoomService CreateRoom offline or skipped: $e');
+    }
     final expiresAt = meeting.endsAt.add(Meeting.grace);
     final token = await Livekit.token(
       identity: 'user-${user.id}',

@@ -10,15 +10,30 @@ import 'package:virtual_classroom/app/models/user.dart';
 import 'package:virtual_classroom/app/policies/meeting_policy.dart';
 
 import '../routes/api.dart';
+import '../routes/web.dart';
 import 'jobs.dart';
 import 'migrations.dart';
 import 'models.dart';
 import 'seeders.dart';
 
+/// Detects base path whether run from root monorepo or app subfolder.
+String _resolveBasePath() {
+  final current = Directory.current.path;
+  final candidate = Directory(
+    Platform.isWindows
+        ? '$current\\apps\\virtual_classroom'
+        : '$current/apps/virtual_classroom',
+  );
+  if (candidate.existsSync()) {
+    return candidate.path;
+  }
+  return current;
+}
+
 /// Builds the (unbooted) application. [env] overrides `.env` and the OS
 /// environment, which is how tests pick their database and fakes.
 Application createApp({String? basePath, Map<String, String>? env}) =>
-    Application.configure(basePath: basePath ?? Directory.current.path)
+    Application.configure(basePath: basePath ?? _resolveBasePath())
         .withEnv(env ?? const <String, String>{})
         .withLivekit()
         .withGoogle()
@@ -29,7 +44,12 @@ Application createApp({String? basePath, Map<String, String>? env}) =>
         .withModels(models)
         .withJobs(jobs)
         .withPolicies((gate) => gate.policy<Meeting>(const MeetingPolicy()))
-        .withRouting(api: apiRoutes, apiPrefix: '/api', health: '/up')
+        .withRouting(
+          api: apiRoutes,
+          web: webRoutes,
+          apiPrefix: '/api',
+          health: '/up',
+        )
         .withAuth((auth) {
           auth.token<User>('token', ModelUserProvider<User>(User.definition));
         })

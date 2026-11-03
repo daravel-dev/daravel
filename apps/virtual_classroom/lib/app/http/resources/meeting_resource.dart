@@ -9,6 +9,7 @@ final class MeetingResource extends JsonResource<Meeting> {
   @override
   Map<String, Object?> toArray(Request? request) => {
     'id': resource.uuid,
+    'uuid': resource.uuid,
     'classroom_id': resource.classroomId,
     'name': resource.name,
     'description': resource.description,
