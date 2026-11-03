@@ -9,6 +9,12 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 wait for a new major version, and Laravel-facing formats change only to
 match Laravel more closely.
 
+## Unreleased
+
+### Added
+
+- `dartisan security:audit`: check `DARAVEL-SEC-014` reports scripts (medium) and stylesheets (low) loaded from another origin, such as a CDN, without an `integrity` hash; Google Fonts CSS, which differs per browser, is exempt.
+
 ## 1.24.1
 
 A documentation release: the API docs on pub.dev, the guide and the example applications; no change to the API.
