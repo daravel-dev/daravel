@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:4fe905f79ff3 -->
+<!-- source: README.md sha256:a117bad9f298 -->
 <img src="https://raw.githubusercontent.com/daravel-dev/daravel/main/docs/brand/png/daravel-icon-128.png" alt="Daravel" width="64" align="right">
 
 # daravel_lints
