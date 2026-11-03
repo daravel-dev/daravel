@@ -125,7 +125,8 @@ final class AuditResult {
 /// internals, which `dart test --tags security` covers: response headers,
 /// files a misconfigured proxy or static root would serve, path traversal,
 /// TRACE, CRLF injection, stack traces in errors, CORS, cookie flags,
-/// `/metrics` and the log viewer left open, and plain HTTP.
+/// `/metrics` and the log viewer left open, plain HTTP, and scripts from a
+/// CDN without Subresource Integrity.
 final class SecurityAudit {
   /// An audit of the running application at [target].
   SecurityAudit(
@@ -262,6 +263,17 @@ final class SecurityAudit {
         "platform's load balancer).",
   );
 
+  /// DARAVEL-SEC-014: scripts and stylesheets from another origin without
+  /// Subresource Integrity.
+  static const subresourceIntegrity = AuditCheck(
+    'DARAVEL-SEC-014',
+    'SubresourceIntegrity',
+    'Third-party scripts without integrity',
+    'Pin each script and stylesheet from a CDN to an exact version and add '
+        'integrity="sha384-..." with crossorigin="anonymous", or serve the '
+        'file from the application itself.',
+  );
+
   /// Every check, in order.
   static const List<AuditCheck> all = [
     securityHeaders,
@@ -277,6 +289,7 @@ final class SecurityAudit {
     exposedMetrics,
     exposedLogViewer,
     plainHttp,
+    subresourceIntegrity,
   ];
 
   /// Runs every check, or those whose id or name is in [only].
@@ -340,6 +353,7 @@ final class SecurityAudit {
     exposedMetrics.id: (a, send) => a._exposedMetrics(send),
     exposedLogViewer.id: (a, send) => a._exposedLogViewer(send),
     plainHttp.id: (a, send) => a._plainHttp(),
+    subresourceIntegrity.id: (a, send) => a._subresourceIntegrity(send),
   };
 
   bool get _https => target.scheme == 'https';
@@ -690,6 +704,75 @@ final class SecurityAudit {
           '$target is not served over HTTPS.',
         ),
     ]);
+  }
+
+  static final RegExp _tag = RegExp(
+    r'<(script|link)\b([^>]*)>',
+    caseSensitive: false,
+  );
+
+  /// The value of [attribute] in a tag's [attributes] text, or `null`.
+  static String? _attribute(String attributes, String attribute) {
+    final match = RegExp(
+      '(?:^|\\s)$attribute\\s*=\\s*(?:"([^"]*)"|\'([^\']*)\'|([^\\s>]+))',
+      caseSensitive: false,
+    ).firstMatch(attributes);
+    if (match == null) {
+      final bare = RegExp(
+        '(?:^|\\s)$attribute(?=\\s|/|\$)',
+        caseSensitive: false,
+      ).hasMatch(attributes);
+      return bare ? '' : null;
+    }
+    return match[1] ?? match[2] ?? match[3];
+  }
+
+  Future<_Outcome> _subresourceIntegrity(ProbeTransport send) async {
+    final (path, page) = await _page(send);
+    if (!(page.header('content-type') ?? '').contains('text/html')) {
+      return const _Found([]);
+    }
+    final findings = <AuditFinding>[];
+    for (final tag in _tag.allMatches(page.body)) {
+      final script = tag[1]!.toLowerCase() == 'script';
+      final attributes = tag[2]!;
+      final String? url;
+      if (script) {
+        url = _attribute(attributes, 'src');
+      } else {
+        final rel = (_attribute(attributes, 'rel') ?? '').toLowerCase();
+        url = rel.split(RegExp(r'\s+')).contains('stylesheet')
+            ? _attribute(attributes, 'href')
+            : null;
+      }
+      if (url == null || url.isEmpty) {
+        continue;
+      }
+      final resolved = target.resolve(url.trim());
+      final foreign =
+          (resolved.scheme == 'http' || resolved.scheme == 'https') &&
+          resolved.origin != target.origin;
+      // Google Fonts serves different CSS per browser, so it cannot carry
+      // a hash; the fonts it loads are not scripts.
+      final exempt = !script && resolved.host == 'fonts.googleapis.com';
+      if (!foreign || exempt) {
+        continue;
+      }
+      if ((_attribute(attributes, 'integrity') ?? '').trim().isNotEmpty) {
+        continue;
+      }
+      findings.add(
+        AuditFinding(
+          subresourceIntegrity,
+          script ? AuditSeverity.medium : AuditSeverity.low,
+          '${script ? 'Script' : 'Stylesheet'} $resolved is loaded from '
+          'another origin without integrity: whoever controls that host '
+          'controls the page.',
+          path: path,
+        ),
+      );
+    }
+    return _Found(findings);
   }
 
   /// Requests over `dart:io`, without following redirects; the body is

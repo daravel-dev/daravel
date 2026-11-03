@@ -1,4 +1,4 @@
-<!-- source: security.md sha256:48ce09cefe8d -->
+<!-- source: security.md sha256:fb546ea0c1cf -->
 # Keamanan Sistem (Security Guide)
 
 Pelaporan kerentanan keamanan secara privat dijelaskan pada berkas
@@ -128,6 +128,7 @@ dartisan security:audit --format=sarif --output=reports/audit.sarif
 | `DARAVEL-SEC-011` | `/metrics` tanpa `METRICS_TOKEN` |
 | `DARAVEL-SEC-012` | Log viewer tanpa autentikasi |
 | `DARAVEL-SEC-013` | Host publik yang disajikan lewat HTTP biasa |
+| `DARAVEL-SEC-014` | Script atau stylesheet dari origin lain (CDN) tanpa `integrity` di halaman |
 
 Hanya konten yang membuktikan kebocoran yang dihitung (`.env` yang tersaji
 harus berisi `APP_KEY=` atau sejenisnya), sehingga halaman catch-all yang
