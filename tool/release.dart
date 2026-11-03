@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'changelog.dart';
 import 'docs/i18n.dart';
 import 'publish_checks.dart';
 
@@ -19,7 +20,9 @@ import 'publish_checks.dart';
 /// already has an entry), and adds
 /// the summary to the release table of the guide in both languages. The
 /// release notes themselves are written by hand under `## Unreleased`
-/// before; the tool refuses to run without them.
+/// before; the tool refuses to run without them. Sub-headers left empty
+/// are dropped from the version's notes, and a fresh empty
+/// `## Unreleased` (tool/changelog.dart) goes back on top.
 ///
 /// Afterwards: review `git diff`, commit `Release <version>`, push, wait for
 /// CI, then `git tag -a v<version>` and push the tag (publish.yml).
@@ -71,12 +74,8 @@ void main(List<String> args) {
     return;
   }
   final changelog = _read('CHANGELOG.md');
-  final unreleased = RegExp(
-    r'^## Unreleased\n(.*?)(?=^## )',
-    multiLine: true,
-    dotAll: true,
-  ).firstMatch(changelog);
-  if (unreleased == null || unreleased[1]!.trim().isEmpty) {
+  final unreleased = unreleasedBody(changelog);
+  if (unreleased == null || !hasNotes(unreleased)) {
     stderr.writeln(
       'CHANGELOG.md has no notes under "## Unreleased"; write them first.',
     );
@@ -114,7 +113,8 @@ void main(List<String> args) {
     'placeholder: $current',
     'placeholder: $version',
   );
-  _replace('CHANGELOG.md', '## Unreleased\n', '## $version\n');
+  // The notes become the version's; an empty `## Unreleased` stays on top.
+  _write('CHANGELOG.md', releaseChangelog(changelog, version));
 
   for (final member in members.where((m) => m.startsWith('packages/'))) {
     final path = '$member/CHANGELOG.md';
