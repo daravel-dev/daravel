@@ -482,6 +482,7 @@ The monorepo is a Dart pub workspace:
 | [`packages/daravel_postgres`](packages/daravel_postgres) | PostgreSQL driver package (`db:install pgsql`) |
 | [`apps/daravel_starter`](apps/daravel_starter) | Reference application and end-to-end tests |
 | [`apps/virtual_classroom`](apps/virtual_classroom) | Example application: scheduled lessons in LiveKit rooms, Google Calendar invitations, roles, query filters, activity log |
+| [`apps/websocket_demo`](apps/websocket_demo) | Example application: a chat with rooms over WebSockets and `Broadcast`, an echo socket, and an HTTP endpoint that pushes to the sockets |
 
 The eighteen packages ([`daravel`](https://pub.dev/packages/daravel),
 [`dartisan_cli`](https://pub.dev/packages/dartisan_cli),
