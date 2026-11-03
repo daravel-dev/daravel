@@ -1,4 +1,4 @@
-<!-- source: releases.md sha256:ce9444d09fb2 -->
+<!-- source: releases.md sha256:aef03707fb9d -->
 # Rilis dan versioning
 
 Daravel `1.x` adalah lini rilis stabil. Kedua belas paket (`daravel`,
@@ -65,6 +65,18 @@ dan di halaman [rilis GitHub](https://github.com/daravel-dev/daravel/releases).
   changelog menyebutkannya.
 - Perbaikan keamanan dirilis untuk lini `1.x`; beta `1.0.0` tidak lagi
   didukung.
+- Rilis minor dapat menambah nama ke `package:daravel/daravel.dart`. Bila
+  aplikasi mendeklarasikan class dengan nama yang sama, Dart melaporkannya
+  sebagai nama yang di-import dari dua tempat di setiap file yang meng-import
+  keduanya. Karena itu, nama baru yang bisa bentrok dicantumkan di bawah
+  "Upgrading can change what an application sees" pada entri changelog rilis
+  tersebut. Pakai class dari framework, atau sembunyikan nama itu di import:
+
+  ```dart
+  // 1.23.0 mengekspor LegacyKey; aplikasi ini mempertahankan miliknya sendiri.
+  import 'package:daravel/daravel.dart' hide LegacyKey;
+  import 'package:my_app/app/support/legacy_key.dart';
+  ```
 
 ## Branch
 
