@@ -359,3 +359,20 @@ and 422 bodies are compact, so clients that compare bytes see the same body.
 Register custom renderers with `withExceptions((e) => e.render<MyError>((error,
 request) => Response.json({...}, status: 409)))`. A renderer may be
 `async`: it can write an audit row or read a translation before it answers.
+
+## Laravel equivalents
+
+More of Laravel that this works with, and the API to look up on pub.dev.
+
+| Laravel | Daravel | API | Note |
+| :-- | :-- | :-- | :-- |
+| `$request->replace([...])` | `request.replace({...})` | `Request.replace` |  |
+| `$request->float('price') / ->string('name')` | `await request.float('price') / .string('name')` | `Request.float` |  |
+| `$request->bearerToken()` | `request.bearerToken()` | `Request.bearerToken` |  |
+| `$request->expectsJson()` | `request.expectsJson` | `Request.expectsJson` |  |
+| `$request->getRealMethod()` | `request.originalMethod` | `Request.originalMethod` |  |
+| `back()` | `Response.back(request)` | `Response.back` |  |
+| `<input name="_method"> / X-HTTP-Method-Override` | on by default; middleware.methodOverride = false | `MethodOverrideMiddleware` |  |
+| `->additional([...])` | `.additional({...})` | `JsonResource.additional` |  |
+| `$this->when($cond, $value) / whenLoaded('posts')` | `when(cond, value) / whenLoaded('posts')` | `JsonResource.whenLoaded` |  |
+| `public function with($request)` | `Map<String, Object?> withMeta(Request? request)` | `JsonResource.withMeta` | `with` is a reserved word in Dart. |

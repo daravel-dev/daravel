@@ -240,3 +240,11 @@ memory while the workbook is read.
 `bench/interop/excel.sh` runs Laravel 12 with maatwebsite/excel 3.1 and
 Daravel: each reads the XLSX and CSV files the other writes, with text,
 numbers, booleans, empty cells and dates.
+
+## Laravel equivalents
+
+More of Laravel that this works with, and the API to look up on pub.dev.
+
+| Laravel | Daravel | API | Note |
+| :-- | :-- | :-- | :-- |
+| `php artisan make:export UsersExport --model=User` | `dartisan make:export UsersExport --model=User` | `MakeExportCommand` |  |

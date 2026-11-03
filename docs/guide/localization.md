@@ -75,3 +75,11 @@ reads it. `SetLocaleMiddleware` picks it from `?lang=` or the
 
 Validation messages follow the current locale (English and Indonesian are
 bundled).
+
+## Laravel equivalents
+
+More of Laravel that this works with, and the API to look up on pub.dev.
+
+| Laravel | Daravel | API | Note |
+| :-- | :-- | :-- | :-- |
+| `lang/id.json` | `lang/id.json (loaded at boot)` | `Translator.addJson` |  |

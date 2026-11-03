@@ -104,3 +104,12 @@ expect(body, isLaravelLengthAwarePaginator());
 
 New projects include `test/conformance/` and `dart_test.yaml`; run them with
 `dartisan test --conformance`.
+
+## Laravel equivalents
+
+More of Laravel that this works with, and the API to look up on pub.dev.
+
+| Laravel | Daravel | API | Note |
+| :-- | :-- | :-- | :-- |
+| `$this->actingAs($user)` | `client.actingAs(user)` | `TestClient.actingAs` |  |
+| `->assertOk() / assertCreated() / assertUnprocessable()` | `.assertOk() / .assertCreated() / .assertUnprocessable()` | `TestResponse.assertUnprocessable` |  |

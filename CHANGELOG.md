@@ -9,6 +9,12 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 wait for a new major version, and Laravel-facing formats change only to
 match Laravel more closely.
 
+## Unreleased
+
+### Changed
+
+- Documentation: every public API element of every package has a doc comment (pana: 47 % to 99 % for `daravel`), and each guide page ends with the Laravel equivalents it supports and the API to look up, so the guide names every entry of the parity table.
+
 ## 1.24.0
 
 ### Added

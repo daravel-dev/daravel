@@ -93,3 +93,12 @@ which held JSON, still decrypt.
 `Gate.allows`, `Gate.denies`, `Gate.authorize` (403 with `This action is
 unauthorized.`) and the `can:update,post` middleware work like Laravel's.
 Policy methods default to `false`.
+
+## Laravel equivalents
+
+More of Laravel that this works with, and the API to look up on pub.dev.
+
+| Laravel | Daravel | API | Note |
+| :-- | :-- | :-- | :-- |
+| `$user->currentAccessToken()->delete()` | `await Auth.tokenGuard().revokeCurrent()` | `TokenGuard.revokeCurrent` |  |
+| `$user->tokenCan('posts:read')` | `await Auth.tokenGuard().tokenCan('posts:read')` | `TokenGuard.tokenCan` |  |

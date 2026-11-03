@@ -1,4 +1,4 @@
-<!-- source: excel.md sha256:60def1ee0086 -->
+<!-- source: excel.md sha256:2671f7dd2426 -->
 # Excel dan CSV
 
 `daravel_excel` mengekspor dan mengimpor spreadsheet dengan concern dari
@@ -243,3 +243,11 @@ sekali per workbook) disimpan di memori selama workbook dibaca.
 `bench/interop/excel.sh` menjalankan Laravel 12 dengan maatwebsite/excel
 3.1 dan Daravel: masing-masing membaca file XLSX dan CSV yang ditulis pihak
 lain, lengkap dengan teks, angka, boolean, sel kosong, dan tanggal.
+
+## Padanan Laravel
+
+Bagian lain dari Laravel yang ikut didukung, beserta API yang bisa dicari di pub.dev.
+
+| Laravel | Daravel | API | Catatan |
+| :-- | :-- | :-- | :-- |
+| `php artisan make:export UsersExport --model=User` | `dartisan make:export UsersExport --model=User` | `MakeExportCommand` |  |

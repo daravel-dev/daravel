@@ -287,3 +287,27 @@ listed types, where Laravel reads the distinct types from the table.
   `updated`, `saving`, `saved`, `deleting`, `deleted`, `restoring`,
   `restored` and the force-delete events; returning `false` from a `*ing`
   hook cancels the operation.
+
+## Laravel equivalents
+
+More of Laravel that this works with, and the API to look up on pub.dev.
+
+| Laravel | Daravel | API | Note |
+| :-- | :-- | :-- | :-- |
+| `php artisan model:show User` | `dartisan model:show User (models listed in bootstrap/models.dart)` | `ModelRegistry` | No class discovery: the registry is explicit, like migrations and jobs. |
+| `$model->getMorphClass()` | `Relation.morphClassOf(User.definition)` | `Relation.morphClassOf` | The morph alias, else `ModelDefinition.morphClass` (`App\Models\User` by default). |
+| `->firstOrFail()` | `.firstOrFail()` | `ModelQuery.firstOrFail` |  |
+| `User::firstOrCreate / updateOrCreate` | `firstOrCreate / updateOrCreate` | `ModelQuery.updateOrCreate` | Through createOrFirst, as Laravel 12: a concurrent create returns the winner's row. |
+| `User::createOrFirst($attributes, $values)` | `await User.query().createOrFirst(attributes, values)` | `ModelQuery.createOrFirst` | In a savepoint inside a transaction. |
+| `->with('user:id,name')` | `.with_('user:id,name')` | `ModelQuery.parseWith` | Keys the relation matches on are added when the selection leaves them out. |
+| `->whereHas('posts.comments', fn) / whereDoesntHave / orWhereHas` | `.whereHas('posts.comments', (q) {...})` | `ModelQuery.orWhereDoesntHave` | Nested relations become nested EXISTS, as in Laravel. |
+| `->whereHasMorph('commentable', [Post::class], fn)` | `.whereHasMorph('commentable', [Post.definition], (q, type) {...})` | `ModelQuery.whereHasMorph` |  |
+| `->simplePaginate() / cursorPaginate()` | `.simplePaginate() / .cursorPaginate()` | `ModelQuery.cursorPaginate` |  |
+| `->withTrashed() / onlyTrashed()` | `.withTrashed() / .onlyTrashed()` | `ModelQuery.withTrashed` |  |
+| `withoutGlobalScope('active')` | `withoutGlobalScope('active')` | `ModelQuery.withoutGlobalScope` |  |
+| `->withRelationshipAutoloading()` | `.withRelationshipAutoloading()` | `ModelQuery.withRelationshipAutoloading` |  |
+| `$model->isDirty() / wasChanged()` | `model.isDirty() / wasChanged()` | `Model.isDirty` |  |
+| `$model->getChanges()` | `model.getChanges()` | `Model.getChanges` |  |
+| `$model->updateQuietly($attrs) / deleteQuietly()` | `model.updateQuietly(attrs) / deleteQuietly()` | `Model.updateQuietly` |  |
+| `User::factory()->count(3)->create()` | `UserFactory().count(3).create()` | `ModelFactory` |  |
+| `class DatabaseSeeder extends Seeder` | `final class DatabaseSeeder extends Seeder` | `Seeder` |  |

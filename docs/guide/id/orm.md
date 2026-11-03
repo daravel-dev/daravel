@@ -1,4 +1,4 @@
-<!-- source: orm.md sha256:d37b14475318 -->
+<!-- source: orm.md sha256:89d47e805447 -->
 # ORM
 
 Model mengikuti API Eloquent. Karena Dart tidak punya property ajaib, setiap
@@ -297,3 +297,27 @@ Laravel membaca tipe yang berbeda-beda dari tabelnya.
   `updated`, `saving`, `saved`, `deleting`, `deleted`, `restoring`,
   `restored`, dan event force-delete; mengembalikan `false` dari hook
   `*ing` membatalkan operasinya.
+
+## Padanan Laravel
+
+Bagian lain dari Laravel yang ikut didukung, beserta API yang bisa dicari di pub.dev.
+
+| Laravel | Daravel | API | Catatan |
+| :-- | :-- | :-- | :-- |
+| `php artisan model:show User` | `dartisan model:show User (models listed in bootstrap/models.dart)` | `ModelRegistry` | Tanpa penemuan class: registry-nya eksplisit, seperti migration dan job. |
+| `$model->getMorphClass()` | `Relation.morphClassOf(User.definition)` | `Relation.morphClassOf` | Alias morph, atau `ModelDefinition.morphClass` (`App\Models\User` secara default). |
+| `->firstOrFail()` | `.firstOrFail()` | `ModelQuery.firstOrFail` |  |
+| `User::firstOrCreate / updateOrCreate` | `firstOrCreate / updateOrCreate` | `ModelQuery.updateOrCreate` | Lewat createOrFirst, seperti Laravel 12: create yang bersamaan mengembalikan baris pemenangnya. |
+| `User::createOrFirst($attributes, $values)` | `await User.query().createOrFirst(attributes, values)` | `ModelQuery.createOrFirst` | Di dalam savepoint bila di dalam transaksi. |
+| `->with('user:id,name')` | `.with_('user:id,name')` | `ModelQuery.parseWith` | Kolom kunci yang dipakai relasi ditambahkan bila tidak ikut dipilih. |
+| `->whereHas('posts.comments', fn) / whereDoesntHave / orWhereHas` | `.whereHas('posts.comments', (q) {...})` | `ModelQuery.orWhereDoesntHave` | Relasi bertingkat menjadi EXISTS bertingkat, seperti di Laravel. |
+| `->whereHasMorph('commentable', [Post::class], fn)` | `.whereHasMorph('commentable', [Post.definition], (q, type) {...})` | `ModelQuery.whereHasMorph` |  |
+| `->simplePaginate() / cursorPaginate()` | `.simplePaginate() / .cursorPaginate()` | `ModelQuery.cursorPaginate` |  |
+| `->withTrashed() / onlyTrashed()` | `.withTrashed() / .onlyTrashed()` | `ModelQuery.withTrashed` |  |
+| `withoutGlobalScope('active')` | `withoutGlobalScope('active')` | `ModelQuery.withoutGlobalScope` |  |
+| `->withRelationshipAutoloading()` | `.withRelationshipAutoloading()` | `ModelQuery.withRelationshipAutoloading` |  |
+| `$model->isDirty() / wasChanged()` | `model.isDirty() / wasChanged()` | `Model.isDirty` |  |
+| `$model->getChanges()` | `model.getChanges()` | `Model.getChanges` |  |
+| `$model->updateQuietly($attrs) / deleteQuietly()` | `model.updateQuietly(attrs) / deleteQuietly()` | `Model.updateQuietly` |  |
+| `User::factory()->count(3)->create()` | `UserFactory().count(3).create()` | `ModelFactory` |  |
+| `class DatabaseSeeder extends Seeder` | `final class DatabaseSeeder extends Seeder` | `Seeder` |  |

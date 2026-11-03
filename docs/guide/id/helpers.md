@@ -1,4 +1,4 @@
-<!-- source: helpers.md sha256:b8253d676ae2 -->
+<!-- source: helpers.md sha256:431112d3aa37 -->
 # String, helper, dan koleksi
 
 Utilitas sehari-hari Laravel, dengan nama dan semantik yang sama sejauh
@@ -166,3 +166,18 @@ bertitik), `keyBy`, `groupBy`, `chunk`, `unique([by])`, `sumBy`, `avgBy`,
 `sortBy`, `sortByDesc` (stabil), dan `partition`. Semuanya melengkapi
 `package:collection` (`firstWhereOrNull`, `slices`, ...), bukan
 menggantikannya.
+
+## Padanan Laravel
+
+Bagian lain dari Laravel yang ikut didukung, beserta API yang bisa dicari di pub.dev.
+
+| Laravel | Daravel | API | Catatan |
+| :-- | :-- | :-- | :-- |
+| `now('Asia/Makassar')` | `Clock.nowIn('Asia/Makassar')` | `Clock.nowIn` |  |
+| `Str::slug / snake / camel / studly / kebab / title / headline` | `Str.slug / snake / camel / studly / kebab / title / headline` | `Str.headline` |  |
+| `Str::plural / singular / pluralStudly` | `Str.plural / singular / pluralStudly` | `Str.pluralStudly` | Aturan bahasa Inggris beserta bentuk tak beraturan yang umum. |
+| `Str::random / uuid / ulid / isUuid / isJson` | `Str.random / uuid / ulid / isUuid / isJson` | `Str.ulid` |  |
+| `Str::of($title)->after(':')->squish()->slug()` | `title.after(':').squish().slug()` | `DaravelString` | Method Str bisa dirangkai langsung pada string. |
+| `now()->addMinutes(10) / Carbon::now()->subDays(7)` | `10.minutes.fromNow / 7.days.ago` | `DaravelDuration` |  |
+| `$date->diffForHumans() / isPast() / isToday() / startOfDay()` | `date.diffForHumans() / isPast / isToday / startOfDay` | `DaravelDateTime` | Satuan dan kalimat Carbon, dalam bahasa Inggris dan Indonesia. |
+| `->sum / avg / sortBy / sortByDesc / partition` | `.sumBy / avgBy / sortBy / sortByDesc / partition` | `DaravelIterable.partition` |  |

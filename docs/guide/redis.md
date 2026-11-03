@@ -296,3 +296,14 @@ tagged entries and flushes the other's tags, and one throttle counts both.
 `REDIS_TOPOLOGY=coordinator`, which would route every isolate's commands
 through one set of connections per server for managed services with a low
 connection limit, is planned. Until then each isolate opens its own.
+
+## Laravel equivalents
+
+More of Laravel that this works with, and the API to look up on pub.dev.
+
+| Laravel | Daravel | API | Note |
+| :-- | :-- | :-- | :-- |
+| `CACHE_STORE=redis` | `CACHE_STORE=redis with .withRedis()` | `RedisStore` | Numbers stored raw; cache:clear deletes the cache's keys, not the database (no FLUSHDB). |
+| `Cache::lock('report')->get(...) on Redis` | `Cache.lock('report') on CACHE_STORE=redis` | `RedisStore.acquireLock` | Laravel's RedisLock: the same keys and release script. |
+| `QUEUE_CONNECTION=redis` | `QUEUE_CONNECTION=redis` | `RedisQueue` | BLPOP wakes idle workers; keys under daravel:, apart from Laravel's queues:. |
+| `REVERB_SCALING_ENABLED=true (Redis)` | `REVERB_SCALING_DRIVER=redis` | `RedisBroadcastRelay` | Pub/Sub between servers; presence members shared across them. |
