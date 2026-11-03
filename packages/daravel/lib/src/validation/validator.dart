@@ -18,7 +18,7 @@ import 'validation_exception.dart';
 /// `nullable` stops on `null`; `sometimes` skips absent attributes; `bail`
 /// stops after the first failure of an attribute.
 final class Validator {
-  /// Validates [data] against [rules] (strings, [Rule]s or [RuleBuilder]s per
+  /// Validates [data] against [rules] (strings, [Rule]s or `RuleBuilder`s per
   /// key), with custom messages and attribute names.
   Validator(
     this.data,
