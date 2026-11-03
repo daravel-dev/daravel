@@ -13,6 +13,7 @@ import 'queue_manager.dart';
 /// objects serialised to JSON through [toJson] and rebuilt by the factory
 /// registered in [JobRegistry] (no reflection, AOT-friendly).
 abstract class Job {
+  /// Jobs are usually const or plain data classes.
   const Job();
 
   /// Stable registry key (survives class renames).
@@ -21,6 +22,7 @@ abstract class Job {
   /// JSON payload; models go in as keys (see [ModelRef]).
   Map<String, Object?> toJson();
 
+  /// Does the job's work; throw to fail the attempt.
   Future<void> handle(JobContext ctx);
 
   /// Attempts before the job is marked failed (`0` = unlimited until
@@ -37,10 +39,14 @@ abstract class Job {
   /// Retry window measured from the first push (overrides [tries]).
   Duration? get retryUntil => null;
 
+  /// The queue this job goes to; the connection's default when null.
   String? get queue => null;
 
+  /// The connection this job goes to; the default one when null.
   String? get connection => null;
 
+  /// How many exceptions are allowed before the job fails ([tries] by
+  /// default).
   int get maxExceptions => tries;
 
   /// Laravel's `$deleteWhenMissingModels`: a job whose [ModelRef] row is gone
@@ -50,6 +56,7 @@ abstract class Job {
   /// Whether a timeout fails the job immediately instead of retrying.
   bool get failOnTimeout => false;
 
+  /// Middleware wrapping [handle]: [WithoutOverlapping], [RateLimitedJob]...
   List<JobMiddleware> get middleware => const <JobMiddleware>[];
 
   /// Called once the job is marked failed.
@@ -59,6 +66,8 @@ abstract class Job {
   /// pushed again until this one finishes (or [uniqueFor] elapses).
   String? get uniqueId => null;
 
+  /// How long a unique job stays unique (`ShouldBeUnique`); zero for no
+  /// limit.
   Duration get uniqueFor => Duration.zero;
 
   /// Laravel 13's `DebounceFor`: when set, a dispatch replaces the pending
@@ -69,6 +78,7 @@ abstract class Job {
   /// Runs at the latest this long after the first of a burst.
   Duration? get debounceMaxWait => null;
 
+  /// The id that groups debounced dispatches; empty for no debounce.
   String get debounceId => '';
 
   /// Human readable name (`displayName` in the payload).
@@ -98,14 +108,19 @@ abstract mixin class ShouldQueue {
 
 /// Registry entry: name → factory from JSON.
 final class JobDefinition {
+  /// A job registered as [name], rebuilt from its JSON by [fromJson].
   const JobDefinition(this.name, this.fromJson);
 
+  /// The name stored in the payload.
   final String name;
+
+  /// Rebuilds the job from the data its `toJson` gave.
   final Job Function(Map<String, Object?> json) fromJson;
 }
 
 /// Thrown when a payload names a job that is not registered.
 final class UnknownJobException extends DaravelException {
+  /// No job is registered as [name] (`bootstrap/jobs.dart`).
   UnknownJobException(String name)
     : super(
         'Job [$name] is not registered. Add a JobDefinition to '
@@ -115,22 +130,29 @@ final class UnknownJobException extends DaravelException {
 
 /// Explicit job registry (ADR-002).
 final class JobRegistry {
+  /// A registry of [definitions].
   JobRegistry([Iterable<JobDefinition> definitions = const []]) {
     registerAll(definitions);
   }
 
   final Map<String, JobDefinition> _definitions = <String, JobDefinition>{};
 
+  /// Registers [definition].
   void register(JobDefinition definition) =>
       _definitions[definition.name] = definition;
 
+  /// Registers every one of [definitions].
   void registerAll(Iterable<JobDefinition> definitions) =>
       definitions.forEach(register);
 
+  /// Whether a job is registered as [name].
   bool has(String name) => _definitions.containsKey(name);
 
+  /// The registered job names.
   Iterable<String> get names => _definitions.keys;
 
+  /// Rebuilds the job [name] from [json]; throws [UnknownJobException]
+  /// when it is not registered.
   Job make(String name, Map<String, Object?> json) {
     final definition = _definitions[name];
     if (definition == null) {
@@ -142,6 +164,7 @@ final class JobRegistry {
 
 /// Runtime information and control for a running job.
 final class JobContext {
+  /// The context of one attempt of a job.
   JobContext({
     required this.id,
     required this.attempt,
@@ -151,11 +174,16 @@ final class JobContext {
     this.maxTries,
   });
 
+  /// The job's id in its queue.
   final Object id;
 
   /// 1-based attempt number.
   final int attempt;
+
+  /// The queue it was reserved from.
   final String queue;
+
+  /// The connection it was reserved from.
   final String connection;
 
   /// Raw JSON payload of the job.
@@ -172,12 +200,16 @@ final class JobContext {
   bool _delete = false;
   Object? _failure;
 
+  /// Whether the job asked to be released back to the queue.
   bool get released => _release != null;
 
+  /// How long until the released job runs again.
   Duration? get releaseDelay => _release;
 
+  /// Whether the job asked to be deleted without failing.
   bool get deleted => _delete;
 
+  /// The error the job failed with, when it called `fail`.
   Object? get failure => _failure;
 
   /// Puts the job back on the queue after [delay] (counts as an attempt).
@@ -196,6 +228,7 @@ typedef JobNext = Future<void> Function();
 
 /// Wraps job execution (Laravel job middleware).
 abstract interface class JobMiddleware {
+  /// Runs around [job]: call [next] to continue, or return without it.
   Future<void> handle(JobContext ctx, Job job, JobNext next);
 }
 
@@ -203,6 +236,8 @@ abstract interface class JobMiddleware {
 /// lock is taken the job is released after [releaseAfter] (or deleted when
 /// [dontRelease] is true).
 final class WithoutOverlapping implements JobMiddleware {
+  /// Lets one job with [key] run at a time; the others are released after
+  /// [releaseAfter], or dropped when [dontRelease].
   const WithoutOverlapping(
     this.key, {
     this.expiresAfter = const Duration(minutes: 1),
@@ -212,9 +247,16 @@ final class WithoutOverlapping implements JobMiddleware {
     this.shared = false,
   });
 
+  /// The key that may not overlap.
   final String key;
+
+  /// How long the lock lasts if a job never finishes.
   final Duration expiresAfter;
+
+  /// How long until an overlapping job is tried again.
   final Duration releaseAfter;
+
+  /// Whether an overlapping job is dropped instead of released.
   final bool dontRelease;
 
   /// Cache store holding the lock (default: `QUEUE_UNIQUE_LOCK_STORE`).
@@ -258,6 +300,8 @@ final class WithoutOverlapping implements JobMiddleware {
 /// Limits how often jobs sharing a key run (uses the application's
 /// [RateLimiter] store, so the limit is process-wide under a supervisor).
 final class RateLimitedJob implements JobMiddleware {
+  /// At most [maxAttempts] jobs with [key] per [decay]; the rest are
+  /// released until the window resets.
   const RateLimitedJob(
     this.key, {
     required this.maxAttempts,
@@ -265,8 +309,13 @@ final class RateLimitedJob implements JobMiddleware {
     this.releaseAfter,
   });
 
+  /// The key counted.
   final String key;
+
+  /// The jobs allowed per window.
   final int maxAttempts;
+
+  /// The length of the window.
   final Duration decay;
 
   /// Delay before retrying when limited (default: until the window resets).
@@ -288,6 +337,8 @@ final class RateLimitedJob implements JobMiddleware {
 /// The model is reloaded fresh when the job runs; a missing row throws
 /// [ModelNotFoundException], failing the job without retry.
 final class ModelRef<T extends Model> {
+  /// A reference to the model with [id], serialized as the id and loaded
+  /// again when the job runs (Laravel's `SerializesModels`).
   const ModelRef(this.definition, this.id);
 
   /// Builds a reference from a loaded model.
@@ -296,10 +347,15 @@ final class ModelRef<T extends Model> {
     model.key!,
   );
 
+  /// The model's definition.
   final ModelDefinition<T> Function() definition;
+
+  /// The model's primary key.
   final Object id;
 
+  /// The model, loaded fresh; a 404 when it was deleted meanwhile.
   Future<T> resolve() => definition().query().findOrFail(id);
 
+  /// The id, as stored in the payload.
   Object toJson() => id;
 }
