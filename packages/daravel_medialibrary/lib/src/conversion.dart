@@ -29,30 +29,59 @@ enum Fit {
 
 /// Where [Conversion.crop] cuts from (spatie/image's `CropPosition`).
 enum CropPosition {
+  /// Keep the top left.
   topLeft,
+
+  /// Keep the top.
   top,
+
+  /// Keep the top right.
   topRight,
+
+  /// Keep the left.
   left,
+
+  /// Keep the center.
   center,
+
+  /// Keep the right.
   right,
+
+  /// Keep the bottom left.
   bottomLeft,
+
+  /// Keep the bottom.
   bottom,
+
+  /// Keep the bottom right.
   bottomRight,
 }
 
 /// The image formats a conversion can write. `package:image` decodes WebP
 /// but has no WebP or AVIF encoder, so those are not offered.
 enum ImageFormat {
+  /// JPEG.
   jpg('jpg'),
+
+  /// PNG.
   png('png'),
+
+  /// GIF.
   gif('gif'),
+
+  /// BMP.
   bmp('bmp'),
+
+  /// TIFF.
   tiff('tiff');
 
+  /// A format written with [extension].
   const ImageFormat(this.extension);
 
+  /// The file extension.
   final String extension;
 
+  /// The format of [extension], or null.
   static ImageFormat? fromExtension(String extension) =>
       switch (extension.toLowerCase()) {
         'jpg' || 'jpeg' || 'pjpg' => jpg,
@@ -75,8 +104,10 @@ enum ImageFormat {
 /// Like Spatie, a conversion writes a JPEG unless [format] or
 /// [keepOriginalImageFormat] says otherwise.
 final class Conversion {
+  /// A conversion named [name].
   Conversion(this.name);
 
+  /// The conversion's name, used in URLs.
   final String name;
 
   final Map<String, List<Object?>> _manipulations = {
@@ -107,8 +138,10 @@ final class Conversion {
   /// default is 75.
   Conversion quality(int quality) => _set('quality', [quality]);
 
+  /// Writes the result as [format].
   Conversion format(ImageFormat format) => _set('format', [format.extension]);
 
+  /// Makes the image grey.
   Conversion greyscale() => _set('greyscale', const []);
 
   /// Blurs by [amount], 0 to 100.
@@ -143,6 +176,7 @@ final class Conversion {
   /// was called.
   bool shouldBeQueued(bool byDefault) => _queued ?? byDefault;
 
+  /// Whether the conversion applies to files of [collection].
   bool shouldBePerformedOn(String collection) =>
       _collections.isEmpty ||
       _collections.contains('*') ||
@@ -197,7 +231,10 @@ final class Conversion {
 
 /// Thrown when an image cannot be decoded or a manipulation is invalid.
 final class ImageConversionException implements Exception {
+  /// An image could not be converted: [message].
   const ImageConversionException(this.message);
+
+  /// What failed.
   final String message;
 
   @override

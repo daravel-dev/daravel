@@ -63,8 +63,11 @@ abstract mixin class ShouldBroadcast {
 /// ([PusherServer]), another Reverb or Pusher Channels (their HTTP API),
 /// the log, or nowhere.
 final class BroadcastManager {
+  /// A manager broadcasting with [config], through the built-in [server]
+  /// when there is one.
   BroadcastManager(this.config, {this.server, this._http, this._logger});
 
+  /// The broadcasting settings.
   final BroadcastConfig config;
 
   /// This server's Pusher endpoint, when it serves one (REVERB_APP_KEY and
@@ -220,12 +223,18 @@ final class BroadcastManager {
 /// Laravel's `/broadcasting/auth`: Echo asks before joining a private or
 /// presence channel, and gets the signature the server checks.
 final class BroadcastAuthorization {
+  /// Authorizes private and presence channel subscriptions with the
+  /// channel callbacks of [channels].
   BroadcastAuthorization(this.config, this.channels, this._auth);
 
+  /// The broadcasting settings.
   final BroadcastConfig config;
+
+  /// The channel authorization callbacks (`routes/channels.dart`).
   final ChannelRegistry channels;
   final AuthManager _auth;
 
+  /// Answers `POST /broadcasting/auth` with a signed authorization, or 403.
   Future<Response> handle(Request request) async {
     final input = await request.all();
     final socketId = '${input['socket_id'] ?? ''}';

@@ -15,6 +15,7 @@ import 'token.dart';
 /// final token = await oauth.exchangeCode(code); // store token.encode()
 /// ```
 final class GoogleOAuth {
+  /// An OAuth client with [clientId] and [clientSecret].
   GoogleOAuth({
     required this.clientId,
     required this.clientSecret,
@@ -23,15 +24,27 @@ final class GoogleOAuth {
     this.timeout = const Duration(seconds: 10),
   }) : _http = GoogleHttp(http);
 
+  /// The client id.
   final String clientId;
+
+  /// The client secret.
   final String clientSecret;
+
+  /// Where Google sends the user back.
   final String? redirectUri;
+
+  /// How long a call may take.
   final Duration timeout;
   final GoogleHttp _http;
 
+  /// Google's authorization URL.
   static const String authorizationEndpoint =
       'https://accounts.google.com/o/oauth2/v2/auth';
+
+  /// Google's token URL.
   static const String tokenEndpoint = 'https://oauth2.googleapis.com/token';
+
+  /// Google's token revocation URL.
   static const String revocationEndpoint =
       'https://oauth2.googleapis.com/revoke';
 
@@ -162,10 +175,17 @@ abstract final class GoogleScopes {
   static const String calendarEvents =
       'https://www.googleapis.com/auth/calendar.events';
 
+  /// Read access to calendars.
   static const String calendarReadonly =
       'https://www.googleapis.com/auth/calendar.readonly';
+
+  /// OpenID Connect sign-in.
   static const String openid = 'openid';
+
+  /// The user's email address.
   static const String email = 'https://www.googleapis.com/auth/userinfo.email';
+
+  /// The user's basic profile.
   static const String profile =
       'https://www.googleapis.com/auth/userinfo.profile';
 }

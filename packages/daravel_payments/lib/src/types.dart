@@ -6,10 +6,19 @@ import 'package:daravel/daravel.dart';
 /// Where a payment is. Only some moves are possible (see [canMoveTo]): a
 /// late `pending` notification never takes a paid order back.
 enum PaymentStatus {
+  /// Created, waiting for payment.
   pending,
+
+  /// Paid.
   paid,
+
+  /// Refused or failed.
   failed,
+
+  /// Expired unpaid.
   expired,
+
+  /// Refunded.
   refunded;
 
   /// Whether a payment in this status may become [next]. A paid payment
@@ -22,12 +31,14 @@ enum PaymentStatus {
     refunded => false,
   };
 
+  /// The status named [value].
   static PaymentStatus parse(String value) =>
       values.firstWhere((s) => s.name == value);
 }
 
 /// A line of the order.
 final class PaymentItem {
+  /// A line of an order.
   const PaymentItem({
     required this.name,
     required this.price,
@@ -35,25 +46,37 @@ final class PaymentItem {
     this.id,
   });
 
+  /// Your item id.
   final String? id;
+
+  /// The item's name.
   final String name;
 
   /// The unit price, in the currency's main unit (rupiah, dollars).
   final num price;
+
+  /// How many.
   final int quantity;
 }
 
 /// Who pays.
 final class PaymentCustomer {
+  /// The customer's [name], [email] and [phone].
   const PaymentCustomer({this.name, this.email, this.phone});
 
+  /// The customer's name.
   final String? name;
+
+  /// The customer's email.
   final String? email;
+
+  /// The customer's phone number.
   final String? phone;
 }
 
 /// What to charge.
 final class PaymentRequest {
+  /// A payment to create.
   const PaymentRequest({
     required this.orderId,
     required this.amount,
@@ -76,22 +99,33 @@ final class PaymentRequest {
 
   /// ISO 4217, upper case.
   final String currency;
+
+  /// The order's lines.
   final List<PaymentItem> items;
+
+  /// The customer.
   final PaymentCustomer? customer;
+
+  /// What is paid for.
   final String? description;
 
   /// Where the customer returns after paying, or after giving up.
   final String? successUrl;
+
+  /// Where the customer goes after cancelling.
   final String? cancelUrl;
 
   /// Payment methods to offer, in the gateway's names (`qris`,
   /// `bca_va`, `gopay` for Midtrans; `QRIS`, `BCA` for Xendit).
   final List<String> methods;
+
+  /// Your own data stored with the payment.
   final Map<String, Object?> metadata;
 }
 
 /// A payment started at a gateway: where to send the customer.
 final class PaymentCheckout {
+  /// Where to send the customer to pay.
   const PaymentCheckout({
     required this.gateway,
     required this.orderId,
@@ -101,7 +135,10 @@ final class PaymentCheckout {
     this.raw = const {},
   });
 
+  /// The gateway.
   final String gateway;
+
+  /// Your order id.
   final String orderId;
 
   /// The gateway's id of the payment (Snap token, invoice id, Checkout
@@ -113,8 +150,11 @@ final class PaymentCheckout {
 
   /// A token for the gateway's own client widget (Midtrans Snap.js).
   final String? token;
+
+  /// The gateway's raw answer.
   final Map<String, Object?> raw;
 
+  /// The checkout as JSON.
   Map<String, Object?> toJson() => {
     'gateway': gateway,
     'order_id': orderId,
@@ -127,6 +167,7 @@ final class PaymentCheckout {
 /// What a gateway says about a payment, from a verified webhook or a
 /// status query.
 final class PaymentEvent {
+  /// A gateway's notification about a payment.
   const PaymentEvent({
     required this.gateway,
     required this.eventId,
@@ -140,10 +181,13 @@ final class PaymentEvent {
     this.raw = const {},
   });
 
+  /// The gateway.
   final String gateway;
 
   /// Unique per notification: what the idempotency log keys on.
   final String eventId;
+
+  /// Your order id.
   final String orderId;
 
   /// The status the gateway reports, or `null` for a notification that
@@ -152,16 +196,27 @@ final class PaymentEvent {
 
   /// The amount the gateway reports, in the main unit.
   final num? amount;
+
+  /// The currency code.
   final String? currency;
+
+  /// How it was paid.
   final String? paymentType;
+
+  /// The gateway's reference.
   final String? reference;
+
+  /// When it happened.
   final DateTime? occurredAt;
+
+  /// The notification as received.
   final Map<String, Object?> raw;
 }
 
 /// A webhook whose signature or token does not match: never from the
 /// gateway, answered 401.
 final class InvalidPaymentSignatureException extends HttpException {
+  /// A webhook whose signature is wrong.
   const InvalidPaymentSignatureException([
     String message = 'Invalid payment notification signature.',
   ]) : super(401, message);
@@ -169,9 +224,13 @@ final class InvalidPaymentSignatureException extends HttpException {
 
 /// A gateway refused a request or could not be reached.
 final class PaymentGatewayException extends DaravelException {
+  /// The gateway refused a call: [status] and [body].
   const PaymentGatewayException(super.message, {this.status, this.body});
 
+  /// The HTTP status.
   final int? status;
+
+  /// The response body.
   final String? body;
 }
 

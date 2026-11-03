@@ -9,6 +9,7 @@ import 'container.dart';
 /// `Application`, `ConfigRepository`, `Env`, `Router` and other core services
 /// are already bound when [register] is called.
 abstract class ServiceProvider {
+  /// Providers are usually const.
   const ServiceProvider();
 
   /// Bind services into the container. Do not resolve other services here.
@@ -24,6 +25,7 @@ abstract class ServiceProvider {
 /// `Container.make` is synchronous; [boot] is not invoked for deferred
 /// providers.
 abstract class DeferredServiceProvider extends ServiceProvider {
+  /// Providers are usually const.
   const DeferredServiceProvider();
 
   /// The types this provider binds.

@@ -299,3 +299,13 @@ notifications.assertSentTimes<InvoicePaid>(1);
 `Mail.restore()` and `Notifications.restore()` undo the fakes. Without a
 fake, tests still send nothing: `APP_ENV=testing` uses the `array`
 transport, whose `messages` hold what was sent.
+
+## Laravel equivalents
+
+More of Laravel that this works with, and the API to look up on pub.dev.
+
+| Laravel | Daravel | API | Note |
+| :-- | :-- | :-- | :-- |
+| `class OrderShipped extends Mailable (envelope, content, attachments)` | `final class OrderShipped extends Mailable` | `Mailable.envelope` |  |
+| `MAIL_MAILER=smtp / log / array` | `MAIL_MAILER=smtp / log / array` | `SmtpTransport` | Same keys as config/mail.php; MAIL_ENCRYPTION from Laravel 10 is read too. |
+| `via() => ['broadcast'] (BroadcastNotificationCreated)` | `via() => ['broadcast']` | `BroadcastChannel` | Same event, data and channel (private-App.Models.User.1): Echo's .notification() receives it. |

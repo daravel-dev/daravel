@@ -151,3 +151,13 @@ after that is killed.
 Give the orchestrator's grace period more than `SHUTDOWN_TIMEOUT`: Cloud
 Run kills a container 10 s after `SIGTERM`, so use `SHUTDOWN_TIMEOUT=8s`
 there; with systemd, keep `TimeoutStopSec` above it.
+
+## Laravel equivalents
+
+More of Laravel that this works with, and the API to look up on pub.dev.
+
+| Laravel | Daravel | API | Note |
+| :-- | :-- | :-- | :-- |
+| `php artisan down --secret / up` | `dartisan down --secret / up` | `PreventRequestsDuringMaintenance` | Same storage/framework/down file; bypass cookie daravel_maintenance. |
+| `Log::info($message, $context)` | `Log.info(message, context)` | `Log.info` |  |
+| `Log::withContext([...])` | `Log.withContext({...})` | `Log.withContext` |  |

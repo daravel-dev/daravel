@@ -3,6 +3,7 @@ import 'blueprint.dart';
 
 /// SQLite DDL grammar.
 final class SqliteSchemaGrammar extends SchemaGrammar {
+  /// The SQLite schema grammar.
   const SqliteSchemaGrammar();
 
   @override
@@ -94,8 +95,10 @@ final class SqliteSchemaGrammar extends SchemaGrammar {
 
 /// Parsed `sqlite_version()`.
 final class SqliteVersion {
+  /// The version [major].[minor].[patch].
   const SqliteVersion(this.major, this.minor, this.patch);
 
+  /// Parses `3.45.1`.
   factory SqliteVersion.parse(String text) {
     final parts = text.split('.').map((p) => int.tryParse(p) ?? 0).toList();
     return SqliteVersion(
@@ -105,10 +108,16 @@ final class SqliteVersion {
     );
   }
 
+  /// The major version.
   final int major;
+
+  /// The minor version.
   final int minor;
+
+  /// The patch version.
   final int patch;
 
+  /// Whether this is [major].[minor] or newer.
   bool atLeast(int major, int minor) =>
       this.major > major || (this.major == major && this.minor >= minor);
 
@@ -173,12 +182,17 @@ final class _ExistingForeignKey {
 /// because the old table is dropped only after the rebuilt table has taken
 /// its name.
 final class SqliteTableRebuilder {
+  /// A rebuilder on a SQLite connection.
   SqliteTableRebuilder(this._executor, {SqliteSchemaGrammar? grammar})
     : grammar = grammar ?? const SqliteSchemaGrammar();
 
   final QueryExecutor _executor;
+
+  /// The grammar writing the new table.
   final SqliteSchemaGrammar grammar;
 
+  /// Applies [blueprint]'s changes by copying the table into a new one,
+  /// as SQLite cannot alter most columns in place.
   Future<void> rebuild(Blueprint blueprint) async {
     final table = blueprint.table;
     final columns = await _columns(table);

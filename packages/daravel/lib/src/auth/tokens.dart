@@ -28,6 +28,7 @@ String? bearerTokenOf(Request request) {
 
 /// A row of `personal_access_tokens` (Sanctum-compatible schema).
 final class PersonalAccessToken {
+  /// A personal access token row.
   const PersonalAccessToken({
     required this.id,
     required this.tokenableType,
@@ -40,6 +41,7 @@ final class PersonalAccessToken {
     this.createdAt,
   });
 
+  /// The token in a `personal_access_tokens` row.
   factory PersonalAccessToken.fromRow(Map<String, Object?> row) {
     final rawAbilities = row['abilities'];
     final abilities = switch (rawAbilities) {
@@ -61,29 +63,47 @@ final class PersonalAccessToken {
     );
   }
 
+  /// The row id, the number before `|` in the plain text token.
   final Object id;
+
+  /// The morph class of the token's owner.
   final String tokenableType;
+
+  /// The owner's key.
   final Object tokenableId;
+
+  /// The name the token was created with.
   final String name;
 
   /// SHA-256 (hex) of the secret part of the plain-text token.
   final String tokenHash;
+
+  /// The abilities granted; `*` for every one.
   final List<String> abilities;
+
+  /// When the token was last used.
   final DateTime? lastUsedAt;
+
+  /// When the token expires; null for never.
   final DateTime? expiresAt;
+
+  /// When the token was created.
   final DateTime? createdAt;
 
   /// Whether the token grants [ability] (`*` grants everything).
   bool can(String ability) =>
       abilities.contains('*') || abilities.contains(ability);
 
+  /// Whether the token lacks [ability].
   bool cant(String ability) => !can(ability);
 
+  /// Whether the token has expired at [now] (`Clock.now()`).
   bool isExpired([DateTime? now]) {
     final at = expiresAt;
     return at != null && !at.isAfter(now ?? Clock.now().toUtc());
   }
 
+  /// The token as JSON, without its hash.
   Map<String, Object?> toJson() => <String, Object?>{
     'id': id,
     'name': name,
@@ -97,13 +117,16 @@ final class PersonalAccessToken {
 /// Result of [TokenGuard.issue]: the plain-text token is only available
 /// here, never again (only its hash is stored).
 final class NewAccessToken {
+  /// A new [accessToken] and its [plainTextToken], shown once.
   const NewAccessToken(this.accessToken, this.plainTextToken);
 
+  /// The stored token.
   final PersonalAccessToken accessToken;
 
   /// `<id>|<secret>` — send as `Authorization: Bearer`.
   final String plainTextToken;
 
+  /// The token as JSON, the plain text included.
   Map<String, Object?> toJson() => <String, Object?>{
     'accessToken': accessToken.toJson(),
     'plainTextToken': plainTextToken,
@@ -116,6 +139,8 @@ final class NewAccessToken {
 /// compared as `sha256(secret)` in constant time. Tokens issued by a Laravel
 /// app sharing the database are accepted and vice versa.
 final class TokenGuard<T extends Authenticatable> extends RequestGuard<T> {
+  /// A guard reading `Authorization: Bearer <id>|<secret>` tokens from the
+  /// table Sanctum uses.
   TokenGuard({
     required super.name,
     required UserProvider<T> provider,
@@ -128,6 +153,7 @@ final class TokenGuard<T extends Authenticatable> extends RequestGuard<T> {
   }) : _clock = clock ?? _utcNow,
        super(provider: provider);
 
+  /// The tokens table (`personal_access_tokens`).
   final String table;
 
   /// Global lifetime measured from `created_at` (Sanctum `expiration`);
@@ -143,8 +169,10 @@ final class TokenGuard<T extends Authenticatable> extends RequestGuard<T> {
   final DatabaseManager? _db;
   final DateTime Function() _clock;
 
+  /// The user provider.
   UserProvider<T> get users => provider!;
 
+  /// The database holding the tokens.
   DatabaseManager get db => _db ?? Container.current.make<DatabaseManager>();
 
   QueryBuilder _query() => db.table(table);
@@ -316,6 +344,7 @@ DateTime? parseDbDateTime(Object? value) => switch (value) {
 /// Creates `personal_access_tokens` with the exact Sanctum schema. Named
 /// like Sanctum's migration so a shared `migrations` table stays consistent.
 final class CreatePersonalAccessTokensTable extends Migration {
+  /// The migration creating `personal_access_tokens`, as Sanctum's.
   const CreatePersonalAccessTokensTable();
 
   @override

@@ -20,10 +20,13 @@ import '../http/response.dart';
 /// Children are a list of nodes, strings (escaped text), numbers, `null`
 /// (skipped) and nested lists.
 abstract base class HtmlNode implements Responsable {
+  /// Nodes are immutable.
   const HtmlNode();
 
+  /// Writes the node's HTML to [out].
   void writeTo(StringSink out);
 
+  /// The node's HTML.
   String render() {
     final out = StringBuffer();
     writeTo(out);
@@ -39,7 +42,10 @@ abstract base class HtmlNode implements Responsable {
 
 /// Text, escaped (Blade's `{{ $value }}`).
 final class TextNode extends HtmlNode {
+  /// Text, escaped when written.
   const TextNode(this.text);
+
+  /// The text.
   final String text;
 
   @override
@@ -48,7 +54,10 @@ final class TextNode extends HtmlNode {
 
 /// Markup written as is (Blade's `{!! $value !!}`): only for trusted HTML.
 final class RawHtml extends HtmlNode {
+  /// HTML written as given; never pass it user input.
   const RawHtml(this.html);
+
+  /// The HTML.
   final String html;
 
   @override
@@ -57,7 +66,10 @@ final class RawHtml extends HtmlNode {
 
 /// Several nodes without a wrapping element.
 final class Fragment extends HtmlNode {
+  /// Several nodes without a wrapping element.
   Fragment(List<Object?> children) : children = _nodes(children);
+
+  /// The nodes.
   final List<HtmlNode> children;
 
   @override
@@ -70,6 +82,7 @@ final class Fragment extends HtmlNode {
 
 /// An element with attributes and children.
 final class Element extends HtmlNode {
+  /// An element.
   Element(
     this.tag, {
     List<Object?> children = const [],
@@ -79,12 +92,16 @@ final class Element extends HtmlNode {
   }) : children = _nodes(children),
        attributes = {'id': ?id, 'class': ?classes, ...attributes};
 
+  /// The tag name.
   final String tag;
+
+  /// The child nodes.
   final List<HtmlNode> children;
 
   /// `true` writes the bare attribute (`disabled`); `false`/`null` omit it.
   final Map<String, Object?> attributes;
 
+  /// The elements without a closing tag.
   static const Set<String> voidTags = {
     'area',
     'base',
@@ -128,6 +145,7 @@ final class Element extends HtmlNode {
 /// A whole page: `<!doctype html>`, `<head>` with [title], charset and
 /// viewport, and [body].
 final class HtmlDocument extends HtmlNode {
+  /// A whole page.
   HtmlDocument(
     List<Object?> body, {
     this.title = '',
@@ -136,9 +154,16 @@ final class HtmlDocument extends HtmlNode {
   }) : body = _nodes(body),
        head = _nodes(head);
 
+  /// The `<title>`.
   final String title;
+
+  /// The `lang` of `<html>`.
   final String lang;
+
+  /// The nodes of `<head>`.
   final List<HtmlNode> head;
+
+  /// The nodes of `<body>`.
   final List<HtmlNode> body;
 
   @override
@@ -213,8 +238,10 @@ TextNode text(Object? value) => TextNode('${value ?? ''}');
 /// Trusted markup, written as is.
 RawHtml raw(String html) => RawHtml(html);
 
+/// Nodes without a wrapping element.
 Fragment fragment(List<Object?> children) => Fragment(children);
 
+/// A whole page.
 HtmlDocument document(
   List<Object?> body, {
   String title = '',
@@ -251,6 +278,7 @@ Element _tag(
   attributes: attributes,
 );
 
+/// A `<div>`.
 Element div(
   List<Object?> children, {
   String? id,
@@ -258,6 +286,7 @@ Element div(
   Map<String, Object?> attributes = const {},
 }) => _tag('div', children, id, classes, attributes);
 
+/// A `<span>`.
 Element span(
   List<Object?> children, {
   String? id,
@@ -265,6 +294,7 @@ Element span(
   Map<String, Object?> attributes = const {},
 }) => _tag('span', children, id, classes, attributes);
 
+/// A `<p>`.
 Element p(
   List<Object?> children, {
   String? id,
@@ -272,6 +302,7 @@ Element p(
   Map<String, Object?> attributes = const {},
 }) => _tag('p', children, id, classes, attributes);
 
+/// An `<h1>`.
 Element h1(
   List<Object?> children, {
   String? id,
@@ -279,6 +310,7 @@ Element h1(
   Map<String, Object?> attributes = const {},
 }) => _tag('h1', children, id, classes, attributes);
 
+/// An `<h2>`.
 Element h2(
   List<Object?> children, {
   String? id,
@@ -286,6 +318,7 @@ Element h2(
   Map<String, Object?> attributes = const {},
 }) => _tag('h2', children, id, classes, attributes);
 
+/// An `<h3>`.
 Element h3(
   List<Object?> children, {
   String? id,
@@ -293,6 +326,7 @@ Element h3(
   Map<String, Object?> attributes = const {},
 }) => _tag('h3', children, id, classes, attributes);
 
+/// A `<section>`.
 Element section(
   List<Object?> children, {
   String? id,
@@ -300,6 +334,7 @@ Element section(
   Map<String, Object?> attributes = const {},
 }) => _tag('section', children, id, classes, attributes);
 
+/// A `<header>`.
 Element header(
   List<Object?> children, {
   String? id,
@@ -307,6 +342,7 @@ Element header(
   Map<String, Object?> attributes = const {},
 }) => _tag('header', children, id, classes, attributes);
 
+/// A `<footer>`.
 Element footer(
   List<Object?> children, {
   String? id,
@@ -314,6 +350,7 @@ Element footer(
   Map<String, Object?> attributes = const {},
 }) => _tag('footer', children, id, classes, attributes);
 
+/// A `<nav>`.
 Element nav(
   List<Object?> children, {
   String? id,
@@ -321,6 +358,7 @@ Element nav(
   Map<String, Object?> attributes = const {},
 }) => _tag('nav', children, id, classes, attributes);
 
+/// An `<article>`.
 Element article(
   List<Object?> children, {
   String? id,
@@ -336,30 +374,35 @@ Element mainEl(
   Map<String, Object?> attributes = const {},
 }) => _tag('main', children, id, classes, attributes);
 
+/// A `<strong>`.
 Element strong(
   List<Object?> children, {
   String? classes,
   Map<String, Object?> attributes = const {},
 }) => _tag('strong', children, null, classes, attributes);
 
+/// An `<em>`.
 Element em(
   List<Object?> children, {
   String? classes,
   Map<String, Object?> attributes = const {},
 }) => _tag('em', children, null, classes, attributes);
 
+/// A `<code>`.
 Element code(
   List<Object?> children, {
   String? classes,
   Map<String, Object?> attributes = const {},
 }) => _tag('code', children, null, classes, attributes);
 
+/// A `<pre>`.
 Element pre(
   List<Object?> children, {
   String? classes,
   Map<String, Object?> attributes = const {},
 }) => _tag('pre', children, null, classes, attributes);
 
+/// A `<ul>`.
 Element ul(
   List<Object?> children, {
   String? id,
@@ -367,6 +410,7 @@ Element ul(
   Map<String, Object?> attributes = const {},
 }) => _tag('ul', children, id, classes, attributes);
 
+/// An `<ol>`.
 Element ol(
   List<Object?> children, {
   String? id,
@@ -374,12 +418,14 @@ Element ol(
   Map<String, Object?> attributes = const {},
 }) => _tag('ol', children, id, classes, attributes);
 
+/// An `<li>`.
 Element li(
   List<Object?> children, {
   String? classes,
   Map<String, Object?> attributes = const {},
 }) => _tag('li', children, null, classes, attributes);
 
+/// A `<table>`.
 Element table(
   List<Object?> children, {
   String? id,
@@ -387,30 +433,36 @@ Element table(
   Map<String, Object?> attributes = const {},
 }) => _tag('table', children, id, classes, attributes);
 
+/// A `<thead>`.
 Element thead(List<Object?> children) =>
     _tag('thead', children, null, null, const {});
 
+/// A `<tbody>`.
 Element tbody(List<Object?> children) =>
     _tag('tbody', children, null, null, const {});
 
+/// A `<tr>`.
 Element tr(
   List<Object?> children, {
   String? classes,
   Map<String, Object?> attributes = const {},
 }) => _tag('tr', children, null, classes, attributes);
 
+/// A `<th>`.
 Element th(
   List<Object?> children, {
   String? classes,
   Map<String, Object?> attributes = const {},
 }) => _tag('th', children, null, classes, attributes);
 
+/// A `<td>`.
 Element td(
   List<Object?> children, {
   String? classes,
   Map<String, Object?> attributes = const {},
 }) => _tag('td', children, null, classes, attributes);
 
+/// An `<a>` linking to the given URL.
 Element a(
   List<Object?> children, {
   required String href,
@@ -418,6 +470,7 @@ Element a(
   Map<String, Object?> attributes = const {},
 }) => _tag('a', children, null, classes, {'href': href, ...attributes});
 
+/// A `<button>`.
 Element button(
   List<Object?> children, {
   String type = 'button',
@@ -425,6 +478,7 @@ Element button(
   Map<String, Object?> attributes = const {},
 }) => _tag('button', children, null, classes, {'type': type, ...attributes});
 
+/// A `<form>`.
 Element form(
   List<Object?> children, {
   required String action,
@@ -437,6 +491,7 @@ Element form(
   ...attributes,
 });
 
+/// A `<label>`.
 Element label(
   List<Object?> children, {
   String? forId,
@@ -444,6 +499,7 @@ Element label(
   Map<String, Object?> attributes = const {},
 }) => _tag('label', children, null, classes, {'for': forId, ...attributes});
 
+/// A `<textarea>`.
 Element textarea({
   required String name,
   String value = '',
@@ -452,6 +508,7 @@ Element textarea({
   Map<String, Object?> attributes = const {},
 }) => _tag('textarea', [value], id, classes, {'name': name, ...attributes});
 
+/// An `<input>`.
 Element input({
   required String name,
   String type = 'text',
@@ -466,6 +523,7 @@ Element input({
   ...attributes,
 });
 
+/// An `<img>`.
 Element img({
   required String src,
   required String alt,
@@ -477,12 +535,16 @@ Element img({
   ...attributes,
 });
 
+/// A `<meta>`.
 Element meta({Map<String, Object?> attributes = const {}}) =>
     _tag('meta', const [], null, null, attributes);
 
+/// A `<link rel=... href=...>`.
 Element link({required String rel, required String href}) =>
     _tag('link', const [], null, null, {'rel': rel, 'href': href});
 
+/// A `<br>`.
 Element br() => _tag('br', const [], null, null, const {});
 
+/// An `<hr>`.
 Element hr() => _tag('hr', const [], null, null, const {});

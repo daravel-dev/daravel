@@ -20,9 +20,12 @@ final class CacheRateLimitStore implements AlgorithmRateLimitStore {
   CacheRateLimitStore(this._store, {this.prefix = 'rate_limiter:'});
 
   final CacheStore Function() _store;
+
+  /// The key prefix of the counters.
   final String prefix;
   CacheStore? _resolved;
 
+  /// The cache store holding them.
   CacheStore get store => _resolved ??= _store();
 
   @override

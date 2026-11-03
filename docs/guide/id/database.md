@@ -1,4 +1,4 @@
-<!-- source: database.md sha256:19704fd52478 -->
+<!-- source: database.md sha256:56f77258fdd0 -->
 # Database
 
 `DB_CONNECTION` memilih SQLite (`sqlite`, default), PostgreSQL (`pgsql`),
@@ -525,3 +525,25 @@ seperti `Cursor::encode()` dari Laravel, sehingga cursor yang diterbitkan
 salah satu framework bekerja di framework lainnya. Pakai
 `withQueryString()` atau `appends({...})` untuk mempertahankan parameter
 query tambahan.
+
+## Padanan Laravel
+
+Bagian lain dari Laravel yang ikut didukung, beserta API yang bisa dicari di pub.dev.
+
+| Laravel | Daravel | API | Catatan |
+| :-- | :-- | :-- | :-- |
+| `DB::statement($sql)` | `await DB.statement(sql)` | `DB.statement` |  |
+| `DB_URL=postgres://user:pass@host/db (ConfigurationUrlParser)` | `DB_URL, ConnectionConfig.withUrl(url)` | `ConnectionConfig.withUrl` | Digabung seperti Laravel 12: bagian URL menggantikan nilai DB_*, sisanya tetap. |
+| `DB::transaction($fn, attempts: 5)` | `DB.transaction(fn, attempts: 5), with jitter between retries` | `DatabaseManager.retryDelay` |  |
+| `->whereToday('starts_at') / wherePast / whereFuture / whereBeforeToday` | `.whereToday('starts_at') / wherePast / whereFuture / whereBeforeToday` | `QueryBuilder.whereToday` | Terhadap `Clock.now()`. |
+| `whereNone(['a', 'b'], 'like', '%x%')` | `whereNone(['a', 'b'], 'like', '%x%')` | `QueryBuilder.whereNone` |  |
+| `where('meta->lang', 'id') / update(['meta->lang' => 'en'])` | `where('meta->lang', 'id') / update({'meta->lang': 'en'})` | `QueryGrammar.jsonSelector` |  |
+| `->insertGetId($values)` | `await DB.table(t).insertGetId(values)` | `QueryBuilder.insertGetId` |  |
+| `->upsert($values, $uniqueBy)` | `.upsert(values, uniqueBy)` | `QueryBuilder.upsert` |  |
+| `->chunkById(100, fn)` | `.chunkById(100, (rows) async {...})` | `QueryBuilder.chunkById` |  |
+| `->selectSub($query, 'alias')` | `.selectSub(query, 'alias')` | `QueryBuilder.selectSub` |  |
+| `->toSql() / toRawSql()` | `.toSql() / .toRawSql()` | `QueryBuilder.toRawSql` |  |
+| `Schema::table / dropIfExists / hasTable / hasColumn` | `schema.table / dropIfExists / hasTable / hasColumn` | `SchemaBuilder.hasColumn` |  |
+| `$table->id() / string() / foreignId()->constrained()` | `table.id() / string() / foreignId().constrained()` | `Blueprint.foreignId` |  |
+| `$table->morphs('taggable') / nullableMorphs / uuidMorphs / ulidMorphs` | `table.morphs('taggable') / nullableMorphs / uuidMorphs / ulidMorphs` | `Blueprint.nullableMorphs` |  |
+| `$table->timestamps() / softDeletes() / rememberToken()` | `table.timestamps() / softDeletes() / rememberToken()` | `Blueprint.softDeletes` |  |

@@ -154,3 +154,12 @@ other's rows, custom properties and conversions (same sizes), serves them
 at the same URLs, and deletes them with their files. A model's
 `model_type` is its morph class (`App\Models\Post` by default, or the
 `Relation.morphMap()` alias), as Laravel stores it.
+
+## Laravel equivalents
+
+More of Laravel that this works with, and the API to look up on pub.dev.
+
+| Laravel | Daravel | API | Note |
+| :-- | :-- | :-- | :-- |
+| `php artisan media-library:regenerate` | `dartisan media:regenerate` | `MediaRegenerateCommand` |  |
+| `php artisan media-library:clean` | `dartisan media:clean` | `MediaCleanCommand` |  |

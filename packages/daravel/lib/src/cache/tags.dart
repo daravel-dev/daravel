@@ -38,11 +38,15 @@ abstract interface class TaggedCacheStore implements CacheStore {
 /// flush gives the tags new ids, so what they tagged is no longer reached
 /// (and expires, or leaves the memory store's LRU).
 final class TagSetCacheStore implements TaggedCacheStore {
+  /// The values of [store] tagged with every one of [names].
   TagSetCacheStore(this.store, this.names, {this.prefix = ''});
 
+  /// The store holding the values.
   final CacheStore store;
   @override
   final List<String> names;
+
+  /// The key prefix.
   final String prefix;
 
   static final Random _random = Random.secure();

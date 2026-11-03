@@ -16,20 +16,25 @@ const MissingValue missing = MissingValue._();
 
 /// Attributes merged into the parent map (`mergeWhen`).
 final class MergeValue {
+  /// Merges [values] into the resource's map ([JsonResource.merge]).
   const MergeValue(this.values);
 
+  /// The merged entries.
   final Map<String, Object?> values;
 }
 
 /// Shape of a resource payload: the wrapping key (`data`) is global, like
 /// Laravel's `JsonResource::$wrap`.
 abstract final class ResourceWrapping {
+  /// The key wrapping a resource's data (`data`); null for none.
   static String? key = 'data';
 
   /// Disables the `data` wrapper for single resources and plain
   /// collections (paginated collections keep it, as in Laravel).
   static void disable() => key = null;
 
+  /// Wraps resources under [name] instead of `data`
+  /// (`JsonResource::wrap`).
   static void wrap(String name) => key = name;
 }
 
@@ -48,8 +53,10 @@ abstract final class ResourceWrapping {
 /// }
 /// ```
 abstract class JsonResource<T> implements JsonSerializable, Responsable {
+  /// A resource presenting [resource].
   JsonResource(this.resource);
 
+  /// The model or value presented.
   final T resource;
   final Map<String, Object?> _additional = <String, Object?>{};
   int? _status;
@@ -84,6 +91,7 @@ abstract class JsonResource<T> implements JsonSerializable, Responsable {
     return this;
   }
 
+  /// Adds the header [name] to the response.
   JsonResource<T> withHeader(String name, String value) {
     _headers[name] = value;
     return this;
@@ -203,6 +211,8 @@ Object? _resolveValue(Object? value, Request? request) => switch (value) {
 
 /// A collection of resources; paginators add Laravel's `links` and `meta`.
 final class ResourceCollection<T> implements JsonSerializable, Responsable {
+  /// A collection of [source] (a list or a paginator), each item presented
+  /// by [factory].
   ResourceCollection(this.source, this.factory) {
     if (source is! Iterable<T> &&
         source is! LengthAwarePaginator<T> &&
@@ -216,11 +226,15 @@ final class ResourceCollection<T> implements JsonSerializable, Responsable {
     }
   }
 
+  /// The list or paginator.
   final Object source;
+
+  /// Presents one item.
   final JsonResource<T> Function(T item) factory;
   final Map<String, Object?> _additional = <String, Object?>{};
   int? _status;
 
+  /// The items, from a list or a paginator.
   List<T> get items => switch (source) {
     final LengthAwarePaginator<T> page => page.items,
     final SimplePaginator<T> page => page.items,
@@ -229,11 +243,13 @@ final class ResourceCollection<T> implements JsonSerializable, Responsable {
     _ => const [],
   };
 
+  /// Adds [data] to the top level of the JSON.
   ResourceCollection<T> additional(Map<String, Object?> data) {
     _additional.addAll(data);
     return this;
   }
 
+  /// Answers with [status] instead of 200.
   ResourceCollection<T> withStatus(int status) {
     _status = status;
     return this;
@@ -247,6 +263,7 @@ final class ResourceCollection<T> implements JsonSerializable, Responsable {
   @override
   Object? toJson() => resolveItems();
 
+  /// Whether [source] is a paginator, adding `links` and `meta`.
   bool get isPaginated => source is! Iterable<T>;
 
   /// Laravel's PaginatedResourceResponse: `links` from the URL keys, and

@@ -58,6 +58,7 @@ base mixin HasRoles on Model {
     await PermissionRegistrar.current.forgetCachedPermissions();
   }
 
+  /// Removes [roles] (names, ids or models) from the user.
   Future<void> removeRole(Object roles) async {
     final ids = [for (final role in await _roles(roles)) role.id];
     if (ids.isNotEmpty) {
@@ -116,9 +117,11 @@ base mixin HasRoles on Model {
     return _names(roles, guard ?? guardName).any(mine.contains);
   }
 
+  /// Whether the user has any of [roles].
   Future<bool> hasAnyRole(Object roles, {String? guard}) =>
       hasRole(roles, guard: guard);
 
+  /// Whether the user has every one of [roles].
   Future<bool> hasAllRoles(Object roles, {String? guard}) async {
     final mine = (await _access(guard)).roles;
     return _names(roles, guard ?? guardName).every(mine.contains);
@@ -131,12 +134,14 @@ base mixin HasRoles on Model {
     return mine.length == wanted.length && mine.containsAll(wanted);
   }
 
+  /// The names of the user's roles.
   Future<List<String>> getRoleNames({String? guard}) async =>
       (await _access(guard)).roles.toList()..sort();
 
   // ---------------------------------------------------------------------
   // Direct permissions.
 
+  /// Gives [permissions] to the user directly.
   Future<void> givePermissionTo(Object permissions) async {
     for (final permission in await Permission.resolve(permissions, guardName)) {
       await DB.table('model_has_permissions').insertOrIgnore({
@@ -148,6 +153,7 @@ base mixin HasRoles on Model {
     await PermissionRegistrar.current.forgetCachedPermissions();
   }
 
+  /// Takes [permissions] the user was given directly.
   Future<void> revokePermissionTo(Object permissions) async {
     final ids = [
       for (final p in await Permission.resolve(permissions, guardName)) p.id,
@@ -163,6 +169,7 @@ base mixin HasRoles on Model {
     await PermissionRegistrar.current.forgetCachedPermissions();
   }
 
+  /// Makes [permissions] the user's only direct permissions.
   Future<void> syncPermissions(Object permissions) async {
     final resolved = await Permission.resolve(permissions, guardName);
     await DB
@@ -193,6 +200,7 @@ base mixin HasRoles on Model {
     return false;
   }
 
+  /// Whether the user has [permission]; throws when it does not exist.
   Future<bool> checkPermissionTo(String permission, {String? guard}) async {
     try {
       return await hasPermissionTo(permission, guard: guard);
@@ -201,6 +209,7 @@ base mixin HasRoles on Model {
     }
   }
 
+  /// Whether the user has any of [permissions].
   Future<bool> hasAnyPermission(List<String> permissions) async {
     for (final permission in permissions) {
       if (await checkPermissionTo(permission)) {
@@ -210,6 +219,7 @@ base mixin HasRoles on Model {
     return false;
   }
 
+  /// Whether the user has every one of [permissions].
   Future<bool> hasAllPermissions(List<String> permissions) async {
     for (final permission in permissions) {
       if (!await checkPermissionTo(permission)) {
@@ -240,6 +250,7 @@ base mixin HasRoles on Model {
   Future<List<String>> getAllPermissions({String? guard}) async =>
       (await _access(guard)).permissions.toList()..sort();
 
+  /// The names of the user's permissions, through roles too.
   Future<List<String>> getPermissionNames({String? guard}) =>
       getAllPermissions(guard: guard);
 }

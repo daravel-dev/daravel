@@ -20,6 +20,7 @@ import 'job.dart';
 
 /// `QUEUE_*` configuration (`config/queue.php` parity).
 final class QueueConfig implements ConfigSection {
+  /// Queue settings; usually from `.env` ([QueueConfig.fromEnv]).
   const QueueConfig({
     this.defaultConnection = 'sync',
     this.defaultQueue = 'default',
@@ -31,6 +32,7 @@ final class QueueConfig implements ConfigSection {
     this.signalStore,
   });
 
+  /// The settings in `QUEUE_*`.
   factory QueueConfig.fromEnv(Env env) {
     final connection = env.string('QUEUE_CONNECTION', 'sync');
     return QueueConfig(
@@ -79,9 +81,18 @@ final class QueueConfig implements ConfigSection {
 
   /// `sync` | `database` | `memory`.
   final String defaultConnection;
+
+  /// The queue used when a job names none (`default`).
   final String defaultQueue;
+
+  /// The jobs table (`jobs`).
   final String table;
+
+  /// The failed jobs table (`failed_jobs`).
   final String failedTable;
+
+  /// How long a reserved job may run before another worker takes it
+  /// (`QUEUE_RETRY_AFTER`).
   final Duration retryAfter;
 
   /// Dispatches inside a transaction wait for the commit by default.
@@ -121,33 +132,39 @@ final class QueueConfig implements ConfigSection {
 
 /// Recorded pushes while [QueueManager.fake] is active.
 final class QueueFake {
+  /// Every job pushed while faked, with where it went.
   final List<({Job job, String queue, String connection, Duration? delay})>
   pushed = [];
 
+  /// The pushed jobs of type [J], matching [where] when given.
   List<J> pushedJobs<J extends Job>([bool Function(J job)? where]) => [
     for (final entry in pushed)
       if (entry.job is J && (where == null || where(entry.job as J)))
         entry.job as J,
   ];
 
+  /// Fails unless a job of type [J] (matching [where]) was pushed.
   void assertPushed<J extends Job>([bool Function(J job)? where]) {
     if (pushedJobs<J>(where).isEmpty) {
       throw StateError('Expected job [$J] to be pushed; it was not.');
     }
   }
 
+  /// Fails unless a job of type [J] was pushed onto [queue].
   void assertPushedOn<J extends Job>(String queue) {
     if (!pushed.any((e) => e.job is J && e.queue == queue)) {
       throw StateError('Expected job [$J] on queue [$queue]; it was not.');
     }
   }
 
+  /// Fails if a job of type [J] was pushed.
   void assertNotPushed<J extends Job>() {
     if (pushedJobs<J>().isNotEmpty) {
       throw StateError('Expected job [$J] not to be pushed; it was.');
     }
   }
 
+  /// Fails if any job was pushed.
   void assertNothingPushed() {
     if (pushed.isNotEmpty) {
       throw StateError(
@@ -156,6 +173,7 @@ final class QueueFake {
     }
   }
 
+  /// How many jobs of type [J] were pushed.
   int pushedTimes<J extends Job>() => pushedJobs<J>().length;
 }
 
@@ -163,9 +181,12 @@ final class QueueFake {
 /// performs the push and yields the driver job id (`null` when a unique
 /// job was skipped).
 final class PendingDispatch implements Future<Object?> {
+  /// A dispatch of [job], pushed when awaited.
   PendingDispatch(this._manager, this.job);
 
   final QueueManager _manager;
+
+  /// The job dispatched.
   final Job job;
   String? _queue;
   String? _connection;
@@ -173,18 +194,23 @@ final class PendingDispatch implements Future<Object?> {
   bool? _afterCommit;
   Future<Object?>? _future;
 
+  /// Pushes onto [queue].
   PendingDispatch onQueue(String queue) => this.._queue = queue;
 
+  /// Pushes onto the connection [connection].
   PendingDispatch onConnection(String connection) =>
       this.._connection = connection;
 
+  /// Runs the job after [delay].
   PendingDispatch delay(Duration delay) => this.._delay = delay;
 
   /// Laravel's `withoutDelay()`: at once, whatever delay the job declares.
   PendingDispatch withoutDelay() => this.._delay = Duration.zero;
 
+  /// Pushes only after the current transaction commits.
   PendingDispatch afterCommit() => this.._afterCommit = true;
 
+  /// Pushes at once, even inside a transaction.
   PendingDispatch beforeCommit() => this.._afterCommit = false;
 
   Future<Object?> get _run => _future ??= _manager.push(
@@ -220,11 +246,25 @@ final class PendingDispatch implements Future<Object?> {
 }
 
 /// Outcome of one processing attempt.
-enum JobOutcome { processed, released, deleted, failed }
+enum JobOutcome {
+  /// The job finished and was removed.
+  processed,
+
+  /// The job was put back on the queue for a later attempt.
+  released,
+
+  /// The job asked to be removed without failing.
+  deleted,
+
+  /// The job failed for good and went to `failed_jobs`.
+  failed,
+}
 
 /// Runs one reserved job through its middleware with timeout, retry and
 /// failure bookkeeping (shared by the worker and the sync driver).
 final class JobProcessor {
+  /// A processor running jobs from [registry] in [container], reporting to
+  /// [events] and recording failures in [failedJobs].
   JobProcessor({
     required this.registry,
     required this.events,
@@ -236,10 +276,19 @@ final class JobProcessor {
     DateTime Function()? clock,
   }) : _clock = clock ?? _utcNow;
 
+  /// Rebuilds jobs from their payloads.
   final JobRegistry registry;
+
+  /// Receives the job lifecycle events.
   final EventDispatcher events;
+
+  /// Records failed jobs.
   final FailedJobProvider failedJobs;
+
+  /// The container jobs run in.
   final Container container;
+
+  /// Logs job failures.
   final Logger? logger;
 
   /// Releases the unique-job lock named by the payload.
@@ -248,6 +297,7 @@ final class JobProcessor {
   /// Holds the owner of each debounced job.
   final CacheRepository? Function()? debounceStore;
 
+  /// The cache key debouncing [job].
   static String debounceKey(Job job) =>
       'debounced_job:${job.jobName}:${job.debounceId}';
   final DateTime Function() _clock;
@@ -493,6 +543,7 @@ final class JobProcessor {
 /// Connections, dispatching, unique jobs and faking (Laravel `QueueManager`
 /// + `Bus::dispatch`).
 final class QueueManager {
+  /// A manager of the connections in [config].
   QueueManager({
     required this.config,
     required this.registry,
@@ -505,11 +556,22 @@ final class QueueManager {
     this.logger,
   });
 
+  /// The queue settings.
   final QueueConfig config;
+
+  /// The registered jobs.
   final JobRegistry registry;
+
+  /// The event dispatcher.
   final EventDispatcher events;
+
+  /// The container jobs run in.
   final Container container;
+
+  /// Runs reserved jobs.
   final JobProcessor processor;
+
+  /// The database of the database queue, when there is one.
   final DatabaseManager? database;
 
   /// Store for unique-job locks (`ShouldBeUnique`).
@@ -520,6 +582,8 @@ final class QueueManager {
   /// workers read too.
   CacheRepository? get signalStore => _signalStore ?? lockStore;
   final CacheRepository? _signalStore;
+
+  /// Logs dispatches and failures.
   final Logger? logger;
 
   final Map<String, QueueDriver Function()> _factories = {};
@@ -530,6 +594,7 @@ final class QueueManager {
   void extend(String name, QueueDriver Function() factory) =>
       _factories[name] = factory;
 
+  /// The names of the configured connections.
   Iterable<String> get connectionNames => _factories.keys;
 
   /// The connection named [name] (default: `QUEUE_CONNECTION`).
@@ -568,6 +633,7 @@ final class QueueManager {
   void route<T extends Job>({String? queue, String? connection}) =>
       _routes[T] = (queue: queue, connection: connection);
 
+  /// Pushes [job] onto its queue; returns its id.
   Future<Object?> push(
     Job job, {
     String? queue,
@@ -732,6 +798,7 @@ final class QueueManager {
   /// Records pushes instead of sending them (tests).
   QueueFake fake() => _fake = QueueFake();
 
+  /// Undoes `fake()`.
   void restore() => _fake = null;
 
   /// Requests every running worker to stop after its current job.
@@ -776,6 +843,7 @@ final class QueueManager {
 
 /// `queue:work` options.
 final class WorkerOptions {
+  /// How a worker runs: which queues, how long, how many jobs.
   const WorkerOptions({
     this.connection,
     this.queues = const <String>['default'],
@@ -788,6 +856,7 @@ final class WorkerOptions {
     this.stopWhenEmpty = false,
   });
 
+  /// The connection worked; the default one when null.
   final String? connection;
 
   /// Queues polled in priority order.
@@ -795,22 +864,38 @@ final class WorkerOptions {
 
   /// Overrides the job's `tries` (`null` = use the job's own value).
   final int? tries;
+
+  /// The waits between attempts, overriding the jobs' own.
   final List<Duration>? backoff;
+
+  /// How long one job may run.
   final Duration? timeout;
+
+  /// How long to wait when the queue is empty.
   final Duration sleep;
+
+  /// Stop after this many jobs (`--max-jobs`).
   final int? maxJobs;
+
+  /// Stop after this long (`--max-time`).
   final Duration? maxTime;
+
+  /// Stop when the queue is empty (`--stop-when-empty`).
   final bool stopWhenEmpty;
 }
 
 /// Polls queues and processes jobs (`dartisan queue:work`).
 final class QueueWorker {
+  /// A worker of [manager]'s queues.
   QueueWorker(this.manager, {this._logger});
 
+  /// The queues worked.
   final QueueManager manager;
   final Logger? _logger;
   bool _stop = false;
   bool _paused = false;
+
+  /// The jobs this worker has processed.
   int processed = 0;
 
   /// Set when the worker must be restarted rather than resumed: a job

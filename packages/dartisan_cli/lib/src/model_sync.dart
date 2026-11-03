@@ -4,6 +4,7 @@ import 'generator.dart';
 
 /// What `model:sync` needs from a model source file.
 final class ModelSource {
+  /// What `model:sync` reads from a model file.
   const ModelSource({
     required this.className,
     required this.table,
@@ -37,10 +38,19 @@ final class ModelSource {
     );
   }
 
+  /// The model's class name.
   final String className;
+
+  /// Its table.
   final String table;
+
+  /// Its casts, by column.
   final Map<String, String> casts;
+
+  /// Its primary key.
   final String primaryKey;
+
+  /// Whether it is an authenticatable user.
   final bool authenticatable;
 }
 
@@ -100,9 +110,13 @@ const Set<String> reservedAccessors = <String>{
 
 /// Result of rendering the accessor region.
 final class AccessorPlan {
+  /// The accessor [lines] to write, and [warnings] about columns skipped.
   const AccessorPlan(this.lines, this.warnings);
 
+  /// The accessor lines.
   final List<String> lines;
+
+  /// What could not be generated.
   final List<String> warnings;
 }
 

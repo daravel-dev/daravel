@@ -4,10 +4,18 @@ import 'dart:io' as io;
 
 import '../foundation/exceptions.dart';
 
-enum ProcessOutputType { stdout, stderr }
+/// Which stream a line of a process's output came from.
+enum ProcessOutputType {
+  /// Standard output.
+  stdout,
+
+  /// Standard error.
+  stderr,
+}
 
 /// A finished command (`Illuminate\Process\ProcessResult`).
 final class ProcessResultData {
+  /// The result of a finished process.
   const ProcessResultData({
     this.command = const <String>[],
     this.exitCode = 0,
@@ -15,15 +23,28 @@ final class ProcessResultData {
     this.errorOutput = '',
   });
 
+  /// The command and its arguments.
   final List<String> command;
+
+  /// The exit code.
   final int exitCode;
+
+  /// Everything written to stdout.
   final String output;
+
+  /// Everything written to stderr.
   final String errorOutput;
 
+  /// Whether the exit code is 0.
   bool get successful => exitCode == 0;
+
+  /// Whether the exit code is not 0.
   bool get failed => !successful;
 
+  /// Whether stdout contains [text].
   bool seeInOutput(String text) => output.contains(text);
+
+  /// Whether stderr contains [text].
   bool seeInErrorOutput(String text) => errorOutput.contains(text);
 
   /// This result, or a [ProcessFailedException] when the command failed.
@@ -35,29 +56,38 @@ final class ProcessResultData {
   }
 }
 
+/// Thrown by `throw()` when the process failed.
 final class ProcessFailedException extends DaravelException {
+  /// The failed [result].
   ProcessFailedException(this.result)
     : super(
         'The command "${result.command.join(' ')}" failed with exit code '
         '${result.exitCode}.',
       );
 
+  /// The failed process's result.
   final ProcessResultData result;
 }
 
+/// The process ran past its timeout and was killed.
 final class ProcessTimedOutException extends DaravelException {
+  /// [command] ran past [timeout].
   ProcessTimedOutException(this.command, this.timeout)
     : super(
         'The command "${command.join(' ')}" exceeded the timeout of '
         '${timeout.inSeconds} seconds.',
       );
 
+  /// The command.
   final List<String> command;
+
+  /// The timeout it passed.
   final Duration timeout;
 }
 
 /// Answers commands inside [Process.fake], and records them.
 final class ProcessFake {
+  /// A fake answering commands with the stubs given.
   ProcessFake(this._stubs);
 
   final Map<String, ProcessResultData> _stubs;

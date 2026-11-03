@@ -1,4 +1,4 @@
-<!-- source: responses.md sha256:62c825683c29 -->
+<!-- source: responses.md sha256:c31a53d71c46 -->
 # Respons dan resource
 
 Handler bisa mengembalikan `Response.json(data, status: 201)`,
@@ -376,3 +376,20 @@ Daftarkan renderer sendiri dengan `withExceptions((e) =>
 e.render<MyError>((error, request) => Response.json({...}, status: 409)))`.
 Renderer boleh `async`: renderer bisa menulis baris audit atau membaca
 terjemahan sebelum menjawab.
+
+## Padanan Laravel
+
+Bagian lain dari Laravel yang ikut didukung, beserta API yang bisa dicari di pub.dev.
+
+| Laravel | Daravel | API | Catatan |
+| :-- | :-- | :-- | :-- |
+| `$request->replace([...])` | `request.replace({...})` | `Request.replace` |  |
+| `$request->float('price') / ->string('name')` | `await request.float('price') / .string('name')` | `Request.float` |  |
+| `$request->bearerToken()` | `request.bearerToken()` | `Request.bearerToken` |  |
+| `$request->expectsJson()` | `request.expectsJson` | `Request.expectsJson` |  |
+| `$request->getRealMethod()` | `request.originalMethod` | `Request.originalMethod` |  |
+| `back()` | `Response.back(request)` | `Response.back` |  |
+| `<input name="_method"> / X-HTTP-Method-Override` | aktif secara default; middleware.methodOverride = false | `MethodOverrideMiddleware` |  |
+| `->additional([...])` | `.additional({...})` | `JsonResource.additional` |  |
+| `$this->when($cond, $value) / whenLoaded('posts')` | `when(cond, value) / whenLoaded('posts')` | `JsonResource.whenLoaded` |  |
+| `public function with($request)` | `Map<String, Object?> withMeta(Request? request)` | `JsonResource.withMeta` | `with` adalah kata yang dicadangkan di Dart. |

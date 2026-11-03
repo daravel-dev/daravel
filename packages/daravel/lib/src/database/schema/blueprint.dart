@@ -4,34 +4,83 @@ import 'sqlite_schema.dart';
 
 /// Column types supported by the schema builder.
 enum ColumnType {
+  /// An auto-incrementing integer primary key ([Blueprint.id], [Blueprint.increments]).
   increments,
+
+  /// `VARCHAR(length)` ([Blueprint.string]).
   string,
+
+  /// Fixed-length `CHAR(length)` ([Blueprint.char]).
   char,
+
+  /// `TEXT` ([Blueprint.text]).
   text,
+
+  /// `MEDIUMTEXT` on MySQL, `TEXT` elsewhere ([Blueprint.mediumText]).
   mediumText,
+
+  /// `LONGTEXT` on MySQL, `TEXT` elsewhere ([Blueprint.longText]).
   longText,
+
+  /// A 32-bit integer ([Blueprint.integer]).
   integer,
+
+  /// An 8-bit integer ([Blueprint.tinyInteger]).
   tinyInteger,
+
+  /// A 16-bit integer ([Blueprint.smallInteger]).
   smallInteger,
+
+  /// A 64-bit integer ([Blueprint.bigInteger]).
   bigInteger,
+
+  /// A fixed-point number with a precision and scale ([Blueprint.decimal]).
   decimal,
+
+  /// A single-precision floating point number ([Blueprint.float]).
   float,
+
+  /// A double-precision floating point number ([Blueprint.doublePrecision]).
   doublePrecision,
+
+  /// A boolean; `TINYINT(1)` on MySQL, an integer on SQLite ([Blueprint.boolean]).
   boolean,
+
+  /// A date without a time ([Blueprint.date]).
   date,
+
+  /// A date and time ([Blueprint.dateTime]).
   dateTime,
+
+  /// A time of day ([Blueprint.time]).
   time,
+
+  /// A timestamp ([Blueprint.timestamp], [Blueprint.timestamps]).
   timestamp,
+
+  /// JSON; `JSONB` on PostgreSQL, text on SQLite ([Blueprint.json]).
   json,
+
+  /// A UUID; `UUID` on PostgreSQL, `CHAR(36)` elsewhere ([Blueprint.uuid]).
   uuid,
+
+  /// Binary data: `BLOB` or `BYTEA` ([Blueprint.binary]).
   binary,
+
+  /// One of a fixed list of strings ([Blueprint.enumeration]).
   enumeration,
+
+  /// A vector of numbers for similarity search ([Blueprint.vector]).
   vector,
+
+  /// A PostgreSQL full text `tsvector` ([Blueprint.tsvector]).
   tsvector,
 }
 
 /// A column being defined (or changed) inside a [Blueprint].
 final class ColumnDefinition {
+  /// A column named [name] of [type]; [Blueprint]'s column methods create
+  /// it, so application code rarely calls this.
   ColumnDefinition(
     this.name,
     this.type, {
@@ -41,10 +90,19 @@ final class ColumnDefinition {
     this.allowed = const <String>[],
   });
 
+  /// The column name.
   final String name;
+
+  /// The column type.
   final ColumnType type;
+
+  /// The length of a string or char column, or the dimensions of a vector.
   final int? length;
+
+  /// The total number of digits of a decimal column.
   final int? precision;
+
+  /// The digits after the decimal point of a decimal column.
   final int? scale;
 
   /// Allowed values for [ColumnType.enumeration].
@@ -62,44 +120,75 @@ final class ColumnDefinition {
   String? _defaultRaw;
   String? _comment;
 
+  /// Whether the column accepts `NULL` ([nullable]).
   bool get isNullable => _nullable;
+
+  /// Whether the column has a unique index ([unique]).
   bool get isUnique => _unique;
+
+  /// Whether the column is the primary key ([primary]).
   bool get isPrimary => _primary;
+
+  /// Whether the column has a plain index ([index]).
   bool get hasIndex => _index;
+
+  /// Whether the column is `UNSIGNED` on MySQL ([unsigned]).
   bool get isUnsigned => _unsigned;
+
+  /// Whether the column defaults to `CURRENT_TIMESTAMP` ([useCurrent]).
   bool get usesCurrent => _useCurrent;
+
+  /// Whether the column has any default: a value, raw SQL or the current time.
   bool get hasDefault => _hasDefault || _defaultRaw != null || _useCurrent;
+
+  /// The default given to [defaultTo].
   Object? get defaultValue => _defaultValue;
+
+  /// The raw SQL default given to [defaultRaw].
   String? get rawDefault => _defaultRaw;
+
+  /// The comment given to [comment].
   String? get commentText => _comment;
+
+  /// Whether this modifies an existing column ([change]).
   bool get isChange => _change;
+
+  /// Whether the column is an auto-incrementing primary key.
   bool get isAutoIncrement => type == .increments;
 
+  /// Allows `NULL` in the column (`->nullable()`); `nullable(false)` makes it
+  /// `NOT NULL` again when changing a column.
   ColumnDefinition nullable([bool value = true]) {
     _nullable = value;
     return this;
   }
 
+  /// Adds a unique index on the column (`->unique()`).
   ColumnDefinition unique() {
     _unique = true;
     return this;
   }
 
+  /// Makes the column the primary key (`->primary()`).
   ColumnDefinition primary() {
     _primary = true;
     return this;
   }
 
+  /// Adds an index on the column (`->index()`).
   ColumnDefinition index() {
     _index = true;
     return this;
   }
 
+  /// Makes the column `UNSIGNED` on MySQL; other databases ignore it.
   ColumnDefinition unsigned() {
     _unsigned = true;
     return this;
   }
 
+  /// The column's default value (`->default($value)`), written as a SQL
+  /// literal.
   ColumnDefinition defaultTo(Object? value) {
     _hasDefault = true;
     _defaultValue = value;
@@ -118,6 +207,7 @@ final class ColumnDefinition {
     return this;
   }
 
+  /// A comment on the column (`->comment('...')`).
   ColumnDefinition comment(String text) {
     _comment = text;
     return this;
@@ -133,6 +223,7 @@ final class ColumnDefinition {
 
 /// A `foreignId()` column that can be `constrained()`.
 final class ForeignIdDefinition extends ColumnDefinition {
+  /// A foreign id column of [blueprint]; created by [Blueprint.foreignId].
   ForeignIdDefinition(super.name, super.type, this._blueprint);
 
   final Blueprint _blueprint;
@@ -170,47 +261,71 @@ final class ForeignIdDefinition extends ColumnDefinition {
 
 /// A foreign key constraint.
 final class ForeignKeyDefinition {
+  /// A foreign key on [columns]; created by [Blueprint.foreign] and
+  /// [ForeignIdDefinition.constrained].
   ForeignKeyDefinition(this.columns, {this._name});
 
+  /// The local columns of the key.
   final List<String> columns;
   final String? _name;
+
+  /// The columns it references in [referencedTable] (`id` by default).
   List<String> referencedColumns = const <String>['id'];
+
+  /// The table it references ([on]).
   String? referencedTable;
+
+  /// The `ON DELETE` action ([onDelete]), upper case.
   String? onDeleteAction;
+
+  /// The `ON UPDATE` action ([onUpdate]), upper case.
   String? onUpdateAction;
 
   /// Constraint name (`<table>_<columns>_foreign` when unset).
   String nameFor(String table) =>
       _name ?? '${table}_${columns.join('_')}_foreign';
 
+  /// The referenced column, or a list of columns (`->references('id')`).
   ForeignKeyDefinition references(Object column) {
     referencedColumns = column is List<String> ? column : <String>['$column'];
     return this;
   }
 
+  /// The referenced table (`->on('users')`).
   ForeignKeyDefinition on(String table) {
     referencedTable = table;
     return this;
   }
 
+  /// The action when the referenced row is deleted: `cascade`, `restrict`,
+  /// `set null` or `no action`.
   ForeignKeyDefinition onDelete(String action) {
     onDeleteAction = action.toUpperCase();
     return this;
   }
 
+  /// The action when the referenced key changes.
   ForeignKeyDefinition onUpdate(String action) {
     onUpdateAction = action.toUpperCase();
     return this;
   }
 
+  /// Deletes the rows when the referenced row is deleted.
   ForeignKeyDefinition cascadeOnDelete() => onDelete('cascade');
+
+  /// Refuses to delete a referenced row while rows point at it.
   ForeignKeyDefinition restrictOnDelete() => onDelete('restrict');
+
+  /// Sets the column to `NULL` when the referenced row is deleted.
   ForeignKeyDefinition nullOnDelete() => onDelete('set null');
+
+  /// Updates the column when the referenced key changes.
   ForeignKeyDefinition cascadeOnUpdate() => onUpdate('cascade');
 }
 
 /// A table-level index.
 final class IndexDefinition {
+  /// An index on [columns]; [unique] makes it a unique index.
   const IndexDefinition(
     this.columns, {
     required this.unique,
@@ -218,13 +333,20 @@ final class IndexDefinition {
     this.vector = false,
   });
 
+  /// The indexed columns, in order.
   final List<String> columns;
+
+  /// Whether the index is unique.
   final bool unique;
+
+  /// The index name; Laravel's `<table>_<columns>_<kind>` when null.
   final String? name;
 
   /// An approximate index for distance queries ([Blueprint.vectorIndex]).
   final bool vector;
 
+  /// The index name in [table]: [name], or `<table>_<columns>_index`,
+  /// `_unique` or `_vectorindex` as Laravel names it.
   String nameFor(String table) =>
       name ??
       '${table}_${columns.join('_')}_'
@@ -238,22 +360,38 @@ final class IndexDefinition {
 /// Collects column, index and foreign key definitions for `Schema.create`
 /// and the change commands for `Schema.table`.
 final class Blueprint {
+  /// A blueprint for [table]; [alter] when it changes an existing table.
+  /// `Schema.create` and `Schema.table` create it for the callback.
   Blueprint(this.table, {this.alter = false});
 
+  /// The table being created or changed.
   final String table;
 
   /// Whether this blueprint modifies an existing table.
   final bool alter;
 
+  /// The columns added or changed, in order.
   final List<ColumnDefinition> columns = <ColumnDefinition>[];
+
+  /// The table-level indexes ([index], [unique], [vectorIndex]).
   final List<IndexDefinition> indexes = <IndexDefinition>[];
+
+  /// The foreign keys ([foreign], [ForeignIdDefinition.constrained]).
   final List<ForeignKeyDefinition> foreignKeys = <ForeignKeyDefinition>[];
 
   /// A primary key over several columns ([primary]), when creating.
   IndexDefinition? primaryKey;
+
+  /// Columns to drop ([dropColumn]).
   final List<String> dropColumns = <String>[];
+
+  /// Columns to rename, as (from, to) ([renameColumn]).
   final List<(String, String)> renameColumns = <(String, String)>[];
+
+  /// Indexes to drop by name ([dropIndex], [dropUnique]).
   final List<String> dropIndexes = <String>[];
+
+  /// Foreign keys to drop by name ([dropForeign]).
   final List<String> dropForeignKeys = <String>[];
 
   /// Columns being added (not changed).
@@ -336,12 +474,15 @@ final class Blueprint {
     index(['${name}_type', '${name}_id'], name: indexName);
   }
 
+  /// A `VARCHAR` column of up to [length] characters (`$table->string()`).
   ColumnDefinition string(String name, {int length = 255}) =>
       _add(ColumnDefinition(name, ColumnType.string, length: length));
 
+  /// A fixed-length `CHAR` column of [length] characters.
   ColumnDefinition char(String name, {int length = 255}) =>
       _add(ColumnDefinition(name, ColumnType.char, length: length));
 
+  /// A `TEXT` column.
   ColumnDefinition text(String name) =>
       _add(ColumnDefinition(name, ColumnType.text));
 
@@ -353,18 +494,31 @@ final class Blueprint {
   ColumnDefinition longText(String name) =>
       _add(ColumnDefinition(name, ColumnType.longText));
 
+  /// A 32-bit integer column.
   ColumnDefinition integer(String name) =>
       _add(ColumnDefinition(name, ColumnType.integer));
+
+  /// An 8-bit integer column.
   ColumnDefinition tinyInteger(String name) =>
       _add(ColumnDefinition(name, ColumnType.tinyInteger));
+
+  /// A 16-bit integer column.
   ColumnDefinition smallInteger(String name) =>
       _add(ColumnDefinition(name, ColumnType.smallInteger));
+
+  /// A 64-bit integer column.
   ColumnDefinition bigInteger(String name) =>
       _add(ColumnDefinition(name, ColumnType.bigInteger));
+
+  /// An unsigned 64-bit integer column (unsigned on MySQL only).
   ColumnDefinition unsignedBigInteger(String name) =>
       bigInteger(name).unsigned();
+
+  /// An unsigned 32-bit integer column (unsigned on MySQL only).
   ColumnDefinition unsignedInteger(String name) => integer(name).unsigned();
 
+  /// A fixed-point column of [precision] digits, [scale] of them after the
+  /// point: `decimal('price', precision: 10, scale: 2)`.
   ColumnDefinition decimal(String name, {int precision = 8, int scale = 2}) =>
       _add(
         ColumnDefinition(
@@ -375,27 +529,40 @@ final class Blueprint {
         ),
       );
 
+  /// A single-precision floating point column.
   ColumnDefinition float(String name) =>
       _add(ColumnDefinition(name, ColumnType.float));
 
+  /// A double-precision floating point column (`$table->double()`).
   ColumnDefinition doublePrecision(String name) =>
       _add(ColumnDefinition(name, ColumnType.doublePrecision));
 
+  /// A boolean column.
   ColumnDefinition boolean(String name) =>
       _add(ColumnDefinition(name, ColumnType.boolean));
 
+  /// A date column.
   ColumnDefinition date(String name) =>
       _add(ColumnDefinition(name, ColumnType.date));
+
+  /// A date and time column.
   ColumnDefinition dateTime(String name) =>
       _add(ColumnDefinition(name, ColumnType.dateTime));
+
+  /// A time of day column.
   ColumnDefinition time(String name) =>
       _add(ColumnDefinition(name, ColumnType.time));
 
+  /// A timestamp column.
   ColumnDefinition timestamp(String name) =>
       _add(ColumnDefinition(name, ColumnType.timestamp));
 
+  /// A JSON column: `JSONB` on PostgreSQL, `JSON` on MySQL, text on SQLite.
   ColumnDefinition json(String name) =>
       _add(ColumnDefinition(name, ColumnType.json));
+
+  /// Laravel's `jsonb()`; the same as [json], which is already `JSONB` on
+  /// PostgreSQL.
   ColumnDefinition jsonb(String name) => json(name);
 
   /// A `pgvector` column of [dimensions] numbers. SQLite stores it as text, so
@@ -407,6 +574,7 @@ final class Blueprint {
   ColumnDefinition tsvector(String name) =>
       _add(ColumnDefinition(name, ColumnType.tsvector));
 
+  /// A binary column: `BLOB` or `BYTEA`.
   ColumnDefinition binary(String name) =>
       _add(ColumnDefinition(name, ColumnType.binary));
 
@@ -434,9 +602,13 @@ final class Blueprint {
     IndexDefinition([column], unique: false, name: name, vector: true),
   );
 
+  /// An index on [columns], named `<table>_<columns>_index` unless [name] is
+  /// given.
   void index(List<String> columns, {String? name}) =>
       indexes.add(IndexDefinition(columns, unique: false, name: name));
 
+  /// A unique index on [columns], named `<table>_<columns>_unique` unless
+  /// [name] is given.
   void unique(List<String> columns, {String? name}) =>
       indexes.add(IndexDefinition(columns, unique: true, name: name));
 
@@ -458,13 +630,17 @@ final class Blueprint {
 
   // --- change commands (Schema.table) ---------------------------------------
 
+  /// Drops a column, or a list of columns (`Schema.table` only).
   void dropColumn(Object names) =>
       dropColumns.addAll(names is List<String> ? names : <String>['$names']);
 
+  /// Renames the column [from] to [to] (`Schema.table` only).
   void renameColumn(String from, String to) => renameColumns.add((from, to));
 
+  /// Drops the index named [name].
   void dropIndex(String name) => dropIndexes.add(name);
 
+  /// Drops the unique index named [name].
   void dropUnique(String name) => dropIndexes.add(name);
 
   /// Drops a foreign key by constraint name or by its columns.
@@ -474,13 +650,16 @@ final class Blueprint {
         : '$nameOrColumns',
   );
 
+  /// Drops the soft delete column ([softDeletes]).
   void dropSoftDeletes([String name = 'deleted_at']) => dropColumn(name);
 
+  /// Drops `created_at` and `updated_at` ([timestamps]).
   void dropTimestamps() => dropColumn(const ['created_at', 'updated_at']);
 }
 
 /// Column metadata returned by `Schema.getColumns`.
 final class ColumnInfo {
+  /// Metadata of one column, as `Schema.getColumns` returns it.
   const ColumnInfo({
     required this.name,
     required this.type,
@@ -490,11 +669,22 @@ final class ColumnInfo {
     this.primary = false,
   });
 
+  /// The column name.
   final String name;
+
+  /// The column type as the database reports it, such as `varchar(255)`.
   final String type;
+
+  /// Whether the column accepts `NULL`.
   final bool nullable;
+
+  /// The default as the database reports it, or null.
   final String? defaultValue;
+
+  /// Whether the column auto-increments.
   final bool autoIncrement;
+
+  /// Whether the column is (part of) the primary key.
   final bool primary;
 
   @override
@@ -503,13 +693,19 @@ final class ColumnInfo {
 
 /// Compiles blueprints into DDL for one dialect.
 abstract class SchemaGrammar {
+  /// Grammars are stateless; [forDialect] picks one.
   const SchemaGrammar();
 
   static final RegExp _identifier = RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$');
 
+  /// The database dialect this grammar writes for.
   SqlDialect get dialect;
 
+  /// The character that opens a quoted identifier: `"`, or a backtick on
+  /// MySQL.
   String get quoteOpen => '"';
+
+  /// The character that closes a quoted identifier.
   String get quoteClose => '"';
 
   /// Quotes an identifier after validating its characters (never trusts
@@ -569,20 +765,27 @@ abstract class SchemaGrammar {
   /// Normalizes a raw column row from [compileColumns].
   ColumnInfo columnInfo(Map<String, Object?> row);
 
+  /// `ALTER TABLE ... RENAME TO ...` for `Schema.rename`.
   String compileRename(String from, String to) =>
       'ALTER TABLE ${wrap(from)} RENAME TO ${wrap(to)}';
 
+  /// `DROP TABLE IF EXISTS` for `Schema.dropIfExists`.
   String compileDropIfExists(String table) =>
       'DROP TABLE IF EXISTS ${wrap(table)}';
 
+  /// `DROP TABLE` for `Schema.drop`.
   String compileDrop(String table) => 'DROP TABLE ${wrap(table)}';
 
+  /// Drops the index [name] of [table].
   String compileDropIndex(String table, String name) =>
       'DROP INDEX ${wrap(name)}';
 
+  /// Drops the foreign key [name] of [table].
   String compileDropForeign(String table, String name) =>
       'ALTER TABLE ${wrap(table)} DROP CONSTRAINT ${wrap(name)}';
 
+  /// [value] as a SQL literal in a `DEFAULT` clause: strings quoted with
+  /// quotes doubled, booleans as `1` or `0`.
   String literal(Object? value) => switch (value) {
     null => 'NULL',
     bool() => value ? '1' : '0',
@@ -621,6 +824,7 @@ abstract class SchemaGrammar {
     return buffer.toString();
   }
 
+  /// The `DEFAULT` clause of [column], or an empty string without one.
   String defaultClause(ColumnDefinition column) {
     if (column.usesCurrent) {
       return ' DEFAULT CURRENT_TIMESTAMP';
@@ -655,6 +859,7 @@ abstract class SchemaGrammar {
     return buffer.toString();
   }
 
+  /// `CREATE [UNIQUE] INDEX` for [index] on [table].
   String compileIndex(String table, IndexDefinition index) => index.vector
       ? compileVectorIndex(table, index)
       : 'CREATE ${index.unique ? 'UNIQUE ' : ''}INDEX ${wrap(index.nameFor(table))} ON '
@@ -664,6 +869,7 @@ abstract class SchemaGrammar {
   /// is left out, as SQLite does, or refused, as MySQL does.
   bool get skipsVectorIndex => false;
 
+  /// The statement creating a vector [index]; dialects with one override it.
   String compileVectorIndex(String table, IndexDefinition index) =>
       throw UnsupportedError('Vector indexes need PostgreSQL or MariaDB.');
 
@@ -681,6 +887,7 @@ abstract class SchemaGrammar {
         IndexDefinition([column.name], unique: true),
   ];
 
+  /// The statements creating [blueprint]'s table and its indexes.
   List<String> compileCreate(Blueprint blueprint) {
     final parts = <String>[
       for (final column in blueprint.columns) compileColumn(column),
@@ -698,6 +905,7 @@ abstract class SchemaGrammar {
     ];
   }
 
+  /// Text appended to `CREATE TABLE`, such as MySQL's engine and charset.
   String get createSuffix => '';
 
   /// ALTER statements for [blueprint] (PostgreSQL/MySQL style; SQLite uses

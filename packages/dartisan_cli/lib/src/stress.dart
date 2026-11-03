@@ -9,6 +9,7 @@ import 'package:daravel/daravel.dart' show daravelVersion;
 
 /// One kind of request `test:stress` sends, and the statuses it expects.
 final class StressScenario {
+  /// A request `test:stress` sends over and over.
   const StressScenario({
     required this.name,
     required this.description,
@@ -20,11 +21,22 @@ final class StressScenario {
     this.public = true,
   });
 
+  /// The scenario's name.
   final String name;
+
+  /// What it measures.
   final String description;
+
+  /// The HTTP method.
   final String method;
+
+  /// The path.
   final String path;
+
+  /// The request headers.
   final Map<String, String> headers;
+
+  /// The request body.
   final String? body;
 
   /// Statuses that count as answered as intended (`{422, 429}` for a
@@ -38,33 +50,45 @@ final class StressScenario {
 
 /// One round of one scenario.
 final class StressRound {
+  /// One round of a scenario.
   StressRound({
     required this.elapsed,
     required this.latenciesUs,
     required this.statuses,
   });
 
+  /// How long the round took.
   final Duration elapsed;
+
+  /// Each request's latency, in microseconds.
   final List<int> latenciesUs;
 
   /// Status → count; 0 counts requests that got no response.
   final Map<int, int> statuses;
 
+  /// The requests of the round.
   int get requests => latenciesUs.length;
+
+  /// Requests per second.
   double get rps => requests / (elapsed.inMicroseconds / 1e6);
 }
 
 /// The rounds of a scenario, summarised.
 final class StressResult {
+  /// The [rounds] of [scenario].
   StressResult(this.scenario, this.rounds);
 
+  /// The scenario.
   final StressScenario scenario;
+
+  /// Its rounds.
   final List<StressRound> rounds;
 
   late final List<int> _sorted = [
     for (final round in rounds) ...round.latenciesUs,
   ]..sort();
 
+  /// The number of responses by status code.
   late final Map<int, int> statuses = () {
     final all = <int, int>{};
     for (final round in rounds) {
@@ -73,8 +97,10 @@ final class StressResult {
     return all;
   }();
 
+  /// The requests of every round.
   int get requests => _sorted.length;
 
+  /// The mean requests per second of the rounds.
   double get rpsMean =>
       rounds.map((r) => r.rps).reduce((a, b) => a + b) / rounds.length;
 
@@ -112,8 +138,10 @@ final class StressResult {
       .where((e) => e.key != 0 && !scenario.expected.contains(e.key))
       .fold(0, (sum, e) => sum + e.value);
 
+  /// Responses with an unexpected status, and connection errors.
   int get errors => unexpected + connectionErrors;
 
+  /// The result as JSON; [public] leaves out the host.
   Map<String, Object?> toJson({bool public = false}) => {
     'scenario': scenario.name,
     if (!public || scenario.public) ...{
@@ -392,6 +420,7 @@ Map<String, Object?> publicStressReport(
 /// `test:stress`: load against a running application, in rounds, with a
 /// pass or fail for CI (Blueprint #45).
 final class TestStressCommand extends Command<int> {
+  /// The `dartisan test:stress` command.
   TestStressCommand() {
     argParser
       ..addOption(

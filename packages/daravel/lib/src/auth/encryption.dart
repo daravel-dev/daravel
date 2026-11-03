@@ -37,11 +37,14 @@ enum EncryptionCipher {
 /// Raised when a payload is malformed, was tampered with or was encrypted
 /// with an unknown key.
 final class DecryptException extends DaravelException {
+  /// A payload that cannot be decrypted: tampered with, or made with
+  /// another key.
   const DecryptException(super.message);
 }
 
 /// Raised for invalid keys.
 final class EncryptException extends DaravelException {
+  /// A value that cannot be encrypted.
   const EncryptException(super.message);
 }
 
@@ -57,6 +60,8 @@ final class EncryptException extends DaravelException {
 /// payloads; a payload made by Daravel 1.17 or earlier (JSON inside) is
 /// still decrypted.
 final class Encrypter {
+  /// An encrypter with the application key, compatible with Laravel's
+  /// `Crypt` payloads.
   Encrypter(
     List<int> key, {
     List<List<int>> previousKeys = const <List<int>>[],
@@ -87,6 +92,8 @@ final class Encrypter {
   );
 
   final List<List<int>> _keys;
+
+  /// The cipher: AES-256-CBC (Laravel's default) or AES-256-GCM.
   final EncryptionCipher cipher;
 
   /// The active (first) key.

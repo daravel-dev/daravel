@@ -7,6 +7,7 @@ import '../dartisan_cli.dart';
 
 /// `cache:clear [store]` — flushes the default (or named) cache store.
 final class CacheClearCommand extends DaravelCommand {
+  /// The `dartisan cache:clear` command.
   CacheClearCommand(super.createApp);
 
   @override
@@ -33,6 +34,7 @@ final class CacheClearCommand extends DaravelCommand {
 /// Without `--url` it shows this process's own coordinator, which only
 /// says something inside a long-running command.
 final class CoordinatorStatsCommand extends DaravelCommand {
+  /// The `dartisan coordinator:stats` command.
   CoordinatorStatsCommand(super.createApp) {
     argParser
       ..addOption(
@@ -125,6 +127,7 @@ final class CoordinatorStatsCommand extends DaravelCommand {
 
 /// `storage:link [--force]` — creates `public/storage` → `storage/app/public`.
 final class StorageLinkCommand extends DaravelCommand {
+  /// The `dartisan storage:link` command.
   StorageLinkCommand(super.createApp) {
     argParser.addFlag(
       'force',

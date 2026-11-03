@@ -16,11 +16,13 @@ import 'store.dart';
 /// A flush deletes every key its tags list and takes them off the lists;
 /// [flushStale] drops the expired ones from the lists.
 final class RedisTaggedCacheStore implements TaggedCacheStore {
+  /// The values of [store] tagged with every one of [names].
   RedisTaggedCacheStore(this.store, this.names, {this.prefix = ''})
     : _namespace = sha1
           .convert(utf8.encode(names.map((n) => 'tag:$n:entries').join('|')))
           .toString();
 
+  /// The store holding the values.
   final RedisStore store;
   @override
   final List<String> names;

@@ -5,10 +5,13 @@ import 'sqlite_schema.dart';
 /// Executes schema operations against a [QueryExecutor] (`Schema::create`,
 /// `Schema::table`, `Schema::dropIfExists`, `Schema::hasTable`...).
 final class SchemaBuilder {
+  /// A schema builder on a connection, with the grammar of its dialect.
   SchemaBuilder(this._executor, {SchemaGrammar? grammar})
     : grammar = grammar ?? SchemaGrammar.forDialect(_executor.dialect);
 
   final QueryExecutor _executor;
+
+  /// The grammar writing the DDL.
   final SchemaGrammar grammar;
   SqliteVersion? _sqliteVersion;
 
@@ -58,6 +61,7 @@ final class SchemaBuilder {
     }
   }
 
+  /// Drops [table]; fails when it does not exist.
   Future<void> drop(String table) =>
       _executor.execute(grammar.compileDrop(table));
 
@@ -76,12 +80,15 @@ final class SchemaBuilder {
     );
   }
 
+  /// Drops [table] when it exists.
   Future<void> dropIfExists(String table) =>
       _executor.execute(grammar.compileDropIfExists(table));
 
+  /// Renames the table [from] to [to].
   Future<void> rename(String from, String to) =>
       _executor.execute(grammar.compileRename(from, to));
 
+  /// Whether the table [table] exists.
   Future<bool> hasTable(String table) async {
     final rows = await _executor.select(
       grammar.compileTableExists(),
@@ -100,9 +107,11 @@ final class SchemaBuilder {
     return rows.isNotEmpty;
   }
 
+  /// Whether [table] has the column [column].
   Future<bool> hasColumn(String table, String column) async =>
       (await getColumns(table)).any((c) => c.name == column);
 
+  /// Whether [table] has every one of [columns].
   Future<bool> hasColumns(String table, List<String> columns) async {
     final existing = (await getColumns(table)).map((c) => c.name).toSet();
     return columns.every(existing.contains);

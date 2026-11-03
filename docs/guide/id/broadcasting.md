@@ -1,4 +1,4 @@
-<!-- source: broadcasting.md sha256:a6513b0bdcf4 -->
+<!-- source: broadcasting.md sha256:0c3087e82398 -->
 # Broadcasting
 
 Daravel berbicara dengan protokol Pusher, seperti Laravel Reverb, di port
@@ -240,3 +240,14 @@ lewat Laravel Reverb, dengan satu atau empat worker isolate
 `Broadcast.publish`, `subscribe`, dan `pipe` memindahkan pesan antar-worker
 isolate tanpa protokol Pusher, untuk route WebSocket atau SSE Anda sendiri
 ([Respons](responses.md#broadcast-ke-semua-isolate)).
+
+## Padanan Laravel
+
+Bagian lain dari Laravel yang ikut didukung, beserta API yang bisa dicari di pub.dev.
+
+| Laravel | Daravel | API | Catatan |
+| :-- | :-- | :-- | :-- |
+| `php artisan reverb:start (Laravel Reverb)` | `.withBroadcasting(...) with REVERB_APP_ID / _KEY / _SECRET` | `PusherServer` | Protokol Pusher di port HTTP; Laravel Echo dan pusher-js tersambung tanpa perubahan. |
+| `Echo.channel('cache-prices') (Pusher cache channels)` | `Broadcast.send(..., ['cache-prices'], ...)` | `PusherServer.isCacheChannel` | Event terakhir disimpan 30 menit untuk subscriber baru. |
+| `Echo.encryptedPrivate('orders.7') with encryption_master_key_base64` | `REVERB_ENCRYPTION_MASTER_KEY_BASE64` | `BroadcastConfig.encryptionMasterKey` | Channel `private-encrypted-`, disegel dengan secretbox dari libsodium. |
+| `REVERB_SCALING_ENABLED=true (Reverb with Redis)` | `REVERB_SCALING_ENABLED=true (the database)` | `DatabaseBroadcastRelay` | Frame, anggota presence, dan cache channel menjangkau semua server. |

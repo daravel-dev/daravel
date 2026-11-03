@@ -10,6 +10,7 @@ import 'activity_log.dart';
 /// It creates nothing when the table exists: a Laravel application that
 /// ran Spatie's migrations owns it.
 final class CreateActivityLogTable extends Migration {
+  /// The migration creating `activity_log`, as Spatie's.
   const CreateActivityLogTable();
 
   @override

@@ -152,3 +152,17 @@ await client.post('/api/avatar', files: {
   'photos': [UploadedFile.fake.image('1.png'), UploadedFile.fake.image('2.gif')],
 });
 ```
+
+## Laravel equivalents
+
+More of Laravel that this works with, and the API to look up on pub.dev.
+
+| Laravel | Daravel | API | Note |
+| :-- | :-- | :-- | :-- |
+| `Validator::make($data, $rules)` | `Validator(data, rules)` | `Validator` |  |
+| `$validator->fails()` | `await validator.fails()` | `Validator.fails` |  |
+| `'date_format:Y-m-d'` | `'date_format:Y-m-d' or Rules.dateFormat(['M d, Y'])` | `DateFormatRule` | createFromFormat('!' . $format) and the value must format back exactly, as Laravel. |
+| `'exclude_if:type,free'` | same string, or Rules.excludeIf('type', ['free']) | `Rules.excludeIf` |  |
+| `'prohibited_if:a,b' / 'prohibits:a' / 'required_with_all:a,b'` | same strings | `Rules.prohibitedIf` |  |
+| `['required', 'email', 'max:255']` | `Rules.required().email().max(255)` | `RuleBuilder` | Chained rule objects, checked by the compiler. |
+| `'accepted' / 'accepted_if:plan,paid' / 'declined' / 'declined_if:plan,paid'` | the same strings, or Rules.accepted() / acceptedIf('plan', ['paid']) / declined() / declinedIf(...) | `AcceptanceRule` |  |

@@ -34,17 +34,37 @@ final class Activity extends Model {
   @override
   ModelDefinition<Activity> get modelDefinition => Activity.definition;
 
+  /// A query on activities.
   static ModelQuery<Activity> query() => definition.query();
 
+  /// The row id.
   int get id => getAttr<num>('id').toInt();
+
+  /// The log it belongs to.
   String? get logName => getAttr('log_name');
+
+  /// What happened.
   String get description => getAttr('description');
+
+  /// The subject's morph class.
   String? get subjectType => getAttr('subject_type');
+
+  /// The subject's key.
   Object? get subjectId => getAttr('subject_id');
+
+  /// The event (`created`, `updated`, `deleted`).
   String? get event => getAttr('event');
+
+  /// The causer's morph class.
   String? get causerType => getAttr('causer_type');
+
+  /// The causer's key.
   Object? get causerId => getAttr('causer_id');
+
+  /// The batch it belongs to.
   String? get batchUuid => getAttr('batch_uuid');
+
+  /// When it was logged.
   DateTime? get createdAt => parseDateTime(getAttr<Object?>('created_at'));
 
   /// The stored properties; `{}` for Spatie's empty `[]`.
@@ -127,19 +147,24 @@ extension ActivityQuery on ModelQuery<Activity> {
     names is Iterable<Object?> ? names.toList() : [names],
   );
 
+  /// Activities caused by [causer].
   ModelQuery<Activity> causedBy(Model causer) => where(
     'causer_type',
     Relation.morphClassOf(causer.modelDefinition),
   ).where('causer_id', causer.key);
 
+  /// Activities about [subject].
   ModelQuery<Activity> forSubject(Model subject) => where(
     'subject_type',
     Relation.morphClassOf(subject.modelDefinition),
   ).where('subject_id', subject.key);
 
+  /// Activities of [event].
   ModelQuery<Activity> forEvent(String event) => where('event', event);
 
+  /// Activities logged in a batch.
   ModelQuery<Activity> hasBatch() => whereNotNull('batch_uuid');
 
+  /// Activities of the batch [uuid].
   ModelQuery<Activity> forBatch(String uuid) => where('batch_uuid', uuid);
 }

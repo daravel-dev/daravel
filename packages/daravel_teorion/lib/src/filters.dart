@@ -11,6 +11,7 @@ import 'package:daravel/daravel.dart';
 /// 'tenant_id': Filter.exact().required(),
 /// ```
 abstract base class Filter {
+  /// A filter on [column], or on the parameter's name when null.
   Filter([this.column]);
 
   /// The column, when it differs from the parameter.
@@ -36,6 +37,7 @@ abstract base class Filter {
   /// The rule `queryFilterRules` gives this parameter.
   String get validationRule => 'nullable';
 
+  /// The column filtered for the parameter [param].
   String resolveColumn(String param) => column ?? param;
 
   /// Reads the value from `?<alias>=` instead of the declared name.
@@ -58,9 +60,16 @@ abstract base class Filter {
     return this;
   }
 
+  /// The query parameter read: the alias, or [declared].
   String readKey(String declared) => _alias ?? declared;
+
+  /// Whether a default applies when the parameter is absent.
   bool get hasDefault => _hasDefault;
+
+  /// The default value.
   Object? get defaultValue => _default;
+
+  /// Whether the parameter must be present.
   bool get isRequired => _required;
 
   // -------------------------------------------------------------------
@@ -144,15 +153,19 @@ typedef FilterCallback = FutureOr<void> Function(
 abstract final class FilterMacroRegistry {
   static final Map<String, FilterCallback> _macros = {};
 
+  /// Registers a filter macro [name].
   static void register(String name, FilterCallback callback) =>
       _macros[name] = callback;
 
+  /// Whether a macro is registered as [name].
   static bool has(String name) => _macros.containsKey(name);
 
+  /// The macro [name].
   static FilterCallback get(String name) =>
       _macros[name] ??
       (throw StateError('Filter macro [$name] is not registered.'));
 
+  /// Removes every macro.
   static void clear() => _macros.clear();
 }
 

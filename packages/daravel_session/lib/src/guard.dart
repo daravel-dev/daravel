@@ -15,6 +15,7 @@ import 'session.dart';
 /// segment each version writes, and needs `EncryptCookiesMiddleware`.
 final class SessionGuard<T extends Authenticatable> extends RequestGuard<T>
     implements StatefulGuard<T> {
+  /// A guard keeping the user in the session, as Laravel's `web` guard.
   SessionGuard({
     required super.name,
     required UserProvider<T> provider,

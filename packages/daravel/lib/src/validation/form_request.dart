@@ -21,6 +21,7 @@ import 'validator.dart';
 /// final data = await FormRequest.run(StoreUserRequest(), request);
 /// ```
 abstract class FormRequest {
+  /// Form requests are usually const.
   const FormRequest();
 
   /// Whether the current user may perform this request (`false` → 403).

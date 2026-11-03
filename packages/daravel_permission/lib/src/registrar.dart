@@ -17,6 +17,7 @@ typedef Access = ({Set<String> roles, Set<String> permissions});
 /// expire after [PermissionConfig.cacheTtl], which bounds how long a change
 /// made by a Laravel application sharing the tables takes to show.
 final class PermissionRegistrar {
+  /// Loads and caches the roles and permissions.
   PermissionRegistrar(
     this.config,
     this._shared, {
@@ -29,6 +30,7 @@ final class PermissionRegistrar {
   int? _knownVersion;
   DateTime _checkedAt = DateTime.fromMillisecondsSinceEpoch(0);
 
+  /// The permission settings.
   final PermissionConfig config;
   final CacheRepository Function() _shared;
 

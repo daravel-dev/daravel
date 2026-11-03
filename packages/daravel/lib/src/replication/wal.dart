@@ -4,6 +4,7 @@ import 'dart:typed_data';
 /// The 32-byte header of an SQLite write-ahead log
 /// (https://www.sqlite.org/fileformat2.html#walformat).
 final class WalHeader {
+  /// The 32-byte header of a SQLite WAL file.
   const WalHeader({
     required this.bigEndianChecksum,
     required this.pageSize,
@@ -14,6 +15,7 @@ final class WalHeader {
     required this.checksum2,
   });
 
+  /// The header's size in bytes.
   static const int size = 32;
 
   /// The header of [bytes], or `null` when there is none: a missing or
@@ -49,6 +51,8 @@ final class WalHeader {
 
   /// Whether frame checksums read the content as big-endian words.
   final bool bigEndianChecksum;
+
+  /// The database page size.
   final int pageSize;
 
   /// Incremented each time the log restarts from its first frame.
@@ -57,10 +61,17 @@ final class WalHeader {
   /// Salt 1 is incremented on each restart and salt 2 drawn at random:
   /// frames left from an earlier pass over the file do not match them.
   final int salt1;
+
+  /// The second salt.
   final int salt2;
+
+  /// The first checksum.
   final int checksum1;
+
+  /// The second checksum.
   final int checksum2;
 
+  /// The size of one frame: its header and a page.
   int get frameSize => WalFrame.headerSize + pageSize;
 
   /// Whether [other] is the same pass over the log file.
@@ -70,22 +81,30 @@ final class WalHeader {
 /// One frame: a page image and, for the last frame of a transaction, the
 /// size of the database after it commits.
 final class WalFrame {
+  /// A frame of [page] number [pageNumber]; [commitSize] is non-zero on a
+  /// commit.
   const WalFrame(this.pageNumber, this.commitSize, this.page);
 
+  /// A frame header's size in bytes.
   static const int headerSize = 24;
 
+  /// The page's number.
   final int pageNumber;
 
   /// The database size in pages after the commit, or 0 when the frame is
   /// not the last of its transaction.
   final int commitSize;
+
+  /// The page's bytes.
   final Uint8List page;
 
+  /// Whether this frame ends a transaction.
   bool get isCommit => commitSize != 0;
 }
 
 /// The committed frames read from a log, and where reading stopped.
 final class WalRead {
+  /// The frames read from a WAL file.
   const WalRead({
     required this.frames,
     required this.offset,
@@ -100,7 +119,11 @@ final class WalRead {
   /// The byte offset after the last commit frame (where the next read
   /// starts), and the running checksum there.
   final int offset;
+
+  /// The first checksum after the frame.
   final int checksum1;
+
+  /// The second checksum after the frame.
   final int checksum2;
 
   /// Where the valid frames end, committed or not: a later frame has

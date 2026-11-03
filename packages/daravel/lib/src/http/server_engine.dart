@@ -15,6 +15,8 @@ import 'response.dart';
 
 /// Options for [Application.serve].
 final class ServeOptions {
+  /// Options for serving; the defaults come from `.env` through
+  /// `ServeOptions.fromEnv`.
   const ServeOptions({
     this.host = '127.0.0.1',
     this.port = 8000,
@@ -121,12 +123,17 @@ final class ServeOptions {
     return value == 0 ? null : value;
   }
 
+  /// The address listened on (`APP_HOST`, `127.0.0.1`).
   final String host;
+
+  /// The port (`APP_PORT`, 8000).
   final int port;
 
   /// Number of HTTP worker isolates (`APP_ISOLATES`, `serve --isolates`).
   /// Above 1, `Application.serveWith` runs a supervisor + workers (ADR-004).
   final int isolates;
+
+  /// Whether several isolates may listen on the port.
   final bool shared;
 
   /// How long a keep-alive connection may sit without a request before
@@ -134,6 +141,8 @@ final class ServeOptions {
   /// sockets a client opens and never uses. A request in progress is
   /// bounded by [requestTimeout] instead.
   final Duration idleTimeout;
+
+  /// How long shutdown waits for requests in progress (`SHUTDOWN_TIMEOUT`).
   final Duration shutdownTimeout;
 
   /// Default handler timeout (routes may override with `RouteEntry.timeout`);
@@ -212,6 +221,7 @@ String? isolateSizingAdvice({
 /// Binds the `dart:io` server, wraps every request in a request scope and
 /// performs graceful shutdown on `SIGINT` (and `SIGTERM` outside Windows).
 final class ServerEngine {
+  /// A server for [app] with [options], dispatching through [kernel].
   ServerEngine(
     this.app,
     this.options, {
@@ -221,9 +231,16 @@ final class ServerEngine {
     this.onShed,
   });
 
+  /// The application served.
   final Application app;
+
+  /// How it is served.
   final ServeOptions options;
+
+  /// The HTTP kernel.
   final HttpKernel kernel;
+
+  /// Logs the server's life.
   final Logger logger;
 
   /// Runs inside each request's scope before the kernel (as

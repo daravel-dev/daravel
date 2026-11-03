@@ -19,6 +19,7 @@ import 'project_commands.dart';
 /// models, and that program is run with `dart run`. It is one-shot: each
 /// call boots the application again.
 final class TinkerCommand extends Command<int> {
+  /// The `dartisan tinker` command.
   TinkerCommand({this.root});
 
   /// Project root; located from the working directory when `null`.

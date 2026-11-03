@@ -29,6 +29,7 @@ Map<String, String> parseEnvKeys(String content) => <String, String>{
 
 /// `key:generate [--show] [--force]` — writes a fresh `APP_KEY` to `.env`.
 final class KeyGenerateCommand extends Command<int> {
+  /// The `dartisan key:generate` command.
   KeyGenerateCommand() {
     argParser
       ..addFlag('show', negatable: false, help: 'Print the key only.')
@@ -86,15 +87,35 @@ const (int, int) minimumDartSdk = (3, 13);
 /// [notice] is advice about tuning (worker count, log level, SQLite under
 /// several isolates): printed, but it never fails `doctor`, not even with
 /// `--production`, which deployments use as a gate.
-enum CheckStatus { ok, notice, warning, error }
+enum CheckStatus {
+  /// Passed.
+  ok,
 
+  /// Worth knowing; nothing to fix.
+  notice,
+
+  /// Should be fixed.
+  warning,
+
+  /// Must be fixed.
+  error,
+}
+
+/// One check of `dartisan doctor`.
 final class DoctorCheck {
+  /// A check with [status], [title] and an optional [detail].
   const DoctorCheck(this.status, this.title, [this.detail]);
 
+  /// How it went.
   final CheckStatus status;
+
+  /// What was checked.
   final String title;
+
+  /// What was found, or how to fix it.
   final String? detail;
 
+  /// The mark printed before the title.
   String get symbol => switch (status) {
     .ok => '[ok]  ',
     .notice => '[note]',
@@ -141,6 +162,7 @@ DoctorCheck? packageConfigCheck(String root, {required bool windows}) {
 
 /// `doctor [--production]` — environment and configuration pre-flight.
 final class DoctorCommand extends DaravelCommand {
+  /// The `dartisan doctor` command.
   DoctorCommand(super.createApp) {
     argParser
       ..addFlag(
@@ -713,6 +735,7 @@ final class DoctorCommand extends DaravelCommand {
 /// (`dart_test.yaml`); `--coverage` writes `coverage/` for
 /// `package:coverage` / `format_coverage`.
 final class TestCommand extends Command<int> {
+  /// The `dartisan test` command.
   TestCommand() {
     argParser
       ..addFlag(
@@ -784,6 +807,7 @@ final class TestCommand extends Command<int> {
 /// executable, so servers need no system SQLite. The result is a bundle
 /// (`bin/server` + `lib/`), deployed as one directory.
 final class BuildCommand extends Command<int> {
+  /// The `dartisan build` command.
   BuildCommand() {
     argParser
       ..addOption(
@@ -1120,6 +1144,7 @@ EXPOSE 8080
 CMD ["/app/bin/server"]
 ''';
 
+/// The `.dockerignore` written by `build --docker`.
 const String dockerignoreTemplate = '''
 .dart_tool/
 build/
@@ -1136,6 +1161,7 @@ storage/logs/
 
 /// `openapi:generate [--output=openapi.json]`
 final class OpenApiGenerateCommand extends DaravelCommand {
+  /// The `dartisan openapi:generate` command.
   OpenApiGenerateCommand(super.createApp) {
     argParser
       ..addOption('output', defaultsTo: 'openapi.json', help: 'Output file.')
@@ -1174,6 +1200,7 @@ final class OpenApiGenerateCommand extends DaravelCommand {
 /// `model:sync [Model] [--dry-run]` — rewrites the accessor region of
 /// models from the database schema (BLUEPRINT_V2 §8.3).
 final class ModelSyncCommand extends DaravelCommand {
+  /// The `dartisan model:sync` command.
   ModelSyncCommand(super.createApp) {
     argParser.addFlag(
       'dry-run',
@@ -1258,6 +1285,7 @@ final class ModelSyncCommand extends DaravelCommand {
 
 /// `lint [--json]` — runs `daravel_lints` over the project.
 final class LintCommand extends Command<int> {
+  /// The `dartisan lint` command.
   LintCommand() {
     argParser.addFlag('json', negatable: false, help: 'Output JSON.');
   }
@@ -1300,6 +1328,7 @@ final class LintCommand extends Command<int> {
 /// [--except]` — puts the application in maintenance mode (Laravel's
 /// `storage/framework/down`). Running servers notice within a second.
 final class DownCommand extends Command<int> {
+  /// The `dartisan down` command.
   DownCommand({this.root}) {
     argParser
       ..addOption('secret', help: 'Path that sets a bypass cookie (/<secret>).')
@@ -1355,6 +1384,7 @@ final class DownCommand extends Command<int> {
 
 /// `up` — brings the application out of maintenance mode.
 final class UpCommand extends Command<int> {
+  /// The `dartisan up` command.
   UpCommand({this.root});
 
   /// Project root; located from the working directory when `null`.

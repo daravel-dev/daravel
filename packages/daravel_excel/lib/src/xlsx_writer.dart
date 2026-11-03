@@ -139,6 +139,7 @@ final class XlsxWriter {
     return _styleFormats.length - 1;
   });
 
+  /// Finishes the current sheet.
   void endSheet() {
     final sheet = _sheet;
     if (sheet == null) {

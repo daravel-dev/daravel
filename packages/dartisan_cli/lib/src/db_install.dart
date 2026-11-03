@@ -8,6 +8,7 @@ import 'generator.dart';
 
 /// A database driver package `db:install` can add.
 final class DriverPackage {
+  /// A database driver package `db:install` can add.
   const DriverPackage({
     required this.package,
     required this.title,
@@ -22,6 +23,8 @@ final class DriverPackage {
 
   /// The pub package (`daravel_postgres`).
   final String package;
+
+  /// The name shown in the list.
   final String title;
 
   /// The `DB_CONNECTION` value (`pgsql`).
@@ -33,6 +36,7 @@ final class DriverPackage {
   /// Example `.env` lines.
   final List<String> env;
 
+  /// The import line of the package.
   String get import => "import 'package:$package/$package.dart';";
 }
 
@@ -224,6 +228,7 @@ String addEnvExample(String example, DriverPackage driver) {
 /// `db:install <driver>`: adds a database driver package to the project,
 /// registers it in `bootstrap/app.dart` and documents its `.env` keys.
 final class DbInstallCommand extends Command<int> {
+  /// The `dartisan db:install` command.
   DbInstallCommand() {
     argParser.addFlag(
       'get',

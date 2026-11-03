@@ -5,6 +5,8 @@ import '../response.dart';
 /// Conservative security headers for API responses (BLUEPRINT_V2 §9.2).
 /// Headers already set by the handler are preserved.
 final class SecurityHeadersMiddleware implements Middleware {
+  /// Adds `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`
+  /// and, over HTTPS, `Strict-Transport-Security`.
   const SecurityHeadersMiddleware({
     this.frameOptions = 'DENY',
     this.referrerPolicy = 'strict-origin-when-cross-origin',
@@ -14,6 +16,8 @@ final class SecurityHeadersMiddleware implements Middleware {
 
   /// `X-Frame-Options` applied to HTML responses.
   final String frameOptions;
+
+  /// The `Referrer-Policy` value.
   final String referrerPolicy;
 
   /// `Strict-Transport-Security` max-age, sent only on HTTPS requests.

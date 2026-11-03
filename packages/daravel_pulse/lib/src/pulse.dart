@@ -299,12 +299,18 @@ final class QueryTally {
   static QueryTally? get current => Zone.current[_key] as QueryTally?;
 
   final Map<String, int> _counts = {};
+
+  /// The queries of the current request.
   int total = 0;
+
+  /// The time they took.
   Duration time = Duration.zero;
 
+  /// Runs [body] counting its queries.
   Future<T> run<T>(Future<T> Function() body) =>
       runZoned(body, zoneValues: {_key: this});
 
+  /// Counts a query.
   void add(String sql, Duration duration) {
     total++;
     time += duration;
@@ -322,6 +328,7 @@ final class QueryTally {
     return top;
   }
 
+  /// [sql] with its literals replaced, to group similar queries.
   static String fingerprint(String sql) => sql
       .replaceAll(_placeholder, '?')
       .replaceAll(_list, '(?)')
@@ -329,10 +336,15 @@ final class QueryTally {
       .trim();
 }
 
+/// Records requests for the dashboard.
 final class PulseMiddleware implements Middleware {
+  /// Records into [recorder] with [config], skipping the paths in except.
   const PulseMiddleware(this.recorder, this.config, {required this.except});
 
+  /// Receives the measurements.
   final PulseRecorder recorder;
+
+  /// The Pulse settings.
   final PulseConfig config;
 
   /// The dashboard's path: its polling is not counted.

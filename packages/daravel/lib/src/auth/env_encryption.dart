@@ -12,6 +12,7 @@ import 'encryption.dart';
 /// - `--readable`: one `NAME=<payload>` line per variable, so the names stay
 ///   visible in diffs.
 final class EnvironmentEncrypter {
+  /// Encrypts `.env` files with [key], as `php artisan env:encrypt`.
   EnvironmentEncrypter(String key, {EncryptionCipher cipher = .aes256cbc})
     : _encrypter = Encrypter(parseKey(key), cipher: cipher);
 

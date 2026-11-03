@@ -14,6 +14,7 @@ import 'token.dart';
 /// involved, for calendars shared with the account or, with domain-wide
 /// delegation, for a Workspace user named as [subject] of [token].
 final class GoogleServiceAccount {
+  /// A service account from its JSON key file.
   GoogleServiceAccount({
     required this.clientEmail,
     required RSAPrivateKey privateKey,
@@ -56,13 +57,25 @@ final class GoogleServiceAccount {
     http: http,
   );
 
+  /// Google's token URL.
   static const String defaultTokenUri = 'https://oauth2.googleapis.com/token';
+
+  /// The JWT bearer grant type.
   static const String grantType = 'urn:ietf:params:oauth:grant-type:jwt-bearer';
 
+  /// The account's email.
   final String clientEmail;
+
+  /// The id of the private key.
   final String? privateKeyId;
+
+  /// Where tokens are requested.
   final String tokenUri;
+
+  /// The Google Cloud project.
   final String? projectId;
+
+  /// How long a token request may take.
   final Duration timeout;
   final RSAPrivateKey _key;
   final GoogleHttp _http;

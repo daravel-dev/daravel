@@ -18,6 +18,8 @@ import 'validation_exception.dart';
 /// `nullable` stops on `null`; `sometimes` skips absent attributes; `bail`
 /// stops after the first failure of an attribute.
 final class Validator {
+  /// Validates [data] against [rules] (strings, [Rule]s or `RuleBuilder`s per
+  /// key), with custom messages and attribute names.
   Validator(
     this.data,
     Map<String, Object> rules, {
@@ -28,7 +30,10 @@ final class Validator {
     this.stopOnFirstFailure = false,
   }) : rules = RuleParser.parseMap(rules);
 
+  /// The input being validated.
   final Map<String, Object?> data;
+
+  /// The parsed rules by key.
   final Map<String, List<Rule>> rules;
 
   late final Set<String> _booleans = {
@@ -42,8 +47,13 @@ final class Validator {
   /// Display names for attributes (`email` → `email address`).
   final Map<String, String> attributes;
 
+  /// The container rules resolve services from (`unique`, `exists`).
   final Container? container;
+
+  /// The locale of the messages.
   final String locale;
+
+  /// Whether validation stops at the first failing attribute.
   final bool stopOnFirstFailure;
 
   final List<FutureOr<void> Function(Validator validator)> _after = [];
@@ -85,8 +95,10 @@ final class Validator {
     return errors;
   }
 
+  /// Whether every rule passes.
   Future<bool> passes() async => (await run()).isEmpty;
 
+  /// Whether any rule fails.
   Future<bool> fails() async => !(await passes());
 
   /// Runs validation and throws [ValidationException] on failure; returns

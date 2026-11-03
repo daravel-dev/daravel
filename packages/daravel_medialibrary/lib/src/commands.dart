@@ -16,6 +16,7 @@ const List<CommandFactory> mediaLibraryCommands = [
 /// (Spatie's): generates the conversions again, here and now, after their
 /// definitions changed.
 final class MediaRegenerateCommand extends DaravelCommand {
+  /// The `dartisan media:regenerate` command.
   MediaRegenerateCommand(super.createApp) {
     argParser
       ..addOption('ids', help: 'Only these media ids, comma separated.')
@@ -77,6 +78,7 @@ final class MediaRegenerateCommand extends DaravelCommand {
 /// conversion files no conversion defines any more, and media directories
 /// whose row is gone.
 final class MediaCleanCommand extends DaravelCommand {
+  /// The `dartisan media:clean` command.
   MediaCleanCommand(super.createApp) {
     argParser
       ..addOption('disk', help: 'The disk to clean; MEDIA_DISK by default.')

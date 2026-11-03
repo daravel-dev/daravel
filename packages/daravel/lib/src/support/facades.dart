@@ -15,13 +15,17 @@ import '../logging/logger.dart';
 
 /// Container access.
 abstract final class App {
+  /// The container of the current request, job or command.
   static Container get container => Container.current;
 
+  /// The application.
   static Application get instance => Container.current.make<Application>();
 
+  /// Resolves [T] (the binding [name] when given) from the container.
   static T make<T extends Object>({String? name}) =>
       Container.current.make<T>(name: name);
 
+  /// Resolves [T], or null when it is not bound.
   static T? tryMake<T extends Object>({String? name}) =>
       Container.current.tryMake<T>(name: name);
 
@@ -57,19 +61,24 @@ T? maybeInject<T extends Object>({String? name}) =>
 
 /// Configuration access (`Config.get('app.name')`).
 abstract final class Config {
+  /// The configuration of the current container.
   static ConfigRepository get repository =>
       Container.current.make<ConfigRepository>();
 
+  /// The value at the dotted [key], or [fallback].
   static T get<T>(String key, [T? fallback]) =>
       repository.get<T>(key, fallback);
 
+  /// Whether [key] is set.
   static bool has(String key) => repository.has(key);
 
+  /// The typed configuration section [T].
   static T section<T extends ConfigSection>() => repository.section<T>();
 }
 
 /// Logging access.
 abstract final class Log {
+  /// The logger of the current container.
   static Logger get logger => Container.current.make<Logger>();
 
   /// A named channel (`Log::channel('daily')`).
@@ -79,9 +88,12 @@ abstract final class Log {
   static void withContext(Map<String, Object?> context) =>
       logger.withContext(context);
 
+  /// Adds [context] to every log entry of the process (Laravel's
+  /// `Log::shareContext`).
   static void shareContext(Map<String, Object?> context) =>
       logger.shareContext(context);
 
+  /// Logs a normal but significant event.
   static void notice(String message, [Map<String, Object?>? context]) =>
       logger.notice(message, context);
 
@@ -93,15 +105,19 @@ abstract final class Log {
     return handler;
   }
 
+  /// Logs debugging detail.
   static void debug(String message, [Map<String, Object?>? context]) =>
       logger.debug(message, context);
 
+  /// Logs an interesting event.
   static void info(String message, [Map<String, Object?>? context]) =>
       logger.info(message, context);
 
+  /// Logs an exceptional occurrence that is not an error.
   static void warning(String message, [Map<String, Object?>? context]) =>
       logger.warning(message, context);
 
+  /// Logs a runtime error, with the exception and stack trace when given.
   static void error(
     String message, {
     Object? error,
@@ -117,9 +133,11 @@ abstract final class Log {
 
 /// Database access.
 abstract final class DB {
+  /// The database manager of the current container.
   static DatabaseManager get manager =>
       Container.current.make<DatabaseManager>();
 
+  /// The connection [name], or the default one.
   static Future<DatabaseDriver> connection([String? name]) =>
       manager.connection(name);
 
@@ -137,16 +155,21 @@ abstract final class DB {
     Object? bindings = const <Object?>[],
   ]) => manager.select(sql, bindings);
 
+  /// Runs a statement that returns no rows and gives the affected count.
   static Future<int> statement(
     String sql, [
     Object? bindings = const <Object?>[],
   ]) => manager.statement(sql, bindings);
 
+  /// Runs an insert and returns the generated id.
   static Future<Object?> insertGetId(
     String sql, [
     Object? bindings = const <Object?>[],
   ]) => manager.insertGetId(sql, bindings);
 
+  /// Runs the callback in a transaction: committed when it returns, rolled
+  /// back when it throws; nested calls become savepoints, and `attempts`
+  /// retries deadlocks.
   static Future<T> transaction<T>(
     Future<T> Function() body, {
     String? connection,
@@ -154,6 +177,7 @@ abstract final class DB {
   }) =>
       manager.transaction<T>(body, connection: connection, attempts: attempts);
 
+  /// Whether the current zone is inside a transaction.
   static bool get inTransaction => manager.inTransaction;
 
   /// Calls [listener] after every query (`DB::listen`): SQL, bindings,
@@ -195,14 +219,17 @@ abstract final class DB {
 
 /// Schema access.
 abstract final class Schema {
+  /// The schema builder of the connection.
   static Future<SchemaBuilder> builder([String? connection]) async =>
       SchemaBuilder(await DB.manager.executor(connection));
 
+  /// Creates a table: `Schema.create('posts', (table) { table.id(); })`.
   static Future<void> create(
     String table,
     void Function(Blueprint table) define,
   ) async => (await builder()).create(table, define);
 
+  /// Drops [table] when it exists.
   static Future<void> dropIfExists(String table) async =>
       (await builder()).dropIfExists(table);
 
@@ -214,22 +241,28 @@ abstract final class Schema {
   static Future<List<ColumnInfo>> getColumns(String table) async =>
       (await builder()).getColumns(table);
 
+  /// Whether [table] exists.
   static Future<bool> hasTable(String table) async =>
       (await builder()).hasTable(table);
 
+  /// Whether the view [view] exists.
   static Future<bool> hasView(String view) async =>
       (await builder()).hasView(view);
 
+  /// Changes an existing table.
   static Future<void> table(
     String table,
     void Function(Blueprint table) define,
   ) async => (await builder()).table(table, define);
 
+  /// Whether [table] has [column].
   static Future<bool> hasColumn(String table, String column) async =>
       (await builder()).hasColumn(table, column);
 
+  /// Drops [table].
   static Future<void> drop(String table) async => (await builder()).drop(table);
 
+  /// Renames the table [from] to [to].
   static Future<void> rename(String from, String to) async =>
       (await builder()).rename(from, to);
 }

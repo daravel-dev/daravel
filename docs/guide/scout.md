@@ -73,3 +73,12 @@ final both = await Scout.search(Post.definition, 'deploying apps')
 `hybrid` fuses the text and the meaning ranks with reciprocal rank fusion, as Scout
 does. Neither combines with `orderBy`. The column comes from `table.vector`
 ([Database](database.md#vector-columns)); on SQLite these throw.
+
+## Laravel equivalents
+
+More of Laravel that this works with, and the API to look up on pub.dev.
+
+| Laravel | Daravel | API | Note |
+| :-- | :-- | :-- | :-- |
+| `use Searchable; public function toSearchableArray()` | `with Searchable; toSearchableArray()` | `Searchable.toSearchableArray` | the database engine only |
+| `#[SearchUsingFullText(['body'])]` | `List<String> get searchUsingFullText => ['body']` | `Searchable.searchUsingFullText` |  |

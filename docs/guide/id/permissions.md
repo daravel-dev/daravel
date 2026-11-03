@@ -1,4 +1,4 @@
-<!-- source: permissions.md sha256:fc7a9e506a3d -->
+<!-- source: permissions.md sha256:6c7c562656de -->
 # Role dan permission
 
 `daravel_permission` menyimpan role dan permission di database, di lima
@@ -161,3 +161,13 @@ spatie/laravel-permission 6 dan Daravel di satu database: Laravel
 menjalankan migration dan memberi role, Daravel membacanya, Daravel memberi
 role, lalu Laravel membacanya (`hasRole`, `can`). Teams
 (`permission.teams`) dan key model UUID belum didukung.
+
+## Padanan Laravel
+
+Bagian lain dari Laravel yang ikut didukung, beserta API yang bisa dicari di pub.dev.
+
+| Laravel | Daravel | API | Catatan |
+| :-- | :-- | :-- | :-- |
+| `Route::middleware('role:admin\|editor')` | `.middleware(['role:admin\|editor'])` | `RoleMiddleware` | Juga `permission:` dan `role_or_permission:`, dengan pesan 403 dari Spatie. |
+| `php artisan permission:show` | `dartisan permission:show` | `PermissionShowCommand` |  |
+| `app(PermissionRegistrar::class)->forgetCachedPermissions()` | `await PermissionRegistrar.current.forgetCachedPermissions()` | `PermissionRegistrar.forgetCachedPermissions` |  |

@@ -6,6 +6,7 @@ library;
 
 /// One first-party package and its installation.
 final class PackageManifest {
+  /// A first-party package `pub:add` knows how to install.
   const PackageManifest({
     required this.package,
     required this.title,
@@ -23,8 +24,14 @@ final class PackageManifest {
 
   /// The pub package (`daravel_permission`).
   final String package;
+
+  /// The name shown in the list.
   final String title;
+
+  /// The group it is listed under.
   final String category;
+
+  /// What it does.
   final String description;
 
   /// Other names `pub:add` accepts, matched exactly (`rbac`, `roles`).
@@ -58,6 +65,7 @@ final class PackageManifest {
       ? package.substring('daravel_'.length)
       : package;
 
+  /// The import line of the package.
   String get import => "import 'package:$package/$package.dart';";
 
   /// Every name `pub:add` matches exactly, lower case.

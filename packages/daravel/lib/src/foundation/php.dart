@@ -105,6 +105,7 @@ String phpJsonFromDart(
 /// like PHP's `(object) []`. [escapeSlashes] `false` is
 /// `JSON_UNESCAPED_SLASHES`.
 final class PhpJsonEncoder {
+  /// An encoder writing JSON as PHP's `json_encode` does.
   const PhpJsonEncoder({
     this.toEncodable,
     this.emptyMapsAsArrays = true,
@@ -115,9 +116,13 @@ final class PhpJsonEncoder {
   /// `DateTime` into a string, a model into a map). Applied once per value.
   final Object? Function(Object? nonEncodable)? toEncodable;
 
+  /// Whether empty maps are written as `[]`, as PHP writes empty arrays.
   final bool emptyMapsAsArrays;
+
+  /// Whether `/` is escaped as `\/`, as PHP does by default.
   final bool escapeSlashes;
 
+  /// [value] as PHP would encode it.
   String convert(Object? value) {
     final out = StringBuffer();
     _PhpJsonWriter(out, this).writeObject(value);

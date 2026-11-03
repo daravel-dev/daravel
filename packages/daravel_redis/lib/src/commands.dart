@@ -47,6 +47,7 @@ Map<String, String> parseRedisInfo(Object? info) => {
 /// `redis:ping [--connection=default]`: the server, its version, the mode
 /// and the round trip.
 final class RedisPingCommand extends DaravelCommand {
+  /// The `dartisan redis:ping` command.
   RedisPingCommand(super.createApp) {
     _connectionOption(this);
   }
@@ -84,6 +85,7 @@ final class RedisPingCommand extends DaravelCommand {
 /// `redis:stats [--connection=default]`: what this client did, and what
 /// each master reports (`INFO`).
 final class RedisStatsCommand extends DaravelCommand {
+  /// The `dartisan redis:stats` command.
   RedisStatsCommand(super.createApp) {
     _connectionOption(this);
   }
@@ -204,6 +206,7 @@ Future<RedisKeysAudit> auditRedisKeys(
 /// keys by type under the application's prefix, and cache keys without a
 /// time to live (they stay until deleted).
 final class RedisKeysAuditCommand extends DaravelCommand {
+  /// The `dartisan redis:keys-audit` command.
   RedisKeysAuditCommand(super.createApp) {
     _connectionOption(this, 'cache');
     argParser
@@ -366,6 +369,7 @@ String formatRedisReply(Object? reply, [String indent = '']) => switch (reply) {
 /// or a prompt reading commands until `quit`. Only reading commands run
 /// unless `--write` is given.
 final class RedisCliCommand extends DaravelCommand {
+  /// The `dartisan redis:cli` command.
   RedisCliCommand(super.createApp) {
     _connectionOption(this);
     argParser.addFlag(
@@ -507,6 +511,7 @@ Future<Map<String, Object?>> inspectRedisKey(
 /// values stay hidden when `APP_ENV=production`.
 final class RedisInspectCommand extends DaravelCommand
     implements McpToolSource {
+  /// The `dartisan redis:inspect` command.
   RedisInspectCommand(super.createApp) {
     _connectionOption(this);
   }
@@ -590,6 +595,7 @@ final class RedisInspectCommand extends DaravelCommand
 /// `cache:prune-stale-tags [--store=redis]`: drops expired keys from the
 /// tag lists of a Redis cache store (Laravel's command of the same name).
 final class CachePruneStaleTagsCommand extends DaravelCommand {
+  /// The `dartisan cache:prune-stale-tags` command.
   CachePruneStaleTagsCommand(super.createApp) {
     argParser.addOption(
       'store',

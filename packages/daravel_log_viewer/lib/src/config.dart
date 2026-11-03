@@ -2,6 +2,7 @@ import 'package:daravel/daravel.dart';
 
 /// The `LOG_VIEWER_*` settings.
 final class LogViewerConfig implements ConfigSection {
+  /// Log viewer settings; usually from `.env` (`LOG_VIEWER_*`).
   const LogViewerConfig({
     this.enabled = true,
     this.path = '/log-viewer',
@@ -13,6 +14,7 @@ final class LogViewerConfig implements ConfigSection {
     this.maxScanBytes = 64 * 1024 * 1024,
   });
 
+  /// The settings in `LOG_VIEWER_*`.
   factory LogViewerConfig.fromEnv(Env env) {
     final directory = env.maybeString('LOG_VIEWER_DIRECTORY');
     return LogViewerConfig(
@@ -43,6 +45,8 @@ final class LogViewerConfig implements ConfigSection {
 
   /// Entries per page (`LOG_VIEWER_PER_PAGE`, at most 500).
   final int perPage;
+
+  /// Whether log files may be downloaded.
   final bool allowDownload;
 
   /// Deleting a file from the page (`LOG_VIEWER_ALLOW_DELETE`, off).
@@ -56,6 +60,7 @@ final class LogViewerConfig implements ConfigSection {
   /// (`LOG_VIEWER_MAX_SCAN_MB`); the page then offers to read on.
   final int maxScanBytes;
 
+  /// The context keys masked by default (passwords, tokens...).
   static const List<String> defaultMaskKeys = [
     'password',
     'secret',

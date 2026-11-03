@@ -10,6 +10,7 @@ import 'package:daravel/daravel.dart';
 /// buckets kept for a day. Memory stays bounded: at most [maxGroups]
 /// groups of a kind per bucket.
 final class PulseRecorder {
+  /// A recorder keeping [maxGroups] groups per card.
   PulseRecorder({this.maxGroups = 50, String? worker})
     : worker =
           worker ?? Isolate.current.debugName ?? '${Isolate.current.hashCode}';
@@ -31,11 +32,13 @@ final class PulseRecorder {
     'parity_drifts',
   ];
 
+  /// The most groups per card.
   final int maxGroups;
 
   /// This isolate's name (`daravel-worker-N` under a supervisor).
   final String worker;
 
+  /// When recording started.
   final DateTime startedAt = Clock.now();
   int _requestsTotal = 0;
   int _inFlight = 0;
@@ -50,9 +53,13 @@ final class PulseRecorder {
   /// Called after each recording (the publisher schedules a send).
   void Function()? onRecord;
 
+  /// The requests recorded.
   int get requestsTotal => _requestsTotal;
+
+  /// The requests in progress.
   int get inFlight => _inFlight;
 
+  /// Counts a request starting.
   void requestStarted() => _inFlight++;
 
   /// Counts a request; [slow] lists it under its route as well.
@@ -141,6 +148,7 @@ final class PulseRecorder {
     _recorded(now);
   }
 
+  /// Records a query on [connection].
   void recordQuery(String sql, String connection, Duration duration) {
     final now = Clock.now();
     final text = sql.replaceAll(RegExp(r'\s+'), ' ').trim();

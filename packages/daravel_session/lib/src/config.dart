@@ -2,6 +2,7 @@ import 'package:daravel/daravel.dart';
 
 /// `SESSION_*` settings (Laravel's `config/session.php`).
 final class SessionConfig implements ConfigSection {
+  /// Session settings; usually from `.env` (`SESSION_*`).
   const SessionConfig({
     this.driver = 'database',
     this.lifetime = const Duration(minutes: 120),
@@ -62,7 +63,11 @@ final class SessionConfig implements ConfigSection {
   /// `file`, `database`, `array` (tests) or a driver registered with
   /// [SessionManager.extend].
   final String driver;
+
+  /// How long an idle session lasts (`SESSION_LIFETIME`).
   final Duration lifetime;
+
+  /// Whether the session ends when the browser closes.
   final bool expireOnClose;
 
   /// Directory of the `file` driver, relative to the application's base
@@ -72,11 +77,23 @@ final class SessionConfig implements ConfigSection {
   /// Database connection of the `database` driver (default connection
   /// when `null`).
   final String? connection;
+
+  /// The sessions table (`sessions`).
   final String table;
+
+  /// The cookie's name.
   final String cookie;
+
+  /// The cookie's path.
   final String path;
+
+  /// The cookie's domain.
   final String? domain;
+
+  /// Whether the cookie is sent over HTTPS only.
   final bool secure;
+
+  /// Whether scripts cannot read the cookie.
   final bool httpOnly;
 
   /// `lax`, `strict`, `none` or `null` (no attribute).

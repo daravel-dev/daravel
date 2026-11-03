@@ -164,3 +164,12 @@ Laravel's `AuthenticateSession` compares.
 The `cookie` session driver, `ViewErrorBag` (`back()->withErrors()`),
 and session blocking (`Route::block`). Laravel's `sessions` table and cookie formats are the contract; the
 rest is Daravel's own API.
+
+## Laravel equivalents
+
+More of Laravel that this works with, and the API to look up on pub.dev.
+
+| Laravel | Daravel | API | Note |
+| :-- | :-- | :-- | :-- |
+| `Route::middleware('web')` | `.group(routes, middleware: ['web'])` | `SessionApplicationBuilder` | withSession() registers encrypt_cookies, session and csrf, and the web group that runs them in Laravel's order. |
+| `SESSION_DRIVER=file\|database` | `SESSION_DRIVER=file\|database (array for tests)` | `SessionManager.extend` | Laravel's sessions table (payload base64(serialize()) or base64(json_encode()), last_activity) and file format; extend() adds a driver. |

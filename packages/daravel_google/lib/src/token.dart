@@ -9,6 +9,7 @@ import 'package:daravel/daravel.dart';
 /// can therefore keep the same JSON in the same column (for example a
 /// `google_cred` column of `users`) and refresh it in turn.
 final class GoogleToken {
+  /// An OAuth token.
   const GoogleToken({
     required this.accessToken,
     required this.created,
@@ -44,6 +45,7 @@ final class GoogleToken {
   factory GoogleToken.parse(String json) =>
       GoogleToken.fromJson(jsonDecode(json) as Map<String, Object?>);
 
+  /// The access token sent to the APIs.
   final String accessToken;
 
   /// When the token was issued.
@@ -54,10 +56,17 @@ final class GoogleToken {
 
   /// Present when the user granted offline access.
   final String? refreshToken;
+
+  /// The scopes granted.
   final List<String> scopes;
+
+  /// The token type (`Bearer`).
   final String tokenType;
+
+  /// The OpenID Connect ID token, when asked for.
   final String? idToken;
 
+  /// When the access token expires.
   DateTime get expiresAt => created.add(expiresIn);
 
   /// Whether the token is expired, or expires within [leeway] ([Clock.now]).

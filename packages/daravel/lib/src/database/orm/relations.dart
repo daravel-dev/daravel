@@ -19,6 +19,8 @@ typedef MorphConstraint = void Function(
 /// Base relation (BLUEPRINT_V2 §7.5.4). Related definitions are resolved
 /// lazily through a thunk so two models may reference each other.
 abstract class Relation<R extends Model> {
+  /// A relation to the model of the definition [_related] returns, read
+  /// lazily so mutually referencing models can be declared.
   Relation(this._related);
 
   final ModelDefinition<R> Function() _related;
@@ -26,6 +28,7 @@ abstract class Relation<R extends Model> {
   /// Name under which the relation is registered (set by the definition).
   String name = '';
 
+  /// The related model's definition.
   ModelDefinition<R> get related => _related();
 
   /// Query returning the related models of one [parent].
@@ -128,6 +131,8 @@ abstract class Relation<R extends Model> {
         },
   ];
 
+  /// Splits [items] into lists of at most [size], to keep `IN` lists within
+  /// the database's limits.
   static List<List<T>> chunk<T>(List<T> items, int size) => [
     for (var i = 0; i < items.length; i += size)
       items.sublist(i, i + size > items.length ? items.length : i + size),
@@ -172,6 +177,7 @@ abstract class Relation<R extends Model> {
   static void requireMorphMap([bool require = true]) =>
       _requireMorphMap = require;
 
+  /// Whether models without a morph alias are refused ([requireMorphMap]).
   static bool get requiresMorphMap => _requireMorphMap;
 
   /// The value stored in `*_type` columns for [definition] (Laravel's
@@ -206,9 +212,14 @@ abstract class Relation<R extends Model> {
 
 /// `hasMany`: related rows carry `foreignKey` = parent `localKey`.
 class HasMany<R extends Model> extends Relation<R> {
+  /// `hasMany`: the related rows whose [foreignKey] holds the parent's
+  /// [localKey] (`id`).
   HasMany(super.related, {required this.foreignKey, this.localKey = 'id'});
 
+  /// The column of the related table pointing at the parent.
   final String foreignKey;
+
+  /// The parent's column it points at (`id`).
   final String localKey;
 
   @override
@@ -281,6 +292,7 @@ class HasMany<R extends Model> extends Relation<R> {
 
 /// `hasOne`: like [HasMany] but a single row.
 final class HasOne<R extends Model> extends HasMany<R> {
+  /// `hasOne`: as [HasMany], one model or null.
   HasOne(super.related, {required super.foreignKey, super.localKey});
 
   String? _ofColumn;
@@ -363,9 +375,14 @@ final class HasOne<R extends Model> extends HasMany<R> {
 
 /// `belongsTo`: the parent carries `foreignKey` = related `ownerKey`.
 final class BelongsTo<R extends Model> extends Relation<R> {
+  /// `belongsTo`: the parent row whose [ownerKey] (`id`) equals this model's
+  /// [foreignKey].
   BelongsTo(super.related, {required this.foreignKey, this.ownerKey = 'id'});
 
+  /// This model's column pointing at the owner (`user_id`).
   final String foreignKey;
+
+  /// The owner's column it points at (`id`).
   final String ownerKey;
 
   R Function(Model parent)? _default;
@@ -440,6 +457,8 @@ final class BelongsTo<R extends Model> extends Relation<R> {
 
 /// `belongsToMany` through a pivot table.
 final class BelongsToMany<R extends Model> extends Relation<R> {
+  /// `belongsToMany` through [pivotTable], where [foreignPivotKey] points at
+  /// the parent and [relatedPivotKey] at the related model.
   BelongsToMany(
     super.related, {
     required this.pivotTable,
@@ -451,12 +470,25 @@ final class BelongsToMany<R extends Model> extends Relation<R> {
     this.withTimestamps = false,
   });
 
+  /// The pivot table (`role_user`).
   final String pivotTable;
+
+  /// The pivot column pointing at the parent (`user_id`).
   final String foreignPivotKey;
+
+  /// The pivot column pointing at the related model (`role_id`).
   final String relatedPivotKey;
+
+  /// The parent's column the pivot points at (`id`).
   final String parentKey;
+
+  /// The related model's column the pivot points at (`id`).
   final String relatedKey;
+
+  /// Extra pivot columns loaded onto each related model's `pivot`.
   final List<String> withPivot;
+
+  /// Whether the pivot has `created_at` and `updated_at`, filled on attach.
   final bool withTimestamps;
 
   List<String> get _pivotColumns => [
@@ -573,6 +605,8 @@ final class BelongsToMany<R extends Model> extends Relation<R> {
     _ => [ids],
   };
 
+  /// Inserts pivot rows linking [parent] to [ids] (keys or models), with
+  /// the extra [pivot] columns.
   Future<void> attach(
     Model parent,
     DatabaseManager db,
@@ -593,6 +627,8 @@ final class BelongsToMany<R extends Model> extends Relation<R> {
     await _pivot(db).insert(rows);
   }
 
+  /// Deletes the pivot rows linking [parent] to [ids], or to every related
+  /// model when [ids] is null; returns how many were deleted.
   Future<int> detach(Model parent, DatabaseManager db, Object? ids) {
     final query = _parentPivot(parent, db);
     if (ids != null) {
@@ -601,6 +637,9 @@ final class BelongsToMany<R extends Model> extends Relation<R> {
     return query.delete();
   }
 
+  /// Makes [ids] the only related models of [parent]: attaches the missing
+  /// ones and, when [detaching], detaches the rest. Returns the keys under
+  /// `attached`, `detached` and `updated`.
   Future<Map<String, List<Object?>>> sync(
     Model parent,
     DatabaseManager db,
@@ -665,6 +704,7 @@ final class BelongsToMany<R extends Model> extends Relation<R> {
     if (withTimestamps) 'updated_at': formatNow(),
   });
 
+  /// The current time as `Y-m-d H:i:s` in UTC, for pivot timestamps.
   static String formatNow() {
     final now = Clock.now().toUtc();
     String two(int n) => n.toString().padLeft(2, '0');
@@ -675,6 +715,9 @@ final class BelongsToMany<R extends Model> extends Relation<R> {
 /// `hasManyThrough`: parent → through (`firstKey` = parent `localKey`) →
 /// related (`secondKey` = through `secondLocalKey`).
 class HasManyThrough<R extends Model> extends Relation<R> {
+  /// A relation through an intermediate model: parent, then [through]
+  /// (whose [firstKey] holds the parent's [localKey]), then the related model
+  /// (whose [secondKey] holds the through model's [secondLocalKey]).
   HasManyThrough(
     super.related, {
     required this.through,
@@ -684,12 +727,22 @@ class HasManyThrough<R extends Model> extends Relation<R> {
     this.secondLocalKey = 'id',
   });
 
+  /// The intermediate model's definition.
   final ModelDefinition<Model> Function() through;
+
+  /// The intermediate table's column pointing at the parent.
   final String firstKey;
+
+  /// The related table's column pointing at the intermediate model.
   final String secondKey;
+
+  /// The parent's column [firstKey] points at.
   final String localKey;
+
+  /// The intermediate model's column [secondKey] points at.
   final String secondLocalKey;
 
+  /// The alias of the selected parent key, as Laravel names it.
   static const String throughKeyAlias = 'laravel_through_key';
 
   @override
@@ -774,6 +827,7 @@ class HasManyThrough<R extends Model> extends Relation<R> {
 
 /// `hasOneThrough`: like [HasManyThrough] but a single model (or null).
 final class HasOneThrough<R extends Model> extends HasManyThrough<R> {
+  /// As [HasManyThrough], one model or null.
   HasOneThrough(
     super.related, {
     required super.through,
@@ -805,6 +859,8 @@ final class HasOneThrough<R extends Model> extends HasManyThrough<R> {
 /// class ([Relation.morphClassOf]) and `{morphName}_id` = the parent's
 /// [localKey], so posts and videos can share one `comments` table.
 class MorphMany<R extends Model> extends HasMany<R> {
+  /// Related rows whose `{morphName}_type` and `{morphName}_id` point at the
+  /// parent.
   MorphMany(
     super.related, {
     required this.morphName,
@@ -814,6 +870,7 @@ class MorphMany<R extends Model> extends HasMany<R> {
   }) : morphType = morphType ?? '${morphName}_type',
        super(foreignKey: foreignKey ?? '${morphName}_id');
 
+  /// The prefix of the type and id columns (`commentable`).
   final String morphName;
 
   /// The column holding the parent's morph class.
@@ -871,6 +928,7 @@ class MorphMany<R extends Model> extends HasMany<R> {
 
 /// `morphOne`: like [MorphMany] but a single row.
 final class MorphOne<R extends Model> extends MorphMany<R> {
+  /// As [MorphMany], one model or null.
   MorphOne(
     super.related, {
     required super.morphName,
@@ -903,6 +961,8 @@ final class MorphOne<R extends Model> extends MorphMany<R> {
 /// turn `App\Models\Post` into a model, so every possible target must be
 /// listed in one of the two.
 final class MorphTo extends Relation<Model> {
+  /// The owner of each row, of any of [types]; names default from the
+  /// relation's name.
   MorphTo({
     this._morphName,
     this._morphType,
@@ -921,6 +981,7 @@ final class MorphTo extends Relation<Model> {
   /// The models this relation may point at (besides [Relation.morphMap]).
   final List<ModelDefinition<Model> Function()> types;
 
+  /// The prefix of the type and id columns; the relation's name when unset.
   String get morphName => _morphName ?? name;
 
   /// The column holding the owner's morph class (`{morphName}_type`).
@@ -1069,6 +1130,7 @@ final class MorphTo extends Relation<Model> {
 /// the tags of posts and of videos). [pivotTable] defaults to
 /// `{morphName}s`; pass it when the plural is irregular.
 final class MorphToMany<R extends Model> extends BelongsToMany<R> {
+  /// Tags of [morphName] parents through a polymorphic pivot.
   MorphToMany(
     super.related, {
     required this.morphName,
@@ -1105,6 +1167,7 @@ final class MorphToMany<R extends Model> extends BelongsToMany<R> {
          relatedPivotKey: relatedPivotKey ?? '${morphName}_id',
        );
 
+  /// The prefix of the pivot's type and id columns (`taggable`).
   final String morphName;
 
   /// The pivot column holding the morph class.
@@ -1134,6 +1197,7 @@ final class MorphToMany<R extends Model> extends BelongsToMany<R> {
 /// `morphedByMany`: the inverse of [MorphToMany] (the posts of a tag). The
 /// pivot's `{morphName}_type` is the related model's morph class.
 final class MorphedByMany<R extends Model> extends MorphToMany<R> {
+  /// The parents of a polymorphic pivot (the posts of a tag).
   MorphedByMany(
     super.related, {
     required super.morphName,

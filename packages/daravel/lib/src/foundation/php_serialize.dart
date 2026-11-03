@@ -7,8 +7,10 @@ import 'package:collection/collection.dart';
 /// class name and properties, kept so the value can be written back
 /// unchanged by [phpSerialize]. Daravel code does not create these.
 final class PhpObject {
+  /// A PHP object of [className] with [properties].
   const PhpObject(this.className, this.properties);
 
+  /// The PHP class name.
   final String className;
 
   /// Property names as PHP wrote them: `name` for public, `\0*\0name` for

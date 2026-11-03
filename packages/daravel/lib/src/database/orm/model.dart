@@ -21,8 +21,14 @@ import 'relations.dart';
 /// Thrown when mass assigning a guarded attribute while
 /// [Model.preventSilentlyDiscardingAttributes] is enabled.
 final class MassAssignmentException implements Exception {
+  /// Thrown when [attribute] is not fillable on [table] while the model
+  /// refuses unknown attributes (`preventSilentlyDiscardingAttributes`).
   const MassAssignmentException(this.attribute, this.table);
+
+  /// The attribute that is not fillable.
   final String attribute;
+
+  /// The model's table.
   final String table;
   @override
   String toString() =>
@@ -129,6 +135,7 @@ final class _GroupLoad {
 /// }
 /// ```
 abstract base class Model implements JsonSerializable, Responsable {
+  /// An empty model; `ModelDefinition.factory` creates models through it.
   Model();
 
   /// When true, assigning a guarded attribute throws instead of being
@@ -235,6 +242,7 @@ abstract base class Model implements JsonSerializable, Responsable {
   /// Primary key value.
   Object? get key => _attributes[modelDefinition.primaryKey];
 
+  /// The model's table.
   String get table => modelDefinition.table;
 
   /// The database manager this model was loaded through (or the container's).
@@ -299,8 +307,10 @@ abstract base class Model implements JsonSerializable, Responsable {
     };
   }
 
+  /// The attribute [key], cast: `user['email']`.
   Object? operator [](String key) => getAttr<Object?>(key);
 
+  /// Sets the attribute [key]: `user['email'] = 'a@b.c'`.
   void operator []=(String key, Object? value) => setAttr(key, value);
 
   /// Whether [key] has a value in the attribute bag.
@@ -337,6 +347,8 @@ abstract base class Model implements JsonSerializable, Responsable {
     return getDirty().isNotEmpty;
   }
 
+  /// Whether [key] (or any attribute when null) is unchanged since the model
+  /// was loaded or saved.
   bool isClean([String? key]) => !isDirty(key);
 
   /// Attributes that changed since the last sync.
@@ -566,6 +578,7 @@ abstract base class Model implements JsonSerializable, Responsable {
     return affected;
   }
 
+  /// Subtracts [amount] from [column] in the database and on the model.
   Future<int> decrement(
     String column, [
     num amount = 1,
@@ -594,6 +607,7 @@ abstract base class Model implements JsonSerializable, Responsable {
   bool isSameAs(Model other) =>
       other.table == table && other.key != null && other.key == key;
 
+  /// Whether [other] is a different row than this model.
   bool isNot(Model other) => !isSameAs(other);
 
   Future<void> _touchOwners() async {
@@ -782,18 +796,21 @@ abstract base class Model implements JsonSerializable, Responsable {
   // Serialization
   // ---------------------------------------------------------------------------
 
+  /// Hides [attributes] from [toJson] for this instance.
   Model makeHidden(List<String> attributes) {
     _hiddenExtra.addAll(attributes);
     _visibleExtra.removeAll(attributes);
     return this;
   }
 
+  /// Shows [attributes] in [toJson] for this instance, even when hidden.
   Model makeVisible(List<String> attributes) {
     _visibleExtra.addAll(attributes);
     _hiddenExtra.removeAll(attributes);
     return this;
   }
 
+  /// Adds the accessors [attributes] to [toJson] for this instance.
   Model append(List<String> attributes) {
     _appendsExtra.addAll(attributes);
     return this;
@@ -884,7 +901,10 @@ abstract base class Model implements JsonSerializable, Responsable {
 /// Base for "not found" model errors (kept separate from HTTP so it can be
 /// mapped by the exception handler).
 class RecordNotFound implements Exception {
+  /// A not found error with [message].
   const RecordNotFound(this.message);
+
+  /// What was not found.
   final String message;
   @override
   String toString() => message;

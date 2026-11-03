@@ -1,4 +1,4 @@
-<!-- source: sessions.md sha256:486f1fe9bcc5 -->
+<!-- source: sessions.md sha256:f1ffaae1bc54 -->
 # Session, cookie, dan CSRF
 
 `daravel_session` memberi route web sebuah session seperti di Laravel: id
@@ -166,3 +166,12 @@ Driver session `cookie`, `ViewErrorBag` (`back()->withErrors()`), dan session
 blocking (`Route::block`). Tabel
 `sessions` dan format cookie Laravel adalah kontraknya; selebihnya adalah
 API Daravel sendiri.
+
+## Padanan Laravel
+
+Bagian lain dari Laravel yang ikut didukung, beserta API yang bisa dicari di pub.dev.
+
+| Laravel | Daravel | API | Catatan |
+| :-- | :-- | :-- | :-- |
+| `Route::middleware('web')` | `.group(routes, middleware: ['web'])` | `SessionApplicationBuilder` | withSession() mendaftarkan encrypt_cookies, session, dan csrf, serta grup web yang menjalankannya dengan urutan Laravel. |
+| `SESSION_DRIVER=file\|database` | `SESSION_DRIVER=file\|database (array for tests)` | `SessionManager.extend` | Tabel sessions dan format file milik Laravel; extend() menambah driver. |

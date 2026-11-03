@@ -29,7 +29,12 @@ typedef DatabaseDriverFactory = DatabaseDriver Function(
   ConnectionConfig connection,
 );
 
+/// Opens and keeps the database connections, runs transactions
+/// (nested ones as savepoints) and after-commit callbacks, and hands out
+/// query builders. `DB` is its facade.
 final class DatabaseManager {
+  /// A manager for [config]'s connections; drivers beyond SQLite and
+  /// PostgreSQL are registered through `withDatabaseDriver`.
   DatabaseManager(
     this.config, {
     this._logger,
@@ -53,6 +58,7 @@ final class DatabaseManager {
   /// Zone key of the active transaction level (its lock and executor).
   static const Symbol _scopeKey = #daravel.txScope;
 
+  /// The connections it manages.
   final DatabaseConfig config;
   final Logger? _logger;
   final Map<String, DatabaseDriver> _connections = <String, DatabaseDriver>{};
@@ -368,7 +374,10 @@ final class DatabaseManager {
     );
   }
 
+  /// The shortest wait before retrying a transaction that hit a deadlock.
   static const Duration retryBaseDelay = Duration(milliseconds: 2);
+
+  /// The longest wait between retries.
   static const Duration retryMaxDelay = Duration(milliseconds: 250);
   static final math.Random _retryRandom = math.Random();
 

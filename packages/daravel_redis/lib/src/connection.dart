@@ -87,6 +87,8 @@ final class RedisConnection {
   }
 
   final Socket _socket;
+
+  /// The connection settings.
   final RedisConnectionConfig config;
   late final RespDecoder _decoder;
   late final StreamSubscription<Uint8List> _subscription;
@@ -107,6 +109,7 @@ final class RedisConnection {
   /// Completes when the connection closes, for whatever reason.
   Future<void> get done => _done.future;
 
+  /// Whether the connection is closed.
   bool get isClosed => _closed;
 
   /// Commands waiting for their replies.
@@ -203,6 +206,7 @@ final class RedisConnection {
     }
   }
 
+  /// Closes the connection.
   Future<void> close() async {
     if (_destroyed) {
       return;

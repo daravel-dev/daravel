@@ -5,27 +5,37 @@ import '../database/database_manager.dart';
 
 /// Outcome of one [HealthCheck].
 final class HealthResult {
+  /// A passing check, with [meta] details.
   const HealthResult.ok([this.meta = const <String, Object?>{}])
     : ok = true,
       error = null;
 
+  /// A failing check with [error].
   const HealthResult.failed(this.error, [this.meta = const <String, Object?>{}])
     : ok = false;
 
+  /// Whether the check passed.
   final bool ok;
+
+  /// Why it failed.
   final String? error;
+
+  /// Details reported with the result.
   final Map<String, Object?> meta;
 }
 
 /// A readiness probe (`/up/ready`).
 abstract interface class HealthCheck {
+  /// The check's name in `/up/ready`.
   String get name;
 
+  /// Runs the check.
   Future<HealthResult> check();
 }
 
 /// Closure-based check (`HealthCheck.of('queue', () async => ...)`).
 final class CallbackHealthCheck implements HealthCheck {
+  /// A check named [name] running a callback.
   const CallbackHealthCheck(this.name, this._check);
 
   @override
@@ -39,9 +49,12 @@ final class CallbackHealthCheck implements HealthCheck {
 
 /// Runs `SELECT 1` on [connection].
 final class DatabaseHealthCheck implements HealthCheck {
+  /// Checks that [connection] answers a query.
   const DatabaseHealthCheck(this._db, {this.connection});
 
   final DatabaseManager Function() _db;
+
+  /// The connection checked; the default one when null.
   final String? connection;
 
   @override
@@ -56,9 +69,12 @@ final class DatabaseHealthCheck implements HealthCheck {
 
 /// Writes, reads and deletes a probe key.
 final class CacheHealthCheck implements HealthCheck {
+  /// Checks that [store] can write and read a value.
   const CacheHealthCheck(this._cache, {this.store});
 
   final CacheManager Function() _cache;
+
+  /// The store checked; the default one when null.
   final String? store;
 
   @override
@@ -79,9 +95,13 @@ final class CacheHealthCheck implements HealthCheck {
 
 /// Runs every check with a timeout and builds the `/up/ready` payload.
 final class HealthChecker {
+  /// Runs [checks], each limited to [timeout].
   HealthChecker(this.checks, {this.timeout = const Duration(seconds: 2)});
 
+  /// The checks run.
   final List<HealthCheck> checks;
+
+  /// How long one check may take.
   final Duration timeout;
 
   /// `{status: ok|failing, checks: {name: {ok, ms, error?}}}`.

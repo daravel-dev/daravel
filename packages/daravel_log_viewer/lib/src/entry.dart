@@ -4,6 +4,7 @@ import 'dart:convert';
 /// entry of a Laravel log (`[2026-10-28 08:00:00] local.ERROR: ...` and
 /// the stack trace lines after it).
 final class LogEntry {
+  /// One entry of a log file.
   const LogEntry({
     required this.offset,
     required this.length,
@@ -25,16 +26,29 @@ final class LogEntry {
 
   /// `debug` to `emergency`; `unknown` for a line that is neither format.
   final String level;
+
+  /// The message.
   final String message;
+
+  /// When it was logged, as written.
   final String? time;
+
+  /// The channel.
   final String? channel;
+
+  /// The context.
   final Object? context;
+
+  /// The error.
   final String? error;
+
+  /// The stack trace.
   final String? trace;
 
   /// The entry as written.
   final String raw;
 
+  /// The entry as JSON.
   Map<String, Object?> toJson() => {
     'offset': offset,
     'level': level,

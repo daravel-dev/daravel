@@ -3,11 +3,13 @@ import 'dart:async';
 /// Populates the database (`db:seed`). Seeders run inside the application's
 /// command scope, so facades (`DB`, models, factories) are available.
 abstract class Seeder {
+  /// Seeders are usually const.
   const Seeder();
 
   /// Human readable name (defaults to the class name).
   String get name => runtimeType.toString();
 
+  /// Inserts the seeder's rows; call other seeders from here.
   Future<void> run();
 
   /// Runs [seeders] in order (Laravel `$this->call([...])`).
@@ -21,8 +23,10 @@ abstract class Seeder {
 /// Seeders registered with `ApplicationBuilder.withSeeders`. The first entry
 /// is the root seeder run by a bare `db:seed` (Laravel's `DatabaseSeeder`).
 final class SeederRegistry {
+  /// The registry of [seeders] (`bootstrap/seeders.dart`).
   SeederRegistry(List<Seeder> seeders) : seeders = List.unmodifiable(seeders);
 
+  /// The registered seeders; `db:seed` runs the first unless one is named.
   final List<Seeder> seeders;
 
   /// The seeder named [name] (class name), or `null`.

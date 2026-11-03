@@ -17,6 +17,7 @@ import '../foundation/exceptions.dart';
 /// - `pusher`: Pusher Channels (`PUSHER_*`), the same way;
 /// - `log`: written to the log; `null`: dropped.
 final class BroadcastConfig implements ConfigSection {
+  /// Broadcasting settings; usually from `.env` ([BroadcastConfig.fromEnv]).
   const BroadcastConfig({
     this.connection = 'daravel',
     this.appId = '',
@@ -36,6 +37,7 @@ final class BroadcastConfig implements ConfigSection {
     this.serverId,
   });
 
+  /// The settings in `BROADCAST_*` and `REVERB_*`/`PUSHER_*`.
   factory BroadcastConfig.fromEnv(Env env) {
     final connection = env.string('BROADCAST_CONNECTION', 'daravel');
     final pusher = connection == 'pusher';
@@ -81,12 +83,20 @@ final class BroadcastConfig implements ConfigSection {
   /// `_SECRET`): the key is public (clients connect with it), the secret
   /// signs channel authorizations and API requests.
   final String appId;
+
+  /// The application key clients connect with.
   final String appKey;
+
+  /// The secret signing channel authorizations.
   final String appSecret;
 
   /// Where `reverb` and `pusher` send events.
   final String? host;
+
+  /// The port of the WebSocket server; the scheme's default when null.
   final int? port;
+
+  /// `http` or `https`.
   final String scheme;
 
   /// Origins that may connect (`REVERB_ALLOWED_ORIGINS`, host patterns
@@ -135,6 +145,9 @@ final class BroadcastConfig implements ConfigSection {
   /// What the servers share through (`REVERB_SCALING_DRIVER`): `database`,
   /// or `redis` with package:daravel_redis.
   final String scalingDriver;
+
+  /// The connection relaying messages between servers, when there are
+  /// several.
   final String? scalingConnection;
 
   /// How often a server reads the other servers' events when the database

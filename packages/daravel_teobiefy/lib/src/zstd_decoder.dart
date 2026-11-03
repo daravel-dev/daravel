@@ -2,7 +2,10 @@ import 'dart:typed_data';
 
 /// A Zstandard frame that is damaged, or uses what Teobiefy never sends.
 final class ZstdFormatException implements Exception {
+  /// Malformed zstd data: [message].
   const ZstdFormatException(this.message);
+
+  /// What is wrong.
   final String message;
   @override
   String toString() => 'ZstdFormatException: $message';
@@ -10,6 +13,7 @@ final class ZstdFormatException implements Exception {
 
 /// The frame decompresses to more than the limit it was given.
 final class ZstdTooLargeException implements Exception {
+  /// The data decompresses past the limit.
   const ZstdTooLargeException();
 }
 

@@ -39,6 +39,7 @@ base mixin LogsActivity on Model {
     return this;
   }
 
+  /// Logs the model's activity again after `disableLogging`.
   LogsActivity enableLogging() {
     _loggingEnabled = true;
     return this;
@@ -54,6 +55,7 @@ base mixin LogsActivity on Model {
 /// The activities a model caused (Spatie's `CausesActivity`), typically a
 /// user.
 base mixin CausesActivity on Model {
+  /// The activities this model caused.
   ModelQuery<Activity> actions() => Activity.query().causedBy(this);
 }
 
@@ -65,16 +67,21 @@ base mixin CausesActivity on Model {
 /// The activity is written in the model's transaction, so a rollback
 /// removes it with the change it describes.
 final class ActivityLogObserver<T extends Model> extends ModelObserver<T> {
+  /// Logs the lifecycle events of models using `LogsActivity`.
   const ActivityLogObserver({
     this.recordEvents,
     this.doNotRecordEvents = const [],
   });
 
+  /// The events logged; every one when null.
   final List<String>? recordEvents;
+
+  /// Events never logged.
   final List<String> doNotRecordEvents;
 
   static final Expando<Map<String, Object?>> _oldAttributes = Expando();
 
+  /// The events logged for [model].
   List<String> eventsToBeRecorded(Model model) => [
     for (final event
         in recordEvents ??

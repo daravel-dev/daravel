@@ -12,6 +12,7 @@ import 'uploaded_file.dart';
 
 /// Fields and files of a `multipart/form-data` body.
 final class MultipartBody {
+  /// The parsed [fields] and [files] of a body.
   const MultipartBody(this.fields, this.files);
 
   /// Fields and files nested like PHP's `$_POST` + `$_FILES`: `photos[]`
@@ -25,14 +26,20 @@ final class MultipartBody {
 /// Limits applied while parsing (PHP's `max_input_vars`,
 /// `max_file_uploads`; the total size is the request's body limit).
 final class MultipartLimits {
+  /// Limits on a multipart body.
   const MultipartLimits({
     this.maxParts = 1000,
     this.maxFiles = 20,
     this.maxFieldBytes = 1 << 20,
   });
 
+  /// The most parts a body may have.
   final int maxParts;
+
+  /// The most files a body may have.
   final int maxFiles;
+
+  /// The largest field value, in bytes.
   final int maxFieldBytes;
 }
 

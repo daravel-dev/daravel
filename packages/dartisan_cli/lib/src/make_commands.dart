@@ -6,6 +6,7 @@ import 'generator.dart';
 
 /// Base for `make:*` commands: no application boot needed.
 abstract class MakeCommand extends Command<int> {
+  /// A `make:*` command with `--force` and `--dry-run`.
   MakeCommand() {
     argParser
       ..addFlag('force', negatable: false, help: 'Overwrite existing files.')
@@ -21,6 +22,7 @@ abstract class MakeCommand extends Command<int> {
       );
   }
 
+  /// A generator for the current project with the command's options.
   Generator generator() => Generator(
     ProjectPaths.locate(),
     force: argResults!['force'] as bool,
@@ -28,6 +30,7 @@ abstract class MakeCommand extends Command<int> {
     updateRegistries: !(argResults!['no-registry'] as bool),
   );
 
+  /// The name given as the first argument.
   String get nameArgument {
     final rest = argResults!.rest;
     if (rest.isEmpty) {
@@ -36,6 +39,7 @@ abstract class MakeCommand extends Command<int> {
     return rest.first;
   }
 
+  /// Prints what [generator] wrote and returns the exit code.
   int report(Generator generator) {
     for (final entry in generator.log) {
       stdout.writeln(entry);
@@ -49,6 +53,7 @@ abstract class MakeCommand extends Command<int> {
 
 /// `make:model Name [-m] [-f] [-s] [-c] [--api] [--all] [--table=] [--soft-deletes]`
 final class MakeModelCommand extends MakeCommand {
+  /// The `dartisan make:model` command.
   MakeModelCommand() {
     argParser
       ..addFlag(
@@ -157,6 +162,7 @@ final class MakeModelCommand extends MakeCommand {
 
 /// `make:migration name [--create=table] [--table=table]`
 final class MakeMigrationCommand extends MakeCommand {
+  /// The `dartisan make:migration` command.
   MakeMigrationCommand() {
     argParser
       ..addOption('create', help: 'Table to create.')
@@ -219,6 +225,7 @@ final class MakeSeederCommand extends MakeCommand {
 
 /// `make:factory Name [--model=]`
 final class MakeFactoryCommand extends MakeCommand {
+  /// The `dartisan make:factory` command.
   MakeFactoryCommand() {
     argParser.addOption(
       'model',
@@ -242,6 +249,7 @@ final class MakeFactoryCommand extends MakeCommand {
 
 /// `make:controller Name [--api] [--resource] [--model=]`
 final class MakeControllerCommand extends MakeCommand {
+  /// The `dartisan make:controller` command.
   MakeControllerCommand() {
     argParser
       ..addFlag(
@@ -417,6 +425,7 @@ List<Command<int>> extraMakeCommands() => [
 
 /// `make:command Name [--command=app:name]`
 final class MakeConsoleCommand extends MakeCommand {
+  /// The `dartisan make:command` command.
   MakeConsoleCommand() {
     argParser.addOption(
       'command',
@@ -440,6 +449,7 @@ final class MakeConsoleCommand extends MakeCommand {
 
 /// `make:test Name [--unit]`
 final class MakeTestCommand extends MakeCommand {
+  /// The `dartisan make:test` command.
   MakeTestCommand() {
     argParser.addFlag('unit', negatable: false, help: 'Create a unit test.');
   }

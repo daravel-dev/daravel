@@ -143,3 +143,12 @@ deployment; a SARIF report shows the findings in GitHub code scanning:
 ```
 
 Audit only servers you run or may test.
+
+## Laravel equivalents
+
+More of Laravel that this works with, and the API to look up on pub.dev.
+
+| Laravel | Daravel | API | Note |
+| :-- | :-- | :-- | :-- |
+| `Crypt::encryptString / decryptString` | `await Crypt.encryptString / decryptString` | `Crypt.decryptString` | Byte-compatible with APP_CIPHER=AES-256-CBC or AES-256-GCM. |
+| `php artisan env:encrypt / env:decrypt` | `dartisan env:encrypt / env:decrypt` | `EnvironmentEncrypter` | Same .env.encrypted file (default and --readable); decrypted in memory at boot with DARAVEL_ENV_ENCRYPTION_KEY or LARAVEL_ENV_ENCRYPTION_KEY. |

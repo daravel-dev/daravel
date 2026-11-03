@@ -149,3 +149,11 @@ ones.
   parameters are there (`views_min`, `start_date`); laravel-teorion also
   needs the declared parameter itself.
 - Refusals are 400 instead of 500.
+
+## Laravel equivalents
+
+More of Laravel that this works with, and the API to look up on pub.dev.
+
+| Laravel | Daravel | API | Note |
+| :-- | :-- | :-- | :-- |
+| `php artisan make:query-filter PostQueryFilter` | `dartisan make:query-filter Post` | `QueryFilterRegistry` | Registered in bootstrap/query_filters.dart (no reflection). |

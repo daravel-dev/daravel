@@ -17,6 +17,7 @@ import 'handlers.dart';
 /// Flash data (`_flash.new`, `_flash.old`), the CSRF token (`_token`) and
 /// the previous URL (`_previous.url`) use Laravel's keys.
 final class Session {
+  /// A session read through [handler].
   Session({
     required this.name,
     required this.handler,
@@ -31,6 +32,8 @@ final class Session {
 
   /// The cookie name.
   final String name;
+
+  /// Reads and writes the payload.
   final SessionHandler handler;
 
   /// With `SESSION_ENCRYPT`, the encrypter of the payload: Laravel's
@@ -75,6 +78,7 @@ final class Session {
   static bool isValidId(String id) =>
       id.length == idLength && RegExp(r'^[A-Za-z0-9]+$').hasMatch(id);
 
+  /// A new random session id.
   static String generateId() => Str.random(idLength);
 
   /// Loads the attributes from the handler and makes sure a CSRF token
@@ -125,17 +129,22 @@ final class Session {
 
   // -- Attributes -----------------------------------------------------------
 
+  /// Whether [key] holds a non-null value.
   bool has(String key) => _get(key) != null;
 
+  /// Whether [key] is set, even to null.
   bool exists(String key) => _lookup(key).$1;
 
+  /// Whether [key] is not set.
   bool missing(String key) => !exists(key);
 
+  /// The value of [key] (dotted), or [fallback].
   T? get<T>(String key, [T? fallback]) {
     final value = _get(key);
     return value is T ? value : fallback;
   }
 
+  /// Sets [key] to [value].
   void put(String key, Object? value) => _set(key, value);
 
   /// Gets [key] and forgets it.
@@ -151,12 +160,14 @@ final class Session {
     put(key, [...list, value]);
   }
 
+  /// Adds [amount] to the integer at [key] and returns it.
   int increment(String key, [int amount = 1]) {
     final value = (get<num>(key) ?? 0).toInt() + amount;
     put(key, value);
     return value;
   }
 
+  /// Subtracts [amount] from the integer at [key] and returns it.
   int decrement(String key, [int amount = 1]) => increment(key, -amount);
 
   /// Puts [key] only when it is missing.
@@ -169,8 +180,10 @@ final class Session {
     return created;
   }
 
+  /// Removes [key].
   void forget(String key) => _remove(key);
 
+  /// Removes every value.
   void flush() => _attributes.clear();
 
   // -- Flash data -----------------------------------------------------------
@@ -231,6 +244,7 @@ final class Session {
   /// The CSRF token.
   String? get token => get<String>('_token');
 
+  /// Gives the session a new CSRF token.
   void regenerateToken() => put('_token', Str.random(idLength));
 
   /// Gives the session a new id, keeping its data (Laravel's
@@ -307,8 +321,10 @@ final class Session {
     return value is T ? value : fallback;
   }
 
+  /// The previous URL, for `back()`.
   String? get previousUrl => get<String>('_previous.url');
 
+  /// Sets the previous URL.
   set previousUrl(String? url) => put('_previous.url', url);
 
   // -- Dot-notation storage ---------------------------------------------------

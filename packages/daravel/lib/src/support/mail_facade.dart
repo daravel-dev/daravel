@@ -17,6 +17,7 @@ import '../notifications/notification_manager.dart';
 /// mail.assertSent<WelcomeMail>((m) => m.hasTo('teo@example.com'));
 /// ```
 abstract final class Mail {
+  /// The mailer of the current container.
   static Mailer get mailer => Container.current.make<Mailer>();
 
   /// [recipients]: an address, a `Name <address>` string, a model with an
@@ -31,12 +32,14 @@ abstract final class Mail {
   static Future<void> queue(Mailable mailable, {String? queue}) =>
       mailer.queue(mailable, queue: queue);
 
+  /// Sends a built [message].
   static Future<SentMessage> sendMessage(MailMessage message) =>
       mailer.sendMessage(message);
 
   /// Records messages instead of sending them; undone by [restore].
   static MailFake fake() => mailer.fake();
 
+  /// Undoes `Mail.fake()`.
   static void restore() => mailer.restore();
 
   /// [recipients] with models read through their `email` and `name`.

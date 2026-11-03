@@ -1,8 +1,12 @@
 /// Result of a successful [RadixTree.lookup].
 final class RouteMatch<T extends Object> {
+  /// A match of [value] with its path [params].
   const RouteMatch(this.value, this.params);
 
+  /// The matched value.
   final T value;
+
+  /// The path parameters.
   final Map<String, String> params;
 }
 

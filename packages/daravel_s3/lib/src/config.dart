@@ -6,6 +6,7 @@ import 'package:daravel/daravel.dart';
 /// `AWS_USE_PATH_STYLE_ENDPOINT`, plus `AWS_SESSION_TOKEN` (temporary
 /// credentials) and `AWS_VISIBILITY` (`private` or `public`).
 final class S3Config implements ConfigSection {
+  /// S3 settings; usually from `.env` (`AWS_*`).
   const S3Config({
     this.accessKey = '',
     this.secretKey = '',
@@ -19,6 +20,7 @@ final class S3Config implements ConfigSection {
     this.visibility = 'private',
   });
 
+  /// The settings in `AWS_*`, as Laravel names them.
   factory S3Config.fromEnv(Env env) => S3Config(
     accessKey: env.string('AWS_ACCESS_KEY_ID', ''),
     secretKey: env.string('AWS_SECRET_ACCESS_KEY', ''),
@@ -33,8 +35,14 @@ final class S3Config implements ConfigSection {
 
   /// `AWS_ACCESS_KEY_ID`.
   final String accessKey;
+
+  /// The secret access key.
   final String secretKey;
+
+  /// The region (`AWS_DEFAULT_REGION`).
   final String region;
+
+  /// The bucket (`AWS_BUCKET`).
   final String bucket;
 
   /// The public base URL of [S3Disk.url] (a CDN in front of the bucket);
@@ -47,6 +55,7 @@ final class S3Config implements ConfigSection {
   /// `endpoint/bucket/key` instead of `bucket.endpoint/key` (MinIO).
   final bool usePathStyleEndpoint;
 
+  /// A temporary session token.
   final String? sessionToken;
 
   /// A prefix every key of the disk lives under (Laravel's `root`).

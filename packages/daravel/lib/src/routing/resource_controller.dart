@@ -6,16 +6,28 @@ import '../http/request.dart';
 /// destroy). Implement the actions you need; the router only registers the
 /// ones selected with `only`/`except`.
 abstract interface class ResourceController {
+  /// `GET /photos`: the list.
   FutureOr<Object?> index(Request request);
+
+  /// `POST /photos`: creates one.
   FutureOr<Object?> store(Request request);
+
+  /// `GET /photos/{photo}`: shows one.
   FutureOr<Object?> show(Request request);
+
+  /// `PUT/PATCH /photos/{photo}`: updates one.
   FutureOr<Object?> update(Request request);
+
+  /// `DELETE /photos/{photo}`: deletes one.
   FutureOr<Object?> destroy(Request request);
 }
 
 /// Adds the HTML form actions used by `Router.resource` (create, edit).
 abstract interface class WebResourceController implements ResourceController {
+  /// `GET /photos/create`: the creation form.
   FutureOr<Object?> create(Request request);
+
+  /// `GET /photos/{photo}/edit`: the edit form.
   FutureOr<Object?> edit(Request request);
 }
 

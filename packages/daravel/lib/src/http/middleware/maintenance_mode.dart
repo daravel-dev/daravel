@@ -14,14 +14,17 @@ import '../response.dart';
 /// Maintenance mode state in `storage/framework/down`, the file and JSON
 /// shape Laravel's `php artisan down` writes (`dartisan down` / `up`).
 final class MaintenanceMode {
+  /// The maintenance state in the file [path].
   MaintenanceMode(this.path);
 
   /// The `down` file of the application at [basePath].
   factory MaintenanceMode.at(String basePath) =>
       MaintenanceMode(p.join(basePath, 'storage', 'framework', 'down'));
 
+  /// The `down` file.
   final String path;
 
+  /// Whether the application is down.
   bool get active => File(path).existsSync();
 
   /// The stored options, or `null` when the application is up.
@@ -36,6 +39,9 @@ final class MaintenanceMode {
     }
   }
 
+  /// Takes the application down: [secret] lets visitors through with a
+  /// cookie, [retry] sets `Retry-After`, [refresh] the `Refresh` header,
+  /// [except] lists paths that stay up.
   void activate({
     String? secret,
     int? retry,
@@ -77,16 +83,21 @@ final class MaintenanceMode {
 /// the secret, valid for 12 hours, as Laravel's) and redirects to `/`. The
 /// `down` file is checked at most once a second, so requests stay cheap.
 final class PreventRequestsDuringMaintenance implements Middleware {
+  /// Answers 503 while [mode] is active.
   PreventRequestsDuringMaintenance(
     this.mode, {
     this._except = const <String>{},
     this.checkInterval = const Duration(seconds: 1),
   });
 
+  /// The maintenance state checked.
   final MaintenanceMode mode;
   final Set<String> _except;
+
+  /// How often the `down` file is checked.
   final Duration checkInterval;
 
+  /// The bypass cookie's name.
   static const String cookieName = 'daravel_maintenance';
 
   final Stopwatch _sinceCheck = Stopwatch();

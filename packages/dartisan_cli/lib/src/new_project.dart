@@ -11,6 +11,7 @@ import 'stubs.dart';
 
 /// Where the framework packages come from in a generated `pubspec.yaml`.
 sealed class FrameworkSource {
+  /// Where `dartisan new` takes the framework from.
   const FrameworkSource();
 
   /// Dependency block for [package] (`daravel`, `dartisan_cli`, …).
@@ -25,8 +26,10 @@ sealed class FrameworkSource {
 /// Published packages on pub.dev (default): a plain `pubspec.yaml` without
 /// overrides, like any other application.
 final class PubHostedSource extends FrameworkSource {
+  /// Depends on [version] from pub.dev.
   const PubHostedSource({this.version = '^$daravelVersion'});
 
+  /// The version constraint.
   final String version;
 
   @override
@@ -38,12 +41,16 @@ final class PubHostedSource extends FrameworkSource {
 
 /// Git dependency on github.com/daravel-dev/daravel (`--source=git`).
 final class GitSource extends FrameworkSource {
+  /// Depends on the git repository at the given url and ref.
   const GitSource({
     this.url = 'https://github.com/daravel-dev/daravel.git',
     this.ref = 'main',
   });
 
+  /// The repository URL.
   final String url;
+
+  /// The branch, tag or commit.
   final String ref;
 
   @override
@@ -58,8 +65,10 @@ final class GitSource extends FrameworkSource {
 
 /// Local checkout of the framework repository (contributors, CI).
 final class PathSource extends FrameworkSource {
+  /// Depends on a local checkout of [repository].
   const PathSource(this.repository);
 
+  /// The checkout's path.
   final String repository;
 
   @override
@@ -172,6 +181,7 @@ Map<String, String> newProjectFiles({
 
 /// `new <name> [--template=api|minimal] [--path=<repo>] [--git] [--no-pub]`
 final class NewCommand extends Command<int> {
+  /// The `dartisan new` command.
   NewCommand() {
     argParser
       ..addOption(

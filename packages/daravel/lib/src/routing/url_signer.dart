@@ -10,6 +10,7 @@ import 'package:crypto/crypto.dart';
 /// links stay valid behind reverse proxies that rewrite the host; this is a
 /// documented deviation from Laravel, which signs the absolute URL.
 final class UrlSigner {
+  /// A signer with [key] (the application key).
   UrlSigner(List<int> key) : _hmac = Hmac(sha256, key);
 
   /// Builds a signer from an `APP_KEY` value (`base64:...` or raw text).
@@ -21,7 +22,10 @@ final class UrlSigner {
     return UrlSigner(bytes);
   }
 
+  /// The query parameter of the signature.
   static const String signatureParam = 'signature';
+
+  /// The query parameter of the expiry time.
   static const String expiresParam = 'expires';
 
   final Hmac _hmac;

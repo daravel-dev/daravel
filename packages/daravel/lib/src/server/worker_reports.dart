@@ -15,6 +15,7 @@ import 'coordinator.dart';
 /// ```
 final class WorkerReportService
     implements CoordinatorService, WorkerAwareService {
+  /// The coordinator service name.
   static const String serviceName = 'worker_reports';
 
   final Map<String, Map<String, Object?>> _topics = {};
@@ -54,9 +55,11 @@ final class WorkerReportService
 
 /// A worker's side of [WorkerReportService].
 final class WorkerReports {
+  /// Reports of [worker] through [channel].
   WorkerReports(this.channel, {String? worker})
     : worker = worker ?? _isolateName();
 
+  /// The channel to the coordinator.
   final CoordinatorChannel channel;
 
   /// This worker's name: the isolate's (`daravel-worker-N` under a

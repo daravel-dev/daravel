@@ -2,6 +2,7 @@ import 'package:daravel/daravel.dart';
 
 /// `config/permission.php` (spatie/laravel-permission).
 final class PermissionConfig implements ConfigSection {
+  /// Permission settings; usually from `.env` (`PERMISSION_*`).
   const PermissionConfig({
     this.guard = 'web',
     this.cacheTtl = const Duration(minutes: 5),
@@ -11,6 +12,7 @@ final class PermissionConfig implements ConfigSection {
     this.displayPermissionInException = false,
   });
 
+  /// The settings in `PERMISSION_*`.
   factory PermissionConfig.fromEnv(Env env) {
     final superAdmin = env.maybeString('PERMISSION_SUPER_ADMIN_ROLE');
     return PermissionConfig(
@@ -56,6 +58,8 @@ final class PermissionConfig implements ConfigSection {
   /// Spatie's `display_role_in_exception` and
   /// `display_permission_in_exception`.
   final bool displayRoleInException;
+
+  /// Whether the 403 names the missing permission.
   final bool displayPermissionInException;
 
   @override

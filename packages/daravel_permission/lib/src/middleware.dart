@@ -29,6 +29,7 @@ Future<HasRoles> _user(String? guard) async {
 /// `role:admin|writer[,guard]`: the user has one of the roles (403
 /// otherwise).
 final class RoleMiddleware implements Middleware {
+  /// `role:admin|editor`, with an optional guard after a comma.
   RoleMiddleware(List<String> params) : _params = _parse(params);
 
   final ({List<String> names, String? guard}) _params;
@@ -50,6 +51,7 @@ final class RoleMiddleware implements Middleware {
 /// them, through the gate (so gate abilities count too, as Laravel's
 /// `canAny`).
 final class PermissionMiddleware implements Middleware {
+  /// `permission:edit posts|publish posts`.
   PermissionMiddleware(List<String> params) : _params = _parse(params);
 
   final ({List<String> names, String? guard}) _params;
@@ -72,6 +74,7 @@ final class PermissionMiddleware implements Middleware {
 /// `role_or_permission:admin|posts.edit[,guard]`: one of the roles, or one
 /// of the abilities.
 final class RoleOrPermissionMiddleware implements Middleware {
+  /// `role_or_permission:admin|edit posts`.
   RoleOrPermissionMiddleware(List<String> params) : _params = _parse(params);
 
   final ({List<String> names, String? guard}) _params;

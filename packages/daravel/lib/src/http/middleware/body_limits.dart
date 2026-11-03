@@ -12,6 +12,7 @@ import '../response.dart';
 /// costs nothing. Routes may override the byte limit with
 /// `RouteEntry.bodyLimit`.
 final class BodyLimitsMiddleware implements Middleware {
+  /// Limits by body type; the defaults are 1 MiB for JSON and forms.
   const BodyLimitsMiddleware({
     this.json = 1 << 20,
     this.form = 1 << 20,
@@ -19,9 +20,16 @@ final class BodyLimitsMiddleware implements Middleware {
     this.jsonDepth = 64,
   });
 
+  /// The largest JSON body, in bytes.
   final int json;
+
+  /// The largest form body, in bytes.
   final int form;
+
+  /// The largest body of any other type, in bytes.
   final int other;
+
+  /// The deepest nesting a JSON body may have.
   final int jsonDepth;
 
   /// Byte limit that applies to [request] based on its content type.

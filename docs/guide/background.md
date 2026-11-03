@@ -187,3 +187,15 @@ The zone database is compiled into
 the binary (about 0.5 MB, with the alias names PHP accepts: `UTC`, `GMT`,
 `US/Eastern`, ...); an unknown zone name throws at boot, and `dartisan lint`
 reports it (`invalid_timezone`).
+
+## Laravel equivalents
+
+More of Laravel that this works with, and the API to look up on pub.dev.
+
+| Laravel | Daravel | API | Note |
+| :-- | :-- | :-- | :-- |
+| `Cache::flexible($key, [$fresh, $stale], fn)` | `await Cache.flexible(...)` | `Cache.flexible` |  |
+| `SendEmail::dispatch()->withoutDelay()` | `.withoutDelay()` | `PendingDispatch.withoutDelay` |  |
+| `public $deleteWhenMissingModels = true` | `bool get deleteWhenMissingModels => true` | `Job.deleteWhenMissingModels` |  |
+| `#[DebounceFor(60)]` | `Duration? get debounceFor => ...` | `Job.debounceFor` |  |
+| `(new WithoutOverlapping($key))->shared()` | `WithoutOverlapping(key, shared: true)` | `WithoutOverlapping.shared` |  |

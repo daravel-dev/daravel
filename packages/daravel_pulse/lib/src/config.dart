@@ -2,6 +2,7 @@ import 'package:daravel/daravel.dart';
 
 /// The `PULSE_*` settings (the names Laravel Pulse uses where it has one).
 final class PulseConfig implements ConfigSection {
+  /// Pulse settings; usually from `.env` (`PULSE_*`).
   const PulseConfig({
     this.enabled = true,
     this.path = '/pulse',
@@ -16,6 +17,7 @@ final class PulseConfig implements ConfigSection {
     this.parityDriftThreshold = 5,
   });
 
+  /// The settings in `PULSE_*`.
   factory PulseConfig.fromEnv(Env env) => PulseConfig(
     enabled: env.boolean('PULSE_ENABLED', true),
     path: env.string('PULSE_PATH', '/pulse'),

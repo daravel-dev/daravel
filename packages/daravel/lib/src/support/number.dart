@@ -19,7 +19,10 @@ abstract final class Number {
   /// The default currency of [currency] (`Number::useCurrency`).
   static void useCurrency(String code) => _currency = code.toUpperCase();
 
+  /// The locale [Number] formats with by default.
   static String get defaultLocale => _locale;
+
+  /// The currency [Number.currency] uses by default.
   static String get defaultCurrency => _currency;
 
   /// Grouped decimal: up to three fraction digits, [precision] exactly, or up
@@ -235,17 +238,21 @@ abstract final class Number {
 
 /// `5242880.toFileSize()`, `1500.abbreviate()`.
 extension DaravelNumber on num {
+  /// The number as a file size: `1536.toFileSize()` is `2 KB`.
   String toFileSize({int precision = 0}) =>
       Number.fileSize(this, precision: precision);
 
+  /// The number abbreviated: `1200.abbreviate()` is `1K`.
   String abbreviate({int precision = 0}) =>
       Number.abbreviate(this, precision: precision);
 
+  /// The number as money in [code] (the default currency).
   String toCurrency({String? code, String? locale}) =>
       Number.currency(this, code: code, locale: locale);
 }
 
 /// `22.ordinal()` → `22nd`.
 extension DaravelOrdinal on int {
+  /// The number as an ordinal: `1st`, `2nd`.
   String ordinal({String? locale}) => Number.ordinal(this, locale: locale);
 }

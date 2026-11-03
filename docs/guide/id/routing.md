@@ -1,4 +1,4 @@
-<!-- source: routing.md sha256:d73632b9fe72 -->
+<!-- source: routing.md sha256:4fc70e7ed3d8 -->
 # Routing
 
 Route didaftarkan di `routes/api.dart` (di-mount di bawah `/api`) dan
@@ -236,3 +236,17 @@ grup. Tanpa salah satunya, path bersarang tidak memeriksa kepemilikan.
 
 `withTrashed()` juga menemukan model yang di-soft delete, dan
 `missing((request) => ...)` menggantikan 404.
+
+## Padanan Laravel
+
+Bagian lain dari Laravel yang ikut didukung, beserta API yang bisa dicari di pub.dev.
+
+| Laravel | Daravel | API | Catatan |
+| :-- | :-- | :-- | :-- |
+| `Route::match($methods, ...)` | `router.match(methods, path, handler)` | `Router.match` |  |
+| `Route::any(...)` | `router.any(path, handler)` | `Router.any` |  |
+| `Route::fallback(...)` | `router.fallback(handler)` | `Router.fallback` |  |
+| `Route::apiResource('photos', PhotoController::class)` | `router.apiResource('photos', PhotoController())` | `Router.apiResource` |  |
+| `->whereUuid('id')` | `.whereUuid('id')` | `RouteEntry.whereUuid` |  |
+| `/users/{user}/posts/{post:slug}` | path yang sama | `RouteEntry.bindingFields` |  |
+| `->withTrashed() / ->missing(fn () => ...)` | `.withTrashed() / .missing((request) => ...)` | `RouteEntry.missing` |  |

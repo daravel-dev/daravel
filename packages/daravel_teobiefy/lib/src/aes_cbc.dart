@@ -183,6 +183,7 @@ final class TeobiefyAesCbc {
 /// The OpenSSL envelope's setting: the key, under the name the Laravel
 /// application reads (`OPENSSL_KEY` by default, `config/openssl.php`).
 final class TeobiefyAesCbcConfig implements ConfigSection {
+  /// Settings of the AES-CBC payload encryption.
   const TeobiefyAesCbcConfig({
     this.encodedKey = '',
     this.variable = 'OPENSSL_KEY',
@@ -257,6 +258,7 @@ final class TeobiefyAesCbcConfig implements ConfigSection {
 /// stays `application/json`. See [TeobiefyAesCbc] for what this mode does
 /// not protect.
 final class TeobiefyAesCbcMiddleware implements Middleware {
+  /// Encrypts responses and decrypts requests with AES-CBC.
   const TeobiefyAesCbcMiddleware({
     this.decryptRequests = false,
     this.wholeBody = false,

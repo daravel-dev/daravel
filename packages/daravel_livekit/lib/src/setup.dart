@@ -9,12 +9,15 @@ import 'webhook.dart';
 /// it) and its API key and secret (`LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`
 /// or `LIVEKIT_SECRET_KEY`).
 final class LivekitConfig implements ConfigSection {
+  /// LiveKit settings; usually from `.env` (`LIVEKIT_*`).
   const LivekitConfig({
     this.url = 'http://127.0.0.1:7880',
     this.apiKey = '',
     this.apiSecret = '',
   });
 
+  /// The settings in `LIVEKIT_URL`, `LIVEKIT_API_KEY` and
+  /// `LIVEKIT_API_SECRET`.
   factory LivekitConfig.fromEnv(Env env) => LivekitConfig(
     url:
         env.maybeString('LIVEKIT_URL') ??
@@ -25,8 +28,13 @@ final class LivekitConfig implements ConfigSection {
         env.string('LIVEKIT_SECRET_KEY', ''),
   );
 
+  /// The server URL clients connect to.
   final String url;
+
+  /// The API key.
   final String apiKey;
+
+  /// The API secret.
   final String apiSecret;
 
   /// Warns when the key and the secret are missing (LiveKit is not in use
@@ -86,6 +94,7 @@ extension LivekitApplicationBuilder on ApplicationBuilder {
 
 /// LiveKit from anywhere in a request, job or command.
 abstract final class Livekit {
+  /// The LiveKit settings of the current container.
   static LivekitConfig get config =>
       Container.current.make<ConfigRepository>().section<LivekitConfig>();
 

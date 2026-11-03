@@ -1,4 +1,4 @@
-<!-- source: operations.md sha256:d9a4f6c0f60d -->
+<!-- source: operations.md sha256:5d653f1f02f3 -->
 # Operasional
 
 Menjalankan Daravel di bawah trafik nyata: berapa isolate, berapa koneksi
@@ -160,3 +160,13 @@ Beri masa tenggang orchestrator lebih lama daripada `SHUTDOWN_TIMEOUT`:
 Cloud Run menghentikan container 10 detik setelah `SIGTERM`, jadi pakai
 `SHUTDOWN_TIMEOUT=8s` di sana; dengan systemd, jaga `TimeoutStopSec` tetap
 di atasnya.
+
+## Padanan Laravel
+
+Bagian lain dari Laravel yang ikut didukung, beserta API yang bisa dicari di pub.dev.
+
+| Laravel | Daravel | API | Catatan |
+| :-- | :-- | :-- | :-- |
+| `php artisan down --secret / up` | `dartisan down --secret / up` | `PreventRequestsDuringMaintenance` | File storage/framework/down yang sama; cookie bypass `daravel_maintenance`. |
+| `Log::info($message, $context)` | `Log.info(message, context)` | `Log.info` |  |
+| `Log::withContext([...])` | `Log.withContext({...})` | `Log.withContext` |  |

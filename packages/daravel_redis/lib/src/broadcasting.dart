@@ -14,10 +14,17 @@ import 'client.dart';
 /// each server keeps a heartbeat key alive ([beat]), and the connections of
 /// a server whose key expired (it crashed) are dropped as they are read.
 final class RedisChannelState implements ChannelState {
+  /// Channel state of the server [server] in Redis, keys prefixed with
+  /// [prefix].
   RedisChannelState(this.client, {required this.server, this.prefix = ''});
 
+  /// The Redis connection.
   final RedisClient client;
+
+  /// This server's id.
   final String server;
+
+  /// The key prefix.
   final String prefix;
 
   /// How long a server may stay silent before its members stop counting.
@@ -195,12 +202,16 @@ final class _Member {
 /// published once with the server that sent it, and every other server
 /// hands it to its own connections. At most once, as Pub/Sub is.
 final class RedisBroadcastRelay implements BroadcastRelay {
+  /// Relays broadcasts between servers through Redis pub/sub.
   RedisBroadcastRelay(this.client, {required this.state, this.prefix = ''});
 
+  /// The Redis connection.
   final RedisClient client;
 
   /// Sends the heartbeat while the relay runs.
   final RedisChannelState state;
+
+  /// The key and channel prefix.
   final String prefix;
 
   String get _topic => '${prefix}daravel:broadcast';

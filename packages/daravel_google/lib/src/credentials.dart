@@ -28,10 +28,15 @@ final class _StaticToken implements GoogleCredentials {
 /// [onRefresh] receives each new token, to store it (in google/apiclient's
 /// JSON: [GoogleToken.encode]); calls at the same time share one refresh.
 final class UserCredentials implements GoogleCredentials {
+  /// A user's OAuth token, refreshed through [oauth] when it expires.
   UserCredentials(this._token, {required this.oauth, this.onRefresh});
 
   GoogleToken _token;
+
+  /// The OAuth client refreshing the token.
   final GoogleOAuth oauth;
+
+  /// Called with each refreshed token, to store it.
   final FutureOr<void> Function(GoogleToken token)? onRefresh;
   Future<GoogleToken>? _refreshing;
   GoogleException? _revoked;
@@ -105,14 +110,17 @@ final class UserCredentials implements GoogleCredentials {
 /// token endpoint each. Per isolate: worker isolates share no memory, so
 /// each holds its own token, like a PHP-FPM worker's APCu cache.
 final class ServiceAccountCredentialsCache {
+  /// Caches the access tokens of [account] by scopes and subject.
   ServiceAccountCredentialsCache(this.account);
 
+  /// The service account.
   final GoogleServiceAccount account;
   final Map<String, ServiceAccountCredentials> _credentials = {};
 
   /// Credentials held for this isolate.
   int get size => _credentials.length;
 
+  /// The credentials for the given scopes, acting as a user when given.
   ServiceAccountCredentials of({
     required List<String> scopes,
     String? subject,
@@ -126,10 +134,17 @@ final class ServiceAccountCredentialsCache {
 /// given), fetched when first needed and again a minute before it expires;
 /// calls at the same time share one fetch.
 final class ServiceAccountCredentials implements GoogleCredentials {
+  /// The service [account] with [scopes], acting as [subject] when set
+  /// (domain-wide delegation).
   ServiceAccountCredentials(this.account, {required this.scopes, this.subject});
 
+  /// The service account.
   final GoogleServiceAccount account;
+
+  /// The OAuth scopes asked for.
   final List<String> scopes;
+
+  /// The Workspace user acted as, or null.
   final String? subject;
   GoogleToken? _token;
   Future<GoogleToken>? _fetching;

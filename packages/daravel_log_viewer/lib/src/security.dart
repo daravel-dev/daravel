@@ -5,7 +5,10 @@ import 'package:path/path.dart' as p;
 /// Thrown for a file name the viewer refuses (a path, a hidden file, not a
 /// `.log`): answered with 404, as if the file did not exist.
 final class LogFileRefused implements Exception {
+  /// The log file [name] may not be read.
   const LogFileRefused(this.name);
+
+  /// The file asked for.
   final String name;
   @override
   String toString() => 'LogFileRefused: $name';
@@ -13,8 +16,10 @@ final class LogFileRefused implements Exception {
 
 /// Lets the viewer open only `.log` files directly inside its folder.
 final class PathGuard {
+  /// Keeps file access inside [directory].
   PathGuard(this.directory);
 
+  /// The log directory.
   final String directory;
 
   static final RegExp _name = RegExp(
@@ -65,6 +70,7 @@ final class PathGuard {
 
 /// Hides the values of sensitive keys before an entry reaches the page.
 final class Masker {
+  /// Masks the values of the context keys given.
   Masker(List<String> keys)
     : _keys = [
         for (final key in keys)
@@ -77,6 +83,7 @@ final class Masker {
               caseSensitive: false,
             );
 
+  /// What a masked value shows.
   static const String mask = '********';
 
   final List<String> _keys;

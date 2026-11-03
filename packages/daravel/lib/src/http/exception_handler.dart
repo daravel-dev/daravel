@@ -56,9 +56,13 @@ final class ExceptionHandler {
   /// (`withoutExceptionHandling()` in tests).
   static const String rethrowAttribute = 'daravel.rethrow_exceptions';
 
+  /// A handler reporting to the given logger.
   ExceptionHandler({this._logger});
 
   Logger? _logger;
+
+  /// Whether error responses include the exception and its trace
+  /// (`APP_DEBUG`); never in production.
   bool debug = false;
 
   final List<_Renderer<Object>> _renderers = <_Renderer<Object>>[];

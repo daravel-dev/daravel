@@ -2,7 +2,10 @@ import '../foundation/container.dart';
 
 /// Data of one request, job or command (Laravel 11's `Context`).
 final class ContextRepository {
+  /// The context added to every log entry.
   final Map<String, Object?> data = <String, Object?>{};
+
+  /// Context kept out of the logs, still carried to queued jobs.
   final Map<String, Object?> hidden = <String, Object?>{};
 
   /// JSON-safe snapshot carried in queued job payloads (`null` when empty).
@@ -13,6 +16,7 @@ final class ContextRepository {
           'hidden': {...hidden},
         };
 
+  /// Restores the context from a job's [snapshot].
   void hydrate(Map<String, Object?>? snapshot) {
     if (snapshot == null) {
       return;
@@ -64,8 +68,10 @@ abstract final class Context {
     return created;
   }
 
+  /// Adds [key] to the log context of this request or job.
   static void add(String key, Object? value) => current.data[key] = value;
 
+  /// Adds every entry of [values] to the log context.
   static void addMany(Map<String, Object?> values) =>
       current.data.addAll(values);
 
@@ -79,11 +85,14 @@ abstract final class Context {
     current.data[key] = [if (existing is List<Object?>) ...existing, ...values];
   }
 
+  /// The context value [key], or [fallback].
   static T? get<T>(String key, [T? fallback]) =>
       current.data[key] as T? ?? fallback;
 
+  /// Whether the context holds [key].
   static bool has(String key) => current.data.containsKey(key);
 
+  /// Removes [key] from the context.
   static void forget(String key) => current.data.remove(key);
 
   /// Every visible entry.
@@ -93,13 +102,17 @@ abstract final class Context {
   static void addHidden(String key, Object? value) =>
       current.hidden[key] = value;
 
+  /// The hidden context value [key], or [fallback].
   static T? getHidden<T>(String key, [T? fallback]) =>
       current.hidden[key] as T? ?? fallback;
 
+  /// Whether the hidden context holds [key].
   static bool hasHidden(String key) => current.hidden.containsKey(key);
 
+  /// Removes [key] from the hidden context.
   static void forgetHidden(String key) => current.hidden.remove(key);
 
+  /// The whole hidden context.
   static Map<String, Object?> allHidden() => Map.unmodifiable(current.hidden);
 
   /// Visible entries without creating a repository (for log records).

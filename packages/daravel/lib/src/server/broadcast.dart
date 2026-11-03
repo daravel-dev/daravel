@@ -98,6 +98,7 @@ final class BroadcastService implements CoordinatorService, WorkerAwareService {
 /// shared system (a database, a queue) instead. Delivery is at most once,
 /// in publish order per publisher, and starts when [subscribe] completes.
 final class Broadcaster {
+  /// A broadcaster publishing through the coordinator.
   Broadcaster(this._coordinator);
 
   final CoordinatorChannel _coordinator;
@@ -247,6 +248,7 @@ final class Broadcaster {
 final class BroadcastSubscription {
   BroadcastSubscription._(this.channel, this._controller, this._leave);
 
+  /// The channel of the message.
   final String channel;
   final StreamController<String> _controller;
   final Future<void> Function() _leave;
