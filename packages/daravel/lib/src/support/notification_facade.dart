@@ -15,6 +15,7 @@ import '../notifications/notification_manager.dart';
 /// notifications.assertSentTo<InvoicePaid>(user);
 /// ```
 abstract final class Notifications {
+  /// The notification manager of the current container.
   static NotificationManager get manager =>
       Container.current.make<NotificationManager>();
 
@@ -32,16 +33,22 @@ abstract final class Notifications {
     bool unreadOnly = false,
   }) => manager.of(notifiable, unreadOnly: unreadOnly);
 
+  /// The number of unread database notifications of [notifiable].
   static Future<int> unreadCount(Model notifiable) =>
       manager.unreadCount(notifiable);
 
+  /// Marks [notifiable]'s notifications with [ids] (or all) as read and
+  /// returns how many changed.
   static Future<int> markAsRead(Model notifiable, [List<String>? ids]) =>
       manager.markAsRead(notifiable, ids);
 
+  /// Registers the channel [channel] as [name].
   static void extend(String name, NotificationChannel channel) =>
       manager.extend(name, channel);
 
+  /// Records notifications instead of sending them, for tests.
   static NotificationFake fake() => manager.fake();
 
+  /// Undoes [fake].
   static void restore() => manager.restore();
 }

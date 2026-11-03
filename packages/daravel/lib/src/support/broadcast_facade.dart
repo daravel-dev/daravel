@@ -21,8 +21,10 @@ import '../server/broadcast.dart';
 ///     Broadcast.pipe(socket, ['orders.${request.param<int>('id')}']));
 /// ```
 abstract final class Broadcast {
+  /// The default broadcaster of the current container.
   static Broadcaster get broadcaster => Container.current.make<Broadcaster>();
 
+  /// The broadcast manager of the current container.
   static BroadcastManager get manager =>
       Container.current.make<BroadcastManager>();
 
