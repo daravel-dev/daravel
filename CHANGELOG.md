@@ -15,6 +15,7 @@ match Laravel more closely.
 
 - `daravel_lints`: `no_inline_js_interpolation` reports a value interpolated into an inline `on*=` event handler of generated HTML, a Dart value (`$name`) or a JavaScript template value (`\${name}`) in a page's script. HTML escaping does not make that safe, because the browser decodes the entities before it runs the attribute as JavaScript; the finding points at the value and suggests a `data-*` attribute with `addEventListener`. `LintRule.checkAt` lets a rule report an offset inside a node, and defaults to `check`.
 - `dartisan security:audit`: check `DARAVEL-SEC-014` reports scripts and module preloads (medium) and stylesheets (low) loaded from another origin, such as a CDN, without an `integrity` hash; Google Fonts CSS, which differs per browser, is exempt.
+- JWT tokens shared with tymon/jwt-auth, Laravel's `jwt` guard with `lock_subject`: `JWT_SUBJECT_CLASS` (for example `App\Models\User`) makes issued tokens carry `prv` (the sha1 of that class name, as tymon computes it), `nbf` and `iss` (`JWT_ISSUER_CLAIM`, written but not checked), and refuses a token whose `prv` names another class. Unset, tokens are as before. With `JWT_TTL` in minutes and `JWT_LEEWAY=0`, a token issued by tymon/jwt-auth 2.2.1 signs the same user in, and the other way round (conformance test with a token tymon issued).
 
 ### Changed
 
