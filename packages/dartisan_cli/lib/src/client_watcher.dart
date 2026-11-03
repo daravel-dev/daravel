@@ -10,6 +10,8 @@ import 'package:watcher/watcher.dart';
 /// ([regenerate]); runs never overlap, and changes made during one start
 /// another.
 final class ClientWatcher {
+  /// Regenerates the client when a file under [root] changes, after
+  /// [debounce].
   ClientWatcher({
     required this.root,
     required this.regenerate,
@@ -18,6 +20,7 @@ final class ClientWatcher {
     StringSink? out,
   }) : _out = out ?? stdout;
 
+  /// The project's root.
   final String root;
 
   /// Regenerates the client; returns the exit code.
@@ -25,9 +28,12 @@ final class ClientWatcher {
 
   /// Ignored directory (the generated package, when it is inside [root]).
   final String? exclude;
+
+  /// How long to wait after the last change.
   final Duration debounce;
   final StringSink _out;
 
+  /// The directories watched.
   static const List<String> watched = ['lib', 'routes', 'bootstrap', 'config'];
 
   final List<StreamSubscription<WatchEvent>> _subscriptions = [];
@@ -94,6 +100,7 @@ final class ClientWatcher {
     }
   }
 
+  /// Stops watching.
   Future<void> stop() async {
     _timer?.cancel();
     for (final subscription in _subscriptions) {

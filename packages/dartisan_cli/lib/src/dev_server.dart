@@ -8,7 +8,13 @@ import 'package:vm_service/vm_service_io.dart' as vm_io;
 import 'package:watcher/watcher.dart';
 
 /// How a set of file changes is applied (ADR-010).
-enum ReloadAction { hotReload, restart }
+enum ReloadAction {
+  /// Reload the changed libraries in the running server.
+  hotReload,
+
+  /// Stop the server and start it again.
+  restart,
+}
 
 /// Decides between hot reload and restart for changed [paths] (relative to
 /// the project root). Boot-time inputs (env, bootstrap registries, routes,
@@ -33,6 +39,8 @@ ReloadAction actionFor(Iterable<String> paths) {
 /// `dartisan serve --watch`: runs `bin/server.dart` in a child VM with the
 /// VM service enabled, watches the project and hot-reloads (or restarts).
 final class DevServer {
+  /// Runs the server of the project at [root] with the [dart] executable,
+  /// reloading it when files change.
   DevServer({
     required this.root,
     required this.dart,
@@ -41,12 +49,20 @@ final class DevServer {
     StringSink? out,
   }) : _out = out ?? stdout;
 
+  /// The project's root.
   final String root;
+
+  /// The Dart executable.
   final String dart;
+
+  /// Extra environment variables of the server.
   final Map<String, String> environment;
+
+  /// How long to wait after the last change.
   final Duration debounce;
   final StringSink _out;
 
+  /// The directories watched.
   static const List<String> watched = <String>[
     'lib',
     'bin',

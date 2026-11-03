@@ -111,12 +111,14 @@ abstract interface class Prompter {
   /// The indexes of [options] picked; empty when cancelled.
   Future<List<int>> pick(String title, List<String> options, {bool many});
 
+  /// Whether the user answers yes to [question].
   Future<bool> confirm(String question);
 }
 
 /// Questions on stdin: arrow keys and space in a terminal that allows raw
 /// input, numbers typed otherwise (CI, Git Bash's mintty).
 final class TerminalPrompter implements Prompter {
+  /// Asks on the terminal.
   const TerminalPrompter();
 
   @override
@@ -223,19 +225,54 @@ List<int> parsePicks(String text, int count, {bool many = false}) {
 }
 
 /// Keys the selector understands.
-enum SelectorKey { up, down, toggle, enter, cancel, backspace, none }
+enum SelectorKey {
+  /// Moves the highlight up.
+  up,
+
+  /// Moves the highlight down.
+  down,
+
+  /// Ticks or unticks the highlighted option.
+  toggle,
+
+  /// Confirms the selection.
+  enter,
+
+  /// Cancels the selection.
+  cancel,
+
+  /// Removes the last filter character.
+  backspace,
+
+  /// A key with no action.
+  none,
+}
 
 /// The interactive list of `pub:add`: a filter typed as text, a cursor,
 /// and the ticked options. Pure, so it is tested without a terminal.
 final class SelectorState {
+  /// A list of [options], several selectable when [many].
   SelectorState(this.options, {this.many = true});
 
+  /// The options.
   final List<String> options;
+
+  /// Whether several may be ticked.
   final bool many;
+
+  /// The text typed to filter the options.
   String filter = '';
+
+  /// The highlighted option.
   int cursor = 0;
+
+  /// The ticked options.
   final Set<int> ticked = {};
+
+  /// Whether the user confirmed.
   bool done = false;
+
+  /// Whether the user cancelled.
   bool cancelled = false;
 
   /// The indexes of [options] the filter keeps.
@@ -244,6 +281,7 @@ final class SelectorState {
       if (options[i].toLowerCase().contains(filter.toLowerCase())) i,
   ];
 
+  /// Applies [key].
   void key(SelectorKey key) {
     final shown = visible;
     switch (key) {
@@ -299,8 +337,10 @@ final class SelectorState {
     }
   }
 
+  /// The ticked options' indexes; empty when cancelled.
   List<int> get result => cancelled ? const [] : (ticked.toList()..sort());
 
+  /// The lines to draw, under [title].
   List<String> render(String title) {
     final shown = visible;
     return [
@@ -345,6 +385,7 @@ String _table(List<List<String>> rows) {
 
 /// `pub:list`: the first-party packages and whether the project has them.
 final class PubListCommand extends Command<int> {
+  /// The `dartisan pub:list` command.
   PubListCommand() {
     argParser.addFlag('json', negatable: false, help: 'Print JSON.');
   }
@@ -405,6 +446,7 @@ typedef PubDevSearch =
       String query,
     );
 
+/// Searches pub.dev for packages.
 Future<List<({String name, String version, String description})>> searchPubDev(
   String query,
 ) async {
@@ -451,6 +493,7 @@ Future<List<({String name, String version, String description})>> searchPubDev(
 
 /// `pub:search <words> [--online]`.
 final class PubSearchCommand extends Command<int> {
+  /// The `dartisan pub:search` command.
   PubSearchCommand({PubDevSearch? pubDev}) : _pubDev = pubDev ?? searchPubDev {
     argParser.addFlag('online', negatable: false, help: 'Also search pub.dev.');
   }
@@ -509,6 +552,7 @@ final class PubSearchCommand extends Command<int> {
 /// `pub:add <name>... [--yes] [--no-get]` (also `install`): adds packages
 /// and wires them into the project.
 final class PubAddCommand extends Command<int> {
+  /// The `dartisan pub:add` command.
   PubAddCommand({Prompter? prompter, DartRunner? dart})
     : _prompter = prompter ?? const TerminalPrompter(),
       _dart = dart ?? runDart {

@@ -7,6 +7,7 @@ import 'stubs.dart';
 /// Locates a Daravel project (BLUEPRINT_V2 §8.3): a directory with a
 /// `pubspec.yaml` and a `bootstrap/` folder.
 final class ProjectPaths {
+  /// The paths of the project at [root], whose package is [packageName].
   ProjectPaths(this.root, {required this.packageName});
 
   /// Finds the project root starting at [start] (defaults to the cwd),
@@ -36,52 +37,116 @@ final class ProjectPaths {
     }
   }
 
+  /// The project's root.
   final String root;
+
+  /// The project's package name.
   final String packageName;
 
   String _app(List<String> parts) => p.joinAll([root, 'lib', 'app', ...parts]);
 
+  /// `lib/app/models`.
   String get models => _app(['models']);
+
+  /// `lib/app/http/controllers`.
   String get controllers => _app(['http', 'controllers']);
+
+  /// `lib/app/http/requests`.
   String get requests => _app(['http', 'requests']);
+
+  /// `lib/app/http/middleware`.
   String get middleware => _app(['http', 'middleware']);
+
+  /// `lib/app/http/resources`.
   String get resources => _app(['http', 'resources']);
+
+  /// `lib/app/jobs`.
   String get jobs => _app(['jobs']);
+
+  /// `lib/app/events`.
   String get events => _app(['events']);
+
+  /// `lib/app/listeners`.
   String get listeners => _app(['listeners']);
+
+  /// `lib/app/policies`.
   String get policies => _app(['policies']);
+
+  /// `lib/app/query_filters`.
   String get queryFilters => _app(['query_filters']);
+
+  /// `lib/app/rules`.
   String get rules => _app(['rules']);
+
+  /// `lib/app/mail`.
   String get mail => _app(['mail']);
+
+  /// `lib/app/notifications`.
   String get notifications => _app(['notifications']);
+
+  /// `lib/app/observers`.
   String get observers => _app(['observers']);
+
+  /// `lib/app/providers`.
   String get providers => _app(['providers']);
+
+  /// `lib/app/console/commands`.
   String get commands => _app(['console', 'commands']);
+
+  /// `database/migrations`.
   String get migrations => p.join(root, 'database', 'migrations');
+
+  /// `database/seeders`.
   String get seeders => p.join(root, 'database', 'seeders');
+
+  /// `database/factories`.
   String get factories => p.join(root, 'database', 'factories');
+
+  /// `test/feature`.
   String get featureTests => p.join(root, 'test', 'feature');
+
+  /// `test/unit`.
   String get unitTests => p.join(root, 'test', 'unit');
+
+  /// `stubs`, holding the project's own templates.
   String get stubs => p.join(root, 'stubs');
+
+  /// `bootstrap/migrations.dart`.
   String get migrationsRegistry => p.join(root, 'bootstrap', 'migrations.dart');
+
+  /// `bootstrap/seeders.dart`.
   String get seedersRegistry => p.join(root, 'bootstrap', 'seeders.dart');
+
+  /// `bootstrap/jobs.dart`.
   String get jobsRegistry => p.join(root, 'bootstrap', 'jobs.dart');
+
+  /// `bootstrap/models.dart`.
   String get modelsRegistry => p.join(root, 'bootstrap', 'models.dart');
+
+  /// `bootstrap/policies.dart`.
   String get policiesRegistry => p.join(root, 'bootstrap', 'policies.dart');
+
+  /// `bootstrap/query_filters.dart`.
   String get queryFiltersRegistry =>
       p.join(root, 'bootstrap', 'query_filters.dart');
+
+  /// `bootstrap/listeners.dart`.
   String get listenersRegistry => p.join(root, 'bootstrap', 'listeners.dart');
+
+  /// `bootstrap/commands.dart`.
   String get commandsRegistry => p.join(root, 'bootstrap', 'commands.dart');
 }
 
 /// Naming helpers shared by generators.
 abstract final class Naming {
+  /// `blog_post` or `blog post` as `BlogPost`.
   static String pascal(String input) => input
       .split(RegExp(r'[^A-Za-z0-9]+|(?<=[a-z0-9])(?=[A-Z])'))
       .where((s) => s.isNotEmpty)
       .map((s) => s[0].toUpperCase() + s.substring(1))
       .join();
 
+  /// `BlogPost` as `blog_post`.
   static String snake(String input) => input
       .replaceAllMapped(RegExp(r'(?<=[a-z0-9])([A-Z])'), (m) => '_${m[1]}')
       .replaceAll(RegExp(r'[^A-Za-z0-9]+'), '_')
@@ -89,8 +154,10 @@ abstract final class Naming {
       .replaceAll(RegExp(r'^_|_$'), '')
       .toLowerCase();
 
+  /// `BlogPost` as `blog-post`.
   static String kebab(String input) => snake(input).replaceAll('_', '-');
 
+  /// `BlogPost` as `blogPost`.
   static String camel(String input) {
     final pascalCase = pascal(input);
     return pascalCase.isEmpty
@@ -128,14 +195,20 @@ abstract final class Naming {
 
 /// Result of a generation step.
 final class GeneratedFile {
+  /// A file at [path] that was written, overwritten or skipped.
   const GeneratedFile(
     this.path, {
     this.overwritten = false,
     this.skipped = false,
   });
 
+  /// The file's path, relative to the project.
   final String path;
+
+  /// Whether an existing file was replaced (`--force`).
   final bool overwritten;
+
+  /// Whether the file existed and was left alone.
   final bool skipped;
 
   @override
@@ -148,9 +221,16 @@ final class GeneratedFile {
 /// `// <dartisan:imports>` and `// <dartisan:entries>` regions (ADR-002).
 /// Idempotent: existing lines are not duplicated; imports stay sorted.
 abstract final class RegistryPatcher {
+  /// The line opening a registry's import region.
   static const String importsStart = '// <dartisan:imports>';
+
+  /// The line closing a registry's import region.
   static const String importsEnd = '// </dartisan:imports>';
+
+  /// The line opening a registry's entries region.
   static const String entriesStart = '// <dartisan:entries>';
+
+  /// The line closing a registry's entries region.
   static const String entriesEnd = '// </dartisan:entries>';
 
   /// Returns the patched content, or `null` when nothing changed.
@@ -278,6 +358,7 @@ $signature {
 
 /// Writes generated files and keeps registries in sync.
 final class Generator {
+  /// A generator writing into [paths].
   Generator(
     this.paths, {
     this.force = false,
@@ -286,11 +367,20 @@ final class Generator {
     DateTime Function()? clock,
   }) : _clock = clock ?? DateTime.now;
 
+  /// Where files go.
   final ProjectPaths paths;
+
+  /// Whether existing files are overwritten.
   final bool force;
+
+  /// Whether files are only reported, not written.
   final bool dryRun;
+
+  /// Whether the `bootstrap/` registries are patched.
   final bool updateRegistries;
   final DateTime Function() _clock;
+
+  /// The files handled, in order.
   final List<GeneratedFile> log = <GeneratedFile>[];
 
   /// Manual follow-up steps printed after generation.
@@ -322,6 +412,7 @@ final class Generator {
   // Generators
   // ---------------------------------------------------------------------------
 
+  /// A model, its migration and its registry entry (`make:model`).
   GeneratedFile model(String name, {String? table, bool softDeletes = false}) {
     final className = Naming.pascal(name);
     final file = _render(
@@ -347,6 +438,7 @@ final class Generator {
     return file;
   }
 
+  /// A migration creating or changing a table (`make:migration`).
   GeneratedFile migration(String name, {String? create, String? table}) {
     final snake = Naming.snake(name);
     final stamp = Naming.timestamp(_clock());
@@ -379,6 +471,7 @@ final class Generator {
     return file;
   }
 
+  /// A seeder (`make:seeder`).
   GeneratedFile seeder(String name) {
     final className = Naming.pascal(name);
     final file = _render(
@@ -400,6 +493,7 @@ final class Generator {
     return file;
   }
 
+  /// A model factory (`make:factory`).
   GeneratedFile factory(String name, {String? model}) {
     final modelName = Naming.pascal(
       model ?? name.replaceAll(RegExp(r'Factory$'), ''),
@@ -416,6 +510,7 @@ final class Generator {
     );
   }
 
+  /// A controller, plain or resource (`make:controller`).
   GeneratedFile controller(
     String name, {
     bool api = false,
@@ -443,6 +538,7 @@ final class Generator {
     );
   }
 
+  /// A form request (`make:request`).
   GeneratedFile request(String name) {
     final className = Naming.withSuffix(name, 'Request');
     return _render(
@@ -452,6 +548,7 @@ final class Generator {
     );
   }
 
+  /// A middleware (`make:middleware`).
   GeneratedFile middleware(String name) {
     final className = Naming.withSuffix(name, 'Middleware');
     return _render(
@@ -461,6 +558,7 @@ final class Generator {
     );
   }
 
+  /// A queued job and its registry entry (`make:job`).
   GeneratedFile job(String name) {
     final className = Naming.pascal(name);
     final file = _render(
@@ -482,6 +580,7 @@ final class Generator {
     return file;
   }
 
+  /// A policy and its registry entry (`make:policy`).
   GeneratedFile policy(String name, {String? model}) {
     final className = Naming.withSuffix(name, 'Policy');
     final modelName = model == null ? null : Naming.pascal(model);
@@ -551,6 +650,7 @@ final class Generator {
     return file;
   }
 
+  /// An event (`make:event`).
   GeneratedFile event(String name) {
     final className = Naming.pascal(name);
     return _render(
@@ -560,6 +660,7 @@ final class Generator {
     );
   }
 
+  /// A listener and its registry entry (`make:listener`).
   GeneratedFile listener(String name, {String? event}) {
     final className = Naming.pascal(name);
     final eventName = event == null ? null : Naming.pascal(event);
@@ -590,6 +691,7 @@ final class Generator {
     return file;
   }
 
+  /// An API resource (`make:resource`).
   GeneratedFile resource(String name, {String? model}) {
     final className = Naming.withSuffix(name, 'Resource');
     final modelName = Naming.pascal(
@@ -611,6 +713,7 @@ final class Generator {
     );
   }
 
+  /// A validation rule (`make:rule`).
   GeneratedFile rule(String name) {
     final className = Naming.pascal(name);
     return _render(
@@ -649,6 +752,7 @@ final class Generator {
           .map((w) => w[0].toUpperCase() + w.substring(1))
           .join(' ');
 
+  /// A model observer (`make:observer`).
   GeneratedFile observer(String name, {required String model}) {
     final className = Naming.withSuffix(name, 'Observer');
     final modelName = Naming.pascal(model);
@@ -668,6 +772,7 @@ final class Generator {
     );
   }
 
+  /// A service provider (`make:provider`).
   GeneratedFile provider(String name) {
     final className = Naming.withSuffix(name, 'ServiceProvider');
     hints.add(
@@ -680,6 +785,7 @@ final class Generator {
     );
   }
 
+  /// A console command and its registry entry (`make:command`).
   GeneratedFile command(String name, {String? signature}) {
     final className = Naming.withSuffix(name, 'Command');
     final base = className.substring(0, className.length - 'Command'.length);
@@ -706,6 +812,7 @@ final class Generator {
     return file;
   }
 
+  /// A feature test, or a unit test when [unit] (`make:test`).
   GeneratedFile test(String name, {bool unit = false}) {
     final snake = Naming.snake(name.replaceAll(RegExp(r'_?[Tt]est$'), ''));
     return _render(

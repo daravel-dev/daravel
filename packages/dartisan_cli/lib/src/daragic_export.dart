@@ -483,6 +483,7 @@ Map<String, Object?> damLock(Map<String, Object?> dam) {
 /// `daragic:export [--out=dam] [--only=routes,models,...]`: writes the
 /// application's DAM (`dam.json`) and `daragic.lock`.
 final class DaragicExportCommand extends DaravelCommand {
+  /// The `dartisan daragic:export` command.
   DaragicExportCommand(super.createApp) {
     argParser
       ..addOption('out', defaultsTo: 'dam', help: 'Output directory.')

@@ -43,6 +43,7 @@ typedef DartRunner = Future<int> Function(
   String? workingDirectory,
 });
 
+/// The latest version of `daravel` on pub.dev.
 Future<String> pubDevLatest() async {
   final client = HttpClient()..connectionTimeout = const Duration(seconds: 5);
   try {
@@ -64,6 +65,7 @@ Future<String> pubDevLatest() async {
   }
 }
 
+/// Runs `dart` with [args] and returns its exit code.
 Future<int> runDart(List<String> args, {String? workingDirectory}) async {
   final process = await Process.start(
     dartExecutable(),
@@ -152,6 +154,7 @@ String? lockedVersion(String lock) => RegExp(
 /// `dartisan upgrade`: moves a project, and the global CLI, to a Daravel
 /// release (BLUEPRINT #12).
 final class UpgradeCommand extends Command<int> {
+  /// The `dartisan upgrade` command.
   UpgradeCommand({LatestVersion? latest, DartRunner? dart})
     : _latest = latest ?? pubDevLatest,
       _dart = dart ?? runDart {
@@ -265,6 +268,7 @@ File? _lockFile(String root) {
 /// `dartisan self-update`: activates the latest (or `--to`) global
 /// `dartisan_cli`.
 final class SelfUpdateCommand extends Command<int> {
+  /// The `dartisan self-update` command.
   SelfUpdateCommand({DartRunner? dart}) : _dart = dart ?? runDart {
     argParser.addOption('to', help: 'The version to activate.');
   }

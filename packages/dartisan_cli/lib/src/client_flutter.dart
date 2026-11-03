@@ -16,6 +16,7 @@ import 'client_runtime.dart';
 /// on the device (messages resolved by the server's translator), and
 /// `.returns()` becomes models and Laravel's paginators.
 final class ClientFlutterCommand extends DaravelCommand {
+  /// The `dartisan client:flutter` command.
   ClientFlutterCommand(super.createApp) {
     argParser
       ..addOption(
@@ -137,6 +138,7 @@ final class ClientFlutterCommand extends DaravelCommand {
 
 /// A generated client: [files] by path relative to the package root.
 final class GeneratedClient {
+  /// The generated client: its [files] and what they cover.
   GeneratedClient(
     this.files, {
     required this.operations,
@@ -145,9 +147,16 @@ final class GeneratedClient {
     required this.notes,
   });
 
+  /// The generated files, by path.
   final Map<String, String> files;
+
+  /// The API operations covered.
   final int operations;
+
+  /// The response models generated.
   final int models;
+
+  /// The request input classes generated.
   final int inputs;
 
   /// What the client leaves to the server (rules it cannot check, ...).

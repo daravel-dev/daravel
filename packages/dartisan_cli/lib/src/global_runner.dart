@@ -18,6 +18,7 @@ import 'upgrade_command.dart';
 /// so the project's own framework version runs (like `composer` vs
 /// `artisan`; BLUEPRINT_V2 §8.1).
 final class GlobalDartisanRunner extends CommandRunner<int> {
+  /// The commands that work outside a project, such as `new`.
   GlobalDartisanRunner()
     : super('dartisan', 'Daravel command-line interface (global).') {
     argParser.addFlag(

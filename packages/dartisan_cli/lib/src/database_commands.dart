@@ -8,6 +8,7 @@ import '../dartisan_cli.dart';
 
 /// `dartisan db:seed [--class=Name] [--all]` — runs database seeders.
 final class DbSeedCommand extends DaravelCommand {
+  /// The `dartisan db:seed` command.
   DbSeedCommand(super.createApp) {
     argParser
       ..addOption(
@@ -55,6 +56,7 @@ final class DbSeedCommand extends DaravelCommand {
 
 /// `dartisan migrate:fresh [--seed]` — drops all tables and migrates.
 final class MigrateFreshCommand extends DaravelCommand {
+  /// The `dartisan migrate:fresh` command.
   MigrateFreshCommand(super.createApp) {
     argParser
       ..addFlag(
@@ -141,6 +143,7 @@ Future<List<List<String>>?> describeTable(
 
 /// `db:show` — lists the tables of the default connection.
 final class DbShowCommand extends DaravelCommand {
+  /// The `dartisan db:show` command.
   DbShowCommand(super.createApp);
 
   @override
@@ -166,6 +169,7 @@ final class DbShowCommand extends DaravelCommand {
 /// `db:table <table> [--limit=N]` — shows the columns of a table and,
 /// with `--limit`, its first rows.
 final class DbTableCommand extends DaravelCommand {
+  /// The `dartisan db:table` command.
   DbTableCommand(super.createApp) {
     argParser.addOption(
       'limit',
@@ -248,6 +252,7 @@ Future<Map<String, Object?>> modelDetails(
 /// `model:show <Model> [--json]` — a model's table, attributes and
 /// relations (Laravel 11), from `bootstrap/models.dart`.
 final class ModelShowCommand extends DaravelCommand {
+  /// The `dartisan model:show` command.
   ModelShowCommand(super.createApp) {
     argParser.addFlag('json', negatable: false, help: 'Output JSON.');
   }
@@ -393,6 +398,7 @@ List<String> pruneBackups(String directory, int keep) {
 /// into `storage/backups/` (schedule it with
 /// `schedule.command('db:backup', ['--keep=14']).dailyAt('02:00')`).
 final class DbBackupCommand extends DaravelCommand {
+  /// The `dartisan db:backup` command.
   DbBackupCommand(super.createApp) {
     argParser
       ..addOption(

@@ -24,6 +24,7 @@ String? _keyFromEnvironment() {
 /// `env:encrypt [--key] [--cipher] [--env] [--readable] [--prune] [--force]`
 /// — writes `.env.encrypted`, compatible with `php artisan env:encrypt`.
 final class EnvEncryptCommand extends Command<int> {
+  /// The `dartisan env:encrypt` command.
   EnvEncryptCommand({this.root}) {
     argParser
       ..addOption('key', help: 'Encryption key (base64:... or 32 characters).')
@@ -115,6 +116,7 @@ final class EnvEncryptCommand extends Command<int> {
 /// `env:decrypt [--key] [--env] [--filename] [--path] [--force]` — writes
 /// the plain file back, compatible with `php artisan env:decrypt`.
 final class EnvDecryptCommand extends Command<int> {
+  /// The `dartisan env:decrypt` command.
   EnvDecryptCommand({this.root}) {
     argParser
       ..addOption(
@@ -202,6 +204,7 @@ final class EnvDecryptCommand extends Command<int> {
 /// This is obfuscation, not encryption: the mask ships in the same binary.
 /// Use `env:encrypt` for secrets kept in a repository.
 final class EnvObfuscateCommand extends Command<int> {
+  /// The `dartisan env:obfuscate` command.
   EnvObfuscateCommand({this.root, Random? random})
     : _random = random ?? Random.secure() {
     argParser

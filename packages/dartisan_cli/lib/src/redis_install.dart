@@ -79,6 +79,7 @@ String addRedisService(String compose, {String server = 'valkey'}) {
 /// to the project, registers `.withRedis()` and its commands, documents its
 /// `.env` keys and, with `--docker`, a Valkey (or Redis) service.
 final class RedisInstallCommand extends Command<int> {
+  /// The `dartisan redis:install` command.
   RedisInstallCommand() {
     argParser
       ..addFlag(
