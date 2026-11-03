@@ -13,8 +13,11 @@ import 'translator.dart';
 /// middleware.use(const [SetLocaleMiddleware(supported: ['en', 'id'])]);
 /// ```
 final class SetLocaleMiddleware implements Middleware {
+  /// Picks the locale among [supported] from the query parameter [query]
+  /// (`?lang=`) or `Accept-Language`.
   const SetLocaleMiddleware({required this.supported, this.query = 'lang'});
 
+  /// The locales the application has.
   final List<String> supported;
 
   /// The query parameter that chooses the locale (`null` to ignore it).

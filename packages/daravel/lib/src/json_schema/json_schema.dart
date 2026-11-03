@@ -10,18 +10,24 @@
 /// schema.toArray();
 /// ```
 abstract final class JsonSchema {
+  /// An object with the given properties.
   static ObjectSchema object([
     Map<String, SchemaType> properties = const <String, SchemaType>{},
   ]) => ObjectSchema(properties);
 
+  /// An array.
   static ArraySchema array() => ArraySchema();
 
+  /// A string.
   static StringSchema string() => StringSchema();
 
+  /// An integer.
   static IntegerSchema integer() => IntegerSchema();
 
+  /// A number.
   static NumberSchema number() => NumberSchema();
 
+  /// A boolean.
   static BooleanSchema boolean() => BooleanSchema();
 
   /// A value of any of the named [types] (`"type": ["string", "integer"]`).
@@ -46,6 +52,7 @@ abstract class SchemaType {
   /// The keywords of this kind of node.
   Map<String, Object?> get _keywords => const <String, Object?>{};
 
+  /// The schema as a JSON Schema map.
   Map<String, Object?> toArray() {
     final type = _type;
     return <String, Object?>{
@@ -66,26 +73,31 @@ abstract class SchemaType {
     'enum': ?_enum,
   };
 
+  /// The schema as JSON.
   Map<String, Object?> toJson() => toArray();
 }
 
 /// The setters every node shares. An extension, so each returns its own type.
 extension SchemaTypeFluent<S extends SchemaType> on S {
+  /// Marks the property as required in its object.
   S required([bool required = true]) {
     _required = required;
     return this;
   }
 
+  /// Allows `null` too.
   S nullable([bool nullable = true]) {
     _nullable = nullable;
     return this;
   }
 
+  /// The schema's title.
   S title(String value) {
     _title = value;
     return this;
   }
 
+  /// The schema's description.
   S description(String value) {
     _description = value;
     return this;
@@ -104,12 +116,16 @@ extension SchemaTypeFluent<S extends SchemaType> on S {
   }
 }
 
+/// A JSON object schema.
 final class ObjectSchema extends SchemaType {
+  /// An object with [properties].
   ObjectSchema(this.properties);
 
+  /// The object's properties.
   final Map<String, SchemaType> properties;
   bool _closed = false;
 
+  /// Refuses properties not listed (`additionalProperties: false`).
   ObjectSchema withoutAdditionalProperties() {
     _closed = true;
     return this;
@@ -136,27 +152,32 @@ final class ObjectSchema extends SchemaType {
   }
 }
 
+/// A JSON array schema.
 final class ArraySchema extends SchemaType {
   int? _min;
   int? _max;
   SchemaType? _items;
   bool _unique = false;
 
+  /// At least [value] items.
   ArraySchema min(int value) {
     _min = value;
     return this;
   }
 
+  /// At most [value] items.
   ArraySchema max(int value) {
     _max = value;
     return this;
   }
 
+  /// Items of [type].
   ArraySchema items(SchemaType type) {
     _items = type;
     return this;
   }
 
+  /// Items all different.
   ArraySchema unique([bool unique = true]) {
     _unique = unique;
     return this;
@@ -174,27 +195,32 @@ final class ArraySchema extends SchemaType {
   };
 }
 
+/// A JSON string schema.
 final class StringSchema extends SchemaType {
   int? _min;
   int? _max;
   String? _pattern;
   String? _format;
 
+  /// At least [value] characters.
   StringSchema min(int value) {
     _min = value;
     return this;
   }
 
+  /// At most [value] characters.
   StringSchema max(int value) {
     _max = value;
     return this;
   }
 
+  /// Matching the regular expression [value].
   StringSchema pattern(String value) {
     _pattern = value;
     return this;
   }
 
+  /// Of the format [value] (`email`, `date-time`, `uuid`...).
   StringSchema format(String value) {
     _format = value;
     return this;
@@ -212,21 +238,25 @@ final class StringSchema extends SchemaType {
   };
 }
 
+/// A JSON integer schema.
 final class IntegerSchema extends SchemaType {
   int? _min;
   int? _max;
   int? _multipleOf;
 
+  /// At least [value].
   IntegerSchema min(int value) {
     _min = value;
     return this;
   }
 
+  /// At most [value].
   IntegerSchema max(int value) {
     _max = value;
     return this;
   }
 
+  /// A multiple of [value].
   IntegerSchema multipleOf(int value) {
     _multipleOf = value;
     return this;
@@ -243,21 +273,25 @@ final class IntegerSchema extends SchemaType {
   };
 }
 
+/// A JSON number schema.
 final class NumberSchema extends SchemaType {
   num? _min;
   num? _max;
   num? _multipleOf;
 
+  /// At least [value].
   NumberSchema min(num value) {
     _min = value;
     return this;
   }
 
+  /// At most [value].
   NumberSchema max(num value) {
     _max = value;
     return this;
   }
 
+  /// A multiple of [value].
   NumberSchema multipleOf(num value) {
     _multipleOf = value;
     return this;
@@ -274,23 +308,30 @@ final class NumberSchema extends SchemaType {
   };
 }
 
+/// A JSON boolean schema.
 final class BooleanSchema extends SchemaType {
   @override
   Object? get _type => 'boolean';
 }
 
+/// A value of any of several JSON types.
 final class UnionSchema extends SchemaType {
+  /// Any of the JSON [types].
   UnionSchema(this.types);
 
+  /// The JSON type names.
   final List<String> types;
 
   @override
   Object? get _type => types;
 }
 
+/// A value matching any of several schemas.
 final class AnyOfSchema extends SchemaType {
+  /// Any of [schemas].
   AnyOfSchema(this.schemas);
 
+  /// The schemas.
   final List<SchemaType> schemas;
 
   @override

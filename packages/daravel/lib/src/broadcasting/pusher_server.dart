@@ -22,6 +22,7 @@ import 'pusher_signature.dart';
 /// several servers (`REVERB_SCALING_ENABLED`), [state] and [relay] share
 /// both through the database instead.
 final class PusherServer {
+  /// A Pusher-protocol WebSocket server (Reverb's) inside the application.
   PusherServer(
     this.config,
     this._broadcaster,
@@ -30,6 +31,7 @@ final class PusherServer {
     this.relay,
   }) : _state = state ?? _CoordinatorChannelState(coordinator);
 
+  /// The broadcasting settings.
   final BroadcastConfig config;
   final Broadcaster _broadcaster;
   final ChannelState _state;

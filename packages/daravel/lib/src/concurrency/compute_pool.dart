@@ -7,6 +7,7 @@ import 'dart:math' as math;
 /// Between tasks the caller holds only `SendPort`s and an exit port that does
 /// not keep it alive, so an idle pool never holds a CLI or a test process open.
 final class ComputePool {
+  /// A pool of at most [maxWorkers] isolates.
   ComputePool(this.maxWorkers);
 
   /// Read at each spawn, so it can change between runs.

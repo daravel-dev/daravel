@@ -41,15 +41,20 @@ String _labelKey(Map<String, String> labels) {
 final class Counter {
   Counter._(this.name, this.help);
 
+  /// The metric's name.
   final String name;
+
+  /// The metric's help text.
   final String help;
   final Map<String, double> _values = <String, double>{};
 
+  /// Adds [by] to the series of [labels].
   void inc([Map<String, String> labels = const {}, double by = 1]) {
     final key = _labelKey(labels);
     _values[key] = (_values[key] ?? 0) + by;
   }
 
+  /// The value of the series of [labels].
   double value([Map<String, String> labels = const {}]) =>
       _values[_labelKey(labels)] ?? 0;
 }
@@ -58,22 +63,29 @@ final class Counter {
 final class Gauge {
   Gauge._(this.name, this.help, this._collect);
 
+  /// The metric's name.
   final String name;
+
+  /// The metric's help text.
   final String help;
   final double Function()? _collect;
   final Map<String, double> _values = <String, double>{};
 
+  /// Sets the series of [labels] to [value].
   void set(double value, [Map<String, String> labels = const {}]) =>
       _values[_labelKey(labels)] = value;
 
+  /// Adds [by] to the series of [labels].
   void inc([Map<String, String> labels = const {}, double by = 1]) {
     final key = _labelKey(labels);
     _values[key] = (_values[key] ?? 0) + by;
   }
 
+  /// Subtracts [by] from the series of [labels].
   void dec([Map<String, String> labels = const {}, double by = 1]) =>
       inc(labels, -by);
 
+  /// The value of the series of [labels].
   double value([Map<String, String> labels = const {}]) =>
       _values[_labelKey(labels)] ?? 0;
 }
@@ -89,11 +101,17 @@ final class _HistogramSeries {
 final class Histogram {
   Histogram._(this.name, this.help, this.buckets);
 
+  /// The metric's name.
   final String name;
+
+  /// The metric's help text.
   final String help;
+
+  /// The bucket upper bounds.
   final List<double> buckets;
   final Map<String, _HistogramSeries> _series = {};
 
+  /// Records [value] in the series of [labels].
   void observe(double value, [Map<String, String> labels = const {}]) {
     final series = _series.putIfAbsent(
       _labelKey(labels),
@@ -124,6 +142,7 @@ final class MetricsRegistry {
   final Map<String, Gauge> _gauges = <String, Gauge>{};
   final Map<String, Histogram> _histograms = <String, Histogram>{};
 
+  /// The counter [name], created on first use.
   Counter counter(String name, String help) =>
       _counters.putIfAbsent(name, () => Counter._(name, help));
 
@@ -131,6 +150,7 @@ final class MetricsRegistry {
   Gauge gauge(String name, String help, {double Function()? collect}) =>
       _gauges.putIfAbsent(name, () => Gauge._(name, help, collect));
 
+  /// The histogram [name], created on first use.
   Histogram histogram(
     String name,
     String help, {
@@ -274,10 +294,13 @@ final class MetricsRegistry {
 /// `stats`), `collect` adds the coordinator's message counters, so a flood
 /// of messages from the workers shows on `/metrics`.
 final class MetricsService implements CoordinatorService {
+  /// A service merging the workers' metrics.
   MetricsService({this.coordinatorStats});
 
+  /// The coordinator service name.
   static const String serviceName = 'metrics';
 
+  /// Adds the coordinator's own numbers to the output.
   final Map<String, Object?> Function()? coordinatorStats;
 
   /// [Coordinator.stats] as metrics, in the shape of
@@ -354,19 +377,24 @@ final class MetricsService implements CoordinatorService {
 
 /// `METRICS_*` configuration.
 final class MetricsConfig implements ConfigSection {
+  /// Metrics settings; usually from `.env` (`METRICS_*`).
   const MetricsConfig({
     this.enabled = false,
     this.path = '/metrics',
     this.token,
   });
 
+  /// The settings in `METRICS_*`.
   factory MetricsConfig.fromEnv(Env env) => MetricsConfig(
     enabled: env.boolean('METRICS_ENABLED', false),
     path: env.string('METRICS_PATH', '/metrics'),
     token: env.maybeString('METRICS_TOKEN'),
   );
 
+  /// Whether `/metrics` is served.
   final bool enabled;
+
+  /// The path it is served at.
   final String path;
 
   /// When set, `/metrics` requires `Authorization: Bearer <token>`.
@@ -385,6 +413,7 @@ final class MetricsConfig implements ConfigSection {
 
 /// Framework metrics: HTTP, queue and process (BLUEPRINT_V2 §7.10.4).
 final class AppMetrics {
+  /// The framework's metrics in [registry].
   AppMetrics(this.registry, {this.channel}) {
     requests = registry.counter(
       'http_requests_total',
@@ -447,15 +476,25 @@ final class AppMetrics {
     1,
   ];
 
+  /// The registry holding the metrics.
   final MetricsRegistry registry;
 
   /// Coordinator channel for cross-isolate aggregation (remote only).
   final CoordinatorChannel? channel;
 
+  /// Requests by method, route and status.
   late final Counter requests;
+
+  /// Request durations.
   late final Histogram duration;
+
+  /// Requests in progress.
   late final Gauge inFlight;
+
+  /// Jobs by outcome.
   late final Counter jobs;
+
+  /// Requests shed under load.
   late final Counter shed;
 
   /// The `worker` label of [inFlight] and [shed]: the isolate's name
@@ -519,8 +558,10 @@ final class AppMetrics {
 /// the route pattern (`/users/{id}`), never the raw path, to bound
 /// cardinality; unmatched requests use `unmatched`.
 final class MetricsMiddleware implements Middleware {
+  /// Counts every request in [metrics].
   const MetricsMiddleware(this.metrics);
 
+  /// The metrics updated.
   final AppMetrics metrics;
 
   @override

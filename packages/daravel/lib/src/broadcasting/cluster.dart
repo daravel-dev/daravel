@@ -15,6 +15,7 @@ import '../foundation/clock.dart';
 /// ([DatabaseChannelState], several servers). The operations and their
 /// results are the coordinator's `ChannelMembershipService`'s.
 abstract interface class ChannelState {
+  /// Runs [op] with [args] on the shared state.
   Future<Object?> call(String op, Map<String, Object?> args);
 }
 
@@ -30,6 +31,7 @@ abstract interface class BroadcastRelay {
   /// connections) until [close]; completes once it listens.
   Future<void> start(void Function(String channel, String envelope) deliver);
 
+  /// Stops relaying.
   Future<void> close();
 }
 
@@ -49,10 +51,16 @@ String defaultBroadcastServerId() => '${Platform.localHostname}:$pid';
 /// been silent for [liveness] (it crashed) are no longer counted, and
 /// [prune] deletes them.
 final class DatabaseChannelState implements ChannelState {
+  /// Channel state of the server [server] in [db].
   DatabaseChannelState(this.db, {required this.server, this.connection});
 
+  /// The database holding the state.
   final DatabaseManager db;
+
+  /// This server's id.
   final String server;
+
+  /// The connection of the tables; the default one when null.
   final String? connection;
 
   /// How long a server may stay silent before its members stop counting.
@@ -242,6 +250,7 @@ final class DatabaseChannelState implements ChannelState {
 /// every [poll]. A reader looks back 64 ids, so a frame committed after a
 /// later one (two servers inserting at once) is still delivered, once.
 final class DatabaseBroadcastRelay implements BroadcastRelay {
+  /// Relays messages between servers through [db], polling every [poll].
   DatabaseBroadcastRelay(
     this.db, {
     required this.state,
@@ -250,12 +259,19 @@ final class DatabaseBroadcastRelay implements BroadcastRelay {
     this.onError,
   });
 
+  /// The database relaying the messages.
   final DatabaseManager db;
 
   /// Sends the heartbeat and prunes as the relay runs.
   final DatabaseChannelState state;
+
+  /// The connection of the tables; the default one when null.
   final String? connection;
+
+  /// How often new messages are read.
   final Duration poll;
+
+  /// Called when relaying fails.
   final void Function(Object error)? onError;
 
   /// The notification that wakes the readers.
@@ -263,6 +279,7 @@ final class DatabaseBroadcastRelay implements BroadcastRelay {
 
   static const int _lookBack = 64;
 
+  /// This server's id.
   String get server => state.server;
 
   bool _running = false;
@@ -394,6 +411,7 @@ final class DatabaseBroadcastRelay implements BroadcastRelay {
 /// The tables of `REVERB_SCALING_ENABLED`: relayed frames, channel
 /// members, server heartbeats and cache channels.
 final class CreateBroadcastingTables extends Migration {
+  /// The migration creating the broadcasting relay tables.
   const CreateBroadcastingTables();
 
   @override

@@ -20,6 +20,7 @@ import 'notification.dart';
 
 /// Delivers a notification on one channel; [id] is this delivery's UUID.
 abstract interface class NotificationChannel {
+  /// Sends [notification] to [notifiable] now.
   Future<void> send(Object notifiable, Notification notification, String id);
 }
 
@@ -28,26 +29,33 @@ abstract interface class NotificationChannel {
 /// returns JSON, [deliver] gets it back in the job.
 abstract interface class QueueableNotificationChannel
     implements NotificationChannel {
+  /// The payload queued for [notification], when the channel is queued.
   Map<String, Object?> prepare(
     Object notifiable,
     Notification notification,
     String id,
   );
 
+  /// Delivers a queued payload.
   Future<void> deliver(Map<String, Object?> payload);
 }
 
 /// A notifiable that decides its own routes (Laravel's
 /// `routeNotificationFor<Channel>`): return `null` for the default.
 abstract interface class RoutesNotifications {
+  /// Where the channel delivers: an email address, a phone number, a
+  /// Webhook URL...
   Object? routeNotificationFor(String channel, Notification notification);
 }
 
 /// Recipients without a model (`Notifications.route('mail', 'a@b.co')`).
 final class AnonymousNotifiable implements RoutesNotifications {
+  /// A notifiable that is no model: `Notification.route('mail', email)`.
   AnonymousNotifiable(this._manager, this.routes);
 
   final NotificationManager _manager;
+
+  /// The address per channel.
   final Map<String, Object> routes;
 
   /// Adds another channel's route.
@@ -56,6 +64,7 @@ final class AnonymousNotifiable implements RoutesNotifications {
     return this;
   }
 
+  /// Sends [notification] to the routes.
   Future<void> notify(Notification notification) =>
       _manager.send(this, notification);
 
@@ -81,9 +90,12 @@ MailAddress mailAddressOf(Model model) {
 /// Sends `toMail` (a [NotificationMail] or a [Mailable]) to the
 /// notifiable's address.
 final class MailChannel implements NotificationChannel {
+  /// Sends notifications as mail, signed with [appName].
   MailChannel(this._mailer, {required this.appName});
 
   final Mailer _mailer;
+
+  /// The application name in greetings and signatures.
   final String appName;
 
   @override
@@ -141,6 +153,7 @@ final class MailChannel implements NotificationChannel {
 
 /// Stores the notification in Laravel's `notifications` table.
 final class DatabaseChannel implements QueueableNotificationChannel {
+  /// Stores notifications in the `notifications` table.
   DatabaseChannel(this._db);
 
   final DatabaseManager _db;
@@ -185,6 +198,7 @@ final class DatabaseChannel implements QueueableNotificationChannel {
 
 /// A row of the `notifications` table.
 final class DatabaseNotification {
+  /// A notification read from a row of `notifications`.
   DatabaseNotification.fromRow(Map<String, Object?> row)
     : id = '${row['id']}',
       type = '${row['type']}',
@@ -196,12 +210,22 @@ final class DatabaseNotification {
       readAt = _date(row['read_at']),
       createdAt = _date(row['created_at']);
 
+  /// The notification's UUID.
   final String id;
+
+  /// The notification type.
   final String type;
+
+  /// The notification's data.
   final Map<String, Object?> data;
+
+  /// When it was read, or null.
   final DateTime? readAt;
+
+  /// When it was created.
   final DateTime? createdAt;
 
+  /// Whether it was read.
   bool get read => readAt != null;
 
   static DateTime? _date(Object? value) => switch (value) {
@@ -218,6 +242,7 @@ final class DatabaseNotification {
 /// Laravel's `BroadcastNotificationCreated` event: `{"event": ..., "data":
 /// {...toBroadcast, "id": ..., "type": ...}}`.
 final class BroadcastChannel implements QueueableNotificationChannel {
+  /// Broadcasts notifications on the notifiable's private channel.
   BroadcastChannel(this._manager);
 
   final BroadcastManager _manager;
@@ -280,6 +305,7 @@ final class BroadcastChannel implements QueueableNotificationChannel {
 
 /// Sends notifications on their channels (the `Notifications` facade).
 final class NotificationManager {
+  /// A manager sending through the registered channels.
   NotificationManager(
     this._db,
     Mailer mailer, {
@@ -295,6 +321,7 @@ final class NotificationManager {
          ...channels,
        };
 
+  /// The notifications table, shared with Laravel.
   static const String table = 'notifications';
 
   final DatabaseManager _db;
@@ -394,6 +421,7 @@ final class NotificationManager {
       .where('notifiable_id', notifiable.key)
       .orderByDesc('created_at');
 
+  /// The database notifications of a notifiable, newest first.
   Future<List<DatabaseNotification>> of(
     Model notifiable, {
     bool unreadOnly = false,
@@ -407,6 +435,7 @@ final class NotificationManager {
     ];
   }
 
+  /// The number of unread database notifications of [notifiable].
   Future<int> unreadCount(Model notifiable) =>
       query(notifiable).whereNull('read_at').count();
 
@@ -424,16 +453,20 @@ final class NotificationManager {
   /// Records notifications instead of sending them (`Notifications.fake()`).
   NotificationFake fake() => _fake = NotificationFake();
 
+  /// Undoes `fake()`.
   void restore() => _fake = null;
 }
 
 /// The job that delivers a queued notification on a queueable channel
 /// (`daravel:notification`, registered by the framework).
 final class SendQueuedNotification extends Job {
+  /// A job delivering [payload] through [channel].
   const SendQueuedNotification(this.channel, this.payload);
 
+  /// The job name in the payload.
   static const String name = 'daravel:notification';
 
+  /// The definition to list in `bootstrap/jobs.dart`.
   static final JobDefinition definition = JobDefinition(
     name,
     (json) => SendQueuedNotification(
@@ -442,7 +475,10 @@ final class SendQueuedNotification extends Job {
     ),
   );
 
+  /// The channel delivering.
   final String channel;
+
+  /// What it delivers.
   final Map<String, Object?> payload;
 
   @override
@@ -468,6 +504,7 @@ final class SendQueuedNotification extends Job {
 
 /// What `Notifications.fake()` recorded, with Laravel's assertions.
 final class NotificationFake {
+  /// The notifications sent while faked.
   final List<
     ({Object notifiable, Notification notification, List<String> channels})
   >
@@ -494,6 +531,7 @@ final class NotificationFake {
         n,
   ];
 
+  /// Fails unless a notification of type [N] was sent to the notifiable.
   void assertSentTo<N extends Notification>(
     Object notifiable, [
     bool Function(N notification, List<String> channels)? where,
@@ -503,6 +541,7 @@ final class NotificationFake {
     }
   }
 
+  /// Fails if a notification of type [N] was sent to [notifiable].
   void assertNotSentTo<N extends Notification>(Object notifiable) {
     if (sentTo<N>(notifiable).isNotEmpty) {
       throw StateError('Expected [$N] not to be sent to $notifiable; it was.');
@@ -525,6 +564,7 @@ final class NotificationFake {
     }
   }
 
+  /// Fails unless notifications of type [N] were sent [times] times.
   void assertSentTimes<N extends Notification>(int times) {
     final count = sent.where((e) => e.notification is N).length;
     if (count != times) {
@@ -532,6 +572,7 @@ final class NotificationFake {
     }
   }
 
+  /// Fails if any notification was sent.
   void assertNothingSent() {
     if (sent.isNotEmpty) {
       throw StateError(
@@ -544,6 +585,7 @@ final class NotificationFake {
 
 /// `user.notify(...)` (Laravel's `Notifiable` trait) for every model.
 extension NotifiableModel on Model {
+  /// Sends [notification] to this model.
   Future<void> notify(Notification notification) =>
       Container.current.make<NotificationManager>().send(this, notification);
 
@@ -558,6 +600,7 @@ extension NotifiableModel on Model {
 /// Laravel's `notifications` table (`make:notifications-table`). Created
 /// only when missing, so a database already migrated by Laravel is fine.
 final class CreateNotificationsTable extends Migration {
+  /// The migration creating `notifications`, as Laravel's.
   const CreateNotificationsTable();
 
   @override
