@@ -253,4 +253,81 @@ void consoleRoutes(Schedule schedule) {
     expect(issues[1].message, contains('Unknown time zone "Mars/Base"'));
     expect(lintSource(source, 'lib/src/x.dart'), isEmpty);
   });
+
+  group('no_inline_js_interpolation', () {
+    const rule = [NoInlineJsInterpolation()];
+
+    test('flags a Dart value inside an on* attribute, at the value', () {
+      const source = r'''
+String card(String id, String name) =>
+    '<button onclick="join(\'$id\', \'${name}\')">Join</button>';
+String image(String src) => "<img src=x onerror='load($src)'>";
+String link(String id) => '<a href=# onclick=go($id)>x</a>';
+''';
+      final issues = lintSource(source, 'lib/resources/views/card.dart');
+      expect(rulesOf(issues), List.filled(3, 'no_inline_js_interpolation'));
+      final lines = source.split('\n');
+      expect([for (final i in issues) i.line], [2, 3, 4]);
+      // The column points at the first interpolation, not the literal.
+      expect(issues[0].column, lines[1].indexOf(r'$id') + 1);
+      expect(issues[1].column, lines[2].indexOf(r'$src') + 1);
+      expect(issues[0].message, contains('addEventListener'));
+    });
+
+    test('flags a JavaScript template value in a page script', () {
+      const source = r'''
+String page() => """
+<script>
+  card.innerHTML = `
+    <div class="m-title">\${escapeHtml(m.name)}</div>
+    <button onclick="handleJoinMeeting('\${meetingId}', '\${m.name}')">
+    <button onclick="openModal()">Edit</button>
+    <button onclick="handleDeleteMeeting('\${meetingId}')">
+  `;
+</script>
+""";
+''';
+      final issues = lintSource(source, 'lib/resources/views/page.dart');
+      // One finding per attribute, each in the one long literal.
+      expect(rulesOf(issues), List.filled(2, 'no_inline_js_interpolation'));
+      expect([for (final i in issues) i.line], [5, 7]);
+      expect(
+        issues.first.column,
+        source.split('\n')[4].indexOf(r'\${meetingId}') + 1,
+      );
+    });
+
+    test('leaves handlers without values and values outside them', () {
+      const source = r'''
+String a(String label, String id, String t) =>
+    '<button onclick="openModal()" title="$t">${label}</button>'
+    '<button data-id="$id" class="join">Join</button>'
+    '<p>Depends on: $label</p>'
+    '<script>element.onclick = () => go(${id});</script>';
+String b() => r'<button onclick="go()">${notDart}</button>';
+''';
+      expect(lintSource(source, 'lib/app/a.dart', rules: rule), isEmpty);
+    });
+
+    test('is silenced by an ignore comment and skips lib/src', () {
+      const source = r'''
+String card(String json) =>
+    // daravel-lint-ignore: no_inline_js_interpolation
+    '<button onclick="join($json)">Join</button>';
+String other(String id) => '<a onclick="go($id)">x</a>';
+''';
+      final issues = lintSource(source, 'lib/app/a.dart', rules: rule);
+      expect([for (final i in issues) i.line], [4]);
+      expect(lintSource(source, 'lib/src/a.dart', rules: rule), isEmpty);
+    });
+
+    test('decodes escapes before it looks for the attribute', () {
+      // \x6f\x6e is "on" and \x22 a double quote in the Dart value.
+      const source = r'''
+String a(String id) => '<b \x6f\x6eclick=\x22go($id)\x22>x</b>';
+''';
+      final issues = lintSource(source, 'lib/app/a.dart', rules: rule);
+      expect(issues.single.column, source.indexOf(r'$id') + 1);
+    });
+  });
 }

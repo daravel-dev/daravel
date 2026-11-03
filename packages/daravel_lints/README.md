@@ -16,6 +16,7 @@ run by `dartisan lint` and in tests (they are not an IDE analyzer plugin).
 | `invalid_validation_rule` | unknown validation rules and missing arguments (`max` without a value) |
 | `unawaited_in_db_transaction` | a query inside `DB.transaction` that is not awaited |
 | `invalid_timezone` | a time zone name the scheduler does not know |
+| `no_inline_js_interpolation` | a value interpolated into an inline `on*=` handler of generated HTML, where HTML escaping does not stop a quote from ending the JavaScript string (use a `data-*` attribute and `addEventListener`) |
 | `registry_entry_missing` | migrations, jobs, policies, listeners or commands left out of `bootstrap/` |
 
 Suppress a finding with `// daravel-lint-ignore: <rule>` on the same line or the

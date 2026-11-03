@@ -9,6 +9,12 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 wait for a new major version, and Laravel-facing formats change only to
 match Laravel more closely.
 
+## Unreleased
+
+### Added
+
+- `daravel_lints`: `no_inline_js_interpolation` reports a value interpolated into an inline `on*=` event handler of generated HTML, a Dart value (`$name`) or a JavaScript template value (`\${name}`) in a page's script. HTML escaping does not make that safe, because the browser decodes the entities before it runs the attribute as JavaScript; the finding points at the value and suggests a `data-*` attribute with `addEventListener`. `LintRule.checkAt` lets a rule report an offset inside a node, and defaults to `check`.
+
 ## 1.24.1
 
 A documentation release: the API docs on pub.dev, the guide and the example applications; no change to the API.
