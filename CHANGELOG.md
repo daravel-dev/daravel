@@ -13,7 +13,7 @@ match Laravel more closely.
 
 ### Added
 
-- `dartisan security:audit`: check `DARAVEL-SEC-014` reports scripts (medium) and stylesheets (low) loaded from another origin, such as a CDN, without an `integrity` hash; Google Fonts CSS, which differs per browser, is exempt.
+- `dartisan security:audit`: check `DARAVEL-SEC-014` reports scripts and module preloads (medium) and stylesheets (low) loaded from another origin, such as a CDN, without an `integrity` hash; Google Fonts CSS, which differs per browser, is exempt.
 
 ## 1.24.1
 
