@@ -6,6 +6,7 @@ import 'package:daravel/daravel.dart';
 /// It creates nothing when the table exists: a Laravel application that
 /// ran Spatie's migration owns it.
 final class CreateMediaTable extends Migration {
+  /// The migration creating `media`, as Spatie's.
   const CreateMediaTable();
 
   @override

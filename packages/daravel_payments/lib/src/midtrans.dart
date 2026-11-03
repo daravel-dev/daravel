@@ -8,6 +8,7 @@ import 'types.dart';
 /// and HTTP notifications for the result
 /// (https://docs.midtrans.com/docs/https-notification-webhooks).
 final class MidtransGateway implements PaymentGateway {
+  /// Midtrans Snap, with the server key from `MIDTRANS_SERVER_KEY`.
   MidtransGateway({
     required this.serverKey,
     this.production = false,

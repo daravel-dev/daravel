@@ -12,6 +12,7 @@ import 'xendit.dart';
 /// names of the gateways' Laravel packages: midtrans-php's
 /// `MIDTRANS_IS_PRODUCTION`, Cashier's `STRIPE_SECRET`).
 final class PaymentsConfig implements ConfigSection {
+  /// Payment settings; usually from `.env` ([PaymentsConfig.fromEnv]).
   const PaymentsConfig({
     this.defaultGateway = 'midtrans',
     this.midtransServerKey,
@@ -22,6 +23,7 @@ final class PaymentsConfig implements ConfigSection {
     this.stripeWebhookSecret,
   });
 
+  /// The settings in `PAYMENT_*`, `MIDTRANS_*`, `XENDIT_*` and `STRIPE_*`.
   factory PaymentsConfig.fromEnv(Env env) {
     String? read(String key) {
       final value = env.maybeString(key);
@@ -39,12 +41,25 @@ final class PaymentsConfig implements ConfigSection {
     );
   }
 
+  /// The gateway used when none is named.
   final String defaultGateway;
+
+  /// The Midtrans server key.
   final String? midtransServerKey;
+
+  /// Whether Midtrans runs in production rather than the sandbox.
   final bool midtransProduction;
+
+  /// The Xendit secret key.
   final String? xenditSecretKey;
+
+  /// The token Xendit sends with webhooks.
   final String? xenditWebhookToken;
+
+  /// The Stripe secret key.
   final String? stripeSecret;
+
+  /// The secret verifying Stripe webhooks.
   final String? stripeWebhookSecret;
 
   @override
@@ -63,6 +78,7 @@ final class PaymentsConfig implements ConfigSection {
 
 /// A row of `payment_transactions`.
 final class PaymentRecord {
+  /// A stored payment.
   const PaymentRecord({
     required this.id,
     required this.orderId,
@@ -76,6 +92,7 @@ final class PaymentRecord {
     this.metadata = const {},
   });
 
+  /// The payment in a row of the transactions table.
   factory PaymentRecord.fromRow(Map<String, Object?> row) {
     final metadata = row['metadata'];
     final paidAt = row['paid_at'];
@@ -95,17 +112,37 @@ final class PaymentRecord {
     );
   }
 
+  /// The row id.
   final Object id;
+
+  /// Your order id.
   final String orderId;
+
+  /// The gateway that handles it.
   final String gateway;
+
+  /// The gateway's own reference.
   final String? reference;
+
+  /// The amount.
   final num amount;
+
+  /// The currency code (`IDR`).
   final String currency;
+
+  /// Where the payment stands.
   final PaymentStatus status;
+
+  /// How it was paid (`bank_transfer`, `card`...), once known.
   final String? paymentType;
+
+  /// When it was paid.
   final DateTime? paidAt;
+
+  /// Your own data stored with it.
   final Map<String, Object?> metadata;
 
+  /// The payment as JSON.
   Map<String, Object?> toJson() => {
     'order_id': orderId,
     'gateway': gateway,
@@ -120,37 +157,63 @@ final class PaymentRecord {
 
 /// Dispatched after the commit that marked a payment paid.
 final class PaymentPaid {
+  /// Dispatched when [payment] is paid, from [event].
   const PaymentPaid(this.payment, this.event);
+
+  /// The payment.
   final PaymentRecord payment;
+
+  /// The gateway's notification.
   final PaymentEvent event;
 }
 
 /// Dispatched after the commit that marked a payment failed.
 final class PaymentFailed {
+  /// Dispatched when [payment] failed.
   const PaymentFailed(this.payment, this.event);
+
+  /// The payment.
   final PaymentRecord payment;
+
+  /// The gateway's notification.
   final PaymentEvent event;
 }
 
 /// Dispatched after the commit that marked a payment expired.
 final class PaymentExpired {
+  /// Dispatched when [payment] expired unpaid.
   const PaymentExpired(this.payment, this.event);
+
+  /// The payment.
   final PaymentRecord payment;
+
+  /// The gateway's notification.
   final PaymentEvent event;
 }
 
 /// Dispatched after the commit that marked a payment refunded.
 final class PaymentRefunded {
+  /// Dispatched when [payment] was refunded.
   const PaymentRefunded(this.payment, this.event);
+
+  /// The payment.
   final PaymentRecord payment;
+
+  /// The gateway's notification.
   final PaymentEvent event;
 }
 
 /// A verified notification whose amount is not the order's: nothing was
 /// changed. Worth an alert.
 final class PaymentAmountMismatch {
+  /// Dispatched when a notification's amount differs from [payment]'s; the
+  /// payment is left as it was.
   const PaymentAmountMismatch(this.payment, this.event);
+
+  /// The payment.
   final PaymentRecord payment;
+
+  /// The gateway's notification.
   final PaymentEvent event;
 }
 
@@ -178,12 +241,17 @@ enum PaymentOutcome {
 
 /// Gateways, the transactions table and the webhook logic.
 final class PaymentManager {
+  /// A manager of [config]'s gateways, or of the gateways given.
   PaymentManager(this.config, {Map<String, PaymentGateway>? gateways})
     : _gateways = {...?gateways};
 
+  /// The table of payments.
   static const String transactionsTable = 'payment_transactions';
+
+  /// The table of received webhooks.
   static const String webhookLogTable = 'payment_webhook_logs';
 
+  /// The payment settings.
   final PaymentsConfig config;
   final Map<String, PaymentGateway> _gateways;
   FakePaymentGateway? _fake;
@@ -235,6 +303,7 @@ final class PaymentManager {
   /// Replaces every gateway with a [FakePaymentGateway].
   FakePaymentGateway installFake() => _fake = FakePaymentGateway();
 
+  /// Undoes the fake.
   void removeFake() => _fake = null;
 
   /// Starts a payment at [gateway] and records it as `pending`.
@@ -389,6 +458,7 @@ final class PaymentManager {
 
 /// The payments facade.
 abstract final class Payment {
+  /// The payment manager of the current container.
   static PaymentManager get manager => App.make<PaymentManager>();
 
   /// The gateway [name] (`PAYMENT_GATEWAY` when null).
@@ -400,6 +470,7 @@ abstract final class Payment {
     String? gateway,
   }) => manager.checkout(request, gateway: gateway);
 
+  /// The payment with [orderId], or null.
   static Future<PaymentRecord?> find(String orderId) => manager.find(orderId);
 
   /// Records gateway calls instead of making them (Laravel's fakes).

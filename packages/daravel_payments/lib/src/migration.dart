@@ -6,6 +6,7 @@ import 'payments.dart';
 /// `payment_webhook_logs` (one row per notification handled: its unique
 /// `(gateway, event_id)` makes a webhook apply once).
 final class CreatePaymentTables extends Migration {
+  /// The migration creating the payment transaction and webhook log tables.
   const CreatePaymentTables();
 
   @override

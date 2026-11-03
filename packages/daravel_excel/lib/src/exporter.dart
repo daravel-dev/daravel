@@ -10,17 +10,25 @@ import 'xlsx_writer.dart';
 
 /// The file types Daravel Excel writes and reads.
 enum ExcelType {
+  /// An Excel workbook.
   xlsx(
     'Xlsx',
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   ),
+
+  /// Comma separated values.
   csv('Csv', 'text/csv'),
+
+  /// Tab separated values.
   tsv('Tsv', 'text/tab-separated-values');
 
+  /// A type named [label], served as [contentType].
   const ExcelType(this.label, this.contentType);
 
   /// Laravel Excel's writer type name (`Excel::XLSX`).
   final String label;
+
+  /// The MIME type of the download.
   final String contentType;
 
   /// The type of [fileName] by its extension; `null` when unknown.

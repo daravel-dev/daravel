@@ -8,14 +8,22 @@ import 'zip.dart';
 /// A sheet row as read: its 1-based [number] in the sheet and its cells
 /// from column A, `null` for empty ones.
 final class SheetRow {
+  /// Row [number] (from 1) with its [cells].
   const SheetRow(this.number, this.cells);
+
+  /// The row number, from 1.
   final int number;
+
+  /// The cell values, in column order.
   final List<Object?> cells;
 }
 
 /// A sheet of a workbook: its [name] and where its XML lives.
 final class SheetInfo {
+  /// The sheet [name] of a workbook.
   const SheetInfo(this.name, this._path);
+
+  /// The sheet's name.
   final String name;
   final String _path;
 }
@@ -28,6 +36,8 @@ final class XlsxReader {
   XlsxReader._(this._zip, this.sheets, this._shared);
 
   final ZipReader _zip;
+
+  /// The workbook's sheets.
   final List<SheetInfo> sheets;
   final List<String> _shared;
 
@@ -35,6 +45,7 @@ final class XlsxReader {
   /// strings): a defence against ZIP bombs.
   static const int maxPartBytes = 256 * 1024 * 1024;
 
+  /// Opens the workbook in [source].
   static Future<XlsxReader> open(RandomAccessSource source) async {
     final zip = await ZipReader.open(source);
     if (!zip.entries.containsKey('xl/workbook.xml')) {
@@ -209,6 +220,7 @@ final class XlsxReader {
     }
   }
 
+  /// Closes the file.
   Future<void> close() => _zip.close();
 
   static Stream<XmlEvent> _events(ZipReader zip, String path) => zip

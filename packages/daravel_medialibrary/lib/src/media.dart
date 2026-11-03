@@ -10,6 +10,7 @@ import 'media_library.dart';
 /// same database and disk serves them too: `<id>/<file_name>` on [disk],
 /// conversions in `<id>/conversions/` on [conversionsDisk].
 final class Media extends Model {
+  /// The `media` table, shared with Spatie's media library.
   static final ModelDefinition<Media> definition = ModelDefinition<Media>(
     table: 'media',
     factory: Media.new,
@@ -27,25 +28,53 @@ final class Media extends Model {
   @override
   ModelDefinition<Media> get modelDefinition => Media.definition;
 
+  /// A query on media.
   static ModelQuery<Media> query() => definition.query();
 
   /// Spatie's `findByUuid()`.
   static Future<Media?> findByUuid(String uuid) =>
       query().where('uuid', uuid).first();
 
+  /// The row id.
   int get id => getAttr<num>('id').toInt();
+
+  /// The media's UUID.
   String? get uuid => getAttr('uuid');
+
+  /// The owner's morph class.
   String get modelType => getAttr('model_type');
+
+  /// The owner's key.
   Object get modelId => getAttr<Object>('model_id');
+
+  /// The collection it belongs to.
   String get collectionName => getAttr('collection_name');
+
+  /// The display name.
   String get name => getAttr('name');
+
+  /// The stored file name.
   String get fileName => getAttr('file_name');
+
+  /// The MIME type.
   String? get mimeType => getAttr('mime_type');
+
+  /// The disk holding the file.
   String get disk => getAttr('disk');
+
+  /// The disk holding the conversions.
   String get conversionsDisk => getAttr<String?>('conversions_disk') ?? disk;
+
+  /// The size in bytes.
   int get size => getAttr<num>('size').toInt();
+
+  /// The position in its collection.
   int? get orderColumn => getAttr<num?>('order_column')?.toInt();
+
+  /// When it was added.
   DateTime? get createdAt => parseDateTime(getAttr<Object?>('created_at'));
+
+  /// When it last changed.
   DateTime? get updatedAt => parseDateTime(getAttr<Object?>('updated_at'));
 
   /// The extension of [fileName], lower case.
@@ -66,9 +95,11 @@ final class Media extends Model {
   /// [size] as Spatie's `human_readable_size`: `1.5 KB`, `10 MB`.
   String get humanReadableSize => humanReadableFileSize(size);
 
+  /// Your own properties stored with it.
   Map<String, Object?> get customProperties =>
       _map(getAttr<Object?>('custom_properties'));
 
+  /// The manipulations applied to it.
   Map<String, Object?> get manipulations =>
       _map(getAttr<Object?>('manipulations'));
 
@@ -80,6 +111,7 @@ final class Media extends Model {
       key: value == true,
   };
 
+  /// Whether the custom property [name] is set.
   bool hasCustomProperty(String name) =>
       dataGet(customProperties, name) != null;
 
@@ -93,11 +125,13 @@ final class Media extends Model {
     return this;
   }
 
+  /// Removes the custom property [name].
   Media forgetCustomProperty(String name) {
     setAttr('custom_properties', {...customProperties}..remove(name));
     return this;
   }
 
+  /// Whether [conversion] was generated.
   bool hasGeneratedConversion(String conversion) =>
       generatedConversions[conversion] ?? false;
 
@@ -110,6 +144,7 @@ final class Media extends Model {
     return this;
   }
 
+  /// Marks [conversion] as not generated.
   Media markAsConversionNotGenerated(String conversion) {
     setAttr('generated_conversions', {
       ...generatedConversions,

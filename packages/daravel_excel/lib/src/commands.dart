@@ -60,6 +60,7 @@ abstract base class _MakeExcelCommand extends Command<int> {
 
 /// `make:export <Name> [--model=Student]`.
 final class MakeExportCommand extends _MakeExcelCommand {
+  /// The `dartisan make:export` command.
   MakeExportCommand(AppFactory _);
 
   @override
@@ -109,6 +110,7 @@ final class $className implements FromQuery, WithHeadings, WithMapping {
 
 /// `make:import <Name> [--model=Student]`.
 final class MakeImportCommand extends _MakeExcelCommand {
+  /// The `dartisan make:import` command.
   MakeImportCommand(AppFactory _);
 
   @override

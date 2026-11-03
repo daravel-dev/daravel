@@ -74,19 +74,48 @@ abstract final class ExcelDate {
 /// Number format codes (PhpSpreadsheet's `NumberFormat` constants), for
 /// `WithColumnFormatting`.
 abstract final class NumberFormat {
+  /// Excel's General format.
   static const String general = 'General';
+
+  /// Text: the value as written.
   static const String text = '@';
+
+  /// A whole number.
   static const String number = '0';
+
+  /// A number with two decimals.
   static const String number00 = '0.00';
+
+  /// A number with thousands separators and two decimals.
   static const String numberCommaSeparated1 = '#,##0.00';
+
+  /// As [numberCommaSeparated1], with room for a minus sign.
   static const String numberCommaSeparated2 = '#,##0.00_-';
+
+  /// A whole percentage.
   static const String percentage = '0%';
+
+  /// A percentage with two decimals.
   static const String percentage00 = '0.00%';
+
+  /// A date as `yyyy-mm-dd`.
   static const String dateYyyymmdd = 'yyyy-mm-dd';
+
+  /// A date as `dd/mm/yyyy`.
   static const String dateDdmmyyyy = 'dd/mm/yyyy';
+
+  /// A date and time.
   static const String dateDatetime = 'yyyy-mm-dd hh:mm:ss';
+
+  /// A time of day.
   static const String dateTime3 = 'h:mm:ss';
+
+  /// US dollars.
   static const String currencyUsd = r'[$$-409]#,##0.00';
+
+  /// Euros.
   static const String currencyEur = r'[$€-2]\ #,##0.00';
+
+  /// Indonesian rupiah, without decimals.
   static const String currencyIdr = r'[$Rp-421]\ #,##0';
 }

@@ -46,12 +46,14 @@ base mixin InteractsWithMedia on Model {
   /// file they are for, when there is one.
   void registerMediaConversions([Media? media]) {}
 
+  /// Declares the collection [name].
   MediaCollection addMediaCollection(String name) {
     final collection = MediaCollection(name);
     _collections.add(collection);
     return collection;
   }
 
+  /// Declares the conversion [name].
   Conversion addMediaConversion(String name) {
     final conversion = Conversion(name);
     _conversions.add(conversion);
@@ -136,12 +138,15 @@ base mixin InteractsWithMedia on Model {
     ];
   }
 
+  /// Whether [collection] holds any media.
   Future<bool> hasMedia([String collection = 'default']) =>
       media().where('collection_name', collection).exists();
 
+  /// The first media of [collection].
   Future<Media?> getFirstMedia([String collection = 'default']) async =>
       (await getMedia(collection)).firstOrNull;
 
+  /// The last media of [collection].
   Future<Media?> getLastMedia([String collection = 'default']) async =>
       (await getMedia(collection)).lastOrNull;
 
@@ -224,6 +229,7 @@ base mixin InteractsWithMedia on Model {
     }
   }
 
+  /// Whether deleting the model keeps its media.
   bool get shouldDeletePreservingMedia => _preservingMedia;
 }
 
@@ -231,6 +237,7 @@ base mixin InteractsWithMedia on Model {
 /// `bootInteractsWithMedia()`): on delete, or on force delete when the
 /// model soft deletes, unless it was [InteractsWithMedia.deletePreservingMedia].
 final class MediaObserver<T extends Model> extends ModelObserver<T> {
+  /// Deletes a model's media with it.
   const MediaObserver();
 
   @override

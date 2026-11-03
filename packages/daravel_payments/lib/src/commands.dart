@@ -10,6 +10,7 @@ const List<CommandFactory> paymentCommands = [PaymentCheckCommand.new];
 /// `payment:check <order_id>`: asks the gateway where the payment is and
 /// applies the answer, for a webhook that never arrived.
 final class PaymentCheckCommand extends DaravelCommand {
+  /// The `dartisan payment:check` command.
   PaymentCheckCommand(super.createApp);
 
   @override

@@ -12,6 +12,7 @@ import 'media_library.dart';
 /// Thrown when a file cannot be added: too big, a disallowed file name, or
 /// refused by its collection.
 final class FileCannotBeAdded extends DaravelException {
+  /// A file that cannot be added: [message].
   FileCannotBeAdded(super.message);
 }
 
@@ -26,6 +27,7 @@ final class FileCannotBeAdded extends DaravelException {
 ///     .toMediaCollection('avatars');
 /// ```
 final class FileAdder {
+  /// Adds a file to a model's collection.
   FileAdder(
     this._subject, {
     required String fileName,
@@ -57,6 +59,7 @@ final class FileAdder {
     return this;
   }
 
+  /// Stores [properties] with the media.
   FileAdder withCustomProperties(Map<String, Object?> properties) {
     _customProperties = properties;
     return this;
