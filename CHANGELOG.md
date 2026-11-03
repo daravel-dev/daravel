@@ -15,6 +15,7 @@ match Laravel more closely.
 
 - Example application `apps/cat_exam_demo`: a computer-assisted test with a device lock per candidate, answers saved as they are chosen, a server-side timer, instant scoring and ranking, in English and Indonesian (`withTranslations`, `SetLocaleMiddleware`).
 - Every example application has a README with requirements, setup, how to run and try it, tests, troubleshooting, and how to use it outside the repository; `apps/daravel_starter` has its first.
+- `apps/virtual_classroom` has a browser page that joins real LiveKit rooms (camera, microphone, raised hands, the teacher muting everyone), in English and Indonesian; its demo routes answer only while `APP_ENV` is `local` or `testing`, and its README says how to run LiveKit and Google Calendar outside the repository.
 
 ### Changed
 
