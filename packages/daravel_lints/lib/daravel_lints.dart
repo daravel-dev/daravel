@@ -69,6 +69,14 @@ abstract base class LintRule {
     CompilationUnit unit,
     void Function(AstNode node, String message) report,
   );
+
+  /// Reports findings at a source offset, for rules that point inside a
+  /// node (a position in a long string literal). The default reports each
+  /// [check] finding at the start of its node.
+  void checkAt(
+    CompilationUnit unit,
+    void Function(int offset, String message) report,
+  ) => check(unit, (node, message) => report(node.offset, message));
 }
 
 /// `import 'dart:mirrors'` breaks AOT compilation (ADR: zero reflection).
@@ -934,6 +942,213 @@ final class InvalidTimezone extends LintRule {
   }
 }
 
+/// An interpolated value inside an inline event handler of generated HTML:
+/// `'<button onclick="join(\'${m.name}\')">'`, or the same with a
+/// JavaScript template value (`\${m.name}`) in a page's script.
+///
+/// HTML escaping does not make this safe: the browser decodes the entities
+/// in an attribute (`&#39;` back to `'`) before it parses the attribute as
+/// JavaScript, so a quote in the value still ends the JS string and the
+/// rest runs as code. Put the value in a `data-*` attribute, or keep it in
+/// the script, and bind the handler with `addEventListener`.
+///
+/// Each string literal is read on its own: adjacent literals (`'a' 'b'`)
+/// and concatenation are not joined, so an attribute split across a
+/// literal boundary is not detected.
+final class NoInlineJsInterpolation extends LintRule {
+  /// `no_inline_js_interpolation`: no values in `on*=` attributes.
+  const NoInlineJsInterpolation();
+
+  @override
+  String get name => 'no_inline_js_interpolation';
+
+  @override
+  String get description =>
+      'No interpolated values inside inline on* event handler attributes.';
+
+  @override
+  bool appliesTo(String relativePath) => !relativePath.startsWith('lib/src/');
+
+  /// What the finding says.
+  static const String message =
+      'Interpolated value inside an inline on* handler: the browser decodes '
+      'HTML entities before it runs the attribute as JavaScript, so escaping '
+      'does not stop a quote from breaking out. Put the value in a data-* '
+      'attribute and bind the handler with addEventListener.';
+
+  static final RegExp _handler = RegExp(r'''(?:^|[\s"'/])on[a-zA-Z]+\s*=\s*''');
+
+  /// Stands in for a Dart interpolation in the reconstructed string value.
+  static final String _hole = String.fromCharCode(0);
+
+  @override
+  void check(CompilationUnit unit, void Function(AstNode, String) report) {
+    unit.accept(
+      _StringValueVisitor((node, value, offsets) {
+        for (final _ in findIn(value)) {
+          report(node, message);
+        }
+      }),
+    );
+  }
+
+  @override
+  void checkAt(CompilationUnit unit, void Function(int, String) report) {
+    unit.accept(
+      _StringValueVisitor((node, value, offsets) {
+        for (final index in findIn(value)) {
+          report(offsets[index], message);
+        }
+      }),
+    );
+  }
+
+  /// For each `on*=` attribute in [value] (a string's value, with [_hole]
+  /// for each Dart interpolation) that holds an interpolated value, the
+  /// index of its first one.
+  static Iterable<int> findIn(String value) sync* {
+    for (final match in _handler.allMatches(value)) {
+      var start = match.end;
+      int end;
+      if (start < value.length &&
+          (value[start] == '"' || value[start] == "'")) {
+        final close = value.indexOf(value[start], start + 1);
+        start++;
+        end = close == -1 ? value.length : close;
+      } else {
+        end = start;
+        while (end < value.length &&
+            value[end].trim().isNotEmpty &&
+            value[end] != '>') {
+          end++;
+        }
+      }
+      final attribute = value.substring(start, end);
+      final hole = attribute.indexOf(_hole);
+      final template = attribute.indexOf(r'${');
+      final first = hole == -1
+          ? template
+          : template == -1
+          ? hole
+          : (hole < template ? hole : template);
+      if (first != -1) {
+        yield start + first;
+      }
+    }
+  }
+}
+
+/// Calls [onString] with each string literal's value (escapes decoded, a
+/// NUL for every interpolation) and the source offset of each character.
+final class _StringValueVisitor extends RecursiveAstVisitor<void> {
+  _StringValueVisitor(this.onString);
+
+  final void Function(AstNode node, String value, List<int> offsets) onString;
+
+  static const int _backslash = 0x5C;
+
+  @override
+  void visitSimpleStringLiteral(SimpleStringLiteral node) {
+    final text = StringBuffer();
+    final offsets = <int>[];
+    _cook(
+      node.literal,
+      node.contentsOffset,
+      node.contentsEnd,
+      node.isRaw,
+      text,
+      offsets,
+    );
+    onString(node, text.toString(), offsets);
+    super.visitSimpleStringLiteral(node);
+  }
+
+  @override
+  void visitStringInterpolation(StringInterpolation node) {
+    final text = StringBuffer();
+    final offsets = <int>[];
+    for (final element in node.elements) {
+      switch (element) {
+        case InterpolationString():
+          _cook(
+            element.contents,
+            element.contentsOffset,
+            element.contentsEnd,
+            node.isRaw,
+            text,
+            offsets,
+          );
+        case InterpolationExpression():
+          text.write(NoInlineJsInterpolation._hole);
+          offsets.add(element.offset);
+      }
+    }
+    onString(node, text.toString(), offsets);
+    super.visitStringInterpolation(node);
+  }
+
+  /// Appends the value of [token]'s characters from [start] to [end]
+  /// (source offsets) to [text], with each character's offset.
+  static void _cook(
+    Token token,
+    int start,
+    int end,
+    bool raw,
+    StringBuffer text,
+    List<int> offsets,
+  ) {
+    final lexeme = token.lexeme;
+    var i = start - token.offset;
+    final stop = end - token.offset;
+    while (i < stop) {
+      final at = token.offset + i;
+      final unit = lexeme.codeUnitAt(i);
+      if (raw || unit != _backslash || i + 1 >= stop) {
+        text.writeCharCode(unit);
+        offsets.add(at);
+        i++;
+        continue;
+      }
+      final next = lexeme[i + 1];
+      i += 2;
+      int? code;
+      switch (next) {
+        case 'n':
+          code = 0x0A;
+        case 'r':
+          code = 0x0D;
+        case 't':
+          code = 0x09;
+        case 'b':
+          code = 0x08;
+        case 'f':
+          code = 0x0C;
+        case 'v':
+          code = 0x0B;
+        case 'x' when i + 2 <= stop:
+          code = int.tryParse(lexeme.substring(i, i + 2), radix: 16);
+          i += 2;
+        case 'u' when i < stop && lexeme[i] == '{':
+          final close = lexeme.indexOf('}', i);
+          final digits = close == -1 ? '' : lexeme.substring(i + 1, close);
+          code = int.tryParse(digits, radix: 16);
+          i = close == -1 ? stop : close + 1;
+        case 'u' when i + 4 <= stop:
+          code = int.tryParse(lexeme.substring(i, i + 4), radix: 16);
+          i += 4;
+        default:
+          code = next.codeUnitAt(0);
+      }
+      final char = code ?? 0xFFFD;
+      text.writeCharCode(char);
+      offsets.add(at);
+      if (char > 0xFFFF) {
+        offsets.add(at); // the surrogate pair's second unit
+      }
+    }
+  }
+}
+
 /// Every built-in rule.
 const List<LintRule> defaultRules = <LintRule>[
   NoDartMirrors(),
@@ -943,6 +1158,7 @@ const List<LintRule> defaultRules = <LintRule>[
   UnawaitedInDbTransaction(),
   InvalidValidationRule(),
   InvalidTimezone(),
+  NoInlineJsInterpolation(),
 ];
 
 /// Lints Dart [source] whose project-relative path is [relativePath].
@@ -963,8 +1179,8 @@ List<LintIssue> lintSource(
     if (!rule.appliesTo(normalized)) {
       continue;
     }
-    rule.check(parsed.unit, (node, message) {
-      final location = parsed.lineInfo.getLocation(node.offset);
+    rule.checkAt(parsed.unit, (offset, message) {
+      final location = parsed.lineInfo.getLocation(offset);
       if (_suppressed(lines, location, rule.name)) {
         return;
       }
