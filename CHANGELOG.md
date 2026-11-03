@@ -54,6 +54,7 @@ The parts of Laravel 13 a growing application reaches for: JSON:API resources, c
 - A `mariadb` connection now has `SqlDialect.mariadb`, not `mysql`. Code that compares `dialect == .mysql` should use `dialect.isMySqlFamily`, and an exhaustive `switch` on `SqlDialect` or on `Cast`, which gained `VectorCast`, stops compiling until it names the new case.
 - A job whose model is gone now fails at once, as in Laravel, instead of using up its tries. `deleteWhenMissingModels` drops it instead.
 - `TransactionCommitted` and `TransactionRolledBack` are now sent. They existed before and never fired, so a listener registered long ago starts to run.
+- `package:daravel/daravel.dart` now exports `LegacyKey`. An application that declares its own `LegacyKey` stops compiling wherever a file imports both (`'LegacyKey' is imported from both ...`). Move to the framework's class (`LegacyKey.next(table)` and `LegacyKey.insert(table, values)`), or keep yours with `import 'package:daravel/daravel.dart' hide LegacyKey;`.
 
 ### Added
 
