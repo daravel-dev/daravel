@@ -1,4 +1,4 @@
-<!-- source: auth.md sha256:a347212073a0 -->
+<!-- source: auth.md sha256:b91a5f81007e -->
 # Autentikasi dan otorisasi
 
 Guard didaftarkan di `bootstrap/app.dart`:
@@ -60,7 +60,7 @@ secret yang sama dan setelan berikut:
 ```dotenv
 JWT_SECRET=<JWT_SECRET dari Laravel>
 JWT_SUBJECT_CLASS=App\Models\User   # prv = sha1 dari nama class ini, seperti yang ditulis tymon
-JWT_ISSUER_CLAIM=https://api.example.com   # iss untuk token yang diterbitkan; wajib bagi tymon, tidak diperiksa
+JWT_ISSUER_CLAIM=https://api.example.com   # iss untuk token yang diterbitkan (default APP_URL); wajib bagi tymon, tidak diperiksa
 JWT_TTL=23040                       # menit, sama dengan ttl tymon
 JWT_LEEWAY=0                        # detik, sama dengan leeway tymon
 ```

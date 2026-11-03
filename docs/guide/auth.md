@@ -58,7 +58,7 @@ secret and these settings:
 ```dotenv
 JWT_SECRET=<the Laravel JWT_SECRET>
 JWT_SUBJECT_CLASS=App\Models\User   # prv = sha1 of this class name, as tymon writes it
-JWT_ISSUER_CLAIM=https://api.example.com   # iss for issued tokens; tymon requires it, checks nothing
+JWT_ISSUER_CLAIM=https://api.example.com   # iss for issued tokens (default APP_URL); tymon requires it, checks nothing
 JWT_TTL=23040                       # minutes, tymon's ttl
 JWT_LEEWAY=0                        # seconds, tymon's leeway
 ```

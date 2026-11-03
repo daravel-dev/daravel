@@ -56,16 +56,20 @@ void main() {
     dir.deleteSync(recursive: true);
   });
 
-  Future<Application> app({String? subjectClass}) async {
+  Future<Application> app({
+    String? subjectClass,
+    String? issuerClaim = 'http://localhost',
+  }) async {
     final app = Application.configure(basePath: dir.path)
         .withEnv({
           'APP_ENV': 'testing',
+          'APP_URL': 'https://app.example.test',
           'DB_DATABASE': ':memory:',
           'APP_KEY': 'base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
           'JWT_SECRET': secret,
           'JWT_TTL': '${60 * 24 * 16}',
           'JWT_LEEWAY': '0',
-          'JWT_ISSUER_CLAIM': 'http://localhost',
+          'JWT_ISSUER_CLAIM': ?issuerClaim,
           'JWT_SUBJECT_CLASS': ?subjectClass,
         })
         .withMigrations(const [CreateUsers()])
@@ -154,6 +158,15 @@ void main() {
       60 * 24 * 16 * 60,
     );
     expect(await userOf(a, issued), 7);
+  });
+
+  test('without JWT_ISSUER_CLAIM, iss is the application URL', () async {
+    final a = await app(subjectClass: r'App\Models\User', issuerClaim: null);
+    final issued = await a.run(() async {
+      final user = (await TestUser.definition.query().find(7))!;
+      return Auth.jwtGuard().issue(user);
+    });
+    expect(payloadOf(issued)['iss'], 'https://app.example.test');
   });
 
   test('with JWT_LEEWAY=0 the token stops at exp, as in tymon', () async {

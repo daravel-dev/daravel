@@ -53,7 +53,9 @@ final class AuthConfig implements ConfigSection {
     jwtPrivateKey: env.maybeString('JWT_PRIVATE_KEY'),
     jwtKid: env.maybeString('JWT_KID'),
     jwtSubjectClass: env.maybeString('JWT_SUBJECT_CLASS'),
-    jwtIssuerClaim: env.maybeString('JWT_ISSUER_CLAIM'),
+    // tymon requires an iss; without JWT_ISSUER_CLAIM the application URL.
+    jwtIssuerClaim:
+        env.maybeString('JWT_ISSUER_CLAIM') ?? env.maybeString('APP_URL'),
   );
 
   /// The guard used when none is named (`AUTH_GUARD`, `token`).
@@ -102,8 +104,8 @@ final class AuthConfig implements ConfigSection {
   final String? jwtSubjectClass;
 
   /// The `iss` written into issued tokens but not checked
-  /// (`JWT_ISSUER_CLAIM`): tymon/jwt-auth writes the login URL and requires
-  /// the claim without checking it. `JWT_ISSUER`, by contrast, is required
+  /// (`JWT_ISSUER_CLAIM`, else `APP_URL`): tymon/jwt-auth writes the login
+  /// URL and requires the claim without checking it. `JWT_ISSUER`, by contrast, is required
   /// to match on every token.
   final String? jwtIssuerClaim;
 
