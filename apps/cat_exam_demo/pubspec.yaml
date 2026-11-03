@@ -1,6 +1,6 @@
 name: cat_exam_demo
 description: Daravel CAT (Computer Assisted Test) CPNS & TKA High-Scale Examination Platform Demo.
-version: 1.24.0
+version: 1.24.1
 publish_to: none
 
 environment:
