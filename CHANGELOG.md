@@ -9,12 +9,13 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 wait for a new major version, and Laravel-facing formats change only to
 match Laravel more closely.
 
-## Unreleased
+## 1.24.0
 
 ### Added
 
 - Pulse: `PULSE_PARITY_DRIFT_THRESHOLD` marks a route on the Shadow parity drift card once it drifts that often in the period.
 - `daravel_scout`: Laravel Scout on the database engine, with `LIKE` and full text search on the model's table, and `semantic()` and `hybrid()` on PostgreSQL with pgvector or MariaDB.
+- Example application `apps/websocket_demo`: a chat with rooms over WebSockets and `Broadcast`, an echo socket, and an HTTP endpoint that pushes to the sockets.
 
 ## 1.23.1
 
