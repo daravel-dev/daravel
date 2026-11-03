@@ -5,12 +5,16 @@ import 'message.dart';
 
 /// A sent message: its id and the raw MIME that went out.
 final class SentMessage {
+  /// A sent [message] with its [messageId] and raw [mime].
   const SentMessage(this.message, this.messageId, this.mime);
 
+  /// The message sent.
   final MailMessage message;
 
   /// Without angle brackets (`2f1c...@example.com`).
   final String messageId;
+
+  /// The raw MIME text sent.
   final String mime;
 }
 
@@ -26,6 +30,7 @@ abstract interface class MailTransport {
 
 /// Keeps messages in memory (`MAIL_MAILER=array`; the default in tests).
 final class ArrayTransport implements MailTransport {
+  /// The messages kept, in order (`MAIL_MAILER=array`).
   final List<({MailMessage message, String mime})> messages = [];
 
   @override
@@ -40,6 +45,7 @@ final class ArrayTransport implements MailTransport {
 /// Writes each message to the log instead of sending it
 /// (`MAIL_MAILER=log`, Laravel's default).
 final class LogTransport implements MailTransport {
+  /// Writes each message to the log instead of sending it.
   LogTransport(this._logger);
 
   final Logger _logger;

@@ -21,9 +21,11 @@ final class _Entry {
 
 /// Bounded LRU store in this isolate's memory (scope `isolate`).
 final class MemoryStore implements TouchableCacheStore, TaggableCacheStore {
+  /// A store keeping at most [maxEntries] values; [clock] is for tests.
   MemoryStore({this.maxEntries = 10000, DateTime Function()? clock})
     : _clock = clock ?? _utcNow;
 
+  /// The most values kept before the least recently used are dropped.
   final int maxEntries;
   final DateTime Function() _clock;
   final LinkedHashMap<String, _Entry> _entries =
@@ -37,6 +39,7 @@ final class MemoryStore implements TouchableCacheStore, TaggableCacheStore {
   TaggedCacheStore tags(List<String> names, {String prefix = ''}) =>
       TagSetCacheStore(this, names, prefix: prefix);
 
+  /// The number of values held.
   int get size => _entries.length;
 
   int get _now => _clock().millisecondsSinceEpoch;
@@ -138,6 +141,7 @@ final class MemoryStore implements TouchableCacheStore, TaggableCacheStore {
   /// Locks held or expired but not yet forgotten (see [acquireLockSync]).
   int get lockCount => _locks.length;
 
+  /// Takes the lock [name] for [owner] during [ttl], synchronously.
   bool acquireLockSync(String name, String owner, Duration ttl) {
     final existing = _locks[name];
     if (existing != null &&
@@ -160,6 +164,7 @@ final class MemoryStore implements TouchableCacheStore, TaggableCacheStore {
   Future<bool> releaseLock(String name, String owner) async =>
       releaseLockSync(name, owner);
 
+  /// Releases the lock [name] if [owner] holds it, synchronously.
   bool releaseLockSync(String name, String owner) {
     final existing = _locks[name];
     if (existing == null || existing.owner != owner) {
@@ -175,6 +180,7 @@ final class MemoryStore implements TouchableCacheStore, TaggableCacheStore {
   @override
   Future<String?> lockOwner(String name) async => lockOwnerSync(name);
 
+  /// The owner of the lock [name], synchronously.
   String? lockOwnerSync(String name) {
     final existing = _locks[name];
     if (existing == null || existing.expiresAt <= _now) {
@@ -189,10 +195,13 @@ final class MemoryStore implements TouchableCacheStore, TaggableCacheStore {
 /// Coordinator service exposing a [MemoryStore] to every worker
 /// (`process`-scope cache and locks).
 final class ProcessCacheService implements CoordinatorService {
+  /// A service over [store], or a new memory store.
   ProcessCacheService([MemoryStore? store]) : store = store ?? MemoryStore();
 
+  /// The coordinator service name.
   static const String serviceName = 'processCache';
 
+  /// The values every worker shares.
   final MemoryStore store;
 
   @override
@@ -254,6 +263,8 @@ final class ProcessCacheService implements CoordinatorService {
 /// other isolates show up within [l1Ttl]. Misses, counters and locks always
 /// go to the coordinator.
 final class ProcessStore implements TaggableCacheStore {
+  /// Values held by the coordinator through [channel], with an optional
+  /// per-isolate copy kept for [l1Ttl].
   ProcessStore(
     this.channel, {
     this.timeout = const Duration(seconds: 1),
@@ -261,9 +272,16 @@ final class ProcessStore implements TaggableCacheStore {
     this.l1MaxEntries = 1000,
   });
 
+  /// The channel to the coordinator.
   final CoordinatorChannel channel;
+
+  /// How long to wait for the coordinator.
   final Duration timeout;
+
+  /// How long a value read is reused in this isolate; null for never.
   final Duration? l1Ttl;
+
+  /// The most values the per-isolate copy keeps.
   final int l1MaxEntries;
 
   /// Near cache: key → (value, expiry on [_l1Clock] in microseconds). A
@@ -416,8 +434,10 @@ final class ProcessStore implements TaggableCacheStore {
 /// `process`). Writes go to a temp file then `rename` (atomic on POSIX and
 /// NTFS). Locks use exclusive file creation.
 final class FileStore implements TouchableCacheStore {
+  /// A store of one file per key in [directory].
   FileStore(this.directory);
 
+  /// The directory holding the files.
   final String directory;
 
   @override
@@ -625,6 +645,8 @@ final class FileStore implements TouchableCacheStore {
 
 /// Laravel-compatible `cache` / `cache_locks` tables (scope `cluster`).
 final class DatabaseStore implements TouchableCacheStore, WindowCounterStore {
+  /// A store in the [table] (`cache`) of [db], shared with Laravel's
+  /// database cache.
   DatabaseStore(
     this.db, {
     this.table = 'cache',
@@ -632,9 +654,16 @@ final class DatabaseStore implements TouchableCacheStore, WindowCounterStore {
     this.connection,
   });
 
+  /// The database holding the values.
   final DatabaseManager db;
+
+  /// The cache table.
   final String table;
+
+  /// The locks table.
   final String lockTable;
+
+  /// The connection of the tables; the default one when null.
   final String? connection;
 
   /// Laravel's `DatabaseStore::forever` puts the value for ten years

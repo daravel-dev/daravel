@@ -4,6 +4,7 @@ import 'message.dart';
 
 /// Mail configuration, from the keys of Laravel 12's `config/mail.php`.
 final class MailConfig implements ConfigSection {
+  /// Mail settings; usually from `.env` (`MAIL_*`).
   const MailConfig({
     required this.mailer,
     required this.from,
@@ -61,13 +62,22 @@ final class MailConfig implements ConfigSection {
     );
   }
 
+  /// The transport: `smtp`, `log` or `array` (`MAIL_MAILER`).
   final String mailer;
 
   /// The default sender (`MAIL_FROM_ADDRESS`, `MAIL_FROM_NAME`).
   final MailAddress from;
+
+  /// The SMTP host (`MAIL_HOST`).
   final String host;
+
+  /// The SMTP port (`MAIL_PORT`).
   final int port;
+
+  /// The SMTP user name (`MAIL_USERNAME`).
   final String? username;
+
+  /// The SMTP password (`MAIL_PASSWORD`).
   final String? password;
 
   /// TLS from the first byte (smtps).
@@ -78,10 +88,14 @@ final class MailConfig implements ConfigSection {
 
   /// The EHLO name (`MAIL_EHLO_DOMAIN`, else the host of `APP_URL`).
   final String localDomain;
+
+  /// How long to wait for the SMTP server.
   final Duration timeout;
 
   /// `APP_NAME` and `APP_URL`: the header and footer of themed mail.
   final String appName;
+
+  /// The application URL, for links in mail (`APP_URL`).
   final String appUrl;
 
   @override

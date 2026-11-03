@@ -16,9 +16,12 @@ final class CacheJwtDenylist implements JwtDenylist {
   CacheJwtDenylist(this._store, {this.prefix = 'jwt_denylist:'});
 
   final CacheStore Function() _store;
+
+  /// The key prefix of revoked token ids.
   final String prefix;
   CacheStore? _resolved;
 
+  /// The cache store holding them.
   CacheStore get store => _resolved ??= _store();
 
   @override

@@ -34,7 +34,10 @@ final class MailAddress {
   static final RegExp _valid = RegExp(r'^[^\s@<>()",;:\\]+@[^\s@<>()",;:\\]+$');
   static final RegExp _breaks = RegExp('[\r\n\u0000]');
 
+  /// The address (`ana@example.com`).
   final String email;
+
+  /// The display name, or null.
   final String? name;
 
   /// The domain part (`example.com`).
@@ -67,6 +70,7 @@ final class MailAddress {
 
 /// A file attached to a message.
 final class MailAttachment {
+  /// An attachment of [data] named [filename].
   MailAttachment.bytes(List<int> data, this.filename, {String? contentType})
     : _data = data,
       _path = null,
@@ -99,9 +103,14 @@ final class MailAttachment {
 
   final List<int>? _data;
   final String? _path;
+
+  /// The file name the recipient sees.
   final String filename;
+
+  /// The MIME type.
   final String contentType;
 
+  /// The content, read from disk for a file attachment.
   List<int> get bytes => _data ?? File(_path!).readAsBytesSync();
 
   /// The bytes go along (base64), so a queued message is self-contained.
@@ -111,6 +120,7 @@ final class MailAttachment {
     'data': base64.encode(bytes),
   };
 
+  /// An attachment read back from its JSON (queued mail).
   factory MailAttachment.fromJson(Map<String, Object?> json) =>
       MailAttachment.bytes(
         base64.decode(json['data']! as String),
@@ -121,6 +131,7 @@ final class MailAttachment {
 
 /// A message ready to send: what a [Mailable] renders to.
 final class MailMessage {
+  /// A message ready to send.
   MailMessage({
     required this.from,
     required this.subject,
@@ -147,17 +158,34 @@ final class MailMessage {
     }
   }
 
+  /// The sender.
   final MailAddress from;
+
+  /// The recipients.
   final List<MailAddress> to;
+
+  /// The carbon copy recipients.
   final List<MailAddress> cc;
 
   /// Recipients that get the message without appearing in its headers.
   final List<MailAddress> bcc;
+
+  /// The addresses replies go to.
   final List<MailAddress> replyTo;
+
+  /// The subject line.
   final String subject;
+
+  /// The HTML body.
   final String? html;
+
+  /// The plain text body.
   final String? text;
+
+  /// The attachments.
   final List<MailAttachment> attachments;
+
+  /// Extra headers.
   final Map<String, String> headers;
 
   /// The message as JSON (a queued mail's payload).
@@ -174,6 +202,7 @@ final class MailMessage {
     'headers': headers,
   };
 
+  /// A message read back from its JSON (queued mail).
   factory MailMessage.fromJson(Map<String, Object?> json) {
     List<MailAddress> list(String key) => [
       for (final item in (json[key] as List<Object?>?) ?? const [])
@@ -209,8 +238,13 @@ final class MailMessage {
   /// Everyone the message is delivered to (to, cc and bcc, once each).
   List<MailAddress> get recipients => {...to, ...cc, ...bcc}.toList();
 
+  /// Whether [email] is among the recipients.
   bool hasTo(String email) => _has(to, email);
+
+  /// Whether [email] is among the carbon copy recipients.
   bool hasCc(String email) => _has(cc, email);
+
+  /// Whether [email] is among the blind carbon copy recipients.
   bool hasBcc(String email) => _has(bcc, email);
 
   static bool _has(List<MailAddress> list, String email) =>

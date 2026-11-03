@@ -13,11 +13,15 @@ import 'transport.dart';
 /// Renders mailables and hands them to the configured [MailTransport]
 /// (the `Mail` facade).
 final class Mailer {
+  /// A mailer sending through [transport] with [config].
   Mailer(this.config, this.transport, {MailTheme? theme})
     : theme =
           theme ?? MailTheme(appName: config.appName, appUrl: config.appUrl);
 
+  /// The mail settings.
   final MailConfig config;
+
+  /// Delivers the messages.
   final MailTransport transport;
 
   /// The look of markdown and notification mail.
@@ -112,6 +116,7 @@ final class Mailer {
   /// Records messages instead of sending them (`Mail.fake()`).
   MailFake fake() => _fake = MailFake();
 
+  /// Undoes `fake()`.
   void restore() => _fake = null;
 
   /// [recipients] as addresses: a [MailAddress], an address or
@@ -135,10 +140,13 @@ final class Mailer {
 /// The job that sends a queued message (`daravel:mail`, registered by the
 /// framework). Its payload is the rendered message.
 final class SendQueuedMail extends Job {
+  /// A job sending [message] from the queue.
   SendQueuedMail(this.message);
 
+  /// The job name in the payload.
   static const String name = 'daravel:mail';
 
+  /// The definition to list in `bootstrap/jobs.dart`.
   static final JobDefinition definition = JobDefinition(
     name,
     (json) => SendQueuedMail(
@@ -146,6 +154,7 @@ final class SendQueuedMail extends Job {
     ),
   );
 
+  /// The message sent.
   final MailMessage message;
 
   @override
@@ -175,6 +184,7 @@ final class SendQueuedMail extends Job {
 
 /// `Mail.to(...).cc(...).bcc(...).send(mailable)`.
 final class PendingMail {
+  /// A message on its way to the recipients given to `Mail.to`.
   PendingMail(this._mailer, this._to);
 
   final Mailer _mailer;
@@ -182,11 +192,14 @@ final class PendingMail {
   final List<MailAddress> _cc = [];
   final List<MailAddress> _bcc = [];
 
+  /// Adds carbon copy recipients: an address, a model with `email`, or a
+  /// list.
   PendingMail cc(Object recipients) {
     _cc.addAll(Mailer.addresses(recipients));
     return this;
   }
 
+  /// Adds blind carbon copy recipients.
   PendingMail bcc(Object recipients) {
     _bcc.addAll(Mailer.addresses(recipients));
     return this;
@@ -216,7 +229,10 @@ final class PendingMail {
 
 /// What `Mail.fake()` recorded, with Laravel's assertions.
 final class MailFake {
+  /// The messages sent while faked.
   final List<({Mailable? mailable, SentMessage sent})> sent = [];
+
+  /// The mailables queued while faked.
   final List<({Mailable mailable, MailMessage message, Duration? delay})>
   queued = [];
 
@@ -239,6 +255,7 @@ final class MailFake {
   /// The rendered messages, mailables or not.
   List<SentMessage> get messages => [for (final e in sent) e.sent];
 
+  /// Fails unless a mailable of type [M] (matching [where]) was sent.
   void assertSent<M extends Mailable>([bool Function(M mail)? where]) {
     if (sentMailables<M>(where).isEmpty) {
       throw StateError(
@@ -248,6 +265,7 @@ final class MailFake {
     }
   }
 
+  /// Fails unless a mailable of type [M] was sent [times] times.
   void assertSentTimes<M extends Mailable>(int times) {
     final count = sentMailables<M>().length;
     if (count != times) {
@@ -255,12 +273,14 @@ final class MailFake {
     }
   }
 
+  /// Fails if a mailable of type [M] (matching [where]) was sent.
   void assertNotSent<M extends Mailable>([bool Function(M mail)? where]) {
     if (sentMailables<M>(where).isNotEmpty) {
       throw StateError('Expected mailable [$M] not to be sent; it was.');
     }
   }
 
+  /// Fails if anything was sent.
   void assertNothingSent() {
     if (sent.isNotEmpty) {
       throw StateError(
@@ -269,6 +289,7 @@ final class MailFake {
     }
   }
 
+  /// Fails unless a mailable of type [M] (matching [where]) was queued.
   void assertQueued<M extends Mailable>([bool Function(M mail)? where]) {
     if (queuedMailables<M>(where).isEmpty) {
       throw StateError(
@@ -278,12 +299,14 @@ final class MailFake {
     }
   }
 
+  /// Fails if a mailable of type [M] (matching [where]) was queued.
   void assertNotQueued<M extends Mailable>([bool Function(M mail)? where]) {
     if (queuedMailables<M>(where).isNotEmpty) {
       throw StateError('Expected mailable [$M] not to be queued; it was.');
     }
   }
 
+  /// Fails if anything was queued.
   void assertNothingQueued() {
     if (queued.isNotEmpty) {
       throw StateError(

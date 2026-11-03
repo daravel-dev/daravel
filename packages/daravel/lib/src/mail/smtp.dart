@@ -8,8 +8,10 @@ import 'transport.dart';
 
 /// An SMTP reply the transport did not expect.
 final class SmtpException implements Exception {
+  /// An SMTP failure with [message] and the server's [code].
   const SmtpException(this.message, [this.code]);
 
+  /// What failed.
   final String message;
 
   /// The reply code (`535`, `550`, ...), when the server sent one.
@@ -25,12 +27,17 @@ final class SmtpException implements Exception {
 /// PLAIN or LOGIN when credentials are set, then the message with its
 /// lines dot-stuffed. Every step is bounded by [MailConfig.timeout].
 final class SmtpTransport implements MailTransport {
+  /// Sends over SMTP with [config]; the certificate callback can accept a
+  /// self-signed server in development.
   SmtpTransport(this.config, {this.securityContext, this.onBadCertificate});
 
+  /// The mail settings.
   final MailConfig config;
 
   /// For servers with private certificates (tests, internal relays).
   final SecurityContext? securityContext;
+
+  /// Decides about a certificate the platform does not trust.
   final bool Function(X509Certificate certificate)? onBadCertificate;
 
   @override

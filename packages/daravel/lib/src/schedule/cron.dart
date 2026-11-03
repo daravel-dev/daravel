@@ -2,6 +2,7 @@ import '../foundation/exceptions.dart';
 
 /// Raised for malformed cron expressions.
 final class CronFormatException extends DaravelException {
+  /// A cron expression that cannot be parsed.
   const CronFormatException(super.message);
 }
 
@@ -86,6 +87,7 @@ final class CronExpression {
     'sat': 6,
   };
 
+  /// The expression as written.
   final String expression;
   final Set<int> _minutes;
   final Set<int> _hours;

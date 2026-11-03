@@ -5,15 +5,26 @@ import 'env.dart';
 import 'exceptions.dart';
 
 /// Severity of a [ConfigIssue].
-enum ConfigIssueLevel { warning, error }
+enum ConfigIssueLevel {
+  /// Reported; the application still boots.
+  warning,
+
+  /// Stops the boot.
+  error,
+}
 
 /// A problem found by [ConfigValidator].
 final class ConfigIssue {
+  /// A configuration problem of [level] described by [message].
   const ConfigIssue(this.level, this.message);
 
+  /// Whether it stops the boot.
   final ConfigIssueLevel level;
+
+  /// What is wrong and how to fix it.
   final String message;
 
+  /// Whether it stops the boot.
   bool get isError => level == .error;
 
   @override
@@ -32,6 +43,7 @@ typedef ConfigCheck = Iterable<ConfigIssue> Function(
 /// warnings are logged. Applications can add their own checks through
 /// `ApplicationBuilder.withConfigCheck`.
 final class ConfigValidator {
+  /// A validator running the built-in checks and the extra checks given.
   ConfigValidator({List<ConfigCheck> extraChecks = const []})
     : _checks = [...defaultChecks, ...extraChecks];
 

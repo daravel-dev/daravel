@@ -10,8 +10,10 @@ final class DrainSignal {
   /// Completes once draining starts.
   Future<void> get future => _completer.future;
 
+  /// Whether draining has started.
   bool get isDraining => _completer.isCompleted;
 
+  /// Starts draining; later calls do nothing.
   void signal() {
     if (!_completer.isCompleted) {
       _completer.complete();

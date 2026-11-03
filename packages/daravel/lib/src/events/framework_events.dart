@@ -3,6 +3,7 @@ library;
 
 /// A job was reserved and is about to run.
 final class JobProcessing {
+  /// A worker started a job.
   const JobProcessing({
     required this.connection,
     required this.queue,
@@ -11,15 +12,25 @@ final class JobProcessing {
     required this.attempt,
   });
 
+  /// The queue connection.
   final String connection;
+
+  /// The queue.
   final String queue;
+
+  /// The job's name.
   final String jobName;
+
+  /// The job's id.
   final Object jobId;
+
+  /// The attempt number, from 1.
   final int attempt;
 }
 
 /// A job finished without error.
 final class JobProcessed {
+  /// A job finished.
   const JobProcessed({
     required this.connection,
     required this.queue,
@@ -28,15 +39,25 @@ final class JobProcessed {
     required this.duration,
   });
 
+  /// The queue connection.
   final String connection;
+
+  /// The queue.
   final String queue;
+
+  /// The job's name.
   final String jobName;
+
+  /// The job's id.
   final Object jobId;
+
+  /// How long it ran.
   final Duration duration;
 }
 
 /// A job threw; [willRetry] tells whether it was released for another try.
 final class JobExceptionOccurred {
+  /// A job threw.
   const JobExceptionOccurred({
     required this.connection,
     required this.queue,
@@ -46,16 +67,28 @@ final class JobExceptionOccurred {
     required this.willRetry,
   });
 
+  /// The queue connection.
   final String connection;
+
+  /// The queue.
   final String queue;
+
+  /// The job's name.
   final String jobName;
+
+  /// The job's id.
   final Object jobId;
+
+  /// The error thrown.
   final Object error;
+
+  /// Whether the job will be attempted again.
   final bool willRetry;
 }
 
 /// A job exhausted its attempts and was recorded in `failed_jobs`.
 final class JobFailed {
+  /// A job failed for good.
   const JobFailed({
     required this.connection,
     required this.queue,
@@ -64,48 +97,74 @@ final class JobFailed {
     required this.error,
   });
 
+  /// The queue connection.
   final String connection;
+
+  /// The queue.
   final String queue;
+
+  /// The job's name.
   final String jobName;
+
+  /// The job's id.
   final Object jobId;
+
+  /// The last error.
   final Object error;
 }
 
 /// A scheduled task is about to run.
 final class ScheduledTaskStarting {
+  /// The scheduled [task] is starting.
   const ScheduledTaskStarting(this.task);
 
+  /// The task's name.
   final String task;
 }
 
 /// A scheduled task finished (successfully or not).
 final class ScheduledTaskFinished {
+  /// The scheduled [task] finished after [duration].
   const ScheduledTaskFinished(this.task, this.duration, {this.error});
 
+  /// The task's name.
   final String task;
+
+  /// How long it ran.
   final Duration duration;
+
+  /// The error it failed with, or null.
   final Object? error;
 
+  /// Whether it succeeded.
   bool get succeeded => error == null;
 }
 
 /// A scheduled task was skipped (filter, overlap lock, environment).
 final class ScheduledTaskSkipped {
+  /// The scheduled [task] was skipped, for [reason].
   const ScheduledTaskSkipped(this.task, this.reason);
 
+  /// The task's name.
   final String task;
+
+  /// Why it was skipped.
   final String reason;
 }
 
 /// A database transaction or savepoint began. [depth] is 1 for `BEGIN`.
 final class TransactionBeginning {
+  /// A transaction or savepoint is starting.
   const TransactionBeginning(
     this.connection, {
     this.depth = 1,
     this.poolWait = Duration.zero,
   });
 
+  /// The connection.
   final String connection;
+
+  /// The nesting level, 1 for the outer transaction.
   final int depth;
 
   /// The wait for a free connection.
@@ -114,19 +173,26 @@ final class TransactionBeginning {
 
 /// A database transaction committed, or a savepoint was released.
 final class TransactionCommitted {
+  /// A transaction or savepoint committed.
   const TransactionCommitted(
     this.connection, {
     this.depth = 1,
     this.elapsed = Duration.zero,
   });
 
+  /// The connection.
   final String connection;
+
+  /// The nesting level.
   final int depth;
+
+  /// How long it ran.
   final Duration elapsed;
 }
 
 /// A database transaction or savepoint rolled back.
 final class TransactionRolledBack {
+  /// A transaction or savepoint rolled back.
   const TransactionRolledBack(
     this.connection, {
     this.depth = 1,
@@ -134,8 +200,15 @@ final class TransactionRolledBack {
     this.error,
   });
 
+  /// The connection.
   final String connection;
+
+  /// The nesting level.
   final int depth;
+
+  /// How long it ran.
   final Duration elapsed;
+
+  /// The error that rolled it back, or null.
   final Object? error;
 }

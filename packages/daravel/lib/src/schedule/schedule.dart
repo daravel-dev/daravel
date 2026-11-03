@@ -21,37 +21,64 @@ typedef ScheduleCommandRunner = Future<int> Function(
 
 /// What a scheduled task does.
 sealed class ScheduledAction {
+  /// Actions are usually const.
   const ScheduledAction();
 }
 
+/// Runs a Dart callback.
 final class CallbackAction extends ScheduledAction {
+  /// Runs [callback].
   const CallbackAction(this.callback);
+
+  /// The callback run.
   final FutureOr<void> Function() callback;
 }
 
+/// Pushes a job onto the queue.
 final class JobAction extends ScheduledAction {
+  /// Pushes [job] onto [queue] of [connection].
   const JobAction(this.job, {this.queue, this.connection});
+
+  /// The job pushed.
   final Job job;
+
+  /// The queue; the job's own when null.
   final String? queue;
+
+  /// The connection; the job's own when null.
   final String? connection;
 }
 
+/// Runs a `dartisan` command.
 final class CommandAction extends ScheduledAction {
+  /// Runs [command] with [args].
   const CommandAction(this.command, this.args);
+
+  /// The command name.
   final String command;
+
+  /// Its arguments.
   final List<String> args;
 }
 
+/// Runs a program.
 final class ExecAction extends ScheduledAction {
+  /// Runs [executable] with [args].
   const ExecAction(this.executable, this.args);
+
+  /// The program.
   final String executable;
+
+  /// Its arguments.
   final List<String> args;
 }
 
 /// A task with its cron expression, filters and hooks (Laravel `Event`).
 final class ScheduledTask {
+  /// A task running [action]; `named()` sets its name.
   ScheduledTask(this.action, {this._name});
 
+  /// What the task does.
   final ScheduledAction action;
   String? _name;
   CronExpression _cron = CronExpression.parse('* * * * *');
@@ -71,6 +98,7 @@ final class ScheduledTask {
   /// Display name (defaults to a description of the action).
   String get name => _name ?? _describe();
 
+  /// When the task is due.
   CronExpression get cron => _cron;
 
   /// The UTC offset in force now (a fixed offset, or the IANA zone's).
@@ -100,10 +128,13 @@ final class ScheduledTask {
   static DateTime wallTime(DateTime utc, Object zone) =>
       ScheduledTask(CallbackAction(() {})).timezone(zone)._wall(utc);
 
+  /// Whether the task skips a run while the previous one is running.
   bool get overlapProtected => _withoutOverlapping != null;
 
+  /// Whether only one server runs it.
   bool get singleServer => _onOneServer;
 
+  /// Whether it runs without delaying the other due tasks.
   bool get runsInBackground => _background;
 
   String _describe() => switch (action) {
@@ -126,31 +157,54 @@ final class ScheduledTask {
   /// Alias of [named].
   ScheduledTask description(String value) => named(value);
 
+  /// Runs on the cron [expression].
   ScheduledTask cronExpression(String expression) =>
       this.._cron = CronExpression.parse(expression);
 
+  /// Runs every minute.
   ScheduledTask everyMinute() => cronExpression('* * * * *');
+
+  /// Runs every two minutes.
   ScheduledTask everyTwoMinutes() => cronExpression('*/2 * * * *');
+
+  /// Runs every five minutes.
   ScheduledTask everyFiveMinutes() => cronExpression('*/5 * * * *');
+
+  /// Runs every ten minutes.
   ScheduledTask everyTenMinutes() => cronExpression('*/10 * * * *');
+
+  /// Runs every fifteen minutes.
   ScheduledTask everyFifteenMinutes() => cronExpression('*/15 * * * *');
+
+  /// Runs every thirty minutes.
   ScheduledTask everyThirtyMinutes() => cronExpression('0,30 * * * *');
+
+  /// Runs at the start of every hour.
   ScheduledTask hourly() => cronExpression('0 * * * *');
+
+  /// Runs every hour at [minute].
   ScheduledTask hourlyAt(int minute) => cronExpression('$minute * * * *');
+
+  /// Runs every two hours.
   ScheduledTask everyTwoHours() => cronExpression('0 */2 * * *');
+
+  /// Runs every day at midnight.
   ScheduledTask daily() => cronExpression('0 0 * * *');
 
   /// `at('13:30')` — daily at a time (`HH:mm`).
   ScheduledTask at(String time) => dailyAt(time);
 
+  /// Runs every day at [time] (`'13:00'`).
   ScheduledTask dailyAt(String time) {
     final (hour, minute) = _parseTime(time);
     return cronExpression('$minute $hour * * *');
   }
 
+  /// Runs every day at the hours [first] and [second].
   ScheduledTask twiceDaily([int first = 1, int second = 13]) =>
       cronExpression('0 $first,$second * * *');
 
+  /// Runs every Sunday at midnight.
   ScheduledTask weekly() => cronExpression('0 0 * * 0');
 
   /// [day] uses `DateTime.monday`..`DateTime.sunday`.
@@ -159,21 +213,34 @@ final class ScheduledTask {
     return cronExpression('$minute $hour * * ${day % 7}');
   }
 
+  /// Runs on the first day of every month.
   ScheduledTask monthly() => cronExpression('0 0 1 * *');
 
+  /// Runs every month on [day] at [time].
   ScheduledTask monthlyOn([int day = 1, String time = '0:00']) {
     final (hour, minute) = _parseTime(time);
     return cronExpression('$minute $hour $day * *');
   }
 
+  /// Runs on the first day of every quarter.
   ScheduledTask quarterly() => cronExpression('0 0 1 1-12/3 *');
 
+  /// Runs on January 1st.
   ScheduledTask yearly() => cronExpression('0 0 1 1 *');
 
+  /// Only on Monday to Friday.
   ScheduledTask weekdays() => _appendWeekdays('1-5');
+
+  /// Only on Saturday and Sunday.
   ScheduledTask weekends() => _appendWeekdays('0,6');
+
+  /// Only on Sundays.
   ScheduledTask sundays() => _appendWeekdays('0');
+
+  /// Only on Mondays.
   ScheduledTask mondays() => _appendWeekdays('1');
+
+  /// Only on Fridays.
   ScheduledTask fridays() => _appendWeekdays('5');
 
   ScheduledTask _appendWeekdays(String days) {
@@ -203,9 +270,11 @@ final class ScheduledTask {
   // Constraints
   // ---------------------------------------------------------------------------
 
+  /// Runs only when [filter] returns true.
   ScheduledTask when(FutureOr<bool> Function() filter) =>
       this.._filters.add(filter);
 
+  /// Skips the run when [filter] returns true.
   ScheduledTask skip(FutureOr<bool> Function() filter) =>
       this.._rejects.add(filter);
 
@@ -213,9 +282,11 @@ final class ScheduledTask {
   ScheduledTask between(String start, String end) =>
       when(() => _inWindow(start, end, _wall(Clock.now())));
 
+  /// Skips the run between [start] and [end] (`'22:00'`, `'06:00'`).
   ScheduledTask unlessBetween(String start, String end) =>
       skip(() => _inWindow(start, end, _wall(Clock.now())));
 
+  /// Runs only in the environments [names].
   ScheduledTask environments(List<String> names) => this.._environments = names;
 
   /// Skips a run while the previous one still holds the lock.
@@ -229,11 +300,18 @@ final class ScheduledTask {
   /// Does not await the task (the scheduler loop moves on).
   ScheduledTask runInBackground() => this.._background = true;
 
+  /// Calls [hook] before every run.
   ScheduledTask before(FutureOr<void> Function() hook) =>
       this.._before.add(hook);
+
+  /// Calls [hook] after every run.
   ScheduledTask after(FutureOr<void> Function() hook) => this.._after.add(hook);
+
+  /// Calls [hook] after a successful run.
   ScheduledTask onSuccess(FutureOr<void> Function() hook) =>
       this.._onSuccess.add(hook);
+
+  /// Calls [hook] with the error after a failed run.
   ScheduledTask onFailure(FutureOr<void> Function(Object error) hook) =>
       this.._onFailure.add(hook);
 
@@ -289,6 +367,7 @@ final class ScheduledTask {
     return best;
   }
 
+  /// Whether the task's environment and filters let it run now.
   Future<bool> passesFilters(String environment) async {
     final envs = _environments;
     if (envs != null && !envs.contains(environment)) {
@@ -332,9 +411,11 @@ final class Schedule {
   /// `app.schedule_timezone`. Without it, tasks run in UTC.
   Schedule({this.timezone});
 
+  /// The time zone of the schedule's times; the app's by default.
   final Object? timezone;
   final List<ScheduledTask> _tasks = <ScheduledTask>[];
 
+  /// The scheduled tasks.
   List<ScheduledTask> get tasks => List<ScheduledTask>.unmodifiable(_tasks);
 
   ScheduledTask _add(ScheduledAction action) {
@@ -346,17 +427,21 @@ final class Schedule {
     return task;
   }
 
+  /// Schedules [callback].
   ScheduledTask call(FutureOr<void> Function() callback) =>
       _add(CallbackAction(callback));
 
+  /// Schedules pushing [job].
   ScheduledTask job(Job job, {String? queue, String? connection}) =>
       _add(JobAction(job, queue: queue, connection: connection));
 
+  /// Schedules a `dartisan` command.
   ScheduledTask command(
     String command, [
     List<String> args = const <String>[],
   ]) => _add(CommandAction(command, args));
 
+  /// Schedules running a program.
   ScheduledTask exec(
     String executable, [
     List<String> args = const <String>[],
@@ -365,10 +450,16 @@ final class Schedule {
 
 /// Result of one task execution.
 final class TaskRunResult {
+  /// Whether [task] [ran], failed with [error], or was skipped.
   const TaskRunResult(this.task, {required this.ran, this.error, this.skipped});
 
+  /// The task.
   final ScheduledTask task;
+
+  /// Whether it ran.
   final bool ran;
+
+  /// The error it failed with, or null.
   final Object? error;
 
   /// Reason when not run.
@@ -378,6 +469,7 @@ final class TaskRunResult {
 /// Executes due tasks (`schedule:run`) or loops every minute
 /// (`schedule:work`).
 final class Scheduler {
+  /// A scheduler running [schedule]'s due tasks in [environment].
   Scheduler(
     this.schedule, {
     required this.environment,
@@ -389,14 +481,25 @@ final class Scheduler {
     DateTime Function()? clock,
   }) : _clock = clock ?? _utcNow;
 
+  /// The tasks.
   final Schedule schedule;
+
+  /// The environment, for `environments(...)`.
   final String environment;
+
+  /// Receives the scheduled task events.
   final EventDispatcher? events;
+
+  /// Pushes the scheduled jobs.
   final QueueManager? queue;
 
   /// Lock store for `withoutOverlapping`/`onOneServer`.
   final CacheRepository? lockStore;
+
+  /// Runs the scheduled commands.
   final ScheduleCommandRunner? commandRunner;
+
+  /// Logs task failures.
   final Logger? logger;
   final DateTime Function() _clock;
   bool _stop = false;

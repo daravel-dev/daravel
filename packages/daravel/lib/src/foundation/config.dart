@@ -119,6 +119,7 @@ final class ConfigRepository {
 
 /// Core application settings (`config/app.php` parity).
 final class AppConfig implements ConfigSection {
+  /// The `APP_*` settings.
   const AppConfig({
     required this.name,
     required this.env,
@@ -142,11 +143,22 @@ final class AppConfig implements ConfigSection {
     ),
   );
 
+  /// The application name (`APP_NAME`).
   final String name;
+
+  /// The environment: `local`, `testing` or `production` (`APP_ENV`).
   final String env;
+
+  /// Whether errors show their details (`APP_DEBUG`).
   final bool debug;
+
+  /// The public URL (`APP_URL`).
   final String url;
+
+  /// The time zone (`APP_TIMEZONE`).
   final String timezone;
+
+  /// The locale (`APP_LOCALE`).
   final String locale;
 
   /// The Laravel major version whose wire formats the application answers
@@ -174,8 +186,13 @@ final class AppConfig implements ConfigSection {
     return major;
   }
 
+  /// Whether [env] is `production`.
   bool get isProduction => env == 'production';
+
+  /// Whether [env] is `testing`.
   bool get isTesting => env == 'testing';
+
+  /// Whether [env] is `local`.
   bool get isLocal => env == 'local';
 
   @override
