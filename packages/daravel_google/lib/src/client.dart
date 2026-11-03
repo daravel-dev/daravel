@@ -7,6 +7,7 @@ import 'package:daravel/daravel.dart';
 /// `PERMISSION_DENIED`, ...), or an OAuth error code (`invalid_grant` when a
 /// refresh token was revoked, `invalid_client`, ...).
 final class GoogleException extends DaravelException {
+  /// A Google API error with [status] and [reason].
   const GoogleException(super.message, {required this.status, this.reason});
 
   /// [response]'s error, in either of Google's shapes.
@@ -39,18 +40,23 @@ final class GoogleException extends DaravelException {
     );
   }
 
+  /// The HTTP status.
   final int status;
+
+  /// Google's reason code (`notFound`, `rateLimitExceeded`...).
   final String? reason;
 }
 
 /// The HTTP client a Google client sends through: [own] when given, else
 /// the application's (so `Http.fake()` stubs it), else a new one.
 final class GoogleHttp {
+  /// HTTP for the Google clients, faked in tests like `Http`.
   GoogleHttp(this._own);
 
   final HttpClientFactory? _own;
   HttpClientFactory? _fallback;
 
+  /// The client factory used.
   HttpClientFactory get factory {
     if (_own case final HttpClientFactory http) {
       return http;

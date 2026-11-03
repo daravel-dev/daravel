@@ -11,13 +11,25 @@ import 'zstd_decoder.dart';
 /// teobiefy-laravel-api-response 0.3 payload profiles (`Profile`): what is
 /// done to the `data` of a response and to the body of a request.
 enum TeobiefyProfile {
+  /// JSON as is.
   plain('plain'),
+
+  /// Compressed.
   compressed('compressed'),
+
+  /// Encrypted.
   encrypted('encrypted'),
+
+  /// Compressed, then encrypted.
   compressedEncrypted('compressed_encrypted'),
+
+  /// Signed.
   signed('signed'),
+
+  /// Compressed, then signed.
   compressedSigned('compressed_signed');
 
+  /// The profile written as [label].
   const TeobiefyProfile(this.label);
 
   /// The name in `config/teobiefy.php`.
@@ -29,17 +41,25 @@ enum TeobiefyProfile {
     orElse: () => throw ArgumentError.value(name, 'profile', 'Unknown profile'),
   );
 
+  /// Whether the body is compressed.
   bool get compresses =>
       this == compressed ||
       this == compressedEncrypted ||
       this == compressedSigned;
+
+  /// Whether the body is encrypted.
   bool get encrypts => this == encrypted || this == compressedEncrypted;
+
+  /// Whether the body is signed.
   bool get signs => this == signed || this == compressedSigned;
 }
 
 /// A body that cannot be read: `406 Invalid payload`.
 final class TeobiefyInvalidPayload implements Exception {
+  /// A body that cannot be read: [message].
   const TeobiefyInvalidPayload(this.message);
+
+  /// What is wrong.
   final String message;
   @override
   String toString() => message;
@@ -47,7 +67,10 @@ final class TeobiefyInvalidPayload implements Exception {
 
 /// `401 Invalid signature`.
 final class TeobiefyInvalidSignature implements Exception {
+  /// A body whose signature does not verify: [message].
   const TeobiefyInvalidSignature(this.message);
+
+  /// What is wrong.
   final String message;
   @override
   String toString() => message;
@@ -55,7 +78,10 @@ final class TeobiefyInvalidSignature implements Exception {
 
 /// `409 Replay detected`.
 final class TeobiefyReplayDetected implements Exception {
+  /// A request sent before, refused: [message].
   const TeobiefyReplayDetected(this.message);
+
+  /// What was detected.
   final String message;
   @override
   String toString() => message;
@@ -63,6 +89,7 @@ final class TeobiefyReplayDetected implements Exception {
 
 /// `413 Payload too large`.
 final class TeobiefyPayloadTooLarge implements Exception {
+  /// A body that decompresses past the limit.
   const TeobiefyPayloadTooLarge();
 }
 
@@ -70,6 +97,7 @@ final class TeobiefyPayloadTooLarge implements Exception {
 /// and `SigningKeyRing`). Each key is base64, with or without `base64:`, or
 /// raw text.
 final class TeobiefyKeyRing {
+  /// Keys by id, the active one used for new bodies.
   TeobiefyKeyRing({
     Map<String, String> keys = const {},
     this.activeKid,
@@ -84,8 +112,11 @@ final class TeobiefyKeyRing {
 
   final Map<String, Uint8List> _keys;
   final Uint8List? _legacy;
+
+  /// The id of the key used for new bodies.
   final String? activeKid;
 
+  /// Decodes base64 or hex key material.
   static Uint8List decodeMaterial(String material) {
     final text = material.startsWith('base64:')
         ? material.substring('base64:'.length)
@@ -117,6 +148,7 @@ final class TeobiefyKeyRing {
 
 /// The settings of [TeobiefyProfiles], named as `config/teobiefy.php`.
 final class TeobiefyProfilesConfig implements ConfigSection {
+  /// Settings of the payload profiles.
   const TeobiefyProfilesConfig({
     this.cipher = 'xchacha20-poly1305',
     this.encryptionKey,
@@ -145,17 +177,35 @@ final class TeobiefyProfilesConfig implements ConfigSection {
 
   /// `xchacha20-poly1305`, `chacha20-poly1305-ietf` or `aes-256-gcm`.
   final String cipher;
+
+  /// The encryption key.
   final String? encryptionKey;
+
+  /// The encryption key's id.
   final String? encryptionKid;
+
+  /// The signing key.
   final String? signingKey;
+
+  /// The signing key's id.
   final String? signingKid;
+
+  /// Whether repeated requests are refused.
   final bool replayProtection;
+
+  /// How old a request may be.
   final Duration replayWindow;
+
+  /// How long a request nonce is remembered.
   final Duration replayNonceTtl;
+
+  /// The cache prefix of the nonces.
   final String replayPrefix;
 
   /// Smaller responses are left as they are (`compression.min_bytes`).
   final int minCompressBytes;
+
+  /// The largest body after decompression.
   final int maxDecompressedBytes;
 
   /// Rejects an unknown cipher and a nonce kept for less than two windows.
@@ -197,6 +247,7 @@ final class TeobiefyProfilesConfig implements ConfigSection {
 /// smaller. Requests may carry any frame `ext-zstd` writes, read by
 /// [zstdDecompress].
 final class TeobiefyProfiles {
+  /// Encodes and decodes bodies with [config]'s keys.
   TeobiefyProfiles(
     this.config, {
     required this.encryption,
@@ -204,13 +255,19 @@ final class TeobiefyProfiles {
     this.replayStore,
   });
 
+  /// The profile settings.
   final TeobiefyProfilesConfig config;
+
+  /// The encryption keys.
   final TeobiefyKeyRing encryption;
+
+  /// The signing keys.
   final TeobiefyKeyRing signing;
 
   /// Remembers replay nonces; needed with `replayProtection`.
   final CacheRepository? replayStore;
 
+  /// The headers carrying a body's profile and key ids.
   static const List<String> metadataKeys = [
     'data_enc',
     'data_comp',
@@ -557,6 +614,7 @@ TeobiefyProfile resolveTeobiefyProfile(
 /// the `ResponseProfile` and `RequestProfile` attributes do. Without
 /// parameters the patterns of `withTeobiefyProfiles` decide.
 final class TeobiefyProfileMiddleware implements Middleware {
+  /// Applies profiles to routes: per route pattern, or the defaults.
   const TeobiefyProfileMiddleware({
     required this.routeResponses,
     required this.routeRequests,
@@ -566,11 +624,22 @@ final class TeobiefyProfileMiddleware implements Middleware {
     this.request,
   });
 
+  /// Response profiles by route pattern.
   final Map<String, String> routeResponses;
+
+  /// Request profiles by route pattern.
   final Map<String, String> routeRequests;
+
+  /// The response profile of other routes.
   final TeobiefyProfile defaultResponse;
+
+  /// The request profile of other routes.
   final TeobiefyProfile defaultRequest;
+
+  /// A response profile forced on every route.
   final TeobiefyProfile? response;
+
+  /// A request profile forced on every route.
   final TeobiefyProfile? request;
 
   @override

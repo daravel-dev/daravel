@@ -25,6 +25,7 @@ import 'setup.dart';
 /// Put it on the routes whose payloads are encrypted, as the Laravel
 /// application lists them; not on the handshake (`Teobiefy.handshake`).
 final class TeobiefyMiddleware implements Middleware {
+  /// Applies the client's Teobiefy session to requests and responses.
   const TeobiefyMiddleware();
 
   @override

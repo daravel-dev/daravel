@@ -15,6 +15,7 @@ const List<CommandFactory> activitylogCommands = [ActivitylogCleanCommand.new];
 ///
 /// Schedule it daily: `schedule.command('activitylog:clean').daily()`.
 final class ActivitylogCleanCommand extends DaravelCommand {
+  /// The `dartisan activitylog:clean` command.
   ActivitylogCleanCommand(super.createApp) {
     argParser
       ..addOption(

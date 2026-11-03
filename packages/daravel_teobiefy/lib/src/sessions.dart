@@ -17,6 +17,7 @@ typedef TeobiefyHandshake = ({
 /// keeps it in the cache under a random 64-hex session id, for [ttl] after
 /// its last use. The id is not a credential: it only names the key pair.
 final class TeobiefySessions {
+  /// Client sessions in [cache].
   TeobiefySessions(
     this.cache, {
     this.ttl = const Duration(seconds: 1800),
@@ -29,10 +30,13 @@ final class TeobiefySessions {
   static final RegExp _id = RegExp(r'^[a-f0-9]{64}$');
   static final Random _random = Random.secure();
 
+  /// The cache holding the sessions.
   final CacheRepository cache;
 
   /// Sliding: each use keeps the session for this long again.
   final Duration ttl;
+
+  /// The key prefix.
   final String prefix;
 
   /// The server's half of a handshake with [clientPublicKey] (base64 of 32

@@ -27,6 +27,7 @@ String? _guard(DaravelCommand command) =>
 /// `permission:create-role <name> [--guard] [--permissions=a,b]`
 /// (Spatie's `permission:create-role`).
 final class PermissionCreateRoleCommand extends DaravelCommand {
+  /// The `dartisan permission:create-role` command.
   PermissionCreateRoleCommand(super.createApp) {
     argParser
       ..addOption('guard', help: 'The guard (default: PERMISSION_GUARD).')
@@ -69,6 +70,7 @@ final class PermissionCreateRoleCommand extends DaravelCommand {
 
 /// `permission:create-permission <name> [--guard]`.
 final class PermissionCreatePermissionCommand extends DaravelCommand {
+  /// The `dartisan permission:create-permission` command.
   PermissionCreatePermissionCommand(super.createApp) {
     argParser.addOption(
       'guard',
@@ -125,6 +127,7 @@ abstract base class _AssignmentCommand extends DaravelCommand {
 
 /// `permission:assign <model-id> <role> [--model] [--guard]`.
 final class PermissionAssignCommand extends _AssignmentCommand {
+  /// The `dartisan permission:assign` command.
   PermissionAssignCommand(super.createApp);
 
   @override
@@ -141,6 +144,7 @@ final class PermissionAssignCommand extends _AssignmentCommand {
 
 /// `permission:revoke <model-id> <role> [--model] [--guard]`.
 final class PermissionRevokeCommand extends _AssignmentCommand {
+  /// The `dartisan permission:revoke` command.
   PermissionRevokeCommand(super.createApp);
 
   @override
@@ -160,6 +164,7 @@ final class PermissionRevokeCommand extends _AssignmentCommand {
 
 /// `permission:show [--guard]`: roles against permissions, as Spatie's.
 final class PermissionShowCommand extends DaravelCommand {
+  /// The `dartisan permission:show` command.
   PermissionShowCommand(super.createApp) {
     argParser.addOption('guard', help: 'Only this guard.');
   }
@@ -230,6 +235,7 @@ final class PermissionShowCommand extends DaravelCommand {
 /// `permission:cache-reset`: forgets the cached roles and permissions of
 /// every isolate.
 final class PermissionCacheResetCommand extends DaravelCommand {
+  /// The `dartisan permission:cache-reset` command.
   PermissionCacheResetCommand(super.createApp);
 
   @override

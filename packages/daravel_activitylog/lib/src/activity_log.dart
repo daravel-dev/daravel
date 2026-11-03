@@ -121,6 +121,7 @@ abstract final class LogBatch {
   /// The open batch's UUID, or `null`.
   static String? get uuid => Zone.current[_batchKey] as String?;
 
+  /// Whether a batch is open.
   static bool get isOpen => uuid != null;
 
   /// Runs [body] in a batch: every activity logged inside shares one UUID.
@@ -150,6 +151,7 @@ ActivityLogger activity([String? logName]) => ActivityLogger(logName);
 
 /// The builder behind [activity] (Spatie's `ActivityLogger`).
 final class ActivityLogger {
+  /// A logger writing to the log [logName] (the default one).
   ActivityLogger([String? logName])
     : _logName = logName ?? ActivityLog.config.defaultLogName;
 
@@ -161,11 +163,13 @@ final class ActivityLogger {
   DateTime? _createdAt;
   final List<void Function(Activity activity)> _taps = [];
 
+  /// Writes to the log [logName].
   ActivityLogger useLog(String? logName) {
     _logName = logName;
     return this;
   }
 
+  /// Alias of [useLog].
   ActivityLogger inLog(String? logName) => useLog(logName);
 
   /// The model the activity is about (`subject_type`, `subject_id`).
@@ -174,6 +178,7 @@ final class ActivityLogger {
     return this;
   }
 
+  /// Alias of `performedOn`.
   ActivityLogger on(Model subject) => performedOn(subject);
 
   /// The model that caused the activity (`causer_type`, `causer_id`);
@@ -185,6 +190,7 @@ final class ActivityLogger {
     return this;
   }
 
+  /// Alias of `causedBy`.
   ActivityLogger by(Model? causer) => causedBy(causer);
 
   /// No causer, even when a user is authenticated.
@@ -193,13 +199,16 @@ final class ActivityLogger {
     return this;
   }
 
+  /// Alias of `causedByAnonymous`.
   ActivityLogger byAnonymous() => causedByAnonymous();
 
+  /// Sets the event name.
   ActivityLogger event(String event) {
     _event = event;
     return this;
   }
 
+  /// Alias of [event].
   ActivityLogger setEvent(String event) => this.event(event);
 
   /// Replaces the properties (stored as JSON).
@@ -208,11 +217,13 @@ final class ActivityLogger {
     return this;
   }
 
+  /// Adds the property [key].
   ActivityLogger withProperty(String key, Object? value) {
     _properties[key] = value;
     return this;
   }
 
+  /// Logs the activity at [dateTime] instead of now.
   ActivityLogger createdAt(DateTime dateTime) {
     _createdAt = dateTime;
     return this;

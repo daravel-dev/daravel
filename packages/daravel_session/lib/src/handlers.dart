@@ -8,10 +8,13 @@ import 'package:path/path.dart' as p;
 /// handlers implement it). [read] returns the serialized payload, or
 /// `null` for a missing or expired session.
 abstract interface class SessionHandler {
+  /// The payload of session [id], or null.
   Future<String?> read(String id);
 
+  /// Stores [payload] as session [id].
   Future<void> write(String id, String payload, {Request? request});
 
+  /// Deletes session [id].
   Future<void> destroy(String id);
 
   /// Deletes sessions idle for longer than [lifetime].
@@ -23,9 +26,13 @@ abstract interface class SessionHandler {
 /// both frameworks on one machine can read each other's files. Expiry is
 /// the file's modification time (wall clock, as Laravel reads it).
 final class FileSessionHandler implements SessionHandler {
+  /// Sessions as files in [directory].
   FileSessionHandler(this.directory, {required this.lifetime});
 
+  /// The directory of the session files.
   final String directory;
+
+  /// How long a session lasts.
   final Duration lifetime;
 
   File _file(String id) => File(p.join(directory, id));
@@ -78,14 +85,20 @@ final class FileSessionHandler implements SessionHandler {
 /// `serialize()` text in base64 and `last_activity` a Unix timestamp, so
 /// a Laravel application on the same database shares the sessions.
 final class DatabaseSessionHandler implements SessionHandler {
+  /// Sessions in the `sessions` table, shared with Laravel.
   DatabaseSessionHandler({
     this.table = 'sessions',
     this.connection,
     required this.lifetime,
   });
 
+  /// The sessions table.
   final String table;
+
+  /// The connection of the table; the default one when null.
   final String? connection;
+
+  /// How long a session lasts.
   final Duration lifetime;
 
   QueryBuilder get _query => DB.table(table, connection: connection);
@@ -168,8 +181,10 @@ final class DatabaseSessionHandler implements SessionHandler {
 /// Sessions in this isolate's memory: tests and tools. Laravel's `array`
 /// driver, which likewise forgets everything when the process ends.
 final class ArraySessionHandler implements SessionHandler {
+  /// Sessions in memory, for tests.
   ArraySessionHandler({required this.lifetime});
 
+  /// How long a session lasts.
   final Duration lifetime;
   final Map<String, (String, DateTime)> _sessions = {};
 

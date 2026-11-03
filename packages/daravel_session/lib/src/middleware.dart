@@ -15,6 +15,7 @@ import 'session.dart';
 /// previous URL is recorded for `GET` page requests, and 2 requests in 100
 /// sweep expired sessions.
 final class StartSessionMiddleware implements RunsBeforeBindings {
+  /// Starts the session of each request and saves it after the response.
   const StartSessionMiddleware({this.lottery});
 
   /// The random source of the garbage-collection lottery (tests).
@@ -90,6 +91,7 @@ final class StartSessionMiddleware implements RunsBeforeBindings {
 /// with `hmac_sha1(name . 'v2', key)` in hex and `|`, so a cookie cannot
 /// be moved to another name.
 abstract final class CookieValuePrefix {
+  /// The value of the encrypted cookie [cookieName] Laravel checks.
   static String create(String cookieName, List<int> key) =>
       '${Hmac(sha1, key).convert(utf8.encode('${cookieName}v2'))}|';
 
@@ -119,8 +121,10 @@ abstract final class CookieValuePrefix {
 /// was made for another name, is dropped from the request. [except]
 /// names cookies left in clear.
 final class EncryptCookiesMiddleware implements RunsBeforeBindings {
+  /// Encrypts every cookie except [except], as Laravel's.
   const EncryptCookiesMiddleware({this.except = const <String>[]});
 
+  /// Cookies left unencrypted.
   final List<String> except;
 
   @override
@@ -186,6 +190,7 @@ final class EncryptCookiesMiddleware implements RunsBeforeBindings {
 /// Laravel's `TokenMismatchException`: rendered as `419` with
 /// `CSRF token mismatch.`
 final class TokenMismatchException extends HttpException {
+  /// A 419: the CSRF token is missing or wrong.
   const TokenMismatchException() : super(419, 'CSRF token mismatch.');
 }
 
@@ -196,6 +201,7 @@ final class TokenMismatchException extends HttpException {
 /// Axios and Angular send it back). [except] lists paths that skip the
 /// check (`'webhooks/*'`). Needs [StartSessionMiddleware] before it.
 final class VerifyCsrfTokenMiddleware implements RunsBeforeBindings {
+  /// Refuses state-changing requests without the session's CSRF token.
   const VerifyCsrfTokenMiddleware({
     this.except = const <String>[],
     this.addHttpCookie = true,

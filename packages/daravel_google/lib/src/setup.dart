@@ -15,6 +15,7 @@ import 'token.dart';
 /// service account key file, Google's own name), and `GOOGLE_CALENDAR_ID`
 /// and `GOOGLE_CALENDAR_IMPERSONATE` (as spatie/laravel-google-calendar).
 final class GoogleConfig implements ConfigSection {
+  /// Google settings; usually from `.env` (`GOOGLE_*`).
   const GoogleConfig({
     this.clientId = '',
     this.clientSecret = '',
@@ -25,6 +26,8 @@ final class GoogleConfig implements ConfigSection {
     this.timeZone = 'UTC',
   });
 
+  /// The settings in `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and
+  /// `GOOGLE_REDIRECT_URI`.
   factory GoogleConfig.fromEnv(Env env) => GoogleConfig(
     clientId: env.string('GOOGLE_CLIENT_ID', ''),
     clientSecret: env.string('GOOGLE_CLIENT_SECRET', ''),
@@ -35,8 +38,13 @@ final class GoogleConfig implements ConfigSection {
     timeZone: env.string('APP_TIMEZONE', 'UTC'),
   );
 
+  /// The OAuth client id.
   final String clientId;
+
+  /// The OAuth client secret.
   final String clientSecret;
+
+  /// Where Google sends the user back after sign-in.
   final String? redirectUri;
 
   /// The path of a service account's JSON key.
@@ -120,6 +128,7 @@ extension GoogleApplicationBuilder on ApplicationBuilder {
 
 /// Google from anywhere in a request, job or command.
 abstract final class Google {
+  /// The Google settings of the current container.
   static GoogleConfig get config =>
       Container.current.make<ConfigRepository>().section<GoogleConfig>();
 
