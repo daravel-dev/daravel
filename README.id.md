@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:b281749d4cb0 -->
+<!-- source: README.md sha256:c88771f138e8 -->
 | [`packages/daravel_session`](packages/daravel_session) | Session yang kompatibel dengan Laravel (file atau tabel `sessions`), cookie terenkripsi, dan proteksi CSRF |
 <!-- source: README.md sha256:5b04c2e6d073 -->
 <p align="center">
@@ -490,6 +490,7 @@ Monorepo ini adalah pub workspace Dart:
 | [`apps/daravel_starter`](apps/daravel_starter) | Aplikasi referensi dan test end-to-end |
 | [`apps/virtual_classroom`](apps/virtual_classroom) | Aplikasi contoh: jadwal pelajaran di room LiveKit, undangan Google Calendar, role, query filter, activity log |
 | [`apps/websocket_demo`](apps/websocket_demo) | Aplikasi contoh: chat dengan room lewat WebSocket dan `Broadcast`, socket echo, serta endpoint HTTP yang mendorong pesan ke socket |
+| [`apps/cat_exam_demo`](apps/cat_exam_demo) | Aplikasi contoh: ujian berbasis komputer dengan kunci perangkat per peserta, jawaban tersimpan otomatis, timer di server, skor dan peringkat seketika, dalam bahasa Inggris dan Indonesia |
 
 Kedelapan belas paket ([`daravel`](https://pub.dev/packages/daravel),
 [`dartisan_cli`](https://pub.dev/packages/dartisan_cli),

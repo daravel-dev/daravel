@@ -9,6 +9,13 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 wait for a new major version, and Laravel-facing formats change only to
 match Laravel more closely.
 
+## Unreleased
+
+### Added
+
+- Example application `apps/cat_exam_demo`: a computer-assisted test with a device lock per candidate, answers saved as they are chosen, a server-side timer, instant scoring and ranking, in English and Indonesian (`withTranslations`, `SetLocaleMiddleware`).
+- Every example application has a README with requirements, setup, how to run and try it, tests, troubleshooting, and how to use it outside the repository; `apps/daravel_starter` has its first.
+
 ## 1.24.0
 
 ### Added

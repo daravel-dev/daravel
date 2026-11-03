@@ -31,6 +31,7 @@ workspace:
   - apps/daravel_starter
   - apps/virtual_classroom
   - apps/websocket_demo
+  - apps/cat_exam_demo
   - bench
 
 dev_dependencies:
