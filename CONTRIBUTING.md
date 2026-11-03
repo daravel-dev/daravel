@@ -82,7 +82,12 @@ Run tests from inside each package directory. `DARAVEL_E2E=1` enables the
 - Sign off every commit (Developer Certificate of Origin):
   `git commit -s` adds `Signed-off-by: Your Name <you@example.com>`.
 - Add a line to the `Unreleased` section of [CHANGELOG.md](CHANGELOG.md) for
-  user-visible changes.
+  user-visible changes, under `### Added`, `### Changed` or `### Fixed`
+  (the section and its headers stay on `main`; do not add them again).
+  A change that adds an `export` to a package's top-level library also
+  names the new public names under "Upgrading can change what an
+  application sees", since they can clash with an application's own
+  classes; CI checks this (`dart run tool/changelog_check.dart`).
 
 ## Branches and releases
 
