@@ -8,6 +8,8 @@ import '../foundation/locale.dart';
 /// Default validation messages (Laravel `lang/en/validation.php` parity)
 /// with an Indonesian translation as the second bundled locale.
 abstract final class ValidationMessages {
+  /// The messages by locale, then by rule name (`required`,
+  /// `min.string`...), with `:attribute`, `:min` and other placeholders.
   static const Map<String, Map<String, String>> translations = {
     'en': {
       'required': 'The :attribute field is required.',
