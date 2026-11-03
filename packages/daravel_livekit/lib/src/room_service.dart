@@ -10,9 +10,13 @@ import 'token.dart';
 /// The LiveKit server refused a call (a Twirp error): [code] is Twirp's
 /// (`not_found`, `permission_denied`, `invalid_argument`, ...).
 final class LivekitException extends DaravelException {
+  /// A LiveKit API error with [status] and [code].
   const LivekitException(super.message, {required this.status, this.code});
 
+  /// The HTTP status.
   final int status;
+
+  /// LiveKit's error code.
   final String? code;
 }
 
@@ -23,6 +27,7 @@ final class LivekitException extends DaravelException {
 /// Inside an application it sends through the application's HTTP client
 /// (so `Http.fake()` stubs it); elsewhere through one of its own.
 final class RoomServiceClient {
+  /// A client of the RoomService API, signing each call with [apiKey].
   RoomServiceClient(
     String url, {
     required this.apiKey,
@@ -35,8 +40,14 @@ final class RoomServiceClient {
 
   /// The server, as `http(s)://` (a `ws(s)://` URL is turned into one).
   final String url;
+
+  /// The API key.
   final String apiKey;
+
+  /// The API secret.
   final String apiSecret;
+
+  /// How long a call may take.
   final Duration timeout;
 
   /// How many more times a call is sent after the connection failed
@@ -187,6 +198,7 @@ final class RoomServiceClient {
     }, const VideoGrant(roomCreate: true));
   }
 
+  /// Sets the metadata of [room].
   Future<LivekitRoom> updateRoomMetadata(String room, String metadata) async =>
       LivekitRoom(
         await _call('UpdateRoomMetadata', {
@@ -195,6 +207,7 @@ final class RoomServiceClient {
         }, VideoGrant(room: room, roomAdmin: true)),
       );
 
+  /// The participants of [room].
   Future<List<LivekitParticipant>> listParticipants(String room) async {
     final reply = await _call('ListParticipants', {
       'room': room,
@@ -206,6 +219,7 @@ final class RoomServiceClient {
     ];
   }
 
+  /// One participant of a room.
   Future<LivekitParticipant> getParticipant(
     String room,
     String identity,

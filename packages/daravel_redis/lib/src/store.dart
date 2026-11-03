@@ -23,6 +23,8 @@ final class RedisStore
         WindowCounterStore,
         RateCounterStore,
         TaggableCacheStore {
+  /// A cache store in Redis, sharing keys with Laravel's when the prefix
+  /// matches.
   RedisStore(
     this.client, {
     RedisClient? lockClient,
@@ -34,6 +36,7 @@ final class RedisStore
   /// How values that are not numbers are written (`REDIS_SERIALIZER`).
   final RedisSerializer serializer;
 
+  /// The Redis connection.
   final RedisClient client;
 
   /// Where locks live: Laravel keeps them on the `default` connection

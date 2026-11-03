@@ -16,6 +16,7 @@ import 'grants.dart';
 /// ).toJwt();
 /// ```
 final class LivekitToken {
+  /// An access token for a participant, signed with [apiKey].
   const LivekitToken({
     required this.apiKey,
     required this.apiSecret,
@@ -28,7 +29,10 @@ final class LivekitToken {
     this.sha256,
   });
 
+  /// The API key, the token's issuer.
   final String apiKey;
+
+  /// The API secret signing it.
   final String apiSecret;
 
   /// The participant (`sub` and `jti`); required to join a room.
@@ -39,10 +43,14 @@ final class LivekitToken {
 
   /// Free-form text the other participants see (JSON, typically).
   final String? metadata;
+
+  /// Attributes of the participant.
   final Map<String, String>? attributes;
 
   /// How long the token is valid (4 hours, as LiveKit's SDKs).
   final Duration ttl;
+
+  /// What the participant may do.
   final VideoGrant? video;
 
   /// The base64 SHA-256 of a webhook body this token vouches for.
@@ -126,21 +134,34 @@ final class LivekitToken {
 
 /// The verified claims of a [LivekitToken].
 final class LivekitClaims {
+  /// The [claims] of a verified token.
   const LivekitClaims(this.claims);
 
+  /// The raw claims.
   final Map<String, Object?> claims;
 
+  /// The participant identity.
   String? get identity => claims['sub'] as String?;
+
+  /// The display name.
   String? get name => claims['name'] as String?;
+
+  /// The participant metadata.
   String? get metadata => claims['metadata'] as String?;
+
+  /// The SHA-256 of a webhook body.
   String? get sha256 => claims['sha256'] as String?;
+
+  /// The API key that issued it.
   String? get issuer => claims['iss'] as String?;
 
+  /// The video grant.
   VideoGrant? get video => switch (claims['video']) {
     final Map<String, Object?> grant => VideoGrant.fromJson(grant),
     _ => null,
   };
 
+  /// The participant attributes.
   Map<String, String> get attributes => switch (claims['attributes']) {
     final Map<String, Object?> map => {
       for (final MapEntry(:key, :value) in map.entries) key: '$value',
@@ -148,6 +169,7 @@ final class LivekitClaims {
     _ => const {},
   };
 
+  /// When the token expires.
   DateTime? get expiresAt => switch (claims['exp']) {
     final num seconds => DateTime.fromMillisecondsSinceEpoch(
       (seconds * 1000).round(),

@@ -25,6 +25,7 @@ typedef RedisNode = ({String host, int port});
 /// One Redis (or Valkey) server and database, or the Sentinels or Cluster
 /// nodes that lead to them ([mode]).
 final class RedisConnectionConfig {
+  /// One Redis connection's settings.
   const RedisConnectionConfig({
     this.host = '127.0.0.1',
     this.port = 6379,
@@ -262,13 +263,25 @@ final class RedisConnectionConfig {
         maxInFlight: maxInFlight,
       );
 
+  /// The host (`REDIS_HOST`).
   final String host;
+
+  /// The port (`REDIS_PORT`, 6379).
   final int port;
+
+  /// The ACL user name (`REDIS_USERNAME`).
   final String? username;
+
+  /// The password (`REDIS_PASSWORD`).
   final String? password;
+
+  /// The database number (`REDIS_DB`).
   final int database;
+
+  /// Whether TLS is used (`rediss://`).
   final bool tls;
 
+  /// One node, a sentinel set, or a cluster.
   final RedisMode mode;
 
   /// The Sentinels ([RedisMode.sentinel]) or the Cluster nodes to start
@@ -281,10 +294,14 @@ final class RedisConnectionConfig {
   /// The Sentinels' own credentials (`REDIS_SENTINEL_USERNAME`,
   /// `REDIS_SENTINEL_PASSWORD`), when they require one.
   final String? sentinelUsername;
+
+  /// The password of the sentinels.
   final String? sentinelPassword;
 
   /// The longest a command may wait for its reply (`REDIS_COMMAND_TIMEOUT`).
   final Duration commandTimeout;
+
+  /// How long to wait for a connection.
   final Duration connectTimeout;
 
   /// Commands that may wait for replies on one connection
@@ -329,6 +346,7 @@ final class RedisConnectionConfig {
             (bytes[0] == 192 && bytes[1] == 168));
   }
 
+  /// The settings as a map; the passwords are included, so never log it.
   Map<String, Object?> toMap() => {
     'host': host,
     'port': port,
@@ -351,6 +369,7 @@ final class RedisConnectionConfig {
 /// (queues, broadcasting, the facade) and the `cache` one (`REDIS_CACHE_DB`,
 /// 1 by default, so `cache:clear` never touches queued jobs).
 final class RedisConfig implements ConfigSection {
+  /// The Redis settings: every connection and the store options.
   const RedisConfig({
     this.connections = const {
       'default': RedisConnectionConfig(),
@@ -365,6 +384,7 @@ final class RedisConfig implements ConfigSection {
     this.tieredTtl = const Duration(seconds: 60),
   });
 
+  /// The settings in `REDIS_*`.
   factory RedisConfig.fromEnv(Env env) {
     final app = env.string('APP_NAME', 'daravel');
     return RedisConfig(
@@ -416,6 +436,7 @@ final class RedisConfig implements ConfigSection {
     );
   }
 
+  /// The connections by name (`default`, `cache`...).
   final Map<String, RedisConnectionConfig> connections;
 
   /// Put before every key (`REDIS_PREFIX`, Laravel's `<app>-database-`).
@@ -439,8 +460,11 @@ final class RedisConfig implements ConfigSection {
   /// The `tiered` store's L1: entries per isolate (`REDIS_TIERED_MAX_KEYS`)
   /// and their longest life (`REDIS_TIERED_TTL`).
   final int tieredMaxKeys;
+
+  /// How long the tiered store's local copy is trusted.
   final Duration tieredTtl;
 
+  /// The connection [name].
   RedisConnectionConfig connection([String name = 'default']) =>
       connections[name] ??
       (throw ConfigException('Redis connection [$name] is not configured.'));

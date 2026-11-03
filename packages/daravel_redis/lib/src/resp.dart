@@ -4,6 +4,7 @@ import 'dart:typed_data';
 /// An error reply (`-ERR ...`, RESP3 `!`): the command reached the server
 /// and was refused.
 final class RedisCommandException implements Exception {
+  /// Redis answered with an error [message].
   const RedisCommandException(this.message);
 
   /// The server's message, starting with its code (`ERR`, `NOSCRIPT`,
@@ -23,8 +24,10 @@ final class RedisCommandException implements Exception {
 /// The connection failed, closed, or a command timed out: whether the
 /// command ran is unknown.
 final class RedisConnectionException implements Exception {
+  /// The connection failed: [message].
   const RedisConnectionException(this.message);
 
+  /// What failed.
   final String message;
 
   @override
@@ -35,20 +38,25 @@ final class RedisConnectionException implements Exception {
 /// (`REDIS_MAX_IN_FLIGHT`): refused at once instead of queueing without
 /// bound.
 final class RedisOverloadedException extends RedisConnectionException {
+  /// Too many commands are waiting for the connection.
   const RedisOverloadedException(super.message);
 }
 
 /// A RESP3 push (`>`): a Pub/Sub message or an invalidation.
 final class RespPush {
+  /// A RESP3 push of [items].
   const RespPush(this.items);
 
+  /// The pushed values.
   final List<Object?> items;
 }
 
 /// The server's reply to a refused command, as a value of a pipeline.
 final class RespError {
+  /// A RESP error [message].
   const RespError(this.message);
 
+  /// The error text.
   final String message;
 }
 
@@ -77,6 +85,7 @@ const List<int> _crlf = [13, 10];
 /// [maxBulkBytes], aggregates over [maxElements] or nested deeper than
 /// [maxDepth], so a broken or hostile server cannot exhaust memory.
 final class RespDecoder {
+  /// A decoder calling [onValue] for each reply, within the given limits.
   RespDecoder(
     this.onValue, {
     this.maxBulkBytes = 512 * 1024 * 1024,
@@ -84,9 +93,16 @@ final class RespDecoder {
     this.maxDepth = 32,
   });
 
+  /// Receives each decoded reply.
   final void Function(Object? value) onValue;
+
+  /// The largest bulk string accepted.
   final int maxBulkBytes;
+
+  /// The most elements of an aggregate.
   final int maxElements;
+
+  /// The deepest nesting accepted.
   final int maxDepth;
 
   Uint8List _buffer = Uint8List(0);

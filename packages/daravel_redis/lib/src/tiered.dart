@@ -17,6 +17,7 @@ import 'store.dart';
 /// after `FLUSHDB`); [onReset] runs whenever tracking starts or stops, since
 /// writes in between were not reported.
 final class RedisInvalidations {
+  /// Listens for invalidations of keys under [prefix].
   RedisInvalidations(
     this.client, {
     required this.prefix,
@@ -24,9 +25,16 @@ final class RedisInvalidations {
     required this.onReset,
   });
 
+  /// The Redis connection.
   final RedisClient client;
+
+  /// The key prefix.
   final String prefix;
+
+  /// Called with the changed keys, or null for all.
   final void Function(List<String>? keys) onInvalidate;
+
+  /// Called when the invalidation stream restarts.
   final void Function() onReset;
 
   bool _started = false;
@@ -135,6 +143,7 @@ final class TieredStore
         WindowCounterStore,
         RateCounterStore,
         TaggableCacheStore {
+  /// Redis behind a per-isolate copy invalidated through Redis.
   TieredStore(
     this.values, {
     required this.shared,
@@ -154,8 +163,14 @@ final class TieredStore
 
   /// Locks and rate limits.
   final RedisStore shared;
+
+  /// The most keys the local copy keeps.
   final int maxKeys;
+
+  /// How long a local copy is trusted.
   final Duration maxAge;
+
+  /// Receives the invalidations.
   late final RedisInvalidations invalidations;
 
   final LinkedHashMap<String, _Entry> _l1 = LinkedHashMap();
