@@ -10,8 +10,10 @@ import '../response.dart';
 /// takes any verb but GET, HEAD, CONNECT and TRACE; this takes the three that
 /// forms need.
 final class MethodOverrideMiddleware implements Middleware {
+  /// Reads `_method` from a `POST` form, as Laravel does for HTML forms.
   const MethodOverrideMiddleware();
 
+  /// The methods a form may ask for.
   static const Set<String> allowed = {'PUT', 'PATCH', 'DELETE'};
 
   @override

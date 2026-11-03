@@ -5,10 +5,13 @@ import '../response.dart';
 /// Trims surrounding whitespace from every string input, except the keys
 /// listed in [except] (Laravel's `TrimStrings`, which skips passwords).
 final class TrimStringsMiddleware implements Middleware {
+  /// Trims every string in the input, except the given keys (passwords by
+  /// default).
   const TrimStringsMiddleware({
     this.except = const <String>{'password', 'password_confirmation'},
   });
 
+  /// Keys left as sent.
   final Set<String> except;
 
   @override
@@ -26,6 +29,7 @@ final class TrimStringsMiddleware implements Middleware {
 /// Converts empty string inputs to `null` (Laravel's
 /// `ConvertEmptyStringsToNull`).
 final class ConvertEmptyStringsToNullMiddleware implements Middleware {
+  /// Turns empty strings in the input into null.
   const ConvertEmptyStringsToNullMiddleware();
 
   @override

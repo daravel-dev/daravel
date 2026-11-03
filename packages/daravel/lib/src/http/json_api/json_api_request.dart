@@ -13,6 +13,8 @@ final class JsonApiRequest {
 
   static final Expando<JsonApiRequest> _cache = Expando<JsonApiRequest>();
 
+  /// The request whose `?include=`, `?fields[...]=` and `?sort=` are read;
+  /// null outside a request.
   final Request? request;
 
   late final Map<String, List<String>> _fields = _parseFields();
