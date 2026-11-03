@@ -11,12 +11,14 @@ typedef MiddlewareFactory = Middleware Function(List<String> params);
 
 /// Onion-style middleware (BLUEPRINT_V2 §7.2.4).
 abstract interface class Middleware {
+  /// Handles [request]: return a response, or call [next] to continue.
   Future<Response> handle(Request request, Next next);
 }
 
 /// Middleware with work to do after the response has been sent to the
 /// client (Laravel's `terminate()`), such as flushing logs or metrics.
 abstract interface class TerminableMiddleware implements Middleware {
+  /// Runs after the response is sent (Laravel's terminable middleware).
   FutureOr<void> terminate(Request request, Response response);
 }
 
@@ -30,6 +32,8 @@ abstract interface class RunsBeforeBindings implements Middleware {}
 
 /// Middleware backed by a closure.
 final class FunctionalMiddleware implements Middleware {
+  /// Middleware from a function: `FunctionalMiddleware((request, next) =>
+  /// ...)`.
   const FunctionalMiddleware(this._handler);
 
   final Future<Response> Function(Request request, Next next) _handler;
@@ -225,6 +229,8 @@ final class MiddlewareRegistry {
 
 /// Echoes the request id as `x-request-id` on every response.
 final class RequestIdMiddleware implements Middleware {
+  /// Gives each request an id (`X-Request-Id`, kept from the client when
+  /// present) and adds it to the log context.
   const RequestIdMiddleware();
 
   @override

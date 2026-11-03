@@ -233,3 +233,11 @@ Daravel logs the same keys and date format as one created by Laravel.
 Not ported: Spatie's change pipes (`addLogChange`), its global
 `disableLogging()`/`enableLogging()` switches (use `withoutLogs`), and
 causers given as an id rather than a model.
+
+## Laravel equivalents
+
+More of Laravel that this works with, and the API to look up on pub.dev.
+
+| Laravel | Daravel | API | Note |
+| :-- | :-- | :-- | :-- |
+| `php artisan activitylog:clean` | `dartisan activitylog:clean` | `ActivitylogCleanCommand` |  |

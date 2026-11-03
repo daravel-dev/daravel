@@ -22,6 +22,7 @@ import 'package:timezone/timezone.dart' as tz;
 
 /// One finding.
 final class LintIssue {
+  /// A finding of [rule] at a line and column.
   const LintIssue({
     required this.rule,
     required this.message,
@@ -30,12 +31,19 @@ final class LintIssue {
     required this.column,
   });
 
+  /// The rule that found it.
   final String rule;
+
+  /// What is wrong and how to fix it.
   final String message;
 
   /// Path relative to the linted root (`/` separators).
   final String path;
+
+  /// The line, from 1.
   final int line;
+
+  /// The column, from 1.
   final int column;
 
   @override
@@ -44,10 +52,13 @@ final class LintIssue {
 
 /// A rule run against one parsed file.
 abstract base class LintRule {
+  /// Rules are usually const.
   const LintRule();
 
+  /// The rule's name, used by `// daravel-lint-ignore: <name>`.
   String get name;
 
+  /// What the rule checks.
   String get description;
 
   /// Whether the rule applies to [relativePath] (`lib/app/x.dart`).
@@ -62,6 +73,7 @@ abstract base class LintRule {
 
 /// `import 'dart:mirrors'` breaks AOT compilation (ADR: zero reflection).
 final class NoDartMirrors extends LintRule {
+  /// `no_dart_mirrors`: Daravel compiles ahead of time, without reflection.
   const NoDartMirrors();
 
   @override
@@ -86,6 +98,7 @@ final class NoDartMirrors extends LintRule {
 
 /// `print()` in application code bypasses logging (redaction, context).
 final class NoPrintInApp extends LintRule {
+  /// `no_print_in_app`: application code logs through `Log`.
   const NoPrintInApp();
 
   @override
@@ -117,6 +130,7 @@ final class NoPrintInApp extends LintRule {
 /// Mutable statics leak state between requests in long-running workers
 /// (Octane-style pitfall).
 final class NoMutableStaticInApp extends LintRule {
+  /// `no_mutable_static_in_app`: static state is not shared between isolates.
   const NoMutableStaticInApp();
 
   @override
@@ -202,8 +216,10 @@ final class NoMutableStaticInApp extends LintRule {
 
 /// String interpolation into raw SQL is an injection risk; pass bindings.
 final class NoSqlStringInterpolation extends LintRule {
+  /// `no_sql_string_interpolation`: values go in bindings, never in the SQL.
   const NoSqlStringInterpolation();
 
+  /// The methods taking raw SQL.
   static const Set<String> sqlMethods = <String>{
     ...genericSqlMethods,
     'selectRaw',
@@ -378,6 +394,8 @@ final class _ConstCollector extends RecursiveAstVisitor<void> {
 /// or malformed arguments before that, in `.rules({...})`,
 /// `.validate({...})`, `Validator(data, {...})` and `FormRequest.rules()`.
 final class InvalidValidationRule extends LintRule {
+  /// `invalid_validation_rule`: unknown rules and wrong arguments in rule
+  /// strings.
   const InvalidValidationRule();
 
   /// Every name `RuleParser.parseOne` accepts (kept equal by
@@ -516,6 +534,8 @@ final class InvalidValidationRule extends LintRule {
     'between',
     'size',
   };
+
+  /// The rules whose arguments must be integers.
   static const Set<String> integerArguments = <String>{
     'digits',
     'digits_between',
@@ -650,6 +670,8 @@ final class InvalidValidationRule extends LintRule {
 /// throws a StateError). `unawaited_futures` misses explicit `unawaited()`
 /// and `.ignore()`, and projects may not enable it.
 final class UnawaitedInDbTransaction extends LintRule {
+  /// `unawaited_in_db_transaction`: a query not awaited runs outside the
+  /// transaction.
   const UnawaitedInDbTransaction();
 
   /// Methods that only exist on the query builder, the ORM or a model.
@@ -856,6 +878,7 @@ final class _Visitor extends RecursiveAstVisitor<void> {
 /// `ScheduledTask.timezone('Asia/Jakarta')`: the zone name must exist in the
 /// IANA database, or the application fails at boot.
 final class InvalidTimezone extends LintRule {
+  /// `invalid_timezone`: time zone names must exist.
   const InvalidTimezone();
 
   @override

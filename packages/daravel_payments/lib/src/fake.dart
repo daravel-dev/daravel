@@ -7,11 +7,13 @@ import 'types.dart';
 /// A gateway that records what it is asked: `Payment.fake()` puts it in
 /// place of every gateway, as `Mail.fake()` does for mail.
 final class FakePaymentGateway implements PaymentGateway {
+  /// A gateway answering without a network, for tests.
   FakePaymentGateway([this.name = 'fake']);
 
   @override
   final String name;
 
+  /// The payments created, in order.
   final List<PaymentRequest> created = [];
   final Map<String, FakePaymentGateway> _named = {};
 

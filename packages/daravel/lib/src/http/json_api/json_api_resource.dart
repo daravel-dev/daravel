@@ -11,6 +11,8 @@ const String _mediaType = 'application/vnd.api+json';
 /// A relation a [JsonApiResource] can expose. There is no `toResource` without
 /// reflection, so it names the resource for its models.
 final class JsonApiRelationship<R extends Model> {
+  /// A relationship whose models the given function turns into resources;
+  /// [resolver] replaces the loaded relation.
   JsonApiRelationship(this._wrap, {this.resolver});
 
   final JsonApiResource<R> Function(R model) _wrap;
@@ -18,10 +20,13 @@ final class JsonApiRelationship<R extends Model> {
   /// Replaces the loaded relation.
   final Object? Function(Model parent)? resolver;
 
+  /// The resource of [model].
   JsonApiResource<Object?> wrap(Model model) => _wrap(model as R);
 
+  /// Whether a [resolver] gives the related models.
   bool get isCustom => resolver != null;
 
+  /// The related models of [parent] from the [resolver].
   Object? resolve(Model parent) => resolver!(parent);
 }
 
@@ -63,6 +68,7 @@ final class _Include {
 /// the query asks for first; anywhere else, what is not loaded is left out.
 abstract class JsonApiResource<T> extends JsonResource<T>
     implements PreparedResponsable {
+  /// A JSON:API resource for [resource].
   JsonApiResource(super.resource);
 
   /// The top-level `jsonapi` member, from [configure].
@@ -76,6 +82,7 @@ abstract class JsonApiResource<T> extends JsonResource<T>
   /// How deep `?include=` reaches.
   static int get relationshipDepth => _depth;
 
+  /// Limits how deep `?include=` reaches (5 by default).
   static void maxRelationshipDepth(int depth) {
     _depth = depth < 0 ? 0 : depth;
   }
@@ -107,11 +114,14 @@ abstract class JsonApiResource<T> extends JsonResource<T>
   @override
   Map<String, Object?> toArray(Request? request) => const {};
 
+  /// The relationships the resource exposes, by name.
   Map<String, JsonApiRelationship<Model>> toRelationships(Request? request) =>
       const {};
 
+  /// The `links` member of the resource object.
   Map<String, Object?> toLinks(Request? request) => const {};
 
+  /// The `meta` member of the resource object.
   Map<String, Object?> toMeta(Request? request) => const {};
 
   /// Relations a parent asked for through `a.b`; null reads the query.
@@ -401,6 +411,8 @@ abstract class JsonApiResource<T> extends JsonResource<T>
 /// Resources under one `data`; paginators add Laravel's `links` and `meta`.
 final class JsonApiCollection<T>
     implements JsonSerializable, PreparedResponsable {
+  /// A JSON:API document of the items of a list or paginator, each wrapped
+  /// by the given factory.
   JsonApiCollection(Object source, JsonApiResource<T> Function(T item) factory)
     : _source = ResourceCollection<T>(source, factory),
       _factory = factory;
@@ -414,16 +426,19 @@ final class JsonApiCollection<T>
     for (final item in _source.items) _factory(item),
   ];
 
+  /// Adds [data] to the top level of the document.
   JsonApiCollection<T> additional(Map<String, Object?> data) {
     _additional.addAll(data);
     return this;
   }
 
+  /// Answers with [status] instead of 200.
   JsonApiCollection<T> withStatus(int status) {
     _status = status;
     return this;
   }
 
+  /// The resource objects of the items.
   List<Map<String, Object?>> resolveItems([Request? request]) => [
     for (final resource in _resources) resource.resolve(request),
   ];
@@ -435,6 +450,7 @@ final class JsonApiCollection<T>
   Future<void> prepare(Request request) =>
       JsonApiResource._loadRequested(_resources, request);
 
+  /// The whole document: `data`, `included`, `links` and `meta`.
   Map<String, Object?> toPayload([Request? request]) {
     final query = JsonApiRequest.of(request);
     final data = resolveItems(request);

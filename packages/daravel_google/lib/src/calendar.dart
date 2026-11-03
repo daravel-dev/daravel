@@ -41,8 +41,13 @@ final class EventTime {
     );
   }
 
+  /// The date and time; midnight UTC for an all-day event.
   final DateTime dateTime;
+
+  /// The IANA time zone, or null for the calendar's.
   final String? timeZone;
+
+  /// Whether only the date counts.
   final bool allDay;
 
   /// Google's JSON, with [defaultTimeZone] for a wall clock time without
@@ -68,6 +73,7 @@ final class EventTime {
 
 /// A guest of an event.
 final class EventAttendee {
+  /// A guest [email], optionally with a display name.
   const EventAttendee(
     this.email, {
     this.displayName,
@@ -75,6 +81,7 @@ final class EventAttendee {
     this.responseStatus,
   });
 
+  /// An attendee from the API's JSON.
   factory EventAttendee.fromJson(Map<String, Object?> json) => EventAttendee(
     json['email']! as String,
     displayName: json['displayName'] as String?,
@@ -82,13 +89,19 @@ final class EventAttendee {
     responseStatus: json['responseStatus'] as String?,
   );
 
+  /// The guest's email.
   final String email;
+
+  /// The guest's name.
   final String? displayName;
+
+  /// Whether attending is optional.
   final bool optional;
 
   /// Google's answer: `needsAction`, `accepted`, `declined`, `tentative`.
   final String? responseStatus;
 
+  /// The attendee as the API's JSON.
   Map<String, Object?> toJson() => {
     'email': email,
     'displayName': ?displayName,
@@ -113,6 +126,7 @@ final class CalendarEvent {
   }) : id = null,
        json = const {};
 
+  /// An event from the API's [json].
   CalendarEvent.fromJson(this.json)
     : id = json['id'] as String?,
       summary = json['summary'] as String?,
@@ -135,13 +149,28 @@ final class CalendarEvent {
       },
       meet = false;
 
+  /// The event id.
   final String? id;
+
+  /// The title.
   final String? summary;
+
+  /// The description.
   final String? description;
+
+  /// The location.
   final String? location;
+
+  /// When it starts.
   final EventTime? start;
+
+  /// When it ends.
   final EventTime? end;
+
+  /// The guests.
   final List<EventAttendee>? attendees;
+
+  /// Whether a Google Meet link is attached.
   final bool meet;
 
   /// Google's answer as it came (empty for an event built to send).
@@ -217,6 +246,7 @@ final class CalendarEvent {
 /// Inside an application it sends through the application's HTTP client
 /// (so `Http.fake()` stubs it); elsewhere through one of its own.
 final class GoogleCalendar {
+  /// A Calendar API client acting with [credentials].
   GoogleCalendar(
     this.credentials, {
     this.calendarId = 'primary',
@@ -225,8 +255,10 @@ final class GoogleCalendar {
     this.timeout = const Duration(seconds: 10),
   }) : _http = GoogleHttp(http);
 
+  /// The API's base URL.
   static const String baseUrl = 'https://www.googleapis.com/calendar/v3';
 
+  /// The credentials calls are made with.
   final GoogleCredentials credentials;
 
   /// `primary` (the user's own) or a calendar's id, such as its email.
@@ -234,6 +266,8 @@ final class GoogleCalendar {
 
   /// The time zone of [EventTime]s given as wall clock times.
   final String timeZone;
+
+  /// How long a call may take.
   final Duration timeout;
   final GoogleHttp _http;
 

@@ -79,6 +79,7 @@ String laravelSessionSerialization(String laravel, Map<String, String> env) {
 /// settings from its `.env` and checks that coexistence will work. The
 /// Laravel project is only read, never changed.
 final class AdoptCommand extends Command<int> {
+  /// The `dartisan adopt` command.
   AdoptCommand({this.root}) {
     argParser
       ..addFlag(

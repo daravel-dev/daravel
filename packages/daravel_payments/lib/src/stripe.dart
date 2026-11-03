@@ -8,6 +8,7 @@ import 'types.dart';
 /// (https://docs.stripe.com/webhooks#verify-manually): `Stripe-Signature`
 /// carries `t=<timestamp>` and `v1=<HMAC-SHA256 of "t.body">` signatures.
 final class StripeGateway implements PaymentGateway {
+  /// Stripe Checkout, with the secret key from `STRIPE_SECRET`.
   StripeGateway({
     required this.secretKey,
     required this.webhookSecret,
@@ -28,6 +29,8 @@ final class StripeGateway implements PaymentGateway {
   /// How old a signed timestamp may be (replay protection; Stripe's
   /// libraries use five minutes).
   final Duration tolerance;
+
+  /// The API's base URL.
   final String baseUrl;
 
   PendingRequest get _http => Http.withToken(secretKey).acceptJson().asForm();

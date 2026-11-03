@@ -21,6 +21,8 @@ enum EmbeddedRole {
 ///
 /// [Application.serveWith] manages it; custom entrypoints can use it too.
 final class EmbeddedWorkers {
+  /// Runs the [roles] (queue worker, scheduler) of applications from
+  /// [factory] beside the HTTP server.
   EmbeddedWorkers(
     this.factory, {
     required this.roles,
@@ -29,9 +31,16 @@ final class EmbeddedWorkers {
     this.coordinator,
   });
 
+  /// Builds each role's application.
   final ApplicationFactory factory;
+
+  /// The roles run.
   final List<EmbeddedRole> roles;
+
+  /// Logs starts, crashes and stops.
   final Logger logger;
+
+  /// Runs the scheduled commands.
   ScheduleCommandRunner? commandRunner;
 
   /// The server's coordinator (`Coordinator.listen()`), so the embedded
@@ -47,6 +56,7 @@ final class EmbeddedWorkers {
 
   static const int _maxCrashesPerMinute = 5;
 
+  /// Starts every role in its own isolate.
   Future<void> start() async {
     for (final role in roles) {
       await _spawn(role);

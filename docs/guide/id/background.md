@@ -1,4 +1,4 @@
-<!-- source: background.md sha256:dc0f56ad9643 -->
+<!-- source: background.md sha256:fe9fa9a1144b -->
 # Cache, event, queue, dan penjadwalan
 
 <!-- include: packages/daravel/test/docs/guide_examples_test.dart#cache-events-queue -->
@@ -201,3 +201,15 @@ zona dikompilasi ke dalam biner (sekitar 0,5 MB, dengan nama alias yang
 diterima PHP: `UTC`, `GMT`, `US/Eastern`, ...); nama zona yang tidak dikenal
 melempar exception saat boot, dan `dartisan lint` melaporkannya
 (`invalid_timezone`).
+
+## Padanan Laravel
+
+Bagian lain dari Laravel yang ikut didukung, beserta API yang bisa dicari di pub.dev.
+
+| Laravel | Daravel | API | Catatan |
+| :-- | :-- | :-- | :-- |
+| `Cache::flexible($key, [$fresh, $stale], fn)` | `await Cache.flexible(...)` | `Cache.flexible` |  |
+| `SendEmail::dispatch()->withoutDelay()` | `.withoutDelay()` | `PendingDispatch.withoutDelay` |  |
+| `public $deleteWhenMissingModels = true` | `bool get deleteWhenMissingModels => true` | `Job.deleteWhenMissingModels` |  |
+| `#[DebounceFor(60)]` | `Duration? get debounceFor => ...` | `Job.debounceFor` |  |
+| `(new WithoutOverlapping($key))->shared()` | `WithoutOverlapping(key, shared: true)` | `WithoutOverlapping.shared` |  |

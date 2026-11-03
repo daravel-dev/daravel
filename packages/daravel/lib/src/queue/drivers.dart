@@ -18,6 +18,7 @@ import 'job.dart';
 /// payload (`uuid`, `displayName`, `job`, `maxTries`, …); `data` holds the
 /// Dart job's own JSON, so payloads are not cross-runtime (§4.4).
 final class JobPayload {
+  /// A payload; [JobPayload.forJob] builds one from a job.
   const JobPayload({
     required this.uuid,
     required this.jobName,
@@ -36,6 +37,7 @@ final class JobPayload {
     this.context,
   });
 
+  /// The payload of [job], with its retry settings and a new UUID.
   factory JobPayload.forJob(
     Job job, {
     String? uuid,
@@ -65,6 +67,7 @@ final class JobPayload {
     );
   }
 
+  /// A payload read back from its JSON.
   factory JobPayload.fromJson(Map<String, Object?> json) => JobPayload(
     uuid: json['uuid'] as String,
     jobName: json['job'] as String,
@@ -108,13 +111,28 @@ final class JobPayload {
   factory JobPayload.decode(String raw) =>
       JobPayload.fromJson(jsonDecode(raw) as Map<String, Object?>);
 
+  /// A unique id of this dispatch, kept across retries.
   final String uuid;
+
+  /// The registered job name, used to rebuild the job.
   final String jobName;
+
+  /// The name shown in logs and `queue:failed`.
   final String displayName;
+
+  /// The job's own data, from its `toJson`.
   final Map<String, Object?> data;
+
+  /// How many times the job may be attempted.
   final int maxTries;
+
+  /// How many exceptions the job may throw before it fails.
   final int maxExceptions;
+
+  /// Whether a timeout fails the job at once instead of retrying it.
   final bool failOnTimeout;
+
+  /// The waits between attempts, in seconds.
   final List<int> backoffSeconds;
 
   /// Handler timeout (stored as seconds, fractional for sub-second).
@@ -136,8 +154,10 @@ final class JobPayload {
   /// The dispatching scope's `Context` (visible and hidden entries).
   final Map<String, Object?>? context;
 
+  /// Tags shown by monitoring tools.
   final List<String> tags;
 
+  /// The payload as JSON, as stored in the `jobs` table.
   Map<String, Object?> toJson() => <String, Object?>{
     'uuid': uuid,
     'displayName': displayName,
@@ -156,6 +176,7 @@ final class JobPayload {
     'data': data,
   };
 
+  /// The payload as a JSON string.
   String encode() => jsonEncode(toJson());
 }
 
@@ -163,6 +184,7 @@ final class JobPayload {
 /// A claimed row whose payload is Daravel-shaped but does not decode. The
 /// driver has removed the row; [raw] is what it held, for `failed_jobs`.
 final class CorruptPayloadException extends DaravelException {
+  /// A job row whose payload cannot be read.
   CorruptPayloadException({
     required this.id,
     required this.queue,
@@ -172,13 +194,22 @@ final class CorruptPayloadException extends DaravelException {
          'Job $id on queue [$queue] has a payload that does not decode: $cause',
        );
 
+  /// The job's id in its queue.
   final Object id;
+
+  /// The queue it was read from.
   final String queue;
+
+  /// The payload text as stored.
   final String raw;
+
+  /// The parse error.
   final Object cause;
 }
 
+/// A job reserved from a queue, being processed.
 final class QueuedJob {
+  /// The reserved job [id] of [queue] carrying [payload].
   const QueuedJob({
     required this.id,
     required this.queue,
@@ -187,8 +218,13 @@ final class QueuedJob {
     required this.raw,
   });
 
+  /// The job's id in its queue.
   final Object id;
+
+  /// The queue it was reserved from.
   final String queue;
+
+  /// The decoded payload.
   final JobPayload payload;
 
   /// Attempts including the current one.
@@ -200,8 +236,10 @@ final class QueuedJob {
 
 /// Queue backend (BLUEPRINT_V2 §7.9.1).
 abstract interface class QueueDriver {
+  /// The connection's name.
   String get name;
 
+  /// Where the jobs live: one isolate, the process, or the cluster.
   StateScope get scope;
 
   /// Stores [payload]; returns the driver's job id.
@@ -217,8 +255,10 @@ abstract interface class QueueDriver {
   /// Puts a reserved job back, available after [delay].
   Future<void> release(QueuedJob job, Duration delay);
 
+  /// Removes [job] from the queue for good.
   Future<void> delete(QueuedJob job);
 
+  /// The number of jobs waiting on [queue].
   Future<int> size(String queue);
 
   /// How long the oldest job that is ready to run on [queue] has been
@@ -226,6 +266,7 @@ abstract interface class QueueDriver {
   /// auto-scaling (Laravel Horizon's "wait time").
   Future<Duration?> oldestWait(String queue);
 
+  /// Removes every job of [queue] and returns how many there were.
   Future<int> clear(String queue);
 }
 
@@ -274,6 +315,7 @@ final class _MemoryEntry {
 /// In-memory queue (scope `isolate`): tests and `--embed-queue` style
 /// single-process setups.
 final class MemoryQueue implements WakeableQueueDriver {
+  /// A queue in this isolate's memory; [clock] is for tests.
   MemoryQueue({DateTime Function()? clock}) : _clock = clock ?? _utcNow;
 
   final DateTime Function() _clock;
@@ -396,6 +438,8 @@ final class MemoryQueue implements WakeableQueueDriver {
 /// optimistic `UPDATE … WHERE reserved_at IS NULL`, so several workers
 /// never process the same row twice.
 final class DatabaseQueue implements WakeableQueueDriver {
+  /// A queue in the [table] (`jobs`) of [db], shared with Laravel's
+  /// database queue.
   DatabaseQueue(
     this.db, {
     this.table = 'jobs',
@@ -405,8 +449,13 @@ final class DatabaseQueue implements WakeableQueueDriver {
     DateTime Function()? clock,
   }) : _clock = clock ?? _utcNow;
 
+  /// The database holding the jobs.
   final DatabaseManager db;
+
+  /// The jobs table.
   final String table;
+
+  /// The connection of the table; the default one when null.
   final String? connection;
 
   /// Reserved jobs older than this are considered abandoned and re-queued.
@@ -678,6 +727,7 @@ final class DatabaseQueue implements WakeableQueueDriver {
 /// Runs jobs inline at push time (dev/test). [processor] is wired by the
 /// queue manager.
 final class SyncQueue implements QueueDriver {
+  /// A queue that runs each job as soon as it is pushed.
   SyncQueue();
 
   /// Processes a payload immediately; set by `QueueManager`.
@@ -727,6 +777,7 @@ final class SyncQueue implements QueueDriver {
 
 /// A row of `failed_jobs`.
 final class FailedJob {
+  /// A failed job, as stored in `failed_jobs`.
   const FailedJob({
     required this.id,
     required this.uuid,
@@ -737,14 +788,28 @@ final class FailedJob {
     required this.failedAt,
   });
 
+  /// The row id.
   final Object id;
+
+  /// The job's UUID, used by `queue:retry`.
   final String uuid;
+
+  /// The queue connection it ran on.
   final String connection;
+
+  /// The queue it ran on.
   final String queue;
+
+  /// The payload JSON, to retry it.
   final String payload;
+
+  /// The exception and its trace.
   final String exception;
+
+  /// When it failed.
   final DateTime failedAt;
 
+  /// The failed job as JSON.
   Map<String, Object?> toJson() => <String, Object?>{
     'id': id,
     'uuid': uuid,
@@ -757,6 +822,7 @@ final class FailedJob {
 
 /// Storage for failed jobs (Laravel `FailedJobProviderInterface`).
 abstract interface class FailedJobProvider {
+  /// Records a failed job and returns its id.
   Future<Object> log({
     required String connection,
     required String queue,
@@ -764,12 +830,16 @@ abstract interface class FailedJobProvider {
     required String exception,
   });
 
+  /// Every failed job, newest first.
   Future<List<FailedJob>> all();
 
+  /// The failed job [id] (a row id or UUID), or null.
   Future<FailedJob?> find(Object id);
 
+  /// Deletes the failed job [id]; returns whether it existed.
   Future<bool> forget(Object id);
 
+  /// Deletes every failed job and returns how many there were.
   Future<int> flush();
 
   /// Deletes entries older than [olderThan]; returns the count.
@@ -841,14 +911,20 @@ final class MemoryFailedJobProvider implements FailedJobProvider {
 
 /// Laravel-compatible `failed_jobs` table.
 final class DatabaseFailedJobProvider implements FailedJobProvider {
+  /// Failed jobs in the [table] (`failed_jobs`) of [db].
   DatabaseFailedJobProvider(
     this.db, {
     this.table = 'failed_jobs',
     this.connection,
   });
 
+  /// The database holding the failed jobs.
   final DatabaseManager db;
+
+  /// The failed jobs table.
   final String table;
+
+  /// The connection of the table; the default one when null.
   final String? connection;
 
   QueryBuilder _query() => db.table(table, connection: connection);
@@ -930,6 +1006,7 @@ final class DatabaseFailedJobProvider implements FailedJobProvider {
 /// Creates `jobs`, `job_batches` and `failed_jobs` with Laravel 11's schema
 /// and migration name.
 final class CreateJobsTable extends Migration {
+  /// The migration creating `jobs` and `failed_jobs`, as Laravel's.
   const CreateJobsTable();
 
   @override

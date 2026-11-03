@@ -15,6 +15,7 @@ import 'request.dart';
 
 /// Objects that know how to turn themselves into a [Response].
 abstract interface class Responsable {
+  /// The response for [request].
   Response toResponse(Request request);
 }
 
@@ -22,38 +23,54 @@ abstract interface class Responsable {
 /// on what a route returns, then calls `toResponse`: a JSON:API resource loads
 /// what `?include=` asks for there, because `toResponse` is synchronous.
 abstract interface class PreparedResponsable implements Responsable {
+  /// Prepares the object for [request] before it is turned into a response
+  /// (loads what the query asks for).
   Future<void> prepare(Request request);
 }
 
 /// Objects that provide a JSON representation.
 abstract interface class JsonSerializable {
+  /// The JSON value of the object.
   Object? toJson();
 }
 
 /// Body of a [Response].
 sealed class ResponseBody {
+  /// Bodies are immutable.
   const ResponseBody();
 }
 
+/// No body.
 final class EmptyBody extends ResponseBody {
+  /// The empty body.
   const EmptyBody();
 }
 
+/// A body held in memory.
 final class BytesBody extends ResponseBody {
+  /// A body of [bytes].
   const BytesBody(this.bytes);
 
+  /// The body bytes.
   final List<int> bytes;
 }
 
+/// A body streamed as it is produced.
 final class StreamBody extends ResponseBody {
+  /// A body read from [stream], of [contentLength] bytes when known.
   const StreamBody(this.stream, {this.contentLength});
 
+  /// The body chunks.
   final Stream<List<int>> stream;
+
+  /// The body length, sent as `Content-Length` when known.
   final int? contentLength;
 }
 
 /// Immutable HTTP response (BLUEPRINT_V2 §7.2.3).
 final class Response {
+  /// A response with a status, headers and body; the named constructors
+  /// (`Response.json`, `Response.html`...) are the usual way.
   Response({
     this.status = 200,
     Headers? headers,
@@ -207,6 +224,7 @@ final class Response {
     request: request,
   );
 
+  /// A binary response of [bytes], with the given content type.
   factory Response.bytes(
     List<int> bytes, {
     required String contentType,
@@ -291,8 +309,13 @@ final class Response {
     headers: headers,
   );
 
+  /// The status code.
   final int status;
+
+  /// The response headers.
   final Headers headers;
+
+  /// The body.
   final ResponseBody body;
 
   /// Set by [Response.webSocket]: the server upgrades the connection and

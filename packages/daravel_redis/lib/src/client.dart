@@ -10,9 +10,13 @@ import 'resp.dart';
 
 /// A Lua script, sent by its SHA1 (`EVALSHA`) and loaded on `NOSCRIPT`.
 final class RedisScript {
+  /// A Lua script, sent by its SHA once Redis knows it.
   RedisScript(this.source) : sha = sha1.convert(utf8.encode(source)).toString();
 
+  /// The Lua source.
   final String source;
+
+  /// The SHA-1 of [source], for `EVALSHA`.
   final String sha;
 }
 
@@ -53,6 +57,7 @@ final List<int> _crc16 = List<int>.generate(256, (i) {
 /// drops. Blocking commands and Pub/Sub take connections of their own
 /// ([dedicated], [subscribe]).
 abstract base class RedisClient {
+  /// A client for [config]: one node, a sentinel set, or a cluster.
   factory RedisClient(RedisConnectionConfig config) => switch (config.mode) {
     RedisMode.cluster => RedisClusterClient(config),
     RedisMode.standalone || RedisMode.sentinel => RedisNodeClient(config),
@@ -60,6 +65,7 @@ abstract base class RedisClient {
 
   RedisClient._(this.config);
 
+  /// The connection settings.
   final RedisConnectionConfig config;
 
   /// Sends one command (`['SET', 'key', 'value']`) and returns its reply:
@@ -137,6 +143,7 @@ abstract base class RedisClient {
     }
   }
 
+  /// The string at [key], or null (`GET`).
   Future<String?> get(String key) async =>
       (await command(['GET', key])) as String?;
 
@@ -157,6 +164,7 @@ abstract base class RedisClient {
       ]) ==
       'OK';
 
+  /// Deletes [keys] and returns how many existed (`DEL`).
   Future<int> del(List<String> keys) async =>
       keys.isEmpty ? 0 : (await command(['DEL', ...keys]))! as int;
 
@@ -179,6 +187,7 @@ abstract base class RedisClient {
 /// master refuses writes (`READONLY`), and the refused command is sent
 /// again to the new one (it did not run, so this is safe).
 final class RedisNodeClient extends RedisClient {
+  /// A client of one node, or of the master a sentinel set names.
   RedisNodeClient(super.config) : _sentinels = [...config.nodes], super._();
 
   RedisConnection? _connection;
@@ -411,6 +420,7 @@ final class RedisNodeClient extends RedisClient {
 /// Commands without a key (`PING`, `PUBLISH`, `INFO`) go to one master;
 /// Pub/Sub reaches the whole cluster from any node.
 final class RedisClusterClient extends RedisClient {
+  /// A client of a Redis Cluster, routing each key to its slot's node.
   RedisClusterClient(super.config) : super._();
 
   /// Clients of each node, by `host:port`.
@@ -789,9 +799,13 @@ final class RedisClusterClient extends RedisClient {
 
 /// A Pub/Sub message.
 final class RedisMessage {
+  /// A message on [channel] (matched by [pattern] for `PSUBSCRIBE`).
   const RedisMessage(this.channel, this.payload, {this.pattern});
 
+  /// The channel it was published on.
   final String channel;
+
+  /// The message.
   final String payload;
 
   /// The pattern it matched (`PSUBSCRIBE`).
@@ -816,7 +830,11 @@ final class RedisSubscription {
   _connect;
   final Duration _connectTimeout;
   final void Function(RedisSubscription subscription) _onCancel;
+
+  /// The channels or patterns subscribed.
   final List<String> channels;
+
+  /// Whether [channels] are patterns.
   final bool pattern;
 
   /// Sharded Pub/Sub (`SSUBSCRIBE`).
@@ -903,6 +921,7 @@ final class RedisSubscription {
     }
   }
 
+  /// Unsubscribes and closes the connection.
   Future<void> cancel() async {
     _cancelled = true;
     _onCancel(this);
@@ -914,17 +933,21 @@ final class RedisSubscription {
 /// The Redis clients of this isolate, by connection name (`default`,
 /// `cache`); bound in the container by `withRedis()`.
 final class RedisManager {
+  /// A manager of the connections in [config].
   RedisManager(this.config);
 
+  /// The Redis settings.
   final RedisConfig config;
   final Map<String, RedisClient> _clients = {};
 
+  /// The client of the connection [name].
   RedisClient connection([String name = 'default']) =>
       _clients[name] ??= RedisClient(config.connection(name));
 
   /// The clients opened so far, by connection name.
   Map<String, RedisClient> get clients => Map.unmodifiable(_clients);
 
+  /// Closes every connection.
   Future<void> close() async {
     for (final client in _clients.values) {
       await client.close();

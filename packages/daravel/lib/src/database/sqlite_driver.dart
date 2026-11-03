@@ -22,6 +22,8 @@ final class SqliteDriver implements DatabaseDriver, QueryErrors {
       error is SqliteException &&
       (error.extendedResultCode == 2067 || error.extendedResultCode == 1555);
 
+  /// A SQLite connection on the file [path] (`:memory:` for an in-memory
+  /// database), named [name].
   SqliteDriver({required this.path, this.name = 'sqlite'});
 
   /// The driver for a configured connection (`DB_DATABASE` is the file), as

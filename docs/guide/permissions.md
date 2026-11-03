@@ -155,3 +155,13 @@ final List<CommandFactory> commands = [...permissionCommands];
 6 and Daravel on one database: Laravel migrates and assigns, Daravel reads
 it, Daravel assigns, Laravel reads it (`hasRole`, `can`). Teams
 (`permission.teams`) and UUID model keys are not supported yet.
+
+## Laravel equivalents
+
+More of Laravel that this works with, and the API to look up on pub.dev.
+
+| Laravel | Daravel | API | Note |
+| :-- | :-- | :-- | :-- |
+| `Route::middleware('role:admin\|editor')` | `.middleware(['role:admin\|editor'])` | `RoleMiddleware` | Also permission: and role_or_permission:, with Spatie's 403 messages. |
+| `php artisan permission:show` | `dartisan permission:show` | `PermissionShowCommand` |  |
+| `app(PermissionRegistrar::class)->forgetCachedPermissions()` | `await PermissionRegistrar.current.forgetCachedPermissions()` | `PermissionRegistrar.forgetCachedPermissions` |  |

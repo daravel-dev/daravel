@@ -12,6 +12,7 @@ import 'types.dart';
 /// calls legacy next to its Payment Sessions; it remains the payment link
 /// most Xendit merchants use.
 final class XenditGateway implements PaymentGateway {
+  /// Xendit invoices, with the secret key from `XENDIT_SECRET_KEY`.
   XenditGateway({
     required this.secretKey,
     required this.callbackToken,
@@ -28,6 +29,8 @@ final class XenditGateway implements PaymentGateway {
   /// The webhook verification token from the Dashboard's webhook
   /// settings.
   final String callbackToken;
+
+  /// The API's base URL.
   final String baseUrl;
 
   PendingRequest get _http =>

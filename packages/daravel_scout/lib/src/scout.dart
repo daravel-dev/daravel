@@ -6,8 +6,10 @@ import 'searchable.dart';
 
 /// Scout's `ScoutException`: a search that cannot run as asked.
 final class ScoutException implements Exception {
+  /// A search error with [message].
   const ScoutException(this.message);
 
+  /// What went wrong.
   final String message;
 
   @override
@@ -137,6 +139,7 @@ Searchable _searchable(Model model) => model is Searchable
 final class ScoutBuilder<T extends Model> {
   ScoutBuilder._(this.definition, this.query);
 
+  /// The searched model's definition.
   final ModelDefinition<T> definition;
 
   /// The search text.
@@ -154,31 +157,37 @@ final class ScoutBuilder<T extends Model> {
 
   late final Searchable _model = _searchable(definition.factory());
 
+  /// Only models whose [field] equals [value].
   ScoutBuilder<T> where(String field, Object? value) {
     _wheres[field] = value;
     return this;
   }
 
+  /// Only models whose [field] is one of [values].
   ScoutBuilder<T> whereIn(String field, List<Object?> values) {
     _whereIns[field] = values;
     return this;
   }
 
+  /// Only models whose [field] is none of [values].
   ScoutBuilder<T> whereNotIn(String field, List<Object?> values) {
     _whereNotIns[field] = values;
     return this;
   }
 
+  /// At most [limit] models.
   ScoutBuilder<T> take(int limit) {
     _limit = limit;
     return this;
   }
 
+  /// Orders by [column] instead of relevance.
   ScoutBuilder<T> orderBy(String column, [String direction = 'asc']) {
     _orders.add((column, direction.toLowerCase()));
     return this;
   }
 
+  /// Orders by [column], descending.
   ScoutBuilder<T> orderByDesc(String column) => orderBy(column, 'desc');
 
   /// Scout's `query()`: more constraints on the database query.
@@ -220,6 +229,7 @@ final class ScoutBuilder<T extends Model> {
     return this;
   }
 
+  /// The matching models.
   Future<ModelCollection<T>> get() async {
     if (_hybrid != null) {
       return ModelCollection<T>(await _fused((_limit ?? 1000).clamp(0, 1000)));
@@ -227,6 +237,7 @@ final class ScoutBuilder<T extends Model> {
     return (await _query()).get();
   }
 
+  /// The first matching model, or null.
   Future<T?> first() async {
     _limit = 1;
     final results = await get();
@@ -236,6 +247,7 @@ final class ScoutBuilder<T extends Model> {
   /// The keys of the results.
   Future<List<Object?>> keys() async => [for (final m in await get()) m.key];
 
+  /// A page of the matching models, in Laravel's paginator JSON.
   Future<LengthAwarePaginator<T>> paginate({
     int perPage = 15,
     int page = 1,

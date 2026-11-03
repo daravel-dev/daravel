@@ -51,6 +51,7 @@ typedef McpCommandRunner =
 /// A tool a package adds to `mcp:serve` (daravel_redis's `redis_inspect`),
 /// offered by one of its commands ([McpToolSource]).
 final class McpTool {
+  /// A tool the MCP server offers an assistant.
   const McpTool({
     required this.name,
     required this.description,
@@ -60,11 +61,16 @@ final class McpTool {
     this.readOnly = true,
   });
 
+  /// The tool's name.
   final String name;
+
+  /// What the tool does, for the assistant.
   final String description;
 
   /// The input schema's properties (`{'key': {'type': 'string'}}`).
   final Map<String, Object?> properties;
+
+  /// The arguments it requires.
   final List<String> required;
 
   /// Tools that change something are offered with `--allow-write` only.
@@ -79,6 +85,7 @@ final class McpTool {
 /// registered command that is one, so a package adds tools through the
 /// commands it already registers in `bootstrap/commands.dart`.
 abstract interface class McpToolSource {
+  /// The tools offered.
   List<McpTool> get mcpTools;
 }
 
@@ -94,6 +101,7 @@ List<McpTool> mcpToolsOf(CommandRunner<int>? runner) => [
 /// Read-only unless [allowWrite]; then `run_command` runs dartisan commands
 /// (except [mcpRefusedCommands], and [mcpProductionRefused] in production).
 final class McpServer {
+  /// An MCP server over stdin and stdout for an AI assistant.
   McpServer(
     this.app, {
     this.allowWrite = false,
@@ -109,6 +117,8 @@ final class McpServer {
 
   /// A booted application.
   final Application app;
+
+  /// Whether tools that change the project are offered.
   final bool allowWrite;
   final McpCommandRunner _runCommand;
 
@@ -819,6 +829,7 @@ package:daravel_test: TestClient, refreshDatabase, assertions, time travel.
 /// stdout carries only protocol messages; application output (logs) goes to
 /// stderr.
 final class McpServeCommand extends DaravelCommand {
+  /// The `dartisan mcp:serve` command.
   McpServeCommand(super.createApp) {
     argParser.addFlag(
       'allow-write',
@@ -1002,6 +1013,7 @@ List<String> installMcp(
 /// `mcp:install [--guidelines=AGENTS.md] [--force]`: registers the MCP
 /// server for AI agents and writes their Daravel guidelines.
 final class McpInstallCommand extends Command<int> {
+  /// The `dartisan mcp:install` command.
   McpInstallCommand() {
     argParser
       ..addOption(

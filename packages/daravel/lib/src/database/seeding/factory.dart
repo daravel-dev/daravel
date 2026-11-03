@@ -24,6 +24,8 @@ typedef FactoryState = Map<String, Object?> Function(Faker faker);
 /// await userFactory.count(3).state('admin').create();
 /// ```
 final class ModelFactory<T extends Model> {
+  /// A factory for the model of [definition] whose attributes come from a
+  /// definition function given a [Faker].
   ModelFactory(
     this.definition,
     this._define, {
@@ -32,11 +34,14 @@ final class ModelFactory<T extends Model> {
     this._db,
   }) : faker = faker ?? Faker();
 
+  /// The model's definition.
   final ModelDefinition<T> definition;
   final FactoryDefinition _define;
 
   /// Named states usable via `state('admin')`.
   final Map<String, FactoryState> states;
+
+  /// The fake data generator handed to the definition function.
   final Faker faker;
   final DatabaseManager? _db;
 
@@ -91,9 +96,11 @@ final class ModelFactory<T extends Model> {
   ModelFactory<T> sequence(List<Map<String, Object?>> values) =>
       _copy().._sequence = values;
 
+  /// Calls [callback] with each model made, before it is returned.
   ModelFactory<T> afterMaking(FutureOr<void> Function(T model) callback) =>
       _copy().._afterMaking.add(callback);
 
+  /// Calls [callback] with each model created, after it is saved.
   ModelFactory<T> afterCreating(FutureOr<void> Function(T model) callback) =>
       _copy().._afterCreating.add(callback);
 

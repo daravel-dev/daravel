@@ -9,6 +9,8 @@ import 'upstream_proxy.dart';
 /// One difference. It holds a path and types, never a value: drifts go to logs
 /// and dashboards, and the bodies hold user data.
 final class ShadowDrift {
+  /// A difference of [kind] at [path]; [ours] and [theirs] describe both
+  /// sides without their values.
   const ShadowDrift(this.path, this.kind, {this.ours, this.theirs});
 
   /// Dotted path in the body; empty for the response as a whole.
@@ -24,6 +26,7 @@ final class ShadowDrift {
   /// What the upstream wrote.
   final Object? theirs;
 
+  /// The drift as JSON, for logs.
   Map<String, Object?> toJson() => {
     'path': path,
     'kind': kind,
@@ -39,6 +42,8 @@ final class ShadowDrift {
 /// values. Daravel and Laravel read one database, but a shadow request comes
 /// later, so a value may rightly have changed.
 final class JsonStructuralDiffer {
+  /// A differ skipping the [ignoreKeys] paths, stopping after [limit]
+  /// differences.
   JsonStructuralDiffer({Iterable<String> ignoreKeys = const [], this.limit = 5})
     : ignoreKeys = ignoreKeys.toSet();
 
@@ -49,6 +54,7 @@ final class JsonStructuralDiffer {
   /// Stops after this many: one renamed key in a list of 100 is one finding.
   final int limit;
 
+  /// The differences between the JSON values [ours] and [theirs].
   List<ShadowDrift> compare(Object? ours, Object? theirs) {
     final drifts = <ShadowDrift>[];
     _walk(ours, theirs, const [], drifts);
@@ -137,14 +143,20 @@ String jsonTypeOf(Object? value) => switch (value) {
 
 /// A route of Daravel answered differently from the upstream.
 final class ShadowParityDrift {
+  /// The [drifts] of `method path`.
   const ShadowParityDrift({
     required this.method,
     required this.path,
     required this.drifts,
   });
 
+  /// The request method.
   final String method;
+
+  /// The request path.
   final String path;
+
+  /// The differences found.
   final List<ShadowDrift> drifts;
 }
 
@@ -158,6 +170,9 @@ final class ShadowParityDrift {
 /// and in a shared session it can use up a flash message. Keep such paths out
 /// with [except], and start with a small rate.
 final class ShadowParityRunner {
+  /// Replays a [sampleRate] share of requests through [proxy], at most
+  /// [maxConcurrency] at once, skipping [except] paths and the [ignoreKeys]
+  /// of bodies.
   ShadowParityRunner(
     this.proxy, {
     required this.sampleRate,
@@ -178,6 +193,7 @@ final class ShadowParityRunner {
   /// Bodies past this are not compared.
   static const int maxBodyBytes = 4 * 1024 * 1024;
 
+  /// Forwards the replays to the upstream.
   final UpstreamProxy proxy;
 
   /// The share of requests replayed, from 0 to 1.
@@ -187,12 +203,16 @@ final class ShadowParityRunner {
   /// that the upstream never takes more than this from us.
   final int maxConcurrency;
 
+  /// Compares the bodies.
   final JsonStructuralDiffer differ;
 
   /// Path prefixes that are never replayed.
   final List<String> except;
 
+  /// Logs drifts as warnings, when given.
   final Logger? logger;
+
+  /// Called with every drift, for metrics such as Pulse's card.
   final void Function(ShadowParityDrift drift)? onDrift;
   final Random _random;
 

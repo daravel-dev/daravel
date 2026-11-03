@@ -106,6 +106,7 @@ RedisStore _redisStore(Container c) {
 
 /// Redis from anywhere in a request, job or command (`Illuminate\Redis`).
 abstract final class Redis {
+  /// The Redis manager of the current container.
   static RedisManager get manager => Container.current.make<RedisManager>();
 
   /// The client of connection [name] (`default`, `cache`).
@@ -116,25 +117,31 @@ abstract final class Redis {
   static Future<Object?> command(List<Object?> args) =>
       connection().command(args);
 
+  /// The string at [key] on the default connection.
   static Future<String?> get(String key) => connection().get(key);
 
+  /// Sets [key] to [value], expiring after [ttl] when given.
   static Future<bool> set(String key, Object value, {Duration? ttl}) =>
       connection().set(key, value, ttl: ttl);
 
+  /// Deletes [keys] and returns how many existed.
   static Future<int> del(List<String> keys) => connection().del(keys);
 
+  /// Runs a Lua script.
   static Future<Object?> eval(
     RedisScript script, {
     List<String> keys = const [],
     List<Object?> args = const [],
   }) => connection().eval(script, keys: keys, args: args);
 
+  /// Publishes a message on a channel and returns how many received it.
   static Future<int> publish(
     String channel,
     String message, {
     bool sharded = false,
   }) => connection().publish(channel, message, sharded: sharded);
 
+  /// Subscribes to channels; listen to the result's messages.
   static RedisSubscription subscribe(
     List<String> channels, {
     bool pattern = false,

@@ -18,6 +18,7 @@ import 'plural_rules.g.dart';
 /// pass) and plural lines (`'{0} none|{1} one|[2,*] :count'`) use Laravel's
 /// selector and plural rules for 280 locales.
 final class Translator implements TranslationLines {
+  /// A translator falling back to [fallback] for missing keyed lines.
   Translator({this.fallback = 'en'});
 
   /// The locale keyed lines fall back to (`APP_FALLBACK_LOCALE`).
@@ -238,14 +239,17 @@ String transChoice(
 
 /// Laravel's `Lang` facade over the application's [Translator].
 abstract final class Lang {
+  /// The translator of the current container.
   static Translator get translator => _active();
 
+  /// The line [key] with its placeholders replaced.
   static String get(
     String key, [
     Map<String, Object?> replace = const {},
     String? locale,
   ]) => _active().get(key, replace: replace, locale: locale);
 
+  /// The line [key] in the plural form for the count.
   static String choice(
     String key,
     num count, [
@@ -253,10 +257,13 @@ abstract final class Lang {
     String? locale,
   ]) => _active().choice(key, count, replace: replace, locale: locale);
 
+  /// Whether [key] has a line in [locale] (the current one).
   static bool has(String key, [String? locale]) =>
       _active().has(key, locale: locale);
 
+  /// The current locale.
   static String get locale => currentLocale();
 
+  /// Sets the locale for the rest of the request, job or command.
   static void setLocale(String locale) => setCurrentLocale(locale);
 }

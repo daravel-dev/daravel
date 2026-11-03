@@ -3,6 +3,7 @@ import 'package:daravel/daravel.dart';
 /// `config/media-library.php` (spatie/laravel-medialibrary v11), with its
 /// environment variables.
 final class MediaLibraryConfig implements ConfigSection {
+  /// Media library settings; usually from `.env` (`MEDIA_*`).
   const MediaLibraryConfig({
     this.diskName = 'public',
     this.maxFileSize = 10 * 1024 * 1024,
@@ -13,6 +14,7 @@ final class MediaLibraryConfig implements ConfigSection {
     this.disallowedExtensions = defaultDisallowedExtensions,
   });
 
+  /// The settings in `MEDIA_*`.
   factory MediaLibraryConfig.fromEnv(Env env) {
     final queue = env.maybeString('MEDIA_QUEUE');
     return MediaLibraryConfig(
@@ -60,6 +62,7 @@ final class MediaLibraryConfig implements ConfigSection {
   /// `version_urls`).
   final bool versionUrls;
 
+  /// Extensions refused whatever the collection accepts.
   final List<String> disallowedExtensions;
 
   @override

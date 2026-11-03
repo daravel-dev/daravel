@@ -9,6 +9,7 @@ import 'token.dart';
 /// A webhook that is not LiveKit's: no or a bad token, or a body other
 /// than the one the token vouches for. Answered 401.
 final class LivekitWebhookException extends HttpException {
+  /// A webhook whose signature is missing or wrong (401).
   const LivekitWebhookException(String message) : super(401, message);
 }
 
@@ -16,13 +17,19 @@ final class LivekitWebhookException extends HttpException {
 /// `participant_joined`, `participant_left`, `track_published`,
 /// `egress_ended`, ...).
 final class LivekitWebhookEvent {
+  /// An event from the webhook's [json].
   LivekitWebhookEvent(this.json);
 
+  /// The raw JSON.
   final Map<String, Object?> json;
 
+  /// The event name (`room_started`, `participant_joined`...).
   String get event => stringField(json, 'event');
+
+  /// The event id.
   String get id => stringField(json, 'id');
 
+  /// When the event happened.
   DateTime? get createdAt => switch (intField(json, 'created_at')) {
     0 => null,
     final int seconds => DateTime.fromMillisecondsSinceEpoch(
@@ -31,11 +38,13 @@ final class LivekitWebhookEvent {
     ),
   };
 
+  /// The room, for room and participant events.
   LivekitRoom? get room => switch (field(json, 'room')) {
     final Map<String, Object?> room => LivekitRoom(room),
     _ => null,
   };
 
+  /// The participant, for participant events.
   LivekitParticipant? get participant => switch (field(json, 'participant')) {
     final Map<String, Object?> participant => LivekitParticipant(participant),
     _ => null,
@@ -44,8 +53,12 @@ final class LivekitWebhookEvent {
   /// The track, egress or ingress the event is about, as LiveKit sent it.
   Map<String, Object?>? get track =>
       field(json, 'track') as Map<String, Object?>?;
+
+  /// The egress details, for egress events.
   Map<String, Object?>? get egressInfo =>
       field(json, 'egress_info') as Map<String, Object?>?;
+
+  /// The ingress details, for ingress events.
   Map<String, Object?>? get ingressInfo =>
       field(json, 'ingress_info') as Map<String, Object?>?;
 
@@ -58,13 +71,17 @@ final class LivekitWebhookEvent {
 /// key, still valid, whose `sha256` claim is the base64 SHA-256 of the
 /// exact body. Anything else throws [LivekitWebhookException].
 final class LivekitWebhookReceiver {
+  /// Verifies webhooks signed with [apiKey] and [apiSecret].
   const LivekitWebhookReceiver({
     required this.apiKey,
     required this.apiSecret,
     this.maxAge = const Duration(minutes: 5),
   });
 
+  /// The API key expected.
   final String apiKey;
+
+  /// The API secret verifying signatures.
   final String apiSecret;
 
   /// How old an event may be (`created_at` against `Clock.now()`, with

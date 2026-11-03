@@ -143,6 +143,8 @@ String _mimeOf(String name) =>
 
 String _baseName(String path) => path.split(RegExp(r'[/\\]')).last;
 
+/// Sends the file at a path as the response, with range requests,
+/// `ETag` and `Last-Modified`, streamed rather than read into memory.
 Future<Response> sendFile(
   Object fileOrPath, {
   required bool inline,

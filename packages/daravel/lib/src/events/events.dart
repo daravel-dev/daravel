@@ -10,36 +10,49 @@ typedef EventListener<E extends Object> = FutureOr<void> Function(E event);
 
 /// Groups listeners (Laravel `EventSubscriber`).
 abstract interface class EventSubscriber {
+  /// Registers the subscriber's listeners on [events].
   void subscribe(EventDispatcher events);
 }
 
 /// A listener executed on the queue (`ShouldQueue`). The event must be
 /// JSON-serializable through [eventToJson]/[eventFromJson].
 abstract class QueuedListener<E extends Object> {
+  /// Listeners are usually const.
   const QueuedListener();
 
   /// Stable registry name (defaults to the class name).
   String get listenerName => runtimeType.toString();
 
+  /// Handles [event] in a queue worker.
   Future<void> handle(E event);
 
+  /// The event as JSON, for the queue.
   Map<String, Object?> eventToJson(E event);
 
+  /// The event back from its JSON.
   E eventFromJson(Map<String, Object?> json);
 
+  /// How many times the listener may be attempted.
   int get tries => 1;
 
+  /// The queue the listener runs on; the default one when null.
   String? get queue => null;
 }
 
 /// Job wrapping a [QueuedListener] invocation.
 final class CallQueuedListener extends Job {
+  /// A queued call of the listener named [listenerName] with [event].
   const CallQueuedListener(this._dispatcher, this.listenerName, this.event);
 
+  /// The prefix of the job names of queued listeners.
   static const String jobPrefix = 'daravel:listener:';
 
   final EventDispatcher _dispatcher;
+
+  /// The listener's name.
   final String listenerName;
+
+  /// The event as JSON.
   final Map<String, Object?> event;
 
   @override
@@ -90,6 +103,7 @@ final class _QueuedEntry {
 
 /// Recorded dispatches while [EventDispatcher.fake] is active.
 final class EventFake {
+  /// Every event dispatched while faked, in order.
   final List<Object> dispatched = <Object>[];
 
   /// Events of type `E` (optionally filtered).
@@ -98,23 +112,28 @@ final class EventFake {
       if (e is E && (where == null || where(e))) e,
   ];
 
+  /// Whether an event of type [E] (matching [where]) was dispatched.
   bool wasDispatched<E extends Object>([bool Function(E event)? where]) =>
       of<E>(where).isNotEmpty;
 
+  /// How many events of type [E] were dispatched.
   int dispatchedTimes<E extends Object>() => of<E>().length;
 
+  /// Fails unless an event of type [E] (matching [where]) was dispatched.
   void assertDispatched<E extends Object>([bool Function(E event)? where]) {
     if (!wasDispatched<E>(where)) {
       throw StateError('Expected event [$E] to be dispatched; it was not.');
     }
   }
 
+  /// Fails if an event of type [E] was dispatched.
   void assertNotDispatched<E extends Object>() {
     if (wasDispatched<E>()) {
       throw StateError('Expected event [$E] not to be dispatched; it was.');
     }
   }
 
+  /// Fails if any event was dispatched.
   void assertNothingDispatched() {
     if (dispatched.isNotEmpty) {
       throw StateError(
@@ -134,6 +153,7 @@ typedef QueuePusher = Future<Object?> Function(Job job);
 
 /// Synchronous + queued event dispatching (BLUEPRINT_V2 §7.8).
 final class EventDispatcher {
+  /// A dispatcher without listeners.
   EventDispatcher();
 
   final List<_Listener> _listeners = <_Listener>[];
@@ -191,8 +211,10 @@ final class EventDispatcher {
     );
   }
 
+  /// Registers the listeners [subscriber] declares.
   void subscribe(EventSubscriber subscriber) => subscriber.subscribe(this);
 
+  /// Whether [E] has listeners.
   bool hasListeners<E extends Object>() =>
       _listeners.any((l) => l.type == E) ||
       _queued.values.any((q) => q.type == E) ||
@@ -252,6 +274,8 @@ final class EventDispatcher {
   /// application broadcasts the ones that are `ShouldBroadcast`.
   Future<void> Function(Object event)? broadcastHook;
 
+  /// Dispatches [event] after the current transaction commits, or now
+  /// outside one; dropped on rollback.
   Future<void> dispatchAfterCommit<E extends Object>(E event) {
     final hook = afterCommitHook;
     if (hook == null) {

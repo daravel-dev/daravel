@@ -239,6 +239,7 @@ String _root() => ProjectPaths.locate().root;
 
 /// `e2e:install [--force]`: writes the Playwright suite to `tests/e2e`.
 final class E2eInstallCommand extends Command<int> {
+  /// The `dartisan e2e:install` command.
   E2eInstallCommand() {
     argParser.addFlag(
       'force',
@@ -290,6 +291,7 @@ final class E2eInstallCommand extends Command<int> {
 
 /// `make:e2e <Name> [--api]`: a new spec in `tests/e2e/specs`.
 final class MakeE2eCommand extends Command<int> {
+  /// The `dartisan make:e2e` command.
   MakeE2eCommand() {
     argParser.addFlag(
       'api',
@@ -330,6 +332,7 @@ final class MakeE2eCommand extends Command<int> {
 /// `test:e2e [--api] [--ui] [--serve] [--url] [-- playwright args]`:
 /// runs the Playwright suite.
 final class TestE2eCommand extends Command<int> {
+  /// The `dartisan test:e2e` command.
   TestE2eCommand() {
     argParser
       ..addFlag(

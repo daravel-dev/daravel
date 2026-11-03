@@ -1,4 +1,4 @@
-<!-- source: redis.md sha256:28c12488d147 -->
+<!-- source: redis.md sha256:261ca8503d08 -->
 # Redis
 
 Di satu server, Daravel tidak membutuhkan Redis: isolate coordinator
@@ -311,3 +311,14 @@ sisi lain, dan satu throttle menghitung keduanya.
 lewat satu set koneksi per server untuk layanan terkelola dengan batas
 koneksi rendah, sudah direncanakan. Sampai saat itu setiap isolate membuka
 koneksinya sendiri.
+
+## Padanan Laravel
+
+Bagian lain dari Laravel yang ikut didukung, beserta API yang bisa dicari di pub.dev.
+
+| Laravel | Daravel | API | Catatan |
+| :-- | :-- | :-- | :-- |
+| `CACHE_STORE=redis` | `CACHE_STORE=redis with .withRedis()` | `RedisStore` | Angka disimpan apa adanya; cache:clear menghapus key cache, bukan seluruh database (tanpa FLUSHDB). |
+| `Cache::lock('report')->get(...) on Redis` | `Cache.lock('report') on CACHE_STORE=redis` | `RedisStore.acquireLock` | RedisLock dari Laravel: key dan skrip release yang sama. |
+| `QUEUE_CONNECTION=redis` | `QUEUE_CONNECTION=redis` | `RedisQueue` | BLPOP membangunkan worker yang menganggur; key di bawah `daravel:`, terpisah dari `queues:` milik Laravel. |
+| `REVERB_SCALING_ENABLED=true (Redis)` | `REVERB_SCALING_DRIVER=redis` | `RedisBroadcastRelay` | Pub/Sub antar-server; anggota presence dibagi di antara semuanya. |

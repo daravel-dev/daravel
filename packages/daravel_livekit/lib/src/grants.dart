@@ -2,6 +2,7 @@
 /// LiveKit's field names. A field left null is not sent, so the server's
 /// default applies (`canPublish` and `canSubscribe` default to true there).
 final class VideoGrant {
+  /// What a token allows in LiveKit (`video` grant).
   const VideoGrant({
     this.roomJoin,
     this.room,
@@ -21,6 +22,7 @@ final class VideoGrant {
     this.destinationRoom,
   });
 
+  /// A grant read from a token's claims.
   factory VideoGrant.fromJson(Map<String, Object?> json) => VideoGrant(
     roomJoin: json['roomJoin'] as bool?,
     room: json['room'] as String?,
@@ -47,26 +49,48 @@ final class VideoGrant {
 
   /// The room the grant is for (`roomJoin`, `roomAdmin`).
   final String? room;
+
+  /// May create rooms.
   final bool? roomCreate;
+
+  /// May list rooms.
   final bool? roomList;
+
+  /// May start recordings.
   final bool? roomRecord;
 
   /// Moderate [room]: mute, remove and update participants.
   final bool? roomAdmin;
+
+  /// May manage ingress.
   final bool? ingressAdmin;
+
+  /// May publish tracks.
   final bool? canPublish;
+
+  /// May subscribe to tracks.
   final bool? canSubscribe;
+
+  /// May send data messages.
   final bool? canPublishData;
 
   /// What may be published (`camera`, `microphone`, `screen_share`,
   /// `screen_share_audio`); all when null.
   final List<String>? canPublishSources;
+
+  /// May change its own metadata.
   final bool? canUpdateOwnMetadata;
 
   /// Not shown to other participants.
   final bool? hidden;
+
+  /// Is a recorder.
   final bool? recorder;
+
+  /// May subscribe to metrics.
   final bool? canSubscribeMetrics;
+
+  /// The room it may forward to.
   final String? destinationRoom;
 
   /// This grant with the fields [other] sets.
@@ -89,6 +113,7 @@ final class VideoGrant {
     destinationRoom: other.destinationRoom ?? destinationRoom,
   );
 
+  /// The grant as JSON claims.
   Map<String, Object?> toJson() => {
     'roomCreate': ?roomCreate,
     'roomJoin': ?roomJoin,

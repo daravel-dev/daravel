@@ -16,6 +16,7 @@ import 'tokens.dart';
 
 /// `AUTH_*` / `JWT_*` configuration (`config/auth.php` parity).
 final class AuthConfig implements ConfigSection {
+  /// Auth settings; usually from `.env` ([AuthConfig.fromEnv]).
   const AuthConfig({
     this.defaultGuard = 'token',
     this.tokenExpiration,
@@ -32,6 +33,7 @@ final class AuthConfig implements ConfigSection {
     this.jwtKid,
   });
 
+  /// The settings in `AUTH_*`, `JWT_*` and `SANCTUM_*`.
   factory AuthConfig.fromEnv(Env env) => AuthConfig(
     defaultGuard: env.string('AUTH_GUARD', 'token'),
     tokenExpiration: env.has('AUTH_TOKEN_EXPIRATION')
@@ -50,10 +52,13 @@ final class AuthConfig implements ConfigSection {
     jwtKid: env.maybeString('JWT_KID'),
   );
 
+  /// The guard used when none is named (`AUTH_GUARD`, `token`).
   final String defaultGuard;
 
   /// Sanctum-style global token lifetime (`AUTH_TOKEN_EXPIRATION` minutes).
   final Duration? tokenExpiration;
+
+  /// The personal access tokens table, shared with Sanctum.
   final String tokenTable;
 
   /// Prefix for new token secrets (`SANCTUM_TOKEN_PREFIX`, as in Sanctum).
@@ -61,10 +66,20 @@ final class AuthConfig implements ConfigSection {
 
   /// HS256 secret; falls back to `APP_KEY` when unset.
   final String? jwtSecret;
+
+  /// The JWT signing algorithm (`JWT_ALGO`).
   final JwtAlgorithm jwtAlgorithm;
+
+  /// How long a JWT is valid (`JWT_TTL`).
   final Duration jwtTtl;
+
+  /// The clock skew allowed when checking a JWT.
   final Duration jwtLeeway;
+
+  /// The `iss` claim written and required (`JWT_ISSUER`).
   final String? jwtIssuer;
+
+  /// The `aud` claim written and required (`JWT_AUDIENCE`).
   final String? jwtAudience;
 
   /// Base64 Ed25519 public key (EdDSA).
@@ -72,6 +87,8 @@ final class AuthConfig implements ConfigSection {
 
   /// Base64 Ed25519 32-byte seed (EdDSA signing).
   final String? jwtPrivateKey;
+
+  /// The key id written in the JWT header.
   final String? jwtKid;
 
   @override
@@ -102,8 +119,11 @@ final class AuthConfig implements ConfigSection {
 /// guard named explicitly, the one activated by `auth:a,b` middleware for
 /// this request, or the configured default.
 final class AuthManager {
+  /// A manager of [config]'s guards; the app key signs HS256 tokens when
+  /// no JWT secret is set.
   AuthManager(this.config, {this._appKey, this.jwtDenylist});
 
+  /// The auth settings.
   final AuthConfig config;
   final String? _appKey;
 
@@ -120,8 +140,10 @@ final class AuthManager {
   /// Default guard name (`AUTH_GUARD`, or [shouldUse]).
   String get defaultGuard => _defaultOverride ?? config.defaultGuard;
 
+  /// The names of the registered guards.
   Iterable<String> get guardNames => _guards.keys;
 
+  /// Whether a guard is registered as [name].
   bool hasGuard(String name) => _guards.containsKey(name);
 
   /// Registers a custom guard.
@@ -245,18 +267,24 @@ final class AuthManager {
   /// Makes [name] the default guard for the current request/scope only.
   void useForRequest(String name) => AuthScope.state().activeGuard = name;
 
+  /// The authenticated user of the guard, or null.
   Future<T?> user<T extends Authenticatable>({String? guard}) async =>
       await this.guard(guard).user() as T?;
 
+  /// The authenticated user's id, or null.
   Future<Object?> id({String? guard}) => this.guard(guard).id();
 
+  /// Whether a user is authenticated.
   Future<bool> check({String? guard}) => this.guard(guard).check();
 
+  /// Whether the request is a guest's.
   Future<bool> guest({String? guard}) => this.guard(guard).guest();
 
+  /// Authenticates [user] for the rest of the request.
   void setUser(Authenticatable user, {String? guard}) =>
       this.guard(guard).setUser(user);
 
+  /// Forgets the authenticated user for the rest of the request.
   void forgetUser({String? guard}) => this.guard(guard).forgetUser();
 
   /// Validates credentials without authenticating the request.
@@ -371,8 +399,11 @@ final class AuthManager {
 /// `auth` / `auth:token,jwt` — tries each guard in order and activates the
 /// first that authenticates; otherwise 401 `{"message":"Unauthenticated."}`.
 final class AuthenticateMiddleware implements RunsBeforeBindings {
+  /// The `auth` middleware: 401 unless one of [guards] (the default one
+  /// when empty) authenticates the request.
   const AuthenticateMiddleware([this.guards = const <String>[]]);
 
+  /// The guards tried, in order.
   final List<String> guards;
 
   @override
@@ -394,8 +425,10 @@ extension RequestAuth on Request {
   /// The `Authorization: Bearer` value, if any.
   String? bearerToken() => bearerTokenOf(this);
 
+  /// The auth manager of the current container.
   AuthManager get auth => Container.current.make<AuthManager>();
 
+  /// The gate of the current container.
   AuthorizationGate get gate => Container.current.make<AuthorizationGate>();
 
   /// The authenticated user (via [guard] or the active/default guard).
@@ -408,9 +441,11 @@ extension RequestAuth on Request {
     List<Object?> args = const <Object?>[],
   ]) => gate.authorize(ability, args);
 
+  /// Whether the request's user may do [ability] with [args].
   Future<bool> can(String ability, [List<Object?> args = const <Object?>[]]) =>
       gate.allows(ability, args);
 
+  /// Whether the request's user may not do [ability].
   Future<bool> cannot(
     String ability, [
     List<Object?> args = const <Object?>[],

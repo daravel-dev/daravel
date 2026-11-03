@@ -15,14 +15,19 @@ import 'tokens.dart' show bearerTokenOf;
 
 /// Signing algorithms (BLUEPRINT_V2 §7.6.2): HMAC-SHA256 and Ed25519.
 enum JwtAlgorithm {
+  /// HMAC with SHA-256, with a shared secret.
   hs256('HS256'),
+
+  /// Ed25519 signatures, with a key pair.
   eddsa('EdDSA');
 
+  /// The algorithm written as [header] in the JWT header.
   const JwtAlgorithm(this.header);
 
   /// Value of the `alg` header.
   final String header;
 
+  /// The algorithm named [value] (`HS256`, `EdDSA`).
   static JwtAlgorithm parse(String value) => values.firstWhere(
     (a) => a.header == value || a.name == value.toLowerCase(),
     orElse: () => throw ConfigException(
@@ -33,10 +38,13 @@ enum JwtAlgorithm {
 
 /// A signing/verification key with an optional `kid` for rotation.
 sealed class JwtKey {
+  /// A key, identified by [kid] in the JWT header.
   const JwtKey({this.kid});
 
+  /// The key id, when there are several keys.
   final String? kid;
 
+  /// The algorithm this key signs with.
   JwtAlgorithm get algorithm;
 }
 
@@ -46,6 +54,7 @@ sealed class JwtKey {
 /// also requires 32 bytes for the guard's secret; this is the floor for
 /// every other use of the codec).
 final class HmacJwtKey extends JwtKey {
+  /// An HS256 key from [secret].
   HmacJwtKey(List<int> secret, {super.kid})
     : secret = Uint8List.fromList(secret) {
     if (secret.isEmpty) {
@@ -61,6 +70,7 @@ final class HmacJwtKey extends JwtKey {
   factory HmacJwtKey.fromString(String secret, {String? kid}) =>
       HmacJwtKey(utf8.encode(secret), kid: kid);
 
+  /// The shared secret.
   final Uint8List secret;
 
   @override
@@ -70,11 +80,16 @@ final class HmacJwtKey extends JwtKey {
 /// Ed25519 key for EdDSA. Verification only needs [publicKey]; signing also
 /// needs the 32-byte [seed].
 final class Ed25519JwtKey extends JwtKey {
+  /// An EdDSA key: [publicKey] verifies; [seed] (the private key) signs.
   const Ed25519JwtKey({required this.publicKey, this.seed, super.kid});
 
+  /// The public key.
   final List<int> publicKey;
+
+  /// The private key seed; null for a key that only verifies.
   final List<int>? seed;
 
+  /// Whether this key can sign.
   bool get canSign => seed != null;
 
   @override
@@ -92,25 +107,46 @@ final class Ed25519JwtKey extends JwtKey {
 
 /// Raised for malformed, expired, not-yet-valid or badly signed tokens.
 final class JwtException extends DaravelException {
+  /// A token that is malformed, expired, or wrongly signed.
   const JwtException(super.message);
 }
 
 /// Verified claims of a token.
 final class JwtClaims {
+  /// The [claims] and [header] of a token.
   const JwtClaims(this.claims, {this.header = const <String, Object?>{}});
 
+  /// The payload claims.
   final Map<String, Object?> claims;
+
+  /// The header.
   final Map<String, Object?> header;
 
+  /// The claim [name].
   Object? operator [](String name) => claims[name];
 
+  /// The `sub` claim: the user's id.
   String? get subject => claims['sub']?.toString();
+
+  /// The `iss` claim.
   String? get issuer => claims['iss'] as String?;
+
+  /// The `aud` claim: a string or a list.
   Object? get audience => claims['aud'];
+
+  /// The `jti` claim: the token's id.
   String? get jti => claims['jti'] as String?;
+
+  /// The `exp` claim as a time.
   DateTime? get expiresAt => _time(claims['exp']);
+
+  /// The `nbf` claim as a time.
   DateTime? get notBefore => _time(claims['nbf']);
+
+  /// The `iat` claim as a time.
   DateTime? get issuedAt => _time(claims['iat']);
+
+  /// The key id of the header.
   String? get kid => header['kid'] as String?;
 
   static DateTime? _time(Object? value) => value is num
@@ -124,6 +160,8 @@ final class JwtClaims {
 /// otherwise tries every key of the token's algorithm — which is what makes
 /// rotation painless: add the new key first, keep the old one for a while.
 final class JwtCodec {
+  /// A codec signing with the first of its keys and verifying with the
+  /// one the header names.
   JwtCodec({
     required List<JwtKey> keys,
     this.leeway = const Duration(seconds: 30),
@@ -150,6 +188,7 @@ final class JwtCodec {
     audience: audience,
   );
 
+  /// The keys, the signing one first.
   final List<JwtKey> keys;
 
   /// Clock skew tolerated for `exp`/`nbf`/`iat`.
@@ -336,8 +375,10 @@ final class JwtCodec {
 
 /// Revoked token ids (`jti`) until their expiry.
 abstract interface class JwtDenylist {
+  /// Revokes the token [jti] until [expiresAt].
   Future<void> add(String jti, DateTime expiresAt);
 
+  /// Whether the token [jti] is revoked.
   Future<bool> contains(String jti);
 }
 
@@ -345,6 +386,7 @@ abstract interface class JwtDenylist {
 /// with `APP_ISOLATES` > 1 a token revoked on one isolate stays valid on
 /// the others. Applications get a shared one by default (`auth.jwt`).
 final class MemoryJwtDenylist implements JwtDenylist {
+  /// Revoked token ids in this isolate's memory; [clock] is for tests.
   MemoryJwtDenylist({DateTime Function()? clock}) : _clock = clock ?? _utcNow;
 
   final Map<String, DateTime> _entries = <String, DateTime>{};
@@ -372,6 +414,7 @@ final class MemoryJwtDenylist implements JwtDenylist {
 
 /// Stateless bearer-JWT guard: `sub` is the user's identifier.
 final class JwtGuard<T extends Authenticatable> extends RequestGuard<T> {
+  /// A guard reading `Authorization: Bearer <jwt>`.
   JwtGuard({
     required super.name,
     required UserProvider<T> provider,
@@ -382,6 +425,7 @@ final class JwtGuard<T extends Authenticatable> extends RequestGuard<T> {
   }) : _clock = clock ?? _utcNow,
        super(provider: provider);
 
+  /// Signs and verifies the tokens.
   final JwtCodec codec;
 
   /// Default lifetime of issued tokens.
@@ -392,6 +436,7 @@ final class JwtGuard<T extends Authenticatable> extends RequestGuard<T> {
 
   final DateTime Function() _clock;
 
+  /// The user provider.
   UserProvider<T> get users => provider!;
 
   @override

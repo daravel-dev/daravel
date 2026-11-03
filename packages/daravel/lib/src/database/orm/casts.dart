@@ -9,9 +9,13 @@ import '../query_executor.dart';
 /// value into the Dart value exposed by the model; [set] converts a Dart
 /// value into what is stored.
 sealed class Cast {
+  /// Casts are stateless; use the constants on [Cast].
   const Cast();
 
+  /// An `int` attribute (`'integer'`).
   static const Cast integer = IntCast();
+
+  /// A `double` attribute (`'float'`, `'double'`).
   static const Cast decimal = DoubleCast();
 
   /// Laravel's `decimal:N` cast: a string with exactly [places] decimals
@@ -19,10 +23,19 @@ sealed class Cast {
   /// `toJson` writes what Laravel writes and no precision is lost.
   static Cast decimalString(int places) => DecimalStringCast(places);
 
+  /// A `bool` attribute; `1`/`0` and `'true'`/`'false'` are read as booleans.
   static const Cast boolean = BoolCast();
+
+  /// A `String` attribute.
   static const Cast string = StringCast();
+
+  /// A [DateTime] attribute, written as `Y-m-d H:i:s` in UTC.
   static const Cast dateTime = DateTimeCast();
+
+  /// A date-only [DateTime] attribute, written as `Y-m-d`.
   static const Cast date = DateCast();
+
+  /// A JSON attribute: a map or list in Dart, JSON text in the database.
   static const Cast json = JsonCast();
 
   /// Laravel's `AsVector`: a vector column as a `List<double>`.
@@ -47,12 +60,16 @@ sealed class Cast {
     required Object? Function(T? value) set,
   }) => CustomCast<T>(get, set);
 
+  /// The attribute value for the raw database value [raw].
   Object? get(Object? raw);
 
+  /// The database value for the attribute [value].
   Object? set(Object? value);
 }
 
+/// Reads and writes `int` values.
 final class IntCast extends Cast {
+  /// The integer cast; use [Cast.integer].
   const IntCast();
   @override
   Object? get(Object? raw) => switch (raw) {
@@ -84,7 +101,9 @@ final class IntCast extends Cast {
   Object? set(Object? value) => get(value);
 }
 
+/// Reads and writes `double` values.
 final class DoubleCast extends Cast {
+  /// The double cast; use [Cast.decimal].
   const DoubleCast();
   @override
   Object? get(Object? raw) => switch (raw) {
@@ -97,8 +116,13 @@ final class DoubleCast extends Cast {
   Object? set(Object? value) => get(value);
 }
 
+/// Laravel's `decimal:<places>`: a string with exactly [places] digits after
+/// the point, so money keeps its precision.
 final class DecimalStringCast extends Cast {
+  /// Rounds to [places] digits after the point.
   const DecimalStringCast(this.places);
+
+  /// The digits after the decimal point.
   final int places;
 
   static final RegExp _number = RegExp(r'^([+-]?)(\d*)(?:\.(\d*))?$');
@@ -127,7 +151,9 @@ final class DecimalStringCast extends Cast {
   Object? set(Object? value) => get(value);
 }
 
+/// Reads and writes `bool` values.
 final class BoolCast extends Cast {
+  /// The boolean cast; use [Cast.boolean].
   const BoolCast();
   @override
   Object? get(Object? raw) => switch (raw) {
@@ -146,7 +172,9 @@ final class BoolCast extends Cast {
   };
 }
 
+/// Reads and writes `String` values.
 final class StringCast extends Cast {
+  /// The string cast; use [Cast.string].
   const StringCast();
   @override
   Object? get(Object? raw) => raw == null ? null : '$raw';
@@ -204,7 +232,9 @@ DateTime? _parseStringDate(String raw) {
         );
 }
 
+/// Reads and writes [DateTime] values in UTC.
 final class DateTimeCast extends Cast {
+  /// The datetime cast; use [Cast.dateTime].
   const DateTimeCast();
   @override
   Object? get(Object? raw) => parseDateTime(raw);
@@ -217,7 +247,9 @@ final class DateTimeCast extends Cast {
   };
 }
 
+/// Reads and writes dates without a time.
 final class DateCast extends Cast {
+  /// The date cast; use [Cast.date].
   const DateCast();
   @override
   Object? get(Object? raw) {
@@ -238,6 +270,7 @@ final class DateCast extends Cast {
 /// [Cast.dateTimeFormat]: a [DateTime] attribute that `Model.toJson`
 /// writes with a PHP `date()` [format].
 final class DateTimeFormatCast extends Cast {
+  /// A datetime written by `Model.toJson` with the PHP [format].
   const DateTimeFormatCast(this.format);
 
   /// The PHP `date()` format (`Y-m-d H:i:s`) applied by `Model.toJson`.
@@ -403,7 +436,10 @@ String _ordinalSuffix(int day) {
   };
 }
 
+/// A list of doubles stored as a vector (`pgvector`, MariaDB `VECTOR`), or
+/// as JSON text on SQLite.
 final class VectorCast extends Cast {
+  /// The vector cast; use [Cast.vector].
   const VectorCast();
 
   @override
@@ -484,7 +520,9 @@ final class VectorCast extends Cast {
   };
 }
 
+/// Reads JSON text into maps and lists, and writes them back as JSON.
 final class JsonCast extends Cast {
+  /// The JSON cast; use [Cast.json].
   const JsonCast();
   @override
   Object? get(Object? raw) => switch (raw) {
@@ -500,8 +538,13 @@ final class JsonCast extends Cast {
   };
 }
 
+/// A Dart enum stored by its `name`: `EnumCast(Status.values)`. An unknown
+/// stored name reads as null.
 final class EnumCast<E extends Enum> extends Cast {
+  /// Reads names from [values].
   const EnumCast(this.values);
+
+  /// The enum's values, usually `MyEnum.values`.
   final List<E> values;
   @override
   Object? get(Object? raw) {
@@ -520,7 +563,10 @@ final class EnumCast<E extends Enum> extends Cast {
   Object? set(Object? value) => value is Enum ? value.name : value;
 }
 
+/// A cast with your own conversion: [CustomCast.new] takes a function
+/// reading the raw value and one writing the attribute.
 final class CustomCast<T> extends Cast {
+  /// Reads with the first function and writes with the second.
   const CustomCast(this._get, this._set);
   final T? Function(Object? raw) _get;
   final Object? Function(T? value) _set;

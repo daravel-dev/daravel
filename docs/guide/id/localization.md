@@ -1,4 +1,4 @@
-<!-- source: localization.md sha256:27eedbf52666 -->
+<!-- source: localization.md sha256:2bf381bc6f4a -->
 # Lokalisasi
 
 Terjemahan bekerja seperti di Laravel: baris ber-key dengan locale fallback,
@@ -78,3 +78,11 @@ membacanya. `SetLocaleMiddleware` memilihnya dari `?lang=` atau header
 
 Pesan validasi mengikuti locale saat ini (bahasa Inggris dan Indonesia sudah
 disertakan).
+
+## Padanan Laravel
+
+Bagian lain dari Laravel yang ikut didukung, beserta API yang bisa dicari di pub.dev.
+
+| Laravel | Daravel | API | Catatan |
+| :-- | :-- | :-- | :-- |
+| `lang/id.json` | `lang/id.json (loaded at boot)` | `Translator.addJson` |  |

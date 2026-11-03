@@ -1,4 +1,4 @@
-<!-- source: validation.md sha256:a6fd03dbe259 -->
+<!-- source: validation.md sha256:4b6300ad38b4 -->
 # Validasi
 
 Validasi request secara inline dengan string rule Laravel, atau dengan objek
@@ -158,3 +158,17 @@ await client.post('/api/avatar', files: {
   'photos': [UploadedFile.fake.image('1.png'), UploadedFile.fake.image('2.gif')],
 });
 ```
+
+## Padanan Laravel
+
+Bagian lain dari Laravel yang ikut didukung, beserta API yang bisa dicari di pub.dev.
+
+| Laravel | Daravel | API | Catatan |
+| :-- | :-- | :-- | :-- |
+| `Validator::make($data, $rules)` | `Validator(data, rules)` | `Validator` |  |
+| `$validator->fails()` | `await validator.fails()` | `Validator.fails` |  |
+| `'date_format:Y-m-d'` | `'date_format:Y-m-d' or Rules.dateFormat(['M d, Y'])` | `DateFormatRule` | `createFromFormat('!' . $format)`, dan nilainya harus terformat kembali persis, seperti Laravel. |
+| `'exclude_if:type,free'` | string yang sama, atau Rules.excludeIf('type', ['free']) | `Rules.excludeIf` |  |
+| `'prohibited_if:a,b' / 'prohibits:a' / 'required_with_all:a,b'` | string yang sama | `Rules.prohibitedIf` |  |
+| `['required', 'email', 'max:255']` | `Rules.required().email().max(255)` | `RuleBuilder` | Objek rule yang dirangkai, diperiksa oleh compiler. |
+| `'accepted' / 'accepted_if:plan,paid' / 'declined' / 'declined_if:plan,paid'` | string yang sama, atau Rules.accepted() / acceptedIf('plan', ['paid']) / declined() / declinedIf(...) | `AcceptanceRule` |  |

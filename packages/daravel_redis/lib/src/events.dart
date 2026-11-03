@@ -25,8 +25,10 @@ typedef _Entry = ({String id, Map<String, String> fields});
 /// Every listener of a channel in an isolate shares one `XREAD BLOCK`
 /// connection, started with the first and closed with the last.
 final class RedisEventStream {
+  /// Events in the Redis stream [key], trimmed to [maxLength].
   RedisEventStream(this.client, this.key, {this.maxLength = 1000});
 
+  /// The Redis connection.
   final RedisClient client;
 
   /// The stream (`<REDIS_PREFIX>sse:<channel>` from [Redis.events]).

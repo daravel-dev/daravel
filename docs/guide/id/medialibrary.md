@@ -1,4 +1,4 @@
-<!-- source: medialibrary.md sha256:d9b957372689 -->
+<!-- source: medialibrary.md sha256:a2e83e3e2cf3 -->
 # Media library
 
 `daravel_medialibrary` melekatkan file ke model, seperti
@@ -158,3 +158,12 @@ menyajikannya di URL yang sama, dan menghapusnya beserta file-nya.
 `model_type` sebuah model adalah morph class-nya (`App\Models\Post` secara
 default, atau alias `Relation.morphMap()`), sama seperti yang disimpan
 Laravel.
+
+## Padanan Laravel
+
+Bagian lain dari Laravel yang ikut didukung, beserta API yang bisa dicari di pub.dev.
+
+| Laravel | Daravel | API | Catatan |
+| :-- | :-- | :-- | :-- |
+| `php artisan media-library:regenerate` | `dartisan media:regenerate` | `MediaRegenerateCommand` |  |
+| `php artisan media-library:clean` | `dartisan media:clean` | `MediaCleanCommand` |  |

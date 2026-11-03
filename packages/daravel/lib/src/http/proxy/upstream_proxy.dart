@@ -10,10 +10,16 @@ import 'shadow_parity.dart';
 
 /// The upstream's answer to a replay.
 final class ShadowAnswer {
+  /// The upstream's [status], [contentType] and [body].
   const ShadowAnswer(this.status, this.contentType, this.body);
 
+  /// The status code.
   final int status;
+
+  /// The `Content-Type`, or null.
   final String? contentType;
+
+  /// The body bytes.
   final List<int> body;
 }
 
@@ -28,6 +34,8 @@ final class ShadowAnswer {
 /// upstream who asked: trust Daravel in Laravel's `TrustProxies` so that
 /// `$request->ip()` and generated URLs stay right.
 final class UpstreamProxy {
+  /// A proxy to the server at the base URL [upstream]; [preserveHost]
+  /// sends the client's `Host` instead of the upstream's.
   UpstreamProxy(
     this.upstream, {
     this.preserveHost = false,

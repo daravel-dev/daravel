@@ -4,6 +4,9 @@ import '../foundation/container.dart';
 
 /// Everything a [Rule] needs to evaluate one attribute (BLUEPRINT_V2 §7.4.1).
 final class ValidationContext {
+  /// The context of [attribute] (the concrete path, such as `items.2.id`),
+  /// matched by the rule key [pattern], whose [value] was [present] in
+  /// [data].
   const ValidationContext({
     required this.attribute,
     required this.pattern,
@@ -113,6 +116,7 @@ final class ValidationContext {
 /// reference on failure: either a translation key such as `min.string`
 /// (resolved with [parameters]) or a literal message containing a space.
 abstract class Rule {
+  /// Rules are usually const.
   const Rule();
 
   /// Rule identifier used in messages and the string DSL (`required`).
@@ -132,11 +136,14 @@ abstract class Rule {
   /// Hint for OpenAPI generation (`{'type': 'string', 'maxLength': 32}`).
   Map<String, Object?> get schemaHint => const <String, Object?>{};
 
+  /// Checks the value in [context]: the message key or text when it fails,
+  /// null when it passes.
   FutureOr<String?> passes(ValidationContext context);
 }
 
 /// Marker: `null` values skip the remaining rules.
 final class NullableRule extends Rule {
+  /// The nullable marker; use [Rules.nullable].
   const NullableRule();
   @override
   String get name => 'nullable';
@@ -146,6 +153,7 @@ final class NullableRule extends Rule {
 
 /// Marker: validate only when the attribute is present.
 final class SometimesRule extends Rule {
+  /// The sometimes marker; use [Rules.sometimes].
   const SometimesRule();
   @override
   String get name => 'sometimes';
@@ -155,6 +163,7 @@ final class SometimesRule extends Rule {
 
 /// Marker: stop validating the attribute after the first failure.
 final class BailRule extends Rule {
+  /// The bail marker; use [Rules.bail].
   const BailRule();
   @override
   String get name => 'bail';

@@ -26,8 +26,10 @@ import 'filters.dart';
 /// }
 /// ```
 abstract class QueryFilter<T extends Model> {
+  /// Query filters are usually const.
   const QueryFilter();
 
+  /// The filters by query parameter.
   Map<String, Filter> get filters;
 
   /// Scopes of the model's definition a client may call (`?scopes[]=`).
@@ -164,6 +166,7 @@ abstract class QueryFilter<T extends Model> {
 
 /// `config/teorion.php`.
 final class TeorionConfig implements ConfigSection {
+  /// Teorion settings; usually from `.env` (`TEORION_*`).
   const TeorionConfig({
     this.defaultPerPage = 10,
     this.maxPerPage = 100,
@@ -187,6 +190,7 @@ final class TeorionConfig implements ConfigSection {
     ],
   });
 
+  /// The settings in `TEORION_*`.
   factory TeorionConfig.fromEnv(Env env) => TeorionConfig(
     defaultPerPage: env.integer('TEORION_DEFAULT_PER_PAGE', 10),
     maxPerPage: env.integer('TEORION_MAX_PER_PAGE', 100),
@@ -198,6 +202,7 @@ final class TeorionConfig implements ConfigSection {
         double.tryParse(env.string('TEORION_AUDIT_SAMPLE_RATE', '1.0')) ?? 1.0,
   );
 
+  /// Rows per page when none is asked for.
   final int defaultPerPage;
 
   /// The most rows `?per_page=` or `?max_results=` may ask for
@@ -205,11 +210,23 @@ final class TeorionConfig implements ConfigSection {
   /// cut to it, and a value below 1 falls back to [defaultPerPage], so no
   /// client dumps a table or divides a paginator by zero.
   final int maxPerPage;
+
+  /// The parameter turning pagination on (`paginate`).
   final String paginateKey;
+
+  /// The parameter of the page size (`per_page`).
   final String perPageKey;
+
+  /// The parameter limiting unpaginated results.
   final String maxResultsKey;
+
+  /// The parameter choosing the pagination mode.
   final String paginationModeKey;
+
+  /// The value of [paginationModeKey] asking for cursor pagination.
   final String cursorPaginationValue;
+
+  /// The parameter of the cursor (`cursor`).
   final String cursorName;
 
   /// Refuse (400) instead of skipping relations and scopes the filter does
@@ -221,11 +238,15 @@ final class TeorionConfig implements ConfigSection {
   /// [QueryAudited] after every listing (`TEORION_AUDIT_ENABLED`), logged
   /// too with [auditLog] (`TEORION_AUDIT_LOG`).
   final bool audit;
+
+  /// Whether each filtered query is dispatched as [QueryAudited].
   final bool auditLog;
 
   /// The share of fingerprints audited, decided by the fingerprint, so one
   /// query is always or never audited (`TEORION_AUDIT_SAMPLE_RATE`).
   final double auditSampleRate;
+
+  /// Parameters left out of the query fingerprint.
   final List<String> fingerprintExcludeKeys;
 
   @override
@@ -532,10 +553,12 @@ final class _Pipeline<T extends Model> {
 /// The query filters by model, registered with `withQueryFilters`
 /// (laravel-teorion's convention, without reflection).
 final class QueryFilterRegistry {
+  /// A registry of the query filters of each model.
   QueryFilterRegistry(this._factories);
 
   final Map<Type, QueryFilter<Model> Function()> _factories;
 
+  /// The query filter of [T], or null.
   QueryFilter<T>? of<T extends Model>() =>
       _factories[T]?.call() as QueryFilter<T>?;
 }
@@ -543,6 +566,7 @@ final class QueryFilterRegistry {
 /// A model that names its own query filter (laravel-teorion's
 /// `$queryFilter` / `newQueryFilter()`).
 base mixin Filterable<T extends Model> on Model {
+  /// A new query filter of the model.
   QueryFilter<T> newQueryFilter();
 }
 
@@ -555,8 +579,10 @@ typedef TerminalMode = String;
 /// `model_class`, `terminal_mode`, `limit`, `result_count`, `duration_ms`
 /// and `user_id`.
 final class QueryAudited {
+  /// A filtered query was run: [record] describes it.
   const QueryAudited(this.record);
 
+  /// The parameters, filters applied and fingerprint.
   final Map<String, Object?> record;
 }
 
@@ -564,12 +590,19 @@ final class QueryAudited {
 /// the request's parameters with their keys sorted (laravel-teorion's
 /// `QueryFingerprint`, SHA-256).
 final class QueryFingerprint {
+  /// The [hash] of a query's [payload].
   const QueryFingerprint(this.hash, this.payload);
 
+  /// The hash, hex encoded.
   final String hash;
+
+  /// What was hashed.
   final Map<String, Object?> payload;
+
+  /// The hash algorithm.
   String get algorithm => 'sha256';
 
+  /// The fingerprint of a request's filters.
   static Future<QueryFingerprint> of(
     QueryFilter<Model> filter,
     ModelDefinition<Model> definition,

@@ -38,25 +38,37 @@ Coordinator createStandardCoordinator({int processCacheMaxEntries = 10000}) {
 
 /// Sent by a worker once its server is bound.
 final class WorkerReady {
+  /// Worker [index] listens on [port] and takes orders on [control].
   const WorkerReady(this.index, this.port, this.control);
 
+  /// The worker's index.
   final int index;
+
+  /// The port it listens on.
   final int port;
+
+  /// Where the supervisor sends it orders.
   final SendPort control;
 }
 
 /// Sent by a worker that failed to boot or bind.
 final class WorkerFailed {
+  /// Worker [index] could not start: [error].
   const WorkerFailed(this.index, this.error);
 
+  /// The worker's index.
   final int index;
+
+  /// Why it failed.
   final String error;
 }
 
 /// Sent by a worker after draining.
 final class WorkerDrained {
+  /// Worker [index] finished its requests and stopped.
   const WorkerDrained(this.index);
 
+  /// The worker's index.
   final int index;
 }
 
@@ -93,6 +105,7 @@ final class _Worker {
 /// `process`-scope state, waits for readiness, respawns crashed workers
 /// with backoff and orchestrates a graceful drain on signals.
 final class Supervisor {
+  /// A supervisor of worker isolates built by [factory].
   Supervisor(
     this.factory,
     this.options, {
@@ -102,9 +115,16 @@ final class Supervisor {
   }) : logger = logger ?? Logger(),
        coordinator = coordinator ?? createStandardCoordinator();
 
+  /// Builds each worker's application.
   final ApplicationFactory factory;
+
+  /// The serve options.
   final ServeOptions options;
+
+  /// Logs worker starts, crashes and stops.
   final Logger logger;
+
+  /// Shares process-wide state between workers.
   final Coordinator coordinator;
 
   /// Crash-loop threshold: beyond this the supervisor exits with code 1.

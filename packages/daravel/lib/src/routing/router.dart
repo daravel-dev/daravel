@@ -92,6 +92,7 @@ final class Router {
   /// Router-wide parameter patterns (`Route::pattern`).
   Map<String, RegExp> get patterns => Map.unmodifiable(_patterns);
 
+  /// A `GET` (and `HEAD`) route: `router.get('/users/{id}', handler)`.
   RouteEntry get(String path, Handler handler) =>
       match(const <String>['GET', 'HEAD'], path, handler);
 
@@ -121,18 +122,23 @@ final class Router {
     );
   })..markWebSocket();
 
+  /// A `POST` route.
   RouteEntry post(String path, Handler handler) =>
       match(const <String>['POST'], path, handler);
 
+  /// A `PUT` route.
   RouteEntry put(String path, Handler handler) =>
       match(const <String>['PUT'], path, handler);
 
+  /// A `PATCH` route.
   RouteEntry patch(String path, Handler handler) =>
       match(const <String>['PATCH'], path, handler);
 
+  /// A `DELETE` route.
   RouteEntry delete(String path, Handler handler) =>
       match(const <String>['DELETE'], path, handler);
 
+  /// An `OPTIONS` route.
   RouteEntry options(String path, Handler handler) =>
       match(const <String>['OPTIONS'], path, handler);
 

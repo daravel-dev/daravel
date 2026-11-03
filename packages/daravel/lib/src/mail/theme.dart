@@ -14,6 +14,7 @@ import 'mailable.dart' show escapeHtml;
 ///     )
 /// ```
 final class MailTheme {
+  /// The colors of rendered mail; the defaults follow Laravel's mail theme.
   const MailTheme({
     required this.appName,
     this.appUrl = 'http://localhost',
@@ -41,10 +42,17 @@ final class MailTheme {
 
   /// Button colors by level, as `<x-mail::button :color>`.
   final String primary;
+
+  /// The success button color.
   final String success;
+
+  /// The error button color.
   final String error;
 
+  /// The body text color.
   final String text;
+
+  /// The heading color.
   final String heading;
 
   /// Around the message, and the panel background.
@@ -52,6 +60,8 @@ final class MailTheme {
 
   /// The message itself.
   final String surface;
+
+  /// The border color.
   final String border;
 
   /// The footer.
@@ -60,6 +70,7 @@ final class MailTheme {
   /// Footer markdown; `© <year> <app>. All rights reserved.` by default.
   final String? footer;
 
+  /// A copy with the given colors changed.
   MailTheme copyWith({
     String? appName,
     String? appUrl,

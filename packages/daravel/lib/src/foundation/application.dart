@@ -115,14 +115,28 @@ final class Application {
   /// Project root used to locate `.env`, `database/`, `storage/`.
   final String basePath;
 
+  /// The service container.
   final Container container;
+
+  /// The routes.
   final Router router;
+
+  /// The middleware registry.
   final MiddlewareRegistry middleware;
+
+  /// Turns exceptions into responses.
   final ExceptionHandler exceptions;
 
+  /// The environment, loaded at boot.
   late final Env env;
+
+  /// The configuration, loaded at boot.
   late final ConfigRepository config;
+
+  /// The application logger.
   late final Logger logger;
+
+  /// The HTTP kernel.
   late final HttpKernel kernel;
 
   /// Whether [boot] got as far as creating [logger]: a shutdown after a
@@ -1225,8 +1239,10 @@ final class Application {
 
 /// Fluent builder mirroring Laravel's `Application::configure()`.
 final class ApplicationBuilder {
+  /// A builder of the application at [basePath].
   ApplicationBuilder({required this.basePath});
 
+  /// The application's root directory.
   final String basePath;
 
   Map<String, String> _envOverrides = const <String, String>{};
@@ -1442,6 +1458,7 @@ final class ApplicationBuilder {
     return this;
   }
 
+  /// Configures the exception handler (reporting and rendering).
   ApplicationBuilder withExceptions(
     void Function(ExceptionHandler exceptions) configure,
   ) {
@@ -1467,6 +1484,7 @@ final class ApplicationBuilder {
     return this;
   }
 
+  /// Registers service [providers].
   ApplicationBuilder withProviders(List<ServiceProvider> providers) {
     _providers.addAll(providers);
     return this;
@@ -1549,6 +1567,7 @@ final class ApplicationBuilder {
     return this;
   }
 
+  /// Registers the [migrations] (`bootstrap/migrations.dart`).
   ApplicationBuilder withMigrations(List<Migration> migrations) {
     _migrations.addAll(migrations);
     return this;

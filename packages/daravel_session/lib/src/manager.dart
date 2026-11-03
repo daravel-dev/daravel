@@ -8,8 +8,10 @@ import 'session.dart';
 /// Builds the [SessionHandler] of the configured driver and a [Session]
 /// per request (Laravel's `SessionManager`).
 final class SessionManager {
+  /// A manager of sessions with [config], files under [basePath].
   SessionManager(this.config, {required this.basePath});
 
+  /// The session settings.
   final SessionConfig config;
 
   /// The application's base path, which `SESSION_FILES` is relative to.

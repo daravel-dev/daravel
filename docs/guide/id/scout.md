@@ -1,4 +1,4 @@
-<!-- source: scout.md sha256:fe8a5faca239 -->
+<!-- source: scout.md sha256:a045738a8244 -->
 # Pencarian (daravel_scout)
 
 `daravel_scout` adalah engine `database` dari Laravel Scout: pencarian berjalan di
@@ -78,3 +78,12 @@ lebih dulu. `hybrid` menggabungkan peringkat teks dan makna dengan reciprocal ra
 fusion, seperti Scout. Keduanya tidak bisa digabung dengan `orderBy`. Kolomnya
 berasal dari `table.vector` ([Database](database.md#kolom-vector)); di SQLite
 keduanya melempar error.
+
+## Padanan Laravel
+
+Bagian lain dari Laravel yang ikut didukung, beserta API yang bisa dicari di pub.dev.
+
+| Laravel | Daravel | API | Catatan |
+| :-- | :-- | :-- | :-- |
+| `use Searchable; public function toSearchableArray()` | `with Searchable; toSearchableArray()` | `Searchable.toSearchableArray` | Hanya engine database. |
+| `#[SearchUsingFullText(['body'])]` | `List<String> get searchUsingFullText => ['body']` | `Searchable.searchUsingFullText` |  |

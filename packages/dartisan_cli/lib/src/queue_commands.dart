@@ -11,6 +11,7 @@ List<Duration> _parseBackoff(String? raw) => raw == null || raw.trim().isEmpty
 
 /// `queue:work` — processes jobs until stopped.
 final class QueueWorkCommand extends DaravelCommand {
+  /// The `dartisan queue:work` command.
   QueueWorkCommand(super.createApp) {
     argParser
       ..addOption('queue', help: 'Comma separated queues in priority order.')
@@ -78,6 +79,7 @@ final class QueueWorkCommand extends DaravelCommand {
 
 /// `queue:failed` — lists failed jobs.
 final class QueueFailedCommand extends DaravelCommand {
+  /// The `dartisan queue:failed` command.
   QueueFailedCommand(super.createApp);
 
   @override
@@ -113,6 +115,7 @@ final class QueueFailedCommand extends DaravelCommand {
 
 /// `queue:retry <id|uuid|all>` — pushes failed jobs back onto the queue.
 final class QueueRetryCommand extends DaravelCommand {
+  /// The `dartisan queue:retry` command.
   QueueRetryCommand(super.createApp);
 
   @override
@@ -157,6 +160,7 @@ final class QueueRetryCommand extends DaravelCommand {
 
 /// `queue:forget <id>` — deletes a failed job.
 final class QueueForgetCommand extends DaravelCommand {
+  /// The `dartisan queue:forget` command.
   QueueForgetCommand(super.createApp);
 
   @override
@@ -184,6 +188,7 @@ final class QueueForgetCommand extends DaravelCommand {
 
 /// `queue:flush [--hours=N]` — deletes failed jobs.
 final class QueueFlushCommand extends DaravelCommand {
+  /// The `dartisan queue:flush` command.
   QueueFlushCommand(super.createApp) {
     argParser.addOption(
       'hours',
@@ -211,6 +216,7 @@ final class QueueFlushCommand extends DaravelCommand {
 
 /// `queue:clear [connection] [--queue=]` — deletes pending jobs.
 final class QueueClearCommand extends DaravelCommand {
+  /// The `dartisan queue:clear` command.
   QueueClearCommand(super.createApp) {
     argParser.addOption(
       'queue',
@@ -250,6 +256,7 @@ final class QueueClearCommand extends DaravelCommand {
 /// `queue:pause [connection:]queue` — workers stop taking jobs from the
 /// queue (running jobs finish) until `queue:continue`.
 final class QueuePauseCommand extends DaravelCommand {
+  /// The `dartisan queue:pause` command.
   QueuePauseCommand(super.createApp);
 
   @override
@@ -272,6 +279,7 @@ final class QueuePauseCommand extends DaravelCommand {
 
 /// `queue:continue [connection:]queue` — resumes a paused queue.
 final class QueueContinueCommand extends DaravelCommand {
+  /// The `dartisan queue:continue` command.
   QueueContinueCommand(super.createApp);
 
   @override
@@ -292,7 +300,9 @@ final class QueueContinueCommand extends DaravelCommand {
   });
 }
 
+/// Tells the workers to stop after their current job (`queue:restart`).
 final class QueueRestartCommand extends DaravelCommand {
+  /// The `dartisan queue:restart` command.
   QueueRestartCommand(super.createApp);
 
   @override
@@ -312,8 +322,10 @@ final class QueueRestartCommand extends DaravelCommand {
 
 /// `schedule:run` — runs the tasks due this minute.
 final class ScheduleRunCommand extends DaravelCommand {
+  /// The `dartisan schedule:run` command.
   ScheduleRunCommand(super.createApp, this.dartisan);
 
+  /// Runs the scheduled commands.
   final DartisanRunner dartisan;
 
   @override
@@ -342,8 +354,10 @@ final class ScheduleRunCommand extends DaravelCommand {
 
 /// `schedule:work` — runs the scheduler loop in the foreground.
 final class ScheduleWorkCommand extends DaravelCommand {
+  /// The `dartisan schedule:work` command.
   ScheduleWorkCommand(super.createApp, this.dartisan);
 
+  /// Runs the scheduled commands.
   final DartisanRunner dartisan;
 
   @override
@@ -366,6 +380,7 @@ final class ScheduleWorkCommand extends DaravelCommand {
 
 /// `schedule:list` — prints the schedule.
 final class ScheduleListCommand extends DaravelCommand {
+  /// The `dartisan schedule:list` command.
   ScheduleListCommand(super.createApp) {
     argParser.addOption(
       'timezone',

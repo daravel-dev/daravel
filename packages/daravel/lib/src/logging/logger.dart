@@ -11,13 +11,28 @@ import '../foundation/exceptions.dart';
 
 /// RFC 5424 levels (ordered by severity).
 enum LogLevel {
+  /// Detailed debugging information.
   debug,
+
+  /// Interesting events.
   info,
+
+  /// Normal but significant events.
   notice,
+
+  /// Exceptional occurrences that are not errors.
   warning,
+
+  /// Runtime errors that need no immediate action.
   error,
+
+  /// Critical conditions.
   critical,
+
+  /// Action must be taken immediately.
   alert,
+
+  /// The system is unusable.
   emergency;
 
   /// Parses `LOG_LEVEL` values (`debug`, `warning`, `warn`, …).
@@ -38,6 +53,7 @@ enum LogLevel {
 
 /// One log entry as handed to [LogHandler]s.
 final class LogRecord {
+  /// One log entry.
   const LogRecord({
     required this.time,
     required this.level,
@@ -48,14 +64,25 @@ final class LogRecord {
     this.stackTrace,
   });
 
+  /// When it was logged.
   final DateTime time;
+
+  /// How severe it is.
   final LogLevel level;
+
+  /// The message.
   final String message;
+
+  /// The channel it was logged on.
   final String channel;
 
   /// Shared + request + call context, already redacted.
   final Map<String, Object?> context;
+
+  /// The error logged with it, if any.
   final Object? error;
+
+  /// The error's stack trace, if any.
   final StackTrace? stackTrace;
 
   /// Plain-JSON form used by the JSON and file handlers.
@@ -72,8 +99,10 @@ final class LogRecord {
 
 /// Destination of log records (console, JSON stdout, daily file, memory…).
 abstract interface class LogHandler {
+  /// Writes [record].
   void handle(LogRecord record);
 
+  /// Flushes and closes the handler.
   Future<void> close();
 }
 
@@ -82,12 +111,16 @@ String _encodeContext(Map<String, Object?> context) =>
 
 /// Human-readable lines; warnings and above go to [err].
 final class ConsoleHandler implements LogHandler {
+  /// Writes to stdout, errors to stderr; [showChannel] prefixes the
+  /// channel.
   ConsoleHandler({StringSink? out, StringSink? err, this.showChannel = false})
     : _out = out ?? stdout,
       _err = err ?? stderr;
 
   final StringSink _out;
   final StringSink _err;
+
+  /// Whether each line starts with the channel.
   final bool showChannel;
 
   @override
@@ -126,6 +159,7 @@ final class ConsoleHandler implements LogHandler {
 
 /// One JSON object per line (containers, log shippers).
 final class JsonHandler implements LogHandler {
+  /// Writes one JSON object per line, to [sink] or stdout.
   JsonHandler([StringSink? sink]) : _sink = sink ?? stdout;
 
   final StringSink _sink;
@@ -141,9 +175,13 @@ final class JsonHandler implements LogHandler {
 
 /// `daravel-YYYY-MM-DD.log` files rotated daily, keeping [days] files.
 final class DailyFileHandler implements LogHandler {
+  /// Writes to one file per day in [directory], keeping [days] of them.
   DailyFileHandler(this.directory, {this.name = 'daravel', this.days = 14});
 
+  /// The directory of the log files.
   final String directory;
+
+  /// The file name prefix.
   final String name;
 
   /// Files kept after rotation (`0` = keep all).
@@ -217,6 +255,7 @@ final class DailyFileHandler implements LogHandler {
 
 /// Keeps records in memory; returned by `Log.spy()` for assertions.
 final class MemoryHandler implements LogHandler {
+  /// The records logged, in order.
   final List<LogRecord> records = <LogRecord>[];
 
   @override
@@ -232,9 +271,11 @@ final class MemoryHandler implements LogHandler {
         r,
   ];
 
+  /// Whether a record of [level] matching [pattern] was logged.
   bool hasLogged(LogLevel level, [Pattern? pattern]) =>
       matching(level, pattern).isNotEmpty;
 
+  /// Fails unless a record of [level] matching [pattern] was logged.
   void assertLogged(LogLevel level, [Pattern? pattern]) {
     if (!hasLogged(level, pattern)) {
       throw StateError(
@@ -244,25 +285,30 @@ final class MemoryHandler implements LogHandler {
     }
   }
 
+  /// Fails if a record of [level] matching [pattern] was logged.
   void assertNotLogged(LogLevel level, [Pattern? pattern]) {
     if (hasLogged(level, pattern)) {
       throw StateError('Unexpected [${level.name}] log matching "$pattern".');
     }
   }
 
+  /// Forgets the records.
   void clear() => records.clear();
 }
 
 /// Per-scope (request/job/command) context added to every log line.
 final class LogContext {
+  /// A context of [values].
   LogContext([Map<String, Object?>? values])
     : values = <String, Object?>{...?values};
 
+  /// The context entries.
   final Map<String, Object?> values;
 }
 
 /// `LOG_*` configuration (`config/logging.php`).
 final class LoggingConfig implements ConfigSection {
+  /// Logging settings; usually from `.env` (`LOG_*`).
   const LoggingConfig({
     this.channel = 'stack',
     this.stack = const <String>['console'],
@@ -272,6 +318,7 @@ final class LoggingConfig implements ConfigSection {
     this.redact = defaultRedactedKeys,
   });
 
+  /// The settings in `LOG_*`.
   factory LoggingConfig.fromEnv(Env env) => LoggingConfig(
     channel: env.string('LOG_CHANNEL', 'stack'),
     stack: env.list('LOG_STACK', const <String>['console']),
@@ -297,9 +344,17 @@ final class LoggingConfig implements ConfigSection {
 
   /// Channels combined by `stack`.
   final List<String> stack;
+
+  /// The lowest level written (`LOG_LEVEL`).
   final LogLevel level;
+
+  /// The directory of file logs (`LOG_PATH`).
   final String path;
+
+  /// How many daily files are kept (`LOG_DAILY_DAYS`).
   final int days;
+
+  /// Context keys whose values are replaced with `[redacted]`.
   final List<String> redact;
 
   @override
@@ -394,10 +449,13 @@ final class Logger {
   final Map<String, Logger Function()> _channels = {};
   final Map<String, Logger> _resolved = <String, Logger>{};
 
+  /// The handlers records go to.
   List<LogHandler> get handlers => List<LogHandler>.unmodifiable(_handlers);
 
+  /// Adds [handler].
   void addHandler(LogHandler handler) => _handlers.add(handler);
 
+  /// Removes [handler]; returns whether it was there.
   bool removeHandler(LogHandler handler) => _handlers.remove(handler);
 
   /// Registers (or replaces) a named channel.
@@ -426,6 +484,7 @@ final class Logger {
   /// Context added to every record of every channel (`Log::shareContext`).
   void shareContext(Map<String, Object?> context) => _shared.addAll(context);
 
+  /// The context added to every record of this logger.
   Map<String, Object?> get sharedContext => Map.unmodifiable(_shared);
 
   /// Adds context to the current request/job scope, or shares it when no
@@ -446,18 +505,23 @@ final class Logger {
   Map<String, Object?> get scopeContext =>
       _scope()?.get<LogContext>()?.values ?? const <String, Object?>{};
 
+  /// Logs [message] at debug level.
   void debug(String message, [Map<String, Object?>? context]) =>
       log(LogLevel.debug, message, context: context);
 
+  /// Logs [message] at info level.
   void info(String message, [Map<String, Object?>? context]) =>
       log(LogLevel.info, message, context: context);
 
+  /// Logs [message] at notice level.
   void notice(String message, [Map<String, Object?>? context]) =>
       log(LogLevel.notice, message, context: context);
 
+  /// Logs [message] at warning level.
   void warning(String message, [Map<String, Object?>? context]) =>
       log(LogLevel.warning, message, context: context);
 
+  /// Logs [message] at error level, with the error and stack trace.
   void error(
     String message, {
     Object? error,
@@ -471,6 +535,7 @@ final class Logger {
     context: context,
   );
 
+  /// Logs [message] at critical level, with the error and stack trace.
   void critical(
     String message, {
     Object? error,

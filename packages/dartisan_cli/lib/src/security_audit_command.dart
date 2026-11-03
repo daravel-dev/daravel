@@ -10,6 +10,7 @@ import '../dartisan_cli.dart';
 /// a black-box audit of a running server ([SecurityAudit]). It exits 1
 /// when a finding reaches `--severity`, so CI can gate on it.
 final class SecurityAuditCommand extends DaravelCommand {
+  /// The `dartisan security:audit` command.
   SecurityAuditCommand(super.createApp) {
     argParser
       ..addOption('target', help: 'The server to audit; APP_URL by default.')

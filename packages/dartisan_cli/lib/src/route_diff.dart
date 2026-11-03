@@ -44,6 +44,7 @@ final class RouteDiff {
   /// Daravel routes Laravel does not have.
   final List<RouteKey> daravelOnly;
 
+  /// The routes compared.
   int get total => migrated.length + legacy.length;
 
   /// Progress per module, most routes left first: the first segment after
@@ -153,6 +154,7 @@ final class RouteDiff {
     });
   }
 
+  /// The comparison as JSON.
   Map<String, Object?> toJson() {
     List<Map<String, String>> list(List<RouteKey> routes) => [
       for (final r in routes) {'method': r.method, 'uri': r.uri},
@@ -209,6 +211,7 @@ final class RouteDiff {
 /// `route:diff (--laravel=<dir> | --laravel-json=<file>) [--json]`:
 /// Laravel's routes against this application's ([RouteDiff]).
 final class RouteDiffCommand extends DaravelCommand {
+  /// The `dartisan route:diff` command.
   RouteDiffCommand(super.createApp) {
     argParser
       ..addOption(

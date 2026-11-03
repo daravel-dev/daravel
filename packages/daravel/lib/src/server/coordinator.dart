@@ -17,6 +17,7 @@ enum StateScope {
 
 /// A request to a coordinator service.
 final class CoordinatorRequest {
+  /// A call of [op] on [service], answered on [replyTo].
   const CoordinatorRequest({
     required this.id,
     required this.service,
@@ -25,29 +26,46 @@ final class CoordinatorRequest {
     required this.replyTo,
   });
 
+  /// The call's id, matching its reply.
   final int id;
+
+  /// The service called.
   final String service;
+
+  /// The operation.
   final String op;
+
+  /// Its arguments.
   final Map<String, Object?> args;
+
+  /// Where the reply goes.
   final SendPort replyTo;
 }
 
 /// Reply to a [CoordinatorRequest].
 final class CoordinatorReply {
+  /// The reply to call [id]: a [result] or an [error].
   const CoordinatorReply(this.id, {this.result, this.error});
 
+  /// The call's id.
   final int id;
+
+  /// The result.
   final Object? result;
+
+  /// The error message, when the call failed.
   final String? error;
 }
 
 /// Raised when the coordinator rejects or cannot process a request.
 final class CoordinatorException extends DaravelException {
+  /// A coordinator call failed.
   const CoordinatorException(super.message);
 }
 
 /// Raised when the coordinator does not answer within the timeout.
 final class CoordinatorTimeoutException extends CoordinatorException {
+  /// [service] did not answer within [timeout].
   CoordinatorTimeoutException(String service, Duration timeout)
     : super(
         'Coordinator service [$service] did not answer within '
@@ -57,6 +75,7 @@ final class CoordinatorTimeoutException extends CoordinatorException {
 
 /// A service hosted by the [Coordinator] (rate limiter, locks, cache...).
 abstract interface class CoordinatorService {
+  /// The service's name.
   String get name;
 
   /// Handles [op] and returns a sendable result.
@@ -79,6 +98,7 @@ abstract interface class WorkerAwareService {
 /// Hosts `process`-scope services. Lives in the supervisor (main) isolate
 /// when serving with several workers; in-process otherwise.
 final class Coordinator {
+  /// A coordinator queueing at most [maxQueue] calls.
   Coordinator({this.maxQueue = 10000});
 
   /// Pending requests above this count are rejected (backpressure).
@@ -96,11 +116,14 @@ final class Coordinator {
   /// domain time, so not `Clock`).
   final Stopwatch _uptime = Stopwatch()..start();
 
+  /// Registers [service].
   void register(CoordinatorService service) =>
       _services[service.name] = service;
 
+  /// The service named [name], or null.
   CoordinatorService? service(String name) => _services[name];
 
+  /// The names of the registered services.
   Iterable<String> get serviceNames => _services.keys;
 
   /// Tells every [WorkerAwareService] that [worker] is gone (the
@@ -242,6 +265,7 @@ final class Coordinator {
   /// have closed it.
   bool get isListening => _port != null;
 
+  /// Stops the coordinator.
   void close() {
     _port?.close();
     _port = null;
@@ -256,6 +280,7 @@ abstract interface class CoordinatorChannel {
   /// Whether calls cross an isolate boundary.
   bool get isRemote;
 
+  /// Calls an operation of a service.
   Future<Object?> call(
     String service,
     String op,
@@ -266,8 +291,10 @@ abstract interface class CoordinatorChannel {
 
 /// Direct in-process calls (single isolate / tests): no message hop.
 final class LocalCoordinatorChannel implements CoordinatorChannel {
+  /// A channel to [coordinator] in this isolate.
   const LocalCoordinatorChannel(this.coordinator);
 
+  /// The coordinator called.
   final Coordinator coordinator;
 
   @override
@@ -287,6 +314,7 @@ final class LocalCoordinatorChannel implements CoordinatorChannel {
 
 /// Request/response over [SendPort] with correlation ids and timeouts.
 final class RemoteCoordinatorChannel implements CoordinatorChannel {
+  /// A channel to a coordinator in another isolate.
   RemoteCoordinatorChannel(this._target) {
     _replies = ReceivePort('daravel-coordinator-client');
     _replies.listen(_onReply);
@@ -320,6 +348,7 @@ final class RemoteCoordinatorChannel implements CoordinatorChannel {
   @override
   bool get isRemote => true;
 
+  /// The calls waiting for a reply.
   int get pending => _pending.length;
 
   @override
@@ -396,6 +425,7 @@ final class RemoteCoordinatorChannel implements CoordinatorChannel {
     }
   }
 
+  /// Closes the channel.
   void close() {
     _closed = true;
     _sweeper?.cancel();

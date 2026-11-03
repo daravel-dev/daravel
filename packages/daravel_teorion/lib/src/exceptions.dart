@@ -6,17 +6,23 @@ import 'query_filter.dart';
 // 500 (RuntimeException); they come from the client's request, so Daravel
 // answers 400.
 
+/// A 400: `?sort=` names a column that may not be sorted.
 final class DisallowedSortException extends HttpException {
+  /// Sorting by [column] is not allowed.
   DisallowedSortException(String column)
     : super(400, 'Sort column [$column] is not in the allowed sorts list.');
 }
 
+/// A 400: a scope that may not be applied.
 final class DisallowedScopeException extends HttpException {
+  /// The scope [scope] is not allowed.
   DisallowedScopeException(String scope)
     : super(400, 'Scope [$scope] is not in the allowed scopes list.');
 }
 
+/// A 400: `?with=` names a relation that may not be loaded.
 final class DisallowedWithException extends HttpException {
+  /// Loading [relation] is not allowed.
   DisallowedWithException(String relation)
     : super(400, 'Relation [$relation] is not in the allowed withs list.');
 }
@@ -25,6 +31,7 @@ final class DisallowedWithException extends HttpException {
 /// [QueryFilter.allowedVisibles] (a Daravel addition: laravel-teorion lets
 /// a client un-hide any attribute).
 final class DisallowedVisibleException extends HttpException {
+  /// Showing [attribute] is not allowed.
   DisallowedVisibleException(String attribute)
     : super(400, 'Attribute [$attribute] is not in the allowed visibles list.');
 }
@@ -33,6 +40,7 @@ final class DisallowedVisibleException extends HttpException {
 /// [QueryFilter.allowedWithColumns] (a Daravel addition: laravel-teorion
 /// passes any column through).
 final class DisallowedWithColumnsException extends HttpException {
+  /// Selecting [column] of [relation] is not allowed.
   DisallowedWithColumnsException(String relation, String column)
     : super(
         400,
@@ -41,7 +49,9 @@ final class DisallowedWithColumnsException extends HttpException {
       );
 }
 
+/// A 400: a required filter is missing.
 final class RequiredFilterMissingException extends HttpException {
+  /// The filter [param] is required.
   RequiredFilterMissingException(String param)
     : super(
         400,
@@ -51,6 +61,7 @@ final class RequiredFilterMissingException extends HttpException {
 
 /// A whitelisted scope the model does not define (strict mode).
 final class ScopeMethodNotFoundException extends DaravelException {
+  /// The scope [scope] does not exist on [table].
   ScopeMethodNotFoundException(String scope, String table)
     : super(
         'Scope [$scope] is whitelisted but [$table] defines no scope by that '
@@ -60,6 +71,7 @@ final class ScopeMethodNotFoundException extends DaravelException {
 
 /// No [QueryFilter] for a model.
 final class QueryFilterNotFoundException extends DaravelException {
+  /// No query filter is registered for [model].
   QueryFilterNotFoundException(Type model)
     : super(
         'QueryFilter could not be resolved for model [$model]. Register it '

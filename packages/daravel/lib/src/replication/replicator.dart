@@ -12,6 +12,7 @@ import 'wal.dart';
 
 /// Thrown when a database cannot be replicated or restored.
 final class ReplicationException extends DaravelException {
+  /// A replication failure.
   const ReplicationException(super.message);
 }
 
@@ -25,14 +26,18 @@ final class ReplicationException extends DaravelException {
 /// A generation starts with a snapshot; its segments, applied in order,
 /// bring the snapshot forward. Generation names sort by time.
 abstract final class ReplicaLayout {
+  /// The directory of every generation.
   static String generations(String prefix) => _join(prefix, 'generations');
 
+  /// The directory of generation [id].
   static String generation(String prefix, String id) =>
       _join(generations(prefix), id);
 
+  /// The snapshot of generation [id] taken at [ms].
   static String snapshot(String prefix, String id, int ms) =>
       '${generation(prefix, id)}/snapshot-$ms.db.gz';
 
+  /// WAL segment [index] of generation [id], written at [ms].
   static String segment(String prefix, String id, int index, int ms) =>
       '${generation(prefix, id)}/wal/${'$index'.padLeft(10, '0')}-$ms.wal.gz';
 
@@ -100,6 +105,7 @@ Uint8List _u32(int value) =>
 
 /// What one [SqliteReplicator.sync] did.
 final class ReplicationSync {
+  /// What one sync uploaded.
   const ReplicationSync({
     required this.generation,
     required this.frames,
@@ -107,6 +113,7 @@ final class ReplicationSync {
     this.reason,
   });
 
+  /// The generation synced.
   final String generation;
 
   /// Committed frames shipped by this sync.
@@ -143,6 +150,7 @@ final class ReplicationSync {
 /// log's tail. A database that has no log yet gets one write into the
 /// `_daravel_replication` table, as Litestream does with its own table.
 final class SqliteReplicator {
+  /// Replicates the SQLite database at [databasePath] to [disk].
   SqliteReplicator(
     this.databasePath,
     this.disk, {
@@ -153,7 +161,10 @@ final class SqliteReplicator {
     DateTime Function()? clock,
   }) : _clock = clock ?? DateTime.now;
 
+  /// The database file.
   final String databasePath;
+
+  /// The disk holding the replica.
   final Disk disk;
 
   /// Where on [disk] the replica lives.
@@ -608,14 +619,20 @@ Future<List<String>> listReplicaGenerations(Disk disk, String prefix) async {
 
 /// What a restore applied.
 final class ReplicaRestore {
+  /// What a restore applied.
   const ReplicaRestore({
     required this.generation,
     required this.segments,
     required this.frames,
   });
 
+  /// The generation restored.
   final String generation;
+
+  /// The WAL segments applied.
   final int segments;
+
+  /// The frames applied.
   final int frames;
 }
 

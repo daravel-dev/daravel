@@ -1,4 +1,4 @@
-<!-- source: auth.md sha256:aa054864ac3c -->
+<!-- source: auth.md sha256:32a056f1f96b -->
 # Autentikasi dan otorisasi
 
 Guard didaftarkan di `bootstrap/app.dart`:
@@ -97,3 +97,12 @@ yang berisi JSON, tetap bisa didekripsi.
 `Gate.allows`, `Gate.denies`, `Gate.authorize` (403 dengan `This action is
 unauthorized.`), dan middleware `can:update,post` bekerja seperti di
 Laravel. Method policy default-nya `false`.
+
+## Padanan Laravel
+
+Bagian lain dari Laravel yang ikut didukung, beserta API yang bisa dicari di pub.dev.
+
+| Laravel | Daravel | API | Catatan |
+| :-- | :-- | :-- | :-- |
+| `$user->currentAccessToken()->delete()` | `await Auth.tokenGuard().revokeCurrent()` | `TokenGuard.revokeCurrent` |  |
+| `$user->tokenCan('posts:read')` | `await Auth.tokenGuard().tokenCan('posts:read')` | `TokenGuard.tokenCan` |  |

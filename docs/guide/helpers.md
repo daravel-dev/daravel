@@ -159,3 +159,18 @@ query results, model collections), so nothing needs converting:
 `avgBy`, `sortBy`, `sortByDesc` (stable) and `partition`. They complement
 `package:collection` (`firstWhereOrNull`, `slices`, ...) rather than replace
 it.
+
+## Laravel equivalents
+
+More of Laravel that this works with, and the API to look up on pub.dev.
+
+| Laravel | Daravel | API | Note |
+| :-- | :-- | :-- | :-- |
+| `now('Asia/Makassar')` | `Clock.nowIn('Asia/Makassar')` | `Clock.nowIn` |  |
+| `Str::slug / snake / camel / studly / kebab / title / headline` | `Str.slug / snake / camel / studly / kebab / title / headline` | `Str.headline` |  |
+| `Str::plural / singular / pluralStudly` | `Str.plural / singular / pluralStudly` | `Str.pluralStudly` | English rules with common irregulars. |
+| `Str::random / uuid / ulid / isUuid / isJson` | `Str.random / uuid / ulid / isUuid / isJson` | `Str.ulid` |  |
+| `Str::of($title)->after(':')->squish()->slug()` | `title.after(':').squish().slug()` | `DaravelString` | Str methods chain on the string itself. |
+| `now()->addMinutes(10) / Carbon::now()->subDays(7)` | `10.minutes.fromNow / 7.days.ago` | `DaravelDuration` |  |
+| `$date->diffForHumans() / isPast() / isToday() / startOfDay()` | `date.diffForHumans() / isPast / isToday / startOfDay` | `DaravelDateTime` | Carbon's units and wording, en and id. |
+| `->sum / avg / sortBy / sortByDesc / partition` | `.sumBy / avgBy / sortBy / sortByDesc / partition` | `DaravelIterable.partition` |  |

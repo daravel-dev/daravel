@@ -36,6 +36,7 @@ enum TestTransport {
 
 /// Sends synthetic requests to an [Application].
 final class TestClient {
+  /// A client calling [app] in process, without a socket.
   TestClient(
     this.app, {
     Map<String, String>? defaultHeaders,
@@ -46,6 +47,7 @@ final class TestClient {
   }) : _defaultHeaders = <String, String>{...?defaultHeaders},
        transport = transport ?? TestTransport.fromEnvironment;
 
+  /// The application under test.
   final Application app;
   final Map<String, String> _defaultHeaders;
 
@@ -97,15 +99,19 @@ final class TestClient {
   TestClient withToken(String token) =>
       withHeaders(<String, String>{'authorization': 'Bearer $token'});
 
+  /// Sends `GET` [uri].
   Future<TestResponse> get(String uri, {Map<String, String>? headers}) =>
       send('GET', uri, headers: headers);
 
+  /// Sends `HEAD` [uri].
   Future<TestResponse> head(String uri, {Map<String, String>? headers}) =>
       send('HEAD', uri, headers: headers);
 
+  /// Sends `OPTIONS` [uri].
   Future<TestResponse> options(String uri, {Map<String, String>? headers}) =>
       send('OPTIONS', uri, headers: headers);
 
+  /// Sends `POST` [uri] with a JSON or form body.
   Future<TestResponse> post(
     String uri, {
     Object? json,
@@ -115,6 +121,7 @@ final class TestClient {
   }) =>
       send('POST', uri, json: json, form: form, files: files, headers: headers);
 
+  /// Sends `PUT` [uri] with a body.
   Future<TestResponse> put(
     String uri, {
     Object? json,
@@ -124,6 +131,7 @@ final class TestClient {
   }) =>
       send('PUT', uri, json: json, form: form, files: files, headers: headers);
 
+  /// Sends `PATCH` [uri] with a body.
   Future<TestResponse> patch(
     String uri, {
     Object? json,
@@ -139,6 +147,7 @@ final class TestClient {
     headers: headers,
   );
 
+  /// Sends `DELETE` [uri].
   Future<TestResponse> delete(
     String uri, {
     Object? json,
@@ -330,6 +339,7 @@ final class _SocketHarness {
 /// A captured response with fluent assertions. Every `assert*` method
 /// returns `this` for chaining and fails the current test on mismatch.
 final class TestResponse {
+  /// A response captured by the client.
   TestResponse({
     required this.status,
     required this.headers,
@@ -337,9 +347,16 @@ final class TestResponse {
     required this.request,
   });
 
+  /// The status code.
   final int status;
+
+  /// The headers.
   final Headers headers;
+
+  /// The body bytes.
   final List<int> bodyBytes;
+
+  /// The request that produced it.
   final Request request;
 
   Object? _json;
@@ -373,6 +390,7 @@ final class TestResponse {
     fail('Expected a JSON object body but got ${value.runtimeType}:\n$body');
   }
 
+  /// Fails unless the status is [expected].
   TestResponse assertStatus(int expected) {
     if (status != expected) {
       fail(
@@ -383,17 +401,37 @@ final class TestResponse {
     return this;
   }
 
+  /// Fails unless the status is 200.
   TestResponse assertOk() => assertStatus(200);
+
+  /// Fails unless the status is 201.
   TestResponse assertCreated() => assertStatus(201);
+
+  /// Fails unless the status is 204.
   TestResponse assertNoContent() => assertStatus(204);
+
+  /// Fails unless the status is 400.
   TestResponse assertBadRequest() => assertStatus(400);
+
+  /// Fails unless the status is 401.
   TestResponse assertUnauthorized() => assertStatus(401);
+
+  /// Fails unless the status is 403.
   TestResponse assertForbidden() => assertStatus(403);
+
+  /// Fails unless the status is 404.
   TestResponse assertNotFound() => assertStatus(404);
+
+  /// Fails unless the status is 405.
   TestResponse assertMethodNotAllowed() => assertStatus(405);
+
+  /// Fails unless the status is 422.
   TestResponse assertUnprocessable() => assertStatus(422);
+
+  /// Fails unless the status is 500.
   TestResponse assertServerError() => assertStatus(500);
 
+  /// Fails unless the header [name] is present (with [value] when given).
   TestResponse assertHeader(String name, [String? value]) {
     final actual = headers.first(name);
     if (actual == null) {
@@ -405,6 +443,7 @@ final class TestResponse {
     return this;
   }
 
+  /// Fails if the header [name] is present.
   TestResponse assertHeaderMissing(String name) {
     if (headers.has(name)) {
       fail(
@@ -455,6 +494,7 @@ final class TestResponse {
     return this;
   }
 
+  /// Fails unless the body contains [text].
   TestResponse assertSee(String text) {
     if (!body.contains(text)) {
       fail('Expected response body to contain "$text".\nBody: $body');
@@ -559,6 +599,7 @@ final class TestResponse {
     return this;
   }
 
+  /// Fails if the body contains [text].
   TestResponse assertDontSee(String text) {
     if (body.contains(text)) {
       fail('Expected response body not to contain "$text".\nBody: $body');

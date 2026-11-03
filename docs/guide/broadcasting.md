@@ -231,3 +231,14 @@ with one or four worker isolates (`ISOLATES=4`).
 `Broadcast.publish`, `subscribe` and `pipe` move messages between worker
 isolates without the Pusher protocol, for your own WebSocket or SSE routes
 ([Responses](responses.md#broadcasting-to-every-isolate)).
+
+## Laravel equivalents
+
+More of Laravel that this works with, and the API to look up on pub.dev.
+
+| Laravel | Daravel | API | Note |
+| :-- | :-- | :-- | :-- |
+| `php artisan reverb:start (Laravel Reverb)` | `.withBroadcasting(...) with REVERB_APP_ID / _KEY / _SECRET` | `PusherServer` | The Pusher protocol on the HTTP port; Laravel Echo and pusher-js connect unchanged. |
+| `Echo.channel('cache-prices') (Pusher cache channels)` | `Broadcast.send(..., ['cache-prices'], ...)` | `PusherServer.isCacheChannel` | The last event is kept 30 minutes for new subscribers. |
+| `Echo.encryptedPrivate('orders.7') with encryption_master_key_base64` | `REVERB_ENCRYPTION_MASTER_KEY_BASE64` | `BroadcastConfig.encryptionMasterKey` | private-encrypted- channels, sealed with libsodium's secretbox. |
+| `REVERB_SCALING_ENABLED=true (Reverb with Redis)` | `REVERB_SCALING_ENABLED=true (the database)` | `DatabaseBroadcastRelay` | Frames, presence members (here included) and cache channels span every server; PostgreSQL NOTIFY, MySQL polling. |

@@ -37,6 +37,7 @@ String describeConnection(ConnectionConfig c) => c.driver == 'sqlite'
 
 /// What [DatabaseTransfer.run] did (or would do, for a dry run).
 final class TransferReport {
+  /// An empty report.
   TransferReport();
 
   /// Rows copied per table, in copy order.
@@ -44,6 +45,8 @@ final class TransferReport {
 
   /// Migrations run on the target.
   final List<String> migrated = <String>[];
+
+  /// Remarks about what was copied or skipped.
   final List<String> notes = <String>[];
 }
 
@@ -57,6 +60,8 @@ final class TransferReport {
 /// to the target's column types, and PostgreSQL sequences continue after
 /// the copied ids.
 final class DatabaseTransfer {
+  /// Copies every table of [source] into [target], [chunk] rows at a time,
+  /// running [migrations] on the target first when [migrate].
   DatabaseTransfer({
     required this.source,
     required this.target,
@@ -68,9 +73,16 @@ final class DatabaseTransfer {
     this.log,
   });
 
+  /// The database read.
   final DatabaseManager source;
+
+  /// The database written.
   final DatabaseManager target;
+
+  /// The migrations creating the target's tables.
   final List<Migration> migrations;
+
+  /// Whether the target is migrated first.
   final bool migrate;
 
   /// Empty the target tables first (otherwise they must be empty).
@@ -78,12 +90,17 @@ final class DatabaseTransfer {
 
   /// Only these tables (all shared tables when null).
   final Set<String>? tables;
+
+  /// Rows copied per batch.
   final int chunk;
+
+  /// Receives progress lines.
   final void Function(String line)? log;
 
   /// The ledger of each database: never copied.
   static const String ledger = 'migrations';
 
+  /// Copies the data, or only reports what it would copy when [dryRun].
   Future<TransferReport> run({bool dryRun = false}) async {
     final report = TransferReport();
     if (migrate && !dryRun) {
@@ -424,6 +441,7 @@ Object? adaptValue(Object? value, String type, SqlDialect dialect) {
 /// `db:transfer --from=<connection> --to=<connection>`: copies an
 /// application's data to another database (SQLite to PostgreSQL, ...).
 final class DbTransferCommand extends DaravelCommand {
+  /// The `dartisan db:transfer` command.
   DbTransferCommand(super.createApp) {
     argParser
       ..addOption(

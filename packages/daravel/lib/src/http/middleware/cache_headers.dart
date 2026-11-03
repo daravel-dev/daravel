@@ -26,6 +26,8 @@ import '../response.dart';
 /// written as Symfony writes them for Laravel: directives sorted, `private`
 /// added when neither `public`, `private` nor `s-maxage` is given.
 final class CacheHeadersMiddleware implements Middleware {
+  /// Sets the response headers from [options]: `max_age=60;etag`, as
+  /// Laravel's `cache.headers`.
   const CacheHeadersMiddleware(this.options);
 
   /// `cache.headers:public;max_age=3600;etag` (the alias' parameter).
@@ -216,8 +218,11 @@ final class CacheHeadersMiddleware implements Middleware {
 ///
 /// Behind a proxy that compresses (Caddy, nginx), leave this out.
 final class CompressResponseMiddleware implements Middleware {
+  /// Compresses responses of at least [minLength] bytes with gzip at
+  /// [level], when the client accepts it.
   const CompressResponseMiddleware({this.minLength = 1024, this.level = 6});
 
+  /// The smallest body compressed, in bytes.
   final int minLength;
 
   /// gzip level, 1 (fastest) to 9 (smallest).

@@ -5,9 +5,13 @@ import 'query_ast.dart';
 
 /// SQL text plus its ordered bindings, ready for a driver.
 final class CompiledQuery {
+  /// [sql] with its [bindings] in placeholder order.
   const CompiledQuery(this.sql, this.bindings);
 
+  /// The SQL, with the dialect's placeholders.
   final String sql;
+
+  /// The values of the placeholders, in order.
   final List<Object?> bindings;
 
   @override
@@ -16,9 +20,13 @@ final class CompiledQuery {
 
 /// Accumulates bindings while compiling and emits dialect placeholders.
 final class Compilation {
+  /// A compilation for [grammar], collecting bindings as it goes.
   Compilation(this.grammar);
 
+  /// The grammar compiling.
   final QueryGrammar grammar;
+
+  /// The bindings collected so far.
   final List<Object?> bindings = <Object?>[];
 
   /// Registers [value] and returns its placeholder (`?` or `$n`).
@@ -50,6 +58,7 @@ final class Compilation {
 /// Compiles a [QueryAst] into SQL for one dialect (ADR-005). Placeholders
 /// are emitted while compiling, never rewritten textually afterwards.
 abstract class QueryGrammar {
+  /// Grammars are stateless; `QueryGrammar.forDialect` picks one.
   const QueryGrammar();
 
   static final RegExp _identifier = RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$');
@@ -58,6 +67,7 @@ abstract class QueryGrammar {
     caseSensitive: false,
   );
 
+  /// The dialect it writes for.
   SqlDialect get dialect;
 
   /// Placeholder for the [index]-th (1-based) binding.
@@ -65,9 +75,14 @@ abstract class QueryGrammar {
 
   /// Opening/closing identifier quotes.
   String get quoteOpen => '"';
+
+  /// The character that closes a quoted identifier.
   String get quoteClose => '"';
 
+  /// Whether `INSERT ... RETURNING` is supported.
   bool get supportsReturning => true;
+
+  /// Whether savepoints are supported, for nested transactions.
   bool get supportsSavepoints => true;
 
   /// Picks the grammar for [dialect].
@@ -159,6 +174,7 @@ abstract class QueryGrammar {
   // SELECT
   // ---------------------------------------------------------------------------
 
+  /// The `SELECT` statement of [query].
   CompiledQuery compileSelect(QueryAst query) {
     final c = Compilation(this);
     final sql = _select(query, c);
@@ -381,6 +397,7 @@ abstract class QueryGrammar {
     return buffer.toString();
   }
 
+  /// The row lock clause for [mode].
   String lockClause(LockMode mode) => switch (mode) {
     .none => '',
     .forUpdate => ' FOR UPDATE',
@@ -407,6 +424,8 @@ abstract class QueryGrammar {
   // INSERT / UPDATE / DELETE
   // ---------------------------------------------------------------------------
 
+  /// The `INSERT` of [rows] into [table]; `ignore` skips rows a unique
+  /// constraint refuses.
   CompiledQuery compileInsert(
     String table,
     List<Map<String, Object?>> rows, {
@@ -436,6 +455,7 @@ abstract class QueryGrammar {
     return CompiledQuery(sql, c.bindings);
   }
 
+  /// The insert keyword: `INSERT`, or the dialect's ignoring form.
   String insertKeyword(bool ignore) => ignore ? 'INSERT OR IGNORE' : 'INSERT';
 
   /// Insert returning the generated id (`RETURNING` when supported).
@@ -454,6 +474,7 @@ abstract class QueryGrammar {
     );
   }
 
+  /// The insert-or-update of rows on conflict of the unique columns.
   CompiledQuery compileUpsert(
     String table,
     List<Map<String, Object?>> rows,
@@ -461,6 +482,7 @@ abstract class QueryGrammar {
     List<String> update,
   );
 
+  /// The `UPDATE` of [query]'s rows with [values].
   CompiledQuery compileUpdate(QueryAst query, Map<String, Object?> values) {
     final c = Compilation(this);
     final json = <String, List<(List<String>, Object?)>>{};
@@ -487,6 +509,7 @@ abstract class QueryGrammar {
     return CompiledQuery(buffer.toString(), c.bindings);
   }
 
+  /// The `DELETE` of [query]'s rows.
   CompiledQuery compileDelete(QueryAst query) {
     final c = Compilation(this);
     final buffer = StringBuffer('DELETE FROM ${wrap(query.table)}');
@@ -497,9 +520,11 @@ abstract class QueryGrammar {
     return CompiledQuery(buffer.toString(), c.bindings);
   }
 
+  /// The statement emptying [table].
   CompiledQuery compileTruncate(String table) =>
       CompiledQuery('DELETE FROM ${wrap(table)}', const <Object?>[]);
 
+  /// The query returning whether [query] has a row.
   CompiledQuery compileExists(QueryAst query) {
     final inner = compileSelect(query);
     return CompiledQuery(
@@ -517,6 +542,7 @@ abstract class QueryGrammar {
 
 /// SQLite grammar: `?` placeholders, `INSERT OR IGNORE`, `ON CONFLICT`.
 final class SqliteQueryGrammar extends QueryGrammar {
+  /// The SQLite grammar.
   const SqliteQueryGrammar();
 
   @override
@@ -595,6 +621,7 @@ final class SqliteQueryGrammar extends QueryGrammar {
 
 /// PostgreSQL grammar: `$n` placeholders, `RETURNING`, `ON CONFLICT`.
 final class PostgresQueryGrammar extends QueryGrammar {
+  /// The PostgreSQL grammar: `$1` placeholders and `RETURNING`.
   const PostgresQueryGrammar();
 
   // `->>` is text, and PostgreSQL has no implicit cast from a number.
@@ -702,6 +729,8 @@ final class PostgresQueryGrammar extends QueryGrammar {
 
 /// MySQL/MariaDB grammar: backtick quoting, `?` placeholders, no RETURNING.
 final class MySqlQueryGrammar extends QueryGrammar {
+  /// The MySQL grammar, or MariaDB's with [dialect]: backtick quoting and
+  /// `ON DUPLICATE KEY UPDATE`.
   const MySqlQueryGrammar([this.dialect = SqlDialect.mysql]);
 
   // `json_unquote` gives 'true', which the driver's 1 would not match.

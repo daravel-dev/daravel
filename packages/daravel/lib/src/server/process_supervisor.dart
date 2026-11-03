@@ -27,6 +27,7 @@ import '../logging/logger.dart';
 /// code 1. `SIGINT`/`SIGTERM` forward `SIGTERM` to every child (a kill on
 /// Windows) and wait for [ServeOptions.shutdownTimeout].
 final class ProcessSupervisor {
+  /// Runs [processes] copies of [executable] on consecutive ports.
   ProcessSupervisor({
     required this.executable,
     required this.arguments,
@@ -38,16 +39,29 @@ final class ProcessSupervisor {
     this.handleSignals = true,
   }) : environment = Map.unmodifiable(environment);
 
+  /// The program run.
   final String executable;
+
+  /// Its arguments.
   final List<String> arguments;
+
+  /// The serve options; the first process gets [ServeOptions.port].
   final ServeOptions options;
+
+  /// How many processes run.
   final int processes;
+
+  /// Logs starts, crashes and stops.
   final Logger logger;
 
   /// Variables added to each child's environment (on top of this
   /// process's), before the per-child port and index.
   final Map<String, String> environment;
+
+  /// Crashes in a minute after which a process is not restarted.
   final int maxCrashesPerMinute;
+
+  /// Whether `SIGINT` and `SIGTERM` stop the processes.
   final bool handleSignals;
 
   final Map<int, Process> _children = <int, Process>{};
@@ -66,6 +80,7 @@ final class ProcessSupervisor {
   /// Completes when every child has stopped.
   Future<void> get done => _done.future;
 
+  /// The exit code once every process stopped.
   int get exitCode => _exitCode;
 
   /// Starts the children and waits until each answers on its port.

@@ -1,6 +1,7 @@
 /// The coordinator's state as a running server reports it on `/metrics`
 /// (Prometheus text), read back for `coordinator:stats --url`.
 final class CoordinatorReport {
+  /// The coordinator's numbers, as `coordinator:stats` prints them.
   CoordinatorReport({
     required this.messages,
     required this.rejected,
@@ -64,10 +65,19 @@ final class CoordinatorReport {
     );
   }
 
+  /// Calls received.
   final int messages;
+
+  /// Calls refused because the queue was full.
   final int rejected;
+
+  /// Calls running now.
   final int inFlight;
+
+  /// The most calls running at once.
   final int inFlightPeak;
+
+  /// The most calls the queue holds.
   final int maxQueue;
 
   /// Round trips from the workers, by coordinator service. Empty with one
@@ -152,6 +162,7 @@ final class CoordinatorReport {
 
 /// One service's round trips: a Prometheus histogram.
 final class ServiceCalls {
+  /// The calls of one service.
   const ServiceCalls({
     required this.count,
     required this.sumSeconds,
@@ -159,8 +170,13 @@ final class ServiceCalls {
     required this.buckets,
   });
 
+  /// Calls made.
   final int count;
+
+  /// Seconds spent in them, summed.
   final double sumSeconds;
+
+  /// Calls that timed out.
   final int timeouts;
 
   /// Upper bound in seconds → calls at or below it (cumulative).

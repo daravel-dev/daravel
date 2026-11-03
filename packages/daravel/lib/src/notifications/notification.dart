@@ -27,6 +27,7 @@ import '../mail/theme.dart';
 /// await user.notify(InvoicePaid(invoice));
 /// ```
 abstract class Notification {
+  /// Notifications are usually plain data classes.
   const Notification();
 
   /// The channels to send on: `mail`, `database`, or a registered one.
@@ -38,6 +39,7 @@ abstract class Notification {
   /// For the `database` channel: the `data` column; [toArray] when null.
   Map<String, Object?>? toDatabase(Object notifiable) => null;
 
+  /// The notification's data for the database and broadcast channels.
   Map<String, Object?> toArray(Object notifiable) => const {};
 
   /// The `type` column: Laravel stores the notification's class name, so
@@ -78,11 +80,13 @@ final class NotificationMail {
   final List<MailAddress> _replyTo = [];
   final List<MailAttachment> _attachments = [];
 
+  /// Sets the subject.
   NotificationMail subject(String subject) {
     _subject = subject;
     return this;
   }
 
+  /// Sets the greeting line.
   NotificationMail greeting(String greeting) {
     _greeting = greeting;
     return this;
@@ -94,6 +98,7 @@ final class NotificationMail {
     return this;
   }
 
+  /// Adds a button linking to [url].
   NotificationMail action(String text, String url) {
     _actionText = text;
     _actionUrl = url;
@@ -106,26 +111,31 @@ final class NotificationMail {
     return this;
   }
 
+  /// Shows the action as a success (green).
   NotificationMail success() {
     _level = 'success';
     return this;
   }
 
+  /// Sets the closing line.
   NotificationMail salutation(String salutation) {
     _salutation = salutation;
     return this;
   }
 
+  /// Sends from [email].
   NotificationMail from(String email, [String? name]) {
     _from = MailAddress(email, name);
     return this;
   }
 
+  /// Sets the reply address.
   NotificationMail replyTo(String email, [String? name]) {
     _replyTo.add(MailAddress(email, name));
     return this;
   }
 
+  /// Attaches a file.
   NotificationMail attach(MailAttachment attachment) {
     _attachments.add(attachment);
     return this;

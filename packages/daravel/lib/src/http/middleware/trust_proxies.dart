@@ -6,9 +6,16 @@ import '../response.dart';
 
 /// Forwarded headers that a trusted proxy may supply.
 enum ForwardedHeader {
+  /// `X-Forwarded-For`: the client's address.
   forwardedFor,
+
+  /// `X-Forwarded-Proto`: `http` or `https`.
   forwardedProto,
+
+  /// `X-Forwarded-Host`: the host the client asked for.
   forwardedHost,
+
+  /// `X-Forwarded-Port`: the port the client used.
   forwardedPort,
 }
 
@@ -75,6 +82,8 @@ final class Cidr {
 /// `X-Forwarded-For` is walked from the right: every trusted proxy is
 /// skipped and the first untrusted address is the client.
 final class TrustProxiesMiddleware implements Middleware {
+  /// Trusts the proxies at the given addresses or CIDR ranges, or every
+  /// peer with [trustAll], for the forwarded [headers].
   TrustProxiesMiddleware({
     List<String> proxies = const <String>[],
     this.trustAll = false,

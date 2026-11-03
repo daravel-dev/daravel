@@ -3,6 +3,7 @@ import 'blueprint.dart';
 
 /// PostgreSQL DDL grammar.
 final class PostgresSchemaGrammar extends SchemaGrammar {
+  /// The PostgreSQL schema grammar.
   const PostgresSchemaGrammar();
 
   @override
@@ -114,6 +115,7 @@ final class PostgresSchemaGrammar extends SchemaGrammar {
 
 /// MySQL/MariaDB DDL grammar.
 final class MySqlSchemaGrammar extends SchemaGrammar {
+  /// The MySQL schema grammar, or MariaDB's with [dialect].
   const MySqlSchemaGrammar([this.dialect = SqlDialect.mysql]);
 
   @override

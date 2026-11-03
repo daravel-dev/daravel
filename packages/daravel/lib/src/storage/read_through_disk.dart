@@ -10,6 +10,8 @@ import 'storage.dart';
 /// A failed promotion does not fail the read, unless [throwOnPromotionFailure].
 /// Listings show [primary] only, as in Laravel, and [url] is the primary's.
 final class ReadThroughDisk implements Disk {
+  /// Reads from [primary], then from [fallback]; [promote] copies a file
+  /// found only in the fallback into the primary.
   ReadThroughDisk({
     required this.primary,
     required this.fallback,
@@ -17,9 +19,16 @@ final class ReadThroughDisk implements Disk {
     this.throwOnPromotionFailure = false,
   });
 
+  /// The disk read and written first.
   final Disk primary;
+
+  /// The disk read when the primary lacks a file.
   final Disk fallback;
+
+  /// Whether files read from the fallback are copied to the primary.
   final bool promote;
+
+  /// Whether a failed copy throws instead of being logged.
   final bool throwOnPromotionFailure;
 
   @override

@@ -1,4 +1,4 @@
-<!-- source: activitylog.md sha256:7a0e2891082d -->
+<!-- source: activitylog.md sha256:ee3657b21596 -->
 # Activity log
 
 `daravel_activitylog` mencatat siapa mengubah apa pada model Anda, juga
@@ -239,3 +239,11 @@ yang sama dengan model yang dibuat Laravel.
 Belum di-port: change pipe Spatie (`addLogChange`), saklar global
 `disableLogging()`/`enableLogging()` (gunakan `withoutLogs`), dan causer
 yang diberikan sebagai id, bukan model.
+
+## Padanan Laravel
+
+Bagian lain dari Laravel yang ikut didukung, beserta API yang bisa dicari di pub.dev.
+
+| Laravel | Daravel | API | Catatan |
+| :-- | :-- | :-- | :-- |
+| `php artisan activitylog:clean` | `dartisan activitylog:clean` | `ActivitylogCleanCommand` |  |

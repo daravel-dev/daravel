@@ -12,16 +12,24 @@ import 'zip.dart';
 
 /// Where an import reads from: a file on disk or bytes in memory.
 final class ImportSource {
+  /// The file at [path].
   ImportSource.path(this.path) : bytes = null;
+
+  /// The file's [bytes].
   ImportSource.bytes(List<int> this.bytes) : path = null;
 
+  /// The file's path, or null for bytes.
   final String? path;
+
+  /// The file's bytes, or null for a path.
   final List<int>? bytes;
 
+  /// The file for random access.
   Future<RandomAccessSource> open() async => path != null
       ? await RandomAccessSource.file(path!)
       : RandomAccessSource.bytes(bytes!);
 
+  /// The file's bytes as a stream.
   Stream<List<int>> read() =>
       path != null ? File(path!).openRead() : Stream.value(bytes!);
 }

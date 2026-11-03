@@ -4,6 +4,7 @@ import 'dart:convert';
 /// CSV settings (Laravel Excel's `excel.exports.csv` and
 /// `excel.imports.csv`), for `WithCustomCsvSettings`.
 final class CsvSettings {
+  /// CSV options: delimiter, enclosure, line ending.
   const CsvSettings({
     this.delimiter,
     this.enclosure = '"',
@@ -18,6 +19,8 @@ final class CsvSettings {
 
   /// Wraps every written field, as PhpSpreadsheet's writer does.
   final String enclosure;
+
+  /// The line ending (`\n`).
   final String lineEnding;
 
   /// Starts a written file with the UTF-8 byte order mark (Excel on

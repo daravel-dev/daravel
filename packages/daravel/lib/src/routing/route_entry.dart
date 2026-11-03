@@ -13,12 +13,21 @@ typedef Handler = FutureOr<Object?> Function(Request request);
 
 /// Well-known parameter patterns (Laravel `whereNumber`, `whereUuid`, ...).
 abstract final class RoutePatterns {
+  /// Digits only.
   static final RegExp number = RegExp(r'^[0-9]+$');
+
+  /// Letters only.
   static final RegExp alpha = RegExp(r'^[a-zA-Z]+$');
+
+  /// Letters and digits only.
   static final RegExp alphaNumeric = RegExp(r'^[a-zA-Z0-9]+$');
+
+  /// A UUID.
   static final RegExp uuid = RegExp(
     r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
   );
+
+  /// A ULID.
   static final RegExp ulid = RegExp(
     r'^[0-7][0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{25}$',
   );
@@ -26,6 +35,7 @@ abstract final class RoutePatterns {
 
 /// A registered route with fluent configuration (BLUEPRINT_V2 §7.3.2).
 final class RouteEntry {
+  /// A route; `router.get()` and its siblings create it.
   RouteEntry({
     required this.methods,
     required this.path,
@@ -103,9 +113,16 @@ final class RouteEntry {
     return this;
   }
 
+  /// Whether nested model bindings must belong to their parent.
   bool get enforcesScopedBindings => _scopeBindings ?? false;
+
+  /// Whether nested model bindings are not scoped.
   bool get preventsScopedBindings => _scopeBindings == false;
+
+  /// Whether model bindings include soft deleted models.
   bool get includesTrashed => _withTrashed;
+
+  /// The handler answering when a bound model is missing.
   Handler? get missingHandler => _missing;
 
   /// Upper-cased HTTP methods served by this route.
@@ -246,11 +263,20 @@ final class RouteEntry {
     return this;
   }
 
+  /// Constrains [param] to digits.
   RouteEntry whereNumber(String param) => where(param, RoutePatterns.number);
+
+  /// Constrains [param] to letters.
   RouteEntry whereAlpha(String param) => where(param, RoutePatterns.alpha);
+
+  /// Constrains [param] to letters and digits.
   RouteEntry whereAlphaNumeric(String param) =>
       where(param, RoutePatterns.alphaNumeric);
+
+  /// Constrains [param] to a UUID.
   RouteEntry whereUuid(String param) => where(param, RoutePatterns.uuid);
+
+  /// Constrains [param] to a ULID.
   RouteEntry whereUlid(String param) => where(param, RoutePatterns.ulid);
 
   /// Constrains [param] to one of [values].
@@ -416,6 +442,7 @@ enum ResponseShape {
 
 /// A documented route response (see [RouteEntry.returns]).
 final class RouteResponse {
+  /// A documented response of the route.
   const RouteResponse(
     this.schema, {
     this.name,
@@ -428,6 +455,8 @@ final class RouteResponse {
 
   /// Component name (`components/schemas/<name>`), when set.
   final String? name;
+
+  /// The JSON shape of the body.
   final ResponseShape shape;
 
   /// Status code; defaults to 201 for POST, 200 otherwise.

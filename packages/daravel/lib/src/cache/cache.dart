@@ -18,36 +18,50 @@ import 'tags.dart';
 /// Backing store contract (BLUEPRINT_V2 §7.7). Values must be
 /// JSON-serializable for the file/database stores.
 abstract interface class CacheStore {
+  /// Where the values live: one isolate, the process, or the cluster.
   StateScope get scope;
 
+  /// The value of [key], or null.
   Future<Object?> get(String key);
 
+  /// The values of [keys], null for the missing ones.
   Future<Map<String, Object?>> many(List<String> keys);
 
   /// Stores [value] for [ttl] (`null` = forever).
   Future<void> put(String key, Object? value, {Duration? ttl});
 
+  /// Stores every entry of [values], for [ttl] or forever.
   Future<void> putMany(Map<String, Object?> values, {Duration? ttl});
 
   /// Stores only when [key] is absent (atomic per store scope).
   Future<bool> add(String key, Object? value, {Duration? ttl});
 
+  /// Adds [by] to the integer under [key] and returns the new value.
   Future<int> increment(String key, [int by = 1]);
 
+  /// Subtracts [by] from the integer under [key] and returns the new value.
   Future<int> decrement(String key, [int by = 1]);
 
+  /// Stores [value] under [key] with no expiry.
   Future<void> forever(String key, Object? value);
 
+  /// Removes [key]; returns whether it existed.
   Future<bool> forget(String key);
 
+  /// Removes every value.
   Future<void> flush();
 
+  /// Takes the lock [name] for [owner] during [ttl]; returns whether it
+  /// was free.
   Future<bool> acquireLock(String name, String owner, Duration ttl);
 
+  /// Releases the lock [name] if [owner] holds it; returns whether it did.
   Future<bool> releaseLock(String name, String owner);
 
+  /// Releases the lock [name] whoever holds it.
   Future<void> forceReleaseLock(String name);
 
+  /// The owner of the lock [name], or null when it is free.
   Future<String?> lockOwner(String name);
 }
 
@@ -80,15 +94,18 @@ abstract interface class WindowCounterStore implements CacheStore {
 /// (daravel_redis). [resetIn] is how long until the key holds no hits;
 /// [retryAfter] how long until a refused hit would be counted.
 abstract interface class RateCounterStore implements CacheStore {
+  /// Counts a hit of [key] in a sliding window of [maxHits] per [window].
   Future<({bool allowed, int remaining, Duration resetIn, Duration retryAfter})>
   hitSlidingWindow(String key, int maxHits, Duration window);
 
+  /// Counts a hit of [key] with the generic cell rate algorithm.
   Future<({bool allowed, int remaining, Duration resetIn, Duration retryAfter})>
   hitGcra(String key, int maxHits, Duration window);
 }
 
 /// Raised by [Lock.block] when the lock cannot be obtained in time.
 final class LockTimeoutException extends DaravelException {
+  /// The lock [name] could not be taken within [timeout].
   LockTimeoutException(String name, Duration timeout)
     : super(
         'Could not acquire lock [$name] within ${timeout.inMilliseconds}ms.',
@@ -98,6 +115,7 @@ final class LockTimeoutException extends DaravelException {
 /// An atomic lock (Laravel `Cache::lock`). Semantics are **fail-closed**:
 /// a coordinator error surfaces as an exception instead of a false "got it".
 final class Lock {
+  /// A lock named [name] held for [ttl] by [owner] (a random id by default).
   Lock(
     this._store,
     this.name, {
@@ -106,8 +124,14 @@ final class Lock {
   }) : owner = owner ?? _randomOwner();
 
   final CacheStore _store;
+
+  /// The lock's name.
   final String name;
+
+  /// How long the lock lasts unless released.
   final Duration ttl;
+
+  /// Who holds it; pass the same owner to release it from another process.
   final String owner;
 
   /// Tries once; with [callback], runs it while holding the lock and
@@ -147,13 +171,16 @@ final class Lock {
     }
   }
 
+  /// Takes the lock if it is free; returns whether it did.
   Future<bool> acquire() => _store.acquireLock(name, owner, ttl);
 
   /// Releases only when this instance owns the lock.
   Future<bool> release() => _store.releaseLock(name, owner);
 
+  /// Releases the lock whoever holds it.
   Future<void> forceRelease() => _store.forceReleaseLock(name);
 
+  /// The current owner, or null when the lock is free.
   Future<String?> currentOwner() => _store.lockOwner(name);
 
   static String _randomOwner() {
@@ -170,6 +197,7 @@ final class Lock {
 
 /// `CACHE_*` configuration (`config/cache.php` parity).
 final class CacheConfig implements ConfigSection {
+  /// Cache settings; usually from `.env` ([CacheConfig.fromEnv]).
   const CacheConfig({
     this.defaultStore = 'memory',
     this.prefix = 'daravel_cache_',
@@ -182,6 +210,7 @@ final class CacheConfig implements ConfigSection {
     this.limiter,
   });
 
+  /// The settings in `CACHE_*`.
   factory CacheConfig.fromEnv(Env env) {
     final appName = env.string('APP_NAME', 'daravel');
     return CacheConfig(
@@ -205,10 +234,20 @@ final class CacheConfig implements ConfigSection {
 
   /// `memory` | `process` | `file` | `database`.
   final String defaultStore;
+
+  /// The prefix of every key (`CACHE_PREFIX`).
   final String prefix;
+
+  /// The directory of the file store (`CACHE_PATH`).
   final String path;
+
+  /// The table of the database store (`cache`).
   final String table;
+
+  /// The locks table of the database store (`cache_locks`).
   final String lockTable;
+
+  /// The most entries the memory store keeps.
   final int maxEntries;
 
   /// Entries the `process` store keeps for the whole server
@@ -257,6 +296,7 @@ final class CacheConfig implements ConfigSection {
 /// A store wrapped with a key prefix and the high-level API
 /// (`remember`, `flexible`, `lock`, …).
 final class CacheRepository {
+  /// A repository over [store], prefixing every key with [prefix].
   CacheRepository(
     this.store, {
     this.prefix = '',
@@ -264,7 +304,10 @@ final class CacheRepository {
     this._lockPrefix,
   });
 
+  /// The store holding the values.
   final CacheStore store;
+
+  /// The key prefix.
   final String prefix;
 
   /// Store used for stampede locks when [store] cannot lock atomically
@@ -275,6 +318,7 @@ final class CacheRepository {
   /// repository's locks are not tagged).
   final String? _lockPrefix;
 
+  /// The store's scope.
   StateScope get scope => store.scope;
 
   String _key(String key) => '$prefix$key';
@@ -295,40 +339,51 @@ final class CacheRepository {
     );
   }
 
+  /// The value of [key], or [fallback] when missing.
   Future<T?> get<T>(String key, [T? fallback]) async {
     final value = await store.get(_key(key));
     return value is T ? value : fallback;
   }
 
+  /// Whether [key] holds a value.
   Future<bool> has(String key) async => await store.get(_key(key)) != null;
 
+  /// Whether [key] holds nothing.
   Future<bool> missing(String key) async => !(await has(key));
 
+  /// The values of [keys], null for the missing ones.
   Future<Map<String, Object?>> many(List<String> keys) async {
     final raw = await store.many(keys.map(_key).toList());
     return <String, Object?>{for (final k in keys) k: raw[_key(k)]};
   }
 
+  /// Stores [value] under [key], for [ttl] or forever.
   Future<void> put(String key, Object? value, {Duration? ttl}) =>
       store.put(_key(key), value, ttl: ttl);
 
+  /// Stores every entry of [values].
   Future<void> putMany(Map<String, Object?> values, {Duration? ttl}) =>
       store.putMany(<String, Object?>{
         for (final e in values.entries) _key(e.key): e.value,
       }, ttl: ttl);
 
+  /// Stores [value] only when [key] is missing; returns whether it did.
   Future<bool> add(String key, Object? value, {Duration? ttl}) =>
       store.add(_key(key), value, ttl: ttl);
 
+  /// Adds [by] to the integer under [key].
   Future<int> increment(String key, [int by = 1]) =>
       store.increment(_key(key), by);
 
+  /// Subtracts [by] from the integer under [key].
   Future<int> decrement(String key, [int by = 1]) =>
       store.decrement(_key(key), by);
 
+  /// Stores [value] under [key] with no expiry.
   Future<void> forever(String key, Object? value) =>
       store.forever(_key(key), value);
 
+  /// Removes [key]; returns whether it existed.
   Future<bool> forget(String key) => store.forget(_key(key));
 
   /// Laravel's `Cache::touch()`: a new [ttl] for [key], keeping its value.
@@ -357,6 +412,7 @@ final class CacheRepository {
     return value;
   }
 
+  /// Removes every value of the store.
   Future<void> flush() => store.flush();
 
   /// Gets or computes-and-stores. Computation is guarded by a per-key lock
@@ -386,6 +442,7 @@ final class CacheRepository {
     );
   }
 
+  /// The value of [key], or [compute]'s result stored forever.
   Future<T> rememberForever<T>(String key, FutureOr<T> Function() compute) =>
       remember<T>(key, null, compute);
 
@@ -453,6 +510,7 @@ final class CacheRepository {
 
 /// Holds named stores (Laravel `CacheManager`).
 final class CacheManager {
+  /// A manager of the stores in [config], prefixing keys with [prefix].
   CacheManager({required this.config, required this.prefix});
 
   /// Builds the standard stores from configuration.
@@ -490,7 +548,10 @@ final class CacheManager {
     return manager;
   }
 
+  /// The cache settings.
   final CacheConfig config;
+
+  /// The key prefix.
   final String prefix;
   final Map<String, ({CacheStore Function() factory, CacheStore? lockStore})>
   _factories = {};
@@ -504,6 +565,7 @@ final class CacheManager {
     CacheStore? lockStore,
   }) => _factories[name] = (factory: factory, lockStore: lockStore);
 
+  /// The names of the configured stores.
   Iterable<String> get storeNames => _factories.keys;
 
   /// The store named [name] (default: `CACHE_STORE`).
@@ -538,6 +600,7 @@ final class CacheManager {
 /// Creates Laravel's `cache` and `cache_locks` tables (same schema and
 /// migration name as Laravel 11's default).
 final class CreateCacheTable extends Migration {
+  /// The migration creating `cache` and `cache_locks`, as Laravel's.
   const CreateCacheTable();
 
   @override

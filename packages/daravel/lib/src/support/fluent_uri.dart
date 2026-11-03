@@ -13,17 +13,26 @@ import '../http/response.dart';
 final class DaravelUri {
   DaravelUri._(this.raw);
 
+  /// A URI from a [Uri] or a string.
   factory DaravelUri.of(Object uri) =>
       DaravelUri._(uri is Uri ? uri : Uri.parse('$uri'));
 
   /// The `dart:core` value.
   final Uri raw;
 
+  /// The scheme, or null.
   String? get scheme => raw.scheme.isEmpty ? null : raw.scheme;
+
+  /// The host, or null.
   String? get host => raw.host.isEmpty ? null : raw.host;
+
+  /// The port when given explicitly, or null.
   int? get port => raw.hasPort ? raw.port : null;
+
+  /// The fragment, or null.
   String? get fragment => raw.hasFragment ? raw.fragment : null;
 
+  /// The user name of the user info, or null.
   String? get user =>
       raw.userInfo.isEmpty ? null : raw.userInfo.split(':').first;
 
@@ -33,13 +42,17 @@ final class DaravelUri {
     return trimmed.isEmpty ? '/' : trimmed;
   }
 
+  /// The path segments, empty ones removed.
   List<String> get pathSegments =>
       path == '/' ? const <String>[] : path.split('/');
 
   /// The query as PHP reads it.
   Map<String, Object?> get query => parseQueryString(raw.query);
 
+  /// Whether the URI is empty.
   bool get isEmpty => '$raw'.trim().isEmpty;
+
+  /// Whether the URI is not empty.
   bool get isNotEmpty => !isEmpty;
 
   DaravelUri _rebuild({
@@ -66,12 +79,23 @@ final class DaravelUri {
     );
   }
 
+  /// A copy with [scheme].
   DaravelUri withScheme(String scheme) => _rebuild(scheme: scheme);
+
+  /// A copy with [host].
   DaravelUri withHost(String host) => _rebuild(host: host);
+
+  /// A copy with [port], or without one when null.
   DaravelUri withPort(int? port) => _rebuild(port: port);
+
+  /// A copy with [path].
   DaravelUri withPath(String path) =>
       _rebuild(rawPath: path.startsWith('/') ? path : '/$path');
+
+  /// A copy with [fragment].
   DaravelUri withFragment(String fragment) => _rebuild(fragment: fragment);
+
+  /// A copy without a fragment.
   DaravelUri withoutFragment() => _rebuild(fragment: null);
 
   /// Sets [values] on the query; dots reach into it, as `Arr::set`. With
@@ -117,6 +141,7 @@ final class DaravelUri {
     });
   }
 
+  /// A copy whose query is exactly [values].
   DaravelUri replaceQuery(Map<String, Object?> values) =>
       withQuery(values, merge: false);
 

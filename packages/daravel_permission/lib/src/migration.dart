@@ -7,6 +7,7 @@ import 'package:daravel/daravel.dart';
 /// application that ran Spatie's own migration (under its own timestamped
 /// name) owns the tables.
 final class CreatePermissionTables extends Migration {
+  /// The migration creating the permission tables, as Spatie's.
   const CreatePermissionTables();
 
   @override

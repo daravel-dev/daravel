@@ -89,9 +89,11 @@ abstract final class Str {
     return trimChars(result, separator);
   }
 
+  /// [value] with its first character upper case.
   static String ucfirst(String value) =>
       value.isEmpty ? value : value[0].toUpperCase() + value.substring(1);
 
+  /// [value] with its first character lower case.
   static String lcfirst(String value) =>
       value.isEmpty ? value : value[0].toLowerCase() + value.substring(1);
 
@@ -104,21 +106,26 @@ abstract final class Str {
 
   // -- Slicing ---------------------------------------------------------------
 
+  /// What follows the first [search] in [subject], or all of it without one.
   static String after(String subject, String search) {
     final index = search.isEmpty ? -1 : subject.indexOf(search);
     return index == -1 ? subject : subject.substring(index + search.length);
   }
 
+  /// What follows the last [search] in [subject], or all of it without one.
   static String afterLast(String subject, String search) {
     final index = search.isEmpty ? -1 : subject.lastIndexOf(search);
     return index == -1 ? subject : subject.substring(index + search.length);
   }
 
+  /// What precedes the first [search] in [subject], or all of it without
+  /// one.
   static String before(String subject, String search) {
     final index = search.isEmpty ? -1 : subject.indexOf(search);
     return index == -1 ? subject : subject.substring(0, index);
   }
 
+  /// What precedes the last [search] in [subject], or all of it without one.
   static String beforeLast(String subject, String search) {
     final index = search.isEmpty ? -1 : subject.lastIndexOf(search);
     return index == -1 ? subject : subject.substring(0, index);
@@ -182,9 +189,11 @@ abstract final class Str {
   static String finish(String value, String cap) =>
       value.endsWith(cap) ? value : '$value$cap';
 
+  /// [subject] with its first [search] replaced.
   static String replaceFirst(String search, String replace, String subject) =>
       search.isEmpty ? subject : subject.replaceFirst(search, replace);
 
+  /// [subject] with its last [search] replaced.
   static String replaceLast(String search, String replace, String subject) {
     final index = search.isEmpty ? -1 : subject.lastIndexOf(search);
     return index == -1
@@ -192,6 +201,7 @@ abstract final class Str {
         : subject.replaceRange(index, index + search.length, replace);
   }
 
+  /// [value] padded on both sides to [length] with [pad].
   static String padBoth(String value, int length, [String pad = ' ']) {
     final missing = length - value.length;
     if (missing <= 0 || pad.isEmpty) {
@@ -201,11 +211,13 @@ abstract final class Str {
     return _repeat(pad, left) + value + _repeat(pad, missing - left);
   }
 
+  /// [value] padded on the left to [length] with [pad].
   static String padLeft(String value, int length, [String pad = ' ']) {
     final missing = length - value.length;
     return missing <= 0 || pad.isEmpty ? value : _repeat(pad, missing) + value;
   }
 
+  /// [value] padded on the right to [length] with [pad].
   static String padRight(String value, int length, [String pad = ' ']) {
     final missing = length - value.length;
     return missing <= 0 || pad.isEmpty ? value : value + _repeat(pad, missing);
@@ -214,8 +226,10 @@ abstract final class Str {
   static String _repeat(String pad, int length) =>
       (pad * (length ~/ pad.length + 1)).substring(0, length);
 
+  /// The number of words in [value].
   static int wordCount(String value) => RegExp(r'\S+').allMatches(value).length;
 
+  /// [value] without the characters of [chars] at either end.
   static String trimChars(String value, String chars) {
     if (chars.isEmpty) {
       return value;
@@ -248,9 +262,11 @@ abstract final class Str {
     bool ignoreCase = false,
   }) => needles.every((n) => contains(haystack, n, ignoreCase: ignoreCase));
 
+  /// Whether [haystack] starts with a string, or with one of a list.
   static bool startsWith(String haystack, Object needles) =>
       _needles(needles).any((n) => n.isNotEmpty && haystack.startsWith(n));
 
+  /// Whether [haystack] ends with a string, or with one of a list.
   static bool endsWith(String haystack, Object needles) =>
       _needles(needles).any((n) => n.isNotEmpty && haystack.endsWith(n));
 
@@ -269,12 +285,16 @@ abstract final class Str {
     caseSensitive: false,
   );
 
+  /// Whether [value] is a UUID.
   static bool isUuid(String value) => _uuid.hasMatch(value);
 
+  /// Whether [value] is a ULID.
   static bool isUlid(String value) => _ulid.hasMatch(value);
 
+  /// Whether [value] is 7-bit ASCII only.
   static bool isAscii(String value) => value.codeUnits.every((c) => c < 0x80);
 
+  /// Whether [value] is valid JSON.
   static bool isJson(String value) {
     try {
       jsonDecode(value);

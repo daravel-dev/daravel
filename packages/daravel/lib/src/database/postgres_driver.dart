@@ -9,7 +9,16 @@ import 'database_config.dart';
 import 'query_executor.dart';
 
 /// SSL modes exposed without leaking the `postgres` package type.
-enum PostgresSslMode { disable, require, verifyFull }
+enum PostgresSslMode {
+  /// No TLS (`DB_SSLMODE=disable`), for a local or private network.
+  disable,
+
+  /// TLS without checking the certificate (`require`).
+  require,
+
+  /// TLS with the certificate and host name checked (`verify-full`).
+  verifyFull,
+}
 
 /// PostgreSQL driver backed by `package:postgres` (pure Dart, pooled).
 ///
@@ -23,6 +32,8 @@ final class PostgresDriver implements NotifyingDriver, QueryErrors {
   bool isUniqueConstraintError(Object error) =>
       error is pg.ServerException && error.code == '23505';
 
+  /// A pooled PostgreSQL connection; usually made by [PostgresDriver.fromConfig]
+  /// from the `DB_*` settings.
   PostgresDriver({
     required this.host,
     required this.database,
@@ -98,15 +109,34 @@ final class PostgresDriver implements NotifyingDriver, QueryErrors {
     return seconds <= 0 ? null : Duration(seconds: seconds);
   }
 
+  /// The server host.
   final String host;
+
+  /// The server port (5432).
   final int port;
+
+  /// The database name.
   final String database;
+
+  /// The user name.
   final String? username;
+
+  /// The password.
   final String? password;
+
+  /// The most connections the pool opens (`DB_POOL_SIZE`).
   final int maxConnections;
+
+  /// Whether and how TLS is used (`DB_SSLMODE`).
   final PostgresSslMode sslMode;
+
+  /// How long to wait for a connection (`DB_CONNECT_TIMEOUT`).
   final Duration connectTimeout;
+
+  /// How long one statement may run (`DB_QUERY_TIMEOUT`).
   final Duration queryTimeout;
+
+  /// The `application_name` the server shows in `pg_stat_activity`.
   final String applicationName;
 
   /// Set on every connection of the pool; the server's default when empty.

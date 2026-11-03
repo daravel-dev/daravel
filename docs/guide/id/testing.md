@@ -1,4 +1,4 @@
-<!-- source: testing.md sha256:87867131dce6 -->
+<!-- source: testing.md sha256:a35d83b4921c -->
 # Testing
 
 `package:daravel_test` menjalankan aplikasi Anda tanpa membuka socket:
@@ -111,3 +111,12 @@ expect(body, isLaravelLengthAwarePaginator());
 
 Proyek baru menyertakan `test/conformance/` dan `dart_test.yaml`; jalankan
 dengan `dartisan test --conformance`.
+
+## Padanan Laravel
+
+Bagian lain dari Laravel yang ikut didukung, beserta API yang bisa dicari di pub.dev.
+
+| Laravel | Daravel | API | Catatan |
+| :-- | :-- | :-- | :-- |
+| `$this->actingAs($user)` | `client.actingAs(user)` | `TestClient.actingAs` |  |
+| `->assertOk() / assertCreated() / assertUnprocessable()` | `.assertOk() / .assertCreated() / .assertUnprocessable()` | `TestResponse.assertUnprocessable` |  |

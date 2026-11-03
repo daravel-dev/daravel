@@ -33,6 +33,8 @@ final class _SubstituteBindings implements Middleware {
 /// conversion, with exception rendering at both the route and global layers,
 /// per-route timeouts and a terminate phase after the response is sent.
 final class HttpKernel {
+  /// A kernel dispatching through [router] with the global [middleware];
+  /// [exceptions] renders failures.
   HttpKernel({
     required this.router,
     required this.middleware,
@@ -40,9 +42,16 @@ final class HttpKernel {
     this.logger,
   });
 
+  /// The routes.
   final Router router;
+
+  /// The global middleware and the aliases routes refer to.
   final MiddlewareRegistry middleware;
+
+  /// Turns exceptions into responses.
   final ExceptionHandler exceptions;
+
+  /// Logs requests and failures.
   final Logger? logger;
 
   /// Default handler timeout applied when a route sets none (`null` = none).

@@ -45,6 +45,7 @@ void _replicaOptions(Command<int> command) => command.argParser
 /// `db:replicate`: ships the SQLite database to a disk continuously
 /// ([SqliteReplicator], Blueprint #30) until stopped.
 final class DbReplicateCommand extends DaravelCommand {
+  /// The `dartisan db:replicate` command.
   DbReplicateCommand(super.createApp) {
     _replicaOptions(this);
     argParser
@@ -147,6 +148,7 @@ final class DbReplicateCommand extends DaravelCommand {
 
 /// `db:restore`: rebuilds the SQLite database from its replica.
 final class DbRestoreCommand extends DaravelCommand {
+  /// The `dartisan db:restore` command.
   DbRestoreCommand(super.createApp) {
     _replicaOptions(this);
     argParser
@@ -211,6 +213,7 @@ final class DbRestoreCommand extends DaravelCommand {
 
 /// `db:replicas`: the generations of the database's replica.
 final class DbReplicasCommand extends DaravelCommand {
+  /// The `dartisan db:replicas` command.
   DbReplicasCommand(super.createApp) {
     _replicaOptions(this);
   }

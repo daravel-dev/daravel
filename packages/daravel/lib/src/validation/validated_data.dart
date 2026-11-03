@@ -12,6 +12,7 @@ extension type const ValidatedData(Map<String, Object?> _data)
   /// Whether [path] exists.
   bool has(String path) => ValidationContext.exists(_data, path);
 
+  /// The value at [path] as a string; throws when it is missing.
   String string(String path) =>
       _require<String>(path, (v) => v is String ? v : '$v');
 
@@ -23,31 +24,44 @@ extension type const ValidatedData(Map<String, Object?> _data)
     expected: 'file',
   );
 
+  /// The value at [path] as a string, or null when missing or null.
   String? maybeString(String path) {
     final value = get(path);
     return value == null ? null : (value is String ? value : '$value');
   }
 
+  /// The value at [path] as an int (`'42'` included); throws when missing
+  /// or not an integer.
   int integer(String path) =>
       _require<int>(path, IntegerRule.asInt, expected: 'integer');
 
+  /// The value at [path] as an int, or null.
   int? maybeInteger(String path) => IntegerRule.asInt(get(path));
 
+  /// The value at [path] as a number; throws when missing or not numeric.
   num number(String path) =>
       _require<num>(path, NumericRule.asNum, expected: 'number');
 
+  /// The value at [path] as a double; throws when missing or not numeric.
   double decimal(String path) => number(path).toDouble();
 
+  /// The value at [path] as a bool (`1`, `'0'`, `'true'`... included);
+  /// throws when missing or not a boolean.
   bool boolean(String path) =>
       _require<bool>(path, BooleanRule.asBool, expected: 'boolean');
 
+  /// The value at [path] as a bool, or null.
   bool? maybeBoolean(String path) => BooleanRule.asBool(get(path));
 
+  /// The value at [path] as a [DateTime]; throws when missing or not a
+  /// date.
   DateTime dateTime(String path) =>
       _require<DateTime>(path, parseDate, expected: 'date');
 
+  /// The value at [path] as a [DateTime], or null.
   DateTime? maybeDateTime(String path) => parseDate(get(path));
 
+  /// The list at [path], its items cast to [T]; throws when missing.
   List<T> list<T>(String path) {
     final value = get(path);
     if (value is List<Object?>) {
@@ -56,6 +70,7 @@ extension type const ValidatedData(Map<String, Object?> _data)
     throw StateError('Validated attribute [$path] is not a list.');
   }
 
+  /// The map at [path]; throws when missing.
   Map<String, Object?> map(String path) {
     final value = get(path);
     if (value is Map<String, Object?>) {
@@ -85,6 +100,7 @@ extension type const ValidatedData(Map<String, Object?> _data)
   /// Mutable copy of the data.
   Map<String, Object?> toMap() => Map<String, Object?>.of(_data);
 
+  /// The data as JSON, for `Response.json(request.validated())`.
   Map<String, Object?> toJson() => toMap();
 
   T _require<T>(

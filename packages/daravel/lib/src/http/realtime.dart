@@ -11,6 +11,8 @@ import 'response.dart';
 /// `update` as in Laravel's `response()->eventStream()`; [data] that is not
 /// a string or number is sent as JSON.
 final class SseEvent {
+  /// An event carrying [data], named [event] (`update`), with an optional
+  /// [id] and reconnection delay.
   const SseEvent(this.data, {this.event = 'update', this.id, this.retry})
     : comment = null;
 
@@ -22,7 +24,10 @@ final class SseEvent {
       id = null,
       retry = null;
 
+  /// The event data: a string or number as written, anything else as JSON.
   final Object? data;
+
+  /// The event name (`event:`), `update` by default.
   final String? event;
 
   /// Sent as `id:`; the browser returns it as `Last-Event-ID` when it
@@ -31,6 +36,8 @@ final class SseEvent {
 
   /// Asks the client to wait this long before reconnecting.
   final Duration? retry;
+
+  /// The text of a comment frame, or null for an event.
   final String? comment;
 
   /// The frame on the wire. A multi-line value becomes one `data:` line per

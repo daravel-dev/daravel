@@ -7,6 +7,7 @@ import 'client.dart';
 
 /// A limiter gave up waiting (Laravel's `LimiterTimeoutException`).
 final class LimiterTimeoutException extends DaravelException {
+  /// The limiter [name] did not free up in time.
   const LimiterTimeoutException(String name)
     : super('Timed out waiting for the [$name] limiter.');
 }
@@ -15,6 +16,7 @@ final class LimiterTimeoutException extends DaravelException {
 /// application and a Daravel one count against the same limit: at most
 /// [maxLocks] acquisitions per [decay], in a hash at [name].
 final class RedisDurationLimiter {
+  /// At most `maxLocks` runs per `decay` (`Redis::throttle`).
   RedisDurationLimiter(
     this.client,
     this.name, {
@@ -22,9 +24,16 @@ final class RedisDurationLimiter {
     required this.decay,
   });
 
+  /// The Redis connection.
   final RedisClient client;
+
+  /// The limiter's key.
   final String name;
+
+  /// The runs allowed per window.
   final int maxLocks;
+
+  /// The length of the window.
   final Duration decay;
 
   /// When the current window ends (unix seconds), after [acquire] or
@@ -98,6 +107,7 @@ return {0, ARGV[2] + ARGV[3]}''');
     return remaining <= 0;
   }
 
+  /// Resets the limiter.
   Future<void> clear() => client.del([name]);
 
   /// Acquires, retrying every [sleep] for up to [timeout], then runs
@@ -123,6 +133,7 @@ return {0, ARGV[2] + ARGV[3]}''');
 /// cluster the slots need one hash slot: give [name] a hash tag
 /// (`{imports}`).
 final class RedisConcurrencyLimiter {
+  /// At most `maxLocks` runs at once (`Redis::funnel`).
   RedisConcurrencyLimiter(
     this.client,
     this.name, {
@@ -130,9 +141,16 @@ final class RedisConcurrencyLimiter {
     this.releaseAfter = const Duration(seconds: 60),
   });
 
+  /// The Redis connection.
   final RedisClient client;
+
+  /// The limiter's key.
   final String name;
+
+  /// The runs allowed at once.
   final int maxLocks;
+
+  /// How long a slot is held if a run never releases it.
   final Duration releaseAfter;
 
   static final RedisScript _lock = RedisScript('''
@@ -160,6 +178,7 @@ end''');
     args: [name, max(1, releaseAfter.inSeconds), id],
   ) as String?;
 
+  /// Frees the [slot] held by [id].
   Future<void> release(String slot, String id) async {
     await client.eval(_release, keys: [slot], args: [id]);
   }
@@ -196,9 +215,13 @@ end''');
 /// `Redis.throttle('key').allow(10).every(...).then(...)` (Laravel's
 /// `DurationLimiterBuilder`).
 final class RedisThrottleBuilder {
+  /// Builds a throttle named [name] (`Redis.throttle`).
   RedisThrottleBuilder(this.client, this.name);
 
+  /// The Redis connection.
   final RedisClient client;
+
+  /// The limiter's key.
   final String name;
   int? _maxLocks;
   Duration _decay = const Duration(seconds: 60);
@@ -211,6 +234,7 @@ final class RedisThrottleBuilder {
     return this;
   }
 
+  /// Counts runs per [decay].
   RedisThrottleBuilder every(Duration decay) {
     _decay = decay;
     return this;
@@ -222,6 +246,7 @@ final class RedisThrottleBuilder {
     return this;
   }
 
+  /// Waits [sleep] between tries while blocked.
   RedisThrottleBuilder sleep(Duration sleep) {
     _sleep = sleep;
     return this;
@@ -255,9 +280,13 @@ final class RedisThrottleBuilder {
 /// `Redis.funnel('key').limit(3).then(...)` (Laravel's
 /// `ConcurrencyLimiterBuilder`).
 final class RedisFunnelBuilder {
+  /// Builds a funnel named [name] (`Redis.funnel`).
   RedisFunnelBuilder(this.client, this.name);
 
+  /// The Redis connection.
   final RedisClient client;
+
+  /// The limiter's key.
   final String name;
   int? _maxLocks;
   Duration _releaseAfter = const Duration(seconds: 60);
@@ -276,16 +305,19 @@ final class RedisFunnelBuilder {
     return this;
   }
 
+  /// Gives up after waiting [timeout] for a slot.
   RedisFunnelBuilder block(Duration timeout) {
     _timeout = timeout;
     return this;
   }
 
+  /// Waits [sleep] between tries while blocked.
   RedisFunnelBuilder sleep(Duration sleep) {
     _sleep = sleep;
     return this;
   }
 
+  /// Runs the callback when a slot is free, else the failure callback.
   Future<T> then<T>(
     FutureOr<T> Function() callback, [
     FutureOr<T> Function(LimiterTimeoutException error)? failure,

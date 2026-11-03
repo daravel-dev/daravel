@@ -32,6 +32,8 @@ enum RateLimitAlgorithm {
 
 /// A rate limit (Laravel `Illuminate\Cache\RateLimiting\Limit`).
 final class Limit {
+  /// At most [maxAttempts] per [decay], counted per [key] (the request's
+  /// address by default).
   const Limit({
     required this.maxAttempts,
     required this.decay,
@@ -40,21 +42,25 @@ final class Limit {
     this.algorithm = RateLimitAlgorithm.fixedWindow,
   });
 
+  /// [maxAttempts] per [seconds] seconds.
   factory Limit.perSecond(int maxAttempts, [int seconds = 1]) => Limit(
     maxAttempts: maxAttempts,
     decay: Duration(seconds: seconds),
   );
 
+  /// [maxAttempts] per [minutes] minutes: `Limit.perMinute(60)`.
   factory Limit.perMinute(int maxAttempts, [int minutes = 1]) => Limit(
     maxAttempts: maxAttempts,
     decay: Duration(minutes: minutes),
   );
 
+  /// [maxAttempts] per [hours] hours.
   factory Limit.perHour(int maxAttempts, [int hours = 1]) => Limit(
     maxAttempts: maxAttempts,
     decay: Duration(hours: hours),
   );
 
+  /// [maxAttempts] per [days] days.
   factory Limit.perDay(int maxAttempts, [int days = 1]) => Limit(
     maxAttempts: maxAttempts,
     decay: Duration(days: days),
@@ -68,11 +74,16 @@ final class Limit {
       responseBuilder = null,
       algorithm = RateLimitAlgorithm.fixedWindow;
 
+  /// The attempts allowed per window; negative for no limit.
   final int maxAttempts;
+
+  /// The length of the window.
   final Duration decay;
 
   /// Segment key (user id, email+ip, …); defaults to the request signature.
   final Object? key;
+
+  /// Builds the 429 response instead of the default one.
   final ThrottleResponseBuilder? responseBuilder;
 
   /// How attempts are counted: [RateLimitAlgorithm.fixedWindow] unless
@@ -80,8 +91,10 @@ final class Limit {
   /// algorithm (an [AlgorithmRateLimitStore]) counts a fixed window.
   final RateLimitAlgorithm algorithm;
 
+  /// Whether this is [Limit.none].
   bool get isUnlimited => maxAttempts < 0;
 
+  /// The same limit counted per [key]: `Limit.perMinute(5).by(email)`.
   Limit by(Object key) => Limit(
     maxAttempts: maxAttempts,
     decay: decay,
@@ -90,6 +103,7 @@ final class Limit {
     algorithm: algorithm,
   );
 
+  /// The same limit answering 429 with [builder]'s response.
   Limit response(ThrottleResponseBuilder builder) => Limit(
     maxAttempts: maxAttempts,
     decay: decay,
@@ -121,6 +135,8 @@ typedef LimitResolver = FutureOr<Object?> Function(Request request);
 
 /// Outcome of [RateLimitStore.attempt].
 final class RateLimitResult {
+  /// Whether the attempt was [allowed], under [limit] with [remaining]
+  /// left.
   const RateLimitResult({
     required this.allowed,
     required this.limit,
@@ -129,8 +145,13 @@ final class RateLimitResult {
     this.retryAfter,
   });
 
+  /// Whether the attempt was counted.
   final bool allowed;
+
+  /// The attempts allowed per window.
   final int limit;
+
+  /// The attempts left in the window.
   final int remaining;
 
   /// When the current window resets.
@@ -142,6 +163,7 @@ final class RateLimitResult {
 
 /// Backing store of attempt counters (ADR-003 scopes).
 abstract interface class RateLimitStore {
+  /// Where the counters live: one isolate, the process, or the cluster.
   StateScope get scope;
 
   /// Records an attempt for [key] when under the limit.
@@ -153,8 +175,10 @@ abstract interface class RateLimitStore {
   /// Time until an attempt is possible again (zero when not limited).
   Future<Duration> availableIn(String key, int maxAttempts, Duration decay);
 
+  /// Forgets the attempts of [key].
   Future<void> clear(String key);
 
+  /// Forgets every attempt.
   Future<void> flush();
 }
 
@@ -185,6 +209,8 @@ final class _Bucket {
 /// Grant of [MemoryRateLimitStore.acquireSync]: how many of the requested
 /// hits were recorded and the window they belong to.
 final class RateLimitGrant {
+  /// A grant of [granted] hits, [hits] in the window resetting at
+  /// [resetAtMs].
   const RateLimitGrant({
     required this.granted,
     required this.hits,
@@ -205,6 +231,7 @@ final class RateLimitGrant {
 /// `RateLimiter` (hits + reset time per key): O(1) time and two integers per
 /// key, whatever the limit.
 final class MemoryRateLimitStore implements RateLimitStore {
+  /// A store keeping at most [maxKeys] keys; [clock] is for tests.
   MemoryRateLimitStore({DateTime Function()? clock, this.maxKeys = 100000})
     : _clock = clock ?? _utcNow;
 
@@ -217,6 +244,7 @@ final class MemoryRateLimitStore implements RateLimitStore {
   @override
   StateScope get scope => StateScope.isolate;
 
+  /// The number of keys held.
   int get size => _buckets.length;
 
   /// Synchronous variant (used by the coordinator service). [cost] counts
@@ -283,12 +311,14 @@ final class MemoryRateLimitStore implements RateLimitStore {
     return bucket.hits;
   }
 
+  /// The attempts of [key] in the current window.
   int attemptsSync(String key, Duration decay) {
     final bucket = _buckets[key];
     final now = _clock().millisecondsSinceEpoch;
     return bucket == null || now >= bucket.resetAtMs ? 0 : bucket.hits;
   }
 
+  /// The time until [key] may try again.
   Duration availableInSync(String key, int maxAttempts, Duration decay) {
     final bucket = _buckets[key];
     final now = _clock().millisecondsSinceEpoch;
@@ -343,11 +373,14 @@ final class MemoryRateLimitStore implements RateLimitStore {
 
 /// Coordinator service exposing a [MemoryRateLimitStore] to every worker.
 final class RateLimitService implements CoordinatorService {
+  /// A service over [store], or a new memory store.
   RateLimitService([MemoryRateLimitStore? store])
     : store = store ?? MemoryRateLimitStore();
 
+  /// The coordinator service name.
   static const String serviceName = 'rateLimiter';
 
+  /// The counters every worker shares.
   final MemoryRateLimitStore store;
 
   @override
@@ -406,6 +439,8 @@ final class _Lease {
 /// worker that saw a key blocked answers `429` locally for up to
 /// [blockedCacheTtl] instead of asking again.
 final class ProcessRateLimitStore implements RateLimitStore {
+  /// Counters held by the coordinator through [channel], waiting at most
+  /// [timeout] for an answer.
   ProcessRateLimitStore(
     this.channel, {
     this.timeout = const Duration(milliseconds: 50),
@@ -417,8 +452,13 @@ final class ProcessRateLimitStore implements RateLimitStore {
     this.maxKeys = 10000,
   });
 
+  /// The channel to the coordinator.
   final CoordinatorChannel channel;
+
+  /// How long to wait for the coordinator before letting a request through.
   final Duration timeout;
+
+  /// Called when the coordinator fails or times out.
   final void Function(Object error)? onError;
 
   /// Smallest `maxAttempts` served from leases.
@@ -648,9 +688,11 @@ final class ProcessRateLimitStore implements RateLimitStore {
 
 /// Named limiters + counters (Laravel `RateLimiter`; BLUEPRINT_V2 §7.7).
 final class RateLimiter {
+  /// A limiter counting in [store] (memory by default).
   RateLimiter({RateLimitStore? store})
     : store = store ?? MemoryRateLimitStore();
 
+  /// Where the attempts are counted.
   final RateLimitStore store;
   final Map<String, LimitResolver> _limiters = <String, LimitResolver>{};
 
@@ -658,8 +700,10 @@ final class RateLimiter {
   void define(String name, LimitResolver resolver) =>
       _limiters[name] = resolver;
 
+  /// The limiter registered as [name], or null.
   LimitResolver? limiter(String name) => _limiters[name];
 
+  /// Whether a limiter is registered as [name].
   bool hasLimiter(String name) => _limiters.containsKey(name);
 
   /// Resolves the limits of named limiter [name] for [request].
@@ -699,30 +743,37 @@ final class RateLimiter {
     return store.attempt(key, maxAttempts, decay);
   }
 
+  /// The attempts of [key] in the current window.
   Future<int> attempts(String key, Duration decay) =>
       store.attempts(key, decay);
 
+  /// Whether [key] reached [maxAttempts].
   Future<bool> tooManyAttempts(
     String key,
     int maxAttempts,
     Duration decay,
   ) async => await attempts(key, decay) >= maxAttempts;
 
+  /// The attempts [key] has left.
   Future<int> remaining(String key, int maxAttempts, Duration decay) async {
     final left = maxAttempts - await attempts(key, decay);
     return left < 0 ? 0 : left;
   }
 
+  /// The time until [key] may try again.
   Future<Duration> availableIn(String key, int maxAttempts, Duration decay) =>
       store.availableIn(key, maxAttempts, decay);
 
+  /// Forgets the attempts of [key] (after a successful login, say).
   Future<void> clear(String key) => store.clear(key);
 
+  /// Forgets every attempt.
   Future<void> flush() => store.flush();
 }
 
 /// 429 with `Retry-After` and `X-RateLimit-*` headers.
 final class ThrottleRequestsException extends HttpException {
+  /// A 429 with the throttle headers.
   const ThrottleRequestsException({
     String message = 'Too Many Attempts.',
     super.headers,
@@ -733,6 +784,7 @@ final class ThrottleRequestsException extends HttpException {
 /// (named limiter). Adds `X-RateLimit-Limit`/`X-RateLimit-Remaining` to
 /// responses and answers 429 with `Retry-After` when exceeded.
 final class ThrottleMiddleware implements RunsBeforeBindings {
+  /// [maxAttempts] per [decay], or the limiter named [limiterName].
   const ThrottleMiddleware({
     this.maxAttempts = 60,
     this.decay = const Duration(minutes: 1),
@@ -771,12 +823,19 @@ final class ThrottleMiddleware implements RunsBeforeBindings {
     );
   }
 
+  /// The attempts allowed per window, without a named limiter.
   final int maxAttempts;
+
+  /// The window, without a named limiter.
   final Duration decay;
+
+  /// The named limiter applied, when there is one.
   final String? limiterName;
 
   /// Key prefix separating independent throttles sharing a resolver.
   final String prefix;
+
+  /// The limiter counting; the application's by default.
   final RateLimiter? limiter;
 
   /// Returns the authenticated user's id (or `null` for guests) so limits

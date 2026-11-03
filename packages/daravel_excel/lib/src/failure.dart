@@ -2,6 +2,7 @@ import 'package:daravel/daravel.dart';
 
 /// A row that failed validation (Laravel Excel's `Failure`).
 final class Failure {
+  /// Row [row] failed the rules of an attribute with errors.
   const Failure(
     this.row,
     this.attribute,
@@ -11,7 +12,11 @@ final class Failure {
 
   /// The row's number in the sheet.
   final int row;
+
+  /// The attribute that failed.
   final String attribute;
+
+  /// Its messages.
   final List<String> errors;
 
   /// The row's cells.
@@ -23,6 +28,7 @@ final class Failure {
     for (final message in errors) 'There was an error on row $row. $message',
   ];
 
+  /// The failure as JSON.
   Map<String, Object?> toJson() => {
     'row': row,
     'attribute': attribute,
@@ -35,11 +41,13 @@ final class Failure {
 /// import runs in a transaction. A 422 whose errors are keyed
 /// `<row>.<attribute>`, as Laravel Excel's exception renders.
 final class ExcelValidationException extends ValidationException {
+  /// Rows of an import failed validation.
   ExcelValidationException(this.failures)
     : super({
         for (final failure in failures)
           '${failure.row}.${failure.attribute}': failure.errors,
       });
 
+  /// The failed rows.
   final List<Failure> failures;
 }

@@ -3,6 +3,7 @@ import 'theme.dart';
 
 /// Who and what a [Mailable] is about (Laravel's `Envelope`).
 final class Envelope {
+  /// Who a mailable goes to and its subject.
   const Envelope({
     required this.subject,
     this.from,
@@ -13,14 +14,25 @@ final class Envelope {
     this.headers = const {},
   });
 
+  /// The subject line.
   final String subject;
 
   /// The sender; `MAIL_FROM_ADDRESS` / `MAIL_FROM_NAME` when null.
   final MailAddress? from;
+
+  /// The recipients.
   final List<MailAddress> to;
+
+  /// The carbon copy recipients.
   final List<MailAddress> cc;
+
+  /// The blind carbon copy recipients.
   final List<MailAddress> bcc;
+
+  /// The addresses replies go to.
   final List<MailAddress> replyTo;
+
+  /// Extra message headers.
   final Map<String, String> headers;
 }
 
@@ -28,13 +40,17 @@ final class Envelope {
 /// both, or [markdown] in the mail theme. Give a text alternative when you
 /// can; mail clients and spam filters prefer messages that have one.
 final class MailContent {
+  /// The body: [html], [text], or [markdown] rendered with the mail theme.
   const MailContent({this.html, this.text, this.markdown, this.subcopy})
     : assert(
         html != null || text != null || markdown != null,
         'Give html, text, markdown or a combination.',
       );
 
+  /// The HTML body.
   final String? html;
+
+  /// The plain text body.
   final String? text;
 
   /// Laravel's `markdown:` view: rendered in the [MailTheme] (header,
@@ -67,12 +83,16 @@ final class MailContent {
 /// await Mail.to(user).send(WelcomeMail(user));
 /// ```
 abstract class Mailable {
+  /// Mailables are plain classes; the data they show is in their fields.
   Mailable();
 
+  /// The recipients, subject and headers.
   Envelope envelope();
 
+  /// The body.
   MailContent content();
 
+  /// Files attached to the message.
   List<MailAttachment> attachments() => const [];
 
   final List<MailAddress> _to = [];
@@ -81,7 +101,11 @@ abstract class Mailable {
 
   /// Recipients added by `Mail.to(...)` (and [Envelope.to]).
   List<MailAddress> get to => List.unmodifiable([...envelope().to, ..._to]);
+
+  /// Every carbon copy recipient, the envelope's and those added.
   List<MailAddress> get cc => List.unmodifiable([...envelope().cc, ..._cc]);
+
+  /// Every blind carbon copy recipient, the envelope's and those added.
   List<MailAddress> get bcc => List.unmodifiable([...envelope().bcc, ..._bcc]);
 
   /// Adds recipients; used by `Mail.to(...).cc(...).bcc(...)`.
@@ -95,8 +119,13 @@ abstract class Mailable {
     _bcc.addAll(bcc);
   }
 
+  /// Whether [email] is among the recipients.
   bool hasTo(String email) => _has(to, email);
+
+  /// Whether [email] is among the carbon copy recipients.
   bool hasCc(String email) => _has(cc, email);
+
+  /// Whether [email] is among the blind carbon copy recipients.
   bool hasBcc(String email) => _has(bcc, email);
 
   static bool _has(List<MailAddress> list, String email) =>

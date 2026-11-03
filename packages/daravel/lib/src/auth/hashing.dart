@@ -27,6 +27,7 @@ enum HashDriver {
 
 /// Parsed metadata of a hash string.
 final class HashInfo {
+  /// A hash made with [driver] and [options].
   const HashInfo({required this.driver, required this.options});
 
   /// `null` when the string is not a recognised hash.
@@ -43,6 +44,7 @@ final class HashInfo {
 /// `HASH_DRIVER` / `BCRYPT_ROUNDS` / `ARGON_*` configuration
 /// (`config/hashing.php` parity).
 final class HashConfig implements ConfigSection {
+  /// Hash settings; usually from `.env` (`HASH_DRIVER`, `BCRYPT_ROUNDS`...).
   const HashConfig({
     this.driver = .bcrypt,
     this.bcryptRounds = 12,
@@ -80,13 +82,22 @@ final class HashConfig implements ConfigSection {
     );
   }
 
+  /// The driver new hashes use (`bcrypt`).
   final HashDriver driver;
+
+  /// The bcrypt cost (12).
   final int bcryptRounds;
 
   /// Argon2id memory in KiB.
   final int argonMemory;
+
+  /// The argon2id iterations.
   final int argonTime;
+
+  /// The argon2id parallelism.
   final int argonThreads;
+
+  /// The PBKDF2 iterations.
   final int pbkdf2Iterations;
 
   /// When true, [HashManager.check] refuses hashes of a different driver
@@ -123,8 +134,10 @@ const Set<HashDriver> strongDrivers = {HashDriver.bcrypt, HashDriver.argon2id};
 /// 100 ms Argon2id derivation never stalls other requests on the HTTP
 /// isolate (ADR-004/ADR-008).
 final class HashManager {
+  /// A manager hashing with [config].
   HashManager(this.config);
 
+  /// The hash settings.
   final HashConfig config;
 
   /// Hashes [plain] with the configured driver (or [driver]).
@@ -348,6 +361,7 @@ final class HashManager {
 
 /// Raised for driver mismatches and malformed hashes.
 final class HashException extends DaravelException {
+  /// A hash that cannot be made or read.
   const HashException(super.message);
 }
 

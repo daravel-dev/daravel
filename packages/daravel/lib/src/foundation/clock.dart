@@ -82,6 +82,7 @@ abstract final class Clock {
 /// would have returned. An uncast column reaches Laravel's JSON as that
 /// text (`2024-01-01 10:00:00`), not as an ISO-8601 date.
 final class DatabaseDateTime extends DateTime {
+  /// [value] as the driver returned it, with the [text] PDO would give.
   DatabaseDateTime(DateTime value, this.text)
     : super.utc(
         value.year,
@@ -94,6 +95,7 @@ final class DatabaseDateTime extends DateTime {
         value.microsecond,
       );
 
+  /// The date as PDO writes it (`2024-01-01 10:00:00`).
   final String text;
 
   /// This date without its text, for a cast or timestamp attribute.

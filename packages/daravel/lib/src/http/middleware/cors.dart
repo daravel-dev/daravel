@@ -4,6 +4,7 @@ import '../response.dart';
 
 /// CORS configuration (`config/cors.php` parity).
 final class CorsConfig {
+  /// CORS settings: Laravel's `config/cors.php`.
   const CorsConfig({
     this.allowedOrigins = const <String>[],
     this.allowedMethods = const <String>['*'],
@@ -15,10 +16,20 @@ final class CorsConfig {
 
   /// Exact origins, `*`, or wildcard patterns such as `https://*.example.com`.
   final List<String> allowedOrigins;
+
+  /// The methods allowed (`*` for any).
   final List<String> allowedMethods;
+
+  /// The request headers allowed (`*` for any).
   final List<String> allowedHeaders;
+
+  /// The response headers the browser may read.
   final List<String> exposedHeaders;
+
+  /// How long a preflight answer may be cached.
   final Duration maxAge;
+
+  /// Whether cookies and `Authorization` may be sent.
   final bool supportsCredentials;
 }
 
@@ -26,6 +37,7 @@ final class CorsConfig {
 /// until configured, and `*` is never combined with credentials
 /// (BLUEPRINT_V2 §9.2).
 final class CorsMiddleware implements Middleware {
+  /// Answers preflight requests and adds CORS headers per [config].
   CorsMiddleware([this.config = const CorsConfig()])
     : _patterns = config.allowedOrigins
           .where((origin) => origin != '*')
@@ -40,6 +52,7 @@ final class CorsMiddleware implements Middleware {
     }
   }
 
+  /// The settings applied.
   final CorsConfig config;
   final List<RegExp> _patterns;
   final bool _allowAny;

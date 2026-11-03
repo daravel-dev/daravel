@@ -4,10 +4,19 @@ import 'dart:io';
 
 /// How bad a finding is; `--severity` fails the audit at or above one.
 enum AuditSeverity {
+  /// Worth knowing; no risk on its own.
   info,
+
+  /// A small risk.
   low,
+
+  /// A real risk to fix.
   medium,
+
+  /// A serious risk.
   high,
+
+  /// Fix before going live.
   critical;
 
   /// SARIF's level for it.
@@ -21,20 +30,34 @@ enum AuditSeverity {
 /// One check of the audit: an id for SARIF and `--only`, what it looks
 /// for, and how to fix what it finds.
 final class AuditCheck {
+  /// A check with [id], [name], [title] and the [remedy] of its findings.
   const AuditCheck(this.id, this.name, this.title, this.remedy);
 
+  /// The id in SARIF and `--only` (`DARAVEL-SEC-001`).
   final String id;
+
+  /// The rule name in SARIF.
   final String name;
+
+  /// What it looks for.
   final String title;
+
+  /// How to fix what it finds.
   final String remedy;
 }
 
 /// Something a check found on the target.
 final class AuditFinding {
+  /// A finding of [check] with [severity].
   const AuditFinding(this.check, this.severity, this.message, {this.path});
 
+  /// The check that found it.
   final AuditCheck check;
+
+  /// How bad it is.
   final AuditSeverity severity;
+
+  /// What was found.
   final String message;
 
   /// The request path that showed it.
@@ -44,14 +67,22 @@ final class AuditFinding {
 /// A response as the checks see it: status, headers (lower-case names)
 /// and the start of the body.
 final class ProbeResponse {
+  /// A probe's answer.
   const ProbeResponse(this.status, this.headers, this.body);
 
+  /// The status code.
   final int status;
+
+  /// The headers, by lower case name.
   final Map<String, List<String>> headers;
+
+  /// The body.
   final String body;
 
+  /// The first value of the header [name].
   String? header(String name) => headers[name.toLowerCase()]?.firstOrNull;
 
+  /// Every value of the header [name].
   List<String> all(String name) => headers[name.toLowerCase()] ?? const [];
 }
 
@@ -66,11 +97,19 @@ typedef ProbeTransport = Future<ProbeResponse> Function(
 /// The audit's outcome: every check run, what each found, and the checks
 /// skipped with the reason.
 final class AuditResult {
+  /// The [findings] of [checks] against [target].
   AuditResult(this.target, this.checks, this.findings, this.skipped);
 
+  /// The audited URL.
   final Uri target;
+
+  /// The checks run.
   final List<AuditCheck> checks;
+
+  /// What they found.
   final List<AuditFinding> findings;
+
+  /// Checks skipped, with why.
   final Map<String, String> skipped;
 
   /// Whether a finding is at or above [threshold].
@@ -88,6 +127,7 @@ final class AuditResult {
 /// TRACE, CRLF injection, stack traces in errors, CORS, cookie flags,
 /// `/metrics` and the log viewer left open, and plain HTTP.
 final class SecurityAudit {
+  /// An audit of the running application at [target].
   SecurityAudit(
     this.target, {
     this._transport,
@@ -95,7 +135,10 @@ final class SecurityAudit {
     this.jsonPath,
   });
 
+  /// The audited URL.
   final Uri target;
+
+  /// How long a probe may take.
   final Duration timeout;
 
   /// A route that reads a JSON body, for the nesting check; skipped
@@ -104,6 +147,7 @@ final class SecurityAudit {
 
   final ProbeTransport? _transport;
 
+  /// DARAVEL-SEC-001: security headers.
   static const securityHeaders = AuditCheck(
     'DARAVEL-SEC-001',
     'SecurityHeaders',
@@ -111,6 +155,8 @@ final class SecurityAudit {
     'Add SecurityHeadersMiddleware() to the global middleware in '
         'bootstrap/app.dart (new projects have it).',
   );
+
+  /// DARAVEL-SEC-002: server version disclosure.
   static const serverBanner = AuditCheck(
     'DARAVEL-SEC-002',
     'ServerBanner',
@@ -118,6 +164,8 @@ final class SecurityAudit {
     'Remove the version from the Server / X-Powered-By headers at the '
         'proxy (for example `server_tokens off;` in nginx).',
   );
+
+  /// DARAVEL-SEC-003: sensitive files served.
   static const sensitiveFiles = AuditCheck(
     'DARAVEL-SEC-003',
     'SensitiveFiles',
@@ -126,6 +174,8 @@ final class SecurityAudit {
         'public/ (or nothing) instead of the project root, and keep .env, '
         '.git and the database outside it.',
   );
+
+  /// DARAVEL-SEC-004: path traversal.
   static const pathTraversal = AuditCheck(
     'DARAVEL-SEC-004',
     'PathTraversal',
@@ -133,12 +183,16 @@ final class SecurityAudit {
     'Serve static files with a server that normalizes paths, or with '
         "Daravel's own static handling, never by joining the raw path.",
   );
+
+  /// DARAVEL-SEC-005: TRACE echoes the request.
   static const traceMethod = AuditCheck(
     'DARAVEL-SEC-005',
     'TraceMethod',
     'TRACE echoes the request',
     'Disable TRACE at the proxy; it echoes headers, cookies included.',
   );
+
+  /// DARAVEL-SEC-006: header injection (CRLF).
   static const crlfInjection = AuditCheck(
     'DARAVEL-SEC-006',
     'CrlfInjection',
@@ -146,12 +200,16 @@ final class SecurityAudit {
     'Never put request input into response headers without removing '
         'carriage returns and line feeds.',
   );
+
+  /// DARAVEL-SEC-007: errors expose stack traces.
   static const errorDetails = AuditCheck(
     'DARAVEL-SEC-007',
     'ErrorDetails',
     'Errors expose stack traces',
     'Set APP_DEBUG=false (and APP_ENV=production) on the server.',
   );
+
+  /// DARAVEL-SEC-008: deeply nested JSON.
   static const jsonDepth = AuditCheck(
     'DARAVEL-SEC-008',
     'JsonDepth',
@@ -159,6 +217,8 @@ final class SecurityAudit {
     'Keep BodyLimitsMiddleware() in the global middleware; it refuses '
         'nesting beyond its maxJsonDepth with 422.',
   );
+
+  /// DARAVEL-SEC-009: CORS allows any origin.
   static const cors = AuditCheck(
     'DARAVEL-SEC-009',
     'Cors',
@@ -167,18 +227,24 @@ final class SecurityAudit {
         'instead of reflecting the request Origin, especially with '
         'credentials.',
   );
+
+  /// DARAVEL-SEC-010: cookie flags.
   static const cookieFlags = AuditCheck(
     'DARAVEL-SEC-010',
     'CookieFlags',
     'Cookie flags',
     'Set HttpOnly, SameSite and, over HTTPS, Secure on every cookie.',
   );
+
+  /// DARAVEL-SEC-011: `/metrics` open to anyone.
   static const exposedMetrics = AuditCheck(
     'DARAVEL-SEC-011',
     'ExposedMetrics',
     '/metrics open to anyone',
     'Set METRICS_TOKEN so /metrics needs `Authorization: Bearer <token>`.',
   );
+
+  /// DARAVEL-SEC-012: log viewer open to anyone.
   static const exposedLogViewer = AuditCheck(
     'DARAVEL-SEC-012',
     'ExposedLogViewer',
@@ -186,6 +252,8 @@ final class SecurityAudit {
     "Give it middleware: .withLogViewer(middleware: ['auth', "
         "'can:view-logs']).",
   );
+
+  /// DARAVEL-SEC-013: served over plain HTTP.
   static const plainHttp = AuditCheck(
     'DARAVEL-SEC-013',
     'PlainHttp',
@@ -194,6 +262,7 @@ final class SecurityAudit {
         "platform's load balancer).",
   );
 
+  /// Every check, in order.
   static const List<AuditCheck> all = [
     securityHeaders,
     serverBanner,

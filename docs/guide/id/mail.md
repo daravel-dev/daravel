@@ -1,4 +1,4 @@
-<!-- source: mail.md sha256:6f8172191c49 -->
+<!-- source: mail.md sha256:4a7b91e23300 -->
 # Mail dan notifikasi
 
 `Mail` mengirim email lewat SMTP (atau transport lain) dan `Notifications`
@@ -305,3 +305,13 @@ notifications.assertSentTimes<InvoicePaid>(1);
 `Mail.restore()` dan `Notifications.restore()` membatalkan fake-nya. Tanpa
 fake pun test tidak mengirim apa-apa: `APP_ENV=testing` memakai transport
 `array`, yang `messages`-nya menyimpan apa yang dikirim.
+
+## Padanan Laravel
+
+Bagian lain dari Laravel yang ikut didukung, beserta API yang bisa dicari di pub.dev.
+
+| Laravel | Daravel | API | Catatan |
+| :-- | :-- | :-- | :-- |
+| `class OrderShipped extends Mailable (envelope, content, attachments)` | `final class OrderShipped extends Mailable` | `Mailable.envelope` |  |
+| `MAIL_MAILER=smtp / log / array` | `MAIL_MAILER=smtp / log / array` | `SmtpTransport` | Key yang sama dengan config/mail.php; MAIL_ENCRYPTION dari Laravel 10 juga dibaca. |
+| `via() => ['broadcast'] (BroadcastNotificationCreated)` | `via() => ['broadcast']` | `BroadcastChannel` | Event, data, dan channel yang sama (private-App.Models.User.1): `.notification()` dari Echo menerimanya. |

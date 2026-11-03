@@ -12,6 +12,7 @@ import 'query_grammar.dart';
 
 /// Thrown by `firstOrFail()` / `sole()`.
 final class RecordNotFoundException extends HttpException {
+  /// A 404 with [message]; `firstOrFail` and `findOrFail` throw it.
   const RecordNotFoundException([
     String message = 'No query results for the given criteria.',
   ]) : super(404, message);
@@ -19,13 +20,17 @@ final class RecordNotFoundException extends HttpException {
 
 /// Thrown by `sole()` when more than one row matches.
 final class MultipleRecordsFoundException extends DaravelQueryException {
+  /// Thrown by `sole()` when [count] rows match instead of one.
   const MultipleRecordsFoundException(int count)
     : super('$count records were found, expected exactly one.');
 }
 
 /// Base for query-layer exceptions.
 class DaravelQueryException implements Exception {
+  /// A query error with [message].
   const DaravelQueryException(this.message);
+
+  /// What went wrong.
   final String message;
   @override
   String toString() => 'DaravelQueryException: $message';
@@ -35,6 +40,8 @@ class DaravelQueryException implements Exception {
 /// [clone] to branch. Compiles through the grammar of the connection it runs
 /// on, so the same builder works on SQLite, PostgreSQL and MySQL.
 final class QueryBuilder {
+  /// A query on [table] through the database manager; `DB.table(...)` creates
+  /// it, on the given connection or the default one.
   QueryBuilder(this._db, String table, {this._connection, QueryAst? ast})
     : _ast = ast ?? QueryAst(table);
 
@@ -57,6 +64,8 @@ final class QueryBuilder {
   // Select
   // ---------------------------------------------------------------------------
 
+  /// Replaces the selected columns: names, `'col as alias'`, or
+  /// [RawExpression]s. Without a call the query selects `*`.
   QueryBuilder select(List<Object> columns) {
     _ast.columns
       ..clear()
@@ -64,11 +73,14 @@ final class QueryBuilder {
     return this;
   }
 
+  /// Adds [columns] to the selection.
   QueryBuilder addSelect(List<Object> columns) {
     _ast.columns.addAll(columns);
     return this;
   }
 
+  /// Adds a raw select expression with [bindings]:
+  /// `selectRaw('price * ? as total', [1.1])`.
   QueryBuilder selectRaw(String sql, [List<Object?> bindings = const []]) =>
       addSelect([RawExpression(sql, bindings)]);
 
@@ -80,11 +92,13 @@ final class QueryBuilder {
     bool exists = false,
   }) => addSelect([SubSelect(query._ast, alias, exists: exists)]);
 
+  /// Selects only distinct rows (`SELECT DISTINCT`).
   QueryBuilder distinct([bool value = true]) {
     _ast.distinct = value;
     return this;
   }
 
+  /// Queries [table] instead, as [alias] when given.
   QueryBuilder from(String table, {String? alias}) {
     _ast
       ..table = table
@@ -93,6 +107,8 @@ final class QueryBuilder {
     return this;
   }
 
+  /// Queries the result of [sub] as a derived table named [alias]:
+  /// `DB.table('x').fromSub(DB.table('orders').select([...]), 'o')`.
   QueryBuilder fromSub(QueryBuilder sub, String alias) {
     _ast
       ..fromSubQuery = sub._ast
@@ -132,12 +148,14 @@ final class QueryBuilder {
     return _add(BasicWhere(column, operator, actual, boolean: boolean));
   }
 
+  /// [where] joined with `OR`.
   QueryBuilder orWhere(
     Object column, [
     Object? operatorOrValue,
     Object? value,
   ]) => where(column, operatorOrValue, value, 'OR');
 
+  /// Negates a nested group: `WHERE NOT (...)`.
   QueryBuilder whereNot(
     void Function(QueryBuilder query) nested, [
     String boolean = 'AND',
@@ -147,6 +165,7 @@ final class QueryBuilder {
     return _add(NestedWhere(sub._ast.wheres, not: true, boolean: boolean));
   }
 
+  /// Compares two columns: `whereColumn('updated_at', '>', 'created_at')`.
   QueryBuilder whereColumn(
     String first,
     String operator,
@@ -154,6 +173,9 @@ final class QueryBuilder {
     String boolean = 'AND',
   ]) => _add(ColumnWhere(first, operator, second, boolean: boolean));
 
+  /// `column IN (...)` for a list of [values], or for the rows of a
+  /// [QueryBuilder] subquery; [not] makes it `NOT IN`. An empty list matches
+  /// nothing, as in Laravel.
   QueryBuilder whereIn(
     String column,
     Object values, {
@@ -181,20 +203,28 @@ final class QueryBuilder {
     );
   }
 
+  /// `column NOT IN (...)`.
   QueryBuilder whereNotIn(String column, Object values) =>
       whereIn(column, values, not: true);
+
+  /// [whereIn] joined with `OR`.
   QueryBuilder orWhereIn(String column, Object values) =>
       whereIn(column, values, boolean: 'OR');
 
+  /// `column IS NULL`, or `IS NOT NULL` when [not].
   QueryBuilder whereNull(
     String column, {
     bool not = false,
     String boolean = 'AND',
   }) => _add(NullWhere(column, not: not, boolean: boolean));
 
+  /// `column IS NOT NULL`.
   QueryBuilder whereNotNull(String column) => whereNull(column, not: true);
+
+  /// [whereNull] joined with `OR`.
   QueryBuilder orWhereNull(String column) => whereNull(column, boolean: 'OR');
 
+  /// `column BETWEEN from AND to`; [not] makes it `NOT BETWEEN`.
   QueryBuilder whereBetween(
     String column,
     Object? from,
@@ -203,26 +233,34 @@ final class QueryBuilder {
     String boolean = 'AND',
   }) => _add(BetweenWhere(column, from, to, not: not, boolean: boolean));
 
+  /// `column NOT BETWEEN from AND to`.
   QueryBuilder whereNotBetween(String column, Object? from, Object? to) =>
       whereBetween(column, from, to, not: true);
 
+  /// `EXISTS (subquery)`; [not] makes it `NOT EXISTS`.
   QueryBuilder whereExists(
     QueryBuilder sub, {
     bool not = false,
     String boolean = 'AND',
   }) => _add(ExistsWhere(sub._ast, not: not, boolean: boolean));
 
+  /// `NOT EXISTS (subquery)`.
   QueryBuilder whereNotExists(QueryBuilder sub) => whereExists(sub, not: true);
 
+  /// A raw condition with `?` [bindings]: `whereRaw('price > ?', [100])`.
+  /// Never interpolate input into [sql].
   QueryBuilder whereRaw(
     String sql, [
     List<Object?> bindings = const [],
     String boolean = 'AND',
   ]) => _add(RawWhere(sql, bindings, boolean));
 
+  /// [whereRaw] joined with `OR`.
   QueryBuilder orWhereRaw(String sql, [List<Object?> bindings = const []]) =>
       whereRaw(sql, bindings, 'OR');
 
+  /// `column LIKE pattern`, case-insensitive unless [caseSensitive], on every
+  /// database (Laravel's `whereLike`).
   QueryBuilder whereLike(
     String column,
     String pattern, {
@@ -242,6 +280,8 @@ final class QueryBuilder {
     );
   }
 
+  /// Compares the date part of a datetime column: `whereDate('created_at',
+  /// '2026-01-31')` or `whereDate('created_at', '>=', '2026-01-01')`.
   QueryBuilder whereDate(
     String column,
     String operatorOrValue, [
@@ -251,6 +291,7 @@ final class QueryBuilder {
     return _add(DatePartWhere(column, 'date', operator, actual));
   }
 
+  /// Compares the year of a date column.
   QueryBuilder whereYear(
     String column,
     Object operatorOrValue, [
@@ -260,6 +301,7 @@ final class QueryBuilder {
     return _add(DatePartWhere(column, 'year', operator, actual));
   }
 
+  /// Compares the month (1 to 12) of a date column.
   QueryBuilder whereMonth(
     String column,
     Object operatorOrValue, [
@@ -269,6 +311,7 @@ final class QueryBuilder {
     return _add(DatePartWhere(column, 'month', operator, actual));
   }
 
+  /// Compares the day of the month of a date column.
   QueryBuilder whereDay(
     String column,
     Object operatorOrValue, [
@@ -281,36 +324,70 @@ final class QueryBuilder {
   // Laravel 11's date shortcuts (BuildsWhereDateClauses), against
   // Clock.now(). [columns] is a column or a list of columns.
 
+  /// Rows whose [columns] (a name or a list) are before now (`Clock.now()`).
   QueryBuilder wherePast(Object columns) => _againstNow(columns, '<', 'AND');
+
+  /// Rows whose [columns] are now or earlier.
   QueryBuilder whereNowOrPast(Object columns) =>
       _againstNow(columns, '<=', 'AND');
+
+  /// [wherePast] joined with `OR`.
   QueryBuilder orWherePast(Object columns) => _againstNow(columns, '<', 'OR');
+
+  /// [whereNowOrPast] joined with `OR`.
   QueryBuilder orWhereNowOrPast(Object columns) =>
       _againstNow(columns, '<=', 'OR');
+
+  /// Rows whose [columns] are after now (`Clock.now()`).
   QueryBuilder whereFuture(Object columns) => _againstNow(columns, '>', 'AND');
+
+  /// Rows whose [columns] are now or later.
   QueryBuilder whereNowOrFuture(Object columns) =>
       _againstNow(columns, '>=', 'AND');
+
+  /// [whereFuture] joined with `OR`.
   QueryBuilder orWhereFuture(Object columns) => _againstNow(columns, '>', 'OR');
+
+  /// [whereNowOrFuture] joined with `OR`.
   QueryBuilder orWhereNowOrFuture(Object columns) =>
       _againstNow(columns, '>=', 'OR');
 
+  /// Rows whose [columns] fall on today's date (UTC, `Clock.now()`).
   QueryBuilder whereToday(Object columns) => _againstToday(columns, '=', 'AND');
+
+  /// Rows whose [columns] are before today.
   QueryBuilder whereBeforeToday(Object columns) =>
       _againstToday(columns, '<', 'AND');
+
+  /// Rows whose [columns] are today or earlier.
   QueryBuilder whereTodayOrBefore(Object columns) =>
       _againstToday(columns, '<=', 'AND');
+
+  /// Rows whose [columns] are after today.
   QueryBuilder whereAfterToday(Object columns) =>
       _againstToday(columns, '>', 'AND');
+
+  /// Rows whose [columns] are today or later.
   QueryBuilder whereTodayOrAfter(Object columns) =>
       _againstToday(columns, '>=', 'AND');
+
+  /// [whereToday] joined with `OR`.
   QueryBuilder orWhereToday(Object columns) =>
       _againstToday(columns, '=', 'OR');
+
+  /// [whereBeforeToday] joined with `OR`.
   QueryBuilder orWhereBeforeToday(Object columns) =>
       _againstToday(columns, '<', 'OR');
+
+  /// [whereTodayOrBefore] joined with `OR`.
   QueryBuilder orWhereTodayOrBefore(Object columns) =>
       _againstToday(columns, '<=', 'OR');
+
+  /// [whereAfterToday] joined with `OR`.
   QueryBuilder orWhereAfterToday(Object columns) =>
       _againstToday(columns, '>', 'OR');
+
+  /// [whereTodayOrAfter] joined with `OR`.
   QueryBuilder orWhereTodayOrAfter(Object columns) =>
       _againstToday(columns, '>=', 'OR');
 
@@ -344,12 +421,16 @@ final class QueryBuilder {
     return this;
   }
 
+  /// Rows whose JSON [column] contains [value] (an element of an array, or a
+  /// subset of an object); [not] negates it.
   QueryBuilder whereJsonContains(
     String column,
     Object? value, {
     bool not = false,
   }) => _add(JsonWhere(column, 'contains', '=', value, not: not));
 
+  /// Compares the length of the JSON array in [column]:
+  /// `whereJsonLength('tags', '>', 2)`.
   QueryBuilder whereJsonLength(
     String column,
     Object operatorOrValue, [
@@ -390,6 +471,9 @@ final class QueryBuilder {
   // Joins
   // ---------------------------------------------------------------------------
 
+  /// An inner join: `join('posts', 'users.id', '=', 'posts.user_id')`, or
+  /// with a closure for several conditions: `join('posts', (JoinBuilder j)
+  /// => j.on(...).where(...))`. [table] may carry an alias: `'posts as p'`.
   QueryBuilder join(
     String table,
     Object first, [
@@ -413,6 +497,7 @@ final class QueryBuilder {
     return this;
   }
 
+  /// A left join; arguments as [join].
   QueryBuilder leftJoin(
     String table,
     Object first, [
@@ -420,6 +505,7 @@ final class QueryBuilder {
     String? second,
   ]) => join(table, first, operator, second, JoinType.left);
 
+  /// A right join; arguments as [join].
   QueryBuilder rightJoin(
     String table,
     Object first, [
@@ -427,6 +513,7 @@ final class QueryBuilder {
     String? second,
   ]) => join(table, first, operator, second, JoinType.right);
 
+  /// A cross join with [table].
   QueryBuilder crossJoin(String table) {
     _ast.joins.add(
       JoinClause(
@@ -438,6 +525,7 @@ final class QueryBuilder {
     return this;
   }
 
+  /// Joins the result of [sub] as [alias] on `first operator second`.
   QueryBuilder joinSub(
     QueryBuilder sub,
     String alias,
@@ -459,13 +547,16 @@ final class QueryBuilder {
   // Grouping, ordering, limits, locks, unions
   // ---------------------------------------------------------------------------
 
+  /// `GROUP BY` [columns].
   QueryBuilder groupBy(List<Object> columns) {
     _ast.groups.addAll(columns);
     return this;
   }
 
+  /// A raw `GROUP BY` expression.
   QueryBuilder groupByRaw(String sql) => groupBy([RawExpression(sql)]);
 
+  /// A `HAVING` condition: `having('total', '>', 100)`.
   QueryBuilder having(
     Object column,
     String operator,
@@ -476,9 +567,11 @@ final class QueryBuilder {
     return this;
   }
 
+  /// [having] joined with `OR`.
   QueryBuilder orHaving(Object column, String operator, Object? value) =>
       having(column, operator, value, 'OR');
 
+  /// A raw `HAVING` condition with `?` [bindings].
   QueryBuilder havingRaw(String sql, [List<Object?> bindings = const []]) {
     _ast.havings.add(
       HavingClause(null, null, null, raw: RawExpression(sql, bindings)),
@@ -486,6 +579,7 @@ final class QueryBuilder {
     return this;
   }
 
+  /// Orders by [column], `asc` or `desc`; any other direction throws.
   QueryBuilder orderBy(Object column, [String direction = 'asc']) {
     final dir = direction.toUpperCase();
     if (dir != 'ASC' && dir != 'DESC') {
@@ -499,11 +593,17 @@ final class QueryBuilder {
     return this;
   }
 
+  /// Orders by [column], descending.
   QueryBuilder orderByDesc(Object column) => orderBy(column, 'desc');
+
+  /// Newest first, by [column] (`created_at`).
   QueryBuilder latest([String column = 'created_at']) =>
       orderBy(column, 'desc');
+
+  /// Oldest first, by [column] (`created_at`).
   QueryBuilder oldest([String column = 'created_at']) => orderBy(column, 'asc');
 
+  /// A raw `ORDER BY` expression with `?` [bindings].
   QueryBuilder orderByRaw(String sql, [List<Object?> bindings = const []]) {
     _ast.orders.add(OrderClause('', '', raw: RawExpression(sql, bindings)));
     return this;
@@ -575,47 +675,59 @@ final class QueryBuilder {
   QueryBuilder orderByVectorDistance(String column, List<num> vector) =>
       orderByRaw(_vectorDistance(column), [jsonEncode(vector)]);
 
+  /// Random order: `RANDOM()`, or `RAND()` on MySQL.
   QueryBuilder inRandomOrder() => orderByRaw(
     _db.grammarFor(_connection).dialect.isMySqlFamily ? 'RAND()' : 'RANDOM()',
   );
 
+  /// Drops every ordering, then orders by [column] when given.
   QueryBuilder reorder([Object? column, String direction = 'asc']) {
     _ast.orders.clear();
     return column == null ? this : orderBy(column, direction);
   }
 
+  /// At most [value] rows; a negative value removes the limit.
   QueryBuilder limit(int value) {
     _ast.limit = value < 0 ? null : value;
     return this;
   }
 
+  /// Laravel's alias of [limit].
   QueryBuilder take(int value) => limit(value);
 
+  /// Skips the first [value] rows.
   QueryBuilder offset(int value) {
     _ast.offset = value <= 0 ? null : value;
     return this;
   }
 
+  /// Laravel's alias of [offset].
   QueryBuilder skip(int value) => offset(value);
 
+  /// The rows of page [page] (from 1) of [perPage] rows.
   QueryBuilder forPage(int page, [int perPage = 15]) =>
       offset((page - 1) * perPage).limit(perPage);
 
+  /// `FOR UPDATE`: locks the selected rows until the transaction ends.
+  /// SQLite ignores it, as its writes lock the database.
   QueryBuilder lockForUpdate() {
     _ast.lock = LockMode.forUpdate;
     return this;
   }
 
+  /// A shared lock (`FOR SHARE`, `LOCK IN SHARE MODE` on MySQL).
   QueryBuilder sharedLock() {
     _ast.lock = LockMode.shared;
     return this;
   }
 
+  /// Appends `UNION` [other]; [all] keeps duplicates.
   QueryBuilder union(QueryBuilder other, {bool all = false}) {
     _ast.unions.add(UnionClause(other._ast, all: all));
     return this;
   }
 
+  /// Appends `UNION ALL` [other].
   QueryBuilder unionAll(QueryBuilder other) => union(other, all: true);
 
   /// Applies [callback] only when [condition] is true (else [otherwise]).
@@ -632,11 +744,14 @@ final class QueryBuilder {
     return this;
   }
 
+  /// Applies [callback] only when [condition] is false (else [otherwise]).
   QueryBuilder unless(
     bool condition,
     void Function(QueryBuilder query) callback,
   ) => when(!condition, callback);
 
+  /// Calls [callback] with the query and returns it, to reuse a set of
+  /// conditions.
   QueryBuilder tap(void Function(QueryBuilder query) callback) {
     callback(this);
     return this;
@@ -672,6 +787,7 @@ final class QueryBuilder {
   // Reads
   // ---------------------------------------------------------------------------
 
+  /// Runs the query and returns its rows as maps of column to value.
   Future<List<Map<String, Object?>>> get() async {
     final executor = await _db.executor(_connection);
     final compiled = QueryGrammar.forDialect(executor.dialect)
@@ -679,11 +795,13 @@ final class QueryBuilder {
     return executor.select(compiled.sql, compiled.bindings);
   }
 
+  /// The first row, or null.
   Future<Map<String, Object?>?> first() async {
     final rows = await clone().limit(1).get();
     return rows.isEmpty ? null : rows.first;
   }
 
+  /// The first row; throws [RecordNotFoundException] (a 404) without one.
   Future<Map<String, Object?>> firstOrFail() async {
     final row = await first();
     if (row == null) {
@@ -704,9 +822,11 @@ final class QueryBuilder {
     return rows.first;
   }
 
+  /// The row whose [column] (`id`) is [id], or null.
   Future<Map<String, Object?>?> find(Object? id, {String column = 'id'}) =>
       clone().where(column, id).first();
 
+  /// The value of [column] in the first row, or null.
   Future<T?> value<T>(String column) async {
     final row = await clone().select([column]).first();
     return row?.values.first as T?;
@@ -723,6 +843,7 @@ final class QueryBuilder {
     return {for (final row in rows) row[keyName]: row[columnName]};
   }
 
+  /// Whether any row matches.
   Future<bool> exists() async {
     final executor = await _db.executor(_connection);
     final compiled = QueryGrammar.forDialect(executor.dialect)
@@ -732,15 +853,25 @@ final class QueryBuilder {
     return value == true || value == 1 || value == 't';
   }
 
+  /// Whether no row matches.
   Future<bool> doesntExist() async => !(await exists());
 
+  /// The number of matching rows, or of non-null values of [column].
   Future<int> count([Object column = '*']) async =>
       ((await _aggregate('count', column)) as num? ?? 0).toInt();
+
+  /// The sum of [column], or null without rows.
   Future<num?> sum(Object column) async =>
       (await _aggregate('sum', column)) as num?;
+
+  /// The average of [column], or null without rows.
   Future<num?> avg(Object column) async =>
       (await _aggregate('avg', column)) as num?;
+
+  /// The smallest value of [column], or null without rows.
   Future<Object?> min(Object column) => _aggregate('min', column);
+
+  /// The largest value of [column], or null without rows.
   Future<Object?> max(Object column) => _aggregate('max', column);
 
   Future<Object?> _aggregate(String function, Object column) async {
@@ -756,6 +887,9 @@ final class QueryBuilder {
     return rows.isEmpty ? null : rows.first['aggregate'];
   }
 
+  /// A page of [perPage] rows with the total count, in Laravel's paginator
+  /// JSON. [page] defaults to the request's `?page=` ([pageName]), [path] to
+  /// the request path; [query] is kept in the page links.
   Future<LengthAwarePaginator<Map<String, Object?>>> paginate({
     int? page,
     int perPage = 15,
@@ -780,6 +914,8 @@ final class QueryBuilder {
     );
   }
 
+  /// A page of [perPage] rows without counting the total: one query, links
+  /// to the next and previous page only. Arguments as [paginate].
   Future<SimplePaginator<Map<String, Object?>>> simplePaginate({
     int? page,
     int perPage = 15,
@@ -958,6 +1094,8 @@ final class QueryBuilder {
   // Writes
   // ---------------------------------------------------------------------------
 
+  /// Inserts one row (a map) or many (a list of maps) and returns the
+  /// number of rows inserted.
   Future<int> insert(Object rows) async {
     final list = _rows(rows);
     final executor = await _db.executor(_connection);
@@ -966,6 +1104,8 @@ final class QueryBuilder {
     return executor.execute(compiled.sql, compiled.bindings);
   }
 
+  /// Inserts [rows], skipping those that break a unique constraint
+  /// (`INSERT OR IGNORE`, `ON CONFLICT DO NOTHING`, `INSERT IGNORE`).
   Future<int> insertOrIgnore(Object rows) async {
     final executor = await _db.executor(_connection);
     final compiled = QueryGrammar.forDialect(executor.dialect)
@@ -973,6 +1113,7 @@ final class QueryBuilder {
     return executor.execute(compiled.sql, compiled.bindings);
   }
 
+  /// Inserts [row] and returns its auto-incremented [idColumn].
   Future<Object?> insertGetId(
     Map<String, Object?> row, {
     String idColumn = 'id',
@@ -1003,6 +1144,7 @@ final class QueryBuilder {
     return executor.execute(compiled.sql, compiled.bindings);
   }
 
+  /// Updates the matching rows with [values] and returns how many changed.
   Future<int> update(Map<String, Object?> values) async {
     final executor = await _db.executor(_connection);
     final compiled = QueryGrammar.forDialect(executor.dialect)
@@ -1010,6 +1152,8 @@ final class QueryBuilder {
     return executor.execute(compiled.sql, compiled.bindings);
   }
 
+  /// Updates the row matching [attributes] with [values], or inserts both
+  /// when none matches.
   Future<bool> updateOrInsert(
     Map<String, Object?> attributes, [
     Map<String, Object?> values = const {},
@@ -1025,6 +1169,8 @@ final class QueryBuilder {
     return true;
   }
 
+  /// Adds [amount] to [column] of the matching rows in one statement, and
+  /// sets [extra] columns too.
   Future<int> increment(
     String column, [
     num amount = 1,
@@ -1037,6 +1183,8 @@ final class QueryBuilder {
     });
   }
 
+  /// Subtracts [amount] from [column] of the matching rows, and sets
+  /// [extra] columns too.
   Future<int> decrement(
     String column, [
     num amount = 1,
@@ -1049,6 +1197,8 @@ final class QueryBuilder {
     });
   }
 
+  /// Deletes the matching rows, or the row with `id` [id], and returns how
+  /// many were deleted.
   Future<int> delete([Object? id]) async {
     final q = id == null ? this : clone().where('id', id);
     final executor = await _db.executor(_connection);
@@ -1057,6 +1207,7 @@ final class QueryBuilder {
     return executor.execute(compiled.sql, compiled.bindings);
   }
 
+  /// Empties the table (`DELETE FROM` on SQLite, `TRUNCATE` elsewhere).
   Future<void> truncate() async {
     final executor = await _db.executor(_connection);
     final compiled = QueryGrammar.forDialect(executor.dialect)
@@ -1151,9 +1302,11 @@ final class QueryBuilder {
 
 /// Fluent `ON` builder for closure joins.
 final class JoinBuilder {
+  /// Wraps a join clause; [QueryBuilder.join] passes it to the closure.
   JoinBuilder(this._clause);
   final JoinClause _clause;
 
+  /// An `ON first operator second` condition comparing two columns.
   JoinBuilder on(
     Object first,
     String operator,
@@ -1171,9 +1324,11 @@ final class JoinBuilder {
     return this;
   }
 
+  /// An `ON` condition joined with `OR`.
   JoinBuilder orOn(Object first, String operator, String second) =>
       on(first, operator, second, 'OR');
 
+  /// A join condition comparing [column] with a bound [value].
   JoinBuilder where(
     Object column,
     String operator,

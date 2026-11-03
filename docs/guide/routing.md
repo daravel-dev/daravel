@@ -225,3 +225,17 @@ Without either, a nested path does not check ownership.
 
 `withTrashed()` also finds soft deleted models, and `missing((request) => ...)`
 replaces the 404.
+
+## Laravel equivalents
+
+More of Laravel that this works with, and the API to look up on pub.dev.
+
+| Laravel | Daravel | API | Note |
+| :-- | :-- | :-- | :-- |
+| `Route::match($methods, ...)` | `router.match(methods, path, handler)` | `Router.match` |  |
+| `Route::any(...)` | `router.any(path, handler)` | `Router.any` |  |
+| `Route::fallback(...)` | `router.fallback(handler)` | `Router.fallback` |  |
+| `Route::apiResource('photos', PhotoController::class)` | `router.apiResource('photos', PhotoController())` | `Router.apiResource` |  |
+| `->whereUuid('id')` | `.whereUuid('id')` | `RouteEntry.whereUuid` |  |
+| `/users/{user}/posts/{post:slug}` | the same path | `RouteEntry.bindingFields` |  |
+| `->withTrashed() / ->missing(fn () => ...)` | `.withTrashed() / .missing((request) => ...)` | `RouteEntry.missing` |  |

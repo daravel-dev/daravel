@@ -59,6 +59,7 @@ base mixin AuthenticatableModel on Model implements Authenticatable {
 
 /// Loads users for guards (Laravel `UserProvider`).
 abstract interface class UserProvider<T extends Authenticatable> {
+  /// The user with primary key [id], or null.
   Future<T?> retrieveById(Object id);
 
   /// Looks a user up by every credential except password-like keys.
@@ -67,8 +68,10 @@ abstract interface class UserProvider<T extends Authenticatable> {
   /// Verifies the password credential against the stored hash.
   Future<bool> validateCredentials(T user, Map<String, Object?> credentials);
 
+  /// The user with [id] whose remember token is [token], or null.
   Future<T?> retrieveByToken(Object id, String token);
 
+  /// Stores a new remember [token] for [user].
   Future<void> updateRememberToken(T user, String token);
 
   /// Rehashes the password when the configured driver/cost changed
@@ -90,6 +93,8 @@ abstract interface class UserProvider<T extends Authenticatable> {
 /// [AuthenticatableModel] mixin).
 final class ModelUserProvider<T extends Authenticatable>
     implements UserProvider<T> {
+  /// Users of the model of a definition, checking passwords with the hash
+  /// manager.
   ModelUserProvider(
     this.definition, {
     this._hasher,
@@ -97,6 +102,7 @@ final class ModelUserProvider<T extends Authenticatable>
     this.passwordKey = 'password',
   });
 
+  /// The user model's definition.
   final ModelDefinition<Model> definition;
   final HashManager? _hasher;
   final String? _morphClass;
@@ -104,6 +110,7 @@ final class ModelUserProvider<T extends Authenticatable>
   /// Credential key holding the plain password.
   final String passwordKey;
 
+  /// The hash manager checking passwords.
   HashManager get hasher => _hasher ?? Container.current.make<HashManager>();
 
   @override
@@ -189,17 +196,22 @@ final class ModelUserProvider<T extends Authenticatable>
 
 /// Resolves the user for a request (Laravel `Guard`).
 abstract interface class Guard<T extends Authenticatable> {
+  /// The guard's name.
   String get name;
 
+  /// The user provider, when the guard has one.
   UserProvider<T>? get provider;
 
   /// The authenticated user, cached for the current request/scope.
   Future<T?> user();
 
+  /// The authenticated user's id, or null.
   Future<Object?> id();
 
+  /// Whether a user is authenticated.
   Future<bool> check();
 
+  /// Whether the request is a guest's.
   Future<bool> guest();
 
   /// Validates credentials without logging the user in.
@@ -215,25 +227,33 @@ abstract interface class Guard<T extends Authenticatable> {
 /// A guard that also persists login state (session guard, T2).
 abstract interface class StatefulGuard<T extends Authenticatable>
     implements Guard<T> {
+  /// Logs in the user of the credentials when they are valid; returns
+  /// whether they were.
   Future<bool> attempt(
     Map<String, Object?> credentials, {
     bool remember = false,
   });
 
+  /// Logs [user] in; [remember] keeps them logged in past the session.
   Future<void> login(T user, {bool remember = false});
 
+  /// Logs the user out.
   Future<void> logout();
 }
 
 /// 401 — no authenticated user for the attempted guards.
 final class AuthenticationException extends HttpException {
+  /// A 401 for [guards]; [redirectTo] sends a browser to the login page.
   const AuthenticationException({
     String message = 'Unauthenticated.',
     this.guards = const <String>[],
     this.redirectTo,
   }) : super(401, message);
 
+  /// The guards that were tried.
   final List<String> guards;
+
+  /// Where a browser is redirected, when it is one.
   final String? redirectTo;
 
   /// Laravel's `Handler::unauthenticated` writes compact JSON.
@@ -243,6 +263,7 @@ final class AuthenticationException extends HttpException {
 
 /// 403 — the user may not perform the ability (`Gate.authorize`).
 final class AuthorizationException extends HttpException {
+  /// A 403 with a message.
   const AuthorizationException([
     String message = 'This action is unauthorized.',
     this.code,
@@ -255,9 +276,16 @@ final class AuthorizationException extends HttpException {
 /// Per-scope authentication state: resolved users per guard, the active
 /// guard chosen by `auth:a,b` middleware and the current access token.
 final class AuthState {
+  /// The user resolved by each guard, null for none.
   final Map<String, Authenticatable?> users = <String, Authenticatable?>{};
+
+  /// The guards already asked.
   final Set<String> resolved = <String>{};
+
+  /// The guard that authenticated the request.
   String? activeGuard;
+
+  /// The token the request authenticated with, when it used one.
   Object? token;
 }
 
@@ -266,6 +294,7 @@ final class AuthState {
 /// most once.
 abstract base class RequestGuard<T extends Authenticatable>
     implements Guard<T> {
+  /// A guard [name] reading the user from the request.
   RequestGuard({required this.name, this.provider});
 
   @override
@@ -327,8 +356,11 @@ abstract base class RequestGuard<T extends Authenticatable>
 
 /// A guard driven by a closure (`Auth.viaRequest`).
 final class ClosureGuard<T extends Authenticatable> extends RequestGuard<T> {
+  /// A guard [name] whose user [resolver] reads from the request
+  /// (`Auth::viaRequest`).
   ClosureGuard({required super.name, required this.resolver, super.provider});
 
+  /// Reads the user from the request; null for a guest.
   final FutureOr<T?> Function(Request request) resolver;
 
   @override

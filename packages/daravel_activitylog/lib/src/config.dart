@@ -3,6 +3,7 @@ import 'package:daravel/daravel.dart';
 /// `config/activitylog.php` (spatie/laravel-activitylog v4), with its
 /// environment variables.
 final class ActivityLogConfig implements ConfigSection {
+  /// Activity log settings; usually from `.env` (`ACTIVITY_LOGGER_*`).
   const ActivityLogConfig({
     this.enabled = true,
     this.tableName = 'activity_log',
@@ -13,6 +14,7 @@ final class ActivityLogConfig implements ConfigSection {
     this.subjectReturnsSoftDeletedModels = false,
   });
 
+  /// The settings in `ACTIVITY_LOGGER_*`.
   factory ActivityLogConfig.fromEnv(Env env) {
     String? optional(String key) {
       final value = env.maybeString(key);

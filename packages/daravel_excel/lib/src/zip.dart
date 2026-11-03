@@ -20,6 +20,7 @@ final class Crc32 {
 
   int _crc = 0xFFFFFFFF;
 
+  /// Adds [bytes] to the checksum.
   void add(List<int> bytes) {
     var crc = _crc;
     for (final byte in bytes) {
@@ -28,6 +29,7 @@ final class Crc32 {
     _crc = crc;
   }
 
+  /// The CRC-32 so far.
   int get value => (_crc ^ 0xFFFFFFFF) & 0xFFFFFFFF;
 }
 
@@ -36,6 +38,7 @@ final class Crc32 {
 /// sizes follow it in a data descriptor (general purpose bit 3), and the
 /// central directory comes last. What XLSX writers that stream do.
 final class ZipStreamWriter {
+  /// A ZIP writer streaming to its output.
   ZipStreamWriter(this._out);
 
   /// A writer that collects its bytes, for a producer to [take] them.
@@ -166,8 +169,13 @@ final class ZipStreamWriter {
 
 /// The content of one ZIP entry being written.
 abstract interface class ZipEntrySink {
+  /// Writes [bytes] to the entry.
   void add(List<int> bytes);
+
+  /// Writes [text] as UTF-8 to the entry.
   void addString(String text);
+
+  /// Finishes the entry.
   void close();
 }
 
@@ -250,6 +258,7 @@ final class ByteCollector implements Sink<List<int>> {
   @override
   void close() {}
 
+  /// The chunks written so far, emptied.
   List<List<int>> take() {
     final taken = _chunks;
     _chunks = [];
@@ -296,7 +305,10 @@ final class _Bytes {
 /// Thrown for a file that is not a readable ZIP archive (and so not an
 /// XLSX workbook).
 final class ZipFormatException implements Exception {
+  /// A malformed ZIP file: [message].
   const ZipFormatException(this.message);
+
+  /// What is wrong.
   final String message;
   @override
   String toString() => 'ZipFormatException: $message';
@@ -311,20 +323,36 @@ final class ZipEntry {
     this.size,
     this._localOffset,
   );
+
+  /// The entry's path in the archive.
   final String name;
+
+  /// The compression method: 0 stored, 8 deflated.
   final int method;
+
+  /// The size in the archive.
   final int compressedSize;
+
+  /// The size once extracted.
   final int size;
   final int _localOffset;
 }
 
 /// Bytes a [ZipReader] can read at any offset: a file or memory.
 abstract interface class RandomAccessSource {
+  /// The source's length in bytes.
   Future<int> length();
+
+  /// [length] bytes from [offset].
   Future<Uint8List> read(int offset, int length);
+
+  /// Closes the source.
   Future<void> close();
 
+  /// A source over [bytes] in memory.
   factory RandomAccessSource.bytes(List<int> bytes) = _MemorySource;
+
+  /// A source over the file at [path].
   static Future<RandomAccessSource> file(String path) async =>
       _FileSource(await File(path).open());
 }
@@ -371,8 +399,11 @@ final class ZipReader {
   ZipReader._(this._source, this.entries);
 
   final RandomAccessSource _source;
+
+  /// The archive's entries, by path.
   final Map<String, ZipEntry> entries;
 
+  /// Opens the archive in [source].
   static Future<ZipReader> open(RandomAccessSource source) async {
     final length = await source.length();
     if (length < 22) {
@@ -484,5 +515,6 @@ final class ZipReader {
     yield* Stream.fromIterable(drain());
   }
 
+  /// Closes the archive.
   Future<void> close() => _source.close();
 }

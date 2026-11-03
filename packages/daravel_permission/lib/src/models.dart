@@ -5,6 +5,7 @@ import 'registrar.dart';
 
 /// A role (`roles`, spatie/laravel-permission's table).
 final class Role extends Model {
+  /// The `roles` table, shared with Spatie's permission package.
   static final ModelDefinition<Role> definition = ModelDefinition<Role>(
     table: 'roles',
     factory: Role.new,
@@ -15,10 +16,16 @@ final class Role extends Model {
   @override
   ModelDefinition<Role> get modelDefinition => Role.definition;
 
+  /// The row id.
   int get id => (getAttr<num>('id')).toInt();
+
+  /// The role's name.
   String get name => getAttr('name');
+
+  /// The guard it belongs to.
   String get guardName => getAttr('guard_name');
 
+  /// A query on roles.
   static ModelQuery<Role> query() => definition.query();
 
   /// Creates a role; throws [RoleAlreadyExists] when [guard] has one by
@@ -43,6 +50,7 @@ final class Role extends Model {
         (throw RoleDoesNotExist.named(name, guardName));
   }
 
+  /// The role with [id]; throws [RoleDoesNotExist] without one.
   static Future<Role> findById(int id, {String? guard}) async {
     final guardName = guard ?? PermissionRegistrar.current.config.guard;
     return await query()
@@ -52,6 +60,7 @@ final class Role extends Model {
         (throw RoleDoesNotExist.withId(id, guardName));
   }
 
+  /// The role [name], created when missing.
   static Future<Role> findOrCreate(String name, {String? guard}) async {
     final guardName = guard ?? PermissionRegistrar.current.config.guard;
     return await _find(name, guardName) ?? create(name, guard: guardName);
@@ -87,6 +96,7 @@ final class Role extends Model {
     await PermissionRegistrar.current.forgetCachedPermissions();
   }
 
+  /// Takes [permissions] from the role.
   Future<void> revokePermissionTo(Object permissions) async {
     final ids = [
       for (final p in await Permission.resolve(permissions, guardName)) p.id,
@@ -108,6 +118,7 @@ final class Role extends Model {
     await givePermissionTo(resolved);
   }
 
+  /// Whether the role has [permission].
   Future<bool> hasPermissionTo(String permission) async {
     final names = await permissionNames();
     return PermissionRegistrar.current.config.wildcard
@@ -128,6 +139,7 @@ final class Role extends Model {
 
 /// A permission (`permissions`, spatie/laravel-permission's table).
 final class Permission extends Model {
+  /// The `permissions` table, shared with Spatie's permission package.
   static final ModelDefinition<Permission> definition =
       ModelDefinition<Permission>(
         table: 'permissions',
@@ -139,10 +151,16 @@ final class Permission extends Model {
   @override
   ModelDefinition<Permission> get modelDefinition => Permission.definition;
 
+  /// The row id.
   int get id => (getAttr<num>('id')).toInt();
+
+  /// The permission's name.
   String get name => getAttr('name');
+
+  /// The guard it belongs to.
   String get guardName => getAttr('guard_name');
 
+  /// A query on permissions.
   static ModelQuery<Permission> query() => definition.query();
 
   /// Creates a permission; throws [PermissionAlreadyExists] when [guard] has
@@ -163,12 +181,14 @@ final class Permission extends Model {
   static Future<Permission?> _find(String name, String guard) =>
       query().where('name', name).where('guard_name', guard).first();
 
+  /// The permission [name]; throws [PermissionDoesNotExist] without one.
   static Future<Permission> findByName(String name, {String? guard}) async {
     final guardName = guard ?? PermissionRegistrar.current.config.guard;
     return await _find(name, guardName) ??
         (throw PermissionDoesNotExist.named(name, guardName));
   }
 
+  /// The permission [name], created when missing.
   static Future<Permission> findOrCreate(String name, {String? guard}) async {
     final guardName = guard ?? PermissionRegistrar.current.config.guard;
     return await _find(name, guardName) ?? create(name, guard: guardName);

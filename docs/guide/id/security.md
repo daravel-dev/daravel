@@ -1,4 +1,4 @@
-<!-- source: security.md sha256:f0294ba40357 -->
+<!-- source: security.md sha256:48ce09cefe8d -->
 # Keamanan Sistem (Security Guide)
 
 Pelaporan kerentanan keamanan secara privat dijelaskan pada berkas
@@ -145,3 +145,12 @@ laporan SARIF menampilkan temuan di GitHub code scanning:
 ```
 
 Audit hanya server yang Anda jalankan atau boleh Anda uji.
+
+## Padanan Laravel
+
+Bagian lain dari Laravel yang ikut didukung, beserta API yang bisa dicari di pub.dev.
+
+| Laravel | Daravel | API | Catatan |
+| :-- | :-- | :-- | :-- |
+| `Crypt::encryptString / decryptString` | `await Crypt.encryptString / decryptString` | `Crypt.decryptString` | Kompatibel per byte dengan APP_CIPHER=AES-256-CBC atau AES-256-GCM. |
+| `php artisan env:encrypt / env:decrypt` | `dartisan env:encrypt / env:decrypt` | `EnvironmentEncrypter` | File .env.encrypted yang sama; didekripsi di memori saat boot. |

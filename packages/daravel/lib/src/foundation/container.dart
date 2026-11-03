@@ -8,9 +8,13 @@ typedef Factory<T extends Object> = T Function(Container container);
 /// Identifies a binding: a [Type] plus an optional name for contextual bindings
 /// (for example two `Disk` implementations registered as `local` and `s3`).
 final class BindingKey {
+  /// The binding of [type], or of the named binding [name].
   const BindingKey(this.type, [this.name]);
 
+  /// The bound type.
   final Type type;
+
+  /// The binding's name, for several bindings of one type.
   final String? name;
 
   @override
@@ -51,6 +55,7 @@ final class _Binding {
 /// resolves the container from the zone first and falls back to the
 /// per-isolate root container registered by `Application.boot()`.
 final class Container {
+  /// An empty container.
   Container();
 
   static const Symbol _containerKey = #daravel.container;

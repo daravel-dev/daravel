@@ -17,12 +17,14 @@ final class ConcurrencyFake {
   /// Tasks given to `defer`.
   int deferred = 0;
 
+  /// Fails unless [expected] tasks ran while faked.
   void assertRanCount(int expected) {
     if (ran != expected) {
       throw StateError('Expected $expected concurrent tasks, ran $ran.');
     }
   }
 
+  /// Fails unless [expected] tasks were deferred while faked.
   void assertDeferredCount(int expected) {
     if (deferred != expected) {
       throw StateError('Expected $expected deferred tasks, got $deferred.');
@@ -49,6 +51,7 @@ abstract final class Concurrency {
   /// Workers per isolate. With `serve --isolates=N` each has its own pool.
   static int get maxWorkers => _maxWorkers;
 
+  /// Sets the most isolates `Concurrency.run` uses at once.
   static set maxWorkers(int value) {
     if (value < 1) {
       throw RangeError.range(value, 1, null, 'maxWorkers');

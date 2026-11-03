@@ -1,4 +1,4 @@
-<!-- source: query-filters.md sha256:e678f2094294 -->
+<!-- source: query-filters.md sha256:7c259c30b77a -->
 # Query filter
 
 `daravel_teorion` mengubah query string sebuah listing menjadi filter, eager
@@ -157,3 +157,11 @@ sama.
   sendiri ada (`views_min`, `start_date`); laravel-teorion juga butuh
   parameter yang dideklarasikan itu sendiri.
 - Penolakan berupa 400, bukan 500.
+
+## Padanan Laravel
+
+Bagian lain dari Laravel yang ikut didukung, beserta API yang bisa dicari di pub.dev.
+
+| Laravel | Daravel | API | Catatan |
+| :-- | :-- | :-- | :-- |
+| `php artisan make:query-filter PostQueryFilter` | `dartisan make:query-filter Post` | `QueryFilterRegistry` | Didaftarkan di bootstrap/query_filters.dart (tanpa reflection). |

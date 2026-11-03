@@ -8,6 +8,7 @@ import 'entry.dart';
 
 /// Which entries a page keeps.
 final class LogFilter {
+  /// Entries of [levels] (any when empty) containing [search].
   const LogFilter({this.levels = const {}, this.search});
 
   /// Levels to keep (`error`, `warning`, ...); all when empty.
@@ -30,6 +31,7 @@ final class LogFilter {
     return levels.isEmpty || levels.any(lower.contains);
   }
 
+  /// Whether [entry] passes the filter.
   bool matches(LogEntry entry) {
     if (levels.isNotEmpty && !levels.contains(entry.level)) {
       return false;
@@ -44,8 +46,10 @@ final class LogFilter {
 /// A page of entries, newest first, and where the next (older) page
 /// starts.
 final class LogPage {
+  /// A page of [entries], [next] to continue, after reading [scannedBytes].
   const LogPage(this.entries, this.next, this.scannedBytes);
 
+  /// The entries, newest first.
   final List<LogEntry> entries;
 
   /// The byte offset to pass as `before` for older entries; `null` at the
@@ -59,9 +63,13 @@ final class LogPage {
 /// Reads a log file from its end, a block at a time, so the newest
 /// entries of a file of any size come back in constant memory and time.
 final class ReverseLogReader {
+  /// Reads the file at [path] from the end, [blockSize] bytes at a time.
   ReverseLogReader(this.path, {this.blockSize = 64 * 1024});
 
+  /// The log file.
   final String path;
+
+  /// The bytes read at a time.
   final int blockSize;
 
   /// A line longer than this is cut, so one runaway line cannot hold a

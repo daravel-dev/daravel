@@ -7,9 +7,11 @@ import 'relations.dart';
 /// `ApplicationBuilder.withModels`): the explicit list that `model:show`,
 /// `mcp:serve` and generators read instead of discovering classes.
 final class ModelRegistry {
+  /// The registry of [models] (`bootstrap/models.dart`).
   ModelRegistry(Iterable<ModelDefinition<Model>> models)
     : models = List.unmodifiable(models);
 
+  /// Every registered model definition.
   final List<ModelDefinition<Model>> models;
 
   /// The model whose class name (`Post`), morph class (`App\Models\Post`)

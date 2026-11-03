@@ -4,6 +4,7 @@
 final class DomainPattern {
   DomainPattern._(this.source, this.names, this.fields, this._regex);
 
+  /// A host pattern with `{param}` placeholders: `{account}.example.com`.
   factory DomainPattern(String source) {
     final names = <String>[];
     final fields = <String, String>{};
@@ -45,6 +46,7 @@ final class DomainPattern {
     buffer.write(text.replaceAll('.', '[.]'));
   }
 
+  /// The pattern as written.
   final String source;
 
   /// The parameters, in order.

@@ -13,6 +13,7 @@
 /// Dart has no property and method of one name, so the settings read back
 /// under their own names ([logsFillable], [onlyDirty], ...).
 final class LogOptions {
+  /// Options that log nothing until configured.
   LogOptions();
 
   /// Spatie's starting point: no attributes, empty logs submitted.
@@ -31,14 +32,32 @@ final class LogOptions {
 
   /// The log name ([useLogName]); the default log when null.
   String? get logName => _logName;
+
+  /// Whether activities without changes are logged.
   bool get submitsEmptyLogs => _submitEmptyLogs;
+
+  /// Whether every fillable attribute is logged.
   bool get logsFillable => _logFillable;
+
+  /// Whether only changed attributes are logged.
   bool get onlyDirty => _logOnlyDirty;
+
+  /// Whether every unguarded attribute is logged.
   bool get logsUnguarded => _logUnguarded;
+
+  /// The attributes logged.
   List<String> get attributes => _logAttributes;
+
+  /// The attributes never logged.
   List<String> get exceptAttributes => _logExceptAttributes;
+
+  /// Attributes whose changes alone log nothing.
   List<String> get ignoredChanges => _dontLogIfAttributesChangedOnly;
+
+  /// Attributes logged without their casts.
   List<String> get rawValues => _attributeRawValues;
+
+  /// The description of each event.
   String Function(String eventName)? get descriptionForEvent =>
       _descriptionForEvent;
 
@@ -58,6 +77,7 @@ final class LogOptions {
     return this;
   }
 
+  /// Stops logging every fillable attribute.
   LogOptions dontLogFillable() {
     _logFillable = false;
     return this;
@@ -77,6 +97,7 @@ final class LogOptions {
     return this;
   }
 
+  /// Never logs [attributes].
   LogOptions logExcept(List<String> attributes) {
     _logExceptAttributes = List.of(attributes);
     return this;
@@ -95,11 +116,13 @@ final class LogOptions {
     return this;
   }
 
+  /// Logs activities without changes too.
   LogOptions submitEmptyLogs() {
     _submitEmptyLogs = true;
     return this;
   }
 
+  /// Writes to the log [logName].
   LogOptions useLogName(String? logName) {
     _logName = logName;
     return this;

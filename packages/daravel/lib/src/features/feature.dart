@@ -22,6 +22,7 @@ typedef FeatureResolver = FutureOr<Object?> Function(Object? scope);
 /// A scope that knows its own stored form (Pennant's
 /// `FeatureScopeSerializeable`).
 abstract interface class FeatureScope {
+  /// The scope as stored in the `features` table (`App\Models\User|1`).
   String featureScopeSerialize();
 }
 
@@ -33,11 +34,13 @@ abstract interface class FeatureStore {
   /// Stores [value] unless one is stored already; returns the stored value.
   Future<Object?> insert(String name, String scope, Object? value);
 
+  /// Stores [value] of feature [name] for [scope].
   Future<void> set(String name, String scope, Object? value);
 
   /// Changes the value of [name] for every scope already stored.
   Future<void> setForAllScopes(String name, Object? value);
 
+  /// Forgets feature [name] for [scope].
   Future<void> delete(String name, String scope);
 
   /// Removes [names], or every feature.
@@ -92,10 +95,17 @@ final class ArrayFeatureStore implements FeatureStore {
 /// Values in Pennant's `features` table (`name`, `scope`, JSON `value`), so a
 /// Laravel application on the same database sees the same flags.
 final class DatabaseFeatureStore implements FeatureStore {
+  /// Feature values in the [table] (`features`) of [db], shared with
+  /// Pennant.
   DatabaseFeatureStore(this.db, {this.table = 'features', this.connection});
 
+  /// The database holding the values.
   final DatabaseManager db;
+
+  /// The features table.
   final String table;
+
+  /// The connection of the table; the default one when null.
   final String? connection;
 
   @override
@@ -174,9 +184,12 @@ final class _FeatureCache {
 /// Feature flags (Laravel Pennant): resolvers, a [FeatureStore] and the
 /// default scope (the authenticated user).
 final class FeatureManager {
+  /// A manager storing values in [store]; the default scope is the
+  /// authenticated user.
   FeatureManager(this.store, {Future<Object?> Function()? defaultScope})
     : _defaultScope = defaultScope ?? _authenticatedUser;
 
+  /// Where values are stored.
   final FeatureStore store;
   final Future<Object?> Function() _defaultScope;
   final Map<String, FeatureResolver> _resolvers = {};
@@ -213,17 +226,32 @@ final class FeatureManager {
   Future<ScopedFeatures> _current() async =>
       ScopedFeatures._(this, await _defaultScope());
 
+  /// The value of [name] for the default scope.
   Future<Object?> value(String name) async => (await _current()).value(name);
+
+  /// Whether [name] is active for the default scope.
   Future<bool> active(String name) async => (await _current()).active(name);
+
+  /// Whether [name] is inactive for the default scope.
   Future<bool> inactive(String name) async => (await _current()).inactive(name);
+
+  /// Whether every one of [names] is active.
   Future<bool> allAreActive(List<String> names) async =>
       (await _current()).allAreActive(names);
+
+  /// Whether any of [names] is active.
   Future<bool> someAreActive(List<String> names) async =>
       (await _current()).someAreActive(names);
+
+  /// Activates [name] with [value] for the default scope.
   Future<void> activate(String name, [Object? value = true]) async =>
       (await _current()).activate(name, value);
+
+  /// Deactivates [name] for the default scope.
   Future<void> deactivate(String name) async =>
       (await _current()).deactivate(name);
+
+  /// Forgets the stored value of [name], so it resolves again.
   Future<void> forget(String name) async => (await _current()).forget(name);
 
   /// Sets [value] for every scope that has a stored value.
@@ -232,6 +260,7 @@ final class FeatureManager {
     _cache()?.values.clear();
   }
 
+  /// Deactivates [name] for every scope.
   Future<void> deactivateForEveryone(String name) =>
       activateForEveryone(name, false);
 
@@ -302,18 +331,25 @@ final class ScopedFeatures {
   ScopedFeatures._(this._manager, this.scope);
 
   final FeatureManager _manager;
+
+  /// The scope checked.
   final Object? scope;
 
+  /// The value of [name] for the scope.
   Future<Object?> value(String name) => _manager._resolve(name, scope);
 
+  /// The values of [names] for the scope.
   Future<Map<String, Object?>> values(List<String> names) async => {
     for (final name in names) name: await value(name),
   };
 
+  /// Whether [name] is active for the scope.
   Future<bool> active(String name) async => await value(name) != false;
 
+  /// Whether [name] is inactive for the scope.
   Future<bool> inactive(String name) async => await value(name) == false;
 
+  /// Whether every one of [names] is active for the scope.
   Future<bool> allAreActive(List<String> names) async {
     for (final name in names) {
       if (!await active(name)) {
@@ -323,6 +359,7 @@ final class ScopedFeatures {
     return true;
   }
 
+  /// Whether any of [names] is active for the scope.
   Future<bool> someAreActive(List<String> names) async {
     for (final name in names) {
       if (await active(name)) {
@@ -332,11 +369,13 @@ final class ScopedFeatures {
     return false;
   }
 
+  /// Activates [name] with [value] for the scope.
   Future<void> activate(String name, [Object? value = true]) async {
     await _manager.store.set(name, _manager.serializeScope(scope), value);
     _manager._forgetCached(name, scope);
   }
 
+  /// Deactivates [name] for the scope.
   Future<void> deactivate(String name) => activate(name, false);
 
   /// Removes the stored value: the next check resolves it again.
@@ -349,38 +388,65 @@ final class ScopedFeatures {
 /// Laravel Pennant's `Feature` facade over the application's
 /// [FeatureManager].
 abstract final class Feature {
+  /// The feature manager of the current container.
   static FeatureManager get manager => Container.current.make<FeatureManager>();
 
+  /// Defines feature [name], resolved per scope by [resolver].
   static void define(String name, FeatureResolver resolver) =>
       manager.define(name, resolver);
 
+  /// The features of [scope] (`Feature::for($user)`).
   static ScopedFeatures forScope(Object? scope) => manager.forScope(scope);
 
+  /// The value of [name] for the default scope.
   static Future<Object?> value(String name) => manager.value(name);
+
+  /// Whether [name] is active.
   static Future<bool> active(String name) => manager.active(name);
+
+  /// Whether [name] is inactive.
   static Future<bool> inactive(String name) => manager.inactive(name);
+
+  /// Whether every one of [names] is active.
   static Future<bool> allAreActive(List<String> names) =>
       manager.allAreActive(names);
+
+  /// Whether any of [names] is active.
   static Future<bool> someAreActive(List<String> names) =>
       manager.someAreActive(names);
+
+  /// Activates [name] with [value].
   static Future<void> activate(String name, [Object? value = true]) =>
       manager.activate(name, value);
+
+  /// Deactivates [name].
   static Future<void> deactivate(String name) => manager.deactivate(name);
+
+  /// Forgets the stored value of [name].
   static Future<void> forget(String name) => manager.forget(name);
+
+  /// Activates [name] for every scope.
   static Future<void> activateForEveryone(
     String name, [
     Object? value = true,
   ]) => manager.activateForEveryone(name, value);
+
+  /// Deactivates [name] for every scope.
   static Future<void> deactivateForEveryone(String name) =>
       manager.deactivateForEveryone(name);
+
+  /// Deletes the stored values of [names], or of every feature.
   static Future<void> purge([List<String>? names]) => manager.purge(names);
 }
 
 /// `feature:a,b` (Pennant's `EnsureFeaturesAreActive`): `400 Bad Request`
 /// unless every feature is active for the authenticated user.
 final class EnsureFeaturesAreActive implements Middleware {
+  /// The `features` middleware: 400 unless every one of [features] is
+  /// active.
   const EnsureFeaturesAreActive(this.features, {this.debug = false});
 
+  /// The features required.
   final List<String> features;
 
   /// Names the missing features in the error (Pennant does with `APP_DEBUG`).
@@ -400,6 +466,7 @@ final class EnsureFeaturesAreActive implements Middleware {
 
 /// Pennant's `features` table (`2022_11_01_000001_create_features_table`).
 final class CreateFeaturesTable extends Migration {
+  /// The migration creating `features`, as Pennant's.
   const CreateFeaturesTable();
 
   @override

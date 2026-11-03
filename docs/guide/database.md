@@ -507,3 +507,25 @@ with Laravel's sliding window and `page` numbers, `current_page_url` for
 simple pagination, and cursors encoded like Laravel's `Cursor::encode()` so
 a cursor issued by either framework works in the other. Use
 `withQueryString()` or `appends({...})` to keep extra query parameters.
+
+## Laravel equivalents
+
+More of Laravel that this works with, and the API to look up on pub.dev.
+
+| Laravel | Daravel | API | Note |
+| :-- | :-- | :-- | :-- |
+| `DB::statement($sql)` | `await DB.statement(sql)` | `DB.statement` |  |
+| `DB_URL=postgres://user:pass@host/db (ConfigurationUrlParser)` | `DB_URL, ConnectionConfig.withUrl(url)` | `ConnectionConfig.withUrl` | Merged like Laravel 12: URL parts replace DB_* values, the rest stay. |
+| `DB::transaction($fn, attempts: 5)` | `DB.transaction(fn, attempts: 5), with jitter between retries` | `DatabaseManager.retryDelay` |  |
+| `->whereToday('starts_at') / wherePast / whereFuture / whereBeforeToday` | `.whereToday('starts_at') / wherePast / whereFuture / whereBeforeToday` | `QueryBuilder.whereToday` | Against Clock.now(). |
+| `whereNone(['a', 'b'], 'like', '%x%')` | `whereNone(['a', 'b'], 'like', '%x%')` | `QueryBuilder.whereNone` |  |
+| `where('meta->lang', 'id') / update(['meta->lang' => 'en'])` | `where('meta->lang', 'id') / update({'meta->lang': 'en'})` | `QueryGrammar.jsonSelector` |  |
+| `->insertGetId($values)` | `await DB.table(t).insertGetId(values)` | `QueryBuilder.insertGetId` |  |
+| `->upsert($values, $uniqueBy)` | `.upsert(values, uniqueBy)` | `QueryBuilder.upsert` |  |
+| `->chunkById(100, fn)` | `.chunkById(100, (rows) async {...})` | `QueryBuilder.chunkById` |  |
+| `->selectSub($query, 'alias')` | `.selectSub(query, 'alias')` | `QueryBuilder.selectSub` |  |
+| `->toSql() / toRawSql()` | `.toSql() / .toRawSql()` | `QueryBuilder.toRawSql` |  |
+| `Schema::table / dropIfExists / hasTable / hasColumn` | `schema.table / dropIfExists / hasTable / hasColumn` | `SchemaBuilder.hasColumn` |  |
+| `$table->id() / string() / foreignId()->constrained()` | `table.id() / string() / foreignId().constrained()` | `Blueprint.foreignId` |  |
+| `$table->morphs('taggable') / nullableMorphs / uuidMorphs / ulidMorphs` | `table.morphs('taggable') / nullableMorphs / uuidMorphs / ulidMorphs` | `Blueprint.nullableMorphs` |  |
+| `$table->timestamps() / softDeletes() / rememberToken()` | `table.timestamps() / softDeletes() / rememberToken()` | `Blueprint.softDeletes` |  |

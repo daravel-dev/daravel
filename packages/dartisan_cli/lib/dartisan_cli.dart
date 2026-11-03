@@ -78,6 +78,8 @@ typedef CommandFactory = Command<int> Function(AppFactory createApp);
 
 /// Command runner wired to a project's application factory.
 final class DartisanRunner extends CommandRunner<int> {
+  /// A runner of the built-in commands and the project's own, for the
+  /// application [createApp] builds.
   DartisanRunner(
     AppFactory createApp, {
     List<CommandFactory> commands = const <CommandFactory>[],
@@ -239,8 +241,10 @@ void addForceFlag(ArgParser parser) => parser.addFlag(
 
 /// Base class for commands that need the project application.
 abstract class DaravelCommand extends Command<int> {
+  /// A command that boots the application [createApp] builds.
   DaravelCommand(this.createApp);
 
+  /// Builds the project's application.
   final AppFactory createApp;
 
   /// Boots the application, runs [body] inside a `command` scope and shuts
@@ -258,6 +262,7 @@ abstract class DaravelCommand extends Command<int> {
 
 /// `dartisan serve` — starts the HTTP server.
 final class ServeCommand extends DaravelCommand {
+  /// The `dartisan serve` command.
   ServeCommand(super.createApp) {
     argParser
       ..addOption(
@@ -398,6 +403,7 @@ final class ServeCommand extends DaravelCommand {
 
 /// `dartisan route:list` — prints the compiled route table.
 final class RouteListCommand extends DaravelCommand {
+  /// The `dartisan route:list` command.
   RouteListCommand(super.createApp) {
     argParser
       ..addOption('path', help: 'Only routes whose URI contains this.')
@@ -465,6 +471,7 @@ final class RouteListCommand extends DaravelCommand {
 
 /// `dartisan migrate` — runs pending migrations.
 final class MigrateCommand extends DaravelCommand {
+  /// The `dartisan migrate` command.
   MigrateCommand(super.createApp) {
     argParser.addFlag(
       'seed',
@@ -507,6 +514,7 @@ final class MigrateCommand extends DaravelCommand {
 
 /// `dartisan migrate:status` — shows ran/pending migrations.
 final class MigrateStatusCommand extends DaravelCommand {
+  /// The `dartisan migrate:status` command.
   MigrateStatusCommand(super.createApp);
 
   @override
@@ -535,6 +543,7 @@ final class MigrateStatusCommand extends DaravelCommand {
 
 /// `dartisan migrate:rollback` — rolls back the last batch(es).
 final class MigrateRollbackCommand extends DaravelCommand {
+  /// The `dartisan migrate:rollback` command.
   MigrateRollbackCommand(super.createApp) {
     argParser.addOption(
       'step',
@@ -574,6 +583,7 @@ final class MigrateRollbackCommand extends DaravelCommand {
 
 /// `dartisan migrate:reset` — rolls back every migration.
 final class MigrateResetCommand extends DaravelCommand {
+  /// The `dartisan migrate:reset` command.
   MigrateResetCommand(super.createApp) {
     addForceFlag(argParser);
   }
@@ -636,6 +646,7 @@ String renderTable(List<List<String>> rows) {
 
 /// `dartisan about` — summarizes the application environment.
 final class AboutCommand extends DaravelCommand {
+  /// The `dartisan about` command.
   AboutCommand(super.createApp);
 
   @override

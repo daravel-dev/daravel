@@ -12,6 +12,7 @@ import 'sessions.dart';
 /// (false), `LIBSODIUM_LEGACY_KEY_ENABLED` (false) and
 /// `LIBSODIUM_LEGACY_KEY`.
 final class TeobiefyConfig implements ConfigSection {
+  /// Teobiefy settings; usually from `.env` (`TEOBIEFY_*`).
   const TeobiefyConfig({
     this.sessionTtl = const Duration(seconds: 1800),
     this.payloadV2 = false,
@@ -20,6 +21,7 @@ final class TeobiefyConfig implements ConfigSection {
     this.strictPayload = false,
   });
 
+  /// The settings in `TEOBIEFY_*`.
   factory TeobiefyConfig.fromEnv(Env env) => TeobiefyConfig(
     sessionTtl: Duration(seconds: env.integer('LIBSODIUM_SESSION_TTL', 1800)),
     payloadV2: env.boolean('LIBSODIUM_PAYLOAD_V2_ENABLED', false),
@@ -28,6 +30,7 @@ final class TeobiefyConfig implements ConfigSection {
     strictPayload: env.boolean('LIBSODIUM_STRICT_PAYLOAD', false),
   );
 
+  /// How long a client session lasts.
   final Duration sessionTtl;
 
   /// Only the decrypted payload reaches the handler: clear keys sent beside
@@ -45,6 +48,8 @@ final class TeobiefyConfig implements ConfigSection {
   /// shipped to browsers and must be treated as public: a bridge during a
   /// rollout, never a protection.
   final bool legacyKeyEnabled;
+
+  /// The key of the legacy format.
   final String legacyKey;
 
   /// Warns while the legacy key is accepted; fails when it is not a key.
@@ -85,6 +90,7 @@ final class TeobiefyConfig implements ConfigSection {
 
 /// The sessions and settings the middleware and the handshake share.
 final class TeobiefyService {
+  /// The service holding [sessions] with [config].
   TeobiefyService(this.sessions, this.config)
     : legacyKey = config.legacyKeyEnabled
           ? switch (TeobiefyCrypto.strictBase64(config.legacyKey)) {
@@ -93,7 +99,10 @@ final class TeobiefyService {
             }
           : null;
 
+  /// The client sessions.
   final TeobiefySessions sessions;
+
+  /// The settings.
   final TeobiefyConfig config;
 
   /// The static key when it is accepted, else null.
@@ -197,6 +206,7 @@ extension TeobiefyProfilesApplicationBuilder on ApplicationBuilder {
 
 /// teobiefy from anywhere in a request.
 abstract final class Teobiefy {
+  /// The Teobiefy service of the current container.
   static TeobiefyService get service =>
       Container.current.make<TeobiefyService>();
 

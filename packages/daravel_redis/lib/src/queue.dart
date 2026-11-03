@@ -44,6 +44,7 @@ enum RedisQueueEngine {
 /// Delivery is at least once: a reserved job not deleted within
 /// [retryAfter] runs again, as with the database queue.
 final class RedisQueue implements WakeableQueueDriver {
+  /// A queue in Redis, as Laravel's `redis` queue driver.
   RedisQueue(
     this.client, {
     this.prefix = '',
@@ -52,10 +53,19 @@ final class RedisQueue implements WakeableQueueDriver {
     this.engine = RedisQueueEngine.list,
   });
 
+  /// The Redis connection.
   final RedisClient client;
+
+  /// The key prefix.
   final String prefix;
+
+  /// The queue namespace, shared with Laravel when equal.
   final String namespace;
+
+  /// How long a reserved job may run before another worker takes it.
   final Duration retryAfter;
+
+  /// Lists (Laravel's layout) or streams.
   final RedisQueueEngine engine;
 
   bool get _stream => engine == RedisQueueEngine.stream;

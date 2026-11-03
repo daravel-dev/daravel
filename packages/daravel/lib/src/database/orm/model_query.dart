@@ -19,6 +19,9 @@ import 'relations.dart';
 /// and hydrates models, applies global scopes and soft deletes, eager loads
 /// relations and offers `whereHas` / `withCount`.
 final class ModelQuery<T extends Model> {
+  /// A query on the model of [definition]; `Model.query()` and the
+  /// generated statics create it. Relations listed in the definition's `with`
+  /// are eager loaded by default.
   ModelQuery(this.definition, {DatabaseManager? db})
     : _db = db ?? Container.current.make<DatabaseManager>(),
       builder = (db ?? Container.current.make<DatabaseManager>()).table(
@@ -28,6 +31,7 @@ final class ModelQuery<T extends Model> {
     _with.addAll({for (final name in definition.withRelations) name: null});
   }
 
+  /// The model's definition: table, key, casts, relations and scopes.
   final ModelDefinition<T> definition;
   final DatabaseManager _db;
 
@@ -44,17 +48,21 @@ final class ModelQuery<T extends Model> {
   final Set<String> _withoutNamedScopes = <String>{};
   bool _globalScopesApplied = false;
 
+  /// The database manager this query runs on.
   DatabaseManager get database => _db;
 
   // ---------------------------------------------------------------------------
   // Delegated builder API (returns this for chaining)
   // ---------------------------------------------------------------------------
 
+  /// `where('col', value)`, `where('col', '>', value)`, a map of columns to
+  /// values, or a closure for a nested group, as [QueryBuilder.where].
   ModelQuery<T> where(Object column, [Object? operatorOrValue, Object? value]) {
     builder.where(column, operatorOrValue, value);
     return this;
   }
 
+  /// [where] joined with `OR`.
   ModelQuery<T> orWhere(
     Object column, [
     Object? operatorOrValue,
@@ -64,8 +72,11 @@ final class ModelQuery<T extends Model> {
     return this;
   }
 
+  /// Rows whose primary key is [key].
   ModelQuery<T> whereKey(Object? key) =>
       where(_qualify(definition.primaryKey), key);
+
+  /// Rows whose primary key is not [key].
   ModelQuery<T> whereKeyNot(Object? key) =>
       where(_qualify(definition.primaryKey), '<>', key);
 
@@ -97,41 +108,50 @@ final class ModelQuery<T extends Model> {
     return this;
   }
 
+  /// `column IN (...)` for a list, or for a subquery's rows.
   ModelQuery<T> whereIn(String column, Object values) {
     builder.whereIn(column, values);
     return this;
   }
 
+  /// `column NOT IN (...)`.
   ModelQuery<T> whereNotIn(String column, Object values) {
     builder.whereNotIn(column, values);
     return this;
   }
 
+  /// `column IS NULL`.
   ModelQuery<T> whereNull(String column) {
     builder.whereNull(column);
     return this;
   }
 
+  /// `column IS NOT NULL`.
   ModelQuery<T> whereNotNull(String column) {
     builder.whereNotNull(column);
     return this;
   }
 
+  /// `column BETWEEN from AND to`.
   ModelQuery<T> whereBetween(String column, Object? from, Object? to) {
     builder.whereBetween(column, from, to);
     return this;
   }
 
+  /// Compares two columns: `whereColumn('updated_at', '>', 'created_at')`.
   ModelQuery<T> whereColumn(String first, String operator, String second) {
     builder.whereColumn(first, operator, second);
     return this;
   }
 
+  /// A raw condition with `?` [bindings]. Never interpolate input into
+  /// [sql].
   ModelQuery<T> whereRaw(String sql, [List<Object?> bindings = const []]) {
     builder.whereRaw(sql, bindings);
     return this;
   }
 
+  /// `column LIKE pattern`, case-insensitive unless asked otherwise.
   ModelQuery<T> whereLike(
     String column,
     String pattern, {
@@ -141,6 +161,7 @@ final class ModelQuery<T extends Model> {
     return this;
   }
 
+  /// Compares the date part of a datetime column.
   ModelQuery<T> whereDate(
     String column,
     String operatorOrValue, [
@@ -150,18 +171,21 @@ final class ModelQuery<T extends Model> {
     return this;
   }
 
+  /// Compares the year of a date column.
   ModelQuery<T> whereYear(
     String column,
     Object operatorOrValue, [
     Object? value,
   ]) => _on((b) => b.whereYear(column, operatorOrValue, value));
 
+  /// Compares the month of a date column.
   ModelQuery<T> whereMonth(
     String column,
     Object operatorOrValue, [
     Object? value,
   ]) => _on((b) => b.whereMonth(column, operatorOrValue, value));
 
+  /// Compares the day of the month of a date column.
   ModelQuery<T> whereDay(
     String column,
     Object operatorOrValue, [
@@ -170,40 +194,75 @@ final class ModelQuery<T extends Model> {
 
   // Laravel 11's date shortcuts, against Clock.now(); [columns] is a column
   // or a list of columns.
+  /// Rows whose [columns] are before now (`Clock.now()`).
   ModelQuery<T> wherePast(Object columns) =>
       _on((b) => b.wherePast(_qualifyAll(columns)));
+
+  /// Rows whose [columns] are now or earlier.
   ModelQuery<T> whereNowOrPast(Object columns) =>
       _on((b) => b.whereNowOrPast(_qualifyAll(columns)));
+
+  /// [wherePast] joined with `OR`.
   ModelQuery<T> orWherePast(Object columns) =>
       _on((b) => b.orWherePast(_qualifyAll(columns)));
+
+  /// [whereNowOrPast] joined with `OR`.
   ModelQuery<T> orWhereNowOrPast(Object columns) =>
       _on((b) => b.orWhereNowOrPast(_qualifyAll(columns)));
+
+  /// Rows whose [columns] are after now.
   ModelQuery<T> whereFuture(Object columns) =>
       _on((b) => b.whereFuture(_qualifyAll(columns)));
+
+  /// Rows whose [columns] are now or later.
   ModelQuery<T> whereNowOrFuture(Object columns) =>
       _on((b) => b.whereNowOrFuture(_qualifyAll(columns)));
+
+  /// [whereFuture] joined with `OR`.
   ModelQuery<T> orWhereFuture(Object columns) =>
       _on((b) => b.orWhereFuture(_qualifyAll(columns)));
+
+  /// [whereNowOrFuture] joined with `OR`.
   ModelQuery<T> orWhereNowOrFuture(Object columns) =>
       _on((b) => b.orWhereNowOrFuture(_qualifyAll(columns)));
+
+  /// Rows whose [columns] fall on today's date.
   ModelQuery<T> whereToday(Object columns) =>
       _on((b) => b.whereToday(_qualifyAll(columns)));
+
+  /// Rows whose [columns] are before today.
   ModelQuery<T> whereBeforeToday(Object columns) =>
       _on((b) => b.whereBeforeToday(_qualifyAll(columns)));
+
+  /// Rows whose [columns] are today or earlier.
   ModelQuery<T> whereTodayOrBefore(Object columns) =>
       _on((b) => b.whereTodayOrBefore(_qualifyAll(columns)));
+
+  /// Rows whose [columns] are after today.
   ModelQuery<T> whereAfterToday(Object columns) =>
       _on((b) => b.whereAfterToday(_qualifyAll(columns)));
+
+  /// Rows whose [columns] are today or later.
   ModelQuery<T> whereTodayOrAfter(Object columns) =>
       _on((b) => b.whereTodayOrAfter(_qualifyAll(columns)));
+
+  /// [whereToday] joined with `OR`.
   ModelQuery<T> orWhereToday(Object columns) =>
       _on((b) => b.orWhereToday(_qualifyAll(columns)));
+
+  /// [whereBeforeToday] joined with `OR`.
   ModelQuery<T> orWhereBeforeToday(Object columns) =>
       _on((b) => b.orWhereBeforeToday(_qualifyAll(columns)));
+
+  /// [whereTodayOrBefore] joined with `OR`.
   ModelQuery<T> orWhereTodayOrBefore(Object columns) =>
       _on((b) => b.orWhereTodayOrBefore(_qualifyAll(columns)));
+
+  /// [whereAfterToday] joined with `OR`.
   ModelQuery<T> orWhereAfterToday(Object columns) =>
       _on((b) => b.orWhereAfterToday(_qualifyAll(columns)));
+
+  /// [whereTodayOrAfter] joined with `OR`.
   ModelQuery<T> orWhereTodayOrAfter(Object columns) =>
       _on((b) => b.orWhereTodayOrAfter(_qualifyAll(columns)));
 
@@ -218,31 +277,39 @@ final class ModelQuery<T extends Model> {
     _ => throw ArgumentError.value(columns, 'columns', 'String or List'),
   };
 
+  /// Rows where any of [columns] matches: `whereAny(['name', 'email'],
+  /// 'like', '%ana%')`.
   ModelQuery<T> whereAny(List<String> columns, String operator, Object? value) {
     builder.whereAny(columns, operator, value);
     return this;
   }
 
+  /// Replaces the selected columns.
   ModelQuery<T> select(List<Object> columns) {
     builder.select(columns);
     return this;
   }
 
+  /// Adds columns to the selection.
   ModelQuery<T> addSelect(List<Object> columns) {
     builder.addSelect(columns);
     return this;
   }
 
+  /// Adds a raw select expression with `?` [bindings].
   ModelQuery<T> selectRaw(String sql, [List<Object?> bindings = const []]) {
     builder.selectRaw(sql, bindings);
     return this;
   }
 
+  /// Selects only distinct rows.
   ModelQuery<T> distinct() {
     builder.distinct();
     return this;
   }
 
+  /// An inner join, as [QueryBuilder.join]. Models are hydrated from every
+  /// selected column, so select the model's columns when joined columns clash.
   ModelQuery<T> join(
     String table,
     Object first, [
@@ -253,6 +320,7 @@ final class ModelQuery<T extends Model> {
     return this;
   }
 
+  /// A left join, as [QueryBuilder.leftJoin].
   ModelQuery<T> leftJoin(
     String table,
     Object first, [
@@ -263,21 +331,25 @@ final class ModelQuery<T extends Model> {
     return this;
   }
 
+  /// `GROUP BY` [columns].
   ModelQuery<T> groupBy(List<Object> columns) {
     builder.groupBy(columns);
     return this;
   }
 
+  /// A `HAVING` condition.
   ModelQuery<T> having(Object column, String operator, Object? value) {
     builder.having(column, operator, value);
     return this;
   }
 
+  /// Orders by [column], `asc` or `desc`.
   ModelQuery<T> orderBy(Object column, [String direction = 'asc']) {
     builder.orderBy(column, direction);
     return this;
   }
 
+  /// Orders by [column], descending.
   ModelQuery<T> orderByDesc(Object column) => orderBy(column, 'desc');
 
   /// Orders by raw SQL: [sql] is used as written, so values go in
@@ -287,45 +359,59 @@ final class ModelQuery<T extends Model> {
     return this;
   }
 
+  /// Newest first, by [column] or the model's `created_at` column.
   ModelQuery<T> latest([String? column]) =>
       orderBy(column ?? definition.createdAt, 'desc');
+
+  /// Oldest first, by [column] or the model's `created_at` column.
   ModelQuery<T> oldest([String? column]) =>
       orderBy(column ?? definition.createdAt, 'asc');
 
+  /// Random order.
   ModelQuery<T> inRandomOrder() {
     builder.inRandomOrder();
     return this;
   }
 
+  /// At most [value] models.
   ModelQuery<T> limit(int value) {
     builder.limit(value);
     return this;
   }
 
+  /// Laravel's alias of [limit].
   ModelQuery<T> take(int value) => limit(value);
 
+  /// Skips the first [value] rows.
   ModelQuery<T> offset(int value) {
     builder.offset(value);
     return this;
   }
 
+  /// Laravel's alias of [offset].
   ModelQuery<T> skip(int value) => offset(value);
 
+  /// The models of page [page] (from 1), [perPage] defaulting to the
+  /// model's `perPage`.
   ModelQuery<T> forPage(int page, [int? perPage]) {
     builder.forPage(page, perPage ?? definition.perPage);
     return this;
   }
 
+  /// Locks the selected rows until the transaction ends (`FOR UPDATE`).
   ModelQuery<T> lockForUpdate() {
     builder.lockForUpdate();
     return this;
   }
 
+  /// A shared lock on the selected rows.
   ModelQuery<T> sharedLock() {
     builder.sharedLock();
     return this;
   }
 
+  /// Applies [callback] only when [condition] is true (else [otherwise]):
+  /// `query.when(search != null, (q) => q.whereLike('name', '%$search%'))`.
   ModelQuery<T> when(
     bool condition,
     void Function(ModelQuery<T> query) callback, [
@@ -339,6 +425,7 @@ final class ModelQuery<T extends Model> {
     return this;
   }
 
+  /// Calls [callback] with the query and returns it.
   ModelQuery<T> tap(void Function(ModelQuery<T> query) callback) {
     callback(this);
     return this;
@@ -371,6 +458,7 @@ final class ModelQuery<T extends Model> {
     return this;
   }
 
+  /// Leaves out the global scope named [name] for this query.
   ModelQuery<T> withoutGlobalScope(String name) => withoutGlobalScopes([name]);
 
   /// [Model.automaticallyEagerLoad] for the results of this query.
@@ -379,18 +467,21 @@ final class ModelQuery<T extends Model> {
     return this;
   }
 
+  /// Includes soft deleted models.
   ModelQuery<T> withTrashed() {
     _withTrashed = true;
     _onlyTrashed = false;
     return this;
   }
 
+  /// Only soft deleted models.
   ModelQuery<T> onlyTrashed() {
     _onlyTrashed = true;
     _withTrashed = true;
     return this;
   }
 
+  /// Leaves out soft deleted models again after [withTrashed].
   ModelQuery<T> withoutTrashed() {
     _withTrashed = false;
     _onlyTrashed = false;
@@ -477,21 +568,26 @@ final class ModelQuery<T extends Model> {
     String boolean = 'AND',
   ]) => _has(relation, constraint, boolean: boolean);
 
+  /// [whereHas] joined with `OR`.
   ModelQuery<T> orWhereHas(String relation, [RelationConstraint? constraint]) =>
       whereHas(relation, constraint, 'OR');
 
+  /// Models with at least one related row through [relation].
   ModelQuery<T> has(String relation) => whereHas(relation);
 
+  /// Models with no related row matching [constraint] through [relation].
   ModelQuery<T> whereDoesntHave(
     String relation, [
     RelationConstraint? constraint,
   ]) => _has(relation, constraint, not: true);
 
+  /// [whereDoesntHave] joined with `OR`.
   ModelQuery<T> orWhereDoesntHave(
     String relation, [
     RelationConstraint? constraint,
   ]) => _has(relation, constraint, not: true, boolean: 'OR');
 
+  /// Models with no related row through [relation].
   ModelQuery<T> doesntHave(String relation) => whereDoesntHave(relation);
 
   /// Filters on a `MorphTo` relation whose owner is one of [types] and
@@ -502,6 +598,7 @@ final class ModelQuery<T extends Model> {
     MorphConstraint? constraint,
   ]) => _hasMorph(_morphTo(relation), types, constraint);
 
+  /// [whereHasMorph] joined with `OR`.
   ModelQuery<T> orWhereHasMorph(
     String relation,
     List<ModelDefinition<Model>> types, [
@@ -516,6 +613,7 @@ final class ModelQuery<T extends Model> {
     MorphConstraint? constraint,
   ]) => _hasMorph(_morphTo(relation), types, constraint, not: true);
 
+  /// [whereDoesntHaveMorph] joined with `OR`.
   ModelQuery<T> orWhereDoesntHaveMorph(
     String relation,
     List<ModelDefinition<Model>> types, [
@@ -765,6 +863,7 @@ final class ModelQuery<T extends Model> {
     return query;
   }
 
+  /// The SQL this query runs, with `?` placeholders, for debugging.
   String toSql() => prepared().toSql();
 
   T _hydrate(Map<String, Object?> row) => definition.hydrate(row, db: _db);
@@ -864,8 +963,11 @@ final class ModelQuery<T extends Model> {
     }
   }
 
+  /// Runs the query and returns the models, with eager loaded relations and
+  /// `withCount` values.
   Future<ModelCollection<T>> get() async => _hydrateAll(await prepared().get());
 
+  /// The first model, or null.
   Future<T?> first() async {
     final rows = await prepared().limit(1).get();
     if (rows.isEmpty) {
@@ -874,9 +976,12 @@ final class ModelQuery<T extends Model> {
     return (await _hydrateAll(rows)).first;
   }
 
+  /// The first model; throws [ModelNotFoundException] (a 404) without one.
   Future<T> firstOrFail() async =>
       (await first()) ?? (throw ModelNotFoundException(definition.morphClass));
 
+  /// The only matching model; throws [ModelNotFoundException] without one
+  /// and `MultipleRecordsFoundException` with more.
   Future<T> sole() async {
     final rows = await prepared().limit(2).get();
     if (rows.isEmpty) {
@@ -888,26 +993,47 @@ final class ModelQuery<T extends Model> {
     return (await _hydrateAll(rows)).first;
   }
 
+  /// The model with primary key [id], or null.
   Future<T?> find(Object id) => whereKey(id).first();
 
+  /// The model with primary key [id]; throws [ModelNotFoundException]
+  /// (a 404) without one.
   Future<T> findOrFail(Object id) async =>
       (await find(id)) ??
       (throw ModelNotFoundException(definition.morphClass, [id]));
 
+  /// The models whose primary keys are in [ids].
   Future<ModelCollection<T>> findMany(List<Object?> ids) =>
       whereIn(_qualify(definition.primaryKey), ids).get();
 
+  /// The values of [column]: a list, or a map keyed by [key] when given.
   Future<Object> pluck(String column, [String? key]) =>
       prepared().pluck(column, key);
 
+  /// The number of matching models.
   Future<int> count([Object column = '*']) => prepared().count(column);
+
+  /// The sum of [column].
   Future<num?> sum(Object column) => prepared().sum(column);
+
+  /// The average of [column].
   Future<num?> avg(Object column) => prepared().avg(column);
+
+  /// The largest value of [column].
   Future<Object?> max(Object column) => prepared().max(column);
+
+  /// The smallest value of [column].
   Future<Object?> min(Object column) => prepared().min(column);
+
+  /// Whether any model matches.
   Future<bool> exists() => prepared().exists();
+
+  /// Whether no model matches.
   Future<bool> doesntExist() => prepared().doesntExist();
 
+  /// A page of models with the total count, in Laravel's paginator JSON;
+  /// [perPage] defaults to the model's `perPage`, [page] to the request's
+  /// `?page=`.
   Future<LengthAwarePaginator<T>> paginate({
     int? page,
     int? perPage,
@@ -937,6 +1063,8 @@ final class ModelQuery<T extends Model> {
     );
   }
 
+  /// A page of models without counting the total: links to the next and
+  /// previous page only.
   Future<SimplePaginator<T>> simplePaginate({
     int? page,
     int? perPage,
@@ -965,6 +1093,9 @@ final class ModelQuery<T extends Model> {
     );
   }
 
+  /// A page of models after [cursor] (default: the request's `?cursor=`),
+  /// ordered by the query's order columns: fast on large tables, as no rows
+  /// are skipped. Laravel's `cursorPaginate` JSON.
   Future<CursorPaginator<T>> cursorPaginate({
     int? perPage,
     Cursor? cursor,
@@ -993,6 +1124,8 @@ final class ModelQuery<T extends Model> {
     );
   }
 
+  /// Calls [callback] with [size] models at a time and the page number,
+  /// until the rows run out; a callback returning `false` stops it.
   Future<void> chunk(
     int size,
     FutureOr<Object?> Function(ModelCollection<T> models, int page) callback,
@@ -1001,6 +1134,8 @@ final class ModelQuery<T extends Model> {
     (rows, page) async => callback(await _hydrateAll(rows), page),
   );
 
+  /// As [chunk], paging by primary key instead of offset, so updating the
+  /// rows inside [callback] cannot skip any.
   Future<void> chunkById(
     int size,
     FutureOr<Object?> Function(ModelCollection<T> models) callback,
@@ -1010,6 +1145,7 @@ final class ModelQuery<T extends Model> {
     column: _qualify(definition.primaryKey),
   );
 
+  /// The models one at a time, read [size] rows per query.
   Stream<T> lazy([int size = 500]) async* {
     await for (final row in prepared().lazy(size)) {
       yield (await _hydrateAll([row])).first;
@@ -1067,6 +1203,8 @@ final class ModelQuery<T extends Model> {
     }
   }
 
+  /// The first model matching [attributes], or a new unsaved one with
+  /// [attributes] and [values].
   Future<T> firstOrNew(
     Map<String, Object?> attributes, [
     Map<String, Object?> values = const {},
@@ -1107,15 +1245,20 @@ final class ModelQuery<T extends Model> {
     return prepared().delete();
   }
 
+  /// Deletes the matching rows for good, soft deleted ones included.
   Future<int> forceDelete() => withTrashed().prepared().delete();
 
+  /// Restores the matching soft deleted models.
   Future<int> restore() => onlyTrashed().prepared().update({
     definition.deletedAt: null,
     if (definition.timestamps) definition.updatedAt: _timestamp(),
   });
 
+  /// Adds [amount] to [column] of the matching rows.
   Future<int> increment(String column, [num amount = 1]) =>
       prepared().increment(column, amount);
+
+  /// Subtracts [amount] from [column] of the matching rows.
   Future<int> decrement(String column, [num amount = 1]) =>
       prepared().decrement(column, amount);
 

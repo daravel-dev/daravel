@@ -30,17 +30,25 @@ typedef GateAfterHook = FutureOr<Object?> Function(
 
 /// Result of an authorization check with an optional message and code.
 final class AuthResponse {
+  /// Allowed, with an optional [message].
   const AuthResponse.allow([this.message]) : allowed = true, code = null;
 
+  /// Denied, with a message and code for the 403.
   const AuthResponse.deny([
     this.message = 'This action is unauthorized.',
     this.code,
   ]) : allowed = false;
 
+  /// Whether the action is allowed.
   final bool allowed;
+
+  /// The message of the answer, shown in a 403.
   final String? message;
+
+  /// An application code of the denial.
   final Object? code;
 
+  /// Whether the action is denied.
   bool get denied => !allowed;
 
   /// Throws [AuthorizationException] when denied.
@@ -66,18 +74,32 @@ final class AuthResponse {
 /// Methods default to deny; override the ones you need and add custom
 /// abilities through [extra].
 abstract class Policy<T extends Object> {
+  /// Policies are usually const.
   const Policy();
 
   /// Runs before every ability; return `true`/`false`/[AuthResponse] to
   /// short-circuit or `null` to continue.
   FutureOr<Object?> before(Authenticatable? user, String ability) => null;
 
+  /// Whether [user] may list models (`viewAny`).
   FutureOr<Object?> viewAny(Authenticatable? user) => false;
+
+  /// Whether [user] may view [model].
   FutureOr<Object?> view(Authenticatable? user, T model) => false;
+
+  /// Whether [user] may create models.
   FutureOr<Object?> create(Authenticatable? user) => false;
+
+  /// Whether [user] may update [model].
   FutureOr<Object?> update(Authenticatable? user, T model) => false;
+
+  /// Whether [user] may delete [model].
   FutureOr<Object?> delete(Authenticatable? user, T model) => false;
+
+  /// Whether [user] may restore the soft deleted [model].
   FutureOr<Object?> restore(Authenticatable? user, T model) => false;
+
+  /// Whether [user] may delete [model] for good.
   FutureOr<Object?> forceDelete(Authenticatable? user, T model) => false;
 
   /// Non-standard abilities keyed by name.
@@ -138,6 +160,8 @@ final class _PolicyEntry {
 /// Ability registry and checker (Laravel `Gate`). One instance per
 /// application; [forUser] yields a view bound to a specific user.
 final class AuthorizationGate {
+  /// A gate checking the user the resolver returns (the request's by
+  /// default).
   AuthorizationGate({this._userResolver})
     : _boundUser = null,
       _isBound = false,
@@ -172,19 +196,25 @@ final class AuthorizationGate {
   void policy<T extends Object>(Policy<T> policy) =>
       _policies.add(_PolicyEntry(T, (o) => o is T, policy));
 
+  /// Runs [hook] before every check; a non-null result decides it
+  /// (`Gate::before`).
   void before(GateBeforeHook hook) => _before.add(hook);
 
+  /// Runs [hook] after every check.
   void after(GateAfterHook hook) => _after.add(hook);
 
+  /// Whether [ability] is defined.
   bool has(String ability) => _abilities.containsKey(ability);
 
   /// A gate that checks abilities for [user] instead of the current user.
   AuthorizationGate forUser(Authenticatable? user) =>
       AuthorizationGate._bound(this, user);
 
+  /// Whether the user may do [ability] with [args].
   Future<bool> allows(String ability, [List<Object?> args = const []]) async =>
       (await inspect(ability, args)).allowed;
 
+  /// Whether the user may not do [ability].
   Future<bool> denies(String ability, [List<Object?> args = const []]) async =>
       !(await allows(ability, args));
 
@@ -214,6 +244,7 @@ final class AuthorizationGate {
     return false;
   }
 
+  /// Whether none of the abilities is allowed.
   Future<bool> none(
     Iterable<String> abilities, [
     List<Object?> args = const [],
@@ -311,8 +342,11 @@ final class AuthorizationGate {
 /// Middleware `can:ability,param1,param2` — route parameters are passed as
 /// their bound models (see `Router.bind`) or raw strings.
 final class AuthorizeMiddleware implements Middleware {
+  /// The `can` middleware: 403 unless [ability] is allowed, with route
+  /// parameters [params] as arguments.
   const AuthorizeMiddleware(this.ability, [this.params = const <String>[]]);
 
+  /// Parses `can:update,post` into the ability and its parameters.
   factory AuthorizeMiddleware.fromParams(List<String> params) {
     if (params.isEmpty) {
       throw ArgumentError(
@@ -322,7 +356,10 @@ final class AuthorizeMiddleware implements Middleware {
     return AuthorizeMiddleware(params.first, params.sublist(1));
   }
 
+  /// The ability checked.
   final String ability;
+
+  /// The route parameters passed to the check.
   final List<String> params;
 
   @override

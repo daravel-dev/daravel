@@ -6,6 +6,7 @@ import 'package:daravel/daravel.dart';
 /// `last_activity`. It creates nothing when the table exists already,
 /// since a Laravel application's own migration then owns it.
 final class CreateSessionsTable extends Migration {
+  /// The migration creating `sessions`, as Laravel's.
   const CreateSessionsTable();
 
   @override

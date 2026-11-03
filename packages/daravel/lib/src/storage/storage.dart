@@ -11,41 +11,53 @@ import '../foundation/exceptions.dart';
 
 /// Raised for paths escaping the disk root or missing files.
 final class StorageException extends DaravelException {
+  /// A storage failure.
   const StorageException(super.message);
 }
 
 /// A filesystem abstraction (Laravel `Filesystem`; BLUEPRINT_V2 §7.10.1).
 /// Paths are relative, `/`-separated and never escape the disk root.
 abstract interface class Disk {
+  /// The disk's name.
   String get name;
 
   /// Writes [contents] (`String` as UTF-8 or `List<int>`).
   Future<void> put(String path, Object contents);
 
+  /// Writes [stream] to [path] without holding it in memory.
   Future<void> putStream(String path, Stream<List<int>> stream);
 
   /// Appends a line (adds a newline when the file is not empty).
   Future<void> append(String path, String contents);
 
+  /// The text at [path].
   Future<String> get(String path);
 
+  /// The bytes at [path].
   Future<Uint8List> getBytes(String path);
 
+  /// The bytes at [path], streamed.
   Stream<List<int>> readStream(String path);
 
+  /// Whether [path] exists.
   Future<bool> exists(String path);
 
+  /// Whether [path] does not exist.
   Future<bool> missing(String path);
 
   /// Deletes files; returns `true` when every one existed.
   Future<bool> delete(Object paths);
 
+  /// Copies [from] to [to].
   Future<void> copy(String from, String to);
 
+  /// Moves [from] to [to].
   Future<void> move(String from, String to);
 
+  /// The size of [path] in bytes.
   Future<int> size(String path);
 
+  /// When [path] was last changed.
   Future<DateTime> lastModified(String path);
 
   /// Public URL (only for disks with a `url`).
@@ -54,15 +66,19 @@ abstract interface class Disk {
   /// Files directly inside [directory] (or recursively).
   Future<List<String>> files([String directory = '', bool recursive = false]);
 
+  /// Every file under [directory], recursively.
   Future<List<String>> allFiles([String directory = '']);
 
+  /// The directories directly in a directory.
   Future<List<String>> directories([
     String directory = '',
     bool recursive = false,
   ]);
 
+  /// Creates the directory [path].
   Future<void> makeDirectory(String path);
 
+  /// Deletes the directory [path] and its contents.
   Future<bool> deleteDirectory(String path);
 }
 
@@ -97,11 +113,15 @@ List<int> _bytesOf(Object contents) => switch (contents) {
 
 /// Local filesystem disk rooted at [root].
 final class LocalDisk implements Disk {
+  /// A disk named [name] in the directory root, with public URLs under
+  /// [baseUrl].
   LocalDisk(this.name, String root, {this.baseUrl})
     : root = p.normalize(p.absolute(root));
 
   @override
   final String name;
+
+  /// The directory holding the files.
   final String root;
 
   /// Public URL prefix (`APP_URL/storage` for the public disk).
@@ -310,10 +330,13 @@ final class LocalDisk implements Disk {
 
 /// In-memory disk (`Storage.fake()`), with assertions.
 final class MemoryDisk implements Disk {
+  /// A disk in memory named [name], for tests.
   MemoryDisk(this.name, {this.baseUrl});
 
   @override
   final String name;
+
+  /// The base of public URLs.
   final String? baseUrl;
 
   final Map<String, ({Uint8List bytes, DateTime modified})> _files = {};
@@ -482,6 +505,7 @@ final class MemoryDisk implements Disk {
     }
   }
 
+  /// Fails if any of the paths exists.
   void assertMissing(Object paths) {
     final list = paths is String
         ? <String>[paths]
@@ -495,6 +519,7 @@ final class MemoryDisk implements Disk {
     }
   }
 
+  /// Fails unless [directory] holds no files.
   void assertDirectoryEmpty(String directory) {
     final dir = normalizeDiskPath(directory);
     if (_files.keys.any((f) => _inDir(f, dir, true))) {
@@ -505,6 +530,7 @@ final class MemoryDisk implements Disk {
 
 /// `FILESYSTEM_*` configuration (`config/filesystems.php`, Laravel 11).
 final class StorageConfig implements ConfigSection {
+  /// Storage settings; usually from `.env` (`FILESYSTEM_*`).
   const StorageConfig({
     this.defaultDisk = 'local',
     this.localRoot = 'storage/app/private',
@@ -513,6 +539,7 @@ final class StorageConfig implements ConfigSection {
     this.links = const <String, String>{'public/storage': 'storage/app/public'},
   });
 
+  /// The settings in `FILESYSTEM_*`.
   factory StorageConfig.fromEnv(Env env) {
     final appUrl = env.string('APP_URL', 'http://localhost:8000');
     final base = appUrl.endsWith('/')
@@ -526,9 +553,16 @@ final class StorageConfig implements ConfigSection {
     );
   }
 
+  /// The disk used when none is named (`FILESYSTEM_DISK`).
   final String defaultDisk;
+
+  /// The root of the `local` disk (`storage/app/private`).
   final String localRoot;
+
+  /// The root of the `public` disk (`storage/app/public`).
   final String publicRoot;
+
+  /// The URL of the `public` disk.
   final String publicUrl;
 
   /// Symlinks created by `storage:link` (link → target, project-relative).
@@ -550,9 +584,13 @@ final class StorageConfig implements ConfigSection {
 
 /// Named disks (Laravel `FilesystemManager`).
 final class StorageManager {
+  /// A manager of the disks in [config], under [basePath].
   StorageManager(this.config, {required this.basePath});
 
+  /// The storage settings.
   final StorageConfig config;
+
+  /// The application's root directory.
   final String basePath;
   final Map<String, Disk Function()> _factories = {};
   final Map<String, Disk> _disks = <String, Disk>{};
@@ -574,13 +612,16 @@ final class StorageManager {
     return this;
   }
 
+  /// Registers a disk named [name] made by [factory].
   void extend(String name, Disk Function() factory) {
     _factories[name] = factory;
     _disks.remove(name);
   }
 
+  /// The names of the registered disks.
   Iterable<String> get diskNames => _factories.keys;
 
+  /// The disk [name], or the default one.
   Disk disk([String? name]) {
     final resolved = name ?? config.defaultDisk;
     final existing = _disks[resolved];

@@ -19,12 +19,14 @@ int intField(Map<String, Object?> json, String name) =>
       _ => 0,
     };
 
+/// The string [name] of [json], or empty.
 String stringField(Map<String, Object?> json, String name) =>
     switch (field(json, name)) {
       null => '',
       final Object value => '$value',
     };
 
+/// The boolean [name] of [json], or false.
 bool boolField(Map<String, Object?> json, String name) =>
     field(json, name) == true;
 
@@ -34,24 +36,42 @@ DateTime? _seconds(int seconds) => seconds == 0
 
 /// A room on the LiveKit server.
 final class LivekitRoom {
+  /// A room from the API's [json].
   LivekitRoom(this.json);
 
   /// The message as the server sent it.
   final Map<String, Object?> json;
 
+  /// The room's server id.
   String get sid => stringField(json, 'sid');
+
+  /// The room's name.
   String get name => stringField(json, 'name');
 
   /// Closed this long after the last participant left.
   Duration get emptyTimeout =>
       Duration(seconds: intField(json, 'empty_timeout'));
+
+  /// How long the room stays after the last participant leaves.
   Duration get departureTimeout =>
       Duration(seconds: intField(json, 'departure_timeout'));
+
+  /// The most participants allowed; 0 for no limit.
   int get maxParticipants => intField(json, 'max_participants');
+
+  /// When the room was created.
   DateTime? get createdAt => _seconds(intField(json, 'creation_time'));
+
+  /// The room's metadata.
   String get metadata => stringField(json, 'metadata');
+
+  /// The participants in the room.
   int get numParticipants => intField(json, 'num_participants');
+
+  /// The participants publishing.
   int get numPublishers => intField(json, 'num_publishers');
+
+  /// Whether a recording is running.
   bool get activeRecording => boolField(json, 'active_recording');
 
   @override
@@ -60,12 +80,19 @@ final class LivekitRoom {
 
 /// A participant of a room.
 final class LivekitParticipant {
+  /// A participant from the API's [json].
   LivekitParticipant(this.json);
 
+  /// The raw JSON.
   final Map<String, Object?> json;
 
+  /// The participant's server id.
   String get sid => stringField(json, 'sid');
+
+  /// The identity given in the token.
   String get identity => stringField(json, 'identity');
+
+  /// The display name.
   String get name => stringField(json, 'name');
 
   /// `JOINING`, `JOINED`, `ACTIVE` or `DISCONNECTED`.
@@ -77,10 +104,17 @@ final class LivekitParticipant {
     3 => 'DISCONNECTED',
     final Object other => '$other',
   };
+
+  /// The participant's metadata.
   String get metadata => stringField(json, 'metadata');
+
+  /// When the participant joined.
   DateTime? get joinedAt => _seconds(intField(json, 'joined_at'));
+
+  /// Whether the participant publishes.
   bool get isPublisher => boolField(json, 'is_publisher');
 
+  /// The participant's attributes.
   Map<String, String> get attributes => switch (field(json, 'attributes')) {
     final Map<String, Object?> map => {
       for (final MapEntry(:key, :value) in map.entries) key: '$value',
@@ -101,6 +135,7 @@ final class LivekitParticipant {
 /// What a participant may do, changed with
 /// `RoomServiceClient.updateParticipant`.
 final class ParticipantPermission {
+  /// What a participant may do.
   const ParticipantPermission({
     this.canSubscribe,
     this.canPublish,
@@ -110,13 +145,25 @@ final class ParticipantPermission {
     this.canUpdateMetadata,
   });
 
+  /// May subscribe to tracks.
   final bool? canSubscribe;
+
+  /// May publish tracks.
   final bool? canPublish;
+
+  /// May send data messages.
   final bool? canPublishData;
+
+  /// The track sources it may publish.
   final List<String>? canPublishSources;
+
+  /// Hidden from other participants.
   final bool? hidden;
+
+  /// May change its metadata.
   final bool? canUpdateMetadata;
 
+  /// The permission as JSON.
   Map<String, Object?> toJson() => {
     'can_subscribe': ?canSubscribe,
     'can_publish': ?canPublish,
