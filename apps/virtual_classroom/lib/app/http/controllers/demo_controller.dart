@@ -4,6 +4,7 @@ import 'package:daravel_activitylog/daravel_activitylog.dart';
 import '../../models/classroom.dart';
 import '../../models/meeting.dart';
 import '../../models/user.dart';
+import 'auth_controller.dart';
 
 /// Provides demo state, switcher profiles, activity logs, and calendar preview.
 final class DemoController {
@@ -11,6 +12,7 @@ final class DemoController {
 
   /// `GET /api/demo/state`
   Future<Object?> state(Request request) async {
+    ensureDemoMode();
     // Ensure an outsider exists for testing authorization failures
     final existingOutsider = await User.query()
         .where('email', 'outsider@example.com')
@@ -18,7 +20,7 @@ final class DemoController {
     if (existingOutsider == null) {
       final pwd = await Hash.make('password');
       final out = await User.query().create({
-        'name': 'Outsider (Siswa Luar Kelas)',
+        'name': 'Outsider',
         'email': 'outsider@example.com',
         'password': pwd,
       });
@@ -108,6 +110,7 @@ final class DemoController {
 
   /// `GET /api/activity-logs`
   Future<Object?> activityLogs(Request request) async {
+    ensureDemoMode();
     final logs = await Activity.query()
         .orderBy('created_at', 'desc')
         .limit(50)

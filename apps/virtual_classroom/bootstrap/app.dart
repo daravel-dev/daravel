@@ -6,6 +6,7 @@ import 'package:daravel_google/daravel_google.dart';
 import 'package:daravel_livekit/daravel_livekit.dart';
 import 'package:daravel_permission/daravel_permission.dart';
 import 'package:virtual_classroom/app/models/meeting.dart';
+import 'package:virtual_classroom/lang/classroom_lines.dart';
 import 'package:virtual_classroom/app/models/user.dart';
 import 'package:virtual_classroom/app/policies/meeting_policy.dart';
 
@@ -44,6 +45,14 @@ Application createApp({String? basePath, Map<String, String>? env}) =>
         .withModels(models)
         .withJobs(jobs)
         .withPolicies((gate) => gate.policy<Meeting>(const MeetingPolicy()))
+        // English by default; `?lang=id` or `Accept-Language: id` switches
+        // a request to Indonesian.
+        .withTranslations(classroomLines)
+        .withMiddleware((middleware) {
+          middleware.use(const [
+            SetLocaleMiddleware(supported: ['en', 'id']),
+          ]);
+        })
         .withRouting(
           api: apiRoutes,
           web: webRoutes,
@@ -54,6 +63,11 @@ Application createApp({String? basePath, Map<String, String>? env}) =>
           auth.token<User>('token', ModelUserProvider<User>(User.definition));
         })
         .withRateLimits((limiter) {
+          // Five password tries a minute per email and address.
+          limiter.define('login', (request) async {
+            final email = (await request.all())['email'];
+            return Limit.perMinute(5).by('$email|${request.ip}');
+          });
           // Ten tries a minute per user and meeting.
           limiter.define(
             'join',

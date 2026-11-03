@@ -24,8 +24,8 @@ final class ClassroomWebController {
 
     return Response.html(
       virtualClassroomPage(
-        appName: 'Virtual Classroom Daravel',
-        environment: 'local',
+        appName: Config.section<AppConfig>().name,
+        environment: Config.section<AppConfig>().env,
         dartVersion: Platform.version.split(' ').first,
         frameworkVersion: daravelVersion,
         requestId: request.id,

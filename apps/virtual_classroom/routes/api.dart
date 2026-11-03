@@ -10,7 +10,9 @@ void apiRoutes(Router router) {
   const meetings = MeetingController();
 
   // Public demo & auth endpoints
-  router.post('/auth/login', auth.login).name('auth.login');
+  router.post('/auth/login', auth.login).name('auth.login').middleware(const [
+    'throttle:login',
+  ]);
   router.post('/auth/demo-switch', auth.demoSwitch).name('auth.demo_switch');
   router.get('/demo/state', demo.state).name('demo.state');
 

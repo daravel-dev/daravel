@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:daravel/daravel.dart';
@@ -74,8 +75,17 @@ void main() {
       headers: {'Accept': 'text/html'},
     );
     htmlResponse.assertOk();
-    expect(htmlResponse.body, contains('Virtual Classroom Daravel'));
+    expect(htmlResponse.body, contains('<html lang="en">'));
+    expect(htmlResponse.body, contains('Schedule a new lesson'));
     expect(htmlResponse.body, contains('daravel_livekit'));
+    expect(htmlResponse.body, contains('livekit-client@2.22.4'));
+
+    final indonesian = await client.get(
+      '/?lang=id',
+      headers: {'Accept': 'text/html'},
+    );
+    expect(indonesian.body, contains('<html lang="id">'));
+    expect(indonesian.body, contains('Jadwalkan Pelajaran Baru'));
 
     final jsonResponse = await client.get(
       '/',
@@ -83,6 +93,56 @@ void main() {
     );
     jsonResponse.assertOk();
     jsonResponse.assertJsonPath('app', 'Virtual Classroom');
+  });
+
+  test(
+    'POST /api/auth/login: a token, or a 422 in the request language',
+    () async {
+      final ok = await client.post(
+        '/api/auth/login',
+        json: {'email': 'teacher@example.com', 'password': 'password'},
+      );
+      ok.assertOk().assertJsonPath('user.role', 'teacher');
+
+      final wrong = {'email': 'teacher@example.com', 'password': 'nope'};
+      (await client.post(
+        '/api/auth/login',
+        json: wrong,
+      )).assertUnprocessable().assertJsonPath(
+        'errors.email.0',
+        'These credentials do not match our records.',
+      );
+      (await client.post(
+        '/api/auth/login',
+        json: wrong,
+        headers: {'accept-language': 'id'},
+      )).assertJsonPath('errors.email.0', 'Email atau password tidak sesuai.');
+    },
+  );
+
+  test('the demo endpoints answer 404 outside local and testing', () async {
+    final key = base64Encode(List<int>.generate(32, (i) => i));
+    final production = createApp(
+      basePath: dir.path,
+      env: {
+        'APP_ENV': 'production',
+        'APP_KEY': 'base64:$key',
+        'DB_DATABASE': ':memory:',
+        'LOG_LEVEL': 'error',
+        'LIVEKIT_URL': 'wss://rtc.example.test',
+        'LIVEKIT_API_KEY': 'devkey',
+        'LIVEKIT_API_SECRET': 'a-livekit-secret-of-thirty-two-chars',
+      },
+    );
+    await production.boot();
+    addTearDown(production.shutdown);
+    await production.run(() => App.make<Migrator>().run());
+    final prod = TestClient(production);
+    (await prod.post(
+      '/api/auth/demo-switch',
+      json: {'email': 'teacher@example.com'},
+    )).assertNotFound();
+    (await prod.get('/api/demo/state')).assertNotFound();
   });
 
   test('POST /api/auth/demo-switch issues token for user', () async {

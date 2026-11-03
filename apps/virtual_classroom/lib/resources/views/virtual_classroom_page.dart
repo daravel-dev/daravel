@@ -1,7 +1,9 @@
 import 'dart:convert';
 
 import 'package:daravel/daravel.dart'
-    show daravelFaviconDataUri, daravelLogoDataUri;
+    show App, daravelFaviconDataUri, daravelLogoDataUri, trans;
+
+import '../../lang/classroom_lines.dart';
 
 /// Renders the Interactive Virtual Classroom Single Page Web Application.
 String virtualClassroomPage({
@@ -12,16 +14,28 @@ String virtualClassroomPage({
   required String requestId,
 }) {
   final name = htmlEscape.convert(appName);
+  final locale = App.locale;
+  String l(String key) => htmlEscape.convert(trans('ui.$key'));
+  final script = jsonEncode({
+    for (final key in uiScriptKeys) key: trans('ui.$key'),
+  });
 
   return '''
 <!doctype html>
-<html lang="id">
+<html lang="${htmlEscape.convert(locale)}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>$name - Showcase LiveKit, Google Calendar & Spatie Permissions</title>
+<title>$name - ${l('title_sub')}</title>
 <link rel="icon" type="image/png" href="$daravelFaviconDataUri">
 <style>
+  .lang-switch { display: flex; gap: 4px; }
+  .lang-switch a { padding: 2px 8px; border-radius: 6px; font-size: 12px; font-weight: 700;
+    color: inherit; text-decoration: none; border: 1px solid rgba(255,255,255,0.25); opacity: 0.7; }
+  .lang-switch a.active { opacity: 1; background: rgba(255,255,255,0.12); }
+  .video-tile .tile-video { position: absolute; inset: 0; width: 100%; height: 100%;
+    object-fit: cover; border-radius: 8px; }
+  .video-tile .tile-name, .video-tile .tile-badge { position: relative; z-index: 1; }
   :root {
     --primary: #4f46e5;
     --primary-dark: #3730a3;
@@ -618,23 +632,27 @@ String virtualClassroomPage({
   <div class="brand-group">
     <div class="brand-logo"><img src="$daravelLogoDataUri" width="30" height="30" alt="Logo"></div>
     <div>
-      <div class="brand-title">Virtual Classroom Daravel</div>
-      <div class="brand-sub">Sistem Kelas Video WebRTC & Integrasi Kalender Sekolah &middot; Daravel AOT</div>
+      <div class="brand-title">$name</div>
+      <div class="brand-sub">${l('brand_sub')}</div>
     </div>
   </div>
 
   <div class="nav-actions">
     <!-- Current User Pill -->
     <div class="user-switcher" id="currentUserPill">
-      <span style="opacity: 0.7;">Masuk sebagai:</span>
+      <span style="opacity: 0.7;">${l('signed_in_as')}</span>
       <strong id="currentUserName">Teacher</strong>
       <span id="currentUserRoleBadge" class="user-role-badge role-teacher">TEACHER</span>
     </div>
 
     <!-- Modals Triggers -->
+    <nav class="lang-switch" aria-label="Language">
+      <a href="?lang=en" class="${locale == 'id' ? '' : 'active'}">EN</a>
+      <a href="?lang=id" class="${locale == 'id' ? 'active' : ''}">ID</a>
+    </nav>
     <button class="btn btn-outline" onclick="openCalendarModal()">📅 Google Calendar</button>
     <button class="btn btn-outline" onclick="openActivityModal()">📜 Activity Log</button>
-    <button class="btn btn-outline btn-sm" onclick="loadAllData()" title="Segarkan Data">🔄 Refresh</button>
+    <button class="btn btn-outline btn-sm" onclick="loadAllData()" title="${l('refresh_title')}">🔄 Refresh</button>
   </div>
 </header>
 
@@ -643,9 +661,9 @@ String virtualClassroomPage({
   <!-- Architecture Showcase Banner -->
   <div class="arch-banner">
     <div>
-      <div class="arch-title">Ekosistem Monorepo First-Party Daravel</div>
+      <div class="arch-title">${l('arch_title')}</div>
       <div class="arch-desc">
-        Aplikasi ini memadukan 5 paket first-party untuk skenario kelas online: WebRTC LiveKit, sinkronisasi Google Calendar via queue, Spatie permission RBAC, filter pencarian Teorion, dan Activity Log audit trail.
+        ${l('arch_desc')}
       </div>
     </div>
     <div class="package-chips">
@@ -660,18 +678,18 @@ String virtualClassroomPage({
   <!-- Role Switcher Toolbar -->
   <div class="switch-toolbar">
     <div class="switch-group">
-      <span class="switch-label">Ganti Akun Demo:</span>
+      <span class="switch-label">${l('switch_label')}</span>
       <button class="role-btn active" id="btnRoleTeacher" onclick="switchUser('teacher@example.com', 'teacher')">
-        👨‍🏫 Guru (Teacher)
+        ${l('role_teacher')}
       </button>
       <button class="role-btn" id="btnRoleStudent1" onclick="switchUser('student1@example.com', 'student')">
-        👩‍🎓 Siswa 1 (Enrolled)
+        ${l('role_student1')}
       </button>
       <button class="role-btn" id="btnRoleStudent2" onclick="switchUser('student2@example.com', 'student')">
-        👨‍🎓 Siswa 2 (Enrolled)
+        ${l('role_student2')}
       </button>
       <button class="role-btn" id="btnRoleOutsider" onclick="switchUser('outsider@example.com', 'outsider')">
-        👤 Orang Luar (Uji 403 Forbidden)
+        ${l('role_outsider')}
       </button>
     </div>
 
@@ -684,18 +702,18 @@ String virtualClassroomPage({
 
   <!-- Filter & Search Bar (daravel_teorion) -->
   <div class="filter-bar">
-    <input type="text" id="filterSearch" class="search-input" placeholder="🔍 Cari pelajaran (q= via daravel_teorion)..." oninput="debounceSearch()">
+    <input type="text" id="filterSearch" class="search-input" placeholder="${l('search_ph')}" oninput="debounceSearch()">
     
     <select id="filterStatus" class="select-filter" onchange="applyFilters()">
-      <option value="">Semua Status</option>
-      <option value="published">Hanya Published</option>
-      <option value="draft">Hanya Draft</option>
+      <option value="">${l('all_status')}</option>
+      <option value="published">${l('only_published')}</option>
+      <option value="draft">${l('only_draft')}</option>
     </select>
 
     <select id="filterSort" class="select-filter" onchange="applyFilters()">
-      <option value="starts_at">Urutkan: Waktu Mulai (Terdekat)</option>
-      <option value="-starts_at">Urutkan: Waktu Mulai (Terlama)</option>
-      <option value="name">Urutkan: Nama (A-Z)</option>
+      <option value="starts_at">${l('sort_soonest')}</option>
+      <option value="-starts_at">${l('sort_latest')}</option>
+      <option value="name">${l('sort_name')}</option>
     </select>
   </div>
 
@@ -712,7 +730,7 @@ String virtualClassroomPage({
 <div id="createMeetingModal" class="modal-overlay" style="display: none;">
   <div class="modal-box">
     <div class="modal-header">
-      <h3 class="modal-title" id="formModalTitle">Jadwalkan Pelajaran Baru</h3>
+      <h3 class="modal-title" id="formModalTitle">${l('new_lesson')}</h3>
       <button class="close-btn" onclick="closeCreateMeetingModal()">&times;</button>
     </div>
 
@@ -722,65 +740,65 @@ String virtualClassroomPage({
       <input type="hidden" id="formMeetingId">
 
       <div class="form-group">
-        <label class="form-label">Kelas</label>
+        <label class="form-label">${l('classroom')}</label>
         <select id="formClassroomId" class="form-select" required></select>
       </div>
 
       <div class="form-group">
-        <label class="form-label">Nama Pelajaran / Topik</label>
-        <input type="text" id="formName" class="form-input" placeholder="Contoh: Aljabar Linear" required>
+        <label class="form-label">${l('lesson_name')}</label>
+        <input type="text" id="formName" class="form-input" placeholder="${l('lesson_name_ph')}" required>
       </div>
 
       <div class="form-group">
-        <label class="form-label">Deskripsi / Materi</label>
-        <textarea id="formDescription" class="form-textarea" rows="2" placeholder="Catatan atau instruksi untuk siswa"></textarea>
+        <label class="form-label">${l('description')}</label>
+        <textarea id="formDescription" class="form-textarea" rows="2" placeholder="${l('description_ph')}"></textarea>
       </div>
 
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
         <div class="form-group">
-          <label class="form-label">Waktu Mulai</label>
+          <label class="form-label">${l('starts_at')}</label>
           <input type="datetime-local" id="formStartsAt" class="form-input" required>
         </div>
         <div class="form-group">
-          <label class="form-label">Waktu Selesai</label>
+          <label class="form-label">${l('ends_at')}</label>
           <input type="datetime-local" id="formEndsAt" class="form-input" required>
         </div>
       </div>
 
       <div class="preset-row">
-        <span style="font-size: 11px; color: var(--text-muted); align-self: center;">Pilihan Cepat Waktu:</span>
-        <button type="button" class="preset-btn" onclick="setPresetTime(5, 45)">⏱️ Buka Room Sekarang (+5m s.d +50m)</button>
-        <button type="button" class="preset-btn" onclick="setPresetTime(60, 45)">⏳ 1 Jam Lagi (Belum Buka)</button>
+        <span style="font-size: 11px; color: var(--text-muted); align-self: center;">${l('quick_times')}</span>
+        <button type="button" class="preset-btn" onclick="setPresetTime(5, 45)">${l('preset_now')}</button>
+        <button type="button" class="preset-btn" onclick="setPresetTime(60, 45)">${l('preset_hour')}</button>
       </div>
 
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
         <div class="form-group">
-          <label class="form-label">Kapasitas Maksimal (LiveKit Room)</label>
+          <label class="form-label">${l('capacity')}</label>
           <input type="number" id="formMaxParticipants" class="form-input" value="40" min="2" max="500">
         </div>
         <div class="form-group">
-          <label class="form-label">Status Awal</label>
+          <label class="form-label">${l('initial_status')}</label>
           <select id="formStatus" class="form-select">
-            <option value="published">Published (Siswa & Kalender)</option>
-            <option value="draft">Draft (Hanya Guru)</option>
+            <option value="published">${l('opt_published')}</option>
+            <option value="draft">${l('opt_draft')}</option>
           </select>
         </div>
       </div>
 
       <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px;">
-        <button type="button" class="btn btn-outline" onclick="closeCreateMeetingModal()">Batal</button>
-        <button type="submit" class="btn btn-primary" id="btnSubmitMeeting">Simpan Pelajaran</button>
+        <button type="button" class="btn btn-outline" onclick="closeCreateMeetingModal()">${l('cancel')}</button>
+        <button type="submit" class="btn btn-primary" id="btnSubmitMeeting">${l('save_lesson')}</button>
       </div>
     </form>
   </div>
 </div>
 
-<!-- MODAL 2: LiveKit Video Stage (Interactive Simulator) -->
+<!-- MODAL 2: LiveKit video room -->
 <div id="livekitStageModal" class="modal-overlay" style="display: none;">
   <div class="modal-box room-modal">
     <div class="modal-header">
       <div>
-        <h3 class="modal-title" id="stageMeetingTitle">Ruang Kelas Video (LiveKit)</h3>
+        <h3 class="modal-title" id="stageMeetingTitle">${l('stage_title')}</h3>
         <div style="font-size: 12px; color: var(--accent); margin-top: 2px;" id="stageRoomName">Room: -</div>
       </div>
       <button class="close-btn" onclick="closeStageModal()">&times;</button>
@@ -793,19 +811,19 @@ String virtualClassroomPage({
 
     <!-- Host / Participant Controls -->
     <div class="room-controls">
-      <button class="btn btn-outline" id="btnMicToggle" onclick="toggleMic()">🎤 Mic: Aktif</button>
-      <button class="btn btn-outline" id="btnCamToggle" onclick="toggleCam()">📹 Kamera: Aktif</button>
-      <button class="btn btn-outline" id="btnRaiseHand" onclick="toggleRaiseHand()">✋ Angkat Tangan</button>
-      <button class="btn btn-warning" id="btnMuteAll" style="display: none;" onclick="simulateMuteAll()">🔇 Mute Semua (Guru Admin)</button>
-      <button class="btn btn-danger" onclick="closeStageModal()">Keluar Ruang</button>
+      <button class="btn btn-outline" id="btnMicToggle" onclick="toggleMic()">${l('mic_on')}</button>
+      <button class="btn btn-outline" id="btnCamToggle" onclick="toggleCam()">${l('cam_on')}</button>
+      <button class="btn btn-outline" id="btnRaiseHand" onclick="toggleRaiseHand()">${l('raise_hand')}</button>
+      <button class="btn btn-warning" id="btnMuteAll" style="display: none;" onclick="muteAll()">${l('mute_all')}</button>
+      <button class="btn btn-danger" onclick="closeStageModal()">${l('leave')}</button>
     </div>
 
     <!-- LiveKit JWT Token Claims Inspector -->
     <div style="margin-top: 18px;">
       <div style="font-size: 12px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">
-        Detail Kredensial Token LiveKit (daravel_livekit):
+        ${l('token_details')}
       </div>
-      <div class="jwt-box" id="jwtTokenDisplay">Memuat token...</div>
+      <div class="jwt-box" id="jwtTokenDisplay">${l('loading_token')}</div>
     </div>
   </div>
 </div>
@@ -814,25 +832,25 @@ String virtualClassroomPage({
 <div id="calendarModal" class="modal-overlay" style="display: none;">
   <div class="modal-box" style="max-width: 750px;">
     <div class="modal-header">
-      <h3 class="modal-title">📅 Google Calendar Sync Preview (daravel_google)</h3>
+      <h3 class="modal-title">${l('calendar_title')}</h3>
       <button class="close-btn" onclick="closeCalendarModal()">&times;</button>
     </div>
     <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">
-      Pelajaran dengan status <strong>published</strong> otomatis dikirim ke antrean (Queue) untuk dimasukkan ke Google Calendar sekolah dengan siswa sebagai <em>attendees</em>.
+      ${l('calendar_desc')}
     </p>
 
     <div style="overflow-x: auto;">
       <table>
         <thead>
           <tr>
-            <th>Event / Topik</th>
-            <th>Waktu Pelajaran</th>
-            <th>Tamu Siswa (Attendees)</th>
-            <th>ID Event Google</th>
+            <th>${l('th_event')}</th>
+            <th>${l('th_time')}</th>
+            <th>${l('th_guests')}</th>
+            <th>${l('th_event_id')}</th>
           </tr>
         </thead>
         <tbody id="calendarTableBody">
-          <tr><td colspan="4" style="text-align: center;">Belum ada event kalender</td></tr>
+          <tr><td colspan="4" style="text-align: center;">${l('no_calendar')}</td></tr>
         </tbody>
       </table>
     </div>
@@ -843,25 +861,25 @@ String virtualClassroomPage({
 <div id="activityModal" class="modal-overlay" style="display: none;">
   <div class="modal-box" style="max-width: 750px;">
     <div class="modal-header">
-      <h3 class="modal-title">📜 Activity Log Audit Trail (daravel_activitylog)</h3>
+      <h3 class="modal-title">${l('activity_title')}</h3>
       <button class="close-btn" onclick="closeActivityModal()">&times;</button>
     </div>
     <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">
-      Riwayat perubahan jadwal pelajaran secara transparan dan aman tercatat di database tanpa membebani logika controller.
+      ${l('activity_desc')}
     </p>
 
     <div style="overflow-x: auto;">
       <table>
         <thead>
           <tr>
-            <th>Waktu</th>
-            <th>Aksi (Event)</th>
-            <th>Keterangan / Subject</th>
-            <th>Detail Perubahan</th>
+            <th>${l('th_when')}</th>
+            <th>${l('th_action')}</th>
+            <th>${l('th_subject')}</th>
+            <th>${l('th_changes')}</th>
           </tr>
         </thead>
         <tbody id="activityTableBody">
-          <tr><td colspan="4" style="text-align: center;">Belum ada catatan aktivitas</td></tr>
+          <tr><td colspan="4" style="text-align: center;">${l('no_activity')}</td></tr>
         </tbody>
       </table>
     </div>
@@ -869,7 +887,16 @@ String virtualClassroomPage({
 </div>
 
 <!-- Client App Logic -->
+<script src="https://cdn.jsdelivr.net/npm/livekit-client@2.22.4/dist/livekit-client.umd.js"></script>
 <script>
+  const T = $script;
+  const LANG = '${htmlEscape.convert(locale)}';
+  const nativeFetch = window.fetch.bind(window);
+  window.fetch = (url, options = {}) => nativeFetch(url, {
+    ...options,
+    headers: { 'Accept-Language': LANG, ...(options.headers || {}) },
+  });
+
   let currentUser = {
     email: 'teacher@example.com',
     name: 'Teacher',
@@ -918,7 +945,7 @@ String virtualClassroomPage({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: email })
       });
-      if (!res.ok) throw new Error('Gagal beralih akun demo (HTTP ' + res.status + ')');
+      if (!res.ok) throw new Error(T.switch_failed + res.status + ')');
       const data = await res.json();
       currentUser = {
         email: data.user.email,
@@ -948,7 +975,7 @@ String virtualClassroomPage({
       // Teacher action area visibility
       document.getElementById('teacherActionArea').style.display = (currentUser.role === 'teacher') ? 'block' : 'none';
 
-      showToast('Masuk sebagai: ' + currentUser.name + ' (' + currentUser.role + ')');
+      showToast(T.signed_in_toast + currentUser.name + ' (' + currentUser.role + ')');
       await loadAllData();
     } catch (e) {
       showToast('Login gagal: ' + e.message, true);
@@ -965,7 +992,7 @@ String virtualClassroomPage({
     classrooms.forEach(c => {
       const opt = document.createElement('option');
       opt.value = c.id;
-      opt.innerText = c.name + ' (' + (c.students_count || 3) + ' Siswa)';
+      opt.innerText = c.name + ' (' + T.students_count.replace(':n', c.students_count || 0) + ')';
       sel.appendChild(opt);
     });
   }
@@ -1006,9 +1033,9 @@ String virtualClassroomPage({
       const container = document.getElementById('meetingListContainer');
       if (!res.ok) {
         if (res.status === 403) {
-          container.innerHTML = '<div class="empty-state" style="grid-column: 1 / -1; border-color: var(--danger);"><h4 style="color: var(--danger); margin-bottom: 6px;">⛔ 403 Akses Ditolak</h4><p style="font-size: 13px; color: var(--text-muted);">Akun ' + escapeHtml(currentUser.name) + ' tidak memiliki hak akses pada kelas ini.</p></div>';
+          container.innerHTML = '<div class="empty-state" style="grid-column: 1 / -1; border-color: var(--danger);"><h4 style="color: var(--danger); margin-bottom: 6px;">' + T.forbidden_title + '</h4><p style="font-size: 13px; color: var(--text-muted);">' + escapeHtml(T.forbidden_class.replace(':name', currentUser.name)) + '</p></div>';
         } else {
-          container.innerHTML = '<div class="empty-state" style="grid-column: 1 / -1;">Error memuat data: HTTP ' + res.status + '</div>';
+          container.innerHTML = '<div class="empty-state" style="grid-column: 1 / -1;">' + T.load_error + res.status + '</div>';
         }
         return;
       }
@@ -1017,7 +1044,7 @@ String virtualClassroomPage({
       const list = json.data || [];
       renderMeetings(list);
     } catch (e) {
-      document.getElementById('meetingListContainer').innerHTML = '<div class="empty-state" style="grid-column: 1 / -1;">Gagal mengambil data meeting: ' + escapeHtml(e.message) + '</div>';
+      document.getElementById('meetingListContainer').innerHTML = '<div class="empty-state" style="grid-column: 1 / -1;">' + T.meetings_failed + escapeHtml(e.message) + '</div>';
     }
   }
 
@@ -1026,11 +1053,11 @@ String virtualClassroomPage({
     if (!meetings || meetings.length === 0) {
       container.innerHTML = `
         <div class="empty-state" style="grid-column: 1 / -1;">
-          <h4 style="margin-bottom: 6px;">Belum ada jadwal pelajaran</h4>
+          <h4 style="margin-bottom: 6px;">\${T.no_lessons}</h4>
           <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 14px;">
             Jadwal pelajaran yang dipublikasikan akan muncul di sini dan otomatis masuk ke Google Calendar.
           </p>
-          \${currentUser.role === 'teacher' ? '<button class="btn btn-primary" onclick="openCreateMeetingModal()">➕ Jadwalkan Sekarang</button>' : ''}
+          \${currentUser.role === 'teacher' ? '<button class="btn btn-primary" onclick="openCreateMeetingModal()">' + T.schedule_now + '</button>' : ''}
         </div>
       `;
       return;
@@ -1048,13 +1075,13 @@ String virtualClassroomPage({
       let canJoin = false;
 
       if (now >= earlyJoin && now < ends) {
-        roomStatusHtml = '<span class="room-window-badge room-open">🟢 Room Buka (Bisa Masuk)</span>';
+        roomStatusHtml = '<span class="room-window-badge room-open">' + T.room_open + '</span>';
         canJoin = true;
       } else if (now < earlyJoin) {
         const diffMins = Math.round((starts - now) / 60000);
-        roomStatusHtml = '<span class="room-window-badge room-early">⏳ Buka 15 Menit Sebelum Mulai (' + diffMins + 'm lagi)</span>';
+        roomStatusHtml = '<span class="room-window-badge room-early">' + T.room_early.replace(':m', diffMins) + '</span>';
       } else {
-        roomStatusHtml = '<span class="room-window-badge room-closed">🔴 Pelajaran Selesai / Ditutup</span>';
+        roomStatusHtml = '<span class="room-window-badge room-closed">' + T.room_closed + '</span>';
       }
 
       const isTeacher = (currentUser.role === 'teacher');
@@ -1076,24 +1103,24 @@ String virtualClassroomPage({
             <span class="status-badge \${isPublished ? 'status-published' : 'status-draft'}">\${m.status.toUpperCase()}</span>
           </div>
 
-          <div class="m-desc">\${escapeHtml(m.description || 'Tidak ada catatan materi tambahan.')}</div>
+          <div class="m-desc">\${escapeHtml(m.description || T.no_notes)}</div>
 
           <div class="m-meta">
             <div class="meta-row">
-              <span style="color: var(--text-muted);">Mulai:</span>
+              <span style="color: var(--text-muted);">\${T.label_starts}</span>
               <span class="meta-val">\${formatDateTime(starts)}</span>
             </div>
             <div class="meta-row">
-              <span style="color: var(--text-muted);">Selesai:</span>
+              <span style="color: var(--text-muted);">\${T.label_ends}</span>
               <span class="meta-val">\${formatDateTime(ends)}</span>
             </div>
             <div class="meta-row">
-              <span style="color: var(--text-muted);">Status Room:</span>
+              <span style="color: var(--text-muted);">\${T.label_room}</span>
               <span>\${roomStatusHtml}</span>
             </div>
             <div class="meta-row">
-              <span style="color: var(--text-muted);">Kapasitas:</span>
-              <span class="meta-val">\${m.max_participants || 40} Peserta</span>
+              <span style="color: var(--text-muted);">\${T.label_capacity}</span>
+              <span class="meta-val">\${T.participants.replace(':n', m.max_participants || 40)}</span>
             </div>
           </div>
         </div>
@@ -1101,16 +1128,16 @@ String virtualClassroomPage({
         <div class="card-footer">
           <div>
             <button class="btn btn-primary" onclick="handleJoinMeeting('\${meetingId}', '\${escapeHtml(m.name)}')">
-              🚀 Masuk LiveKit Room
+              \${T.join_room}
             </button>
           </div>
 
           \${isTeacher ? `
             <div style="display: flex; gap: 6px;">
-              <button class="btn btn-outline btn-sm" onclick="togglePublishStatus('\${meetingId}', '\${m.status}')" title="Publikasikan / Draft">
-                \${isPublished ? '🔒 Jadikan Draft' : '📢 Publikasikan'}
+              <button class="btn btn-outline btn-sm" onclick="togglePublishStatus('\${meetingId}', '\${m.status}')" title="\${T.publish_title}">
+                \${isPublished ? T.make_draft : T.publish}
               </button>
-              <button class="btn btn-outline btn-sm" style="color: var(--danger); border-color: rgba(239,68,68,0.3);" onclick="handleDeleteMeeting('\${meetingId}')" title="Hapus">
+              <button class="btn btn-outline btn-sm" style="color: var(--danger); border-color: rgba(239,68,68,0.3);" onclick="handleDeleteMeeting('\${meetingId}')" title="\${T.delete_title}">
                 🗑
               </button>
             </div>
@@ -1134,7 +1161,7 @@ String virtualClassroomPage({
   function openCreateMeetingModal() {
     renderClassroomSelect();
     document.getElementById('formErrorBox').style.display = 'none';
-    document.getElementById('formModalTitle').innerText = 'Jadwalkan Pelajaran Baru';
+    document.getElementById('formModalTitle').innerText = T.new_lesson;
     document.getElementById('formMeetingId').value = '';
     document.getElementById('formName').value = '';
     document.getElementById('formDescription').value = '';
@@ -1169,7 +1196,7 @@ String virtualClassroomPage({
       if (!classroomId) classroomId = '1';
 
       const name = document.getElementById('formName').value.trim();
-      if (!name) throw new Error('Nama pelajaran wajib diisi.');
+      if (!name) throw new Error(T.name_required);
 
       const startVal = document.getElementById('formStartsAt').value;
       const endVal = document.getElementById('formEndsAt').value;
@@ -1210,16 +1237,16 @@ String virtualClassroomPage({
         throw new Error(msg);
       }
 
-      showToast('Pelajaran baru berhasil dibuat & disinkronkan ke kalender!');
+      showToast(T.created);
       closeCreateMeetingModal();
       await loadAllData();
     } catch (err) {
-      errBox.innerText = 'Gagal menyimpan pelajaran: ' + err.message;
+      errBox.innerText = T.save_failed + err.message;
       errBox.style.display = 'block';
-      showToast('Gagal: ' + err.message, true);
+      showToast(T.failed + err.message, true);
     } finally {
       btn.disabled = false;
-      btn.innerText = 'Simpan Pelajaran';
+      btn.innerText = T.save_lesson;
     }
   }
 
@@ -1237,15 +1264,15 @@ String virtualClassroomPage({
       });
 
       if (!res.ok) throw new Error('HTTP ' + res.status);
-      showToast('Status berhasil diubah ke: ' + nextStatus.toUpperCase() + ' (Google Calendar otomatis menyesuaikan)');
+      showToast(T.status_changed.replace(':s', nextStatus.toUpperCase()));
       await loadAllData();
     } catch (e) {
-      showToast('Gagal mengubah status: ' + e.message, true);
+      showToast(T.status_failed + e.message, true);
     }
   }
 
   async function handleDeleteMeeting(id) {
-    if (!confirm('Yakin ingin menghapus pelajaran ini? Event Google Calendar terkait juga akan dihapus.')) return;
+    if (!confirm(T.confirm_delete)) return;
     try {
       const res = await fetch('/api/meetings/' + id, {
         method: 'DELETE',
@@ -1255,10 +1282,10 @@ String virtualClassroomPage({
         }
       });
       if (!res.ok) throw new Error('HTTP ' + res.status);
-      showToast('Pelajaran dan event kalender berhasil dihapus.');
+      showToast(T.deleted);
       await loadAllData();
     } catch (e) {
-      showToast('Gagal: ' + e.message, true);
+      showToast(T.failed + e.message, true);
     }
   }
 
@@ -1275,12 +1302,12 @@ String virtualClassroomPage({
 
       if (res.status === 409) {
         const data = await res.json().catch(() => ({}));
-        alert('⚠️ 409 ROOM DITUTUP / BELUM BUKA:\n\n' + (data.message || 'The room opens 15 minutes before the meeting starts and closes when it ends.'));
+        alert(T.room_closed_alert + (data.message || T.room_window));
         return;
       }
 
       if (res.status === 403) {
-        alert('⛔ 403 FORBIDDEN:\n\nAkun Anda (' + currentUser.name + ') bukan siswa di kelas ini dan bukan guru pengampu. Akses room ditolak.');
+        alert(T.forbidden_room.replace(':name', currentUser.name));
         return;
       }
 
@@ -1292,76 +1319,199 @@ String virtualClassroomPage({
       const pass = await res.json();
       openStageModal(meetingName, pass);
     } catch (e) {
-      showToast('Gagal masuk room: ' + e.message, true);
+      showToast(T.join_failed + e.message, true);
     }
   }
 
-  function openStageModal(meetingName, pass) {
+ // LiveKit: a real room through livekit-client, with the token the API
+  // signed. Without a reachable server the token is shown with a hint.
+  let lkRoom = null;
+  const raisedHands = new Set();
+
+  function stageNotice(text) {
+    return '<div class="empty-state" style="grid-column: 1 / -1;">' + escapeHtml(text) + '</div>';
+  }
+
+  function participantRole(p) {
+    try { return JSON.parse(p.metadata || '{}').role || 'student'; } catch (e) { return 'student'; }
+  }
+
+  async function openStageModal(meetingName, pass) {
     document.getElementById('stageMeetingTitle').innerText = meetingName;
     document.getElementById('stageRoomName').innerText = 'LiveKit Room: ' + pass.room + ' (' + pass.url + ')';
-
-    // Parse and show Token JWT
     document.getElementById('jwtTokenDisplay').innerHTML = `
-      <div><strong>LiveKit WebRTC Server:</strong> \${pass.url}</div>
-      <div><strong>Admin Grant:</strong> \${pass.admin ? '<span style="color: #fbbf24;">TRUE (Host/Guru)</span>' : '<span style="color: #34d399;">FALSE (Siswa)</span>'}</div>
-      <div><strong>Token Expires At:</strong> \${pass.expires_at}</div>
-      <div style="margin-top: 6px; word-break: break-all;"><strong>Signed JWT Token:</strong><br>\${pass.token}</div>
+      <div><strong>LiveKit WebRTC Server:</strong> \${escapeHtml(pass.url)}</div>
+      <div><strong>Admin Grant:</strong> \${pass.admin ? '<span style="color: #fbbf24;">' + T.admin_host + '</span>' : '<span style="color: #34d399;">' + T.admin_student + '</span>'}</div>
+      <div><strong>Token Expires At:</strong> \${escapeHtml(pass.expires_at)}</div>
+      <div style="margin-top: 6px; word-break: break-all;"><strong>Signed JWT Token:</strong><br>\${escapeHtml(pass.token)}</div>
     `;
-
-    // Teacher Host Controls
     document.getElementById('btnMuteAll').style.display = pass.admin ? 'inline-flex' : 'none';
-
-    // Render Participant Tiles
     const grid = document.getElementById('stageParticipantsGrid');
-    grid.innerHTML = `
-      <div class="video-tile speaking">
-        <span class="tile-badge \${pass.admin ? 'badge-admin' : 'badge-student'}">\${pass.admin ? 'HOST / ADMIN' : 'PARTICIPANT'}</span>
-        <div class="avatar-circle">\${currentUser.name.charAt(0)}</div>
-        <div class="tile-name">\${currentUser.name} (Anda) \${pass.admin ? '👑' : ''}</div>
-      </div>
-      <div class="video-tile">
-        <span class="tile-badge badge-student">STUDENT</span>
-        <div class="avatar-circle" style="background: #0d9488;">S1</div>
-        <div class="tile-name">Student 1 🎤</div>
-      </div>
-      <div class="video-tile">
-        <span class="tile-badge badge-student">STUDENT</span>
-        <div class="avatar-circle" style="background: #e11d48;">S2</div>
-        <div class="tile-name">Student 2 🎤</div>
-      </div>
-    `;
-
+    grid.innerHTML = stageNotice(T.connecting);
     document.getElementById('livekitStageModal').style.display = 'flex';
+
+    if (typeof LivekitClient === 'undefined') {
+      grid.innerHTML = stageNotice(T.lk_no_client);
+      return;
+    }
+    const room = new LivekitClient.Room({ adaptiveStream: true, dynacast: true });
+    const E = LivekitClient.RoomEvent;
+    room
+      .on(E.TrackSubscribed, renderTiles)
+      .on(E.TrackUnsubscribed, (track) => { track.detach().forEach((el) => el.remove()); renderTiles(); })
+      .on(E.ParticipantConnected, renderTiles)
+      .on(E.ParticipantDisconnected, (p) => { raisedHands.delete(p.identity); renderTiles(); })
+      .on(E.LocalTrackPublished, renderTiles)
+      .on(E.LocalTrackUnpublished, renderTiles)
+      .on(E.TrackMuted, renderTiles)
+      .on(E.TrackUnmuted, renderTiles)
+      .on(E.DataReceived, onRoomData);
+    try {
+      await room.connect(pass.url, pass.token);
+    } catch (e) {
+      grid.innerHTML = stageNotice(T.lk_unreachable.replace(':url', pass.url));
+      return;
+    }
+    lkRoom = room;
+    renderTiles();
+    try {
+      await room.localParticipant.enableCameraAndMicrophone();
+      activeMic = true;
+      activeCam = true;
+    } catch (e) {
+      activeMic = false;
+      activeCam = false;
+      showToast(T.media_denied + e.message, true);
+    }
+    updateMediaButtons();
+    renderTiles();
   }
 
-  function closeStageModal() {
+  function renderTiles() {
+    if (!lkRoom) return;
+    const grid = document.getElementById('stageParticipantsGrid');
+    grid.innerHTML = '';
+    const Source = LivekitClient.Track.Source;
+    const people = [lkRoom.localParticipant, ...lkRoom.remoteParticipants.values()];
+    for (const p of people) {
+      const local = p === lkRoom.localParticipant;
+      const teacher = participantRole(p) === 'teacher';
+      const tile = document.createElement('div');
+      tile.className = 'video-tile' + (p.isSpeaking ? ' speaking' : '');
+      const label = escapeHtml(p.name || p.identity) + (local ? escapeHtml(T.you) : '') + (teacher ? ' 👑' : '') + (raisedHands.has(p.identity) ? ' ✋' : '');
+      tile.innerHTML = '<span class="tile-badge ' + (teacher ? 'badge-admin">HOST' : 'badge-student">STUDENT') + '</span>';
+      const cam = p.getTrackPublication(Source.Camera);
+      if (cam && cam.track && !cam.isMuted) {
+        const video = cam.track.attach();
+        video.className = 'tile-video';
+        if (local) video.muted = true;
+        tile.appendChild(video);
+      } else {
+        const avatar = document.createElement('div');
+        avatar.className = 'avatar-circle';
+        avatar.textContent = (p.name || p.identity).charAt(0).toUpperCase();
+        tile.appendChild(avatar);
+      }
+      if (!local) {
+        const mic = p.getTrackPublication(Source.Microphone);
+        if (mic && mic.track) {
+          const audio = mic.track.attach();
+          audio.style.display = 'none';
+          tile.appendChild(audio);
+        }
+      }
+      const name = document.createElement('div');
+      name.className = 'tile-name';
+      name.innerHTML = label;
+      tile.appendChild(name);
+      grid.appendChild(tile);
+    }
+  }
+
+  function sendRoomData(message) {
+    if (!lkRoom) return;
+    lkRoom.localParticipant.publishData(new TextEncoder().encode(JSON.stringify(message)), { reliable: true });
+  }
+
+  function onRoomData(payload, participant) {
+    let message;
+    try { message = JSON.parse(new TextDecoder().decode(payload)); } catch (e) { return; }
+    if (!participant) return;
+    if (message.type === 'hand') {
+      if (message.up) {
+        raisedHands.add(participant.identity);
+        showToast(T.hand_toast_up.replace(':name', participant.name || participant.identity));
+      } else {
+        raisedHands.delete(participant.identity);
+      }
+      renderTiles();
+    }
+    // Only the teacher's command counts: the role is in the token's
+    // metadata, which the server signed.
+    if (message.type === 'mute_all' && participantRole(participant) === 'teacher' && lkRoom) {
+      lkRoom.localParticipant.setMicrophoneEnabled(false);
+      activeMic = false;
+      updateMediaButtons();
+      showToast(T.muted_by_teacher);
+    }
+  }
+
+  function updateMediaButtons() {
+    const mic = document.getElementById('btnMicToggle');
+    mic.innerText = activeMic ? T.mic_on : T.mic_off;
+    mic.className = activeMic ? 'btn btn-outline' : 'btn btn-warning';
+    const cam = document.getElementById('btnCamToggle');
+    cam.innerText = activeCam ? T.cam_on : T.cam_off;
+    cam.className = activeCam ? 'btn btn-outline' : 'btn btn-warning';
+    const hand = document.getElementById('btnRaiseHand');
+    hand.innerText = handRaised ? T.hand_raised : T.raise_hand;
+    hand.className = handRaised ? 'btn btn-warning' : 'btn btn-outline';
+  }
+
+  async function closeStageModal() {
     document.getElementById('livekitStageModal').style.display = 'none';
+    if (lkRoom) {
+      const room = lkRoom;
+      lkRoom = null;
+      await room.disconnect();
+    }
+    raisedHands.clear();
+    handRaised = false;
+    updateMediaButtons();
   }
 
-  function toggleMic() {
+  async function toggleMic() {
     activeMic = !activeMic;
-    const btn = document.getElementById('btnMicToggle');
-    btn.innerText = activeMic ? '🎤 Mic: Aktif' : '🔇 Mic: Muted';
-    btn.className = activeMic ? 'btn btn-outline' : 'btn btn-warning';
+    if (lkRoom) {
+      try { await lkRoom.localParticipant.setMicrophoneEnabled(activeMic); } catch (e) { showToast(T.media_denied + e.message, true); }
+    }
+    updateMediaButtons();
   }
 
-  function toggleCam() {
+  async function toggleCam() {
     activeCam = !activeCam;
-    const btn = document.getElementById('btnCamToggle');
-    btn.innerText = activeCam ? '📹 Kamera: Aktif' : '🚫 Kamera: Nonaktif';
-    btn.className = activeCam ? 'btn btn-outline' : 'btn btn-warning';
+    if (lkRoom) {
+      try { await lkRoom.localParticipant.setCameraEnabled(activeCam); } catch (e) { showToast(T.media_denied + e.message, true); }
+    }
+    updateMediaButtons();
+    renderTiles();
   }
 
   function toggleRaiseHand() {
     handRaised = !handRaised;
-    const btn = document.getElementById('btnRaiseHand');
-    btn.innerText = handRaised ? '✋ Tangan Diangkat' : '✋ Angkat Tangan';
-    btn.className = handRaised ? 'btn btn-warning' : 'btn btn-outline';
-    showToast(handRaised ? 'Anda mengangkat tangan di kelas!' : 'Menurunkan tangan.');
+    if (lkRoom) {
+      if (handRaised) raisedHands.add(lkRoom.localParticipant.identity);
+      else raisedHands.delete(lkRoom.localParticipant.identity);
+    }
+    sendRoomData({ type: 'hand', up: handRaised });
+    updateMediaButtons();
+    renderTiles();
+    showToast(handRaised ? T.you_raised : T.you_lowered);
   }
 
-  function simulateMuteAll() {
-    showToast('Admin Room Command: Mematikan mic semua siswa di room!');
+  function muteAll() {
+    sendRoomData({ type: 'mute_all' });
+    showToast(T.mute_all_sent);
   }
 
   // Google Calendar Modal
@@ -1371,7 +1521,7 @@ String virtualClassroomPage({
     const events = appState.calendar_events || [];
 
     if (events.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--text-muted);">Belum ada jadwal berstatus published</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--text-muted);">' + T.no_published + '</td></tr>';
     } else {
       events.forEach(ev => {
         const tr = document.createElement('tr');
@@ -1399,7 +1549,7 @@ String virtualClassroomPage({
     const logs = appState.recent_activities || [];
 
     if (logs.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--text-muted);">Belum ada riwayat aktivitas</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--text-muted);">' + T.no_activity + '</td></tr>';
     } else {
       logs.forEach(act => {
         const tr = document.createElement('tr');
@@ -1407,7 +1557,7 @@ String virtualClassroomPage({
         tr.innerHTML = `
           <td style="color: var(--text-muted); font-size: 11px;">\${act.created_at ? formatDateTime(new Date(act.created_at)) : '-'}</td>
           <td><span style="color: \${eventColor}; font-weight: 700; text-transform: uppercase;">\${act.event || 'action'}</span></td>
-          <td><strong>\${escapeHtml(act.description || 'Pelajaran')}</strong></td>
+          <td><strong>\${escapeHtml(act.description || T.lesson)}</strong></td>
           <td><pre style="font-size: 10.5px; color: #a5b4fc; background: rgba(0,0,0,0.3); padding: 4px; border-radius: 4px; max-width: 250px; overflow-x: auto;">\${JSON.stringify(act.properties || {})}</pre></td>
         `;
         tbody.appendChild(tr);

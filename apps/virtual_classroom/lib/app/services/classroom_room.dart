@@ -44,8 +44,13 @@ abstract final class ClassroomRoom {
         maxParticipants: meeting.maxParticipants,
         emptyTimeout: const Duration(minutes: 10),
       );
-    } catch (e) {
-      Log.warning('LiveKit RoomService CreateRoom offline or skipped: $e');
+    } on Object catch (e) {
+      // Without a LiveKit server the page still runs (tokens are signed
+      // locally); in production a failure to open the room is an error.
+      if (Config.section<AppConfig>().isProduction) {
+        rethrow;
+      }
+      Log.warning('LiveKit is not reachable; the room was not created: $e');
     }
     final expiresAt = meeting.endsAt.add(Meeting.grace);
     final token = await Livekit.token(
