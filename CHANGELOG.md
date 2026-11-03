@@ -9,7 +9,9 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 wait for a new major version, and Laravel-facing formats change only to
 match Laravel more closely.
 
-## Unreleased
+## 1.24.1
+
+A documentation release: the API docs on pub.dev, the guide and the example applications; no change to the API.
 
 ### Added
 

@@ -11,6 +11,7 @@ publisher `framework.daravel.dev`.
 
 | Version | Highlights |
 | :-- | :-- |
+| `1.24.1` | Every public API documented, Laravel equivalents in the guide, example apps with setup guides |
 | `1.24.0` | Scout on the database engine with semantic and hybrid search, Pulse drift threshold, WebSocket example |
 | `1.23.1` | Fix: a cache value Laravel wrote to a shared table is a miss, not an error |
 | `1.23.0` | JSON:API resources checked against Laravel 13, `Concurrency`, `Process`, vector columns on PostgreSQL and MariaDB, debounced jobs, automatic eager loading, shadow parity and `LegacyKey` for migrations |
