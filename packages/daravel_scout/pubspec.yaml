@@ -1,6 +1,6 @@
 name: daravel_scout
 description: Laravel Scout for Daravel on the database engine, with LIKE, full text, and semantic and hybrid search on pgvector or MariaDB.
-version: 1.23.1
+version: 1.24.0
 homepage: https://daravel.dev
 repository: https://github.com/daravel-dev/daravel/tree/main/packages/daravel_scout
 issue_tracker: https://github.com/daravel-dev/daravel/issues
@@ -19,7 +19,7 @@ environment:
 resolution: workspace
 
 dependencies:
-  daravel: ^1.23.1
+  daravel: ^1.24.0
 
 dev_dependencies:
   test: ^1.33.0
