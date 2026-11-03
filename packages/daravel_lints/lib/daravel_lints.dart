@@ -1261,10 +1261,18 @@ const Map<String, String> optionalRegistryConventions = <String, String>{
 
 /// `registry_entry_missing`: classes in convention folders that no registry
 /// imports (they would silently never run — ADR-002).
+///
+/// In [calledThrough] folders (seeders), a file also counts as registered
+/// when a registered file of the same folder imports it, directly or
+/// through others: a `DatabaseSeeder` that runs `CandidateSeeder` itself,
+/// as Laravel's `$this->call()` does, needs only the root seeder in the
+/// registry. Elsewhere an import is not enough: a job needs its
+/// `JobDefinition` and a model its entry even when another one imports it.
 List<LintIssue> checkRegistries(
   String root, {
   Map<String, String> conventions = registryConventions,
   Map<String, String> optional = optionalRegistryConventions,
+  Set<String> calledThrough = const {'database/seeders'},
 }) {
   final issues = <LintIssue>[];
   for (final entry in [
@@ -1277,11 +1285,35 @@ List<LintIssue> checkRegistries(
       continue;
     }
     final registered = registry.existsSync() ? registry.readAsStringSync() : '';
-    for (final file in dir.listSync().whereType<File>().where(
-      (f) => f.path.endsWith('.dart'),
-    )) {
+    final files = dir
+        .listSync()
+        .whereType<File>()
+        .where((f) => f.path.endsWith('.dart'))
+        .toList();
+    final sources = {
+      for (final f in files) p.basename(f.path): f.readAsStringSync(),
+    };
+    bool imports(String source, String name) =>
+        RegExp('[\'"](?:\\./|[^\'"]*/)?${RegExp.escape(name)}[\'"]')
+            .hasMatch(source);
+    final reached = {
+      for (final name in sources.keys)
+        if (registered.contains('/$name\'')) name,
+    };
+    // Seeders a reached seeder imports run through it.
+    final queue = calledThrough.contains(entry.key) ? [...reached] : <String>[];
+    while (queue.isNotEmpty) {
+      final source = sources[queue.removeLast()]!;
+      for (final name in sources.keys) {
+        if (!reached.contains(name) && imports(source, name)) {
+          reached.add(name);
+          queue.add(name);
+        }
+      }
+    }
+    for (final file in files) {
       final name = p.basename(file.path);
-      if (!registered.contains('/$name\'')) {
+      if (!reached.contains(name)) {
         issues.add(
           LintIssue(
             rule: 'registry_entry_missing',

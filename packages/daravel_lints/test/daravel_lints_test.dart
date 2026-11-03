@@ -214,6 +214,46 @@ Future<void> f(Request request, Map<String, Object?> data) async {
     expect(issues.last.path, 'lib/app/jobs/orphan.dart');
     expect(issues.last.message, contains('bootstrap/jobs.dart'));
   });
+  test('seeders called by a registered seeder are registered', () async {
+    final root = await Directory.systemTemp.createTemp('daravel_lints_');
+    addTearDown(() => root.delete(recursive: true));
+    void write(String path, String content) {
+      final file = File(p.join(root.path, path));
+      file.parent.createSync(recursive: true);
+      file.writeAsStringSync(content);
+    }
+
+    write(
+      'bootstrap/seeders.dart',
+      "import '../database/seeders/database_seeder.dart';\n",
+    );
+    write(
+      'database/seeders/database_seeder.dart',
+      "import 'candidate_seeder.dart';\nclass DatabaseSeeder {}\n",
+    );
+    // Reached through candidate_seeder.dart, two levels down.
+    write(
+      'database/seeders/candidate_seeder.dart',
+      "import './question_seeder.dart';\nclass CandidateSeeder {}\n",
+    );
+    write('database/seeders/question_seeder.dart', 'class QuestionSeeder {}\n');
+    write('database/seeders/orphan_seeder.dart', 'class OrphanSeeder {}\n');
+    // A job imported by a registered job still needs its own definition.
+    write(
+      'bootstrap/jobs.dart',
+      "import 'package:demo/app/jobs/send_mail.dart';\n",
+    );
+    write(
+      'lib/app/jobs/send_mail.dart',
+      "import 'retry_mail.dart';\nclass SendMail {}\n",
+    );
+    write('lib/app/jobs/retry_mail.dart', 'class RetryMail {}\n');
+
+    expect(checkRegistries(root.path).map((i) => i.path).toList()..sort(), [
+      'database/seeders/orphan_seeder.dart',
+      'lib/app/jobs/retry_mail.dart',
+    ]);
+  });
   test('models are checked only once bootstrap/models.dart exists', () async {
     final root = await Directory.systemTemp.createTemp('daravel_lints_');
     addTearDown(() => root.delete(recursive: true));

@@ -55,6 +55,17 @@ jobs:
             dart run tool/changelog_check.dart --base=HEAD
           fi
 
+      # The example applications are what users copy, so they pass the same
+      # lint rules as a user's project (no_inline_js_interpolation included).
+      - name: Lint the example applications
+        run: |
+          for app in apps/*/; do
+            if [ -f "$app/bin/dartisan.dart" ]; then
+              echo "== $app"
+              (cd "$app" && dart run bin/dartisan.dart lint)
+            fi
+          done
+
       - name: Test (all packages)
         env:
           # `dartisan new` end-to-end (pub get + analyze + test of a generated
