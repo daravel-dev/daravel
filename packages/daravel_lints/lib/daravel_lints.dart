@@ -951,6 +951,10 @@ final class InvalidTimezone extends LintRule {
 /// JavaScript, so a quote in the value still ends the JS string and the
 /// rest runs as code. Put the value in a `data-*` attribute, or keep it in
 /// the script, and bind the handler with `addEventListener`.
+///
+/// Each string literal is read on its own: adjacent literals (`'a' 'b'`)
+/// and concatenation are not joined, so an attribute split across a
+/// literal boundary is not detected.
 final class NoInlineJsInterpolation extends LintRule {
   /// `no_inline_js_interpolation`: no values in `on*=` attributes.
   const NoInlineJsInterpolation();
