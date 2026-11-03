@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:4fe905f79ff3 -->
+<!-- source: README.md sha256:a117bad9f298 -->
 <img src="https://raw.githubusercontent.com/daravel-dev/daravel/main/docs/brand/png/daravel-icon-128.png" alt="Daravel" width="64" align="right">
 
 # daravel_lints
@@ -17,6 +17,7 @@ dijalankan oleh `dartisan lint` dan di test (bukan plugin analyzer IDE).
 | `invalid_validation_rule` | rule validasi yang tidak dikenal dan argumen yang hilang (`max` tanpa nilai) |
 | `unawaited_in_db_transaction` | query di dalam `DB.transaction` yang tidak di-`await` |
 | `invalid_timezone` | nama zona waktu yang tidak dikenal scheduler |
+| `no_inline_js_interpolation` | nilai yang diinterpolasi ke handler inline `on*=` di HTML yang dibangkitkan; escape HTML tidak mencegah tanda kutip menutup string JavaScript (pakai atribut `data-*` dan `addEventListener`) |
 | `registry_entry_missing` | migrasi, job, policy, listener, atau command yang tertinggal dari `bootstrap/` |
 
 Abaikan sebuah temuan dengan `// daravel-lint-ignore: <rule>` di baris yang

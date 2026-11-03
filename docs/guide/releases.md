@@ -65,6 +65,18 @@ page.
   changelog says so.
 - Security fixes are released for the `1.x` line; the `1.0.0` betas are no
   longer supported.
+- A minor release can add names to `package:daravel/daravel.dart`. When an
+  application declares a class with the same name, Dart reports it as
+  imported from both wherever a file imports the two, so a new name that
+  could clash is listed under "Upgrading can change what an application
+  sees" in that release's changelog entry. Use the framework's class, or hide
+  the name in the import:
+
+  ```dart
+  // 1.23.0 exports LegacyKey; this application keeps its own.
+  import 'package:daravel/daravel.dart' hide LegacyKey;
+  import 'package:my_app/app/support/legacy_key.dart';
+  ```
 
 ## Branches
 

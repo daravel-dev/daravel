@@ -106,13 +106,13 @@ void main() {
 
   tearDownAll(() => dir.deleteSync(recursive: true));
 
-  setUp(() async {
-    Clock.fake(DateTime.utc(2026, 11, 2, 7, 0));
+  Future<void> boot(String environment) async {
     calendarEvents.clear();
     app = createApp(
       basePath: dir.path,
       env: {
-        'APP_ENV': 'testing',
+        'APP_ENV': environment,
+        'APP_KEY': 'base64:${base64Encode(List<int>.generate(32, (i) => i))}',
         'DB_DATABASE': ':memory:',
         'QUEUE_CONNECTION': 'sync',
         'LOG_LEVEL': 'error',
@@ -173,6 +173,11 @@ void main() {
       await classroom.attach('students', [ana.id, bo.id]);
     });
     client = TestClient(app);
+  }
+
+  setUp(() async {
+    Clock.fake(DateTime.utc(2026, 11, 2, 7, 0));
+    await boot('testing');
   });
 
   tearDown(() async {
@@ -295,6 +300,34 @@ void main() {
     (await client.actingAs(ana).post('/api/meetings/$id/join'))
         .assertStatus(409);
   });
+
+  test(
+    'only local and testing join when LiveKit cannot open the room',
+    () async {
+      Future<TestResponse> joinWithLivekitDown() async {
+        Clock.fake(DateTime.utc(2026, 11, 2, 7, 0));
+        final id = await schedule();
+        await app.run(
+          () => App.make<HttpClientFactory>().fake({
+            '*/twirp/livekit.RoomService/CreateRoom': Http.response({
+              'code': 'unavailable',
+              'msg': 'down',
+            }, 503),
+          }),
+        );
+        Clock.fake(DateTime.utc(2026, 11, 2, 7, 20));
+        return client.actingAs(ana).post('/api/meetings/$id/join');
+      }
+
+      // The demo tolerates a missing LiveKit server where its routes run.
+      (await joinWithLivekitDown()).assertOk();
+
+      // Staging is not production, but it must not hide the failure either.
+      await app.shutdown();
+      await boot('staging');
+      (await joinWithLivekitDown()).assertStatus(500);
+    },
+  );
 
   test(
     'unpublishing and deleting take the event out of the calendar',
