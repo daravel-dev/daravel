@@ -217,14 +217,24 @@ void main() {
     final found = await audit(
       '<SCRIPT SRC=//cdn.example.net/a.js></SCRIPT>'
       "<script src='https://unpkg.com/b@2/b.js' integrity=''></script>"
-      '<link href="https://cdn.example.net/c.css" rel="preload stylesheet">',
+      '<link href="https://cdn.example.net/c.css" rel="preload stylesheet">'
+      '<link rel="modulepreload" href="https://cdn.example.net/m.js">',
     );
     expect(
       [for (final f in found) f.severity],
-      [AuditSeverity.medium, AuditSeverity.medium, AuditSeverity.low],
+      [
+        AuditSeverity.medium,
+        AuditSeverity.medium,
+        AuditSeverity.low,
+        AuditSeverity.medium,
+      ],
     );
     expect(found.first.message, contains('https://cdn.example.net/a.js'));
-    expect(found.last.message, startsWith('Stylesheet'));
+    expect(found[2].message, startsWith('Stylesheet'));
+    expect(
+      found.last.message,
+      startsWith('Script https://cdn.example.net/m.js'),
+    );
 
     // Only HTML pages are read.
     expect(

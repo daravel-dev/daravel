@@ -734,14 +734,18 @@ final class SecurityAudit {
     }
     final findings = <AuditFinding>[];
     for (final tag in _tag.allMatches(page.body)) {
-      final script = tag[1]!.toLowerCase() == 'script';
       final attributes = tag[2]!;
+      final rels = (_attribute(attributes, 'rel') ?? '').toLowerCase().split(
+        RegExp(r'\s+'),
+      );
+      // A module preload fetches a script, so it needs the hash as well.
+      final script =
+          tag[1]!.toLowerCase() == 'script' || rels.contains('modulepreload');
       final String? url;
-      if (script) {
+      if (tag[1]!.toLowerCase() == 'script') {
         url = _attribute(attributes, 'src');
       } else {
-        final rel = (_attribute(attributes, 'rel') ?? '').toLowerCase();
-        url = rel.split(RegExp(r'\s+')).contains('stylesheet')
+        url = script || rels.contains('stylesheet')
             ? _attribute(attributes, 'href')
             : null;
       }
