@@ -1,0 +1,17 @@
+name: websocket_demo
+description: A clean, working Daravel WebSocket and Broadcasting demo application.
+version: 1.23.1
+publish_to: none
+
+environment:
+  sdk: ^3.13.0
+resolution: workspace
+
+dependencies:
+  daravel: any
+  dartisan_cli: any
+
+dev_dependencies:
+  daravel_test: any
+  lints: ^6.0.0
+  test: ^1.33.0

@@ -30,6 +30,7 @@ workspace:
   - packages/daravel_session
   - apps/daravel_starter
   - apps/virtual_classroom
+  - apps/websocket_demo
   - bench
 
 dev_dependencies:
