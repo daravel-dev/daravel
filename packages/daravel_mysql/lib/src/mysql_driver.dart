@@ -24,6 +24,8 @@ import 'package:mysql_dart/mysql_dart.dart' as my;
 /// from both applications.
 final class MySqlDriver
     implements DatabaseDriver, RetryableErrors, QueryErrors {
+  /// A pooled MySQL or MariaDB connection; usually made by
+  /// [MySqlDriver.fromConfig] from the `DB_*` settings.
   MySqlDriver({
     required this.host,
     required this.database,
@@ -94,15 +96,34 @@ final class MySqlDriver
     );
   }
 
+  /// The server host.
   final String host;
+
+  /// The server port (3306).
   final int port;
+
+  /// The database name.
   final String database;
+
+  /// The user name.
   final String? username;
+
+  /// The password.
   final String? password;
+
+  /// The most connections the pool opens.
   final int maxConnections;
+
+  /// Whether TLS is used.
   final bool secure;
+
+  /// The connection collation (`utf8mb4_unicode_ci`).
   final String collation;
+
+  /// The session time zone; the server's when null.
   final String? timeZone;
+
+  /// How long to wait for a connection.
   final Duration connectTimeout;
 
   /// How long a statement may run (`DB_QUERY_TIMEOUT`, 30 s like

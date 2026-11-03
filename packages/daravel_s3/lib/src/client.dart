@@ -15,6 +15,7 @@ import 'xml.dart';
 /// S3 refused a request. [code] is S3's (`NoSuchBucket`, `AccessDenied`,
 /// `SignatureDoesNotMatch`, ...) when the response carried one.
 final class S3Exception extends DaravelException {
+  /// An S3 error with its status, code and request id.
   const S3Exception(
     super.message, {
     required this.status,
@@ -22,8 +23,13 @@ final class S3Exception extends DaravelException {
     this.requestId,
   });
 
+  /// The HTTP status.
   final int status;
+
+  /// The S3 error code (`NoSuchKey`...).
   final String? code;
+
+  /// The request id, for support.
   final String? requestId;
 }
 
@@ -37,6 +43,7 @@ typedef S3Listing = ({List<String> keys, List<String> prefixes});
 /// The S3 REST calls the disk is made of, over `dart:io` so bodies stay
 /// binary and downloads stream. Keys are full object keys (no disk root).
 final class S3Client {
+  /// A client of a bucket at an endpoint, signing with SigV4.
   S3Client({
     required this.signer,
     required this.bucket,
@@ -51,8 +58,13 @@ final class S3Client {
        ),
        _httpClient = httpClient ?? HttpClient.new;
 
+  /// Signs the requests.
   final SigV4Signer signer;
+
+  /// The bucket.
   final String bucket;
+
+  /// The S3 endpoint.
   final Uri endpoint;
 
   /// `endpoint/bucket/key` rather than `bucket.endpoint/key`.
@@ -70,6 +82,8 @@ final class S3Client {
   /// Every call carries its whole body in memory, so a resend is exact,
   /// and every S3 call here is idempotent.
   final int retries;
+
+  /// The wait before a retry.
   final Duration retryDelay;
 
   final HttpClient Function() _httpClient;
@@ -283,6 +297,7 @@ final class S3Client {
     return utf8.decode(builder.takeBytes(), allowMalformed: true);
   }
 
+  /// Uploads an object.
   Future<void> putObject(
     String key,
     List<int> bytes, {
@@ -461,6 +476,7 @@ final class S3Client {
     return etag;
   }
 
+  /// Completes a multipart upload from its parts.
   Future<void> completeMultipartUpload(
     String key,
     String uploadId,
@@ -489,6 +505,7 @@ final class S3Client {
     }
   }
 
+  /// Abandons a multipart upload.
   Future<void> abortMultipartUpload(String key, String uploadId) => send(
     'DELETE',
     key,

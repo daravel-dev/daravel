@@ -113,6 +113,8 @@ abstract final class LaravelContract {
 
   /// `pagination.previous` / `pagination.next`.
   static const String previousLabel = '&laquo; Previous';
+
+  /// The label of Laravel's next page link.
   static const String nextLabel = 'Next &raquo;';
 
   /// Page labels of `LengthAwarePaginator::linkCollection()` between the
@@ -148,6 +150,8 @@ abstract final class LaravelContract {
     'prev',
     'next',
   ];
+
+  /// Paginator keys a resource collection's `meta` leaves out.
   static const Set<String> resourceMetaExcluded = <String>{
     'data',
     'first_page_url',

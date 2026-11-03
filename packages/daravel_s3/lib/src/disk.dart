@@ -14,14 +14,19 @@ import 'signer.dart';
 /// Flutter app uploading straight to the bucket (Laravel's
 /// `temporaryUploadUrl` array: `url` and `headers`).
 final class S3PresignedRequest {
+  /// A presigned request: [method] on [url] with [headers].
   const S3PresignedRequest(this.method, this.url, this.headers);
 
+  /// The HTTP method.
   final String method;
+
+  /// The presigned URL.
   final String url;
 
   /// Headers the request must carry unchanged: they are signed.
   final Map<String, String> headers;
 
+  /// The request as JSON, for a browser client.
   Map<String, Object?> toJson() => {
     'method': method,
     'url': url,
@@ -34,13 +39,16 @@ final class S3PresignedRequest {
 /// file as the last field, named `file`. Unlike a presigned `PUT` the
 /// policy can bound the size and the content type.
 final class S3PresignedPost {
+  /// A presigned form upload to [url] with [fields].
   const S3PresignedPost(this.url, this.fields);
 
+  /// The form's action URL.
   final String url;
 
   /// Form fields to send unchanged, before `file`.
   final Map<String, String> fields;
 
+  /// The upload as JSON, for a browser client.
   Map<String, Object?> toJson() => {
     'method': 'POST',
     'url': url,
@@ -56,6 +64,7 @@ final class S3PresignedPost {
 /// marker object flysystem writes, so Laravel and Daravel see the same
 /// tree.
 final class S3Disk implements Disk {
+  /// The `s3` disk over a client.
   S3Disk(
     this.name,
     this.client, {
@@ -95,6 +104,8 @@ final class S3Disk implements Disk {
 
   @override
   final String name;
+
+  /// The S3 client.
   final S3Client client;
 
   /// The public base URL of [url] (`AWS_URL`, a CDN); the bucket's own URL

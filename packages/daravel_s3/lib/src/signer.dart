@@ -39,6 +39,7 @@ String awsUriEncode(String value, {bool keepSlash = false}) {
 /// Paths of the [Uri]s given are used as they are, so they must already be
 /// encoded with [awsUriEncode] (S3 does not encode them twice).
 final class SigV4Signer {
+  /// A signer with [accessKey] and [secretKey] for [service] in [region].
   const SigV4Signer({
     required this.accessKey,
     required this.secretKey,
@@ -47,9 +48,16 @@ final class SigV4Signer {
     this.sessionToken,
   });
 
+  /// The access key id.
   final String accessKey;
+
+  /// The secret access key.
   final String secretKey;
+
+  /// The region.
   final String region;
+
+  /// The service (`s3`).
   final String service;
 
   /// A temporary credential's token (`AWS_SESSION_TOKEN`), sent as
