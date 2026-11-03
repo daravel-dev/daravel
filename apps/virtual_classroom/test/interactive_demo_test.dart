@@ -120,6 +120,74 @@ void main() {
     },
   );
 
+  test('throttle:login: the sixth try in a minute gets a 429', () async {
+    final wrong = {'email': 'student1@example.com', 'password': 'nope'};
+    for (var i = 0; i < 5; i++) {
+      (await client.post('/api/auth/login', json: wrong)).assertUnprocessable();
+    }
+    final blocked = await client.post('/api/auth/login', json: wrong)
+      ..assertStatus(429);
+    expect(blocked.headers['retry-after'], isNotNull);
+
+    // Even the right password waits: the limit counts tries, not failures.
+    (await client.post(
+      '/api/auth/login',
+      json: {'email': 'student1@example.com', 'password': 'password'},
+    )).assertStatus(429);
+
+    // The key is the email and address, so another account is not blocked.
+    (await client.post(
+      '/api/auth/login',
+      json: {'email': 'teacher@example.com', 'password': 'password'},
+    )).assertOk();
+  });
+
+  test('meeting data never reaches inline JavaScript', () async {
+    final page = (await client.get('/', headers: {'Accept': 'text/html'})).body;
+    // An onclick, onerror, ... attribute that interpolates a template
+    // value: the browser decodes entities in the attribute before parsing
+    // the JavaScript, so HTML escaping does not stop a quote in the value
+    // from ending a JS string.
+    final inlineInterpolation = RegExp(r'\son[a-z]+\s*=\s*"[^"]*\$\{');
+    expect(inlineInterpolation.hasMatch(page), isFalse);
+    expect(page, isNot(contains('handleJoinMeeting(\'')));
+    expect(page, contains("addEventListener('click', () => handleJoinMeeting"));
+
+    // A hostile name is stored and served as data, unchanged; the page
+    // renders it through escapeHtml into text, never into code.
+    const hostile = "x'); alert(document.cookie); ('</script><script>alert(1)";
+    final classroomId = await app.run(
+      () async => (await Classroom.query().first())!.id,
+    );
+    final created = await client
+        .actingAs(teacher)
+        .post(
+          '/api/classrooms/$classroomId/meetings',
+          json: {
+            'name': hostile,
+            'starts_at': '2030-01-01T08:00:00Z',
+            'ends_at': '2030-01-01T09:00:00Z',
+            'status': 'published',
+          },
+        );
+    created.assertCreated().assertJsonPath('data.name', hostile);
+  });
+
+  test(
+    'the livekit-client script is pinned with Subresource Integrity',
+    () async {
+      final page = (await client.get(
+        '/',
+        headers: {'Accept': 'text/html'},
+      )).body;
+      final tag = RegExp(
+        r'<script src="https://cdn\.jsdelivr\.net/npm/livekit-client@[^"]+"[^>]*>',
+      ).firstMatch(page)![0]!;
+      expect(tag, contains('integrity="sha384-'));
+      expect(tag, contains('crossorigin="anonymous"'));
+    },
+  );
+
   test('the demo endpoints answer 404 outside local and testing', () async {
     final key = base64Encode(List<int>.generate(32, (i) => i));
     final production = createApp(
