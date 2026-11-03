@@ -5,6 +5,17 @@ import 'package:daravel/daravel.dart'
 
 import '../../lang/classroom_lines.dart';
 
+/// The livekit-client build the page loads from jsDelivr.
+const livekitClientUrl =
+    'https://cdn.jsdelivr.net/npm/livekit-client@2.22.4/dist/livekit-client.umd.js';
+
+/// Subresource Integrity hash of [livekitClientUrl], so the browser refuses
+/// the script if the CDN ever serves different bytes. Computed from the
+/// file in the npm tarball of livekit-client 2.22.4 (identical to the CDN
+/// copy); update it together with the version.
+const livekitClientIntegrity =
+    'sha384-5qI/UmLG0CvuWCt6vqjMW1oRwzXu+MNhbw4x6yo9NARdlqi94LwQfq9wvDTIcfrD';
+
 /// Renders the Interactive Virtual Classroom Single Page Web Application.
 String virtualClassroomPage({
   required String appName,
@@ -887,7 +898,7 @@ String virtualClassroomPage({
 </div>
 
 <!-- Client App Logic -->
-<script src="https://cdn.jsdelivr.net/npm/livekit-client@2.22.4/dist/livekit-client.umd.js"></script>
+<script src="$livekitClientUrl" integrity="$livekitClientIntegrity" crossorigin="anonymous"></script>
 <script>
   const T = $script;
   const LANG = '${htmlEscape.convert(locale)}';
@@ -1086,7 +1097,7 @@ String virtualClassroomPage({
 
       const isTeacher = (currentUser.role === 'teacher');
       const isPublished = (m.status === 'published');
-      const meetingId = m.id || m.uuid;
+      const meetingId = m.id;
       const classroomName = (appState.classrooms && appState.classrooms.length > 0)
         ? appState.classrooms[0].name
         : 'Mathematics 7A';
@@ -1127,23 +1138,36 @@ String virtualClassroomPage({
 
         <div class="card-footer">
           <div>
-            <button class="btn btn-primary" onclick="handleJoinMeeting('\${meetingId}', '\${escapeHtml(m.name)}')">
+            <button class="btn btn-primary" data-action="join">
               \${T.join_room}
             </button>
           </div>
 
           \${isTeacher ? `
             <div style="display: flex; gap: 6px;">
-              <button class="btn btn-outline btn-sm" onclick="togglePublishStatus('\${meetingId}', '\${m.status}')" title="\${T.publish_title}">
+              <button class="btn btn-outline btn-sm" data-action="publish" title="\${escapeHtml(T.publish_title)}">
                 \${isPublished ? T.make_draft : T.publish}
               </button>
-              <button class="btn btn-outline btn-sm" style="color: var(--danger); border-color: rgba(239,68,68,0.3);" onclick="handleDeleteMeeting('\${meetingId}')" title="\${T.delete_title}">
+              <button class="btn btn-outline btn-sm" style="color: var(--danger); border-color: rgba(239,68,68,0.3);" data-action="delete" title="\${escapeHtml(T.delete_title)}">
                 🗑
               </button>
             </div>
           ` : ''}
         </div>
       `;
+      // Meeting data never goes into inline JavaScript: the browser decodes
+      // HTML entities in an onclick attribute before the script is parsed,
+      // so an escaped quote in a name would still end the JS string. The
+      // handlers read the meeting from this closure instead.
+      card.dataset.meetingId = String(meetingId);
+      card.querySelector('[data-action="join"]')
+        .addEventListener('click', () => handleJoinMeeting(meetingId, m.name));
+      if (isTeacher) {
+        card.querySelector('[data-action="publish"]')
+          .addEventListener('click', () => togglePublishStatus(meetingId, m.status));
+        card.querySelector('[data-action="delete"]')
+          .addEventListener('click', () => handleDeleteMeeting(meetingId));
+      }
       container.appendChild(card);
     });
   }
@@ -1185,7 +1209,7 @@ String virtualClassroomPage({
 
     const btn = document.getElementById('btnSubmitMeeting');
     btn.disabled = true;
-    btn.innerText = 'Menyimpan...';
+    btn.innerText = T.saving;
 
     try {
       if (!currentUser.token) {
