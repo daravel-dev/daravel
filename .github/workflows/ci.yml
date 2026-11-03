@@ -21,6 +21,9 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The Changelog step compares a pull request with its base.
+          fetch-depth: 2
 
       - uses: dart-lang/setup-dart@v1
         with:
@@ -40,6 +43,17 @@ jobs:
 
       - name: Every package has an example and a publish job after its dependencies
         run: dart run tool/publish_checks.dart
+
+      # `## Unreleased` stays on main; a new export needs an upgrade note.
+      # On a pull request, HEAD is GitHub's merge commit and HEAD^1 the base.
+      - name: Changelog
+        run: |
+          dart run tool/changelog_selftest.dart
+          if [ "${{ github.event_name }}" = pull_request ]; then
+            dart run tool/changelog_check.dart --base=HEAD^1
+          else
+            dart run tool/changelog_check.dart --base=HEAD
+          fi
 
       - name: Test (all packages)
         env:
