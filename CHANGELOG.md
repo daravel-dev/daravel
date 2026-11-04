@@ -30,6 +30,8 @@ match Laravel more closely.
 
 ### Fixed
 
+- The query builder validates the structural SQL arguments `operator` and `boolean` in every clause: `boolean` must be `AND` or `OR` (any case) on every `where*`, `having` and join condition, and `whereColumn`, `having`/`orHaving`, `join`/`leftJoin`/`rightJoin`, `joinSub` and `JoinBuilder.on`/`orOn`/`where` take only the operators `where` already accepted (`!=` is written `<>`). Anything else throws an `ArgumentError` before SQL is built, and the grammars write only those tokens, even for a hand-built `QueryAst`; before, both arguments went into the SQL text as given. An application that passed another operator to one of those methods (`<=>`, `@>`, `SIMILAR TO`) gets the `ArgumentError` now and writes that condition with `whereRaw`/`havingRaw`.
+
 ## 1.25.0
 
 For an application that moves from Laravel route by route. `withUpstream` now forwards forms, uploads, the client's method and its `Host` as sent, and its shadow replay can compare a moved route's answer byte for byte. JWTs are shared with tymon/jwt-auth's `lock_subject`, and Sanctum tokens and JWTs are checked both ways beside real Laravel 8 to 13. Two security checks are new: inline JavaScript built from values (`daravel_lints`), and scripts from another origin without Subresource Integrity (`security:audit`).

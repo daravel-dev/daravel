@@ -9,6 +9,7 @@ import '../database_manager.dart';
 import 'paginator.dart';
 import 'query_ast.dart';
 import 'query_grammar.dart';
+import 'sql_tokens.dart';
 
 /// Thrown by `firstOrFail()` / `sole()`.
 final class RecordNotFoundException extends HttpException {
@@ -131,8 +132,7 @@ final class QueryBuilder {
     if (column is void Function(QueryBuilder)) {
       final nested = QueryBuilder(_db, _ast.table, connection: _connection);
       column(nested);
-      _ast.wheres.add(NestedWhere(nested._ast.wheres, boolean: boolean));
-      return this;
+      return _add(NestedWhere(nested._ast.wheres, boolean: boolean));
     }
     if (column is Map<String, Object?>) {
       for (final entry in column.entries) {
@@ -171,7 +171,9 @@ final class QueryBuilder {
     String operator,
     String second, [
     String boolean = 'AND',
-  ]) => _add(ColumnWhere(first, operator, second, boolean: boolean));
+  ]) => _add(
+    ColumnWhere(first, SqlTokens.operator(operator), second, boolean: boolean),
+  );
 
   /// `column IN (...)` for a list of [values], or for the rows of a
   /// [QueryBuilder] subquery; [not] makes it `NOT IN`. An empty list matches
@@ -490,7 +492,11 @@ final class QueryBuilder {
       first(JoinBuilder(clause));
     } else {
       clause.conditions.add(
-        JoinCondition(first: first, operator: operator ?? '=', second: second),
+        JoinCondition(
+          first: first,
+          operator: SqlTokens.operator(operator ?? '='),
+          second: second,
+        ),
       );
     }
     _ast.joins.add(clause);
@@ -537,7 +543,11 @@ final class QueryBuilder {
     final clause =
         JoinClause(type: type, table: alias, alias: alias, subQuery: sub._ast)
           ..conditions.add(
-            JoinCondition(first: first, operator: operator, second: second),
+            JoinCondition(
+              first: first,
+              operator: SqlTokens.operator(operator),
+              second: second,
+            ),
           );
     _ast.joins.add(clause);
     return this;
@@ -563,7 +573,14 @@ final class QueryBuilder {
     Object? value, [
     String boolean = 'AND',
   ]) {
-    _ast.havings.add(HavingClause(column, operator, value, boolean: boolean));
+    _ast.havings.add(
+      HavingClause(
+        column,
+        SqlTokens.operator(operator),
+        value,
+        boolean: SqlTokens.boolean(boolean),
+      ),
+    );
     return this;
   }
 
@@ -1219,7 +1236,10 @@ final class QueryBuilder {
   // Helpers
   // ---------------------------------------------------------------------------
 
+  /// Every where clause comes through here: its `boolean` must be `AND` or
+  /// `OR` ([SqlTokens.boolean]), whichever method made it.
   QueryBuilder _add(WhereClause clause) {
+    SqlTokens.boolean(clause.boolean);
     _ast.wheres.add(clause);
     return this;
   }
@@ -1230,48 +1250,16 @@ final class QueryBuilder {
   ) {
     if (value == null &&
         operatorOrValue is String &&
-        _operators.contains(operatorOrValue.toUpperCase())) {
+        SqlTokens.isOperator(operatorOrValue)) {
       // where('col', '>') without a value is ambiguous; treat as value.
       return ('=', operatorOrValue);
     }
     if (value != null ||
-        (operatorOrValue is String &&
-            _operators.contains(operatorOrValue.toUpperCase()))) {
-      final operator = '$operatorOrValue'.toUpperCase();
-      if (!_operators.contains(operator)) {
-        throw ArgumentError.value(
-          operatorOrValue,
-          'operator',
-          'Unsupported SQL operator',
-        );
-      }
-      return (operator == '!=' ? '<>' : operator, value);
+        (operatorOrValue is String && SqlTokens.isOperator(operatorOrValue))) {
+      return (SqlTokens.operator('$operatorOrValue'), value);
     }
     return ('=', operatorOrValue);
   }
-
-  static const Set<String> _operators = {
-    '=',
-    '<',
-    '>',
-    '<=',
-    '>=',
-    '<>',
-    '!=',
-    'LIKE',
-    'NOT LIKE',
-    'ILIKE',
-    'IN',
-    'IS',
-    'IS NOT',
-    '&',
-    '|',
-    '<<',
-    '>>',
-    '~',
-    '!~',
-    'REGEXP',
-  };
 
   static List<Map<String, Object?>> _rows(Object rows) => switch (rows) {
     Map<String, Object?>() => [rows],
@@ -1316,9 +1304,9 @@ final class JoinBuilder {
     _clause.conditions.add(
       JoinCondition(
         first: first,
-        operator: operator,
+        operator: SqlTokens.operator(operator),
         second: second,
-        boolean: boolean,
+        boolean: SqlTokens.boolean(boolean),
       ),
     );
     return this;
@@ -1338,9 +1326,9 @@ final class JoinBuilder {
     _clause.conditions.add(
       JoinCondition(
         first: column,
-        operator: operator,
+        operator: SqlTokens.operator(operator),
         second: value,
-        boolean: boolean,
+        boolean: SqlTokens.boolean(boolean),
         isValue: true,
       ),
     );

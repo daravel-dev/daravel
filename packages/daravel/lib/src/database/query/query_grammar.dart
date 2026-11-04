@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import '../query_executor.dart';
 import 'query_ast.dart';
+import 'sql_tokens.dart';
 
 /// SQL text plus its ordered bindings, ready for a driver.
 final class CompiledQuery {
@@ -279,13 +280,13 @@ abstract class QueryGrammar {
     for (var i = 0; i < join.conditions.length; i++) {
       final cond = join.conditions[i];
       if (i > 0) {
-        buffer.write(' ${cond.boolean} ');
+        buffer.write(' ${SqlTokens.boolean(cond.boolean)} ');
       }
       final first = cond.first is RawExpression
           ? c.raw(cond.first as RawExpression)
           : wrap(cond.first);
       final second = cond.isValue ? c.bind(cond.second) : wrap(cond.second!);
-      buffer.write('$first ${cond.operator} $second');
+      buffer.write('$first ${SqlTokens.operator(cond.operator)} $second');
     }
     return buffer.toString();
   }
@@ -295,7 +296,7 @@ abstract class QueryGrammar {
     for (var i = 0; i < wheres.length; i++) {
       final where = wheres[i];
       if (i > 0) {
-        buffer.write(' ${where.boolean} ');
+        buffer.write(' ${SqlTokens.boolean(where.boolean)} ');
       }
       buffer.write(_where(where, c));
     }
@@ -304,10 +305,11 @@ abstract class QueryGrammar {
 
   String _where(WhereClause where, Compilation c) => switch (where) {
     BasicWhere(:final column, :final operator, :final value) =>
-      '${column is RawExpression ? c.raw(column) : wrap(column)} $operator '
+      '${column is RawExpression ? c.raw(column) : wrap(column)} '
+          '${SqlTokens.operator(operator)} '
           '${value is RawExpression ? c.raw(value) : c.bind(_operand(column, value))}',
     ColumnWhere(:final first, :final operator, :final second) =>
-      '${wrap(first)} $operator ${wrap(second)}',
+      '${wrap(first)} ${SqlTokens.operator(operator)} ${wrap(second)}',
     InWhere(:final column, :final values, :final subQuery, :final not) => _in(
       column,
       values,
@@ -327,7 +329,8 @@ abstract class QueryGrammar {
       RawExpression(sql, bindings),
     ),
     DatePartWhere(:final column, :final part, :final operator, :final value) =>
-      '${datePart(part, wrap(column))} $operator ${c.bind(value)}',
+      '${datePart(part, wrap(column))} ${SqlTokens.operator(operator)} '
+          '${c.bind(value)}',
     JsonWhere(
       :final column,
       :final kind,
@@ -335,7 +338,7 @@ abstract class QueryGrammar {
       :final value,
       :final not,
     ) =>
-      jsonWhere(column, kind, operator, value, not, c),
+      jsonWhere(column, kind, SqlTokens.operator(operator), value, not, c),
   };
 
   String _in(
@@ -359,7 +362,7 @@ abstract class QueryGrammar {
     for (var i = 0; i < havings.length; i++) {
       final having = havings[i];
       if (i > 0) {
-        buffer.write(' ${having.boolean} ');
+        buffer.write(' ${SqlTokens.boolean(having.boolean)} ');
       }
       final raw = having.raw;
       if (raw != null) {
@@ -368,7 +371,10 @@ abstract class QueryGrammar {
         final column = having.column is RawExpression
             ? c.raw(having.column! as RawExpression)
             : wrap(having.column!);
-        buffer.write('$column ${having.operator} ${c.bind(having.value)}');
+        buffer.write(
+          '$column ${SqlTokens.operator(having.operator!)} '
+          '${c.bind(having.value)}',
+        );
       }
     }
     return buffer.toString();
