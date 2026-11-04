@@ -26,6 +26,39 @@ class Exam extends Model
     protected $casts = ['price' => 'decimal:2', 'ratio' => 'decimal:3'];
 }
 
+// The token steps: laravel/sanctum is installed in every image (11 and up
+// do not ship it), but laravel/laravel 11+ users have no HasApiTokens.
+// This subclass has it, and the morph map keeps tokenable_type the
+// skeleton's App\Models\User, which is what Daravel writes.
+if (trait_exists(Laravel\Sanctum\HasApiTokens::class)) {
+    class MatrixTokenUser extends App\Models\User
+    {
+        use Laravel\Sanctum\HasApiTokens;
+
+        protected $table = 'users';
+    }
+}
+
+// The JWT steps: tymon/jwt-auth ^2.2 where its constraints allow. The user
+// model implements JWTSubject; with lock_subject (the default) its class
+// name is what `prv` hashes, on both sides.
+if (interface_exists(Tymon\JWTAuth\Contracts\JWTSubject::class)) {
+    class MatrixJwtUser extends App\Models\User implements Tymon\JWTAuth\Contracts\JWTSubject
+    {
+        protected $table = 'users';
+
+        public function getJWTIdentifier()
+        {
+            return $this->getKey();
+        }
+
+        public function getJWTCustomClaims()
+        {
+            return [];
+        }
+    }
+}
+
 $step = $argv[1];
 $cookie = 'interop_session';
 $login = 'login_web_'.sha1(Illuminate\Auth\SessionGuard::class);
@@ -234,7 +267,66 @@ switch ($step) {
             $table->longText('payload');
             $table->integer('last_activity')->index();
         });
+        // laravel/sanctum's personal_access_tokens migration (4.x).
+        Schema::create('personal_access_tokens', function ($table) {
+            $table->id();
+            $table->morphs('tokenable');
+            $table->text('name');
+            $table->string('token', 64)->unique();
+            $table->text('abilities')->nullable();
+            $table->timestamp('last_used_at')->nullable();
+            $table->timestamp('expires_at')->nullable()->index();
+            $table->timestamps();
+        });
         echo app()->version(), ' PHP ', PHP_VERSION, "\n";
+        break;
+
+    case 'token-write': // [expired]
+        Illuminate\Database\Eloquent\Relations\Relation::morphMap([App\Models\User::class => MatrixTokenUser::class]);
+        $new = MatrixTokenUser::find(7)->createToken('matrix', ['posts:read']);
+        if (($argv[2] ?? '') === 'expired') {
+            $new->accessToken->forceFill(['expires_at' => now()->subMinute()])->save();
+        }
+        echo json_encode(['plain' => $new->plainTextToken]), "\n";
+        break;
+
+    case 'jwt-write': // [expired]
+    case 'jwt-read': // <token>
+        // Package discovery does not run (--no-scripts): register tymon here.
+        $app->register(Tymon\JWTAuth\Providers\LaravelServiceProvider::class);
+        config([
+            'auth.guards.jwt' => ['driver' => 'jwt', 'provider' => 'users'],
+            'auth.providers.users.model' => MatrixJwtUser::class,
+            // tymon's blacklist reads the cache; Laravel 11+ defaults to the
+            // database store, whose table this test database does not have.
+            'cache.default' => 'array',
+        ]);
+        if ($step === 'jwt-write') {
+            $user = MatrixJwtUser::find(7);
+            $token = ($argv[2] ?? '') === 'expired'
+                ? Tymon\JWTAuth\Facades\JWTAuth::customClaims(['exp' => time() - 60])->fromUser($user)
+                : Tymon\JWTAuth\Facades\JWTAuth::fromUser($user);
+            echo json_encode(['plain' => $token]), "\n";
+        } else {
+            // tymon's own guard: required_claims, lock_subject's prv, exp.
+            $guard = Auth::guard('jwt');
+            $guard->setToken($argv[2]);
+            echo json_encode(['user' => $guard->user()?->id]), "\n";
+        }
+        break;
+
+    case 'token-read': // <plain token>
+        Illuminate\Database\Eloquent\Relations\Relation::morphMap([App\Models\User::class => MatrixTokenUser::class]);
+        // Sanctum's own guard, as `auth:sanctum` runs it for a bearer token.
+        $guard = new Laravel\Sanctum\Guard(app('auth'), null, null);
+        $user = $guard(Request::create('/', 'GET', [], [], [], ['HTTP_AUTHORIZATION' => 'Bearer '.$argv[2]]));
+        $id = (int) explode('|', $argv[2])[0];
+        echo json_encode([
+            'user' => $user?->id,
+            'can' => $user ? $user->tokenCan('posts:read') : null,
+            'cannot' => $user ? $user->tokenCan('posts:write') : null,
+            'last_used' => DB::table('personal_access_tokens')->where('id', $id)->value('last_used_at') !== null,
+        ]), "\n";
         break;
 
     case 'write':

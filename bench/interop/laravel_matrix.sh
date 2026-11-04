@@ -13,7 +13,10 @@
 #    SESSION_ENCRYPT: Laravel's Store writes one, Daravel reads and updates
 #    it, Laravel reads it back with the user still logged in; and the other
 #    way round for a session Daravel creates.
-# B. Crypt and bcrypt, both ways.
+# B. Crypt and bcrypt, both ways. Sanctum tokens both ways, with Sanctum's
+#    own guard on the Laravel side: abilities, last_used_at and (10 on)
+#    expires_at. tymon/jwt-auth JWTs both ways with lock_subject's prv,
+#    on every version tymon ^2.2 installs on.
 #    The `web` guard both ways: logged in on one side, logged in on the other.
 # C. Byte for byte, with COMPAT_LARAVEL_VERSION: the 422, 404 and 405 bodies,
 #    accepted and declined messages, model JSON (snake_case relations,
@@ -26,6 +29,8 @@ WORK=${WORK:-$HOME/daravel-bench}
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
 VERSIONS=${VERSIONS:-8 9 10 11 12 13}
 KEY="base64:$(head -c 32 /dev/urandom | base64)"
+# tymon/jwt-auth's JWT_SECRET is a plain string (jwt:secret writes 64 chars).
+JWT_KEY="$(head -c 48 /dev/urandom | base64 | tr -d '/+=' | head -c 64)"
 
 # Created here first: a directory Docker creates for a mount is root's.
 mkdir -p "$WORK" || exit 1
@@ -52,6 +57,8 @@ RUN apt-get update -qq && apt-get install -qq -y git unzip >/dev/null
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 RUN composer config --global audit.block-insecure false \
  && composer create-project laravel/laravel:^$1.0 /app --no-interaction --prefer-dist --no-scripts -q \
+ && cd /app && (composer show laravel/sanctum >/dev/null 2>&1 || composer require laravel/sanctum --no-scripts -q) \
+ && (composer require tymon/jwt-auth:^2.2 --no-scripts -q || true) \
  && cp /app/.env.example /app/.env
 DOCKER
 }
@@ -78,7 +85,8 @@ for major in $VERSIONS; do
   mkdir -p "$shared"
   env_for=(-e APP_ENV=production -e APP_DEBUG=false -e "APP_KEY=$KEY" -e APP_CIPHER=AES-256-CBC
     -e DB_CONNECTION=sqlite -e DB_DATABASE=/shared/app.sqlite -e SESSION_DRIVER=database
-    -e BCRYPT_ROUNDS=10 -e HASH_DRIVER=bcrypt -e "COMPAT_LARAVEL_VERSION=$major")
+    -e BCRYPT_ROUNDS=10 -e HASH_DRIVER=bcrypt -e "COMPAT_LARAVEL_VERSION=$major"
+    -e "JWT_SECRET=$JWT_KEY" -e JWT_SUBJECT_CLASS=MatrixJwtUser -e JWT_LEEWAY=0)
   laravel() { # env... -- step args
     local extra=()
     while [[ $1 != -- ]]; do extra+=("$1"); shift; done
@@ -164,6 +172,47 @@ for major in $VERSIONS; do
   written=$(daravel -- remember)
   check "Laravel logs in from Daravel's cookie" '"user":7' \
     "$(laravel -- recall "$(name_of "$written")" "$(cookie_of "$written")")"
+
+  echo " Sanctum tokens"
+  plain_of() { sed -E 's/.*"plain":"([^"]*)".*/\1/' <<<"$1"; }
+  sanctum=$(docker run --rm "$image" sh -c 'cd /app && composer show laravel/sanctum 2>/dev/null' | sed -nE 's/^versions : \* v?([0-9.]+).*/\1/p')
+  echo "  (laravel/sanctum $sanctum)"
+  token=$(plain_of "$(laravel -- token-write)")
+  read=$(daravel -- token-read "$token")
+  check "Daravel accepts Laravel's token" '"user":7' "$read"
+  check "with its abilities" '"can":true,"cannot":false' "$read"
+  check "and records last_used_at" '"last_used":true' "$read"
+  token=$(plain_of "$(daravel -- token-write)")
+  read=$(laravel -- token-read "$token")
+  check "Laravel accepts Daravel's token" '"user":7' "$read"
+  check "with its abilities" '"can":true,"cannot":false' "$read"
+  check "and records last_used_at" '"last_used":true' "$read"
+  # expires_at is read by Sanctum 3.3 and later (Laravel 10 on).
+  if [ "$major" -ge 10 ]; then
+    check "Daravel refuses Laravel's expired token" '"user":null' \
+      "$(daravel -- token-read "$(plain_of "$(laravel -- token-write expired)")")"
+    check "Laravel refuses Daravel's expired token" '"user":null' \
+      "$(laravel -- token-read "$(plain_of "$(daravel -- token-write expired)")")"
+  fi
+
+  tymon=$(docker run --rm "$image" sh -c 'cd /app && composer show tymon/jwt-auth 2>/dev/null' | sed -nE 's/^versions : \* v?([0-9.]+).*/\1/p')
+  if [ -n "$tymon" ]; then
+    echo " JWT (tymon/jwt-auth $tymon, lock_subject)"
+    token=$(plain_of "$(laravel -- jwt-write)")
+    check "Daravel accepts Laravel's JWT" '"user":7' "$(daravel -- jwt-read "$token")"
+    token=$(plain_of "$(daravel -- jwt-write)")
+    check "Laravel accepts Daravel's JWT" '"user":7' "$(laravel -- jwt-read "$token")"
+    check "Daravel refuses Laravel's expired JWT" '"user":null' \
+      "$(daravel -- jwt-read "$(plain_of "$(laravel -- jwt-write expired)")")"
+    check "Laravel refuses Daravel's expired JWT" '"user":null' \
+      "$(laravel -- jwt-read "$(plain_of "$(daravel -- jwt-write expired)")")"
+    check "Laravel refuses a prv for another class" '"user":null' \
+      "$(laravel -- jwt-read "$(plain_of "$(daravel -e JWT_SUBJECT_CLASS=Other -- jwt-write)")")"
+    check "Daravel refuses a prv for another class" '"user":null' \
+      "$(daravel -e JWT_SUBJECT_CLASS=Other -- jwt-read "$(plain_of "$(laravel -- jwt-write)")")"
+  else
+    echo " JWT: tymon/jwt-auth ^2.2 does not install on Laravel $major (skipped)"
+  fi
 
   echo " Crypt and bcrypt"
   from=$(laravel -- crypt)

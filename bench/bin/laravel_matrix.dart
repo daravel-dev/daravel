@@ -216,10 +216,22 @@ Future<void> main(List<String> args) async {
   final app = Application.configure(basePath: Directory.current.path)
       .withSession()
       .withEnv({'LOG_LEVEL': 'error', 'SESSION_COOKIE': cookieName})
-      .withAuth(
-        (auth) =>
-            auth.session<User>('web', ModelUserProvider<User>(User.definition)),
-      )
+      .withAuth((auth) {
+        auth.session<User>('web', ModelUserProvider<User>(User.definition));
+        // Sanctum's tokens, owned by Laravel's App\Models\User.
+        auth.token<User>(
+          'sanctum',
+          ModelUserProvider<User>(
+            User.definition,
+            morphClass: r'App\Models\User',
+          ),
+        );
+        // tymon/jwt-auth's tokens, with JWT_SECRET and JWT_SUBJECT_CLASS
+        // from the environment; only when the run gives a secret.
+        if (Platform.environment['JWT_SECRET'] != null) {
+          auth.jwt<User>('jwt', ModelUserProvider<User>(User.definition));
+        }
+      })
       .withRouting(
         web: (router) {
           SessionGuard<User> guard() =>
@@ -348,6 +360,24 @@ Future<void> main(List<String> args) async {
               phpCompatible: true,
             ),
           );
+          router
+              .get('/token/whoami', (request) async {
+                final guard = Auth.tokenGuard('sanctum');
+                return {
+                  'user': (await guard.user())?.authIdentifier,
+                  'can': await guard.tokenCan('posts:read'),
+                  'cannot': await guard.tokenCan('posts:write'),
+                };
+              })
+              .middleware(['auth:sanctum']);
+          router
+              .get(
+                '/jwt/whoami',
+                (request) async => {
+                  'user': (await Auth.guard('jwt').user())?.authIdentifier,
+                },
+              )
+              .middleware(['auth:jwt']);
           router.bind('user', (_, _) async => null);
           router.get('/wire/bound/{user}', (_) => 'x').middleware(['auth:web']);
         },
@@ -401,6 +431,47 @@ Future<void> main(List<String> args) async {
         });
       case 'signin':
         return (await client.get('/signin')).body;
+      case 'token-write': // [expired]
+        final user = (await User.definition.query().find(7))!;
+        final issued = await Auth.tokenGuard('sanctum').issue(
+          user as Authenticatable,
+          'matrix',
+          abilities: const ['posts:read'],
+          expiresAt: args.length > 1 && args[1] == 'expired'
+              ? Clock.now().toUtc().subtract(const Duration(minutes: 1))
+              : null,
+        );
+        return jsonEncode({'plain': issued.plainTextToken});
+      case 'jwt-write': // [expired]
+        final user = (await User.definition.query().find(7))!;
+        final expired = args.length > 1 && args[1] == 'expired';
+        final token = await Auth.jwtGuard('jwt').issue(
+          user as Authenticatable,
+          ttl: expired ? const Duration(seconds: -60) : null,
+        );
+        return jsonEncode({'plain': token});
+      case 'jwt-read': // <token>
+        final response = await client.get(
+          '/jwt/whoami',
+          headers: {...json, 'authorization': 'Bearer ${args[1]}'},
+        );
+        return response.status == 200
+            ? response.body
+            : jsonEncode({'user': null});
+      case 'token-read': // <plain token>
+        final response = await client.get(
+          '/token/whoami',
+          headers: {...json, 'authorization': 'Bearer ${args[1]}'},
+        );
+        final id = int.parse(args[1].split('|').first);
+        final used = await DB
+            .table('personal_access_tokens')
+            .where('id', id)
+            .value<Object?>('last_used_at');
+        final body = response.status == 200
+            ? response.jsonMap
+            : const <String, Object?>{'user': null};
+        return jsonEncode({...body, 'last_used': used != null});
       case 'crypt':
         return jsonEncode({
           'encrypt': await Crypt.encrypt('fröm daravel'),
