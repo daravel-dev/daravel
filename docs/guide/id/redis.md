@@ -299,6 +299,8 @@ tidak ikut mengompilasi CLI.
 | `Redis.throttle`, `Redis.funnel` | Dibagi dengan `Redis::throttle` dan `Redis::funnel` dengan nama yang sama: skrip dan key dari Laravel |
 | Queue | Dipisah (namespace `daravel:`): worker Laravel tidak bisa menjalankan job Daravel, begitu pula sebaliknya |
 
+Untuk berbagi cache dengan aplikasi Laravel 10 (atau lebih lama), set `COMPAT_LARAVEL_VERSION=10`: sampai 10.x, `RedisStore` dari Laravel menaruh `:` setelah `CACHE_PREFIX` yang tidak kosong (`<REDIS_PREFIX><CACHE_PREFIX>:<key>`), dan sejak 11 tidak lagi.
+
 `bench/interop/redis.sh` mengecek semua ini terhadap Laravel 12 dengan
 predis: lock yang diambil salah satunya ditolak bagi yang lain dengan
 pemilik yang sama, angka di cache bertambah dari kedua sisi, masing-masing
