@@ -286,6 +286,8 @@ CLI.
 | `Redis.throttle`, `Redis.funnel` | Shared with `Redis::throttle` and `Redis::funnel` of the same name: Laravel's scripts and keys |
 | Queues | Kept apart (`daravel:` namespace): Laravel's workers cannot run Daravel jobs, nor the other way round |
 
+To share the cache with a Laravel 10 (or older) application, set `COMPAT_LARAVEL_VERSION=10`: up to 10.x Laravel's `RedisStore` puts a `:` after a non-empty `CACHE_PREFIX` (`<REDIS_PREFIX><CACHE_PREFIX>:<key>`), and from 11 it does not.
+
 `bench/interop/redis.sh` checks this against Laravel 12 with predis: a lock
 taken by either is refused to the other with the same owner, a cached
 number counts up from both sides, each reads the other's cached arrays and

@@ -22,7 +22,8 @@ final class RedisStore
         TouchableCacheStore,
         WindowCounterStore,
         RateCounterStore,
-        TaggableCacheStore {
+        TaggableCacheStore,
+        CachePrefixShaping {
   /// A cache store in Redis, sharing keys with Laravel's when the prefix
   /// matches.
   RedisStore(
@@ -31,7 +32,22 @@ final class RedisStore
     this.prefix = '',
     this.flushPrefix = '',
     this.serializer = RedisSerializer.json,
+    this.laravelCompat,
   }) : lockClient = lockClient ?? client;
+
+  /// The Laravel version whose key layout is written; the application's
+  /// `COMPAT_LARAVEL_VERSION` when null.
+  final int? laravelCompat;
+
+  /// `RedisStore::setPrefix`: up to Laravel 10 a non-empty cache prefix gets
+  /// a `:` (`$this->prefix = ! empty($prefix) ? $prefix.':' : '';`, 9.52.16
+  /// and 10.48.29); from 11.0.0 it is kept as given. The repository puts it
+  /// before keys, tag lists and lock names, as Laravel's store does.
+  @override
+  String shapePrefix(String prefix) =>
+      prefix.isNotEmpty && (laravelCompat ?? currentLaravelCompat()) <= 10
+      ? '$prefix:'
+      : prefix;
 
   /// How values that are not numbers are written (`REDIS_SERIALIZER`).
   final RedisSerializer serializer;
