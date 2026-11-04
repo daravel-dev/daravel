@@ -14,10 +14,13 @@ match Laravel more closely.
 ### Added
 
 - `Request.bodyInput()`: the body's fields as `all()` sees them, without the query (Laravel's `getInputSource()->all()`). A middleware that rebuilds the body with `replace()` starts from it, so the fields the client sent keep what `TrimStrings` made of them.
+- `CachePrefixShaping`: a cache store that shapes the prefix its `CacheRepository` puts before keys, tag lists and lock names, as Laravel's stores own their prefix. `daravel_redis`'s `RedisStore` implements it (see Changed); `RedisStore(laravelCompat:)` fixes the layout instead of following `COMPAT_LARAVEL_VERSION`.
 
 ### Changed
 
 **Upgrading can change what an application sees:**
+
+- `daravel_redis`: with `COMPAT_LARAVEL_VERSION` 10 or lower, a non-empty `CACHE_PREFIX` is followed by `:` in Redis keys (`<REDIS_PREFIX><CACHE_PREFIX>:<key>`), as Laravel's `RedisStore::setPrefix` wrote them up to 10.x (laravel/framework v9.52.16 and v10.48.29; from v11.0.0 the prefix is kept as given, which stays the layout for 11 and later). Before, Daravel wrote the 11+ layout for every version, so an application sharing its Redis cache with a Laravel 10 application did not find Laravel's entries (sessions, counts, locks). Such an application now does. An application on 10 or lower that does not share its cache sees its old Redis entries as missing once after upgrading; they expire as before. The `tiered` store keeps its own layout.
 
 - Input transformers (`TrimStringsMiddleware`, `ConvertEmptyStringsToNullMiddleware`, `Request.addInputTransformer`) apply as in Laravel's `TransformsRequest`, checked against laravel/framework 10.48.29:
   - **Only to input as the client sent it.** Fields that `Request.merge` or `Request.replace` set afterwards are kept as given: `' x '` stays `' x '` and `''` stays `''`, where they were trimmed and turned into `null` before. Only a transformer registered after the merge still sees them. This matters to a middleware that merges input it produced, such as a payload decryption. An application that relied on its merged values being trimmed or converted trims them before `merge`.

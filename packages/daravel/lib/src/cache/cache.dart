@@ -293,16 +293,28 @@ final class CacheConfig implements ConfigSection {
   };
 }
 
+/// A store that shapes the key prefix its repository applies, as Laravel's
+/// stores own their prefix: `RedisStore::setPrefix` appended `:` to a
+/// non-empty prefix up to Laravel 10 and keeps it as given from 11.
+abstract interface class CachePrefixShaping {
+  /// The prefix put before every key (and lock name), from `CACHE_PREFIX`.
+  String shapePrefix(String prefix);
+}
+
 /// A store wrapped with a key prefix and the high-level API
 /// (`remember`, `flexible`, `lock`, …).
 final class CacheRepository {
-  /// A repository over [store], prefixing every key with [prefix].
+  /// A repository over [store], prefixing every key with [prefix] (as the
+  /// store shapes it, when it is [CachePrefixShaping]).
   CacheRepository(
     this.store, {
-    this.prefix = '',
+    String prefix = '',
     this.lockStore,
     this._lockPrefix,
-  });
+  }) : prefix = switch (store) {
+         final CachePrefixShaping shaping => shaping.shapePrefix(prefix),
+         _ => prefix,
+       };
 
   /// The store holding the values.
   final CacheStore store;
