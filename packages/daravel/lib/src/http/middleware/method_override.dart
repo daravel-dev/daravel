@@ -14,7 +14,10 @@ final class MethodOverrideMiddleware implements Middleware {
   ///
   /// [keepRawBody] (set by `withUpstream`) keeps a form's bytes before they
   /// are parsed, so a request no route matches still reaches the upstream
-  /// with its body: parsing a multipart body consumes the stream.
+  /// with its body: parsing a multipart body consumes the stream. Such a
+  /// body is then buffered in memory in full (up to `HTTP_MAX_BODY`); an
+  /// application that proxies large uploads sets
+  /// `middleware.methodOverride = false` so they stream through unread.
   const MethodOverrideMiddleware({this.keepRawBody = false});
 
   /// The methods a form may ask for.
