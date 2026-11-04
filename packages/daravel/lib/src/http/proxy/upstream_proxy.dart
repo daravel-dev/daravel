@@ -102,11 +102,15 @@ final class UpstreamProxy {
 
   /// Forwards [request] and streams the answer back: 502 when the upstream
   /// cannot be reached, 504 when it does not answer within [timeout].
+  ///
+  /// The method is the one on the wire ([Request.originalMethod]), not a
+  /// `_method` override: Laravel reads the override itself, and PHP parses
+  /// a multipart body only for a `POST`.
   Future<Response> forward(Request request) async {
     final HttpClientResponse answer;
     try {
       final outgoing = await _client
-          .openUrl(request.method, target(request))
+          .openUrl(request.originalMethod, target(request))
           .timeout(timeout);
       outgoing
         ..followRedirects = false
@@ -150,7 +154,7 @@ final class UpstreamProxy {
   Future<ShadowAnswer?> shadow(Request request, {required int maxBytes}) async {
     try {
       final outgoing = await _client
-          .openUrl(request.method, target(request))
+          .openUrl(request.originalMethod, target(request))
           .timeout(timeout);
       outgoing
         ..followRedirects = false
@@ -186,11 +190,11 @@ final class UpstreamProxy {
         continue;
       }
       if (name == 'host') {
-        if (preserveHost) {
-          out.host = request.uri.host;
-          if (request.uri.hasPort) {
-            out.port = request.uri.port;
-          }
+        // As the client sent it: setting `host` alone would keep the
+        // upstream's port (`example.test:9000`), and Laravel builds
+        // `fullUrl()` and every URL it generates from this header.
+        if (preserveHost && values.isNotEmpty) {
+          out.set('host', values.first);
         }
         continue;
       }

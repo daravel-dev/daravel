@@ -11,10 +11,17 @@ import '../response.dart';
 /// forms need.
 final class MethodOverrideMiddleware implements Middleware {
   /// Reads `_method` from a `POST` form, as Laravel does for HTML forms.
-  const MethodOverrideMiddleware();
+  ///
+  /// [keepRawBody] (set by `withUpstream`) keeps a form's bytes before they
+  /// are parsed, so a request no route matches still reaches the upstream
+  /// with its body: parsing a multipart body consumes the stream.
+  const MethodOverrideMiddleware({this.keepRawBody = false});
 
   /// The methods a form may ask for.
   static const Set<String> allowed = {'PUT', 'PATCH', 'DELETE'};
+
+  /// Whether a form's raw bytes are kept for `Request.bodyStream()`.
+  final bool keepRawBody;
 
   @override
   Future<Response> handle(Request request, Next next) async {
@@ -36,6 +43,10 @@ final class MethodOverrideMiddleware implements Middleware {
     final isForm =
         contentType.contains('application/x-www-form-urlencoded') ||
         contentType.contains('multipart/form-data');
+    if (isForm && keepRawBody) {
+      // Cached first: body() and bodyStream() then read these bytes.
+      await request.bytes();
+    }
     final body = isForm ? await request.body() : null;
     final value = body is Map ? body['_method'] : null;
     return switch (value ?? request.queryInput['_method']) {
