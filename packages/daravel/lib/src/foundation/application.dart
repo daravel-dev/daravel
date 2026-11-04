@@ -615,6 +615,17 @@ final class Application {
               upstream.shadowIgnoreHeaders ??
               ShadowParityRunner.defaultIgnoredHeaders,
           normalizeKeys: upstream.shadowNormalizeKeys,
+          freshCookies:
+              upstream.shadowFreshCookies ??
+              switch (env.maybeString('UPSTREAM_SHADOW_FRESH_COOKIES')) {
+                null || '' => ShadowParityRunner.defaultFreshCookies,
+                final list =>
+                  list
+                      .split(',')
+                      .map((name) => name.trim())
+                      .where((name) => name.isNotEmpty)
+                      .toSet(),
+              },
           logger: logger,
           onDrift: (drift) => unawaited(dispatcher.dispatch(drift)),
         ).observe;
@@ -1381,7 +1392,10 @@ final class ApplicationBuilder {
   /// [shadowCompare] `ShadowCompare.bytes` (`UPSTREAM_SHADOW_COMPARE=bytes`)
   /// compares the status, the headers (except [shadowIgnoreHeaders]) and the
   /// body byte for byte instead, after [shadowNormalizeKeys] blanks the JSON
-  /// values that differ by design.
+  /// values that differ by design. [shadowFreshCookies]
+  /// (`UPSTREAM_SHADOW_FRESH_COOKIES`) names the cookies compared by shape
+  /// only, `*_session` matching any name with that suffix; it replaces
+  /// `ShadowParityRunner.defaultFreshCookies` (`XSRF-TOKEN`, `*_session`).
   ApplicationBuilder withUpstream({
     String? url,
     bool preserveHost = false,
@@ -1394,6 +1408,7 @@ final class ApplicationBuilder {
     ShadowCompare? shadowCompare,
     Set<String>? shadowIgnoreHeaders,
     Set<String> Function(Request request)? shadowNormalizeKeys,
+    Set<String>? shadowFreshCookies,
   }) {
     _upstream = _UpstreamConfig(
       url,
@@ -1407,6 +1422,7 @@ final class ApplicationBuilder {
       shadowCompare,
       shadowIgnoreHeaders,
       shadowNormalizeKeys,
+      shadowFreshCookies,
     );
     return this;
   }
@@ -1673,6 +1689,7 @@ final class _UpstreamConfig {
     this.shadowCompare,
     this.shadowIgnoreHeaders,
     this.shadowNormalizeKeys,
+    this.shadowFreshCookies,
   );
 
   final String? url;
@@ -1686,4 +1703,5 @@ final class _UpstreamConfig {
   final ShadowCompare? shadowCompare;
   final Set<String>? shadowIgnoreHeaders;
   final Set<String> Function(Request request)? shadowNormalizeKeys;
+  final Set<String>? shadowFreshCookies;
 }

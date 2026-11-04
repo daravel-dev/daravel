@@ -127,6 +127,7 @@ void main() {
       Map<String, String> env = const {},
       ShadowCompare? compare,
       Set<String> Function(Request request)? normalizeKeys,
+      Set<String>? freshCookies,
     }) async {
       app = Application.configure(basePath: base.path)
           .withEnv({'APP_ENV': 'testing', 'DB_DATABASE': ':memory:', ...env})
@@ -139,6 +140,7 @@ void main() {
             shadowExcept: except,
             shadowCompare: compare,
             shadowNormalizeKeys: normalizeKeys,
+            shadowFreshCookies: freshCookies,
           )
           .withEvents((events) {
             events.listen<ShadowParityDrift>(drifts.add);
@@ -160,6 +162,16 @@ void main() {
                   (Request r) => Response.json(const {'id': 1})
                       .withHeaderList('set-cookie', const [
                         'laravel_session=ours; path=/; httponly',
+                        'remember=same; path=/',
+                      ]),
+                )
+                ..get(
+                  // An application not named Laravel: its session cookie
+                  // is `Str::slug(APP_NAME, '_').'_session'`.
+                  '/app-cookie',
+                  (Request r) => Response.json(const {'id': 1})
+                      .withHeaderList('set-cookie', const [
+                        'acme_session=ours; path=/; httponly',
                         'remember=same; path=/',
                       ]),
                 )
@@ -412,6 +424,56 @@ void main() {
         ];
         await send(Request.fake(path: '/cookie'));
         expect(kinds(), ['header:set-cookie']);
+      });
+
+      test("any application's session cookie is fresh by default", () async {
+        cookies = [
+          'acme_session=theirs; path=/; httponly',
+          'remember=same; path=/',
+        ];
+        answer = '{"id":1}';
+        await boot(compare: ShadowCompare.bytes);
+        await send(Request.fake(path: '/app-cookie'));
+        expect(drifts, isEmpty);
+        expect(ShadowParityRunner.defaultFreshCookies, {
+          'XSRF-TOKEN',
+          '*_session',
+        });
+      });
+
+      test('shadowFreshCookies replaces the default list', () async {
+        cookies = [
+          'acme_session=theirs; path=/; httponly',
+          'remember=other; path=/',
+        ];
+        answer = '{"id":1}';
+        await boot(compare: ShadowCompare.bytes, freshCookies: {'remember'});
+        await send(Request.fake(path: '/app-cookie'));
+        expect(kinds(), [
+          'header:set-cookie',
+        ], reason: 'the session cookie is no longer in the list');
+
+        drifts.clear();
+        cookies = [
+          'acme_session=ours; path=/; httponly',
+          'remember=other; path=/',
+        ];
+        await send(Request.fake(path: '/app-cookie'));
+        expect(drifts, isEmpty, reason: 'remember is compared by shape');
+      });
+
+      test('UPSTREAM_SHADOW_FRESH_COOKIES is read', () async {
+        cookies = [
+          'acme_session=theirs; path=/; httponly',
+          'remember=other; path=/',
+        ];
+        answer = '{"id":1}';
+        await boot(
+          compare: ShadowCompare.bytes,
+          env: {'UPSTREAM_SHADOW_FRESH_COOKIES': 'remember, *_session'},
+        );
+        await send(Request.fake(path: '/app-cookie'));
+        expect(drifts, isEmpty);
       });
 
       test('normalized keys are blanked on both sides', () async {

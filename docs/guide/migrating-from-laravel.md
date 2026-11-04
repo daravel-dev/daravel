@@ -237,7 +237,11 @@ compares the status, the headers and the body byte for byte instead. `Date`,
 `Server`, `Content-Length`, the connection headers and `X-Request-Id` are left
 out (`shadowIgnoreHeaders` replaces that list). Laravel's session and CSRF
 cookies are compared by name and attributes, because their values are new on
-every answer. `shadowNormalizeKeys` names, per request, the JSON keys whose
+every answer. Laravel names the session cookie after the application
+(`Str::slug(APP_NAME, '_').'_session'`), so the default list, `XSRF-TOKEN` and
+`*_session`, matches any name with that suffix; `shadowFreshCookies` (or
+`UPSTREAM_SHADOW_FRESH_COOKIES`, comma separated) replaces it.
+`shadowNormalizeKeys` names, per request, the JSON keys whose
 values differ by design and are blanked on both sides, such as a client
 address the route echoes:
 
