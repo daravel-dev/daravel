@@ -1,4 +1,4 @@
-<!-- source: redis.md sha256:261ca8503d08 -->
+<!-- source: redis.md sha256:c26774bc26de -->
 # Redis
 
 Di satu server, Daravel tidak membutuhkan Redis: isolate coordinator
