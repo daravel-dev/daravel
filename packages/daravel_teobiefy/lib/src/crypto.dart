@@ -4,9 +4,9 @@ import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
 
-/// The two keys of a session, from the server's side: [rx] decrypts what
-/// the client sends, [tx] encrypts what the server answers (libsodium's
-/// `crypto_kx_server_session_keys`).
+/// The two keys of a session, from one side: [rx] decrypts what the other
+/// side sends, [tx] encrypts what this side sends (libsodium's
+/// `crypto_kx_server_session_keys` and `crypto_kx_client_session_keys`).
 typedef SessionKeys = ({Uint8List rx, Uint8List tx});
 
 /// libsodium's `crypto_kx` and `crypto_aead_chacha20poly1305_ietf`, the
@@ -60,6 +60,46 @@ abstract final class TeobiefyCrypto {
     return (
       tx: Uint8List.fromList(hash.sublist(0, 32)),
       rx: Uint8List.fromList(hash.sublist(32, 64)),
+    );
+  }
+
+  /// libsodium's `crypto_kx_client_session_keys`, the client's side of
+  /// [serverSessionKeys]: the same BLAKE2b-512(q ‖ client_pk ‖ server_pk),
+  /// with the client's rx the first half and its tx the second, so the
+  /// client's tx is the server's rx and the other way round. For a client
+  /// of a teobiefy API, such as a gate tool that compares two backends.
+  /// Throws [ArgumentError] for a key that is not 32 bytes or that gives an
+  /// all-zero secret (a low-order point), as libsodium refuses it.
+  static Future<SessionKeys> clientSessionKeys(
+    SimpleKeyPair client,
+    List<int> serverPublicKey,
+  ) async {
+    if (serverPublicKey.length != 32) {
+      throw ArgumentError.value(
+        serverPublicKey.length,
+        'serverPublicKey',
+        'must be 32 bytes',
+      );
+    }
+    final shared = await (await _x25519.sharedSecretKey(
+      keyPair: client,
+      remotePublicKey: SimplePublicKey(
+        serverPublicKey,
+        type: KeyPairType.x25519,
+      ),
+    )).extractBytes();
+    if (shared.every((b) => b == 0)) {
+      throw ArgumentError('The server public key is a low-order point.');
+    }
+    final clientPublicKey = (await client.extractPublicKey()).bytes;
+    final hash = (await _blake2b.hash([
+      ...shared,
+      ...clientPublicKey,
+      ...serverPublicKey,
+    ])).bytes;
+    return (
+      rx: Uint8List.fromList(hash.sublist(0, 32)),
+      tx: Uint8List.fromList(hash.sublist(32, 64)),
     );
   }
 
