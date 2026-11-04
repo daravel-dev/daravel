@@ -485,8 +485,11 @@ final class Application {
       configure(middleware);
     }
     if (middleware.methodOverride) {
-      // Last of the global stack: the body limits come first.
-      middleware.use([const MethodOverrideMiddleware()]);
+      // Last of the global stack: the body limits come first. With an
+      // upstream, a form it reads must still be forwarded as it came.
+      middleware.use([
+        MethodOverrideMiddleware(keepRawBody: _builder._upstream != null),
+      ]);
     }
     // `dartisan down`: answer 503 except for the health probes.
     final health = _builder._routing?.health;

@@ -65,7 +65,7 @@ void main() {
   late HttpClient client;
   late Uri base;
 
-  Future<void> start(String upstream) async {
+  Future<void> start(String upstream, {bool preserveHost = false}) async {
     app = Application.configure(basePath: Directory.systemTemp.path)
         .withEnv({
           'APP_ENV': 'testing',
@@ -73,9 +73,18 @@ void main() {
           'LOG_LEVEL': 'emergency',
         })
         .withRouting(
-          api: (router) => router.get('/orders', (_) => {'from': 'daravel'}),
+          api: (router) => router
+            ..get('/orders', (_) => {'from': 'daravel'})
+            ..put(
+              '/orders/{id}',
+              (Request request) async => {
+                'from': 'daravel',
+                'method': request.method,
+                'name': (await request.all())['name'],
+              },
+            ),
         )
-        .withUpstream(url: upstream)
+        .withUpstream(url: upstream, preserveHost: preserveHost)
         .create();
     await app.boot();
     engine = ServerEngine(
@@ -186,6 +195,110 @@ void main() {
       'bytes': payload.length,
     });
     expect(seen.single.body, payload);
+  });
+
+  test('a _method override reaches Laravel as the POST the client sent, '
+      'body intact', () async {
+    // PHP parses a multipart body only for a POST: forwarding the PUT that
+    // Daravel's override reads would leave Laravel's input and files empty.
+    const boundary = 'daravel-boundary';
+    final multipart = utf8.encode(
+      '--$boundary\r\n'
+      'Content-Disposition: form-data; name="_method"\r\n\r\n'
+      'PUT\r\n'
+      '--$boundary\r\n'
+      'Content-Disposition: form-data; name="avatar"; filename="a.bin"\r\n'
+      'Content-Type: application/octet-stream\r\n\r\n'
+      '${'x' * 4096}\r\n'
+      '--$boundary--\r\n',
+    );
+    final (response, body) = await send(
+      'POST',
+      '/legacy/profile',
+      headers: {'content-type': 'multipart/form-data; boundary=$boundary'},
+      body: multipart,
+    );
+    expect(response.statusCode, 200);
+    expect(jsonDecode(utf8.decode(body)), containsPair('method', 'POST'));
+    expect(seen.single.method, 'POST');
+    expect(seen.single.body, multipart);
+
+    final form = utf8.encode('_method=DELETE&id=7');
+    await send(
+      'POST',
+      '/legacy/items',
+      headers: {'content-type': 'application/x-www-form-urlencoded'},
+      body: form,
+    );
+    expect(seen.last.method, 'POST');
+    expect(seen.last.body, form);
+
+    await send(
+      'POST',
+      '/legacy/items',
+      headers: {'x-http-method-override': 'PATCH'},
+    );
+    expect(seen.last.method, 'POST');
+    expect(seen.last.headers.value('x-http-method-override'), 'PATCH');
+
+    // A plain upload, no override: the bytes still arrive.
+    final upload = utf8.encode(
+      '--$boundary\r\n'
+      'Content-Disposition: form-data; name="file"; filename="b.bin"\r\n'
+      'Content-Type: application/octet-stream\r\n\r\n'
+      '${'y' * 8192}\r\n'
+      '--$boundary--\r\n',
+    );
+    await send(
+      'POST',
+      '/legacy/uploads',
+      headers: {'content-type': 'multipart/form-data; boundary=$boundary'},
+      body: upload,
+    );
+    expect(seen.last.method, 'POST');
+    expect(seen.last.body, upload);
+
+    final json = utf8.encode('{"name":"kept"}');
+    await send(
+      'PUT',
+      '/legacy/items/7',
+      headers: {'content-type': 'application/json'},
+      body: json,
+    );
+    expect(seen.last.method, 'PUT');
+    expect(seen.last.body, json);
+  });
+
+  test('beside the proxy, a migrated route still takes the override', () async {
+    final (response, body) = await send(
+      'POST',
+      '/api/orders/7',
+      headers: {'content-type': 'application/x-www-form-urlencoded'},
+      body: utf8.encode('_method=PUT&name=local'),
+    );
+    expect(response.statusCode, 200);
+    expect(jsonDecode(utf8.decode(body)), {
+      'from': 'daravel',
+      'method': 'PUT',
+      'name': 'local',
+    });
+    expect(seen, isEmpty);
+  });
+
+  test('preserveHost sends the Host the client sent, port or none', () async {
+    await engine.stop();
+    Container.setRoot(null);
+    await start('http://127.0.0.1:${legacy.port}', preserveHost: true);
+
+    for (final host in ['example.test', 'example.test:8443']) {
+      await send('GET', '/legacy/page', headers: {'host': host});
+      expect(
+        seen.last.headers.value('host'),
+        host,
+        reason: "not the upstream's port appended",
+      );
+      expect(seen.last.headers.value('x-forwarded-host'), host.split(':')[0]);
+    }
   });
 
   test('redirects, statuses and compressed bodies pass through', () async {
