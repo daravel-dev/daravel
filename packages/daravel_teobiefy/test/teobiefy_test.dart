@@ -24,25 +24,25 @@ const _libsodium = (
   responseEnc: '3gNrPi9pTZPHXECDMPruq+jjSZKs',
 );
 
+/// Made by PHP 8.3.35's sodium (libsodium 1.0.18) in the Laravel matrix
+/// image, for the client key pair secret str_repeat("\x11", 16) .
+/// str_repeat("\x22", 16) against the server public key above:
+///   $pk = sodium_crypto_scalarmult_base($sk);
+///   [$rx, $tx] = sodium_crypto_kx_client_session_keys($sk . $pk, $serverPk);
+/// Test keys, not secrets.
+const _libsodiumClient = (
+  clientSecretKey: 'ERERERERERERERERERERESIiIiIiIiIiIiIiIiIiIiI=',
+  clientPublicKey: 'k5/AU5K5jHL7HDPm8TCVBLrnBrvvD83KsljhyvTCS2Y=',
+  clientRx: '+WbR5tHIpYWtQYFVHv25LeEh4oNXBpwfwvWrrYfJrAU=',
+  clientTx: 'CysTemuWHA8RqslKxQHWbo7X85aYlVz45lIPxYMvUFQ=',
+);
+
 /// The client's side of crypto_kx (crypto_kx_client_session_keys): its tx
 /// is the server's rx.
 Future<({List<int> rx, List<int> tx})> _clientKeys(
   SimpleKeyPair client,
   List<int> serverPublicKey,
-) async {
-  final shared = await (await X25519().sharedSecretKey(
-    keyPair: client,
-    remotePublicKey: SimplePublicKey(serverPublicKey, type: KeyPairType.x25519),
-  )).extractBytes();
-  final clientPublicKey = (await client.extractPublicKey()).bytes;
-  final hash = (await Blake2b().hash([
-    ...shared,
-    ...clientPublicKey,
-    ...serverPublicKey,
-  ])).bytes;
-  // libsodium: the client rx is the first half, its tx the second.
-  return (rx: hash.sublist(0, 32), tx: hash.sublist(32));
-}
+) => TeobiefyCrypto.clientSessionKeys(client, serverPublicKey);
 
 /// The content of a zstd frame of raw blocks (what [TeobiefyCrypto.zstdFrame]
 /// writes); a real decoder checked the format separately.
@@ -117,6 +117,64 @@ void main() {
       await expectLater(
         TeobiefyCrypto.serverSessionKeys(server, List.filled(32, 0)),
         throwsArgumentError,
+      );
+    });
+
+    test('crypto_kx client session keys, as PHP sodium makes them', () async {
+      final client = await TeobiefyCrypto.keyPairFrom(
+        base64.decode(_libsodiumClient.clientSecretKey),
+      );
+      expect(
+        base64.encode((await client.extractPublicKey()).bytes),
+        _libsodiumClient.clientPublicKey,
+      );
+      final keys = await TeobiefyCrypto.clientSessionKeys(
+        client,
+        base64.decode(_libsodium.serverPublicKey),
+      );
+      expect(base64.encode(keys.rx), _libsodiumClient.clientRx);
+      expect(base64.encode(keys.tx), _libsodiumClient.clientTx);
+    });
+
+    test("the client's keys are the server's, crossed", () async {
+      for (var i = 0; i < 5; i++) {
+        final client = await TeobiefyCrypto.newKeyPair();
+        final server = await TeobiefyCrypto.newKeyPair();
+        final ours = await TeobiefyCrypto.clientSessionKeys(
+          client,
+          (await server.extractPublicKey()).bytes,
+        );
+        final theirs = await TeobiefyCrypto.serverSessionKeys(
+          server,
+          (await client.extractPublicKey()).bytes,
+        );
+        expect(ours.tx, theirs.rx);
+        expect(ours.rx, theirs.tx);
+      }
+    });
+
+    test('the client refuses a key that is not one', () async {
+      final client = await TeobiefyCrypto.newKeyPair();
+      await expectLater(
+        TeobiefyCrypto.clientSessionKeys(client, List.filled(31, 1)),
+        throwsArgumentError,
+      );
+      await expectLater(
+        TeobiefyCrypto.clientSessionKeys(client, List.filled(32, 0)),
+        throwsArgumentError,
+      );
+    });
+
+    test('zstdDecompress is public, with its limit', () {
+      final frame = TeobiefyCrypto.zstdFrame(utf8.encode('{"a":1}'));
+      expect(utf8.decode(zstdDecompress(frame, maxOutput: 64)), '{"a":1}');
+      expect(
+        () => zstdDecompress(frame, maxOutput: 3),
+        throwsA(isA<ZstdTooLargeException>()),
+      );
+      expect(
+        () => zstdDecompress(Uint8List.fromList([1, 2, 3, 4]), maxOutput: 64),
+        throwsA(isA<ZstdFormatException>()),
       );
     });
 

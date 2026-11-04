@@ -21,8 +21,10 @@ const int _magic = 0xFD2FB528;
 const int _maxBlockSize = 128 * 1024;
 
 /// Decompresses one Zstandard frame (RFC 8878), for requests from clients
-/// using `ext-zstd` or a mobile library. Pure Dart, so the server stays one
-/// binary.
+/// using `ext-zstd` or a mobile library, and for a client that opens the
+/// `data` a teobiefy API seals (`zstd_compress` on the PHP side). Pure Dart,
+/// so the server stays one binary. [maxOutput] bounds the decompressed size
+/// in bytes: past it, [ZstdTooLargeException].
 ///
 /// All output is kept, so back references need no ring buffer, and it stops
 /// at [maxOutput] before growing further: a bomb costs that much and no more.

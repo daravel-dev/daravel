@@ -21,3 +21,5 @@ export 'src/middleware.dart';
 export 'src/profiles.dart';
 export 'src/sessions.dart';
 export 'src/setup.dart';
+export 'src/zstd_decoder.dart'
+    show ZstdFormatException, ZstdTooLargeException, zstdDecompress;
