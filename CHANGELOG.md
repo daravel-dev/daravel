@@ -24,6 +24,8 @@ match Laravel more closely.
 
 **Upgrading can change what an application sees:**
 
+- `daravel_teobiefy` now exports `zstdDecompress`, `ZstdFormatException` and `ZstdTooLargeException`. An application that declares one of those names and imports `package:daravel_teobiefy/daravel_teobiefy.dart` hides it in that import (`hide zstdDecompress`).
+
 ### Fixed
 
 - `apps/virtual_classroom`: the lesson cards bind their buttons with `addEventListener` instead of inline `onclick` code, so a lesson name with a quote can no longer run script in a student's browser (the browser decodes HTML entities in an attribute before it parses the JavaScript). A LiveKit room that cannot be opened is an error everywhere except `local` and `testing` (it was hidden in `staging`), the livekit-client script from the CDN carries a Subresource Integrity hash, the "saving" label is translated, and the meeting resource no longer repeats its `id` as `uuid`.
