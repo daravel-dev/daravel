@@ -87,12 +87,14 @@ final class TeobiefyMiddleware implements Middleware {
         // (the payload wins). With LIBSODIUM_STRICT_PAYLOAD only the payload
         // reaches the handler, so a client cannot slip a clear field past
         // the encryption.
+        // The clear fields as the input transformers left them; the payload
+        // as it decrypted (Laravel merges it after TrimStrings).
+        final clear = service.config.strictPayload
+            ? const <String, Object?>{}
+            : await request.bodyInput();
         request.replace(
-          {
-            if (!service.config.strictPayload)
-              for (final MapEntry(:key, :value) in body.entries) '$key': value,
-            ...payload,
-          }..removeWhere((k, _) => k == 'nonce' || k == 'data_enc'),
+          {...clear, ...payload}
+            ..removeWhere((k, _) => k == 'nonce' || k == 'data_enc'),
         );
       } on Object catch (error) {
         Log.warning('Teobiefy: invalid payload: $error');

@@ -13,6 +13,7 @@ match Laravel more closely.
 
 ### Added
 
+- `Request.bodyInput()`: the body's fields as `all()` sees them, without the query (Laravel's `getInputSource()->all()`). A middleware that rebuilds the body with `replace()` starts from it, so the fields the client sent keep what `TrimStrings` made of them.
 - `daravel_teobiefy`: `TeobiefyCrypto.clientSessionKeys`, libsodium's `crypto_kx_client_session_keys` (the client's rx and tx, crossed with `serverSessionKeys`; a low-order point is refused), for a client of a teobiefy API such as a tool that compares two backends. Checked against a vector made by PHP's sodium. `zstdDecompress` (with `ZstdFormatException` and `ZstdTooLargeException`) is exported, to open the `data` a PHP side compressed with `zstd_compress`.
 - `withUpstream(shadowCompare: ShadowCompare.bytes)` (`UPSTREAM_SHADOW_COMPARE=bytes`): the shadow replay compares a moved route's status, headers and body with Laravel's byte for byte, not only the shape of its JSON. `Date`, `Server`, `Content-Length`, the connection headers and `X-Request-Id` are left out (`shadowIgnoreHeaders`); Laravel's session and CSRF cookies are compared by name and attributes; `shadowNormalizeKeys` blanks, per request, JSON values that differ by design on both sides. A drift is `header` or `body` and carries counts and lengths, never values. `ShadowAnswer.headers` holds the upstream's headers. The default stays `ShadowCompare.shape`.
 - `daravel_lints`: `no_inline_js_interpolation` reports a value interpolated into an inline `on*=` event handler of generated HTML, a Dart value (`$name`) or a JavaScript template value (`\${name}`) in a page's script. HTML escaping does not make that safe, because the browser decodes the entities before it runs the attribute as JavaScript; the finding points at the value and suggests a `data-*` attribute with `addEventListener`. `LintRule.checkAt` lets a rule report an offset inside a node, and defaults to `check`.
@@ -25,6 +26,10 @@ match Laravel more closely.
 **Upgrading can change what an application sees:**
 
 - `daravel_teobiefy` now exports `zstdDecompress`, `ZstdFormatException` and `ZstdTooLargeException`. An application that declares one of those names and imports `package:daravel_teobiefy/daravel_teobiefy.dart` hides it in that import (`hide zstdDecompress`).
+- Input transformers (`TrimStringsMiddleware`, `ConvertEmptyStringsToNullMiddleware`, `Request.addInputTransformer`) apply as in Laravel's `TransformsRequest`, checked against laravel/framework 10.48.29:
+  - **Only to input as the client sent it.** Fields that `Request.merge` or `Request.replace` set afterwards are kept as given: `' x '` stays `' x '` and `''` stays `''`, where they were trimmed and turned into `null` before. Only a transformer registered after the merge still sees them. This matters to a middleware that merges input it produced, such as a payload decryption. An application that relied on its merged values being trimmed or converted trims them before `merge`.
+  - `daravel_teobiefy`'s `teobiefy`, `teobiefy.aes` and profile middleware build the decrypted body from `Request.bodyInput()`, so the clear fields beside `data_enc` keep what the transformers made of them and the decrypted fields arrive as the client encrypted them.
+  - **The key is the dotted path.** A transformer now receives `user.password` or `tags.0`, not `password` or `tags`, so `TrimStringsMiddleware(except:)` names a path. The default `{'password', 'password_confirmation'}` no longer leaves a nested `user.password` untrimmed (Laravel trims it too); list it as `user.password` to keep it as sent.
 
 ### Fixed
 
