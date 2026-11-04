@@ -1,4 +1,4 @@
-<!-- source: migrating-from-laravel.md sha256:5aa2bf6b3650 -->
+<!-- source: migrating-from-laravel.md sha256:45bab848ccb2 -->
 # Migrasi dari Laravel, route demi route
 
 Anda tidak harus menulis ulang aplikasi Laravel sekaligus. Karena Daravel
@@ -236,6 +236,29 @@ Anda, hanya berisi path dan tipe, tidak pernah nilai:
   events.listen<ShadowParityDrift>(report);
 })
 ```
+
+Untuk route yang jawabannya sama sekali tidak boleh berubah selama pindah,
+`shadowCompare: ShadowCompare.bytes` (atau `UPSTREAM_SHADOW_COMPARE=bytes`)
+membandingkan status, header, dan body byte demi byte. `Date`, `Server`,
+`Content-Length`, header koneksi, dan `X-Request-Id` tidak ikut dibandingkan
+(`shadowIgnoreHeaders` mengganti daftar itu). Cookie session dan CSRF Laravel
+dibandingkan dari nama dan atributnya saja, karena nilainya selalu baru di setiap
+jawaban. `shadowNormalizeKeys` menyebutkan, per request, key JSON yang nilainya
+memang berbeda dan dikosongkan di kedua sisi, misalnya alamat klien yang
+dikembalikan route:
+
+```dart
+.withUpstream(
+  url: 'http://127.0.0.1:8080',
+  shadowSampleRate: 0.01,
+  shadowCompare: ShadowCompare.bytes,
+  shadowNormalizeKeys: (request) =>
+      request.path == '/api/v1/timezone' ? {'client_ip'} : const {},
+)
+```
+
+Perbedaan byte berjenis `header` (dengan jumlah nilai di tiap sisi) atau `body`
+(dengan kedua panjangnya), tidak pernah berisi nilai.
 
 Klien tidak menunggu semua ini. Paling banyak `shadowMaxConcurrency` replay berjalan
 bersamaan per isolate (`UPSTREAM_SHADOW_MAX_CONCURRENCY`, default 4), dan lebih dari

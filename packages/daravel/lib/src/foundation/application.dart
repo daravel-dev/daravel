@@ -602,6 +602,19 @@ final class Application {
                   .map((key) => key.trim())
                   .where((key) => key.isNotEmpty),
           except: upstream.shadowExcept,
+          compare:
+              upstream.shadowCompare ??
+              switch (env.maybeString('UPSTREAM_SHADOW_COMPARE')) {
+                null || '' || 'shape' => ShadowCompare.shape,
+                'bytes' => ShadowCompare.bytes,
+                final other => throw ConfigException(
+                  'UPSTREAM_SHADOW_COMPARE is shape or bytes, not "$other".',
+                ),
+              },
+          ignoreHeaders:
+              upstream.shadowIgnoreHeaders ??
+              ShadowParityRunner.defaultIgnoredHeaders,
+          normalizeKeys: upstream.shadowNormalizeKeys,
           logger: logger,
           onDrift: (drift) => unawaited(dispatcher.dispatch(drift)),
         ).observe;
@@ -1365,6 +1378,10 @@ final class ApplicationBuilder {
   /// [shadowSampleRate] (`UPSTREAM_SHADOW_SAMPLE`) replays that share of the
   /// `GET` and `HEAD` requests Daravel answers to the upstream, after the
   /// response, and reports differences in shape. See `ShadowParityRunner`.
+  /// [shadowCompare] `ShadowCompare.bytes` (`UPSTREAM_SHADOW_COMPARE=bytes`)
+  /// compares the status, the headers (except [shadowIgnoreHeaders]) and the
+  /// body byte for byte instead, after [shadowNormalizeKeys] blanks the JSON
+  /// values that differ by design.
   ApplicationBuilder withUpstream({
     String? url,
     bool preserveHost = false,
@@ -1374,6 +1391,9 @@ final class ApplicationBuilder {
     int? shadowMaxConcurrency,
     Set<String>? shadowIgnoreKeys,
     List<String> shadowExcept = const [],
+    ShadowCompare? shadowCompare,
+    Set<String>? shadowIgnoreHeaders,
+    Set<String> Function(Request request)? shadowNormalizeKeys,
   }) {
     _upstream = _UpstreamConfig(
       url,
@@ -1384,6 +1404,9 @@ final class ApplicationBuilder {
       shadowMaxConcurrency,
       shadowIgnoreKeys,
       shadowExcept,
+      shadowCompare,
+      shadowIgnoreHeaders,
+      shadowNormalizeKeys,
     );
     return this;
   }
@@ -1647,6 +1670,9 @@ final class _UpstreamConfig {
     this.shadowMaxConcurrency,
     this.shadowIgnoreKeys,
     this.shadowExcept,
+    this.shadowCompare,
+    this.shadowIgnoreHeaders,
+    this.shadowNormalizeKeys,
   );
 
   final String? url;
@@ -1657,4 +1683,7 @@ final class _UpstreamConfig {
   final int? shadowMaxConcurrency;
   final Set<String>? shadowIgnoreKeys;
   final List<String> shadowExcept;
+  final ShadowCompare? shadowCompare;
+  final Set<String>? shadowIgnoreHeaders;
+  final Set<String> Function(Request request)? shadowNormalizeKeys;
 }

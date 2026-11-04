@@ -116,6 +116,8 @@ void main() {
     var answer = '{"id":1}';
     var status = 200;
     var type = 'application/json';
+    var extraHeaders = <String, String>{};
+    var cookies = <String>[];
 
     Future<void> boot({
       double? sampleRate = 1,
@@ -123,6 +125,8 @@ void main() {
       Set<String>? ignoreKeys,
       List<String> except = const [],
       Map<String, String> env = const {},
+      ShadowCompare? compare,
+      Set<String> Function(Request request)? normalizeKeys,
     }) async {
       app = Application.configure(basePath: base.path)
           .withEnv({'APP_ENV': 'testing', 'DB_DATABASE': ':memory:', ...env})
@@ -133,6 +137,8 @@ void main() {
             shadowMaxConcurrency: maxConcurrency,
             shadowIgnoreKeys: ignoreKeys,
             shadowExcept: except,
+            shadowCompare: compare,
+            shadowNormalizeKeys: normalizeKeys,
           )
           .withEvents((events) {
             events.listen<ShadowParityDrift>(drifts.add);
@@ -148,7 +154,22 @@ void main() {
                     contentType: 'application/json',
                   );
                 })
-                ..get('/secret', (Request r) => {'id': 1});
+                ..get('/secret', (Request r) => {'id': 1})
+                ..get(
+                  '/cookie',
+                  (Request r) => Response.json(const {'id': 1})
+                      .withHeaderList('set-cookie', const [
+                        'laravel_session=ours; path=/; httponly',
+                        'remember=same; path=/',
+                      ]),
+                )
+                ..get(
+                  '/ip',
+                  (Request r) => {
+                    'client_ip': '10.0.0.1',
+                    'tz': 'Asia/Makassar',
+                  },
+                );
             },
           )
           .create();
@@ -170,16 +191,24 @@ void main() {
       answer = '{"id":1}';
       status = 200;
       type = 'application/json';
+      extraHeaders = {};
+      cookies = [];
       seen = [];
       drifts = [];
       base = Directory.systemTemp.createTempSync('daravel_shadow');
       upstream = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      // dart:io's own defaults (x-frame-options, ...) are not the upstream's.
+      upstream.defaultResponseHeaders.clear();
       upstream.listen((request) async {
         seen.add(request);
         request.response
           ..statusCode = status
-          ..headers.set('content-type', type)
-          ..write(answer);
+          ..headers.set('content-type', type);
+        extraHeaders.forEach(request.response.headers.set);
+        for (final cookie in cookies) {
+          request.response.headers.add('set-cookie', cookie);
+        }
+        request.response.write(answer);
         await request.response.close();
       });
     });
@@ -333,6 +362,106 @@ void main() {
       await upstream.close(force: true);
       await send(Request.fake(path: '/thing'));
       expect(drifts, isEmpty);
+    });
+
+    group('bytes', () {
+      List<String> kinds() => [
+        for (final drift in drifts.single.drifts) '${drift.kind}:${drift.path}',
+      ];
+
+      test('the same bytes are quiet', () async {
+        await boot(compare: ShadowCompare.bytes);
+        await send(Request.fake(path: '/thing'));
+        expect(seen, hasLength(1));
+        expect(drifts, isEmpty);
+      });
+
+      test('the same shape with another value is a body drift', () async {
+        answer = '{"id":2}';
+        await boot(compare: ShadowCompare.bytes);
+        await send(Request.fake(path: '/thing'));
+        expect(kinds(), ['body:']);
+        expect(drifts.single.drifts.single.ours, 8);
+      });
+
+      test(
+        'a header the upstream adds is a drift, without its value',
+        () async {
+          extraHeaders = {'cache-control': 'no-cache, private'};
+          await boot(compare: ShadowCompare.bytes);
+          await send(Request.fake(path: '/thing'));
+          expect(kinds(), ['header:cache-control']);
+          final json = jsonEncode(drifts.single.drifts.single.toJson());
+          expect(json, isNot(contains('no-cache')));
+        },
+      );
+
+      test('fresh cookies by shape, other cookies by value', () async {
+        cookies = [
+          'laravel_session=theirs; path=/; httponly',
+          'remember=same; path=/',
+        ];
+        answer = '{"id":1}';
+        await boot(compare: ShadowCompare.bytes);
+        await send(Request.fake(path: '/cookie'));
+        expect(drifts, isEmpty);
+
+        cookies = [
+          'laravel_session=theirs; path=/; httponly',
+          'remember=other; path=/',
+        ];
+        await send(Request.fake(path: '/cookie'));
+        expect(kinds(), ['header:set-cookie']);
+      });
+
+      test('normalized keys are blanked on both sides', () async {
+        answer = '{"client_ip":"172.18.0.5","tz":"Asia/Makassar"}';
+        await boot(
+          compare: ShadowCompare.bytes,
+          normalizeKeys: (request) =>
+              request.path == '/ip' ? const {'client_ip'} : const {},
+        );
+        await send(Request.fake(path: '/ip'));
+        expect(drifts, isEmpty);
+
+        answer = '{"client_ip":"172.18.0.5","tz":"UTC"}';
+        await send(Request.fake(path: '/ip'));
+        expect(kinds(), ['body:']);
+      });
+
+      test('the date, the server and the length are left out', () async {
+        extraHeaders = {'server': 'RoadRunner', 'date': 'Wed, 04 Nov 2026'};
+        await boot(compare: ShadowCompare.bytes);
+        await send(Request.fake(path: '/thing'));
+        expect(drifts, isEmpty);
+      });
+
+      test('the shape mode stays the default', () async {
+        answer = '{"id":2}';
+        await boot();
+        await send(Request.fake(path: '/thing'));
+        expect(drifts, isEmpty);
+      });
+
+      test('UPSTREAM_SHADOW_COMPARE picks the mode', () async {
+        answer = '{"id":2}';
+        await boot(env: {'UPSTREAM_SHADOW_COMPARE': 'bytes'});
+        await send(Request.fake(path: '/thing'));
+        expect(kinds(), ['body:']);
+      });
+
+      test('an unknown UPSTREAM_SHADOW_COMPARE stops the boot', () async {
+        app = Application.configure(basePath: base.path)
+            .withEnv({
+              'APP_ENV': 'testing',
+              'DB_DATABASE': ':memory:',
+              'UPSTREAM_SHADOW_COMPARE': 'values',
+            })
+            .withLogLevel(LogLevel.critical)
+            .withUpstream(url: 'http://127.0.0.1:1', shadowSampleRate: 1)
+            .create();
+        await expectLater(app.boot(), throwsA(isA<ConfigException>()));
+      });
     });
 
     test('credentials go along', () async {

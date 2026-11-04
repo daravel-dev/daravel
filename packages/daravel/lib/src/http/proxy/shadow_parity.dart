@@ -17,7 +17,9 @@ final class ShadowDrift {
   final String path;
 
   /// `status`, `content_type`, `invalid_json`, `missing_key` (the upstream has
-  /// it and Daravel does not), `extra_key`, `type` or `length`.
+  /// it and Daravel does not), `extra_key`, `type` or `length`; with
+  /// [ShadowCompare.bytes], also `header` (at the header's name, with the
+  /// number of values on each side) and `body` (with both lengths).
   final String kind;
 
   /// What Daravel wrote: a status, a media type, a JSON type or a length.
@@ -141,6 +143,22 @@ String jsonTypeOf(Object? value) => switch (value) {
   _ => 'unknown',
 };
 
+/// What a shadow replay compares.
+enum ShadowCompare {
+  /// The status, the media type and the shape of JSON bodies (keys, types,
+  /// list lengths): a value may rightly have changed between the answer and
+  /// the replay.
+  shape,
+
+  /// The status, the headers and the body byte for byte, for a route whose
+  /// answer must not change at all while it moves. Headers that differ by
+  /// design are left out ([ShadowParityRunner.ignoreHeaders]), fresh cookie
+  /// values are compared by shape ([ShadowParityRunner.freshCookies]), and
+  /// [ShadowParityRunner.normalizeKeys] blanks JSON values that differ by
+  /// design, at any depth, on both sides.
+  bytes,
+}
+
 /// A route of Daravel answered differently from the upstream.
 final class ShadowParityDrift {
   /// The [drifts] of `method path`.
@@ -179,12 +197,53 @@ final class ShadowParityRunner {
     this.maxConcurrency = 4,
     Iterable<String> ignoreKeys = const [],
     Iterable<String> except = const [],
+    this.compare = ShadowCompare.shape,
+    Iterable<String> ignoreHeaders = defaultIgnoredHeaders,
+    Iterable<String> freshCookies = defaultFreshCookies,
+    this.normalizeKeys,
     this.logger,
     this.onDrift,
     Random? random,
   }) : differ = JsonStructuralDiffer(ignoreKeys: ignoreKeys),
        except = except.toList(),
+       ignoreHeaders = {for (final name in ignoreHeaders) name.toLowerCase()},
+       freshCookies = freshCookies.toSet(),
        _random = random ?? Random();
+
+  /// Headers [ShadowCompare.bytes] leaves out: set per connection or per
+  /// answer, by the server rather than the route.
+  static const Set<String> defaultIgnoredHeaders = {
+    'date',
+    'server',
+    'connection',
+    'keep-alive',
+    'transfer-encoding',
+    'content-length',
+    'x-request-id',
+  };
+
+  /// Cookies whose values are new on every answer (Laravel's session and
+  /// CSRF cookies): [ShadowCompare.bytes] compares their names and
+  /// attributes, not their values.
+  static const Set<String> defaultFreshCookies = {
+    'laravel_session',
+    'XSRF-TOKEN',
+  };
+
+  /// What a replay compares.
+  final ShadowCompare compare;
+
+  /// Response headers left out of a [ShadowCompare.bytes] comparison
+  /// (lower-cased).
+  final Set<String> ignoreHeaders;
+
+  /// Cookie names compared by shape only.
+  final Set<String> freshCookies;
+
+  /// The JSON keys whose values are blanked on both sides before a
+  /// [ShadowCompare.bytes] comparison, per request (for example the client
+  /// address a route echoes); empty or null compares the raw bytes.
+  final Set<String> Function(Request request)? normalizeKeys;
 
   /// The header a replay carries. A request with it is never replayed, so two
   /// applications shadowing each other do not loop.
@@ -285,6 +344,9 @@ final class ShadowParityRunner {
     List<int> bytes,
     ShadowAnswer answer,
   ) {
+    if (compare == ShadowCompare.bytes) {
+      return compareBytes(request, response, bytes, answer);
+    }
     final drifts = <ShadowDrift>[
       if (response.status != answer.status)
         ShadowDrift('', 'status', ours: response.status, theirs: answer.status),
@@ -314,6 +376,95 @@ final class ShadowParityRunner {
       ];
     }
     return [...drifts, ...differ.compare(ourBody, theirBody)];
+  }
+
+  /// The [ShadowCompare.bytes] differences between Daravel's [response]
+  /// (whose body is [bytes]) and the upstream's [answer] to [request].
+  List<ShadowDrift> compareBytes(
+    Request request,
+    Response response,
+    List<int> bytes,
+    ShadowAnswer answer,
+  ) {
+    final drifts = <ShadowDrift>[
+      if (response.status != answer.status)
+        ShadowDrift('', 'status', ours: response.status, theirs: answer.status),
+    ];
+    final ours = <String, List<String>>{
+      for (final MapEntry(:key, :value) in response.headers.entries)
+        key.toLowerCase(): value,
+    };
+    final names = {...ours.keys, ...answer.headers.keys}
+      ..removeAll(ignoreHeaders);
+    for (final name in names.toList()..sort()) {
+      var a = ours[name] ?? const <String>[];
+      var b = answer.headers[name] ?? const <String>[];
+      if (name == 'set-cookie') {
+        a = [for (final cookie in a) _cookieShape(cookie)];
+        b = [for (final cookie in b) _cookieShape(cookie)];
+      }
+      if (a.join('\n') != b.join('\n')) {
+        drifts.add(
+          ShadowDrift(name, 'header', ours: a.length, theirs: b.length),
+        );
+      }
+    }
+    if (request.method == 'HEAD') {
+      return drifts;
+    }
+    final keys = normalizeKeys?.call(request) ?? const <String>{};
+    final ourBody = _normalized(bytes, keys);
+    final theirBody = _normalized(answer.body, keys);
+    if (!_sameBytes(ourBody, theirBody)) {
+      drifts.add(
+        ShadowDrift('', 'body', ours: ourBody.length, theirs: theirBody.length),
+      );
+    }
+    return drifts;
+  }
+
+  /// A `Set-Cookie` value with a fresh cookie's value and expiry blanked.
+  String _cookieShape(String setCookie) {
+    final eq = setCookie.indexOf('=');
+    if (eq < 0 || !freshCookies.contains(setCookie.substring(0, eq).trim())) {
+      return setCookie;
+    }
+    final semi = setCookie.indexOf(';');
+    final attributes = semi < 0 ? '' : setCookie.substring(semi);
+    return '${setCookie.substring(0, eq)}=<fresh>'
+        '${attributes.replaceAll(RegExp('expires=[^;]*', caseSensitive: false), 'expires=<date>')}';
+  }
+
+  static List<int> _normalized(List<int> body, Set<String> keys) {
+    if (keys.isEmpty) {
+      return body;
+    }
+    final decoded = _decode(body);
+    if (decoded == _invalid) {
+      return body;
+    }
+    return utf8.encode(jsonEncode(_blank(decoded, keys)));
+  }
+
+  static Object? _blank(Object? value, Set<String> keys) => switch (value) {
+    final Map<String, Object?> map => {
+      for (final MapEntry(:key, value: inner) in map.entries)
+        key: keys.contains(key) ? '<normalized>' : _blank(inner, keys),
+    },
+    final List<Object?> list => [for (final item in list) _blank(item, keys)],
+    _ => value,
+  };
+
+  static bool _sameBytes(List<int> a, List<int> b) {
+    if (a.length != b.length) {
+      return false;
+    }
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) {
+        return false;
+      }
+    }
+    return true;
   }
 
   static String? _mediaType(String? value) =>

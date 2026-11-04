@@ -10,8 +10,17 @@ import 'shadow_parity.dart';
 
 /// The upstream's answer to a replay.
 final class ShadowAnswer {
-  /// The upstream's [status], [contentType] and [body].
-  const ShadowAnswer(this.status, this.contentType, this.body);
+  /// The upstream's [status], [contentType], [body] and [headers].
+  const ShadowAnswer(
+    this.status,
+    this.contentType,
+    this.body, {
+    this.headers = const <String, List<String>>{},
+  });
+
+  /// The response headers a client would get through the proxy (lower-cased
+  /// names; hop-by-hop and stripped headers left out).
+  final Map<String, List<String>> headers;
 
   /// The status code.
   final int status;
@@ -172,10 +181,17 @@ final class UpstreamProxy {
           return null;
         }
       }
+      final headers = <String, List<String>>{};
+      answer.headers.forEach((name, values) {
+        if (!hopByHop.contains(name) && !stripResponseHeaders.contains(name)) {
+          headers[name] = List<String>.of(values);
+        }
+      });
       return ShadowAnswer(
         answer.statusCode,
         answer.headers.value(HttpHeaders.contentTypeHeader),
         body.takeBytes(),
+        headers: headers,
       );
     } on TimeoutException {
       return null;
