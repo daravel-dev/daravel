@@ -305,11 +305,20 @@ void main() {
       }
 
       await attempt('nobody@example.com'); // Builds the dummy hash once.
-      final known = await attempt('ana@example.com');
-      final unknown = await attempt('nobody@example.com');
+      // One sample of each was flaky on CI runners (a pause in either
+      // attempt moves the ratio): compare medians of interleaved samples.
+      // Without the dummy hash an unknown e-mail takes microseconds and a
+      // bcrypt check tens of milliseconds, so half stays a sharp bound.
+      final known = <int>[];
+      final unknown = <int>[];
+      for (var i = 0; i < 5; i++) {
+        known.add(await attempt('ana@example.com'));
+        unknown.add(await attempt('nobody@example.com'));
+      }
+      int median(List<int> samples) => (samples.toList()..sort())[2];
       expect(
-        unknown,
-        greaterThan(known ~/ 2),
+        median(unknown),
+        greaterThan(median(known) ~/ 2),
         reason: 'unknown $unknown µs vs known $known µs',
       );
     });
