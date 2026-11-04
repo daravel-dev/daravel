@@ -13,6 +13,18 @@ match Laravel more closely.
 
 ### Added
 
+### Changed
+
+**Upgrading can change what an application sees:**
+
+### Fixed
+
+## 1.25.0
+
+For an application that moves from Laravel route by route. `withUpstream` now forwards forms, uploads, the client's method and its `Host` as sent, and its shadow replay can compare a moved route's answer byte for byte. JWTs are shared with tymon/jwt-auth's `lock_subject`, and Sanctum tokens and JWTs are checked both ways beside real Laravel 8 to 13. Two security checks are new: inline JavaScript built from values (`daravel_lints`), and scripts from another origin without Subresource Integrity (`security:audit`).
+
+### Added
+
 - `daravel_teobiefy`: `TeobiefyCrypto.clientSessionKeys`, libsodium's `crypto_kx_client_session_keys` (the client's rx and tx, crossed with `serverSessionKeys`; a low-order point is refused), for a client of a teobiefy API such as a tool that compares two backends. Checked against a vector made by PHP's sodium. `zstdDecompress` (with `ZstdFormatException` and `ZstdTooLargeException`) is exported, to open the `data` a PHP side compressed with `zstd_compress`.
 - `withUpstream(shadowCompare: ShadowCompare.bytes)` (`UPSTREAM_SHADOW_COMPARE=bytes`): the shadow replay compares a moved route's status, headers and body with Laravel's byte for byte, not only the shape of its JSON. `Date`, `Server`, `Content-Length`, the connection headers and `X-Request-Id` are left out (`shadowIgnoreHeaders`); Laravel's session and CSRF cookies are compared by name and attributes; `shadowNormalizeKeys` blanks, per request, JSON values that differ by design on both sides. A drift is `header` or `body` and carries counts and lengths, never values. `ShadowAnswer.headers` holds the upstream's headers. The default stays `ShadowCompare.shape`.
 - `daravel_lints`: `no_inline_js_interpolation` reports a value interpolated into an inline `on*=` event handler of generated HTML, a Dart value (`$name`) or a JavaScript template value (`\${name}`) in a page's script. HTML escaping does not make that safe, because the browser decodes the entities before it runs the attribute as JavaScript; the finding points at the value and suggests a `data-*` attribute with `addEventListener`. `LintRule.checkAt` lets a rule report an offset inside a node, and defaults to `check`.
