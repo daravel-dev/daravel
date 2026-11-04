@@ -231,6 +231,29 @@ listeners, with paths and types only, never values:
 })
 ```
 
+For a route whose answer must not change at all while it moves,
+`shadowCompare: ShadowCompare.bytes` (or `UPSTREAM_SHADOW_COMPARE=bytes`)
+compares the status, the headers and the body byte for byte instead. `Date`,
+`Server`, `Content-Length`, the connection headers and `X-Request-Id` are left
+out (`shadowIgnoreHeaders` replaces that list). Laravel's session and CSRF
+cookies are compared by name and attributes, because their values are new on
+every answer. `shadowNormalizeKeys` names, per request, the JSON keys whose
+values differ by design and are blanked on both sides, such as a client
+address the route echoes:
+
+```dart
+.withUpstream(
+  url: 'http://127.0.0.1:8080',
+  shadowSampleRate: 0.01,
+  shadowCompare: ShadowCompare.bytes,
+  shadowNormalizeKeys: (request) =>
+      request.path == '/api/v1/timezone' ? {'client_ip'} : const {},
+)
+```
+
+A byte drift is `header` (with the number of values on each side) or `body`
+(with both lengths), never a value.
+
 The client waits for none of this. At most `shadowMaxConcurrency` replays run at
 once per isolate (`UPSTREAM_SHADOW_MAX_CONCURRENCY`, 4 by default), and past that a
 sample is dropped, so Laravel never takes more than this from Daravel. Replays
