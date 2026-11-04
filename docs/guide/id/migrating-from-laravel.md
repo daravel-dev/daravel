@@ -1,4 +1,4 @@
-<!-- source: migrating-from-laravel.md sha256:45bab848ccb2 -->
+<!-- source: migrating-from-laravel.md sha256:c79bc5c695d1 -->
 # Migrasi dari Laravel, route demi route
 
 Anda tidak harus menulis ulang aplikasi Laravel sekaligus. Karena Daravel
@@ -243,7 +243,11 @@ membandingkan status, header, dan body byte demi byte. `Date`, `Server`,
 `Content-Length`, header koneksi, dan `X-Request-Id` tidak ikut dibandingkan
 (`shadowIgnoreHeaders` mengganti daftar itu). Cookie session dan CSRF Laravel
 dibandingkan dari nama dan atributnya saja, karena nilainya selalu baru di setiap
-jawaban. `shadowNormalizeKeys` menyebutkan, per request, key JSON yang nilainya
+jawaban. Laravel menamai cookie session menurut nama aplikasi
+(`Str::slug(APP_NAME, '_').'_session'`), jadi daftar default, `XSRF-TOKEN` dan
+`*_session`, mencocokkan setiap nama dengan akhiran itu; `shadowFreshCookies`
+(atau `UPSTREAM_SHADOW_FRESH_COOKIES`, dipisah koma) menggantinya.
+`shadowNormalizeKeys` menyebutkan, per request, key JSON yang nilainya
 memang berbeda dan dikosongkan di kedua sisi, misalnya alamat klien yang
 dikembalikan route:
 

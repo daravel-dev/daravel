@@ -224,11 +224,11 @@ final class ShadowParityRunner {
 
   /// Cookies whose values are new on every answer (Laravel's session and
   /// CSRF cookies): [ShadowCompare.bytes] compares their names and
-  /// attributes, not their values.
-  static const Set<String> defaultFreshCookies = {
-    'laravel_session',
-    'XSRF-TOKEN',
-  };
+  /// attributes, not their values. Laravel names the session cookie after
+  /// the application (`Str::slug(APP_NAME, '_').'_session'`), so the
+  /// default matches any name ending in `_session`: an entry starting with
+  /// `*` matches that suffix.
+  static const Set<String> defaultFreshCookies = {'XSRF-TOKEN', '*_session'};
 
   /// What a replay compares.
   final ShadowCompare compare;
@@ -237,8 +237,16 @@ final class ShadowParityRunner {
   /// (lower-cased).
   final Set<String> ignoreHeaders;
 
-  /// Cookie names compared by shape only.
+  /// Cookie names compared by shape only; `*suffix` matches a name ending
+  /// in that suffix.
   final Set<String> freshCookies;
+
+  /// Whether the cookie [name] is compared by shape only.
+  bool isFreshCookie(String name) => freshCookies.any(
+    (entry) => entry.startsWith('*')
+        ? name.endsWith(entry.substring(1))
+        : entry == name,
+  );
 
   /// The JSON keys whose values are blanked on both sides before a
   /// [ShadowCompare.bytes] comparison, per request (for example the client
@@ -426,7 +434,7 @@ final class ShadowParityRunner {
   /// A `Set-Cookie` value with a fresh cookie's value and expiry blanked.
   String _cookieShape(String setCookie) {
     final eq = setCookie.indexOf('=');
-    if (eq < 0 || !freshCookies.contains(setCookie.substring(0, eq).trim())) {
+    if (eq < 0 || !isFreshCookie(setCookie.substring(0, eq).trim())) {
       return setCookie;
     }
     final semi = setCookie.indexOf(';');
