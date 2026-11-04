@@ -4,6 +4,10 @@ import '../response.dart';
 
 /// Trims surrounding whitespace from every string input, except the keys
 /// listed in [except] (Laravel's `TrimStrings`, which skips passwords).
+///
+/// Like every input transformer it applies to the input as the client sent
+/// it, not to fields a later `Request.merge` adds, and [except] names
+/// dotted paths (`user.password`).
 final class TrimStringsMiddleware implements Middleware {
   /// Trims every string in the input, except the given keys (passwords by
   /// default).
@@ -11,7 +15,7 @@ final class TrimStringsMiddleware implements Middleware {
     this.except = const <String>{'password', 'password_confirmation'},
   });
 
-  /// Keys left as sent.
+  /// Keys left as sent, as dotted paths.
   final Set<String> except;
 
   @override

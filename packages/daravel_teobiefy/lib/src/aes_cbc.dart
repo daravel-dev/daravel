@@ -319,9 +319,12 @@ final class TeobiefyAesCbcMiddleware implements Middleware {
           if (payload is! Map<Object?, Object?>) {
             throw const FormatException('The payload is not a JSON object.');
           }
+          // The clear fields as the input transformers left them; the
+          // payload as it decrypted (Laravel merges it after TrimStrings).
+          final clear = await request.bodyInput();
           request.replace({
-            for (final MapEntry(:key, :value) in body.entries)
-              if (key != 'data_enc' && key != 'iv') '$key': value,
+            for (final MapEntry(:key, :value) in clear.entries)
+              if (key != 'data_enc' && key != 'iv') key: value,
             for (final MapEntry(:key, :value) in payload.entries) '$key': value,
           });
         } on FormatException catch (error) {

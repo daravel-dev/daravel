@@ -217,6 +217,18 @@ void main() {
                 });
                 r.get('/plain', (request) => Response.text('plain'));
               });
+              router.group(
+                middleware: const [
+                  TrimStringsMiddleware(),
+                  ConvertEmptyStringsToNullMiddleware(),
+                  'teobiefy',
+                ],
+                (r) => r.post(
+                  '/trimmed',
+                  (request) async =>
+                      Teobiefy.api(200, 'ok', {'input': await request.all()}),
+                ),
+              );
             },
           )
           .create();
@@ -266,6 +278,8 @@ void main() {
       List<int> key,
       Map<String, Object?> payload, {
       bool tamper = false,
+      String path = '/api/profile',
+      String extra = 'clear',
     }) async {
       final nonce = TeobiefyCrypto.nonce();
       final sealed = await TeobiefyCrypto.seal(
@@ -279,12 +293,12 @@ void main() {
       return app.handle(
         Request.fake(
           method: 'POST',
-          path: '/api/profile',
+          path: path,
           headers: {'X-Session-Id': sessionId},
           json: {
             'data_enc': base64.encode(sealed),
             'nonce': base64.encode(nonce),
-            'extra': 'clear',
+            'extra': extra,
           },
         ),
       );
@@ -318,6 +332,34 @@ void main() {
         'seen': ['extra', 'name'],
       });
     });
+
+    test(
+      'TrimStrings and ConvertEmptyStringsToNull reach the clear fields, '
+      'not the decrypted ones (Laravel merges the payload after them)',
+      () async {
+        app = await boot();
+        final session = await handshake();
+        final body = await json(
+          await send(
+            session.id,
+            session.keys.tx,
+            {'name': ' Ana ', 'note': ''},
+            path: '/api/trimmed',
+            extra: ' clear ',
+          ),
+        );
+        expect(body['status'], 200);
+        final clear = await TeobiefyCrypto.open(
+          base64.decode(body['data_enc']! as String),
+          session.keys.rx,
+          base64.decode(body['nonce']! as String),
+        );
+        final data = jsonDecode(
+          utf8.decode(_unframe(base64.decode(utf8.decode(clear)))),
+        ) as Map<String, Object?>;
+        expect(data['input'], {'extra': 'clear', 'name': ' Ana ', 'note': ''});
+      },
+    );
 
     test('LIBSODIUM_PAYLOAD_V2_ENABLED seals the zstd bytes', () async {
       app = await boot({'LIBSODIUM_PAYLOAD_V2_ENABLED': 'true'});

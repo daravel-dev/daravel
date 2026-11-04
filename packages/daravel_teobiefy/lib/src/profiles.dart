@@ -684,8 +684,11 @@ final class TeobiefyProfileMiddleware implements Middleware {
           for (final MapEntry(:key, :value) in body.entries) '$key': value,
       };
       final decoded = await profiles.decodeRequest(input, profile);
+      // The clear fields as the input transformers left them; the decoded
+      // payload as it came out (Laravel merges it after TrimStrings).
+      final clear = await request.bodyInput();
       request.replace({
-        for (final MapEntry(:key, :value) in input.entries)
+        for (final MapEntry(:key, :value) in clear.entries)
           if (!TeobiefyProfiles.metadataKeys.contains(key)) key: value,
         ...decoded,
       });

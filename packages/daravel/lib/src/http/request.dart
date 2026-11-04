@@ -17,6 +17,9 @@ import 'uploaded_file.dart';
 
 /// Rewrites an input value; used by `TrimStrings` and
 /// `ConvertEmptyStringsToNull` style middleware.
+///
+/// [key] is the value's path in dot notation (`user.password`, `tags.0`),
+/// as Laravel's `TransformsRequest::cleanArray` passes it.
 typedef InputTransformer = Object? Function(String key, Object? value);
 
 /// Incoming HTTP request (BLUEPRINT_V2 §7.2.2).
@@ -207,6 +210,13 @@ final class Request {
   String? _forwardedHost;
 
   final List<InputTransformer> _inputTransformers = <InputTransformer>[];
+
+  /// How many of [_inputTransformers] the body's fields have been through
+  /// already. 0 for the body as the client sent it. [merge] and [replace]
+  /// set it to the count at that moment: Laravel transforms its parameter
+  /// bags when the middleware runs, so input merged afterwards is kept as
+  /// given, and only a transformer registered later still sees it.
+  int _bodyTransformedBy = 0;
   final List<FutureOr<void> Function()> _deferred =
       <FutureOr<void> Function()>[];
 
@@ -533,59 +543,84 @@ final class Request {
   /// Merged input: query parameters overlaid by body fields (body wins),
   /// with input transformers applied. Computed once per request (until a
   /// transformer is added); each call returns a fresh top-level map.
+  ///
+  /// Transformers apply to the input as the client sent it, like Laravel's
+  /// `TransformsRequest`, which rewrites the request's parameter bags when
+  /// the middleware runs. Fields set later by [merge] or [replace] are kept
+  /// as given.
   Future<Map<String, Object?>> all() async {
     final cached = _allInput;
     if (cached != null) {
       return <String, Object?>{...cached};
     }
-    final result = <String, Object?>{...queryInput};
-    final parsed = await body();
-    if (parsed is Map<String, Object?>) {
-      result.addAll(parsed);
-    } else if (parsed is Map<Object?, Object?>) {
-      parsed.forEach((key, value) => result['$key'] = value);
-    }
-    final input = _inputTransformers.isEmpty
-        ? result
-        : _transform(result, '') as Map<String, Object?>;
+    final input = <String, Object?>{..._query, ...await bodyInput()};
     _allInput = input;
     return <String, Object?>{...input};
+  }
+
+  /// The body's fields as [all] sees them, without the query (Laravel's
+  /// `getInputSource()->all()`): the transformers the fields have not been
+  /// through yet applied, so a body sent by the client gets all of them and
+  /// a [replace]d one only those registered since. A middleware that
+  /// rebuilds the body with [replace] starts from this, so the fields the
+  /// client sent keep what `TrimStrings` made of them.
+  Future<Map<String, Object?>> bodyInput() async {
+    final parsed = await body();
+    final fields = <String, Object?>{
+      if (parsed is Map<Object?, Object?>)
+        for (final MapEntry(:key, :value) in parsed.entries) '$key': value,
+    };
+    if (_bodyTransformedBy >= _inputTransformers.length) {
+      return fields;
+    }
+    return _transform(fields, '', _bodyTransformedBy) as Map<String, Object?>;
   }
 
   /// Adds [input] to the body's fields, overwriting those of the same name,
   /// like Laravel's `$request->merge()`: [all], [input] and validation see
   /// it from now on. The body is read first when it was not.
+  ///
+  /// The fields already there keep what the input transformers made of
+  /// them, and [input] is kept as given (Laravel merges into a parameter
+  /// bag that `TrimStrings` and `ConvertEmptyStringsToNull` cleaned
+  /// earlier).
   Future<void> merge(Map<String, Object?> input) async {
-    final parsed = await body();
-    replace({
-      if (parsed is Map<Object?, Object?>)
-        for (final MapEntry(:key, :value) in parsed.entries) '$key': value,
-      ...input,
-    });
+    _setBody({...await bodyInput(), ...input});
   }
 
   /// Replaces the body's fields with [input], like Laravel's
   /// `$request->replace()`; query parameters stay. A body not read yet is
-  /// discarded.
-  void replace(Map<String, Object?> input) {
-    _parsedBody = <String, Object?>{...input};
+  /// discarded. [input] is kept as given: the input transformers registered
+  /// so far do not apply to it.
+  void replace(Map<String, Object?> input) => _setBody({...input});
+
+  void _setBody(Map<String, Object?> fields) {
+    _parsedBody = fields;
     _bodyParsed = true;
+    _bodyTransformedBy = _inputTransformers.length;
     _allInput = null;
   }
 
-  Object? _transform(Object? value, String key) {
+  /// Runs the transformers from index [from] on every leaf of [value]. The
+  /// key is the leaf's path in dot notation (`user.password`, `tags.0`), as
+  /// `TransformsRequest::cleanArray` builds it.
+  Object? _transform(Object? value, String key, [int from = 0]) {
+    String path(Object? child) => key.isEmpty ? '$child' : '$key.$child';
     if (value is Map<Object?, Object?>) {
       return <String, Object?>{
         for (final entry in value.entries)
-          '${entry.key}': _transform(entry.value, '${entry.key}'),
+          '${entry.key}': _transform(entry.value, path(entry.key), from),
       };
     }
     if (value is List<Object?>) {
-      return <Object?>[for (final item in value) _transform(item, key)];
+      return <Object?>[
+        for (var i = 0; i < value.length; i++)
+          _transform(value[i], path(i), from),
+      ];
     }
     var current = value;
-    for (final transformer in _inputTransformers) {
-      current = transformer(key, current);
+    for (var i = from; i < _inputTransformers.length; i++) {
+      current = _inputTransformers[i](key, current);
     }
     return current;
   }
