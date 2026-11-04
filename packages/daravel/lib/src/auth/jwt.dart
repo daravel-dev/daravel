@@ -413,6 +413,12 @@ final class MemoryJwtDenylist implements JwtDenylist {
 }
 
 /// Stateless bearer-JWT guard: `sub` is the user's identifier.
+///
+/// With [subjectClass], tokens are interchangeable with tymon/jwt-auth's
+/// (Laravel's `jwt` guard with `lock_subject`): issued tokens carry `prv`,
+/// the sha1 of the model class name, plus `nbf` and `iss`, which tymon
+/// requires; a token whose `prv` names another model is refused, and one
+/// without `prv` is accepted, as tymon does.
 final class JwtGuard<T extends Authenticatable> extends RequestGuard<T> {
   /// A guard reading `Authorization: Bearer <jwt>`.
   JwtGuard({
@@ -421,9 +427,28 @@ final class JwtGuard<T extends Authenticatable> extends RequestGuard<T> {
     required this.codec,
     this.ttl = const Duration(minutes: 60),
     this.denylist,
+    this.subjectClass,
+    this.issuerClaim,
     DateTime Function()? clock,
   }) : _clock = clock ?? _utcNow,
        super(provider: provider);
+
+  /// The Laravel model class of the subject (`App\Models\User`); `null` or
+  /// empty for Daravel's own tokens, without `prv`.
+  final String? subjectClass;
+
+  /// The `iss` written into issued tokens when the codec has no issuer of
+  /// its own; not checked on verify.
+  final String? issuerClaim;
+
+  /// Whether tokens are locked to [subjectClass] (tymon's `lock_subject`).
+  bool get locksSubject => subjectClass?.isNotEmpty ?? false;
+
+  /// tymon/jwt-auth's `prv` for [subjectClass]: `sha1(get_class($model))`
+  /// (tymon/jwt-auth 2.2.1, `src/JWT.php`, `hashSubjectModel`).
+  String? get subjectHash => locksSubject
+      ? crypto.sha1.convert(utf8.encode(subjectClass!)).toString()
+      : null;
 
   /// Signs and verifies the tokens.
   final JwtCodec codec;
@@ -451,6 +476,10 @@ final class JwtGuard<T extends Authenticatable> extends RequestGuard<T> {
     } on JwtException {
       return null;
     }
+    final prv = claims['prv'];
+    if (locksSubject && prv != null && prv != subjectHash) {
+      return null;
+    }
     final jti = claims.jti;
     if (jti != null && await (denylist?.contains(jti) ?? Future.value(false))) {
       return null;
@@ -467,7 +496,8 @@ final class JwtGuard<T extends Authenticatable> extends RequestGuard<T> {
     return user;
   }
 
-  /// Issues a signed token for [user] with `sub`, `iat`, `exp`, `jti`.
+  /// Issues a signed token for [user] with `sub`, `iat`, `exp`, `jti`, and
+  /// with [subjectClass] also `nbf`, `prv` and `iss` (tymon's claims).
   Future<String> issue(
     Authenticatable user, {
     Duration? ttl,
@@ -475,11 +505,15 @@ final class JwtGuard<T extends Authenticatable> extends RequestGuard<T> {
   }) {
     final now = _clock();
     final expires = now.add(ttl ?? this.ttl);
+    final iat = now.millisecondsSinceEpoch ~/ 1000;
     return codec.sign(<String, Object?>{
+      if (locksSubject && codec.issuer == null) 'iss': issuerClaim ?? '',
       'sub': user.authIdentifier.toString(),
-      'iat': now.millisecondsSinceEpoch ~/ 1000,
+      'iat': iat,
       'exp': expires.millisecondsSinceEpoch ~/ 1000,
+      if (locksSubject) 'nbf': iat,
       'jti': _jti(),
+      if (locksSubject) 'prv': subjectHash,
       ...claims,
     });
   }

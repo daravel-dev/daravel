@@ -51,6 +51,21 @@ the leeway): the denylist lives in the default cache store, or in the
 `process` store when that one is `memory`, so every worker isolate refuses
 the token; with `CACHE_STORE=database`, every machine does.
 
+A Laravel application on tymon/jwt-auth (its `jwt` guard with
+`lock_subject`) shares its tokens with Daravel when both use the same
+secret and these settings:
+
+```dotenv
+JWT_SECRET=<the Laravel JWT_SECRET>
+JWT_SUBJECT_CLASS=App\Models\User   # prv = sha1 of this class name, as tymon writes it
+JWT_ISSUER_CLAIM=https://api.example.com   # iss for issued tokens (default APP_URL); tymon requires it, checks nothing
+JWT_TTL=23040                       # minutes, tymon's ttl
+JWT_LEEWAY=0                        # seconds, tymon's leeway
+```
+
+A token Laravel issued then signs the same user in on Daravel and the
+other way round; a `prv` for another model class is refused.
+
 ## Hashing
 
 `Hash.make` / `Hash.check` run in a compute isolate. Drivers: `bcrypt`

@@ -31,6 +31,8 @@ final class AuthConfig implements ConfigSection {
     this.jwtPublicKey,
     this.jwtPrivateKey,
     this.jwtKid,
+    this.jwtSubjectClass,
+    this.jwtIssuerClaim,
   });
 
   /// The settings in `AUTH_*`, `JWT_*` and `SANCTUM_*`.
@@ -50,6 +52,10 @@ final class AuthConfig implements ConfigSection {
     jwtPublicKey: env.maybeString('JWT_PUBLIC_KEY'),
     jwtPrivateKey: env.maybeString('JWT_PRIVATE_KEY'),
     jwtKid: env.maybeString('JWT_KID'),
+    jwtSubjectClass: env.maybeString('JWT_SUBJECT_CLASS'),
+    // tymon requires an iss; without JWT_ISSUER_CLAIM the application URL.
+    jwtIssuerClaim:
+        env.maybeString('JWT_ISSUER_CLAIM') ?? env.maybeString('APP_URL'),
   );
 
   /// The guard used when none is named (`AUTH_GUARD`, `token`).
@@ -91,6 +97,18 @@ final class AuthConfig implements ConfigSection {
   /// The key id written in the JWT header.
   final String? jwtKid;
 
+  /// The Laravel model class of the token's subject (`JWT_SUBJECT_CLASS`,
+  /// e.g. `App\Models\User`), for tokens shared with tymon/jwt-auth and its
+  /// `lock_subject`: issued tokens carry `prv` (the sha1 of this name),
+  /// `nbf` and `iss`, and a token whose `prv` differs is refused.
+  final String? jwtSubjectClass;
+
+  /// The `iss` written into issued tokens but not checked
+  /// (`JWT_ISSUER_CLAIM`, else `APP_URL`): tymon/jwt-auth writes the login
+  /// URL and requires the claim without checking it. `JWT_ISSUER`, by contrast, is required
+  /// to match on every token.
+  final String? jwtIssuerClaim;
+
   @override
   String get key => 'auth';
 
@@ -109,6 +127,8 @@ final class AuthConfig implements ConfigSection {
       'issuer': jwtIssuer,
       'audience': jwtAudience,
       'kid': jwtKid,
+      'subject_class': jwtSubjectClass,
+      'issuer_claim': jwtIssuerClaim,
     },
   };
 }
@@ -183,6 +203,8 @@ final class AuthManager {
       codec: codec ?? defaultJwtCodec(),
       ttl: ttl ?? config.jwtTtl,
       denylist: denylist ?? jwtDenylist,
+      subjectClass: config.jwtSubjectClass,
+      issuerClaim: config.jwtIssuerClaim,
     );
     register(name, guard);
     return guard;

@@ -1,4 +1,4 @@
-<!-- source: auth.md sha256:32a056f1f96b -->
+<!-- source: auth.md sha256:b91a5f81007e -->
 # Autentikasi dan otorisasi
 
 Guard didaftarkan di `bootstrap/app.dart`:
@@ -52,6 +52,21 @@ tanda tangan yang salah, dan token kedaluwarsa.
 leeway): denylist disimpan di cache store default, atau di store `process`
 bila store default-nya `memory`, sehingga semua worker isolate menolak token
 itu; dengan `CACHE_STORE=database`, semua mesin menolaknya.
+
+Aplikasi Laravel yang memakai tymon/jwt-auth (guard `jwt` dengan
+`lock_subject`) dapat berbagi token dengan Daravel bila keduanya memakai
+secret yang sama dan setelan berikut:
+
+```dotenv
+JWT_SECRET=<JWT_SECRET dari Laravel>
+JWT_SUBJECT_CLASS=App\Models\User   # prv = sha1 dari nama class ini, seperti yang ditulis tymon
+JWT_ISSUER_CLAIM=https://api.example.com   # iss untuk token yang diterbitkan (default APP_URL); wajib bagi tymon, tidak diperiksa
+JWT_TTL=23040                       # menit, sama dengan ttl tymon
+JWT_LEEWAY=0                        # detik, sama dengan leeway tymon
+```
+
+Token yang diterbitkan Laravel lalu dapat dipakai untuk login sebagai user
+yang sama di Daravel, dan sebaliknya; `prv` untuk class model lain ditolak.
 
 ## Hashing
 
