@@ -13,12 +13,14 @@ match Laravel more closely.
 
 ### Added
 
+- `phpJsonDouble(double)`: a double as PHP's `json_encode` writes it (`serialize_precision = -1`, `zend_gcvt`), used by `PhpJsonEncoder` and `Response.json(phpCompatible: true)`.
 - `Request.bodyInput()`: the body's fields as `all()` sees them, without the query (Laravel's `getInputSource()->all()`). A middleware that rebuilds the body with `replace()` starts from it, so the fields the client sent keep what `TrimStrings` made of them.
 
 ### Changed
 
 **Upgrading can change what an application sees:**
 
+- `PhpJsonEncoder` (and so `Response.encodePhpJson` and `Response.json(phpCompatible: true)`) writes doubles as PHP's `json_encode` does, checked against PHP 8.3.36: a whole double without its fraction (`2.0` is now `2`, `0.0` is `0`, `-0.0` is `-0`), and the E-style below 0.0001 or from 1e17 on (`1.0e-5`, `1.0e+17`, where it wrote `0.00001` and `100000000000000000.0`). Integers are unchanged. A client that told integers from doubles by the `.0` in a PHP-compatible answer sees whole doubles as integers now, as it would from Laravel. `phpJsonDouble` is a new export: an application that declares that name hides it in its import of `package:daravel/daravel.dart`.
 - Input transformers (`TrimStringsMiddleware`, `ConvertEmptyStringsToNullMiddleware`, `Request.addInputTransformer`) apply as in Laravel's `TransformsRequest`, checked against laravel/framework 10.48.29:
   - **Only to input as the client sent it.** Fields that `Request.merge` or `Request.replace` set afterwards are kept as given: `' x '` stays `' x '` and `''` stays `''`, where they were trimmed and turned into `null` before. Only a transformer registered after the merge still sees them. This matters to a middleware that merges input it produced, such as a payload decryption. An application that relied on its merged values being trimmed or converted trims them before `merge`.
   - `daravel_teobiefy`'s `teobiefy`, `teobiefy.aes` and profile middleware build the decrypted body from `Request.bodyInput()`, so the clear fields beside `data_enc` keep what the transformers made of them and the decrypted fields arrive as the client encrypted them.

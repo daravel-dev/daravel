@@ -94,6 +94,59 @@ String phpJsonFromDart(
 /// the intermediate string and its rewrite (on a 1 MB response the rewrite
 /// cost more than the encoding itself).
 ///
+/// A double as `json_encode` writes it with `serialize_precision = -1` (the
+/// default): `php_json_encode_double` (`ext/json/json_encoder.c` 92–105,
+/// php-src `php-8.3.36`) calls `zend_gcvt(d, -1, '.', 'e', ...)`
+/// (`Zend/zend_strtod.c` 4517–4612), which takes the shortest round-trip
+/// digits (`zend_dtoa` mode 0, `ndigit` 17) and writes:
+///
+/// - E-style when the decimal point falls past 17 digits or before 3
+///   leading zeros (`decpt > 17 || decpt < -3`): one digit, `.`, the rest
+///   or `0`, then `e`, the sign, the exponent (`1.0e-5`, `1.0e+17`,
+///   `1.234e-5`);
+/// - otherwise plain digits, without a `.0` for a whole number (no
+///   `JSON_PRESERVE_ZERO_FRACTION`): `0`, `-0`, `115`, `0.0001`.
+///
+/// The digits are Dart's shortest representation (the same round-trip
+/// digits); only the layout is PHP's. [value] must be finite.
+String phpJsonDouble(double value) {
+  final negative = value.isNegative;
+  final exponential = value.abs().toStringAsExponential(); // d.ddde±x
+  final at = exponential.indexOf('e');
+  final digits = exponential.substring(0, at).replaceFirst('.', '');
+  // zend_dtoa's decpt: value = 0.<digits> * 10^decpt.
+  var decpt = int.parse(exponential.substring(at + 1)) + 1;
+  final out = StringBuffer(negative ? '-' : '');
+  if (value == 0) {
+    // zend_dtoa(0) is "0" with decpt 1: "0", or "-0" for -0.0.
+    out.write('0');
+  } else if (decpt > 17 || decpt < -3) {
+    decpt -= 1;
+    out
+      ..write(digits[0])
+      ..write('.')
+      ..write(digits.length > 1 ? digits.substring(1) : '0')
+      ..write('e')
+      ..write(decpt < 0 ? '-' : '+')
+      ..write(decpt.abs());
+  } else if (decpt <= 0) {
+    out
+      ..write('0.')
+      ..write('0' * -decpt)
+      ..write(digits);
+  } else if (digits.length <= decpt) {
+    out
+      ..write(digits)
+      ..write('0' * (decpt - digits.length));
+  } else {
+    out
+      ..write(digits.substring(0, decpt))
+      ..write('.')
+      ..write(digits.substring(decpt));
+  }
+  return out.toString();
+}
+
 /// Values: `null`, `bool`, `num` (finite), `String`, `List`, `Map` with
 /// string keys and [PhpObject]; anything else goes through [toEncodable]
 /// once, as `dart:convert` does, or throws [JsonUnsupportedObjectError].
@@ -186,9 +239,13 @@ final class _PhpJsonWriter {
         _out.write('false');
       case final num number:
         if (!number.isFinite) {
+          // PHP: PHP_JSON_ERROR_INF_OR_NAN, json_encode() fails
+          // (ext/json/json_encoder.c, php_json_escape_double's caller).
           return false;
         }
-        _out.write(number.toString());
+        _out.write(
+          number is int ? number.toString() : phpJsonDouble(number.toDouble()),
+        );
       case final String text:
         _writeString(text);
       case final PhpObject php:

@@ -9,19 +9,33 @@ enum Colour { red, green }
 /// What `Response.encodePhpJson` did before the one-pass encoder: the
 /// native encoder, the `phpJsonFromDart` rewrite and a marker for empty
 /// PHP objects. Kept here as the oracle: the new encoder must write the
-/// same bytes for every value.
+/// same bytes for every value. Doubles are written as PHP writes them
+/// (`phpJsonDouble`, checked against PHP in the conformance suite): each
+/// goes through a marker, since `JsonEncoder` writes numbers itself.
 String twoPass(Object? data) {
   const marker = '__daravel_php_empty_object_c3f19e7a42__';
+  final doubles = <double>[];
+  Object? markDoubles(Object? value) => switch (value) {
+    final double d => '__daravel_double_${(doubles..add(d)).length - 1}__',
+    final List<Object?> list => [for (final item in list) markDoubles(item)],
+    final Map<Object?, Object?> map => {
+      for (final MapEntry(:key, value: item) in map.entries)
+        key: markDoubles(item),
+    },
+    _ => value,
+  };
   final text = JsonEncoder((Object? value) {
     if (value is PhpObject && value.properties.isEmpty) {
       return marker;
     }
-    return toEncodable(value);
-  }).convert(data);
-  return phpJsonFromDart(
-    text,
-    emptyMapsAsArrays: true,
-  ).replaceAll('"$marker"', '{}');
+    return markDoubles(toEncodable(value));
+  }).convert(markDoubles(data));
+  return phpJsonFromDart(text, emptyMapsAsArrays: true)
+      .replaceAll('"$marker"', '{}')
+      .replaceAllMapped(
+        RegExp('"__daravel_double_([0-9]+)__"'),
+        (m) => phpJsonDouble(doubles[int.parse(m[1]!)]),
+      );
 }
 
 /// `Response._toEncodable`.
