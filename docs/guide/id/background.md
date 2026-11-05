@@ -1,4 +1,4 @@
-<!-- source: background.md sha256:ff99a86366ec -->
+<!-- source: background.md sha256:38e06b71ffba -->
 # Cache, event, queue, dan penjadwalan
 
 <!-- include: packages/daravel/test/docs/guide_examples_test.dart#cache-events-queue -->
@@ -118,6 +118,11 @@ ulang beserta stack trace-nya. Task yang melewati `timeout` gagal dengan
 `Concurrency.maxWorkers` membatasi pool, secara default yang lebih kecil antara
 jumlah prosesor dan 4. Dengan `serve --isolates=N`, setiap isolate punya pool
 sendiri.
+Timeout mulai berjalan saat task diserahkan ke pool, sehingga ikut membatasi
+waktu menunggu worker yang sedang dipakai pemanggil lain.
+`Concurrency.maxQueue` (default tanpa batas) membatasi jumlah task yang
+menunggu worker; lewat dari itu task langsung gagal dengan `StateError`
+alih-alih mengantre.
 
 Task berjalan di isolate lain, dan di sinilah bedanya dengan Laravel, yang
 mem-boot aplikasi untuk setiap task:

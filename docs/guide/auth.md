@@ -75,7 +75,7 @@ other way round; a `prv` for another model class is refused.
 
 ## Hashing
 
-`Hash.make` / `Hash.check` run in a compute isolate. Drivers: `bcrypt`
+`Hash.make` / `Hash.check` run in compute isolates. Drivers: `bcrypt`
 (default, cost 12, `$2y$` like Laravel), `argon2id` and `pbkdf2`.
 `Hash.check` detects the driver from the hash. With `HASH_VERIFY=true` (the
 default) it refuses foreign formats except the strong family (bcrypt and
@@ -83,6 +83,14 @@ argon2id), so switching `HASH_DRIVER` between those two keeps every
 existing password valid while `Hash.needsRehash` and
 `rehashPasswordIfRequired` upgrade hashes at login. Keep bcrypt while a
 Laravel app shares the users table: Laravel verifies only bcrypt by default.
+
+At most `HASH_CONCURRENCY` hashes (default: one per processor) run at once,
+each in a warm isolate that is reused, so a burst of logins waits its turn
+instead of starting an isolate per attempt (with argon2id at 64 MiB each,
+enough to run out of memory). Up to `HASH_QUEUE` hashes (1024; `0` for no
+limit) wait, each for at most `HASH_QUEUE_TIMEOUT` (`30s`); past either
+`Hash.make` and `Hash.check` throw `HashingSaturatedException`, answered as
+`503` with `Retry-After: 1`.
 
 On Linux, bcrypt runs in the system's C library (libxcrypt's `crypt_rn`,
 the implementation PHP uses), so a login costs what it costs in Laravel; on

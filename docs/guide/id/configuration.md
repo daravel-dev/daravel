@@ -1,4 +1,4 @@
-<!-- source: configuration.md sha256:03d400ac6094 -->
+<!-- source: configuration.md sha256:085d916d6d96 -->
 # Konfigurasi
 
 ## File environment
@@ -105,6 +105,7 @@ setelah boot.
 | `QUEUE_UNIQUE_LOCK_STORE` | `database` atau `redis` sesuai queue-nya, selain itu `process` | Cache store untuk lock unique job; proses `queue:work` harus bisa menjangkaunya |
 | `QUEUE_SIGNAL_STORE` | `file` dengan queue database, selain itu lock store | Cache store untuk sinyal `queue:restart` dan `queue:pause`; `database` menjangkau worker di semua mesin |
 | `HASH_DRIVER`, `BCRYPT_ROUNDS` | `bcrypt`, `12` | Hashing password (seperti Laravel) |
+| `HASH_CONCURRENCY`, `HASH_QUEUE`, `HASH_QUEUE_TIMEOUT` | satu per prosesor, `1024`, `30s` | Hash yang berjalan bersamaan (di isolate hangat), hash yang menunggu, dan berapa lama satu hash menunggu sebelum `503` ([Hashing](auth.md#hashing)) |
 | `LOG_LEVEL`, `LOG_STACK` | `debug` | Level log dan channel (`json` untuk produksi) |
 | `HTTP_ACCESS_LOG` | `true` | Satu baris `info` per request (method, path, status, waktu); `false` bila proxy di depan sudah mencatat request. Output log console, JSON, dan file harian tidak pernah memblokir worker: lewat dari 8 MiB yang menunggu, baris dibuang dan dihitung (`log_lines_dropped_total`) |
 | `SHUTDOWN_TIMEOUT`, `HTTP_REQUEST_TIMEOUT` | `30s`, `30s` | Graceful shutdown dan timeout handler |

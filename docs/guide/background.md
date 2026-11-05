@@ -112,6 +112,10 @@ Every task runs. Then the first failure, by position, is rethrown with its stack
 trace. A task past `timeout` fails with a `TimeoutException`. `concurrency` caps
 a run, and `Concurrency.maxWorkers` caps the pool, by default the smaller of the
 processor count and 4. With `serve --isolates=N`, each isolate has its own pool.
+The timeout starts when a task is handed to the pool, so it also bounds the
+wait for a worker that other callers keep busy. `Concurrency.maxQueue` (no
+limit by default) caps the tasks waiting for a worker; past it a task fails at
+once with a `StateError` instead of queueing.
 
 A task runs in another isolate, and this is where it differs from Laravel, whose
 tasks boot the application:

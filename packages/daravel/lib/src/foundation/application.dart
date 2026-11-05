@@ -1288,6 +1288,7 @@ final class Application {
     for (final hook in _builder._shutdownHooks) {
       await hook(container);
     }
+    await container.resolved<HashManager>()?.close();
     await Concurrency.shutdown();
     final db = container.resolved<DatabaseManager>();
     if (db != null) {
