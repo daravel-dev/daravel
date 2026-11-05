@@ -104,6 +104,14 @@ x64):
 The `process` cache store sends values as JSON strings because of this
 (ADR-031); `TransferableTypedData` pays off only for large binary data.
 
+### Scout rerank
+
+`bin/scout_rerank.dart` times the cosine `daravel_scout` uses for
+`hybrid(rerank: true)`, scalar against `Float32x4`, over 1 000 candidates of
+1 536 and 3 072 dimensions, and the whole rerank from each driver's vector
+form. The numbers are in the
+[`daravel_scout` README](../packages/daravel_scout/README.md#rerank).
+
 ### Scenario 13 and isolates
 
 `bin/wide_profile.dart` splits scenario 13 into query, row decoding and

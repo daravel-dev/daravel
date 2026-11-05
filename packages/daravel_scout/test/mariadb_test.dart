@@ -125,5 +125,15 @@ void main() {
         expect({for (final a in found) a.key}, {2, 3});
       });
     });
+
+    test('hybrid(rerank: true) reorders by the returned vectors', () async {
+      await app.run(() async {
+        final found = await Scout.search(
+          Article.definition,
+          'dart',
+        ).hybrid(minSimilarity: 0.5, rerank: true).get();
+        expect([for (final a in found) a.key], [2, 3]);
+      });
+    });
   }, skip: url == null ? 'needs DARAVEL_TEST_MARIADB_VECTOR' : false);
 }
