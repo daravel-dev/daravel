@@ -103,6 +103,46 @@ Size production from the binary, not from the development server:
 isolates (115 MB with one, about 330 MB with eight, on the same
 application).
 
+### Build on one OS, run on another
+
+`--target-os` and `--target-arch` build a bundle for another machine, for
+example a Linux server from a Windows laptop:
+
+```bash
+dart run bin/dartisan.dart build --target-os=linux                    # Linux x64 from Windows x64
+dart run bin/dartisan.dart build --target-os=linux --target-arch=arm64
+dart run bin/dartisan.dart build --target-os=linux --no-sqlite --force  # PostgreSQL/MySQL: no SQLite download
+```
+
+Both options go to `dart build cli`, which compiles for the target and runs
+the build hooks for it: the bundled SQLite is the target's prebuilt
+(`libsqlite3.so` for Linux), and the executable is `bin/server`, with
+`.exe` only for Windows. The Dart SDK cross-compiles to Linux only
+(x64, arm64): a macOS or Windows bundle is built on that system.
+
+Measured with the starter on Windows x64 (Dart 3.13.4, build hooks already
+cached):
+
+| Command | Bundle | Build time |
+| :-- | :-- | :-- |
+| `build` (host, Windows x64) | `server.exe` 10.5 MB + `sqlite3.dll` 1.6 MB | about 45 s |
+| `build --target-os=linux` | ELF x86-64 `server` 10.9 MB + `libsqlite3.so` 1.7 MB | about 20 s |
+| `build --target-os=linux --target-arch=arm64` | ELF arm64 `server` 10.6 MB + `libsqlite3.so` 1.8 MB | about 25 s |
+| `build --target-os=linux --no-sqlite --force` | ELF x86-64 `server` 10.9 MB | about 40 s, including `dart run` of `dartisan` |
+| `build --target-os=macos` | refused by the SDK: cross-compiling targets Linux only | |
+
+The Linux x64 bundles ran on WSL (Ubuntu 22.04), and CI builds the
+`--no-sqlite` bundle on Windows and smoke-tests it on Linux. A
+`--no-sqlite` bundle that opens SQLite needs `libsqlite3.so` on the server
+(Debian/Ubuntu: `libsqlite3-dev`, or a `libsqlite3.so` link to
+`libsqlite3.so.0`).
+
+If a build stops with "Hash of downloaded file libsqlite3...", the SQLite
+download from GitHub failed: `package:sqlite3` 3.8.0 does not check the
+HTTP status, so an error response shows up as a wrong hash. `dartisan
+build` says so; run it again, or build with `--no-sqlite --force` when the
+application uses PostgreSQL or MySQL.
+
 ## Docker
 
 `dartisan build --docker` writes a multi-stage `Dockerfile` (Dart SDK
