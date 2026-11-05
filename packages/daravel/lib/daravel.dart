@@ -5,6 +5,7 @@
 library;
 
 export 'src/concurrency/concurrency.dart';
+export 'src/concurrency/isolate_payload.dart';
 export 'src/database/database_config.dart';
 export 'src/database/database_manager.dart';
 export 'src/database/legacy_key.dart';
