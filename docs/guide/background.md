@@ -62,6 +62,36 @@ unique jobs, job middleware, `queue:work`, `queue:failed`, `queue:retry` and
 `queue:restart` are supported. Dispatch inside a transaction is deferred
 until commit by default.
 
+### Attempts, timeouts and `retry_after`
+
+- `tries` counts every reservation, including a release by middleware
+  (`WithoutOverlapping`, `RateLimitedJob`) or `ctx.release()`. A job reserved
+  again after its last try fails with `MaxAttemptsExceededException` without
+  running, as in Laravel, and so does a job reserved after its `retryUntil`;
+  a job released until a lock frees up needs `tries` (or `retryUntil`) that
+  cover the wait. `int? get maxExceptions` fails a job after that many
+  exceptions, however many tries are left.
+- Dart cannot stop a running future, so a handler past its `timeout` keeps
+  running. Its `ctx.cancelled` is set, and it runs with `ctx.cancellation` as
+  `CancellationToken.current`: a `DB.transaction` it is still in rolls back
+  with `OperationCancelledException` instead of committing, and
+  `WithoutOverlapping` keeps its lock until `expiresAfter`. A worker whose job
+  timed out and was released stops with exit code 1 (`queue:work` ends the
+  process), so the process manager starts a fresh one.
+- An asynchronous error that a handler leaves uncaught (a future it does not
+  await) fails the attempt once the handler has returned, never while it
+  still runs.
+- The database and Redis queues give a reserved job to another worker after
+  `QUEUE_RETRY_AFTER` (90 seconds). While a job runs, the worker extends its
+  reservation every half `retry_after`, so a long job is not run twice at
+  once; the job of a worker that stops responding waits `retry_after`. As in
+  Laravel, keep `QUEUE_RETRY_AFTER` above the longest job `timeout`: the
+  worker warns when a job's timeout (or `--timeout`) is not below it.
+- `Queue.dispatch(job)` pushes the job even when nothing awaits it (in a
+  microtask, after the setters chained on it), as Laravel pushes a
+  `PendingDispatch` when it goes out of scope. Awaiting it gives the job id
+  or the error of the push; a failed push that nothing awaits is logged.
+
 An idle worker waits up to `--sleep` (3 seconds, as Laravel's) between
 empty polls, but a push wakes it at once: on PostgreSQL the database queue
 sends a `NOTIFY` that every worker on every machine hears, and the memory

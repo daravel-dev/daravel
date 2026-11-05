@@ -13,11 +13,23 @@ match Laravel more closely.
 
 ### Added
 
+- `CancellationToken` and `OperationCancelledException` (#158): cooperative cancellation of a unit of work. `token.run(body)` makes it `CancellationToken.current` for everything the body starts, and `DB.transaction` checks the current token before it begins and before it commits (or releases a savepoint), rolling back with `OperationCancelledException` once the token is cancelled. Each job attempt runs with `JobContext.cancellation`, which a timeout cancels.
+- `ReservingQueueDriver` (#158): a queue driver that reserves jobs for `retryAfter` and can `touch(job)` a reservation that is still its own. `DatabaseQueue` and `daravel_redis`'s `RedisQueue` implement it, and the worker touches a running job every half `retry_after`, so a job that runs longer than `retry_after` is not reserved again by another worker and run twice at once.
+- `MaxAttemptsExceededException` (#158), Laravel's: the failure of a job reserved again after its last try or after its `retryUntil`.
+
 ### Changed
 
 **Upgrading can change what an application sees:**
 
+- `package:daravel/daravel.dart` and `package:daravel/foundation.dart` now export `CancellationToken` and `OperationCancelledException`, and `package:daravel/daravel.dart` exports `ReservingQueueDriver` and `MaxAttemptsExceededException` (#158). An application that declares one of these names hides it in its import.
+- Queue attempts follow Laravel's worker (#158). A job reserved again after its last try (a release by `WithoutOverlapping`, `RateLimitedJob` or `ctx.release()` counts as an attempt, as before) now fails with `MaxAttemptsExceededException` without running, where it was released for ever; so does a job reserved after its `retryUntil`. A job released while it waits for a lock needs `tries` or `retryUntil` that cover the wait. `Job.maxExceptions` is now `int?` and null by default (Laravel's `$maxExceptions`), and is enforced: a job fails after that many exceptions, counted in the unique-lock store under `job-exceptions:<uuid>`; before, it defaulted to `tries` and was ignored. `JobPayload.maxExceptions` is `int?` too, and a payload without the key reads as null.
+- `Queue.dispatch(job)` pushes the job even when nothing awaits the `PendingDispatch` (#158), in a microtask after the setters chained on it, as Laravel pushes from `PendingDispatch::__destruct`. Before, a dispatch that was not awaited never pushed. A setter called after the push throws `StateError`, and a failed push that nothing awaits is logged at error level.
+- A job handler's uncaught asynchronous error (a future it did not await) fails the attempt once the handler has returned (#158); before, it failed the attempt at once and the retry started beside the still-running handler. `Container.runScoped` with `onUncaughtError` now reports every such error there and completes with the body's own result; without `onUncaughtError` it behaves as before. In HTTP requests (which pass one) a stray error is logged and the response is the handler's, where the request scope failed early.
+- A job past its timeout keeps its `WithoutOverlapping` lock until `expiresAfter` instead of releasing it while its handler still runs (#158), and `dartisan queue:work` ends the process when the worker stops for a restart (exit code 1), so a handler that outlived its timeout cannot keep the old process alive.
+
 ### Fixed
+
+- Queue worker (#158): a handler that outlived its timeout could commit a transaction after its job was released or recorded as failed; it now rolls back (`OperationCancelledException`). A job that ran longer than `retry_after` on the database or Redis queue was reserved again by a second worker while it ran; the worker now extends the reservation of a running job and warns when a job's timeout (or `--timeout`) is not below `retry_after`. Releases never used up `tries`, so a job blocked by `WithoutOverlapping` was released for ever (and on MySQL a row's `TINYINT` `attempts` eventually overflowed and stalled the queue); `maxExceptions` was never enforced. A `Queue.dispatch()` that was not awaited never pushed.
 
 ## 1.26.0
 

@@ -676,6 +676,7 @@ final class Application {
       container: c,
       logger: logger,
       debounceStore: () => lockStore,
+      exceptionStore: () => lockStore,
       uniqueLockRelease: (key) => manager.releaseUniqueLock(key),
     );
     manager =

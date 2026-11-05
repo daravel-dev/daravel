@@ -75,7 +75,7 @@ final class JobPayload {
     displayName: json['displayName'] as String? ?? json['job'] as String,
     data: (json['data'] as Map<String, Object?>?) ?? const {},
     maxTries: (json['maxTries'] as num?)?.toInt() ?? 1,
-    maxExceptions: (json['maxExceptions'] as num?)?.toInt() ?? 1,
+    maxExceptions: (json['maxExceptions'] as num?)?.toInt(),
     failOnTimeout: json['failOnTimeout'] as bool? ?? false,
     backoffSeconds: _backoff(json['backoff']),
     timeout: Duration(
@@ -127,8 +127,9 @@ final class JobPayload {
   /// How many times the job may be attempted.
   final int maxTries;
 
-  /// How many exceptions the job may throw before it fails.
-  final int maxExceptions;
+  /// How many exceptions the job may throw before it fails (null: no
+  /// limit beyond [maxTries]).
+  final int? maxExceptions;
 
   /// Whether a timeout fails the job at once instead of retrying it.
   final bool failOnTimeout;
@@ -281,6 +282,22 @@ abstract interface class WakeableQueueDriver implements QueueDriver {
   /// Releases what [waitForWork] holds (a listening connection) once the
   /// worker stops.
   Future<void> stopWaiting();
+}
+
+/// A driver that reserves a popped job for [retryAfter] (`retry_after`)
+/// and hands it to another worker once that passes, taking it for
+/// abandoned: the database and Redis queues.
+///
+/// The worker [touch]es the reservation of a running job every half
+/// [retryAfter], so a job that runs longer than [retryAfter] is not run a
+/// second time beside itself.
+abstract interface class ReservingQueueDriver implements QueueDriver {
+  /// How long a reservation lasts before the job runs again elsewhere.
+  Duration get retryAfter;
+
+  /// Extends [job]'s reservation to [retryAfter] from now; does nothing
+  /// once the job is gone or reserved again by another worker.
+  Future<void> touch(QueuedJob job);
 }
 
 /// Completes the first of [wake] and [maxWait].
@@ -438,7 +455,7 @@ final class MemoryQueue implements WakeableQueueDriver {
 /// Laravel-compatible `jobs` table (scope `cluster`). Reservation is an
 /// optimistic `UPDATE … WHERE reserved_at IS NULL`, so several workers
 /// never process the same row twice.
-final class DatabaseQueue implements WakeableQueueDriver {
+final class DatabaseQueue implements WakeableQueueDriver, ReservingQueueDriver {
   /// A queue in the [table] (`jobs`) of [db], shared with Laravel's
   /// database queue.
   DatabaseQueue(
@@ -460,6 +477,7 @@ final class DatabaseQueue implements WakeableQueueDriver {
   final String? connection;
 
   /// Reserved jobs older than this are considered abandoned and re-queued.
+  @override
   final Duration retryAfter;
 
   /// Called once per foreign job (pushed by a Laravel app sharing the
@@ -686,6 +704,18 @@ final class DatabaseQueue implements WakeableQueueDriver {
       handler = '?';
     }
     onForeignJob?.call(queue, id, handler);
+  }
+
+  /// Moves `reserved_at` to now while the row is still this reservation:
+  /// `attempts` grows with every reservation, so a row another worker took
+  /// meanwhile is left alone.
+  @override
+  Future<void> touch(QueuedJob job) async {
+    await _query()
+        .where('id', job.id)
+        .where('attempts', job.attempts)
+        .whereNotNull('reserved_at')
+        .update(<String, Object?>{'reserved_at': _now});
   }
 
   @override

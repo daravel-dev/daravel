@@ -1,4 +1,4 @@
-<!-- source: background.md sha256:ff99a86366ec -->
+<!-- source: background.md sha256:62cf07f7ac9c -->
 # Cache, event, queue, dan penjadwalan
 
 <!-- include: packages/daravel/test/docs/guide_examples_test.dart#cache-events-queue -->
@@ -63,6 +63,41 @@ Daravel tidak memakai reflection. Driver: `sync`, `database` (tabel `jobs` /
 job, job middleware, `queue:work`, `queue:failed`, `queue:retry`, dan
 `queue:restart` didukung. Dispatch di dalam transaksi secara default ditunda
 sampai commit.
+
+### Percobaan, timeout, dan `retry_after`
+
+- `tries` menghitung setiap reservasi, termasuk release oleh middleware
+  (`WithoutOverlapping`, `RateLimitedJob`) atau `ctx.release()`. Job yang
+  direservasi lagi setelah percobaan terakhirnya gagal dengan
+  `MaxAttemptsExceededException` tanpa dijalankan, seperti di Laravel, begitu
+  pula job yang direservasi setelah `retryUntil`-nya lewat; job yang
+  di-release sampai sebuah lock bebas membutuhkan `tries` (atau `retryUntil`)
+  yang mencakup waktu tunggu itu. `int? get maxExceptions` menggagalkan job
+  setelah exception sebanyak itu, berapa pun sisa percobaannya.
+- Dart tidak bisa menghentikan future yang sedang berjalan, sehingga handler
+  yang melewati `timeout`-nya tetap berjalan. `ctx.cancelled`-nya di-set, dan
+  handler itu berjalan dengan `ctx.cancellation` sebagai
+  `CancellationToken.current`: `DB.transaction` yang masih dijalankannya
+  di-rollback dengan `OperationCancelledException` alih-alih di-commit, dan
+  `WithoutOverlapping` menahan lock-nya sampai `expiresAfter`. Worker yang
+  job-nya timeout lalu di-release berhenti dengan exit code 1 (`queue:work`
+  mengakhiri prosesnya), sehingga process manager menjalankan worker baru.
+- Error asinkron yang dibiarkan tidak tertangkap oleh handler (future yang
+  tidak di-await) menggagalkan percobaan setelah handler selesai, tidak
+  pernah selagi handler masih berjalan.
+- Queue database dan Redis menyerahkan job yang direservasi ke worker lain
+  setelah `QUEUE_RETRY_AFTER` (90 detik). Selama job berjalan, worker
+  memperpanjang reservasinya setiap setengah `retry_after`, sehingga job yang
+  lama tidak dijalankan dua kali sekaligus; job dari worker yang berhenti
+  merespons menunggu `retry_after`. Seperti di Laravel, jaga
+  `QUEUE_RETRY_AFTER` di atas `timeout` job yang paling lama: worker
+  memperingatkan bila timeout sebuah job (atau `--timeout`) tidak di
+  bawahnya.
+- `Queue.dispatch(job)` mem-push job meskipun tidak ada yang meng-await-nya
+  (dalam microtask, setelah setter yang dirangkai padanya), seperti Laravel
+  mem-push `PendingDispatch` saat keluar dari scope. Meng-await-nya memberi
+  id job atau error dari push; push yang gagal dan tidak di-await dicatat ke
+  log.
 
 Worker yang menganggur menunggu paling lama `--sleep` (3 detik, seperti
 Laravel) di antara polling yang kosong, tetapi push langsung

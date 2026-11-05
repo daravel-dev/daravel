@@ -177,12 +177,17 @@ final class QueueFake {
   int pushedTimes<J extends Job>() => pushedJobs<J>().length;
 }
 
-/// Fluent dispatch (`dispatch($job)->onQueue('x')->delay(...)`). Awaiting it
-/// performs the push and yields the driver job id (`null` when a unique
-/// job was skipped).
+/// Fluent dispatch (`dispatch($job)->onQueue('x')->delay(...)`). The job is
+/// pushed in a microtask, after the setters chained on the dispatch, whether
+/// or not it is awaited (as Laravel pushes from `PendingDispatch`'s
+/// destructor); awaiting it yields the driver job id (`null` when a unique
+/// job was skipped) or the push's error. A failed push nobody awaits is
+/// logged.
 final class PendingDispatch implements Future<Object?> {
-  /// A dispatch of [job], pushed when awaited.
-  PendingDispatch(this._manager, this.job);
+  /// A dispatch of [job], pushed in a microtask.
+  PendingDispatch(this._manager, this.job) {
+    scheduleMicrotask(_start);
+  }
 
   final QueueManager _manager;
 
@@ -193,33 +198,71 @@ final class PendingDispatch implements Future<Object?> {
   Duration? _delay;
   bool? _afterCommit;
   Future<Object?>? _future;
+  bool _observed = false;
+
+  PendingDispatch _set(void Function() change) {
+    if (_future != null) {
+      throw StateError(
+        'The dispatch of ${job.displayName} was already pushed; chain '
+        'onQueue/delay/... directly on Queue.dispatch(...).',
+      );
+    }
+    change();
+    return this;
+  }
 
   /// Pushes onto [queue].
-  PendingDispatch onQueue(String queue) => this.._queue = queue;
+  PendingDispatch onQueue(String queue) => _set(() => _queue = queue);
 
   /// Pushes onto the connection [connection].
   PendingDispatch onConnection(String connection) =>
-      this.._connection = connection;
+      _set(() => _connection = connection);
 
   /// Runs the job after [delay].
-  PendingDispatch delay(Duration delay) => this.._delay = delay;
+  PendingDispatch delay(Duration delay) => _set(() => _delay = delay);
 
   /// Laravel's `withoutDelay()`: at once, whatever delay the job declares.
-  PendingDispatch withoutDelay() => this.._delay = Duration.zero;
+  PendingDispatch withoutDelay() => _set(() => _delay = Duration.zero);
 
   /// Pushes only after the current transaction commits.
-  PendingDispatch afterCommit() => this.._afterCommit = true;
+  PendingDispatch afterCommit() => _set(() => _afterCommit = true);
 
   /// Pushes at once, even inside a transaction.
-  PendingDispatch beforeCommit() => this.._afterCommit = false;
+  PendingDispatch beforeCommit() => _set(() => _afterCommit = false);
 
-  Future<Object?> get _run => _future ??= _manager.push(
+  Future<Object?> _push() => _future ??= _manager.push(
     job,
     queue: _queue,
     connection: _connection,
     delay: _delay,
     afterCommit: _afterCommit,
   );
+
+  /// The microtask: pushes unless an `await` already did.
+  void _start() {
+    if (_future != null) {
+      return;
+    }
+    unawaited(
+      _push().then<void>(
+        (_) {},
+        onError: (Object error, StackTrace stackTrace) {
+          if (!_observed) {
+            _manager.logger?.error(
+              'Dispatching ${job.displayName} failed',
+              error: error,
+              stackTrace: stackTrace,
+            );
+          }
+        },
+      ),
+    );
+  }
+
+  Future<Object?> get _run {
+    _observed = true;
+    return _push();
+  }
 
   @override
   Stream<Object?> asStream() => _run.asStream();
@@ -273,6 +316,7 @@ final class JobProcessor {
     this.logger,
     this.uniqueLockRelease,
     this.debounceStore,
+    this.exceptionStore,
     DateTime Function()? clock,
   }) : _clock = clock ?? _utcNow;
 
@@ -296,6 +340,13 @@ final class JobProcessor {
 
   /// Holds the owner of each debounced job.
   final CacheRepository? Function()? debounceStore;
+
+  /// Counts the exceptions of jobs with [Job.maxExceptions]
+  /// (`job-exceptions:<uuid>`, as Laravel's worker does in its cache).
+  final CacheRepository? Function()? exceptionStore;
+
+  /// The `retry_after` warnings already given, per connection and job.
+  final Set<String> _retryAfterWarned = <String>{};
 
   /// The cache key debouncing [job].
   static String debounceKey(Job job) =>
@@ -358,26 +409,79 @@ final class JobProcessor {
         attempt: queued.attempts,
       ),
     );
+    if (_alreadyExceeded(payload, queued.attempts, maxTries)) {
+      // Laravel's markJobAsFailedIfAlreadyExceedsMaxAttempts: a job
+      // reserved again after its last try (released by middleware such as
+      // WithoutOverlapping, or abandoned past its timeout) fails without
+      // running, instead of being released for ever.
+      if (debounce != null && await debounce.get<String>(debounced) == owner) {
+        await debounce.forget(debounced);
+      }
+      await _fail(
+        driver,
+        queued,
+        MaxAttemptsExceededException(
+          payload.displayName,
+          attempts: queued.attempts,
+        ),
+        StackTrace.current,
+        job: job,
+      );
+      return .failed;
+    }
+    final limit = timeout ?? payload.timeout;
+    _warnRetryAfter(driver, payload.displayName, limit);
+    final heartbeat = _heartbeat(driver, queued);
     final stopwatch = Stopwatch()..start();
     Object? error;
     StackTrace? trace;
     var timedOut = false;
+    // The first asynchronous error the handler leaves uncaught (a
+    // fire-and-forget future) while it runs. It fails the attempt once the
+    // handler has returned, never before: failing earlier released the job
+    // and started attempt 2 beside attempt 1 in this very worker.
+    (Object, StackTrace)? stray;
+    var running = true;
     try {
-      await container.runScoped<void>('job', (_) async {
-        Context.current.hydrate(payload.context);
-        await _runWithMiddleware(ctx, job, () async {
-          try {
-            await job.handle(ctx).timeout(timeout ?? payload.timeout);
-          } on TimeoutException {
-            ctx.cancelled = true;
-            timedOut = true;
-            rethrow;
-          }
-        });
-      });
+      await ctx.cancellation.run(
+        () => container.runScoped<void>(
+          'job',
+          (_) async {
+            Context.current.hydrate(payload.context);
+            await _runWithMiddleware(ctx, job, () async {
+              try {
+                await job.handle(ctx).timeout(limit);
+              } on TimeoutException {
+                ctx.cancelled = true;
+                timedOut = true;
+                rethrow;
+              }
+            });
+          },
+          onUncaughtError: (e, s) {
+            if (running && stray == null) {
+              stray = (e, s);
+            } else {
+              logger?.error(
+                'Uncaught asynchronous error in job ${payload.displayName}',
+                error: e,
+                stackTrace: s,
+                context: <String, Object?>{'job_id': queued.id},
+              );
+            }
+          },
+        ),
+      );
     } catch (e, s) {
       error = e;
       trace = s;
+    } finally {
+      running = false;
+      heartbeat?.cancel();
+    }
+    final strayError = stray;
+    if (error == null && strayError != null) {
+      (error, trace) = strayError;
     }
     final failure = ctx.failure;
     if (failure != null && error == null) {
@@ -415,11 +519,14 @@ final class JobProcessor {
       await _finish(driver, queued, payload);
       return .deleted;
     }
-    final exhausted =
+    var exhausted =
         _exhausted(payload, queued.attempts, maxTries) ||
         failure != null ||
         missingModel ||
         (timedOut && payload.failOnTimeout);
+    if (!exhausted && !timedOut) {
+      exhausted = await _exceptionsExhausted(payload);
+    }
     await events.dispatch(
       JobExceptionOccurred(
         connection: driver.name,
@@ -458,6 +565,79 @@ final class JobProcessor {
     );
     await driver.release(queued, delay);
     return .released;
+  }
+
+  /// Laravel's `markJobAsFailedIfAlreadyExceedsMaxAttempts`: past
+  /// `retryUntil`, or reserved more times than [maxTries] allows.
+  bool _alreadyExceeded(JobPayload payload, int attempts, int maxTries) {
+    final retryUntil = payload.retryUntil;
+    if (retryUntil != null) {
+      return _clock().millisecondsSinceEpoch ~/ 1000 > retryUntil;
+    }
+    return maxTries > 0 && attempts > maxTries;
+  }
+
+  /// Laravel's `markJobAsFailedIfWillExceedMaxExceptions`: counts this
+  /// exception and answers whether it is the job's last allowed one.
+  Future<bool> _exceptionsExhausted(JobPayload payload) async {
+    final max = payload.maxExceptions;
+    final store = exceptionStore?.call();
+    if (max == null || max <= 0 || store == null) {
+      return false;
+    }
+    final key = 'job-exceptions:${payload.uuid}';
+    if (await store.get<int>(key) == null) {
+      await store.put(key, 0, ttl: const Duration(days: 1));
+    }
+    if (await store.increment(key) >= max) {
+      await store.forget(key);
+      return true;
+    }
+    return false;
+  }
+
+  /// Warns once per job when its timeout reaches the driver's
+  /// `retry_after`: past it, another worker may take the job while it runs
+  /// (Laravel: "retry_after should always be larger than the timeout").
+  void _warnRetryAfter(QueueDriver driver, String job, Duration timeout) {
+    if (driver is! ReservingQueueDriver ||
+        timeout < driver.retryAfter ||
+        !_retryAfterWarned.add('${driver.name}:$job')) {
+      return;
+    }
+    logger?.warning(
+      'Job $job may run for ${timeout.inSeconds}s, which is not less than '
+      'retry_after (${driver.retryAfter.inSeconds}s) of the [${driver.name}] '
+      'queue. The worker keeps a running job reserved, but a worker that '
+      'stops responding leaves it to another only after retry_after: set '
+      'QUEUE_RETRY_AFTER above the longest job timeout.',
+    );
+  }
+
+  /// Keeps [queued] reserved while it runs: touches it every half
+  /// `retry_after`, so a job running longer than that is not reserved
+  /// again by another worker and run twice at once.
+  Timer? _heartbeat(QueueDriver driver, QueuedJob queued) {
+    if (driver is! ReservingQueueDriver) {
+      return null;
+    }
+    final every = driver.retryAfter ~/ 2;
+    if (every <= Duration.zero) {
+      return null;
+    }
+    // A wall-clock timer: a frozen test clock must not stop it.
+    return Timer.periodic(every, (_) {
+      unawaited(
+        driver
+            .touch(queued)
+            .then<void>(
+              (_) {},
+              onError: (Object error, StackTrace stackTrace) => logger?.warning(
+                'Could not extend the reservation of job ${queued.id}: $error',
+              ),
+            ),
+      );
+    });
   }
 
   bool _exhausted(JobPayload payload, int attempts, int maxTries) {
@@ -939,6 +1119,17 @@ final class QueueWorker {
       'Processing jobs from [${options.queues.join(', ')}] on connection '
       '[${driver.name}].',
     );
+    final timeout = options.timeout;
+    if (timeout != null &&
+        driver is ReservingQueueDriver &&
+        timeout >= driver.retryAfter) {
+      _logger?.warning(
+        '--timeout=${timeout.inSeconds} is not less than retry_after '
+        '(${driver.retryAfter.inSeconds}s) of the [${driver.name}] queue: a '
+        'job of a worker that stops responding runs again elsewhere only '
+        'after retry_after. Set QUEUE_RETRY_AFTER above the timeout.',
+      );
+    }
     try {
       while (!_stop) {
         final ran = await runNextJob(driver, options);

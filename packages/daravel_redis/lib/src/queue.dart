@@ -43,7 +43,7 @@ enum RedisQueueEngine {
 ///
 /// Delivery is at least once: a reserved job not deleted within
 /// [retryAfter] runs again, as with the database queue.
-final class RedisQueue implements WakeableQueueDriver {
+final class RedisQueue implements WakeableQueueDriver, ReservingQueueDriver {
   /// A queue in Redis, as Laravel's `redis` queue driver.
   RedisQueue(
     this.client, {
@@ -63,6 +63,7 @@ final class RedisQueue implements WakeableQueueDriver {
   final String namespace;
 
   /// How long a reserved job may run before another worker takes it.
+  @override
   final Duration retryAfter;
 
   /// Lists (Laravel's layout) or streams.
@@ -250,6 +251,43 @@ return 1''');
         '${_jobPrefix(job.queue)}${job.id}',
       ],
       args: [job.id, now + delay.inMilliseconds, now, engine.name, _group],
+    );
+  }
+
+  /// Extends a reservation that is still the worker's own (the job's
+  /// `attempts` grow with every reservation): the reserved score, or the
+  /// stream entry's idle time (`XCLAIM ... JUSTID`, which leaves the
+  /// delivery count alone).
+  static final RedisScript _touch = RedisScript('''
+if redis.call('HGET', KEYS[2], 'attempts') ~= ARGV[3] then
+  return 0
+end
+if ARGV[4] == 'stream' then
+  local entry = redis.call('HGET', KEYS[2], 'entry')
+  if entry then
+    redis.call('XCLAIM', KEYS[1], ARGV[5], ARGV[5], 0, entry, 'JUSTID')
+  end
+  return 1
+end
+redis.call('ZADD', KEYS[3], 'XX', ARGV[1], ARGV[2])
+return 1''');
+
+  @override
+  Future<void> touch(QueuedJob job) async {
+    await client.eval(
+      _touch,
+      keys: [
+        _list(job.queue),
+        '${_jobPrefix(job.queue)}${job.id}',
+        _reserved(job.queue),
+      ],
+      args: [
+        _now + retryAfter.inMilliseconds,
+        job.id,
+        '${job.attempts}',
+        engine.name,
+        _group,
+      ],
     );
   }
 

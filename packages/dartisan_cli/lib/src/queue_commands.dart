@@ -44,7 +44,20 @@ final class QueueWorkCommand extends DaravelCommand {
   String get description => 'Start processing jobs on the queue.';
 
   @override
-  Future<int> run() => withApp((app) async {
+  Future<int> run() async {
+    final code = await _work();
+    if (code == 1) {
+      // A restart: a handler given up past its timeout may still hold a
+      // timer or a socket that would keep the VM alive, so the process
+      // manager would wait for it before starting a fresh worker. The
+      // application is shut down already; end the process here.
+      await stdout.flush();
+      exit(code);
+    }
+    return code;
+  }
+
+  Future<int> _work() => withApp((app) async {
     final r = argResults!;
     final connection = r.rest.isEmpty ? null : r.rest.first;
     final tries = int.tryParse(r['tries'] as String? ?? '');
