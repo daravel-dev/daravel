@@ -389,7 +389,10 @@ void main() {
   });
 
   test('a unique-lock store of one isolate cannot serve several', () async {
-    await boot({'QUEUE_UNIQUE_LOCK_STORE': 'memory'});
+    await boot({
+      'QUEUE_CONNECTION': 'database',
+      'QUEUE_UNIQUE_LOCK_STORE': 'memory',
+    });
     for (final options in const [
       ServeOptions(isolates: 2, port: 0),
       ServeOptions(embedQueue: true, port: 0),
