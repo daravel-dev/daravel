@@ -255,7 +255,7 @@ final class _Bucket {
 /// hits were recorded and the window they belong to. Deeply immutable, so
 /// the coordinator's answer to a lease crosses back without a copy.
 @pragma('vm:deeply-immutable')
-final class RateLimitGrant {
+final class RateLimitGrant implements CoordinatorMessage {
   /// A grant of [granted] hits, [hits] in the window resetting at
   /// [resetAtMs].
   const RateLimitGrant({
@@ -424,7 +424,7 @@ final class MemoryRateLimitStore implements RateLimitStore {
 /// the map of [toArgs] is copied entry by entry. [op] is an operation of
 /// [RateLimitService.handle]; the fields an operation does not read are 0.
 @pragma('vm:deeply-immutable')
-final class RateLimitMessage {
+final class RateLimitMessage implements CoordinatorMessage {
   /// A call of [op] for [key].
   const RateLimitMessage(
     this.op,

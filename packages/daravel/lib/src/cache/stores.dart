@@ -289,7 +289,7 @@ final class ProcessCacheService
 /// so it crosses to the coordinator isolate by reference where the map of
 /// [toArgs] is copied entry by entry. Other cache operations stay maps.
 @pragma('vm:deeply-immutable')
-final class LockMessage {
+final class LockMessage implements CoordinatorMessage {
   /// A call of [op] on the lock [key].
   const LockMessage(this.op, this.key, {this.owner, this.ttlMs = 0});
 

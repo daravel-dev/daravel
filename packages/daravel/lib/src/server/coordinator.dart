@@ -75,6 +75,34 @@ final class CoordinatorTimeoutException extends CoordinatorException {
       );
 }
 
+/// Marks a typed coordinator message (ADR-032): an object sent to a
+/// [TypedCoordinatorService] through [TypedCoordinatorChannel.callTyped],
+/// or returned by one.
+///
+/// The contract, which the VM checks once the pragma is present:
+/// - the class is `final` and annotated `@pragma('vm:deeply-immutable')`;
+/// - its fields are final and only `int`, `double`, `bool`, `String` (or
+///   nullable ones) or other `@pragma('vm:deeply-immutable')` classes. No
+///   `List`, `Map` or `Set`: the compiler rejects them, so a collection
+///   travels as a JSON `String` or a nested immutable class.
+///
+/// Such an object crosses to another isolate of the process by reference
+/// instead of being copied, so a batch of them (a `List` of 10 000
+/// messages) costs little more than the copy of the list itself, many
+/// times less than plain objects (`bench/bin/isolate_payload.dart`). For
+/// one small message the port's own overhead dominates and a map costs
+/// about the same.
+///
+/// Implement it (`final class M implements CoordinatorMessage`) rather
+/// than extend it: a deeply-immutable class may only extend another
+/// deeply-immutable class, which must itself be `final` or `sealed` and so
+/// cannot be extended from another library. Custom coordinator services
+/// may send their own such classes. `test/server/deeply_immutable_test.dart`
+/// checks that every implementation in the framework carries the pragma.
+/// The pragma is a VM contract, not a language feature: keep it on
+/// coordinator messages, not on an application's models or DTOs.
+abstract interface class CoordinatorMessage {}
+
 /// A service hosted by the [Coordinator] (rate limiter, locks, cache...).
 abstract interface class CoordinatorService {
   /// The service's name.
