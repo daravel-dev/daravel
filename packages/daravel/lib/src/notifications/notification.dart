@@ -1,3 +1,4 @@
+import '../foundation/html_escape.dart';
 import '../mail/mailable.dart';
 import '../mail/message.dart';
 import '../mail/theme.dart';

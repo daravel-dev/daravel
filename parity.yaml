@@ -62,6 +62,7 @@ sections:
       - { php: "response(...)->withoutCookie('theme') / Cookie::forget('theme')", dart: "response.withoutCookie('theme')", symbol: Response.withoutCookie }
       - { php: "response()->json($data, $status)", dart: "Response.json(data, status: status)", symbol: Response.json, note: "phpCompatible: true writes json_encode's bytes (\\/, \\u escapes, [] for an empty map)." }
       - { php: "Blade views ({{ $name }}, {!! $html !!})", dart: "div([user.name]) / raw(html) from package:daravel/html.dart", symbol: HtmlNode, note: "Typed builder, escaped by default; a separate import." }
+      - { php: "e($value)", dart: "escapeHtml(value)", symbol: escapeHtml, note: "Same entities as htmlspecialchars with ENT_QUOTES; exported by package:daravel/daravel.dart and package:daravel/html.dart." }
       - { php: "response()->noContent()", dart: "Response.noContent()", symbol: Response.noContent }
       - { php: "redirect($to)", dart: "Response.redirect(to)", symbol: Response.redirect }
       - { php: "response()->streamDownload(...)", dart: "Response.stream(...)", symbol: Response.stream }
@@ -120,6 +121,7 @@ sections:
       - { php: "Redis::subscribe([...], fn ($message) => ...)", dart: "Redis.subscribe([...]).messages.listen(...)", symbol: Redis.subscribe, note: "Subscribes again after the connection drops." }
       - { php: "CACHE_STORE=redis", dart: "CACHE_STORE=redis with .withRedis()", symbol: RedisStore, note: "Numbers stored raw; cache:clear deletes the cache's keys, not the database (no FLUSHDB)." }
       - { php: "Cache::lock('report')->get(...) on Redis", dart: "Cache.lock('report') on CACHE_STORE=redis", symbol: RedisStore.acquireLock, async: true, note: "Laravel's RedisLock: the same keys and release script." }
+      - { php: "SESSION_DRIVER=redis (SESSION_CONNECTION)", dart: "SESSION_DRIVER=redis with .withSession() and .withRedis()", symbol: redisSessionHandler, note: "Laravel's key layout: REDIS_PREFIX + CACHE_PREFIX + session id, serialize($payload), SETEX for SESSION_LIFETIME, on the default connection unless SESSION_CONNECTION names one: both frameworks share sessions." }
       - { php: "QUEUE_CONNECTION=redis", dart: "QUEUE_CONNECTION=redis", symbol: RedisQueue, note: "BLPOP wakes idle workers; keys under daravel:, apart from Laravel's queues:." }
       - { php: "REVERB_SCALING_ENABLED=true (Redis)", dart: "REVERB_SCALING_DRIVER=redis", symbol: RedisBroadcastRelay, note: "Pub/Sub between servers; presence members shared across them." }
 
@@ -135,6 +137,7 @@ sections:
       - { php: "EncryptCookies middleware", dart: "EncryptCookiesMiddleware", symbol: EncryptCookiesMiddleware, note: "Crypt payload with CookieValuePrefix (hmac_sha1(name.'v2', key).'|'), so cookies are shared with the Laravel app." }
       - { php: "VerifyCsrfToken ($except, X-CSRF-TOKEN, X-XSRF-TOKEN)", dart: "VerifyCsrfTokenMiddleware(except: [...])", symbol: VerifyCsrfTokenMiddleware, note: "419 CSRF token mismatch.; the XSRF-TOKEN cookie is set on every response." }
       - { php: "SESSION_DRIVER=file|database", dart: "SESSION_DRIVER=file|database (array for tests)", symbol: SessionManager.extend, note: "Laravel's sessions table (payload base64(serialize()) or base64(json_encode()), last_activity) and file format; extend() adds a driver." }
+      - { php: "CacheBasedSessionHandler (SESSION_STORE)", dart: "SESSION_DRIVER=cache, SESSION_STORE=<store>", symbol: CacheSessionHandler, note: "Any Cache store, the default one without SESSION_STORE; the entry expires with SESSION_LIFETIME. Laravel reaches it through the apc, memcached, dynamodb and redis drivers." }
       - { php: "create_sessions_table migration", dart: "CreateSessionsTable", symbol: CreateSessionsTable, note: "Does nothing when the table exists already." }
 
   - name: Permissions (daravel_permission)
@@ -392,6 +395,9 @@ sections:
       - { php: "Storage::response($path)", dart: "await Storage.response(path, request: request)", symbol: Storage.response }
       - { php: "response()->download($path, $name)->deleteFileAfterSend()", dart: "await Response.download(path, name: name, deleteFileAfterSend: true)", symbol: Response.download }
       - { php: "response()->file($path)", dart: "await Response.file(path, request: request)", symbol: Response.file }
+      - { php: "public/ (served by the web server)", dart: ".withStatic('public', prefix: '/assets')", symbol: ApplicationBuilder.withStatic, note: "Scanned at boot, served by name only; dartisan static:hash writes the versions for production." }
+      - { php: "asset('css/app.css')", dart: "asset('css/app.css')", symbol: asset, note: "Adds ?v= with a SHA-256 prefix; that URL is cached for a year (immutable)." }
+      - { php: "Vite::asset('resources/js/app.js')", dart: "Assets.vite('resources/js/app.js')", symbol: Assets.vite, note: "Reads public/build/manifest.json." }
       - { php: "Storage::disk('s3')->temporaryUrl($path, now()->addMinutes(30))", dart: "Storage.disk('s3').temporaryUrl(path, expiration: 30.minutes.fromNow)", symbol: S3Disk.temporaryUrl, note: "package:daravel_s3 (withS3()); same AWS_* variables." }
       - { php: "Storage::disk('s3')->temporaryUploadUrl($path, $expiration)", dart: "Storage.disk('s3').temporaryUploadUrl(path, expiration: ...)", symbol: S3Disk.temporaryUploadUrl, note: "Returns url and headers, as Laravel's array." }
       - { php: "Http::withToken($t)->retry(3, 100)->post($url, $data)", dart: "await Http.withToken(t).retry(3).post(url, json: data)", symbol: Http.withToken, async: true }

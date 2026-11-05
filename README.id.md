@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:c88771f138e8 -->
+<!-- source: README.md sha256:d42c71b5b7ae -->
 | [`packages/daravel_session`](packages/daravel_session) | Session yang kompatibel dengan Laravel (file atau tabel `sessions`), cookie terenkripsi, dan proteksi CSRF |
 <!-- source: README.md sha256:5b04c2e6d073 -->
 <p align="center">
@@ -530,7 +530,7 @@ macOS, dan Windows.
 | Generator | `make:model [-m -f -s -c -p -r --api --all]`, `make:migration`, `make:seeder`, `make:factory`, `make:controller [--api --resource --model]`, `make:request`, `make:middleware`, `make:job`, `make:policy`, `make:event`, `make:listener [--event]`, `make:resource`, `make:rule`, `make:observer`, `make:provider`, `make:command`, `make:test [--unit]` |
 | Queue | `queue:work [--queue --tries --backoff --timeout --max-jobs --once]`, `queue:failed`, `queue:retry`, `queue:forget`, `queue:flush`, `queue:clear`, `queue:restart` |
 | Jadwal | `schedule:run`, `schedule:work`, `schedule:list` |
-| Cache & file | `cache:clear [store]`, `storage:link` |
+| Cache & file | `cache:clear [store]`, `storage:link`, `static:hash` |
 
 Generator memperbarui registry di `bootstrap/` (migrasi, seeder, job, policy, listener, dan
 command buatan sendiri) melalui region yang ditandai, sehingga kelas baru langsung terhubung saat

@@ -159,11 +159,3 @@ abstract class Mailable {
     );
   }
 }
-
-/// [value] with `& < > " '` escaped, for text put into an HTML body.
-String escapeHtml(String value) => value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
