@@ -1,4 +1,4 @@
-<!-- source: testing.md sha256:a35d83b4921c -->
+<!-- source: testing.md sha256:f05a8c7d6f02 -->
 # Testing
 
 `package:daravel_test` menjalankan aplikasi Anda tanpa membuka socket:
@@ -19,11 +19,14 @@
 ```
 <!-- /include -->
 
-- `TestClient(app)` dengan `actingAs(user)`, `withToken(token)`,
+- `TestClient(app)` dengan `actingAs(user)`, `withToken(token)`, `browser()`,
+  `withSession`, `withCookie`, `followingRedirects()`,
   `withHeaders`, `withoutExceptionHandling()`.
 - Assertion `TestResponse`: helper status, `assertJson`,
   `assertExactJson`, `assertJsonPath`, `assertJsonStructure`,
-  `assertJsonValidationErrors`, header.
+  `assertJsonValidationErrors`, header, cookie, `assertRedirect`, session
+  (`assertSessionHas`, `assertSessionHasErrors`), dan guard
+  (`assertAuthenticated`, `assertGuest`).
 - `refreshDatabase(createApp)` menjalankan setiap test di dalam transaksi
   yang di-rollback (`RefreshDatabase` dari Laravel); `assertDatabaseHas` /
   `assertDatabaseMissing` / `assertDatabaseCount`.
@@ -35,6 +38,69 @@
 
 Jalankan suite-nya dengan `dartisan test` (`--coverage` menulis
 `coverage/`).
+
+## Route web: cookie, session, dan CSRF
+
+Test di Laravel menyimpan session di memori antar-request dan melewati
+CSRF. Daravel membaca session dari cookie-nya di setiap request dan tetap
+memeriksa CSRF di dalam test, jadi test untuk route `web` berperilaku seperti
+browser: `client.browser()` menyimpan cookie yang di-set aplikasi di sebuah
+`CookieJar` dan mengirimkannya kembali, meminta HTML, dan mengirim cookie
+`XSRF-TOKEN` kembali sebagai header `X-XSRF-TOKEN` pada `POST`, `PUT`,
+`PATCH`, dan `DELETE`, seperti yang dilakukan Axios, sehingga
+`VerifyCsrfToken` menerima request tersebut:
+
+```dart
+final browser = TestClient(app).browser();
+
+(await browser.get('/login')).assertOk().assertCookie('XSRF-TOKEN');
+
+(await browser.post('/login', form: {'email': 'ana@x.io', 'password': 'wrong'}))
+    .assertRedirect('/login')
+    .assertSessionHasErrors(['email'])
+    .assertSessionHasInput('email', 'ana@x.io')
+    .assertGuest(guard: 'web');
+
+(await browser.post('/login', form: {'email': 'ana@x.io', 'password': 'secret'}))
+    .assertRedirect('/dashboard')
+    .assertAuthenticatedAs(ana, guard: 'web');
+
+(await browser.followingRedirects().post('/logout')).assertOk().assertGuest();
+```
+
+- `browser(xsrf: false)` tidak menambahkan header, untuk menguji `419`
+  karena token tidak ada; form yang mengirim field `_token` tetap lolos.
+- `followingRedirects()` mengikuti redirect dengan `GET` dan mengembalikan
+  respons terakhir, dengan cookie dari setiap langkah tetap disimpan.
+- `withSession({'cart': [...]})` memasukkan data ke session yang dimulai
+  group `web`. Client browser mengisinya hanya pada request berikutnya, lalu
+  session tersebut bertahan lewat cookie; client lain mengisinya di setiap
+  request.
+- `withCookie(name, value)` / `withCookies` mengirim cookie yang dienkripsi
+  seperti yang diharapkan `EncryptCookies` (`CookieValuePrefix` dari Laravel
+  dengan key aplikasi); `withUnencryptedCookie` / `withUnencryptedCookies`
+  mengirimnya apa adanya.
+- Pada respons: `assertSessionHas(key, [value])` (sebuah nilai, `Matcher`,
+  atau `bool Function(Object?)`), `assertSessionHasAll`,
+  `assertSessionMissing`, `assertSessionHasInput`, `assertSessionHasErrors`
+  (satu field, list, atau map dari field ke pesan),
+  `assertSessionDoesntHaveErrors`, `assertSessionHasNoErrors`;
+  `assertCookie`, `assertPlainCookie`, `assertCookieExpired`,
+  `assertCookieNotExpired`, `assertCookieMissing`; `assertRedirect('/path')`
+  (path dan URL absolut dari halaman yang sama dianggap cocok) dan
+  `assertRedirectContains`.
+- `assertAuthenticated(guard:)`, `assertGuest(guard:)`, dan
+  `assertAuthenticatedAs(user, guard:)` membaca user yang dimiliki setiap
+  guard saat request selesai. Guard di Laravel bertahan melewati request;
+  di sini guard yang tidak ditanya selama request (tanpa middleware `auth`,
+  tanpa `Auth.user()`, tanpa login) dihitung sebagai guest, dan
+  `assertAuthenticated` menyebutkannya: lakukan assertion pada respons
+  login atau pada halaman di balik `auth`.
+
+Assertion session membutuhkan group `web` dari `daravel_session` pada
+route tersebut; `daravel_test` membaca session lewat interface core
+`SessionStore` dan tidak bergantung pada package itu. Semua ini juga
+bekerja lewat transport socket.
 
 ## Di dalam proses atau lewat socket
 
@@ -53,8 +119,9 @@ final client = TestClient(app, transport: TestTransport.socket);  // satu client
 ```
 
 Aplikasi melihat request yang sama dengan cara mana pun (host `localhost`,
-byte JSON, form, dan multipart yang sama), `actingAs` tetap bekerja, redirect
-tidak diikuti, dan body gzip tidak dibuka. Dua hal tetap di dalam proses:
+byte JSON, form, dan multipart yang sama), `actingAs`, `withSession`, serta
+assertion session dan guard tetap bekerja, redirect hanya diikuti dengan
+`followingRedirects()`, dan body gzip tidak dibuka. Dua hal tetap di dalam proses:
 `withoutExceptionHandling()` (exception tidak bisa menyeberangi socket) dan
 header yang tidak bisa dikirim `HttpClient` (nilai non-ASCII, seperti pada
 fuzzing). Di bawah `refreshDatabase`, server berjalan di dalam transaksi

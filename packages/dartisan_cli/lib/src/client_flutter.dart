@@ -841,6 +841,11 @@ final class _Generator {
         '  const $name({${fields.map((f) => '${f.nullable ? '' : 'required '}this.${f.name}').join(', ')}});\n\n',
       )
       ..write('  factory $name.fromJson(Object? json) {\n')
+      // Already decoded (a field that was `Object?` before it was typed,
+      // still wrapped in `fromJson` by the application): keep it.
+      ..write('    if (json is $name) {\n')
+      ..write('      return json;\n')
+      ..write('    }\n')
       ..write('    final map = jsonObject(json);\n')
       ..write('    return $name(\n');
     for (final field in fields) {

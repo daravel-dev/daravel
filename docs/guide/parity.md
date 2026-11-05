@@ -57,6 +57,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `response(...)->withoutCookie('theme') / Cookie::forget('theme')` | `response.withoutCookie('theme')` |  |
 | `response()->json($data, $status)` | `Response.json(data, status: status)` | phpCompatible: true writes json_encode's bytes (\/, \u escapes, [] for an empty map). |
 | `Blade views ({{ $name }}, {!! $html !!})` | `div([user.name]) / raw(html) from package:daravel/html.dart` | Typed builder, escaped by default; a separate import. |
+| `e($value)` | `escapeHtml(value)` | Same entities as htmlspecialchars with ENT_QUOTES; exported by package:daravel/daravel.dart and package:daravel/html.dart. |
 | `response()->noContent()` | `Response.noContent()` |  |
 | `redirect($to)` | `Response.redirect(to)` |  |
 | `response()->streamDownload(...)` | `Response.stream(...)` |  |
@@ -124,6 +125,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `Redis::subscribe([...], fn ($message) => ...)` | `Redis.subscribe([...]).messages.listen(...)` | Subscribes again after the connection drops. |
 | `CACHE_STORE=redis` | `CACHE_STORE=redis with .withRedis()` | Numbers stored raw; cache:clear deletes the cache's keys, not the database (no FLUSHDB). |
 | `Cache::lock('report')->get(...) on Redis` | `Cache.lock('report') on CACHE_STORE=redis` | **async**; Laravel's RedisLock: the same keys and release script. |
+| `SESSION_DRIVER=redis (SESSION_CONNECTION)` | `SESSION_DRIVER=redis with .withSession() and .withRedis()` | Laravel's key layout: REDIS_PREFIX + CACHE_PREFIX + session id, serialize($payload), SETEX for SESSION_LIFETIME, on the default connection unless SESSION_CONNECTION names one: both frameworks share sessions. |
 | `QUEUE_CONNECTION=redis` | `QUEUE_CONNECTION=redis` | BLPOP wakes idle workers; keys under daravel:, apart from Laravel's queues:. |
 | `REVERB_SCALING_ENABLED=true (Redis)` | `REVERB_SCALING_DRIVER=redis` | Pub/Sub between servers; presence members shared across them. |
 
@@ -141,6 +143,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `EncryptCookies middleware` | `EncryptCookiesMiddleware` | Crypt payload with CookieValuePrefix (hmac_sha1(name.'v2', key).'|'), so cookies are shared with the Laravel app. |
 | `VerifyCsrfToken ($except, X-CSRF-TOKEN, X-XSRF-TOKEN)` | `VerifyCsrfTokenMiddleware(except: [...])` | 419 CSRF token mismatch.; the XSRF-TOKEN cookie is set on every response. |
 | `SESSION_DRIVER=file\|database` | `SESSION_DRIVER=file\|database (array for tests)` | Laravel's sessions table (payload base64(serialize()) or base64(json_encode()), last_activity) and file format; extend() adds a driver. |
+| `CacheBasedSessionHandler (SESSION_STORE)` | `SESSION_DRIVER=cache, SESSION_STORE=<store>` | Any Cache store, the default one without SESSION_STORE; the entry expires with SESSION_LIFETIME. Laravel reaches it through the apc, memcached, dynamodb and redis drivers. |
 | `create_sessions_table migration` | `CreateSessionsTable` | Does nothing when the table exists already. |
 
 ## Permissions (daravel_permission)
@@ -429,6 +432,9 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `Storage::response($path)` | `await Storage.response(path, request: request)` |  |
 | `response()->download($path, $name)->deleteFileAfterSend()` | `await Response.download(path, name: name, deleteFileAfterSend: true)` |  |
 | `response()->file($path)` | `await Response.file(path, request: request)` |  |
+| `public/ (served by the web server)` | `.withStatic('public', prefix: '/assets')` | Scanned at boot, served by name only; dartisan static:hash writes the versions for production. |
+| `asset('css/app.css')` | `asset('css/app.css')` | Adds ?v= with a SHA-256 prefix; that URL is cached for a year (immutable). |
+| `Vite::asset('resources/js/app.js')` | `Assets.vite('resources/js/app.js')` | Reads public/build/manifest.json. |
 | `Storage::disk('s3')->temporaryUrl($path, now()->addMinutes(30))` | `Storage.disk('s3').temporaryUrl(path, expiration: 30.minutes.fromNow)` | package:daravel_s3 (withS3()); same AWS_* variables. |
 | `Storage::disk('s3')->temporaryUploadUrl($path, $expiration)` | `Storage.disk('s3').temporaryUploadUrl(path, expiration: ...)` | Returns url and headers, as Laravel's array. |
 | `Http::withToken($t)->retry(3, 100)->post($url, $data)` | `await Http.withToken(t).retry(3).post(url, json: data)` | **async** |
@@ -497,6 +503,17 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `$this->getJson('/api/users')` | `await client.get('/api/users')` | **async** |
 | `$this->postJson($uri, $data)` | `await client.post(uri, json: data)` | **async** |
 | `$this->actingAs($user)` | `client.actingAs(user)` |  |
+| `$this->get('/login') (session kept in memory, CSRF skipped)` | `client.browser().get('/login')` | **async**; A CookieJar keeps the cookies the application sets and the XSRF-TOKEN cookie goes back as X-XSRF-TOKEN, since Daravel reads the session from its cookie and checks CSRF in tests too. browser(xsrf: false) tests the 419. |
+| `$this->followingRedirects()` | `client.followingRedirects()` |  |
+| `$this->withSession(['cart' => [...]])` | `client.withSession({'cart': [...]})` | Needs daravel_session's web group on the route. |
+| `$this->withCookie($name, $value) / withCookies` | `client.withCookie(name, value) / withCookies` | Encrypted with Laravel's CookieValuePrefix, as EncryptCookies expects. |
+| `$this->withUnencryptedCookie($name, $value) / withUnencryptedCookies` | `client.withUnencryptedCookie(name, value) / withUnencryptedCookies` |  |
+| `->assertSessionHas($key, $value) / assertSessionHasAll / assertSessionMissing` | `.assertSessionHas(key, value) / assertSessionHasAll / assertSessionMissing` | A value, a Matcher or a bool Function(Object?) (Laravel's closure). |
+| `->assertSessionHasErrors(['email']) / assertSessionHasNoErrors / assertSessionDoesntHaveErrors` | `.assertSessionHasErrors(['email']) / assertSessionHasNoErrors / assertSessionDoesntHaveErrors` |  |
+| `->assertSessionHasInput('email')` | `.assertSessionHasInput('email')` |  |
+| `$this->assertAuthenticated('web') / assertGuest / assertAuthenticatedAs($user)` | `response.assertAuthenticated(guard: 'web') / assertGuest / assertAuthenticatedAs(user)` | On the response: the user each guard had when the request ended; a guard nothing asked counts as a guest. |
+| `->assertRedirect('/path') / assertRedirectContains` | `.assertRedirect('/path') / assertRedirectContains` | Compares absolute URLs, as assertLocation does. |
+| `->assertCookie / assertPlainCookie / assertCookieExpired / assertCookieMissing` | `.assertCookie / assertPlainCookie / assertCookieExpired / assertCookieMissing` |  |
 | `->assertOk() / assertCreated() / assertUnprocessable()` | `.assertOk() / .assertCreated() / .assertUnprocessable()` |  |
 | `->assertJsonPath('data.id', 1)` | `.assertJsonPath('data.id', 1)` |  |
 | `use RefreshDatabase;` | `refreshDatabase(() => app)` |  |

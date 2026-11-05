@@ -366,6 +366,16 @@ void main() {
       contains("map['session'] == null ? null : MembershipSession.fromJson("),
     );
     expect(models, contains("'session': session?.toJson()"));
+    // An already decoded value passes through, so code that still wraps
+    // the field in `fromJson` (it was `Object?`) keeps working.
+    expect(
+      models,
+      contains(
+        '    if (json is MembershipSession) {\n'
+        '      return json;\n'
+        '    }\n',
+      ),
+    );
     expect(models, contains('final class Tenant {'));
     expect(models, contains('final Tenant? tenant;'));
     expect(file('lib/src/api.dart'), contains('Future<SignIn> signIn('));
@@ -681,6 +691,7 @@ void main() {
           'y',
         ]);
         expect(out['session'], 5);
+        expect(out['signIn'], 'a');
         expect(out['cubit'], 7);
         expect(out['cubit422'], 'The email is taken.');
         expect(out['bloc'], 8);
@@ -838,6 +849,9 @@ Future<void> main(List<String> args) async {
     dispositionFilename("attachment; filename*=UTF-8''%ZZ; filename=y"),
   ];
   out['session'] = (await api.session()).account.id;
+  // Code written when `session` was `Object?` still decodes it.
+  final signIn = await api.signIn();
+  out['signIn'] = MembershipSession.fromJson(signIn.session).accessToken;
   out['unauthenticated'] = await api.tokens.read();
 
   final cubit = AccountsShowCubit(api);
