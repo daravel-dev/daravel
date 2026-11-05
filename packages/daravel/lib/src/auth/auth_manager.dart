@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import '../database/orm/keys.dart';
 import '../foundation/config.dart';
 import '../foundation/container.dart';
 import '../foundation/env.dart';
@@ -170,12 +171,15 @@ final class AuthManager {
   void register(String name, Guard<Authenticatable> guard) =>
       _guards[name] = guard;
 
-  /// Registers a Sanctum-style [TokenGuard].
+  /// Registers a Sanctum-style [TokenGuard]; [keyType] is the tokens
+  /// table's key ([TokenGuard.keyType]: `KeyType.uuid` or `KeyType.ulid`
+  /// for a `PersonalAccessToken` model with `HasUuids` or `HasUlids`).
   TokenGuard<T> token<T extends Authenticatable>(
     String name,
     UserProvider<T> provider, {
     Duration? expiration,
     String? table,
+    KeyType keyType = KeyType.autoInt,
   }) {
     final guard = TokenGuard<T>(
       name: name,
@@ -183,6 +187,7 @@ final class AuthManager {
       table: table ?? config.tokenTable,
       expiration: expiration ?? config.tokenExpiration,
       tokenPrefix: config.tokenPrefix,
+      keyType: keyType,
     );
     register(name, guard);
     return guard;

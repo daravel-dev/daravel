@@ -1,4 +1,4 @@
-<!-- source: auth.md sha256:b91a5f81007e -->
+<!-- source: auth.md sha256:86ca56dc93c9 -->
 # Autentikasi dan otorisasi
 
 Guard didaftarkan di `bootstrap/app.dart`:
@@ -37,6 +37,13 @@ dipakai login di Daravel, begitu juga sebaliknya. `SANCTUM_TOKEN_PREFIX`
 menambahkan `token_prefix` Sanctum; `AUTH_TOKEN_EXPIRATION` (menit)
 menetapkan masa berlaku global. `tokenCan`, `revokeCurrent`, `revokeAll`,
 dan `sanctum:prune-expired` tersedia di `Auth.tokenGuard()`.
+
+`{id}` pada token adalah key tabel: integer, seperti yang dibuat migration
+Sanctum. Bila sisi Laravel memberi model `PersonalAccessToken` trait
+`HasUuids` atau `HasUlids`, daftarkan guard dengan key yang sama, sehingga
+token baru mendapat UUID atau ULID dan hanya id seperti itu yang dicari:
+`auth.token<User>('token', provider, keyType: KeyType.uuid)`. Token yang
+id-nya tidak mungkin menjadi key tabel ditolak sebelum database ditanya.
 
 Bila tidak ada akun yang cocok dengan e-mail, password tetap di-hash
 terhadap hash dummy, sehingga login yang gagal memakan waktu yang sama,
