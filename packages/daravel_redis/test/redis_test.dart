@@ -123,8 +123,29 @@ void main() {
           ),
         );
         addTearDown(slow.close);
+        // A script that keeps the server busy for 300 ms: a command that
+        // does not block, so the 100 ms command timeout applies (a blocking
+        // command waits as long as it blocks).
         await expectLater(
-          slow.command(['BLPOP', '${prefix}never', '1']),
+          slow.command([
+            'EVAL',
+            "local t = redis.call('TIME') repeat local n = redis.call('TIME') "
+                'until (n[1] - t[1]) * 1000000 + (n[2] - t[2]) > 300000 '
+                'return 1',
+            0,
+          ]),
+          throwsA(isA<RedisConnectionException>()),
+        );
+        // The server answers again once the script is over.
+        await Future<void>.delayed(const Duration(milliseconds: 400));
+        expect(await slow.command(['PING']), 'PONG');
+        // A blocking command can still be cut short by an explicit timeout.
+        await expectLater(
+          slow.command([
+            'BLPOP',
+            '${prefix}never',
+            '1',
+          ], timeout: const Duration(milliseconds: 100)),
           throwsA(isA<RedisConnectionException>()),
         );
         expect(await slow.command(['PING']), 'PONG');

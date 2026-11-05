@@ -72,7 +72,68 @@ abstract base class RedisClient {
   /// a `String`, `int`, `List`, `null`, ... An error reply throws
   /// [RedisCommandException]; a dropped connection or a timeout,
   /// [RedisConnectionException].
+  ///
+  /// A blocking command ([blockingTimeout]: `BLPOP`, `XREADGROUP … BLOCK`,
+  /// `WAIT`, ...) runs on a connection of its own, so it does not hold up
+  /// the commands pipelined on the shared one, and its [timeout] defaults
+  /// to the time it blocks plus the command timeout (none when it blocks
+  /// without limit), not to the command timeout alone.
   Future<Object?> command(List<Object?> args, {Duration? timeout});
+
+  /// How long the command [args] may block on the server: `null` when it
+  /// does not block, [Duration.zero] when it blocks without limit (a
+  /// timeout of `0`). Reads the timeout of `BLPOP`, `BRPOP`, `BRPOPLPUSH`,
+  /// `BLMOVE`, `BZPOPMIN`, `BZPOPMAX`, `BLMPOP` and `BZMPOP` (seconds), of
+  /// `WAIT` and `WAITAOF` (milliseconds) and the `BLOCK` option of `XREAD`
+  /// and `XREADGROUP` (milliseconds).
+  static Duration? blockingTimeout(List<Object?> args) {
+    if (args.isEmpty) {
+      return null;
+    }
+    String at(int i) => '${args[i]}';
+    Duration seconds(String value) {
+      final parsed = double.tryParse(value);
+      return parsed == null || parsed <= 0
+          ? Duration.zero
+          : Duration(microseconds: (parsed * 1000000).round());
+    }
+
+    Duration milliseconds(String value) {
+      final parsed = int.tryParse(value);
+      return parsed == null || parsed <= 0
+          ? Duration.zero
+          : Duration(milliseconds: parsed);
+    }
+
+    switch (at(0).toUpperCase()) {
+      case 'BLPOP' ||
+              'BRPOP' ||
+              'BRPOPLPUSH' ||
+              'BLMOVE' ||
+              'BZPOPMIN' ||
+              'BZPOPMAX'
+          when args.length > 2:
+        return seconds(at(args.length - 1));
+      case 'BLMPOP' || 'BZMPOP' when args.length > 1:
+        return seconds(at(1));
+      case 'WAIT' when args.length > 2:
+        return milliseconds(at(2));
+      case 'WAITAOF' when args.length > 3:
+        return milliseconds(at(3));
+      case 'XREAD' || 'XREADGROUP':
+        for (var i = 1; i < args.length - 1; i++) {
+          final option = at(i).toUpperCase();
+          if (option == 'STREAMS') {
+            return null;
+          }
+          if (option == 'BLOCK') {
+            return milliseconds(at(i + 1));
+          }
+        }
+        return null;
+    }
+    return null;
+  }
 
   /// Sends [commands] together and returns their replies in order, an
   /// error reply as a [RedisCommandException] in its place.
@@ -289,8 +350,17 @@ final class RedisNodeClient extends RedisClient {
     await stale?.close();
   }
 
+  /// Connections of blocking commands between two of them, so a worker
+  /// looping on `XREADGROUP … BLOCK` does not connect for each one.
+  final List<RedisConnection> _idleBlocking = [];
+  static const int _maxIdleBlocking = 4;
+
   @override
   Future<Object?> command(List<Object?> args, {Duration? timeout}) async {
+    final blocks = RedisClient.blockingTimeout(args);
+    if (blocks != null) {
+      return _blocking(args, blocks, timeout);
+    }
     try {
       return await (await _open()).send(args, timeout: timeout);
     } on RedisCommandException catch (error) {
@@ -299,6 +369,50 @@ final class RedisNodeClient extends RedisClient {
       }
       await _reconnect();
       return (await _open()).send(args, timeout: timeout);
+    }
+  }
+
+  /// Runs a blocking command on a connection of its own, waiting [blocks]
+  /// plus the command timeout (without limit when [blocks] is zero).
+  Future<Object?> _blocking(
+    List<Object?> args,
+    Duration blocks,
+    Duration? timeout,
+  ) async {
+    RedisConnection? connection;
+    while (connection == null && _idleBlocking.isNotEmpty) {
+      final idle = _idleBlocking.removeLast();
+      if (!idle.isClosed) {
+        connection = idle;
+      }
+    }
+    connection ??= await dedicated();
+    final limit =
+        timeout ??
+        (blocks == Duration.zero
+            ? Duration.zero
+            : blocks + config.commandTimeout);
+    try {
+      final reply = await connection.send(args, timeout: limit);
+      await _release(connection);
+      return reply;
+    } on RedisCommandException {
+      // An error reply leaves the connection in step.
+      await _release(connection);
+      rethrow;
+    } on Object {
+      await connection.close();
+      rethrow;
+    }
+  }
+
+  Future<void> _release(RedisConnection connection) async {
+    if (_closed ||
+        connection.isClosed ||
+        _idleBlocking.length >= _maxIdleBlocking) {
+      await connection.close();
+    } else {
+      _idleBlocking.add(connection);
     }
   }
 
@@ -402,6 +516,7 @@ final class RedisNodeClient extends RedisClient {
     for (final subscription in [..._subscriptions]) {
       await subscription.cancel();
     }
+    _idleBlocking.clear();
     for (final connection in [..._dedicated]) {
       await connection.close();
     }

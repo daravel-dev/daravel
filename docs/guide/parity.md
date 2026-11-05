@@ -19,6 +19,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `Route::resource(...)` | `router.resource(name, controller)` |  |
 | `->name('users.show')` | `.name('users.show')` |  |
 | `->middleware(['auth'])` | `.middleware(const ['auth'])` |  |
+| `TrimStrings ($except: current_password, password, password_confirmation)` | `TrimStringsMiddleware(except: {...TrimStringsMiddleware.defaultExcept, 'pin'})` | except names dotted paths (user.password), as TransformsRequest::cleanArray passes them. |
 | `->where('id', '[0-9]+') / ->whereNumber('id')` | `.where('id', r'\d+') / .whereNumber('id')` |  |
 | `->whereUuid('id')` | `.whereUuid('id')` |  |
 | `public function store(StorePostRequest $request)` | `.validates(const StorePostRequest())` | Validated before the handler; read with request.validated(). |
@@ -383,6 +384,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `Cache::flexible($key, [$fresh, $stale], fn)` | `await Cache.flexible(...)` | **async** |
 | `Cache::tags(['people'])->put($key, $value, $ttl)` | `await Cache.tags(['people']).put(key, value, ttl: ttl)` | **async**; memory, process and redis stores (Laravel's layout on Redis); file and database cannot tag, as in Laravel. |
 | `Cache::lock('name', 10)->get(fn)` | `await Cache.lock('name', ...)` |  |
+| `CACHE_STORE=array / Cache::store('array')` | `CACHE_STORE=array / Cache.store('array')` | The memory store (per isolate), unless a store named array is registered. |
 | `SendEmail::dispatch($user)` | `await Queue.dispatch(SendEmail(user))` | **async** |
 | `Concurrency::run([fn () => 1, fn () => 2])` | `await Concurrency.run<int>([() => 1, () => 2])` | **async**; on worker isolates: no facades in a task |
 | `Concurrency::defer([fn () => report()])` | `await Concurrency.defer([report])` | **async** |
