@@ -238,7 +238,18 @@ period. A `funnel` in a cluster needs a hash tag in its name
 Each isolate keeps one connection per server, and commands sent without
 awaiting each other share its round trips (pipelining). Blocking commands
 and subscriptions get connections of their own; a subscription subscribes
-again after the connection drops.
+again after the connection drops. A blocking command sent with `command`
+(`BLPOP`, `BRPOP`, `BLMOVE`, `BZPOPMIN`, `XREAD`/`XREADGROUP` with `BLOCK`,
+`WAIT`) waits as long as it blocks plus `REDIS_COMMAND_TIMEOUT`, and
+without limit when it blocks without limit (`0`):
+
+```dart
+// Waits up to 2 s for new entries, although the command timeout is 1 s.
+final entries = await Redis.command([
+  'XREADGROUP', 'GROUP', 'workers', 'w1', 'COUNT', 100,
+  'BLOCK', 2000, 'STREAMS', 'answers', '>',
+]);
+```
 
 ## Commands
 

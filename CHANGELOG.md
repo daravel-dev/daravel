@@ -31,6 +31,7 @@ match Laravel more closely.
 ### Fixed
 
 - `FileStore` (`CACHE_STORE=file`, and the `file` store some packages pick for state shared between processes, such as `daravel_permission`'s cache version) no longer fails a write with `PathNotFoundException: Cannot rename file` when processes share its directory, as `dart test` does with one process per test file. Two writes made in the same millisecond took the same temporary file, and a write whose directory another process flushed was not made again. `increment`, `decrement`, `add` and `touch` are now atomic across processes (an OS lock per key) and across the calls of one isolate, so no count is lost; Laravel takes `LOCK_EX` for the same reason.
+- `daravel_redis`: a blocking command sent with `RedisClient.command` or `Redis.command` (`BLPOP`, `BRPOP`, `BRPOPLPUSH`, `BLMOVE`, `BZPOPMIN`, `BZPOPMAX`, `BLMPOP`, `BZMPOP`, `XREAD`/`XREADGROUP` with `BLOCK`, `WAIT`, `WAITAOF`) runs on a connection of its own and waits as long as it blocks plus `REDIS_COMMAND_TIMEOUT` (without limit for a timeout of `0`), as the guide said. Before, it went through the shared connection with the 1 s command timeout, so `XREADGROUP … BLOCK 2000` failed with `RedisConnectionException: XREADGROUP timed out after 1000ms`, closed the connection, and held up the commands pipelined behind it. `RedisClient.blockingTimeout(args)` tells how long a command blocks.
 
 ## 1.25.0
 
