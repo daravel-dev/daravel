@@ -415,6 +415,8 @@ final class Application {
           final state = DatabaseChannelState(
             c.make<DatabaseManager>(),
             server: server,
+            // Per isolate: a crashed worker's connections stop counting.
+            worker: Isolate.current.debugName,
             connection: broadcasting.scalingConnection,
           );
           shared = state;

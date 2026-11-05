@@ -169,15 +169,19 @@ Add `CreateBroadcastingTables()` to `bootstrap/migrations.dart` and run
 them to its own clients, so an event published on one server (by the HTTP
 API, `Broadcast.send` or a whisper) reaches clients connected to any of
 them. On PostgreSQL the servers wake each other with `NOTIFY`; on MySQL and
-MariaDB they read every `REVERB_SCALING_POLL` (`100ms`).
+MariaDB they read every `REVERB_SCALING_POLL` (`100ms`) while frames flow, and
+back off to once a second while none do, so idle worker isolates do not
+query ten times a second each.
 
 Presence members are shared too, unlike Reverb, whose `here` lists only
 the members on the same server: `here`, `member_added` (once per user,
 whichever server the user's tabs are on) and the HTTP API's `channels`,
 `channel` and `users` answer for the whole cluster, and so does the last
-event of a cache channel. Each server sends a heartbeat every ten seconds;
-the members of a server silent for 30 seconds (it crashed) stop counting
-and are deleted a minute later.
+event of a cache channel. Each worker isolate of each server sends a
+heartbeat every ten seconds; the members of one silent for 30 seconds (it
+crashed) stop counting and are deleted a minute later, and a worker
+respawned under the same name deletes them as it starts. A connection that
+subscribes again to a channel it is on is still one member.
 
 With [daravel_redis](redis.md), `REVERB_SCALING_DRIVER=redis` shares the
 same things through Redis instead: frames over Pub/Sub, members and cache

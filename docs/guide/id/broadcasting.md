@@ -1,4 +1,4 @@
-<!-- source: broadcasting.md sha256:bafe5370104f -->
+<!-- source: broadcasting.md sha256:aa1a0d444c69 -->
 # Broadcasting
 
 Daravel berbicara dengan protokol Pusher, seperti Laravel Reverb, di port
@@ -176,15 +176,20 @@ server lain lalu meneruskannya ke client-nya sendiri, sehingga event yang
 diterbitkan di satu server (lewat API HTTP, `Broadcast.send`, atau whisper)
 sampai ke client yang terhubung ke server mana pun. Di PostgreSQL server
 saling membangunkan dengan `NOTIFY`; di MySQL dan MariaDB server membaca
-setiap `REVERB_SCALING_POLL` (`100ms`).
+setiap `REVERB_SCALING_POLL` (`100ms`) selama ada frame yang mengalir, dan
+melambat sampai sekali per detik saat tidak ada, sehingga isolate worker
+yang menganggur tidak melakukan query sepuluh kali per detik masing-masing.
 
 Anggota presence juga dibagi, berbeda dengan Reverb yang `here`-nya hanya
 memuat anggota di server yang sama: `here`, `member_added` (sekali per
 user, di server mana pun tab user itu berada), serta `channels`, `channel`,
 dan `users` dari API HTTP menjawab untuk seluruh cluster, begitu pula event
-terakhir sebuah channel cache. Setiap server mengirim heartbeat setiap
-sepuluh detik; anggota dari server yang diam selama 30 detik (karena crash)
-tidak dihitung lagi dan dihapus semenit kemudian.
+terakhir sebuah channel cache. Setiap isolate worker di setiap server
+mengirim heartbeat setiap sepuluh detik; anggota dari isolate yang diam
+selama 30 detik (karena crash) tidak dihitung lagi dan dihapus semenit
+kemudian, dan worker yang dijalankan ulang dengan nama yang sama
+menghapusnya saat mulai. Koneksi yang subscribe lagi ke channel yang sudah
+diikutinya tetap dihitung satu anggota.
 
 Dengan [daravel_redis](redis.md), `REVERB_SCALING_DRIVER=redis` membagi
 hal yang sama lewat Redis: frame lewat Pub/Sub, anggota dan channel cache
