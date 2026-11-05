@@ -32,6 +32,8 @@ match Laravel more closely.
 
 ### Fixed
 
+- `dartisan client:flutter`: a response property declared `oneOf: [X, {type: null}]` (or `anyOf`), the usual JSON Schema for "X or null", is typed `X?` and decoded with `X.fromJson`. It was `Object?`, so the application decoded it by hand.
+
 ## 1.25.0
 
 For an application that moves from Laravel route by route. `withUpstream` now forwards forms, uploads, the client's method and its `Host` as sent, and its shadow replay can compare a moved route's answer byte for byte. JWTs are shared with tymon/jwt-auth's `lock_subject`, and Sanctum tokens and JWTs are checked both ways beside real Laravel 8 to 13. Two security checks are new: inline JavaScript built from values (`daravel_lints`), and scripts from another origin without Subresource Integrity (`security:audit`).

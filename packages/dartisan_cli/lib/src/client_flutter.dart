@@ -688,6 +688,11 @@ final class _Generator {
     String name, {
     required bool models,
   }) {
+    // `oneOf: [X, {type: null}]` (or `anyOf`): X, nullable.
+    final single = _nonNullVariant(schema);
+    if (single != null) {
+      return _typeOf(single, name, models: models);
+    }
     final ref = schema[r'$ref'];
     if (ref is String && ref.startsWith('#/components/schemas/')) {
       final model = _pascal(ref.split('/').last);
@@ -767,8 +772,28 @@ final class _Generator {
 
   static bool _nullableType(Map<String, Object?> schema) {
     final type = schema['type'];
+    if (_nonNullVariant(schema) != null) {
+      return true;
+    }
     return schema['nullable'] == true ||
         (type is List && type.contains('null'));
+  }
+
+  /// The one variant of `oneOf`/`anyOf: [X, {type: null}]` that is not
+  /// `null` (X), or `null` when [schema] is not that shape.
+  static Map<String, Object?>? _nonNullVariant(Map<String, Object?> schema) {
+    final variants = schema['oneOf'] ?? schema['anyOf'];
+    if (variants is! List || variants.length != 2) {
+      return null;
+    }
+    bool isNull(Object? v) => v is Map && v['type'] == 'null';
+    if (!variants.any(isNull)) {
+      return null;
+    }
+    final rest = variants.where((v) => !isNull(v)).toList();
+    return rest.length == 1 && rest.single is Map<String, Object?>
+        ? rest.single as Map<String, Object?>
+        : null;
   }
 
   List<_Field> _fields(

@@ -187,6 +187,45 @@ void routes(Router r) {
           'token': {'type': 'string'},
         },
       }, shape: .raw);
+  // Nullable titled objects: `oneOf [X, null]` and `type: [object, null]`.
+  r
+      .get(
+        '/sign-in',
+        (_) async => Response.json({
+          'token': 't',
+          'session': {'access_token': 'a'},
+          'tenant': null,
+        }),
+      )
+      .name('signIn')
+      .returns(const {
+        'title': 'SignIn',
+        'type': 'object',
+        'required': ['token', 'session', 'tenant'],
+        'properties': {
+          'token': {'type': 'string'},
+          'session': {
+            'oneOf': [
+              {
+                'title': 'MembershipSession',
+                'type': 'object',
+                'required': ['access_token'],
+                'properties': {
+                  'access_token': {'type': 'string'},
+                },
+              },
+              {'type': 'null'},
+            ],
+          },
+          'tenant': {
+            'title': 'Tenant',
+            'type': ['object', 'null'],
+            'properties': {
+              'name': {'type': 'string'},
+            },
+          },
+        },
+      }, shape: .raw);
 }
 
 Application buildApp() =>
@@ -232,7 +271,7 @@ void main() {
     expect(api, contains('defaultValue('));
     // A one-segment name is a method on the client itself.
     expect(api, contains('Future<List<TagsItem>> tags('));
-    expect(client.operations, 10);
+    expect(client.operations, 11);
   });
 
   test('typed signatures from rules, path constraints and responses', () {
@@ -291,6 +330,20 @@ void main() {
     expect('final class Account {'.allMatches(models), hasLength(1));
     expect(models, contains('final Account account;'));
     expect(models, isNot(contains('SessionAccount')));
+  });
+
+  test('nullable titled objects are their model, nullable', () {
+    final models = file('lib/src/models.dart');
+    expect(models, contains('final class MembershipSession {'));
+    expect(models, contains('final MembershipSession? session;'));
+    expect(
+      models,
+      contains("map['session'] == null ? null : MembershipSession.fromJson("),
+    );
+    expect(models, contains("'session': session?.toJson()"));
+    expect(models, contains('final class Tenant {'));
+    expect(models, contains('final Tenant? tenant;'));
+    expect(file('lib/src/api.dart'), contains('Future<SignIn> signIn('));
   });
 
   test('204 responses are Future<void>', () {

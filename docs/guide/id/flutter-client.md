@@ -1,4 +1,4 @@
-<!-- source: flutter-client.md sha256:13fbb7edec5d -->
+<!-- source: flutter-client.md sha256:6227baff9620 -->
 # Client Flutter
 
 `dartisan client:flutter` menghasilkan paket client Dart bertipe dari route
@@ -46,6 +46,7 @@ bertipe sejak awal:
 | `shape: .paginated` / `.simplePaginated` / `.cursorPaginated` | `Page<User>`, `SimplePage<User>`, `CursorPage<User>` dan parameter `page` atau `cursor` |
 | `shape: .collection` | `List<User>` |
 | `'title': 'User'` di sebuah schema | nama model: schema yang dipakai ulang di respons lain (`user` di respons token) adalah kelas `User` yang sama |
+| `oneOf: [User, {'type': 'null'}]` (atau `anyOf`), `'type': ['object', 'null']` | field `User?` yang nullable |
 | `.returns(const {}, status: 204)` | `Future<void>` |
 | rule `file` | parameter `http.MultipartFile`, dikirim sebagai `multipart/form-data` |
 | `router.ws(...)` | method yang mengembalikan URL `ws://` / `wss://` |

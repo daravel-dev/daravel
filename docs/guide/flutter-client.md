@@ -43,6 +43,7 @@ the start:
 | `shape: .paginated` / `.simplePaginated` / `.cursorPaginated` | `Page<User>`, `SimplePage<User>`, `CursorPage<User>` and a `page` or `cursor` parameter |
 | `shape: .collection` | `List<User>` |
 | `'title': 'User'` in a schema | the model's name: a schema reused inside other responses (the `user` of a token response) is the same `User` class |
+| `oneOf: [User, {'type': 'null'}]` (or `anyOf`), `'type': ['object', 'null']` | a nullable `User?` field |
 | `.returns(const {}, status: 204)` | `Future<void>` |
 | `file` rules | `http.MultipartFile` parameters, sent as `multipart/form-data` |
 | `router.ws(...)` | a method returning the `ws://` / `wss://` URL |
