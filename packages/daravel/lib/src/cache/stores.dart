@@ -498,7 +498,7 @@ final class FileStore implements TouchableCacheStore {
       try {
         await file.parent.create(recursive: true);
         await temp.writeAsString(payload, flush: true);
-        await temp.rename(file.path);
+        await _replace(temp, file);
         return;
       } on FileSystemException {
         await _delete(temp);
@@ -508,6 +508,34 @@ final class FileStore implements TouchableCacheStore {
       }
     }
   }
+
+  /// Renames [temp] over [target]. Windows refuses the rename for a moment
+  /// (`ERROR_ACCESS_DENIED` or `ERROR_SHARING_VIOLATION`) while another
+  /// writer is replacing the same entry or a reader has it open, so there it
+  /// is tried again with a backoff, keeping the temporary file. Any other
+  /// failure, or a temporary file a `flush` removed, goes to the caller.
+  static Future<void> _replace(File temp, File target) async {
+    // A Stopwatch, not Clock.now(): a test that freezes the clock still
+    // gives up.
+    final waited = Stopwatch()..start();
+    for (var wait = 1; ; wait = min(wait * 2, 20)) {
+      try {
+        await temp.rename(target.path);
+        return;
+      } on FileSystemException catch (e) {
+        final code = e.osError?.errorCode;
+        if (!Platform.isWindows ||
+            (code != 5 && code != 32) ||
+            waited.elapsed > _replaceTimeout ||
+            !await temp.exists()) {
+          rethrow;
+        }
+      }
+      await Future<void>.delayed(Duration(milliseconds: wait));
+    }
+  }
+
+  static const Duration _replaceTimeout = Duration(seconds: 5);
 
   static const int _attempts = 5;
   static final Random _random = Random();
