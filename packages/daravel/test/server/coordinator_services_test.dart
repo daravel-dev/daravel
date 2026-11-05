@@ -35,29 +35,56 @@ void main() {
 
     final handles = _handleMethods(p.join(Directory.current.path, 'lib'));
     for (final service in classes) {
-      final method = handles[service];
+      final method = handles['$service.handle'];
       expect(method, isNotNull, reason: '$service.handle not found in lib/');
-      final async =
-          method!.body.isAsynchronous ||
-          RegExp(r'^(Future|FutureOr)\b')
-              .hasMatch(method.returnType?.toSource() ?? '');
-      if (_asyncAllowed.containsKey(service)) {
-        continue;
+      if (!_asyncAllowed.containsKey(service)) {
+        expect(
+          _isAsync(method!),
+          isFalse,
+          reason:
+              '$service.handle returns a Future: the coordinator answers on '
+              'the supervisor isolate; make it synchronous or add it to '
+              '_asyncAllowed with the reason',
+        );
       }
-      expect(
-        async,
-        isFalse,
-        reason:
-            '$service.handle returns a Future: the coordinator answers on '
-            'the supervisor isolate; make it synchronous or add it to '
-            '_asyncAllowed with the reason',
-      );
+      // The typed path (ADR-031) carries the hottest calls (rate limits,
+      // locks): synchronous for every service, without exception.
+      final typed = handles['$service.handleTyped'];
+      if (coordinator.service(_nameOf(coordinator, service))
+          is TypedCoordinatorService<Object>) {
+        expect(
+          typed,
+          isNotNull,
+          reason: '$service.handleTyped not found in lib/',
+        );
+        expect(
+          _isAsync(typed!),
+          isFalse,
+          reason: '$service.handleTyped returns a Future',
+        );
+      }
     }
   });
 }
 
-/// `handle` of every class in [lib] that implements `CoordinatorService`,
-/// by class name.
+/// The registered name of the service whose class is [className].
+String _nameOf(Coordinator coordinator, String className) =>
+    coordinator.serviceNames.firstWhere(
+      (name) => coordinator.service(name)!.runtimeType.toString() == className,
+    );
+
+bool _isAsync(MethodDeclaration method) =>
+    method.body.isAsynchronous ||
+    RegExp(r'^(Future|FutureOr)\b')
+        .hasMatch(method.returnType?.toSource() ?? '');
+
+final RegExp _implementsService = RegExp(
+  r'implements\s+(Typed)?CoordinatorService\b',
+);
+
+/// `handle` and `handleTyped` of every class in [lib] that implements
+/// `CoordinatorService` or `TypedCoordinatorService`, as
+/// `Class.method`.
 Map<String, MethodDeclaration> _handleMethods(String lib) {
   final found = <String, MethodDeclaration>{};
   for (final file in Directory(lib).listSync(recursive: true)) {
@@ -65,7 +92,7 @@ Map<String, MethodDeclaration> _handleMethods(String lib) {
       continue;
     }
     final source = file.readAsStringSync();
-    if (!source.contains('implements CoordinatorService')) {
+    if (!_implementsService.hasMatch(source)) {
       continue;
     }
     parseString(
@@ -84,11 +111,12 @@ final class _HandleVisitor extends RecursiveAstVisitor<void> {
   @override
   void visitMethodDeclaration(MethodDeclaration node) {
     final owner = node.thisOrAncestorOfType<ClassDeclaration>();
-    if (node.name.lexeme == 'handle' && owner != null) {
+    final method = node.name.lexeme;
+    if ((method == 'handle' || method == 'handleTyped') && owner != null) {
       final header = owner.toSource();
       final name = RegExp(r'class\s+(\w+)').firstMatch(header)?.group(1);
-      if (name != null && header.contains('implements CoordinatorService')) {
-        found[name] = node;
+      if (name != null && _implementsService.hasMatch(header)) {
+        found['$name.$method'] = node;
       }
     }
     super.visitMethodDeclaration(node);
