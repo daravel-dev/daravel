@@ -17,6 +17,7 @@ match Laravel more closely.
 - `Request.bodyInput()`: the body's fields as `all()` sees them, without the query (Laravel's `getInputSource()->all()`). A middleware that rebuilds the body with `replace()` starts from it, so the fields the client sent keep what `TrimStrings` made of them.
 - `CachePrefixShaping`: a cache store that shapes the prefix its `CacheRepository` puts before keys, tag lists and lock names, as Laravel's stores own their prefix. `daravel_redis`'s `RedisStore` implements it (see Changed); `RedisStore(laravelCompat:)` fixes the layout instead of following `COMPAT_LARAVEL_VERSION`.
 - The `array` cache store, Laravel's in-memory store and a common `CACHE_STORE` in `phpunit.xml` and `.env.testing`: `CACHE_STORE=array` and `Cache.store('array')` are the `memory` store (`CacheManager.arrayStore`), unless an application registers a store of that name. Before, `array` failed with "Cache store [array] is not defined".
+- `TrimStringsMiddleware.defaultExcept`: the keys `TrimStringsMiddleware` leaves untrimmed by default, to extend rather than repeat (`{...TrimStringsMiddleware.defaultExcept, 'pin'}`).
 
 ### Changed
 
@@ -27,6 +28,7 @@ match Laravel more closely.
 - Input transformers (`TrimStringsMiddleware`, `ConvertEmptyStringsToNullMiddleware`, `Request.addInputTransformer`) apply as in Laravel's `TransformsRequest`, checked against laravel/framework 10.48.29:
   - **Only to input as the client sent it.** Fields that `Request.merge` or `Request.replace` set afterwards are kept as given: `' x '` stays `' x '` and `''` stays `''`, where they were trimmed and turned into `null` before. Only a transformer registered after the merge still sees them. This matters to a middleware that merges input it produced, such as a payload decryption. An application that relied on its merged values being trimmed or converted trims them before `merge`.
   - `daravel_teobiefy`'s `teobiefy`, `teobiefy.aes` and profile middleware build the decrypted body from `Request.bodyInput()`, so the clear fields beside `data_enc` keep what the transformers made of them and the decrypted fields arrive as the client encrypted them.
+  - **`current_password` is no longer trimmed** by default, as in Laravel's `TrimStrings` (`$except` is `current_password`, `password`, `password_confirmation` in laravel/framework 10, 11 and 12). Before, a current password sent with surrounding spaces was trimmed and then failed `Hash.check` against a password that kept them.
   - **The key is the dotted path.** A transformer now receives `user.password` or `tags.0`, not `password` or `tags`, so `TrimStringsMiddleware(except:)` names a path. The default `{'password', 'password_confirmation'}` no longer leaves a nested `user.password` untrimmed (Laravel trims it too); list it as `user.password` to keep it as sent.
 
 ### Fixed

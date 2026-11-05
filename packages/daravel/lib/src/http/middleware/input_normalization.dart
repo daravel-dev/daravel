@@ -9,11 +9,18 @@ import '../response.dart';
 /// it, not to fields a later `Request.merge` adds, and [except] names
 /// dotted paths (`user.password`).
 final class TrimStringsMiddleware implements Middleware {
-  /// Trims every string in the input, except the given keys (passwords by
-  /// default).
-  const TrimStringsMiddleware({
-    this.except = const <String>{'password', 'password_confirmation'},
-  });
+  /// Trims every string in the input, except the given keys
+  /// ([defaultExcept]: the password fields, as in Laravel).
+  const TrimStringsMiddleware({this.except = defaultExcept});
+
+  /// The keys Laravel's `TrimStrings` leaves as sent: `current_password`,
+  /// `password` and `password_confirmation`. Extend it with
+  /// `{...TrimStringsMiddleware.defaultExcept, 'pin'}`.
+  static const Set<String> defaultExcept = <String>{
+    'current_password',
+    'password',
+    'password_confirmation',
+  };
 
   /// Keys left as sent, as dotted paths.
   final Set<String> except;

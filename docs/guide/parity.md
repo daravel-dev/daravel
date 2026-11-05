@@ -19,6 +19,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `Route::resource(...)` | `router.resource(name, controller)` |  |
 | `->name('users.show')` | `.name('users.show')` |  |
 | `->middleware(['auth'])` | `.middleware(const ['auth'])` |  |
+| `TrimStrings ($except: current_password, password, password_confirmation)` | `TrimStringsMiddleware(except: {...TrimStringsMiddleware.defaultExcept, 'pin'})` | except names dotted paths (user.password), as TransformsRequest::cleanArray passes them. |
 | `->where('id', '[0-9]+') / ->whereNumber('id')` | `.where('id', r'\d+') / .whereNumber('id')` |  |
 | `->whereUuid('id')` | `.whereUuid('id')` |  |
 | `public function store(StorePostRequest $request)` | `.validates(const StorePostRequest())` | Validated before the handler; read with request.validated(). |
