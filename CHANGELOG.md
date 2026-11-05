@@ -13,12 +13,15 @@ match Laravel more closely.
 
 ### Added
 
+- Coordinator saturation is visible and stale work is skipped (part of #148). A `RemoteCoordinatorChannel` sends the call's deadline with an `ExpiringCoordinatorMessage` (a new interface: `RateLimitMessage` for `attempt`, `acquire`, `attempts` and `availableIn`, `LockMessage` for `acquireLock` and `lockOwner`), and the coordinator drops such a request unanswered when it reaches it after the deadline (`CoordinatorRequest.deadline`, counted in `coordinator_expired_total`): a rate-limit attempt or lease the worker already let through uncounted is no longer counted afterwards, and a lock its caller gave up on is no longer granted to nobody. Releases, writes and every other message are handled however late. The coordinator also measures its own event-loop lag every 100 ms (`queue_lag_ms` and `queue_lag_peak_ms` in its stats, `coordinator_queue_lag_seconds` and `coordinator_queue_lag_peak_seconds` on `/metrics`), the backlog of synchronous services that `coordinator_in_flight` never counted, and `dartisan coordinator:stats` prints both with advice. Guide: [Operations](docs/guide/operations.md#what-to-watch).
+
 ### Changed
 
 **Upgrading can change what an application sees:**
 
 - `ThrottledReporter` is a new export of `package:daravel/daravel.dart` (#147): it reports at most one error per interval with the count of the skipped ones, and the application uses it for the rate limiter's warning. An application that declares a class of that name should hide it from the import. `CacheRateLimitStore` (`CACHE_LIMITER` other than `process`) now lets a request through, uncounted, when its cache store throws, where the request failed with a `500` before; give the limit `failsClosed()`, or construct the store with `failClosed: true`, to answer `429` instead.
 - `throttle:<max>,<minutes>` (a `ThrottleMiddleware` without a named limiter) keys a guest by the matched route's domain and the client address, as Laravel's `ThrottleRequests::resolveRequestSignature` does (#168). It used `method|Host header|path|ip`, so every route had a bucket of its own, and a client could get a fresh bucket per request by changing the `Host` header it sends. Every route under such a limit on one domain now shares the client's bucket, as in Laravel: a group throttled with `throttle:60,1` allows 60 requests a minute across its routes, not 60 per route. A route that needs its own budget can use a named limiter (`Limit.perMinute(60).by('${request.path}|${request.ip}')`) or a `prefix`. Users found by `userKeyResolver` are keyed by their id as before.
+- `ExpiringCoordinatorMessage` is a new export of `package:daravel/daravel.dart` (#148), and `RateLimitMessage` and `LockMessage` implement it: a counting rate-limit call or a lock acquisition that reaches a stalled coordinator after its caller timed out is now dropped instead of counted or granted late. The worker already treated that call as failed (fail open, or a timeout for a lock), so what it sees does not change; the coordinator's counters do.
 
 ### Fixed
 

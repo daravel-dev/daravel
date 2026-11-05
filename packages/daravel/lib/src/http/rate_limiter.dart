@@ -424,7 +424,7 @@ final class MemoryRateLimitStore implements RateLimitStore {
 /// the map of [toArgs] is copied entry by entry. [op] is an operation of
 /// [RateLimitService.handle]; the fields an operation does not read are 0.
 @pragma('vm:deeply-immutable')
-final class RateLimitMessage implements CoordinatorMessage {
+final class RateLimitMessage implements ExpiringCoordinatorMessage {
   /// A call of [op] for [key].
   const RateLimitMessage(
     this.op,
@@ -457,6 +457,15 @@ final class RateLimitMessage implements CoordinatorMessage {
 
   /// Epoch milliseconds when the window of a `release` ends.
   final int resetAt;
+
+  /// Counting and reading calls expire with the worker's wait: an attempt
+  /// or a lease the worker already let through uncounted (or refused) is
+  /// not counted later. A `release`, `clear` or `flush` never expires.
+  @override
+  bool get expiresWithCall => switch (op) {
+    'attempt' || 'acquire' || 'attempts' || 'availableIn' => true,
+    _ => false,
+  };
 
   /// The same call as the arguments of [RateLimitService.handle], for a
   /// channel that is not a [TypedCoordinatorChannel].

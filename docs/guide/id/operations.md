@@ -1,4 +1,4 @@
-<!-- source: operations.md sha256:3c8ce4f70da5 -->
+<!-- source: operations.md sha256:d398e563d287 -->
 # Operasional
 
 Menjalankan Daravel di bawah trafik nyata: berapa isolate, berapa koneksi
@@ -155,6 +155,8 @@ setiap worker digabungkan.
 | `coordinator_call_duration_seconds{service}` | p99 di atas sekitar 2 ms: rate limit, baca cache process, dan lock menunggu coordinator |
 | `coordinator_rejected_total`, `coordinator_in_flight_peak` dibandingkan `coordinator_max_queue` | penolakan apa pun, atau puncak yang mendekati batas |
 | `coordinator_call_timeouts_total{service}` | laju yang terus-menerus |
+| `coordinator_queue_lag_seconds`, `coordinator_queue_lag_peak_seconds` | di atas sekitar 25 ms: pesan menunggu selama itu di event loop coordinator (termasuk service sinkron seperti rate limit dan lock, yang tidak dihitung `coordinator_in_flight`), dan rate limit, yang menunggu 50 ms, mulai fail-open |
+| `coordinator_expired_total` | laju yang terus-menerus: coordinator membuang percobaan rate limit dan pengambilan lock yang pemanggilnya sudah timeout, alih-alih menghitung atau memberikannya padahal tidak ada lagi yang menunggu |
 
 `dartisan coordinator:stats --url=http://127.0.0.1:8000/metrics` membaca
 angka-angka ini dari server yang sedang berjalan dan memberi saran:

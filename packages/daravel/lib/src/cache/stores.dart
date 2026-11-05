@@ -311,7 +311,7 @@ final class ProcessCacheService
 /// so it crosses to the coordinator isolate by reference where the map of
 /// [toArgs] is copied entry by entry. Other cache operations stay maps.
 @pragma('vm:deeply-immutable')
-final class LockMessage implements CoordinatorMessage {
+final class LockMessage implements ExpiringCoordinatorMessage {
   /// A call of [op] on the lock [key].
   const LockMessage(this.op, this.key, {this.owner, this.ttlMs = 0});
 
@@ -326,6 +326,11 @@ final class LockMessage implements CoordinatorMessage {
 
   /// How long an `acquireLock` holds the lock, in milliseconds.
   final int ttlMs;
+
+  /// An acquisition or an owner lookup the caller gave up on is dropped (a
+  /// lock taken for nobody would stay until its TTL); a release never is.
+  @override
+  bool get expiresWithCall => op == 'acquireLock' || op == 'lockOwner';
 
   /// The same call as the arguments of [ProcessCacheService.handle], for a
   /// channel that is not a [TypedCoordinatorChannel].
