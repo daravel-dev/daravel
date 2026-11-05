@@ -1,4 +1,4 @@
-<!-- source: routing.md sha256:a3e68ed0e008 -->
+<!-- source: routing.md sha256:5fa93c5da827 -->
 # Routing
 
 Route didaftarkan di `routes/api.dart` (di-mount di bawah `/api`) dan
@@ -195,6 +195,25 @@ dan `.gcra()` meratakan batasnya (satu percobaan setiap decay / batas,
 seluruh batas sebagai burst setelah periode sepi). Keduanya membutuhkan
 `CACHE_LIMITER=redis` dengan [daravel_redis](redis.md#algoritma-rate-limit);
 store lain menghitungnya sebagai fixed window.
+
+Saat coordinator tidak menjawab tepat waktu (misalnya proses sedang
+kelebihan beban), rate limiting bersifat fail-open: request diloloskan
+tanpa dihitung dan sebuah peringatan dicatat di log, sehingga coordinator
+yang lambat tidak pernah menjatuhkan situs. Batas yang menjaga kredensial
+(login, OTP, reset password) sebaiknya fail-closed, agar membanjiri server
+tidak mencabut batas tersebut: request seperti itu justru mendapat `429`
+dengan `Retry-After: 1`.
+
+```dart
+limiter.define(
+  'login',
+  (request) => Limit.perMinute(5).by(request.ip).failsClosed(),
+);
+```
+
+`ThrottleMiddleware(failClosed: true)` melakukan hal yang sama untuk setiap
+batas pada satu middleware, dan `ProcessRateLimitStore(failClosed: true)`
+untuk seluruh store.
 
 ## Subdomain
 

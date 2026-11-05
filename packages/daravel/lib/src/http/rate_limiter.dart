@@ -40,6 +40,7 @@ final class Limit {
     this.key,
     this.responseBuilder,
     this.algorithm = RateLimitAlgorithm.fixedWindow,
+    this.failClosed = false,
   });
 
   /// [maxAttempts] per [seconds] seconds.
@@ -72,7 +73,8 @@ final class Limit {
       decay = Duration.zero,
       key = null,
       responseBuilder = null,
-      algorithm = RateLimitAlgorithm.fixedWindow;
+      algorithm = RateLimitAlgorithm.fixedWindow,
+      failClosed = false;
 
   /// The attempts allowed per window; negative for no limit.
   final int maxAttempts;
@@ -91,6 +93,13 @@ final class Limit {
   /// algorithm (an [AlgorithmRateLimitStore]) counts a fixed window.
   final RateLimitAlgorithm algorithm;
 
+  /// Whether a request is refused (429) when the store cannot count it,
+  /// rather than let through. Rate limiting fails open by default
+  /// (ADR-003): a coordinator that times out must not take the site down.
+  /// A limit guarding credentials (login, OTP, password reset) should fail
+  /// closed, so that overloading the coordinator does not lift it.
+  final bool failClosed;
+
   /// Whether this is [Limit.none].
   bool get isUnlimited => maxAttempts < 0;
 
@@ -101,6 +110,7 @@ final class Limit {
     key: key,
     responseBuilder: responseBuilder,
     algorithm: algorithm,
+    failClosed: failClosed,
   );
 
   /// The same limit answering 429 with [builder]'s response.
@@ -110,6 +120,18 @@ final class Limit {
     key: key,
     responseBuilder: builder,
     algorithm: algorithm,
+    failClosed: failClosed,
+  );
+
+  /// The same limit refusing requests the store cannot count
+  /// ([failClosed]): `Limit.perMinute(5).by(email).failsClosed()`.
+  Limit failsClosed() => Limit(
+    maxAttempts: maxAttempts,
+    decay: decay,
+    key: key,
+    responseBuilder: responseBuilder,
+    algorithm: algorithm,
+    failClosed: true,
   );
 
   /// Counts with [RateLimitAlgorithm.slidingWindow] (`CACHE_LIMITER=redis`
@@ -126,6 +148,7 @@ final class Limit {
     key: key,
     responseBuilder: responseBuilder,
     algorithm: algorithm,
+    failClosed: failClosed,
   );
 }
 
@@ -143,10 +166,32 @@ final class RateLimitResult {
     required this.remaining,
     required this.resetAt,
     this.retryAfter,
+    this.degraded = false,
   });
+
+  /// An attempt refused because the store could not count it (a store or
+  /// limit that fails closed): [degraded], told to retry after
+  /// [ProcessRateLimitStore.failClosedRetryAfter].
+  factory RateLimitResult.refusedUncounted(int maxAttempts) {
+    const retry = ProcessRateLimitStore.failClosedRetryAfter;
+    return RateLimitResult(
+      allowed: false,
+      limit: maxAttempts,
+      remaining: 0,
+      resetAt: Clock.now().toUtc().add(retry),
+      retryAfter: retry,
+      degraded: true,
+    );
+  }
 
   /// Whether the attempt was counted.
   final bool allowed;
+
+  /// Whether the store could not reach its counters (a coordinator error or
+  /// timeout), so this result was not counted anywhere: [allowed] is then
+  /// the store's fallback, true when it fails open. [RateLimiter.attempt]
+  /// with `failClosed` refuses such an attempt.
+  final bool degraded;
 
   /// The attempts allowed per window.
   final int limit;
@@ -428,7 +473,9 @@ final class _Lease {
 
 /// Process-wide counters via the coordinator. Fails **open** on coordinator
 /// errors/timeouts (the request is allowed and [onError] is notified), the
-/// documented default for rate limiting (§5.2).
+/// documented default for rate limiting (§5.2), unless [failClosed]. Either
+/// way the result is [RateLimitResult.degraded], so a [Limit.failClosed]
+/// limit refuses it even in a store that fails open.
 ///
 /// Across isolates, hot keys with generous limits are served from local
 /// leases: a worker takes a batch of hits in one round trip and spends them
@@ -450,16 +497,27 @@ final class ProcessRateLimitStore implements RateLimitStore {
     this.leaseTtl = const Duration(milliseconds: 200),
     this.blockedCacheTtl = const Duration(milliseconds: 100),
     this.maxKeys = 10000,
+    this.failClosed = false,
   });
 
   /// The channel to the coordinator.
   final CoordinatorChannel channel;
 
-  /// How long to wait for the coordinator before letting a request through.
+  /// How long to wait for the coordinator before letting a request through
+  /// (or refusing it, when [failClosed]).
   final Duration timeout;
 
   /// Called when the coordinator fails or times out.
   final void Function(Object error)? onError;
+
+  /// Whether every attempt the coordinator cannot count is refused, for
+  /// every limit, instead of let through. [Limit.failClosed] does it for
+  /// one limit only.
+  final bool failClosed;
+
+  /// How long a refused attempt is told to wait when the coordinator could
+  /// not count it ([failClosed]).
+  static const Duration failClosedRetryAfter = Duration(seconds: 1);
 
   /// Smallest `maxAttempts` served from leases.
   final int leaseThreshold;
@@ -539,12 +597,15 @@ final class ProcessRateLimitStore implements RateLimitStore {
       return await _leased(key, maxAttempts, decay);
     } on CoordinatorException catch (error) {
       onError?.call(error);
-      return RateLimitResult(
-        allowed: true,
-        limit: maxAttempts,
-        remaining: maxAttempts - 1,
-        resetAt: Clock.now().toUtc().add(decay),
-      );
+      return failClosed
+          ? RateLimitResult.refusedUncounted(maxAttempts)
+          : RateLimitResult(
+              allowed: true,
+              limit: maxAttempts,
+              remaining: maxAttempts - 1,
+              resetAt: Clock.now().toUtc().add(decay),
+              degraded: true,
+            );
     }
   }
 
@@ -727,20 +788,26 @@ final class RateLimiter {
   }
 
   /// Records an attempt; [algorithm] counts it as [Limit.slidingWindow] or
-  /// [Limit.gcra] where the store can, else as a fixed window.
+  /// [Limit.gcra] where the store can, else as a fixed window. With
+  /// [failClosed], an attempt the store let through without counting it
+  /// ([RateLimitResult.degraded]) is refused instead.
   Future<RateLimitResult> attempt(
     String key,
     int maxAttempts,
     Duration decay, {
     RateLimitAlgorithm algorithm = RateLimitAlgorithm.fixedWindow,
-  }) {
+    bool failClosed = false,
+  }) async {
     final store = this.store;
-    if (algorithm != RateLimitAlgorithm.fixedWindow &&
-        store is AlgorithmRateLimitStore &&
-        store.supports(algorithm)) {
-      return store.attemptWith(algorithm, key, maxAttempts, decay);
-    }
-    return store.attempt(key, maxAttempts, decay);
+    final result =
+        algorithm != RateLimitAlgorithm.fixedWindow &&
+            store is AlgorithmRateLimitStore &&
+            store.supports(algorithm)
+        ? await store.attemptWith(algorithm, key, maxAttempts, decay)
+        : await store.attempt(key, maxAttempts, decay);
+    return failClosed && result.degraded && result.allowed
+        ? RateLimitResult.refusedUncounted(maxAttempts)
+        : result;
   }
 
   /// The attempts of [key] in the current window.
@@ -792,6 +859,7 @@ final class ThrottleMiddleware implements RunsBeforeBindings {
     this.prefix = '',
     this.limiter,
     this.userKeyResolver,
+    this.failClosed = false,
   });
 
   /// Parses alias parameters (`['60', '1']` or `['api']`).
@@ -842,6 +910,10 @@ final class ThrottleMiddleware implements RunsBeforeBindings {
   /// follow the user instead of the IP.
   final FutureOr<Object?> Function(Request request)? userKeyResolver;
 
+  /// Whether every limit of this middleware fails closed (as
+  /// [Limit.failClosed]): a request the store cannot count gets the 429.
+  final bool failClosed;
+
   @override
   Future<Response> handle(Request request, Next next) async {
     final limiter = this.limiter ?? _defaultLimiter;
@@ -861,6 +933,7 @@ final class ThrottleMiddleware implements RunsBeforeBindings {
         limit.maxAttempts,
         limit.decay,
         algorithm: limit.algorithm,
+        failClosed: failClosed || limit.failClosed,
       );
       if (!result.allowed) {
         final retry = result.retryAfter ?? Duration.zero;
