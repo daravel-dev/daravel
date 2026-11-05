@@ -13,6 +13,8 @@ match Laravel more closely.
 
 ### Added
 
+- `DB.transaction(fn, timeout:)` (`DatabaseManager.transaction`): a body still running when the timeout passes is given up, so a body waiting on a slow external call cannot hold its connection and empty the pool. Its transaction (or savepoint) rolls back inside the driver, the connection goes back to the pool, after-commit callbacks are dropped, and the call throws `TransactionTimeoutException` (a `TimeoutException`, never retried by `attempts`). The body's later queries throw it too instead of running, so nothing it does after the timeout reaches the database. A query already waiting in the database ends only when the database lets it go. Without `timeout` nothing changes.
+
 - `BelongsTo`, `HasMany` and `HasOne` take `foreignKey` as optional and guess it as Laravel does: a `BelongsTo` from its relation name (`coAuthor` → `co_author_id`), a `HasMany`/`HasOne` from the parent's class name in `ModelDefinition.morphClass` and its primary key (`User` → `user_id`). An explicit `foreignKey` is used as before. `Relation.parentDefinition` is the definition a relation is declared on.
 - `ModelDefinition(attributes:)`, Laravel's `protected $attributes`: default attribute values every new model starts with (not dirty), so `create()` inserts them and a non-null accessor reads them without `refresh()`. `dartisan model:sync` warns about a non-null column with a database default that the model does not declare there, whose accessor would throw on a freshly created model.
 - `phpJsonDouble(double)`: a double as PHP's `json_encode` writes it (`serialize_precision = -1`, `zend_gcvt`), used by `PhpJsonEncoder` and `Response.json(phpCompatible: true)`.

@@ -169,13 +169,19 @@ abstract final class DB {
 
   /// Runs the callback in a transaction: committed when it returns, rolled
   /// back when it throws; nested calls become savepoints, and `attempts`
-  /// retries deadlocks.
+  /// retries deadlocks; past `timeout` it rolls back and throws
+  /// [TransactionTimeoutException] ([DatabaseManager.transaction]).
   static Future<T> transaction<T>(
     Future<T> Function() body, {
     String? connection,
     int attempts = 1,
-  }) =>
-      manager.transaction<T>(body, connection: connection, attempts: attempts);
+    Duration? timeout,
+  }) => manager.transaction<T>(
+    body,
+    connection: connection,
+    attempts: attempts,
+    timeout: timeout,
+  );
 
   /// Whether the current zone is inside a transaction.
   static bool get inTransaction => manager.inTransaction;

@@ -299,6 +299,15 @@ cannot, so two rules keep it safe:
   (`unawaited_in_db_transaction`) points out the ones that are not,
   including `unawaited(...)` and `.ignore()`.
 
+A transaction holds its connection until it ends, so a body waiting on a
+slow external call can empty the pool. `DB.transaction(fn, timeout:
+Duration(seconds: 10))` gives up a body still running after that time: its
+work rolls back, the connection goes back to the pool, and the call throws
+`TransactionTimeoutException` (never retried), as does any later query of
+that body. A query already waiting inside the database (on a row lock, say)
+ends only when the database lets it go, so pair this with the database's own
+lock timeout.
+
 ## JSON columns
 
 `->` reads and writes inside a JSON column, on every driver:

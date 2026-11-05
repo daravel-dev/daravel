@@ -1,4 +1,4 @@
-<!-- source: database.md sha256:56f77258fdd0 -->
+<!-- source: database.md sha256:2aafe09f2c11 -->
 # Database
 
 `DB_CONNECTION` memilih SQLite (`sqlite`, default), PostgreSQL (`pgsql`),
@@ -307,6 +307,16 @@ yang tidak bisa dilakukan PHP, jadi dua aturan menjaganya tetap aman:
   `await` setiap query di dalam `DB.transaction`; `dartisan lint`
   (`unawaited_in_db_transaction`) menunjukkan yang tidak, termasuk
   `unawaited(...)` dan `.ignore()`.
+
+Transaksi menahan koneksinya sampai selesai, sehingga body yang menunggu
+panggilan eksternal yang lambat bisa menghabiskan pool.
+`DB.transaction(fn, timeout: Duration(seconds: 10))` menghentikan body yang
+masih berjalan setelah waktu itu: pekerjaannya di-rollback, koneksinya
+kembali ke pool, dan pemanggilannya melempar `TransactionTimeoutException`
+(tidak pernah di-retry), begitu juga query berikutnya dari body tersebut.
+Query yang sudah menunggu di dalam database (misalnya pada row lock) baru
+selesai saat database melepaskannya, jadi pasangkan dengan lock timeout
+dari database itu sendiri.
 
 ## Kolom JSON
 

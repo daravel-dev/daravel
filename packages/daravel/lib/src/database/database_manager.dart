@@ -399,13 +399,24 @@ final class DatabaseManager {
   /// Nested calls create a savepoint that is released or rolled back with
   /// the nested callback. With [attempts] > 1, deadlocks and serialization
   /// failures retry the whole transaction, after a short random wait.
+  ///
+  /// With a [timeout], a body still running when it passes is given up: its
+  /// transaction (or savepoint) rolls back, the connection goes back to the
+  /// pool, the call throws [TransactionTimeoutException] (not retried), and
+  /// any later query of that body throws it too instead of running. A query
+  /// already waiting in the database (on a row lock, say) ends only when the
+  /// database lets it go, so pair this with the database's own lock timeout.
   Future<T> transaction<T>(
     Future<T> Function() body, {
     String? connection,
     int attempts = 1,
+    Duration? timeout,
   }) async {
+    if (timeout != null && timeout <= Duration.zero) {
+      throw ArgumentError.value(timeout, 'timeout', 'must be positive');
+    }
     if (_activeScope(connection) != null) {
-      return _savepoint(body);
+      return _savepoint(body, timeout);
     }
     final connectionName = connection ?? config.defaultConnection;
     final driver = await this.connection(connection);
@@ -426,14 +437,18 @@ final class DatabaseManager {
           watch.start();
         }
         final scope = _TransactionScope(tx, this, connectionName);
-        return runZoned<Future<T>>(
-          body,
-          zoneValues: <Object?, Object?>{
-            transactionKey: scope.executor,
-            _scopeKey: scope,
-            depthKey: 1,
-            afterCommitKey: callbacks,
-          },
+        return _bounded(
+          runZoned<Future<T>>(
+            body,
+            zoneValues: <Object?, Object?>{
+              transactionKey: scope.executor,
+              _scopeKey: scope,
+              depthKey: 1,
+              afterCommitKey: callbacks,
+            },
+          ),
+          timeout,
+          scope,
         ).whenComplete(scope.close);
       });
       try {
@@ -478,7 +493,47 @@ final class DatabaseManager {
   /// A savepoint under the current level. Savepoints on one connection form
   /// a stack, so siblings started together (`Future.wait`) run one after
   /// another; each gets its own scope for its own children.
-  Future<T> _savepoint<T>(Future<T> Function() body) {
+  /// [work] (a transaction's body), or [TransactionTimeoutException] once
+  /// [timeout] passes without it: [scope] is then closed first, so the
+  /// body's later queries fail rather than run on a connection that has
+  /// rolled back and gone back to the pool. The error thrown inside the
+  /// driver's transaction (or the savepoint) is what rolls it back.
+  static Future<T> _bounded<T>(
+    Future<T> work,
+    Duration? timeout,
+    _TransactionScope scope,
+  ) {
+    if (timeout == null) {
+      return work;
+    }
+    final done = Completer<T>();
+    // A Timer, not Clock: a frozen test clock must not stop the guard.
+    final timer = Timer(timeout, () {
+      if (done.isCompleted) {
+        return;
+      }
+      final error = TransactionTimeoutException(timeout);
+      scope.close(error);
+      done.completeError(error, StackTrace.current);
+    });
+    work.then(
+      (value) {
+        timer.cancel();
+        if (!done.isCompleted) {
+          done.complete(value);
+        }
+      },
+      onError: (Object error, StackTrace stack) {
+        timer.cancel();
+        if (!done.isCompleted) {
+          done.completeError(error, stack);
+        }
+      },
+    );
+    return done.future;
+  }
+
+  Future<T> _savepoint<T>(Future<T> Function() body, Duration? timeout) {
     final parent = Zone.current[_scopeKey]! as _TransactionScope;
     return parent.runChild(() async {
       final tx = parent.connection;
@@ -490,14 +545,18 @@ final class DatabaseManager {
       final watch = Stopwatch()..start();
       _notifyTransaction(DbTransactionBeginning(parent.connectionName, depth));
       try {
-        final result = await runZoned<Future<T>>(
-          body,
-          zoneValues: <Object?, Object?>{
-            transactionKey: scope.executor,
-            _scopeKey: scope,
-            depthKey: depth,
-            afterCommitKey: callbacks,
-          },
+        final result = await _bounded(
+          runZoned<Future<T>>(
+            body,
+            zoneValues: <Object?, Object?>{
+              transactionKey: scope.executor,
+              _scopeKey: scope,
+              depthKey: depth,
+              afterCommitKey: callbacks,
+            },
+          ),
+          timeout,
+          scope,
         );
         scope.close();
         await tx.execute('RELEASE SAVEPOINT $name');
@@ -665,9 +724,14 @@ final class _TransactionScope {
   final String connectionName;
   late final QueryExecutor executor;
   bool _closed = false;
+  TransactionTimeoutException? _closedBy;
   Future<void> _children = Future<void>.value();
 
-  void close() => _closed = true;
+  /// Closes the level; [error] (a timeout) is what a later query throws.
+  void close([TransactionTimeoutException? error]) {
+    _closed = true;
+    _closedBy ??= error;
+  }
 
   Future<T> runChild<T>(Future<T> Function() body) {
     final previous = _children;
@@ -680,6 +744,10 @@ final class _TransactionScope {
   Future<void> _ready(String sql) async {
     await _children;
     if (_closed) {
+      final closedBy = _closedBy;
+      if (closedBy != null) {
+        throw closedBy;
+      }
       throw StateError(
         'A query ran after its transaction finished; await every query '
         'inside DB.transaction: $sql',
