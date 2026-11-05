@@ -536,12 +536,21 @@ final class DatabaseManager {
   Future<T> _savepoint<T>(Future<T> Function() body, Duration? timeout) {
     final parent = Zone.current[_scopeKey]! as _TransactionScope;
     return parent.runChild(() async {
+      // The level this savepoint would live in has ended (timed out, or its
+      // body returned without awaiting this call): a SAVEPOINT now would
+      // run outside any transaction, or in the one around it, and commit.
+      parent.ensureOpen('SAVEPOINT');
       final tx = parent.connection;
       final depth = transactionDepth + 1;
       final name = 'daravel_sp_$depth';
       final callbacks = <FutureOr<void> Function()>[];
-      final scope = _TransactionScope(tx, this, parent.connectionName);
-      await tx.execute('SAVEPOINT $name');
+      final scope = _TransactionScope(tx, this, parent.connectionName, parent);
+      try {
+        await tx.execute('SAVEPOINT $name');
+      } catch (_) {
+        scope.close();
+        rethrow;
+      }
       final watch = Stopwatch()..start();
       _notifyTransaction(DbTransactionBeginning(parent.connectionName, depth));
       try {
@@ -559,6 +568,9 @@ final class DatabaseManager {
           scope,
         );
         scope.close();
+        // The parent ended while the body ran: the savepoint went with it,
+        // and so did the body's writes.
+        parent.ensureOpen('RELEASE SAVEPOINT');
         await tx.execute('RELEASE SAVEPOINT $name');
         _notifyTransaction(
           DbTransactionCommitted(parent.connectionName, depth, watch.elapsed),
@@ -576,7 +588,10 @@ final class DatabaseManager {
         return result;
       } catch (error) {
         scope.close();
-        await tx.execute('ROLLBACK TO SAVEPOINT $name');
+        // A parent that ended took the savepoint with it.
+        if (!parent.isClosed) {
+          await tx.execute('ROLLBACK TO SAVEPOINT $name');
+        }
         _notifyTransaction(
           DbTransactionRolledBack(
             parent.connectionName,
@@ -711,8 +726,14 @@ final class _RollbackSignal implements Exception {
 /// a time ([runChild]), and queries of this level wait while a child is
 /// open, so none lands inside a savepoint that is then rolled back.
 final class _TransactionScope {
-  _TransactionScope(this.connection, this.owner, this.connectionName) {
+  _TransactionScope(
+    this.connection,
+    this.owner,
+    this.connectionName, [
+    this._parent,
+  ]) {
     executor = _ScopedExecutor(this);
+    _parent?._open.add(this);
   }
 
   /// The driver's transaction executor (shared by every level).
@@ -722,27 +743,36 @@ final class _TransactionScope {
   /// another connection (or another manager) never join it.
   final DatabaseManager owner;
   final String connectionName;
+  final _TransactionScope? _parent;
   late final QueryExecutor executor;
   bool _closed = false;
   TransactionTimeoutException? _closedBy;
   Future<void> _children = Future<void>.value();
 
-  /// Closes the level; [error] (a timeout) is what a later query throws.
+  /// Child savepoints still open: they end with this level.
+  final Set<_TransactionScope> _open = <_TransactionScope>{};
+
+  /// Whether the level has ended.
+  bool get isClosed => _closed;
+
+  /// Closes the level and every savepoint still open under it; [error] (a
+  /// timeout) is what a later query of any of them throws.
   void close([TransactionTimeoutException? error]) {
-    _closed = true;
     _closedBy ??= error;
+    if (_closed) {
+      return;
+    }
+    _closed = true;
+    _parent?._open.remove(this);
+    for (final child in List<_TransactionScope>.of(_open)) {
+      child.close(_closedBy);
+    }
+    _open.clear();
   }
 
-  Future<T> runChild<T>(Future<T> Function() body) {
-    final previous = _children;
-    final done = Completer<void>();
-    _children = done.future;
-    return previous.then((_) => body()).whenComplete(done.complete);
-  }
-
-  /// Waits for open child savepoints, then checks that the level is open.
-  Future<void> _ready(String sql) async {
-    await _children;
+  /// Throws when the level has ended: its timeout, or a [StateError] for
+  /// [sql], a statement that outlived it.
+  void ensureOpen(String sql) {
     if (_closed) {
       final closedBy = _closedBy;
       if (closedBy != null) {
@@ -753,6 +783,22 @@ final class _TransactionScope {
         'inside DB.transaction: $sql',
       );
     }
+  }
+
+  Future<T> runChild<T>(Future<T> Function() body) {
+    final previous = _children;
+    final done = Completer<void>();
+    _children = done.future;
+    return previous.then((_) => body()).whenComplete(done.complete);
+  }
+
+  /// Checks that the level is open (failing at once when it has ended),
+  /// waits for open child savepoints, then checks again: the level may
+  /// have ended meanwhile.
+  Future<void> _ready(String sql) async {
+    ensureOpen(sql);
+    await _children;
+    ensureOpen(sql);
   }
 }
 

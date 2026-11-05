@@ -19,6 +19,8 @@ match Laravel more closely.
 
 ### Fixed
 
+- `DB.transaction(timeout:)` keeps its promise through savepoints (#154): nothing a timed-out body does reaches the database. A nested `DB.transaction` called after its level timed out ran its `SAVEPOINT` on the raw connection, outside any transaction on SQLite (where `RELEASE` then committed it) or inside the transaction around a timed-out savepoint, which committed it; a savepoint still open when its parent timed out kept writing (in autocommit on SQLite); and a query of the timed-out level waited for that savepoint's body before failing. Closing a level now closes the savepoints open under it with the same error, a savepoint refuses to start, release or roll back under a level that has ended (`TransactionTimeoutException`, or the `StateError` of a query that outlived its transaction), and a query of an ended level fails at once. The timeout suite also runs on MySQL and MariaDB.
+
 ## 1.26.0
 
 For applications built on Daravel day to day, from the first reports of a team running it in production. Static files are served by the framework, traversal-proof, with content-hashed URLs and `asset()`; sessions gain Laravel's `redis` and `cache` drivers and no longer hit a duplicate key on MySQL; `SecurityHeadersMiddleware` sends a Content-Security-Policy with per-request nonces; `html.dart` helpers take ids, classes and attributes everywhere and know htmx; and `TestClient.browser()` tests web routes with cookies, CSRF and session assertions. Underneath, rate limits can fail closed, `DB.transaction` takes a timeout, and the coordinator moves typed, deeply-immutable messages and shared strings between isolates (ADR-031, ADR-032).

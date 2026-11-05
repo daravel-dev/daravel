@@ -304,9 +304,11 @@ slow external call can empty the pool. `DB.transaction(fn, timeout:
 Duration(seconds: 10))` gives up a body still running after that time: its
 work rolls back, the connection goes back to the pool, and the call throws
 `TransactionTimeoutException` (never retried), as does any later query of
-that body. A query already waiting inside the database (on a row lock, say)
-ends only when the database lets it go, so pair this with the database's own
-lock timeout.
+that body, including a nested `DB.transaction` (its savepoints end with the
+level that timed out, so they never write into the transaction around it or
+outside one). A query already waiting inside the database (on a row lock,
+say) ends only when the database lets it go, so pair this with the
+database's own lock timeout.
 
 ## JSON columns
 

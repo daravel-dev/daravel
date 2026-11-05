@@ -1,4 +1,4 @@
-<!-- source: database.md sha256:2aafe09f2c11 -->
+<!-- source: database.md sha256:9c7cc62b822e -->
 # Database
 
 `DB_CONNECTION` memilih SQLite (`sqlite`, default), PostgreSQL (`pgsql`),
@@ -313,8 +313,10 @@ panggilan eksternal yang lambat bisa menghabiskan pool.
 `DB.transaction(fn, timeout: Duration(seconds: 10))` menghentikan body yang
 masih berjalan setelah waktu itu: pekerjaannya di-rollback, koneksinya
 kembali ke pool, dan pemanggilannya melempar `TransactionTimeoutException`
-(tidak pernah di-retry), begitu juga query berikutnya dari body tersebut.
-Query yang sudah menunggu di dalam database (misalnya pada row lock) baru
+(tidak pernah di-retry), begitu juga query berikutnya dari body tersebut,
+termasuk `DB.transaction` bersarang (savepoint-nya berakhir bersama level
+yang timeout, sehingga tidak pernah menulis ke transaksi di sekitarnya atau
+di luar transaksi). Query yang sudah menunggu di dalam database (misalnya pada row lock) baru
 selesai saat database melepaskannya, jadi pasangkan dengan lock timeout
 dari database itu sendiri.
 
