@@ -1,4 +1,4 @@
-<!-- source: background.md sha256:fe9fa9a1144b -->
+<!-- source: background.md sha256:ff99a86366ec -->
 # Cache, event, queue, dan penjadwalan
 
 <!-- include: packages/daravel/test/docs/guide_examples_test.dart#cache-events-queue -->
@@ -139,6 +139,27 @@ worker.
 Di test, `Concurrency.sync(body)` menjalankan task satu per satu di isolate ini,
 dan `Concurrency.fake((fake) async { … })` juga menghitungnya dengan
 `assertRanCount` dan `assertDeferredCount`.
+
+### Hasil biner
+
+`Concurrency.runBytes` adalah `run` untuk task yang mengembalikan `Uint8List`:
+PDF, CSV, gambar, atau body terkompresi. Hasil berukuran 32 KB atau lebih kembali
+sebagai `TransferableTypedData`, disalin sekali di worker lalu dipindahkan ke
+pemanggil tanpa salinan kedua. `Response.computed` mengirimnya sebagai body, juga
+tanpa salinan:
+
+```dart
+final [pdf] = await Concurrency.runBytes([() => renderInvoice(data)]);
+return Response.computed(pdf, contentType: 'application/pdf');
+```
+
+Kembalikan teks, termasuk JSON, dari `run` sebagai `String`: VM membagikan string
+antar-isolate alih-alih menyalinnya, dan itu lebih cepat daripada transfer byte
+apa pun. `IsolatePayload.text` dan `IsolatePayload.bytes` menerapkan aturan yang
+sama untuk `SendPort` Anda sendiri: kirim `toWire()`, lalu panggil
+`IsolatePayload.fromWire` sekali, di handler port penerima. Sebuah transferable
+hanya bisa diterima sekali, jadi pesan yang dikirim ke banyak port tetap berupa
+`String`.
 
 ## Context
 

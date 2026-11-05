@@ -27,7 +27,11 @@ isolate leaves the other cores idle.
   or run several server processes behind the
   proxy instead of more isolates: `APP_PROCESSES=N`
   ([Deployment](deployment.md#several-processes)); benchmark scenario 13
-  measures it (`bench/README.md`).
+  measures it (`bench/README.md`). `dartisan doctor --production` suggests
+  `APP_PROCESSES` (half the cores, with `APP_ISOLATES=2`) when one process
+  runs four or more isolates, and with more than one worker it notes
+  `DART_VM_OPTIONS=--new_gen_semi_max_size=128`, a larger new generation
+  that shortened those requests a little (81–90 ms to 70–77 ms).
 - Each isolate has its own memory, so state an application keeps in a
   static (a revoked-token list, a counter, a cached value) exists once per
   isolate. Keep it in a shared store before raising `APP_ISOLATES`:
