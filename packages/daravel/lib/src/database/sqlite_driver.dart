@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:sqlite3/sqlite3.dart';
 
 import 'database_config.dart';
+import 'orm/casts.dart' show formatDateTime;
 import 'query_executor.dart';
 
 /// SQLite driver backed by `package:sqlite3` (synchronous FFI).
@@ -311,7 +312,9 @@ final class SqliteDriver
     for (final value in bindings)
       switch (value) {
         bool() => value ? 1 : 0,
-        DateTime() => value.toUtc().toIso8601String(),
+        // Laravel's Grammar::getDateFormat() (Y-m-d H:i:s), which models
+        // write too: SQLite compares dates as text, so one format only.
+        DateTime() => formatDateTime(value),
         Enum() => value.name,
         _ => value,
       },

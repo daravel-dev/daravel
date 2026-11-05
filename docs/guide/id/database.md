@@ -1,4 +1,4 @@
-<!-- source: database.md sha256:d244b574c7c9 -->
+<!-- source: database.md sha256:0292be24330f -->
 # Database
 
 `DB_CONNECTION` memilih SQLite (`sqlite`, default), PostgreSQL (`pgsql`),
@@ -541,6 +541,21 @@ atau list:
 
 Masing-masing punya bentuk `orWhere…`, di `DB.table(...)` dan di query
 model.
+
+`DateTime` yang di-bind ke query (di `where`, `insert`, `update`, atau SQL
+mentah) dikirim dalam UTC. Di SQLite dan MySQL nilainya ditulis seperti
+`Grammar::getDateFormat()` dari Laravel menulisnya, `Y-m-d H:i:s` tanpa
+pecahan detik, sama dengan yang disimpan oleh cast model dan timestamp:
+SQLite membandingkan tanggal sebagai teks, sehingga satu format menjaga
+`where('ends_at', '>=', now)` tetap benar. Daravel 1.26 dan sebelumnya
+mem-bind ISO 8601 di SQLite (`2026-11-05T17:40:36.052371Z`), yang terurut
+setelah nilai mana pun di hari yang sama. Nilai seperti itu tetap terbaca
+sebagai tanggal; agar perbandingannya benar, tulis ulang sekali per kolom:
+
+```sql
+UPDATE attempts SET submitted_at = strftime('%Y-%m-%d %H:%M:%S', submitted_at)
+WHERE submitted_at LIKE '____-__-__T%';
+```
 
 ## Paginasi
 

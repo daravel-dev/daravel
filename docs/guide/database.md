@@ -525,6 +525,21 @@ date column. Laravel 11's shortcuts compare with the current time, read from
 
 Each has an `orWhere…` form, on `DB.table(...)` and on model queries.
 
+A `DateTime` bound to a query (in `where`, `insert`, `update` or raw SQL)
+is sent in UTC. On SQLite and MySQL it is written as Laravel's
+`Grammar::getDateFormat()` writes it, `Y-m-d H:i:s` without fractions of a
+second, which is also what model casts and timestamps store: SQLite compares
+dates as text, so one format keeps `where('ends_at', '>=', now)` right.
+Daravel 1.26 and earlier bound ISO 8601 on SQLite
+(`2026-11-05T17:40:36.052371Z`), which sorts after any value of the same day.
+Such values still read back as dates; to make them compare correctly,
+rewrite them once per column:
+
+```sql
+UPDATE attempts SET submitted_at = strftime('%Y-%m-%d %H:%M:%S', submitted_at)
+WHERE submitted_at LIKE '____-__-__T%';
+```
+
 ## Pagination
 
 `paginate()`, `simplePaginate()` and `cursorPaginate()` read the page (or
