@@ -42,11 +42,12 @@ tokens or JWTs do not need it, and do not pay for it.
 
 | Variable | Default | Purpose |
 | :-- | :-- | :-- |
-| `SESSION_DRIVER` | `database` | `database` (the `sessions` table, as laravel/laravel 11 to 13), `file` (`storage/framework/sessions`) or `array` (tests). 1.18 defaulted to `file`: set `SESSION_DRIVER=file` to keep it |
+| `SESSION_DRIVER` | `database` | `database` (the `sessions` table, as laravel/laravel 11 to 13), `file` (`storage/framework/sessions`), `redis` (with `withRedis()`, see [below](#redis-and-cache-drivers)), `cache` (any cache store) or `array` (tests). 1.18 defaulted to `file`: set `SESSION_DRIVER=file` to keep it |
 | `SESSION_LIFETIME` | `120` | Minutes a session may stay idle |
 | `SESSION_EXPIRE_ON_CLOSE` | `false` | Session cookie without an expiry |
 | `SESSION_COOKIE` | `<app name>_session` | Cookie name, `Str::slug(APP_NAME, '_')` as Laravel derives it (`my_app_session`) |
-| `SESSION_TABLE`, `SESSION_CONNECTION` | `sessions`, default | The `database` driver's table and connection |
+| `SESSION_TABLE`, `SESSION_CONNECTION` | `sessions`, default | The `database` driver's table and connection; `SESSION_CONNECTION` is the Redis connection of the `redis` driver |
+| `SESSION_STORE` | `CACHE_STORE` | The cache store of the `cache` driver, Laravel's `session.store` |
 | `SESSION_PATH`, `SESSION_DOMAIN` | `/`, none | Cookie scope |
 | `SESSION_SECURE_COOKIE`, `SESSION_HTTP_ONLY`, `SESSION_SAME_SITE` | `false`, `true`, `lax` | Cookie flags; `SESSION_SAME_SITE=none` needs the secure flag |
 | `SESSION_ENCRYPT` | `false` | Store the payload encrypted with `Crypt`, as Laravel's `EncryptedStore` (`Crypt::encrypt(serialize($attributes))`) |
@@ -61,9 +62,41 @@ skeleton sets `'serialization' => 'json'`, so an application upgraded to 13
 may still be on `php`. `dartisan adopt` reads the value from the Laravel
 project's `config/session.php`.
 
-With several isolates or servers use `database` (or the `file` driver on
-one machine): the `array` driver is one isolate's memory. `CreateSessionsTable`
-creates Laravel's table and does nothing when it exists already.
+With several isolates or servers use `database` or `redis` (or the `file`
+driver on one machine): the `array` driver is one isolate's memory.
+`CreateSessionsTable` creates Laravel's table and does nothing when it exists
+already.
+
+### Redis and cache drivers
+
+`SESSION_DRIVER=redis` needs `daravel_redis` and `withRedis()` next to
+`withSession()`, in either order. It is Laravel's `redis` driver: a session is
+the key `REDIS_PREFIX` + `CACHE_PREFIX` + session id, holding the payload as
+PHP's `serialize()` writes a string, and it expires `SESSION_LIFETIME` minutes
+after the last request that saved it. Redis expires sessions, so no garbage
+collection runs. It uses the `default` Redis connection, as Laravel does when
+`SESSION_CONNECTION` is unset; `SESSION_CONNECTION=cache` picks the cache's
+(`REDIS_CACHE_DB`), and a name that is not a Redis connection stops the boot.
+
+```dotenv
+SESSION_DRIVER=redis
+REDIS_PREFIX=my-app-database-   # the Laravel application's prefixes,
+CACHE_PREFIX=my-app-cache-      # to share its sessions
+```
+
+The value is written with `serialize()` even when `REDIS_SERIALIZER=json`,
+so Laravel can read it. To share sessions, give both applications the same
+`APP_KEY`, `SESSION_COOKIE`, `REDIS_PREFIX`, `CACHE_PREFIX` and Redis
+database. Set the prefixes explicitly: the defaults derived from `APP_NAME`
+differ between laravel/laravel versions (`<app>_cache_` or `<app>-cache-`),
+so copy them from the Laravel application's `config/cache.php` and
+`config/database.php`.
+
+`SESSION_DRIVER=cache` keeps sessions in any cache store: `SESSION_STORE`
+names it, and the default store (`CACHE_STORE`) is used without it. Its key is
+the store's prefix and the session id, and the entry expires with the
+session. Laravel offers the same handler (`CacheBasedSessionHandler`) through
+its `apc`, `memcached`, `dynamodb` and `redis` drivers.
 
 ## The session
 
