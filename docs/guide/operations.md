@@ -27,7 +27,11 @@ isolate leaves the other cores idle.
   or run several server processes behind the
   proxy instead of more isolates: `APP_PROCESSES=N`
   ([Deployment](deployment.md#several-processes)); benchmark scenario 13
-  measures it (`bench/README.md`).
+  measures it (`bench/README.md`). `dartisan doctor --production` suggests
+  `APP_PROCESSES` (half the cores, with `APP_ISOLATES=2`) when one process
+  runs four or more isolates, and with more than one worker it notes
+  `DART_VM_OPTIONS=--new_gen_semi_max_size=128`, a larger new generation
+  that shortened those requests a little (81–90 ms to 70–77 ms).
 - Each isolate has its own memory, so state an application keeps in a
   static (a revoked-token list, a counter, a cached value) exists once per
   isolate. Keep it in a shared store before raising `APP_ISOLATES`:
@@ -42,6 +46,19 @@ isolate leaves the other cores idle.
   metrics) goes through the coordinator in the supervisor isolate, so a
   limit such as `throttle:60,1` holds for the whole server, not per
   worker.
+- The coordinator answers every worker from one event loop, so what a
+  value costs to send matters. The VM shares a string between the
+  isolates of a process but copies a map or list, serialized by the
+  sender. Measured round trip to another isolate and back (Dart 3.13 AOT,
+  `bench/bin/isolate_payload.dart`): a 888 KB document as a `Map` takes
+  9 ms, as a JSON `String` 6 µs, as a `Uint8List` 0.9 ms and as a
+  `TransferableTypedData` 0.25 ms. The `process` store therefore sends
+  values as JSON strings and keeps them so in the coordinator; numbers
+  cross as numbers, so `increment` works. Application code that sends
+  its own messages between isolates (a custom coordinator service, a
+  compute task) should do the same: a string for anything JSON can
+  express, `TransferableTypedData` for large binary data, a map only for
+  small arguments.
 
 ## Database connections
 

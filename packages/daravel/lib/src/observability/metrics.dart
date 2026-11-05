@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 
@@ -288,6 +289,22 @@ final class MetricsRegistry {
   }
 }
 
+/// [snapshot] as JSON text, which the VM shares between isolates instead of
+/// deep-copying a map on every publish (ADR-031). A snapshot JSON cannot
+/// hold (a NaN or infinite value) travels as the map itself.
+Object _encodeSnapshot(Map<String, Object?> snapshot) {
+  try {
+    return jsonEncode(snapshot);
+  } on JsonUnsupportedObjectError {
+    return snapshot;
+  }
+}
+
+/// The snapshot map of an [_encodeSnapshot] value.
+Map<String, Object?> _decodeSnapshot(Object wire) => wire is String
+    ? jsonDecode(wire) as Map<String, Object?>
+    : wire as Map<String, Object?>;
+
 /// Coordinator service collecting worker snapshots (`process` scope).
 ///
 /// With [coordinatorStats] (the standard coordinator passes its own
@@ -346,7 +363,9 @@ final class MetricsService implements CoordinatorService {
     };
   }
 
-  final Map<String, Map<String, Object?>> _snapshots = {};
+  /// The latest snapshot of each worker as it arrived: JSON text from
+  /// [_encodeSnapshot] (or a plain map), decoded only on `collect`.
+  final Map<String, Object> _snapshots = {};
 
   @override
   String get name => serviceName;
@@ -355,13 +374,13 @@ final class MetricsService implements CoordinatorService {
   Object? handle(String op, Map<String, Object?> args) {
     switch (op) {
       case 'publish':
-        _snapshots[args['worker']! as String] =
-            args['snapshot']! as Map<String, Object?>;
+        _snapshots[args['worker']! as String] = args['snapshot']!;
         return null;
       case 'collect':
         final stats = coordinatorStats;
         return <String, Object?>{
-          ...MetricsRegistry.merge(_snapshots.values),
+          // Decoded on a scrape (rare), not on every publish (each second).
+          ...MetricsRegistry.merge(_snapshots.values.map(_decodeSnapshot)),
           if (stats != null) ...coordinatorSnapshot(stats()),
         };
       default:
@@ -524,7 +543,7 @@ final class AppMetrics {
     final own = registry.snapshot();
     await remote.call(MetricsService.serviceName, 'publish', {
       'worker': _worker,
-      'snapshot': own,
+      'snapshot': _encodeSnapshot(own),
     });
     final merged = await remote.call(
       MetricsService.serviceName,
@@ -548,7 +567,7 @@ final class AppMetrics {
     return Timer.periodic(every, (_) {
       remote.call(MetricsService.serviceName, 'publish', {
         'worker': _worker,
-        'snapshot': registry.snapshot(),
+        'snapshot': _encodeSnapshot(registry.snapshot()),
       }).ignore();
     });
   }

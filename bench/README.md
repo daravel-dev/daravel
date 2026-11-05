@@ -87,6 +87,30 @@ time per request (measured as `1/rps` on one isolate, since latency percentiles
 under concurrent load are mostly queueing), and four
 isolates give ≥ 3× the ping throughput of one on a 4+ core machine.
 
+### Sending values between isolates
+
+`bin/isolate_payload.dart` measures the round trip of one JSON document
+to another isolate and back as a `Map`, a `String`, a `Uint8List` and a
+`TransferableTypedData`, and of the same rows as a `List` of objects of a
+plain final class and of a `@pragma('vm:deeply-immutable')` class (an
+immutable class graph). Measured on 2026-11-05 (Dart 3.13.4 AOT, Windows
+x64; the two object rows are the range of three runs of
+`dart build cli -t bin/isolate_payload.dart`):
+
+| Payload | 1 KB | 85 KB | 888 KB |
+| :-- | --: | --: | --: |
+| `Map<String, Object?>` (copied by the sender) | 18 µs | 480 µs | 9 000 µs |
+| `String` (shared between the isolates of a process) | 4 µs | 5 µs | 6 µs |
+| `Uint8List` (copied) | 5 µs | 30 µs | 900 µs |
+| `TransferableTypedData` (moved, then materialized) | 9 µs | 50 µs | 250 µs |
+| `List` of plain objects (copied) | 5–6 µs | 108–113 µs | 1 420–1 870 µs |
+| `List` of deeply-immutable objects (shared; only the list is copied) | 4–6 µs | 10–12 µs | 62–72 µs |
+
+The `process` cache store sends values as JSON strings because of this
+(ADR-031); `TransferableTypedData` pays off only for large binary data.
+Typed coordinator messages are deeply-immutable classes
+(`CoordinatorMessage`, ADR-032), so a batch of them is not copied either.
+
 ### Scenario 13 and isolates
 
 `bin/wide_profile.dart` splits scenario 13 into query, row decoding and

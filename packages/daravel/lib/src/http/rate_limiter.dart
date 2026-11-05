@@ -252,8 +252,10 @@ final class _Bucket {
 }
 
 /// Grant of [MemoryRateLimitStore.acquireSync]: how many of the requested
-/// hits were recorded and the window they belong to.
-final class RateLimitGrant {
+/// hits were recorded and the window they belong to. Deeply immutable, so
+/// the coordinator's answer to a lease crosses back without a copy.
+@pragma('vm:deeply-immutable')
+final class RateLimitGrant implements CoordinatorMessage {
   /// A grant of [granted] hits, [hits] in the window resetting at
   /// [resetAtMs].
   const RateLimitGrant({
@@ -416,8 +418,63 @@ final class MemoryRateLimitStore implements RateLimitStore {
   static DateTime _utcNow() => Clock.now().toUtc();
 }
 
+/// One call to [RateLimitService], as [ProcessRateLimitStore] sends it
+/// through [TypedCoordinatorChannel.callTyped] (ADR-031): deeply
+/// immutable, so it crosses to the coordinator isolate by reference where
+/// the map of [toArgs] is copied entry by entry. [op] is an operation of
+/// [RateLimitService.handle]; the fields an operation does not read are 0.
+@pragma('vm:deeply-immutable')
+final class RateLimitMessage implements CoordinatorMessage {
+  /// A call of [op] for [key].
+  const RateLimitMessage(
+    this.op,
+    this.key, {
+    this.max = 0,
+    this.decayMs = 0,
+    this.want = 0,
+    this.count = 0,
+    this.resetAt = 0,
+  });
+
+  /// `attempt`, `acquire`, `release`, `attempts`, `availableIn`, `clear` or
+  /// `flush`.
+  final String op;
+
+  /// The limited key.
+  final String key;
+
+  /// The most attempts in a window.
+  final int max;
+
+  /// The window, in milliseconds.
+  final int decayMs;
+
+  /// The hits an `acquire` asks for.
+  final int want;
+
+  /// The unused hits a `release` gives back.
+  final int count;
+
+  /// Epoch milliseconds when the window of a `release` ends.
+  final int resetAt;
+
+  /// The same call as the arguments of [RateLimitService.handle], for a
+  /// channel that is not a [TypedCoordinatorChannel].
+  Map<String, Object?> toArgs() => <String, Object?>{
+    'key': key,
+    'max': max,
+    'decay': decayMs,
+    'want': want,
+    'count': count,
+    'resetAt': resetAt,
+  };
+}
+
 /// Coordinator service exposing a [MemoryRateLimitStore] to every worker.
-final class RateLimitService implements CoordinatorService {
+/// Workers send it [RateLimitMessage]s; [handle] answers the same
+/// operations given as maps.
+final class RateLimitService
+    implements TypedCoordinatorService<RateLimitMessage> {
   /// A service over [store], or a new memory store.
   RateLimitService([MemoryRateLimitStore? store])
     : store = store ?? MemoryRateLimitStore();
@@ -449,6 +506,37 @@ final class RateLimitService implements CoordinatorService {
       'clear' => store.clear(key),
       'flush' => store.flush(),
       _ => throw CoordinatorException('Unknown rateLimiter op [$op].'),
+    };
+  }
+
+  @override
+  Object? handleTyped(RateLimitMessage message) {
+    final key = message.key;
+    final max = message.max;
+    return switch (message.op) {
+      'attempt' => store.attemptSync(
+        key,
+        max,
+        Duration(milliseconds: message.decayMs),
+      ),
+      'acquire' => store.acquireSync(
+        key,
+        max,
+        Duration(milliseconds: message.decayMs),
+        message.want,
+      ),
+      'release' => store.releaseSync(key, message.count, message.resetAt),
+      'attempts' => store.attemptsSync(
+        key,
+        Duration(milliseconds: message.decayMs),
+      ),
+      'availableIn' =>
+        store
+            .availableInSync(key, max, Duration(milliseconds: message.decayMs))
+            .inMilliseconds,
+      'clear' => store.clear(key),
+      'flush' => store.flush(),
+      final op => throw CoordinatorException('Unknown rateLimiter op [$op].'),
     };
   }
 
@@ -573,12 +661,20 @@ final class ProcessRateLimitStore implements RateLimitStore {
   @override
   StateScope get scope => StateScope.process;
 
-  Future<Object?> _call(String op, Map<String, Object?> args) => channel.call(
-    RateLimitService.serviceName,
-    op,
-    args,
-    timeout: channel.isRemote ? timeout : const Duration(seconds: 5),
-  );
+  /// Sends [message] typed, or as a map to a channel that is only a
+  /// [CoordinatorChannel].
+  Future<Object?> _call(RateLimitMessage message) {
+    final target = channel;
+    final wait = target.isRemote ? timeout : const Duration(seconds: 5);
+    return target is TypedCoordinatorChannel
+        ? target.callTyped(RateLimitService.serviceName, message, timeout: wait)
+        : target.call(
+            RateLimitService.serviceName,
+            message.op,
+            message.toArgs(),
+            timeout: wait,
+          );
+  }
 
   @override
   Future<RateLimitResult> attempt(
@@ -588,11 +684,14 @@ final class ProcessRateLimitStore implements RateLimitStore {
   ) async {
     try {
       if (!channel.isRemote || maxAttempts < leaseThreshold) {
-        return await _call('attempt', {
-          'key': key,
-          'max': maxAttempts,
-          'decay': decay.inMilliseconds,
-        }) as RateLimitResult;
+        return await _call(
+          RateLimitMessage(
+            'attempt',
+            key,
+            max: maxAttempts,
+            decayMs: decay.inMilliseconds,
+          ),
+        ) as RateLimitResult;
       }
       return await _leased(key, maxAttempts, decay);
     } on CoordinatorException catch (error) {
@@ -656,12 +755,15 @@ final class ProcessRateLimitStore implements RateLimitStore {
     Duration decay,
     int now,
   ) async {
-    final grant = await _call('acquire', {
-      'key': key,
-      'max': maxAttempts,
-      'decay': decay.inMilliseconds,
-      'want': _batch[key] ?? 1,
-    }) as RateLimitGrant;
+    final grant = await _call(
+      RateLimitMessage(
+        'acquire',
+        key,
+        max: maxAttempts,
+        decayMs: decay.inMilliseconds,
+        want: _batch[key] ?? 1,
+      ),
+    ) as RateLimitGrant;
     if (grant.granted == 0) {
       final wallNow = Clock.now().toUtc().millisecondsSinceEpoch;
       final retryMs = grant.resetAtMs - wallNow;
@@ -703,19 +805,22 @@ final class ProcessRateLimitStore implements RateLimitStore {
     _batch.remove(key);
     if (lease.tokens > 0) {
       unawaited(
-        _call('release', {
-          'key': key,
-          'count': lease.tokens,
-          'resetAt': lease.resetAtMs,
-        }).then<void>((_) {}, onError: (Object error) => onError?.call(error)),
+        _call(
+          RateLimitMessage(
+            'release',
+            key,
+            count: lease.tokens,
+            resetAt: lease.resetAtMs,
+          ),
+        ).then<void>((_) {}, onError: (Object error) => onError?.call(error)),
       );
     }
   }
 
   @override
-  Future<int> attempts(String key, Duration decay) async =>
-      await _call('attempts', {'key': key, 'decay': decay.inMilliseconds})
-          as int;
+  Future<int> attempts(String key, Duration decay) async => await _call(
+    RateLimitMessage('attempts', key, decayMs: decay.inMilliseconds),
+  ) as int;
 
   @override
   Future<Duration> availableIn(
@@ -723,11 +828,14 @@ final class ProcessRateLimitStore implements RateLimitStore {
     int maxAttempts,
     Duration decay,
   ) async => Duration(
-    milliseconds: await _call('availableIn', {
-      'key': key,
-      'max': maxAttempts,
-      'decay': decay.inMilliseconds,
-    }) as int,
+    milliseconds: await _call(
+      RateLimitMessage(
+        'availableIn',
+        key,
+        max: maxAttempts,
+        decayMs: decay.inMilliseconds,
+      ),
+    ) as int,
   );
 
   @override
@@ -735,7 +843,7 @@ final class ProcessRateLimitStore implements RateLimitStore {
     _leases.remove(key);
     _batch.remove(key);
     _blocked.remove(key);
-    return _call('clear', {'key': key});
+    return _call(RateLimitMessage('clear', key));
   }
 
   @override
@@ -743,7 +851,7 @@ final class ProcessRateLimitStore implements RateLimitStore {
     _leases.clear();
     _batch.clear();
     _blocked.clear();
-    return _call('flush', {'key': ''});
+    return _call(const RateLimitMessage('flush', ''));
   }
 }
 
