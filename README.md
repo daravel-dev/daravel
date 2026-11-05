@@ -523,7 +523,7 @@ server framework for Linux, macOS and Windows.
 | Generators | `make:model [-m -f -s -c -p -r --api --all]`, `make:migration`, `make:seeder`, `make:factory`, `make:controller [--api --resource --model]`, `make:request`, `make:middleware`, `make:job`, `make:policy`, `make:event`, `make:listener [--event]`, `make:resource`, `make:rule`, `make:observer`, `make:provider`, `make:command`, `make:test [--unit]` |
 | Queue | `queue:work [--queue --tries --backoff --timeout --max-jobs --once]`, `queue:failed`, `queue:retry`, `queue:forget`, `queue:flush`, `queue:clear`, `queue:restart` |
 | Schedule | `schedule:run`, `schedule:work`, `schedule:list` |
-| Cache & files | `cache:clear [store]`, `storage:link` |
+| Cache & files | `cache:clear [store]`, `storage:link`, `static:hash` |
 
 Generators update the registries in `bootstrap/` (migrations, seeders, jobs, policies, listeners
 and custom commands) through marked regions, so a new class is wired up the moment it is created.

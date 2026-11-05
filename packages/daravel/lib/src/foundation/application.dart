@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 
+import 'package:path/path.dart' as p;
+
 import 'clock.dart';
 
 import '../auth/auth_manager.dart';
@@ -44,6 +46,7 @@ import '../http/rate_limiter.dart';
 import '../http/request.dart';
 import '../http/response.dart';
 import '../http/server_engine.dart';
+import '../http/static_files.dart';
 import '../notifications/notification_manager.dart';
 import '../mail/mail_config.dart';
 import '../mail/mailer.dart';
@@ -553,6 +556,7 @@ final class Application {
       middleware.alias('signed', ValidateSignatureMiddleware(signer));
     }
     _registerRoutes();
+    _registerStatic(appConfig);
     router.compile(middleware);
     kernel = HttpKernel(
       router: router,
@@ -750,6 +754,38 @@ final class Application {
       previousKeys: env.list('APP_PREVIOUS_KEYS'),
       cipher: EncryptionCipher.parse(env.string('APP_CIPHER', 'AES-256-CBC')),
     );
+  }
+
+  /// The directories of [ApplicationBuilder.withStatic], scanned now and
+  /// served by name; the registry is bound for `asset()` even without any.
+  void _registerStatic(AppConfig appConfig) {
+    final assets = StaticAssets();
+    for (final entry in _builder._static) {
+      final directory = p.isAbsolute(entry.directory)
+          ? entry.directory
+          : p.join(basePath, entry.directory);
+      final files = StaticFiles(
+        directory,
+        prefix: entry.prefix,
+        maxAge: entry.maxAge,
+        rescan: entry.rescan ?? appConfig.env == 'local',
+        buildDirectory: entry.buildDirectory,
+      );
+      try {
+        files.scan();
+      } on FileSystemException catch (error) {
+        throw ConfigException(
+          'withStatic(${entry.directory}): ${error.message} '
+          '(${error.path}).',
+        );
+      }
+      assets.directories.add(files);
+      router.get(
+        files.route,
+        (request) => files.serve(request, request.routeParams['path'] ?? ''),
+      );
+    }
+    container.instance<StaticAssets>(assets);
   }
 
   void _registerRoutes() {
@@ -1276,6 +1312,16 @@ final class ApplicationBuilder {
 
   Map<String, String> _envOverrides = const <String, String>{};
   _RoutingConfig? _routing;
+  final List<
+    ({
+      String directory,
+      String prefix,
+      Duration maxAge,
+      bool? rescan,
+      String buildDirectory,
+    })
+  >
+  _static = [];
   // Every call adds one, run in order: packages (daravel_permission) add
   // middleware aliases, guards and gate hooks next to the application's.
   final List<void Function(MiddlewareRegistry middleware)> _middlewareConfigs =
@@ -1490,6 +1536,34 @@ final class ApplicationBuilder {
       health: health,
       then: then,
     );
+    return this;
+  }
+
+  /// Serves the files under [directory] (relative to the base path, like
+  /// Laravel's `public/`) at [prefix]: `withStatic('public', prefix:
+  /// '/assets')` answers `/assets/neo.css` from `public/neo.css`, and
+  /// `asset('neo.css')` gives `/assets/neo.css?v=<sha256 prefix>`.
+  ///
+  /// The directory is scanned at boot and only the files found are served,
+  /// looked up by name (see [StaticFiles]). A request carrying the current
+  /// version is cacheable for a year (`immutable`), any other for [maxAge].
+  /// [rescan] (default: `APP_ENV=local`) picks up new and edited files
+  /// without a restart. `dartisan static:hash` writes the versions for a
+  /// production boot that reads no file. Several calls add directories.
+  ApplicationBuilder withStatic(
+    String directory, {
+    String prefix = '/assets',
+    Duration maxAge = const Duration(minutes: 5),
+    bool? rescan,
+    String buildDirectory = 'build',
+  }) {
+    _static.add((
+      directory: directory,
+      prefix: prefix,
+      maxAge: maxAge,
+      rescan: rescan,
+      buildDirectory: buildDirectory,
+    ));
     return this;
   }
 

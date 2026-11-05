@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:eda07e9b1cf3 -->
+<!-- source: README.md sha256:3adcb0260a72 -->
 <img src="https://raw.githubusercontent.com/daravel-dev/daravel/main/docs/brand/png/daravel-icon-128.png" alt="Daravel" width="64" align="right">
 
 # dartisan_cli
@@ -20,7 +20,7 @@ Anda:
 
 | Kelompok | Command |
 | :-- | :-- |
-| Proyek | `about`, `doctor [--production]`, `key:generate`, `stub:publish`, `lint`, `cache:clear`, `storage:link`, `env:encrypt`, `env:decrypt`, `env:obfuscate`, `adopt <laravel-path>`, `down`, `up`, `tinker "<expr>"`, `mcp:serve`, `mcp:install` |
+| Proyek | `about`, `doctor [--production]`, `key:generate`, `stub:publish`, `lint`, `cache:clear`, `storage:link`, `static:hash`, `env:encrypt`, `env:decrypt`, `env:obfuscate`, `adopt <laravel-path>`, `down`, `up`, `tinker "<expr>"`, `mcp:serve`, `mcp:install` |
 | Serve, test & build | `serve [--watch] [--isolates=N] [--embed-queue] [--embed-scheduler]`, `test [--conformance] [--security] [--coverage]`, `build [--with-cli] [--docker] [--no-sqlite]`, `route:list`, `openapi:generate`, `client:flutter`, `coordinator:stats` |
 | Database | `migrate`, `migrate:status`, `migrate:rollback`, `migrate:reset`, `migrate:fresh`, `db:seed`, `model:sync`, `model:show`, `db:show`, `db:table`, `db:install`, `db:transfer`, `db:backup`, `daragic:export` |
 | Generator | `make:model`, `make:migration`, `make:controller`, `make:request`, `make:middleware`, `make:job`, `make:policy`, `make:event`, `make:listener`, `make:resource`, `make:rule`, `make:mail`, `make:notification`, `make:observer`, `make:provider`, `make:command`, `make:seeder`, `make:factory`, `make:test` |
