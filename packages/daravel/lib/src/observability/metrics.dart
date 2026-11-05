@@ -452,6 +452,11 @@ final class AppMetrics {
       'Requests refused with 503 by load shedding '
           '(HTTP_MAX_IN_FLIGHT, HTTP_MAX_QUEUE_DELAY), by worker isolate.',
     );
+    slowClients = registry.counter(
+      'realtime_slow_clients_total',
+      'WebSockets and server-sent event streams closed because the client '
+          'read too slowly, by transport and worker isolate.',
+    );
     registry.gauge(
       'process_resident_memory_bytes',
       'Resident set size of the process.',
@@ -516,6 +521,9 @@ final class AppMetrics {
   /// Requests shed under load.
   late final Counter shed;
 
+  /// Realtime clients closed for reading too slowly.
+  late final Counter slowClients;
+
   /// The `worker` label of [inFlight] and [shed]: the isolate's name
   /// (`daravel-worker-N` under a supervisor, the same after a respawn, so
   /// there is one value per worker). Workers share the port, which spreads
@@ -525,6 +533,11 @@ final class AppMetrics {
 
   /// Counts one request refused by load shedding on this worker.
   void recordShed() => shed.inc({'worker': _worker});
+
+  /// Counts one realtime client of [transport] (`websocket`, `sse`) closed
+  /// on this worker for reading too slowly.
+  void recordSlowClient(String transport) =>
+      slowClients.inc({'transport': transport, 'worker': _worker});
 
   /// Exposition text: merged across workers under a supervisor.
   Future<String> render() async {

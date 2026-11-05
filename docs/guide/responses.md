@@ -393,6 +393,13 @@ written against either backend works with both. On top of that:
   event instead of holding the shutdown until its timeout, and `EventSource`
   reconnects to another instance. Read `request.header('last-event-id')` to
   resume from the last `id` it received.
+- A client that stops reading (a paused tab, a phone on a bad network) is
+  not queued for without limit: the source is read as fast as it produces,
+  and once more than `maxBufferedBytes` (1 MiB) wait for the client, the
+  stream ends with `retry: 1000` instead of its end event and the source is
+  cancelled, so `EventSource` reconnects a second later. Pass
+  `maxBufferedBytes: null` to pause the source while the client is behind
+  instead, for a generator that honours pause.
 
 `router.ws` upgrades a connection to a WebSocket after the route's
 middleware has passed. `auth`, `throttle` and route parameters work as on
@@ -413,6 +420,14 @@ Laravel Echo connects through [Broadcasting](broadcasting.md). Clients that
 ask for permessage-deflate get it; `r.ws(path, handler, compress: false)`
 turns it off, which saves CPU and memory per connection when one message
 goes to many sockets.
+
+What waits to be sent on a WebSocket is counted. A client that reads more
+slowly than the server writes made `dart:io` queue every frame in memory;
+once more than `maxBufferedBytes` (4 MiB) wait, the queue is dropped and
+the socket is closed with `1008` (`slowClientCode:`), and the client
+reconnects. Frames added after a socket started closing are dropped instead
+of throwing. `realtime_slow_clients_total` (`transport`: `websocket`, `sse`)
+counts these clients on `/metrics`.
 
 Both need a real connection. `TestClient` collects a response in full, so
 test a finite `Response.sse` with it, and test WebSockets with `ServerEngine`

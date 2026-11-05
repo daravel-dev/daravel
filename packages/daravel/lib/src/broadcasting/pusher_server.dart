@@ -45,6 +45,10 @@ final class PusherServer {
   /// Stops relaying (application shutdown).
   Future<void> close() async => relay?.close();
 
+  /// The close code of a client too slow to read what it is sent (Pusher's
+  /// 4100, "over capacity": reconnect after a backoff).
+  static const int slowClientCode = 4100;
+
   static final Random _random = Random.secure();
 
   /// Publishes [event] with [data] (a string, sent as it is, or anything
@@ -372,8 +376,14 @@ final class _Connection {
   }
 
   void send(String text) {
-    if (_socket.closeCode == null) {
+    if (_socket.closeCode != null) {
+      return;
+    }
+    try {
       _socket.add(text);
+    } on StateError {
+      // Closed by this side and not done yet (dart:io keeps closeCode null
+      // until the peer answers): nothing more goes out.
     }
   }
 

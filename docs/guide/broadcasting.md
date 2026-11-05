@@ -194,6 +194,7 @@ client stays on the server its WebSocket reached.
 | `REVERB_ALLOWED_ORIGINS` | `*` | Comma-separated host patterns that may connect (`app.example.com,*.example.com`) |
 | `REVERB_APP_ACTIVITY_TIMEOUT` | `30` | Seconds of silence before a client pings; the server also pings |
 | `REVERB_APP_MAX_MESSAGE_SIZE` | `10000` | The largest message a client may send, in bytes |
+| `REVERB_MAX_BUFFERED_BYTES` | `1048576` | How much may wait to be sent to one client; past it the client is closed with `4100` (over capacity) and reconnects after a backoff |
 
 Client events (`client-*`, Echo's `whisper`) are forwarded only on private
 and presence channels the sender has joined, as Pusher Channels requires.

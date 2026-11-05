@@ -39,6 +39,7 @@ import '../http/middleware/maintenance_mode.dart';
 import '../http/middleware/method_override.dart';
 import '../http/middleware/validate_signature.dart';
 import '../http/kernel.dart';
+import '../http/realtime.dart';
 import '../features/feature.dart';
 import '../http/middleware.dart';
 import '../http/middleware/cache_headers.dart';
@@ -443,6 +444,9 @@ final class Application {
       })
       ..instance<EventDispatcher>(events)
       ..instance<AppMetrics>(metrics)
+      ..instance<SlowClients>(
+        SlowClients(onSlowClient: metrics.recordSlowClient),
+      )
       ..singleton<StorageManager>(
         (c) => StorageManager(
           c.make<ConfigRepository>().section<StorageConfig>(),
@@ -855,6 +859,10 @@ final class Application {
         // Pusher messages are small; a frame past the limit fails the
         // connection before it is buffered, not after.
         maxPayloadBytes: broadcasting.maxMessageSize + 1024,
+        // A client too slow to read what it is sent is closed with 4100
+        // ("over capacity"): Pusher clients reconnect after a backoff.
+        maxBufferedBytes: broadcasting.maxBufferedBytes,
+        slowClientCode: PusherServer.slowClientCode,
       ).name('daravel.broadcasting.connect')
       ..post(
         '/apps/{appId}/events',

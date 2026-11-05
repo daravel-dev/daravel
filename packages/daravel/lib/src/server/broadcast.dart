@@ -186,7 +186,11 @@ final class Broadcaster {
       subscription.messages.listen((message) {
         // A message can arrive between the close and the unsubscribe below.
         if (socket.closeCode == null) {
-          socket.add(message);
+          try {
+            socket.add(message);
+          } on StateError {
+            // Closed by this side, the close not answered yet.
+          }
         }
       });
     }

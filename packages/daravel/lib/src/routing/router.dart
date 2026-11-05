@@ -100,13 +100,16 @@ final class Router {
   /// runs first, then the connection is upgraded and [handler] gets the
   /// socket and the request (route parameters, `Auth.user()`) in the
   /// request's scope. A plain request gets `426 Upgrade Required`.
-  /// A WebSocket route; [compress] false turns permessage-deflate off (see
-  /// [Response.webSocket]).
+  /// A WebSocket route; [compress] false turns permessage-deflate off, and
+  /// a client with more than [maxBufferedBytes] waiting to be sent is
+  /// closed with [slowClientCode] (see [Response.webSocket]).
   RouteEntry ws(
     String path,
     WebSocketHandler handler, {
     bool compress = true,
     int maxPayloadBytes = Response.defaultWebSocketMaxPayloadBytes,
+    int maxBufferedBytes = Response.defaultWebSocketMaxBufferedBytes,
+    int slowClientCode = 1008,
   }) => match(const <String>['GET'], path, (request) {
     if (!isWebSocketUpgrade(request)) {
       return Response.json(
@@ -119,6 +122,8 @@ final class Router {
       handler,
       compress: compress,
       maxPayloadBytes: maxPayloadBytes,
+      maxBufferedBytes: maxBufferedBytes,
+      slowClientCode: slowClientCode,
     );
   })..markWebSocket();
 

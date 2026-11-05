@@ -52,6 +52,7 @@ void main() {
           'REVERB_APP_KEY': appKey,
           'REVERB_APP_SECRET': appSecret,
           'REVERB_ENCRYPTION_MASTER_KEY_BASE64': masterKeyBase64,
+          'REVERB_MAX_BUFFERED_BYTES': '65536',
         })
         .withAuth((auth) {
           auth.register(
@@ -724,12 +725,40 @@ void main() {
     });
     await client.close();
   });
+
+  test('a client too slow to read is closed with 4100 and leaves its '
+      'channels (#150)', () async {
+    final client = await connect();
+    await client.subscribe('news');
+    client.reading.pause();
+    final slow = app.container.make<SlowClients>();
+    final manager = app.container.make<BroadcastManager>();
+    final data = {'text': 'z' * 16384};
+    for (var i = 0; i < 20000 && slow.count(SlowClients.webSocket) == 0; i++) {
+      await manager.send('flood', ['news'], data);
+      await Future<void>.delayed(Duration.zero);
+    }
+    expect(slow.count(SlowClients.webSocket), 1);
+    client.reading.resume();
+    await client.socket.done.timeout(const Duration(seconds: 10));
+    expect(client.socket.closeCode, PusherServer.slowClientCode);
+    final channels = app.container.make<CoordinatorChannel>();
+    final deadline = DateTime.now().add(const Duration(seconds: 5));
+    Future<bool> occupied() async =>
+        ((await channels.call('channels', 'channel', {'channel': 'news'}))!
+                as Map)['occupied']!
+            as bool;
+    while (await occupied() && DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+    expect(await occupied(), isFalse);
+  });
 }
 
 /// A Pusher client speaking protocol 7, as pusher-js does.
 final class _Client {
   _Client(this.socket) {
-    socket.listen((message) {
+    reading = socket.listen((message) {
       final frame = jsonDecode(message as String) as Map<String, Object?>;
       if (_waiting.isNotEmpty) {
         _waiting.removeAt(0).complete(frame);
@@ -745,6 +774,7 @@ final class _Client {
     return client;
   }
 
+  late final StreamSubscription<Object?> reading;
   final WebSocket socket;
   final List<Map<String, Object?>> _frames = [];
   final List<Completer<Map<String, Object?>>> _waiting = [];
@@ -786,5 +816,6 @@ final class _Client {
     await socket.close();
     // Let the server see the close (member_removed, unsubscribes).
     await Future<void>.delayed(const Duration(milliseconds: 50));
+    await reading.cancel();
   }
 }

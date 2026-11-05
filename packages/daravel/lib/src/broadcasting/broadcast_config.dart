@@ -29,6 +29,7 @@ final class BroadcastConfig implements ConfigSection {
     this.allowedOrigins = const ['*'],
     this.activityTimeout = 30,
     this.maxMessageSize = 10000,
+    this.maxBufferedBytes = defaultMaxBufferedBytes,
     this.encryptionMasterKey,
     this.scaling = false,
     this.scalingDriver = 'database',
@@ -58,6 +59,10 @@ final class BroadcastConfig implements ConfigSection {
       allowedOrigins: env.list('REVERB_ALLOWED_ORIGINS', const ['*']),
       activityTimeout: env.integer('REVERB_APP_ACTIVITY_TIMEOUT', 30),
       maxMessageSize: env.integer('REVERB_APP_MAX_MESSAGE_SIZE', 10000),
+      maxBufferedBytes: env.integer(
+        'REVERB_MAX_BUFFERED_BYTES',
+        defaultMaxBufferedBytes,
+      ),
       encryptionMasterKey: _masterKey(
         env.maybeString(
           pusher
@@ -108,6 +113,15 @@ final class BroadcastConfig implements ConfigSection {
 
   /// The largest message a client may send, in bytes.
   final int maxMessageSize;
+
+  /// How many bytes may wait to be sent to one client before it is closed
+  /// with 4100 as too slow to read (`REVERB_MAX_BUFFERED_BYTES`, 1 MiB):
+  /// a paused tab or a phone on a bad network otherwise made the server
+  /// queue every frame published to its channels in memory.
+  final int maxBufferedBytes;
+
+  /// [maxBufferedBytes] unless `REVERB_MAX_BUFFERED_BYTES` says otherwise.
+  static const int defaultMaxBufferedBytes = 1 << 20;
 
   /// The key of end-to-end encrypted channels (`private-encrypted-…`):
   /// 32 bytes, `REVERB_ENCRYPTION_MASTER_KEY_BASE64` (or `PUSHER_…`), as
@@ -176,6 +190,7 @@ final class BroadcastConfig implements ConfigSection {
     'allowed_origins': allowedOrigins,
     'activity_timeout': activityTimeout,
     'max_message_size': maxMessageSize,
+    'max_buffered_bytes': maxBufferedBytes,
     'encryption_master_key': encryptionMasterKey == null ? null : '********',
     'scaling': {
       'enabled': scaling,

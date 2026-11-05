@@ -13,11 +13,17 @@ match Laravel more closely.
 
 ### Added
 
+- Bounded send buffers for WebSockets and server-sent events (#150). `Response.webSocket` and `router.ws` take `maxBufferedBytes` (`Response.defaultWebSocketMaxBufferedBytes`, 4 MiB) and `slowClientCode` (`1008`); `Response.sse` and `sseStream` take `maxBufferedBytes` (`Response.defaultSseMaxBufferedBytes`, 1 MiB; `null` keeps pausing the source). `REVERB_MAX_BUFFERED_BYTES` (`BroadcastConfig.maxBufferedBytes`, 1 MiB) sets it for the Pusher server, whose slow clients are closed with `4100` (`PusherServer.slowClientCode`). `SlowClients` counts the clients closed this way and `/metrics` exposes them as `realtime_slow_clients_total` (`transport`, `worker`). `DrainSignal.onDrain(listener)` returns a function that removes the listener, and `DrainSignal.listenerCount` says how many are left. Guide: [Responses](docs/guide/responses.md#server-sent-events-and-websockets), [Broadcasting](docs/guide/broadcasting.md#origins-and-limits).
+
 ### Changed
 
 **Upgrading can change what an application sees:**
 
+- WebSocket clients that read too slowly are disconnected (#150): once more than 4 MiB (Pusher server: 1 MiB, `REVERB_MAX_BUFFERED_BYTES`) wait to be sent to one client, the backlog is dropped and the socket is closed with `1008` (Pusher: `4100`), where `dart:io` queued every frame in memory for as long as the client stayed. A route that pushes large bursts to slow clients raises `maxBufferedBytes`. The socket a `router.ws` handler gets is now a wrapper around `dart:io`'s `WebSocket` (it implements `WebSocket`), and frames added after it started closing are dropped instead of throwing `StateError`. `Response.sse` no longer pauses its source while the client is behind: it keeps reading and ends the stream with `retry: 1000` once more than 1 MiB waits, so a fast finite source sent to a slow client can now end early; `maxBufferedBytes: null` restores pausing. `package:daravel/daravel.dart` now exports `SlowClients`; an application that declares that name hides it in its import.
+
 ### Fixed
+
+- WebSockets and server-sent events no longer buffer without limit for a client that stops reading (#150): `Broadcaster.pipe`, the Pusher server and every `router.ws` handler send through a counted queue, and SSE streams count what the client has not taken (see Changed). Every finished `Response.sse` left a listener on `DrainSignal.future`, holding the stream, its source and whatever it captured until shutdown; streams now remove theirs when they end. A publish racing a server-side close no longer logs `Bad state: StreamSink is closed` per open socket.
 
 ## 1.26.0
 
