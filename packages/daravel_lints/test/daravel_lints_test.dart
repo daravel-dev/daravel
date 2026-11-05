@@ -370,4 +370,84 @@ String a(String id) => '<b \x6f\x6eclick=\x22go($id)\x22>x</b>';
       expect(issues.single.column, source.indexOf(r'$id') + 1);
     });
   });
+
+  group('prefer_sql_identifier', () {
+    const rule = [PreferSqlIdentifier()];
+
+    test('is opt-in: not in the default rules', () {
+      expect(
+        defaultRules.map((r) => r.name),
+        isNot(contains('prefer_sql_identifier')),
+      );
+      const source = '''
+void f(String sort) => DB.table('users').orderBy(sort);
+''';
+      expect(lintSource(source, 'lib/app/a.dart'), isEmpty);
+      expect(
+        rulesWith(['prefer_sql_identifier']).map((r) => r.name),
+        contains('prefer_sql_identifier'),
+      );
+      expect(rulesWith(const []).length, defaultRules.length);
+      expect(() => rulesWith(['nope']), throwsArgumentError);
+    });
+
+    test('reports computed column names', () {
+      const source = r'''
+Future<void> f(Request request, String sort, String col) async {
+  await DB.table('users').orderBy(sort).get();
+  await User.query().where(request.input('field'), 1).get();
+  await DB.table('users').where('a', 1).whereIn('t_$col', [1]).get();
+  await DB.table('users').select(['id', col]).get();
+  final q = DB.table('users');
+  q.orderByDesc(col);
+  await q.pluck('name', col);
+}
+''';
+      final issues = lintSource(source, 'lib/app/a.dart', rules: rule);
+      expect([for (final i in issues) i.line], [2, 3, 4, 5, 7, 8]);
+      expect(issues.first.rule, 'prefer_sql_identifier');
+      expect(issues.first.message, contains('SqlIdentifier'));
+    });
+
+    test('accepts literals, constants, SqlIdentifier and whitelists', () {
+      const source = r'''
+const sortColumn = 'name';
+Future<void> f(String input, SqlIdentifier typed, List<int> ids) async {
+  final checked = SqlIdentifier(input);
+  final maybe = SqlIdentifier.tryParse(input)!;
+  final literal = 'email';
+  await DB.table('users')
+      .select(['id', 'users.name', checked])
+      .where('email', 'a')
+      .where((QueryBuilder q) => q.where('a', 1))
+      .where({'a': 1})
+      .whereIn(typed, ids)
+      .orderBy(sortColumn)
+      .orderBy(SqlIdentifier(input))
+      .orderBy(maybe)
+      .orderBy(literal)
+      .orderBy(input == 'name' ? 'name' : 'id')
+      .orderBy(switch (input) { 'age' => 'age', _ => 'id' })
+      .orderBy(DB.raw('LENGTH(name)'))
+      .get();
+  ids.where((id) => id > 1);
+  [input].where(isNotEmpty);
+}
+''';
+      expect(lintSource(source, 'lib/app/a.dart', rules: rule), isEmpty);
+    });
+
+    test('is silenced by an ignore comment and skips lib/src', () {
+      const source = '''
+void f(String sort) {
+  // daravel-lint-ignore: prefer_sql_identifier
+  DB.table('users').orderBy(sort);
+  DB.table('users').orderBy(sort);
+}
+''';
+      final issues = lintSource(source, 'lib/app/a.dart', rules: rule);
+      expect([for (final i in issues) i.line], [4]);
+      expect(lintSource(source, 'lib/src/a.dart', rules: rule), isEmpty);
+    });
+  });
 }

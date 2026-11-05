@@ -1,4 +1,4 @@
-<!-- source: database.md sha256:469171558f8c -->
+<!-- source: database.md sha256:9bf6f97ea81a -->
 # Database
 
 `DB_CONNECTION` memilih SQLite (`sqlite`, default), PostgreSQL (`pgsql`),
@@ -390,6 +390,40 @@ kembali ke pool, dan pemanggilannya melempar `TransactionTimeoutException`
 Query yang sudah menunggu di dalam database (misalnya pada row lock) baru
 selesai saat database melepaskannya, jadi pasangkan dengan lock timeout
 dari database itu sendiri.
+
+## Nama kolom dari input
+
+Nilai masuk ke binding; nama kolom masuk ke teks SQL, di-quote oleh
+grammar, yang menolak karakter yang tidak semestinya ada di sebuah nama.
+Nama kolom yang datang dari request (parameter `sort`) tetap bisa memilih
+kolom apa pun yang ada, jadi periksa terhadap kolom yang Anda izinkan:
+
+```dart
+final sort = switch (request.query['sort']) {
+  'name' => 'name',
+  'created_at' => 'created_at',
+  _ => 'id',
+};
+await DB.table('users').orderBy(sort).get();
+```
+
+`SqlIdentifier` menandai nama yang sudah diperiksa saat dibuat: nama polos
+yang digabung dengan titik (`email`, `users.id`); selain itu melempar
+`ArgumentError`. `SqlIdentifier` adalah `String`, jadi setiap parameter
+kolom menerimanya, dan SQL-nya sama dengan SQL untuk string tersebut:
+
+```dart
+final column = SqlIdentifier(Config.get<String>('reports.sort')); // melempar pada 'id; DROP ...'
+await DB.table('users').orderBy(column).get();
+```
+
+Lint opt-in `prefer_sql_identifier` (lihat README `daravel_lints`)
+melaporkan argumen kolom yang bukan literal, bukan `const`, bukan pilihan di
+antara literal, dan bukan `SqlIdentifier`. `DB.raw(...)` dan method `*Raw`
+menyisipkan SQL-nya apa adanya; `RawExpression.sql` adalah `SqlFragment`,
+sebuah `String` yang hanya dibuat oleh framework. Kedua tipe ini bukan
+jaminan terhadap injection: nilai tetap masuk ke binding, yang diperiksa
+oleh `no_sql_string_interpolation`.
 
 ## Kolom JSON
 

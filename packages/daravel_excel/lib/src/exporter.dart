@@ -111,7 +111,14 @@ Stream<List<int>> _produce(Object export, ExcelType type) async* {
   }
   final buffer = StringBuffer();
   await for (final row in sheetRows(sheet)) {
-    buffer.write(csvLine([for (final cell in row) csvText(cell)], settings));
+    buffer.write(
+      csvLine([
+        for (final cell in row)
+          settings.escapeFormulas && cell is String
+              ? escapeCsvFormula(cell)
+              : csvText(cell),
+      ], settings),
+    );
     if (buffer.length > 64 * 1024) {
       yield utf8.encode(buffer.toString());
       buffer.clear();

@@ -40,6 +40,9 @@ class DaravelQueryException implements Exception {
 /// Fluent SQL builder (BLUEPRINT_V2 §7.5.3). Mutable like Laravel's; use
 /// [clone] to branch. Compiles through the grammar of the connection it runs
 /// on, so the same builder works on SQLite, PostgreSQL and MySQL.
+///
+/// Every column parameter takes a string or a [SqlIdentifier] (which is a
+/// string checked when it is made), with the same SQL for both.
 final class QueryBuilder {
   /// A query on [table] through the database manager; `DB.table(...)` creates
   /// it, on the given connection or the default one.

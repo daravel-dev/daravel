@@ -205,6 +205,92 @@ void main() {
     expect(code, 0);
   });
 
+  Future<List<DoctorCheck>> diagnoseProduction(Map<String, String> env) =>
+      inProject(
+        () =>
+            DoctorCommand(appWith({'APP_ENV': 'production', ...env}))
+                .diagnose(production: true),
+      );
+
+  const vmOption = 'DART_VM_OPTIONS=--new_gen_semi_max_size=128';
+
+  test('--production suggests processes for four isolates in one', () async {
+    final checks = await diagnoseProduction({'APP_ISOLATES': '4'});
+    final advice = checks.singleWhere(
+      (c) => c.title == 'APP_ISOLATES=4 in one process',
+    );
+    expect(advice.status, CheckStatus.notice);
+    final half = Platform.numberOfProcessors ~/ 2;
+    expect(
+      advice.detail,
+      contains('try APP_PROCESSES=${half < 1 ? 1 : half} with APP_ISOLATES=2'),
+    );
+    // Advice for production only: plain doctor stays quiet.
+    expect(
+      notices(await diagnose({'APP_ISOLATES': '4'})),
+      isNot(contains('APP_ISOLATES=4 in one process')),
+    );
+  });
+
+  test('no process advice once APP_PROCESSES > 1', () async {
+    final checks = await diagnoseProduction({
+      'APP_ISOLATES': '4',
+      'APP_PROCESSES': '2',
+      'CACHE_STORE': 'database',
+      'CACHE_LIMITER': 'database',
+      'QUEUE_UNIQUE_LOCK_STORE': 'database',
+    });
+    expect([
+      for (final c in checks) c.title,
+    ], isNot(contains(startsWith('APP_ISOLATES=4'))));
+    expect(
+      titled(checks, CheckStatus.error),
+      isNot(contains(startsWith('APP_PROCESSES='))),
+    );
+    // The stores serve refuses with several processes (ADR-027).
+    final unshared = await diagnoseProduction({
+      'APP_ISOLATES': '2',
+      'APP_PROCESSES': '2',
+    });
+    expect(
+      titled(unshared, CheckStatus.error),
+      contains(
+        'APP_PROCESSES=2 with per-process state: CACHE_STORE=memory, '
+        'CACHE_LIMITER=process, QUEUE_UNIQUE_LOCK_STORE=process',
+      ),
+    );
+    final accepted = await diagnoseProduction({
+      'APP_ISOLATES': '2',
+      'APP_PROCESSES': '2',
+      'APP_PROCESSES_ALLOW_UNSHARED_STATE': 'true',
+    });
+    expect(
+      titled(accepted, CheckStatus.error),
+      isNot(contains(startsWith('APP_PROCESSES='))),
+    );
+  });
+
+  test('--production prints the VM option with several workers', () async {
+    for (final env in [
+      {'APP_ISOLATES': '2'},
+      {
+        'APP_ISOLATES': '1',
+        'APP_PROCESSES': '2',
+        'APP_PROCESSES_ALLOW_UNSHARED_STATE': 'true',
+      },
+    ]) {
+      expect(
+        notices(await diagnoseProduction(env)),
+        contains(vmOption),
+        reason: '$env',
+      );
+    }
+    expect(
+      notices(await diagnoseProduction({'APP_ISOLATES': '1'})),
+      isNot(contains(vmOption)),
+    );
+  });
+
   test('doctor --production needs APP_ENV=production', () async {
     // The production-only checks are skipped under any other environment,
     // so the gate used to pass on a configuration never deployed as such.

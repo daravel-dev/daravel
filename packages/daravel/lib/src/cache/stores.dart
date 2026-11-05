@@ -195,8 +195,11 @@ final class MemoryStore implements TouchableCacheStore, TaggableCacheStore {
 }
 
 /// Coordinator service exposing a [MemoryStore] to every worker
-/// (`process`-scope cache and locks).
-final class ProcessCacheService implements CoordinatorService {
+/// (`process`-scope cache and locks). Values arrive in the wire form of
+/// [ProcessStore.encodeWire] (mostly JSON strings) and are kept as they
+/// are: this isolate never decodes or copies them.
+final class ProcessCacheService
+    implements TypedCoordinatorService<LockMessage> {
   /// A service over [store], or a new memory store.
   ProcessCacheService([MemoryStore? store]) : store = store ?? MemoryStore();
 
@@ -252,8 +255,65 @@ final class ProcessCacheService implements CoordinatorService {
     }
   }
 
+  /// The lock operations, as [ProcessStore] sends them ([LockMessage]);
+  /// [handle] answers them as maps too.
+  @override
+  Object? handleTyped(LockMessage message) {
+    final key = message.key;
+    return switch (message.op) {
+      'acquireLock' => store.acquireLockSync(
+        key,
+        message.owner!,
+        Duration(milliseconds: message.ttlMs),
+      ),
+      'releaseLock' => store.releaseLockSync(key, message.owner!),
+      'forceReleaseLock' => _forceRelease(key),
+      'lockOwner' => store.lockOwnerSync(key),
+      final op => throw CoordinatorException(
+        'Unknown processCache lock op [$op].',
+      ),
+    };
+  }
+
+  /// [MemoryStore.forceReleaseLock] removes the lock before its first
+  /// await, so the answer needs no Future.
+  Null _forceRelease(String key) {
+    unawaited(store.forceReleaseLock(key));
+    return null;
+  }
+
   @override
   Map<String, Object?> stats() => <String, Object?>{'entries': store.size};
+}
+
+/// One lock call to [ProcessCacheService], as [ProcessStore] sends it
+/// through [TypedCoordinatorChannel.callTyped] (ADR-031): deeply immutable,
+/// so it crosses to the coordinator isolate by reference where the map of
+/// [toArgs] is copied entry by entry. Other cache operations stay maps.
+@pragma('vm:deeply-immutable')
+final class LockMessage implements CoordinatorMessage {
+  /// A call of [op] on the lock [key].
+  const LockMessage(this.op, this.key, {this.owner, this.ttlMs = 0});
+
+  /// `acquireLock`, `releaseLock`, `forceReleaseLock` or `lockOwner`.
+  final String op;
+
+  /// The lock's name.
+  final String key;
+
+  /// Who takes or releases the lock (`acquireLock`, `releaseLock`).
+  final String? owner;
+
+  /// How long an `acquireLock` holds the lock, in milliseconds.
+  final int ttlMs;
+
+  /// The same call as the arguments of [ProcessCacheService.handle], for a
+  /// channel that is not a [TypedCoordinatorChannel].
+  Map<String, Object?> toArgs() => <String, Object?>{
+    'key': key,
+    if (owner != null) 'owner': owner,
+    if (op == 'acquireLock') 'ttl': ttlMs,
+  };
 }
 
 /// Process-wide cache and locks via the coordinator (scope `process`).
@@ -264,6 +324,15 @@ final class ProcessCacheService implements CoordinatorService {
 /// trip; its own writes update or drop them at once, while writes from
 /// other isolates show up within [l1Ttl]. Misses, counters and locks always
 /// go to the coordinator.
+///
+/// Values cross to the coordinator as one JSON string (ADR-031): the VM
+/// shares a string between the isolates of a process instead of copying
+/// it, while a map or list is serialized by the sender, which for a read
+/// is the coordinator's single event loop (9 ms per MB, measured). Numbers,
+/// booleans and null cross as they are, so `increment` keeps working on a
+/// stored number; a value JSON cannot encode (a `DateTime`) crosses as the
+/// object it is, copied, as before. The near cache keeps the wire string
+/// and decodes it per read, so every caller gets a fresh object.
 final class ProcessStore implements TaggableCacheStore {
   /// Values held by the coordinator through [channel], with an optional
   /// per-isolate copy kept for [l1Ttl].
@@ -311,32 +380,43 @@ final class ProcessStore implements TaggableCacheStore {
       _l1.remove(key);
       return null;
     }
-    return _copy(entry.$1);
+    return decodeWire(entry.$1);
   }
 
-  void _l1Write(String key, Object? value) {
+  /// Keeps the wire form of a value (a string, a number...) for [l1Ttl].
+  void _l1Write(String key, Object? wire) {
     final ttl = l1Ttl;
     _l1.remove(key);
-    if (ttl == null || value == null) {
+    if (ttl == null || wire == null) {
       return;
     }
     if (_l1.length >= l1MaxEntries) {
       _l1.remove(_l1.keys.first); // Oldest first (insertion order).
     }
-    _l1[key] = (
-      _copy(value),
-      _l1Clock.elapsedMicroseconds + ttl.inMicroseconds,
-    );
+    _l1[key] = (wire, _l1Clock.elapsedMicroseconds + ttl.inMicroseconds);
   }
 
-  /// Callers get their own copy, so mutating a cached map is harmless.
-  static Object? _copy(Object? value) => switch (value) {
-    final Map<Object?, Object?> map => <Object?, Object?>{
-      for (final MapEntry(:key, :value) in map.entries) key: _copy(value),
-    },
-    final List<Object?> list => [for (final item in list) _copy(item)],
-    _ => value,
-  };
+  /// The form in which [value] crosses to the coordinator: numbers,
+  /// booleans and null as they are, anything else as a JSON string (shared
+  /// between isolates, not copied), or the object itself when JSON cannot
+  /// encode it. Exposed for tests and benchmarks.
+  static Object? encodeWire(Object? value) {
+    switch (value) {
+      case null || num() || bool():
+        return value;
+      default:
+        try {
+          return jsonEncode(value);
+        } on JsonUnsupportedObjectError {
+          return value;
+        }
+    }
+  }
+
+  /// The value a wire form from [encodeWire] stands for: a string is JSON
+  /// and decodes to a fresh object; anything else is returned as it is.
+  static Object? decodeWire(Object? wire) =>
+      wire is String ? jsonDecode(wire) : wire;
 
   @override
   Future<Object?> get(String key) async {
@@ -346,35 +426,39 @@ final class ProcessStore implements TaggableCacheStore {
         return cached;
       }
     }
-    final value = await _call('get', {'key': key});
-    _l1Write(key, value);
-    return value;
+    final wire = await _call('get', {'key': key});
+    _l1Write(key, wire);
+    return decodeWire(wire);
   }
 
   @override
   Future<Map<String, Object?>> many(List<String> keys) async {
-    final values =
+    final wires =
         (await _call('many', {'keys': keys}))! as Map<String, Object?>;
-    values.forEach(_l1Write);
-    return values;
+    wires.forEach(_l1Write);
+    return <String, Object?>{
+      for (final MapEntry(:key, :value) in wires.entries)
+        key: decodeWire(value),
+    };
   }
 
   @override
   Future<void> put(String key, Object? value, {Duration? ttl}) async {
     _l1.remove(key);
-    await _call('put', {
-      'key': key,
-      'value': value,
-      'ttl': ttl?.inMilliseconds,
-    });
-    _l1Write(key, value);
+    final wire = encodeWire(value);
+    await _call('put', {'key': key, 'value': wire, 'ttl': ttl?.inMilliseconds});
+    _l1Write(key, wire);
   }
 
   @override
   Future<void> putMany(Map<String, Object?> values, {Duration? ttl}) async {
     values.keys.forEach(_l1.remove);
-    await _call('putMany', {'values': values, 'ttl': ttl?.inMilliseconds});
-    values.forEach(_l1Write);
+    final wires = <String, Object?>{
+      for (final MapEntry(:key, :value) in values.entries)
+        key: encodeWire(value),
+    };
+    await _call('putMany', {'values': wires, 'ttl': ttl?.inMilliseconds});
+    wires.forEach(_l1Write);
   }
 
   @override
@@ -382,7 +466,7 @@ final class ProcessStore implements TaggableCacheStore {
     _l1.remove(key);
     return await _call('add', {
       'key': key,
-      'value': value,
+      'value': encodeWire(value),
       'ttl': ttl?.inMilliseconds,
     }) as bool;
   }
@@ -411,25 +495,46 @@ final class ProcessStore implements TaggableCacheStore {
     await _call('flush');
   }
 
+  /// Sends a lock call typed, or as a map to a channel that is only a
+  /// [CoordinatorChannel].
+  Future<Object?> _lock(LockMessage message) {
+    final target = channel;
+    return target is TypedCoordinatorChannel
+        ? target.callTyped(
+            ProcessCacheService.serviceName,
+            message,
+            timeout: timeout,
+          )
+        : target.call(
+            ProcessCacheService.serviceName,
+            message.op,
+            message.toArgs(),
+            timeout: timeout,
+          );
+  }
+
   @override
   Future<bool> acquireLock(String name, String owner, Duration ttl) async =>
-      await _call('acquireLock', {
-        'key': name,
-        'owner': owner,
-        'ttl': ttl.inMilliseconds,
-      }) as bool;
+      await _lock(
+        LockMessage(
+          'acquireLock',
+          name,
+          owner: owner,
+          ttlMs: ttl.inMilliseconds,
+        ),
+      ) as bool;
 
   @override
   Future<bool> releaseLock(String name, String owner) async =>
-      await _call('releaseLock', {'key': name, 'owner': owner}) as bool;
+      await _lock(LockMessage('releaseLock', name, owner: owner)) as bool;
 
   @override
   Future<void> forceReleaseLock(String name) =>
-      _call('forceReleaseLock', {'key': name});
+      _lock(LockMessage('forceReleaseLock', name));
 
   @override
   Future<String?> lockOwner(String name) async =>
-      await _call('lockOwner', {'key': name}) as String?;
+      await _lock(LockMessage('lockOwner', name)) as String?;
 }
 
 /// JSON files under a directory (scope `cluster` on a shared disk, otherwise
