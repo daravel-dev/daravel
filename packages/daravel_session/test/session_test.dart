@@ -455,6 +455,82 @@ void main() {
     });
   });
 
+  group('cache driver', () {
+    test('the payload is the value under the session id in SESSION_STORE, '
+        'for SESSION_LIFETIME', () async {
+      freezeTime();
+      await app.shutdown();
+      app = build(const {
+        'SESSION_DRIVER': 'cache',
+        'SESSION_STORE': 'array',
+        'SESSION_LIFETIME': '30',
+        'CACHE_PREFIX': 'my_app_cache_',
+      });
+      await app.boot();
+      client = TestClient(app);
+
+      final handler = await app.run(
+        () async => App.make<SessionManager>().handler,
+      );
+      expect(handler, isA<CacheSessionHandler>());
+      final first = await client.get('/put');
+      final id = first.jsonMap['id'] as String;
+      final stored = await app.run(() => Cache.store('array').get<String>(id));
+      expect((phpUnserialize(stored!) as Map)['name'], 'Jane');
+      expect(
+        await app.run(
+          () => App.make<CacheManager>()
+              .store('memory')
+              .store
+              .get('my_app_cache_$id'),
+        ),
+        stored,
+        reason: 'CACHE_PREFIX goes before the id, as the store prefixes',
+      );
+
+      final cookie = cookieValue(first, 'my_app_session')!;
+      final headers = {
+        'cookie': 'my_app_session=${Uri.encodeComponent(cookie)}',
+      };
+      expect(
+        (await client.get('/get', headers: headers)).jsonMap['name'],
+        'Jane',
+      );
+
+      travel(const Duration(minutes: 31));
+      expect(
+        (await client.get('/get', headers: headers)).jsonMap['name'],
+        isNull,
+        reason: 'the entry expired with the session lifetime',
+      );
+
+      await app.run(() async {
+        final cache = (handler as CacheSessionHandler).cache;
+        await handler.write('x' * 40, 'a:0:{}');
+        expect(await handler.read('x' * 40), 'a:0:{}');
+        await handler.destroy('x' * 40);
+        expect(await cache.get<Object>('x' * 40), isNull);
+      });
+    });
+
+    test('SESSION_DRIVER=redis without daravel_redis says what is '
+        'missing', () async {
+      await app.shutdown();
+      app = build(const {'SESSION_DRIVER': 'redis'});
+      await app.boot();
+      await expectLater(
+        app.run(() async => App.make<SessionManager>().handler),
+        throwsA(
+          isA<ConfigException>().having(
+            (e) => e.message,
+            'message',
+            contains('withRedis()'),
+          ),
+        ),
+      );
+    });
+  });
+
   group('Session (unit)', () {
     test('flash, reflash, keep and now follow Laravel', () async {
       final handler = ArraySessionHandler(lifetime: const Duration(hours: 1));
@@ -803,9 +879,20 @@ void main() {
     expect(config.lifetime, const Duration(minutes: 30));
     expect(config.sameSite, 'strict');
     expect(config.domain, '.example.test');
+    expect(config.store, isNull);
     expect(
       SessionConfig.fromEnv(Env.fromMap(const {})).cookie,
       'daravel_session',
     );
+    final redis = SessionConfig.fromEnv(
+      Env.fromMap(const {
+        'SESSION_DRIVER': 'redis',
+        'SESSION_CONNECTION': 'session',
+        'SESSION_STORE': 'redis',
+      }),
+    );
+    expect(redis.connection, 'session');
+    expect(redis.store, 'redis');
+    expect(redis.toMap()['store'], 'redis');
   });
 }

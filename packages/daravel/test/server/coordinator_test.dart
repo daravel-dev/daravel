@@ -16,6 +16,29 @@ final class _SlowService implements CoordinatorService {
   Map<String, Object?> stats() => const {};
 }
 
+/// Delegates to [inner] and keeps what each `publish` carried.
+final class _SpyService implements CoordinatorService {
+  _SpyService(this.inner, this.field);
+
+  final CoordinatorService inner;
+  final String field;
+  final List<Object?> published = [];
+
+  @override
+  String get name => inner.name;
+
+  @override
+  FutureOr<Object?> handle(String op, Map<String, Object?> args) {
+    if (op == 'publish') {
+      published.add(args[field]);
+    }
+    return inner.handle(op, args);
+  }
+
+  @override
+  Map<String, Object?> stats() => inner.stats();
+}
+
 void main() {
   coordinatorRobustnessTests();
   cacheFrameTests();
@@ -79,6 +102,89 @@ void main() {
     coordinator.forgetWorker('daravel-worker-1');
     expect(await two.collect('pulse'), isEmpty);
     expect(await two.collect('other'), isEmpty);
+  });
+
+  test(
+    'worker reports cross isolates as JSON text and decode unchanged',
+    () async {
+      final spy = _SpyService(WorkerReportService(), 'report');
+      final own = Coordinator()..register(spy);
+      addTearDown(own.close);
+      final channel = RemoteCoordinatorChannel(own.listen());
+      addTearDown(channel.close);
+      final reports = WorkerReports(channel, worker: 'daravel-worker-0');
+      final report = <String, Object?>{
+        'worker': 'daravel-worker-0',
+        'requests_total': 3,
+        'memory_bytes': 123456789012,
+        'avg_ms': 1.5,
+        'max_ms': 2.0,
+        'minutes': [
+          [29000000, 3, 0, 1, 4500],
+        ],
+        'buckets': [
+          {
+            'at': 1740000000000,
+            'requests': [
+              {'key': 'GET /a"b', 'count': 1, 'total_ms': 0.25, 'ok': true},
+            ],
+          },
+        ],
+        'none': null,
+      };
+      await reports.publish('pulse', report);
+      expect(spy.published.single, isA<String>());
+      expect(await reports.collect('pulse'), {'daravel-worker-0': report});
+      final decoded =
+          (await reports.collect('pulse'))['daravel-worker-0']!
+              as Map<String, Object?>;
+      expect(decoded['max_ms'], isA<double>());
+      expect(decoded['memory_bytes'], isA<int>());
+
+      // Scalars travel as they are; strings and values JSON cannot hold
+      // still come back as published.
+      for (final value in <Object?>[7, 0.5, true, null, 'text', '"quoted"']) {
+        await reports.publish('scalar', value);
+        expect((await reports.collect('scalar'))['daravel-worker-0'], value);
+      }
+      expect(spy.published.sublist(1, 5), [7, 0.5, true, null]);
+      expect(spy.published[5], '"text"');
+      await reports.publish('nan', {'v': double.nan});
+      expect(spy.published.last, isA<Map<Object?, Object?>>());
+      expect(
+        ((await reports.collect('nan'))['daravel-worker-0']! as Map)['v'],
+        isNaN,
+      );
+    },
+  );
+
+  test('metrics snapshots reach the coordinator as JSON text', () async {
+    final spy = _SpyService(MetricsService(), 'snapshot');
+    final own = Coordinator()..register(spy);
+    addTearDown(own.close);
+    final channel = RemoteCoordinatorChannel(own.listen());
+    addTearDown(channel.close);
+    final metrics = AppMetrics(MetricsRegistry(), channel: channel);
+    metrics.jobs.inc({'status': 'processed'}, 2);
+    metrics.registry.histogram('lat', 'Latency.').observe(0.2);
+    final text = await metrics.render();
+    expect(spy.published.single, isA<String>());
+    expect(text, contains('queue_jobs_total{status="processed"} 2'));
+    expect(text, contains('lat_bucket{le="0.25"} 1'));
+    expect(text, contains('lat_count 1'));
+
+    // A NaN gauge cannot be JSON: that snapshot goes as a map, as before.
+    metrics.registry.gauge('broken', 'Not a number.').set(double.nan);
+    expect(await metrics.render(), contains('broken NaN'));
+    expect(spy.published.last, isA<Map<Object?, Object?>>());
+
+    final timer = metrics.startPublishing(
+      every: const Duration(milliseconds: 10),
+    );
+    addTearDown(() => timer?.cancel());
+    metrics.registry.gauge('broken', 'Not a number.').set(1);
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    expect(spy.published.last, isA<String>());
   });
 
   test('merged metrics carry the coordinator message counters', () async {

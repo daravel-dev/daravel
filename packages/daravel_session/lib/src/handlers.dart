@@ -210,6 +210,42 @@ final class DatabaseSessionHandler implements SessionHandler {
       : value.substring(0, length);
 }
 
+/// Sessions in a cache store, Laravel's `CacheBasedSessionHandler`: the
+/// payload is the value under the session id (after the store's and the
+/// repository's prefixes) and expires after [lifetime], renewed by every
+/// write. The `cache` driver uses the store `SESSION_STORE` names;
+/// `daravel_redis` builds the `redis` driver on it with Laravel's key
+/// layout.
+final class CacheSessionHandler implements SessionHandler {
+  /// Sessions in [cache], each kept for [lifetime] after its last write.
+  CacheSessionHandler(this.cache, {required this.lifetime});
+
+  /// The cache holding the sessions.
+  final CacheRepository cache;
+
+  /// How long a session lasts (the entry's TTL).
+  final Duration lifetime;
+
+  @override
+  Future<String?> read(String id) async {
+    final value = await cache.get<Object>(id);
+    return value is String ? value : null;
+  }
+
+  @override
+  Future<void> write(String id, String payload, {Request? request}) =>
+      cache.put(id, payload, ttl: lifetime);
+
+  @override
+  Future<void> destroy(String id) async {
+    await cache.forget(id);
+  }
+
+  /// Nothing to do: the store expires sessions (Laravel returns 0).
+  @override
+  Future<void> gc(Duration lifetime) async {}
+}
+
 /// Sessions in this isolate's memory: tests and tools. Laravel's `array`
 /// driver, which likewise forgets everything when the process ends.
 final class ArraySessionHandler implements SessionHandler {

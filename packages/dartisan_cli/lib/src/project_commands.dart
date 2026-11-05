@@ -539,6 +539,9 @@ final class DoctorCommand extends DaravelCommand {
         ),
       );
     }
+    if (production) {
+      checks.addAll(_topologyChecks(app, serve.isolates, cores));
+    }
     final logLevel = LogLevel.parse(env.string('LOG_LEVEL', 'debug'));
     if (logLevel.index < LogLevel.warning.index) {
       checks.add(
@@ -611,6 +614,68 @@ final class DoctorCommand extends DaravelCommand {
           CheckStatus.warning,
           'QUEUE_CONNECTION=sync in production',
           'Jobs run inside requests; use the database driver and queue:work.',
+        ),
+      );
+    }
+    return checks;
+  }
+
+  /// `--production` only (ADR-031): how to spread [isolates] over
+  /// processes, and the VM option for allocation-heavy endpoints. The
+  /// advice is a notice; stores that `serve` refuses under
+  /// `APP_PROCESSES > 1` (ADR-027) are an error, as they are there.
+  List<DoctorCheck> _topologyChecks(Application app, int isolates, int cores) {
+    final env = app.env;
+    final processes = env.integer('APP_PROCESSES', 1);
+    final checks = <DoctorCheck>[];
+    if (processes <= 1 && isolates >= 4) {
+      final suggested = cores ~/ 2 < 1 ? 1 : cores ~/ 2;
+      checks.add(
+        DoctorCheck(
+          CheckStatus.notice,
+          'APP_ISOLATES=$isolates in one process',
+          'Endpoints that allocate a lot per request scale better across '
+              'processes: try APP_PROCESSES=$suggested with APP_ISOLATES=2 '
+              'behind the proxy (operations guide, Isolates). In '
+              'bench/README.md four isolates of one process took 81–90 ms '
+              'each, four processes 28 ms each.',
+        ),
+      );
+    }
+    if (processes > 1 && !env.boolean('APP_PROCESSES_ALLOW_UNSHARED_STATE')) {
+      // The same stores Application._ensureProcessesShareState refuses.
+      final cache = app.config.section<CacheConfig>();
+      final queue = app.config.section<QueueConfig>();
+      const local = {'memory', 'process'};
+      final unshared = <String>[
+        if (local.contains(cache.defaultStore))
+          'CACHE_STORE=${cache.defaultStore}',
+        if (cache.limiter == null || local.contains(cache.limiter))
+          'CACHE_LIMITER=${cache.limiter ?? 'process'}',
+        if (local.contains(queue.uniqueLockStore))
+          'QUEUE_UNIQUE_LOCK_STORE=${queue.uniqueLockStore}',
+      ];
+      if (unshared.isNotEmpty) {
+        checks.add(
+          DoctorCheck(
+            CheckStatus.error,
+            'APP_PROCESSES=$processes with per-process state: '
+                '${unshared.join(', ')}',
+            'serve refuses to start: point these at database or redis, or '
+                'set APP_PROCESSES_ALLOW_UNSHARED_STATE=true to accept '
+                'per-process caches, rate limits and locks.',
+          ),
+        );
+      }
+    }
+    if (isolates > 1 || processes > 1) {
+      checks.add(
+        const DoctorCheck(
+          CheckStatus.notice,
+          'DART_VM_OPTIONS=--new_gen_semi_max_size=128',
+          'Reduces GC pauses on allocation-heavy endpoints (measured '
+              '81–90 ms → 70–77 ms, bench/README.md). Set it in the '
+              'service environment; doctor does not set it.',
         ),
       );
     }
@@ -1287,6 +1352,14 @@ final class ModelSyncCommand extends DaravelCommand {
   });
 }
 
+/// One `dartisan lint` finding as `dart analyze` prints one:
+/// `  info - lib/app/x.dart:14:18 - <message> - <rule>`. Daravel rules have
+/// no severity of their own, so every finding is an `info` (a lint, in
+/// `dart analyze` terms); the command still fails on any of them.
+String formatLintIssue(LintIssue issue) =>
+    '  info - ${issue.path.replaceAll(r'\', '/')}:${issue.line}:${issue.column}'
+    ' - ${issue.message} - ${issue.rule}';
+
 /// `lint [--json]` — runs `daravel_lints` over the project.
 final class LintCommand extends Command<int> {
   /// The `dartisan lint` command.
@@ -1319,11 +1392,20 @@ final class LintCommand extends Command<int> {
         ]),
       );
     } else {
-      issues.forEach(stdout.writeln);
+      for (final issue in issues) {
+        stdout.writeln(formatLintIssue(issue));
+      }
+      if (issues.isNotEmpty) {
+        stdout.writeln();
+      }
       stdout.writeln(
-        issues.isEmpty ? 'No issues found.' : '${issues.length} issue(s).',
+        issues.isEmpty
+            ? 'No issues found.'
+            : '${issues.length} issue${issues.length == 1 ? '' : 's'} found.',
       );
     }
+    // Any finding fails the command, as `dart analyze --fatal-infos` does,
+    // so CI can run `dartisan lint` as a gate.
     return issues.isEmpty ? 0 : 1;
   }
 }
