@@ -25,33 +25,82 @@ const List<double> defaultBuckets = <double>[
   10,
 ];
 
+/// A label value escaped for the exposition format.
+String _escapeLabel(String value) => value
+    .replaceAll(r'\', r'\\')
+    .replaceAll('"', r'\"')
+    .replaceAll('\n', r'\n');
+
 String _labelKey(Map<String, String> labels) {
   if (labels.isEmpty) {
     return '';
   }
+  if (labels.length == 1) {
+    final entry = labels.entries.first;
+    return '${entry.key}="${_escapeLabel(entry.value)}"';
+  }
   final keys = labels.keys.toList()..sort();
-  return keys
-      .map(
-        (k) =>
-            '$k="${labels[k]!.replaceAll(r'\', r'\\').replaceAll('"', r'\"').replaceAll('\n', r'\n')}"',
-      )
-      .join(',');
+  return keys.map((k) => '$k="${_escapeLabel(labels[k]!)}"').join(',');
 }
 
-/// Monotonic counter.
-final class Counter {
-  Counter._(this.name, this.help);
+/// The series a metric counts new label sets in once it holds
+/// [MetricsRegistry.maxSeries] series.
+const String overflowSeries = 'overflow="true"';
+
+/// The behaviour shared by [Counter], [Gauge] and [Histogram]: the series
+/// limit and the change count [AppMetrics.startPublishing] reads.
+abstract base class _Metric {
+  _Metric(this.name, this.help, this._registry, [this._limited = true]);
 
   /// The metric's name.
   final String name;
 
   /// The metric's help text.
   final String help;
+
+  final MetricsRegistry _registry;
+  final bool _limited;
+
+  int get _seriesCount;
+  bool _hasSeries(String key);
+
+  /// [key], or [overflowSeries] when [key] is a new series beyond the
+  /// registry's limit (counted in `metrics_series_dropped_total`). An
+  /// unbounded label (a raw path, a user id) then costs one series, not
+  /// one per value, on every worker and on the coordinator.
+  String _admit(String key) {
+    _registry._changes++;
+    final max = _registry.maxSeries;
+    if (!_limited ||
+        max <= 0 ||
+        _seriesCount < max ||
+        identical(key, overflowSeries) ||
+        _hasSeries(key)) {
+      return key;
+    }
+    _registry._dropped.inc({'metric': name});
+    return overflowSeries;
+  }
+}
+
+/// Monotonic counter.
+final class Counter extends _Metric {
+  Counter._(super.name, super.help, super._registry, [super._limited]);
+
   final Map<String, double> _values = <String, double>{};
 
+  @override
+  int get _seriesCount => _values.length;
+
+  @override
+  bool _hasSeries(String key) => _values.containsKey(key);
+
   /// Adds [by] to the series of [labels].
-  void inc([Map<String, String> labels = const {}, double by = 1]) {
-    final key = _labelKey(labels);
+  void inc([Map<String, String> labels = const {}, double by = 1]) =>
+      _incKey(_labelKey(labels), by);
+
+  void _incKey(String labelKey, [double by = 1]) {
+    final key = _admit(labelKey);
     _values[key] = (_values[key] ?? 0) + by;
   }
 
@@ -61,24 +110,32 @@ final class Counter {
 }
 
 /// Value that goes up and down.
-final class Gauge {
-  Gauge._(this.name, this.help, this._collect);
+///
+/// Under a supervisor the series of every worker are summed: give a gauge
+/// that is not a total (a temperature, a configured limit) a `worker`
+/// label, or read it per worker.
+final class Gauge extends _Metric {
+  Gauge._(super.name, super.help, super._registry, this._collect);
 
-  /// The metric's name.
-  final String name;
-
-  /// The metric's help text.
-  final String help;
   final double Function()? _collect;
   final Map<String, double> _values = <String, double>{};
 
+  @override
+  int get _seriesCount => _values.length;
+
+  @override
+  bool _hasSeries(String key) => _values.containsKey(key);
+
   /// Sets the series of [labels] to [value].
   void set(double value, [Map<String, String> labels = const {}]) =>
-      _values[_labelKey(labels)] = value;
+      _values[_admit(_labelKey(labels))] = value;
 
   /// Adds [by] to the series of [labels].
-  void inc([Map<String, String> labels = const {}, double by = 1]) {
-    final key = _labelKey(labels);
+  void inc([Map<String, String> labels = const {}, double by = 1]) =>
+      _incKey(_labelKey(labels), by);
+
+  void _incKey(String labelKey, double by) {
+    final key = _admit(labelKey);
     _values[key] = (_values[key] ?? 0) + by;
   }
 
@@ -99,23 +156,26 @@ final class _HistogramSeries {
 }
 
 /// Cumulative histogram with fixed buckets.
-final class Histogram {
-  Histogram._(this.name, this.help, this.buckets);
-
-  /// The metric's name.
-  final String name;
-
-  /// The metric's help text.
-  final String help;
+final class Histogram extends _Metric {
+  Histogram._(super.name, super.help, super._registry, this.buckets);
 
   /// The bucket upper bounds.
   final List<double> buckets;
   final Map<String, _HistogramSeries> _series = {};
 
+  @override
+  int get _seriesCount => _series.length;
+
+  @override
+  bool _hasSeries(String key) => _series.containsKey(key);
+
   /// Records [value] in the series of [labels].
-  void observe(double value, [Map<String, String> labels = const {}]) {
+  void observe(double value, [Map<String, String> labels = const {}]) =>
+      _observeKey(value, _labelKey(labels));
+
+  void _observeKey(double value, String labelKey) {
     final series = _series.putIfAbsent(
-      _labelKey(labels),
+      _admit(labelKey),
       () => _HistogramSeries(buckets.length),
     );
     for (var i = 0; i < buckets.length; i++) {
@@ -139,24 +199,54 @@ final class Histogram {
 /// merge the registries of every worker ([MetricsRegistry.render] of merged
 /// snapshots).
 final class MetricsRegistry {
+  /// A registry keeping at most [maxSeries] series per metric (`0`: no
+  /// limit); see [overflowSeries].
+  MetricsRegistry({this.maxSeries = defaultMaxSeries});
+
+  /// The default of [maxSeries] (`METRICS_MAX_SERIES`).
+  static const int defaultMaxSeries = 10000;
+
+  /// Series per metric beyond which new label sets are counted in
+  /// [overflowSeries] (`0`: no limit).
+  final int maxSeries;
+
   final Map<String, Counter> _counters = <String, Counter>{};
   final Map<String, Gauge> _gauges = <String, Gauge>{};
   final Map<String, Histogram> _histograms = <String, Histogram>{};
 
+  /// Bumped on every update, so a worker publishes only when it changed.
+  int _changes = 0;
+
+  /// New series refused by [maxSeries], by metric name (bounded by the
+  /// number of metrics, so itself unlimited).
+  late final Counter _dropped = _counters.putIfAbsent(
+    'metrics_series_dropped_total',
+    () => Counter._(
+      'metrics_series_dropped_total',
+      'Updates counted in the overflow series because the metric reached '
+          'METRICS_MAX_SERIES, by metric.',
+      this,
+      false,
+    ),
+  );
+
   /// The counter [name], created on first use.
   Counter counter(String name, String help) =>
-      _counters.putIfAbsent(name, () => Counter._(name, help));
+      _counters.putIfAbsent(name, () => Counter._(name, help, this));
 
   /// [collect] computes the value at render time (e.g. memory).
   Gauge gauge(String name, String help, {double Function()? collect}) =>
-      _gauges.putIfAbsent(name, () => Gauge._(name, help, collect));
+      _gauges.putIfAbsent(name, () => Gauge._(name, help, this, collect));
 
   /// The histogram [name], created on first use.
   Histogram histogram(
     String name,
     String help, {
     List<double> buckets = defaultBuckets,
-  }) => _histograms.putIfAbsent(name, () => Histogram._(name, help, buckets));
+  }) => _histograms.putIfAbsent(
+    name,
+    () => Histogram._(name, help, this, buckets),
+  );
 
   /// Plain-data view of every metric.
   Map<String, Object?> snapshot() => <String, Object?>{
@@ -310,12 +400,28 @@ Map<String, Object?> _decodeSnapshot(Object wire) => wire is String
 /// With [coordinatorStats] (the standard coordinator passes its own
 /// `stats`), `collect` adds the coordinator's message counters, so a flood
 /// of messages from the workers shows on `/metrics`.
-final class MetricsService implements CoordinatorService {
+///
+/// A snapshot larger than [maxSnapshotBytes] is refused (the worker's
+/// previous one stays), so one worker cannot make every scrape merge and
+/// render megabytes on the supervisor's event loop. A worker that exits is
+/// forgotten, so its last `http_requests_in_flight` is not served on.
+final class MetricsService implements CoordinatorService, WorkerAwareService {
   /// A service merging the workers' metrics.
-  MetricsService({this.coordinatorStats});
+  MetricsService({
+    this.coordinatorStats,
+    this.maxSnapshotBytes = defaultMaxSnapshotBytes,
+  });
 
   /// The coordinator service name.
   static const String serviceName = 'metrics';
+
+  /// The default of [maxSnapshotBytes]: 16 MiB.
+  static const int defaultMaxSnapshotBytes = 16 * 1024 * 1024;
+
+  /// The largest snapshot (JSON characters) a worker may publish.
+  final int maxSnapshotBytes;
+
+  int _refused = 0;
 
   /// Adds the coordinator's own numbers to the output.
   final Map<String, Object?> Function()? coordinatorStats;
@@ -374,7 +480,12 @@ final class MetricsService implements CoordinatorService {
   Object? handle(String op, Map<String, Object?> args) {
     switch (op) {
       case 'publish':
-        _snapshots[args['worker']! as String] = args['snapshot']!;
+        final snapshot = args['snapshot']!;
+        if (snapshot is String && snapshot.length > maxSnapshotBytes) {
+          _refused++;
+          return false;
+        }
+        _snapshots[args['worker']! as String] = snapshot;
         return null;
       case 'collect':
         final stats = coordinatorStats;
@@ -389,8 +500,12 @@ final class MetricsService implements CoordinatorService {
   }
 
   @override
+  void forgetWorker(String worker) => _snapshots.remove(worker);
+
+  @override
   Map<String, Object?> stats() => <String, Object?>{
     'workers': _snapshots.length,
+    'refused': _refused,
   };
 }
 
@@ -401,6 +516,7 @@ final class MetricsConfig implements ConfigSection {
     this.enabled = false,
     this.path = '/metrics',
     this.token,
+    this.maxSeries = MetricsRegistry.defaultMaxSeries,
   });
 
   /// The settings in `METRICS_*`.
@@ -408,7 +524,15 @@ final class MetricsConfig implements ConfigSection {
     enabled: env.boolean('METRICS_ENABLED', false),
     path: env.string('METRICS_PATH', '/metrics'),
     token: env.maybeString('METRICS_TOKEN'),
+    maxSeries: env.integer(
+      'METRICS_MAX_SERIES',
+      MetricsRegistry.defaultMaxSeries,
+    ),
   );
+
+  /// Series per metric and worker before new label sets are counted in
+  /// [overflowSeries] (`METRICS_MAX_SERIES`, `0`: no limit).
+  final int maxSeries;
 
   /// Whether `/metrics` is served.
   final bool enabled;
@@ -427,6 +551,7 @@ final class MetricsConfig implements ConfigSection {
     'enabled': enabled,
     'path': path,
     'protected': token != null,
+    'max_series': maxSeries,
   };
 }
 
@@ -523,8 +648,42 @@ final class AppMetrics {
   late final String _worker =
       Isolate.current.debugName ?? '${Isolate.current.hashCode}';
 
+  /// The label key of `{'worker': _worker}`, built once.
+  late final String _workerKey = _labelKey({'worker': _worker});
+
+  /// The escaped `route` label of each route pattern (bounded by the route
+  /// table, plus `unmatched`), so a request does not escape it again.
+  final Map<String, String> _routeLabels = <String, String>{};
+
+  /// HTTP methods recorded under their own name; any other token (which
+  /// `dart:io` accepts and the kernel answers with 404/405) is `other`, so
+  /// the `method` label stays bounded.
+  static const Set<String> knownMethods = <String>{
+    'GET',
+    'HEAD',
+    'POST',
+    'PUT',
+    'PATCH',
+    'DELETE',
+    'OPTIONS',
+  };
+
+  /// The `method` label of [method]: itself when in [knownMethods],
+  /// `other` otherwise.
+  static String methodLabel(String method) =>
+      knownMethods.contains(method) ? method : 'other';
+
   /// Counts one request refused by load shedding on this worker.
-  void recordShed() => shed.inc({'worker': _worker});
+  void recordShed() => shed._incKey(_workerKey);
+
+  /// Records one finished request (what [MetricsMiddleware] does).
+  void recordRequest(String method, String route, int status, double seconds) {
+    final routeLabel = _routeLabels[route] ??= _escapeLabel(route);
+    final methodAndRoute =
+        'method="${methodLabel(method)}",route="$routeLabel"';
+    requests._incKey('$methodAndRoute,status="$status"');
+    duration._observeKey(seconds, methodAndRoute);
+  }
 
   /// Exposition text: merged across workers under a supervisor.
   Future<String> render() async {
@@ -558,24 +717,49 @@ final class AppMetrics {
     return MetricsRegistry.renderSnapshot(result);
   }
 
-  /// Publishes this worker's snapshot periodically (supervisor mode).
-  Timer? startPublishing({Duration every = const Duration(seconds: 1)}) {
+  /// Publishes this worker's snapshot periodically (supervisor mode): on
+  /// a tick after a change, and on every [heartbeat]th tick regardless
+  /// (gauges computed at render time change without an update). An idle
+  /// worker therefore sends one snapshot per [heartbeat] ticks, not one
+  /// per tick.
+  Timer? startPublishing({
+    Duration every = const Duration(seconds: 1),
+    int heartbeat = 15,
+  }) {
     final remote = channel;
     if (remote == null || !remote.isRemote) {
       return null;
     }
+    int? published;
+    var idleTicks = 0;
     return Timer.periodic(every, (_) {
-      remote.call(MetricsService.serviceName, 'publish', {
-        'worker': _worker,
-        'snapshot': _encodeSnapshot(registry.snapshot()),
-      }).ignore();
+      final changes = registry._changes;
+      if (changes == published && ++idleTicks < heartbeat) {
+        return;
+      }
+      published = changes;
+      idleTicks = 0;
+      remote
+          .call(MetricsService.serviceName, 'publish', {
+            'worker': _worker,
+            'snapshot': _encodeSnapshot(registry.snapshot()),
+          })
+          .whenComplete(() {
+            // The publish's own round trip (or timeout) is one update of
+            // `coordinator_call_*`: alone, it is not worth a publish.
+            if (registry._changes == changes + 1) {
+              published = changes + 1;
+            }
+          })
+          .ignore();
     });
   }
 }
 
 /// Records request count, latency and in-flight gauge. The `route` label is
 /// the route pattern (`/users/{id}`), never the raw path, to bound
-/// cardinality; unmatched requests use `unmatched`.
+/// cardinality; unmatched requests use `unmatched`. The `method` label is
+/// one of [AppMetrics.knownMethods] or `other`.
 final class MetricsMiddleware implements Middleware {
   /// Counts every request in [metrics].
   const MetricsMiddleware(this.metrics);
@@ -586,25 +770,22 @@ final class MetricsMiddleware implements Middleware {
   @override
   Future<Response> handle(Request request, Next next) async {
     final stopwatch = Stopwatch()..start();
-    final worker = {'worker': metrics._worker};
-    metrics.inFlight.inc(worker);
+    final inFlight = metrics.inFlight;
+    final worker = metrics._workerKey;
+    inFlight._incKey(worker, 1);
     var status = 500;
     try {
       final response = await next(request);
       status = response.status;
       return response;
     } finally {
-      metrics.inFlight.dec(worker);
-      final route = request.route?.path ?? 'unmatched';
-      metrics.requests.inc({
-        'method': request.method,
-        'route': route,
-        'status': '$status',
-      });
-      metrics.duration.observe(stopwatch.elapsedMicroseconds / 1e6, {
-        'method': request.method,
-        'route': route,
-      });
+      inFlight._incKey(worker, -1);
+      metrics.recordRequest(
+        request.method,
+        request.route?.path ?? 'unmatched',
+        status,
+        stopwatch.elapsedMicroseconds / 1e6,
+      );
     }
   }
 }

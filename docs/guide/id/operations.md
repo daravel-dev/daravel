@@ -1,4 +1,4 @@
-<!-- source: operations.md sha256:3c8ce4f70da5 -->
+<!-- source: operations.md sha256:04e6bf11fedc -->
 # Operasional
 
 Menjalankan Daravel di bawah trafik nyata: berapa isolate, berapa koneksi
@@ -155,6 +155,20 @@ setiap worker digabungkan.
 | `coordinator_call_duration_seconds{service}` | p99 di atas sekitar 2 ms: rate limit, baca cache process, dan lock menunggu coordinator |
 | `coordinator_rejected_total`, `coordinator_in_flight_peak` dibandingkan `coordinator_max_queue` | penolakan apa pun, atau puncak yang mendekati batas |
 | `coordinator_call_timeouts_total{service}` | laju yang terus-menerus |
+| `metrics_series_dropped_total{metric}` | nilai apa pun di atas nol: sebuah label dari metrik itu menerima nilai yang tidak terbatas |
+
+Setiap metrik menyimpan paling banyak `METRICS_MAX_SERIES` set label per
+worker (10 000 secara default, `0` berarti tanpa batas). Update untuk set
+label baru di atas batas itu dihitung di series `{overflow="true"}` dari
+metrik tersebut dan di `metrics_series_dropped_total`, sehingga label yang
+diisi dari input user (sebuah path, sebuah id user) hanya memakan satu
+series, bukan satu per nilai di setiap worker dan di coordinator. Label
+`method` pada metrik HTTP bernilai `GET`, `HEAD`, `POST`, `PUT`, `PATCH`,
+`DELETE`, `OPTIONS` atau `other`, karena client dapat mengirim token apa
+pun sebagai method. Di bawah supervisor, setiap worker mengirim angkanya
+saat angka itu berubah (dan setiap 15 detik apa pun yang terjadi), dan
+series dari setiap worker dijumlahkan: beri gauge yang bukan total sebuah
+label `worker`.
 
 `dartisan coordinator:stats --url=http://127.0.0.1:8000/metrics` membaca
 angka-angka ini dari server yang sedang berjalan dan memberi saran:

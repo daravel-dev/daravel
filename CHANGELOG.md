@@ -13,11 +13,17 @@ match Laravel more closely.
 
 ### Added
 
+- Metrics: `MetricsRegistry(maxSeries:)` (`METRICS_MAX_SERIES`, 10 000 by default, `0` for no limit) keeps at most that many label sets per metric; updates for a new label set beyond it go to the metric's `{overflow="true"}` series (`overflowSeries`) and are counted in `metrics_series_dropped_total{metric}`. `MetricsService(maxSnapshotBytes:)` (16 MiB by default) refuses a larger worker snapshot and keeps the previous one, and the service forgets a worker that exited (`WorkerAwareService`). `AppMetrics.knownMethods`, `AppMetrics.methodLabel` and `AppMetrics.recordRequest` are what `MetricsMiddleware` uses (#149).
+
 ### Changed
 
 **Upgrading can change what an application sees:**
 
+- The `method` label of `http_requests_total` and `http_request_duration_seconds` is `GET`, `HEAD`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS` or `other`: a request with any other method (which `dart:io` accepts and the kernel answers with 404/405) is counted as `other` instead of under its own name. A metric with more than `METRICS_MAX_SERIES` label sets per worker now counts the excess in `{overflow="true"}`. Under a supervisor a worker publishes its snapshot when it changed and every 15 s regardless, instead of every second, so a gauge computed at render time (`gauge(collect:)`) of another worker can be up to 15 s old on `/metrics`; the in-flight gauge of a worker that exited is no longer served. The new top-level `overflowSeries` constant is exported from `package:daravel/daravel.dart` (#149).
+
 ### Fixed
+
+- Metrics: the HTTP `method` label took any token a client sent, so 100 000 requests with distinct methods made 100 001 series in two metrics on every worker (+362 MB RSS on one, a 119 MB `/metrics` body and a 930 ms merge on the supervisor's event loop per scrape). Methods outside the standard set are now `other`, every metric is capped by `METRICS_MAX_SERIES`, the coordinator refuses oversized snapshots, and the middleware no longer sorts, escapes and joins the labels on every request (the route label is escaped once per route, the worker label once) (#149).
 
 ## 1.26.0
 

@@ -146,6 +146,19 @@ of every worker are merged.
 | `coordinator_call_duration_seconds{service}` | p99 above about 2 ms: rate limits, process cache reads and locks wait for the coordinator |
 | `coordinator_rejected_total`, `coordinator_in_flight_peak` against `coordinator_max_queue` | any refusal, or a peak near the limit |
 | `coordinator_call_timeouts_total{service}` | any steady rate |
+| `metrics_series_dropped_total{metric}` | anything above zero: a label of that metric takes unbounded values |
+
+Every metric keeps at most `METRICS_MAX_SERIES` label sets per worker
+(10 000 by default, `0` for no limit). Updates for a new label set beyond
+that are counted in the metric's `{overflow="true"}` series and in
+`metrics_series_dropped_total`, so a label fed from user input (a path, a
+user id) costs one series instead of one per value on every worker and on
+the coordinator. The `method` label of the HTTP metrics is `GET`, `HEAD`,
+`POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS` or `other`, since a client can
+send any token as a method. Under a supervisor each worker publishes its
+numbers when they changed (and every 15 s regardless), and the series of
+every worker are summed: give a gauge that is not a total a `worker`
+label.
 
 `dartisan coordinator:stats --url=http://127.0.0.1:8000/metrics` reads
 these from a running server and says what to do: back the rate limiter

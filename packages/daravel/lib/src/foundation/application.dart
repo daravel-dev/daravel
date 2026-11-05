@@ -249,7 +249,10 @@ final class Application {
           ),
         );
     final events = EventDispatcher();
-    final metrics = AppMetrics(MetricsRegistry(), channel: channel);
+    final metrics = AppMetrics(
+      MetricsRegistry(maxSeries: config.section<MetricsConfig>().maxSeries),
+      channel: channel,
+    );
     events
       ..listen<JobProcessed>((_) => metrics.jobs.inc({'status': 'processed'}))
       ..listen<JobExceptionOccurred>(
