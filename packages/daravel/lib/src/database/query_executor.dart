@@ -323,6 +323,9 @@ final class QueryExceptionExecutor implements QueryExecutor {
       return await run();
     } on QueryException {
       rethrow;
+    } on TransactionTimeoutException {
+      // Not the query's failure: the transaction it was part of timed out.
+      rethrow;
     } on Exception catch (error, stack) {
       Error.throwWithStackTrace(
         errors?.isUniqueConstraintError(error) ?? false
@@ -355,4 +358,17 @@ final class QueryExceptionExecutor implements QueryExecutor {
     String sql, [
     List<Object?> bindings = const <Object?>[],
   ]) => _guarded(sql, bindings, () => inner.insertGetId(sql, bindings));
+}
+
+/// A transaction (or savepoint) still running when its `timeout` passed
+/// ([DatabaseManager.transaction]): it was rolled back, and later queries
+/// of its body throw this too.
+final class TransactionTimeoutException extends TimeoutException {
+  /// A transaction given up after [timeout].
+  TransactionTimeoutException(Duration timeout)
+    : super(
+        'The database transaction did not finish within $timeout; it was '
+        'rolled back.',
+        timeout,
+      );
 }
