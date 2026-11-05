@@ -13,11 +13,18 @@ match Laravel more closely.
 
 ### Added
 
+- `HTTP_ACCESS_LOG` (`ServeOptions.accessLog`, default `true`): `false` stops the `info` line the server logs for every request, for when a proxy in front already writes an access log, without raising `LOG_LEVEL` past the application's own `info` logs (#162).
+- `log_lines_dropped_total` on `/metrics`: log lines dropped because stdout, stderr or the daily log file fell behind or failed (#162). `MetricsRegistry.counter(collect:)` reads a counter kept elsewhere at render time, as `gauge(collect:)` does.
+
 ### Changed
 
 **Upgrading can change what an application sees:**
 
+- Console and JSON log output written to the process's stdout and stderr is now asynchronous (#162): `ConsoleHandler` and `JsonHandler` without a sink queue lines in front of `stdout.nonBlocking`/`stderr.nonBlocking`, so a pipe nobody drains (a slow log collector) delays log lines instead of blocking the worker's event loop. Lines printed directly to stdout can now interleave differently with log lines, past 8 MiB waiting a line is dropped and counted, and `Logger.close()` (which `Application.shutdown` calls) waits up to 5 s for the queue. Handlers given a `StringSink`, and output inside `IOOverrides.runZoned`, are written synchronously as before. `package:daravel/daravel.dart` exports the new `LogLineQueue`; an application that declares that name hides it in its import.
+
 ### Fixed
+
+- Logging (#162): a daily log file that could not be opened or written (a full disk, a permission, a directory in its place) was an uncaught asynchronous error, which killed a supervisor worker at boot and, through the respawn limit, the whole server, or, inside a request, silently dropped every later line of the day. `DailyFileHandler` now owns the error path: one notice on stderr, the lines dropped and counted, the file opened again 5 s later (`retryAfter`). Its lines wait in a byte-bounded queue (`maxPendingBytes`, 8 MiB) written by one loop instead of an `IOSink` that buffered without limit while the disk was slower than the log rate, rotation closes the previous day's file only after its lines are written, and `close()` waits for them (up to `closeTimeout`, 10 s).
 
 ## 1.26.0
 

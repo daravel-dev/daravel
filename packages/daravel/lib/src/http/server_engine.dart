@@ -32,6 +32,7 @@ final class ServeOptions {
     this.maxInFlight,
     this.maxQueueDelay,
     this.maxBodyBytes = defaultMaxBodyBytes,
+    this.accessLog = true,
   });
 
   /// The body limit a request starts with: [Request.defaultMaxBodyBytes]
@@ -87,6 +88,7 @@ final class ServeOptions {
           ? null
           : maxQueueDelay,
       maxBodyBytes: _maxBodyFromEnv(env),
+      accessLog: env.boolean('HTTP_ACCESS_LOG', true),
     );
   }
 
@@ -193,6 +195,13 @@ final class ServeOptions {
   /// buffers an unbounded body in memory. `null` (`HTTP_MAX_BODY=0`) sets
   /// no limit.
   final int? maxBodyBytes;
+
+  /// Whether every request is logged at `info` when it ends (method, path,
+  /// status, time; `HTTP_ACCESS_LOG`, on by default). Turn it off when a
+  /// proxy in front already writes an access log: the line costs CPU per
+  /// request, and `LOG_LEVEL=notice` would hide application `info` logs
+  /// too.
+  final bool accessLog;
 }
 
 /// Why a production server with one HTTP isolate on a machine with several
@@ -659,11 +668,13 @@ final class ServerEngine {
                 // Time to response, without terminate() and deferred work.
                 final elapsed = stopwatch.elapsedMicroseconds / 1000;
                 await kernel.terminate(request, response);
-                logger.info(
-                  '${request.method} ${request.path} ${response.status} '
-                  '${elapsed.toStringAsFixed(2)}ms',
-                  <String, Object?>{'request_id': id},
-                );
+                if (options.accessLog) {
+                  logger.info(
+                    '${request.method} ${request.path} ${response.status} '
+                    '${elapsed.toStringAsFixed(2)}ms',
+                    <String, Object?>{'request_id': id},
+                  );
+                }
               } finally {
                 release();
               }

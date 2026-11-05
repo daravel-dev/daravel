@@ -103,6 +103,7 @@ frozen after boot.
 | `QUEUE_SIGNAL_STORE` | `file` with the database queue, else the lock store | Cache store of `queue:restart` and `queue:pause` signals; `database` reaches workers on every machine |
 | `HASH_DRIVER`, `BCRYPT_ROUNDS` | `bcrypt`, `12` | Password hashing (as Laravel) |
 | `LOG_LEVEL`, `LOG_STACK` | `debug` | Logging level and channels (`json` for production) |
+| `HTTP_ACCESS_LOG` | `true` | One `info` line per request (method, path, status, time); `false` when a proxy in front already logs requests. Console, JSON and daily file output never blocks a worker: past 8 MiB waiting, lines are dropped and counted (`log_lines_dropped_total`) |
 | `SHUTDOWN_TIMEOUT`, `HTTP_REQUEST_TIMEOUT` | `30s`, `30s` | Graceful shutdown and handler timeouts |
 | `HTTP_IDLE_TIMEOUT` | `60s` | A keep-alive connection idle this long is closed by the server |
 | `HTTP_MAX_BODY` | `52428800` (50 MiB) | The body limit every request starts with (`413` above it; `0` for none); `BodyLimitsMiddleware` tightens it to 1 MiB for JSON and forms |

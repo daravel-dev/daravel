@@ -59,7 +59,14 @@ const Map<String, Set<String>> allowedDependencies = {
     'server',
   },
   'schedule': {'foundation', 'cache', 'events', 'logging', 'queue', 'server'},
-  'observability': {'foundation', 'cache', 'database', 'http', 'server'},
+  'observability': {
+    'foundation',
+    'cache',
+    'database',
+    'http',
+    'logging',
+    'server',
+  },
   'support': {
     'foundation',
     'auth',

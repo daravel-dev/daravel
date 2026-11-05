@@ -142,6 +142,7 @@ of every worker are merged.
 | `http_requests_in_flight{worker}` | one worker much busier than the others: connection distribution (see above) |
 | `http_requests_total{status}` | the share of `5xx` |
 | `process_resident_memory_bytes` | steady growth over hours or days |
+| `log_lines_dropped_total` | any increase: stdout, stderr or the log file fell behind or failed (an undrained pipe, a full disk), so log lines were dropped rather than blocking a worker or filling its memory |
 | `coordinator_messages_total` | its rate (`rate(...[1m])`) climbing with traffic: every worker asks the coordinator, which answers on the supervisor's event loop |
 | `coordinator_call_duration_seconds{service}` | p99 above about 2 ms: rate limits, process cache reads and locks wait for the coordinator |
 | `coordinator_rejected_total`, `coordinator_in_flight_peak` against `coordinator_max_queue` | any refusal, or a peak near the limit |

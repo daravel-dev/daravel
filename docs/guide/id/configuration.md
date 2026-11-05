@@ -1,4 +1,4 @@
-<!-- source: configuration.md sha256:a0469b3069a8 -->
+<!-- source: configuration.md sha256:03d400ac6094 -->
 # Konfigurasi
 
 ## File environment
@@ -106,6 +106,7 @@ setelah boot.
 | `QUEUE_SIGNAL_STORE` | `file` dengan queue database, selain itu lock store | Cache store untuk sinyal `queue:restart` dan `queue:pause`; `database` menjangkau worker di semua mesin |
 | `HASH_DRIVER`, `BCRYPT_ROUNDS` | `bcrypt`, `12` | Hashing password (seperti Laravel) |
 | `LOG_LEVEL`, `LOG_STACK` | `debug` | Level log dan channel (`json` untuk produksi) |
+| `HTTP_ACCESS_LOG` | `true` | Satu baris `info` per request (method, path, status, waktu); `false` bila proxy di depan sudah mencatat request. Output log console, JSON, dan file harian tidak pernah memblokir worker: lewat dari 8 MiB yang menunggu, baris dibuang dan dihitung (`log_lines_dropped_total`) |
 | `SHUTDOWN_TIMEOUT`, `HTTP_REQUEST_TIMEOUT` | `30s`, `30s` | Graceful shutdown dan timeout handler |
 | `HTTP_IDLE_TIMEOUT` | `60s` | Koneksi keep-alive yang menganggur selama ini ditutup oleh server |
 | `HTTP_MAX_BODY` | `52428800` (50 MiB) | Batas body yang dimiliki setiap request sejak awal (`413` di atasnya; `0` untuk tanpa batas); `BodyLimitsMiddleware` memperketatnya ke 1 MiB untuk JSON dan form |
