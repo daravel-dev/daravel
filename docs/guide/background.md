@@ -19,6 +19,9 @@ Stores: `memory` (per isolate, LRU), `process` (shared by every isolate of
 the server through the coordinator), `file` and `database` (Laravel's
 `cache` table). `Cache.remember`, `flexible` (stale-while-revalidate),
 `increment`, `pull`, `lock` (atomic locks, fail closed) mirror Laravel.
+On the `process` store, a lock the coordinator granted after its answer
+timed out is released at once rather than held until its TTL, and
+`lock.block` counts such a try as not acquired and tries again.
 `Cache.tags(['people', 'artists']).put(...)` tags entries and
 `Cache.tags(['people']).flush()` forgets them, on the `memory` and
 `process` stores and with [Redis](redis.md#cache-tags), where the keys are

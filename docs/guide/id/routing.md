@@ -1,4 +1,4 @@
-<!-- source: routing.md sha256:9d41c7f4dc27 -->
+<!-- source: routing.md sha256:304e715b2297 -->
 # Routing
 
 Route didaftarkan di `routes/api.dart` (di-mount di bawah `/api`) dan
@@ -200,8 +200,11 @@ store lain menghitungnya sebagai fixed window.
 
 Saat coordinator tidak menjawab tepat waktu (misalnya proses sedang
 kelebihan beban), rate limiting bersifat fail-open: request diloloskan
-tanpa dihitung dan sebuah peringatan dicatat di log, sehingga coordinator
-yang lambat tidak pernah menjatuhkan situs. Batas yang menjaga kredensial
+tanpa dihitung dan sebuah peringatan dicatat di log (paling banyak sekali
+per detik, beserta jumlah percobaan yang tidak dicatat), sehingga
+coordinator yang lambat tidak pernah menjatuhkan situs. Hal yang sama
+berlaku saat cache store di balik `CACHE_LIMITER=database` atau `redis`
+gagal: request diloloskan alih-alih gagal dengan `500`. Batas yang menjaga kredensial
 (login, OTP, reset password) sebaiknya fail-closed, agar membanjiri server
 tidak mencabut batas tersebut: request seperti itu justru mendapat `429`
 dengan `Retry-After: 1`.

@@ -190,7 +190,10 @@ other stores count them as a fixed window.
 
 When the coordinator cannot answer in time (an overloaded process, say),
 rate limiting fails open: the request goes through uncounted and a warning
-is logged, so a slow coordinator never takes the site down. A limit that
+is logged (at most once a second, counting the ones it skipped), so a
+slow coordinator never takes the site down. The same holds when the cache
+store behind `CACHE_LIMITER=database` or `redis` fails: the request goes
+through instead of failing with a `500`. A limit that
 guards credentials (login, OTP, password reset) should fail closed, so that
 flooding the server does not lift it: such a request gets the `429` with
 `Retry-After: 1` instead.

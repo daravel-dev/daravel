@@ -58,6 +58,7 @@ export 'src/mail/smtp.dart';
 export 'src/mail/transport.dart';
 export 'src/logging/context.dart';
 export 'src/logging/logger.dart';
+export 'src/logging/throttled_reporter.dart';
 export 'src/routing/radix_tree.dart';
 export 'src/routing/openapi.dart';
 export 'src/translation/set_locale_middleware.dart';

@@ -54,6 +54,7 @@ import '../mail/smtp.dart';
 import '../mail/theme.dart';
 import '../mail/transport.dart';
 import '../logging/logger.dart';
+import '../logging/throttled_reporter.dart';
 import '../queue/drivers.dart';
 import '../queue/job.dart';
 import '../queue/queue_manager.dart';
@@ -270,20 +271,25 @@ final class Application {
     );
     final cacheConfig = config.section<CacheConfig>();
     final limiterStore = cacheConfig.limiter;
+    // One warning a second at most: when the coordinator is saturated every
+    // attempt fails, and a line per attempt would add to the overload
+    // (`coordinator_call_timeouts_total` counts them all).
+    final limiterWarning = ThrottledReporter(
+      (error, skipped) => logger.warning(
+        'Rate limiter could not count an attempt (it goes through unless '
+        'its limit fails closed): $error'
+        '${skipped == 0 ? '' : ' ($skipped more since the last warning)'}',
+      ),
+    );
     final rateLimiter = RateLimiter(
       store: limiterStore == null || limiterStore == 'process'
-          ? ProcessRateLimitStore(
-              channel,
-              onError: (error) => logger.warning(
-                'Rate limiter could not count an attempt (it goes through '
-                'unless its limit fails closed): $error',
-              ),
-            )
+          ? ProcessRateLimitStore(channel, onError: limiterWarning.call)
           // CACHE_LIMITER=database (or another store): limits shared
           // wherever that store is.
           : CacheRateLimitStore(
               () => container.make<CacheManager>().store(limiterStore).store,
               prefix: '${cacheConfig.prefix}rate_limiter:',
+              onError: limiterWarning.call,
             ),
     );
     container
