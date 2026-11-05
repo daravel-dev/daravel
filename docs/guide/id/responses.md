@@ -1,4 +1,4 @@
-<!-- source: responses.md sha256:f2fe117a3c1a -->
+<!-- source: responses.md sha256:1f3ed232da4f -->
 # Respons dan resource
 
 Handler bisa mengembalikan `Response.json(data, status: 201)`,
@@ -496,6 +496,54 @@ karena range kecil pertama dari penampil akan menghapusnya.
 Disk membaca dari awal untuk mencapai sebuah range, yang di S3 berarti mengunduh
 bagian sebelumnya. Jangan menyusun path `Response.file` dari input pengguna; disk
 memeriksa path-nya sendiri.
+
+## File statis
+
+Laravel menyerahkan `public/` ke web server. Aplikasi Daravel adalah web server
+itu sendiri, jadi aplikasi menyajikan direktori tersebut sendiri:
+
+```dart
+Application.configure(basePath: basePath)
+    .withStatic('public', prefix: '/assets')
+```
+
+```dart
+Response.html('<link rel="stylesheet" href="${asset('neo.css')}">');
+// <link rel="stylesheet" href="/assets/neo.css?v=1a2b3c4d5e6f">
+```
+
+`asset(path)` menambahkan 12 digit hex pertama dari SHA-256 file. Request yang
+membawa versi terkini dijawab dengan
+`Cache-Control: public, max-age=31536000, immutable`; tanpa versi, atau dengan
+versi lama, dengan `public, max-age=300` (`maxAge:`). `ETag`, 304, dan range
+berasal dari `Response.file`, dan `Content-Disposition` tidak dikirim. Tipe yang
+diperiksa browser selalu tepat: `text/javascript`, `text/css`,
+`application/wasm`, `image/svg+xml`, `font/woff2`, `font/woff`, `font/ttf`,
+`font/otf` (`mimeTypeOf`).
+
+Direktori dipindai saat boot dan request dijawab dengan mencari path-nya di antara
+file yang ditemukan, sehingga tidak ada bagian URL yang sampai ke file system:
+`..`, `%2e%2e`, `%2f`, dan backslash hanya gagal ditemukan. Dot file (`.env`,
+`.git`, `.vite`) dan symbolic link dilewati; link `public/storage` dari
+`storage:link` mengarah ke upload, yang disajikan oleh disk
+(`Storage.response`). Direktori yang tidak ada membatalkan boot. Beberapa
+pemanggilan `withStatic` menambah direktori; `asset` memakai direktori pertama
+yang memiliki file tersebut, dan `prefix: '/'` menyajikan dari root tanpa
+menutupi route Anda.
+
+Dengan `APP_ENV=local` (atau `rescan: true`) file baru ditemukan tanpa restart dan
+file yang diubah mendapat versi baru. Di production, file yang ditemukan saat boot
+adalah semua yang ada: deploy, lalu restart. Hashing membaca setiap file sekali
+saat boot (per isolate); `dartisan static:hash` di langkah deploy menulis
+`public/.static-manifest.json` berisi versi, ukuran, dan waktu modifikasi setiap
+file, dan boot kemudian tidak membaca file yang ukuran dan waktunya masih sama.
+
+Dengan Vite, `Assets.vite('resources/js/app.js')` (`Vite::asset()` di Laravel)
+membaca `public/build/manifest.json` (atau `.vite/manifest.json` dari Vite biasa)
+dan menghasilkan `/assets/build/assets/app-4ed993c7.js`; `asset()` melakukan hal
+yang sama untuk source yang tercantum di manifest. File hasil build dinamai
+menurut hash-nya, sehingga selalu disajikan sebagai immutable. Entry yang tidak
+ada di manifest melempar exception, seperti di Laravel.
 
 ## Error
 

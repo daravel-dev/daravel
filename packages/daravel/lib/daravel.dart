@@ -5,6 +5,7 @@
 library;
 
 export 'src/concurrency/concurrency.dart';
+export 'src/concurrency/isolate_payload.dart';
 export 'src/database/database_config.dart';
 export 'src/database/database_manager.dart';
 export 'src/database/legacy_key.dart';
@@ -40,6 +41,8 @@ export 'src/http/multipart.dart' show MultipartLimits, multipartBoundary;
 export 'src/http/realtime.dart';
 export 'src/http/request.dart';
 export 'src/http/file_response.dart' show DiskResponses, contentDisposition;
+export 'src/http/file_response.dart' show mimeTypeOf;
+export 'src/http/static_files.dart';
 export 'src/http/uploaded_file.dart';
 export 'src/http/response.dart';
 export 'src/http/server_engine.dart';
@@ -125,6 +128,7 @@ export 'src/auth/hashing.dart';
 export 'src/auth/jwt.dart';
 export 'src/auth/tokens.dart';
 export 'src/http/rate_limiter.dart';
+export 'src/support/assets_facade.dart';
 export 'src/support/auth_facades.dart';
 export 'src/cache/cache.dart';
 export 'src/cache/tags.dart';

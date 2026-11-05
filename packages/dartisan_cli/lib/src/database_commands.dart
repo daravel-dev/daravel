@@ -37,6 +37,17 @@ final class DbSeedCommand extends DaravelCommand {
       return 1;
     }
     final registry = App.make<SeederRegistry>();
+    final className = results['class'] as String?;
+    if (className != null &&
+        !(results['all'] as bool) &&
+        registry.find(className) == null) {
+      final registered = [for (final seeder in registry.seeders) seeder.name];
+      stderr.writeln(
+        'Seeder $className is not registered in bootstrap/seeders.dart. '
+        'Registered: ${registered.isEmpty ? '(none)' : registered.join(', ')}.',
+      );
+      return 1;
+    }
     if (registry.seeders.isEmpty) {
       stdout.writeln(
         'No seeders registered (use ApplicationBuilder.withSeeders).',
@@ -44,7 +55,7 @@ final class DbSeedCommand extends DaravelCommand {
       return 0;
     }
     final ran = await registry.run(
-      name: results['class'] as String?,
+      name: className,
       all: results['all'] as bool,
     );
     for (final seeder in ran) {
