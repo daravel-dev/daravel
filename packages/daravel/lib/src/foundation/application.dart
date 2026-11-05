@@ -271,8 +271,10 @@ final class Application {
       store: limiterStore == null || limiterStore == 'process'
           ? ProcessRateLimitStore(
               channel,
-              onError: (error) =>
-                  logger.warning('Rate limiter fail-open: $error'),
+              onError: (error) => logger.warning(
+                'Rate limiter could not count an attempt (it goes through '
+                'unless its limit fails closed): $error',
+              ),
             )
           // CACHE_LIMITER=database (or another store): limits shared
           // wherever that store is.
