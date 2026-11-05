@@ -19,6 +19,8 @@ match Laravel more closely.
 
 ### Fixed
 
+- `parseQueryString` (query strings and form bodies) and the nesting of multipart fields run in linear time for `name[]` appends (#166). Each `[]` scanned every key of its list to find the next index, so a 389 KB form of 40 000 `a[]` pairs, well inside the 1 MiB form limit, blocked a worker for 12 s; 100 000 pairs now parse in milliseconds. The next index is still one past the highest integer key, as PHP's `parse_str` gives it.
+
 ## 1.26.0
 
 For applications built on Daravel day to day, from the first reports of a team running it in production. Static files are served by the framework, traversal-proof, with content-hashed URLs and `asset()`; sessions gain Laravel's `redis` and `cache` drivers and no longer hit a duplicate key on MySQL; `SecurityHeadersMiddleware` sends a Content-Security-Policy with per-request nonces; `html.dart` helpers take ids, classes and attributes everywhere and know htmx; and `TestClient.browser()` tests web routes with cookies, CSRF and session assertions. Underneath, rate limits can fail closed, `DB.transaction` takes a timeout, and the coordinator moves typed, deeply-immutable messages and shared strings between isolates (ADR-031, ADR-032).

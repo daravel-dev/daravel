@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -978,6 +979,9 @@ Map<String, Object?> buildInput(
   int maxDepth = 32,
 }) {
   final result = <String, Object?>{};
+  // The next `[]` index of every map built here (PHP's nNextFreeElement):
+  // finding it by scanning the map's keys made `a[]=` pairs quadratic.
+  final nextIndex = HashMap<Map<String, Object?>, int>.identity();
   for (final (key, value) in pairs) {
     final open = key.indexOf('[');
     final segments = <String>[];
@@ -1000,6 +1004,7 @@ Map<String, Object?> buildInput(
       segments.isEmpty ? key : key.substring(0, open),
       segments,
       value,
+      nextIndex,
     );
   }
   // The top level stays a map even for keys like `0`, `1`.
@@ -1013,29 +1018,38 @@ void _putQueryValue(
   String key,
   List<String> segments,
   Object value,
+  Map<Map<String, Object?>, int> nextIndex,
 ) {
   if (segments.isEmpty) {
+    _noteKey(map, key, nextIndex);
     map[key] = value;
     return;
   }
   var child = map[key];
   if (child is! Map<String, Object?>) {
     child = <String, Object?>{};
+    _noteKey(map, key, nextIndex);
     map[key] = child;
   }
   var next = segments.first;
   if (next.isEmpty) {
-    // `[]` appends at the next integer index, as in PHP.
-    var index = 0;
-    for (final existing in child.keys) {
-      final number = int.tryParse(existing);
-      if (number != null && number >= index) {
-        index = number + 1;
-      }
-    }
-    next = '$index';
+    // `[]` appends at the next integer index, as in PHP: one past the
+    // highest integer key so far.
+    next = '${nextIndex[child] ?? 0}';
   }
-  _putQueryValue(child, next, segments.sublist(1), value);
+  _putQueryValue(child, next, segments.sublist(1), value, nextIndex);
+}
+
+/// Keeps the next `[]` index of [map] one past its highest integer key.
+void _noteKey(
+  Map<String, Object?> map,
+  String key,
+  Map<Map<String, Object?>, int> nextIndex,
+) {
+  final number = int.tryParse(key);
+  if (number != null && number >= (nextIndex[map] ?? 0)) {
+    nextIndex[map] = number + 1;
+  }
 }
 
 Object? _listify(Object? value) {
