@@ -307,6 +307,8 @@ jobs:
       - name: Test against ${{ matrix.server }}
         run: |
           (cd packages/daravel_mysql && dart test --tags integration --reporter=expanded)
+          # Timestamps come back without a zone: read them as UTC in any zone.
+          (cd packages/daravel_mysql && TZ=Asia/Makassar dart test --tags integration --reporter=expanded)
           (cd packages/daravel_permission && dart test --tags integration --reporter=expanded)
           (cd packages/daravel_activitylog && dart test --tags integration --reporter=expanded)
           (cd packages/daravel_teorion && dart test --tags integration --reporter=expanded)

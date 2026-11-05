@@ -5,6 +5,7 @@ import '../foundation/clock.dart';
 import 'package:crypto/crypto.dart' as crypto;
 
 import '../database/database_manager.dart';
+import '../database/orm/casts.dart';
 import '../database/query/query_builder.dart';
 import '../database/schema/migration.dart';
 import '../database/schema/schema_builder.dart';
@@ -331,14 +332,12 @@ final class TokenGuard<T extends Authenticatable> extends RequestGuard<T> {
 }
 
 /// Parses a timestamp column value (driver-specific: `DateTime`, ISO string
-/// or epoch milliseconds).
+/// or epoch milliseconds). Text without a zone, such as MySQL's
+/// `Y-m-d H:i:s`, is UTC, the zone the framework writes in, whatever the
+/// zone of the process.
 DateTime? parseDbDateTime(Object? value) => switch (value) {
-  null => null,
   DateTime() => value.toUtc(),
-  int() => DateTime.fromMillisecondsSinceEpoch(value, isUtc: true),
-  String() when value.isEmpty => null,
-  String() => DateTime.tryParse(value)?.toUtc(),
-  _ => null,
+  _ => parseDateTime(value)?.toUtc(),
 };
 
 /// Creates `personal_access_tokens` with the exact Sanctum schema. Named

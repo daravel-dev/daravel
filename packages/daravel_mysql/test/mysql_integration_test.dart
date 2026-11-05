@@ -189,6 +189,39 @@ void main() {
     );
   });
 
+  // CI runs this file again with TZ=Asia/Makassar: MySQL gives timestamps as
+  // `Y-m-d H:i:s` without a zone, written in UTC.
+  test('a token expiring later is valid in any process time zone', () async {
+    final schema = SchemaBuilder(await db.executor());
+    await schema.dropIfExists('personal_access_tokens');
+    await const CreatePersonalAccessTokensTable().up(schema);
+    final now = DateTime.now().toUtc();
+    final expiresAt = DateTime.utc(
+      now.year,
+      now.month,
+      now.day,
+      now.hour,
+      now.minute,
+      now.second,
+    ).add(const Duration(minutes: 15));
+    final id = await db.table('personal_access_tokens').insertGetId({
+      'tokenable_type': 'users',
+      'tokenable_id': 1,
+      'name': 'x',
+      'token': 'hash',
+      'expires_at': expiresAt,
+      'created_at': now,
+    });
+    final row = await db
+        .table('personal_access_tokens')
+        .where('id', id)
+        .first();
+    final token = PersonalAccessToken.fromRow(row!);
+    expect(token.expiresAt, expiresAt);
+    expect(token.isExpired(now), isFalse);
+    await schema.drop('personal_access_tokens');
+  });
+
   test('a composite primary key with a long name is created', () async {
     final schema = SchemaBuilder(await db.executor());
     await schema.dropIfExists('attempt_item_selections');

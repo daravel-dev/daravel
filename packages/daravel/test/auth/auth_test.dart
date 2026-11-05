@@ -56,6 +56,22 @@ final class Res {
 }
 
 void main() {
+  test('parseDbDateTime reads text without a zone as UTC', () {
+    // MySQL's `Y-m-d H:i:s`: written in UTC, whatever the process's zone.
+    expect(
+      parseDbDateTime('2026-11-04 17:21:31'),
+      DateTime.utc(2026, 11, 4, 17, 21, 31),
+    );
+    expect(parseDbDateTime('2026-11-04 17:21:31')!.isUtc, isTrue);
+    expect(
+      parseDbDateTime('2026-11-04T17:21:31+08:00'),
+      DateTime.utc(2026, 11, 4, 9, 21, 31),
+    );
+    expect(parseDbDateTime(0), DateTime.utc(1970));
+    expect(parseDbDateTime(''), isNull);
+    expect(parseDbDateTime(null), isNull);
+  });
+
   var mineBinderCalls = 0;
   final bindingsSeen = <String, String?>{};
   late Application app;
