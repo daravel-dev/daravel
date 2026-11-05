@@ -136,7 +136,7 @@ application, so agents see the application as it is, not a guess:
 | `routes` | Methods, URI, name, action, middleware, validation rules and their JSON Schema, documented response |
 | `schema` | Tables with column and row counts, or one table's columns |
 | `models` | The registered models and their relations, or one model's attributes, keys and relations |
-| `db_query` | One `SELECT`/`WITH`/`EXPLAIN` statement, at most 100 rows by default; always rolled back, and read-only in the database on SQLite (`query_only`) and PostgreSQL (`READ ONLY`) |
+| `db_query` | One `SELECT`/`WITH`/`EXPLAIN` statement, at most 100 rows by default; always rolled back, read-only in the database (SQLite `query_only`, PostgreSQL `READ ONLY`, MySQL and MariaDB `START TRANSACTION READ ONLY`) and stopped after 10 seconds; `GET_LOCK` is refused on MySQL. On a shared database, give the connection a user that can only read |
 | `read_logs`, `last_error` | The newest records of the daily log files (`LOG_STACK` with `daily`), or the newest error |
 | `conventions` | Registries, generators, the model pattern, time, locked Laravel formats, lint rules |
 | `docs_search` | The best sections of this guide, for the installed version |

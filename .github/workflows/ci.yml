@@ -141,7 +141,7 @@ jobs:
         run: |
           (cd packages/daravel && dart test --tags integration --reporter=expanded)
           (cd packages/daravel && dart test test/notifications --reporter=expanded)
-          (cd packages/dartisan_cli && dart test test/db_transfer_test.dart test/doctor_test.dart --reporter=expanded)
+          (cd packages/dartisan_cli && dart test test/db_transfer_test.dart test/doctor_test.dart test/mcp_db_query_test.dart --reporter=expanded)
           (cd packages/daravel_permission && dart test --tags integration --reporter=expanded)
           (cd packages/daravel_activitylog && dart test --tags integration --reporter=expanded)
           (cd packages/daravel_teorion && dart test --tags integration --reporter=expanded)
@@ -296,6 +296,7 @@ jobs:
           --health-retries 20
     env:
       DARAVEL_TEST_MYSQL: mysql://daravel:secret@127.0.0.1:3306/daravel_test
+      DARAVEL_TEST_MARIADB: ${{ startsWith(matrix.server, 'mariadb') && '1' || '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -312,4 +313,4 @@ jobs:
           (cd packages/daravel_permission && dart test --tags integration --reporter=expanded)
           (cd packages/daravel_activitylog && dart test --tags integration --reporter=expanded)
           (cd packages/daravel_teorion && dart test --tags integration --reporter=expanded)
-          (cd packages/dartisan_cli && dart test test/db_transfer_test.dart test/doctor_test.dart --reporter=expanded)
+          (cd packages/dartisan_cli && dart test test/db_transfer_test.dart test/doctor_test.dart test/mcp_db_query_test.dart --reporter=expanded)
