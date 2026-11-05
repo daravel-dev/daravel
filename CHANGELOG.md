@@ -19,6 +19,7 @@ match Laravel more closely.
 
 ### Fixed
 
+- A `multipart/form-data` body that ends or fails inside a part (an upload interrupted mid-transfer, a body without its closing boundary, the body limit reached inside a file) answers `400` (`413` for the limit) at once instead of hanging the request for ever (#145). `package:mime` reports the end of the body only on the stream of parts, never to the part being read, so the parse waited for that part indefinitely, and because the global `MethodOverrideMiddleware` parses form posts before routing, the request timeout did not apply: every such request kept its in-flight slot, a file descriptor and a temporary upload file until the server restarted. The parser now fails the part being read as soon as the body ends or fails, and deletes the file it was writing.
 - `parseQueryString` (query strings and form bodies) and the nesting of multipart fields run in linear time for `name[]` appends (#166). Each `[]` scanned every key of its list to find the next index, so a 389 KB form of 40 000 `a[]` pairs, well inside the 1 MiB form limit, blocked a worker for 12 s; 100 000 pairs now parse in milliseconds. The next index is still one past the highest integer key, as PHP's `parse_str` gives it.
 
 ## 1.26.0

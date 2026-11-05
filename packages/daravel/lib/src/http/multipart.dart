@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
+import 'dart:io' show Directory, File, FileSystemException, IOException;
 import 'dart:math';
 import 'dart:typed_data';
 
@@ -61,7 +61,11 @@ String? multipartBoundary(String? contentType) {
 
 /// Parses [body] (already limited to the request's maximum size by the
 /// caller). Files are written to [tempDirectory]; on any error the files
-/// written so far are deleted.
+/// written so far, and the one being written, are deleted.
+///
+/// A body that ends or fails before its closing boundary, even inside a
+/// part, completes with [BadRequestHttpException] (the body limit's
+/// [PayloadTooLargeHttpException] stays one).
 Future<MultipartBody> parseMultipart(
   Stream<List<int>> body,
   String boundary, {
@@ -70,15 +74,18 @@ Future<MultipartBody> parseMultipart(
 }) {
   final result = Completer<MultipartBody>();
   final files = <UploadedFile>[];
+  _Parts? parts;
   // package:mime throws some parse errors synchronously inside its stream
   // listener, where they escape as uncaught zone errors instead of stream
   // errors; the guarded zone turns them into a 400 instead of a hang.
   runZonedGuarded(
     () async {
       try {
-        result.complete(
-          await _parse(body, boundary, limits, tempDirectory, files),
+        final reader = parts = _Parts(
+          // `bind` (not `transform`) also accepts a `Stream<Uint8List>`.
+          MimeMultipartTransformer(boundary).bind(body),
         );
+        result.complete(await _parse(reader, limits, tempDirectory, files));
       } catch (error, stack) {
         if (!result.isCompleted) {
           result.completeError(error, stack);
@@ -86,37 +93,182 @@ Future<MultipartBody> parseMultipart(
       }
     },
     (error, stack) {
+      final reader = parts;
+      if (reader != null) {
+        // The parse stops at the part it reads and cleans up.
+        reader.fail(error, stack);
+        return;
+      }
       if (result.isCompleted) {
         return;
       }
       unawaited(_deleteAll(files));
-      result.completeError(
-        error is MimeMultipartException
-            ? BadRequestHttpException(
-                'Malformed multipart body: ${error.message}',
-              )
-            : error,
-        stack,
-      );
+      result.completeError(_bodyError(error), stack);
     },
   );
   return result.future;
 }
 
+/// A failure of the body or of its parsing as the client is told it.
+Object _bodyError(Object error) => switch (error) {
+  MimeMultipartException(:final message) => BadRequestHttpException(
+    'Malformed multipart body: $message',
+  ),
+  // The connection dropped or failed while the body arrived.
+  IOException() => const BadRequestHttpException(
+    'Unexpected end of multipart body.',
+  ),
+  _ => error,
+};
+
+/// The parts of a multipart body, read one after the other.
+///
+/// `package:mime` reports the end or the failure of the body only on the
+/// stream of parts, never on the part being read: a body cut off inside a
+/// part left that part, and the parse waiting for it, pending for ever
+/// (#145). The stream of parts is therefore listened to while a part is
+/// read, so such an error fails that part at once. Between parts it is
+/// paused, which pauses the body as `await for` did.
+final class _Parts {
+  _Parts(Stream<MimeMultipart> parts) {
+    _subscription = parts.listen(_add, onError: fail, onDone: _end);
+  }
+
+  late final StreamSubscription<MimeMultipart> _subscription;
+  final List<MimeMultipart> _ready = <MimeMultipart>[];
+  bool _ended = false;
+  bool _paused = false;
+  Object? _error;
+  StackTrace? _errorStack;
+  Completer<void>? _changed;
+  void Function()? _abortRead;
+
+  void _add(MimeMultipart part) {
+    _ready.add(part);
+    _wake();
+  }
+
+  void _end() {
+    _ended = true;
+    _wake();
+  }
+
+  /// Fails the parse with [error]: the part being read at once, the next
+  /// call otherwise. The first error wins.
+  void fail(Object error, StackTrace stack) {
+    if (_error != null) {
+      return;
+    }
+    _error = _bodyError(error);
+    _errorStack = stack;
+    _wake();
+    _abortRead?.call();
+  }
+
+  void _wake() {
+    final changed = _changed;
+    _changed = null;
+    changed?.complete();
+  }
+
+  void _pause() {
+    if (!_paused) {
+      _paused = true;
+      _subscription.pause();
+    }
+  }
+
+  void _resume() {
+    if (_paused) {
+      _paused = false;
+      _subscription.resume();
+    }
+  }
+
+  /// The next part, or `null` after the last one.
+  Future<MimeMultipart?> next() async {
+    _resume();
+    while (true) {
+      final error = _error;
+      if (error != null) {
+        Error.throwWithStackTrace(error, _errorStack!);
+      }
+      if (_ready.isNotEmpty) {
+        return _ready.removeAt(0);
+      }
+      if (_ended) {
+        return null;
+      }
+      await (_changed ??= Completer<void>()).future;
+    }
+  }
+
+  /// Passes every chunk of [part] to [onChunk] until the part ends; fails
+  /// with what [onChunk] throws or with the body's failure.
+  Future<void> read(MimeMultipart part, void Function(List<int>) onChunk) {
+    final done = Completer<void>();
+    late final StreamSubscription<List<int>> subscription;
+    void finish([Object? error, StackTrace? stack]) {
+      if (done.isCompleted) {
+        return;
+      }
+      _abortRead = null;
+      // Synchronously, while package:mime closes the part: it then pauses
+      // the body until the next part is asked for.
+      _pause();
+      if (error == null) {
+        done.complete();
+      } else {
+        unawaited(subscription.cancel());
+        done.completeError(error, stack);
+      }
+    }
+
+    subscription = part.listen(
+      (chunk) {
+        try {
+          onChunk(chunk);
+        } catch (error, stack) {
+          finish(error, stack);
+        }
+      },
+      onError: (Object error, StackTrace stack) =>
+          finish(_bodyError(error), stack),
+      onDone: finish,
+    );
+    _abortRead = () => finish(_error, _errorStack);
+    _resume();
+    if (_error != null) {
+      finish(_error, _errorStack);
+    }
+    return done.future;
+  }
+
+  /// Stops reading the body.
+  void cancel() {
+    _abortRead = null;
+    unawaited(_subscription.cancel());
+  }
+}
+
+void _ignore(List<int> chunk) {}
+
 Future<MultipartBody> _parse(
-  Stream<List<int>> body,
-  String boundary,
+  _Parts parts,
   MultipartLimits limits,
   Directory? tempDirectory,
   List<UploadedFile> files,
 ) async {
   final directory = tempDirectory ?? _defaultTempDirectory();
   final pairs = <(String, Object)>[];
-  var parts = 0;
+  var count = 0;
   try {
-    // `bind` (not `transform`) also accepts a `Stream<Uint8List>`.
-    await for (final part in MimeMultipartTransformer(boundary).bind(body)) {
-      if (++parts > limits.maxParts) {
+    while (true) {
+      final part = await parts.next();
+      if (part == null) {
+        break;
+      }
+      if (++count > limits.maxParts) {
         throw const BadRequestHttpException('Too many form fields.');
       }
       final disposition = _parseDisposition(
@@ -124,23 +276,24 @@ Future<MultipartBody> _parse(
       );
       final name = disposition['name'];
       if (name == null || name.isEmpty) {
-        await part.drain<void>();
+        await parts.read(part, _ignore);
         continue;
       }
       final filename = disposition['filename*'] ?? disposition['filename'];
       if (filename == null) {
-        pairs.add((name, await _readField(part, limits.maxFieldBytes)));
+        pairs.add((name, await _readField(parts, part, limits.maxFieldBytes)));
         continue;
       }
       if (filename.isEmpty) {
         // A file input left empty (PHP's UPLOAD_ERR_NO_FILE): no value.
-        await part.drain<void>();
+        await parts.read(part, _ignore);
         continue;
       }
       if (files.length >= limits.maxFiles) {
         throw const BadRequestHttpException('Too many uploaded files.');
       }
       final file = await _writeFile(
+        parts,
         part,
         directory,
         clientName: _baseName(filename),
@@ -150,10 +303,8 @@ Future<MultipartBody> _parse(
       files.add(file);
       pairs.add((name, file));
     }
-  } on MimeMultipartException catch (error) {
-    await _deleteAll(files);
-    throw BadRequestHttpException('Malformed multipart body: ${error.message}');
   } catch (_) {
+    parts.cancel();
     await _deleteAll(files);
     rethrow;
   }
@@ -164,18 +315,21 @@ Directory _defaultTempDirectory() =>
     Directory('${Directory.systemTemp.path}/daravel-uploads')
       ..createSync(recursive: true);
 
-Future<String> _readField(MimeMultipart part, int limit) async {
+Future<String> _readField(_Parts parts, MimeMultipart part, int limit) async {
   final builder = BytesBuilder(copy: false);
-  await for (final chunk in part) {
+  await parts.read(part, (chunk) {
     builder.add(chunk);
     if (builder.length > limit) {
       throw const PayloadTooLargeHttpException();
     }
-  }
+  });
   return utf8.decode(builder.takeBytes(), allowMalformed: true);
 }
 
+/// Streams [part] to a temporary file; the file is deleted when the part
+/// or the write fails.
 Future<UploadedFile> _writeFile(
+  _Parts parts,
   MimeMultipart part,
   Directory directory, {
   required String clientName,
@@ -185,17 +339,34 @@ Future<UploadedFile> _writeFile(
   final sink = File(path).openWrite();
   final header = BytesBuilder();
   var size = 0;
+  Object? failure;
+  StackTrace? failureStack;
   try {
-    await for (final chunk in part) {
+    await parts.read(part, (chunk) {
       sink.add(chunk);
       size += chunk.length;
       if (header.length < UploadedFile.headerLength) {
         final room = UploadedFile.headerLength - header.length;
         header.add(chunk.length <= room ? chunk : chunk.sublist(0, room));
       }
-    }
-  } finally {
+    });
+  } catch (error, stack) {
+    failure = error;
+    failureStack = stack;
+  }
+  try {
     await sink.close();
+  } catch (error, stack) {
+    failure ??= error;
+    failureStack ??= stack;
+  }
+  if (failure != null) {
+    try {
+      await File(path).delete();
+    } on FileSystemException {
+      // Never created, or already gone.
+    }
+    Error.throwWithStackTrace(failure, failureStack!);
   }
   return UploadedFile.temporary(
     path: path,
