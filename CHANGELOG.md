@@ -59,6 +59,8 @@ match Laravel more closely.
 
 ### Fixed
 
+- `dartisan e2e:install` writes `"@playwright/test": "~1.64.1"` instead of `^1.48.0`: npm lists `@playwright/test` 1.65.0 while `playwright-core` 1.65.0 is missing from the registry, so `npm install` failed with `ETARGET`. The starter's e2e suite carries the same pin.
+
 - Sanctum tokens with a UUID or ULID id: `TokenGuard(keyType:)` and `AuthManager.token(..., keyType:)` take `KeyType.uuid` or `KeyType.ulid` for a tokens table whose Laravel `PersonalAccessToken` model uses `HasUuids` or `HasUlids`. Such a guard issues tokens with a generated UUID/ULID id (`insertGetId` read back nothing) and finds `<uuid>|<secret>` tokens, which `int.tryParse` refused before, so a Laravel-issued token did not authenticate. A token id that cannot be the table's key (text for an integer key, an integer or a malformed id for a UUID/ULID key) is a miss before any query, so PostgreSQL never compares text with a `bigint` column (an error, so a 500, not a 401). The default stays `KeyType.autoInt`; other key types are refused when the guard is made.
 
 - `FileStore` (`CACHE_STORE=file`, and the `file` store some packages pick for state shared between processes, such as `daravel_permission`'s cache version) no longer fails a write with `PathNotFoundException: Cannot rename file` when processes share its directory, as `dart test` does with one process per test file. Two writes made in the same millisecond took the same temporary file, and a write whose directory another process flushed was not made again. `increment`, `decrement`, `add` and `touch` are now atomic across processes (an OS lock per key) and across the calls of one isolate, so no count is lost; Laravel takes `LOCK_EX` for the same reason.
