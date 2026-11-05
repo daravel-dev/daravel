@@ -417,15 +417,38 @@ final class Request {
     _bodyBytes ??= const <int>[];
   }
 
+  /// Whether the body is still on the socket, unread and unclaimed:
+  /// nothing called [bytes], [body] or [bodyStream] for it, or the call was
+  /// refused before reading (a declared `Content-Length` above
+  /// [maxBodyBytes]). The server takes such a body off the connection
+  /// itself before it answers, so the response never waits for a client
+  /// that sends it slowly. Always false for [Request.fake].
+  bool get hasUnreadBody => _bodyStream != null;
+
   /// The raw body as it arrives, once, never above [maxBodyBytes]: for
   /// forwarding it ([UpstreamProxy]) or writing it somewhere without
   /// buffering. After [bytes] it replays the cached bytes.
+  ///
+  /// The call claims the body (see [hasUnreadBody]) even before the
+  /// stream is listened to.
   Stream<List<int>> bodyStream() => _limitedBody();
 
   /// The body as a stream that never exceeds [maxBodyBytes] (multipart
   /// bodies are parsed as they arrive instead of being buffered).
-  Stream<List<int>> _limitedBody() async* {
+  Stream<List<int>> _limitedBody() {
     final cached = _bodyBytes;
+    final stream = _bodyStream;
+    if (cached == null) {
+      _bodyStream = null;
+      _bodyBytes = const <int>[];
+    }
+    return _limited(cached, stream);
+  }
+
+  Stream<List<int>> _limited(
+    List<int>? cached,
+    Stream<List<int>>? stream,
+  ) async* {
     if (cached != null) {
       _enforceLimit(cached.length);
       yield cached;
@@ -433,11 +456,14 @@ final class Request {
     }
     final declared = contentLength;
     if (declared != null) {
-      _enforceLimit(declared);
+      try {
+        _enforceLimit(declared);
+      } on PayloadTooLargeHttpException {
+        // Refused unread: it stays the server's to discard.
+        _bodyStream ??= stream;
+        rethrow;
+      }
     }
-    final stream = _bodyStream;
-    _bodyStream = null;
-    _bodyBytes = const <int>[];
     if (stream == null) {
       return;
     }

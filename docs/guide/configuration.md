@@ -104,7 +104,7 @@ frozen after boot.
 | `HASH_DRIVER`, `BCRYPT_ROUNDS` | `bcrypt`, `12` | Password hashing (as Laravel) |
 | `LOG_LEVEL`, `LOG_STACK` | `debug` | Logging level and channels (`json` for production) |
 | `SHUTDOWN_TIMEOUT`, `HTTP_REQUEST_TIMEOUT` | `30s`, `30s` | Graceful shutdown and handler timeouts |
-| `HTTP_IDLE_TIMEOUT` | `60s` | A keep-alive connection idle this long is closed by the server |
+| `HTTP_IDLE_TIMEOUT` | `60s` | A keep-alive connection idle this long between requests is closed by the server. Within a request, a body the application does not read is not waited for: the server answers at once (after up to 1 s for a body of at most 256 KiB, to keep the connection) and closes the connection if the body has not arrived |
 | `HTTP_MAX_BODY` | `52428800` (50 MiB) | The body limit every request starts with (`413` above it; `0` for none); `BodyLimitsMiddleware` tightens it to 1 MiB for JSON and forms |
 | `HTTP_MAX_QUEUE_DELAY`, `HTTP_MAX_IN_FLIGHT` | off (`200ms` in new projects), off | [Load shedding](deployment.md#load-shedding): `503` while a worker's event loop is this late, or above this many requests at once |
 | `SERVER_EMBED_QUEUE`, `SERVER_EMBED_SCHEDULER` | `false` | Queue worker and scheduler in the server process |

@@ -138,8 +138,10 @@ final class ServeOptions {
 
   /// How long a keep-alive connection may sit without a request before
   /// the server closes it (`HTTP_IDLE_TIMEOUT`, 60 s): the bound on idle
-  /// sockets a client opens and never uses. A request in progress is
-  /// bounded by [requestTimeout] instead.
+  /// sockets a client opens and never uses, between requests. Within a
+  /// request the handler is bounded by [requestTimeout], and a body the
+  /// application does not read is not waited for (see
+  /// [ServerEngine.unreadBodyDrainLimit]).
   final Duration idleTimeout;
 
   /// How long shutdown waits for requests in progress (`SHUTDOWN_TIMEOUT`).
@@ -334,12 +336,73 @@ final class ServerEngine {
     return overloaded && !_neverShed.contains(httpRequest.uri.path);
   }
 
+  /// The largest unread request body the server waits for, and throws
+  /// away, before it answers, so the connection can stay open for the
+  /// next request (Go's `net/http` reads up to the same 256 KiB). A larger
+  /// or chunked body is not waited for: the response goes out at once and
+  /// the connection is closed after it.
+  static const int unreadBodyDrainLimit = 256 * 1024;
+
+  /// How long the server waits for an unread body within
+  /// [unreadBodyDrainLimit] before it answers anyway and closes the
+  /// connection (never longer than [ServeOptions.requestTimeout]).
+  static const Duration unreadBodyDrainTimeout = Duration(seconds: 1);
+
+  /// Takes the body of [httpRequest] off `dart:io` and throws it away;
+  /// completes once all of it has arrived (or the connection failed), or
+  /// returns `null` for a request without a body.
+  ///
+  /// Without a listener, `dart:io` reads the whole declared body before it
+  /// writes the response headers, with no timeout: a client that sends its
+  /// body slowly, or never, held the response and its in-flight slot for as
+  /// long as it kept the socket open, and a `413` refusing a declared
+  /// gigabyte was sent only after the gigabyte (#144). With one, the
+  /// response goes out at once, and `dart:io` closes the connection after it
+  /// unless the body had arrived in full by then.
+  static Future<void>? _discardBody(HttpRequest httpRequest) {
+    if (httpRequest.contentLength == 0) {
+      return null;
+    }
+    final arrived = Completer<void>();
+    void done() {
+      if (!arrived.isCompleted) {
+        arrived.complete();
+      }
+    }
+
+    try {
+      httpRequest.listen(null, onError: (Object _) => done(), onDone: done);
+    } on StateError {
+      return null; // Already listened to.
+    }
+    return arrived.future;
+  }
+
+  /// Before answering a request whose body nothing read: waits for a small
+  /// body to arrive, briefly, to keep the connection; otherwise lets the
+  /// response go out at once (see [_discardBody]).
+  Future<void> _settleUnreadBody(HttpRequest httpRequest) async {
+    final arrived = _discardBody(httpRequest);
+    final declared = httpRequest.contentLength;
+    if (arrived == null || declared < 0 || declared > unreadBodyDrainLimit) {
+      return;
+    }
+    final requestTimeout = options.requestTimeout;
+    final wait =
+        requestTimeout != null && requestTimeout < unreadBodyDrainTimeout
+        ? requestTimeout
+        : unreadBodyDrainTimeout;
+    await arrived.timeout(wait, onTimeout: () {});
+  }
+
   /// Answers `503` without routing, scope or body read. A body-less
   /// request (most `GET`s) keeps its keep-alive connection, which costs the
-  /// server less than a reconnect; one whose body was not read has its
-  /// connection closed by `dart:io`, so a client streaming into an
-  /// overloaded worker is not kept.
+  /// server less than a reconnect; one with a body is answered without
+  /// waiting for it, and its connection is closed unless the body had
+  /// already arrived, so a client streaming into an overloaded worker is
+  /// not kept.
   void _shedRequest(HttpRequest httpRequest) {
+    unawaited(_discardBody(httpRequest));
     _shed++;
     onShed?.call();
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -552,6 +615,7 @@ final class ServerEngine {
   /// [Request.fromHttpRequest]) with its [HttpException] status, or 400, and
   /// closes the connection: nothing of it was read or trusted.
   void _rejectMalformed(HttpRequest httpRequest, String id, Object error) {
+    unawaited(_discardBody(httpRequest));
     final status = error is HttpException
         ? error.status
         : HttpStatus.badRequest;
@@ -648,6 +712,12 @@ final class ServerEngine {
                     await _session(socket, request, response, onSocket, id);
                   }
                   return;
+                }
+                if (request.hasUnreadBody) {
+                  // A 404, 401, 429, 413 or a handler that ignores the
+                  // body: answer without waiting for it.
+                  request.detachBody();
+                  await _settleUnreadBody(raw!);
                 }
                 try {
                   await response.writeTo(raw!.response);

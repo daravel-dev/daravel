@@ -1,4 +1,4 @@
-<!-- source: configuration.md sha256:a0469b3069a8 -->
+<!-- source: configuration.md sha256:2387f1760a02 -->
 # Konfigurasi
 
 ## File environment
@@ -107,7 +107,7 @@ setelah boot.
 | `HASH_DRIVER`, `BCRYPT_ROUNDS` | `bcrypt`, `12` | Hashing password (seperti Laravel) |
 | `LOG_LEVEL`, `LOG_STACK` | `debug` | Level log dan channel (`json` untuk produksi) |
 | `SHUTDOWN_TIMEOUT`, `HTTP_REQUEST_TIMEOUT` | `30s`, `30s` | Graceful shutdown dan timeout handler |
-| `HTTP_IDLE_TIMEOUT` | `60s` | Koneksi keep-alive yang menganggur selama ini ditutup oleh server |
+| `HTTP_IDLE_TIMEOUT` | `60s` | Koneksi keep-alive yang menganggur selama ini di antara request ditutup oleh server. Di dalam request, body yang tidak dibaca aplikasi tidak ditunggu: server langsung menjawab (setelah paling lama 1 detik untuk body sampai 256 KiB, agar koneksi tetap terbuka) dan menutup koneksi jika body belum tiba |
 | `HTTP_MAX_BODY` | `52428800` (50 MiB) | Batas body yang dimiliki setiap request sejak awal (`413` di atasnya; `0` untuk tanpa batas); `BodyLimitsMiddleware` memperketatnya ke 1 MiB untuk JSON dan form |
 | `HTTP_MAX_QUEUE_DELAY`, `HTTP_MAX_IN_FLIGHT` | mati (`200ms` di proyek baru), mati | [Load shedding](deployment.md#load-shedding): `503` selama event loop worker terlambat sebanyak ini, atau di atas sekian request sekaligus |
 | `SERVER_EMBED_QUEUE`, `SERVER_EMBED_SCHEDULER` | `false` | Queue worker dan scheduler di dalam proses server |
