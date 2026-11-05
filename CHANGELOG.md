@@ -11,6 +11,10 @@ match Laravel more closely.
 
 ## Unreleased
 
+### Changed
+
+- The `process` cache store sends values to the coordinator as JSON strings, which the VM shares between the isolates of a process, instead of maps and lists, which it copies on the coordinator's event loop (9 ms per MB measured, during which every worker waits). Numbers, booleans and null cross as they are, so `increment` still works on a stored number, and a value JSON cannot encode (a `DateTime`) still crosses as the object. `ProcessStore.encodeWire`/`decodeWire` expose the wire form; the near cache (`CACHE_PROCESS_L1_TTL`) keeps it and decodes per read, so callers still get their own copy. The coordinator's port is a `RawReceivePort`. Guide: [Operations](docs/guide/operations.md#isolates); `bench/bin/isolate_payload.dart` reproduces the measurement.
+
 ### Added
 
 - Rate limits that fail closed: `Limit.failsClosed()` (`Limit(failClosed: true)`), `ThrottleMiddleware(failClosed: true)` and `ProcessRateLimitStore(failClosed: true)` refuse with `429` and `Retry-After: 1` an attempt the coordinator could not count (an error or a timeout, which flooding requests can cause), where rate limiting lets it through. Meant for limits that guard credentials (login, OTP, password reset), so that overloading the coordinator does not lift them. `RateLimitResult.degraded` marks an attempt the store could not count, and `RateLimiter.attempt(failClosed: true)` refuses it in any store. Rate limiting still fails open by default (ADR-003).
