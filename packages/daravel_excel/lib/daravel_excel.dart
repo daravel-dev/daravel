@@ -12,7 +12,7 @@ library;
 
 export 'src/cells.dart' show ExcelDate, NumberFormat, columnIndex, columnLetter;
 export 'src/concerns.dart';
-export 'src/csv.dart' show CsvSettings;
+export 'src/csv.dart' show CsvSettings, escapeCsvFormula;
 export 'src/excel.dart';
 export 'src/exporter.dart' show ExcelType;
 export 'src/failure.dart';

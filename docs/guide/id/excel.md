@@ -1,4 +1,4 @@
-<!-- source: excel.md sha256:2671f7dd2426 -->
+<!-- source: excel.md sha256:acc2ccc1dbc1 -->
 # Excel dan CSV
 
 `daravel_excel` mengekspor dan mengimpor spreadsheet dengan concern dari
@@ -84,6 +84,16 @@ sebagai tanggal dan jam); teks ditulis inline, sehingga tidak ada tabel
 shared strings yang membesar di memori. CSV membungkus setiap field dengan
 tanda kutip, seperti writer PhpSpreadsheet, dan hanya berisi sheet
 pertama.
+
+Spreadsheet menjalankan sel CSV yang diawali `=`, `+`, `-`, atau `@`
+sebagai formula, sehingga nama yang diketik sebagai `=HYPERLINK(...)`
+menjadi link aktif saat staf membuka hasil ekspor. Untuk ekspor yang berisi
+ketikan pengguna, kembalikan `CsvSettings(escapeFormulas: true)` dari
+`getCsvSettings()`: sel teks seperti itu diberi awalan `'` dan tampil
+sesuai ketikannya. Angka, tanggal, boolean, dan teks angka biasa (`-5`,
+`+6281234567`) tidak diubah. Opsi ini mati secara default, seperti di
+Laravel Excel, karena mengubah teks yang diterima pembaca. XLSX tidak
+memerlukannya: sel teksnya tidak pernah menjadi formula.
 
 Berbeda dengan Laravel Excel, tidak ada `ShouldAutoSize`: nilai terlebar
 sebuah kolom baru diketahui setelah semua baris ditulis, padahal file
