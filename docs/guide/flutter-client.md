@@ -40,7 +40,7 @@ the start:
 | `{id}` with `.whereNumber('id')` | a positional `int id` (other parameters are `String`) |
 | `.validates(FormRequest)` / `.rules({...})` | named parameters typed from the rules, plus an input class with the rules checked on the device |
 | `.returns(schema, name: 'User')` | a `User` model with `fromJson` and `toJson`; date-time strings are `DateTime` |
-| `shape: .paginated` / `.simplePaginated` / `.cursorPaginated` | `Page<User>`, `SimplePage<User>`, `CursorPage<User>` and a `page` or `cursor` parameter |
+| `shape: .paginated` / `.simplePaginated` / `.cursorPaginated` | `ApiPage<User>`, `SimplePage<User>`, `CursorPage<User>` and a `page` or `cursor` parameter |
 | `shape: .collection` | `List<User>` |
 | `'title': 'User'` in a schema | the model's name: a schema reused inside other responses (the `user` of a token response) is the same `User` class |
 | `oneOf: [User, {'type': 'null'}]` (or `anyOf`), `'type': ['object', 'null']` | a nullable `User?` field |
@@ -59,7 +59,7 @@ final user = await api.users.store(
   passwordConfirmation: 'Secret123',
 );
 
-final Page<User> page = await api.users.index(page: 2);
+final ApiPage<User> page = await api.users.index(page: 2);
 print('${page.items.length} of ${page.total}');
 ```
 
@@ -191,7 +191,7 @@ ProviderScope(
 );
 
 final user = ref.watch(usersShowProvider(7));          // AsyncValue<User>
-final page = ref.watch(usersIndexProvider(2));         // AsyncValue<Page<User>>
+final page = ref.watch(usersIndexProvider(2));         // AsyncValue<ApiPage<User>>
 ref.invalidate(usersShowProvider);                     // refetch
 ```
 

@@ -89,9 +89,10 @@ final class SseMessage {
   Object? get json => jsonDecode(data);
 }
 
-/// A page from Laravel's `paginate()`.
-final class Page<T> {
-  Page._(this.items, Map<String, Object?> meta, Map<String, Object?> links)
+/// A page from Laravel's `paginate()`. Named `ApiPage`, not `Page`, so it
+/// does not clash with `Page` from `package:flutter/widgets.dart`.
+final class ApiPage<T> {
+  ApiPage._(this.items, Map<String, Object?> meta, Map<String, Object?> links)
       : currentPage = _int(meta['current_page']) ?? 1,
         lastPage = _int(meta['last_page']) ?? 1,
         perPage = _int(meta['per_page']) ?? items.length,
@@ -101,12 +102,12 @@ final class Page<T> {
         nextPageUrl = links['next'] as String?,
         prevPageUrl = links['prev'] as String?;
 
-  static Page<T> fromJson<T>(
+  static ApiPage<T> fromJson<T>(
     Object? json,
     T Function(Object? item) item,
   ) {
     final body = _map(json);
-    return Page<T>._(
+    return ApiPage<T>._(
       _list(body['data']).map(item).toList(),
       _map(body['meta']),
       _map(body['links']),
@@ -125,6 +126,11 @@ final class Page<T> {
 
   bool get hasMorePages => currentPage < lastPage;
 }
+
+/// The old name of [ApiPage], kept so code written against an earlier
+/// client still compiles. It clashes with Flutter's `Page`.
+@Deprecated("Use ApiPage, which does not clash with Flutter's Page.")
+typedef Page<T> = ApiPage<T>;
 
 /// A page from Laravel's `simplePaginate()` (no total).
 final class SimplePage<T> {

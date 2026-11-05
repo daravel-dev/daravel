@@ -287,7 +287,7 @@ void main() {
     );
     expect(
       api,
-      contains('Future<Page<Account>> index({String? search, int? page})'),
+      contains('Future<ApiPage<Account>> index({String? search, int? page})'),
     );
     expect(api, contains('Future<Account> show(int id, '));
     expect(
@@ -346,6 +346,14 @@ void main() {
     expect(file('lib/src/api.dart'), contains('Future<SignIn> signIn('));
   });
 
+  test('pages are ApiPage, so Flutter apps need no `hide Page`', () {
+    final runtime = file('lib/src/runtime.dart');
+    expect(runtime, contains('final class ApiPage<T> {'));
+    expect(runtime, isNot(contains('final class Page<T>')));
+    // The old name still compiles, deprecated.
+    expect(runtime, contains('typedef Page<T> = ApiPage<T>;'));
+  });
+
   test('204 responses are Future<void>', () {
     final api = file('lib/src/api.dart');
     expect(api, contains('Future<void> destroy(int id, '));
@@ -390,7 +398,7 @@ void main() {
       providers,
       contains(
         'final accountsIndexProvider = FutureProvider.autoDispose\n'
-        '    .family<Page<Account>, ({String? search, int? page})>(',
+        '    .family<ApiPage<Account>, ({String? search, int? page})>(',
       ),
     );
     expect(providers, contains('.family<Account, int>('));

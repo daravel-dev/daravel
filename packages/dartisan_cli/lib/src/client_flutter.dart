@@ -660,8 +660,8 @@ final class _Generator {
         'jsonArray($data).map($itemFn).toList()',
       ),
       ResponseShape.paginated => (
-        'Page<${model.name}>',
-        'Page.fromJson(json, $itemFn)',
+        'ApiPage<${model.name}>',
+        'ApiPage.fromJson(json, $itemFn)',
       ),
       ResponseShape.simplePaginated => (
         'SimplePage<${model.name}>',
