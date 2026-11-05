@@ -1,4 +1,5 @@
 import 'package:daravel/daravel.dart';
+import 'package:daravel_session/daravel_session.dart';
 
 import 'broadcasting.dart';
 import 'client.dart';
@@ -6,6 +7,7 @@ import 'config.dart';
 import 'events.dart';
 import 'limiters.dart';
 import 'queue.dart';
+import 'session.dart';
 import 'store.dart';
 import 'tiered.dart';
 
@@ -24,18 +26,30 @@ extension RedisApplicationBuilder on ApplicationBuilder {
   ///   `REDIS_URL`): Sentinel or Redis Cluster;
   /// - `REVERB_SCALING_ENABLED=true` with `REVERB_SCALING_DRIVER=redis`:
   ///   broadcasting servers share channels through Redis Pub/Sub;
+  /// - `SESSION_DRIVER=redis` with `withSession()` (`daravel_session`):
+  ///   sessions in Redis with Laravel's key layout
+  ///   ([redisSessionHandler]);
   /// - the [Redis] facade, a `redis` readiness check on `/up/ready`, and
   ///   a boot warning when a public host is reached without TLS.
   ///
   /// Nothing connects until something uses Redis.
   ApplicationBuilder withRedis() => withConfig<RedisConfig>(RedisConfig.fromEnv)
       .withConfigCheck(RedisConfig.check)
-      .withBindings(
-        (container) => container.singleton<RedisManager>(
-          (c) =>
-              RedisManager(c.make<ConfigRepository>().section<RedisConfig>()),
-        ),
-      )
+      .withConfigCheck(checkRedisSessions)
+      .withBindings((container) {
+        container
+          ..singleton<RedisManager>(
+            (c) =>
+                RedisManager(c.make<ConfigRepository>().section<RedisConfig>()),
+          )
+          // Whichever of withSession() and withRedis() comes first.
+          ..resolving<SessionManager>(
+            (sessions, c) => sessions.extend(
+              'redis',
+              (session) => redisSessionHandler(c, session),
+            ),
+          );
+      })
       .withCacheStore('redis', _redisStore)
       .withCacheStore('tiered', (c) {
         final redis = c.make<ConfigRepository>().section<RedisConfig>();
