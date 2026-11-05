@@ -1,3 +1,8 @@
+# Test files share one server, and some keep it busy on purpose (a Lua
+# script that outlasts a command timeout) or block on it: run them one at a
+# time so no file's commands time out behind another's.
+concurrency: 1
+
 tags:
   # Needs a Redis or Valkey server (DARAVEL_TEST_REDIS); skipped without it.
   integration:

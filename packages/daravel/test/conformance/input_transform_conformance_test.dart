@@ -108,4 +108,28 @@ void main() {
     await run(const TrimStringsMiddleware(except: {'user.password'}), only);
     expect(await only.input<String>('user.password'), ' nested ');
   });
+
+  test('the default except is Laravel\'s: current_password, password and '
+      'password_confirmation (TrimStrings::\$except)', () async {
+    // laravel/framework v10.48.29 Foundation/Http/Middleware/TrimStrings.php
+    // 16–20, and the same list in v11 and v12.
+    final request = post({
+      'current_password': ' old ',
+      'password': ' new ',
+      'password_confirmation': ' new ',
+      'name': ' Ana ',
+    });
+    await run(const TrimStringsMiddleware(), request);
+    expect(await request.all(), {
+      'current_password': ' old ',
+      'password': ' new ',
+      'password_confirmation': ' new ',
+      'name': 'Ana',
+    });
+    expect(TrimStringsMiddleware.defaultExcept, {
+      'current_password',
+      'password',
+      'password_confirmation',
+    });
+  });
 }

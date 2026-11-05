@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import '../foundation/clock.dart';
 
@@ -479,16 +481,140 @@ final class FileStore implements TouchableCacheStore {
     }
   }
 
+  /// Writes are atomic across processes: the payload goes to a temporary
+  /// file of its own (process, isolate and call are all in its name) that
+  /// then replaces the entry by a rename, so a reader sees the old file or
+  /// the new one, never a partial write (Laravel writes with `LOCK_EX`).
+  /// When another process removed the directory in between (a `flush`), the
+  /// write is made again.
   Future<void> _write(String key, Object? value, Duration? ttl) async {
     final file = File(_path(key));
-    await file.parent.create(recursive: true);
     final payload = jsonEncode(<String, Object?>{
       'e': ttl == null ? null : _now + ttl.inMilliseconds,
       'v': value,
     });
-    final temp = File('${file.path}.${pid}_$_now.tmp');
-    await temp.writeAsString(payload, flush: true);
-    await temp.rename(file.path);
+    for (var attempt = 1; ; attempt++) {
+      final temp = File('${file.path}.${_tempSuffix()}.tmp');
+      try {
+        await file.parent.create(recursive: true);
+        await temp.writeAsString(payload, flush: true);
+        await _replace(temp, file);
+        return;
+      } on FileSystemException {
+        await _delete(temp);
+        if (attempt >= _attempts) {
+          rethrow;
+        }
+      }
+    }
+  }
+
+  /// Renames [temp] over [target]. Windows refuses the rename for a moment
+  /// (`ERROR_ACCESS_DENIED` or `ERROR_SHARING_VIOLATION`) while another
+  /// writer is replacing the same entry or a reader has it open, so there it
+  /// is tried again with a backoff, keeping the temporary file. Any other
+  /// failure, or a temporary file a `flush` removed, goes to the caller.
+  static Future<void> _replace(File temp, File target) async {
+    // A Stopwatch, not Clock.now(): a test that freezes the clock still
+    // gives up.
+    final waited = Stopwatch()..start();
+    for (var wait = 1; ; wait = min(wait * 2, 20)) {
+      try {
+        await temp.rename(target.path);
+        return;
+      } on FileSystemException catch (e) {
+        final code = e.osError?.errorCode;
+        if (!Platform.isWindows ||
+            (code != 5 && code != 32) ||
+            waited.elapsed > _replaceTimeout ||
+            !await temp.exists()) {
+          rethrow;
+        }
+      }
+      await Future<void>.delayed(Duration(milliseconds: wait));
+    }
+  }
+
+  static const Duration _replaceTimeout = Duration(seconds: 5);
+
+  static const int _attempts = 5;
+  static final Random _random = Random();
+  static int _tempSequence = 0;
+
+  static String _tempSuffix() =>
+      '${pid}_${_random.nextInt(1 << 32).toRadixString(16)}_'
+      '${_tempSequence++}';
+
+  /// The last read-modify-write update queued per key in this isolate.
+  final Map<String, Completer<void>> _queued = <String, Completer<void>>{};
+
+  /// Runs [body] holding the key's mutex: an exclusive OS lock on a file in
+  /// `<directory>/mutex` keeps other processes out, and a queue keeps the
+  /// other calls of this isolate out (an OS lock belongs to the process).
+  Future<T> _exclusive<T>(String key, Future<T> Function() body) async {
+    final previous = _queued[key];
+    final done = Completer<void>();
+    _queued[key] = done;
+    try {
+      if (previous != null) {
+        await previous.future;
+      }
+      return await _locked(key, body);
+    } finally {
+      done.complete();
+      if (identical(_queued[key], done)) {
+        _queued.remove(key);
+      }
+    }
+  }
+
+  /// Polls a non-blocking lock: a blocking one parks a thread per waiting
+  /// key, and the kernel reports a deadlock (EDEADLK) when two processes
+  /// each wait for a key the other holds, although each call holds only one.
+  static Future<void> _lock(RandomAccessFile handle) async {
+    // A Stopwatch, not Clock.now(): a test that freezes the clock still
+    // gives up.
+    final waited = Stopwatch()..start();
+    for (var wait = 1; ; wait = min(wait * 2, 20)) {
+      try {
+        await handle.lock(FileLock.exclusive);
+        return;
+      } on FileSystemException {
+        if (waited.elapsed > _lockTimeout) {
+          rethrow;
+        }
+      }
+      await Future<void>.delayed(Duration(milliseconds: wait));
+    }
+  }
+
+  static const Duration _lockTimeout = Duration(seconds: 30);
+
+  Future<T> _locked<T>(String key, Future<T> Function() body) async {
+    final hash = crypto.sha1.convert(utf8.encode(key)).toString();
+    final file = File(p.join(directory, 'mutex', '$hash.lock'));
+    RandomAccessFile? handle;
+    for (var attempt = 1; handle == null; attempt++) {
+      try {
+        await file.parent.create(recursive: true);
+        handle = await file.open(mode: FileMode.append);
+      } on FileSystemException {
+        if (attempt >= _attempts) {
+          rethrow;
+        }
+      }
+    }
+    try {
+      await _lock(handle);
+      return await body();
+    } finally {
+      try {
+        await handle.unlock();
+      } on FileSystemException {
+        // Closing the handle releases the lock as well.
+      }
+      await handle.close();
+    }
   }
 
   static Future<void> _delete(File file) async {
@@ -503,14 +629,14 @@ final class FileStore implements TouchableCacheStore {
   Future<Object?> get(String key) async => (await _read(key))?['v'];
 
   @override
-  Future<bool> touch(String key, Duration ttl) async {
+  Future<bool> touch(String key, Duration ttl) => _exclusive(key, () async {
     final entry = await _read(key);
     if (entry == null) {
       return false;
     }
     await _write(key, entry['v'], ttl);
     return true;
-  }
+  });
 
   @override
   Future<Map<String, Object?>> many(List<String> keys) async =>
@@ -527,17 +653,22 @@ final class FileStore implements TouchableCacheStore {
     }
   }
 
+  /// Atomic across processes and the calls of this isolate, like Laravel's
+  /// `FileStore::add` under an exclusive lock.
   @override
-  Future<bool> add(String key, Object? value, {Duration? ttl}) async {
-    if (await _read(key) != null) {
-      return false;
-    }
-    await _write(key, value, ttl);
-    return true;
-  }
+  Future<bool> add(String key, Object? value, {Duration? ttl}) =>
+      _exclusive(key, () async {
+        if (await _read(key) != null) {
+          return false;
+        }
+        await _write(key, value, ttl);
+        return true;
+      });
 
+  /// Atomic across processes and the calls of this isolate: no increment is
+  /// lost to one made at the same time.
   @override
-  Future<int> increment(String key, [int by = 1]) async {
+  Future<int> increment(String key, [int by = 1]) => _exclusive(key, () async {
     final current = await _read(key);
     final value = current?['v'];
     final next = (value is num ? value.toInt() : 0) + by;
@@ -548,7 +679,7 @@ final class FileStore implements TouchableCacheStore {
       exp == null ? null : Duration(milliseconds: exp - _now),
     );
     return next;
-  }
+  });
 
   @override
   Future<int> decrement(String key, [int by = 1]) => increment(key, -by);
@@ -569,8 +700,16 @@ final class FileStore implements TouchableCacheStore {
   @override
   Future<void> flush() async {
     final dir = Directory(directory);
-    if (await dir.exists()) {
-      await dir.delete(recursive: true);
+    // Another process can remove the directory, or write into it, while it
+    // is deleted: the delete is made again until the directory is gone.
+    for (var attempt = 1; await dir.exists(); attempt++) {
+      try {
+        await dir.delete(recursive: true);
+      } on FileSystemException {
+        if (attempt >= _attempts) {
+          rethrow;
+        }
+      }
     }
   }
 

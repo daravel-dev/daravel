@@ -1,4 +1,4 @@
-<!-- source: redis.md sha256:c26774bc26de -->
+<!-- source: redis.md sha256:9664ebb13f6e -->
 # Redis
 
 Di satu server, Daravel tidak membutuhkan Redis: isolate coordinator
@@ -251,7 +251,19 @@ tersendiri.
 Setiap isolate memegang satu koneksi per server, dan perintah yang dikirim
 tanpa saling menunggu berbagi round trip-nya (pipelining). Perintah
 blocking dan subscription mendapat koneksi sendiri; subscription akan
-subscribe ulang setelah koneksinya terputus.
+subscribe ulang setelah koneksinya terputus. Perintah blocking yang dikirim
+lewat `command` (`BLPOP`, `BRPOP`, `BLMOVE`, `BZPOPMIN`,
+`XREAD`/`XREADGROUP` dengan `BLOCK`, `WAIT`) menunggu selama perintah itu
+memblok ditambah `REDIS_COMMAND_TIMEOUT`, dan tanpa batas bila perintahnya
+memblok tanpa batas (`0`):
+
+```dart
+// Waits up to 2 s for new entries, although the command timeout is 1 s.
+final entries = await Redis.command([
+  'XREADGROUP', 'GROUP', 'workers', 'w1', 'COUNT', 100,
+  'BLOCK', 2000, 'STREAMS', 'answers', '>',
+]);
+```
 
 ## Perintah
 
