@@ -15,21 +15,25 @@ void main() {
     temp = await Directory.systemTemp.createTemp('daravel_file_store_');
   });
 
-  tearDown(() async {
-    await temp.delete(recursive: true);
-  });
+  tearDown(() => _deleteDirectory(temp));
 
-  test('concurrent writes in one isolate each get a temporary file', () async {
-    final store = FileStore(p.join(temp.path, 'cache'));
-    await Future.wait(<Future<void>>[
-      for (var i = 0; i < 200; i++) store.put('same', i),
-    ]);
-    final values = await Future.wait(<Future<int>>[
-      for (var i = 0; i < 200; i++) store.increment('counter'),
-    ]);
-    expect(values.toSet(), hasLength(200));
-    expect(await store.get('counter'), 200);
-  });
+  // 400 file operations: a loaded Windows runner (Defender scans every new
+  // file) took more than the default 30 s for them.
+  test(
+    'concurrent writes in one isolate each get a temporary file',
+    timeout: const Timeout(Duration(minutes: 3)),
+    () async {
+      final store = FileStore(p.join(temp.path, 'cache'));
+      await Future.wait(<Future<void>>[
+        for (var i = 0; i < 200; i++) store.put('same', i),
+      ]);
+      final values = await Future.wait(<Future<int>>[
+        for (var i = 0; i < 200; i++) store.increment('counter'),
+      ]);
+      expect(values.toSet(), hasLength(200));
+      expect(await store.get('counter'), 200);
+    },
+  );
 
   test('a flush while writing does not fail the write', () async {
     final store = FileStore(p.join(temp.path, 'cache'));
@@ -79,4 +83,24 @@ void main() {
       expect(leftovers, isEmpty);
     },
   );
+}
+
+/// Deletes [directory], trying again for a while: Windows refuses to delete
+/// a file another handle still has open (errno 32), such as a virus scanner
+/// on a file just written, or the operations of a test that timed out.
+Future<void> _deleteDirectory(Directory directory) async {
+  final waited = Stopwatch()..start();
+  while (true) {
+    try {
+      if (await directory.exists()) {
+        await directory.delete(recursive: true);
+      }
+      return;
+    } on FileSystemException {
+      if (waited.elapsed > const Duration(seconds: 10)) {
+        rethrow;
+      }
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+  }
 }
