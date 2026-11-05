@@ -1,4 +1,4 @@
-<!-- source: security.md sha256:fb546ea0c1cf -->
+<!-- source: security.md sha256:db5e87f5bf6f -->
 # Keamanan Sistem (Security Guide)
 
 Pelaporan kerentanan keamanan secara privat dijelaskan pada berkas
@@ -15,7 +15,7 @@ Daravel dirancang dengan arsitektur **Secure-by-Default** dan prinsip *defense-i
 | 1 | **Production Debug Guard** | `APP_DEBUG=true` pada `APP_ENV=production` otomatis menghentikan server saat booting | `ConfigValidator` |
 | 2 | **Kekuatan Kunci Enkripsi** | `APP_KEY` wajib 32 byte (`base64:...`) untuk AES-256; kunci lemah langsung ditolak | `Encrypter` |
 | 3 | **CORS Lockdown** | Menolak seluruh origin liar secara default; wildcard `*` dengan kredensial ditolak keras | `CorsMiddleware` |
-| 4 | **Header Keamanan HTTP** | Memasang `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `X-Frame-Options: DENY` (hanya untuk HTML), dan HSTS pada HTTPS | `SecurityHeadersMiddleware` |
+| 4 | **Header Keamanan HTTP** | Memasang `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `X-Frame-Options: DENY` (hanya untuk HTML), HSTS pada HTTPS, serta [Content-Security-Policy](#content-security-policy) dengan nonce per request bila dikonfigurasi | `SecurityHeadersMiddleware` |
 | 5 | **Isolasi Header Bersih (v1.4.1)** | Menghapus default header `dart:io` dan mengganti nilai per-request agar tidak terjadi akumulasi header berulang | `ServerEngine`, `Response` |
 | 6 | **Pencegahan Abuse & Brute Force** | Starter template membatasi login (5x/menit per email + IP) dan register (5x/menit per IP) | `bootstrap/app.dart` |
 | 7 | **Sanitasi Log Audit** | Redaksi otomatis pada password, token, dan data rahasia; request body tidak pernah dicatat mentah ke stdout | `Logger` |
@@ -69,6 +69,61 @@ Pada Daravel `1.4.1`:
 2. **Semantik Ganti Nilai (*Replace*)**: `Response.writeTo()` memanggil `out.headers.removeAll(key)` sebelum menambahkan nilai baru.
 3. **Pemisahan Konteks Format**: Header `X-Frame-Options` hanya disertakan pada halaman HTML; respons JSON API tidak lagi terkena polusi header frame yang tidak relevan.
 4. **Penghapusan Header Usang**: Header usang seperti `X-XSS-Protection` tidak lagi dikirimkan sesuai anjuran OWASP modern.
+
+---
+
+## Content-Security-Policy
+
+`SecurityHeadersMiddleware` tidak mengirim `Content-Security-Policy` kecuali
+Anda memberikannya. Dengan `contentSecurityPolicy:`, middleware ini
+menambahkan header tersebut pada respons HTML (jawaban JSON tidak
+memerlukannya), dan mempertahankan policy yang sudah di-set oleh handler:
+
+```dart
+// bootstrap/app.dart
+final csp = Csp()
+  ..defaultSrc(['self'])
+  ..scriptSrc(['self', Csp.nonce])          // 'nonce-...' dari request
+  ..styleSrc(['self', 'unsafe-inline'])
+  ..imgSrc(['self', 'data:'])
+  ..connectSrc(['self'])
+  ..formAction(['self', 'https://pay.example.com'])
+  ..frameAncestors(['none'])
+  ..baseUri(['none']);
+
+middleware.use([SecurityHeadersMiddleware(contentSecurityPolicy: csp)]);
+```
+
+Builder ini memberi tanda kutip pada keyword (`self` dikirim sebagai
+`'self'`, begitu pula `none`, `unsafe-inline`, `strict-dynamic`,
+`sha256-...`, dan `nonce-...`) dan menulis host serta scheme
+(`https://cdn.example.com`, `data:`) apa adanya. Source yang mengandung
+spasi, `;`, `,`, atau tanda kutip yang tidak berpasangan akan melempar
+exception, sehingga nilai dari konfigurasi tidak bisa menambahkan directive.
+`directive(name, sources)` mencakup directive yang tidak punya method
+sendiri. `Csp.strict()` adalah titik awal (`default-src 'self'`, script dan
+style dengan nonce, gambar `data:`, `object-src`, `base-uri`, dan
+`frame-ancestors` bernilai `'none'`, `form-action 'self'`), dan
+`Csp(reportOnly: true)` mengirim policy sebagai
+`Content-Security-Policy-Report-Only`, yang melaporkan pelanggaran tanpa
+memblokir apa pun, untuk mencobanya lebih dulu di situs yang sedang berjalan.
+
+**Nonce.** `Csp.nonce` mewakili `request.cspNonce`: 16 byte dari CSPRNG
+dalam base64, dibuat saat pertama kali dibaca dan tetap sama selama request
+tersebut, sehingga setiap halaman mendapat nonce baru. Pasang nonce ini pada
+script dan style inline yang Anda tulis, dan keduanya akan berjalan tanpa
+`'unsafe-inline'`:
+
+```dart
+router.get('/', (request) => Response.html(
+  '<script nonce="${request.cspNonce}">start()</script>',
+));
+```
+
+**`form-action` dan redirect.** Chrome juga menerapkan `form-action` pada
+redirect yang mengikuti `POST` sebuah form. Form yang jawabannya me-redirect
+ke payment gateway atau identity provider akan diblokir kecuali host tersebut
+tercantum di `form-action`, meskipun form itu sendiri mengirim ke situs Anda.
 
 ---
 

@@ -1,4 +1,4 @@
-<!-- source: sessions.md sha256:f1ffaae1bc54 -->
+<!-- source: sessions.md sha256:82ac8f2f55e7 -->
 # Session, cookie, dan CSRF
 
 `daravel_session` memberi route web sebuah session seperti di Laravel: id
@@ -43,11 +43,12 @@ token atau JWT tidak membutuhkannya, dan tidak menanggung biayanya.
 
 | Variabel | Default | Fungsi |
 | :-- | :-- | :-- |
-| `SESSION_DRIVER` | `database` | `database` (tabel `sessions`, seperti laravel/laravel 11 sampai 13), `file` (`storage/framework/sessions`), atau `array` (test). Versi 1.18 memakai default `file`: set `SESSION_DRIVER=file` untuk mempertahankannya |
+| `SESSION_DRIVER` | `database` | `database` (tabel `sessions`, seperti laravel/laravel 11 sampai 13), `file` (`storage/framework/sessions`), `redis` (dengan `withRedis()`, lihat [di bawah](#driver-redis-dan-cache)), `cache` (penyimpanan cache apa pun), atau `array` (test). Versi 1.18 memakai default `file`: set `SESSION_DRIVER=file` untuk mempertahankannya |
 | `SESSION_LIFETIME` | `120` | Menit session boleh menganggur |
 | `SESSION_EXPIRE_ON_CLOSE` | `false` | Cookie session tanpa masa berlaku |
 | `SESSION_COOKIE` | `<nama app>_session` | Nama cookie, `Str::slug(APP_NAME, '_')` seperti Laravel menurunkannya (`my_app_session`) |
-| `SESSION_TABLE`, `SESSION_CONNECTION` | `sessions`, default | Tabel dan koneksi driver `database` |
+| `SESSION_TABLE`, `SESSION_CONNECTION` | `sessions`, default | Tabel dan koneksi driver `database`; `SESSION_CONNECTION` juga koneksi Redis untuk driver `redis` |
+| `SESSION_STORE` | `CACHE_STORE` | Penyimpanan cache untuk driver `cache`, `session.store` dari Laravel |
 | `SESSION_PATH`, `SESSION_DOMAIN` | `/`, tidak ada | Cakupan cookie |
 | `SESSION_SECURE_COOKIE`, `SESSION_HTTP_ONLY`, `SESSION_SAME_SITE` | `false`, `true`, `lax` | Flag cookie; `SESSION_SAME_SITE=none` butuh flag secure |
 | `SESSION_ENCRYPT` | `false` | Simpan payload terenkripsi dengan `Crypt`, seperti `EncryptedStore` Laravel (`Crypt::encrypt(serialize($attributes))`) |
@@ -62,9 +63,44 @@ skeleton laravel/laravel 13 yang menetapkan `'serialization' => 'json'`,
 sehingga aplikasi yang di-upgrade ke 13 bisa saja masih memakai `php`.
 `dartisan adopt` membaca nilainya dari `config/session.php` proyek Laravel.
 
-Dengan beberapa isolate atau server, pakai `database` (atau driver `file` di
-satu mesin): driver `array` hanya memori satu isolate. `CreateSessionsTable`
-membuat tabel Laravel dan tidak berbuat apa-apa bila tabelnya sudah ada.
+Dengan beberapa isolate atau server, pakai `database` atau `redis` (atau
+driver `file` di satu mesin): driver `array` hanya memori satu isolate.
+`CreateSessionsTable` membuat tabel Laravel dan tidak berbuat apa-apa bila
+tabelnya sudah ada.
+
+### Driver redis dan cache
+
+`SESSION_DRIVER=redis` membutuhkan `daravel_redis` dan `withRedis()` di
+samping `withSession()`, dengan urutan mana pun. Driver ini sama dengan driver
+`redis` dari Laravel: sebuah session adalah key `REDIS_PREFIX` +
+`CACHE_PREFIX` + id session, berisi payload sebagaimana `serialize()` PHP
+menulis sebuah string, dan kedaluwarsa `SESSION_LIFETIME` menit setelah
+request terakhir yang menyimpannya. Redis yang menghapus session yang
+kedaluwarsa, jadi tidak ada garbage collection. Driver ini memakai koneksi
+Redis `default`, seperti Laravel bila `SESSION_CONNECTION` tidak di-set;
+`SESSION_CONNECTION=cache` memilih koneksi cache (`REDIS_CACHE_DB`), dan nama
+yang bukan koneksi Redis menghentikan boot.
+
+```dotenv
+SESSION_DRIVER=redis
+REDIS_PREFIX=my-app-database-   # prefix aplikasi Laravel,
+CACHE_PREFIX=my-app-cache-      # agar session-nya dipakai bersama
+```
+
+Nilainya ditulis dengan `serialize()` meskipun `REDIS_SERIALIZER=json`,
+agar Laravel bisa membacanya. Untuk berbagi session, beri kedua aplikasi
+`APP_KEY`, `SESSION_COOKIE`, `REDIS_PREFIX`, `CACHE_PREFIX`, dan database
+Redis yang sama. Set prefix secara eksplisit: default yang diturunkan dari
+`APP_NAME` berbeda antarversi laravel/laravel (`<app>_cache_` atau
+`<app>-cache-`), jadi salin nilainya dari `config/cache.php` dan
+`config/database.php` aplikasi Laravel.
+
+`SESSION_DRIVER=cache` menyimpan session di penyimpanan cache apa pun:
+`SESSION_STORE` menyebut namanya, dan tanpa variabel itu dipakai penyimpanan
+default (`CACHE_STORE`). Key-nya adalah prefix penyimpanan itu dan id
+session, dan entry-nya kedaluwarsa bersama session. Laravel menyediakan
+handler yang sama (`CacheBasedSessionHandler`) melalui driver `apc`,
+`memcached`, `dynamodb`, dan `redis`.
 
 ## Session
 
