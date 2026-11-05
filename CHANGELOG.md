@@ -16,6 +16,7 @@ match Laravel more closely.
 - `phpJsonDouble(double)`: a double as PHP's `json_encode` writes it (`serialize_precision = -1`, `zend_gcvt`), used by `PhpJsonEncoder` and `Response.json(phpCompatible: true)`.
 - `Request.bodyInput()`: the body's fields as `all()` sees them, without the query (Laravel's `getInputSource()->all()`). A middleware that rebuilds the body with `replace()` starts from it, so the fields the client sent keep what `TrimStrings` made of them.
 - `CachePrefixShaping`: a cache store that shapes the prefix its `CacheRepository` puts before keys, tag lists and lock names, as Laravel's stores own their prefix. `daravel_redis`'s `RedisStore` implements it (see Changed); `RedisStore(laravelCompat:)` fixes the layout instead of following `COMPAT_LARAVEL_VERSION`.
+- The `array` cache store, Laravel's in-memory store and a common `CACHE_STORE` in `phpunit.xml` and `.env.testing`: `CACHE_STORE=array` and `Cache.store('array')` are the `memory` store (`CacheManager.arrayStore`), unless an application registers a store of that name. Before, `array` failed with "Cache store [array] is not defined".
 
 ### Changed
 

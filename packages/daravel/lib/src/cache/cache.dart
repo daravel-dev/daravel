@@ -214,7 +214,10 @@ final class CacheConfig implements ConfigSection {
   factory CacheConfig.fromEnv(Env env) {
     final appName = env.string('APP_NAME', 'daravel');
     return CacheConfig(
-      defaultStore: env.string('CACHE_STORE', 'memory'),
+      defaultStore: switch (env.string('CACHE_STORE', 'memory')) {
+        CacheManager.arrayStore => 'memory',
+        final store => store,
+      },
       prefix: env.string(
         'CACHE_PREFIX',
         '${appName.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '_')}_cache_',
@@ -232,7 +235,9 @@ final class CacheConfig implements ConfigSection {
     );
   }
 
-  /// `memory` | `process` | `file` | `database`.
+  /// `memory` | `process` | `file` | `database`. `CACHE_STORE=array`
+  /// (Laravel's in-memory store, common in `phpunit.xml`) reads as
+  /// `memory`.
   final String defaultStore;
 
   /// The prefix of every key (`CACHE_PREFIX`).
@@ -580,9 +585,17 @@ final class CacheManager {
   /// The names of the configured stores.
   Iterable<String> get storeNames => _factories.keys;
 
-  /// The store named [name] (default: `CACHE_STORE`).
+  /// Laravel's `array` store, an alias of `memory` unless a store of that
+  /// name is registered with [extend].
+  static const String arrayStore = 'array';
+
+  /// The store named [name] (default: `CACHE_STORE`). `array` is the
+  /// `memory` store ([arrayStore]).
   CacheRepository store([String? name]) {
-    final resolved = name ?? config.defaultStore;
+    var resolved = name ?? config.defaultStore;
+    if (resolved == arrayStore && !_factories.containsKey(arrayStore)) {
+      resolved = 'memory';
+    }
     final existing = _stores[resolved];
     if (existing != null) {
       return existing;
