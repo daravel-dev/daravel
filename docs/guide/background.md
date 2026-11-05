@@ -240,6 +240,21 @@ void consoleRoutes(Schedule schedule) {
 Run it with `schedule:work` (long-running) or `schedule:run` from cron;
 `schedule:list` shows the next runs and each task's zone.
 
+On `SIGTERM`, `schedule:work` (and the embedded scheduler) starts nothing
+new and waits for the tasks under way, background ones included, for up to
+30 seconds (`Scheduler.stop(drain:)`; the embedded scheduler takes three
+quarters of the shutdown timeout). A task still running then has its
+`withoutOverlapping` lock released and ends with the process, instead of
+keeping the next runs away until the lock expires;
+`dartisan schedule:clear-cache` releases the overlap locks that a killed
+scheduler left behind. A task whose filter (`when`, `skip`), lock or event
+listener throws is logged and skipped (`ScheduledTaskSkipped` with reason
+`error`), and the other tasks of the minute still run. As in Laravel,
+`onOneServer` locks name the task's expression and name and the minute the
+run started, so a slow task before it cannot carry it into the next minute
+on one server; unnamed jobs of one class are told apart by their data, and
+an unnamed closure needs `named(...)`.
+
 Cron expressions are read in `SCHEDULE_TIMEZONE` (Laravel's
 `app.schedule_timezone`), or in UTC when it is not set, unless a task names
 its own zone. Laravel falls back to `APP_TIMEZONE`; Daravel 1.x does not, so

@@ -1,4 +1,4 @@
-<!-- source: background.md sha256:6c92040e9fd4 -->
+<!-- source: background.md sha256:766909076c5e -->
 # Cache, event, queue, dan penjadwalan
 
 <!-- include: packages/daravel/test/docs/guide_examples_test.dart#cache-events-queue -->
@@ -260,6 +260,22 @@ void consoleRoutes(Schedule schedule) {
 Jalankan dengan `schedule:work` (berjalan terus) atau `schedule:run` dari
 cron; `schedule:list` menampilkan jadwal berikutnya beserta zona setiap
 task.
+
+Saat `SIGTERM`, `schedule:work` (dan scheduler embedded) tidak memulai task
+baru dan menunggu task yang sedang berjalan, termasuk yang di background,
+paling lama 30 detik (`Scheduler.stop(drain:)`; scheduler embedded memakai
+tiga perempat dari shutdown timeout). Lock `withoutOverlapping` dari task
+yang masih berjalan setelah itu dilepas dan task tersebut berakhir bersama
+prosesnya, alih-alih menghalangi run berikutnya sampai lock-nya kedaluwarsa;
+`dartisan schedule:clear-cache` melepas lock overlap yang tertinggal dari
+scheduler yang di-kill. Task yang filter-nya (`when`, `skip`), lock-nya, atau
+event listener-nya melempar exception dicatat ke log dan dilewati
+(`ScheduledTaskSkipped` dengan alasan `error`), dan task lain di menit itu
+tetap berjalan. Seperti di Laravel, lock `onOneServer` memakai ekspresi dan
+nama task serta menit saat run dimulai, sehingga task lambat sebelumnya
+tidak bisa menggesernya ke menit berikutnya di satu server; job tanpa nama
+dari class yang sama dibedakan lewat datanya, dan closure tanpa nama
+membutuhkan `named(...)`.
 
 Ekspresi cron dibaca dalam `SCHEDULE_TIMEZONE` (`app.schedule_timezone`
 dari Laravel), atau dalam UTC bila tidak di-set, kecuali sebuah task

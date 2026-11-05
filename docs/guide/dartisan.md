@@ -111,7 +111,7 @@ before moving to a new minor version.
 | `queue:work [--queue] [--tries] [--max-time] [--memory] [--stop-when-empty]` | Processes jobs; stops after the current job on `SIGTERM`; `--memory=128` stops it (exit code 12) once it uses that many MB |
 | `queue:failed`, `queue:retry`, `queue:forget`, `queue:flush` | Failed jobs |
 | `queue:clear`, `queue:pause`, `queue:continue`, `queue:restart` | Queue control |
-| `schedule:work`, `schedule:run`, `schedule:list` | The scheduler |
+| `schedule:work`, `schedule:run`, `schedule:list`, `schedule:clear-cache` | The scheduler; `schedule:clear-cache` releases `withoutOverlapping` locks left behind |
 | `cache:clear`, `storage:link`, `static:hash`, `coordinator:stats [--url] [--token] [--json]` | Cache, public storage link, static file versions ([Responses](responses.md#static-files)), the running server's coordinator with advice ([Operations](operations.md#what-to-watch)) |
 
 ## Generators

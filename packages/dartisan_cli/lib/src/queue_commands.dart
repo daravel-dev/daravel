@@ -386,13 +386,50 @@ final class ScheduleWorkCommand extends DaravelCommand {
   String get description => 'Start the schedule worker (runs every minute).';
 
   @override
+  Future<int> run() async {
+    var abandoned = false;
+    final code = await withApp((app) async {
+      final scheduler = app.scheduler(commandRunner: dartisan.runNamed);
+      final stopWatching = watchStopSignals(scheduler.stop);
+      stdout.writeln(
+        'Schedule worker started (${app.config.section<AppConfig>().env}).',
+      );
+      await scheduler.work().whenComplete(stopWatching);
+      abandoned = scheduler.runningTasks > 0;
+      return 0;
+    });
+    if (abandoned) {
+      // Tasks still running after the drain had their locks released: end
+      // them with the process rather than let them run on unprotected.
+      await stdout.flush();
+      exit(code);
+    }
+    return code;
+  }
+}
+
+/// `schedule:clear-cache` — releases the overlap locks left behind.
+final class ScheduleClearCacheCommand extends DaravelCommand {
+  /// The `dartisan schedule:clear-cache` command.
+  ScheduleClearCacheCommand(super.createApp);
+
+  @override
+  String get name => 'schedule:clear-cache';
+
+  @override
+  String get description =>
+      'Delete the cached mutex files created by scheduler (the overlap '
+      'locks of withoutOverlapping tasks).';
+
+  @override
   Future<int> run() => withApp((app) async {
-    final scheduler = app.scheduler(commandRunner: dartisan.runNamed);
-    final stopWatching = watchStopSignals(scheduler.stop);
-    stdout.writeln(
-      'Schedule worker started (${app.config.section<AppConfig>().env}).',
-    );
-    await scheduler.work().whenComplete(stopWatching);
+    final cleared = await app.scheduler().clearCache();
+    if (cleared.isEmpty) {
+      stdout.writeln('No mutex files were found.');
+    }
+    for (final task in cleared) {
+      stdout.writeln('Deleting mutex for [$task]');
+    }
     return 0;
   });
 }

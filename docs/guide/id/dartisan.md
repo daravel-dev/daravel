@@ -1,4 +1,4 @@
-<!-- source: dartisan.md sha256:d7feb3478e92 -->
+<!-- source: dartisan.md sha256:ccf6a46e308a -->
 # dartisan
 
 `dartisan` adalah `artisan`-nya Daravel. Pasang sekali, lalu pakai di proyek
@@ -112,7 +112,7 @@ sebelum pindah ke versi minor baru.
 | `queue:work [--queue] [--tries] [--max-time] [--memory] [--stop-when-empty]` | Memproses job; berhenti setelah job yang sedang berjalan saat `SIGTERM`; `--memory=128` menghentikannya (exit code 12) begitu memakai sebanyak itu MB |
 | `queue:failed`, `queue:retry`, `queue:forget`, `queue:flush` | Job yang gagal |
 | `queue:clear`, `queue:pause`, `queue:continue`, `queue:restart` | Kendali queue |
-| `schedule:work`, `schedule:run`, `schedule:list` | Scheduler |
+| `schedule:work`, `schedule:run`, `schedule:list`, `schedule:clear-cache` | Scheduler; `schedule:clear-cache` melepas lock `withoutOverlapping` yang tertinggal |
 | `cache:clear`, `storage:link`, `static:hash`, `coordinator:stats [--url] [--token] [--json]` | Cache, link storage publik, versi file statis ([Respons](responses.md#file-statis)), coordinator server yang sedang berjalan beserta saran ([Operasional](operations.md#yang-dipantau)) |
 
 ## Generator

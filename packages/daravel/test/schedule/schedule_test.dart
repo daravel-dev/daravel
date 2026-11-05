@@ -288,10 +288,10 @@ void main() {
       expect(await lock.currentOwner(), isNull);
 
       schedule.call(() {}).everyMinute().onOneServer().named('single');
-      await expectLater(
-        () => scheduler.run(at),
-        throwsA(isA<ConfigException>()),
-      );
+      final results = await scheduler.run(at);
+      expect(results.last.skipped, 'error');
+      expect(results.last.error, isA<ConfigException>());
+      expect(results.first.ran, isTrue, reason: 'the other task still ran');
     });
   });
 
@@ -302,7 +302,8 @@ void main() {
         // Every unnamed closure is called `Closure`: they would share one
         // lock and the second one due in a minute would always be skipped.
         App.make<Schedule>().call(() {}).everyMinute().withoutOverlapping();
-        await expectLater(app.scheduler().run(at), throwsStateError);
+        final results = await app.scheduler().run(at);
+        expect(results.map((r) => r.error), everyElement(isStateError));
       });
     },
   );
@@ -328,7 +329,7 @@ void main() {
       now = at.add(const Duration(minutes: 1));
       await Future<void>.delayed(const Duration(milliseconds: 100));
       expect(ticks, 2, reason: 'the scheduler did not wait on the hung task');
-      scheduler.stop();
+      scheduler.stop(drain: const Duration(milliseconds: 50));
       await working.timeout(const Duration(seconds: 2));
       hung.complete();
     });

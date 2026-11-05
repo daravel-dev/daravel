@@ -167,13 +167,16 @@ final class EmbeddedWorkers {
     });
   }
 
-  /// Asks every isolate to stop after its current job or tick; kills the
-  /// ones still running after [timeout].
+  /// Asks every isolate to stop after its current job or tick (the
+  /// scheduler waits up to three quarters of [timeout] for its running
+  /// tasks); kills the ones still running after [timeout].
   Future<void> stop({Duration timeout = const Duration(seconds: 30)}) async {
     _stopping = true;
     final running = _running.values.toList();
     for (final embedded in running) {
-      (await embedded.inbox).send('stop');
+      // Three quarters of the time left, for the scheduler to wait on the
+      // tasks under way and release their locks before it is killed.
+      (await embedded.inbox).send(timeout.inMilliseconds * 3 ~/ 4);
     }
     await Future.wait(running.map((e) => e.done)).timeout(
       timeout,
@@ -259,7 +262,13 @@ Future<void> _embeddedMain(_EmbeddedStart start) async {
             );
           case EmbeddedRole.scheduler:
             final scheduler = booted.scheduler(commandRunner: start.commands);
-            inbox.listen((_) => scheduler.stop());
+            inbox.listen(
+              (message) => scheduler.stop(
+                drain: message is int
+                    ? Duration(milliseconds: message)
+                    : Scheduler.defaultDrain,
+              ),
+            );
             await scheduler.work();
         }
       },
