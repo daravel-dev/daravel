@@ -55,7 +55,17 @@ rounded half up without going through a double. `Cast.decimal` reads a
 and `dartisan model:sync` writes typed getters and setters from the table, so
 `user.email` is a `String` checked by the compiler. The types follow the
 database: on PostgreSQL a `timestamp` column is a `DateTime`, on SQLite and
-MySQL it needs `Cast.dateTime`.
+MySQL it needs `Cast.dateTime`. A `decimal` column without a cast is
+`Object?`, because MySQL returns it as a string and SQLite as a number;
+`Cast.decimalString(2)` makes it a `String` on every database.
+
+`attributes:` is Laravel's `$attributes`: default values every new model
+starts with (`attributes: {'status': 'draft'}`, stored values before casts).
+`create()` inserts them and the model reads them at once. A database
+`DEFAULT` is not read back after an insert, so without them a non-null
+accessor such as `String get status` throws on a freshly created model until
+`refresh()` (Laravel gives `null` there). `model:sync` warns about such
+columns.
 
 `toJson` writes relation keys in snake_case, as Laravel: `tipeUjian` becomes
 `tipe_ujian`. `Model.snakeAttributes = false` at boot keeps the declared names
@@ -96,6 +106,11 @@ everything else keeps working.
 `withTimestamps`), `HasManyThrough`, `HasOneThrough`, and the polymorphic `MorphOne`,
 `MorphMany`, `MorphTo`, `MorphToMany` and `MorphedByMany`
 (see [Polymorphic relations](#polymorphic-relations)).
+
+`foreignKey:` can be left out where Laravel guesses it: a `BelongsTo` uses
+the relation name (`author` reads `author_id`, `coAuthor` reads
+`co_author_id`), a `HasMany` or `HasOne` the parent's class name from its
+`morphClass` (`user_id` on `App\Models\User`, `blog_post_id` on `BlogPost`).
 
 ```dart
 final users = await User.query()
