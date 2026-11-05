@@ -58,6 +58,33 @@ void main() {
       );
     });
 
+    test('a composite primary key is unnamed on MySQL', () {
+      final selections = Blueprint('attempt_item_selections')
+        ..foreignId('attempt_item_id')
+        ..foreignId('question_option_id')
+        ..primary(['attempt_item_id', 'question_option_id']);
+      // `<table>_<columns>_primary` is 67 characters here: MySQL refuses it
+      // (1059) although it names every primary key `PRIMARY`.
+      expect(
+        const MySqlSchemaGrammar().compileCreate(selections).first,
+        contains(
+          ', PRIMARY KEY (`attempt_item_id`, `question_option_id`)) DEFAULT',
+        ),
+      );
+      expect(
+        const MySqlSchemaGrammar().compileCreate(selections).first,
+        isNot(contains('CONSTRAINT')),
+      );
+      final pg = const PostgresSchemaGrammar().compilePrimaryKey(
+        selections.primaryKey!,
+      );
+      expect(
+        pg,
+        'CONSTRAINT "attempt_item_selections_attempt_item_id_question_option_id_primary" '
+        'PRIMARY KEY ("attempt_item_id", "question_option_id")',
+      );
+    });
+
     test('column types and modifiers per dialect', () {
       final sqlite = const SqliteSchemaGrammar().compileCreate(users()).first;
       expect(sqlite, contains('"balance" NUMERIC(10, 2) NOT NULL DEFAULT 0'));

@@ -251,8 +251,8 @@ final class McpServer {
     _tool(
       'db_query',
       'Runs one read-only SELECT, WITH or EXPLAIN statement on the default '
-          'connection (always rolled back; read-only where the database '
-          'enforces it) and returns at most "limit" rows.',
+          'connection (in a read-only transaction, always rolled back, '
+          'stopped after 10 seconds) and returns at most "limit" rows.',
       const {
         'sql': {'type': 'string', 'description': 'Use ? for bindings.'},
         'bindings': {'type': 'array', 'description': 'Values for the ?s.'},
@@ -571,14 +571,23 @@ final class McpServer {
 }
 
 /// Runs one `SELECT`/`WITH`/`EXPLAIN` statement that cannot write: inside a
-/// transaction that is always rolled back, read-only where the database
-/// enforces it (SQLite `query_only`, PostgreSQL `READ ONLY`; MySQL relies on
-/// the statement check and the rollback). At most [limit] rows.
+/// transaction that is always rolled back and that the database keeps
+/// read-only (SQLite `query_only`, PostgreSQL `SET TRANSACTION READ ONLY`,
+/// MySQL and MariaDB `START TRANSACTION READ ONLY`, which also refuses
+/// `FOR UPDATE` and `NEXTVAL`). At most [limit] rows, stopped after
+/// [timeout] where the database can (`statement_timeout` on PostgreSQL,
+/// `MAX_EXECUTION_TIME` on MySQL, `max_statement_time` on MariaDB).
+///
+/// On MySQL and MariaDB a statement calling `GET_LOCK` is refused: a named
+/// lock belongs to the connection and outlives the rollback. Only a database
+/// user that may read and nothing else guarantees a read; point the
+/// connection `mcp:serve` uses at one where the database is shared.
 Future<({List<Map<String, Object?>> rows, bool truncated})> readOnlySelect(
   DatabaseManager db,
   String sql, {
   List<Object?> bindings = const [],
   int limit = 100,
+  Duration timeout = const Duration(seconds: 10),
 }) async {
   final statement = sql.trim().replaceFirst(RegExp(r';\s*$'), '');
   if (statement.contains(';')) {
@@ -591,21 +600,37 @@ Future<({List<Map<String, Object?>> rows, bool truncated})> readOnlySelect(
   if (verb == null) {
     throw ArgumentError('Only SELECT, WITH and EXPLAIN statements run.');
   }
-  // Ask for one row more than the limit to know whether rows were left out.
-  final query = verb == 'explain'
-      ? statement
-      : 'SELECT * FROM ($statement) daravel_mcp_query LIMIT ${limit + 1}';
   final dialect = db.dialectOf();
+  if (dialect.isMySqlFamily &&
+      RegExp(r'\bget_lock\s*\(', caseSensitive: false).hasMatch(statement)) {
+    throw ArgumentError(
+      'GET_LOCK does not run: a named lock outlives the rollback.',
+    );
+  }
+  final explain = verb == 'explain';
+  final milliseconds = timeout.inMilliseconds;
+  // Ask for one row more than the limit to know whether rows were left out.
+  final selected = explain
+      ? statement
+      : 'SELECT${dialect == SqlDialect.mysql ? ' /*+ MAX_EXECUTION_TIME($milliseconds) */' : ''} '
+            '* FROM ($statement) daravel_mcp_query LIMIT ${limit + 1}';
+  final query = dialect == SqlDialect.mariadb
+      ? 'SET STATEMENT max_statement_time = ${milliseconds / 1000} FOR $selected'
+      : selected;
   late List<Map<String, Object?>> rows;
   try {
     await db.transaction(() async {
       switch (dialect) {
         case SqlDialect.postgres:
           await db.statement('SET TRANSACTION READ ONLY');
+          await db.statement('SET LOCAL statement_timeout = $milliseconds');
         case SqlDialect.sqlite:
           await db.statement('PRAGMA query_only = ON');
         case SqlDialect.mysql || SqlDialect.mariadb:
-          break;
+          // A transaction is read-only from its start: this one ends the
+          // empty transaction the callback runs in and opens a read-only
+          // one on the same connection, which the rollback then ends.
+          await db.statement('START TRANSACTION READ ONLY');
       }
       try {
         rows = await db.select(query, bindings);
