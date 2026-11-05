@@ -1352,6 +1352,14 @@ final class ModelSyncCommand extends DaravelCommand {
   });
 }
 
+/// One `dartisan lint` finding as `dart analyze` prints one:
+/// `  info - lib/app/x.dart:14:18 - <message> - <rule>`. Daravel rules have
+/// no severity of their own, so every finding is an `info` (a lint, in
+/// `dart analyze` terms); the command still fails on any of them.
+String formatLintIssue(LintIssue issue) =>
+    '  info - ${issue.path.replaceAll(r'\', '/')}:${issue.line}:${issue.column}'
+    ' - ${issue.message} - ${issue.rule}';
+
 /// `lint [--json]` — runs `daravel_lints` over the project.
 final class LintCommand extends Command<int> {
   /// The `dartisan lint` command.
@@ -1384,11 +1392,20 @@ final class LintCommand extends Command<int> {
         ]),
       );
     } else {
-      issues.forEach(stdout.writeln);
+      for (final issue in issues) {
+        stdout.writeln(formatLintIssue(issue));
+      }
+      if (issues.isNotEmpty) {
+        stdout.writeln();
+      }
       stdout.writeln(
-        issues.isEmpty ? 'No issues found.' : '${issues.length} issue(s).',
+        issues.isEmpty
+            ? 'No issues found.'
+            : '${issues.length} issue${issues.length == 1 ? '' : 's'} found.',
       );
     }
+    // Any finding fails the command, as `dart analyze --fatal-infos` does,
+    // so CI can run `dartisan lint` as a gate.
     return issues.isEmpty ? 0 : 1;
   }
 }
