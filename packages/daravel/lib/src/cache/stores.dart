@@ -195,7 +195,9 @@ final class MemoryStore implements TouchableCacheStore, TaggableCacheStore {
 }
 
 /// Coordinator service exposing a [MemoryStore] to every worker
-/// (`process`-scope cache and locks).
+/// (`process`-scope cache and locks). Values arrive in the wire form of
+/// [ProcessStore.encodeWire] (mostly JSON strings) and are kept as they
+/// are: this isolate never decodes or copies them.
 final class ProcessCacheService
     implements TypedCoordinatorService<LockMessage> {
   /// A service over [store], or a new memory store.
@@ -322,6 +324,15 @@ final class LockMessage implements CoordinatorMessage {
 /// trip; its own writes update or drop them at once, while writes from
 /// other isolates show up within [l1Ttl]. Misses, counters and locks always
 /// go to the coordinator.
+///
+/// Values cross to the coordinator as one JSON string (ADR-031): the VM
+/// shares a string between the isolates of a process instead of copying
+/// it, while a map or list is serialized by the sender, which for a read
+/// is the coordinator's single event loop (9 ms per MB, measured). Numbers,
+/// booleans and null cross as they are, so `increment` keeps working on a
+/// stored number; a value JSON cannot encode (a `DateTime`) crosses as the
+/// object it is, copied, as before. The near cache keeps the wire string
+/// and decodes it per read, so every caller gets a fresh object.
 final class ProcessStore implements TaggableCacheStore {
   /// Values held by the coordinator through [channel], with an optional
   /// per-isolate copy kept for [l1Ttl].
@@ -369,32 +380,43 @@ final class ProcessStore implements TaggableCacheStore {
       _l1.remove(key);
       return null;
     }
-    return _copy(entry.$1);
+    return decodeWire(entry.$1);
   }
 
-  void _l1Write(String key, Object? value) {
+  /// Keeps the wire form of a value (a string, a number...) for [l1Ttl].
+  void _l1Write(String key, Object? wire) {
     final ttl = l1Ttl;
     _l1.remove(key);
-    if (ttl == null || value == null) {
+    if (ttl == null || wire == null) {
       return;
     }
     if (_l1.length >= l1MaxEntries) {
       _l1.remove(_l1.keys.first); // Oldest first (insertion order).
     }
-    _l1[key] = (
-      _copy(value),
-      _l1Clock.elapsedMicroseconds + ttl.inMicroseconds,
-    );
+    _l1[key] = (wire, _l1Clock.elapsedMicroseconds + ttl.inMicroseconds);
   }
 
-  /// Callers get their own copy, so mutating a cached map is harmless.
-  static Object? _copy(Object? value) => switch (value) {
-    final Map<Object?, Object?> map => <Object?, Object?>{
-      for (final MapEntry(:key, :value) in map.entries) key: _copy(value),
-    },
-    final List<Object?> list => [for (final item in list) _copy(item)],
-    _ => value,
-  };
+  /// The form in which [value] crosses to the coordinator: numbers,
+  /// booleans and null as they are, anything else as a JSON string (shared
+  /// between isolates, not copied), or the object itself when JSON cannot
+  /// encode it. Exposed for tests and benchmarks.
+  static Object? encodeWire(Object? value) {
+    switch (value) {
+      case null || num() || bool():
+        return value;
+      default:
+        try {
+          return jsonEncode(value);
+        } on JsonUnsupportedObjectError {
+          return value;
+        }
+    }
+  }
+
+  /// The value a wire form from [encodeWire] stands for: a string is JSON
+  /// and decodes to a fresh object; anything else is returned as it is.
+  static Object? decodeWire(Object? wire) =>
+      wire is String ? jsonDecode(wire) : wire;
 
   @override
   Future<Object?> get(String key) async {
@@ -404,35 +426,39 @@ final class ProcessStore implements TaggableCacheStore {
         return cached;
       }
     }
-    final value = await _call('get', {'key': key});
-    _l1Write(key, value);
-    return value;
+    final wire = await _call('get', {'key': key});
+    _l1Write(key, wire);
+    return decodeWire(wire);
   }
 
   @override
   Future<Map<String, Object?>> many(List<String> keys) async {
-    final values =
+    final wires =
         (await _call('many', {'keys': keys}))! as Map<String, Object?>;
-    values.forEach(_l1Write);
-    return values;
+    wires.forEach(_l1Write);
+    return <String, Object?>{
+      for (final MapEntry(:key, :value) in wires.entries)
+        key: decodeWire(value),
+    };
   }
 
   @override
   Future<void> put(String key, Object? value, {Duration? ttl}) async {
     _l1.remove(key);
-    await _call('put', {
-      'key': key,
-      'value': value,
-      'ttl': ttl?.inMilliseconds,
-    });
-    _l1Write(key, value);
+    final wire = encodeWire(value);
+    await _call('put', {'key': key, 'value': wire, 'ttl': ttl?.inMilliseconds});
+    _l1Write(key, wire);
   }
 
   @override
   Future<void> putMany(Map<String, Object?> values, {Duration? ttl}) async {
     values.keys.forEach(_l1.remove);
-    await _call('putMany', {'values': values, 'ttl': ttl?.inMilliseconds});
-    values.forEach(_l1Write);
+    final wires = <String, Object?>{
+      for (final MapEntry(:key, :value) in values.entries)
+        key: encodeWire(value),
+    };
+    await _call('putMany', {'values': wires, 'ttl': ttl?.inMilliseconds});
+    wires.forEach(_l1Write);
   }
 
   @override
@@ -440,7 +466,7 @@ final class ProcessStore implements TaggableCacheStore {
     _l1.remove(key);
     return await _call('add', {
       'key': key,
-      'value': value,
+      'value': encodeWire(value),
       'ttl': ttl?.inMilliseconds,
     }) as bool;
   }

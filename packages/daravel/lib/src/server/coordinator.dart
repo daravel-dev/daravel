@@ -151,7 +151,7 @@ final class Coordinator {
 
   final Map<String, CoordinatorService> _services =
       <String, CoordinatorService>{};
-  ReceivePort? _port;
+  RawReceivePort? _port;
   int _inFlight = 0;
   int _peakInFlight = 0;
   int _handled = 0;
@@ -230,9 +230,11 @@ final class Coordinator {
     if (existing != null) {
       return existing.sendPort;
     }
-    final port = ReceivePort('daravel-coordinator');
+    // A raw port: no stream machinery between the message and the
+    // dispatch, on the path every throttled request takes.
+    final port = RawReceivePort(null, 'daravel-coordinator');
     _port = port;
-    port.listen((Object? message) {
+    port.handler = (Object? message) {
       if (message is! CoordinatorRequest) {
         return;
       }
@@ -261,7 +263,7 @@ final class Coordinator {
         _peakInFlight = _inFlight;
       }
       unawaited(_dispatch(message, result));
-    });
+    };
     return port.sendPort;
   }
 
