@@ -316,18 +316,59 @@ final class PostgresDriver implements NotifyingDriver, QueryErrors {
     });
   }
 
+  /// Runs [body] in a transaction on a pooled connection.
+  ///
+  /// The pool closes the connection behind any error that is not a
+  /// `PgException`, and the body's errors never are: queries arrive
+  /// wrapped in [QueryException], timeouts and application errors are the
+  /// application's own. `runTx` has rolled back by then, so the connection
+  /// is clean; the error is carried out of the pool as a value instead and
+  /// rethrown here, and only a connection the error broke (a fatal server
+  /// error, a lost socket, a failed `ROLLBACK`) is still discarded.
   @override
-  Future<T> transaction<T>(Future<T> Function(QueryExecutor tx) body) {
+  Future<T> transaction<T>(Future<T> Function(QueryExecutor tx) body) async {
     final pool = _session;
     final probe = PoolWaitProbe.current;
-    if (probe == null) {
-      return pool.runTx<T>((session) => body(_PgExecutor(session)));
-    }
-    final watch = Stopwatch()..start();
-    return pool.withConnection((connection) {
-      probe.waited = watch.elapsed;
-      return connection.runTx<T>((session) => body(_PgExecutor(session)));
+    final watch = probe == null ? null : (Stopwatch()..start());
+    final outcome = await pool.withConnection((connection) async {
+      if (probe != null) {
+        probe.waited = watch!.elapsed;
+      }
+      try {
+        return _TxOutcome<T>.value(
+          await connection.runTx<T>((session) => body(_PgExecutor(session))),
+        );
+      } on pg.PgException {
+        // The pool's own judgement: it keeps the connection unless the
+        // error broke it.
+        rethrow;
+      } catch (error, stack) {
+        // A connection the error did break (a fatal server error behind a
+        // QueryException, a failed ROLLBACK) is closed by now, and the
+        // pool discards closed connections whatever the outcome.
+        return _TxOutcome<T>.error(error, stack);
+      }
     });
+    return outcome.unwrap();
+  }
+}
+
+/// What a transaction body ended with, carried out of the pool's
+/// `withConnection` so that an error does not cost the connection.
+final class _TxOutcome<T> {
+  _TxOutcome.value(T this._value) : _error = null, _stack = null;
+  _TxOutcome.error(Object this._error, StackTrace this._stack) : _value = null;
+
+  final T? _value;
+  final Object? _error;
+  final StackTrace? _stack;
+
+  T unwrap() {
+    final error = _error;
+    if (error != null) {
+      Error.throwWithStackTrace(error, _stack!);
+    }
+    return _value as T;
   }
 }
 
