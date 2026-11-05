@@ -31,6 +31,26 @@ void main() {
     expect(await store.get('counter'), 200);
   });
 
+  test('concurrent writes of one key in one isolate collapse into the '
+      'newest instead of racing their renames', () async {
+    final store = FileStore(p.join(temp.path, 'cache'));
+    final completed = <String>[];
+    await Future.wait(<Future<void>>[
+      for (var i = 0; i < 200; i++)
+        store.put('same', i).then((_) => completed.add('$i')),
+    ]);
+    // Every caller completes, and the newest value is the one stored.
+    expect(completed, hasLength(200));
+    expect(await store.get('same'), 199);
+    // A write after the queue drained starts on its own.
+    await store.put('same', 'last');
+    expect(await store.get('same'), 'last');
+    final leftovers = Directory(p.join(temp.path, 'cache'))
+        .listSync(recursive: true)
+        .where((e) => e.path.endsWith('.tmp'));
+    expect(leftovers, isEmpty);
+  });
+
   test('a flush while writing does not fail the write', () async {
     final store = FileStore(p.join(temp.path, 'cache'));
     await Future.wait(<Future<void>>[

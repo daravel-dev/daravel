@@ -24,6 +24,7 @@ match Laravel more closely.
 ### Fixed
 
 - Metrics: the HTTP `method` label took any token a client sent, so 100 000 requests with distinct methods made 100 001 series in two metrics on every worker (+362 MB RSS on one, a 119 MB `/metrics` body and a 930 ms merge on the supervisor's event loop per scrape). Methods outside the standard set are now `other`, every metric is capped by `METRICS_MAX_SERIES`, the coordinator refuses oversized snapshots, and the middleware no longer sorts, escapes and joins the labels on every request (the route label is escaped once per route, the worker label once) (#149).
+- `FileStore`: concurrent writes of one key in an isolate went to disk together and their renames over the entry failed against each other on Windows, each retried with a backoff; 200 of them timed out `file_store_processes_test.dart` on a Windows CI runner. Writes of a key in an isolate now run one at a time, and those queued behind a running write collapse into the newest, which completes them all (200 concurrent `put`s of one key: about 1 s to 6 ms on Windows). The temporary file is no longer fsynced before the rename, as Laravel's `file_put_contents` does not; a cache entry can be lost to a power failure, never half written (#167).
 
 ## 1.26.0
 

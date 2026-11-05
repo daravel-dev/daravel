@@ -592,17 +592,57 @@ final class FileStore implements TouchableCacheStore {
   /// the new one, never a partial write (Laravel writes with `LOCK_EX`).
   /// When another process removed the directory in between (a `flush`), the
   /// write is made again.
-  Future<void> _write(String key, Object? value, Duration? ttl) async {
-    final file = File(_path(key));
+  ///
+  /// Writes of one key in this isolate go one at a time, and the writes
+  /// queued behind a running one collapse into the newest, which completes
+  /// them all: on Windows a rename over a file another rename is replacing
+  /// fails, so N concurrent writes of a key retried against each other with
+  /// a backoff (200 of them timed a test out on a CI runner). Other
+  /// processes are still met by the retry in [_replace]. The temporary file
+  /// is not flushed to disk first: a cache entry may be lost to a power
+  /// failure, as with Laravel's `file_put_contents`, and an fsync per write
+  /// made every write several times slower on Windows.
+  Future<void> _write(String key, Object? value, Duration? ttl) {
     final payload = jsonEncode(<String, Object?>{
       'e': ttl == null ? null : _now + ttl.inMilliseconds,
       'v': value,
     });
+    final state = _writing[key];
+    if (state == null) {
+      return _startWrite(key, payload, _KeyWrites());
+    }
+    state.nextPayload = payload;
+    return (state.next ??= Completer<void>()).future;
+  }
+
+  Future<void> _startWrite(String key, String payload, _KeyWrites state) {
+    _writing[key] = state;
+    final write = _writePayload(key, payload);
+    write.then<void>((_) {}, onError: (Object _) {}).whenComplete(() {
+      final next = state.next;
+      final nextPayload = state.nextPayload;
+      state
+        ..next = null
+        ..nextPayload = null;
+      if (next == null || nextPayload == null) {
+        _writing.remove(key);
+        return;
+      }
+      next.complete(_startWrite(key, nextPayload, state));
+    }).ignore();
+    return write;
+  }
+
+  /// The write running per key in this isolate (see [_write]).
+  final Map<String, _KeyWrites> _writing = <String, _KeyWrites>{};
+
+  Future<void> _writePayload(String key, String payload) async {
+    final file = File(_path(key));
     for (var attempt = 1; ; attempt++) {
       final temp = File('${file.path}.${_tempSuffix()}.tmp');
       try {
         await file.parent.create(recursive: true);
-        await temp.writeAsString(payload, flush: true);
+        await temp.writeAsString(payload);
         await _replace(temp, file);
         return;
       } on FileSystemException {
@@ -1207,4 +1247,13 @@ final class DatabaseStore implements TouchableCacheStore, WindowCounterStore {
     }
     return row['owner'] as String?;
   }
+}
+
+/// The writes of one key waiting in a [FileStore] (see `FileStore._write`).
+final class _KeyWrites {
+  /// The newest payload queued behind the running write.
+  String? nextPayload;
+
+  /// Completes every caller whose write [nextPayload] replaced.
+  Completer<void>? next;
 }
