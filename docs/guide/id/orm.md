@@ -1,4 +1,4 @@
-<!-- source: orm.md sha256:5927637d7cfa -->
+<!-- source: orm.md sha256:971b5f7bc38a -->
 # ORM
 
 Model mengikuti API Eloquent. Karena Dart tidak punya property ajaib, setiap
@@ -59,6 +59,14 @@ di PostgreSQL kolom `timestamp` adalah `DateTime`, sedangkan di SQLite dan
 MySQL kolom itu butuh `Cast.dateTime`. Kolom `decimal` tanpa cast bertipe
 `Object?`, karena MySQL mengembalikannya sebagai string dan SQLite sebagai
 angka; `Cast.decimalString(2)` menjadikannya `String` di semua database.
+
+`attributes:` adalah `$attributes` dari Laravel: nilai bawaan yang dimiliki
+setiap model baru (`attributes: {'status': 'draft'}`, nilai tersimpan sebelum
+cast). `create()` menyisipkannya dan model langsung bisa membacanya.
+`DEFAULT` database tidak dibaca kembali setelah insert, sehingga tanpa itu
+accessor non-null seperti `String get status` melempar error pada model yang
+baru dibuat sampai `refresh()` (Laravel memberi `null` di sana).
+`model:sync` memberi peringatan untuk kolom seperti itu.
 
 `toJson` menulis key relasi dalam snake_case seperti Laravel: `tipeUjian`
 menjadi `tipe_ujian`. `Model.snakeAttributes = false` saat boot mempertahankan

@@ -263,6 +263,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | :-- | :-- | :-- |
 | `class User extends Model` | `final class User extends Model` |  |
 | `protected $table / $fillable / $hidden / $casts` | `ModelDefinition<User>(table:, fillable:, hidden:, casts:)` |  |
+| `protected $attributes = ['status' => 'draft']` | `ModelDefinition<Exam>(attributes: {'status': 'draft'})` | Stored values, before casts; a new model starts with them. |
 | `$table->vector('embedding', dimensions: 1536)` | `table.vector('embedding', dimensions: 1536)` |  |
 | `$table->vectorIndex('embedding')` | `table.vectorIndex('embedding')` |  |
 | `->whereVectorSimilarTo('embedding', $vector, 0.7)` | `.whereVectorSimilarTo('embedding', vector, minSimilarity: 0.7)` |  |

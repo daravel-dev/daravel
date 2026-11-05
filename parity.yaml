@@ -236,6 +236,7 @@ sections:
     symbols:
       - { php: "class User extends Model", dart: "final class User extends Model", symbol: Model }
       - { php: "protected $table / $fillable / $hidden / $casts", dart: "ModelDefinition<User>(table:, fillable:, hidden:, casts:)", symbol: ModelDefinition }
+      - { php: "protected $attributes = ['status' => 'draft']", dart: "ModelDefinition<Exam>(attributes: {'status': 'draft'})", symbol: ModelDefinition.attributes, note: "Stored values, before casts; a new model starts with them." }
       - { php: "$table->vector('embedding', dimensions: 1536)", dart: "table.vector('embedding', dimensions: 1536)", symbol: Blueprint.vector }
       - { php: "$table->vectorIndex('embedding')", dart: "table.vectorIndex('embedding')", symbol: Blueprint.vectorIndex }
       - { php: "->whereVectorSimilarTo('embedding', $vector, 0.7)", dart: ".whereVectorSimilarTo('embedding', vector, minSimilarity: 0.7)", symbol: QueryBuilder.whereVectorSimilarTo }

@@ -13,6 +13,7 @@ match Laravel more closely.
 
 ### Added
 
+- `ModelDefinition(attributes:)`, Laravel's `protected $attributes`: default attribute values every new model starts with (not dirty), so `create()` inserts them and a non-null accessor reads them without `refresh()`. `dartisan model:sync` warns about a non-null column with a database default that the model does not declare there, whose accessor would throw on a freshly created model.
 - `phpJsonDouble(double)`: a double as PHP's `json_encode` writes it (`serialize_precision = -1`, `zend_gcvt`), used by `PhpJsonEncoder` and `Response.json(phpCompatible: true)`.
 - `Request.bodyInput()`: the body's fields as `all()` sees them, without the query (Laravel's `getInputSource()->all()`). A middleware that rebuilds the body with `replace()` starts from it, so the fields the client sent keep what `TrimStrings` made of them.
 - `CachePrefixShaping`: a cache store that shapes the prefix its `CacheRepository` puts before keys, tag lists and lock names, as Laravel's stores own their prefix. `daravel_redis`'s `RedisStore` implements it (see Changed); `RedisStore(laravelCompat:)` fixes the layout instead of following `COMPAT_LARAVEL_VERSION`.

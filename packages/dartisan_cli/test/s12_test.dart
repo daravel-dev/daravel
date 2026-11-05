@@ -427,6 +427,55 @@ final class Post extends Model with AuthenticatableModel {
       expect(replaceAccessors('class X {}', const []), isNull);
     });
 
+    test('warns about database defaults the model does not declare', () {
+      final model = ModelSource.parse('''
+final class Exam extends Model {
+  static final ModelDefinition<Exam> definition = ModelDefinition<Exam>(
+    table: 'exams',
+    factory: Exam.new,
+    attributes: const {'status': 'draft'},
+  );
+}
+''')!;
+      expect(model.defaults, {'status'});
+      final plan = planAccessors(model, const [
+        ColumnInfo(
+          name: 'id',
+          type: 'INTEGER',
+          nullable: false,
+          primary: true,
+          autoIncrement: true,
+        ),
+        ColumnInfo(
+          name: 'status',
+          type: 'VARCHAR',
+          nullable: false,
+          defaultValue: "'draft'",
+        ),
+        ColumnInfo(
+          name: 'duration_mode',
+          type: 'VARCHAR',
+          nullable: false,
+          defaultValue: "'fixed'",
+        ),
+        ColumnInfo(
+          name: 'note',
+          type: 'VARCHAR',
+          nullable: true,
+          defaultValue: "'-'",
+        ),
+      ]);
+      expect(plan.warnings, hasLength(1));
+      expect(
+        plan.warnings.single,
+        allOf(
+          contains('[duration_mode]'),
+          contains("attributes: {'duration_mode': ...}"),
+        ),
+      );
+      expect(ModelSource.parse(source)!.defaults, isEmpty);
+    });
+
     test('a decimal without a cast is Object? with a decimal:N hint', () {
       final model = ModelSource.parse('''
 final class Score extends Model {

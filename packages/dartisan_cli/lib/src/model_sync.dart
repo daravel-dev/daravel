@@ -11,6 +11,7 @@ final class ModelSource {
     required this.casts,
     required this.primaryKey,
     required this.authenticatable,
+    this.defaults = const <String>{},
   });
 
   /// Parses `final class X extends Model`, `table: '...'`, the casts map
@@ -29,12 +30,20 @@ final class ModelSource {
     };
     final primaryKey =
         RegExp(r"primaryKey:\s*'([^']+)'").firstMatch(source)?.group(1) ?? 'id';
+    final attributes = RegExp(
+      r'\battributes:\s*(?:const\s*)?(?:<[^>]*>\s*)?\{([^}]*)\}',
+    ).firstMatch(source)?.group(1);
     return ModelSource(
       className: className,
       table: table,
       casts: casts,
       primaryKey: primaryKey,
       authenticatable: source.contains('AuthenticatableModel'),
+      defaults: {
+        if (attributes != null)
+          for (final m in RegExp(r"'(\w+)'\s*:").allMatches(attributes))
+            m.group(1)!,
+      },
     );
   }
 
@@ -52,6 +61,9 @@ final class ModelSource {
 
   /// Whether it is an authenticatable user.
   final bool authenticatable;
+
+  /// The columns its `attributes:` map gives a default.
+  final Set<String> defaults;
 }
 
 /// Accessor names that would clash with `Model`/`Authenticatable` members
@@ -237,6 +249,17 @@ AccessorPlan planAccessors(
     final type = mapped.type == 'Object'
         ? 'Object?'
         : (column.nullable ? '${mapped.type}?' : mapped.type);
+    if (column.defaultValue != null &&
+        !type.endsWith('?') &&
+        !column.autoIncrement &&
+        column.name != model.primaryKey &&
+        !model.defaults.contains(column.name)) {
+      warnings.add(
+        'Column [${column.name}] has a database default that a model made '
+        'with create() does not see: `$getter` throws until refresh(). '
+        "Declare it in ModelDefinition(attributes: {'${column.name}': ...}).",
+      );
+    }
     lines.add("  $type get $getter => getAttr('${column.name}');");
     final writable =
         column.name != model.primaryKey && !readOnly.contains(column.name);
