@@ -224,7 +224,8 @@ final class Response {
     request: request,
   );
 
-  /// A binary response of [bytes], with the given content type.
+  /// A binary response of [bytes], with the given content type. [bytes]
+  /// become the body as they are, without a copy: do not change them after.
   factory Response.bytes(
     List<int> bytes, {
     required String contentType,
@@ -234,6 +235,22 @@ final class Response {
     status: status,
     headers: _headersWithType(contentType, headers),
     body: BytesBody(bytes),
+  );
+
+  /// A binary response of [bytes] made on another isolate: a PDF, a CSV, an
+  /// image or a compressed body from `Concurrency.runBytes` (ADR-031). As
+  /// [Response.bytes], which it is, [bytes] become the body without a copy,
+  /// so the buffer moved from the worker is the one written to the socket.
+  factory Response.computed(
+    Uint8List bytes, {
+    required String contentType,
+    int status = 200,
+    Map<String, String>? headers,
+  }) => Response.bytes(
+    bytes,
+    contentType: contentType,
+    status: status,
+    headers: headers,
   );
 
   /// Server-sent events (Laravel's `response()->eventStream()`): each item of

@@ -60,6 +60,7 @@ REVERB_SCALING_DRIVER=redis  # broadcasting servers share Echo's clients
 | `CACHE_LIMITER=redis` | Each attempt is one Lua script; blocked attempts are not counted |
 | `QUEUE_CONNECTION=redis` | Jobs in Redis; an idle worker blocks on `BLPOP` and starts a pushed job at once instead of after `--sleep`. Unique-job locks and `queue:restart` / `queue:pause` go to Redis as well (`QUEUE_UNIQUE_LOCK_STORE=redis`) |
 | `REVERB_SCALING_DRIVER=redis` | Frames between servers over Pub/Sub; presence members, the channels API and cache channels in Redis ([Broadcasting](broadcasting.md#several-servers)) |
+| `SESSION_DRIVER=redis` | Sessions in Redis with Laravel's key layout, on the `default` connection unless `SESSION_CONNECTION` names another (needs `withSession()`, [Sessions](sessions.md#redis-and-cache-drivers)) |
 
 The cache uses the `cache` connection (`REDIS_CACHE_DB`, 1 by default), so
 `dartisan cache:clear` deletes only the cache's keys (`SCAN` and `UNLINK`
@@ -294,6 +295,7 @@ CLI.
 | Numbers in the cache | Shared: stored as plain digits |
 | Other cache values | Shared with `REDIS_SERIALIZER=php`: Daravel writes PHP's `serialize()` for strings, booleans, lists and maps, and reads Laravel's values, objects as maps of their properties. With `json`, Laravel cannot read Daravel's values |
 | Tags | Shared: the same keys and tag lists; a flush from either reaches what the other tagged |
+| Sessions (`SESSION_DRIVER=redis`) | Shared with the same `APP_KEY`, session cookie and prefixes: `<REDIS_PREFIX><CACHE_PREFIX><id>` holding `serialize($payload)`, whatever `REDIS_SERIALIZER` says ([Sessions](sessions.md#redis-and-cache-drivers)) |
 | `Redis.throttle`, `Redis.funnel` | Shared with `Redis::throttle` and `Redis::funnel` of the same name: Laravel's scripts and keys |
 | Queues | Kept apart (`daravel:` namespace): Laravel's workers cannot run Daravel jobs, nor the other way round |
 

@@ -1,6 +1,9 @@
 import 'dart:async';
 import 'dart:isolate';
 import 'dart:math' as math;
+import 'dart:typed_data';
+
+import 'isolate_payload.dart';
 
 /// Warm worker isolates, spawned on demand up to [maxWorkers].
 ///
@@ -30,6 +33,23 @@ final class ComputePool {
     final worker = await _acquire();
     try {
       return await worker.run(task, timeout) as T;
+    } finally {
+      _release(worker);
+    }
+  }
+
+  /// [run] for a binary result (ADR-031): the worker sends it as an
+  /// [IsolatePayload.bytes], so from [IsolatePayload.transferThreshold] on
+  /// it moves here without a second copy. It is materialized in the reply
+  /// handler, once. Errors and [timeout] behave as in [run].
+  Future<Uint8List> runBytes(
+    FutureOr<Uint8List> Function() task, {
+    Duration? timeout,
+  }) async {
+    final worker = await _acquire();
+    try {
+      return await worker.run(_sendsBytes(task), timeout, _fromWire)
+          as Uint8List;
     } finally {
       _release(worker);
     }
@@ -162,7 +182,12 @@ final class _Worker {
     _stopped?.complete();
   }
 
-  Future<Object?> run(Object? task, Duration? timeout) {
+  /// [decode] turns a successful reply into the result, in the handler.
+  Future<Object?> run(
+    Object? task,
+    Duration? timeout, [
+    Object? Function(Object? value)? decode,
+  ]) {
     final done = Completer<Object?>();
     final reply = RawReceivePort();
     Timer? timer;
@@ -181,7 +206,15 @@ final class _Worker {
       finish(() {
         switch (message) {
           case (true, final Object? value):
-            done.complete(value);
+            if (decode == null) {
+              done.complete(value);
+            } else {
+              try {
+                done.complete(decode(value));
+              } catch (error, stackTrace) {
+                done.completeError(error, stackTrace);
+              }
+            }
           case (false, final Object error, final String stack):
             done.completeError(error, StackTrace.fromString(stack));
         }
@@ -230,6 +263,13 @@ final class _Worker {
     return stopped.future;
   }
 }
+
+/// The task a worker runs for [ComputePool.runBytes]. Built here, not in the
+/// async method, so the closure captures [task] alone.
+FutureOr<Object> Function() _sendsBytes(FutureOr<Uint8List> Function() task) =>
+    () async => IsolatePayload.bytes(await task()).toWire();
+
+Object? _fromWire(Object? wire) => IsolatePayload.fromWire(wire!);
 
 void _workerMain(SendPort ready) {
   final inbox = RawReceivePort();

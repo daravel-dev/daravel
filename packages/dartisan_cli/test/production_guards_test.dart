@@ -90,4 +90,36 @@ void main() {
     );
     expect(code, 1);
   });
+
+  test('db:seed --class names an unregistered seeder on stderr', () async {
+    // ignore: close_sinks (stderr of the zone, never opened)
+    final err = _Capture();
+    final code = await IOOverrides.runZoned(
+      () =>
+          DartisanRunner(() => app(env: 'local'))
+              .execute(['db:seed', '--class=PriceTierSeeder']),
+      getCurrentDirectory: () => root,
+      stderr: () => err,
+    );
+    expect(code, 1);
+    expect(
+      err.buffer.toString().trim(),
+      'Seeder PriceTierSeeder is not registered in bootstrap/seeders.dart. '
+      'Registered: NoteSeeder.',
+    );
+  });
+}
+
+/// Collects what a command prints.
+final class _Capture implements Stdout {
+  final StringBuffer buffer = StringBuffer();
+
+  @override
+  void write(Object? object) => buffer.write(object);
+
+  @override
+  void writeln([Object? object = '']) => buffer.writeln(object);
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
 }

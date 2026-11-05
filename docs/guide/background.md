@@ -131,6 +131,26 @@ In tests, `Concurrency.sync(body)` runs tasks one by one in this isolate, and
 `Concurrency.fake((fake) async { … })` also counts them with `assertRanCount` and
 `assertDeferredCount`.
 
+### Binary results
+
+`Concurrency.runBytes` is `run` for tasks that return a `Uint8List`: a PDF, a
+CSV, an image, a compressed body. A result of 32 KB or more comes back as a
+`TransferableTypedData`, copied once in the worker and moved to the caller
+without a second copy. `Response.computed` sends it as the body, also without a
+copy:
+
+```dart
+final [pdf] = await Concurrency.runBytes([() => renderInvoice(data)]);
+return Response.computed(pdf, contentType: 'application/pdf');
+```
+
+Return text, JSON included, from `run` as a `String`: the VM shares a string
+between isolates instead of copying it, which beats any byte transfer.
+`IsolatePayload.text` and `IsolatePayload.bytes` apply the same rule to your own
+`SendPort`s: send `toWire()`, and call `IsolatePayload.fromWire` once, in the
+receiving port's handler. A transferable can be received only once, so a message
+sent to many ports stays a `String`.
+
 ## Context
 
 Laravel 11's `Context` holds data about the current request, job or
