@@ -54,6 +54,7 @@ final class ModelDefinition<T extends Model> {
     this.fillable = const <String>[],
     this.guarded = const <String>['*'],
     this.casts = const <String, Cast>{},
+    this.attributes = const <String, Object?>{},
     this.hidden = const <String>[],
     this.visible = const <String>[],
     this.appends = const <String>[],
@@ -101,6 +102,16 @@ final class ModelDefinition<T extends Model> {
 
   /// The table (`$table`).
   final String table;
+
+  /// Default attribute values (`protected $attributes`): every new instance
+  /// starts with them, unchanged (not dirty), so `create()` inserts them and
+  /// the model reads them without a reload. Give the stored value, before
+  /// casts, as in Laravel: `{'status': 'draft', 'attempts': 0}`. Declare
+  /// here the database defaults of non-null columns the application reads
+  /// after creating a model; otherwise their accessors see `null` until
+  /// [Model.refresh], as in Laravel. A model loaded from the database takes
+  /// its row instead.
+  final Map<String, Object?> attributes;
 
   /// Laravel class name of the model (`App\Models\User` by default), used
   /// for polymorphic columns such as `personal_access_tokens.tokenable_type`
@@ -201,7 +212,9 @@ final class ModelDefinition<T extends Model> {
     if (factory == null) {
       return null;
     }
-    return _relationCache[name] = factory()..name = name;
+    return _relationCache[name] = factory()
+      ..name = name
+      ..parentDefinition = this;
   }
 
   /// The relation named [name], or a [StateError].

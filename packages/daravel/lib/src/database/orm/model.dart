@@ -208,8 +208,14 @@ abstract base class Model implements JsonSerializable, Responsable {
   /// Static metadata; override as `ModelDefinition<User> get modelDefinition`.
   ModelDefinition<Model> get modelDefinition;
 
-  Map<String, Object?> _attributes = <String, Object?>{};
-  Map<String, Object?> _original = <String, Object?>{};
+  // A new instance starts with the definition's defaults (`$attributes`),
+  // read on first use; [hydrateFrom] replaces both from the row.
+  late Map<String, Object?> _attributes = Map<String, Object?>.of(
+    modelDefinition.attributes,
+  );
+  late Map<String, Object?> _original = Map<String, Object?>.of(
+    modelDefinition.attributes,
+  );
   final Map<String, Object?> _relations = <String, Object?>{};
   final Set<String> _hiddenExtra = <String>{};
   final Set<String> _visibleExtra = <String>{};

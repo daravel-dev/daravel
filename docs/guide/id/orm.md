@@ -1,4 +1,4 @@
-<!-- source: orm.md sha256:89d47e805447 -->
+<!-- source: orm.md sha256:10c1228ba946 -->
 # ORM
 
 Model mengikuti API Eloquent. Karena Dart tidak punya property ajaib, setiap
@@ -56,7 +56,17 @@ dibulatkan half up tanpa melewati double. `Cast.decimal` membaca `double`.
 `dartisan model:sync` menulis getter dan setter bertipe dari tabel, sehingga
 `user.email` adalah `String` yang dicek compiler. Tipenya mengikuti database:
 di PostgreSQL kolom `timestamp` adalah `DateTime`, sedangkan di SQLite dan
-MySQL kolom itu butuh `Cast.dateTime`.
+MySQL kolom itu butuh `Cast.dateTime`. Kolom `decimal` tanpa cast bertipe
+`Object?`, karena MySQL mengembalikannya sebagai string dan SQLite sebagai
+angka; `Cast.decimalString(2)` menjadikannya `String` di semua database.
+
+`attributes:` adalah `$attributes` dari Laravel: nilai bawaan yang dimiliki
+setiap model baru (`attributes: {'status': 'draft'}`, nilai tersimpan sebelum
+cast). `create()` menyisipkannya dan model langsung bisa membacanya.
+`DEFAULT` database tidak dibaca kembali setelah insert, sehingga tanpa itu
+accessor non-null seperti `String get status` melempar error pada model yang
+baru dibuat sampai `refresh()` (Laravel memberi `null` di sana).
+`model:sync` memberi peringatan untuk kolom seperti itu.
 
 `toJson` menulis key relasi dalam snake_case seperti Laravel: `tipeUjian`
 menjadi `tipe_ujian`. `Model.snakeAttributes = false` saat boot mempertahankan
@@ -98,6 +108,12 @@ Proyek yang dibuat sebelum 1.3 bisa menambahkan file ini secara manual
 `withTimestamps`), `HasManyThrough`, `HasOneThrough`, serta relasi
 polimorfik `MorphOne`, `MorphMany`, `MorphTo`, `MorphToMany`, dan
 `MorphedByMany` (lihat [Relasi polimorfik](#relasi-polimorfik)).
+
+`foreignKey:` boleh dihilangkan di tempat Laravel menebaknya: `BelongsTo`
+memakai nama relasi (`author` membaca `author_id`, `coAuthor` membaca
+`co_author_id`), sedangkan `HasMany` atau `HasOne` memakai nama class
+induknya dari `morphClass` (`user_id` pada `App\Models\User`, `blog_post_id`
+pada `BlogPost`).
 
 ```dart
 final users = await User.query()

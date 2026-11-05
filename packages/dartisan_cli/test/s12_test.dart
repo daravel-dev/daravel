@@ -426,6 +426,118 @@ final class Post extends Model with AuthenticatableModel {
       expect(updated, isNot(contains("int get id")));
       expect(replaceAccessors('class X {}', const []), isNull);
     });
+
+    test('warns about database defaults the model does not declare', () {
+      final model = ModelSource.parse('''
+final class Exam extends Model {
+  static final ModelDefinition<Exam> definition = ModelDefinition<Exam>(
+    table: 'exams',
+    factory: Exam.new,
+    attributes: const {'status': 'draft'},
+  );
+}
+''')!;
+      expect(model.defaults, {'status'});
+      final plan = planAccessors(model, const [
+        ColumnInfo(
+          name: 'id',
+          type: 'INTEGER',
+          nullable: false,
+          primary: true,
+          autoIncrement: true,
+        ),
+        ColumnInfo(
+          name: 'status',
+          type: 'VARCHAR',
+          nullable: false,
+          defaultValue: "'draft'",
+        ),
+        ColumnInfo(
+          name: 'duration_mode',
+          type: 'VARCHAR',
+          nullable: false,
+          defaultValue: "'fixed'",
+        ),
+        ColumnInfo(
+          name: 'note',
+          type: 'VARCHAR',
+          nullable: true,
+          defaultValue: "'-'",
+        ),
+      ]);
+      expect(plan.warnings, hasLength(1));
+      expect(
+        plan.warnings.single,
+        allOf(
+          contains('[duration_mode]'),
+          contains("attributes: {'duration_mode': ...}"),
+        ),
+      );
+      expect(ModelSource.parse(source)!.defaults, isEmpty);
+    });
+
+    test('a decimal without a cast is Object? with a decimal:N hint', () {
+      final model = ModelSource.parse('''
+final class Score extends Model {
+  static final ModelDefinition<Score> definition = ModelDefinition<Score>(
+    table: 'scores',
+    factory: Score.new,
+    casts: {'total': Cast.decimalString(2)},
+  );
+}
+''')!;
+      expect(model.casts, {'total': 'decimalString'});
+      for (final dialect in [SqlDialect.mysql, SqlDialect.sqlite]) {
+        final plan = planAccessors(model, const [
+          ColumnInfo(name: 'total', type: 'decimal(8,2)', nullable: false),
+          ColumnInfo(name: 'weight', type: 'decimal(5,3)', nullable: false),
+          ColumnInfo(name: 'bonus', type: 'NUMERIC(8, 2)', nullable: true),
+        ], dialect: dialect);
+        expect(
+          plan.lines,
+          containsAll([
+            "  String get total => getAttr('total');",
+            "  Object? get weight => getAttr('weight');",
+            "  Object? get bonus => getAttr('bonus');",
+          ]),
+          reason: '$dialect',
+        );
+        expect(
+          plan.warnings,
+          containsAll([
+            contains('[weight]: add Cast.decimalString(3)'),
+            contains('[bonus]: add Cast.decimalString(2)'),
+          ]),
+        );
+        expect(plan.warnings, isNot(contains(contains('[total]'))));
+      }
+    });
+
+    test('fillStatics fills an empty statics region only', () {
+      const empty =
+          'final class Stimulus extends Model {\n'
+          '  // <dartisan:statics>\n'
+          '  // </dartisan:statics>\n'
+          '}\n';
+      final filled = fillStatics(empty, 'Stimulus');
+      expect(
+        filled,
+        contains(
+          '  // <dartisan:statics>\n'
+          '  static ModelQuery<Stimulus> query() => definition.query();\n',
+        ),
+      );
+      expect(filled, contains('static Future<Stimulus?> find(Object id)'));
+      expect(filled, contains('  // </dartisan:statics>\n}'));
+      // Idempotent, and a region the application wrote is kept.
+      expect(fillStatics(filled, 'Stimulus'), filled);
+      const custom =
+          '  // <dartisan:statics>\n'
+          '  static ModelQuery<X> query() => definition.query();\n'
+          '  // </dartisan:statics>\n';
+      expect(fillStatics(custom, 'X'), custom);
+      expect(fillStatics('class X {}', 'X'), 'class X {}');
+    });
   });
 
   group('project helpers', () {
