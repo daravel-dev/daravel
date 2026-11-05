@@ -196,7 +196,8 @@ final class MemoryStore implements TouchableCacheStore, TaggableCacheStore {
 
 /// Coordinator service exposing a [MemoryStore] to every worker
 /// (`process`-scope cache and locks).
-final class ProcessCacheService implements CoordinatorService {
+final class ProcessCacheService
+    implements TypedCoordinatorService<LockMessage> {
   /// A service over [store], or a new memory store.
   ProcessCacheService([MemoryStore? store]) : store = store ?? MemoryStore();
 
@@ -252,8 +253,65 @@ final class ProcessCacheService implements CoordinatorService {
     }
   }
 
+  /// The lock operations, as [ProcessStore] sends them ([LockMessage]);
+  /// [handle] answers them as maps too.
+  @override
+  Object? handleTyped(LockMessage message) {
+    final key = message.key;
+    return switch (message.op) {
+      'acquireLock' => store.acquireLockSync(
+        key,
+        message.owner!,
+        Duration(milliseconds: message.ttlMs),
+      ),
+      'releaseLock' => store.releaseLockSync(key, message.owner!),
+      'forceReleaseLock' => _forceRelease(key),
+      'lockOwner' => store.lockOwnerSync(key),
+      final op => throw CoordinatorException(
+        'Unknown processCache lock op [$op].',
+      ),
+    };
+  }
+
+  /// [MemoryStore.forceReleaseLock] removes the lock before its first
+  /// await, so the answer needs no Future.
+  Null _forceRelease(String key) {
+    unawaited(store.forceReleaseLock(key));
+    return null;
+  }
+
   @override
   Map<String, Object?> stats() => <String, Object?>{'entries': store.size};
+}
+
+/// One lock call to [ProcessCacheService], as [ProcessStore] sends it
+/// through [TypedCoordinatorChannel.callTyped] (ADR-031): deeply immutable,
+/// so it crosses to the coordinator isolate by reference where the map of
+/// [toArgs] is copied entry by entry. Other cache operations stay maps.
+@pragma('vm:deeply-immutable')
+final class LockMessage {
+  /// A call of [op] on the lock [key].
+  const LockMessage(this.op, this.key, {this.owner, this.ttlMs = 0});
+
+  /// `acquireLock`, `releaseLock`, `forceReleaseLock` or `lockOwner`.
+  final String op;
+
+  /// The lock's name.
+  final String key;
+
+  /// Who takes or releases the lock (`acquireLock`, `releaseLock`).
+  final String? owner;
+
+  /// How long an `acquireLock` holds the lock, in milliseconds.
+  final int ttlMs;
+
+  /// The same call as the arguments of [ProcessCacheService.handle], for a
+  /// channel that is not a [TypedCoordinatorChannel].
+  Map<String, Object?> toArgs() => <String, Object?>{
+    'key': key,
+    if (owner != null) 'owner': owner,
+    if (op == 'acquireLock') 'ttl': ttlMs,
+  };
 }
 
 /// Process-wide cache and locks via the coordinator (scope `process`).
@@ -411,25 +469,46 @@ final class ProcessStore implements TaggableCacheStore {
     await _call('flush');
   }
 
+  /// Sends a lock call typed, or as a map to a channel that is only a
+  /// [CoordinatorChannel].
+  Future<Object?> _lock(LockMessage message) {
+    final target = channel;
+    return target is TypedCoordinatorChannel
+        ? target.callTyped(
+            ProcessCacheService.serviceName,
+            message,
+            timeout: timeout,
+          )
+        : target.call(
+            ProcessCacheService.serviceName,
+            message.op,
+            message.toArgs(),
+            timeout: timeout,
+          );
+  }
+
   @override
   Future<bool> acquireLock(String name, String owner, Duration ttl) async =>
-      await _call('acquireLock', {
-        'key': name,
-        'owner': owner,
-        'ttl': ttl.inMilliseconds,
-      }) as bool;
+      await _lock(
+        LockMessage(
+          'acquireLock',
+          name,
+          owner: owner,
+          ttlMs: ttl.inMilliseconds,
+        ),
+      ) as bool;
 
   @override
   Future<bool> releaseLock(String name, String owner) async =>
-      await _call('releaseLock', {'key': name, 'owner': owner}) as bool;
+      await _lock(LockMessage('releaseLock', name, owner: owner)) as bool;
 
   @override
   Future<void> forceReleaseLock(String name) =>
-      _call('forceReleaseLock', {'key': name});
+      _lock(LockMessage('forceReleaseLock', name));
 
   @override
   Future<String?> lockOwner(String name) async =>
-      await _call('lockOwner', {'key': name}) as String?;
+      await _lock(LockMessage('lockOwner', name)) as String?;
 }
 
 /// JSON files under a directory (scope `cluster` on a shared disk, otherwise
