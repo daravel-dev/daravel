@@ -59,6 +59,7 @@ match Laravel more closely.
 
 ### Fixed
 
+- `dartisan db:seed --class=X` with a seeder that `bootstrap/seeders.dart` does not list prints `Seeder X is not registered in bootstrap/seeders.dart. Registered: DatabaseSeeder, ...` on stderr and exits 1, where a seeder written by hand but not registered looked as if it had run. `make:seeder` registers the seeders it writes.
 - `dartisan e2e:install` writes `"@playwright/test": "~1.64.1"` instead of `^1.48.0`: npm lists `@playwright/test` 1.65.0 while `playwright-core` 1.65.0 is missing from the registry, so `npm install` failed with `ETARGET`. The starter's e2e suite carries the same pin.
 - Sanctum tokens with a UUID or ULID id: `TokenGuard(keyType:)` and `AuthManager.token(..., keyType:)` take `KeyType.uuid` or `KeyType.ulid` for a tokens table whose Laravel `PersonalAccessToken` model uses `HasUuids` or `HasUlids`. Such a guard issues tokens with a generated UUID/ULID id (`insertGetId` read back nothing) and finds `<uuid>|<secret>` tokens, which `int.tryParse` refused before, so a Laravel-issued token did not authenticate. A token id that cannot be the table's key (text for an integer key, an integer or a malformed id for a UUID/ULID key) is a miss before any query, so PostgreSQL never compares text with a `bigint` column (an error, so a 500, not a 401). The default stays `KeyType.autoInt`; other key types are refused when the guard is made.
 
