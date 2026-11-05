@@ -144,6 +144,51 @@ void main() {
     expect(await schema.hasColumn('my_items', 'extra'), isTrue);
   });
 
+  test('dropAllTables drops tables joined by foreign keys', () async {
+    final schema = SchemaBuilder(await db.executor());
+    Future<void> build() async {
+      await schema.create('my_parents', (t) => t.id());
+      await schema.create('my_children', (t) {
+        t.id();
+        t.foreignId('my_parent_id').constrained();
+        t.foreignId('sibling_id').nullable().constrained('my_children');
+      });
+      await schema.create('my_parent_child', (t) {
+        t.foreignId('my_parent_id').constrained();
+        t.foreignId('my_child_id').constrained('my_children');
+      });
+      final parent = await db.table('my_parents').insertGetId({});
+      final child = await db.table('my_children').insertGetId({
+        'my_parent_id': parent,
+      });
+      await db.table('my_parent_child').insert({
+        'my_parent_id': parent,
+        'my_child_id': child,
+      });
+      await db.statement(
+        'CREATE OR REPLACE VIEW my_parent_view AS SELECT id FROM my_parents',
+      );
+    }
+
+    // Twice: the second run finds the tables the first one created again.
+    for (var run = 0; run < 2; run++) {
+      await build();
+      expect(await schema.getTables(), isNot(contains('my_parent_view')));
+      await schema.dropAllTables();
+      expect(await schema.getTables(), isEmpty, reason: 'run $run');
+      await db.statement('DROP VIEW my_parent_view');
+    }
+    // Every pooled connection still checks foreign keys.
+    final checks = await Future.wait([
+      for (var i = 0; i < 4; i++)
+        db.select('SELECT @@foreign_key_checks AS on_'),
+    ]);
+    expect(
+      [for (final rows in checks) '${rows.single['on_']}'],
+      [for (var i = 0; i < 4; i++) '1'],
+    );
+  });
+
   test('framework migrations create Laravel\'s shared tables', () async {
     final tables = [
       'cache',

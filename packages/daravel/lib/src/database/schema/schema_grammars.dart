@@ -187,7 +187,9 @@ final class MySqlSchemaGrammar extends SchemaGrammar {
 
   @override
   String compileListTables() =>
-      'SELECT table_name AS name FROM information_schema.tables WHERE table_schema = DATABASE()';
+      // Views are not tables, as in Laravel's `MySqlGrammar::compileTables`.
+      'SELECT table_name AS name FROM information_schema.tables WHERE table_schema = DATABASE() '
+      "AND table_type IN ('BASE TABLE', 'SYSTEM VERSIONED')";
 
   @override
   String compileColumns() =>

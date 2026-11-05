@@ -30,6 +30,8 @@ match Laravel more closely.
 
 ### Fixed
 
+- `migrate:fresh` (`SchemaBuilder.dropAllTables`) on MySQL and MariaDB drops tables that foreign keys join, where it stopped at the first parent table (`1451 Cannot delete or update a parent row`). It drops the database's foreign keys first, then every table in one `DROP TABLE`, so no pooled connection is left with `FOREIGN_KEY_CHECKS = 0`. `SchemaBuilder.getTables` on MySQL and MariaDB no longer lists views, as Laravel's `Schema::getTables`.
+
 ## 1.25.0
 
 For an application that moves from Laravel route by route. `withUpstream` now forwards forms, uploads, the client's method and its `Host` as sent, and its shadow replay can compare a moved route's answer byte for byte. JWTs are shared with tymon/jwt-auth's `lock_subject`, and Sanctum tokens and JWTs are checked both ways beside real Laravel 8 to 13. Two security checks are new: inline JavaScript built from values (`daravel_lints`), and scripts from another origin without Subresource Integrity (`security:audit`).
