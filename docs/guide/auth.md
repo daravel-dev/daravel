@@ -37,6 +37,13 @@ adds Sanctum's `token_prefix`; `AUTH_TOKEN_EXPIRATION` (minutes) sets a
 global lifetime. `tokenCan`, `revokeCurrent`, `revokeAll` and
 `sanctum:prune-expired` are available on `Auth.tokenGuard()`.
 
+The token's `{id}` is the table's key: an integer, as Sanctum's migration
+makes it. When the Laravel side gives its `PersonalAccessToken` model
+`HasUuids` or `HasUlids`, register the guard with the same key, so new tokens
+get a UUID or ULID and only such ids are looked up:
+`auth.token<User>('token', provider, keyType: KeyType.uuid)`. A token whose
+id cannot be the table's key is refused before the database is asked.
+
 When no account matches the e-mail, the password is still hashed against a
 dummy hash, so a failed login takes the same time whether or not the account
 exists.
