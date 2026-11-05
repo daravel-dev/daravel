@@ -207,11 +207,13 @@ final class Broadcaster {
 
   /// Forwards the messages of [channels] to [socket] until it closes, then
   /// unsubscribes. Messages the client sends are ignored unless
-  /// [onMessage] handles them.
+  /// [onMessage] handles them, one at a time: an asynchronous handler is
+  /// awaited before the next message is read, so a client cannot queue
+  /// work faster than it is done.
   Future<void> pipe(
     WebSocket socket,
     List<String> channels, {
-    void Function(Object? message)? onMessage,
+    FutureOr<void> Function(Object? message)? onMessage,
   }) async {
     final subscriptions = [
       for (final channel in channels) await subscribe(channel),
@@ -229,7 +231,14 @@ final class Broadcaster {
       });
     }
     try {
-      await socket.listen(onMessage ?? (_) {}).asFuture<void>();
+      await for (final Object? message in socket) {
+        try {
+          await onMessage?.call(message);
+        } catch (error, stackTrace) {
+          // As a listener's error was: reported, and the next message read.
+          Zone.current.handleUncaughtError(error, stackTrace);
+        }
+      }
     } on Object {
       // The connection dropped; the subscriptions end below either way.
     } finally {

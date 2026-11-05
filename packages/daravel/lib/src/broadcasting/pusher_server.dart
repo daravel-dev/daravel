@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:isolate';
 import 'dart:math';
 
+import '../foundation/clock.dart';
 import '../http/request.dart';
 import '../http/response.dart';
 import '../server/broadcast.dart';
@@ -94,6 +95,13 @@ final class PusherServer {
     await _broadcaster.publish(channel, envelope);
     await relay?.send(channel, envelope);
   }
+
+  /// Pusher's channel name rule: at most 164 characters of `A-Z a-z 0-9`
+  /// and `_ - = @ , . ;` (prefixes included).
+  static bool isValidChannelName(String channel) =>
+      channel.length <= 164 && _channelName.hasMatch(channel);
+
+  static final RegExp _channelName = RegExp(r'^[A-Za-z0-9_=@,.;-]+$');
 
   /// `cache-…`, `private-cache-…` and `presence-cache-…` channels.
   static bool isCacheChannel(String channel) =>
@@ -424,8 +432,10 @@ final class _Connection {
       send(PusherServer._error(code, message));
 
   Future<void> receive(Object? message) async {
+    final max = _server.config.maxMessageSize;
     if (message is! String ||
-        utf8.encode(message).length > _server.config.maxMessageSize) {
+        // A character is at most 3 bytes: measure only when it could matter.
+        (message.length * 3 > max && utf8.encode(message).length > max)) {
       return _error(4200, 'Invalid message format');
     }
     final Map<String, Object?> payload;
@@ -455,6 +465,20 @@ final class _Connection {
         if (channel is! String || channel.isEmpty) {
           return _error(4200, 'Invalid message format');
         }
+        final config = _server.config;
+        if (config.validateChannelNames &&
+            !PusherServer.isValidChannelName(channel)) {
+          return _error(4300, 'Invalid channel name');
+        }
+        final most = config.maxChannelsPerConnection;
+        if (most > 0 &&
+            _subscriptions.length >= most &&
+            !_subscriptions.containsKey(channel)) {
+          return _error(
+            4300,
+            'Too many channels on this connection (at most $most)',
+          );
+        }
         await _subscribe(
           channel,
           data['auth'] as String?,
@@ -468,8 +492,32 @@ final class _Connection {
       case _ when event.startsWith('pusher:'):
         _error(4200, 'Invalid message format');
       case _ when event.startsWith('client-'):
+        if (!_allowClientEvent()) {
+          // Dropped, the connection kept, as Pusher does.
+          return _error(4301, 'Rate limit exceeded');
+        }
         await _whisper(event, payload);
     }
+  }
+
+  /// Client events counted in the current second, and when it started.
+  int _clientEvents = 0;
+  DateTime? _clientEventsSince;
+
+  /// Whether one more client event fits in this second
+  /// ([BroadcastConfig.clientEventsPerSecond]).
+  bool _allowClientEvent() {
+    final limit = _server.config.clientEventsPerSecond;
+    if (limit <= 0) {
+      return true;
+    }
+    final now = Clock.now();
+    final since = _clientEventsSince;
+    if (since == null || now.difference(since) >= const Duration(seconds: 1)) {
+      _clientEventsSince = now;
+      _clientEvents = 0;
+    }
+    return ++_clientEvents <= limit;
   }
 
   static Map<String, Object?> _decodeMap(String text) {

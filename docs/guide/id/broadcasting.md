@@ -1,4 +1,4 @@
-<!-- source: broadcasting.md sha256:aa1a0d444c69 -->
+<!-- source: broadcasting.md sha256:8d3fd7a9ae4d -->
 # Broadcasting
 
 Daravel berbicara dengan protokol Pusher, seperti Laravel Reverb, di port
@@ -207,6 +207,9 @@ client tetap di server yang dijangkau WebSocket-nya.
 | `REVERB_APP_ACTIVITY_TIMEOUT` | `30` | Detik tanpa aktivitas sebelum client mengirim ping; server juga mengirim ping |
 | `REVERB_APP_MAX_MESSAGE_SIZE` | `10000` | Ukuran pesan terbesar yang boleh dikirim client, dalam byte |
 | `REVERB_MAX_BUFFERED_BYTES` | `1048576` | Berapa banyak yang boleh menunggu dikirim ke satu client; lewat dari itu client ditutup dengan `4100` (over capacity) dan tersambung ulang setelah backoff |
+| `REVERB_APP_MAX_CHANNELS_PER_CONNECTION` | `100` | Jumlah channel yang boleh diikuti satu koneksi sekaligus (`0`: tanpa batas); lewat dari itu `pusher:error` `4300`, koneksi tetap terbuka |
+| `REVERB_APP_CLIENT_EVENTS_PER_SECOND` | `10` | Client event yang boleh dikirim satu koneksi per detik, seperti Pusher Channels (`0`: tanpa batas); lewat dari itu event dibuang dengan `pusher:error` `4301` |
+| `REVERB_APP_VALIDATE_CHANNEL_NAMES` | `true` | Nama channel mengikuti aturan Pusher: paling banyak 164 karakter dari `A-Z a-z 0-9 _ - = @ , . ;`; nama lain mendapat `pusher:error` `4300` |
 
 Client event (`client-*`, `whisper` di Echo) hanya diteruskan di channel
 private dan presence yang sudah diikuti pengirimnya, seperti yang

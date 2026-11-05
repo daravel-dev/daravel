@@ -30,6 +30,9 @@ final class BroadcastConfig implements ConfigSection {
     this.activityTimeout = 30,
     this.maxMessageSize = 10000,
     this.maxBufferedBytes = defaultMaxBufferedBytes,
+    this.maxChannelsPerConnection = 100,
+    this.clientEventsPerSecond = 10,
+    this.validateChannelNames = true,
     this.encryptionMasterKey,
     this.scaling = false,
     this.scalingDriver = 'database',
@@ -62,6 +65,18 @@ final class BroadcastConfig implements ConfigSection {
       maxBufferedBytes: env.integer(
         'REVERB_MAX_BUFFERED_BYTES',
         defaultMaxBufferedBytes,
+      ),
+      maxChannelsPerConnection: env.integer(
+        'REVERB_APP_MAX_CHANNELS_PER_CONNECTION',
+        100,
+      ),
+      clientEventsPerSecond: env.integer(
+        'REVERB_APP_CLIENT_EVENTS_PER_SECOND',
+        10,
+      ),
+      validateChannelNames: env.boolean(
+        'REVERB_APP_VALIDATE_CHANNEL_NAMES',
+        true,
       ),
       encryptionMasterKey: _masterKey(
         env.maybeString(
@@ -122,6 +137,25 @@ final class BroadcastConfig implements ConfigSection {
 
   /// [maxBufferedBytes] unless `REVERB_MAX_BUFFERED_BYTES` says otherwise.
   static const int defaultMaxBufferedBytes = 1 << 20;
+
+  /// How many channels one connection may be subscribed to at once
+  /// (`REVERB_APP_MAX_CHANNELS_PER_CONNECTION`, 100; 0 for no limit). A
+  /// subscription past it is refused with `pusher:error` 4300 and the
+  /// connection stays open. Each channel costs memory in every isolate
+  /// and in the coordinator, and public channels need no authorization.
+  final int maxChannelsPerConnection;
+
+  /// How many client events (`client-*`, Echo's whisper) one connection
+  /// may send per second (`REVERB_APP_CLIENT_EVENTS_PER_SECOND`, 10 as
+  /// Pusher Channels; 0 for no limit). Past it an event is dropped and the
+  /// sender gets `pusher:error` 4301, as from Pusher.
+  final int clientEventsPerSecond;
+
+  /// Whether channel names must follow Pusher's rules
+  /// (`REVERB_APP_VALIDATE_CHANNEL_NAMES`, true): at most 164 characters
+  /// of `A-Z a-z 0-9 _ - = @ , . ;`. A subscription to any other name is
+  /// refused with `pusher:error` 4300.
+  final bool validateChannelNames;
 
   /// The key of end-to-end encrypted channels (`private-encrypted-…`):
   /// 32 bytes, `REVERB_ENCRYPTION_MASTER_KEY_BASE64` (or `PUSHER_…`), as
@@ -191,6 +225,9 @@ final class BroadcastConfig implements ConfigSection {
     'activity_timeout': activityTimeout,
     'max_message_size': maxMessageSize,
     'max_buffered_bytes': maxBufferedBytes,
+    'max_channels_per_connection': maxChannelsPerConnection,
+    'client_events_per_second': clientEventsPerSecond,
+    'validate_channel_names': validateChannelNames,
     'encryption_master_key': encryptionMasterKey == null ? null : '********',
     'scaling': {
       'enabled': scaling,

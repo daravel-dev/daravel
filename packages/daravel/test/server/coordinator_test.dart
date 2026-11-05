@@ -771,4 +771,43 @@ void cacheFrameTests() {
     expect(service.cachedFrames, 1);
     expect(call('cache_get', {'channel': 'cache-doc-fresh'}), 'fresh');
   });
+
+  test('presence members are kept per user as sockets come and go (#152)', () {
+    final service = ChannelMembershipService();
+    Map<Object?, Object?> call(String op, Map<String, Object?> args) =>
+        (service.handle(op, args) ?? const {}) as Map;
+    Map<Object?, Object?> join(String socket, String user, String worker) =>
+        call('join', {
+          'channel': 'presence-room',
+          'socket': socket,
+          'user_id': user,
+          'user_info': {'name': user},
+          'worker': worker,
+        });
+    Map<Object?, Object?> leave(String socket) =>
+        call('leave', {'channel': 'presence-room', 'socket': socket});
+
+    expect(join('1.1', 'teo', 'w1')['added'], isTrue);
+    expect(join('1.2', 'teo', 'w2')['added'], isFalse, reason: 'second tab');
+    expect(join('1.1', 'teo', 'w1')['added'], isFalse, reason: 'again');
+    expect(join('2.1', 'ana', 'w1'), {
+      'added': true,
+      'members': {
+        'teo': {'name': 'teo'},
+        'ana': {'name': 'ana'},
+      },
+    });
+    expect(call('channel', {'channel': 'presence-room'}), {
+      'occupied': true,
+      'subscription_count': 3,
+      'user_count': 2,
+    });
+    expect(service.stats(), {'channels': 1, 'connections': 3});
+
+    expect(leave('1.1'), {'removed': null}, reason: 'teo has a tab left');
+    service.forgetWorker('w2'); // teo's last tab
+    expect(call('channel', {'channel': 'presence-room'})['user_count'], 1);
+    expect(leave('2.1'), {'removed': 'ana'});
+    expect(service.stats(), {'channels': 0, 'connections': 0});
+  });
 }

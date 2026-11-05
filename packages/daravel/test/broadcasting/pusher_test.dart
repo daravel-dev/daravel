@@ -53,6 +53,7 @@ void main() {
           'REVERB_APP_SECRET': appSecret,
           'REVERB_ENCRYPTION_MASTER_KEY_BASE64': masterKeyBase64,
           'REVERB_MAX_BUFFERED_BYTES': '65536',
+          'REVERB_APP_MAX_CHANNELS_PER_CONNECTION': '3',
         })
         .withAuth((auth) {
           auth.register(
@@ -752,6 +753,92 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 10));
     }
     expect(await occupied(), isFalse);
+  });
+
+  test('channel names follow Pusher\'s rules; the connection stays open '
+      '(#152)', () async {
+    final client = await connect();
+    for (final name in ['bad name', 'a#b', 'x' * 165, 'ok/no']) {
+      client.send({
+        'event': 'pusher:subscribe',
+        'data': {'channel': name},
+      });
+      final frame = await client.next();
+      expect(frame['event'], 'pusher:error');
+      expect(jsonDecode(frame['data']! as String), {
+        'code': 4300,
+        'message': 'Invalid channel name',
+      });
+    }
+    await client.subscribe('App.Models.User-1_=@,.;${'y' * 140}');
+    client.send({'event': 'pusher:ping', 'data': <String, Object?>{}});
+    expect(await client.next(), {'event': 'pusher:pong'});
+    await client.close();
+  });
+
+  test('one connection subscribes to at most '
+      'REVERB_APP_MAX_CHANNELS_PER_CONNECTION channels (#152)', () async {
+    final client = await connect();
+    for (final name in ['a', 'b', 'c']) {
+      await client.subscribe(name);
+    }
+    await client.subscribe('a'); // again: not a new channel
+    client.send({
+      'event': 'pusher:subscribe',
+      'data': {'channel': 'd'},
+    });
+    final refused = await client.next();
+    expect(jsonDecode(refused['data']! as String), {
+      'code': 4300,
+      'message': 'Too many channels on this connection (at most 3)',
+    });
+    client.send({
+      'event': 'pusher:unsubscribe',
+      'data': {'channel': 'a'},
+    });
+    await client.subscribe('d');
+    await client.close();
+  });
+
+  test('client events past 10 a second are dropped with 4301 (#152)', () async {
+    Clock.freeze();
+    addTearDown(Clock.restore);
+    Future<_Client> join() async {
+      final client = await connect();
+      final (_, body) = await authorize(
+        client.socketId,
+        'private-orders.7',
+        token: 'user-1',
+      );
+      await client.subscribe('private-orders.7', auth: body['auth']! as String);
+      return client;
+    }
+
+    final a = await join();
+    final b = await join();
+    void whisper(int n) => a.send({
+      'event': 'client-typing',
+      'channel': 'private-orders.7',
+      'data': {'n': n},
+    });
+    for (var n = 1; n <= 11; n++) {
+      whisper(n);
+    }
+    final error = await a.next();
+    expect(error['event'], 'pusher:error');
+    expect(jsonDecode(error['data']! as String), {
+      'code': 4301,
+      'message': 'Rate limit exceeded',
+    });
+    for (var n = 1; n <= 10; n++) {
+      expect((await b.next())['data'], {'n': n});
+    }
+    // The next second: allowed again, and nothing else reached b.
+    Clock.travel(const Duration(seconds: 1));
+    whisper(12);
+    expect((await b.next())['data'], {'n': 12});
+    await a.close();
+    await b.close();
   });
 }
 
