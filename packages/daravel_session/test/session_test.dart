@@ -367,6 +367,72 @@ void main() {
       );
       expect(expired.jsonMap['name'], isNull);
     });
+
+    test('an unchanged session in the same second is updated, not inserted '
+        'again (MySQL and MariaDB count changed rows, #132)', () async {
+      freezeTime();
+      await app.shutdown();
+      app = build(const {'SESSION_DRIVER': 'database'});
+      await app.boot();
+      await app.run(() => App.make<Migrator>().run());
+      // MySQL's affected rows on SQLite: an UPDATE that changes no column
+      // is skipped, so it reports 0 for a row that exists.
+      await app.run(
+        () => DB.statement('''
+          CREATE TRIGGER sessions_changed_rows BEFORE UPDATE ON sessions
+          WHEN NEW.payload IS OLD.payload
+            AND NEW.last_activity IS OLD.last_activity
+            AND NEW.user_id IS OLD.user_id
+            AND NEW.ip_address IS OLD.ip_address
+            AND NEW.user_agent IS OLD.user_agent
+          BEGIN SELECT RAISE(IGNORE); END
+        '''),
+      );
+      client = TestClient(app);
+
+      final first = await client.get('/get');
+      first.assertOk();
+      final cookie = cookieValue(first, 'my_app_session')!;
+      final headers = {
+        'cookie': 'my_app_session=${Uri.encodeComponent(cookie)}',
+      };
+      for (var i = 0; i < 3; i++) {
+        (await client.get('/get', headers: headers)).assertOk();
+      }
+      final rows = await app.run(() => DB.table('sessions').count());
+      expect(rows, 1);
+    });
+
+    test('a row created after the read is updated instead of failing on '
+        'the primary key', () async {
+      await app.shutdown();
+      app = build(const {'SESSION_DRIVER': 'database'});
+      await app.boot();
+      await app.run(() async {
+        await App.make<Migrator>().run();
+        final handler = DatabaseSessionHandler(
+          lifetime: const Duration(minutes: 120),
+        );
+        const id = 'RaceRaceRaceRaceRaceRaceRaceRaceRaceRace';
+        expect(await handler.read(id), isNull);
+        // Another request writes the session meanwhile.
+        await DB.table('sessions').insert({
+          'id': id,
+          'payload': base64.encode(utf8.encode('a:0:{}')),
+          'last_activity': 0,
+        });
+        await handler.write(id, 'a:1:{s:4:"name";s:4:"Jane";}');
+        final rows = await DB.table('sessions').get();
+        expect(rows, hasLength(1));
+        expect(
+          utf8.decode(base64.decode('${rows.single['payload']}')),
+          'a:1:{s:4:"name";s:4:"Jane";}',
+        );
+        // A write without a read in this isolate looks the row up.
+        await handler.write(id, 'a:0:{}');
+        expect(await handler.read(id), 'a:0:{}');
+      });
+    });
   });
 
   group('file driver', () {
@@ -386,6 +452,82 @@ void main() {
         headers: {'cookie': 'my_app_session=${Uri.encodeComponent(cookie)}'},
       );
       expect(second.jsonMap['name'], 'Jane');
+    });
+  });
+
+  group('cache driver', () {
+    test('the payload is the value under the session id in SESSION_STORE, '
+        'for SESSION_LIFETIME', () async {
+      freezeTime();
+      await app.shutdown();
+      app = build(const {
+        'SESSION_DRIVER': 'cache',
+        'SESSION_STORE': 'array',
+        'SESSION_LIFETIME': '30',
+        'CACHE_PREFIX': 'my_app_cache_',
+      });
+      await app.boot();
+      client = TestClient(app);
+
+      final handler = await app.run(
+        () async => App.make<SessionManager>().handler,
+      );
+      expect(handler, isA<CacheSessionHandler>());
+      final first = await client.get('/put');
+      final id = first.jsonMap['id'] as String;
+      final stored = await app.run(() => Cache.store('array').get<String>(id));
+      expect((phpUnserialize(stored!) as Map)['name'], 'Jane');
+      expect(
+        await app.run(
+          () => App.make<CacheManager>()
+              .store('memory')
+              .store
+              .get('my_app_cache_$id'),
+        ),
+        stored,
+        reason: 'CACHE_PREFIX goes before the id, as the store prefixes',
+      );
+
+      final cookie = cookieValue(first, 'my_app_session')!;
+      final headers = {
+        'cookie': 'my_app_session=${Uri.encodeComponent(cookie)}',
+      };
+      expect(
+        (await client.get('/get', headers: headers)).jsonMap['name'],
+        'Jane',
+      );
+
+      travel(const Duration(minutes: 31));
+      expect(
+        (await client.get('/get', headers: headers)).jsonMap['name'],
+        isNull,
+        reason: 'the entry expired with the session lifetime',
+      );
+
+      await app.run(() async {
+        final cache = (handler as CacheSessionHandler).cache;
+        await handler.write('x' * 40, 'a:0:{}');
+        expect(await handler.read('x' * 40), 'a:0:{}');
+        await handler.destroy('x' * 40);
+        expect(await cache.get<Object>('x' * 40), isNull);
+      });
+    });
+
+    test('SESSION_DRIVER=redis without daravel_redis says what is '
+        'missing', () async {
+      await app.shutdown();
+      app = build(const {'SESSION_DRIVER': 'redis'});
+      await app.boot();
+      await expectLater(
+        app.run(() async => App.make<SessionManager>().handler),
+        throwsA(
+          isA<ConfigException>().having(
+            (e) => e.message,
+            'message',
+            contains('withRedis()'),
+          ),
+        ),
+      );
     });
   });
 
@@ -737,9 +879,20 @@ void main() {
     expect(config.lifetime, const Duration(minutes: 30));
     expect(config.sameSite, 'strict');
     expect(config.domain, '.example.test');
+    expect(config.store, isNull);
     expect(
       SessionConfig.fromEnv(Env.fromMap(const {})).cookie,
       'daravel_session',
     );
+    final redis = SessionConfig.fromEnv(
+      Env.fromMap(const {
+        'SESSION_DRIVER': 'redis',
+        'SESSION_CONNECTION': 'session',
+        'SESSION_STORE': 'redis',
+      }),
+    );
+    expect(redis.connection, 'session');
+    expect(redis.store, 'redis');
+    expect(redis.toMap()['store'], 'redis');
   });
 }

@@ -48,10 +48,18 @@ final class SessionManager {
         connection: config.connection,
         lifetime: config.lifetime,
       ),
+      'cache' => CacheSessionHandler(
+        Cache.store(config.store),
+        lifetime: config.lifetime,
+      ),
       'array' => ArraySessionHandler(lifetime: config.lifetime),
+      'redis' => throw ConfigException(
+        'SESSION_DRIVER=redis needs daravel_redis: add withRedis() to the '
+        'application.',
+      ),
       final other => throw ConfigException(
-        'SESSION_DRIVER=$other is not file, database or array, and no '
-        'package registered it (SessionManager.extend).',
+        'SESSION_DRIVER=$other is not file, database, cache or array, and '
+        'no package registered it (SessionManager.extend).',
       ),
     };
   }

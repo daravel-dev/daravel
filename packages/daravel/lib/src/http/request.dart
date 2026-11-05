@@ -11,6 +11,7 @@ import '../routing/route_entry.dart';
 import '../validation/validated_data.dart';
 import '../validation/validator.dart';
 import 'cookies.dart';
+import 'csp.dart';
 import 'headers.dart';
 import 'http_exceptions.dart';
 import 'multipart.dart';
@@ -166,6 +167,20 @@ final class Request {
 
   /// Arbitrary per-request data shared between middleware and handlers.
   final Map<String, Object?> attributes = <String, Object?>{};
+
+  /// This request's Content-Security-Policy nonce: 16 bytes from a CSPRNG,
+  /// base64, made on first read and the same for the rest of the request.
+  /// Put it on inline scripts and styles (`<script nonce="...">`); a
+  /// `SecurityHeadersMiddleware` policy that lists `Csp.nonce` sends it as
+  /// `'nonce-...'`, so those run without `'unsafe-inline'`. Each request has
+  /// its own, so a nonce seen in one page is no use to an injected script in
+  /// another.
+  String get cspNonce => _cspNonce ??= Csp.generateNonce();
+
+  /// Whether [cspNonce] has been made for this request.
+  bool get hasCspNonce => _cspNonce != null;
+
+  String? _cspNonce;
 
   /// Maximum body size accepted by [bytes]; `null` means unlimited.
   int? maxBodyBytes = defaultMaxBodyBytes;

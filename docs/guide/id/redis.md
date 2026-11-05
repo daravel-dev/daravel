@@ -1,4 +1,4 @@
-<!-- source: redis.md sha256:9664ebb13f6e -->
+<!-- source: redis.md sha256:d623e865ad28 -->
 # Redis
 
 Di satu server, Daravel tidak membutuhkan Redis: isolate coordinator
@@ -62,6 +62,7 @@ REVERB_SCALING_DRIVER=redis  # server broadcasting berbagi client Echo
 | `CACHE_LIMITER=redis` | Setiap percobaan adalah satu skrip Lua; percobaan yang diblokir tidak dihitung |
 | `QUEUE_CONNECTION=redis` | Job di Redis; worker yang menganggur menunggu dengan `BLPOP` dan langsung menjalankan job yang di-push, tidak menunggu `--sleep`. Lock unique job serta `queue:restart` / `queue:pause` juga masuk ke Redis (`QUEUE_UNIQUE_LOCK_STORE=redis`) |
 | `REVERB_SCALING_DRIVER=redis` | Frame antarserver lewat Pub/Sub; anggota presence, API channels, dan channel cache di Redis ([Broadcasting](broadcasting.md#beberapa-server)) |
+| `SESSION_DRIVER=redis` | Session di Redis dengan susunan key Laravel, di koneksi `default` kecuali `SESSION_CONNECTION` menyebut koneksi lain (butuh `withSession()`, [Session](sessions.md#driver-redis-dan-cache)) |
 
 Cache memakai koneksi `cache` (`REDIS_CACHE_DB`, default 1), sehingga
 `dartisan cache:clear` hanya menghapus key cache itu sendiri (`SCAN` dan
@@ -308,6 +309,7 @@ tidak ikut mengompilasi CLI.
 | Angka di cache | Dibagi: disimpan sebagai digit biasa |
 | Nilai cache lainnya | Dibagi dengan `REDIS_SERIALIZER=php`: Daravel menulis `serialize()` dari PHP untuk string, boolean, list, dan map, serta membaca nilai dari Laravel, dengan object menjadi map berisi property-nya. Dengan `json`, Laravel tidak bisa membaca nilai dari Daravel |
 | Tag | Dibagi: key dan daftar tag yang sama; flush dari salah satunya sampai ke apa yang diberi tag oleh yang lain |
+| Session (`SESSION_DRIVER=redis`) | Dibagi dengan `APP_KEY`, cookie session, dan prefix yang sama: `<REDIS_PREFIX><CACHE_PREFIX><id>` berisi `serialize($payload)`, apa pun nilai `REDIS_SERIALIZER` ([Session](sessions.md#driver-redis-dan-cache)) |
 | `Redis.throttle`, `Redis.funnel` | Dibagi dengan `Redis::throttle` dan `Redis::funnel` dengan nama yang sama: skrip dan key dari Laravel |
 | Queue | Dipisah (namespace `daravel:`): worker Laravel tidak bisa menjalankan job Daravel, begitu pula sebaliknya |
 

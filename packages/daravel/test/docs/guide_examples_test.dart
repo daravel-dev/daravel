@@ -1,11 +1,112 @@
 // Code samples of the documentation site (docs/guide). Regions marked
 // `#region name` are copied into the guides by `dart run tool/docs/generate.dart`,
 // so every snippet in the docs compiles and runs (BLUEPRINT_V2 §11.3).
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:daravel/daravel.dart';
+import 'package:daravel/html.dart';
 import 'package:daravel_test/daravel_test.dart';
 import 'package:test/test.dart';
+
+// #region html-layout
+/// The site layout (Blade's `@extends('layouts.app')`): every `@yield` and
+/// `@stack` is a parameter, and `body` is the default slot.
+HtmlDocument appLayout({
+  required String title,
+  required List<Object?> body,
+  List<Object?> head = const [],
+  List<Object?> scripts = const [],
+  String? csrfToken,
+}) => document(
+  title: '$title | Example',
+  head: [
+    link(rel: 'stylesheet', href: '/css/app.css'),
+    ...head,
+  ],
+  // htmx sends these headers with every request from the page.
+  bodyAttributes: {
+    if (csrfToken != null)
+      'hx-headers': jsonEncode({'X-CSRF-TOKEN': csrfToken}),
+  },
+  [
+    header(classes: 'topbar', [
+      a(['Home'], href: '/'),
+    ]),
+    mainEl(id: 'content', body),
+    script(src: '/js/htmx.min.js', defer: true),
+    ...scripts,
+  ],
+);
+
+/// A component with named slots (Blade's `<x-card>` with `$title`, the
+/// default slot and `<x-slot:actions>`).
+Element card({
+  required Object? title,
+  required List<Object?> body,
+  List<Object?>? actions,
+}) => article(classes: 'card', [
+  h2(classes: 'card-title', [title]),
+  div(classes: 'card-body', body),
+  if (actions != null) footer(classes: 'card-actions', actions),
+]);
+// #endregion html-layout
+
+// #region htmx
+Element postRow(Post post) => tr(id: 'post-${post.id}', [
+  td([post.title]),
+  td([
+    if (post.published)
+      'Published'
+    else
+      button(
+        ['Publish'],
+        attributes: {
+          'hx-post': '/posts/${post.id}/publish',
+          'hx-target': 'closest tr',
+          'hx-swap': 'outerHTML',
+        },
+      ),
+  ]),
+]);
+
+void webRoutes(Router router) {
+  router.get('/posts', (request) async {
+    final rows = tbody(id: 'posts', [
+      for (final post in await Post.query().get()) postRow(post),
+    ]);
+    // htmx asks for the rows only; a browser gets the whole page.
+    if (request.isHtmx) {
+      return rows;
+    }
+    return appLayout(
+      title: 'Posts',
+      body: [
+        card(
+          title: 'Posts',
+          body: [
+            table([rows]),
+          ],
+        ),
+      ],
+    );
+  });
+
+  // The answer is the fragment htmx swaps in: the updated row.
+  router.post('/posts/{id}/publish', (request) async {
+    final post = await Post.query().findOrFail(request.param<int>('id'));
+    await post.update({'published': true});
+    return postRow(post);
+  });
+
+  // `HX-Redirect` for htmx (which would swap a followed 302 into the
+  // target), an ordinary 303 for a plain form.
+  router.post('/posts/clear', (request) async {
+    await Post.query().delete();
+    return htmxRedirect(request, '/posts', status: 303);
+  });
+}
+// #endregion htmx
 
 // #region model
 final class Post extends Model {
@@ -178,7 +279,7 @@ Application createApp() =>
           );
           // #endregion rate-limit
         })
-        .withRouting(api: apiRoutes, apiPrefix: '/api')
+        .withRouting(api: apiRoutes, apiPrefix: '/api', web: webRoutes)
         .create();
 
 void main() {
@@ -266,6 +367,49 @@ void main() {
     expect(Str.mask('ana@example.com', '*', 3), 'ana************');
     expect(rate, 15600.0);
     expect(cached, 1.0);
+  });
+
+  test('HTML layout, slots and htmx fragments', () async {
+    final post = await app.run(
+      () => Post.query().create({'title': 'Hello <b>', 'published': false}),
+    );
+    const htmx = {'HX-Request': 'true'};
+
+    final page = (await client.get('/posts')).assertOk();
+    page
+        .assertSee('<!doctype html>')
+        .assertSee('<title>Posts | Example</title>')
+        .assertSee('<article class="card"><h2 class="card-title">Posts</h2>')
+        .assertSee('<td>Hello &lt;b&gt;</td>')
+        .assertSee('<script src="/js/htmx.min.js" defer></script>');
+
+    (await client.get(
+      '/posts',
+      headers: htmx,
+    )).assertOk().assertHeader('content-type', 'text/html; charset=utf-8');
+    final fragment = (await client.get('/posts', headers: htmx)).body;
+    expect(fragment, startsWith('<tbody id="posts"><tr id="post-${post.id}">'));
+
+    (await client.post(
+      '/posts/${post.id}/publish',
+      headers: htmx,
+    )).assertOk().assertSee('<td>Published</td>');
+
+    (await client.post(
+      '/posts/clear',
+      headers: htmx,
+    )).assertOk().assertHeader('hx-redirect', '/posts');
+    (await client.post('/posts/clear')).assertRedirect('/posts');
+
+    final layout = appLayout(
+      title: 'Home',
+      csrfToken: 'tok',
+      body: [
+        card(title: 'Hi', body: ['x'], actions: ['y']),
+      ],
+    ).render();
+    expect(layout, contains('<body hx-headers="{&quot;X-CSRF-TOKEN&quot;:'));
+    expect(layout, contains('<footer class="card-actions">y</footer>'));
   });
 
   test('HTTP feature test', () async {

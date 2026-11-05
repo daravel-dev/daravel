@@ -16,7 +16,7 @@ import 'handlers.dart';
 ///
 /// Flash data (`_flash.new`, `_flash.old`), the CSRF token (`_token`) and
 /// the previous URL (`_previous.url`) use Laravel's keys.
-final class Session {
+final class Session implements SessionStore {
   /// A session read through [handler].
   Session({
     required this.name,
@@ -55,6 +55,7 @@ final class Session {
   bool _started = false;
 
   /// The session id (the cookie value).
+  @override
   String get id => _id;
 
   /// Whether [start] has run.
@@ -62,6 +63,7 @@ final class Session {
 
   /// Every attribute, including the framework's `_token`, `_flash` and
   /// `_previous` entries.
+  @override
   Map<String, Object?> get all => Map.unmodifiable(_attributes);
 
   /// The session of the current request, or `null` outside one (a job, a
@@ -130,21 +132,25 @@ final class Session {
   // -- Attributes -----------------------------------------------------------
 
   /// Whether [key] holds a non-null value.
+  @override
   bool has(String key) => _get(key) != null;
 
   /// Whether [key] is set, even to null.
+  @override
   bool exists(String key) => _lookup(key).$1;
 
   /// Whether [key] is not set.
   bool missing(String key) => !exists(key);
 
   /// The value of [key] (dotted), or [fallback].
+  @override
   T? get<T>(String key, [T? fallback]) {
     final value = _get(key);
     return value is T ? value : fallback;
   }
 
   /// Sets [key] to [value].
+  @override
   void put(String key, Object? value) => _set(key, value);
 
   /// Gets [key] and forgets it.
@@ -242,6 +248,7 @@ final class Session {
   // -- Token, id and previous URL --------------------------------------------
 
   /// The CSRF token.
+  @override
   String? get token => get<String>('_token');
 
   /// Gives the session a new CSRF token.
@@ -297,6 +304,7 @@ final class Session {
 
   /// The validation errors a failed request flashed, by field, whichever
   /// application flashed them.
+  @override
   Map<String, Object?> get errors {
     var bag = get<Object>('errors');
     if (bag is PhpObject) {
@@ -315,6 +323,7 @@ final class Session {
   }
 
   /// `old('name')`: the input of the failed request.
+  @override
   T? old<T>(String key, [T? fallback]) {
     final input = get<Object>('_old_input');
     final value = input is Map ? input[key] : null;
@@ -393,5 +402,5 @@ extension RequestSession on Request {
   Session? get sessionOrNull => attributes[sessionAttribute] as Session?;
 
   /// Key of the session in [Request.attributes].
-  static const String sessionAttribute = 'session';
+  static const String sessionAttribute = SessionStore.attribute;
 }

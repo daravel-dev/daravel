@@ -16,6 +16,7 @@ export 'src/events.dart';
 export 'src/queue.dart';
 export 'src/resp.dart';
 export 'src/serializer.dart';
+export 'src/session.dart' show redisSessionHandler;
 export 'src/setup.dart';
 export 'src/store.dart';
 export 'src/tags.dart';

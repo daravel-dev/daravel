@@ -165,3 +165,34 @@ final class StorageLinkCommand extends DaravelCommand {
     }
   });
 }
+
+/// `static:hash`: hashes the files of every `withStatic` directory and
+/// writes their versions to `.static-manifest.json` in it, so a production
+/// boot versions them from their size and modification time instead of
+/// reading every file. Run it in the deploy step, after the assets are
+/// built; a file changed since is hashed again at boot.
+final class StaticHashCommand extends DaravelCommand {
+  /// The `dartisan static:hash` command.
+  StaticHashCommand(super.createApp);
+
+  @override
+  String get name => 'static:hash';
+
+  @override
+  String get description =>
+      'Write the versions of the static files for a faster production boot.';
+
+  @override
+  Future<int> run() => withApp((app) async {
+    final directories = App.make<StaticAssets>().directories;
+    if (directories.isEmpty) {
+      stdout.writeln('No static directory is registered (withStatic).');
+      return 0;
+    }
+    for (final files in directories) {
+      final target = files.writeManifest();
+      stdout.writeln('Hashed ${files.paths.length} file(s) into [$target].');
+    }
+    return 0;
+  });
+}

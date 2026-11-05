@@ -1,4 +1,4 @@
-<!-- source: dartisan.md sha256:7bb905a6dfea -->
+<!-- source: dartisan.md sha256:c30d9dd657ef -->
 # dartisan
 
 `dartisan` adalah `artisan`-nya Daravel. Pasang sekali, lalu pakai di proyek
@@ -113,7 +113,7 @@ sebelum pindah ke versi minor baru.
 | `queue:failed`, `queue:retry`, `queue:forget`, `queue:flush` | Job yang gagal |
 | `queue:clear`, `queue:pause`, `queue:continue`, `queue:restart` | Kendali queue |
 | `schedule:work`, `schedule:run`, `schedule:list` | Scheduler |
-| `cache:clear`, `storage:link`, `coordinator:stats [--url] [--token] [--json]` | Cache, link storage publik, coordinator server yang sedang berjalan beserta saran ([Operasional](operations.md#yang-dipantau)) |
+| `cache:clear`, `storage:link`, `static:hash`, `coordinator:stats [--url] [--token] [--json]` | Cache, link storage publik, versi file statis ([Respons](responses.md#file-statis)), coordinator server yang sedang berjalan beserta saran ([Operasional](operations.md#yang-dipantau)) |
 
 ## Generator
 
