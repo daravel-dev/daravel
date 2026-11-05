@@ -431,6 +431,9 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `Storage::response($path)` | `await Storage.response(path, request: request)` |  |
 | `response()->download($path, $name)->deleteFileAfterSend()` | `await Response.download(path, name: name, deleteFileAfterSend: true)` |  |
 | `response()->file($path)` | `await Response.file(path, request: request)` |  |
+| `public/ (served by the web server)` | `.withStatic('public', prefix: '/assets')` | Scanned at boot, served by name only; dartisan static:hash writes the versions for production. |
+| `asset('css/app.css')` | `asset('css/app.css')` | Adds ?v= with a SHA-256 prefix; that URL is cached for a year (immutable). |
+| `Vite::asset('resources/js/app.js')` | `Assets.vite('resources/js/app.js')` | Reads public/build/manifest.json. |
 | `Storage::disk('s3')->temporaryUrl($path, now()->addMinutes(30))` | `Storage.disk('s3').temporaryUrl(path, expiration: 30.minutes.fromNow)` | package:daravel_s3 (withS3()); same AWS_* variables. |
 | `Storage::disk('s3')->temporaryUploadUrl($path, $expiration)` | `Storage.disk('s3').temporaryUploadUrl(path, expiration: ...)` | Returns url and headers, as Laravel's array. |
 | `Http::withToken($t)->retry(3, 100)->post($url, $data)` | `await Http.withToken(t).retry(3).post(url, json: data)` | **async** |

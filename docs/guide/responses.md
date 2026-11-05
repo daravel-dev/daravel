@@ -332,6 +332,52 @@ A disk reads from the start to reach a range, which on S3 means downloading what
 comes before it. Do not build the path of `Response.file` from user input; a
 disk checks its paths.
 
+## Static files
+
+Laravel leaves `public/` to the web server. A Daravel application is the web
+server, so it serves a directory itself:
+
+```dart
+Application.configure(basePath: basePath)
+    .withStatic('public', prefix: '/assets')
+```
+
+```dart
+Response.html('<link rel="stylesheet" href="${asset('neo.css')}">');
+// <link rel="stylesheet" href="/assets/neo.css?v=1a2b3c4d5e6f">
+```
+
+`asset(path)` adds the first 12 hex digits of the file's SHA-256. A request
+carrying the current version is answered with
+`Cache-Control: public, max-age=31536000, immutable`; without it, or with a
+stale one, with `public, max-age=300` (`maxAge:`). `ETag`, 304 and ranges come
+from `Response.file`, and no `Content-Disposition` is sent. Types are exact for
+what browsers check: `text/javascript`, `text/css`, `application/wasm`,
+`image/svg+xml`, `font/woff2`, `font/woff`, `font/ttf`, `font/otf`
+(`mimeTypeOf`).
+
+The directory is scanned at boot and a request is answered by looking its path
+up among the files found, so no part of the URL reaches the file system: `..`,
+`%2e%2e`, `%2f` and backslashes only miss the lookup. Dot files (`.env`, `.git`,
+`.vite`) and symbolic links are skipped; the `public/storage` link of
+`storage:link` leads to uploads, which a disk serves (`Storage.response`). A
+missing directory aborts the boot. Several `withStatic` calls add directories;
+`asset` uses the first that has the file, and `prefix: '/'` serves from the root
+without hiding your routes.
+
+With `APP_ENV=local` (or `rescan: true`) a new file is found without a restart
+and an edited one gets a new version. In production the files found at boot are
+all there is: deploy, then restart. Hashing reads every file once at boot (per
+isolate); `dartisan static:hash` in the deploy step writes
+`public/.static-manifest.json` with each version, size and modification time, and
+the boot then reads no file whose size and time still match.
+
+With Vite, `Assets.vite('resources/js/app.js')` (Laravel's `Vite::asset()`) reads
+`public/build/manifest.json` (or plain Vite's `.vite/manifest.json`) and gives
+`/assets/build/assets/app-4ed993c7.js`; `asset()` does the same for a source the
+manifest lists. Built files are named by their hash, so they are always served
+as immutable. An entry missing from the manifest throws, as in Laravel.
+
 ## Errors
 
 Exceptions are rendered by the exception handler with Laravel's bodies. With

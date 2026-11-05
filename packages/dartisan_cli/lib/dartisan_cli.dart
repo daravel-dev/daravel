@@ -114,6 +114,7 @@ final class DartisanRunner extends CommandRunner<int> {
     addCommand(CoordinatorStatsCommand(createApp));
     addCommand(SecurityAuditCommand(createApp));
     addCommand(StorageLinkCommand(createApp));
+    addCommand(StaticHashCommand(createApp));
     addCommand(QueueWorkCommand(createApp));
     addCommand(QueueFailedCommand(createApp));
     addCommand(QueueRetryCommand(createApp));
