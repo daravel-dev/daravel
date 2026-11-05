@@ -599,12 +599,14 @@ final class _Generator {
         '  Future<$returnType> $methodName(${params.join(', ')}) async {\n',
       )
       ..write(call)
-      ..write(
-        returnType == 'void'
-            ? '    await ${target}send(${args.join(', ')});\n'
-            : '    final json = await ${target}send(${args.join(', ')});\n'
-                  '    return $convert;\n',
-      )
+      ..write(switch (returnType) {
+        'void' => '    await ${target}send(${args.join(', ')});\n',
+        // A file: its bytes and name, not JSON.
+        'ApiFile' => '    return ${target}download(${args.join(', ')});\n',
+        _ =>
+          '    final json = await ${target}send(${args.join(', ')});\n'
+              '    return $convert;\n',
+      })
       ..write('  }\n\n');
   }
 
@@ -647,6 +649,9 @@ final class _Generator {
     final status = response.status;
     if (status == 204) {
       return ('void', 'null');
+    }
+    if (response.isFile) {
+      return ('ApiFile', 'json');
     }
     final model = _modelFor(response.schema, response.name ?? '${base}Item');
     final item = model.decode('e', nullable: false);

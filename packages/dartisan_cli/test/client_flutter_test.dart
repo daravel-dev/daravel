@@ -187,6 +187,31 @@ void routes(Router r) {
           'token': {'type': 'string'},
         },
       }, shape: .raw);
+  // Files: declared with returnsFile, or inferred from a binary schema.
+  const xlsx =
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  r
+      .get(
+        '/reports/{id}',
+        (request) async => Response.bytes(
+          [1, 2, 3, request.param<int>('id')],
+          contentType: xlsx,
+          headers: {
+            'content-disposition': contentDisposition('laporan é.xlsx'),
+          },
+        ),
+      )
+      .name('reports.download')
+      .whereNumber('id')
+      .returnsFile(contentType: xlsx);
+  r
+      .get(
+        '/template',
+        (_) async =>
+            Response.bytes([9], contentType: 'application/octet-stream'),
+      )
+      .name('reports.template')
+      .returns(RouteResponse.binarySchema, shape: .raw);
   // Nullable titled objects: `oneOf [X, null]` and `type: [object, null]`.
   r
       .get(
@@ -271,7 +296,7 @@ void main() {
     expect(api, contains('defaultValue('));
     // A one-segment name is a method on the client itself.
     expect(api, contains('Future<List<TagsItem>> tags('));
-    expect(client.operations, 11);
+    expect(client.operations, 13);
   });
 
   test('typed signatures from rules, path constraints and responses', () {
@@ -344,6 +369,20 @@ void main() {
     expect(models, contains('final class Tenant {'));
     expect(models, contains('final Tenant? tenant;'));
     expect(file('lib/src/api.dart'), contains('Future<SignIn> signIn('));
+  });
+
+  test('file responses return ApiFile through download()', () {
+    final api = file('lib/src/api.dart');
+    expect(api, contains('Future<ApiFile> download(int id, '));
+    expect(api, contains('Future<ApiFile> template('));
+    expect(
+      api,
+      contains(
+        "return _client.download('GET', "
+        "'/api/reports/\${Uri.encodeComponent(id.toString())}'",
+      ),
+    );
+    expect(api, isNot(contains('Future<Object?> template(')));
   });
 
   test('pages are ApiPage, so Flutter apps need no `hide Page`', () {
@@ -624,6 +663,23 @@ void main() {
         ]);
         expect(out['ws'], 'joined lobby');
         expect(out['avatar'], {'size': 3, 'caption': 'hi'});
+        expect(out['report'], [
+          [1, 2, 3, 4],
+          'laporan é.xlsx',
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ]);
+        expect(out['template'], [
+          [9],
+          null,
+        ]);
+        expect(out['disposition'], [
+          null,
+          null,
+          'a.xlsx',
+          'a "b"; c.csv',
+          'x',
+          'y',
+        ]);
         expect(out['session'], 5);
         expect(out['cubit'], 7);
         expect(out['cubit422'], 'The email is taken.');
@@ -770,6 +826,17 @@ Future<void> main(List<String> args) async {
     caption: 'hi',
   );
   await api.accounts.destroy(3);
+  final report = await api.reports.download(4);
+  out['report'] = [report.bytes, report.filename, report.contentType];
+  out['template'] = [(await api.reports.template()).bytes, (await api.reports.template()).filename];
+  out['disposition'] = [
+    dispositionFilename(null),
+    dispositionFilename('attachment'),
+    dispositionFilename('attachment; filename=a.xlsx'),
+    dispositionFilename(r'attachment; filename="a \"b\"; c.csv"'),
+    dispositionFilename("attachment; filename*=UTF-8''%E0%A4; filename=x"),
+    dispositionFilename("attachment; filename*=UTF-8''%ZZ; filename=y"),
+  ];
   out['session'] = (await api.session()).account.id;
   out['unauthenticated'] = await api.tokens.read();
 

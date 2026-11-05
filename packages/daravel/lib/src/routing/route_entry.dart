@@ -343,6 +343,24 @@ final class RouteEntry {
     return this;
   }
 
+  /// Documents a response that is a file, not JSON (`Response.download`,
+  /// `Response.file`, `Excel.download`, a stream): OpenAPI describes a
+  /// [contentType] body (`format: binary`) with `Content-Disposition`, and
+  /// `dartisan client:flutter` returns its bytes and file name (`ApiFile`)
+  /// instead of decoding JSON.
+  RouteEntry returnsFile({
+    String contentType = 'application/octet-stream',
+    int? status,
+  }) {
+    _response = RouteResponse(
+      RouteResponse.binarySchema,
+      shape: .raw,
+      status: status,
+      contentType: contentType,
+    );
+    return this;
+  }
+
   /// Names the controller action this route stands for
   /// (`PostController@store`), as Laravel's route action does.
   RouteEntry action(String action) {
@@ -448,10 +466,38 @@ final class RouteResponse {
     this.name,
     this.shape = ResponseShape.item,
     this.status,
+    this.contentType,
   });
+
+  /// The schema of a file body: `{"type": "string", "format": "binary"}`.
+  static const Map<String, Object?> binarySchema = {
+    'type': 'string',
+    'format': 'binary',
+  };
 
   /// JSON Schema of one item.
   final Map<String, Object?> schema;
+
+  /// The media type of the body, when it is not `application/json`
+  /// (see [RouteEntry.returnsFile]).
+  final String? contentType;
+
+  /// Whether the body is a file: a [binarySchema] returned as is, or a
+  /// [contentType] other than JSON.
+  bool get isFile {
+    final type = contentType;
+    if (type != null) {
+      return !_isJson(type);
+    }
+    return shape == ResponseShape.raw &&
+        schema['type'] == 'string' &&
+        schema['format'] == 'binary';
+  }
+
+  static bool _isJson(String type) {
+    final media = type.split(';').first.trim().toLowerCase();
+    return media == 'application/json' || media.endsWith('+json');
+  }
 
   /// Component name (`components/schemas/<name>`), when set.
   final String? name;

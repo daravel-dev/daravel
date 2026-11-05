@@ -16,6 +16,7 @@ match Laravel more closely.
 - `phpJsonDouble(double)`: a double as PHP's `json_encode` writes it (`serialize_precision = -1`, `zend_gcvt`), used by `PhpJsonEncoder` and `Response.json(phpCompatible: true)`.
 - `Request.bodyInput()`: the body's fields as `all()` sees them, without the query (Laravel's `getInputSource()->all()`). A middleware that rebuilds the body with `replace()` starts from it, so the fields the client sent keep what `TrimStrings` made of them.
 - `CachePrefixShaping`: a cache store that shapes the prefix its `CacheRepository` puts before keys, tag lists and lock names, as Laravel's stores own their prefix. `daravel_redis`'s `RedisStore` implements it (see Changed); `RedisStore(laravelCompat:)` fixes the layout instead of following `COMPAT_LARAVEL_VERSION`.
+- `RouteEntry.returnsFile(contentType:)`: documents a route that answers with a file (`Response.download`, `Excel.download`, a stream). OpenAPI describes a binary body of that type with `Content-Disposition`, and `dartisan client:flutter` generates a method returning `ApiFile` (the bytes, the file name from `Content-Disposition` and the content type) through the runtime's new `download()`, where it generated `Future<Object?>` and tried to decode JSON. A `raw` response with the new `RouteResponse.binarySchema` (or a non-JSON `RouteResponse.contentType`) is a file too (`RouteResponse.isFile`).
 - `Rules.array([keys])` and `RuleBuilder.array` (`ArrayRule`): Laravel's `array` rule, a JSON array or object, with `array:name,email` limiting the keys (see Changed).
 
 ### Changed

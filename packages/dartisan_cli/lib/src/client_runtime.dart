@@ -11,6 +11,7 @@ const String clientRuntimeSource = r'''
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
@@ -87,6 +88,56 @@ final class SseMessage {
 
   /// [data] decoded as JSON.
   Object? get json => jsonDecode(data);
+}
+
+/// A file a route returned (`RouteEntry.returnsFile` on the server).
+final class ApiFile {
+  const ApiFile(this.bytes, {this.filename, this.contentType});
+
+  final Uint8List bytes;
+
+  /// The name from `Content-Disposition`, when the server sent one.
+  final String? filename;
+
+  /// The `Content-Type` header.
+  final String? contentType;
+}
+
+/// The file name of a `Content-Disposition` header: `filename*` (RFC 5987,
+/// UTF-8) when present, else `filename`; `null` when there is neither.
+String? dispositionFilename(String? header) {
+  if (header == null) {
+    return null;
+  }
+  String? plain;
+  for (final part in header.split(RegExp(r';(?=(?:[^"]*"[^"]*")*[^"]*$)'))) {
+    final eq = part.indexOf('=');
+    if (eq < 0) {
+      continue;
+    }
+    final key = part.substring(0, eq).trim().toLowerCase();
+    var value = part.substring(eq + 1).trim();
+    if (key == 'filename*') {
+      final quote = value.indexOf("''");
+      if (quote >= 0) {
+        try {
+          return Uri.decodeComponent(value.substring(quote + 2));
+        } on FormatException {
+          // Not UTF-8 (`%E0%A4`): fall back to `filename`.
+        } on ArgumentError {
+          // A bad escape (`%ZZ`): fall back to `filename`.
+        }
+      }
+    } else if (key == 'filename') {
+      if (value.length >= 2 && value.startsWith('"') && value.endsWith('"')) {
+        value = value
+            .substring(1, value.length - 1)
+            .replaceAllMapped(RegExp(r'\\(.)'), (m) => m[1]!);
+      }
+      plain = value;
+    }
+  }
+  return plain;
 }
 
 /// A page from Laravel's `paginate()`. Named `ApiPage`, not `Page`, so it
@@ -272,6 +323,44 @@ class DaravelClient {
     Object? body,
     List<http.MultipartFile> files = const <http.MultipartFile>[],
   }) async {
+    final response =
+        await _exchange(method, path, query: query, body: body, files: files);
+    final decoded = _decode(response);
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      return decoded;
+    }
+    throw _failure(response, decoded);
+  }
+
+  /// Sends a request whose answer is a file (`Response.download`,
+  /// `Excel.download`, a stream) and returns its bytes, with the name from
+  /// `Content-Disposition`. Errors are JSON and throw as in [send].
+  Future<ApiFile> download(
+    String method,
+    String path, {
+    Map<String, Object?>? query,
+    Object? body,
+    List<http.MultipartFile> files = const <http.MultipartFile>[],
+  }) async {
+    final response =
+        await _exchange(method, path, query: query, body: body, files: files);
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      return ApiFile(
+        response.bodyBytes,
+        filename: dispositionFilename(response.headers['content-disposition']),
+        contentType: response.headers['content-type'],
+      );
+    }
+    throw _failure(response, _decode(response));
+  }
+
+  Future<http.Response> _exchange(
+    String method,
+    String path, {
+    Map<String, Object?>? query,
+    Object? body,
+    List<http.MultipartFile> files = const <http.MultipartFile>[],
+  }) async {
     final http.BaseRequest request;
     final target = uri(path, query);
     if (files.isNotEmpty) {
@@ -293,19 +382,22 @@ class DaravelClient {
       request = plain;
     }
     request.headers.addAll(await requestHeaders());
-    final response = await http.Response.fromStream(await _http.send(request));
+    return http.Response.fromStream(await _http.send(request));
+  }
+
+  static Object? _decode(http.Response response) {
     final text = response.body;
-    Object? decoded;
-    if (text.isNotEmpty) {
-      try {
-        decoded = jsonDecode(text);
-      } on FormatException {
-        decoded = text;
-      }
+    if (text.isEmpty) {
+      return null;
     }
-    if (response.statusCode >= 200 && response.statusCode < 300) {
-      return decoded;
+    try {
+      return jsonDecode(text);
+    } on FormatException {
+      return text;
     }
+  }
+
+  static ApiException _failure(http.Response response, Object? decoded) {
     final message = decoded is Map && decoded['message'] is String
         ? decoded['message'] as String
         : (response.reasonPhrase ?? 'HTTP ${response.statusCode}');
@@ -320,18 +412,18 @@ class DaravelClient {
                 : ['$value'];
           }
         }
-        throw ValidationException(message, errors, decoded);
+        return ValidationException(message, errors, decoded);
       case 401:
-        throw UnauthenticatedException(message, decoded);
+        return UnauthenticatedException(message, decoded);
       case 429:
         final seconds = int.tryParse(response.headers['retry-after'] ?? '');
-        throw TooManyRequestsException(
+        return TooManyRequestsException(
           message,
           seconds == null ? null : Duration(seconds: seconds),
           decoded,
         );
       default:
-        throw ApiException(response.statusCode, message, decoded);
+        return ApiException(response.statusCode, message, decoded);
     }
   }
 
