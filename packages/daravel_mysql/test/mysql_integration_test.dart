@@ -189,6 +189,23 @@ void main() {
     );
   });
 
+  test('a composite primary key with a long name is created', () async {
+    final schema = SchemaBuilder(await db.executor());
+    await schema.dropIfExists('attempt_item_selections');
+    await schema.create('attempt_item_selections', (t) {
+      t.unsignedBigInteger('attempt_item_id');
+      t.unsignedBigInteger('question_option_id');
+      t.primary(['attempt_item_id', 'question_option_id']);
+    });
+    final columns = {
+      for (final c in await schema.getColumns('attempt_item_selections'))
+        c.name: c,
+    };
+    expect(columns['attempt_item_id']!.primary, isTrue);
+    expect(columns['question_option_id']!.primary, isTrue);
+    await schema.drop('attempt_item_selections');
+  });
+
   test('framework migrations create Laravel\'s shared tables', () async {
     final tables = [
       'cache',

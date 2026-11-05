@@ -31,6 +31,7 @@ match Laravel more closely.
 ### Fixed
 
 - `migrate:fresh` (`SchemaBuilder.dropAllTables`) on MySQL and MariaDB drops tables that foreign keys join, where it stopped at the first parent table (`1451 Cannot delete or update a parent row`). It drops the database's foreign keys first, then every table in one `DROP TABLE`, so no pooled connection is left with `FOREIGN_KEY_CHECKS = 0`. `SchemaBuilder.getTables` on MySQL and MariaDB no longer lists views, as Laravel's `Schema::getTables`.
+- A composite primary key (`table.primary([...])`) on MySQL and MariaDB is written `PRIMARY KEY (...)` without a name, as Laravel's `MySqlGrammar` writes it. MySQL names every primary key `PRIMARY` but still refused a `<table>_<columns>_primary` name longer than 64 characters (`1059 Identifier name is too long`), leaving the migration half done. `SchemaGrammar.compilePrimaryKey` writes the constraint, so a dialect can change it.
 
 ## 1.25.0
 

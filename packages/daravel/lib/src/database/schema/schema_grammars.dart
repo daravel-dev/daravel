@@ -139,6 +139,14 @@ final class MySqlSchemaGrammar extends SchemaGrammar {
   String get autoIncrementClause =>
       ' UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY';
 
+  /// `PRIMARY KEY (...)` without a name, as Laravel's `MySqlGrammar` writes
+  /// it: MySQL names every primary key `PRIMARY`, but still checks the name
+  /// given against its 64 character limit, which `<table>_<columns>_primary`
+  /// soon passes.
+  @override
+  String compilePrimaryKey(IndexDefinition key) =>
+      'PRIMARY KEY (${key.columns.map(wrap).join(', ')})';
+
   @override
   bool get supportsUnsigned => true;
 
