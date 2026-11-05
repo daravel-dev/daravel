@@ -30,6 +30,8 @@ match Laravel more closely.
 
 ### Fixed
 
+- `FileStore` (`CACHE_STORE=file`, and the `file` store some packages pick for state shared between processes, such as `daravel_permission`'s cache version) no longer fails a write with `PathNotFoundException: Cannot rename file` when processes share its directory, as `dart test` does with one process per test file. Two writes made in the same millisecond took the same temporary file, and a write whose directory another process flushed was not made again. `increment`, `decrement`, `add` and `touch` are now atomic across processes (an OS lock per key) and across the calls of one isolate, so no count is lost; Laravel takes `LOCK_EX` for the same reason.
+
 ## 1.25.0
 
 For an application that moves from Laravel route by route. `withUpstream` now forwards forms, uploads, the client's method and its `Host` as sent, and its shadow replay can compare a moved route's answer byte for byte. JWTs are shared with tymon/jwt-auth's `lock_subject`, and Sanctum tokens and JWTs are checked both ways beside real Laravel 8 to 13. Two security checks are new: inline JavaScript built from values (`daravel_lints`), and scripts from another origin without Subresource Integrity (`security:audit`).
