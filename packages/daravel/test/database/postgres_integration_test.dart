@@ -420,6 +420,57 @@ void main() {
     await pooled.transaction(remember);
     expect(backends, hasLength(1), reason: 'one connection served them all');
   });
+
+  test('an exhausted pool is reported as such', () async {
+    // #156: the pool's wait surfaced as a bare TimeoutException wrapped
+    // in a QueryException, indistinguishable from a slow query.
+    final pooled = DatabaseManager(
+      DatabaseConfig(
+        defaultConnection: 'pgsql',
+        connections: {
+          'pgsql': ConnectionConfig(
+            driver: 'pgsql',
+            database: uri.path.replaceFirst('/', ''),
+            host: uri.host,
+            port: uri.hasPort ? uri.port : 5432,
+            username: userInfo.first,
+            password: userInfo.length > 1 ? userInfo[1] : null,
+            options: const {
+              'pool': 1,
+              'sslmode': 'disable',
+              'connect_timeout': 1,
+            },
+          ),
+        },
+      ),
+    );
+    addTearDown(pooled.closeAll);
+    await pooled.select('SELECT 1');
+    final holding = Completer<void>();
+    final release = Completer<void>();
+    final held = pooled.transaction(() async {
+      holding.complete();
+      await release.future;
+    });
+    await holding.future;
+    await expectLater(
+      pooled.select('SELECT 2 AS two'),
+      throwsA(
+        isA<PoolExhaustedException>()
+            .having((e) => e.sql, 'sql', 'SELECT 2 AS two')
+            .having((e) => e.waited, 'waited', const Duration(seconds: 1)),
+      ),
+    );
+    await expectLater(
+      pooled.transaction(() async {}),
+      throwsA(isA<PoolExhaustedException>()),
+    );
+    release.complete();
+    await held;
+    expect(await pooled.select('SELECT 3 AS three'), [
+      {'three': 3},
+    ]);
+  });
 }
 
 final class _Item extends Model {

@@ -12,9 +12,14 @@ import 'query_executor.dart';
 /// lock because SQLite is single-writer. While a transaction is open, queries
 /// from outside it (another request on the same isolate) wait until it
 /// commits or rolls back, so they never join or get rolled back with it;
-/// queries from inside it are recognised by a zone token. File databases are opened in WAL
-/// mode with a busy timeout (BLUEPRINT_V2 §2.2.4).
-final class SqliteDriver implements DatabaseDriver, QueryErrors {
+/// queries from inside it are recognised by a zone token. A query that
+/// waits longer than [busyTimeout] for one transaction fails with
+/// `SQLITE_BUSY`, as a second connection would. File databases are opened
+/// in WAL mode with that busy timeout (BLUEPRINT_V2 §2.2.4), and
+/// transactions begin with `BEGIN IMMEDIATE`, so one that reads and then
+/// writes never finds that another isolate wrote in between.
+final class SqliteDriver
+    implements DatabaseDriver, QueryErrors, RetryableErrors {
   /// SQLITE_CONSTRAINT_UNIQUE (2067) and SQLITE_CONSTRAINT_PRIMARYKEY
   /// (1555), as Laravel matches "UNIQUE constraint failed".
   @override
@@ -22,21 +27,52 @@ final class SqliteDriver implements DatabaseDriver, QueryErrors {
       error is SqliteException &&
       (error.extendedResultCode == 2067 || error.extendedResultCode == 1555);
 
+  /// `SQLITE_BUSY` (5, including `SQLITE_BUSY_SNAPSHOT`, 517) and
+  /// `SQLITE_LOCKED` (6): another connection held the lock past the busy
+  /// timeout, so `DB.transaction(attempts: n)` runs the body again.
+  @override
+  bool isRetryableError(Object error) =>
+      error is SqliteException &&
+      (error.extendedResultCode & 0xff == 5 ||
+          error.extendedResultCode & 0xff == 6);
+
   /// A SQLite connection on the file [path] (`:memory:` for an in-memory
   /// database), named [name].
-  SqliteDriver({required this.path, this.name = 'sqlite'});
+  SqliteDriver({
+    required this.path,
+    this.name = 'sqlite',
+    this.busyTimeout = const Duration(seconds: 5),
+  });
 
   /// The driver for a configured connection (`DB_DATABASE` is the file), as
   /// a `DatabaseDriverFactory`:
-  /// `withDatabaseDriver('sqlite', SqliteDriver.fromConfig)`.
-  factory SqliteDriver.fromConfig(String name, ConnectionConfig connection) =>
-      SqliteDriver(path: connection.database, name: name);
+  /// `withDatabaseDriver('sqlite', SqliteDriver.fromConfig)`. The option
+  /// `busy_timeout` (milliseconds, as in Laravel) sets [busyTimeout].
+  factory SqliteDriver.fromConfig(String name, ConnectionConfig connection) {
+    final busy = switch (connection.options['busy_timeout']) {
+      final int ms => ms,
+      final String ms => int.tryParse(ms),
+      _ => null,
+    };
+    return SqliteDriver(
+      path: connection.database,
+      name: name,
+      busyTimeout: busy == null || busy < 0
+          ? const Duration(seconds: 5)
+          : Duration(milliseconds: busy),
+    );
+  }
 
   /// File path, `:memory:` or a `file:` URI.
   final String path;
 
   @override
   final String name;
+
+  /// How long a statement waits for a lock: another connection's (SQLite's
+  /// `busy_timeout`), or a transaction of this connection that the
+  /// statement is not part of. 5 seconds by default.
+  final Duration busyTimeout;
 
   Database? _db;
   Future<void> _transactionQueue = Future<void>.value();
@@ -48,14 +84,27 @@ final class SqliteDriver implements DatabaseDriver, QueryErrors {
   Object? _activeToken;
   Completer<void>? _activeDone;
 
-  /// Waits while a transaction that the current zone is not part of is open.
+  /// Waits while a transaction that the current zone is not part of is
+  /// open, at most [busyTimeout] for each: a query started outside a
+  /// transaction and awaited inside it would otherwise wait for ever.
   Future<void> _waitTurn() async {
     while (true) {
       final done = _activeDone;
       if (done == null || identical(Zone.current[_zoneKey], _activeToken)) {
         return;
       }
-      await done.future;
+      try {
+        await done.future.timeout(busyTimeout);
+      } on TimeoutException {
+        throw SqliteException(
+          extendedResultCode: 5, // SQLITE_BUSY
+          message: 'database is locked',
+          explanation:
+              'waited $busyTimeout for a transaction on this connection that the '
+              'query is not part of (a query started outside DB.transaction '
+              'and awaited inside it never gets its turn)',
+        );
+      }
     }
   }
 
@@ -101,7 +150,7 @@ final class SqliteDriver implements DatabaseDriver, QueryErrors {
         // First, so that switching to WAL (and every later statement) waits
         // for another isolate or process opening the same file instead of
         // failing with SQLITE_BUSY.
-        db.execute('PRAGMA busy_timeout = 5000');
+        db.execute('PRAGMA busy_timeout = ${busyTimeout.inMilliseconds}');
         await _enableWal(db);
         db.execute('PRAGMA synchronous = NORMAL');
       }
@@ -214,7 +263,13 @@ final class SqliteDriver implements DatabaseDriver, QueryErrors {
           _activeToken = token;
           _activeDone = done;
           try {
-            _database.execute('BEGIN');
+            // IMMEDIATE takes the write lock now (waiting up to the busy
+            // timeout for another isolate's), not at the first write: a
+            // deferred transaction that read and then wrote after another
+            // connection committed failed at once with
+            // SQLITE_BUSY_SNAPSHOT, and two that both read first could
+            // never both upgrade.
+            _database.execute('BEGIN IMMEDIATE');
             try {
               final result = await runZoned(
                 () => body(this),
@@ -222,9 +277,10 @@ final class SqliteDriver implements DatabaseDriver, QueryErrors {
               );
               _database.execute('COMMIT');
               return result;
-            } catch (_) {
-              _database.execute('ROLLBACK');
-              rethrow;
+            } catch (error, stack) {
+              _rollbackQuietly();
+              // The body's error, not the rollback's.
+              Error.throwWithStackTrace(error, stack);
             }
           } finally {
             _activeToken = null;
@@ -233,6 +289,22 @@ final class SqliteDriver implements DatabaseDriver, QueryErrors {
           }
         })
         .whenComplete(release.complete);
+  }
+
+  /// Rolls back what is still open. SQLite ends the transaction itself on
+  /// some errors (`SQLITE_FULL`, `SQLITE_IOERR`, `SQLITE_NOMEM`), and a body
+  /// may have ended it (a SQL dump's `COMMIT`), where a `ROLLBACK` would
+  /// only throw "no transaction is active" over the error that matters.
+  void _rollbackQuietly() {
+    final db = _db;
+    if (db == null || db.autocommit) {
+      return;
+    }
+    try {
+      db.execute('ROLLBACK');
+    } on Object {
+      // The original error is what the caller needs to see.
+    }
   }
 
   static List<Object?> _normalize(List<Object?> bindings) => <Object?>[
