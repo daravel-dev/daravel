@@ -886,12 +886,23 @@ abstract base class Model implements JsonSerializable, Responsable {
   );
   static final Map<String, String> _snakeNames = <String, String>{};
 
+  /// A value as `toJson` writes it, through collections: a [Model] (also
+  /// inside any `Iterable` or string-keyed `Map`, at any depth) becomes its
+  /// `toJson`, a [DateTime] its JSON date, an [Enum] its name. Laravel's
+  /// `toArray` does the same through `Arrayable` collections and arrays.
+  /// Any other [JsonSerializable] keeps its own `toJson`, even when it is an
+  /// `Iterable` (as Laravel calls an `Arrayable`'s own `toArray`).
   static Object? _serialize(Object? value) => switch (value) {
     Model() => value.toJson(),
-    List<Model>() => [for (final m in value) m.toJson()],
+    JsonSerializable() => value.toJson(),
     DateTime() => jsonDate(value),
     Enum() => value.name,
     RawExpression() => value.sql,
+    Map<String, Object?>() => {
+      for (final MapEntry(:key, :value) in value.entries)
+        key: _serialize(value),
+    },
+    Iterable<Object?>() => [for (final item in value) _serialize(item)],
     _ => value,
   };
 
