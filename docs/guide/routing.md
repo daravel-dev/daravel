@@ -186,6 +186,24 @@ whole limit as a burst after a quiet period). Both need
 `CACHE_LIMITER=redis` with [daravel_redis](redis.md#rate-limit-algorithms);
 other stores count them as a fixed window.
 
+When the coordinator cannot answer in time (an overloaded process, say),
+rate limiting fails open: the request goes through uncounted and a warning
+is logged, so a slow coordinator never takes the site down. A limit that
+guards credentials (login, OTP, password reset) should fail closed, so that
+flooding the server does not lift it: such a request gets the `429` with
+`Retry-After: 1` instead.
+
+```dart
+limiter.define(
+  'login',
+  (request) => Limit.perMinute(5).by(request.ip).failsClosed(),
+);
+```
+
+`ThrottleMiddleware(failClosed: true)` does the same for every limit of one
+middleware, and `ProcessRateLimitStore(failClosed: true)` for the whole
+store.
+
 ## Subdomains
 
 A group or a route can answer on one host only:
