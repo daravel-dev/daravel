@@ -143,6 +143,61 @@ void main() {
       expect(text, contains('lat_count 2'));
       expect(a.render(), contains('jobs_total{status="ok"} 2'));
     });
+
+    test('snapshots merge and render the same after a JSON round trip', () {
+      // ADR-031: workers publish snapshots as JSON text. Integral doubles
+      // (3.0, 1e15), fractions, negatives, label escapes, the default
+      // buckets and int bucket counts must all come back as they left.
+      MetricsRegistry registry(double by) {
+        final r = MetricsRegistry();
+        r.counter('jobs_total', 'Jobs.')
+          ..inc({'status': 'ok'}, 3 * by)
+          ..inc({'queue': 'a"b\\c'}, 1e15 * by);
+        r.gauge('temp', 'Temperature.')
+          ..set(-1.25 * by)
+          ..set(1e21, {'big': 'yes'});
+        r.gauge('rss', 'Collected.', collect: () => 4096.0 * by);
+        r.histogram('lat', 'Latency.')
+          ..observe(0.003 * by, {'route': '/users/{id}'})
+          ..observe(2.5 * by, {'route': '/users/{id}'})
+          ..observe(42 * by);
+        r.histogram('small', 'Custom buckets.', buckets: [0.1, 1, 10])
+          ..observe(0.1 * by)
+          ..observe(11);
+        return r;
+      }
+
+      final snapshots = [registry(1).snapshot(), registry(0.5).snapshot()];
+      final wire = [
+        for (final s in snapshots)
+          jsonDecode(jsonEncode(s)) as Map<String, Object?>,
+      ];
+      final expected = MetricsRegistry.renderSnapshot(
+        MetricsRegistry.merge(snapshots),
+      );
+      expect(
+        MetricsRegistry.renderSnapshot(MetricsRegistry.merge(wire)),
+        expected,
+      );
+      expect(MetricsRegistry.merge(wire), MetricsRegistry.merge(snapshots));
+      expect(expected, contains('jobs_total{status="ok"} 4.5'));
+      expect(expected, contains('small_bucket{le="10"} 2'));
+
+      // The coordinator service: JSON text and plain maps (a snapshot JSON
+      // cannot hold) merge alike.
+      final service = MetricsService()
+        ..handle('publish', {
+          'worker': 'w0',
+          'snapshot': jsonEncode(snapshots[0]),
+        })
+        ..handle('publish', {'worker': 'w1', 'snapshot': snapshots[1]});
+      expect(
+        MetricsRegistry.renderSnapshot(
+          service.handle('collect', const {})! as Map<String, Object?>,
+        ),
+        expected,
+      );
+    });
   });
 
   group('HTTP endpoints', () {

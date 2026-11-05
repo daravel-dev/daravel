@@ -46,6 +46,19 @@ isolate leaves the other cores idle.
   metrics) goes through the coordinator in the supervisor isolate, so a
   limit such as `throttle:60,1` holds for the whole server, not per
   worker.
+- The coordinator answers every worker from one event loop, so what a
+  value costs to send matters. The VM shares a string between the
+  isolates of a process but copies a map or list, serialized by the
+  sender. Measured round trip to another isolate and back (Dart 3.13 AOT,
+  `bench/bin/isolate_payload.dart`): a 888 KB document as a `Map` takes
+  9 ms, as a JSON `String` 6 µs, as a `Uint8List` 0.9 ms and as a
+  `TransferableTypedData` 0.25 ms. The `process` store therefore sends
+  values as JSON strings and keeps them so in the coordinator; numbers
+  cross as numbers, so `increment` works. Application code that sends
+  its own messages between isolates (a custom coordinator service, a
+  compute task) should do the same: a string for anything JSON can
+  express, `TransferableTypedData` for large binary data, a map only for
+  small arguments.
 
 ## Database connections
 
