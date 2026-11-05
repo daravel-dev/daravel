@@ -123,20 +123,19 @@ void main() {
           ),
         );
         addTearDown(slow.close);
-        // A script that keeps the server busy for 300 ms: a command that
-        // does not block, so the 100 ms command timeout applies (a blocking
-        // command waits as long as it blocks).
+        // Connected first, so the timeout below cuts an open connection.
+        expect(await slow.command(['PING']), 'PONG');
+        // The server holds every client's commands for 300 ms: a PING does
+        // not block, so the 100 ms command timeout applies (a blocking
+        // command waits as long as it blocks). Not a Lua loop on TIME:
+        // Redis 7 freezes TIME inside a script until busy-reply-threshold
+        // (5 s), which kept the whole server busy that long.
+        await client.command(['CLIENT', 'PAUSE', '300']);
         await expectLater(
-          slow.command([
-            'EVAL',
-            "local t = redis.call('TIME') repeat local n = redis.call('TIME') "
-                'until (n[1] - t[1]) * 1000000 + (n[2] - t[2]) > 300000 '
-                'return 1',
-            0,
-          ]),
+          slow.command(['PING']),
           throwsA(isA<RedisConnectionException>()),
         );
-        // The server answers again once the script is over.
+        // The server answers again once the pause is over.
         await Future<void>.delayed(const Duration(milliseconds: 400));
         expect(await slow.command(['PING']), 'PONG');
         // A blocking command can still be cut short by an explicit timeout.
