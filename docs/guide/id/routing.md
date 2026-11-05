@@ -1,4 +1,4 @@
-<!-- source: routing.md sha256:5fa93c5da827 -->
+<!-- source: routing.md sha256:9d41c7f4dc27 -->
 # Routing
 
 Route didaftarkan di `routes/api.dart` (di-mount di bawah `/api`) dan
@@ -186,8 +186,10 @@ pada hit pertama dan di-reset setelah `decay`. Dengan beberapa isolate, key
 dengan batas longgar (32 percobaan atau lebih) dilayani dari lease lokal
 kecil yang membesar untuk key yang ramai dan mengembalikan hit yang tidak
 terpakai: batasnya tidak pernah terlampaui (hit yang di-lease satu worker
-bisa sejenak tidak tersedia bagi worker lain, paling lama 200 ms), dan
-coordinator tidak lagi dilibatkan di setiap request.
+bisa sejenak tidak tersedia bagi worker lain, paling lama 200 ms, juga saat
+worker itu berhenti menerima request), dan coordinator tidak lagi dilibatkan
+di setiap request: request bersamaan untuk satu key di satu worker berbagi
+satu permintaan lease.
 
 Fixed window bisa meloloskan sampai dua kali batas di sekitar reset.
 `Limit.perMinute(60).slidingWindow()` juga menimbang jendela sebelumnya,

@@ -176,8 +176,10 @@ through the coordinator. Like Laravel, a window starts with the first hit
 and resets `decay` later. With several isolates, keys with generous limits
 (32 or more attempts) are served from small local leases that grow on hot
 keys and give unused hits back: the limit is never exceeded (a hit leased by
-one worker may briefly be unavailable to another, for at most 200 ms), and
-the coordinator is no longer on every request.
+one worker may briefly be unavailable to another, for at most 200 ms, even
+when that worker goes quiet), and the coordinator is no longer on every
+request: concurrent requests for one key on one worker share a single lease
+request.
 
 A fixed window lets up to twice the limit through around a reset.
 `Limit.perMinute(60).slidingWindow()` also weighs the previous window, and
