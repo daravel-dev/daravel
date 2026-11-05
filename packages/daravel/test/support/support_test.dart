@@ -99,6 +99,23 @@ void main() {
         expect(Str.plural(single), many, reason: single);
         expect(Str.singular(many), single, reason: many);
       });
+      // Latin plurals, as doctrine/inflector (Laravel) gives them.
+      const latin = {
+        'stimulus': 'stimuli',
+        'curriculum': 'curricula',
+        'criterion': 'criteria',
+        'datum': 'data',
+        'syllabus': 'syllabi',
+        'radius': 'radii',
+        'memorandum': 'memoranda',
+      };
+      latin.forEach((single, many) {
+        expect(Str.plural(single), many, reason: single);
+        expect(Str.singular(many), single, reason: many);
+      });
+      expect(Str.plural('Stimulus'), 'Stimuli');
+      expect(Str.plural('exam_stimulus'), 'exam_stimuli');
+      expect(Str.plural('campus'), 'campuses');
       expect(Str.plural('post', 1), 'post');
       expect(Str.plural('Post'), 'Posts');
       expect(Str.plural('CHILD'), 'CHILDREN');

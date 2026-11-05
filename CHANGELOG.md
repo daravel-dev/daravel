@@ -27,8 +27,11 @@ match Laravel more closely.
   - **Only to input as the client sent it.** Fields that `Request.merge` or `Request.replace` set afterwards are kept as given: `' x '` stays `' x '` and `''` stays `''`, where they were trimmed and turned into `null` before. Only a transformer registered after the merge still sees them. This matters to a middleware that merges input it produced, such as a payload decryption. An application that relied on its merged values being trimmed or converted trims them before `merge`.
   - `daravel_teobiefy`'s `teobiefy`, `teobiefy.aes` and profile middleware build the decrypted body from `Request.bodyInput()`, so the clear fields beside `data_enc` keep what the transformers made of them and the decrypted fields arrive as the client encrypted them.
   - **The key is the dotted path.** A transformer now receives `user.password` or `tags.0`, not `password` or `tags`, so `TrimStringsMiddleware(except:)` names a path. The default `{'password', 'password_confirmation'}` no longer leaves a nested `user.password` untrimmed (Laravel trims it too); list it as `user.password` to keep it as sent.
+- `dartisan make:model` (with its `--migration`) and `make:controller --model` guess the table and route name with `Str.plural`, as Laravel's `Str::plural` does, instead of adding `s`/`es`: `Stimulus` gets `stimuli`, `Person` `people`, `Quiz` `quizzes`. Only new files are affected; pass `--table` to keep another name. `Str.plural` and `Str.singular` know the Latin plurals doctrine/inflector applies (`stimulus`/`stimuli`, `curriculum`/`curricula`, `syllabus`/`syllabi`, `radius`/`radii`, `focus`/`foci` and the like).
 
 ### Fixed
+
+- `dartisan model:sync` fills an empty `// <dartisan:statics>` region with the query shortcuts `make:model` writes (`query`, `find`, `findOrFail`, `create`, `all`, `where`). A region that holds anything is left alone.
 
 ## 1.25.0
 

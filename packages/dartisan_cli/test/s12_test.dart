@@ -426,6 +426,32 @@ final class Post extends Model with AuthenticatableModel {
       expect(updated, isNot(contains("int get id")));
       expect(replaceAccessors('class X {}', const []), isNull);
     });
+
+    test('fillStatics fills an empty statics region only', () {
+      const empty =
+          'final class Stimulus extends Model {\n'
+          '  // <dartisan:statics>\n'
+          '  // </dartisan:statics>\n'
+          '}\n';
+      final filled = fillStatics(empty, 'Stimulus');
+      expect(
+        filled,
+        contains(
+          '  // <dartisan:statics>\n'
+          '  static ModelQuery<Stimulus> query() => definition.query();\n',
+        ),
+      );
+      expect(filled, contains('static Future<Stimulus?> find(Object id)'));
+      expect(filled, contains('  // </dartisan:statics>\n}'));
+      // Idempotent, and a region the application wrote is kept.
+      expect(fillStatics(filled, 'Stimulus'), filled);
+      const custom =
+          '  // <dartisan:statics>\n'
+          '  static ModelQuery<X> query() => definition.query();\n'
+          '  // </dartisan:statics>\n';
+      expect(fillStatics(custom, 'X'), custom);
+      expect(fillStatics('class X {}', 'X'), 'class X {}');
+    });
   });
 
   group('project helpers', () {

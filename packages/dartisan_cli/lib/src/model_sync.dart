@@ -254,3 +254,41 @@ String? replaceAccessors(String source, List<String> lines) {
       '${indent.trim().isEmpty ? indent : ''}'
       '${source.substring(end)}';
 }
+
+const String _staticsStart = '// <dartisan:statics>';
+const String _staticsEnd = '// </dartisan:statics>';
+
+/// The query shortcuts `make:model` writes into the statics region of
+/// [className] (`User.find(1)`, `User.where(...)`).
+List<String> staticLines(String className) => [
+  '  static ModelQuery<$className> query() => definition.query();',
+  '  static Future<$className?> find(Object id) => query().find(id);',
+  '  static Future<$className> findOrFail(Object id) => '
+      'query().findOrFail(id);',
+  '  static Future<$className> create(Map<String, Object?> attributes) =>',
+  '      query().create(attributes);',
+  '  static Future<ModelCollection<$className>> all() => query().get();',
+  '  static ModelQuery<$className> where(Object column, '
+      '[Object? op, Object? value]) =>',
+  '      query().where(column, op, value);',
+];
+
+/// Fills an empty statics region of [source] with [staticLines]. A region
+/// that holds anything belongs to the application and is left alone, as is
+/// a source without the markers: both return [source] unchanged.
+String fillStatics(String source, String className) {
+  final start = source.indexOf(_staticsStart);
+  final end = source.indexOf(_staticsEnd);
+  if (start == -1 || end == -1 || end < start) {
+    return source;
+  }
+  if (source.substring(start + _staticsStart.length, end).trim().isNotEmpty) {
+    return source;
+  }
+  final lineStart = source.lastIndexOf('\n', end - 1) + 1;
+  final indent = source.substring(lineStart, end);
+  return '${source.substring(0, start + _staticsStart.length)}\n'
+      '${staticLines(className).join('\n')}\n'
+      '${indent.trim().isEmpty ? indent : ''}'
+      '${source.substring(end)}';
+}
