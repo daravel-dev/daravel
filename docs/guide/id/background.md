@@ -1,4 +1,4 @@
-<!-- source: background.md sha256:ff99a86366ec -->
+<!-- source: background.md sha256:d8b5f3c29648 -->
 # Cache, event, queue, dan penjadwalan
 
 <!-- include: packages/daravel/test/docs/guide_examples_test.dart#cache-events-queue -->
@@ -25,6 +25,28 @@ dan `lock` (atomic lock, gagal tertutup) mengikuti Laravel.
 `process` serta dengan [Redis](redis.md#cache-tags), dengan key yang sama
 seperti Laravel; `file` dan `database` tidak bisa memberi tag, seperti di
 Laravel.
+
+`Cache.flexible` menyajikan nilai stale sementara satu refresh di latar
+belakang per key berjalan. Jika refresh itu gagal, error-nya dicatat di log
+(pemanggil sudah mendapat nilainya) dan key tersebut tidak di-refresh lagi
+selama 5 detik, sehingga loader yang gagal tidak dijalankan di setiap
+request; setelah jendela stale berakhir, nilainya dihitung inline dan
+error-nya sampai ke pemanggil. `Cache.remember` membiarkan satu pemanggil
+menghitung nilai yang hilang: miss yang bersamaan dalam satu isolate
+berbagi perhitungan itu, dan pemanggil di tempat lain mengecek nilainya
+(awalnya setiap 10 ms, hingga setiap 100 ms) sampai nilai itu tersimpan
+atau batas waktu lock habis.
+
+`Cache.flush()` dan `dartisan cache:clear` menghapus nilai tetapi
+mempertahankan lock, seperti store array dan database di Laravel, sehingga
+clear di production tidak menyerahkan lock yang sedang dipegang kepada
+pemegang kedua; `Cache.flushLocks()` dan `cache:clear --locks` melepasnya.
+Store `database` dan `file` menghapus entri yang kedaluwarsa saat entri itu
+dibaca; key yang ditulis sekali dan jarang dibaca lagi (jendela rate limit,
+id token yang dicabut) dihapus oleh `dartisan cache:prune-expired [store]`
+(jadwalkan setiap jam), oleh lotre pada 2 dari 100 penulisan database
+(seperti Laravel membersihkan `cache_locks`), dan oleh proses latar belakang
+file store paling sering sekali per jam.
 
 ## Event
 

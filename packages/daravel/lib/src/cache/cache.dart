@@ -72,6 +72,21 @@ abstract interface class TouchableCacheStore implements CacheStore {
   Future<bool> touch(String key, Duration ttl);
 }
 
+/// A store whose locks live apart from its values, so `flush()` keeps them
+/// (Laravel's `ArrayStore` and `DatabaseStore` flush keep their locks):
+/// [flushLocks] releases every lock, whoever holds it.
+abstract interface class LockFlushingCacheStore implements CacheStore {
+  /// Releases every lock of the store.
+  Future<void> flushLocks();
+}
+
+/// A store holding expired entries until they are read (files, rows):
+/// [pruneExpired] deletes them, and the expired locks.
+abstract interface class PrunableCacheStore implements CacheStore {
+  /// Deletes the expired values and locks; returns how many it deleted.
+  Future<int> pruneExpired();
+}
+
 /// A store that counts fixed-window hits in one atomic step, for rate limits
 /// over the network (`CACHE_LIMITER=database`): one round trip per attempt
 /// instead of a read-modify-write sequence.
@@ -157,9 +172,11 @@ final class Lock {
     FutureOr<T> Function() callback, {
     Duration interval = const Duration(milliseconds: 100),
   }) async {
-    final deadline = DateTime.now().add(timeout);
+    // A Stopwatch: the wait is wall time, and neither a frozen `Clock` nor
+    // a system clock change may stretch or cut it.
+    final waited = Stopwatch()..start();
     while (!await acquire()) {
-      if (!DateTime.now().isBefore(deadline)) {
+      if (waited.elapsed >= timeout) {
         throw LockTimeoutException(name, timeout);
       }
       await Future<void>.delayed(interval);
@@ -316,10 +333,35 @@ final class CacheRepository {
     String prefix = '',
     this.lockStore,
     this._lockPrefix,
+    this.onRefreshError,
+    this.refreshBackoff = const Duration(seconds: 5),
   }) : prefix = switch (store) {
          final CachePrefixShaping shaping => shaping.shapePrefix(prefix),
          _ => prefix,
        };
+
+  /// Receives the error of a background [flexible] refresh, with the key
+  /// (the application logs it as a warning). The caller already has the
+  /// stale value, so the error is not thrown anywhere; without this
+  /// handler it is dropped.
+  final void Function(String key, Object error, StackTrace stack)?
+  onRefreshError;
+
+  /// How long a failed background [flexible] refresh keeps its guard, so a
+  /// failing loader runs at most once per backoff instead of on every
+  /// stale hit. [Duration.zero] releases it at once.
+  final Duration refreshBackoff;
+
+  /// Per isolate and store: the [remember] computations in flight, so N
+  /// concurrent misses of a key in one isolate share one.
+  static final Expando<Map<String, Future<Object?>>> _remembering =
+      Expando<Map<String, Future<Object?>>>('remember');
+
+  /// Per isolate and store: the keys whose [flexible] refresh is running
+  /// in this isolate, which skips the lock round trip for them.
+  static final Expando<Set<String>> _refreshing = Expando<Set<String>>(
+    'flexible',
+  );
 
   /// The store holding the values.
   final CacheStore store;
@@ -353,6 +395,8 @@ final class CacheRepository {
       store.tags(names, prefix: prefix),
       lockStore: lockStore ?? store,
       lockPrefix: _lockPrefix ?? prefix,
+      onRefreshError: onRefreshError,
+      refreshBackoff: refreshBackoff,
     );
   }
 
@@ -429,12 +473,48 @@ final class CacheRepository {
     return value;
   }
 
-  /// Removes every value of the store.
+  /// Removes every value of the store. Locks stay (Laravel's `ArrayStore`
+  /// and `DatabaseStore` keep them too), so `cache:clear` does not hand a
+  /// held lock to a second holder; [flushLocks] releases them.
   Future<void> flush() => store.flush();
+
+  /// Releases every lock of the store (or of the store its locks live in),
+  /// whoever holds them. Stores that keep locks with their values (Redis)
+  /// have none apart, and [flush] already removed them.
+  Future<void> flushLocks() async {
+    final target = lockStore ?? store;
+    if (target is LockFlushingCacheStore) {
+      await target.flushLocks();
+    }
+  }
+
+  /// Deletes the expired values and locks a store holds until they are
+  /// read (the `database` and `file` stores, `cache:prune-expired`);
+  /// returns how many it deleted. Stores that expire entries themselves
+  /// return 0.
+  Future<int> pruneExpired() async {
+    var pruned = 0;
+    final values = store;
+    if (values is PrunableCacheStore) {
+      pruned += await values.pruneExpired();
+    }
+    final locks = lockStore;
+    if (locks is PrunableCacheStore && !identical(locks, values)) {
+      pruned += await locks.pruneExpired();
+    }
+    return pruned;
+  }
 
   /// Gets or computes-and-stores. Computation is guarded by a per-key lock
   /// so only one caller recomputes (stampede protection); others wait and
   /// read the fresh value.
+  ///
+  /// Concurrent misses of a key in one isolate share one computation (one
+  /// lock round trip, not one per caller). Callers in other isolates or
+  /// processes poll the value, every 10 ms at first and up to every 100 ms,
+  /// with jitter, and take the lock over when its holder released it
+  /// without storing a value; after [lockTimeout] they throw
+  /// [LockTimeoutException].
   Future<T> remember<T>(
     String key,
     Duration? ttl,
@@ -445,19 +525,68 @@ final class CacheRepository {
     if (cached != null) {
       return cached;
     }
-    return lock('remember:$key', ttl: lockTimeout).block<T>(
-      lockTimeout,
-      () async {
-        final again = await get<T>(key);
-        if (again != null) {
-          return again;
-        }
-        final value = await compute();
-        await put(key, value, ttl: ttl);
+    final inFlight = _remembering[store] ??= <String, Future<Object?>>{};
+    final full = _key(key);
+    final shared = inFlight[full];
+    if (shared != null) {
+      final value = await shared;
+      if (value is T) {
         return value;
-      },
-    );
+      }
+    }
+    final mine = _rememberMiss<T>(key, ttl, compute, lockTimeout);
+    inFlight[full] = mine;
+    try {
+      return await mine;
+    } finally {
+      if (identical(inFlight[full], mine)) {
+        inFlight.remove(full)?.ignore();
+      }
+    }
   }
+
+  Future<T> _rememberMiss<T>(
+    String key,
+    Duration? ttl,
+    FutureOr<T> Function() compute,
+    Duration lockTimeout,
+  ) async {
+    final guard = lock('remember:$key', ttl: lockTimeout);
+    // Wall time, not `Clock`: a frozen clock must not make waiting endless.
+    final waited = Stopwatch()..start();
+    var interval = 10;
+    while (true) {
+      if (await guard.acquire()) {
+        try {
+          final again = await get<T>(key);
+          if (again != null) {
+            return again;
+          }
+          final value = await compute();
+          await put(key, value, ttl: ttl);
+          return value;
+        } finally {
+          await guard.release();
+        }
+      }
+      if (waited.elapsed >= lockTimeout) {
+        throw LockTimeoutException(guard.name, lockTimeout);
+      }
+      // Jitter, so the waiters of many isolates do not poll in step.
+      await Future<void>.delayed(
+        Duration(
+          milliseconds: interval ~/ 2 + _jitter.nextInt(interval ~/ 2 + 1),
+        ),
+      );
+      interval = min(interval * 2, 100);
+      final value = await get<T>(key);
+      if (value != null) {
+        return value;
+      }
+    }
+  }
+
+  static final Random _jitter = Random();
 
   /// The value of [key], or [compute]'s result stored forever.
   Future<T> rememberForever<T>(String key, FutureOr<T> Function() compute) =>
@@ -466,6 +595,13 @@ final class CacheRepository {
   /// Stale-while-revalidate (Laravel 11 `Cache::flexible`): fresh for
   /// `fresh`, served stale and refreshed in the background until `stale`,
   /// recomputed inline afterwards.
+  ///
+  /// The background refresh runs once at a time per key (a lock across
+  /// isolates, and no lock call at all while this isolate already refreshes
+  /// it). Its error goes to [onRefreshError], never to the zone (where it
+  /// would end a script or an isolate), and the key is not refreshed again
+  /// for [refreshBackoff], so a failing loader is not run on every stale
+  /// hit.
   Future<T> flexible<T>(
     String key,
     (Duration fresh, Duration stale) window,
@@ -480,7 +616,7 @@ final class CacheRepository {
         return raw['v'] as T;
       }
       if (age < stale) {
-        unawaited(_refresh(key, stale, compute));
+        _scheduleRefresh(key, stale, compute);
         return raw['v'] as T;
       }
     }
@@ -492,23 +628,70 @@ final class CacheRepository {
     return value;
   }
 
+  void _scheduleRefresh<T>(
+    String key,
+    Duration stale,
+    FutureOr<T> Function() compute,
+  ) {
+    final refreshing = _refreshing[store] ??= <String>{};
+    final full = _key(key);
+    if (!refreshing.add(full)) {
+      return; // Already refreshing in this isolate.
+    }
+    unawaited(
+      _refresh(key, stale, compute).whenComplete(() => refreshing.remove(full)),
+    );
+  }
+
+  /// Never throws: every error goes to [onRefreshError].
   Future<void> _refresh<T>(
     String key,
     Duration stale,
     FutureOr<T> Function() compute,
   ) async {
     final guard = lock('flexible:$key', ttl: const Duration(seconds: 30));
-    if (!await guard.acquire()) {
+    try {
+      if (!await guard.acquire()) {
+        return;
+      }
+    } catch (error, stack) {
+      _reportRefreshError(key, error, stack);
       return;
     }
+    var failed = false;
     try {
       final value = await compute();
       await store.put(_key(key), <String, Object?>{
         'v': value,
         'c': Clock.now().toUtc().millisecondsSinceEpoch,
       }, ttl: stale);
+    } catch (error, stack) {
+      failed = true;
+      _reportRefreshError(key, error, stack);
     } finally {
-      await guard.release();
+      try {
+        if (failed && refreshBackoff > Duration.zero) {
+          // Taken again by its owner: the guard now ends after the backoff.
+          await Lock(
+            lockStore ?? store,
+            guard.name,
+            ttl: refreshBackoff,
+            owner: guard.owner,
+          ).acquire();
+        } else {
+          await guard.release();
+        }
+      } catch (error, stack) {
+        _reportRefreshError(key, error, stack);
+      }
+    }
+  }
+
+  void _reportRefreshError(String key, Object error, StackTrace stack) {
+    try {
+      onRefreshError?.call(key, error, stack);
+    } catch (_) {
+      // A failing handler must not turn into an uncaught error either.
     }
   }
 
@@ -574,6 +757,10 @@ final class CacheManager {
   _factories = {};
   final Map<String, CacheRepository> _stores = <String, CacheRepository>{};
 
+  /// Receives the errors of background `flexible()` refreshes of every
+  /// store resolved after it is set (see [CacheRepository.onRefreshError]).
+  void Function(String key, Object error, StackTrace stack)? onRefreshError;
+
   /// Registers a store factory under [name]. [lockStore] overrides where
   /// its locks live (file stores delegate to the process store).
   void extend(
@@ -611,6 +798,7 @@ final class CacheManager {
       entry.factory(),
       prefix: prefix,
       lockStore: entry.lockStore,
+      onRefreshError: onRefreshError,
     );
   }
 

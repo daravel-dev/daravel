@@ -456,12 +456,20 @@ final class Application {
       ..instance<Schedule>(schedule)
       ..singleton<QueueManager>((c) => _buildQueue(c, events, jobs))
       ..singleton<CacheManager>((c) {
-        final manager = CacheManager.fromConfig(
-          c.make<ConfigRepository>().section<CacheConfig>(),
-          basePath: basePath,
-          database: () => c.make<DatabaseManager>(),
-          channel: channel,
-        );
+        final manager =
+            CacheManager.fromConfig(
+                c.make<ConfigRepository>().section<CacheConfig>(),
+                basePath: basePath,
+                database: () => c.make<DatabaseManager>(),
+                channel: channel,
+              )
+              ..onRefreshError = (key, error, stack) => logger.error(
+                'Cache: the background refresh of [$key] failed; the stale value '
+                'is served until it succeeds.',
+                error: error,
+                stackTrace: stack,
+                context: {'key': key},
+              );
         for (final MapEntry(key: name, value: factory)
             in _builder._cacheStores.entries) {
           manager.extend(name, () => factory(c));

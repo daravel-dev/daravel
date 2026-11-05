@@ -22,13 +22,34 @@ final class _Entry {
 }
 
 /// Bounded LRU store in this isolate's memory (scope `isolate`).
-final class MemoryStore implements TouchableCacheStore, TaggableCacheStore {
+///
+/// At capacity, expired entries go first (swept at most once per
+/// `maxEntries / 16` evictions), then the least recently used. Locks are
+/// apart from the values: [flush] keeps them, [flushLocks] releases them.
+final class MemoryStore
+    implements
+        TouchableCacheStore,
+        TaggableCacheStore,
+        LockFlushingCacheStore,
+        PrunableCacheStore {
   /// A store keeping at most [maxEntries] values; [clock] is for tests.
   MemoryStore({this.maxEntries = 10000, DateTime Function()? clock})
-    : _clock = clock ?? _utcNow;
+    : _clock = clock ?? _utcNow,
+      _lockSweepAt = maxEntries;
 
   /// The most values kept before the least recently used are dropped.
   final int maxEntries;
+
+  /// Evictions left before the next sweep of expired entries.
+  int _evictionsBeforeSweep = 0;
+
+  /// The lock count at which the next new lock sweeps the expired ones.
+  int _lockSweepAt;
+
+  /// How many times expired locks were swept (tests: the sweep is
+  /// amortised, not run on every acquire once many locks are live).
+  int get lockSweeps => _lockSweeps;
+  int _lockSweeps = 0;
   final DateTime Function() _clock;
   final LinkedHashMap<String, _Entry> _entries =
       LinkedHashMap<String, _Entry>();
@@ -75,9 +96,28 @@ final class MemoryStore implements TouchableCacheStore, TaggableCacheStore {
       value,
       ttl == null ? null : _now + ttl.inMilliseconds,
     );
+    if (_entries.length <= maxEntries) {
+      return;
+    }
+    if (_evictionsBeforeSweep-- <= 0) {
+      // Expired entries before live ones; one pass per maxEntries / 16
+      // evictions keeps it amortised.
+      _removeExpiredEntries();
+      _evictionsBeforeSweep = max(1, maxEntries ~/ 16);
+    }
     while (_entries.length > maxEntries) {
       _entries.remove(_entries.keys.first);
     }
+  }
+
+  int _removeExpiredEntries() {
+    final now = _now;
+    final before = _entries.length;
+    _entries.removeWhere((_, entry) {
+      final exp = entry.expiresAt;
+      return exp != null && exp <= now;
+    });
+    return before - _entries.length;
   }
 
   @override
@@ -130,10 +170,19 @@ final class MemoryStore implements TouchableCacheStore, TaggableCacheStore {
   @override
   Future<bool> forget(String key) async => _entries.remove(key) != null;
 
+  /// Removes every value; locks stay (see [flushLocks]).
   @override
-  Future<void> flush() async {
-    _entries.clear();
-    _locks.clear();
+  Future<void> flush() async => _entries.clear();
+
+  @override
+  Future<void> flushLocks() async => _locks.clear();
+
+  @override
+  Future<int> pruneExpired() async {
+    final now = _now;
+    final locks = _locks.length;
+    _locks.removeWhere((_, lock) => lock.expiresAt <= now);
+    return _removeExpiredEntries() + locks - _locks.length;
   }
 
   @override
@@ -151,12 +200,16 @@ final class MemoryStore implements TouchableCacheStore, TaggableCacheStore {
         existing.owner != owner) {
       return false;
     }
-    if (existing == null && _locks.length >= maxEntries) {
+    if (existing == null && _locks.length >= _lockSweepAt) {
       // A lock that expires without a release (its holder crashed) stayed
       // for ever: with one name per order or user the map only grew. Expired
-      // ones are swept once there are as many as cache entries may be.
+      // ones are swept once there are as many as cache entries may be, and
+      // the next sweep waits until the map doubled: with that many live
+      // locks a sweep on every new name made each acquire O(n).
       final now = _now;
       _locks.removeWhere((_, lock) => lock.expiresAt <= now);
+      _lockSweeps++;
+      _lockSweepAt = max(maxEntries, _locks.length * 2);
     }
     _locks[name] = (owner: owner, expiresAt: _now + ttl.inMilliseconds);
     return true;
@@ -237,6 +290,11 @@ final class ProcessCacheService
       case 'flush':
         await store.flush();
         return null;
+      case 'flushLocks':
+        await store.flushLocks();
+        return null;
+      case 'pruneExpired':
+        return store.pruneExpired();
       case 'acquireLock':
         return store.acquireLockSync(
           key,
@@ -333,7 +391,8 @@ final class LockMessage implements CoordinatorMessage {
 /// stored number; a value JSON cannot encode (a `DateTime`) crosses as the
 /// object it is, copied, as before. The near cache keeps the wire string
 /// and decodes it per read, so every caller gets a fresh object.
-final class ProcessStore implements TaggableCacheStore {
+final class ProcessStore
+    implements TaggableCacheStore, LockFlushingCacheStore, PrunableCacheStore {
   /// Values held by the coordinator through [channel], with an optional
   /// per-isolate copy kept for [l1Ttl].
   ProcessStore(
@@ -495,6 +554,12 @@ final class ProcessStore implements TaggableCacheStore {
     await _call('flush');
   }
 
+  @override
+  Future<void> flushLocks() => _call('flushLocks');
+
+  @override
+  Future<int> pruneExpired() async => await _call('pruneExpired') as int;
+
   /// Sends a lock call typed, or as a map to a channel that is only a
   /// [CoordinatorChannel].
   Future<Object?> _lock(LockMessage message) {
@@ -539,27 +604,60 @@ final class ProcessStore implements TaggableCacheStore {
 
 /// JSON files under a directory (scope `cluster` on a shared disk, otherwise
 /// `process`). Writes go to a temp file then `rename` (atomic on POSIX and
-/// NTFS). Locks use exclusive file creation.
-final class FileStore implements TouchableCacheStore {
+/// NTFS). A lock is a file in `locks/`, taken and released under the same
+/// per-name OS mutex as `increment`, so two processes never both hold it.
+///
+/// An expired entry is deleted when read, by [pruneExpired]
+/// (`dartisan cache:prune-expired`), and by a background prune that a write
+/// starts at most once per [pruneInterval]. [flush] keeps the locks.
+final class FileStore
+    implements TouchableCacheStore, LockFlushingCacheStore, PrunableCacheStore {
   /// A store of one file per key in [directory].
-  FileStore(this.directory);
+  FileStore(this.directory, {this.pruneInterval = const Duration(hours: 1)});
 
   /// The directory holding the files.
   final String directory;
 
+  /// How often a write starts a background [pruneExpired] (measured with
+  /// `Clock`); null: never, prune with `cache:prune-expired` instead.
+  final Duration? pruneInterval;
+
+  /// When the last background prune started (`Clock`, milliseconds).
+  int? _lastPrune;
+
+  /// The background prune running, if any (tests await it).
+  Future<int>? get pruning => _pruning;
+  Future<int>? _pruning;
+
+  /// A lock file that is empty or unreadable this long after its last
+  /// change is taken as abandoned; younger, as held (a process of an older
+  /// version may be writing it).
+  static const Duration lockGrace = Duration(seconds: 2);
+
   @override
   StateScope get scope => StateScope.process;
 
-  String _path(String key) {
-    final hash = crypto.sha1.convert(utf8.encode(key)).toString();
-    return p.join(directory, hash.substring(0, 2), '$hash.json');
-  }
+  static String _hash(String text) =>
+      crypto.sha1.convert(utf8.encode(text)).toString();
 
-  String _lockPath(String name) => p.join(
-    directory,
-    'locks',
-    '${crypto.sha1.convert(utf8.encode(name))}.lock',
-  );
+  String _path(String key) => _hashPath(_hash(key));
+
+  String _hashPath(String hash) =>
+      p.join(directory, hash.substring(0, 2), '$hash.json');
+
+  String _lockPath(String name) =>
+      p.join(_locksDirectory, '${_hash(name)}.lock');
+
+  String get _locksDirectory => p.join(directory, _locksName);
+
+  /// The subdirectories that are not entries: kept by [flush].
+  static const String _locksName = 'locks';
+  static const String _mutexName = 'mutex';
+
+  /// Runs [body] holding the OS mutex of the lock [name] (apart from the
+  /// mutex of a key of the same name).
+  Future<T> _lockExclusive<T>(String name, Future<T> Function() body) =>
+      _exclusiveHash('l${_hash(name)}', body);
 
   static int get _now => Clock.now().toUtc().millisecondsSinceEpoch;
 
@@ -607,6 +705,7 @@ final class FileStore implements TouchableCacheStore {
       'e': ttl == null ? null : _now + ttl.inMilliseconds,
       'v': value,
     });
+    _maybePrune();
     final state = _writing[key];
     if (state == null) {
       return _startWrite(key, payload, _KeyWrites());
@@ -631,6 +730,33 @@ final class FileStore implements TouchableCacheStore {
       next.complete(_startWrite(key, nextPayload, state));
     }).ignore();
     return write;
+  }
+
+  /// Starts a background [pruneExpired] when [pruneInterval] passed since
+  /// the last one (the first write starts the interval). Its errors are
+  /// dropped: the next one tries again.
+  void _maybePrune() {
+    final interval = pruneInterval;
+    if (interval == null || _pruning != null) {
+      return;
+    }
+    final now = _now;
+    final last = _lastPrune;
+    if (last == null) {
+      _lastPrune = now;
+      return;
+    }
+    if (now - last < interval.inMilliseconds) {
+      return;
+    }
+    _lastPrune = now;
+    final run = pruneExpired().catchError((Object _) => 0);
+    _pruning = run;
+    run.whenComplete(() {
+      if (identical(_pruning, run)) {
+        _pruning = null;
+      }
+    }).ignore();
   }
 
   /// The write running per key in this isolate (see [_write]).
@@ -690,25 +816,30 @@ final class FileStore implements TouchableCacheStore {
       '${pid}_${_random.nextInt(1 << 32).toRadixString(16)}_'
       '${_tempSequence++}';
 
-  /// The last read-modify-write update queued per key in this isolate.
+  /// The last read-modify-write update queued per mutex in this isolate.
   final Map<String, Completer<void>> _queued = <String, Completer<void>>{};
 
   /// Runs [body] holding the key's mutex: an exclusive OS lock on a file in
   /// `<directory>/mutex` keeps other processes out, and a queue keeps the
   /// other calls of this isolate out (an OS lock belongs to the process).
-  Future<T> _exclusive<T>(String key, Future<T> Function() body) async {
-    final previous = _queued[key];
+  Future<T> _exclusive<T>(String key, Future<T> Function() body) =>
+      _exclusiveHash(_hash(key), body);
+
+  /// [_exclusive] by the mutex name: the sha1 of a key, or `l` and the sha1
+  /// of a lock name.
+  Future<T> _exclusiveHash<T>(String hash, Future<T> Function() body) async {
+    final previous = _queued[hash];
     final done = Completer<void>();
-    _queued[key] = done;
+    _queued[hash] = done;
     try {
       if (previous != null) {
         await previous.future;
       }
-      return await _locked(key, body);
+      return await _locked(hash, body);
     } finally {
       done.complete();
-      if (identical(_queued[key], done)) {
-        _queued.remove(key);
+      if (identical(_queued[hash], done)) {
+        _queued.remove(hash);
       }
     }
   }
@@ -735,8 +866,7 @@ final class FileStore implements TouchableCacheStore {
 
   static const Duration _lockTimeout = Duration(seconds: 30);
 
-  Future<T> _locked<T>(String key, Future<T> Function() body) async {
-    final hash = crypto.sha1.convert(utf8.encode(key)).toString();
+  Future<T> _locked<T>(String hash, Future<T> Function() body) async {
     final file = File(p.join(directory, 'mutex', '$hash.lock'));
     RandomAccessFile? handle;
     for (var attempt = 1; handle == null; attempt++) {
@@ -842,11 +972,40 @@ final class FileStore implements TouchableCacheStore {
     return true;
   }
 
+  /// Removes every value; the locks stay (see [flushLocks]), and so do the
+  /// mutex files. Another process can write into the directory while it is
+  /// flushed: what appeared meanwhile is deleted in a few more passes.
   @override
   Future<void> flush() async {
     final dir = Directory(directory);
-    // Another process can remove the directory, or write into it, while it
-    // is deleted: the delete is made again until the directory is gone.
+    for (var attempt = 1; attempt <= _attempts; attempt++) {
+      try {
+        if (!await dir.exists()) {
+          return;
+        }
+        var deleted = false;
+        await for (final entity in dir.list(followLinks: false)) {
+          final name = p.basename(entity.path);
+          if (name == _locksName || name == _mutexName) {
+            continue;
+          }
+          deleted = true;
+          await entity.delete(recursive: true);
+        }
+        if (!deleted) {
+          return;
+        }
+      } on FileSystemException {
+        if (attempt >= _attempts) {
+          rethrow;
+        }
+      }
+    }
+  }
+
+  @override
+  Future<void> flushLocks() async {
+    final dir = Directory(_locksDirectory);
     for (var attempt = 1; await dir.exists(); attempt++) {
       try {
         await dir.delete(recursive: true);
@@ -858,33 +1017,142 @@ final class FileStore implements TouchableCacheStore {
     }
   }
 
+  /// Deletes the expired entries, the expired (or abandoned) lock files and
+  /// the temporary files of writes that died more than an hour ago; returns
+  /// how many files it deleted. An entry is deleted under its key's mutex
+  /// when that key has one, so an `increment` running at the same time is
+  /// not lost. The mutex files stay: deleting one that another process has
+  /// open would let two processes hold the same key.
   @override
-  Future<bool> acquireLock(String name, String owner, Duration ttl) async {
-    final file = File(_lockPath(name));
-    await file.parent.create(recursive: true);
-    for (var attempt = 0; attempt < 2; attempt++) {
+  Future<int> pruneExpired() async {
+    final dir = Directory(directory);
+    final List<FileSystemEntity> top;
+    try {
+      if (!await dir.exists()) {
+        return 0;
+      }
+      top = await dir.list(followLinks: false).toList();
+    } on FileSystemException {
+      return 0;
+    }
+    var pruned = 0;
+    for (final sub in top.whereType<Directory>()) {
+      final name = p.basename(sub.path);
+      if (name == _mutexName) {
+        continue;
+      }
+      final locks = name == _locksName;
+      final List<FileSystemEntity> files;
       try {
-        await file.create(exclusive: true);
-        await file.writeAsString(
-          jsonEncode({'o': owner, 'e': _now + ttl.inMilliseconds}),
-          flush: true,
-        );
-        return true;
+        files = await sub.list(followLinks: false).toList();
       } on FileSystemException {
-        final current = await _readLock(file);
-        if (current == null) {
-          continue; // corrupt/missing → retry
+        continue;
+      }
+      for (final file in files.whereType<File>()) {
+        final base = p.basename(file.path);
+        try {
+          if (base.endsWith('.tmp')) {
+            if (await _olderThan(file, const Duration(hours: 1))) {
+              await _delete(file);
+              pruned++;
+            }
+          } else if (locks && base.endsWith('.lock')) {
+            final mutex = 'l${p.basenameWithoutExtension(base)}';
+            if (await _exclusiveHash(mutex, () => _pruneLock(file))) {
+              pruned++;
+            }
+          } else if (!locks && base.endsWith('.json')) {
+            final hash = p.basenameWithoutExtension(base);
+            final hasMutex = await File(
+              p.join(directory, _mutexName, '$hash.lock'),
+            ).exists();
+            if (hasMutex
+                ? await _exclusiveHash(hash, () => _pruneEntry(file))
+                : await _pruneEntry(file)) {
+              pruned++;
+            }
+          }
+        } on FileSystemException {
+          // Gone or busy: the next prune gets it.
         }
-        if (current.owner == owner || current.expiresAt <= _now) {
-          await _delete(file);
-          continue;
-        }
-        return false;
       }
     }
-    return false;
+    return pruned;
   }
 
+  Future<bool> _pruneEntry(File file) async {
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(await file.readAsString());
+    } on FormatException {
+      return false;
+    }
+    if (decoded is! Map<String, Object?>) {
+      return false;
+    }
+    final exp = decoded['e'];
+    if (exp is! int || exp > _now) {
+      return false;
+    }
+    await _delete(file);
+    return true;
+  }
+
+  Future<bool> _pruneLock(File file) async {
+    final current = await _readLock(file);
+    if (current != null && current.expiresAt > _now) {
+      return false;
+    }
+    if (!await file.exists()) {
+      return false;
+    }
+    await _delete(file);
+    return true;
+  }
+
+  /// Whether [file] last changed more than [age] ago (wall time: file
+  /// times are).
+  static Future<bool> _olderThan(File file, Duration age) async {
+    final stat = await file.stat();
+    return stat.type != FileSystemEntityType.notFound &&
+        DateTime.now().difference(stat.modified) > age;
+  }
+
+  /// Taken under the lock's OS mutex, which `releaseLock` holds too, and
+  /// written whole by a rename: another process never sees a half-written
+  /// lock file, and never takes a lock between this one's check and write.
+  @override
+  Future<bool> acquireLock(
+    String name,
+    String owner,
+    Duration ttl,
+  ) => _lockExclusive(name, () async {
+    final file = File(_lockPath(name));
+    final current = await _readLock(file);
+    if (current != null && current.owner != owner && current.expiresAt > _now) {
+      return false;
+    }
+    final payload = jsonEncode({'o': owner, 'e': _now + ttl.inMilliseconds});
+    for (var attempt = 1; ; attempt++) {
+      final temp = File('${file.path}.${_tempSuffix()}.tmp');
+      try {
+        await file.parent.create(recursive: true);
+        await temp.writeAsString(payload);
+        await _replace(temp, file);
+        return true;
+      } on FileSystemException {
+        await _delete(temp);
+        if (attempt >= _attempts) {
+          rethrow;
+        }
+      }
+    }
+  });
+
+  /// The lock in [file], or null when there is none. A file that is empty
+  /// or not a lock counts as held (by nobody) for [lockGrace] after its
+  /// last change, since a process of an older version may be writing it,
+  /// and as free afterwards.
   Future<({String owner, int expiresAt})?> _readLock(File file) async {
     try {
       final decoded = jsonDecode(await file.readAsString());
@@ -895,32 +1163,42 @@ final class FileStore implements TouchableCacheStore {
         );
       }
     } on FormatException {
-      // fallthrough
+      // An unreadable lock: below.
+    } on FileSystemException {
+      return null; // Missing.
+    }
+    try {
+      if (await _olderThan(file, lockGrace)) {
+        return null;
+      }
     } on FileSystemException {
       return null;
     }
-    await _delete(file);
-    return null;
+    return (owner: '', expiresAt: _now + lockGrace.inMilliseconds);
   }
 
+  /// Compare-and-delete under the lock's mutex: an expired lock that
+  /// another owner took meanwhile is not deleted by the previous one.
   @override
-  Future<bool> releaseLock(String name, String owner) async {
-    final file = File(_lockPath(name));
-    final current = await _readLock(file);
-    if (current == null || current.owner != owner) {
-      return false;
-    }
-    await _delete(file);
-    return true;
-  }
+  Future<bool> releaseLock(String name, String owner) =>
+      _lockExclusive(name, () async {
+        final file = File(_lockPath(name));
+        final current = await _readLock(file);
+        if (current == null || current.owner != owner) {
+          return false;
+        }
+        await _delete(file);
+        return true;
+      });
 
   @override
-  Future<void> forceReleaseLock(String name) => _delete(File(_lockPath(name)));
+  Future<void> forceReleaseLock(String name) =>
+      _lockExclusive(name, () => _delete(File(_lockPath(name))));
 
   @override
   Future<String?> lockOwner(String name) async {
     final current = await _readLock(File(_lockPath(name)));
-    if (current == null || current.expiresAt <= _now) {
+    if (current == null || current.owner.isEmpty || current.expiresAt <= _now) {
       return null;
     }
     return current.owner;
@@ -928,7 +1206,19 @@ final class FileStore implements TouchableCacheStore {
 }
 
 /// Laravel-compatible `cache` / `cache_locks` tables (scope `cluster`).
-final class DatabaseStore implements TouchableCacheStore, WindowCounterStore {
+///
+/// A row is deleted when read after it expired, by [pruneExpired]
+/// (`dartisan cache:prune-expired`), and by a lottery: [pruneLottery]
+/// `(2, 100)` deletes the expired rows of `cache` after 2 in 100 `put`s and
+/// rate-limit hits, and those of `cache_locks` after 2 in 100 lock
+/// acquisitions (Laravel's `DatabaseLock` lottery), outside transactions.
+/// [flush] keeps the locks, as Laravel's does.
+final class DatabaseStore
+    implements
+        TouchableCacheStore,
+        WindowCounterStore,
+        LockFlushingCacheStore,
+        PrunableCacheStore {
   /// A store in the [table] (`cache`) of [db], shared with Laravel's
   /// database cache.
   DatabaseStore(
@@ -936,7 +1226,51 @@ final class DatabaseStore implements TouchableCacheStore, WindowCounterStore {
     this.table = 'cache',
     this.lockTable = 'cache_locks',
     this.connection,
-  });
+    this.pruneLottery = (2, 100),
+    Random? random,
+  }) : _random = random ?? Random();
+
+  /// The odds `(hits, outOf)` that a write prunes the expired rows of its
+  /// table; `(0, 1)` never does.
+  final (int, int) pruneLottery;
+  final Random _random;
+
+  bool _winsLottery() {
+    final (hits, outOf) = pruneLottery;
+    return hits > 0 &&
+        outOf > 0 &&
+        _random.nextInt(outOf) < hits &&
+        // A failed statement aborts a PostgreSQL transaction: never risk
+        // the application's transaction for housekeeping.
+        !db.inTransactionOn(connection);
+  }
+
+  /// Deletes the expired rows of [from] when the lottery says so; a
+  /// failure is left to the next prune.
+  Future<void> _lotteryPrune(String from) async {
+    if (!_winsLottery()) {
+      return;
+    }
+    try {
+      await _deleteExpired(from);
+    } catch (_) {
+      // Housekeeping only: the write itself succeeded.
+    }
+  }
+
+  Future<int> _deleteExpired(String from) => db
+      .table(from, connection: connection)
+      .where('expiration', '<=', _now)
+      .delete();
+
+  @override
+  Future<int> pruneExpired() async =>
+      await _deleteExpired(table) + await _deleteExpired(lockTable);
+
+  @override
+  Future<void> flushLocks() async {
+    await db.table(lockTable, connection: connection).delete();
+  }
 
   /// The database holding the values.
   final DatabaseManager db;
@@ -1011,16 +1345,19 @@ final class DatabaseStore implements TouchableCacheStore, WindowCounterStore {
       <String, Object?>{for (final k in keys) k: await get(k)};
 
   @override
-  Future<void> put(String key, Object? value, {Duration? ttl}) => db
-      .table(table, connection: connection)
-      .upsert(
-        <String, Object?>{
-          'key': key,
-          'value': _encode(value),
-          'expiration': _expiration(ttl),
-        },
-        const ['key'],
-      );
+  Future<void> put(String key, Object? value, {Duration? ttl}) async {
+    await db
+        .table(table, connection: connection)
+        .upsert(
+          <String, Object?>{
+            'key': key,
+            'value': _encode(value),
+            'expiration': _expiration(ttl),
+          },
+          const ['key'],
+        );
+    await _lotteryPrune(table);
+  }
 
   @override
   Future<void> putMany(Map<String, Object?> values, {Duration? ttl}) async {
@@ -1158,6 +1495,7 @@ final class DatabaseStore implements TouchableCacheStore, WindowCounterStore {
         ], connection);
       }, connection: connection);
     }
+    await _lotteryPrune(table);
     final count = int.parse('${rows.single['value']}');
     return (
       allowed: count > 0,
@@ -1195,12 +1533,13 @@ final class DatabaseStore implements TouchableCacheStore, WindowCounterStore {
 
   @override
   Future<void> flush() async {
+    // Laravel's DatabaseStore::flush deletes the cache table only.
     await db.table(table, connection: connection).delete();
-    await db.table(lockTable, connection: connection).delete();
   }
 
   @override
   Future<bool> acquireLock(String name, String owner, Duration ttl) async {
+    await _lotteryPrune(lockTable);
     final expiration = _now + (ttl.inMilliseconds / 1000).ceil();
     try {
       await db.table(lockTable, connection: connection).insert(
