@@ -84,6 +84,15 @@ and time); text is written inline, so no shared-strings table grows in
 memory. A CSV encloses every field, as PhpSpreadsheet's writer does, and
 holds the first sheet.
 
+A spreadsheet runs a CSV cell that starts with `=`, `+`, `-` or `@` as a
+formula, so a name typed as `=HYPERLINK(...)` becomes a live link when
+staff open the export. For exports that hold what users typed, return
+`CsvSettings(escapeFormulas: true)` from `getCsvSettings()`: such text
+cells get a leading `'` and are shown as typed. Numbers, dates, booleans
+and plain numeric text (`-5`, `+6281234567`) are left alone. It is off by
+default, as in Laravel Excel, because it changes the text a reader gets
+back. XLSX needs none of this: its text cells are never formulas.
+
 Unlike Laravel Excel there is no `ShouldAutoSize`: a column's widest
 value is only known once every row is written, and the file is streamed.
 Use `WithColumnWidths`.

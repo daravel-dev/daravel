@@ -11,6 +11,7 @@ final class CsvSettings {
     this.lineEnding = '\n',
     this.useBom = false,
     this.inputEncoding = 'UTF-8',
+    this.escapeFormulas = false,
   });
 
   /// The field separator: `,` when writing; detected among `,`, `;`, tab
@@ -30,9 +31,31 @@ final class CsvSettings {
   /// `UTF-8` or `ISO-8859-1` (Latin-1) for reading.
   final String inputEncoding;
 
+  /// Whether text cells a spreadsheet would run as a formula are written
+  /// inert ([escapeCsvFormula]): turn it on for exports holding what users
+  /// typed (names, comments) that staff open in Excel, LibreOffice or Google
+  /// Sheets. Off by default, as in Laravel Excel and PhpSpreadsheet, since it
+  /// changes the text a reader gets back. Only `String` cells are touched:
+  /// numbers, dates and booleans are written as before.
+  final bool escapeFormulas;
+
   /// Tab-separated values.
   static const CsvSettings tsv = CsvSettings(delimiter: '\t');
 }
+
+/// [text] made inert for a spreadsheet (CWE-1236, OWASP "CSV injection"):
+/// text starting with `=`, `+`, `-`, `@`, a tab or a carriage return gets a
+/// leading `'`, so `=HYPERLINK(...)` or `=cmd|...` is shown, not run. Plain
+/// numbers (`-5`, `+6281234`, `1.5e3`) are left alone: a spreadsheet reads
+/// them as that number anyway, and a phone number or a negative amount keeps
+/// its value.
+String escapeCsvFormula(String text) =>
+    _formulaStart.hasMatch(text) && !_plainNumber.hasMatch(text)
+    ? "'$text"
+    : text;
+
+final RegExp _formulaStart = RegExp('^[=+\\-@\t\r]');
+final RegExp _plainNumber = RegExp(r'^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$');
 
 /// One CSV line for [row], every field enclosed, as PhpSpreadsheet's CSV
 /// writer writes it.
