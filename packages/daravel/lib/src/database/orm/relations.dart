@@ -28,6 +28,15 @@ abstract class Relation<R extends Model> {
   /// Name under which the relation is registered (set by the definition).
   String name = '';
 
+  /// The definition the relation is declared on (set by the definition);
+  /// it names the default foreign key of [HasMany] and [HasOne].
+  ModelDefinition<Model>? parentDefinition;
+
+  /// Laravel's `Str::snake`: `tipeUjian` → `tipe_ujian`.
+  static String _snake(String value) => value
+      .replaceAllMapped(RegExp(r'(.)(?=[A-Z])'), (m) => '${m[1]}_')
+      .toLowerCase();
+
   /// The related model's definition.
   ModelDefinition<R> get related => _related();
 
@@ -213,11 +222,30 @@ abstract class Relation<R extends Model> {
 /// `hasMany`: related rows carry `foreignKey` = parent `localKey`.
 class HasMany<R extends Model> extends Relation<R> {
   /// `hasMany`: the related rows whose [foreignKey] holds the parent's
-  /// [localKey] (`id`).
-  HasMany(super.related, {required this.foreignKey, this.localKey = 'id'});
+  /// [localKey] (`id`). Without [foreignKey], it is guessed as Laravel's
+  /// `hasMany` does: the parent's class name in snake case and its primary
+  /// key (`user_id` on `User`), the class name read from
+  /// [ModelDefinition.morphClass].
+  HasMany(super.related, {this._foreignKey, this.localKey = 'id'});
 
-  /// The column of the related table pointing at the parent.
-  final String foreignKey;
+  final String? _foreignKey;
+
+  /// The column of the related table pointing at the parent: as given, or
+  /// guessed from the parent definition (`user_id`).
+  String get foreignKey {
+    if (_foreignKey != null) {
+      return _foreignKey;
+    }
+    final parent = parentDefinition;
+    if (parent == null) {
+      throw StateError(
+        'Relation [$name] has no foreignKey and is not declared on a '
+        'ModelDefinition; pass foreignKey.',
+      );
+    }
+    final basename = parent.morphClass.split(r'\').last;
+    return '${Relation._snake(basename)}_${parent.primaryKey}';
+  }
 
   /// The parent's column it points at (`id`).
   final String localKey;
@@ -293,7 +321,7 @@ class HasMany<R extends Model> extends Relation<R> {
 /// `hasOne`: like [HasMany] but a single row.
 final class HasOne<R extends Model> extends HasMany<R> {
   /// `hasOne`: as [HasMany], one model or null.
-  HasOne(super.related, {required super.foreignKey, super.localKey});
+  HasOne(super.related, {super.foreignKey, super.localKey});
 
   String? _ofColumn;
   String _ofAggregate = 'max';
@@ -376,11 +404,27 @@ final class HasOne<R extends Model> extends HasMany<R> {
 /// `belongsTo`: the parent carries `foreignKey` = related `ownerKey`.
 final class BelongsTo<R extends Model> extends Relation<R> {
   /// `belongsTo`: the parent row whose [ownerKey] (`id`) equals this model's
-  /// [foreignKey].
-  BelongsTo(super.related, {required this.foreignKey, this.ownerKey = 'id'});
+  /// [foreignKey]. Without [foreignKey], it is guessed as Laravel's
+  /// `belongsTo` does: the relation name in snake case and the owner key
+  /// (`author` → `author_id`, `tipeUjian` → `tipe_ujian_id`).
+  BelongsTo(super.related, {this._foreignKey, this.ownerKey = 'id'});
 
-  /// This model's column pointing at the owner (`user_id`).
-  final String foreignKey;
+  final String? _foreignKey;
+
+  /// This model's column pointing at the owner: as given, or guessed from
+  /// the relation name (`user_id`).
+  String get foreignKey {
+    if (_foreignKey != null) {
+      return _foreignKey;
+    }
+    if (name.isEmpty) {
+      throw StateError(
+        'A BelongsTo without foreignKey must be declared in relations: '
+        '(its name gives the key); pass foreignKey.',
+      );
+    }
+    return '${Relation._snake(name)}_$ownerKey';
+  }
 
   /// The owner's column it points at (`id`).
   final String ownerKey;

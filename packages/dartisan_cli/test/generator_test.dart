@@ -26,6 +26,13 @@ void main() {
     expect(Naming.table('Category'), 'categories');
     expect(Naming.table('Address'), 'addresses');
     expect(Naming.table('Day'), 'days');
+    // Laravel's rules (Str::plural), not a bare "add s".
+    expect(Naming.table('Stimulus'), 'stimuli');
+    expect(Naming.table('Curriculum'), 'curricula');
+    expect(Naming.table('Criterion'), 'criteria');
+    expect(Naming.table('Person'), 'people');
+    expect(Naming.table('Quiz'), 'quizzes');
+    expect(Naming.table('ExamStimulus'), 'exam_stimuli');
     expect(
       Naming.timestamp(DateTime.utc(2026, 10, 24, 9, 5, 7)),
       '2026_10_24_090507',
