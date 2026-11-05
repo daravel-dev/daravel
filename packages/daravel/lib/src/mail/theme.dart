@@ -1,6 +1,6 @@
 import 'package:markdown/markdown.dart' as md;
 
-import 'mailable.dart' show escapeHtml;
+import '../foundation/html_escape.dart';
 
 /// The look of markdown mail and notification mail: Laravel 12's default
 /// mail theme (`resources/views/vendor/mail/html/themes/default.css`), with
@@ -338,6 +338,7 @@ String markdownToText(String markdown) {
 
 String _unescape(String text) => text
     .replaceAll('&quot;', '"')
+    .replaceAll('&#039;', "'")
     .replaceAll('&#39;', "'")
     .replaceAll('&lt;', '<')
     .replaceAll('&gt;', '>')

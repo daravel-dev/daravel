@@ -57,6 +57,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `response(...)->withoutCookie('theme') / Cookie::forget('theme')` | `response.withoutCookie('theme')` |  |
 | `response()->json($data, $status)` | `Response.json(data, status: status)` | phpCompatible: true writes json_encode's bytes (\/, \u escapes, [] for an empty map). |
 | `Blade views ({{ $name }}, {!! $html !!})` | `div([user.name]) / raw(html) from package:daravel/html.dart` | Typed builder, escaped by default; a separate import. |
+| `e($value)` | `escapeHtml(value)` | Same entities as htmlspecialchars with ENT_QUOTES; exported by package:daravel/daravel.dart and package:daravel/html.dart. |
 | `response()->noContent()` | `Response.noContent()` |  |
 | `redirect($to)` | `Response.redirect(to)` |  |
 | `response()->streamDownload(...)` | `Response.stream(...)` |  |

@@ -1,4 +1,4 @@
-<!-- source: responses.md sha256:974bc6354751 -->
+<!-- source: responses.md sha256:1f3ed232da4f -->
 # Respons dan resource
 
 Handler bisa mengembalikan `Response.json(data, status: 201)`,
@@ -151,11 +151,162 @@ router.get('/users/{id}', (request) async => document(title: 'Profile', [
 Child berupa node, string (teks yang di-escape), angka, `null` (dilewati),
 dan list bersarang, sehingga `if` dan `for` bisa dipakai di dalamnya. Ada
 helper untuk elemen umum (`div`, `span`, `p`, `h1`–`h3`, `a`,
-`ul`/`ol`/`li`, tabel, `form`, `input`, `label`, `button`, `img`, …),
-`el(tag, ...)` untuk elemen lain, dan atribut dengan `true` menulis atribut
-tanpa nilai (`required`) serta `false`/`null` menghilangkannya. Import-nya
-terpisah karena nama seperti `a`, `p`, dan `text` akan bentrok dengan
-variabel biasa.
+`ul`/`ol`/`li`, tabel, `form`, `input`, `label`, `button`, `img`, `meta`,
+`link`, `br`, `hr`, …), `el(tag, ...)` untuk elemen lain, dan atribut dengan
+`true` menulis atribut tanpa nilai (`required`) serta `false`/`null`
+menghilangkannya. Setiap helper elemen menerima `id`, `classes`, dan
+`attributes`, dan `attributes` ditulis paling akhir, sehingga
+`link(rel: 'stylesheet', href: ..., attributes: {'integrity': ...})` atau
+`tbody(id: 'rows', [...])` tidak perlu `el()`. Import-nya terpisah karena
+nama seperti `a`, `p`, dan `text` akan bentrok dengan variabel biasa.
+`escapeHtml` (`e()` dari Laravel) diekspor oleh
+`package:daravel/daravel.dart` dan `package:daravel/html.dart` sebagai satu
+deklarasi yang sama, jadi satu file bisa meng-import keduanya.
+
+`script(src: '/js/app.js', defer: true)` menulis script eksternal
+(`module: true` menulis `type="module"`, dan `nonce`, `integrity`, serta
+`crossorigin` juga tersedia sebagai parameter). `script(content: ...)` dan
+`style(css)` menulis kode inline apa adanya, tanpa escape, jadi isinya harus
+kode tepercaya; `</script` atau `</style` di dalamnya ditulis `<\/script`
+(`<\/style`) sehingga tidak bisa menutup elemen. Untuk memberikan data ke
+script, jangan menyisipkannya ke `content`: `jsonScript(data, id: 'props')`
+menulis `<script type="application/json">` dengan `<`, `>`, dan `&`
+di-escape, yang dibaca halaman dengan
+`JSON.parse(document.getElementById('props').textContent)`.
+
+### Layout dan komponen
+
+`@extends`/`@yield` dan komponen `<x-card>` dengan slot dari Blade cukup
+ditulis sebagai fungsi biasa: layout menerima satu parameter untuk setiap
+bagian yang di-yield, dan komponen menerima satu parameter untuk setiap slot
+(slot default adalah `body`):
+
+<!-- include: packages/daravel/test/docs/guide_examples_test.dart#html-layout -->
+```dart
+/// The site layout (Blade's `@extends('layouts.app')`): every `@yield` and
+/// `@stack` is a parameter, and `body` is the default slot.
+HtmlDocument appLayout({
+  required String title,
+  required List<Object?> body,
+  List<Object?> head = const [],
+  List<Object?> scripts = const [],
+  String? csrfToken,
+}) => document(
+  title: '$title | Example',
+  head: [
+    link(rel: 'stylesheet', href: '/css/app.css'),
+    ...head,
+  ],
+  // htmx sends these headers with every request from the page.
+  bodyAttributes: {
+    if (csrfToken != null)
+      'hx-headers': jsonEncode({'X-CSRF-TOKEN': csrfToken}),
+  },
+  [
+    header(classes: 'topbar', [
+      a(['Home'], href: '/'),
+    ]),
+    mainEl(id: 'content', body),
+    script(src: '/js/htmx.min.js', defer: true),
+    ...scripts,
+  ],
+);
+
+/// A component with named slots (Blade's `<x-card>` with `$title`, the
+/// default slot and `<x-slot:actions>`).
+Element card({
+  required Object? title,
+  required List<Object?> body,
+  List<Object?>? actions,
+}) => article(classes: 'card', [
+  h2(classes: 'card-title', [title]),
+  div(classes: 'card-body', body),
+  if (actions != null) footer(classes: 'card-actions', actions),
+]);
+```
+<!-- /include -->
+
+Sebuah halaman lalu cukup ditulis
+`appLayout(title: 'Posts', body: [card(title: ..., body: [...])])`.
+`document(bodyAttributes: {...})` mengatur atribut `<body>`.
+
+### htmx
+
+Request htmx mengirim `HX-Request: true`, dan `package:daravel/html.dart`
+membacanya sebagai `request.isHtmx` (beserta `isHtmxBoosted`, `htmxTarget`,
+dan `htmxTrigger`). Handler menjawab request htmx dengan fragment yang akan
+di-swap, berupa `HtmlNode` apa pun, dan menjawab browser dengan halaman
+utuh:
+
+<!-- include: packages/daravel/test/docs/guide_examples_test.dart#htmx -->
+```dart
+Element postRow(Post post) => tr(id: 'post-${post.id}', [
+  td([post.title]),
+  td([
+    if (post.published)
+      'Published'
+    else
+      button(
+        ['Publish'],
+        attributes: {
+          'hx-post': '/posts/${post.id}/publish',
+          'hx-target': 'closest tr',
+          'hx-swap': 'outerHTML',
+        },
+      ),
+  ]),
+]);
+
+void webRoutes(Router router) {
+  router.get('/posts', (request) async {
+    final rows = tbody(id: 'posts', [
+      for (final post in await Post.query().get()) postRow(post),
+    ]);
+    // htmx asks for the rows only; a browser gets the whole page.
+    if (request.isHtmx) {
+      return rows;
+    }
+    return appLayout(
+      title: 'Posts',
+      body: [
+        card(
+          title: 'Posts',
+          body: [
+            table([rows]),
+          ],
+        ),
+      ],
+    );
+  });
+
+  // The answer is the fragment htmx swaps in: the updated row.
+  router.post('/posts/{id}/publish', (request) async {
+    final post = await Post.query().findOrFail(request.param<int>('id'));
+    await post.update({'published': true});
+    return postRow(post);
+  });
+
+  // `HX-Redirect` for htmx (which would swap a followed 302 into the
+  // target), an ordinary 303 for a plain form.
+  router.post('/posts/clear', (request) async {
+    await Post.query().delete();
+    return htmxRedirect(request, '/posts', status: 303);
+  });
+}
+```
+<!-- /include -->
+
+- **Redirect.** Browser mengikuti `302` di dalam request htmx, lalu htmx
+  men-swap halaman tujuannya ke dalam target. `htmxRedirect(request, url)`
+  menjawab request htmx dengan `200` dan `HX-Redirect: url`, yang diubah
+  htmx menjadi pemuatan halaman penuh, dan menjawab request lain dengan
+  redirect biasa (berikan `status: 303` setelah `PUT`, `PATCH`, atau
+  `DELETE`).
+- **CSRF.** Dengan [session](sessions.md#csrf), `POST`, `PUT`, `PATCH`, dan
+  `DELETE` memerlukan token. Taruh token di `hx-headers` pada `<body>`, yang
+  dikirim htmx bersama setiap request dari halaman tersebut:
+  `appLayout(csrfToken: request.session.token, ...)` di atas menulis
+  `<body hx-headers='{"X-CSRF-TOKEN": "..."}'>`.
 
 ## Caching dan kompresi
 

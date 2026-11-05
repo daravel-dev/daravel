@@ -147,10 +147,155 @@ router.get('/users/{id}', (request) async => document(title: 'Profile', [
 Children are nodes, strings (escaped text), numbers, `null` (skipped) and
 nested lists, so `if` and `for` work inside them. There are helpers for the
 common elements (`div`, `span`, `p`, `h1`–`h3`, `a`, `ul`/`ol`/`li`, tables,
-`form`, `input`, `label`, `button`, `img`, …), `el(tag, ...)` for any other,
-and attributes where `true` writes a bare attribute (`required`) and
-`false`/`null` leave it out. It is a separate import because names such as
-`a`, `p` and `text` would clash with ordinary variables.
+`form`, `input`, `label`, `button`, `img`, `meta`, `link`, `br`, `hr`, …),
+`el(tag, ...)` for any other, and attributes where `true` writes a bare
+attribute (`required`) and `false`/`null` leave it out. Every element helper
+takes `id`, `classes` and `attributes`, and `attributes` is written last, so
+`link(rel: 'stylesheet', href: ..., attributes: {'integrity': ...})` or
+`tbody(id: 'rows', [...])` need no `el()`. It is a separate import because
+names such as `a`, `p` and `text` would clash with ordinary variables.
+`escapeHtml` (Laravel's `e()`) is exported by both `package:daravel/daravel.dart`
+and `package:daravel/html.dart` as one declaration, so a file can import both.
+
+`script(src: '/js/app.js', defer: true)` writes an external script
+(`module: true` writes `type="module"`, and `nonce`, `integrity` and
+`crossorigin` are parameters too). `script(content: ...)` and `style(css)`
+write inline code as it is, not escaped, so it must be trusted code; a
+`</script` or `</style` in it is written `<\/script` (`<\/style`) so it cannot
+close the element. To hand data to a script, do not interpolate it into
+`content`: `jsonScript(data, id: 'props')` writes
+`<script type="application/json">` with `<`, `>` and `&` escaped, which the
+page reads with `JSON.parse(document.getElementById('props').textContent)`.
+
+### Layouts and components
+
+Blade's `@extends`/`@yield` and `<x-card>` components with slots are plain
+functions: the layout takes a parameter for every section it yields, and a
+component takes one for every slot (the default slot is `body`):
+
+<!-- include: packages/daravel/test/docs/guide_examples_test.dart#html-layout -->
+```dart
+/// The site layout (Blade's `@extends('layouts.app')`): every `@yield` and
+/// `@stack` is a parameter, and `body` is the default slot.
+HtmlDocument appLayout({
+  required String title,
+  required List<Object?> body,
+  List<Object?> head = const [],
+  List<Object?> scripts = const [],
+  String? csrfToken,
+}) => document(
+  title: '$title | Example',
+  head: [
+    link(rel: 'stylesheet', href: '/css/app.css'),
+    ...head,
+  ],
+  // htmx sends these headers with every request from the page.
+  bodyAttributes: {
+    if (csrfToken != null)
+      'hx-headers': jsonEncode({'X-CSRF-TOKEN': csrfToken}),
+  },
+  [
+    header(classes: 'topbar', [
+      a(['Home'], href: '/'),
+    ]),
+    mainEl(id: 'content', body),
+    script(src: '/js/htmx.min.js', defer: true),
+    ...scripts,
+  ],
+);
+
+/// A component with named slots (Blade's `<x-card>` with `$title`, the
+/// default slot and `<x-slot:actions>`).
+Element card({
+  required Object? title,
+  required List<Object?> body,
+  List<Object?>? actions,
+}) => article(classes: 'card', [
+  h2(classes: 'card-title', [title]),
+  div(classes: 'card-body', body),
+  if (actions != null) footer(classes: 'card-actions', actions),
+]);
+```
+<!-- /include -->
+
+A page is then `appLayout(title: 'Posts', body: [card(title: ..., body: [...])])`.
+`document(bodyAttributes: {...})` sets the attributes of `<body>`.
+
+### htmx
+
+htmx requests send `HX-Request: true`, and `package:daravel/html.dart` reads
+it as `request.isHtmx` (with `isHtmxBoosted`, `htmxTarget` and
+`htmxTrigger`). A handler answers an htmx request with the fragment to swap
+in, any `HtmlNode`, and a browser with the whole page:
+
+<!-- include: packages/daravel/test/docs/guide_examples_test.dart#htmx -->
+```dart
+Element postRow(Post post) => tr(id: 'post-${post.id}', [
+  td([post.title]),
+  td([
+    if (post.published)
+      'Published'
+    else
+      button(
+        ['Publish'],
+        attributes: {
+          'hx-post': '/posts/${post.id}/publish',
+          'hx-target': 'closest tr',
+          'hx-swap': 'outerHTML',
+        },
+      ),
+  ]),
+]);
+
+void webRoutes(Router router) {
+  router.get('/posts', (request) async {
+    final rows = tbody(id: 'posts', [
+      for (final post in await Post.query().get()) postRow(post),
+    ]);
+    // htmx asks for the rows only; a browser gets the whole page.
+    if (request.isHtmx) {
+      return rows;
+    }
+    return appLayout(
+      title: 'Posts',
+      body: [
+        card(
+          title: 'Posts',
+          body: [
+            table([rows]),
+          ],
+        ),
+      ],
+    );
+  });
+
+  // The answer is the fragment htmx swaps in: the updated row.
+  router.post('/posts/{id}/publish', (request) async {
+    final post = await Post.query().findOrFail(request.param<int>('id'));
+    await post.update({'published': true});
+    return postRow(post);
+  });
+
+  // `HX-Redirect` for htmx (which would swap a followed 302 into the
+  // target), an ordinary 303 for a plain form.
+  router.post('/posts/clear', (request) async {
+    await Post.query().delete();
+    return htmxRedirect(request, '/posts', status: 303);
+  });
+}
+```
+<!-- /include -->
+
+- **Redirects.** The browser follows a `302` inside htmx's request, and htmx
+  swaps the page it lands on into the target. `htmxRedirect(request, url)`
+  answers an htmx request with `200` and `HX-Redirect: url`, which htmx
+  turns into a full page load, and any other request with an ordinary
+  redirect (pass `status: 303` after a `PUT`, `PATCH` or `DELETE`).
+- **CSRF.** With [sessions](sessions.md#csrf), `POST`, `PUT`, `PATCH` and
+  `DELETE` need the token. Put it in `hx-headers` on `<body>`, which htmx
+  sends with every request from the page:
+  `appLayout(csrfToken: request.session.token, ...)` above writes
+  `<body hx-headers='{"X-CSRF-TOKEN": "..."}'>`.
 
 ## Caching and compression
 
