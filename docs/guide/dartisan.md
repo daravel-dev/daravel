@@ -100,7 +100,7 @@ before moving to a new minor version.
 | `db:transfer --from --to [--dry-run] [--truncate] [--tables] [--no-migrate]` | Copies the data to another database, migrating it first ([Database](database.md#copying-data-between-databases)) |
 | `db:backup [--output] [--keep=N]` | Hot backup of the SQLite database into `storage/backups` (see [Deployment](deployment.md#backups)) |
 | `tinker "<expression>"` | Evaluates a Dart expression in the booted application |
-| `model:sync [Model]` | Regenerates a model's typed accessors from its table, and fills an empty `<dartisan:statics>` region |
+| `model:sync [Model] [--typed-ids]` | Regenerates a model's typed accessors from its table, and fills an empty `<dartisan:statics>` region; `--typed-ids` adds a typed id ([Database](database.md#typed-ids-opt-in)) |
 | `model:show <Model> [--json]` | A model's table, attributes (type, cast, fillable, hidden) and relations, from `bootstrap/models.dart` |
 | `daragic:export [--out] [--only]` | The application model (DAM) for `daragic`: routes, models, migrations, schema, schedule, ... (see [Migrating from Laravel](migrating-from-laravel.md#the-application-model-daragic)) |
 

@@ -1,3 +1,4 @@
+import '../../foundation/ids.dart';
 import '../database_manager.dart';
 import 'casts.dart';
 import 'keys.dart';
@@ -50,6 +51,7 @@ final class ModelDefinition<T extends Model> {
     required this.factory,
     this.primaryKey = 'id',
     this.keyType = .autoInt,
+    this.idType,
     this.connection,
     this.fillable = const <String>[],
     this.guarded = const <String>['*'],
@@ -127,6 +129,22 @@ final class ModelDefinition<T extends Model> {
 
   /// How primary keys are made: auto-increment, UUID or ULID.
   final KeyType keyType;
+
+  /// The typed id of this model (opt-in, `IdType.integer(UserId.new)`):
+  /// route model binding parses the parameter with it and answers 404 when
+  /// it throws. `null` keeps the untyped behaviour.
+  final IdType<Object>? idType;
+
+  /// [raw] as this model's id: [idType]'s parser when there is one,
+  /// otherwise [raw] itself. Throws a [FormatException] for an invalid id.
+  Object parseId(String raw) => idType?.parse(raw) ?? raw;
+
+  /// The primary key of [model] through [idType] (the raw key without one).
+  Object? idOf(Model model) {
+    final key = model.key;
+    final type = idType;
+    return key == null || type == null ? key : type.fromRow(key);
+  }
 
   /// The connection name (`$connection`); the default one when null.
   final String? connection;

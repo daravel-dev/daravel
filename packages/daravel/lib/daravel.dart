@@ -22,6 +22,7 @@ export 'src/foundation/config_validator.dart';
 export 'src/foundation/container.dart';
 export 'src/foundation/env.dart';
 export 'src/foundation/exceptions.dart';
+export 'src/foundation/ids.dart';
 export 'src/foundation/service_provider.dart';
 export 'src/foundation/php.dart';
 export 'src/foundation/php_serialize.dart';

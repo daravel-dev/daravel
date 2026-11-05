@@ -1,4 +1,4 @@
-<!-- source: database.md sha256:2aafe09f2c11 -->
+<!-- source: database.md sha256:469171558f8c -->
 # Database
 
 `DB_CONNECTION` memilih SQLite (`sqlite`, default), PostgreSQL (`pgsql`),
@@ -269,6 +269,79 @@ yang dicadangkan di Dart). Soft delete, observer, event model, global scope,
 seperti `personal_access_tokens.tokenable_type`, kecuali `Relation.morphMap`
 memberi model itu alias, dan dipakai di
 `No query results for model [App\Models\Post] 1`.
+
+### ID bertipe (opt-in)
+
+Opsi khusus Daravel: dengan `dartisan model:sync --typed-ids`, setiap model
+mendapat [extension type](https://dart.dev/language/extension-types) untuk
+primary key-nya, sehingga ID salah tipe tertangkap saat kompilasi:
+`Post.find(user.id)` tidak lagi bisa dikompilasi begitu `find` menerima
+`PostId`. Tanpa flag ini, `model:sync` menulis persis sama seperti
+sebelumnya.
+
+```bash
+dart run bin/dartisan.dart model:sync --typed-ids        # semua model
+dart run bin/dartisan.dart model:sync Post --typed-ids   # satu model
+```
+
+Flag ini menulis ID di region `// <dartisan:ids>` di akhir file model (dari
+stub `model.id`, lihat `stub:publish`), memberi tipe pada getter primary
+key, dan mengganti tipe `find` dan `findOrFail` hasil generator di region
+`<dartisan:statics>`. Statics yang Anda tulis sendiri tetap dengan tipenya.
+Key yang bukan integer maupun teks mendapat peringatan dan tidak mendapat
+ID bertipe.
+
+```dart
+// <dartisan:statics>
+static Future<Post?> find(PostId id) => query().find(id);
+static Future<Post> findOrFail(PostId id) => query().findOrFail(id);
+// </dartisan:statics>
+
+// <dartisan:accessors>
+PostId get id => getAttr('id');
+// </dartisan:accessors>
+
+// <dartisan:ids>
+extension type const PostId(int value) implements int {
+  static PostId parse(String raw) => PostId(int.parse(raw));
+}
+// </dartisan:ids>
+```
+
+Extension type dihapus saat runtime: `PostId` adalah `int` di JSON, di
+binding SQL, dan di tabel yang dipakai bersama Laravel, tanpa biaya
+tambahan. Karena `PostId` meng-implement `int`, `int n = post.id` tetap
+bisa dikompilasi; arah sebaliknya butuh `PostId(5)`, juga untuk literal.
+`TypedId<Post>` adalah varian generik untuk kode yang bekerja lintas model.
+
+Parameter route membaca ID bertipe dengan `request.param<PostId>('post')`,
+yang mem-parse nilainya sebagai representasinya (`int`) dan menjawab 404
+untuk sebuah kata. Untuk pengecekan yang lebih ketat, berikan parser, atau
+daftarkan satu parser per nama parameter di `bootstrap/ids.dart`:
+
+```dart
+// bootstrap/ids.dart
+void registerIds(IdParsers ids) {
+  ids.register<PostId>('post', PostId.parse);
+}
+
+// bootstrap/app.dart
+.withIds(registerIds)
+
+// sebuah handler
+final post = await Post.findOrFail(request.param<PostId>('post'));
+final same = request.param<PostId>('post', parse: PostId.parse);
+```
+
+Registry ini memakai nama parameter sebagai key karena extension type
+dihapus saat runtime: `PostId` dan `UserId` sama-sama `int`, sehingga
+`param<PostId>` tidak bisa memilih parser dari tipenya. `FormatException`
+atau `ArgumentError` dari parser menjawab 404. Route model binding
+(`router.bindModel`) mem-parse lewat `ModelDefinition(idType: ...)` bila
+Anda mengisinya, misalnya `idType: IdType.integer(PostId.new)` atau
+`IdType.string(...)` untuk UUID dan ULID. ID bertipe hanya mengecek tipe:
+input yang masuk ke SQL tetap dijaga oleh binding dan lint
+`no_sql_string_interpolation`.
 
 ## Query
 

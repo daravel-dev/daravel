@@ -56,6 +56,7 @@ sections:
       - { php: "$request->ip()", dart: "request.ip", symbol: Request.ip }
       - { php: "$request->url()", dart: "request.url", symbol: Request.url }
       - { php: "$request->route('id')", dart: "request.param<int>('id')", symbol: Request.param }
+      - { php: "(none)", dart: "request.param<PostId>('post', parse: PostId.parse); .withIds((ids) => ids.register<PostId>('post', PostId.parse))", symbol: IdParsers.register, note: "Daravel-only, opt-in: typed id parsers by route parameter name (bootstrap/ids.dart); a parser that throws answers 404." }
       - { php: "$request->expectsJson()", dart: "request.expectsJson", symbol: Request.expectsJson }
       - { php: "$request->cookie('theme') / ->cookies->all()", dart: "request.cookie('theme') / request.cookies", symbol: Request.cookie, note: "Decoded like $_COOKIE; EncryptCookies is not applied." }
       - { php: "response(...)->withCookie(cookie('theme', 'dark', 60))", dart: "response.withCookie('theme', 'dark', maxAge: Duration(minutes: 60))", symbol: Response.withCookie, note: "Same Set-Cookie text as Symfony's Cookie." }
@@ -240,6 +241,7 @@ sections:
       - { php: "class User extends Model", dart: "final class User extends Model", symbol: Model }
       - { php: "protected $table / $fillable / $hidden / $casts", dart: "ModelDefinition<User>(table:, fillable:, hidden:, casts:)", symbol: ModelDefinition }
       - { php: "protected $attributes = ['status' => 'draft']", dart: "ModelDefinition<Exam>(attributes: {'status': 'draft'})", symbol: ModelDefinition.attributes, note: "Stored values, before casts; a new model starts with them." }
+      - { php: "(none)", dart: "dartisan model:sync --typed-ids; ModelDefinition<Post>(idType: IdType.integer(PostId.new))", symbol: ModelDefinition.idType, note: "Daravel-only, opt-in: an extension type per primary key (TypedId<T> for generic code), so a wrong-typed id is caught at compile time; erased to the plain key at runtime." }
       - { php: "$table->vector('embedding', dimensions: 1536)", dart: "table.vector('embedding', dimensions: 1536)", symbol: Blueprint.vector }
       - { php: "$table->vectorIndex('embedding')", dart: "table.vectorIndex('embedding')", symbol: Blueprint.vectorIndex }
       - { php: "->whereVectorSimilarTo('embedding', $vector, 0.7)", dart: ".whereVectorSimilarTo('embedding', vector, minSimilarity: 0.7)", symbol: QueryBuilder.whereVectorSimilarTo }
