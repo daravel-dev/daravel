@@ -1,4 +1,4 @@
-<!-- source: operations.md sha256:5d653f1f02f3 -->
+<!-- source: operations.md sha256:7dead891c2de -->
 # Operasional
 
 Menjalankan Daravel di bawah trafik nyata: berapa isolate, berapa koneksi
@@ -31,7 +31,13 @@ banyak satu core; satu isolate membiarkan core lainnya menganggur.
   beberapa proses server di belakang proxy
   alih-alih menambah isolate: `APP_PROCESSES=N`
   ([Deployment](deployment.md#beberapa-proses)); skenario benchmark 13
-  mengukurnya (`bench/README.md`).
+  mengukurnya (`bench/README.md`). `dartisan doctor --production`
+  menyarankan `APP_PROCESSES` (setengah jumlah core, dengan
+  `APP_ISOLATES=2`) bila satu proses menjalankan empat isolate atau lebih,
+  dan bila ada lebih dari satu worker mencatat
+  `DART_VM_OPTIONS=--new_gen_semi_max_size=128`, new generation yang lebih
+  besar yang sedikit mempersingkat request tersebut (81–90 ms menjadi
+  70–77 ms).
 - Setiap isolate punya memori sendiri, sehingga state yang disimpan aplikasi
   di static (daftar token yang dicabut, counter, nilai cache) ada satu per
   isolate. Simpan state itu di penyimpanan bersama sebelum menaikkan
