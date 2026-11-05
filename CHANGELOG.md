@@ -31,6 +31,7 @@ match Laravel more closely.
 
 ### Fixed
 
+- `dartisan model:sync` writes `Object?` for a `decimal`/`numeric` column without a cast on MySQL, MariaDB and SQLite, with a hint to add `Cast.decimalString(N)` (Laravel's `decimal:N`, N read from the column). It wrote `String?`, which held on MySQL (a string) but threw a `TypeError` on SQLite (a number), for example in tests. Columns with `Cast.decimalString` stay `String`; PostgreSQL's `numeric` stays `String`.
 - `dartisan model:sync` fills an empty `// <dartisan:statics>` region with the query shortcuts `make:model` writes (`query`, `find`, `findOrFail`, `create`, `all`, `where`). A region that holds anything is left alone.
 
 ## 1.25.0

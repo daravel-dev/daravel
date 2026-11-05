@@ -427,6 +427,43 @@ final class Post extends Model with AuthenticatableModel {
       expect(replaceAccessors('class X {}', const []), isNull);
     });
 
+    test('a decimal without a cast is Object? with a decimal:N hint', () {
+      final model = ModelSource.parse('''
+final class Score extends Model {
+  static final ModelDefinition<Score> definition = ModelDefinition<Score>(
+    table: 'scores',
+    factory: Score.new,
+    casts: {'total': Cast.decimalString(2)},
+  );
+}
+''')!;
+      expect(model.casts, {'total': 'decimalString'});
+      for (final dialect in [SqlDialect.mysql, SqlDialect.sqlite]) {
+        final plan = planAccessors(model, const [
+          ColumnInfo(name: 'total', type: 'decimal(8,2)', nullable: false),
+          ColumnInfo(name: 'weight', type: 'decimal(5,3)', nullable: false),
+          ColumnInfo(name: 'bonus', type: 'NUMERIC(8, 2)', nullable: true),
+        ], dialect: dialect);
+        expect(
+          plan.lines,
+          containsAll([
+            "  String get total => getAttr('total');",
+            "  Object? get weight => getAttr('weight');",
+            "  Object? get bonus => getAttr('bonus');",
+          ]),
+          reason: '$dialect',
+        );
+        expect(
+          plan.warnings,
+          containsAll([
+            contains('[weight]: add Cast.decimalString(3)'),
+            contains('[bonus]: add Cast.decimalString(2)'),
+          ]),
+        );
+        expect(plan.warnings, isNot(contains(contains('[total]'))));
+      }
+    });
+
     test('fillStatics fills an empty statics region only', () {
       const empty =
           'final class Stimulus extends Model {\n'

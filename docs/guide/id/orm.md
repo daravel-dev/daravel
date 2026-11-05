@@ -1,4 +1,4 @@
-<!-- source: orm.md sha256:89d47e805447 -->
+<!-- source: orm.md sha256:5927637d7cfa -->
 # ORM
 
 Model mengikuti API Eloquent. Karena Dart tidak punya property ajaib, setiap
@@ -56,7 +56,9 @@ dibulatkan half up tanpa melewati double. `Cast.decimal` membaca `double`.
 `dartisan model:sync` menulis getter dan setter bertipe dari tabel, sehingga
 `user.email` adalah `String` yang dicek compiler. Tipenya mengikuti database:
 di PostgreSQL kolom `timestamp` adalah `DateTime`, sedangkan di SQLite dan
-MySQL kolom itu butuh `Cast.dateTime`.
+MySQL kolom itu butuh `Cast.dateTime`. Kolom `decimal` tanpa cast bertipe
+`Object?`, karena MySQL mengembalikannya sebagai string dan SQLite sebagai
+angka; `Cast.decimalString(2)` menjadikannya `String` di semua database.
 
 `toJson` menulis key relasi dalam snake_case seperti Laravel: `tipeUjian`
 menjadi `tipe_ujian`. `Model.snakeAttributes = false` saat boot mempertahankan

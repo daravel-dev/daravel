@@ -120,10 +120,14 @@ final class AccessorPlan {
   final List<String> warnings;
 }
 
+/// The scale of `decimal(8,2)` / `NUMERIC(8, 2)`.
+final RegExp _decimalScale = RegExp(r'\(\s*\d+\s*,\s*(\d+)\s*\)');
+
 /// Maps a column to a Dart type: casts win, then the database type.
 /// Booleans, dates and JSON without a cast stay raw (with a hint) on SQLite
 /// and MySQL, which return them as integers and strings; PostgreSQL returns
-/// them as Dart values.
+/// them as Dart values. A decimal without a cast is `Object?`: MySQL returns
+/// it as a string and SQLite as a number, so no one type holds for both.
 ({String type, String? hint}) dartTypeFor(
   ColumnInfo column,
   String? cast, {
@@ -157,6 +161,15 @@ final class AccessorPlan {
   }
   if (t.contains('real') || t.contains('floa') || t.contains('doub')) {
     return (type: 'double', hint: null);
+  }
+  if (t.startsWith('decimal') || t.startsWith('numeric')) {
+    final places = _decimalScale.firstMatch(t)?.group(1) ?? '2';
+    return (
+      type: 'Object',
+      hint:
+          'add Cast.decimalString($places) for a String accessor, as '
+          "Laravel's decimal:$places (MySQL returns a string, SQLite a number)",
+    );
   }
   if (t.contains('date') || t.contains('time')) {
     return (type: 'String', hint: 'add Cast.dateTime for a DateTime accessor');

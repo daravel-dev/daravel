@@ -55,7 +55,9 @@ rounded half up without going through a double. `Cast.decimal` reads a
 and `dartisan model:sync` writes typed getters and setters from the table, so
 `user.email` is a `String` checked by the compiler. The types follow the
 database: on PostgreSQL a `timestamp` column is a `DateTime`, on SQLite and
-MySQL it needs `Cast.dateTime`.
+MySQL it needs `Cast.dateTime`. A `decimal` column without a cast is
+`Object?`, because MySQL returns it as a string and SQLite as a number;
+`Cast.decimalString(2)` makes it a `String` on every database.
 
 `toJson` writes relation keys in snake_case, as Laravel: `tipeUjian` becomes
 `tipe_ujian`. `Model.snakeAttributes = false` at boot keeps the declared names
