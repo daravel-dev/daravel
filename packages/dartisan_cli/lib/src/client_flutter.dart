@@ -599,12 +599,14 @@ final class _Generator {
         '  Future<$returnType> $methodName(${params.join(', ')}) async {\n',
       )
       ..write(call)
-      ..write(
-        returnType == 'void'
-            ? '    await ${target}send(${args.join(', ')});\n'
-            : '    final json = await ${target}send(${args.join(', ')});\n'
-                  '    return $convert;\n',
-      )
+      ..write(switch (returnType) {
+        'void' => '    await ${target}send(${args.join(', ')});\n',
+        // A file: its bytes and name, not JSON.
+        'ApiFile' => '    return ${target}download(${args.join(', ')});\n',
+        _ =>
+          '    final json = await ${target}send(${args.join(', ')});\n'
+              '    return $convert;\n',
+      })
       ..write('  }\n\n');
   }
 
@@ -648,6 +650,9 @@ final class _Generator {
     if (status == 204) {
       return ('void', 'null');
     }
+    if (response.isFile) {
+      return ('ApiFile', 'json');
+    }
     final model = _modelFor(response.schema, response.name ?? '${base}Item');
     final item = model.decode('e', nullable: false);
     final itemFn = item == 'e' ? '(e) => e' : '(e) => $item';
@@ -660,8 +665,8 @@ final class _Generator {
         'jsonArray($data).map($itemFn).toList()',
       ),
       ResponseShape.paginated => (
-        'Page<${model.name}>',
-        'Page.fromJson(json, $itemFn)',
+        'ApiPage<${model.name}>',
+        'ApiPage.fromJson(json, $itemFn)',
       ),
       ResponseShape.simplePaginated => (
         'SimplePage<${model.name}>',
@@ -688,6 +693,11 @@ final class _Generator {
     String name, {
     required bool models,
   }) {
+    // `oneOf: [X, {type: null}]` (or `anyOf`): X, nullable.
+    final single = _nonNullVariant(schema);
+    if (single != null) {
+      return _typeOf(single, name, models: models);
+    }
     final ref = schema[r'$ref'];
     if (ref is String && ref.startsWith('#/components/schemas/')) {
       final model = _pascal(ref.split('/').last);
@@ -757,15 +767,38 @@ final class _Generator {
       return type;
     }
     if (type is List) {
-      return type.whereType<String>().where((t) => t != 'null').firstOrNull;
+      // `["array", "object"]` (Laravel's `array` rule) is no single Dart
+      // type: `Object?`.
+      final types = type.whereType<String>().where((t) => t != 'null');
+      return types.length == 1 ? types.single : null;
     }
     return schema['properties'] is Map ? 'object' : null;
   }
 
   static bool _nullableType(Map<String, Object?> schema) {
     final type = schema['type'];
+    if (_nonNullVariant(schema) != null) {
+      return true;
+    }
     return schema['nullable'] == true ||
         (type is List && type.contains('null'));
+  }
+
+  /// The one variant of `oneOf`/`anyOf: [X, {type: null}]` that is not
+  /// `null` (X), or `null` when [schema] is not that shape.
+  static Map<String, Object?>? _nonNullVariant(Map<String, Object?> schema) {
+    final variants = schema['oneOf'] ?? schema['anyOf'];
+    if (variants is! List || variants.length != 2) {
+      return null;
+    }
+    bool isNull(Object? v) => v is Map && v['type'] == 'null';
+    if (!variants.any(isNull)) {
+      return null;
+    }
+    final rest = variants.where((v) => !isNull(v)).toList();
+    return rest.length == 1 && rest.single is Map<String, Object?>
+        ? rest.single as Map<String, Object?>
+        : null;
   }
 
   List<_Field> _fields(
@@ -1024,7 +1057,8 @@ final class _Generator {
       IntegerRule() => "Check.type('integer', ${m('integer')})",
       NumericRule() => "Check.type('numeric', ${m('numeric')})",
       BooleanRule() => "Check.type('boolean', ${m('boolean')})",
-      ListRule() => "Check.type('array', ${m('array')})",
+      ArrayRule(keys: null) => "Check.type('array', ${m('array')})",
+      ListRule() => "Check.type('list', ${m('list')})",
       EmailRule(:final pattern) => _pattern(pattern, 'email', m),
       UuidRule(:final pattern) => _pattern(pattern, 'uuid', m),
       UlidRule(:final pattern) => _pattern(pattern, 'ulid', m),

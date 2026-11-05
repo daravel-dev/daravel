@@ -240,6 +240,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `'exclude_if:type,free'` | `same string, or Rules.excludeIf('type', ['free'])` |  |
 | `'prohibited_if:a,b' / 'prohibits:a' / 'required_with_all:a,b'` | `same strings` |  |
 | `Rule::enum(Status::class)` | `Rules.enum_(Status.values)` |  |
+| `'array' / 'array:name,email' / 'list'` | `same strings, or Rules.array(['name', 'email']) / Rules.list()` | array is a JSON array or object, as a PHP array; list only a JSON array. |
 | `->withoutMiddleware('csrf')` | `.withoutMiddleware(['csrf'])` |  |
 | `Route::get('/posts/{post}', fn (Post $post) => ...)` | `router.bindModel('post', Post.definition)` |  |
 | `/users/{user}/posts/{post:slug}` | `the same path` |  |
