@@ -330,8 +330,10 @@ final class _MemoryEntry {
   bool reserved = false;
 }
 
-/// In-memory queue (scope `isolate`): tests and `--embed-queue` style
-/// single-process setups.
+/// In-memory queue (scope `isolate`): tests, and a worker in the isolate
+/// that dispatches (`QueueWorker` run beside the code that pushes). Every
+/// isolate has its own, so `serve` refuses it with several isolates or
+/// `--embed-queue`, whose worker runs in an isolate of its own.
 final class MemoryQueue implements WakeableQueueDriver {
   /// A queue in this isolate's memory; [clock] is for tests.
   MemoryQueue({DateTime Function()? clock}) : _clock = clock ?? _utcNow;

@@ -1272,6 +1272,17 @@ final class Application {
       if (resolved.embedQueue) 'the embedded queue worker',
     ].join(' and ');
     final queue = config.section<QueueConfig>();
+    final driver = container.make<QueueManager>().connection(
+      queue.defaultConnection,
+    );
+    if (driver is! SyncQueue && driver.scope == StateScope.isolate) {
+      throw ConfigException(
+        'QUEUE_CONNECTION=${queue.defaultConnection} keeps its jobs in the '
+        'isolate that dispatches them, so with $where they would never be '
+        'processed (the embedded worker and every HTTP isolate have a queue '
+        'of their own). Use the database or redis queue.',
+      );
+    }
     final locks = container.make<CacheManager>().store(queue.uniqueLockStore);
     if (locks.scope == StateScope.isolate) {
       throw ConfigException(
