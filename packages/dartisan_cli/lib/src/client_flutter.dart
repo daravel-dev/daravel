@@ -757,7 +757,10 @@ final class _Generator {
       return type;
     }
     if (type is List) {
-      return type.whereType<String>().where((t) => t != 'null').firstOrNull;
+      // `["array", "object"]` (Laravel's `array` rule) is no single Dart
+      // type: `Object?`.
+      final types = type.whereType<String>().where((t) => t != 'null');
+      return types.length == 1 ? types.single : null;
     }
     return schema['properties'] is Map ? 'object' : null;
   }
@@ -1024,7 +1027,8 @@ final class _Generator {
       IntegerRule() => "Check.type('integer', ${m('integer')})",
       NumericRule() => "Check.type('numeric', ${m('numeric')})",
       BooleanRule() => "Check.type('boolean', ${m('boolean')})",
-      ListRule() => "Check.type('array', ${m('array')})",
+      ArrayRule(keys: null) => "Check.type('array', ${m('array')})",
+      ListRule() => "Check.type('list', ${m('list')})",
       EmailRule(:final pattern) => _pattern(pattern, 'email', m),
       UuidRule(:final pattern) => _pattern(pattern, 'uuid', m),
       UlidRule(:final pattern) => _pattern(pattern, 'ulid', m),

@@ -495,6 +495,8 @@ final class Check {
       case 'boolean':
         return _asBool(value) == null ? message : null;
       case 'array':
+        return value is List || value is Map ? null : message;
+      case 'list':
         return value is List ? null : message;
       case 'url':
         if (value is! String || value.length > 8192) {

@@ -70,6 +70,11 @@ upstream file). Indonesian ships as the second locale: set
 - **Leaving a field out:** `exclude`, `exclude_if`, `exclude_unless`,
   `exclude_with`, `exclude_without`. The field is left out of `validated()`, the
   rules after it stop, and later rules see it as missing.
+- **Arrays:** `array` accepts a JSON array or a JSON object, as Laravel's
+  `array` accepts any PHP array; `array:name,email` allows only those keys (a
+  list's keys are its indexes). `list` accepts only a JSON array and `map`
+  (Daravel) only a JSON object. `min`, `max`, `between` and `size` count the
+  items of either.
 - **Others:** `date_equals`, and `timezone` or `timezone:Asia`. It also accepts
   old IANA aliases such as `Asia/Calcutta`, and not `per_country`.
 

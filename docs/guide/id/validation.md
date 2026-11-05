@@ -1,4 +1,4 @@
-<!-- source: validation.md sha256:4b6300ad38b4 -->
+<!-- source: validation.md sha256:0df3a3511dbb -->
 # Validasi
 
 Validasi request secara inline dengan string rule Laravel, atau dengan objek
@@ -75,6 +75,11 @@ sebuah middleware).
 - **Mengeluarkan field:** `exclude`, `exclude_if`, `exclude_unless`,
   `exclude_with`, `exclude_without`. Field dikeluarkan dari `validated()`, aturan
   sesudahnya berhenti, dan aturan berikutnya melihatnya sebagai tidak ada.
+- **Array:** `array` menerima array JSON maupun objek JSON, sama seperti
+  `array` di Laravel yang menerima array PHP apa pun; `array:name,email` hanya
+  mengizinkan key tersebut (key sebuah list adalah indeksnya). `list` hanya
+  menerima array JSON dan `map` (khas Daravel) hanya objek JSON. `min`, `max`,
+  `between`, dan `size` menghitung jumlah item keduanya.
 - **Lainnya:** `date_equals`, dan `timezone` atau `timezone:Asia`. Aturan ini juga
   menerima alias IANA lama seperti `Asia/Calcutta`, dan tidak mendukung
   `per_country`.

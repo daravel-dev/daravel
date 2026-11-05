@@ -67,6 +67,27 @@ void main() {
       ]);
     });
 
+    test('array is an array or an object unless nested rules say which', () {
+      final properties =
+          rulesToJsonSchema({
+                'stem': 'required|array',
+                'meta': 'nullable|array',
+                'ids': 'array',
+                'ids.*': 'integer',
+                'address': 'array',
+                'address.city': 'string',
+                'tags': 'list|max:3',
+              })['properties']!
+              as Map<String, Object?>;
+      Object? type(String key) => (properties[key]! as Map)['type'];
+      expect(type('stem'), ['array', 'object']);
+      expect(type('meta'), ['array', 'object', 'null']);
+      expect(type('ids'), 'array');
+      expect(type('address'), 'object');
+      expect(type('tags'), 'array');
+      expect((properties['tags']! as Map)['maxItems'], 3);
+    });
+
     test('dotted keys nest objects and * becomes array items', () {
       final schema = rulesToJsonSchema({
         'address.city': 'required|string',

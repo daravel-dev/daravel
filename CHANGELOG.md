@@ -16,6 +16,7 @@ match Laravel more closely.
 - `phpJsonDouble(double)`: a double as PHP's `json_encode` writes it (`serialize_precision = -1`, `zend_gcvt`), used by `PhpJsonEncoder` and `Response.json(phpCompatible: true)`.
 - `Request.bodyInput()`: the body's fields as `all()` sees them, without the query (Laravel's `getInputSource()->all()`). A middleware that rebuilds the body with `replace()` starts from it, so the fields the client sent keep what `TrimStrings` made of them.
 - `CachePrefixShaping`: a cache store that shapes the prefix its `CacheRepository` puts before keys, tag lists and lock names, as Laravel's stores own their prefix. `daravel_redis`'s `RedisStore` implements it (see Changed); `RedisStore(laravelCompat:)` fixes the layout instead of following `COMPAT_LARAVEL_VERSION`.
+- `Rules.array([keys])` and `RuleBuilder.array` (`ArrayRule`): Laravel's `array` rule, a JSON array or object, with `array:name,email` limiting the keys (see Changed).
 
 ### Changed
 
@@ -27,6 +28,7 @@ match Laravel more closely.
   - **Only to input as the client sent it.** Fields that `Request.merge` or `Request.replace` set afterwards are kept as given: `' x '` stays `' x '` and `''` stays `''`, where they were trimmed and turned into `null` before. Only a transformer registered after the merge still sees them. This matters to a middleware that merges input it produced, such as a payload decryption. An application that relied on its merged values being trimmed or converted trims them before `merge`.
   - `daravel_teobiefy`'s `teobiefy`, `teobiefy.aes` and profile middleware build the decrypted body from `Request.bodyInput()`, so the clear fields beside `data_enc` keep what the transformers made of them and the decrypted fields arrive as the client encrypted them.
   - **The key is the dotted path.** A transformer now receives `user.password` or `tags.0`, not `password` or `tags`, so `TrimStringsMiddleware(except:)` names a path. The default `{'password', 'password_confirmation'}` no longer leaves a nested `user.password` untrimmed (Laravel trims it too); list it as `user.password` to keep it as sent.
+- The `array` rule accepts a JSON object as well as a JSON array, as Laravel's `array` accepts any PHP array, and `array:name,email` limits the keys (laravel/framework `validateArray`). Before, `array` was list-only, so a request that a Laravel application accepts (`'stem' => 'required|array'` with an object) failed with 422. The `list` rule string stays list-only and now reports Laravel's `list` message (`The :attribute field must be a list.`), as does `Rules.list()`; it reported the `array` message before. In the JSON Schema of `rulesToJsonSchema` and OpenAPI, an `array` field without `field.*` or `field.key` rules is `"type": ["array", "object"]` (it was `"array"`), and `dartisan client:flutter` types it `Object?` (it was `List<Object?>`); write `list` for a list-only field. `ArrayRule` is a new export: an application that declares that name hides it in its import of `package:daravel/daravel.dart`.
 
 ### Fixed
 
