@@ -46,6 +46,7 @@ export 'src/http/static_files.dart';
 export 'src/http/uploaded_file.dart';
 export 'src/http/response.dart';
 export 'src/http/server_engine.dart';
+export 'src/http/session_store.dart';
 export 'src/notifications/notification.dart';
 export 'src/notifications/notification_manager.dart';
 export 'src/mail/mail_config.dart';

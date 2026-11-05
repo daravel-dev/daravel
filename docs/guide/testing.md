@@ -18,11 +18,14 @@
 ```
 <!-- /include -->
 
-- `TestClient(app)` with `actingAs(user)`, `withToken(token)`,
+- `TestClient(app)` with `actingAs(user)`, `withToken(token)`, `browser()`,
+  `withSession`, `withCookie`, `followingRedirects()`,
   `withHeaders`, `withoutExceptionHandling()`.
 - `TestResponse` assertions: status helpers, `assertJson`,
   `assertExactJson`, `assertJsonPath`, `assertJsonStructure`,
-  `assertJsonValidationErrors`, headers.
+  `assertJsonValidationErrors`, headers, cookies, `assertRedirect`, the
+  session (`assertSessionHas`, `assertSessionHasErrors`) and the guards
+  (`assertAuthenticated`, `assertGuest`).
 - `refreshDatabase(createApp)` runs each test in a transaction that is
   rolled back (Laravel's `RefreshDatabase`); `assertDatabaseHas` /
   `assertDatabaseMissing` / `assertDatabaseCount`.
@@ -33,6 +36,66 @@
 - Architecture: `expectRegistryComplete()` and lints via `dartisan lint`.
 
 Run the suite with `dartisan test` (`--coverage` writes `coverage/`).
+
+## Web routes: cookies, session and CSRF
+
+Laravel's tests keep the session in memory between requests and skip CSRF.
+Daravel reads the session from its cookie on every request and checks CSRF
+in tests too, so a test of `web` routes behaves like a browser:
+`client.browser()` keeps the cookies the application sets in a `CookieJar`
+and sends them back, asks for HTML, and sends the `XSRF-TOKEN` cookie back
+as the `X-XSRF-TOKEN` header on `POST`, `PUT`, `PATCH` and `DELETE`, as
+Axios does, so `VerifyCsrfToken` accepts the request:
+
+```dart
+final browser = TestClient(app).browser();
+
+(await browser.get('/login')).assertOk().assertCookie('XSRF-TOKEN');
+
+(await browser.post('/login', form: {'email': 'ana@x.io', 'password': 'wrong'}))
+    .assertRedirect('/login')
+    .assertSessionHasErrors(['email'])
+    .assertSessionHasInput('email', 'ana@x.io')
+    .assertGuest(guard: 'web');
+
+(await browser.post('/login', form: {'email': 'ana@x.io', 'password': 'secret'}))
+    .assertRedirect('/dashboard')
+    .assertAuthenticatedAs(ana, guard: 'web');
+
+(await browser.followingRedirects().post('/logout')).assertOk().assertGuest();
+```
+
+- `browser(xsrf: false)` adds no header, to test the `419` of a missing
+  token; a form that posts its `_token` field still passes.
+- `followingRedirects()` follows redirects with `GET` and returns the last
+  response, keeping the cookies of every hop.
+- `withSession({'cart': [...]})` puts data into the session the `web`
+  group starts. A browser client seeds its next request only, and the
+  session then lives on in the cookie; any other client seeds every request.
+- `withCookie(name, value)` / `withCookies` send cookies encrypted as
+  `EncryptCookies` expects (Laravel's `CookieValuePrefix` with the
+  application key); `withUnencryptedCookie` / `withUnencryptedCookies` send
+  them as they are.
+- On the response: `assertSessionHas(key, [value])` (a value, a `Matcher`
+  or a `bool Function(Object?)`), `assertSessionHasAll`,
+  `assertSessionMissing`, `assertSessionHasInput`, `assertSessionHasErrors`
+  (a field, a list, or a map of field to message),
+  `assertSessionDoesntHaveErrors`, `assertSessionHasNoErrors`;
+  `assertCookie`, `assertPlainCookie`, `assertCookieExpired`,
+  `assertCookieNotExpired`, `assertCookieMissing`; `assertRedirect('/path')`
+  (a path and the absolute URL of the same page match) and
+  `assertRedirectContains`.
+- `assertAuthenticated(guard:)`, `assertGuest(guard:)` and
+  `assertAuthenticatedAs(user, guard:)` read the user each guard had when
+  the request ended. Laravel's guard outlives the request; here a guard
+  nothing asked during the request (no `auth` middleware, no `Auth.user()`,
+  no login) counts as a guest, and `assertAuthenticated` says so: assert on
+  the login response or on a page behind `auth`.
+
+The session assertions need `daravel_session`'s `web` group on the route;
+`daravel_test` reads the session through the core `SessionStore` interface
+and does not depend on that package. All of this works over the socket
+transport too.
 
 ## In process or over a socket
 
@@ -50,8 +113,9 @@ final client = TestClient(app, transport: TestTransport.socket);  // one client
 ```
 
 The application sees the same request either way (host `localhost`, the
-same JSON, form and multipart bytes), `actingAs` still works, redirects are
-not followed and gzip bodies are not unpacked. Two things stay in process:
+same JSON, form and multipart bytes), `actingAs`, `withSession` and the
+session and guard assertions still work, redirects are followed only with
+`followingRedirects()` and gzip bodies are not unpacked. Two things stay in process:
 `withoutExceptionHandling()` (an exception cannot cross a socket) and
 headers `HttpClient` cannot send (non-ASCII values, as in fuzzing). Under
 `refreshDatabase` the server runs inside the test's transaction. Running

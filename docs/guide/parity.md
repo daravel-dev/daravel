@@ -503,6 +503,17 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `$this->getJson('/api/users')` | `await client.get('/api/users')` | **async** |
 | `$this->postJson($uri, $data)` | `await client.post(uri, json: data)` | **async** |
 | `$this->actingAs($user)` | `client.actingAs(user)` |  |
+| `$this->get('/login') (session kept in memory, CSRF skipped)` | `client.browser().get('/login')` | **async**; A CookieJar keeps the cookies the application sets and the XSRF-TOKEN cookie goes back as X-XSRF-TOKEN, since Daravel reads the session from its cookie and checks CSRF in tests too. browser(xsrf: false) tests the 419. |
+| `$this->followingRedirects()` | `client.followingRedirects()` |  |
+| `$this->withSession(['cart' => [...]])` | `client.withSession({'cart': [...]})` | Needs daravel_session's web group on the route. |
+| `$this->withCookie($name, $value) / withCookies` | `client.withCookie(name, value) / withCookies` | Encrypted with Laravel's CookieValuePrefix, as EncryptCookies expects. |
+| `$this->withUnencryptedCookie($name, $value) / withUnencryptedCookies` | `client.withUnencryptedCookie(name, value) / withUnencryptedCookies` |  |
+| `->assertSessionHas($key, $value) / assertSessionHasAll / assertSessionMissing` | `.assertSessionHas(key, value) / assertSessionHasAll / assertSessionMissing` | A value, a Matcher or a bool Function(Object?) (Laravel's closure). |
+| `->assertSessionHasErrors(['email']) / assertSessionHasNoErrors / assertSessionDoesntHaveErrors` | `.assertSessionHasErrors(['email']) / assertSessionHasNoErrors / assertSessionDoesntHaveErrors` |  |
+| `->assertSessionHasInput('email')` | `.assertSessionHasInput('email')` |  |
+| `$this->assertAuthenticated('web') / assertGuest / assertAuthenticatedAs($user)` | `response.assertAuthenticated(guard: 'web') / assertGuest / assertAuthenticatedAs(user)` | On the response: the user each guard had when the request ended; a guard nothing asked counts as a guest. |
+| `->assertRedirect('/path') / assertRedirectContains` | `.assertRedirect('/path') / assertRedirectContains` | Compares absolute URLs, as assertLocation does. |
+| `->assertCookie / assertPlainCookie / assertCookieExpired / assertCookieMissing` | `.assertCookie / assertPlainCookie / assertCookieExpired / assertCookieMissing` |  |
 | `->assertOk() / assertCreated() / assertUnprocessable()` | `.assertOk() / .assertCreated() / .assertUnprocessable()` |  |
 | `->assertJsonPath('data.id', 1)` | `.assertJsonPath('data.id', 1)` |  |
 | `use RefreshDatabase;` | `refreshDatabase(() => app)` |  |
