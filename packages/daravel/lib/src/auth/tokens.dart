@@ -6,6 +6,7 @@ import 'package:crypto/crypto.dart' as crypto;
 
 import '../database/database_manager.dart';
 import '../database/orm/casts.dart';
+import '../database/orm/keys.dart';
 import '../database/query/query_builder.dart';
 import '../database/schema/migration.dart';
 import '../database/schema/schema_builder.dart';
@@ -151,11 +152,36 @@ final class TokenGuard<T extends Authenticatable> extends RequestGuard<T> {
     this.tokenPrefix = '',
     this._db,
     DateTime Function()? clock,
+    this.keyType = KeyType.autoInt,
   }) : _clock = clock ?? _utcNow,
-       super(provider: provider);
+       super(provider: provider) {
+    if (!_supportedKeyTypes.contains(keyType)) {
+      throw ArgumentError.value(
+        keyType,
+        'keyType',
+        'A token table key is KeyType.autoInt (Sanctum\'s default), '
+            'KeyType.uuid or KeyType.ulid (a PersonalAccessToken model with '
+            'HasUuids or HasUlids)',
+      );
+    }
+  }
+
+  static const Set<KeyType> _supportedKeyTypes = {
+    KeyType.autoInt,
+    KeyType.uuid,
+    KeyType.ulid,
+  };
 
   /// The tokens table (`personal_access_tokens`).
   final String table;
+
+  /// The type of the table's `id`: [KeyType.autoInt] (Sanctum's migration),
+  /// or [KeyType.uuid] / [KeyType.ulid] when the application's
+  /// `PersonalAccessToken` model uses `HasUuids` / `HasUlids`. It decides
+  /// which `<id>|` a token may start with (any other is refused before the
+  /// database is asked, so a text id never reaches an integer column) and
+  /// how [issue] makes the id of a new token.
+  final KeyType keyType;
 
   /// Global lifetime measured from `created_at` (Sanctum `expiration`);
   /// `null` means tokens live until revoked unless they carry `expires_at`.
@@ -208,7 +234,7 @@ final class TokenGuard<T extends Authenticatable> extends RequestGuard<T> {
       final row = await _query().where('token', _hash(plainText)).first();
       return row == null ? null : PersonalAccessToken.fromRow(row);
     }
-    final id = int.tryParse(plainText.substring(0, separator));
+    final id = _tokenId(plainText.substring(0, separator));
     final secret = plainText.substring(separator + 1);
     if (id == null || secret.isEmpty) {
       return null;
@@ -220,6 +246,26 @@ final class TokenGuard<T extends Authenticatable> extends RequestGuard<T> {
     final token = PersonalAccessToken.fromRow(row);
     return constantTimeEquals(token.tokenHash, _hash(secret)) ? token : null;
   }
+
+  /// The `<id>` of an `<id>|<secret>` token as the table's key, or null
+  /// when it cannot be one: an integer for [KeyType.autoInt], a UUID or a
+  /// ULID string for the others (Laravel's `Str::isUuid`/`Str::isUlid`).
+  /// Checked before the query, so a text id never goes to an integer
+  /// column (which PostgreSQL refuses with an error, not a miss).
+  Object? _tokenId(String raw) => switch (keyType) {
+    KeyType.uuid => _uuidPattern.hasMatch(raw) ? raw : null,
+    KeyType.ulid => _ulidPattern.hasMatch(raw) ? raw : null,
+    _ => _intPattern.hasMatch(raw) ? int.tryParse(raw) : null,
+  };
+
+  static final RegExp _intPattern = RegExp(r'^[0-9]{1,19}$');
+  static final RegExp _uuidPattern = RegExp(
+    r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-'
+    r'[0-9a-fA-F]{12}$',
+  );
+  static final RegExp _ulidPattern = RegExp(
+    r'^[0-7][0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{25}$',
+  );
 
   /// The token used by the current request, if any.
   Future<PersonalAccessToken?> currentAccessToken() async {
@@ -245,7 +291,7 @@ final class TokenGuard<T extends Authenticatable> extends RequestGuard<T> {
     final effectiveExpiry =
         expiresAt ?? (expiration == null ? null : now.add(expiration!));
     final hash = _hash(secret);
-    final id = await _query().insertGetId(<String, Object?>{
+    final row = <String, Object?>{
       'tokenable_type': users.morphClass,
       'tokenable_id': user.authIdentifier,
       'name': name,
@@ -254,9 +300,20 @@ final class TokenGuard<T extends Authenticatable> extends RequestGuard<T> {
       'expires_at': effectiveExpiry,
       'created_at': now,
       'updated_at': now,
-    });
+    };
+    final Object id;
+    switch (keyType) {
+      case KeyType.uuid || KeyType.ulid:
+        // HasUuids / HasUlids: the key is made before the insert.
+        id = keyType == KeyType.uuid
+            ? KeyGenerator.uuid()
+            : KeyGenerator.ulid(now);
+        await _query().insert(<String, Object?>{'id': id, ...row});
+      default:
+        id = (await _query().insertGetId(row))!;
+    }
     final token = PersonalAccessToken(
-      id: id!,
+      id: id,
       tokenableType: users.morphClass,
       tokenableId: user.authIdentifier,
       name: name,
