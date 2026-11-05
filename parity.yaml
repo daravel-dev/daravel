@@ -62,6 +62,7 @@ sections:
       - { php: "response(...)->withoutCookie('theme') / Cookie::forget('theme')", dart: "response.withoutCookie('theme')", symbol: Response.withoutCookie }
       - { php: "response()->json($data, $status)", dart: "Response.json(data, status: status)", symbol: Response.json, note: "phpCompatible: true writes json_encode's bytes (\\/, \\u escapes, [] for an empty map)." }
       - { php: "Blade views ({{ $name }}, {!! $html !!})", dart: "div([user.name]) / raw(html) from package:daravel/html.dart", symbol: HtmlNode, note: "Typed builder, escaped by default; a separate import." }
+      - { php: "e($value)", dart: "escapeHtml(value)", symbol: escapeHtml, note: "Same entities as htmlspecialchars with ENT_QUOTES; exported by package:daravel/daravel.dart and package:daravel/html.dart." }
       - { php: "response()->noContent()", dart: "Response.noContent()", symbol: Response.noContent }
       - { php: "redirect($to)", dart: "Response.redirect(to)", symbol: Response.redirect }
       - { php: "response()->streamDownload(...)", dart: "Response.stream(...)", symbol: Response.stream }
