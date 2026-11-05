@@ -204,11 +204,27 @@ return false''');
     if (reply is! List || reply.length < 3) {
       return null;
     }
+    final id = reply[0]! as String;
     final raw = reply[1]! as String;
+    final JobPayload payload;
+    try {
+      payload = JobPayload.decode(raw);
+    } on Object catch (error) {
+      // A payload that does not decode would stay reserved and be popped
+      // again after every retry_after, for ever. It is removed here, and
+      // the worker records it in failed_jobs, as with the database queue.
+      await _remove(queue, id);
+      throw CorruptPayloadException(
+        id: id,
+        queue: queue,
+        raw: raw,
+        cause: error,
+      );
+    }
     return QueuedJob(
-      id: reply[0]! as String,
+      id: id,
       queue: queue,
-      payload: JobPayload.decode(raw),
+      payload: payload,
       attempts: reply[2]! as int,
       raw: raw,
     );
@@ -300,18 +316,20 @@ end
 return redis.call('DEL', KEYS[2])''');
 
   @override
-  Future<void> delete(QueuedJob job) async {
+  Future<void> delete(QueuedJob job) => _remove(job.queue, '${job.id}');
+
+  Future<void> _remove(String queue, String id) async {
     if (_stream) {
       await client.eval(
         _streamDelete,
-        keys: [_list(job.queue), '${_jobPrefix(job.queue)}${job.id}'],
+        keys: [_list(queue), '${_jobPrefix(queue)}$id'],
         args: [_group],
       );
       return;
     }
     await (
-      client.command(['ZREM', _reserved(job.queue), job.id]),
-      client.del(['${_jobPrefix(job.queue)}${job.id}']),
+      client.command(['ZREM', _reserved(queue), id]),
+      client.del(['${_jobPrefix(queue)}$id']),
     ).wait;
   }
 

@@ -25,6 +25,10 @@ final class QueueWorkCommand extends DaravelCommand {
       )
       ..addOption('max-jobs', help: 'Stop after this many jobs.')
       ..addOption('max-time', help: 'Stop after this many seconds.')
+      ..addOption(
+        'memory',
+        help: 'Stop (exit code 12) once memory use reaches this many MB.',
+      )
       ..addFlag(
         'once',
         negatable: false,
@@ -63,6 +67,7 @@ final class QueueWorkCommand extends DaravelCommand {
     final tries = int.tryParse(r['tries'] as String? ?? '');
     final timeout = int.tryParse(r['timeout'] as String? ?? '');
     final maxTime = int.tryParse(r['max-time'] as String? ?? '');
+    final memory = int.tryParse(r['memory'] as String? ?? '');
     final options = WorkerOptions(
       connection: connection,
       queues: (r['queue'] as String? ?? 'default')
@@ -81,6 +86,7 @@ final class QueueWorkCommand extends DaravelCommand {
           : int.tryParse(r['max-jobs'] as String? ?? ''),
       maxTime: maxTime == null ? null : Duration(seconds: maxTime),
       stopWhenEmpty: r['stop-when-empty'] as bool || r['once'] as bool,
+      memory: memory,
     );
     final worker = QueueWorker(App.make<QueueManager>(), logger: app.logger);
     final stopWatching = watchStopSignals(worker.stop);

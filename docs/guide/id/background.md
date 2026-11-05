@@ -1,4 +1,4 @@
-<!-- source: background.md sha256:62cf07f7ac9c -->
+<!-- source: background.md sha256:6c92040e9fd4 -->
 # Cache, event, queue, dan penjadwalan
 
 <!-- include: packages/daravel/test/docs/guide_examples_test.dart#cache-events-queue -->
@@ -112,6 +112,34 @@ database, lock unique job disimpan di cache store `database` (tabel
 `cache_locks` dari Laravel), dan sinyal `queue:restart` / `queue:pause` di
 store `file`, yang menjangkau semua worker di mesin yang sama;
 `QUEUE_SIGNAL_STORE=database` menjangkau worker di semua mesin.
+
+Bila pembukuan worker sendiri gagal, job tidak hilang dan worker tidak
+berhenti:
+
+- Listener `JobProcessing`, `JobProcessed`, `JobExceptionOccurred`, atau
+  `JobFailed` yang melempar exception dicatat ke log; job tetap dihapus,
+  di-release, atau dicatat sebagai gagal, dan unique lock-nya dilepas.
+- Bila database atau cache gagal (worker yang dijalankan saat outage, signal
+  store di disk yang penuh), worker mencatat error pertama beserta stack
+  trace-nya lalu paling banyak satu per menit, menunggu lebih lama di antara
+  polling (`--sleep`, dua kali lipat setelah setiap error berikutnya, paling
+  lama satu menit, dengan jitter), dan melanjutkan begitu keduanya pulih.
+  Flag `queue:pause` yang tidak bisa dibaca dianggap tidak di-pause. Di
+  PostgreSQL, `LISTEN` yang tidak bisa dibuka, atau yang terputus, dibuka
+  lagi 30 detik kemudian (`DatabaseQueue(listenRetry:)`); sementara itu
+  worker melakukan polling.
+- Push yang gagal melepas unique lock yang diambilnya dan mengembalikan
+  pemilik debounce yang digantikannya, sehingga dispatch berikutnya dari
+  unique job tidak dilewati dan dispatch debounced yang sudah ada di queue
+  tetap berjalan.
+- Di queue Redis, seperti di queue database, job yang payload-nya tidak bisa
+  di-decode dihapus dan dicatat di `failed_jobs`.
+- `serve` menolak `QUEUE_UNIQUE_LOCK_STORE=memory` dengan beberapa isolate
+  atau dengan queue worker embedded: setiap isolate akan menyimpan lock-nya
+  sendiri.
+- `queue:work --memory=128` menghentikan worker dengan exit code 12 begitu
+  prosesnya memakai sebanyak itu megabyte, seperti `--memory` di Laravel
+  (tanpa batas secara default).
 
 Untuk monitoring dan operasional (hook yang menjadi dasar dashboard ala
 Horizon):

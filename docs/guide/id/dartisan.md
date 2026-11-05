@@ -1,4 +1,4 @@
-<!-- source: dartisan.md sha256:011f72c20fc9 -->
+<!-- source: dartisan.md sha256:d7feb3478e92 -->
 # dartisan
 
 `dartisan` adalah `artisan`-nya Daravel. Pasang sekali, lalu pakai di proyek
@@ -109,7 +109,7 @@ sebelum pindah ke versi minor baru.
 
 | Command | Fungsinya |
 | :-- | :-- |
-| `queue:work [--queue] [--tries] [--max-time] [--stop-when-empty]` | Memproses job; berhenti setelah job yang sedang berjalan saat `SIGTERM` |
+| `queue:work [--queue] [--tries] [--max-time] [--memory] [--stop-when-empty]` | Memproses job; berhenti setelah job yang sedang berjalan saat `SIGTERM`; `--memory=128` menghentikannya (exit code 12) begitu memakai sebanyak itu MB |
 | `queue:failed`, `queue:retry`, `queue:forget`, `queue:flush` | Job yang gagal |
 | `queue:clear`, `queue:pause`, `queue:continue`, `queue:restart` | Kendali queue |
 | `schedule:work`, `schedule:run`, `schedule:list` | Scheduler |

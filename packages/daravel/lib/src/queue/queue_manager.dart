@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:uuid/uuid.dart';
 
@@ -400,7 +402,7 @@ final class JobProcessor {
       payload: payload.data,
       maxTries: maxTries == 0 ? null : maxTries,
     );
-    await events.dispatch(
+    await _announce(
       JobProcessing(
         connection: driver.name,
         queue: queued.queue,
@@ -501,7 +503,7 @@ final class JobProcessor {
       if (debounce != null && await debounce.get<String>(debounced) == owner) {
         await debounce.forget(debounced);
       }
-      await events.dispatch(
+      await _announce(
         JobProcessed(
           connection: driver.name,
           queue: queued.queue,
@@ -527,7 +529,7 @@ final class JobProcessor {
     if (!exhausted && !timedOut) {
       exhausted = await _exceptionsExhausted(payload);
     }
-    await events.dispatch(
+    await _announce(
       JobExceptionOccurred(
         connection: driver.name,
         queue: queued.queue,
@@ -640,6 +642,21 @@ final class JobProcessor {
     });
   }
 
+  /// Dispatches a job lifecycle event. A listener that throws is logged:
+  /// it must not skip the bookkeeping around it (a job left reserved, a
+  /// release or a failure not recorded, a unique lock never released).
+  Future<void> _announce<E extends Object>(E event) async {
+    try {
+      await events.dispatch(event);
+    } on Object catch (error, stackTrace) {
+      logger?.error(
+        'A $E listener threw; the job goes on',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+  }
+
   bool _exhausted(JobPayload payload, int attempts, int maxTries) {
     final retryUntil = payload.retryUntil;
     if (retryUntil != null) {
@@ -706,7 +723,7 @@ final class JobProcessor {
         stackTrace: hookTrace,
       );
     }
-    await events.dispatch(
+    await _announce(
       JobFailed(
         connection: driver.name,
         queue: queued.queue,
@@ -857,8 +874,10 @@ final class QueueManager {
 
   /// `DebounceLock::acquire`: the last dispatch owns the key, and each job
   /// checks it when it runs, so this works on every driver. Answers the
-  /// token, and whether the burst passed [Job.debounceMaxWait].
-  Future<(String, bool)> _acquireDebounce(
+  /// token, whether the burst passed [Job.debounceMaxWait], and how to
+  /// undo both when the push then fails (the previous owner, still queued,
+  /// must stay the one that runs).
+  Future<(String, bool, Future<void> Function())> _acquireDebounce(
     CacheRepository store,
     Job job,
     Duration debounce,
@@ -869,23 +888,43 @@ final class QueueManager {
         ? tenfold
         : const Duration(minutes: 5);
     final owner = const Uuid().v4();
+    final previous = await store.get<String>(key);
     await store.put(key, owner, ttl: ttl);
+    final firstKey = '$key:first_dispatched_at';
+    int? restoreFirst;
+    var forgetFirst = false;
+    Future<void> undo() async {
+      if (await store.get<String>(key) == owner) {
+        if (previous == null) {
+          await store.forget(key);
+        } else {
+          await store.put(key, previous, ttl: ttl);
+        }
+      }
+      if (forgetFirst) {
+        await store.forget(firstKey);
+      } else if (restoreFirst case final first?) {
+        await store.put(firstKey, first, ttl: ttl);
+      }
+    }
+
     final maxWait = job.debounceMaxWait;
     if (maxWait == null) {
-      return (owner, false);
+      return (owner, false, undo);
     }
-    final firstKey = '$key:first_dispatched_at';
     final now = Clock.now().millisecondsSinceEpoch;
     final first = await store.get<int>(firstKey);
     if (first == null) {
       await store.put(firstKey, now, ttl: ttl);
-      return (owner, false);
+      forgetFirst = true;
+      return (owner, false, undo);
     }
     if (now - first >= maxWait.inMilliseconds) {
       await store.forget(firstKey);
-      return (owner, true);
+      restoreFirst = first;
+      return (owner, true, undo);
     }
-    return (owner, false);
+    return (owner, false, undo);
   }
 
   Future<Object?> _pushNow(
@@ -895,6 +934,7 @@ final class QueueManager {
     Duration? delay,
   ) async {
     String? uniqueKey;
+    Lock? unique;
     final uniqueId = job.uniqueId;
     if (uniqueId != null) {
       final store = lockStore;
@@ -905,7 +945,8 @@ final class QueueManager {
       final ttl = job.uniqueFor == Duration.zero
           ? const Duration(days: 365)
           : job.uniqueFor;
-      if (!await store.lock(uniqueKey, ttl: ttl).acquire()) {
+      unique = store.lock(uniqueKey, ttl: ttl);
+      if (!await unique.acquire()) {
         logger?.debug(
           'Unique job ${job.displayName} [$uniqueId] already pending; skipped.',
         );
@@ -913,23 +954,48 @@ final class QueueManager {
       }
     }
     String? owner;
+    Future<void> Function()? undoDebounce;
     var wait = delay;
-    final debounce = job.debounceFor;
-    if (debounce != null) {
-      final store = lockStore;
-      if (store == null) {
-        throw const ConfigException('Debounced jobs need a cache store.');
+    try {
+      final debounce = job.debounceFor;
+      if (debounce != null) {
+        final store = lockStore;
+        if (store == null) {
+          throw const ConfigException('Debounced jobs need a cache store.');
+        }
+        final (token, overdue, undo) = await _acquireDebounce(
+          store,
+          job,
+          debounce,
+        );
+        owner = token;
+        undoDebounce = undo;
+        wait ??= overdue ? Duration.zero : debounce;
       }
-      final (token, overdue) = await _acquireDebounce(store, job, debounce);
-      owner = token;
-      wait ??= overdue ? Duration.zero : debounce;
+      final payload = JobPayload.forJob(
+        job,
+        uniqueKey: uniqueKey,
+        debounceOwner: owner,
+      );
+      return await this
+          .connection(connection)
+          .push(payload, queue: queue, delay: wait);
+    } catch (_) {
+      // Nothing was queued: a unique lock left behind would skip every
+      // dispatch of this id for `uniqueFor` (a year by default), and a
+      // debounce owner left behind would drop the dispatch still queued.
+      try {
+        await unique?.release();
+        await undoDebounce?.call();
+      } on Object catch (error, stackTrace) {
+        logger?.error(
+          'Could not undo the locks of a failed push of ${job.displayName}',
+          error: error,
+          stackTrace: stackTrace,
+        );
+      }
+      rethrow;
     }
-    final payload = JobPayload.forJob(
-      job,
-      uniqueKey: uniqueKey,
-      debounceOwner: owner,
-    );
-    return this.connection(connection).push(payload, queue: queue, delay: wait);
   }
 
   /// Pushes after [delay].
@@ -1034,6 +1100,7 @@ final class WorkerOptions {
     this.maxJobs,
     this.maxTime,
     this.stopWhenEmpty = false,
+    this.memory,
   });
 
   /// The connection worked; the default one when null.
@@ -1062,6 +1129,11 @@ final class WorkerOptions {
 
   /// Stop when the queue is empty (`--stop-when-empty`).
   final bool stopWhenEmpty;
+
+  /// Laravel's `--memory`: stop ([QueueWorker.exitMemoryLimit]) once the
+  /// process's resident memory reaches this many megabytes after a job, for
+  /// the process manager to start a fresh worker. No limit when null.
+  final int? memory;
 }
 
 /// Polls queues and processes jobs (`dartisan queue:work`).
@@ -1078,10 +1150,25 @@ final class QueueWorker {
   /// The jobs this worker has processed.
   int processed = 0;
 
+  /// Laravel's `EXIT_MEMORY_LIMIT`: what [run] returns once
+  /// [WorkerOptions.memory] is reached.
+  static const int exitMemoryLimit = 12;
+
   /// Set when the worker must be restarted rather than resumed: a job
   /// timed out and was released while its handler still runs in this
   /// process. [run] then returns 1, like `queue:restart`.
   bool _restart = false;
+
+  /// Errors of the database or the cache in a row (an outage): the worker
+  /// waits longer between polls ([errorBackoff]) and logs less.
+  int _errors = 0;
+
+  /// When an error was last logged in full (wall clock), and how many were
+  /// left out since.
+  DateTime? _errorLoggedAt;
+  int _errorsUnlogged = 0;
+
+  final math.Random _random = math.Random();
 
   /// Stops after the current job.
   void stop() {
@@ -1106,14 +1193,35 @@ final class QueueWorker {
   /// Whether [pause] is in effect.
   bool get paused => _paused;
 
+  /// The wait after [errors] failed polls in a row: [sleep] after the
+  /// first, doubled for each further one, at most a minute (never less than
+  /// [sleep]). The worker adds up to 20 % of jitter below it.
+  static Duration errorBackoff(Duration sleep, int errors) {
+    const cap = Duration(minutes: 1);
+    if (errors <= 1 || sleep >= cap) {
+      return sleep;
+    }
+    var wait = sleep < const Duration(milliseconds: 1)
+        ? const Duration(milliseconds: 1)
+        : sleep;
+    for (var i = 1; i < errors && wait < cap; i++) {
+      wait *= 2;
+    }
+    return wait < cap ? wait : cap;
+  }
+
   /// Runs until stopped, [WorkerOptions.maxJobs]/[WorkerOptions.maxTime]
   /// are reached, or the queue is empty with [WorkerOptions.stopWhenEmpty].
-  /// Returns the exit code (0, or 1 when stopped by `queue:restart`).
+  /// Returns the exit code: 0; 1 when stopped by `queue:restart` (or for a
+  /// restart after a timeout); [exitMemoryLimit] past
+  /// [WorkerOptions.memory]. Errors of the database or the cache (a worker
+  /// started during an outage, a signal store that fails) are logged and
+  /// retried with a growing wait; they do not end it.
   Future<int> run(WorkerOptions options) async {
     _stop = false;
     _restart = false;
+    _errors = 0;
     final started = DateTime.now().toUtc();
-    final restartMark = await manager.restartRequestedAt();
     final driver = manager.connection(options.connection);
     _logger?.info(
       'Processing jobs from [${options.queues.join(', ')}] on connection '
@@ -1130,6 +1238,8 @@ final class QueueWorker {
         'after retry_after. Set QUEUE_RETRY_AFTER above the timeout.',
       );
     }
+    // The restart signal at start; read again until a read succeeds.
+    var (markKnown, restartMark) = await _restartSignal();
     try {
       while (!_stop) {
         final ran = await runNextJob(driver, options);
@@ -1145,8 +1255,19 @@ final class QueueWorker {
             DateTime.now().toUtc().difference(started) >= maxTime) {
           break;
         }
-        final restart = await manager.restartRequestedAt();
-        if (restart != null && restart != restartMark) {
+        final memory = options.memory;
+        if (ran && memory != null && _memoryExceeded(memory)) {
+          _logger?.warning(
+            'Memory limit of ${memory}MB reached; the worker stops for a '
+            'fresh one.',
+          );
+          return exitMemoryLimit;
+        }
+        final (read, restart) = await _restartSignal();
+        if (read && !markKnown) {
+          markKnown = true;
+          restartMark = restart;
+        } else if (read && restart != null && restart != restartMark) {
           _logger?.info('Restart requested; worker stopping.');
           return 1;
         }
@@ -1159,21 +1280,116 @@ final class QueueWorker {
       }
     } finally {
       if (driver is WakeableQueueDriver) {
-        await driver.stopWaiting();
+        try {
+          await driver.stopWaiting();
+        } on Object catch (error, stackTrace) {
+          _reportError('Could not stop waiting for jobs', error, stackTrace);
+        }
       }
     }
     return _restart ? 1 : 0;
   }
 
-  /// Up to [WorkerOptions.sleep]: less when the driver wakes the worker on
-  /// a push ([WakeableQueueDriver]) or [stop] is called.
+  static bool _memoryExceeded(int megabytes) {
+    try {
+      return ProcessInfo.currentRss >= megabytes * 1024 * 1024;
+    } on Object {
+      return false;
+    }
+  }
+
+  /// Whether the `queue:restart` timestamp could be read, and its value: a
+  /// signal store that fails is reported and read again on the next loop.
+  Future<(bool, int?)> _restartSignal() async {
+    try {
+      return (true, await manager.restartRequestedAt());
+    } on Object catch (error, stackTrace) {
+      _failed('Could not read the queue:restart signal', error, stackTrace);
+      return (false, null);
+    }
+  }
+
+  /// Up to [WorkerOptions.sleep] (longer during an outage, see
+  /// [errorBackoff]): less when the driver wakes the worker on a push
+  /// ([WakeableQueueDriver]) or [stop] is called.
   Future<void> _waitForWork(QueueDriver driver, WorkerOptions options) async {
     final idle = _idle = Completer<void>();
-    final wait = driver is WakeableQueueDriver
-        ? driver.waitForWork(options.queues, options.sleep)
-        : Future<void>.delayed(options.sleep);
-    await Future.any([wait, idle.future]);
-    _idle = null;
+    try {
+      if (_errors > 0) {
+        // Jitter, so workers that failed together do not retry together.
+        final backoff = errorBackoff(options.sleep, _errors);
+        final jittered = backoff * (0.8 + 0.2 * _random.nextDouble());
+        final wait = jittered < options.sleep ? options.sleep : jittered;
+        await Future.any([Future<void>.delayed(wait), idle.future]);
+        return;
+      }
+      try {
+        await Future.any([
+          if (driver is WakeableQueueDriver)
+            driver.waitForWork(options.queues, options.sleep)
+          else
+            Future<void>.delayed(options.sleep),
+          idle.future,
+        ]);
+      } on Object catch (error, stackTrace) {
+        // The wake-up connection (a LISTEN) could not be opened: sleep.
+        _failed('Could not wait for jobs', error, stackTrace);
+        await Future.any([Future<void>.delayed(options.sleep), idle.future]);
+      }
+    } finally {
+      _idle = null;
+    }
+  }
+
+  /// Counts an error of the outage under way and reports it.
+  void _failed(String message, Object error, StackTrace stackTrace) {
+    _errors++;
+    _reportError(message, error, stackTrace);
+  }
+
+  /// Logs the first error of an outage in full, then at most one a minute
+  /// with the number left out, instead of a stack trace on every poll.
+  void _reportError(String message, Object error, StackTrace stackTrace) {
+    final now = DateTime.now();
+    final last = _errorLoggedAt;
+    if (last != null && now.difference(last) < const Duration(minutes: 1)) {
+      _errorsUnlogged++;
+      return;
+    }
+    final unlogged = _errorsUnlogged;
+    _errorLoggedAt = now;
+    _errorsUnlogged = 0;
+    _logger?.error(
+      unlogged == 0
+          ? '$message; retrying'
+          : '$message; retrying ($unlogged more errors since the last report)',
+      error: error,
+      stackTrace: stackTrace,
+    );
+  }
+
+  /// A poll succeeded: the outage under way, if any, is over.
+  void _recovered() {
+    if (_errors > 1) {
+      _logger?.info('Queue worker recovered after $_errors errors in a row.');
+    }
+    _errors = 0;
+  }
+
+  /// Whether [queue] is paused ([QueueManager.pause]). A flag that cannot
+  /// be read (the signal store fails) is reported and taken as not paused:
+  /// the jobs keep running rather than wait for the store.
+  Future<bool> _isPaused(String queue, WorkerOptions options) async {
+    try {
+      return await manager.isPaused(queue, connection: options.connection);
+    } on Object catch (error, stackTrace) {
+      _reportError(
+        'Could not read the queue:pause flag of [$queue]; working it',
+        error,
+        stackTrace,
+      );
+      return false;
+    }
   }
 
   /// Processes at most one job; returns whether one was found. Paused
@@ -1185,10 +1401,11 @@ final class QueueWorker {
     final processor = manager.processor;
     for (final queue in options.queues) {
       try {
-        if (await manager.isPaused(queue, connection: options.connection)) {
+        if (await _isPaused(queue, options)) {
           continue;
         }
         final job = await driver.pop(queue);
+        _recovered();
         if (job == null) {
           continue;
         }
@@ -1212,27 +1429,31 @@ final class QueueWorker {
       } on CorruptPayloadException catch (error, stackTrace) {
         // The driver removed the row; it goes to failed_jobs like any job
         // that cannot run, instead of ending the worker.
-        await processor.failedJobs.log(
-          connection: driver.name,
-          queue: error.queue,
-          payload: error.raw,
-          exception: '$error\n$stackTrace',
-        );
         _logger?.error(
           'Job ${error.id} failed',
           error: error,
           stackTrace: stackTrace,
         );
+        try {
+          await processor.failedJobs.log(
+            connection: driver.name,
+            queue: error.queue,
+            payload: error.raw,
+            exception: '$error\n$stackTrace',
+          );
+        } on Object catch (logError, logTrace) {
+          _failed(
+            'Could not record failed job ${error.id}',
+            logError,
+            logTrace,
+          );
+        }
         return true;
       } on Object catch (error, stackTrace) {
         // A transient failure of the database or the cache (pop, the pause
         // flag, bookkeeping): reported, then the loop waits as if the queue
-        // were empty, instead of the worker dying on one hiccup.
-        _logger?.error(
-          'Queue worker error on [$queue]; retrying after the sleep',
-          error: error,
-          stackTrace: stackTrace,
-        );
+        // were empty, longer while it lasts, instead of the worker dying.
+        _failed('Queue worker error on [$queue]', error, stackTrace);
         return false;
       }
     }

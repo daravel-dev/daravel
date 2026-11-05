@@ -105,6 +105,31 @@ table), and `queue:restart` / `queue:pause` signals in the `file` store,
 which reaches every worker on the machine; `QUEUE_SIGNAL_STORE=database`
 reaches workers on every machine.
 
+When the worker's own bookkeeping fails, the job is not lost and the worker
+does not stop:
+
+- A `JobProcessing`, `JobProcessed`, `JobExceptionOccurred` or `JobFailed`
+  listener that throws is logged; the job is still removed, released or
+  recorded as failed, and its unique lock released.
+- When the database or the cache fails (a worker started during an outage, a
+  signal store on a full disk), the worker logs the first error with its
+  stack trace and then at most one a minute, waits longer between polls
+  (`--sleep`, doubled after each further error, up to a minute, with
+  jitter), and carries on once they are back. A `queue:pause` flag that
+  cannot be read counts as not paused. On PostgreSQL a `LISTEN` that cannot
+  be opened, or that drops, is opened again 30 seconds later
+  (`DatabaseQueue(listenRetry:)`); meanwhile the worker polls.
+- A push that fails releases the unique-job lock it took and puts back the
+  debounce owner it replaced, so the next dispatch of the unique job is not
+  skipped and the debounced dispatch already queued still runs.
+- On the Redis queue, as on the database queue, a job whose payload does not
+  decode is removed and recorded in `failed_jobs`.
+- `serve` refuses `QUEUE_UNIQUE_LOCK_STORE=memory` with several isolates or
+  the embedded queue worker: each isolate would keep locks of its own.
+- `queue:work --memory=128` stops the worker with exit code 12 once the
+  process uses that many megabytes, as Laravel's `--memory` does (no limit
+  by default).
+
 For monitoring and operations (the hooks a Horizon-style dashboard builds
 on):
 

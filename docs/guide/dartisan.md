@@ -108,7 +108,7 @@ before moving to a new minor version.
 
 | Command | What it does |
 | :-- | :-- |
-| `queue:work [--queue] [--tries] [--max-time] [--stop-when-empty]` | Processes jobs; stops after the current job on `SIGTERM` |
+| `queue:work [--queue] [--tries] [--max-time] [--memory] [--stop-when-empty]` | Processes jobs; stops after the current job on `SIGTERM`; `--memory=128` stops it (exit code 12) once it uses that many MB |
 | `queue:failed`, `queue:retry`, `queue:forget`, `queue:flush` | Failed jobs |
 | `queue:clear`, `queue:pause`, `queue:continue`, `queue:restart` | Queue control |
 | `schedule:work`, `schedule:run`, `schedule:list` | The scheduler |

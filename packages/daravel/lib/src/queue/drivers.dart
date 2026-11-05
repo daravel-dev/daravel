@@ -464,6 +464,7 @@ final class DatabaseQueue implements WakeableQueueDriver, ReservingQueueDriver {
     this.connection,
     this.retryAfter = const Duration(seconds: 90),
     this.onForeignJob,
+    this.listenRetry = const Duration(seconds: 30),
     DateTime Function()? clock,
   }) : _clock = clock ?? _utcNow;
 
@@ -479,6 +480,10 @@ final class DatabaseQueue implements WakeableQueueDriver, ReservingQueueDriver {
   /// Reserved jobs older than this are considered abandoned and re-queued.
   @override
   final Duration retryAfter;
+
+  /// How long after a `LISTEN` that failed or dropped (PostgreSQL) the
+  /// next wait listens again.
+  final Duration listenRetry;
 
   /// Called once per foreign job (pushed by a Laravel app sharing the
   /// `jobs` table) that this worker skipped; see [isForeignPayload].
@@ -554,30 +559,26 @@ final class DatabaseQueue implements WakeableQueueDriver, ReservingQueueDriver {
   String get _channel => 'daravel_queue_$table';
 
   StreamSubscription<String>? _notifications;
-  bool _listening = false;
   final Map<String, List<Completer<void>>> _waiting = {};
+
+  /// False once the database answered that it has no notifications.
+  bool _notifiable = true;
+
+  /// The subscription being opened, shared by concurrent waits.
+  Future<void>? _subscribing;
+
+  /// No `LISTEN` before this (wall clock): set after one failed or dropped.
+  DateTime? _listenAfter;
 
   /// Waits for a `NOTIFY` from a push on PostgreSQL, through one connection
   /// kept until [stopWaiting]; other databases sleep [maxWait], as before.
+  /// A `LISTEN` that cannot be opened (the database is down) or that drops
+  /// is tried again after [listenRetry]; meanwhile the wait is a sleep.
   @override
   Future<void> waitForWork(List<String> queues, Duration maxWait) async {
-    if (!_listening) {
-      _listening = true;
-      final stream = await db.notifications(_channel, connection: connection);
-      _notifications = stream?.listen(
-        (queue) {
-          for (final waiter
-              in _waiting.remove(queue) ?? const <Completer<void>>[]) {
-            if (!waiter.isCompleted) {
-              waiter.complete();
-            }
-          }
-        },
-        // A dropped connection: sleep and poll from now on.
-        onError: (Object _) => unawaited(_dropNotifications()),
-        onDone: () => unawaited(_dropNotifications()),
-      );
-    }
+    await (_subscribing ??= _subscribe().whenComplete(
+      () => _subscribing = null,
+    ));
     if (_notifications == null) {
       return Future<void>.delayed(maxWait);
     }
@@ -591,14 +592,53 @@ final class DatabaseQueue implements WakeableQueueDriver, ReservingQueueDriver {
     }
   }
 
-  Future<void> _dropNotifications() async {
-    await _notifications?.cancel();
+  Future<void> _subscribe() async {
+    final after = _listenAfter;
+    if (_notifications != null ||
+        !_notifiable ||
+        (after != null && DateTime.now().isBefore(after))) {
+      return;
+    }
+    final Stream<String>? stream;
+    try {
+      stream = await db.notifications(_channel, connection: connection);
+    } on Object {
+      _listenAfter = DateTime.now().add(listenRetry);
+      return;
+    }
+    if (stream == null) {
+      _notifiable = false;
+      return;
+    }
+    _listenAfter = null;
+    _notifications = stream.listen(
+      (queue) {
+        for (final waiter
+            in _waiting.remove(queue) ?? const <Completer<void>>[]) {
+          if (!waiter.isCompleted) {
+            waiter.complete();
+          }
+        }
+      },
+      // A dropped connection: sleep and poll, and listen again later.
+      onError: (Object _) => unawaited(_dropNotifications(retry: true)),
+      onDone: () => unawaited(_dropNotifications(retry: true)),
+    );
+  }
+
+  Future<void> _dropNotifications({bool retry = false}) async {
+    if (retry) {
+      _listenAfter = DateTime.now().add(listenRetry);
+    }
+    final cancelled = _notifications?.cancel();
     _notifications = null;
+    await cancelled;
   }
 
   @override
   Future<void> stopWaiting() async {
-    _listening = false;
+    _listenAfter = null;
+    _notifiable = true;
     await _dropNotifications();
   }
 
