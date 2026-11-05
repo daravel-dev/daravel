@@ -105,7 +105,8 @@ final class PaymentRecord {
       currency: row['currency']! as String,
       status: PaymentStatus.parse(row['status']! as String),
       paymentType: row['payment_type'] as String?,
-      paidAt: paidAt == null ? null : DateTime.parse('$paidAt'),
+      // Text without a zone (MySQL's `Y-m-d H:i:s`) is UTC, as written.
+      paidAt: paidAt is DateTime ? paidAt.toUtc() : parseDateTime(paidAt),
       metadata: metadata is String && metadata.isNotEmpty
           ? (jsonDecode(metadata) as Map<String, Object?>)
           : const {},

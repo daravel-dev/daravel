@@ -6,6 +6,7 @@ import '../foundation/clock.dart';
 import 'package:uuid/uuid.dart';
 
 import '../database/database_manager.dart';
+import '../database/orm/casts.dart';
 import '../foundation/exceptions.dart';
 import '../logging/context.dart';
 import '../database/query/query_builder.dart';
@@ -995,11 +996,10 @@ final class DatabaseFailedJobProvider implements FailedJobProvider {
     failedAt: _parse(row['failed_at']) ?? Clock.now().toUtc(),
   );
 
+  // Text without a zone (MySQL's `Y-m-d H:i:s`) is UTC, as written.
   static DateTime? _parse(Object? value) => switch (value) {
     DateTime() => value.toUtc(),
-    String() => DateTime.tryParse(value)?.toUtc(),
-    int() => DateTime.fromMillisecondsSinceEpoch(value, isUtc: true),
-    _ => null,
+    _ => parseDateTime(value)?.toUtc(),
   };
 }
 

@@ -145,9 +145,35 @@ final class SchemaBuilder {
     return [for (final row in rows) row['name'] as String];
   }
 
-  /// Drops every user table (used by `migrate:fresh`).
+  /// Drops every user table (used by `migrate:fresh`), whatever foreign
+  /// keys join them.
+  ///
+  /// SQLite turns foreign keys off around the drops and PostgreSQL drops
+  /// with `CASCADE`. MySQL and MariaDB first drop every foreign key of the
+  /// database, then the tables in one `DROP TABLE`. Laravel sets
+  /// `FOREIGN_KEY_CHECKS = 0` instead, which holds for one session only: on
+  /// a pool the drops can run on another connection, and the connection
+  /// that took the setting would go back to the pool with its checks off.
   Future<void> dropAllTables() async {
     final tables = await getTables();
+    if (grammar.dialect.isMySqlFamily) {
+      final keys = await _executor.select(
+        'SELECT table_name AS tbl, constraint_name AS name '
+        'FROM information_schema.table_constraints '
+        "WHERE table_schema = DATABASE() AND constraint_type = 'FOREIGN KEY'",
+      );
+      for (final key in keys) {
+        await _executor.execute(
+          grammar.compileDropForeign('${key['tbl']}', '${key['name']}'),
+        );
+      }
+      if (tables.isNotEmpty) {
+        await _executor.execute(
+          'DROP TABLE IF EXISTS ${tables.map(grammar.wrap).join(', ')}',
+        );
+      }
+      return;
+    }
     if (grammar is SqliteSchemaGrammar) {
       await _executor.execute('PRAGMA foreign_keys = OFF');
     }

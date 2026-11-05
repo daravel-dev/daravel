@@ -33,6 +33,20 @@ Map<String, Object?> midtransNotification({
 }
 
 void main() {
+  test('PaymentRecord.fromRow reads paid_at without a zone as UTC', () {
+    // MySQL's `Y-m-d H:i:s`: written in UTC, whatever the process's zone.
+    final record = PaymentRecord.fromRow({
+      'id': 1,
+      'order_id': 'ORDER-1',
+      'gateway': 'fake',
+      'amount': '10000',
+      'currency': 'IDR',
+      'status': 'paid',
+      'paid_at': '2026-11-04 17:21:31',
+    });
+    expect(record.paidAt, DateTime.utc(2026, 11, 4, 17, 21, 31));
+  });
+
   group('signatures', () {
     test('Midtrans: SHA512(order_id+status_code+gross_amount+ServerKey)', () {
       // Computed with `sha512sum`, not with this package.

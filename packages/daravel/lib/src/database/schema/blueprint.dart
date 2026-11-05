@@ -891,9 +891,7 @@ abstract class SchemaGrammar {
   List<String> compileCreate(Blueprint blueprint) {
     final parts = <String>[
       for (final column in blueprint.columns) compileColumn(column),
-      if (blueprint.primaryKey case final key?)
-        'CONSTRAINT ${wrap(key.name!)} PRIMARY KEY '
-            '(${key.columns.map(wrap).join(', ')})',
+      if (blueprint.primaryKey case final key?) compilePrimaryKey(key),
       for (final key in blueprint.foreignKeys)
         compileForeignClause(blueprint.table, key),
     ];
@@ -904,6 +902,12 @@ abstract class SchemaGrammar {
           compileIndex(blueprint.table, index),
     ];
   }
+
+  /// The table constraint of a composite primary [key] in `CREATE TABLE`:
+  /// `CONSTRAINT <name> PRIMARY KEY (...)`.
+  String compilePrimaryKey(IndexDefinition key) =>
+      'CONSTRAINT ${wrap(key.name!)} PRIMARY KEY '
+      '(${key.columns.map(wrap).join(', ')})';
 
   /// Text appended to `CREATE TABLE`, such as MySQL's engine and charset.
   String get createSuffix => '';

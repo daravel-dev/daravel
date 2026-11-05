@@ -1,4 +1,4 @@
-<!-- source: dartisan.md sha256:d6d75718781c -->
+<!-- source: dartisan.md sha256:28eefc93ecab -->
 # dartisan
 
 `dartisan` adalah `artisan`-nya Daravel. Pasang sekali, lalu pakai di proyek
@@ -139,7 +139,7 @@ aplikasi sebagaimana adanya, bukan tebakan:
 | `routes` | Method, URI, nama, action, middleware, rule validasi beserta JSON Schema-nya, respons yang didokumentasikan |
 | `schema` | Tabel beserta jumlah kolom dan baris, atau kolom satu tabel |
 | `models` | Model yang terdaftar beserta relasinya, atau atribut, key, dan relasi satu model |
-| `db_query` | Satu statement `SELECT`/`WITH`/`EXPLAIN`, paling banyak 100 baris secara default; selalu di-rollback, dan read-only di level database pada SQLite (`query_only`) dan PostgreSQL (`READ ONLY`) |
+| `db_query` | Satu statement `SELECT`/`WITH`/`EXPLAIN`, paling banyak 100 baris secara default; selalu di-rollback, read-only di level database (SQLite `query_only`, PostgreSQL `READ ONLY`, MySQL dan MariaDB `START TRANSACTION READ ONLY`) dan dihentikan setelah 10 detik; `GET_LOCK` ditolak di MySQL. Pada database bersama, beri koneksinya user yang hanya bisa membaca |
 | `read_logs`, `last_error` | Record terbaru dari file log harian (`LOG_STACK` dengan `daily`), atau error terbaru |
 | `conventions` | Registry, generator, pola model, waktu, format Laravel yang dikunci, rule lint |
 | `docs_search` | Bagian paling relevan dari panduan ini, untuk versi yang terpasang |

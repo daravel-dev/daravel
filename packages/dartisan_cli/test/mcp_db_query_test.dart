@@ -6,7 +6,9 @@ import 'package:dartisan_cli/dartisan_cli.dart';
 import 'package:test/test.dart';
 
 /// `mcp:serve` db_query on SQLite, and on PostgreSQL / MySQL when
-/// `DARAVEL_TEST_PG` / `DARAVEL_TEST_MYSQL` are set.
+/// `DARAVEL_TEST_PG` / `DARAVEL_TEST_MYSQL` are set; with
+/// `DARAVEL_TEST_MARIADB=1` the MySQL server is MariaDB and is also used
+/// through a `mariadb` connection.
 void main() {
   DatabaseManager fromUrl(String driver, String url) {
     final uri = Uri.parse(url);
@@ -25,7 +27,10 @@ void main() {
           ),
         },
       ),
-      drivers: const {'mysql': MySqlDriver.fromConfig},
+      drivers: const {
+        'mysql': MySqlDriver.fromConfig,
+        'mariadb': MySqlDriver.fromConfig,
+      },
     );
   }
 
@@ -44,6 +49,12 @@ void main() {
     if (Platform.environment['DARAVEL_TEST_MYSQL'] case final String url
         when url.isNotEmpty)
       'mysql': () => fromUrl('mysql', url),
+    if ((
+          Platform.environment['DARAVEL_TEST_MYSQL'],
+          Platform.environment['DARAVEL_TEST_MARIADB'],
+        )
+        case (final String url, '1') when url.isNotEmpty)
+      'mariadb': () => fromUrl('mariadb', url),
   };
 
   for (final MapEntry(key: name, value: open) in databases.entries) {
@@ -117,6 +128,65 @@ void main() {
         await db.table('mcp_q').insert({'id': 4, 'name': 'd'});
         expect(await count(), 4);
       });
+
+      if (name == 'mysql' || name == 'mariadb') {
+        test('the transaction is read-only on the server', () async {
+          await db.statement(
+            'CREATE TABLE IF NOT EXISTS mcp_locked (id INT) ENGINE=InnoDB',
+          );
+          addTearDown(() => db.statement('DROP TABLE IF EXISTS mcp_locked'));
+          // Refused by the server, not by the statement check. A shared
+          // lock (LOCK IN SHARE MODE) is allowed, and released by the
+          // rollback right after the read.
+          await expectLater(
+            readOnlySelect(db, 'SELECT id FROM mcp_q FOR UPDATE'),
+            throwsA(
+              predicate((Object e) => '$e'.contains('READ ONLY transaction')),
+            ),
+          );
+          await expectLater(
+            readOnlySelect(db, "SELECT GET_LOCK('mcp', 0) AS l"),
+            throwsArgumentError,
+          );
+          // Writes work after, on every pooled connection.
+          await db.table('mcp_q').insert({'id': 5, 'name': 'e'});
+          expect(await count(), 4);
+        });
+
+        test(
+          'a long statement is stopped at the timeout',
+          () async {
+            await expectLater(
+              readOnlySelect(
+                db,
+                'SELECT SLEEP(5) AS s',
+                timeout: const Duration(milliseconds: 200),
+              ),
+              throwsA(anything),
+            );
+          },
+          skip:
+              name == 'mysql' &&
+                  Platform.environment['DARAVEL_TEST_MARIADB'] == '1'
+              ? 'MariaDB ignores the MAX_EXECUTION_TIME hint of a mysql connection'
+              : false,
+        );
+      }
+
+      if (name == 'mariadb') {
+        test('NEXTVAL fails in the read-only transaction', () async {
+          await db.statement('CREATE SEQUENCE IF NOT EXISTS mcp_seq');
+          addTearDown(() => db.statement('DROP SEQUENCE IF EXISTS mcp_seq'));
+          await expectLater(
+            readOnlySelect(db, 'SELECT NEXTVAL(mcp_seq) AS v'),
+            throwsA(
+              predicate((Object e) => '$e'.contains('READ ONLY transaction')),
+            ),
+          );
+          final next = await db.select('SELECT NEXTVAL(mcp_seq) AS v');
+          expect('${next.single['v']}', '1', reason: 'the sequence is unused');
+        });
+      }
 
       if (name == 'pgsql') {
         test(
