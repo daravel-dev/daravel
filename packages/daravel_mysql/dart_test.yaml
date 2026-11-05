@@ -1,3 +1,7 @@
+# Test files share one database, and dropAllTables (migrate:fresh) empties it:
+# run them one at a time so no file loses its tables to another.
+concurrency: 1
+
 tags:
   # Needs a MySQL or MariaDB server (DARAVEL_TEST_MYSQL); skipped without it.
   integration:
