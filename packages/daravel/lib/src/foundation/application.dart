@@ -592,7 +592,7 @@ final class Application {
       }
       if (sample > 0) {
         final dispatcher = container.make<EventDispatcher>();
-        kernel.observeRoute = ShadowParityRunner(
+        final runner = ShadowParityRunner(
           proxy,
           sampleRate: sample,
           maxConcurrency:
@@ -634,7 +634,22 @@ final class Application {
               },
           logger: logger,
           onDrift: (drift) => unawaited(dispatcher.dispatch(drift)),
-        ).observe;
+        );
+        kernel.observeRoute = runner.observe;
+        final registry = container.make<AppMetrics>().registry;
+        registry
+          ..counter(
+            'shadow_replays_dropped_total',
+            'Shadow replays skipped because UPSTREAM_SHADOW_MAX_CONCURRENCY '
+                'were already running.',
+            collect: () => runner.dropped.toDouble(),
+          )
+          ..counter(
+            'shadow_replays_failed_total',
+            'Shadow replays the upstream did not answer (an error, a '
+                'timeout or a body over the limit).',
+            collect: () => runner.failed.toDouble(),
+          );
       }
     }
 

@@ -22,14 +22,20 @@ response.throwIfFailed();                // RequestException on 4xx/5xx
   `json:`, `form:` or a raw `body:`), `delete`.
 - Options: `baseUrl`, `withHeaders`, `withToken`, `withBasicAuth`,
   `withUserAgent`, `accept` / `acceptJson`, `asForm` (send `json:` maps as a
-  form), `timeout` (30 s by default, as in Laravel).
+  form), `timeout` (30 s by default, as in Laravel: one deadline for
+  connecting, sending and reading the whole body; when it passes the
+  connection is closed), `maxResponseSize(bytes)` (32 MiB by default,
+  `HttpClientFactory.maxResponseBytes`; a larger body throws
+  `ResponseTooLargeException` and closes the connection, `null` for no
+  limit).
 - `retry(times, delay:, when:)` tries up to `times` times when the connection
   fails or the response is 4xx/5xx, or when `when(response, error)` says so,
   and returns the last response. A connection that cannot be made, or a
-  timeout, throws `ConnectionException`.
+  timeout, throws `ConnectionException`, TLS failures included.
 - Responses: `status`, `body`, `json([path, fallback])`, `jsonMap()`,
   `header(name)`, `successful` (2xx), `ok` (200), `redirect`, `clientError`,
-  `serverError`, `failed`, and `throwIfFailed` / `throwIfClientError` /
+  `serverError`, `failed`, `bodyBytes` (the body as received, for binary
+  responses), and `throwIfFailed` / `throwIfClientError` /
   `throwIfServerError`.
 
 ## Testing
