@@ -103,9 +103,23 @@ Map<String, Object?> buildOpenApi(
         'responses': <String, Object?>{
           '$status': {
             'description': 'Successful response',
-            if (declared != null && status != 204)
+            if (declared != null && declared.isFile && status != 204) ...{
+              'headers': {
+                'Content-Disposition': {
+                  'description': 'The file name (`attachment; filename=...`).',
+                  'schema': {'type': 'string'},
+                },
+              },
               'content': {
-                'application/json': {'schema': _envelope(declared, schemas)},
+                declared.contentType ?? 'application/octet-stream': {
+                  'schema': RouteResponse.binarySchema,
+                },
+              },
+            } else if (declared != null && status != 204)
+              'content': {
+                declared.contentType ?? 'application/json': {
+                  'schema': _envelope(declared, schemas),
+                },
               },
           },
           if (authenticated)

@@ -95,10 +95,16 @@ final class _Node {
       schema['type'] = 'array';
       schema['items'] = itemNode.toSchema();
     }
+    if (schema['type'] == null && rules.any((r) => r is ArrayRule)) {
+      // Laravel's `array` is a JSON array or object.
+      schema['type'] = ['array', 'object'];
+    }
     _applyBounds(schema);
     if (rules.any((r) => r is NullableRule)) {
       final type = schema['type'];
-      if (type is String) {
+      if (type is List<Object?>) {
+        schema['type'] = [...type, 'null'];
+      } else if (type is String) {
         schema['type'] = [type, 'null'];
       } else if (type == null) {
         schema['nullable'] = true;
