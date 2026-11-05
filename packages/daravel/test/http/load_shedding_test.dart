@@ -246,6 +246,10 @@ void main() {
     });
 
     test('sheds when the event loop falls behind, recovers after', () async {
+      // Start from a loop that has caught up with setUp (boot, two engines
+      // binding): on a slow runner its lag alone could shed the first
+      // request.
+      await waitFor(() => lagged.queueDelay < const Duration(milliseconds: 30));
       // 12 × 40 ms of synchronous work queued at once: the loop is ~400 ms
       // behind by the end, far above the 30 ms limit.
       final flood = [for (var i = 0; i < 12; i++) getLagged('/spin')];
@@ -264,10 +268,22 @@ void main() {
       expect(warning.message, contains('event loop'));
       expect(warning.message, contains('ms behind'));
 
-      await waitFor(() => lagged.queueDelay < const Duration(milliseconds: 30));
-      final after = await getLagged('/fast');
-      expect(after.statusCode, 200);
-      await after.drain<void>();
+      // Recovery: once the loop has caught up, requests are served again.
+      // The lag is read when the request reaches the engine, a moment after
+      // this check, and a slow runner's timers (macOS coalesces them) can
+      // run a tick late again in between; a request shed by such a spike is
+      // retried. An engine that kept shedding fails here.
+      final deadline = DateTime.now().add(const Duration(seconds: 10));
+      var status = 0;
+      while (status != 200 && DateTime.now().isBefore(deadline)) {
+        await waitFor(
+          () => lagged.queueDelay < const Duration(milliseconds: 30),
+        );
+        final after = await getLagged('/fast');
+        status = after.statusCode;
+        await after.drain<void>();
+      }
+      expect(status, 200, reason: 'requests are served again');
     });
 
     test('an idle loop stays under the limit', () async {
