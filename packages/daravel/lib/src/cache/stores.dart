@@ -33,9 +33,12 @@ final class MemoryStore
         LockFlushingCacheStore,
         PrunableCacheStore {
   /// A store keeping at most [maxEntries] values; [clock] is for tests.
-  MemoryStore({this.maxEntries = 10000, DateTime Function()? clock})
-    : _clock = clock ?? _utcNow,
-      _lockSweepAt = maxEntries;
+  MemoryStore({
+    this.maxEntries = 10000,
+    DateTime Function()? clock,
+    this.onLiveEviction,
+  }) : _clock = clock ?? _utcNow,
+       _lockSweepAt = maxEntries;
 
   /// The most values kept before the least recently used are dropped.
   final int maxEntries;
@@ -50,6 +53,14 @@ final class MemoryStore
   /// amortised, not run on every acquire once many locks are live).
   int get lockSweeps => _lockSweeps;
   int _lockSweeps = 0;
+
+  /// Called with the key of each entry evicted before it expired (the
+  /// store was full of live entries): such a value is lost early.
+  final void Function(String key)? onLiveEviction;
+
+  /// How many entries were evicted before they expired.
+  int get liveEvictions => _liveEvictions;
+  int _liveEvictions = 0;
   final DateTime Function() _clock;
   final LinkedHashMap<String, _Entry> _entries =
       LinkedHashMap<String, _Entry>();
@@ -106,7 +117,13 @@ final class MemoryStore
       _evictionsBeforeSweep = max(1, maxEntries ~/ 16);
     }
     while (_entries.length > maxEntries) {
-      _entries.remove(_entries.keys.first);
+      final key = _entries.keys.first;
+      final entry = _entries.remove(key)!;
+      final exp = entry.expiresAt;
+      if (exp == null || exp > _now) {
+        _liveEvictions++;
+        onLiveEviction?.call(key);
+      }
     }
   }
 
@@ -254,16 +271,23 @@ final class MemoryStore
 final class ProcessCacheService
     implements TypedCoordinatorService<LockMessage> {
   /// A service over [store], or a new memory store.
-  ProcessCacheService([MemoryStore? store]) : store = store ?? MemoryStore();
+  ProcessCacheService([MemoryStore? store, this.name = serviceName])
+    : store = store ?? MemoryStore();
 
   /// The coordinator service name.
   static const String serviceName = 'processCache';
 
+  /// The service of revoked JWT ids (`createStandardCoordinator`): a store
+  /// of its own, so application cache pressure cannot evict them.
+  static const String jwtDenylistServiceName = 'jwtDenylist';
+
   /// The values every worker shares.
   final MemoryStore store;
 
+  /// The name it is registered under: [serviceName] unless another one
+  /// was given.
   @override
-  String get name => serviceName;
+  final String name;
 
   @override
   Future<Object?> handle(String op, Map<String, Object?> args) async {
@@ -341,7 +365,10 @@ final class ProcessCacheService
   }
 
   @override
-  Map<String, Object?> stats() => <String, Object?>{'entries': store.size};
+  Map<String, Object?> stats() => <String, Object?>{
+    'entries': store.size,
+    'live_evictions': store.liveEvictions,
+  };
 }
 
 /// One lock call to [ProcessCacheService], as [ProcessStore] sends it
@@ -400,7 +427,12 @@ final class ProcessStore
     this.timeout = const Duration(seconds: 1),
     this.l1Ttl,
     this.l1MaxEntries = 1000,
+    this.service = ProcessCacheService.serviceName,
   });
+
+  /// The coordinator service holding the values: the `process` cache, or
+  /// another [ProcessCacheService] (the JWT denylist's).
+  final String service;
 
   /// The channel to the coordinator.
   final CoordinatorChannel channel;
@@ -428,7 +460,7 @@ final class ProcessStore
       TagSetCacheStore(this, names, prefix: prefix);
 
   Future<Object?> _call(String op, [Map<String, Object?> args = const {}]) =>
-      channel.call(ProcessCacheService.serviceName, op, args, timeout: timeout);
+      channel.call(service, op, args, timeout: timeout);
 
   Object? _l1Read(String key) {
     final entry = _l1[key];
@@ -565,17 +597,8 @@ final class ProcessStore
   Future<Object?> _lock(LockMessage message) {
     final target = channel;
     return target is TypedCoordinatorChannel
-        ? target.callTyped(
-            ProcessCacheService.serviceName,
-            message,
-            timeout: timeout,
-          )
-        : target.call(
-            ProcessCacheService.serviceName,
-            message.op,
-            message.toArgs(),
-            timeout: timeout,
-          );
+        ? target.callTyped(service, message, timeout: timeout)
+        : target.call(service, message.op, message.toArgs(), timeout: timeout);
   }
 
   @override

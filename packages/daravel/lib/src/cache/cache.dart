@@ -223,6 +223,7 @@ final class CacheConfig implements ConfigSection {
     this.lockTable = 'cache_locks',
     this.maxEntries = 10000,
     this.processMaxEntries = 10000,
+    this.jwtDenylistMaxEntries = 100000,
     this.processL1Ttl = Duration.zero,
     this.limiter,
   });
@@ -244,6 +245,7 @@ final class CacheConfig implements ConfigSection {
       lockTable: env.string('CACHE_LOCK_TABLE', 'cache_locks'),
       maxEntries: env.integer('CACHE_MAX_ENTRIES', 10000),
       processMaxEntries: env.integer('CACHE_PROCESS_MAX_ENTRIES', 10000),
+      jwtDenylistMaxEntries: env.integer('JWT_DENYLIST_MAX_ENTRIES', 100000),
       processL1Ttl: env.duration('CACHE_PROCESS_L1_TTL', Duration.zero),
       limiter: switch (env.string('CACHE_LIMITER', '')) {
         '' => null,
@@ -279,6 +281,12 @@ final class CacheConfig implements ConfigSection {
   /// or move those to a persistent store.
   final int processMaxEntries;
 
+  /// Revoked JWT ids kept for the whole server when the cache store is in
+  /// memory (`JWT_DENYLIST_MAX_ENTRIES`, 100 000), in a store of their own
+  /// that application keys cannot evict; size it from the token lifetime
+  /// times the revocations per second.
+  final int jwtDenylistMaxEntries;
+
   /// How long each worker isolate may reuse a value read from the `process`
   /// store before asking the coordinator again (`CACHE_PROCESS_L1_TTL`, e.g.
   /// `250ms`). Zero (the default) disables the near cache.
@@ -303,6 +311,7 @@ final class CacheConfig implements ConfigSection {
       'process': {
         'driver': 'process',
         'max_entries': processMaxEntries,
+        'jwt_denylist_max_entries': jwtDenylistMaxEntries,
         'l1_ttl': processL1Ttl.inMilliseconds,
       },
       'file': {'driver': 'file', 'path': path},

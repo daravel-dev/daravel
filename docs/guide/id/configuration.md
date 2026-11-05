@@ -1,4 +1,4 @@
-<!-- source: configuration.md sha256:a0469b3069a8 -->
+<!-- source: configuration.md sha256:194cbd85f034 -->
 # Konfigurasi
 
 ## File environment
@@ -98,7 +98,8 @@ setelah boot.
 | `DB_SEARCH_PATH` (atau `DB_SCHEMA`) | dari server | Schema PostgreSQL pada setiap koneksi (`billing, hr, public`), `'search_path'` dari Laravel |
 | `DB_CONNECT_TIMEOUT`, `DB_QUERY_TIMEOUT` | `10`, `30` | Detik yang boleh dipakai koneksi PostgreSQL atau MySQL untuk terbuka, dan sebuah statement untuk berjalan (`0` untuk tanpa batas; statement yang macet akan menahan koneksi pool-nya selamanya) |
 | `CACHE_STORE`, `CACHE_PREFIX` | `memory` | Penyimpanan cache (`memory`, `process`, `file`, `database`, `redis`; `array` milik Laravel sama dengan `memory`) dan prefix key |
-| `CACHE_PROCESS_MAX_ENTRIES` | `10000` | Jumlah entri yang disimpan store `process` untuk seluruh server; yang paling lama tidak dipakai dibuang lebih dulu, jadi naikkan bila store ini menampung banyak key yang harus bertahan sampai kedaluwarsa (JWT yang dicabut, counter per client), atau simpan key itu di `database` atau Redis |
+| `CACHE_PROCESS_MAX_ENTRIES` | `10000` | Jumlah entri yang disimpan store `process` untuk seluruh server; yang paling lama tidak dipakai dibuang lebih dulu, jadi naikkan bila store ini menampung banyak key yang harus bertahan sampai kedaluwarsa (counter per client), atau simpan key itu di `database` atau Redis |
+| `JWT_DENYLIST_MAX_ENTRIES` | `100000` | Id JWT yang dicabut yang disimpan untuk seluruh server bila cache store-nya ada di memori, di store tersendiri yang tidak dapat digusur key aplikasi; id yang kedaluwarsa dibuang lebih dulu, dan membuang id yang masih berlaku mencatat peringatan satu kali ([Autentikasi](auth.md)) |
 | `CACHE_PROCESS_L1_TTL` | `0` (mati) | Dengan store `process`, berapa lama setiap worker isolate memakai ulang nilai yang dibacanya (`250ms`) sebelum bertanya lagi ke coordinator |
 | `CACHE_LIMITER` | coordinator | Penyimpanan cache untuk rate limit (`cache.limiter` dari Laravel); `database` membaginya antarmesin, dengan satu statement per percobaan |
 | `QUEUE_CONNECTION` | `sync` | `sync`, `memory`, `database`, atau `redis` ([Redis](redis.md)) |

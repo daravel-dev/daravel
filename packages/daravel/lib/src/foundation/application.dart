@@ -15,6 +15,7 @@ import '../auth/env_encryption.dart';
 import '../auth/hashing.dart';
 import '../auth/jwt.dart';
 import '../cache/cache.dart';
+import '../cache/stores.dart';
 import '../database/database_config.dart';
 import '../concurrency/concurrency.dart';
 import '../database/database_manager.dart';
@@ -230,12 +231,29 @@ final class Application {
       appKey: env.maybeString('APP_KEY'),
       // A revoked JWT is refused on every isolate (and every machine with
       // a shared store), not only on the one that handled the logout.
+      // In memory (the `memory` or `process` store), the ids get a store of
+      // their own on the coordinator: in the shared LRU cache, enough
+      // application keys evicted them and revoked tokens came back (#169).
       jwtDenylist: CacheJwtDenylist(() {
         final cache = container.make<CacheManager>();
-        final store = cache.store();
-        return store.scope == StateScope.isolate
-            ? cache.store('process').store
-            : store.store;
+        final store = cache.store().store;
+        if (store is! MemoryStore && store is! ProcessStore) {
+          return store;
+        }
+        final channel = container.make<CoordinatorChannel>();
+        final dedicated = switch (channel) {
+          // A coordinator of the application's own may lack the service.
+          LocalCoordinatorChannel(:final coordinator) =>
+            coordinator.service(ProcessCacheService.jwtDenylistServiceName) !=
+                null,
+          _ => true,
+        };
+        return dedicated
+            ? ProcessStore(
+                channel,
+                service: ProcessCacheService.jwtDenylistServiceName,
+              )
+            : cache.store('process').store;
       }, prefix: '${config.section<CacheConfig>().prefix}jwt_denylist:'),
     );
     final gate = AuthorizationGate(userResolver: () => _currentUser(auth));
@@ -243,6 +261,10 @@ final class Application {
         coordinator ??
         LocalCoordinatorChannel(
           createStandardCoordinator(
+            jwtDenylistMaxEntries: config
+                .section<CacheConfig>()
+                .jwtDenylistMaxEntries,
+            onWarning: logger.warning,
             processCacheMaxEntries: config
                 .section<CacheConfig>()
                 .processMaxEntries,
@@ -1144,10 +1166,11 @@ final class Application {
           ? channel.coordinator
           : null;
     } else {
+      final cacheConfig = probe.config.section<CacheConfig>();
       coordinator = createStandardCoordinator(
-        processCacheMaxEntries: probe.config
-            .section<CacheConfig>()
-            .processMaxEntries,
+        processCacheMaxEntries: cacheConfig.processMaxEntries,
+        jwtDenylistMaxEntries: cacheConfig.jwtDenylistMaxEntries,
+        onWarning: probe.logger.warning,
       );
     }
     final embedded = roles.isEmpty

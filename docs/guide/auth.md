@@ -54,9 +54,15 @@ exists.
 or EdDSA with `JWT_PUBLIC_KEY` / `JWT_PRIVATE_KEY`. Verification rejects
 `alg: none`, algorithms without a configured key, bad signatures and expired
 tokens. `Auth.jwtGuard().invalidate()` revokes a token until it expires (plus
-the leeway): the denylist lives in the default cache store, or in the
-`process` store when that one is `memory`, so every worker isolate refuses
-the token; with `CACHE_STORE=database`, every machine does.
+the leeway): the denylist lives in the default cache store, so with
+`CACHE_STORE=database` (or Redis) every machine refuses the token. When
+the cache store is in memory (`memory` or `process`), the revoked ids get
+a store of their own on the coordinator, so every worker isolate refuses
+the token and keys the application caches cannot evict it. That store
+keeps `JWT_DENYLIST_MAX_ENTRIES` ids (100 000): expired ones go first,
+and if a live one must go, the server logs a warning once. Size it from
+the token lifetime times the logouts per second, or use `database` or
+Redis.
 
 A Laravel application on tymon/jwt-auth (its `jwt` guard with
 `lock_subject`) shares its tokens with Daravel when both use the same
