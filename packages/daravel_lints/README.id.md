@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:a117bad9f298 -->
+<!-- source: README.md sha256:01c7ce4adace -->
 <img src="https://raw.githubusercontent.com/daravel-dev/daravel/main/docs/brand/png/daravel-icon-128.png" alt="Daravel" width="64" align="right">
 
 # daravel_lints
@@ -19,6 +19,24 @@ dijalankan oleh `dartisan lint` dan di test (bukan plugin analyzer IDE).
 | `invalid_timezone` | nama zona waktu yang tidak dikenal scheduler |
 | `no_inline_js_interpolation` | nilai yang diinterpolasi ke handler inline `on*=` di HTML yang dibangkitkan; escape HTML tidak mencegah tanda kutip menutup string JavaScript (pakai atribut `data-*` dan `addEventListener`) |
 | `registry_entry_missing` | migrasi, job, policy, listener, atau command yang tertinggal dari `bootstrap/` |
+
+### Rule opt-in
+
+Rule berikut hanya berjalan bila proyek mengaktifkannya, di test arsitektur
+(`expectLintClean(null, ['prefer_sql_identifier'])` dari `daravel_test`)
+atau lewat `lintProject(root, rules: rulesWith(['prefer_sql_identifier']))`.
+`dartisan lint` hanya menjalankan rule default.
+
+| Rule | Menangkap |
+| :-- | :-- |
+| `prefer_sql_identifier` | nama kolom yang diberikan ke method query builder (`where`, `orderBy`, `select`, `pluck`, ...) yang bukan string literal, bukan `const`, bukan pilihan di antara literal (`sort == 'name' ? 'name' : 'id'`), dan bukan `SqlIdentifier` |
+
+`SqlIdentifier('users.id')` memeriksa sebuah nama sekali, saat dibuat (nama
+polos yang digabung dengan titik, selain itu `ArgumentError`), dan builder
+meng-quote-nya sama seperti string yang sama. Daftar kolom yang diizinkan
+tetap pemeriksaan yang lebih baik untuk nama yang datang dari request:
+`SqlIdentifier` hanya menolak karakter yang aneh, kolom apa pun yang ada
+tetap lolos.
 
 Abaikan sebuah temuan dengan `// daravel-lint-ignore: <rule>` di baris yang
 sama atau di baris atasnya.
