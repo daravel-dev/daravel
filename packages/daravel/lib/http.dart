@@ -21,6 +21,7 @@ export 'src/http/file_response.dart' show DiskResponses, contentDisposition;
 export 'src/http/uploaded_file.dart';
 export 'src/http/response.dart';
 export 'src/http/server_engine.dart';
+export 'src/http/session_store.dart';
 export 'src/http/middleware/cache_headers.dart';
 export 'src/http/middleware/body_limits.dart';
 export 'src/http/middleware/cors.dart';

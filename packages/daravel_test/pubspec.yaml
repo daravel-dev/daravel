@@ -20,6 +20,7 @@ resolution: workspace
 
 dependencies:
   collection: ^1.19.1
+  crypto: ^3.0.7
   daravel: ^1.25.0
   daravel_lints: ^1.25.0
   path: ^1.9.0

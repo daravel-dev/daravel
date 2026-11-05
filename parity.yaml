@@ -450,6 +450,17 @@ sections:
       - { php: "$this->getJson('/api/users')", dart: "await client.get('/api/users')", symbol: TestClient.get, async: true }
       - { php: "$this->postJson($uri, $data)", dart: "await client.post(uri, json: data)", symbol: TestClient.post, async: true }
       - { php: "$this->actingAs($user)", dart: "client.actingAs(user)", symbol: TestClient.actingAs }
+      - { php: "$this->get('/login') (session kept in memory, CSRF skipped)", dart: "client.browser().get('/login')", symbol: TestClient.browser, async: true, note: "A CookieJar keeps the cookies the application sets and the XSRF-TOKEN cookie goes back as X-XSRF-TOKEN, since Daravel reads the session from its cookie and checks CSRF in tests too. browser(xsrf: false) tests the 419." }
+      - { php: "$this->followingRedirects()", dart: "client.followingRedirects()", symbol: TestClient.followingRedirects }
+      - { php: "$this->withSession(['cart' => [...]])", dart: "client.withSession({'cart': [...]})", symbol: TestClient.withSession, note: "Needs daravel_session's web group on the route." }
+      - { php: "$this->withCookie($name, $value) / withCookies", dart: "client.withCookie(name, value) / withCookies", symbol: TestClient.withCookie, note: "Encrypted with Laravel's CookieValuePrefix, as EncryptCookies expects." }
+      - { php: "$this->withUnencryptedCookie($name, $value) / withUnencryptedCookies", dart: "client.withUnencryptedCookie(name, value) / withUnencryptedCookies", symbol: TestClient.withUnencryptedCookie }
+      - { php: "->assertSessionHas($key, $value) / assertSessionHasAll / assertSessionMissing", dart: ".assertSessionHas(key, value) / assertSessionHasAll / assertSessionMissing", symbol: TestResponse.assertSessionHas, note: "A value, a Matcher or a bool Function(Object?) (Laravel's closure)." }
+      - { php: "->assertSessionHasErrors(['email']) / assertSessionHasNoErrors / assertSessionDoesntHaveErrors", dart: ".assertSessionHasErrors(['email']) / assertSessionHasNoErrors / assertSessionDoesntHaveErrors", symbol: TestResponse.assertSessionHasErrors }
+      - { php: "->assertSessionHasInput('email')", dart: ".assertSessionHasInput('email')", symbol: TestResponse.assertSessionHasInput }
+      - { php: "$this->assertAuthenticated('web') / assertGuest / assertAuthenticatedAs($user)", dart: "response.assertAuthenticated(guard: 'web') / assertGuest / assertAuthenticatedAs(user)", symbol: TestResponse.assertAuthenticated, note: "On the response: the user each guard had when the request ended; a guard nothing asked counts as a guest." }
+      - { php: "->assertRedirect('/path') / assertRedirectContains", dart: ".assertRedirect('/path') / assertRedirectContains", symbol: TestResponse.assertRedirectContains, note: "Compares absolute URLs, as assertLocation does." }
+      - { php: "->assertCookie / assertPlainCookie / assertCookieExpired / assertCookieMissing", dart: ".assertCookie / assertPlainCookie / assertCookieExpired / assertCookieMissing", symbol: TestResponse.assertCookieExpired }
       - { php: "->assertOk() / assertCreated() / assertUnprocessable()", dart: ".assertOk() / .assertCreated() / .assertUnprocessable()", symbol: TestResponse.assertUnprocessable }
       - { php: "->assertJsonPath('data.id', 1)", dart: ".assertJsonPath('data.id', 1)", symbol: TestResponse.assertJsonPath }
       - { php: "use RefreshDatabase;", dart: "refreshDatabase(() => app)", symbol: refreshDatabase }
