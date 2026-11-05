@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io' show Platform, stderr;
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import '../foundation/container.dart';
 import '../http/request.dart';
@@ -75,7 +76,40 @@ abstract final class Concurrency {
     List<FutureOr<T> Function()> tasks, {
     int? concurrency,
     Duration? timeout,
-  }) async {
+  }) => _runAll(
+    tasks,
+    concurrency,
+    (task) => _pool.run<T>(task, timeout: timeout),
+  );
+
+  /// [run] for tasks whose result is binary: a PDF, a CSV, an image, a
+  /// compressed body. A result of `IsolatePayload.transferThreshold` (32 KB)
+  /// or more comes back as a `TransferableTypedData`, copied once in the
+  /// worker and moved here without a second copy; a smaller one is copied
+  /// as `run` copies it. Give text (JSON) to [run], whose `String` results
+  /// the VM shares without copying. Serve a result with `Response.computed`.
+  ///
+  /// ```dart
+  /// final [pdf] = await Concurrency.runBytes([() => renderInvoice(data)]);
+  /// return Response.computed(pdf, contentType: 'application/pdf');
+  /// ```
+  ///
+  /// Order, failures, [concurrency] and [timeout] are as in [run].
+  static Future<List<Uint8List>> runBytes(
+    List<FutureOr<Uint8List> Function()> tasks, {
+    int? concurrency,
+    Duration? timeout,
+  }) => _runAll(
+    tasks,
+    concurrency,
+    (task) => _pool.runBytes(task, timeout: timeout),
+  );
+
+  static Future<List<T>> _runAll<T>(
+    List<FutureOr<T> Function()> tasks,
+    int? concurrency,
+    Future<T> Function(FutureOr<T> Function() task) runOne,
+  ) async {
     if (concurrency != null && concurrency < 1) {
       throw RangeError.range(concurrency, 1, null, 'concurrency');
     }
@@ -92,7 +126,7 @@ abstract final class Concurrency {
       while (next < tasks.length) {
         final index = next++;
         try {
-          results[index] = await _pool.run(tasks[index], timeout: timeout);
+          results[index] = await runOne(tasks[index]);
         } catch (error, stackTrace) {
           failures[index] = (error, stackTrace);
         }
