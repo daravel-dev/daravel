@@ -5,6 +5,7 @@
 library;
 
 export 'src/concurrency/concurrency.dart';
+export 'src/concurrency/isolate_payload.dart';
 export 'src/database/database_config.dart';
 export 'src/database/database_manager.dart';
 export 'src/database/legacy_key.dart';
@@ -22,6 +23,7 @@ export 'src/foundation/config_validator.dart';
 export 'src/foundation/container.dart';
 export 'src/foundation/env.dart';
 export 'src/foundation/exceptions.dart';
+export 'src/foundation/ids.dart';
 export 'src/foundation/service_provider.dart';
 export 'src/foundation/php.dart';
 export 'src/foundation/php_serialize.dart';

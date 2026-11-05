@@ -539,6 +539,9 @@ final class DoctorCommand extends DaravelCommand {
         ),
       );
     }
+    if (production) {
+      checks.addAll(_topologyChecks(app, serve.isolates, cores));
+    }
     final logLevel = LogLevel.parse(env.string('LOG_LEVEL', 'debug'));
     if (logLevel.index < LogLevel.warning.index) {
       checks.add(
@@ -611,6 +614,68 @@ final class DoctorCommand extends DaravelCommand {
           CheckStatus.warning,
           'QUEUE_CONNECTION=sync in production',
           'Jobs run inside requests; use the database driver and queue:work.',
+        ),
+      );
+    }
+    return checks;
+  }
+
+  /// `--production` only (ADR-031): how to spread [isolates] over
+  /// processes, and the VM option for allocation-heavy endpoints. The
+  /// advice is a notice; stores that `serve` refuses under
+  /// `APP_PROCESSES > 1` (ADR-027) are an error, as they are there.
+  List<DoctorCheck> _topologyChecks(Application app, int isolates, int cores) {
+    final env = app.env;
+    final processes = env.integer('APP_PROCESSES', 1);
+    final checks = <DoctorCheck>[];
+    if (processes <= 1 && isolates >= 4) {
+      final suggested = cores ~/ 2 < 1 ? 1 : cores ~/ 2;
+      checks.add(
+        DoctorCheck(
+          CheckStatus.notice,
+          'APP_ISOLATES=$isolates in one process',
+          'Endpoints that allocate a lot per request scale better across '
+              'processes: try APP_PROCESSES=$suggested with APP_ISOLATES=2 '
+              'behind the proxy (operations guide, Isolates). In '
+              'bench/README.md four isolates of one process took 81–90 ms '
+              'each, four processes 28 ms each.',
+        ),
+      );
+    }
+    if (processes > 1 && !env.boolean('APP_PROCESSES_ALLOW_UNSHARED_STATE')) {
+      // The same stores Application._ensureProcessesShareState refuses.
+      final cache = app.config.section<CacheConfig>();
+      final queue = app.config.section<QueueConfig>();
+      const local = {'memory', 'process'};
+      final unshared = <String>[
+        if (local.contains(cache.defaultStore))
+          'CACHE_STORE=${cache.defaultStore}',
+        if (cache.limiter == null || local.contains(cache.limiter))
+          'CACHE_LIMITER=${cache.limiter ?? 'process'}',
+        if (local.contains(queue.uniqueLockStore))
+          'QUEUE_UNIQUE_LOCK_STORE=${queue.uniqueLockStore}',
+      ];
+      if (unshared.isNotEmpty) {
+        checks.add(
+          DoctorCheck(
+            CheckStatus.error,
+            'APP_PROCESSES=$processes with per-process state: '
+                '${unshared.join(', ')}',
+            'serve refuses to start: point these at database or redis, or '
+                'set APP_PROCESSES_ALLOW_UNSHARED_STATE=true to accept '
+                'per-process caches, rate limits and locks.',
+          ),
+        );
+      }
+    }
+    if (isolates > 1 || processes > 1) {
+      checks.add(
+        const DoctorCheck(
+          CheckStatus.notice,
+          'DART_VM_OPTIONS=--new_gen_semi_max_size=128',
+          'Reduces GC pauses on allocation-heavy endpoints (measured '
+              '81–90 ms → 70–77 ms, bench/README.md). Set it in the '
+              'service environment; doctor does not set it.',
         ),
       );
     }
@@ -1303,17 +1368,36 @@ final class OpenApiGenerateCommand extends DaravelCommand {
   });
 }
 
-/// `model:sync [Model] [--dry-run]` — rewrites the accessor region of
-/// models from the database schema (BLUEPRINT_V2 §8.3) and fills an empty
-/// statics region with the query shortcuts `make:model` writes.
+/// `model:sync [Model] [--dry-run] [--typed-ids]` — rewrites the accessor
+/// region of models from the database schema (BLUEPRINT_V2 §8.3) and fills
+/// an empty statics region with the query shortcuts `make:model` writes.
+/// `--typed-ids` (opt-in, ADR-032) also writes a typed id per model.
 final class ModelSyncCommand extends DaravelCommand {
   /// The `dartisan model:sync` command.
   ModelSyncCommand(super.createApp) {
-    argParser.addFlag(
-      'dry-run',
-      negatable: false,
-      help: 'Print the accessors without writing.',
-    );
+    argParser
+      ..addFlag(
+        'dry-run',
+        negatable: false,
+        help: 'Print the accessors without writing.',
+      )
+      ..addFlag(
+        'typed-ids',
+        negatable: false,
+        help:
+            'Also write a typed id (extension type UserId) in a '
+            '// <dartisan:ids> region and type the primary key getter, '
+            'find and findOrFail with it (opt-in).',
+      );
+  }
+
+  /// The `model.id` template: the project's `stubs/model.id.stub` when it
+  /// exists, otherwise the built-in one.
+  static String _idStub(ProjectPaths paths) {
+    final custom = File(p.join(paths.stubs, 'model.id.stub'));
+    return custom.existsSync()
+        ? custom.readAsStringSync()
+        : builtInStubs['model.id']!;
   }
 
   @override
@@ -1334,6 +1418,7 @@ final class ModelSyncCommand extends DaravelCommand {
       return 0;
     }
     final dryRun = argResults!['dry-run'] as bool;
+    final typedIds = argResults!['typed-ids'] as bool;
     var synced = 0;
     for (final file in dir.listSync().whereType<File>().where(
       (f) => f.path.endsWith('.dart'),
@@ -1353,18 +1438,18 @@ final class ModelSyncCommand extends DaravelCommand {
         );
         continue;
       }
-      final plan = planAccessors(
+      final sync = syncModelSource(
+        source,
         model,
         await Schema.getColumns(model.table),
         dialect: App.make<DatabaseManager>().dialectOf(),
+        idStub: typedIds ? _idStub(paths) : null,
       );
-      for (final warning in plan.warnings) {
+      final plan = sync.plan;
+      for (final warning in sync.warnings) {
         stdout.writeln('${model.className}: $warning');
       }
-      final updated = replaceAccessors(
-        fillStatics(source, model.className),
-        plan.lines,
-      );
+      final updated = sync.source;
       if (updated == null) {
         stdout.writeln(
           '${model.className}: no // <dartisan:accessors> region; skipped.',

@@ -1,4 +1,4 @@
-<!-- source: operations.md sha256:5d653f1f02f3 -->
+<!-- source: operations.md sha256:3c8ce4f70da5 -->
 # Operasional
 
 Menjalankan Daravel di bawah trafik nyata: berapa isolate, berapa koneksi
@@ -31,7 +31,13 @@ banyak satu core; satu isolate membiarkan core lainnya menganggur.
   beberapa proses server di belakang proxy
   alih-alih menambah isolate: `APP_PROCESSES=N`
   ([Deployment](deployment.md#beberapa-proses)); skenario benchmark 13
-  mengukurnya (`bench/README.md`).
+  mengukurnya (`bench/README.md`). `dartisan doctor --production`
+  menyarankan `APP_PROCESSES` (setengah jumlah core, dengan
+  `APP_ISOLATES=2`) bila satu proses menjalankan empat isolate atau lebih,
+  dan bila ada lebih dari satu worker mencatat
+  `DART_VM_OPTIONS=--new_gen_semi_max_size=128`, new generation yang lebih
+  besar yang sedikit mempersingkat request tersebut (81–90 ms menjadi
+  70–77 ms).
 - Setiap isolate punya memori sendiri, sehingga state yang disimpan aplikasi
   di static (daftar token yang dicabut, counter, nilai cache) ada satu per
   isolate. Simpan state itu di penyimpanan bersama sebelum menaikkan
@@ -45,6 +51,20 @@ banyak satu core; satu isolate membiarkan core lainnya menganggur.
 - State per proses (rate limit, penyimpanan cache `process`, lock, metrik)
   melewati coordinator di isolate supervisor, sehingga batas seperti
   `throttle:60,1` berlaku untuk seluruh server, bukan per worker.
+- Coordinator menjawab setiap worker dari satu event loop, jadi biaya
+  mengirim sebuah nilai berpengaruh. VM membagi (share) sebuah string
+  antar isolate dalam satu proses, tetapi menyalin map atau list, yang
+  di-serialize oleh pengirimnya. Round trip terukur ke isolate lain dan
+  kembali (Dart 3.13 AOT, `bench/bin/isolate_payload.dart`): dokumen
+  888 KB sebagai `Map` memakan 9 ms, sebagai `String` JSON 6 µs, sebagai
+  `Uint8List` 0,9 ms, dan sebagai `TransferableTypedData` 0,25 ms. Karena
+  itu penyimpanan `process` mengirim nilai sebagai string JSON dan
+  menyimpannya begitu saja di coordinator; angka dikirim sebagai angka,
+  sehingga `increment` tetap bekerja. Kode aplikasi yang mengirim pesan
+  sendiri antar isolate (coordinator service kustom, tugas compute)
+  sebaiknya mengikuti pola yang sama: string untuk apa pun yang bisa
+  diwakili JSON, `TransferableTypedData` untuk data biner besar, dan map
+  hanya untuk argumen kecil.
 
 ## Koneksi database
 
