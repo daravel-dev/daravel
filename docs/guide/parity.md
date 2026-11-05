@@ -249,6 +249,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `where('meta->lang', 'id') / update(['meta->lang' => 'en'])` | `where('meta->lang', 'id') / update({'meta->lang': 'en'})` |  |
 | `whereNone(['a', 'b'], 'like', '%x%')` | `whereNone(['a', 'b'], 'like', '%x%')` |  |
 | `belongsTo(User::class)->withDefault()` | `BelongsTo<User>(...).withDefault()` |  |
+| `belongsTo(User::class) / hasMany(Post::class) (guessed foreign key)` | `BelongsTo<User>(() => User.definition) / HasMany<Post>(() => Post.definition)` | BelongsTo guesses from the relation name, HasMany and HasOne from the parent's morphClass. |
 | `hasOne(Order::class)->latestOfMany('score')` | `HasOne<Order>(...).latestOfMany('score')` |  |
 | `$user->roles()->syncWithoutDetaching($ids) / toggle($ids) / updateExistingPivot($id, $attrs)` | `relation.syncWithoutDetaching(user, db, ids) / toggle / updateExistingPivot` |  |
 | `$model->updateQuietly($attrs) / deleteQuietly()` | `model.updateQuietly(attrs) / deleteQuietly()` |  |

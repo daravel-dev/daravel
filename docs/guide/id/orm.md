@@ -1,4 +1,4 @@
-<!-- source: orm.md sha256:971b5f7bc38a -->
+<!-- source: orm.md sha256:10c1228ba946 -->
 # ORM
 
 Model mengikuti API Eloquent. Karena Dart tidak punya property ajaib, setiap
@@ -108,6 +108,12 @@ Proyek yang dibuat sebelum 1.3 bisa menambahkan file ini secara manual
 `withTimestamps`), `HasManyThrough`, `HasOneThrough`, serta relasi
 polimorfik `MorphOne`, `MorphMany`, `MorphTo`, `MorphToMany`, dan
 `MorphedByMany` (lihat [Relasi polimorfik](#relasi-polimorfik)).
+
+`foreignKey:` boleh dihilangkan di tempat Laravel menebaknya: `BelongsTo`
+memakai nama relasi (`author` membaca `author_id`, `coAuthor` membaca
+`co_author_id`), sedangkan `HasMany` atau `HasOne` memakai nama class
+induknya dari `morphClass` (`user_id` pada `App\Models\User`, `blog_post_id`
+pada `BlogPost`).
 
 ```dart
 final users = await User.query()

@@ -13,6 +13,7 @@ match Laravel more closely.
 
 ### Added
 
+- `BelongsTo`, `HasMany` and `HasOne` take `foreignKey` as optional and guess it as Laravel does: a `BelongsTo` from its relation name (`coAuthor` → `co_author_id`), a `HasMany`/`HasOne` from the parent's class name in `ModelDefinition.morphClass` and its primary key (`User` → `user_id`). An explicit `foreignKey` is used as before. `Relation.parentDefinition` is the definition a relation is declared on.
 - `ModelDefinition(attributes:)`, Laravel's `protected $attributes`: default attribute values every new model starts with (not dirty), so `create()` inserts them and a non-null accessor reads them without `refresh()`. `dartisan model:sync` warns about a non-null column with a database default that the model does not declare there, whose accessor would throw on a freshly created model.
 - `phpJsonDouble(double)`: a double as PHP's `json_encode` writes it (`serialize_precision = -1`, `zend_gcvt`), used by `PhpJsonEncoder` and `Response.json(phpCompatible: true)`.
 - `Request.bodyInput()`: the body's fields as `all()` sees them, without the query (Laravel's `getInputSource()->all()`). A middleware that rebuilds the body with `replace()` starts from it, so the fields the client sent keep what `TrimStrings` made of them.

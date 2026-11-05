@@ -107,6 +107,11 @@ everything else keeps working.
 `MorphMany`, `MorphTo`, `MorphToMany` and `MorphedByMany`
 (see [Polymorphic relations](#polymorphic-relations)).
 
+`foreignKey:` can be left out where Laravel guesses it: a `BelongsTo` uses
+the relation name (`author` reads `author_id`, `coAuthor` reads
+`co_author_id`), a `HasMany` or `HasOne` the parent's class name from its
+`morphClass` (`user_id` on `App\Models\User`, `blog_post_id` on `BlogPost`).
+
 ```dart
 final users = await User.query()
     .with_(['posts', 'roles'])      // eager loading; `with` is reserved in Dart

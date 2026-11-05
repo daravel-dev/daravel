@@ -212,7 +212,9 @@ final class ModelDefinition<T extends Model> {
     if (factory == null) {
       return null;
     }
-    return _relationCache[name] = factory()..name = name;
+    return _relationCache[name] = factory()
+      ..name = name
+      ..parentDefinition = this;
   }
 
   /// The relation named [name], or a [StateError].
