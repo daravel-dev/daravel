@@ -1198,7 +1198,8 @@ final class OpenApiGenerateCommand extends DaravelCommand {
 }
 
 /// `model:sync [Model] [--dry-run]` — rewrites the accessor region of
-/// models from the database schema (BLUEPRINT_V2 §8.3).
+/// models from the database schema (BLUEPRINT_V2 §8.3) and fills an empty
+/// statics region with the query shortcuts `make:model` writes.
 final class ModelSyncCommand extends DaravelCommand {
   /// The `dartisan model:sync` command.
   ModelSyncCommand(super.createApp) {
@@ -1254,7 +1255,10 @@ final class ModelSyncCommand extends DaravelCommand {
       for (final warning in plan.warnings) {
         stdout.writeln('${model.className}: $warning');
       }
-      final updated = replaceAccessors(source, plan.lines);
+      final updated = replaceAccessors(
+        fillStatics(source, model.className),
+        plan.lines,
+      );
       if (updated == null) {
         stdout.writeln(
           '${model.className}: no // <dartisan:accessors> region; skipped.',

@@ -67,6 +67,27 @@ void main() {
       ]);
     });
 
+    test('array is an array or an object unless nested rules say which', () {
+      final properties =
+          rulesToJsonSchema({
+                'stem': 'required|array',
+                'meta': 'nullable|array',
+                'ids': 'array',
+                'ids.*': 'integer',
+                'address': 'array',
+                'address.city': 'string',
+                'tags': 'list|max:3',
+              })['properties']!
+              as Map<String, Object?>;
+      Object? type(String key) => (properties[key]! as Map)['type'];
+      expect(type('stem'), ['array', 'object']);
+      expect(type('meta'), ['array', 'object', 'null']);
+      expect(type('ids'), 'array');
+      expect(type('address'), 'object');
+      expect(type('tags'), 'array');
+      expect((properties['tags']! as Map)['maxItems'], 3);
+    });
+
     test('dotted keys nest objects and * becomes array items', () {
       final schema = rulesToJsonSchema({
         'address.city': 'required|string',
@@ -168,6 +189,57 @@ void main() {
       expect(post.documentedRules()!.keys, contains('title'));
       expect(post.declaredResponse!.name, 'Post');
       expect(post.actionName, 'PostController@store');
+    });
+  });
+
+  group('file responses', () {
+    const xlsx =
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+    Map<String, Object?> okResponse(Router router, String path) {
+      router.compile(MiddlewareRegistry());
+      final paths =
+          buildOpenApi(router.routes)['paths']! as Map<String, Object?>;
+      final get = (paths[path]! as Map)['get'] as Map;
+      return (get['responses'] as Map)['200'] as Map<String, Object?>;
+    }
+
+    test('returnsFile documents a binary body and Content-Disposition', () {
+      final router = Router();
+      final route = router
+          .get('/export', (_) => null)
+          .returnsFile(contentType: xlsx);
+      expect(route.declaredResponse!.isFile, isTrue);
+      final ok = okResponse(router, '/export');
+      expect(ok['content'], {
+        xlsx: {'schema': RouteResponse.binarySchema},
+      });
+      expect((ok['headers']! as Map).keys, ['Content-Disposition']);
+    });
+
+    test('a raw binary schema is a file; JSON shapes are not', () {
+      final router = Router()
+        ..get(
+          '/template',
+          (_) => null,
+        ).returns(RouteResponse.binarySchema, shape: .raw);
+      expect(router.routes.single.declaredResponse!.isFile, isTrue);
+      expect(okResponse(router, '/template')['content'], {
+        'application/octet-stream': {'schema': RouteResponse.binarySchema},
+      });
+      expect(const RouteResponse({'type': 'object'}).isFile, isFalse);
+      expect(
+        const RouteResponse({
+          'type': 'object',
+        }, contentType: 'application/vnd.api+json').isFile,
+        isFalse,
+      );
+      expect(
+        const RouteResponse({
+          'type': 'string',
+        }, contentType: 'text/csv; charset=utf-8').isFile,
+        isTrue,
+      );
     });
   });
 }

@@ -100,7 +100,7 @@ before moving to a new minor version.
 | `db:transfer --from --to [--dry-run] [--truncate] [--tables] [--no-migrate]` | Copies the data to another database, migrating it first ([Database](database.md#copying-data-between-databases)) |
 | `db:backup [--output] [--keep=N]` | Hot backup of the SQLite database into `storage/backups` (see [Deployment](deployment.md#backups)) |
 | `tinker "<expression>"` | Evaluates a Dart expression in the booted application |
-| `model:sync [Model]` | Regenerates a model's typed accessors from its table |
+| `model:sync [Model]` | Regenerates a model's typed accessors from its table, and fills an empty `<dartisan:statics>` region |
 | `model:show <Model> [--json]` | A model's table, attributes (type, cast, fillable, hidden) and relations, from `bootstrap/models.dart` |
 | `daragic:export [--out] [--only]` | The application model (DAM) for `daragic`: routes, models, migrations, schema, schedule, ... (see [Migrating from Laravel](migrating-from-laravel.md#the-application-model-daragic)) |
 
@@ -136,7 +136,7 @@ application, so agents see the application as it is, not a guess:
 | `routes` | Methods, URI, name, action, middleware, validation rules and their JSON Schema, documented response |
 | `schema` | Tables with column and row counts, or one table's columns |
 | `models` | The registered models and their relations, or one model's attributes, keys and relations |
-| `db_query` | One `SELECT`/`WITH`/`EXPLAIN` statement, at most 100 rows by default; always rolled back, and read-only in the database on SQLite (`query_only`) and PostgreSQL (`READ ONLY`) |
+| `db_query` | One `SELECT`/`WITH`/`EXPLAIN` statement, at most 100 rows by default; always rolled back, read-only in the database (SQLite `query_only`, PostgreSQL `READ ONLY`, MySQL and MariaDB `START TRANSACTION READ ONLY`) and stopped after 10 seconds; `GET_LOCK` is refused on MySQL. On a shared database, give the connection a user that can only read |
 | `read_logs`, `last_error` | The newest records of the daily log files (`LOG_STACK` with `daily`), or the newest error |
 | `conventions` | Registries, generators, the model pattern, time, locked Laravel formats, lint rules |
 | `docs_search` | The best sections of this guide, for the installed version |

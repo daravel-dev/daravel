@@ -1,4 +1,4 @@
-<!-- source: dartisan.md sha256:d6d75718781c -->
+<!-- source: dartisan.md sha256:f9c37c98110c -->
 # dartisan
 
 `dartisan` adalah `artisan`-nya Daravel. Pasang sekali, lalu pakai di proyek
@@ -101,7 +101,7 @@ sebelum pindah ke versi minor baru.
 | `db:transfer --from --to [--dry-run] [--truncate] [--tables] [--no-migrate]` | Menyalin data ke database lain, setelah lebih dulu memigrasinya ([Database](database.md#menyalin-data-antar-database)) |
 | `db:backup [--output] [--keep=N]` | Backup database SQLite saat server berjalan ke `storage/backups` (lihat [Deployment](deployment.md#backup)) |
 | `tinker "<expression>"` | Mengevaluasi ekspresi Dart di aplikasi yang sudah di-boot |
-| `model:sync [Model]` | Membangkitkan ulang accessor bertipe sebuah model dari tabelnya |
+| `model:sync [Model]` | Membangkitkan ulang accessor bertipe sebuah model dari tabelnya, dan mengisi region `<dartisan:statics>` yang kosong |
 | `model:show <Model> [--json]` | Tabel, atribut (tipe, cast, fillable, hidden), dan relasi sebuah model, dari `bootstrap/models.dart` |
 | `daragic:export [--out] [--only]` | Model aplikasi (DAM) untuk `daragic`: route, model, migrasi, skema, jadwal, ... (lihat [Migrasi dari Laravel](migrating-from-laravel.md#model-aplikasi-daragic)) |
 
@@ -139,7 +139,7 @@ aplikasi sebagaimana adanya, bukan tebakan:
 | `routes` | Method, URI, nama, action, middleware, rule validasi beserta JSON Schema-nya, respons yang didokumentasikan |
 | `schema` | Tabel beserta jumlah kolom dan baris, atau kolom satu tabel |
 | `models` | Model yang terdaftar beserta relasinya, atau atribut, key, dan relasi satu model |
-| `db_query` | Satu statement `SELECT`/`WITH`/`EXPLAIN`, paling banyak 100 baris secara default; selalu di-rollback, dan read-only di level database pada SQLite (`query_only`) dan PostgreSQL (`READ ONLY`) |
+| `db_query` | Satu statement `SELECT`/`WITH`/`EXPLAIN`, paling banyak 100 baris secara default; selalu di-rollback, read-only di level database (SQLite `query_only`, PostgreSQL `READ ONLY`, MySQL dan MariaDB `START TRANSACTION READ ONLY`) dan dihentikan setelah 10 detik; `GET_LOCK` ditolak di MySQL. Pada database bersama, beri koneksinya user yang hanya bisa membaca |
 | `read_logs`, `last_error` | Record terbaru dari file log harian (`LOG_STACK` dengan `daily`), atau error terbaru |
 | `conventions` | Registry, generator, pola model, waktu, format Laravel yang dikunci, rule lint |
 | `docs_search` | Bagian paling relevan dari panduan ini, untuk versi yang terpasang |

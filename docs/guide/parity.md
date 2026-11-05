@@ -241,6 +241,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `'exclude_if:type,free'` | `same string, or Rules.excludeIf('type', ['free'])` |  |
 | `'prohibited_if:a,b' / 'prohibits:a' / 'required_with_all:a,b'` | `same strings` |  |
 | `Rule::enum(Status::class)` | `Rules.enum_(Status.values)` |  |
+| `'array' / 'array:name,email' / 'list'` | `same strings, or Rules.array(['name', 'email']) / Rules.list()` | array is a JSON array or object, as a PHP array; list only a JSON array. |
 | `->withoutMiddleware('csrf')` | `.withoutMiddleware(['csrf'])` |  |
 | `Route::get('/posts/{post}', fn (Post $post) => ...)` | `router.bindModel('post', Post.definition)` |  |
 | `/users/{user}/posts/{post:slug}` | `the same path` |  |
@@ -250,6 +251,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `where('meta->lang', 'id') / update(['meta->lang' => 'en'])` | `where('meta->lang', 'id') / update({'meta->lang': 'en'})` |  |
 | `whereNone(['a', 'b'], 'like', '%x%')` | `whereNone(['a', 'b'], 'like', '%x%')` |  |
 | `belongsTo(User::class)->withDefault()` | `BelongsTo<User>(...).withDefault()` |  |
+| `belongsTo(User::class) / hasMany(Post::class) (guessed foreign key)` | `BelongsTo<User>(() => User.definition) / HasMany<Post>(() => Post.definition)` | BelongsTo guesses from the relation name, HasMany and HasOne from the parent's morphClass. |
 | `hasOne(Order::class)->latestOfMany('score')` | `HasOne<Order>(...).latestOfMany('score')` |  |
 | `$user->roles()->syncWithoutDetaching($ids) / toggle($ids) / updateExistingPivot($id, $attrs)` | `relation.syncWithoutDetaching(user, db, ids) / toggle / updateExistingPivot` |  |
 | `$model->updateQuietly($attrs) / deleteQuietly()` | `model.updateQuietly(attrs) / deleteQuietly()` |  |
@@ -264,6 +266,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | :-- | :-- | :-- |
 | `class User extends Model` | `final class User extends Model` |  |
 | `protected $table / $fillable / $hidden / $casts` | `ModelDefinition<User>(table:, fillable:, hidden:, casts:)` |  |
+| `protected $attributes = ['status' => 'draft']` | `ModelDefinition<Exam>(attributes: {'status': 'draft'})` | Stored values, before casts; a new model starts with them. |
 | `$table->vector('embedding', dimensions: 1536)` | `table.vector('embedding', dimensions: 1536)` |  |
 | `$table->vectorIndex('embedding')` | `table.vectorIndex('embedding')` |  |
 | `->whereVectorSimilarTo('embedding', $vector, 0.7)` | `.whereVectorSimilarTo('embedding', vector, minSimilarity: 0.7)` |  |

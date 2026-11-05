@@ -161,10 +161,17 @@ abstract final class Rules {
   /// `boolean`: `true`, `false`, `1`, `0`, `'1'` or `'0'`.
   static Rule boolean() => const BooleanRule();
 
-  /// `array` (list): a JSON array.
+  /// `array`: a JSON array or a JSON object, as Laravel's `array` accepts
+  /// any PHP array. With [keys] (`array:name,email`), every key of the
+  /// value must be one of them; a list's keys are its indexes (`'0'`,
+  /// `'1'`, ...), as in PHP.
+  static Rule array([List<String>? keys]) => ArrayRule(keys);
+
+  /// `list`: a JSON array, as Laravel's `list` (an array whose keys are
+  /// `0..n-1`). A JSON object fails.
   static Rule list() => const ListRule();
 
-  /// `array` (map): a JSON object.
+  /// `map` (Daravel): a JSON object. A JSON array fails.
   static Rule map() => const MapRule();
 
   /// `email`: an email address.
@@ -647,20 +654,51 @@ final class BooleanRule extends Rule {
   };
 }
 
-/// `array` for a JSON array: see [Rules.list].
+/// `array`, a JSON array or object: see [Rules.array].
+final class ArrayRule extends Rule {
+  /// The array rule; use [Rules.array].
+  const ArrayRule([this.keys]);
+
+  /// The keys allowed (`array:name,email`), or `null` for any.
+  final List<String>? keys;
+  @override
+  String get name => 'array';
+
+  /// No single JSON Schema type: `rulesToJsonSchema` writes
+  /// `["array", "object"]` unless nested rules (`field.*`, `field.key`)
+  /// say which one.
+  @override
+  Map<String, Object?> get schemaHint => const {};
+  @override
+  String? passes(ValidationContext c) {
+    final value = c.value;
+    final Iterable<String> present;
+    if (value is List<Object?>) {
+      present = [for (var i = 0; i < value.length; i++) '$i'];
+    } else if (value is Map<Object?, Object?>) {
+      present = value.keys.map((k) => '$k');
+    } else {
+      return 'array';
+    }
+    final allowed = keys;
+    return allowed == null || present.every(allowed.contains) ? null : 'array';
+  }
+}
+
+/// `list`, a JSON array: see [Rules.list].
 final class ListRule extends Rule {
   /// The list rule; use [Rules.list].
   const ListRule();
   @override
-  String get name => 'array';
+  String get name => 'list';
   @override
   Map<String, Object?> get schemaHint => const {'type': 'array'};
   @override
   String? passes(ValidationContext c) =>
-      c.value is List<Object?> ? null : 'array';
+      c.value is List<Object?> ? null : 'list';
 }
 
-/// `array` for a JSON object: see [Rules.map].
+/// `map`, a JSON object: see [Rules.map].
 final class MapRule extends Rule {
   /// The map rule; use [Rules.map].
   const MapRule();

@@ -95,6 +95,9 @@ final class RuleBuilder {
   /// Appends [Rules.boolean].
   RuleBuilder boolean() => _add(Rules.boolean());
 
+  /// Appends [Rules.array].
+  RuleBuilder array([List<String>? keys]) => _add(Rules.array(keys));
+
   /// Appends [Rules.list].
   RuleBuilder list() => _add(Rules.list());
 

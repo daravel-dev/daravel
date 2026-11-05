@@ -1,4 +1,4 @@
-<!-- source: flutter-client.md sha256:13fbb7edec5d -->
+<!-- source: flutter-client.md sha256:50e1042d6c91 -->
 # Client Flutter
 
 `dartisan client:flutter` menghasilkan paket client Dart bertipe dari route
@@ -43,10 +43,12 @@ bertipe sejak awal:
 | `{id}` dengan `.whereNumber('id')` | `int id` posisional (parameter lain bertipe `String`) |
 | `.validates(FormRequest)` / `.rules({...})` | parameter bernama yang tipenya dari rule, ditambah kelas input dengan rule yang dicek di perangkat |
 | `.returns(schema, name: 'User')` | model `User` dengan `fromJson` dan `toJson`; string date-time menjadi `DateTime` |
-| `shape: .paginated` / `.simplePaginated` / `.cursorPaginated` | `Page<User>`, `SimplePage<User>`, `CursorPage<User>` dan parameter `page` atau `cursor` |
+| `shape: .paginated` / `.simplePaginated` / `.cursorPaginated` | `ApiPage<User>`, `SimplePage<User>`, `CursorPage<User>` dan parameter `page` atau `cursor` |
 | `shape: .collection` | `List<User>` |
 | `'title': 'User'` di sebuah schema | nama model: schema yang dipakai ulang di respons lain (`user` di respons token) adalah kelas `User` yang sama |
+| `oneOf: [User, {'type': 'null'}]` (atau `anyOf`), `'type': ['object', 'null']` | field `User?` yang nullable |
 | `.returns(const {}, status: 204)` | `Future<void>` |
+| `.returnsFile(contentType: ...)` | `Future<ApiFile>`: byte, nama file dari `Content-Disposition` (`filename*` didahulukan), dan content type |
 | rule `file` | parameter `http.MultipartFile`, dikirim sebagai `multipart/form-data` |
 | `router.ws(...)` | method yang mengembalikan URL `ws://` / `wss://` |
 | tanpa metadata | `Future<Object?>` dengan map `body` atau `query` |
@@ -61,7 +63,7 @@ final user = await api.users.store(
   passwordConfirmation: 'Secret123',
 );
 
-final Page<User> page = await api.users.index(page: 2);
+final ApiPage<User> page = await api.users.index(page: 2);
 print('${page.items.length} of ${page.total}');
 ```
 
@@ -197,7 +199,7 @@ ProviderScope(
 );
 
 final user = ref.watch(usersShowProvider(7));          // AsyncValue<User>
-final page = ref.watch(usersIndexProvider(2));         // AsyncValue<Page<User>>
+final page = ref.watch(usersIndexProvider(2));         // AsyncValue<ApiPage<User>>
 ref.invalidate(usersShowProvider);                     // ambil ulang
 ```
 

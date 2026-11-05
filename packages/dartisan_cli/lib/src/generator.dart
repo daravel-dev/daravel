@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:daravel/daravel.dart' show Str;
 import 'package:path/path.dart' as p;
 
 import 'stubs.dart';
@@ -165,16 +166,10 @@ abstract final class Naming {
         : pascalCase[0].toLowerCase() + pascalCase.substring(1);
   }
 
-  /// `User` → `users`, `Category` → `categories`, `Address` → `addresses`.
-  static String plural(String word) {
-    if (word.endsWith('y') && !RegExp(r'[aeiou]y$').hasMatch(word)) {
-      return '${word.substring(0, word.length - 1)}ies';
-    }
-    if (RegExp(r'(s|x|z|ch|sh)$').hasMatch(word)) {
-      return '${word}es';
-    }
-    return '${word}s';
-  }
+  /// `User` → `users`, `Category` → `categories`, `Address` → `addresses`,
+  /// `Stimulus` → `stimuli`: Laravel's English rules ([Str.plural]),
+  /// irregular and Latin plurals included.
+  static String plural(String word) => Str.plural(word);
 
   /// Table name for a model class (`BlogPost` → `blog_posts`).
   static String table(String model) => plural(snake(model));

@@ -139,6 +139,14 @@ final class MySqlSchemaGrammar extends SchemaGrammar {
   String get autoIncrementClause =>
       ' UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY';
 
+  /// `PRIMARY KEY (...)` without a name, as Laravel's `MySqlGrammar` writes
+  /// it: MySQL names every primary key `PRIMARY`, but still checks the name
+  /// given against its 64 character limit, which `<table>_<columns>_primary`
+  /// soon passes.
+  @override
+  String compilePrimaryKey(IndexDefinition key) =>
+      'PRIMARY KEY (${key.columns.map(wrap).join(', ')})';
+
   @override
   bool get supportsUnsigned => true;
 
@@ -187,7 +195,9 @@ final class MySqlSchemaGrammar extends SchemaGrammar {
 
   @override
   String compileListTables() =>
-      'SELECT table_name AS name FROM information_schema.tables WHERE table_schema = DATABASE()';
+      // Views are not tables, as in Laravel's `MySqlGrammar::compileTables`.
+      'SELECT table_name AS name FROM information_schema.tables WHERE table_schema = DATABASE() '
+      "AND table_type IN ('BASE TABLE', 'SYSTEM VERSIONED')";
 
   @override
   String compileColumns() =>
