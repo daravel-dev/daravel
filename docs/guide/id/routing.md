@@ -1,4 +1,4 @@
-<!-- source: routing.md sha256:4fc70e7ed3d8 -->
+<!-- source: routing.md sha256:a3e68ed0e008 -->
 # Routing
 
 Route didaftarkan di `routes/api.dart` (di-mount di bawah `/api`) dan
@@ -96,6 +96,11 @@ mendokumentasikan keduanya:
   `paginated`, `simplePaginated`, atau `cursorPaginated`, dibungkus amplop
   resource dan paginator dari Laravel. Schema bernama menjadi
   `components.schemas`.
+- `.returnsFile(contentType: 'text/csv')` mendokumentasikan file sebagai
+  gantinya (`Response.download`, `Excel.download`, stream): body biner dengan
+  `Content-Disposition`. Respons `raw` dengan `RouteResponse.binarySchema`
+  juga dianggap file. Client Flutter hasil generate mengembalikan byte dan
+  nama filenya (`ApiFile`).
 - `.action('PostController@store')` mencatat action controller
   (`x-daravel-action` di OpenAPI).
 

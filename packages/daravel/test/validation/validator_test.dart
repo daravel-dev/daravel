@@ -262,6 +262,83 @@ void main() {
       );
     });
 
+    test(
+      'array accepts a list or a map, as a PHP array; list only a list',
+      () async {
+        final errors = await errorsOf(
+          {
+            'from_list': [1, 2],
+            'from_map': {'text': 'x'},
+            'scalar': 'x',
+            'keys_ok': {'name': 'Ana'},
+            'keys_bad': {'name': 'Ana', 'admin': true},
+            'keys_list': ['a'],
+            'keys_index': ['a', 'b'],
+            'list_ok': [1],
+            'list_map': {'a': 1},
+            'map_list': [1],
+            'sized': {'a': 1, 'b': 2, 'c': 3},
+          },
+          {
+            'from_list': 'required|array',
+            'from_map': 'required|array',
+            'scalar': 'array',
+            'keys_ok': 'array:name,email',
+            'keys_bad': 'array:name,email',
+            'keys_list': 'array:name',
+            'keys_index': 'array:0,1',
+            'list_ok': 'list',
+            'list_map': 'list',
+            'map_list': 'map',
+            'sized': 'array|max:2',
+          },
+        );
+        expect(
+          errors.keys,
+          unorderedEquals([
+            'scalar',
+            'keys_bad',
+            'keys_list',
+            'list_map',
+            'map_list',
+            'sized',
+          ]),
+        );
+        expect(errors['scalar'], ['The scalar field must be an array.']);
+        expect(errors['keys_bad'], ['The keys bad field must be an array.']);
+        expect(errors['list_map'], ['The list map field must be a list.']);
+        expect(errors['sized'], [
+          'The sized field must not have more than 2 items.',
+        ]);
+        expect(
+          await errorsOf(
+            {
+              'x': {'a': 1},
+            },
+            {
+              'x': [Rules.list()],
+              'y': [Rules.array(), Rules.required()],
+            },
+          ),
+          {
+            'x': ['The x field must be a list.'],
+            'y': ['The y field is required.'],
+          },
+        );
+        expect(
+          await errorsOf(
+            {
+              'x': {'a': 1},
+            },
+            {
+              'x': Rules.array(['a']),
+            },
+          ),
+          isEmpty,
+        );
+      },
+    );
+
     test('sizes depend on the value type', () async {
       final errors = await errorsOf(
         {

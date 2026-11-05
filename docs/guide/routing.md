@@ -91,6 +91,11 @@ handler runs and `dartisan openapi:generate` documents both:
   the response: `item` (`{"data": ...}`), `raw`, `collection`, `paginated`,
   `simplePaginated` or `cursorPaginated`, wrapped in Laravel's resource and
   paginator envelopes. Named schemas become `components.schemas`.
+- `.returnsFile(contentType: 'text/csv')` documents a file instead
+  (`Response.download`, `Excel.download`, a stream): a binary body with
+  `Content-Disposition`. A `raw` response with
+  `RouteResponse.binarySchema` counts as a file too. Generated Flutter
+  clients return its bytes and file name (`ApiFile`).
 - `.action('PostController@store')` records the controller action
   (`x-daravel-action` in OpenAPI).
 

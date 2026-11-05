@@ -215,6 +215,7 @@ sections:
       - { php: "'exclude_if:type,free'", dart: "same string, or Rules.excludeIf('type', ['free'])", symbol: Rules.excludeIf }
       - { php: "'prohibited_if:a,b' / 'prohibits:a' / 'required_with_all:a,b'", dart: "same strings", symbol: Rules.prohibitedIf }
       - { php: "Rule::enum(Status::class)", dart: "Rules.enum_(Status.values)", symbol: Rules.enum_ }
+      - { php: "'array' / 'array:name,email' / 'list'", dart: "same strings, or Rules.array(['name', 'email']) / Rules.list()", symbol: Rules.array, note: "array is a JSON array or object, as a PHP array; list only a JSON array." }
       - { php: "->withoutMiddleware('csrf')", dart: ".withoutMiddleware(['csrf'])", symbol: RouteEntry.withoutMiddleware }
       - { php: "Route::get('/posts/{post}', fn (Post $post) => ...)", dart: "router.bindModel('post', Post.definition)", symbol: Router.bindModel }
       - { php: "/users/{user}/posts/{post:slug}", dart: "the same path", symbol: RouteEntry.bindingFields }
