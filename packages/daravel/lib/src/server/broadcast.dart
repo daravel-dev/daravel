@@ -105,6 +105,8 @@ final class Broadcaster {
   final Map<String, Set<StreamController<String>>> _local =
       <String, Set<StreamController<String>>>{};
   final Map<String, Future<void>> _registering = <String, Future<void>>{};
+  final Map<String, Future<void>> _leaving = <String, Future<void>>{};
+  final Set<String> _straying = <String>{};
   ReceivePort? _port;
 
   SendPort get _sendPort {
@@ -115,7 +117,12 @@ final class Broadcaster {
     final port = ReceivePort('daravel-broadcast');
     port.listen((Object? message) {
       if (message case [final String channel, final String text]) {
-        for (final listener in [...?_local[channel]]) {
+        final listeners = _local[channel];
+        if (listeners == null) {
+          _stray(channel);
+          return;
+        }
+        for (final listener in [...listeners]) {
           listener.add(text);
         }
       }
@@ -146,6 +153,10 @@ final class Broadcaster {
 
   /// Listens to [channel]. The returned subscription receives every
   /// message published after this completes; cancel it when done.
+  ///
+  /// When the coordinator cannot register this isolate (a timeout, a full
+  /// queue), this throws and leaves nothing behind: the next subscriber
+  /// tries again.
   Future<BroadcastSubscription> subscribe(String channel) async {
     late final StreamController<String> controller;
     controller = StreamController<String>(
@@ -156,19 +167,42 @@ final class Broadcaster {
       () => <StreamController<String>>{},
     );
     listeners.add(controller);
-    if (listeners.length == 1) {
-      _registering[channel] = _coordinator.call('broadcast', 'subscribe', {
-        'channel': channel,
-        'port': _sendPort,
-        'worker': Isolate.current.debugName,
-      });
+    final registration = _registering[channel] ??= _register(channel);
+    try {
+      await registration;
+    } on Object {
+      // Undone here, or every later subscriber of this isolate would wait
+      // on the same failed registration for ever.
+      if (identical(_registering[channel], registration)) {
+        unawaited(_registering.remove(channel));
+      }
+      final current = _local[channel];
+      if (current != null && current.remove(controller) && current.isEmpty) {
+        _local.remove(channel);
+      }
+      unawaited(controller.close());
+      rethrow;
     }
-    await _registering[channel];
     return BroadcastSubscription._(
       channel,
       controller,
       () => _leave(channel, controller),
     );
+  }
+
+  /// Registers this isolate's port for [channel], after an unsubscribe of
+  /// the same channel still on its way (the coordinator must not get the
+  /// subscribe first).
+  Future<void> _register(String channel) async {
+    final leaving = _leaving[channel];
+    if (leaving != null) {
+      await leaving;
+    }
+    await _coordinator.call('broadcast', 'subscribe', {
+      'channel': channel,
+      'port': _sendPort,
+      'worker': Isolate.current.debugName,
+    });
   }
 
   /// Forwards the messages of [channels] to [socket] until it closes, then
@@ -215,24 +249,70 @@ final class Broadcaster {
     }
     if (listeners.isEmpty) {
       _local.remove(channel);
-      // Let the registration finish first, so it cannot land after this.
+      final registration = _registering.remove(channel);
+      final leaving = _unregister(channel, registration);
+      _leaving[channel] = leaving;
       try {
-        await _registering.remove(channel);
-      } on Object {
-        // It failed: the subscriber has the error; there is nothing to undo.
+        await leaving;
+      } finally {
+        if (identical(_leaving[channel], leaving)) {
+          unawaited(_leaving.remove(channel));
+        }
       }
-      // After close() the port is gone and the coordinator is going with
-      // the application: asking for _sendPort would open a new port that
-      // nothing closes, and the isolate could never exit.
-      final port = _port;
-      if (port == null) {
-        return;
-      }
+    }
+  }
+
+  /// Unsubscribes this isolate's port from [channel] once [registration]
+  /// has landed. A failure is not the caller's: the port stays registered,
+  /// and the next message for the channel unsubscribes it again (see
+  /// [_stray]).
+  Future<void> _unregister(String channel, Future<void>? registration) async {
+    // Let the registration finish first, so it cannot land after this.
+    try {
+      await registration;
+    } on Object {
+      // It failed: the subscriber has the error. It may still land late;
+      // a message that then arrives unsubscribes again.
+      return;
+    }
+    // After close() the port is gone and the coordinator is going with
+    // the application: asking for _sendPort would open a new port that
+    // nothing closes, and the isolate could never exit.
+    final port = _port;
+    if (port == null) {
+      return;
+    }
+    try {
       await _coordinator.call('broadcast', 'unsubscribe', {
         'channel': channel,
         'port': port.sendPort,
       });
+    } on Object {
+      // Left registered: messages for it are dropped here, and the first
+      // one unsubscribes again.
     }
+  }
+
+  /// A message for [channel] reached this isolate with nobody listening:
+  /// an unsubscribe failed, or a subscribe that timed out landed after
+  /// all. Unsubscribe again, once at a time.
+  void _stray(String channel) {
+    final port = _port;
+    if (port == null ||
+        _registering.containsKey(channel) ||
+        _leaving.containsKey(channel) ||
+        !_straying.add(channel)) {
+      return;
+    }
+    unawaited(
+      _coordinator
+          .call('broadcast', 'unsubscribe', {
+            'channel': channel,
+            'port': port.sendPort,
+          })
+          .then<void>((_) {}, onError: (Object _) {})
+          .whenComplete(() => _straying.remove(channel)),
+    );
   }
 
   /// Closes every subscription of this isolate (application shutdown).

@@ -436,6 +436,8 @@ final class Application {
                   c.make<CoordinatorChannel>(),
                   state: shared,
                   relay: relay,
+                  onError: (message, error) =>
+                      c.make<Logger>().warning('$message: $error'),
                 )
               : null,
           http: c.make<HttpClientFactory>(),

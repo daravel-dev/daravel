@@ -29,7 +29,12 @@ final class PusherServer {
     CoordinatorChannel coordinator, {
     ChannelState? state,
     this.relay,
+    this.onError,
   }) : _state = state ?? _CoordinatorChannelState(coordinator);
+
+  /// Told about failures no client can be told about: a channel left on
+  /// close whose `leave` failed twice, a relay that would not start.
+  final void Function(String message, Object error)? onError;
 
   /// The broadcasting settings.
   final BroadcastConfig config;
@@ -60,13 +65,16 @@ final class PusherServer {
     String? exceptSocket,
   }) async {
     final text = data is String ? data : jsonEncode(data);
-    for (final channel in channels) {
-      await _send(channel, {
-        'event': event,
-        'channel': channel,
-        'data': text,
-      }, exceptSocket);
-    }
+    // Channels at once: each is its own round trip, and only the order
+    // within a channel matters.
+    await Future.wait([
+      for (final channel in channels)
+        _send(channel, {
+          'event': event,
+          'channel': channel,
+          'data': text,
+        }, exceptSocket),
+    ]);
   }
 
   /// One frame, encoded once, to every connection on [channel] but
@@ -113,7 +121,19 @@ final class PusherServer {
     }
     final relay = this.relay;
     if (relay != null) {
-      await (_relaying ??= relay.start(_broadcaster.deliverLocally));
+      final relaying = _relaying ??= relay.start(_broadcaster.deliverLocally);
+      try {
+        await relaying;
+      } on Object catch (error) {
+        // Not kept: the next client starts it again (Redis was down).
+        if (identical(_relaying, relaying)) {
+          _relaying = null;
+        }
+        onError?.call('Broadcast relay did not start', error);
+        socket.add(_error(4100, 'Over capacity'));
+        await socket.close(4100, 'Over capacity');
+        return;
+      }
     }
     final connection = _Connection(
       this,
@@ -132,7 +152,20 @@ final class PusherServer {
     );
     try {
       await for (final message in socket) {
-        await connection.receive(message);
+        try {
+          await connection.receive(message);
+        } on Object catch (error) {
+          // The coordinator (or the scaling store) failed: the client
+          // reconnects, rather than staying with a read loop that is gone.
+          // 4100 (back off) when it is overloaded, 4200 otherwise.
+          final code = error is CoordinatorException ? 4100 : 4200;
+          final reason = code == 4100
+              ? 'Over capacity'
+              : 'Generic reconnect immediately';
+          connection._error(code, reason);
+          await socket.close(code, reason);
+          break;
+        }
       }
     } on Object {
       // The connection dropped.
@@ -559,6 +592,12 @@ final class _Connection {
       return;
     }
     await subscription.cancel();
+    await _leave(channel);
+  }
+
+  /// Leaves [channel] in the shared state, then tells the others when the
+  /// user's last connection left.
+  Future<void> _leave(String channel) async {
     final left =
         (await _server._call('leave', {'channel': channel, 'socket': id}))!
             as Map;
@@ -597,9 +636,23 @@ final class _Connection {
     }, id);
   }
 
+  /// Leaves every channel, each on its own: a `leave` that fails (the
+  /// coordinator timed out) is tried once more and then reported, and
+  /// never keeps the other channels subscribed.
   Future<void> close() async {
     for (final channel in [..._subscriptions.keys]) {
-      await _unsubscribe(channel);
+      try {
+        await _unsubscribe(channel);
+      } on Object {
+        try {
+          await _leave(channel);
+        } on Object catch (error) {
+          _server.onError?.call(
+            'Connection $id could not leave $channel',
+            error,
+          );
+        }
+      }
     }
   }
 }

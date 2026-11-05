@@ -199,6 +199,14 @@ client stays on the server its WebSocket reached.
 Client events (`client-*`, Echo's `whisper`) are forwarded only on private
 and presence channels the sender has joined, as Pusher Channels requires.
 
+When the coordinator cannot answer (overloaded, or the scaling store is
+down) while a client subscribes or leaves, the client gets `pusher:error`
+and the connection is closed with `4100` (over capacity), so Echo
+reconnects after a backoff; a channel left behind by a failed `leave` is
+tried again and logged, and never keeps the connection's other channels
+subscribed. A relay that could not start (Redis down) is started again by
+the next client.
+
 ## Capacity
 
 `bench/interop/connections.sh` opens idle Echo connections against the AOT

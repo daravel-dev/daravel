@@ -1,4 +1,4 @@
-<!-- source: broadcasting.md sha256:d0b063545e42 -->
+<!-- source: broadcasting.md sha256:bafe5370104f -->
 # Broadcasting
 
 Daravel berbicara dengan protokol Pusher, seperti Laravel Reverb, di port
@@ -206,6 +206,15 @@ client tetap di server yang dijangkau WebSocket-nya.
 Client event (`client-*`, `whisper` di Echo) hanya diteruskan di channel
 private dan presence yang sudah diikuti pengirimnya, seperti yang
 disyaratkan Pusher Channels.
+
+Saat coordinator tidak bisa menjawab (kelebihan beban, atau penyimpanan
+scaling mati) ketika client subscribe atau keluar dari channel, client
+mendapat `pusher:error` dan koneksinya ditutup dengan `4100` (over
+capacity), sehingga Echo tersambung ulang setelah backoff; channel yang
+tertinggal karena `leave` gagal dicoba sekali lagi dan dicatat di log, dan
+tidak pernah membuat channel lain dari koneksi itu tetap ter-subscribe.
+Relay yang gagal dijalankan (Redis mati) dijalankan lagi oleh client
+berikutnya.
 
 ## Kapasitas
 
