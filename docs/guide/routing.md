@@ -171,7 +171,11 @@ limiter.define(
 
 Responses carry `X-RateLimit-Limit` and `X-RateLimit-Remaining`; a limited
 request gets `429 {"message": "Too Many Attempts."}` with `Retry-After` and
-`X-RateLimit-Reset`. Limits are shared by every isolate of the process
+`X-RateLimit-Reset`. `throttle:60,1` (no named limiter) counts per client as
+Laravel does: the matched route's domain and the client address, never the
+`Host` header the client sends, so every route under that limit on one
+domain shares the client's bucket; a named limiter keys by its own
+`Limit.by(...)`. Limits are shared by every isolate of the process
 through the coordinator. Like Laravel, a window starts with the first hit
 and resets `decay` later. With several isolates, keys with generous limits
 (32 or more attempts) are served from small local leases that grow on hot

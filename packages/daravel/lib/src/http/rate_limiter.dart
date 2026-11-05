@@ -1164,12 +1164,20 @@ final class ThrottleMiddleware implements RunsBeforeBindings {
     return headers.isEmpty ? response : response.withHeaders(headers);
   }
 
+  /// The key of a limit without its own: the user's id when
+  /// [userKeyResolver] finds one, else the matched route's domain and the
+  /// client address, as Laravel's `ThrottleRequests::resolveRequestSignature`
+  /// (`$route->getDomain().'|'.$request->ip()`, unhashed here). Never the
+  /// request's `Host` header, which the client chooses: one client sending
+  /// a different `Host` per request would get a bucket per value. Every
+  /// route under one `throttle:` limit and domain shares the client's
+  /// bucket, as in Laravel; give a route its own with a named limiter.
   Future<String> _signature(Request request) async {
     final user = await userKeyResolver?.call(request);
     if (user != null) {
       return 'user:$user';
     }
-    return '${request.method}|${request.host}|${request.path}|${request.ip}';
+    return '${request.route?.domainPattern?.source ?? ''}|${request.ip}';
   }
 
   static final RateLimiter _defaultLimiter = RateLimiter();

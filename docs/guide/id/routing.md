@@ -1,4 +1,4 @@
-<!-- source: routing.md sha256:304e715b2297 -->
+<!-- source: routing.md sha256:75d62680e65a -->
 # Routing
 
 Route didaftarkan di `routes/api.dart` (di-mount di bawah `/api`) dan
@@ -180,11 +180,16 @@ limiter.define(
 
 Respons membawa `X-RateLimit-Limit` dan `X-RateLimit-Remaining`; request
 yang terkena batas mendapat `429 {"message": "Too Many Attempts."}` dengan
-`Retry-After` dan `X-RateLimit-Reset`. Batasnya dibagi oleh setiap isolate
-dalam proses melalui coordinator. Seperti Laravel, sebuah jendela dimulai
-pada hit pertama dan di-reset setelah `decay`. Dengan beberapa isolate, key
-dengan batas longgar (32 percobaan atau lebih) dilayani dari lease lokal
-kecil yang membesar untuk key yang ramai dan mengembalikan hit yang tidak
+`Retry-After` dan `X-RateLimit-Reset`. `throttle:60,1` (tanpa limiter
+bernama) menghitung per klien seperti Laravel: domain route yang cocok dan
+alamat klien, tidak pernah header `Host` yang dikirim klien, sehingga semua
+route di bawah batas itu pada satu domain berbagi bucket klien yang sama;
+limiter bernama memakai key dari `Limit.by(...)`-nya sendiri. Batasnya
+dibagi oleh setiap isolate dalam proses melalui coordinator. Seperti
+Laravel, sebuah jendela dimulai pada hit pertama dan di-reset setelah
+`decay`. Dengan beberapa isolate, key dengan batas longgar (32 percobaan
+atau lebih) dilayani dari lease lokal kecil yang membesar untuk key yang
+ramai dan mengembalikan hit yang tidak
 terpakai: batasnya tidak pernah terlampaui (hit yang di-lease satu worker
 bisa sejenak tidak tersedia bagi worker lain, paling lama 200 ms, juga saat
 worker itu berhenti menerima request), dan coordinator tidak lagi dilibatkan
