@@ -139,7 +139,7 @@ jobs:
       working-directory: packages/daravel_activitylog
 
   daravel_redis:
-    needs: [verify, daravel, dartisan_cli]
+    needs: [verify, daravel, dartisan_cli, daravel_session]
     if: ${{ !failure() && !cancelled() && needs.verify.outputs.daravel_redis != 'published' }}
     uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
     with:

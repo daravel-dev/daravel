@@ -11,6 +11,7 @@ publisher `framework.daravel.dev`.
 
 | Version | Highlights |
 | :-- | :-- |
+| `1.26.0` | Static files with versioned URLs, redis and cache session drivers, CSP with nonces, browser-style TestClient, consistent html.dart helpers with htmx, fail-closed rate limits, transaction timeouts, typed coordinator messages and isolate payloads |
 | `1.25.0` | JWTs shared with tymon/jwt-auth, a strangler proxy that forwards forms, uploads and the client's Host as sent, byte-level shadow parity, Sanctum and JWT interop checked on Laravel 8 to 13, inline-JS and SRI checks |
 | `1.24.1` | Every public API documented, Laravel equivalents in the guide, example apps with setup guides |
 | `1.24.0` | Scout on the database engine with semantic and hybrid search, Pulse drift threshold, WebSocket example |

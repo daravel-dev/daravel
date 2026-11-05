@@ -138,8 +138,35 @@ File _toFile(Object fileOrPath) => switch (fileOrPath) {
   _ => throw ArgumentError.value(fileOrPath, 'fileOrPath', 'A File or a path.'),
 };
 
-String _mimeOf(String name) =>
-    lookupMimeType(name) ?? 'application/octet-stream';
+/// Types pinned here rather than left to `package:mime`, whose table has
+/// changed between versions (`.js` was `application/javascript`) and lacks
+/// source maps. Fonts, modules and wasm must be exact: under `nosniff` a
+/// browser refuses a script or a wasm module served with another type.
+const Map<String, String> _pinnedTypes = {
+  'js': 'text/javascript',
+  'mjs': 'text/javascript',
+  'css': 'text/css',
+  'map': 'application/json',
+  'json': 'application/json',
+  'wasm': 'application/wasm',
+  'svg': 'image/svg+xml',
+  'woff2': 'font/woff2',
+  'woff': 'font/woff',
+  'ttf': 'font/ttf',
+  'otf': 'font/otf',
+  'webmanifest': 'application/manifest+json',
+};
+
+/// The `Content-Type` of a file called [name], by its extension.
+String mimeTypeOf(String name) {
+  final dot = name.lastIndexOf('.');
+  final pinned = dot == -1
+      ? null
+      : _pinnedTypes[name.substring(dot + 1).toLowerCase()];
+  return pinned ?? lookupMimeType(name) ?? 'application/octet-stream';
+}
+
+String _mimeOf(String name) => mimeTypeOf(name);
 
 String _baseName(String path) => path.split(RegExp(r'[/\\]')).last;
 
@@ -171,6 +198,29 @@ Future<Response> sendFile(
     // before its real request.
     ranges: !deleteAfterSend,
     open: (start, end) => _read(file, start, end, deleteAfterSend),
+  );
+}
+
+/// A public file without `Content-Disposition` (a stylesheet, a script, a
+/// font), with the `ETag`, conditional requests and ranges of [sendFile].
+/// [file] must come from the application, never from the request.
+Future<Response> sendStaticFile(
+  File file, {
+  required String contentType,
+  Map<String, String>? headers,
+  Request? request,
+}) async {
+  final stat = await file.stat();
+  if (stat.type != FileSystemEntityType.file) {
+    throw const NotFoundHttpException();
+  }
+  return _serve(
+    size: stat.size,
+    modified: stat.modified,
+    contentType: contentType,
+    headers: headers,
+    request: request,
+    open: file.openRead,
   );
 }
 
