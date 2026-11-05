@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:typed_data';
 
 import 'package:daravel/daravel.dart';
 import 'package:test/test.dart';
@@ -8,6 +9,14 @@ import 'package:test/test.dart';
 String where() => Isolate.current.debugName ?? '';
 
 int boom() => throw const FormatException('boom');
+Uint8List boomBytes() => throw const FormatException('boom');
+
+/// Bytes that differ from position to position, so a shifted or truncated
+/// copy cannot pass for the original.
+Uint8List pattern(int length) =>
+    Uint8List.fromList([for (var i = 0; i < length; i++) i * 31 % 251]);
+Uint8List megabyte() => pattern(1 << 20);
+Uint8List small() => pattern(100);
 String meet(String mine, String theirs) {
   File(mine).writeAsStringSync('here');
   final deadline = DateTime.now().add(const Duration(seconds: 20));
@@ -172,6 +181,51 @@ void main() {
       await Concurrency.run<bool>([() => Container.currentOrNull == null]),
       [isTrue],
     );
+  });
+
+  group('runBytes', () {
+    test('a 1 MB result is byte for byte, and the worker goes on', () async {
+      Concurrency.maxWorkers = 1;
+      final [big] = await Concurrency.runBytes([megabyte]);
+      expect(big, hasLength(1 << 20));
+      expect(big, megabyte());
+      // The same single worker serves what follows.
+      expect(await Concurrency.runBytes([small, megabyte]), [
+        small(),
+        megabyte(),
+      ]);
+      expect(await Concurrency.run<String>([where]), ['daravel-compute']);
+    });
+
+    test('async tasks and order', () async {
+      final results = await Concurrency.runBytes([
+        () async {
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+          return megabyte();
+        },
+        small,
+      ]);
+      expect(results, [megabyte(), small()]);
+    });
+
+    test('an error comes back with its stack, and the worker lives', () async {
+      Concurrency.maxWorkers = 1;
+      await expectLater(
+        Concurrency.runBytes([boomBytes]),
+        throwsA(
+          isA<FormatException>().having((e) => e.message, 'message', 'boom'),
+        ),
+      );
+      expect(await Concurrency.runBytes([megabyte]), [megabyte()]);
+    });
+
+    test('sync runs them here', () async {
+      final fake = await Concurrency.fake((fake) async {
+        expect(await Concurrency.runBytes([small]), [small()]);
+        return fake;
+      });
+      fake.assertRanCount(1);
+    });
   });
 
   group('runIfLarge', () {
