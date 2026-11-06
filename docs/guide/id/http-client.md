@@ -1,4 +1,4 @@
-<!-- source: http-client.md sha256:c3a9bdc3aa6c -->
+<!-- source: http-client.md sha256:2d7a573c4661 -->
 # HTTP client
 
 `Http` mengirim request keluar ke payment gateway, API pesan, dan layanan
@@ -23,14 +23,21 @@ response.throwIfFailed();                // RequestException pada 4xx/5xx
   (dengan `json:`, `form:`, atau `body:` mentah), `delete`.
 - Opsi: `baseUrl`, `withHeaders`, `withToken`, `withBasicAuth`,
   `withUserAgent`, `accept` / `acceptJson`, `asForm` (mengirim map `json:`
-  sebagai form), `timeout` (default 30 detik, seperti di Laravel).
+  sebagai form), `timeout` (default 30 detik, seperti di Laravel: satu
+  tenggat untuk koneksi, pengiriman, dan pembacaan seluruh body; begitu
+  lewat, koneksi ditutup), `maxResponseSize(bytes)` (default 32 MiB,
+  `HttpClientFactory.maxResponseBytes`; body yang lebih besar melempar
+  `ResponseTooLargeException` dan menutup koneksi, `null` untuk tanpa
+  batas).
 - `retry(times, delay:, when:)` mencoba hingga `times` kali bila koneksi
   gagal atau respons 4xx/5xx, atau bila `when(response, error)`
   menghendakinya, lalu mengembalikan respons terakhir. Koneksi yang tidak
-  bisa dibuat, atau timeout, melempar `ConnectionException`.
+  bisa dibuat, atau timeout, melempar `ConnectionException`, termasuk
+  kegagalan TLS.
 - Respons: `status`, `body`, `json([path, fallback])`, `jsonMap()`,
   `header(name)`, `successful` (2xx), `ok` (200), `redirect`, `clientError`,
-  `serverError`, `failed`, serta `throwIfFailed` / `throwIfClientError` /
+  `serverError`, `failed`, `bodyBytes` (body apa adanya, untuk respons
+  biner), serta `throwIfFailed` / `throwIfClientError` /
   `throwIfServerError`.
 
 ## Testing

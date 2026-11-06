@@ -202,7 +202,10 @@ are, and `X-Powered-By` is removed. Laravel receives the client's address in
 `X-Forwarded-For`, `-Proto`, `-Host` and `-Port`, so trust Daravel in its
 `TrustProxies` middleware (`$middleware->trustProxies(at: '127.0.0.1')`).
 If Laravel does not answer, the client gets 502; if it is too slow
-(`timeout:`, 60 seconds), 504. WebSockets are not forwarded.
+(`timeout:`, 60 seconds), 504, and the connection to Laravel is closed, so a
+hung PHP-FPM worker is not kept busy for a client that is gone. Laravel has
+5 seconds to accept a connection, and a response body that stalls for
+`timeout` ends the response. WebSockets are not forwarded.
 
 ### Compare a moved route with Laravel
 

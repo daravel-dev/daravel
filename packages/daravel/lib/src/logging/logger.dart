@@ -1,5 +1,8 @@
+import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
 
@@ -109,16 +112,200 @@ abstract interface class LogHandler {
 String _encodeContext(Map<String, Object?> context) =>
     jsonEncode(context, toEncodable: (Object? value) => '$value');
 
+/// Log lines waiting for one asynchronous writer, bounded in bytes.
+///
+/// [add] never blocks and never throws: once [maxPendingBytes] are waiting,
+/// a line is dropped and counted ([dropped], [droppedTotal]), so a log
+/// storm or a slow disk or pipe costs a bounded amount of memory instead of
+/// growing the heap until the writes catch up. One loop writes the lines in
+/// order, in batches of consecutive lines for the same target. A write that
+/// fails drops its batch, counted the same way, and never surfaces as an
+/// uncaught asynchronous error.
+final class LogLineQueue {
+  /// A queue writing batches with [write]; its second argument is the
+  /// `target` the lines were added with (a file path, or null).
+  LogLineQueue(
+    this._write, {
+    this.maxPendingBytes = defaultMaxPendingBytes,
+    this.label = 'Log output',
+  });
+
+  /// Bytes a queue holds before it drops lines (8 MiB).
+  static const int defaultMaxPendingBytes = 8 * 1024 * 1024;
+
+  /// Lines a write takes at most at once.
+  static const int _batchBytes = 64 * 1024;
+
+  /// Lines dropped by every queue of this isolate
+  /// (`log_lines_dropped_total`).
+  static int get droppedTotal => _droppedTotal;
+  static int _droppedTotal = 0;
+
+  final Future<void> Function(Uint8List bytes, Object? target) _write;
+
+  /// The most bytes waiting before lines are dropped.
+  final int maxPendingBytes;
+
+  /// Names the output in the notice written when lines start to drop.
+  final String label;
+
+  final ListQueue<(Uint8List, Object?)> _lines =
+      ListQueue<(Uint8List, Object?)>();
+  int _pendingBytes = 0;
+  int _dropped = 0;
+  bool _behind = false;
+  bool _running = false;
+  Completer<void>? _idle;
+
+  /// Bytes added and not written yet.
+  int get pendingBytes => _pendingBytes;
+
+  /// Lines this queue dropped (full, or their write failed).
+  int get dropped => _dropped;
+
+  /// Whether nothing is being written.
+  bool get isIdle => !_running;
+
+  /// Queues [line] (a newline is appended) for [target].
+  void add(String line, {Object? target}) {
+    final bytes = utf8.encode('$line\n');
+    if (_pendingBytes > 0 && _pendingBytes + bytes.length > maxPendingBytes) {
+      _countDropped(1);
+      if (!_behind) {
+        _behind = true;
+        _notice(
+          '[daravel] $label is behind ($_pendingBytes bytes waiting): '
+          'dropping log lines until it catches up.',
+        );
+      }
+      return;
+    }
+    _lines.add((bytes, target));
+    _pendingBytes += bytes.length;
+    if (!_running) {
+      _running = true;
+      // In the root zone: the loop outlives the request that started it.
+      unawaited(Zone.root.run(_drain));
+    }
+  }
+
+  void _countDropped(int lines) {
+    _dropped += lines;
+    _droppedTotal += lines;
+  }
+
+  Future<void> _drain() async {
+    try {
+      while (_lines.isNotEmpty) {
+        final target = _lines.first.$2;
+        final batch = BytesBuilder(copy: false);
+        var count = 0;
+        while (_lines.isNotEmpty &&
+            _lines.first.$2 == target &&
+            batch.length < _batchBytes) {
+          batch.add(_lines.removeFirst().$1);
+          count++;
+        }
+        final bytes = batch.takeBytes();
+        try {
+          await _write(bytes, target);
+        } catch (_) {
+          // The writer reports its own failures; the lines are lost.
+          _countDropped(count);
+        } finally {
+          _pendingBytes -= bytes.length;
+        }
+      }
+      _behind = false;
+    } finally {
+      _running = false;
+      final idle = _idle;
+      _idle = null;
+      idle?.complete();
+    }
+  }
+
+  /// Completes once every line added so far is written (or dropped), or
+  /// after [timeout].
+  Future<void> flush([Duration? timeout]) async {
+    if (!_running) {
+      return;
+    }
+    final idle = (_idle ??= Completer<void>()).future;
+    if (timeout == null) {
+      await idle;
+    } else {
+      await idle.timeout(timeout, onTimeout: () {});
+    }
+  }
+}
+
+void _notice(String message) {
+  try {
+    stderr.writeln(message);
+  } catch (_) {
+    // Nowhere left to say it.
+  }
+}
+
+/// The isolate's queues in front of stdout and stderr ([ConsoleHandler],
+/// [JsonHandler]): written through `nonBlocking` sinks, so an undrained
+/// pipe (a slow log collector) delays log lines instead of blocking the
+/// event loop.
+final Map<int, LogLineQueue> _stdQueues = <int, LogLineQueue>{};
+
+LogLineQueue _stdQueue(bool error) => _stdQueues.putIfAbsent(error ? 2 : 1, () {
+  // ignore: close_sinks (the process's stdout or stderr, never closed)
+  final sink = (error ? stderr : stdout).nonBlocking;
+  // A failed write also fails `done`; the queue already counted it.
+  sink.done.ignore();
+  return LogLineQueue((bytes, _) {
+    sink.add(bytes);
+    return sink.flush();
+  }, label: error ? 'stderr' : 'stdout');
+});
+
+/// Where a handler writes lines: the given sink as before, synchronously;
+/// otherwise the process's stdout or stderr through [_stdQueue]. Inside
+/// `IOOverrides.runZoned` (a test capturing output, `dartisan mcp:serve`
+/// moving logs to stderr) the zone's own sink is used as given.
+void Function(String line) _lineWriter(
+  StringSink? given, {
+  required bool error,
+}) {
+  if (given != null) {
+    return given.writeln;
+  }
+  if (IOOverrides.current != null) {
+    return (error ? stderr : stdout).writeln;
+  }
+  return _stdQueue(error).add;
+}
+
+Future<void> _flushStd() async {
+  for (final queue in _stdQueues.values) {
+    await queue.flush(const Duration(seconds: 5));
+  }
+}
+
 /// Human-readable lines; warnings and above go to [err].
+///
+/// Without [out] and [err] the lines go to stdout and stderr through a
+/// bounded, non-blocking queue ([LogLineQueue]): logging never blocks the
+/// event loop on a pipe nobody reads, and past 8 MiB waiting lines are
+/// dropped and counted (`log_lines_dropped_total`). [close] waits (up to
+/// 5 s) for the lines already queued.
 final class ConsoleHandler implements LogHandler {
   /// Writes to stdout, errors to stderr; [showChannel] prefixes the
   /// channel.
   ConsoleHandler({StringSink? out, StringSink? err, this.showChannel = false})
-    : _out = out ?? stdout,
-      _err = err ?? stderr;
+    : _out = _lineWriter(out, error: false),
+      _err = _lineWriter(err, error: true),
+      _std = out == null || err == null;
 
-  final StringSink _out;
-  final StringSink _err;
+  final void Function(String line) _out;
+  final void Function(String line) _err;
+  final bool _std;
 
   /// Whether each line starts with the channel.
   final bool showChannel;
@@ -149,34 +336,62 @@ final class ConsoleHandler implements LogHandler {
         ..write('\n')
         ..write(record.stackTrace);
     }
-    final sink = record.level.index >= LogLevel.warning.index ? _err : _out;
-    sink.writeln(buffer);
+    final write = record.level.index >= LogLevel.warning.index ? _err : _out;
+    write(buffer.toString());
   }
 
   @override
-  Future<void> close() async {}
+  Future<void> close() => _std ? _flushStd() : Future<void>.value();
 }
 
 /// One JSON object per line (containers, log shippers).
+///
+/// Without [sink] the lines go to stdout through the same bounded,
+/// non-blocking queue as [ConsoleHandler].
 final class JsonHandler implements LogHandler {
   /// Writes one JSON object per line, to [sink] or stdout.
-  JsonHandler([StringSink? sink]) : _sink = sink ?? stdout;
+  JsonHandler([StringSink? sink])
+    : _write = _lineWriter(sink, error: false),
+      _std = sink == null;
 
-  final StringSink _sink;
+  final void Function(String line) _write;
+  final bool _std;
 
   @override
-  void handle(LogRecord record) => _sink.writeln(
+  void handle(LogRecord record) => _write(
     jsonEncode(record.toJson(), toEncodable: (Object? value) => '$value'),
   );
 
   @override
-  Future<void> close() async {}
+  Future<void> close() => _std ? _flushStd() : Future<void>.value();
 }
 
 /// `daravel-YYYY-MM-DD.log` files rotated daily, keeping [days] files.
+///
+/// [handle] only queues the line ([LogLineQueue]); one loop opens, writes
+/// and rotates the files. When a file cannot be opened or written (a full
+/// disk, a permission, a directory in its place) one notice goes to
+/// stderr, the lines are dropped and counted, and the file is opened again
+/// [retryAfter] later; the failure is never an uncaught error that could
+/// take a worker down. At most [maxPendingBytes] wait in memory when the
+/// disk is slower than the log rate. [close] waits up to [closeTimeout] for
+/// the lines already queued.
 final class DailyFileHandler implements LogHandler {
   /// Writes to one file per day in [directory], keeping [days] of them.
-  DailyFileHandler(this.directory, {this.name = 'daravel', this.days = 14});
+  DailyFileHandler(
+    this.directory, {
+    this.name = 'daravel',
+    this.days = 14,
+    int maxPendingBytes = LogLineQueue.defaultMaxPendingBytes,
+    this.retryAfter = const Duration(seconds: 5),
+    this.closeTimeout = const Duration(seconds: 10),
+  }) {
+    _queue = LogLineQueue(
+      _writeTo,
+      maxPendingBytes: maxPendingBytes,
+      label: 'The log file in $directory',
+    );
+  }
 
   /// The directory of the log files.
   final String directory;
@@ -187,8 +402,27 @@ final class DailyFileHandler implements LogHandler {
   /// Files kept after rotation (`0` = keep all).
   final int days;
 
-  IOSink? _sink;
+  /// How long after a failed open or write the file is tried again (lines
+  /// logged meanwhile are dropped).
+  final Duration retryAfter;
+
+  /// How long [close] waits for queued lines.
+  final Duration closeTimeout;
+
+  late final LogLineQueue _queue;
+  RandomAccessFile? _file;
   String? _currentDate;
+  DateTime? _retryAt;
+  bool _failing = false;
+
+  /// Bytes logged and not on disk yet.
+  int get pendingBytes => _queue.pendingBytes;
+
+  /// Lines dropped: the queue was full, or the file could not be written.
+  int get dropped => _queue.dropped;
+
+  /// Completes once the lines logged so far are written (or dropped).
+  Future<void> flush() => _queue.flush();
 
   /// Path of the file written for [date].
   String pathFor(DateTime date) {
@@ -201,19 +435,67 @@ final class DailyFileHandler implements LogHandler {
   }
 
   @override
-  void handle(LogRecord record) {
-    final date = pathFor(record.time);
-    if (date != _currentDate) {
-      _sink?.close().ignore();
-      _sink = null;
-      Directory(directory).createSync(recursive: true);
-      _sink = File(date).openWrite(mode: FileMode.append);
-      _currentDate = date;
+  void handle(LogRecord record) => _queue.add(
+    jsonEncode(record.toJson(), toEncodable: (Object? value) => '$value'),
+    target: pathFor(record.time),
+  );
+
+  /// Runs in the queue's loop only, one call at a time.
+  Future<void> _writeTo(Uint8List bytes, Object? target) async {
+    final path = target! as String;
+    var file = _file;
+    if (file == null || path != _currentDate) {
+      final retryAt = _retryAt;
+      if (retryAt != null && DateTime.now().isBefore(retryAt)) {
+        throw StateError('The log file is unavailable.');
+      }
+      // The previous day's file is flushed and closed before the next opens.
+      await _closeFile();
+      try {
+        await Directory(directory).create(recursive: true);
+        file = await File(path).open(mode: FileMode.append);
+      } catch (error) {
+        _fail(path, error);
+        rethrow;
+      }
+      _file = file;
+      _currentDate = path;
+      _retryAt = null;
+      if (_failing) {
+        _failing = false;
+        _notice('[daravel] Writing log file $path again.');
+      }
       _prune();
     }
-    _sink!.writeln(
-      jsonEncode(record.toJson(), toEncodable: (Object? value) => '$value'),
-    );
+    try {
+      await file.writeFrom(bytes);
+    } catch (error) {
+      _fail(path, error);
+      await _closeFile();
+      rethrow;
+    }
+  }
+
+  void _fail(String path, Object error) {
+    _retryAt = DateTime.now().add(retryAfter);
+    if (!_failing) {
+      _failing = true;
+      _notice(
+        '[daravel] Cannot write log file $path: $error. Log lines are '
+        'dropped; trying again every ${retryAfter.inSeconds}s.',
+      );
+    }
+  }
+
+  Future<void> _closeFile() async {
+    final file = _file;
+    _file = null;
+    _currentDate = null;
+    try {
+      await file?.close();
+    } catch (_) {
+      // Already broken; nothing more to flush.
+    }
   }
 
   void _prune() {
@@ -227,8 +509,8 @@ final class DailyFileHandler implements LogHandler {
     final pattern = RegExp(
       '^${RegExp.escape(name)}-\\d{4}-\\d{2}-\\d{2}\\.log\$',
     );
-    // The current file is opened asynchronously and may not exist yet, so
-    // it is never counted: keep it plus the `days - 1` newest others.
+    // The current file is never counted: keep it plus the `days - 1`
+    // newest others.
     final current = _currentDate == null ? null : p.basename(_currentDate!);
     final files = dir.listSync().whereType<File>().where((f) {
       final base = p.basename(f.path);
@@ -245,11 +527,12 @@ final class DailyFileHandler implements LogHandler {
 
   @override
   Future<void> close() async {
-    final sink = _sink;
-    _sink = null;
-    _currentDate = null;
-    await sink?.flush();
-    await sink?.close();
+    await _queue.flush(closeTimeout);
+    // Past the timeout a write is still running: the loop closes nothing
+    // under it, and the file goes with the process.
+    if (_queue.isIdle) {
+      await _closeFile();
+    }
   }
 }
 

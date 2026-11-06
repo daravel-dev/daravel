@@ -1,4 +1,4 @@
-<!-- source: operations.md sha256:d398e563d287 -->
+<!-- source: operations.md sha256:ba596c4c9616 -->
 # Operasional
 
 Menjalankan Daravel di bawah trafik nyata: berapa isolate, berapa koneksi
@@ -151,6 +151,8 @@ setiap worker digabungkan.
 | `http_requests_in_flight{worker}` | satu worker jauh lebih sibuk daripada yang lain: distribusi koneksi (lihat di atas) |
 | `http_requests_total{status}` | porsi `5xx` |
 | `process_resident_memory_bytes` | pertumbuhan terus-menerus selama berjam-jam atau berhari-hari |
+| `log_lines_dropped_total` | kenaikan apa pun: stdout, stderr, atau file log tertinggal atau gagal (pipe yang tidak dibaca, disk penuh), sehingga baris log dibuang alih-alih memblokir worker atau memenuhi memorinya |
+| `shadow_replays_dropped_total`, `shadow_replays_failed_total` | dengan replay shadow `withUpstream`: laju replay yang dilewati yang terus-menerus (naikkan `UPSTREAM_SHADOW_MAX_CONCURRENCY` atau turunkan sample rate) atau replay yang tidak dijawab Laravel |
 | `coordinator_messages_total` | lajunya (`rate(...[1m])`) yang ikut naik bersama trafik: setiap worker bertanya ke coordinator, yang menjawab di event loop supervisor |
 | `coordinator_call_duration_seconds{service}` | p99 di atas sekitar 2 ms: rate limit, baca cache process, dan lock menunggu coordinator |
 | `coordinator_rejected_total`, `coordinator_in_flight_peak` dibandingkan `coordinator_max_queue` | penolakan apa pun, atau puncak yang mendekati batas |

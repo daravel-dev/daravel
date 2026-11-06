@@ -45,7 +45,8 @@ const Map<String, Set<String>> allowedDependencies = {
     'database',
     'storage',
   },
-  'auth': {'foundation', 'http', 'database'},
+  // Password hashing runs on a bounded compute pool (#163).
+  'auth': {'foundation', 'http', 'database', 'concurrency'},
   'server': {'foundation', 'http', 'cache', 'logging', 'observability'},
   'cache': {'foundation', 'database', 'server'},
   'events': {'foundation', 'queue'},
@@ -59,7 +60,14 @@ const Map<String, Set<String>> allowedDependencies = {
     'server',
   },
   'schedule': {'foundation', 'cache', 'events', 'logging', 'queue', 'server'},
-  'observability': {'foundation', 'cache', 'database', 'http', 'server'},
+  'observability': {
+    'foundation',
+    'cache',
+    'database',
+    'http',
+    'logging',
+    'server',
+  },
   'support': {
     'foundation',
     'auth',
