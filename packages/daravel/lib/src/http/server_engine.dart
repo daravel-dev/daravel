@@ -7,6 +7,7 @@ import '../foundation/env.dart';
 import '../logging/logger.dart';
 import '../support/request_id.dart';
 import 'exception_handler.dart';
+import 'headers.dart';
 import 'http_exceptions.dart';
 import 'kernel.dart';
 import 'request.dart';
@@ -348,8 +349,12 @@ final class ServerEngine {
   /// connection (never longer than [ServeOptions.requestTimeout]).
   static const Duration unreadBodyDrainTimeout = Duration(seconds: 1);
 
-  /// Takes the body of [httpRequest] off `dart:io` and throws it away;
-  /// completes once all of it has arrived (or the connection failed), or
+  /// How long a connection closed under a client still sending its body
+  /// keeps reading (and throwing away) what arrives after the response,
+  /// so the client reads the response before the connection goes.
+  static const Duration _linger = Duration(seconds: 1);
+
+  /// Takes the body of [httpRequest] off `dart:io` and throws it away, or
   /// returns `null` for a request without a body.
   ///
   /// Without a listener, `dart:io` reads the whole declared body before it
@@ -357,52 +362,119 @@ final class ServerEngine {
   /// body slowly, or never, held the response and its in-flight slot for as
   /// long as it kept the socket open, and a `413` refusing a declared
   /// gigabyte was sent only after the gigabyte (#144). With one, the
-  /// response goes out at once, and `dart:io` closes the connection after it
-  /// unless the body had arrived in full by then.
-  static Future<void>? _discardBody(HttpRequest httpRequest) {
+  /// response goes out at once.
+  static _DiscardedBody? _discardBody(HttpRequest httpRequest) {
     if (httpRequest.contentLength == 0) {
       return null;
     }
-    final arrived = Completer<void>();
-    void done() {
-      if (!arrived.isCompleted) {
-        arrived.complete();
-      }
-    }
-
+    final body = _DiscardedBody();
     try {
-      httpRequest.listen(null, onError: (Object _) => done(), onDone: done);
+      httpRequest.listen(
+        null,
+        onError: (Object _) => body._end(),
+        onDone: body._end,
+      );
     } on StateError {
       return null; // Already listened to.
     }
-    return arrived.future;
+    return body;
   }
 
   /// Before answering a request whose body nothing read: waits for a small
-  /// body to arrive, briefly, to keep the connection; otherwise lets the
-  /// response go out at once (see [_discardBody]).
-  Future<void> _settleUnreadBody(HttpRequest httpRequest) async {
-    final arrived = _discardBody(httpRequest);
+  /// body to arrive, briefly, to keep the connection (see [_discardBody]).
+  Future<_DiscardedBody?> _settleUnreadBody(HttpRequest httpRequest) async {
+    final body = _discardBody(httpRequest);
     final declared = httpRequest.contentLength;
-    if (arrived == null || declared < 0 || declared > unreadBodyDrainLimit) {
-      return;
+    if (body == null || declared < 0 || declared > unreadBodyDrainLimit) {
+      return body;
     }
     final requestTimeout = options.requestTimeout;
     final wait =
         requestTimeout != null && requestTimeout < unreadBodyDrainTimeout
         ? requestTimeout
         : unreadBodyDrainTimeout;
-    await arrived.timeout(wait, onTimeout: () {});
+    await body.arrival.timeout(wait, onTimeout: () {});
+    return body;
+  }
+
+  /// Writes [response] to a client that may still be sending a body the
+  /// server will not read, and closes the connection after it.
+  ///
+  /// Left to `dart:io`, the socket would be destroyed right after the
+  /// response, and the body bytes still arriving would make the server's
+  /// system answer with a reset, which can discard the response before the
+  /// client reads it. As Go's `net/http` and nginx do, the connection is
+  /// half-closed after the response instead and keeps reading what arrives
+  /// for up to [_linger]. Only for a response held in memory; a streamed
+  /// one goes out through [Response.writeTo].
+  static Future<void> _writeClosing(
+    HttpRequest httpRequest,
+    Response response,
+  ) async {
+    // Closed by detachSocket below.
+    // ignore: close_sinks
+    final out = httpRequest.response;
+    out.statusCode = response.status;
+    for (final entry in response.headers.entries) {
+      if (entry.key == 'content-length') {
+        continue;
+      }
+      out.headers.removeAll(entry.key);
+      for (final value in entry.value) {
+        out.headers.add(entry.key, value);
+      }
+    }
+    out.persistentConnection = false;
+    final status = response.status;
+    final allowsBody = status >= 200 && status != 204 && status != 304;
+    var payload = const <int>[];
+    switch (response.body) {
+      case EmptyBody():
+        if (allowsBody) {
+          out.contentLength = response.contentLengthOverride ?? 0;
+        }
+      case BytesBody(:final bytes):
+        if (allowsBody) {
+          out.contentLength = bytes.length;
+          payload = bytes;
+        }
+      case StreamBody():
+        throw StateError('A streamed response is written by writeTo.');
+    }
+    if (httpRequest.method == 'HEAD') {
+      payload = const <int>[];
+    }
+    final socket = await out.detachSocket();
+    final closed = Completer<void>();
+    void end() {
+      if (!closed.isCompleted) {
+        closed.complete();
+      }
+    }
+
+    socket.listen(
+      null,
+      onError: (Object _) => end(),
+      onDone: end,
+      cancelOnError: true,
+    );
+    socket.add(payload);
+    // Sends the response and then FIN; reading continues.
+    unawaited(socket.close().catchError((Object _) => end()));
+    unawaited(
+      closed.future
+          .timeout(_linger, onTimeout: () {})
+          .whenComplete(socket.destroy),
+    );
   }
 
   /// Answers `503` without routing, scope or body read. A body-less
   /// request (most `GET`s) keeps its keep-alive connection, which costs the
   /// server less than a reconnect; one with a body is answered without
-  /// waiting for it, and its connection is closed unless the body had
-  /// already arrived, so a client streaming into an overloaded worker is
-  /// not kept.
+  /// waiting for it, and its connection is closed after the answer, so a
+  /// client streaming into an overloaded worker is not kept.
   void _shedRequest(HttpRequest httpRequest) {
-    unawaited(_discardBody(httpRequest));
+    final body = _discardBody(httpRequest);
     _shed++;
     onShed?.call();
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -418,6 +490,23 @@ final class ServerEngine {
         '${httpRequest.method} ${httpRequest.uri.path} with 503 '
         '($_shed refused so far).',
       );
+    }
+    if (body != null) {
+      final refusal = Response(
+        status: HttpStatus.serviceUnavailable,
+        headers: Headers(const <String, Object>{
+          'content-type': 'application/json',
+          'retry-after': '1',
+          'cache-control': 'no-store',
+        }),
+        body: BytesBody(utf8.encode('{"message":"Service Unavailable"}')),
+      );
+      unawaited(
+        _writeClosing(httpRequest, refusal).catchError((Object _) {
+          // Client gone.
+        }),
+      );
+      return;
     }
     final response = httpRequest.response
       ..statusCode = HttpStatus.serviceUnavailable
@@ -615,7 +704,7 @@ final class ServerEngine {
   /// [Request.fromHttpRequest]) with its [HttpException] status, or 400, and
   /// closes the connection: nothing of it was read or trusted.
   void _rejectMalformed(HttpRequest httpRequest, String id, Object error) {
-    unawaited(_discardBody(httpRequest));
+    _discardBody(httpRequest);
     final status = error is HttpException
         ? error.status
         : HttpStatus.badRequest;
@@ -713,14 +802,21 @@ final class ServerEngine {
                   }
                   return;
                 }
+                _DiscardedBody? unread;
                 if (request.hasUnreadBody) {
                   // A 404, 401, 429, 413 or a handler that ignores the
                   // body: answer without waiting for it.
                   request.detachBody();
-                  await _settleUnreadBody(raw!);
+                  unread = await _settleUnreadBody(raw!);
                 }
                 try {
-                  await response.writeTo(raw!.response);
+                  if (unread != null &&
+                      !unread.arrived &&
+                      response.body is! StreamBody) {
+                    await _writeClosing(raw!, response);
+                  } else {
+                    await response.writeTo(raw!.response);
+                  }
                 } catch (error) {
                   logger.warning(
                     'Failed to write response for request $id: $error',
@@ -753,5 +849,22 @@ final class ServerEngine {
             );
           }),
     );
+  }
+}
+
+/// A request body the server takes off the connection and throws away.
+final class _DiscardedBody {
+  final Completer<void> _arrival = Completer<void>();
+
+  /// Whether all of it has arrived (or the connection failed).
+  bool get arrived => _arrival.isCompleted;
+
+  /// Completes when it has.
+  Future<void> get arrival => _arrival.future;
+
+  void _end() {
+    if (!_arrival.isCompleted) {
+      _arrival.complete();
+    }
   }
 }

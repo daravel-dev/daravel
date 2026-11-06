@@ -190,4 +190,48 @@ void main() {
     gate.complete();
     await (await held).drain<void>();
   });
+
+  test('a client still sending a large body reads the response', () async {
+    final engine = await serve();
+    final socket = await Socket.connect('127.0.0.1', engine.port!);
+    addTearDown(socket.destroy);
+    final received = <int>[];
+    final closed = Completer<void>();
+    socket.listen(
+      received.addAll,
+      onError: (Object _) {
+        if (!closed.isCompleted) {
+          closed.complete();
+        }
+      },
+      onDone: () {
+        if (!closed.isCompleted) {
+          closed.complete();
+        }
+      },
+      cancelOnError: true,
+    );
+    const size = 8 << 20;
+    socket.write(
+      'POST /missing HTTP/1.1\r\nHost: localhost\r\n'
+      'Accept: application/json\r\nContent-Length: $size\r\n\r\n',
+    );
+    // The whole body, as fast as the connection takes it: the 404 is
+    // written while it still arrives, and the server must not reset the
+    // connection before the client has read the 404.
+    for (var sent = 0; sent < size; sent += 1 << 20) {
+      socket.add(List<int>.filled(1 << 20, 0x61));
+    }
+    try {
+      await socket.flush();
+    } on SocketException {
+      // The server closed its side after the response.
+    }
+    await closed.future.timeout(const Duration(seconds: 10));
+    expect(
+      utf8.decode(received, allowMalformed: true),
+      startsWith('HTTP/1.1 404'),
+    );
+    await waitFor(() => engine.inFlight == 0, 'the slot is released');
+  });
 }
