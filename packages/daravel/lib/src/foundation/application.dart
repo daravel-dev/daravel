@@ -69,6 +69,7 @@ import '../broadcasting/broadcast_config.dart';
 import '../broadcasting/broadcast_manager.dart';
 import '../broadcasting/channel_registry.dart';
 import '../broadcasting/cluster.dart';
+import '../broadcasting/pusher_observer.dart';
 import '../broadcasting/pusher_server.dart';
 import '../server/broadcast.dart';
 import '../server/coordinator.dart';
@@ -482,10 +483,12 @@ final class Application {
                   apps: apps,
                   onError: (message, error) =>
                       c.make<Logger>().warning('$message: $error'),
-                  onRejected: (reason) => metrics.recordReverbRejected(
-                    reason,
-                    app: broadcasting.appId,
-                  ),
+                  // Metrics by application, and this isolate's report to
+                  // the coordinator for Pulse and the dashboard.
+                  observer: PusherObservers([
+                    _ReverbMetrics(metrics),
+                    c.make<ReverbStats>(),
+                  ]),
                 )
               : null,
           http: c.make<HttpClientFactory>(),
@@ -495,6 +498,15 @@ final class Application {
       })
       ..instance<EventDispatcher>(events)
       ..instance<AppMetrics>(metrics)
+      ..singleton<ReverbStats>(
+        (c) => ReverbStats(
+          c.make<CoordinatorChannel>(),
+          interval: c
+              .make<ConfigRepository>()
+              .section<BroadcastConfig>()
+              .pulseIngestInterval,
+        ),
+      )
       ..instance<SlowClients>(
         SlowClients(onSlowClient: metrics.recordSlowClient),
       )
@@ -2055,4 +2067,41 @@ final class _UpstreamConfig {
   final Set<String>? shadowIgnoreHeaders;
   final Set<String> Function(Request request)? shadowNormalizeKeys;
   final Set<String>? shadowFreshCookies;
+}
+
+/// The Pusher server's activity as `/metrics` series
+/// (`reverb_connections`, `reverb_channels`, `reverb_messages_total`,
+/// `reverb_fanout_seconds`, `reverb_rejected_total`).
+final class _ReverbMetrics extends PusherObserver {
+  _ReverbMetrics(this._metrics);
+
+  final AppMetrics _metrics;
+
+  @override
+  void connectionOpened(String app) => _metrics.recordReverbConnection(app, 1);
+
+  @override
+  void connectionClosed(String app) => _metrics.recordReverbConnection(app, -1);
+
+  @override
+  void subscribed(String app, String channel) => _metrics
+      .recordReverbSubscription(app, PusherObserver.channelType(channel), 1);
+
+  @override
+  void unsubscribed(String app, String channel) => _metrics
+      .recordReverbSubscription(app, PusherObserver.channelType(channel), -1);
+
+  @override
+  void received(String app) => _metrics.recordReverbMessage(app, 'in');
+
+  @override
+  void sent(String app) => _metrics.recordReverbMessage(app, 'out');
+
+  @override
+  void published(String app, Duration took) =>
+      _metrics.recordReverbFanout(app, took);
+
+  @override
+  void rejected(String app, String reason) =>
+      _metrics.recordReverbRejected(reason, app: app);
 }

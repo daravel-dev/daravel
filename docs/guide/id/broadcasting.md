@@ -1,4 +1,4 @@
-<!-- source: broadcasting.md sha256:ca69a22e9ab3 -->
+<!-- source: broadcasting.md sha256:0d7698c9f3c9 -->
 # Broadcasting
 
 Daravel berbicara dengan protokol Pusher, seperti Laravel Reverb, di port
@@ -301,6 +301,41 @@ channels.channel(
 sama dengan `ChannelRegistry.describe()`), dan
 `Application.broadcastChannels` memberikan registry itu ke tool Anda
 sendiri.
+
+## Menguji broadcast
+
+`Broadcast.fake()` merekam broadcast alih-alih mengirimnya, dengan aturan
+transaksi tetap berlaku: broadcast yang dibuat di dalam transaksi yang
+di-rollback tidak terekam, karena memang tidak akan terkirim. Laravel
+menguji hal yang sama dengan `Event::fake()`.
+
+```dart
+final broadcasts = Broadcast.fake();
+await client.post('/orders/7/ship');
+broadcasts
+  ..assertBroadcasted<OrderShipped>(channel: 'private-orders.7')
+  ..assertBroadcasted<OrderShipped>(where: (e) => e.order.id == 7)
+  ..assertBroadcastedTimes<OrderShipped>(1)
+  ..assertSent('price.updated', channel: 'prices') // Broadcast.send(...)
+  ..assertNothingBroadcastedTo('private-admin');
+Broadcast.restore();
+```
+
+`assertNotBroadcasted<E>()` dan `assertNothingBroadcasted()` memeriksa
+kebalikannya; `broadcasts.broadcasts` berisi setiap `BroadcastRecord`
+(event, channel, data, koneksi yang dikecualikan, objek event).
+
+## Memantau server
+
+`/metrics` memuat, per aplikasi: `reverb_connections` (juga per worker
+isolate), `reverb_channels` (subscription per tipe channel),
+`reverb_messages_total` (`direction="in"` dari client, `"out"` ke client),
+`reverb_fanout_seconds` (lama satu frame sampai ke setiap isolate dan
+server lain), dan `reverb_rejected_total` (beserta `reason`-nya). Setiap
+worker isolate juga melaporkan aktivitasnya ke coordinator setiap
+`REVERB_PULSE_INGEST_INTERVAL` detik (15) selama ada koneksi, yang
+ditampilkan Pulse sebagai kartu *Reverb*. `PusherServer(observer:)`
+menerima `PusherObserver` buatan Anda sendiri.
 
 ## Kapasitas
 

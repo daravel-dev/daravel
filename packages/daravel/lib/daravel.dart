@@ -143,6 +143,7 @@ export 'src/broadcasting/broadcast_config.dart';
 export 'src/broadcasting/broadcast_manager.dart';
 export 'src/broadcasting/channel_registry.dart';
 export 'src/broadcasting/cluster.dart';
+export 'src/broadcasting/pusher_observer.dart';
 export 'src/broadcasting/pusher_server.dart';
 export 'src/broadcasting/pusher_signature.dart';
 export 'src/server/broadcast.dart';

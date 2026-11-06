@@ -12,6 +12,7 @@ import '../server/coordinator.dart';
 import 'app_provider.dart';
 import 'broadcast_config.dart';
 import 'cluster.dart';
+import 'pusher_observer.dart';
 import 'pusher_signature.dart';
 
 /// A Pusher protocol server (version 7), as Laravel Reverb is: Laravel
@@ -34,11 +35,27 @@ final class PusherServer {
     this.onError,
     this.onRejected,
     BroadcastAppProvider? apps,
+    this.observer = const PusherObserver(),
   }) : _coordinator = coordinator,
        _state = state ?? _CoordinatorChannelState(coordinator),
        apps = apps ?? SingleAppProvider.fromConfig(config);
 
   final CoordinatorChannel _coordinator;
+
+  /// Told about connections, subscriptions, messages, fan-out and
+  /// refusals, per application (metrics, Pulse, the dashboard).
+  final PusherObserver observer;
+
+  /// The application id of [topic] ([topicOf]).
+  String appOf(String topic) {
+    final colon = topic.indexOf(':');
+    return colon < 0 ? config.appId : topic.substring(0, colon);
+  }
+
+  void _rejected(String reason, BroadcastApp app) {
+    onRejected?.call(reason);
+    observer.rejected(app.id, reason);
+  }
 
   /// The applications served (`withBroadcasting(apps:)`); by default the
   /// one of the `REVERB_APP_*` settings.
@@ -135,8 +152,10 @@ final class PusherServer {
       await _call('cache_set', {'channel': topic, 'frame': text});
     }
     final envelope = '${except ?? ''}\n$text';
+    final watch = Stopwatch()..start();
     await _broadcaster.publish(topic, envelope);
     await relay?.send(topic, envelope);
+    observer.published(appOf(topic), watch.elapsed);
   }
 
   /// Pusher's channel name rule: at most 164 characters of `A-Z a-z 0-9`
@@ -176,7 +195,7 @@ final class PusherServer {
     // Reverb checks the quota first, before the origin.
     if (app.maxConnections > 0) {
       if (!await _open(id, app)) {
-        onRejected?.call('connection_quota');
+        _rejected('connection_quota', app);
         socket.add(_error(4004, 'Application is over connection quota'));
         await socket.close();
         return;
@@ -246,6 +265,7 @@ final class PusherServer {
       }
     }
     final connection = _Connection(this, socket, id, app);
+    observer.connectionOpened(app.id);
     socket.pingInterval = Duration(seconds: app.activityTimeout);
     connection.send(
       jsonEncode({
@@ -276,7 +296,11 @@ final class PusherServer {
     } on Object {
       // The connection dropped.
     } finally {
-      await connection.close();
+      try {
+        await connection.close();
+      } finally {
+        observer.connectionClosed(app.id);
+      }
     }
   }
 
@@ -557,6 +581,7 @@ final class _Connection {
     }
     try {
       _socket.add(text);
+      _server.observer.sent(_app.id);
     } on StateError {
       // Closed by this side and not done yet (dart:io keeps closeCode null
       // until the peer answers): nothing more goes out.
@@ -567,8 +592,9 @@ final class _Connection {
       send(PusherServer._error(code, message));
 
   Future<void> receive(Object? message) async {
+    _server.observer.received(_app.id);
     if (!_withinRateLimit()) {
-      _server.onRejected?.call('rate_limit');
+      _server._rejected('rate_limit', _app);
       _error(4301, 'Rate limit exceeded');
       if (_app.rateLimiting?.terminate ?? false) {
         await _socket.close(4301, 'Rate limit exceeded');
@@ -618,7 +644,7 @@ final class _Connection {
         if (most > 0 &&
             _subscriptions.length >= most &&
             !_subscriptions.containsKey(channel)) {
-          _server.onRejected?.call('channel_limit');
+          _server._rejected('channel_limit', _app);
           return _error(
             4300,
             'Too many channels on this connection (at most $most)',
@@ -639,7 +665,7 @@ final class _Connection {
       case _ when event.startsWith('client-'):
         if (!_allowClientEvent()) {
           // Dropped, the connection kept, as Pusher does.
-          _server.onRejected?.call('client_event_rate');
+          _server._rejected('client_event_rate', _app);
           return _error(4301, 'Rate limit exceeded');
         }
         await _whisper(event, payload);
@@ -744,6 +770,7 @@ final class _Connection {
         }
       });
       _subscriptions[channel] = subscription;
+      _server.observer.subscribed(_app.id, channel);
     }
     final Map<Object?, Object?> joined;
     try {
@@ -815,6 +842,7 @@ final class _Connection {
       return;
     }
     await subscription.cancel();
+    _server.observer.unsubscribed(_app.id, channel);
     await _leave(channel);
   }
 

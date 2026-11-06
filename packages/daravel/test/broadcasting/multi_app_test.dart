@@ -232,6 +232,44 @@ void main() {
     },
     tags: ['security'],
   );
+
+  test('metrics and the worker report are per application', () async {
+    final a = await _Client.connect(url(appA.key));
+    final b = await _Client.connect(url(appB.key));
+    await a.subscribe('news');
+    await b.subscribe('room');
+    await publish(appB, 'news', {'n': 1});
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+
+    final text = await app.run(() => App.make<AppMetrics>().render());
+    expect(
+      text,
+      contains(RegExp(r'reverb_connections\{app="42",worker="[^"]*"\} 1')),
+    );
+    expect(
+      text,
+      contains(RegExp(r'reverb_connections\{app="7",worker="[^"]*"\} 1')),
+    );
+    expect(text, contains('reverb_channels{app="42",type="public"} 1'));
+    expect(text, contains('reverb_messages_total{app="42",direction="in"} 1'));
+    expect(text, contains('reverb_fanout_seconds_count{app="7"} 1'));
+
+    final stats = app.container.make<ReverbStats>();
+    final report = stats.report();
+    expect((report['42']! as Map)['connections'], 1);
+    expect((report['7']! as Map)['channels'], {'public': 1});
+    expect((report['42']! as Map)['received'], 1);
+    expect((report['7']! as Map)['fanout_p50_ms'], isNotNull);
+    expect(
+      (stats.report()['42']! as Map)['received'],
+      0,
+      reason: 'counts restart after each report',
+    );
+
+    await a.close();
+    await b.close();
+    expect(stats.connections, 0);
+  });
 }
 
 final class _Client {

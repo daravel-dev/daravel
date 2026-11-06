@@ -289,6 +289,41 @@ channels.channel(
 `ChannelRegistry.describe()`), and `Application.broadcastChannels` gives
 the registry to your own tools.
 
+## Testing broadcasts
+
+`Broadcast.fake()` records broadcasts instead of sending them, with the
+transaction rules kept: a broadcast made in a transaction that rolls back
+is not recorded, as it would not be sent. Laravel tests the same with
+`Event::fake()`.
+
+```dart
+final broadcasts = Broadcast.fake();
+await client.post('/orders/7/ship');
+broadcasts
+  ..assertBroadcasted<OrderShipped>(channel: 'private-orders.7')
+  ..assertBroadcasted<OrderShipped>(where: (e) => e.order.id == 7)
+  ..assertBroadcastedTimes<OrderShipped>(1)
+  ..assertSent('price.updated', channel: 'prices') // Broadcast.send(...)
+  ..assertNothingBroadcastedTo('private-admin');
+Broadcast.restore();
+```
+
+`assertNotBroadcasted<E>()` and `assertNothingBroadcasted()` check the
+opposite; `broadcasts.broadcasts` holds every `BroadcastRecord` (event,
+channels, data, the connection left out, the event object).
+
+## Watching the server
+
+`/metrics` has, by application: `reverb_connections` (and by worker
+isolate), `reverb_channels` (subscriptions by channel type),
+`reverb_messages_total` (`direction="in"` from clients, `"out"` to them),
+`reverb_fanout_seconds` (how long one frame takes to reach every isolate
+and the other servers) and `reverb_rejected_total` (with its `reason`).
+Each worker isolate also reports its activity to the coordinator every
+`REVERB_PULSE_INGEST_INTERVAL` seconds (15) while it has connections, which
+Pulse shows as its *Reverb* card. `PusherServer(observer:)` takes a
+`PusherObserver` of your own.
+
 ## Capacity
 
 `bench/interop/connections.sh` opens idle Echo connections against the AOT
