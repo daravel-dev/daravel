@@ -1,4 +1,4 @@
-<!-- source: deployment.md sha256:9b66074c3102 -->
+<!-- source: deployment.md sha256:b66892ac75b2 -->
 # Deployment
 
 ## Konsep & Arsitektur Ahead-of-Time (AOT) Single Binary

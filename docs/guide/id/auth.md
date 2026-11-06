@@ -1,4 +1,4 @@
-<!-- source: auth.md sha256:6e56a3a5b0ef -->
+<!-- source: auth.md sha256:0136fbb6015c -->
 # Autentikasi dan otorisasi
 
 Guard didaftarkan di `bootstrap/app.dart`:

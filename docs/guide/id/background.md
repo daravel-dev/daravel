@@ -1,4 +1,4 @@
-<!-- source: background.md sha256:d8b5f3c29648 -->
+<!-- source: background.md sha256:401e00f2c375 -->
 # Cache, event, queue, dan penjadwalan
 
 <!-- include: packages/daravel/test/docs/guide_examples_test.dart#cache-events-queue -->

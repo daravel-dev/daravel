@@ -1,4 +1,4 @@
-<!-- source: dartisan.md sha256:adefb2c8aeca -->
+<!-- source: dartisan.md sha256:90e5e92740c2 -->
 # dartisan
 
 `dartisan` adalah `artisan`-nya Daravel. Pasang sekali, lalu pakai di proyek
