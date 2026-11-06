@@ -117,6 +117,9 @@ void main() {
               r.ws(
                 '/flood',
                 (socket, request) => flooded = socket,
+                // Uncompressed: a frame of one repeated letter would deflate to
+                // almost nothing and never fill the socket.
+                compress: false,
                 maxBufferedBytes: 64 * 1024,
               );
               r.ws('/rooms/{room}', (socket, request) {
