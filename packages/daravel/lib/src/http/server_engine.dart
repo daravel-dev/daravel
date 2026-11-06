@@ -31,6 +31,7 @@ final class ServeOptions {
     this.readyTimeout = const Duration(seconds: 30),
     this.embedQueue = false,
     this.embedScheduler = false,
+    this.embedWorkers = const <String>[],
     this.maxInFlight,
     this.maxQueueDelay,
     this.maxBodyBytes = defaultMaxBodyBytes,
@@ -54,6 +55,7 @@ final class ServeOptions {
     int? isolates,
     bool? embedQueue,
     bool? embedScheduler,
+    List<String>? embedWorkers,
     int? maxInFlight,
     Duration? maxQueueDelay,
   }) {
@@ -79,6 +81,12 @@ final class ServeOptions {
       ),
       embedQueue: embedQueue ?? env.boolean('SERVER_EMBED_QUEUE'),
       embedScheduler: embedScheduler ?? env.boolean('SERVER_EMBED_SCHEDULER'),
+      embedWorkers: [
+        for (final name
+            in embedWorkers ??
+                env.list('SERVER_EMBED_WORKERS', const <String>[]))
+          if (name.trim().isNotEmpty) name.trim(),
+      ],
       maxInFlight: maxInFlight == null
           ? _maxInFlightFromEnv(env)
           : maxInFlight == 0
@@ -169,6 +177,11 @@ final class ServeOptions {
   /// Runs the scheduler in its own isolate, so no cron entry is needed
   /// (`serve --embed-scheduler`, `SERVER_EMBED_SCHEDULER`).
   final bool embedScheduler;
+
+  /// Embedded isolates registered with `withEmbeddedWorker`, run beside
+  /// the HTTP server (`serve --embed-worker=<name>`, repeatable;
+  /// `SERVER_EMBED_WORKERS=a,b`).
+  final List<String> embedWorkers;
 
   /// Load shedding (`HTTP_MAX_IN_FLIGHT`, `serve --max-in-flight`): the
   /// most requests one worker isolate handles at once. Beyond it a request

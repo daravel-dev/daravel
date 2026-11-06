@@ -404,6 +404,8 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `php artisan queue:pause database:default / queue:continue` | `dartisan queue:pause database:default / queue:continue` |  |
 | `public $maxExceptions = 3;` | `int? get maxExceptions => 3;` |  |
 | `php artisan queue:work --memory=128` | `dartisan queue:work --memory=128` |  |
+| `(none)` | `.withEmbeddedWorker('indexer', (app, control) async {...}); dartisan serve --embed-worker=indexer` | Daravel-only: an isolate of a package or the application beside the HTTP server, with the queue worker's respawn and stop (daravel_horizon's supervisor). |
+| `(none)` | `.withCoordinatorService(MyService.new)` | Daravel-only: process-wide state every worker isolate reaches, in every topology. |
 | `class SendEmail implements ShouldQueue` | `final class SendEmail extends Job` |  |
 | `event(new OrderShipped($order))` | `await Event.dispatch(OrderShipped(order))` | **async** |
 | `Event::listen(OrderShipped::class, fn)` | `Event.listen<OrderShipped>((e) async {...})` |  |

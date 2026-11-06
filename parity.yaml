@@ -369,6 +369,8 @@ sections:
       - { php: "php artisan queue:pause database:default / queue:continue", dart: "dartisan queue:pause database:default / queue:continue", symbol: QueueManager.pause }
       - { php: "public $maxExceptions = 3;", dart: "int? get maxExceptions => 3;", symbol: Job.maxExceptions }
       - { php: "php artisan queue:work --memory=128", dart: "dartisan queue:work --memory=128", symbol: WorkerOptions.memory }
+      - { php: "(none)", dart: ".withEmbeddedWorker('indexer', (app, control) async {...}); dartisan serve --embed-worker=indexer", symbol: ApplicationBuilder.withEmbeddedWorker, note: "Daravel-only: an isolate of a package or the application beside the HTTP server, with the queue worker's respawn and stop (daravel_horizon's supervisor)." }
+      - { php: "(none)", dart: ".withCoordinatorService(MyService.new)", symbol: ApplicationBuilder.withCoordinatorService, note: "Daravel-only: process-wide state every worker isolate reaches, in every topology." }
       - { php: "class SendEmail implements ShouldQueue", dart: "final class SendEmail extends Job", symbol: Job }
       - { php: "event(new OrderShipped($order))", dart: "await Event.dispatch(OrderShipped(order))", symbol: Event.dispatch, async: true }
       - { php: "Event::listen(OrderShipped::class, fn)", dart: "Event.listen<OrderShipped>((e) async {...})", symbol: Event.listen }
