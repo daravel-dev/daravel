@@ -648,8 +648,11 @@ final class FileStore
   /// When the last background prune started (`Clock`, milliseconds).
   int? _lastPrune;
 
-  /// The background prune running, if any (tests await it).
-  Future<int>? get pruning => _pruning;
+  /// The last background prune started, running or done (tests await it).
+  Future<int>? get pruning => _lastRun;
+  Future<int>? _lastRun;
+
+  /// The background prune running, if any (one at a time).
   Future<int>? _pruning;
 
   /// A lock file that is empty or unreadable this long after its last
@@ -775,6 +778,7 @@ final class FileStore
     _lastPrune = now;
     final run = pruneExpired().catchError((Object _) => 0);
     _pruning = run;
+    _lastRun = run;
     run.whenComplete(() {
       if (identical(_pruning, run)) {
         _pruning = null;
