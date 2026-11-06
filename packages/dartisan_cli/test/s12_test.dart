@@ -48,6 +48,15 @@ void main() {
         'subject': 'Thing',
         'idType': 'int',
         'idParse': 'int.parse(raw)',
+        // job.model (make:job --model)
+        'imports': "import 'package:daravel/daravel.dart';",
+        'params': 'required this.user',
+        'fromJson': 'user: ModelRef<User>(() => User.definition, 1),',
+        'fields': 'final ModelRef<User> user;',
+        'tags': "'User:1'",
+        'toJson': "'user': user.toJson(),",
+        'dispatch': 'user: ModelRef.of(user)',
+        'resolve': '// final user = await this.user.resolve();',
       };
       for (final entry in builtInStubs.entries) {
         expect(

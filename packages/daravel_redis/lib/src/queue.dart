@@ -43,7 +43,12 @@ enum RedisQueueEngine {
 ///
 /// Delivery is at least once: a reserved job not deleted within
 /// [retryAfter] runs again, as with the database queue.
-final class RedisQueue implements WakeableQueueDriver, ReservingQueueDriver {
+final class RedisQueue
+    implements
+        WakeableQueueDriver,
+        ReservingQueueDriver,
+        BrowsableQueueDriver,
+        ReclaimableQueueDriver {
   /// A queue in Redis, as Laravel's `redis` queue driver.
   RedisQueue(
     this.client, {
@@ -437,6 +442,151 @@ return #ids''');
             args: [_jobPrefix(queue), engine.name],
           ))!
           as int;
+
+  // -------------------------------------------------------------------
+  // Browsing and reclaiming (daravel_horizon).
+
+  /// The jobs of a page of ids: `{id, payload, attempts, available_at}`
+  /// for each id whose hash still exists. `ARGV[1]`/`ARGV[2]` bound the
+  /// page; `ARGV[3]` is the job hash prefix; `ARGV[4]` picks the source:
+  /// `list` (ready ids of the list engine), `zset` (the delayed set) or
+  /// `stream` (entries the consumer group has not read yet).
+  static final RedisScript _browse = RedisScript('''
+local first, last = tonumber(ARGV[1]), tonumber(ARGV[2])
+local ids = {}
+if ARGV[4] == 'list' then
+  ids = redis.call('LRANGE', KEYS[1], first, last)
+elseif ARGV[4] == 'zset' then
+  ids = redis.call('ZRANGE', KEYS[1], first, last)
+else
+  local after = '-'
+  local groups = redis.pcall('XINFO', 'GROUPS', KEYS[1])
+  if type(groups) == 'table' and not groups.err then
+    for _, group in ipairs(groups) do
+      local fields = {}
+      for i = 1, #group, 2 do
+        fields[group[i]] = group[i + 1]
+      end
+      if fields['name'] == ARGV[5] and fields['last-delivered-id'] ~= '0-0' then
+        after = '(' .. fields['last-delivered-id']
+      end
+    end
+  end
+  local entries = redis.pcall('XRANGE', KEYS[1], after, '+', 'COUNT', last + 1)
+  if type(entries) == 'table' and not entries.err then
+    for i = first + 1, #entries do
+      if entries[i][2] then
+        table.insert(ids, entries[i][2][2])
+      end
+    end
+  end
+end
+local out = {}
+for _, id in ipairs(ids) do
+  local job = redis.call('HMGET', ARGV[3] .. id, 'payload', 'attempts', 'available_at')
+  if job[1] then
+    table.insert(out, {id, job[1], job[2] or '0', job[3] or '0'})
+  end
+end
+return out''');
+
+  /// Ready jobs: the list in pop order, or the stream entries the group
+  /// has not read yet. Due delayed jobs and expired reservations are moved
+  /// to the list by the next pop, so they show under [delayed] until then.
+  @override
+  Future<List<QueuedJobView>> pending(
+    String queue, {
+    int limit = 50,
+    int offset = 0,
+  }) => _views(queue, _list(queue), _stream ? 'stream' : 'list', limit, offset);
+
+  /// Delayed jobs, by the time they become ready.
+  @override
+  Future<List<QueuedJobView>> delayed(
+    String queue, {
+    int limit = 50,
+    int offset = 0,
+  }) => _views(queue, _delayed(queue), 'zset', limit, offset);
+
+  Future<List<QueuedJobView>> _views(
+    String queue,
+    String key,
+    String source,
+    int limit,
+    int offset,
+  ) async {
+    final skip = max(0, offset);
+    if (limit <= 0) {
+      return const [];
+    }
+    final reply = await client.eval(
+      _browse,
+      keys: [key],
+      args: [skip, skip + limit - 1, _jobPrefix(queue), source, _group],
+    );
+    return [
+      for (final row in reply is List ? reply : const <Object?>[])
+        if (row case [
+          final String id,
+          final String payload,
+          final Object? attempts,
+          final Object? available,
+        ])
+          QueuedJobView.fromStored(
+            id: id,
+            queue: queue,
+            payload: payload,
+            attempts: int.tryParse('$attempts') ?? 0,
+            availableAt: DateTime.fromMillisecondsSinceEpoch(
+              int.tryParse('$available') ?? 0,
+              isUtc: true,
+            ),
+          ),
+    ];
+  }
+
+  /// Hands a reserved job back: on the list engine it leaves the reserved
+  /// set for the end of the list; on the stream engine its pending entry is
+  /// acknowledged and the id added again (as [release] does, without
+  /// `XCLAIM`). `attempts` and `available_at` are left alone; waiting
+  /// workers are woken.
+  static final RedisScript _reclaim = RedisScript('''
+if ARGV[2] == 'stream' then
+  local entry = redis.call('HGET', KEYS[4], 'entry')
+  if not entry then
+    return 0
+  end
+  local pending = redis.call('XPENDING', KEYS[1], ARGV[3], entry, entry, 1)
+  if not pending[1] then
+    return 0
+  end
+  redis.call('XACK', KEYS[1], ARGV[3], entry)
+  redis.call('XDEL', KEYS[1], entry)
+  redis.call('HDEL', KEYS[4], 'entry')
+  redis.call('XADD', KEYS[1], '*', 'id', ARGV[1])
+else
+  if redis.call('ZREM', KEYS[2], ARGV[1]) == 0 then
+    return 0
+  end
+  redis.call('RPUSH', KEYS[1], ARGV[1])
+end
+redis.call('RPUSH', KEYS[3], 1)
+redis.call('LTRIM', KEYS[3], -100, -1)
+return 1''');
+
+  @override
+  Future<bool> reclaim(String queue, Object jobId) async =>
+      await client.eval(
+        _reclaim,
+        keys: [
+          _list(queue),
+          _reserved(queue),
+          _notify(queue),
+          '${_jobPrefix(queue)}$jobId',
+        ],
+        args: ['$jobId', engine.name, _group],
+      ) ==
+      1;
 
   // -------------------------------------------------------------------
   // Waking idle workers.

@@ -199,4 +199,130 @@ final List<ModelDefinition<Model>> models = <ModelDefinition<Model>>[
     expect('Comment.definition,'.allMatches(registry), hasLength(1));
     expect(registry, isNot(contains('Post.definition')));
   });
+
+  group('make:job --model', () {
+    test('parses Model and Model:field', () {
+      final named = JobModelField.tryParse('User:candidate')!;
+      expect((named.model, named.field), ('User', 'candidate'));
+      final plain = JobModelField.tryParse('blog_post')!;
+      expect((plain.model, plain.field), ('BlogPost', 'blogPost'));
+      expect(JobModelField.tryParse('User:Candidate'), isNull);
+      expect(JobModelField.tryParse('User:a:b'), isNull);
+      expect(JobModelField.tryParse('1User'), isNull);
+    });
+
+    test('writes ModelRef fields and literal tags without Horizon', () {
+      final gen = Generator(paths)
+        ..job(
+          'SendReminder',
+          models: const [JobModelField('User', 'candidate')],
+        );
+      expect(gen.log.first.skipped, isFalse);
+      final source = File(p.join(paths.jobs, 'send_reminder.dart'))
+          .readAsStringSync();
+      expect(source, _sendReminder);
+      expect(
+        File(paths.jobsRegistry).readAsStringSync(),
+        contains('JobDefinition(SendReminder.name, SendReminder.fromJson),'),
+      );
+    });
+
+    test(
+      'tags with HorizonTags.model when daravel_horizon is a dependency',
+      () {
+        File(p.join(root.path, 'pubspec.yaml')).writeAsStringSync(
+          'name: demo_app\n'
+          'dependencies:\n'
+          '  daravel: ^1.27.0\n'
+          '  daravel_horizon: ^1.27.0\n',
+        );
+        Generator(paths).job(
+          'ScoreExam',
+          models: const [
+            JobModelField('User', 'candidate'),
+            JobModelField('Exam', 'exam'),
+          ],
+        );
+        final source = File(p.join(paths.jobs, 'score_exam.dart'))
+            .readAsStringSync();
+        expect(
+          source,
+          startsWith(
+            "import 'package:daravel/daravel.dart';\n"
+            "import 'package:daravel_horizon/daravel_horizon.dart';\n"
+            "import 'package:demo_app/app/models/exam.dart';\n"
+            "import 'package:demo_app/app/models/user.dart';\n",
+          ),
+        );
+        expect(
+          source,
+          contains(
+            '  List<String> get tags => '
+            '[HorizonTags.model(candidate), HorizonTags.model(exam)];',
+          ),
+        );
+        expect(
+          source,
+          contains(
+            'const ScoreExam({required this.candidate, required this.exam});',
+          ),
+        );
+        expect(source, isNot(contains("'User:")));
+      },
+    );
+
+    test('without --model the job stub is unchanged', () {
+      Generator(paths).job('Plain');
+      final source = File(p.join(paths.jobs, 'plain.dart')).readAsStringSync();
+      expect(source, contains('const Plain();'));
+      expect(source, isNot(contains('tags')));
+    });
+  });
 }
+
+const String _sendReminder = r'''
+import 'package:daravel/daravel.dart';
+import 'package:demo_app/app/models/user.dart';
+
+/// Queued job; dispatch with
+/// `await Queue.dispatch(SendReminder(candidate: ModelRef.of(user)))`.
+final class SendReminder extends Job {
+  const SendReminder({required this.candidate});
+
+  /// Stable registry key (see bootstrap/jobs.dart).
+  static const String name = 'send-reminder';
+
+  factory SendReminder.fromJson(Map<String, Object?> json) => SendReminder(
+    candidate: ModelRef<User>(
+      () => User.definition,
+      json['candidate']!,
+    ),
+  );
+
+  /// The [User], saved as its id and loaded fresh when the job runs.
+  final ModelRef<User> candidate;
+
+  @override
+  String get jobName => name;
+
+  @override
+  int get tries => 3;
+
+  @override
+  List<Duration> get backoff => const [Duration(seconds: 10), Duration(seconds: 60)];
+
+  @override
+  List<String> get tags => ['User:${candidate.id}'];
+
+  @override
+  Map<String, Object?> toJson() => <String, Object?>{
+    'candidate': candidate.toJson(),
+  };
+
+  @override
+  Future<void> handle(JobContext ctx) async {
+    // final user = await candidate.resolve();
+    // Do the work here.
+  }
+}
+''';

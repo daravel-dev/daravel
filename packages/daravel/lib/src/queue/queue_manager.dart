@@ -409,6 +409,16 @@ final class JobProcessor {
         jobName: payload.jobName,
         jobId: queued.id,
         attempt: queued.attempts,
+        uuid: payload.uuid,
+        displayName: payload.displayName,
+        tags: payload.tags,
+        pushedAt: payload.pushedAt > 0
+            ? DateTime.fromMillisecondsSinceEpoch(
+                payload.pushedAt * 1000,
+                isUtc: true,
+              )
+            : null,
+        context: payload.context,
       ),
     );
     if (_alreadyExceeded(payload, queued.attempts, maxTries)) {
@@ -510,6 +520,8 @@ final class JobProcessor {
           jobName: payload.jobName,
           jobId: queued.id,
           duration: stopwatch.elapsed,
+          uuid: payload.uuid,
+          attempt: queued.attempts,
         ),
       );
       return .processed;
@@ -537,6 +549,9 @@ final class JobProcessor {
         jobId: queued.id,
         error: error,
         willRetry: !exhausted,
+        uuid: payload.uuid,
+        attempt: queued.attempts,
+        stackTrace: trace,
       ),
     );
     if (timedOut && !exhausted) {
@@ -702,7 +717,7 @@ final class JobProcessor {
     required Job? job,
   }) async {
     await _finish(driver, queued, queued.payload);
-    await failedJobs.log(
+    final failedId = await failedJobs.log(
       connection: driver.name,
       queue: queued.queue,
       payload: queued.raw,
@@ -730,6 +745,9 @@ final class JobProcessor {
         jobName: queued.payload.jobName,
         jobId: queued.id,
         error: error,
+        uuid: queued.payload.uuid,
+        stackTrace: stackTrace,
+        failedId: failedId,
       ),
     );
   }
@@ -1173,14 +1191,37 @@ final class QueueWorker {
   /// Stops after the current job.
   void stop() {
     _stop = true;
+    _wakeIdle();
+  }
+
+  /// Completed by [stop] or [reassign] while the worker waits for work.
+  Completer<void>? _idle;
+
+  void _wakeIdle() {
     final idle = _idle;
     if (idle != null && !idle.isCompleted) {
       idle.complete();
     }
   }
 
-  /// Completed by [stop] while the worker waits for work.
-  Completer<void>? _idle;
+  /// The queues polled, set by [run] from [WorkerOptions.queues] and
+  /// changed by [reassign]; null outside [run] until [reassign].
+  List<String>? _queues;
+
+  /// The queues this worker polls now, in priority order (empty before
+  /// [run] when [reassign] was not called).
+  List<String> get queues => _queues ?? const <String>[];
+
+  /// Polls [queues] (in priority order) from the next job on, instead of
+  /// [WorkerOptions.queues]: for a supervisor moving workers between queues
+  /// (`daravel_horizon`'s auto-scaling). The job running finishes first; an
+  /// idle worker polls the new queues at once. Called before [run], it
+  /// replaces the queues that run starts with.
+  void reassign(List<String> queues) {
+    _queues = List<String>.unmodifiable(queues);
+    _logger?.info('Worker reassigned to [${queues.join(', ')}].');
+    _wakeIdle();
+  }
 
   /// Stops taking new jobs (the current one finishes) until [resume]; for
   /// embedding supervisors. [QueueManager.pause] pauses a queue for every
@@ -1223,8 +1264,9 @@ final class QueueWorker {
     _errors = 0;
     final started = DateTime.now().toUtc();
     final driver = manager.connection(options.connection);
+    _queues ??= List<String>.unmodifiable(options.queues);
     _logger?.info(
-      'Processing jobs from [${options.queues.join(', ')}] on connection '
+      'Processing jobs from [${queues.join(', ')}] on connection '
       '[${driver.name}].',
     );
     final timeout = options.timeout;
@@ -1279,6 +1321,7 @@ final class QueueWorker {
         }
       }
     } finally {
+      _queues = null;
       if (driver is WakeableQueueDriver) {
         try {
           await driver.stopWaiting();
@@ -1326,7 +1369,7 @@ final class QueueWorker {
       try {
         await Future.any([
           if (driver is WakeableQueueDriver)
-            driver.waitForWork(options.queues, options.sleep)
+            driver.waitForWork(_queues ?? options.queues, options.sleep)
           else
             Future<void>.delayed(options.sleep),
           idle.future,
@@ -1393,13 +1436,14 @@ final class QueueWorker {
   }
 
   /// Processes at most one job; returns whether one was found. Paused
-  /// workers and paused queues ([QueueManager.pause]) are skipped.
+  /// workers and paused queues ([QueueManager.pause]) are skipped. The
+  /// queues are those of [reassign] when set, else [WorkerOptions.queues].
   Future<bool> runNextJob(QueueDriver driver, WorkerOptions options) async {
     if (_paused) {
       return false;
     }
     final processor = manager.processor;
-    for (final queue in options.queues) {
+    for (final queue in _queues ?? options.queues) {
       try {
         if (await _isPaused(queue, options)) {
           continue;
