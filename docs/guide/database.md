@@ -66,7 +66,14 @@ SQLite works with several isolates: every isolate opens the same file in
 WAL mode and waits up to 5 seconds (`busy_timeout`) for another isolate's
 write lock. But SQLite calls are synchronous, so while a worker waits for
 that lock its whole event loop waits too, and so does every request on
-that worker. Writes are serialized across the server. `serve` logs a
+that worker. Writes are serialized across the server: `DB.transaction`
+begins with `BEGIN IMMEDIATE`, taking the write lock up front, so a
+transaction that reads and then writes is never refused because another
+isolate wrote in between, and a lock still busy after the wait throws an
+error that `attempts:` retries. Within one isolate, a query outside a
+transaction waits for that transaction to end, also at most 5 seconds
+(`busy_timeout` in the connection's options, in milliseconds, changes both
+waits). `serve` logs a
 warning when it starts several isolates on a SQLite file, and
 `dartisan doctor` notes it; see [Operations](operations.md) for sizing
 PostgreSQL connections.
@@ -261,6 +268,78 @@ word in Dart). Soft deletes, observers, model events, global scopes,
 the model an alias, and used in
 `No query results for model [App\Models\Post] 1`.
 
+### Typed ids (opt-in)
+
+A Daravel-only option: with `dartisan model:sync --typed-ids`, each model
+gets an [extension type](https://dart.dev/language/extension-types) for its
+primary key, so a wrong-typed id is caught at compile time:
+`Post.find(user.id)` does not compile once `find` takes a `PostId`.
+Without the flag, `model:sync` writes exactly what it wrote before.
+
+```bash
+dart run bin/dartisan.dart model:sync --typed-ids        # every model
+dart run bin/dartisan.dart model:sync Post --typed-ids   # one model
+```
+
+The flag writes the id in a `// <dartisan:ids>` region at the end of the
+model file (from the `model.id` stub, see `stub:publish`), types the
+primary key getter, and retypes the generated `find` and `findOrFail` in
+the `<dartisan:statics>` region. Statics you wrote yourself keep their
+types. A key that is neither an integer nor text gets a warning and no
+typed id.
+
+```dart
+// <dartisan:statics>
+static Future<Post?> find(PostId id) => query().find(id);
+static Future<Post> findOrFail(PostId id) => query().findOrFail(id);
+// </dartisan:statics>
+
+// <dartisan:accessors>
+PostId get id => getAttr('id');
+// </dartisan:accessors>
+
+// <dartisan:ids>
+extension type const PostId(int value) implements int {
+  static PostId parse(String raw) => PostId(int.parse(raw));
+}
+// </dartisan:ids>
+```
+
+An extension type is erased at runtime: a `PostId` is an `int` in JSON, in
+SQL bindings and in the tables shared with Laravel, and it costs nothing.
+Because `PostId` implements `int`, `int n = post.id` still compiles; the
+other way round needs `PostId(5)`, also for literals. `TypedId<Post>` is a
+generic variant for code that works across models.
+
+Route parameters read a typed id with `request.param<PostId>('post')`,
+which parses it as its representation (`int`) and answers 404 for a word.
+For stricter checks, pass a parser, or register one per parameter name in
+`bootstrap/ids.dart`:
+
+```dart
+// bootstrap/ids.dart
+void registerIds(IdParsers ids) {
+  ids.register<PostId>('post', PostId.parse);
+}
+
+// bootstrap/app.dart
+.withIds(registerIds)
+
+// a handler
+final post = await Post.findOrFail(request.param<PostId>('post'));
+final same = request.param<PostId>('post', parse: PostId.parse);
+```
+
+The registry is keyed by the parameter name because extension types are
+erased: at runtime `PostId` and `UserId` are both `int`, so
+`param<PostId>` cannot pick a parser from its type. A `FormatException` or
+`ArgumentError` from a parser answers 404. Route model binding
+(`router.bindModel`) parses through `ModelDefinition(idType: ...)` when
+you set it, for example `idType: IdType.integer(PostId.new)` or
+`IdType.string(...)` for UUIDs and ULIDs. Typed ids check types only:
+input that ends up in SQL is still guarded by bindings and the
+`no_sql_string_interpolation` lint.
+
 ## Querying
 
 <!-- include: packages/daravel/test/docs/guide_examples_test.dart#query -->
@@ -304,9 +383,45 @@ slow external call can empty the pool. `DB.transaction(fn, timeout:
 Duration(seconds: 10))` gives up a body still running after that time: its
 work rolls back, the connection goes back to the pool, and the call throws
 `TransactionTimeoutException` (never retried), as does any later query of
-that body. A query already waiting inside the database (on a row lock, say)
-ends only when the database lets it go, so pair this with the database's own
-lock timeout.
+that body, including a nested `DB.transaction` (its savepoints end with the
+level that timed out, so they never write into the transaction around it or
+outside one). A query already waiting inside the database (on a row lock,
+say) ends only when the database lets it go, so pair this with the
+database's own lock timeout.
+
+## Column names from input
+
+Values go into bindings; column names go into the SQL text, quoted by the
+grammar, which rejects characters that do not belong in a name. A column
+name that comes from a request (a `sort` parameter) still picks any
+existing column, so check it against the columns you allow:
+
+```dart
+final sort = switch (request.query['sort']) {
+  'name' => 'name',
+  'created_at' => 'created_at',
+  _ => 'id',
+};
+await DB.table('users').orderBy(sort).get();
+```
+
+`SqlIdentifier` marks a name that was checked where it was made: plain
+names joined by dots (`email`, `users.id`), anything else throws an
+`ArgumentError`. It is a `String`, so every column parameter accepts it, and
+the SQL is the same as for the string:
+
+```dart
+final column = SqlIdentifier(Config.get<String>('reports.sort')); // throws on 'id; DROP ...'
+await DB.table('users').orderBy(column).get();
+```
+
+The opt-in lint `prefer_sql_identifier` (see the `daravel_lints` README)
+reports column arguments that are neither a literal, a `const`, a choice
+between literals nor a `SqlIdentifier`. `DB.raw(...)` and the `*Raw`
+methods insert their SQL as written; `RawExpression.sql` is a
+`SqlFragment`, a `String` that only the framework makes. Neither type is a
+guarantee against injection: values belong in bindings, which
+`no_sql_string_interpolation` checks.
 
 ## JSON columns
 
@@ -431,7 +546,8 @@ await DB.transaction(() async {
 }, attempts: 5);
 ```
 
-Deadlocks and serialization failures run the whole callback again. Between
+Deadlocks and serialization failures (and SQLite's busy and locked
+errors) run the whole callback again. Between
 attempts it waits a random 2 to 250 ms, holding no connection, so isolates that
 collided do not collide again. A frozen test clock retries at once.
 
@@ -452,7 +568,15 @@ DB.listen((query) {
 });
 ```
 
-Without listeners, queries are neither timed nor reported.
+Without listeners, queries are neither timed nor reported. Register
+listeners once, in a service provider's `boot`: each runs for every query of
+the isolate. `DB.listen`, `DB.listenTransactions` and
+`DB.whenQueryingForLongerThan` return a function that removes the listener.
+
+When every pooled connection stays busy for `DB_CONNECT_TIMEOUT`, a query or
+transaction throws `PoolExhaustedException` (a `QueryException`) on
+PostgreSQL, MySQL and MariaDB: the pool is too small for the load, or
+transactions hold their connections too long, not a slow query.
 
 For a time budget rather than single slow queries, Laravel's
 `whenQueryingForLongerThan` adds up the queries of each request, job or
@@ -506,6 +630,21 @@ date column. Laravel 11's shortcuts compare with the current time, read from
 | `whereAfterToday` / `whereTodayOrAfter` | the date is after / at least today |
 
 Each has an `orWhere…` form, on `DB.table(...)` and on model queries.
+
+A `DateTime` bound to a query (in `where`, `insert`, `update` or raw SQL)
+is sent in UTC. On SQLite and MySQL it is written as Laravel's
+`Grammar::getDateFormat()` writes it, `Y-m-d H:i:s` without fractions of a
+second, which is also what model casts and timestamps store: SQLite compares
+dates as text, so one format keeps `where('ends_at', '>=', now)` right.
+Daravel 1.26 and earlier bound ISO 8601 on SQLite
+(`2026-11-05T17:40:36.052371Z`), which sorts after any value of the same day.
+Such values still read back as dates; to make them compare correctly,
+rewrite them once per column:
+
+```sql
+UPDATE attempts SET submitted_at = strftime('%Y-%m-%d %H:%M:%S', submitted_at)
+WHERE submitted_at LIKE '____-__-__T%';
+```
 
 ## Pagination
 

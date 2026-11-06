@@ -76,6 +76,7 @@ import 'container.dart';
 import 'drain.dart';
 import 'locale.dart';
 import 'env.dart';
+import 'ids.dart';
 import 'exceptions.dart';
 import 'service_provider.dart';
 
@@ -286,8 +287,13 @@ final class Application {
               prefix: '${cacheConfig.prefix}rate_limiter:',
             ),
     );
+    final ids = IdParsers();
+    for (final configure in _builder._idsConfigs) {
+      configure(ids);
+    }
     container
       ..instance<Application>(this)
+      ..instance<IdParsers>(ids)
       ..instance<Env>(env)
       ..instance<ConfigRepository>(config)
       ..instance<Logger>(logger)
@@ -1367,6 +1373,7 @@ final class ApplicationBuilder {
   void Function(ExceptionHandler exceptions)? _exceptionsConfig;
   final List<void Function(AuthManager auth)> _authConfigs = [];
   final List<void Function(AuthorizationGate gate)> _policiesConfigs = [];
+  final List<void Function(IdParsers ids)> _idsConfigs = [];
   void Function(RateLimiter limiter)? _rateLimitsConfig;
   void Function(EventDispatcher events)? _eventsConfig;
   void Function(JobRegistry jobs)? _jobsConfig;
@@ -1435,6 +1442,14 @@ final class ApplicationBuilder {
   /// calls all apply, in order.
   ApplicationBuilder withAuth(void Function(AuthManager auth) configure) {
     _authConfigs.add(configure);
+    return this;
+  }
+
+  /// Registers route parameter parsers for typed ids (`bootstrap/ids.dart`,
+  /// opt-in), read by `request.param<T>(name)`. Several calls all apply,
+  /// in order.
+  ApplicationBuilder withIds(void Function(IdParsers ids) configure) {
+    _idsConfigs.add(configure);
     return this;
   }
 

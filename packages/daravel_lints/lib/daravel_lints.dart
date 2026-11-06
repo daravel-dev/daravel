@@ -397,6 +397,207 @@ final class _ConstCollector extends RecursiveAstVisitor<void> {
   }
 }
 
+/// `orderBy(request.query('sort'))`: a column name that is not written in
+/// the code goes into the SQL text. The grammar quotes it and rejects odd
+/// characters, but any existing column (`password`) still passes. This
+/// reports column arguments of query builder methods that are neither a
+/// string literal, a `const`, nor a `SqlIdentifier` (a name checked when it
+/// is made), so a project can require every such name to go through one.
+///
+/// Opt-in: not part of [defaultRules]. Enable it with
+/// `lintProject(root, rules: rulesWith(['prefer_sql_identifier']))`
+/// or, in a test, `expectLintClean(null, ['prefer_sql_identifier'])`.
+final class PreferSqlIdentifier extends LintRule {
+  /// `prefer_sql_identifier`: computed column names are [SqlIdentifier]s.
+  const PreferSqlIdentifier();
+
+  /// Builder methods and the positions of their column arguments.
+  static const Map<String, List<int>> columnArguments = <String, List<int>>{
+    'where': [0],
+    'orWhere': [0],
+    'whereIn': [0],
+    'whereNotIn': [0],
+    'orWhereIn': [0],
+    'whereNull': [0],
+    'whereNotNull': [0],
+    'orWhereNull': [0],
+    'whereBetween': [0],
+    'whereNotBetween': [0],
+    'whereLike': [0],
+    'whereDate': [0],
+    'whereYear': [0],
+    'whereMonth': [0],
+    'whereDay': [0],
+    'whereJsonContains': [0],
+    'whereJsonLength': [0],
+    'whereColumn': [0, 2],
+    'having': [0],
+    'orHaving': [0],
+    'orderBy': [0],
+    'orderByDesc': [0],
+    'latest': [0],
+    'oldest': [0],
+    'pluck': [0, 1],
+    'sum': [0],
+    'avg': [0],
+    'min': [0],
+    'max': [0],
+    'increment': [0],
+    'decrement': [0],
+    // A list of columns.
+    'select': [0],
+    'addSelect': [0],
+    'groupBy': [0],
+    'whereAny': [0],
+    'whereAll': [0],
+    'whereNone': [0],
+  };
+
+  @override
+  String get name => 'prefer_sql_identifier';
+
+  @override
+  String get description =>
+      'Computed column names go through SqlIdentifier (opt-in).';
+
+  /// Application code only, like `no_sql_string_interpolation`.
+  @override
+  bool appliesTo(String relativePath) => !relativePath.startsWith('lib/src/');
+
+  @override
+  void check(CompilationUnit unit, void Function(AstNode, String) report) {
+    final constants = <String>{};
+    unit.accept(_ConstCollector(constants));
+    final identifiers = <String>{};
+    unit.accept(_SqlIdentifierCollector(identifiers));
+    void inspect(Expression column, String method) {
+      if (column is ListLiteral) {
+        for (final element in column.elements) {
+          if (element is Expression) {
+            inspect(element, method);
+          }
+        }
+        return;
+      }
+      if (!_accepted(column, constants, identifiers)) {
+        report(
+          column,
+          'Column passed to $method is computed; make it a '
+          'SqlIdentifier(...) (or check it against a list of allowed columns).',
+        );
+      }
+    }
+
+    unit.accept(
+      _Visitor(
+        onMethod: (node) {
+          final method = node.methodName.name;
+          final positions = columnArguments[method];
+          if (positions == null ||
+              !NoSqlStringInterpolation._isDbReceiver(node.realTarget)) {
+            return;
+          }
+          final positional = node.argumentList.arguments
+              .where((a) => a is! NamedArgument)
+              .map((a) => a.argumentExpression)
+              .toList();
+          for (final position in positions) {
+            if (position < positional.length) {
+              inspect(positional[position], method);
+            }
+          }
+        },
+      ),
+    );
+  }
+
+  static bool _accepted(
+    Expression column,
+    Set<String> constants,
+    Set<String> identifiers,
+  ) => switch (column) {
+    ParenthesizedExpression(:final expression) => _accepted(
+      expression,
+      constants,
+      identifiers,
+    ),
+    // Closures (`where((q) {...})`), maps (`where({...})`) and raw SQL,
+    // which `no_sql_string_interpolation` checks.
+    FunctionExpression() || SetOrMapLiteral() || NullLiteral() => true,
+    MethodInvocation(:final methodName, :final target) =>
+      _isSqlIdentifier(methodName.name, target) ||
+          methodName.name == 'raw' ||
+          methodName.name == 'RawExpression',
+    InstanceCreationExpression(:final constructorName) => const {
+      'SqlIdentifier',
+      'RawExpression',
+    }.contains(constructorName.type.name.lexeme),
+    PostfixExpression(:final operand) => _accepted(
+      operand,
+      constants,
+      identifiers,
+    ),
+    // A choice between accepted names is a whitelist:
+    // `sort == 'name' ? 'name' : 'id'`, `switch (sort) {...}`.
+    ConditionalExpression(:final thenExpression, :final elseExpression) =>
+      _accepted(thenExpression, constants, identifiers) &&
+          _accepted(elseExpression, constants, identifiers),
+    SwitchExpression(:final cases) => cases.every(
+      (c) => _accepted(c.expression, constants, identifiers),
+    ),
+    SimpleIdentifier(:final name) =>
+      constants.contains(name) || identifiers.contains(name),
+    PrefixedIdentifier(:final identifier) =>
+      constants.contains(identifier.name) ||
+          identifiers.contains(identifier.name),
+    PropertyAccess(:final propertyName) =>
+      constants.contains(propertyName.name) ||
+          identifiers.contains(propertyName.name),
+    _ => NoSqlStringInterpolation._isConstant(column, constants),
+  };
+
+  /// `SqlIdentifier(x)` or `SqlIdentifier.tryParse(x)`.
+  static bool _isSqlIdentifier(String method, Expression? target) =>
+      (target == null && method == 'SqlIdentifier') ||
+      (target is SimpleIdentifier &&
+          target.name == 'SqlIdentifier' &&
+          method == 'tryParse');
+}
+
+/// Collects the names of variables, fields and parameters that hold a
+/// `SqlIdentifier`: typed so, or initialized with `SqlIdentifier(...)`.
+final class _SqlIdentifierCollector extends RecursiveAstVisitor<void> {
+  _SqlIdentifierCollector(this.names);
+
+  final Set<String> names;
+
+  static bool _typed(TypeAnnotation? type) =>
+      type is NamedType && type.name.lexeme == 'SqlIdentifier';
+
+  @override
+  void visitVariableDeclarationList(VariableDeclarationList node) {
+    for (final variable in node.variables) {
+      final initializer = variable.initializer;
+      if (_typed(node.type) ||
+          ((node.isFinal || node.isConst) &&
+              initializer != null &&
+              PreferSqlIdentifier._accepted(initializer, const {}, names))) {
+        names.add(variable.name.lexeme);
+      }
+    }
+    super.visitVariableDeclarationList(node);
+  }
+
+  @override
+  void visitRegularFormalParameter(RegularFormalParameter node) {
+    final name = node.name;
+    if (name != null && _typed(node.type)) {
+      names.add(name.lexeme);
+    }
+    super.visitRegularFormalParameter(node);
+  }
+}
+
 /// Validation rule strings (`'required|emial|max:255'`) are parsed when
 /// the route or request is defined; this reports unknown names and missing
 /// or malformed arguments before that, in `.rules({...})`,
@@ -1160,6 +1361,26 @@ const List<LintRule> defaultRules = <LintRule>[
   InvalidTimezone(),
   NoInlineJsInterpolation(),
 ];
+
+/// Opt-in rules: not run unless enabled by name ([rulesWith]) or passed in
+/// `rules:`.
+const List<LintRule> optionalRules = <LintRule>[PreferSqlIdentifier()];
+
+/// [defaultRules] plus the [optionalRules] named in [enable]
+/// (`['prefer_sql_identifier']`); an unknown name throws an [ArgumentError].
+List<LintRule> rulesWith(Iterable<String> enable) {
+  final byName = {for (final rule in optionalRules) rule.name: rule};
+  return <LintRule>[
+    ...defaultRules,
+    for (final name in enable.toSet())
+      byName[name] ??
+          (throw ArgumentError.value(
+            name,
+            'enable',
+            'Not an opt-in rule (${byName.keys.join(', ')})',
+          )),
+  ];
+}
 
 /// Lints Dart [source] whose project-relative path is [relativePath].
 List<LintIssue> lintSource(

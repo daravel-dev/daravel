@@ -81,7 +81,7 @@ before moving to a new minor version.
 | :-- | :-- |
 | `serve [--watch] [--isolates=N] [--embed-queue] [--embed-scheduler]` | HTTP server; `--watch` hot-reloads |
 | `test [--conformance] [--security] [--coverage]` | Runs the tests |
-| `build [--with-cli] [--docker [--distroless]] [--no-sqlite]` | Native bundle in `build/server/bundle`, optional `Dockerfile` (`--distroless`: no shell, non-root, see [Deployment](deployment.md#docker)); `--no-sqlite` leaves the SQLite library out (PostgreSQL/MySQL apps) |
+| `build [--with-cli] [--docker [--distroless]] [--no-sqlite] [--target-os] [--target-arch]` | Native bundle in `build/server/bundle`, optional `Dockerfile` (`--distroless`: no shell, non-root, see [Deployment](deployment.md#docker)); `--no-sqlite` leaves the SQLite library out (PostgreSQL/MySQL apps); `--target-os=linux` (and `--target-arch=x64` or `arm64`) builds for another machine, see [Deployment](deployment.md#build-on-one-os-run-on-another) |
 | `route:list` | The route table |
 | `openapi:generate [--output]` | OpenAPI 3.1 from the routes and their declared metadata |
 | `client:flutter [--output] [--package-name] [--prefix] [--state] [--watch]` | A typed Dart/Flutter client package from the routes, with the server's validation rules ([Flutter client](flutter-client.md)) |
@@ -100,7 +100,7 @@ before moving to a new minor version.
 | `db:transfer --from --to [--dry-run] [--truncate] [--tables] [--no-migrate]` | Copies the data to another database, migrating it first ([Database](database.md#copying-data-between-databases)) |
 | `db:backup [--output] [--keep=N]` | Hot backup of the SQLite database into `storage/backups` (see [Deployment](deployment.md#backups)) |
 | `tinker "<expression>"` | Evaluates a Dart expression in the booted application |
-| `model:sync [Model]` | Regenerates a model's typed accessors from its table, and fills an empty `<dartisan:statics>` region |
+| `model:sync [Model] [--typed-ids]` | Regenerates a model's typed accessors from its table, and fills an empty `<dartisan:statics>` region; `--typed-ids` adds a typed id ([Database](database.md#typed-ids-opt-in)) |
 | `model:show <Model> [--json]` | A model's table, attributes (type, cast, fillable, hidden) and relations, from `bootstrap/models.dart` |
 | `daragic:export [--out] [--only]` | The application model (DAM) for `daragic`: routes, models, migrations, schema, schedule, ... (see [Migrating from Laravel](migrating-from-laravel.md#the-application-model-daragic)) |
 

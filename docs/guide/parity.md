@@ -51,6 +51,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `$request->ip()` | `request.ip` |  |
 | `$request->url()` | `request.url` |  |
 | `$request->route('id')` | `request.param<int>('id')` |  |
+| `(none)` | `request.param<PostId>('post', parse: PostId.parse); .withIds((ids) => ids.register<PostId>('post', PostId.parse))` | Daravel-only, opt-in: typed id parsers by route parameter name (bootstrap/ids.dart); a parser that throws answers 404. |
 | `$request->expectsJson()` | `request.expectsJson` |  |
 | `$request->cookie('theme') / ->cookies->all()` | `request.cookie('theme') / request.cookies` | Decoded like $_COOKIE; EncryptCookies is not applied. |
 | `response(...)->withCookie(cookie('theme', 'dark', 60))` | `response.withCookie('theme', 'dark', maxAge: Duration(minutes: 60))` | Same Set-Cookie text as Symfony's Cookie. |
@@ -270,6 +271,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `class User extends Model` | `final class User extends Model` |  |
 | `protected $table / $fillable / $hidden / $casts` | `ModelDefinition<User>(table:, fillable:, hidden:, casts:)` |  |
 | `protected $attributes = ['status' => 'draft']` | `ModelDefinition<Exam>(attributes: {'status': 'draft'})` | Stored values, before casts; a new model starts with them. |
+| `(none)` | `dartisan model:sync --typed-ids; ModelDefinition<Post>(idType: IdType.integer(PostId.new))` | Daravel-only, opt-in: an extension type per primary key (TypedId<T> for generic code), so a wrong-typed id is caught at compile time; erased to the plain key at runtime. |
 | `$table->vector('embedding', dimensions: 1536)` | `table.vector('embedding', dimensions: 1536)` |  |
 | `$table->vectorIndex('embedding')` | `table.vectorIndex('embedding')` |  |
 | `->whereVectorSimilarTo('embedding', $vector, 0.7)` | `.whereVectorSimilarTo('embedding', vector, minSimilarity: 0.7)` |  |
