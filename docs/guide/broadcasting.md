@@ -202,9 +202,27 @@ client stays on the server its WebSocket reached.
 | `REVERB_APP_MAX_CHANNELS_PER_CONNECTION` | `100` | Channels one connection may be subscribed to at once (`0`: no limit); past it `pusher:error` `4300`, the connection stays open |
 | `REVERB_APP_CLIENT_EVENTS_PER_SECOND` | `10` | Client events one connection may send per second, as Pusher Channels (`0`: no limit); past it the event is dropped with `pusher:error` `4301` |
 | `REVERB_APP_VALIDATE_CHANNEL_NAMES` | `true` | Channel names follow Pusher's rule: at most 164 characters of `A-Z a-z 0-9 _ - = @ , . ;`; others get `pusher:error` `4300` |
+| `REVERB_APP_MAX_CONNECTIONS` | none | Connections the application may have open on this server, every worker isolate counted (Reverb's `max_connections`); past it `pusher:error` `4004` "Application is over connection quota" and the connection is closed before `connection_established` |
+| `REVERB_APP_RATE_LIMITING_ENABLED` | `false` | Rate limits each connection's messages, as Reverb's `rate_limiting`: every message counts, `pusher:ping` included; past the limit `pusher:error` `4301` |
+| `REVERB_APP_RATE_LIMIT_MAX_ATTEMPTS` | `60` | Messages allowed per window |
+| `REVERB_APP_RATE_LIMIT_DECAY_SECONDS` | `60` | The window, from the connection's first message in it |
+| `REVERB_APP_RATE_LIMIT_TERMINATE` | `false` | Closes a connection over the limit (code `4301`) instead of only refusing the message |
+| `REVERB_DRAIN_SPREAD` | `2s` | At shutdown, Pusher connections close (`1001`) at random moments within this (at most the shutdown timeout), so their clients do not all reconnect at once |
+| `BROADCAST_AFTER_COMMIT` | `true` | A broadcast made inside a database transaction is sent when it commits and dropped when it rolls back (`Broadcast.send(..., afterCommit: false)` sends at once) |
 
 Client events (`client-*`, Echo's `whisper`) are forwarded only on private
 and presence channels the sender has joined, as Pusher Channels requires.
+
+When a worker isolate crashes, the presence members whose every connection
+it held are announced to the remaining subscribers with
+`pusher_internal:member_removed` (Echo's `leaving`), as if they had left.
+Server-sent event streams get a random `retry:` of 1 to 5 seconds before
+they end at shutdown, for the same reason as the drain spread.
+`/metrics` counts the refusals in `reverb_rejected_total{reason}`
+(`connection_quota`, `rate_limit`, `client_event_rate`, `channel_limit`) and
+`reverb_rate_limited_total{app}`; slow clients are in
+`realtime_slow_clients_total`. `Channels.private('orders.7')`,
+`Channels.presence(...)` and `Channels.encrypted(...)` write the prefixes.
 
 When the coordinator cannot answer (overloaded, or the scaling store is
 down) while a client subscribes or leaves, the client gets `pusher:error`

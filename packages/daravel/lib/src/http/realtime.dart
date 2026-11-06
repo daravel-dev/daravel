@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import '../foundation/container.dart';
 import '../foundation/drain.dart';
@@ -217,7 +218,14 @@ Stream<List<int>> sseStream(
       beat();
       // Removed when the stream ends: a listener on DrainSignal.future
       // would hold this stream until shutdown.
-      stopDraining = drain?.onDrain(() => unawaited(finish()));
+      stopDraining = drain?.onDrain(() {
+        // A reconnect delay of 1 to 5 s, random, before the end: the
+        // clients of a server shutting down do not all come back at once.
+        if (!closed) {
+          write('retry: ${1000 + _drainRandom.nextInt(4001)}\n\n');
+        }
+        unawaited(finish());
+      });
     },
     onPause: maxBufferedBytes == null ? () => subscription?.pause() : null,
     onResume: maxBufferedBytes == null ? () => subscription?.resume() : null,
@@ -237,6 +245,8 @@ Stream<List<int>> sseStream(
 /// How long `EventSource` waits before reconnecting after the server ended
 /// its stream for reading too slowly.
 const Duration _slowClientRetry = Duration(seconds: 1);
+
+final Random _drainRandom = Random();
 
 /// Handles an upgraded connection (`router.ws`).
 typedef WebSocketHandler = FutureOr<void> Function(

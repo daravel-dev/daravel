@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import '../foundation/application.dart';
 import '../foundation/env.dart';
@@ -574,7 +575,9 @@ final class ServerEngine {
     );
   }
 
-  final Set<WebSocket> _sockets = <WebSocket>{};
+  /// Open WebSockets, with the spread of their close at shutdown
+  /// ([Response.webSocketDrainSpread]).
+  final Map<WebSocket, Duration?> _sockets = <WebSocket, Duration?>{};
 
   /// Open WebSocket connections on this engine.
   int get openWebSockets => _sockets.length;
@@ -641,7 +644,7 @@ final class ServerEngine {
         );
       },
     );
-    _sockets.add(socket);
+    _sockets[socket] = response.webSocketDrainSpread;
     logger.info(
       '${request.method} ${request.path} 101 (WebSocket)',
       <String, Object?>{'request_id': id},
@@ -678,11 +681,23 @@ final class ServerEngine {
     }
     _signals.clear();
     // Open WebSockets would hold the shutdown until its timeout: tell
-    // clients the server is going away so they reconnect elsewhere.
-    for (final socket in _sockets.toList()) {
-      unawaited(
+    // clients the server is going away so they reconnect elsewhere. Those
+    // of a route with a drain spread (the Pusher server) close at random
+    // moments within it, so their clients do not all reconnect at once.
+    final random = Random();
+    for (final MapEntry(key: socket, value: spread)
+        in _sockets.entries.toList()) {
+      void close() => unawaited(
         socket.close(WebSocketStatus.goingAway, 'Server shutting down'),
       );
+      final bound = spread == null || spread < options.shutdownTimeout
+          ? spread
+          : options.shutdownTimeout;
+      if (bound == null || bound <= Duration.zero) {
+        close();
+      } else {
+        Timer(bound * random.nextDouble(), close);
+      }
     }
     final server = _server;
     if (server != null) {
