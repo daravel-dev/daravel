@@ -23,7 +23,7 @@ import 'package:mysql_dart/mysql_dart.dart' as my;
 /// `DB_TIMEZONE` is set, as in Laravel, so `TIMESTAMP` columns read the same
 /// from both applications.
 final class MySqlDriver
-    implements DatabaseDriver, RetryableErrors, QueryErrors {
+    implements SessionTerminatingDriver, RetryableErrors, QueryErrors {
   /// A pooled MySQL or MariaDB connection; usually made by
   /// [MySqlDriver.fromConfig] from the `DB_*` settings.
   MySqlDriver({
@@ -44,6 +44,7 @@ final class MySqlDriver
     this.isolationLevel,
     this.initCommands = const [],
     this.onConnectionOpen,
+    this.idleTransactionTimeout,
     this.dialect = SqlDialect.mysql,
   });
 
@@ -93,6 +94,9 @@ final class MySqlDriver
         _ => null,
       },
       isolationLevel: connection.options['isolation_level'] as String?,
+      idleTransactionTimeout: PostgresDriver.idleTransactionTimeoutOption(
+        connection.options['idle_transaction_timeout'],
+      ),
     );
   }
 
@@ -149,6 +153,17 @@ final class MySqlDriver
   /// `READ COMMITTED`.
   final String? isolationLevel;
 
+  /// MariaDB's `idle_transaction_timeout` (10.3+) for every connection of
+  /// the pool (`DB_IDLE_TRANSACTION_TIMEOUT`, whole seconds, rounded up):
+  /// the server closes a connection that stays idle inside a transaction
+  /// this long, rolling it back. MySQL has no such setting and ignores it
+  /// (its `wait_timeout` closes idle connections outside transactions too).
+  /// `null` keeps the server's setting.
+  final Duration? idleTransactionTimeout;
+
+  /// MySQL connection ids of the pool's open connections, for [sessionIds].
+  final Map<my.MySQLConnection, int> _sessions = <my.MySQLConnection, int>{};
+
   /// Statements run on every new connection, after the session settings.
   final List<String> initCommands;
 
@@ -203,6 +218,10 @@ final class MySqlDriver
       if (isolationLevel != null)
         'SET SESSION TRANSACTION ISOLATION LEVEL $isolationLevel',
       if (mode != null) "SET SESSION sql_mode='$mode'",
+      if (idleTransactionTimeout case final idle?
+          when dialect == SqlDialect.mariadb)
+        'SET SESSION idle_transaction_timeout = '
+            '${(idle.inMilliseconds / 1000).ceil()}',
       ...initCommands,
     ];
   }
@@ -217,6 +236,34 @@ final class MySqlDriver
       await connection.execute(statement);
     }
     await onConnectionOpen?.call(connection);
+    final result = await connection.execute('SELECT CONNECTION_ID() AS id');
+    _sessions[connection] = int.parse('${result.rows.first.colByName('id')}');
+    connection.onClose(() => _sessions.remove(connection));
+  }
+
+  @override
+  List<String> sessionIds() => [
+    for (final entry in _sessions.entries)
+      if (entry.key.connected) '${entry.value}',
+  ];
+
+  /// `KILL CONNECTION` of [id], from another connection of the pool;
+  /// `false` for an id the server does not know (`ER_NO_SUCH_THREAD`).
+  @override
+  Future<bool> terminateSession(String id) async {
+    final connectionId = int.tryParse(id);
+    if (connectionId == null) {
+      return false;
+    }
+    try {
+      await execute('KILL CONNECTION $connectionId');
+      return true;
+    } on MySQLServerException catch (error) {
+      if (error.errorCode == 1094) {
+        return false;
+      }
+      rethrow;
+    }
   }
 
   @override

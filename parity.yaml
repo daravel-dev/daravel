@@ -105,6 +105,10 @@ sections:
       - { php: "Echo.encryptedPrivate('orders.7') with encryption_master_key_base64", dart: "REVERB_ENCRYPTION_MASTER_KEY_BASE64", symbol: BroadcastConfig.encryptionMasterKey, note: "private-encrypted- channels, sealed with libsodium's secretbox." }
       - { php: "REVERB_SCALING_ENABLED=true (Reverb with Redis)", dart: "REVERB_SCALING_ENABLED=true (the database)", symbol: DatabaseBroadcastRelay, note: "Frames, presence members (here included) and cache channels span every server; PostgreSQL NOTIFY, MySQL polling." }
       - { php: "(Reverb's internal pub/sub)", dart: "await Broadcast.publish('orders.7', data)", symbol: Broadcast.publish, async: true, note: "Daravel's own channels between isolates, for custom WebSocket and SSE routes." }
+      - { php: "new PrivateChannel('orders.7') / PresenceChannel / EncryptedPrivateChannel", dart: "Channels.private('orders.7') / Channels.presence / Channels.encrypted", symbol: Channels.private }
+      - { php: "'max_connections' => env('REVERB_APP_MAX_CONNECTIONS')", dart: "REVERB_APP_MAX_CONNECTIONS", symbol: BroadcastConfig.maxConnections, note: "4004 Application is over connection quota, counted over every worker isolate of the server." }
+      - { php: "'rate_limiting' => [...] (REVERB_APP_RATE_LIMITING_ENABLED, REVERB_APP_RATE_LIMIT_*)", dart: "the same variables", symbol: BroadcastConfig.rateLimiting, note: "Every message counts, pusher:ping included; 4301 Rate limit exceeded." }
+      - { php: "ShouldDispatchAfterCommit on a broadcast event", dart: "BROADCAST_AFTER_COMMIT=true (default)", symbol: BroadcastConfig.afterCommit, note: "Every broadcast inside a transaction waits for the commit and is dropped on rollback." }
 
   - name: Scout (daravel_scout)
     symbols:
@@ -304,6 +308,9 @@ sections:
       - { php: "DB::listen(...) for transactions", dart: "DB.listenTransactions((e) {...})", symbol: DB.listenTransactions, note: "with poolWait" }
       - { php: "DB::listen(fn (QueryExecuted $q) => ...)", dart: "DB.listen((QueryExecuted q) {...})", symbol: DB.listen }
       - { php: "DB::whenQueryingForLongerThan(500, fn)", dart: "DB.whenQueryingForLongerThan(const Duration(milliseconds: 500), (q) {...})", symbol: DB.whenQueryingForLongerThan, note: "Total per request, job or command; once." }
+      - { php: "(none)", dart: "DB_IDLE_TRANSACTION_TIMEOUT=15", symbol: PostgresDriver.idleTransactionTimeout, note: "Daravel-only: the server ends a session idle inside a transaction this long (PostgreSQL, MariaDB; MySQL has no such setting)." }
+      - { php: "(none)", dart: "DB.manager.openSessions(); (driver as SessionTerminatingDriver).terminateSession(id)", symbol: SessionTerminatingDriver.terminateSession, async: true, note: "Daravel-only: ends the server session of a connection left inside a transaction (pg_terminate_backend, KILL CONNECTION), for supervisors that kill isolates." }
+      - { php: "(none)", dart: "app.overrideEnv({...}) before app.boot()", symbol: Application.overrideEnv, note: "Daravel-only: environment overrides for a host given a built Application (a worker isolate, a test harness); they win over withEnv." }
       - { php: "DB::enableQueryLog(); ... count(DB::getQueryLog())", dart: "final (result, count, queries) = await DB.withQueryCount(() => ...)", symbol: DB.withQueryCount }
       - { php: "->whereToday('starts_at') / wherePast / whereFuture / whereBeforeToday", dart: ".whereToday('starts_at') / wherePast / whereFuture / whereBeforeToday", symbol: QueryBuilder.whereToday, note: "Against Clock.now()." }
       - { php: "->insertGetId($values)", dart: "await DB.table(t).insertGetId(values)", symbol: QueryBuilder.insertGetId, async: true }

@@ -104,6 +104,10 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `Echo.encryptedPrivate('orders.7') with encryption_master_key_base64` | `REVERB_ENCRYPTION_MASTER_KEY_BASE64` | private-encrypted- channels, sealed with libsodium's secretbox. |
 | `REVERB_SCALING_ENABLED=true (Reverb with Redis)` | `REVERB_SCALING_ENABLED=true (the database)` | Frames, presence members (here included) and cache channels span every server; PostgreSQL NOTIFY, MySQL polling. |
 | `(Reverb's internal pub/sub)` | `await Broadcast.publish('orders.7', data)` | **async**; Daravel's own channels between isolates, for custom WebSocket and SSE routes. |
+| `new PrivateChannel('orders.7') / PresenceChannel / EncryptedPrivateChannel` | `Channels.private('orders.7') / Channels.presence / Channels.encrypted` |  |
+| `'max_connections' => env('REVERB_APP_MAX_CONNECTIONS')` | `REVERB_APP_MAX_CONNECTIONS` | 4004 Application is over connection quota, counted over every worker isolate of the server. |
+| `'rate_limiting' => [...] (REVERB_APP_RATE_LIMITING_ENABLED, REVERB_APP_RATE_LIMIT_*)` | `the same variables` | Every message counts, pusher:ping included; 4301 Rate limit exceeded. |
+| `ShouldDispatchAfterCommit on a broadcast event` | `BROADCAST_AFTER_COMMIT=true (default)` | Every broadcast inside a transaction waits for the commit and is dropped on rollback. |
 
 ## Scout (daravel_scout)
 
@@ -333,6 +337,9 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `DB::listen(...) for transactions` | `DB.listenTransactions((e) {...})` | with poolWait |
 | `DB::listen(fn (QueryExecuted $q) => ...)` | `DB.listen((QueryExecuted q) {...})` |  |
 | `DB::whenQueryingForLongerThan(500, fn)` | `DB.whenQueryingForLongerThan(const Duration(milliseconds: 500), (q) {...})` | Total per request, job or command; once. |
+| `(none)` | `DB_IDLE_TRANSACTION_TIMEOUT=15` | Daravel-only: the server ends a session idle inside a transaction this long (PostgreSQL, MariaDB; MySQL has no such setting). |
+| `(none)` | `DB.manager.openSessions(); (driver as SessionTerminatingDriver).terminateSession(id)` | **async**; Daravel-only: ends the server session of a connection left inside a transaction (pg_terminate_backend, KILL CONNECTION), for supervisors that kill isolates. |
+| `(none)` | `app.overrideEnv({...}) before app.boot()` | Daravel-only: environment overrides for a host given a built Application (a worker isolate, a test harness); they win over withEnv. |
 | `DB::enableQueryLog(); ... count(DB::getQueryLog())` | `final (result, count, queries) = await DB.withQueryCount(() => ...)` |  |
 | `->whereToday('starts_at') / wherePast / whereFuture / whereBeforeToday` | `.whereToday('starts_at') / wherePast / whereFuture / whereBeforeToday` | Against Clock.now(). |
 | `->insertGetId($values)` | `await DB.table(t).insertGetId(values)` | **async** |

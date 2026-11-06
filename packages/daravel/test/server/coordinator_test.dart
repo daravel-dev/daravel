@@ -689,9 +689,11 @@ void workerExitTests() {
       await channel.call('channels', 'channel', {'channel': 'presence-room'}),
       {'occupied': false, 'subscription_count': 0, 'user_count': 0},
     );
+    // Two publishes here, and a member_removed for each member a worker
+    // took with it (bo, cy, then ana), which no port listened to.
     expect((coordinator.stats()['services'] as Map)['broadcast'], {
       'channels': 0,
-      'published': 2,
+      'published': 5,
       'delivered': 3,
     });
     // Unknown workers are a no-op.
