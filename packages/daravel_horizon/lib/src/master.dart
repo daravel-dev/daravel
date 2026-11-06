@@ -253,6 +253,18 @@ final class HorizonMaster {
       case 'terminate':
         await stop();
         onTerminate?.call();
+      case 'snapshot':
+        // horizon:snapshot: the store lives in this process's coordinator.
+        await snapshot();
+    }
+  }
+
+  /// Takes a metric snapshot in the store (`horizon:snapshot`).
+  Future<void> snapshot() async {
+    try {
+      await store?.call(HorizonService.serviceName, 'snapshot', const {});
+    } on Object catch (e) {
+      logger.warning('Horizon snapshot failed: $e');
     }
   }
 

@@ -28,7 +28,28 @@ const List<CommandFactory> horizonCommands = [
   HorizonTerminateCommand.new,
   HorizonClearCommand.new,
   HorizonForgetCommand.new,
+  HorizonSnapshotCommand.new,
 ];
+
+/// `horizon:snapshot`: the running Horizon takes a metric snapshot (per job
+/// and queue; the dashboard's Metrics tab). Schedule it every five
+/// minutes, as Laravel Horizon's.
+final class HorizonSnapshotCommand extends _SignalCommand {
+  /// The `dartisan horizon:snapshot` command.
+  HorizonSnapshotCommand(super.createApp);
+
+  @override
+  String get name => 'horizon:snapshot';
+
+  @override
+  String get description => 'Stores a snapshot of the queue metrics.';
+
+  @override
+  String get command => 'snapshot';
+
+  @override
+  String get done => 'Sent snapshot to Horizon.';
+}
 
 String _name(Application app) =>
     app.config.section<HorizonConfig>().name ?? 'horizon';
