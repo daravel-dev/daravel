@@ -60,6 +60,15 @@ jobs:
         run: |
           version="${GITHUB_REF_NAME#v}"
           for package in daravel_lints daravel daravel_test daravel_mysql daravel_sqlite daravel_postgres dartisan_cli daravel_teorion daravel_permission daravel_activitylog daravel_redis daravel_livekit daravel_google daravel_teobiefy daravel_s3 daravel_scout daravel_session daravel_excel daravel_log_viewer daravel_pulse daravel_horizon daravel_payments daravel_medialibrary; do
+            # A package not on pub.dev at all cannot be published by this
+            # workflow (automated publishing is enabled per package, after
+            # a first manual publish): skip it instead of failing the run.
+            exists=$(curl -s -o /dev/null -w '%{http_code}' "https://pub.dev/api/packages/$package")
+            if [ "$exists" = "404" ]; then
+              echo "::notice::$package is not on pub.dev yet: first publish is manual"
+              echo "$package=published" >> "$GITHUB_OUTPUT"
+              continue
+            fi
             status=$(curl -s -o /dev/null -w '%{http_code}' "https://pub.dev/api/packages/$package/versions/$version")
             if [ "$status" = "200" ]; then state=published; else state=pending; fi
             echo "$package $version: $state"
