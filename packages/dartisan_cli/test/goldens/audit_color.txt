@@ -1,0 +1,48 @@
+Security audit of http://127.0.0.1:PORT
+
+  [31mFAIL[0m  DARAVEL-SEC-001  Security headers
+        [low] Referrer-Policy is missing.
+        Fix: Add SecurityHeadersMiddleware() to the global middleware in bootstrap/app.dart (new projects have it).
+  [31mFAIL[0m  DARAVEL-SEC-002  Server version disclosure
+        [low] server: Apache/2.4.1 reveals a version.
+        [low] x-powered-by: PHP/8.1.2 reveals a version.
+        Fix: Remove the version from the Server / X-Powered-By headers at the proxy (for example `server_tokens off;` in nginx).
+  [31mFAIL[0m  DARAVEL-SEC-003  Sensitive files served
+        [critical] /.env is served.
+        [critical] /.git/config is served.
+        [high] /.git/HEAD is served.
+        Fix: Serve only the public directory: point the web server or proxy at public/ (or nothing) instead of the project root, and keep .env, .git and the database outside it.
+  [31mFAIL[0m  DARAVEL-SEC-004  Path traversal
+        [critical] /..%2f.env returns the .env file.
+        Fix: Serve static files with a server that normalizes paths, or with Daravel's own static handling, never by joining the raw path.
+  [31mFAIL[0m  DARAVEL-SEC-005  TRACE echoes the request
+        [medium] TRACE / answers 200 and echoes the request headers.
+        Fix: Disable TRACE at the proxy; it echoes headers, cookies included.
+  [31mFAIL[0m  DARAVEL-SEC-006  Header injection (CRLF)
+        [high] /%0d%0aX-Daravel-Audit:%20injected puts a header of its own into the response.
+        Fix: Never put request input into response headers without removing carriage returns and line feeds.
+  [31mFAIL[0m  DARAVEL-SEC-007  Errors expose stack traces
+        [high] The 404 answer to /__daravel_audit_missing__ contains a stack trace.
+        Fix: Set APP_DEBUG=false (and APP_ENV=production) on the server.
+  [31mFAIL[0m  DARAVEL-SEC-008  Deeply nested JSON
+        [medium] JSON nested 2048 levels deep makes /api/echo answer 500.
+        Fix: Keep BodyLimitsMiddleware() in the global middleware; it refuses nesting beyond its maxJsonDepth with 422.
+  [31mFAIL[0m  DARAVEL-SEC-009  CORS allows any origin
+        [high] Any Origin is allowed (it is reflected), with credentials.
+        Fix: List the allowed origins in CorsMiddleware(allowedOrigins: [...]) instead of reflecting the request Origin, especially with credentials.
+  [31mFAIL[0m  DARAVEL-SEC-010  Cookie flags
+        [medium] Cookie session has no HttpOnly.
+        [low] Cookie session has no SameSite.
+        Fix: Set HttpOnly, SameSite and, over HTTPS, Secure on every cookie.
+  [31mFAIL[0m  DARAVEL-SEC-011  /metrics open to anyone
+        [medium] /metrics answers without a token.
+        Fix: Set METRICS_TOKEN so /metrics needs `Authorization: Bearer <token>`.
+  [31mFAIL[0m  DARAVEL-SEC-012  Log viewer open to anyone
+        [high] The log viewer answers without authentication.
+        Fix: Give it middleware: .withLogViewer(middleware: ['auth', 'can:view-logs']).
+  [32mPASS[0m  DARAVEL-SEC-013  Served over plain HTTP
+  [31mFAIL[0m  DARAVEL-SEC-014  Third-party scripts without integrity
+        [medium] Script https://cdn.example.test/lib@1.0.0/lib.js is loaded from another origin without integrity: whoever controls that host controls the page.
+        Fix: Pin each script and stylesheet from a CDN to an exact version and add integrity="sha384-..." with crossorigin="anonymous", or serve the file from the application itself.
+
+Findings: 3 critical, 5 high, 5 medium, 4 low.
