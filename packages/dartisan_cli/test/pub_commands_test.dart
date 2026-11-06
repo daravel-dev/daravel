@@ -307,6 +307,34 @@ dependency_overrides:
       expect(dartCalls, isEmpty, reason: '--no-get');
     });
 
+    test('pub:add horizon: withHorizon behind a gate, its commands and '
+        'HORIZON_* in .env.example', () async {
+      final (code, output) = await dartisan(['pub:add', 'horizon', '--no-get']);
+      expect(code, 0);
+      expect(
+        read('pubspec.yaml'),
+        contains('  daravel_horizon: ^$daravelVersion'),
+      );
+      expect(
+        read('bootstrap/app.dart'),
+        contains(
+          ".withHorizon(createApp: createApp, middleware: ['auth', "
+          "'can:viewHorizon'])",
+        ),
+      );
+      final commands = read('bootstrap/commands.dart');
+      expect(commands, contains('...horizonCommands,'));
+      expect(
+        commands,
+        contains("import 'package:daravel_horizon/commands.dart';"),
+      );
+      final env = read('.env.example');
+      expect(env, contains('# HORIZON_PATH=/horizon'));
+      expect(env, contains('# HORIZON_KILL_GRACE=10'));
+      expect(output, contains("gate.define('viewHorizon'"));
+      expect(output, contains("schedule.command('horizon:snapshot')"));
+    });
+
     test('ambiguous, unknown and pub.dev names', () async {
       final (ambiguous, said) = await dartisan(['pub:add', 'cloud', '--yes']);
       expect(ambiguous, 64);

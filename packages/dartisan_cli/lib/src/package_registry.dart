@@ -238,6 +238,33 @@ const List<PackageManifest> officialPackages = [
     ],
   ),
   PackageManifest(
+    package: 'daravel_horizon',
+    title: 'Horizon',
+    category: 'Development',
+    description:
+        'Queue supervisors on worker isolates, auto-scaling and a dashboard',
+    aliases: ['horizon', 'supervisor'],
+    registration: [
+      ".withHorizon(createApp: createApp, middleware: ['auth', 'can:viewHorizon'])",
+    ],
+    commands: 'horizonCommands',
+    env: [
+      'HORIZON_ENABLED=true',
+      'HORIZON_PATH=/horizon',
+      'HORIZON_HEARTBEAT_MS=1000',
+      'HORIZON_KILL_GRACE=10',
+      'HORIZON_IDLE_TX_TIMEOUT=',
+    ],
+    next: [
+      'Define who may open the dashboard in bootstrap/policies.dart: '
+          "gate.define('viewHorizon', (user, _) => ...).",
+      'Schedule the metric snapshots in routes/console.dart: '
+          "schedule.command('horizon:snapshot').everyFiveMinutes();",
+      'Run the workers with dartisan horizon, or beside the server with '
+          'dartisan serve --embed-worker=horizon; open /horizon.',
+    ],
+  ),
+  PackageManifest(
     package: 'daravel_payments',
     title: 'Payments',
     category: 'Payments',
