@@ -55,10 +55,14 @@ sealed class WorkerReport {}
 @pragma('vm:deeply-immutable')
 final class Ready implements WorkerReport {
   /// Worker [worker] is ready.
-  const Ready(this.worker);
+  const Ready(this.worker, {this.sessions = ''});
 
   /// The worker's name (`horizon-<plan>-<n>`).
   final String worker;
+
+  /// The server sessions of its open database connections
+  /// ([encodeSessions]).
+  final String sessions;
 }
 
 /// Sent every heartbeat interval: what the worker has done and is doing.
@@ -74,6 +78,7 @@ final class Heartbeat implements WorkerReport {
     this.jobUuid,
     this.queue,
     this.jobStartedAtMs,
+    this.sessions = '',
   });
 
   /// The worker's name.
@@ -93,6 +98,10 @@ final class Heartbeat implements WorkerReport {
 
   /// When that job started (epoch milliseconds, wall clock).
   final int? jobStartedAtMs;
+
+  /// The server sessions of its open database connections
+  /// ([encodeSessions]), for the master to end them after a kill.
+  final String sessions;
 }
 
 /// The worker ended on its own with exit [code] (0, 1 for a restart the
@@ -108,3 +117,20 @@ final class Exited implements WorkerReport {
   /// Its exit code.
   final int code;
 }
+
+/// `DatabaseManager.openSessions()` as one string a deeply-immutable message
+/// can carry: `pgsql=812,815;audit=901`.
+String encodeSessions(Map<String, List<String>> sessions) => [
+  for (final MapEntry(:key, :value) in sessions.entries)
+    if (value.isNotEmpty) '$key=${value.join(',')}',
+].join(';');
+
+/// The sessions [encodeSessions] wrote, by connection name.
+Map<String, List<String>> decodeSessions(String sessions) => {
+  for (final part in sessions.split(';'))
+    if (part.indexOf('=') case final at when at > 0)
+      part.substring(0, at): [
+        for (final id in part.substring(at + 1).split(','))
+          if (id.isNotEmpty) id,
+      ],
+};

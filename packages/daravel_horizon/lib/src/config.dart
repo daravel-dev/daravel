@@ -188,6 +188,7 @@ final class HorizonConfig implements ConfigSection {
     this.jobsPerProcess = 100,
     this.quarantineAfter = 2,
     this.allowSqlite = false,
+    this.idleTxTimeout,
   });
 
   /// The settings in `HORIZON_*`, with the supervisors of [defaults], each
@@ -221,6 +222,12 @@ final class HorizonConfig implements ConfigSection {
     jobsPerProcess: env.integer('HORIZON_JOBS_PER_PROCESS', 100),
     quarantineAfter: env.integer('HORIZON_QUARANTINE_AFTER', 2),
     allowSqlite: env.boolean('HORIZON_ALLOW_SQLITE', false),
+    idleTxTimeout: switch (env.maybeString('HORIZON_IDLE_TX_TIMEOUT')) {
+      final String s when int.tryParse(s) != null => Duration(
+        seconds: int.parse(s),
+      ),
+      _ => null,
+    },
   );
 
   /// [defaults] with each plan of [overrides] put in place of the one of the
@@ -304,6 +311,32 @@ final class HorizonConfig implements ConfigSection {
   /// process restarts, and the HTTP server shares that process.
   final bool allowSqlite;
 
+  /// `HORIZON_IDLE_TX_TIMEOUT` in seconds: `null` (unset) for the default
+  /// of [workerIdleTransactionTimeout], [Duration.zero] for none.
+  final Duration? idleTxTimeout;
+
+  /// The `DB_IDLE_TRANSACTION_TIMEOUT` the workers' applications get when
+  /// the environment sets none: the server then ends a session a killed
+  /// worker left inside a transaction, should the supervisor fail to end
+  /// it itself. By default the longest plan timeout (60 s for a plan
+  /// without one) plus [killGrace] plus three heartbeats, in whole seconds;
+  /// `null` with `HORIZON_IDLE_TX_TIMEOUT=0`.
+  Duration? get workerIdleTransactionTimeout {
+    final set = idleTxTimeout;
+    if (set != null) {
+      return set > Duration.zero ? set : null;
+    }
+    var longest = Duration.zero;
+    for (final plan in plans) {
+      final timeout = plan.timeout ?? const Duration(seconds: 60);
+      if (timeout > longest) {
+        longest = timeout;
+      }
+    }
+    final total = longest + killGrace + heartbeat * 3;
+    return Duration(seconds: (total.inMilliseconds / 1000).ceil());
+  }
+
   /// The warning given wherever Horizon runs on a SQLite file queue.
   static const String sqliteWarning =
       'SQLite: a killed Horizon worker holds its write lock until this '
@@ -354,6 +387,7 @@ final class HorizonConfig implements ConfigSection {
     'jobs_per_process': jobsPerProcess,
     'quarantine_after': quarantineAfter,
     'allow_sqlite': allowSqlite,
+    'idle_tx_timeout': workerIdleTransactionTimeout?.inSeconds ?? 0,
   };
 
   /// Problems `ConfigValidator` reports: bounds of each plan, plan names

@@ -1200,12 +1200,9 @@ final class Application {
   }) async {
     final probe = factory();
     if (embedWorkers != null && embedWorkers.isNotEmpty) {
-      // A command-line flag, as `withEnv` overrides: the config checks at
-      // boot see the embedded workers too, not only the environment's.
-      probe._builder._envOverrides = <String, String>{
-        ...probe._builder._envOverrides,
-        'SERVER_EMBED_WORKERS': embedWorkers.join(','),
-      };
+      // A command-line flag: the config checks at boot see the embedded
+      // workers too, not only the environment's.
+      probe.overrideEnv({'SERVER_EMBED_WORKERS': embedWorkers.join(',')});
     }
     await probe.boot();
     // ADR-027: several processes on consecutive ports behind a proxy. A

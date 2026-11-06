@@ -195,6 +195,7 @@ jobs:
           (cd packages/daravel_activitylog && dart test --tags integration --reporter=expanded)
           (cd packages/daravel_teorion && dart test --tags integration --reporter=expanded)
           (cd packages/daravel_scout && dart test --tags integration --reporter=expanded)
+          (cd packages/daravel_horizon && dart test --tags integration --reporter=expanded)
 
   redis:
     # Blueprint #41: Redis and Valkey on every commit.

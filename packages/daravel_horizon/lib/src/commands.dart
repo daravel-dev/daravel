@@ -7,6 +7,7 @@ import 'package:dartisan_cli/dartisan_cli.dart';
 
 import 'config.dart';
 import 'master.dart';
+import 'setup.dart' show horizonKillPolicy;
 import 'signals.dart';
 import 'store/process_store.dart';
 
@@ -60,7 +61,8 @@ final class HorizonCommand extends DaravelCommand {
     final queues = app.container.make<QueueManager>();
     final channel = app.container.make<CoordinatorChannel>();
     final done = Completer<void>();
-    final sqlite = HorizonConfig.onSqliteFile(app.config);
+    final policy = await horizonKillPolicy(app);
+    final sqlite = policy.restartAfterKill == 'sqlite_lock';
     var code = 0;
     if (sqlite) {
       stderr.writeln('Warning: ${HorizonConfig.sqliteWarning}');
@@ -82,9 +84,11 @@ final class HorizonCommand extends DaravelCommand {
           done.complete();
         }
       },
-      sqlite: sqlite,
-      onSqliteLock: () {
-        // EX_TEMPFAIL: restart this process, which frees the lock.
+      restartAfterKill: policy.restartAfterKill,
+      terminateSession: policy.terminate,
+      workerIdleTransactionTimeout: policy.idleTransactionTimeout,
+      onRestartNeeded: () {
+        // EX_TEMPFAIL: restart this process, which frees the locks.
         code = 75;
         if (!done.isCompleted) {
           done.complete();
@@ -116,7 +120,8 @@ final class HorizonCommand extends DaravelCommand {
     );
     stdout.writeln(
       code == 75
-          ? 'Horizon stopped after a kill on SQLite; exiting 75 for a restart.'
+          ? 'Horizon stopped after a kill that left database locks; exiting 75 '
+                'for a restart.'
           : 'Horizon stopped.',
     );
     return code;

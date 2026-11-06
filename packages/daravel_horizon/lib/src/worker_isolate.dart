@@ -27,6 +27,7 @@ final class HorizonWorkerStart {
     this.sleep = const Duration(seconds: 3),
     this.maxJobs,
     this.maxTime,
+    this.idleTransactionTimeout,
   });
 
   /// Builds the worker's application (`createApp`).
@@ -67,6 +68,11 @@ final class HorizonWorkerStart {
 
   /// The worker exits after this long, for a fresh one.
   final Duration? maxTime;
+
+  /// `DB_IDLE_TRANSACTION_TIMEOUT` for the worker's application, set before
+  /// it boots (`HorizonConfig.workerIdleTransactionTimeout`); null leaves
+  /// the environment's.
+  final Duration? idleTransactionTimeout;
 }
 
 /// The entry of a Horizon worker isolate: boots its own application, runs
@@ -82,11 +88,16 @@ Future<void> horizonWorkerMain(HorizonWorkerStart start) async {
   var code = 0;
   try {
     app = start.factory();
+    if (start.idleTransactionTimeout case final idle?) {
+      app.overrideEnv({'DB_IDLE_TRANSACTION_TIMEOUT': '${idle.inSeconds}'});
+    }
     if (start.coordinator case final port?) {
       app.coordinator = RemoteCoordinatorChannel(port);
     }
     final booted = app;
     await booted.boot();
+    final database = booted.container.make<DatabaseManager>();
+    String sessions() => encodeSessions(database.openSessions());
     final worker = QueueWorker(
       booted.container.make<QueueManager>(),
       logger: booted.logger,
@@ -106,6 +117,7 @@ Future<void> horizonWorkerMain(HorizonWorkerStart start) async {
         jobUuid: jobUuid,
         queue: queue,
         jobStartedAtMs: startedAt,
+        sessions: sessions(),
       ),
     );
     // The recorder: every finished job goes to the Horizon store in the
@@ -181,7 +193,7 @@ Future<void> horizonWorkerMain(HorizonWorkerStart start) async {
           worker.stop();
       }
     });
-    start.master.send(Ready(start.name));
+    start.master.send(Ready(start.name, sessions: sessions()));
     report();
     code = await booted.container.runScoped<int>(
       'job',

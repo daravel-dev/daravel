@@ -83,6 +83,54 @@ void main() {
     ]);
   });
 
+  test('HORIZON_IDLE_TX_TIMEOUT: by default the longest plan timeout plus '
+      'killGrace and three heartbeats; 0 turns it off', () {
+    HorizonConfig of(Map<String, String> env, {List<SupervisorPlan>? plans}) =>
+        HorizonConfig.fromEnv(Env.fromMap(env), defaults: plans ?? [one]);
+    // No plan timeout: 60 s + 10 s + 3 × 1 s.
+    expect(of({}).workerIdleTransactionTimeout, const Duration(seconds: 73));
+    expect(
+      of(
+        {'HORIZON_KILL_GRACE': '5', 'HORIZON_HEARTBEAT_MS': '200'},
+        plans: const [
+          SupervisorPlan(
+            name: SupervisorName('a'),
+            timeout: Duration(seconds: 90),
+          ),
+          SupervisorPlan(
+            name: SupervisorName('b'),
+            timeout: Duration(seconds: 20),
+          ),
+        ],
+      ).workerIdleTransactionTimeout,
+      const Duration(seconds: 96),
+      reason: '90 + 5 + 0.6, rounded up',
+    );
+    expect(
+      of({'HORIZON_IDLE_TX_TIMEOUT': '30'}).workerIdleTransactionTimeout,
+      const Duration(seconds: 30),
+    );
+    expect(
+      of({'HORIZON_IDLE_TX_TIMEOUT': '0'}).workerIdleTransactionTimeout,
+      isNull,
+    );
+    expect(of({}).toMap()['idle_tx_timeout'], 73);
+  });
+
+  test('sessions travel as one string', () {
+    final sessions = {
+      'pgsql': ['812', '815'],
+      'audit': ['901'],
+      'empty': <String>[],
+    };
+    expect(encodeSessions(sessions), 'pgsql=812,815;audit=901');
+    expect(decodeSessions(encodeSessions(sessions)), {
+      'pgsql': ['812', '815'],
+      'audit': ['901'],
+    });
+    expect(decodeSessions(''), isEmpty);
+  });
+
   test('minProcesses 0 is allowed (scale to zero)', () async {
     expect(
       await issues(

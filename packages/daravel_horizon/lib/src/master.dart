@@ -38,6 +38,13 @@ final class HorizonWorker {
   /// Its last [Heartbeat].
   Heartbeat? last;
 
+  /// The server sessions of its database connections, as last reported
+  /// ([encodeSessions]).
+  String sessions = '';
+
+  /// Set once its sessions were ended after a kill or crash.
+  Future<void>? _sessionsEnded;
+
   /// Whether it was asked to stop.
   bool stopping = false;
 
@@ -89,8 +96,10 @@ final class HorizonMaster {
     this.signals,
     this.name = 'horizon',
     this.onTerminate,
-    this.sqlite = false,
-    this.onSqliteLock,
+    this.restartAfterKill,
+    this.onRestartNeeded,
+    this.terminateSession,
+    this.workerIdleTransactionTimeout,
     this.onEvent,
     Duration Function(int crashes)? crashDelay,
   }) : _crashDelay = crashDelay ?? _defaultCrashDelay;
@@ -127,15 +136,29 @@ final class HorizonMaster {
   /// Called after `horizon:terminate` stopped the workers.
   final void Function()? onTerminate;
 
-  /// Whether the queue is a SQLite file ([HorizonConfig.onSqliteFile]): a
-  /// killed worker leaves its write lock behind, so after a kill the master
-  /// calls [onSqliteLock] once (`dartisan horizon` drains and exits 75).
-  final bool sqlite;
+  /// Why a kill needs a fresh process, or null when it does not: `sqlite_lock`
+  /// for a SQLite file queue ([HorizonConfig.onSqliteFile]), whose write
+  /// lock a killed worker keeps, or `sessions_not_terminable` for a
+  /// database whose driver cannot end a killed worker's sessions
+  /// ([SessionTerminatingDriver]). After the first kill the master calls
+  /// [onRestartNeeded] once (`dartisan horizon` drains and exits 75).
+  final String? restartAfterKill;
 
-  /// Called once after the first kill on a SQLite file queue.
-  final void Function()? onSqliteLock;
+  /// Called once after the first kill when [restartAfterKill] is set.
+  final void Function()? onRestartNeeded;
 
-  bool _sqliteLocked = false;
+  bool _restartRequested = false;
+
+  /// Ends a server session (`connection`, `id`) a killed worker reported
+  /// ([Heartbeat.sessions]), so the server rolls back what it left open
+  /// before the job is reclaimed; `false` when the server knew no such
+  /// session. Without it, sessions are left to the server's
+  /// `DB_IDLE_TRANSACTION_TIMEOUT`.
+  final Future<bool> Function(String connection, String id)? terminateSession;
+
+  /// `DB_IDLE_TRANSACTION_TIMEOUT` for the workers' applications
+  /// ([HorizonConfig.workerIdleTransactionTimeout]); null leaves theirs.
+  final Duration? workerIdleTransactionTimeout;
 
   /// Told about kills and scaling decisions.
   final HorizonEventSink? onEvent;
@@ -456,6 +479,7 @@ final class HorizonMaster {
         sleep: plan.sleep,
         maxJobs: plan.maxJobs,
         maxTime: plan.maxTime,
+        idleTransactionTimeout: workerIdleTransactionTimeout,
       ),
       debugName: worker.name,
       paused: true,
@@ -504,12 +528,14 @@ final class HorizonMaster {
       case final Ready ready:
         _worker(ready.worker)
           ?..ready = true
+          ..sessions = ready.sessions
           ..lastSeen = DateTime.now();
       case final Heartbeat beat:
         final w = _worker(beat.worker);
         if (w != null) {
           w
             ..last = beat
+            ..sessions = beat.sessions
             ..lastSeen = DateTime.now();
           _checkGrace(w);
         }
@@ -560,27 +586,70 @@ final class HorizonMaster {
     isolate.kill(priority: Isolate.immediate);
     final job = w.last;
     logger.warning('Horizon worker ${w.name} killed ($reason).');
-    onEvent?.call('WorkerKilled', {
-      'worker': w.name,
-      'reason': reason,
-      'job': job?.jobUuid,
+    // The killed isolate's sockets stay open while the process lives, and a
+    // transaction it left keeps its locks: end its sessions first, so the
+    // reclaimed job does not wait on them.
+    final ended = _endSessions(w).then((result) {
+      onEvent?.call('WorkerKilled', {
+        'worker': w.name,
+        'reason': reason,
+        'job': job?.jobUuid,
+        'sessionsTerminated': result.$1,
+        'failed': result.$2,
+      });
     });
-    if (sqlite && !_sqliteLocked) {
-      _sqliteLocked = true;
+    w._sessionsEnded = ended;
+    if (restartAfterKill case final why? when !_restartRequested) {
+      _restartRequested = true;
       logger.error(
-        'Horizon killed ${w.name} on a SQLite file queue: its write lock stays '
-        'held until this process restarts.',
+        why == 'sqlite_lock'
+            ? 'Horizon killed ${w.name} on a SQLite file queue: its write lock '
+                  'stays held until this process restarts.'
+            : 'Horizon killed ${w.name}, and the database driver cannot end '
+                  'its sessions: their locks stay held until this process '
+                  'restarts.',
       );
       onEvent?.call('SupervisorLooped', {
         'plan': w.plan.name.value,
-        'reason': 'sqlite_lock',
+        'reason': why,
         'worker': w.name,
       });
-      onSqliteLock?.call();
+      onRestartNeeded?.call();
     }
     if (reclaim) {
-      w._reclaim = _reclaim(w);
+      w._reclaim = ended.then((_) => _reclaim(w));
     }
+  }
+
+  /// Ends the server sessions [w] last reported ([terminateSession]):
+  /// (ended, failed).
+  Future<(int, int)> _endSessions(HorizonWorker w) async {
+    final terminate = terminateSession;
+    final sessions = decodeSessions(w.sessions);
+    w.sessions = '';
+    if (terminate == null || sessions.isEmpty) {
+      return (0, 0);
+    }
+    var ended = 0;
+    var failed = 0;
+    for (final MapEntry(key: connection, value: ids) in sessions.entries) {
+      for (final id in ids) {
+        try {
+          if (await terminate(connection, id)) {
+            ended++;
+          }
+        } on Object catch (e) {
+          failed++;
+          logger.error(
+            'Could not end session $id ($connection) of ${w.name}: $e',
+          );
+        }
+      }
+    }
+    if (ended > 0) {
+      logger.info('Ended $ended database session(s) of ${w.name}.');
+    }
+    return (ended, failed);
   }
 
   /// Makes the job [w] held available again at once; true when it was
@@ -622,6 +691,7 @@ final class HorizonMaster {
     if (job == null || job.jobId == null || job.queue == null) {
       return;
     }
+    await w._sessionsEnded;
     await (w._reclaim ?? _reclaim(w));
     if (uuid == null) {
       return;
@@ -694,6 +764,10 @@ final class HorizonMaster {
       w._exited.complete();
     }
     _pools[w.plan.name.value]?.remove(w);
+    if (crashed) {
+      // A crashed isolate's sockets may stay open as a killed one's do.
+      w._sessionsEnded ??= _endSessions(w);
+    }
     if (crashed && w.last?.jobId != null) {
       unawaited(_afterCrash(w));
     }
@@ -797,11 +871,16 @@ final class HorizonMaster {
       timeout,
       onTimeout: () {
         for (final w in all) {
-          w._isolate?.kill(priority: Isolate.immediate);
+          if (w._isolate case final isolate?) {
+            w._isolate = null;
+            isolate.kill(priority: Isolate.immediate);
+            w._sessionsEnded ??= _endSessions(w);
+          }
         }
         return const <void>[];
       },
     );
+    await Future.wait([for (final w in all) ?w._sessionsEnded]);
     _reports.close();
   }
 }
