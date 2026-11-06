@@ -76,10 +76,20 @@ void main() {
       RateLimitMessage('release', 'k', count: 3, resetAt: grant.resetAtMs),
       timeout: const Duration(milliseconds: 20),
     )..ignore();
+    // The coordinator reads the release 60 ms after it was sent, 40 ms past
+    // its deadline.
     stall(const Duration(milliseconds: 60));
-    await expectLater(release, throwsA(isA<CoordinatorTimeoutException>()));
+    // The caller's own outcome depends on which comes first after the
+    // stall, its timeout timer or the coordinator's answer: the VM posts the
+    // timer's wake-up from another thread, late on a loaded machine, so
+    // either is right (#194). What this test is about is the coordinator.
+    try {
+      await release;
+    } on CoordinatorTimeoutException {
+      // The timer came first.
+    }
     await eventually(() => counters.attemptsSync('k', decay) == 0);
-    expect(coordinator.stats()['expired'], 0);
+    expect(coordinator.stats()['expired'], 0, reason: 'never dropped');
   });
 
   test('calls answered in time are not affected', () async {
