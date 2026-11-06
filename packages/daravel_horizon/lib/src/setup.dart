@@ -53,6 +53,7 @@ Future<int> runHorizon(
 ) async {
   final config = app.config.section<HorizonConfig>();
   if (!config.enabled) {
+    app.logger.info('Horizon disabled (HORIZON_ENABLED=false).');
     await control.stopping;
     return 0;
   }
@@ -64,6 +65,7 @@ Future<int> runHorizon(
     logger: app.logger,
     coordinator: control.coordinator,
     store: app.container.make<CoordinatorChannel>(),
+    failedJobs: queues.processor.failedJobs,
   );
   await master.start();
   final commands = control.messages.listen((message) {

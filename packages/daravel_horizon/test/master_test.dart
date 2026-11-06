@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:daravel/daravel.dart';
 import 'package:daravel_horizon/daravel_horizon.dart';
@@ -25,6 +26,11 @@ final class Hang extends Job {
   Map<String, Object?> toJson() => {'label': label, 'ms': ms};
   @override
   Future<void> handle(JobContext ctx) async {
+    if (label == 'boom') {
+      // Brings its worker down on every attempt.
+      Isolate.current.kill(priority: Isolate.immediate);
+      await Completer<void>().future;
+    }
     if (label == 'hang' && ctx.attempt == 1) {
       final watch = Stopwatch()..start();
       while (watch.elapsed < const Duration(seconds: 20)) {}
@@ -107,6 +113,7 @@ void main() {
     logger: Logger(minimumLevel: LogLevel.critical),
     coordinator: coordinator.listen(),
     store: LocalCoordinatorChannel(coordinator),
+    failedJobs: app.container.make<QueueManager>().processor.failedJobs,
     onEvent: (event, data) => events.add((event, data)),
     crashDelay: (_) => const Duration(milliseconds: 50),
   );
@@ -186,6 +193,39 @@ void main() {
       ];
       expect(killed.single['reason'], 'lease');
       expect(killed.single['job'], isNotNull);
+      await m.stop(timeout: const Duration(seconds: 20));
+    },
+  );
+
+  test(
+    'a job that brings its worker down twice is quarantined in failed_jobs',
+    timeout: const Timeout(Duration(minutes: 2)),
+    () async {
+      await app.run(() => Queue.push(const Hang('boom'), queue: 'a'));
+      final m = master(
+        const SupervisorPlan(
+          name: SupervisorName('s'),
+          queues: [QueueName('a')],
+          balance: BalanceStrategy.off,
+          maxProcesses: 1,
+          sleep: Duration(milliseconds: 50),
+        ),
+      );
+      addTearDown(() => m.stop(timeout: const Duration(seconds: 20)));
+      await m.start();
+      await until(
+        () => events.any((e) => e.$1 == 'JobQuarantined'),
+        'the quarantine',
+      );
+      final failed = await app.run(
+        () => App.make<QueueManager>().processor.failedJobs.all(),
+      );
+      expect(failed, hasLength(1));
+      expect(failed.single.exception, contains('JobQuarantinedException'));
+      expect(failed.single.queue, 'a');
+      expect(await app.run(() => Queue.size('a')), 0);
+      final quarantined = events.firstWhere((e) => e.$1 == 'JobQuarantined');
+      expect(quarantined.$2['crashes'], 2);
       await m.stop(timeout: const Duration(seconds: 20));
     },
   );

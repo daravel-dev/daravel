@@ -42,6 +42,9 @@ final class HorizonWorker {
   /// Whether it booted (the lease applies from then on).
   bool ready = false;
 
+  /// The reclaim of its job after a lease kill, if one ran.
+  Future<bool>? _reclaim;
+
   /// Whether it runs a job now.
   bool get busy => last?.jobId != null;
 
@@ -77,6 +80,7 @@ final class HorizonMaster {
     required this.logger,
     this.coordinator,
     this.store,
+    this.failedJobs,
     this.onEvent,
     Duration Function(int crashes)? crashDelay,
   }) : _crashDelay = crashDelay ?? _defaultCrashDelay;
@@ -99,6 +103,9 @@ final class HorizonMaster {
   /// Where the rates of the auto-scaler come from: the [HorizonService] the
   /// workers record into. Without it, no rate is measured.
   final CoordinatorChannel? store;
+
+  /// Where a quarantined job is recorded (`failed_jobs`).
+  final FailedJobProvider? failedJobs;
 
   /// Told about kills and scaling decisions.
   final HorizonEventSink? onEvent;
@@ -399,26 +406,114 @@ final class HorizonMaster {
       'reason': reason,
       'job': job?.jobUuid,
     });
+    if (reclaim) {
+      w._reclaim = _reclaim(w);
+    }
+  }
+
+  /// Makes the job [w] held available again at once; true when it was
+  /// still reserved.
+  Future<bool> _reclaim(HorizonWorker w) async {
+    final job = w.last;
     final queue = job?.queue;
     final id = job?.jobId;
-    if (reclaim && queue != null && id != null) {
-      final target = driver(w.plan.connection);
-      if (target is ReclaimableQueueDriver) {
-        // The id as the driver stores it: a number for the database queue.
-        final key = int.tryParse(id) ?? id;
-        unawaited(
-          target
-              .reclaim(queue, key)
-              .then<void>(
-                (done) => logger.info(
-                  'Job ${job?.jobUuid} of ${w.name} '
-                  '${done ? 'reclaimed' : 'was no longer reserved'}.',
-                ),
-                onError: (Object e) =>
-                    logger.error('Could not reclaim job $id: $e'),
-              ),
-        );
+    final target = driver(w.plan.connection);
+    if (queue == null || id == null || target is! ReclaimableQueueDriver) {
+      return false;
+    }
+    try {
+      final done = await target.reclaim(queue, _key(id));
+      logger.info(
+        'Job ${job?.jobUuid} of ${w.name} '
+        '${done ? 'reclaimed' : 'was no longer reserved'}.',
+      );
+      return done;
+    } on Object catch (e) {
+      logger.error('Could not reclaim job $id: $e');
+      return false;
+    }
+  }
+
+  /// The id as the driver stores it: a number for the database queue.
+  static Object _key(String id) => int.tryParse(id) ?? id;
+
+  /// Crashes per job uuid; a job reaching `quarantineAfter` is quarantined.
+  final Map<String, int> _jobCrashes = {};
+
+  /// A worker went down while running a job: the job is reclaimed (unless
+  /// the lease did it) and counted; past `quarantineAfter` crashes it goes
+  /// to `failed_jobs` and leaves the queue instead of crashing the next
+  /// worker too.
+  Future<void> _afterCrash(HorizonWorker w) async {
+    final job = w.last;
+    final uuid = job?.jobUuid;
+    if (job == null || job.jobId == null || job.queue == null) {
+      return;
+    }
+    await (w._reclaim ?? _reclaim(w));
+    if (uuid == null) {
+      return;
+    }
+    final crashes = _jobCrashes[uuid] = (_jobCrashes[uuid] ?? 0) + 1;
+    if (_jobCrashes.length > 1000) {
+      _jobCrashes.remove(_jobCrashes.keys.first);
+    }
+    if (crashes >= config.quarantineAfter) {
+      _jobCrashes.remove(uuid);
+      await _quarantine(w.plan, job.queue!, job.jobId!, uuid, crashes);
+    }
+  }
+
+  /// Moves job [id] of [queue] to `failed_jobs` with a
+  /// [JobQuarantinedException] and removes it, through the queue driver and
+  /// the failed job provider only.
+  Future<void> _quarantine(
+    SupervisorPlan plan,
+    String queue,
+    String id,
+    String uuid,
+    int crashes,
+  ) async {
+    final target = driver(plan.connection);
+    final failed = failedJobs;
+    if (target is! BrowsableQueueDriver || failed == null) {
+      logger.error(
+        'Job $uuid crashed $crashes workers; it cannot be quarantined on '
+        'the [${target.name}] connection.',
+      );
+      return;
+    }
+    try {
+      QueuedJobView? found;
+      for (final view in await target.pending(queue, limit: 1000)) {
+        if ('${view.id}' == id) {
+          found = view;
+          break;
+        }
       }
+      if (found == null) {
+        return; // Already gone (finished elsewhere, or deleted).
+      }
+      final exception = JobQuarantinedException(uuid, crashes);
+      await failed.log(
+        connection: target.name,
+        queue: queue,
+        payload: found.payload,
+        exception: '$exception\n${StackTrace.current}',
+      );
+      await target.delete(
+        QueuedJob(
+          id: found.id,
+          queue: queue,
+          payload: JobPayload.decode(found.payload),
+          attempts: found.attempts,
+          raw: found.payload,
+        ),
+      );
+      logger.error('$exception; moved to failed_jobs.');
+      onEvent?.call('JobQuarantined', {'job': uuid, 'crashes': crashes});
+    } on Object catch (e) {
+      logger.error('Could not quarantine job $uuid: $e');
     }
   }
 
@@ -427,6 +522,9 @@ final class HorizonMaster {
       w._exited.complete();
     }
     _pools[w.plan.name.value]?.remove(w);
+    if (crashed && w.last?.jobId != null) {
+      unawaited(_afterCrash(w));
+    }
     if (_stopping || w.stopping) {
       return;
     }
@@ -498,4 +596,23 @@ final class HorizonMaster {
     );
     _reports.close();
   }
+}
+
+/// A job that brought its worker down `quarantineAfter` times in a row
+/// (`HORIZON_QUARANTINE_AFTER`): recorded in `failed_jobs` with its payload,
+/// so `queue:retry` can run it again once fixed, and removed from its queue.
+final class JobQuarantinedException implements Exception {
+  /// Job [uuid] crashed [crashes] workers.
+  const JobQuarantinedException(this.uuid, this.crashes);
+
+  /// The job's UUID.
+  final String uuid;
+
+  /// How many workers it brought down.
+  final int crashes;
+
+  @override
+  String toString() =>
+      'JobQuarantinedException: job $uuid brought down $crashes Horizon '
+      'workers in a row';
 }
