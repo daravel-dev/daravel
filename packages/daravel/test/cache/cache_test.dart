@@ -222,10 +222,72 @@ void main() {
         expect(await lock.currentOwner(), 'me');
         expect(await lock.release(), isTrue);
         expect(await cache.lock('report', owner: 'other').acquire(), isTrue);
+        // Laravel's DatabaseStore::flush empties `cache` only: a held lock
+        // survives `cache:clear` (#167).
         await cache.flush();
+        expect(await DB.table('cache').count(), 0);
+        expect(await DB.table('cache_locks').count(), 1);
+        expect(await cache.lock('report', owner: 'me').acquire(), isFalse);
+        await cache.flushLocks();
         expect(await DB.table('cache_locks').count(), 0);
       });
     });
+
+    test(
+      'expired rows are pruned on demand and by the lottery (#167)',
+      () async {
+        await app.run(() async {
+          Clock.freeze();
+          addTearDown(Clock.restore);
+          final cache = Cache.store('database');
+          for (var i = 0; i < 20; i++) {
+            await cache.put('short$i', i, ttl: const Duration(seconds: 1));
+          }
+          await cache.put('long', 1, ttl: const Duration(hours: 1));
+          await cache
+              .lock('abandoned', ttl: const Duration(seconds: 1))
+              .acquire();
+          Clock.travel(const Duration(seconds: 2));
+          // Rows are deleted only when read: written once, they stay.
+          expect(await DB.table('cache').count(), greaterThanOrEqualTo(20));
+          expect(await cache.pruneExpired(), greaterThanOrEqualTo(21));
+          expect(await DB.table('cache').count(), 1);
+          expect(await DB.table('cache_locks').count(), 0);
+          expect(await cache.get<int>('long'), 1);
+
+          // A store that always wins the lottery prunes after a put, and after
+          // a lock acquisition (Laravel's DatabaseLock lottery)...
+          final store = DatabaseStore(
+            App.make<DatabaseManager>(),
+            pruneLottery: (1, 1),
+          );
+          await store.put('gone', 1, ttl: const Duration(seconds: 1));
+          await store.acquireLock('gone-lock', 'x', const Duration(seconds: 1));
+          Clock.travel(const Duration(seconds: 2));
+          await store.put('kept', 1, ttl: const Duration(hours: 1));
+          expect(await DB.table('cache').where('key', 'gone').count(), 0);
+          await store.acquireLock('fresh', 'x', const Duration(minutes: 1));
+          expect(
+            await DB.table('cache_locks').where('key', 'gone-lock').count(),
+            0,
+          );
+          // ...but never inside the application's transaction.
+          await store.put('in-tx', 1, ttl: const Duration(seconds: 1));
+          Clock.travel(const Duration(seconds: 2));
+          await DB.transaction(() async {
+            await store.put('other', 1);
+          });
+          expect(await DB.table('cache').where('key', 'in-tx').count(), 1);
+          // And a store that never wins never prunes.
+          final never = DatabaseStore(
+            App.make<DatabaseManager>(),
+            pruneLottery: (0, 1),
+          );
+          await never.put('x', 1);
+          expect(await DB.table('cache').where('key', 'in-tx').count(), 1);
+        });
+      },
+    );
 
     test('remember computes once under concurrency (stampede guard)', () async {
       await app.run(() async {

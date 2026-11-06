@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
@@ -198,6 +199,77 @@ void main() {
         expected,
       );
     });
+
+    test('maxSeries caps every metric and counts the overflow (#149)', () {
+      final r = MetricsRegistry(maxSeries: 3);
+      final counter = r.counter('hits_total', 'Hits.');
+      final gauge = r.gauge('level', 'Level.');
+      final histogram = r.histogram('lat', 'Latency.', buckets: [1]);
+      for (var i = 0; i < 100; i++) {
+        counter.inc({'user': '$i'});
+        gauge.set(i.toDouble(), {'user': '$i'});
+        histogram.observe(0.5, {'user': '$i'});
+      }
+      // Existing series keep counting; new ones land in the overflow.
+      counter.inc({'user': '0'});
+      final snapshot = r.snapshot();
+      Map<Object?, Object?> series(String name) =>
+          (snapshot[name]! as Map)['series'] as Map;
+      expect(series('hits_total'), hasLength(4));
+      expect(series('level'), hasLength(4));
+      expect(series('lat'), hasLength(4));
+      expect(counter.value({'user': '0'}), 2);
+      expect(series('hits_total')[overflowSeries], 97);
+      final text = r.render();
+      expect(text, contains('hits_total{overflow="true"} 97'));
+      expect(text, contains('lat_count{overflow="true"} 97'));
+      expect(
+        text,
+        contains('metrics_series_dropped_total{metric="hits_total"} 97'),
+      );
+      expect(text, contains('metrics_series_dropped_total{metric="lat"} 97'));
+
+      // 0: no limit.
+      final unlimited = MetricsRegistry(maxSeries: 0);
+      for (var i = 0; i < 100; i++) {
+        unlimited.counter('c', 'C.').inc({'k': '$i'});
+      }
+      expect(
+        ((unlimited.snapshot()['c']! as Map)['series'] as Map).length,
+        100,
+      );
+    });
+
+    test('the coordinator service forgets exited workers and refuses '
+        'oversized snapshots (#149)', () {
+      final a = MetricsRegistry();
+      a.gauge('in_flight', 'In flight.').set(3, {'worker': 'w0'});
+      final service = MetricsService(maxSnapshotBytes: 1000)
+        ..handle('publish', {
+          'worker': 'w0',
+          'snapshot': jsonEncode(a.snapshot()),
+        });
+      String collect() => MetricsRegistry.renderSnapshot(
+        service.handle('collect', const {})! as Map<String, Object?>,
+      );
+      expect(collect(), contains('in_flight{worker="w0"} 3'));
+      final huge = MetricsRegistry(maxSeries: 0);
+      for (var i = 0; i < 100; i++) {
+        huge.counter('c', 'C.').inc({'k': '$i'});
+      }
+      expect(
+        service.handle('publish', {
+          'worker': 'w1',
+          'snapshot': jsonEncode(huge.snapshot()),
+        }),
+        isFalse,
+      );
+      expect(collect(), isNot(contains('c{')));
+      expect(service.stats()['refused'], 1);
+      service.forgetWorker('w0');
+      expect(collect(), isNot(contains('in_flight')));
+      expect(service.stats()['workers'], 0);
+    });
   });
 
   group('HTTP endpoints', () {
@@ -277,9 +349,58 @@ void main() {
       expect(text, contains('coordinator_in_flight 0'));
     });
 
+    test('unknown HTTP methods are counted as other (#149)', () async {
+      await boot({'METRICS_ENABLED': 'true'});
+      Future<String> scrape() async =>
+          (await app.handle(Request.fake(path: '/metrics'))).bodyText();
+      await app.handle(Request.fake(method: 'BREW', path: '/users/1'));
+      final before = (await scrape()).split('\n').length;
+      for (var i = 0; i < 100; i++) {
+        await app.handle(Request.fake(method: 'ZZZ$i', path: '/users/1'));
+      }
+      final text = await scrape();
+      expect(
+        text,
+        contains(
+          'http_requests_total{method="other",route="unmatched",status="405"} 101',
+        ),
+      );
+      expect(text, isNot(contains('BREW')));
+      expect(text, isNot(contains('ZZZ')));
+      // The scrape itself adds its own GET /metrics series.
+      expect(text.split('\n').length, lessThanOrEqualTo(before + 16));
+    });
+
     test('/metrics is absent unless enabled', () async {
       await boot({});
       expect((await app.handle(Request.fake(path: '/metrics'))).status, 404);
+    });
+
+    test('concurrent /up/ready probes share one run of the checks, and '
+        'its result answers the next second (#165)', () async {
+      var runs = 0;
+      final gate = Completer<void>();
+      await boot(
+        {},
+        checks: [
+          CallbackHealthCheck('counted', () async {
+            runs++;
+            await gate.future;
+            return const HealthResult.ok();
+          }),
+        ],
+      );
+      final probes = [
+        for (var i = 0; i < 10; i++)
+          app.handle(Request.fake(path: '/up/ready')),
+      ];
+      await Future<void>.delayed(Duration.zero);
+      gate.complete();
+      final responses = await Future.wait(probes);
+      expect(responses.map((r) => r.status), everyElement(200));
+      expect(runs, 1);
+      expect((await app.handle(Request.fake(path: '/up/ready'))).status, 200);
+      expect(runs, 1, reason: 'within Application.readinessCacheTtl');
     });
 
     test('/up/ready reports each check and fails with 503', () async {

@@ -27,6 +27,26 @@ timed out is released at once rather than held until its TTL, and
 `process` stores and with [Redis](redis.md#cache-tags), where the keys are
 Laravel's; `file` and `database` cannot tag, as in Laravel.
 
+`Cache.flexible` serves the stale value while one background refresh per
+key runs. When that refresh fails, the error is logged (the caller already
+has its value) and the key is not refreshed again for 5 seconds, so a
+failing loader does not run on every request; once the stale window is
+over, the value is computed inline and its error reaches the caller.
+`Cache.remember` lets one caller compute a missing value: concurrent
+misses in one isolate share that computation, and callers elsewhere poll
+for the value (every 10 ms at first, up to every 100 ms) until it is
+stored or the lock timeout passes.
+
+`Cache.flush()` and `dartisan cache:clear` remove the values but keep the
+locks, as Laravel's array and database stores do, so a clear in production
+does not hand a held lock to a second holder; `Cache.flushLocks()` and
+`cache:clear --locks` release them. The `database` and `file` stores delete
+an expired entry when it is read; keys written once and rarely read again
+(rate-limit windows, revoked token ids) are deleted by `dartisan
+cache:prune-expired [store]` (schedule it hourly), by a lottery on 2 in 100
+database writes (as Laravel prunes `cache_locks`) and by a background pass
+of the file store at most once an hour.
+
 ## Events
 
 `Event.listen<OrderShipped>((event) async {...})` or listener classes in

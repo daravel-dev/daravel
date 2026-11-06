@@ -328,12 +328,33 @@ final class QueryTally {
     return top;
   }
 
-  /// [sql] with its literals replaced, to group similar queries.
-  static String fingerprint(String sql) => sql
-      .replaceAll(_placeholder, '?')
-      .replaceAll(_list, '(?)')
-      .replaceAll(_space, ' ')
-      .trim();
+  /// [sql] with its literals replaced, to group similar queries. An
+  /// application runs the same few statements over and over, so the last
+  /// [fingerprintCacheSize] fingerprints are kept per isolate instead of
+  /// running three regular expressions on every query.
+  static String fingerprint(String sql) {
+    final cached = _fingerprints[sql];
+    if (cached != null) {
+      return cached;
+    }
+    final computed = sql
+        .replaceAll(_placeholder, '?')
+        .replaceAll(_list, '(?)')
+        .replaceAll(_space, ' ')
+        .trim();
+    if (_fingerprints.length >= fingerprintCacheSize) {
+      // Statements built with inlined values never repeat: start over
+      // rather than track recency on every hit.
+      _fingerprints.clear();
+    }
+    _fingerprints[sql] = computed;
+    return computed;
+  }
+
+  /// How many fingerprints [fingerprint] keeps per isolate.
+  static const int fingerprintCacheSize = 512;
+
+  static final Map<String, String> _fingerprints = <String, String>{};
 }
 
 /// Records requests for the dashboard.

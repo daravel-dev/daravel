@@ -111,6 +111,7 @@ final class DartisanRunner extends CommandRunner<int> {
     addCommand(DbTransferCommand(createApp));
     addCommand(ClientFlutterCommand(createApp));
     addCommand(CacheClearCommand(createApp));
+    addCommand(CachePruneExpiredCommand(createApp));
     addCommand(CoordinatorStatsCommand(createApp));
     addCommand(SecurityAuditCommand(createApp));
     addCommand(StorageLinkCommand(createApp));

@@ -5,10 +5,18 @@ import 'package:daravel/daravel.dart';
 
 import '../dartisan_cli.dart';
 
-/// `cache:clear [store]` — flushes the default (or named) cache store.
+/// `cache:clear [store] [--locks]` — flushes the default (or named) cache
+/// store. Its locks stay unless `--locks` is given, as in Laravel, so a
+/// clear in production does not hand a held lock to a second holder.
 final class CacheClearCommand extends DaravelCommand {
   /// The `dartisan cache:clear` command.
-  CacheClearCommand(super.createApp);
+  CacheClearCommand(super.createApp) {
+    argParser.addFlag(
+      'locks',
+      negatable: false,
+      help: 'Release every lock of the store too, whoever holds it.',
+    );
+  }
 
   @override
   String get name => 'cache:clear';
@@ -19,9 +27,40 @@ final class CacheClearCommand extends DaravelCommand {
   @override
   Future<int> run() => withApp((app) async {
     final store = argResults!.rest.isEmpty ? null : argResults!.rest.first;
-    await App.make<CacheManager>().store(store).flush();
+    final cache = App.make<CacheManager>().store(store);
+    await cache.flush();
+    final locks = argResults!['locks'] as bool;
+    if (locks) {
+      await cache.flushLocks();
+    }
     stdout.writeln(
-      'Application cache cleared successfully'
+      'Application cache ${locks ? 'and locks ' : ''}cleared successfully'
+      '${store == null ? '' : ' ($store)'}.',
+    );
+    return 0;
+  });
+}
+
+/// `cache:prune-expired [store]`: deletes the expired entries and locks a
+/// store keeps until they are read (`database` rows, `file` files). Schedule
+/// it (hourly, say) when keys are written once and rarely read again.
+final class CachePruneExpiredCommand extends DaravelCommand {
+  /// The `dartisan cache:prune-expired` command.
+  CachePruneExpiredCommand(super.createApp);
+
+  @override
+  String get name => 'cache:prune-expired';
+
+  @override
+  String get description =>
+      'Delete the expired entries and locks of a cache store.';
+
+  @override
+  Future<int> run() => withApp((app) async {
+    final store = argResults!.rest.isEmpty ? null : argResults!.rest.first;
+    final pruned = await App.make<CacheManager>().store(store).pruneExpired();
+    stdout.writeln(
+      'Pruned $pruned expired cache entr${pruned == 1 ? 'y' : 'ies'}'
       '${store == null ? '' : ' ($store)'}.',
     );
     return 0;

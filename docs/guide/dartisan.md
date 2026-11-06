@@ -112,7 +112,7 @@ before moving to a new minor version.
 | `queue:failed`, `queue:retry`, `queue:forget`, `queue:flush` | Failed jobs |
 | `queue:clear`, `queue:pause`, `queue:continue`, `queue:restart` | Queue control |
 | `schedule:work`, `schedule:run`, `schedule:list`, `schedule:clear-cache` | The scheduler; `schedule:clear-cache` releases `withoutOverlapping` locks left behind |
-| `cache:clear`, `storage:link`, `static:hash`, `coordinator:stats [--url] [--token] [--json]` | Cache, public storage link, static file versions ([Responses](responses.md#static-files)), the running server's coordinator with advice ([Operations](operations.md#what-to-watch)) |
+| `cache:clear [--locks]`, `cache:prune-expired [store]`, `storage:link`, `static:hash`, `coordinator:stats [--url] [--token] [--json]` | Cache (locks stay unless `--locks`; expired entries of the `database` and `file` stores, see [Cache](background.md#cache)), public storage link, static file versions ([Responses](responses.md#static-files)), the running server's coordinator with advice ([Operations](operations.md#what-to-watch)) |
 
 ## Generators
 

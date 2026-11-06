@@ -1,4 +1,4 @@
-<!-- source: deployment.md sha256:88bdc006dd8b -->
+<!-- source: deployment.md sha256:b66892ac75b2 -->
 # Deployment
 
 ## Konsep & Arsitektur Ahead-of-Time (AOT) Single Binary
@@ -525,6 +525,10 @@ berada di storage yang dipakai bersama, atau jalankan `down` di setiap server.
 - `dart run bin/dartisan.dart doctor --production` mengecek konfigurasi,
   keterjangkauan database, `/metrics` yang terbuka untuk publik,
   `QUEUE_CONNECTION=sync`, dan lainnya; jalankan di entrypoint container.
-- Endpoint health: `/up` (liveness) dan `/up/ready` (readiness).
+- Endpoint health: `/up` (liveness) dan `/up/ready` (readiness). Setiap
+  worker menjalankan pengecekan readiness paling banyak satu kali pada saat
+  yang sama dan menjawab probe
+  dalam satu detik berikutnya dari hasil itu, sehingga probe yang sering
+  hanya memakan satu kali pengecekan per detik, bukan satu per probe.
 - Jalankan `queue:work` dan `schedule:work` sebagai proses terpisah.
 - Log: `LOG_STACK=json` untuk log terstruktur; secret di-redaksi.

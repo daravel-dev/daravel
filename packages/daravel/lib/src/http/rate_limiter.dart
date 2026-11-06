@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import '../foundation/clock.dart';
+import '../foundation/container.dart';
 
 import '../server/coordinator.dart';
 import 'http_exceptions.dart';
@@ -288,6 +289,9 @@ final class MemoryRateLimitStore implements RateLimitStore {
   final int maxKeys;
   final Map<String, _Bucket> _buckets = <String, _Bucket>{};
 
+  /// Evictions left before the next sweep of windows that are over.
+  int _evictionsBeforeSweep = 0;
+
   @override
   StateScope get scope => StateScope.isolate;
 
@@ -410,7 +414,16 @@ final class MemoryRateLimitStore implements RateLimitStore {
     }
     _buckets[key] = bucket;
     if (_buckets.length > maxKeys) {
-      _buckets.remove(_buckets.keys.first);
+      if (_evictionsBeforeSweep-- <= 0) {
+        // Windows that are over go before live ones, which are evicted only
+        // under real pressure; one pass per maxKeys / 16 evictions keeps the
+        // cost amortised.
+        _buckets.removeWhere((_, b) => now >= b.resetAtMs);
+        _evictionsBeforeSweep = maxKeys ~/ 16 < 1 ? 1 : maxKeys ~/ 16;
+      }
+      while (_buckets.length > maxKeys) {
+        _buckets.remove(_buckets.keys.first);
+      }
     }
     return bucket;
   }
@@ -1115,7 +1128,9 @@ final class ThrottleMiddleware implements RunsBeforeBindings {
   /// Key prefix separating independent throttles sharing a resolver.
   final String prefix;
 
-  /// The limiter counting; the application's by default.
+  /// The limiter counting. Null uses the application's (the [RateLimiter]
+  /// of the container: its store and named limiters), or, outside an
+  /// application, one in this isolate's memory.
   final RateLimiter? limiter;
 
   /// Returns the authenticated user's id (or `null` for guests) so limits
@@ -1128,7 +1143,10 @@ final class ThrottleMiddleware implements RunsBeforeBindings {
 
   @override
   Future<Response> handle(Request request, Next next) async {
-    final limiter = this.limiter ?? _defaultLimiter;
+    final limiter =
+        this.limiter ??
+        Container.current.tryMake<RateLimiter>() ??
+        _defaultLimiter;
     final name = limiterName;
     final limits = name == null
         ? <Limit>[Limit(maxAttempts: maxAttempts, decay: decay)]

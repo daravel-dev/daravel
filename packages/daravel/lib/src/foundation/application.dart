@@ -15,6 +15,7 @@ import '../auth/env_encryption.dart';
 import '../auth/hashing.dart';
 import '../auth/jwt.dart';
 import '../cache/cache.dart';
+import '../cache/stores.dart';
 import '../database/database_config.dart';
 import '../concurrency/concurrency.dart';
 import '../database/database_manager.dart';
@@ -233,12 +234,29 @@ final class Application {
       appKey: env.maybeString('APP_KEY'),
       // A revoked JWT is refused on every isolate (and every machine with
       // a shared store), not only on the one that handled the logout.
+      // In memory (the `memory` or `process` store), the ids get a store of
+      // their own on the coordinator: in the shared LRU cache, enough
+      // application keys evicted them and revoked tokens came back (#169).
       jwtDenylist: CacheJwtDenylist(() {
         final cache = container.make<CacheManager>();
-        final store = cache.store();
-        return store.scope == StateScope.isolate
-            ? cache.store('process').store
-            : store.store;
+        final store = cache.store().store;
+        if (store is! MemoryStore && store is! ProcessStore) {
+          return store;
+        }
+        final channel = container.make<CoordinatorChannel>();
+        final dedicated = switch (channel) {
+          // A coordinator of the application's own may lack the service.
+          LocalCoordinatorChannel(:final coordinator) =>
+            coordinator.service(ProcessCacheService.jwtDenylistServiceName) !=
+                null,
+          _ => true,
+        };
+        return dedicated
+            ? ProcessStore(
+                channel,
+                service: ProcessCacheService.jwtDenylistServiceName,
+              )
+            : cache.store('process').store;
       }, prefix: '${config.section<CacheConfig>().prefix}jwt_denylist:'),
     );
     final gate = AuthorizationGate(userResolver: () => _currentUser(auth));
@@ -246,13 +264,20 @@ final class Application {
         coordinator ??
         LocalCoordinatorChannel(
           createStandardCoordinator(
+            jwtDenylistMaxEntries: config
+                .section<CacheConfig>()
+                .jwtDenylistMaxEntries,
+            onWarning: logger.warning,
             processCacheMaxEntries: config
                 .section<CacheConfig>()
                 .processMaxEntries,
           ),
         );
     final events = EventDispatcher();
-    final metrics = AppMetrics(MetricsRegistry(), channel: channel);
+    final metrics = AppMetrics(
+      MetricsRegistry(maxSeries: config.section<MetricsConfig>().maxSeries),
+      channel: channel,
+    );
     events
       ..listen<JobProcessed>((_) => metrics.jobs.inc({'status': 'processed'}))
       ..listen<JobExceptionOccurred>(
@@ -473,12 +498,20 @@ final class Application {
       ..instance<Schedule>(schedule)
       ..singleton<QueueManager>((c) => _buildQueue(c, events, jobs))
       ..singleton<CacheManager>((c) {
-        final manager = CacheManager.fromConfig(
-          c.make<ConfigRepository>().section<CacheConfig>(),
-          basePath: basePath,
-          database: () => c.make<DatabaseManager>(),
-          channel: channel,
-        );
+        final manager =
+            CacheManager.fromConfig(
+                c.make<ConfigRepository>().section<CacheConfig>(),
+                basePath: basePath,
+                database: () => c.make<DatabaseManager>(),
+                channel: channel,
+              )
+              ..onRefreshError = (key, error, stack) => logger.error(
+                'Cache: the background refresh of [$key] failed; the stale value '
+                'is served until it succeeds.',
+                error: error,
+                stackTrace: stack,
+                context: {'key': key},
+              );
         for (final MapEntry(key: name, value: factory)
             in _builder._cacheStores.entries) {
           manager.extend(name, () => factory(c));
@@ -1023,8 +1056,36 @@ final class Application {
         'status': 'draining',
       }, status: 503);
     }
-    final result = await healthChecker.run();
+    final result = await _readiness();
     return Response.json(result.body, status: result.healthy ? 200 : 503);
+  }
+
+  /// How long a readiness result answers further probes.
+  static const Duration readinessCacheTtl = Duration(seconds: 1);
+
+  Future<({bool healthy, Map<String, Object?> body})>? _readinessRun;
+  ({bool healthy, Map<String, Object?> body})? _readinessResult;
+  final Stopwatch _readinessAge = Stopwatch();
+
+  /// The checks run once at a time per worker, and their result answers
+  /// the probes of the next [readinessCacheTtl]: every probe used to run
+  /// `SELECT 1` and a cache write, read and delete, in parallel, so a
+  /// slow database pinned a pool connection per probe (#165).
+  Future<({bool healthy, Map<String, Object?> body})> _readiness() {
+    final cached = _readinessResult;
+    if (cached != null && _readinessAge.elapsed < readinessCacheTtl) {
+      return Future.value(cached);
+    }
+    return _readinessRun ??= healthChecker
+        .run()
+        .then((result) {
+          _readinessResult = result;
+          _readinessAge
+            ..reset()
+            ..start();
+          return result;
+        })
+        .whenComplete(() => _readinessRun = null);
   }
 
   /// The configured readiness checks.
@@ -1173,10 +1234,11 @@ final class Application {
           ? channel.coordinator
           : null;
     } else {
+      final cacheConfig = probe.config.section<CacheConfig>();
       coordinator = createStandardCoordinator(
-        processCacheMaxEntries: probe.config
-            .section<CacheConfig>()
-            .processMaxEntries,
+        processCacheMaxEntries: cacheConfig.processMaxEntries,
+        jwtDenylistMaxEntries: cacheConfig.jwtDenylistMaxEntries,
+        onWarning: probe.logger.warning,
       );
     }
     final embedded = roles.isEmpty

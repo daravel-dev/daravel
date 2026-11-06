@@ -23,12 +23,43 @@ typedef ApplicationFactory = Application Function();
 ///
 /// [processCacheMaxEntries] bounds the `process` cache store
 /// (`CACHE_PROCESS_MAX_ENTRIES`); the least recently used entries go first.
-Coordinator createStandardCoordinator({int processCacheMaxEntries = 10000}) {
+///
+/// Revoked JWT ids, when the cache store is in memory, live in a store of
+/// their own ([ProcessCacheService.jwtDenylistServiceName]) of
+/// [jwtDenylistMaxEntries] (`JWT_DENYLIST_MAX_ENTRIES`), so keys the
+/// application caches cannot evict them. Expired ids go first; if a live
+/// one must go, [onWarning] is told once (a revoked token would be
+/// accepted again).
+Coordinator createStandardCoordinator({
+  int processCacheMaxEntries = 10000,
+  int jwtDenylistMaxEntries = 100000,
+  void Function(String message)? onWarning,
+}) {
   final coordinator = Coordinator();
+  var warned = false;
   return coordinator
     ..register(RateLimitService())
     ..register(
       ProcessCacheService(MemoryStore(maxEntries: processCacheMaxEntries)),
+    )
+    ..register(
+      ProcessCacheService(
+        MemoryStore(
+          maxEntries: jwtDenylistMaxEntries,
+          onLiveEviction: (_) {
+            if (!warned) {
+              warned = true;
+              onWarning?.call(
+                'JWT denylist: more than $jwtDenylistMaxEntries revoked '
+                'tokens are live, so the oldest was dropped and is accepted '
+                'again. Raise JWT_DENYLIST_MAX_ENTRIES, or use a database '
+                'or Redis cache store (CACHE_STORE).',
+              );
+            }
+          },
+        ),
+        ProcessCacheService.jwtDenylistServiceName,
+      ),
     )
     ..register(MetricsService(coordinatorStats: coordinator.stats))
     ..register(BroadcastService())

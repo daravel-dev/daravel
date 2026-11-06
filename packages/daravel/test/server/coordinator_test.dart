@@ -187,6 +187,39 @@ void main() {
     expect(spy.published.last, isA<String>());
   });
 
+  test('an idle worker publishes its metrics on change and on the '
+      'heartbeat, not every tick (#149)', () async {
+    final spy = _SpyService(MetricsService(), 'snapshot');
+    final own = Coordinator()..register(spy);
+    addTearDown(own.close);
+    final channel = RemoteCoordinatorChannel(own.listen());
+    addTearDown(channel.close);
+    final metrics = AppMetrics(MetricsRegistry(), channel: channel);
+    final timer = metrics.startPublishing(
+      every: const Duration(milliseconds: 5),
+      heartbeat: 1000,
+    );
+    addTearDown(() => timer?.cancel());
+    Future<void> waitFor(int count) async {
+      final deadline = Stopwatch()..start();
+      while (spy.published.length < count &&
+          deadline.elapsed < const Duration(seconds: 10)) {
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+      expect(spy.published, hasLength(count));
+    }
+
+    await waitFor(1);
+    // About 20 idle ticks: the publish's own round trip is not a change.
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    expect(spy.published, hasLength(1));
+    metrics.jobs.inc({'status': 'processed'});
+    await waitFor(2);
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    expect(spy.published, hasLength(2));
+    expect(spy.published.last, contains('queue_jobs_total'));
+  });
+
   test('merged metrics carry the coordinator message counters', () async {
     final channel = LocalCoordinatorChannel(coordinator);
     await channel.call('rateLimiter', 'attempts', const {
