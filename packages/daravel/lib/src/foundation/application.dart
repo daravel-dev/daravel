@@ -64,6 +64,7 @@ import '../routing/openapi.dart';
 import '../routing/router.dart';
 import '../routing/url_signer.dart';
 import '../schedule/schedule.dart';
+import '../broadcasting/app_provider.dart';
 import '../broadcasting/broadcast_config.dart';
 import '../broadcasting/broadcast_manager.dart';
 import '../broadcasting/channel_registry.dart';
@@ -468,15 +469,17 @@ final class Application {
                 c.make<Logger>().warning('Broadcast relay: $error'),
           );
         }
+        final apps = _builder._broadcasting?.apps;
         return BroadcastManager(
           broadcasting,
-          server: broadcasting.serves
+          server: broadcasting.serves || apps != null
               ? PusherServer(
                   broadcasting,
                   c.make<Broadcaster>(),
                   c.make<CoordinatorChannel>(),
                   state: shared,
                   relay: relay,
+                  apps: apps,
                   onError: (message, error) =>
                       c.make<Logger>().warning('$message: $error'),
                   onRejected: (reason) => metrics.recordReverbRejected(
@@ -904,15 +907,34 @@ final class Application {
     }
   }
 
+  /// The broadcast channels `withBroadcasting(channels:)` registers, for
+  /// `dartisan route:list --channels` and other tools; empty without
+  /// broadcasting. Built anew on each call, from the registration
+  /// function.
+  ChannelRegistry get broadcastChannels {
+    final registry = ChannelRegistry();
+    _builder._broadcasting?.channels?.call(registry);
+    return registry;
+  }
+
   /// The Pusher protocol server and Laravel's `/broadcasting/auth`, when
   /// [ApplicationBuilder.withBroadcasting] was called and REVERB_APP_KEY
   /// and REVERB_APP_SECRET are set.
   void _registerBroadcastingRoutes() {
     final setup = _builder._broadcasting;
     final broadcasting = config.section<BroadcastConfig>();
-    if (setup == null || !broadcasting.serves) {
+    if (setup == null || !(broadcasting.serves || setup.apps != null)) {
       return;
     }
+    // The largest message any application allows, when the provider says
+    // (an application's own limit is checked on each message).
+    final maxMessageSize = switch (setup.apps) {
+      final ListAppProvider list => list.apps.fold(
+        broadcasting.maxMessageSize,
+        (most, app) => app.maxMessageSize > most ? app.maxMessageSize : most,
+      ),
+      _ => broadcasting.maxMessageSize,
+    };
     final server = container.make<BroadcastManager>().server!;
     final channels = ChannelRegistry();
     setup.channels?.call(channels);
@@ -930,7 +952,7 @@ final class Application {
         compress: false,
         // Pusher messages are small; a frame past the limit fails the
         // connection before it is buffered, not after.
-        maxPayloadBytes: broadcasting.maxMessageSize + 1024,
+        maxPayloadBytes: maxMessageSize + 1024,
         // A client too slow to read what it is sent is closed with 4100
         // ("over capacity"): Pusher clients reconnect after a backoff.
         maxBufferedBytes: broadcasting.maxBufferedBytes,
@@ -967,11 +989,15 @@ final class Application {
           request.param<String>('appId'),
           request.param<String>('channel'),
         ),
-      )
-      ..post(
-        setup.authPath,
-        authorization.handle,
-      ).name('broadcasting.auth').middleware(setup.authMiddleware);
+      );
+    // Signed with the settings' secret: the application's own channels
+    // (another application's are authorized by its own backend).
+    if (broadcasting.serves) {
+      router
+          .post(setup.authPath, authorization.handle)
+          .name('broadcasting.auth')
+          .middleware(setup.authMiddleware);
+    }
   }
 
   /// The translator: `APP_LOCALE`, `APP_FALLBACK_LOCALE`, the lines from
@@ -1555,6 +1581,7 @@ final class ApplicationBuilder {
     void Function(ChannelRegistry channels)? channels,
     List<String> authMiddleware,
     String authPath,
+    BroadcastAppProvider? apps,
   })?
   _broadcasting;
   final List<Seeder> _seeders = <Seeder>[];
@@ -1861,16 +1888,24 @@ final class ApplicationBuilder {
   /// HTTP API at `/apps/{id}/...`, and `/broadcasting/auth` for private and
   /// presence channels, which [channels] authorizes (Laravel's
   /// `routes/channels.php`). Needs REVERB_APP_ID, REVERB_APP_KEY and
-  /// REVERB_APP_SECRET.
+  /// REVERB_APP_SECRET, or [apps].
+  ///
+  /// [apps] serves several Pusher applications on this server, as Reverb's
+  /// `reverb.apps.apps` (each with its own key, secret, origins and
+  /// limits; their channels are apart): `ListAppProvider([...])`, or a
+  /// provider reading them from a table. Without it the server serves the
+  /// one application of the `REVERB_APP_*` settings, as before.
   ApplicationBuilder withBroadcasting({
     void Function(ChannelRegistry channels)? channels,
     List<String> authMiddleware = const ['auth'],
     String authPath = '/broadcasting/auth',
+    BroadcastAppProvider? apps,
   }) {
     _broadcasting = (
       channels: channels,
       authMiddleware: authMiddleware,
       authPath: authPath,
+      apps: apps,
     );
     return this;
   }

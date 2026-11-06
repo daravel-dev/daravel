@@ -232,6 +232,63 @@ tried again and logged, and never keeps the connection's other channels
 subscribed. A relay that could not start (Redis down) is started again by
 the next client.
 
+## Several applications
+
+One server can serve several Pusher applications, as Reverb's
+`reverb.apps.apps` does: each has its own key, secret, allowed origins,
+connection quota, message size and rate limiting, and the same channel name
+in two applications is two channels.
+
+```dart
+.withBroadcasting(
+  apps: ListAppProvider([
+    BroadcastApp(id: '42', key: 'shop-key', secret: env.string('SHOP_SECRET')),
+    BroadcastApp(
+      id: '43',
+      key: 'admin-key',
+      secret: env.string('ADMIN_SECRET'),
+      allowedOrigins: ['admin.example.com'],
+      maxConnections: 200,
+    ),
+  ]),
+)
+```
+
+A client connects with its application's key (`/app/shop-key`), and a
+backend publishes through `/apps/43/events` signed with that application's
+secret; a channel authorization signed by another application is refused
+with `4009`. Implement `BroadcastAppProvider` (`byKey`, `byId`) to read the
+applications from a table instead. Without `apps:` the server serves the
+one application of the `REVERB_APP_*` settings, as before, and that
+application keeps its channels and state as they were. `/broadcasting/auth`
+signs for the `REVERB_APP_*` application; the others are authorized by
+their own backends. Channel names cannot contain `:`, which keeps the
+applications apart even with `REVERB_APP_VALIDATE_CHANNEL_NAMES=false`.
+
+## Describing channels
+
+`channels.channel()` takes the channel's `type` (`private`, `presence` or
+`encrypted`) and the `events` it carries, each with an optional JSON Schema
+of its data. They change nothing at run time; tools read them:
+
+```dart
+channels.channel(
+  'orders.{orderId}',
+  (user, p) => user.authIdentifier == p['orderId'],
+  type: 'private',
+  events: [
+    BroadcastEventSchema(
+      'OrderShipped',
+      data: JsonSchema.object({'id': JsonSchema.integer().required()}),
+    ),
+  ],
+);
+```
+
+`dartisan route:list --channels` lists them (`--json` for the same as
+`ChannelRegistry.describe()`), and `Application.broadcastChannels` gives
+the registry to your own tools.
+
 ## Capacity
 
 `bench/interop/connections.sh` opens idle Echo connections against the AOT

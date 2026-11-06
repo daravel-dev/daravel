@@ -1,4 +1,4 @@
-<!-- source: broadcasting.md sha256:042211fceeff -->
+<!-- source: broadcasting.md sha256:ca69a22e9ab3 -->
 # Broadcasting
 
 Daravel berbicara dengan protokol Pusher, seperti Laravel Reverb, di port
@@ -241,6 +241,66 @@ tertinggal karena `leave` gagal dicoba sekali lagi dan dicatat di log, dan
 tidak pernah membuat channel lain dari koneksi itu tetap ter-subscribe.
 Relay yang gagal dijalankan (Redis mati) dijalankan lagi oleh client
 berikutnya.
+
+## Beberapa aplikasi
+
+Satu server dapat melayani beberapa aplikasi Pusher, seperti
+`reverb.apps.apps` di Reverb: masing-masing punya key, secret, origin yang
+diizinkan, kuota koneksi, ukuran pesan, dan rate limiting sendiri, dan nama
+channel yang sama di dua aplikasi adalah dua channel yang berbeda.
+
+```dart
+.withBroadcasting(
+  apps: ListAppProvider([
+    BroadcastApp(id: '42', key: 'shop-key', secret: env.string('SHOP_SECRET')),
+    BroadcastApp(
+      id: '43',
+      key: 'admin-key',
+      secret: env.string('ADMIN_SECRET'),
+      allowedOrigins: ['admin.example.com'],
+      maxConnections: 200,
+    ),
+  ]),
+)
+```
+
+Client tersambung dengan key aplikasinya (`/app/shop-key`), dan backend
+mem-publish lewat `/apps/43/events` yang ditandatangani dengan secret
+aplikasi itu; otorisasi channel yang ditandatangani aplikasi lain ditolak
+dengan `4009`. Implementasikan `BroadcastAppProvider` (`byKey`, `byId`)
+untuk membaca aplikasi dari tabel. Tanpa `apps:`, server melayani satu
+aplikasi dari pengaturan `REVERB_APP_*` seperti sebelumnya, dan channel
+serta state aplikasi itu tetap seperti semula. `/broadcasting/auth`
+menandatangani untuk aplikasi `REVERB_APP_*`; aplikasi lain diotorisasi
+oleh backend-nya sendiri. Nama channel tidak boleh berisi `:`, sehingga
+aplikasi tetap terpisah bahkan dengan
+`REVERB_APP_VALIDATE_CHANNEL_NAMES=false`.
+
+## Mendeskripsikan channel
+
+`channels.channel()` menerima `type` channel (`private`, `presence`, atau
+`encrypted`) dan `events` yang dibawanya, masing-masing dengan JSON Schema
+datanya (opsional). Keduanya tidak mengubah apa pun saat runtime; tool yang
+membacanya:
+
+```dart
+channels.channel(
+  'orders.{orderId}',
+  (user, p) => user.authIdentifier == p['orderId'],
+  type: 'private',
+  events: [
+    BroadcastEventSchema(
+      'OrderShipped',
+      data: JsonSchema.object({'id': JsonSchema.integer().required()}),
+    ),
+  ],
+);
+```
+
+`dartisan route:list --channels` mendaftarnya (`--json` untuk keluaran yang
+sama dengan `ChannelRegistry.describe()`), dan
+`Application.broadcastChannels` memberikan registry itu ke tool Anda
+sendiri.
 
 ## Kapasitas
 

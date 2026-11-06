@@ -96,6 +96,8 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | :-- | :-- | :-- |
 | `php artisan reverb:start (Laravel Reverb)` | `.withBroadcasting(...) with REVERB_APP_ID / _KEY / _SECRET` | The Pusher protocol on the HTTP port; Laravel Echo and pusher-js connect unchanged. |
 | `Broadcast::channel('orders.{id}', fn ($user, $id) => ...)` | `channels.channel('orders.{id}', (user, p) => ...)` | routes/channels.php: false refuses, true admits, a map is the presence member. |
+| `(none)` | `channels.channel('orders.{id}', ..., type: 'private', events: [BroadcastEventSchema('OrderShipped', data: ...)])` | Daravel-only: channel type and event schemas for tools; dartisan route:list --channels. |
+| `config/reverb.php 'apps' => ['apps' => [...]] (Reverb)` | `.withBroadcasting(apps: ListAppProvider([BroadcastApp(id:, key:, secret:), ...]))` | Several Pusher applications on one server, each with its own secret, origins and limits; their channels are apart. |
 | `class OrderShipped implements ShouldBroadcast` | `final class OrderShipped with ShouldBroadcast` | broadcastWith says what to send (no reflection); broadcast when dispatched. |
 | `broadcast(new OrderShipped($order))->toOthers()` | `await Broadcast.event(OrderShipped(order).toOthers())` | **async** |
 | `BROADCAST_CONNECTION=reverb / pusher / log / null` | `BROADCAST_CONNECTION=daravel / reverb / pusher / log / null` | **async**; daravel: this server; reverb and pusher: their HTTP API, signed as pusher-php-server. |

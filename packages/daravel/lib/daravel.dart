@@ -138,6 +138,7 @@ export 'src/support/auth_facades.dart';
 export 'src/cache/cache.dart';
 export 'src/cache/tags.dart';
 export 'src/cache/stores.dart';
+export 'src/broadcasting/app_provider.dart';
 export 'src/broadcasting/broadcast_config.dart';
 export 'src/broadcasting/broadcast_manager.dart';
 export 'src/broadcasting/channel_registry.dart';
