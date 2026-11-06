@@ -10,6 +10,7 @@ export 'src/auto_scaler.dart';
 export 'src/config.dart';
 export 'src/master.dart';
 export 'src/messages.dart';
+export 'src/setup.dart';
 export 'src/store/process_store.dart';
 export 'src/tags.dart';
 export 'src/worker_isolate.dart';
