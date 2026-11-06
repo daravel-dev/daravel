@@ -418,6 +418,16 @@ final class Router {
     String column,
     String value,
   ) {
+    final idType = definition.idType;
+    if (idType != null && column == definition.primaryKey) {
+      try {
+        return idType.parse(value);
+      } on FormatException {
+        return null;
+      } on ArgumentError {
+        return null;
+      }
+    }
     final integer =
         column == definition.primaryKey &&
         const {KeyType.autoInt, KeyType.manualInt}.contains(definition.keyType);

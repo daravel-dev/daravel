@@ -268,6 +268,78 @@ word in Dart). Soft deletes, observers, model events, global scopes,
 the model an alias, and used in
 `No query results for model [App\Models\Post] 1`.
 
+### Typed ids (opt-in)
+
+A Daravel-only option: with `dartisan model:sync --typed-ids`, each model
+gets an [extension type](https://dart.dev/language/extension-types) for its
+primary key, so a wrong-typed id is caught at compile time:
+`Post.find(user.id)` does not compile once `find` takes a `PostId`.
+Without the flag, `model:sync` writes exactly what it wrote before.
+
+```bash
+dart run bin/dartisan.dart model:sync --typed-ids        # every model
+dart run bin/dartisan.dart model:sync Post --typed-ids   # one model
+```
+
+The flag writes the id in a `// <dartisan:ids>` region at the end of the
+model file (from the `model.id` stub, see `stub:publish`), types the
+primary key getter, and retypes the generated `find` and `findOrFail` in
+the `<dartisan:statics>` region. Statics you wrote yourself keep their
+types. A key that is neither an integer nor text gets a warning and no
+typed id.
+
+```dart
+// <dartisan:statics>
+static Future<Post?> find(PostId id) => query().find(id);
+static Future<Post> findOrFail(PostId id) => query().findOrFail(id);
+// </dartisan:statics>
+
+// <dartisan:accessors>
+PostId get id => getAttr('id');
+// </dartisan:accessors>
+
+// <dartisan:ids>
+extension type const PostId(int value) implements int {
+  static PostId parse(String raw) => PostId(int.parse(raw));
+}
+// </dartisan:ids>
+```
+
+An extension type is erased at runtime: a `PostId` is an `int` in JSON, in
+SQL bindings and in the tables shared with Laravel, and it costs nothing.
+Because `PostId` implements `int`, `int n = post.id` still compiles; the
+other way round needs `PostId(5)`, also for literals. `TypedId<Post>` is a
+generic variant for code that works across models.
+
+Route parameters read a typed id with `request.param<PostId>('post')`,
+which parses it as its representation (`int`) and answers 404 for a word.
+For stricter checks, pass a parser, or register one per parameter name in
+`bootstrap/ids.dart`:
+
+```dart
+// bootstrap/ids.dart
+void registerIds(IdParsers ids) {
+  ids.register<PostId>('post', PostId.parse);
+}
+
+// bootstrap/app.dart
+.withIds(registerIds)
+
+// a handler
+final post = await Post.findOrFail(request.param<PostId>('post'));
+final same = request.param<PostId>('post', parse: PostId.parse);
+```
+
+The registry is keyed by the parameter name because extension types are
+erased: at runtime `PostId` and `UserId` are both `int`, so
+`param<PostId>` cannot pick a parser from its type. A `FormatException` or
+`ArgumentError` from a parser answers 404. Route model binding
+(`router.bindModel`) parses through `ModelDefinition(idType: ...)` when
+you set it, for example `idType: IdType.integer(PostId.new)` or
+`IdType.string(...)` for UUIDs and ULIDs. Typed ids check types only:
+input that ends up in SQL is still guarded by bindings and the
+`no_sql_string_interpolation` lint.
+
 ## Querying
 
 <!-- include: packages/daravel/test/docs/guide_examples_test.dart#query -->
@@ -316,6 +388,40 @@ level that timed out, so they never write into the transaction around it or
 outside one). A query already waiting inside the database (on a row lock,
 say) ends only when the database lets it go, so pair this with the
 database's own lock timeout.
+
+## Column names from input
+
+Values go into bindings; column names go into the SQL text, quoted by the
+grammar, which rejects characters that do not belong in a name. A column
+name that comes from a request (a `sort` parameter) still picks any
+existing column, so check it against the columns you allow:
+
+```dart
+final sort = switch (request.query['sort']) {
+  'name' => 'name',
+  'created_at' => 'created_at',
+  _ => 'id',
+};
+await DB.table('users').orderBy(sort).get();
+```
+
+`SqlIdentifier` marks a name that was checked where it was made: plain
+names joined by dots (`email`, `users.id`), anything else throws an
+`ArgumentError`. It is a `String`, so every column parameter accepts it, and
+the SQL is the same as for the string:
+
+```dart
+final column = SqlIdentifier(Config.get<String>('reports.sort')); // throws on 'id; DROP ...'
+await DB.table('users').orderBy(column).get();
+```
+
+The opt-in lint `prefer_sql_identifier` (see the `daravel_lints` README)
+reports column arguments that are neither a literal, a `const`, a choice
+between literals nor a `SqlIdentifier`. `DB.raw(...)` and the `*Raw`
+methods insert their SQL as written; `RawExpression.sql` is a
+`SqlFragment`, a `String` that only the framework makes. Neither type is a
+guarantee against injection: values belong in bindings, which
+`no_sql_string_interpolation` checks.
 
 ## JSON columns
 
