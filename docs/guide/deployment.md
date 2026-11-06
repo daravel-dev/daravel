@@ -459,6 +459,9 @@ on each.
 - `dart run bin/dartisan.dart doctor --production` checks configuration,
   database reachability, public `/metrics`, `QUEUE_CONNECTION=sync` and
   more; run it in the container entrypoint.
-- Health endpoints: `/up` (liveness) and `/up/ready` (readiness).
+- Health endpoints: `/up` (liveness) and `/up/ready` (readiness). Each
+  worker runs the readiness checks once at a time and answers the probes of
+  the next second from that result, so frequent probes cost one run per
+  second, not one per probe.
 - Run `queue:work` and `schedule:work` as separate processes.
 - Logs: `LOG_STACK=json` for structured logs; secrets are redacted.

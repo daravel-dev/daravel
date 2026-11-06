@@ -1,4 +1,4 @@
-<!-- source: helpers.md sha256:431112d3aa37 -->
+<!-- source: helpers.md sha256:4f60b2e10ef7 -->
 # String, helper, dan koleksi
 
 Utilitas sehari-hari Laravel, dengan nama dan semantik yang sama sejauh
@@ -87,7 +87,9 @@ post.createdAt.diffForHumans(locale: 'id');         // 5 menit yang lalu
 ## `Number`
 
 `Number` dari Laravel, dengan output yang sama seperti format intl Laravel
-untuk locale `en` dan `id` (`Number.useLocale('id')` menetapkan default):
+untuk locale `en` dan `id` (`Number.useLocale('id')` menetapkan default
+untuk seluruh isolate, termasuk setiap request: panggil saat boot, dan
+berikan `locale:` untuk satu pemanggilan):
 
 | Pemanggilan | Hasil |
 | :-- | :-- |

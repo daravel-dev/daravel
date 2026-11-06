@@ -1016,8 +1016,36 @@ final class Application {
         'status': 'draining',
       }, status: 503);
     }
-    final result = await healthChecker.run();
+    final result = await _readiness();
     return Response.json(result.body, status: result.healthy ? 200 : 503);
+  }
+
+  /// How long a readiness result answers further probes.
+  static const Duration readinessCacheTtl = Duration(seconds: 1);
+
+  Future<({bool healthy, Map<String, Object?> body})>? _readinessRun;
+  ({bool healthy, Map<String, Object?> body})? _readinessResult;
+  final Stopwatch _readinessAge = Stopwatch();
+
+  /// The checks run once at a time per worker, and their result answers
+  /// the probes of the next [readinessCacheTtl]: every probe used to run
+  /// `SELECT 1` and a cache write, read and delete, in parallel, so a
+  /// slow database pinned a pool connection per probe (#165).
+  Future<({bool healthy, Map<String, Object?> body})> _readiness() {
+    final cached = _readinessResult;
+    if (cached != null && _readinessAge.elapsed < readinessCacheTtl) {
+      return Future.value(cached);
+    }
+    return _readinessRun ??= healthChecker
+        .run()
+        .then((result) {
+          _readinessResult = result;
+          _readinessAge
+            ..reset()
+            ..start();
+          return result;
+        })
+        .whenComplete(() => _readinessRun = null);
   }
 
   /// The configured readiness checks.

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
@@ -373,6 +374,33 @@ void main() {
     test('/metrics is absent unless enabled', () async {
       await boot({});
       expect((await app.handle(Request.fake(path: '/metrics'))).status, 404);
+    });
+
+    test('concurrent /up/ready probes share one run of the checks, and '
+        'its result answers the next second (#165)', () async {
+      var runs = 0;
+      final gate = Completer<void>();
+      await boot(
+        {},
+        checks: [
+          CallbackHealthCheck('counted', () async {
+            runs++;
+            await gate.future;
+            return const HealthResult.ok();
+          }),
+        ],
+      );
+      final probes = [
+        for (var i = 0; i < 10; i++)
+          app.handle(Request.fake(path: '/up/ready')),
+      ];
+      await Future<void>.delayed(Duration.zero);
+      gate.complete();
+      final responses = await Future.wait(probes);
+      expect(responses.map((r) => r.status), everyElement(200));
+      expect(runs, 1);
+      expect((await app.handle(Request.fake(path: '/up/ready'))).status, 200);
+      expect(runs, 1, reason: 'within Application.readinessCacheTtl');
     });
 
     test('/up/ready reports each check and fails with 503', () async {
