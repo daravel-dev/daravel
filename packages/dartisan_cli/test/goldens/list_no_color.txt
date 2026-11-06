@@ -18,6 +18,7 @@ Available commands:
   migrate               Run the pending database migrations.
   self-update           Update the global dartisan.
   serve                 Serve the application over HTTP.
+  sponsor               How to support Daravel, and the sponsor lines.
   test                  Run the test suite (dart test).
   tinker                Evaluate a Dart expression in the booted application.
   up                    Bring the application out of maintenance mode.

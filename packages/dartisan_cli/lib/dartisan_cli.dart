@@ -6,6 +6,7 @@ library;
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:ffi' show Abi;
 import 'dart:io';
 
 import 'package:args/args.dart';
@@ -18,6 +19,7 @@ import 'src/generator.dart';
 import 'src/project_commands.dart';
 import 'src/upgrade_command.dart';
 import 'src/cache_commands.dart';
+import 'src/console/brand.dart';
 import 'src/console/console.dart';
 import 'src/console/runner_console.dart';
 import 'src/security_audit_command.dart';
@@ -72,6 +74,7 @@ export 'src/redis_install.dart';
 export 'src/upgrade_command.dart';
 export 'src/console/brand.dart' show sponsorUrl;
 export 'src/console/console.dart';
+export 'src/console/sponsor.dart';
 
 /// Creates an unbooted [Application] (a project's `createApp()`).
 typedef AppFactory = Application Function();
@@ -660,7 +663,9 @@ String renderTable(List<List<String>> rows) {
 /// `dartisan about` — summarizes the application environment.
 final class AboutCommand extends DaravelCommand {
   /// The `dartisan about` command.
-  AboutCommand(super.createApp);
+  AboutCommand(super.createApp) {
+    argParser.addFlag('json', negatable: false, help: 'The same, as JSON.');
+  }
 
   @override
   String get name => 'about';
@@ -673,26 +678,59 @@ final class AboutCommand extends DaravelCommand {
     final appConfig = app.config.section<AppConfig>();
     final db = app.config.section<DatabaseConfig>();
     final connection = db.connections[db.defaultConnection];
-    stdout.write(
-      renderTable(<List<String>>[
-        <String>['Key', 'Value'],
-        <String>['Application', appConfig.name],
-        <String>['Environment', appConfig.env],
-        <String>['Debug mode', appConfig.debug ? 'ENABLED' : 'OFF'],
-        <String>['URL', appConfig.url],
-        <String>['Timezone', appConfig.timezone],
-        <String>['Locale', appConfig.locale],
-        <String>['Dart', Platform.version.split(' ').first],
-        <String>['Daravel', daravelVersion],
-        <String>[
-          'Database',
-          '${db.defaultConnection} (${connection?.driver ?? '?'})',
-        ],
-        <String>['Routes', '${app.router.routes.length}'],
-        <String>['Migrations', '${App.make<Migrator>().migrations.length}'],
-        <String>['Base path', app.basePath],
-      ]),
+    final application = <List<String>>[
+      <String>['Application', appConfig.name],
+      <String>['Environment', appConfig.env],
+      <String>['Debug mode', appConfig.debug ? 'ENABLED' : 'OFF'],
+      <String>['URL', appConfig.url],
+      <String>['Timezone', appConfig.timezone],
+      <String>['Locale', appConfig.locale],
+      <String>['Dart', Platform.version.split(' ').first],
+      <String>['Daravel', daravelVersion],
+      <String>[
+        'Database',
+        '${db.defaultConnection} (${connection?.driver ?? '?'})',
+      ],
+      <String>['Routes', '${app.router.routes.length}'],
+      <String>['Migrations', '${App.make<Migrator>().migrations.length}'],
+      <String>['Base path', app.basePath],
+    ];
+    final daravel = aboutDaravel(
+      app.env.maybeString('APP_ENV') ?? appConfig.env,
     );
+    const community = aboutCommunity;
+    if (argResults!['json'] == true) {
+      Map<String, String> section(List<List<String>> rows) => {
+        for (final row in rows) row[0]: row[1],
+      };
+      stdout.writeln(
+        const JsonEncoder.withIndent('  ').convert({
+          'application': section(application),
+          'daravel': section(daravel),
+          'community': section(community),
+        }),
+      );
+      return 0;
+    }
+    stdout
+      ..write(
+        renderTable(<List<String>>[
+          <String>['Key', 'Value'],
+          ...application,
+        ]),
+      )
+      ..write(
+        renderTable(<List<String>>[
+          <String>['Daravel', ''],
+          ...daravel,
+        ]),
+      )
+      ..write(
+        renderTable(<List<String>>[
+          <String>['Community', ''],
+          ...community,
+        ]),
+      );
     return 0;
   });
 }
@@ -713,3 +751,23 @@ List<String> _withoutProcesses(List<String> arguments) {
   }
   return result;
 }
+
+/// The **Daravel** section of `dartisan about`: what a bug report needs.
+List<List<String>> aboutDaravel(String environment) => [
+  ['Version', daravelVersion],
+  ['Dart SDK', Platform.version.split(' ').first],
+  ['OS', '${Platform.operatingSystem} ${Platform.operatingSystemVersion}'],
+  ['Architecture', Abi.current().toString()],
+  [
+    'Mode',
+    const bool.fromEnvironment('dart.vm.product') ? 'AOT (compiled)' : 'JIT',
+  ],
+  ['APP_ENV', environment],
+];
+
+/// The **Community** section of `dartisan about`.
+const List<List<String>> aboutCommunity = [
+  ['Docs', 'https://daravel.dev'],
+  ['Issues', 'https://github.com/daravel-dev/daravel/issues'],
+  ['Sponsor', 'https://$sponsorUrl'],
+];
