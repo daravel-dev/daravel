@@ -1171,6 +1171,14 @@ final class Application {
     List<String> childArguments = const <String>[],
   }) async {
     final probe = factory();
+    if (embedWorkers != null && embedWorkers.isNotEmpty) {
+      // A command-line flag, as `withEnv` overrides: the config checks at
+      // boot see the embedded workers too, not only the environment's.
+      probe._builder._envOverrides = <String, String>{
+        ...probe._builder._envOverrides,
+        'SERVER_EMBED_WORKERS': embedWorkers.join(','),
+      };
+    }
     await probe.boot();
     // ADR-027: several processes on consecutive ports behind a proxy. A
     // child (DARAVEL_PROCESS_INDEX set) serves normally.
@@ -1212,20 +1220,6 @@ final class Application {
     );
     probe._ensureServeable(options);
     probe._ensureEmbeddedWorkers(options.embedWorkers);
-    // The probe was checked with the environment alone: checks that depend
-    // on the embedded workers (`SERVER_EMBED_WORKERS`) see the command-line
-    // flag too.
-    if (options.embedWorkers.isNotEmpty &&
-        probe.env.maybeString('SERVER_EMBED_WORKERS') == null) {
-      ConfigValidator(extraChecks: probe._builder._configChecks)
-          .validateOrThrow(
-            Env.fromMap({
-              ...probe.env.toMap(),
-              'SERVER_EMBED_WORKERS': options.embedWorkers.join(','),
-            }),
-            probe.config,
-          );
-    }
     // Once, here in the main isolate, rather than in every worker.
     if (probe.config.section<DatabaseConfig>().sharesSqliteFile(
       options.isolates,
