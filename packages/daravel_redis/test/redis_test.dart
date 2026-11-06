@@ -419,6 +419,69 @@ void main() {
         expect(watch.elapsed, lessThan(const Duration(seconds: 2)));
         expect(await queue.pop('default'), isNotNull);
       });
+
+      test('pending and delayed list jobs without reserving them', () async {
+        for (final text in ['one', 'two', 'three']) {
+          await queue.push(payload(text), queue: 'default');
+        }
+        await queue.push(
+          payload('later'),
+          queue: 'default',
+          delay: const Duration(hours: 2),
+        );
+        await queue.push(
+          payload('sooner'),
+          queue: 'default',
+          delay: const Duration(hours: 1),
+        );
+        // A job already read stays out of the pending list.
+        final running = (await queue.pop('default'))!;
+        expect(running.payload.data['text'], 'one');
+
+        final pending = await queue.pending('default');
+        expect(
+          [for (final j in pending) JobPayload.decode(j.payload).data],
+          [
+            {'text': 'two'},
+            {'text': 'three'},
+          ],
+        );
+        expect(pending.first.jobName, 'ping');
+        expect(pending.first.queue, 'default');
+        expect(pending.first.attempts, 0);
+        expect(pending.first.id, pending.first.uuid);
+        final paged = await queue.pending('default', limit: 1, offset: 1);
+        expect(JobPayload.decode(paged.single.payload).data['text'], 'three');
+
+        final delayed = await queue.delayed('default');
+        expect(
+          [for (final j in delayed) JobPayload.decode(j.payload).data],
+          [
+            {'text': 'sooner'},
+            {'text': 'later'},
+          ],
+        );
+        expect(delayed.first.availableAt.isAfter(DateTime.now()), isTrue);
+
+        expect((await queue.pop('default'))?.payload.data['text'], 'two');
+        expect((await queue.pop('default'))?.payload.data['text'], 'three');
+      });
+
+      test('reclaim hands a reserved job back at once', () async {
+        await queue.push(payload('lost'), queue: 'default');
+        final reserved = (await queue.pop('default'))!;
+        expect(await queue.pop('default'), isNull);
+        expect(await queue.reclaim('default', reserved.id), isTrue);
+        expect(await queue.reclaim('default', reserved.id), isFalse);
+        final again = (await queue.pop('default'))!;
+        expect(again.payload.uuid, reserved.payload.uuid);
+        expect(again.attempts, 2, reason: 'the lost attempt counts');
+        // Within retryAfter nothing else comes back.
+        expect(await queue.pop('default'), isNull);
+        await queue.delete(again);
+        expect(await queue.reclaim('default', again.id), isFalse);
+        expect(await queue.size('default'), 0);
+      });
     });
   }
 

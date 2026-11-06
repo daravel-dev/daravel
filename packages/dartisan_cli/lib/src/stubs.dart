@@ -29,6 +29,7 @@ const Map<String, String> builtInStubs = <String, String>{
   'request': _request,
   'middleware': _middleware,
   'job': _job,
+  'job.model': _jobModel,
   'policy': _policy,
   'policy.model': _policyModel,
   'query-filter': _queryFilter,
@@ -323,6 +324,48 @@ final class {{ class }} extends Job {
 
   @override
   Future<void> handle(JobContext ctx) async {
+    // Do the work here.
+  }
+}
+''';
+
+const String _jobModel = r'''
+{{ imports }}
+
+/// Queued job; dispatch with
+/// `await Queue.dispatch({{ class }}({{ dispatch }}))`.
+final class {{ class }} extends Job {
+  const {{ class }}({{{ params }}});
+
+  /// Stable registry key (see bootstrap/jobs.dart).
+  static const String name = '{{ jobName }}';
+
+  factory {{ class }}.fromJson(Map<String, Object?> json) => {{ class }}(
+{{ fromJson }}
+  );
+
+{{ fields }}
+
+  @override
+  String get jobName => name;
+
+  @override
+  int get tries => 3;
+
+  @override
+  List<Duration> get backoff => const [Duration(seconds: 10), Duration(seconds: 60)];
+
+  @override
+  List<String> get tags => [{{ tags }}];
+
+  @override
+  Map<String, Object?> toJson() => <String, Object?>{
+{{ toJson }}
+  };
+
+  @override
+  Future<void> handle(JobContext ctx) async {
+{{ resolve }}
     // Do the work here.
   }
 }

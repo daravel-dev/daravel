@@ -366,6 +366,10 @@ sections:
       - { php: "#[DebounceFor(60)]", dart: "Duration? get debounceFor => ...", symbol: Job.debounceFor }
       - { php: "Queue::later($delay, $job)", dart: "await Queue.later(delay, job)", symbol: Queue.later, async: true }
       - { php: "public function tags() (Horizon)", dart: "List<String> get tags", symbol: Job.tags }
+      - { php: "Queue::size('default')", dart: "await Queue.connection().size('default')", symbol: QueueDriver.size, async: true }
+      - { php: "(none)", dart: "await (Queue.connection() as BrowsableQueueDriver).pending('default', limit: 50)", symbol: BrowsableQueueDriver.pending, async: true, note: "Daravel-only: the waiting jobs of a queue without reserving them (memory, database, redis), for queue dashboards such as daravel_horizon." }
+      - { php: "(none)", dart: "await (Queue.connection() as ReclaimableQueueDriver).reclaim('default', jobId)", symbol: ReclaimableQueueDriver.reclaim, async: true, note: "Daravel-only: a reserved job of a worker known to be gone is available again at once, attempts kept, instead of after retry_after." }
+      - { php: "(none)", dart: "worker.reassign(['high', 'default'])", symbol: QueueWorker.reassign, note: "Daravel-only: a running worker polls other queues from its next job on (daravel_horizon auto-scaling)." }
       - { php: "php artisan queue:pause database:default / queue:continue", dart: "dartisan queue:pause database:default / queue:continue", symbol: QueueManager.pause }
       - { php: "public $maxExceptions = 3;", dart: "int? get maxExceptions => 3;", symbol: Job.maxExceptions }
       - { php: "php artisan queue:work --memory=128", dart: "dartisan queue:work --memory=128", symbol: WorkerOptions.memory }

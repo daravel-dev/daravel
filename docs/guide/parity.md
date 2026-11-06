@@ -401,6 +401,10 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `#[DebounceFor(60)]` | `Duration? get debounceFor => ...` |  |
 | `Queue::later($delay, $job)` | `await Queue.later(delay, job)` | **async** |
 | `public function tags() (Horizon)` | `List<String> get tags` |  |
+| `Queue::size('default')` | `await Queue.connection().size('default')` | **async** |
+| `(none)` | `await (Queue.connection() as BrowsableQueueDriver).pending('default', limit: 50)` | **async**; Daravel-only: the waiting jobs of a queue without reserving them (memory, database, redis), for queue dashboards such as daravel_horizon. |
+| `(none)` | `await (Queue.connection() as ReclaimableQueueDriver).reclaim('default', jobId)` | **async**; Daravel-only: a reserved job of a worker known to be gone is available again at once, attempts kept, instead of after retry_after. |
+| `(none)` | `worker.reassign(['high', 'default'])` | Daravel-only: a running worker polls other queues from its next job on (daravel_horizon auto-scaling). |
 | `php artisan queue:pause database:default / queue:continue` | `dartisan queue:pause database:default / queue:continue` |  |
 | `public $maxExceptions = 3;` | `int? get maxExceptions => 3;` |  |
 | `php artisan queue:work --memory=128` | `dartisan queue:work --memory=128` |  |
