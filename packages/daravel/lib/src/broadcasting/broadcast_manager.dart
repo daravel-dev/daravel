@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import '../auth/auth_manager.dart';
 import '../auth/contracts.dart';
+import '../database/database_manager.dart';
 import '../http/client.dart';
 import '../http/http_exceptions.dart';
 import '../http/request.dart';
@@ -65,7 +66,17 @@ abstract mixin class ShouldBroadcast {
 final class BroadcastManager {
   /// A manager broadcasting with [config], through the built-in [server]
   /// when there is one.
-  BroadcastManager(this.config, {this.server, this._http, this._logger});
+  BroadcastManager(
+    this.config, {
+    this.server,
+    this._http,
+    this._logger,
+    this.database,
+  });
+
+  /// The database whose transactions broadcasts wait for
+  /// ([BroadcastConfig.afterCommit]); none waits without it.
+  final DatabaseManager? database;
 
   /// The broadcasting settings.
   final BroadcastConfig config;
@@ -78,15 +89,34 @@ final class BroadcastManager {
 
   /// Sends [event] with [data] to [channels]; [exceptSocket] leaves that
   /// connection out.
+  ///
+  /// Inside a database transaction it is sent once the transaction commits,
+  /// and dropped when it rolls back, unless [afterCommit] (default
+  /// [BroadcastConfig.afterCommit], `BROADCAST_AFTER_COMMIT`) is false.
   Future<void> send(
     String event,
     List<String> channels,
     Object? data, {
     String? exceptSocket,
+    bool? afterCommit,
   }) async {
     if (channels.isEmpty) {
       return;
     }
+    final db = database;
+    if ((afterCommit ?? config.afterCommit) && db != null && db.inTransaction) {
+      await db.afterCommit(() => _sendNow(event, channels, data, exceptSocket));
+      return;
+    }
+    await _sendNow(event, channels, data, exceptSocket);
+  }
+
+  Future<void> _sendNow(
+    String event,
+    List<String> channels,
+    Object? data,
+    String? exceptSocket,
+  ) async {
     // Each end-to-end encrypted channel has its own key, so its own
     // payload (pusher-php-server refuses to mix them).
     final encrypted = [
@@ -294,4 +324,22 @@ final class BroadcastAuthorization {
       ),
     );
   }
+}
+
+/// Channel names with their Pusher prefix, for `broadcastOn` and
+/// `Broadcast.send`: Laravel's `new PrivateChannel('orders.1')`,
+/// `PresenceChannel` and `EncryptedPrivateChannel`.
+///
+/// ```dart
+/// List<String> broadcastOn() => [Channels.private('orders.${order.id}')];
+/// ```
+abstract final class Channels {
+  /// `private-<name>`.
+  static String private(String name) => 'private-$name';
+
+  /// `presence-<name>`.
+  static String presence(String name) => 'presence-$name';
+
+  /// `private-encrypted-<name>`.
+  static String encrypted(String name) => 'private-encrypted-$name';
 }

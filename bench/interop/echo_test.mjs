@@ -122,8 +122,65 @@ async function listen() {
   client.disconnect();
 }
 
+// The pusher:error codes a client gets, through pusher-js's connection.
+const errors = (client) => {
+  const codes = [];
+  client.connector.pusher.connection.bind('error', (e) => codes.push(e?.data?.code ?? e?.error?.data?.code));
+  return codes;
+};
+const connected = (client) =>
+  new Promise((resolve) => client.connector.pusher.connection.bind('connected', resolve));
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// MODE=limits, against a server started with REVERB_APP_MAX_CONNECTIONS=2,
+// REVERB_APP_RATE_LIMITING_ENABLED=true and REVERB_APP_RATE_LIMIT_MAX_ATTEMPTS=5.
+async function limits() {
+  // 1. Rate limit: every message counts (pusher:ping too); the sixth gets 4301.
+  const a = echo('user-1');
+  const aErrors = errors(a);
+  await within(connected(a), 'a connected');
+  for (let i = 0; i < 6; i++) a.connector.pusher.send_event('pusher:ping', {});
+  await sleep(500);
+  check('rate limit 4301', aErrors.includes(4301), aErrors);
+
+  // 2. Connection quota: the third connection gets 4004 and is not established.
+  const b = echo('user-2');
+  await within(connected(b), 'b connected');
+  const c = echo('user-2');
+  const cErrors = errors(c);
+  await sleep(1500);
+  check('quota 4004', cErrors.includes(4004) && c.connector.pusher.connection.state !== 'connected', {
+    codes: cErrors,
+    state: c.connector.pusher.connection.state,
+  });
+  a.disconnect();
+  b.disconnect();
+  c.disconnect();
+}
+
+// MODE=drain: COUNT clients connect and print READY; run.sh stops the
+// server, and the spread of the moments they lose it is checked.
+async function drain() {
+  const count = Number(process.env.COUNT ?? 50);
+  const clients = Array.from({ length: count }, () => echo('user-1'));
+  await within(Promise.all(clients.map(connected)), 'all connected', 30000);
+  const lost = clients.map(
+    (client) =>
+      new Promise((resolve) =>
+        client.connector.pusher.connection.bind('state_change', (s) => {
+          if (s.current !== 'connected') resolve(Date.now());
+        }),
+      ),
+  );
+  console.log('READY');
+  const times = (await within(Promise.all(lost), 'all disconnected', 30000)).sort((x, y) => x - y);
+  const spread = times[times.length - 1] - times[0];
+  check('drain spread', spread >= 1000, { spreadMs: spread, clients: count });
+  clients.forEach((client) => client.disconnect());
+}
+
 try {
-  await (MODE === 'listen' ? listen() : daravel());
+  await (MODE === 'listen' ? listen() : MODE === 'limits' ? limits() : MODE === 'drain' ? drain() : daravel());
 } catch (error) {
   check('run', false, String(error));
 }

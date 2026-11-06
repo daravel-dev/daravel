@@ -616,6 +616,15 @@ final class AppMetrics {
       'WebSockets and server-sent event streams closed because the client '
           'read too slowly, by transport and worker isolate.',
     );
+    reverbRejected = registry.counter(
+      'reverb_rejected_total',
+      'Pusher connections, messages and subscriptions refused, by reason '
+          '(connection_quota, rate_limit, client_event_rate, channel_limit).',
+    );
+    reverbRateLimited = registry.counter(
+      'reverb_rate_limited_total',
+      'Pusher messages refused with 4301 Rate limit exceeded, by app.',
+    );
     registry.counter(
       'log_lines_dropped_total',
       'Log lines dropped because the output (stdout, stderr, the log file) '
@@ -689,6 +698,12 @@ final class AppMetrics {
   /// Realtime clients closed for reading too slowly.
   late final Counter slowClients;
 
+  /// Pusher connections, messages and subscriptions refused.
+  late final Counter reverbRejected;
+
+  /// Pusher messages refused for a rate limit.
+  late final Counter reverbRateLimited;
+
   /// The `worker` label of [inFlight] and [shed]: the isolate's name
   /// (`daravel-worker-N` under a supervisor, the same after a respawn, so
   /// there is one value per worker). Workers share the port, which spreads
@@ -737,6 +752,16 @@ final class AppMetrics {
   /// on this worker for reading too slowly.
   void recordSlowClient(String transport) =>
       slowClients.inc({'transport': transport, 'worker': _worker});
+
+  /// Counts one refusal of the Pusher server of [app], for [reason]
+  /// (`PusherServer.onRejected`); both rate limits also count in
+  /// `reverb_rate_limited_total`.
+  void recordReverbRejected(String reason, {String app = ''}) {
+    reverbRejected.inc({'reason': reason});
+    if (reason == 'rate_limit' || reason == 'client_event_rate') {
+      reverbRateLimited.inc({'app': app});
+    }
+  }
 
   /// Exposition text: merged across workers under a supervisor.
   Future<String> render() async {

@@ -102,7 +102,9 @@ final class Router {
   /// request's scope. A plain request gets `426 Upgrade Required`.
   /// A WebSocket route; [compress] false turns permessage-deflate off, and
   /// a client with more than [maxBufferedBytes] waiting to be sent is
-  /// closed with [slowClientCode] (see [Response.webSocket]).
+  /// closed with [slowClientCode] (see [Response.webSocket]). With
+  /// [drainSpread] a shutting-down server closes these sockets at random
+  /// moments within it instead of all at once.
   RouteEntry ws(
     String path,
     WebSocketHandler handler, {
@@ -110,6 +112,7 @@ final class Router {
     int maxPayloadBytes = Response.defaultWebSocketMaxPayloadBytes,
     int maxBufferedBytes = Response.defaultWebSocketMaxBufferedBytes,
     int slowClientCode = 1008,
+    Duration? drainSpread,
   }) => match(const <String>['GET'], path, (request) {
     if (!isWebSocketUpgrade(request)) {
       return Response.json(
@@ -124,6 +127,7 @@ final class Router {
       maxPayloadBytes: maxPayloadBytes,
       maxBufferedBytes: maxBufferedBytes,
       slowClientCode: slowClientCode,
+      drainSpread: drainSpread,
     );
   })..markWebSocket();
 
