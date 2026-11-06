@@ -73,7 +73,8 @@ final class HorizonWorkerStart {
 /// [Stop]. Ends with [Exited] (an isolate killed or crashed sends nothing).
 Future<void> horizonWorkerMain(HorizonWorkerStart start) async {
   final inbox = ReceivePort();
-  start.master.send(inbox.sendPort);
+  // By name: workers may answer in any order.
+  start.master.send(<Object>[start.name, inbox.sendPort]);
   Application? app;
   Timer? beat;
   var code = 0;
@@ -95,17 +96,6 @@ Future<void> horizonWorkerMain(HorizonWorkerStart start) async {
     String? queue;
     int? startedAt;
     void clear() => jobId = jobUuid = queue = startedAt = null;
-    booted.container.make<EventDispatcher>()
-      ..listen<JobProcessing>((e) {
-        jobId = '${e.jobId}';
-        jobUuid = e.uuid;
-        queue = e.queue;
-        startedAt = DateTime.now().millisecondsSinceEpoch;
-      })
-      ..listen<JobProcessed>((_) => clear())
-      ..listen<JobFailed>((_) => clear())
-      ..listen<JobExceptionOccurred>((_) => clear());
-
     void report() => start.master.send(
       Heartbeat(
         start.name,
@@ -116,6 +106,18 @@ Future<void> horizonWorkerMain(HorizonWorkerStart start) async {
         jobStartedAtMs: startedAt,
       ),
     );
+    booted.container.make<EventDispatcher>()
+      ..listen<JobProcessing>((e) {
+        jobId = '${e.jobId}';
+        jobUuid = e.uuid;
+        queue = e.queue;
+        startedAt = DateTime.now().millisecondsSinceEpoch;
+        // At once: a job that blocks the event loop sends nothing after.
+        report();
+      })
+      ..listen<JobProcessed>((_) => clear())
+      ..listen<JobFailed>((_) => clear())
+      ..listen<JobExceptionOccurred>((_) => clear());
     // A wall-clock timer: a frozen test clock must not stop it.
     beat = Timer.periodic(start.heartbeat, (_) => report());
 

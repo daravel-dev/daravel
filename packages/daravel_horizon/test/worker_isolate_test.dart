@@ -87,8 +87,8 @@ void main() {
       final received = <Object?>[];
       final port = Completer<SendPort>();
       reports.listen((m) {
-        if (m is SendPort) {
-          port.complete(m);
+        if (m case [final String _, final SendPort p]) {
+          port.complete(p);
         } else {
           received.add(m);
         }

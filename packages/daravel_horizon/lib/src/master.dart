@@ -1,0 +1,469 @@
+import 'dart:async';
+import 'dart:isolate';
+
+import 'package:daravel/daravel.dart';
+
+import 'auto_scaler.dart';
+import 'config.dart';
+import 'messages.dart';
+import 'worker_isolate.dart';
+
+/// A worker isolate as the master sees it.
+final class HorizonWorker {
+  HorizonWorker._(this.name, this.plan);
+
+  /// `horizon-<plan>-<n>`.
+  final String name;
+
+  /// Its supervisor.
+  final SupervisorPlan plan;
+
+  Isolate? _isolate;
+  SendPort? _port;
+  final Completer<void> _exited = Completer<void>();
+
+  /// Whether it said [Exited] before it went (a clean exit).
+  bool _saidExited = false;
+
+  /// The queues it was last assigned, comma separated.
+  String queues = '';
+
+  /// The last heartbeat (wall clock), or the spawn time before one.
+  DateTime lastSeen = DateTime.now();
+
+  /// Its last [Heartbeat].
+  Heartbeat? last;
+
+  /// Whether it was asked to stop.
+  bool stopping = false;
+
+  /// Whether it booted (the lease applies from then on).
+  bool ready = false;
+
+  /// Whether it runs a job now.
+  bool get busy => last?.jobId != null;
+
+  /// Completes when the isolate is gone.
+  Future<void> get exited => _exited.future;
+
+  void _send(WorkerCommand command) => _port?.send(command);
+}
+
+/// Told about what the master does: `WorkerKilled` reasons and scaling.
+typedef HorizonEventSink = void Function(
+  String event,
+  Map<String, Object?> data,
+);
+
+/// Runs the supervisors of [config] (Blueprint #134 §3.4): a pool of worker
+/// isolates per plan, sized by the auto-scaler ([decide]) every
+/// `balanceCooldown`, each worker polling the queues its share says.
+///
+/// A worker that stops sending heartbeats for three intervals is killed and
+/// the job it held made available at once ([ReclaimableQueueDriver]); a job
+/// running past its timeout plus `killGrace` has its isolate killed (its
+/// attempt was already released at the timeout). Workers that exit are
+/// started again, after a backoff when they crashed. [stop] drains.
+final class HorizonMaster {
+  /// A master of [config]'s plans, building worker applications with
+  /// [factory]; [driver] and [defaultConnection] are where it reads queue
+  /// sizes and reclaims jobs.
+  HorizonMaster(
+    this.factory,
+    this.config, {
+    required this.driver,
+    required this.logger,
+    this.coordinator,
+    this.onEvent,
+    Duration Function(int crashes)? crashDelay,
+  }) : _crashDelay = crashDelay ?? _defaultCrashDelay;
+
+  /// Builds each worker's application (`createApp`, top-level).
+  final ApplicationFactory factory;
+
+  /// The plans and limits.
+  final HorizonConfig config;
+
+  /// The queue connection of a plan (`null`: the default one).
+  final QueueDriver Function(String? connection) driver;
+
+  /// Logs spawns, crashes and kills.
+  final Logger logger;
+
+  /// The process's coordinator, shared with the workers.
+  final SendPort? coordinator;
+
+  /// Told about kills and scaling decisions.
+  final HorizonEventSink? onEvent;
+
+  final Duration Function(int crashes) _crashDelay;
+
+  static Duration _defaultCrashDelay(int crashes) =>
+      crashes > 5 ? const Duration(minutes: 1) : Duration(seconds: crashes);
+
+  final Map<String, List<HorizonWorker>> _pools = {};
+  final Map<String, ScalingState> _states = {};
+  final Map<String, int> _next = {};
+  final Map<String, List<DateTime>> _crashes = {};
+  final List<Timer> _timers = [];
+  final ReceivePort _reports = ReceivePort();
+  bool _stopping = false;
+  bool _paused = false;
+
+  /// The workers of [plan] now.
+  List<HorizonWorker> workers(String plan) =>
+      List.unmodifiable(_pools[plan] ?? const <HorizonWorker>[]);
+
+  /// The last scaling state of [plan].
+  ScalingState? state(String plan) => _states[plan];
+
+  /// Starts every plan at `minProcesses` and its timers.
+  Future<void> start() async {
+    _reports.listen(_onReport);
+    for (final plan in config.plans) {
+      _pools[plan.name.value] = [];
+      _states[plan.name.value] = const ScalingState();
+      await _resize(plan, plan.minProcesses, _spreadAll(plan));
+      if (plan.balance == BalanceStrategy.auto) {
+        _timers.add(
+          Timer.periodic(plan.balanceCooldown, (_) => unawaited(balance(plan))),
+        );
+      } else {
+        await balance(plan);
+      }
+    }
+    _timers.add(Timer.periodic(config.heartbeat, (_) => _checkLeases()));
+  }
+
+  /// Every queue of [plan] for each of [count] workers.
+  List<String> _spreadAll(SupervisorPlan plan) => [
+    [for (final q in plan.queues) q.value].join(','),
+  ];
+
+  /// One evaluation of [plan]: reads its queues and applies [decide].
+  Future<ScalingDecision> balance(SupervisorPlan plan) async {
+    final name = plan.name.value;
+    final queue = driver(plan.connection);
+    final loads = <QueueLoad>[];
+    for (final q in plan.queues) {
+      final size = await queue.size(q.value);
+      final wait = await queue.oldestWait(q.value);
+      loads.add(
+        QueueLoad(
+          queue: q,
+          size: size,
+          oldestWait: wait,
+          targetWait: config.waitFor(queue.name, q.value),
+        ),
+      );
+    }
+    final previous = ScalingState(
+      workers: _pools[name]?.where((w) => !w.stopping).length ?? 0,
+      arrival: _states[name]?.arrival ?? const {},
+      service: _states[name]?.service ?? const {},
+      calm: _states[name]?.calm ?? 0,
+    );
+    final decision = decide(
+      ScalingInput(
+        plan: plan,
+        queues: loads,
+        alpha: config.ewmaAlpha,
+        jobsPerProcess: config.jobsPerProcess,
+      ),
+      previous,
+    );
+    _states[name] = decision.state;
+    final assignments = <String>[
+      for (final MapEntry(key: q, value: n) in decision.perQueue.entries)
+        for (var i = 0; i < n; i++) q,
+      for (var i = 0; i < decision.shared; i++)
+        [for (final q in plan.queues) q.value].join(','),
+    ];
+    if (!_stopping) {
+      await _resize(plan, decision.total, assignments);
+    }
+    onEvent?.call('SupervisorLooped', {
+      'plan': name,
+      'reason': decision.reason,
+      'before': previous.workers,
+      'after': decision.total,
+      'sizes': {for (final l in loads) l.queue.value: l.size},
+    });
+    return decision;
+  }
+
+  /// [total] workers for [plan], given [assignments] (one queue list per
+  /// worker, extra workers getting the last one); stops idle workers first.
+  Future<void> _resize(
+    SupervisorPlan plan,
+    int total,
+    List<String> assignments,
+  ) async {
+    final pool = _pools[plan.name.value]!;
+    final live = [
+      for (final w in pool)
+        if (!w.stopping) w,
+    ];
+    if (live.length > total) {
+      final idleFirst = [...live]
+        ..sort((a, b) => (a.busy ? 1 : 0).compareTo(b.busy ? 1 : 0));
+      for (final w in idleFirst.take(live.length - total)) {
+        w.stopping = true;
+        w._send(const Stop());
+      }
+    }
+    final keep = [
+      for (final w in pool)
+        if (!w.stopping) w,
+    ];
+    String queuesFor(int i) => assignments.isEmpty
+        ? _spreadAll(plan).first
+        : assignments[i < assignments.length ? i : assignments.length - 1];
+    for (var i = 0; i < keep.length; i++) {
+      final queues = queuesFor(i);
+      if (keep[i].queues != queues) {
+        keep[i].queues = queues;
+        keep[i]._send(Assign(queues));
+      }
+    }
+    for (var i = keep.length; i < total; i++) {
+      await _spawn(plan, queuesFor(i));
+    }
+  }
+
+  Future<HorizonWorker> _spawn(SupervisorPlan plan, String queues) async {
+    final planName = plan.name.value;
+    final n = _next[planName] = (_next[planName] ?? 0) + 1;
+    final worker = HorizonWorker._('horizon-$planName-$n', plan)
+      ..queues = queues;
+    _pools[planName]!.add(worker);
+    // Spawned paused, so its exit is reported on the report port, after
+    // its Exited if it sent one (one port keeps the order): an exit
+    // without Exited first is a crash.
+    final isolate = await Isolate.spawn(
+      horizonWorkerMain,
+      HorizonWorkerStart(
+        factory: factory,
+        name: worker.name,
+        queues: queues,
+        master: _reports.sendPort,
+        heartbeat: config.heartbeat,
+        coordinator: coordinator,
+        connection: plan.connection,
+        tries: plan.tries,
+        backoffSeconds: plan.backoff == null
+            ? null
+            : [for (final b in plan.backoff!) b.inSeconds],
+        timeout: plan.timeout,
+        sleep: plan.sleep,
+        maxJobs: plan.maxJobs,
+        maxTime: plan.maxTime,
+      ),
+      debugName: worker.name,
+      paused: true,
+    );
+    isolate
+      ..addOnExitListener(
+        _reports.sendPort,
+        response: <Object>['gone', worker.name],
+      )
+      ..addErrorListener(_reports.sendPort)
+      ..resume(isolate.pauseCapability!);
+    worker._isolate = isolate;
+    logger.info('Horizon worker ${worker.name} started on [$queues].');
+    return worker;
+  }
+
+  HorizonWorker? _worker(String name) {
+    for (final pool in _pools.values) {
+      for (final w in pool) {
+        if (w.name == name) {
+          return w;
+        }
+      }
+    }
+    return null;
+  }
+
+  void _onReport(Object? message) {
+    switch (message) {
+      case [final String name, final SendPort port]:
+        // A worker's first message: where it takes commands.
+        final w = _worker(name);
+        w?._port = port;
+        if (w != null && _paused) {
+          port.send(const Pause());
+        }
+      case ['gone', final String name]:
+        final w = _worker(name);
+        if (w != null) {
+          _onGone(w, crashed: !w._saidExited);
+        }
+      case [final String? error, final String? stack]:
+        // An uncaught error of a worker (addErrorListener); fatal ones end
+        // it, and its exit follows.
+        logger.error('Horizon worker error: $error\n$stack');
+      case final Ready ready:
+        _worker(ready.worker)
+          ?..ready = true
+          ..lastSeen = DateTime.now();
+      case final Heartbeat beat:
+        final w = _worker(beat.worker);
+        if (w != null) {
+          w
+            ..last = beat
+            ..lastSeen = DateTime.now();
+          _checkGrace(w);
+        }
+      case final Exited exited:
+        final w = _worker(exited.worker);
+        w?._saidExited = true;
+    }
+  }
+
+  /// A job running past its timeout plus `killGrace` kills its isolate:
+  /// the attempt was released at the timeout, but its handler still runs.
+  void _checkGrace(HorizonWorker w) {
+    final started = w.last?.jobStartedAtMs;
+    final timeout = w.plan.timeout;
+    if (started == null || timeout == null || w.stopping) {
+      return;
+    }
+    final ran = DateTime.now().difference(
+      DateTime.fromMillisecondsSinceEpoch(started),
+    );
+    if (ran > timeout + config.killGrace) {
+      _kill(w, 'timeout', reclaim: false);
+    }
+  }
+
+  /// Workers silent for three heartbeats are killed and their job reclaimed.
+  void _checkLeases() {
+    final limit = config.heartbeat * 3;
+    final now = DateTime.now();
+    for (final pool in _pools.values) {
+      for (final w in [...pool]) {
+        if (w._isolate != null &&
+            w.ready &&
+            !w._exited.isCompleted &&
+            now.difference(w.lastSeen) > limit + config.heartbeat) {
+          _kill(w, 'lease', reclaim: true);
+        }
+      }
+    }
+  }
+
+  void _kill(HorizonWorker w, String reason, {required bool reclaim}) {
+    final isolate = w._isolate;
+    if (isolate == null) {
+      return;
+    }
+    w._isolate = null;
+    isolate.kill(priority: Isolate.immediate);
+    final job = w.last;
+    logger.warning('Horizon worker ${w.name} killed ($reason).');
+    onEvent?.call('WorkerKilled', {
+      'worker': w.name,
+      'reason': reason,
+      'job': job?.jobUuid,
+    });
+    final queue = job?.queue;
+    final id = job?.jobId;
+    if (reclaim && queue != null && id != null) {
+      final target = driver(w.plan.connection);
+      if (target is ReclaimableQueueDriver) {
+        // The id as the driver stores it: a number for the database queue.
+        final key = int.tryParse(id) ?? id;
+        unawaited(
+          target
+              .reclaim(queue, key)
+              .then<void>(
+                (done) => logger.info(
+                  'Job ${job?.jobUuid} of ${w.name} '
+                  '${done ? 'reclaimed' : 'was no longer reserved'}.',
+                ),
+                onError: (Object e) =>
+                    logger.error('Could not reclaim job $id: $e'),
+              ),
+        );
+      }
+    }
+  }
+
+  void _onGone(HorizonWorker w, {required bool crashed}) {
+    if (!w._exited.isCompleted) {
+      w._exited.complete();
+    }
+    _pools[w.plan.name.value]?.remove(w);
+    if (_stopping || w.stopping) {
+      return;
+    }
+    final plan = w.plan;
+    if (!crashed) {
+      // It ended on its own (max jobs, max time, a restart): replace it.
+      unawaited(_spawn(plan, w.queues));
+      return;
+    }
+    final now = DateTime.now();
+    final recent = (_crashes[plan.name.value] ??= [])
+      ..removeWhere((t) => now.difference(t) > const Duration(minutes: 1))
+      ..add(now);
+    final delay = _crashDelay(recent.length);
+    logger.error(
+      'Horizon worker ${w.name} crashed; starting another in '
+      '${delay.inMilliseconds} ms.',
+    );
+    _timers.add(
+      Timer(delay, () {
+        if (!_stopping) {
+          unawaited(_spawn(plan, w.queues));
+        }
+      }),
+    );
+  }
+
+  /// Every worker stops taking jobs (`horizon:pause`).
+  void pause() {
+    _paused = true;
+    for (final pool in _pools.values) {
+      for (final w in pool) {
+        w._send(const Pause());
+      }
+    }
+  }
+
+  /// Workers take jobs again (`horizon:continue`).
+  void resume() {
+    _paused = false;
+    for (final pool in _pools.values) {
+      for (final w in pool) {
+        w._send(const Resume());
+      }
+    }
+  }
+
+  /// Asks every worker to finish its job and exit, waits up to [timeout],
+  /// then kills the rest.
+  Future<void> stop({Duration timeout = const Duration(seconds: 30)}) async {
+    _stopping = true;
+    for (final t in _timers) {
+      t.cancel();
+    }
+    final all = [for (final pool in _pools.values) ...pool];
+    for (final w in all) {
+      w
+        ..stopping = true
+        .._send(const Stop());
+    }
+    await Future.wait([for (final w in all) w.exited]).timeout(
+      timeout,
+      onTimeout: () {
+        for (final w in all) {
+          w._isolate?.kill(priority: Isolate.immediate);
+        }
+        return const <void>[];
+      },
+    );
+    _reports.close();
+  }
+}
