@@ -148,6 +148,7 @@ void main() {
       );
       await b.close();
     },
+    tags: ['security'],
   );
 
   test('each application has its own connection quota', () async {
@@ -192,21 +193,44 @@ void main() {
     'a channel name with ":" (another application\'s topic) is refused',
     () async {
       final a = await _Client.connect(url(appA.key));
-      a.send({
-        'event': 'pusher:subscribe',
-        'data': {'channel': '${appB.id}:news'},
-      });
-      expect(_data((await a.next()))['code'], 4300);
-      final response = await api(
-        appA,
-        'POST',
+      for (final channel in ['${appB.id}:news', '${appB.id}:private-x']) {
+        a.send({
+          'event': 'pusher:subscribe',
+          'data': {'channel': channel},
+        });
+        expect(_data((await a.next()))['code'], 4300, reason: channel);
+      }
+      for (final path in [
         '/apps/${appA.id}/events',
-        body: jsonEncode({'name': 'x', 'channel': '7:news', 'data': '{}'}),
+        '/apps/${appA.id}/batch_events',
+      ]) {
+        final response = await api(
+          appA,
+          'POST',
+          path,
+          body: jsonEncode(
+            path.endsWith('batch_events')
+                ? {
+                    'batch': [
+                      {'name': 'x', 'channel': '7:private-x', 'data': '{}'},
+                    ],
+                  }
+                : {'name': 'x', 'channel': '7:private-x', 'data': '{}'},
+          ),
+        );
+        expect(response.statusCode, 422, reason: path);
+        await response.drain<void>();
+      }
+      final users = await api(
+        appA,
+        'GET',
+        '/apps/${appA.id}/channels/7:presence-x/users',
       );
-      expect(response.statusCode, 422);
-      await response.drain<void>();
+      expect(users.statusCode, 422);
+      await users.drain<void>();
       await a.close();
     },
+    tags: ['security'],
   );
 }
 
