@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:daravel/daravel.dart';
+import 'package:daravel_horizon/commands.dart';
 import 'package:daravel_horizon/daravel_horizon.dart';
 import 'package:test/test.dart';
 
