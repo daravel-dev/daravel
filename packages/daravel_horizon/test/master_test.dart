@@ -316,4 +316,51 @@ void main() {
       );
     },
   );
+
+  test(
+    'pauseSupervisor pauses one supervisor only',
+    timeout: const Timeout(Duration(minutes: 2)),
+    () async {
+      final m = HorizonMaster(
+        masterApp,
+        HorizonConfig(
+          plans: const [
+            SupervisorPlan(
+              name: SupervisorName('one'),
+              queues: [QueueName('a')],
+              balance: BalanceStrategy.off,
+              maxProcesses: 1,
+              sleep: Duration(milliseconds: 50),
+            ),
+            SupervisorPlan(
+              name: SupervisorName('two'),
+              queues: [QueueName('b')],
+              balance: BalanceStrategy.off,
+              maxProcesses: 1,
+              sleep: Duration(milliseconds: 50),
+            ),
+          ],
+          heartbeat: const Duration(milliseconds: 100),
+        ),
+        driver: (c) => app.container.make<QueueManager>().connection(c),
+        logger: Logger(minimumLevel: LogLevel.critical),
+      );
+      addTearDown(() => m.stop(timeout: const Duration(seconds: 20)));
+      await m.start();
+      await until(
+        () => [...m.workers('one'), ...m.workers('two')].every((w) => w.ready),
+        'ready workers',
+      );
+      m.pauseSupervisor('one');
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      await app.run(() async {
+        await Queue.push(const Hang('held'), queue: 'a');
+        await Queue.push(const Hang('free'), queue: 'b');
+      });
+      await until(() => marks().contains('b:free:1'), 'the other supervisor');
+      expect(marks(), isNot(contains('a:held:1')));
+      m.resumeSupervisor('one');
+      await until(() => marks().contains('a:held:1'), 'after continue');
+    },
+  );
 }

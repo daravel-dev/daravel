@@ -223,6 +223,10 @@ final class HorizonMaster {
         pause();
       case 'continue':
         resume();
+      case final String command when command.startsWith('pause-supervisor:'):
+        pauseSupervisor(command.substring('pause-supervisor:'.length));
+      case final String command when command.startsWith('continue-supervisor:'):
+        resumeSupervisor(command.substring('continue-supervisor:'.length));
       case 'terminate':
         await stop();
         onTerminate?.call();
@@ -485,7 +489,7 @@ final class HorizonMaster {
         // A worker's first message: where it takes commands.
         final w = _worker(name);
         w?._port = port;
-        if (w != null && _paused) {
+        if (w != null && _isPaused(w)) {
           port.send(const Pause());
         }
       case ['gone', final String name]:
@@ -734,15 +738,46 @@ final class HorizonMaster {
     }
   }
 
-  /// Workers take jobs again (`horizon:continue`).
+  /// Workers take jobs again (`horizon:continue`); a supervisor paused on
+  /// its own stays paused.
   void resume() {
     _paused = false;
-    for (final pool in _pools.values) {
+    for (final MapEntry(key: plan, value: pool) in _pools.entries) {
+      if (_pausedPlans.contains(plan)) {
+        continue;
+      }
       for (final w in pool) {
         w._send(const Resume());
       }
     }
   }
+
+  /// Supervisors paused on their own (`horizon:pause-supervisor`).
+  final Set<String> _pausedPlans = {};
+
+  /// The workers of supervisor [plan] stop taking jobs
+  /// (`horizon:pause-supervisor`).
+  void pauseSupervisor(String plan) {
+    _pausedPlans.add(plan);
+    for (final w in _pools[plan] ?? const <HorizonWorker>[]) {
+      w._send(const Pause());
+    }
+  }
+
+  /// Supervisor [plan] takes jobs again, unless all of Horizon is paused
+  /// (`horizon:continue-supervisor`).
+  void resumeSupervisor(String plan) {
+    _pausedPlans.remove(plan);
+    if (_paused) {
+      return;
+    }
+    for (final w in _pools[plan] ?? const <HorizonWorker>[]) {
+      w._send(const Resume());
+    }
+  }
+
+  bool _isPaused(HorizonWorker w) =>
+      _paused || _pausedPlans.contains(w.plan.name.value);
 
   /// Asks every worker to finish its job and exit, waits up to [timeout],
   /// then kills the rest.

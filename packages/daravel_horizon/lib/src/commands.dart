@@ -22,6 +22,8 @@ const List<CommandFactory> horizonCommands = [
   HorizonSupervisorsCommand.new,
   HorizonPauseCommand.new,
   HorizonContinueCommand.new,
+  HorizonPauseSupervisorCommand.new,
+  HorizonContinueSupervisorCommand.new,
   HorizonTerminateCommand.new,
   HorizonClearCommand.new,
   HorizonForgetCommand.new,
@@ -400,3 +402,76 @@ List<Map<String, Object?>> jsonDecodeList(String text) => [
   for (final item in (const JsonDecoder().convert(text) as List<Object?>))
     item! as Map<String, Object?>,
 ];
+
+/// The supervisor named by the first argument, checked against the plans.
+String _supervisorArgument(DaravelCommand command, Application app) {
+  final rest = command.argResults!.rest;
+  if (rest.isEmpty) {
+    command.usageException('Pass the name of a supervisor.');
+  }
+  final plans = [
+    for (final p in app.config.section<HorizonConfig>().plans) p.name.value,
+  ];
+  if (!plans.contains(rest.first)) {
+    command.usageException(
+      'No supervisor [${rest.first}] (supervisors: ${plans.join(', ')}).',
+    );
+  }
+  return rest.first;
+}
+
+/// `horizon:pause-supervisor {name}`: the workers of one supervisor stop
+/// taking jobs.
+final class HorizonPauseSupervisorCommand extends DaravelCommand {
+  /// The `dartisan horizon:pause-supervisor` command.
+  HorizonPauseSupervisorCommand(super.createApp);
+
+  @override
+  String get name => 'horizon:pause-supervisor';
+
+  @override
+  String get description => 'Pauses the workers of one Horizon supervisor.';
+
+  @override
+  Future<int> run() => withApp((app) async {
+    final plan = _supervisorArgument(this, app);
+    if (!await HorizonSignals.send(
+      _signals(app),
+      _name(app),
+      'pause-supervisor:$plan',
+    )) {
+      stderr.writeln('No signal store (QUEUE_SIGNAL_STORE) to reach Horizon.');
+      return 1;
+    }
+    stdout.writeln('Sent pause to supervisor [$plan].');
+    return 0;
+  });
+}
+
+/// `horizon:continue-supervisor {name}`: one paused supervisor takes jobs
+/// again.
+final class HorizonContinueSupervisorCommand extends DaravelCommand {
+  /// The `dartisan horizon:continue-supervisor` command.
+  HorizonContinueSupervisorCommand(super.createApp);
+
+  @override
+  String get name => 'horizon:continue-supervisor';
+
+  @override
+  String get description => 'Lets a paused Horizon supervisor take jobs again.';
+
+  @override
+  Future<int> run() => withApp((app) async {
+    final plan = _supervisorArgument(this, app);
+    if (!await HorizonSignals.send(
+      _signals(app),
+      _name(app),
+      'continue-supervisor:$plan',
+    )) {
+      stderr.writeln('No signal store (QUEUE_SIGNAL_STORE) to reach Horizon.');
+      return 1;
+    }
+    stdout.writeln('Sent continue to supervisor [$plan].');
+    return 0;
+  });
+}

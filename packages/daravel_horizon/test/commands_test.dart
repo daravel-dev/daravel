@@ -159,4 +159,28 @@ void main() {
       expect(await dartisan(['horizon:status']), 1, reason: 'inactive now');
     },
   );
+
+  test(
+    'horizon:pause-supervisor and continue-supervisor name a supervisor',
+    () async {
+      final signals = app.container.make<QueueManager>().signalStore;
+      expect(await dartisan(['horizon:pause-supervisor', 'supervisor-1']), 0);
+      expect(
+        (await HorizonSignals.read(signals, 'horizon'))?.$1,
+        'pause-supervisor:supervisor-1',
+      );
+      expect(
+        await dartisan(['horizon:continue-supervisor', 'supervisor-1']),
+        0,
+      );
+      expect(
+        (await HorizonSignals.read(signals, 'horizon'))?.$1,
+        'continue-supervisor:supervisor-1',
+      );
+      await expectLater(
+        dartisan(['horizon:pause-supervisor', 'nope']),
+        throwsA(isA<UsageException>()),
+      );
+    },
+  );
 }
