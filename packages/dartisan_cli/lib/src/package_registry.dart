@@ -238,6 +238,27 @@ const List<PackageManifest> officialPackages = [
     ],
   ),
   PackageManifest(
+    package: 'daravel_reverb',
+    title: 'Reverb',
+    category: 'Infrastructure',
+    description:
+        'A Pusher WebSocket server of its own, for several apps, with stats',
+    aliases: ['reverb', 'websocket', 'websockets', 'pusher'],
+    registration: ['.withReverb()'],
+    commands: 'reverbCommands',
+    env: [
+      'REVERB_SERVER_HOST=0.0.0.0',
+      'REVERB_SERVER_PORT=8080',
+      'REVERB_SERVER_AUTH=app',
+      'REVERB_APPS_PROVIDER=config',
+    ],
+    next: [
+      'withReverb() needs .withBroadcasting(...) and REVERB_APP_ID/_KEY/_SECRET.',
+      'dartisan reverb:start   # beside dartisan serve; Echo connects to REVERB_HOST:REVERB_SERVER_PORT',
+      'dartisan reverb:restart after a deploy; reverb:stats with METRICS_ENABLED=true',
+    ],
+  ),
+  PackageManifest(
     package: 'daravel_payments',
     title: 'Payments',
     category: 'Payments',
