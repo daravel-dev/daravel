@@ -13,9 +13,14 @@ match Laravel more closely.
 
 ### Added
 
+- `SqlIdentifier` and `SqlFragment` (ADR-032), extension types over `String`. `SqlIdentifier('users.id')` checks a column or table name once, where it is made: plain names joined by dots, else an `ArgumentError` (`SqlIdentifier.tryParse` and `SqlIdentifier.isValid` do not throw). It implements `String`, so every query builder column parameter accepts it as it is, and every grammar writes the same SQL as for the string. `RawExpression.sql` (`DB.raw(...)` and the `*Raw` methods) is now a `SqlFragment`, a `String` with no public constructor that documents where raw SQL flows; it does not check the text, and values still belong in bindings.
+- `daravel_lints`: the opt-in rule `prefer_sql_identifier` reports a column argument of a query builder method (`where`, `orderBy`, `select`, `pluck`, ...) that is neither a string literal, a `const`, a choice between literals nor a `SqlIdentifier`. It is not in `defaultRules`, so `dartisan lint` does not run it; `optionalRules` lists the opt-in rules and `rulesWith(['prefer_sql_identifier'])` adds them to the defaults. `daravel_test`'s `expectLintClean(root, enable)` takes the opt-in rules to run by name: `expectLintClean(null, ['prefer_sql_identifier'])`.
+
 ### Changed
 
 **Upgrading can change what an application sees:**
+
+- `package:daravel/daravel.dart` now exports `SqlIdentifier` and `SqlFragment`, and `package:daravel_lints/daravel_lints.dart` exports `PreferSqlIdentifier`, `optionalRules` and `rulesWith`. An application that declares one of those names hides it in its import. `RawExpression.sql` is a `SqlFragment` getter where it was a `String` field; it is still a `String`, so reading it works as before, but a variable inferred from it (`var sql = raw.sql;`) can no longer be assigned a plain string: declare it `String`. The SQL every query writes is unchanged.
 
 ### Fixed
 

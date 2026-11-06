@@ -308,6 +308,40 @@ that body. A query already waiting inside the database (on a row lock, say)
 ends only when the database lets it go, so pair this with the database's own
 lock timeout.
 
+## Column names from input
+
+Values go into bindings; column names go into the SQL text, quoted by the
+grammar, which rejects characters that do not belong in a name. A column
+name that comes from a request (a `sort` parameter) still picks any
+existing column, so check it against the columns you allow:
+
+```dart
+final sort = switch (request.query['sort']) {
+  'name' => 'name',
+  'created_at' => 'created_at',
+  _ => 'id',
+};
+await DB.table('users').orderBy(sort).get();
+```
+
+`SqlIdentifier` marks a name that was checked where it was made: plain
+names joined by dots (`email`, `users.id`), anything else throws an
+`ArgumentError`. It is a `String`, so every column parameter accepts it, and
+the SQL is the same as for the string:
+
+```dart
+final column = SqlIdentifier(Config.get<String>('reports.sort')); // throws on 'id; DROP ...'
+await DB.table('users').orderBy(column).get();
+```
+
+The opt-in lint `prefer_sql_identifier` (see the `daravel_lints` README)
+reports column arguments that are neither a literal, a `const`, a choice
+between literals nor a `SqlIdentifier`. `DB.raw(...)` and the `*Raw`
+methods insert their SQL as written; `RawExpression.sql` is a
+`SqlFragment`, a `String` that only the framework makes. Neither type is a
+guarantee against injection: values belong in bindings, which
+`no_sql_string_interpolation` checks.
+
 ## JSON columns
 
 `->` reads and writes inside a JSON column, on every driver:
