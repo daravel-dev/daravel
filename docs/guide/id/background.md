@@ -1,4 +1,4 @@
-<!-- source: background.md sha256:766909076c5e -->
+<!-- source: background.md sha256:a90cd9648da6 -->
 # Cache, event, queue, dan penjadwalan
 
 <!-- include: packages/daravel/test/docs/guide_examples_test.dart#cache-events-queue -->
@@ -20,6 +20,9 @@ Store: `memory` (per isolate, LRU), `process` (dibagi semua isolate server
 melalui coordinator), `file`, dan `database` (tabel `cache` dari Laravel).
 `Cache.remember`, `flexible` (stale-while-revalidate), `increment`, `pull`,
 dan `lock` (atomic lock, gagal tertutup) mengikuti Laravel.
+Di store `process`, lock yang diberikan coordinator setelah jawabannya
+timeout langsung dilepas alih-alih tertahan sampai TTL-nya habis, dan
+`lock.block` menganggap percobaan itu tidak berhasil lalu mencoba lagi.
 `Cache.tags(['people', 'artists']).put(...)` memberi tag pada entri dan
 `Cache.tags(['people']).flush()` melupakannya, di store `memory` dan
 `process` serta dengan [Redis](redis.md#cache-tags), dengan key yang sama

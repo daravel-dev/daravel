@@ -152,13 +152,16 @@ final class Lock {
   }
 
   /// Waits up to [timeout] (polling every [interval]) then runs [callback].
+  /// A try the coordinator did not answer in time counts as not acquired
+  /// (the store has released whatever it may have taken), so a stalled
+  /// coordinator ends in [LockTimeoutException] like a held lock.
   Future<T> block<T>(
     Duration timeout,
     FutureOr<T> Function() callback, {
     Duration interval = const Duration(milliseconds: 100),
   }) async {
     final deadline = DateTime.now().add(timeout);
-    while (!await acquire()) {
+    while (!await _tryAcquire()) {
       if (!DateTime.now().isBefore(deadline)) {
         throw LockTimeoutException(name, timeout);
       }
@@ -173,6 +176,14 @@ final class Lock {
 
   /// Takes the lock if it is free; returns whether it did.
   Future<bool> acquire() => _store.acquireLock(name, owner, ttl);
+
+  Future<bool> _tryAcquire() async {
+    try {
+      return await acquire();
+    } on CoordinatorTimeoutException {
+      return false;
+    }
+  }
 
   /// Releases only when this instance owns the lock.
   Future<bool> release() => _store.releaseLock(name, owner);

@@ -1,4 +1,4 @@
-<!-- source: configuration.md sha256:a0469b3069a8 -->
+<!-- source: configuration.md sha256:892229281cfd -->
 # Konfigurasi
 
 ## File environment
@@ -99,7 +99,7 @@ setelah boot.
 | `DB_CONNECT_TIMEOUT`, `DB_QUERY_TIMEOUT` | `10`, `30` | Detik yang boleh dipakai koneksi PostgreSQL atau MySQL untuk terbuka, dan sebuah statement untuk berjalan (`0` untuk tanpa batas; statement yang macet akan menahan koneksi pool-nya selamanya) |
 | `CACHE_STORE`, `CACHE_PREFIX` | `memory` | Penyimpanan cache (`memory`, `process`, `file`, `database`, `redis`; `array` milik Laravel sama dengan `memory`) dan prefix key |
 | `CACHE_PROCESS_MAX_ENTRIES` | `10000` | Jumlah entri yang disimpan store `process` untuk seluruh server; yang paling lama tidak dipakai dibuang lebih dulu, jadi naikkan bila store ini menampung banyak key yang harus bertahan sampai kedaluwarsa (JWT yang dicabut, counter per client), atau simpan key itu di `database` atau Redis |
-| `CACHE_PROCESS_L1_TTL` | `0` (mati) | Dengan store `process`, berapa lama setiap worker isolate memakai ulang nilai yang dibacanya (`250ms`) sebelum bertanya lagi ke coordinator |
+| `CACHE_PROCESS_L1_TTL` | `0` (mati) | Dengan store `process`, berapa lama setiap worker isolate memakai ulang nilai yang dibacanya (`250ms`) sebelum bertanya lagi ke coordinator, tidak pernah lebih lama dari TTL nilai itu sendiri |
 | `CACHE_LIMITER` | coordinator | Penyimpanan cache untuk rate limit (`cache.limiter` dari Laravel); `database` membaginya antarmesin, dengan satu statement per percobaan |
 | `QUEUE_CONNECTION` | `sync` | `sync`, `memory`, `database`, atau `redis` ([Redis](redis.md)) |
 | `QUEUE_UNIQUE_LOCK_STORE` | `database` atau `redis` sesuai queue-nya, selain itu `process` | Cache store untuk lock unique job; proses `queue:work` harus bisa menjangkaunya |

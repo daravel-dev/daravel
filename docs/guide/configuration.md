@@ -96,7 +96,7 @@ frozen after boot.
 | `DB_CONNECT_TIMEOUT`, `DB_QUERY_TIMEOUT` | `10`, `30` | Seconds a PostgreSQL or MySQL connection may take to open, and a statement to run (`0` for none; a stuck statement would otherwise hold its pooled connection for ever) |
 | `CACHE_STORE`, `CACHE_PREFIX` | `memory` | Cache store (`memory`, `process`, `file`, `database`, `redis`; Laravel's `array` is `memory`) and key prefix |
 | `CACHE_PROCESS_MAX_ENTRIES` | `10000` | Entries the `process` store keeps for the whole server; the least recently used go first, so raise it when it holds many keys that must last until they expire (revoked JWTs, per-client counters), or keep those in `database` or Redis |
-| `CACHE_PROCESS_L1_TTL` | `0` (off) | With the `process` store, how long each worker isolate reuses a value it read (`250ms`) before asking the coordinator again |
+| `CACHE_PROCESS_L1_TTL` | `0` (off) | With the `process` store, how long each worker isolate reuses a value it read (`250ms`) before asking the coordinator again, never longer than the value's own TTL |
 | `CACHE_LIMITER` | coordinator | Cache store for rate limits (Laravel's `cache.limiter`); `database` shares them between machines, with one statement per attempt |
 | `QUEUE_CONNECTION` | `sync` | `sync`, `memory`, `database` or `redis` ([Redis](redis.md)) |
 | `QUEUE_UNIQUE_LOCK_STORE` | `database` or `redis` with that queue, else `process` | Cache store of unique-job locks; `queue:work` processes must reach it |
