@@ -106,6 +106,17 @@ final class WorkerDrained {
   final int index;
 }
 
+/// Sent by a worker whose application asked to be started again
+/// ([Application.restart], `reverb:restart`) before it exits: the
+/// supervisor spawns it again at once, without counting a crash.
+final class WorkerRestarting {
+  /// Worker [index] is restarting.
+  const WorkerRestarting(this.index);
+
+  /// The worker's index.
+  final int index;
+}
+
 final class _WorkerSpawn {
   const _WorkerSpawn({
     required this.index,
@@ -130,6 +141,7 @@ final class _Worker {
   SendPort? control;
   int? port;
   bool drained = false;
+  bool restarting = false;
   ReceivePort? exitPort;
   ReceivePort? errorPort;
 }
@@ -219,6 +231,7 @@ final class Supervisor {
     final ready = Completer<void>();
     _ready[worker.index] = ready;
     worker.drained = false;
+    worker.restarting = false;
     final exitPort = ReceivePort();
     final errorPort = ReceivePort();
     worker.exitPort = exitPort;
@@ -310,6 +323,8 @@ final class Supervisor {
             );
       case WorkerDrained():
         workerAt(message.index)?.drained = true;
+      case WorkerRestarting():
+        workerAt(message.index)?.restarting = true;
     }
   }
 
@@ -331,6 +346,12 @@ final class Supervisor {
       // Died before ready: the readiness future reports it.
       return;
     }
+    if (worker.restarting) {
+      // Asked for (`reverb:restart`): not a crash, and no backoff.
+      logger.info('Worker ${worker.index} restarting.');
+      unawaited(_respawn(worker));
+      return;
+    }
     final now = DateTime.now();
     _crashes
       ..add(now)
@@ -349,23 +370,23 @@ final class Supervisor {
       'Worker ${worker.index} exited unexpectedly; respawning in '
       '${backoff.inSeconds}s.',
     );
-    unawaited(
-      Future<void>.delayed(backoff, () async {
-        if (_stopping) {
-          return;
-        }
-        try {
-          await _spawn(worker);
-        } catch (error, stackTrace) {
-          logger.error(
-            'Respawn of worker ${worker.index} failed',
-            error: error,
-            stackTrace: stackTrace,
-          );
-          _onWorkerExit(worker);
-        }
-      }),
-    );
+    unawaited(Future<void>.delayed(backoff, () => _respawn(worker)));
+  }
+
+  Future<void> _respawn(_Worker worker) async {
+    if (_stopping) {
+      return;
+    }
+    try {
+      await _spawn(worker);
+    } catch (error, stackTrace) {
+      logger.error(
+        'Respawn of worker ${worker.index} failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      _onWorkerExit(worker);
+    }
   }
 
   /// Drains every worker (graceful) and completes [done].
@@ -476,6 +497,9 @@ final class Supervisor {
           ),
         ),
       );
+      if (app.restartRequested) {
+        spawn.supervisor.send(WorkerRestarting(spawn.index));
+      }
     } catch (error) {
       spawn.supervisor.send(WorkerFailed(spawn.index, '$error'));
     } finally {
