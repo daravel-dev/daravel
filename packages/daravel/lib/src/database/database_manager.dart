@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import '../foundation/cancellation.dart';
 import '../foundation/clock.dart';
 import '../foundation/container.dart';
 import '../foundation/exceptions.dart';
@@ -469,7 +470,7 @@ final class DatabaseManager {
         final scope = _TransactionScope(tx, this, connectionName);
         return _bounded(
           runZoned<Future<T>>(
-            body,
+            _unlessCancelled(body),
             zoneValues: <Object?, Object?>{
               transactionKey: scope.executor,
               _scopeKey: scope,
@@ -563,6 +564,18 @@ final class DatabaseManager {
     return done.future;
   }
 
+  /// [body] between two checks of the zone's [CancellationToken]: work that
+  /// was given up (a job past its timeout) neither starts a transaction nor
+  /// commits one; the [OperationCancelledException] rolls it back instead.
+  static Future<T> Function() _unlessCancelled<T>(Future<T> Function() body) =>
+      () async {
+        final token = CancellationToken.current;
+        token?.throwIfCancelled();
+        final result = await body();
+        token?.throwIfCancelled();
+        return result;
+      };
+
   Future<T> _savepoint<T>(Future<T> Function() body, Duration? timeout) {
     final parent = Zone.current[_scopeKey]! as _TransactionScope;
     return parent.runChild(() async {
@@ -586,7 +599,7 @@ final class DatabaseManager {
       try {
         final result = await _bounded(
           runZoned<Future<T>>(
-            body,
+            _unlessCancelled(body),
             zoneValues: <Object?, Object?>{
               transactionKey: scope.executor,
               _scopeKey: scope,

@@ -1,4 +1,4 @@
-<!-- source: deployment.md sha256:7596532c63a7 -->
+<!-- source: deployment.md sha256:88bdc006dd8b -->
 # Deployment
 
 ## Konsep & Arsitektur Ahead-of-Time (AOT) Single Binary
@@ -312,12 +312,21 @@ scheduler masing-masing berjalan di isolate sendiri, sehingga job tidak
 pernah memblokir event loop HTTP. Keduanya memakai coordinator server yang
 sama, sehingga penyimpanan cache `process`, rate limit, dan lock-nya sama
 dengan yang dilihat worker HTTP: token yang dicabut sebuah job ditolak pada
-request berikutnya. Isolate yang crash dijalankan ulang; saat
-`SIGTERM`, job atau tick yang sedang berjalan diselesaikan sebelum proses
+request berikutnya. Isolate yang berakhir dengan
+sendirinya (worker yang restart setelah `queue:restart` atau setelah sebuah
+job timeout) langsung dijalankan lagi; isolate yang crash dijalankan lagi
+setelah satu detik per crash dalam satu menit terakhir, dan sekali semenit,
+masing-masing dicatat sebagai error, setelah lebih dari lima crash dalam
+semenit, sehingga tidak pernah ditinggalkan selama server berjalan. Error
+asinkron yang tidak tertangkap di salah satu isolate (future fire-and-forget
+di listener atau task background) dicatat ke log alih-alih mengakhirinya.
+Saat `SIGTERM`, job atau tick yang sedang berjalan diselesaikan sebelum proses
 keluar. Console command yang terjadwal berjalan bila server dijalankan dengan
 `dartisan serve`; bila dijalankan sebagai `bin/server`, scheduler tertanam
 menjalankan job, closure, dan task `exec`. Mode tertanam butuh database file
-atau PostgreSQL (database SQLite in-memory ditolak). Untuk beberapa instance,
+atau PostgreSQL (database SQLite in-memory ditolak) dan queue selain
+`memory`, yang job-nya tetap berada di isolate yang men-dispatch-nya (`serve`
+menolaknya, seperti dengan `APP_ISOLATES` di atas 1). Untuk beberapa instance,
 pertahankan satu scheduler tertanam (atau jalankan `schedule:work`
 terpisah) dan skalakan queue worker secara terpisah.
 

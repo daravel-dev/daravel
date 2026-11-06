@@ -8,6 +8,7 @@ library;
 export 'src/foundation/drain.dart';
 export 'src/foundation/locale.dart';
 export 'src/foundation/application.dart';
+export 'src/foundation/cancellation.dart';
 export 'src/foundation/config.dart';
 export 'src/foundation/config_validator.dart';
 export 'src/foundation/container.dart';

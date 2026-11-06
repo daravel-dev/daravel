@@ -402,6 +402,8 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `Queue::later($delay, $job)` | `await Queue.later(delay, job)` | **async** |
 | `public function tags() (Horizon)` | `List<String> get tags` |  |
 | `php artisan queue:pause database:default / queue:continue` | `dartisan queue:pause database:default / queue:continue` |  |
+| `public $maxExceptions = 3;` | `int? get maxExceptions => 3;` |  |
+| `php artisan queue:work --memory=128` | `dartisan queue:work --memory=128` |  |
 | `class SendEmail implements ShouldQueue` | `final class SendEmail extends Job` |  |
 | `event(new OrderShipped($order))` | `await Event.dispatch(OrderShipped(order))` | **async** |
 | `Event::listen(OrderShipped::class, fn)` | `Event.listen<OrderShipped>((e) async {...})` |  |
@@ -411,6 +413,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `->withoutOverlapping() / onOneServer()` | `.withoutOverlapping() / .onOneServer()` |  |
 | `->timezone('America/New_York')` | `.timezone('America/New_York')` |  |
 | `config('app.schedule_timezone')` | `SCHEDULE_TIMEZONE` | No fallback to APP_TIMEZONE in 1.x (doctor warns). |
+| `php artisan schedule:clear-cache` | `dartisan schedule:clear-cache` |  |
 
 ## Resources, storage, logging, config
 

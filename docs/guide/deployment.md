@@ -298,12 +298,19 @@ The queue worker (on `SERVER_EMBED_QUEUES`, default the default queue) and
 the scheduler each run in their own isolate, so jobs never block the HTTP
 event loop. They share the server's coordinator, so the `process` cache
 store, rate limits and locks are the same ones the HTTP workers see: a
-token a job revokes is refused on the next request. A crashed isolate is
-respawned; on `SIGTERM` the current job or tick finishes before the process
+token a job revokes is refused on the next request. An isolate that ends on
+its own (a worker restarting after `queue:restart` or after a job timed out)
+is started again at once; a crashed one after a second per crash in the last
+minute, and once a minute, logged as an error each time, after more than
+five crashes in a minute, so it is never given up while the server runs. An
+uncaught asynchronous error in either isolate (a fire-and-forget future in a
+listener or a background task) is logged instead of ending it. On `SIGTERM` the current job or tick finishes before the process
 exits. Scheduled console commands run when
 the server is started with `dartisan serve`; started as `bin/server`, the
 embedded scheduler runs jobs, closures and `exec` tasks. Embedding needs a
-file or PostgreSQL database (an in-memory SQLite database is refused). For
+file or PostgreSQL database (an in-memory SQLite database is refused) and a
+queue other than `memory`, whose jobs stay in the isolate that dispatched
+them (`serve` refuses it, as it does with `APP_ISOLATES` above 1). For
 several instances, keep one embedded scheduler (or run `schedule:work`
 separately) and scale queue workers on their own.
 

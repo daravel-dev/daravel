@@ -682,6 +682,7 @@ final class Application {
       container: c,
       logger: logger,
       debounceStore: () => lockStore,
+      exceptionStore: () => lockStore,
       uniqueLockRelease: (key) => manager.releaseUniqueLock(key),
     );
     manager =
@@ -1243,6 +1244,7 @@ final class Application {
   }
 
   void _ensureServeable(ServeOptions resolved) {
+    _ensureQueueServeable(resolved);
     final db = config.section<DatabaseConfig>();
     final connection = db.connections[db.defaultConnection];
     if (connection?.driver != 'sqlite' || connection?.database != ':memory:') {
@@ -1259,6 +1261,42 @@ final class Application {
       throw const ConfigException(
         'An in-memory SQLite database cannot be shared with the embedded '
         'queue or scheduler isolate. Use a file database.',
+      );
+    }
+  }
+
+  /// Queue state kept in one isolate cannot serve several isolates (HTTP
+  /// workers, the embedded queue worker): refuse it at start rather than
+  /// let jobs or their locks go missing.
+  void _ensureQueueServeable(ServeOptions resolved) {
+    final isolates = resolved.isolates > 1;
+    if (!isolates && !resolved.embedQueue) {
+      return;
+    }
+    final where = [
+      if (isolates) '${resolved.isolates} isolates',
+      if (resolved.embedQueue) 'the embedded queue worker',
+    ].join(' and ');
+    final queue = config.section<QueueConfig>();
+    final driver = container.make<QueueManager>().connection(
+      queue.defaultConnection,
+    );
+    if (driver is! SyncQueue && driver.scope == StateScope.isolate) {
+      throw ConfigException(
+        'QUEUE_CONNECTION=${queue.defaultConnection} keeps its jobs in the '
+        'isolate that dispatches them, so with $where they would never be '
+        'processed (the embedded worker and every HTTP isolate have a queue '
+        'of their own). Use the database or redis queue.',
+      );
+    }
+    final locks = container.make<CacheManager>().store(queue.uniqueLockStore);
+    if (locks.scope == StateScope.isolate) {
+      throw ConfigException(
+        'QUEUE_UNIQUE_LOCK_STORE=${queue.uniqueLockStore} keeps unique-job '
+        'and debounce locks in one isolate, so with $where a unique job can '
+        'be dispatched once per isolate and its lock is never released by '
+        'the worker that runs it. Use process (the default), database or '
+        'redis.',
       );
     }
   }

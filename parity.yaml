@@ -367,6 +367,8 @@ sections:
       - { php: "Queue::later($delay, $job)", dart: "await Queue.later(delay, job)", symbol: Queue.later, async: true }
       - { php: "public function tags() (Horizon)", dart: "List<String> get tags", symbol: Job.tags }
       - { php: "php artisan queue:pause database:default / queue:continue", dart: "dartisan queue:pause database:default / queue:continue", symbol: QueueManager.pause }
+      - { php: "public $maxExceptions = 3;", dart: "int? get maxExceptions => 3;", symbol: Job.maxExceptions }
+      - { php: "php artisan queue:work --memory=128", dart: "dartisan queue:work --memory=128", symbol: WorkerOptions.memory }
       - { php: "class SendEmail implements ShouldQueue", dart: "final class SendEmail extends Job", symbol: Job }
       - { php: "event(new OrderShipped($order))", dart: "await Event.dispatch(OrderShipped(order))", symbol: Event.dispatch, async: true }
       - { php: "Event::listen(OrderShipped::class, fn)", dart: "Event.listen<OrderShipped>((e) async {...})", symbol: Event.listen }
@@ -376,6 +378,7 @@ sections:
       - { php: "->withoutOverlapping() / onOneServer()", dart: ".withoutOverlapping() / .onOneServer()", symbol: ScheduledTask.withoutOverlapping }
       - { php: "->timezone('America/New_York')", dart: ".timezone('America/New_York')", symbol: ScheduledTask.timezone }
       - { php: "config('app.schedule_timezone')", dart: "SCHEDULE_TIMEZONE", symbol: Schedule.timezone, note: "No fallback to APP_TIMEZONE in 1.x (doctor warns)." }
+      - { php: "php artisan schedule:clear-cache", dart: "dartisan schedule:clear-cache", symbol: Scheduler.clearCache }
 
   - name: Resources, storage, logging, config
     symbols:
