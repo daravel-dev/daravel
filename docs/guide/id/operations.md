@@ -1,4 +1,4 @@
-<!-- source: operations.md sha256:5384d395eb80 -->
+<!-- source: operations.md sha256:ba596c4c9616 -->
 # Operasional
 
 Menjalankan Daravel di bawah trafik nyata: berapa isolate, berapa koneksi
