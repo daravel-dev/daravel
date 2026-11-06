@@ -138,6 +138,38 @@ final class ProjectPaths {
   String get commandsRegistry => p.join(root, 'bootstrap', 'commands.dart');
 }
 
+/// A model a generated job carries (`make:job --model=User:candidate`): a
+/// `ModelRef<User> candidate` field.
+final class JobModelField {
+  /// The field [field] referencing a [model].
+  const JobModelField(this.model, this.field);
+
+  /// Reads `Model` or `Model:field` (the field defaults to the model's name
+  /// in camel case); null when either part is not an identifier.
+  static JobModelField? tryParse(String spec) {
+    final parts = spec.split(':');
+    if (parts.length > 2) {
+      return null;
+    }
+    final model = Naming.pascal(parts.first.trim());
+    final field = parts.length == 2
+        ? parts[1].trim()
+        : Naming.camel(parts.first.trim());
+    final identifier = RegExp(r'^[A-Za-z][A-Za-z0-9]*$');
+    if (!identifier.hasMatch(model) ||
+        !RegExp(r'^[a-z][A-Za-z0-9]*$').hasMatch(field)) {
+      return null;
+    }
+    return JobModelField(model, field);
+  }
+
+  /// The model class, such as `User`.
+  final String model;
+
+  /// The field name, such as `candidate`.
+  final String field;
+}
+
 /// Naming helpers shared by generators.
 abstract final class Naming {
   /// `blog_post` or `blog post` as `BlogPost`.
@@ -553,14 +585,17 @@ final class Generator {
     );
   }
 
-  /// A queued job and its registry entry (`make:job`).
-  GeneratedFile job(String name) {
+  /// A queued job and its registry entry (`make:job`). Each of [models]
+  /// becomes a `ModelRef` field, saved as its id and tagged for monitoring:
+  /// `HorizonTags.model(field)` when the project depends on
+  /// `daravel_horizon`, `'User:${field.id}'` otherwise.
+  GeneratedFile job(String name, {List<JobModelField> models = const []}) {
     final className = Naming.pascal(name);
-    final file = _render(
-      p.join(paths.jobs, '${Naming.snake(className)}.dart'),
-      'job',
-      {'class': className, 'jobName': Naming.kebab(className)},
-    );
+    final path = p.join(paths.jobs, '${Naming.snake(className)}.dart');
+    final values = {'class': className, 'jobName': Naming.kebab(className)};
+    final file = models.isEmpty
+        ? _render(path, 'job', values)
+        : _render(path, 'job.model', {...values, ..._jobModelValues(models)});
     _register(
       file,
       paths.jobsRegistry,
@@ -573,6 +608,61 @@ final class Generator {
       '  JobDefinition($className.name, $className.fromJson),',
     );
     return file;
+  }
+
+  /// Whether the project's `pubspec.yaml` depends on [package].
+  bool _dependsOn(String package) {
+    final pubspec = File(p.join(paths.root, 'pubspec.yaml'));
+    return pubspec.existsSync() &&
+        RegExp(
+          '^\\s+${RegExp.escape(package)}\\s*:',
+          multiLine: true,
+        ).hasMatch(pubspec.readAsStringSync());
+  }
+
+  /// The placeholders of the `job.model` stub for [models].
+  Map<String, String> _jobModelValues(List<JobModelField> models) {
+    final horizon = _dependsOn('daravel_horizon');
+    final imports = <String>{
+      "import 'package:daravel/daravel.dart';",
+      if (horizon) "import 'package:daravel_horizon/daravel_horizon.dart';",
+      for (final m in models)
+        "import 'package:$_package/app/models/${Naming.snake(m.model)}.dart';",
+    }.toList()..sort();
+    return {
+      'imports': imports.join('\n'),
+      'params': [for (final m in models) 'required this.${m.field}'].join(', '),
+      'fromJson': [
+        for (final m in models)
+          "    ${m.field}: ModelRef<${m.model}>(\n"
+              "      () => ${m.model}.definition,\n"
+              "      json['${m.field}']!,\n"
+              '    ),',
+      ].join('\n'),
+      'fields': [
+        for (final m in models)
+          '  /// The [${m.model}], saved as its id and loaded fresh when the '
+              'job runs.\n'
+              '  final ModelRef<${m.model}> ${m.field};',
+      ].join('\n\n'),
+      'tags': [
+        for (final m in models)
+          horizon
+              ? 'HorizonTags.model(${m.field})'
+              : "'${m.model}:\${${m.field}.id}'",
+      ].join(', '),
+      'toJson': [
+        for (final m in models) "    '${m.field}': ${m.field}.toJson(),",
+      ].join('\n'),
+      'dispatch': [
+        for (final m in models)
+          '${m.field}: ModelRef.of(${Naming.camel(m.model)})',
+      ].join(', '),
+      'resolve': [
+        for (final m in models)
+          '    // final ${Naming.camel(m.model)} = await ${m.field}.resolve();',
+      ].join('\n'),
+    };
   }
 
   /// A policy and its registry entry (`make:policy`).

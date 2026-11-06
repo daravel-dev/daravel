@@ -13,9 +13,14 @@ match Laravel more closely.
 
 ### Added
 
+- Queue hooks for `daravel_horizon` (Blueprint #134, H1), all additive. `QueueWorker.reassign(queues)` moves a running worker to other queues from its next job on (an idle worker polls them at once), and `QueueWorker.queues` says which it polls. `BrowsableQueueDriver` lists waiting jobs without reserving them, `pending(queue, limit:, offset:)` in pop order and `delayed(...)` soonest first, as `QueuedJobView`s (id, uuid, name, display name, queue, tags, pushed and available times, attempts, the stored payload). `ReclaimableQueueDriver.reclaim(queue, jobId)` makes a reserved job available again at once instead of after `retry_after`, keeping its attempts, for a supervisor that knows the job's worker is gone. `MemoryQueue`, `DatabaseQueue` (through the query builder; jobs pushed by Laravel are listed too) and `daravel_redis`'s `RedisQueue` (both engines; on the stream engine the pending entry is acknowledged and the id added again, without `XCLAIM`) implement both. `JobProcessing` gains `uuid`, `displayName`, `tags`, `pushedAt` and `context`, `JobProcessed` `uuid` and `attempt`, `JobExceptionOccurred` `uuid`, `attempt` and `stackTrace`, and `JobFailed` `uuid`, `stackTrace` and `failedId` (the `failed_jobs` id): optional named parameters the worker fills, so the old constructors still work. The `jobs` and `failed_jobs` tables and the payload are unchanged.
+- `dartisan make:job SendReminder --model=User:candidate` (repeatable; `--model=User` names the field `user`): a `ModelRef<User> candidate` field saved as its id, `fromJson`/`toJson`, and `tags` of `'User:${candidate.id}'`, or `HorizonTags.model(candidate)` when the project depends on `daravel_horizon`. It uses the new `job.model` stub; without `--model` the `job` stub is unchanged. `JobModelField` is the parsed option.
+
 ### Changed
 
 **Upgrading can change what an application sees:**
+
+- New public names (H1): `QueuedJobView`, `BrowsableQueueDriver` and `ReclaimableQueueDriver` in `package:daravel`, `JobModelField` in `package:dartisan_cli`. An application declaring a class of the same name and importing the barrel gets an ambiguous-import error; hide the framework's (`import 'package:daravel/daravel.dart' hide QueuedJobView;`) or rename yours. A custom `QueueDriver` needs no change: the new interfaces are opt-in.
 
 ### Fixed
 
