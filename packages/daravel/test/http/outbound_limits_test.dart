@@ -42,6 +42,8 @@ final class RawUpstream {
       _timers.add(Timer.periodic(period, (_) => tick()));
 
   void _accept(Socket socket) {
+    // Writes after the client closed fail on `done`, not where written.
+    socket.done.ignore();
     final closed = Completer<void>();
     _closed.add(closed);
     var answered = false;
@@ -108,6 +110,9 @@ void main() {
             'content-type: text/plain\r\n\r\n',
           );
           endless.every(const Duration(milliseconds: 10), () {
+            if (endless.open == 0) {
+              return; // The client is gone: nothing more to send.
+            }
             try {
               socket.write('400\r\n${'x' * 1024}\r\n');
             } catch (_) {}
