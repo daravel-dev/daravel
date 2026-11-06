@@ -14,10 +14,28 @@ part of 'application.dart';
 ///
 /// A [RateCounterStore] (daravel_redis) also counts [Limit.slidingWindow]
 /// and [Limit.gcra], each under a key of its own.
+///
+/// Like [ProcessRateLimitStore], it fails **open** when the cache store
+/// throws (the attempt goes through uncounted, [RateLimitResult.degraded],
+/// and [onError] is told), unless [failClosed] or the limit's own
+/// [Limit.failClosed].
 final class CacheRateLimitStore implements AlgorithmRateLimitStore {
   /// [store] is resolved on first use (the cache is built after the
   /// limiter at boot).
-  CacheRateLimitStore(this._store, {this.prefix = 'rate_limiter:'});
+  CacheRateLimitStore(
+    this._store, {
+    this.prefix = 'rate_limiter:',
+    this.onError,
+    this.failClosed = false,
+  });
+
+  /// Called when the cache store fails while counting an attempt.
+  final void Function(Object error)? onError;
+
+  /// Whether every attempt the cache store cannot count is refused, for
+  /// every limit, instead of let through. [Limit.failClosed] does it for
+  /// one limit only.
+  final bool failClosed;
 
   final CacheStore Function() _store;
 
@@ -46,6 +64,37 @@ final class CacheRateLimitStore implements AlgorithmRateLimitStore {
 
   @override
   Future<RateLimitResult> attempt(
+    String key,
+    int maxAttempts,
+    Duration decay,
+  ) => _guard(maxAttempts, decay, () => _attempt(key, maxAttempts, decay));
+
+  /// Runs [count], failing open (or closed, with [failClosed]) when the
+  /// cache store throws: a database or Redis blip must not turn every
+  /// throttled route into a 500. The result is then
+  /// [RateLimitResult.degraded], so a [Limit.failClosed] limit refuses it.
+  Future<RateLimitResult> _guard(
+    int maxAttempts,
+    Duration decay,
+    Future<RateLimitResult> Function() count,
+  ) async {
+    try {
+      return await count();
+    } on Exception catch (error) {
+      onError?.call(error);
+      return failClosed
+          ? RateLimitResult.refusedUncounted(maxAttempts)
+          : RateLimitResult(
+              allowed: true,
+              limit: maxAttempts,
+              remaining: maxAttempts - 1,
+              resetAt: Clock.now().toUtc().add(decay),
+              degraded: true,
+            );
+    }
+  }
+
+  Future<RateLimitResult> _attempt(
     String key,
     int maxAttempts,
     Duration decay,
@@ -112,11 +161,22 @@ final class CacheRateLimitStore implements AlgorithmRateLimitStore {
     String key,
     int maxAttempts,
     Duration decay,
+  ) => _guard(
+    maxAttempts,
+    decay,
+    () => _attemptWith(algorithm, key, maxAttempts, decay),
+  );
+
+  Future<RateLimitResult> _attemptWith(
+    RateLimitAlgorithm algorithm,
+    String key,
+    int maxAttempts,
+    Duration decay,
   ) async {
     final store = this.store;
     if (store is! RateCounterStore ||
         algorithm == RateLimitAlgorithm.fixedWindow) {
-      return attempt(key, maxAttempts, decay);
+      return _attempt(key, maxAttempts, decay);
     }
     final hit = algorithm == RateLimitAlgorithm.gcra
         ? await store.hitGcra('$prefix$key:gcra', maxAttempts, decay)

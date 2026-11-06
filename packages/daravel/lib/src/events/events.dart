@@ -174,7 +174,14 @@ final class EventDispatcher {
     int priority = 0,
     bool once = false,
   }) {
-    _listeners.add(
+    // After every listener of the same or a higher priority: registration
+    // order holds among equals. (List.sort is not stable past 32 entries.)
+    var at = _listeners.length;
+    while (at > 0 && _listeners[at - 1].priority < priority) {
+      at--;
+    }
+    _listeners.insert(
+      at,
       _Listener(
         E,
         (event) => event is E,
@@ -183,7 +190,6 @@ final class EventDispatcher {
         once,
       ),
     );
-    _listeners.sort((a, b) => b.priority.compareTo(a.priority));
   }
 
   /// Registers a queued listener; dispatching `E` pushes a job instead of

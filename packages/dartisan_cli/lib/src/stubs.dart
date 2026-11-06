@@ -17,6 +17,7 @@ String renderStub(String template, Map<String, String> values) =>
 /// Stub name → template.
 const Map<String, String> builtInStubs = <String, String>{
   'model': _model,
+  'model.id': _modelId,
   'migration': _migration,
   'migration.create': _migrationCreate,
   'migration.update': _migrationUpdate,
@@ -80,6 +81,19 @@ final class {{ class }} extends Model {
   DateTime? get createdAt => getAttr('created_at');
   DateTime? get updatedAt => getAttr('updated_at');
   // </dartisan:accessors>
+}
+''';
+
+/// The typed id `model:sync --typed-ids` writes into the `<dartisan:ids>`
+/// region of a model file (`{{ idType }}` is `int` or `String`).
+const String _modelId = r'''
+/// The primary key of [{{ class }}]: an id of another model passed where a
+/// [{{ class }}Id] is expected does not compile. Erased to its
+/// [{{ idType }}] at runtime.
+extension type const {{ class }}Id({{ idType }} value) implements {{ idType }} {
+  /// Parses a route parameter; throws a [FormatException] when [raw] is
+  /// not a valid id.
+  static {{ class }}Id parse(String raw) => {{ class }}Id({{ idParse }});
 }
 ''';
 

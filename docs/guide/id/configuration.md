@@ -99,13 +99,15 @@ setelah boot.
 | `DB_CONNECT_TIMEOUT`, `DB_QUERY_TIMEOUT` | `10`, `30` | Detik yang boleh dipakai koneksi PostgreSQL atau MySQL untuk terbuka, dan sebuah statement untuk berjalan (`0` untuk tanpa batas; statement yang macet akan menahan koneksi pool-nya selamanya) |
 | `CACHE_STORE`, `CACHE_PREFIX` | `memory` | Penyimpanan cache (`memory`, `process`, `file`, `database`, `redis`; `array` milik Laravel sama dengan `memory`) dan prefix key |
 | `CACHE_PROCESS_MAX_ENTRIES` | `10000` | Jumlah entri yang disimpan store `process` untuk seluruh server; yang paling lama tidak dipakai dibuang lebih dulu, jadi naikkan bila store ini menampung banyak key yang harus bertahan sampai kedaluwarsa (JWT yang dicabut, counter per client), atau simpan key itu di `database` atau Redis |
-| `CACHE_PROCESS_L1_TTL` | `0` (mati) | Dengan store `process`, berapa lama setiap worker isolate memakai ulang nilai yang dibacanya (`250ms`) sebelum bertanya lagi ke coordinator |
+| `CACHE_PROCESS_L1_TTL` | `0` (mati) | Dengan store `process`, berapa lama setiap worker isolate memakai ulang nilai yang dibacanya (`250ms`) sebelum bertanya lagi ke coordinator, tidak pernah lebih lama dari TTL nilai itu sendiri |
 | `CACHE_LIMITER` | coordinator | Penyimpanan cache untuk rate limit (`cache.limiter` dari Laravel); `database` membaginya antarmesin, dengan satu statement per percobaan |
 | `QUEUE_CONNECTION` | `sync` | `sync`, `memory`, `database`, atau `redis` ([Redis](redis.md)) |
 | `QUEUE_UNIQUE_LOCK_STORE` | `database` atau `redis` sesuai queue-nya, selain itu `process` | Cache store untuk lock unique job; proses `queue:work` harus bisa menjangkaunya |
 | `QUEUE_SIGNAL_STORE` | `file` dengan queue database, selain itu lock store | Cache store untuk sinyal `queue:restart` dan `queue:pause`; `database` menjangkau worker di semua mesin |
 | `HASH_DRIVER`, `BCRYPT_ROUNDS` | `bcrypt`, `12` | Hashing password (seperti Laravel) |
+| `HASH_CONCURRENCY`, `HASH_QUEUE`, `HASH_QUEUE_TIMEOUT` | satu per prosesor, `1024`, `30s` | Hash yang berjalan bersamaan (di isolate hangat), hash yang menunggu, dan berapa lama satu hash menunggu sebelum `503` ([Hashing](auth.md#hashing)) |
 | `LOG_LEVEL`, `LOG_STACK` | `debug` | Level log dan channel (`json` untuk produksi) |
+| `HTTP_ACCESS_LOG` | `true` | Satu baris `info` per request (method, path, status, waktu); `false` bila proxy di depan sudah mencatat request. Output log console, JSON, dan file harian tidak pernah memblokir worker: lewat dari 8 MiB yang menunggu, baris dibuang dan dihitung (`log_lines_dropped_total`) |
 | `SHUTDOWN_TIMEOUT`, `HTTP_REQUEST_TIMEOUT` | `30s`, `30s` | Graceful shutdown dan timeout handler |
 | `HTTP_IDLE_TIMEOUT` | `60s` | Koneksi keep-alive yang menganggur selama ini di antara request ditutup oleh server. Di dalam request, body yang tidak dibaca aplikasi tidak ditunggu: server langsung menjawab (setelah paling lama 1 detik untuk body sampai 256 KiB, agar koneksi tetap terbuka) dan menutup koneksi jika body belum tiba |
 | `HTTP_MAX_BODY` | `52428800` (50 MiB) | Batas body yang dimiliki setiap request sejak awal (`413` di atasnya; `0` untuk tanpa batas); `BodyLimitsMiddleware` memperketatnya ke 1 MiB untuk JSON dan form |

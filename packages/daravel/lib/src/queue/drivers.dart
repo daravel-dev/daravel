@@ -75,7 +75,7 @@ final class JobPayload {
     displayName: json['displayName'] as String? ?? json['job'] as String,
     data: (json['data'] as Map<String, Object?>?) ?? const {},
     maxTries: (json['maxTries'] as num?)?.toInt() ?? 1,
-    maxExceptions: (json['maxExceptions'] as num?)?.toInt() ?? 1,
+    maxExceptions: (json['maxExceptions'] as num?)?.toInt(),
     failOnTimeout: json['failOnTimeout'] as bool? ?? false,
     backoffSeconds: _backoff(json['backoff']),
     timeout: Duration(
@@ -127,8 +127,9 @@ final class JobPayload {
   /// How many times the job may be attempted.
   final int maxTries;
 
-  /// How many exceptions the job may throw before it fails.
-  final int maxExceptions;
+  /// How many exceptions the job may throw before it fails (null: no
+  /// limit beyond [maxTries]).
+  final int? maxExceptions;
 
   /// Whether a timeout fails the job at once instead of retrying it.
   final bool failOnTimeout;
@@ -283,6 +284,22 @@ abstract interface class WakeableQueueDriver implements QueueDriver {
   Future<void> stopWaiting();
 }
 
+/// A driver that reserves a popped job for [retryAfter] (`retry_after`)
+/// and hands it to another worker once that passes, taking it for
+/// abandoned: the database and Redis queues.
+///
+/// The worker [touch]es the reservation of a running job every half
+/// [retryAfter], so a job that runs longer than [retryAfter] is not run a
+/// second time beside itself.
+abstract interface class ReservingQueueDriver implements QueueDriver {
+  /// How long a reservation lasts before the job runs again elsewhere.
+  Duration get retryAfter;
+
+  /// Extends [job]'s reservation to [retryAfter] from now; does nothing
+  /// once the job is gone or reserved again by another worker.
+  Future<void> touch(QueuedJob job);
+}
+
 /// Completes the first of [wake] and [maxWait].
 Future<void> _within(Future<void> wake, Duration maxWait) {
   final done = Completer<void>();
@@ -313,8 +330,10 @@ final class _MemoryEntry {
   bool reserved = false;
 }
 
-/// In-memory queue (scope `isolate`): tests and `--embed-queue` style
-/// single-process setups.
+/// In-memory queue (scope `isolate`): tests, and a worker in the isolate
+/// that dispatches (`QueueWorker` run beside the code that pushes). Every
+/// isolate has its own, so `serve` refuses it with several isolates or
+/// `--embed-queue`, whose worker runs in an isolate of its own.
 final class MemoryQueue implements WakeableQueueDriver {
   /// A queue in this isolate's memory; [clock] is for tests.
   MemoryQueue({DateTime Function()? clock}) : _clock = clock ?? _utcNow;
@@ -438,7 +457,7 @@ final class MemoryQueue implements WakeableQueueDriver {
 /// Laravel-compatible `jobs` table (scope `cluster`). Reservation is an
 /// optimistic `UPDATE … WHERE reserved_at IS NULL`, so several workers
 /// never process the same row twice.
-final class DatabaseQueue implements WakeableQueueDriver {
+final class DatabaseQueue implements WakeableQueueDriver, ReservingQueueDriver {
   /// A queue in the [table] (`jobs`) of [db], shared with Laravel's
   /// database queue.
   DatabaseQueue(
@@ -447,6 +466,7 @@ final class DatabaseQueue implements WakeableQueueDriver {
     this.connection,
     this.retryAfter = const Duration(seconds: 90),
     this.onForeignJob,
+    this.listenRetry = const Duration(seconds: 30),
     DateTime Function()? clock,
   }) : _clock = clock ?? _utcNow;
 
@@ -460,7 +480,12 @@ final class DatabaseQueue implements WakeableQueueDriver {
   final String? connection;
 
   /// Reserved jobs older than this are considered abandoned and re-queued.
+  @override
   final Duration retryAfter;
+
+  /// How long after a `LISTEN` that failed or dropped (PostgreSQL) the
+  /// next wait listens again.
+  final Duration listenRetry;
 
   /// Called once per foreign job (pushed by a Laravel app sharing the
   /// `jobs` table) that this worker skipped; see [isForeignPayload].
@@ -536,30 +561,26 @@ final class DatabaseQueue implements WakeableQueueDriver {
   String get _channel => 'daravel_queue_$table';
 
   StreamSubscription<String>? _notifications;
-  bool _listening = false;
   final Map<String, List<Completer<void>>> _waiting = {};
+
+  /// False once the database answered that it has no notifications.
+  bool _notifiable = true;
+
+  /// The subscription being opened, shared by concurrent waits.
+  Future<void>? _subscribing;
+
+  /// No `LISTEN` before this (wall clock): set after one failed or dropped.
+  DateTime? _listenAfter;
 
   /// Waits for a `NOTIFY` from a push on PostgreSQL, through one connection
   /// kept until [stopWaiting]; other databases sleep [maxWait], as before.
+  /// A `LISTEN` that cannot be opened (the database is down) or that drops
+  /// is tried again after [listenRetry]; meanwhile the wait is a sleep.
   @override
   Future<void> waitForWork(List<String> queues, Duration maxWait) async {
-    if (!_listening) {
-      _listening = true;
-      final stream = await db.notifications(_channel, connection: connection);
-      _notifications = stream?.listen(
-        (queue) {
-          for (final waiter
-              in _waiting.remove(queue) ?? const <Completer<void>>[]) {
-            if (!waiter.isCompleted) {
-              waiter.complete();
-            }
-          }
-        },
-        // A dropped connection: sleep and poll from now on.
-        onError: (Object _) => unawaited(_dropNotifications()),
-        onDone: () => unawaited(_dropNotifications()),
-      );
-    }
+    await (_subscribing ??= _subscribe().whenComplete(
+      () => _subscribing = null,
+    ));
     if (_notifications == null) {
       return Future<void>.delayed(maxWait);
     }
@@ -573,14 +594,53 @@ final class DatabaseQueue implements WakeableQueueDriver {
     }
   }
 
-  Future<void> _dropNotifications() async {
-    await _notifications?.cancel();
+  Future<void> _subscribe() async {
+    final after = _listenAfter;
+    if (_notifications != null ||
+        !_notifiable ||
+        (after != null && DateTime.now().isBefore(after))) {
+      return;
+    }
+    final Stream<String>? stream;
+    try {
+      stream = await db.notifications(_channel, connection: connection);
+    } on Object {
+      _listenAfter = DateTime.now().add(listenRetry);
+      return;
+    }
+    if (stream == null) {
+      _notifiable = false;
+      return;
+    }
+    _listenAfter = null;
+    _notifications = stream.listen(
+      (queue) {
+        for (final waiter
+            in _waiting.remove(queue) ?? const <Completer<void>>[]) {
+          if (!waiter.isCompleted) {
+            waiter.complete();
+          }
+        }
+      },
+      // A dropped connection: sleep and poll, and listen again later.
+      onError: (Object _) => unawaited(_dropNotifications(retry: true)),
+      onDone: () => unawaited(_dropNotifications(retry: true)),
+    );
+  }
+
+  Future<void> _dropNotifications({bool retry = false}) async {
+    if (retry) {
+      _listenAfter = DateTime.now().add(listenRetry);
+    }
+    final cancelled = _notifications?.cancel();
     _notifications = null;
+    await cancelled;
   }
 
   @override
   Future<void> stopWaiting() async {
-    _listening = false;
+    _listenAfter = null;
+    _notifiable = true;
     await _dropNotifications();
   }
 
@@ -686,6 +746,18 @@ final class DatabaseQueue implements WakeableQueueDriver {
       handler = '?';
     }
     onForeignJob?.call(queue, id, handler);
+  }
+
+  /// Moves `reserved_at` to now while the row is still this reservation:
+  /// `attempts` grows with every reservation, so a row another worker took
+  /// meanwhile is left alone.
+  @override
+  Future<void> touch(QueuedJob job) async {
+    await _query()
+        .where('id', job.id)
+        .where('attempts', job.attempts)
+        .whereNotNull('reserved_at')
+        .update(<String, Object?>{'reserved_at': _now});
   }
 
   @override
