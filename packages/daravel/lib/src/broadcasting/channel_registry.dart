@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import '../auth/contracts.dart';
+import '../json_schema/json_schema.dart';
 
 /// Decides whether [user] may join a channel matched by a pattern;
 /// [parameters] are its `{placeholders}`. Return `false` (or `null`) to
@@ -29,9 +30,24 @@ typedef ChannelAuthorizer = FutureOr<Object?> Function(
 /// a placeholder matches up to the next dot, as in Laravel.
 final class ChannelRegistry {
   final List<(RegExp, List<String>, ChannelAuthorizer)> _channels = [];
+  final List<ChannelDescription> _descriptions = [];
 
   /// Registers [authorize] for channels matching [pattern].
-  void channel(String pattern, ChannelAuthorizer authorize) {
+  ///
+  /// [type] (`private`, `presence` or `encrypted`) and [events] describe
+  /// the channel for tools, documentation and typed clients
+  /// ([describe], `dartisan route:list --channels`); they change nothing
+  /// at run time: without [type], the answer of [authorize] decides, as
+  /// before (a map for presence).
+  void channel(
+    String pattern,
+    ChannelAuthorizer authorize, {
+    String? type,
+    List<BroadcastEventSchema> events = const [],
+  }) {
+    if (type != null && !channelTypes.contains(type)) {
+      throw ArgumentError.value(type, 'type', 'one of $channelTypes');
+    }
     final names = <String>[];
     final source = pattern.splitMapJoin(
       RegExp(r'\{(.*?)\}'),
@@ -42,7 +58,21 @@ final class ChannelRegistry {
       onNonMatch: RegExp.escape,
     );
     _channels.add((RegExp('^$source\$'), names, authorize));
+    _descriptions.add(
+      ChannelDescription(
+        pattern: pattern,
+        type: type,
+        parameters: List.unmodifiable(names),
+        events: List.unmodifiable(events),
+      ),
+    );
   }
+
+  /// The channel types [channel] accepts.
+  static const List<String> channelTypes = ['private', 'presence', 'encrypted'];
+
+  /// The registered channels, in registration order.
+  List<ChannelDescription> describe() => List.unmodifiable(_descriptions);
 
   /// Removes `private-encrypted-`, `private-` or `presence-` from [channel].
   static String normalize(String channel) {
@@ -77,4 +107,72 @@ final class ChannelRegistry {
     }
     return null;
   }
+}
+
+/// An event a channel carries, for [ChannelRegistry.describe]: its name and,
+/// optionally, the shape of its data. An event class may declare one as
+/// `static final schema = BroadcastEventSchema('OrderShipped', data: ...)`;
+/// nothing requires it.
+final class BroadcastEventSchema {
+  /// The event [name] (`broadcastAs`), with [data] as a JSON Schema.
+  const BroadcastEventSchema(this.name, {this.data, this.description});
+
+  /// The event's name as clients receive it.
+  final String name;
+
+  /// The shape of its payload.
+  final SchemaType? data;
+
+  /// What it means.
+  final String? description;
+
+  /// `{name, description?, data?}` with [data] as a JSON Schema map.
+  Map<String, Object?> toJson() => {
+    'name': name,
+    'description': ?description,
+    if (data case final schema?) 'data': schema.toJson(),
+  };
+}
+
+/// One registered channel pattern ([ChannelRegistry.describe]).
+final class ChannelDescription {
+  /// The [pattern] with its [type], [parameters] and [events].
+  const ChannelDescription({
+    required this.pattern,
+    required this.type,
+    required this.parameters,
+    required this.events,
+  });
+
+  /// The pattern, without its prefix (`orders.{orderId}`).
+  final String pattern;
+
+  /// `private`, `presence` or `encrypted`; null when the authorizer's
+  /// answer decides between private and presence.
+  final String? type;
+
+  /// The pattern's `{placeholders}`, in order.
+  final List<String> parameters;
+
+  /// The events declared for it.
+  final List<BroadcastEventSchema> events;
+
+  /// The channel name a client subscribes to, with its prefix
+  /// (`private-orders.{orderId}`); `private-` or `presence-` when the type
+  /// is not declared.
+  String get channel => switch (type) {
+    'presence' => 'presence-$pattern',
+    'encrypted' => 'private-encrypted-$pattern',
+    'private' => 'private-$pattern',
+    _ => '{private,presence}-$pattern',
+  };
+
+  /// `{pattern, channel, type, parameters, events}`.
+  Map<String, Object?> toJson() => {
+    'pattern': pattern,
+    'channel': channel,
+    'type': type,
+    'parameters': parameters,
+    'events': [for (final event in events) event.toJson()],
+  };
 }

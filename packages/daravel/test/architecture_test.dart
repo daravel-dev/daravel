@@ -25,6 +25,7 @@ const Map<String, Set<String>> allowedDependencies = {
   'mail': {'foundation', 'logging', 'queue'},
   'notifications': {'foundation', 'mail', 'database', 'queue', 'broadcasting'},
   'broadcasting': {
+    'json_schema',
     'foundation',
     'auth',
     'database',
