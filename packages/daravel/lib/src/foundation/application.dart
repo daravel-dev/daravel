@@ -176,7 +176,7 @@ final class Application {
   /// The running server engine, if any.
   ServerEngine? get engine => _engine;
 
-  ({String path, bool auth})? _broadcastingOnly;
+  ({String path, bool auth, bool debug})? _broadcastingOnly;
   bool _restartRequested = false;
 
   /// Before [boot]: serves only the Pusher server of
@@ -185,8 +185,13 @@ final class Application {
   /// (`/up`, `/up/ready`) and `/metrics`: a WebSocket server of its own, as
   /// `dartisan reverb:start` runs. The application's routes, the routes of
   /// its providers, static files and `withUpstream` are not served; [router]
-  /// still holds them, for `route:list`.
-  void serveBroadcastingOnly({String path = '', bool auth = false}) {
+  /// still holds them, for `route:list`. With [debug] every frame is logged
+  /// at `info`, signatures masked ([PusherFrameLog]).
+  void serveBroadcastingOnly({
+    String path = '',
+    bool auth = false,
+    bool debug = false,
+  }) {
     if (_booting != null) {
       throw StateError('serveBroadcastingOnly() must be called before boot.');
     }
@@ -196,7 +201,7 @@ final class Application {
     if (trimmed.isNotEmpty && !trimmed.startsWith('/')) {
       throw ArgumentError.value(path, 'path', 'must start with /');
     }
-    _broadcastingOnly = (path: trimmed, auth: auth);
+    _broadcastingOnly = (path: trimmed, auth: auth, debug: debug);
   }
 
   BroadcastAppProvider? _broadcastApps;
@@ -539,6 +544,8 @@ final class Application {
                   // the coordinator for Pulse and the dashboard.
                   observer: PusherObservers([
                     _ReverbMetrics(metrics),
+                    if (_broadcastingOnly?.debug ?? false)
+                      PusherFrameLog(c.make<Logger>().info),
                     c.make<ReverbStats>(),
                   ]),
                 )

@@ -178,4 +178,33 @@ void main() {
     await served.timeout(const Duration(seconds: 10));
     expect(app.restartRequested, isTrue);
   });
+
+  test('--debug logs frames with signatures masked', () async {
+    final lines = <String>[];
+    final log = PusherFrameLog(lines.add);
+    final subscribe = jsonEncode({
+      'event': 'pusher:subscribe',
+      'data': {
+        'channel': 'presence-room',
+        'auth': 'key-a:0123456789abcdef',
+        'channel_data': '{"user_id":"1"}',
+      },
+    });
+    log.frame('42', '1.2', 'in', subscribe);
+    expect(lines.single, startsWith('[42] 1.2 <- '));
+    expect(lines.single, isNot(contains('0123456789abcdef')));
+    expect(lines.single, isNot(contains('user_id')));
+    expect(lines.single, contains('presence-room'));
+
+    // `data` as JSON text inside the frame, as servers send it.
+    final established = jsonEncode({
+      'event': 'pusher:connection_established',
+      'data': jsonEncode({'socket_id': '1.2', 'activity_timeout': 30}),
+    });
+    expect(
+      PusherFrameLog.mask(established),
+      contains(r'\"socket_id\":\"1.2\"'),
+    );
+    expect(PusherFrameLog.mask('not json'), 'not json');
+  });
 }
