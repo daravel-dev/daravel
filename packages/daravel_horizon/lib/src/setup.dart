@@ -52,6 +52,14 @@ Future<int> runHorizon(
   ApplicationFactory createApp,
 ) async {
   final config = app.config.section<HorizonConfig>();
+  if (config.enabled && HorizonConfig.embedRefused(app.config)) {
+    // Reached by `serve --embed-worker=horizon` (the flag does not go
+    // through the environment the config check reads). Waits for the
+    // stop rather than ending, which would start it again and again.
+    app.logger.error(HorizonConfig.embedSqliteMessage);
+    await control.stopping;
+    return 0;
+  }
   if (!config.enabled) {
     app.logger.info('Horizon disabled (HORIZON_ENABLED=false).');
     await control.stopping;

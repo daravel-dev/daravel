@@ -35,6 +35,7 @@ Application horizonApp() =>
           'QUEUE_CONNECTION': 'database',
           'CACHE_STORE': 'file',
           'HORIZON_HEARTBEAT_MS': '100',
+          'HORIZON_ALLOW_SQLITE': 'true',
         })
         .withLogLevel(LogLevel.error)
         .withMigrations(const [CreateJobsTable(), CreateCacheTable()])

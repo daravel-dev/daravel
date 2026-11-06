@@ -187,6 +187,7 @@ final class HorizonConfig implements ConfigSection {
     this.ewmaAlpha = 0.3,
     this.jobsPerProcess = 100,
     this.quarantineAfter = 2,
+    this.allowSqlite = false,
   });
 
   /// The settings in `HORIZON_*`, with the supervisors of [defaults], each
@@ -219,6 +220,7 @@ final class HorizonConfig implements ConfigSection {
     ewmaAlpha: double.tryParse(env.string('HORIZON_EWMA_ALPHA', '0.3')) ?? 0.3,
     jobsPerProcess: env.integer('HORIZON_JOBS_PER_PROCESS', 100),
     quarantineAfter: env.integer('HORIZON_QUARANTINE_AFTER', 2),
+    allowSqlite: env.boolean('HORIZON_ALLOW_SQLITE', false),
   );
 
   /// [defaults] with each plan of [overrides] put in place of the one of the
@@ -296,6 +298,33 @@ final class HorizonConfig implements ConfigSection {
   /// to `failed_jobs` (`HORIZON_QUARANTINE_AFTER`, 2).
   final int quarantineAfter;
 
+  /// Lets the embedded supervisor run on a SQLite file queue
+  /// (`HORIZON_ALLOW_SQLITE`, development only): a worker killed while
+  /// holding its connection keeps the database's write lock until the
+  /// process restarts, and the HTTP server shares that process.
+  final bool allowSqlite;
+
+  /// The warning given wherever Horizon runs on a SQLite file queue.
+  static const String sqliteWarning =
+      'SQLite: a killed Horizon worker holds its write lock until this '
+      'process restarts. Horizon then stops and exits with 75 for the '
+      'process manager to restart it. Use PostgreSQL, MySQL or '
+      'QUEUE_CONNECTION=redis in production.';
+
+  /// Whether a supervisor of [config] works the `database` queue on a
+  /// SQLite file (the database queue uses the default database
+  /// connection; `:memory:` is refused with several isolates anyway).
+  static bool onSqliteFile(ConfigRepository config) {
+    final horizon = config.section<HorizonConfig>();
+    final queue = config.section<QueueConfig>().defaultConnection;
+    final database = config.section<DatabaseConfig>();
+    final connection = database.connections[database.defaultConnection];
+    final sqliteFile =
+        connection?.driver == 'sqlite' && connection?.database != ':memory:';
+    return sqliteFile &&
+        horizon.plans.any((p) => (p.connection ?? queue) == 'database');
+  }
+
   /// The target wait of [queue] on [connection]: its [waits] entry, or 60 s.
   Duration waitFor(String connection, String queue) =>
       waits['$connection:$queue'] ?? const Duration(seconds: 60);
@@ -324,6 +353,7 @@ final class HorizonConfig implements ConfigSection {
     'ewma_alpha': ewmaAlpha,
     'jobs_per_process': jobsPerProcess,
     'quarantine_after': quarantineAfter,
+    'allow_sqlite': allowSqlite,
   };
 
   /// Problems `ConfigValidator` reports: bounds of each plan, plan names
@@ -410,6 +440,30 @@ final class HorizonConfig implements ConfigSection {
         ),
       );
     }
+    final embedded = env
+        .list('SERVER_EMBED_WORKERS', const <String>[])
+        .any((name) => name.trim() == 'horizon');
+    if (embedded && embedRefused(config)) {
+      issues.add(ConfigIssue(ConfigIssueLevel.error, embedSqliteMessage));
+    }
     return issues;
+  }
+
+  /// Why the embedded supervisor refuses a SQLite file queue.
+  static const String embedSqliteMessage =
+      'Horizon embedded in the server (serve --embed-worker=horizon) works '
+      'the database queue on a SQLite file: a worker killed while holding '
+      'its connection would hold the write lock of the database the HTTP '
+      'server uses until the process restarts. Use PostgreSQL or MySQL, '
+      'QUEUE_CONNECTION=redis, or serve --embed-queue (one worker, never '
+      'killed); HORIZON_ALLOW_SQLITE=1 allows it for development.';
+
+  /// Whether the embedded supervisor must refuse to start: a SQLite file
+  /// queue, workers to run, and no `HORIZON_ALLOW_SQLITE`.
+  static bool embedRefused(ConfigRepository config) {
+    final horizon = config.section<HorizonConfig>();
+    return onSqliteFile(config) &&
+        !horizon.allowSqlite &&
+        horizon.plans.fold(0, (sum, p) => sum + p.maxProcesses) > 0;
   }
 }

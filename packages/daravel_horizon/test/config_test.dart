@@ -99,4 +99,48 @@ void main() {
       isEmpty,
     );
   });
+
+  group('SQLite (ACK 157)', () {
+    ConfigRepository repo(HorizonConfig horizon, {String db = 'app.sqlite'}) =>
+        ConfigRepository()
+          ..register<HorizonConfig>(horizon)
+          ..register<QueueConfig>(
+            const QueueConfig(defaultConnection: 'database'),
+          )
+          ..register<DatabaseConfig>(
+            DatabaseConfig(
+              defaultConnection: 'sqlite',
+              connections: {
+                'sqlite': ConnectionConfig(driver: 'sqlite', database: db),
+              },
+            ),
+          );
+    final embed = Env.fromMap({'SERVER_EMBED_WORKERS': 'horizon'});
+
+    test('embedded on a SQLite file is refused unless allowed', () {
+      final refused = HorizonConfig.check(
+        embed,
+        repo(const HorizonConfig()),
+      ).toList();
+      expect(refused.single.level, ConfigIssueLevel.error);
+      expect(refused.single.message, contains('HORIZON_ALLOW_SQLITE'));
+      expect(
+        HorizonConfig.check(
+          embed,
+          repo(const HorizonConfig(allowSqlite: true)),
+        ),
+        isEmpty,
+      );
+      expect(
+        HorizonConfig.check(Env.fromMap({}), repo(const HorizonConfig())),
+        isEmpty,
+        reason: 'standalone horizon only warns when it starts',
+      );
+      expect(HorizonConfig.onSqliteFile(repo(const HorizonConfig())), isTrue);
+      expect(
+        HorizonConfig.onSqliteFile(repo(const HorizonConfig(), db: ':memory:')),
+        isFalse,
+      );
+    });
+  });
 }

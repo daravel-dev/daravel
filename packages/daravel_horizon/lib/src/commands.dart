@@ -58,6 +58,11 @@ final class HorizonCommand extends DaravelCommand {
     final queues = app.container.make<QueueManager>();
     final channel = app.container.make<CoordinatorChannel>();
     final done = Completer<void>();
+    final sqlite = HorizonConfig.onSqliteFile(app.config);
+    var code = 0;
+    if (sqlite) {
+      stderr.writeln('Warning: ${HorizonConfig.sqliteWarning}');
+    }
     final master = HorizonMaster(
       createApp,
       config,
@@ -71,6 +76,14 @@ final class HorizonCommand extends DaravelCommand {
       signals: queues.signalStore,
       name: _name(app),
       onTerminate: () {
+        if (!done.isCompleted) {
+          done.complete();
+        }
+      },
+      sqlite: sqlite,
+      onSqliteLock: () {
+        // EX_TEMPFAIL: restart this process, which frees the lock.
+        code = 75;
         if (!done.isCompleted) {
           done.complete();
         }
@@ -96,9 +109,15 @@ final class HorizonCommand extends DaravelCommand {
     for (final s in subscriptions) {
       await s.cancel();
     }
-    await master.stop();
-    stdout.writeln('Horizon stopped.');
-    return 0;
+    await master.stop(
+      timeout: code == 75 ? config.killGrace : const Duration(seconds: 30),
+    );
+    stdout.writeln(
+      code == 75
+          ? 'Horizon stopped after a kill on SQLite; exiting 75 for a restart.'
+          : 'Horizon stopped.',
+    );
+    return code;
   });
 }
 
@@ -118,6 +137,9 @@ final class HorizonStatusCommand extends DaravelCommand {
     final state = await HorizonSignals.status(_signals(app), _name(app));
     final value = state['state'];
     stdout.writeln('Horizon is $value.');
+    if (HorizonConfig.onSqliteFile(app.config)) {
+      stdout.writeln('Warning: ${HorizonConfig.sqliteWarning}');
+    }
     return value == 'inactive' ? 1 : 0;
   });
 }
@@ -170,6 +192,9 @@ final class HorizonSupervisorsCommand extends DaravelCommand {
   Future<int> run() => withApp((app) async {
     final config = app.config.section<HorizonConfig>();
     final state = await HorizonSignals.status(_signals(app), _name(app));
+    if (HorizonConfig.onSqliteFile(app.config)) {
+      stdout.writeln('Warning: ${HorizonConfig.sqliteWarning}');
+    }
     final running = (state['supervisors'] as Map<String, Object?>?) ?? {};
     for (final plan in config.plans) {
       final workers = (running[plan.name.value] as List<Object?>?) ?? const [];

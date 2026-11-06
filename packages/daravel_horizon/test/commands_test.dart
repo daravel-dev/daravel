@@ -21,8 +21,14 @@ final class Tick extends Job {
   @override
   Map<String, Object?> toJson() => {'label': label};
   @override
-  Future<void> handle(JobContext ctx) async =>
-      File(marksPath).writeAsStringSync('$label\n', mode: FileMode.append);
+  Future<void> handle(JobContext ctx) async {
+    if (label == 'hang' && ctx.attempt == 1) {
+      // Blocks the worker's event loop: no heartbeat, the lease runs out.
+      final watch = Stopwatch()..start();
+      while (watch.elapsed < const Duration(seconds: 20)) {}
+    }
+    File(marksPath).writeAsStringSync('$label\n', mode: FileMode.append);
+  }
 }
 
 Application cmdApp() =>
@@ -139,6 +145,18 @@ void main() {
         await app.run(() => Queue.manager.processor.failedJobs.all()),
         isEmpty,
       );
+    },
+  );
+
+  test(
+    'on SQLite, a killed worker makes horizon drain and exit 75 for a '
+    'restart',
+    timeout: const Timeout(Duration(minutes: 2)),
+    () async {
+      final running = dartisan(['horizon']);
+      await app.run(() => Queue.push(const Tick('hang'), queue: 'a'));
+      expect(await running.timeout(const Duration(seconds: 60)), 75);
+      expect(await dartisan(['horizon:status']), 1, reason: 'inactive now');
     },
   );
 }

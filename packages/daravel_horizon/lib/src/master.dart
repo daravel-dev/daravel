@@ -89,6 +89,8 @@ final class HorizonMaster {
     this.signals,
     this.name = 'horizon',
     this.onTerminate,
+    this.sqlite = false,
+    this.onSqliteLock,
     this.onEvent,
     Duration Function(int crashes)? crashDelay,
   }) : _crashDelay = crashDelay ?? _defaultCrashDelay;
@@ -124,6 +126,16 @@ final class HorizonMaster {
 
   /// Called after `horizon:terminate` stopped the workers.
   final void Function()? onTerminate;
+
+  /// Whether the queue is a SQLite file ([HorizonConfig.onSqliteFile]): a
+  /// killed worker leaves its write lock behind, so after a kill the master
+  /// calls [onSqliteLock] once (`dartisan horizon` drains and exits 75).
+  final bool sqlite;
+
+  /// Called once after the first kill on a SQLite file queue.
+  final void Function()? onSqliteLock;
+
+  bool _sqliteLocked = false;
 
   /// Told about kills and scaling decisions.
   final HorizonEventSink? onEvent;
@@ -549,6 +561,19 @@ final class HorizonMaster {
       'reason': reason,
       'job': job?.jobUuid,
     });
+    if (sqlite && !_sqliteLocked) {
+      _sqliteLocked = true;
+      logger.error(
+        'Horizon killed ${w.name} on a SQLite file queue: its write lock stays '
+        'held until this process restarts.',
+      );
+      onEvent?.call('SupervisorLooped', {
+        'plan': w.plan.name.value,
+        'reason': 'sqlite_lock',
+        'worker': w.name,
+      });
+      onSqliteLock?.call();
+    }
     if (reclaim) {
       w._reclaim = _reclaim(w);
     }
