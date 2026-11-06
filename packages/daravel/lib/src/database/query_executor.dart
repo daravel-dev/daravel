@@ -295,6 +295,32 @@ final class UniqueConstraintViolationException extends QueryException {
   );
 }
 
+/// No connection of the pool became free within the connect timeout
+/// (`DB_CONNECT_TIMEOUT`): every connection is held by a query or a
+/// transaction. Distinct from a slow query; raise `DB_POOL_SIZE` or keep
+/// transactions short (`DB.transaction(timeout:)`). [sql] is empty when
+/// the connection was wanted for a transaction.
+final class PoolExhaustedException extends QueryException {
+  /// The pool of [connectionName] had no free connection for [waited].
+  PoolExhaustedException(
+    String connectionName,
+    this.waited, {
+    String sql = '',
+    List<Object?> bindings = const <Object?>[],
+  }) : super(
+         connectionName,
+         sql,
+         bindings,
+         TimeoutException(
+           'No connection of the pool became free within $waited',
+           waited,
+         ),
+       );
+
+  /// How long the caller waited for a connection.
+  final Duration waited;
+}
+
 /// Wraps an executor so a failing query throws [QueryException], or
 /// [UniqueConstraintViolationException] when [errors] recognises one, as
 /// Laravel's `runQueryCallback` does.

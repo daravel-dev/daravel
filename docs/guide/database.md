@@ -66,7 +66,14 @@ SQLite works with several isolates: every isolate opens the same file in
 WAL mode and waits up to 5 seconds (`busy_timeout`) for another isolate's
 write lock. But SQLite calls are synchronous, so while a worker waits for
 that lock its whole event loop waits too, and so does every request on
-that worker. Writes are serialized across the server. `serve` logs a
+that worker. Writes are serialized across the server: `DB.transaction`
+begins with `BEGIN IMMEDIATE`, taking the write lock up front, so a
+transaction that reads and then writes is never refused because another
+isolate wrote in between, and a lock still busy after the wait throws an
+error that `attempts:` retries. Within one isolate, a query outside a
+transaction waits for that transaction to end, also at most 5 seconds
+(`busy_timeout` in the connection's options, in milliseconds, changes both
+waits). `serve` logs a
 warning when it starts several isolates on a SQLite file, and
 `dartisan doctor` notes it; see [Operations](operations.md) for sizing
 PostgreSQL connections.
@@ -376,9 +383,11 @@ slow external call can empty the pool. `DB.transaction(fn, timeout:
 Duration(seconds: 10))` gives up a body still running after that time: its
 work rolls back, the connection goes back to the pool, and the call throws
 `TransactionTimeoutException` (never retried), as does any later query of
-that body. A query already waiting inside the database (on a row lock, say)
-ends only when the database lets it go, so pair this with the database's own
-lock timeout.
+that body, including a nested `DB.transaction` (its savepoints end with the
+level that timed out, so they never write into the transaction around it or
+outside one). A query already waiting inside the database (on a row lock,
+say) ends only when the database lets it go, so pair this with the
+database's own lock timeout.
 
 ## Column names from input
 
@@ -537,7 +546,8 @@ await DB.transaction(() async {
 }, attempts: 5);
 ```
 
-Deadlocks and serialization failures run the whole callback again. Between
+Deadlocks and serialization failures (and SQLite's busy and locked
+errors) run the whole callback again. Between
 attempts it waits a random 2 to 250 ms, holding no connection, so isolates that
 collided do not collide again. A frozen test clock retries at once.
 
@@ -558,7 +568,15 @@ DB.listen((query) {
 });
 ```
 
-Without listeners, queries are neither timed nor reported.
+Without listeners, queries are neither timed nor reported. Register
+listeners once, in a service provider's `boot`: each runs for every query of
+the isolate. `DB.listen`, `DB.listenTransactions` and
+`DB.whenQueryingForLongerThan` return a function that removes the listener.
+
+When every pooled connection stays busy for `DB_CONNECT_TIMEOUT`, a query or
+transaction throws `PoolExhaustedException` (a `QueryException`) on
+PostgreSQL, MySQL and MariaDB: the pool is too small for the load, or
+transactions hold their connections too long, not a slow query.
 
 For a time budget rather than single slow queries, Laravel's
 `whenQueryingForLongerThan` adds up the queries of each request, job or
@@ -612,6 +630,21 @@ date column. Laravel 11's shortcuts compare with the current time, read from
 | `whereAfterToday` / `whereTodayOrAfter` | the date is after / at least today |
 
 Each has an `orWhere…` form, on `DB.table(...)` and on model queries.
+
+A `DateTime` bound to a query (in `where`, `insert`, `update` or raw SQL)
+is sent in UTC. On SQLite and MySQL it is written as Laravel's
+`Grammar::getDateFormat()` writes it, `Y-m-d H:i:s` without fractions of a
+second, which is also what model casts and timestamps store: SQLite compares
+dates as text, so one format keeps `where('ends_at', '>=', now)` right.
+Daravel 1.26 and earlier bound ISO 8601 on SQLite
+(`2026-11-05T17:40:36.052371Z`), which sorts after any value of the same day.
+Such values still read back as dates; to make them compare correctly,
+rewrite them once per column:
+
+```sql
+UPDATE attempts SET submitted_at = strftime('%Y-%m-%d %H:%M:%S', submitted_at)
+WHERE submitted_at LIKE '____-__-__T%';
+```
 
 ## Pagination
 

@@ -1,4 +1,4 @@
-<!-- source: database.md sha256:9bf6f97ea81a -->
+<!-- source: database.md sha256:b0ed2c5e90fc -->
 # Database
 
 `DB_CONNECTION` memilih SQLite (`sqlite`, default), PostgreSQL (`pgsql`),
@@ -73,7 +73,13 @@ yang sama dalam mode WAL dan menunggu sampai 5 detik (`busy_timeout`) untuk
 write lock dari isolate lain. Namun pemanggilan SQLite bersifat sinkron,
 sehingga selama sebuah worker menunggu lock itu, seluruh event loop-nya ikut
 menunggu, begitu pula setiap request di worker tersebut. Penulisan
-diserialkan di seluruh server. `serve` mencatat warning saat menjalankan
+diserialkan di seluruh server: `DB.transaction` dimulai dengan
+`BEGIN IMMEDIATE` dan langsung mengambil write lock, sehingga transaksi yang
+membaca lalu menulis tidak pernah ditolak karena isolate lain menulis di
+antaranya, dan lock yang masih sibuk setelah masa tunggu melempar error yang
+di-retry oleh `attempts:`. Di dalam satu isolate, query di luar transaksi
+menunggu transaksi itu selesai, juga paling lama 5 detik (`busy_timeout` di
+options koneksi, dalam milidetik, mengubah kedua masa tunggu). `serve` mencatat warning saat menjalankan
 beberapa isolate di atas file SQLite, dan `dartisan doctor` memberi
 catatan; lihat [Operasional](operations.md) untuk menghitung koneksi
 PostgreSQL.
@@ -386,8 +392,10 @@ panggilan eksternal yang lambat bisa menghabiskan pool.
 `DB.transaction(fn, timeout: Duration(seconds: 10))` menghentikan body yang
 masih berjalan setelah waktu itu: pekerjaannya di-rollback, koneksinya
 kembali ke pool, dan pemanggilannya melempar `TransactionTimeoutException`
-(tidak pernah di-retry), begitu juga query berikutnya dari body tersebut.
-Query yang sudah menunggu di dalam database (misalnya pada row lock) baru
+(tidak pernah di-retry), begitu juga query berikutnya dari body tersebut,
+termasuk `DB.transaction` bersarang (savepoint-nya berakhir bersama level
+yang timeout, sehingga tidak pernah menulis ke transaksi di sekitarnya atau
+di luar transaksi). Query yang sudah menunggu di dalam database (misalnya pada row lock) baru
 selesai saat database melepaskannya, jadi pasangkan dengan lock timeout
 dari database itu sendiri.
 
@@ -549,7 +557,8 @@ await DB.transaction(() async {
 }, attempts: 5);
 ```
 
-Deadlock dan kegagalan serialisasi menjalankan seluruh callback lagi. Di antara
+Deadlock dan kegagalan serialisasi (juga error busy dan locked di SQLite)
+menjalankan seluruh callback lagi. Di antara
 percobaan ada jeda acak 2 sampai 250 ms tanpa memegang koneksi, sehingga isolate
 yang bertabrakan tidak bertabrakan lagi. Clock test yang dibekukan langsung
 mengulang.
@@ -572,7 +581,16 @@ DB.listen((query) {
 });
 ```
 
-Tanpa listener, query tidak diukur waktunya dan tidak dilaporkan.
+Tanpa listener, query tidak diukur waktunya dan tidak dilaporkan. Daftarkan
+listener sekali saja, di `boot` sebuah service provider: setiap listener
+berjalan untuk setiap query di isolate itu. `DB.listen`,
+`DB.listenTransactions`, dan `DB.whenQueryingForLongerThan` mengembalikan
+fungsi yang menghapus listener tersebut.
+
+Saat semua koneksi di pool tetap sibuk selama `DB_CONNECT_TIMEOUT`, query
+atau transaksi melempar `PoolExhaustedException` (sebuah `QueryException`)
+di PostgreSQL, MySQL, dan MariaDB: pool terlalu kecil untuk bebannya, atau
+transaksi memegang koneksinya terlalu lama, bukan query yang lambat.
 
 Untuk anggaran waktu, bukan query lambat satu per satu,
 `whenQueryingForLongerThan` dari Laravel menjumlahkan query setiap request,
@@ -630,6 +648,21 @@ atau list:
 
 Masing-masing punya bentuk `orWhere…`, di `DB.table(...)` dan di query
 model.
+
+`DateTime` yang di-bind ke query (di `where`, `insert`, `update`, atau SQL
+mentah) dikirim dalam UTC. Di SQLite dan MySQL nilainya ditulis seperti
+`Grammar::getDateFormat()` dari Laravel menulisnya, `Y-m-d H:i:s` tanpa
+pecahan detik, sama dengan yang disimpan oleh cast model dan timestamp:
+SQLite membandingkan tanggal sebagai teks, sehingga satu format menjaga
+`where('ends_at', '>=', now)` tetap benar. Daravel 1.26 dan sebelumnya
+mem-bind ISO 8601 di SQLite (`2026-11-05T17:40:36.052371Z`), yang terurut
+setelah nilai mana pun di hari yang sama. Nilai seperti itu tetap terbaca
+sebagai tanggal; agar perbandingannya benar, tulis ulang sekali per kolom:
+
+```sql
+UPDATE attempts SET submitted_at = strftime('%Y-%m-%d %H:%M:%S', submitted_at)
+WHERE submitted_at LIKE '____-__-__T%';
+```
 
 ## Paginasi
 
