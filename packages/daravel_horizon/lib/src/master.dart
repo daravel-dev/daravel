@@ -171,6 +171,15 @@ final class HorizonMaster {
       _timers.add(
         Timer.periodic(const Duration(seconds: 1), (_) => unawaited(_poll())),
       );
+      // Its state, for `horizon:status` and `horizon:list` in any process
+      // that shares the store.
+      await _publishStatus();
+      _timers.add(
+        Timer.periodic(
+          HorizonSignals.statusEvery,
+          (_) => unawaited(_publishStatus()),
+        ),
+      );
     }
     if (config.memoryLimit > 0) {
       _timers.add(Timer.periodic(memoryCheck, (_) => _checkMemory(_rss())));
@@ -205,6 +214,34 @@ final class HorizonMaster {
       case 'terminate':
         await stop();
         onTerminate?.call();
+    }
+  }
+
+  /// The state [HorizonSignals.status] reads: running or paused, and the
+  /// workers of each supervisor.
+  Map<String, Object?> status() => <String, Object?>{
+    'state': _stopping ? 'inactive' : (_paused ? 'paused' : 'running'),
+    'at': DateTime.now().millisecondsSinceEpoch,
+    'supervisors': {
+      for (final MapEntry(key: plan, value: pool) in _pools.entries)
+        plan: [
+          for (final w in pool)
+            {
+              'name': w.name,
+              'queues': w.queues,
+              'processed': w.last?.processed ?? 0,
+              'busy': w.busy,
+              if (w.stopping) 'stopping': true,
+            },
+        ],
+    },
+  };
+
+  Future<void> _publishStatus() async {
+    try {
+      await HorizonSignals.publishStatus(signals, name, status());
+    } on Object catch (e) {
+      logger.warning('Could not publish the Horizon status: $e');
     }
   }
 
@@ -689,6 +726,7 @@ final class HorizonMaster {
     for (final t in _timers) {
       t.cancel();
     }
+    await _publishStatus();
     final all = [for (final pool in _pools.values) ...pool];
     for (final w in all) {
       w

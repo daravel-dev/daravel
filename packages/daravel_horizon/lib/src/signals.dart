@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:daravel/daravel.dart';
 
 /// Commands to a running Horizon from another process (`horizon:pause`,
@@ -37,5 +39,39 @@ abstract final class HorizonSignals {
     final bar = value.lastIndexOf('|');
     final at = bar < 0 ? null : int.tryParse(value.substring(bar + 1));
     return at == null ? null : (value.substring(0, bar), at);
+  }
+
+  /// How often a running master writes its state.
+  static const Duration statusEvery = Duration(seconds: 5);
+
+  /// The key of the state of Horizon [name].
+  static String statusKey(String name) => 'horizon:$name:status';
+
+  /// Writes [state] (from `HorizonMaster.status`) as JSON text.
+  static Future<void> publishStatus(
+    CacheRepository? store,
+    String name,
+    Map<String, Object?> state,
+  ) async {
+    await store?.store.forever(statusKey(name), jsonEncode(state));
+  }
+
+  /// The last state of Horizon [name]; its `state` is `inactive` when the
+  /// master has not written for three intervals (it is gone), or when it
+  /// never ran.
+  static Future<Map<String, Object?>> status(
+    CacheRepository? store,
+    String name,
+  ) async {
+    final raw = await store?.store.get(statusKey(name));
+    final state = raw is String
+        ? jsonDecode(raw) as Map<String, Object?>
+        : <String, Object?>{'state': 'inactive', 'supervisors': {}};
+    final at = (state['at'] as num?)?.toInt() ?? 0;
+    final age = DateTime.now().millisecondsSinceEpoch - at;
+    if (age > statusEvery.inMilliseconds * 3) {
+      state['state'] = 'inactive';
+    }
+    return state;
   }
 }

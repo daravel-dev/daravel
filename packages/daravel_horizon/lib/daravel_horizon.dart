@@ -7,6 +7,7 @@
 library;
 
 export 'src/auto_scaler.dart';
+export 'src/commands.dart';
 export 'src/config.dart';
 export 'src/master.dart';
 export 'src/messages.dart';
