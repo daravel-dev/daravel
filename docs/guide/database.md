@@ -208,7 +208,11 @@ past it fails with `StatementTimeoutException` (as the `previous` of the
 | `client` | `KILL QUERY` through a second connection, as before | For a database user that may not `SET SESSION` these variables; the driver also falls back to it, with one warning, when the server refuses |
 
 Inside a transaction only the server bounds a statement: a client timeout
-would leave the `ROLLBACK` queued behind it. Set the mode in the
+would leave the `ROLLBACK` queued behind it. So on MySQL (not MariaDB) a
+write inside a transaction is bounded by nothing in `server` mode: the
+server stops only `SELECT`, and there is no client backstop in a
+transaction, where the old `client` mode stopped it with `KILL QUERY`.
+Rely on `innodb_lock_wait_timeout` there, or use `client`. Set the mode in the
 connection options (`statement_timeout_mode`) or with
 `MySqlDriver(statementTimeoutMode:)`.
 

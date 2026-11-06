@@ -1,4 +1,4 @@
-<!-- source: database.md sha256:fe53beb2cac3 -->
+<!-- source: database.md sha256:e3048ae21715 -->
 # Database
 
 `DB_CONNECTION` memilih SQLite (`sqlite`, default), PostgreSQL (`pgsql`),
@@ -217,7 +217,12 @@ koneksi kedua ke server.
 | `client` | `KILL QUERY` lewat koneksi kedua, seperti sebelumnya | Untuk user database yang tidak boleh `SET SESSION` variabel ini; driver juga kembali ke mode ini, dengan satu peringatan, bila server menolak |
 
 Di dalam transaksi hanya server yang membatasi statement: timeout di sisi
-client akan membuat `ROLLBACK` mengantre di belakangnya. Atur mode di opsi
+client akan membuat `ROLLBACK` mengantre di belakangnya. Jadi di MySQL (bukan
+MariaDB) statement tulis di dalam transaksi tidak dibatasi apa pun dalam
+mode `server`: server hanya menghentikan `SELECT`, dan di dalam transaksi
+tidak ada backstop client, padahal mode lama `client` menghentikannya
+dengan `KILL QUERY`. Andalkan `innodb_lock_wait_timeout` di sana, atau
+pakai `client`. Atur mode di opsi
 koneksi (`statement_timeout_mode`) atau dengan
 `MySqlDriver(statementTimeoutMode:)`.
 
