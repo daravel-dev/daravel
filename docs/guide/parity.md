@@ -51,6 +51,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `$request->ip()` | `request.ip` |  |
 | `$request->url()` | `request.url` |  |
 | `$request->route('id')` | `request.param<int>('id')` |  |
+| `(none)` | `request.param<PostId>('post', parse: PostId.parse); .withIds((ids) => ids.register<PostId>('post', PostId.parse))` | Daravel-only, opt-in: typed id parsers by route parameter name (bootstrap/ids.dart); a parser that throws answers 404. |
 | `$request->expectsJson()` | `request.expectsJson` |  |
 | `$request->cookie('theme') / ->cookies->all()` | `request.cookie('theme') / request.cookies` | Decoded like $_COOKIE; EncryptCookies is not applied. |
 | `response(...)->withCookie(cookie('theme', 'dark', 60))` | `response.withCookie('theme', 'dark', maxAge: Duration(minutes: 60))` | Same Set-Cookie text as Symfony's Cookie. |
@@ -270,6 +271,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `class User extends Model` | `final class User extends Model` |  |
 | `protected $table / $fillable / $hidden / $casts` | `ModelDefinition<User>(table:, fillable:, hidden:, casts:)` |  |
 | `protected $attributes = ['status' => 'draft']` | `ModelDefinition<Exam>(attributes: {'status': 'draft'})` | Stored values, before casts; a new model starts with them. |
+| `(none)` | `dartisan model:sync --typed-ids; ModelDefinition<Post>(idType: IdType.integer(PostId.new))` | Daravel-only, opt-in: an extension type per primary key (TypedId<T> for generic code), so a wrong-typed id is caught at compile time; erased to the plain key at runtime. |
 | `$table->vector('embedding', dimensions: 1536)` | `table.vector('embedding', dimensions: 1536)` |  |
 | `$table->vectorIndex('embedding')` | `table.vectorIndex('embedding')` |  |
 | `->whereVectorSimilarTo('embedding', $vector, 0.7)` | `.whereVectorSimilarTo('embedding', vector, minSimilarity: 0.7)` |  |
@@ -400,6 +402,8 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `Queue::later($delay, $job)` | `await Queue.later(delay, job)` | **async** |
 | `public function tags() (Horizon)` | `List<String> get tags` |  |
 | `php artisan queue:pause database:default / queue:continue` | `dartisan queue:pause database:default / queue:continue` |  |
+| `public $maxExceptions = 3;` | `int? get maxExceptions => 3;` |  |
+| `php artisan queue:work --memory=128` | `dartisan queue:work --memory=128` |  |
 | `class SendEmail implements ShouldQueue` | `final class SendEmail extends Job` |  |
 | `event(new OrderShipped($order))` | `await Event.dispatch(OrderShipped(order))` | **async** |
 | `Event::listen(OrderShipped::class, fn)` | `Event.listen<OrderShipped>((e) async {...})` |  |
@@ -409,6 +413,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `->withoutOverlapping() / onOneServer()` | `.withoutOverlapping() / .onOneServer()` |  |
 | `->timezone('America/New_York')` | `.timezone('America/New_York')` |  |
 | `config('app.schedule_timezone')` | `SCHEDULE_TIMEZONE` | No fallback to APP_TIMEZONE in 1.x (doctor warns). |
+| `php artisan schedule:clear-cache` | `dartisan schedule:clear-cache` |  |
 
 ## Resources, storage, logging, config
 

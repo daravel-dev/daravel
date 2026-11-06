@@ -305,7 +305,10 @@ final class Container {
   /// facades and [Container.current] resolve them from anywhere inside
   /// [body], including across `await` boundaries. The scope is disposed when
   /// [body] completes. Uncaught asynchronous errors (fire-and-forget futures)
-  /// are routed to [onUncaughtError] instead of terminating the isolate.
+  /// never terminate the isolate. With [onUncaughtError] every one of them
+  /// goes there and the call completes with what [body] gives, once it has
+  /// finished. Without it, one raised while [body] still runs fails the call
+  /// at once (the body keeps running); later ones are printed.
   Future<R> runScoped<R>(
     String scopeName,
     FutureOr<R> Function(Scope scope) body, {
@@ -353,7 +356,10 @@ final class Container {
           }
         },
         (error, stackTrace) {
-          if (!completer.isCompleted) {
+          // With a handler, a stray error is only reported: failing the
+          // caller here released it while the body kept running (a job
+          // retried beside itself, a worker isolate torn down mid-job).
+          if (onUncaughtError == null && !completer.isCompleted) {
             completer.completeError(error, stackTrace);
           } else {
             reportUncaught(error, stackTrace);

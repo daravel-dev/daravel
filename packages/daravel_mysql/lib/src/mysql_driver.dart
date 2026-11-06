@@ -313,21 +313,66 @@ final class MySqlDriver
     return pool;
   }
 
+  /// Runs [body] on a pooled connection, waiting at most [connectTimeout]
+  /// for one: `mysql_dart`'s pool queues callers without a bound, so a pool
+  /// held by long transactions would make every request wait for ever. A
+  /// caller that gives up gets a [PoolExhaustedException]; the connection
+  /// the pool hands it later goes straight back.
   Future<T> _withConnection<T>(
-    Future<T> Function(my.MySQLConnection connection) body,
-  ) async {
+    Future<T> Function(my.MySQLConnection connection) body, {
+    String sql = '',
+    List<Object?> bindings = const [],
+  }) async {
     final pool = _session;
     _inFlight++;
     try {
       final probe = PoolWaitProbe.current;
-      if (probe == null) {
-        return await pool.withConnection<T>(body);
-      }
       final watch = Stopwatch()..start();
-      return await pool.withConnection<T>((connection) {
-        probe.waited = watch.elapsed;
-        return body(connection);
+      var acquired = false;
+      var abandoned = false;
+      final result = Completer<T>();
+      final timer = Timer(connectTimeout, () {
+        if (acquired || result.isCompleted) {
+          return;
+        }
+        abandoned = true;
+        result.completeError(
+          PoolExhaustedException(
+            name,
+            watch.elapsed,
+            sql: sql,
+            bindings: bindings,
+          ),
+          StackTrace.current,
+        );
       });
+      final work = Future<Object?>.sync(
+        () => pool.withConnection<Object?>((connection) {
+          if (abandoned) {
+            return null;
+          }
+          acquired = true;
+          probe?.waited = watch.elapsed;
+          return body(connection);
+        }),
+      );
+      unawaited(
+        work.then(
+          (value) {
+            timer.cancel();
+            if (!result.isCompleted) {
+              result.complete(value as T);
+            }
+          },
+          onError: (Object error, StackTrace stack) {
+            timer.cancel();
+            if (!result.isCompleted) {
+              result.completeError(error, stack);
+            }
+          },
+        ),
+      );
+      return await result.future;
     } finally {
       _inFlight--;
     }
@@ -339,12 +384,16 @@ final class MySqlDriver
     List<Object?> bindings = const [],
   ]) => _withConnection(
     (c) => _MySqlExecutor(c, queryTimeout, dialect).select(sql, bindings),
+    sql: sql,
+    bindings: bindings,
   );
 
   @override
   Future<int> execute(String sql, [List<Object?> bindings = const []]) =>
       _withConnection(
         (c) => _MySqlExecutor(c, queryTimeout, dialect).execute(sql, bindings),
+        sql: sql,
+        bindings: bindings,
       );
 
   @override
@@ -353,6 +402,8 @@ final class MySqlDriver
     List<Object?> bindings = const [],
   ]) => _withConnection(
     (c) => _MySqlExecutor(c, queryTimeout, dialect).insertGetId(sql, bindings),
+    sql: sql,
+    bindings: bindings,
   );
 
   @override

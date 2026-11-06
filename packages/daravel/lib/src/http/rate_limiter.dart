@@ -437,7 +437,7 @@ final class MemoryRateLimitStore implements RateLimitStore {
 /// the map of [toArgs] is copied entry by entry. [op] is an operation of
 /// [RateLimitService.handle]; the fields an operation does not read are 0.
 @pragma('vm:deeply-immutable')
-final class RateLimitMessage implements CoordinatorMessage {
+final class RateLimitMessage implements ExpiringCoordinatorMessage {
   /// A call of [op] for [key].
   const RateLimitMessage(
     this.op,
@@ -470,6 +470,15 @@ final class RateLimitMessage implements CoordinatorMessage {
 
   /// Epoch milliseconds when the window of a `release` ends.
   final int resetAt;
+
+  /// Counting and reading calls expire with the worker's wait: an attempt
+  /// or a lease the worker already let through uncounted (or refused) is
+  /// not counted later. A `release`, `clear` or `flush` never expires.
+  @override
+  bool get expiresWithCall => switch (op) {
+    'attempt' || 'acquire' || 'attempts' || 'availableIn' => true,
+    _ => false,
+  };
 
   /// The same call as the arguments of [RateLimitService.handle], for a
   /// channel that is not a [TypedCoordinatorChannel].
@@ -586,6 +595,13 @@ final class _Lease {
 /// [leaseThreshold] attempts (login limits) always go to the coordinator. A
 /// worker that saw a key blocked answers `429` locally for up to
 /// [blockedCacheTtl] instead of asking again.
+///
+/// Concurrent attempts on one key share a single lease request: while one
+/// is in flight the others wait for it and spend its hits, and the next
+/// request asks for as many hits as there are waiters (up to [maxLease]).
+/// A timer retires expired leases every [leaseTtl], so a worker that goes
+/// quiet gives its unused hits back. A lease whose answer arrives after
+/// [timeout] is given back as soon as it arrives.
 final class ProcessRateLimitStore implements RateLimitStore {
   /// Counters held by the coordinator through [channel], waiting at most
   /// [timeout] for an answer.
@@ -643,6 +659,20 @@ final class ProcessRateLimitStore implements RateLimitStore {
       <String, (int, RateLimitResult)>{};
   final Stopwatch _monotonic = Stopwatch()..start();
 
+  /// The lease request in flight per key (single flight).
+  final Map<String, Future<void>> _acquiring = <String, Future<void>>{};
+
+  /// Attempts waiting for the lease request of their key.
+  final Map<String, int> _waiting = <String, int>{};
+
+  /// Retires expired leases and blocks every [leaseTtl] while there are
+  /// any.
+  Timer? _reaper;
+
+  /// How long a lease request may still be answered after [timeout], so
+  /// that a late grant is given back instead of lost.
+  static const Duration lateGrantTimeout = Duration(seconds: 5);
+
   /// Keys with state on this worker.
   int get trackedKeys =>
       {..._leases.keys, ..._batch.keys, ..._blocked.keys}.length;
@@ -676,9 +706,9 @@ final class ProcessRateLimitStore implements RateLimitStore {
 
   /// Sends [message] typed, or as a map to a channel that is only a
   /// [CoordinatorChannel].
-  Future<Object?> _call(RateLimitMessage message) {
+  Future<Object?> _call(RateLimitMessage message, {Duration? wait}) {
     final target = channel;
-    final wait = target.isRemote ? timeout : const Duration(seconds: 5);
+    wait ??= target.isRemote ? timeout : const Duration(seconds: 5);
     return target is TypedCoordinatorChannel
         ? target.callTyped(RateLimitService.serviceName, message, timeout: wait)
         : target.call(
@@ -726,57 +756,103 @@ final class ProcessRateLimitStore implements RateLimitStore {
     int maxAttempts,
     Duration decay,
   ) async {
-    final now = _monotonic.elapsedMicroseconds;
-    _sweep(now);
-    final blocked = _blocked[key];
-    if (blocked != null) {
-      if (now < blocked.$1) {
-        return blocked.$2;
+    while (true) {
+      final now = _monotonic.elapsedMicroseconds;
+      _sweep(now);
+      final blocked = _blocked[key];
+      if (blocked != null) {
+        if (now < blocked.$1) {
+          return blocked.$2;
+        }
+        _blocked.remove(key);
       }
-      _blocked.remove(key);
-    }
-    var lease = _leases[key];
-    if (lease != null &&
-        (now >= lease.expiresAt || lease.limit != maxAttempts)) {
-      _retire(key, lease, usedUp: false);
-      lease = null;
-    }
-    if (lease == null || lease.tokens == 0) {
+      final lease = _leases[key];
       if (lease != null) {
-        _retire(key, lease, usedUp: true);
+        if (now >= lease.expiresAt || lease.limit != maxAttempts) {
+          _retire(key, lease, usedUp: false);
+        } else if (lease.tokens > 0) {
+          lease.tokens--;
+          return RateLimitResult(
+            allowed: true,
+            limit: maxAttempts,
+            remaining: maxAttempts - lease.hits + lease.tokens,
+            resetAt: DateTime.fromMillisecondsSinceEpoch(
+              lease.resetAtMs,
+              isUtc: true,
+            ),
+          );
+        } else {
+          _retire(key, lease, usedUp: true);
+        }
       }
-      lease = await _acquire(key, maxAttempts, decay, now);
-      if (lease == null) {
-        return _blocked[key]!.$2;
+      // Single flight: concurrent misses wait for the request in flight
+      // and spend its lease, instead of each leasing (and overwriting) its
+      // own batch.
+      final inFlight = _acquiring[key];
+      if (inFlight != null) {
+        _waiting[key] = (_waiting[key] ?? 0) + 1;
+        try {
+          await inFlight;
+        } finally {
+          final left = (_waiting[key] ?? 1) - 1;
+          if (left > 0) {
+            _waiting[key] = left;
+          } else {
+            _waiting.remove(key);
+          }
+        }
+        continue;
+      }
+      final acquiring = _acquire(key, maxAttempts, decay, now);
+      _acquiring[key] = acquiring;
+      try {
+        await acquiring;
+      } finally {
+        if (identical(_acquiring[key], acquiring)) {
+          _acquiring.remove(key)?.ignore(); // Completed: awaited above.
+        }
       }
     }
-    lease.tokens--;
-    return RateLimitResult(
-      allowed: true,
-      limit: maxAttempts,
-      remaining: maxAttempts - lease.hits + lease.tokens,
-      resetAt: DateTime.fromMillisecondsSinceEpoch(
-        lease.resetAtMs,
-        isUtc: true,
-      ),
-    );
   }
 
-  Future<_Lease?> _acquire(
+  /// Leases hits of [key] from the coordinator: as many as the batch size
+  /// or the attempts waiting for them, whichever is larger, up to
+  /// [maxLease]. Stores the lease, or the block when none is left.
+  Future<void> _acquire(
     String key,
     int maxAttempts,
     Duration decay,
     int now,
   ) async {
-    final grant = await _call(
+    final batch = _batch[key] ?? 1;
+    final demand = 1 + (_waiting[key] ?? 0);
+    final wanted = demand > batch ? demand : batch;
+    final pending = _call(
       RateLimitMessage(
         'acquire',
         key,
         max: maxAttempts,
         decayMs: decay.inMilliseconds,
-        want: _batch[key] ?? 1,
+        want: wanted > maxLease ? maxLease : wanted,
       ),
-    ) as RateLimitGrant;
+      wait: lateGrantTimeout,
+    );
+    final RateLimitGrant grant;
+    try {
+      grant = await pending.timeout(timeout) as RateLimitGrant;
+    } on TimeoutException {
+      // The request goes through uncounted (or refused, failing closed);
+      // the coordinator may still grant the lease, and its hits then go
+      // back as soon as the late answer arrives instead of being lost.
+      unawaited(
+        pending.then<void>((Object? late) {
+          if (late is RateLimitGrant && late.granted > 0) {
+            _release(key, late.granted, late.resetAtMs);
+          }
+        }, onError: (Object _) {}),
+      );
+      throw CoordinatorTimeoutException(RateLimitService.serviceName, timeout);
+    }
     if (grant.granted == 0) {
       final wallNow = Clock.now().toUtc().millisecondsSinceEpoch;
       final retryMs = grant.resetAtMs - wallNow;
@@ -794,41 +870,69 @@ final class ProcessRateLimitStore implements RateLimitStore {
       final untilReset = retryMs * 1000;
       _blocked[key] = (now + (untilReset < ttl ? untilReset : ttl), result);
       _batch.remove(key);
-      return null;
+      _startReaper();
+      return;
     }
-    return _leases[key] = _Lease(
+    final replaced = _leases[key];
+    if (replaced != null) {
+      // Not expected with one request in flight per key, but a lease with
+      // hits left must never be dropped without giving them back.
+      _retire(key, replaced, usedUp: false);
+    }
+    _leases[key] = _Lease(
       grant.granted,
       maxAttempts,
       grant.hits,
       grant.resetAtMs,
-      now + leaseTtl.inMicroseconds,
+      _monotonic.elapsedMicroseconds + leaseTtl.inMicroseconds,
     );
+    _startReaper();
+  }
+
+  /// Starts the timer that retires expired leases and blocks.
+  void _startReaper() =>
+      _reaper ??= Timer.periodic(leaseTtl, (_) => retireExpired());
+
+  /// Gives back the unused hits of every expired lease and forgets expired
+  /// blocks. A timer calls it every [leaseTtl] while this worker holds
+  /// either, so a worker that goes quiet does not keep part of a window.
+  void retireExpired() {
+    final now = _monotonic.elapsedMicroseconds;
+    for (final entry in _leases.entries.toList()) {
+      if (now >= entry.value.expiresAt) {
+        _retire(entry.key, entry.value, usedUp: false);
+      }
+    }
+    _blocked.removeWhere((_, blocked) => now >= blocked.$1);
+    if (_leases.isEmpty && _blocked.isEmpty) {
+      _reaper?.cancel();
+      _reaper = null;
+    }
   }
 
   /// Retires [lease]: returns unused hits and adapts the next batch size
   /// (doubles when the lease was used up in time, back to 1 otherwise).
   void _retire(String key, _Lease lease, {required bool usedUp}) {
-    _leases.remove(key);
+    if (identical(_leases[key], lease)) {
+      _leases.remove(key);
+    }
     final current = _batch.remove(key) ?? 1;
     if (usedUp) {
       // Re-inserted: the most recently used key is last (see _sweep).
       _batch[key] = current * 2 > maxLease ? maxLease : current * 2;
       return;
     }
-    _batch.remove(key);
     if (lease.tokens > 0) {
-      unawaited(
-        _call(
-          RateLimitMessage(
-            'release',
-            key,
-            count: lease.tokens,
-            resetAt: lease.resetAtMs,
-          ),
-        ).then<void>((_) {}, onError: (Object error) => onError?.call(error)),
-      );
+      _release(key, lease.tokens, lease.resetAtMs);
+      lease.tokens = 0;
     }
   }
+
+  /// Gives [count] leased hits of the window ending at [resetAtMs] back.
+  void _release(String key, int count, int resetAtMs) => unawaited(
+    _call(RateLimitMessage('release', key, count: count, resetAt: resetAtMs))
+        .then<void>((_) {}, onError: (Object error) => onError?.call(error)),
+  );
 
   @override
   Future<int> attempts(String key, Duration decay) async => await _call(
@@ -1087,12 +1191,20 @@ final class ThrottleMiddleware implements RunsBeforeBindings {
     return headers.isEmpty ? response : response.withHeaders(headers);
   }
 
+  /// The key of a limit without its own: the user's id when
+  /// [userKeyResolver] finds one, else the matched route's domain and the
+  /// client address, as Laravel's `ThrottleRequests::resolveRequestSignature`
+  /// (`$route->getDomain().'|'.$request->ip()`, unhashed here). Never the
+  /// request's `Host` header, which the client chooses: one client sending
+  /// a different `Host` per request would get a bucket per value. Every
+  /// route under one `throttle:` limit and domain shares the client's
+  /// bucket, as in Laravel; give a route its own with a named limiter.
   Future<String> _signature(Request request) async {
     final user = await userKeyResolver?.call(request);
     if (user != null) {
       return 'user:$user';
     }
-    return '${request.method}|${request.host}|${request.path}|${request.ip}';
+    return '${request.route?.domainPattern?.source ?? ''}|${request.ip}';
   }
 
   static final RateLimiter _defaultLimiter = RateLimiter();

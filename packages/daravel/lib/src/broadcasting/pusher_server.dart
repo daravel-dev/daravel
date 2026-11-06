@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:isolate';
 import 'dart:math';
 
+import '../foundation/clock.dart';
 import '../http/request.dart';
 import '../http/response.dart';
 import '../server/broadcast.dart';
@@ -29,7 +30,12 @@ final class PusherServer {
     CoordinatorChannel coordinator, {
     ChannelState? state,
     this.relay,
+    this.onError,
   }) : _state = state ?? _CoordinatorChannelState(coordinator);
+
+  /// Told about failures no client can be told about: a channel left on
+  /// close whose `leave` failed twice, a relay that would not start.
+  final void Function(String message, Object error)? onError;
 
   /// The broadcasting settings.
   final BroadcastConfig config;
@@ -45,6 +51,10 @@ final class PusherServer {
   /// Stops relaying (application shutdown).
   Future<void> close() async => relay?.close();
 
+  /// The close code of a client too slow to read what it is sent (Pusher's
+  /// 4100, "over capacity": reconnect after a backoff).
+  static const int slowClientCode = 4100;
+
   static final Random _random = Random.secure();
 
   /// Publishes [event] with [data] (a string, sent as it is, or anything
@@ -56,13 +66,16 @@ final class PusherServer {
     String? exceptSocket,
   }) async {
     final text = data is String ? data : jsonEncode(data);
-    for (final channel in channels) {
-      await _send(channel, {
-        'event': event,
-        'channel': channel,
-        'data': text,
-      }, exceptSocket);
-    }
+    // Channels at once: each is its own round trip, and only the order
+    // within a channel matters.
+    await Future.wait([
+      for (final channel in channels)
+        _send(channel, {
+          'event': event,
+          'channel': channel,
+          'data': text,
+        }, exceptSocket),
+    ]);
   }
 
   /// One frame, encoded once, to every connection on [channel] but
@@ -82,6 +95,13 @@ final class PusherServer {
     await _broadcaster.publish(channel, envelope);
     await relay?.send(channel, envelope);
   }
+
+  /// Pusher's channel name rule: at most 164 characters of `A-Z a-z 0-9`
+  /// and `_ - = @ , . ;` (prefixes included).
+  static bool isValidChannelName(String channel) =>
+      channel.length <= 164 && _channelName.hasMatch(channel);
+
+  static final RegExp _channelName = RegExp(r'^[A-Za-z0-9_=@,.;-]+$');
 
   /// `cache-…`, `private-cache-…` and `presence-cache-…` channels.
   static bool isCacheChannel(String channel) =>
@@ -109,7 +129,19 @@ final class PusherServer {
     }
     final relay = this.relay;
     if (relay != null) {
-      await (_relaying ??= relay.start(_broadcaster.deliverLocally));
+      final relaying = _relaying ??= relay.start(_broadcaster.deliverLocally);
+      try {
+        await relaying;
+      } on Object catch (error) {
+        // Not kept: the next client starts it again (Redis was down).
+        if (identical(_relaying, relaying)) {
+          _relaying = null;
+        }
+        onError?.call('Broadcast relay did not start', error);
+        socket.add(_error(4100, 'Over capacity'));
+        await socket.close(4100, 'Over capacity');
+        return;
+      }
     }
     final connection = _Connection(
       this,
@@ -128,7 +160,20 @@ final class PusherServer {
     );
     try {
       await for (final message in socket) {
-        await connection.receive(message);
+        try {
+          await connection.receive(message);
+        } on Object catch (error) {
+          // The coordinator (or the scaling store) failed: the client
+          // reconnects, rather than staying with a read loop that is gone.
+          // 4100 (back off) when it is overloaded, 4200 otherwise.
+          final code = error is CoordinatorException ? 4100 : 4200;
+          final reason = code == 4100
+              ? 'Over capacity'
+              : 'Generic reconnect immediately';
+          connection._error(code, reason);
+          await socket.close(code, reason);
+          break;
+        }
       }
     } on Object {
       // The connection dropped.
@@ -372,8 +417,14 @@ final class _Connection {
   }
 
   void send(String text) {
-    if (_socket.closeCode == null) {
+    if (_socket.closeCode != null) {
+      return;
+    }
+    try {
       _socket.add(text);
+    } on StateError {
+      // Closed by this side and not done yet (dart:io keeps closeCode null
+      // until the peer answers): nothing more goes out.
     }
   }
 
@@ -381,8 +432,10 @@ final class _Connection {
       send(PusherServer._error(code, message));
 
   Future<void> receive(Object? message) async {
+    final max = _server.config.maxMessageSize;
     if (message is! String ||
-        utf8.encode(message).length > _server.config.maxMessageSize) {
+        // A character is at most 3 bytes: measure only when it could matter.
+        (message.length * 3 > max && utf8.encode(message).length > max)) {
       return _error(4200, 'Invalid message format');
     }
     final Map<String, Object?> payload;
@@ -412,6 +465,20 @@ final class _Connection {
         if (channel is! String || channel.isEmpty) {
           return _error(4200, 'Invalid message format');
         }
+        final config = _server.config;
+        if (config.validateChannelNames &&
+            !PusherServer.isValidChannelName(channel)) {
+          return _error(4300, 'Invalid channel name');
+        }
+        final most = config.maxChannelsPerConnection;
+        if (most > 0 &&
+            _subscriptions.length >= most &&
+            !_subscriptions.containsKey(channel)) {
+          return _error(
+            4300,
+            'Too many channels on this connection (at most $most)',
+          );
+        }
         await _subscribe(
           channel,
           data['auth'] as String?,
@@ -425,8 +492,32 @@ final class _Connection {
       case _ when event.startsWith('pusher:'):
         _error(4200, 'Invalid message format');
       case _ when event.startsWith('client-'):
+        if (!_allowClientEvent()) {
+          // Dropped, the connection kept, as Pusher does.
+          return _error(4301, 'Rate limit exceeded');
+        }
         await _whisper(event, payload);
     }
+  }
+
+  /// Client events counted in the current second, and when it started.
+  int _clientEvents = 0;
+  DateTime? _clientEventsSince;
+
+  /// Whether one more client event fits in this second
+  /// ([BroadcastConfig.clientEventsPerSecond]).
+  bool _allowClientEvent() {
+    final limit = _server.config.clientEventsPerSecond;
+    if (limit <= 0) {
+      return true;
+    }
+    final now = Clock.now();
+    final since = _clientEventsSince;
+    if (since == null || now.difference(since) >= const Duration(seconds: 1)) {
+      _clientEventsSince = now;
+      _clientEvents = 0;
+    }
+    return ++_clientEvents <= limit;
   }
 
   static Map<String, Object?> _decodeMap(String text) {
@@ -549,6 +640,12 @@ final class _Connection {
       return;
     }
     await subscription.cancel();
+    await _leave(channel);
+  }
+
+  /// Leaves [channel] in the shared state, then tells the others when the
+  /// user's last connection left.
+  Future<void> _leave(String channel) async {
     final left =
         (await _server._call('leave', {'channel': channel, 'socket': id}))!
             as Map;
@@ -587,9 +684,23 @@ final class _Connection {
     }, id);
   }
 
+  /// Leaves every channel, each on its own: a `leave` that fails (the
+  /// coordinator timed out) is tried once more and then reported, and
+  /// never keeps the other channels subscribed.
   Future<void> close() async {
     for (final channel in [..._subscriptions.keys]) {
-      await _unsubscribe(channel);
+      try {
+        await _unsubscribe(channel);
+      } on Object {
+        try {
+          await _leave(channel);
+        } on Object catch (error) {
+          _server.onError?.call(
+            'Connection $id could not leave $channel',
+            error,
+          );
+        }
+      }
     }
   }
 }

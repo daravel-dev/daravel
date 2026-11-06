@@ -1,4 +1,4 @@
-<!-- source: responses.md sha256:1f3ed232da4f -->
+<!-- source: responses.md sha256:20ad021b724b -->
 # Respons dan resource
 
 Handler bisa mengembalikan `Response.json(data, status: 201)`,
@@ -407,6 +407,13 @@ yang ditulis untuk salah satu backend bekerja dengan keduanya. Selain itu:
   timeout, dan `EventSource` tersambung ulang ke instance lain. Baca
   `request.header('last-event-id')` untuk melanjutkan dari `id` terakhir yang
   diterimanya.
+- Client yang berhenti membaca (tab yang di-pause, ponsel di jaringan buruk)
+  tidak diantrekan tanpa batas: sumber dibaca secepat ia menghasilkan, dan
+  begitu lebih dari `maxBufferedBytes` (1 MiB) menunggu client, stream
+  diakhiri dengan `retry: 1000` alih-alih event penutupnya dan sumber
+  dibatalkan, sehingga `EventSource` tersambung ulang sedetik kemudian. Beri
+  `maxBufferedBytes: null` untuk mem-pause sumber selama client tertinggal,
+  untuk generator yang menghormati pause.
 
 `router.ws` meng-upgrade koneksi menjadi WebSocket setelah middleware route
 lolos. `auth`, `throttle`, dan parameter route bekerja seperti di route mana
@@ -428,6 +435,14 @@ WebSocket mentah; Laravel Echo terhubung melalui
 mendapatkannya; `r.ws(path, handler, compress: false)` mematikannya, yang
 menghemat CPU dan memori per koneksi saat satu pesan dikirim ke banyak
 socket.
+
+Apa yang menunggu dikirim di WebSocket dihitung. Client yang membaca lebih
+lambat daripada server menulis membuat `dart:io` mengantrekan setiap frame
+di memori; begitu lebih dari `maxBufferedBytes` (4 MiB) menunggu, antrean
+dibuang dan socket ditutup dengan `1008` (`slowClientCode:`), lalu client
+tersambung ulang. Frame yang ditambahkan setelah socket mulai ditutup
+dibuang alih-alih melempar error. `realtime_slow_clients_total`
+(`transport`: `websocket`, `sse`) menghitung client ini di `/metrics`.
 
 Keduanya butuh koneksi sungguhan. `TestClient` mengumpulkan respons secara
 utuh, jadi uji `Response.sse` yang berhingga dengannya, dan uji WebSocket

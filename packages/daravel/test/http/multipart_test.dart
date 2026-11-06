@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:daravel/daravel.dart';
+import 'package:daravel/src/http/multipart.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -154,6 +156,125 @@ void main() {
         ),
       );
       expect(response.status, 400);
+    });
+  });
+
+  group('a body that ends or fails inside a part (#145)', () {
+    late Directory temp;
+
+    setUp(() => temp = Directory.systemTemp.createTempSync('daravel_mp_cut'));
+    tearDown(() => temp.deleteSync(recursive: true));
+
+    const boundary = 'cut';
+    final fileHead = utf8.encode(
+      '--$boundary\r\nContent-Disposition: form-data; name="title"\r\n\r\n'
+      'Report\r\n--$boundary\r\nContent-Disposition: form-data; '
+      'name="doc"; filename="a.bin"\r\nContent-Type: application/pdf'
+      '\r\n\r\n',
+    );
+    final fieldHead = utf8.encode(
+      '--$boundary\r\nContent-Disposition: form-data; name="note"\r\n\r\n',
+    );
+
+    /// Sends [chunks] and then ends the body with [end]: an error, or
+    /// `null` for a plain end without the closing boundary.
+    Future<MultipartBody> parse(List<List<int>> chunks, Object? end) {
+      final body = StreamController<List<int>>();
+      unawaited(() async {
+        for (final chunk in chunks) {
+          body.add(chunk);
+          await Future<void>.delayed(Duration.zero);
+        }
+        if (end != null) {
+          body.addError(end);
+        }
+        await body.close();
+      }());
+      return parseMultipart(body.stream, boundary, tempDirectory: temp)
+      // A hang fails here instead of at the test timeout.
+      .timeout(const Duration(seconds: 10));
+    }
+
+    final file = List<int>.filled(64 * 1024, 7);
+
+    test('a connection error inside a file answers 400', () async {
+      await expectLater(
+        parse([fileHead, file], const SocketException('reset')),
+        throwsA(
+          isA<BadRequestHttpException>().having(
+            (e) => e.message,
+            'message',
+            'Unexpected end of multipart body.',
+          ),
+        ),
+      );
+      expect(temp.listSync(), isEmpty, reason: 'the partial file is gone');
+    });
+
+    test('an end inside a file answers 400', () async {
+      await expectLater(
+        parse([fileHead, file], null),
+        throwsA(isA<BadRequestHttpException>()),
+      );
+      expect(temp.listSync(), isEmpty);
+    });
+
+    test('an end inside a field answers 400', () async {
+      await expectLater(
+        parse([fieldHead, utf8.encode('half a val')], null),
+        throwsA(isA<BadRequestHttpException>()),
+      );
+      expect(temp.listSync(), isEmpty);
+    });
+
+    test('the body limit inside a file stays a 413', () async {
+      await expectLater(
+        parse([fileHead, file], const PayloadTooLargeHttpException()),
+        throwsA(isA<PayloadTooLargeHttpException>()),
+      );
+      expect(temp.listSync(), isEmpty);
+    });
+
+    test('files written before the cut are deleted too', () async {
+      await expectLater(
+        parse([
+          fileHead,
+          file,
+          utf8.encode('\r\n'),
+          utf8.encode(
+            '--$boundary\r\nContent-Disposition: form-data; name="b"; '
+            'filename="b.bin"\r\n\r\n',
+          ),
+          file,
+        ], null),
+        throwsA(isA<BadRequestHttpException>()),
+      );
+      expect(temp.listSync(), isEmpty);
+    });
+
+    test('a complete body in any chunking still parses', () async {
+      final content = List<int>.filled(3000, 7);
+      final whole = <int>[
+        ...fileHead,
+        ...content,
+        ...utf8.encode('\r\n--$boundary--\r\n'),
+      ];
+      for (final size in [1, 7, 1000, whole.length]) {
+        // Synchronous chunks: the parts and their ends arrive back to back.
+        final result = await parseMultipart(
+          Stream.fromIterable([
+            for (var i = 0; i < whole.length; i += size)
+              whole.sublist(i, (i + size).clamp(0, whole.length)),
+          ]),
+          boundary,
+          tempDirectory: temp,
+        ).timeout(const Duration(seconds: 10));
+        expect(result.fields['title'], 'Report');
+        expect(result.files.single.size, content.length);
+        for (final upload in result.files) {
+          await upload.delete();
+        }
+      }
     });
   });
 }

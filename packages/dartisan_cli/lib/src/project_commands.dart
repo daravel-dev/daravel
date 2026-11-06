@@ -870,7 +870,10 @@ final class TestCommand extends Command<int> {
 /// Uses `dart build cli`, which runs build hooks: SQLite (package:sqlite3)
 /// is downloaded as a hash-verified prebuilt and placed next to the
 /// executable, so servers need no system SQLite. The result is a bundle
-/// (`bin/server` + `lib/`), deployed as one directory.
+/// (`bin/server` + `lib/`), deployed as one directory. `--target-os` and
+/// `--target-arch` go to `dart build cli`, which cross-compiles and fetches
+/// the prebuilt for the target (`dart compile exe` is no alternative: it
+/// refuses packages with build hooks).
 final class BuildCommand extends Command<int> {
   /// The `dartisan build` command.
   BuildCommand() {
@@ -898,6 +901,18 @@ final class BuildCommand extends Command<int> {
             'manager, non-root) instead of debian:bookworm-slim.',
       )
       ..addFlag('no-compile', negatable: false, help: 'Skip the native build.')
+      ..addOption(
+        'target-os',
+        allowed: buildTargetOses,
+        help:
+            'Operating system to build for (default: this one). The Dart SDK '
+            'cross-compiles to Linux only, e.g. --target-os=linux on Windows.',
+      )
+      ..addOption(
+        'target-arch',
+        allowed: buildTargetArchitectures,
+        help: 'CPU architecture to build for (default: this one).',
+      )
       ..addFlag(
         'sqlite',
         defaultsTo: true,
@@ -955,6 +970,8 @@ final class BuildCommand extends Command<int> {
       'bin/server.dart',
       if (r['with-cli'] as bool) 'bin/dartisan.dart',
     ];
+    final targetOs = r['target-os'] as String?;
+    final targetArch = r['target-arch'] as String?;
     final withSqlite = r['sqlite'] as bool;
     if (!withSqlite) {
       final connection =
@@ -976,15 +993,14 @@ final class BuildCommand extends Command<int> {
         final out = target == 'bin/server.dart'
             ? output
             : p.join(p.dirname(output), 'dartisan');
-        final args = ['build', 'cli', '-t', target, '-o', out];
-        stdout.writeln('dart ${args.join(' ')}');
-        final process = await Process.start(
-          dartExecutable(),
-          args,
-          workingDirectory: paths.root,
-          mode: ProcessStartMode.inheritStdio,
+        final args = buildCliArguments(
+          target: target,
+          output: out,
+          targetOs: targetOs,
+          targetArch: targetArch,
         );
-        final code = await process.exitCode;
+        stdout.writeln('dart ${args.join(' ')}');
+        final code = await _runBuild(args, paths.root);
         if (code != 0) {
           return code;
         }
@@ -1000,7 +1016,7 @@ final class BuildCommand extends Command<int> {
     }
     if (r['with-cli'] as bool) {
       // One bundle: both executables share bin/ and the bundled lib/.
-      final exe = Platform.isWindows ? 'dartisan.exe' : 'dartisan';
+      final exe = bundleExecutableName('dartisan', targetOs);
       File(
         p.join(paths.root, p.dirname(output), 'dartisan', 'bundle', 'bin', exe),
       ).copySync(p.join(paths.root, output, 'bundle', 'bin', exe));
@@ -1012,10 +1028,100 @@ final class BuildCommand extends Command<int> {
         .fold<int>(0, (sum, f) => sum + f.lengthSync());
     stdout.writeln(
       'Built ${p.join(output, 'bundle')} '
-      '(${(size / 1024 / 1024).toStringAsFixed(1)} MB; run bin/server).',
+      '(${(size / 1024 / 1024).toStringAsFixed(1)} MB; '
+      'run bin/${bundleExecutableName('server', targetOs)}).',
     );
     return 0;
   }
+
+  /// Runs `dart` with [args], forwarding its output, and explains a failed
+  /// SQLite download ([sqliteDownloadHint]).
+  Future<int> _runBuild(List<String> args, String root) async {
+    final process = await Process.start(
+      dartExecutable(),
+      args,
+      workingDirectory: root,
+    );
+    final seen = StringBuffer();
+    void forward(List<int> data, IOSink sink) {
+      sink.add(data);
+      if (seen.length < 1 << 20) {
+        seen.write(utf8.decode(data, allowMalformed: true));
+      }
+    }
+
+    final out = process.stdout
+        .listen((d) => forward(d, stdout))
+        .asFuture<void>();
+    final err = process.stderr
+        .listen((d) => forward(d, stderr))
+        .asFuture<void>();
+    final code = await process.exitCode;
+    await Future.wait([out, err]);
+    if (code != 0) {
+      final hint = sqliteDownloadHint(seen.toString());
+      if (hint != null) {
+        stderr.writeln(hint);
+      }
+    }
+    return code;
+  }
+}
+
+/// Operating systems `dartisan build --target-os` accepts.
+const List<String> buildTargetOses = ['linux', 'macos', 'windows'];
+
+/// Architectures `dartisan build --target-arch` accepts.
+const List<String> buildTargetArchitectures = ['x64', 'arm64'];
+
+/// The `dart` arguments that build [target] into [output] (`<output>/bundle`).
+///
+/// [targetOs] and [targetArch] (null: the host's) go to `dart build cli`,
+/// which cross-compiles to another OS and another architecture and runs the
+/// build hooks for that target, so the bundled SQLite matches it.
+List<String> buildCliArguments({
+  required String target,
+  required String output,
+  String? targetOs,
+  String? targetArch,
+}) => [
+  'build',
+  'cli',
+  '-t',
+  target,
+  '-o',
+  output,
+  if (targetOs != null) '--target-os=$targetOs',
+  if (targetArch != null) '--target-arch=$targetArch',
+];
+
+/// The file name of executable [base] in a bundle for [targetOs] (null: the
+/// host's): `.exe` only on Windows.
+String bundleExecutableName(String base, String? targetOs) =>
+    (targetOs ?? Platform.operatingSystem) == 'windows' ? '$base.exe' : base;
+
+/// Advice for a build whose output has package:sqlite3's "Hash of downloaded
+/// file" error, or null when it has none.
+///
+/// package:sqlite3 3.8.0 hashes whatever the download returned without
+/// checking the HTTP status, so an error response from GitHub surfaces as a
+/// hash mismatch (on CI the same wrong hash appeared for the Linux and the
+/// macOS library at once).
+String? sqliteDownloadHint(String output) {
+  final match = RegExp(r'Hash of downloaded file (\S+) is [0-9a-f]+')
+      .firstMatch(output);
+  if (match == null) {
+    return null;
+  }
+  return '\n'
+      'The sqlite3 build hook downloaded ${match[1]} (a prebuilt SQLite '
+      'library from github.com/simolus3/sqlite3.dart, package:sqlite3 3.8.0) '
+      'and its hash did not match. The hook does not check the HTTP status '
+      'of that download, so this is usually a temporary error response, not '
+      'a broken library: run the build again.\n'
+      'An application on PostgreSQL or MySQL does not need the library: '
+      'build with --no-sqlite --force (SQLite, if used, then comes from the '
+      'operating system).';
 }
 
 /// `package:sqlite3`'s build-hook setting that loads SQLite from the OS
@@ -1262,17 +1368,36 @@ final class OpenApiGenerateCommand extends DaravelCommand {
   });
 }
 
-/// `model:sync [Model] [--dry-run]` — rewrites the accessor region of
-/// models from the database schema (BLUEPRINT_V2 §8.3) and fills an empty
-/// statics region with the query shortcuts `make:model` writes.
+/// `model:sync [Model] [--dry-run] [--typed-ids]` — rewrites the accessor
+/// region of models from the database schema (BLUEPRINT_V2 §8.3) and fills
+/// an empty statics region with the query shortcuts `make:model` writes.
+/// `--typed-ids` (opt-in, ADR-032) also writes a typed id per model.
 final class ModelSyncCommand extends DaravelCommand {
   /// The `dartisan model:sync` command.
   ModelSyncCommand(super.createApp) {
-    argParser.addFlag(
-      'dry-run',
-      negatable: false,
-      help: 'Print the accessors without writing.',
-    );
+    argParser
+      ..addFlag(
+        'dry-run',
+        negatable: false,
+        help: 'Print the accessors without writing.',
+      )
+      ..addFlag(
+        'typed-ids',
+        negatable: false,
+        help:
+            'Also write a typed id (extension type UserId) in a '
+            '// <dartisan:ids> region and type the primary key getter, '
+            'find and findOrFail with it (opt-in).',
+      );
+  }
+
+  /// The `model.id` template: the project's `stubs/model.id.stub` when it
+  /// exists, otherwise the built-in one.
+  static String _idStub(ProjectPaths paths) {
+    final custom = File(p.join(paths.stubs, 'model.id.stub'));
+    return custom.existsSync()
+        ? custom.readAsStringSync()
+        : builtInStubs['model.id']!;
   }
 
   @override
@@ -1293,6 +1418,7 @@ final class ModelSyncCommand extends DaravelCommand {
       return 0;
     }
     final dryRun = argResults!['dry-run'] as bool;
+    final typedIds = argResults!['typed-ids'] as bool;
     var synced = 0;
     for (final file in dir.listSync().whereType<File>().where(
       (f) => f.path.endsWith('.dart'),
@@ -1312,18 +1438,18 @@ final class ModelSyncCommand extends DaravelCommand {
         );
         continue;
       }
-      final plan = planAccessors(
+      final sync = syncModelSource(
+        source,
         model,
         await Schema.getColumns(model.table),
         dialect: App.make<DatabaseManager>().dialectOf(),
+        idStub: typedIds ? _idStub(paths) : null,
       );
-      for (final warning in plan.warnings) {
+      final plan = sync.plan;
+      for (final warning in sync.warnings) {
         stdout.writeln('${model.className}: $warning');
       }
-      final updated = replaceAccessors(
-        fillStatics(source, model.className),
-        plan.lines,
-      );
+      final updated = sync.source;
       if (updated == null) {
         stdout.writeln(
           '${model.className}: no // <dartisan:accessors> region; skipped.',

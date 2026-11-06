@@ -94,6 +94,15 @@ password yang ada tetap valid, sementara `Hash.needsRehash` dan
 selama aplikasi Laravel berbagi tabel users: secara default Laravel hanya
 memverifikasi bcrypt.
 
+Paling banyak `HASH_CONCURRENCY` hash (default: satu per prosesor) berjalan
+bersamaan, masing-masing di isolate hangat yang dipakai ulang, sehingga
+lonjakan login menunggu giliran alih-alih menjalankan satu isolate per
+percobaan (dengan argon2id, 64 MiB per hash, cukup untuk menghabiskan
+memori). Sampai `HASH_QUEUE` hash (1024; `0` untuk tanpa batas) menunggu,
+masing-masing paling lama `HASH_QUEUE_TIMEOUT` (`30s`); lewat dari salah
+satunya `Hash.make` dan `Hash.check` melempar `HashingSaturatedException`,
+yang dijawab `503` dengan `Retry-After: 1`.
+
 Di Linux, bcrypt dijalankan oleh library C milik sistem (`crypt_rn` dari
 libxcrypt, implementasi yang juga dipakai PHP), sehingga biaya sebuah login
 sama dengan di Laravel; di sistem lain, atau dengan

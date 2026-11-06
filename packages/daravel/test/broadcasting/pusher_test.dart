@@ -52,6 +52,8 @@ void main() {
           'REVERB_APP_KEY': appKey,
           'REVERB_APP_SECRET': appSecret,
           'REVERB_ENCRYPTION_MASTER_KEY_BASE64': masterKeyBase64,
+          'REVERB_MAX_BUFFERED_BYTES': '65536',
+          'REVERB_APP_MAX_CHANNELS_PER_CONNECTION': '3',
         })
         .withAuth((auth) {
           auth.register(
@@ -724,12 +726,126 @@ void main() {
     });
     await client.close();
   });
+
+  test('a client too slow to read is closed with 4100 and leaves its '
+      'channels (#150)', () async {
+    final client = await connect();
+    await client.subscribe('news');
+    client.reading.pause();
+    final slow = app.container.make<SlowClients>();
+    final manager = app.container.make<BroadcastManager>();
+    final data = {'text': 'z' * 16384};
+    for (var i = 0; i < 20000 && slow.count(SlowClients.webSocket) == 0; i++) {
+      await manager.send('flood', ['news'], data);
+      await Future<void>.delayed(Duration.zero);
+    }
+    expect(slow.count(SlowClients.webSocket), 1);
+    client.reading.resume();
+    await client.socket.done.timeout(const Duration(seconds: 10));
+    expect(client.socket.closeCode, PusherServer.slowClientCode);
+    final channels = app.container.make<CoordinatorChannel>();
+    final deadline = DateTime.now().add(const Duration(seconds: 5));
+    Future<bool> occupied() async =>
+        ((await channels.call('channels', 'channel', {'channel': 'news'}))!
+                as Map)['occupied']!
+            as bool;
+    while (await occupied() && DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+    expect(await occupied(), isFalse);
+  });
+
+  test('channel names follow Pusher\'s rules; the connection stays open '
+      '(#152)', () async {
+    final client = await connect();
+    for (final name in ['bad name', 'a#b', 'x' * 165, 'ok/no']) {
+      client.send({
+        'event': 'pusher:subscribe',
+        'data': {'channel': name},
+      });
+      final frame = await client.next();
+      expect(frame['event'], 'pusher:error');
+      expect(jsonDecode(frame['data']! as String), {
+        'code': 4300,
+        'message': 'Invalid channel name',
+      });
+    }
+    await client.subscribe('App.Models.User-1_=@,.;${'y' * 140}');
+    client.send({'event': 'pusher:ping', 'data': <String, Object?>{}});
+    expect(await client.next(), {'event': 'pusher:pong'});
+    await client.close();
+  });
+
+  test('one connection subscribes to at most '
+      'REVERB_APP_MAX_CHANNELS_PER_CONNECTION channels (#152)', () async {
+    final client = await connect();
+    for (final name in ['a', 'b', 'c']) {
+      await client.subscribe(name);
+    }
+    await client.subscribe('a'); // again: not a new channel
+    client.send({
+      'event': 'pusher:subscribe',
+      'data': {'channel': 'd'},
+    });
+    final refused = await client.next();
+    expect(jsonDecode(refused['data']! as String), {
+      'code': 4300,
+      'message': 'Too many channels on this connection (at most 3)',
+    });
+    client.send({
+      'event': 'pusher:unsubscribe',
+      'data': {'channel': 'a'},
+    });
+    await client.subscribe('d');
+    await client.close();
+  });
+
+  test('client events past 10 a second are dropped with 4301 (#152)', () async {
+    Clock.freeze();
+    addTearDown(Clock.restore);
+    Future<_Client> join() async {
+      final client = await connect();
+      final (_, body) = await authorize(
+        client.socketId,
+        'private-orders.7',
+        token: 'user-1',
+      );
+      await client.subscribe('private-orders.7', auth: body['auth']! as String);
+      return client;
+    }
+
+    final a = await join();
+    final b = await join();
+    void whisper(int n) => a.send({
+      'event': 'client-typing',
+      'channel': 'private-orders.7',
+      'data': {'n': n},
+    });
+    for (var n = 1; n <= 11; n++) {
+      whisper(n);
+    }
+    final error = await a.next();
+    expect(error['event'], 'pusher:error');
+    expect(jsonDecode(error['data']! as String), {
+      'code': 4301,
+      'message': 'Rate limit exceeded',
+    });
+    for (var n = 1; n <= 10; n++) {
+      expect((await b.next())['data'], {'n': n});
+    }
+    // The next second: allowed again, and nothing else reached b.
+    Clock.travel(const Duration(seconds: 1));
+    whisper(12);
+    expect((await b.next())['data'], {'n': 12});
+    await a.close();
+    await b.close();
+  });
 }
 
 /// A Pusher client speaking protocol 7, as pusher-js does.
 final class _Client {
   _Client(this.socket) {
-    socket.listen((message) {
+    reading = socket.listen((message) {
       final frame = jsonDecode(message as String) as Map<String, Object?>;
       if (_waiting.isNotEmpty) {
         _waiting.removeAt(0).complete(frame);
@@ -745,6 +861,7 @@ final class _Client {
     return client;
   }
 
+  late final StreamSubscription<Object?> reading;
   final WebSocket socket;
   final List<Map<String, Object?>> _frames = [];
   final List<Completer<Map<String, Object?>>> _waiting = [];
@@ -786,5 +903,6 @@ final class _Client {
     await socket.close();
     // Let the server see the close (member_removed, unsubscribes).
     await Future<void>.delayed(const Duration(milliseconds: 50));
+    await reading.cancel();
   }
 }

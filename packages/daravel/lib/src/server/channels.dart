@@ -15,6 +15,15 @@ final class ChannelMembershipService
   /// sockets can be forgotten.
   final Map<String, Map<String, (String?, Object?, String?)>> _channels = {};
 
+  /// channel → user id → (connections, user info), in join order: a
+  /// presence channel's members, kept as sockets come and go, so a join or
+  /// a leave no longer rebuilds them from every socket of the channel.
+  final Map<String, Map<String, (int, Object?)>> _presence = {};
+
+  /// socket id → channels it is on: `connections` without walking every
+  /// channel.
+  final Map<String, int> _sockets = {};
+
   /// The last frame of each cache channel (`cache-…`, `private-cache-…`,
   /// `presence-cache-…`) and when it was sent: new subscribers get it.
   final Map<String, (String, DateTime)> _cached = {};
@@ -59,7 +68,7 @@ final class ChannelMembershipService
       case 'users':
         return _users(args['channel']! as String).keys.toList();
       case 'connections':
-        return {for (final sockets in _channels.values) ...sockets.keys}.length;
+        return _sockets.length;
       case 'cache_set':
         final channel = args['channel']! as String;
         final now = Clock.now();
@@ -97,12 +106,32 @@ final class ChannelMembershipService
     String? worker,
   ) {
     final sockets = _channels.putIfAbsent(channel, () => {});
-    final wasMember = userId != null && _users(channel).containsKey(userId);
+    final previous = sockets[socket];
     sockets[socket] = (userId, userInfo, worker);
+    if (previous == null) {
+      _sockets[socket] = (_sockets[socket] ?? 0) + 1;
+    }
+    if (userId == null) {
+      _release(channel, previous?.$1);
+      return {'added': false, 'members': null};
+    }
+    final users = _presence.putIfAbsent(channel, () => {});
+    final member = users[userId];
+    if (previous != null && previous.$1 == userId) {
+      // The same connection subscribing again: still one member.
+      users[userId] = (member?.$1 ?? 1, userInfo);
+      return {'added': false, 'members': _users(channel)};
+    }
+    _release(channel, previous?.$1);
+    users[userId] = (
+      (member?.$1 ?? 0) + 1,
+      // The latest connection's info, at the user's first place.
+      userInfo,
+    );
     return {
       // The user's first connection: the others hear member_added.
-      'added': userId != null && !wasMember,
-      'members': userId == null ? null : _users(channel),
+      'added': member == null,
+      'members': _users(channel),
     };
   }
 
@@ -112,19 +141,53 @@ final class ChannelMembershipService
     if (sockets != null && sockets.isEmpty) {
       _channels.remove(channel);
     }
-    final userId = left?.$1;
+    if (left == null) {
+      return {'removed': null};
+    }
+    _forgetSocket(socket);
+    final userId = left.$1;
     return {
       // The user's last connection: the others hear member_removed.
-      'removed': userId != null && !_users(channel).containsKey(userId)
-          ? userId
-          : null,
+      'removed': _release(channel, userId) ? userId : null,
     };
+  }
+
+  /// One connection of [userId] fewer on [channel]; true when it was the
+  /// user's last.
+  bool _release(String channel, String? userId) {
+    if (userId == null) {
+      return false;
+    }
+    final users = _presence[channel];
+    final member = users?[userId];
+    if (users == null || member == null) {
+      return false;
+    }
+    if (member.$1 > 1) {
+      users[userId] = (member.$1 - 1, member.$2);
+      return false;
+    }
+    users.remove(userId);
+    if (users.isEmpty) {
+      _presence.remove(channel);
+    }
+    return true;
+  }
+
+  void _forgetSocket(String socket) {
+    final count = _sockets[socket];
+    if (count == null || count <= 1) {
+      _sockets.remove(socket);
+    } else {
+      _sockets[socket] = count - 1;
+    }
   }
 
   /// user id → user info, in join order.
   Map<String, Object?> _users(String channel) => {
-    for (final (userId, info, _) in (_channels[channel] ?? const {}).values)
-      ?userId: info,
+    for (final MapEntry(key: userId, value: (_, info))
+        in (_presence[channel] ?? const {}).entries)
+      userId: info,
   };
 
   /// Drops every socket [worker] held. The members it made vanish from
@@ -134,8 +197,15 @@ final class ChannelMembershipService
   @override
   void forgetWorker(String worker) {
     for (final channel in _channels.keys.toList()) {
-      final sockets = _channels[channel]!
-        ..removeWhere((_, socket) => socket.$3 == worker);
+      final sockets = _channels[channel]!;
+      for (final socket in sockets.keys.toList()) {
+        final entry = sockets[socket]!;
+        if (entry.$3 == worker) {
+          sockets.remove(socket);
+          _forgetSocket(socket);
+          _release(channel, entry.$1);
+        }
+      }
       if (sockets.isEmpty) {
         _channels.remove(channel);
       }
@@ -147,13 +217,13 @@ final class ChannelMembershipService
     return {
       'occupied': sockets != null,
       'subscription_count': sockets?.length ?? 0,
-      'user_count': _users(channel).length,
+      'user_count': _presence[channel]?.length ?? 0,
     };
   }
 
   @override
   Map<String, Object?> stats() => <String, Object?>{
     'channels': _channels.length,
-    'connections': handle('connections', const {}),
+    'connections': _sockets.length,
   };
 }

@@ -40,6 +40,7 @@ import '../http/middleware/maintenance_mode.dart';
 import '../http/middleware/method_override.dart';
 import '../http/middleware/validate_signature.dart';
 import '../http/kernel.dart';
+import '../http/realtime.dart';
 import '../features/feature.dart';
 import '../http/middleware.dart';
 import '../http/middleware/cache_headers.dart';
@@ -55,6 +56,7 @@ import '../mail/smtp.dart';
 import '../mail/theme.dart';
 import '../mail/transport.dart';
 import '../logging/logger.dart';
+import '../logging/throttled_reporter.dart';
 import '../queue/drivers.dart';
 import '../queue/job.dart';
 import '../queue/queue_manager.dart';
@@ -77,6 +79,7 @@ import 'container.dart';
 import 'drain.dart';
 import 'locale.dart';
 import 'env.dart';
+import 'ids.dart';
 import 'exceptions.dart';
 import 'service_provider.dart';
 
@@ -295,24 +298,34 @@ final class Application {
     );
     final cacheConfig = config.section<CacheConfig>();
     final limiterStore = cacheConfig.limiter;
+    // One warning a second at most: when the coordinator is saturated every
+    // attempt fails, and a line per attempt would add to the overload
+    // (`coordinator_call_timeouts_total` counts them all).
+    final limiterWarning = ThrottledReporter(
+      (error, skipped) => logger.warning(
+        'Rate limiter could not count an attempt (it goes through unless '
+        'its limit fails closed): $error'
+        '${skipped == 0 ? '' : ' ($skipped more since the last warning)'}',
+      ),
+    );
     final rateLimiter = RateLimiter(
       store: limiterStore == null || limiterStore == 'process'
-          ? ProcessRateLimitStore(
-              channel,
-              onError: (error) => logger.warning(
-                'Rate limiter could not count an attempt (it goes through '
-                'unless its limit fails closed): $error',
-              ),
-            )
+          ? ProcessRateLimitStore(channel, onError: limiterWarning.call)
           // CACHE_LIMITER=database (or another store): limits shared
           // wherever that store is.
           : CacheRateLimitStore(
               () => container.make<CacheManager>().store(limiterStore).store,
               prefix: '${cacheConfig.prefix}rate_limiter:',
+              onError: limiterWarning.call,
             ),
     );
+    final ids = IdParsers();
+    for (final configure in _builder._idsConfigs) {
+      configure(ids);
+    }
     container
       ..instance<Application>(this)
+      ..instance<IdParsers>(ids)
       ..instance<Env>(env)
       ..instance<ConfigRepository>(config)
       ..instance<Logger>(logger)
@@ -439,6 +452,8 @@ final class Application {
           final state = DatabaseChannelState(
             c.make<DatabaseManager>(),
             server: server,
+            // Per isolate: a crashed worker's connections stop counting.
+            worker: Isolate.current.debugName,
             connection: broadcasting.scalingConnection,
           );
           shared = state;
@@ -460,6 +475,8 @@ final class Application {
                   c.make<CoordinatorChannel>(),
                   state: shared,
                   relay: relay,
+                  onError: (message, error) =>
+                      c.make<Logger>().warning('$message: $error'),
                 )
               : null,
           http: c.make<HttpClientFactory>(),
@@ -468,6 +485,9 @@ final class Application {
       })
       ..instance<EventDispatcher>(events)
       ..instance<AppMetrics>(metrics)
+      ..instance<SlowClients>(
+        SlowClients(onSlowClient: metrics.recordSlowClient),
+      )
       ..singleton<StorageManager>(
         (c) => StorageManager(
           c.make<ConfigRepository>().section<StorageConfig>(),
@@ -625,7 +645,7 @@ final class Application {
       }
       if (sample > 0) {
         final dispatcher = container.make<EventDispatcher>();
-        kernel.observeRoute = ShadowParityRunner(
+        final runner = ShadowParityRunner(
           proxy,
           sampleRate: sample,
           maxConcurrency:
@@ -667,7 +687,22 @@ final class Application {
               },
           logger: logger,
           onDrift: (drift) => unawaited(dispatcher.dispatch(drift)),
-        ).observe;
+        );
+        kernel.observeRoute = runner.observe;
+        final registry = container.make<AppMetrics>().registry;
+        registry
+          ..counter(
+            'shadow_replays_dropped_total',
+            'Shadow replays skipped because UPSTREAM_SHADOW_MAX_CONCURRENCY '
+                'were already running.',
+            collect: () => runner.dropped.toDouble(),
+          )
+          ..counter(
+            'shadow_replays_failed_total',
+            'Shadow replays the upstream did not answer (an error, a '
+                'timeout or a body over the limit).',
+            collect: () => runner.failed.toDouble(),
+          );
       }
     }
 
@@ -709,6 +744,7 @@ final class Application {
       container: c,
       logger: logger,
       debounceStore: () => lockStore,
+      exceptionStore: () => lockStore,
       uniqueLockRelease: (key) => manager.releaseUniqueLock(key),
     );
     manager =
@@ -888,6 +924,10 @@ final class Application {
         // Pusher messages are small; a frame past the limit fails the
         // connection before it is buffered, not after.
         maxPayloadBytes: broadcasting.maxMessageSize + 1024,
+        // A client too slow to read what it is sent is closed with 4100
+        // ("over capacity"): Pusher clients reconnect after a backoff.
+        maxBufferedBytes: broadcasting.maxBufferedBytes,
+        slowClientCode: PusherServer.slowClientCode,
       ).name('daravel.broadcasting.connect')
       ..post(
         '/apps/{appId}/events',
@@ -1299,6 +1339,7 @@ final class Application {
   }
 
   void _ensureServeable(ServeOptions resolved) {
+    _ensureQueueServeable(resolved);
     final db = config.section<DatabaseConfig>();
     final connection = db.connections[db.defaultConnection];
     if (connection?.driver != 'sqlite' || connection?.database != ':memory:') {
@@ -1315,6 +1356,42 @@ final class Application {
       throw const ConfigException(
         'An in-memory SQLite database cannot be shared with the embedded '
         'queue or scheduler isolate. Use a file database.',
+      );
+    }
+  }
+
+  /// Queue state kept in one isolate cannot serve several isolates (HTTP
+  /// workers, the embedded queue worker): refuse it at start rather than
+  /// let jobs or their locks go missing.
+  void _ensureQueueServeable(ServeOptions resolved) {
+    final isolates = resolved.isolates > 1;
+    if (!isolates && !resolved.embedQueue) {
+      return;
+    }
+    final where = [
+      if (isolates) '${resolved.isolates} isolates',
+      if (resolved.embedQueue) 'the embedded queue worker',
+    ].join(' and ');
+    final queue = config.section<QueueConfig>();
+    final driver = container.make<QueueManager>().connection(
+      queue.defaultConnection,
+    );
+    if (driver is! SyncQueue && driver.scope == StateScope.isolate) {
+      throw ConfigException(
+        'QUEUE_CONNECTION=${queue.defaultConnection} keeps its jobs in the '
+        'isolate that dispatches them, so with $where they would never be '
+        'processed (the embedded worker and every HTTP isolate have a queue '
+        'of their own). Use the database or redis queue.',
+      );
+    }
+    final locks = container.make<CacheManager>().store(queue.uniqueLockStore);
+    if (locks.scope == StateScope.isolate) {
+      throw ConfigException(
+        'QUEUE_UNIQUE_LOCK_STORE=${queue.uniqueLockStore} keeps unique-job '
+        'and debounce locks in one isolate, so with $where a unique job can '
+        'be dispatched once per isolate and its lock is never released by '
+        'the worker that runs it. Use process (the default), database or '
+        'redis.',
       );
     }
   }
@@ -1350,6 +1427,7 @@ final class Application {
     for (final hook in _builder._shutdownHooks) {
       await hook(container);
     }
+    await container.resolved<HashManager>()?.close();
     await Concurrency.shutdown();
     final db = container.resolved<DatabaseManager>();
     if (db != null) {
@@ -1391,6 +1469,7 @@ final class ApplicationBuilder {
   void Function(ExceptionHandler exceptions)? _exceptionsConfig;
   final List<void Function(AuthManager auth)> _authConfigs = [];
   final List<void Function(AuthorizationGate gate)> _policiesConfigs = [];
+  final List<void Function(IdParsers ids)> _idsConfigs = [];
   void Function(RateLimiter limiter)? _rateLimitsConfig;
   void Function(EventDispatcher events)? _eventsConfig;
   void Function(JobRegistry jobs)? _jobsConfig;
@@ -1459,6 +1538,14 @@ final class ApplicationBuilder {
   /// calls all apply, in order.
   ApplicationBuilder withAuth(void Function(AuthManager auth) configure) {
     _authConfigs.add(configure);
+    return this;
+  }
+
+  /// Registers route parameter parsers for typed ids (`bootstrap/ids.dart`,
+  /// opt-in), read by `request.param<T>(name)`. Several calls all apply,
+  /// in order.
+  ApplicationBuilder withIds(void Function(IdParsers ids) configure) {
+    _idsConfigs.add(configure);
     return this;
   }
 

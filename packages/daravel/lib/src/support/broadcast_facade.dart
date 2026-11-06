@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import '../broadcasting/broadcast_manager.dart';
@@ -54,6 +55,6 @@ abstract final class Broadcast {
   static Future<void> pipe(
     WebSocket socket,
     List<String> channels, {
-    void Function(Object? message)? onMessage,
+    FutureOr<void> Function(Object? message)? onMessage,
   }) => broadcaster.pipe(socket, channels, onMessage: onMessage);
 }

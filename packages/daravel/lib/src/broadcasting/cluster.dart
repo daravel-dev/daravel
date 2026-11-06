@@ -51,14 +51,32 @@ String defaultBroadcastServerId() => '${Platform.localHostname}:$pid';
 /// been silent for [liveness] (it crashed) are no longer counted, and
 /// [prune] deletes them.
 final class DatabaseChannelState implements ChannelState {
-  /// Channel state of the server [server] in [db].
-  DatabaseChannelState(this.db, {required this.server, this.connection});
+  /// Channel state of the server [server] in [db], kept by the isolate
+  /// [worker] (`daravel-worker-N` under a supervisor).
+  DatabaseChannelState(
+    this.db, {
+    required this.server,
+    this.worker,
+    this.connection,
+  });
 
   /// The database holding the state.
   final DatabaseManager db;
 
   /// This server's id.
   final String server;
+
+  /// The worker isolate holding this state's connections, when known.
+  final String? worker;
+
+  /// Who holds the connections this state records: `<server>/<worker>`.
+  /// Each worker isolate beats on its own, so the connections of one that
+  /// crashed stop counting after [liveness] while its siblings live on,
+  /// and a respawned worker (the same name) forgets its previous life at
+  /// its first [beat].
+  String get instance => worker == null ? server : '$server/$worker';
+
+  bool _started = false;
 
   /// The connection of the tables; the default one when null.
   final String? connection;
@@ -79,7 +97,7 @@ final class DatabaseChannelState implements ChannelState {
         .where('seen_at', '>', _now - liveness.inSeconds)
         .select(['server'])
         .get();
-    return {server, for (final row in rows) '${row['server']}'}.toList();
+    return {instance, for (final row in rows) '${row['server']}'}.toList();
   }
 
   Future<List<Map<String, Object?>>> _members(String channel) async =>
@@ -89,11 +107,19 @@ final class DatabaseChannelState implements ChannelState {
           .orderBy('id')
           .get();
 
-  /// Says this server is alive.
-  Future<void> beat() => _table('broadcast_servers').upsert(
-    <String, Object?>{'server': server, 'seen_at': _now},
-    const ['server'],
-  );
+  /// Says this isolate is alive. The first beat also deletes what a
+  /// previous isolate of the same name left (it crashed and this one
+  /// replaces it), whose members would otherwise count again.
+  Future<void> beat() async {
+    if (!_started) {
+      await _table('broadcast_members').where('server', instance).delete();
+      _started = true;
+    }
+    await _table('broadcast_servers').upsert(
+      <String, Object?>{'server': instance, 'seen_at': _now},
+      const ['server'],
+    );
+  }
 
   /// Forgets servers silent for twice [liveness] with their members, relayed
   /// messages older than a minute and expired cache channels.
@@ -184,8 +210,15 @@ final class DatabaseChannelState implements ChannelState {
     String? userId,
     Object? userInfo,
   ) async {
+    // A connection subscribing to a channel it is on already (Pusher
+    // clients may) replaces its row, as Reverb replaces its entry: a
+    // second row was never deleted and kept the user present for ever.
+    final previous = await _mine(channel, socket).first();
+    if (previous != null) {
+      await _mine(channel, socket).delete();
+    }
     await _table('broadcast_members').insert(<String, Object?>{
-      'server': server,
+      'server': instance,
       'socket': socket,
       'channel': channel,
       'user_id': userId,
@@ -198,21 +231,27 @@ final class DatabaseChannelState implements ChannelState {
     final rows = await _members(channel);
     return {
       // The user's first connection on any server.
-      'added': rows.where((row) => '${row['user_id']}' == userId).length == 1,
+      'added':
+          rows.where((row) => '${row['user_id']}' == userId).length == 1 &&
+          (previous == null || '${previous['user_id']}' != userId),
       'members': _users(rows),
     };
   }
 
+  /// This isolate's rows of [socket] on [channel].
+  QueryBuilder _mine(String channel, String socket) =>
+      _table('broadcast_members')
+          .where('channel', channel)
+          .where('socket', socket)
+          .where('server', instance);
+
   Future<Map<String, Object?>> _leave(String channel, String socket) async {
-    final row = await _table('broadcast_members')
-        .where('channel', channel)
-        .where('socket', socket)
-        .where('server', server)
-        .first();
+    final row = await _mine(channel, socket).first();
     if (row == null) {
       return {'removed': null};
     }
-    await _table('broadcast_members').where('id', row['id']).delete();
+    // Every row of it: rows written twice before this fix go too.
+    await _mine(channel, socket).delete();
     final userId = row['user_id'];
     if (userId == null) {
       return {'removed': null};
@@ -284,6 +323,17 @@ final class DatabaseBroadcastRelay implements BroadcastRelay {
 
   bool _running = false;
   bool _closed = false;
+  Future<void>? _loop;
+
+  /// The next wait between reads: [poll] while frames flow, doubling up to
+  /// [idlePoll] while none do, so idle isolates stop querying ten times a
+  /// second each.
+  late Duration _wait = poll;
+
+  /// The longest wait between reads of an idle relay (without `NOTIFY`):
+  /// a second, or [poll] when that is longer.
+  Duration get idlePoll =>
+      poll > const Duration(seconds: 1) ? poll : const Duration(seconds: 1);
   Completer<void>? _wake;
   int _highest = 0;
   final Set<int> _delivered = <int>{};
@@ -294,6 +344,8 @@ final class DatabaseBroadcastRelay implements BroadcastRelay {
   /// Stores [envelope] (`<except socket>\n<frame>`) for the other servers.
   @override
   Future<void> send(String channel, String envelope) async {
+    // Activity here: others are likely to answer, read at full pace.
+    _wait = poll;
     await _messages.insert(<String, Object?>{
       'origin': server,
       'channel': channel,
@@ -311,7 +363,7 @@ final class DatabaseBroadcastRelay implements BroadcastRelay {
     }
     _running = true;
     final ready = Completer<void>();
-    unawaited(_run(deliver, ready));
+    _loop = _run(deliver, ready);
     return ready.future;
   }
 
@@ -345,7 +397,8 @@ final class DatabaseBroadcastRelay implements BroadcastRelay {
     var lastPrune = DateTime.now();
     while (!_closed) {
       try {
-        await _read(deliver);
+        final fresh = await _read(deliver);
+        _wait = fresh > 0 ? poll : _slower(_wait);
         final now = DateTime.now();
         if (now.difference(lastBeat) >= const Duration(seconds: 10)) {
           lastBeat = now;
@@ -359,7 +412,7 @@ final class DatabaseBroadcastRelay implements BroadcastRelay {
         onError?.call(error);
       }
       // Notified servers still read once a second, in case one was missed.
-      await _sleep(wakeups == null ? poll : const Duration(seconds: 1));
+      await _sleep(wakeups == null ? _wait : const Duration(seconds: 1));
     }
     await wakeups?.cancel();
   }
@@ -376,9 +429,16 @@ final class DatabaseBroadcastRelay implements BroadcastRelay {
     _wake = null;
   }
 
-  Future<void> _read(
+  Duration _slower(Duration wait) {
+    final doubled = wait * 2;
+    return doubled > idlePoll ? idlePoll : doubled;
+  }
+
+  /// Reads the frames not seen yet; returns how many there were.
+  Future<int> _read(
     void Function(String channel, String envelope) deliver,
   ) async {
+    var fresh = 0;
     final rows = await _messages
         .where('id', '>', max(0, _highest - _lookBack))
         .orderBy('id')
@@ -390,14 +450,17 @@ final class DatabaseBroadcastRelay implements BroadcastRelay {
         continue;
       }
       _highest = max(_highest, id);
+      fresh++;
       if (row['origin'] != server) {
         deliver('${row['channel']}', '${row['frame']}');
       }
     }
     _delivered.removeWhere((id) => id <= _highest - 2 * _lookBack);
+    return fresh;
   }
 
-  /// Stops reading.
+  /// Stops reading, once the read in progress (if any) is done: the
+  /// application closes the database right after.
   @override
   Future<void> close() async {
     _closed = true;
@@ -405,6 +468,7 @@ final class DatabaseBroadcastRelay implements BroadcastRelay {
     if (wake != null && !wake.isCompleted) {
       wake.complete();
     }
+    await _loop;
   }
 }
 

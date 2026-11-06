@@ -8,6 +8,7 @@ import '../foundation/env.dart';
 import '../http/middleware.dart';
 import '../http/request.dart';
 import '../http/response.dart';
+import '../logging/logger.dart';
 import '../server/coordinator.dart';
 
 /// Default histogram buckets in seconds (Prometheus client defaults).
@@ -85,8 +86,16 @@ abstract base class _Metric {
 
 /// Monotonic counter.
 final class Counter extends _Metric {
-  Counter._(super.name, super.help, super._registry, [super._limited]);
+  Counter._(
+    String name,
+    String help,
+    MetricsRegistry registry, {
+    bool limited = true,
+    double Function()? collect,
+  }) : _collect = collect,
+       super(name, help, registry, limited);
 
+  final double Function()? _collect;
   final Map<String, double> _values = <String, double>{};
 
   @override
@@ -226,13 +235,17 @@ final class MetricsRegistry {
       'Updates counted in the overflow series because the metric reached '
           'METRICS_MAX_SERIES, by metric.',
       this,
-      false,
+      limited: false,
     ),
   );
 
-  /// The counter [name], created on first use.
-  Counter counter(String name, String help) =>
-      _counters.putIfAbsent(name, () => Counter._(name, help, this));
+  /// The counter [name], created on first use; [collect] reads its
+  /// unlabelled value at render time (a count kept elsewhere).
+  Counter counter(String name, String help, {double Function()? collect}) =>
+      _counters.putIfAbsent(
+        name,
+        () => Counter._(name, help, this, collect: collect),
+      );
 
   /// [collect] computes the value at render time (e.g. memory).
   Gauge gauge(String name, String help, {double Function()? collect}) =>
@@ -254,7 +267,10 @@ final class MetricsRegistry {
       c.name: <String, Object?>{
         'type': 'counter',
         'help': c.help,
-        'series': Map<String, Object?>.of(c._values),
+        'series': <String, Object?>{
+          ...c._values,
+          if (c._collect != null) '': c._collect(),
+        },
       },
     for (final g in _gauges.values)
       g.name: <String, Object?>{
@@ -440,6 +456,11 @@ final class MetricsService implements CoordinatorService, WorkerAwareService {
       'help': help,
       'series': <String, Object?>{'': ((stats[key] ?? 0) as num).toDouble()},
     };
+    Map<String, Object?> seconds(String help, String key) => <String, Object?>{
+      'type': 'gauge',
+      'help': help,
+      'series': <String, Object?>{'': ((stats[key] ?? 0) as num) / 1000},
+    };
     return <String, Object?>{
       'coordinator_messages_total': metric(
         'counter',
@@ -465,6 +486,20 @@ final class MetricsService implements CoordinatorService, WorkerAwareService {
         'gauge',
         'Pending calls above which the coordinator refuses new ones.',
         'max_queue',
+      ),
+      'coordinator_expired_total': metric(
+        'counter',
+        'Requests dropped unanswered because their caller had stopped '
+            'waiting.',
+        'expired',
+      ),
+      'coordinator_queue_lag_seconds': seconds(
+        'How long a message last waited in the coordinator event loop.',
+        'queue_lag_ms',
+      ),
+      'coordinator_queue_lag_peak_seconds': seconds(
+        'The longest a message waited in the coordinator event loop.',
+        'queue_lag_peak_ms',
       ),
     };
   }
@@ -577,6 +612,17 @@ final class AppMetrics {
       'Requests refused with 503 by load shedding '
           '(HTTP_MAX_IN_FLIGHT, HTTP_MAX_QUEUE_DELAY), by worker isolate.',
     );
+    slowClients = registry.counter(
+      'realtime_slow_clients_total',
+      'WebSockets and server-sent event streams closed because the client '
+          'read too slowly, by transport and worker isolate.',
+    );
+    registry.counter(
+      'log_lines_dropped_total',
+      'Log lines dropped because the output (stdout, stderr, the log file) '
+          'fell behind or failed.',
+      collect: () => LogLineQueue.droppedTotal.toDouble(),
+    );
     registry.gauge(
       'process_resident_memory_bytes',
       'Resident set size of the process.',
@@ -641,6 +687,9 @@ final class AppMetrics {
   /// Requests shed under load.
   late final Counter shed;
 
+  /// Realtime clients closed for reading too slowly.
+  late final Counter slowClients;
+
   /// The `worker` label of [inFlight] and [shed]: the isolate's name
   /// (`daravel-worker-N` under a supervisor, the same after a respawn, so
   /// there is one value per worker). Workers share the port, which spreads
@@ -684,6 +733,11 @@ final class AppMetrics {
     requests._incKey('$methodAndRoute,status="$status"');
     duration._observeKey(seconds, methodAndRoute);
   }
+
+  /// Counts one realtime client of [transport] (`websocket`, `sse`) closed
+  /// on this worker for reading too slowly.
+  void recordSlowClient(String transport) =>
+      slowClients.inc({'transport': transport, 'worker': _worker});
 
   /// Exposition text: merged across workers under a supervisor.
   Future<String> render() async {

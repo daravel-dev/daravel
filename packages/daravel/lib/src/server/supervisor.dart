@@ -455,6 +455,7 @@ final class Supervisor {
       maxInFlight: spawn.options.maxInFlight,
       maxQueueDelay: spawn.options.maxQueueDelay,
       maxBodyBytes: spawn.options.maxBodyBytes,
+      accessLog: spawn.options.accessLog,
     );
     control.listen((Object? message) {
       if (message == 'drain') {

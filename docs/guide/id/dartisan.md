@@ -82,7 +82,7 @@ sebelum pindah ke versi minor baru.
 | :-- | :-- |
 | `serve [--watch] [--isolates=N] [--embed-queue] [--embed-scheduler]` | Server HTTP; `--watch` melakukan hot reload |
 | `test [--conformance] [--security] [--coverage]` | Menjalankan test |
-| `build [--with-cli] [--docker [--distroless]] [--no-sqlite]` | Bundle native di `build/server/bundle`, opsional `Dockerfile` (`--distroless`: tanpa shell, non-root, lihat [Deployment](deployment.md#docker)); `--no-sqlite` tidak menyertakan library SQLite (aplikasi PostgreSQL/MySQL) |
+| `build [--with-cli] [--docker [--distroless]] [--no-sqlite] [--target-os] [--target-arch]` | Bundle native di `build/server/bundle`, opsional `Dockerfile` (`--distroless`: tanpa shell, non-root, lihat [Deployment](deployment.md#docker)); `--no-sqlite` tidak menyertakan library SQLite (aplikasi PostgreSQL/MySQL); `--target-os=linux` (dan `--target-arch=x64` atau `arm64`) mem-build untuk mesin lain, lihat [Deployment](deployment.md#build-di-satu-os-jalankan-di-os-lain) |
 | `route:list` | Tabel route |
 | `openapi:generate [--output]` | OpenAPI 3.1 dari route dan metadata yang dideklarasikan |
 | `client:flutter [--output] [--package-name] [--prefix] [--state] [--watch]` | Paket client Dart/Flutter bertipe dari route, dengan rule validasi milik server ([Client Flutter](flutter-client.md)) |
@@ -101,7 +101,7 @@ sebelum pindah ke versi minor baru.
 | `db:transfer --from --to [--dry-run] [--truncate] [--tables] [--no-migrate]` | Menyalin data ke database lain, setelah lebih dulu memigrasinya ([Database](database.md#menyalin-data-antar-database)) |
 | `db:backup [--output] [--keep=N]` | Backup database SQLite saat server berjalan ke `storage/backups` (lihat [Deployment](deployment.md#backup)) |
 | `tinker "<expression>"` | Mengevaluasi ekspresi Dart di aplikasi yang sudah di-boot |
-| `model:sync [Model]` | Membangkitkan ulang accessor bertipe sebuah model dari tabelnya, dan mengisi region `<dartisan:statics>` yang kosong |
+| `model:sync [Model] [--typed-ids]` | Membangkitkan ulang accessor bertipe sebuah model dari tabelnya, dan mengisi region `<dartisan:statics>` yang kosong; `--typed-ids` menambahkan ID bertipe ([Database](database.md#id-bertipe-opt-in)) |
 | `model:show <Model> [--json]` | Tabel, atribut (tipe, cast, fillable, hidden), dan relasi sebuah model, dari `bootstrap/models.dart` |
 | `daragic:export [--out] [--only]` | Model aplikasi (DAM) untuk `daragic`: route, model, migrasi, skema, jadwal, ... (lihat [Migrasi dari Laravel](migrating-from-laravel.md#model-aplikasi-daragic)) |
 
@@ -109,10 +109,10 @@ sebelum pindah ke versi minor baru.
 
 | Command | Fungsinya |
 | :-- | :-- |
-| `queue:work [--queue] [--tries] [--max-time] [--stop-when-empty]` | Memproses job; berhenti setelah job yang sedang berjalan saat `SIGTERM` |
+| `queue:work [--queue] [--tries] [--max-time] [--memory] [--stop-when-empty]` | Memproses job; berhenti setelah job yang sedang berjalan saat `SIGTERM`; `--memory=128` menghentikannya (exit code 12) begitu memakai sebanyak itu MB |
 | `queue:failed`, `queue:retry`, `queue:forget`, `queue:flush` | Job yang gagal |
 | `queue:clear`, `queue:pause`, `queue:continue`, `queue:restart` | Kendali queue |
-| `schedule:work`, `schedule:run`, `schedule:list` | Scheduler |
+| `schedule:work`, `schedule:run`, `schedule:list`, `schedule:clear-cache` | Scheduler; `schedule:clear-cache` melepas lock `withoutOverlapping` yang tertinggal |
 | `cache:clear [--locks]`, `cache:prune-expired [store]`, `storage:link`, `static:hash`, `coordinator:stats [--url] [--token] [--json]` | Cache (lock tetap ada kecuali dengan `--locks`; entri kedaluwarsa dari store `database` dan `file`, lihat [Cache](background.md#cache)), link storage publik, versi file statis ([Respons](responses.md#file-statis)), coordinator server yang sedang berjalan beserta saran ([Operasional](operations.md#yang-dipantau)) |
 
 ## Generator

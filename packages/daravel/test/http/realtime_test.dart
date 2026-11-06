@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:daravel/daravel.dart';
+import 'package:daravel/src/http/buffered_web_socket.dart';
 import 'package:daravel_test/daravel_test.dart';
 import 'package:test/test.dart';
 
@@ -71,6 +72,7 @@ void main() {
     late ServerEngine engine;
     late StreamController<Object?> source;
     late Completer<void> cancelled;
+    WebSocket? flooded;
 
     setUp(() async {
       source = StreamController<Object?>();
@@ -99,6 +101,26 @@ void main() {
                   heartbeat: const Duration(milliseconds: 50),
                   endStreamWith: null,
                 ),
+              );
+              r.get(
+                '/slow',
+                (_) => Response.sse(
+                  source.stream,
+                  heartbeat: null,
+                  maxBufferedBytes: 64 * 1024,
+                ),
+              );
+              r.get(
+                '/burst',
+                (_) => Response.sse(Stream<Object?>.fromIterable([1, 2])),
+              );
+              r.ws(
+                '/flood',
+                (socket, request) => flooded = socket,
+                // Uncompressed: a frame of one repeated letter would deflate to
+                // almost nothing and never fill the socket.
+                compress: false,
+                maxBufferedBytes: 64 * 1024,
               );
               r.ws('/rooms/{room}', (socket, request) {
                 socket.add('joined ${request.param<String>('room')}');
@@ -133,6 +155,7 @@ void main() {
     });
 
     tearDown(() async {
+      flooded = null;
       await engine.stop();
       await app.shutdown();
     });
@@ -298,6 +321,70 @@ void main() {
       await engine.stop();
       await done;
       expect(socket.closeCode, WebSocketStatus.goingAway);
+    });
+
+    test('an SSE client that stops reading is ended with retry: instead of '
+        'queueing for it (#150)', () async {
+      final client = HttpClient();
+      addTearDown(() => client.close(force: true));
+      final (_, chunks) = await open(client, '/api/slow');
+      // The iterator reads no further: the client stops reading here.
+      await readUntil(chunks, ':\n\n');
+      final slow = app.container.make<SlowClients>();
+      final event = 'x' * 16384;
+      // The source keeps being read; what the client does not take is
+      // counted, and past 64 KiB the stream ends and the source goes.
+      for (var i = 0; i < 20000 && !cancelled.isCompleted; i++) {
+        source.add(event);
+        await Future<void>.delayed(Duration.zero);
+      }
+      expect(cancelled.isCompleted, isTrue, reason: 'source cancelled');
+      expect(slow.count(SlowClients.sse), 1);
+      final rest = await readToEnd(chunks);
+      expect(rest, endsWith('retry: 1000\n\n'));
+      expect(rest, isNot(contains('</stream>')));
+    });
+
+    test('finished SSE streams leave no DrainSignal listener (#150)', () async {
+      final client = HttpClient();
+      addTearDown(() => client.close(force: true));
+      for (var i = 0; i < 5; i++) {
+        final (_, chunks) = await open(client, '/api/burst');
+        expect(await readToEnd(chunks), contains('</stream>'));
+      }
+      expect(app.drainSignal.listenerCount, 0);
+    });
+
+    test('a WebSocket client that stops reading is closed with 1008 instead '
+        'of queueing for it (#150)', () async {
+      final socket = await WebSocket.connect(ws('/api/flood'));
+      final received = socket.listen((_) {});
+      received.pause();
+      while (flooded == null) {
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+      final server = flooded!;
+      final slow = app.container.make<SlowClients>();
+      final frame = 'y' * 16384;
+      for (
+        var i = 0;
+        i < 20000 && slow.count(SlowClients.webSocket) == 0;
+        i++
+      ) {
+        server.add(frame);
+        await Future<void>.delayed(Duration.zero);
+      }
+      expect(slow.count(SlowClients.webSocket), 1);
+      // Later frames are dropped, not queued or thrown.
+      server.add(frame);
+      expect((server as BufferedWebSocket).bufferedBytes, 0);
+      received.resume();
+      await received.asFuture<void>().timeout(const Duration(seconds: 10));
+      expect(socket.closeCode, WebSocketStatus.policyViolation);
+      expect(socket.closeReason, 'Slow consumer');
+      await received.cancel();
+      await socket.close();
+      await server.close();
     });
   });
 }

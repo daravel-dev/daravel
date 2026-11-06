@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:daravel/daravel.dart';
 import 'package:test/test.dart';
@@ -59,6 +61,10 @@ void main() {
 
   /// Sends a body of [sent] bytes declaring [declared], and reads the reply
   /// until the server closes or goes quiet for a second.
+  ///
+  /// The reply is read while the body is written: a server refusing the
+  /// body (413) answers without reading it and closes the connection, so
+  /// the rest of the write may fail.
   Future<String> post(
     ServerEngine engine,
     String path,
@@ -66,23 +72,36 @@ void main() {
     int sent,
   ) async {
     final socket = await Socket.connect('127.0.0.1', engine.port!);
+    final received = BytesBuilder();
+    final closed = Completer<void>();
+    void finish() {
+      if (!closed.isCompleted) {
+        closed.complete();
+      }
+    }
+
+    socket
+        .timeout(const Duration(seconds: 1), onTimeout: (sink) => sink.close())
+        .listen(
+          received.add,
+          onError: (Object _) => finish(),
+          onDone: finish,
+          cancelOnError: true,
+        );
     socket.write(
       'POST $path HTTP/1.1\r\nHost: localhost\r\nContent-Length: $declared\r\n'
       'Connection: close\r\n\r\n',
     );
     socket.add(List<int>.filled(sent, 0x61));
-    await socket.flush();
-    final reply = await utf8.decoder
-        .bind(
-          socket.timeout(
-            const Duration(seconds: 1),
-            onTimeout: (sink) => sink.close(),
-          ),
-        )
-        .join();
+    try {
+      await socket.flush();
+    } on SocketException {
+      // Answered and closed before the whole body was sent.
+    }
+    await closed.future;
     socket.destroy();
     await released(engine);
-    return reply;
+    return utf8.decode(received.takeBytes(), allowMalformed: true);
   }
 
   test('a body above the default limit is refused with 413', () async {
@@ -94,19 +113,24 @@ void main() {
   });
 
   test('a declared body far above the limit is never buffered', () async {
-    final engine = await serve();
-    // dart:io delivers no response before the declared body has arrived,
-    // so the client sees nothing until it gives up; what matters is that
-    // the engine refused it before reading (413 from the Content-Length
-    // check), holds nothing, and frees the slot when the client goes.
+    // The default limit (HTTP_MAX_BODY unset: 50 MiB).
+    final engine = await serve(env: Env.fromMap(const {}));
+    // Refused from the Content-Length check before reading, and answered
+    // at once (#144): the client still holds the socket and has sent 16
+    // of the 60 MiB it declared. The server closes the connection after
+    // the 413 and holds nothing.
     final socket = await Socket.connect('127.0.0.1', engine.port!);
+    addTearDown(socket.destroy);
     socket.write(
       'POST /echo HTTP/1.1\r\nHost: localhost\r\nContent-Length: ${60 << 20}\r\n'
-      'Connection: close\r\n\r\n0123456789abcdef',
+      '\r\n0123456789abcdef',
     );
     await socket.flush();
-    await Future<void>.delayed(const Duration(milliseconds: 300));
-    socket.destroy();
+    final reply = await utf8.decoder
+        .bind(socket)
+        .join()
+        .timeout(const Duration(seconds: 10));
+    expect(reply, startsWith('HTTP/1.1 413'));
     await released(engine);
     expect(await post(engine, '/echo', 16, 16), contains('{"length":16}'));
   });

@@ -3,6 +3,7 @@ import 'dart:async';
 import '../cache/cache.dart';
 import '../database/orm/model.dart';
 import '../database/orm/model_definition.dart';
+import '../foundation/cancellation.dart';
 import '../foundation/config.dart';
 import '../foundation/container.dart';
 import '../foundation/exceptions.dart';
@@ -45,9 +46,10 @@ abstract class Job {
   /// The connection this job goes to; the default one when null.
   String? get connection => null;
 
-  /// How many exceptions are allowed before the job fails ([tries] by
-  /// default).
-  int get maxExceptions => tries;
+  /// Laravel's `$maxExceptions`: the job fails once it has thrown this many
+  /// exceptions, however many [tries] are left (releases do not count).
+  /// Null (the default) or 0 leaves only [tries] and [retryUntil].
+  int? get maxExceptions => null;
 
   /// Laravel's `$deleteWhenMissingModels`: a job whose [ModelRef] row is gone
   /// is dropped, not failed.
@@ -128,6 +130,18 @@ final class UnknownJobException extends DaravelException {
       );
 }
 
+/// Laravel's `MaxAttemptsExceededException`: a job reserved once more after
+/// it used up its tries (released by middleware, or abandoned past its
+/// timeout) or its `retryUntil`; it fails without running.
+final class MaxAttemptsExceededException extends DaravelException {
+  /// [displayName] was attempted too many times or too late.
+  MaxAttemptsExceededException(String displayName, {required int attempts})
+    : super(
+        '$displayName has been attempted too many times or run too long '
+        '($attempts attempts). The job may have previously timed out.',
+      );
+}
+
 /// Explicit job registry (ADR-002).
 final class JobRegistry {
   /// A registry of [definitions].
@@ -192,9 +206,22 @@ final class JobContext {
   /// Effective maximum attempts (`null` = unlimited).
   final int? maxTries;
 
+  /// Cancelled when the handler exceeded its timeout. The handler runs with
+  /// it as [CancellationToken.current], so a `DB.transaction` it is still
+  /// in rolls back instead of committing.
+  final CancellationToken cancellation = CancellationToken();
+
   /// Set when the handler exceeded its timeout; long loops should check it
-  /// and return early (Dart cannot kill a running Future).
-  bool cancelled = false;
+  /// and return early (Dart cannot kill a running Future). From then on its
+  /// transactions roll back instead of committing ([cancellation]).
+  bool get cancelled => cancellation.isCancelled;
+
+  /// Setting it to true cancels [cancellation]; it cannot be undone.
+  set cancelled(bool value) {
+    if (value) {
+      cancellation.cancel('Job attempt $attempt of $id was given up');
+    }
+  }
 
   Duration? _release;
   bool _delete = false;
@@ -292,7 +319,12 @@ final class WithoutOverlapping implements JobMiddleware {
     try {
       await next();
     } finally {
-      await lock.release();
+      // A handler past its timeout still runs: its lock stays until
+      // [expiresAfter], as when Laravel kills the worker, so the retry does
+      // not run next to it.
+      if (!ctx.cancelled) {
+        await lock.release();
+      }
     }
   }
 }
