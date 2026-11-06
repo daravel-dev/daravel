@@ -515,6 +515,16 @@ server framework for Linux, macOS and Windows.
 
 ## dartisan CLI
 
+On a terminal, `dartisan` opens with a short banner and the commands grouped
+like `php artisan list` (plain usage text when piped or in CI; `--no-color`
+or `NO_COLOR` for no colour):
+
+```text
+ _| _. ._|_ o _  _. ._
+(_|(_|| |_ |_> (_|| |   Daravel 1.27.0 · Dart 3.13.4 · linux
+                        Made with the help of our sponsors ♥ github.com/sponsors/daravel-dev
+```
+
 | Group | Commands |
 | :-- | :-- |
 | Project | `new <name> [--template=api\|minimal] [--path] [--git]`, `about`, `doctor [--production]`, `key:generate [--show] [--force]`, `stub:publish`, `env:encrypt`, `env:decrypt`, `env:obfuscate`, `adopt <laravel-path> [--check]`, `down [--secret] [--retry]`, `up`, `tinker "<expr>"` |

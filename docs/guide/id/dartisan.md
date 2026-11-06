@@ -1,4 +1,4 @@
-<!-- source: dartisan.md sha256:90e5e92740c2 -->
+<!-- source: dartisan.md sha256:682a72d396f4 -->
 # dartisan
 
 `dartisan` adalah `artisan`-nya Daravel. Pasang sekali, lalu pakai di proyek
@@ -217,6 +217,45 @@ diganti, karena tidak bisa berjalan di sana. Entri yang sudah Anda ubah
 dipertahankan. Setelah menambahkan DDEV ke proyek yang sudah ada, jalankan
 lagi `ddev dartisan mcp:install`. `dartisan new --mcp` berjalan sebelum DDEV
 dikonfigurasi, jadi yang ditulis adalah entri untuk host.
+
+## Tampilan dan sponsor
+
+Di terminal, `dartisan` tanpa command menampilkan word-mark singkat beserta
+versi Daravel, Dart, dan OS, lalu command yang dikelompokkan menurut bagian
+namanya sebelum `:`, seperti `php artisan list`, dengan command Anda sendiri
+di bagian akhir pada kelompok `project`:
+
+```text
+ _| _. ._|_ o _  _. ._
+(_|(_|| |_ |_> (_|| |   Daravel 1.27.0 · Dart 3.13.4 · linux
+                        Made with the help of our sponsors ♥ github.com/sponsors/daravel-dev
+```
+
+Saat di-pipe atau di CI, command yang sama mencetak teks usage polos, sehingga
+skrip melihat keluaran yang sama seperti sebelumnya. `dartisan list`
+menampilkan kelompoknya; `list --raw` memberi nama saja, satu per baris (untuk
+shell completion), dan `list --format=json` memberi `[{name, description,
+group}]`.
+
+Warna dipakai di terminal yang mendukung escape ANSI. `--no-color`,
+`NO_COLOR`, `DARTISAN_NO_COLOR=1`, atau `TERM=dumb` mematikannya; `--ansi`
+memaksanya, untuk pager seperti `less -R`. Flag ini boleh diletakkan di mana
+saja sebelum `--`. Keluaran command lain tidak berubah karenanya.
+
+`dartisan about` diakhiri bagian **Daravel** (versi, Dart SDK, OS, arsitektur,
+AOT atau JIT, `APP_ENV`), yang berguna ditempel di laporan bug, dan bagian
+**Community** berisi dokumentasi, issue tracker, dan halaman sponsor;
+`about --json` mencetak semuanya.
+
+Daravel berjalan berkat para sponsornya. `dartisan sponsor` menunjukkan cara
+membantu (`--open` membuka halamannya). Setelah `build`, `upgrade`,
+`self-update`, `test`, atau `migrate` pertama di sebuah proyek berhasil, satu
+baris redup berterima kasih kepada mereka, diikuti cara menyembunyikannya.
+Baris itu tidak pernah muncul setelah kegagalan, di CI, di luar terminal, atau
+lebih dari sekali sehari, dan CLI tidak melakukan panggilan jaringan untuknya.
+Matikan selamanya dengan `dartisan sponsor --hide` (disimpan di
+`~/.dartisan/config.json`; `--show` mengembalikannya, `--status`
+memberitahukan statusnya) atau dengan `DARTISAN_NO_NUDGE=1`.
 
 ## Command buatan sendiri
 
