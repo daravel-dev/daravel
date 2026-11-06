@@ -1,0 +1,26 @@
+name: daravel_horizon
+description: Queue supervisors for Daravel after Laravel Horizon. Worker isolates per supervisor, auto-scaling on queue load, and a dashboard, with the jobs table shared with Laravel.
+version: 1.26.0
+homepage: https://daravel.dev
+repository: https://github.com/daravel-dev/daravel/tree/main/packages/daravel_horizon
+issue_tracker: https://github.com/daravel-dev/daravel/issues
+funding:
+  - https://github.com/sponsors/daravel-dev
+documentation: https://daravel.dev/horizon.html
+topics: [queue, jobs, monitoring, dashboard, server]
+
+platforms:
+  linux:
+  macos:
+  windows:
+
+environment:
+  sdk: ^3.13.0
+resolution: workspace
+
+dependencies:
+  daravel: ^1.26.0
+
+dev_dependencies:
+  daravel_test: ^1.26.0
+  test: ^1.33.0
