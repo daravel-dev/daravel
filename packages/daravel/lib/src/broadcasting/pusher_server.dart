@@ -31,11 +31,21 @@ final class PusherServer {
     ChannelState? state,
     this.relay,
     this.onError,
-  }) : _state = state ?? _CoordinatorChannelState(coordinator);
+    this.onRejected,
+  }) : _coordinator = coordinator,
+       _state = state ?? _CoordinatorChannelState(coordinator);
+
+  final CoordinatorChannel _coordinator;
 
   /// Told about failures no client can be told about: a channel left on
   /// close whose `leave` failed twice, a relay that would not start.
   final void Function(String message, Object error)? onError;
+
+  /// Told when a connection, message or subscription is refused, with why:
+  /// `connection_quota` (4004), `rate_limit` (4301, `rate_limiting`),
+  /// `client_event_rate` (4301, client events per second) or
+  /// `channel_limit` (4300); the `reverb_rejected_total` metric.
+  final void Function(String reason)? onRejected;
 
   /// The broadcasting settings.
   final BroadcastConfig config;
@@ -122,6 +132,54 @@ final class PusherServer {
       await socket.close();
       return;
     }
+    final id =
+        '${_random.nextInt(1000000000) + 1}.${_random.nextInt(1000000000) + 1}';
+    // Reverb checks the quota first, before the origin.
+    final quota = config.maxConnections;
+    if (quota > 0) {
+      if (!await _open(id, quota)) {
+        onRejected?.call('connection_quota');
+        socket.add(_error(4004, 'Application is over connection quota'));
+        await socket.close();
+        return;
+      }
+      try {
+        await _serve(socket, request, id);
+      } finally {
+        await _close(id);
+      }
+      return;
+    }
+    await _serve(socket, request, id);
+  }
+
+  /// Counts connection [id] against the quota of [max] in the coordinator,
+  /// every worker isolate together; true when it fits. A coordinator that
+  /// fails lets the connection in (and is reported): a quota is a guard,
+  /// not a reason to refuse every client.
+  Future<bool> _open(String id, int max) async {
+    try {
+      return await _coordinator.call('channels', 'open', {
+            'socket': id,
+            'max': max,
+            'worker': Isolate.current.debugName,
+          }) !=
+          false;
+    } on Object catch (error) {
+      onError?.call('Connection quota could not be checked', error);
+      return true;
+    }
+  }
+
+  Future<void> _close(String id) async {
+    try {
+      await _coordinator.call('channels', 'close', {'socket': id});
+    } on Object catch (error) {
+      onError?.call('Connection $id could not leave the quota', error);
+    }
+  }
+
+  Future<void> _serve(WebSocket socket, Request request, String id) async {
     if (!_originAllowed(request.header('origin'))) {
       socket.add(_error(4009, 'Origin not allowed'));
       await socket.close();
@@ -143,11 +201,7 @@ final class PusherServer {
         return;
       }
     }
-    final connection = _Connection(
-      this,
-      socket,
-      '${_random.nextInt(1000000000) + 1}.${_random.nextInt(1000000000) + 1}',
-    );
+    final connection = _Connection(this, socket, id);
     socket.pingInterval = Duration(seconds: config.activityTimeout);
     connection.send(
       jsonEncode({
@@ -432,6 +486,14 @@ final class _Connection {
       send(PusherServer._error(code, message));
 
   Future<void> receive(Object? message) async {
+    if (!_withinRateLimit()) {
+      _server.onRejected?.call('rate_limit');
+      _error(4301, 'Rate limit exceeded');
+      if (_server.config.rateLimitTerminate) {
+        await _socket.close(4301, 'Rate limit exceeded');
+      }
+      return;
+    }
     final max = _server.config.maxMessageSize;
     if (message is! String ||
         // A character is at most 3 bytes: measure only when it could matter.
@@ -474,6 +536,7 @@ final class _Connection {
         if (most > 0 &&
             _subscriptions.length >= most &&
             !_subscriptions.containsKey(channel)) {
+          _server.onRejected?.call('channel_limit');
           return _error(
             4300,
             'Too many channels on this connection (at most $most)',
@@ -494,10 +557,39 @@ final class _Connection {
       case _ when event.startsWith('client-'):
         if (!_allowClientEvent()) {
           // Dropped, the connection kept, as Pusher does.
+          _server.onRejected?.call('client_event_rate');
           return _error(4301, 'Rate limit exceeded');
         }
         await _whisper(event, payload);
     }
+  }
+
+  /// Messages counted in the current rate limiting window, and when it
+  /// ends ([BroadcastConfig.rateLimiting]).
+  int _messages = 0;
+  DateTime? _windowEnds;
+
+  /// Reverb's `ensureWithinRateLimit` (Laravel's `RateLimiter`): a window
+  /// of [BroadcastConfig.rateLimitDecay] opens with the first message, and
+  /// past [BroadcastConfig.rateLimitMaxAttempts] messages in it the next
+  /// are refused, without counting, until it ends.
+  bool _withinRateLimit() {
+    final config = _server.config;
+    if (!config.rateLimiting) {
+      return true;
+    }
+    final now = Clock.now();
+    final ends = _windowEnds;
+    if (ends != null && !now.isBefore(ends)) {
+      _messages = 0;
+      _windowEnds = null;
+    }
+    if (_messages >= config.rateLimitMaxAttempts) {
+      return false;
+    }
+    _messages++;
+    _windowEnds ??= now.add(config.rateLimitDecay);
+    return true;
   }
 
   /// Client events counted in the current second, and when it started.

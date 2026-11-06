@@ -263,14 +263,16 @@ final class Application {
     final channel =
         coordinator ??
         LocalCoordinatorChannel(
-          createStandardCoordinator(
-            jwtDenylistMaxEntries: config
-                .section<CacheConfig>()
-                .jwtDenylistMaxEntries,
-            onWarning: logger.warning,
-            processCacheMaxEntries: config
-                .section<CacheConfig>()
-                .processMaxEntries,
+          _registerCoordinatorServices(
+            createStandardCoordinator(
+              jwtDenylistMaxEntries: config
+                  .section<CacheConfig>()
+                  .jwtDenylistMaxEntries,
+              onWarning: logger.warning,
+              processCacheMaxEntries: config
+                  .section<CacheConfig>()
+                  .processMaxEntries,
+            ),
           ),
         );
     final events = EventDispatcher();
@@ -477,10 +479,15 @@ final class Application {
                   relay: relay,
                   onError: (message, error) =>
                       c.make<Logger>().warning('$message: $error'),
+                  onRejected: (reason) => metrics.recordReverbRejected(
+                    reason,
+                    app: broadcasting.appId,
+                  ),
                 )
               : null,
           http: c.make<HttpClientFactory>(),
           logger: c.make<Logger>(),
+          database: c.tryMake<DatabaseManager>(),
         );
       })
       ..instance<EventDispatcher>(events)
@@ -928,6 +935,9 @@ final class Application {
         // ("over capacity"): Pusher clients reconnect after a backoff.
         maxBufferedBytes: broadcasting.maxBufferedBytes,
         slowClientCode: PusherServer.slowClientCode,
+        // Closed at random moments of REVERB_DRAIN_SPREAD at shutdown, so
+        // the clients do not all reconnect to the next server at once.
+        drainSpread: broadcasting.drainSpread,
       ).name('daravel.broadcasting.connect')
       ..post(
         '/apps/{appId}/events',
@@ -1151,6 +1161,9 @@ final class Application {
   /// own isolates in the same process and stop with the server.
   /// [commandRunner] lets the embedded scheduler run console commands (the
   /// CLI passes its own); without it, scheduled commands fail and are logged.
+  /// [embedWorkers] (`serve --embed-worker`, `SERVER_EMBED_WORKERS`) names
+  /// isolates registered with [ApplicationBuilder.withEmbeddedWorker]; a
+  /// name nothing registered is a [ConfigException].
   static Future<int> serveWith(
     ApplicationFactory factory, {
     String? host,
@@ -1158,6 +1171,7 @@ final class Application {
     int? isolates,
     bool? embedQueue,
     bool? embedScheduler,
+    List<String>? embedWorkers,
     int? maxInFlight,
     Duration? maxQueueDelay,
     ScheduleCommandRunner? commandRunner,
@@ -1185,6 +1199,8 @@ final class Application {
           if (embedQueue != null) 'SERVER_EMBED_QUEUE': '$embedQueue',
           if (embedScheduler != null)
             'SERVER_EMBED_SCHEDULER': '$embedScheduler',
+          if (embedWorkers != null)
+            'SERVER_EMBED_WORKERS': embedWorkers.join(','),
           if (maxInFlight != null) 'HTTP_MAX_IN_FLIGHT': '$maxInFlight',
           if (maxQueueDelay != null)
             'HTTP_MAX_QUEUE_DELAY': '${maxQueueDelay.inMilliseconds}ms',
@@ -1198,10 +1214,12 @@ final class Application {
       isolates: isolates,
       embedQueue: embedQueue,
       embedScheduler: embedScheduler,
+      embedWorkers: embedWorkers,
       maxInFlight: maxInFlight,
       maxQueueDelay: maxQueueDelay,
     );
     probe._ensureServeable(options);
+    probe._ensureEmbeddedWorkers(options.embedWorkers);
     // Once, here in the main isolate, rather than in every worker.
     if (probe.config.section<DatabaseConfig>().sharesSqliteFile(
       options.isolates,
@@ -1235,17 +1253,20 @@ final class Application {
           : null;
     } else {
       final cacheConfig = probe.config.section<CacheConfig>();
-      coordinator = createStandardCoordinator(
-        processCacheMaxEntries: cacheConfig.processMaxEntries,
-        jwtDenylistMaxEntries: cacheConfig.jwtDenylistMaxEntries,
-        onWarning: probe.logger.warning,
+      coordinator = probe._registerCoordinatorServices(
+        createStandardCoordinator(
+          processCacheMaxEntries: cacheConfig.processMaxEntries,
+          jwtDenylistMaxEntries: cacheConfig.jwtDenylistMaxEntries,
+          onWarning: probe.logger.warning,
+        ),
       );
     }
-    final embedded = roles.isEmpty
+    final embedded = roles.isEmpty && options.embedWorkers.isEmpty
         ? null
         : EmbeddedWorkers(
             factory,
             roles: roles,
+            custom: options.embedWorkers,
             logger: probe.logger,
             commandRunner: commandRunner,
             coordinator: coordinator?.listen(),
@@ -1334,6 +1355,35 @@ final class Application {
         '(CACHE_STORE, CACHE_LIMITER, QUEUE_UNIQUE_LOCK_STORE), or set '
         'APP_PROCESSES_ALLOW_UNSHARED_STATE=true to accept per-process '
         'caches, rate limits and locks.',
+      );
+    }
+  }
+
+  /// Registers the [ApplicationBuilder.withCoordinatorService] services
+  /// on [coordinator] and returns it.
+  Coordinator _registerCoordinatorServices(Coordinator coordinator) {
+    for (final factory in _builder._coordinatorServices) {
+      coordinator.register(factory());
+    }
+    return coordinator;
+  }
+
+  /// The names [ApplicationBuilder.withEmbeddedWorker] registered.
+  Iterable<String> get embeddedWorkerNames => _builder._embeddedWorkers.keys;
+
+  /// Refuses an embedded worker name nothing registered.
+  void _ensureEmbeddedWorkers(List<String> names) {
+    final unknown = [
+      for (final name in names)
+        if (!_builder._embeddedWorkers.containsKey(name)) name,
+    ];
+    if (unknown.isNotEmpty) {
+      final known = _builder._embeddedWorkers.keys;
+      throw ConfigException(
+        'Unknown embedded worker [${unknown.join(', ')}] '
+        '(serve --embed-worker, SERVER_EMBED_WORKERS); registered: '
+        '${known.isEmpty ? 'none' : known.join(', ')}. Packages register '
+        'theirs with ApplicationBuilder.withEmbeddedWorker.',
       );
     }
   }
@@ -1880,6 +1930,47 @@ final class ApplicationBuilder {
   /// closes (a driver's connections, for example).
   ApplicationBuilder withShutdown(Future<void> Function(Container c) hook) {
     _shutdownHooks.add(hook);
+    return this;
+  }
+
+  final Map<String, EmbeddedWorkerEntry> _embeddedWorkers = {};
+  final List<CoordinatorService Function()> _coordinatorServices = [];
+
+  /// Registers an embedded isolate named [name] that runs [entry] beside
+  /// the HTTP server when `serve --embed-worker=<name>` (or
+  /// `SERVER_EMBED_WORKERS`) asks for it, as `--embed-queue` runs the queue
+  /// worker: its own application from `createApp`, booted, the server's
+  /// coordinator, and the same respawn, crash backoff and stop. Packages
+  /// use it (`daravel_horizon`'s supervisor). [name] is lower case letters,
+  /// digits, `-` and `_`, other than `queue` and `scheduler`.
+  ApplicationBuilder withEmbeddedWorker(
+    String name,
+    EmbeddedWorkerEntry entry,
+  ) {
+    if (!RegExp(r'^[a-z0-9][a-z0-9_-]*$').hasMatch(name) ||
+        name == EmbeddedRole.queue.name ||
+        name == EmbeddedRole.scheduler.name) {
+      throw ArgumentError.value(
+        name,
+        'name',
+        'An embedded worker name is lower case letters, digits, - and _, '
+            'other than queue and scheduler.',
+      );
+    }
+    _embeddedWorkers[name] = entry;
+    return this;
+  }
+
+  /// Registers a coordinator service built by [factory] on the process's
+  /// coordinator, in every topology: the application's own coordinator
+  /// with one isolate (tests included), the supervisor's with several, and
+  /// so the embedded workers' too. A [WorkerAwareService] hears when a
+  /// worker isolate exits. Worker isolates reach it through
+  /// `CoordinatorChannel.call(service.name, op, args)`.
+  ApplicationBuilder withCoordinatorService(
+    CoordinatorService Function() factory,
+  ) {
+    _coordinatorServices.add(factory);
     return this;
   }
 

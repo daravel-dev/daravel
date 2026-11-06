@@ -34,13 +34,22 @@ abstract final class Broadcast {
   static Future<void> event(ShouldBroadcast event) => manager.broadcast(event);
 
   /// Broadcasts [event] with [data] to [channels] (`private-…`,
-  /// `presence-…` or public), leaving out [exceptSocket].
+  /// `presence-…` or public), leaving out [exceptSocket]. Inside a database
+  /// transaction it waits for the commit unless [afterCommit] is false
+  /// (`BROADCAST_AFTER_COMMIT`).
   static Future<void> send(
     String event,
     List<String> channels,
     Object? data, {
     String? exceptSocket,
-  }) => manager.send(event, channels, data, exceptSocket: exceptSocket);
+    bool? afterCommit,
+  }) => manager.send(
+    event,
+    channels,
+    data,
+    exceptSocket: exceptSocket,
+    afterCommit: afterCommit,
+  );
 
   /// Sends [message] (a `String`, or anything as JSON) to [channel];
   /// returns how many isolates received it.

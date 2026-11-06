@@ -104,6 +104,10 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `Echo.encryptedPrivate('orders.7') with encryption_master_key_base64` | `REVERB_ENCRYPTION_MASTER_KEY_BASE64` | private-encrypted- channels, sealed with libsodium's secretbox. |
 | `REVERB_SCALING_ENABLED=true (Reverb with Redis)` | `REVERB_SCALING_ENABLED=true (the database)` | Frames, presence members (here included) and cache channels span every server; PostgreSQL NOTIFY, MySQL polling. |
 | `(Reverb's internal pub/sub)` | `await Broadcast.publish('orders.7', data)` | **async**; Daravel's own channels between isolates, for custom WebSocket and SSE routes. |
+| `new PrivateChannel('orders.7') / PresenceChannel / EncryptedPrivateChannel` | `Channels.private('orders.7') / Channels.presence / Channels.encrypted` |  |
+| `'max_connections' => env('REVERB_APP_MAX_CONNECTIONS')` | `REVERB_APP_MAX_CONNECTIONS` | 4004 Application is over connection quota, counted over every worker isolate of the server. |
+| `'rate_limiting' => [...] (REVERB_APP_RATE_LIMITING_ENABLED, REVERB_APP_RATE_LIMIT_*)` | `the same variables` | Every message counts, pusher:ping included; 4301 Rate limit exceeded. |
+| `ShouldDispatchAfterCommit on a broadcast event` | `BROADCAST_AFTER_COMMIT=true (default)` | Every broadcast inside a transaction waits for the commit and is dropped on rollback. |
 
 ## Scout (daravel_scout)
 
@@ -408,6 +412,8 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `php artisan queue:pause database:default / queue:continue` | `dartisan queue:pause database:default / queue:continue` |  |
 | `public $maxExceptions = 3;` | `int? get maxExceptions => 3;` |  |
 | `php artisan queue:work --memory=128` | `dartisan queue:work --memory=128` |  |
+| `(none)` | `.withEmbeddedWorker('indexer', (app, control) async {...}); dartisan serve --embed-worker=indexer` | Daravel-only: an isolate of a package or the application beside the HTTP server, with the queue worker's respawn and stop (daravel_horizon's supervisor). |
+| `(none)` | `.withCoordinatorService(MyService.new)` | Daravel-only: process-wide state every worker isolate reaches, in every topology. |
 | `class SendEmail implements ShouldQueue` | `final class SendEmail extends Job` |  |
 | `event(new OrderShipped($order))` | `await Event.dispatch(OrderShipped(order))` | **async** |
 | `Event::listen(OrderShipped::class, fn)` | `Event.listen<OrderShipped>((e) async {...})` |  |
@@ -447,6 +453,9 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `Storage::disk('s3')->temporaryUrl($path, now()->addMinutes(30))` | `Storage.disk('s3').temporaryUrl(path, expiration: 30.minutes.fromNow)` | package:daravel_s3 (withS3()); same AWS_* variables. |
 | `Storage::disk('s3')->temporaryUploadUrl($path, $expiration)` | `Storage.disk('s3').temporaryUploadUrl(path, expiration: ...)` | Returns url and headers, as Laravel's array. |
 | `Http::withToken($t)->retry(3, 100)->post($url, $data)` | `await Http.withToken(t).retry(3).post(url, json: data)` | **async** |
+| `Http::retry(3, [100, 200, 500])` | `Http.retry(3, backoff: Http.backoffSequence([...]))` |  |
+| `Http::retry(3, 100, fn ($exception, $request) => ...)` | `Http.retry(3, when: (response, error) => ...)` | Every failed response is retried by default, as in Laravel; when: Http.retryOnConnectionOr5xx leaves other 4xx alone. |
+| `(none)` | `Http.retry(5, backoff: Http.exponentialBackoff(), jitter: 0.2, honorRetryAfter: true)` | Daravel-only: exponential waits, jitter and Retry-After on 429/503. |
 | `Http::fake([...]) / Http::assertSent(...)` | `Http.fake({...}).assertSent(...)` |  |
 | `php artisan down --secret / up` | `dartisan down --secret / up` | Same storage/framework/down file; bypass cookie daravel_maintenance. |
 | `Log::info($message, $context)` | `Log.info(message, context)` |  |

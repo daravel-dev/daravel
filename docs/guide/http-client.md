@@ -32,6 +32,23 @@ response.throwIfFailed();                // RequestException on 4xx/5xx
   fails or the response is 4xx/5xx, or when `when(response, error)` says so,
   and returns the last response. A connection that cannot be made, or a
   timeout, throws `ConnectionException`, TLS failures included.
+  As in Laravel, every failed response is retried by default.
+  `backoff:` replaces the fixed delay (`Http.exponentialBackoff()`, or
+  `Http.backoffSequence([...])` for Laravel's `retry(3, [100, 200])`),
+  `jitter:` (0 to 1) spreads the waits, and `when: Http.retryOnConnectionOr5xx`
+  (connection errors, 429 and 5xx) or `Http.retryOnConnectionOnly` leaves
+  the other client errors alone. `honorRetryAfter: true` waits what a
+  `429` or `503` asks in `Retry-After`, at most `maxRetryAfter` (10 s):
+
+  ```dart
+  await Http.retry(
+    3,
+    backoff: Http.exponentialBackoff(),
+    jitter: 0.2,
+    when: Http.retryOnConnectionOr5xx,
+    honorRetryAfter: true,
+  ).get(url);
+  ```
 - Responses: `status`, `body`, `json([path, fallback])`, `jsonMap()`,
   `header(name)`, `successful` (2xx), `ok` (200), `redirect`, `clientError`,
   `serverError`, `failed`, `bodyBytes` (the body as received, for binary
