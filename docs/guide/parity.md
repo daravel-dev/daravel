@@ -104,6 +104,10 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `Echo.encryptedPrivate('orders.7') with encryption_master_key_base64` | `REVERB_ENCRYPTION_MASTER_KEY_BASE64` | private-encrypted- channels, sealed with libsodium's secretbox. |
 | `REVERB_SCALING_ENABLED=true (Reverb with Redis)` | `REVERB_SCALING_ENABLED=true (the database)` | Frames, presence members (here included) and cache channels span every server; PostgreSQL NOTIFY, MySQL polling. |
 | `(Reverb's internal pub/sub)` | `await Broadcast.publish('orders.7', data)` | **async**; Daravel's own channels between isolates, for custom WebSocket and SSE routes. |
+| `new PrivateChannel('orders.7') / PresenceChannel / EncryptedPrivateChannel` | `Channels.private('orders.7') / Channels.presence / Channels.encrypted` |  |
+| `'max_connections' => env('REVERB_APP_MAX_CONNECTIONS')` | `REVERB_APP_MAX_CONNECTIONS` | 4004 Application is over connection quota, counted over every worker isolate of the server. |
+| `'rate_limiting' => [...] (REVERB_APP_RATE_LIMITING_ENABLED, REVERB_APP_RATE_LIMIT_*)` | `the same variables` | Every message counts, pusher:ping included; 4301 Rate limit exceeded. |
+| `ShouldDispatchAfterCommit on a broadcast event` | `BROADCAST_AFTER_COMMIT=true (default)` | Every broadcast inside a transaction waits for the commit and is dropped on rollback. |
 
 ## Scout (daravel_scout)
 

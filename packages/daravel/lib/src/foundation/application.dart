@@ -477,10 +477,15 @@ final class Application {
                   relay: relay,
                   onError: (message, error) =>
                       c.make<Logger>().warning('$message: $error'),
+                  onRejected: (reason) => metrics.recordReverbRejected(
+                    reason,
+                    app: broadcasting.appId,
+                  ),
                 )
               : null,
           http: c.make<HttpClientFactory>(),
           logger: c.make<Logger>(),
+          database: c.tryMake<DatabaseManager>(),
         );
       })
       ..instance<EventDispatcher>(events)
@@ -928,6 +933,9 @@ final class Application {
         // ("over capacity"): Pusher clients reconnect after a backoff.
         maxBufferedBytes: broadcasting.maxBufferedBytes,
         slowClientCode: PusherServer.slowClientCode,
+        // Closed at random moments of REVERB_DRAIN_SPREAD at shutdown, so
+        // the clients do not all reconnect to the next server at once.
+        drainSpread: broadcasting.drainSpread,
       ).name('daravel.broadcasting.connect')
       ..post(
         '/apps/{appId}/events',

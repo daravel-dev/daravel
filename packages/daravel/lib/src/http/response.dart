@@ -81,6 +81,7 @@ final class Response {
     this.webSocketMaxPayloadBytes = defaultWebSocketMaxPayloadBytes,
     this.webSocketMaxBufferedBytes = defaultWebSocketMaxBufferedBytes,
     this.webSocketSlowClientCode = 1008,
+    this.webSocketDrainSpread,
     this.exception,
   }) : headers = headers ?? Headers();
 
@@ -307,12 +308,15 @@ final class Response {
   /// compression state per connection, which matters with many of them.
   /// Once more than [maxBufferedBytes] wait to be sent (the client reads
   /// too slowly) the connection is closed with [slowClientCode].
+  /// [drainSpread] spreads the close when the server shuts down
+  /// ([webSocketDrainSpread]).
   factory Response.webSocket(
     WebSocketHandler handler, {
     bool compress = true,
     int maxPayloadBytes = defaultWebSocketMaxPayloadBytes,
     int maxBufferedBytes = defaultWebSocketMaxBufferedBytes,
     int slowClientCode = 1008,
+    Duration? drainSpread,
   }) => Response(
     status: 101,
     webSocket: handler,
@@ -320,6 +324,7 @@ final class Response {
     webSocketMaxPayloadBytes: maxPayloadBytes,
     webSocketMaxBufferedBytes: maxBufferedBytes,
     webSocketSlowClientCode: slowClientCode,
+    webSocketDrainSpread: drainSpread,
   );
 
   /// Streamed body with an explicit content type.
@@ -384,6 +389,12 @@ final class Response {
   /// route says otherwise (the Pusher server sends 4100, which Pusher
   /// clients answer by reconnecting after a backoff).
   final int webSocketSlowClientCode;
+
+  /// Over how long a shutting-down server spreads closing these
+  /// WebSockets (each at a random moment within it, bounded by the shutdown
+  /// timeout), so their clients do not all reconnect at once; null closes
+  /// them at once, with 1001.
+  final Duration? webSocketDrainSpread;
 
   /// Content length to advertise when the body was stripped (HEAD requests).
   final int? contentLengthOverride;
@@ -524,6 +535,7 @@ final class Response {
         webSocketMaxPayloadBytes: webSocketMaxPayloadBytes,
         webSocketMaxBufferedBytes: webSocketMaxBufferedBytes,
         webSocketSlowClientCode: webSocketSlowClientCode,
+        webSocketDrainSpread: webSocketDrainSpread,
         exception: exception ?? this.exception,
       );
 

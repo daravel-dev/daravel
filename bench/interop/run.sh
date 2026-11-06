@@ -14,6 +14,9 @@
 #    Reverb, and Echo, connected to Reverb, receives it.
 # D. Two Daravel servers with REVERB_SCALING_ENABLED (one database): Echo
 #    connected to one receives an event published on the other.
+# E. Limits: the third connection over REVERB_APP_MAX_CONNECTIONS=2 gets
+#    4004, the sixth message over the rate limit 4301; 50 clients of a server
+#    stopped with REVERB_DRAIN_SPREAD=2s lose it over more than a second.
 #
 # Laravel comes from bench/laravel/Dockerfile, plus pusher/pusher-php-server
 # and laravel/reverb.
@@ -76,7 +79,8 @@ listener() { # port event output: waits until subscribed
   return 1
 }
 
-cleanup() { docker rm -f daravel-interop daravel-to-reverb reverb-interop daravel-scale-a daravel-scale-b >/dev/null 2>&1; }
+cleanup() { docker rm -f daravel-interop daravel-to-reverb reverb-interop daravel-scale-a daravel-scale-b \
+  daravel-limits daravel-drain daravel-drain-clients >/dev/null 2>&1; }
 trap cleanup EXIT
 status=0
 
@@ -118,6 +122,26 @@ curl -s -o /dev/null -X POST http://127.0.0.1:18702/api/publish
 wait
 cat "$WORK/d.out"
 grep -q "1 passed, 0 failed" "$WORK/d.out" || status=1
+
+echo "== E: limits (4004 quota, 4301 rate limit) and a spread drain"
+daravel daravel-limits 18704 -e REVERB_APP_MAX_CONNECTIONS=2 \
+  -e REVERB_APP_RATE_LIMITING_ENABLED=true -e REVERB_APP_RATE_LIMIT_MAX_ATTEMPTS=5 || exit 1
+echo_client -e PORT=18704 -e KEY=key1 -e MODE=limits || status=1
+daravel daravel-drain 18705 -e REVERB_DRAIN_SPREAD=2s || exit 1
+docker rm -f daravel-drain-clients >/dev/null 2>&1
+docker run -d --name daravel-drain-clients --network host -v "$WORK/npm:/work" \
+  -v "$HERE:/test:ro" -w /work -e PORT=18705 -e KEY=key1 -e MODE=drain -e COUNT=50 \
+  node:22-alpine sh -c 'cp /test/echo_test.mjs . && node echo_test.mjs' >/dev/null
+for _ in $(seq 1 60); do
+  docker logs daravel-drain-clients 2>&1 | grep -q READY && break
+  sleep 1
+done
+# SIGTERM to the server's VM (the container's shell does not pass it on).
+docker exec daravel-drain sh -c 'for p in /proc/[0-9]*; do
+  grep -q interop_server "$p/cmdline" 2>/dev/null && kill -TERM "${p#/proc/}"; done'
+docker wait daravel-drain-clients >/dev/null
+docker logs daravel-drain-clients | tee "$WORK/e.out"
+grep -q "1 passed, 0 failed" "$WORK/e.out" || status=1
 
 [ $status -eq 0 ] && echo "All interop scenarios passed." || echo "Some interop scenarios failed."
 exit $status
