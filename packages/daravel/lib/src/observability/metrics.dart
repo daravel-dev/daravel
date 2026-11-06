@@ -91,9 +91,8 @@ final class Counter extends _Metric {
     String help,
     MetricsRegistry registry, {
     bool limited = true,
-    double Function()? collect,
-  }) : _collect = collect,
-       super(name, help, registry, limited);
+    this._collect,
+  }) : super(name, help, registry, limited);
 
   final double Function()? _collect;
   final Map<String, double> _values = <String, double>{};
