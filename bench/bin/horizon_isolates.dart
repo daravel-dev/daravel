@@ -4,9 +4,11 @@
 // dart run bin/horizon_isolates.dart                     # JIT
 // dart build cli -t bin/horizon_isolates.dart -o build/horizon_isolates
 // build/horizon_isolates/bundle/bin/horizon_isolates     # AOT
+// BENCH_PG=postgres://user:pass@host:5432/db build/...   # PostgreSQL queue
 // ```
 //
-// For 1, 4 and 8 worker isolates of one supervisor on a SQLite file queue:
+// For 1, 4 and 8 worker isolates of one supervisor on a SQLite file queue
+// (or the `jobs` table of the PostgreSQL database in `BENCH_PG`):
 // the time from `HorizonMaster.start` until every worker is ready (spawn +
 // boot of its application), and the process's resident memory idle and
 // while the workers run a backlog of short jobs. Isolates share one heap,
@@ -21,6 +23,12 @@ import 'package:daravel_horizon/daravel_horizon.dart';
 final String _db =
     '${Directory.systemTemp.path}${Platform.pathSeparator}horizon_bench_$pid.sqlite';
 
+/// `BENCH_PG`: a PostgreSQL URL to queue on instead of the SQLite file.
+final String? _pg = switch (Platform.environment['BENCH_PG']) {
+  final String url when url.isNotEmpty => url,
+  _ => null,
+};
+
 final class _Work extends Job {
   const _Work();
   @override
@@ -32,18 +40,24 @@ final class _Work extends Job {
       Future<void>.delayed(const Duration(milliseconds: 5));
 }
 
-Application _app() => Application.configure(basePath: Directory.systemTemp.path)
-    .withEnv({
-      'APP_ENV': 'testing',
-      'DB_CONNECTION': 'sqlite',
-      'DB_DATABASE': _db,
-      'QUEUE_CONNECTION': 'database',
-      'CACHE_STORE': 'file',
-    })
-    .withLogLevel(LogLevel.critical)
-    .withMigrations(const [CreateJobsTable(), CreateCacheTable()])
-    .withJobs([JobDefinition('work', (_) => const _Work())])
-    .create();
+Application _app() =>
+    Application.configure(basePath: Directory.systemTemp.path)
+        .withEnv({
+          'APP_ENV': 'testing',
+          if (_pg case final url?) ...{
+            'DB_CONNECTION': 'pgsql',
+            'DB_URL': url,
+          } else ...{
+            'DB_CONNECTION': 'sqlite',
+            'DB_DATABASE': _db,
+          },
+          'QUEUE_CONNECTION': 'database',
+          'CACHE_STORE': 'file',
+        })
+        .withLogLevel(LogLevel.critical)
+        .withMigrations(const [CreateJobsTable(), CreateCacheTable()])
+        .withJobs([JobDefinition('work', (_) => const _Work())])
+        .create();
 
 Future<int> _rss() async {
   // A few samples a moment apart; the median damps a GC in flight.
@@ -64,13 +78,30 @@ Future<void> main() async {
   }
   final app = _app();
   await app.boot();
-  await app.run(() => App.make<Migrator>().run());
+  await app.run(() async {
+    if (_pg != null) {
+      // A server database keeps the tables of earlier runs and suites.
+      final schema = await Schema.builder();
+      for (final table in [
+        'jobs',
+        'job_batches',
+        'failed_jobs',
+        'cache',
+        'cache_locks',
+        'migrations',
+      ]) {
+        await schema.dropIfExists(table);
+      }
+    }
+    await App.make<Migrator>().run();
+  });
   final queues = app.container.make<QueueManager>();
   final base = await _rss();
   stdout
     ..writeln(
       'Dart ${Platform.version.split(' ').first}, '
-      '${Platform.operatingSystem}, ${Platform.numberOfProcessors} CPUs',
+      '${Platform.operatingSystem}, ${Platform.numberOfProcessors} CPUs, '
+      'queue on ${_pg == null ? 'a SQLite file' : 'PostgreSQL'}',
     )
     ..writeln('process RSS before any worker: ${_mb(base)} MB')
     ..writeln('')
@@ -117,5 +148,7 @@ Future<void> main() async {
     await Future<void>.delayed(const Duration(seconds: 1));
   }
   await app.shutdown();
-  File(_db).deleteSync();
+  if (File(_db).existsSync()) {
+    File(_db).deleteSync();
+  }
 }
