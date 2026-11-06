@@ -1,3 +1,5 @@
+import 'dart:isolate';
+
 import 'package:daravel/daravel.dart';
 import 'package:daravel_session/daravel_session.dart';
 
@@ -84,6 +86,7 @@ extension RedisApplicationBuilder on ApplicationBuilder {
         final state = RedisChannelState(
           client,
           server: server,
+          worker: Isolate.current.debugName,
           prefix: redis.prefix,
         );
         return (

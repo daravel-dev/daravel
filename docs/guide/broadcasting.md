@@ -169,15 +169,19 @@ Add `CreateBroadcastingTables()` to `bootstrap/migrations.dart` and run
 them to its own clients, so an event published on one server (by the HTTP
 API, `Broadcast.send` or a whisper) reaches clients connected to any of
 them. On PostgreSQL the servers wake each other with `NOTIFY`; on MySQL and
-MariaDB they read every `REVERB_SCALING_POLL` (`100ms`).
+MariaDB they read every `REVERB_SCALING_POLL` (`100ms`) while frames flow, and
+back off to once a second while none do, so idle worker isolates do not
+query ten times a second each.
 
 Presence members are shared too, unlike Reverb, whose `here` lists only
 the members on the same server: `here`, `member_added` (once per user,
 whichever server the user's tabs are on) and the HTTP API's `channels`,
 `channel` and `users` answer for the whole cluster, and so does the last
-event of a cache channel. Each server sends a heartbeat every ten seconds;
-the members of a server silent for 30 seconds (it crashed) stop counting
-and are deleted a minute later.
+event of a cache channel. Each worker isolate of each server sends a
+heartbeat every ten seconds; the members of one silent for 30 seconds (it
+crashed) stop counting and are deleted a minute later, and a worker
+respawned under the same name deletes them as it starts. A connection that
+subscribes again to a channel it is on is still one member.
 
 With [daravel_redis](redis.md), `REVERB_SCALING_DRIVER=redis` shares the
 same things through Redis instead: frames over Pub/Sub, members and cache
@@ -194,9 +198,21 @@ client stays on the server its WebSocket reached.
 | `REVERB_ALLOWED_ORIGINS` | `*` | Comma-separated host patterns that may connect (`app.example.com,*.example.com`) |
 | `REVERB_APP_ACTIVITY_TIMEOUT` | `30` | Seconds of silence before a client pings; the server also pings |
 | `REVERB_APP_MAX_MESSAGE_SIZE` | `10000` | The largest message a client may send, in bytes |
+| `REVERB_MAX_BUFFERED_BYTES` | `1048576` | How much may wait to be sent to one client; past it the client is closed with `4100` (over capacity) and reconnects after a backoff |
+| `REVERB_APP_MAX_CHANNELS_PER_CONNECTION` | `100` | Channels one connection may be subscribed to at once (`0`: no limit); past it `pusher:error` `4300`, the connection stays open |
+| `REVERB_APP_CLIENT_EVENTS_PER_SECOND` | `10` | Client events one connection may send per second, as Pusher Channels (`0`: no limit); past it the event is dropped with `pusher:error` `4301` |
+| `REVERB_APP_VALIDATE_CHANNEL_NAMES` | `true` | Channel names follow Pusher's rule: at most 164 characters of `A-Z a-z 0-9 _ - = @ , . ;`; others get `pusher:error` `4300` |
 
 Client events (`client-*`, Echo's `whisper`) are forwarded only on private
 and presence channels the sender has joined, as Pusher Channels requires.
+
+When the coordinator cannot answer (overloaded, or the scaling store is
+down) while a client subscribes or leaves, the client gets `pusher:error`
+and the connection is closed with `4100` (over capacity), so Echo
+reconnects after a backoff; a channel left behind by a failed `leave` is
+tried again and logged, and never keeps the connection's other channels
+subscribed. A relay that could not start (Redis down) is started again by
+the next client.
 
 ## Capacity
 

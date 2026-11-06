@@ -1,4 +1,4 @@
-<!-- source: broadcasting.md sha256:0c3087e82398 -->
+<!-- source: broadcasting.md sha256:8d3fd7a9ae4d -->
 # Broadcasting
 
 Daravel berbicara dengan protokol Pusher, seperti Laravel Reverb, di port
@@ -176,15 +176,20 @@ server lain lalu meneruskannya ke client-nya sendiri, sehingga event yang
 diterbitkan di satu server (lewat API HTTP, `Broadcast.send`, atau whisper)
 sampai ke client yang terhubung ke server mana pun. Di PostgreSQL server
 saling membangunkan dengan `NOTIFY`; di MySQL dan MariaDB server membaca
-setiap `REVERB_SCALING_POLL` (`100ms`).
+setiap `REVERB_SCALING_POLL` (`100ms`) selama ada frame yang mengalir, dan
+melambat sampai sekali per detik saat tidak ada, sehingga isolate worker
+yang menganggur tidak melakukan query sepuluh kali per detik masing-masing.
 
 Anggota presence juga dibagi, berbeda dengan Reverb yang `here`-nya hanya
 memuat anggota di server yang sama: `here`, `member_added` (sekali per
 user, di server mana pun tab user itu berada), serta `channels`, `channel`,
 dan `users` dari API HTTP menjawab untuk seluruh cluster, begitu pula event
-terakhir sebuah channel cache. Setiap server mengirim heartbeat setiap
-sepuluh detik; anggota dari server yang diam selama 30 detik (karena crash)
-tidak dihitung lagi dan dihapus semenit kemudian.
+terakhir sebuah channel cache. Setiap isolate worker di setiap server
+mengirim heartbeat setiap sepuluh detik; anggota dari isolate yang diam
+selama 30 detik (karena crash) tidak dihitung lagi dan dihapus semenit
+kemudian, dan worker yang dijalankan ulang dengan nama yang sama
+menghapusnya saat mulai. Koneksi yang subscribe lagi ke channel yang sudah
+diikutinya tetap dihitung satu anggota.
 
 Dengan [daravel_redis](redis.md), `REVERB_SCALING_DRIVER=redis` membagi
 hal yang sama lewat Redis: frame lewat Pub/Sub, anggota dan channel cache
@@ -201,10 +206,23 @@ client tetap di server yang dijangkau WebSocket-nya.
 | `REVERB_ALLOWED_ORIGINS` | `*` | Pola host yang boleh terhubung, dipisah koma (`app.example.com,*.example.com`) |
 | `REVERB_APP_ACTIVITY_TIMEOUT` | `30` | Detik tanpa aktivitas sebelum client mengirim ping; server juga mengirim ping |
 | `REVERB_APP_MAX_MESSAGE_SIZE` | `10000` | Ukuran pesan terbesar yang boleh dikirim client, dalam byte |
+| `REVERB_MAX_BUFFERED_BYTES` | `1048576` | Berapa banyak yang boleh menunggu dikirim ke satu client; lewat dari itu client ditutup dengan `4100` (over capacity) dan tersambung ulang setelah backoff |
+| `REVERB_APP_MAX_CHANNELS_PER_CONNECTION` | `100` | Jumlah channel yang boleh diikuti satu koneksi sekaligus (`0`: tanpa batas); lewat dari itu `pusher:error` `4300`, koneksi tetap terbuka |
+| `REVERB_APP_CLIENT_EVENTS_PER_SECOND` | `10` | Client event yang boleh dikirim satu koneksi per detik, seperti Pusher Channels (`0`: tanpa batas); lewat dari itu event dibuang dengan `pusher:error` `4301` |
+| `REVERB_APP_VALIDATE_CHANNEL_NAMES` | `true` | Nama channel mengikuti aturan Pusher: paling banyak 164 karakter dari `A-Z a-z 0-9 _ - = @ , . ;`; nama lain mendapat `pusher:error` `4300` |
 
 Client event (`client-*`, `whisper` di Echo) hanya diteruskan di channel
 private dan presence yang sudah diikuti pengirimnya, seperti yang
 disyaratkan Pusher Channels.
+
+Saat coordinator tidak bisa menjawab (kelebihan beban, atau penyimpanan
+scaling mati) ketika client subscribe atau keluar dari channel, client
+mendapat `pusher:error` dan koneksinya ditutup dengan `4100` (over
+capacity), sehingga Echo tersambung ulang setelah backoff; channel yang
+tertinggal karena `leave` gagal dicoba sekali lagi dan dicatat di log, dan
+tidak pernah membuat channel lain dari koneksi itu tetap ter-subscribe.
+Relay yang gagal dijalankan (Redis mati) dijalankan lagi oleh client
+berikutnya.
 
 ## Kapasitas
 

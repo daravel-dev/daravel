@@ -6,6 +6,7 @@ import '../foundation/application.dart';
 import '../foundation/env.dart';
 import '../logging/logger.dart';
 import '../support/request_id.dart';
+import 'buffered_web_socket.dart';
 import 'exception_handler.dart';
 import 'headers.dart';
 import 'http_exceptions.dart';
@@ -618,12 +619,28 @@ final class ServerEngine {
   /// Runs [handler] in the request's scope until [socket] closes. It holds
   /// no [HttpRequest]: an idle connection keeps only what it needs.
   Future<void> _session(
-    WebSocket socket,
+    WebSocket upgraded,
     Request request,
     Response response,
     WebSocketHandler handler,
     String id,
   ) async {
+    // Frames wait in a counted queue: a client that reads too slowly is
+    // closed instead of growing the heap (BufferedWebSocket).
+    final slowClients = app.container.tryMake<SlowClients>();
+    final socket = BufferedWebSocket(
+      upgraded,
+      maxBufferedBytes: response.webSocketMaxBufferedBytes,
+      slowClientCode: response.webSocketSlowClientCode,
+      onSlowClient: () {
+        slowClients?.record(SlowClients.webSocket);
+        logger.warning(
+          'WebSocket closed: the client read too slowly '
+          '(more than ${response.webSocketMaxBufferedBytes} bytes waiting)',
+          <String, Object?>{'request_id': id},
+        );
+      },
+    );
     _sockets.add(socket);
     logger.info(
       '${request.method} ${request.path} 101 (WebSocket)',
