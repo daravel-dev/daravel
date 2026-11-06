@@ -1,4 +1,4 @@
-<!-- source: database.md sha256:2aafe09f2c11 -->
+<!-- source: database.md sha256:b0ed2c5e90fc -->
 # Database
 
 `DB_CONNECTION` memilih SQLite (`sqlite`, default), PostgreSQL (`pgsql`),
@@ -73,7 +73,13 @@ yang sama dalam mode WAL dan menunggu sampai 5 detik (`busy_timeout`) untuk
 write lock dari isolate lain. Namun pemanggilan SQLite bersifat sinkron,
 sehingga selama sebuah worker menunggu lock itu, seluruh event loop-nya ikut
 menunggu, begitu pula setiap request di worker tersebut. Penulisan
-diserialkan di seluruh server. `serve` mencatat warning saat menjalankan
+diserialkan di seluruh server: `DB.transaction` dimulai dengan
+`BEGIN IMMEDIATE` dan langsung mengambil write lock, sehingga transaksi yang
+membaca lalu menulis tidak pernah ditolak karena isolate lain menulis di
+antaranya, dan lock yang masih sibuk setelah masa tunggu melempar error yang
+di-retry oleh `attempts:`. Di dalam satu isolate, query di luar transaksi
+menunggu transaksi itu selesai, juga paling lama 5 detik (`busy_timeout` di
+options koneksi, dalam milidetik, mengubah kedua masa tunggu). `serve` mencatat warning saat menjalankan
 beberapa isolate di atas file SQLite, dan `dartisan doctor` memberi
 catatan; lihat [Operasional](operations.md) untuk menghitung koneksi
 PostgreSQL.
@@ -270,6 +276,79 @@ seperti `personal_access_tokens.tokenable_type`, kecuali `Relation.morphMap`
 memberi model itu alias, dan dipakai di
 `No query results for model [App\Models\Post] 1`.
 
+### ID bertipe (opt-in)
+
+Opsi khusus Daravel: dengan `dartisan model:sync --typed-ids`, setiap model
+mendapat [extension type](https://dart.dev/language/extension-types) untuk
+primary key-nya, sehingga ID salah tipe tertangkap saat kompilasi:
+`Post.find(user.id)` tidak lagi bisa dikompilasi begitu `find` menerima
+`PostId`. Tanpa flag ini, `model:sync` menulis persis sama seperti
+sebelumnya.
+
+```bash
+dart run bin/dartisan.dart model:sync --typed-ids        # semua model
+dart run bin/dartisan.dart model:sync Post --typed-ids   # satu model
+```
+
+Flag ini menulis ID di region `// <dartisan:ids>` di akhir file model (dari
+stub `model.id`, lihat `stub:publish`), memberi tipe pada getter primary
+key, dan mengganti tipe `find` dan `findOrFail` hasil generator di region
+`<dartisan:statics>`. Statics yang Anda tulis sendiri tetap dengan tipenya.
+Key yang bukan integer maupun teks mendapat peringatan dan tidak mendapat
+ID bertipe.
+
+```dart
+// <dartisan:statics>
+static Future<Post?> find(PostId id) => query().find(id);
+static Future<Post> findOrFail(PostId id) => query().findOrFail(id);
+// </dartisan:statics>
+
+// <dartisan:accessors>
+PostId get id => getAttr('id');
+// </dartisan:accessors>
+
+// <dartisan:ids>
+extension type const PostId(int value) implements int {
+  static PostId parse(String raw) => PostId(int.parse(raw));
+}
+// </dartisan:ids>
+```
+
+Extension type dihapus saat runtime: `PostId` adalah `int` di JSON, di
+binding SQL, dan di tabel yang dipakai bersama Laravel, tanpa biaya
+tambahan. Karena `PostId` meng-implement `int`, `int n = post.id` tetap
+bisa dikompilasi; arah sebaliknya butuh `PostId(5)`, juga untuk literal.
+`TypedId<Post>` adalah varian generik untuk kode yang bekerja lintas model.
+
+Parameter route membaca ID bertipe dengan `request.param<PostId>('post')`,
+yang mem-parse nilainya sebagai representasinya (`int`) dan menjawab 404
+untuk sebuah kata. Untuk pengecekan yang lebih ketat, berikan parser, atau
+daftarkan satu parser per nama parameter di `bootstrap/ids.dart`:
+
+```dart
+// bootstrap/ids.dart
+void registerIds(IdParsers ids) {
+  ids.register<PostId>('post', PostId.parse);
+}
+
+// bootstrap/app.dart
+.withIds(registerIds)
+
+// sebuah handler
+final post = await Post.findOrFail(request.param<PostId>('post'));
+final same = request.param<PostId>('post', parse: PostId.parse);
+```
+
+Registry ini memakai nama parameter sebagai key karena extension type
+dihapus saat runtime: `PostId` dan `UserId` sama-sama `int`, sehingga
+`param<PostId>` tidak bisa memilih parser dari tipenya. `FormatException`
+atau `ArgumentError` dari parser menjawab 404. Route model binding
+(`router.bindModel`) mem-parse lewat `ModelDefinition(idType: ...)` bila
+Anda mengisinya, misalnya `idType: IdType.integer(PostId.new)` atau
+`IdType.string(...)` untuk UUID dan ULID. ID bertipe hanya mengecek tipe:
+input yang masuk ke SQL tetap dijaga oleh binding dan lint
+`no_sql_string_interpolation`.
+
 ## Query
 
 <!-- include: packages/daravel/test/docs/guide_examples_test.dart#query -->
@@ -313,10 +392,46 @@ panggilan eksternal yang lambat bisa menghabiskan pool.
 `DB.transaction(fn, timeout: Duration(seconds: 10))` menghentikan body yang
 masih berjalan setelah waktu itu: pekerjaannya di-rollback, koneksinya
 kembali ke pool, dan pemanggilannya melempar `TransactionTimeoutException`
-(tidak pernah di-retry), begitu juga query berikutnya dari body tersebut.
-Query yang sudah menunggu di dalam database (misalnya pada row lock) baru
+(tidak pernah di-retry), begitu juga query berikutnya dari body tersebut,
+termasuk `DB.transaction` bersarang (savepoint-nya berakhir bersama level
+yang timeout, sehingga tidak pernah menulis ke transaksi di sekitarnya atau
+di luar transaksi). Query yang sudah menunggu di dalam database (misalnya pada row lock) baru
 selesai saat database melepaskannya, jadi pasangkan dengan lock timeout
 dari database itu sendiri.
+
+## Nama kolom dari input
+
+Nilai masuk ke binding; nama kolom masuk ke teks SQL, di-quote oleh
+grammar, yang menolak karakter yang tidak semestinya ada di sebuah nama.
+Nama kolom yang datang dari request (parameter `sort`) tetap bisa memilih
+kolom apa pun yang ada, jadi periksa terhadap kolom yang Anda izinkan:
+
+```dart
+final sort = switch (request.query['sort']) {
+  'name' => 'name',
+  'created_at' => 'created_at',
+  _ => 'id',
+};
+await DB.table('users').orderBy(sort).get();
+```
+
+`SqlIdentifier` menandai nama yang sudah diperiksa saat dibuat: nama polos
+yang digabung dengan titik (`email`, `users.id`); selain itu melempar
+`ArgumentError`. `SqlIdentifier` adalah `String`, jadi setiap parameter
+kolom menerimanya, dan SQL-nya sama dengan SQL untuk string tersebut:
+
+```dart
+final column = SqlIdentifier(Config.get<String>('reports.sort')); // melempar pada 'id; DROP ...'
+await DB.table('users').orderBy(column).get();
+```
+
+Lint opt-in `prefer_sql_identifier` (lihat README `daravel_lints`)
+melaporkan argumen kolom yang bukan literal, bukan `const`, bukan pilihan di
+antara literal, dan bukan `SqlIdentifier`. `DB.raw(...)` dan method `*Raw`
+menyisipkan SQL-nya apa adanya; `RawExpression.sql` adalah `SqlFragment`,
+sebuah `String` yang hanya dibuat oleh framework. Kedua tipe ini bukan
+jaminan terhadap injection: nilai tetap masuk ke binding, yang diperiksa
+oleh `no_sql_string_interpolation`.
 
 ## Kolom JSON
 
@@ -442,7 +557,8 @@ await DB.transaction(() async {
 }, attempts: 5);
 ```
 
-Deadlock dan kegagalan serialisasi menjalankan seluruh callback lagi. Di antara
+Deadlock dan kegagalan serialisasi (juga error busy dan locked di SQLite)
+menjalankan seluruh callback lagi. Di antara
 percobaan ada jeda acak 2 sampai 250 ms tanpa memegang koneksi, sehingga isolate
 yang bertabrakan tidak bertabrakan lagi. Clock test yang dibekukan langsung
 mengulang.
@@ -465,7 +581,16 @@ DB.listen((query) {
 });
 ```
 
-Tanpa listener, query tidak diukur waktunya dan tidak dilaporkan.
+Tanpa listener, query tidak diukur waktunya dan tidak dilaporkan. Daftarkan
+listener sekali saja, di `boot` sebuah service provider: setiap listener
+berjalan untuk setiap query di isolate itu. `DB.listen`,
+`DB.listenTransactions`, dan `DB.whenQueryingForLongerThan` mengembalikan
+fungsi yang menghapus listener tersebut.
+
+Saat semua koneksi di pool tetap sibuk selama `DB_CONNECT_TIMEOUT`, query
+atau transaksi melempar `PoolExhaustedException` (sebuah `QueryException`)
+di PostgreSQL, MySQL, dan MariaDB: pool terlalu kecil untuk bebannya, atau
+transaksi memegang koneksinya terlalu lama, bukan query yang lambat.
 
 Untuk anggaran waktu, bukan query lambat satu per satu,
 `whenQueryingForLongerThan` dari Laravel menjumlahkan query setiap request,
@@ -523,6 +648,21 @@ atau list:
 
 Masing-masing punya bentuk `orWhere…`, di `DB.table(...)` dan di query
 model.
+
+`DateTime` yang di-bind ke query (di `where`, `insert`, `update`, atau SQL
+mentah) dikirim dalam UTC. Di SQLite dan MySQL nilainya ditulis seperti
+`Grammar::getDateFormat()` dari Laravel menulisnya, `Y-m-d H:i:s` tanpa
+pecahan detik, sama dengan yang disimpan oleh cast model dan timestamp:
+SQLite membandingkan tanggal sebagai teks, sehingga satu format menjaga
+`where('ends_at', '>=', now)` tetap benar. Daravel 1.26 dan sebelumnya
+mem-bind ISO 8601 di SQLite (`2026-11-05T17:40:36.052371Z`), yang terurut
+setelah nilai mana pun di hari yang sama. Nilai seperti itu tetap terbaca
+sebagai tanggal; agar perbandingannya benar, tulis ulang sekali per kolom:
+
+```sql
+UPDATE attempts SET submitted_at = strftime('%Y-%m-%d %H:%M:%S', submitted_at)
+WHERE submitted_at LIKE '____-__-__T%';
+```
 
 ## Paginasi
 

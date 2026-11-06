@@ -338,6 +338,41 @@ void main() {
         expect((await queue.pop('default'))?.attempts, 2);
       });
 
+      test('a payload that does not decode is removed and reported', () async {
+        final job = payload('poison');
+        await queue.push(job, queue: 'default');
+        final kind = engine == RedisQueueEngine.stream ? 'stream' : 'queue';
+        await client.command([
+          'HSET',
+          '${prefix}daravel:$kind:{default}:job:${job.uuid}',
+          'payload',
+          '{"job":"ping"}',
+        ]);
+        await expectLater(
+          queue.pop('default'),
+          throwsA(isA<CorruptPayloadException>()),
+        );
+        expect(await queue.size('default'), 0);
+        expect(await queue.pop('default'), isNull);
+      });
+
+      test('touch keeps a running job reserved past retryAfter', () async {
+        await queue.push(payload('long'), queue: 'default');
+        final job = (await queue.pop('default'))!;
+        for (var i = 0; i < 3; i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 150));
+          await queue.touch(job);
+        }
+        expect(await queue.pop('default'), isNull);
+        await Future<void>.delayed(const Duration(milliseconds: 350));
+        final again = (await queue.pop('default'))!;
+        expect(again.attempts, 2);
+        // The first worker's heartbeat no longer extends anything.
+        await queue.touch(job);
+        await Future<void>.delayed(const Duration(milliseconds: 350));
+        expect((await queue.pop('default'))?.attempts, 3);
+      });
+
       test('oldestWait and clear', () async {
         expect(await queue.oldestWait('default'), isNull);
         await queue.push(payload('a'), queue: 'default');

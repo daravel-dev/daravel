@@ -1,4 +1,4 @@
-<!-- source: deployment.md sha256:391ea9d0f728 -->
+<!-- source: deployment.md sha256:88bdc006dd8b -->
 # Deployment
 
 ## Konsep & Arsitektur Ahead-of-Time (AOT) Single Binary
@@ -106,6 +106,47 @@ pada aplikasi berukuran sedang), sedangkan biner AOT diam di sekitar 15 MB
 dan tetap di ratusan megabyte rendah di bawah beban dengan beberapa isolate
 (115 MB dengan satu, sekitar 330 MB dengan delapan, pada aplikasi yang
 sama).
+
+### Build di satu OS, jalankan di OS lain
+
+`--target-os` dan `--target-arch` mem-build bundle untuk mesin lain,
+misalnya server Linux dari laptop Windows:
+
+```bash
+dart run bin/dartisan.dart build --target-os=linux                    # Linux x64 dari Windows x64
+dart run bin/dartisan.dart build --target-os=linux --target-arch=arm64
+dart run bin/dartisan.dart build --target-os=linux --no-sqlite --force  # PostgreSQL/MySQL: tanpa unduhan SQLite
+```
+
+Kedua opsi diteruskan ke `dart build cli`, yang mengompilasi untuk target
+dan menjalankan build hook untuk target itu: SQLite di bundle adalah
+prebuilt untuk target (`libsqlite3.so` untuk Linux), dan executable-nya
+`bin/server`, dengan `.exe` hanya untuk Windows. Dart SDK hanya bisa
+cross-compile ke Linux (x64, arm64): bundle macOS atau Windows di-build di
+sistem itu sendiri.
+
+Terukur dengan starter di Windows x64 (Dart 3.13.4, build hook sudah
+ter-cache):
+
+| Perintah | Bundle | Waktu build |
+| :-- | :-- | :-- |
+| `build` (host, Windows x64) | `server.exe` 10,5 MB + `sqlite3.dll` 1,6 MB | sekitar 45 s |
+| `build --target-os=linux` | ELF x86-64 `server` 10,9 MB + `libsqlite3.so` 1,7 MB | sekitar 20 s |
+| `build --target-os=linux --target-arch=arm64` | ELF arm64 `server` 10,6 MB + `libsqlite3.so` 1,8 MB | sekitar 25 s |
+| `build --target-os=linux --no-sqlite --force` | ELF x86-64 `server` 10,9 MB | sekitar 40 s, termasuk `dart run` untuk `dartisan` |
+| `build --target-os=macos` | ditolak SDK: cross-compile hanya ke Linux | |
+
+Bundle Linux x64 sudah dijalankan di WSL (Ubuntu 22.04), dan CI mem-build
+bundle `--no-sqlite` di Windows lalu menjalankan smoke test-nya di Linux.
+Bundle `--no-sqlite` yang membuka SQLite membutuhkan `libsqlite3.so` di
+server (Debian/Ubuntu: `libsqlite3-dev`, atau link `libsqlite3.so` ke
+`libsqlite3.so.0`).
+
+Bila build berhenti dengan "Hash of downloaded file libsqlite3...", unduhan
+SQLite dari GitHub gagal: `package:sqlite3` 3.8.0 tidak memeriksa status
+HTTP, sehingga response error terlihat sebagai hash yang salah. `dartisan
+build` menjelaskan hal ini; jalankan ulang, atau build dengan `--no-sqlite
+--force` bila aplikasi memakai PostgreSQL atau MySQL.
 
 ## Docker
 
@@ -271,12 +312,21 @@ scheduler masing-masing berjalan di isolate sendiri, sehingga job tidak
 pernah memblokir event loop HTTP. Keduanya memakai coordinator server yang
 sama, sehingga penyimpanan cache `process`, rate limit, dan lock-nya sama
 dengan yang dilihat worker HTTP: token yang dicabut sebuah job ditolak pada
-request berikutnya. Isolate yang crash dijalankan ulang; saat
-`SIGTERM`, job atau tick yang sedang berjalan diselesaikan sebelum proses
+request berikutnya. Isolate yang berakhir dengan
+sendirinya (worker yang restart setelah `queue:restart` atau setelah sebuah
+job timeout) langsung dijalankan lagi; isolate yang crash dijalankan lagi
+setelah satu detik per crash dalam satu menit terakhir, dan sekali semenit,
+masing-masing dicatat sebagai error, setelah lebih dari lima crash dalam
+semenit, sehingga tidak pernah ditinggalkan selama server berjalan. Error
+asinkron yang tidak tertangkap di salah satu isolate (future fire-and-forget
+di listener atau task background) dicatat ke log alih-alih mengakhirinya.
+Saat `SIGTERM`, job atau tick yang sedang berjalan diselesaikan sebelum proses
 keluar. Console command yang terjadwal berjalan bila server dijalankan dengan
 `dartisan serve`; bila dijalankan sebagai `bin/server`, scheduler tertanam
 menjalankan job, closure, dan task `exec`. Mode tertanam butuh database file
-atau PostgreSQL (database SQLite in-memory ditolak). Untuk beberapa instance,
+atau PostgreSQL (database SQLite in-memory ditolak) dan queue selain
+`memory`, yang job-nya tetap berada di isolate yang men-dispatch-nya (`serve`
+menolaknya, seperti dengan `APP_ISOLATES` di atas 1). Untuk beberapa instance,
 pertahankan satu scheduler tertanam (atau jalankan `schedule:work`
 terpisah) dan skalakan queue worker secara terpisah.
 

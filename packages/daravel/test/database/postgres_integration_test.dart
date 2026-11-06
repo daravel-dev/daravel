@@ -1,6 +1,7 @@
 @Tags(['integration'])
 library;
 
+import 'dart:async';
 import 'dart:io';
 
 import 'package:daravel/daravel.dart';
@@ -360,6 +361,116 @@ void main() {
       expect(await db.table('pg_items').where('name', 'race').count(), 1);
     },
   );
+
+  test('a rolled-back transaction keeps its pooled connection', () async {
+    // #155: package:postgres's pool closed the connection behind any error
+    // that is not a PgException, which is every error a body throws.
+    final pooled = DatabaseManager(
+      DatabaseConfig(
+        defaultConnection: 'pgsql',
+        connections: {
+          'pgsql': ConnectionConfig(
+            driver: 'pgsql',
+            database: uri.path.replaceFirst('/', ''),
+            host: uri.host,
+            port: uri.hasPort ? uri.port : 5432,
+            username: userInfo.first,
+            password: userInfo.length > 1 ? userInfo[1] : null,
+            options: const {'pool': 1, 'sslmode': 'disable'},
+          ),
+        },
+      ),
+    );
+    addTearDown(pooled.closeAll);
+    final backends = <Object?>{};
+    Future<void> remember() async {
+      final rows = await pooled.select('SELECT pg_backend_pid() AS pid');
+      backends.add(rows.single['pid']);
+    }
+
+    await pooled.transaction(remember);
+    // An application error.
+    await expectLater(
+      pooled.transaction(() async {
+        await remember();
+        throw StateError('business rule');
+      }),
+      throwsStateError,
+    );
+    // A statement error, which reaches the body as a QueryException.
+    await expectLater(
+      pooled.transaction(() async {
+        await remember();
+        await pooled.select('SELECT * FROM missing_table_155');
+      }),
+      throwsA(isA<QueryException>()),
+    );
+    // A timeout.
+    final resume = Completer<void>();
+    await expectLater(
+      pooled.transaction(() async {
+        await remember();
+        await resume.future;
+      }, timeout: const Duration(milliseconds: 50)),
+      throwsA(isA<TransactionTimeoutException>()),
+    );
+    resume.complete();
+    // A test's baseline transaction.
+    await pooled.rollbackAfter(remember);
+    await pooled.transaction(remember);
+    expect(backends, hasLength(1), reason: 'one connection served them all');
+  });
+
+  test('an exhausted pool is reported as such', () async {
+    // #156: the pool's wait surfaced as a bare TimeoutException wrapped
+    // in a QueryException, indistinguishable from a slow query.
+    final pooled = DatabaseManager(
+      DatabaseConfig(
+        defaultConnection: 'pgsql',
+        connections: {
+          'pgsql': ConnectionConfig(
+            driver: 'pgsql',
+            database: uri.path.replaceFirst('/', ''),
+            host: uri.host,
+            port: uri.hasPort ? uri.port : 5432,
+            username: userInfo.first,
+            password: userInfo.length > 1 ? userInfo[1] : null,
+            options: const {
+              'pool': 1,
+              'sslmode': 'disable',
+              'connect_timeout': 1,
+            },
+          ),
+        },
+      ),
+    );
+    addTearDown(pooled.closeAll);
+    await pooled.select('SELECT 1');
+    final holding = Completer<void>();
+    final release = Completer<void>();
+    final held = pooled.transaction(() async {
+      holding.complete();
+      await release.future;
+    });
+    await holding.future;
+    await expectLater(
+      pooled.select('SELECT 2 AS two'),
+      throwsA(
+        isA<PoolExhaustedException>()
+            .having((e) => e.sql, 'sql', 'SELECT 2 AS two')
+            .having((e) => e.waited, 'waited', const Duration(seconds: 1)),
+      ),
+    );
+    await expectLater(
+      pooled.transaction(() async {}),
+      throwsA(isA<PoolExhaustedException>()),
+    );
+    release.complete();
+    await held;
+    expect(await pooled.select('SELECT 3 AS three'), [
+      {'three': 3},
+    ]);
+  });
 }
 
 final class _Item extends Model {

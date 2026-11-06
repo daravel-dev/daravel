@@ -110,6 +110,55 @@ jobs:
         working-directory: apps/daravel_starter
         run: dart run tool/smoke.dart
 
+  cross-build:
+    # ADR-032 T3: a Linux bundle built on Windows, run on Linux by
+    # cross-smoke. --no-sqlite: SQLite comes from the OS there.
+    name: Build a Linux bundle on Windows
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dart-lang/setup-dart@v1
+
+      - name: Resolve workspace
+        run: dart pub get
+
+      - name: dartisan build --target-os=linux
+        working-directory: apps/daravel_starter
+        run: dart run bin/dartisan.dart build --target-os=linux --no-sqlite --force
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: starter-linux-bundle
+          path: apps/daravel_starter/build/server/bundle
+          retention-days: 1
+
+  cross-smoke:
+    name: Run the Windows-built bundle on Linux
+    needs: cross-build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dart-lang/setup-dart@v1
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: starter-linux-bundle
+          path: bundle
+
+      # The bundle has no SQLite, and the smoke routes open no database. The
+      # script is copied out of the workspace, so running it resolves no
+      # packages and runs no build hooks. Artifacts lose the executable bit.
+      - name: Smoke test the bundle
+        run: |
+          chmod +x bundle/bin/server
+          cp apps/daravel_starter/tool/smoke.dart "$RUNNER_TEMP/smoke.dart"
+          dart run "$RUNNER_TEMP/smoke.dart" bundle/bin/server
+
   postgres:
     name: PostgreSQL integration
     runs-on: ubuntu-latest
