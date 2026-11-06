@@ -106,9 +106,9 @@ void main() {
     },
   );
 
-  test(
-    'MariaDB: idleTransactionTimeout makes the server end such a session',
-    () async {
+  for (final dialect in [SqlDialect.mariadb, SqlDialect.mysql]) {
+    test('MariaDB: idleTransactionTimeout makes the server end such a session '
+        '(${dialect.name} connection)', () async {
       if (!mariadb) {
         markTestSkipped('MySQL has no idle_transaction_timeout');
         return;
@@ -116,7 +116,7 @@ void main() {
       final holder = driver(
         pool: 1,
         idle: const Duration(seconds: 1),
-        dialect: SqlDialect.mariadb,
+        dialect: dialect,
       );
       final other = driver();
       await holder.connect();
@@ -132,6 +132,6 @@ void main() {
       expect(watch.elapsed, greaterThan(const Duration(milliseconds: 500)));
       release.complete();
       await expectLater(held.done, throwsA(anything));
-    },
-  );
+    });
+  }
 }

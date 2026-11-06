@@ -154,7 +154,8 @@ final class MySqlDriver
   final String? isolationLevel;
 
   /// MariaDB's `idle_transaction_timeout` (10.3+) for every connection of
-  /// the pool (`DB_IDLE_TRANSACTION_TIMEOUT`, whole seconds, rounded up):
+  /// the pool (`DB_IDLE_TRANSACTION_TIMEOUT`, whole seconds, rounded up), on
+  /// a `mariadb` connection or a server whose `VERSION()` says MariaDB:
   /// the server closes a connection that stays idle inside a transaction
   /// this long, rolling it back. MySQL has no such setting and ignores it
   /// (its `wait_timeout` closes idle connections outside transactions too).
@@ -219,20 +220,31 @@ final class MySqlDriver
         'SET SESSION TRANSACTION ISOLATION LEVEL $isolationLevel',
       if (mode != null) "SET SESSION sql_mode='$mode'",
       if (idleTransactionTimeout case final idle?
-          when dialect == SqlDialect.mariadb)
+          when isMariaDb(version, dialect))
         'SET SESSION idle_transaction_timeout = '
             '${(idle.inMilliseconds / 1000).ceil()}',
       ...initCommands,
     ];
   }
 
+  /// Whether a server of [version] is MariaDB: a `mariadb` connection, or a
+  /// `mysql` one whose `VERSION()` says so.
+  static bool isMariaDb(String? version, SqlDialect dialect) =>
+      dialect == SqlDialect.mariadb ||
+      (version ?? '').toLowerCase().contains('mariadb');
+
+  /// The server's `VERSION()`, read by the first connection that needs it.
+  String? _version;
+
   Future<void> _configure(my.MySQLConnection connection) async {
-    String? version;
-    if (strict == true && modes == null) {
+    if (_version == null &&
+        ((strict == true && modes == null) ||
+            (idleTransactionTimeout != null &&
+                dialect != SqlDialect.mariadb))) {
       final result = await connection.execute('SELECT VERSION() AS v');
-      version = result.rows.first.colByName('v') as String?;
+      _version = result.rows.first.colByName('v') as String?;
     }
-    for (final statement in sessionStatements(version)) {
+    for (final statement in sessionStatements(_version)) {
       await connection.execute(statement);
     }
     await onConnectionOpen?.call(connection);
