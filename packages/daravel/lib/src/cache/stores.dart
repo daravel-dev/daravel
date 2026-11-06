@@ -191,6 +191,19 @@ final class MemoryStore implements TouchableCacheStore, TaggableCacheStore {
     return existing.owner;
   }
 
+  /// The value of [key] and the milliseconds it has left (null when it
+  /// does not expire), or null when there is none: what
+  /// [ProcessStore]'s near cache needs to keep a copy no longer than the
+  /// value itself.
+  List<Object?>? _withTtl(String key) {
+    final entry = _live(key);
+    if (entry == null) {
+      return null;
+    }
+    final expiresAt = entry.expiresAt;
+    return <Object?>[entry.value, expiresAt == null ? null : expiresAt - _now];
+  }
+
   static DateTime _utcNow() => Clock.now().toUtc();
 }
 
@@ -220,8 +233,15 @@ final class ProcessCacheService
     switch (op) {
       case 'get':
         return store.get(key);
+      case 'getWithTtl':
+        return store._withTtl(key);
       case 'many':
         return store.many((args['keys']! as List<Object?>).cast<String>());
+      case 'manyWithTtl':
+        return <String, Object?>{
+          for (final k in (args['keys']! as List<Object?>).cast<String>())
+            k: store._withTtl(k),
+        };
       case 'put':
         await store.put(key, args['value'], ttl: ttl);
         return null;
@@ -291,7 +311,7 @@ final class ProcessCacheService
 /// so it crosses to the coordinator isolate by reference where the map of
 /// [toArgs] is copied entry by entry. Other cache operations stay maps.
 @pragma('vm:deeply-immutable')
-final class LockMessage implements CoordinatorMessage {
+final class LockMessage implements ExpiringCoordinatorMessage {
   /// A call of [op] on the lock [key].
   const LockMessage(this.op, this.key, {this.owner, this.ttlMs = 0});
 
@@ -306,6 +326,11 @@ final class LockMessage implements CoordinatorMessage {
 
   /// How long an `acquireLock` holds the lock, in milliseconds.
   final int ttlMs;
+
+  /// An acquisition or an owner lookup the caller gave up on is dropped (a
+  /// lock taken for nobody would stay until its TTL); a release never is.
+  @override
+  bool get expiresWithCall => op == 'acquireLock' || op == 'lockOwner';
 
   /// The same call as the arguments of [ProcessCacheService.handle], for a
   /// channel that is not a [TypedCoordinatorChannel].
@@ -383,12 +408,20 @@ final class ProcessStore implements TaggableCacheStore {
     return decodeWire(entry.$1);
   }
 
-  /// Keeps the wire form of a value (a string, a number...) for [l1Ttl].
-  void _l1Write(String key, Object? wire) {
-    final ttl = l1Ttl;
+  /// Keeps the wire form of a value (a string, a number...) for [l1Ttl],
+  /// or for [left] when the value itself expires sooner: the near cache
+  /// never serves a value the coordinator has already forgotten.
+  void _l1Write(String key, Object? wire, [Duration? left]) {
+    var ttl = l1Ttl;
     _l1.remove(key);
     if (ttl == null || wire == null) {
       return;
+    }
+    if (left != null && left < ttl) {
+      if (left <= Duration.zero) {
+        return;
+      }
+      ttl = left;
     }
     if (_l1.length >= l1MaxEntries) {
       _l1.remove(_l1.keys.first); // Oldest first (insertion order).
@@ -426,16 +459,38 @@ final class ProcessStore implements TaggableCacheStore {
         return cached;
       }
     }
-    final wire = await _call('get', {'key': key});
-    _l1Write(key, wire);
-    return decodeWire(wire);
+    if (l1Ttl == null) {
+      return decodeWire(await _call('get', {'key': key}));
+    }
+    return decodeWire(_l1Entry(key, await _call('getWithTtl', {'key': key})));
+  }
+
+  /// Keeps an answer of `getWithTtl` (the value and the milliseconds it
+  /// has left, or null) in the near cache and returns its wire form.
+  Object? _l1Entry(String key, Object? entry) {
+    if (entry is! List<Object?>) {
+      _l1.remove(key);
+      return null;
+    }
+    final wire = entry[0];
+    final leftMs = entry[1] as int?;
+    _l1Write(key, wire, leftMs == null ? null : Duration(milliseconds: leftMs));
+    return wire;
   }
 
   @override
   Future<Map<String, Object?>> many(List<String> keys) async {
-    final wires =
-        (await _call('many', {'keys': keys}))! as Map<String, Object?>;
-    wires.forEach(_l1Write);
+    final Map<String, Object?> wires;
+    if (l1Ttl == null) {
+      wires = (await _call('many', {'keys': keys}))! as Map<String, Object?>;
+    } else {
+      final entries =
+          (await _call('manyWithTtl', {'keys': keys}))! as Map<String, Object?>;
+      wires = <String, Object?>{
+        for (final MapEntry(:key, :value) in entries.entries)
+          key: _l1Entry(key, value),
+      };
+    }
     return <String, Object?>{
       for (final MapEntry(:key, :value) in wires.entries)
         key: decodeWire(value),
@@ -447,7 +502,7 @@ final class ProcessStore implements TaggableCacheStore {
     _l1.remove(key);
     final wire = encodeWire(value);
     await _call('put', {'key': key, 'value': wire, 'ttl': ttl?.inMilliseconds});
-    _l1Write(key, wire);
+    _l1Write(key, wire, ttl);
   }
 
   @override
@@ -458,7 +513,7 @@ final class ProcessStore implements TaggableCacheStore {
         key: encodeWire(value),
     };
     await _call('putMany', {'values': wires, 'ttl': ttl?.inMilliseconds});
-    wires.forEach(_l1Write);
+    wires.forEach((key, wire) => _l1Write(key, wire, ttl));
   }
 
   @override
@@ -497,25 +552,36 @@ final class ProcessStore implements TaggableCacheStore {
 
   /// Sends a lock call typed, or as a map to a channel that is only a
   /// [CoordinatorChannel].
-  Future<Object?> _lock(LockMessage message) {
+  Future<Object?> _lock(LockMessage message, {Duration? wait}) {
     final target = channel;
     return target is TypedCoordinatorChannel
         ? target.callTyped(
             ProcessCacheService.serviceName,
             message,
-            timeout: timeout,
+            timeout: wait ?? timeout,
           )
         : target.call(
             ProcessCacheService.serviceName,
             message.op,
             message.toArgs(),
-            timeout: timeout,
+            timeout: wait ?? timeout,
           );
   }
 
+  /// How long the release sent after a timed-out [acquireLock] may take.
+  static const Duration lostAcquireReleaseTimeout = Duration(seconds: 30);
+
+  /// Takes the lock, or throws when the coordinator does not answer.
+  ///
+  /// When the answer times out the coordinator may still have given the
+  /// lock to [owner], which nobody would then release before [ttl] ends: a
+  /// release for [owner] follows at once (the coordinator answers a worker's
+  /// messages in order, so it comes after the acquire, and it is a no-op
+  /// when the lock is someone else's) before the timeout is rethrown.
   @override
-  Future<bool> acquireLock(String name, String owner, Duration ttl) async =>
-      await _lock(
+  Future<bool> acquireLock(String name, String owner, Duration ttl) async {
+    try {
+      return await _lock(
         LockMessage(
           'acquireLock',
           name,
@@ -523,6 +589,16 @@ final class ProcessStore implements TaggableCacheStore {
           ttlMs: ttl.inMilliseconds,
         ),
       ) as bool;
+    } on CoordinatorTimeoutException {
+      unawaited(
+        _lock(
+          LockMessage('releaseLock', name, owner: owner),
+          wait: lostAcquireReleaseTimeout,
+        ).then<void>((_) {}, onError: (Object _) {}),
+      );
+      rethrow;
+    }
+  }
 
   @override
   Future<bool> releaseLock(String name, String owner) async =>

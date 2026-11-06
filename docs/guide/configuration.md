@@ -96,15 +96,17 @@ frozen after boot.
 | `DB_CONNECT_TIMEOUT`, `DB_QUERY_TIMEOUT` | `10`, `30` | Seconds a PostgreSQL or MySQL connection may take to open, and a statement to run (`0` for none; a stuck statement would otherwise hold its pooled connection for ever) |
 | `CACHE_STORE`, `CACHE_PREFIX` | `memory` | Cache store (`memory`, `process`, `file`, `database`, `redis`; Laravel's `array` is `memory`) and key prefix |
 | `CACHE_PROCESS_MAX_ENTRIES` | `10000` | Entries the `process` store keeps for the whole server; the least recently used go first, so raise it when it holds many keys that must last until they expire (revoked JWTs, per-client counters), or keep those in `database` or Redis |
-| `CACHE_PROCESS_L1_TTL` | `0` (off) | With the `process` store, how long each worker isolate reuses a value it read (`250ms`) before asking the coordinator again |
+| `CACHE_PROCESS_L1_TTL` | `0` (off) | With the `process` store, how long each worker isolate reuses a value it read (`250ms`) before asking the coordinator again, never longer than the value's own TTL |
 | `CACHE_LIMITER` | coordinator | Cache store for rate limits (Laravel's `cache.limiter`); `database` shares them between machines, with one statement per attempt |
 | `QUEUE_CONNECTION` | `sync` | `sync`, `memory`, `database` or `redis` ([Redis](redis.md)) |
 | `QUEUE_UNIQUE_LOCK_STORE` | `database` or `redis` with that queue, else `process` | Cache store of unique-job locks; `queue:work` processes must reach it |
 | `QUEUE_SIGNAL_STORE` | `file` with the database queue, else the lock store | Cache store of `queue:restart` and `queue:pause` signals; `database` reaches workers on every machine |
 | `HASH_DRIVER`, `BCRYPT_ROUNDS` | `bcrypt`, `12` | Password hashing (as Laravel) |
+| `HASH_CONCURRENCY`, `HASH_QUEUE`, `HASH_QUEUE_TIMEOUT` | one per processor, `1024`, `30s` | Hashes run at once (in warm isolates), hashes waiting, and how long one waits before a `503` ([Hashing](auth.md#hashing)) |
 | `LOG_LEVEL`, `LOG_STACK` | `debug` | Logging level and channels (`json` for production) |
+| `HTTP_ACCESS_LOG` | `true` | One `info` line per request (method, path, status, time); `false` when a proxy in front already logs requests. Console, JSON and daily file output never blocks a worker: past 8 MiB waiting, lines are dropped and counted (`log_lines_dropped_total`) |
 | `SHUTDOWN_TIMEOUT`, `HTTP_REQUEST_TIMEOUT` | `30s`, `30s` | Graceful shutdown and handler timeouts |
-| `HTTP_IDLE_TIMEOUT` | `60s` | A keep-alive connection idle this long is closed by the server |
+| `HTTP_IDLE_TIMEOUT` | `60s` | A keep-alive connection idle this long between requests is closed by the server. Within a request, a body the application does not read is not waited for: the server answers at once (after up to 1 s for a body of at most 256 KiB, to keep the connection) and closes the connection if the body has not arrived |
 | `HTTP_MAX_BODY` | `52428800` (50 MiB) | The body limit every request starts with (`413` above it; `0` for none); `BodyLimitsMiddleware` tightens it to 1 MiB for JSON and forms |
 | `HTTP_MAX_QUEUE_DELAY`, `HTTP_MAX_IN_FLIGHT` | off (`200ms` in new projects), off | [Load shedding](deployment.md#load-shedding): `503` while a worker's event loop is this late, or above this many requests at once |
 | `SERVER_EMBED_QUEUE`, `SERVER_EMBED_SCHEDULER` | `false` | Queue worker and scheduler in the server process |

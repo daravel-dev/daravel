@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io' as io;
+import 'dart:typed_data';
 
 import '../foundation/container.dart';
 import '../foundation/exceptions.dart';
@@ -167,17 +168,58 @@ final class HttpClientFactory {
     _preventStray = false;
   }
 
-  Future<ClientResponse> _send(ClientRequest request, Duration timeout) async {
+  /// The largest response body read by default (32 MiB); larger ones throw
+  /// [ResponseTooLargeException]. `PendingRequest.maxResponseSize` changes
+  /// it per request.
+  static const int defaultMaxResponseBytes = 32 * 1024 * 1024;
+
+  /// The body limit of requests that do not set their own; `null` for none.
+  int? maxResponseBytes = defaultMaxResponseBytes;
+
+  /// How long opening a connection may take, within the request's own
+  /// timeout (10 s, Laravel's `connect_timeout`). Read when the pooled
+  /// client is created.
+  Duration connectTimeout = const Duration(seconds: 10);
+
+  /// The most connections to one host at once (`null`: no limit); further
+  /// requests wait for one. Read when the pooled client is created.
+  int? maxConnectionsPerHost;
+
+  Future<ClientResponse> _send(
+    ClientRequest request,
+    Duration timeout,
+    int? maxBytes,
+  ) async {
     final fake = _fake;
     if (fake != null) {
       return fake._answer(request, preventStray: _preventStray);
     }
     final client = _client ??= _clientFactory()
-      ..idleTimeout = const Duration(seconds: 5);
+      ..idleTimeout = const Duration(seconds: 5)
+      ..connectionTimeout = connectTimeout
+      ..maxConnectionsPerHost = maxConnectionsPerHost;
+    // One deadline for the whole request: each phase gets what is left.
+    final elapsed = Stopwatch()..start();
+    Duration left() {
+      final remaining = timeout - elapsed.elapsed;
+      if (remaining <= Duration.zero) {
+        throw TimeoutException('The request ran out of time.', timeout);
+      }
+      return remaining;
+    }
+
+    io.HttpClientRequest? outgoing;
     try {
-      final outgoing = await client
-          .openUrl(request.method, request.url)
-          .timeout(timeout);
+      final opening = client.openUrl(request.method, request.url);
+      try {
+        outgoing = await opening.timeout(left());
+      } on TimeoutException {
+        // The connection may still open: close it then.
+        unawaited(
+          opening.then<void>((late) => late.abort(), onError: (Object _) {}),
+        );
+        rethrow;
+      }
       for (final MapEntry(:key, :value) in request.headers.entries) {
         for (final item in value) {
           outgoing.headers.add(key, item);
@@ -189,29 +231,113 @@ final class HttpClientFactory {
           ..contentLength = bytes.length
           ..add(bytes);
       }
-      final incoming = await outgoing.close().timeout(timeout);
-      final body = await utf8.decoder.bind(incoming).join().timeout(timeout);
+      final incoming = await outgoing.close().timeout(left());
+      final bytes = await _readBody(
+        incoming,
+        left(),
+        maxBytes,
+        request.url,
+        outgoing,
+      );
       final headers = Headers();
       incoming.headers.forEach((name, values) {
         for (final value in values) {
           headers.add(name, value);
         }
       });
-      return ClientResponse(incoming.statusCode, body, headers: headers);
+      return ClientResponse(
+        incoming.statusCode,
+        utf8.decode(bytes, allowMalformed: true),
+        headers: headers,
+        bodyBytes: bytes,
+      );
     } on TimeoutException {
+      // Stop the exchange: the server sees the connection close, and no
+      // more of the body is read into memory.
+      outgoing?.abort();
       throw ConnectionException(
         'Request to ${request.url} timed out after ${timeout.inSeconds}s.',
         isTimeout: true,
       );
     } on io.SocketException catch (error) {
+      outgoing?.abort();
       throw ConnectionException(
         'Could not reach ${request.url}: ${error.message}',
       );
     } on io.HttpException catch (error) {
+      outgoing?.abort();
       throw ConnectionException(
         'HTTP error for ${request.url}: ${error.message}',
       );
+    } on io.IOException catch (error) {
+      // TLS failures (HandshakeException, CertificateException) and other
+      // I/O errors, so retry() and callers see them as connection errors.
+      outgoing?.abort();
+      throw ConnectionException('Could not reach ${request.url}: $error');
     }
+  }
+
+  /// Reads [incoming] within [timeout], refusing more than [maxBytes]. On
+  /// either, the subscription is cancelled and the request aborted, so the
+  /// connection closes instead of streaming on into this isolate.
+  static Future<Uint8List> _readBody(
+    io.HttpClientResponse incoming,
+    Duration timeout,
+    int? maxBytes,
+    Uri url,
+    io.HttpClientRequest outgoing,
+  ) {
+    if (maxBytes != null && incoming.contentLength > maxBytes) {
+      // Not a byte of it is read: the socket is closed under the client.
+      unawaited(
+        incoming.detachSocket().then<void>(
+          (socket) => socket.destroy(),
+          onError: (Object _) {},
+        ),
+      );
+      throw ResponseTooLargeException(url, maxBytes);
+    }
+    final done = Completer<Uint8List>();
+    final body = BytesBuilder(copy: false);
+    late final StreamSubscription<List<int>> subscription;
+    late final Timer timer;
+
+    void fail(Object error) {
+      if (done.isCompleted) {
+        return;
+      }
+      timer.cancel();
+      unawaited(subscription.cancel().catchError((Object _) {}));
+      outgoing.abort();
+      done.completeError(error);
+    }
+
+    timer = Timer(
+      timeout,
+      () => fail(TimeoutException('The response body was too slow.', timeout)),
+    );
+    subscription = incoming.listen(
+      (chunk) {
+        body.add(chunk);
+        if (maxBytes != null && body.length > maxBytes) {
+          fail(ResponseTooLargeException(url, maxBytes));
+        }
+      },
+      onError: (Object error) {
+        if (!done.isCompleted) {
+          timer.cancel();
+          done.completeError(error);
+        }
+      },
+      onDone: () {
+        if (!done.isCompleted) {
+          timer.cancel();
+          done.complete(body.takeBytes());
+        }
+      },
+      cancelOnError: true,
+    );
+    return done.future;
   }
 
   /// Closes pooled connections (called when the application shuts down).
@@ -288,12 +414,28 @@ final class PendingRequest {
     return this;
   }
 
-  /// Fails a request (connect, send and read) after [timeout]; 30 s by
-  /// default, as in Laravel.
+  /// Fails a request after [timeout]; 30 s by default, as in Laravel. It is
+  /// one deadline for connecting, sending and reading the whole body, and
+  /// when it passes the connection is closed, so the server stops sending.
   PendingRequest timeout(Duration timeout) {
     _timeout = timeout;
     return this;
   }
+
+  /// Refuses a response body over [bytes] with [ResponseTooLargeException],
+  /// closing the connection (`null` for no limit). The default is the
+  /// factory's `maxResponseBytes`, 32 MiB.
+  PendingRequest maxResponseSize(int? bytes) {
+    if (bytes != null && bytes < 0) {
+      throw RangeError.range(bytes, 0, null, 'bytes');
+    }
+    _maxResponseBytes = bytes;
+    _maxResponseBytesSet = true;
+    return this;
+  }
+
+  int? _maxResponseBytes;
+  bool _maxResponseBytesSet = false;
 
   /// Tries up to [times] times in total, waiting [delay] between tries, when
   /// the connection fails or the response is a client or server error (or
@@ -363,7 +505,11 @@ final class PendingRequest {
       Object? error;
       StackTrace? stackTrace;
       try {
-        response = await _factory._send(request, _timeout);
+        response = await _factory._send(
+          request,
+          _timeout,
+          _maxResponseBytesSet ? _maxResponseBytes : _factory.maxResponseBytes,
+        );
       } on ConnectionException catch (e, s) {
         error = e;
         stackTrace = s;
@@ -481,7 +627,7 @@ final class ClientRequest {
 /// A response to an outgoing request (Laravel's `Http\Client\Response`).
 final class ClientResponse {
   /// A response with [status] and [body]; tests build them for fakes.
-  ClientResponse(this.status, this.body, {Headers? headers})
+  ClientResponse(this.status, this.body, {Headers? headers, this._bodyBytes})
     : headers = headers ?? Headers();
 
   /// A stubbed response: maps and lists become JSON.
@@ -508,8 +654,14 @@ final class ClientResponse {
   /// The status code.
   final int status;
 
-  /// The body as text.
+  /// The body as text (UTF-8; malformed bytes become U+FFFD).
   final String body;
+
+  final Uint8List? _bodyBytes;
+
+  /// The body as received, for binary responses (an image, a PDF); for a
+  /// response built from text, its UTF-8 encoding.
+  Uint8List get bodyBytes => _bodyBytes ?? utf8.encode(body);
 
   /// The response headers.
   final Headers headers;
@@ -684,6 +836,21 @@ final class ConnectionException extends DaravelException {
   /// reset before anything was sent, so a caller retrying must not
   /// assume it was not.
   final bool isTimeout;
+}
+
+/// A response body larger than the request allows
+/// (`PendingRequest.maxResponseSize`, `HttpClientFactory.maxResponseBytes`).
+/// The connection is closed when it is thrown; it is not retried.
+final class ResponseTooLargeException extends DaravelException {
+  /// The response from [url] went past [maxBytes].
+  ResponseTooLargeException(this.url, this.maxBytes)
+    : super('The response from $url is larger than $maxBytes bytes.');
+
+  /// The URL requested.
+  final Uri url;
+
+  /// The limit it went past.
+  final int maxBytes;
 }
 
 /// A 4xx or 5xx response, thrown by [ClientResponse.throwIfFailed].

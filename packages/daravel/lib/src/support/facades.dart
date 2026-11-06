@@ -188,17 +188,20 @@ abstract final class DB {
 
   /// Calls [listener] after every query (`DB::listen`): SQL, bindings,
   /// duration and connection, for debugging and slow-query logging.
-  static void listen(void Function(QueryExecuted event) listener) =>
+  /// Register it once (in a provider); the returned function removes it.
+  static void Function() listen(void Function(QueryExecuted event) listener) =>
       manager.listen(listener);
 
-  /// Calls [listener] when a transaction begins, commits and rolls back.
-  static void listenTransactions(
+  /// Calls [listener] when a transaction begins, commits and rolls back;
+  /// the returned function removes it.
+  static void Function() listenTransactions(
     void Function(TransactionEvent event) listener,
   ) => manager.listenTransactions(listener);
 
   /// Calls [handler] once the current request, job or command has spent
-  /// more than [threshold] in queries (`DB::whenQueryingForLongerThan`).
-  static void whenQueryingForLongerThan(
+  /// more than [threshold] in queries (`DB::whenQueryingForLongerThan`);
+  /// the returned function removes it.
+  static void Function() whenQueryingForLongerThan(
     Duration threshold,
     void Function(QueryExecuted event) handler,
   ) => manager.whenQueryingForLongerThan(threshold, handler);

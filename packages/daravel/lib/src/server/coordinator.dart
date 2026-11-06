@@ -24,6 +24,7 @@ final class CoordinatorRequest {
     required this.op,
     required this.args,
     required this.replyTo,
+    this.deadline = 0,
   });
 
   /// The call's id, matching its reply.
@@ -42,6 +43,13 @@ final class CoordinatorRequest {
 
   /// Where the reply goes.
   final SendPort replyTo;
+
+  /// When the caller stops waiting, in microseconds since the epoch (wall
+  /// clock, which every isolate of the process shares); 0 for never. Set
+  /// for an [ExpiringCoordinatorMessage]: the coordinator drops such a
+  /// request unanswered once it has passed, instead of doing work nobody
+  /// waits for any more.
+  final int deadline;
 }
 
 /// Reply to a [CoordinatorRequest].
@@ -103,6 +111,19 @@ final class CoordinatorTimeoutException extends CoordinatorException {
 /// coordinator messages, not on an application's models or DTOs.
 abstract interface class CoordinatorMessage {}
 
+/// A [CoordinatorMessage] the coordinator may drop, unanswered, once its
+/// caller has stopped waiting for it (#148): a [RemoteCoordinatorChannel]
+/// sends it with the call's deadline, and a request still queued after that
+/// deadline is not handled (`coordinator_expired_total`). Only for
+/// operations whose effect nobody needs once the caller gave up: a lock
+/// acquisition or a rate-limit attempt that the worker already treated as
+/// failed, never a release.
+abstract interface class ExpiringCoordinatorMessage
+    implements CoordinatorMessage {
+  /// Whether this message is dropped once its deadline has passed.
+  bool get expiresWithCall;
+}
+
 /// A service hosted by the [Coordinator] (rate limiter, locks, cache...).
 abstract interface class CoordinatorService {
   /// The service's name.
@@ -156,6 +177,17 @@ final class Coordinator {
   int _peakInFlight = 0;
   int _handled = 0;
   int _rejected = 0;
+  int _expired = 0;
+
+  /// How late the lag probe's last timer fired, and the latest it ever did:
+  /// how long a message waits behind the others in the coordinator's
+  /// event loop, synchronous services included.
+  Duration _lag = Duration.zero;
+  Duration _lagPeak = Duration.zero;
+  Timer? _lagProbe;
+
+  /// How often [listen]'s lag probe measures the event loop.
+  static const Duration lagProbeInterval = Duration(milliseconds: 100);
 
   /// Since construction, for the message rate in [stats] (wall clock: not
   /// domain time, so not `Clock`).
@@ -234,8 +266,19 @@ final class Coordinator {
     // dispatch, on the path every throttled request takes.
     final port = RawReceivePort(null, 'daravel-coordinator');
     _port = port;
+    _probeLag();
     port.handler = (Object? message) {
       if (message is! CoordinatorRequest) {
+        return;
+      }
+      final args = message.args;
+      if (message.deadline != 0 &&
+          args is ExpiringCoordinatorMessage &&
+          args.expiresWithCall &&
+          DateTime.now().microsecondsSinceEpoch > message.deadline) {
+        // The worker has given up on it: answering would only be work
+        // (a lock taken, a hit counted) nobody waits for.
+        _expired++;
         return;
       }
       if (_inFlight >= maxQueue) {
@@ -250,7 +293,7 @@ final class Coordinator {
       // inline: no Future or microtask per message.
       final FutureOr<Object?> result;
       try {
-        result = _invoke(message.service, message.op, message.args);
+        result = _invoke(message.service, message.op, args);
       } on Object catch (error) {
         _reply(message, CoordinatorReply(message.id, error: '$error'));
         return;
@@ -300,16 +343,37 @@ final class Coordinator {
     }
   }
 
+  /// Measures how late a timer fires on this event loop, every
+  /// [lagProbeInterval] while listening: a timer's wake-up waits behind the
+  /// messages queued before it, so its delay is the coordinator's queue
+  /// lag, which [maxQueue] does not see for synchronous services.
+  void _probeLag() {
+    final watch = Stopwatch()..start();
+    _lagProbe = Timer(lagProbeInterval, () {
+      final late = watch.elapsed - lagProbeInterval;
+      _lag = late.isNegative ? Duration.zero : late;
+      if (_lag > _lagPeak) {
+        _lagPeak = _lag;
+      }
+      if (_port != null) {
+        _probeLag();
+      }
+    });
+  }
+
   /// Counters, the message rate and each service's snapshot. `messages`
   /// (handled plus rejected) only grows; with `uptime_s`, or by reading the
   /// stats twice, it shows a flood of messages from the workers, which the
   /// coordinator answers on the supervisor's own event loop.
   Map<String, Object?> stats() {
-    final messages = _handled + _rejected;
+    final messages = _handled + _rejected + _expired;
     final seconds = _uptime.elapsedMicroseconds / 1e6;
     return <String, Object?>{
       'handled': _handled,
       'rejected': _rejected,
+      // Requests dropped unanswered because their caller had stopped
+      // waiting (an [ExpiringCoordinatorMessage] past its deadline).
+      'expired': _expired,
       'messages': messages,
       'uptime_s': double.parse(seconds.toStringAsFixed(1)),
       'messages_per_second': seconds == 0
@@ -320,6 +384,10 @@ final class Coordinator {
       // start to be refused.
       'in_flight_peak': _peakInFlight,
       'max_queue': maxQueue,
+      // How long a message waits in the event loop (the lag probe): the
+      // backlog of synchronous services, which never count in in_flight.
+      'queue_lag_ms': _lag.inMicroseconds / 1000,
+      'queue_lag_peak_ms': _lagPeak.inMicroseconds / 1000,
       'services': <String, Object?>{
         for (final entry in _services.entries) entry.key: entry.value.stats(),
       },
@@ -333,6 +401,8 @@ final class Coordinator {
 
   /// Stops the coordinator.
   void close() {
+    _lagProbe?.cancel();
+    _lagProbe = null;
     _port?.close();
     _port = null;
   }
@@ -485,6 +555,9 @@ final class RemoteCoordinatorChannel implements TypedCoordinatorChannel {
         op: op,
         args: args,
         replyTo: _replies.sendPort,
+        deadline: args is ExpiringCoordinatorMessage
+            ? DateTime.now().microsecondsSinceEpoch + timeout.inMicroseconds
+            : 0,
       ),
     );
     return call.completer.future;

@@ -1,3 +1,5 @@
+part 'sql_types.dart';
+
 /// A subquery in the select list: `(SELECT ...) AS alias`, or
 /// `EXISTS(SELECT ...) AS alias` when [exists]. Compiled in the same pass as
 /// the outer query, so dialects with numbered placeholders stay in order.
@@ -19,10 +21,13 @@ final class SubSelect {
 final class RawExpression {
   /// The SQL fragment [sql] with `?` placeholders filled by [bindings]:
   /// `DB.raw('price * ?', [1.1])`. Never interpolate input into [sql].
-  const RawExpression(this.sql, [this.bindings = const <Object?>[]]);
+  const RawExpression(String sql, [this.bindings = const <Object?>[]])
+    : _sql = sql;
 
-  /// The SQL, inserted as written.
-  final String sql;
+  final String _sql;
+
+  /// The SQL, inserted as written. A [SqlFragment], which is a [String].
+  SqlFragment get sql => SqlFragment._(_sql);
 
   /// The values of the `?` placeholders in [sql], in order.
   final List<Object?> bindings;

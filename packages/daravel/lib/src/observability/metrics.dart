@@ -8,6 +8,7 @@ import '../foundation/env.dart';
 import '../http/middleware.dart';
 import '../http/request.dart';
 import '../http/response.dart';
+import '../logging/logger.dart';
 import '../server/coordinator.dart';
 
 /// Default histogram buckets in seconds (Prometheus client defaults).
@@ -40,13 +41,14 @@ String _labelKey(Map<String, String> labels) {
 
 /// Monotonic counter.
 final class Counter {
-  Counter._(this.name, this.help);
+  Counter._(this.name, this.help, [this._collect]);
 
   /// The metric's name.
   final String name;
 
   /// The metric's help text.
   final String help;
+  final double Function()? _collect;
   final Map<String, double> _values = <String, double>{};
 
   /// Adds [by] to the series of [labels].
@@ -143,9 +145,10 @@ final class MetricsRegistry {
   final Map<String, Gauge> _gauges = <String, Gauge>{};
   final Map<String, Histogram> _histograms = <String, Histogram>{};
 
-  /// The counter [name], created on first use.
-  Counter counter(String name, String help) =>
-      _counters.putIfAbsent(name, () => Counter._(name, help));
+  /// The counter [name], created on first use; [collect] reads its
+  /// unlabelled value at render time (a count kept elsewhere).
+  Counter counter(String name, String help, {double Function()? collect}) =>
+      _counters.putIfAbsent(name, () => Counter._(name, help, collect));
 
   /// [collect] computes the value at render time (e.g. memory).
   Gauge gauge(String name, String help, {double Function()? collect}) =>
@@ -164,7 +167,10 @@ final class MetricsRegistry {
       c.name: <String, Object?>{
         'type': 'counter',
         'help': c.help,
-        'series': Map<String, Object?>.of(c._values),
+        'series': <String, Object?>{
+          ...c._values,
+          if (c._collect != null) '': c._collect(),
+        },
       },
     for (final g in _gauges.values)
       g.name: <String, Object?>{
@@ -334,6 +340,11 @@ final class MetricsService implements CoordinatorService {
       'help': help,
       'series': <String, Object?>{'': ((stats[key] ?? 0) as num).toDouble()},
     };
+    Map<String, Object?> seconds(String help, String key) => <String, Object?>{
+      'type': 'gauge',
+      'help': help,
+      'series': <String, Object?>{'': ((stats[key] ?? 0) as num) / 1000},
+    };
     return <String, Object?>{
       'coordinator_messages_total': metric(
         'counter',
@@ -359,6 +370,20 @@ final class MetricsService implements CoordinatorService {
         'gauge',
         'Pending calls above which the coordinator refuses new ones.',
         'max_queue',
+      ),
+      'coordinator_expired_total': metric(
+        'counter',
+        'Requests dropped unanswered because their caller had stopped '
+            'waiting.',
+        'expired',
+      ),
+      'coordinator_queue_lag_seconds': seconds(
+        'How long a message last waited in the coordinator event loop.',
+        'queue_lag_ms',
+      ),
+      'coordinator_queue_lag_peak_seconds': seconds(
+        'The longest a message waited in the coordinator event loop.',
+        'queue_lag_peak_ms',
       ),
     };
   }
@@ -456,6 +481,12 @@ final class AppMetrics {
       'realtime_slow_clients_total',
       'WebSockets and server-sent event streams closed because the client '
           'read too slowly, by transport and worker isolate.',
+    );
+    registry.counter(
+      'log_lines_dropped_total',
+      'Log lines dropped because the output (stdout, stderr, the log file) '
+          'fell behind or failed.',
+      collect: () => LogLineQueue.droppedTotal.toDouble(),
     );
     registry.gauge(
       'process_resident_memory_bytes',
