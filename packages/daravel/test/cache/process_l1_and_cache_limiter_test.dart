@@ -57,8 +57,9 @@ void main() {
       await store.put('flag', 'off');
       expect(await store.get('flag'), 'off');
       await store.forget('flag');
+      // With a near cache, a read also asks how long the value has left.
       expect(await store.get('flag'), isNull);
-      expect(channel.ops, ['put', 'put', 'forget', 'get']);
+      expect(channel.ops, ['put', 'put', 'forget', 'getWithTtl']);
     });
 
     test('another isolate\'s writes show up after l1Ttl', () async {
@@ -83,7 +84,7 @@ void main() {
       );
       await store.get('missing');
       await store.get('missing');
-      expect(channel.ops, ['get', 'get']);
+      expect(channel.ops, ['getWithTtl', 'getWithTtl']);
 
       await store.put('hits', 1);
       await store.increment('hits');
@@ -100,7 +101,7 @@ void main() {
       await store.put('b', 2);
       await store.put('c', 3);
       await store.get('a');
-      expect(channel.ops.last, 'get', reason: 'a was evicted');
+      expect(channel.ops.last, 'getWithTtl', reason: 'a was evicted');
     });
   });
 

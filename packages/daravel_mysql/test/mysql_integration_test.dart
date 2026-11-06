@@ -1,6 +1,7 @@
 @Tags(['integration'])
 library;
 
+import 'dart:async';
 import 'dart:io';
 
 import 'package:daravel/daravel.dart';
@@ -533,6 +534,56 @@ void main() {
     } finally {
       await manager.closeAll();
     }
+  });
+
+  test('an exhausted pool is reported within the connect timeout', () async {
+    // #156: mysql_dart queues callers for a connection without a bound.
+    final pooled = DatabaseManager(
+      DatabaseConfig(
+        defaultConnection: 'mysql',
+        connections: {
+          'mysql': ConnectionConfig(
+            driver: 'mysql',
+            database: connection.database,
+            host: connection.host,
+            port: connection.port,
+            username: connection.username,
+            password: connection.password,
+            options: const {'pool': 1, 'connect_timeout': 1},
+          ),
+        },
+      ),
+      drivers: const {'mysql': MySqlDriver.fromConfig},
+    );
+    addTearDown(pooled.closeAll);
+    await pooled.select('SELECT 1');
+    final holding = Completer<void>();
+    final release = Completer<void>();
+    final held = pooled.transaction(() async {
+      holding.complete();
+      await release.future;
+    });
+    await holding.future;
+    await expectLater(
+      pooled.select('SELECT 2 AS two'),
+      throwsA(
+        isA<PoolExhaustedException>().having(
+          (e) => e.sql,
+          'sql',
+          'SELECT 2 AS two',
+        ),
+      ),
+    );
+    await expectLater(
+      pooled.transaction(() async {}),
+      throwsA(isA<PoolExhaustedException>()),
+    );
+    release.complete();
+    await held;
+    // The connections the abandoned callers were handed went back.
+    expect(await pooled.select('SELECT 3 AS three'), [
+      {'three': 3},
+    ]);
   });
 }
 

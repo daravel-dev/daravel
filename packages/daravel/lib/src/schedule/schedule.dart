@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:timezone/timezone.dart' as tz;
 
 import '../foundation/clock.dart';
@@ -504,23 +506,57 @@ final class Scheduler {
   final DateTime Function() _clock;
   bool _stop = false;
 
-  /// Runs every task due at [now] (default: current minute).
+  /// How long [work] waits for running tasks once stopped ([stop]).
+  Duration _drain = defaultDrain;
+
+  /// What [stop] gives running tasks to finish by default.
+  static const Duration defaultDrain = Duration(seconds: 30);
+
+  /// The minute runs of [work] and the task executions under way, each with
+  /// the overlap lock it holds.
+  final Set<Future<void>> _ticks = <Future<void>>{};
+  final Map<Future<TaskRunResult>, Lock?> _running = {};
+
+  /// How many task executions are under way (background ones included).
+  int get runningTasks => _running.length;
+
+  /// Runs every task due at [now] (default: current minute). A task whose
+  /// filter, lock or listener throws is reported (`ScheduledTaskSkipped`
+  /// with reason `error`, a [TaskRunResult] with the error) and the other
+  /// tasks of the minute still run.
   Future<List<TaskRunResult>> run([DateTime? now]) async {
     final at = (now ?? _clock()).toUtc();
     final results = <TaskRunResult>[];
     for (final task in schedule.tasks) {
+      if (_stop) {
+        break;
+      }
       if (!task.isDue(at)) {
         continue;
       }
-      results.add(await runTask(task));
+      try {
+        results.add(await runTask(task, at: at));
+      } on Object catch (error, stackTrace) {
+        logger?.error(
+          'Scheduled task [${task.name}] could not start',
+          error: error,
+          stackTrace: stackTrace,
+        );
+        await _announce(ScheduledTaskSkipped(task.name, 'error'));
+        results.add(
+          TaskRunResult(task, ran: false, error: error, skipped: 'error'),
+        );
+      }
     }
     return results;
   }
 
-  /// Runs one task regardless of its schedule (`schedule:test`).
-  Future<TaskRunResult> runTask(ScheduledTask task) async {
+  /// Runs one task regardless of its schedule (`schedule:test`), as part of
+  /// the run started at [at] (default: now), which names the minute of an
+  /// `onOneServer` lock.
+  Future<TaskRunResult> runTask(ScheduledTask task, {DateTime? at}) async {
     if (!await task.passesFilters(environment)) {
-      await events?.dispatch(ScheduledTaskSkipped(task.name, 'filter'));
+      await _announce(ScheduledTaskSkipped(task.name, 'filter'));
       return TaskRunResult(task, ran: false, skipped: 'filter');
     }
     Lock? lock;
@@ -537,6 +573,15 @@ final class Scheduler {
           '[${store.scope.name}] is not shared between servers.',
         );
       }
+      if (task.action is CallbackAction && task._name == null) {
+        // Every unnamed closure is called `Closure`: they would all share
+        // one lock, and the second one due in a minute would always be
+        // skipped. Laravel's CallbackEvent refuses both too.
+        throw StateError(
+          'A scheduled closure with withoutOverlapping() or onOneServer() '
+          'needs a name (named(...)), or every closure shares one lock.',
+        );
+      }
       // Two locks, as Laravel's EventMutex and SchedulingMutex: the overlap
       // lock names the task and its expression (two tasks sharing a name on
       // different schedules do not block each other) and is released when
@@ -544,88 +589,135 @@ final class Scheduler {
       // on its own. A task with both used to take only the minute's lock,
       // which protected nothing against overlap.
       if (task.overlapProtected) {
-        if (task.action is CallbackAction && task._name == null) {
-          // Every unnamed closure is called `Closure`: they would all share
-          // one lock and the second one due in a minute would always be
-          // skipped as an overlap. Laravel's CallbackEvent refuses too.
-          throw StateError(
-            'A scheduled closure with withoutOverlapping() needs a name '
-            '(named(...)), or every closure shares one lock.',
-          );
-        }
         lock = store.lock(
-          'schedule:${task.name}:${task.cron.expression}',
+          overlapLockName(task),
           ttl: task._withoutOverlapping ?? const Duration(hours: 24),
         );
         if (!await lock.acquire()) {
-          await events?.dispatch(ScheduledTaskSkipped(task.name, 'overlap'));
+          await _announce(ScheduledTaskSkipped(task.name, 'overlap'));
           return TaskRunResult(task, ran: false, skipped: 'overlap');
         }
       }
       if (task.singleServer) {
-        final server = store.lock(
-          'schedule:${task.name}:${_minuteKey(_clock())}',
-          ttl: const Duration(hours: 1),
-        );
-        if (!await server.acquire()) {
-          await lock?.release();
-          await events?.dispatch(
-            ScheduledTaskSkipped(task.name, 'another server'),
+        final Lock server;
+        try {
+          server = store.lock(
+            serverLockName(task, at ?? _clock()),
+            ttl: const Duration(hours: 1),
           );
-          return TaskRunResult(task, ran: false, skipped: 'another server');
+          if (!await server.acquire()) {
+            await lock?.release();
+            await _announce(ScheduledTaskSkipped(task.name, 'another server'));
+            return TaskRunResult(task, ran: false, skipped: 'another server');
+          }
+        } catch (_) {
+          await lock?.release();
+          rethrow;
         }
       }
     }
     final execution = _execute(task, releaseLock: lock);
+    _running[execution] = lock;
+    unawaited(execution.whenComplete(() => _running.remove(execution)));
     if (task.runsInBackground) {
-      unawaited(execution);
       return TaskRunResult(task, ran: true);
     }
     return execution;
+  }
+
+  /// The overlap lock of [task] (`withoutOverlapping`): its name and cron
+  /// expression, held while it runs.
+  static String overlapLockName(ScheduledTask task) =>
+      'schedule:${task.name}:${task.cron.expression}';
+
+  /// The single-server lock of [task] (`onOneServer`) for the run started
+  /// at [at], Laravel's `SchedulingMutex`: the task's expression and
+  /// identity (its name; for an unnamed job, the job's name and data, so
+  /// two jobs of one class do not share it), hashed, and the run's hour and
+  /// minute. Keyed on the run's start, so a slow task before it cannot move
+  /// it into the next minute on one server; without the date, so a day
+  /// reuses the same 1 440 keys at most.
+  static String serverLockName(ScheduledTask task, DateTime at) {
+    final identity = switch (task.action) {
+      JobAction(:final job) when task._name == null =>
+        '${job.jobName}:${jsonEncode(job.toJson())}',
+      _ => task.name,
+    };
+    final digest = sha1.convert(
+      utf8.encode('${task.cron.expression}$identity'),
+    );
+    final t = at.toUtc();
+    String two(int n) => n.toString().padLeft(2, '0');
+    return 'schedule:$digest:${two(t.hour)}${two(t.minute)}';
+  }
+
+  /// Dispatches a scheduler event; a listener that throws is logged and
+  /// cannot keep a lock held or a task from running.
+  Future<void> _announce<E extends Object>(E event) async {
+    try {
+      await events?.dispatch(event);
+    } on Object catch (error, stackTrace) {
+      logger?.error(
+        'A $E listener threw',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
   }
 
   Future<TaskRunResult> _execute(
     ScheduledTask task, {
     Lock? releaseLock,
   }) async {
-    await events?.dispatch(ScheduledTaskStarting(task.name));
     final stopwatch = Stopwatch()..start();
     Object? error;
     try {
-      for (final hook in task._before) {
-        await hook();
-      }
-      await _perform(task.action);
-      for (final hook in task._onSuccess) {
-        await hook();
-      }
-    } catch (e, stackTrace) {
-      error = e;
-      logger?.error(
-        'Scheduled task [${task.name}] failed',
-        error: e,
-        stackTrace: stackTrace,
-      );
-      for (final hook in task._onFailure) {
-        try {
-          await hook(e);
-        } catch (_) {
-          // Hooks must not mask the original failure.
-        }
-      }
-    } finally {
-      for (final hook in task._after) {
-        try {
+      await _announce(ScheduledTaskStarting(task.name));
+      try {
+        for (final hook in task._before) {
           await hook();
-        } catch (_) {
-          // ignore
+        }
+        await _perform(task.action);
+        for (final hook in task._onSuccess) {
+          await hook();
+        }
+      } catch (e, stackTrace) {
+        error = e;
+        logger?.error(
+          'Scheduled task [${task.name}] failed',
+          error: e,
+          stackTrace: stackTrace,
+        );
+        for (final hook in task._onFailure) {
+          try {
+            await hook(e);
+          } catch (_) {
+            // Hooks must not mask the original failure.
+          }
+        }
+      } finally {
+        for (final hook in task._after) {
+          try {
+            await hook();
+          } catch (_) {
+            // ignore
+          }
         }
       }
-      await releaseLock?.release();
+      await _announce(
+        ScheduledTaskFinished(task.name, stopwatch.elapsed, error: error),
+      );
+    } finally {
+      try {
+        await releaseLock?.release();
+      } on Object catch (releaseError, stackTrace) {
+        logger?.error(
+          'Could not release the overlap lock of [${task.name}]',
+          error: releaseError,
+          stackTrace: stackTrace,
+        );
+      }
     }
-    await events?.dispatch(
-      ScheduledTaskFinished(task.name, stopwatch.elapsed, error: error),
-    );
     return TaskRunResult(task, ran: true, error: error);
   }
 
@@ -666,6 +758,11 @@ final class Scheduler {
   /// between (as Laravel's `schedule:work` starts a fresh `schedule:run`
   /// each minute); `withoutOverlapping` keeps such a task from running
   /// beside itself. Within a minute the tasks still run in order.
+  ///
+  /// Once stopped it waits for the tasks under way, background ones
+  /// included, for the drain [stop] was given; tasks still running then
+  /// have their overlap locks released (the process is about to end them)
+  /// rather than holding them until they expire.
   Future<void> work({Duration? tick}) async {
     _stop = false;
     String? lastMinute;
@@ -674,16 +771,18 @@ final class Scheduler {
       final minute = _minuteKey(now);
       if (minute != lastMinute) {
         lastMinute = minute;
-        unawaited(
-          run(now).then<void>(
-            (_) {},
-            onError: (Object error, StackTrace stackTrace) => logger?.error(
-              'Scheduler tick failed',
-              error: error,
-              stackTrace: stackTrace,
-            ),
-          ),
-        );
+        final run = this
+            .run(now)
+            .then<void>(
+              (_) {},
+              onError: (Object error, StackTrace stackTrace) => logger?.error(
+                'Scheduler tick failed',
+                error: error,
+                stackTrace: stackTrace,
+              ),
+            );
+        _ticks.add(run);
+        unawaited(run.whenComplete(() => _ticks.remove(run)));
       }
       final wait =
           tick ??
@@ -697,18 +796,79 @@ final class Scheduler {
       ]);
       _wake = null;
     }
+    await _drainRunning();
+  }
+
+  Future<void> _drainRunning() async {
+    // The tick in progress first: it may still start tasks (it checks
+    // [_stop] before each), then whatever runs.
+    final pending = <Future<void>>[..._ticks, ..._running.keys];
+    if (pending.isEmpty) {
+      return;
+    }
+    var drained = true;
+    await Future.wait(pending).timeout(
+      _drain,
+      onTimeout: () {
+        drained = false;
+        return const <void>[];
+      },
+    );
+    if (drained && _running.isEmpty) {
+      return;
+    }
+    for (final MapEntry(key: execution, value: lock)
+        in _running.entries.toList()) {
+      _running.remove(execution);
+      if (lock == null) {
+        continue;
+      }
+      logger?.warning(
+        'A scheduled task still runs after the ${_drain.inSeconds}s drain; '
+        'its overlap lock is released.',
+      );
+      try {
+        await lock.release();
+      } on Object catch (error, stackTrace) {
+        logger?.error(
+          'Could not release an overlap lock',
+          error: error,
+          stackTrace: stackTrace,
+        );
+      }
+    }
   }
 
   Completer<void>? _wake;
 
   /// Stops [work] after the running tick, without waiting for the next
-  /// minute.
-  void stop() {
+  /// minute. [work] then waits up to [drain] for the tasks under way.
+  void stop({Duration drain = defaultDrain}) {
     _stop = true;
+    _drain = drain;
     final wake = _wake;
     if (wake != null && !wake.isCompleted) {
       wake.complete();
     }
+  }
+
+  /// Laravel's `schedule:clear-cache`: releases the overlap lock of every
+  /// `withoutOverlapping` task, for one left behind by a scheduler that was
+  /// killed while the task ran. Answers the names of the tasks.
+  Future<List<String>> clearCache() async {
+    final store = lockStore;
+    if (store == null) {
+      return const [];
+    }
+    final cleared = <String>[];
+    for (final task in schedule.tasks) {
+      if (!task.overlapProtected) {
+        continue;
+      }
+      await store.lock(overlapLockName(task)).forceRelease();
+      cleared.add(task.name);
+    }
+    return cleared;
   }
 
   static String _minuteKey(DateTime time) {

@@ -1,4 +1,4 @@
-<!-- source: routing.md sha256:5fa93c5da827 -->
+<!-- source: routing.md sha256:75d62680e65a -->
 # Routing
 
 Route didaftarkan di `routes/api.dart` (di-mount di bawah `/api`) dan
@@ -180,14 +180,21 @@ limiter.define(
 
 Respons membawa `X-RateLimit-Limit` dan `X-RateLimit-Remaining`; request
 yang terkena batas mendapat `429 {"message": "Too Many Attempts."}` dengan
-`Retry-After` dan `X-RateLimit-Reset`. Batasnya dibagi oleh setiap isolate
-dalam proses melalui coordinator. Seperti Laravel, sebuah jendela dimulai
-pada hit pertama dan di-reset setelah `decay`. Dengan beberapa isolate, key
-dengan batas longgar (32 percobaan atau lebih) dilayani dari lease lokal
-kecil yang membesar untuk key yang ramai dan mengembalikan hit yang tidak
+`Retry-After` dan `X-RateLimit-Reset`. `throttle:60,1` (tanpa limiter
+bernama) menghitung per klien seperti Laravel: domain route yang cocok dan
+alamat klien, tidak pernah header `Host` yang dikirim klien, sehingga semua
+route di bawah batas itu pada satu domain berbagi bucket klien yang sama;
+limiter bernama memakai key dari `Limit.by(...)`-nya sendiri. Batasnya
+dibagi oleh setiap isolate dalam proses melalui coordinator. Seperti
+Laravel, sebuah jendela dimulai pada hit pertama dan di-reset setelah
+`decay`. Dengan beberapa isolate, key dengan batas longgar (32 percobaan
+atau lebih) dilayani dari lease lokal kecil yang membesar untuk key yang
+ramai dan mengembalikan hit yang tidak
 terpakai: batasnya tidak pernah terlampaui (hit yang di-lease satu worker
-bisa sejenak tidak tersedia bagi worker lain, paling lama 200 ms), dan
-coordinator tidak lagi dilibatkan di setiap request.
+bisa sejenak tidak tersedia bagi worker lain, paling lama 200 ms, juga saat
+worker itu berhenti menerima request), dan coordinator tidak lagi dilibatkan
+di setiap request: request bersamaan untuk satu key di satu worker berbagi
+satu permintaan lease.
 
 Fixed window bisa meloloskan sampai dua kali batas di sekitar reset.
 `Limit.perMinute(60).slidingWindow()` juga menimbang jendela sebelumnya,
@@ -198,8 +205,11 @@ store lain menghitungnya sebagai fixed window.
 
 Saat coordinator tidak menjawab tepat waktu (misalnya proses sedang
 kelebihan beban), rate limiting bersifat fail-open: request diloloskan
-tanpa dihitung dan sebuah peringatan dicatat di log, sehingga coordinator
-yang lambat tidak pernah menjatuhkan situs. Batas yang menjaga kredensial
+tanpa dihitung dan sebuah peringatan dicatat di log (paling banyak sekali
+per detik, beserta jumlah percobaan yang tidak dicatat), sehingga
+coordinator yang lambat tidak pernah menjatuhkan situs. Hal yang sama
+berlaku saat cache store di balik `CACHE_LIMITER=database` atau `redis`
+gagal: request diloloskan alih-alih gagal dengan `500`. Batas yang menjaga kredensial
 (login, OTP, reset password) sebaiknya fail-closed, agar membanjiri server
 tidak mencabut batas tersebut: request seperti itu justru mendapat `429`
 dengan `Retry-After: 1`.

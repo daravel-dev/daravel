@@ -148,6 +148,8 @@ of every worker are merged.
 | `coordinator_call_duration_seconds{service}` | p99 above about 2 ms: rate limits, process cache reads and locks wait for the coordinator |
 | `coordinator_rejected_total`, `coordinator_in_flight_peak` against `coordinator_max_queue` | any refusal, or a peak near the limit |
 | `coordinator_call_timeouts_total{service}` | any steady rate |
+| `coordinator_queue_lag_seconds`, `coordinator_queue_lag_peak_seconds` | above about 25 ms: messages wait that long in the coordinator's event loop (synchronous services such as rate limits and locks included, which `coordinator_in_flight` does not count), and rate limits, which wait 50 ms, start to fail open |
+| `coordinator_expired_total` | any steady rate: the coordinator dropped rate-limit attempts and lock acquisitions whose callers had already timed out, instead of counting or granting them for nobody |
 
 `dartisan coordinator:stats --url=http://127.0.0.1:8000/metrics` reads
 these from a running server and says what to do: back the rate limiter

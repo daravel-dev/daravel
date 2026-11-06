@@ -10,7 +10,7 @@ import 'package:test/test.dart';
 /// supertypes, with the annotations and modifiers before it.
 final RegExp _messageClass = RegExp(
   r'^((?:[ \t]*@[^\n]*\n)*)[ \t]*((?:\w+[ \t]+)*)class[ \t]+(\w+)'
-  r'[^{;]*\bCoordinatorMessage\b[^{;]*\{',
+  r'[^{;]*\b(?:Expiring)?CoordinatorMessage\b[^{;]*\{',
   multiLine: true,
 );
 
@@ -22,7 +22,9 @@ Map<String, List<String>> checkMessages(String source) {
   for (final match in _messageClass.allMatches(source)) {
     final name = match.group(3)!;
     final modifiers = match.group(2)!.split(RegExp(r'\s+'));
-    if (name == 'CoordinatorMessage') {
+    if (modifiers.contains('interface')) {
+      // CoordinatorMessage and ExpiringCoordinatorMessage: marker
+      // interfaces, never sent themselves.
       continue;
     }
     found[name] = [

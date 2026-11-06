@@ -340,6 +340,11 @@ final class MetricsService implements CoordinatorService {
       'help': help,
       'series': <String, Object?>{'': ((stats[key] ?? 0) as num).toDouble()},
     };
+    Map<String, Object?> seconds(String help, String key) => <String, Object?>{
+      'type': 'gauge',
+      'help': help,
+      'series': <String, Object?>{'': ((stats[key] ?? 0) as num) / 1000},
+    };
     return <String, Object?>{
       'coordinator_messages_total': metric(
         'counter',
@@ -365,6 +370,20 @@ final class MetricsService implements CoordinatorService {
         'gauge',
         'Pending calls above which the coordinator refuses new ones.',
         'max_queue',
+      ),
+      'coordinator_expired_total': metric(
+        'counter',
+        'Requests dropped unanswered because their caller had stopped '
+            'waiting.',
+        'expired',
+      ),
+      'coordinator_queue_lag_seconds': seconds(
+        'How long a message last waited in the coordinator event loop.',
+        'queue_lag_ms',
+      ),
+      'coordinator_queue_lag_peak_seconds': seconds(
+        'The longest a message waited in the coordinator event loop.',
+        'queue_lag_peak_ms',
       ),
     };
   }
