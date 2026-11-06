@@ -229,4 +229,91 @@ void main() {
       await m.stop(timeout: const Duration(seconds: 20));
     },
   );
+
+  test(
+    'horizon:pause, continue and terminate reach it through the signal store',
+    timeout: const Timeout(Duration(minutes: 2)),
+    () async {
+      final signals = app.container.make<QueueManager>().signalStore;
+      final m = HorizonMaster(
+        masterApp,
+        HorizonConfig(
+          plans: const [
+            SupervisorPlan(
+              name: SupervisorName('s'),
+              queues: [QueueName('a')],
+              balance: BalanceStrategy.off,
+              maxProcesses: 1,
+              sleep: Duration(milliseconds: 50),
+            ),
+          ],
+          heartbeat: const Duration(milliseconds: 100),
+        ),
+        driver: (c) => app.container.make<QueueManager>().connection(c),
+        logger: Logger(minimumLevel: LogLevel.critical),
+        signals: signals,
+      );
+      addTearDown(() => m.stop(timeout: const Duration(seconds: 20)));
+      // A command from before it started is not its own.
+      await HorizonSignals.send(signals, 'horizon', 'terminate');
+      await m.start();
+      await until(() => m.workers('s').any((w) => w.ready), 'a ready worker');
+
+      await HorizonSignals.send(signals, 'horizon', 'pause');
+      await Future<void>.delayed(const Duration(milliseconds: 1500));
+      await app.run(() => Queue.push(const Hang('while-paused'), queue: 'a'));
+      await Future<void>.delayed(const Duration(seconds: 1));
+      expect(marks(), isEmpty);
+
+      await HorizonSignals.send(signals, 'horizon', 'continue');
+      await until(() => marks().isNotEmpty, 'the job after continue');
+
+      await HorizonSignals.send(signals, 'horizon', 'terminate');
+      await until(() => m.workers('s').isEmpty, 'every worker gone');
+    },
+  );
+
+  test(
+    'past HORIZON_MEMORY_LIMIT workers are replaced one at a time',
+    timeout: const Timeout(Duration(minutes: 2)),
+    () async {
+      final m = HorizonMaster(
+        masterApp,
+        HorizonConfig(
+          plans: const [
+            SupervisorPlan(
+              name: SupervisorName('s'),
+              queues: [QueueName('a')],
+              balance: BalanceStrategy.off,
+              maxProcesses: 2,
+              sleep: Duration(milliseconds: 50),
+            ),
+          ],
+          heartbeat: const Duration(milliseconds: 100),
+          memoryLimit: 1, // MB: always past it
+        ),
+        driver: (c) => app.container.make<QueueManager>().connection(c),
+        logger: Logger(minimumLevel: LogLevel.critical),
+        onEvent: (event, data) => events.add((event, data)),
+      );
+      addTearDown(() => m.stop(timeout: const Duration(seconds: 20)));
+      await m.start();
+      final first = {for (final w in m.workers('s')) w.name};
+      await until(
+        () => events.where((e) => e.$2['reason'] == 'memory').length >= 2,
+        'two recycles',
+      );
+      await until(
+        () => m.workers('s').where((w) => !w.stopping).length == 2,
+        'two live workers',
+      );
+      final now = {for (final w in m.workers('s')) w.name};
+      expect(now.difference(first), isNotEmpty, reason: 'fresh workers');
+      // Never more than one recycled at a time.
+      expect(
+        m.workers('s').where((w) => w.recycling).length,
+        lessThanOrEqualTo(1),
+      );
+    },
+  );
 }

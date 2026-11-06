@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show ProcessInfo;
 import 'dart:isolate';
 
 import 'package:daravel/daravel.dart';
@@ -7,6 +8,7 @@ import 'package:daravel/daravel.dart';
 import 'auto_scaler.dart';
 import 'config.dart';
 import 'messages.dart';
+import 'signals.dart';
 import 'store/process_store.dart';
 import 'worker_isolate.dart';
 
@@ -41,6 +43,9 @@ final class HorizonWorker {
 
   /// Whether it booted (the lease applies from then on).
   bool ready = false;
+
+  /// Whether it is being replaced for memory (a fresh one follows).
+  bool recycling = false;
 
   /// The reclaim of its job after a lease kill, if one ran.
   Future<bool>? _reclaim;
@@ -81,6 +86,9 @@ final class HorizonMaster {
     this.coordinator,
     this.store,
     this.failedJobs,
+    this.signals,
+    this.name = 'horizon',
+    this.onTerminate,
     this.onEvent,
     Duration Function(int crashes)? crashDelay,
   }) : _crashDelay = crashDelay ?? _defaultCrashDelay;
@@ -106,6 +114,16 @@ final class HorizonMaster {
 
   /// Where a quarantined job is recorded (`failed_jobs`).
   final FailedJobProvider? failedJobs;
+
+  /// Where `horizon:pause`, `horizon:continue` and `horizon:terminate` are
+  /// read from (`QueueManager.signalStore`); none without it.
+  final CacheRepository? signals;
+
+  /// This Horizon's name in [HorizonSignals] (`HORIZON_NAME`).
+  final String name;
+
+  /// Called after `horizon:terminate` stopped the workers.
+  final void Function()? onTerminate;
 
   /// Told about kills and scaling decisions.
   final HorizonEventSink? onEvent;
@@ -147,6 +165,94 @@ final class HorizonMaster {
       }
     }
     _timers.add(Timer.periodic(config.heartbeat, (_) => _checkLeases()));
+    if (signals != null) {
+      // Commands sent before this master started are not its own.
+      _signalAt = (await _readSignal())?.$2 ?? 0;
+      _timers.add(
+        Timer.periodic(const Duration(seconds: 1), (_) => unawaited(_poll())),
+      );
+    }
+    if (config.memoryLimit > 0) {
+      _timers.add(Timer.periodic(memoryCheck, (_) => _checkMemory(_rss())));
+    }
+  }
+
+  // -- Commands from other processes (HorizonSignals) --------------------
+
+  int _signalAt = 0;
+
+  Future<(String, int)?> _readSignal() async {
+    try {
+      return await HorizonSignals.read(signals, name);
+    } on Object catch (e) {
+      logger.warning('Could not read the Horizon signal: $e');
+      return null;
+    }
+  }
+
+  Future<void> _poll() async {
+    final signal = await _readSignal();
+    if (signal == null || signal.$2 <= _signalAt || _stopping) {
+      return;
+    }
+    _signalAt = signal.$2;
+    logger.info('Horizon command: ${signal.$1}.');
+    switch (signal.$1) {
+      case 'pause':
+        pause();
+      case 'continue':
+        resume();
+      case 'terminate':
+        await stop();
+        onTerminate?.call();
+    }
+  }
+
+  // -- Memory (HORIZON_MEMORY_LIMIT) --------------------------------------
+
+  /// How often the process's memory is compared with `memoryLimit`.
+  static const Duration memoryCheck = Duration(seconds: 5);
+
+  /// The process's resident memory; replaceable for tests.
+  int Function() rssReader = _defaultRss;
+
+  static int _defaultRss() {
+    try {
+      return ProcessInfo.currentRss;
+    } on Object {
+      return 0;
+    }
+  }
+
+  int _rss() => rssReader();
+
+  /// Past `memoryLimit` megabytes of resident memory (the process's: worker
+  /// isolates share one heap), replaces one worker, an idle one first, with
+  /// a fresh one on the same queues; the next only once it is gone.
+  void _checkMemory(int rss) {
+    if (_stopping ||
+        rss < config.memoryLimit * 1024 * 1024 ||
+        _pools.values.any((pool) => pool.any((w) => w.recycling))) {
+      return;
+    }
+    final candidates = [
+      for (final pool in _pools.values)
+        for (final w in pool)
+          if (!w.stopping && w.ready) w,
+    ]..sort((a, b) => (a.busy ? 1 : 0).compareTo(b.busy ? 1 : 0));
+    if (candidates.isEmpty) {
+      return;
+    }
+    final w = candidates.first
+      ..recycling = true
+      ..stopping = true;
+    w._send(const Stop());
+    onEvent?.call('SupervisorLooped', {
+      'plan': w.plan.name.value,
+      'reason': 'memory',
+      'worker': w.name,
+      'rss': rss,
+    });
   }
 
   /// Every queue of [plan] for each of [count] workers.
@@ -524,6 +630,10 @@ final class HorizonMaster {
     _pools[w.plan.name.value]?.remove(w);
     if (crashed && w.last?.jobId != null) {
       unawaited(_afterCrash(w));
+    }
+    if (w.recycling && !_stopping) {
+      unawaited(_spawn(w.plan, w.queues));
+      return;
     }
     if (_stopping || w.stopping) {
       return;

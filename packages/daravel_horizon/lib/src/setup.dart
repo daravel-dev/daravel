@@ -66,6 +66,8 @@ Future<int> runHorizon(
     coordinator: control.coordinator,
     store: app.container.make<CoordinatorChannel>(),
     failedJobs: queues.processor.failedJobs,
+    signals: queues.signalStore,
+    name: config.name ?? 'horizon',
   );
   await master.start();
   final commands = control.messages.listen((message) {
