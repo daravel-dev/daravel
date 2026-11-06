@@ -1,4 +1,4 @@
-<!-- source: deployment.md sha256:391ea9d0f728 -->
+<!-- source: deployment.md sha256:7596532c63a7 -->
 # Deployment
 
 ## Konsep & Arsitektur Ahead-of-Time (AOT) Single Binary
@@ -106,6 +106,47 @@ pada aplikasi berukuran sedang), sedangkan biner AOT diam di sekitar 15 MB
 dan tetap di ratusan megabyte rendah di bawah beban dengan beberapa isolate
 (115 MB dengan satu, sekitar 330 MB dengan delapan, pada aplikasi yang
 sama).
+
+### Build di satu OS, jalankan di OS lain
+
+`--target-os` dan `--target-arch` mem-build bundle untuk mesin lain,
+misalnya server Linux dari laptop Windows:
+
+```bash
+dart run bin/dartisan.dart build --target-os=linux                    # Linux x64 dari Windows x64
+dart run bin/dartisan.dart build --target-os=linux --target-arch=arm64
+dart run bin/dartisan.dart build --target-os=linux --no-sqlite --force  # PostgreSQL/MySQL: tanpa unduhan SQLite
+```
+
+Kedua opsi diteruskan ke `dart build cli`, yang mengompilasi untuk target
+dan menjalankan build hook untuk target itu: SQLite di bundle adalah
+prebuilt untuk target (`libsqlite3.so` untuk Linux), dan executable-nya
+`bin/server`, dengan `.exe` hanya untuk Windows. Dart SDK hanya bisa
+cross-compile ke Linux (x64, arm64): bundle macOS atau Windows di-build di
+sistem itu sendiri.
+
+Terukur dengan starter di Windows x64 (Dart 3.13.4, build hook sudah
+ter-cache):
+
+| Perintah | Bundle | Waktu build |
+| :-- | :-- | :-- |
+| `build` (host, Windows x64) | `server.exe` 10,5 MB + `sqlite3.dll` 1,6 MB | sekitar 45 s |
+| `build --target-os=linux` | ELF x86-64 `server` 10,9 MB + `libsqlite3.so` 1,7 MB | sekitar 20 s |
+| `build --target-os=linux --target-arch=arm64` | ELF arm64 `server` 10,6 MB + `libsqlite3.so` 1,8 MB | sekitar 25 s |
+| `build --target-os=linux --no-sqlite --force` | ELF x86-64 `server` 10,9 MB | sekitar 40 s, termasuk `dart run` untuk `dartisan` |
+| `build --target-os=macos` | ditolak SDK: cross-compile hanya ke Linux | |
+
+Bundle Linux x64 sudah dijalankan di WSL (Ubuntu 22.04), dan CI mem-build
+bundle `--no-sqlite` di Windows lalu menjalankan smoke test-nya di Linux.
+Bundle `--no-sqlite` yang membuka SQLite membutuhkan `libsqlite3.so` di
+server (Debian/Ubuntu: `libsqlite3-dev`, atau link `libsqlite3.so` ke
+`libsqlite3.so.0`).
+
+Bila build berhenti dengan "Hash of downloaded file libsqlite3...", unduhan
+SQLite dari GitHub gagal: `package:sqlite3` 3.8.0 tidak memeriksa status
+HTTP, sehingga response error terlihat sebagai hash yang salah. `dartisan
+build` menjelaskan hal ini; jalankan ulang, atau build dengan `--no-sqlite
+--force` bila aplikasi memakai PostgreSQL atau MySQL.
 
 ## Docker
 

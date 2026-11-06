@@ -1,4 +1,4 @@
-<!-- source: dartisan.md sha256:c30d9dd657ef -->
+<!-- source: dartisan.md sha256:2bdea89db7e1 -->
 # dartisan
 
 `dartisan` adalah `artisan`-nya Daravel. Pasang sekali, lalu pakai di proyek
@@ -82,7 +82,7 @@ sebelum pindah ke versi minor baru.
 | :-- | :-- |
 | `serve [--watch] [--isolates=N] [--embed-queue] [--embed-scheduler]` | Server HTTP; `--watch` melakukan hot reload |
 | `test [--conformance] [--security] [--coverage]` | Menjalankan test |
-| `build [--with-cli] [--docker [--distroless]] [--no-sqlite]` | Bundle native di `build/server/bundle`, opsional `Dockerfile` (`--distroless`: tanpa shell, non-root, lihat [Deployment](deployment.md#docker)); `--no-sqlite` tidak menyertakan library SQLite (aplikasi PostgreSQL/MySQL) |
+| `build [--with-cli] [--docker [--distroless]] [--no-sqlite] [--target-os] [--target-arch]` | Bundle native di `build/server/bundle`, opsional `Dockerfile` (`--distroless`: tanpa shell, non-root, lihat [Deployment](deployment.md#docker)); `--no-sqlite` tidak menyertakan library SQLite (aplikasi PostgreSQL/MySQL); `--target-os=linux` (dan `--target-arch=x64` atau `arm64`) mem-build untuk mesin lain, lihat [Deployment](deployment.md#build-di-satu-os-jalankan-di-os-lain) |
 | `route:list` | Tabel route |
 | `openapi:generate [--output]` | OpenAPI 3.1 dari route dan metadata yang dideklarasikan |
 | `client:flutter [--output] [--package-name] [--prefix] [--state] [--watch]` | Paket client Dart/Flutter bertipe dari route, dengan rule validasi milik server ([Client Flutter](flutter-client.md)) |
