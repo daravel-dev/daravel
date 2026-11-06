@@ -152,6 +152,31 @@ to 46 req/s with two (2026-10-29):
 dart run bin/bench.dart --scenarios=13 --isolates=1 --processes=2
 ```
 
+### Horizon worker isolates and SQLite
+
+`bin/horizon_isolates.dart` measures what `daravel_horizon`'s worker
+isolates cost: start-up until every worker is ready, and the process's
+resident memory, idle and under a backlog, for 1, 4 and 8 workers. On
+Windows with a SQLite file queue it twice ended in a native crash inside
+`sqlite3.dll`. `bin/sqlite_isolates_repro.dart` reproduces the setup
+without Daravel (8 isolates of one process on one WAL file), in four
+variants for how an isolate ends:
+
+```bash
+dart run bin/sqlite_isolates_repro.dart a   # close() before the isolate ends
+dart run bin/sqlite_isolates_repro.dart b   # no close(): finalizers only
+dart run bin/sqlite_isolates_repro.dart c   # Isolate.kill while writing
+dart run bin/sqlite_isolates_repro.dart d   # Isolate.exit with a statement open
+```
+
+The crash did not come back in 20 runs. Variant `c` shows the lasting
+problem: an isolate killed while it holds a write transaction keeps the
+file's write lock for the rest of the process, and every later write
+fails with `database is locked`. Horizon therefore refuses to embed its
+workers on SQLite, warns when it runs them standalone (`HORIZON_ALLOW_SQLITE`),
+and exits with code 75 after such a kill, so the process manager starts a
+fresh process.
+
 ## Interop with Laravel's broadcasting
 
 `bench/interop/run.sh` (Linux and Docker) runs `laravel-echo` and
