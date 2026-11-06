@@ -6,6 +6,7 @@ import 'package:daravel/daravel.dart';
 
 import 'config.dart';
 import 'signals.dart';
+import 'ui.dart';
 import 'store/process_store.dart';
 
 /// The dashboard's JSON API (Blueprint #134 §3.7), under `HORIZON_PATH`
@@ -107,8 +108,41 @@ abstract final class HorizonDashboard {
         ..get(
           '$api/jobs/{uuid}',
           (Request q) => guard(_job),
-        ).name('horizon.jobs.show');
+        ).name('horizon.jobs.show')
+        ..get(
+          path,
+          (Request q) => guard((r) => _page(path, 'dashboard')),
+        ).name('horizon.index')
+        ..get(
+          '$path/{view}',
+          (Request q) => guard((r) => _page(path, r.param<String>('view'))),
+        ).name('horizon.view');
     }, middleware: middleware);
+  }
+
+  /// The page, with a fresh CSP nonce for its inline style and script;
+  /// an unknown tab is a 404.
+  static Response _page(String base, String tab) {
+    if (!horizonTabs.contains(tab)) {
+      throw NotFoundHttpException();
+    }
+    final nonce = base64Url
+        .encode(List<int>.generate(18, (_) => _random.nextInt(256)))
+        .replaceAll('=', '');
+    return Response.html(
+      horizonPage(base: base, nonce: nonce, tab: tab).render(),
+      headers: {
+        'cache-control': 'no-store',
+        'x-content-type-options': 'nosniff',
+        'referrer-policy': 'no-referrer',
+        'x-frame-options': 'DENY',
+        'x-robots-tag': 'noindex, nofollow',
+        'content-security-policy':
+            "default-src 'none'; script-src 'nonce-$nonce'; "
+            "style-src 'nonce-$nonce'; connect-src 'self'; img-src data:; "
+            "frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+      },
+    );
   }
 
   static HorizonConfig get _config {
@@ -168,7 +202,7 @@ abstract final class HorizonDashboard {
   static Future<List<Map<String, Object?>>> _queueLoads() async {
     final status = await _status();
     final supervisors =
-        (status['supervisors'] as Map<String, Object?>?) ?? const {};
+        (status['supervisors'] as Map<Object?, Object?>?) ?? const {};
     final loads = <Map<String, Object?>>[];
     for (final plan in _config.plans) {
       final workers = (supervisors[plan.name.value] as List<Object?>?) ?? [];
@@ -208,7 +242,7 @@ abstract final class HorizonDashboard {
     final status = await _status();
     final loads = await _queueLoads();
     final supervisors =
-        (status['supervisors'] as Map<String, Object?>?) ?? const {};
+        (status['supervisors'] as Map<Object?, Object?>?) ?? const {};
     return {
       'status': status['state'] ?? 'inactive',
       'jobsPerMinute': summary['jobs_per_minute'] ?? 0,
@@ -229,7 +263,7 @@ abstract final class HorizonDashboard {
     };
   }
 
-  static final Random _random = Random();
+  static final Random _random = Random.secure();
 
   /// `stats` and `workload` every second, with a random `retry:` (1 to 5 s)
   /// so clients do not all reconnect at once; it ends when the server

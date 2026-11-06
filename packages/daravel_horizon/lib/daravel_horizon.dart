@@ -16,4 +16,5 @@ export 'src/setup.dart';
 export 'src/signals.dart';
 export 'src/store/process_store.dart';
 export 'src/tags.dart';
+export 'src/ui.dart';
 export 'src/worker_isolate.dart';

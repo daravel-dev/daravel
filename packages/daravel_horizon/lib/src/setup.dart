@@ -57,18 +57,34 @@ final class _HorizonRoutes extends ServiceProvider {
 
   @override
   void boot(Container container) {
-    final path = container
+    final configured = container
         .make<ConfigRepository>()
         .section<HorizonConfig>()
         .path;
+    final path = configured.length > 1 && configured.endsWith('/')
+        ? configured.substring(0, configured.length - 1)
+        : configured;
+    final routes = HorizonRoutes(path: path, middleware: middleware);
+    container.instance<HorizonRoutes>(routes);
     HorizonDashboard.routes(
       container.make<Router>(),
-      path: path.length > 1 && path.endsWith('/')
-          ? path.substring(0, path.length - 1)
-          : path,
+      path: path,
       middleware: middleware,
     );
   }
+}
+
+/// Where `withHorizon()` serves the dashboard and behind what: for
+/// `dartisan horizon --dashboard`, which serves it on a port of its own.
+final class HorizonRoutes {
+  /// The dashboard at [path] behind [middleware].
+  const HorizonRoutes({required this.path, this.middleware = const []});
+
+  /// `HORIZON_PATH`, without a trailing slash.
+  final String path;
+
+  /// The middleware of `withHorizon(middleware:)`.
+  final List<Object> middleware;
 }
 
 /// What a [HorizonMaster] of [app] does about the database sessions of a

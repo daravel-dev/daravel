@@ -188,6 +188,9 @@ abstract final class Pulse {
       now: now,
     );
     snapshot['queues'] = await _queues(container);
+    // daravel_horizon's dashboard, when the application has one: the
+    // Queues card links to it (no dependency on the package).
+    snapshot['horizon_path'] = horizonPath(container.make<Router>());
     snapshot['failed_jobs'] = await _failedJobs(container, now, window);
     snapshot['thresholds'] = {
       'requests_ms': _config.slowRequestThreshold.inMilliseconds,
@@ -212,6 +215,17 @@ abstract final class Pulse {
     await reports.publish(topic, own);
     final all = await reports.collect(topic);
     return [for (final report in all.values) report! as Map<String, Object?>];
+  }
+
+  /// The path of `daravel_horizon`'s dashboard (its `horizon.index` route),
+  /// or null when the application has none.
+  static String? horizonPath(Router router) {
+    for (final route in router.routes) {
+      if (route.routeName == 'horizon.index') {
+        return route.path;
+      }
+    }
+    return null;
   }
 
   static Future<List<Map<String, Object?>>> _queues(Container container) async {
