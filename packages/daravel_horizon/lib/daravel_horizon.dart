@@ -8,3 +8,6 @@ library;
 
 export 'src/auto_scaler.dart';
 export 'src/config.dart';
+export 'src/messages.dart';
+export 'src/tags.dart';
+export 'src/worker_isolate.dart';
