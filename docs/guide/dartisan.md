@@ -223,7 +223,7 @@ last under `project`:
 
 ```text
  _| _. ._|_ o _  _. ._
-(_|(_|| |_ |_> (_|| |   Daravel 1.27.0 · Dart 3.13.4 · linux
+(_|(_|| |_ |_> (_|| |   Daravel <version> · Dart <sdk> · <os>
                         Made with the help of our sponsors ♥ github.com/sponsors/daravel-dev
 ```
 

@@ -1,4 +1,4 @@
-<!-- source: dartisan.md sha256:682a72d396f4 -->
+<!-- source: dartisan.md sha256:27a39a56355a -->
 # dartisan
 
 `dartisan` adalah `artisan`-nya Daravel. Pasang sekali, lalu pakai di proyek
@@ -227,7 +227,7 @@ di bagian akhir pada kelompok `project`:
 
 ```text
  _| _. ._|_ o _  _. ._
-(_|(_|| |_ |_> (_|| |   Daravel 1.27.0 · Dart 3.13.4 · linux
+(_|(_|| |_ |_> (_|| |   Daravel <version> · Dart <sdk> · <os>
                         Made with the help of our sponsors ♥ github.com/sponsors/daravel-dev
 ```
 

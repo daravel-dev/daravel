@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:e3b5b6b163ed -->
+<!-- source: README.md sha256:3b76759d6df3 -->
 | [`packages/daravel_session`](packages/daravel_session) | Session yang kompatibel dengan Laravel (file atau tabel `sessions`), cookie terenkripsi, dan proteksi CSRF |
 <!-- source: README.md sha256:5b04c2e6d073 -->
 <p align="center">
@@ -528,7 +528,7 @@ di CI; `--no-color` atau `NO_COLOR` untuk tanpa warna):
 
 ```text
  _| _. ._|_ o _  _. ._
-(_|(_|| |_ |_> (_|| |   Daravel 1.27.0 · Dart 3.13.4 · linux
+(_|(_|| |_ |_> (_|| |   Daravel <version> · Dart <sdk> · <os>
                         Made with the help of our sponsors ♥ github.com/sponsors/daravel-dev
 ```
 
