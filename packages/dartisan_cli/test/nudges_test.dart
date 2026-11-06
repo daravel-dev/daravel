@@ -88,7 +88,10 @@ void main() {
     var now = DateTime(2026, 11, 6, 9);
     final lines = nudges(out, now: () => now);
     expect(lines.afterSuccess(), isTrue);
-    expect('$out', contains(nudgeFor(now)));
+    expect(
+      '$out'.split(String.fromCharCode(10)),
+      containsAllInOrder([nudgeFor(now), Nudges.hideHint]),
+    );
     now = now.add(const Duration(hours: 23));
     expect(lines.afterSuccess(), isFalse);
     now = now.add(const Duration(hours: 2));
@@ -100,6 +103,7 @@ void main() {
     final out = StringBuffer();
     final lines = nudges(out, now: () => DateTime(2026, 11, 6));
     expect(lines.newProjectLine, contains(sponsorUrl));
+    expect(lines.newProjectLine, endsWith(Nudges.hideHint));
     lines.afterSuccess();
     expect(lines.newProjectLine, isNotNull);
   });

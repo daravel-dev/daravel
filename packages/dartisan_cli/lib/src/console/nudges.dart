@@ -104,16 +104,18 @@ final class Nudges {
     }
     console
       ..writeln()
-      ..writeln(console.style(nudgeFor(at), dim: true));
+      ..writeln(console.style(nudgeFor(at), dim: true))
+      ..writeln(console.style(hideHint, dim: true));
     return true;
   }
 
-  /// The fixed line under the next steps of `dartisan new` (no quota), or
+  /// How to turn the lines off, under each of them (Blueprint #137 §3.4).
+  static const String hideHint = '(hide this with: dartisan sponsor --hide)';
+
+  /// The fixed lines under the next steps of `dartisan new` (no quota), or
   /// null when [silenced].
   String? get newProjectLine => silenced
       ? null
-      : console.style(
-          'Daravel is kept going by its sponsors: $sponsorUrl',
-          dim: true,
-        );
+      : '${console.style('Daravel is kept going by its sponsors: $sponsorUrl', dim: true)}\n'
+            '${console.style(hideHint, dim: true)}';
 }
