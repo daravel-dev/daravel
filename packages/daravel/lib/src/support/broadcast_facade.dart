@@ -29,6 +29,21 @@ abstract final class Broadcast {
   static BroadcastManager get manager =>
       Container.current.make<BroadcastManager>();
 
+  /// Records broadcasts instead of sending them, for tests:
+  ///
+  /// ```dart
+  /// final broadcasts = Broadcast.fake();
+  /// await client.post('/orders/7/ship');
+  /// broadcasts.assertBroadcasted<OrderShipped>(channel: 'private-orders.7');
+  /// ```
+  ///
+  /// A broadcast made in a transaction that rolls back is not recorded, as
+  /// it would not be sent.
+  static BroadcastFake fake() => manager.fake();
+
+  /// Sends broadcasts again after [fake].
+  static void restore() => manager.restore();
+
   /// Broadcasts a [ShouldBroadcast] event, as Laravel's `broadcast()`
   /// helper; `Event.dispatch` does the same for such events.
   static Future<void> event(ShouldBroadcast event) => manager.broadcast(event);
