@@ -195,6 +195,23 @@ databases.
   `--force`. Rows are read in chunks of `--chunk` (500), paged by
   primary key. `--tables=users,posts` limits the copy.
 
+### Statement timeouts on MySQL and MariaDB
+
+`DB_QUERY_TIMEOUT` (30 s) bounds each statement. On MySQL and MariaDB the
+server enforces it: each pooled connection sets it once, and a statement
+past it fails with `StatementTimeoutException` (as the `previous` of the
+`QueryException`), never retried, with no second connection to the server.
+
+| `statement_timeout_mode` | How | Notes |
+| :-- | :-- | :-- |
+| `server` (default) | MySQL 5.7.8+ `max_execution_time`, MariaDB 10.1+ `max_statement_time` | MySQL bounds only `SELECT`; outside a transaction a backstop 5 s later closes a connection that still has not answered, and the pool opens another |
+| `client` | `KILL QUERY` through a second connection, as before | For a database user that may not `SET SESSION` these variables; the driver also falls back to it, with one warning, when the server refuses |
+
+Inside a transaction only the server bounds a statement: a client timeout
+would leave the `ROLLBACK` queued behind it. Set the mode in the
+connection options (`statement_timeout_mode`) or with
+`MySqlDriver(statementTimeoutMode:)`.
+
 ## Migrations
 
 <!-- include: packages/daravel/test/docs/guide_examples_test.dart#migration -->

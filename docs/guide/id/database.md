@@ -1,4 +1,4 @@
-<!-- source: database.md sha256:b0ed2c5e90fc -->
+<!-- source: database.md sha256:fe53beb2cac3 -->
 # Database
 
 `DB_CONNECTION` memilih SQLite (`sqlite`, default), PostgreSQL (`pgsql`),
@@ -202,6 +202,24 @@ database.
   kecuali `--truncate` menggantikannya. Dengan `APP_ENV=production`, perlu
   `--force`. Baris dibaca dalam potongan sebesar `--chunk` (500), dipaginasi
   berdasarkan primary key. `--tables=users,posts` membatasi penyalinan.
+
+### Statement timeout di MySQL dan MariaDB
+
+`DB_QUERY_TIMEOUT` (30 detik) membatasi setiap statement. Di MySQL dan
+MariaDB, server yang menegakkannya: setiap koneksi pool mengaturnya sekali,
+dan statement yang melewatinya gagal dengan `StatementTimeoutException`
+(sebagai `previous` dari `QueryException`), tidak pernah diulang, tanpa
+koneksi kedua ke server.
+
+| `statement_timeout_mode` | Cara | Catatan |
+| :-- | :-- | :-- |
+| `server` (default) | MySQL 5.7.8+ `max_execution_time`, MariaDB 10.1+ `max_statement_time` | MySQL hanya membatasi `SELECT`; di luar transaksi, backstop 5 detik kemudian menutup koneksi yang belum juga menjawab, lalu pool membuka koneksi baru |
+| `client` | `KILL QUERY` lewat koneksi kedua, seperti sebelumnya | Untuk user database yang tidak boleh `SET SESSION` variabel ini; driver juga kembali ke mode ini, dengan satu peringatan, bila server menolak |
+
+Di dalam transaksi hanya server yang membatasi statement: timeout di sisi
+client akan membuat `ROLLBACK` mengantre di belakangnya. Atur mode di opsi
+koneksi (`statement_timeout_mode`) atau dengan
+`MySqlDriver(statementTimeoutMode:)`.
 
 ## Migrasi
 
