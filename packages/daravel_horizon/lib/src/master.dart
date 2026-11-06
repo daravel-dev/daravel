@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:isolate';
 
 import 'package:daravel/daravel.dart';
@@ -6,6 +7,7 @@ import 'package:daravel/daravel.dart';
 import 'auto_scaler.dart';
 import 'config.dart';
 import 'messages.dart';
+import 'store/process_store.dart';
 import 'worker_isolate.dart';
 
 /// A worker isolate as the master sees it.
@@ -74,6 +76,7 @@ final class HorizonMaster {
     required this.driver,
     required this.logger,
     this.coordinator,
+    this.store,
     this.onEvent,
     Duration Function(int crashes)? crashDelay,
   }) : _crashDelay = crashDelay ?? _defaultCrashDelay;
@@ -92,6 +95,10 @@ final class HorizonMaster {
 
   /// The process's coordinator, shared with the workers.
   final SendPort? coordinator;
+
+  /// Where the rates of the auto-scaler come from: the [HorizonService] the
+  /// workers record into. Without it, no rate is measured.
+  final CoordinatorChannel? store;
 
   /// Told about kills and scaling decisions.
   final HorizonEventSink? onEvent;
@@ -148,11 +155,14 @@ final class HorizonMaster {
     for (final q in plan.queues) {
       final size = await queue.size(q.value);
       final wait = await queue.oldestWait(q.value);
+      final (arrival, service) = await _rates(q.value);
       loads.add(
         QueueLoad(
           queue: q,
           size: size,
           oldestWait: wait,
+          arrivalRate: arrival,
+          serviceTime: service,
           targetWait: config.waitFor(queue.name, q.value),
         ),
       );
@@ -190,6 +200,28 @@ final class HorizonMaster {
       'sizes': {for (final l in loads) l.queue.value: l.size},
     });
     return decision;
+  }
+
+  /// The jobs a second and the average run time of [queue] over the last
+  /// minute, from the store; nulls when none is measured.
+  Future<(double?, Duration?)> _rates(String queue) async {
+    final store = this.store;
+    if (store == null) {
+      return (null, null);
+    }
+    try {
+      final raw = await store.call(HorizonService.serviceName, 'rates', {
+        'queue': queue,
+      });
+      final rates = jsonDecode(raw! as String) as Map<String, Object?>;
+      final avg = rates['avg_ms'] as num?;
+      return (
+        (rates['per_second'] as num?)?.toDouble(),
+        avg == null ? null : Duration(microseconds: (avg * 1000).round()),
+      );
+    } on Object {
+      return (null, null);
+    }
   }
 
   /// [total] workers for [plan], given [assignments] (one queue list per

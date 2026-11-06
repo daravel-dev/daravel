@@ -86,12 +86,27 @@ void main() {
 
   tearDown(() => app.shutdown());
 
+  // The process's coordinator with Horizon's store, shared with the
+  // workers (as `withCoordinatorService` registers it).
+  late Coordinator coordinator;
+  setUp(
+    () => coordinator = createStandardCoordinator()..register(HorizonService()),
+  );
+  tearDown(() => coordinator.close());
+
   HorizonMaster master(SupervisorPlan plan) => HorizonMaster(
     masterApp,
-    HorizonConfig(plans: [plan], heartbeat: const Duration(milliseconds: 100)),
+    HorizonConfig(
+      plans: [plan],
+      heartbeat: const Duration(milliseconds: 100),
+      // A short target wait, so a backlog of 20 ms jobs needs workers.
+      waits: const {'database:a': Duration(seconds: 1)},
+    ),
     driver: (connection) =>
         app.container.make<QueueManager>().connection(connection),
     logger: Logger(minimumLevel: LogLevel.critical),
+    coordinator: coordinator.listen(),
+    store: LocalCoordinatorChannel(coordinator),
     onEvent: (event, data) => events.add((event, data)),
     crashDelay: (_) => const Duration(milliseconds: 50),
   );
@@ -132,6 +147,12 @@ void main() {
       await until(() => left == 0, 'an empty queue', seconds: 90);
       await m.stop(timeout: const Duration(seconds: 20));
       expect(m.workers('s'), isEmpty);
+      // The workers recorded every job in the store, and the master read
+      // the rates from it.
+      final service =
+          coordinator.service(HorizonService.serviceName)! as HorizonService;
+      expect(service.stats()['completed'], 300);
+      expect(service.rates('a')['avg_ms'], greaterThanOrEqualTo(20));
     },
   );
 

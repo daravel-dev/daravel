@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 
 import 'package:daravel/daravel.dart';
 
 import 'messages.dart';
+import 'store/process_store.dart';
 
 /// What a worker isolate gets when it is spawned. Sent once, at spawn, so
 /// it may hold the application factory (a top-level function).
@@ -106,17 +108,63 @@ Future<void> horizonWorkerMain(HorizonWorkerStart start) async {
         jobStartedAtMs: startedAt,
       ),
     );
+    // The recorder: every finished job goes to the Horizon store in the
+    // coordinator, without waiting (a store that fails never holds a job).
+    final store = booted.container.make<CoordinatorChannel>();
+    final running = <String, (String, List<String>)>{};
+    void record(RecordedJob job) => unawaited(
+      store
+          .call(HorizonService.serviceName, 'record', {
+            'job': jsonEncode(job.toJson()),
+          })
+          .then<void>((_) {}, onError: (Object _) {}),
+    );
     booted.container.make<EventDispatcher>()
       ..listen<JobProcessing>((e) {
         jobId = '${e.jobId}';
         jobUuid = e.uuid;
         queue = e.queue;
         startedAt = DateTime.now().millisecondsSinceEpoch;
+        if (e.uuid case final String uuid) {
+          running[uuid] = (e.displayName ?? e.jobName, e.tags);
+        }
         // At once: a job that blocks the event loop sends nothing after.
         report();
       })
-      ..listen<JobProcessed>((_) => clear())
-      ..listen<JobFailed>((_) => clear())
+      ..listen<JobProcessed>((e) {
+        clear();
+        final (name, tags) =
+            running.remove(e.uuid) ?? (e.jobName, const <String>[]);
+        record(
+          RecordedJob(
+            uuid: e.uuid ?? '${e.jobId}',
+            name: name,
+            queue: e.queue,
+            status: 'completed',
+            at: Clock.now().millisecondsSinceEpoch,
+            tags: tags,
+            durationMs: e.duration.inMilliseconds,
+            worker: start.name,
+          ),
+        );
+      })
+      ..listen<JobFailed>((e) {
+        clear();
+        final (name, tags) =
+            running.remove(e.uuid) ?? (e.jobName, const <String>[]);
+        record(
+          RecordedJob(
+            uuid: e.uuid ?? '${e.jobId}',
+            name: name,
+            queue: e.queue,
+            status: 'failed',
+            at: Clock.now().millisecondsSinceEpoch,
+            tags: tags,
+            worker: start.name,
+            error: '${e.error}'.split('\n').first,
+          ),
+        );
+      })
       ..listen<JobExceptionOccurred>((_) => clear());
     // A wall-clock timer: a frozen test clock must not stop it.
     beat = Timer.periodic(start.heartbeat, (_) => report());
