@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import '../foundation/container.dart';
+import '../foundation/ids.dart';
 import '../foundation/locale.dart';
 import '../routing/domain_pattern.dart';
 import '../routing/route_entry.dart';
@@ -788,10 +789,37 @@ final class Request {
   /// Typed route parameter. Supports `String`, `int`, `double`, `bool`.
   /// Throws [NotFoundHttpException] when missing or unparsable, so a route
   /// like `/users/{id}` with `id = abc` yields a 404 (Laravel parity).
-  T param<T>(String key) {
+  ///
+  /// Typed ids (opt-in): an extension type over `int` or `String`
+  /// (`param<UserId>('user')`) works as its representation. To validate
+  /// further, pass [parse] (`parse: UserId.parse`), or register a parser
+  /// for the parameter name in `bootstrap/ids.dart` (`IdParsers`, see
+  /// `ApplicationBuilder.withIds`); every read of that name then goes
+  /// through it. A [FormatException] or [ArgumentError] from a parser
+  /// yields a 404.
+  T param<T>(String key, {T Function(String raw)? parse}) {
     final raw = _routeParams[key];
     if (raw == null) {
       throw NotFoundHttpException('Route parameter [$key] is missing.');
+    }
+    final Object? Function(String raw)? parser =
+        parse ?? Container.currentOrNull?.tryMake<IdParsers>()?.parserFor(key);
+    if (parser != null) {
+      final Object? parsed;
+      try {
+        parsed = parser(raw);
+      } on FormatException {
+        throw NotFoundHttpException(
+          'Route parameter [$key] with value "$raw" is not a valid id.',
+        );
+      } on ArgumentError {
+        throw NotFoundHttpException(
+          'Route parameter [$key] with value "$raw" is not a valid id.',
+        );
+      }
+      if (parsed is T) {
+        return parsed;
+      }
     }
     final Object? parsed = switch (T) {
       const (String) => raw,

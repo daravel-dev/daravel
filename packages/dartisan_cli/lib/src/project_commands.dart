@@ -1262,17 +1262,36 @@ final class OpenApiGenerateCommand extends DaravelCommand {
   });
 }
 
-/// `model:sync [Model] [--dry-run]` — rewrites the accessor region of
-/// models from the database schema (BLUEPRINT_V2 §8.3) and fills an empty
-/// statics region with the query shortcuts `make:model` writes.
+/// `model:sync [Model] [--dry-run] [--typed-ids]` — rewrites the accessor
+/// region of models from the database schema (BLUEPRINT_V2 §8.3) and fills
+/// an empty statics region with the query shortcuts `make:model` writes.
+/// `--typed-ids` (opt-in, ADR-032) also writes a typed id per model.
 final class ModelSyncCommand extends DaravelCommand {
   /// The `dartisan model:sync` command.
   ModelSyncCommand(super.createApp) {
-    argParser.addFlag(
-      'dry-run',
-      negatable: false,
-      help: 'Print the accessors without writing.',
-    );
+    argParser
+      ..addFlag(
+        'dry-run',
+        negatable: false,
+        help: 'Print the accessors without writing.',
+      )
+      ..addFlag(
+        'typed-ids',
+        negatable: false,
+        help:
+            'Also write a typed id (extension type UserId) in a '
+            '// <dartisan:ids> region and type the primary key getter, '
+            'find and findOrFail with it (opt-in).',
+      );
+  }
+
+  /// The `model.id` template: the project's `stubs/model.id.stub` when it
+  /// exists, otherwise the built-in one.
+  static String _idStub(ProjectPaths paths) {
+    final custom = File(p.join(paths.stubs, 'model.id.stub'));
+    return custom.existsSync()
+        ? custom.readAsStringSync()
+        : builtInStubs['model.id']!;
   }
 
   @override
@@ -1293,6 +1312,7 @@ final class ModelSyncCommand extends DaravelCommand {
       return 0;
     }
     final dryRun = argResults!['dry-run'] as bool;
+    final typedIds = argResults!['typed-ids'] as bool;
     var synced = 0;
     for (final file in dir.listSync().whereType<File>().where(
       (f) => f.path.endsWith('.dart'),
@@ -1312,18 +1332,18 @@ final class ModelSyncCommand extends DaravelCommand {
         );
         continue;
       }
-      final plan = planAccessors(
+      final sync = syncModelSource(
+        source,
         model,
         await Schema.getColumns(model.table),
         dialect: App.make<DatabaseManager>().dialectOf(),
+        idStub: typedIds ? _idStub(paths) : null,
       );
-      for (final warning in plan.warnings) {
+      final plan = sync.plan;
+      for (final warning in sync.warnings) {
         stdout.writeln('${model.className}: $warning');
       }
-      final updated = replaceAccessors(
-        fillStatics(source, model.className),
-        plan.lines,
-      );
+      final updated = sync.source;
       if (updated == null) {
         stdout.writeln(
           '${model.className}: no // <dartisan:accessors> region; skipped.',
