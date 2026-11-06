@@ -60,6 +60,38 @@ isolate leaves the other cores idle.
   express, `TransferableTypedData` for large binary data, a map only for
   small arguments.
 
+### Embedded workers and coordinator services
+
+Packages (and applications) can add an isolate of their own beside the
+HTTP server, as `serve --embed-queue` adds the queue worker, and a service
+to the coordinator every worker reaches:
+
+```dart
+Application createApp() => Application.configure(basePath: '.')
+    .withEmbeddedWorker('indexer', (app, control) async {
+      // Its own booted application; its CoordinatorChannel reaches the
+      // server's coordinator.
+      await for (final message in control.messages) {
+        if (message == 'stop') break; // the server is shutting down
+      }
+      return 0;
+    })
+    .withCoordinatorService(SearchStatsService.new)
+    .create();
+```
+
+`dartisan serve --embed-worker=indexer` (repeatable, or
+`SERVER_EMBED_WORKERS=indexer`) starts it; a name nothing registered
+stops the server at start with a configuration error. The isolate is
+named `daravel-<name>` and gets the respawn, crash backoff and stop of the
+queue worker. `EmbeddedWorkers.send(name, message)` reaches its
+`control.messages`. A coordinator service is registered on whichever
+coordinator the process has (the application's own with one isolate and in
+tests, the supervisor's with several), so workers call it with
+`App.make<CoordinatorChannel>().call(name, op, args)`; a
+`WorkerAwareService` hears when a worker isolate exits, and
+`dartisan coordinator:stats` lists it.
+
 ## Database connections
 
 Every isolate opens its own pool of `DB_POOL_SIZE` connections (10 by
