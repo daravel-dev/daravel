@@ -142,4 +142,41 @@ void main() {
       await embedded.stop(timeout: const Duration(seconds: 20));
     },
   );
+
+  test(
+    'serve --embed-worker=horizon on a SQLite file is refused at boot',
+    () async {
+      final socket = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      final port = socket.port;
+      await socket.close();
+      await expectLater(
+        Application.serveWith(
+          refusingApp,
+          port: port,
+          embedWorkers: const ['horizon'],
+        ),
+        throwsA(
+          isA<ConfigException>().having(
+            (e) => e.message,
+            'message',
+            contains('HORIZON_ALLOW_SQLITE'),
+          ),
+        ),
+      );
+    },
+  );
 }
+
+/// [horizonApp] without HORIZON_ALLOW_SQLITE.
+Application refusingApp() =>
+    Application.configure(basePath: Directory.systemTemp.path)
+        .withEnv({
+          'APP_ENV': 'testing',
+          'DB_CONNECTION': 'sqlite',
+          'DB_DATABASE': dbPath,
+          'QUEUE_CONNECTION': 'database',
+          'CACHE_STORE': 'file',
+        })
+        .withLogLevel(LogLevel.critical)
+        .withHorizon(createApp: refusingApp)
+        .create();

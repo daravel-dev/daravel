@@ -1212,6 +1212,20 @@ final class Application {
     );
     probe._ensureServeable(options);
     probe._ensureEmbeddedWorkers(options.embedWorkers);
+    // The probe was checked with the environment alone: checks that depend
+    // on the embedded workers (`SERVER_EMBED_WORKERS`) see the command-line
+    // flag too.
+    if (options.embedWorkers.isNotEmpty &&
+        probe.env.maybeString('SERVER_EMBED_WORKERS') == null) {
+      ConfigValidator(extraChecks: probe._builder._configChecks)
+          .validateOrThrow(
+            Env.fromMap({
+              ...probe.env.toMap(),
+              'SERVER_EMBED_WORKERS': options.embedWorkers.join(','),
+            }),
+            probe.config,
+          );
+    }
     // Once, here in the main isolate, rather than in every worker.
     if (probe.config.section<DatabaseConfig>().sharesSqliteFile(
       options.isolates,
