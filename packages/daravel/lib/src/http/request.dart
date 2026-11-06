@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -417,15 +418,38 @@ final class Request {
     _bodyBytes ??= const <int>[];
   }
 
+  /// Whether the body is still on the socket, unread and unclaimed:
+  /// nothing called [bytes], [body] or [bodyStream] for it, or the call was
+  /// refused before reading (a declared `Content-Length` above
+  /// [maxBodyBytes]). The server takes such a body off the connection
+  /// itself before it answers, so the response never waits for a client
+  /// that sends it slowly. Always false for [Request.fake].
+  bool get hasUnreadBody => _bodyStream != null;
+
   /// The raw body as it arrives, once, never above [maxBodyBytes]: for
   /// forwarding it ([UpstreamProxy]) or writing it somewhere without
   /// buffering. After [bytes] it replays the cached bytes.
+  ///
+  /// The call claims the body (see [hasUnreadBody]) even before the
+  /// stream is listened to.
   Stream<List<int>> bodyStream() => _limitedBody();
 
   /// The body as a stream that never exceeds [maxBodyBytes] (multipart
   /// bodies are parsed as they arrive instead of being buffered).
-  Stream<List<int>> _limitedBody() async* {
+  Stream<List<int>> _limitedBody() {
     final cached = _bodyBytes;
+    final stream = _bodyStream;
+    if (cached == null) {
+      _bodyStream = null;
+      _bodyBytes = const <int>[];
+    }
+    return _limited(cached, stream);
+  }
+
+  Stream<List<int>> _limited(
+    List<int>? cached,
+    Stream<List<int>>? stream,
+  ) async* {
     if (cached != null) {
       _enforceLimit(cached.length);
       yield cached;
@@ -433,11 +457,14 @@ final class Request {
     }
     final declared = contentLength;
     if (declared != null) {
-      _enforceLimit(declared);
+      try {
+        _enforceLimit(declared);
+      } on PayloadTooLargeHttpException {
+        // Refused unread: it stays the server's to discard.
+        _bodyStream ??= stream;
+        rethrow;
+      }
     }
-    final stream = _bodyStream;
-    _bodyStream = null;
-    _bodyBytes = const <int>[];
     if (stream == null) {
       return;
     }
@@ -1006,6 +1033,9 @@ Map<String, Object?> buildInput(
   int maxDepth = 32,
 }) {
   final result = <String, Object?>{};
+  // The next `[]` index of every map built here (PHP's nNextFreeElement):
+  // finding it by scanning the map's keys made `a[]=` pairs quadratic.
+  final nextIndex = HashMap<Map<String, Object?>, int>.identity();
   for (final (key, value) in pairs) {
     final open = key.indexOf('[');
     final segments = <String>[];
@@ -1028,6 +1058,7 @@ Map<String, Object?> buildInput(
       segments.isEmpty ? key : key.substring(0, open),
       segments,
       value,
+      nextIndex,
     );
   }
   // The top level stays a map even for keys like `0`, `1`.
@@ -1041,29 +1072,38 @@ void _putQueryValue(
   String key,
   List<String> segments,
   Object value,
+  Map<Map<String, Object?>, int> nextIndex,
 ) {
   if (segments.isEmpty) {
+    _noteKey(map, key, nextIndex);
     map[key] = value;
     return;
   }
   var child = map[key];
   if (child is! Map<String, Object?>) {
     child = <String, Object?>{};
+    _noteKey(map, key, nextIndex);
     map[key] = child;
   }
   var next = segments.first;
   if (next.isEmpty) {
-    // `[]` appends at the next integer index, as in PHP.
-    var index = 0;
-    for (final existing in child.keys) {
-      final number = int.tryParse(existing);
-      if (number != null && number >= index) {
-        index = number + 1;
-      }
-    }
-    next = '$index';
+    // `[]` appends at the next integer index, as in PHP: one past the
+    // highest integer key so far.
+    next = '${nextIndex[child] ?? 0}';
   }
-  _putQueryValue(child, next, segments.sublist(1), value);
+  _putQueryValue(child, next, segments.sublist(1), value, nextIndex);
+}
+
+/// Keeps the next `[]` index of [map] one past its highest integer key.
+void _noteKey(
+  Map<String, Object?> map,
+  String key,
+  Map<Map<String, Object?>, int> nextIndex,
+) {
+  final number = int.tryParse(key);
+  if (number != null && number >= (nextIndex[map] ?? 0)) {
+    nextIndex[map] = number + 1;
+  }
 }
 
 Object? _listify(Object? value) {
