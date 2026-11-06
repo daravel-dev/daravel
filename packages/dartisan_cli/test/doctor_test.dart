@@ -395,6 +395,31 @@ void main() {
     ], isNot(contains(contains('in production'))));
   });
 
+  test('DB_IDLE_TRANSACTION_TIMEOUT: shown for PostgreSQL and MariaDB, a '
+      'notice on MySQL', () {
+    ConnectionConfig of(String driver, [String? seconds]) => ConnectionConfig(
+      driver: driver,
+      database: 'app',
+      options: {'idle_transaction_timeout': seconds},
+    );
+    expect(idleTransactionTimeoutCheck(null), isNull);
+    expect(idleTransactionTimeoutCheck(of('pgsql')), isNull);
+    expect(idleTransactionTimeoutCheck(of('pgsql', '0')), isNull);
+    final pgsql = idleTransactionTimeoutCheck(of('pgsql', '15'))!;
+    expect(pgsql.status, CheckStatus.ok);
+    expect(pgsql.title, 'Idle transaction timeout: 15s');
+    expect(pgsql.detail, contains('idle_in_transaction_session_timeout'));
+    expect(
+      idleTransactionTimeoutCheck(of('mariadb', '15'))!.detail,
+      contains('(idle_transaction_timeout)'),
+    );
+    expect(
+      idleTransactionTimeoutCheck(of('mysql', '15'))!.status,
+      CheckStatus.notice,
+    );
+    expect(idleTransactionTimeoutCheck(of('sqlite', '15')), isNull);
+  });
+
   test("package_config.json resolved on another system", () {
     final dir = Directory(p.join(root.path, ".dart_tool"))..createSync();
     final config = File(p.join(dir.path, "package_config.json"));
