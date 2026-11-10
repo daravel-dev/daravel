@@ -56,8 +56,14 @@ final class ReverbRestartWatcher {
     this.signals, {
     this.poll = const Duration(seconds: 1),
     this.spread = const Duration(seconds: 2),
+    this.onRestart,
     Random? random,
   }) : _random = random ?? Random();
+
+  /// What a request does instead of [Application.restart] (which ends this
+  /// isolate's server): with several isolates, the supervisor's rolling
+  /// restart, after which it keeps watching, the new value as its start.
+  final Future<void> Function()? onRestart;
 
   /// The application to restart.
   final Application app;
@@ -140,6 +146,18 @@ final class ReverbRestartWatcher {
         'reverb:restart requested; restarting in ${wait.inMilliseconds} ms.',
       );
       await Future<void>.delayed(wait);
+      final instead = onRestart;
+      if (instead != null) {
+        try {
+          await instead();
+        } on Object catch (error) {
+          app.logger.error('reverb:restart failed: $error');
+        }
+        // Handled (or logged): this value is no request any more.
+        _atStart = Future.value((value: requested));
+        _timer ??= Timer.periodic(poll, (_) => unawaited(_check()));
+        return;
+      }
       try {
         await app.restart();
       } on Object catch (error) {

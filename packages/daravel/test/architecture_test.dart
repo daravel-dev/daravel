@@ -168,4 +168,88 @@ void main() {
     }
     expect(issues, isEmpty, reason: issues.join('\n'));
   });
+
+  test('a Future or Completer kept in a field is one of the known ones', () {
+    // A future kept in a field and awaited by another request, job or
+    // connection must not be one that can fail: each runs in an error
+    // zone of its own, and a failure does not cross into another (the
+    // waiter hangs). Share a result with SharedResult; a field that is
+    // safe (one zone, one owner) is added to _knownFutureFields with why.
+    final field = RegExp(
+      r'^  (?:static )?(?:final |late |late final )?'
+      r'(?:Future<|Completer<|(?:Map|Expando|Set|List)<[^;=]*(?:Future|Completer)<)'
+      r'[^;(]*>\??\s+(_?[a-zA-Z0-9_]+)\s*(?:;|=(?!>))',
+      multiLine: true,
+    );
+    final found = <String>{};
+    for (final file in _dartFiles(_src)) {
+      final path = p.relative(file.path, from: _src).replaceAll(r'\', '/');
+      for (final match in field.allMatches(file.readAsStringSync())) {
+        found.add('$path:${match.group(1)}');
+      }
+    }
+    final unknown = found.difference(_knownFutureFields.keys.toSet());
+    final gone = _knownFutureFields.keys.toSet().difference(found);
+    expect(unknown, isEmpty, reason: 'new Future or Completer fields');
+    expect(gone, isEmpty, reason: 'listed but no longer there');
+  });
 }
+
+/// The Future and Completer fields of lib/src, each with why it is safe to
+/// keep (see the test above). Those marked "PR B" are known to share a
+/// future that can fail across zones, and are being moved to SharedResult.
+const Map<String, String> _knownFutureFields = {
+  'auth/hashing.dart:_dummy': 'PR B: the timing equalizer, shared by logins',
+  'broadcasting/cluster.dart:_loop': 'the relay loop, owned by one server',
+  'broadcasting/cluster.dart:_wake': 'wakes the relay loop; one owner',
+  'broadcasting/pusher_server.dart:_relaying': 'the relay task, one owner',
+  'cache/cache.dart:_remembering': 'PR B: remember single flight',
+  'cache/stores.dart:_lastRun': 'prune; to be read in PR C',
+  'cache/stores.dart:_pruning': 'prune; to be read in PR C',
+  'cache/stores.dart:_queued': 'completed with no error',
+  'cache/stores.dart:next': 'completed with no error',
+  'concurrency/compute_pool.dart:completer': 'one worker spawn, one owner',
+  'concurrency/compute_pool.dart:_stopped': 'completed with no error',
+  'database/database_manager.dart:_connecting':
+      'PR B: connection single flight',
+  'database/database_manager.dart:_children': 'a chain that never fails',
+  'database/orm/model.dart:future': 'per object, one owner',
+  'database/sqlite_driver.dart:_transactionQueue': 'a chain that never fails',
+  'database/sqlite_driver.dart:_activeDone': 'completed with no error',
+  'foundation/application.dart:_booting': 'boot, in one zone',
+  'foundation/drain.dart:_completer': 'completed with no error',
+  'foundation/embedded_workers.dart:inbox': 'per worker, one owner',
+  'foundation/embedded_workers.dart:done': 'per worker, one owner',
+  'foundation/embedded_workers.dart:_stopping': 'per worker, one owner',
+  'foundation/shared_result.dart:_settled': 'never fails, by design',
+  'http/buffered_web_socket.dart:_binding': 'per connection, one zone',
+  'http/buffered_web_socket.dart:_closed': 'per connection, one zone',
+  'http/buffered_web_socket.dart:_gaveUp': 'completed with no error',
+  'http/buffered_web_socket.dart:_drained': 'completed with no error',
+  'http/kernel.dart:result': 'per request, one zone',
+  'http/multipart.dart:_changed': 'per request body, one zone',
+  'http/server_engine.dart:_done': 'completed with no error',
+  'http/server_engine.dart:_arrival': 'completed with no error',
+  'logging/logger.dart:_idle': 'completed with no error',
+  'mail/smtp.dart:_waiting': 'per connection, one owner',
+  'queue/drivers.dart:_waiting': 'completed with no error',
+  'queue/drivers.dart:_subscribing': 'to be read in PR C',
+  'queue/queue_manager.dart:_future': 'per PendingDispatch, one owner',
+  'queue/queue_manager.dart:_idle': 'completed with no error',
+  'schedule/schedule.dart:_ticks': 'the scheduler, one owner',
+  'schedule/schedule.dart:_running': 'the scheduler, one owner',
+  'schedule/schedule.dart:_wake': 'completed with no error',
+  'server/broadcast.dart:_registering': 'PR B: channel registration',
+  'server/broadcast.dart:_leaving': 'PR B: channel registration',
+  'server/coordinator.dart:completer': 'per call, completed by its reply',
+  'server/process_supervisor.dart:_done': 'completed with no error',
+  'server/supervisor.dart:_done': 'completed with no error',
+  'server/supervisor.dart:_ready': 'per worker spawn, one owner',
+  'server/supervisor.dart:exited': 'rolling restart: completed with no error',
+  'server/supervisor.dart:replaced':
+      'rolling restart: completed with a bool, never an error',
+  'server/supervisor.dart:_rolling':
+      'main isolate only; a round never fails (_roll catches all)',
+  'server/supervisor.dart:_pendingRoll':
+      'completed with a round, which never fails',
+};
