@@ -5,6 +5,7 @@ import 'dart:isolate';
 import 'dart:math';
 
 import '../foundation/clock.dart';
+import '../foundation/shared_result.dart';
 import '../http/request.dart';
 import '../http/response.dart';
 import '../server/broadcast.dart';
@@ -94,7 +95,10 @@ final class PusherServer {
   final BroadcastRelay? relay;
 
   /// Starts reading the other servers' frames (once, at the first client).
-  Future<void>? _relaying;
+  /// Shared by the connections that arrive meanwhile, each in a zone of
+  /// its own: a [SharedResult], so a relay that fails to start reaches
+  /// every one of them, not only the first.
+  SharedResult<void>? _relaying;
 
   /// Stops relaying (application shutdown).
   Future<void> close() async => relay?.close();
@@ -250,9 +254,11 @@ final class PusherServer {
     }
     final relay = this.relay;
     if (relay != null) {
-      final relaying = _relaying ??= relay.start(_broadcaster.deliverLocally);
+      final relaying = _relaying ??= SharedResult(
+        () => relay.start(_broadcaster.deliverLocally),
+      );
       try {
-        await relaying;
+        await relaying.value;
       } on Object catch (error) {
         // Not kept: the next client starts it again (Redis was down).
         if (identical(_relaying, relaying)) {

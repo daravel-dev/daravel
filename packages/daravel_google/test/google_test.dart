@@ -436,6 +436,98 @@ void main() {
         );
       });
     });
+
+    group('a token fetch shared by requests (Review #147)', () {
+      final uncaught = <Object>[];
+      setUp(uncaught.clear);
+
+      /// [call] from two request scopes at once: what each got.
+      Future<List<String>> both(Future<Object?> Function() call) =>
+          Future.wait([
+            for (var i = 0; i < 2; i++)
+              Container().runScoped('request', (_) async {
+                try {
+                  await call();
+                  return 'value';
+                } on Object catch (error) {
+                  return error.runtimeType.toString();
+                }
+              }, onUncaughtError: (error, _) => uncaught.add(error)),
+          ]).timeout(const Duration(seconds: 5));
+
+      test(
+        'a refresh that fails reaches every request waiting on it',
+        () async {
+          final http = HttpClientFactory();
+          http.fake({
+            GoogleOAuth.tokenEndpoint: Http.response({
+              'access_token': 'ya29.new',
+              'expires_in': 3599,
+            }),
+          });
+          final credentials = UserCredentials(
+            GoogleToken(
+              accessToken: 'ya29.old',
+              created: now.subtract(const Duration(hours: 2)),
+              expiresIn: const Duration(hours: 1),
+              refreshToken: '1//refresh',
+            ),
+            oauth: GoogleOAuth(clientId: 'id', clientSecret: 's', http: http),
+            onRefresh: (_) async {
+              await Future<void>.delayed(const Duration(milliseconds: 50));
+              throw StateError('database down');
+            },
+          );
+          expect(await both(credentials.accessToken), [
+            'StateError',
+            'StateError',
+          ]);
+          expect(uncaught, isEmpty);
+        },
+      );
+
+      test('a service account fetch that fails reaches every request '
+          'waiting on it', () async {
+        final keys = _keyPair();
+        final file =
+            File('${Directory.systemTemp.path}/daravel_google_sa_fail.json')
+              ..writeAsStringSync(
+                jsonEncode({
+                  'type': 'service_account',
+                  'project_id': 'demo',
+                  'private_key_id': 'kid-1',
+                  'private_key': _pkcs8Pem(keys.privateKey),
+                  'client_email': 'calendar@demo.iam.gserviceaccount.com',
+                  'token_uri': GoogleServiceAccount.defaultTokenUri,
+                }),
+              );
+        addTearDown(file.delete);
+        final app = Application.configure(basePath: '.')
+            .withEnv({
+              'APP_ENV': 'testing',
+              'DB_DATABASE': ':memory:',
+              'GOOGLE_APPLICATION_CREDENTIALS': file.path,
+            })
+            .withGoogle()
+            .create();
+        await app.boot();
+        addTearDown(app.shutdown);
+        final credentials = await app.run(() {
+          app.container.make<HttpClientFactory>().fake({
+            GoogleServiceAccount.defaultTokenUri: Http.response({
+              'error': 'internal_failure',
+            }, 500),
+          });
+          return Google.serviceCredentials(
+            scopes: const [GoogleScopes.calendar],
+          );
+        });
+        final answers = await both(credentials.accessToken);
+        expect(answers, everyElement(isNot('value')));
+        expect(answers[0], answers[1], reason: 'the same error for both');
+        expect(uncaught, isEmpty);
+      });
+    });
   });
 
   group('GoogleCalendar', () {

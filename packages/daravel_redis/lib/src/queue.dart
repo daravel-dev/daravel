@@ -666,10 +666,16 @@ return 1''');
     } on RedisConnectionException {
       // Stopped, or the connection dropped: open another next time.
       _blocking.remove(slot);
-    } on RedisCommandException {
-      // A slot moved (MOVED) or the server refused: another connection
-      // next time, after a pause so a lasting error does not spin.
-      await _blocking.remove(slot)?.close();
+    } on Object {
+      // A slot moved (MOVED), the server refused, or anything else: another
+      // connection next time, after a pause so a lasting error does not
+      // spin. Never rethrown: this wait is shared by the workers waiting on
+      // the slot, each in a zone of its own, which an error would not reach.
+      try {
+        await _blocking.remove(slot)?.close();
+      } on Object {
+        // Closing a broken connection: nothing more to do.
+      }
       await Future<void>.delayed(
         wait < const Duration(seconds: 1) ? wait : const Duration(seconds: 1),
       );
