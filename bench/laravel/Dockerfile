@@ -4,8 +4,8 @@ FROM dunglas/frankenphp:1-php8.4
 
 RUN install-php-extensions pcntl pdo_sqlite pdo_pgsql zip opcache redis @composer
 
-# --no-scripts: the skeleton's post-create scripts wait for input; the overlay
-# provides .env and the key.
+# --no-scripts: the skeleton's post-create scripts wait for input; compare.sh
+# gives the settings and the key as environment variables.
 RUN composer create-project laravel/laravel:^12.0 /srv/app --no-interaction --prefer-dist --no-scripts
 WORKDIR /srv/app
 RUN composer require laravel/octane:^2.0 laravel/sanctum:^4.0 --no-interaction \

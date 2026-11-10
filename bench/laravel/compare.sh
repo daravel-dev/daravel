@@ -105,10 +105,21 @@ dart_run "dart pub get >/dev/null && taskset -c $CLIENT_CPUS dart run bin/bench.
   --overload-connections=${OVERLOAD_CONNECTIONS:-512} --max-in-flight=${MAX_IN_FLIGHT:-32} \
   --max-queue-delay=${MAX_QUEUE_DELAY:-50} --out=/data/daravel.json"
 
+# Laravel's settings, given here rather than in an overlay .env (git-ignored,
+# so a fresh clone or worktree had none and Octane failed to boot on
+# MissingAppKeyException). The key is the bench's throwaway one, the same
+# 32 bytes as Daravel's in bin/bench.dart, not a secret.
+LARAVEL_BASE_ENV=(-e APP_NAME=Laravel -e APP_ENV=production -e APP_DEBUG=false
+  -e "APP_KEY=base64:$(head -c 32 /dev/zero | tr '\0' '\7' | base64)"
+  -e APP_URL=http://127.0.0.1 -e LOG_CHANNEL=stderr -e LOG_LEVEL=error
+  -e DB_CONNECTION=sqlite -e DB_DATABASE=/data/bench.sqlite -e SESSION_DRIVER=array
+  -e CACHE_STORE=array -e QUEUE_CONNECTION=sync -e BCRYPT_ROUNDS=10)
+
 laravel() { # name mode workers
   docker rm -f daravel-bench-laravel-run >/dev/null 2>&1 || true
   docker run -d --name daravel-bench-laravel-run --network host \
-    --cpuset-cpus="$SERVER_CPUS" -v "$WORK/data:/data" $LARAVEL_DB "${LARAVEL_ENV[@]}" \
+    --cpuset-cpus="$SERVER_CPUS" -v "$WORK/data:/data" "${LARAVEL_BASE_ENV[@]}" \
+    $LARAVEL_DB "${LARAVEL_ENV[@]}" \
     -e MODE="$2" -e WORKERS="$3" -e PORT=$PORT daravel-bench-laravel >/dev/null
   dart_run "taskset -c $CLIENT_CPUS dart run bin/bench.dart --external=$1:$PORT \
     --isolates=$3 --duration=$DURATION --scenarios=$SCENARIOS \
