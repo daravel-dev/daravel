@@ -111,6 +111,9 @@ void main() {
     final mysql = of('mysql', const {'idle_transaction_timeout': '15'});
     expect(mysql.idleTransactionTimeout, const Duration(seconds: 15));
     expect(mysql.sessionStatements('8.4.0'), isEmpty);
+    expect(mysql.sessionStatements('11.4.2-MariaDB'), [
+      'SET SESSION idle_transaction_timeout = 15',
+    ], reason: 'a mysql connection on a MariaDB server');
     expect(of('mariadb', const {}).idleTransactionTimeout, isNull);
     expect(
       MySqlDriver(
