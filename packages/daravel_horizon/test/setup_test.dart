@@ -129,15 +129,15 @@ void main() {
       await embedded.send('horizon', 'continue');
       await until(() => marks().contains('paused'), 'the job after continue');
 
-      final recent = jsonDecode(
-        (await LocalCoordinatorChannel(coordinator).call(
-              HorizonService.serviceName,
-              'recent',
-              {'status': 'completed'},
-            ))!
-            as String,
-      ) as List<Object?>;
-      expect(recent, hasLength(4), reason: 'recorded in the server store');
+      // The recorder writes a job's record after its handle() returns, so
+      // after the mark it may still be on its way.
+      final store =
+          coordinator.service(HorizonService.serviceName)! as HorizonService;
+      List<Object?> recent() =>
+          jsonDecode(store.handle('recent', {'status': 'completed'})! as String)
+              as List<Object?>;
+      await until(() => recent().length >= 4, 'the four records');
+      expect(recent(), hasLength(4), reason: 'recorded in the server store');
       await embedded.stop(timeout: const Duration(seconds: 20));
     },
   );

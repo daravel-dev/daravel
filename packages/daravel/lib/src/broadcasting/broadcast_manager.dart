@@ -87,6 +87,19 @@ final class BroadcastManager {
   final HttpClientFactory? _http;
   final Logger? _logger;
 
+  BroadcastFake? _fake;
+
+  /// Records broadcasts instead of sending them (`Broadcast.fake()`), with
+  /// the transaction rules kept: one made in a transaction that rolls back
+  /// is not recorded, as it would not be sent.
+  BroadcastFake fake() => _fake = BroadcastFake();
+
+  /// Undoes [fake].
+  void restore() => _fake = null;
+
+  /// The fake recording now, if any.
+  BroadcastFake? get faked => _fake;
+
   /// Sends [event] with [data] to [channels]; [exceptSocket] leaves that
   /// connection out.
   ///
@@ -99,24 +112,54 @@ final class BroadcastManager {
     Object? data, {
     String? exceptSocket,
     bool? afterCommit,
+  }) => _send(
+    event,
+    channels,
+    data,
+    exceptSocket: exceptSocket,
+    afterCommit: afterCommit,
+  );
+
+  Future<void> _send(
+    String event,
+    List<String> channels,
+    Object? data, {
+    String? exceptSocket,
+    bool? afterCommit,
+    ShouldBroadcast? source,
   }) async {
     if (channels.isEmpty) {
       return;
     }
     final db = database;
     if ((afterCommit ?? config.afterCommit) && db != null && db.inTransaction) {
-      await db.afterCommit(() => _sendNow(event, channels, data, exceptSocket));
+      await db.afterCommit(
+        () => _sendNow(event, channels, data, exceptSocket, source),
+      );
       return;
     }
-    await _sendNow(event, channels, data, exceptSocket);
+    await _sendNow(event, channels, data, exceptSocket, source);
   }
 
   Future<void> _sendNow(
     String event,
     List<String> channels,
     Object? data,
-    String? exceptSocket,
-  ) async {
+    String? exceptSocket, [
+    ShouldBroadcast? source,
+  ]) async {
+    if (_fake case final fake?) {
+      fake.broadcasts.add(
+        BroadcastRecord(
+          event: event,
+          channels: List.unmodifiable(channels),
+          data: data,
+          exceptSocket: exceptSocket,
+          source: source,
+        ),
+      );
+      return;
+    }
     // Each end-to-end encrypted channel has its own key, so its own
     // payload (pusher-php-server refuses to mix them).
     final encrypted = [
@@ -189,11 +232,12 @@ final class BroadcastManager {
     if (!event.broadcastWhen()) {
       return;
     }
-    await send(
+    await _send(
       event.broadcastAs(),
       event.broadcastOn(),
       event.broadcastWith(),
       exceptSocket: event.broadcastSocket,
+      source: event,
     );
   }
 
@@ -342,4 +386,134 @@ abstract final class Channels {
 
   /// `private-encrypted-<name>`.
   static String encrypted(String name) => 'private-encrypted-$name';
+}
+
+/// One broadcast `Broadcast.fake()` recorded.
+final class BroadcastRecord {
+  /// [event] with [data] to [channels], leaving out [exceptSocket]; [source]
+  /// is the [ShouldBroadcast] it came from, when it did.
+  const BroadcastRecord({
+    required this.event,
+    required this.channels,
+    required this.data,
+    this.exceptSocket,
+    this.source,
+  });
+
+  /// The event name (`broadcastAs`).
+  final String event;
+
+  /// The channels, with their prefixes.
+  final List<String> channels;
+
+  /// The payload.
+  final Object? data;
+
+  /// The connection left out (`toOthers()`).
+  final String? exceptSocket;
+
+  /// The event object, for `Broadcast.event(...)` and `ShouldBroadcast`
+  /// events; null for `Broadcast.send(...)`.
+  final ShouldBroadcast? source;
+}
+
+/// What `Broadcast.fake()` recorded, with assertions in the manner of
+/// `Mail.fake()` and `Queue.fake()`.
+final class BroadcastFake {
+  /// The broadcasts, in order.
+  final List<BroadcastRecord> broadcasts = [];
+
+  /// The events of type [E] broadcast (on [channel], matching [where]).
+  List<E> broadcasted<E extends ShouldBroadcast>({
+    String? channel,
+    bool Function(E event)? where,
+  }) => [
+    for (final record in broadcasts)
+      if (record.source case final E event
+          when (channel == null || record.channels.contains(channel)) &&
+              (where == null || where(event)))
+        event,
+  ];
+
+  /// The broadcasts named [event] (`Broadcast.send` or `broadcastAs`), on
+  /// [channel] when given.
+  List<BroadcastRecord> named(String event, {String? channel}) => [
+    for (final record in broadcasts)
+      if (record.event == event &&
+          (channel == null || record.channels.contains(channel)))
+        record,
+  ];
+
+  /// Fails unless an event of type [E] (on [channel], matching [where]) was
+  /// broadcast.
+  void assertBroadcasted<E extends ShouldBroadcast>({
+    String? channel,
+    bool Function(E event)? where,
+  }) {
+    if (broadcasted<E>(channel: channel, where: where).isEmpty) {
+      throw StateError(
+        'Expected [$E] to be broadcast'
+        '${channel == null ? '' : ' on [$channel]'}; it was not.',
+      );
+    }
+  }
+
+  /// Fails unless an event of type [E] (on [channel]) was broadcast [times]
+  /// times.
+  void assertBroadcastedTimes<E extends ShouldBroadcast>(
+    int times, {
+    String? channel,
+  }) {
+    final count = broadcasted<E>(channel: channel).length;
+    if (count != times) {
+      throw StateError(
+        'Expected [$E] broadcast $times time(s); it was $count.',
+      );
+    }
+  }
+
+  /// Fails unless something named [event] was sent (on [channel]), for
+  /// `Broadcast.send(...)`.
+  void assertSent(String event, {String? channel}) {
+    if (named(event, channel: channel).isEmpty) {
+      throw StateError(
+        'Expected [$event] to be broadcast'
+        '${channel == null ? '' : ' on [$channel]'}; it was not.',
+      );
+    }
+  }
+
+  /// Fails if an event of type [E] (on [channel], matching [where]) was
+  /// broadcast.
+  void assertNotBroadcasted<E extends ShouldBroadcast>({
+    String? channel,
+    bool Function(E event)? where,
+  }) {
+    if (broadcasted<E>(channel: channel, where: where).isNotEmpty) {
+      throw StateError('Expected [$E] not to be broadcast; it was.');
+    }
+  }
+
+  /// Fails if anything was broadcast on [channel].
+  void assertNothingBroadcastedTo(String channel) {
+    final on = [
+      for (final record in broadcasts)
+        if (record.channels.contains(channel)) record.event,
+    ];
+    if (on.isNotEmpty) {
+      throw StateError(
+        'Expected nothing broadcast on [$channel]; got ${on.join(', ')}.',
+      );
+    }
+  }
+
+  /// Fails if anything was broadcast.
+  void assertNothingBroadcasted() {
+    if (broadcasts.isNotEmpty) {
+      throw StateError(
+        'Expected no broadcasts; got '
+        '${[for (final r in broadcasts) r.event].join(', ')}.',
+      );
+    }
+  }
 }

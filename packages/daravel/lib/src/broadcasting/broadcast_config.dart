@@ -40,6 +40,7 @@ final class BroadcastConfig implements ConfigSection {
     this.rateLimitTerminate = false,
     this.afterCommit = true,
     this.drainSpread = const Duration(seconds: 2),
+    this.pulseIngestInterval = const Duration(seconds: 15),
     this.encryptionMasterKey,
     this.scaling = false,
     this.scalingDriver = 'database',
@@ -96,6 +97,9 @@ final class BroadcastConfig implements ConfigSection {
       ),
       rateLimitTerminate: env.boolean('REVERB_APP_RATE_LIMIT_TERMINATE', false),
       afterCommit: env.boolean('BROADCAST_AFTER_COMMIT', true),
+      pulseIngestInterval: Duration(
+        seconds: env.integer('REVERB_PULSE_INGEST_INTERVAL', 15),
+      ),
       drainSpread: env.duration(
         'REVERB_DRAIN_SPREAD',
         const Duration(seconds: 2),
@@ -216,6 +220,11 @@ final class BroadcastConfig implements ConfigSection {
   /// timeout), so the clients do not all reconnect at the same instant.
   final Duration drainSpread;
 
+  /// How often each worker isolate reports its Pusher activity to the
+  /// coordinator while it has connections (`REVERB_PULSE_INGEST_INTERVAL`,
+  /// seconds, 15 as Reverb), for Pulse and the Reverb dashboard.
+  final Duration pulseIngestInterval;
+
   /// The key of end-to-end encrypted channels (`private-encrypted-…`):
   /// 32 bytes, `REVERB_ENCRYPTION_MASTER_KEY_BASE64` (or `PUSHER_…`), as
   /// pusher-php-server's `encryption_master_key_base64`.
@@ -296,6 +305,7 @@ final class BroadcastConfig implements ConfigSection {
     },
     'after_commit': afterCommit,
     'drain_spread_ms': drainSpread.inMilliseconds,
+    'pulse_ingest_interval_s': pulseIngestInterval.inSeconds,
     'encryption_master_key': encryptionMasterKey == null ? null : '********',
     'scaling': {
       'enabled': scaling,

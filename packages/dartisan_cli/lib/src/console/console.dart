@@ -170,7 +170,10 @@ final class Console {
         : '$h ${style(title, bold: true)} ${h * (inner - title.length - 1)}';
     out.writeln('$tl$top$tr');
     for (final line in lines) {
-      final text = line.length > inner ? line.substring(0, inner) : line;
+      final cut = unicode ? '…' : '...';
+      final text = line.length > inner
+          ? '${line.substring(0, inner - cut.length)}$cut'
+          : line;
       out.writeln('$v ${text.padRight(inner)} $v');
     }
     out.writeln('$bl${h * (inner + 2)}$br');

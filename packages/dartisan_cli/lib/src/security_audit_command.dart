@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:daravel/daravel.dart';
 
 import '../dartisan_cli.dart';
+import 'console/runner_console.dart' show consoleOf;
 
 /// `security:audit [--target=URL] [--format=terminal|json|sarif]
 /// [--output=FILE] [--severity=high] [--only=ids] [--json-path=/api/...]`:
@@ -84,7 +85,7 @@ final class SecurityAuditCommand extends DaravelCommand {
       ).convert(auditSarif(result, version: daravelVersion)),
       _ => renderAudit(
         result,
-        color: results['output'] == null && stdout.supportsAnsiEscapes,
+        color: results['output'] == null && consoleOf(this).color,
       ),
     };
     final output = results['output'] as String?;
