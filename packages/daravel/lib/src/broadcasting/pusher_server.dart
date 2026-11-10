@@ -581,7 +581,9 @@ final class _Connection {
     }
     try {
       _socket.add(text);
-      _server.observer.sent(_app.id);
+      _server.observer
+        ..sent(_app.id)
+        ..frame(_app.id, id, 'out', text);
     } on StateError {
       // Closed by this side and not done yet (dart:io keeps closeCode null
       // until the peer answers): nothing more goes out.
@@ -592,7 +594,9 @@ final class _Connection {
       send(PusherServer._error(code, message));
 
   Future<void> receive(Object? message) async {
-    _server.observer.received(_app.id);
+    _server.observer
+      ..received(_app.id)
+      ..frame(_app.id, id, 'in', message);
     if (!_withinRateLimit()) {
       _server._rejected('rate_limit', _app);
       _error(4301, 'Rate limit exceeded');

@@ -267,6 +267,36 @@ dependency_overrides:
       expect(dartCalls, isEmpty);
     });
 
+    test('pub:add reverb: withReverb, its commands, REVERB_SERVER_*', () async {
+      final (code, output) = await dartisan(['pub:add', 'reverb', '--no-get']);
+      expect(code, 0);
+      expect(
+        read('pubspec.yaml'),
+        contains('  daravel_reverb: ^$daravelVersion'),
+      );
+      final app = read('bootstrap/app.dart');
+      expect(app, contains('.withReverb()'));
+      expect(
+        app,
+        contains("import 'package:daravel_reverb/daravel_reverb.dart';"),
+      );
+      final commands = read('bootstrap/commands.dart');
+      expect(commands, contains('...reverbCommands,'));
+      expect(
+        commands,
+        contains("import 'package:daravel_reverb/commands.dart';"),
+      );
+      expect(
+        commands,
+        isNot(contains("import 'package:daravel_reverb/daravel_reverb.dart';")),
+      );
+      final env = read('.env.example');
+      expect(env, contains('# REVERB_SERVER_PORT=8080'));
+      expect(env, contains('# REVERB_APPS_PROVIDER=config'));
+      expect(output, contains('reverb:start'));
+      expect(output, contains('withBroadcasting'));
+    });
+
     test('several packages, no secrets filled in, delegated drivers', () async {
       final (code, _) = await dartisan([
         'pub:add',
