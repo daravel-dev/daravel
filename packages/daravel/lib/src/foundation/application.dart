@@ -176,6 +176,26 @@ final class Application {
   /// The running server engine, if any.
   ServerEngine? get engine => _engine;
 
+  /// Adds environment overrides to an application that has not started
+  /// booting, for a host that receives a built [Application] rather than
+  /// its builder (a worker isolate, a test harness, `serveWith`).
+  ///
+  /// The highest precedence, as [ApplicationBuilder.withEnv]: an override
+  /// wins over the process environment and the `.env` file, and since it is
+  /// applied last it also wins over a `withEnv` value of the same name.
+  /// Throws a [StateError] once [boot] was called.
+  void overrideEnv(Map<String, String> overrides) {
+    if (_booting != null) {
+      throw StateError(
+        'overrideEnv() must be called before boot(): the environment is '
+        'read once, when the application boots.',
+      );
+    }
+    _envOverrides = <String, String>{..._envOverrides, ...overrides};
+  }
+
+  Map<String, String> _envOverrides = const <String, String>{};
+
   /// Boots the application exactly once (safe to call concurrently). Boot
   /// runs with this container as [Container.current], so facades work in
   /// providers, bindings and routing callbacks.
@@ -184,7 +204,7 @@ final class Application {
   Future<void> _boot() async {
     env = await Env.load(
       basePath: basePath,
-      overrides: _builder._envOverrides,
+      overrides: <String, String>{..._builder._envOverrides, ..._envOverrides},
       decrypt: (contents, key) => EnvironmentEncrypter(key).decrypt(contents),
     );
     final loggingConfig = LoggingConfig.fromEnv(env);
@@ -1217,6 +1237,11 @@ final class Application {
     List<String> childArguments = const <String>[],
   }) async {
     final probe = factory();
+    if (embedWorkers != null && embedWorkers.isNotEmpty) {
+      // A command-line flag: the config checks at boot see the embedded
+      // workers too, not only the environment's.
+      probe.overrideEnv({'SERVER_EMBED_WORKERS': embedWorkers.join(',')});
+    }
     await probe.boot();
     // ADR-027: several processes on consecutive ports behind a proxy. A
     // child (DARAVEL_PROCESS_INDEX set) serves normally.
