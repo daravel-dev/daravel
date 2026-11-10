@@ -214,6 +214,43 @@ After adding DDEV to an existing project, run
 `ddev dartisan mcp:install` again. `dartisan new --mcp` runs before DDEV
 is configured, so it writes the host entry.
 
+## Appearance and sponsoring
+
+On a terminal, `dartisan` with no command shows a short word-mark with the
+Daravel, Dart and OS versions, then the commands grouped by the part of
+their name before `:`, as `php artisan list` does, with your own commands
+last under `project`:
+
+```text
+ _| _. ._|_ o _  _. ._
+(_|(_|| |_ |_> (_|| |   Daravel <version> · Dart <sdk> · <os>
+                        Made with the help of our sponsors ♥ github.com/sponsors/daravel-dev
+```
+
+Piped or in CI, the same command prints the plain usage text, so scripts see
+what they always saw. `dartisan list` shows the groups; `list --raw` gives the
+names one per line (for shell completion) and `list --format=json` gives
+`[{name, description, group}]`.
+
+Colour is used on a terminal that takes ANSI escapes. `--no-color`,
+`NO_COLOR`, `DARTISAN_NO_COLOR=1` or `TERM=dumb` turn it off; `--ansi` forces
+it, for a pager such as `less -R`. The flags may come anywhere before `--`.
+No other command's output changes with this.
+
+`dartisan about` ends with a **Daravel** section (version, Dart SDK, OS,
+architecture, AOT or JIT, `APP_ENV`), worth pasting into a bug report, and a
+**Community** section with the docs, the issue tracker and the sponsor page;
+`about --json` prints all of it.
+
+Daravel is kept going by its sponsors. `dartisan sponsor` says where to help
+(`--open` opens the page). After a successful `build`, `upgrade`,
+`self-update`, `test` or a project's first `migrate`, one dim line thanks
+them, followed by how to hide it. It never appears after a failure, in CI,
+off a terminal, or more than once a day, and the CLI makes no network call for
+it. Turn it off for good with `dartisan sponsor --hide` (kept in
+`~/.dartisan/config.json`; `--show` brings it back, `--status` says which) or
+with `DARTISAN_NO_NUDGE=1`.
+
 ## Your own commands
 
 ```dart

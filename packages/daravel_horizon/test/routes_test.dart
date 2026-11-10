@@ -16,8 +16,13 @@ final class Mail extends Job {
   Future<void> handle(JobContext ctx) async {}
 }
 
+/// [env] `BASE_PATH` is the test's own directory: the default signal
+/// store is a file cache under it, which test files running in parallel
+/// would otherwise share (a status written by one seen by another).
 Application dashboardApp([Map<String, String> env = const {}]) =>
-    Application.configure(basePath: Directory.systemTemp.path)
+    Application.configure(
+          basePath: env['BASE_PATH'] ?? Directory.systemTemp.path,
+        )
         .withEnv({
           'APP_ENV': 'testing',
           'DB_DATABASE': ':memory:',
@@ -44,14 +49,20 @@ void main() {
   late Application app;
   late TestClient client;
 
+  late Directory base;
+
   Future<void> boot([Map<String, String> env = const {}]) async {
-    app = dashboardApp(env);
+    base = Directory.systemTemp.createTempSync('horizon_routes_');
+    app = dashboardApp({'BASE_PATH': base.path, ...env});
     await app.boot();
     await app.run(() => App.make<Migrator>().run());
     client = TestClient(app);
   }
 
-  tearDown(() => app.shutdown());
+  tearDown(() async {
+    await app.shutdown();
+    base.deleteSync(recursive: true);
+  });
 
   Future<void> record(
     String uuid,
@@ -80,7 +91,7 @@ void main() {
     await record('c1', 'completed');
     await record('f1', 'failed');
     final response = await client.get('/horizon/api/stats');
-    expect(response.status, 200);
+    expect(response.status, 200, reason: response.body);
     final stats = response.jsonMap;
     expect(stats['status'], 'inactive');
     expect(stats['jobsPerMinute'], 2);
@@ -287,4 +298,124 @@ void main() {
     expect((await client.get('/horizon')).status, 403);
     expect((await client.get('/horizon/failed')).status, 403);
   }, tags: ['security']);
+
+  test(
+    'a status that cannot be read, or of another shape, is inactive',
+    () async {
+      await boot();
+      final signals = app.container.make<QueueManager>().signalStore!;
+      for (final raw in [
+        'not json',
+        jsonEncode({
+          'state': 3,
+          'supervisors': [1, 2],
+        }),
+        jsonEncode([1, 2]),
+      ]) {
+        await app.run(
+          () => signals.store.forever(HorizonSignals.statusKey('horizon'), raw),
+        );
+        for (final path in ['stats', 'workload', 'masters']) {
+          travel(const Duration(seconds: 2));
+          final response = await client.get('/horizon/api/$path');
+          expect(response.status, 200, reason: '$raw: $path ${response.body}');
+        }
+        expect(
+          (await client.get('/horizon/api/stats')).jsonMap['status'],
+          'inactive',
+        );
+      }
+    },
+  );
+
+  test('stats and workload read each queue once a second, however many '
+      'clients ask', () async {
+    freezeTime();
+    final queue = _CountingQueue();
+    base = Directory.systemTemp.createTempSync('horizon_routes_');
+    app = _countingApp(base.path, queue);
+    await app.boot();
+    client = TestClient(app);
+    final other = TestClient(app);
+    for (var tick = 1; tick <= 2; tick++) {
+      for (final c in [client, other]) {
+        expect((await c.get('/horizon/api/stats')).status, 200);
+        expect((await c.get('/horizon/api/workload')).status, 200);
+      }
+      // Two queues, read once this tick.
+      expect(queue.sizes, tick * 2);
+      travel(const Duration(seconds: 1));
+    }
+    // Two clients at the same moment, as the last snapshot expires: one
+    // read of each queue between them.
+    final both = await Future.wait([
+      client.get('/horizon/api/stats'),
+      other.get('/horizon/api/workload'),
+    ]);
+    expect(both.map((r) => r.status), [200, 200]);
+    expect(queue.sizes, 3 * 2);
+  });
+}
+
+/// The dashboard over [queue] (two queues), in [base].
+Application _countingApp(String base, _CountingQueue queue) =>
+    Application.configure(basePath: base)
+        .withEnv({
+          'APP_ENV': 'testing',
+          'DB_DATABASE': ':memory:',
+          'QUEUE_CONNECTION': 'counting',
+        })
+        .withLogLevel(LogLevel.critical)
+        .withQueueDriver('counting', (_) => queue)
+        .withHorizon(
+          createApp: dashboardApp,
+          plans: const [
+            SupervisorPlan(
+              name: SupervisorName('s'),
+              queues: [QueueName('a'), QueueName('b')],
+              maxProcesses: 1,
+            ),
+          ],
+        )
+        .create();
+
+/// A [MemoryQueue] counting the calls of [size].
+final class _CountingQueue implements QueueDriver {
+  final MemoryQueue _inner = MemoryQueue();
+  int sizes = 0;
+
+  @override
+  String get name => 'counting';
+
+  @override
+  StateScope get scope => _inner.scope;
+
+  @override
+  Future<Object> push(
+    JobPayload payload, {
+    required String queue,
+    Duration? delay,
+  }) => _inner.push(payload, queue: queue, delay: delay);
+
+  @override
+  Future<QueuedJob?> pop(String queue) => _inner.pop(queue);
+
+  @override
+  Future<void> release(QueuedJob job, Duration delay) =>
+      _inner.release(job, delay);
+
+  @override
+  Future<void> delete(QueuedJob job) => _inner.delete(job);
+
+  @override
+  Future<int> size(String queue) {
+    sizes++;
+    return _inner.size(queue);
+  }
+
+  @override
+  Future<Duration?> oldestWait(String queue) => _inner.oldestWait(queue);
+
+  @override
+  Future<int> clear(String queue) => _inner.clear(queue);
 }

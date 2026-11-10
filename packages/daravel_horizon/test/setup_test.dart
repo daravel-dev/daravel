@@ -26,33 +26,32 @@ final class Note extends Job {
 }
 
 /// The application, as `bootstrap/app.dart` would write it.
-Application horizonApp() =>
-    Application.configure(basePath: Directory.systemTemp.path)
-        .withEnv({
-          'APP_ENV': 'testing',
-          'DB_CONNECTION': 'sqlite',
-          'DB_DATABASE': dbPath,
-          'QUEUE_CONNECTION': 'database',
-          'CACHE_STORE': 'file',
-          'HORIZON_HEARTBEAT_MS': '100',
-          'HORIZON_ALLOW_SQLITE': 'true',
-        })
-        .withLogLevel(LogLevel.error)
-        .withMigrations(const [CreateJobsTable(), CreateCacheTable()])
-        .withJobs([JobDefinition('note', Note.fromJson)])
-        .withHorizon(
-          createApp: horizonApp,
-          plans: const [
-            SupervisorPlan(
-              name: SupervisorName('supervisor-1'),
-              queues: [QueueName('a')],
-              balance: BalanceStrategy.off,
-              maxProcesses: 1,
-              sleep: Duration(milliseconds: 50),
-            ),
-          ],
-        )
-        .create();
+Application horizonApp() => Application.configure(basePath: _basePath())
+    .withEnv({
+      'APP_ENV': 'testing',
+      'DB_CONNECTION': 'sqlite',
+      'DB_DATABASE': dbPath,
+      'QUEUE_CONNECTION': 'database',
+      'CACHE_STORE': 'file',
+      'HORIZON_HEARTBEAT_MS': '100',
+      'HORIZON_ALLOW_SQLITE': 'true',
+    })
+    .withLogLevel(LogLevel.error)
+    .withMigrations(const [CreateJobsTable(), CreateCacheTable()])
+    .withJobs([JobDefinition('note', Note.fromJson)])
+    .withHorizon(
+      createApp: horizonApp,
+      plans: const [
+        SupervisorPlan(
+          name: SupervisorName('supervisor-1'),
+          queues: [QueueName('a')],
+          balance: BalanceStrategy.off,
+          maxProcesses: 1,
+          sleep: Duration(milliseconds: 50),
+        ),
+      ],
+    )
+    .create();
 
 List<String> marks() =>
     File(marksPath).existsSync() ? File(marksPath).readAsLinesSync() : const [];
@@ -130,15 +129,15 @@ void main() {
       await embedded.send('horizon', 'continue');
       await until(() => marks().contains('paused'), 'the job after continue');
 
-      final recent = jsonDecode(
-        (await LocalCoordinatorChannel(coordinator).call(
-              HorizonService.serviceName,
-              'recent',
-              {'status': 'completed'},
-            ))!
-            as String,
-      ) as List<Object?>;
-      expect(recent, hasLength(4), reason: 'recorded in the server store');
+      // The recorder writes a job's record after its handle() returns, so
+      // after the mark it may still be on its way.
+      final store =
+          coordinator.service(HorizonService.serviceName)! as HorizonService;
+      List<Object?> recent() =>
+          jsonDecode(store.handle('recent', {'status': 'completed'})! as String)
+              as List<Object?>;
+      await until(() => recent().length >= 4, 'the four records');
+      expect(recent(), hasLength(4), reason: 'recorded in the server store');
       await embedded.stop(timeout: const Duration(seconds: 20));
     },
   );
@@ -168,15 +167,21 @@ void main() {
 }
 
 /// [horizonApp] without HORIZON_ALLOW_SQLITE.
-Application refusingApp() =>
-    Application.configure(basePath: Directory.systemTemp.path)
-        .withEnv({
-          'APP_ENV': 'testing',
-          'DB_CONNECTION': 'sqlite',
-          'DB_DATABASE': dbPath,
-          'QUEUE_CONNECTION': 'database',
-          'CACHE_STORE': 'file',
-        })
-        .withLogLevel(LogLevel.critical)
-        .withHorizon(createApp: refusingApp)
-        .create();
+Application refusingApp() => Application.configure(basePath: _basePath())
+    .withEnv({
+      'APP_ENV': 'testing',
+      'DB_CONNECTION': 'sqlite',
+      'DB_DATABASE': dbPath,
+      'QUEUE_CONNECTION': 'database',
+      'CACHE_STORE': 'file',
+    })
+    .withLogLevel(LogLevel.critical)
+    .withHorizon(createApp: refusingApp)
+    .create();
+
+/// This file's own directory, by name and pid: the master and its worker
+/// isolates share it (the file signal store, Horizon's status), and test
+/// files running in parallel do not.
+String _basePath() => (Directory(
+  '${Directory.systemTemp.path}${Platform.pathSeparator}horizon_setup_base_$pid',
+)..createSync(recursive: true)).path;
