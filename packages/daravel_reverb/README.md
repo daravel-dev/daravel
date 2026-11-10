@@ -38,7 +38,7 @@ final List<CommandFactory> commands = [...reverbCommands];
 
 | Command | |
 | :-- | :-- |
-| `reverb:start [--host] [--port] [--path] [--hostname] [--isolates] [--debug]` | Serves the application's broadcasting only (`/app/{key}`, `/apps/{id}/*`, `/broadcasting/auth` with `REVERB_SERVER_AUTH=local`), `/up`, `/up/ready` and `/metrics`, in `REVERB_SERVER_ISOLATES` worker isolates. `--debug` logs every frame, signatures masked. |
+| `reverb:start [--host] [--port] [--path] [--hostname] [--isolates] [--debug]` | Serves the application's broadcasting only (`/app/{key}`, `/apps/{id}/*`, `/broadcasting/auth` with `REVERB_SERVER_AUTH=local`), `/up`, `/up/ready` and `/metrics`, in `REVERB_SERVER_ISOLATES` worker isolates. `--debug` logs every frame, signatures masked but the contents of `client-*` events and broadcasts as they are: for development, not production. |
 | `reverb:restart` | Every `reverb:start` isolate sharing the queue's signal store (`QUEUE_SIGNAL_STORE`) closes its connections over `REVERB_DRAIN_SPREAD` and starts again; clients reconnect with their own backoff. A server of one isolate ends, for its process manager to start it again, as Laravel's. |
 | `reverb:stats [--url] [--token] [--json]` | Connections per isolate, channels and messages per application, read from the server's `/metrics` (`METRICS_ENABLED=true`). |
 

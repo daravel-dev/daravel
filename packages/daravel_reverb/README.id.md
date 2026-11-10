@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:405e01676ac6 -->
+<!-- source: README.md sha256:8f0d0cabfa5e -->
 <img src="https://raw.githubusercontent.com/daravel-dev/daravel/main/docs/brand/png/daravel-icon-128.png" alt="Daravel" width="64" align="right">
 
 # daravel_reverb
@@ -40,7 +40,7 @@ final List<CommandFactory> commands = [...reverbCommands];
 
 | Perintah | |
 | :-- | :-- |
-| `reverb:start [--host] [--port] [--path] [--hostname] [--isolates] [--debug]` | Hanya melayani broadcasting aplikasi (`/app/{key}`, `/apps/{id}/*`, `/broadcasting/auth` dengan `REVERB_SERVER_AUTH=local`), `/up`, `/up/ready`, dan `/metrics`, dalam `REVERB_SERVER_ISOLATES` worker isolate. `--debug` mencatat setiap frame, dengan signature disamarkan. |
+| `reverb:start [--host] [--port] [--path] [--hostname] [--isolates] [--debug]` | Hanya melayani broadcasting aplikasi (`/app/{key}`, `/apps/{id}/*`, `/broadcasting/auth` dengan `REVERB_SERVER_AUTH=local`), `/up`, `/up/ready`, dan `/metrics`, dalam `REVERB_SERVER_ISOLATES` worker isolate. `--debug` mencatat setiap frame, dengan signature disamarkan tetapi isi event `client-*` dan broadcast apa adanya: untuk pengembangan, bukan produksi. |
 | `reverb:restart` | Setiap isolate `reverb:start` yang memakai signal store queue yang sama (`QUEUE_SIGNAL_STORE`) menutup koneksinya tersebar dalam `REVERB_DRAIN_SPREAD` lalu berjalan lagi; klien reconnect dengan backoff masing-masing. Server satu isolate berhenti, agar process manager menjalankannya lagi, seperti di Laravel. |
 | `reverb:stats [--url] [--token] [--json]` | Koneksi per isolate, channel dan pesan per aplikasi, dibaca dari `/metrics` server (`METRICS_ENABLED=true`). |
 
