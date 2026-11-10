@@ -196,8 +196,8 @@ void main() {
 }
 
 /// The Future and Completer fields of lib/src, each with why it is safe to
-/// keep (see the test above). Those marked "PR B" are known to share a
-/// future that can fail across zones, and are being moved to SharedResult.
+/// keep (see the test above). Those marked "PR C" are still being read
+/// for whether they share a future that can fail across zones.
 const Map<String, String> _knownFutureFields = {
   'broadcasting/cluster.dart:_loop': 'the relay loop, owned by one server',
   'broadcasting/cluster.dart:_wake': 'wakes the relay loop; one owner',
