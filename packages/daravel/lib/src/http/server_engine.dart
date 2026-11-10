@@ -737,6 +737,7 @@ final class ServerEngine {
       // their requests are read and answered (with `Connection: close`)
       // instead of the connection closing on them; then the idle ones go.
       final socket = _socket;
+      final drainWatch = Stopwatch()..start();
       if (socket != null && !force) {
         await socket.stopAccepting();
         final grace = options.drainGrace < options.shutdownTimeout
@@ -747,11 +748,14 @@ final class ServerEngine {
         }
         await socket.finish();
       }
+      // What is left of the shutdown timeout once the grace was spent, so
+      // the whole drain stays within it.
+      final left = options.shutdownTimeout - drainWatch.elapsed;
       try {
         try {
           await Future<void>(() async {
             await server.close(force: force);
-          }).timeout(options.shutdownTimeout);
+          }).timeout(left.isNegative ? Duration.zero : left);
         } on TimeoutException {
           logger.warning(
             'Shutdown timeout reached; closing remaining connections.',
@@ -764,6 +768,12 @@ final class ServerEngine {
           error: error,
           stackTrace: stackTrace,
         );
+      } finally {
+        // HttpServer.close does not close a socket given to listenOn (it
+        // stays the caller's): without this a forced stop, or a close that
+        // threw, left the port bound and accepting connections nobody
+        // served. Idempotent after the drain above.
+        await socket?.finish();
       }
     }
     if (!_done.isCompleted) {

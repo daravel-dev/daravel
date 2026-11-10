@@ -86,7 +86,9 @@ final class GracefulServerSocket extends StreamView<Socket>
   @override
   int get port => _inner.port;
 
-  /// [stopAccepting] and [finish] at once (what [HttpServer.close] calls).
+  /// [stopAccepting] and [finish] at once. `ServerEngine.stop` calls
+  /// [finish] itself on every path, as [HttpServer.close] need not close a
+  /// socket given to [HttpServer.listenOn].
   @override
   Future<ServerSocket> close() async {
     await finish();

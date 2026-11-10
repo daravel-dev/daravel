@@ -306,6 +306,21 @@ void main() {
       await stopping;
     });
 
+    for (final force in [false, true]) {
+      test('after stop(force: $force) the port is free at once', () async {
+        final (_, engine) = await serving();
+        final port = engine.port!;
+        await engine.stop(force: force);
+        // Bound again, not shared: it fails while the engine's socket is
+        // still bound (and accepting connections nobody serves).
+        final again = await ServerSocket.bind(
+          InternetAddress.loopbackIPv4,
+          port,
+        );
+        await again.close();
+      });
+    }
+
     test(
       'drainGrace zero: the drain as before, still within the timeout',
       () async {
