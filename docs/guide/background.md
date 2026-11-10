@@ -106,11 +106,13 @@ until commit by default.
   Under `daravel_horizon` the master judges a worker that runs a job by that
   job's timeout (the plan's `timeout` when set, otherwise the job's own),
   not by its heartbeats. It kills the worker once the job has run past that
-  timeout plus `HORIZON_KILL_GRACE` (10 seconds), or past
-  `QUEUE_RETRY_AFTER` if that comes first, since another worker may take
-  the job from then on.
+  timeout plus `HORIZON_KILL_GRACE` (10 seconds), and at the latest one
+  heartbeat (at least a second) before `QUEUE_RETRY_AFTER`, since another
+  worker may take the job from then on.
   - The killed attempt counts once, and the job is available again at once
-    (no backoff). A job with no tries left fails on its next pop with
+    (no backoff); a job killed that close to `QUEUE_RETRY_AFTER` is left to
+    it instead, so the master never releases a reservation another worker
+    may hold already. A job with no tries left fails on its next pop with
     `MaxAttemptsExceededException` ("may have previously timed out"), and
     `JobFailed` listeners run.
   - The killed attempt itself dispatches no `JobExceptionOccurred`, and

@@ -1,4 +1,4 @@
-<!-- source: background.md sha256:e3512c7dd28d -->
+<!-- source: background.md sha256:bb9da7ec9a12 -->
 # Cache, event, queue, dan penjadwalan
 
 <!-- include: packages/daravel/test/docs/guide_examples_test.dart#cache-events-queue -->
@@ -113,10 +113,13 @@ sampai commit.
   sedang menjalankan job berdasarkan timeout job itu (`timeout` plan bila
   di-set, selain itu milik job), bukan berdasarkan heartbeat-nya. Master
   membunuh worker itu setelah job berjalan melewati timeout tersebut ditambah
-  `HORIZON_KILL_GRACE` (10 detik), atau melewati `QUEUE_RETRY_AFTER` bila itu
-  lebih dulu, karena sejak saat itu worker lain boleh mengambil job tersebut.
+  `HORIZON_KILL_GRACE` (10 detik), dan paling lambat satu heartbeat (minimal
+  satu detik) sebelum `QUEUE_RETRY_AFTER`, karena sejak saat itu worker lain
+  boleh mengambil job tersebut.
   - Percobaan yang dibunuh dihitung satu kali, dan job langsung tersedia lagi
-    (tanpa backoff). Job yang percobaannya sudah habis gagal pada pop
+    (tanpa backoff); job yang dibunuh sedekat itu dengan `QUEUE_RETRY_AFTER`
+    justru dibiarkan sampai `QUEUE_RETRY_AFTER`, sehingga master tidak pernah
+    melepas reservasi yang mungkin sudah dipegang worker lain. Job yang percobaannya sudah habis gagal pada pop
     berikutnya dengan `MaxAttemptsExceededException` ("may have previously
     timed out"), dan listener `JobFailed` dijalankan.
   - Percobaan yang dibunuh tidak memancarkan `JobExceptionOccurred`, dan

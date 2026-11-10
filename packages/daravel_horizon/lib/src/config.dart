@@ -289,8 +289,8 @@ final class HorizonConfig implements ConfigSection {
   /// A job running this long past its timeout has its isolate killed
   /// (`HORIZON_KILL_GRACE`, seconds): its timeout is the one the processor
   /// enforces (the plan's `timeout`, otherwise the job's own), and the kill
-  /// comes at `QUEUE_RETRY_AFTER` at the latest, after which another
-  /// worker may take the job.
+  /// comes at the latest one heartbeat (at least a second) before
+  /// `QUEUE_RETRY_AFTER`, after which another worker may take the job.
   final Duration killGrace;
 
   /// How often workers report to the supervisor (`HORIZON_HEARTBEAT_MS`).

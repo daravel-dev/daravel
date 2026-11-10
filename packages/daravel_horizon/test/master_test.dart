@@ -35,6 +35,18 @@ final class Hang extends Job {
   Map<String, Object?> toJson() => {'label': label, 'ms': ms};
   @override
   Future<void> handle(JobContext ctx) async {
+    if (label == 'cap') {
+      // Each execution's start, to check that none overlaps another.
+      File(startsPath).writeAsStringSync(
+        '${ctx.attempt}@${DateTime.now().millisecondsSinceEpoch}'
+        '${String.fromCharCode(10)}',
+        mode: FileMode.append,
+      );
+      if (ctx.attempt == 1) {
+        final watch = Stopwatch()..start();
+        while (watch.elapsed < const Duration(milliseconds: 2500)) {}
+      }
+    }
     if (label == 'boom') {
       // Brings its worker down on every attempt.
       Isolate.current.kill(priority: Isolate.immediate);
@@ -61,6 +73,8 @@ final class Hang extends Job {
 
 final String stuckPath =
     '${Directory.systemTemp.path}${Platform.pathSeparator}horizon_master_stuck_$pid';
+final String startsPath =
+    '${Directory.systemTemp.path}${Platform.pathSeparator}horizon_master_starts_$pid';
 
 Application masterApp() => _masterApp('90s');
 
@@ -115,7 +129,7 @@ void main() {
   setUp(() async {
     events.clear();
     masterLog.clear();
-    for (final path in [dbPath, marksPath, stuckPath]) {
+    for (final path in [dbPath, marksPath, stuckPath, startsPath]) {
       if (File(path).existsSync()) {
         File(path).deleteSync();
       }
@@ -451,8 +465,8 @@ void main() {
   );
 
   test(
-    'retry_after caps the limit: past it another worker may take the job, so '
-    'the blocked one is killed then (reason timeout)',
+    'retry_after caps the limit: the blocked worker is killed a margin '
+    'before it (reason timeout), and its job left to retry_after',
     timeout: const Timeout(Duration(minutes: 2)),
     () async {
       // The master reads retry_after (3 s) from the connection it watches.
@@ -469,14 +483,72 @@ void main() {
       await m.start();
       await until(
         () => eventsNamed('JobTimedOut').isNotEmpty,
-        'the kill at retry_after',
+        'the kill before retry_after',
         diagnose: () => diagnosis(m, 's', const {}),
       );
-      // The job blocks 6 s; the kill came at 3 s, not at 60 s + killGrace.
+      // The job blocks 6 s; the kill came at 3 s less the margin (1 s),
+      // not at 60 s + killGrace.
       expect(watch.elapsed, lessThan(const Duration(seconds: 6)));
       expect(eventsNamed('WorkerKilled').first['reason'], 'timeout');
-      expect(eventsNamed('JobTimedOut').first['limitSeconds'], 3);
+      final timedOut = eventsNamed('JobTimedOut').first;
+      expect(timedOut['limitSeconds'], 2);
+      expect(timedOut['reclaimed'], isFalse);
+      expect(timedOut['leftToRetryAfter'], isTrue);
       await m.stop(timeout: const Duration(seconds: 20));
+    },
+  );
+
+  test(
+    'with two workers and retry_after 3 s, a job killed at the cap runs '
+    'exactly twice and never beside itself: no reclaim after the limit',
+    timeout: const Timeout(Duration(minutes: 2)),
+    () async {
+      final short = shortRetryApp();
+      await short.boot();
+      addTearDown(short.shutdown);
+      await app.run(() => Queue.push(const Hang('cap'), queue: 'a'));
+      // Workers whose queue hands a reserved job to another after 3 s, as
+      // the master's own connection says.
+      final m = master(
+        SupervisorPlan(
+          name: const SupervisorName('s'),
+          queues: const [QueueName('a')],
+          balance: BalanceStrategy.off,
+          minProcesses: 2,
+          maxProcesses: 2,
+          timeout: const Duration(seconds: 60),
+          sleep: const Duration(milliseconds: 50),
+        ),
+        factory: shortRetryApp,
+        driverApp: short,
+      );
+      addTearDown(() => m.stop(timeout: const Duration(seconds: 20)));
+      await m.start();
+      await until(
+        () => marks().contains('a:cap:2'),
+        'attempt 2 after retry_after',
+        diagnose: () => diagnosis(m, 's', const {}),
+      );
+      // Time for a third execution to show, if a reclaim freed attempt 2.
+      await Future<void>.delayed(const Duration(seconds: 4));
+      await m.stop(timeout: const Duration(seconds: 20));
+      final starts = [
+        for (final line in File(startsPath).readAsLinesSync())
+          (int.parse(line.split('@')[0]), int.parse(line.split('@')[1])),
+      ];
+      expect(starts.map((s) => s.$1), [1, 2], reason: 'exactly two runs');
+      // Attempt 1 ran until its kill, 2 s (the cap) after it started:
+      // attempt 2 began after that, so the two never ran side by side. It
+      // came from the driver's retry_after, not from a reclaim (below).
+      expect(
+        starts[1].$2 - starts[0].$2,
+        greaterThanOrEqualTo(2000),
+        reason: 'attempt 2 started after attempt 1 was killed',
+      );
+      final timedOut = eventsNamed('JobTimedOut').single;
+      expect(timedOut['reclaimed'], isFalse);
+      expect(timedOut['leftToRetryAfter'], isTrue);
+      expect(marks(), ['a:cap:2']);
     },
   );
 
