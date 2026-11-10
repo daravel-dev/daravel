@@ -1,0 +1,241 @@
+{
+  "dart": "3.13.7",
+  "aot": true,
+  "processors": 16,
+  "duration_s": 5.0,
+  "in_flight_per_client": 16,
+  "ceiling": {
+    "rate": {
+      "1": {
+        "ops_per_s": 187719,
+        "messages_per_s": 187719,
+        "p50_us": 66,
+        "p99_us": 446,
+        "errors": 0
+      },
+      "4": {
+        "ops_per_s": 85428,
+        "messages_per_s": 85428,
+        "p50_us": 718,
+        "p99_us": 2048,
+        "errors": 0
+      },
+      "8": {
+        "ops_per_s": 45850,
+        "messages_per_s": 45850,
+        "p50_us": 2999,
+        "p99_us": 4830,
+        "errors": 0
+      },
+      "16": {
+        "ops_per_s": 32165,
+        "messages_per_s": 32165,
+        "p50_us": 8557,
+        "p99_us": 11389,
+        "errors": 0
+      }
+    },
+    "lock": {
+      "1": {
+        "ops_per_s": 115817,
+        "messages_per_s": 231634,
+        "p50_us": 117,
+        "p99_us": 368,
+        "errors": 0
+      },
+      "4": {
+        "ops_per_s": 44346,
+        "messages_per_s": 88692,
+        "p50_us": 1399,
+        "p99_us": 3299,
+        "errors": 0
+      },
+      "8": {
+        "ops_per_s": 23401,
+        "messages_per_s": 46801,
+        "p50_us": 5844,
+        "p99_us": 9412,
+        "errors": 0
+      },
+      "16": {
+        "ops_per_s": 16617,
+        "messages_per_s": 33235,
+        "p50_us": 16675,
+        "p99_us": 22194,
+        "errors": 0
+      }
+    },
+    "cache": {
+      "1": {
+        "ops_per_s": 186253,
+        "messages_per_s": 186253,
+        "p50_us": 73,
+        "p99_us": 252,
+        "errors": 0
+      },
+      "4": {
+        "ops_per_s": 89418,
+        "messages_per_s": 89418,
+        "p50_us": 718,
+        "p99_us": 2048,
+        "errors": 0
+      },
+      "8": {
+        "ops_per_s": 41172,
+        "messages_per_s": 41172,
+        "p50_us": 3299,
+        "p99_us": 5313,
+        "errors": 0
+      },
+      "16": {
+        "ops_per_s": 30240,
+        "messages_per_s": 30240,
+        "p50_us": 9412,
+        "p99_us": 12528,
+        "errors": 0
+      }
+    },
+    "publish": {
+      "1": {
+        "ops_per_s": 177169,
+        "messages_per_s": 177169,
+        "p50_us": 73,
+        "p99_us": 277,
+        "errors": 0
+      },
+      "4": {
+        "ops_per_s": 100319,
+        "messages_per_s": 100319,
+        "p50_us": 593,
+        "p99_us": 1862,
+        "errors": 0
+      },
+      "8": {
+        "ops_per_s": 50599,
+        "messages_per_s": 50599,
+        "p50_us": 2726,
+        "p99_us": 4391,
+        "errors": 0
+      },
+      "16": {
+        "ops_per_s": 43126,
+        "messages_per_s": 43126,
+        "p50_us": 6429,
+        "p99_us": 11389,
+        "errors": 0
+      }
+    },
+    "noop": {
+      "1": {
+        "ops_per_s": 223204,
+        "messages_per_s": 223204,
+        "p50_us": 55,
+        "p99_us": 229,
+        "errors": 0
+      },
+      "4": {
+        "ops_per_s": 94818,
+        "messages_per_s": 94818,
+        "p50_us": 653,
+        "p99_us": 1862,
+        "errors": 0
+      },
+      "8": {
+        "ops_per_s": 52745,
+        "messages_per_s": 52745,
+        "p50_us": 2479,
+        "p99_us": 4391,
+        "errors": 0
+      },
+      "16": {
+        "ops_per_s": 38918,
+        "messages_per_s": 38918,
+        "p50_us": 7072,
+        "p99_us": 10354,
+        "errors": 0
+      }
+    },
+    "send": {
+      "1": {
+        "ops_per_s": 1662101,
+        "messages_per_s": 16456,
+        "p50_us": 956,
+        "p99_us": 1693,
+        "errors": 0
+      },
+      "4": {
+        "ops_per_s": 452767,
+        "messages_per_s": 4483,
+        "p50_us": 15159,
+        "p99_us": 22194,
+        "errors": 0
+      },
+      "8": {
+        "ops_per_s": 307003,
+        "messages_per_s": 3040,
+        "p50_us": 43249,
+        "p99_us": 69654,
+        "errors": 0
+      },
+      "16": {
+        "ops_per_s": 839622,
+        "messages_per_s": 8313,
+        "p50_us": 32494,
+        "p99_us": 92709,
+        "errors": 0
+      }
+    }
+  },
+  "saturation": {
+    "flood_isolates": 16,
+    "publish_per_s": 47115,
+    "messages_per_s": 47429,
+    "rate_alone": {
+      "p50_us": 45,
+      "p99_us": 88
+    },
+    "rate_under_flood": {
+      "p50_us": 1399,
+      "p99_us": 29540,
+      "errors": 0
+    }
+  },
+  "lease": {
+    "60/min x4": {
+      "attempts": 4695696,
+      "allowed": 60,
+      "over_limit": 0,
+      "messages_per_decision": 0.0
+    },
+    "60/min x16": {
+      "attempts": 2068815,
+      "allowed": 60,
+      "over_limit": 0,
+      "messages_per_decision": 0.0002
+    },
+    "1000/min x4": {
+      "attempts": 4491946,
+      "allowed": 1000,
+      "over_limit": 0,
+      "messages_per_decision": 0.0
+    },
+    "1000/min x16": {
+      "attempts": 1378094,
+      "allowed": 1000,
+      "over_limit": 0,
+      "messages_per_decision": 0.0002
+    },
+    "10000/min x4": {
+      "attempts": 4393288,
+      "allowed": 10000,
+      "over_limit": 0,
+      "messages_per_decision": 0.0002
+    },
+    "10000/min x16": {
+      "attempts": 1969419,
+      "allowed": 10000,
+      "over_limit": 0,
+      "messages_per_decision": 0.0005
+    }
+  }
+}

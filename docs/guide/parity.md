@@ -95,6 +95,11 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | Laravel | Daravel | Notes |
 | :-- | :-- | :-- |
 | `php artisan reverb:start (Laravel Reverb)` | `.withBroadcasting(...) with REVERB_APP_ID / _KEY / _SECRET` | The Pusher protocol on the HTTP port; Laravel Echo and pusher-js connect unchanged. |
+| `php artisan reverb:start --host= --port= --debug` | `dartisan reverb:start [--host] [--port] [--path] [--isolates] [--debug] (daravel_reverb)` | The Pusher server in a process of its own: broadcasting, /up and /metrics only, in worker isolates; --debug logs frames with signatures masked. |
+| `php artisan reverb:restart` | `dartisan reverb:restart (daravel_reverb)` | Each isolate closes its connections over REVERB_DRAIN_SPREAD and is spawned again. |
+| `(none)` | `createApp()..serveBroadcastingOnly(path: '/ws', auth: false, debug: false)` | Daravel-only: the same application serving only its Pusher server, /up, /up/ready and /metrics (what reverb:start runs); app.router keeps every route. |
+| `(none)` | `await app.restart()` | Daravel-only: drain and start again; a supervisor worker is spawned again at once, not counted as a crash. |
+| `config/reverb.php 'apps' => ['apps' => [...]] from .env` | `.withReverb() with REVERB_APPS (JSON) or REVERB_APPS_PROVIDER=database (daravel_reverb)` | The entries of config/reverb.php as JSON, or a reverb_apps table read per key and cached 60 s. |
 | `Broadcast::channel('orders.{id}', fn ($user, $id) => ...)` | `channels.channel('orders.{id}', (user, p) => ...)` | routes/channels.php: false refuses, true admits, a map is the presence member. |
 | `(none)` | `channels.channel('orders.{id}', ..., type: 'private', events: [BroadcastEventSchema('OrderShipped', data: ...)])` | Daravel-only: channel type and event schemas for tools; dartisan route:list --channels. |
 | `config/reverb.php 'apps' => ['apps' => [...]] (Reverb)` | `.withBroadcasting(apps: ListAppProvider([BroadcastApp(id:, key:, secret:), ...]))` | Several Pusher applications on one server, each with its own secret, origins and limits; their channels are apart. |
@@ -417,6 +422,8 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `public function tags() (Horizon)` | `List<String> get tags` |  |
 | `Queue::size('default')` | `await Queue.connection().size('default')` | **async** |
 | `(none)` | `await (Queue.connection() as BrowsableQueueDriver).pending('default', limit: 50)` | **async**; Daravel-only: the waiting jobs of a queue without reserving them (memory, database, redis), for queue dashboards such as daravel_horizon. |
+| `php artisan queue:retry {id\|all}` | `await App.make<QueueManager>().retryFailed(uuid) / retryAllFailed()` | **async**; What queue:retry and the Horizon dashboard's retry use. |
+| `Horizon's routes/web.php (horizon.stats.index, horizon.failed-jobs.show, horizon.retry-jobs.show, ...)` | `.withHorizon(createApp: createApp, middleware: ['auth', 'can:viewHorizon'])` | daravel_horizon: the same route names under HORIZON_PATH, plus horizon.stream (server-sent events) and horizon.retry-all; batches wait for a core batch repository. |
 | `(none)` | `await (Queue.connection() as ReclaimableQueueDriver).reclaim('default', jobId)` | **async**; Daravel-only: a reserved job of a worker known to be gone is available again at once, attempts kept, instead of after retry_after. |
 | `(none)` | `worker.reassign(['high', 'default'])` | Daravel-only: a running worker polls other queues from its next job on (daravel_horizon auto-scaling). |
 | `php artisan queue:pause database:default / queue:continue` | `dartisan queue:pause database:default / queue:continue` |  |

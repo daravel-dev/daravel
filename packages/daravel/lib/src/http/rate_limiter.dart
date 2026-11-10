@@ -2,6 +2,7 @@ import 'dart:async';
 
 import '../foundation/clock.dart';
 import '../foundation/container.dart';
+import '../foundation/shared_result.dart';
 
 import '../server/coordinator.dart';
 import 'http_exceptions.dart';
@@ -665,7 +666,8 @@ final class ProcessRateLimitStore implements RateLimitStore {
   final Stopwatch _monotonic = Stopwatch()..start();
 
   /// The lease request in flight per key (single flight).
-  final Map<String, Future<void>> _acquiring = <String, Future<void>>{};
+  final Map<String, SharedResult<void>> _acquiring =
+      <String, SharedResult<void>>{};
 
   /// Attempts waiting for the lease request of their key.
   final Map<String, int> _waiting = <String, int>{};
@@ -805,7 +807,9 @@ final class ProcessRateLimitStore implements RateLimitStore {
       if (inFlight != null) {
         _waiting[key] = (_waiting[key] ?? 0) + 1;
         try {
-          await inFlight;
+          // Its error, if any, raised here in this caller's zone: the
+          // attempts of other requests wait on it too.
+          await inFlight.value;
         } finally {
           final left = (_waiting[key] ?? 1) - 1;
           if (left > 0) {
@@ -816,13 +820,18 @@ final class ProcessRateLimitStore implements RateLimitStore {
         }
         continue;
       }
-      final acquiring = _acquire(key, maxAttempts, decay, now);
+      // Shared with the concurrent misses of other requests, so it never
+      // fails as a future (an error would not reach a request waiting from
+      // another zone, which would hang instead of failing open).
+      final acquiring = SharedResult<void>(
+        () => _acquire(key, maxAttempts, decay, now),
+      );
       _acquiring[key] = acquiring;
       try {
-        await acquiring;
+        await acquiring.value;
       } finally {
         if (identical(_acquiring[key], acquiring)) {
-          _acquiring.remove(key)?.ignore(); // Completed: awaited above.
+          _acquiring.remove(key);
         }
       }
     }

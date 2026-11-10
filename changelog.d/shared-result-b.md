@@ -1,0 +1,4 @@
+### Fixed
+
+- Requests waiting on the same result no longer hang when that result fails: concurrent `Cache::remember` misses of one key whose loader fails, requests asking for a database connection that fails to open, logins with no matching user while the hashing pool is saturated (all get the same `HashingSaturatedException`, the timing equalisation unchanged), and subscribers of a broadcast channel whose registration with the coordinator fails. Each got its own error only if it was the one that started the work; the others waited until a timeout further out. They now all get the error at once.
+- `daravel_horizon` (dashboard snapshot) and `daravel_reverb` (dashboard `/metrics` sample) share their reads through `SharedResult` instead of their own copies of the pattern; behaviour unchanged.

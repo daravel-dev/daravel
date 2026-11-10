@@ -43,20 +43,22 @@ final class Hang extends Job {
   }
 }
 
-Application masterApp() =>
-    Application.configure(basePath: Directory.systemTemp.path)
-        .withEnv({
-          'APP_ENV': 'testing',
-          'DB_CONNECTION': 'sqlite',
-          'DB_DATABASE': dbPath,
-          'QUEUE_CONNECTION': 'database',
-          'CACHE_STORE': 'file',
-        })
-        .withLogLevel(LogLevel.error)
-        .withMigrations(const [CreateJobsTable(), CreateCacheTable()])
-        .withJobs([JobDefinition('hang', Hang.fromJson)])
-        .create();
+Application masterApp() => Application.configure(basePath: _basePath())
+    .withEnv({
+      'APP_ENV': 'testing',
+      'DB_CONNECTION': 'sqlite',
+      'DB_DATABASE': dbPath,
+      'QUEUE_CONNECTION': 'database',
+      'CACHE_STORE': 'file',
+    })
+    .withLogLevel(LogLevel.error)
+    .withMigrations(const [CreateJobsTable(), CreateCacheTable()])
+    .withJobs([JobDefinition('hang', Hang.fromJson)])
+    .create();
 
+/// The marks the jobs wrote. Several worker isolates append to one file at
+/// once, and on Windows some appends are lost: check what a mark says, never
+/// how many there are.
 List<String> marks() =>
     File(marksPath).existsSync() ? File(marksPath).readAsLinesSync() : const [];
 
@@ -64,11 +66,13 @@ Future<void> until(
   bool Function() done,
   String what, {
   int seconds = 30,
+  Future<String> Function()? diagnose,
 }) async {
   final deadline = DateTime.now().add(Duration(seconds: seconds));
   while (!done()) {
     if (DateTime.now().isAfter(deadline)) {
-      fail('timed out waiting for $what');
+      final diagnosis = diagnose == null ? '' : '\n${await diagnose()}';
+      fail('timed out waiting for $what$diagnosis');
     }
     await Future<void>.delayed(const Duration(milliseconds: 20));
   }
@@ -78,8 +82,13 @@ void main() {
   late Application app;
   final events = <(String, Map<String, Object?>)>[];
 
+  // What the master logged at warning and above: shown when a wait times
+  // out (it is quiet otherwise).
+  final masterLog = StringBuffer();
+
   setUp(() async {
     events.clear();
+    masterLog.clear();
     for (final path in [dbPath, marksPath]) {
       if (File(path).existsSync()) {
         File(path).deleteSync();
@@ -110,13 +119,66 @@ void main() {
     ),
     driver: (connection) =>
         app.container.make<QueueManager>().connection(connection),
-    logger: Logger(minimumLevel: LogLevel.critical),
+    logger: Logger(
+      minimumLevel: LogLevel.warning,
+      out: masterLog,
+      err: masterLog,
+    ),
     coordinator: coordinator.listen(),
     store: LocalCoordinatorChannel(coordinator),
     failedJobs: app.container.make<QueueManager>().processor.failedJobs,
     onEvent: (event, data) => events.add((event, data)),
     crashDelay: (_) => const Duration(milliseconds: 50),
   );
+
+  /// What a timed-out wait shows: [extra], the queue's rows (waiting and
+  /// reserved), failed jobs, each worker of [plan], the master's warnings
+  /// and the last 30 events.
+  Future<String> diagnosis(
+    HorizonMaster m,
+    String plan,
+    Map<String, Object?> extra,
+  ) async {
+    final lines = <String>[
+      for (final e in extra.entries) '${e.key}: ${e.value}',
+    ];
+    try {
+      await app.run(() async {
+        final rows = await DB.table('jobs').get();
+        final reserved = rows.where((r) => r['reserved_at'] != null).toList();
+        lines
+          ..add('jobs rows: ${rows.length}, reserved: ${reserved.length}')
+          ..addAll([
+            for (final r in reserved.take(5))
+              '  reserved id ${r['id']} attempts ${r['attempts']} '
+                  'reserved_at ${r['reserved_at']} available_at ${r['available_at']}',
+          ])
+          ..add('failed_jobs: ${(await DB.table('failed_jobs').get()).length}');
+      });
+    } on Object catch (error) {
+      lines.add('jobs not readable: $error');
+    }
+    final now = DateTime.now();
+    lines.add('workers of $plan: ${m.workers(plan).length}');
+    for (final w in m.workers(plan)) {
+      lines.add(
+        '  ${w.name} ready ${w.ready} busy ${w.busy} stopping ${w.stopping} '
+        'recycling ${w.recycling} queues [${w.queues}] '
+        'seen ${now.difference(w.lastSeen).inMilliseconds} ms ago '
+        'processed ${w.last?.processed}',
+      );
+    }
+    lines
+      ..add('marks: ${marks().length}')
+      ..add('master log:\n$masterLog')
+      ..add('last events:');
+    for (final (event, data) in events.skip(
+      events.length > 30 ? events.length - 30 : 0,
+    )) {
+      lines.add('  $event $data');
+    }
+    return lines.join('\n');
+  }
 
   test(
     'a backlog scales the pool up, at most balanceMaxShift at a time',
@@ -140,25 +202,58 @@ void main() {
       addTearDown(() => m.stop(timeout: const Duration(seconds: 20)));
       await m.start();
       await until(() => m.workers('s').length == 3, 'three workers');
-      final ups = [
+      // The master tells of a resize once it is done: the pool may list its
+      // three workers a moment before (a loaded runner), so wait for it.
+      List<(int, int)> ups() => [
         for (final (event, data) in events)
           if (event == 'SupervisorLooped' && data['reason'] == 'scale-up')
             (data['before']! as int, data['after']! as int),
       ];
-      expect(ups.first, (1, 3));
+      await until(
+        () => ups().isNotEmpty,
+        'the scale-up event',
+        diagnose: () => diagnosis(m, 's', const {}),
+      );
+      expect(ups().first, (1, 3));
       var left = 300;
+      var polls = 0;
+      final pollErrors = <String>[];
       final poll = Timer.periodic(const Duration(milliseconds: 200), (_) async {
-        left = await app.run(() => Queue.size('a'));
+        try {
+          left = await app.run(() => Queue.size('a'));
+          polls++;
+        } on Object catch (error) {
+          pollErrors.add('$error');
+        }
       });
       addTearDown(poll.cancel);
-      await until(() => left == 0, 'an empty queue', seconds: 90);
+      await until(
+        () => left == 0,
+        'an empty queue',
+        seconds: 90,
+        diagnose: () => diagnosis(m, 's', {
+          'left': left,
+          'polls': polls,
+          'poll errors': pollErrors.take(5).toList(),
+        }),
+      );
       await m.stop(timeout: const Duration(seconds: 20));
       expect(m.workers('s'), isEmpty);
       // The workers recorded every job in the store, and the master read
-      // the rates from it.
+      // the rates from it. A worker the master killed (its heartbeats late
+      // on a loaded runner) may have lost the record of the job it had just
+      // finished, or run a reclaimed job a second time: each kill moves the
+      // count by at most one. Without a kill it is exactly 300.
       final service =
           coordinator.service(HorizonService.serviceName)! as HorizonService;
-      expect(service.stats()['completed'], 300);
+      final kills = events.where((e) => e.$1 == 'WorkerKilled').length;
+      final completed = service.stats()['completed']! as int;
+      if ((completed - 300).abs() > kills) {
+        fail(
+          'completed $completed of 300 with $kills kill(s)\n'
+          '${await diagnosis(m, 's', {'completed': completed})}',
+        );
+      }
       expect(service.rates('a')['avg_ms'], greaterThanOrEqualTo(20));
     },
   );
@@ -364,3 +459,10 @@ void main() {
     },
   );
 }
+
+/// This file's own directory, by name and pid: the master and its worker
+/// isolates share it (the file signal store, Horizon's status), and test
+/// files running in parallel do not.
+String _basePath() => (Directory(
+  '${Directory.systemTemp.path}${Platform.pathSeparator}horizon_master_base_$pid',
+)..createSync(recursive: true)).path;

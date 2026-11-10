@@ -11,6 +11,7 @@ import '../concurrency/compute_pool.dart';
 import '../foundation/config.dart';
 import 'bcrypt.dart';
 import '../foundation/env.dart';
+import '../foundation/shared_result.dart';
 import '../foundation/exceptions.dart';
 import '../http/http_exceptions.dart';
 
@@ -250,7 +251,10 @@ final class HashManager {
     return _run(_checkTask(plain, hashed, detected));
   }
 
-  Future<String>? _dummy;
+  // Shared by every login with no matching user: a SharedResult, so a
+  // failing first hash (HashingSaturatedException) reaches all of them, as
+  // the same error, instead of hanging those waiting from another zone.
+  SharedResult<String>? _dummy;
 
   /// Spends the same time as a real [check] of [plain], for when no user
   /// matched the credentials, so response timing does not reveal which
@@ -258,10 +262,12 @@ final class HashManager {
   /// [plain] is, unless hashing itself fails ([HashingSaturatedException]);
   /// a failed dummy hash is made again by the next call.
   Future<void> checkAgainstDummy(String plain) async {
-    final dummy = _dummy ??= make('daravel-timing-equalizer');
+    final dummy = _dummy ??= SharedResult<String>(
+      () => make('daravel-timing-equalizer'),
+    );
     final String hashed;
     try {
-      hashed = await dummy;
+      hashed = await dummy.value;
     } catch (_) {
       if (identical(_dummy, dummy)) {
         _dummy = null;

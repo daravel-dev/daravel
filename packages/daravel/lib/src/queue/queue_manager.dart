@@ -819,6 +819,41 @@ final class QueueManager {
   /// The names of the configured connections.
   Iterable<String> get connectionNames => _factories.keys;
 
+  /// Pushes the failed job [id] (its `failed_jobs` id or uuid) back onto
+  /// the queue it failed on and forgets it, as `queue:retry` does (its
+  /// unique lock is not taken again); the job, or null when no failed job
+  /// matches.
+  Future<FailedJob?> retryFailed(Object id) async {
+    final failed = await processor.failedJobs.find(id);
+    if (failed == null) {
+      return null;
+    }
+    await _retry(failed);
+    return failed;
+  }
+
+  /// [retryFailed] for every failed job (`queue:retry all`); the jobs
+  /// pushed back.
+  Future<List<FailedJob>> retryAllFailed() async {
+    final all = await processor.failedJobs.all();
+    for (final failed in all) {
+      await _retry(failed);
+    }
+    return all;
+  }
+
+  Future<void> _retry(FailedJob failed) async {
+    final payload = JobPayload.decode(failed.payload);
+    await connection(failed.connection).push(
+      JobPayload.fromJson(<String, Object?>{
+        ...payload.toJson(),
+        'uniqueKey': null,
+      }),
+      queue: failed.queue,
+    );
+    await processor.failedJobs.forget(failed.id);
+  }
+
   /// The connection named [name] (default: `QUEUE_CONNECTION`).
   QueueDriver connection([String? name]) {
     final resolved = name ?? config.defaultConnection;

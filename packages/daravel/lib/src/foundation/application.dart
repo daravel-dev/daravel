@@ -161,6 +161,25 @@ final class Application {
   /// cache). Set by the [Supervisor] before boot; in-process otherwise.
   CoordinatorChannel? coordinator;
 
+  bool _supervised = false;
+
+  /// Whether this is a worker isolate of a [Supervisor] (`APP_ISOLATES` >
+  /// 1), set before [boot] and fixed after it: what the supervisor does
+  /// for all of its workers (a rolling restart, through
+  /// [ApplicationBuilder.withSupervisorHook]) a worker need not do on its
+  /// own. False with one isolate, in the main isolate, and in embedded
+  /// workers (`SERVER_EMBED_*`).
+  bool get supervised => _supervised;
+
+  /// Marks this application as a [Supervisor]'s worker; the supervisor
+  /// calls it before [boot]. Throws a [StateError] once booting started.
+  void markSupervised() {
+    if (_booting != null) {
+      throw StateError('markSupervised() must be called before boot().');
+    }
+    _supervised = true;
+  }
+
   Timer? _metricsTimer;
 
   /// Whether [boot] has completed.
@@ -195,6 +214,72 @@ final class Application {
   }
 
   Map<String, String> _envOverrides = const <String, String>{};
+  ({String path, bool auth, bool debug})? _broadcastingOnly;
+  bool _restartRequested = false;
+
+  /// Before [boot]: serves only the Pusher server of
+  /// [ApplicationBuilder.withBroadcasting] (`/app/{key}` and `/apps/{id}/*`
+  /// under [path], and `/broadcasting/auth` when [auth]), the health probes
+  /// (`/up`, `/up/ready`) and `/metrics`: a WebSocket server of its own, as
+  /// `dartisan reverb:start` runs. The application's routes, the routes of
+  /// its providers, static files and `withUpstream` are not served; [router]
+  /// still holds them, for `route:list`. With [debug] every frame is logged
+  /// at `info`, signatures masked ([PusherFrameLog]).
+  void serveBroadcastingOnly({
+    String path = '',
+    bool auth = false,
+    bool debug = false,
+  }) {
+    if (_booting != null) {
+      throw StateError('serveBroadcastingOnly() must be called before boot.');
+    }
+    final trimmed = path.endsWith('/')
+        ? path.substring(0, path.length - 1)
+        : path;
+    if (trimmed.isNotEmpty && !trimmed.startsWith('/')) {
+      throw ArgumentError.value(path, 'path', 'must start with /');
+    }
+    _broadcastingOnly = (path: trimmed, auth: auth, debug: debug);
+  }
+
+  BroadcastAppProvider? _broadcastApps;
+
+  /// `withBroadcasting(apps:)`, else the provider of
+  /// [ApplicationBuilder.withBroadcastApps] (made once), else null.
+  BroadcastAppProvider? _broadcastAppProvider() {
+    if (_builder._broadcasting == null) {
+      return null;
+    }
+    final factory = _builder._broadcastApps;
+    return _builder._broadcasting?.apps ??
+        (factory == null ? null : _broadcastApps ??= factory(container));
+  }
+
+  /// Whether [serveBroadcastingOnly] was called.
+  bool get servesBroadcastingOnly => _broadcastingOnly != null;
+
+  /// The configuration checks [boot] runs besides `ConfigValidator`'s
+  /// defaults: the database's, the queue's and those packages registered
+  /// with [ApplicationBuilder.withConfigCheck]. `dartisan doctor` runs
+  /// them too.
+  List<ConfigCheck> get configChecks => List.unmodifiable([
+    DatabaseConfig.check,
+    QueueConfig.check,
+    ..._builder._configChecks,
+  ]);
+
+  /// Stops serving to be started again (`reverb:restart`): the server
+  /// drains as at shutdown and [serve] returns. A worker isolate of the
+  /// supervisor is then spawned again at once, without counting as a
+  /// crash; a server of one isolate ends, for its process manager to start
+  /// it again (as Laravel's `reverb:restart`).
+  Future<void> restart() async {
+    _restartRequested = true;
+    await _engine?.stop();
+  }
+
+  /// Whether [restart] was called.
+  bool get restartRequested => _restartRequested;
 
   /// Boots the application exactly once (safe to call concurrently). Boot
   /// runs with this container as [Container.current], so facades work in
@@ -240,13 +325,7 @@ final class Application {
     final appConfig = config.section<AppConfig>();
     exceptions.debug = appConfig.debug;
 
-    final validator = ConfigValidator(
-      extraChecks: [
-        DatabaseConfig.check,
-        QueueConfig.check,
-        ..._builder._configChecks,
-      ],
-    );
+    final validator = ConfigValidator(extraChecks: configChecks);
     for (final issue in validator.validateOrThrow(env, config)) {
       logger.warning('Config: ${issue.message}');
     }
@@ -490,7 +569,7 @@ final class Application {
                 c.make<Logger>().warning('Broadcast relay: $error'),
           );
         }
-        final apps = _builder._broadcasting?.apps;
+        final apps = _broadcastAppProvider();
         return BroadcastManager(
           broadcasting,
           server: broadcasting.serves || apps != null
@@ -507,6 +586,8 @@ final class Application {
                   // the coordinator for Pulse and the dashboard.
                   observer: PusherObservers([
                     _ReverbMetrics(metrics),
+                    if (_broadcastingOnly?.debug ?? false)
+                      PusherFrameLog(c.make<Logger>().info),
                     c.make<ReverbStats>(),
                   ]),
                 )
@@ -665,15 +746,26 @@ final class Application {
     _registerRoutes();
     _registerStatic(appConfig);
     router.compile(middleware);
+    final only = _broadcastingOnly;
+    final Router served;
+    if (only == null) {
+      served = router;
+    } else {
+      served = Router()
+        ..baseUrl = router.baseUrl
+        ..signer = router.signer;
+      _registerBroadcastingOnly(served, only.path, auth: only.auth);
+      served.compile(middleware);
+    }
     kernel = HttpKernel(
-      router: router,
+      router: served,
       middleware: middleware,
       exceptions: exceptions,
       logger: logger,
     );
     container.instance<HttpKernel>(kernel);
     final upstream = _builder._upstream;
-    if (upstream != null) {
+    if (upstream != null && only == null) {
       final url = upstream.url ?? env.maybeString('UPSTREAM_URL');
       if (url == null || url.isEmpty) {
         throw const ConfigException(
@@ -911,9 +1003,26 @@ final class Application {
     container.instance<StaticAssets>(assets);
   }
 
+  /// What [serveBroadcastingOnly] serves: the Pusher server under [path],
+  /// the health probes and `/metrics`.
+  void _registerBroadcastingOnly(
+    Router target,
+    String path, {
+    required bool auth,
+  }) {
+    _registerBroadcastingRoutes(target, prefix: path, auth: auth);
+    final health = _builder._routing?.health ?? '/up';
+    target.get(health, _health);
+    target.get('${health == '/' ? '' : health}/ready', _ready);
+    final metricsConfig = config.section<MetricsConfig>();
+    if (metricsConfig.enabled) {
+      target.get(metricsConfig.path, _metrics);
+    }
+  }
+
   void _registerRoutes() {
     // Also without withRouting: a server may only serve broadcasting.
-    _registerBroadcastingRoutes();
+    _registerBroadcastingRoutes(router);
     final routing = _builder._routing;
     if (routing == null) {
       return;
@@ -963,16 +1072,22 @@ final class Application {
 
   /// The Pusher protocol server and Laravel's `/broadcasting/auth`, when
   /// [ApplicationBuilder.withBroadcasting] was called and REVERB_APP_KEY
-  /// and REVERB_APP_SECRET are set.
-  void _registerBroadcastingRoutes() {
+  /// and REVERB_APP_SECRET are set: on [target], the Pusher routes under
+  /// [prefix], `/broadcasting/auth` unless [auth] is false.
+  void _registerBroadcastingRoutes(
+    Router target, {
+    String prefix = '',
+    bool auth = true,
+  }) {
     final setup = _builder._broadcasting;
     final broadcasting = config.section<BroadcastConfig>();
-    if (setup == null || !(broadcasting.serves || setup.apps != null)) {
+    final apps = _broadcastAppProvider();
+    if (setup == null || !(broadcasting.serves || apps != null)) {
       return;
     }
     // The largest message any application allows, when the provider says
     // (an application's own limit is checked on each message).
-    final maxMessageSize = switch (setup.apps) {
+    final maxMessageSize = switch (apps) {
       final ListAppProvider list => list.apps.fold(
         broadcasting.maxMessageSize,
         (most, app) => app.maxMessageSize > most ? app.maxMessageSize : most,
@@ -987,9 +1102,9 @@ final class Application {
       channels,
       container.make<AuthManager>(),
     );
-    router
+    target
       ..ws(
-        '/app/{key}',
+        '$prefix/app/{key}',
         (socket, request) =>
             server.connect(socket, request, request.param<String>('key')),
         // As Reverb: no permessage-deflate, so no zlib state per connection.
@@ -1006,20 +1121,20 @@ final class Application {
         drainSpread: broadcasting.drainSpread,
       ).name('daravel.broadcasting.connect')
       ..post(
-        '/apps/{appId}/events',
+        '$prefix/apps/{appId}/events',
         (request) => server.events(request, request.param<String>('appId')),
       )
       ..post(
-        '/apps/{appId}/batch_events',
+        '$prefix/apps/{appId}/batch_events',
         (request) =>
             server.batchEvents(request, request.param<String>('appId')),
       )
       ..get(
-        '/apps/{appId}/channels',
+        '$prefix/apps/{appId}/channels',
         (request) => server.channels(request, request.param<String>('appId')),
       )
       ..get(
-        '/apps/{appId}/channels/{channel}',
+        '$prefix/apps/{appId}/channels/{channel}',
         (request) => server.channel(
           request,
           request.param<String>('appId'),
@@ -1027,7 +1142,7 @@ final class Application {
         ),
       )
       ..get(
-        '/apps/{appId}/channels/{channel}/users',
+        '$prefix/apps/{appId}/channels/{channel}/users',
         (request) => server.users(
           request,
           request.param<String>('appId'),
@@ -1036,8 +1151,8 @@ final class Application {
       );
     // Signed with the settings' secret: the application's own channels
     // (another application's are authorized by its own backend).
-    if (broadcasting.serves) {
-      router
+    if (auth && broadcasting.serves) {
+      target
           .post(setup.authPath, authorization.handle)
           .name('broadcasting.auth')
           .middleware(setup.authMiddleware);
@@ -1368,14 +1483,58 @@ final class Application {
         return 0;
       }
       final logger = probe.logger;
-      await probe.shutdown();
-      supervisor = Supervisor(
+      final hooks = probe._builder._supervisorHooks;
+      if (hooks.isEmpty) {
+        await probe.shutdown();
+      }
+      final started = supervisor = Supervisor(
         factory,
         options,
         logger: logger,
         coordinator: coordinator,
       );
-      return await supervisor.run();
+      if (hooks.isEmpty) {
+        return await started.run();
+      }
+      await started.start();
+      final stops = await _installSupervisorHooks(
+        hooks,
+        probe,
+        started,
+        logger,
+      );
+      if (stops.isEmpty) {
+        // No hook kept anything running: no pool held for nothing.
+        await probe.shutdown();
+        await started.done;
+        return started.exitCode;
+      }
+      started.onRollingRestart = (result) => unawaited(
+        probe.container
+            .make<EventDispatcher>()
+            .dispatch(WorkersRestarted(result))
+            .catchError((Object error, StackTrace stackTrace) {
+              logger.error(
+                'WorkersRestarted listener failed',
+                error: error,
+                stackTrace: stackTrace,
+              );
+            }),
+      );
+      await started.done;
+      for (final stop in stops) {
+        try {
+          stop();
+        } on Object catch (error, stackTrace) {
+          logger.error(
+            'Supervisor hook stop failed',
+            error: error,
+            stackTrace: stackTrace,
+          );
+        }
+      }
+      await probe.shutdown();
+      return started.exitCode;
     } finally {
       await embedded?.stop(timeout: options.shutdownTimeout);
       // With one isolate the embedded workers listened on the application's
@@ -1383,6 +1542,47 @@ final class Application {
       // the server stopped. (The supervisor closes its own coordinator.)
       coordinator?.close();
     }
+  }
+
+  /// Installs [hooks], each in a zone of its own, so an error in a hook
+  /// or in what it starts (a timer, a stream) is logged rather than ending
+  /// the main isolate; returns their stop functions. A hook's result goes
+  /// through a completer made outside its zone: awaiting a future of the
+  /// guarded zone from outside it would never see a hook's error, and
+  /// serveWith would hang on a hook that throws (do not "simplify" it).
+  static Future<List<void Function()>> _installSupervisorHooks(
+    List<SupervisorHook> hooks,
+    Application probe,
+    Supervisor supervisor,
+    Logger logger,
+  ) async {
+    final stops = <void Function()>[];
+    for (final hook in hooks) {
+      void failed(Object error, StackTrace stackTrace) => logger.error(
+        'Supervisor hook failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      // Created outside the guarded zone: a future of an error zone never
+      // hands its error to a listener outside it, so awaiting the hook's
+      // own future would hang on a hook that throws.
+      final installed = Completer<void Function()?>();
+      runZonedGuarded(() {
+        unawaited(() async {
+          try {
+            installed.complete(await hook(probe, supervisor));
+          } on Object catch (error, stackTrace) {
+            failed(error, stackTrace);
+            installed.complete(null);
+          }
+        }());
+      }, failed);
+      final stop = await installed.future;
+      if (stop != null) {
+        stops.add(stop);
+      }
+    }
+    return stops;
   }
 
   /// Boots, serves HTTP until the engine stops, then releases resources.
@@ -1788,7 +1988,27 @@ final class ApplicationBuilder {
   final List<void Function(Env env, ConfigRepository config)> _configFactories =
       [];
   final List<ConfigCheck> _configChecks = <ConfigCheck>[];
+  final List<SupervisorHook> _supervisorHooks = <SupervisorHook>[];
   LogLevel? _logLevel;
+
+  /// Runs [hook] in the main isolate once the [Supervisor] of
+  /// `serveWith` has started its workers (`APP_ISOLATES` > 1; never with
+  /// one isolate): with the booted application of the main isolate (one
+  /// connection to the signal store per process, not one per worker) and
+  /// the supervisor, for instance to call [Supervisor.rollingRestart].
+  ///
+  /// A hook that needs that application after it returns **must** return a
+  /// function, called at shutdown before the application closes: the
+  /// application is kept only while at least one hook returned one, and is
+  /// shut down at once (no pool held) when every hook returned null. Only
+  /// while it is kept is [WorkersRestarted] dispatched through it; else a
+  /// rolling restart is only logged. An error of a hook, while it is
+  /// installed or later in what it started, and of its function, is
+  /// logged: the server keeps serving.
+  ApplicationBuilder withSupervisorHook(SupervisorHook hook) {
+    _supervisorHooks.add(hook);
+    return this;
+  }
 
   /// Adds a configuration check run at boot (errors abort the boot).
   ApplicationBuilder withConfigCheck(ConfigCheck check) {
@@ -1963,6 +2183,19 @@ final class ApplicationBuilder {
       authPath: authPath,
       apps: apps,
     );
+    return this;
+  }
+
+  BroadcastAppProvider Function(Container c)? _broadcastApps;
+
+  /// The applications the Pusher server of [withBroadcasting] serves, made
+  /// at boot from the container (configuration loaded): what
+  /// `daravel_reverb`'s `withReverb()` gives (`REVERB_APPS`, a table).
+  /// `withBroadcasting(apps:)`, when given, wins.
+  ApplicationBuilder withBroadcastApps(
+    BroadcastAppProvider Function(Container c) factory,
+  ) {
+    _broadcastApps = factory;
     return this;
   }
 

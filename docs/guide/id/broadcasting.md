@@ -1,4 +1,4 @@
-<!-- source: broadcasting.md sha256:810f4be05fd6 -->
+<!-- source: broadcasting.md sha256:86335e653488 -->
 # Broadcasting
 
 Daravel berbicara dengan protokol Pusher, seperti Laravel Reverb, di port
@@ -288,6 +288,92 @@ menandatangani untuk aplikasi `REVERB_APP_*`; aplikasi lain diotorisasi
 oleh backend-nya sendiri. Nama channel tidak boleh berisi `:`, sehingga
 aplikasi tetap terpisah bahkan dengan
 `REVERB_APP_VALIDATE_CHANNEL_NAMES=false`.
+
+Dengan [`daravel_reverb`](https://pub.dev/packages/daravel_reverb),
+`.withReverb()` membaca aplikasi dari environment: `REVERB_APPS` berisi
+entri `config/reverb.php` Reverb dalam JSON (`app_id`, `key`, `secret`,
+`allowed_origins`, `max_connections`, `max_message_size`,
+`activity_timeout`, `rate_limiting`), dilayani di samping aplikasi
+`REVERB_APP_*`; dengan `REVERB_APPS_PROVIDER=database`, aplikasi dibaca dari
+tabel `reverb_apps` (`CreateReverbAppsTable`), dan setiap baris disimpan 60
+detik di isolate yang membacanya (`REVERB_APPS_CACHE_TTL`). Pemeriksaan
+konfigurasi menolak id atau key ganda dan origin yang bukan nama host, serta
+memperingatkan secret di bawah 32 byte.
+
+## Server WebSocket tersendiri
+
+`withBroadcasting()` melayani Echo di port HTTP, dan itu cukup untuk
+kebanyakan aplikasi. Untuk tier WebSocket tersendiri, seperti
+`php artisan reverb:start` di Laravel, pasang `daravel_reverb`
+(`dartisan pub:add reverb`) dan jalankan `dartisan reverb:start` di samping
+`dartisan serve`:
+
+```bash
+dartisan reverb:start --port=8080 --isolates=4   # REVERB_SERVER_PORT, REVERB_SERVER_ISOLATES
+dartisan reverb:restart                         # setelah deploy
+dartisan reverb:stats                           # koneksi per isolate, dari /metrics
+```
+
+`reverb:start` membangun aplikasi yang sama tetapi hanya melayani server
+Pusher-nya (`/app/{key}`, `/apps/{id}/*`, di bawah `REVERB_SERVER_PATH` bila
+di-set), `/up`, `/up/ready`, dan `/metrics`: tanpa route aplikasi, route
+provider, atau file statis. `/broadcasting/auth` tetap dijawab aplikasi HTTP
+(`REVERB_SERVER_AUTH=app`, `authEndpoint` Echo) kecuali
+`REVERB_SERVER_AUTH=local`. `--debug` mencatat setiap frame, dengan
+signature `auth` dan `channel_data` disamarkan. `SERVER_EMBED_*` dan
+`APP_PROCESSES` aplikasi berlaku untuk `serve`, bukan untuk server ini.
+
+`reverb:restart` menulis waktu ke signal store queue (`QUEUE_SIGNAL_STORE`,
+seperti `queue:restart`); setiap isolate `reverb:start` membacanya tiap
+detik, menunggu sesaat secara acak dalam `REVERB_DRAIN_SPREAD`, menutup
+koneksinya tersebar dalam rentang itu, lalu langsung dijalankan lagi (tidak
+dihitung sebagai crash). Klien reconnect dengan backoff masing-masing.
+Server satu isolate justru berhenti, agar process manager menjalankannya
+lagi, seperti di Laravel. Sinyal ini hanya sampai ke server yang membaca
+store yang sama: store `file` bawaan (dengan queue database) mencakup satu
+mesin, sehingga server Reverb di beberapa mesin memerlukan store yang dipakai
+bersama (`QUEUE_SIGNAL_STORE=database` atau `redis`); dengan store `process`,
+`reverb:restart` tidak sampai ke mana pun, dan server mencatat peringatan
+bila queue tidak punya signal store sama sekali. `reverb:stats` membaca
+`reverb_connections`, `reverb_channels`, dan `reverb_messages_total` dari
+`/metrics` server (`METRICS_ENABLED=true`; `--url`, `--token`, `--json`).
+
+## Dashboard Reverb
+
+`withReverb()` menyajikan dashboard di `/reverb` dari aplikasi HTTP (bukan
+dari `reverb:start`):
+
+```dart
+.withReverb(middleware: ['auth', 'can:viewReverb']) // dashboard: '/reverb'
+```
+
+```dart
+// bootstrap/policies.dart
+gate.define('viewReverb', (user, _) => (user as User?)?.isAdmin ?? false);
+```
+
+Tab-nya: **Overview** (koneksi per aplikasi dan per isolate, channel per
+tipe, pesan per detik masuk dan keluar, fan-out p50 dan p95), **Limits**
+(slow consumer yang ditutup dengan `4100`, pesan yang terkena rate limit
+`4301`, koneksi dan subscription yang ditolak per alasan), **Apps** (id, key,
+origin, kuota, dan batas setiap aplikasi, tanpa secret-nya), dan **Workers**
+(koneksi per worker isolate). Tombol **Restart servers** mengirim
+`reverb:restart`. Angkanya berasal dari `/metrics`: dari aplikasi itu
+sendiri bila Echo tersambung ke port HTTP-nya, atau, bila `reverb:start`
+berjalan terpisah, dari server WebSocket di `REVERB_METRICS_URL`
+(`http://127.0.0.1:8080/metrics`, dengan `METRICS_TOKEN` bila di-set; hanya
+http atau https, dibaca dalam 2 detik, dan ditampilkan sebagai "Metrics
+unreachable" bila tidak menjawab, tanpa URL atau token).
+Halaman ini diperbarui lewat server-sent events (`GET /reverb/api/stream`,
+tiap detik); `GET /reverb/api/stats` sama dengan keluaran
+`reverb:stats --json`, dan `GET /reverb/api/apps` mendaftar aplikasinya.
+
+Di luar `APP_ENV=local` dan `testing`, setiap route dashboard menjawab `403`
+sampai `middleware:` menjaganya, termasuk restart; `withReverb(dashboard:
+'')` tidak menyajikan route apa pun. Halaman ini membawa
+Content-Security-Policy sendiri dengan nonce baru, tidak memuat apa pun dari
+origin lain, dan menulis setiap nilai sebagai teks. Kartu *Reverb* di Pulse
+menautkan ke halaman ini.
 
 ## Mendeskripsikan channel
 
