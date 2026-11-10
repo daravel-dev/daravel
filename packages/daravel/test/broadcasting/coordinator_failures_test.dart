@@ -147,6 +147,7 @@ void main() {
     test('a relay that failed to start is started again by the next '
         'client', () async {
       relay.failures = 1;
+      pusher.relayRetryPause = Duration.zero;
       final first = await connect();
       final refused = await first.next();
       expect(jsonDecode(refused['data']! as String), {
@@ -186,6 +187,34 @@ void main() {
         'Broadcast relay did not start',
       ]);
       expect(uncaught, isEmpty);
+      await Future.wait(sessions);
+    });
+
+    test('after a failed start, clients are refused without a new try for '
+        'the pause; the first after it starts the relay again', () async {
+      relay.failures = 1;
+      pusher.relayRetryPause = const Duration(milliseconds: 500);
+      Future<int?> refusedCode() async {
+        final client = await connect();
+        final frame = await client.next().timeout(const Duration(seconds: 5));
+        expect(jsonDecode(frame['data']! as String), {
+          'code': 4100,
+          'message': 'Over capacity',
+        });
+        await client.ended;
+        return client.socket.closeCode;
+      }
+
+      expect(await refusedCode(), 4100, reason: 'the start fails');
+      // Redis is back, but the pause lasts: refused, and no new start.
+      expect(await refusedCode(), 4100);
+      expect(relay.starts, 1, reason: 'not tried again during the pause');
+      expect(errors, ['Broadcast relay did not start']);
+      await Future<void>.delayed(const Duration(milliseconds: 600));
+      final after = await connect();
+      expect((await after.next())['event'], 'pusher:connection_established');
+      expect(relay.starts, 2);
+      await after.socket.close();
       await Future.wait(sessions);
     });
   });
