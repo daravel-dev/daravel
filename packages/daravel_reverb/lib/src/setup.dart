@@ -25,7 +25,35 @@ extension ReverbApplicationBuilder on ApplicationBuilder {
       .withConfigCheck(ReverbConfig.check)
       .withBroadcastApps(apps)
       .withProviders([_ReverbProvider(dashboard, middleware)])
+      .withSupervisorHook(_rollingReverbRestart)
       .withShutdown((c) async => c.resolved<ReverbRestartWatcher>()?.stop());
+}
+
+/// With several isolates the main isolate hears `reverb:restart`, once
+/// for the process, and restarts the workers one at a time
+/// ([Supervisor.rollingRestart]): the others keep accepting connections.
+/// The workers watch nothing themselves ([Application.supervised]).
+void Function()? _rollingReverbRestart(Application app, Supervisor supervisor) {
+  if (!app.servesBroadcastingOnly) {
+    return null;
+  }
+  final container = app.container;
+  // The main isolate's application booted with its own watcher, which
+  // would restart nothing: replaced by one that rolls the workers.
+  container.resolved<ReverbRestartWatcher>()?.stop();
+  final signals = container.make<QueueManager>().signalStore;
+  if (signals == null) {
+    return null;
+  }
+  final watcher = ReverbRestartWatcher(
+    app,
+    signals.store,
+    spread: app.config.section<BroadcastConfig>().drainSpread,
+    onRestart: () async {
+      await supervisor.rollingRestart();
+    },
+  )..start();
+  return watcher.stop;
 }
 
 final class _ReverbProvider extends ServiceProvider {
@@ -37,7 +65,8 @@ final class _ReverbProvider extends ServiceProvider {
   @override
   void boot(Container container) {
     final app = container.make<Application>();
-    if (app.servesBroadcastingOnly) {
+    // A supervisor's worker: the main isolate rolls the restarts.
+    if (app.servesBroadcastingOnly && !app.supervised) {
       final signals = container.make<QueueManager>().signalStore;
       if (signals == null) {
         app.logger.warning(

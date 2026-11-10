@@ -161,6 +161,25 @@ final class Application {
   /// cache). Set by the [Supervisor] before boot; in-process otherwise.
   CoordinatorChannel? coordinator;
 
+  bool _supervised = false;
+
+  /// Whether this is a worker isolate of a [Supervisor] (`APP_ISOLATES` >
+  /// 1), set before [boot] and fixed after it: what the supervisor does
+  /// for all of its workers (a rolling restart, through
+  /// [ApplicationBuilder.withSupervisorHook]) a worker need not do on its
+  /// own. False with one isolate, in the main isolate, and in embedded
+  /// workers (`SERVER_EMBED_*`).
+  bool get supervised => _supervised;
+
+  /// Marks this application as a [Supervisor]'s worker; the supervisor
+  /// calls it before [boot]. Throws a [StateError] once booting started.
+  void markSupervised() {
+    if (_booting != null) {
+      throw StateError('markSupervised() must be called before boot().');
+    }
+    _supervised = true;
+  }
+
   Timer? _metricsTimer;
 
   /// Whether [boot] has completed.
@@ -1445,14 +1464,58 @@ final class Application {
         return 0;
       }
       final logger = probe.logger;
-      await probe.shutdown();
-      supervisor = Supervisor(
+      final hooks = probe._builder._supervisorHooks;
+      if (hooks.isEmpty) {
+        await probe.shutdown();
+      }
+      final started = supervisor = Supervisor(
         factory,
         options,
         logger: logger,
         coordinator: coordinator,
       );
-      return await supervisor.run();
+      if (hooks.isEmpty) {
+        return await started.run();
+      }
+      await started.start();
+      final stops = await _installSupervisorHooks(
+        hooks,
+        probe,
+        started,
+        logger,
+      );
+      if (stops.isEmpty) {
+        // No hook kept anything running: no pool held for nothing.
+        await probe.shutdown();
+        await started.done;
+        return started.exitCode;
+      }
+      started.onRollingRestart = (result) => unawaited(
+        probe.container
+            .make<EventDispatcher>()
+            .dispatch(WorkersRestarted(result))
+            .catchError((Object error, StackTrace stackTrace) {
+              logger.error(
+                'WorkersRestarted listener failed',
+                error: error,
+                stackTrace: stackTrace,
+              );
+            }),
+      );
+      await started.done;
+      for (final stop in stops) {
+        try {
+          stop();
+        } on Object catch (error, stackTrace) {
+          logger.error(
+            'Supervisor hook stop failed',
+            error: error,
+            stackTrace: stackTrace,
+          );
+        }
+      }
+      await probe.shutdown();
+      return started.exitCode;
     } finally {
       await embedded?.stop(timeout: options.shutdownTimeout);
       // With one isolate the embedded workers listened on the application's
@@ -1460,6 +1523,47 @@ final class Application {
       // the server stopped. (The supervisor closes its own coordinator.)
       coordinator?.close();
     }
+  }
+
+  /// Installs [hooks], each in a zone of its own, so an error in a hook
+  /// or in what it starts (a timer, a stream) is logged rather than ending
+  /// the main isolate; returns their stop functions. A hook's result goes
+  /// through a completer made outside its zone: awaiting a future of the
+  /// guarded zone from outside it would never see a hook's error, and
+  /// serveWith would hang on a hook that throws (do not "simplify" it).
+  static Future<List<void Function()>> _installSupervisorHooks(
+    List<SupervisorHook> hooks,
+    Application probe,
+    Supervisor supervisor,
+    Logger logger,
+  ) async {
+    final stops = <void Function()>[];
+    for (final hook in hooks) {
+      void failed(Object error, StackTrace stackTrace) => logger.error(
+        'Supervisor hook failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      // Created outside the guarded zone: a future of an error zone never
+      // hands its error to a listener outside it, so awaiting the hook's
+      // own future would hang on a hook that throws.
+      final installed = Completer<void Function()?>();
+      runZonedGuarded(() {
+        unawaited(() async {
+          try {
+            installed.complete(await hook(probe, supervisor));
+          } on Object catch (error, stackTrace) {
+            failed(error, stackTrace);
+            installed.complete(null);
+          }
+        }());
+      }, failed);
+      final stop = await installed.future;
+      if (stop != null) {
+        stops.add(stop);
+      }
+    }
+    return stops;
   }
 
   /// Boots, serves HTTP until the engine stops, then releases resources.
@@ -1865,7 +1969,27 @@ final class ApplicationBuilder {
   final List<void Function(Env env, ConfigRepository config)> _configFactories =
       [];
   final List<ConfigCheck> _configChecks = <ConfigCheck>[];
+  final List<SupervisorHook> _supervisorHooks = <SupervisorHook>[];
   LogLevel? _logLevel;
+
+  /// Runs [hook] in the main isolate once the [Supervisor] of
+  /// `serveWith` has started its workers (`APP_ISOLATES` > 1; never with
+  /// one isolate): with the booted application of the main isolate (one
+  /// connection to the signal store per process, not one per worker) and
+  /// the supervisor, for instance to call [Supervisor.rollingRestart].
+  ///
+  /// A hook that needs that application after it returns **must** return a
+  /// function, called at shutdown before the application closes: the
+  /// application is kept only while at least one hook returned one, and is
+  /// shut down at once (no pool held) when every hook returned null. Only
+  /// while it is kept is [WorkersRestarted] dispatched through it; else a
+  /// rolling restart is only logged. An error of a hook, while it is
+  /// installed or later in what it started, and of its function, is
+  /// logged: the server keeps serving.
+  ApplicationBuilder withSupervisorHook(SupervisorHook hook) {
+    _supervisorHooks.add(hook);
+    return this;
+  }
 
   /// Adds a configuration check run at boot (errors abort the boot).
   ApplicationBuilder withConfigCheck(ConfigCheck check) {
