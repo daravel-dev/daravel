@@ -116,6 +116,16 @@ await Broadcast.send('price.updated', ['prices'], {'sku': 'A1', 'price': 12});
 | `log` | the log |
 | `null` | nowhere |
 
+With `daravel`, a broadcast is best effort: when the server's coordinator
+cannot take it (it sheds broadcasts under a flood, or does not answer in
+time), the request that sent it does not fail. The broadcast is dropped,
+logged (a warning at most once a second), counted in
+`broadcast_shed_total{reason}` and dispatched as a `BroadcastShed` event
+(its event, channels and reason), for instance to tell those clients to
+reload. Inside a queued job the error is raised instead, so the job is
+retried: an application that must not lose an event sends it from a job.
+Other errors, and the other connections, behave as before.
+
 Laravel broadcasts through Daravel the same way: `BROADCAST_CONNECTION=reverb`
 with `REVERB_HOST` pointing at the Daravel server, and the same app id, key
 and secret. Daravel checks the request signatures as Pusher does, and also

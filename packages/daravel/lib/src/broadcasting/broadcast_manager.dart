@@ -4,6 +4,7 @@ import 'dart:convert';
 import '../auth/auth_manager.dart';
 import '../auth/contracts.dart';
 import '../database/database_manager.dart';
+import '../foundation/container.dart';
 import '../http/client.dart';
 import '../http/http_exceptions.dart';
 import '../http/request.dart';
@@ -14,6 +15,7 @@ import 'channel_registry.dart';
 import 'pusher_server.dart';
 import 'pusher_signature.dart';
 import 'secretbox.dart';
+import '../server/coordinator.dart';
 
 /// An event that is broadcast when it is dispatched (Laravel's
 /// `ShouldBroadcast`): `Event.dispatch(OrderShipped(order))` also sends it
@@ -72,7 +74,15 @@ final class BroadcastManager {
     this._http,
     this._logger,
     this.database,
+    this.onShed,
   });
+
+  /// Told of each broadcast dropped because the coordinator could not
+  /// take it (the application counts it and dispatches [BroadcastShed]).
+  final void Function(BroadcastShed shed)? onShed;
+
+  int _shedSinceWarning = 0;
+  DateTime? _lastShedWarning;
 
   /// The database whose transactions broadcasts wait for
   /// ([BroadcastConfig.afterCommit]); none waits without it.
@@ -210,7 +220,16 @@ final class BroadcastManager {
             'and REVERB_APP_SECRET.',
           );
         }
-        await server.publish(event, channels, data, exceptSocket: exceptSocket);
+        try {
+          await server.publish(
+            event,
+            channels,
+            data,
+            exceptSocket: exceptSocket,
+          );
+        } on CoordinatorException catch (error) {
+          _shedOrRethrow(event, channels, error);
+        }
       case 'reverb' || 'pusher':
         await _post(event, channels, data, exceptSocket);
       case 'log':
@@ -225,6 +244,51 @@ final class BroadcastManager {
           'connection (daravel, reverb, pusher, log, null).',
         );
     }
+  }
+
+  /// A broadcast through this server is best effort: when the coordinator
+  /// cannot take it (it sheds bulk calls, [CoordinatorOverloaded], or does
+  /// not answer in time, [CoordinatorTimeoutException]), it never fails
+  /// the request that sent it, and is not lost in silence either: it is
+  /// logged (a `warning` at most once a second, with the count),
+  /// counted (`broadcast_shed_total`) and told ([onShed], the application's
+  /// [BroadcastShed] event), and the request goes on. Inside a job it is
+  /// rethrown instead, so the job is retried by its `tries` and `backoff`:
+  /// an application that must not lose an event sends it from a queued
+  /// job. Any other error (a bad channel, a programming error) is
+  /// rethrown everywhere. The other connections (`reverb`, `pusher`,
+  /// `log`, `null`) are unchanged.
+  void _shedOrRethrow(
+    String event,
+    List<String> channels,
+    CoordinatorException error,
+  ) {
+    final reason = switch (error) {
+      CoordinatorTimeoutException() => 'timeout',
+      CoordinatorOverloaded() => 'overloaded',
+      _ => null,
+    };
+    if (reason == null || Container.current.currentScope?.name == 'job') {
+      throw error;
+    }
+    _shedSinceWarning++;
+    final now = DateTime.now();
+    final last = _lastShedWarning;
+    if (last == null || now.difference(last) >= const Duration(seconds: 1)) {
+      _logger?.warning(
+        'Broadcast [$event] dropped: the coordinator could not take it '
+        '($reason); $_shedSinceWarning dropped since the last warning.',
+      );
+      _lastShedWarning = now;
+      _shedSinceWarning = 0;
+    }
+    onShed?.call(
+      BroadcastShed(
+        event: event,
+        channels: List.unmodifiable(channels),
+        reason: reason,
+      ),
+    );
   }
 
   /// Sends a [ShouldBroadcast] event, unless its `broadcastWhen` is false.
@@ -516,4 +580,25 @@ final class BroadcastFake {
       );
     }
   }
+}
+
+/// A broadcast dropped because the coordinator could not take it
+/// ([BroadcastManager]'s best effort): dispatched as an application event,
+/// for instance to tell the clients of [channels] to reload.
+final class BroadcastShed {
+  /// [event] on [channels], dropped for [reason] (`overloaded`, `timeout`).
+  const BroadcastShed({
+    required this.event,
+    required this.channels,
+    required this.reason,
+  });
+
+  /// The event's name.
+  final String event;
+
+  /// Where it was going.
+  final List<String> channels;
+
+  /// `overloaded` or `timeout`.
+  final String reason;
 }

@@ -673,6 +673,11 @@ final class AppMetrics {
       'reverb_rate_limited_total',
       'Pusher messages refused with 4301 Rate limit exceeded, by app.',
     );
+    broadcastShed = registry.counter(
+      'broadcast_shed_total',
+      'Broadcasts dropped because the coordinator could not take them, by '
+          'reason (overloaded, timeout).',
+    );
     reverbConnections = registry.gauge(
       'reverb_connections',
       'Open Pusher connections, by app and worker isolate.',
@@ -794,6 +799,13 @@ final class AppMetrics {
 
   /// Pusher messages refused for a rate limit.
   late final Counter reverbRateLimited;
+
+  /// Broadcasts dropped because the coordinator could not take them.
+  late final Counter broadcastShed;
+
+  /// Counts one broadcast dropped for [reason] (`overloaded`, `timeout`).
+  void recordBroadcastShed(String reason) =>
+      broadcastShed.inc({'reason': reason});
 
   /// Open Pusher connections (`reverb_connections{app,worker}`).
   late final Gauge reverbConnections;

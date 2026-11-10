@@ -1,4 +1,4 @@
-<!-- source: broadcasting.md sha256:0d7698c9f3c9 -->
+<!-- source: broadcasting.md sha256:4f27dfda5b37 -->
 # Broadcasting
 
 Daravel berbicara dengan protokol Pusher, seperti Laravel Reverb, di port
@@ -118,6 +118,17 @@ await Broadcast.send('price.updated', ['prices'], {'sku': 'A1', 'price': 12});
 | `pusher` | Pusher Channels: `PUSHER_APP_ID`, `PUSHER_APP_KEY`, `PUSHER_APP_SECRET`, `PUSHER_APP_CLUSTER` (atau `PUSHER_HOST`) |
 | `log` | log |
 | `null` | tidak ke mana pun |
+
+Dengan `daravel`, broadcast bersifat usaha terbaik: bila coordinator
+server tidak bisa menerimanya (ia menolak broadcast saat banjir, atau tidak
+menjawab tepat waktu), request yang mengirimnya tidak gagal. Broadcast itu
+dilepas, dicatat di log (warning paling banyak sekali per detik), dihitung
+di `broadcast_shed_total{reason}`, dan dipancarkan sebagai event
+`BroadcastShed` (berisi event, channel, dan alasannya), misalnya untuk
+meminta klien di channel itu memuat ulang. Di dalam job queue, galatnya
+justru dilempar sehingga job di-retry: aplikasi yang tidak boleh
+kehilangan event sebaiknya mengirimnya dari job. Galat lain, dan koneksi
+lainnya, berperilaku seperti sebelumnya.
 
 Laravel mem-broadcast lewat Daravel dengan cara yang sama:
 `BROADCAST_CONNECTION=reverb` dengan `REVERB_HOST` menunjuk ke server

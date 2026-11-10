@@ -514,6 +514,18 @@ final class Application {
           http: c.make<HttpClientFactory>(),
           logger: c.make<Logger>(),
           database: c.tryMake<DatabaseManager>(),
+          // A broadcast the coordinator could not take: counted, and told
+          // to the application (BroadcastShed), the request going on.
+          onShed: (shed) {
+            metrics.recordBroadcastShed(shed.reason);
+            unawaited(
+              events.dispatch(shed).catchError((Object error) {
+                c.make<Logger>().warning(
+                  'A BroadcastShed listener failed: $error',
+                );
+              }),
+            );
+          },
         );
       })
       ..instance<EventDispatcher>(events)
