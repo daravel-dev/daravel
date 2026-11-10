@@ -160,6 +160,33 @@ DoctorCheck? packageConfigCheck(String root, {required bool windows}) {
   return null;
 }
 
+/// `DB_IDLE_TRANSACTION_TIMEOUT` of the default [connection]: what the
+/// server does with it, or a notice that MySQL ignores it. `null` when it
+/// is not set.
+DoctorCheck? idleTransactionTimeoutCheck(ConnectionConfig? connection) {
+  final timeout = PostgresDriver.idleTransactionTimeoutOption(
+    connection?.options['idle_transaction_timeout'],
+  );
+  if (connection == null || timeout == null) {
+    return null;
+  }
+  return switch (connection.driver) {
+    'pgsql' || 'mariadb' => DoctorCheck(
+      CheckStatus.ok,
+      'Idle transaction timeout: ${timeout.inSeconds}s',
+      'The server ends a session left idle inside a transaction this long '
+          '(${connection.driver == 'pgsql' ? 'idle_in_transaction_session_timeout' : 'idle_transaction_timeout'}).',
+    ),
+    'mysql' => const DoctorCheck(
+      CheckStatus.notice,
+      'DB_IDLE_TRANSACTION_TIMEOUT applies only on MariaDB',
+      'MySQL has no setting for sessions idle inside a transaction and '
+          'ignores it; a MariaDB server behind DB_CONNECTION=mysql gets it.',
+    ),
+    _ => null,
+  };
+}
+
 /// `doctor [--production]` — environment and configuration pre-flight.
 final class DoctorCommand extends DaravelCommand {
   /// The `dartisan doctor` command.
@@ -511,6 +538,9 @@ final class DoctorCommand extends DaravelCommand {
           ),
         );
       }
+    }
+    if (idleTransactionTimeoutCheck(connection) case final check?) {
+      checks.add(check);
     }
     if (db.sharesSqliteFile(serve.isolates)) {
       checks.add(
