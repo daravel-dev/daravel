@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:isolate';
 
+import 'package:meta/meta.dart';
+
 import '../foundation/exceptions.dart';
 
 /// Where a piece of state lives (ADR-003).
@@ -256,7 +258,13 @@ final class Coordinator {
     this.maxQueue = 10000,
     this.lagWarn = const Duration(milliseconds: 5),
     this.lagShed = const Duration(milliseconds: 50),
+    this.probeEvery = lagProbeInterval,
   });
+
+  /// How often [listen]'s lag probe measures the event loop
+  /// ([lagProbeInterval]); a test that feeds [observeLag] itself gives a
+  /// long one.
+  final Duration probeEvery;
 
   /// Pending requests above this count are rejected (backpressure); also
   /// the most calls put off at once.
@@ -310,9 +318,9 @@ final class Coordinator {
   int _rejected = 0;
   int _expired = 0;
 
-  /// How late the lag probe's last timer fired, and the latest it ever did:
-  /// how long a message waits behind the others in the coordinator's
-  /// event loop, synchronous services included.
+  /// The lag probe's last measurement, and the largest: how long a message
+  /// waits behind the others in the coordinator's event loop, synchronous
+  /// services included ([_probeLag]).
   Duration _lag = Duration.zero;
   Duration _lagPeak = Duration.zero;
   Timer? _lagProbe;
@@ -596,23 +604,46 @@ final class Coordinator {
     }
   }
 
-  /// Measures how late a timer fires on this event loop, every
-  /// [lagProbeInterval] while listening: a timer's wake-up waits behind the
-  /// messages queued before it, so its delay is the coordinator's queue
-  /// lag, which [maxQueue] does not see for synchronous services.
+  /// Measures the coordinator's queue lag every [probeEvery] while
+  /// listening, which [maxQueue] does not see for synchronous services.
+  /// When the probe's timer fires it sends a message to the coordinator's
+  /// own isolate: the time until it is handled is how long a message waits
+  /// behind those queued before it. How late the timer fired counts too,
+  /// past [timerSlack], for one long call that blocks the loop with nothing
+  /// queued behind it.
   void _probeLag() {
     final watch = Stopwatch()..start();
-    _lagProbe = Timer(lagProbeInterval, () {
-      final late = watch.elapsed - lagProbeInterval;
-      _lag = late.isNegative ? Duration.zero : late;
-      if (_lag > _lagPeak) {
-        _lagPeak = _lag;
-      }
-      _assess();
-      if (_port != null) {
-        _probeLag();
-      }
+    _lagProbe = Timer(probeEvery, () {
+      final late = watch.elapsed - probeEvery - timerSlack;
+      final sent = Stopwatch()..start();
+      final probe = RawReceivePort(null, 'daravel-coordinator-probe');
+      probe.handler = (Object? _) {
+        probe.close();
+        final waited = sent.elapsed;
+        observeLag(late > waited ? late : waited);
+        if (_port != null) {
+          _probeLag();
+        }
+      };
+      probe.sendPort.send(null);
     });
+  }
+
+  /// How late a timer may fire without the loop being behind: the
+  /// coarsest timer resolution of a supported system (Windows, 15.6 ms),
+  /// where an idle 100 ms timer fires 5 to 8 ms late.
+  static const Duration timerSlack = Duration(milliseconds: 16);
+
+  /// Takes one measurement of the queue lag, [lag]: what the probe does
+  /// every [probeEvery]. A test gives the lag it wants instead of blocking
+  /// the event loop.
+  @visibleForTesting
+  void observeLag(Duration lag) {
+    _lag = lag;
+    if (_lag > _lagPeak) {
+      _lagPeak = _lag;
+    }
+    _assess();
   }
 
   /// The state after one lag measurement. Worse at once: saturated at
@@ -649,7 +680,7 @@ final class Coordinator {
       return;
     }
     if (_state != CoordinatorState.healthy &&
-        ++_unhealthyProbes * lagProbeInterval.inMilliseconds >= 1000) {
+        ++_unhealthyProbes * probeEvery.inMicroseconds >= 1000000) {
       _announce();
     }
   }

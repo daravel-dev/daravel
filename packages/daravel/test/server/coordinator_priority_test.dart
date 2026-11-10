@@ -17,7 +17,7 @@ final class _Plain implements CoordinatorService {
 }
 
 /// Telemetry: a service that opts into bulk. Each call takes [cost] of
-/// this isolate's time, so calls put off are still queued for a while.
+/// this isolate's time, so calls put off stay queued for a while.
 final class _Bulk with PrioritizedService implements CoordinatorService {
   _Bulk([this.cost = Duration.zero]);
 
@@ -31,7 +31,8 @@ final class _Bulk with PrioritizedService implements CoordinatorService {
 
   @override
   Object? handle(String op, Map<String, Object?> args) {
-    _block(cost);
+    final watch = Stopwatch()..start();
+    while (watch.elapsed < cost) {}
     return args['v'];
   }
 
@@ -67,23 +68,6 @@ final class _ExpiringBulk
 
   @override
   Map<String, Object?> stats() => const {};
-}
-
-/// Blocks this isolate's event loop for [d]: the coordinator's lag probe,
-/// due meanwhile, fires that late.
-void _block(Duration d) {
-  final watch = Stopwatch()..start();
-  while (watch.elapsed < d) {}
-}
-
-Future<void> _until(bool Function() done, String what) async {
-  final deadline = DateTime.now().add(const Duration(seconds: 10));
-  while (!done()) {
-    if (DateTime.now().isAfter(deadline)) {
-      fail('timed out waiting for $what');
-    }
-    await Future<void>.delayed(const Duration(milliseconds: 5));
-  }
 }
 
 /// Sends raw [CoordinatorRequest]s, answered on one port, so a test can
@@ -127,6 +111,12 @@ final class _RawCaller {
   void close() => _port.close();
 }
 
+/// Lags fed to [Coordinator.observeLag] against the thresholds the tests
+/// use (warn 5 ms, shed 50 ms).
+const _quiet = Duration.zero;
+const _slow = Duration(milliseconds: 10);
+const _stuck = Duration(milliseconds: 80);
+
 void main() {
   final coordinators = <Coordinator>[];
   final channels = <RemoteCoordinatorChannel>[];
@@ -147,17 +137,16 @@ void main() {
     coordinators.clear();
   });
 
+  /// A coordinator whose own probe does not run during a test: the test
+  /// gives it the lag ([Coordinator.observeLag]).
   Coordinator coordinator({
-    Duration lagWarn = const Duration(milliseconds: 5),
-    Duration lagShed = const Duration(milliseconds: 50),
     int maxQueue = 10000,
     List<CoordinatorService> extra = const [],
   }) {
     final standard = createStandardCoordinator();
     final c = Coordinator(
-      lagWarn: lagWarn,
-      lagShed: lagShed,
       maxQueue: maxQueue,
+      probeEvery: const Duration(hours: 1),
     );
     for (final name in standard.serviceNames) {
       c.register(standard.service(name)!);
@@ -181,11 +170,9 @@ void main() {
     return caller;
   }
 
-  /// Late lag probes until [c] is lagging.
-  Future<void> makeLagging(Coordinator c) async {
-    while (c.state != CoordinatorState.lagging) {
-      _block(const Duration(milliseconds: 120));
-      await Future<void>.delayed(const Duration(milliseconds: 1));
+  void observe(Coordinator c, Duration lag, [int times = 1]) {
+    for (var i = 0; i < times; i++) {
+      c.observeLag(lag);
     }
   }
 
@@ -223,13 +210,9 @@ void main() {
     expect(cache.priorityFor('get', const {}), CoordinatorPriority.normal);
   });
 
-  test('saturated: workers hear it, bulk calls fail at once, unmarked and '
-      'critical ones still answer, healthy again once the loop is', () async {
-    final c = coordinator(
-      lagWarn: const Duration(milliseconds: 2),
-      lagShed: const Duration(milliseconds: 20),
-      extra: [_Plain(), _Bulk()],
-    );
+  test('saturated: workers hear it, bulk calls fail in the worker, unmarked '
+      'and critical ones are answered, and it recovers', () async {
+    final c = coordinator(extra: [_Plain(), _Bulk()]);
     final channel = channelTo(c);
     final states = <CoordinatorState>[];
     final shortCircuited = <String>[];
@@ -239,64 +222,53 @@ void main() {
     // A call first: the coordinator learns this worker's port.
     expect(await channel.call('bulk', 'x', {'v': 1}), 1);
 
-    _block(const Duration(milliseconds: 250));
-    await _until(
-      () => channel.coordinatorState == CoordinatorState.saturated,
-      'the saturated announcement',
-    );
+    observe(c, _stuck);
     expect(c.state, CoordinatorState.saturated);
-    expect(states, contains(CoordinatorState.saturated));
+    await pumpEventQueue();
+    expect(channel.coordinatorState, CoordinatorState.saturated);
+    expect(states, [CoordinatorState.saturated]);
 
-    // Bulk: failed in the worker, without a round trip.
-    final watch = Stopwatch()..start();
+    // Bulk: failed in the worker, never sent (the coordinator sheds none).
     await expectLater(
       channel.call('bulk', 'x', {'v': 2}),
       throwsA(isA<CoordinatorOverloaded>()),
     );
-    expect(watch.elapsed, lessThan(const Duration(milliseconds: 20)));
-    expect(shortCircuited, contains('bulk'));
+    expect(shortCircuited, ['bulk']);
+    expect(c.stats()['shed'], isEmpty);
 
     // Unmarked: put off, still answered.
     expect(await channel.call('plain', 'x', {'v': 3}), 3);
 
-    // Critical: a lock is still answered.
-    final store = ProcessStore(channel);
+    // Critical: a lock is answered.
     expect(
-      await store.acquireLock('k1-lock', 'me', const Duration(seconds: 5)),
+      await ProcessStore(channel)
+          .acquireLock('k1-lock', 'me', const Duration(seconds: 5)),
       isTrue,
     );
 
-    // Rate limit: the limit's failure policy now, not after the timeout.
+    // Rate limit: the limit's failure policy at once, not after its
+    // timeout (an hour here: waiting for it would time the test out).
     final limits = ProcessRateLimitStore(
       channel,
-      timeout: const Duration(seconds: 2),
+      timeout: const Duration(hours: 1),
     );
-    final limited = Stopwatch()..start();
     final result = await limits.attempt('k1', 5, const Duration(minutes: 1));
-    expect(limited.elapsed, lessThan(const Duration(milliseconds: 100)));
     expect(result.degraded, isTrue);
     expect(result.allowed, isTrue);
     expect(shortCircuited, contains(RateLimitService.serviceName));
 
     // Quiet again: healthy, and bulk calls go through.
-    await _until(
-      () => channel.coordinatorState == CoordinatorState.healthy,
-      'the healthy announcement',
-    );
+    observe(c, _quiet, Coordinator.recoverySamples);
+    await pumpEventQueue();
+    expect(channel.coordinatorState, CoordinatorState.healthy);
     expect(await channel.call('bulk', 'x', {'v': 4}), 4);
   });
 
   test('a worker first heard from while saturated is told before its '
       'reply', () async {
-    final c = coordinator(
-      lagWarn: const Duration(milliseconds: 2),
-      lagShed: const Duration(milliseconds: 20),
-      extra: [_Bulk()],
-    );
-    // Some worker, so the coordinator's state has someone to go to.
-    expect(await channelTo(c).call('bulk', 'x', {'v': 0}), 0);
-    _block(const Duration(milliseconds: 250));
-    await _until(() => c.state == CoordinatorState.saturated, 'saturated');
+    final c = coordinator(extra: [_Bulk()]);
+    observe(c, _stuck);
+    expect(c.state, CoordinatorState.saturated);
 
     final spawned = channelTo(c);
     expect(spawned.coordinatorState, CoordinatorState.healthy);
@@ -304,84 +276,66 @@ void main() {
       spawned.call('bulk', 'x', {'v': 1}),
       throwsA(isA<CoordinatorOverloaded>()),
     );
-    // The health message came before the refusal, not a second later.
+    // The health message came first, not at the next announcement.
     expect(spawned.coordinatorState, CoordinatorState.saturated);
-    expect(
-      (c.stats()['shed']! as Map<String, Object?>)['bulk'],
-      greaterThanOrEqualTo(1),
-    );
+    expect((c.stats()['shed']! as Map<String, Object?>)['bulk'], 1);
   });
 
-  test('lagging: bulk calls are put off and answered', () async {
-    final c = coordinator(
-      lagWarn: const Duration(milliseconds: 2),
-      lagShed: const Duration(seconds: 30),
-      extra: [_Bulk()],
-    );
+  test('lagging after three slow measurements: bulk calls are put off and '
+      'answered', () async {
+    final c = coordinator(extra: [_Bulk()]);
     final channel = channelTo(c);
-    expect(await channel.call('bulk', 'x', {'v': 0}), 0);
-    await makeLagging(c);
+    observe(c, _slow, 2);
+    expect(c.state, CoordinatorState.healthy);
+    observe(c, _slow);
+    expect(c.state, CoordinatorState.lagging);
+
     final answers = await Future.wait([
       for (var i = 0; i < 10; i++) channel.call('bulk', 'x', {'v': i}),
     ]);
     expect(answers, [for (var i = 0; i < 10; i++) i]);
-    expect(c.stats()['deferred_peak'], greaterThanOrEqualTo(1));
+    expect(c.stats()['deferred_peak'], 10);
     final served = c.stats()['served_by_priority']! as Map<String, Object?>;
-    expect(served['bulk'], greaterThanOrEqualTo(10));
+    expect(served['bulk'], 10);
   });
 
   test('critical calls are neither put off nor refused, even with the '
       'queue of calls put off full', () async {
-    final c = coordinator(
-      lagWarn: const Duration(milliseconds: 2),
-      lagShed: const Duration(seconds: 30),
-      maxQueue: 4,
-      extra: [_Bulk(const Duration(milliseconds: 20))],
-    );
+    final c = coordinator(maxQueue: 4, extra: [_Bulk()]);
     final raw = rawTo(c);
     final channel = channelTo(c);
-    expect((await raw.call('bulk', {'v': 0})).result, 0);
-    await makeLagging(c);
+    observe(c, _slow, 3);
+    expect(c.state, CoordinatorState.lagging);
 
-    final order = <String>[];
     final bulk = [
-      for (var i = 0; i < 10; i++)
-        raw.call('bulk', {'v': i}).then((reply) {
-          order.add(reply.error == null ? 'bulk' : 'refused');
-          return reply;
-        }),
+      for (var i = 0; i < 10; i++) raw.call('bulk', {'v': i}),
     ];
     final lock = ProcessStore(channel)
-        .acquireLock('k1-full', 'me', const Duration(seconds: 5))
-        .then((taken) {
-          order.add('lock');
-          return taken;
-        });
+        .acquireLock('k1-full', 'me', const Duration(seconds: 5));
     expect(await lock, isTrue);
     final replies = await Future.wait(bulk);
 
-    // Ten bulk calls against a queue of four: the rest refused, and the
-    // coordinator saturated by the full queue.
-    expect(replies.where((r) => r.error != null), isNotEmpty);
-    expect(c.stats()['deferred_peak'], lessThanOrEqualTo(4));
-    // The lock, sent after them, was answered before the calls put off.
-    expect(order.indexOf('lock'), lessThan(order.lastIndexOf('bulk')));
+    // Ten bulk calls against a queue of four: the full queue saturates
+    // the coordinator and the rest are refused; the lock is not.
+    expect(replies.where((r) => r.error != null).length, greaterThan(5));
+    expect(c.stats()['deferred_peak'], 4);
+    expect(c.state, CoordinatorState.saturated);
+    final served = c.stats()['served_by_priority']! as Map<String, Object?>;
+    expect(served['critical'], 1);
   });
 
   test('a call that expires while put off is dropped, unanswered', () async {
     final expiring = _ExpiringBulk();
     final c = coordinator(
-      lagWarn: const Duration(milliseconds: 2),
-      lagShed: const Duration(seconds: 30),
       extra: [_Bulk(const Duration(milliseconds: 15)), expiring],
     );
     final raw = rawTo(c);
-    expect((await raw.call('bulk', {'v': 0})).result, 0);
-    await makeLagging(c);
-    final expiredBefore = c.stats()['expired']! as int;
+    observe(c, _slow, 3);
+    expect(c.state, CoordinatorState.lagging);
 
-    // Six slow calls put off ahead of it: 90 ms before it is reached, past
-    // its 30 ms deadline.
+    // Six calls of 15 ms put off ahead of it: about 90 ms before it is
+    // reached, past its 30 ms deadline (the deadline is wall clock, as
+    // workers and the coordinator share no other).
     final ahead = [
       for (var i = 0; i < 6; i++) raw.call('bulk', {'v': i}),
     ];
@@ -395,59 +349,46 @@ void main() {
       ),
     );
     await Future.wait(ahead);
-    await _until(
-      () => (c.stats()['expired']! as int) > expiredBefore,
-      'the expired count',
-    );
+    await pumpEventQueue();
+    expect(c.stats()['expired'], 1);
     expect(expiring.handled, 0);
     expect(raw.unanswered, 1);
   });
 
-  test('state improves only after several quiet measurements', () async {
-    final c = coordinator(
-      lagWarn: const Duration(milliseconds: 2),
-      lagShed: const Duration(milliseconds: 20),
-      extra: [_Bulk()],
-    );
-    final channel = channelTo(c);
-    expect(await channel.call('bulk', 'x', {'v': 0}), 0);
-    final changes = <CoordinatorState>[];
-    channel.onStateChange = changes.add;
+  test('worse at once, better only after several quiet measurements', () {
+    final c = coordinator();
+    observe(c, _stuck);
+    expect(c.state, CoordinatorState.saturated);
 
-    _block(const Duration(milliseconds: 250));
-    await _until(() => c.state == CoordinatorState.saturated, 'saturated');
-    final quiet = Stopwatch()..start();
-    await _until(() => c.state == CoordinatorState.healthy, 'healthy');
-    // Recovery waits for Coordinator.recoverySamples quiet probes.
-    expect(
-      quiet.elapsed,
-      greaterThanOrEqualTo(
-        Coordinator.lagProbeInterval * (Coordinator.recoverySamples - 1),
-      ),
-    );
-    await _until(
-      () => channel.coordinatorState == CoordinatorState.healthy,
-      'the healthy announcement',
-    );
-    // Saturated once, then healthy: no flapping back.
-    expect(changes.where((s) => s == CoordinatorState.saturated), hasLength(1));
-    expect(changes.last, CoordinatorState.healthy);
+    // Quiet, then stuck again: still saturated, no flapping.
+    observe(c, _quiet, Coordinator.recoverySamples - 1);
+    expect(c.state, CoordinatorState.saturated);
+    observe(c, _stuck);
+    observe(c, _quiet, Coordinator.recoverySamples - 1);
+    expect(c.state, CoordinatorState.saturated);
+    observe(c, _quiet);
+    expect(c.state, CoordinatorState.healthy);
+
+    // Saturated, then only slow: lagging, then healthy once quiet.
+    observe(c, _stuck);
+    observe(c, _slow, Coordinator.recoverySamples);
+    expect(c.state, CoordinatorState.lagging);
+    observe(c, _quiet, Coordinator.recoverySamples - 1);
+    expect(c.state, CoordinatorState.lagging);
+    observe(c, _quiet);
+    expect(c.state, CoordinatorState.healthy);
   });
 
   test('the local channel has no queue and no health: answered while the '
       'coordinator is saturated', () async {
-    final c = coordinator(
-      lagWarn: const Duration(milliseconds: 2),
-      lagShed: const Duration(milliseconds: 20),
-      extra: [_Bulk()],
-    );
-    expect(await channelTo(c).call('bulk', 'x', {'v': 0}), 0);
-    _block(const Duration(milliseconds: 250));
-    await _until(() => c.state == CoordinatorState.saturated, 'saturated');
+    final c = coordinator(extra: [_Bulk()]);
+    observe(c, _stuck);
+    expect(c.state, CoordinatorState.saturated);
 
     final local = LocalCoordinatorChannel(c);
     expect(await local.call('bulk', 'x', {'v': 1}), 1);
     expect(c.deferred, 0);
+    expect(c.stats()['shed'], isEmpty);
   });
 
   test('the health message is deeply immutable and the stats are on '
