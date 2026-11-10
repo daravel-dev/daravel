@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math';
 
 import 'package:daravel/daravel.dart';
@@ -61,9 +62,6 @@ abstract final class ReverbDashboard {
 
   static Container get _container => Container.current;
 
-  static ReverbConfig get _config =>
-      _container.make<ConfigRepository>().section<ReverbConfig>();
-
   /// How long the dashboard waits for `REVERB_METRICS_URL`.
   static const Duration metricsTimeout = Duration(seconds: 2);
 
@@ -71,35 +69,83 @@ abstract final class ReverbDashboard {
   /// else of this process. A server that cannot be read is a
   /// [MetricsUnreachable], whose message names neither the URL nor the
   /// token.
+  ///
+  /// Read at most once a second per application ([Clock] time), however
+  /// many pages and streams ask: one request to `REVERB_METRICS_URL` a
+  /// second, not one per open tab. A failure is kept for that second too,
+  /// and a read in progress is shared.
   static Future<ReverbReport> report() async {
-    final url = _config.metricsUrl;
+    final app = _container.make<Application>();
+    final now = Clock.now();
+    var sample = _samples[app];
+    if (sample == null ||
+        now.difference(sample.at) >= const Duration(seconds: 1)) {
+      // Shared by requests, so it never fails: a future that fails in one
+      // request's error zone never hands its error to another request
+      // (that one would hang), and one made in another zone would end the
+      // isolate. The error is raised below, in the caller's zone.
+      final container = app.container;
+      sample = (at: now, result: _settled(container));
+      _samples[app] = sample;
+    }
+    final (report, failure) = await sample.result;
+    if (failure != null) {
+      Error.throwWithStackTrace(failure.$1, failure.$2);
+    }
+    return report!;
+  }
+
+  static Future<(ReverbReport?, (Object, StackTrace)?)> _settled(
+    Container container,
+  ) async {
+    try {
+      return (await _read(container), null);
+    } on Object catch (error, stackTrace) {
+      return (null, (error, stackTrace));
+    }
+  }
+
+  static final Expando<
+    ({DateTime at, Future<(ReverbReport?, (Object, StackTrace)?)> result})
+  >
+  _samples = Expando('reverb dashboard sample');
+
+  static Future<ReverbReport> _read(Container container) async {
+    final config = container.make<ConfigRepository>();
+    final url = config.section<ReverbConfig>().metricsUrl;
     if (url == null || url.isEmpty) {
-      return ReverbReport.parse(await _container.make<AppMetrics>().render());
+      return ReverbReport.parse(await container.make<AppMetrics>().render());
     }
     final uri = Uri.tryParse(url);
     if (uri == null || !(uri.scheme == 'http' || uri.scheme == 'https')) {
       throw const MetricsUnreachable('REVERB_METRICS_URL is not http(s)');
     }
-    final token = _container
-        .make<ConfigRepository>()
-        .section<MetricsConfig>()
-        .token;
-    var request = Http.timeout(metricsTimeout);
-    if (token != null && token.isNotEmpty) {
-      request = request.withToken(token);
-    }
-    final ClientResponse response;
+    final token = config.section<MetricsConfig>().token;
+    // dart:io directly, redirects not followed: the token goes to the
+    // host named, and to no other one a redirect points at.
+    final client = HttpClient()..connectionTimeout = metricsTimeout;
     try {
-      response = await request.get(url);
-    } on Object {
-      throw const MetricsUnreachable('no answer from REVERB_METRICS_URL');
+      final int status;
+      final String body;
+      try {
+        final request = await client.getUrl(uri).timeout(metricsTimeout);
+        request.followRedirects = false;
+        if (token != null && token.isNotEmpty) {
+          request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
+        }
+        final response = await request.close().timeout(metricsTimeout);
+        status = response.statusCode;
+        body = await utf8.decodeStream(response).timeout(metricsTimeout);
+      } on Object {
+        throw const MetricsUnreachable('no answer from REVERB_METRICS_URL');
+      }
+      if (status < 200 || status >= 300) {
+        throw MetricsUnreachable('REVERB_METRICS_URL answered $status');
+      }
+      return ReverbReport.parse(body);
+    } finally {
+      client.close(force: true);
     }
-    if (!response.successful) {
-      throw MetricsUnreachable(
-        'REVERB_METRICS_URL answered ${response.status}',
-      );
-    }
-    return ReverbReport.parse(response.body);
   }
 
   /// The applications served, without their secrets: those of

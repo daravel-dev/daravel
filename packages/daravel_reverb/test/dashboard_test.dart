@@ -276,6 +276,73 @@ void main() {
     expect(shown, contains('***@127.0.0.1'));
   }, tags: 'security');
 
+  test('REVERB_METRICS_URL is read once a second, however many clients ask; '
+      'a failure too', () async {
+    var reads = 0;
+    var fail = false;
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(server.close);
+    server.listen((r) {
+      reads++;
+      r.response
+        ..statusCode = fail ? 500 : 200
+        ..write('# nothing\n')
+        ..close();
+    });
+    freezeTime();
+    final app = await booted(
+      appWith(
+        env: {'REVERB_METRICS_URL': 'http://127.0.0.1:${server.port}/metrics'},
+      ),
+    );
+    final first = TestClient(app);
+    final second = TestClient(app);
+    for (var tick = 1; tick <= 2; tick++) {
+      for (final client in [first, second]) {
+        expect((await client.get('/reverb/api/stats')).status, 200);
+      }
+      expect(reads, tick, reason: 'one read a second');
+      travel(const Duration(seconds: 1));
+    }
+    // A failing read is kept for its second as well.
+    fail = true;
+    for (final client in [first, second]) {
+      expect((await client.get('/reverb/api/stats')).status, 503);
+    }
+    expect(reads, 3);
+  });
+
+  test('REVERB_METRICS_URL: a redirect is not followed, so the token goes '
+      'to no other host', () async {
+    var redirected = 0;
+    final elsewhere = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(elsewhere.close);
+    elsewhere.listen((r) {
+      redirected++;
+      r.response.close();
+    });
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(server.close);
+    server.listen((r) {
+      r.response
+        ..statusCode = 302
+        ..headers.set('location', 'http://127.0.0.1:${elsewhere.port}/steal')
+        ..close();
+    });
+    final app = await booted(
+      appWith(
+        env: {
+          'REVERB_METRICS_URL': 'http://127.0.0.1:${server.port}/metrics',
+          'METRICS_TOKEN': 'metrics-token',
+        },
+      ),
+    );
+    final stats = await TestClient(app).get('/reverb/api/stats');
+    expect(stats.status, 503);
+    expect(stats.jsonMap['message'], contains('302'));
+    expect(redirected, 0);
+  }, tags: 'security');
+
   test('REVERB_METRICS_URL is http(s) only', () {
     final env = Env.fromMap({'REVERB_METRICS_URL': 'file:///etc/passwd'});
     final config = ConfigRepository()
