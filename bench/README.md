@@ -152,6 +152,51 @@ to 46 req/s with two (2026-10-29):
 dart run bin/bench.dart --scenarios=13 --isolates=1 --processes=2
 ```
 
+### Horizon worker isolates and SQLite
+
+`bin/horizon_isolates.dart` measures what `daravel_horizon`'s worker
+isolates cost: start-up until every worker is ready, and the process's
+resident memory, idle and under a backlog of 200 short jobs per worker, for
+1, 4 and 8 workers. `BENCH_PG=<url>` queues on PostgreSQL instead of a
+SQLite file. Measured on 2026-11-06 (Dart 3.13.4 AOT, Windows 11, 16 CPUs,
+PostgreSQL 16 in Docker under WSL; the median of three runs):
+
+| Workers | Spawn + boot (all ready) | RSS idle | RSS busy |
+| --: | --: | --: | --: |
+| none (the process alone) | | 20.5 MB | |
+| 1 | 4 ms | 21.4 MB | 21.5 MB |
+| 4 | 14 ms | 30.1 MB | 30.4 MB |
+| 8 | 11 ms | 32.2 MB | 56.9 MB |
+
+The workers share the process's heap (one isolate group), so these are the
+whole process's numbers, not a worker's. A worker opens its database
+connection at its first poll, after it reports ready.
+
+```bash
+dart build cli -t bin/horizon_isolates.dart -o build/horizon_isolates
+BENCH_PG=postgres://user:pass@127.0.0.1:5432/db build/horizon_isolates/bundle/bin/horizon_isolates
+```
+
+On Windows with a SQLite file queue it twice ended in a native crash inside
+`sqlite3.dll`. `bin/sqlite_isolates_repro.dart` reproduces the setup
+without Daravel (8 isolates of one process on one WAL file), in four
+variants for how an isolate ends:
+
+```bash
+dart run bin/sqlite_isolates_repro.dart a   # close() before the isolate ends
+dart run bin/sqlite_isolates_repro.dart b   # no close(): finalizers only
+dart run bin/sqlite_isolates_repro.dart c   # Isolate.kill while writing
+dart run bin/sqlite_isolates_repro.dart d   # Isolate.exit with a statement open
+```
+
+The crash did not come back in 20 runs. Variant `c` shows the lasting
+problem: an isolate killed while it holds a write transaction keeps the
+file's write lock for the rest of the process, and every later write
+fails with `database is locked`. Horizon therefore refuses to embed its
+workers on SQLite, warns when it runs them standalone (`HORIZON_ALLOW_SQLITE`),
+and exits with code 75 after such a kill, so the process manager starts a
+fresh process.
+
 ## Interop with Laravel's broadcasting
 
 `bench/interop/run.sh` (Linux and Docker) runs `laravel-echo` and
