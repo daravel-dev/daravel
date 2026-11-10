@@ -27,6 +27,9 @@ SCENARIOS=${SCENARIOS:-1,2,3,4,5,6,14}
 DB=${DB:-sqlite}
 PG_IMAGE=${PG_IMAGE:-postgres:17}
 PG_PORT=18632
+# Daravel's PostgreSQL pool per isolate (PG_POOL=8 for the pool-size
+# explainer of scenario 14, not a headline).
+PG_POOL=${PG_POOL:-4}
 SERVER_CPUS=${SERVER_CPUS:-0-3}
 CLIENT_CPUS=${CLIENT_CPUS:-4-11}
 WORK=${WORK:-$HOME/daravel-bench}
@@ -72,7 +75,7 @@ if [ "$DB" = pgsql ]; then
   URL="pgsql://bench:bench@127.0.0.1:$PG_PORT/bench"
   # Daravel: a pool of 4 per isolate; Laravel: one connection per worker or
   # per request, as PHP has.
-  DARAVEL_DB="--db-url='$URL?pool=4'"
+  DARAVEL_DB="--db-url='$URL?pool=$PG_POOL'"
   LARAVEL_DB="-e DB_CONNECTION=pgsql -e DB_URL=$URL"
 fi
 
