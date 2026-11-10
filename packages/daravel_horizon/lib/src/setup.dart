@@ -5,6 +5,7 @@ import 'package:daravel/daravel.dart';
 import 'config.dart';
 import 'events.dart';
 import 'master.dart';
+import 'routes.dart';
 import 'store/process_store.dart';
 
 /// `withHorizon()` (Blueprint #134 §3.2).
@@ -19,6 +20,10 @@ extension HorizonApplicationBuilder on ApplicationBuilder {
   /// [createApp] is the application's own factory (the top-level function
   /// passed to `Application.serveWith`): each worker isolate builds its
   /// application with it, and Dart cannot find it by itself.
+  ///
+  /// The dashboard's API is served at `HORIZON_PATH` (`/horizon`) behind
+  /// [middleware]; outside `APP_ENV=local` and `testing` it answers 403
+  /// until [middleware] protects it (`['auth', 'can:viewHorizon']`).
   ApplicationBuilder withHorizon({
     required ApplicationFactory createApp,
     List<SupervisorPlan> plans = const [
@@ -26,6 +31,7 @@ extension HorizonApplicationBuilder on ApplicationBuilder {
     ],
     Map<String, List<SupervisorPlan>> environments = const {},
     Map<String, Duration>? waits,
+    List<Object> middleware = const [],
   }) =>
       withConfig<HorizonConfig>(
             (env) => HorizonConfig.fromEnv(
@@ -40,7 +46,46 @@ extension HorizonApplicationBuilder on ApplicationBuilder {
           .withEmbeddedWorker(
             'horizon',
             (app, control) => runHorizon(app, control, createApp),
-          );
+          )
+          .withProviders([_HorizonRoutes(middleware)]);
+}
+
+/// Registers the dashboard's routes at boot, where `HORIZON_PATH` is known.
+final class _HorizonRoutes extends ServiceProvider {
+  _HorizonRoutes(this.middleware);
+
+  final List<Object> middleware;
+
+  @override
+  void boot(Container container) {
+    final configured = container
+        .make<ConfigRepository>()
+        .section<HorizonConfig>()
+        .path;
+    final path = configured.length > 1 && configured.endsWith('/')
+        ? configured.substring(0, configured.length - 1)
+        : configured;
+    final routes = HorizonRoutes(path: path, middleware: middleware);
+    container.instance<HorizonRoutes>(routes);
+    HorizonDashboard.routes(
+      container.make<Router>(),
+      path: path,
+      middleware: middleware,
+    );
+  }
+}
+
+/// Where `withHorizon()` serves the dashboard and behind what: for
+/// `dartisan horizon --dashboard`, which serves it on a port of its own.
+final class HorizonRoutes {
+  /// The dashboard at [path] behind [middleware].
+  const HorizonRoutes({required this.path, this.middleware = const []});
+
+  /// `HORIZON_PATH`, without a trailing slash.
+  final String path;
+
+  /// The middleware of `withHorizon(middleware:)`.
+  final List<Object> middleware;
 }
 
 /// What a [HorizonMaster] of [app] does about the database sessions of a

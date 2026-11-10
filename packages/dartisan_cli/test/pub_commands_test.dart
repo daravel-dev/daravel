@@ -275,7 +275,10 @@ dependency_overrides:
         contains('  daravel_reverb: ^$daravelVersion'),
       );
       final app = read('bootstrap/app.dart');
-      expect(app, contains('.withReverb()'));
+      expect(
+        app,
+        contains(".withReverb(middleware: ['auth', 'can:viewReverb'])"),
+      );
       expect(
         app,
         contains("import 'package:daravel_reverb/daravel_reverb.dart';"),
@@ -295,6 +298,7 @@ dependency_overrides:
       expect(env, contains('# REVERB_APPS_PROVIDER=config'));
       expect(output, contains('reverb:start'));
       expect(output, contains('withBroadcasting'));
+      expect(output, contains("gate.define('viewReverb'"));
     });
 
     test('several packages, no secrets filled in, delegated drivers', () async {
@@ -335,6 +339,34 @@ dependency_overrides:
         contains('const CreateActivityLogTable(),'),
       );
       expect(dartCalls, isEmpty, reason: '--no-get');
+    });
+
+    test('pub:add horizon: withHorizon behind a gate, its commands and '
+        'HORIZON_* in .env.example', () async {
+      final (code, output) = await dartisan(['pub:add', 'horizon', '--no-get']);
+      expect(code, 0);
+      expect(
+        read('pubspec.yaml'),
+        contains('  daravel_horizon: ^$daravelVersion'),
+      );
+      expect(
+        read('bootstrap/app.dart'),
+        contains(
+          ".withHorizon(createApp: createApp, middleware: ['auth', "
+          "'can:viewHorizon'])",
+        ),
+      );
+      final commands = read('bootstrap/commands.dart');
+      expect(commands, contains('...horizonCommands,'));
+      expect(
+        commands,
+        contains("import 'package:daravel_horizon/commands.dart';"),
+      );
+      final env = read('.env.example');
+      expect(env, contains('# HORIZON_PATH=/horizon'));
+      expect(env, contains('# HORIZON_KILL_GRACE=10'));
+      expect(output, contains("gate.define('viewHorizon'"));
+      expect(output, contains("schedule.command('horizon:snapshot')"));
     });
 
     test('ambiguous, unknown and pub.dev names', () async {

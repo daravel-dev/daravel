@@ -32,33 +32,32 @@ final class Tick extends Job {
   }
 }
 
-Application cmdApp() =>
-    Application.configure(basePath: Directory.systemTemp.path)
-        .withEnv({
-          'APP_ENV': 'testing',
-          'DB_CONNECTION': 'sqlite',
-          'DB_DATABASE': dbPath,
-          'QUEUE_CONNECTION': 'database',
-          'CACHE_STORE': 'file',
-          'QUEUE_SIGNAL_STORE': 'database',
-          'HORIZON_HEARTBEAT_MS': '100',
-        })
-        .withLogLevel(LogLevel.error)
-        .withMigrations(const [CreateJobsTable(), CreateCacheTable()])
-        .withJobs([JobDefinition('tick', Tick.fromJson)])
-        .withHorizon(
-          createApp: cmdApp,
-          plans: const [
-            SupervisorPlan(
-              name: SupervisorName('supervisor-1'),
-              queues: [QueueName('a')],
-              balance: BalanceStrategy.off,
-              maxProcesses: 1,
-              sleep: Duration(milliseconds: 50),
-            ),
-          ],
-        )
-        .create();
+Application cmdApp() => Application.configure(basePath: _basePath())
+    .withEnv({
+      'APP_ENV': 'testing',
+      'DB_CONNECTION': 'sqlite',
+      'DB_DATABASE': dbPath,
+      'QUEUE_CONNECTION': 'database',
+      'CACHE_STORE': 'file',
+      'QUEUE_SIGNAL_STORE': 'database',
+      'HORIZON_HEARTBEAT_MS': '100',
+    })
+    .withLogLevel(LogLevel.error)
+    .withMigrations(const [CreateJobsTable(), CreateCacheTable()])
+    .withJobs([JobDefinition('tick', Tick.fromJson)])
+    .withHorizon(
+      createApp: cmdApp,
+      plans: const [
+        SupervisorPlan(
+          name: SupervisorName('supervisor-1'),
+          queues: [QueueName('a')],
+          balance: BalanceStrategy.off,
+          maxProcesses: 1,
+          sleep: Duration(milliseconds: 50),
+        ),
+      ],
+    )
+    .create();
 
 Future<int?> dartisan(List<String> args) {
   final runner = CommandRunner<int>('dartisan', 'test');
@@ -185,3 +184,10 @@ void main() {
     },
   );
 }
+
+/// This file's own directory, by name and pid: the master and its worker
+/// isolates share it (the file signal store, Horizon's status), and test
+/// files running in parallel do not.
+String _basePath() => (Directory(
+  '${Directory.systemTemp.path}${Platform.pathSeparator}horizon_cmd_base_$pid',
+)..createSync(recursive: true)).path;

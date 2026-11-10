@@ -623,6 +623,7 @@ final class Supervisor {
       maxQueueDelay: spawn.options.maxQueueDelay,
       maxBodyBytes: spawn.options.maxBodyBytes,
       accessLog: spawn.options.accessLog,
+      drainGrace: spawn.options.drainGrace,
     );
     control.listen((Object? message) {
       if (message == 'drain') {

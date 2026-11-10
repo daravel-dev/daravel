@@ -1,0 +1,7 @@
+### Added
+
+- `daravel_horizon` dashboard API (Blueprint #134 §3.7, H4a): `withHorizon(middleware:)` serves `HorizonDashboard.routes` under `HORIZON_PATH` with Laravel Horizon's route names (`horizon.stats.index`, `horizon.workload.index`, `horizon.masters.index`, `horizon.monitoring.*`, `horizon.jobs-metrics.*`, `horizon.queues-metrics.*`, `horizon.pending-jobs.index`, `horizon.completed-jobs.index`, `horizon.silenced-jobs.index`, `horizon.failed-jobs.*`, `horizon.retry-jobs.show`, `horizon.jobs.show`) plus `horizon.stream` (server-sent stats and workload every second, ending when the server drains) and `horizon.retry-all`; outside `local` and `testing` it answers 403 until the middleware protects it, 404 with `HORIZON_ENABLED=false`. Batches wait for a core batch repository. The `process` store records silenced jobs (`silenced`, `silencedTags`), monitored tags, metric snapshots per job and queue, and a summary; `horizon:snapshot` asks the running Horizon to take one. Core: `QueueManager.retryFailed(id)` and `retryAllFailed()`, which `queue:retry` now uses (its output is unchanged).
+
+### Upgrade notes
+
+- `daravel_horizon` (H4a): new public names `HorizonDashboard` and `HorizonSnapshotCommand` (`hide` or rename yours); `withHorizon()` now registers the dashboard API under `HORIZON_PATH` (`/horizon`), so an application route of the same path or name clashes with it. `HorizonService` keeps silenced jobs apart (`stats()` gains `silenced`).

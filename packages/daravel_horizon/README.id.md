@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:0a6adf50944d -->
+<!-- source: README.md sha256:a09e3c4c0a96 -->
 <img src="https://raw.githubusercontent.com/daravel-dev/daravel/main/docs/brand/png/daravel-icon-128.png" alt="Daravel" width="64" align="right">
 
 # daravel_horizon
@@ -40,6 +40,18 @@ jalan T yang dihaluskan, W adalah target tunggu queue), membatasi jumlahnya
 ke batas plan, bergeser paling banyak `balanceMaxShift` per evaluasi, dan
 hanya mengurangi worker setelah dua evaluasi berturut-turut ketika setiap
 queue menunggu di bawah setengah targetnya.
+
+## API dashboard
+
+`withHorizon(createApp: createApp, middleware: ['auth', 'can:viewHorizon'])`
+melayani API JSON dashboard di bawah `HORIZON_PATH` (`/horizon/api/...`)
+dengan nama rute Laravel Horizon: statistik, beban kerja, master, tag yang
+dimonitor, metrik job dan queue, job pending, completed, silenced, dan failed,
+retry dan retry-all, serta `/horizon/api/stream` (statistik dan beban kerja
+lewat server-sent events setiap detik). Di luar `APP_ENV=local` dan `testing`,
+API menjawab 403 sampai middleware melindunginya. Snapshot metrik diambil oleh
+Horizon yang sedang berjalan: `dartisan horizon:snapshot` hanya memintanya,
+jadi jadwalkan perintah itu setiap lima menit.
 
 ## Lisensi
 

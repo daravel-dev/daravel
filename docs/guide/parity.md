@@ -422,6 +422,8 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `public function tags() (Horizon)` | `List<String> get tags` |  |
 | `Queue::size('default')` | `await Queue.connection().size('default')` | **async** |
 | `(none)` | `await (Queue.connection() as BrowsableQueueDriver).pending('default', limit: 50)` | **async**; Daravel-only: the waiting jobs of a queue without reserving them (memory, database, redis), for queue dashboards such as daravel_horizon. |
+| `php artisan queue:retry {id\|all}` | `await App.make<QueueManager>().retryFailed(uuid) / retryAllFailed()` | **async**; What queue:retry and the Horizon dashboard's retry use. |
+| `Horizon's routes/web.php (horizon.stats.index, horizon.failed-jobs.show, horizon.retry-jobs.show, ...)` | `.withHorizon(createApp: createApp, middleware: ['auth', 'can:viewHorizon'])` | daravel_horizon: the same route names under HORIZON_PATH, plus horizon.stream (server-sent events) and horizon.retry-all; batches wait for a core batch repository. |
 | `(none)` | `await (Queue.connection() as ReclaimableQueueDriver).reclaim('default', jobId)` | **async**; Daravel-only: a reserved job of a worker known to be gone is available again at once, attempts kept, instead of after retry_after. |
 | `(none)` | `worker.reassign(['high', 'default'])` | Daravel-only: a running worker polls other queues from its next job on (daravel_horizon auto-scaling). |
 | `php artisan queue:pause database:default / queue:continue` | `dartisan queue:pause database:default / queue:continue` |  |

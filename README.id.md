@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:e8ed56ee60b9 -->
+<!-- source: README.md sha256:4052bbef47ee -->
 | [`packages/daravel_session`](packages/daravel_session) | Session yang kompatibel dengan Laravel (file atau tabel `sessions`), cookie terenkripsi, dan proteksi CSRF |
 <!-- source: README.md sha256:5b04c2e6d073 -->
 <p align="center">
@@ -522,6 +522,16 @@ dengan Flutter karena paketnya Dart murni, tetapi Daravel adalah framework serve
 macOS, dan Windows.
 
 ## CLI dartisan
+
+Di terminal, `dartisan` dibuka dengan banner singkat dan command yang
+dikelompokkan seperti `php artisan list` (teks usage polos saat di-pipe atau
+di CI; `--no-color` atau `NO_COLOR` untuk tanpa warna):
+
+```text
+ _| _. ._|_ o _  _. ._
+(_|(_|| |_ |_> (_|| |   Daravel <version> · Dart <sdk> · <os>
+                        Made with the help of our sponsors ♥ github.com/sponsors/daravel-dev
+```
 
 | Kelompok | Command |
 | :-- | :-- |

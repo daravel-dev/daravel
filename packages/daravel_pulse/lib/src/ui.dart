@@ -69,11 +69,11 @@ pre{margin:8px 0 0;padding:10px 12px;background:var(--soft);border-radius:6px;ov
 <section class="card"><h2>Connection waits <span class="note" id="t-pool"></span></h2><div id="pool"></div></section>
 <section class="card" id="parity-card"><h2>Shadow parity drift <span class="note" id="t-parity"></span></h2><div id="parity"></div></section>
 <section class="card wide"><h2>Exceptions</h2><div id="exceptions"></div></section>
-<section class="card third"><h2>Queues</h2><div id="queues"></div></section>
+<section class="card third"><h2>Queues <a class="note" id="horizon-link" hidden>Horizon</a></h2><div id="queues"></div></section>
 <section class="card third"><h2>Slow and failed jobs <span class="note" id="t-jobs"></span></h2><div id="jobs"></div></section>
 <section class="card third"><h2>Failed jobs</h2><div id="failed"></div></section>
 <section class="card wide"><h2>Workers</h2><div id="workers"></div></section>
-<section class="card wide" id="reverb-card" hidden><h2>Reverb <span class="note">last report of each isolate</span></h2><div id="reverb"></div></section>
+<section class="card wide" id="reverb-card" hidden><h2>Reverb <span class="note">last report of each isolate</span> <a class="note" id="reverb-link" hidden>Dashboard</a></h2><div id="reverb"></div></section>
 </main>
 <script nonce="$nonce">
 (()=>{
@@ -104,11 +104,12 @@ const lim=th.parity_drifts;document.getElementById('t-parity').textContent='≥ 
 table('parity',[{label:'Route',cell:x=>{const r=two(x.method+' '+x.path,x.drifts+' · last '+ago(x.last_at),true);if(x.count>=lim)r.firstChild.append(el('span','badge err','breached'));return r;}},{label:'Count',n:1,cell:x=>fmt(x.count)}],d.parity_drifts,'No drift in this period.');
 document.getElementById('parity-card').classList.toggle('alert',d.parity_drifts.some(x=>x.count>=lim));
 table('exceptions',[{label:'Exception',cell:x=>{const det=el('details'),s=el('summary');s.append(two(x.class+': '+x.message,x.location+' · last '+ago(x.last_at),false));det.append(s,el('pre','',x.trace));return det;}},{label:'Count',n:1,cell:x=>fmt(x.count)}],d.exceptions,'No exceptions.');
+{const hl=document.getElementById('horizon-link');hl.hidden=!d.horizon_path;if(d.horizon_path)hl.href=d.horizon_path;}
 table('queues',[{label:'Queue',cell:x=>two(x.queue,x.connection)},{label:'Pending',n:1,cell:x=>fmt(x.size)}],d.queues,'No queues.');
 table('jobs',[{label:'Job',cell:x=>{const d2=two(x.job,x.queue+' · last '+ago(x.last_at),true);if(x.failed){d2.append(el('span','badge err',x.failed+' failed'));}return d2;}},{label:'Slowest',n:1,cell:x=>ms(x.max_ms)}],d.jobs,'No slow or failed jobs.');
 const f=d.failed_jobs;table('failed',[{label:(f.count==null?'?':f.count)+' in period',cell:x=>two(x.job,x.queue+' · '+ago(x.failed_at)+' · '+x.exception,false)}],f.recent,f.count==null?'failed_jobs could not be read.':'No failed jobs.');
 table('workers',[{label:'Isolate',cell:x=>two(x.name,'up since '+new Date(x.started_at).toLocaleString(),true)},{label:'Requests',n:1,cell:x=>fmt(x.requests_total)},{label:'In flight',n:1,cell:x=>fmt(x.in_flight)},{label:'Reported',n:1,cell:x=>ago(x.reported_at)}],d.workers,'No isolates reported yet.');
-const rv=d.reverb||[];document.getElementById('reverb-card').hidden=!rv.length;
+const rv=d.reverb||[];document.getElementById('reverb-card').hidden=!rv.length;{const rl=document.getElementById('reverb-link');rl.hidden=!d.reverb_path;if(d.reverb_path)rl.href=d.reverb_path;}
 table('reverb',[{label:'App',cell:x=>two(x.app,x.worker+' · '+ago(Date.parse(x.reported_at)),true)},{label:'Connections',n:1,cell:x=>fmt(x.connections)},{label:'Channels',cell:x=>Object.entries(x.channels||{}).map(([k,v])=>k+' '+v).join(' · ')||'–'},{label:'In',n:1,cell:x=>fmt(x.received)},{label:'Out',n:1,cell:x=>fmt(x.sent)},{label:'Fan-out p95',n:1,cell:x=>ms(x.fanout_p95_ms)}],rv,'No Pusher clients.');}
 async function load(){const status=document.getElementById('status');
 try{const res=await fetch(base+'/api/stats?period='+encodeURIComponent(period),{headers:{accept:'application/json'},credentials:'same-origin'});

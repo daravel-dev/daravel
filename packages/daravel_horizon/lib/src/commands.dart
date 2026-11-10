@@ -8,7 +8,8 @@ import 'package:dartisan_cli/dartisan_cli.dart';
 import 'config.dart';
 import 'events.dart';
 import 'master.dart';
-import 'setup.dart' show horizonKillPolicy;
+import 'routes.dart';
+import 'setup.dart' show HorizonRoutes, horizonKillPolicy;
 import 'signals.dart';
 import 'store/process_store.dart';
 
@@ -29,7 +30,28 @@ const List<CommandFactory> horizonCommands = [
   HorizonTerminateCommand.new,
   HorizonClearCommand.new,
   HorizonForgetCommand.new,
+  HorizonSnapshotCommand.new,
 ];
+
+/// `horizon:snapshot`: the running Horizon takes a metric snapshot (per job
+/// and queue; the dashboard's Metrics tab). Schedule it every five
+/// minutes, as Laravel Horizon's.
+final class HorizonSnapshotCommand extends _SignalCommand {
+  /// The `dartisan horizon:snapshot` command.
+  HorizonSnapshotCommand(super.createApp);
+
+  @override
+  String get name => 'horizon:snapshot';
+
+  @override
+  String get description => 'Stores a snapshot of the queue metrics.';
+
+  @override
+  String get command => 'snapshot';
+
+  @override
+  String get done => 'Sent snapshot to Horizon.';
+}
 
 String _name(Application app) =>
     app.config.section<HorizonConfig>().name ?? 'horizon';
@@ -43,7 +65,57 @@ CacheRepository? _signals(Application app) =>
 /// instead.
 final class HorizonCommand extends DaravelCommand {
   /// The `dartisan horizon` command.
-  HorizonCommand(super.createApp);
+  HorizonCommand(super.createApp) {
+    argParser.addOption(
+      'dashboard',
+      valueHelp: '[host]:port',
+      help:
+          'Also serve the dashboard (and only it) on this address, for a '
+          'Horizon that runs apart from the HTTP server (`:8090`).',
+    );
+  }
+
+  /// `host:port` or `:port` (the host then `127.0.0.1`); null when not an
+  /// address.
+  static (String, int)? parseAddress(String value) {
+    final colon = value.lastIndexOf(':');
+    final port = int.tryParse(value.substring(colon + 1));
+    if (colon < 0 || port == null || port < 0 || port > 65535) {
+      return null;
+    }
+    final host = value.substring(0, colon);
+    return (host.isEmpty ? '127.0.0.1' : host, port);
+  }
+
+  /// A server answering only the dashboard's routes of [app], on [host]
+  /// and [port], with the application's middleware and error pages.
+  static Future<ServerEngine> serveDashboard(
+    Application app, {
+    required String host,
+    required int port,
+  }) async {
+    final routes = app.container.make<HorizonRoutes>();
+    final router = Router();
+    HorizonDashboard.routes(
+      router,
+      path: routes.path,
+      middleware: routes.middleware,
+    );
+    router.compile(app.kernel.middleware);
+    final engine = ServerEngine(
+      app,
+      ServeOptions(host: host, port: port, handleSignals: false),
+      kernel: HttpKernel(
+        router: router,
+        middleware: app.kernel.middleware,
+        exceptions: app.kernel.exceptions,
+        logger: app.logger,
+      ),
+      logger: app.logger,
+    );
+    await engine.start();
+    return engine;
+  }
 
   @override
   String get name => 'horizon';
@@ -58,6 +130,11 @@ final class HorizonCommand extends DaravelCommand {
     if (!config.enabled) {
       stderr.writeln('Horizon is disabled (HORIZON_ENABLED=false).');
       return 1;
+    }
+    final dashboard = argResults!['dashboard'] as String?;
+    final address = dashboard == null ? null : parseAddress(dashboard);
+    if (dashboard != null && address == null) {
+      usageException('--dashboard takes [host]:port, such as :8090.');
     }
     final queues = app.container.make<QueueManager>();
     final channel = app.container.make<CoordinatorChannel>();
@@ -101,6 +178,14 @@ final class HorizonCommand extends DaravelCommand {
     stdout.writeln(
       'Horizon started: ${[for (final p in config.plans) p.name.value].join(', ')}.',
     );
+    ServerEngine? server;
+    if (address case (final host, final port)) {
+      server = await serveDashboard(app, host: host, port: port);
+      stdout.writeln(
+        'Dashboard: http://$host:${server.port}'
+        '${app.container.make<HorizonRoutes>().path}',
+      );
+    }
     final signals = [
       ProcessSignal.sigint.watch(),
       if (!Platform.isWindows) ProcessSignal.sigterm.watch(),
@@ -117,6 +202,7 @@ final class HorizonCommand extends DaravelCommand {
     for (final s in subscriptions) {
       await s.cancel();
     }
+    await server?.stop();
     await master.stop(
       timeout: code == 75 ? config.killGrace : const Duration(seconds: 30),
     );

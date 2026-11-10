@@ -18,21 +18,38 @@ final String base = (Directory(
 )..createSync(recursive: true)).path;
 
 /// A project's application: top-level, so worker isolates can build it.
-Application cmdApp() => Application.configure(basePath: base)
-    .withEnv({
-      'APP_ENV': 'testing',
-      'DB_DATABASE': ':memory:',
-      'METRICS_ENABLED': 'true',
-      'QUEUE_SIGNAL_STORE': 'file',
-      'REVERB_APP_ID': '42',
-      'REVERB_APP_KEY': 'key-a',
-      'REVERB_APP_SECRET': secret,
-      'REVERB_DRAIN_SPREAD': '200ms',
-    })
-    .withLogLevel(LogLevel.critical)
-    .withBroadcasting(authMiddleware: const [])
-    .withReverb()
-    .create();
+Application cmdApp() => cmdBuilder().create();
+
+/// The supervisor `serveWith` started for [rollingApp], kept by a hook
+/// (hooks run in the main isolate, which is the test's).
+Supervisor? servedSupervisor;
+
+/// [cmdApp] with a hook that keeps the supervisor, so a test can stop it,
+/// and a file database (`serveWith` refuses an in-memory one with several
+/// isolates).
+Application rollingApp() =>
+    cmdBuilder(database: '$base${Platform.pathSeparator}rolling.sqlite')
+        .withSupervisorHook((_, supervisor) {
+          servedSupervisor = supervisor;
+          return null;
+        })
+        .create();
+
+ApplicationBuilder cmdBuilder({String database = ':memory:'}) =>
+    Application.configure(basePath: base)
+        .withEnv({
+          'APP_ENV': 'testing',
+          'DB_DATABASE': database,
+          'METRICS_ENABLED': 'true',
+          'QUEUE_SIGNAL_STORE': 'file',
+          'REVERB_APP_ID': '42',
+          'REVERB_APP_KEY': 'key-a',
+          'REVERB_APP_SECRET': secret,
+          'REVERB_DRAIN_SPREAD': '200ms',
+        })
+        .withLogLevel(LogLevel.critical)
+        .withBroadcasting(authMiddleware: const [])
+        .withReverb();
 
 Application withoutReverb() =>
     Application.configure(basePath: base)
@@ -80,6 +97,30 @@ coordinator_messages_total 99
 ''';
 
 void main() {
+  test('ReverbReport: fan-out percentiles, slow clients, rate limits', () {
+    final report = ReverbReport.parse('''
+reverb_connections{app="42",worker="daravel-worker-0"} 1
+reverb_fanout_seconds_bucket{app="42",le="0.0005"} 10
+reverb_fanout_seconds_bucket{app="42",le="0.001"} 90
+reverb_fanout_seconds_bucket{app="42",le="0.005"} 99
+reverb_fanout_seconds_bucket{app="42",le="+Inf"} 100
+reverb_fanout_seconds_bucket{app="42",le="0.0005"} 0
+reverb_rate_limited_total{app="42"} 4
+realtime_slow_clients_total{transport="websocket"} 2
+realtime_slow_clients_total{transport="sse"} 9
+''');
+    final fanout = report.fanout['42']!;
+    expect(fanout.count, 100);
+    expect(fanout.p50, 1.0);
+    expect(fanout.p95, 5.0);
+    expect(report.rateLimited, {'42': 4});
+    expect(report.slowClients, 2);
+    expect(report.workers, {'daravel-worker-0': 1});
+    final json = (report.toJson()['apps']! as Map)['42']! as Map;
+    expect(json['fanout'], {'p50_ms': 1.0, 'p95_ms': 5.0, 'count': 100});
+    expect(ReverbReport.parse('').fanout, isEmpty);
+  });
+
   test('ReverbReport reads the reverb series of /metrics', () {
     final report = ReverbReport.parse(sample);
     expect(report.apps, ['42', '7']);
@@ -95,6 +136,7 @@ void main() {
       'channels': {'presence': 2, 'public': 4},
       'messages_in': 10,
       'messages_out': 25,
+      'rate_limited': 0,
     });
     expect(json['rejected'], {'connection_quota': 1});
     final table = report.table();
@@ -124,108 +166,129 @@ void main() {
     expect(at, isA<int>());
   });
 
-  test(
-    'two isolates: stats per worker, and reverb:restart starts each again',
-    () async {
-      final port = await freePort();
-      final supervisor = Supervisor(
-        reverbServer(cmdApp),
-        ServeOptions(
-          host: '127.0.0.1',
-          port: port,
-          isolates: 2,
-          handleSignals: false,
-          shutdownTimeout: const Duration(seconds: 5),
-          readyTimeout: const Duration(seconds: 60),
-        ),
-        logger: Logger(minimumLevel: LogLevel.critical),
-      );
-      await supervisor.start();
-      addTearDown(supervisor.stop);
+  test('two isolates: stats per worker, and reverb:restart restarts the '
+      'workers one at a time, the port accepting throughout', () async {
+    final port = await freePort();
+    servedSupervisor = null;
+    // As `reverb:start` serves: the main isolate runs the hooks, Reverb's
+    // watches the signal and rolls the workers.
+    final served = Application.serveWith(
+      reverbServer(rollingApp),
+      host: '127.0.0.1',
+      port: port,
+      isolates: 2,
+      embedQueue: false,
+      embedScheduler: false,
+      embedWorkers: const [],
+      processes: 1,
+    );
+    Object? failed;
+    var ended = false;
+    unawaited(
+      served.then(
+        (_) => ended = true,
+        onError: (Object error) {
+          failed = error;
+          ended = true;
+        },
+      ),
+    );
+    final up = DateTime.now().add(const Duration(seconds: 60));
+    while (servedSupervisor == null && !ended && DateTime.now().isBefore(up)) {
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
+    expect(failed, isNull, reason: 'serveWith failed');
+    final supervisor = servedSupervisor;
+    if (supervisor == null) {
+      fail('the supervisor hook did not run');
+    }
+    addTearDown(() async {
+      await supervisor.stop();
+      await served;
+    });
 
-      final sockets = <WebSocket>[];
-      final closed = <Future<void>>[];
-      addTearDown(() async {
-        for (final s in sockets) {
-          await s.close();
-        }
-      });
-      for (var i = 0; i < 8; i++) {
-        final socket = await WebSocket.connect(
-          'ws://127.0.0.1:$port/app/key-a?protocol=7',
-        );
-        final done = Completer<void>();
-        final established = Completer<void>();
-        socket.listen((frame) {
-          if ('$frame'.contains('connection_established') &&
-              !established.isCompleted) {
-            established.complete();
-          }
-        }, onDone: done.complete);
-        await established.future.timeout(const Duration(seconds: 5));
-        sockets.add(socket);
-        closed.add(done.future);
+    final sockets = <WebSocket>[];
+    final closed = <Future<void>>[];
+    addTearDown(() async {
+      for (final s in sockets) {
+        await s.close();
       }
-
-      // Each worker publishes its metrics to the coordinator every second;
-      // /metrics, answered by either, merges them.
-      final http = HttpClient();
-      addTearDown(http.close);
-      var report = ReverbReport.parse('');
-      final deadline = DateTime.now().add(const Duration(seconds: 10));
-      while (report.connectionsOf('42') < 8 &&
-          DateTime.now().isBefore(deadline)) {
-        await Future<void>.delayed(const Duration(milliseconds: 250));
-        report = ReverbReport.parse(
-          await http
-              .getUrl(Uri.parse('http://127.0.0.1:$port/metrics'))
-              .then((r) => r.close())
-              .then(utf8.decodeStream),
-        );
-      }
-      expect(report.connectionsOf('42'), 8);
-      expect(report.connections['42'], hasLength(2));
-      expect(
-        await dartisan([
-          'reverb:stats',
-          '--url=http://127.0.0.1:$port/metrics',
-          '--json',
-        ]),
-        0,
-      );
-
-      expect(await dartisan(['reverb:restart']), 0);
-      await Future.wait(closed).timeout(const Duration(seconds: 20));
-      // Both workers came back without counting as crashes. Both may be
-      // restarting at the same moment, the port briefly not listened on:
-      // connect until one accepts.
-      final again = await _connectOnceUp(
+    });
+    for (var i = 0; i < 8; i++) {
+      final socket = await WebSocket.connect(
         'ws://127.0.0.1:$port/app/key-a?protocol=7',
       );
-      sockets.add(again);
+      final done = Completer<void>();
+      final established = Completer<void>();
+      socket.listen((frame) {
+        if ('$frame'.contains('connection_established') &&
+            !established.isCompleted) {
+          established.complete();
+        }
+      }, onDone: done.complete);
+      await established.future.timeout(const Duration(seconds: 5));
+      sockets.add(socket);
+      closed.add(done.future);
+    }
+
+    // Each worker publishes its metrics to the coordinator every second;
+    // /metrics, answered by either, merges them.
+    final http = HttpClient();
+    addTearDown(http.close);
+    var report = ReverbReport.parse('');
+    final deadline = DateTime.now().add(const Duration(seconds: 10));
+    while (report.connectionsOf('42') < 8 &&
+        DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+      report = ReverbReport.parse(
+        await http
+            .getUrl(Uri.parse('http://127.0.0.1:$port/metrics'))
+            .then((r) => r.close())
+            .then(utf8.decodeStream),
+      );
+    }
+    expect(report.connectionsOf('42'), 8);
+    expect(report.connections['42'], hasLength(2));
+    expect(
+      await dartisan([
+        'reverb:stats',
+        '--url=http://127.0.0.1:$port/metrics',
+        '--json',
+      ]),
+      0,
+    );
+
+    expect(await dartisan(['reverb:restart']), 0);
+    // While the workers restart, one at a time, a new connection is
+    // accepted at every moment: no retry.
+    var allClosed = false;
+    unawaited(Future.wait(closed).then((_) => allClosed = true));
+    var accepted = 0;
+    final rolled = DateTime.now().add(const Duration(seconds: 20));
+    while (!allClosed && DateTime.now().isBefore(rolled)) {
+      final probe = await WebSocket.connect(
+        'ws://127.0.0.1:$port/app/key-a?protocol=7',
+      ).timeout(const Duration(seconds: 5));
       expect(
-        await again.first.timeout(const Duration(seconds: 5)),
+        await probe.first.timeout(const Duration(seconds: 5)),
         contains('connection_established'),
       );
-      expect(supervisor.exitCode, 0);
-    },
-    timeout: const Timeout(Duration(minutes: 2)),
-  );
-}
-
-/// Connects to [url], again while it is refused (every worker of the
-/// supervisor may be restarting at once, the port briefly not listened
-/// on), for at most 20 seconds.
-Future<WebSocket> _connectOnceUp(String url) async {
-  final deadline = DateTime.now().add(const Duration(seconds: 20));
-  while (true) {
-    try {
-      return await WebSocket.connect(url).timeout(const Duration(seconds: 5));
-    } on SocketException {
-      if (DateTime.now().isAfter(deadline)) {
-        rethrow;
-      }
+      accepted++;
+      await probe.close();
       await Future<void>.delayed(const Duration(milliseconds: 100));
     }
-  }
+    expect(allClosed, isTrue, reason: 'every old connection was closed');
+    expect(accepted, greaterThan(0));
+    // Both workers came back without counting as crashes.
+    final again = await WebSocket.connect(
+      'ws://127.0.0.1:$port/app/key-a?protocol=7',
+    );
+    sockets.add(again);
+    expect(
+      await again.first.timeout(const Duration(seconds: 5)),
+      contains('connection_established'),
+    );
+    await supervisor.stop();
+    expect(await served, 0);
+  }, timeout: const Timeout(Duration(minutes: 2)));
 }
