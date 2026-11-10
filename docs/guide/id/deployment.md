@@ -1,4 +1,4 @@
-<!-- source: deployment.md sha256:b66892ac75b2 -->
+<!-- source: deployment.md sha256:f1c4d7674f67 -->
 # Deployment
 
 ## Konsep & Arsitektur Ahead-of-Time (AOT) Single Binary
@@ -257,6 +257,31 @@ worker, seperti `http_requests_in_flight`) dan dicatat sebagai warning paling ba
 menyebutkan batas yang tersentuh; penolakan yang terus-menerus berarti
 server butuh lebih banyak isolate atau instance, bukan batas yang lebih
 tinggi.
+
+## Shutdown yang rapi dan deploy bergilir
+
+Saat menerima `SIGTERM` (atau `Application.restart`, `reverb:restart`),
+server menguras koneksinya dengan urutan berikut:
+
+1. `/up` dan `/up/ready` menjawab `503`, sehingga load balancer atau
+   platform berhenti mengirim trafik baru ke sini.
+2. Server berhenti menerima koneksi baru. Koneksi yang baru saja diterima
+   dan request-nya masih dalam perjalanan tetap dipertahankan dan
+   dijawab, paling lama `ServeOptions.drainGrace` (bawaan 250 ms, dibatasi
+   `SHUTDOWN_TIMEOUT`).
+3. Selama drain, setiap respons membawa `Connection: close`, sehingga
+   klien keep-alive membuka koneksi berikutnya di tempat lain, bukan
+   mengirimnya lewat koneksi yang akan ditutup.
+4. Request yang sedang berjalan diselesaikan dalam `SHUTDOWN_TIMEOUT`;
+   WebSocket yang terbuka diberi tahu bahwa server akan berhenti (untuk
+   server Pusher, tersebar dalam `REVERB_DRAIN_SPREAD`).
+
+Koneksi yang masih berada di antrean accept kernel saat langkah 2 dimulai
+ditolak. Karena itu arahkan health check load balancer ke `/up/ready` dan
+beri waktu untuk mengeluarkan server dari rotasi sebelum sinyal dikirim
+(Kubernetes: `preStop` dengan jeda singkat; systemd dan Caddy: active
+health check milik Caddy). Server berbicara HTTP biasa; TLS diakhiri di
+depannya.
 
 ## Topologi
 
