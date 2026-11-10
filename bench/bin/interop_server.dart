@@ -131,5 +131,13 @@ Future<void> main() async {
     await app.run(() => App.make<Migrator>().run());
     await app.shutdown();
   }
-  await Application.serveWith(createApp);
+  // A WebSocket server of its own (scenario F), as `reverb:start` serves.
+  await Application.serveWith(
+    Platform.environment['BROADCASTING_ONLY'] == 'true'
+        ? broadcastingOnly
+        : createApp,
+  );
 }
+
+/// The application with only its Pusher server, probes and metrics.
+Application broadcastingOnly() => createApp()..serveBroadcastingOnly();
