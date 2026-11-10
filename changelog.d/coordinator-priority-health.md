@@ -4,7 +4,7 @@
 
 ### Changed
 
-- The coordinator's lag probe (`queue_lag_ms`) measures how long a message to its own isolate waits behind the others, or how late its timer fired past `Coordinator.timerSlack` (16 ms), whichever is larger. It used to measure only the timer, which on Windows fires 5 to 8 ms late on an idle loop (timer resolution 15.6 ms), so an idle coordinator there read several milliseconds of lag.
+- The coordinator's lag probe (`queue_lag_ms`) measures how long a message to its own isolate waits behind the others, or how late its timer fired past `Coordinator.defaultTimerSlack` (16 ms), whichever is larger. It used to measure only the timer, which on Windows fires 5 to 8 ms late on an idle loop (timer resolution 15.6 ms), so an idle coordinator there read several milliseconds of lag.
 
 ### Upgrade notes
 

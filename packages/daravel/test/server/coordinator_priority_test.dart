@@ -379,6 +379,49 @@ void main() {
     expect(c.state, CoordinatorState.healthy);
   });
 
+  test('Windows: a timer late within its slack, with no message waiting, '
+      'is no lag', () {
+    // An idle 100 ms timer on Windows fires 5 to 8 ms late.
+    for (final late in const [5, 7, 8, 15]) {
+      expect(
+        Coordinator.lagOf(
+          Duration(milliseconds: late),
+          Duration.zero,
+          Coordinator.defaultTimerSlack,
+        ),
+        lessThanOrEqualTo(Duration.zero),
+      );
+    }
+    final c = coordinator();
+    for (var i = 0; i < 10; i++) {
+      c.observeLag(
+        Coordinator.lagOf(
+          const Duration(milliseconds: 8),
+          Duration.zero,
+          Coordinator.defaultTimerSlack,
+        ),
+      );
+    }
+    expect(c.state, CoordinatorState.healthy);
+    // Past the slack, or a message that waited, still counts.
+    expect(
+      Coordinator.lagOf(
+        const Duration(milliseconds: 116),
+        Duration.zero,
+        Coordinator.defaultTimerSlack,
+      ),
+      const Duration(milliseconds: 100),
+    );
+    expect(
+      Coordinator.lagOf(
+        const Duration(milliseconds: 8),
+        const Duration(milliseconds: 30),
+        Coordinator.defaultTimerSlack,
+      ),
+      const Duration(milliseconds: 30),
+    );
+  });
+
   test('the local channel has no queue and no health: answered while the '
       'coordinator is saturated', () async {
     final c = coordinator(extra: [_Bulk()]);

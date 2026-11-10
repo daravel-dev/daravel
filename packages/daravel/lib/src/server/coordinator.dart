@@ -259,7 +259,12 @@ final class Coordinator {
     this.lagWarn = const Duration(milliseconds: 5),
     this.lagShed = const Duration(milliseconds: 50),
     this.probeEvery = lagProbeInterval,
+    this.timerSlack = defaultTimerSlack,
   });
+
+  /// How late the probe's timer may fire without the loop being behind
+  /// ([defaultTimerSlack]; another only in tests).
+  final Duration timerSlack;
 
   /// How often [listen]'s lag probe measures the event loop
   /// ([lagProbeInterval]); a test that feeds [observeLag] itself gives a
@@ -614,13 +619,12 @@ final class Coordinator {
   void _probeLag() {
     final watch = Stopwatch()..start();
     _lagProbe = Timer(probeEvery, () {
-      final late = watch.elapsed - probeEvery - timerSlack;
+      final late = watch.elapsed - probeEvery;
       final sent = Stopwatch()..start();
       final probe = RawReceivePort(null, 'daravel-coordinator-probe');
       probe.handler = (Object? _) {
         probe.close();
-        final waited = sent.elapsed;
-        observeLag(late > waited ? late : waited);
+        observeLag(lagOf(late, sent.elapsed, timerSlack));
         if (_port != null) {
           _probeLag();
         }
@@ -630,9 +634,19 @@ final class Coordinator {
   }
 
   /// How late a timer may fire without the loop being behind: the
-  /// coarsest timer resolution of a supported system (Windows, 15.6 ms),
-  /// where an idle 100 ms timer fires 5 to 8 ms late.
-  static const Duration timerSlack = Duration(milliseconds: 16);
+  /// coarsest timer resolution of a supported system. Windows' default
+  /// timer resolution is 15.6 ms; measured on Windows 11 (2026-11-10), an
+  /// idle 100 ms timer fired 4.8 to 8.3 ms late (median 7.0, 30 samples),
+  /// which the probe would otherwise have read as lag.
+  static const Duration defaultTimerSlack = Duration(milliseconds: 16);
+
+  /// One probe's lag: how long its message waited ([waited]), or how late
+  /// its timer fired ([timerLate]) past [slack], whichever is larger.
+  @visibleForTesting
+  static Duration lagOf(Duration timerLate, Duration waited, Duration slack) {
+    final late = timerLate - slack;
+    return late > waited ? late : waited;
+  }
 
   /// Takes one measurement of the queue lag, [lag]: what the probe does
   /// every [probeEvery]. A test gives the lag it wants instead of blocking
@@ -749,6 +763,9 @@ final class Coordinator {
       'max_queue': maxQueue,
       // How long a message waits in the event loop (the lag probe): the
       // backlog of synchronous services, which never count in in_flight.
+      // Since K1, the wait of a message to the coordinator itself, or the
+      // probe timer's lateness past timerSlack (before: the timer's
+      // lateness alone, several ms on an idle Windows loop).
       'queue_lag_ms': _lag.inMicroseconds / 1000,
       'queue_lag_peak_ms': _lagPeak.inMicroseconds / 1000,
       // Blueprint #141 K1: health, calls put off, and calls refused.
