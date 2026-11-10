@@ -37,30 +37,51 @@ Application rollingApp() {
       .create();
 }
 
-/// The supervisor the hooks of [hookedApp] saw (they run in this isolate).
+/// What the hooks and the main isolate's application did, in order (the
+/// hooks run in this isolate; the workers' copies of it are their own).
+final List<String> trace = [];
+
+/// The supervisor the hooks saw.
 Supervisor? hooked;
 int hookCalls = 0;
 
-Application hookedApp() =>
+ApplicationBuilder hookBase() =>
     Application.configure(basePath: Directory.systemTemp.path)
         .withEnv({'APP_ENV': 'testing', 'DB_DATABASE': ':memory:'})
         .withLogLevel(LogLevel.critical)
         .withRouting(
           apiPrefix: '',
-          api: (router) => router.get('/boot', (_) => {'boot': bootId}),
+          api: (router) => router
+            ..get('/boot', (_) => {'boot': bootId})
+            ..get('/restart', (_) async {
+              await App.make<Application>().restart();
+              return 'restarting';
+            }),
         )
-        .withSupervisorHook((app, supervisor) {
-          hookCalls++;
-          hooked = supervisor;
-          // Fails later, in what it started.
-          Timer(
-            const Duration(milliseconds: 10),
-            () => throw StateError('late'),
-          );
-          return () => throw StateError('stop fails too');
-        })
-        .withSupervisorHook((app, supervisor) => throw StateError('at install'))
-        .create();
+        .withShutdown((_) async => trace.add('closed'));
+
+/// A hook that keeps something running (it returns a stop function, which
+/// throws), one that fails later in what it started, and one that throws
+/// while it is installed.
+Application hookedApp() => hookBase()
+    .withSupervisorHook((app, supervisor) {
+      hookCalls++;
+      hooked = supervisor;
+      Timer(const Duration(milliseconds: 10), () => throw StateError('late'));
+      return () {
+        trace.add('stop');
+        throw StateError('stop fails too');
+      };
+    })
+    .withSupervisorHook((app, supervisor) => throw StateError('at install'))
+    .create();
+
+/// Only a hook that keeps nothing (null).
+Application nullHookApp() => hookBase().withSupervisorHook((app, supervisor) {
+  hookCalls++;
+  hooked = supervisor;
+  return null;
+}).create();
 
 Future<int> freePort() async {
   final socket = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
@@ -201,26 +222,90 @@ void main() {
     ]);
   }, timeout: const Timeout(Duration(minutes: 1)));
 
-  test('supervisor hooks run in the main isolate; their errors are logged and '
-      'the server serves on', () async {
+  Future<void> waitFor(bool Function() done, String what) async {
+    final deadline = DateTime.now().add(const Duration(seconds: 60));
+    while (!done()) {
+      if (DateTime.now().isAfter(deadline)) {
+        fail('timed out waiting for $what');
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
+  }
+
+  void resetHooks() {
     hooked = null;
     hookCalls = 0;
+    trace.clear();
+  }
+
+  test(
+    'hooks run in the main isolate; their errors are logged, the server '
+    'serves on, and the application they keep closes after their stop',
+    () async {
+      resetHooks();
+      final served = Application.serveWith(
+        hookedApp,
+        host: '127.0.0.1',
+        port: port,
+        isolates: 2,
+      );
+      await waitFor(() => hooked != null, 'the hooks');
+      expect(hookCalls, 1);
+      expect(Isolate.current.debugName, isNot(startsWith('daravel-worker')));
+      // After the timer that throws.
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect((await boot())['boot'], isNotNull);
+      expect(trace, isEmpty, reason: 'kept while a hook runs something');
+      await hooked!.stop();
+      expect(await served, 0);
+      expect(trace, ['stop', 'closed']);
+    },
+    timeout: const Timeout(Duration(minutes: 2)),
+  );
+
+  test('when every hook returns null the main isolate application is closed '
+      'at once', () async {
+    resetHooks();
     final served = Application.serveWith(
-      hookedApp,
+      nullHookApp,
       host: '127.0.0.1',
       port: port,
       isolates: 2,
     );
-    final deadline = DateTime.now().add(const Duration(seconds: 60));
-    while (hooked == null && DateTime.now().isBefore(deadline)) {
-      await Future<void>.delayed(const Duration(milliseconds: 50));
-    }
+    await waitFor(() => trace.contains('closed'), 'the application closed');
     expect(hookCalls, 1);
-    expect(Isolate.current.debugName, isNot(startsWith('daravel-worker')));
-    // After the timer that throws.
-    await Future<void>.delayed(const Duration(milliseconds: 50));
-    expect((await boot())['boot'], isNotNull);
+    expect((await boot())['boot'], isNotNull, reason: 'workers serve on');
     await hooked!.stop();
     expect(await served, 0);
+    expect(trace, ['closed']);
   }, timeout: const Timeout(Duration(minutes: 2)));
+
+  test('with one isolate no hook runs', () async {
+    resetHooks();
+    final served = Application.serveWith(
+      hookedApp,
+      host: '127.0.0.1',
+      port: port,
+      isolates: 1,
+    );
+    var up = false;
+    final deadline = DateTime.now().add(const Duration(seconds: 30));
+    while (!up && DateTime.now().isBefore(deadline)) {
+      try {
+        await boot();
+        up = true;
+      } on SocketException {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+    }
+    expect(up, isTrue);
+    // Application.restart: a server of one isolate ends.
+    final request = await client.getUrl(
+      Uri.parse('http://127.0.0.1:$port/restart'),
+    );
+    await (await request.close()).drain<void>();
+    expect(await served.timeout(const Duration(seconds: 30)), 0);
+    expect(hookCalls, 0);
+    expect(hooked, isNull);
+  }, timeout: const Timeout(Duration(minutes: 1)));
 }

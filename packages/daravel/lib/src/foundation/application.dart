@@ -1477,6 +1477,19 @@ final class Application {
       if (hooks.isEmpty) {
         return await started.run();
       }
+      await started.start();
+      final stops = await _installSupervisorHooks(
+        hooks,
+        probe,
+        started,
+        logger,
+      );
+      if (stops.isEmpty) {
+        // No hook kept anything running: no pool held for nothing.
+        await probe.shutdown();
+        await started.done;
+        return started.exitCode;
+      }
       started.onRollingRestart = (result) => unawaited(
         probe.container
             .make<EventDispatcher>()
@@ -1488,13 +1501,6 @@ final class Application {
                 stackTrace: stackTrace,
               );
             }),
-      );
-      await started.start();
-      final stops = await _installSupervisorHooks(
-        hooks,
-        probe,
-        started,
-        logger,
       );
       await started.done;
       for (final stop in stops) {
@@ -1958,13 +1964,18 @@ final class ApplicationBuilder {
 
   /// Runs [hook] in the main isolate once the [Supervisor] of
   /// `serveWith` has started its workers (`APP_ISOLATES` > 1; never with
-  /// one isolate): with the booted application of the main isolate, kept
-  /// until the server stops (one connection to the signal store per
-  /// process, not one per worker), and the supervisor, for instance to
-  /// call [Supervisor.rollingRestart]. The hook may return a function
-  /// called at shutdown. An error of the hook, while it is installed or
-  /// later in what it started, and of that function, is logged: the
-  /// server keeps serving.
+  /// one isolate): with the booted application of the main isolate (one
+  /// connection to the signal store per process, not one per worker) and
+  /// the supervisor, for instance to call [Supervisor.rollingRestart].
+  ///
+  /// A hook that needs that application after it returns **must** return a
+  /// function, called at shutdown before the application closes: the
+  /// application is kept only while at least one hook returned one, and is
+  /// shut down at once (no pool held) when every hook returned null. Only
+  /// while it is kept is [WorkersRestarted] dispatched through it; else a
+  /// rolling restart is only logged. An error of a hook, while it is
+  /// installed or later in what it started, and of its function, is
+  /// logged: the server keeps serving.
   ApplicationBuilder withSupervisorHook(SupervisorHook hook) {
     _supervisorHooks.add(hook);
     return this;

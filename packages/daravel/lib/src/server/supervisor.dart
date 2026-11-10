@@ -18,8 +18,10 @@ import 'worker_reports.dart';
 typedef ApplicationFactory = Application Function();
 
 /// Runs in the main isolate with the booted [Application] there and the
-/// [Supervisor] (ApplicationBuilder.withSupervisorHook); may return a
-/// function called at shutdown.
+/// [Supervisor] (ApplicationBuilder.withSupervisorHook). A hook that needs
+/// the application after it returns must return a function, called at
+/// shutdown; when every hook returns null the application is shut down at
+/// once.
 typedef SupervisorHook = FutureOr<void Function()?> Function(
   Application app,
   Supervisor supervisor,
