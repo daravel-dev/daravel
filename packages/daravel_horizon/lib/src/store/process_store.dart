@@ -78,7 +78,13 @@ final class RecordedJob {
 ///
 /// Ops: `record` (`job`: a [RecordedJob] as JSON), `recent` (`status`,
 /// `limit`) and `rates` (`queue`) → JSON.
-final class HorizonService implements CoordinatorService, WorkerAwareService {
+///
+/// When the coordinator falls behind, `record` is
+/// [CoordinatorPriority.bulk] (a job missing from the dashboard's recent
+/// list is harmless) and the reads are [CoordinatorPriority.normal].
+final class HorizonService
+    with PrioritizedService
+    implements CoordinatorService, WorkerAwareService {
   /// A store keeping at most [maxPerStatus] jobs of each status, for
   /// [retention] (completed) and [failedRetention] (failed).
   HorizonService({
@@ -107,6 +113,13 @@ final class HorizonService implements CoordinatorService, WorkerAwareService {
   String get name => serviceName;
 
   int get _now => _clock().millisecondsSinceEpoch;
+
+  @override
+  CoordinatorPriority get priority => CoordinatorPriority.normal;
+
+  @override
+  CoordinatorPriority priorityFor(String op, Object args) =>
+      op == 'record' ? CoordinatorPriority.bulk : priority;
 
   @override
   Object? handle(String op, Map<String, Object?> args) {
