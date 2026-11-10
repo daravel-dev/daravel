@@ -24,7 +24,7 @@ import 'package:mysql_dart/mysql_dart.dart' as my;
 /// `DB_TIMEZONE` is set, as in Laravel, so `TIMESTAMP` columns read the same
 /// from both applications.
 final class MySqlDriver
-    implements DatabaseDriver, RetryableErrors, QueryErrors {
+    implements SessionTerminatingDriver, RetryableErrors, QueryErrors {
   /// A pooled MySQL or MariaDB connection; usually made by
   /// [MySqlDriver.fromConfig] from the `DB_*` settings.
   MySqlDriver({
@@ -45,6 +45,7 @@ final class MySqlDriver
     this.isolationLevel,
     this.initCommands = const [],
     this.onConnectionOpen,
+    this.idleTransactionTimeout,
     this.dialect = SqlDialect.mysql,
     this.statementTimeoutMode = StatementTimeoutMode.server,
     this.onWarning,
@@ -96,6 +97,9 @@ final class MySqlDriver
         _ => null,
       },
       isolationLevel: connection.options['isolation_level'] as String?,
+      idleTransactionTimeout: PostgresDriver.idleTransactionTimeoutOption(
+        connection.options['idle_transaction_timeout'],
+      ),
       statementTimeoutMode:
           switch (connection.options['statement_timeout_mode']) {
             'client' => StatementTimeoutMode.client,
@@ -166,6 +170,9 @@ final class MySqlDriver
   /// False once the server refused the session timeout variable.
   bool _serverTimeouts = true;
   bool _warned = false;
+
+  /// The server's `VERSION()`, read once by the first connection that
+  /// needs it (strict sql_mode, the session timeout, MariaDB detection).
   String? _version;
 
   /// Whether statements are bounded by the server right now.
@@ -181,10 +188,7 @@ final class MySqlDriver
     required String? version,
     SqlDialect dialect = SqlDialect.mysql,
   }) {
-    final mariadb =
-        dialect == SqlDialect.mariadb ||
-        (version ?? '').toLowerCase().contains('mariadb');
-    if (mariadb) {
+    if (isMariaDb(version, dialect)) {
       final seconds = timeout.inMicroseconds / Duration.microsecondsPerSecond;
       return 'SET SESSION max_statement_time = $seconds';
     }
@@ -209,6 +213,18 @@ final class MySqlDriver
   /// Laravel's `'isolation_level'` (`DB_ISOLATION_LEVEL`), e.g.
   /// `READ COMMITTED`.
   final String? isolationLevel;
+
+  /// MariaDB's `idle_transaction_timeout` (10.3+) for every connection of
+  /// the pool (`DB_IDLE_TRANSACTION_TIMEOUT`, whole seconds, rounded up), on
+  /// a `mariadb` connection or a server whose `VERSION()` says MariaDB:
+  /// the server closes a connection that stays idle inside a transaction
+  /// this long, rolling it back. MySQL has no such setting and ignores it
+  /// (its `wait_timeout` closes idle connections outside transactions too).
+  /// `null` keeps the server's setting.
+  final Duration? idleTransactionTimeout;
+
+  /// MySQL connection ids of the pool's open connections, for [sessionIds].
+  final Map<my.MySQLConnection, int> _sessions = <my.MySQLConnection, int>{};
 
   /// Statements run on every new connection, after the session settings.
   final List<String> initCommands;
@@ -264,15 +280,31 @@ final class MySqlDriver
       if (isolationLevel != null)
         'SET SESSION TRANSACTION ISOLATION LEVEL $isolationLevel',
       if (mode != null) "SET SESSION sql_mode='$mode'",
+      if (idleTransactionTimeout case final idle?
+          when isMariaDb(version, dialect))
+        'SET SESSION idle_transaction_timeout = '
+            '${(idle.inMilliseconds / 1000).ceil()}',
       ...initCommands,
     ];
   }
 
+  /// Whether a server of [version] is MariaDB: a `mariadb` connection, or a
+  /// `mysql` one whose `VERSION()` says so.
+  static bool isMariaDb(String? version, SqlDialect dialect) =>
+      dialect == SqlDialect.mariadb ||
+      (version ?? '').toLowerCase().contains('mariadb');
+
   Future<void> _configure(my.MySQLConnection connection) async {
     final timeout = queryTimeout;
     final serverTimeout = serverSideTimeouts && timeout != null;
+    // One VERSION() read for every need: the strict sql_mode, the server
+    // side statement timeout, and whether a `mysql` connection is MariaDB
+    // (its idle_transaction_timeout).
     if (_version == null &&
-        ((strict == true && modes == null) || serverTimeout)) {
+        ((strict == true && modes == null) ||
+            serverTimeout ||
+            (idleTransactionTimeout != null &&
+                dialect != SqlDialect.mariadb))) {
       final result = await connection.execute('SELECT VERSION() AS v');
       _version = result.rows.first.colByName('v') as String?;
     }
@@ -302,6 +334,34 @@ final class MySqlDriver
       }
     }
     await onConnectionOpen?.call(connection);
+    final result = await connection.execute('SELECT CONNECTION_ID() AS id');
+    _sessions[connection] = int.parse('${result.rows.first.colByName('id')}');
+    connection.onClose(() => _sessions.remove(connection));
+  }
+
+  @override
+  List<String> sessionIds() => [
+    for (final entry in _sessions.entries)
+      if (entry.key.connected) '${entry.value}',
+  ];
+
+  /// `KILL CONNECTION` of [id], from another connection of the pool;
+  /// `false` for an id the server does not know (`ER_NO_SUCH_THREAD`).
+  @override
+  Future<bool> terminateSession(String id) async {
+    final connectionId = int.tryParse(id);
+    if (connectionId == null) {
+      return false;
+    }
+    try {
+      await execute('KILL CONNECTION $connectionId');
+      return true;
+    } on MySQLServerException catch (error) {
+      if (error.errorCode == 1094) {
+        return false;
+      }
+      rethrow;
+    }
   }
 
   @override
