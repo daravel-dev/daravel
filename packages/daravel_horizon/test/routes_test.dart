@@ -265,6 +265,40 @@ void main() {
     );
   });
 
+  test('the page: one CSP nonce for its inline style and script, a tab per '
+      'path, 404 for an unknown tab', () async {
+    await boot();
+    final page = await client.get('/horizon');
+    expect(page.status, 200);
+    final csp = page.headers['content-security-policy']!;
+    final nonce = RegExp(r"'nonce-([^']+)'").firstMatch(csp)![1]!;
+    expect(page.body, contains('<script nonce="$nonce">'));
+    expect(page.body, contains('<style nonce="$nonce">'));
+    expect(csp, contains("default-src 'none'"));
+    expect(page.headers['x-frame-options'], 'DENY');
+    expect(page.headers['cache-control'], 'no-store');
+    expect(page.body, contains('data-tab="dashboard"'));
+    final other = await client.get('/horizon');
+    expect(
+      other.headers['content-security-policy'],
+      isNot(csp),
+      reason: 'a fresh nonce per response',
+    );
+    final failed = await client.get('/horizon/failed');
+    expect(failed.status, 200);
+    expect(failed.body, contains('data-tab="failed"'));
+    expect((await client.get('/horizon/nope')).status, 404);
+  });
+
+  test('the page needs middleware outside local and testing too', () async {
+    await boot({
+      'APP_ENV': 'production',
+      'APP_KEY': 'base64:${base64.encode(List.filled(32, 7))}',
+    });
+    expect((await client.get('/horizon')).status, 403);
+    expect((await client.get('/horizon/failed')).status, 403);
+  }, tags: ['security']);
+
   test(
     'a status that cannot be read, or of another shape, is inactive',
     () async {
@@ -312,6 +346,14 @@ void main() {
       expect(queue.sizes, tick * 2);
       travel(const Duration(seconds: 1));
     }
+    // Two clients at the same moment, as the last snapshot expires: one
+    // read of each queue between them.
+    final both = await Future.wait([
+      client.get('/horizon/api/stats'),
+      other.get('/horizon/api/workload'),
+    ]);
+    expect(both.map((r) => r.status), [200, 200]);
+    expect(queue.sizes, 3 * 2);
   });
 }
 
