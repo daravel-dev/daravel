@@ -3,7 +3,7 @@
 
 /// `docs/guide/id/background.md`.
 const String pageIdBackground =
-    r'''<!-- source: background.md sha256:bb9da7ec9a12 -->
+    r'''<!-- source: background.md sha256:3f6900a03081 -->
 # Cache, event, queue, dan penjadwalan
 
 <!-- include: packages/daravel/test/docs/guide_examples_test.dart#cache-events-queue -->
@@ -136,6 +136,14 @@ sampai commit.
     heartbeat (lease-nya). Itu termasuk worker yang terblok di `fromJson`
     sebuah job sebelum job itu dilaporkan: master belum mengenal job
     tersebut, sehingga job itu kembali setelah `QUEUE_RETRY_AFTER`.
+  - `HORIZON_HEARTBEAT_MS` di bawah beberapa ratus milidetik membuat worker
+    sehat dibunuh pada host yang sibuk (lease-nya hanya empat heartbeat);
+    `dartisan doctor` dan boot memberi peringatan di bawah 250 ms di luar
+    `APP_ENV=testing`.
+  - Batas sebelum `QUEUE_RETRY_AFTER` dihitung dari saat job *mulai*,
+    sedangkan `retry_after` driver dihitung dari saat job *direservasi*.
+    Selisihnya biasanya milidetik, tetapi `fromJson` yang lambat memperkecil
+    margin itu; karena itulah margin tidak nol.
   - Kerja sinkron yang tidak boleh membuat worker diam sebaiknya dijalankan di
     isolate tersendiri (`Concurrency.run`).
 - Error asinkron yang dibiarkan tidak tertangkap oleh handler (future yang

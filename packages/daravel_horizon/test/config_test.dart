@@ -47,12 +47,32 @@ void main() {
     expect((map['defaults']! as List).length, 3);
   });
 
-  Future<List<ConfigIssue>> issues(HorizonConfig horizon) async {
+  Future<List<ConfigIssue>> issues(
+    HorizonConfig horizon, {
+    Map<String, String> env = const {},
+  }) async {
     final config = ConfigRepository()
       ..register<HorizonConfig>(horizon)
       ..register<QueueConfig>(const QueueConfig(defaultConnection: 'database'));
-    return HorizonConfig.check(Env.fromMap({}), config).toList();
+    return HorizonConfig.check(Env.fromMap(env), config).toList();
   }
+
+  test(
+    'check: a heartbeat under 250 ms is a warning, except in testing',
+    () async {
+      const fast = HorizonConfig(heartbeat: Duration(milliseconds: 100));
+      final found = await issues(fast);
+      expect(found.single.level, ConfigIssueLevel.warning);
+      expect(found.single.message, contains('HORIZON_HEARTBEAT_MS=100'));
+      expect(await issues(fast, env: const {'APP_ENV': 'testing'}), isEmpty);
+      expect(
+        await issues(
+          const HorizonConfig(heartbeat: Duration(milliseconds: 250)),
+        ),
+        isEmpty,
+      );
+    },
+  );
 
   test('check: bounds, names, waits and the store', () async {
     expect(await issues(const HorizonConfig()), isEmpty);

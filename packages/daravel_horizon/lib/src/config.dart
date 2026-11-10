@@ -505,8 +505,25 @@ final class HorizonConfig implements ConfigSection {
     if (embedded && embedRefused(config)) {
       issues.add(ConfigIssue(ConfigIssueLevel.error, embedSqliteMessage));
     }
+    if (horizon.heartbeat < minimumHeartbeat &&
+        env.string('APP_ENV', 'production') != 'testing') {
+      issues.add(
+        ConfigIssue(
+          ConfigIssueLevel.warning,
+          'HORIZON_HEARTBEAT_MS=${horizon.heartbeat.inMilliseconds}: an idle '
+          'worker silent for four heartbeats is killed, so on a busy host '
+          'healthy workers are killed at this rate. Use '
+          '${minimumHeartbeat.inMilliseconds} ms or more (1000 by default).',
+        ),
+      );
+    }
     return issues;
   }
+
+  /// Below this heartbeat [check] warns outside `APP_ENV=testing`: four
+  /// heartbeats are the lease of an idle worker, and a busy host delays
+  /// heartbeats by a few hundred milliseconds.
+  static const Duration minimumHeartbeat = Duration(milliseconds: 250);
 
   /// Why the embedded supervisor refuses a SQLite file queue.
   static const String embedSqliteMessage =
