@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:d42c71b5b7ae -->
+<!-- source: README.md sha256:4052bbef47ee -->
 | [`packages/daravel_session`](packages/daravel_session) | Session yang kompatibel dengan Laravel (file atau tabel `sessions`), cookie terenkripsi, dan proteksi CSRF |
 <!-- source: README.md sha256:5b04c2e6d073 -->
 <p align="center">
@@ -476,6 +476,7 @@ Monorepo ini adalah pub workspace Dart:
 | [`packages/daravel_excel`](packages/daravel_excel) | Ekspor dan impor Excel dan CSV dengan concern Laravel Excel, di-stream dengan memori konstan |
 | [`packages/daravel_log_viewer`](packages/daravel_log_viewer) | Halaman log viewer: file dibaca dari ujungnya, filter, live tail, data rahasia disensor |
 | [`packages/daravel_pulse`](packages/daravel_pulse) | Dashboard seperti Laravel Pulse: request, request dan query lambat, exception, queue, dari semua isolate |
+| [`packages/daravel_reverb`](packages/daravel_reverb) | Server Pusher dalam proses tersendiri seperti Laravel Reverb: `reverb:start`, beberapa aplikasi, restart tersebar, statistik per isolate |
 | [`packages/daravel_payments`](packages/daravel_payments) | Midtrans, Xendit, dan Stripe di balik satu API; webhook diverifikasi, diterapkan sekali, jumlah dicek |
 | [`packages/daravel_medialibrary`](packages/daravel_medialibrary) | File dan gambar yang dilekatkan ke model di tabel media spatie/laravel-medialibrary, konversi murni Dart |
 | [`packages/daravel_teorion`](packages/daravel_teorion) | Query filter dari request, format laravel-teorion |
@@ -521,6 +522,16 @@ dengan Flutter karena paketnya Dart murni, tetapi Daravel adalah framework serve
 macOS, dan Windows.
 
 ## CLI dartisan
+
+Di terminal, `dartisan` dibuka dengan banner singkat dan command yang
+dikelompokkan seperti `php artisan list` (teks usage polos saat di-pipe atau
+di CI; `--no-color` atau `NO_COLOR` untuk tanpa warna):
+
+```text
+ _| _. ._|_ o _  _. ._
+(_|(_|| |_ |_> (_|| |   Daravel <version> · Dart <sdk> · <os>
+                        Made with the help of our sponsors ♥ github.com/sponsors/daravel-dev
+```
 
 | Kelompok | Command |
 | :-- | :-- |

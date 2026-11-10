@@ -150,22 +150,10 @@ final class QueueRetryCommand extends DaravelCommand {
       usageException('Provide a failed job id/uuid or `all`.');
     }
     final manager = App.make<QueueManager>();
-    final provider = manager.processor.failedJobs;
     final targets = ids.length == 1 && ids.first == 'all'
-        ? await provider.all()
-        : [for (final id in ids) ?await provider.find(id)];
+        ? await manager.retryAllFailed()
+        : [for (final id in ids) ?await manager.retryFailed(id)];
     for (final failed in targets) {
-      final payload = JobPayload.decode(failed.payload);
-      await manager
-          .connection(failed.connection)
-          .push(
-            JobPayload.fromJson(<String, Object?>{
-              ...payload.toJson(),
-              'uniqueKey': null,
-            }),
-            queue: failed.queue,
-          );
-      await provider.forget(failed.id);
       stdout.writeln(
         'The failed job [${failed.uuid}] has been pushed back onto the queue.',
       );

@@ -469,6 +469,7 @@ The monorepo is a Dart pub workspace:
 | [`packages/daravel_excel`](packages/daravel_excel) | Excel and CSV exports and imports with Laravel Excel's concerns, streamed with constant memory |
 | [`packages/daravel_log_viewer`](packages/daravel_log_viewer) | A log viewer page: files read from their end, filters, live tail, secrets masked |
 | [`packages/daravel_pulse`](packages/daravel_pulse) | A dashboard after Laravel Pulse: requests, slow requests and queries, exceptions, queues, across every isolate |
+| [`packages/daravel_reverb`](packages/daravel_reverb) | The Pusher server in a process of its own after Laravel Reverb: `reverb:start`, several applications, spread restarts, stats per isolate |
 | [`packages/daravel_payments`](packages/daravel_payments) | Midtrans, Xendit and Stripe behind one API; webhooks verified, applied once, amounts checked |
 | [`packages/daravel_medialibrary`](packages/daravel_medialibrary) | Files and images attached to models on spatie/laravel-medialibrary's media table, conversions in pure Dart |
 | [`packages/daravel_teorion`](packages/daravel_teorion) | Request-driven query filters, laravel-teorion's format |
@@ -514,6 +515,16 @@ them as Flutter-compatible because they are plain Dart, but Daravel is a
 server framework for Linux, macOS and Windows.
 
 ## dartisan CLI
+
+On a terminal, `dartisan` opens with a short banner and the commands grouped
+like `php artisan list` (plain usage text when piped or in CI; `--no-color`
+or `NO_COLOR` for no colour):
+
+```text
+ _| _. ._|_ o _  _. ._
+(_|(_|| |_ |_> (_|| |   Daravel <version> · Dart <sdk> · <os>
+                        Made with the help of our sponsors ♥ github.com/sponsors/daravel-dev
+```
 
 | Group | Commands |
 | :-- | :-- |

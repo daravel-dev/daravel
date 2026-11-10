@@ -1,4 +1,4 @@
-<!-- source: broadcasting.md sha256:042211fceeff -->
+<!-- source: broadcasting.md sha256:b753dd75b7ba -->
 # Broadcasting
 
 Daravel berbicara dengan protokol Pusher, seperti Laravel Reverb, di port
@@ -241,6 +241,150 @@ tertinggal karena `leave` gagal dicoba sekali lagi dan dicatat di log, dan
 tidak pernah membuat channel lain dari koneksi itu tetap ter-subscribe.
 Relay yang gagal dijalankan (Redis mati) dijalankan lagi oleh client
 berikutnya.
+
+## Beberapa aplikasi
+
+Satu server dapat melayani beberapa aplikasi Pusher, seperti
+`reverb.apps.apps` di Reverb: masing-masing punya key, secret, origin yang
+diizinkan, kuota koneksi, ukuran pesan, dan rate limiting sendiri, dan nama
+channel yang sama di dua aplikasi adalah dua channel yang berbeda.
+
+```dart
+.withBroadcasting(
+  apps: ListAppProvider([
+    BroadcastApp(id: '42', key: 'shop-key', secret: env.string('SHOP_SECRET')),
+    BroadcastApp(
+      id: '43',
+      key: 'admin-key',
+      secret: env.string('ADMIN_SECRET'),
+      allowedOrigins: ['admin.example.com'],
+      maxConnections: 200,
+    ),
+  ]),
+)
+```
+
+Client tersambung dengan key aplikasinya (`/app/shop-key`), dan backend
+mem-publish lewat `/apps/43/events` yang ditandatangani dengan secret
+aplikasi itu; otorisasi channel yang ditandatangani aplikasi lain ditolak
+dengan `4009`. Implementasikan `BroadcastAppProvider` (`byKey`, `byId`)
+untuk membaca aplikasi dari tabel. Tanpa `apps:`, server melayani satu
+aplikasi dari pengaturan `REVERB_APP_*` seperti sebelumnya, dan channel
+serta state aplikasi itu tetap seperti semula. `/broadcasting/auth`
+menandatangani untuk aplikasi `REVERB_APP_*`; aplikasi lain diotorisasi
+oleh backend-nya sendiri. Nama channel tidak boleh berisi `:`, sehingga
+aplikasi tetap terpisah bahkan dengan
+`REVERB_APP_VALIDATE_CHANNEL_NAMES=false`.
+
+Dengan [`daravel_reverb`](https://pub.dev/packages/daravel_reverb),
+`.withReverb()` membaca aplikasi dari environment: `REVERB_APPS` berisi
+entri `config/reverb.php` Reverb dalam JSON (`app_id`, `key`, `secret`,
+`allowed_origins`, `max_connections`, `max_message_size`,
+`activity_timeout`, `rate_limiting`), dilayani di samping aplikasi
+`REVERB_APP_*`; dengan `REVERB_APPS_PROVIDER=database`, aplikasi dibaca dari
+tabel `reverb_apps` (`CreateReverbAppsTable`), dan setiap baris disimpan 60
+detik di isolate yang membacanya (`REVERB_APPS_CACHE_TTL`). Pemeriksaan
+konfigurasi menolak id atau key ganda dan origin yang bukan nama host, serta
+memperingatkan secret di bawah 32 byte.
+
+## Server WebSocket tersendiri
+
+`withBroadcasting()` melayani Echo di port HTTP, dan itu cukup untuk
+kebanyakan aplikasi. Untuk tier WebSocket tersendiri, seperti
+`php artisan reverb:start` di Laravel, pasang `daravel_reverb`
+(`dartisan pub:add reverb`) dan jalankan `dartisan reverb:start` di samping
+`dartisan serve`:
+
+```bash
+dartisan reverb:start --port=8080 --isolates=4   # REVERB_SERVER_PORT, REVERB_SERVER_ISOLATES
+dartisan reverb:restart                         # setelah deploy
+dartisan reverb:stats                           # koneksi per isolate, dari /metrics
+```
+
+`reverb:start` membangun aplikasi yang sama tetapi hanya melayani server
+Pusher-nya (`/app/{key}`, `/apps/{id}/*`, di bawah `REVERB_SERVER_PATH` bila
+di-set), `/up`, `/up/ready`, dan `/metrics`: tanpa route aplikasi, route
+provider, atau file statis. `/broadcasting/auth` tetap dijawab aplikasi HTTP
+(`REVERB_SERVER_AUTH=app`, `authEndpoint` Echo) kecuali
+`REVERB_SERVER_AUTH=local`. `--debug` mencatat setiap frame, dengan
+signature `auth` dan `channel_data` disamarkan. `SERVER_EMBED_*` dan
+`APP_PROCESSES` aplikasi berlaku untuk `serve`, bukan untuk server ini.
+
+`reverb:restart` menulis waktu ke signal store queue (`QUEUE_SIGNAL_STORE`,
+seperti `queue:restart`); setiap isolate `reverb:start` membacanya tiap
+detik, menunggu sesaat secara acak dalam `REVERB_DRAIN_SPREAD`, menutup
+koneksinya tersebar dalam rentang itu, lalu langsung dijalankan lagi (tidak
+dihitung sebagai crash). Klien reconnect dengan backoff masing-masing.
+Server satu isolate justru berhenti, agar process manager menjalankannya
+lagi, seperti di Laravel. Sinyal ini hanya sampai ke server yang membaca
+store yang sama: store `file` bawaan (dengan queue database) mencakup satu
+mesin, sehingga server Reverb di beberapa mesin memerlukan store yang dipakai
+bersama (`QUEUE_SIGNAL_STORE=database` atau `redis`); dengan store `process`,
+`reverb:restart` tidak sampai ke mana pun, dan server mencatat peringatan
+bila queue tidak punya signal store sama sekali. `reverb:stats` membaca
+`reverb_connections`, `reverb_channels`, dan `reverb_messages_total` dari
+`/metrics` server (`METRICS_ENABLED=true`; `--url`, `--token`, `--json`).
+
+## Mendeskripsikan channel
+
+`channels.channel()` menerima `type` channel (`private`, `presence`, atau
+`encrypted`) dan `events` yang dibawanya, masing-masing dengan JSON Schema
+datanya (opsional). Keduanya tidak mengubah apa pun saat runtime; tool yang
+membacanya:
+
+```dart
+channels.channel(
+  'orders.{orderId}',
+  (user, p) => user.authIdentifier == p['orderId'],
+  type: 'private',
+  events: [
+    BroadcastEventSchema(
+      'OrderShipped',
+      data: JsonSchema.object({'id': JsonSchema.integer().required()}),
+    ),
+  ],
+);
+```
+
+`dartisan route:list --channels` mendaftarnya (`--json` untuk keluaran yang
+sama dengan `ChannelRegistry.describe()`), dan
+`Application.broadcastChannels` memberikan registry itu ke tool Anda
+sendiri.
+
+## Menguji broadcast
+
+`Broadcast.fake()` merekam broadcast alih-alih mengirimnya, dengan aturan
+transaksi tetap berlaku: broadcast yang dibuat di dalam transaksi yang
+di-rollback tidak terekam, karena memang tidak akan terkirim. Laravel
+menguji hal yang sama dengan `Event::fake()`.
+
+```dart
+final broadcasts = Broadcast.fake();
+await client.post('/orders/7/ship');
+broadcasts
+  ..assertBroadcasted<OrderShipped>(channel: 'private-orders.7')
+  ..assertBroadcasted<OrderShipped>(where: (e) => e.order.id == 7)
+  ..assertBroadcastedTimes<OrderShipped>(1)
+  ..assertSent('price.updated', channel: 'prices') // Broadcast.send(...)
+  ..assertNothingBroadcastedTo('private-admin');
+Broadcast.restore();
+```
+
+`assertNotBroadcasted<E>()` dan `assertNothingBroadcasted()` memeriksa
+kebalikannya; `broadcasts.broadcasts` berisi setiap `BroadcastRecord`
+(event, channel, data, koneksi yang dikecualikan, objek event).
+
+## Memantau server
+
+`/metrics` memuat, per aplikasi: `reverb_connections` (juga per worker
+isolate), `reverb_channels` (subscription per tipe channel),
+`reverb_messages_total` (`direction="in"` dari client, `"out"` ke client),
+`reverb_fanout_seconds` (lama satu frame sampai ke setiap isolate dan
+server lain), dan `reverb_rejected_total` (beserta `reason`-nya). Setiap
+worker isolate juga melaporkan aktivitasnya ke coordinator setiap
+`REVERB_PULSE_INGEST_INTERVAL` detik (15) selama ada koneksi, yang
+ditampilkan Pulse sebagai kartu *Reverb*. `PusherServer(observer:)`
+menerima `PusherObserver` buatan Anda sendiri.
 
 ## Kapasitas
 

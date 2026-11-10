@@ -5,6 +5,9 @@ import 'package:args/command_runner.dart';
 import 'package:daravel/daravel.dart' show daravelVersion;
 import 'package:path/path.dart' as p;
 
+import 'console/console.dart';
+import 'console/nudges.dart';
+import 'console/runner_console.dart';
 import 'generator.dart';
 import 'make_commands.dart';
 import 'new_project.dart';
@@ -17,10 +20,14 @@ import 'upgrade_command.dart';
 /// project every command is delegated to the project's `bin/dartisan.dart`,
 /// so the project's own framework version runs (like `composer` vs
 /// `artisan`; BLUEPRINT_V2 §8.1).
-final class GlobalDartisanRunner extends CommandRunner<int> {
-  /// The commands that work outside a project, such as `new`.
-  GlobalDartisanRunner()
-    : super('dartisan', 'Daravel command-line interface (global).') {
+final class GlobalDartisanRunner extends CommandRunner<int>
+    with DartisanConsole {
+  /// The commands that work outside a project, such as `new`; [console]
+  /// replaces the detected one (tests).
+  GlobalDartisanRunner({
+    Console? console,
+    Nudges Function(Console console)? nudges,
+  }) : super('dartisan', 'Daravel command-line interface (global).') {
     argParser.addFlag(
       'version',
       abbr: 'V',
@@ -33,6 +40,7 @@ final class GlobalDartisanRunner extends CommandRunner<int> {
     addCommand(StubPublishCommand());
     addCommand(UpgradeCommand());
     addCommand(SelfUpdateCommand());
+    setUpConsole(console: console, nudges: nudges);
   }
 
   @override

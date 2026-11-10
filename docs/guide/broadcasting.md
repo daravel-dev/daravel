@@ -232,6 +232,147 @@ tried again and logged, and never keeps the connection's other channels
 subscribed. A relay that could not start (Redis down) is started again by
 the next client.
 
+## Several applications
+
+One server can serve several Pusher applications, as Reverb's
+`reverb.apps.apps` does: each has its own key, secret, allowed origins,
+connection quota, message size and rate limiting, and the same channel name
+in two applications is two channels.
+
+```dart
+.withBroadcasting(
+  apps: ListAppProvider([
+    BroadcastApp(id: '42', key: 'shop-key', secret: env.string('SHOP_SECRET')),
+    BroadcastApp(
+      id: '43',
+      key: 'admin-key',
+      secret: env.string('ADMIN_SECRET'),
+      allowedOrigins: ['admin.example.com'],
+      maxConnections: 200,
+    ),
+  ]),
+)
+```
+
+A client connects with its application's key (`/app/shop-key`), and a
+backend publishes through `/apps/43/events` signed with that application's
+secret; a channel authorization signed by another application is refused
+with `4009`. Implement `BroadcastAppProvider` (`byKey`, `byId`) to read the
+applications from a table instead. Without `apps:` the server serves the
+one application of the `REVERB_APP_*` settings, as before, and that
+application keeps its channels and state as they were. `/broadcasting/auth`
+signs for the `REVERB_APP_*` application; the others are authorized by
+their own backends. Channel names cannot contain `:`, which keeps the
+applications apart even with `REVERB_APP_VALIDATE_CHANNEL_NAMES=false`.
+
+With [`daravel_reverb`](https://pub.dev/packages/daravel_reverb),
+`.withReverb()` reads the applications from the environment instead:
+`REVERB_APPS` holds the entries of Reverb's `config/reverb.php` as JSON
+(`app_id`, `key`, `secret`, `allowed_origins`, `max_connections`,
+`max_message_size`, `activity_timeout`, `rate_limiting`), served beside the
+application of `REVERB_APP_*`; with `REVERB_APPS_PROVIDER=database` they
+come from a `reverb_apps` table (`CreateReverbAppsTable`), each row kept 60
+seconds in the isolate that read it (`REVERB_APPS_CACHE_TTL`). The config
+check refuses duplicate ids or keys and origins that are not host names,
+and warns of secrets under 32 bytes.
+
+## A separate WebSocket server
+
+`withBroadcasting()` serves Echo on the HTTP port, which is enough for most
+applications. For a WebSocket tier of its own, as Laravel's
+`php artisan reverb:start`, add `daravel_reverb` (`dartisan pub:add
+reverb`) and run `dartisan reverb:start` beside `dartisan serve`:
+
+```bash
+dartisan reverb:start --port=8080 --isolates=4   # REVERB_SERVER_PORT, REVERB_SERVER_ISOLATES
+dartisan reverb:restart                         # after a deploy
+dartisan reverb:stats                           # connections per isolate, from /metrics
+```
+
+`reverb:start` builds the same application but serves only its Pusher
+server (`/app/{key}`, `/apps/{id}/*`, under `REVERB_SERVER_PATH` when set),
+`/up`, `/up/ready` and `/metrics`: no application route, provider route or
+static file. `/broadcasting/auth` stays with the HTTP application
+(`REVERB_SERVER_AUTH=app`, Echo's `authEndpoint`) unless
+`REVERB_SERVER_AUTH=local`. `--debug` logs every frame, with the `auth`
+signature and `channel_data` masked. The application's `SERVER_EMBED_*`
+and `APP_PROCESSES` are for `serve`, not this server.
+
+`reverb:restart` writes a time to the queue's signal store
+(`QUEUE_SIGNAL_STORE`, as `queue:restart`); each isolate of `reverb:start`
+reads it every second, waits a random moment within `REVERB_DRAIN_SPREAD`,
+closes its connections over that spread and is spawned again at once
+(not counted as a crash). Clients reconnect with their own backoff. A
+server of one isolate ends instead, for its process manager to start it
+again, as Laravel's does. The signal reaches only the servers that read
+the same store: the default `file` store (with the database queue) covers
+one machine, so Reverb servers on several machines need a store they all
+share (`QUEUE_SIGNAL_STORE=database` or `redis`); with the `process` store
+`reverb:restart` reaches nothing, and the server logs a warning when the
+queue has no signal store at all. `reverb:stats` reads
+`reverb_connections`, `reverb_channels` and `reverb_messages_total` from
+the server's `/metrics` (`METRICS_ENABLED=true`; `--url`, `--token`,
+`--json`).
+
+## Describing channels
+
+`channels.channel()` takes the channel's `type` (`private`, `presence` or
+`encrypted`) and the `events` it carries, each with an optional JSON Schema
+of its data. They change nothing at run time; tools read them:
+
+```dart
+channels.channel(
+  'orders.{orderId}',
+  (user, p) => user.authIdentifier == p['orderId'],
+  type: 'private',
+  events: [
+    BroadcastEventSchema(
+      'OrderShipped',
+      data: JsonSchema.object({'id': JsonSchema.integer().required()}),
+    ),
+  ],
+);
+```
+
+`dartisan route:list --channels` lists them (`--json` for the same as
+`ChannelRegistry.describe()`), and `Application.broadcastChannels` gives
+the registry to your own tools.
+
+## Testing broadcasts
+
+`Broadcast.fake()` records broadcasts instead of sending them, with the
+transaction rules kept: a broadcast made in a transaction that rolls back
+is not recorded, as it would not be sent. Laravel tests the same with
+`Event::fake()`.
+
+```dart
+final broadcasts = Broadcast.fake();
+await client.post('/orders/7/ship');
+broadcasts
+  ..assertBroadcasted<OrderShipped>(channel: 'private-orders.7')
+  ..assertBroadcasted<OrderShipped>(where: (e) => e.order.id == 7)
+  ..assertBroadcastedTimes<OrderShipped>(1)
+  ..assertSent('price.updated', channel: 'prices') // Broadcast.send(...)
+  ..assertNothingBroadcastedTo('private-admin');
+Broadcast.restore();
+```
+
+`assertNotBroadcasted<E>()` and `assertNothingBroadcasted()` check the
+opposite; `broadcasts.broadcasts` holds every `BroadcastRecord` (event,
+channels, data, the connection left out, the event object).
+
+## Watching the server
+
+`/metrics` has, by application: `reverb_connections` (and by worker
+isolate), `reverb_channels` (subscriptions by channel type),
+`reverb_messages_total` (`direction="in"` from clients, `"out"` to them),
+`reverb_fanout_seconds` (how long one frame takes to reach every isolate
+and the other servers) and `reverb_rejected_total` (with its `reason`).
+Each worker isolate also reports its activity to the coordinator every
+`REVERB_PULSE_INGEST_INTERVAL` seconds (15) while it has connections, which
+Pulse shows as its *Reverb* card. `PusherServer(observer:)` takes a
+`PusherObserver` of your own.
+
 ## Capacity
 
 `bench/interop/connections.sh` opens idle Echo connections against the AOT

@@ -274,6 +274,7 @@ void main() {
         exceptions.single,
         containsPair('message', 'Bad state: Something broke'),
       );
+      expect(data['horizon_path'], isNull, reason: 'no daravel_horizon');
       expect(data['queues'], [
         {'connection': 'sync', 'queue': 'default', 'size': 0},
       ]);

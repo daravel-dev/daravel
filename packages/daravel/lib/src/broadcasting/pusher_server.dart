@@ -9,8 +9,10 @@ import '../http/request.dart';
 import '../http/response.dart';
 import '../server/broadcast.dart';
 import '../server/coordinator.dart';
+import 'app_provider.dart';
 import 'broadcast_config.dart';
 import 'cluster.dart';
+import 'pusher_observer.dart';
 import 'pusher_signature.dart';
 
 /// A Pusher protocol server (version 7), as Laravel Reverb is: Laravel
@@ -32,10 +34,46 @@ final class PusherServer {
     this.relay,
     this.onError,
     this.onRejected,
+    BroadcastAppProvider? apps,
+    this.observer = const PusherObserver(),
   }) : _coordinator = coordinator,
-       _state = state ?? _CoordinatorChannelState(coordinator);
+       _state = state ?? _CoordinatorChannelState(coordinator),
+       apps = apps ?? SingleAppProvider.fromConfig(config);
 
   final CoordinatorChannel _coordinator;
+
+  /// Told about connections, subscriptions, messages, fan-out and
+  /// refusals, per application (metrics, Pulse, the dashboard).
+  final PusherObserver observer;
+
+  /// The application id of [topic] ([topicOf]).
+  String appOf(String topic) {
+    final colon = topic.indexOf(':');
+    return colon < 0 ? config.appId : topic.substring(0, colon);
+  }
+
+  void _rejected(String reason, BroadcastApp app) {
+    onRejected?.call(reason);
+    observer.rejected(app.id, reason);
+  }
+
+  /// The applications served (`withBroadcasting(apps:)`); by default the
+  /// one of the `REVERB_APP_*` settings.
+  final BroadcastAppProvider apps;
+
+  /// Where [app]'s [channel] lives in the broadcaster, the coordinator and
+  /// the relay: the channel itself for the settings' application
+  /// (`REVERB_APP_ID`), so a single-app server and its state are as
+  /// before, and `<app id>:<channel>` for any other, which no Pusher
+  /// channel name can be (`:` is not allowed in one).
+  String topicOf(BroadcastApp? app, String channel) =>
+      app == null || app.id == config.appId ? channel : '${app.id}:$channel';
+
+  /// The channel name a client sees for [topic] ([topicOf]).
+  static String channelOf(String topic) {
+    final colon = topic.indexOf(':');
+    return colon < 0 ? topic : topic.substring(colon + 1);
+  }
 
   /// Told about failures no client can be told about: a channel left on
   /// close whose `leave` failed twice, a relay that would not start.
@@ -68,19 +106,30 @@ final class PusherServer {
   static final Random _random = Random.secure();
 
   /// Publishes [event] with [data] (a string, sent as it is, or anything
-  /// else as JSON) to [channels], except to the connection [exceptSocket].
+  /// else as JSON) to [channels] of [app] (the settings' application by
+  /// default), except to the connection [exceptSocket].
   Future<void> publish(
     String event,
     List<String> channels,
     Object? data, {
     String? exceptSocket,
+    BroadcastApp? app,
   }) async {
+    for (final channel in channels) {
+      if (_scopedName(channel)) {
+        throw ArgumentError.value(
+          channel,
+          'channels',
+          'a channel name cannot contain ":"',
+        );
+      }
+    }
     final text = data is String ? data : jsonEncode(data);
     // Channels at once: each is its own round trip, and only the order
     // within a channel matters.
     await Future.wait([
       for (final channel in channels)
-        _send(channel, {
+        _send(topicOf(app, channel), {
           'event': event,
           'channel': channel,
           'data': text,
@@ -88,22 +137,25 @@ final class PusherServer {
     ]);
   }
 
-  /// One frame, encoded once, to every connection on [channel] but
-  /// [except]: `<socket id>\n<frame>`. A cache channel also keeps it for
-  /// the next subscribers, unless [internal] (member_added and _removed).
+  /// One frame, encoded once, to every connection on [topic] ([topicOf])
+  /// but [except]: `<socket id>\n<frame>`. A cache channel also keeps it
+  /// for the next subscribers, unless [internal] (member_added and
+  /// _removed).
   Future<void> _send(
-    String channel,
+    String topic,
     Map<String, Object?> frame,
     String? except, {
     bool internal = false,
   }) async {
     final text = jsonEncode(frame);
-    if (!internal && isCacheChannel(channel)) {
-      await _call('cache_set', {'channel': channel, 'frame': text});
+    if (!internal && isCacheChannel(channelOf(topic))) {
+      await _call('cache_set', {'channel': topic, 'frame': text});
     }
     final envelope = '${except ?? ''}\n$text';
-    await _broadcaster.publish(channel, envelope);
-    await relay?.send(channel, envelope);
+    final watch = Stopwatch()..start();
+    await _broadcaster.publish(topic, envelope);
+    await relay?.send(topic, envelope);
+    observer.published(appOf(topic), watch.elapsed);
   }
 
   /// Pusher's channel name rule: at most 164 characters of `A-Z a-z 0-9`
@@ -112,6 +164,11 @@ final class PusherServer {
       channel.length <= 164 && _channelName.hasMatch(channel);
 
   static final RegExp _channelName = RegExp(r'^[A-Za-z0-9_=@,.;-]+$');
+
+  /// A name with `:`, which [topicOf] reserves for the channels of other
+  /// applications: refused even when channel names are not validated, so
+  /// no client reaches another application's channel.
+  static bool _scopedName(String channel) => channel.contains(':');
 
   /// `cache-…`, `private-cache-…` and `presence-cache-…` channels.
   static bool isCacheChannel(String channel) =>
@@ -127,7 +184,8 @@ final class PusherServer {
 
   /// Serves one client connection until it closes.
   Future<void> connect(WebSocket socket, Request request, String appKey) async {
-    if (appKey != config.appKey) {
+    final app = await apps.byKey(appKey);
+    if (app == null) {
       socket.add(_error(4001, 'Application does not exist'));
       await socket.close();
       return;
@@ -135,33 +193,33 @@ final class PusherServer {
     final id =
         '${_random.nextInt(1000000000) + 1}.${_random.nextInt(1000000000) + 1}';
     // Reverb checks the quota first, before the origin.
-    final quota = config.maxConnections;
-    if (quota > 0) {
-      if (!await _open(id, quota)) {
-        onRejected?.call('connection_quota');
+    if (app.maxConnections > 0) {
+      if (!await _open(id, app)) {
+        _rejected('connection_quota', app);
         socket.add(_error(4004, 'Application is over connection quota'));
         await socket.close();
         return;
       }
       try {
-        await _serve(socket, request, id);
+        await _serve(socket, request, id, app);
       } finally {
         await _close(id);
       }
       return;
     }
-    await _serve(socket, request, id);
+    await _serve(socket, request, id, app);
   }
 
-  /// Counts connection [id] against the quota of [max] in the coordinator,
-  /// every worker isolate together; true when it fits. A coordinator that
-  /// fails lets the connection in (and is reported): a quota is a guard,
-  /// not a reason to refuse every client.
-  Future<bool> _open(String id, int max) async {
+  /// Counts connection [id] against [app]'s quota in the coordinator, every
+  /// worker isolate together; true when it fits. A coordinator that fails
+  /// lets the connection in (and is reported): a quota is a guard, not a
+  /// reason to refuse every client.
+  Future<bool> _open(String id, BroadcastApp app) async {
     try {
       return await _coordinator.call('channels', 'open', {
             'socket': id,
-            'max': max,
+            'max': app.maxConnections,
+            'app': app.id,
             'worker': Isolate.current.debugName,
           }) !=
           false;
@@ -179,8 +237,13 @@ final class PusherServer {
     }
   }
 
-  Future<void> _serve(WebSocket socket, Request request, String id) async {
-    if (!_originAllowed(request.header('origin'))) {
+  Future<void> _serve(
+    WebSocket socket,
+    Request request,
+    String id,
+    BroadcastApp app,
+  ) async {
+    if (!_originAllowed(app, request.header('origin'))) {
       socket.add(_error(4009, 'Origin not allowed'));
       await socket.close();
       return;
@@ -201,14 +264,15 @@ final class PusherServer {
         return;
       }
     }
-    final connection = _Connection(this, socket, id);
-    socket.pingInterval = Duration(seconds: config.activityTimeout);
+    final connection = _Connection(this, socket, id, app);
+    observer.connectionOpened(app.id);
+    socket.pingInterval = Duration(seconds: app.activityTimeout);
     connection.send(
       jsonEncode({
         'event': 'pusher:connection_established',
         'data': jsonEncode({
           'socket_id': connection.id,
-          'activity_timeout': config.activityTimeout,
+          'activity_timeout': app.activityTimeout,
         }),
       }),
     );
@@ -232,19 +296,23 @@ final class PusherServer {
     } on Object {
       // The connection dropped.
     } finally {
-      await connection.close();
+      try {
+        await connection.close();
+      } finally {
+        observer.connectionClosed(app.id);
+      }
     }
   }
 
-  bool _originAllowed(String? origin) {
-    if (config.allowedOrigins.contains('*')) {
+  static bool _originAllowed(BroadcastApp app, String? origin) {
+    if (app.allowedOrigins.contains('*')) {
       return true;
     }
     final host = origin == null ? null : Uri.tryParse(origin)?.host;
     if (host == null || host.isEmpty) {
       return false;
     }
-    return config.allowedOrigins.any(
+    return app.allowedOrigins.any(
       (pattern) =>
           RegExp('^${pattern.split('*').map(RegExp.escape).join('.*')}\$')
               .hasMatch(host),
@@ -259,25 +327,37 @@ final class PusherServer {
   // ---------------------------------------------------------------------
   // The HTTP API (`/apps/{id}/...`), signed with the app secret.
 
-  Future<Response?> _verify(Request request, String appId) async {
-    if (appId != config.appId || !config.serves) {
-      return Response.json({
-        'message': 'No matching application for ID [$appId].',
-      }, status: 404);
+  /// The application [appId] names, when [request] is signed with its
+  /// secret; otherwise the refusal to answer with.
+  Future<(BroadcastApp?, Response?)> _verify(
+    Request request,
+    String appId,
+  ) async {
+    final app = await apps.byId(appId);
+    if (app == null) {
+      return (
+        null,
+        Response.json({
+          'message': 'No matching application for ID [$appId].',
+        }, status: 404),
+      );
     }
     final body = utf8.decode(await request.bytes(), allowMalformed: true);
     if (!PusherSignature.verifyRequest(
-      secret: config.appSecret,
+      secret: app.secret,
       method: request.method,
       path: request.path,
       query: request.query,
       body: body,
     )) {
-      return Response.json({
-        'message': 'Authentication signature invalid.',
-      }, status: 401);
+      return (
+        null,
+        Response.json({
+          'message': 'Authentication signature invalid.',
+        }, status: 401),
+      );
     }
-    return null;
+    return (app, null);
   }
 
   Future<Map<String, Object?>?> _json(Request request) async {
@@ -292,7 +372,7 @@ final class PusherServer {
   /// `POST /apps/{id}/events`: `{"name", "data", "channels" | "channel",
   /// "socket_id"?}`, as Pusher's HTTP clients send it.
   Future<Response> events(Request request, String appId) async {
-    final refused = await _verify(request, appId);
+    final (app, refused) = await _verify(request, appId);
     if (refused != null) {
       return refused;
     }
@@ -307,11 +387,15 @@ final class PusherServer {
     if (name is! String || data is! String || channels == null) {
       return _invalid('name, data and channels (or channel) are required.');
     }
+    if (channels.any(_scopedName)) {
+      return _invalid('Channel names cannot contain ":".');
+    }
     await publish(
       name,
       channels,
       data,
       exceptSocket: body?['socket_id'] as String?,
+      app: app,
     );
     return Response.json(<String, Object?>{});
   }
@@ -319,7 +403,7 @@ final class PusherServer {
   /// `POST /apps/{id}/batch_events`: `{"batch": [{"name", "data",
   /// "channel", "socket_id"?}, ...]}`.
   Future<Response> batchEvents(Request request, String appId) async {
-    final refused = await _verify(request, appId);
+    final (app, refused) = await _verify(request, appId);
     if (refused != null) {
       return refused;
     }
@@ -330,9 +414,12 @@ final class PusherServer {
               item is! Map<String, Object?> ||
               item['name'] is! String ||
               item['data'] is! String ||
-              item['channel'] is! String,
+              item['channel'] is! String ||
+              _scopedName(item['channel']! as String),
         )) {
-      return _invalid('Each batch item needs name, data and channel.');
+      return _invalid(
+        'Each batch item needs name, data and a channel without ":".',
+      );
     }
     for (final item in batch.cast<Map<String, Object?>>()) {
       await publish(
@@ -340,6 +427,7 @@ final class PusherServer {
         [item['channel']! as String],
         item['data'],
         exceptSocket: item['socket_id'] as String?,
+        app: app,
       );
     }
     return Response.json({'batch': <String, Object?>{}});
@@ -347,20 +435,26 @@ final class PusherServer {
 
   /// `GET /apps/{id}/channels?filter_by_prefix=&info=user_count`.
   Future<Response> channels(Request request, String appId) async {
-    final refused = await _verify(request, appId);
+    final (app, refused) = await _verify(request, appId);
     if (refused != null) {
       return refused;
     }
     final prefix = request.query['filter_by_prefix'] ?? '';
     final userCount = (request.query['info'] ?? '').contains('user_count');
+    final scoped = topicOf(app, prefix);
     final counts =
-        (await _call('channels', {'prefix': prefix}))! as Map<Object?, Object?>;
+        (await _call('channels', {'prefix': scoped}))! as Map<Object?, Object?>;
     final out = <String, Object?>{};
-    for (final name in counts.keys.cast<String>()) {
+    for (final topic in counts.keys.cast<String>()) {
+      // The settings' application owns the unscoped topics only.
+      if (topicOf(app, channelOf(topic)) != topic) {
+        continue;
+      }
+      final name = channelOf(topic);
       out[name] = userCount && name.startsWith('presence-')
           ? {
               'user_count':
-                  ((await _call('channel', {'channel': name}))!
+                  ((await _call('channel', {'channel': topic}))!
                       as Map)['user_count'],
             }
           : <String, Object?>{};
@@ -370,11 +464,15 @@ final class PusherServer {
 
   /// `GET /apps/{id}/channels/{channel}?info=user_count,subscription_count`.
   Future<Response> channel(Request request, String appId, String name) async {
-    final refused = await _verify(request, appId);
+    final (app, refused) = await _verify(request, appId);
     if (refused != null) {
       return refused;
     }
-    final info = (await _call('channel', {'channel': name}))! as Map;
+    if (_scopedName(name)) {
+      return _invalid('Channel names cannot contain ":".');
+    }
+    final info =
+        (await _call('channel', {'channel': topicOf(app, name)}))! as Map;
     final wanted = (request.query['info'] ?? '').split(',');
     return Response.json({
       'occupied': info['occupied'],
@@ -387,14 +485,15 @@ final class PusherServer {
 
   /// `GET /apps/{id}/channels/{channel}/users` (presence channels).
   Future<Response> users(Request request, String appId, String name) async {
-    final refused = await _verify(request, appId);
+    final (app, refused) = await _verify(request, appId);
     if (refused != null) {
       return refused;
     }
-    if (!name.startsWith('presence-')) {
+    if (!name.startsWith('presence-') || _scopedName(name)) {
       return _invalid('Only presence channels have users.');
     }
-    final ids = (await _call('users', {'channel': name}))! as List;
+    final ids =
+        (await _call('users', {'channel': topicOf(app, name)}))! as List;
     return Response.json({
       'users': [
         for (final id in ids) {'id': id},
@@ -419,10 +518,16 @@ final class _CoordinatorChannelState implements ChannelState {
 
 /// One client connection.
 final class _Connection {
-  _Connection(this._server, this._socket, this.id);
+  _Connection(this._server, this._socket, this.id, this._app);
 
   final PusherServer _server;
   final WebSocket _socket;
+
+  /// The application this client connected to (`/app/{key}`).
+  final BroadcastApp _app;
+
+  /// Where [channel] of this connection's application lives.
+  String _topic(String channel) => _server.topicOf(_app, channel);
 
   /// The socket id (`123.456`): signed into channel authorizations and
   /// sent as `X-Socket-ID` for `toOthers()`.
@@ -476,6 +581,9 @@ final class _Connection {
     }
     try {
       _socket.add(text);
+      _server.observer
+        ..sent(_app.id)
+        ..frame(_app.id, id, 'out', text);
     } on StateError {
       // Closed by this side and not done yet (dart:io keeps closeCode null
       // until the peer answers): nothing more goes out.
@@ -486,15 +594,18 @@ final class _Connection {
       send(PusherServer._error(code, message));
 
   Future<void> receive(Object? message) async {
+    _server.observer
+      ..received(_app.id)
+      ..frame(_app.id, id, 'in', message);
     if (!_withinRateLimit()) {
-      _server.onRejected?.call('rate_limit');
+      _server._rejected('rate_limit', _app);
       _error(4301, 'Rate limit exceeded');
-      if (_server.config.rateLimitTerminate) {
+      if (_app.rateLimiting?.terminate ?? false) {
         await _socket.close(4301, 'Rate limit exceeded');
       }
       return;
     }
-    final max = _server.config.maxMessageSize;
+    final max = _app.maxMessageSize;
     if (message is! String ||
         // A character is at most 3 bytes: measure only when it could matter.
         (message.length * 3 > max && utf8.encode(message).length > max)) {
@@ -528,15 +639,16 @@ final class _Connection {
           return _error(4200, 'Invalid message format');
         }
         final config = _server.config;
-        if (config.validateChannelNames &&
-            !PusherServer.isValidChannelName(channel)) {
+        if (PusherServer._scopedName(channel) ||
+            (config.validateChannelNames &&
+                !PusherServer.isValidChannelName(channel))) {
           return _error(4300, 'Invalid channel name');
         }
         final most = config.maxChannelsPerConnection;
         if (most > 0 &&
             _subscriptions.length >= most &&
             !_subscriptions.containsKey(channel)) {
-          _server.onRejected?.call('channel_limit');
+          _server._rejected('channel_limit', _app);
           return _error(
             4300,
             'Too many channels on this connection (at most $most)',
@@ -557,7 +669,7 @@ final class _Connection {
       case _ when event.startsWith('client-'):
         if (!_allowClientEvent()) {
           // Dropped, the connection kept, as Pusher does.
-          _server.onRejected?.call('client_event_rate');
+          _server._rejected('client_event_rate', _app);
           return _error(4301, 'Rate limit exceeded');
         }
         await _whisper(event, payload);
@@ -565,17 +677,17 @@ final class _Connection {
   }
 
   /// Messages counted in the current rate limiting window, and when it
-  /// ends ([BroadcastConfig.rateLimiting]).
+  /// ends ([BroadcastApp.rateLimiting]).
   int _messages = 0;
   DateTime? _windowEnds;
 
   /// Reverb's `ensureWithinRateLimit` (Laravel's `RateLimiter`): a window
-  /// of [BroadcastConfig.rateLimitDecay] opens with the first message, and
-  /// past [BroadcastConfig.rateLimitMaxAttempts] messages in it the next
-  /// are refused, without counting, until it ends.
+  /// of the app's [BroadcastRateLimit.decay] opens with the first message,
+  /// and past [BroadcastRateLimit.maxAttempts] messages in it the next are
+  /// refused, without counting, until it ends.
   bool _withinRateLimit() {
-    final config = _server.config;
-    if (!config.rateLimiting) {
+    final limit = _app.rateLimiting;
+    if (limit == null) {
       return true;
     }
     final now = Clock.now();
@@ -584,11 +696,11 @@ final class _Connection {
       _messages = 0;
       _windowEnds = null;
     }
-    if (_messages >= config.rateLimitMaxAttempts) {
+    if (_messages >= limit.maxAttempts) {
       return false;
     }
     _messages++;
-    _windowEnds ??= now.add(config.rateLimitDecay);
+    _windowEnds ??= now.add(limit.decay);
     return true;
   }
 
@@ -630,7 +742,7 @@ final class _Connection {
     final guarded = presence || channel.startsWith('private-');
     if (guarded &&
         !PusherSignature.verifyChannel(
-          secret: _server.config.appSecret,
+          secret: _app.secret,
           socketId: id,
           channel: channel,
           auth: auth,
@@ -648,11 +760,12 @@ final class _Connection {
       };
       userInfo = member?['user_info'];
     }
+    final topic = _topic(channel);
     if (!_subscriptions.containsKey(channel)) {
       // Listening first, so nothing published from here on is missed;
       // what arrives before subscription_succeeded waits for it.
       _early[channel] = [];
-      final subscription = await _server._broadcaster.subscribe(channel);
+      final subscription = await _server._broadcaster.subscribe(topic);
       subscription.messages.listen((envelope) {
         final newline = envelope.indexOf('\n');
         // `<except>\n<frame>`: not to the connection that sent it.
@@ -661,12 +774,13 @@ final class _Connection {
         }
       });
       _subscriptions[channel] = subscription;
+      _server.observer.subscribed(_app.id, channel);
     }
     final Map<Object?, Object?> joined;
     try {
       joined =
           (await _server._call('join', {
-                'channel': channel,
+                'channel': topic,
                 'socket': id,
                 'user_id': userId,
                 'user_info': userInfo,
@@ -699,7 +813,7 @@ final class _Connection {
       _members[channel] = {for (final key in members?.keys ?? const []) '$key'};
     }
     if (PusherServer.isCacheChannel(channel)) {
-      final cached = await _server._call('cache_get', {'channel': channel});
+      final cached = await _server._call('cache_get', {'channel': topic});
       send(
         cached is String
             ? cached
@@ -712,7 +826,7 @@ final class _Connection {
     }
     if (joined['added'] == true) {
       await _server._send(
-        channel,
+        topic,
         {
           'event': 'pusher_internal:member_added',
           'data': jsonEncode({'user_id': userId, 'user_info': ?userInfo}),
@@ -732,19 +846,21 @@ final class _Connection {
       return;
     }
     await subscription.cancel();
+    _server.observer.unsubscribed(_app.id, channel);
     await _leave(channel);
   }
 
   /// Leaves [channel] in the shared state, then tells the others when the
   /// user's last connection left.
   Future<void> _leave(String channel) async {
+    final topic = _topic(channel);
     final left =
-        (await _server._call('leave', {'channel': channel, 'socket': id}))!
+        (await _server._call('leave', {'channel': topic, 'socket': id}))!
             as Map;
     final removed = left['removed'];
     if (removed != null) {
       await _server._send(
-        channel,
+        topic,
         {
           'event': 'pusher_internal:member_removed',
           'data': jsonEncode({'user_id': removed}),
@@ -769,7 +885,7 @@ final class _Connection {
         !(channel.startsWith('private-') || channel.startsWith('presence-'))) {
       return;
     }
-    await _server._send(channel, {
+    await _server._send(_topic(channel), {
       'event': event,
       'channel': channel,
       'data': payload['data'],
