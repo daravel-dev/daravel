@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'console/console.dart';
+
 /// How bad a finding is; `--severity` fails the audit at or above one.
 enum AuditSeverity {
   /// Worth knowing; no risk on its own.
@@ -838,8 +840,8 @@ final class _Skipped extends _Outcome {
 
 /// [result] as text for a terminal; [color] adds ANSI colors.
 String renderAudit(AuditResult result, {bool color = false}) {
-  String paint(String text, int code) =>
-      color ? '\x1B[${code}m$text\x1B[0m' : text;
+  final console = Console(out: StringBuffer(), color: color);
+  String paint(String text, Ansi fg) => console.style(text, fg: fg);
   final out = StringBuffer()
     ..writeln('Security audit of ${result.target}')
     ..writeln();
@@ -847,10 +849,10 @@ String renderAudit(AuditResult result, {bool color = false}) {
     final found = result.findings.where((f) => f.check == check).toList();
     final skipped = result.skipped[check.id];
     final status = skipped != null
-        ? paint('SKIP', 33)
+        ? paint('SKIP', Ansi.yellow)
         : found.isEmpty
-        ? paint('PASS', 32)
-        : paint('FAIL', 31);
+        ? paint('PASS', Ansi.green)
+        : paint('FAIL', Ansi.red);
     out.writeln('  $status  ${check.id}  ${check.title}');
     if (skipped != null) {
       out.writeln('        $skipped');

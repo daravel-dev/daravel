@@ -6,6 +6,7 @@ import 'package:daravel/daravel.dart' show daravelVersion;
 import 'package:path/path.dart' as p;
 
 import 'console/console.dart';
+import 'console/nudges.dart';
 import 'console/runner_console.dart';
 import 'generator.dart';
 import 'make_commands.dart';
@@ -23,8 +24,10 @@ final class GlobalDartisanRunner extends CommandRunner<int>
     with DartisanConsole {
   /// The commands that work outside a project, such as `new`; [console]
   /// replaces the detected one (tests).
-  GlobalDartisanRunner({Console? console})
-    : super('dartisan', 'Daravel command-line interface (global).') {
+  GlobalDartisanRunner({
+    Console? console,
+    Nudges Function(Console console)? nudges,
+  }) : super('dartisan', 'Daravel command-line interface (global).') {
     argParser.addFlag(
       'version',
       abbr: 'V',
@@ -37,7 +40,7 @@ final class GlobalDartisanRunner extends CommandRunner<int>
     addCommand(StubPublishCommand());
     addCommand(UpgradeCommand());
     addCommand(SelfUpdateCommand());
-    setUpConsole(console: console);
+    setUpConsole(console: console, nudges: nudges);
   }
 
   @override

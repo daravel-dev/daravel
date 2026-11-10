@@ -21,6 +21,7 @@ import 'src/upgrade_command.dart';
 import 'src/cache_commands.dart';
 import 'src/console/brand.dart';
 import 'src/console/console.dart';
+import 'src/console/nudges.dart';
 import 'src/console/runner_console.dart';
 import 'src/security_audit_command.dart';
 import 'src/adopt_command.dart';
@@ -74,6 +75,8 @@ export 'src/redis_install.dart';
 export 'src/upgrade_command.dart';
 export 'src/console/brand.dart' show sponsorUrl;
 export 'src/console/console.dart';
+export 'src/console/nudges.dart';
+export 'src/console/runner_console.dart' show DartisanConsole;
 export 'src/console/sponsor.dart';
 
 /// Creates an unbooted [Application] (a project's `createApp()`).
@@ -92,6 +95,7 @@ final class DartisanRunner extends CommandRunner<int> with DartisanConsole {
     AppFactory createApp, {
     List<CommandFactory> commands = const <CommandFactory>[],
     Console? console,
+    Nudges Function(Console console)? nudges,
   }) : super('dartisan', 'Daravel command-line interface.') {
     argParser.addFlag(
       'version',
@@ -180,7 +184,7 @@ final class DartisanRunner extends CommandRunner<int> with DartisanConsole {
       addCommand(command);
       project.add(command.name);
     }
-    setUpConsole(console: console, project: project);
+    setUpConsole(console: console, project: project, nudges: nudges);
   }
 
   @override
@@ -523,6 +527,8 @@ final class MigrateCommand extends DaravelCommand {
         refuseInProduction(app, argResults!, 'migrate --seed')) {
       return 1;
     }
+    // The first migrate of a project ends with a closing line (ADR-036).
+    final first = !await (await Schema.builder()).hasTable('migrations');
     final migrated = await App.make<Migrator>().run();
     if (migrated.isEmpty) {
       stdout.writeln('Nothing to migrate.');
@@ -535,6 +541,9 @@ final class MigrateCommand extends DaravelCommand {
       for (final seeder in await App.make<SeederRegistry>().run()) {
         stdout.writeln('Seeded: $seeder');
       }
+    }
+    if (runner case final DartisanConsole cli when first) {
+      cli.celebrate();
     }
     return 0;
   });
