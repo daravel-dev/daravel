@@ -56,6 +56,9 @@ Application masterApp() => Application.configure(basePath: _basePath())
     .withJobs([JobDefinition('hang', Hang.fromJson)])
     .create();
 
+/// The marks the jobs wrote. Several worker isolates append to one file at
+/// once, and on Windows some appends are lost: check what a mark says, never
+/// how many there are.
 List<String> marks() =>
     File(marksPath).existsSync() ? File(marksPath).readAsLinesSync() : const [];
 
