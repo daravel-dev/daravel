@@ -200,13 +200,34 @@ void main() {
     // Review #149). Each must sit inside runDetached (or Zone.root.run), or
     // be listed in _knownLongLived with how many there are and why.
     final site = RegExp(r'Timer\.periodic\(|\.listen\(');
+    // A one-shot Timer whose callback calls the method around it again is
+    // a periodic timer too (`void beat() { Timer(d, () { ...; beat(); }) }`).
+    final oneShot = RegExp(r'(?<![.\w])Timer\(');
+    final method = RegExp(
+      r'^\s+(?:[\w<>?]+\s+)?(\w+)\([^)]*\)\s*(?:async\s*)?\{',
+    );
+    bool recurs(List<String> lines, int at) {
+      for (var i = at; i >= 0 && i > at - 15; i--) {
+        final name = method.firstMatch(lines[i])?.group(1);
+        if (name != null) {
+          final after = lines.sublist(at + 1, (at + 15).clamp(0, lines.length));
+          return after.any((l) => l.contains('$name();'));
+        }
+      }
+      return false;
+    }
+
     final counts = <String, int>{};
     for (final file in _dartFiles(_src)) {
       final path = p.relative(file.path, from: _src).replaceAll(r'\', '/');
       final lines = file.readAsLinesSync();
       for (var i = 0; i < lines.length; i++) {
         final line = lines[i].trimLeft();
-        if (line.startsWith('//') || !site.hasMatch(line)) {
+        if (line.startsWith('//')) {
+          continue;
+        }
+        if (!site.hasMatch(line) &&
+            !(oneShot.hasMatch(line) && recurs(lines, i))) {
           continue;
         }
         final before = lines.sublist(i < 4 ? 0 : i - 4, i + 1).join('\n');
@@ -251,7 +272,11 @@ const Map<String, (int, String)> _knownLongLived = {
   'http/client.dart': (1, 'per response body'),
   'http/graceful_server_socket.dart': (1, 'the server socket, at start'),
   'http/multipart.dart': (2, 'per request body'),
-  'http/realtime.dart': (1, 'per SSE response'),
+  'http/realtime.dart': (
+    2,
+    'per SSE response: its events and its keep-alive (beat), which end '
+        'with the response',
+  ),
   'http/server_engine.dart': (
     6,
     'the engine at start (lag sampler, sockets), and per connection',
@@ -266,8 +291,9 @@ const Map<String, (int, String)> _knownLongLived = {
   'replication/replicator.dart': (1, 'the replication loop of its command'),
   'server/broadcast.dart': (1, 'per WebSocket connection (serve)'),
   'server/coordinator.dart': (
-    2,
-    'the coordinator and its channels, created at boot',
+    3,
+    'the coordinator, its channels and its lag probe (_probeLag), created '
+        'at boot',
   ),
   'server/process_supervisor.dart': (5, 'the process supervisor'),
   'server/supervisor.dart': (7, 'the isolate supervisor'),

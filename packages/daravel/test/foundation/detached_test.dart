@@ -170,6 +170,40 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 50));
     expect(ticks, after);
   });
+
+  test('shutdown lets an iteration in progress end; what it raises while '
+      'stopping is logged at debug, not as a failure', () async {
+    final iteration = Completer<void>();
+    var finished = false;
+    await app.run(
+      () async => runDetached(
+        () => Timer(Duration.zero, () async {
+          await iteration.future; // a query in progress
+          finished = true;
+          throw StateError('its connection closed under it');
+        }),
+        name: 'loop',
+        // Lets the iteration end, as a loop's stop does.
+        stop: (_) async {
+          Timer(const Duration(milliseconds: 50), iteration.complete);
+          await iteration.future;
+          await Future<void>.delayed(Duration.zero);
+        },
+      ),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+    closed = true;
+    await app.shutdown();
+    expect(finished, isTrue);
+    expect(logs.matching(LogLevel.error, 'Detached task loop'), isEmpty);
+    expect(
+      logs.matching(
+        LogLevel.debug,
+        'Detached task loop stopped by the shutdown',
+      ),
+      hasLength(1),
+    );
+  });
 }
 
 /// A coordinator channel that records the scope each `release` (a lease

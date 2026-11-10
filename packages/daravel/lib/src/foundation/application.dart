@@ -442,6 +442,10 @@ final class Application {
             error: error,
             stackTrace: stackTrace,
           ),
+          // Interrupted by the shutdown: expected.
+          onStopError: (name, error, _) => logger.debug(
+            'Detached task $name stopped by the shutdown: $error',
+          ),
         ),
       )
       ..instance<Router>(router)

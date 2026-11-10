@@ -15,29 +15,41 @@ typedef DetachedErrorHandler = void Function(
 /// application (bound in its container at boot), stopped when it shuts
 /// down.
 final class DetachedTasks {
-  /// Tasks whose uncaught errors go to [onError].
-  DetachedTasks({this.onError});
+  /// Tasks whose uncaught errors go to [onError] (to [onStopError] once
+  /// they are being stopped).
+  DetachedTasks({this.onError, this.onStopError});
 
   /// Where uncaught errors of the tasks go: the application's logger, which
   /// in a detached zone has no request context. Standard error when null.
   DetachedErrorHandler? onError;
 
+  /// Where errors go once [cancelAll] began: a loop interrupted by the
+  /// shutdown (its connection closing under it) is expected, not a failure
+  /// (the application logs it at debug). [onError] when null.
+  DetachedErrorHandler? onStopError;
+
   final Set<Detached<Object?>> _running = <Detached<Object?>>{};
+  bool _stopping = false;
 
   /// The names of the tasks running now (diagnostics, tests).
   List<String> get names => [for (final task in _running) task.name];
 
-  /// Stops every task (its stop function), waiting at most [timeout].
+  /// Whether [cancelAll] began.
+  bool get stopping => _stopping;
+
+  /// Stops every task (its stop function, which may let an iteration in
+  /// progress end), waiting at most [timeout] for all of them.
   Future<void> cancelAll({
     Duration timeout = const Duration(seconds: 2),
   }) async {
+    _stopping = true;
     final tasks = [..._running];
     await Future.wait([for (final task in tasks) task.cancel()])
         .timeout(timeout, onTimeout: () => const <void>[]);
   }
 
   void _report(String name, Object error, StackTrace stackTrace) {
-    final handler = onError;
+    final handler = _stopping ? onStopError ?? onError : onError;
     if (handler != null) {
       try {
         handler(name, error, stackTrace);
@@ -140,6 +152,13 @@ Detached<T> runDetached<T>(
 /// error (so the caller gets it), while what the body starts runs on
 /// detached. Without [stop] the task is forgotten once the future
 /// completes; with one, it is kept until the application stops it.
+///
+/// The future is made by a `Completer` of the caller's zone, so it serves
+/// one caller (or callers of that zone). When callers of several zones
+/// share the result (a connection every request waits for, a start every
+/// connection waits for), wrap it in a `SharedResult`:
+/// `SharedResult(() => runDetachedAsync(open, name: ...).value)`, so each
+/// gets the error in its own zone (Review #147).
 Detached<Future<T>> runDetachedAsync<T>(
   Future<T> Function() body, {
   required String name,
