@@ -232,6 +232,13 @@ final class HorizonStatusCommand extends DaravelCommand {
     final state = await HorizonSignals.status(_signals(app), _name(app));
     final value = state['state'];
     stdout.writeln('Horizon is $value.');
+    final timedOut = (state['timedOut'] as List<Object?>?)?.length ?? 0;
+    if (timedOut > 0) {
+      stdout.writeln(
+        '$timedOut job attempt(s) killed past their timeout recently: see '
+        'horizon:list.',
+      );
+    }
     if (HorizonConfig.onSqliteFile(app.config)) {
       stdout.writeln('Warning: ${HorizonConfig.sqliteWarning}');
     }
@@ -253,23 +260,43 @@ final class HorizonListCommand extends DaravelCommand {
   @override
   Future<int> run() => withApp((app) async {
     final state = await HorizonSignals.status(_signals(app), _name(app));
-    final supervisors = (state['supervisors'] as Map<String, Object?>?) ?? {};
-    if (state['state'] == 'inactive' || supervisors.isEmpty) {
-      stdout.writeln('No Horizon workers are running.');
-      return 0;
-    }
-    for (final MapEntry(key: plan, value: workers) in supervisors.entries) {
-      for (final w
-          in (workers! as List<Object?>).cast<Map<String, Object?>>()) {
-        stdout.writeln(
-          '${w['name']}  $plan  [${w['queues']}]  '
-          '${w['processed']} processed${w['busy'] == true ? ', busy' : ''}'
-          '${w['stopping'] == true ? ', stopping' : ''}',
-        );
-      }
-    }
+    horizonWorkerLines(state).forEach(stdout.writeln);
     return 0;
   });
+}
+
+/// What `horizon:list` prints for [state] ([HorizonMaster.status]): each
+/// worker, a busy one that has not reported for a while marked as running
+/// a job that blocks its isolate (not lost), then the jobs whose worker
+/// the master killed past their timeout.
+List<String> horizonWorkerLines(Map<String, Object?> state) {
+  final supervisors = (state['supervisors'] as Map<String, Object?>?) ?? {};
+  if (state['state'] == 'inactive' || supervisors.isEmpty) {
+    return const ['No Horizon workers are running.'];
+  }
+  final lines = <String>[];
+  for (final MapEntry(key: plan, value: workers) in supervisors.entries) {
+    for (final w in (workers! as List<Object?>).cast<Map<String, Object?>>()) {
+      final silent = (w['silentMs'] as num?)?.toInt();
+      lines.add(
+        '${w['name']}  $plan  [${w['queues']}]  '
+        '${w['processed']} processed${w['busy'] == true ? ', busy' : ''}'
+        '${silent == null ? '' : ' (not reporting for ${silent ~/ 1000}s: a job blocking its isolate)'}'
+        '${w['stopping'] == true ? ', stopping' : ''}',
+      );
+    }
+  }
+  final timedOut = (state['timedOut'] as List<Object?>?) ?? const [];
+  if (timedOut.isNotEmpty) {
+    lines.add('Killed past their timeout (latest last):');
+    for (final t in timedOut.cast<Map<String, Object?>>()) {
+      lines.add(
+        '  ${t['name']} ${t['job']} attempt ${t['attempt']}, limit '
+        '${t['limitSeconds']}s, on ${t['worker']}',
+      );
+    }
+  }
+  return lines;
 }
 
 /// `horizon:supervisors`: each supervisor and its worker count.

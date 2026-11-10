@@ -1,4 +1,4 @@
-<!-- source: background.md sha256:401e00f2c375 -->
+<!-- source: background.md sha256:bb9da7ec9a12 -->
 # Cache, event, queue, dan penjadwalan
 
 <!-- include: packages/daravel/test/docs/guide_examples_test.dart#cache-events-queue -->
@@ -107,6 +107,32 @@ sampai commit.
   `WithoutOverlapping` menahan lock-nya sampai `expiresAfter`. Worker yang
   job-nya timeout lalu di-release berhenti dengan exit code 1 (`queue:work`
   mengakhiri prosesnya), sehingga process manager menjalankan worker baru.
+- Handler yang mengerjakan kerja sinkron panjang (membuat PDF, meng-encode
+  JSON besar) memblok isolate-nya: timeout-nya sendiri tidak bisa terpicu
+  sampai handler selesai. Di `daravel_horizon`, master menilai worker yang
+  sedang menjalankan job berdasarkan timeout job itu (`timeout` plan bila
+  di-set, selain itu milik job), bukan berdasarkan heartbeat-nya. Master
+  membunuh worker itu setelah job berjalan melewati timeout tersebut ditambah
+  `HORIZON_KILL_GRACE` (10 detik), dan paling lambat satu heartbeat (minimal
+  satu detik) sebelum `QUEUE_RETRY_AFTER`, karena sejak saat itu worker lain
+  boleh mengambil job tersebut.
+  - Percobaan yang dibunuh dihitung satu kali, dan job langsung tersedia lagi
+    (tanpa backoff); job yang dibunuh sedekat itu dengan `QUEUE_RETRY_AFTER`
+    justru dibiarkan sampai `QUEUE_RETRY_AFTER`, sehingga master tidak pernah
+    melepas reservasi yang mungkin sudah dipegang worker lain. Job yang percobaannya sudah habis gagal pada pop
+    berikutnya dengan `MaxAttemptsExceededException` ("may have previously
+    timed out"), dan listener `JobFailed` dijalankan.
+  - Percobaan yang dibunuh tidak memancarkan `JobExceptionOccurred`, dan
+    `failOnTimeout` tidak berlaku: job dicoba lagi sampai percobaannya habis.
+  - `dartisan horizon:list` menampilkan worker seperti itu sebagai busy dan
+    "not reporting for N s", serta mendaftar percobaan yang dibunuh karena
+    melewati timeout.
+  - Hanya worker idle yang berhenti menjawab yang dibunuh setelah tiga
+    heartbeat (lease-nya). Itu termasuk worker yang terblok di `fromJson`
+    sebuah job sebelum job itu dilaporkan: master belum mengenal job
+    tersebut, sehingga job itu kembali setelah `QUEUE_RETRY_AFTER`.
+  - Kerja sinkron yang tidak boleh membuat worker diam sebaiknya dijalankan di
+    isolate tersendiri (`Concurrency.run`).
 - Error asinkron yang dibiarkan tidak tertangkap oleh handler (future yang
   tidak di-await) menggagalkan percobaan setelah handler selesai, tidak
   pernah selagi handler masih berjalan.
