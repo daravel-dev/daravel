@@ -264,11 +264,22 @@ With one worker: 5 596 vs 738 req/s (7.6×), 4 578 vs 251 (18.2×) and
   runs) Daravel's scenario 14 reaches 4 009 req/s with 4 isolates (Octane
   523); on PostgreSQL it is 2 078. The difference is the token query to
   PostgreSQL, with a pool of 4 connections per isolate (`PG_POOL`); ping
-  and the rate limit barely change. It is not a regression.
-- **Runs left out.** Two SQLite runs fell about 4× on both sides at once
+  and the rate limit barely change. It is not a regression. An explainer,
+  not a headline (one run each): a pool of 8 gives 2 162 req/s against
+  1 957 with 4, about 10 % more, so the pool is not the main limit; the
+  query's latency is.
+- **The `process` cache.** With Daravel's `process` store (shared by its
+  isolates through the coordinator) against Laravel's `array` store (one
+  per worker), SQLite, 4 workers, three runs: ping 10 733 req/s against
+  Octane 1 904 (5.6×), rate limited 10 311 against 1 458 (7.1×), token +
+  rate limit + cache 5 103 against 952 (5.4×). Three Laravel cells spread
+  more than 10 % over the runs (classic token 16.1 %, Octane rate limited
+  16.5 %, classic rate limited 11.2 %).
+- **Runs left out.** Three SQLite runs fell about 4× on both sides at once
   while the Windows host compiled and generated docs (the VM shares its
-  cores) and were redone; the `process` cache variant is still being redone
-  for the same reason, so it is not quoted here.
+  cores) and were redone. Two runs overlapped short work on the host and
+  were kept, as their numbers match the others: `redis-1b` (a docs
+  generation as it started) and `process-1b` (an analysis of two files).
 
 ### Coordinator messages per request (census)
 
