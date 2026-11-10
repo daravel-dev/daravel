@@ -225,11 +225,10 @@ Future<void> main(List<String> args) async {
   ) async {
     final coordinator = createStandardCoordinator();
     final port = coordinator.listen();
-    await LocalCoordinatorChannel(coordinator).call(
-      ProcessCacheService.serviceName,
-      'put',
-      {'key': 'ceiling-key', 'value': 'value'},
-    );
+    // Through the store, which encodes values as its readers expect.
+    await ProcessStore(
+      LocalCoordinatorChannel(coordinator),
+    ).put('ceiling-key', 'value');
     try {
       return await run(coordinator, port, [
         for (final j in jobs) (reply) => j(port, reply),
