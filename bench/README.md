@@ -230,7 +230,8 @@ The key is the benchmark's throwaway one, the same 32 bytes as Daravel's.
 Measured on 2026-11-10 on one machine: Intel i7-10875H (8 cores, 16
 threads) under WSL 2 (Linux 6.18.58), Docker, servers pinned to cores 0-3
 and the load generators to 4-11. Daravel 1.27 from this branch, AOT, Dart
-3.13.7; Laravel 12.71.0, Octane 2.23.0 on FrankenPHP 1.13.3, PHP 8.4.27
+3.13.7 (the `dart:stable` image of that day; the repository pins 3.13.4 in
+`.fvmrc`); Laravel 12.71.0, Octane 2.23.0 on FrankenPHP 1.13.3, PHP 8.4.27
 with OPcache, Sanctum 4.3.3; PostgreSQL 17.11, Redis 7.4.10. One machine,
 loopback, three scenarios: these are not general claims.
 
