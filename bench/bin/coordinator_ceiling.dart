@@ -49,6 +49,7 @@ final class ClientJob {
     required this.millis,
     required this.inFlight,
     this.limit = 0,
+    this.window = RemoteCoordinatorChannel.defaultBulkWindow,
   });
 
   final SendPort coordinator;
@@ -60,10 +61,16 @@ final class ClientJob {
 
   /// For `lease`: the limit per minute.
   final int limit;
+
+  /// The channel's bulk credit window (K1b; `--window`).
+  final int window;
 }
 
 Future<void> client(ClientJob job) async {
-  final channel = RemoteCoordinatorChannel(job.coordinator);
+  final channel = RemoteCoordinatorChannel(
+    job.coordinator,
+    bulkWindow: job.window,
+  );
   final buckets = List<int>.filled(bucketCount, 0);
   var count = 0;
   var allowed = 0;
@@ -224,6 +231,9 @@ Future<void> main(List<String> args) async {
     for (final c in option('clients', '1,4,8,16').split(',')) int.parse(c),
   ];
   final inFlight = int.parse(option('in-flight', '16'));
+  final window = int.parse(
+    option('window', '${RemoteCoordinatorChannel.defaultBulkWindow}'),
+  );
   final json = args.contains('--json');
   final out = <String, Object?>{
     'dart': Platform.version.split(' ').first,
@@ -231,6 +241,7 @@ Future<void> main(List<String> args) async {
     'processors': Platform.numberOfProcessors,
     'duration_s': millis / 1000,
     'in_flight_per_client': inFlight,
+    'bulk_window': window,
   };
 
   Future<RunResult> fresh(
@@ -291,6 +302,7 @@ Future<void> main(List<String> args) async {
   final probeReplies = ReceivePort();
   final floodReplies = ReceivePort();
   final before = coordinator.stats()['messages']! as int;
+  final portBefore = coordinator.stats()['port_messages']! as int;
   final watch = Stopwatch()..start();
   await Isolate.spawn(client, probe(port, probeReplies.sendPort));
   for (var i = 0; i < flood; i++) {
@@ -303,20 +315,25 @@ Future<void> main(List<String> args) async {
         index: i + 1,
         millis: millis,
         inFlight: 64,
+        window: window,
       ),
     );
   }
   final probed = await probeReplies.first as List<Object?>;
   var published = 0;
+  var refused = 0;
   var left = flood;
   await for (final m in floodReplies) {
     published += (m as List<Object?>)[1]! as int;
+    refused += m[3]! as int;
     if (--left == 0) {
       break;
     }
   }
   final seconds = watch.elapsedMicroseconds / 1e6;
   final messages = (coordinator.stats()['messages']! as int) - before;
+  final portMessages =
+      (coordinator.stats()['port_messages']! as int) - portBefore;
   coordinator.close();
   probeReplies.close();
   floodReplies.close();
@@ -332,6 +349,13 @@ Future<void> main(List<String> args) async {
     'flood_isolates': flood,
     'publish_per_s': (published / seconds).round(),
     'messages_per_s': (messages / seconds).round(),
+    // Port messages (a batch is one) per 1 000 publishes: what K1b's
+    // grouping saves.
+    'port_messages_per_1000_publishes': published == 0
+        ? null
+        : (portMessages * 1000 / published).round(),
+    // Publishes refused (a full bulk buffer, or a saturated coordinator).
+    'publish_refused': refused,
     'rate_alone': {
       'p50_us': alone.percentile(0.5).round(),
       'p99_us': alone.percentile(0.99).round(),

@@ -360,6 +360,10 @@ final class Coordinator {
   int _rejected = 0;
   int _expired = 0;
 
+  /// Messages taken off the port: a batch is one, however many calls it
+  /// holds (K1b); `messages` in [stats] counts calls.
+  int _portMessages = 0;
+
   /// The lag probe's last measurement, and the largest: how long a message
   /// waits behind the others in the coordinator's event loop, synchronous
   /// services included ([_probeLag]).
@@ -449,6 +453,7 @@ final class Coordinator {
     _port = port;
     _probeLag();
     port.handler = (Object? message) {
+      _portMessages++;
       switch (message) {
         case final CoordinatorRequest request:
           _onRequest(request);
@@ -867,6 +872,7 @@ final class Coordinator {
       // waiting (an [ExpiringCoordinatorMessage] past its deadline).
       'expired': _expired,
       'messages': messages,
+      'port_messages': _portMessages,
       'uptime_s': double.parse(seconds.toStringAsFixed(1)),
       'messages_per_second': seconds == 0
           ? 0.0
