@@ -11,6 +11,7 @@ import '../database/schema/schema_builder.dart';
 import '../foundation/config.dart';
 import '../foundation/env.dart';
 import '../foundation/exceptions.dart';
+import '../foundation/shared_result.dart';
 import '../server/coordinator.dart';
 import 'stores.dart';
 import 'tags.dart';
@@ -374,8 +375,12 @@ final class CacheRepository {
 
   /// Per isolate and store: the [remember] computations in flight, so N
   /// concurrent misses of a key in one isolate share one.
-  static final Expando<Map<String, Future<Object?>>> _remembering =
-      Expando<Map<String, Future<Object?>>>('remember');
+  ///
+  /// Each is a [SharedResult]: concurrent misses come from different
+  /// requests, and a failing loader must reach all of them (as a future
+  /// failing in one request's zone, it would hang the others).
+  static final Expando<Map<String, SharedResult<Object?>>> _remembering =
+      Expando<Map<String, SharedResult<Object?>>>('remember');
 
   /// Per isolate and store: the keys whose [flexible] refresh is running
   /// in this isolate, which skips the lock round trip for them.
@@ -545,22 +550,24 @@ final class CacheRepository {
     if (cached != null) {
       return cached;
     }
-    final inFlight = _remembering[store] ??= <String, Future<Object?>>{};
+    final inFlight = _remembering[store] ??= <String, SharedResult<Object?>>{};
     final full = _key(key);
     final shared = inFlight[full];
     if (shared != null) {
-      final value = await shared;
+      final value = await shared.value;
       if (value is T) {
         return value;
       }
     }
-    final mine = _rememberMiss<T>(key, ttl, compute, lockTimeout);
+    final mine = SharedResult<Object?>(
+      () => _rememberMiss<T>(key, ttl, compute, lockTimeout),
+    );
     inFlight[full] = mine;
     try {
-      return await mine;
+      return await mine.value as T;
     } finally {
       if (identical(inFlight[full], mine)) {
-        inFlight.remove(full)?.ignore();
+        inFlight.remove(full);
       }
     }
   }

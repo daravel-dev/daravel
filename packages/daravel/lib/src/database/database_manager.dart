@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import '../foundation/cancellation.dart';
 import '../foundation/clock.dart';
 import '../foundation/container.dart';
+import '../foundation/shared_result.dart';
 import '../foundation/exceptions.dart';
 import '../logging/logger.dart';
 import 'database_config.dart';
@@ -63,8 +64,11 @@ final class DatabaseManager {
   final DatabaseConfig config;
   final Logger? _logger;
   final Map<String, DatabaseDriver> _connections = <String, DatabaseDriver>{};
-  final Map<String, Future<DatabaseDriver>> _connecting =
-      <String, Future<DatabaseDriver>>{};
+  // Shared by the requests that ask while it opens: a SharedResult, so a
+  // connection that fails to open fails every one of them (a failing
+  // future would hang those waiting from another request's zone).
+  final Map<String, SharedResult<DatabaseDriver>> _connecting =
+      <String, SharedResult<DatabaseDriver>>{};
 
   /// A separate manager whose only (and default) connection is [connection]
   /// under [name], with this manager's registered drivers: for tools that
@@ -100,24 +104,26 @@ final class DatabaseManager {
     }
     final pending = _connecting[connectionName];
     if (pending != null) {
-      return pending;
+      return pending.value;
     }
     // In a microtask, so that it is registered below before it can finish:
     // a factory that throws (a secret not there yet) ended it at once, its
     // `finally` removed nothing, and the failure stayed cached for good.
-    final future = Future<DatabaseDriver>.microtask(() async {
-      try {
-        final driver = _createDriver(connectionName);
-        await driver.connect();
-        _connections[connectionName] = driver;
-        _logger?.debug('Database connection [$connectionName] opened.');
-        return driver;
-      } finally {
-        unawaited(_connecting.remove(connectionName));
-      }
-    });
-    _connecting[connectionName] = future;
-    return future;
+    final shared = SharedResult<DatabaseDriver>(
+      () => Future<DatabaseDriver>.microtask(() async {
+        try {
+          final driver = _createDriver(connectionName);
+          await driver.connect();
+          _connections[connectionName] = driver;
+          _logger?.debug('Database connection [$connectionName] opened.');
+          return driver;
+        } finally {
+          _connecting.remove(connectionName);
+        }
+      }),
+    );
+    _connecting[connectionName] = shared;
+    return shared.value;
   }
 
   // Copied on write: a query reads them without copying, and a listener
