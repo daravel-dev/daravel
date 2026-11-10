@@ -45,9 +45,15 @@ final List<String> trace = [];
 Supervisor? hooked;
 int hookCalls = 0;
 
+/// A file database: serveWith refuses an in-memory one with several
+/// isolates (each would get its own).
+final String hookDb =
+    '${Directory.systemTemp.path}${Platform.pathSeparator}'
+    'daravel_rolling_hooks_$pid.sqlite';
+
 ApplicationBuilder hookBase() =>
     Application.configure(basePath: Directory.systemTemp.path)
-        .withEnv({'APP_ENV': 'testing', 'DB_DATABASE': ':memory:'})
+        .withEnv({'APP_ENV': 'testing', 'DB_DATABASE': hookDb})
         .withLogLevel(LogLevel.critical)
         .withRouting(
           apiPrefix: '',
@@ -100,10 +106,13 @@ void main() {
     addTearDown(() => client.close(force: true));
   });
 
-  Future<Map<String, Object?>> boot() async {
+  /// GET /boot; [fresh] on a new connection (a new client), not one kept
+  /// alive from before.
+  Future<Map<String, Object?>> boot({bool fresh = false}) async {
     final request = await client.getUrl(
       Uri.parse('http://127.0.0.1:$port/boot'),
     );
+    request.persistentConnection = !fresh;
     final response = await request.close();
     return (jsonDecode(await utf8.decodeStream(response)) as Map)
         .cast<String, Object?>();
@@ -137,16 +146,16 @@ void main() {
       }
       expect((await boot())['supervised'], isTrue);
 
-      var failures = 0;
+      final failures = <String>[];
       var answered = 0;
       var rolling = true;
       final load = () async {
         while (rolling) {
           try {
-            await boot();
+            await boot(fresh: true);
             answered++;
-          } on Object {
-            failures++;
+          } on Object catch (error) {
+            failures.add('$error');
           }
           await Future<void>.delayed(const Duration(milliseconds: 20));
         }
@@ -159,7 +168,7 @@ void main() {
       expect(result.workers.map((w) => w.status), [
         for (var i = 0; i < 3; i++) WorkerRestartStatus.restarted,
       ]);
-      expect(failures, 0, reason: 'answered $answered');
+      expect(failures, isEmpty, reason: 'answered $answered');
       final after = <Object?>{};
       for (var i = 0; i < 30; i++) {
         after.add((await boot())['boot']);

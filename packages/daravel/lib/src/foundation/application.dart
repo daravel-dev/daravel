@@ -1541,16 +1541,23 @@ final class Application {
         error: error,
         stackTrace: stackTrace,
       );
-      try {
-        final stop = await runZonedGuarded(
-          () async => hook(probe, supervisor),
-          failed,
-        );
-        if (stop != null) {
-          stops.add(stop);
-        }
-      } on Object catch (error, stackTrace) {
-        failed(error, stackTrace);
+      // Created outside the guarded zone: a future of an error zone never
+      // hands its error to a listener outside it, so awaiting the hook's
+      // own future would hang on a hook that throws.
+      final installed = Completer<void Function()?>();
+      runZonedGuarded(() {
+        unawaited(() async {
+          try {
+            installed.complete(await hook(probe, supervisor));
+          } on Object catch (error, stackTrace) {
+            failed(error, stackTrace);
+            installed.complete(null);
+          }
+        }());
+      }, failed);
+      final stop = await installed.future;
+      if (stop != null) {
+        stops.add(stop);
       }
     }
     return stops;
