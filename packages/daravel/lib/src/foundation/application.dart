@@ -161,6 +161,25 @@ final class Application {
   /// cache). Set by the [Supervisor] before boot; in-process otherwise.
   CoordinatorChannel? coordinator;
 
+  bool _supervised = false;
+
+  /// Whether this is a worker isolate of a [Supervisor] (`APP_ISOLATES` >
+  /// 1), set before [boot] and fixed after it: what the supervisor does
+  /// for all of its workers (a rolling restart, through
+  /// [ApplicationBuilder.withSupervisorHook]) a worker need not do on its
+  /// own. False with one isolate, in the main isolate, and in embedded
+  /// workers (`SERVER_EMBED_*`).
+  bool get supervised => _supervised;
+
+  /// Marks this application as a [Supervisor]'s worker; the supervisor
+  /// calls it before [boot]. Throws a [StateError] once booting started.
+  void markSupervised() {
+    if (_booting != null) {
+      throw StateError('markSupervised() must be called before boot().');
+    }
+    _supervised = true;
+  }
+
   Timer? _metricsTimer;
 
   /// Whether [boot] has completed.
@@ -1445,14 +1464,52 @@ final class Application {
         return 0;
       }
       final logger = probe.logger;
-      await probe.shutdown();
-      supervisor = Supervisor(
+      final hooks = probe._builder._supervisorHooks;
+      if (hooks.isEmpty) {
+        await probe.shutdown();
+      }
+      final started = supervisor = Supervisor(
         factory,
         options,
         logger: logger,
         coordinator: coordinator,
       );
-      return await supervisor.run();
+      if (hooks.isEmpty) {
+        return await started.run();
+      }
+      started.onRollingRestart = (result) => unawaited(
+        probe.container
+            .make<EventDispatcher>()
+            .dispatch(WorkersRestarted(result))
+            .catchError((Object error, StackTrace stackTrace) {
+              logger.error(
+                'WorkersRestarted listener failed',
+                error: error,
+                stackTrace: stackTrace,
+              );
+            }),
+      );
+      await started.start();
+      final stops = await _installSupervisorHooks(
+        hooks,
+        probe,
+        started,
+        logger,
+      );
+      await started.done;
+      for (final stop in stops) {
+        try {
+          stop();
+        } on Object catch (error, stackTrace) {
+          logger.error(
+            'Supervisor hook stop failed',
+            error: error,
+            stackTrace: stackTrace,
+          );
+        }
+      }
+      await probe.shutdown();
+      return started.exitCode;
     } finally {
       await embedded?.stop(timeout: options.shutdownTimeout);
       // With one isolate the embedded workers listened on the application's
@@ -1460,6 +1517,37 @@ final class Application {
       // the server stopped. (The supervisor closes its own coordinator.)
       coordinator?.close();
     }
+  }
+
+  /// Installs [hooks], each in a zone of its own, so an error in a hook
+  /// or in what it starts (a timer, a stream) is logged rather than ending
+  /// the main isolate; returns their stop functions.
+  static Future<List<void Function()>> _installSupervisorHooks(
+    List<SupervisorHook> hooks,
+    Application probe,
+    Supervisor supervisor,
+    Logger logger,
+  ) async {
+    final stops = <void Function()>[];
+    for (final hook in hooks) {
+      void failed(Object error, StackTrace stackTrace) => logger.error(
+        'Supervisor hook failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      try {
+        final stop = await runZonedGuarded(
+          () async => hook(probe, supervisor),
+          failed,
+        );
+        if (stop != null) {
+          stops.add(stop);
+        }
+      } on Object catch (error, stackTrace) {
+        failed(error, stackTrace);
+      }
+    }
+    return stops;
   }
 
   /// Boots, serves HTTP until the engine stops, then releases resources.
@@ -1865,7 +1953,22 @@ final class ApplicationBuilder {
   final List<void Function(Env env, ConfigRepository config)> _configFactories =
       [];
   final List<ConfigCheck> _configChecks = <ConfigCheck>[];
+  final List<SupervisorHook> _supervisorHooks = <SupervisorHook>[];
   LogLevel? _logLevel;
+
+  /// Runs [hook] in the main isolate once the [Supervisor] of
+  /// `serveWith` has started its workers (`APP_ISOLATES` > 1; never with
+  /// one isolate): with the booted application of the main isolate, kept
+  /// until the server stops (one connection to the signal store per
+  /// process, not one per worker), and the supervisor, for instance to
+  /// call [Supervisor.rollingRestart]. The hook may return a function
+  /// called at shutdown. An error of the hook, while it is installed or
+  /// later in what it started, and of that function, is logged: the
+  /// server keeps serving.
+  ApplicationBuilder withSupervisorHook(SupervisorHook hook) {
+    _supervisorHooks.add(hook);
+    return this;
+  }
 
   /// Adds a configuration check run at boot (errors abort the boot).
   ApplicationBuilder withConfigCheck(ConfigCheck check) {

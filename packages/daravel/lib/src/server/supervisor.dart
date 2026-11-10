@@ -17,6 +17,14 @@ import 'worker_reports.dart';
 /// closure capturing nothing) so it can be sent to worker isolates.
 typedef ApplicationFactory = Application Function();
 
+/// Runs in the main isolate with the booted [Application] there and the
+/// [Supervisor] (ApplicationBuilder.withSupervisorHook); may return a
+/// function called at shutdown.
+typedef SupervisorHook = FutureOr<void Function()?> Function(
+  Application app,
+  Supervisor supervisor,
+);
+
 /// Builds the standard coordinator: rate limiting, process cache, merged
 /// metrics (with the coordinator's own counters), broadcast fan-out,
 /// channel membership and worker reports.
@@ -143,6 +151,12 @@ final class _Worker {
   int? port;
   bool drained = false;
   bool restarting = false;
+
+  /// Completes when the isolate exits ([Supervisor.rollingRestart]).
+  Completer<void>? exited;
+
+  /// Completes with whether its replacement became ready.
+  Completer<bool>? replaced;
   ReceivePort? exitPort;
   ReceivePort? errorPort;
 }
@@ -315,6 +329,8 @@ final class Supervisor {
         worker.control = message.control;
         worker.port = message.port;
         ready.complete();
+        worker.replaced?.complete(true);
+        worker.replaced = null;
         logger.debug('Worker ${message.index} ready on port ${message.port}');
       case WorkerFailed():
         _ready
@@ -322,6 +338,9 @@ final class Supervisor {
             ?.completeError(
               StateError('Worker ${message.index} failed: ${message.error}'),
             );
+        final failed = workerAt(message.index);
+        failed?.replaced?.complete(false);
+        failed?.replaced = null;
       case WorkerDrained():
         workerAt(message.index)?.drained = true;
       case WorkerRestarting():
@@ -335,6 +354,8 @@ final class Supervisor {
     worker.isolate = null;
     worker.control = null;
     worker.port = null;
+    worker.exited?.complete();
+    worker.exited = null;
     // Its presence members and broadcast ports would otherwise outlive it:
     // ghosts in every presence channel, and a port per respawn that only
     // ever grew.
@@ -386,8 +407,125 @@ final class Supervisor {
         error: error,
         stackTrace: stackTrace,
       );
+      worker.replaced?.complete(false);
+      worker.replaced = null;
       _onWorkerExit(worker);
     }
+  }
+
+  Future<RollingRestart>? _rolling;
+  Completer<RollingRestart>? _pendingRoll;
+
+  /// Called with the outcome of each [rollingRestart] (the application
+  /// dispatches it as [WorkersRestarted]).
+  void Function(RollingRestart result)? onRollingRestart;
+
+  /// Restarts the workers one at a time, so the others keep serving: each
+  /// is drained, and the next one only once its replacement is ready.
+  ///
+  /// A worker's drain is bounded as at shutdown
+  /// ([ServeOptions.shutdownTimeout], then the isolate is killed, as
+  /// [stop] does); [readyTimeout] counts from the moment the old worker
+  /// exited. A replacement that is not ready within it, or that fails,
+  /// ends the round there ([WorkerRestartStatus.timedOut] or
+  /// [WorkerRestartStatus.failed]): the workers left keep serving the old
+  /// code, and the usual respawn and backoff take care of the failed one.
+  /// A worker that is respawning already when its turn comes is
+  /// [WorkerRestartStatus.skipped]. While stopping, every worker is
+  /// skipped.
+  ///
+  /// One round at a time: called during a round, it runs one more round
+  /// after it (however many calls came meanwhile), whose result the later
+  /// calls get.
+  Future<RollingRestart> rollingRestart({
+    Duration readyTimeout = const Duration(seconds: 30),
+  }) {
+    if (_rolling != null) {
+      return (_pendingRoll ??= Completer<RollingRestart>()).future;
+    }
+    final round = _roll(readyTimeout);
+    _rolling = round;
+    unawaited(
+      round.whenComplete(() {
+        _rolling = null;
+        final pending = _pendingRoll;
+        _pendingRoll = null;
+        if (pending != null) {
+          pending.complete(rollingRestart(readyTimeout: readyTimeout));
+        }
+      }),
+    );
+    return round;
+  }
+
+  Future<RollingRestart> _roll(Duration readyTimeout) async {
+    final watch = Stopwatch()..start();
+    final outcomes = <WorkerRestartOutcome>[];
+    var stopped = false;
+    logger.info('Rolling restart of ${_workers.length} workers.');
+    for (final worker in _workers) {
+      final started = watch.elapsed;
+      WorkerRestartOutcome outcome(WorkerRestartStatus status) =>
+          WorkerRestartOutcome(worker.index, status, watch.elapsed - started);
+      final isolate = worker.isolate;
+      if (stopped ||
+          _stopping ||
+          isolate == null ||
+          _ready.containsKey(worker.index)) {
+        outcomes.add(outcome(WorkerRestartStatus.skipped));
+        continue;
+      }
+      final exited = worker.exited = Completer<void>();
+      final replaced = worker.replaced = Completer<bool>();
+      worker.restarting = true;
+      worker.control?.send('drain');
+      await exited.future.timeout(
+        options.shutdownTimeout + const Duration(seconds: 2),
+        onTimeout: () {
+          logger.warning(
+            'Killing worker ${worker.index} after its drain timed out.',
+          );
+          isolate.kill(priority: Isolate.immediate);
+          return exited.future;
+        },
+      );
+      final ready = await replaced.future.timeout(
+        readyTimeout,
+        onTimeout: () => false,
+      );
+      if (ready) {
+        outcomes.add(outcome(WorkerRestartStatus.restarted));
+        continue;
+      }
+      final timedOut = !replaced.isCompleted;
+      worker.replaced = null;
+      outcomes.add(
+        outcome(
+          timedOut ? WorkerRestartStatus.timedOut : WorkerRestartStatus.failed,
+        ),
+      );
+      logger.error(
+        'Rolling restart stopped: the replacement of worker ${worker.index} '
+        '${timedOut ? 'was not ready within ${readyTimeout.inSeconds}s' : 'failed'}; '
+        'the other workers keep serving.',
+      );
+      stopped = true;
+    }
+    final result = RollingRestart(outcomes, watch.elapsed);
+    logger.info(
+      'Rolling restart ${result.completed ? 'done' : 'incomplete'}: '
+      '${result.summary} in ${result.elapsed.inMilliseconds} ms.',
+    );
+    try {
+      onRollingRestart?.call(result);
+    } on Object catch (error, stackTrace) {
+      logger.error(
+        'Rolling restart listener failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+    return result;
   }
 
   /// Drains every worker (graceful) and completes [done].
@@ -460,7 +598,9 @@ final class Supervisor {
     final Application app;
     try {
       app = spawn.factory();
-      app.coordinator = channel;
+      app
+        ..coordinator = channel
+        ..markSupervised();
       await app.boot();
     } catch (error) {
       spawn.supervisor.send(WorkerFailed(spawn.index, '$error'));
@@ -509,4 +649,69 @@ final class Supervisor {
       control.close();
     }
   }
+}
+
+/// How one worker fared in a [Supervisor.rollingRestart].
+enum WorkerRestartStatus {
+  /// Drained, and its replacement is ready.
+  restarted,
+
+  /// Its replacement was not ready in time: the round stopped here.
+  timedOut,
+
+  /// Its replacement failed to start: the round stopped here.
+  failed,
+
+  /// Not restarted: respawning already, after a stopped round, or while
+  /// the supervisor stops.
+  skipped,
+}
+
+/// One worker's part of a [RollingRestart].
+final class WorkerRestartOutcome {
+  /// Worker [index] ended as [status] after [elapsed].
+  const WorkerRestartOutcome(this.index, this.status, this.elapsed);
+
+  /// The worker's index.
+  final int index;
+
+  /// How it fared.
+  final WorkerRestartStatus status;
+
+  /// From its turn to its replacement's readiness (or the round's end).
+  final Duration elapsed;
+}
+
+/// The outcome of [Supervisor.rollingRestart].
+final class RollingRestart {
+  /// [workers] in their order, over [elapsed].
+  const RollingRestart(this.workers, this.elapsed);
+
+  /// Each worker, in order.
+  final List<WorkerRestartOutcome> workers;
+
+  /// The round's length.
+  final Duration elapsed;
+
+  /// Whether every worker was restarted.
+  bool get completed =>
+      workers.isNotEmpty &&
+      workers.every((w) => w.status == WorkerRestartStatus.restarted);
+
+  /// How many workers ended in each status (`restarted 3`, ...).
+  String get summary => [
+    for (final status in WorkerRestartStatus.values)
+      if (workers.any((w) => w.status == status))
+        '${status.name} ${workers.where((w) => w.status == status).length}',
+  ].join(', ');
+}
+
+/// Dispatched in the main isolate after each [Supervisor.rollingRestart]
+/// (for Pulse or Horizon to record).
+final class WorkersRestarted {
+  /// The round's [result].
+  const WorkersRestarted(this.result);
+
+  /// How it went.
+  final RollingRestart result;
 }
