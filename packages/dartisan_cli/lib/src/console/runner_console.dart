@@ -4,6 +4,7 @@ import 'package:args/command_runner.dart';
 
 import 'command_list.dart';
 import 'console.dart';
+import 'sponsor.dart';
 
 /// The appearance of a `dartisan` runner (Blueprint #137 §3.2): the global
 /// `--no-color` and `--ansi` flags, the banner and grouped commands on a
@@ -39,6 +40,7 @@ mixin DartisanConsole on CommandRunner<int> {
         help: 'Force colors, for a pager such as less -R.',
       );
     addCommand(ListCommand(this, () => this.console, project: project));
+    addCommand(SponsorCommand(console: () => this.console));
   }
 
   /// The project's own commands, listed last as `project`.
