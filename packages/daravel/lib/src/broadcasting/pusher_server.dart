@@ -7,6 +7,7 @@ import 'dart:math';
 import 'package:meta/meta.dart';
 
 import '../foundation/clock.dart';
+import '../foundation/detached.dart';
 import '../foundation/shared_result.dart';
 import '../http/request.dart';
 import '../http/response.dart';
@@ -127,7 +128,13 @@ final class PusherServer {
     }
     return _relaying = SharedResult(() async {
       try {
-        await relay.start(_broadcaster.deliverLocally);
+        // Detached: the relay's loop (reads, LISTEN, heartbeats) outlives
+        // the connection whose request starts it (Review #149). It stops
+        // with close(), at the application's shutdown.
+        await runDetachedAsync(
+          () => relay.start(_broadcaster.deliverLocally),
+          name: 'broadcast relay',
+        ).value;
         _relayFailedAt = null;
       } on Object {
         // Not kept: a client after the pause starts it again.

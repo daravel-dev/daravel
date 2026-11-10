@@ -269,6 +269,46 @@ void scalingTests({
   Future<T> onServer<T>(int index, Future<T> Function(DatabaseManager db) fn) =>
       servers[index].$1.run(() => fn(App.make<DatabaseManager>()));
 
+  test('the group runs on the database it names', () async {
+    final config = servers[0].$1.config.section<DatabaseConfig>();
+    final driver = config.connections[config.defaultConnection]!.driver;
+    final runtime = await onServer(
+      0,
+      (db) async => (await db.connection()).runtimeType.toString(),
+    );
+    if (databaseUrl == null) {
+      expect((driver, runtime), ('sqlite', 'SqliteDriver'));
+    } else {
+      // DB_URL gives the default connection (named sqlite) its driver.
+      expect(driver, isNot('sqlite'));
+      expect(runtime, isNot('SqliteDriver'));
+      expect(databaseUrl, startsWith(driver == 'pgsql' ? 'postgres' : driver));
+    }
+  });
+
+  test('the relay a connection starts reads with no request scope after '
+      'that connection ended (Review #149)', () async {
+    final scopes = <Scope?>[];
+    final stop = await onServer(
+      0,
+      (db) async => db.listen((event) {
+        if (event.sql.contains('broadcast_messages')) {
+          scopes.add(Container.currentOrNull?.currentScope);
+        }
+      }),
+    );
+    addTearDown(stop);
+    final first = await connect(0); // starts server a's relay
+    await first.close();
+    scopes.clear();
+    final deadline = DateTime.now().add(const Duration(seconds: 5));
+    while (scopes.isEmpty && DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
+    expect(scopes, isNotEmpty, reason: 'the relay reads');
+    expect(scopes, everyElement(isNull), reason: 'not the request\'s scope');
+  }, skip: redis ? 'database relay' : false);
+
   Future<int> memberRows() => onServer(
     0,
     (db) async => (await db.table('broadcast_members').get()).length,
