@@ -125,16 +125,20 @@ until commit by default.
   - `dartisan horizon:list` shows such a worker as busy and "not reporting
     for N s", and lists the attempts killed past their timeout.
   - Only an idle worker that stops answering is killed after three
-    heartbeats (its lease). That includes a worker blocked in a job's
-    `fromJson`, before the job is reported: the master does not know that
-    job yet, so it comes back after `QUEUE_RETRY_AFTER`.
+    heartbeats (its lease). A worker reports a job the moment the driver
+    reserved it, before `fromJson`: one blocked in a job's `fromJson` is
+    known to run that job, judged by the job's timeout, and its job made
+    available again at once. What is left is only the driver's own I/O
+    before the pop returns, where no application code runs.
   - A `HORIZON_HEARTBEAT_MS` under a few hundred milliseconds gets healthy
     workers killed on a busy host (their lease is four heartbeats);
     `dartisan doctor` and boot warn under 250 ms outside `APP_ENV=testing`.
-  - The limit before `QUEUE_RETRY_AFTER` counts from when the job *started*,
-    while the driver's `retry_after` counts from when it was *reserved*.
-    The difference is usually milliseconds, but a slow `fromJson` eats into
-    the margin, which is why the margin is not zero.
+  - The master's limit counts from the job's *reservation*, as the driver's
+    `retry_after` does; the margin before `QUEUE_RETRY_AFTER` is only a
+    reserve for the two clocks and the report on its way. The processor's
+    timeout counts from the start of `handle`, so the master's limit comes
+    earlier by `fromJson` and the middleware; `HORIZON_KILL_GRACE` covers
+    the usual difference.
   - Synchronous work that must not keep a worker silent belongs in an
     isolate of its own (`Concurrency.run`).
 - An asynchronous error that a handler leaves uncaught (a future it does not

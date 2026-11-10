@@ -616,13 +616,16 @@ final class HorizonMaster {
   }
 
   /// How long, from its reservation, the job [w] runs may go on before its
-  /// isolate is killed:
-  /// the timeout the processor enforces for it (`JobProcessing.timeout`:
-  /// the plan's `timeout` when set, otherwise the job's own) plus
-  /// `killGrace`, but never later than [_reclaimMargin] before the
-  /// connection's `retry_after`: from then on the driver may give the job
-  /// to another worker, which would run it beside this one. Null when [w]
-  /// runs no job.
+  /// isolate is killed: the timeout the processor enforces for it (the
+  /// plan's `timeout` when set, otherwise the job's own) plus `killGrace`,
+  /// but never later than [_reclaimMargin] before the connection's
+  /// `retry_after`: from then on the driver may give the job to another
+  /// worker, which would run it beside this one. Null when [w] runs no job.
+  ///
+  /// The processor counts its timeout from the start of `handle`, this
+  /// limit from the reservation: earlier by the job's `fromJson` and its
+  /// middleware, a difference `killGrace` covers in the usual case. It is
+  /// not the processor's timeout to the millisecond.
   Duration? _jobLimit(HorizonWorker w) {
     final beat = w.last;
     if (beat == null || beat.jobId == null || beat.jobReservedAtMs == null) {
