@@ -140,7 +140,10 @@ void main() {
       });
       expect(client.socket.closeCode, isNull, reason: 'not terminated');
       final text = await metrics();
-      expect(text, contains('reverb_rejected_total{reason="rate_limit"} 1'));
+      expect(
+        text,
+        contains('reverb_rejected_total{app="42",reason="rate_limit"} 1'),
+      );
       expect(text, contains('reverb_rate_limited_total{app="42"} 1'));
 
       Clock.travel(const Duration(seconds: 61));

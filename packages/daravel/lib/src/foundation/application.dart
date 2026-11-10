@@ -64,10 +64,12 @@ import '../routing/openapi.dart';
 import '../routing/router.dart';
 import '../routing/url_signer.dart';
 import '../schedule/schedule.dart';
+import '../broadcasting/app_provider.dart';
 import '../broadcasting/broadcast_config.dart';
 import '../broadcasting/broadcast_manager.dart';
 import '../broadcasting/channel_registry.dart';
 import '../broadcasting/cluster.dart';
+import '../broadcasting/pusher_observer.dart';
 import '../broadcasting/pusher_server.dart';
 import '../server/broadcast.dart';
 import '../server/coordinator.dart';
@@ -174,6 +176,26 @@ final class Application {
   /// The running server engine, if any.
   ServerEngine? get engine => _engine;
 
+  /// Adds environment overrides to an application that has not started
+  /// booting, for a host that receives a built [Application] rather than
+  /// its builder (a worker isolate, a test harness, `serveWith`).
+  ///
+  /// The highest precedence, as [ApplicationBuilder.withEnv]: an override
+  /// wins over the process environment and the `.env` file, and since it is
+  /// applied last it also wins over a `withEnv` value of the same name.
+  /// Throws a [StateError] once [boot] was called.
+  void overrideEnv(Map<String, String> overrides) {
+    if (_booting != null) {
+      throw StateError(
+        'overrideEnv() must be called before boot(): the environment is '
+        'read once, when the application boots.',
+      );
+    }
+    _envOverrides = <String, String>{..._envOverrides, ...overrides};
+  }
+
+  Map<String, String> _envOverrides = const <String, String>{};
+
   /// Boots the application exactly once (safe to call concurrently). Boot
   /// runs with this container as [Container.current], so facades work in
   /// providers, bindings and routing callbacks.
@@ -182,7 +204,7 @@ final class Application {
   Future<void> _boot() async {
     env = await Env.load(
       basePath: basePath,
-      overrides: _builder._envOverrides,
+      overrides: <String, String>{..._builder._envOverrides, ..._envOverrides},
       decrypt: (contents, key) => EnvironmentEncrypter(key).decrypt(contents),
     );
     final loggingConfig = LoggingConfig.fromEnv(env);
@@ -263,14 +285,16 @@ final class Application {
     final channel =
         coordinator ??
         LocalCoordinatorChannel(
-          createStandardCoordinator(
-            jwtDenylistMaxEntries: config
-                .section<CacheConfig>()
-                .jwtDenylistMaxEntries,
-            onWarning: logger.warning,
-            processCacheMaxEntries: config
-                .section<CacheConfig>()
-                .processMaxEntries,
+          _registerCoordinatorServices(
+            createStandardCoordinator(
+              jwtDenylistMaxEntries: config
+                  .section<CacheConfig>()
+                  .jwtDenylistMaxEntries,
+              onWarning: logger.warning,
+              processCacheMaxEntries: config
+                  .section<CacheConfig>()
+                  .processMaxEntries,
+            ),
           ),
         );
     final events = EventDispatcher();
@@ -466,21 +490,25 @@ final class Application {
                 c.make<Logger>().warning('Broadcast relay: $error'),
           );
         }
+        final apps = _builder._broadcasting?.apps;
         return BroadcastManager(
           broadcasting,
-          server: broadcasting.serves
+          server: broadcasting.serves || apps != null
               ? PusherServer(
                   broadcasting,
                   c.make<Broadcaster>(),
                   c.make<CoordinatorChannel>(),
                   state: shared,
                   relay: relay,
+                  apps: apps,
                   onError: (message, error) =>
                       c.make<Logger>().warning('$message: $error'),
-                  onRejected: (reason) => metrics.recordReverbRejected(
-                    reason,
-                    app: broadcasting.appId,
-                  ),
+                  // Metrics by application, and this isolate's report to
+                  // the coordinator for Pulse and the dashboard.
+                  observer: PusherObservers([
+                    _ReverbMetrics(metrics),
+                    c.make<ReverbStats>(),
+                  ]),
                 )
               : null,
           http: c.make<HttpClientFactory>(),
@@ -490,6 +518,15 @@ final class Application {
       })
       ..instance<EventDispatcher>(events)
       ..instance<AppMetrics>(metrics)
+      ..singleton<ReverbStats>(
+        (c) => ReverbStats(
+          c.make<CoordinatorChannel>(),
+          interval: c
+              .make<ConfigRepository>()
+              .section<BroadcastConfig>()
+              .pulseIngestInterval,
+        ),
+      )
       ..instance<SlowClients>(
         SlowClients(onSlowClient: metrics.recordSlowClient),
       )
@@ -902,15 +939,34 @@ final class Application {
     }
   }
 
+  /// The broadcast channels `withBroadcasting(channels:)` registers, for
+  /// `dartisan route:list --channels` and other tools; empty without
+  /// broadcasting. Built anew on each call, from the registration
+  /// function.
+  ChannelRegistry get broadcastChannels {
+    final registry = ChannelRegistry();
+    _builder._broadcasting?.channels?.call(registry);
+    return registry;
+  }
+
   /// The Pusher protocol server and Laravel's `/broadcasting/auth`, when
   /// [ApplicationBuilder.withBroadcasting] was called and REVERB_APP_KEY
   /// and REVERB_APP_SECRET are set.
   void _registerBroadcastingRoutes() {
     final setup = _builder._broadcasting;
     final broadcasting = config.section<BroadcastConfig>();
-    if (setup == null || !broadcasting.serves) {
+    if (setup == null || !(broadcasting.serves || setup.apps != null)) {
       return;
     }
+    // The largest message any application allows, when the provider says
+    // (an application's own limit is checked on each message).
+    final maxMessageSize = switch (setup.apps) {
+      final ListAppProvider list => list.apps.fold(
+        broadcasting.maxMessageSize,
+        (most, app) => app.maxMessageSize > most ? app.maxMessageSize : most,
+      ),
+      _ => broadcasting.maxMessageSize,
+    };
     final server = container.make<BroadcastManager>().server!;
     final channels = ChannelRegistry();
     setup.channels?.call(channels);
@@ -928,7 +984,7 @@ final class Application {
         compress: false,
         // Pusher messages are small; a frame past the limit fails the
         // connection before it is buffered, not after.
-        maxPayloadBytes: broadcasting.maxMessageSize + 1024,
+        maxPayloadBytes: maxMessageSize + 1024,
         // A client too slow to read what it is sent is closed with 4100
         // ("over capacity"): Pusher clients reconnect after a backoff.
         maxBufferedBytes: broadcasting.maxBufferedBytes,
@@ -965,11 +1021,15 @@ final class Application {
           request.param<String>('appId'),
           request.param<String>('channel'),
         ),
-      )
-      ..post(
-        setup.authPath,
-        authorization.handle,
-      ).name('broadcasting.auth').middleware(setup.authMiddleware);
+      );
+    // Signed with the settings' secret: the application's own channels
+    // (another application's are authorized by its own backend).
+    if (broadcasting.serves) {
+      router
+          .post(setup.authPath, authorization.handle)
+          .name('broadcasting.auth')
+          .middleware(setup.authMiddleware);
+    }
   }
 
   /// The translator: `APP_LOCALE`, `APP_FALLBACK_LOCALE`, the lines from
@@ -1159,6 +1219,9 @@ final class Application {
   /// own isolates in the same process and stop with the server.
   /// [commandRunner] lets the embedded scheduler run console commands (the
   /// CLI passes its own); without it, scheduled commands fail and are logged.
+  /// [embedWorkers] (`serve --embed-worker`, `SERVER_EMBED_WORKERS`) names
+  /// isolates registered with [ApplicationBuilder.withEmbeddedWorker]; a
+  /// name nothing registered is a [ConfigException].
   static Future<int> serveWith(
     ApplicationFactory factory, {
     String? host,
@@ -1166,6 +1229,7 @@ final class Application {
     int? isolates,
     bool? embedQueue,
     bool? embedScheduler,
+    List<String>? embedWorkers,
     int? maxInFlight,
     Duration? maxQueueDelay,
     ScheduleCommandRunner? commandRunner,
@@ -1173,6 +1237,11 @@ final class Application {
     List<String> childArguments = const <String>[],
   }) async {
     final probe = factory();
+    if (embedWorkers != null && embedWorkers.isNotEmpty) {
+      // A command-line flag: the config checks at boot see the embedded
+      // workers too, not only the environment's.
+      probe.overrideEnv({'SERVER_EMBED_WORKERS': embedWorkers.join(',')});
+    }
     await probe.boot();
     // ADR-027: several processes on consecutive ports behind a proxy. A
     // child (DARAVEL_PROCESS_INDEX set) serves normally.
@@ -1193,6 +1262,8 @@ final class Application {
           if (embedQueue != null) 'SERVER_EMBED_QUEUE': '$embedQueue',
           if (embedScheduler != null)
             'SERVER_EMBED_SCHEDULER': '$embedScheduler',
+          if (embedWorkers != null)
+            'SERVER_EMBED_WORKERS': embedWorkers.join(','),
           if (maxInFlight != null) 'HTTP_MAX_IN_FLIGHT': '$maxInFlight',
           if (maxQueueDelay != null)
             'HTTP_MAX_QUEUE_DELAY': '${maxQueueDelay.inMilliseconds}ms',
@@ -1206,10 +1277,12 @@ final class Application {
       isolates: isolates,
       embedQueue: embedQueue,
       embedScheduler: embedScheduler,
+      embedWorkers: embedWorkers,
       maxInFlight: maxInFlight,
       maxQueueDelay: maxQueueDelay,
     );
     probe._ensureServeable(options);
+    probe._ensureEmbeddedWorkers(options.embedWorkers);
     // Once, here in the main isolate, rather than in every worker.
     if (probe.config.section<DatabaseConfig>().sharesSqliteFile(
       options.isolates,
@@ -1243,17 +1316,20 @@ final class Application {
           : null;
     } else {
       final cacheConfig = probe.config.section<CacheConfig>();
-      coordinator = createStandardCoordinator(
-        processCacheMaxEntries: cacheConfig.processMaxEntries,
-        jwtDenylistMaxEntries: cacheConfig.jwtDenylistMaxEntries,
-        onWarning: probe.logger.warning,
+      coordinator = probe._registerCoordinatorServices(
+        createStandardCoordinator(
+          processCacheMaxEntries: cacheConfig.processMaxEntries,
+          jwtDenylistMaxEntries: cacheConfig.jwtDenylistMaxEntries,
+          onWarning: probe.logger.warning,
+        ),
       );
     }
-    final embedded = roles.isEmpty
+    final embedded = roles.isEmpty && options.embedWorkers.isEmpty
         ? null
         : EmbeddedWorkers(
             factory,
             roles: roles,
+            custom: options.embedWorkers,
             logger: probe.logger,
             commandRunner: commandRunner,
             coordinator: coordinator?.listen(),
@@ -1342,6 +1418,35 @@ final class Application {
         '(CACHE_STORE, CACHE_LIMITER, QUEUE_UNIQUE_LOCK_STORE), or set '
         'APP_PROCESSES_ALLOW_UNSHARED_STATE=true to accept per-process '
         'caches, rate limits and locks.',
+      );
+    }
+  }
+
+  /// Registers the [ApplicationBuilder.withCoordinatorService] services
+  /// on [coordinator] and returns it.
+  Coordinator _registerCoordinatorServices(Coordinator coordinator) {
+    for (final factory in _builder._coordinatorServices) {
+      coordinator.register(factory());
+    }
+    return coordinator;
+  }
+
+  /// The names [ApplicationBuilder.withEmbeddedWorker] registered.
+  Iterable<String> get embeddedWorkerNames => _builder._embeddedWorkers.keys;
+
+  /// Refuses an embedded worker name nothing registered.
+  void _ensureEmbeddedWorkers(List<String> names) {
+    final unknown = [
+      for (final name in names)
+        if (!_builder._embeddedWorkers.containsKey(name)) name,
+    ];
+    if (unknown.isNotEmpty) {
+      final known = _builder._embeddedWorkers.keys;
+      throw ConfigException(
+        'Unknown embedded worker [${unknown.join(', ')}] '
+        '(serve --embed-worker, SERVER_EMBED_WORKERS); registered: '
+        '${known.isEmpty ? 'none' : known.join(', ')}. Packages register '
+        'theirs with ApplicationBuilder.withEmbeddedWorker.',
       );
     }
   }
@@ -1513,6 +1618,7 @@ final class ApplicationBuilder {
     void Function(ChannelRegistry channels)? channels,
     List<String> authMiddleware,
     String authPath,
+    BroadcastAppProvider? apps,
   })?
   _broadcasting;
   final List<Seeder> _seeders = <Seeder>[];
@@ -1819,16 +1925,24 @@ final class ApplicationBuilder {
   /// HTTP API at `/apps/{id}/...`, and `/broadcasting/auth` for private and
   /// presence channels, which [channels] authorizes (Laravel's
   /// `routes/channels.php`). Needs REVERB_APP_ID, REVERB_APP_KEY and
-  /// REVERB_APP_SECRET.
+  /// REVERB_APP_SECRET, or [apps].
+  ///
+  /// [apps] serves several Pusher applications on this server, as Reverb's
+  /// `reverb.apps.apps` (each with its own key, secret, origins and
+  /// limits; their channels are apart): `ListAppProvider([...])`, or a
+  /// provider reading them from a table. Without it the server serves the
+  /// one application of the `REVERB_APP_*` settings, as before.
   ApplicationBuilder withBroadcasting({
     void Function(ChannelRegistry channels)? channels,
     List<String> authMiddleware = const ['auth'],
     String authPath = '/broadcasting/auth',
+    BroadcastAppProvider? apps,
   }) {
     _broadcasting = (
       channels: channels,
       authMiddleware: authMiddleware,
       authPath: authPath,
+      apps: apps,
     );
     return this;
   }
@@ -1891,6 +2005,47 @@ final class ApplicationBuilder {
     return this;
   }
 
+  final Map<String, EmbeddedWorkerEntry> _embeddedWorkers = {};
+  final List<CoordinatorService Function()> _coordinatorServices = [];
+
+  /// Registers an embedded isolate named [name] that runs [entry] beside
+  /// the HTTP server when `serve --embed-worker=<name>` (or
+  /// `SERVER_EMBED_WORKERS`) asks for it, as `--embed-queue` runs the queue
+  /// worker: its own application from `createApp`, booted, the server's
+  /// coordinator, and the same respawn, crash backoff and stop. Packages
+  /// use it (`daravel_horizon`'s supervisor). [name] is lower case letters,
+  /// digits, `-` and `_`, other than `queue` and `scheduler`.
+  ApplicationBuilder withEmbeddedWorker(
+    String name,
+    EmbeddedWorkerEntry entry,
+  ) {
+    if (!RegExp(r'^[a-z0-9][a-z0-9_-]*$').hasMatch(name) ||
+        name == EmbeddedRole.queue.name ||
+        name == EmbeddedRole.scheduler.name) {
+      throw ArgumentError.value(
+        name,
+        'name',
+        'An embedded worker name is lower case letters, digits, - and _, '
+            'other than queue and scheduler.',
+      );
+    }
+    _embeddedWorkers[name] = entry;
+    return this;
+  }
+
+  /// Registers a coordinator service built by [factory] on the process's
+  /// coordinator, in every topology: the application's own coordinator
+  /// with one isolate (tests included), the supervisor's with several, and
+  /// so the embedded workers' too. A [WorkerAwareService] hears when a
+  /// worker isolate exits. Worker isolates reach it through
+  /// `CoordinatorChannel.call(service.name, op, args)`.
+  ApplicationBuilder withCoordinatorService(
+    CoordinatorService Function() factory,
+  ) {
+    _coordinatorServices.add(factory);
+    return this;
+  }
+
   /// Registers an additional typed configuration section.
   ApplicationBuilder withConfig<T extends ConfigSection>(
     T Function(Env env) factory,
@@ -1937,4 +2092,41 @@ final class _UpstreamConfig {
   final Set<String>? shadowIgnoreHeaders;
   final Set<String> Function(Request request)? shadowNormalizeKeys;
   final Set<String>? shadowFreshCookies;
+}
+
+/// The Pusher server's activity as `/metrics` series
+/// (`reverb_connections`, `reverb_channels`, `reverb_messages_total`,
+/// `reverb_fanout_seconds`, `reverb_rejected_total`).
+final class _ReverbMetrics extends PusherObserver {
+  _ReverbMetrics(this._metrics);
+
+  final AppMetrics _metrics;
+
+  @override
+  void connectionOpened(String app) => _metrics.recordReverbConnection(app, 1);
+
+  @override
+  void connectionClosed(String app) => _metrics.recordReverbConnection(app, -1);
+
+  @override
+  void subscribed(String app, String channel) => _metrics
+      .recordReverbSubscription(app, PusherObserver.channelType(channel), 1);
+
+  @override
+  void unsubscribed(String app, String channel) => _metrics
+      .recordReverbSubscription(app, PusherObserver.channelType(channel), -1);
+
+  @override
+  void received(String app) => _metrics.recordReverbMessage(app, 'in');
+
+  @override
+  void sent(String app) => _metrics.recordReverbMessage(app, 'out');
+
+  @override
+  void published(String app, Duration took) =>
+      _metrics.recordReverbFanout(app, took);
+
+  @override
+  void rejected(String app, String reason) =>
+      _metrics.recordReverbRejected(reason, app: app);
 }

@@ -1,4 +1,4 @@
-<!-- source: configuration.md sha256:6c94bc2a52fc -->
+<!-- source: configuration.md sha256:66c269c3bdee -->
 # Konfigurasi
 
 ## File environment
@@ -97,6 +97,7 @@ setelah boot.
 | `DB_POOL_SIZE`, `DB_SSLMODE` | `10`, `disable` | Pool koneksi per isolate, TLS (`require`, `verify-full`) |
 | `DB_SEARCH_PATH` (atau `DB_SCHEMA`) | dari server | Schema PostgreSQL pada setiap koneksi (`billing, hr, public`), `'search_path'` dari Laravel |
 | `DB_CONNECT_TIMEOUT`, `DB_QUERY_TIMEOUT` | `10`, `30` | Detik yang boleh dipakai koneksi PostgreSQL atau MySQL untuk terbuka, dan sebuah statement untuk berjalan (`0` untuk tanpa batas; statement yang macet akan menahan koneksi pool-nya selamanya) |
+| `DB_IDLE_TRANSACTION_TIMEOUT` | tidak ada | Detik sebuah session PostgreSQL atau MariaDB boleh menganggur di dalam transaksi sebelum server mengakhirinya dan melakukan rollback (`0` untuk tidak ada; MySQL tidak punya pengaturan ini) ([Database](database.md#transaksi-yang-tertinggal-terbuka)) |
 | `CACHE_STORE`, `CACHE_PREFIX` | `memory` | Penyimpanan cache (`memory`, `process`, `file`, `database`, `redis`; `array` milik Laravel sama dengan `memory`) dan prefix key |
 | `CACHE_PROCESS_MAX_ENTRIES` | `10000` | Jumlah entri yang disimpan store `process` untuk seluruh server; yang paling lama tidak dipakai dibuang lebih dulu, jadi naikkan bila store ini menampung banyak key yang harus bertahan sampai kedaluwarsa (counter per client), atau simpan key itu di `database` atau Redis |
 | `JWT_DENYLIST_MAX_ENTRIES` | `100000` | Id JWT yang dicabut yang disimpan untuk seluruh server bila cache store-nya ada di memori, di store tersendiri yang tidak dapat digusur key aplikasi; id yang kedaluwarsa dibuang lebih dulu, dan membuang id yang masih berlaku mencatat peringatan satu kali ([Autentikasi](auth.md)) |

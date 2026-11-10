@@ -327,6 +327,14 @@ final class ServeCommand extends DaravelCommand {
         'embed-scheduler',
         negatable: false,
         help: 'Also run the scheduler in its own isolate (SERVER_EMBED_SCHEDULER).',
+      )
+      ..addMultiOption(
+        'embed-worker',
+        help:
+            'Also run this embedded worker (registered with '
+            'withEmbeddedWorker, such as horizon) in its own isolate; '
+            'repeatable (SERVER_EMBED_WORKERS).',
+        valueHelp: 'name',
       );
   }
 
@@ -409,6 +417,10 @@ final class ServeCommand extends DaravelCommand {
       isolates: isolates,
       embedQueue: (results['embed-queue'] as bool) ? true : null,
       embedScheduler: (results['embed-scheduler'] as bool) ? true : null,
+      embedWorkers: switch (results['embed-worker'] as List<String>) {
+        final List<String> names when names.isNotEmpty => names,
+        _ => null,
+      },
       // 0 on the command line means "no limit" even when the .env sets one.
       maxInFlight: maxInFlight,
       maxQueueDelay: maxQueueDelay,
@@ -429,7 +441,12 @@ final class RouteListCommand extends DaravelCommand {
       ..addOption('path', help: 'Only routes whose URI contains this.')
       ..addOption('method', help: 'Only routes answering this method.')
       ..addOption('name', help: 'Only routes whose name contains this.')
-      ..addFlag('json', negatable: false, help: 'Output JSON.');
+      ..addFlag('json', negatable: false, help: 'Output JSON.')
+      ..addFlag(
+        'channels',
+        negatable: false,
+        help: 'The broadcast channels instead (withBroadcasting(channels:)).',
+      );
   }
 
   @override
@@ -441,6 +458,31 @@ final class RouteListCommand extends DaravelCommand {
   @override
   Future<int> run() => withApp((app) {
     final r = argResults!;
+    if (r['channels'] as bool) {
+      final channels = app.broadcastChannels.describe();
+      if (r['json'] as bool) {
+        stdout.writeln(
+          const JsonEncoder.withIndent('  ')
+              .convert([for (final c in channels) c.toJson()]),
+        );
+      } else if (channels.isEmpty) {
+        stdout.writeln('No broadcast channels.');
+      } else {
+        stdout.write(
+          renderTable(<List<String>>[
+            <String>['Channel', 'Type', 'Parameters', 'Events'],
+            for (final c in channels)
+              <String>[
+                c.channel,
+                c.type ?? 'private or presence',
+                c.parameters.join(', '),
+                [for (final e in c.events) e.name].join(', '),
+              ],
+          ]),
+        );
+      }
+      return 0;
+    }
     final path = r['path'] as String?;
     final method = (r['method'] as String?)?.toUpperCase();
     final name = r['name'] as String?;

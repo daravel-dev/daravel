@@ -232,6 +232,98 @@ tried again and logged, and never keeps the connection's other channels
 subscribed. A relay that could not start (Redis down) is started again by
 the next client.
 
+## Several applications
+
+One server can serve several Pusher applications, as Reverb's
+`reverb.apps.apps` does: each has its own key, secret, allowed origins,
+connection quota, message size and rate limiting, and the same channel name
+in two applications is two channels.
+
+```dart
+.withBroadcasting(
+  apps: ListAppProvider([
+    BroadcastApp(id: '42', key: 'shop-key', secret: env.string('SHOP_SECRET')),
+    BroadcastApp(
+      id: '43',
+      key: 'admin-key',
+      secret: env.string('ADMIN_SECRET'),
+      allowedOrigins: ['admin.example.com'],
+      maxConnections: 200,
+    ),
+  ]),
+)
+```
+
+A client connects with its application's key (`/app/shop-key`), and a
+backend publishes through `/apps/43/events` signed with that application's
+secret; a channel authorization signed by another application is refused
+with `4009`. Implement `BroadcastAppProvider` (`byKey`, `byId`) to read the
+applications from a table instead. Without `apps:` the server serves the
+one application of the `REVERB_APP_*` settings, as before, and that
+application keeps its channels and state as they were. `/broadcasting/auth`
+signs for the `REVERB_APP_*` application; the others are authorized by
+their own backends. Channel names cannot contain `:`, which keeps the
+applications apart even with `REVERB_APP_VALIDATE_CHANNEL_NAMES=false`.
+
+## Describing channels
+
+`channels.channel()` takes the channel's `type` (`private`, `presence` or
+`encrypted`) and the `events` it carries, each with an optional JSON Schema
+of its data. They change nothing at run time; tools read them:
+
+```dart
+channels.channel(
+  'orders.{orderId}',
+  (user, p) => user.authIdentifier == p['orderId'],
+  type: 'private',
+  events: [
+    BroadcastEventSchema(
+      'OrderShipped',
+      data: JsonSchema.object({'id': JsonSchema.integer().required()}),
+    ),
+  ],
+);
+```
+
+`dartisan route:list --channels` lists them (`--json` for the same as
+`ChannelRegistry.describe()`), and `Application.broadcastChannels` gives
+the registry to your own tools.
+
+## Testing broadcasts
+
+`Broadcast.fake()` records broadcasts instead of sending them, with the
+transaction rules kept: a broadcast made in a transaction that rolls back
+is not recorded, as it would not be sent. Laravel tests the same with
+`Event::fake()`.
+
+```dart
+final broadcasts = Broadcast.fake();
+await client.post('/orders/7/ship');
+broadcasts
+  ..assertBroadcasted<OrderShipped>(channel: 'private-orders.7')
+  ..assertBroadcasted<OrderShipped>(where: (e) => e.order.id == 7)
+  ..assertBroadcastedTimes<OrderShipped>(1)
+  ..assertSent('price.updated', channel: 'prices') // Broadcast.send(...)
+  ..assertNothingBroadcastedTo('private-admin');
+Broadcast.restore();
+```
+
+`assertNotBroadcasted<E>()` and `assertNothingBroadcasted()` check the
+opposite; `broadcasts.broadcasts` holds every `BroadcastRecord` (event,
+channels, data, the connection left out, the event object).
+
+## Watching the server
+
+`/metrics` has, by application: `reverb_connections` (and by worker
+isolate), `reverb_channels` (subscriptions by channel type),
+`reverb_messages_total` (`direction="in"` from clients, `"out"` to them),
+`reverb_fanout_seconds` (how long one frame takes to reach every isolate
+and the other servers) and `reverb_rejected_total` (with its `reason`).
+Each worker isolate also reports its activity to the coordinator every
+`REVERB_PULSE_INGEST_INTERVAL` seconds (15) while it has connections, which
+Pulse shows as its *Reverb* card. `PusherServer(observer:)` takes a
+`PusherObserver` of your own.
+
 ## Capacity
 
 `bench/interop/connections.sh` opens idle Echo connections against the AOT

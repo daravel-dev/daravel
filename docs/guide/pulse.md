@@ -71,6 +71,10 @@ gate.define('viewPulse', (user, args) => user is User && user.isAdmin);
   from the table), and the slow or failed jobs this server's isolates ran.
 - **Workers.** Each isolate, the requests it answered, those in flight, and
   the process's memory.
+- **Reverb.** With Pusher clients connected ([Broadcasting](broadcasting.md#watching-the-server)),
+  each isolate's last report by application: connections, subscriptions by
+  channel type, messages in and out since the report before, and the fan-out
+  p95. Hidden when no isolate serves Pusher clients.
 
 ## Settings
 

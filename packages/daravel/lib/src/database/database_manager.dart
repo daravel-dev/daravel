@@ -80,6 +80,16 @@ final class DatabaseManager {
         drivers: _driverFactories,
       );
 
+  /// The server sessions the open connections hold, by connection name, for
+  /// the drivers that can end them from elsewhere
+  /// ([SessionTerminatingDriver]); connections not opened yet and other
+  /// drivers are left out.
+  Map<String, List<String>> openSessions() => <String, List<String>>{
+    for (final MapEntry(:key, :value) in _connections.entries)
+      if (value case final SessionTerminatingDriver driver)
+        if (driver.sessionIds() case final ids when ids.isNotEmpty) key: ids,
+  };
+
   /// Returns the (lazily connected) driver for [name] or the default
   /// connection.
   Future<DatabaseDriver> connection([String? name]) {

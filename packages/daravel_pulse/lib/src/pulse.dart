@@ -189,6 +189,7 @@ abstract final class Pulse {
     );
     snapshot['queues'] = await _queues(container);
     snapshot['failed_jobs'] = await _failedJobs(container, now, window);
+    snapshot['reverb'] = await reverb(container);
     snapshot['thresholds'] = {
       'requests_ms': _config.slowRequestThreshold.inMilliseconds,
       'queries_ms': _config.slowQueryThreshold.inMilliseconds,
@@ -212,6 +213,32 @@ abstract final class Pulse {
     await reports.publish(topic, own);
     final all = await reports.collect(topic);
     return [for (final report in all.values) report! as Map<String, Object?>];
+  }
+
+  /// The *Reverb* card: each isolate's last report of its Pusher activity
+  /// (`ReverbStats`, every `REVERB_PULSE_INGEST_INTERVAL` while it has
+  /// connections), one row per isolate and application. Empty, and the
+  /// card hidden, when no isolate serves Pusher clients.
+  static Future<List<Map<String, Object?>>> reverb(Container container) async {
+    final Map<String, Object?> all;
+    try {
+      all = await ReverbStats.collect(container.make<CoordinatorChannel>());
+    } on Object {
+      return const [];
+    }
+    return [
+      for (final MapEntry(key: worker, value: report) in all.entries)
+        if (report case {'apps': final Map<Object?, Object?> apps})
+          for (final MapEntry(key: app, value: stats) in apps.entries)
+            if (stats case final Map<Object?, Object?> stats)
+              {
+                'worker': worker,
+                'app': '$app',
+                for (final MapEntry(:key, :value) in stats.entries)
+                  '$key': value,
+                'reported_at': report['at'],
+              },
+    ];
   }
 
   static Future<List<Map<String, Object?>>> _queues(Container container) async {
