@@ -195,6 +195,27 @@ databases.
   `--force`. Rows are read in chunks of `--chunk` (500), paged by
   primary key. `--tables=users,posts` limits the copy.
 
+### Statement timeouts on MySQL and MariaDB
+
+`DB_QUERY_TIMEOUT` (30 s) bounds each statement. On MySQL and MariaDB the
+server enforces it: each pooled connection sets it once, and a statement
+past it fails with `StatementTimeoutException` (as the `previous` of the
+`QueryException`), never retried, with no second connection to the server.
+
+| `statement_timeout_mode` | How | Notes |
+| :-- | :-- | :-- |
+| `server` (default) | MySQL 5.7.8+ `max_execution_time`, MariaDB 10.1+ `max_statement_time` | MySQL bounds only `SELECT`; outside a transaction a backstop 5 s later closes a connection that still has not answered, and the pool opens another |
+| `client` | `KILL QUERY` through a second connection, as before | For a database user that may not `SET SESSION` these variables; the driver also falls back to it, with one warning, when the server refuses |
+
+Inside a transaction only the server bounds a statement: a client timeout
+would leave the `ROLLBACK` queued behind it. So on MySQL (not MariaDB) a
+write inside a transaction is bounded by nothing in `server` mode: the
+server stops only `SELECT`, and there is no client backstop in a
+transaction, where the old `client` mode stopped it with `KILL QUERY`.
+Rely on `innodb_lock_wait_timeout` there, or use `client`. Set the mode in the
+connection options (`statement_timeout_mode`) or with
+`MySqlDriver(statementTimeoutMode:)`.
+
 ## Migrations
 
 <!-- include: packages/daravel/test/docs/guide_examples_test.dart#migration -->
@@ -550,6 +571,29 @@ Deadlocks and serialization failures (and SQLite's busy and locked
 errors) run the whole callback again. Between
 attempts it waits a random 2 to 250 ms, holding no connection, so isolates that
 collided do not collide again. A frozen test clock retries at once.
+
+## Transactions left open
+
+A connection whose owner stopped in the middle of a transaction stays open
+on the server, idle inside it, and keeps its row locks: the server only
+rolls back when the connection closes. Killing an isolate does not close its
+sockets while the process lives, so a worker isolate killed during a
+transaction blocks every later write to the rows it touched.
+
+`DB_IDLE_TRANSACTION_TIMEOUT` (seconds, unset by default) tells the server
+to end such a session, on every connection of the pool: PostgreSQL's
+`idle_in_transaction_session_timeout` and MariaDB's `idle_transaction_timeout`
+(10.3+). MySQL has no such setting and ignores it (`dartisan doctor` says
+so). Set it above the longest pause your own code makes inside a transaction,
+since the server cuts a legitimate one that idles longer.
+
+A supervisor that kills isolates itself can end their sessions at once
+instead: `DB.manager.openSessions()` lists the server's ids of the open
+connections (backend pids, connection ids), which the worker reports
+beforehand, and a driver implementing `SessionTerminatingDriver` (PostgreSQL,
+MySQL and MariaDB) ends one with `terminateSession(id)`
+(`pg_terminate_backend`, `KILL CONNECTION`) from a connection of its own.
+`daravel_horizon` does both.
 
 ## Listening to queries
 

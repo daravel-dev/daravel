@@ -323,6 +323,14 @@ final class ServeCommand extends DaravelCommand {
         'embed-scheduler',
         negatable: false,
         help: 'Also run the scheduler in its own isolate (SERVER_EMBED_SCHEDULER).',
+      )
+      ..addMultiOption(
+        'embed-worker',
+        help:
+            'Also run this embedded worker (registered with '
+            'withEmbeddedWorker, such as horizon) in its own isolate; '
+            'repeatable (SERVER_EMBED_WORKERS).',
+        valueHelp: 'name',
       );
   }
 
@@ -405,6 +413,10 @@ final class ServeCommand extends DaravelCommand {
       isolates: isolates,
       embedQueue: (results['embed-queue'] as bool) ? true : null,
       embedScheduler: (results['embed-scheduler'] as bool) ? true : null,
+      embedWorkers: switch (results['embed-worker'] as List<String>) {
+        final List<String> names when names.isNotEmpty => names,
+        _ => null,
+      },
       // 0 on the command line means "no limit" even when the .env sets one.
       maxInFlight: maxInFlight,
       maxQueueDelay: maxQueueDelay,

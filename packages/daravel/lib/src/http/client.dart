@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io' as io;
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import '../foundation/container.dart';
@@ -55,12 +56,59 @@ abstract final class Http {
   /// A request that fails after [timeout].
   static PendingRequest timeout(Duration timeout) => request().timeout(timeout);
 
-  /// A request retried on connection errors and failed responses.
+  /// A request retried on connection errors and failed responses (see
+  /// [PendingRequest.retry]).
   static PendingRequest retry(
     int times, {
     Duration delay = const Duration(milliseconds: 100),
     bool Function(ClientResponse? response, Object? error)? when,
-  }) => request().retry(times, delay: delay, when: when);
+    Duration Function(int attempt)? backoff,
+    double jitter = 0,
+    bool honorRetryAfter = false,
+    Duration maxRetryAfter = const Duration(seconds: 10),
+  }) => request().retry(
+    times,
+    delay: delay,
+    when: when,
+    backoff: backoff,
+    jitter: jitter,
+    honorRetryAfter: honorRetryAfter,
+    maxRetryAfter: maxRetryAfter,
+  );
+
+  /// Waits of [base], then [factor] times longer after each try, at most
+  /// [max]: `retry(5, backoff: Http.exponentialBackoff())` waits 100, 200,
+  /// 400 and 800 ms.
+  static Duration Function(int attempt) exponentialBackoff({
+    Duration base = const Duration(milliseconds: 100),
+    Duration max = const Duration(seconds: 10),
+    double factor = 2,
+  }) => (attempt) {
+    final micros =
+        base.inMicroseconds * math.pow(factor, attempt < 1 ? 0 : attempt - 1);
+    return micros >= max.inMicroseconds
+        ? max
+        : Duration(microseconds: micros.round());
+  };
+
+  /// Laravel's `retry(3, [100, 200, 500])`: the waits in order, the last
+  /// one again once they run out.
+  static Duration Function(int attempt) backoffSequence(List<Duration> waits) {
+    final copy = List<Duration>.unmodifiable(waits);
+    return (attempt) => copy.isEmpty
+        ? Duration.zero
+        : copy[(attempt < 1 ? 1 : attempt).clamp(1, copy.length) - 1];
+  }
+
+  /// A `when:` that retries a connection error, `429` and `5xx`, and not
+  /// the other client errors, which another try does not change.
+  static bool retryOnConnectionOr5xx(ClientResponse? response, Object? error) =>
+      error != null ||
+      (response != null && (response.status == 429 || response.status >= 500));
+
+  /// A `when:` that retries only when the connection failed.
+  static bool retryOnConnectionOnly(ClientResponse? response, Object? error) =>
+      error != null;
 
   /// Sends `GET` [url] with the [query] parameters.
   static Future<ClientResponse> get(
@@ -134,8 +182,20 @@ abstract final class Http {
 final class HttpClientFactory {
   /// A factory sending through `dart:io`, or through clients from
   /// [clientFactory] in tests.
-  HttpClientFactory({io.HttpClient Function()? clientFactory})
-    : _clientFactory = clientFactory ?? io.HttpClient.new;
+  /// [random] draws the retry jitter and [sleep] waits between tries;
+  /// tests pass their own.
+  HttpClientFactory({
+    io.HttpClient Function()? clientFactory,
+    math.Random? random,
+    Future<void> Function(Duration wait)? sleep,
+  }) : _clientFactory = clientFactory ?? io.HttpClient.new,
+       _random = random ?? math.Random(),
+       _sleep = sleep ?? _delay;
+
+  final math.Random _random;
+  final Future<void> Function(Duration wait) _sleep;
+
+  static Future<void> _delay(Duration wait) => Future<void>.delayed(wait);
 
   final io.HttpClient Function() _clientFactory;
   io.HttpClient? _client;
@@ -358,6 +418,10 @@ final class PendingRequest {
   int _tries = 1;
   Duration _retryDelay = Duration.zero;
   bool Function(ClientResponse? response, Object? error)? _retryWhen;
+  Duration Function(int attempt)? _retryBackoff;
+  double _retryJitter = 0;
+  bool _honorRetryAfter = false;
+  Duration _maxRetryAfter = const Duration(seconds: 10);
   bool _asForm = false;
 
   /// Resolves relative URLs against [url].
@@ -439,16 +503,71 @@ final class PendingRequest {
 
   /// Tries up to [times] times in total, waiting [delay] between tries, when
   /// the connection fails or the response is a client or server error (or
-  /// when [when] says so). The last response is returned either way.
+  /// when [when] says so: [Http.retryOnConnectionOr5xx] leaves other 4xx
+  /// alone). The last response is returned either way; the default retries
+  /// every failed response, as Laravel's `Http::retry()` does.
+  ///
+  /// [backoff] gives the wait after try `attempt` (from 1) instead of
+  /// [delay] ([Http.exponentialBackoff], [Http.backoffSequence]); [jitter]
+  /// (0 to 1) spreads each wait by up to that fraction either way, so
+  /// clients that failed together do not retry together. With
+  /// [honorRetryAfter], a `429` or `503` carrying `Retry-After` waits what
+  /// it says instead, at most [maxRetryAfter].
   PendingRequest retry(
     int times, {
     Duration delay = const Duration(milliseconds: 100),
     bool Function(ClientResponse? response, Object? error)? when,
+    Duration Function(int attempt)? backoff,
+    double jitter = 0,
+    bool honorRetryAfter = false,
+    Duration maxRetryAfter = const Duration(seconds: 10),
   }) {
+    if (jitter < 0 || jitter > 1) {
+      throw ArgumentError.value(jitter, 'jitter', 'must be from 0 to 1');
+    }
     _tries = times < 1 ? 1 : times;
     _retryDelay = delay;
     _retryWhen = when;
+    _retryBackoff = backoff;
+    _retryJitter = jitter;
+    _honorRetryAfter = honorRetryAfter;
+    _maxRetryAfter = maxRetryAfter;
     return this;
+  }
+
+  /// The wait after try [attempt], which got [response].
+  Duration _retryWait(int attempt, ClientResponse? response) {
+    if (_honorRetryAfter &&
+        response != null &&
+        (response.status == 429 || response.status == 503)) {
+      final asked = _retryAfter(response.header('retry-after'));
+      if (asked != null) {
+        return asked > _maxRetryAfter ? _maxRetryAfter : asked;
+      }
+    }
+    final wait = _retryBackoff?.call(attempt) ?? _retryDelay;
+    if (_retryJitter == 0 || wait <= Duration.zero) {
+      return wait;
+    }
+    final spread = 1 + (_factory._random.nextDouble() * 2 - 1) * _retryJitter;
+    return Duration(microseconds: (wait.inMicroseconds * spread).round());
+  }
+
+  /// `Retry-After` as seconds or an HTTP date; null when absent or bad.
+  static Duration? _retryAfter(String? value) {
+    if (value == null) {
+      return null;
+    }
+    final seconds = int.tryParse(value.trim());
+    if (seconds != null) {
+      return Duration(seconds: seconds < 0 ? 0 : seconds);
+    }
+    try {
+      final left = io.HttpDate.parse(value.trim()).difference(DateTime.now());
+      return left.isNegative ? Duration.zero : left;
+    } on Object {
+      return null;
+    }
   }
 
   /// Sends `GET` [url] with the [query] parameters.
@@ -523,8 +642,9 @@ final class PendingRequest {
         }
         return response!;
       }
-      if (_retryDelay > Duration.zero) {
-        await Future<void>.delayed(_retryDelay);
+      final wait = _retryWait(attempt, response);
+      if (wait > Duration.zero) {
+        await _factory._sleep(wait);
       }
     }
   }
