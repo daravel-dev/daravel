@@ -8,7 +8,11 @@
 //
 // 1. ceiling: operations and coordinator messages per second, p50/p99
 //    round trip, for a rate limit attempt without lease, a lock (acquire
-//    and release), a cache get and a publish, at each client count;
+//    and release), a cache get and a publish, at each client count; and,
+//    to tell the services from the messaging, a round trip to a service
+//    that does nothing (`noop`) and one-way messages the coordinator drops
+//    on arrival (`send`: ops are messages, 100 one-way and one round trip
+//    per round; messages_per_s counts the round trips only);
 // 3. saturation: p50/p99 of a rate limit attempt from one probe isolate,
 //    alone and while flood isolates publish as fast as they can;
 // 4. lease: for limits of 60, 1 000 and 10 000 per minute, attempts from 4
@@ -88,6 +92,15 @@ Future<void> client(ClientJob job) async {
         await cache.get('ceiling-key');
       case 'publish':
         await broadcaster.publish('ceiling', 'x');
+      case 'noop':
+        await channel.call(_Noop.serviceName, 'x', const {});
+      case 'send':
+        // One-way: messages the coordinator drops on arrival (not a
+        // request), then one round trip so the sender never runs ahead.
+        for (var i = 0; i < sendBatch; i++) {
+          job.coordinator.send(i);
+        }
+        await channel.call(_Noop.serviceName, 'x', const {});
       case 'lease':
         final result = await leased.attempt(
           'lease-${job.limit}',
@@ -106,7 +119,7 @@ Future<void> client(ClientJob job) async {
       final start = watch.elapsedMicroseconds;
       try {
         await once(i);
-        count++;
+        count += job.op == 'send' ? sendBatch + 1 : 1;
         buckets[bucketOf(watch.elapsedMicroseconds - start)]++;
       } on Object {
         errors++;
@@ -223,7 +236,7 @@ Future<void> main(List<String> args) async {
   Future<RunResult> fresh(
     List<ClientJob Function(SendPort coordinator, SendPort reply)> jobs,
   ) async {
-    final coordinator = createStandardCoordinator();
+    final coordinator = createStandardCoordinator()..register(_Noop());
     final port = coordinator.listen();
     // Through the store, which encodes values as its readers expect.
     await ProcessStore(LocalCoordinatorChannel(coordinator))
@@ -239,7 +252,7 @@ Future<void> main(List<String> args) async {
 
   // 1. Ceiling per operation and client count.
   final ceiling = <String, Object?>{};
-  for (final op in ['rate', 'lock', 'cache', 'publish']) {
+  for (final op in ['rate', 'lock', 'cache', 'publish', 'noop', 'send']) {
     final byClients = <String, Object?>{};
     for (final n in clients) {
       final r = await fresh([
@@ -368,4 +381,22 @@ Future<void> main(List<String> args) async {
   if (json) {
     stdout.writeln(const JsonEncoder.withIndent('  ').convert(out));
   }
+}
+
+/// One-way messages per `send` round (Blueprint #141 K0, ACK 195 §4.1 a).
+const int sendBatch = 100;
+
+/// A service that does nothing: the cost of a round trip alone (ACK 195
+/// §4.1 b).
+final class _Noop implements CoordinatorService {
+  static const String serviceName = 'ceiling-noop';
+
+  @override
+  String get name => serviceName;
+
+  @override
+  Object? handle(String op, Map<String, Object?> args) => null;
+
+  @override
+  Map<String, Object?> stats() => const {};
 }
