@@ -314,6 +314,40 @@ queue has no signal store at all. `reverb:stats` reads
 the server's `/metrics` (`METRICS_ENABLED=true`; `--url`, `--token`,
 `--json`).
 
+## Reverb dashboard
+
+`withReverb()` serves a dashboard at `/reverb` from the HTTP application
+(not from `reverb:start`):
+
+```dart
+.withReverb(middleware: ['auth', 'can:viewReverb']) // dashboard: '/reverb'
+```
+
+```dart
+// bootstrap/policies.dart
+gate.define('viewReverb', (user, _) => (user as User?)?.isAdmin ?? false);
+```
+
+Its tabs: **Overview** (connections per application and per isolate,
+channels by type, messages per second in and out, fan-out p50 and p95),
+**Limits** (slow consumers closed with `4100`, messages rate limited with
+`4301`, connections and subscriptions refused by reason), **Apps** (id, key,
+origins, quota and limits of each application, never its secret) and
+**Workers** (connections per worker isolate). A **Restart servers** button
+sends `reverb:restart`. The numbers come from `/metrics`: the application's
+own when Echo connects to its HTTP port, or, with `reverb:start` apart, the
+WebSocket server's at `REVERB_METRICS_URL`
+(`http://127.0.0.1:8080/metrics`, with `METRICS_TOKEN` when set). The page
+updates over server-sent events (`GET /reverb/api/stream`, every second);
+`GET /reverb/api/stats` is what `reverb:stats --json` prints, and
+`GET /reverb/api/apps` lists the applications.
+
+Outside `APP_ENV=local` and `testing`, every route of the dashboard answers
+`403` until `middleware:` guards it, the restart included;
+`withReverb(dashboard: '')` serves none. The page carries its own
+Content-Security-Policy with a fresh nonce, loads nothing from another
+origin, and writes every value as text. Pulse's *Reverb* card links to it.
+
 ## Describing channels
 
 `channels.channel()` takes the channel's `type` (`private`, `presence` or

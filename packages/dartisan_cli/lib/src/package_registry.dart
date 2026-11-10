@@ -244,18 +244,21 @@ const List<PackageManifest> officialPackages = [
     description:
         'A Pusher WebSocket server of its own, for several apps, with stats',
     aliases: ['reverb', 'websocket', 'websockets', 'pusher'],
-    registration: ['.withReverb()'],
+    registration: [".withReverb(middleware: ['auth', 'can:viewReverb'])"],
     commands: 'reverbCommands',
     env: [
       'REVERB_SERVER_HOST=0.0.0.0',
       'REVERB_SERVER_PORT=8080',
       'REVERB_SERVER_AUTH=app',
       'REVERB_APPS_PROVIDER=config',
+      'REVERB_METRICS_URL=',
     ],
     next: [
       'withReverb() needs .withBroadcasting(...) and REVERB_APP_ID/_KEY/_SECRET.',
+      "Who may open /reverb: gate.define('viewReverb', (user, _) => ...) in bootstrap/policies.dart",
       'dartisan reverb:start   # beside dartisan serve; Echo connects to REVERB_HOST:REVERB_SERVER_PORT',
-      'dartisan reverb:restart after a deploy; reverb:stats with METRICS_ENABLED=true',
+      'With reverb:start apart, REVERB_METRICS_URL=http://127.0.0.1:8080/metrics feeds /reverb (METRICS_ENABLED=true).',
+      'dartisan reverb:restart after a deploy (or from /reverb); reverb:stats from the command line',
     ],
   ),
   PackageManifest(

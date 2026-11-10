@@ -190,6 +190,9 @@ abstract final class Pulse {
     snapshot['queues'] = await _queues(container);
     snapshot['failed_jobs'] = await _failedJobs(container, now, window);
     snapshot['reverb'] = await reverb(container);
+    // daravel_reverb's dashboard, when the application has one: the Reverb
+    // card links to it (no dependency on the package).
+    snapshot['reverb_path'] = reverbPath(container.make<Router>());
     snapshot['thresholds'] = {
       'requests_ms': _config.slowRequestThreshold.inMilliseconds,
       'queries_ms': _config.slowQueryThreshold.inMilliseconds,
@@ -213,6 +216,17 @@ abstract final class Pulse {
     await reports.publish(topic, own);
     final all = await reports.collect(topic);
     return [for (final report in all.values) report! as Map<String, Object?>];
+  }
+
+  /// The path of `daravel_reverb`'s dashboard (its `reverb.index` route),
+  /// or null when the application has none.
+  static String? reverbPath(Router router) {
+    for (final route in router.routes) {
+      if (route.routeName == 'reverb.index') {
+        return route.path;
+      }
+    }
+    return null;
   }
 
   /// The *Reverb* card: each isolate's last report of its Pusher activity

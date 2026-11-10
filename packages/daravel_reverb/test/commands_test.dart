@@ -80,6 +80,30 @@ coordinator_messages_total 99
 ''';
 
 void main() {
+  test('ReverbReport: fan-out percentiles, slow clients, rate limits', () {
+    final report = ReverbReport.parse('''
+reverb_connections{app="42",worker="daravel-worker-0"} 1
+reverb_fanout_seconds_bucket{app="42",le="0.0005"} 10
+reverb_fanout_seconds_bucket{app="42",le="0.001"} 90
+reverb_fanout_seconds_bucket{app="42",le="0.005"} 99
+reverb_fanout_seconds_bucket{app="42",le="+Inf"} 100
+reverb_fanout_seconds_bucket{app="42",le="0.0005"} 0
+reverb_rate_limited_total{app="42"} 4
+realtime_slow_clients_total{transport="websocket"} 2
+realtime_slow_clients_total{transport="sse"} 9
+''');
+    final fanout = report.fanout['42']!;
+    expect(fanout.count, 100);
+    expect(fanout.p50, 1.0);
+    expect(fanout.p95, 5.0);
+    expect(report.rateLimited, {'42': 4});
+    expect(report.slowClients, 2);
+    expect(report.workers, {'daravel-worker-0': 1});
+    final json = (report.toJson()['apps']! as Map)['42']! as Map;
+    expect(json['fanout'], {'p50_ms': 1.0, 'p95_ms': 5.0, 'count': 100});
+    expect(ReverbReport.parse('').fanout, isEmpty);
+  });
+
   test('ReverbReport reads the reverb series of /metrics', () {
     final report = ReverbReport.parse(sample);
     expect(report.apps, ['42', '7']);
@@ -95,6 +119,7 @@ void main() {
       'channels': {'presence': 2, 'public': 4},
       'messages_in': 10,
       'messages_out': 25,
+      'rate_limited': 0,
     });
     expect(json['rejected'], {'connection_quota': 1});
     final table = report.table();

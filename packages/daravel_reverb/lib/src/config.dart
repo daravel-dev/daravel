@@ -41,13 +41,14 @@ final class ReverbConfig implements ConfigSection {
     this.apps = const [],
     this.source = ReverbAppsSource.config,
     this.appsCacheTtl = const Duration(seconds: 60),
+    this.metricsUrl,
   });
 
   /// From `REVERB_SERVER_HOST`, `REVERB_SERVER_PORT`, `REVERB_SERVER_PATH`,
   /// `REVERB_HOST`, `REVERB_SERVER_ISOLATES`, `REVERB_SERVER_AUTH`,
-  /// `REVERB_APPS` (a JSON list), `REVERB_APPS_PROVIDER` and
-  /// `REVERB_APPS_CACHE_TTL`. A malformed `REVERB_APPS` is a
-  /// [ConfigException].
+  /// `REVERB_APPS` (a JSON list), `REVERB_APPS_PROVIDER`,
+  /// `REVERB_APPS_CACHE_TTL` and `REVERB_METRICS_URL`. A malformed
+  /// `REVERB_APPS` is a [ConfigException].
   factory ReverbConfig.fromEnv(Env env) => ReverbConfig(
     host: env.string('REVERB_SERVER_HOST', '0.0.0.0'),
     port: env.integer('REVERB_SERVER_PORT', 8080),
@@ -64,6 +65,7 @@ final class ReverbConfig implements ConfigSection {
       'REVERB_APPS_CACHE_TTL',
       const Duration(seconds: 60),
     ),
+    metricsUrl: env.maybeString('REVERB_METRICS_URL'),
   );
 
   static ReverbAuth _auth(String value) => switch (value) {
@@ -198,6 +200,10 @@ final class ReverbConfig implements ConfigSection {
   /// How long the `database` source keeps an application it read.
   final Duration appsCacheTtl;
 
+  /// The `/metrics` of the Reverb server the dashboard shows, when it is a
+  /// process of its own (`reverb:start`); null: this process's metrics.
+  final String? metricsUrl;
+
   @override
   String get key => 'reverb';
 
@@ -217,6 +223,7 @@ final class ReverbConfig implements ConfigSection {
     'apps': {
       'provider': source.name,
       'cache_ttl': appsCacheTtl.inSeconds,
+      'metrics_url': metricsUrl,
       'apps': [for (final app in apps) app.toPublicMap()],
     },
   };

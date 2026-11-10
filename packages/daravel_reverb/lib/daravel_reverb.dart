@@ -7,5 +7,8 @@ library;
 
 export 'src/apps.dart';
 export 'src/config.dart';
+export 'src/report.dart';
+export 'src/routes.dart';
 export 'src/server.dart';
 export 'src/setup.dart';
+export 'src/ui.dart';
