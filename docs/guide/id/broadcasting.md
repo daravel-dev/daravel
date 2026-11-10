@@ -1,4 +1,4 @@
-<!-- source: broadcasting.md sha256:042211fceeff -->
+<!-- source: broadcasting.md sha256:0d7698c9f3c9 -->
 # Broadcasting
 
 Daravel berbicara dengan protokol Pusher, seperti Laravel Reverb, di port
@@ -241,6 +241,101 @@ tertinggal karena `leave` gagal dicoba sekali lagi dan dicatat di log, dan
 tidak pernah membuat channel lain dari koneksi itu tetap ter-subscribe.
 Relay yang gagal dijalankan (Redis mati) dijalankan lagi oleh client
 berikutnya.
+
+## Beberapa aplikasi
+
+Satu server dapat melayani beberapa aplikasi Pusher, seperti
+`reverb.apps.apps` di Reverb: masing-masing punya key, secret, origin yang
+diizinkan, kuota koneksi, ukuran pesan, dan rate limiting sendiri, dan nama
+channel yang sama di dua aplikasi adalah dua channel yang berbeda.
+
+```dart
+.withBroadcasting(
+  apps: ListAppProvider([
+    BroadcastApp(id: '42', key: 'shop-key', secret: env.string('SHOP_SECRET')),
+    BroadcastApp(
+      id: '43',
+      key: 'admin-key',
+      secret: env.string('ADMIN_SECRET'),
+      allowedOrigins: ['admin.example.com'],
+      maxConnections: 200,
+    ),
+  ]),
+)
+```
+
+Client tersambung dengan key aplikasinya (`/app/shop-key`), dan backend
+mem-publish lewat `/apps/43/events` yang ditandatangani dengan secret
+aplikasi itu; otorisasi channel yang ditandatangani aplikasi lain ditolak
+dengan `4009`. Implementasikan `BroadcastAppProvider` (`byKey`, `byId`)
+untuk membaca aplikasi dari tabel. Tanpa `apps:`, server melayani satu
+aplikasi dari pengaturan `REVERB_APP_*` seperti sebelumnya, dan channel
+serta state aplikasi itu tetap seperti semula. `/broadcasting/auth`
+menandatangani untuk aplikasi `REVERB_APP_*`; aplikasi lain diotorisasi
+oleh backend-nya sendiri. Nama channel tidak boleh berisi `:`, sehingga
+aplikasi tetap terpisah bahkan dengan
+`REVERB_APP_VALIDATE_CHANNEL_NAMES=false`.
+
+## Mendeskripsikan channel
+
+`channels.channel()` menerima `type` channel (`private`, `presence`, atau
+`encrypted`) dan `events` yang dibawanya, masing-masing dengan JSON Schema
+datanya (opsional). Keduanya tidak mengubah apa pun saat runtime; tool yang
+membacanya:
+
+```dart
+channels.channel(
+  'orders.{orderId}',
+  (user, p) => user.authIdentifier == p['orderId'],
+  type: 'private',
+  events: [
+    BroadcastEventSchema(
+      'OrderShipped',
+      data: JsonSchema.object({'id': JsonSchema.integer().required()}),
+    ),
+  ],
+);
+```
+
+`dartisan route:list --channels` mendaftarnya (`--json` untuk keluaran yang
+sama dengan `ChannelRegistry.describe()`), dan
+`Application.broadcastChannels` memberikan registry itu ke tool Anda
+sendiri.
+
+## Menguji broadcast
+
+`Broadcast.fake()` merekam broadcast alih-alih mengirimnya, dengan aturan
+transaksi tetap berlaku: broadcast yang dibuat di dalam transaksi yang
+di-rollback tidak terekam, karena memang tidak akan terkirim. Laravel
+menguji hal yang sama dengan `Event::fake()`.
+
+```dart
+final broadcasts = Broadcast.fake();
+await client.post('/orders/7/ship');
+broadcasts
+  ..assertBroadcasted<OrderShipped>(channel: 'private-orders.7')
+  ..assertBroadcasted<OrderShipped>(where: (e) => e.order.id == 7)
+  ..assertBroadcastedTimes<OrderShipped>(1)
+  ..assertSent('price.updated', channel: 'prices') // Broadcast.send(...)
+  ..assertNothingBroadcastedTo('private-admin');
+Broadcast.restore();
+```
+
+`assertNotBroadcasted<E>()` dan `assertNothingBroadcasted()` memeriksa
+kebalikannya; `broadcasts.broadcasts` berisi setiap `BroadcastRecord`
+(event, channel, data, koneksi yang dikecualikan, objek event).
+
+## Memantau server
+
+`/metrics` memuat, per aplikasi: `reverb_connections` (juga per worker
+isolate), `reverb_channels` (subscription per tipe channel),
+`reverb_messages_total` (`direction="in"` dari client, `"out"` ke client),
+`reverb_fanout_seconds` (lama satu frame sampai ke setiap isolate dan
+server lain), dan `reverb_rejected_total` (beserta `reason`-nya). Setiap
+worker isolate juga melaporkan aktivitasnya ke coordinator setiap
+`REVERB_PULSE_INGEST_INTERVAL` detik (15) selama ada koneksi, yang
+ditampilkan Pulse sebagai kartu *Reverb*. `PusherServer(observer:)`
+menerima `PusherObserver` buatan Anda sendiri.
 
 ## Kapasitas
 
