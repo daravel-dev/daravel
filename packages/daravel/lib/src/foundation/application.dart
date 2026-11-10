@@ -1527,7 +1527,10 @@ final class Application {
 
   /// Installs [hooks], each in a zone of its own, so an error in a hook
   /// or in what it starts (a timer, a stream) is logged rather than ending
-  /// the main isolate; returns their stop functions.
+  /// the main isolate; returns their stop functions. A hook's result goes
+  /// through a completer made outside its zone: awaiting a future of the
+  /// guarded zone from outside it would never see a hook's error, and
+  /// serveWith would hang on a hook that throws (do not "simplify" it).
   static Future<List<void Function()>> _installSupervisorHooks(
     List<SupervisorHook> hooks,
     Application probe,
