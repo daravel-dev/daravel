@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:daravel/daravel.dart';
 import 'package:test/test.dart';
@@ -84,6 +85,49 @@ void main() {
     final answers = await both(() => hash.checkAgainstDummy('guess'));
     expect(answers, ['HashingSaturatedException', 'HashingSaturatedException']);
     expect(uncaught, isEmpty);
+  });
+
+  test('logins sharing a failing dummy hash: each response is the same 503 '
+      'as before, and the next login hashes again', () async {
+    final app = Application.configure(basePath: Directory.systemTemp.path)
+        .withEnv(const {
+          'APP_ENV': 'testing',
+          'DB_DATABASE': ':memory:',
+          'HASH_CONCURRENCY': '1',
+          'HASH_QUEUE_TIMEOUT': '100ms',
+          'BCRYPT_ROUNDS': '13',
+        })
+        .withLogLevel(LogLevel.critical)
+        .withRouting(
+          apiPrefix: '',
+          api: (router) => router.post('/login', (_) async {
+            // What a guard does when no user matched.
+            await equalizeLoginTiming(const {'password': 'guess'});
+            return {'user': null};
+          }),
+        )
+        .create();
+    await app.boot();
+    addTearDown(app.shutdown);
+    // The one hashing isolate busy for a while.
+    final busy = app.run(() => Hash.make('keeps the pool busy'));
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    final responses = await Future.wait([
+      for (var i = 0; i < 2; i++)
+        app.handle(Request.fake(method: 'POST', path: '/login')),
+    ]).timeout(const Duration(seconds: 5));
+    for (final response in responses) {
+      expect(response.status, 503);
+      expect(response.headers['Retry-After'], '1');
+    }
+    expect(
+      await responses[0].bodyText(),
+      await responses[1].bodyText(),
+      reason: 'the same error for both',
+    );
+    await busy;
+    final next = await app.handle(Request.fake(method: 'POST', path: '/login'));
+    expect(next.status, 200, reason: 'a failed dummy hash is not kept');
   });
 
   test('a channel registration that fails reaches every subscriber of the '

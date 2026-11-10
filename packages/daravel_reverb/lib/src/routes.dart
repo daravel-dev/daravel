@@ -80,34 +80,17 @@ abstract final class ReverbDashboard {
     var sample = _samples[app];
     if (sample == null ||
         now.difference(sample.at) >= const Duration(seconds: 1)) {
-      // Shared by requests, so it never fails: a future that fails in one
-      // request's error zone never hands its error to another request
-      // (that one would hang), and one made in another zone would end the
-      // isolate. The error is raised below, in the caller's zone.
+      // Shared by requests: a SharedResult, so a failure reaches each
+      // request in its own zone (a failing future shared across request
+      // zones would leave the others hanging).
       final container = app.container;
-      sample = (at: now, result: _settled(container));
+      sample = (at: now, result: SharedResult(() => _read(container)));
       _samples[app] = sample;
     }
-    final (report, failure) = await sample.result;
-    if (failure != null) {
-      Error.throwWithStackTrace(failure.$1, failure.$2);
-    }
-    return report!;
+    return sample.result.value;
   }
 
-  static Future<(ReverbReport?, (Object, StackTrace)?)> _settled(
-    Container container,
-  ) async {
-    try {
-      return (await _read(container), null);
-    } on Object catch (error, stackTrace) {
-      return (null, (error, stackTrace));
-    }
-  }
-
-  static final Expando<
-    ({DateTime at, Future<(ReverbReport?, (Object, StackTrace)?)> result})
-  >
+  static final Expando<({DateTime at, SharedResult<ReverbReport> result})>
   _samples = Expando('reverb dashboard sample');
 
   static Future<ReverbReport> _read(Container container) async {

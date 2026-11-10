@@ -234,12 +234,12 @@ abstract final class HorizonDashboard {
   /// meanwhile (as the last one expires) wait for it rather than each
   /// reading the queues again.
   ///
-  /// It never fails: it settles to the snapshot or the error, raised again
-  /// in each caller's zone. A future that fails in one request's zone
-  /// never hands its error to a request waiting on it from another zone
-  /// (that one would hang until its timeout).
-  static final Expando<Future<(_Snapshot?, (Object, StackTrace)?)>> _taking =
-      Expando('horizon snapshot in progress');
+  /// A [SharedResult]: a failure reaches every waiter, each in its own
+  /// zone (a future failing in one request's zone would leave a waiter
+  /// from another hanging).
+  static final Expando<SharedResult<_Snapshot>> _taking = Expando(
+    'horizon snapshot in progress',
+  );
 
   static Future<_Snapshot> _snapshot() async {
     final key = _queues;
@@ -248,33 +248,21 @@ abstract final class HorizonDashboard {
     if (last != null && now.difference(last.at) < const Duration(seconds: 1)) {
       return last;
     }
-    var taking = _taking[key];
-    if (taking == null) {
-      taking = () async {
-        try {
-          final status = await _status();
-          final loads = await _queueLoads(status);
-          final summary = (await _call('summary')) as Map? ?? const {};
-          final snapshot = _Snapshot(
-            now,
-            _statsOf(status, loads, summary),
-            loads,
-          );
-          _snapshots[key] = snapshot;
-          return (snapshot, null);
-        } on Object catch (error, stackTrace) {
-          return (null, (error, stackTrace));
-        } finally {
-          _taking[key] = null;
-        }
-      }();
-      _taking[key] = taking;
-    }
-    final (snapshot, failure) = await taking;
-    if (failure != null) {
-      Error.throwWithStackTrace(failure.$1, failure.$2);
-    }
-    return snapshot!;
+    final taking = _taking[key] ??= SharedResult(() async {
+      try {
+        final status = await _status();
+        final loads = await _queueLoads(status);
+        final summary = (await _call('summary')) as Map? ?? const {};
+        return _snapshots[key] = _Snapshot(
+          now,
+          _statsOf(status, loads, summary),
+          loads,
+        );
+      } finally {
+        _taking[key] = null;
+      }
+    });
+    return taking.value;
   }
 
   /// Each plan queue: its connection, size, workers and estimated wait.
