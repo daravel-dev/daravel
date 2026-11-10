@@ -1,0 +1,3 @@
+tags:
+  # Needs PostgreSQL (DARAVEL_TEST_PG); skipped without it.
+  integration:

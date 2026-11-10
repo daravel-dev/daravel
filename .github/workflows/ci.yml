@@ -1,8 +1,22 @@
 name: CI
 
+# Pull requests are tested by their pull_request run only; a push run on a
+# PR branch would test the same commit again and double the runners each
+# update takes (macOS runners are the scarce ones). main and the release
+# branches (1.x) are tested on push, and merge_group runs the checks for
+# GitHub's merge queue once it is enabled in the repository rules.
 on:
   push:
+    branches: [main, "[0-9]+.x"]
   pull_request:
+  merge_group:
+
+# A new push to a pull request cancels its older run. Runs on main, the
+# release branches and merge groups are never cancelled: they are the record
+# that the commit which was merged or tagged passed.
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   test:
@@ -44,16 +58,26 @@ jobs:
       - name: Every package has an example and a publish job after its dependencies
         run: dart run tool/publish_checks.dart
 
+      # Blueprint #136: every package has a sample app (or a planned one) and
+      # apps/README.md is the generated matrix.
+      - name: Sample applications
+        run: |
+          dart run tool/sample_apps_selftest.dart
+          dart run tool/sample_apps_check.dart
+
       # `## Unreleased` stays on main; a new export needs an upgrade note.
-      # On a pull request, HEAD is GitHub's merge commit and HEAD^1 the base.
+      # On a pull request, HEAD is GitHub's merge commit and HEAD^1 the base;
+      # in a merge queue, HEAD is the group's commit and HEAD^1 its base.
       - name: Changelog
         run: |
           dart run tool/changelog_selftest.dart
-          if [ "${{ github.event_name }}" = pull_request ]; then
+          case "${{ github.event_name }}" in pull_request|merge_group)
             dart run tool/changelog_check.dart --base=HEAD^1
-          else
+            ;;
+          *)
             dart run tool/changelog_check.dart --base=HEAD
-          fi
+            ;;
+          esac
 
       # The example applications are what users copy, so they pass the same
       # lint rules as a user's project (no_inline_js_interpolation included).
@@ -72,7 +96,7 @@ jobs:
           # project) runs once, on Linux.
           DARAVEL_E2E: ${{ runner.os == 'Linux' && matrix.sdk == 'stable' && '1' || '0' }}
         run: |
-          for pkg in packages/daravel packages/daravel_lints packages/daravel_test packages/daravel_mysql packages/daravel_permission packages/daravel_activitylog packages/daravel_excel packages/daravel_log_viewer packages/daravel_pulse packages/daravel_reverb packages/daravel_payments packages/daravel_medialibrary packages/daravel_redis packages/daravel_sqlite packages/daravel_postgres packages/daravel_teorion packages/daravel_livekit packages/daravel_google packages/daravel_teobiefy packages/daravel_s3 packages/daravel_scout packages/daravel_session packages/dartisan_cli apps/daravel_starter apps/virtual_classroom apps/websocket_demo apps/cat_exam_demo apps/reverb_demo; do
+          for pkg in packages/daravel packages/daravel_lints packages/daravel_test packages/daravel_mysql packages/daravel_permission packages/daravel_activitylog packages/daravel_excel packages/daravel_log_viewer packages/daravel_pulse packages/daravel_horizon packages/daravel_reverb packages/daravel_payments packages/daravel_medialibrary packages/daravel_redis packages/daravel_sqlite packages/daravel_postgres packages/daravel_teorion packages/daravel_livekit packages/daravel_google packages/daravel_teobiefy packages/daravel_s3 packages/daravel_scout packages/daravel_session packages/dartisan_cli apps/daravel_starter apps/virtual_classroom apps/websocket_demo apps/cat_exam_demo apps/reverb_demo; do
             if [ -d "$pkg/test" ]; then
               echo "== $pkg"
               (cd "$pkg" && dart test --reporter=expanded)
@@ -95,7 +119,7 @@ jobs:
       - name: Verify pub.dev packaging (dry-run)
         if: runner.os == 'Linux' && matrix.sdk == 'stable'
         run: |
-          for pkg in packages/daravel_lints packages/daravel packages/daravel_test packages/daravel_mysql packages/daravel_permission packages/daravel_activitylog packages/daravel_excel packages/daravel_log_viewer packages/daravel_pulse packages/daravel_reverb packages/daravel_payments packages/daravel_medialibrary packages/daravel_redis packages/daravel_sqlite packages/daravel_postgres packages/daravel_teorion packages/daravel_livekit packages/daravel_google packages/daravel_teobiefy packages/daravel_s3 packages/daravel_scout packages/daravel_session packages/dartisan_cli; do
+          for pkg in packages/daravel_lints packages/daravel packages/daravel_test packages/daravel_mysql packages/daravel_permission packages/daravel_activitylog packages/daravel_excel packages/daravel_log_viewer packages/daravel_pulse packages/daravel_horizon packages/daravel_reverb packages/daravel_payments packages/daravel_medialibrary packages/daravel_redis packages/daravel_sqlite packages/daravel_postgres packages/daravel_teorion packages/daravel_livekit packages/daravel_google packages/daravel_teobiefy packages/daravel_s3 packages/daravel_scout packages/daravel_session packages/dartisan_cli; do
             echo "== $pkg"
             (cd "$pkg" && dart pub publish --dry-run)
           done
@@ -195,6 +219,7 @@ jobs:
           (cd packages/daravel_activitylog && dart test --tags integration --reporter=expanded)
           (cd packages/daravel_teorion && dart test --tags integration --reporter=expanded)
           (cd packages/daravel_scout && dart test --tags integration --reporter=expanded)
+          (cd packages/daravel_horizon && dart test --tags integration --reporter=expanded)
 
   redis:
     # Blueprint #41: Redis and Valkey on every commit.

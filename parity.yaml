@@ -218,6 +218,9 @@ sections:
       - { php: "Post::findFiltered($request, $id)", dart: "await Post.definition.query().findFiltered(request, id)", symbol: FilterableQuery.findFiltered, async: true }
       - { php: "class PostQueryFilter extends QueryFilter", dart: "final class PostQueryFilter extends QueryFilter<Post>", symbol: QueryFilter }
       - { php: "Filter::multiLike(['title'])->alias('q')", dart: "Filter.multiLike(['title']).alias('q')", symbol: Filter.multiLike, note: "default() is withDefault(); enum/in/null are enum_/in_/null_." }
+      - { php: "Filter::scope('published')", dart: "Filter.scope('published')", symbol: Filter.scope, note: "The scope is given the request, as ScopeFilter calls $query->$method($request)." }
+      - { php: "(none)", dart: "Filter.scopeValue('search').alias('q')", symbol: Filter.scopeValue, note: "Daravel-only: the scope is given the value, after alias and withDefault (scopeSearch($query, $term))." }
+      - { php: "(none)", dart: "String? get sortScope => 'sortBy';", symbol: QueryFilter.sortScope, note: "Daravel-only: every allowed sort without a customSorts entry calls the scope with [column, direction]; laravel-teorion routes sorts to sortBy<Column> methods (customSorts)." }
       - { php: "FilterMacroRegistry::register('phone', fn ...)", dart: "FilterMacroRegistry.register('phone', (q, value, param, request) {...})", symbol: FilterMacroRegistry.register }
       - { php: "php artisan make:query-filter PostQueryFilter", dart: "dartisan make:query-filter Post", symbol: QueryFilterRegistry, note: "Registered in bootstrap/query_filters.dart (no reflection)." }
 
@@ -317,6 +320,9 @@ sections:
       - { php: "DB::listen(...) for transactions", dart: "DB.listenTransactions((e) {...})", symbol: DB.listenTransactions, note: "with poolWait" }
       - { php: "DB::listen(fn (QueryExecuted $q) => ...)", dart: "DB.listen((QueryExecuted q) {...})", symbol: DB.listen }
       - { php: "DB::whenQueryingForLongerThan(500, fn)", dart: "DB.whenQueryingForLongerThan(const Duration(milliseconds: 500), (q) {...})", symbol: DB.whenQueryingForLongerThan, note: "Total per request, job or command; once." }
+      - { php: "(none)", dart: "DB_IDLE_TRANSACTION_TIMEOUT=15", symbol: PostgresDriver.idleTransactionTimeout, note: "Daravel-only: the server ends a session idle inside a transaction this long (PostgreSQL, MariaDB; MySQL has no such setting)." }
+      - { php: "(none)", dart: "DB.manager.openSessions(); (driver as SessionTerminatingDriver).terminateSession(id)", symbol: SessionTerminatingDriver.terminateSession, async: true, note: "Daravel-only: ends the server session of a connection left inside a transaction (pg_terminate_backend, KILL CONNECTION), for supervisors that kill isolates." }
+      - { php: "(none)", dart: "app.overrideEnv({...}) before app.boot()", symbol: Application.overrideEnv, note: "Daravel-only: environment overrides for a host given a built Application (a worker isolate, a test harness); they win over withEnv." }
       - { php: "DB::enableQueryLog(); ... count(DB::getQueryLog())", dart: "final (result, count, queries) = await DB.withQueryCount(() => ...)", symbol: DB.withQueryCount }
       - { php: "->whereToday('starts_at') / wherePast / whereFuture / whereBeforeToday", dart: ".whereToday('starts_at') / wherePast / whereFuture / whereBeforeToday", symbol: QueryBuilder.whereToday, note: "Against Clock.now()." }
       - { php: "->insertGetId($values)", dart: "await DB.table(t).insertGetId(values)", symbol: QueryBuilder.insertGetId, async: true }

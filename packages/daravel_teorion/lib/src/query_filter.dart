@@ -75,6 +75,12 @@ abstract class QueryFilter<T extends Model> {
   Map<String, void Function(ModelQuery<T> query, String direction)>
   get customSorts => const {};
 
+  /// A model scope that every allowed sort without a [customSorts] entry
+  /// goes to, called with `[column, direction]` (`asc` or `desc`), so the
+  /// model owns its orderings: `sortScope => 'sortBy'`. Daravel-only;
+  /// `null` (the default) sorts by `ORDER BY column`.
+  String? get sortScope => null;
+
   /// Applies the request to [query] (laravel-teorion's `apply()`).
   Future<ModelQuery<T>> apply(ModelQuery<T> query, Request request) =>
       _Pipeline<T>(this, request).run(query);
@@ -499,8 +505,11 @@ final class _Pipeline<T extends Model> {
         throw DisallowedSortException(column);
       }
       final custom = declaration.customSorts[column];
+      final scope = declaration.sortScope;
       if (custom != null) {
         custom(query, direction);
+      } else if (scope != null) {
+        query.scope(scope, [column, direction]);
       } else {
         query.orderBy(column, direction);
       }

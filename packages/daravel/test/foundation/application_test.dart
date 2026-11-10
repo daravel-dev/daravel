@@ -55,6 +55,55 @@ ApplicationBuilder _builder(Map<String, String> env) =>
 void main() {
   tearDown(() => Container.setRoot(null));
 
+  group('Application.overrideEnv', () {
+    test('wins over withEnv and the environment, and the config checks at '
+        'boot see it', () async {
+      final seen = <String?>[];
+      final app = _builder({'APP_NAME': 'builder', 'APP_SPARE': 'builder'})
+          .withConfigCheck((env, config) {
+            seen.add(env.maybeString('APP_NAME'));
+            return const <ConfigIssue>[];
+          })
+          .create();
+      app.overrideEnv({'APP_NAME': 'host'});
+      app.overrideEnv({'DB_IDLE_TRANSACTION_TIMEOUT': '9'});
+      await app.boot();
+      addTearDown(app.shutdown);
+      expect(app.env.maybeString('APP_NAME'), 'host');
+      expect(app.env.maybeString('APP_SPARE'), 'builder');
+      expect(seen, ['host']);
+      expect(
+        app.config
+            .section<DatabaseConfig>()
+            .connections['pgsql']!
+            .options['idle_transaction_timeout'],
+        '9',
+      );
+    });
+
+    test('is refused once boot was called', () async {
+      final app = _builder({}).create();
+      final booting = app.boot();
+      expect(() => app.overrideEnv({'A': 'b'}), throwsStateError);
+      await booting;
+      addTearDown(app.shutdown);
+      expect(() => app.overrideEnv({'A': 'b'}), throwsStateError);
+    });
+
+    test('stays with its application, not the builder', () async {
+      final builder = _builder({});
+      final first = builder.create()..overrideEnv({'APP_NAME': 'first'});
+      final second = builder.create();
+      await first.boot();
+      addTearDown(first.shutdown);
+      Container.setRoot(null);
+      await second.boot();
+      addTearDown(second.shutdown);
+      expect(first.env.maybeString('APP_NAME'), 'first');
+      expect(second.env.maybeString('APP_NAME'), isNot('first'));
+    });
+  });
+
   test(
     'providers register before any boot; deferred ones register lazily',
     () async {
