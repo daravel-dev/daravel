@@ -29,7 +29,7 @@ const Map<String, List<String>> planned = {
   'daravel_activitylog': ['event_hub_demo'],
   'daravel_excel': ['excel_demo', 'storefront_demo', 'event_hub_demo'],
   'daravel_google': ['event_hub_demo'],
-  'daravel_horizon': ['horizon_demo', 'ops_console'],
+  'daravel_horizon': ['ops_console'],
   'daravel_livekit': ['event_hub_demo'],
   'daravel_log_viewer': ['log_viewer_demo', 'ops_console'],
   'daravel_medialibrary': ['files_demo', 'storefront_demo', 'event_hub_demo'],

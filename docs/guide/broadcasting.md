@@ -265,6 +265,55 @@ signs for the `REVERB_APP_*` application; the others are authorized by
 their own backends. Channel names cannot contain `:`, which keeps the
 applications apart even with `REVERB_APP_VALIDATE_CHANNEL_NAMES=false`.
 
+With [`daravel_reverb`](https://pub.dev/packages/daravel_reverb),
+`.withReverb()` reads the applications from the environment instead:
+`REVERB_APPS` holds the entries of Reverb's `config/reverb.php` as JSON
+(`app_id`, `key`, `secret`, `allowed_origins`, `max_connections`,
+`max_message_size`, `activity_timeout`, `rate_limiting`), served beside the
+application of `REVERB_APP_*`; with `REVERB_APPS_PROVIDER=database` they
+come from a `reverb_apps` table (`CreateReverbAppsTable`), each row kept 60
+seconds in the isolate that read it (`REVERB_APPS_CACHE_TTL`). The config
+check refuses duplicate ids or keys and origins that are not host names,
+and warns of secrets under 32 bytes.
+
+## A separate WebSocket server
+
+`withBroadcasting()` serves Echo on the HTTP port, which is enough for most
+applications. For a WebSocket tier of its own, as Laravel's
+`php artisan reverb:start`, add `daravel_reverb` (`dartisan pub:add
+reverb`) and run `dartisan reverb:start` beside `dartisan serve`:
+
+```bash
+dartisan reverb:start --port=8080 --isolates=4   # REVERB_SERVER_PORT, REVERB_SERVER_ISOLATES
+dartisan reverb:restart                         # after a deploy
+dartisan reverb:stats                           # connections per isolate, from /metrics
+```
+
+`reverb:start` builds the same application but serves only its Pusher
+server (`/app/{key}`, `/apps/{id}/*`, under `REVERB_SERVER_PATH` when set),
+`/up`, `/up/ready` and `/metrics`: no application route, provider route or
+static file. `/broadcasting/auth` stays with the HTTP application
+(`REVERB_SERVER_AUTH=app`, Echo's `authEndpoint`) unless
+`REVERB_SERVER_AUTH=local`. `--debug` logs every frame, with the `auth`
+signature and `channel_data` masked. The application's `SERVER_EMBED_*`
+and `APP_PROCESSES` are for `serve`, not this server.
+
+`reverb:restart` writes a time to the queue's signal store
+(`QUEUE_SIGNAL_STORE`, as `queue:restart`); each isolate of `reverb:start`
+reads it every second, waits a random moment within `REVERB_DRAIN_SPREAD`,
+closes its connections over that spread and is spawned again at once
+(not counted as a crash). Clients reconnect with their own backoff. A
+server of one isolate ends instead, for its process manager to start it
+again, as Laravel's does. The signal reaches only the servers that read
+the same store: the default `file` store (with the database queue) covers
+one machine, so Reverb servers on several machines need a store they all
+share (`QUEUE_SIGNAL_STORE=database` or `redis`); with the `process` store
+`reverb:restart` reaches nothing, and the server logs a warning when the
+queue has no signal store at all. `reverb:stats` reads
+`reverb_connections`, `reverb_channels` and `reverb_messages_total` from
+the server's `/metrics` (`METRICS_ENABLED=true`; `--url`, `--token`,
+`--json`).
+
 ## Describing channels
 
 `channels.channel()` takes the channel's `type` (`private`, `presence` or

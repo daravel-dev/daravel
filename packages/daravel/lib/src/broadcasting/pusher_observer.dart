@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import '../server/coordinator.dart';
 import '../server/worker_reports.dart';
@@ -37,6 +38,10 @@ class PusherObserver {
   /// (`connection_quota`, `rate_limit`, `client_event_rate`,
   /// `channel_limit`).
   void rejected(String app, String reason) {}
+
+  /// A frame of connection [socketId] went [direction] (`in` from the
+  /// client, `out` to it) with [payload]: for `reverb:start --debug`.
+  void frame(String app, String socketId, String direction, Object? payload) {}
 
   /// The kind of [channel]: `presence`, `encrypted`, `private` or `public`.
   static String channelType(String channel) => switch (channel) {
@@ -110,6 +115,79 @@ final class PusherObservers extends PusherObserver {
       o.rejected(app, reason);
     }
   }
+
+  @override
+  void frame(String app, String socketId, String direction, Object? payload) {
+    for (final o in observers) {
+      o.frame(app, socketId, direction, payload);
+    }
+  }
+}
+
+/// Writes every frame and connection to [log] (`reverb:start --debug`, as
+/// Laravel's `reverb:start --debug`), with the `auth` signature and
+/// `channel_data` of subscriptions, and any secret, masked.
+final class PusherFrameLog extends PusherObserver {
+  /// Frames written to [log].
+  const PusherFrameLog(this.log);
+
+  /// Where the lines go (the application's logger at `info`).
+  final void Function(String line) log;
+
+  static const Set<String> _masked = {
+    'auth',
+    'channel_data',
+    'secret',
+    'app_secret',
+  };
+
+  /// [payload] with its signatures and secrets masked; as it is when it is
+  /// not JSON.
+  static String mask(Object? payload) {
+    if (payload is! String) {
+      return '$payload';
+    }
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(payload);
+    } on FormatException {
+      return payload;
+    }
+    return jsonEncode(_walk(decoded));
+  }
+
+  static Object? _walk(Object? value) {
+    switch (value) {
+      case final Map<String, Object?> map:
+        return {
+          for (final MapEntry(:key, :value) in map.entries)
+            key: _masked.contains(key) && value != null ? '***' : _walk(value),
+        };
+      case final List<Object?> list:
+        return [for (final v in list) _walk(v)];
+      // Pusher sends `data` as JSON text inside the frame.
+      case final String text when text.startsWith('{'):
+        try {
+          return jsonEncode(_walk(jsonDecode(text)));
+        } on FormatException {
+          return text;
+        }
+      default:
+        return value;
+    }
+  }
+
+  @override
+  void connectionOpened(String app) => log('[$app] connection opened');
+
+  @override
+  void connectionClosed(String app) => log('[$app] connection closed');
+
+  @override
+  void frame(String app, String socketId, String direction, Object? payload) =>
+      log(
+        '[$app] $socketId ${direction == 'in' ? '<-' : '->'} ${mask(payload)}',
+      );
 }
 
 /// This isolate's Pusher activity by application, reported to the

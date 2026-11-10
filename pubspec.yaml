@@ -19,6 +19,7 @@ workspace:
   - packages/daravel_log_viewer
   - packages/daravel_pulse
   - packages/daravel_horizon
+  - packages/daravel_reverb
   - packages/daravel_payments
   - packages/daravel_medialibrary
   - packages/daravel_postgres
@@ -33,6 +34,7 @@ workspace:
   - apps/virtual_classroom
   - apps/websocket_demo
   - apps/cat_exam_demo
+  - apps/horizon_demo
   - bench
 
 dev_dependencies:

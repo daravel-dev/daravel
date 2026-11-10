@@ -3,7 +3,7 @@
 
 /// `docs/guide/id/broadcasting.md`.
 const String pageIdBroadcasting =
-    r'''<!-- source: broadcasting.md sha256:0d7698c9f3c9 -->
+    r'''<!-- source: broadcasting.md sha256:b753dd75b7ba -->
 # Broadcasting
 
 Daravel berbicara dengan protokol Pusher, seperti Laravel Reverb, di port
@@ -280,6 +280,55 @@ menandatangani untuk aplikasi `REVERB_APP_*`; aplikasi lain diotorisasi
 oleh backend-nya sendiri. Nama channel tidak boleh berisi `:`, sehingga
 aplikasi tetap terpisah bahkan dengan
 `REVERB_APP_VALIDATE_CHANNEL_NAMES=false`.
+
+Dengan [`daravel_reverb`](https://pub.dev/packages/daravel_reverb),
+`.withReverb()` membaca aplikasi dari environment: `REVERB_APPS` berisi
+entri `config/reverb.php` Reverb dalam JSON (`app_id`, `key`, `secret`,
+`allowed_origins`, `max_connections`, `max_message_size`,
+`activity_timeout`, `rate_limiting`), dilayani di samping aplikasi
+`REVERB_APP_*`; dengan `REVERB_APPS_PROVIDER=database`, aplikasi dibaca dari
+tabel `reverb_apps` (`CreateReverbAppsTable`), dan setiap baris disimpan 60
+detik di isolate yang membacanya (`REVERB_APPS_CACHE_TTL`). Pemeriksaan
+konfigurasi menolak id atau key ganda dan origin yang bukan nama host, serta
+memperingatkan secret di bawah 32 byte.
+
+## Server WebSocket tersendiri
+
+`withBroadcasting()` melayani Echo di port HTTP, dan itu cukup untuk
+kebanyakan aplikasi. Untuk tier WebSocket tersendiri, seperti
+`php artisan reverb:start` di Laravel, pasang `daravel_reverb`
+(`dartisan pub:add reverb`) dan jalankan `dartisan reverb:start` di samping
+`dartisan serve`:
+
+```bash
+dartisan reverb:start --port=8080 --isolates=4   # REVERB_SERVER_PORT, REVERB_SERVER_ISOLATES
+dartisan reverb:restart                         # setelah deploy
+dartisan reverb:stats                           # koneksi per isolate, dari /metrics
+```
+
+`reverb:start` membangun aplikasi yang sama tetapi hanya melayani server
+Pusher-nya (`/app/{key}`, `/apps/{id}/*`, di bawah `REVERB_SERVER_PATH` bila
+di-set), `/up`, `/up/ready`, dan `/metrics`: tanpa route aplikasi, route
+provider, atau file statis. `/broadcasting/auth` tetap dijawab aplikasi HTTP
+(`REVERB_SERVER_AUTH=app`, `authEndpoint` Echo) kecuali
+`REVERB_SERVER_AUTH=local`. `--debug` mencatat setiap frame, dengan
+signature `auth` dan `channel_data` disamarkan. `SERVER_EMBED_*` dan
+`APP_PROCESSES` aplikasi berlaku untuk `serve`, bukan untuk server ini.
+
+`reverb:restart` menulis waktu ke signal store queue (`QUEUE_SIGNAL_STORE`,
+seperti `queue:restart`); setiap isolate `reverb:start` membacanya tiap
+detik, menunggu sesaat secara acak dalam `REVERB_DRAIN_SPREAD`, menutup
+koneksinya tersebar dalam rentang itu, lalu langsung dijalankan lagi (tidak
+dihitung sebagai crash). Klien reconnect dengan backoff masing-masing.
+Server satu isolate justru berhenti, agar process manager menjalankannya
+lagi, seperti di Laravel. Sinyal ini hanya sampai ke server yang membaca
+store yang sama: store `file` bawaan (dengan queue database) mencakup satu
+mesin, sehingga server Reverb di beberapa mesin memerlukan store yang dipakai
+bersama (`QUEUE_SIGNAL_STORE=database` atau `redis`); dengan store `process`,
+`reverb:restart` tidak sampai ke mana pun, dan server mencatat peringatan
+bila queue tidak punya signal store sama sekali. `reverb:stats` membaca
+`reverb_connections`, `reverb_channels`, dan `reverb_messages_total` dari
+`/metrics` server (`METRICS_ENABLED=true`; `--url`, `--token`, `--json`).
 
 ## Mendeskripsikan channel
 

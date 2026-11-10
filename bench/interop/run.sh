@@ -17,6 +17,10 @@
 # E. Limits: the third connection over REVERB_APP_MAX_CONNECTIONS=2 gets
 #    4004, the sixth message over the rate limit 4301; 50 clients of a server
 #    stopped with REVERB_DRAIN_SPREAD=2s lose it over more than a second.
+# F. A WebSocket server of its own (Application.serveBroadcastingOnly, what
+#    `dartisan reverb:start` serves): Echo connects to it and authorizes
+#    against the HTTP application, which publishes through its HTTP API
+#    (BROADCAST_CONNECTION=reverb); application routes answer 404 on it.
 #
 # Laravel comes from bench/laravel/Dockerfile, plus pusher/pusher-php-server
 # and laravel/reverb.
@@ -143,5 +147,13 @@ docker wait daravel-drain-clients >/dev/null
 docker logs daravel-drain-clients | tee "$WORK/e.out"
 grep -q "1 passed, 0 failed" "$WORK/e.out" || status=1
 
+
+echo "== F: a separate WebSocket server (reverb:start): Echo on it, the HTTP app publishing to it"
+daravel daravel-ws 18720 -e BROADCASTING_ONLY=true || exit 1
+daravel daravel-http 18721 -e BROADCAST_CONNECTION=reverb -e REVERB_HOST=127.0.0.1 \
+  -e REVERB_PORT=18720 -e REVERB_SCHEME=http || exit 1
+[ "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:18720/api/publish)" = "404" ] ||
+  { echo "the WebSocket server answered an application route"; status=1; }
+echo_client -e PORT=18720 -e KEY=key1 -e API=http://127.0.0.1:18721 || status=1
 [ $status -eq 0 ] && echo "All interop scenarios passed." || echo "Some interop scenarios failed."
 exit $status
