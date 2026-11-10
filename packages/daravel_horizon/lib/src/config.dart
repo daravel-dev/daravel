@@ -302,7 +302,9 @@ final class HorizonConfig implements ConfigSection {
   final int jobsPerProcess;
 
   /// A job that brought its worker down this many times in a row is moved
-  /// to `failed_jobs` (`HORIZON_QUARANTINE_AFTER`, 2).
+  /// to `failed_jobs` (`HORIZON_QUARANTINE_AFTER`, 2). It is looked up
+  /// among the first 1 000 waiting jobs of its queue, and between that look
+  /// up and its removal another worker may still take it.
   final int quarantineAfter;
 
   /// Lets the embedded supervisor run on a SQLite file queue

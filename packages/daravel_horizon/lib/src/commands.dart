@@ -6,6 +6,7 @@ import 'package:daravel/daravel.dart';
 import 'package:dartisan_cli/dartisan_cli.dart';
 
 import 'config.dart';
+import 'events.dart';
 import 'master.dart';
 import 'routes.dart';
 import 'setup.dart' show HorizonRoutes, horizonKillPolicy;
@@ -156,6 +157,7 @@ final class HorizonCommand extends DaravelCommand {
       failedJobs: queues.processor.failedJobs,
       signals: queues.signalStore,
       name: _name(app),
+      onEvent: horizonEvents(app),
       onTerminate: () {
         if (!done.isCompleted) {
           done.complete();
