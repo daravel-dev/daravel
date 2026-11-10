@@ -52,8 +52,12 @@ jobs:
       - name: Analyze
         run: dart analyze --fatal-infos
 
-      - name: Docs up to date (parity table, compiled examples)
-        run: dart run tool/docs/generate.dart --check
+      # Blueprint #142 F2: the guide pages, one generated file each, say
+      # every text exactly.
+      - name: Docs up to date (parity table, compiled examples, guide pages)
+        run: |
+          dart run tool/docs/guide_pages_selftest.dart
+          dart run tool/docs/generate.dart --check
 
       - name: Every package has an example and a publish job after its dependencies
         run: dart run tool/publish_checks.dart
