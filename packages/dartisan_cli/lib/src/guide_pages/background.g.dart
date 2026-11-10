@@ -128,6 +128,13 @@ until commit by default.
     heartbeats (its lease). That includes a worker blocked in a job's
     `fromJson`, before the job is reported: the master does not know that
     job yet, so it comes back after `QUEUE_RETRY_AFTER`.
+  - A `HORIZON_HEARTBEAT_MS` under a few hundred milliseconds gets healthy
+    workers killed on a busy host (their lease is four heartbeats);
+    `dartisan doctor` and boot warn under 250 ms outside `APP_ENV=testing`.
+  - The limit before `QUEUE_RETRY_AFTER` counts from when the job *started*,
+    while the driver's `retry_after` counts from when it was *reserved*.
+    The difference is usually milliseconds, but a slow `fromJson` eats into
+    the margin, which is why the margin is not zero.
   - Synchronous work that must not keep a worker silent belongs in an
     isolate of its own (`Concurrency.run`).
 - An asynchronous error that a handler leaves uncaught (a future it does not
