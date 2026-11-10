@@ -121,6 +121,20 @@ laravel() { # name mode workers
     --cpuset-cpus="$SERVER_CPUS" -v "$WORK/data:/data" "${LARAVEL_BASE_ENV[@]}" \
     $LARAVEL_DB "${LARAVEL_ENV[@]}" \
     -e MODE="$2" -e WORKERS="$3" -e PORT=$PORT daravel-bench-laravel >/dev/null
+  # Fail fast, with the server's log, when it never answers /up (a missing
+  # setting makes Octane exit on boot, and the load would only see errors).
+  local up=""
+  for _ in $(seq 1 120); do
+    up=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT/up" || true)
+    [ "$up" = 200 ] && break
+    sleep 0.5
+  done
+  if [ "$up" != 200 ]; then
+    echo "$1 ($2, $3 workers) does not answer /up (last status: ${up:-none}):" >&2
+    docker logs --tail 40 daravel-bench-laravel-run >&2 || true
+    docker rm -f daravel-bench-laravel-run >/dev/null 2>&1 || true
+    exit 1
+  fi
   dart_run "taskset -c $CLIENT_CPUS dart run bin/bench.dart --external=$1:$PORT \
     --isolates=$3 --duration=$DURATION --scenarios=$SCENARIOS \
     --connections=$CONNECTIONS --out=/data/$1-$3.json"
