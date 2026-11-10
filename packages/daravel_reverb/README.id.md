@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:6dd5acd5637c -->
+<!-- source: README.md sha256:54201dbee5eb -->
 <img src="https://raw.githubusercontent.com/daravel-dev/daravel/main/docs/brand/png/daravel-icon-128.png" alt="Daravel" width="64" align="right">
 
 # daravel_reverb
