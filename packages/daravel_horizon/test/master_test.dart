@@ -43,19 +43,18 @@ final class Hang extends Job {
   }
 }
 
-Application masterApp() =>
-    Application.configure(basePath: Directory.systemTemp.path)
-        .withEnv({
-          'APP_ENV': 'testing',
-          'DB_CONNECTION': 'sqlite',
-          'DB_DATABASE': dbPath,
-          'QUEUE_CONNECTION': 'database',
-          'CACHE_STORE': 'file',
-        })
-        .withLogLevel(LogLevel.error)
-        .withMigrations(const [CreateJobsTable(), CreateCacheTable()])
-        .withJobs([JobDefinition('hang', Hang.fromJson)])
-        .create();
+Application masterApp() => Application.configure(basePath: _basePath())
+    .withEnv({
+      'APP_ENV': 'testing',
+      'DB_CONNECTION': 'sqlite',
+      'DB_DATABASE': dbPath,
+      'QUEUE_CONNECTION': 'database',
+      'CACHE_STORE': 'file',
+    })
+    .withLogLevel(LogLevel.error)
+    .withMigrations(const [CreateJobsTable(), CreateCacheTable()])
+    .withJobs([JobDefinition('hang', Hang.fromJson)])
+    .create();
 
 List<String> marks() =>
     File(marksPath).existsSync() ? File(marksPath).readAsLinesSync() : const [];
@@ -364,3 +363,10 @@ void main() {
     },
   );
 }
+
+/// This file's own directory, by name and pid: the master and its worker
+/// isolates share it (the file signal store, Horizon's status), and test
+/// files running in parallel do not.
+String _basePath() => (Directory(
+  '${Directory.systemTemp.path}${Platform.pathSeparator}horizon_master_base_$pid',
+)..createSync(recursive: true)).path;
