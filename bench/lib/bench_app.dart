@@ -114,64 +114,64 @@ Application createBenchApp() {
       .create();
 }
 
-ApplicationBuilder
-_benchBuilder() => Application.configure(basePath: Directory.current.path)
-    .withDatabaseDriver('mysql', MySqlDriver.fromConfig)
-    .withDatabaseDriver('mariadb', MySqlDriver.fromConfig)
-    .withMigrations(const [
-      CreateBenchTables(),
-      CreatePersonalAccessTokensTable(),
-    ])
-    .withAuth(
-      (auth) =>
-          auth.token<User>('token', ModelUserProvider<User>(User.definition)),
-    )
-    .withRateLimits(
-      (limiter) => limiter.define(
-        'bench',
-        (request) => Limit.perMinute(1 << 30).by(request.ip),
-      ),
-    )
-    .withRouting(
-      apiPrefix: '/api',
-      health: '/up',
-      web: (r) => r.get('/ping', (_) => Response.text('pong')),
-      api: (r) {
-        r.get(
-          '/users/{id}',
-          (req) => User.definition.query().findOrFail(req.param<int>('id')),
-        );
-        r.post('/users', (req) async {
-          final data = await req.validate({
-            'name': 'required|string|max:255',
-            'email': 'required|email|max:255',
-          });
-          return DB.transaction(
-            () => User.definition.query().create({
-              ...data.toMap(),
-              'password': 'x',
-            }),
-          );
-        });
-        r.get(
-          '/posts',
-          (_) => Post.definition
-              .query()
-              .with_(const ['author', 'comments'])
-              .orderBy('id')
-              .limit(20)
-              .get(),
-        );
-        r.get('/throttled', (_) => Response.text('ok')).middleware(const [
-          'throttle:bench',
-        ]);
-        // Scenario 14 (Blueprint #141 K0): a token (Sanctum's table and
-        // format), the rate limiter and a cache read per request, the work
-        // a coordinator-bound API request does. BENCH_CACHE_STORE picks the
-        // store (`process` by default; `redis` for the shared variant).
-        r
-            .get('/session', (req) async {
-              final user = (await Auth.user<User>())!;
+ApplicationBuilder _benchBuilder() =>
+    Application.configure(basePath: Directory.current.path)
+        .withDatabaseDriver('mysql', MySqlDriver.fromConfig)
+        .withDatabaseDriver('mariadb', MySqlDriver.fromConfig)
+        .withMigrations(const [
+          CreateBenchTables(),
+          CreatePersonalAccessTokensTable(),
+        ])
+        .withAuth((auth) {
+          auth
+            ..token<User>('token', ModelUserProvider<User>(User.definition))
+            ..jwt<User>('jwt', ModelUserProvider<User>(User.definition));
+        })
+        .withRateLimits(
+          (limiter) => limiter.define(
+            'bench',
+            (request) => Limit.perMinute(1 << 30).by(request.ip),
+          ),
+        )
+        .withRouting(
+          apiPrefix: '/api',
+          health: '/up',
+          web: (r) => r.get('/ping', (_) => Response.text('pong')),
+          api: (r) {
+            r.get(
+              '/users/{id}',
+              (req) => User.definition.query().findOrFail(req.param<int>('id')),
+            );
+            r.post('/users', (req) async {
+              final data = await req.validate({
+                'name': 'required|string|max:255',
+                'email': 'required|email|max:255',
+              });
+              return DB.transaction(
+                () => User.definition.query().create({
+                  ...data.toMap(),
+                  'password': 'x',
+                }),
+              );
+            });
+            r.get(
+              '/posts',
+              (_) => Post.definition
+                  .query()
+                  .with_(const ['author', 'comments'])
+                  .orderBy('id')
+                  .limit(20)
+                  .get(),
+            );
+            r.get('/throttled', (_) => Response.text('ok')).middleware(const [
+              'throttle:bench',
+            ]);
+            // Scenario 14 (Blueprint #141 K0): a token (Sanctum's table and
+            // format), the rate limiter and a cache read per request, the work
+            // a coordinator-bound API request does. BENCH_CACHE_STORE picks the
+            // store (`process` by default; `redis` for the shared variant).
+            Future<Response> session(String guard) async {
+              final user = (await Auth.user<User>(guard: guard))!;
               final id = user['id'];
               return Response.json(
                 await Cache.store(benchCacheStore).remember(
@@ -180,43 +180,69 @@ _benchBuilder() => Application.configure(basePath: Directory.current.path)
                   () => {'id': id, 'name': user['name']},
                 ),
               );
-            })
-            .middleware(const ['auth', 'throttle:bench']);
-        r.post('/login', (req) async {
-          final user = await Auth.retrieveByCredentials<User>({
-            'email': 'user1@bench.test',
-            'password': benchPassword,
-          });
-          return user == null
-              ? Response.json({'message': 'Invalid credentials.'}, status: 422)
-              : Response.json({'ok': true});
-        });
-        // Scenario 7: a 64 KB multipart upload, parsed and read.
-        r.post('/upload', (req) async {
-          final file = (await req.file('file'))!;
-          return {'name': file.clientName, 'size': (await file.bytes()).length};
-        });
-        // Scenario 13: every row of a 40-column table (row decoding and
-        // JSON encoding dominate; `?php=1` adds the json_encode rewrite).
-        r.get(
-          '/wide',
-          (req) async => Response.json(
-            await DB.table('wide_rows').orderBy('id').get(),
-            phpCompatible: req.query['php'] == '1',
-          ),
+            }
+
+            r.get('/session', (_) => session('token')).middleware(const [
+              'auth',
+              'throttle:bench',
+            ]);
+            // Daravel only (the coordinator census, not compared with Laravel):
+            // scenario 14 with a JWT, whose denylist lives in the coordinator.
+            r.get('/session-jwt', (_) => session('jwt')).middleware(const [
+              'auth:jwt',
+              'throttle:bench',
+            ]);
+            r.post('/jwt-token', (_) async {
+              final user = (await User.definition.query().find(1))!;
+              final guard = Auth.guard('jwt') as JwtGuard<User>;
+              return {'token': await guard.issue(user)};
+            });
+            // The census's broadcasting scenario: one publish through the
+            // coordinator per request (no subscriber).
+            r.post('/broadcast', (_) async {
+              await App.make<Broadcaster>().publish('bench', '{"n":1}');
+              return Response.noContent();
+            });
+            r.post('/login', (req) async {
+              final user = await Auth.retrieveByCredentials<User>({
+                'email': 'user1@bench.test',
+                'password': benchPassword,
+              });
+              return user == null
+                  ? Response.json({
+                      'message': 'Invalid credentials.',
+                    }, status: 422)
+                  : Response.json({'ok': true});
+            });
+            // Scenario 7: a 64 KB multipart upload, parsed and read.
+            r.post('/upload', (req) async {
+              final file = (await req.file('file'))!;
+              return {
+                'name': file.clientName,
+                'size': (await file.bytes()).length,
+              };
+            });
+            // Scenario 13: every row of a 40-column table (row decoding and
+            // JSON encoding dominate; `?php=1` adds the json_encode rewrite).
+            r.get(
+              '/wide',
+              (req) async => Response.json(
+                await DB.table('wide_rows').orderBy('id').get(),
+                phpCompatible: req.query['php'] == '1',
+              ),
+            );
+            // Scenario 8: an SSE response of ten events, read to its end.
+            r.get(
+              '/events',
+              (_) => Response.sse(
+                Stream<Object?>.fromIterable([
+                  for (var i = 0; i < 10; i++) {'n': i},
+                ]),
+                heartbeat: null,
+              ),
+            );
+          },
         );
-        // Scenario 8: an SSE response of ten events, read to its end.
-        r.get(
-          '/events',
-          (_) => Response.sse(
-            Stream<Object?>.fromIterable([
-              for (var i = 0; i < 10; i++) {'n': i},
-            ]),
-            heartbeat: null,
-          ),
-        );
-      },
-    );
 
 /// Creates the schema and seeds 1 000 users, 200 posts and 2 000 comments.
 Future<void> seedBenchDatabase(Application app) => app.run(() async {
