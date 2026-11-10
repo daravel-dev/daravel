@@ -1,0 +1,132 @@
+{
+  "meta": {
+    "date": "2026-11-10T14:12:56.409694Z",
+    "dart": "3.13.7",
+    "os": "linux Linux 6.18.58.1-microsoft-standard-WSL2 #1 SMP PREEMPT_DYNAMIC Tue Oct 27 00:24:11 UTC 2026",
+    "cpus": 16,
+    "duration_s": 10,
+    "connections": [
+      64
+    ],
+    "database": "pgsql"
+  },
+  "startup": [
+    {
+      "isolates": 1,
+      "startup_ms": 29,
+      "rss_idle_kb": 13860
+    },
+    {
+      "isolates": 4,
+      "startup_ms": 39,
+      "rss_idle_kb": 15176
+    }
+  ],
+  "zone": {
+    "bare_zone_ns": 149,
+    "scope_ns": 1088,
+    "scope_plus_facade_ns": 1544,
+    "zone_overhead_ns": 939
+  },
+  "results": [
+    {
+      "scenario": "0-dartio-ping",
+      "isolates": 1,
+      "connections": 64,
+      "requests": 87568,
+      "errors": 0,
+      "rps": 8741,
+      "p50_us": 7135,
+      "p95_us": 8835,
+      "p99_us": 10360
+    },
+    {
+      "scenario": "1-ping",
+      "isolates": 1,
+      "connections": 64,
+      "requests": 58499,
+      "errors": 0,
+      "rps": 5841,
+      "p50_us": 10591,
+      "p95_us": 13564,
+      "p99_us": 15321,
+      "relative_to_dartio": 0.6682
+    },
+    {
+      "scenario": "5-throttled",
+      "isolates": 1,
+      "connections": 64,
+      "requests": 50530,
+      "errors": 0,
+      "rps": 5045,
+      "p50_us": 12239,
+      "p95_us": 17413,
+      "p99_us": 21072,
+      "relative_to_dartio": 0.5771
+    },
+    {
+      "scenario": "14-token-throttle-cache",
+      "isolates": 1,
+      "connections": 64,
+      "requests": 11125,
+      "errors": 0,
+      "rps": 1108,
+      "p50_us": 56964,
+      "p95_us": 67356,
+      "p99_us": 71564,
+      "relative_to_dartio": 0.1267
+    },
+    {
+      "scenario": "0-dartio-ping",
+      "isolates": 4,
+      "connections": 64,
+      "requests": 128647,
+      "errors": 0,
+      "rps": 12853,
+      "p50_us": 4528,
+      "p95_us": 8964,
+      "p99_us": 11772
+    },
+    {
+      "scenario": "1-ping",
+      "isolates": 4,
+      "connections": 64,
+      "requests": 112867,
+      "errors": 0,
+      "rps": 11277,
+      "p50_us": 5304,
+      "p95_us": 10000,
+      "p99_us": 13357,
+      "relative_to_dartio": 0.8774
+    },
+    {
+      "scenario": "5-throttled",
+      "isolates": 4,
+      "connections": 64,
+      "requests": 75076,
+      "errors": 0,
+      "rps": 7498,
+      "p50_us": 7929,
+      "p95_us": 14616,
+      "p99_us": 18283,
+      "relative_to_dartio": 0.5834
+    },
+    {
+      "scenario": "14-token-throttle-cache",
+      "isolates": 4,
+      "connections": 64,
+      "requests": 19751,
+      "errors": 0,
+      "rps": 1971,
+      "p50_us": 33632,
+      "p95_us": 51107,
+      "p99_us": 59144,
+      "relative_to_dartio": 0.1533
+    }
+  ],
+  "targets": {
+    "ping_overhead_vs_dartio": "33.2% (target ≤ 25%)",
+    "throttle_added_us_per_request": "27.0 (target ≤ 100; the leases of ADR-003 aim < 30)",
+    "ping_scaling_4_vs_1": "1.93x (target ≥ 3x on 4+ cores; 16 cpus here)"
+  }
+}

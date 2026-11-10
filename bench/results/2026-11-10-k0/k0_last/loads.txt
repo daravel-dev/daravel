@@ -1,0 +1,7 @@
+process-1b load: 1.81 1.78 1.85
+process-1b exit=0
+pool4 load: 1.92 4.61 4.14
+pool4 exit=0
+pool8 load: 1.97 3.85 4.01
+pool8 exit=0
+done
