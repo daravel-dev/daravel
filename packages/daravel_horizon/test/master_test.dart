@@ -56,6 +56,9 @@ Application masterApp() => Application.configure(basePath: _basePath())
     .withJobs([JobDefinition('hang', Hang.fromJson)])
     .create();
 
+/// The marks the jobs wrote. Several worker isolates append to one file at
+/// once, and on Windows some appends are lost: check what a mark says, never
+/// how many there are.
 List<String> marks() =>
     File(marksPath).existsSync() ? File(marksPath).readAsLinesSync() : const [];
 
@@ -237,10 +240,20 @@ void main() {
       await m.stop(timeout: const Duration(seconds: 20));
       expect(m.workers('s'), isEmpty);
       // The workers recorded every job in the store, and the master read
-      // the rates from it.
+      // the rates from it. A worker the master killed (its heartbeats late
+      // on a loaded runner) may have lost the record of the job it had just
+      // finished, or run a reclaimed job a second time: each kill moves the
+      // count by at most one. Without a kill it is exactly 300.
       final service =
           coordinator.service(HorizonService.serviceName)! as HorizonService;
-      expect(service.stats()['completed'], 300);
+      final kills = events.where((e) => e.$1 == 'WorkerKilled').length;
+      final completed = service.stats()['completed']! as int;
+      if ((completed - 300).abs() > kills) {
+        fail(
+          'completed $completed of 300 with $kills kill(s)\n'
+          '${await diagnosis(m, 's', {'completed': completed})}',
+        );
+      }
       expect(service.rates('a')['avg_ms'], greaterThanOrEqualTo(20));
     },
   );
