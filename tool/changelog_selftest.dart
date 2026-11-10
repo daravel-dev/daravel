@@ -115,6 +115,113 @@ void main() {
     <String>[],
   );
 
+  // Fragments (Blueprint #142).
+  const fragmentText =
+      '### Added\n\n- New thing.\n\n### Upgrade notes\n\n- `Y` is new.\n';
+  check(
+    'a valid fragment has no problems',
+    fragmentProblems('a-branch.md', fragmentText),
+    <String>[],
+  );
+  check(
+    'a name that is not a slug is reported',
+    fragmentProblems('My_Branch.md', fragmentText).length,
+    1,
+  );
+  check(
+    'an unknown header is reported',
+    fragmentProblems('b.md', '### Removed\n\n- X.\n').length,
+    1,
+  );
+  check(
+    'a ## header is reported',
+    fragmentProblems('b.md', '## 1.0.0\n\n### Added\n\n- X.\n').length,
+    1,
+  );
+  check(
+    'text outside the lists is reported',
+    fragmentProblems('b.md', '### Added\n\nSome prose.\n- X.\n').length,
+    1,
+  );
+  check(
+    'a section without a note is reported',
+    fragmentProblems('b.md', '### Added\n\n### Fixed\n\n- X.\n'),
+    ['changelog.d/b.md: "### Added" has no note.'],
+  );
+  check('an empty fragment is reported', fragmentProblems('b.md', '\n'), [
+    'changelog.d/b.md: the fragment has no notes.',
+  ]);
+  check(
+    'a repeated header is reported',
+    fragmentProblems('b.md', '### Added\n\n- X.\n\n### Added\n\n- Y.\n').length,
+    1,
+  );
+
+  final first = parseFragment('b-second', fragmentText);
+  final second = parseFragment(
+    'a-first',
+    '### Fixed\n\n- A fix.\n\n### Changed\n\n- A change.\n',
+  );
+  check('a fragment is parsed by section', first.lines, {
+    'Added': ['- New thing.'],
+    'Upgrade notes': ['- `Y` is new.'],
+  });
+  final assembled = assembleUnreleased(unreleasedBody(withNotes)!, [
+    first,
+    second,
+  ]);
+  check(
+    'assembly: the changelog first, then fragments by name, in sections',
+    assembled,
+    '\n### Added\n\n- A thing.\n- New thing.\n\n'
+        '### Changed\n\n- A change.\n\n'
+        '$upgradeLabel\n\n- `Y` is new.\n\n'
+        '### Fixed\n\n- A bug.\n- A fix.\n\n',
+  );
+  check(
+    'assembly without fragments keeps the template shape',
+    assembleUnreleased(unreleasedBody(empty)!, const []),
+    unreleasedBody(empty),
+  );
+  check(
+    'release with fragments only',
+    releaseChangelog(empty, '1.1.0', fragments: [second]),
+    '$head$unreleasedTemplate'
+        '## 1.1.0\n\n### Changed\n\n- A change.\n\n### Fixed\n\n- A fix.\n\n'
+        '$older',
+  );
+  check(
+    'an upgrade note in a fragment counts for a new export',
+    upgradeNoteProblems(
+      baseChangelog: empty,
+      headChangelog: empty,
+      addedExports: added,
+      headFragments: [first],
+    ),
+    <String>[],
+  );
+  check(
+    'a fragment already on the base does not count again',
+    upgradeNoteProblems(
+      baseChangelog: empty,
+      headChangelog: empty,
+      addedExports: added,
+      baseFragments: [first],
+      headFragments: [first],
+    ).length,
+    1,
+  );
+  check(
+    '--fragments-only sees notes added to CHANGELOG.md',
+    addedUnreleasedNotes(empty, withNotes),
+    ['- A thing.', '- A bug.'],
+  );
+  check(
+    '--fragments-only lets older notes be',
+    addedUnreleasedNotes(withNotes, withNotes),
+    <String>[],
+  );
+
   if (failures > 0) {
     stderr.writeln('$failures failure(s).');
     exitCode = 1;
