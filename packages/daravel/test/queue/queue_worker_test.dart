@@ -279,6 +279,66 @@ void main() {
     });
   });
 
+  test('onReserved hears of each job as soon as it is reserved, before it is '
+      'announced and run', () async {
+    await boot('memory');
+    await app!.run(() async {
+      final order = <String>[];
+      Event.listen<JobProcessing>((_) => order.add('processing'));
+      await Queue.push(const Mark('ok'));
+      await QueueWorker(Queue.manager).run(
+        WorkerOptions(
+          stopWhenEmpty: true,
+          onReserved: (job) {
+            order.add('reserved ${job.payload.displayName} ${job.attempts}');
+          },
+        ),
+      );
+      expect(order, ['reserved Mark 1', 'processing']);
+      expect(ran, ['default:ok']);
+    });
+  });
+
+  test('onFinished follows every job onReserved was told of, failed or '
+      'not', () async {
+    await boot('memory');
+    await app!.run(() async {
+      final order = <String>[];
+      await Queue.push(const Mark('ok'));
+      await Queue.push(const Mark('bad', fail: true));
+      await QueueWorker(Queue.manager).run(
+        WorkerOptions(
+          stopWhenEmpty: true,
+          onReserved: (job) => order.add('reserved ${job.id}'),
+          onFinished: (job) => order.add('finished ${job.id}'),
+        ),
+      );
+      expect(order, hasLength(4));
+      for (var i = 0; i < 4; i += 2) {
+        expect(order[i], startsWith('reserved'));
+        expect(order[i + 1], order[i].replaceFirst('reserved', 'finished'));
+      }
+    });
+  });
+
+  test('an onReserved that throws is logged, and the job runs all the '
+      'same', () async {
+    await boot('memory');
+    await app!.run(() async {
+      final logs = Log.spy();
+      await Queue.push(const Mark('ok'));
+      await QueueWorker(Queue.manager, logger: Log.logger).run(
+        WorkerOptions(
+          stopWhenEmpty: true,
+          onReserved: (_) => throw StateError('listener failed'),
+        ),
+      );
+      expect(ran, ['default:ok'], reason: 'not lost');
+      expect(await Queue.size('default'), 0);
+      logs.assertLogged(LogLevel.error, 'onReserved failed');
+    });
+  });
+
   test('the events keep their old constructors', () {
     const processing = JobProcessing(
       connection: 'c',

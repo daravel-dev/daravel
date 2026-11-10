@@ -1,4 +1,4 @@
-<!-- source: background.md sha256:3f6900a03081 -->
+<!-- source: background.md sha256:259322196e9f -->
 # Cache, event, queue, dan penjadwalan
 
 <!-- include: packages/daravel/test/docs/guide_examples_test.dart#cache-events-queue -->
@@ -128,17 +128,20 @@ sampai commit.
     "not reporting for N s", serta mendaftar percobaan yang dibunuh karena
     melewati timeout.
   - Hanya worker idle yang berhenti menjawab yang dibunuh setelah tiga
-    heartbeat (lease-nya). Itu termasuk worker yang terblok di `fromJson`
-    sebuah job sebelum job itu dilaporkan: master belum mengenal job
-    tersebut, sehingga job itu kembali setelah `QUEUE_RETRY_AFTER`.
+    heartbeat (lease-nya). Worker melaporkan job begitu driver
+    mereservasinya, sebelum `fromJson`: worker yang terblok di `fromJson`
+    sudah dikenal menjalankan job itu, dinilai dengan timeout job, dan
+    job-nya langsung tersedia lagi. Yang tersisa hanya celah di dalam I/O
+    driver sebelum pop kembali, tanpa kode aplikasi di sana.
   - `HORIZON_HEARTBEAT_MS` di bawah beberapa ratus milidetik membuat worker
     sehat dibunuh pada host yang sibuk (lease-nya hanya empat heartbeat);
     `dartisan doctor` dan boot memberi peringatan di bawah 250 ms di luar
     `APP_ENV=testing`.
-  - Batas sebelum `QUEUE_RETRY_AFTER` dihitung dari saat job *mulai*,
-    sedangkan `retry_after` driver dihitung dari saat job *direservasi*.
-    Selisihnya biasanya milidetik, tetapi `fromJson` yang lambat memperkecil
-    margin itu; karena itulah margin tidak nol.
+  - Batas di master dihitung dari saat job *direservasi*, sama dengan
+    `retry_after` driver; margin sebelum `QUEUE_RETRY_AFTER` hanya cadangan
+    untuk dua jam dan laporan yang sedang dikirim. Timeout processor
+    dihitung dari awal `handle`, jadi batas master lebih awal sebesar
+    `fromJson` dan middleware; `HORIZON_KILL_GRACE` menutup selisih normal.
   - Kerja sinkron yang tidak boleh membuat worker diam sebaiknya dijalankan di
     isolate tersendiri (`Concurrency.run`).
 - Error asinkron yang dibiarkan tidak tertangkap oleh handler (future yang

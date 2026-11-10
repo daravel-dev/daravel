@@ -48,6 +48,9 @@ final class Hang extends Job {
   @override
   int get tries => 3;
   @override
+  List<JobMiddleware> get middleware =>
+      label == 'released' ? const [_ReleaseFirst()] : const [];
+  @override
   Map<String, Object?> toJson() => {'label': label, 'ms': ms};
   @override
   Future<void> handle(JobContext ctx) async {
@@ -394,7 +397,7 @@ void main() {
         diagnose: () => diagnosis(m, 's', {'status': m.status()}),
       );
       expect(worker()!['busy'], isTrue);
-      expect(m.workers('s').single.last?.jobStartedAtMs, isNotNull);
+      expect(m.workers('s').single.last?.jobReservedAtMs, isNotNull);
       await until(() => marks().contains('a:slow:1'), 'the job done');
       // Time for a wrong kill or a rerun to show.
       await Future<void>.delayed(const Duration(seconds: 3));
@@ -480,28 +483,96 @@ void main() {
   );
 
   test(
-    'an idle worker that stops answering (blocked between the pop and its '
-    'report) is killed for its lease; the job it took comes back after '
-    'retry_after',
+    'a job that leaves without a lifecycle event (unknown name, tries used '
+    'up on its pop, released by middleware) leaves the worker idle: no kill '
+    'once its limit has passed',
+    timeout: const Timeout(Duration(minutes: 2)),
+    () async {
+      // Each alone: a later job's own events would clear a report left
+      // behind and hide it.
+      for (final (what, push, handled)
+          in <(String, Future<void> Function(), Future<bool> Function())>[
+            (
+              'an unknown job name',
+              () => Queue.push(const _Stranger(), queue: 'a'),
+              () async => (await DB.table('failed_jobs').get()).length == 1,
+            ),
+            (
+              'tries used up on its pop',
+              () async {
+                await Queue.push(const Hang('used-up'), queue: 'a');
+                await DB.table('jobs').update({'attempts': 3});
+              },
+              () async => (await DB.table('failed_jobs').get()).length == 1,
+            ),
+            (
+              'released by middleware, unrun',
+              () => Queue.push(const Hang('released'), queue: 'a'),
+              () async {
+                final row = await DB.table('jobs').first();
+                return row != null &&
+                    row['reserved_at'] == null &&
+                    row['attempts'] == 1;
+              },
+            ),
+          ]) {
+        await app.run(() async {
+          await DB.table('jobs').delete();
+          await DB.table('failed_jobs').delete();
+          await push();
+        });
+        events.clear();
+        // A limit of 2 s from the reservation (timeout 1 s + killGrace 1 s).
+        final m = master(
+          plan(timeout: const Duration(seconds: 1)),
+          killGrace: const Duration(seconds: 1),
+        );
+        await m.start();
+        final deadline = DateTime.now().add(const Duration(seconds: 30));
+        while (!await app.run(handled) && DateTime.now().isBefore(deadline)) {
+          await Future<void>.delayed(const Duration(milliseconds: 100));
+        }
+        expect(await app.run(handled), isTrue, reason: what);
+        // Past its limit: a report left behind would have the master kill
+        // the idle worker now.
+        await Future<void>.delayed(const Duration(seconds: 3));
+        expect(eventsNamed('WorkerKilled'), isEmpty, reason: what);
+        expect(m.workers('s').single.busy, isFalse, reason: what);
+        await m.stop(timeout: const Duration(seconds: 20));
+      }
+      expect(marks(), isEmpty, reason: 'none of them ran');
+    },
+  );
+
+  test(
+    'a worker blocked in a job\'s fromJson is known to run that job (it '
+    'reported it at the reservation): killed past its timeout, the job '
+    'reclaimed at once, not after retry_after',
     timeout: const Timeout(Duration(minutes: 2)),
     () async {
       await app.run(() => Queue.push(const Hang('stuck-pop'), queue: 'a'));
-      final m = master(plan(), factory: shortRetryApp);
+      // retry_after is 90 s: only a reclaim brings attempt 2 this soon.
+      final m = master(
+        plan(timeout: const Duration(seconds: 1)),
+        killGrace: const Duration(seconds: 1),
+      );
+      final watch = Stopwatch()..start();
       addTearDown(() => m.stop(timeout: const Duration(seconds: 20)));
       await m.start();
       await until(
         () => marks().contains('a:stuck-pop:2'),
-        'the job done after retry_after, on its second attempt',
+        'the job done on its second attempt',
         diagnose: () => diagnosis(m, 's', const {}),
       );
+      expect(watch.elapsed, lessThan(const Duration(seconds: 30)));
       final killed = eventsNamed('WorkerKilled');
-      expect(killed.single['reason'], 'lease');
+      expect(killed.single['reason'], 'timeout');
       expect(
         killed.single['job'],
-        isNull,
-        reason: 'the master had not heard of the job',
+        isNotNull,
+        reason: 'the worker reported the job when it reserved it',
       );
-      expect(eventsNamed('JobTimedOut'), isEmpty);
+      expect(eventsNamed('JobTimedOut').single['reclaimed'], isTrue);
       await m.stop(timeout: const Duration(seconds: 20));
     },
   );
@@ -768,3 +839,25 @@ void main() {
 String _basePath() => (Directory(
   '${Directory.systemTemp.path}${Platform.pathSeparator}horizon_master_base_$pid',
 )..createSync(recursive: true)).path;
+
+/// Releases the job for an hour without running it (as a rate limit or
+/// `WithoutOverlapping` does): a way out with no lifecycle event after
+/// `JobProcessing`.
+final class _ReleaseFirst implements JobMiddleware {
+  const _ReleaseFirst();
+
+  @override
+  Future<void> handle(JobContext ctx, Job job, JobNext next) async =>
+      ctx.release(const Duration(hours: 1));
+}
+
+/// A job the workers' registry does not know: it fails before it runs.
+final class _Stranger extends Job {
+  const _Stranger();
+  @override
+  String get jobName => 'stranger';
+  @override
+  Map<String, Object?> toJson() => const {};
+  @override
+  Future<void> handle(JobContext ctx) async {}
+}

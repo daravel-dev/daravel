@@ -104,17 +104,18 @@ Future<void> horizonWorkerMain(HorizonWorkerStart start) async {
       logger: booted.logger,
     )..reassign(Assign(start.queues).list);
 
-    // The job running now, from the worker's own lifecycle events.
+    // The job running now: reported the moment the driver reserved it
+    // (onReserved), cleared by the worker's own lifecycle events.
     String? jobId;
     String? jobUuid;
     String? queue;
-    int? startedAt;
+    int? reservedAt;
     int? timeoutMs;
     String? jobName;
     int? attempt;
     void clear() {
       jobId = jobUuid = queue = jobName = null;
-      startedAt = timeoutMs = attempt = null;
+      reservedAt = timeoutMs = attempt = null;
     }
 
     void report() => start.master.send(
@@ -124,7 +125,7 @@ Future<void> horizonWorkerMain(HorizonWorkerStart start) async {
         jobId: jobId,
         jobUuid: jobUuid,
         queue: queue,
-        jobStartedAtMs: startedAt,
+        jobReservedAtMs: reservedAt,
         jobTimeoutMs: timeoutMs,
         jobName: jobName,
         attempt: attempt,
@@ -149,18 +150,11 @@ Future<void> horizonWorkerMain(HorizonWorkerStart start) async {
     );
     booted.container.make<EventDispatcher>()
       ..listen<JobProcessing>((e) {
-        jobId = '${e.jobId}';
-        jobUuid = e.uuid;
-        queue = e.queue;
-        startedAt = DateTime.now().millisecondsSinceEpoch;
-        timeoutMs = e.timeout?.inMilliseconds;
-        jobName = e.displayName ?? e.jobName;
-        attempt = e.attempt;
+        // Reported already, at the reservation (onReserved below): only
+        // what the dashboard records once the job ends.
         if (e.uuid case final String uuid) {
           running[uuid] = (e.displayName ?? e.jobName, e.tags);
         }
-        // At once: a job that blocks the event loop sends nothing after.
-        report();
       })
       ..listen<JobProcessed>((e) {
         clear();
@@ -234,6 +228,28 @@ Future<void> horizonWorkerMain(HorizonWorkerStart start) async {
           sleep: start.sleep,
           maxJobs: start.maxJobs,
           maxTime: start.maxTime,
+          // At once, before fromJson, JobProcessing or the handler can block
+          // the event loop: the master then always has the job's id to
+          // reclaim, and its limit counts from the reservation, as the
+          // driver's retry_after does. The one report a job used to send at
+          // JobProcessing, moved here: no message more per job.
+          onReserved: (job) {
+            jobId = '${job.id}';
+            jobUuid = job.payload.uuid;
+            queue = job.queue;
+            reservedAt = DateTime.now().millisecondsSinceEpoch;
+            // The timeout the processor will enforce: the plan's, otherwise
+            // the job's own (as JobProcessing.timeout says).
+            timeoutMs = (start.timeout ?? job.payload.timeout).inMilliseconds;
+            jobName = job.payload.displayName;
+            attempt = job.attempts;
+            report();
+          },
+          // Whatever way the job left (processed, failed, released, deleted,
+          // failed before it ran: not every way has an event), this worker
+          // runs nothing now: an idle worker must not look busy, or the
+          // master would kill it past a job that is over.
+          onFinished: (_) => clear(),
         ),
       ),
       onUncaughtError: (error, stackTrace) => booted.logger.error(

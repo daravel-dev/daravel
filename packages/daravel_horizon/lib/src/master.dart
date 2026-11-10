@@ -615,16 +615,20 @@ final class HorizonMaster {
     }
   }
 
-  /// How long the job [w] runs may go on before its isolate is killed:
-  /// the timeout the processor enforces for it (`JobProcessing.timeout`:
-  /// the plan's `timeout` when set, otherwise the job's own) plus
-  /// `killGrace`, but never later than [_reclaimMargin] before the
-  /// connection's `retry_after`: from then on the driver may give the job
-  /// to another worker, which would run it beside this one. Null when [w]
-  /// runs no job.
+  /// How long, from its reservation, the job [w] runs may go on before its
+  /// isolate is killed: the timeout the processor enforces for it (the
+  /// plan's `timeout` when set, otherwise the job's own) plus `killGrace`,
+  /// but never later than [_reclaimMargin] before the connection's
+  /// `retry_after`: from then on the driver may give the job to another
+  /// worker, which would run it beside this one. Null when [w] runs no job.
+  ///
+  /// The processor counts its timeout from the start of `handle`, this
+  /// limit from the reservation: earlier by the job's `fromJson` and its
+  /// middleware, a difference `killGrace` covers in the usual case. It is
+  /// not the processor's timeout to the millisecond.
   Duration? _jobLimit(HorizonWorker w) {
     final beat = w.last;
-    if (beat == null || beat.jobId == null || beat.jobStartedAtMs == null) {
+    if (beat == null || beat.jobId == null || beat.jobReservedAtMs == null) {
       return null;
     }
     final timeout = switch (beat.jobTimeoutMs) {
@@ -651,7 +655,9 @@ final class HorizonMaster {
 
   /// How long before `retry_after` the master kills a blocked worker, and
   /// after which it no longer reclaims its job: a heartbeat, at least a
-  /// second (the reservation starts a little before the job reports).
+  /// second. The job's time counts from its reservation, as the driver's
+  /// `retry_after` does, so the margin is only a reserve for the two
+  /// clocks and the report on its way.
   Duration get _reclaimMargin => config.heartbeat > const Duration(seconds: 1)
       ? config.heartbeat
       : const Duration(seconds: 1);
@@ -669,7 +675,7 @@ final class HorizonMaster {
       return false;
     }
     final started = DateTime.fromMillisecondsSinceEpoch(
-      w.last!.jobStartedAtMs!,
+      w.last!.jobReservedAtMs!,
     );
     if (w._isolate != null && DateTime.now().difference(started) > limit) {
       w._timedOut = true;
@@ -779,7 +785,7 @@ final class HorizonMaster {
   /// still reserved.
   ///
   /// The driver reclaims by id: once `retry_after` (less [_reclaimMargin])
-  /// has passed since the job started, the driver may have given it to
+  /// has passed since the job was reserved, the driver may have given it to
   /// another worker already, whose reservation a reclaim would release
   /// (a third worker could then run it beside the second). Then the job is
   /// left to `retry_after`, and [HorizonWorker._leftToRetryAfter] is set.
@@ -791,7 +797,7 @@ final class HorizonMaster {
     if (queue == null || id == null || target is! ReclaimableQueueDriver) {
       return false;
     }
-    final started = job?.jobStartedAtMs;
+    final started = job?.jobReservedAtMs;
     final retryAfter = _retryAfter(w);
     if (started != null && retryAfter != null) {
       final ran = DateTime.now().difference(
