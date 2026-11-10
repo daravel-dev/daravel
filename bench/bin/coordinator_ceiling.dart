@@ -226,9 +226,8 @@ Future<void> main(List<String> args) async {
     final coordinator = createStandardCoordinator();
     final port = coordinator.listen();
     // Through the store, which encodes values as its readers expect.
-    await ProcessStore(
-      LocalCoordinatorChannel(coordinator),
-    ).put('ceiling-key', 'value');
+    await ProcessStore(LocalCoordinatorChannel(coordinator))
+        .put('ceiling-key', 'value');
     try {
       return await run(coordinator, port, [
         for (final j in jobs) (reply) => j(port, reply),

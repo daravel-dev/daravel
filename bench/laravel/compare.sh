@@ -23,7 +23,7 @@ WORKERS=${WORKERS:-4}
 WORKER_COUNTS=${WORKER_COUNTS:-1,$WORKERS}
 CONNECTIONS=${CONNECTIONS:-64}
 DART_IMAGE=${DART_IMAGE:-dart:stable}
-SCENARIOS=${SCENARIOS:-1,2,3,4,5,6}
+SCENARIOS=${SCENARIOS:-1,2,3,4,5,6,14}
 DB=${DB:-sqlite}
 PG_IMAGE=${PG_IMAGE:-postgres:17}
 PG_PORT=18632
@@ -48,7 +48,7 @@ tar -C "$REPO" --exclude=.git --exclude=.dart_tool --exclude=build \
 docker build --network=host -q -t daravel-bench-laravel "$REPO/bench/laravel" >/dev/null
 
 dart_run() {
-  docker run --rm --network host \
+  docker run --rm --network host "${DARAVEL_ENV[@]}" \
     -v "$WORK/src:/src" -v "$WORK/data:/data" -v "$WORK/pub-cache:/root/.pub-cache" \
     -w /src/bench "$DART_IMAGE" sh -c "$1"
 }
@@ -76,6 +76,28 @@ if [ "$DB" = pgsql ]; then
   LARAVEL_DB="-e DB_CONNECTION=pgsql -e DB_URL=$URL"
 fi
 
+
+# Scenario 14's cache and rate limiter (Blueprint #141 K0):
+#   CACHE_VARIANT=process: Daravel's `process` store (shared by its isolates
+#     through the coordinator) against Laravel's `array` store (per worker);
+#   CACHE_VARIANT=redis: both on one Redis (REDIS_IMAGE, port 18679, on the
+#     servers' cores), cache and limiter alike.
+# SANCTUM_LAST_USED_AT (true, Sanctum's default) writes last_used_at on every
+# request; Daravel writes it at most once a minute per token.
+CACHE_VARIANT=${CACHE_VARIANT:-process}
+REDIS_IMAGE=${REDIS_IMAGE:-redis:7}
+REDIS_PORT=18679
+DARAVEL_ENV=(-e BENCH_CACHE_STORE=process)
+LARAVEL_ENV=(-e BENCH_CACHE_STORE=array -e SANCTUM_LAST_USED_AT="${SANCTUM_LAST_USED_AT:-true}")
+if [ "$CACHE_VARIANT" = redis ]; then
+  docker rm -f daravel-bench-redis >/dev/null 2>&1 || true
+  docker run -d --name daravel-bench-redis --network host --cpuset-cpus="$SERVER_CPUS" \
+    "$REDIS_IMAGE" redis-server --port "$REDIS_PORT" --save '' --appendonly no >/dev/null
+  trap 'docker rm -f daravel-bench-redis daravel-bench-postgres >/dev/null 2>&1 || true' EXIT
+  DARAVEL_ENV=(-e REDIS_HOST=127.0.0.1 -e REDIS_PORT=$REDIS_PORT -e BENCH_CACHE_STORE=redis -e CACHE_LIMITER=redis)
+  LARAVEL_ENV=(-e REDIS_HOST=127.0.0.1 -e REDIS_PORT=$REDIS_PORT -e REDIS_CLIENT=phpredis
+    -e BENCH_CACHE_STORE=redis -e CACHE_STORE=redis -e SANCTUM_LAST_USED_AT="${SANCTUM_LAST_USED_AT:-true}")
+fi
 echo "== Daravel (AOT, isolates $WORKER_COUNTS, cores $SERVER_CPUS, $DB)"
 dart_run "dart pub get >/dev/null && taskset -c $CLIENT_CPUS dart run bin/bench.dart \
   $DARAVEL_DB --server-cpus=$SERVER_CPUS --isolates=$WORKER_COUNTS \
@@ -86,7 +108,7 @@ dart_run "dart pub get >/dev/null && taskset -c $CLIENT_CPUS dart run bin/bench.
 laravel() { # name mode workers
   docker rm -f daravel-bench-laravel-run >/dev/null 2>&1 || true
   docker run -d --name daravel-bench-laravel-run --network host \
-    --cpuset-cpus="$SERVER_CPUS" -v "$WORK/data:/data" $LARAVEL_DB \
+    --cpuset-cpus="$SERVER_CPUS" -v "$WORK/data:/data" $LARAVEL_DB "${LARAVEL_ENV[@]}" \
     -e MODE="$2" -e WORKERS="$3" -e PORT=$PORT daravel-bench-laravel >/dev/null
   dart_run "taskset -c $CLIENT_CPUS dart run bin/bench.dart --external=$1:$PORT \
     --isolates=$3 --duration=$DURATION --scenarios=$SCENARIOS \
