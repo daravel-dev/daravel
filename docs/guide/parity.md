@@ -95,6 +95,9 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | Laravel | Daravel | Notes |
 | :-- | :-- | :-- |
 | `php artisan reverb:start (Laravel Reverb)` | `.withBroadcasting(...) with REVERB_APP_ID / _KEY / _SECRET` | The Pusher protocol on the HTTP port; Laravel Echo and pusher-js connect unchanged. |
+| `Echo.private('orders.42').listen('OrderShipped', cb) (laravel-echo)` | `Echo.reverb(key:, host:, auth: EchoAuth.bearer(...)).private('orders.42').listen('OrderShipped', cb) (daravel_reverb_client)` | Dart and Flutter (VM, mobile, desktop, web) against Laravel Reverb or Daravel; Echo's event names, whispers, notifications. |
+| `Echo.join('room').here(cb).joining(cb).leaving(cb)` | `echo.join('room')..here(cb)..joining(cb)..leaving(cb)` | Presence members, one join per user. |
+| `Echo.encryptedPrivate('chat.9')` | `echo.encryptedPrivate('chat.9')` | Opened with the shared_secret of /broadcasting/auth, as pusher-js. |
 | `Broadcast::channel('orders.{id}', fn ($user, $id) => ...)` | `channels.channel('orders.{id}', (user, p) => ...)` | routes/channels.php: false refuses, true admits, a map is the presence member. |
 | `class OrderShipped implements ShouldBroadcast` | `final class OrderShipped with ShouldBroadcast` | broadcastWith says what to send (no reflection); broadcast when dispatched. |
 | `broadcast(new OrderShipped($order))->toOthers()` | `await Broadcast.event(OrderShipped(order).toOthers())` | **async** |

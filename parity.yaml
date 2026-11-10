@@ -96,6 +96,9 @@ sections:
   - name: Broadcasting
     symbols:
       - { php: "php artisan reverb:start (Laravel Reverb)", dart: ".withBroadcasting(...) with REVERB_APP_ID / _KEY / _SECRET", symbol: PusherServer, note: "The Pusher protocol on the HTTP port; Laravel Echo and pusher-js connect unchanged." }
+      - { php: "Echo.private('orders.42').listen('OrderShipped', cb) (laravel-echo)", dart: "Echo.reverb(key:, host:, auth: EchoAuth.bearer(...)).private('orders.42').listen('OrderShipped', cb) (daravel_reverb_client)", symbol: EchoPrivateChannel.whisper, note: "Dart and Flutter (VM, mobile, desktop, web) against Laravel Reverb or Daravel; Echo's event names, whispers, notifications." }
+      - { php: "Echo.join('room').here(cb).joining(cb).leaving(cb)", dart: "echo.join('room')..here(cb)..joining(cb)..leaving(cb)", symbol: EchoPresenceChannel.here, note: "Presence members, one join per user." }
+      - { php: "Echo.encryptedPrivate('chat.9')", dart: "echo.encryptedPrivate('chat.9')", symbol: EchoEncryptedChannel, note: "Opened with the shared_secret of /broadcasting/auth, as pusher-js." }
       - { php: "Broadcast::channel('orders.{id}', fn ($user, $id) => ...)", dart: "channels.channel('orders.{id}', (user, p) => ...)", symbol: ChannelRegistry.channel, note: "routes/channels.php: false refuses, true admits, a map is the presence member." }
       - { php: "class OrderShipped implements ShouldBroadcast", dart: "final class OrderShipped with ShouldBroadcast", symbol: ShouldBroadcast, note: "broadcastWith says what to send (no reflection); broadcast when dispatched." }
       - { php: "broadcast(new OrderShipped($order))->toOthers()", dart: "await Broadcast.event(OrderShipped(order).toOthers())", symbol: Broadcast.event, async: true }

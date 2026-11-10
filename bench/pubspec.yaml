@@ -10,6 +10,7 @@ resolution: workspace
 dependencies:
   crypto: ^3.0.7
   daravel: any
+  daravel_reverb_client: any
   daravel_permission: any
   daravel_log_viewer: any
   daravel_activitylog: any

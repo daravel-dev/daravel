@@ -469,6 +469,7 @@ The monorepo is a Dart pub workspace:
 | [`packages/daravel_excel`](packages/daravel_excel) | Excel and CSV exports and imports with Laravel Excel's concerns, streamed with constant memory |
 | [`packages/daravel_log_viewer`](packages/daravel_log_viewer) | A log viewer page: files read from their end, filters, live tail, secrets masked |
 | [`packages/daravel_pulse`](packages/daravel_pulse) | A dashboard after Laravel Pulse: requests, slow requests and queries, exceptions, queues, across every isolate |
+| [`packages/daravel_reverb_client`](packages/daravel_reverb_client) | A Pusher client after Laravel Echo for Dart and Flutter (VM, mobile, desktop, web), for Laravel Reverb and Daravel |
 | [`packages/daravel_payments`](packages/daravel_payments) | Midtrans, Xendit and Stripe behind one API; webhooks verified, applied once, amounts checked |
 | [`packages/daravel_medialibrary`](packages/daravel_medialibrary) | Files and images attached to models on spatie/laravel-medialibrary's media table, conversions in pure Dart |
 | [`packages/daravel_teorion`](packages/daravel_teorion) | Request-driven query filters, laravel-teorion's format |

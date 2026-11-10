@@ -18,6 +18,7 @@ Each application in this directory runs and is tested in CI, with the structure 
 | `daravel_postgres` |  |  |  |  | `database_matrix_demo` |
 | `daravel_pulse` |  |  |  |  | `pulse_demo`, `ops_console` |
 | `daravel_redis` |  |  |  |  | `redis_demo`, `ops_console`, `api_gateway_demo` |
+| `daravel_reverb_client` |  |  |  |  | `reverb_demo` |
 | `daravel_s3` |  |  |  |  | `s3_demo`, `storefront_demo` |
 | `daravel_scout` |  |  |  |  | `scout_demo`, `api_gateway_demo` |
 | `daravel_session` |  |  |  |  | `session_demo`, `storefront_demo` |
