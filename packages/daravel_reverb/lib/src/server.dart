@@ -73,7 +73,11 @@ final class ReverbRestartWatcher {
 
   final Random _random;
   Timer? _timer;
-  Future<Object?>? _atStart;
+
+  /// The key's value when watching started, once read: until then no value
+  /// is a request (a store down at the start must not make the value
+  /// already there look new).
+  Future<({Object? value})?>? _atStart;
   bool _reading = false;
 
   /// Whether it watches.
@@ -86,11 +90,11 @@ final class ReverbRestartWatcher {
     _timer ??= Timer.periodic(poll, (_) => unawaited(_check()));
   }
 
-  /// The key's value, or null when it cannot be read: the next value read
-  /// is then taken as a request, as from a key that was never set.
-  Future<Object?> _read() async {
+  /// The key's value (null when never set), or null when it cannot be
+  /// read.
+  Future<({Object? value})?> _read() async {
     try {
-      return await signals.get(reverbRestartKey);
+      return (value: await signals.get(reverbRestartKey));
     } on Object catch (error) {
       app.logger.debug('reverb:restart signal not readable: $error');
       return null;
@@ -109,7 +113,14 @@ final class ReverbRestartWatcher {
     }
     _reading = true;
     try {
-      final before = await _atStart;
+      final start = await _atStart;
+      if (start == null) {
+        // The value at the start is still unknown: read it again now, and
+        // take nothing as a request until it is known.
+        _atStart = _read();
+        return;
+      }
+      final before = start.value;
       final Object? requested;
       try {
         requested = await signals.get(reverbRestartKey);
