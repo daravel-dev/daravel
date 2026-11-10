@@ -67,7 +67,19 @@ Application drainApp() =>
         .withLogLevel(LogLevel.critical)
         .withRouting(
           apiPrefix: '',
-          api: (router) => router.get('/ping', (_) => 'pong'),
+          api: (router) => router
+            ..get('/ping', (_) => 'pong')
+            // Its headers go out at once, its body over half a second.
+            ..get(
+              '/stream',
+              (_) => Response.stream(
+                Stream<List<int>>.periodic(
+                  const Duration(milliseconds: 50),
+                  (i) => utf8.encode('chunk $i\n'),
+                ).take(10),
+                contentType: 'text/plain',
+              ),
+            ),
         )
         .create();
 
@@ -234,7 +246,13 @@ void main() {
       final port = engine.port!;
       final client = HttpClient();
       addTearDown(() => client.close(force: true));
-      final failures = <String>[];
+      // Three outcomes, counted apart: a request sent on a connection the
+      // server closed under it (what the drain must never do), a response
+      // cut short, and a new connection refused once the server stopped
+      // accepting (allowed: the client goes to another server).
+      final closedOnRequest = <String>[];
+      final cutShort = <String>[];
+      var refusedNew = 0;
       var answered = 0;
       var going = true;
       final load = () async {
@@ -244,14 +262,19 @@ void main() {
               Uri.parse('http://127.0.0.1:$port/ping'),
             );
             final response = await request.close();
-            await response.drain<void>();
+            final body = await utf8.decodeStream(response);
+            if (body != 'pong') {
+              cutShort.add(body);
+            }
             answered++;
           } on SocketException {
-            // Refused once the server stopped accepting: the client would
-            // go to another server; not a connection closed on a request.
+            refusedNew++;
             break;
-          } on Object catch (error) {
-            failures.add('$error');
+          } on HttpException catch (error) {
+            (error.message.contains('before full header')
+                    ? closedOnRequest
+                    : cutShort)
+                .add('$error');
           }
         }
       }();
@@ -259,8 +282,28 @@ void main() {
       await engine.stop();
       going = false;
       await load;
-      expect(failures, isEmpty, reason: 'answered $answered');
+      expect(closedOnRequest, isEmpty, reason: 'answered $answered');
+      expect(cutShort, isEmpty, reason: 'answered $answered');
+      expect(refusedNew, lessThanOrEqualTo(1));
       expect(answered, greaterThan(0));
+    });
+
+    test('a streamed response under way when the drain begins ends whole, '
+        'its headers already sent left alone', () async {
+      final (_, engine) = await serving();
+      final port = engine.port!;
+      final client = HttpClient();
+      addTearDown(() => client.close(force: true));
+      final request = await client.getUrl(
+        Uri.parse('http://127.0.0.1:$port/stream'),
+      );
+      final response = await request.close();
+      expect(response.statusCode, 200);
+      final body = utf8.decodeStream(response);
+      // Headers out, the body still coming: now the drain.
+      final stopping = engine.stop();
+      expect(await body, [for (var i = 0; i < 10; i++) 'chunk $i\n'].join());
+      await stopping;
     });
 
     test(

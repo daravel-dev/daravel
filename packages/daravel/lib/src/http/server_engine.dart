@@ -557,7 +557,9 @@ final class ServerEngine {
   /// The bound port (useful when `port: 0` was requested).
   int? get port => _server?.port;
 
-  /// Connections this engine accepted (its [GracefulServerSocket]).
+  /// How many connections this engine accepted since [start]: it only
+  /// grows, and is not the number of connections open now (a connection
+  /// closed long ago still counts). For metrics and tests.
   int get acceptedConnections => _socket?.accepted ?? 0;
 
   /// Binds and starts listening.
