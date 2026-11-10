@@ -122,6 +122,16 @@ void main(List<String> args) {
     // Notes written ahead under `## Unreleased` become the version's.
     if (text.contains('## Unreleased\n') && !text.contains('## $version\n')) {
       _replace(path, '## Unreleased\n', '## $version\n');
+      // A package not yet on pub.dev says so under `## Unreleased`, which
+      // keeps `dart pub publish --dry-run` content (its CHANGELOG must name
+      // the current version); released, the sentence no longer holds.
+      _write(
+        path,
+        _read(path).replaceFirst(
+          RegExp(r'^Not on pub\.dev yet:[^\n]*\n\n?', multiLine: true),
+          '',
+        ),
+      );
       text = _read(path);
     }
     if (!text.contains('## $version\n')) {
