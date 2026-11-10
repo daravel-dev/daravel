@@ -6,6 +6,7 @@ use App\Models\Post;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 
@@ -51,3 +52,16 @@ Route::get('/events', fn () => response()->stream(function () {
     }
     echo "event: update\ndata: </stream>\n\n";
 }, 200, ['Content-Type' => 'text/event-stream', 'Cache-Control' => 'no-cache', 'X-Accel-Buffering' => 'no']));
+
+// Scenario 14 (Blueprint #141 K0): a Sanctum token (the personal_access_tokens
+// row Daravel seeds), the rate limiter and a cache read per request.
+// BENCH_CACHE_STORE picks the store (array: per worker; redis: shared).
+Route::get('/session', function (Request $request) {
+    $user = $request->user();
+
+    return response()->json(Cache::store(env('BENCH_CACHE_STORE', 'array'))->remember(
+        'session:'.$user->id,
+        60,
+        fn () => ['id' => $user->id, 'name' => $user->name],
+    ));
+})->middleware(['auth:sanctum', 'throttle:bench']);

@@ -1,0 +1,25 @@
+process-1 load: 2.05 2.63 3.44
+process-1 exit=0
+redis-1 load: 10.32 8.03 5.91
+redis-1 exit=0
+process-2 load: 9.65 8.49 7.08
+process-2 exit=0
+redis-2 load: 7.85 7.20 6.89
+redis-2 exit=0
+process-3 load: 8.34 7.30 6.98
+process-3 exit=0
+redis-3 load: 8.24 7.18 6.96
+redis-3 exit=0
+redis-nolastused-1 load: 8.10 7.28 7.03
+redis-nolastused-1 exit=0
+redis-nolastused-2 load: 7.28 6.89 6.89
+redis-nolastused-2 exit=0
+redis-nolastused-3 load: 8.57 7.23 6.98
+redis-nolastused-3 exit=0
+ceiling-1 load: 7.99 7.45 7.13
+ceiling-1 exit=0
+ceiling-2 load: 5.23 6.64 6.87
+ceiling-2 exit=0
+ceiling-3 load: 4.42 6.03 6.63
+ceiling-3 exit=0
+done
