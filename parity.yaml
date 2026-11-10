@@ -209,6 +209,9 @@ sections:
       - { php: "Post::findFiltered($request, $id)", dart: "await Post.definition.query().findFiltered(request, id)", symbol: FilterableQuery.findFiltered, async: true }
       - { php: "class PostQueryFilter extends QueryFilter", dart: "final class PostQueryFilter extends QueryFilter<Post>", symbol: QueryFilter }
       - { php: "Filter::multiLike(['title'])->alias('q')", dart: "Filter.multiLike(['title']).alias('q')", symbol: Filter.multiLike, note: "default() is withDefault(); enum/in/null are enum_/in_/null_." }
+      - { php: "Filter::scope('published')", dart: "Filter.scope('published')", symbol: Filter.scope, note: "The scope is given the request, as ScopeFilter calls $query->$method($request)." }
+      - { php: "(none)", dart: "Filter.scopeValue('search').alias('q')", symbol: Filter.scopeValue, note: "Daravel-only: the scope is given the value, after alias and withDefault (scopeSearch($query, $term))." }
+      - { php: "(none)", dart: "String? get sortScope => 'sortBy';", symbol: QueryFilter.sortScope, note: "Daravel-only: every allowed sort without a customSorts entry calls the scope with [column, direction]; laravel-teorion routes sorts to sortBy<Column> methods (customSorts)." }
       - { php: "FilterMacroRegistry::register('phone', fn ...)", dart: "FilterMacroRegistry.register('phone', (q, value, param, request) {...})", symbol: FilterMacroRegistry.register }
       - { php: "php artisan make:query-filter PostQueryFilter", dart: "dartisan make:query-filter Post", symbol: QueryFilterRegistry, note: "Registered in bootstrap/query_filters.dart (no reflection)." }
 

@@ -50,6 +50,13 @@ final class Post extends Model {
         final request = args.first! as Request;
         q.where('author_id', request.query['author_id']);
       },
+      // Laravel-style scopes given values: `scopeTitled($query, $term)`.
+      'titled': (ModelQuery<Post> q, List<Object?> args) =>
+          q.where('title', 'like', '%${args.first}%'),
+      'sortBy': (ModelQuery<Post> q, List<Object?> args) {
+        sortCalls.add(args);
+        q.orderBy(args[0]! as String, args[1]! as String);
+      },
     },
   );
 
@@ -57,6 +64,51 @@ final class Post extends Model {
   ModelDefinition<Post> get modelDefinition => Post.definition;
 
   String get title => getAttr('title');
+}
+
+/// The `[column, direction]` each `sortBy` scope call received.
+final List<List<Object?>> sortCalls = [];
+
+/// Filters and sorts that map URL parameters onto model scopes (#196).
+final class ScopedPostFilter extends QueryFilter<Post> {
+  @override
+  Map<String, Filter> get filters => {
+    'term': Filter.scopeValue('titled').alias('q'),
+    // laravel-teorion parity: the scope is given the request.
+    'author': Filter.scope('byAuthor'),
+    'missing': Filter.scopeValue('undefined'),
+  };
+
+  @override
+  List<String> get allowedSorts => ['id', 'title', 'views'];
+
+  @override
+  String? get sortScope => 'sortBy';
+
+  /// Wins over [sortScope]: views the other way round.
+  @override
+  Map<String, void Function(ModelQuery<Post> query, String direction)>
+  get customSorts => {
+    'views': (query, direction) =>
+        query.orderBy('views', direction == 'asc' ? 'desc' : 'asc'),
+  };
+}
+
+/// A scope filter with a default, sorted by the scope by default.
+final class DefaultScopedPostFilter extends QueryFilter<Post> {
+  @override
+  Map<String, Filter> get filters => {
+    'term': Filter.scopeValue('titled').withDefault('Da'),
+  };
+
+  @override
+  List<String> get allowedSorts => ['title'];
+
+  @override
+  List<String> get defaultSort => ['-title'];
+
+  @override
+  String? get sortScope => 'sortBy';
 }
 
 final class PostQueryFilter extends QueryFilter<Post> {
@@ -308,6 +360,94 @@ void teorionTests({String? databaseUrl}) {
       'Dart tips',
       'Daravel launch',
     ]);
+  });
+
+  group('scopes given values (#196)', () {
+    Future<List<String>> titlesWith(String query, QueryFilter<Post> filter) =>
+        list(query, filter).then(
+          (result) => [
+            for (final post in result as ModelCollection<Post>) post.title,
+          ],
+        );
+    setUp(sortCalls.clear);
+
+    test('Filter.scopeValue gives the scope the value, after alias and '
+        'default', () async {
+      expect(await titlesWith('q=Dar&sort=title', ScopedPostFilter()), [
+        'Daravel launch',
+        'Dart tips',
+      ]);
+      expect(
+        await titlesWith('term=Laravel&sort=title', ScopedPostFilter()),
+        hasLength(3),
+        reason: 'the alias replaces the name',
+      );
+      expect(await titlesWith('', DefaultScopedPostFilter()), [
+        'Dart tips',
+        'Daravel launch',
+      ]);
+      expect(await titlesWith('term=Laravel', DefaultScopedPostFilter()), [
+        'Laravel notes',
+      ]);
+      expect(
+        await titlesWith('missing=x&sort=id', ScopedPostFilter()),
+        hasLength(3),
+        reason: 'a scope the model lacks is skipped outside strict mode',
+      );
+    });
+
+    test('Filter.scope still gives the scope the request', () async {
+      expect(
+        await titlesWith('author=1&author_id=2&sort=id', ScopedPostFilter()),
+        ['Daravel launch'],
+      );
+    });
+
+    test('sortScope gets [column, direction] from every sort format', () async {
+      expect(await titlesWith('sort=-title,id', ScopedPostFilter()), [
+        'Laravel notes',
+        'Dart tips',
+        'Daravel launch',
+      ]);
+      expect(sortCalls, [
+        ['title', 'desc'],
+        ['id', 'asc'],
+      ]);
+      sortCalls.clear();
+      await titlesWith(
+        'order[0][by]=title&order[0][direction]=desc',
+        ScopedPostFilter(),
+      );
+      expect(sortCalls, [
+        ['title', 'desc'],
+      ]);
+      sortCalls.clear();
+      await titlesWith(
+        'order_by=title&order_direction=asc',
+        ScopedPostFilter(),
+      );
+      expect(sortCalls, [
+        ['title', 'asc'],
+      ]);
+      sortCalls.clear();
+      await titlesWith('', DefaultScopedPostFilter());
+      expect(sortCalls, [
+        ['title', 'desc'],
+      ], reason: 'the default sort takes the same way');
+    });
+
+    test('customSorts win over sortScope; the whitelist still holds', () async {
+      expect(await titlesWith('sort=views', ScopedPostFilter()), [
+        'Daravel launch',
+        'Dart tips',
+        'Laravel notes',
+      ]);
+      expect(sortCalls, isEmpty);
+      await expectLater(
+        list('sort=body', ScopedPostFilter()),
+        throwsA(isA<DisallowedSortException>()),
+      );
+    });
   });
 
   test('scopes: legacy, isolated parameters, and the whitelist', () async {
