@@ -147,7 +147,7 @@ final class Broadcaster {
   /// is, anything else as JSON. Returns how many isolates received it.
   Future<int> publish(String channel, Object? message) async {
     final text = message is String ? message : jsonEncode(message);
-    final receivers = await _coordinator.call('broadcast', 'publish', {
+    final receivers = await _coordinator.callBulk('broadcast', 'publish', {
       'channel': channel,
       'message': text,
     });

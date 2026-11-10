@@ -132,9 +132,13 @@ Future<void> horizonWorkerMain(HorizonWorkerStart start) async {
     final running = <String, (String, List<String>)>{};
     void record(RecordedJob job) => unawaited(
       store
-          .call(HorizonService.serviceName, 'record', {
-            'job': jsonEncode(job.toJson()),
-          })
+          .callBulk(
+            HorizonService.serviceName,
+            'record',
+            {'job': jsonEncode(job.toJson())},
+            // A flood of finished jobs keeps the newest records.
+            overflow: BulkOverflow.dropOldest,
+          )
           .then<void>((_) {}, onError: (Object _) {}),
     );
     booted.container.make<EventDispatcher>()

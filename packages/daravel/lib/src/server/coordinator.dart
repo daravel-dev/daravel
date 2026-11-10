@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:isolate';
 
 import 'package:meta/meta.dart';
@@ -52,6 +53,42 @@ final class CoordinatorRequest {
   /// request unanswered once it has passed, instead of doing work nobody
   /// waits for any more.
   final int deadline;
+}
+
+/// Bulk calls of one worker sent as one message (Blueprint #141 K1b): the
+/// calls its credit window held back, sent together once credit came back.
+/// Each is served as if sent alone; the answers that are ready at once come
+/// back together in one [CoordinatorBatchReply].
+final class CoordinatorBatch {
+  /// [requests], answered on [replyTo].
+  const CoordinatorBatch(this.requests, this.replyTo);
+
+  /// The calls, in the order the worker made them.
+  final List<CoordinatorRequest> requests;
+
+  /// Where the replies go.
+  final SendPort replyTo;
+}
+
+/// The answers to the calls of a [CoordinatorBatch] that were ready at
+/// once; the others come later, each in a [CoordinatorReply].
+final class CoordinatorBatchReply {
+  /// [replies], in the batch's order.
+  const CoordinatorBatchReply(this.replies);
+
+  /// The answers.
+  final List<CoordinatorReply> replies;
+}
+
+/// A worker's first message (sent once, when its channel opens): where
+/// health announcements go, so the coordinator does not have to learn its
+/// peers from every request.
+final class CoordinatorHello {
+  /// A worker whose replies arrive on [replyTo].
+  const CoordinatorHello(this.replyTo);
+
+  /// The worker's reply port.
+  final SendPort replyTo;
 }
 
 /// Reply to a [CoordinatorRequest].
@@ -412,38 +449,89 @@ final class Coordinator {
     _port = port;
     _probeLag();
     port.handler = (Object? message) {
-      if (message is! CoordinatorRequest) {
-        return;
+      switch (message) {
+        case final CoordinatorRequest request:
+          _onRequest(request);
+        case final CoordinatorBatch batch:
+          _onBatch(batch);
+        case CoordinatorHello(:final replyTo):
+          // Known once, when its channel opens, not from every request
+          // (a SendPort hash per message on the hottest path). A worker
+          // first heard from while the coordinator is not healthy is told
+          // at once, before any reply.
+          if (_peers.length >= maxPeers) {
+            _peers.clear();
+          }
+          if (_peers.add(replyTo) && _state != CoordinatorState.healthy) {
+            _tell(replyTo, _health());
+          }
       }
-      if (_peers.length >= maxPeers) {
-        _peers.clear();
-      }
-      // A worker heard from for the first time while the coordinator is
-      // not healthy is told at once, before this call's reply, not at the
-      // next announcement.
-      if (_peers.add(message.replyTo) && _state != CoordinatorState.healthy) {
-        _tell(message.replyTo, _health());
-      }
-      if (_expiredNow(message)) {
-        return;
-      }
-      if (_state != CoordinatorState.healthy) {
-        final priority = _priorityOfCall(message);
-        if (priority == CoordinatorPriority.bulk &&
-            _state == CoordinatorState.saturated) {
-          _refuse(message);
-          return;
-        }
-        if (priority == CoordinatorPriority.bulk ||
-            (priority == CoordinatorPriority.normal &&
-                _state == CoordinatorState.saturated)) {
-          _defer(message, priority);
-          return;
-        }
-      }
-      _serve(message);
     };
     return port.sendPort;
+  }
+
+  void _onRequest(CoordinatorRequest message) {
+    if (_expiredNow(message)) {
+      return;
+    }
+    // Healthy: no priority to work out (served as it comes).
+    if (_state == CoordinatorState.healthy) {
+      _serve(message, null);
+      return;
+    }
+    final priority = _priorityOfCall(message);
+    if (priority == CoordinatorPriority.bulk &&
+        _state == CoordinatorState.saturated) {
+      _refuse(message);
+      return;
+    }
+    if (priority == CoordinatorPriority.bulk ||
+        (priority == CoordinatorPriority.normal &&
+            _state == CoordinatorState.saturated)) {
+      _defer(message, priority);
+      return;
+    }
+    _serve(message, priority);
+  }
+
+  /// A worker's bulk calls sent together (K1b). Each is served as if sent
+  /// alone; the answers ready at once go back in one
+  /// [CoordinatorBatchReply], the others each in its own reply later.
+  void _onBatch(CoordinatorBatch batch) {
+    final ready = <CoordinatorReply>[];
+    for (final message in batch.requests) {
+      if (_expiredNow(message)) {
+        continue;
+      }
+      if (_state == CoordinatorState.saturated) {
+        _shed[message.service] = (_shed[message.service] ?? 0) + 1;
+        ready.add(
+          CoordinatorReply(
+            message.id,
+            error: CoordinatorOverloaded(message.service).message,
+          ),
+        );
+        continue;
+      }
+      if (_state == CoordinatorState.lagging) {
+        _defer(message, CoordinatorPriority.bulk);
+        continue;
+      }
+      _serve(message, CoordinatorPriority.bulk, into: ready);
+    }
+    if (ready.isEmpty) {
+      return;
+    }
+    try {
+      batch.replyTo.send(CoordinatorBatchReply(ready));
+    } on Object {
+      // A result that cannot cross an isolate: each on its own, so the
+      // others still arrive and that one gets its error ([_reply]).
+      for (final reply in ready) {
+        final request = batch.requests.firstWhere((r) => r.id == reply.id);
+        _reply(request, reply);
+      }
+    }
   }
 
   /// Whether [message] is an [ExpiringCoordinatorMessage] whose caller has
@@ -528,12 +616,13 @@ final class Coordinator {
       if (_expiredNow(message)) {
         continue;
       }
+      final priority = _priorityOfCall(message);
       if (_state == CoordinatorState.saturated &&
-          _priorityOfCall(message) == CoordinatorPriority.bulk) {
+          priority == CoordinatorPriority.bulk) {
         _refuse(message);
         continue;
       }
-      _serve(message);
+      _serve(message, priority);
     }
     if (deferred > 0) {
       Timer.run(_drain);
@@ -547,8 +636,28 @@ final class Coordinator {
   /// Calls put off that are served in one turn of the event loop.
   static const int drainBatch = 64;
 
-  void _serve(CoordinatorRequest message) {
-    _byPriority[_priorityOfCall(message).index]++;
+  /// While healthy, one served call in this many is classified by priority
+  /// for [stats] (`served_by_priority`, counted for all of them): working
+  /// out every call's priority cost the healthy path a lookup and a
+  /// virtual call per message (Review K1, ACK 225).
+  static const int classifyEvery = 16;
+  int _unclassified = 0;
+
+  /// Serves [message], of [priority] when it was worked out (not on the
+  /// healthy path, where served calls are classified for [stats] one in
+  /// [classifyEvery] only). A synchronous answer goes into [into] when
+  /// given (a batch's reply), else back at once.
+  void _serve(
+    CoordinatorRequest message,
+    CoordinatorPriority? priority, {
+    List<CoordinatorReply>? into,
+  }) {
+    if (priority != null) {
+      _byPriority[priority.index]++;
+    } else if (++_unclassified == classifyEvery) {
+      _unclassified = 0;
+      _byPriority[_priorityOfCall(message).index] += classifyEvery;
+    }
     if (_inFlight >= maxQueue) {
       _rejected++;
       _reply(
@@ -563,11 +672,17 @@ final class Coordinator {
     try {
       result = _invoke(message.service, message.op, message.args);
     } on Object catch (error) {
-      _reply(message, CoordinatorReply(message.id, error: '$error'));
+      final reply = CoordinatorReply(message.id, error: '$error');
+      into == null ? _reply(message, reply) : into.add(reply);
       return;
     }
     if (result is! Future<Object?>) {
-      _reply(message, CoordinatorReply(message.id, result: result));
+      final reply = CoordinatorReply(message.id, result: result);
+      if (into != null) {
+        into.add(reply);
+        return;
+      }
+      _reply(message, reply);
       return;
     }
     if (++_inFlight > _peakInFlight) {
@@ -862,14 +977,178 @@ final class LocalCoordinatorChannel implements TypedCoordinatorChannel {
 
 /// Request/response over [SendPort] with correlation ids and timeouts.
 final class RemoteCoordinatorChannel implements TypedCoordinatorChannel {
-  /// A channel to a coordinator in another isolate.
-  RemoteCoordinatorChannel(this._target) {
+  /// A channel to a coordinator in another isolate, holding at most
+  /// [bulkWindow] bulk calls unanswered and [bulkBuffer] more waiting
+  /// ([sendBulk]).
+  RemoteCoordinatorChannel(
+    this._target, {
+    this.bulkWindow = defaultBulkWindow,
+    this.bulkBuffer = defaultBulkBuffer,
+  }) {
     _replies = ReceivePort('daravel-coordinator-client');
     _replies.listen(_onReply);
+    // Known to the coordinator once, for its health announcements.
+    _target.send(CoordinatorHello(_replies.sendPort));
   }
 
   final SendPort _target;
   late final ReceivePort _replies;
+
+  /// The bulk calls one worker may have unanswered at once (Blueprint #141
+  /// K1b): what bounds the coordinator's port, which priorities cannot
+  /// reorder, at workers × this many bulk messages.
+  final int bulkWindow;
+
+  /// The bulk calls one worker keeps waiting for credit, sent together
+  /// when credit comes back; past it [BulkOverflow] decides.
+  final int bulkBuffer;
+
+  /// [bulkWindow] by default.
+  static const int defaultBulkWindow = 16;
+
+  /// [bulkBuffer] by default.
+  static const int defaultBulkBuffer = 1024;
+
+  int _bulkInFlight = 0;
+  final ListQueue<_BufferedBulk> _bulkWaiting = ListQueue<_BufferedBulk>();
+  int _bulkDropped = 0;
+  int _bulkBatches = 0;
+
+  /// Receives the service of each bulk call dropped or refused because the
+  /// buffer was full.
+  void Function(String service, BulkOverflow overflow)? onBulkOverflow;
+
+  /// Bulk calls waiting for credit now.
+  int get bulkWaiting => _bulkWaiting.length;
+
+  /// Bulk calls sent and not answered yet.
+  int get bulkInFlight => _bulkInFlight;
+
+  /// Bulk calls dropped or refused by a full buffer, and the batches sent.
+  ({int dropped, int batches}) get bulkStats =>
+      (dropped: _bulkDropped, batches: _bulkBatches);
+
+  /// Calls [op] on [service] as a bulk call (broadcast fan-out, metrics,
+  /// worker reports, records): sent at once while fewer than [bulkWindow]
+  /// are unanswered, else kept, in order, until credit comes back (a reply,
+  /// or a call's timeout), then sent with the others waiting as one
+  /// [CoordinatorBatch]. Ordering holds between the bulk calls of this
+  /// channel, not against its other calls. A full buffer applies
+  /// [overflow]. The timeout counts from this call, in the buffer too.
+  Future<Object?> sendBulk(
+    String service,
+    String op,
+    Map<String, Object?> args, {
+    Duration timeout = const Duration(seconds: 1),
+    BulkOverflow overflow = BulkOverflow.refuse,
+  }) {
+    if (shortCircuits(service)) {
+      return Future<Object?>.error(shortCircuit(service));
+    }
+    if (_closed) {
+      return Future<Object?>.error(
+        const CoordinatorException('Coordinator channel closed.'),
+      );
+    }
+    if (_bulkInFlight < bulkWindow && _bulkWaiting.isEmpty) {
+      _bulkInFlight++;
+      return _send(service, op, args, timeout, bulk: true);
+    }
+    if (_bulkWaiting.length >= bulkBuffer) {
+      _bulkDropped++;
+      onBulkOverflow?.call(service, overflow);
+      if (overflow == BulkOverflow.refuse) {
+        return Future<Object?>.error(CoordinatorOverloaded(service));
+      }
+      final oldest = _bulkWaiting.removeFirst();
+      oldest.completer.completeError(CoordinatorOverloaded(oldest.service));
+    }
+    final waiting = _BufferedBulk(
+      service,
+      op,
+      args,
+      timeout,
+      _clock.elapsedMicroseconds + timeout.inMicroseconds,
+    );
+    _bulkWaiting.add(waiting);
+    _sweeper ??= Timer.periodic(sweepInterval, (_) => _sweep());
+    return waiting.completer.future;
+  }
+
+  /// A bulk credit back (a reply, or a timeout). What waits is sent once
+  /// half the window is free (or nothing is in flight), as one batch: a
+  /// call per credit would send as many messages as before.
+  void _creditBack() {
+    if (_bulkInFlight > 0) {
+      _bulkInFlight--;
+    }
+    if (_bulkInFlight == 0 || bulkWindow - _bulkInFlight >= _refillAt) {
+      _sendWaiting();
+    }
+  }
+
+  int get _refillAt => bulkWindow < 2 ? 1 : bulkWindow ~/ 2;
+
+  /// Sends as many waiting bulk calls as there is credit for: one as it
+  /// is, several as one [CoordinatorBatch].
+  void _sendWaiting() {
+    if (_closed || _bulkWaiting.isEmpty) {
+      return;
+    }
+    final now = _clock.elapsedMicroseconds;
+    final requests = <CoordinatorRequest>[];
+    while (_bulkInFlight < bulkWindow && _bulkWaiting.isNotEmpty) {
+      final waiting = _bulkWaiting.removeFirst();
+      if (now >= waiting.deadline) {
+        waiting.completer.completeError(
+          CoordinatorTimeoutException(waiting.service, waiting.timeout),
+        );
+        onCallTimeout?.call(waiting.service);
+        continue;
+      }
+      final id = _nextId++;
+      _pending[id] = _PendingCall(
+        waiting.service,
+        waiting.timeout,
+        waiting.deadline,
+        now,
+        bulk: true,
+        completer: waiting.completer,
+      );
+      _bulkInFlight++;
+      requests.add(
+        CoordinatorRequest(
+          id: id,
+          service: waiting.service,
+          op: waiting.op,
+          args: waiting.args,
+          replyTo: _replies.sendPort,
+        ),
+      );
+    }
+    if (requests.isEmpty) {
+      return;
+    }
+    if (requests.length == 1) {
+      _target.send(requests.single);
+    } else {
+      _bulkBatches++;
+      _target.send(CoordinatorBatch(requests, _replies.sendPort));
+    }
+  }
+
+  /// Completes once no bulk call waits or is unanswered (each answered,
+  /// refused or timed out), or after [timeout]: what a worker does on
+  /// `Stop`, before it says it exited, so its last reports reach the
+  /// coordinator.
+  Future<void> flush({Duration timeout = const Duration(seconds: 2)}) async {
+    final deadline = DateTime.now().add(timeout);
+    while ((_bulkWaiting.isNotEmpty || _bulkInFlight > 0) &&
+        !_closed &&
+        DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+    }
+  }
 
   /// Receives each answered call's service and round trip, the wait in
   /// the coordinator's queue included (`coordinator_call_duration_seconds`
@@ -918,8 +1197,9 @@ final class RemoteCoordinatorChannel implements TypedCoordinatorChannel {
     String service,
     String op,
     Object args,
-    Duration timeout,
-  ) {
+    Duration timeout, {
+    bool bulk = false,
+  }) {
     // The coordinator refuses this service while saturated: fail now
     // instead of queueing behind the flood and waiting for the refusal.
     if (shortCircuits(service)) {
@@ -939,6 +1219,7 @@ final class RemoteCoordinatorChannel implements TypedCoordinatorChannel {
       timeout,
       now + timeout.inMicroseconds,
       now,
+      bulk: bulk,
     );
     _pending[id] = call;
     _sweeper ??= Timer.periodic(sweepInterval, (_) => _sweep());
@@ -959,6 +1240,7 @@ final class RemoteCoordinatorChannel implements TypedCoordinatorChannel {
 
   void _sweep() {
     final now = _clock.elapsedMicroseconds;
+    var credits = 0;
     _pending.removeWhere((_, call) {
       if (now < call.deadline) {
         return false;
@@ -967,9 +1249,25 @@ final class RemoteCoordinatorChannel implements TypedCoordinatorChannel {
         CoordinatorTimeoutException(call.service, call.timeout),
       );
       onCallTimeout?.call(call.service);
+      if (call.bulk) {
+        credits++;
+      }
       return true;
     });
-    if (_pending.isEmpty) {
+    // Bulk calls still waiting for credit time out too.
+    while (_bulkWaiting.isNotEmpty && now >= _bulkWaiting.first.deadline) {
+      final waiting = _bulkWaiting.removeFirst();
+      waiting.completer.completeError(
+        CoordinatorTimeoutException(waiting.service, waiting.timeout),
+      );
+      onCallTimeout?.call(waiting.service);
+    }
+    // A timed-out call gives its credit back (ACK 206: not a refill on a
+    // timer, which would fire exactly when the coordinator is slow).
+    for (var i = 0; i < credits; i++) {
+      _creditBack();
+    }
+    if (_pending.isEmpty && _bulkWaiting.isEmpty) {
       _sweeper?.cancel();
       _sweeper = null;
     }
@@ -980,18 +1278,36 @@ final class RemoteCoordinatorChannel implements TypedCoordinatorChannel {
       _onHealth(message);
       return;
     }
-    if (message is! CoordinatorReply) {
+    if (message is CoordinatorBatchReply) {
+      var credits = 0;
+      for (final reply in message.replies) {
+        if (_answer(reply)) {
+          credits++;
+        }
+      }
+      for (var i = 0; i < credits; i++) {
+        _creditBack();
+      }
       return;
     }
-    final call = _pending.remove(message.id);
+    if (message is CoordinatorReply && _answer(message)) {
+      _creditBack();
+    }
+  }
+
+  /// Completes the call [reply] answers; whether it held a bulk credit
+  /// (given back by the caller). A call that timed out already is gone,
+  /// and gave its credit back then.
+  bool _answer(CoordinatorReply reply) {
+    final call = _pending.remove(reply.id);
     if (call == null) {
-      return;
+      return false;
     }
     onCallDuration?.call(
       call.service,
       Duration(microseconds: _clock.elapsedMicroseconds - call.started),
     );
-    final error = message.error;
+    final error = reply.error;
     if (error != null) {
       call.completer.completeError(
         error.startsWith('Coordinator overloaded:')
@@ -999,8 +1315,9 @@ final class RemoteCoordinatorChannel implements TypedCoordinatorChannel {
             : CoordinatorException(error),
       );
     } else {
-      call.completer.complete(message.result);
+      call.completer.complete(reply.result);
     }
+    return call.bulk;
   }
 
   CoordinatorState _state = CoordinatorState.healthy;
@@ -1060,12 +1377,25 @@ final class RemoteCoordinatorChannel implements TypedCoordinatorChannel {
       );
     }
     _pending.clear();
+    while (_bulkWaiting.isNotEmpty) {
+      _bulkWaiting.removeFirst().completer.completeError(
+        const CoordinatorException('Coordinator channel closed.'),
+      );
+    }
+    _bulkInFlight = 0;
   }
 }
 
 /// An in-flight [RemoteCoordinatorChannel.call].
 final class _PendingCall {
-  _PendingCall(this.service, this.timeout, this.deadline, this.started);
+  _PendingCall(
+    this.service,
+    this.timeout,
+    this.deadline,
+    this.started, {
+    this.bulk = false,
+    Completer<Object?>? completer,
+  }) : completer = completer ?? Completer<Object?>();
 
   final String service;
   final Duration timeout;
@@ -1075,5 +1405,59 @@ final class _PendingCall {
 
   /// Monotonic microseconds when the call was sent.
   final int started;
+
+  /// Whether it holds one of the channel's bulk credits (K1b), given back
+  /// once: by its reply, or by its timeout.
+  final bool bulk;
+  final Completer<Object?> completer;
+}
+
+/// A bulk call waiting in a [RemoteCoordinatorChannel]'s buffer for credit.
+final class _BufferedBulk {
+  _BufferedBulk(this.service, this.op, this.args, this.timeout, this.deadline);
+
+  final String service;
+  final String op;
+  final Object args;
+  final Duration timeout;
+
+  /// Monotonic microseconds after which the call times out, in the buffer
+  /// too.
+  final int deadline;
   final Completer<Object?> completer = Completer<Object?>();
+}
+
+/// What a full bulk buffer does with one more call ([RemoteCoordinatorChannel.sendBulk]).
+enum BulkOverflow {
+  /// Refuses the new call ([CoordinatorOverloaded]): broadcasts, which the
+  /// broadcast manager then drops and tells (`BroadcastShed`).
+  refuse,
+
+  /// Drops the oldest call waiting (its future completes with
+  /// [CoordinatorOverloaded]) and keeps the new one: metrics, worker
+  /// reports, records, where the latest matters most.
+  dropOldest,
+}
+
+/// Bulk calls (K1b) through whatever channel: windowed by a
+/// [RemoteCoordinatorChannel], a plain call through any other.
+extension BulkCoordinatorCalls on CoordinatorChannel {
+  /// Calls [op] on [service] as a bulk call: see
+  /// [RemoteCoordinatorChannel.sendBulk].
+  Future<Object?> callBulk(
+    String service,
+    String op,
+    Map<String, Object?> args, {
+    Duration timeout = const Duration(seconds: 1),
+    BulkOverflow overflow = BulkOverflow.refuse,
+  }) => switch (this) {
+    final RemoteCoordinatorChannel remote => remote.sendBulk(
+      service,
+      op,
+      args,
+      timeout: timeout,
+      overflow: overflow,
+    ),
+    _ => call(service, op, args, timeout: timeout),
+  };
 }

@@ -950,10 +950,16 @@ final class AppMetrics {
       published = changes;
       idleTicks = 0;
       remote
-          .call(MetricsService.serviceName, 'publish', {
-            'worker': _worker,
-            'snapshot': _encodeSnapshot(registry.snapshot()),
-          })
+          .callBulk(
+            MetricsService.serviceName,
+            'publish',
+            {
+              'worker': _worker,
+              'snapshot': _encodeSnapshot(registry.snapshot()),
+            },
+            // The next snapshot supersedes it.
+            overflow: BulkOverflow.dropOldest,
+          )
           .whenComplete(() {
             // The publish's own round trip (or timeout) is one update of
             // `coordinator_call_*`: alone, it is not worth a publish.

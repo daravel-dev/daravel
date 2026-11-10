@@ -1751,6 +1751,12 @@ final class Application {
   Future<void> _closeResources() async {
     _metricsTimer?.cancel();
     _metricsTimer = null;
+    // A worker's last bulk calls (its final reports, records, metrics)
+    // reach the coordinator before it says it exited (K1b), bounded.
+    final channel = coordinator;
+    if (channel is RemoteCoordinatorChannel) {
+      await channel.flush();
+    }
     container.resolved<HttpClientFactory>()?.close();
     container.resolved<UpstreamProxy>()?.close();
     await container.resolved<Mailer>()?.transport.close();

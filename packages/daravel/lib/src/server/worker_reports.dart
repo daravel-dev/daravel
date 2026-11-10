@@ -99,11 +99,13 @@ final class WorkerReports {
 
   /// Replaces this worker's report on [topic].
   Future<void> publish(String topic, Object? report) async {
-    await channel.call(WorkerReportService.serviceName, 'publish', {
-      'topic': topic,
-      'worker': worker,
-      'report': _encode(report),
-    });
+    await channel.callBulk(
+      WorkerReportService.serviceName,
+      'publish',
+      {'topic': topic, 'worker': worker, 'report': _encode(report)},
+      // The next report supersedes it.
+      overflow: BulkOverflow.dropOldest,
+    );
   }
 
   /// Every worker's latest report on [topic], by worker name.
