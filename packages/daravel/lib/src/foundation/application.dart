@@ -78,6 +78,7 @@ import '../server/supervisor.dart';
 import 'config.dart';
 import 'config_validator.dart';
 import 'container.dart';
+import 'detached.dart';
 import 'drain.dart';
 import 'locale.dart';
 import 'env.dart';
@@ -432,6 +433,21 @@ final class Application {
       ..instance<Env>(env)
       ..instance<ConfigRepository>(config)
       ..instance<Logger>(logger)
+      // Work started outside requests (runDetached): its errors to the
+      // log, with no request context; stopped at shutdown.
+      ..instance<DetachedTasks>(
+        DetachedTasks(
+          onError: (name, error, stackTrace) => logger.error(
+            'Detached task $name failed',
+            error: error,
+            stackTrace: stackTrace,
+          ),
+          // Interrupted by the shutdown: expected.
+          onStopError: (name, error, _) => logger.debug(
+            'Detached task $name stopped by the shutdown: $error',
+          ),
+        ),
+      )
       ..instance<Router>(router)
       ..instance<MiddlewareRegistry>(middleware)
       ..instance<ExceptionHandler>(exceptions)
@@ -1732,6 +1748,9 @@ final class Application {
   Future<void> _closeResources() async {
     _metricsTimer?.cancel();
     _metricsTimer = null;
+    // Timers and loops started outside requests (runDetached), before the
+    // database and the coordinator they use close.
+    await container.resolved<DetachedTasks>()?.cancelAll();
     container.resolved<HttpClientFactory>()?.close();
     container.resolved<UpstreamProxy>()?.close();
     await container.resolved<Mailer>()?.transport.close();

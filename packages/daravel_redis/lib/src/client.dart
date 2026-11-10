@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'dart:math';
 
 import 'package:crypto/crypto.dart';
-import 'package:daravel/daravel.dart' show SharedResult;
+import 'package:daravel/daravel.dart' show SharedResult, runDetachedAsync;
 
 import 'config.dart';
 import 'connection.dart';
@@ -336,7 +336,12 @@ final class RedisNodeClient extends RedisClient {
     // SharedResult, so a failed connect reaches each of them.
     final opening = _opening ??= SharedResult(() async {
       try {
-        return _connection = await connect();
+        // Detached: the connection's socket listeners outlive the command
+        // (and the request) that opens it (Review #149).
+        return _connection = await runDetachedAsync(
+          connect,
+          name: 'redis connection',
+        ).value;
       } finally {
         _opening = null;
       }

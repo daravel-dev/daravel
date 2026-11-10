@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 
+import '../foundation/detached.dart';
 import '../foundation/shared_result.dart';
 import 'coordinator.dart';
 
@@ -119,19 +120,26 @@ final class Broadcaster {
     if (existing != null) {
       return existing.sendPort;
     }
-    final port = ReceivePort('daravel-broadcast');
-    port.listen((Object? message) {
-      if (message case [final String channel, final String text]) {
-        final listeners = _local[channel];
-        if (listeners == null) {
-          _stray(channel);
-          return;
-        }
-        for (final listener in [...listeners]) {
-          listener.add(text);
-        }
-      }
-    });
+    // Detached: one port for the isolate, opened by its first subscriber,
+    // whose request's zone would otherwise handle every frame for the life
+    // of the process (Review #149).
+    final port = runDetached(
+      () => ReceivePort('daravel-broadcast')
+        ..listen((Object? message) {
+          if (message case [final String channel, final String text]) {
+            final listeners = _local[channel];
+            if (listeners == null) {
+              _stray(channel);
+              return;
+            }
+            for (final listener in [...listeners]) {
+              listener.add(text);
+            }
+          }
+        }),
+      name: 'broadcast receiver',
+      stop: (port) => port.close(),
+    ).value;
     _port = port;
     return port.sendPort;
   }

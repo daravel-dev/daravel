@@ -193,7 +193,112 @@ void main() {
     expect(unknown, isEmpty, reason: 'new Future or Completer fields');
     expect(gone, isEmpty, reason: 'listed but no longer there');
   });
+
+  test('periodic timers and stream listeners are detached or known', () {
+    // A Timer.periodic or a listen() started lazily from a request lives on
+    // in that request's zone (its scope, log context, cancellation token;
+    // Review #149). Each must sit inside runDetached (or Zone.root.run), or
+    // be listed in _knownLongLived with how many there are and why.
+    final site = RegExp(r'Timer\.periodic\(|\.listen\(');
+    // A one-shot Timer whose callback calls the method around it again is
+    // a periodic timer too (`void beat() { Timer(d, () { ...; beat(); }) }`).
+    final oneShot = RegExp(r'(?<![.\w])Timer\(');
+    final method = RegExp(
+      r'^\s+(?:[\w<>?]+\s+)?(\w+)\([^)]*\)\s*(?:async\s*)?\{',
+    );
+    bool recurs(List<String> lines, int at) {
+      for (var i = at; i >= 0 && i > at - 15; i--) {
+        final name = method.firstMatch(lines[i])?.group(1);
+        if (name != null) {
+          final after = lines.sublist(at + 1, (at + 15).clamp(0, lines.length));
+          return after.any((l) => l.contains('$name();'));
+        }
+      }
+      return false;
+    }
+
+    final counts = <String, int>{};
+    for (final file in _dartFiles(_src)) {
+      final path = p.relative(file.path, from: _src).replaceAll(r'\', '/');
+      final lines = file.readAsLinesSync();
+      for (var i = 0; i < lines.length; i++) {
+        final line = lines[i].trimLeft();
+        if (line.startsWith('//')) {
+          continue;
+        }
+        if (!site.hasMatch(line) &&
+            !(oneShot.hasMatch(line) && recurs(lines, i))) {
+          continue;
+        }
+        final before = lines.sublist(i < 4 ? 0 : i - 4, i + 1).join('\n');
+        if (before.contains('runDetached') ||
+            before.contains('Zone.root.run')) {
+          continue;
+        }
+        counts[path] = (counts[path] ?? 0) + 1;
+      }
+    }
+    final listed = {
+      for (final MapEntry(:key, :value) in _knownLongLived.entries)
+        key: value.$1,
+    };
+    expect(
+      counts,
+      listed,
+      reason:
+          'a new (or removed) periodic timer or listen(): detach it, or '
+          'list it in _knownLongLived with why it is safe',
+    );
+  });
 }
+
+/// The periodic timers and `listen()` calls of lib/src outside runDetached,
+/// per file: how many, and why each is safe where it is (see the test
+/// above).
+const Map<String, (int, String)> _knownLongLived = {
+  'broadcasting/cluster.dart': (
+    1,
+    'the relay loop\'s notifications; the loop starts detached',
+  ),
+  'broadcasting/pusher_server.dart': (1, 'per WebSocket connection'),
+  'database/database_manager.dart': (1, 'NotifyingDriver.listen, a call'),
+  'database/postgres_driver.dart': (
+    1,
+    'LISTEN for its caller: the detached relay loop, or a worker loop',
+  ),
+  'foundation/application.dart': (1, 'coordinator.listen() at boot'),
+  'foundation/embedded_workers.dart': (4, 'embedded workers, at boot'),
+  'http/buffered_web_socket.dart': (1, 'per WebSocket connection'),
+  'http/client.dart': (1, 'per response body'),
+  'http/graceful_server_socket.dart': (1, 'the server socket, at start'),
+  'http/multipart.dart': (2, 'per request body'),
+  'http/realtime.dart': (
+    2,
+    'per SSE response: its events and its keep-alive (beat), which end '
+        'with the response',
+  ),
+  'http/server_engine.dart': (
+    6,
+    'the engine at start (lag sampler, sockets), and per connection',
+  ),
+  'mail/smtp.dart': (1, 'per SMTP connection, closed after the send'),
+  'observability/metrics.dart': (1, 'the metrics publisher, at boot'),
+  'queue/drivers.dart': (1, 'LISTEN of the worker loop that waits'),
+  'queue/queue_manager.dart': (
+    1,
+    'touches one reserved job, in its zone, cancelled when it ends',
+  ),
+  'replication/replicator.dart': (1, 'the replication loop of its command'),
+  'server/broadcast.dart': (1, 'per WebSocket connection (serve)'),
+  'server/coordinator.dart': (
+    3,
+    'the coordinator, its channels and its lag probe (_probeLag), created '
+        'at boot',
+  ),
+  'server/process_supervisor.dart': (5, 'the process supervisor'),
+  'server/supervisor.dart': (7, 'the isolate supervisor'),
+  'support/facades.dart': (1, 'DB.listen, a call'),
+};
 
 /// The Future and Completer fields of lib/src, each with why it is safe to
 /// keep (see the test above).
