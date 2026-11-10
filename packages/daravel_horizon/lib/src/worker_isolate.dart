@@ -245,6 +245,11 @@ Future<void> horizonWorkerMain(HorizonWorkerStart start) async {
             attempt = job.attempts;
             report();
           },
+          // Whatever way the job left (processed, failed, released, deleted,
+          // failed before it ran: not every way has an event), this worker
+          // runs nothing now: an idle worker must not look busy, or the
+          // master would kill it past a job that is over.
+          onFinished: (_) => clear(),
         ),
       ),
       onUncaughtError: (error, stackTrace) => booted.logger.error(
