@@ -1155,7 +1155,17 @@ final class WorkerOptions {
     this.maxTime,
     this.stopWhenEmpty = false,
     this.memory,
+    this.onReserved,
   });
+
+  /// Called with each job the moment the driver reserved it, before it is
+  /// decoded into a job (`fromJson`), announced (`JobProcessing`) or run:
+  /// synchronously, so a supervisor hears of the job before anything of the
+  /// job's own can block the isolate (`daravel_horizon` reports it then).
+  /// An error it throws is logged and the job is processed all the same.
+  /// Not called for a reservation the driver makes but has not returned
+  /// yet (inside its own I/O).
+  final void Function(QueuedJob job)? onReserved;
 
   /// The connection worked; the default one when null.
   final String? connection;
@@ -1488,6 +1498,19 @@ final class QueueWorker {
         _recovered();
         if (job == null) {
           continue;
+        }
+        final reserved = options.onReserved;
+        if (reserved != null) {
+          try {
+            reserved(job);
+          } on Object catch (error, stackTrace) {
+            // A listener's failure must not lose the job it was told of.
+            _logger?.error(
+              'onReserved failed for job ${job.id}',
+              error: error,
+              stackTrace: stackTrace,
+            );
+          }
         }
         final before = processor.timedOutAndReleased;
         await processor.process(

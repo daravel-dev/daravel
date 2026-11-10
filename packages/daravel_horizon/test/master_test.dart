@@ -352,7 +352,7 @@ void main() {
         diagnose: () => diagnosis(m, 's', {'status': m.status()}),
       );
       expect(worker()!['busy'], isTrue);
-      expect(m.workers('s').single.last?.jobStartedAtMs, isNotNull);
+      expect(m.workers('s').single.last?.jobReservedAtMs, isNotNull);
       await until(() => marks().contains('a:slow:1'), 'the job done');
       // Time for a wrong kill or a rerun to show.
       await Future<void>.delayed(const Duration(seconds: 3));
@@ -438,28 +438,34 @@ void main() {
   );
 
   test(
-    'an idle worker that stops answering (blocked between the pop and its '
-    'report) is killed for its lease; the job it took comes back after '
-    'retry_after',
+    'a worker blocked in a job\'s fromJson is known to run that job (it '
+    'reported it at the reservation): killed past its timeout, the job '
+    'reclaimed at once, not after retry_after',
     timeout: const Timeout(Duration(minutes: 2)),
     () async {
       await app.run(() => Queue.push(const Hang('stuck-pop'), queue: 'a'));
-      final m = master(plan(), factory: shortRetryApp);
+      // retry_after is 90 s: only a reclaim brings attempt 2 this soon.
+      final m = master(
+        plan(timeout: const Duration(seconds: 1)),
+        killGrace: const Duration(seconds: 1),
+      );
+      final watch = Stopwatch()..start();
       addTearDown(() => m.stop(timeout: const Duration(seconds: 20)));
       await m.start();
       await until(
         () => marks().contains('a:stuck-pop:2'),
-        'the job done after retry_after, on its second attempt',
+        'the job done on its second attempt',
         diagnose: () => diagnosis(m, 's', const {}),
       );
+      expect(watch.elapsed, lessThan(const Duration(seconds: 30)));
       final killed = eventsNamed('WorkerKilled');
-      expect(killed.single['reason'], 'lease');
+      expect(killed.single['reason'], 'timeout');
       expect(
         killed.single['job'],
-        isNull,
-        reason: 'the master had not heard of the job',
+        isNotNull,
+        reason: 'the worker reported the job when it reserved it',
       );
-      expect(eventsNamed('JobTimedOut'), isEmpty);
+      expect(eventsNamed('JobTimedOut').single['reclaimed'], isTrue);
       await m.stop(timeout: const Duration(seconds: 20));
     },
   );
