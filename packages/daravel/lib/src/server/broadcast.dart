@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 
+import '../foundation/shared_result.dart';
 import 'coordinator.dart';
 
 /// Coordinator side of [Broadcaster]: which isolates listen to which
@@ -104,7 +105,11 @@ final class Broadcaster {
   final CoordinatorChannel _coordinator;
   final Map<String, Set<StreamController<String>>> _local =
       <String, Set<StreamController<String>>>{};
-  final Map<String, Future<void>> _registering = <String, Future<void>>{};
+  // Shared by the subscribers of a channel in this isolate, from different
+  // connections: a SharedResult, so a failed registration reaches each of
+  // them (as a failing future it would hang those of another zone).
+  final Map<String, SharedResult<void>> _registering =
+      <String, SharedResult<void>>{};
   final Map<String, Future<void>> _leaving = <String, Future<void>>{};
   final Set<String> _straying = <String>{};
   ReceivePort? _port;
@@ -167,14 +172,16 @@ final class Broadcaster {
       () => <StreamController<String>>{},
     );
     listeners.add(controller);
-    final registration = _registering[channel] ??= _register(channel);
+    final registration = _registering[channel] ??= SharedResult<void>(
+      () => _register(channel),
+    );
     try {
-      await registration;
+      await registration.value;
     } on Object {
       // Undone here, or every later subscriber of this isolate would wait
       // on the same failed registration for ever.
       if (identical(_registering[channel], registration)) {
-        unawaited(_registering.remove(channel));
+        _registering.remove(channel);
       }
       final current = _local[channel];
       if (current != null && current.remove(controller) && current.isEmpty) {
@@ -275,10 +282,13 @@ final class Broadcaster {
   /// has landed. A failure is not the caller's: the port stays registered,
   /// and the next message for the channel unsubscribes it again (see
   /// [_stray]).
-  Future<void> _unregister(String channel, Future<void>? registration) async {
+  Future<void> _unregister(
+    String channel,
+    SharedResult<void>? registration,
+  ) async {
     // Let the registration finish first, so it cannot land after this.
     try {
-      await registration;
+      await registration?.value;
     } on Object {
       // It failed: the subscriber has the error. It may still land late;
       // a message that then arrives unsubscribes again.

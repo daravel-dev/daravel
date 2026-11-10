@@ -196,22 +196,18 @@ void main() {
 }
 
 /// The Future and Completer fields of lib/src, each with why it is safe to
-/// keep (see the test above). Those marked "PR B" are known to share a
-/// future that can fail across zones, and are being moved to SharedResult.
+/// keep (see the test above). Those marked "PR C" are still being read
+/// for whether they share a future that can fail across zones.
 const Map<String, String> _knownFutureFields = {
-  'auth/hashing.dart:_dummy': 'PR B: the timing equalizer, shared by logins',
   'broadcasting/cluster.dart:_loop': 'the relay loop, owned by one server',
   'broadcasting/cluster.dart:_wake': 'wakes the relay loop; one owner',
   'broadcasting/pusher_server.dart:_relaying': 'the relay task, one owner',
-  'cache/cache.dart:_remembering': 'PR B: remember single flight',
   'cache/stores.dart:_lastRun': 'prune; to be read in PR C',
   'cache/stores.dart:_pruning': 'prune; to be read in PR C',
   'cache/stores.dart:_queued': 'completed with no error',
   'cache/stores.dart:next': 'completed with no error',
   'concurrency/compute_pool.dart:completer': 'one worker spawn, one owner',
   'concurrency/compute_pool.dart:_stopped': 'completed with no error',
-  'database/database_manager.dart:_connecting':
-      'PR B: connection single flight',
   'database/database_manager.dart:_children': 'a chain that never fails',
   'database/orm/model.dart:future': 'per object, one owner',
   'database/sqlite_driver.dart:_transactionQueue': 'a chain that never fails',
@@ -239,8 +235,8 @@ const Map<String, String> _knownFutureFields = {
   'schedule/schedule.dart:_ticks': 'the scheduler, one owner',
   'schedule/schedule.dart:_running': 'the scheduler, one owner',
   'schedule/schedule.dart:_wake': 'completed with no error',
-  'server/broadcast.dart:_registering': 'PR B: channel registration',
-  'server/broadcast.dart:_leaving': 'PR B: channel registration',
+  'server/broadcast.dart:_leaving':
+      '_unregister catches every error: never fails',
   'server/coordinator.dart:completer': 'per call, completed by its reply',
   'server/process_supervisor.dart:_done': 'completed with no error',
   'server/supervisor.dart:_done': 'completed with no error',
