@@ -163,6 +163,13 @@ final class HorizonMaster {
   /// Told about kills and scaling decisions.
   final HorizonEventSink? onEvent;
 
+  /// The least time between two `LongWaitDetected` of one queue.
+  static const Duration longWaitEvery = Duration(minutes: 5);
+
+  /// When each `connection:queue` last had a `LongWaitDetected` (wall
+  /// clock).
+  final Map<String, DateTime> _longWaits = {};
+
   final Duration Function(int crashes) _crashDelay;
 
   static Duration _defaultCrashDelay(int crashes) =>
@@ -336,6 +343,31 @@ final class HorizonMaster {
     [for (final q in plan.queues) q.value].join(','),
   ];
 
+  /// Tells [onEvent] `LongWaitDetected` for each queue of [connection]
+  /// whose oldest job waits past its threshold, at most once per queue
+  /// every [longWaitEvery] (wall clock). Called by [balance].
+  void detectLongWaits(String connection, List<QueueLoad> loads) {
+    for (final load in loads) {
+      final wait = load.oldestWait;
+      if (wait == null || wait <= load.targetWait) {
+        continue;
+      }
+      final key = '$connection:${load.queue.value}';
+      final now = DateTime.now();
+      final last = _longWaits[key];
+      if (last != null && now.difference(last) < longWaitEvery) {
+        continue;
+      }
+      _longWaits[key] = now;
+      onEvent?.call('LongWaitDetected', {
+        'connection': connection,
+        'queue': load.queue.value,
+        'seconds': wait.inSeconds,
+        'threshold': load.targetWait.inSeconds,
+      });
+    }
+  }
+
   /// One evaluation of [plan]: reads its queues and applies [decide].
   Future<ScalingDecision> balance(SupervisorPlan plan) async {
     final name = plan.name.value;
@@ -356,6 +388,7 @@ final class HorizonMaster {
         ),
       );
     }
+    detectLongWaits(queue.name, loads);
     final previous = ScalingState(
       workers: _pools[name]?.where((w) => !w.stopping).length ?? 0,
       arrival: _states[name]?.arrival ?? const {},

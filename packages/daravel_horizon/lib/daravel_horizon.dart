@@ -8,6 +8,7 @@ library;
 
 export 'src/auto_scaler.dart';
 export 'src/config.dart';
+export 'src/events.dart';
 export 'src/master.dart';
 export 'src/messages.dart';
 export 'src/setup.dart';
