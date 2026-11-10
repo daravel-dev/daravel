@@ -66,7 +66,10 @@ abstract final class HorizonSignals {
     final raw = await store?.store.get(statusKey(name));
     final state = raw is String
         ? jsonDecode(raw) as Map<String, Object?>
-        : <String, Object?>{'state': 'inactive', 'supervisors': {}};
+        : <String, Object?>{
+            'state': 'inactive',
+            'supervisors': <String, Object?>{},
+          };
     final at = (state['at'] as num?)?.toInt() ?? 0;
     final age = DateTime.now().millisecondsSinceEpoch - at;
     if (age > statusEvery.inMilliseconds * 3) {

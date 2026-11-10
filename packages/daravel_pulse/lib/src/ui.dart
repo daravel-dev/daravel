@@ -73,6 +73,7 @@ pre{margin:8px 0 0;padding:10px 12px;background:var(--soft);border-radius:6px;ov
 <section class="card third"><h2>Slow and failed jobs <span class="note" id="t-jobs"></span></h2><div id="jobs"></div></section>
 <section class="card third"><h2>Failed jobs</h2><div id="failed"></div></section>
 <section class="card wide"><h2>Workers</h2><div id="workers"></div></section>
+<section class="card wide" id="reverb-card" hidden><h2>Reverb <span class="note">last report of each isolate</span></h2><div id="reverb"></div></section>
 </main>
 <script nonce="$nonce">
 (()=>{
@@ -107,7 +108,9 @@ table('exceptions',[{label:'Exception',cell:x=>{const det=el('details'),s=el('su
 table('queues',[{label:'Queue',cell:x=>two(x.queue,x.connection)},{label:'Pending',n:1,cell:x=>fmt(x.size)}],d.queues,'No queues.');
 table('jobs',[{label:'Job',cell:x=>{const d2=two(x.job,x.queue+' · last '+ago(x.last_at),true);if(x.failed){d2.append(el('span','badge err',x.failed+' failed'));}return d2;}},{label:'Slowest',n:1,cell:x=>ms(x.max_ms)}],d.jobs,'No slow or failed jobs.');
 const f=d.failed_jobs;table('failed',[{label:(f.count==null?'?':f.count)+' in period',cell:x=>two(x.job,x.queue+' · '+ago(x.failed_at)+' · '+x.exception,false)}],f.recent,f.count==null?'failed_jobs could not be read.':'No failed jobs.');
-table('workers',[{label:'Isolate',cell:x=>two(x.name,'up since '+new Date(x.started_at).toLocaleString(),true)},{label:'Requests',n:1,cell:x=>fmt(x.requests_total)},{label:'In flight',n:1,cell:x=>fmt(x.in_flight)},{label:'Reported',n:1,cell:x=>ago(x.reported_at)}],d.workers,'No isolates reported yet.');}
+table('workers',[{label:'Isolate',cell:x=>two(x.name,'up since '+new Date(x.started_at).toLocaleString(),true)},{label:'Requests',n:1,cell:x=>fmt(x.requests_total)},{label:'In flight',n:1,cell:x=>fmt(x.in_flight)},{label:'Reported',n:1,cell:x=>ago(x.reported_at)}],d.workers,'No isolates reported yet.');
+const rv=d.reverb||[];document.getElementById('reverb-card').hidden=!rv.length;
+table('reverb',[{label:'App',cell:x=>two(x.app,x.worker+' · '+ago(Date.parse(x.reported_at)),true)},{label:'Connections',n:1,cell:x=>fmt(x.connections)},{label:'Channels',cell:x=>Object.entries(x.channels||{}).map(([k,v])=>k+' '+v).join(' · ')||'–'},{label:'In',n:1,cell:x=>fmt(x.received)},{label:'Out',n:1,cell:x=>fmt(x.sent)},{label:'Fan-out p95',n:1,cell:x=>ms(x.fanout_p95_ms)}],rv,'No Pusher clients.');}
 async function load(){const status=document.getElementById('status');
 try{const res=await fetch(base+'/api/stats?period='+encodeURIComponent(period),{headers:{accept:'application/json'},credentials:'same-origin'});
 if(!res.ok)throw new Error('HTTP '+res.status);render(await res.json());status.textContent='Updated '+new Date().toLocaleTimeString();}

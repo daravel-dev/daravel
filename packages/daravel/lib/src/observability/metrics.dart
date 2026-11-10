@@ -625,6 +625,26 @@ final class AppMetrics {
       'reverb_rate_limited_total',
       'Pusher messages refused with 4301 Rate limit exceeded, by app.',
     );
+    reverbConnections = registry.gauge(
+      'reverb_connections',
+      'Open Pusher connections, by app and worker isolate.',
+    );
+    reverbChannels = registry.gauge(
+      'reverb_channels',
+      'Pusher channel subscriptions, by app and channel type (public, '
+          'private, presence, encrypted).',
+    );
+    reverbMessages = registry.counter(
+      'reverb_messages_total',
+      'Pusher messages, by app and direction (in: from clients, out: frames '
+          'sent to clients).',
+    );
+    reverbFanout = registry.histogram(
+      'reverb_fanout_seconds',
+      'Time to hand one frame to every isolate (and the other servers) '
+          'subscribed to its channel, by app.',
+      buckets: coordinatorBuckets,
+    );
     registry.counter(
       'log_lines_dropped_total',
       'Log lines dropped because the output (stdout, stderr, the log file) '
@@ -704,6 +724,35 @@ final class AppMetrics {
   /// Pusher messages refused for a rate limit.
   late final Counter reverbRateLimited;
 
+  /// Open Pusher connections (`reverb_connections{app,worker}`).
+  late final Gauge reverbConnections;
+
+  /// Channel subscriptions (`reverb_channels{app,type}`).
+  late final Gauge reverbChannels;
+
+  /// Messages in and out (`reverb_messages_total{app,direction}`).
+  late final Counter reverbMessages;
+
+  /// Fan-out time of one frame (`reverb_fanout_seconds{app}`).
+  late final Histogram reverbFanout;
+
+  /// Counts [delta] (1 or -1) open connections of [app] on this worker.
+  void recordReverbConnection(String app, int delta) =>
+      reverbConnections.inc({'app': app, 'worker': _worker}, delta.toDouble());
+
+  /// Counts [delta] (1 or -1) subscriptions of [app] to a channel of
+  /// [type].
+  void recordReverbSubscription(String app, String type, int delta) =>
+      reverbChannels.inc({'app': app, 'type': type}, delta.toDouble());
+
+  /// Counts one message of [app] in [direction] (`in`, `out`).
+  void recordReverbMessage(String app, String direction) =>
+      reverbMessages.inc({'app': app, 'direction': direction});
+
+  /// Records the fan-out of one frame of [app].
+  void recordReverbFanout(String app, Duration took) =>
+      reverbFanout.observe(took.inMicroseconds / 1e6, {'app': app});
+
   /// The `worker` label of [inFlight] and [shed]: the isolate's name
   /// (`daravel-worker-N` under a supervisor, the same after a respawn, so
   /// there is one value per worker). Workers share the port, which spreads
@@ -757,7 +806,7 @@ final class AppMetrics {
   /// (`PusherServer.onRejected`); both rate limits also count in
   /// `reverb_rate_limited_total`.
   void recordReverbRejected(String reason, {String app = ''}) {
-    reverbRejected.inc({'reason': reason});
+    reverbRejected.inc({'app': app, 'reason': reason});
     if (reason == 'rate_limit' || reason == 'client_event_rate') {
       reverbRateLimited.inc({'app': app});
     }

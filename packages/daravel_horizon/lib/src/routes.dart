@@ -182,9 +182,15 @@ abstract final class HorizonDashboard {
         args ?? const {},
       );
       return answer is String ? jsonDecode(answer) : answer;
-    } on Object {
+    } on CoordinatorException catch (error) {
       // No Horizon store in this process (Horizon runs elsewhere with the
       // process store): empty rather than a 500.
+      if (!error.message.startsWith('Unknown coordinator service')) {
+        Log.debug('Horizon dashboard: [$op] failed: ${error.message}');
+      }
+      return null;
+    } on Object catch (error) {
+      Log.debug('Horizon dashboard: [$op] failed: $error');
       return null;
     }
   }
@@ -193,19 +199,83 @@ abstract final class HorizonDashboard {
 
   static String get _name => _config.name ?? 'horizon';
 
+  /// Horizon's last status; one that cannot be read, or of another shape
+  /// (another version wrote it, the store failed), is `inactive`.
   static Future<Map<String, Object?>> _status() async {
-    final state = await HorizonSignals.status(_queues.signalStore, _name);
-    return state;
+    try {
+      final status = await HorizonSignals.status(_queues.signalStore, _name);
+      return {
+        ...status,
+        'state': status['state'] is String ? status['state'] : 'inactive',
+        'supervisors': _supervisorsOf(status),
+      };
+    } on Object {
+      return {'state': 'inactive', 'supervisors': <String, Object?>{}};
+    }
+  }
+
+  /// The workers of each supervisor in [status], as a list per name.
+  static Map<String, List<Object?>> _supervisorsOf(
+    Map<String, Object?> status,
+  ) => switch (status['supervisors']) {
+    final Map<Object?, Object?> supervisors => {
+      for (final MapEntry(:key, :value) in supervisors.entries)
+        '$key': value is List ? List<Object?>.of(value) : const <Object?>[],
+    },
+    _ => const {},
+  };
+
+  /// What `stats`, `workload` and `stream` show, worked out at most once a
+  /// second per application ([Clock] time), however many clients ask: each
+  /// queue's size and rates are read once a tick, not once per client.
+  static final Expando<_Snapshot> _snapshots = Expando('horizon snapshot');
+
+  /// The snapshot being worked out, per application: clients that ask
+  /// meanwhile (as the last one expires) wait for it rather than each
+  /// reading the queues again.
+  static final Expando<Future<_Snapshot>> _taking = Expando(
+    'horizon snapshot in progress',
+  );
+
+  static Future<_Snapshot> _snapshot() {
+    final key = _queues;
+    final now = Clock.now();
+    final last = _snapshots[key];
+    if (last != null && now.difference(last.at) < const Duration(seconds: 1)) {
+      return Future.value(last);
+    }
+    final taking = _taking[key];
+    if (taking != null) {
+      return taking;
+    }
+    final next = () async {
+      try {
+        final status = await _status();
+        final loads = await _queueLoads(status);
+        final summary = (await _call('summary')) as Map? ?? const {};
+        final snapshot = _Snapshot(
+          now,
+          _statsOf(status, loads, summary),
+          loads,
+        );
+        _snapshots[key] = snapshot;
+        return snapshot;
+      } finally {
+        _taking[key] = null;
+      }
+    }();
+    _taking[key] = next;
+    return next;
   }
 
   /// Each plan queue: its connection, size, workers and estimated wait.
-  static Future<List<Map<String, Object?>>> _queueLoads() async {
-    final status = await _status();
-    final supervisors =
-        (status['supervisors'] as Map<Object?, Object?>?) ?? const {};
+  static Future<List<Map<String, Object?>>> _queueLoads(
+    Map<String, Object?> status,
+  ) async {
+    final supervisors = _supervisorsOf(status);
     final loads = <Map<String, Object?>>[];
     for (final plan in _config.plans) {
-      final workers = (supervisors[plan.name.value] as List<Object?>?) ?? [];
+      final workers = supervisors[plan.name.value] ?? const <Object?>[];
       final connection = plan.connection ?? _queues.config.defaultConnection;
       for (final queue in plan.queues) {
         int? size;
@@ -237,20 +307,23 @@ abstract final class HorizonDashboard {
     return loads;
   }
 
-  static Future<Object?> _stats(Request request) async {
-    final summary = (await _call('summary')) as Map? ?? const {};
-    final status = await _status();
-    final loads = await _queueLoads();
-    final supervisors =
-        (status['supervisors'] as Map<Object?, Object?>?) ?? const {};
+  static Future<Object?> _stats(Request request) async =>
+      (await _snapshot()).stats;
+
+  static Map<String, Object?> _statsOf(
+    Map<String, Object?> status,
+    List<Map<String, Object?>> loads,
+    Map<Object?, Object?> summary,
+  ) {
+    final supervisors = _supervisorsOf(status);
     return {
-      'status': status['state'] ?? 'inactive',
+      'status': status['state'],
       'jobsPerMinute': summary['jobs_per_minute'] ?? 0,
       'recentJobs': summary['jobs_past_hour'] ?? 0,
       'failedJobs': summary['failed_past_week'] ?? 0,
       'processes': supervisors.values.fold<int>(
         0,
-        (sum, workers) => sum + ((workers as List?)?.length ?? 0),
+        (sum, workers) => sum + workers.length,
       ),
       'wait': {
         for (final load in loads)
@@ -276,15 +349,17 @@ abstract final class HorizonDashboard {
           retry: Duration(milliseconds: 1000 + _random.nextInt(4001)),
         );
         while (true) {
+          final snapshot = await _snapshot();
           yield SseEvent({
-            'stats': await _stats(request),
-            'workload': await _queueLoads(),
+            'stats': snapshot.stats,
+            'workload': snapshot.loads,
           }, event: 'update');
           await Future<void>.delayed(const Duration(seconds: 1));
         }
       }(), heartbeat: null);
 
-  static Future<Object?> _workload(Request request) => _queueLoads();
+  static Future<Object?> _workload(Request request) async =>
+      (await _snapshot()).loads;
 
   static Future<Object?> _masters(Request request) async => {
     _name: await _status(),
@@ -409,4 +484,13 @@ abstract final class HorizonDashboard {
   static Future<Object?> _retryAll(Request request) async => {
     'retried': [for (final job in await _queues.retryAllFailed()) job.uuid],
   };
+}
+
+/// One tick of the dashboard's figures ([HorizonDashboard._snapshot]).
+final class _Snapshot {
+  _Snapshot(this.at, this.stats, this.loads);
+
+  final DateTime at;
+  final Map<String, Object?> stats;
+  final List<Map<String, Object?>> loads;
 }

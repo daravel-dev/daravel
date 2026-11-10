@@ -1,4 +1,4 @@
-<!-- source: pulse.md sha256:ae1b2177a58b -->
+<!-- source: pulse.md sha256:95cde3b619b3 -->
 # Pulse
 
 `daravel_pulse` menyajikan sebuah dashboard, dari aplikasi Anda, tentang apa
@@ -73,6 +73,10 @@ gate.define('viewPulse', (user, args) => user is User && user.isAdmin);
   server ini.
 - **Worker.** Setiap isolate, request yang sudah dijawabnya, request yang
   sedang berjalan, dan memori proses.
+- **Reverb.** Saat ada client Pusher yang tersambung ([Broadcasting](broadcasting.md#memantau-server)),
+  laporan terakhir setiap isolate per aplikasi: koneksi, subscription per
+  tipe channel, pesan masuk dan keluar sejak laporan sebelumnya, dan p95
+  fan-out. Disembunyikan bila tidak ada isolate yang melayani client Pusher.
 
 ## Pengaturan
 
