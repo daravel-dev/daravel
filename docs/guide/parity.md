@@ -232,6 +232,9 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `Post::findFiltered($request, $id)` | `await Post.definition.query().findFiltered(request, id)` | **async** |
 | `class PostQueryFilter extends QueryFilter` | `final class PostQueryFilter extends QueryFilter<Post>` |  |
 | `Filter::multiLike(['title'])->alias('q')` | `Filter.multiLike(['title']).alias('q')` | default() is withDefault(); enum/in/null are enum_/in_/null_. |
+| `Filter::scope('published')` | `Filter.scope('published')` | The scope is given the request, as ScopeFilter calls $query->$method($request). |
+| `(none)` | `Filter.scopeValue('search').alias('q')` | Daravel-only: the scope is given the value, after alias and withDefault (scopeSearch($query, $term)). |
+| `(none)` | `String? get sortScope => 'sortBy';` | Daravel-only: every allowed sort without a customSorts entry calls the scope with [column, direction]; laravel-teorion routes sorts to sortBy<Column> methods (customSorts). |
 | `FilterMacroRegistry::register('phone', fn ...)` | `FilterMacroRegistry.register('phone', (q, value, param, request) {...})` |  |
 | `php artisan make:query-filter PostQueryFilter` | `dartisan make:query-filter Post` | Registered in bootstrap/query_filters.dart (no reflection). |
 

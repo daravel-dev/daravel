@@ -120,10 +120,50 @@ Map<String, List<String>> get allowedWithColumns => {
 | `Filter.has('comments')` | `EXISTS` / `NOT EXISTS` |
 | `Filter.jsonContains()` | `whereJsonContains(col, value)` |
 | `Filter.callback((query, value, param, request) {...})` | Yours |
-| `Filter.scope('name')`, `Filter.macro('name')` | A model scope; a type registered with `FilterMacroRegistry.register` |
+| `Filter.scope('name')` | A model scope, given the request (laravel-teorion's `ScopeFilter`) |
+| `Filter.scopeValue('name')` | A model scope, given the filter's value after `alias` and `withDefault` (Daravel-only) |
+| `Filter.macro('name')` | A type registered with `FilterMacroRegistry.register` |
 
 Each takes `.alias('q')`, `.withDefault(value)` and `.required()`. The
 names with an underscore (`enum_`, `in_`, `null_`) avoid Dart keywords.
+
+### Scopes and sorts in the model
+
+To keep the listing queries in the model, as Laravel scopes that take their
+argument, map the URL parameters onto them: `Filter.scopeValue` calls the
+scope with the value, and `sortScope` sends every allowed sort to one scope
+with `[column, direction]`. The model then knows nothing of the request or
+the parameters' names.
+
+```dart
+// In the model's definition:
+scopes: {
+  'search': (q, args) => q.where('title', 'like', '%${args.first}%'),
+  'sortBy': (q, args) => switch (args[0]) {
+    'popularity' => q.orderBy('views', args[1]! as String),
+    final column => q.orderBy(column! as String, args[1]! as String),
+  },
+},
+
+final class PostQueryFilter extends QueryFilter<Post> {
+  @override
+  Map<String, Filter> get filters => {
+    'search': Filter.scopeValue('search').alias('q'),
+  };
+
+  @override
+  List<String> get allowedSorts => ['title', 'popularity'];
+
+  @override
+  String? get sortScope => 'sortBy';
+}
+```
+
+A sort goes to its `customSorts` entry first, then to `sortScope`, then to
+`ORDER BY column`; the default sort takes the same way, and only
+`allowedSorts` reach any of them. `Filter.scope` keeps laravel-teorion's
+behaviour and passes the request. A scope the model does not define is
+skipped, unless `TEORION_STRICT` refuses it.
 
 ## Validation, docs and audit
 
