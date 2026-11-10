@@ -3,7 +3,7 @@
 
 /// `docs/guide/id/broadcasting.md`.
 const String pageIdBroadcasting =
-    r'''<!-- source: broadcasting.md sha256:b753dd75b7ba -->
+    r'''<!-- source: broadcasting.md sha256:775047d4692e -->
 # Broadcasting
 
 Daravel berbicara dengan protokol Pusher, seperti Laravel Reverb, di port
@@ -329,6 +329,43 @@ bersama (`QUEUE_SIGNAL_STORE=database` atau `redis`); dengan store `process`,
 bila queue tidak punya signal store sama sekali. `reverb:stats` membaca
 `reverb_connections`, `reverb_channels`, dan `reverb_messages_total` dari
 `/metrics` server (`METRICS_ENABLED=true`; `--url`, `--token`, `--json`).
+
+## Dashboard Reverb
+
+`withReverb()` menyajikan dashboard di `/reverb` dari aplikasi HTTP (bukan
+dari `reverb:start`):
+
+```dart
+.withReverb(middleware: ['auth', 'can:viewReverb']) // dashboard: '/reverb'
+```
+
+```dart
+// bootstrap/policies.dart
+gate.define('viewReverb', (user, _) => (user as User?)?.isAdmin ?? false);
+```
+
+Tab-nya: **Overview** (koneksi per aplikasi dan per isolate, channel per
+tipe, pesan per detik masuk dan keluar, fan-out p50 dan p95), **Limits**
+(slow consumer yang ditutup dengan `4100`, pesan yang terkena rate limit
+`4301`, koneksi dan subscription yang ditolak per alasan), **Apps** (id, key,
+origin, kuota, dan batas setiap aplikasi, tanpa secret-nya), dan **Workers**
+(koneksi per worker isolate). Tombol **Restart servers** mengirim
+`reverb:restart`. Angkanya berasal dari `/metrics`: dari aplikasi itu
+sendiri bila Echo tersambung ke port HTTP-nya, atau, bila `reverb:start`
+berjalan terpisah, dari server WebSocket di `REVERB_METRICS_URL`
+(`http://127.0.0.1:8080/metrics`, dengan `METRICS_TOKEN` bila di-set; hanya
+http atau https, dibaca dalam 2 detik, dan ditampilkan sebagai "Metrics
+unreachable" bila tidak menjawab, tanpa URL atau token).
+Halaman ini diperbarui lewat server-sent events (`GET /reverb/api/stream`,
+tiap detik); `GET /reverb/api/stats` sama dengan keluaran
+`reverb:stats --json`, dan `GET /reverb/api/apps` mendaftar aplikasinya.
+
+Di luar `APP_ENV=local` dan `testing`, setiap route dashboard menjawab `403`
+sampai `middleware:` menjaganya, termasuk restart; `withReverb(dashboard:
+'')` tidak menyajikan route apa pun. Halaman ini membawa
+Content-Security-Policy sendiri dengan nonce baru, tidak memuat apa pun dari
+origin lain, dan menulis setiap nilai sebagai teks. Kartu *Reverb* di Pulse
+menautkan ke halaman ini.
 
 ## Mendeskripsikan channel
 
