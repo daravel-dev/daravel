@@ -109,7 +109,14 @@ Future<void> horizonWorkerMain(HorizonWorkerStart start) async {
     String? jobUuid;
     String? queue;
     int? startedAt;
-    void clear() => jobId = jobUuid = queue = startedAt = null;
+    int? timeoutMs;
+    String? jobName;
+    int? attempt;
+    void clear() {
+      jobId = jobUuid = queue = jobName = null;
+      startedAt = timeoutMs = attempt = null;
+    }
+
     void report() => start.master.send(
       Heartbeat(
         start.name,
@@ -118,6 +125,9 @@ Future<void> horizonWorkerMain(HorizonWorkerStart start) async {
         jobUuid: jobUuid,
         queue: queue,
         jobStartedAtMs: startedAt,
+        jobTimeoutMs: timeoutMs,
+        jobName: jobName,
+        attempt: attempt,
         sessions: sessions(),
       ),
     );
@@ -143,6 +153,9 @@ Future<void> horizonWorkerMain(HorizonWorkerStart start) async {
         jobUuid = e.uuid;
         queue = e.queue;
         startedAt = DateTime.now().millisecondsSinceEpoch;
+        timeoutMs = e.timeout?.inMilliseconds;
+        jobName = e.displayName ?? e.jobName;
+        attempt = e.attempt;
         if (e.uuid case final String uuid) {
           running[uuid] = (e.displayName ?? e.jobName, e.tags);
         }

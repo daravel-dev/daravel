@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:daravel/daravel.dart' show SharedResult;
+
 import 'client.dart';
 import 'oauth.dart';
 import 'service_account.dart';
@@ -38,7 +40,11 @@ final class UserCredentials implements GoogleCredentials {
 
   /// Called with each refreshed token, to store it.
   final FutureOr<void> Function(GoogleToken token)? onRefresh;
-  Future<GoogleToken>? _refreshing;
+
+  /// The refresh in flight, shared by the requests and jobs that ask
+  /// meanwhile (each in a zone of its own): a SharedResult, so its error
+  /// reaches all of them.
+  SharedResult<GoogleToken>? _refreshing;
   GoogleException? _revoked;
 
   /// The current token (the refreshed one after a refresh).
@@ -70,7 +76,7 @@ final class UserCredentials implements GoogleCredentials {
       throw error;
     }
     final generation = _generation;
-    final refreshing = _refreshing ??= () async {
+    final refreshing = _refreshing ??= SharedResult(() async {
       try {
         final GoogleToken fresh;
         try {
@@ -99,8 +105,8 @@ final class UserCredentials implements GoogleCredentials {
           _refreshing = null;
         }
       }
-    }();
-    return (await refreshing).accessToken;
+    });
+    return (await refreshing.value).accessToken;
   }
 }
 
@@ -147,7 +153,10 @@ final class ServiceAccountCredentials implements GoogleCredentials {
   /// The Workspace user acted as, or null.
   final String? subject;
   GoogleToken? _token;
-  Future<GoogleToken>? _fetching;
+
+  /// The fetch in flight, shared by the callers meanwhile (each in a zone
+  /// of its own): a SharedResult, so its error reaches all of them.
+  SharedResult<GoogleToken>? _fetching;
 
   @override
   Future<String> accessToken() async {
@@ -155,13 +164,13 @@ final class ServiceAccountCredentials implements GoogleCredentials {
     if (current != null && !current.expired()) {
       return current.accessToken;
     }
-    final fetching = _fetching ??= () async {
+    final fetching = _fetching ??= SharedResult(() async {
       try {
         return _token = await account.token(scopes: scopes, subject: subject);
       } finally {
         _fetching = null;
       }
-    }();
-    return (await fetching).accessToken;
+    });
+    return (await fetching.value).accessToken;
   }
 }

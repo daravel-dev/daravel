@@ -61,10 +61,17 @@ void main() {
     late _FlakyRelay relay;
     final errors = <String>[];
     final sessions = <Future<void>>[];
+    final uncaught = <Object>[];
+
+    /// Each connection in a request scope of its own, as the server runs
+    /// it (an error zone per request).
+    var inRequestScopes = false;
 
     setUp(() async {
       errors.clear();
       sessions.clear();
+      uncaught.clear();
+      inRequestScopes = false;
       relay = _FlakyRelay();
       pusher = PusherServer(
         const BroadcastConfig(appId: '1', appKey: 'key', appSecret: 'secret'),
@@ -76,8 +83,16 @@ void main() {
       http = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       http.listen((request) async {
         final socket = await WebSocketTransformer.upgrade(request);
+        Future<void> serve() =>
+            pusher.connect(socket, Request.fake(path: '/app/key'), 'key');
         sessions.add(
-          pusher.connect(socket, Request.fake(path: '/app/key'), 'key'),
+          inRequestScopes
+              ? Container().runScoped(
+                  'request',
+                  (_) => serve(),
+                  onUncaughtError: (error, _) => uncaught.add(error),
+                )
+              : serve(),
         );
       });
     });
@@ -132,6 +147,7 @@ void main() {
     test('a relay that failed to start is started again by the next '
         'client', () async {
       relay.failures = 1;
+      pusher.relayRetryPause = Duration.zero;
       final first = await connect();
       final refused = await first.next();
       expect(jsonDecode(refused['data']! as String), {
@@ -146,6 +162,59 @@ void main() {
       expect((await second.next())['event'], 'pusher:connection_established');
       expect(relay.starts, 2);
       await second.socket.close();
+      await Future.wait(sessions);
+    });
+
+    test('a relay that fails to start reaches every connection waiting on '
+        'it, each in its own request', () async {
+      inRequestScopes = true;
+      relay
+        ..failures = 1
+        ..delay = const Duration(milliseconds: 200);
+      // Both arrive while the one start is running.
+      final clients = await Future.wait([connect(), connect()]);
+      for (final client in clients) {
+        final refused = await client.next().timeout(const Duration(seconds: 5));
+        expect(jsonDecode(refused['data']! as String), {
+          'code': 4100,
+          'message': 'Over capacity',
+        });
+        await client.ended;
+      }
+      expect(relay.starts, 1, reason: 'one start, shared');
+      expect(errors, [
+        'Broadcast relay did not start',
+        'Broadcast relay did not start',
+      ]);
+      expect(uncaught, isEmpty);
+      await Future.wait(sessions);
+    });
+
+    test('after a failed start, clients are refused without a new try for '
+        'the pause; the first after it starts the relay again', () async {
+      relay.failures = 1;
+      pusher.relayRetryPause = const Duration(milliseconds: 500);
+      Future<int?> refusedCode() async {
+        final client = await connect();
+        final frame = await client.next().timeout(const Duration(seconds: 5));
+        expect(jsonDecode(frame['data']! as String), {
+          'code': 4100,
+          'message': 'Over capacity',
+        });
+        await client.ended;
+        return client.socket.closeCode;
+      }
+
+      expect(await refusedCode(), 4100, reason: 'the start fails');
+      // Redis is back, but the pause lasts: refused, and no new start.
+      expect(await refusedCode(), 4100);
+      expect(relay.starts, 1, reason: 'not tried again during the pause');
+      expect(errors, ['Broadcast relay did not start']);
+      await Future<void>.delayed(const Duration(milliseconds: 600));
+      final after = await connect();
+      expect((await after.next())['event'], 'pusher:connection_established');
+      expect(relay.starts, 2);
+      await after.socket.close();
       await Future.wait(sessions);
     });
   });
@@ -189,12 +258,14 @@ final class _FaultyChannel implements CoordinatorChannel {
 final class _FlakyRelay implements BroadcastRelay {
   int failures = 0;
   int starts = 0;
+  Duration delay = Duration.zero;
 
   @override
   Future<void> start(
     void Function(String channel, String envelope) deliver,
   ) async {
     starts++;
+    await Future<void>.delayed(delay);
     if (failures > 0) {
       failures--;
       throw const SocketException('Connection refused');

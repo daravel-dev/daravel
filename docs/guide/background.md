@@ -101,6 +101,31 @@ until commit by default.
   `WithoutOverlapping` keeps its lock until `expiresAfter`. A worker whose job
   timed out and was released stops with exit code 1 (`queue:work` ends the
   process), so the process manager starts a fresh one.
+- A handler doing long synchronous work (rendering a PDF, encoding a large
+  JSON) blocks its isolate: its own timeout cannot fire until it returns.
+  Under `daravel_horizon` the master judges a worker that runs a job by that
+  job's timeout (the plan's `timeout` when set, otherwise the job's own),
+  not by its heartbeats. It kills the worker once the job has run past that
+  timeout plus `HORIZON_KILL_GRACE` (10 seconds), and at the latest one
+  heartbeat (at least a second) before `QUEUE_RETRY_AFTER`, since another
+  worker may take the job from then on.
+  - The killed attempt counts once, and the job is available again at once
+    (no backoff); a job killed that close to `QUEUE_RETRY_AFTER` is left to
+    it instead, so the master never releases a reservation another worker
+    may hold already. A job with no tries left fails on its next pop with
+    `MaxAttemptsExceededException` ("may have previously timed out"), and
+    `JobFailed` listeners run.
+  - The killed attempt itself dispatches no `JobExceptionOccurred`, and
+    `failOnTimeout` does not apply: the job is tried again until its tries
+    are used up.
+  - `dartisan horizon:list` shows such a worker as busy and "not reporting
+    for N s", and lists the attempts killed past their timeout.
+  - Only an idle worker that stops answering is killed after three
+    heartbeats (its lease). That includes a worker blocked in a job's
+    `fromJson`, before the job is reported: the master does not know that
+    job yet, so it comes back after `QUEUE_RETRY_AFTER`.
+  - Synchronous work that must not keep a worker silent belongs in an
+    isolate of its own (`Concurrency.run`).
 - An asynchronous error that a handler leaves uncaught (a future it does not
   await) fails the attempt once the handler has returned, never while it
   still runs.

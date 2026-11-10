@@ -301,14 +301,14 @@ const Map<String, (int, String)> _knownLongLived = {
 };
 
 /// The Future and Completer fields of lib/src, each with why it is safe to
-/// keep (see the test above). Those marked "PR C" are still being read
-/// for whether they share a future that can fail across zones.
+/// keep (see the test above).
 const Map<String, String> _knownFutureFields = {
-  'broadcasting/cluster.dart:_loop': 'the relay loop, owned by one server',
+  'broadcasting/cluster.dart:_loop':
+      'the relay loop, awaited only by close() at shutdown',
   'broadcasting/cluster.dart:_wake': 'wakes the relay loop; one owner',
-  'broadcasting/pusher_server.dart:_relaying': 'the relay task, one owner',
-  'cache/stores.dart:_lastRun': 'prune; to be read in PR C',
-  'cache/stores.dart:_pruning': 'prune; to be read in PR C',
+  'cache/stores.dart:_lastRun':
+      'background prune: never fails (catchError), awaited by tests only',
+  'cache/stores.dart:_pruning': 'background prune: never fails (catchError)',
   'cache/stores.dart:_queued': 'completed with no error',
   'cache/stores.dart:next': 'completed with no error',
   'concurrency/compute_pool.dart:completer': 'one worker spawn, one owner',
@@ -334,7 +334,8 @@ const Map<String, String> _knownFutureFields = {
   'logging/logger.dart:_idle': 'completed with no error',
   'mail/smtp.dart:_waiting': 'per connection, one owner',
   'queue/drivers.dart:_waiting': 'completed with no error',
-  'queue/drivers.dart:_subscribing': 'to be read in PR C',
+  'queue/drivers.dart:_subscribing':
+      'LISTEN single flight: never fails, _subscribe catches the LISTEN',
   'queue/queue_manager.dart:_future': 'per PendingDispatch, one owner',
   'queue/queue_manager.dart:_idle': 'completed with no error',
   'schedule/schedule.dart:_ticks': 'the scheduler, one owner',

@@ -57,6 +57,14 @@ final class HorizonWorker {
   /// The reclaim of its job after a lease kill, if one ran.
   Future<bool>? _reclaim;
 
+  /// Whether the master killed it for running past its job's timeout: the
+  /// job's attempt failed, which is not a crash.
+  bool _timedOut = false;
+
+  /// Whether its job was left to `retry_after` rather than reclaimed (too
+  /// late: another worker may hold it already).
+  bool _leftToRetryAfter = false;
+
   /// Whether it runs a job now.
   bool get busy => last?.jobId != null;
 
@@ -76,11 +84,17 @@ typedef HorizonEventSink = void Function(
 /// isolates per plan, sized by the auto-scaler ([decide]) every
 /// `balanceCooldown`, each worker polling the queues its share says.
 ///
-/// A worker that stops sending heartbeats for three intervals is killed and
-/// the job it held made available at once ([ReclaimableQueueDriver]); a job
-/// running past its timeout plus `killGrace` has its isolate killed (its
-/// attempt was already released at the timeout). Workers that exit are
-/// started again, after a backoff when they crashed. [stop] drains.
+/// An idle worker that stops sending heartbeats for three intervals is
+/// killed (its lease). A worker running a job is judged by that job's
+/// contract instead, since synchronous work blocks its heartbeats too: it
+/// is killed once the job runs past the timeout the processor enforces
+/// plus `killGrace` (a margin before `retry_after` at the latest), the
+/// attempt counted as timed out and the job made available at once
+/// ([ReclaimableQueueDriver]; left to `retry_after` when that close to it); a job with no tries left then fails on its
+/// next pop, as after any timeout. Only a worker that goes down on its
+/// own while running a job counts towards quarantine (`quarantineAfter`).
+/// Workers that exit are started again, after a backoff when they crashed.
+/// [stop] drains.
 final class HorizonMaster {
   /// A master of [config]'s plans, building worker applications with
   /// [factory]; [driver] and [defaultConnection] are where it reads queue
@@ -289,11 +303,22 @@ final class HorizonMaster {
               'queues': w.queues,
               'processed': w.last?.processed ?? 0,
               'busy': w.busy,
+              // Running a job that blocks its event loop: not reporting,
+              // but not lost (it is judged by the job's timeout).
+              if (w.busy && _silentFor(w) > config.heartbeat * 2)
+                'silentMs': _silentFor(w).inMilliseconds,
               if (w.stopping) 'stopping': true,
             },
         ],
     },
+    if (_timeouts.isNotEmpty) 'timedOut': [..._timeouts],
   };
+
+  Duration _silentFor(HorizonWorker w) => DateTime.now().difference(w.lastSeen);
+
+  /// The last jobs whose worker the master killed for their timeout
+  /// (newest last), for `horizon:status`.
+  final List<Map<String, Object?>> _timeouts = [];
 
   Future<void> _publishStatus() async {
     try {
@@ -590,32 +615,85 @@ final class HorizonMaster {
     }
   }
 
-  /// A job running past its timeout plus `killGrace` kills its isolate:
-  /// the attempt was released at the timeout, but its handler still runs.
-  void _checkGrace(HorizonWorker w) {
-    final started = w.last?.jobStartedAtMs;
-    final timeout = w.plan.timeout;
-    if (started == null || timeout == null || w.stopping) {
-      return;
+  /// How long the job [w] runs may go on before its isolate is killed:
+  /// the timeout the processor enforces for it (`JobProcessing.timeout`:
+  /// the plan's `timeout` when set, otherwise the job's own) plus
+  /// `killGrace`, but never later than [_reclaimMargin] before the
+  /// connection's `retry_after`: from then on the driver may give the job
+  /// to another worker, which would run it beside this one. Null when [w]
+  /// runs no job.
+  Duration? _jobLimit(HorizonWorker w) {
+    final beat = w.last;
+    if (beat == null || beat.jobId == null || beat.jobStartedAtMs == null) {
+      return null;
     }
-    final ran = DateTime.now().difference(
-      DateTime.fromMillisecondsSinceEpoch(started),
-    );
-    if (ran > timeout + config.killGrace) {
-      _kill(w, 'timeout', reclaim: false);
+    final timeout = switch (beat.jobTimeoutMs) {
+      final int ms => Duration(milliseconds: ms),
+      // A worker of an older release, which does not report it: the plan's
+      // timeout, otherwise the default of `Job.timeout` (one minute, also
+      // what a payload without `timeout` reads as).
+      null => w.plan.timeout ?? const Duration(minutes: 1),
+    };
+    final limit = timeout + config.killGrace;
+    final retryAfter = _retryAfter(w);
+    if (retryAfter == null) {
+      return limit;
     }
+    final cap = retryAfter - _reclaimMargin;
+    return limit < cap ? limit : cap;
   }
 
-  /// Workers silent for three heartbeats are killed and their job reclaimed.
+  /// The `retry_after` of [w]'s connection, for a driver that reserves.
+  Duration? _retryAfter(HorizonWorker w) => switch (driver(w.plan.connection)) {
+    final ReservingQueueDriver reserving => reserving.retryAfter,
+    _ => null,
+  };
+
+  /// How long before `retry_after` the master kills a blocked worker, and
+  /// after which it no longer reclaims its job: a heartbeat, at least a
+  /// second (the reservation starts a little before the job reports).
+  Duration get _reclaimMargin => config.heartbeat > const Duration(seconds: 1)
+      ? config.heartbeat
+      : const Duration(seconds: 1);
+
+  /// A worker running a job is judged by that job's contract, not by its
+  /// heartbeats: a handler doing synchronous work sends none, and is
+  /// killed only past [_jobLimit] (reason `timeout`). Called on each
+  /// heartbeat and by the master's own timer, so a worker that has gone
+  /// silent is judged too.
+  ///
+  /// Returns whether [w] runs a job (then the lease does not apply).
+  bool _checkGrace(HorizonWorker w) {
+    final limit = _jobLimit(w);
+    if (limit == null) {
+      return false;
+    }
+    final started = DateTime.fromMillisecondsSinceEpoch(
+      w.last!.jobStartedAtMs!,
+    );
+    if (w._isolate != null && DateTime.now().difference(started) > limit) {
+      w._timedOut = true;
+      _kill(w, 'timeout', reclaim: false);
+    }
+    return true;
+  }
+
+  /// Idle workers silent for three heartbeats (beyond the next one) are
+  /// killed (reason `lease`) and the job they may have reserved without
+  /// reporting it yet is reclaimed. Workers running a job are left to
+  /// [_checkGrace].
   void _checkLeases() {
     final limit = config.heartbeat * 3;
     final now = DateTime.now();
     for (final pool in _pools.values) {
       for (final w in [...pool]) {
-        if (w._isolate != null &&
-            w.ready &&
-            !w._exited.isCompleted &&
-            now.difference(w.lastSeen) > limit + config.heartbeat) {
+        if (w._isolate == null || !w.ready || w._exited.isCompleted) {
+          continue;
+        }
+        if (_checkGrace(w)) {
+          continue;
+        }
+        if (now.difference(w.lastSeen) > limit + config.heartbeat) {
           _kill(w, 'lease', reclaim: true);
         }
       }
@@ -699,6 +777,12 @@ final class HorizonMaster {
 
   /// Makes the job [w] held available again at once; true when it was
   /// still reserved.
+  ///
+  /// The driver reclaims by id: once `retry_after` (less [_reclaimMargin])
+  /// has passed since the job started, the driver may have given it to
+  /// another worker already, whose reservation a reclaim would release
+  /// (a third worker could then run it beside the second). Then the job is
+  /// left to `retry_after`, and [HorizonWorker._leftToRetryAfter] is set.
   Future<bool> _reclaim(HorizonWorker w) async {
     final job = w.last;
     final queue = job?.queue;
@@ -706,6 +790,21 @@ final class HorizonMaster {
     final target = driver(w.plan.connection);
     if (queue == null || id == null || target is! ReclaimableQueueDriver) {
       return false;
+    }
+    final started = job?.jobStartedAtMs;
+    final retryAfter = _retryAfter(w);
+    if (started != null && retryAfter != null) {
+      final ran = DateTime.now().difference(
+        DateTime.fromMillisecondsSinceEpoch(started),
+      );
+      if (ran >= retryAfter - _reclaimMargin) {
+        w._leftToRetryAfter = true;
+        logger.info(
+          'Job ${job?.jobUuid} of ${w.name} left to retry_after: it may '
+          'have been given to another worker already.',
+        );
+        return false;
+      }
     }
     try {
       final done = await target.reclaim(queue, _key(id));
@@ -748,6 +847,64 @@ final class HorizonMaster {
     if (crashes >= config.quarantineAfter) {
       _jobCrashes.remove(uuid);
       await _quarantine(w.plan, job.queue!, job.jobId!, uuid, crashes);
+    }
+  }
+
+  /// A worker killed for running past its job's timeout ([_checkGrace]).
+  /// The processor never got back control to count the attempt, so the
+  /// master does what a timeout does in `queue:work`:
+  /// - the attempt counts once: attempts go up when a job is reserved, and
+  ///   the reclaim keeps them;
+  /// - the job is made available again at once (no backoff: the driver
+  ///   cannot release a reserved job with a delay from outside its
+  ///   worker), and a job with no tries left fails on its next pop with
+  ///   `MaxAttemptsExceededException` ("may have previously timed out"),
+  ///   with the failure events of the worker that pops it;
+  /// - it is not a crash, and never counts towards `quarantineAfter`.
+  ///
+  /// `JobExceptionOccurred` is not dispatched for the killed attempt (the
+  /// master runs no worker application): the master logs a warning and
+  /// tells [onEvent] `JobTimedOut`.
+  Future<void> _afterTimeout(HorizonWorker w) async {
+    // Never fails: it runs unawaited in the master's zone.
+    try {
+      final job = w.last!;
+      await w._sessionsEnded;
+      final reclaimed = await _reclaim(w);
+      final limit = _jobLimit(w);
+      final fate = reclaimed
+          ? 'made available again'
+          : w._leftToRetryAfter
+          ? 'left to retry_after'
+          : 'was no longer reserved';
+      logger.warning(
+        'Horizon job ${job.jobUuid ?? job.jobId} (${job.jobName}, attempt '
+        '${job.attempt}) ran past its limit of ${limit?.inMilliseconds} ms '
+        'on ${w.name}: the worker was killed, the attempt counted as timed '
+        'out, and the job $fate.',
+      );
+      final data = <String, Object?>{
+        'worker': w.name,
+        'job': job.jobUuid,
+        'name': job.jobName,
+        'attempt': job.attempt,
+        'limitSeconds': limit?.inSeconds,
+        'reclaimed': reclaimed,
+        if (w._leftToRetryAfter) 'leftToRetryAfter': true,
+        'at': DateTime.now().millisecondsSinceEpoch,
+      };
+      _timeouts.add(data);
+      if (_timeouts.length > 20) {
+        _timeouts.removeAt(0);
+      }
+      unawaited(_publishStatus());
+      onEvent?.call('JobTimedOut', data);
+    } on Object catch (error, stackTrace) {
+      logger.error(
+        'Horizon could not record the timeout of ${w.name}\'s job',
+        error: error,
+        stackTrace: stackTrace,
+      );
     }
   }
 
@@ -814,7 +971,7 @@ final class HorizonMaster {
       w._sessionsEnded ??= _endSessions(w);
     }
     if (crashed && w.last?.jobId != null) {
-      unawaited(_afterCrash(w));
+      unawaited(w._timedOut ? _afterTimeout(w) : _afterCrash(w));
     }
     if (w.recycling && !_stopping) {
       unawaited(_spawn(w.plan, w.queues));

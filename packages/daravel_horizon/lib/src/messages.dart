@@ -78,6 +78,9 @@ final class Heartbeat implements WorkerReport {
     this.jobUuid,
     this.queue,
     this.jobStartedAtMs,
+    this.jobTimeoutMs,
+    this.jobName,
+    this.attempt,
     this.sessions = '',
   });
 
@@ -98,6 +101,16 @@ final class Heartbeat implements WorkerReport {
 
   /// When that job started (epoch milliseconds, wall clock).
   final int? jobStartedAtMs;
+
+  /// How long that job may run (milliseconds): the timeout the processor
+  /// enforces (`JobProcessing.timeout`), which the master uses as is.
+  final int? jobTimeoutMs;
+
+  /// That job's name (its display name when it has one).
+  final String? jobName;
+
+  /// That job's attempt, from 1.
+  final int? attempt;
 
   /// The server sessions of its open database connections
   /// ([encodeSessions]), for the master to end them after a kill.

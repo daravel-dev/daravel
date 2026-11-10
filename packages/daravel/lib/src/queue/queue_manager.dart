@@ -419,6 +419,7 @@ final class JobProcessor {
               )
             : null,
         context: payload.context,
+        timeout: timeout ?? payload.timeout,
       ),
     );
     if (_alreadyExceeded(payload, queued.attempts, maxTries)) {

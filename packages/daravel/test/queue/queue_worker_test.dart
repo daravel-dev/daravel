@@ -242,6 +242,8 @@ void main() {
       expect(processing.first.tags, ['label:ok']);
       expect(processing.first.pushedAt, isNotNull);
       expect(processing.first.context?['data'], {'tenant': 'acme'});
+      // The job's own timeout (Job.timeout: 1 minute), as no --timeout.
+      expect(processing.first.timeout, const Duration(minutes: 1));
 
       final processed = events.whereType<JobProcessed>().single;
       expect(processed.uuid, processing.first.uuid);
@@ -260,6 +262,20 @@ void main() {
         failed.failedId!,
       );
       expect(record?.uuid, failed.uuid);
+    });
+  });
+
+  test('JobProcessing.timeout is the one the processor enforces: the '
+      "worker's --timeout over the job's own", () async {
+    await boot('memory');
+    await app!.run(() async {
+      final events = <JobProcessing>[];
+      Event.listen<JobProcessing>(events.add);
+      await Queue.push(const Mark('ok'));
+      await QueueWorker(Queue.manager).run(
+        const WorkerOptions(stopWhenEmpty: true, timeout: Duration(seconds: 7)),
+      );
+      expect(events.single.timeout, const Duration(seconds: 7));
     });
   });
 
