@@ -221,10 +221,12 @@ realtime_slow_clients_total{transport="sse"} 9
 
       expect(await dartisan(['reverb:restart']), 0);
       await Future.wait(closed).timeout(const Duration(seconds: 20));
-      // Both workers came back without counting as crashes.
-      final again = await WebSocket.connect(
+      // Both workers came back without counting as crashes. Both may be
+      // restarting at the same moment, the port briefly not listened on:
+      // connect until one accepts.
+      final again = await _connectOnceUp(
         'ws://127.0.0.1:$port/app/key-a?protocol=7',
-      ).timeout(const Duration(seconds: 20));
+      );
       sockets.add(again);
       expect(
         await again.first.timeout(const Duration(seconds: 5)),
@@ -234,4 +236,21 @@ realtime_slow_clients_total{transport="sse"} 9
     },
     timeout: const Timeout(Duration(minutes: 2)),
   );
+}
+
+/// Connects to [url], again while it is refused (every worker of the
+/// supervisor may be restarting at once, the port briefly not listened
+/// on), for at most 20 seconds.
+Future<WebSocket> _connectOnceUp(String url) async {
+  final deadline = DateTime.now().add(const Duration(seconds: 20));
+  while (true) {
+    try {
+      return await WebSocket.connect(url).timeout(const Duration(seconds: 5));
+    } on SocketException {
+      if (DateTime.now().isAfter(deadline)) {
+        rethrow;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    }
+  }
 }

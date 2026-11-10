@@ -5,6 +5,7 @@ import 'dart:isolate';
 
 import 'package:daravel/daravel.dart';
 
+import 'config.dart';
 import 'messages.dart';
 import 'store/process_store.dart';
 
@@ -122,6 +123,11 @@ Future<void> horizonWorkerMain(HorizonWorkerStart start) async {
     );
     // The recorder: every finished job goes to the Horizon store in the
     // coordinator, without waiting (a store that fails never holds a job).
+    final horizon = booted.config.hasSection<HorizonConfig>()
+        ? booted.config.section<HorizonConfig>()
+        : null;
+    final silencedNames = {...?horizon?.silenced};
+    final silencedTags = {...?horizon?.silencedTags};
     final store = booted.container.make<CoordinatorChannel>();
     final running = <String, (String, List<String>)>{};
     void record(RecordedJob job) => unawaited(
@@ -147,12 +153,18 @@ Future<void> horizonWorkerMain(HorizonWorkerStart start) async {
         clear();
         final (name, tags) =
             running.remove(e.uuid) ?? (e.jobName, const <String>[]);
+        // HORIZON_SILENCED / silencedTags: listed apart, as Horizon's
+        // "silenced" jobs (by class or tag).
+        final silenced =
+            silencedNames.contains(name) ||
+            silencedNames.contains(e.jobName) ||
+            tags.any(silencedTags.contains);
         record(
           RecordedJob(
             uuid: e.uuid ?? '${e.jobId}',
             name: name,
             queue: e.queue,
-            status: 'completed',
+            status: silenced ? 'silenced' : 'completed',
             at: Clock.now().millisecondsSinceEpoch,
             tags: tags,
             durationMs: e.duration.inMilliseconds,

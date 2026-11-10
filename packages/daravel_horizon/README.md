@@ -40,6 +40,18 @@ bounds, moves at most `balanceMaxShift` per evaluation, and scales down only
 after two evaluations in a row in which every queue waited under half its
 target.
 
+## Dashboard API
+
+`withHorizon(createApp: createApp, middleware: ['auth', 'can:viewHorizon'])`
+serves the dashboard's JSON API under `HORIZON_PATH` (`/horizon/api/...`)
+with Laravel Horizon's route names: stats, workload, masters, monitored tags,
+job and queue metrics, pending, completed, silenced and failed jobs, retry and
+retry-all, and `/horizon/api/stream` (server-sent stats and workload every
+second). Outside `APP_ENV=local` and `testing` it answers 403 until the
+middleware protects it. Metric snapshots are taken by the running Horizon:
+`dartisan horizon:snapshot` only asks it to, so schedule it every five
+minutes.
+
 ## License
 
 MIT.

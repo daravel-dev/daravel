@@ -131,5 +131,54 @@ void main() {
       provider.forget();
       expect(await provider.byKey('key-new'), isNull);
     });
+
+    test('a key no application can have costs no query and no entry', () async {
+      var queries = 0;
+      final stop = app.container.make<DatabaseManager>().listen(
+        (_) => queries++,
+      );
+      addTearDown(stop);
+      for (final key in [
+        '',
+        'x' * 129,
+        'key b',
+        'key/b',
+        "key'b",
+        'kéy',
+        '../key',
+      ]) {
+        expect(await provider.byKey(key), isNull, reason: key);
+        expect(await provider.byId(key), isNull, reason: key);
+      }
+      expect(queries, 0);
+      expect(provider.cached, 0);
+      // A valid one is read once, then kept.
+      expect(await provider.byKey('key-b'), isNotNull);
+      expect(await provider.byKey('key-b'), isNotNull);
+      expect(queries, 1);
+    });
+
+    test('at most maxEntries lookups are kept, however many keys clients '
+        'try', () async {
+      freezeTime();
+      for (var i = 0; i < 10000; i++) {
+        await provider.byKey('random-$i');
+      }
+      expect(provider.cached, lessThanOrEqualTo(provider.maxEntries));
+      // The newest stay; the oldest went first.
+      var queries = 0;
+      final stop = app.container.make<DatabaseManager>().listen(
+        (_) => queries++,
+      );
+      addTearDown(stop);
+      await provider.byKey('random-9999');
+      expect(queries, 0);
+      await provider.byKey('random-0');
+      expect(queries, 1);
+      // Past the TTL the expired ones make room before the oldest.
+      travel(const Duration(seconds: 61));
+      await provider.byKey('fresh');
+      expect(provider.cached, 1);
+    });
   });
 }

@@ -4,6 +4,8 @@ import 'package:args/command_runner.dart';
 import 'package:daravel/daravel.dart' show Encrypter, daravelVersion;
 import 'package:path/path.dart' as p;
 
+import 'console/nudges.dart';
+import 'console/runner_console.dart' show consoleOf;
 import 'generator.dart';
 import 'mcp_server.dart';
 import 'project_commands.dart';
@@ -289,6 +291,9 @@ final class NewCommand extends Command<int> {
   dartisan migrate${r['template'] == 'api' ? ' --seed' : ''}
   dartisan serve --watch
 ''');
+    if (Nudges(consoleOf(this)).newProjectLine case final line?) {
+      stdout.writeln(line);
+    }
     return 0;
   }
 }

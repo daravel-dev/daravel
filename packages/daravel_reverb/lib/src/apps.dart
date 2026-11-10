@@ -59,7 +59,11 @@ abstract final class ReverbApps {
 ///
 /// What it reads, and what it does not find, is kept [ttl] in this isolate,
 /// so a connection costs no query; a changed row is seen after [ttl], or at
-/// once after [forget]. Frames are bounded by `REVERB_APP_MAX_MESSAGE_SIZE`
+/// once after [forget]. The key or id comes from an anonymous client (the
+/// path of `/app/{key}`), so at most [maxEntries] lookups are kept (the
+/// expired ones go first, then the oldest), and a value no application
+/// can have (empty, over 128 characters, or outside `[A-Za-z0-9._-]`) is
+/// refused without a query or an entry. Frames are bounded by `REVERB_APP_MAX_MESSAGE_SIZE`
 /// (the table is not read at boot), each app's `max_message_size` below it.
 final class DatabaseAppProvider implements BroadcastAppProvider {
   /// The provider reading [table] on [connection] of [database].
@@ -69,7 +73,14 @@ final class DatabaseAppProvider implements BroadcastAppProvider {
     this.table = 'reverb_apps',
     this.ttl = const Duration(seconds: 60),
     this.settings,
+    this.maxEntries = 1024,
   });
+
+  /// The most lookups kept at once.
+  final int maxEntries;
+
+  /// What an application key or id may be made of.
+  static final RegExp _valid = RegExp(r'^[A-Za-z0-9._-]{1,128}$');
 
   /// The database.
   final DatabaseManager database;
@@ -99,7 +110,13 @@ final class DatabaseAppProvider implements BroadcastAppProvider {
   /// Drops what was kept, so the next lookup reads the table.
   void forget() => _cache.clear();
 
+  /// How many lookups are kept now.
+  int get cached => _cache.length;
+
   FutureOr<BroadcastApp?> _lookup(String column, String value) {
+    if (!_valid.hasMatch(value)) {
+      return null;
+    }
     final cacheKey = '$column:$value';
     final kept = _cache[cacheKey];
     final now = Clock.now();
@@ -107,9 +124,26 @@ final class DatabaseAppProvider implements BroadcastAppProvider {
       return kept.app;
     }
     return _read(column, value).then((app) {
-      _cache[cacheKey] = (app: app, until: now.add(ttl));
+      _keep(cacheKey, (app: app, until: now.add(ttl)), now);
       return app;
     });
+  }
+
+  /// Keeps [entry], making room first: the expired lookups, then the
+  /// oldest (a map keeps insertion order; a key kept again moves last).
+  void _keep(
+    String key,
+    ({BroadcastApp? app, DateTime until}) entry,
+    DateTime now,
+  ) {
+    _cache.remove(key);
+    if (_cache.length >= maxEntries) {
+      _cache.removeWhere((_, kept) => !now.isBefore(kept.until));
+    }
+    while (_cache.length >= maxEntries) {
+      _cache.remove(_cache.keys.first);
+    }
+    _cache[key] = entry;
   }
 
   Future<BroadcastApp?> _read(String column, String value) async {
