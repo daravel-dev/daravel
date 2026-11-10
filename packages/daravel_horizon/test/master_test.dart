@@ -14,8 +14,17 @@ final String marksPath =
 /// Blocks its isolate's event loop (no heartbeat) on its first attempt.
 final class Hang extends Job {
   const Hang(this.label, {this.ms = 0});
-  factory Hang.fromJson(Map<String, Object?> json) =>
-      Hang(json['label']! as String, ms: (json['ms'] as num?)?.toInt() ?? 0);
+  factory Hang.fromJson(Map<String, Object?> json) {
+    final label = json['label']! as String;
+    if (label == 'stuck-pop' && !File(stuckPath).existsSync()) {
+      // Blocks between the pop and the JobProcessing report, once: the
+      // master sees an idle worker that stopped answering.
+      File(stuckPath).writeAsStringSync('');
+      final watch = Stopwatch()..start();
+      while (watch.elapsed < const Duration(seconds: 3)) {}
+    }
+    return Hang(label, ms: (json['ms'] as num?)?.toInt() ?? 0);
+  }
   final String label;
   final int ms;
   @override
@@ -31,6 +40,13 @@ final class Hang extends Job {
       Isolate.current.kill(priority: Isolate.immediate);
       await Completer<void>().future;
     }
+    if (label == 'slow' || label == 'over') {
+      // Synchronous work on every attempt (a PDF, a big JSON), from the
+      // handler's first line: 5 s, or 6 s for one past its timeout.
+      final watch = Stopwatch()..start();
+      final length = Duration(seconds: label == 'slow' ? 5 : 6);
+      while (watch.elapsed < length) {}
+    }
     if (label == 'hang' && ctx.attempt == 1) {
       final watch = Stopwatch()..start();
       while (watch.elapsed < const Duration(seconds: 20)) {}
@@ -43,18 +59,28 @@ final class Hang extends Job {
   }
 }
 
-Application masterApp() => Application.configure(basePath: _basePath())
-    .withEnv({
-      'APP_ENV': 'testing',
-      'DB_CONNECTION': 'sqlite',
-      'DB_DATABASE': dbPath,
-      'QUEUE_CONNECTION': 'database',
-      'CACHE_STORE': 'file',
-    })
-    .withLogLevel(LogLevel.error)
-    .withMigrations(const [CreateJobsTable(), CreateCacheTable()])
-    .withJobs([JobDefinition('hang', Hang.fromJson)])
-    .create();
+final String stuckPath =
+    '${Directory.systemTemp.path}${Platform.pathSeparator}horizon_master_stuck_$pid';
+
+Application masterApp() => _masterApp('90s');
+
+/// Workers whose queue hands a reserved job to another after 3 s.
+Application shortRetryApp() => _masterApp('3s');
+
+Application _masterApp(String retryAfter) =>
+    Application.configure(basePath: _basePath())
+        .withEnv({
+          'APP_ENV': 'testing',
+          'DB_CONNECTION': 'sqlite',
+          'DB_DATABASE': dbPath,
+          'QUEUE_CONNECTION': 'database',
+          'QUEUE_RETRY_AFTER': retryAfter,
+          'CACHE_STORE': 'file',
+        })
+        .withLogLevel(LogLevel.error)
+        .withMigrations(const [CreateJobsTable(), CreateCacheTable()])
+        .withJobs([JobDefinition('hang', Hang.fromJson)])
+        .create();
 
 List<String> marks() =>
     File(marksPath).existsSync() ? File(marksPath).readAsLinesSync() : const [];
@@ -86,7 +112,7 @@ void main() {
   setUp(() async {
     events.clear();
     masterLog.clear();
-    for (final path in [dbPath, marksPath]) {
+    for (final path in [dbPath, marksPath, stuckPath]) {
       if (File(path).existsSync()) {
         File(path).deleteSync();
       }
@@ -106,16 +132,24 @@ void main() {
   );
   tearDown(() => coordinator.close());
 
-  HorizonMaster master(SupervisorPlan plan) => HorizonMaster(
-    masterApp,
+  HorizonMaster master(
+    SupervisorPlan plan, {
+    Duration heartbeat = const Duration(milliseconds: 100),
+    Duration killGrace = const Duration(seconds: 10),
+    ApplicationFactory factory = masterApp,
+    Application? driverApp,
+  }) => HorizonMaster(
+    factory,
     HorizonConfig(
       plans: [plan],
-      heartbeat: const Duration(milliseconds: 100),
+      heartbeat: heartbeat,
+      killGrace: killGrace,
       // A short target wait, so a backlog of 20 ms jobs needs workers.
       waits: const {'database:a': Duration(seconds: 1)},
     ),
-    driver: (connection) =>
-        app.container.make<QueueManager>().connection(connection),
+    driver: (connection) => (driverApp ?? app).container
+        .make<QueueManager>()
+        .connection(connection),
     logger: Logger(
       minimumLevel: LogLevel.warning,
       out: masterLog,
@@ -245,20 +279,75 @@ void main() {
     },
   );
 
+  List<Map<String, Object?>> eventsNamed(String name) => [
+    for (final (event, data) in events)
+      if (event == name) data,
+  ];
+
+  SupervisorPlan plan({Duration? timeout, int? tries}) => SupervisorPlan(
+    name: const SupervisorName('s'),
+    queues: const [QueueName('a')],
+    balance: BalanceStrategy.off,
+    maxProcesses: 1,
+    timeout: timeout,
+    tries: tries,
+    sleep: const Duration(milliseconds: 50),
+  );
+
   test(
-    'a worker that stops answering is killed and its job reclaimed at '
-    'once',
+    'a job blocking its isolate (5 s, heartbeat 1 s, timeout 60 s) finishes '
+    'once: no kill, no rerun; the master knew it started, and shows the '
+    'worker busy, not lost',
+    timeout: const Timeout(Duration(minutes: 2)),
+    () async {
+      await app.run(() => Queue.push(const Hang('slow'), queue: 'a'));
+      final m = master(
+        plan(timeout: const Duration(seconds: 60)),
+        heartbeat: const Duration(seconds: 1),
+      );
+      addTearDown(() => m.stop(timeout: const Duration(seconds: 20)));
+      await m.start();
+      Map<String, Object?>? worker() {
+        final workers =
+            (m.status()['supervisors']! as Map<String, Object?>)['s']
+                as List<Object?>?;
+        return workers == null || workers.isEmpty
+            ? null
+            : workers.first! as Map<String, Object?>;
+      }
+
+      // The job blocks from the first line of handle: the report made when
+      // it started (JobProcessing, before the middleware and handle) is
+      // all the master hears, and enough.
+      await until(
+        () => worker()?['silentMs'] != null,
+        'the busy worker shown as not reporting',
+        diagnose: () => diagnosis(m, 's', {'status': m.status()}),
+      );
+      expect(worker()!['busy'], isTrue);
+      expect(m.workers('s').single.last?.jobStartedAtMs, isNotNull);
+      await until(() => marks().contains('a:slow:1'), 'the job done');
+      // Time for a wrong kill or a rerun to show.
+      await Future<void>.delayed(const Duration(seconds: 3));
+      await m.stop(timeout: const Duration(seconds: 20));
+      expect(eventsNamed('WorkerKilled'), isEmpty);
+      expect(marks(), ['a:slow:1']);
+      expect(
+        await app.run(() async => (await DB.table('failed_jobs').get()).length),
+        0,
+      );
+    },
+  );
+
+  test(
+    'a job blocking past its timeout is killed after timeout + killGrace '
+    '(reason timeout), reclaimed at once and tried again; not a crash',
     timeout: const Timeout(Duration(minutes: 2)),
     () async {
       await app.run(() => Queue.push(const Hang('hang'), queue: 'a'));
       final m = master(
-        const SupervisorPlan(
-          name: SupervisorName('s'),
-          queues: [QueueName('a')],
-          balance: BalanceStrategy.off,
-          maxProcesses: 1,
-          sleep: Duration(milliseconds: 50),
-        ),
+        plan(timeout: const Duration(seconds: 2)),
+        killGrace: const Duration(seconds: 1),
       );
       final watch = Stopwatch()..start();
       addTearDown(() => m.stop(timeout: const Duration(seconds: 20)));
@@ -266,15 +355,114 @@ void main() {
       await until(
         () => marks().contains('a:hang:2'),
         'attempt 2 on a new worker',
+        diagnose: () => diagnosis(m, 's', const {}),
       );
       // retry_after is 90 s: only the reclaim brings it back this soon.
       expect(watch.elapsed, lessThan(const Duration(seconds: 30)));
-      final killed = [
-        for (final (event, data) in events)
-          if (event == 'WorkerKilled') data,
-      ];
-      expect(killed.single['reason'], 'lease');
+      expect(watch.elapsed, greaterThan(const Duration(seconds: 3)));
+      final killed = eventsNamed('WorkerKilled');
+      expect(killed.single['reason'], 'timeout');
       expect(killed.single['job'], isNotNull);
+      final timedOut = eventsNamed('JobTimedOut').single;
+      expect(timedOut['attempt'], 1);
+      expect(timedOut['limitSeconds'], 3);
+      expect(timedOut['reclaimed'], isTrue);
+      expect(eventsNamed('JobQuarantined'), isEmpty);
+      expect(m.status()['timedOut'], hasLength(1));
+      await m.stop(timeout: const Duration(seconds: 20));
+    },
+  );
+
+  test(
+    'tries 2: each attempt past its timeout is killed and counted once, then '
+    'the job fails as after a timeout (failed_jobs, not quarantined)',
+    timeout: const Timeout(Duration(minutes: 2)),
+    () async {
+      await app.run(() => Queue.push(const Hang('over'), queue: 'a'));
+      final m = master(
+        plan(timeout: const Duration(seconds: 2), tries: 2),
+        killGrace: const Duration(seconds: 1),
+      );
+      addTearDown(() => m.stop(timeout: const Duration(seconds: 20)));
+      await m.start();
+      // The table is read between polls (`until` takes a getter).
+      var rows = const <Map<String, Object?>>[];
+      final deadline = DateTime.now().add(const Duration(seconds: 60));
+      while (rows.isEmpty && DateTime.now().isBefore(deadline)) {
+        rows = await app.run(() => DB.table('failed_jobs').get());
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+      }
+      await m.stop(timeout: const Duration(seconds: 20));
+      expect(rows, hasLength(1), reason: await diagnosis(m, 's', const {}));
+      expect(
+        '${rows.single['exception']}',
+        contains('attempted too many times'),
+      );
+      final killed = eventsNamed('WorkerKilled');
+      expect(killed.map((k) => k['reason']), ['timeout', 'timeout']);
+      expect(eventsNamed('JobTimedOut').map((t) => t['attempt']), [
+        1,
+        2,
+      ], reason: 'each attempt counted once');
+      expect(eventsNamed('JobQuarantined'), isEmpty);
+      expect(marks(), isEmpty, reason: 'no attempt finished');
+      expect(await app.run(() => Queue.size('a')), 0);
+    },
+  );
+
+  test(
+    'an idle worker that stops answering (blocked between the pop and its '
+    'report) is killed for its lease; the job it took comes back after '
+    'retry_after',
+    timeout: const Timeout(Duration(minutes: 2)),
+    () async {
+      await app.run(() => Queue.push(const Hang('stuck-pop'), queue: 'a'));
+      final m = master(plan(), factory: shortRetryApp);
+      addTearDown(() => m.stop(timeout: const Duration(seconds: 20)));
+      await m.start();
+      await until(
+        () => marks().contains('a:stuck-pop:2'),
+        'the job done after retry_after, on its second attempt',
+        diagnose: () => diagnosis(m, 's', const {}),
+      );
+      final killed = eventsNamed('WorkerKilled');
+      expect(killed.single['reason'], 'lease');
+      expect(
+        killed.single['job'],
+        isNull,
+        reason: 'the master had not heard of the job',
+      );
+      expect(eventsNamed('JobTimedOut'), isEmpty);
+      await m.stop(timeout: const Duration(seconds: 20));
+    },
+  );
+
+  test(
+    'retry_after caps the limit: past it another worker may take the job, so '
+    'the blocked one is killed then (reason timeout)',
+    timeout: const Timeout(Duration(minutes: 2)),
+    () async {
+      // The master reads retry_after (3 s) from the connection it watches.
+      final short = shortRetryApp();
+      await short.boot();
+      addTearDown(short.shutdown);
+      await app.run(() => Queue.push(const Hang('over'), queue: 'a'));
+      final m = master(
+        plan(timeout: const Duration(seconds: 60)),
+        driverApp: short,
+      );
+      final watch = Stopwatch()..start();
+      addTearDown(() => m.stop(timeout: const Duration(seconds: 20)));
+      await m.start();
+      await until(
+        () => eventsNamed('JobTimedOut').isNotEmpty,
+        'the kill at retry_after',
+        diagnose: () => diagnosis(m, 's', const {}),
+      );
+      // The job blocks 6 s; the kill came at 3 s, not at 60 s + killGrace.
+      expect(watch.elapsed, lessThan(const Duration(seconds: 6)));
+      expect(eventsNamed('WorkerKilled').first['reason'], 'timeout');
+      expect(eventsNamed('JobTimedOut').first['limitSeconds'], 3);
       await m.stop(timeout: const Duration(seconds: 20));
     },
   );

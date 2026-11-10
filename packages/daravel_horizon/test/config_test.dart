@@ -83,6 +83,28 @@ void main() {
     ]);
   });
 
+  test('check: a plan timeout plus killGrace past QUEUE_RETRY_AFTER is a '
+      'warning (a blocked worker is killed at retry_after)', () async {
+    final found = await issues(
+      const HorizonConfig(
+        plans: [
+          SupervisorPlan(
+            name: SupervisorName('long'),
+            timeout: Duration(seconds: 85),
+          ),
+          SupervisorPlan(
+            name: SupervisorName('short'),
+            timeout: Duration(seconds: 70),
+          ),
+        ],
+      ),
+    );
+    // retry_after 90 s by default; killGrace 10 s.
+    expect(found.single.level, ConfigIssueLevel.warning);
+    expect(found.single.message, contains('[long]'));
+    expect(found.single.message, contains('QUEUE_RETRY_AFTER (90s)'));
+  });
+
   test('HORIZON_IDLE_TX_TIMEOUT: by default the longest plan timeout plus '
       'killGrace and three heartbeats; 0 turns it off', () {
     HorizonConfig of(Map<String, String> env, {List<SupervisorPlan>? plans}) =>

@@ -24,7 +24,8 @@ final class Tick extends Job {
   @override
   Future<void> handle(JobContext ctx) async {
     if (label == 'hang' && ctx.attempt == 1) {
-      // Blocks the worker's event loop: no heartbeat, the lease runs out.
+      // Blocks the worker's event loop past its timeout (2 s): the master
+      // kills the worker.
       final watch = Stopwatch()..start();
       while (watch.elapsed < const Duration(seconds: 20)) {}
     }
@@ -41,6 +42,7 @@ Application cmdApp() => Application.configure(basePath: _basePath())
       'CACHE_STORE': 'file',
       'QUEUE_SIGNAL_STORE': 'database',
       'HORIZON_HEARTBEAT_MS': '100',
+      'HORIZON_KILL_GRACE': '1',
     })
     .withLogLevel(LogLevel.error)
     .withMigrations(const [CreateJobsTable(), CreateCacheTable()])
@@ -53,6 +55,7 @@ Application cmdApp() => Application.configure(basePath: _basePath())
           queues: [QueueName('a')],
           balance: BalanceStrategy.off,
           maxProcesses: 1,
+          timeout: Duration(seconds: 2),
           sleep: Duration(milliseconds: 50),
         ),
       ],
@@ -95,6 +98,41 @@ void main() {
   });
 
   tearDown(() => app.shutdown());
+
+  test('horizon:list marks a busy worker that does not report as running a '
+      'job that blocks it, and lists the jobs killed past their timeout', () {
+    final lines = horizonWorkerLines({
+      'state': 'running',
+      'supervisors': {
+        's': [
+          {'name': 'horizon-s-1', 'queues': 'a', 'processed': 3, 'busy': true},
+          {
+            'name': 'horizon-s-2',
+            'queues': 'a',
+            'processed': 0,
+            'busy': true,
+            'silentMs': 7400,
+          },
+        ],
+      },
+      'timedOut': [
+        {
+          'name': 'Report',
+          'job': 'u-1',
+          'attempt': 2,
+          'limitSeconds': 70,
+          'worker': 'horizon-s-3',
+        },
+      ],
+    });
+    expect(lines, [
+      'horizon-s-1  s  [a]  3 processed, busy',
+      'horizon-s-2  s  [a]  0 processed, busy (not reporting for 7s: a job '
+          'blocking its isolate)',
+      'Killed past their timeout (latest last):',
+      '  Report u-1 attempt 2, limit 70s, on horizon-s-3',
+    ]);
+  });
 
   test(
     'horizon runs the workers until horizon:terminate; status, list and '

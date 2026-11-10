@@ -287,10 +287,17 @@ final class HorizonConfig implements ConfigSection {
   final int memoryLimit;
 
   /// A job running this long past its timeout has its isolate killed
-  /// (`HORIZON_KILL_GRACE`, seconds).
+  /// (`HORIZON_KILL_GRACE`, seconds): its timeout is the one the processor
+  /// enforces (the plan's `timeout`, otherwise the job's own), and the kill
+  /// comes at `QUEUE_RETRY_AFTER` at the latest, after which another
+  /// worker may take the job.
   final Duration killGrace;
 
   /// How often workers report to the supervisor (`HORIZON_HEARTBEAT_MS`).
+  /// An idle worker silent for three heartbeats beyond the next is killed
+  /// (its lease); one running a job is judged by the job's timeout
+  /// instead (see [killGrace]), since a job doing synchronous work blocks
+  /// its isolate and its heartbeats.
   final Duration heartbeat;
 
   /// The smoothing of arrival rates and service times
@@ -447,6 +454,22 @@ final class HorizonConfig implements ConfigSection {
       }
       for (final queue in plan.queues) {
         worked.add('${plan.connection ?? defaultConnection}:${queue.value}');
+      }
+      final retryAfter = config.section<QueueConfig>().retryAfter;
+      if (plan.timeout case final timeout?
+          when timeout + horizon.killGrace > retryAfter) {
+        issues.add(
+          ConfigIssue(
+            ConfigIssueLevel.warning,
+            'Horizon supervisor [${plan.name.value}]: timeout '
+            '(${timeout.inSeconds}s) plus killGrace '
+            '(${horizon.killGrace.inSeconds}s) exceeds QUEUE_RETRY_AFTER '
+            '(${retryAfter.inSeconds}s): a worker whose job blocks its '
+            'isolate is killed at retry_after, before its timeout, since '
+            'another worker may take the job from then on. Set '
+            'QUEUE_RETRY_AFTER above both.',
+          ),
+        );
       }
     }
     for (final queue in horizon.waits.keys) {

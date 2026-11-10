@@ -15,6 +15,7 @@ final class JobProcessing {
     this.tags = const <String>[],
     this.pushedAt,
     this.context,
+    this.timeout,
   });
 
   /// The queue connection.
@@ -46,6 +47,12 @@ final class JobProcessing {
 
   /// The dispatching scope's `Context`, as the payload carries it.
   final Map<String, Object?>? context;
+
+  /// How long the handler may run: the worker's `--timeout` when it was
+  /// given one, otherwise the job's own (`Job.timeout`). Past it the
+  /// attempt is abandoned; a supervisor (Horizon) kills a worker whose
+  /// handler blocks beyond it. Null when not known.
+  final Duration? timeout;
 }
 
 /// A job finished without error.
