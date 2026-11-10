@@ -186,6 +186,26 @@ void scalingTests({
     await onB.close();
   });
 
+  test('the relay started by the first connection keeps relaying after that '
+      'connection (its request) has ended', () async {
+    // Starts server a's relay, in the zone of this connection's request.
+    final first = await connect(0);
+    await first.close();
+    // The request is over; the relay must still read the other servers.
+    await Future<void>.delayed(const Duration(seconds: 2));
+    final later = await connect(0);
+    await later.subscribe('news');
+    final (status, body) = await api(1, 'POST', '/apps/$appId/events', {
+      'name': 'published',
+      'data': '{"title":"late"}',
+      'channels': ['news'],
+    });
+    expect(status, 200, reason: body);
+    final received = await later.next().timeout(const Duration(seconds: 5));
+    expect(received['event'], 'published');
+    await later.close();
+  });
+
   test('presence members, member_added and member_removed across servers, '
       'and the channels API of either server', () async {
     final teo = await connect(0);
