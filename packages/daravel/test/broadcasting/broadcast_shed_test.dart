@@ -57,6 +57,21 @@ final class CreateNotesTable extends Migration {
   Future<void> down(SchemaBuilder schema) => schema.drop('notes');
 }
 
+/// A job that broadcasts.
+final class Announce extends Job {
+  const Announce();
+
+  @override
+  String get jobName => 'announce';
+
+  @override
+  Map<String, Object?> toJson() => const {};
+
+  @override
+  Future<void> handle(JobContext ctx) =>
+      Broadcast.send('news', ['news'], {'n': 4});
+}
+
 void main() {
   late Application app;
   late TestClient client;
@@ -84,12 +99,18 @@ void main() {
             })
             .withLogLevel(LogLevel.critical)
             .withMigrations(const [CreateNotesTable()])
+            .withJobs([JobDefinition('announce', (_) => const Announce())])
             .withBroadcasting()
             .withEvents((events) => events.listen<BroadcastShed>(shed.add))
             .withRouting(
               api: (r) => r
                 ..post('/send', (request) async {
                   await Broadcast.send('news', ['news'], {'n': 1});
+                  return Response.noContent();
+                })
+                ..post('/announce', (request) async {
+                  // QUEUE_CONNECTION=sync (the default): run inline here.
+                  await Queue.push(const Announce());
                   return Response.noContent();
                 })
                 ..post('/commit', (request) async {
@@ -148,16 +169,28 @@ void main() {
     expect(shed, hasLength(1));
   });
 
-  test('inside a job it is rethrown, so the job is retried', () async {
+  test('in a job a worker runs it is raised, so the job is retried', () async {
     channel.failure = const CoordinatorOverloaded('broadcast');
-    await expectLater(
-      app.container.runScoped(
-        'job',
-        (_) => Broadcast.send('news', ['news'], {'n': 3}),
-      ),
-      throwsA(isA<CoordinatorOverloaded>()),
-    );
+    final outcome = await app.run(() async {
+      final queues = App.make<QueueManager>();
+      final memory = queues.connection('memory');
+      await queues.push(
+        const Announce(),
+        connection: 'memory',
+        queue: 'default',
+      );
+      final popped = (await memory.pop('default'))!;
+      return queues.processor.process(memory, popped, tries: 3);
+    });
+    expect(outcome, JobOutcome.released, reason: 'failed, to be retried');
     expect(shed, isEmpty);
+  });
+
+  test('a sync job runs inline in the request and cannot be retried: '
+      'dropped and told, as in the request', () async {
+    channel.failure = const CoordinatorOverloaded('broadcast');
+    expect((await client.post('/api/announce')).status, 204);
+    expect(shed, hasLength(1));
   });
 
   test('any other error still fails the request', () async {

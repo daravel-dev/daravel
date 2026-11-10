@@ -4,7 +4,7 @@ import 'dart:convert';
 import '../auth/auth_manager.dart';
 import '../auth/contracts.dart';
 import '../database/database_manager.dart';
-import '../foundation/container.dart';
+import '../foundation/retryable_job.dart';
 import '../http/client.dart';
 import '../http/http_exceptions.dart';
 import '../http/request.dart';
@@ -252,10 +252,11 @@ final class BroadcastManager {
   /// the request that sent it, and is not lost in silence either: it is
   /// logged (a `warning` at most once a second, with the count),
   /// counted (`broadcast_shed_total`) and told ([onShed], the application's
-  /// [BroadcastShed] event), and the request goes on. Inside a job it is
-  /// rethrown instead, so the job is retried by its `tries` and `backoff`:
-  /// an application that must not lose an event sends it from a queued
-  /// job. Any other error (a bad channel, a programming error) is
+  /// [BroadcastShed] event), and the request goes on. Inside a job whose
+  /// failure is retried it is rethrown instead, so the job is retried by
+  /// its `tries` and `backoff`: an application that must not lose an event
+  /// sends it from a queued job. A `sync` job runs inline in its caller and
+  /// cannot be retried, so there it is dropped and told as in a request. Any other error (a bad channel, a programming error) is
   /// rethrown everywhere. The other connections (`reverb`, `pusher`,
   /// `log`, `null`) are unchanged.
   void _shedOrRethrow(
@@ -268,7 +269,7 @@ final class BroadcastManager {
       CoordinatorOverloaded() => 'overloaded',
       _ => null,
     };
-    if (reason == null || Container.current.currentScope?.name == 'job') {
+    if (reason == null || inRetryableJob) {
       throw error;
     }
     _shedSinceWarning++;
