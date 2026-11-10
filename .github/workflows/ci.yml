@@ -58,6 +58,13 @@ jobs:
       - name: Every package has an example and a publish job after its dependencies
         run: dart run tool/publish_checks.dart
 
+      # Blueprint #136: every package has a sample app (or a planned one) and
+      # apps/README.md is the generated matrix.
+      - name: Sample applications
+        run: |
+          dart run tool/sample_apps_selftest.dart
+          dart run tool/sample_apps_check.dart
+
       # `## Unreleased` stays on main; a new export needs an upgrade note.
       # On a pull request, HEAD is GitHub's merge commit and HEAD^1 the base;
       # in a merge queue, HEAD is the group's commit and HEAD^1 its base.

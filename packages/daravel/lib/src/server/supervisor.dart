@@ -36,6 +36,9 @@ Coordinator createStandardCoordinator({
   void Function(String message)? onWarning,
 }) {
   final coordinator = Coordinator();
+  // Registered before the channel membership, so a crashed worker's ports
+  // are gone when its members are announced as removed.
+  final broadcast = BroadcastService();
   var warned = false;
   return coordinator
     ..register(RateLimitService())
@@ -62,8 +65,8 @@ Coordinator createStandardCoordinator({
       ),
     )
     ..register(MetricsService(coordinatorStats: coordinator.stats))
-    ..register(BroadcastService())
-    ..register(ChannelMembershipService())
+    ..register(broadcast)
+    ..register(ChannelMembershipService(broadcast: broadcast))
     ..register(WorkerReportService());
 }
 

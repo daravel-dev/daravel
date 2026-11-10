@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import '../foundation/clock.dart';
+import 'broadcast.dart';
 import 'coordinator.dart';
 
 /// Who is subscribed to which channel, across every worker isolate: the
@@ -9,6 +12,15 @@ import 'coordinator.dart';
 /// as Laravel Reverb counts them.
 final class ChannelMembershipService
     implements CoordinatorService, WorkerAwareService {
+  /// The membership of every channel; with [broadcast], the members a
+  /// crashed worker held are announced as removed ([forgetWorker]).
+  ChannelMembershipService({this.broadcast});
+
+  /// Where [forgetWorker] publishes `pusher_internal:member_removed` for
+  /// the users whose every connection was on the worker that is gone (the
+  /// coordinator's `broadcast` service). Without it they vanish silently.
+  final BroadcastService? broadcast;
+
   /// channel → socket id → (user id, user info, worker); the user is null
   /// on channels that are not presence channels, the worker is the isolate
   /// that holds the socket (`join`'s `worker`), so a crashed worker's
@@ -23,6 +35,10 @@ final class ChannelMembershipService
   /// socket id → channels it is on: `connections` without walking every
   /// channel.
   final Map<String, int> _sockets = {};
+
+  /// Connections counted by `open` (only with a connection quota): socket
+  /// id → the worker holding it.
+  final Map<String, String?> _open = {};
 
   /// The last frame of each cache channel (`cache-…`, `private-cache-…`,
   /// `presence-cache-…`) and when it was sent: new subscribers get it.
@@ -69,6 +85,17 @@ final class ChannelMembershipService
         return _users(args['channel']! as String).keys.toList();
       case 'connections':
         return _sockets.length;
+      case 'open':
+        // A connection counted against the quota (`REVERB_APP_MAX_CONNECTIONS`).
+        final max = (args['max'] as num?)?.toInt() ?? 0;
+        if (max > 0 && _open.length >= max) {
+          return false;
+        }
+        _open[args['socket']! as String] = args['worker'] as String?;
+        return true;
+      case 'close':
+        _open.remove(args['socket']! as String);
+        return null;
       case 'cache_set':
         final channel = args['channel']! as String;
         final now = Clock.now();
@@ -190,12 +217,16 @@ final class ChannelMembershipService
       userId: info,
   };
 
-  /// Drops every socket [worker] held. The members it made vanish from
-  /// `users` and `channel`; their `member_removed` is not sent (the worker
-  /// that would have sent it is gone), so clients learn at the next member
+  /// Drops every socket [worker] held. A user whose last connection to a
+  /// presence channel was among them leaves its members, and the channel's
+  /// other subscribers get `pusher_internal:member_removed` through
+  /// [broadcast], as if the worker had closed the connections itself (it
+  /// is gone and cannot). Without [broadcast] they learn at the next member
   /// event or by reading the member list again.
   @override
   void forgetWorker(String worker) {
+    _open.removeWhere((_, holder) => holder == worker);
+    final removed = <(String, String)>[];
     for (final channel in _channels.keys.toList()) {
       final sockets = _channels[channel]!;
       for (final socket in sockets.keys.toList()) {
@@ -203,12 +234,29 @@ final class ChannelMembershipService
         if (entry.$3 == worker) {
           sockets.remove(socket);
           _forgetSocket(socket);
-          _release(channel, entry.$1);
+          final userId = entry.$1;
+          if (_release(channel, userId) && userId != null) {
+            removed.add((channel, userId));
+          }
         }
       }
       if (sockets.isEmpty) {
         _channels.remove(channel);
       }
+    }
+    final broadcast = this.broadcast;
+    if (broadcast == null) {
+      return;
+    }
+    for (final (channel, userId) in removed) {
+      // `<except>\n<frame>` with no socket excepted, the frame the Pusher
+      // server sends when a connection leaves.
+      final frame = jsonEncode({
+        'event': 'pusher_internal:member_removed',
+        'data': jsonEncode({'user_id': userId}),
+        'channel': channel,
+      });
+      broadcast.handle('publish', {'channel': channel, 'message': '\n$frame'});
     }
   }
 
@@ -225,5 +273,6 @@ final class ChannelMembershipService
   Map<String, Object?> stats() => <String, Object?>{
     'channels': _channels.length,
     'connections': _sockets.length,
+    if (_open.isNotEmpty) 'open': _open.length,
   };
 }

@@ -1,0 +1,125 @@
+Usage:
+  dartisan <command> [arguments]
+
+Global options:
+  -h, --help        Print this usage information.
+  -V, --version     Display this application version.
+      --no-color    Plain output (also NO_COLOR, DARTISAN_NO_COLOR=1).
+      --ansi        Force colors, for a pager such as less -R.
+
+Available commands:
+  about                 Display basic information about your application.
+  adopt                 Share the database and keys of an existing Laravel application.
+  build                 Build the application as a native bundle.
+  doctor                Diagnose the environment and configuration.
+  down                  Put the application into maintenance mode.
+  lint                  Check the project with the Daravel lint rules and registries.
+  list                  List the commands.
+  migrate               Run the pending database migrations.
+  self-update           Update the global dartisan.
+  serve                 Serve the application over HTTP.
+  test                  Run the test suite (dart test).
+  tinker                Evaluate a Dart expression in the booted application.
+  up                    Bring the application out of maintenance mode.
+  upgrade               Upgrade the project to the latest Daravel release (all packages).
+ cache
+  cache:clear           Flush the application cache.
+  cache:prune-expired   Delete the expired entries and locks of a cache store.
+ client
+  client:flutter        Generate a typed Dart/Flutter API client from the routes.
+ coordinator
+  coordinator:stats     Show the coordinator queue, round trips and advice.
+ daragic
+  daragic:export        Export the application model (DAM) for daragic (routes, models, ...).
+ db
+  db:backup             Back up the SQLite database while it is in use.
+  db:install            Add a database driver package (sqlite, pgsql, postgres, postgresql, mysql, mariadb).
+  db:replicas           List the generations of the SQLite replica.
+  db:replicate          Stream the SQLite database to a disk (S3, R2, ...) as it changes.
+  db:restore            Restore the SQLite database from its replica.
+  db:seed               Seed the database with records.
+  db:show               List the tables of the database.
+  db:table              Show the columns (and rows) of a table.
+  db:transfer           Copy the data to another database (the target is migrated first).
+ e2e
+  e2e:install           Add a Playwright end-to-end suite in tests/e2e (needs Node.js).
+ env
+  env:decrypt           Decrypt an encrypted environment file.
+  env:encrypt           Encrypt an environment file.
+  env:obfuscate         Generate a Dart class with XOR-masked environment values.
+ key
+  key:generate          Set the application key.
+ make
+  make:command          Create a new dartisan command (and register it).
+  make:controller       Create a new controller class.
+  make:e2e              Create a Playwright spec in tests/e2e/specs.
+  make:event            Create a new event class.
+  make:factory          Create a new model factory.
+  make:job              Create a new job class (and register it).
+  make:listener         Create a new listener (registered with --event).
+  make:mail             Create a new mailable class.
+  make:middleware       Create a new middleware class.
+  make:migration        Create a new migration file (and register it).
+  make:model            Create a new model class.
+  make:notification     Create a new notification class.
+  make:observer         Create a new model observer.
+  make:policy           Create a new policy class (registered with --model).
+  make:provider         Create a new service provider.
+  make:query-filter     Create a daravel_teorion query filter (registered in bootstrap/query_filters.dart).
+  make:request          Create a new form request class.
+  make:resource         Create a new API resource.
+  make:rule             Create a new validation rule.
+  make:seeder           Create a new seeder class (and register it).
+  make:test             Create a new test.
+ mcp
+  mcp:install           Register mcp:serve in .mcp.json and write agent guidelines.
+  mcp:serve             Serve project context to AI agents over MCP (stdio).
+ migrate
+  migrate:fresh         Drop all tables and re-run all migrations.
+  migrate:reset         Rollback all database migrations.
+  migrate:rollback      Rollback the last database migration batch.
+  migrate:status        Show the status of each migration.
+ model
+  model:show            Show information about a model.
+  model:sync            Sync model accessors with the database schema.
+ openapi
+  openapi:generate      Generate an OpenAPI 3.1 document from the routes.
+ pub
+  pub:add               Add a Daravel package and wire it into the project.
+  pub:list              List Daravel's first-party packages.
+  pub:search            Search Daravel's packages (and pub.dev with --online).
+ queue
+  queue:clear           Delete all of the jobs from the specified queue.
+  queue:continue        Resume job processing for a paused queue.
+  queue:failed          List all of the failed queue jobs.
+  queue:flush           Flush all of the failed queue jobs.
+  queue:forget          Delete a failed queue job.
+  queue:pause           Pause job processing for a queue.
+  queue:restart         Restart queue worker daemons after their current job.
+  queue:retry           Retry a failed queue job (or `all`).
+  queue:work            Start processing jobs on the queue.
+ redis
+  redis:install         Add Redis or Valkey (daravel_redis) for several servers.
+ route
+  route:diff            Compare the Laravel application's routes with this one's.
+  route:list            List all registered routes.
+ schedule
+  schedule:clear-cache  Delete the cached mutex files created by scheduler (the overlap locks of withoutOverlapping tasks).
+  schedule:list         List all scheduled tasks.
+  schedule:run          Run the scheduled commands that are due.
+  schedule:work         Start the schedule worker (runs every minute).
+ security
+  security:audit        Audit a running server for common deployment security mistakes.
+ static
+  static:hash           Write the versions of the static files for a faster production boot.
+ storage
+  storage:link          Create the symbolic links configured for the application.
+ stub
+  stub:publish          Publish all stubs that are available for customization.
+ test
+  test:e2e              Run the Playwright end-to-end suite.
+  test:stress           Load a running application in rounds and check its latency and errors.
+ project
+  reports:send          Send the weekly reports.
+
+Run "dartisan help <command>" for more information about a command.

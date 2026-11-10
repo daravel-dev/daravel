@@ -104,6 +104,10 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `Echo.encryptedPrivate('orders.7') with encryption_master_key_base64` | `REVERB_ENCRYPTION_MASTER_KEY_BASE64` | private-encrypted- channels, sealed with libsodium's secretbox. |
 | `REVERB_SCALING_ENABLED=true (Reverb with Redis)` | `REVERB_SCALING_ENABLED=true (the database)` | Frames, presence members (here included) and cache channels span every server; PostgreSQL NOTIFY, MySQL polling. |
 | `(Reverb's internal pub/sub)` | `await Broadcast.publish('orders.7', data)` | **async**; Daravel's own channels between isolates, for custom WebSocket and SSE routes. |
+| `new PrivateChannel('orders.7') / PresenceChannel / EncryptedPrivateChannel` | `Channels.private('orders.7') / Channels.presence / Channels.encrypted` |  |
+| `'max_connections' => env('REVERB_APP_MAX_CONNECTIONS')` | `REVERB_APP_MAX_CONNECTIONS` | 4004 Application is over connection quota, counted over every worker isolate of the server. |
+| `'rate_limiting' => [...] (REVERB_APP_RATE_LIMITING_ENABLED, REVERB_APP_RATE_LIMIT_*)` | `the same variables` | Every message counts, pusher:ping included; 4301 Rate limit exceeded. |
+| `ShouldDispatchAfterCommit on a broadcast event` | `BROADCAST_AFTER_COMMIT=true (default)` | Every broadcast inside a transaction waits for the commit and is dropped on rollback. |
 
 ## Scout (daravel_scout)
 
@@ -228,6 +232,9 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `Post::findFiltered($request, $id)` | `await Post.definition.query().findFiltered(request, id)` | **async** |
 | `class PostQueryFilter extends QueryFilter` | `final class PostQueryFilter extends QueryFilter<Post>` |  |
 | `Filter::multiLike(['title'])->alias('q')` | `Filter.multiLike(['title']).alias('q')` | default() is withDefault(); enum/in/null are enum_/in_/null_. |
+| `Filter::scope('published')` | `Filter.scope('published')` | The scope is given the request, as ScopeFilter calls $query->$method($request). |
+| `(none)` | `Filter.scopeValue('search').alias('q')` | Daravel-only: the scope is given the value, after alias and withDefault (scopeSearch($query, $term)). |
+| `(none)` | `String? get sortScope => 'sortBy';` | Daravel-only: every allowed sort without a customSorts entry calls the scope with [column, direction]; laravel-teorion routes sorts to sortBy<Column> methods (customSorts). |
 | `FilterMacroRegistry::register('phone', fn ...)` | `FilterMacroRegistry.register('phone', (q, value, param, request) {...})` |  |
 | `php artisan make:query-filter PostQueryFilter` | `dartisan make:query-filter Post` | Registered in bootstrap/query_filters.dart (no reflection). |
 
@@ -333,6 +340,9 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `DB::listen(...) for transactions` | `DB.listenTransactions((e) {...})` | with poolWait |
 | `DB::listen(fn (QueryExecuted $q) => ...)` | `DB.listen((QueryExecuted q) {...})` |  |
 | `DB::whenQueryingForLongerThan(500, fn)` | `DB.whenQueryingForLongerThan(const Duration(milliseconds: 500), (q) {...})` | Total per request, job or command; once. |
+| `(none)` | `DB_IDLE_TRANSACTION_TIMEOUT=15` | Daravel-only: the server ends a session idle inside a transaction this long (PostgreSQL, MariaDB; MySQL has no such setting). |
+| `(none)` | `DB.manager.openSessions(); (driver as SessionTerminatingDriver).terminateSession(id)` | **async**; Daravel-only: ends the server session of a connection left inside a transaction (pg_terminate_backend, KILL CONNECTION), for supervisors that kill isolates. |
+| `(none)` | `app.overrideEnv({...}) before app.boot()` | Daravel-only: environment overrides for a host given a built Application (a worker isolate, a test harness); they win over withEnv. |
 | `DB::enableQueryLog(); ... count(DB::getQueryLog())` | `final (result, count, queries) = await DB.withQueryCount(() => ...)` |  |
 | `->whereToday('starts_at') / wherePast / whereFuture / whereBeforeToday` | `.whereToday('starts_at') / wherePast / whereFuture / whereBeforeToday` | Against Clock.now(). |
 | `->insertGetId($values)` | `await DB.table(t).insertGetId(values)` | **async** |
@@ -401,9 +411,15 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `#[DebounceFor(60)]` | `Duration? get debounceFor => ...` |  |
 | `Queue::later($delay, $job)` | `await Queue.later(delay, job)` | **async** |
 | `public function tags() (Horizon)` | `List<String> get tags` |  |
+| `Queue::size('default')` | `await Queue.connection().size('default')` | **async** |
+| `(none)` | `await (Queue.connection() as BrowsableQueueDriver).pending('default', limit: 50)` | **async**; Daravel-only: the waiting jobs of a queue without reserving them (memory, database, redis), for queue dashboards such as daravel_horizon. |
+| `(none)` | `await (Queue.connection() as ReclaimableQueueDriver).reclaim('default', jobId)` | **async**; Daravel-only: a reserved job of a worker known to be gone is available again at once, attempts kept, instead of after retry_after. |
+| `(none)` | `worker.reassign(['high', 'default'])` | Daravel-only: a running worker polls other queues from its next job on (daravel_horizon auto-scaling). |
 | `php artisan queue:pause database:default / queue:continue` | `dartisan queue:pause database:default / queue:continue` |  |
 | `public $maxExceptions = 3;` | `int? get maxExceptions => 3;` |  |
 | `php artisan queue:work --memory=128` | `dartisan queue:work --memory=128` |  |
+| `(none)` | `.withEmbeddedWorker('indexer', (app, control) async {...}); dartisan serve --embed-worker=indexer` | Daravel-only: an isolate of a package or the application beside the HTTP server, with the queue worker's respawn and stop (daravel_horizon's supervisor). |
+| `(none)` | `.withCoordinatorService(MyService.new)` | Daravel-only: process-wide state every worker isolate reaches, in every topology. |
 | `class SendEmail implements ShouldQueue` | `final class SendEmail extends Job` |  |
 | `event(new OrderShipped($order))` | `await Event.dispatch(OrderShipped(order))` | **async** |
 | `Event::listen(OrderShipped::class, fn)` | `Event.listen<OrderShipped>((e) async {...})` |  |
@@ -443,6 +459,9 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `Storage::disk('s3')->temporaryUrl($path, now()->addMinutes(30))` | `Storage.disk('s3').temporaryUrl(path, expiration: 30.minutes.fromNow)` | package:daravel_s3 (withS3()); same AWS_* variables. |
 | `Storage::disk('s3')->temporaryUploadUrl($path, $expiration)` | `Storage.disk('s3').temporaryUploadUrl(path, expiration: ...)` | Returns url and headers, as Laravel's array. |
 | `Http::withToken($t)->retry(3, 100)->post($url, $data)` | `await Http.withToken(t).retry(3).post(url, json: data)` | **async** |
+| `Http::retry(3, [100, 200, 500])` | `Http.retry(3, backoff: Http.backoffSequence([...]))` |  |
+| `Http::retry(3, 100, fn ($exception, $request) => ...)` | `Http.retry(3, when: (response, error) => ...)` | Every failed response is retried by default, as in Laravel; when: Http.retryOnConnectionOr5xx leaves other 4xx alone. |
+| `(none)` | `Http.retry(5, backoff: Http.exponentialBackoff(), jitter: 0.2, honorRetryAfter: true)` | Daravel-only: exponential waits, jitter and Retry-After on 429/503. |
 | `Http::fake([...]) / Http::assertSent(...)` | `Http.fake({...}).assertSent(...)` |  |
 | `php artisan down --secret / up` | `dartisan down --secret / up` | Same storage/framework/down file; bypass cookie daravel_maintenance. |
 | `Log::info($message, $context)` | `Log.info(message, context)` |  |

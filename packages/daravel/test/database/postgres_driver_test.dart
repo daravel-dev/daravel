@@ -55,4 +55,43 @@ void timeoutOptionTests() {
       const Duration(seconds: 7),
     );
   });
+
+  test(
+    'DB_IDLE_TRANSACTION_TIMEOUT reaches the driver; unset or 0 is none',
+    () {
+      PostgresDriver of(Map<String, Object?> options) =>
+          PostgresDriver.fromConfig(
+            'pgsql',
+            ConnectionConfig(driver: 'pgsql', database: 'd', options: options),
+          );
+      expect(of(const {}).idleTransactionTimeout, isNull);
+      expect(
+        of(const {'idle_transaction_timeout': '0'}).idleTransactionTimeout,
+        isNull,
+      );
+      expect(
+        of(const {'idle_transaction_timeout': 'x'}).idleTransactionTimeout,
+        isNull,
+      );
+      expect(
+        of(const {'idle_transaction_timeout': '15'}).idleTransactionTimeout,
+        const Duration(seconds: 15),
+      );
+      expect(
+        PostgresDriver.idleTransactionStatement(const Duration(seconds: 15)),
+        'set idle_in_transaction_session_timeout = 15000',
+      );
+      final config = DatabaseConfig.fromEnv(
+        Env.fromMap(const {'DB_IDLE_TRANSACTION_TIMEOUT': '20'}),
+        basePath: '.',
+      );
+      for (final name in ['pgsql', 'mysql', 'mariadb']) {
+        expect(
+          config.connections[name]!.options['idle_transaction_timeout'],
+          '20',
+          reason: name,
+        );
+      }
+    },
+  );
 }

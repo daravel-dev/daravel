@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import '../foundation/application.dart';
 import '../foundation/env.dart';
@@ -31,6 +32,7 @@ final class ServeOptions {
     this.readyTimeout = const Duration(seconds: 30),
     this.embedQueue = false,
     this.embedScheduler = false,
+    this.embedWorkers = const <String>[],
     this.maxInFlight,
     this.maxQueueDelay,
     this.maxBodyBytes = defaultMaxBodyBytes,
@@ -54,6 +56,7 @@ final class ServeOptions {
     int? isolates,
     bool? embedQueue,
     bool? embedScheduler,
+    List<String>? embedWorkers,
     int? maxInFlight,
     Duration? maxQueueDelay,
   }) {
@@ -79,6 +82,12 @@ final class ServeOptions {
       ),
       embedQueue: embedQueue ?? env.boolean('SERVER_EMBED_QUEUE'),
       embedScheduler: embedScheduler ?? env.boolean('SERVER_EMBED_SCHEDULER'),
+      embedWorkers: [
+        for (final name
+            in embedWorkers ??
+                env.list('SERVER_EMBED_WORKERS', const <String>[]))
+          if (name.trim().isNotEmpty) name.trim(),
+      ],
       maxInFlight: maxInFlight == null
           ? _maxInFlightFromEnv(env)
           : maxInFlight == 0
@@ -169,6 +178,11 @@ final class ServeOptions {
   /// Runs the scheduler in its own isolate, so no cron entry is needed
   /// (`serve --embed-scheduler`, `SERVER_EMBED_SCHEDULER`).
   final bool embedScheduler;
+
+  /// Embedded isolates registered with `withEmbeddedWorker`, run beside
+  /// the HTTP server (`serve --embed-worker=<name>`, repeatable;
+  /// `SERVER_EMBED_WORKERS=a,b`).
+  final List<String> embedWorkers;
 
   /// Load shedding (`HTTP_MAX_IN_FLIGHT`, `serve --max-in-flight`): the
   /// most requests one worker isolate handles at once. Beyond it a request
@@ -574,7 +588,9 @@ final class ServerEngine {
     );
   }
 
-  final Set<WebSocket> _sockets = <WebSocket>{};
+  /// Open WebSockets, with the spread of their close at shutdown
+  /// ([Response.webSocketDrainSpread]).
+  final Map<WebSocket, Duration?> _sockets = <WebSocket, Duration?>{};
 
   /// Open WebSocket connections on this engine.
   int get openWebSockets => _sockets.length;
@@ -641,7 +657,7 @@ final class ServerEngine {
         );
       },
     );
-    _sockets.add(socket);
+    _sockets[socket] = response.webSocketDrainSpread;
     logger.info(
       '${request.method} ${request.path} 101 (WebSocket)',
       <String, Object?>{'request_id': id},
@@ -678,11 +694,23 @@ final class ServerEngine {
     }
     _signals.clear();
     // Open WebSockets would hold the shutdown until its timeout: tell
-    // clients the server is going away so they reconnect elsewhere.
-    for (final socket in _sockets.toList()) {
-      unawaited(
+    // clients the server is going away so they reconnect elsewhere. Those
+    // of a route with a drain spread (the Pusher server) close at random
+    // moments within it, so their clients do not all reconnect at once.
+    final random = Random();
+    for (final MapEntry(key: socket, value: spread)
+        in _sockets.entries.toList()) {
+      void close() => unawaited(
         socket.close(WebSocketStatus.goingAway, 'Server shutting down'),
       );
+      final bound = spread == null || spread < options.shutdownTimeout
+          ? spread
+          : options.shutdownTimeout;
+      if (bound == null || bound <= Duration.zero) {
+        close();
+      } else {
+        Timer(bound * random.nextDouble(), close);
+      }
     }
     final server = _server;
     if (server != null) {

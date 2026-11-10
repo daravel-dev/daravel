@@ -1,4 +1,4 @@
-<!-- source: broadcasting.md sha256:8d3fd7a9ae4d -->
+<!-- source: broadcasting.md sha256:042211fceeff -->
 # Broadcasting
 
 Daravel berbicara dengan protokol Pusher, seperti Laravel Reverb, di port
@@ -210,10 +210,28 @@ client tetap di server yang dijangkau WebSocket-nya.
 | `REVERB_APP_MAX_CHANNELS_PER_CONNECTION` | `100` | Jumlah channel yang boleh diikuti satu koneksi sekaligus (`0`: tanpa batas); lewat dari itu `pusher:error` `4300`, koneksi tetap terbuka |
 | `REVERB_APP_CLIENT_EVENTS_PER_SECOND` | `10` | Client event yang boleh dikirim satu koneksi per detik, seperti Pusher Channels (`0`: tanpa batas); lewat dari itu event dibuang dengan `pusher:error` `4301` |
 | `REVERB_APP_VALIDATE_CHANNEL_NAMES` | `true` | Nama channel mengikuti aturan Pusher: paling banyak 164 karakter dari `A-Z a-z 0-9 _ - = @ , . ;`; nama lain mendapat `pusher:error` `4300` |
+| `REVERB_APP_MAX_CONNECTIONS` | tidak ada | Jumlah koneksi yang boleh dibuka aplikasi di server ini, semua worker isolate dihitung (`max_connections` di Reverb); lewat dari itu `pusher:error` `4004` "Application is over connection quota" dan koneksi ditutup sebelum `connection_established` |
+| `REVERB_APP_RATE_LIMITING_ENABLED` | `false` | Membatasi laju pesan tiap koneksi, seperti `rate_limiting` di Reverb: setiap pesan dihitung, termasuk `pusher:ping`; lewat dari batas `pusher:error` `4301` |
+| `REVERB_APP_RATE_LIMIT_MAX_ATTEMPTS` | `60` | Jumlah pesan yang diizinkan per jendela waktu |
+| `REVERB_APP_RATE_LIMIT_DECAY_SECONDS` | `60` | Panjang jendela waktu, dihitung dari pesan pertama koneksi di jendela itu |
+| `REVERB_APP_RATE_LIMIT_TERMINATE` | `false` | Menutup koneksi yang melewati batas (kode `4301`), bukan hanya menolak pesannya |
+| `REVERB_DRAIN_SPREAD` | `2s` | Saat shutdown, koneksi Pusher ditutup (`1001`) pada saat acak dalam rentang ini (paling lama sebesar shutdown timeout), sehingga client-nya tidak tersambung ulang bersamaan |
+| `BROADCAST_AFTER_COMMIT` | `true` | Broadcast di dalam transaksi database dikirim saat transaksi commit dan dibuang saat rollback (`Broadcast.send(..., afterCommit: false)` langsung mengirim) |
 
 Client event (`client-*`, `whisper` di Echo) hanya diteruskan di channel
 private dan presence yang sudah diikuti pengirimnya, seperti yang
 disyaratkan Pusher Channels.
+
+Saat sebuah worker isolate crash, anggota presence yang semua koneksinya
+ada di isolate itu diumumkan ke subscriber lain dengan
+`pusher_internal:member_removed` (`leaving` di Echo), seolah-olah mereka
+keluar. Stream server-sent event mendapat `retry:` acak 1 sampai 5 detik
+sebelum berakhir saat shutdown, dengan alasan yang sama seperti drain
+spread. `/metrics` menghitung penolakan di `reverb_rejected_total{reason}`
+(`connection_quota`, `rate_limit`, `client_event_rate`, `channel_limit`) dan
+`reverb_rate_limited_total{app}`; client yang lambat ada di
+`realtime_slow_clients_total`. `Channels.private('orders.7')`,
+`Channels.presence(...)` dan `Channels.encrypted(...)` menuliskan prefix-nya.
 
 Saat coordinator tidak bisa menjawab (kelebihan beban, atau penyimpanan
 scaling mati) ketika client subscribe atau keluar dari channel, client

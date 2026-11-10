@@ -18,6 +18,8 @@ import 'src/generator.dart';
 import 'src/project_commands.dart';
 import 'src/upgrade_command.dart';
 import 'src/cache_commands.dart';
+import 'src/console/console.dart';
+import 'src/console/runner_console.dart';
 import 'src/security_audit_command.dart';
 import 'src/adopt_command.dart';
 import 'src/env_commands.dart';
@@ -68,6 +70,8 @@ export 'src/e2e.dart';
 export 'src/mcp_server.dart';
 export 'src/redis_install.dart';
 export 'src/upgrade_command.dart';
+export 'src/console/brand.dart' show sponsorUrl;
+export 'src/console/console.dart';
 
 /// Creates an unbooted [Application] (a project's `createApp()`).
 typedef AppFactory = Application Function();
@@ -77,12 +81,14 @@ typedef AppFactory = Application Function();
 typedef CommandFactory = Command<int> Function(AppFactory createApp);
 
 /// Command runner wired to a project's application factory.
-final class DartisanRunner extends CommandRunner<int> {
+final class DartisanRunner extends CommandRunner<int> with DartisanConsole {
   /// A runner of the built-in commands and the project's own, for the
-  /// application [createApp] builds.
+  /// application [createApp] builds. [console] replaces the one detected
+  /// from the terminal and the `--no-color` and `--ansi` flags (tests).
   DartisanRunner(
     AppFactory createApp, {
     List<CommandFactory> commands = const <CommandFactory>[],
+    Console? console,
   }) : super('dartisan', 'Daravel command-line interface.') {
     argParser.addFlag(
       'version',
@@ -165,9 +171,13 @@ final class DartisanRunner extends CommandRunner<int> {
     addCommand(SelfUpdateCommand());
     addCommand(McpServeCommand(createApp));
     addCommand(McpInstallCommand());
+    final project = <String>{};
     for (final factory in commands) {
-      addCommand(factory(createApp));
+      final command = factory(createApp);
+      addCommand(command);
+      project.add(command.name);
     }
+    setUpConsole(console: console, project: project);
   }
 
   @override
@@ -310,6 +320,14 @@ final class ServeCommand extends DaravelCommand {
         'embed-scheduler',
         negatable: false,
         help: 'Also run the scheduler in its own isolate (SERVER_EMBED_SCHEDULER).',
+      )
+      ..addMultiOption(
+        'embed-worker',
+        help:
+            'Also run this embedded worker (registered with '
+            'withEmbeddedWorker, such as horizon) in its own isolate; '
+            'repeatable (SERVER_EMBED_WORKERS).',
+        valueHelp: 'name',
       );
   }
 
@@ -392,6 +410,10 @@ final class ServeCommand extends DaravelCommand {
       isolates: isolates,
       embedQueue: (results['embed-queue'] as bool) ? true : null,
       embedScheduler: (results['embed-scheduler'] as bool) ? true : null,
+      embedWorkers: switch (results['embed-worker'] as List<String>) {
+        final List<String> names when names.isNotEmpty => names,
+        _ => null,
+      },
       // 0 on the command line means "no limit" even when the .env sets one.
       maxInFlight: maxInFlight,
       maxQueueDelay: maxQueueDelay,
