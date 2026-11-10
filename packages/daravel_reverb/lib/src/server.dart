@@ -39,12 +39,16 @@ Future<bool> requestReverbRestart(Application app) async {
   return true;
 }
 
-/// Watches [reverbRestartKey] for an isolate of `reverb:start`: each
-/// [poll] (wall clock) it reads the key, and once it holds a time after
-/// this isolate started it waits a random moment within [spread], so the
-/// isolates do not all go at once, and calls [Application.restart] (the
-/// connections closed over `REVERB_DRAIN_SPREAD`, the worker spawned
-/// again).
+/// Watches [reverbRestartKey] for an isolate of `reverb:start`: it reads
+/// the key when it starts, and each [poll] (wall clock) again; once the
+/// key holds another value than at the start (and not none), it waits a
+/// random moment within [spread], so the isolates do not all go at once,
+/// and calls [Application.restart] (the connections closed over
+/// `REVERB_DRAIN_SPREAD`, the worker spawned again).
+///
+/// The values are compared, not their times, as Laravel Reverb does: the
+/// time comes from the clock of the machine that ran `reverb:restart`,
+/// which a server sharing the signal store need not agree with.
 final class ReverbRestartWatcher {
   /// A watcher of [app]'s signals.
   ReverbRestartWatcher(
@@ -69,16 +73,28 @@ final class ReverbRestartWatcher {
 
   final Random _random;
   Timer? _timer;
-  int _startedAt = 0;
+  Future<Object?>? _atStart;
   bool _reading = false;
 
   /// Whether it watches.
   bool get watching => _timer != null;
 
-  /// Starts watching; a restart requested before now is ignored.
+  /// Starts watching; the restart requested before (the key's value now)
+  /// is ignored.
   void start() {
-    _startedAt = DateTime.now().toUtc().millisecondsSinceEpoch;
+    _atStart ??= _read();
     _timer ??= Timer.periodic(poll, (_) => unawaited(_check()));
+  }
+
+  /// The key's value, or null when it cannot be read: the next value read
+  /// is then taken as a request, as from a key that was never set.
+  Future<Object?> _read() async {
+    try {
+      return await signals.get(reverbRestartKey);
+    } on Object catch (error) {
+      app.logger.debug('reverb:restart signal not readable: $error');
+      return null;
+    }
   }
 
   /// Stops watching (shutdown).
@@ -93,8 +109,16 @@ final class ReverbRestartWatcher {
     }
     _reading = true;
     try {
-      final requested = await signals.get(reverbRestartKey);
-      if (requested is! int || requested <= _startedAt || !watching) {
+      final before = await _atStart;
+      final Object? requested;
+      try {
+        requested = await signals.get(reverbRestartKey);
+      } on Object catch (error) {
+        // The store is down: try again at the next poll.
+        app.logger.debug('reverb:restart signal not readable: $error');
+        return;
+      }
+      if (requested == null || requested == before || !watching) {
         return;
       }
       stop();
@@ -105,10 +129,14 @@ final class ReverbRestartWatcher {
         'reverb:restart requested; restarting in ${wait.inMilliseconds} ms.',
       );
       await Future<void>.delayed(wait);
-      await app.restart();
-    } on Object catch (error) {
-      // The store is down: try again at the next poll.
-      app.logger.debug('reverb:restart signal not readable: $error');
+      try {
+        await app.restart();
+      } on Object catch (error) {
+        // Not restarted: keep watching, and try again at the next poll
+        // (the value still differs from the one at the start).
+        app.logger.error('reverb:restart failed: $error');
+        _timer ??= Timer.periodic(poll, (_) => unawaited(_check()));
+      }
     } finally {
       _reading = false;
     }
