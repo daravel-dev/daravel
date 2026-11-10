@@ -33,6 +33,7 @@ workspace:
   - apps/virtual_classroom
   - apps/websocket_demo
   - apps/cat_exam_demo
+  - apps/reverb_demo
   - bench
 
 dev_dependencies:
