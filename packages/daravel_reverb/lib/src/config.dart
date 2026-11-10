@@ -223,7 +223,7 @@ final class ReverbConfig implements ConfigSection {
     'apps': {
       'provider': source.name,
       'cache_ttl': appsCacheTtl.inSeconds,
-      'metrics_url': metricsUrl,
+      'metrics_url': _masked(metricsUrl),
       'apps': [for (final app in apps) app.toPublicMap()],
     },
   };
@@ -249,6 +249,20 @@ final class ReverbConfig implements ConfigSection {
           'REVERB_SERVER_ISOLATES is at least 1, not ${reverb.isolates}.',
         ),
       );
+    }
+    final metrics = reverb.metricsUrl;
+    if (metrics != null && metrics.isNotEmpty) {
+      final uri = Uri.tryParse(metrics);
+      if (uri == null ||
+          !(uri.scheme == 'http' || uri.scheme == 'https') ||
+          uri.host.isEmpty) {
+        issues.add(
+          const ConfigIssue(
+            ConfigIssueLevel.error,
+            'REVERB_METRICS_URL is the http(s) URL of the /metrics of a Reverb server.',
+          ),
+        );
+      }
     }
     if (reverb.path.isNotEmpty && !reverb.path.startsWith('/')) {
       issues.add(
@@ -314,4 +328,13 @@ final class ReverbConfig implements ConfigSection {
   static final RegExp _origin = RegExp(
     r'^(\*|(\*\.)?[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*(:\d+)?)$',
   );
+}
+
+/// [url] without its user info (`http://***@host`), for `toMap`.
+String? _masked(String? url) {
+  final uri = url == null ? null : Uri.tryParse(url);
+  if (uri == null || uri.userInfo.isEmpty) {
+    return url;
+  }
+  return uri.replace(userInfo: '***').toString();
 }

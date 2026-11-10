@@ -337,7 +337,9 @@ origins, quota and limits of each application, never its secret) and
 sends `reverb:restart`. The numbers come from `/metrics`: the application's
 own when Echo connects to its HTTP port, or, with `reverb:start` apart, the
 WebSocket server's at `REVERB_METRICS_URL`
-(`http://127.0.0.1:8080/metrics`, with `METRICS_TOKEN` when set). The page
+(`http://127.0.0.1:8080/metrics`, with `METRICS_TOKEN` when set; http or
+https only, read within 2 seconds, and shown as "Metrics unreachable"
+when it does not answer, without the URL or the token). The page
 updates over server-sent events (`GET /reverb/api/stream`, every second);
 `GET /reverb/api/stats` is what `reverb:stats --json` prints, and
 `GET /reverb/api/apps` lists the applications.

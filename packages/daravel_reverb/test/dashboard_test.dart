@@ -241,4 +241,49 @@ void main() {
         .jsonMap;
     expect(((stats['apps']! as Map)['42']! as Map)['connections'], 1);
   });
+
+  test('REVERB_METRICS_URL that does not answer: 503 "Metrics unreachable" '
+      'within the timeout, the token and the URL never shown', () async {
+    // Accepts connections and never answers.
+    final silent = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    final held = <Socket>[];
+    silent.listen(held.add);
+    addTearDown(() async {
+      for (final s in held) {
+        s.destroy();
+      }
+      await silent.close();
+    });
+    const token = 'metrics-token-do-not-leak';
+    final url =
+        'http://scraper:pass-do-not-leak@127.0.0.1:${silent.port}/metrics';
+    final app = await booted(
+      appWith(env: {'REVERB_METRICS_URL': url, 'METRICS_TOKEN': token}),
+    );
+    final client = TestClient(app);
+    final watch = Stopwatch()..start();
+    final stats = await client.get('/reverb/api/stats');
+    expect(watch.elapsed, lessThan(const Duration(seconds: 4)));
+    expect(stats.status, 503);
+    expect(stats.jsonMap['message'], startsWith('Metrics unreachable'));
+    final page = await client.get('/reverb');
+    for (final body in [stats.body, page.body]) {
+      expect(body, isNot(contains(token)));
+      expect(body, isNot(contains('pass-do-not-leak')));
+    }
+    final shown = jsonEncode(app.config.section<ReverbConfig>().toMap());
+    expect(shown, isNot(contains('pass-do-not-leak')));
+    expect(shown, contains('***@127.0.0.1'));
+  }, tags: 'security');
+
+  test('REVERB_METRICS_URL is http(s) only', () {
+    final env = Env.fromMap({'REVERB_METRICS_URL': 'file:///etc/passwd'});
+    final config = ConfigRepository()
+      ..register<ReverbConfig>(ReverbConfig.fromEnv(env))
+      ..register<BroadcastConfig>(BroadcastConfig.fromEnv(env));
+    expect(
+      ReverbConfig.check(env, config).where((i) => i.isError).single.message,
+      contains('REVERB_METRICS_URL'),
+    );
+  }, tags: 'security');
 }

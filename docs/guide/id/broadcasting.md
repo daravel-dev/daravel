@@ -1,4 +1,4 @@
-<!-- source: broadcasting.md sha256:3c0234308871 -->
+<!-- source: broadcasting.md sha256:775047d4692e -->
 # Broadcasting
 
 Daravel berbicara dengan protokol Pusher, seperti Laravel Reverb, di port
@@ -348,7 +348,9 @@ origin, kuota, dan batas setiap aplikasi, tanpa secret-nya), dan **Workers**
 `reverb:restart`. Angkanya berasal dari `/metrics`: dari aplikasi itu
 sendiri bila Echo tersambung ke port HTTP-nya, atau, bila `reverb:start`
 berjalan terpisah, dari server WebSocket di `REVERB_METRICS_URL`
-(`http://127.0.0.1:8080/metrics`, dengan `METRICS_TOKEN` bila di-set).
+(`http://127.0.0.1:8080/metrics`, dengan `METRICS_TOKEN` bila di-set; hanya
+http atau https, dibaca dalam 2 detik, dan ditampilkan sebagai "Metrics
+unreachable" bila tidak menjawab, tanpa URL atau token).
 Halaman ini diperbarui lewat server-sent events (`GET /reverb/api/stream`,
 tiap detik); `GET /reverb/api/stats` sama dengan keluaran
 `reverb:stats --json`, dan `GET /reverb/api/apps` mendaftar aplikasinya.

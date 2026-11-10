@@ -32,7 +32,7 @@ abstract final class ReverbDashboard {
       r
         ..get(
           '$api/stats',
-          (Request q) => guard((_) async => (await report()).toJson()),
+          (Request q) => guard((_) => _stats()),
         ).name('reverb.stats')
         ..get(
           '$api/apps',
@@ -64,26 +64,39 @@ abstract final class ReverbDashboard {
   static ReverbConfig get _config =>
       _container.make<ConfigRepository>().section<ReverbConfig>();
 
+  /// How long the dashboard waits for `REVERB_METRICS_URL`.
+  static const Duration metricsTimeout = Duration(seconds: 2);
+
   /// The report the dashboard shows: of `REVERB_METRICS_URL` when set,
-  /// else of this process.
+  /// else of this process. A server that cannot be read is a
+  /// [MetricsUnreachable], whose message names neither the URL nor the
+  /// token.
   static Future<ReverbReport> report() async {
     final url = _config.metricsUrl;
     if (url == null || url.isEmpty) {
       return ReverbReport.parse(await _container.make<AppMetrics>().render());
     }
+    final uri = Uri.tryParse(url);
+    if (uri == null || !(uri.scheme == 'http' || uri.scheme == 'https')) {
+      throw const MetricsUnreachable('REVERB_METRICS_URL is not http(s)');
+    }
     final token = _container
         .make<ConfigRepository>()
         .section<MetricsConfig>()
         .token;
-    var request = Http.timeout(const Duration(seconds: 5));
+    var request = Http.timeout(metricsTimeout);
     if (token != null && token.isNotEmpty) {
       request = request.withToken(token);
     }
-    final response = await request.get(url);
+    final ClientResponse response;
+    try {
+      response = await request.get(url);
+    } on Object {
+      throw const MetricsUnreachable('no answer from REVERB_METRICS_URL');
+    }
     if (!response.successful) {
-      throw HttpException(
-        502,
-        'REVERB_METRICS_URL answered ${response.status}.',
+      throw MetricsUnreachable(
+        'REVERB_METRICS_URL answered ${response.status}',
       );
     }
     return ReverbReport.parse(response.body);
@@ -143,8 +156,8 @@ abstract final class ReverbDashboard {
           Object? stats;
           try {
             stats = (await report()).toJson();
-          } on Object catch (error) {
-            stats = {'error': '$error'};
+          } on MetricsUnreachable catch (error) {
+            stats = {'error': 'Metrics unreachable: ${error.reason}.'};
           }
           yield SseEvent({
             'stats': stats,
@@ -153,6 +166,20 @@ abstract final class ReverbDashboard {
           await Future<void>.delayed(const Duration(seconds: 1));
         }
       }(), heartbeat: null);
+
+  /// `GET /api/stats`: the report, or `503` with "Metrics unreachable"
+  /// when `REVERB_METRICS_URL` cannot be read.
+  static Future<Object?> _stats() async {
+    try {
+      return (await report()).toJson();
+    } on MetricsUnreachable catch (error) {
+      return Response.json(
+        {'message': '$error'},
+        status: 503,
+        headers: const {'cache-control': 'no-store'},
+      );
+    }
+  }
 
   /// `reverb:restart` from the page.
   static Future<Object?> _restart(Request request) async {
@@ -210,4 +237,16 @@ abstract final class ReverbDashboard {
       _ => Response.json(result, headers: const {'cache-control': 'no-store'}),
     };
   }
+}
+
+/// The dashboard could not read the metrics of `REVERB_METRICS_URL`.
+final class MetricsUnreachable implements Exception {
+  /// Why, without the URL or the token.
+  const MetricsUnreachable(this.reason);
+
+  /// Why.
+  final String reason;
+
+  @override
+  String toString() => 'Metrics unreachable: $reason.';
 }
