@@ -98,6 +98,7 @@ void main(List<String> args) {
   // The guide, searched by `dartisan mcp:serve` (docs_search): one file per
   // page and an index (Blueprint #142, F2). A page file left from a page
   // that is gone is removed (stale in --check).
+  checkGuidePageNames(guidePages.keys);
   final pageFiles = <String>{};
   for (final MapEntry(key: page, value: content) in guidePages.entries) {
     final name = guidePageFile(page);

@@ -36,8 +36,10 @@ String guidePageConstant(String page) {
 /// of the text stays a line of the file, `r'''…'''` or, when the text
 /// holds `'''` or ends with `'`, `r"""…"""`. Where neither can say it
 /// (both quote runs, a first line of only blanks, which Dart drops after
-/// the opening quotes, or a carriage return, which a multi-line literal
-/// reads as a line end) it is a plain literal on one line, escaped.
+/// the opening quotes, or a control character other than a line feed or a
+/// tab: a carriage return, which a multi-line literal reads as a line end,
+/// and the others, unreadable in a source file) it is a plain literal on
+/// one line, escaped.
 ///
 /// One literal, never adjacent ones: `dart format` lays out a single
 /// literal as the generator does, a list of them line by line.
@@ -47,7 +49,7 @@ String dartLiteral(String text) {
   }
   final firstBreak = text.indexOf('\n');
   final rawAllowed =
-      !text.contains('\r') &&
+      !text.runes.any((r) => r < 0x20 && r != 0x0A && r != 0x09) &&
       (firstBreak < 0 ||
           !_droppedFirstLine.hasMatch(text.substring(0, firstBreak)));
   if (rawAllowed) {
@@ -110,3 +112,29 @@ String renderGuidePagesIndex(Iterable<String> pages) {
 
 /// A first line Dart drops after an opening `'''`.
 final RegExp _droppedFirstLine = RegExp('^[ \\t\\\\]*\$');
+
+/// Throws a [StateError] naming both pages when two of [pages] would get
+/// the same file ([guidePageFile]) or constant ([guidePageConstant]):
+/// `a-b.md` and `a_b.md`, `id/mail.md` and `id-mail.md`, names that differ
+/// only in case. One would otherwise overwrite the other without a word.
+void checkGuidePageNames(Iterable<String> pages) {
+  final files = <String, String>{};
+  final constants = <String, String>{};
+  for (final page in pages.toList()..sort()) {
+    final file = guidePageFile(page);
+    final constant = guidePageConstant(page).toLowerCase();
+    for (final (seen, name, what) in [
+      (files, file, 'file $file'),
+      (constants, constant, 'constant ${guidePageConstant(page)}'),
+    ]) {
+      final other = seen[name];
+      if (other != null) {
+        throw StateError(
+          'The guide pages $other and $page would share the $what: rename '
+          'one of them.',
+        );
+      }
+      seen[name] = page;
+    }
+  }
+}

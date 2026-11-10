@@ -29,6 +29,7 @@ const List<String> cases = [
   'windows\r\nline ends\r\n',
   'a lone \r carriage return',
   'tab\tand control \u0001 char',
+  'a form feed \u000c and an escape \u001b in a\nmulti-line text',
   'unicode: é ü ✓ 日本 🙂',
   "mixed '''\n\n  \n'''\n'",
   '```dart\nfinal s = r"""x""";\n```\n',
@@ -79,6 +80,35 @@ void main() {
     if (guidePageFile('id/getting-started.md') != 'id_getting_started.g.dart' ||
         guidePageConstant('id/getting-started.md') != 'pageIdGettingStarted') {
       stderr.writeln('FAIL names of id/getting-started.md');
+      failures++;
+    }
+    // Control characters other than LF and tab take the escaped path.
+    if (dartLiteral('a\u000cb\nc').startsWith('r')) {
+      stderr.writeln('FAIL a form feed went into a raw literal');
+      failures++;
+    }
+    // Two pages that would share a file or a constant are refused, naming
+    // both.
+    for (final (a, b) in const [
+      ('a-b.md', 'a_b.md'),
+      ('id/mail.md', 'id-mail.md'),
+      ('Mail.md', 'mail.md'),
+    ]) {
+      try {
+        checkGuidePageNames([a, b]);
+        stderr.writeln('FAIL $a and $b were not refused');
+        failures++;
+      } on StateError catch (error) {
+        if (!error.message.contains(a) || !error.message.contains(b)) {
+          stderr.writeln('FAIL the error does not name both: ${error.message}');
+          failures++;
+        }
+      }
+    }
+    try {
+      checkGuidePageNames(['mail.md', 'id/mail.md', 'getting-started.md']);
+    } on StateError catch (error) {
+      stderr.writeln('FAIL distinct pages refused: ${error.message}');
       failures++;
     }
     stdout.writeln(
