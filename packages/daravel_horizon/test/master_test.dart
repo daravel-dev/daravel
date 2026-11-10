@@ -6,8 +6,24 @@ import 'package:daravel/daravel.dart';
 import 'package:daravel_horizon/daravel_horizon.dart';
 import 'package:test/test.dart';
 
-final String dbPath =
-    '${Directory.systemTemp.path}${Platform.pathSeparator}horizon_master_$pid.sqlite';
+final String _temp = '${Directory.systemTemp.path}${Platform.pathSeparator}';
+
+/// Where the running test's database file is named, for the worker
+/// isolates (they build their application from this file's top-level
+/// code, so they read it rather than share a variable).
+final String _dbMarker = '${_temp}horizon_master_db_$pid.txt';
+
+/// The running test's database: a file of its own per test. A worker the
+/// master killed keeps its SQLite handle open while the process lives, and
+/// on Windows such a file cannot be deleted; the next test must not need
+/// to (one stalled test used to fail every later one in `setUp`).
+String get dbPath {
+  final marker = File(_dbMarker);
+  return marker.existsSync()
+      ? marker.readAsStringSync()
+      : '${_temp}horizon_master_$pid.sqlite';
+}
+
 final String marksPath =
     '${Directory.systemTemp.path}${Platform.pathSeparator}horizon_master_marks_$pid.txt';
 
@@ -126,9 +142,12 @@ void main() {
   // out (it is quiet otherwise).
   final masterLog = StringBuffer();
 
+  var tests = 0;
   setUp(() async {
     events.clear();
     masterLog.clear();
+    File(_dbMarker)
+        .writeAsStringSync('${_temp}horizon_master_${pid}_${++tests}.sqlite');
     for (final path in [dbPath, marksPath, stuckPath, startsPath]) {
       if (File(path).existsSync()) {
         File(path).deleteSync();
@@ -139,7 +158,22 @@ void main() {
     await app.run(() => App.make<Migrator>().run());
   });
 
-  tearDown(() => app.shutdown());
+  tearDown(() async {
+    await app.shutdown();
+    // Best effort: a killed worker may still hold it (see dbPath).
+    try {
+      File(dbPath).deleteSync();
+    } on FileSystemException {
+      // Left for the temporary directory's own cleanup.
+    }
+  });
+  tearDownAll(() {
+    try {
+      File(_dbMarker).deleteSync();
+    } on FileSystemException {
+      // Already gone.
+    }
+  });
 
   // The process's coordinator with Horizon's store, shared with the
   // workers (as `withCoordinatorService` registers it).
@@ -246,6 +280,14 @@ void main() {
           balanceCooldown: Duration(milliseconds: 300),
           sleep: Duration(milliseconds: 50),
         ),
+        // Not about kills: a heartbeat a loaded runner keeps up with (at
+        // 100 ms its lease is 400 ms, and healthy workers were killed one
+        // after another on a stalled Windows runner)...
+        heartbeat: const Duration(milliseconds: 500),
+        // ...and a job a killed worker had reserved but not reported yet
+        // (the master cannot reclaim it) back within the test, not after
+        // the default 90 s.
+        factory: shortRetryApp,
       );
       addTearDown(() => m.stop(timeout: const Duration(seconds: 20)));
       await m.start();

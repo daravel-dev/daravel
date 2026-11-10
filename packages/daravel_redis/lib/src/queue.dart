@@ -56,7 +56,15 @@ final class RedisQueue
     this.namespace = 'daravel',
     this.retryAfter = const Duration(seconds: 90),
     this.engine = RedisQueueEngine.list,
+    this.logger,
   });
+
+  /// Where an unexpected error of the blocking wait is told (at most once a
+  /// second); none when null.
+  final Logger? logger;
+
+  /// When an unexpected wait error was last logged (wall clock).
+  DateTime? _waitErrorLogged;
 
   /// The Redis connection.
   final RedisClient client;
@@ -666,10 +674,28 @@ return 1''');
     } on RedisConnectionException {
       // Stopped, or the connection dropped: open another next time.
       _blocking.remove(slot);
-    } on RedisCommandException {
-      // A slot moved (MOVED) or the server refused: another connection
-      // next time, after a pause so a lasting error does not spin.
-      await _blocking.remove(slot)?.close();
+    } on Object catch (error) {
+      // A slot moved (MOVED), the server refused, or anything else: another
+      // connection next time, after a pause so a lasting error does not
+      // spin. Never rethrown: this wait is shared by the workers waiting on
+      // the slot, each in a zone of its own, which an error would not reach.
+      if (error is! RedisCommandException) {
+        final now = DateTime.now();
+        final last = _waitErrorLogged;
+        if (last == null ||
+            now.difference(last) >= const Duration(seconds: 1)) {
+          _waitErrorLogged = now;
+          logger?.warning(
+            'Redis queue wait failed (${error.runtimeType}); waiting with a '
+            'new connection next time.',
+          );
+        }
+      }
+      try {
+        await _blocking.remove(slot)?.close();
+      } on Object {
+        // Closing a broken connection: nothing more to do.
+      }
       await Future<void>.delayed(
         wait < const Duration(seconds: 1) ? wait : const Duration(seconds: 1),
       );
