@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:daravel/daravel.dart';
 
 import 'config.dart';
+import 'events.dart';
 import 'master.dart';
 import 'routes.dart';
 import 'store/process_store.dart';
@@ -178,6 +179,7 @@ Future<int> runHorizon(
     failedJobs: queues.processor.failedJobs,
     signals: queues.signalStore,
     name: config.name ?? 'horizon',
+    onEvent: horizonEvents(app),
   );
   await master.start();
   final commands = control.messages.listen((message) {
