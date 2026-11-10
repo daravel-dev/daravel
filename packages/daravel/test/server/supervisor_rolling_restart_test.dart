@@ -219,6 +219,35 @@ void main() {
     expect(rounds.every((r) => r.completed), isTrue);
   }, timeout: const Timeout(Duration(minutes: 2)));
 
+  test('an unexpected error ends the round with a result, never as a '
+      'failed future; a call during it still gets its round', () async {
+    final supervisor = await supervised(3);
+    var throws = 1;
+    supervisor.debugBeforeDrain = (index) {
+      if (index == 1 && throws-- > 0) {
+        throw StateError('unexpected');
+      }
+    };
+    final uncaught = <Object>[];
+    final (first, second) = await runZonedGuarded(() async {
+      final first = supervisor.rollingRestart();
+      // In another zone, as a caller from a request would be.
+      final second = Zone.root.run(supervisor.rollingRestart);
+      return (await first, await second);
+    }, (error, _) => uncaught.add(error))!.timeout(const Duration(seconds: 90));
+    expect(first.workers.map((w) => w.status), [
+      WorkerRestartStatus.restarted,
+      WorkerRestartStatus.failed,
+      WorkerRestartStatus.skipped,
+    ]);
+    expect(first.completed, isFalse);
+    expect(second.completed, isTrue, reason: second.summary);
+    expect(uncaught, isEmpty);
+    for (var i = 0; i < 10; i++) {
+      expect((await boot())['boot'], isNotNull);
+    }
+  }, timeout: const Timeout(Duration(minutes: 2)));
+
   test('while stopping every worker is skipped', () async {
     final supervisor = await supervised(2);
     final stopping = supervisor.stop();

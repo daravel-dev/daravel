@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:isolate';
 
+import 'package:meta/meta.dart';
+
 import '../cache/stores.dart';
 import '../foundation/application.dart';
 import '../http/rate_limiter.dart';
@@ -460,6 +462,11 @@ final class Supervisor {
     return round;
   }
 
+  /// Called with each worker's index before its drain in a rolling
+  /// restart: a test throws here to check that a round never fails.
+  @visibleForTesting
+  void Function(int index)? debugBeforeDrain;
+
   Future<RollingRestart> _roll(Duration readyTimeout) async {
     final watch = Stopwatch()..start();
     final outcomes = <WorkerRestartOutcome>[];
@@ -477,41 +484,66 @@ final class Supervisor {
         outcomes.add(outcome(WorkerRestartStatus.skipped));
         continue;
       }
-      final exited = worker.exited = Completer<void>();
-      final replaced = worker.replaced = Completer<bool>();
-      worker.restarting = true;
-      worker.control?.send('drain');
-      await exited.future.timeout(
-        options.shutdownTimeout + const Duration(seconds: 2),
-        onTimeout: () {
-          logger.warning(
-            'Killing worker ${worker.index} after its drain timed out.',
-          );
-          isolate.kill(priority: Isolate.immediate);
-          return exited.future;
-        },
-      );
-      final ready = await replaced.future.timeout(
-        readyTimeout,
-        onTimeout: () => false,
-      );
-      if (ready) {
-        outcomes.add(outcome(WorkerRestartStatus.restarted));
-        continue;
+      // A round never fails as a future: a call during it gets the next
+      // round's result, possibly in another zone, which a failure would
+      // not reach. An unexpected error ends the round here: this worker
+      // failed, the rest skipped.
+      var drained = false;
+      try {
+        debugBeforeDrain?.call(worker.index);
+        final exited = worker.exited = Completer<void>();
+        final replaced = worker.replaced = Completer<bool>();
+        worker.restarting = true;
+        drained = true;
+        worker.control?.send('drain');
+        await exited.future.timeout(
+          options.shutdownTimeout + const Duration(seconds: 2),
+          onTimeout: () {
+            logger.warning(
+              'Killing worker ${worker.index} after its drain timed out.',
+            );
+            isolate.kill(priority: Isolate.immediate);
+            return exited.future;
+          },
+        );
+        final ready = await replaced.future.timeout(
+          readyTimeout,
+          onTimeout: () => false,
+        );
+        if (ready) {
+          outcomes.add(outcome(WorkerRestartStatus.restarted));
+          continue;
+        }
+        final timedOut = !replaced.isCompleted;
+        worker.replaced = null;
+        outcomes.add(
+          outcome(
+            timedOut
+                ? WorkerRestartStatus.timedOut
+                : WorkerRestartStatus.failed,
+          ),
+        );
+        logger.error(
+          'Rolling restart stopped: the replacement of worker '
+          '${worker.index} '
+          '${timedOut ? 'was not ready within ${readyTimeout.inSeconds}s' : 'failed'}; '
+          'the other workers keep serving.',
+        );
+        stopped = true;
+      } on Object catch (error, stackTrace) {
+        logger.error(
+          'Rolling restart stopped: worker ${worker.index} failed '
+          'unexpectedly; the other workers keep serving.',
+          error: error,
+          stackTrace: stackTrace,
+        );
+        worker.replaced = null;
+        if (!drained) {
+          worker.restarting = false;
+        }
+        outcomes.add(outcome(WorkerRestartStatus.failed));
+        stopped = true;
       }
-      final timedOut = !replaced.isCompleted;
-      worker.replaced = null;
-      outcomes.add(
-        outcome(
-          timedOut ? WorkerRestartStatus.timedOut : WorkerRestartStatus.failed,
-        ),
-      );
-      logger.error(
-        'Rolling restart stopped: the replacement of worker ${worker.index} '
-        '${timedOut ? 'was not ready within ${readyTimeout.inSeconds}s' : 'failed'}; '
-        'the other workers keep serving.',
-      );
-      stopped = true;
     }
     final result = RollingRestart(outcomes, watch.elapsed);
     logger.info(
@@ -696,7 +728,8 @@ final class RollingRestart {
   /// The round's length.
   final Duration elapsed;
 
-  /// Whether every worker was restarted.
+  /// Whether every worker was restarted; false for a round with no
+  /// worker (a supervisor always has one, `isolates` being at least 2).
   bool get completed =>
       workers.isNotEmpty &&
       workers.every((w) => w.status == WorkerRestartStatus.restarted);
