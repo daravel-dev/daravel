@@ -1,4 +1,4 @@
-<!-- source: operations.md sha256:55a204fa961c -->
+<!-- source: operations.md sha256:867444c8e4b4 -->
 # Operasional
 
 Menjalankan Daravel di bawah trafik nyata: berapa isolate, berapa koneksi
@@ -65,6 +65,39 @@ banyak satu core; satu isolate membiarkan core lainnya menganggur.
   sebaiknya mengikuti pola yang sama: string untuk apa pun yang bisa
   diwakili JSON, `TransferableTypedData` untuk data biner besar, dan map
   hanya untuk argumen kecil.
+
+### Embedded worker dan coordinator service
+
+Paket (dan aplikasi) bisa menambahkan isolate sendiri di samping server
+HTTP, seperti `serve --embed-queue` menambahkan queue worker, serta sebuah
+service di coordinator yang bisa dijangkau setiap worker:
+
+```dart
+Application createApp() => Application.configure(basePath: '.')
+    .withEmbeddedWorker('indexer', (app, control) async {
+      // Its own booted application; its CoordinatorChannel reaches the
+      // server's coordinator.
+      await for (final message in control.messages) {
+        if (message == 'stop') break; // the server is shutting down
+      }
+      return 0;
+    })
+    .withCoordinatorService(SearchStatsService.new)
+    .create();
+```
+
+`dartisan serve --embed-worker=indexer` (bisa diulang, atau
+`SERVER_EMBED_WORKERS=indexer`) menjalankannya; nama yang tidak terdaftar
+membuat server berhenti saat start dengan error konfigurasi. Isolate-nya
+bernama `daravel-<name>` dan mendapat respawn, crash backoff, dan stop yang
+sama dengan queue worker. `EmbeddedWorkers.send(name, message)` sampai ke
+`control.messages`-nya. Coordinator service didaftarkan di coordinator
+mana pun yang dimiliki proses (coordinator aplikasi sendiri dengan satu
+isolate dan di test, coordinator supervisor dengan beberapa isolate),
+sehingga worker memanggilnya dengan
+`App.make<CoordinatorChannel>().call(name, op, args)`; sebuah
+`WorkerAwareService` diberi tahu saat worker isolate keluar, dan
+`dartisan coordinator:stats` menampilkannya.
 
 ## Koneksi database
 
