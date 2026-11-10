@@ -97,6 +97,36 @@ void main() {
     expect(plain.timeZone, isNull, reason: "the server's zone, as Laravel");
   });
 
+  test('DB_IDLE_TRANSACTION_TIMEOUT: MariaDB sets it, MySQL has none', () {
+    MySqlDriver of(String driver, Map<String, Object?> options) =>
+        MySqlDriver.fromConfig(
+          driver,
+          ConnectionConfig(driver: driver, database: 'x', options: options),
+        );
+    final mariadb = of('mariadb', const {'idle_transaction_timeout': '15'});
+    expect(mariadb.idleTransactionTimeout, const Duration(seconds: 15));
+    expect(mariadb.sessionStatements('11.4.2-MariaDB'), [
+      'SET SESSION idle_transaction_timeout = 15',
+    ]);
+    final mysql = of('mysql', const {'idle_transaction_timeout': '15'});
+    expect(mysql.idleTransactionTimeout, const Duration(seconds: 15));
+    expect(mysql.sessionStatements('8.4.0'), isEmpty);
+    expect(mysql.sessionStatements('11.4.2-MariaDB'), [
+      'SET SESSION idle_transaction_timeout = 15',
+    ], reason: 'a mysql connection on a MariaDB server');
+    expect(of('mariadb', const {}).idleTransactionTimeout, isNull);
+    expect(
+      MySqlDriver(
+        host: 'h',
+        database: 'x',
+        dialect: SqlDialect.mariadb,
+        idleTransactionTimeout: const Duration(milliseconds: 1500),
+      ).sessionStatements(null),
+      ['SET SESSION idle_transaction_timeout = 2'],
+      reason: 'whole seconds, rounded up',
+    );
+  });
+
   test('deadlocks and lock wait timeouts are retryable', () {
     final driver = MySqlDriver(host: 'x', database: 'y');
     expect(

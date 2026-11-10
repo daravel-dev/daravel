@@ -241,6 +241,9 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `Post::findFiltered($request, $id)` | `await Post.definition.query().findFiltered(request, id)` | **async** |
 | `class PostQueryFilter extends QueryFilter` | `final class PostQueryFilter extends QueryFilter<Post>` |  |
 | `Filter::multiLike(['title'])->alias('q')` | `Filter.multiLike(['title']).alias('q')` | default() is withDefault(); enum/in/null are enum_/in_/null_. |
+| `Filter::scope('published')` | `Filter.scope('published')` | The scope is given the request, as ScopeFilter calls $query->$method($request). |
+| `(none)` | `Filter.scopeValue('search').alias('q')` | Daravel-only: the scope is given the value, after alias and withDefault (scopeSearch($query, $term)). |
+| `(none)` | `String? get sortScope => 'sortBy';` | Daravel-only: every allowed sort without a customSorts entry calls the scope with [column, direction]; laravel-teorion routes sorts to sortBy<Column> methods (customSorts). |
 | `FilterMacroRegistry::register('phone', fn ...)` | `FilterMacroRegistry.register('phone', (q, value, param, request) {...})` |  |
 | `php artisan make:query-filter PostQueryFilter` | `dartisan make:query-filter Post` | Registered in bootstrap/query_filters.dart (no reflection). |
 
@@ -346,6 +349,9 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `DB::listen(...) for transactions` | `DB.listenTransactions((e) {...})` | with poolWait |
 | `DB::listen(fn (QueryExecuted $q) => ...)` | `DB.listen((QueryExecuted q) {...})` |  |
 | `DB::whenQueryingForLongerThan(500, fn)` | `DB.whenQueryingForLongerThan(const Duration(milliseconds: 500), (q) {...})` | Total per request, job or command; once. |
+| `(none)` | `DB_IDLE_TRANSACTION_TIMEOUT=15` | Daravel-only: the server ends a session idle inside a transaction this long (PostgreSQL, MariaDB; MySQL has no such setting). |
+| `(none)` | `DB.manager.openSessions(); (driver as SessionTerminatingDriver).terminateSession(id)` | **async**; Daravel-only: ends the server session of a connection left inside a transaction (pg_terminate_backend, KILL CONNECTION), for supervisors that kill isolates. |
+| `(none)` | `app.overrideEnv({...}) before app.boot()` | Daravel-only: environment overrides for a host given a built Application (a worker isolate, a test harness); they win over withEnv. |
 | `DB::enableQueryLog(); ... count(DB::getQueryLog())` | `final (result, count, queries) = await DB.withQueryCount(() => ...)` |  |
 | `->whereToday('starts_at') / wherePast / whereFuture / whereBeforeToday` | `.whereToday('starts_at') / wherePast / whereFuture / whereBeforeToday` | Against Clock.now(). |
 | `->insertGetId($values)` | `await DB.table(t).insertGetId(values)` | **async** |

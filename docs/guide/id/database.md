@@ -1,4 +1,4 @@
-<!-- source: database.md sha256:b0ed2c5e90fc -->
+<!-- source: database.md sha256:ce4768b52a3f -->
 # Database
 
 `DB_CONNECTION` memilih SQLite (`sqlite`, default), PostgreSQL (`pgsql`),
@@ -202,6 +202,29 @@ database.
   kecuali `--truncate` menggantikannya. Dengan `APP_ENV=production`, perlu
   `--force`. Baris dibaca dalam potongan sebesar `--chunk` (500), dipaginasi
   berdasarkan primary key. `--tables=users,posts` membatasi penyalinan.
+
+### Statement timeout di MySQL dan MariaDB
+
+`DB_QUERY_TIMEOUT` (30 detik) membatasi setiap statement. Di MySQL dan
+MariaDB, server yang menegakkannya: setiap koneksi pool mengaturnya sekali,
+dan statement yang melewatinya gagal dengan `StatementTimeoutException`
+(sebagai `previous` dari `QueryException`), tidak pernah diulang, tanpa
+koneksi kedua ke server.
+
+| `statement_timeout_mode` | Cara | Catatan |
+| :-- | :-- | :-- |
+| `server` (default) | MySQL 5.7.8+ `max_execution_time`, MariaDB 10.1+ `max_statement_time` | MySQL hanya membatasi `SELECT`; di luar transaksi, backstop 5 detik kemudian menutup koneksi yang belum juga menjawab, lalu pool membuka koneksi baru |
+| `client` | `KILL QUERY` lewat koneksi kedua, seperti sebelumnya | Untuk user database yang tidak boleh `SET SESSION` variabel ini; driver juga kembali ke mode ini, dengan satu peringatan, bila server menolak |
+
+Di dalam transaksi hanya server yang membatasi statement: timeout di sisi
+client akan membuat `ROLLBACK` mengantre di belakangnya. Jadi di MySQL (bukan
+MariaDB) statement tulis di dalam transaksi tidak dibatasi apa pun dalam
+mode `server`: server hanya menghentikan `SELECT`, dan di dalam transaksi
+tidak ada backstop client, padahal mode lama `client` menghentikannya
+dengan `KILL QUERY`. Andalkan `innodb_lock_wait_timeout` di sana, atau
+pakai `client`. Atur mode di opsi
+koneksi (`statement_timeout_mode`) atau dengan
+`MySqlDriver(statementTimeoutMode:)`.
 
 ## Migrasi
 
@@ -566,6 +589,31 @@ mengulang.
 `query.poolWait` pada `DB.listen` adalah waktu menunggu koneksi, terpisah dari
 `query.time`: nilai tinggi berarti pool terlalu kecil, bukan database yang lambat.
 Nilainya nol di dalam transaksi, yang memegang koneksinya sendiri, dan di SQLite.
+
+## Transaksi yang tertinggal terbuka
+
+Koneksi yang pemiliknya berhenti di tengah transaksi tetap terbuka di server,
+menganggur di dalam transaksi itu, dan tetap memegang lock barisnya: server
+baru melakukan rollback saat koneksi ditutup. Membunuh isolate tidak menutup
+socket-nya selama prosesnya masih hidup, sehingga worker isolate yang dibunuh
+di tengah transaksi memblokir semua penulisan berikutnya ke baris yang
+disentuhnya.
+
+`DB_IDLE_TRANSACTION_TIMEOUT` (detik, tidak di-set secara default) meminta
+server mengakhiri session seperti itu, pada setiap koneksi pool:
+`idle_in_transaction_session_timeout` di PostgreSQL dan
+`idle_transaction_timeout` di MariaDB (10.3+). MySQL tidak punya pengaturan
+seperti ini dan mengabaikannya (`dartisan doctor` menyebutkannya). Set nilainya
+di atas jeda terlama yang dibuat kode Anda sendiri di dalam transaksi, karena
+server juga memutus transaksi sah yang menganggur lebih lama dari itu.
+
+Supervisor yang membunuh isolate sendiri dapat langsung mengakhiri session
+isolate itu: `DB.manager.openSessions()` mendaftar id server dari koneksi
+yang terbuka (pid backend, id koneksi), yang dilaporkan worker sebelumnya, dan
+driver yang mengimplementasikan `SessionTerminatingDriver` (PostgreSQL, MySQL,
+dan MariaDB) mengakhirinya dengan `terminateSession(id)`
+(`pg_terminate_backend`, `KILL CONNECTION`) dari koneksinya sendiri.
+`daravel_horizon` melakukan keduanya.
 
 ## Mendengarkan query
 

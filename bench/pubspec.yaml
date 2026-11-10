@@ -14,6 +14,7 @@ dependencies:
   daravel_log_viewer: any
   daravel_activitylog: any
   daravel_excel: any
+  daravel_horizon: any
   daravel_medialibrary: any
   daravel_mysql: any
   daravel_livekit: any
@@ -22,6 +23,7 @@ dependencies:
   daravel_test: any
   image: ^4.8.0
   path: ^1.9.0
+  sqlite3: ^3.8.0
 
 dev_dependencies:
   lints: ^6.0.0

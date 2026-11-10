@@ -160,6 +160,33 @@ DoctorCheck? packageConfigCheck(String root, {required bool windows}) {
   return null;
 }
 
+/// `DB_IDLE_TRANSACTION_TIMEOUT` of the default [connection]: what the
+/// server does with it, or a notice that MySQL ignores it. `null` when it
+/// is not set.
+DoctorCheck? idleTransactionTimeoutCheck(ConnectionConfig? connection) {
+  final timeout = PostgresDriver.idleTransactionTimeoutOption(
+    connection?.options['idle_transaction_timeout'],
+  );
+  if (connection == null || timeout == null) {
+    return null;
+  }
+  return switch (connection.driver) {
+    'pgsql' || 'mariadb' => DoctorCheck(
+      CheckStatus.ok,
+      'Idle transaction timeout: ${timeout.inSeconds}s',
+      'The server ends a session left idle inside a transaction this long '
+          '(${connection.driver == 'pgsql' ? 'idle_in_transaction_session_timeout' : 'idle_transaction_timeout'}).',
+    ),
+    'mysql' => const DoctorCheck(
+      CheckStatus.notice,
+      'DB_IDLE_TRANSACTION_TIMEOUT applies only on MariaDB',
+      'MySQL has no setting for sessions idle inside a transaction and '
+          'ignores it; a MariaDB server behind DB_CONNECTION=mysql gets it.',
+    ),
+    _ => null,
+  };
+}
+
 /// `doctor [--production]` — environment and configuration pre-flight.
 final class DoctorCommand extends DaravelCommand {
   /// The `dartisan doctor` command.
@@ -372,6 +399,9 @@ final class DoctorCommand extends DaravelCommand {
       );
     }
     checks.addAll(_productionChecks(app, appConfig, paths));
+    if (horizonSqliteCheck(app, production: production) case final check?) {
+      checks.add(check);
+    }
 
     for (final issue in ConfigValidator(
       extraChecks: app.configChecks,
@@ -511,6 +541,9 @@ final class DoctorCommand extends DaravelCommand {
           ),
         );
       }
+    }
+    if (idleTransactionTimeoutCheck(connection) case final check?) {
+      checks.add(check);
     }
     if (db.sharesSqliteFile(serve.isolates)) {
       checks.add(
@@ -1617,4 +1650,48 @@ final class UpCommand extends Command<int> {
     );
     return 0;
   }
+}
+
+/// `daravel_horizon` embedded in the server (`SERVER_EMBED_WORKERS` naming
+/// `horizon`) on a SQLite file queue: a killed worker would keep the write
+/// lock of the server's own database until the process restarts. Allowed by
+/// `HORIZON_ALLOW_SQLITE` it is a warning (development only), an error with
+/// `--production`; null without Horizon, without embedding or off SQLite. Reads the `horizon` config
+/// section by key, so the CLI does not depend on the package.
+DoctorCheck? horizonSqliteCheck(Application app, {required bool production}) {
+  final config = app.config;
+  if (!config.has('horizon') || config.get<bool?>('horizon.enabled') == false) {
+    return null;
+  }
+  final embedded = app.env
+      .list('SERVER_EMBED_WORKERS', const <String>[])
+      .any((name) => name.trim() == 'horizon');
+  final database = config.section<DatabaseConfig>();
+  final connection = database.connections[database.defaultConnection];
+  final sqliteFile =
+      connection?.driver == 'sqlite' && connection?.database != ':memory:';
+  final queue = config.section<QueueConfig>().defaultConnection;
+  final plans = config.get<List<Object?>?>('horizon.defaults') ?? const [];
+  final onDatabase = plans.any(
+    (plan) =>
+        plan is Map &&
+        ((plan['connection'] as String?) ?? queue) == 'database' &&
+        ((plan['maxProcesses'] as num?) ?? 0) > 0,
+  );
+  if (!embedded || !sqliteFile || !onDatabase) {
+    return null;
+  }
+  // Without HORIZON_ALLOW_SQLITE the boot already failed with Horizon's own
+  // config check; with it, this says it is for development only.
+  final allowed = config.get<bool?>('horizon.allow_sqlite') == true;
+  return DoctorCheck(
+    production || !allowed ? CheckStatus.error : CheckStatus.warning,
+    allowed
+        ? 'Horizon embedded on a SQLite file queue (HORIZON_ALLOW_SQLITE)'
+        : 'Horizon embedded on a SQLite file queue',
+    'A killed worker keeps the write lock of the database the HTTP server '
+    'uses until the process restarts. Use PostgreSQL or MySQL, '
+    'QUEUE_CONNECTION=redis, or serve --embed-queue; '
+    'HORIZON_ALLOW_SQLITE=1 for development only.',
+  );
 }
