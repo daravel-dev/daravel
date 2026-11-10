@@ -420,7 +420,13 @@ Map<String, Object?> _decodeSnapshot(Object wire) => wire is String
 /// previous one stays), so one worker cannot make every scrape merge and
 /// render megabytes on the supervisor's event loop. A worker that exits is
 /// forgotten, so its last `http_requests_in_flight` is not served on.
-final class MetricsService implements CoordinatorService, WorkerAwareService {
+final class MetricsService
+    with PrioritizedService
+    implements CoordinatorService, WorkerAwareService {
+  /// Bulk: put off while lagging, refused while saturated.
+  @override
+  CoordinatorPriority get priority => CoordinatorPriority.bulk;
+
   /// A service merging the workers' metrics.
   MetricsService({
     this.coordinatorStats,
@@ -500,6 +506,48 @@ final class MetricsService implements CoordinatorService, WorkerAwareService {
         'The longest a message waited in the coordinator event loop.',
         'queue_lag_peak_ms',
       ),
+      // Blueprint #141 K1.
+      'coordinator_health': <String, Object?>{
+        'type': 'gauge',
+        'help':
+            'The coordinator state (1 for the current one: healthy, '
+            'lagging, saturated).',
+        'series': <String, Object?>{
+          for (final s in CoordinatorState.values)
+            'state="${s.name}"': s.name == stats['state'] ? 1.0 : 0.0,
+        },
+      },
+      'coordinator_deferred': metric(
+        'gauge',
+        'Calls put off by the coordinator while lagging or saturated.',
+        'deferred',
+      ),
+      'coordinator_deferred_peak': metric(
+        'gauge',
+        'The most calls put off at once.',
+        'deferred_peak',
+      ),
+      'coordinator_shed_total': <String, Object?>{
+        'type': 'counter',
+        'help':
+            'Calls refused while the coordinator was saturated, by service.',
+        'series': <String, Object?>{
+          for (final MapEntry(:key, :value)
+              in ((stats['shed'] as Map<String, Object?>?) ?? const {}).entries)
+            'service="$key"': (value! as num).toDouble(),
+        },
+      },
+      'coordinator_served_total': <String, Object?>{
+        'type': 'counter',
+        'help': 'Calls the coordinator answered, by priority.',
+        'series': <String, Object?>{
+          for (final MapEntry(:key, :value)
+              in ((stats['served_by_priority'] as Map<String, Object?>?) ??
+                      const {})
+                  .entries)
+            'priority="$key"': (value! as num).toDouble(),
+        },
+      },
     };
   }
 
@@ -654,6 +702,29 @@ final class AppMetrics {
           calls.observe(roundTrip.inMicroseconds / 1e6, {'service': service});
       remote.onCallTimeout = (String service) =>
           timeouts.inc({'service': service});
+      // Blueprint #141 K1: what the coordinator last said of its health,
+      // and the calls this worker failed at once instead of waiting.
+      final state = registry.gauge(
+        'coordinator_state',
+        'The coordinator state this worker last heard (1 for the current '
+            'one: healthy, lagging, saturated).',
+      );
+      final shortCircuits = registry.counter(
+        'coordinator_short_circuit_total',
+        'Coordinator calls this worker failed at once because the '
+            'coordinator was saturated, by service.',
+      );
+      void showState(CoordinatorState current) {
+        for (final s in CoordinatorState.values) {
+          state.set(s == current ? 1 : 0, {'state': s.name});
+        }
+      }
+
+      showState(remote.coordinatorState);
+      remote
+        ..onStateChange = showState
+        ..onShortCircuit = (String service) =>
+            shortCircuits.inc({'service': service});
     }
   }
 

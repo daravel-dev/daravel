@@ -18,7 +18,12 @@ import 'coordinator.dart';
 /// final all = await reports.collect('pulse'); // {worker: report}
 /// ```
 final class WorkerReportService
+    with PrioritizedService
     implements CoordinatorService, WorkerAwareService {
+  /// Bulk: put off while lagging, refused while saturated.
+  @override
+  CoordinatorPriority get priority => CoordinatorPriority.bulk;
+
   /// The coordinator service name.
   static const String serviceName = 'worker_reports';
 

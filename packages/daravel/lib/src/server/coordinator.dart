@@ -124,6 +124,90 @@ abstract interface class ExpiringCoordinatorMessage
   bool get expiresWithCall;
 }
 
+/// How a coordinator service's calls are served when the coordinator falls
+/// behind (Blueprint #141, K1): [critical] always at once, [normal] put off
+/// while it is [CoordinatorState.saturated], [bulk] put off while it is
+/// [CoordinatorState.lagging] and refused while it is saturated.
+enum CoordinatorPriority {
+  /// Locks, rate limits, the JWT denylist: answered at once, always.
+  critical,
+
+  /// The `process` cache, presence channels, and any service that does
+  /// not say: put off while saturated, still answered.
+  normal,
+
+  /// Broadcast fan-out, metrics, worker reports: put off while lagging,
+  /// refused ([CoordinatorOverloaded]) while saturated. Only for calls
+  /// whose loss is harmless (telemetry); a service opts in.
+  bulk,
+}
+
+/// A [CoordinatorService] that says how urgent its calls are; a service
+/// that does not is [CoordinatorPriority.normal] (put off while the
+/// coordinator is saturated, never refused). Mix it in (or implement
+/// it): [priorityFor] answers [priority] unless a service tells its calls
+/// apart (the `process` cache's locks are critical, its reads normal).
+abstract mixin class PrioritizedService {
+  /// How the service's calls are served when the coordinator falls behind;
+  /// a service whose [priority] is [CoordinatorPriority.bulk] is the one
+  /// workers stop calling while it is saturated.
+  CoordinatorPriority get priority;
+
+  /// The priority of one call ([op] and [args], a map or a typed message).
+  CoordinatorPriority priorityFor(String op, Object args) => priority;
+}
+
+/// How far behind the coordinator is, from how late its event loop runs
+/// a timer (its queue lag).
+enum CoordinatorState {
+  /// The lag is under the warning threshold.
+  healthy,
+
+  /// The lag has been at or above the warning threshold for three
+  /// measurements in a row: [CoordinatorPriority.bulk] calls wait.
+  lagging,
+
+  /// The lag is at or above the shedding threshold, or the queue of calls
+  /// put off is full: [CoordinatorPriority.bulk] calls are refused.
+  saturated,
+}
+
+/// What a coordinator tells its workers when its [CoordinatorState]
+/// changes (and each second while it is not healthy), so a worker stops
+/// waiting on calls the coordinator would refuse (Blueprint #141, K1).
+@pragma('vm:deeply-immutable')
+final class CoordinatorHealth implements CoordinatorMessage {
+  /// The coordinator is in [state] ([CoordinatorState.index]) with
+  /// [lagMicros] of queue lag; [epoch] counts the announcements; and
+  /// [shedServices] (comma-separated) are refused while saturated.
+  const CoordinatorHealth(
+    this.state,
+    this.lagMicros,
+    this.epoch,
+    this.shedServices,
+  );
+
+  /// [CoordinatorState.index].
+  final int state;
+
+  /// The last queue lag measured, in microseconds.
+  final int lagMicros;
+
+  /// Increases with each announcement.
+  final int epoch;
+
+  /// The services the coordinator refuses while saturated.
+  final String shedServices;
+}
+
+/// A call the coordinator refused because it is saturated, or that the
+/// worker did not send because the coordinator said so.
+final class CoordinatorOverloaded extends CoordinatorException {
+  /// A refused call to [service].
+  const CoordinatorOverloaded(String service)
+    : super('Coordinator overloaded: [$service] calls are shed.');
+}
+
 /// A service hosted by the [Coordinator] (rate limiter, locks, cache...).
 abstract interface class CoordinatorService {
   /// The service's name.
@@ -164,11 +248,58 @@ abstract interface class WorkerAwareService {
 /// Hosts `process`-scope services. Lives in the supervisor (main) isolate
 /// when serving with several workers; in-process otherwise.
 final class Coordinator {
-  /// A coordinator queueing at most [maxQueue] calls.
-  Coordinator({this.maxQueue = 10000});
+  /// A coordinator queueing at most [maxQueue] calls. It is
+  /// [CoordinatorState.lagging] once its queue lag stays at or above
+  /// [lagWarn] for three measurements, and [CoordinatorState.saturated] at
+  /// [lagShed] or with [maxQueue] calls put off.
+  Coordinator({
+    this.maxQueue = 10000,
+    this.lagWarn = const Duration(milliseconds: 5),
+    this.lagShed = const Duration(milliseconds: 50),
+  });
 
-  /// Pending requests above this count are rejected (backpressure).
+  /// Pending requests above this count are rejected (backpressure); also
+  /// the most calls put off at once.
   final int maxQueue;
+
+  /// The queue lag at which the coordinator is lagging
+  /// (`COORDINATOR_LAG_WARN_MS`).
+  final Duration lagWarn;
+
+  /// The queue lag at which it is saturated (`COORDINATOR_LAG_SHED_MS`).
+  final Duration lagShed;
+
+  CoordinatorState _state = CoordinatorState.healthy;
+  int _lagWarnings = 0;
+  int _calm = 0;
+  int _belowShed = 0;
+
+  /// Lag measurements in a row under a threshold before the state improves.
+  static const int recoverySamples = 3;
+  int _epoch = 0;
+  int _unhealthyProbes = 0;
+  final List<CoordinatorRequest> _deferred = <CoordinatorRequest>[];
+  int _deferredHead = 0;
+  int _deferredPeak = 0;
+  bool _draining = false;
+  final Map<String, int> _shed = <String, int>{};
+  final List<int> _byPriority = List<int>.filled(
+    CoordinatorPriority.values.length,
+    0,
+  );
+
+  /// The workers' reply ports: where health announcements go.
+  final Set<SendPort> _peers = <SendPort>{};
+
+  /// The most peers remembered; past it the set starts over (dead
+  /// isolates' ports would otherwise only accumulate).
+  static const int maxPeers = 4096;
+
+  /// How far behind the coordinator is.
+  CoordinatorState get state => _state;
+
+  /// Calls put off now.
+  int get deferred => _deferred.length - _deferredHead;
 
   final Map<String, CoordinatorService> _services =
       <String, CoordinatorService>{};
@@ -271,43 +402,165 @@ final class Coordinator {
       if (message is! CoordinatorRequest) {
         return;
       }
-      final args = message.args;
-      if (message.deadline != 0 &&
-          args is ExpiringCoordinatorMessage &&
-          args.expiresWithCall &&
-          DateTime.now().microsecondsSinceEpoch > message.deadline) {
-        // The worker has given up on it: answering would only be work
-        // (a lock taken, a hit counted) nobody waits for.
-        _expired++;
+      if (_peers.length >= maxPeers) {
+        _peers.clear();
+      }
+      // A worker heard from for the first time while the coordinator is
+      // not healthy is told at once, before this call's reply, not at the
+      // next announcement.
+      if (_peers.add(message.replyTo) && _state != CoordinatorState.healthy) {
+        _tell(message.replyTo, _health());
+      }
+      if (_expiredNow(message)) {
         return;
       }
-      if (_inFlight >= maxQueue) {
+      if (_state != CoordinatorState.healthy) {
+        final priority = _priorityOfCall(message);
+        if (priority == CoordinatorPriority.bulk &&
+            _state == CoordinatorState.saturated) {
+          _refuse(message);
+          return;
+        }
+        if (priority == CoordinatorPriority.bulk ||
+            (priority == CoordinatorPriority.normal &&
+                _state == CoordinatorState.saturated)) {
+          _defer(message, priority);
+          return;
+        }
+      }
+      _serve(message);
+    };
+    return port.sendPort;
+  }
+
+  /// Whether [message] is an [ExpiringCoordinatorMessage] whose caller has
+  /// given up on it (counted as expired): answering would only be work (a
+  /// lock taken, a hit counted) nobody waits for.
+  bool _expiredNow(CoordinatorRequest message) {
+    final args = message.args;
+    if (message.deadline != 0 &&
+        args is ExpiringCoordinatorMessage &&
+        args.expiresWithCall &&
+        DateTime.now().microsecondsSinceEpoch > message.deadline) {
+      _expired++;
+      return true;
+    }
+    return false;
+  }
+
+  /// The priority of [service]: its own ([PrioritizedService]), else
+  /// [CoordinatorPriority.normal].
+  CoordinatorPriority priorityOf(String service) =>
+      switch (_services[service]) {
+        final PrioritizedService prioritized => prioritized.priority,
+        _ => CoordinatorPriority.normal,
+      };
+
+  /// The priority of one call: its service's
+  /// [PrioritizedService.priorityFor].
+  CoordinatorPriority _priorityOfCall(CoordinatorRequest message) =>
+      switch (_services[message.service]) {
+        final PrioritizedService prioritized => prioritized.priorityFor(
+          message.op,
+          message.args,
+        ),
+        _ => CoordinatorPriority.normal,
+      };
+
+  /// Refuses [message] with [CoordinatorOverloaded] (counted per service).
+  void _refuse(CoordinatorRequest message) {
+    _shed[message.service] = (_shed[message.service] ?? 0) + 1;
+    _reply(
+      message,
+      CoordinatorReply(
+        message.id,
+        error: CoordinatorOverloaded(message.service).message,
+      ),
+    );
+  }
+
+  /// Puts [message] off, to be served between incoming messages; a full
+  /// queue makes the coordinator saturated and refuses it.
+  void _defer(CoordinatorRequest message, CoordinatorPriority priority) {
+    if (deferred >= maxQueue) {
+      _setState(CoordinatorState.saturated);
+      if (priority == CoordinatorPriority.bulk) {
+        _refuse(message);
+      } else {
         _rejected++;
         _reply(
           message,
           CoordinatorReply(message.id, error: 'Coordinator queue is full.'),
         );
-        return;
       }
-      // Synchronous services (rate limits, memory cache, locks) answer
-      // inline: no Future or microtask per message.
-      final FutureOr<Object?> result;
-      try {
-        result = _invoke(message.service, message.op, args);
-      } on Object catch (error) {
-        _reply(message, CoordinatorReply(message.id, error: '$error'));
-        return;
+      return;
+    }
+    _deferred.add(message);
+    if (deferred > _deferredPeak) {
+      _deferredPeak = deferred;
+    }
+    if (!_draining) {
+      _draining = true;
+      Timer.run(_drain);
+    }
+  }
+
+  /// Serves up to [drainBatch] calls put off, then lets the messages that
+  /// arrived meanwhile through before the next batch.
+  void _drain() {
+    var served = 0;
+    while (deferred > 0 && served < drainBatch) {
+      final message = _deferred[_deferredHead++];
+      served++;
+      if (_expiredNow(message)) {
+        continue;
       }
-      if (result is! Future<Object?>) {
-        _reply(message, CoordinatorReply(message.id, result: result));
-        return;
+      if (_state == CoordinatorState.saturated &&
+          _priorityOfCall(message) == CoordinatorPriority.bulk) {
+        _refuse(message);
+        continue;
       }
-      if (++_inFlight > _peakInFlight) {
-        _peakInFlight = _inFlight;
-      }
-      unawaited(_dispatch(message, result));
-    };
-    return port.sendPort;
+      _serve(message);
+    }
+    if (deferred > 0) {
+      Timer.run(_drain);
+      return;
+    }
+    _deferred.clear();
+    _deferredHead = 0;
+    _draining = false;
+  }
+
+  /// Calls put off that are served in one turn of the event loop.
+  static const int drainBatch = 64;
+
+  void _serve(CoordinatorRequest message) {
+    _byPriority[_priorityOfCall(message).index]++;
+    if (_inFlight >= maxQueue) {
+      _rejected++;
+      _reply(
+        message,
+        CoordinatorReply(message.id, error: 'Coordinator queue is full.'),
+      );
+      return;
+    }
+    // Synchronous services (rate limits, memory cache, locks) answer
+    // inline: no Future or microtask per message.
+    final FutureOr<Object?> result;
+    try {
+      result = _invoke(message.service, message.op, message.args);
+    } on Object catch (error) {
+      _reply(message, CoordinatorReply(message.id, error: '$error'));
+      return;
+    }
+    if (result is! Future<Object?>) {
+      _reply(message, CoordinatorReply(message.id, result: result));
+      return;
+    }
+    if (++_inFlight > _peakInFlight) {
+      _peakInFlight = _inFlight;
+    }
+    unawaited(_dispatch(message, result));
   }
 
   /// Sends [reply] to the worker. A result that cannot cross an isolate
@@ -355,10 +608,89 @@ final class Coordinator {
       if (_lag > _lagPeak) {
         _lagPeak = _lag;
       }
+      _assess();
       if (_port != null) {
         _probeLag();
       }
     });
+  }
+
+  /// The state after one lag measurement. Worse at once: saturated at
+  /// [lagShed] (or a full queue of calls put off), lagging after three
+  /// measurements at [lagWarn]. Better only after [recoverySamples]
+  /// measurements in a row under the threshold (hysteresis: no flapping on
+  /// a lag that hovers at one). An unhealthy state is announced again each
+  /// second.
+  void _assess() {
+    final shedding = _lag >= lagShed || deferred >= maxQueue;
+    if (_lag >= lagWarn) {
+      _lagWarnings++;
+      _calm = 0;
+    } else {
+      _lagWarnings = 0;
+      _calm++;
+    }
+    _belowShed = shedding ? 0 : _belowShed + 1;
+    final CoordinatorState next;
+    if (shedding) {
+      next = CoordinatorState.saturated;
+    } else if (_calm >= recoverySamples) {
+      next = CoordinatorState.healthy;
+    } else if (_state == CoordinatorState.saturated &&
+        _belowShed < recoverySamples) {
+      next = CoordinatorState.saturated;
+    } else if (_lagWarnings >= 3 || _state != CoordinatorState.healthy) {
+      next = CoordinatorState.lagging;
+    } else {
+      next = CoordinatorState.healthy;
+    }
+    if (next != _state) {
+      _setState(next);
+      return;
+    }
+    if (_state != CoordinatorState.healthy &&
+        ++_unhealthyProbes * lagProbeInterval.inMilliseconds >= 1000) {
+      _announce();
+    }
+  }
+
+  void _setState(CoordinatorState next) {
+    if (next == _state) {
+      return;
+    }
+    _state = next;
+    if (next != CoordinatorState.saturated && deferred > 0 && !_draining) {
+      _draining = true;
+      Timer.run(_drain);
+    }
+    _announce();
+  }
+
+  /// Tells every worker the coordinator heard from its [state].
+  void _announce() {
+    _unhealthyProbes = 0;
+    final health = _health();
+    for (final peer in _peers) {
+      _tell(peer, health);
+    }
+  }
+
+  CoordinatorHealth _health() => CoordinatorHealth(
+    _state.index,
+    _lag.inMicroseconds,
+    ++_epoch,
+    [
+      for (final name in _services.keys)
+        if (priorityOf(name) == CoordinatorPriority.bulk) name,
+    ].join(','),
+  );
+
+  static void _tell(SendPort peer, CoordinatorHealth health) {
+    try {
+      peer.send(health);
+    } on Object {
+      // A closed port: nothing to tell.
+    }
   }
 
   /// Counters, the message rate and each service's snapshot. `messages`
@@ -388,6 +720,15 @@ final class Coordinator {
       // backlog of synchronous services, which never count in in_flight.
       'queue_lag_ms': _lag.inMicroseconds / 1000,
       'queue_lag_peak_ms': _lagPeak.inMicroseconds / 1000,
+      // Blueprint #141 K1: health, calls put off, and calls refused.
+      'state': _state.name,
+      'deferred': deferred,
+      'deferred_peak': _deferredPeak,
+      'shed': <String, Object?>{..._shed},
+      'served_by_priority': <String, Object?>{
+        for (final p in CoordinatorPriority.values)
+          p.name: _byPriority[p.index],
+      },
       'services': <String, Object?>{
         for (final entry in _services.entries) entry.key: entry.value.stats(),
       },
@@ -531,6 +872,11 @@ final class RemoteCoordinatorChannel implements TypedCoordinatorChannel {
     Object args,
     Duration timeout,
   ) {
+    // The coordinator refuses this service while saturated: fail now
+    // instead of queueing behind the flood and waiting for the refusal.
+    if (shortCircuits(service)) {
+      return Future<Object?>.error(shortCircuit(service));
+    }
     if (_closed) {
       // After close() no reply can arrive: fail now rather than after the
       // timeout (and without restarting the sweeper).
@@ -582,6 +928,10 @@ final class RemoteCoordinatorChannel implements TypedCoordinatorChannel {
   }
 
   void _onReply(Object? message) {
+    if (message is CoordinatorHealth) {
+      _onHealth(message);
+      return;
+    }
     if (message is! CoordinatorReply) {
       return;
     }
@@ -595,10 +945,59 @@ final class RemoteCoordinatorChannel implements TypedCoordinatorChannel {
     );
     final error = message.error;
     if (error != null) {
-      call.completer.completeError(CoordinatorException(error));
+      call.completer.completeError(
+        error.startsWith('Coordinator overloaded:')
+            ? CoordinatorOverloaded(call.service)
+            : CoordinatorException(error),
+      );
     } else {
       call.completer.complete(message.result);
     }
+  }
+
+  CoordinatorState _state = CoordinatorState.healthy;
+  int _epoch = -1;
+  Set<String> _shedServices = const {};
+
+  /// The coordinator's state as it last announced it (Blueprint #141, K1).
+  CoordinatorState get coordinatorState => _state;
+
+  /// Receives each change of [coordinatorState]
+  /// (`coordinator_state{state}` on `/metrics`).
+  void Function(CoordinatorState state)? onStateChange;
+
+  /// Receives the service of each call this channel failed at once,
+  /// without sending it, because the coordinator is saturated
+  /// (`coordinator_short_circuit_total{service}`).
+  void Function(String service)? onShortCircuit;
+
+  void _onHealth(CoordinatorHealth health) {
+    // Announcements cross one port in order, but a respawned coordinator
+    // starts its epochs again: a lower one is a new coordinator's.
+    if (health.epoch <= _epoch && health.epoch > 1) {
+      return;
+    }
+    _epoch = health.epoch;
+    _shedServices = health.shedServices.isEmpty
+        ? const {}
+        : health.shedServices.split(',').toSet();
+    final next = CoordinatorState.values[health.state];
+    if (next != _state) {
+      _state = next;
+      onStateChange?.call(next);
+    }
+  }
+
+  /// Whether a call to [service] is failed at once: the coordinator is
+  /// saturated and refuses that service's calls.
+  bool shortCircuits(String service) =>
+      _state == CoordinatorState.saturated && _shedServices.contains(service);
+
+  /// Records a call failed at once ([shortCircuits], or a store deciding
+  /// so for a call it would otherwise wait on) and returns its error.
+  CoordinatorOverloaded shortCircuit(String service) {
+    onShortCircuit?.call(service);
+    return CoordinatorOverloaded(service);
   }
 
   /// Closes the channel.

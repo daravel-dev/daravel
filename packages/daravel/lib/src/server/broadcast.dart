@@ -11,7 +11,14 @@ import 'coordinator.dart';
 /// An isolate registers its port for a channel when its first local
 /// listener subscribes and removes it when the last one leaves, so a
 /// message only crosses to isolates that have someone listening.
-final class BroadcastService implements CoordinatorService, WorkerAwareService {
+final class BroadcastService
+    with PrioritizedService
+    implements CoordinatorService, WorkerAwareService {
+  /// Bulk: fan-out waits while the coordinator lags, and is refused while
+  /// it is saturated, so rate limits and locks keep their answers.
+  @override
+  CoordinatorPriority get priority => CoordinatorPriority.bulk;
+
   final Map<String, Set<SendPort>> _channels = <String, Set<SendPort>>{};
 
   /// The ports each worker registered (`subscribe`'s `worker`), so a

@@ -496,7 +496,12 @@ final class RateLimitMessage implements ExpiringCoordinatorMessage {
 /// Workers send it [RateLimitMessage]s; [handle] answers the same
 /// operations given as maps.
 final class RateLimitService
+    with PrioritizedService
     implements TypedCoordinatorService<RateLimitMessage> {
+  /// Critical: answered at once even when the coordinator is behind.
+  @override
+  CoordinatorPriority get priority => CoordinatorPriority.critical;
+
   /// A service over [store], or a new memory store.
   RateLimitService([MemoryRateLimitStore? store])
     : store = store ?? MemoryRateLimitStore();
@@ -708,6 +713,14 @@ final class ProcessRateLimitStore implements RateLimitStore {
   /// [CoordinatorChannel].
   Future<Object?> _call(RateLimitMessage message, {Duration? wait}) {
     final target = channel;
+    // The coordinator said it is saturated: its answer would come after the
+    // flood ahead of it, past [timeout]. Apply the limit's failure policy
+    // now (open, or closed with failClosed) instead of waiting for it
+    // (Blueprint #141, K1); leases already held still serve.
+    if (target is RemoteCoordinatorChannel &&
+        target.coordinatorState == CoordinatorState.saturated) {
+      throw target.shortCircuit(RateLimitService.serviceName);
+    }
     wait ??= target.isRemote ? timeout : const Duration(seconds: 5);
     return target is TypedCoordinatorChannel
         ? target.callTyped(RateLimitService.serviceName, message, timeout: wait)

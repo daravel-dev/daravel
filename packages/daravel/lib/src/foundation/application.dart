@@ -1283,6 +1283,13 @@ final class Application {
           processCacheMaxEntries: cacheConfig.processMaxEntries,
           jwtDenylistMaxEntries: cacheConfig.jwtDenylistMaxEntries,
           onWarning: probe.logger.warning,
+          // Blueprint #141 K1: when bulk calls wait, then are refused.
+          lagWarn: Duration(
+            milliseconds: probe.env.integer('COORDINATOR_LAG_WARN_MS', 5),
+          ),
+          lagShed: Duration(
+            milliseconds: probe.env.integer('COORDINATOR_LAG_SHED_MS', 50),
+          ),
         ),
       );
     }
