@@ -4,6 +4,7 @@ import 'package:args/command_runner.dart';
 
 import 'command_list.dart';
 import 'console.dart';
+import 'nudges.dart';
 import 'sponsor.dart';
 
 /// The appearance of a `dartisan` runner (Blueprint #137 §3.2): the global
@@ -22,11 +23,22 @@ mixin DartisanConsole on CommandRunner<int> {
       _injected ?? Console.forFlags(noColor: _noColor, ansi: _ansi);
   bool _noColor = false;
   bool _ansi = false;
+  Nudges Function(Console console) _nudges = Nudges.new;
+  bool _celebrate = false;
+
+  /// Called by a command whose success deserves a closing line although
+  /// it is not in [nudgeCommands] (the first `migrate` of a project).
+  void celebrate() => _celebrate = true;
 
   /// Adds the global flags and `list`; [console] replaces the detected one
   /// (tests), [project] names the project's own commands.
-  void setUpConsole({Console? console, Set<String> project = const {}}) {
+  void setUpConsole({
+    Console? console,
+    Set<String> project = const {},
+    Nudges Function(Console console)? nudges,
+  }) {
     _injected = console;
+    _nudges = nudges ?? Nudges.new;
     _project = project;
     argParser
       ..addFlag(
@@ -47,7 +59,7 @@ mixin DartisanConsole on CommandRunner<int> {
   Set<String> get projectCommands => _project;
 
   @override
-  Future<int?> run(Iterable<String> args) {
+  Future<int?> run(Iterable<String> args) async {
     final all = args.toList();
     final end = all.indexOf('--');
     final options = end < 0 ? all : all.sublist(0, end);
@@ -63,6 +75,25 @@ mixin DartisanConsole on CommandRunner<int> {
     _noColor = noColor;
     _ansi = ansi;
     _console = null;
+    _celebrate = false;
+    final code = await _run(rest);
+    final command = rest.firstWhere(
+      (a) => !a.startsWith('-'),
+      orElse: () => '',
+    );
+    if ((code ?? 0) == 0 &&
+        command != 'new' &&
+        (nudgeCommands.contains(command) || _celebrate)) {
+      try {
+        _nudges(console).afterSuccess();
+      } on Object {
+        // A closing line never turns a success into a failure.
+      }
+    }
+    return code;
+  }
+
+  Future<int?> _run(List<String> rest) {
     final help =
         rest.firstOrNull == 'help' ||
         rest.contains('--help') ||
@@ -99,3 +130,10 @@ mixin DartisanConsole on CommandRunner<int> {
   @override
   void printUsage() => console.writeln(usage);
 }
+
+/// The console of [command]'s runner (its `--no-color` and `--ansi`), or
+/// the one detected from the terminal for a command run on its own.
+Console consoleOf(Command<Object?> command) => switch (command.runner) {
+  final DartisanConsole runner => runner.console,
+  _ => Console(),
+};

@@ -21,6 +21,7 @@ import 'src/upgrade_command.dart';
 import 'src/cache_commands.dart';
 import 'src/console/brand.dart';
 import 'src/console/console.dart';
+import 'src/console/nudges.dart';
 import 'src/console/runner_console.dart';
 import 'src/security_audit_command.dart';
 import 'src/adopt_command.dart';
@@ -74,6 +75,8 @@ export 'src/redis_install.dart';
 export 'src/upgrade_command.dart';
 export 'src/console/brand.dart' show sponsorUrl;
 export 'src/console/console.dart';
+export 'src/console/nudges.dart';
+export 'src/console/runner_console.dart' show DartisanConsole;
 export 'src/console/sponsor.dart';
 
 /// Creates an unbooted [Application] (a project's `createApp()`).
@@ -92,6 +95,7 @@ final class DartisanRunner extends CommandRunner<int> with DartisanConsole {
     AppFactory createApp, {
     List<CommandFactory> commands = const <CommandFactory>[],
     Console? console,
+    Nudges Function(Console console)? nudges,
   }) : super('dartisan', 'Daravel command-line interface.') {
     argParser.addFlag(
       'version',
@@ -180,7 +184,7 @@ final class DartisanRunner extends CommandRunner<int> with DartisanConsole {
       addCommand(command);
       project.add(command.name);
     }
-    setUpConsole(console: console, project: project);
+    setUpConsole(console: console, project: project, nudges: nudges);
   }
 
   @override
@@ -437,7 +441,12 @@ final class RouteListCommand extends DaravelCommand {
       ..addOption('path', help: 'Only routes whose URI contains this.')
       ..addOption('method', help: 'Only routes answering this method.')
       ..addOption('name', help: 'Only routes whose name contains this.')
-      ..addFlag('json', negatable: false, help: 'Output JSON.');
+      ..addFlag('json', negatable: false, help: 'Output JSON.')
+      ..addFlag(
+        'channels',
+        negatable: false,
+        help: 'The broadcast channels instead (withBroadcasting(channels:)).',
+      );
   }
 
   @override
@@ -449,6 +458,31 @@ final class RouteListCommand extends DaravelCommand {
   @override
   Future<int> run() => withApp((app) {
     final r = argResults!;
+    if (r['channels'] as bool) {
+      final channels = app.broadcastChannels.describe();
+      if (r['json'] as bool) {
+        stdout.writeln(
+          const JsonEncoder.withIndent('  ')
+              .convert([for (final c in channels) c.toJson()]),
+        );
+      } else if (channels.isEmpty) {
+        stdout.writeln('No broadcast channels.');
+      } else {
+        stdout.write(
+          renderTable(<List<String>>[
+            <String>['Channel', 'Type', 'Parameters', 'Events'],
+            for (final c in channels)
+              <String>[
+                c.channel,
+                c.type ?? 'private or presence',
+                c.parameters.join(', '),
+                [for (final e in c.events) e.name].join(', '),
+              ],
+          ]),
+        );
+      }
+      return 0;
+    }
     final path = r['path'] as String?;
     final method = (r['method'] as String?)?.toUpperCase();
     final name = r['name'] as String?;
@@ -523,6 +557,8 @@ final class MigrateCommand extends DaravelCommand {
         refuseInProduction(app, argResults!, 'migrate --seed')) {
       return 1;
     }
+    // The first migrate of a project ends with a closing line (ADR-036).
+    final first = !await (await Schema.builder()).hasTable('migrations');
     final migrated = await App.make<Migrator>().run();
     if (migrated.isEmpty) {
       stdout.writeln('Nothing to migrate.');
@@ -535,6 +571,9 @@ final class MigrateCommand extends DaravelCommand {
       for (final seeder in await App.make<SeederRegistry>().run()) {
         stdout.writeln('Seeded: $seeder');
       }
+    }
+    if (runner case final DartisanConsole cli when first) {
+      cli.celebrate();
     }
     return 0;
   });

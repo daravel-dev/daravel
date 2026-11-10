@@ -42,8 +42,25 @@ final class ChannelMembershipService
   final Map<String, int> _sockets = {};
 
   /// Connections counted by `open` (only with a connection quota): socket
-  /// id → the worker holding it.
-  final Map<String, String?> _open = {};
+  /// id → the worker holding it and its application (`app`, null for a
+  /// caller that names none).
+  final Map<String, (String?, String?)> _open = {};
+
+  /// Connections in [_open] by application: each application's quota is
+  /// its own.
+  final Map<String?, int> _openByApp = {};
+
+  void _closeSocket(String socket) {
+    final entry = _open.remove(socket);
+    if (entry != null) {
+      final left = (_openByApp[entry.$2] ?? 1) - 1;
+      if (left <= 0) {
+        _openByApp.remove(entry.$2);
+      } else {
+        _openByApp[entry.$2] = left;
+      }
+    }
+  }
 
   /// The last frame of each cache channel (`cache-…`, `private-cache-…`,
   /// `presence-cache-…`) and when it was sent: new subscribers get it.
@@ -93,13 +110,17 @@ final class ChannelMembershipService
       case 'open':
         // A connection counted against the quota (`REVERB_APP_MAX_CONNECTIONS`).
         final max = (args['max'] as num?)?.toInt() ?? 0;
-        if (max > 0 && _open.length >= max) {
+        final app = args['app'] as String?;
+        if (max > 0 && (_openByApp[app] ?? 0) >= max) {
           return false;
         }
-        _open[args['socket']! as String] = args['worker'] as String?;
+        final socket = args['socket']! as String;
+        _closeSocket(socket);
+        _open[socket] = (args['worker'] as String?, app);
+        _openByApp[app] = (_openByApp[app] ?? 0) + 1;
         return true;
       case 'close':
-        _open.remove(args['socket']! as String);
+        _closeSocket(args['socket']! as String);
         return null;
       case 'cache_set':
         final channel = args['channel']! as String;
@@ -230,7 +251,12 @@ final class ChannelMembershipService
   /// event or by reading the member list again.
   @override
   void forgetWorker(String worker) {
-    _open.removeWhere((_, holder) => holder == worker);
+    for (final socket in [
+      for (final MapEntry(:key, :value) in _open.entries)
+        if (value.$1 == worker) key,
+    ]) {
+      _closeSocket(socket);
+    }
     final removed = <(String, String)>[];
     for (final channel in _channels.keys.toList()) {
       final sockets = _channels[channel]!;
@@ -256,10 +282,13 @@ final class ChannelMembershipService
     for (final (channel, userId) in removed) {
       // `<except>\n<frame>` with no socket excepted, the frame the Pusher
       // server sends when a connection leaves.
+      // The channel is the broadcaster's topic: another application's is
+      // `<app id>:<channel>`, and its clients know it by the channel alone.
+      final colon = channel.indexOf(':');
       final frame = jsonEncode({
         'event': 'pusher_internal:member_removed',
         'data': jsonEncode({'user_id': userId}),
-        'channel': channel,
+        'channel': colon < 0 ? channel : channel.substring(colon + 1),
       });
       broadcast.handle('publish', {'channel': channel, 'message': '\n$frame'});
     }

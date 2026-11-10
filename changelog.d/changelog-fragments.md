@@ -1,0 +1,3 @@
+### Added
+
+- Changelog fragments (Blueprint #142, ADR-038): a pull request may write its notes in `changelog.d/<slug>.md` (sections `### Added`, `### Changed`, `### Upgrade notes`, `### Fixed`; `changelog.d/README.md`) instead of `## Unreleased` of CHANGELOG.md, so pull requests stop conflicting on that file. `tool/release.dart` assembles them into the version (notes still in CHANGELOG.md first, then the fragments by name) and removes them in the release commit; `dart run tool/changelog.dart --preview` prints the result. `tool/changelog_check.dart` validates fragments, counts their `### Upgrade notes` for the rule on new exports, and has a `--fragments-only` switch, not yet used in CI. Both forms are accepted for now.
