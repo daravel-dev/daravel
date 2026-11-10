@@ -79,4 +79,88 @@ void main() {
     await polls();
     expect(app.restartRequested, isTrue);
   });
+
+  test('a store down at the start: the value already there is no request '
+      'once it answers; a new one is', () async {
+    await request(1);
+    final flaky = _Flaky(signals, failures: 5);
+    final app = await booted();
+    final watcher = ReverbRestartWatcher(
+      app,
+      flaky,
+      poll: const Duration(milliseconds: 2),
+      spread: Duration.zero,
+    )..start();
+    addTearDown(watcher.stop);
+    await polls();
+    expect(flaky.failures, 0, reason: 'the store answers again');
+    expect(app.restartRequested, isFalse);
+    await request(2);
+    await polls();
+    expect(app.restartRequested, isTrue);
+  });
+}
+
+/// [inner], whose first [failures] reads throw (a store down for a moment).
+final class _Flaky implements CacheStore {
+  _Flaky(this.inner, {required this.failures});
+
+  final CacheStore inner;
+  int failures;
+
+  @override
+  StateScope get scope => inner.scope;
+
+  @override
+  Future<Object?> get(String key) {
+    if (failures > 0) {
+      failures--;
+      throw StateError('store down');
+    }
+    return inner.get(key);
+  }
+
+  @override
+  Future<Map<String, Object?>> many(List<String> keys) => inner.many(keys);
+
+  @override
+  Future<void> put(String key, Object? value, {Duration? ttl}) =>
+      inner.put(key, value, ttl: ttl);
+
+  @override
+  Future<void> putMany(Map<String, Object?> values, {Duration? ttl}) =>
+      inner.putMany(values, ttl: ttl);
+
+  @override
+  Future<bool> add(String key, Object? value, {Duration? ttl}) =>
+      inner.add(key, value, ttl: ttl);
+
+  @override
+  Future<int> increment(String key, [int by = 1]) => inner.increment(key, by);
+
+  @override
+  Future<int> decrement(String key, [int by = 1]) => inner.decrement(key, by);
+
+  @override
+  Future<void> forever(String key, Object? value) => inner.forever(key, value);
+
+  @override
+  Future<bool> forget(String key) => inner.forget(key);
+
+  @override
+  Future<void> flush() => inner.flush();
+
+  @override
+  Future<bool> acquireLock(String name, String owner, Duration ttl) =>
+      inner.acquireLock(name, owner, ttl);
+
+  @override
+  Future<bool> releaseLock(String name, String owner) =>
+      inner.releaseLock(name, owner);
+
+  @override
+  Future<void> forceReleaseLock(String name) => inner.forceReleaseLock(name);
+
+  @override
+  Future<String?> lockOwner(String name) => inner.lockOwner(name);
 }
