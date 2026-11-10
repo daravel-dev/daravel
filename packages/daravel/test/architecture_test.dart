@@ -245,4 +245,11 @@ const Map<String, String> _knownFutureFields = {
   'server/process_supervisor.dart:_done': 'completed with no error',
   'server/supervisor.dart:_done': 'completed with no error',
   'server/supervisor.dart:_ready': 'per worker spawn, one owner',
+  'server/supervisor.dart:exited': 'rolling restart: completed with no error',
+  'server/supervisor.dart:replaced':
+      'rolling restart: completed with a bool, never an error',
+  'server/supervisor.dart:_rolling':
+      'main isolate only; a round never fails (_roll catches all)',
+  'server/supervisor.dart:_pendingRoll':
+      'completed with a round, which never fails',
 };
