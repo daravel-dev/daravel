@@ -179,9 +179,9 @@ DoctorCheck? idleTransactionTimeoutCheck(ConnectionConfig? connection) {
     ),
     'mysql' => const DoctorCheck(
       CheckStatus.notice,
-      'DB_IDLE_TRANSACTION_TIMEOUT is ignored on MySQL',
-      'MySQL has no setting for sessions idle inside a transaction; '
-          'PostgreSQL and MariaDB have one.',
+      'DB_IDLE_TRANSACTION_TIMEOUT applies only on MariaDB',
+      'MySQL has no setting for sessions idle inside a transaction and '
+          'ignores it; a MariaDB server behind DB_CONNECTION=mysql gets it.',
     ),
     _ => null,
   };

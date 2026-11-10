@@ -68,10 +68,14 @@ void main() {
       'with few coordinator calls', () async {
     final channel = RemoteCoordinatorChannel(coordinator.listen());
     addTearDown(channel.close);
-    // A lease TTL no CI hiccup reaches: nothing is given back mid-test.
+    // A lease TTL and an answer timeout no CI hiccup reaches: nothing is
+    // given back mid-test, and no attempt fails open (`degraded`) because a
+    // loaded runner answered after the default 50 ms. The fail-open path has
+    // its own tests (coordinator_failure_test, rate_limit_fail_closed_test).
     final store = ProcessRateLimitStore(
       channel,
       leaseTtl: const Duration(minutes: 1),
+      timeout: const Duration(seconds: 10),
     );
     final before = coordinator.stats()['handled']! as int;
     var allowed = 0;
