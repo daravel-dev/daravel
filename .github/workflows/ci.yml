@@ -1,8 +1,22 @@
 name: CI
 
+# Pull requests are tested by their pull_request run only; a push run on a
+# PR branch would test the same commit again and double the runners each
+# update takes (macOS runners are the scarce ones). main and the release
+# branches (1.x) are tested on push, and merge_group runs the checks for
+# GitHub's merge queue once it is enabled in the repository rules.
 on:
   push:
+    branches: [main, "[0-9]+.x"]
   pull_request:
+  merge_group:
+
+# A new push to a pull request cancels its older run. Runs on main, the
+# release branches and merge groups are never cancelled: they are the record
+# that the commit which was merged or tagged passed.
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   test:
@@ -52,15 +66,18 @@ jobs:
           dart run tool/sample_apps_check.dart
 
       # `## Unreleased` stays on main; a new export needs an upgrade note.
-      # On a pull request, HEAD is GitHub's merge commit and HEAD^1 the base.
+      # On a pull request, HEAD is GitHub's merge commit and HEAD^1 the base;
+      # in a merge queue, HEAD is the group's commit and HEAD^1 its base.
       - name: Changelog
         run: |
           dart run tool/changelog_selftest.dart
-          if [ "${{ github.event_name }}" = pull_request ]; then
+          case "${{ github.event_name }}" in pull_request|merge_group)
             dart run tool/changelog_check.dart --base=HEAD^1
-          else
+            ;;
+          *)
             dart run tool/changelog_check.dart --base=HEAD
-          fi
+            ;;
+          esac
 
       # The example applications are what users copy, so they pass the same
       # lint rules as a user's project (no_inline_js_interpolation included).
