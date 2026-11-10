@@ -1,4 +1,4 @@
-<!-- source: http-client.md sha256:2d7a573c4661 -->
+<!-- source: http-client.md sha256:9aef1c1d737c -->
 # HTTP client
 
 `Http` mengirim request keluar ke payment gateway, API pesan, dan layanan
@@ -34,6 +34,24 @@ response.throwIfFailed();                // RequestException pada 4xx/5xx
   menghendakinya, lalu mengembalikan respons terakhir. Koneksi yang tidak
   bisa dibuat, atau timeout, melempar `ConnectionException`, termasuk
   kegagalan TLS.
+  Seperti di Laravel, setiap respons gagal diulang secara default.
+  `backoff:` menggantikan jeda tetap (`Http.exponentialBackoff()`, atau
+  `Http.backoffSequence([...])` untuk `retry(3, [100, 200])` di Laravel),
+  `jitter:` (0 sampai 1) menyebar jeda, dan
+  `when: Http.retryOnConnectionOr5xx` (error koneksi, 429, dan 5xx) atau
+  `Http.retryOnConnectionOnly` membiarkan client error lainnya.
+  `honorRetryAfter: true` menunggu sesuai `Retry-After` dari respons `429`
+  atau `503`, paling lama `maxRetryAfter` (10 detik):
+
+  ```dart
+  await Http.retry(
+    3,
+    backoff: Http.exponentialBackoff(),
+    jitter: 0.2,
+    when: Http.retryOnConnectionOr5xx,
+    honorRetryAfter: true,
+  ).get(url);
+  ```
 - Respons: `status`, `body`, `json([path, fallback])`, `jsonMap()`,
   `header(name)`, `successful` (2xx), `ok` (200), `redirect`, `clientError`,
   `serverError`, `failed`, `bodyBytes` (body apa adanya, untuk respons

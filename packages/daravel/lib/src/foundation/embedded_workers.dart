@@ -26,11 +26,13 @@ enum EmbeddedRole {
 ///
 /// [Application.serveWith] manages it; custom entrypoints can use it too.
 final class EmbeddedWorkers {
-  /// Runs the [roles] (queue worker, scheduler) of applications from
-  /// [factory] beside the HTTP server.
+  /// Runs the [roles] (queue worker, scheduler) and the [custom] isolates
+  /// (`withEmbeddedWorker`) of applications from [factory] beside the HTTP
+  /// server.
   EmbeddedWorkers(
     this.factory, {
     required this.roles,
+    this.custom = const <String>[],
     required this.logger,
     this.commandRunner,
     this.coordinator,
@@ -42,6 +44,10 @@ final class EmbeddedWorkers {
 
   /// The roles run.
   final List<EmbeddedRole> roles;
+
+  /// The embedded workers registered with
+  /// [ApplicationBuilder.withEmbeddedWorker] that run, by name.
+  final List<String> custom;
 
   /// Logs starts, crashes and stops.
   final Logger logger;
@@ -60,8 +66,8 @@ final class EmbeddedWorkers {
   /// how many times it crashed in the last minute ([defaultCrashDelay]).
   final Duration Function(int crashes) crashDelay;
 
-  final Map<EmbeddedRole, _EmbeddedIsolate> _running = {};
-  final Map<EmbeddedRole, List<DateTime>> _crashes = {};
+  final Map<String, _EmbeddedIsolate> _running = {};
+  final Map<String, List<DateTime>> _crashes = {};
   bool _stopping = false;
 
   /// Crashes in a minute beyond which a role is started only once a minute.
@@ -77,11 +83,24 @@ final class EmbeddedWorkers {
   /// Starts every role in its own isolate.
   Future<void> start() async {
     for (final role in roles) {
-      await _spawn(role);
+      await _spawn(role.name, role);
+    }
+    for (final name in custom) {
+      await _spawn(name, null);
     }
   }
 
-  Future<void> _spawn(EmbeddedRole role) async {
+  /// Sends [message] to the custom embedded worker [name]: its
+  /// [EmbeddedControl.messages] receives it (sendable values only, as
+  /// through any [SendPort]). Nothing happens when it is not running.
+  Future<void> send(String name, Object? message) async {
+    final embedded = custom.contains(name) ? _running[name] : null;
+    if (embedded != null) {
+      (await embedded.inbox).send(_EmbeddedMessage(message));
+    }
+  }
+
+  Future<void> _spawn(String name, EmbeddedRole? role) async {
     // One port for the isolate's messages and its exit: they arrive in the
     // order they were sent, so the outcome is known when the exit is.
     final control = ReceivePort();
@@ -91,13 +110,14 @@ final class EmbeddedWorkers {
         _embeddedMain,
         _EmbeddedStart(
           factory,
+          name,
           role,
           control.sendPort,
           commandRunner,
           coordinator,
         ),
         onExit: control.sendPort,
-        debugName: 'daravel-${role.name}',
+        debugName: 'daravel-$name',
       );
     } on ArgumentError catch (error) {
       if (commandRunner == null) {
@@ -111,7 +131,7 @@ final class EmbeddedWorkers {
       );
       commandRunner = null;
       control.close();
-      return _spawn(role);
+      return _spawn(name, role);
     }
     final inbox = Completer<SendPort>();
     // Until the isolate says otherwise (it ended on its own), an exit is a
@@ -127,42 +147,46 @@ final class EmbeddedWorkers {
         outcome = _EmbeddedOutcome.values.byName(message);
       } else if (message == null) {
         control.close();
-        _running.remove(role);
+        _running.remove(name);
         done.complete();
         if (!_stopping) {
-          _exited(role, outcome);
+          _exited(name, role, outcome);
         }
       }
     });
-    _running[role] = _EmbeddedIsolate(isolate, inbox.future, done.future);
-    logger.info('Embedded ${role.name} isolate started.');
+    _running[name] = _EmbeddedIsolate(isolate, inbox.future, done.future);
+    logger.info('Embedded $name isolate started.');
   }
 
-  void _exited(EmbeddedRole role, _EmbeddedOutcome outcome) {
+  void _exited(String name, EmbeddedRole? role, _EmbeddedOutcome outcome) {
     if (outcome == _EmbeddedOutcome.stopped) {
       // A restart the worker asked for (queue:restart, a timed-out job):
       // not a crash, and not counted against the role.
-      logger.info('Embedded ${role.name} isolate ended; starting it again.');
-      unawaited(_spawn(role));
+      logger.info('Embedded $name isolate ended; starting it again.');
+      unawaited(_spawn(name, role));
       return;
     }
     final now = DateTime.now();
-    final recent = (_crashes[role] ??= [])
+    final recent = (_crashes[name] ??= [])
       ..removeWhere((t) => now.difference(t) > const Duration(minutes: 1))
       ..add(now);
     final delay = crashDelay(recent.length);
-    final command = role == EmbeddedRole.queue ? 'queue:work' : 'schedule:work';
+    final command = switch (role) {
+      EmbeddedRole.queue => 'queue:work',
+      EmbeddedRole.scheduler => 'schedule:work',
+      null => 'serve --embed-worker=$name',
+    };
     logger.error(
       recent.length > maxCrashesPerMinute
-          ? 'Embedded ${role.name} isolate crashed ${recent.length} times in '
+          ? 'Embedded $name isolate crashed ${recent.length} times in '
                 'a minute; starting it again in ${delay.inSeconds}s. Run '
                 '`dartisan $command` to see the error.'
-          : 'Embedded ${role.name} isolate crashed; starting it again in '
+          : 'Embedded $name isolate crashed; starting it again in '
                 '${delay.inSeconds}s.',
     );
     Timer(delay, () {
       if (!_stopping) {
-        unawaited(_spawn(role));
+        unawaited(_spawn(name, role));
       }
     });
   }
@@ -208,9 +232,47 @@ final class _EmbeddedIsolate {
   final Future<void> done;
 }
 
+/// What a custom embedded worker ([ApplicationBuilder.withEmbeddedWorker])
+/// runs, in its own isolate, with its own booted application. The number
+/// it returns is logged when not 0; either way the isolate ended on its
+/// own and is started again unless the server is stopping. An error it
+/// throws is a crash, started again after a backoff.
+typedef EmbeddedWorkerEntry = Future<int> Function(
+  Application app,
+  EmbeddedControl control,
+);
+
+/// What a custom embedded worker gets from the server.
+final class EmbeddedControl {
+  EmbeddedControl._(this.messages, this.coordinator, this._stopping);
+
+  /// Messages from the server: `'stop'` when it shuts down (then
+  /// [stopping] completes too), and what [EmbeddedWorkers.send] sends.
+  final Stream<Object?> messages;
+
+  /// The server's coordinator, shared with the HTTP workers (null when the
+  /// isolate has a coordinator of its own); the application's
+  /// `CoordinatorChannel` already talks to it.
+  final SendPort? coordinator;
+
+  final Completer<Duration> _stopping;
+
+  /// Completes, with how long the worker has left to finish, when the
+  /// server asks it to stop: return from the entry by then.
+  Future<Duration> get stopping => _stopping.future;
+}
+
+/// A message [EmbeddedWorkers.send] wraps, apart from the stop request.
+final class _EmbeddedMessage {
+  const _EmbeddedMessage(this.payload);
+
+  final Object? payload;
+}
+
 final class _EmbeddedStart {
   const _EmbeddedStart(
     this.factory,
+    this.name,
     this.role,
     this.control,
     this.commands,
@@ -218,7 +280,8 @@ final class _EmbeddedStart {
   );
 
   final ApplicationFactory factory;
-  final EmbeddedRole role;
+  final String name;
+  final EmbeddedRole? role;
   final SendPort control;
   final ScheduleCommandRunner? commands;
   final SendPort? coordinator;
@@ -243,6 +306,34 @@ Future<void> _embeddedMain(_EmbeddedStart start) async {
       'job',
       (_) async {
         switch (start.role) {
+          case null:
+            final entry = booted._builder._embeddedWorkers[start.name];
+            if (entry == null) {
+              throw ConfigException(
+                'Embedded worker [${start.name}] is not registered '
+                '(withEmbeddedWorker).',
+              );
+            }
+            final messages = StreamController<Object?>.broadcast();
+            final stopping = Completer<Duration>();
+            inbox.listen((message) {
+              if (message is int) {
+                if (!stopping.isCompleted) {
+                  stopping.complete(Duration(milliseconds: message));
+                }
+                messages.add('stop');
+              } else if (message is _EmbeddedMessage) {
+                messages.add(message.payload);
+              }
+            });
+            final code = await entry(
+              booted,
+              EmbeddedControl._(messages.stream, start.coordinator, stopping),
+            );
+            await messages.close();
+            if (code != 0) {
+              booted.logger.warning('Embedded ${start.name} ended with $code.');
+            }
           case EmbeddedRole.queue:
             final worker = QueueWorker(
               booted.container.make<QueueManager>(),
@@ -273,7 +364,7 @@ Future<void> _embeddedMain(_EmbeddedStart start) async {
         }
       },
       onUncaughtError: (error, stackTrace) => booted.logger.error(
-        'Uncaught asynchronous error in the embedded ${start.role.name} '
+        'Uncaught asynchronous error in the embedded ${start.name} '
         'isolate',
         error: error,
         stackTrace: stackTrace,
@@ -283,12 +374,12 @@ Future<void> _embeddedMain(_EmbeddedStart start) async {
     outcome = _EmbeddedOutcome.crashed;
     try {
       app!.logger.error(
-        'Embedded ${start.role.name} failed',
+        'Embedded ${start.name} failed',
         error: error,
         stackTrace: stackTrace,
       );
     } catch (_) {
-      stderr.writeln('Embedded ${start.role.name} failed: $error');
+      stderr.writeln('Embedded ${start.name} failed: $error');
     }
   } finally {
     inbox.close();

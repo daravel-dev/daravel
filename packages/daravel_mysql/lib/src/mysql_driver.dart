@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show stderr;
 import 'dart:typed_data';
 
 import 'package:daravel/daravel.dart';
@@ -46,6 +47,8 @@ final class MySqlDriver
     this.onConnectionOpen,
     this.idleTransactionTimeout,
     this.dialect = SqlDialect.mysql,
+    this.statementTimeoutMode = StatementTimeoutMode.server,
+    this.onWarning,
   });
 
   /// Builds the driver from a connection of `config/database` (`DB_*`).
@@ -97,6 +100,11 @@ final class MySqlDriver
       idleTransactionTimeout: PostgresDriver.idleTransactionTimeoutOption(
         connection.options['idle_transaction_timeout'],
       ),
+      statementTimeoutMode:
+          switch (connection.options['statement_timeout_mode']) {
+            'client' => StatementTimeoutMode.client,
+            _ => StatementTimeoutMode.server,
+          },
     );
   }
 
@@ -134,9 +142,62 @@ final class MySqlDriver
   /// PostgreSQL; `null` for none). Without it a statement stuck on a lock
   /// wait, a stalled replica or a half-open connection held its pooled
   /// connection for ever, and once `maxConnections` were stuck every
-  /// request on the isolate queued behind them. On expiry `mysql_dart`
-  /// issues `KILL QUERY` through a side connection.
+  /// request on the isolate queued behind them. [statementTimeoutMode]
+  /// says who enforces it.
   final Duration? queryTimeout;
+
+  /// Where [queryTimeout] is enforced (#156). [StatementTimeoutMode.server],
+  /// the default: each pooled connection sets `max_execution_time` (MySQL
+  /// 5.7.8+, `SELECT` statements only) or `max_statement_time` (MariaDB
+  /// 10.1+, every statement) once, and the server stops a statement past
+  /// it with error 3024 or 1969, thrown as [StatementTimeoutException],
+  /// without a second connection. Outside a transaction a client backstop
+  /// ([backstopGrace] later) closes a connection that still has not
+  /// answered; inside one only the server bounds the statement, since a
+  /// `ROLLBACK` would queue behind it. [StatementTimeoutMode.client] keeps
+  /// the timeout of `mysql_dart` (`KILL QUERY` through a side connection);
+  /// the driver falls back to it, with one [onWarning], when the server
+  /// refuses `SET SESSION` (error 1227) or does not know the variable.
+  final StatementTimeoutMode statementTimeoutMode;
+
+  /// Told once when server-side timeouts fall back to the client; stderr
+  /// when null.
+  final void Function(String message)? onWarning;
+
+  /// Added to [queryTimeout] for the client backstop of server mode.
+  static const Duration backstopGrace = Duration(seconds: 5);
+
+  /// False once the server refused the session timeout variable.
+  bool _serverTimeouts = true;
+  bool _warned = false;
+
+  /// The server's `VERSION()`, read once by the first connection that
+  /// needs it (strict sql_mode, the session timeout, MariaDB detection).
+  String? _version;
+
+  /// Whether statements are bounded by the server right now.
+  bool get serverSideTimeouts =>
+      statementTimeoutMode == StatementTimeoutMode.server &&
+      _serverTimeouts &&
+      (queryTimeout ?? Duration.zero) > Duration.zero;
+
+  /// The statement setting [timeout] for the session on a server of
+  /// [version] (MariaDB when it says so, or for a `mariadb` connection).
+  static String sessionTimeoutStatement(
+    Duration timeout, {
+    required String? version,
+    SqlDialect dialect = SqlDialect.mysql,
+  }) {
+    if (isMariaDb(version, dialect)) {
+      final seconds = timeout.inMicroseconds / Duration.microsecondsPerSecond;
+      return 'SET SESSION max_statement_time = $seconds';
+    }
+    return 'SET SESSION max_execution_time = ${timeout.inMilliseconds}';
+  }
+
+  /// `ER_QUERY_TIMEOUT` of MySQL (3024) and `ER_STATEMENT_TIMEOUT` of
+  /// MariaDB (1969): the server stopped a statement past its time.
+  static bool isTimeoutCode(int code) => code == 3024 || code == 1969;
 
   /// Laravel's `'strict'` (`DB_STRICT`): `true` sets the strict
   /// `sql_mode` Laravel sets, `false` sets `NO_ENGINE_SUBSTITUTION` (no
@@ -233,12 +294,15 @@ final class MySqlDriver
       dialect == SqlDialect.mariadb ||
       (version ?? '').toLowerCase().contains('mariadb');
 
-  /// The server's `VERSION()`, read by the first connection that needs it.
-  String? _version;
-
   Future<void> _configure(my.MySQLConnection connection) async {
+    final timeout = queryTimeout;
+    final serverTimeout = serverSideTimeouts && timeout != null;
+    // One VERSION() read for every need: the strict sql_mode, the server
+    // side statement timeout, and whether a `mysql` connection is MariaDB
+    // (its idle_transaction_timeout).
     if (_version == null &&
         ((strict == true && modes == null) ||
+            serverTimeout ||
             (idleTransactionTimeout != null &&
                 dialect != SqlDialect.mariadb))) {
       final result = await connection.execute('SELECT VERSION() AS v');
@@ -246,6 +310,28 @@ final class MySqlDriver
     }
     for (final statement in sessionStatements(_version)) {
       await connection.execute(statement);
+    }
+    if (serverTimeout) {
+      try {
+        await connection.execute(
+          sessionTimeoutStatement(timeout, version: _version, dialect: dialect),
+        );
+      } on MySQLServerException catch (error) {
+        // 1227: no privilege; 1193: unknown variable (an older server).
+        if (error.errorCode != 1227 && error.errorCode != 1193) {
+          rethrow;
+        }
+        _serverTimeouts = false;
+        if (!_warned) {
+          _warned = true;
+          final void Function(String) warn = onWarning ?? stderr.writeln;
+          warn(
+            'MySQL connection [$name]: the server refused the session '
+            'statement timeout ($error); DB_QUERY_TIMEOUT is enforced by the '
+            'client instead (KILL QUERY through a second connection).',
+          );
+        }
+      }
     }
     await onConnectionOpen?.call(connection);
     final result = await connection.execute('SELECT CONNECTION_ID() AS id');
@@ -442,7 +528,7 @@ final class MySqlDriver
     String sql, [
     List<Object?> bindings = const [],
   ]) => _withConnection(
-    (c) => _MySqlExecutor(c, queryTimeout, dialect).select(sql, bindings),
+    (c) => _executor(c).select(sql, bindings),
     sql: sql,
     bindings: bindings,
   );
@@ -450,7 +536,7 @@ final class MySqlDriver
   @override
   Future<int> execute(String sql, [List<Object?> bindings = const []]) =>
       _withConnection(
-        (c) => _MySqlExecutor(c, queryTimeout, dialect).execute(sql, bindings),
+        (c) => _executor(c).execute(sql, bindings),
         sql: sql,
         bindings: bindings,
       );
@@ -460,7 +546,7 @@ final class MySqlDriver
     String sql, [
     List<Object?> bindings = const [],
   ]) => _withConnection(
-    (c) => _MySqlExecutor(c, queryTimeout, dialect).insertGetId(sql, bindings),
+    (c) => _executor(c).insertGetId(sql, bindings),
     sql: sql,
     bindings: bindings,
   );
@@ -469,17 +555,40 @@ final class MySqlDriver
   Future<T> transaction<T>(Future<T> Function(QueryExecutor tx) body) =>
       _withConnection(
         (connection) => connection.transactional<T>(
-          (tx) => body(_MySqlExecutor(tx, queryTimeout, dialect)),
+          (tx) => body(_executor(tx, inTransaction: true)),
         ),
       );
+
+  _MySqlExecutor _executor(
+    my.MySQLConnection connection, {
+    bool inTransaction = false,
+  }) => _MySqlExecutor(
+    connection,
+    queryTimeout,
+    dialect,
+    serverSide: serverSideTimeouts,
+    inTransaction: inTransaction,
+  );
 }
 
 /// Runs statements on one connection (a pooled one, or a transaction's).
 final class _MySqlExecutor implements QueryExecutor {
-  _MySqlExecutor(this._connection, this._queryTimeout, this.dialect);
+  _MySqlExecutor(
+    this._connection,
+    this._queryTimeout,
+    this.dialect, {
+    this.serverSide = false,
+    this.inTransaction = false,
+  });
 
   final my.MySQLConnection _connection;
   final Duration? _queryTimeout;
+
+  /// The server bounds statements (`max_execution_time`).
+  final bool serverSide;
+
+  /// Inside a transaction: no client backstop (a ROLLBACK would wait).
+  final bool inTransaction;
 
   @override
   final SqlDialect dialect;
@@ -500,8 +609,43 @@ final class _MySqlExecutor implements QueryExecutor {
             },
         ];
 
-  Future<my.IResultSet> _run(String sql, List<Object?> bindings) =>
-      _connection.execute(sql, _normalize(bindings), false, _queryTimeout);
+  Future<my.IResultSet> _run(String sql, List<Object?> bindings) async {
+    final timeout = _queryTimeout;
+    if (!serverSide || timeout == null) {
+      return _connection.execute(sql, _normalize(bindings), false, timeout);
+    }
+    var running = _connection.execute(sql, _normalize(bindings), false, null);
+    if (!inTransaction) {
+      final limit = timeout + MySqlDriver.backstopGrace;
+      running = running.timeout(
+        limit,
+        onTimeout: () {
+          // The server did not stop it (an UPDATE on MySQL, which bounds
+          // only SELECT, or a connection that stopped answering): close this
+          // connection, which the pool then replaces, rather than a KILL
+          // through a second one.
+          _connection.getSocket().destroy();
+          throw StatementTimeoutException(
+            'Statement still running $limit after it started; the '
+            'connection was closed.',
+            timeout: timeout,
+          );
+        },
+      );
+    }
+    try {
+      return await running;
+    } on MySQLServerException catch (error) {
+      if (MySqlDriver.isTimeoutCode(error.errorCode)) {
+        throw StatementTimeoutException(
+          error.message,
+          code: error.errorCode,
+          timeout: timeout,
+        );
+      }
+      rethrow;
+    }
+  }
 
   @override
   Future<List<Map<String, Object?>>> select(
@@ -642,3 +786,37 @@ final class _MySqlExecutor implements QueryExecutor {
 
 /// Reads a column's text into the value Laravel sees.
 typedef _Reader = Object? Function(String text);
+
+/// Where `DB_QUERY_TIMEOUT` is enforced on MySQL and MariaDB
+/// ([MySqlDriver.statementTimeoutMode]).
+enum StatementTimeoutMode {
+  /// By the server (`max_execution_time` / `max_statement_time`), with a
+  /// client backstop outside transactions.
+  server,
+
+  /// By the client, as before: `mysql_dart` sends `KILL QUERY` through a
+  /// second connection.
+  client,
+}
+
+/// A statement stopped for running past `DB_QUERY_TIMEOUT`: by the server
+/// ([code] 3024 on MySQL, 1969 on MariaDB) or by the client backstop
+/// ([code] null, the connection closed). It reaches the application as the
+/// [QueryException.previous] of the failed query, and is never retried.
+final class StatementTimeoutException implements Exception {
+  /// A statement that ran past [timeout].
+  const StatementTimeoutException(this.message, {this.code, this.timeout});
+
+  /// What the server (or the backstop) said.
+  final String message;
+
+  /// The server's error code, or null for the client backstop.
+  final int? code;
+
+  /// The configured `DB_QUERY_TIMEOUT`.
+  final Duration? timeout;
+
+  @override
+  String toString() =>
+      'StatementTimeoutException${code == null ? '' : ' [$code]'}: $message';
+}
