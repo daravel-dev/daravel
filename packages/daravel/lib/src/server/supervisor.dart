@@ -109,6 +109,7 @@ final class WorkerDrained {
 /// Sent by a worker whose application asked to be started again
 /// ([Application.restart], `reverb:restart`) before it exits: the
 /// supervisor spawns it again at once, without counting a crash.
+@pragma('vm:deeply-immutable')
 final class WorkerRestarting {
   /// Worker [index] is restarting.
   const WorkerRestarting(this.index);

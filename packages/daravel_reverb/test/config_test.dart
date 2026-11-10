@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:daravel/daravel.dart';
 import 'package:daravel_reverb/daravel_reverb.dart';
@@ -147,6 +148,33 @@ void main() {
     expect(
       check({'REVERB_SERVER_PATH': 'ws', 'REVERB_SERVER_ISOLATES': '0'}),
       hasLength(2),
+    );
+  });
+
+  test('doctor runs the Reverb checks (Application.configChecks)', () async {
+    final app =
+        Application.configure(
+              basePath: Directory.systemTemp.createTempSync('reverb_dr_').path,
+            )
+            .withEnv({
+              'APP_ENV': 'testing',
+              'DB_DATABASE': ':memory:',
+              'REVERB_APPS': jsonEncode([
+                {'app_id': 'a', 'key': 'k', 'secret': 'twenty-characters-xx'},
+              ]),
+            })
+            .withLogLevel(LogLevel.critical)
+            .withBroadcasting()
+            .withReverb()
+            .create();
+    await app.boot();
+    addTearDown(app.shutdown);
+    expect(app.configChecks, contains(ReverbConfig.check));
+    final issues = ConfigValidator(extraChecks: app.configChecks)
+        .validate(app.env, app.config);
+    expect(
+      issues.where((i) => !i.isError).map((i) => i.message),
+      contains(contains('shorter than 32 bytes')),
     );
   });
 }

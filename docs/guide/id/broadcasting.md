@@ -1,4 +1,4 @@
-<!-- source: broadcasting.md sha256:f5b4d1f1c7bc -->
+<!-- source: broadcasting.md sha256:b753dd75b7ba -->
 # Broadcasting
 
 Daravel berbicara dengan protokol Pusher, seperti Laravel Reverb, di port
@@ -316,9 +316,14 @@ detik, menunggu sesaat secara acak dalam `REVERB_DRAIN_SPREAD`, menutup
 koneksinya tersebar dalam rentang itu, lalu langsung dijalankan lagi (tidak
 dihitung sebagai crash). Klien reconnect dengan backoff masing-masing.
 Server satu isolate justru berhenti, agar process manager menjalankannya
-lagi, seperti di Laravel. `reverb:stats` membaca `reverb_connections`,
-`reverb_channels`, dan `reverb_messages_total` dari `/metrics` server
-(`METRICS_ENABLED=true`; `--url`, `--token`, `--json`).
+lagi, seperti di Laravel. Sinyal ini hanya sampai ke server yang membaca
+store yang sama: store `file` bawaan (dengan queue database) mencakup satu
+mesin, sehingga server Reverb di beberapa mesin memerlukan store yang dipakai
+bersama (`QUEUE_SIGNAL_STORE=database` atau `redis`); dengan store `process`,
+`reverb:restart` tidak sampai ke mana pun, dan server mencatat peringatan
+bila queue tidak punya signal store sama sekali. `reverb:stats` membaca
+`reverb_connections`, `reverb_channels`, dan `reverb_messages_total` dari
+`/metrics` server (`METRICS_ENABLED=true`; `--url`, `--token`, `--json`).
 
 ## Mendeskripsikan channel
 

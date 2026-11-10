@@ -304,9 +304,15 @@ reads it every second, waits a random moment within `REVERB_DRAIN_SPREAD`,
 closes its connections over that spread and is spawned again at once
 (not counted as a crash). Clients reconnect with their own backoff. A
 server of one isolate ends instead, for its process manager to start it
-again, as Laravel's does. `reverb:stats` reads `reverb_connections`,
-`reverb_channels` and `reverb_messages_total` from the server's `/metrics`
-(`METRICS_ENABLED=true`; `--url`, `--token`, `--json`).
+again, as Laravel's does. The signal reaches only the servers that read
+the same store: the default `file` store (with the database queue) covers
+one machine, so Reverb servers on several machines need a store they all
+share (`QUEUE_SIGNAL_STORE=database` or `redis`); with the `process` store
+`reverb:restart` reaches nothing, and the server logs a warning when the
+queue has no signal store at all. `reverb:stats` reads
+`reverb_connections`, `reverb_channels` and `reverb_messages_total` from
+the server's `/metrics` (`METRICS_ENABLED=true`; `--url`, `--token`,
+`--json`).
 
 ## Describing channels
 

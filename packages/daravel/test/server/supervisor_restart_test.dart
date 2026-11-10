@@ -23,6 +23,10 @@ Application restartingApp() =>
               });
               return 'restarting';
             });
+            router.get('/crash', (_) {
+              Timer(const Duration(milliseconds: 50), Isolate.exit);
+              return 'crashing';
+            });
           },
         )
         .create();
@@ -100,4 +104,65 @@ void main() {
     expect(supervisor.exitCode, 0);
     expect(seen, hasLength(7));
   }, timeout: const Timeout(Duration(minutes: 3)));
+
+  test('a crash after a restart still counts', () async {
+    final port = await freePort();
+    final supervisor = Supervisor(
+      restartingApp,
+      ServeOptions(
+        host: '127.0.0.1',
+        port: port,
+        isolates: 1,
+        handleSignals: false,
+        shutdownTimeout: const Duration(seconds: 5),
+        readyTimeout: const Duration(seconds: 60),
+      ),
+      logger: Logger(minimumLevel: LogLevel.critical),
+      maxCrashesPerMinute: 1,
+    );
+    await supervisor.start();
+    addTearDown(supervisor.stop);
+    final client = HttpClient();
+    addTearDown(() => client.close(force: true));
+    // No kept-alive connection: a dead isolate's sockets may stay open (only
+    // the process closes them), so a pooled one would hang.
+    Future<bool> get(String path) async {
+      try {
+        final request = await client.getUrl(
+          Uri.parse('http://127.0.0.1:$port$path'),
+        );
+        request.persistentConnection = false;
+        final response = await request.close().timeout(
+          const Duration(seconds: 2),
+        );
+        await response.drain<void>();
+        return response.statusCode == 200;
+      } on IOException {
+        return false;
+      } on TimeoutException {
+        return false;
+      }
+    }
+
+    Future<void> up() async {
+      final deadline = DateTime.now().add(const Duration(seconds: 30));
+      while (!await get('/whoami')) {
+        if (DateTime.now().isAfter(deadline)) {
+          fail('The worker did not come back.');
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      }
+    }
+
+    // With maxCrashesPerMinute: 1, a restart counted as a crash would stop
+    // the supervisor; it does not. The restart flag is not left set on the
+    // respawned worker, so its first crash stops the supervisor (exit 1).
+    expect(await get('/restart'), isTrue);
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    await up();
+    expect(supervisor.exitCode, 0);
+    expect(await get('/crash'), isTrue);
+    await supervisor.done.timeout(const Duration(seconds: 30));
+    expect(supervisor.exitCode, 1);
+  }, timeout: const Timeout(Duration(minutes: 2)));
 }

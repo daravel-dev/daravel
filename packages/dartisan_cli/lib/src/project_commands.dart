@@ -374,7 +374,7 @@ final class DoctorCommand extends DaravelCommand {
     checks.addAll(_productionChecks(app, appConfig, paths));
 
     for (final issue in ConfigValidator(
-      extraChecks: const [DatabaseConfig.check],
+      extraChecks: app.configChecks,
     ).validate(env, app.config)) {
       checks.add(
         DoctorCheck(

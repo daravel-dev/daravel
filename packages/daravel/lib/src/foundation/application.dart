@@ -220,6 +220,16 @@ final class Application {
   /// Whether [serveBroadcastingOnly] was called.
   bool get servesBroadcastingOnly => _broadcastingOnly != null;
 
+  /// The configuration checks [boot] runs besides `ConfigValidator`'s
+  /// defaults: the database's, the queue's and those packages registered
+  /// with [ApplicationBuilder.withConfigCheck]. `dartisan doctor` runs
+  /// them too.
+  List<ConfigCheck> get configChecks => List.unmodifiable([
+    DatabaseConfig.check,
+    QueueConfig.check,
+    ..._builder._configChecks,
+  ]);
+
   /// Stops serving to be started again (`reverb:restart`): the server
   /// drains as at shutdown and [serve] returns. A worker isolate of the
   /// supervisor is then spawned again at once, without counting as a
@@ -277,13 +287,7 @@ final class Application {
     final appConfig = config.section<AppConfig>();
     exceptions.debug = appConfig.debug;
 
-    final validator = ConfigValidator(
-      extraChecks: [
-        DatabaseConfig.check,
-        QueueConfig.check,
-        ..._builder._configChecks,
-      ],
-    );
+    final validator = ConfigValidator(extraChecks: configChecks);
     for (final issue in validator.validateOrThrow(env, config)) {
       logger.warning('Config: ${issue.message}');
     }

@@ -206,5 +206,38 @@ void main() {
       contains(r'\"socket_id\":\"1.2\"'),
     );
     expect(PusherFrameLog.mask('not json'), 'not json');
+
+    // Secrets nothing should send are masked anywhere in a frame.
+    final leaky = PusherFrameLog.mask(
+      jsonEncode({
+        'event': 'client-x',
+        'data': jsonEncode({
+          'nested': {'secret': 'top-secret-1', 'app_secret': 'top-secret-2'},
+        }),
+      }),
+    );
+    expect(leaky, isNot(contains('top-secret')));
+    expect(leaky, contains('***'));
+  }, tags: 'security');
+
+  test('the default observer receives frames without copying them', () {
+    // PusherObserver.frame is a no-op given the String the server already
+    // holds: nothing is encoded for an observer that does not log.
+    const observer = PusherObserver();
+    const payload = '{"event":"pusher:ping","data":{}}';
+    observer.frame('42', '1.2', 'in', payload);
+    final seen = <Object?>[];
+    PusherObservers([_Recorder(seen)]).frame('42', '1.2', 'out', payload);
+    expect(identical(seen.single, payload), isTrue);
   });
+}
+
+final class _Recorder extends PusherObserver {
+  _Recorder(this.seen);
+
+  final List<Object?> seen;
+
+  @override
+  void frame(String app, String socketId, String direction, Object? payload) =>
+      seen.add(payload);
 }
