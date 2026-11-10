@@ -4,7 +4,10 @@ import 'dart:io';
 import 'dart:isolate';
 import 'dart:math';
 
+import 'package:meta/meta.dart';
+
 import '../foundation/clock.dart';
+import '../foundation/shared_result.dart';
 import '../http/request.dart';
 import '../http/response.dart';
 import '../server/broadcast.dart';
@@ -94,7 +97,46 @@ final class PusherServer {
   final BroadcastRelay? relay;
 
   /// Starts reading the other servers' frames (once, at the first client).
-  Future<void>? _relaying;
+  /// Shared by the connections that arrive meanwhile, each in a zone of
+  /// its own: a [SharedResult], so a relay that fails to start reaches
+  /// every one of them, not only the first. Cleared when the start fails,
+  /// so a later client tries again.
+  SharedResult<void>? _relaying;
+
+  /// When the relay last failed to start (wall clock: a pause between
+  /// tries, not domain time).
+  DateTime? _relayFailedAt;
+
+  /// After a failed relay start, clients are refused (4100) without a new
+  /// try for this long, so a flood of connections does not hammer a Redis
+  /// or a database that is down. One second; tests shorten it.
+  @visibleForTesting
+  Duration relayRetryPause = const Duration(seconds: 1);
+
+  /// The relay start to wait on: the one in progress or done, a new one,
+  /// or null while the pause after a failed start lasts.
+  SharedResult<void>? _relayStart(BroadcastRelay relay) {
+    final running = _relaying;
+    if (running != null) {
+      return running;
+    }
+    final failedAt = _relayFailedAt;
+    if (failedAt != null &&
+        DateTime.now().difference(failedAt) < relayRetryPause) {
+      return null;
+    }
+    return _relaying = SharedResult(() async {
+      try {
+        await relay.start(_broadcaster.deliverLocally);
+        _relayFailedAt = null;
+      } on Object {
+        // Not kept: a client after the pause starts it again.
+        _relayFailedAt = DateTime.now();
+        _relaying = null;
+        rethrow;
+      }
+    });
+  }
 
   /// Stops relaying (application shutdown).
   Future<void> close() async => relay?.close();
@@ -250,15 +292,19 @@ final class PusherServer {
     }
     final relay = this.relay;
     if (relay != null) {
-      final relaying = _relaying ??= relay.start(_broadcaster.deliverLocally);
-      try {
-        await relaying;
-      } on Object catch (error) {
-        // Not kept: the next client starts it again (Redis was down).
-        if (identical(_relaying, relaying)) {
-          _relaying = null;
+      final relaying = _relayStart(relay);
+      Object? failure;
+      if (relaying == null) {
+        failure = 'paused after a failed start';
+      } else {
+        try {
+          await relaying.value;
+        } on Object catch (error) {
+          failure = error;
+          onError?.call('Broadcast relay did not start', error);
         }
-        onError?.call('Broadcast relay did not start', error);
+      }
+      if (failure != null) {
         socket.add(_error(4100, 'Over capacity'));
         await socket.close(4100, 'Over capacity');
         return;
