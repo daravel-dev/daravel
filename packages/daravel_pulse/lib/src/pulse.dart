@@ -193,6 +193,9 @@ abstract final class Pulse {
     snapshot['horizon_path'] = horizonPath(container.make<Router>());
     snapshot['failed_jobs'] = await _failedJobs(container, now, window);
     snapshot['reverb'] = await reverb(container);
+    // daravel_reverb's dashboard, when the application has one: the Reverb
+    // card links to it (no dependency on the package).
+    snapshot['reverb_path'] = reverbPath(container.make<Router>());
     snapshot['thresholds'] = {
       'requests_ms': _config.slowRequestThreshold.inMilliseconds,
       'queries_ms': _config.slowQueryThreshold.inMilliseconds,
@@ -223,6 +226,17 @@ abstract final class Pulse {
   static String? horizonPath(Router router) {
     for (final route in router.routes) {
       if (route.routeName == 'horizon.index') {
+        return route.path;
+      }
+    }
+    return null;
+  }
+
+  /// The path of `daravel_reverb`'s dashboard (its `reverb.index` route),
+  /// or null when the application has none.
+  static String? reverbPath(Router router) {
+    for (final route in router.routes) {
+      if (route.routeName == 'reverb.index') {
         return route.path;
       }
     }

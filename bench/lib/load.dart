@@ -12,6 +12,7 @@ final class LoadSpec {
     this.json,
     this.body,
     this.contentType,
+    this.headers = const {},
   });
 
   /// A `multipart/form-data` request with one file field [field] holding
@@ -48,6 +49,9 @@ final class LoadSpec {
   /// A body sent as it is with [contentType], instead of [json].
   final List<int>? body;
   final String? contentType;
+
+  /// Request headers (an `Authorization` token, say).
+  final Map<String, String> headers;
 }
 
 /// Result of a load run: throughput and latency percentiles of the
@@ -129,6 +133,7 @@ typedef _WorkerResult = ({int ok, int errors, int shed, List<int> latencies});
 /// Writes [spec]'s body: its raw [LoadSpec.body], or its JSON for
 /// [sequence].
 void _writeBody(HttpClientRequest request, LoadSpec spec, int sequence) {
+  spec.headers.forEach(request.headers.set);
   final raw = spec.body;
   if (raw != null) {
     request.headers

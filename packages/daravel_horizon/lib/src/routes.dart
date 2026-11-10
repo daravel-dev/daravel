@@ -233,39 +233,48 @@ abstract final class HorizonDashboard {
   /// The snapshot being worked out, per application: clients that ask
   /// meanwhile (as the last one expires) wait for it rather than each
   /// reading the queues again.
-  static final Expando<Future<_Snapshot>> _taking = Expando(
-    'horizon snapshot in progress',
-  );
+  ///
+  /// It never fails: it settles to the snapshot or the error, raised again
+  /// in each caller's zone. A future that fails in one request's zone
+  /// never hands its error to a request waiting on it from another zone
+  /// (that one would hang until its timeout).
+  static final Expando<Future<(_Snapshot?, (Object, StackTrace)?)>> _taking =
+      Expando('horizon snapshot in progress');
 
-  static Future<_Snapshot> _snapshot() {
+  static Future<_Snapshot> _snapshot() async {
     final key = _queues;
     final now = Clock.now();
     final last = _snapshots[key];
     if (last != null && now.difference(last.at) < const Duration(seconds: 1)) {
-      return Future.value(last);
+      return last;
     }
-    final taking = _taking[key];
-    if (taking != null) {
-      return taking;
+    var taking = _taking[key];
+    if (taking == null) {
+      taking = () async {
+        try {
+          final status = await _status();
+          final loads = await _queueLoads(status);
+          final summary = (await _call('summary')) as Map? ?? const {};
+          final snapshot = _Snapshot(
+            now,
+            _statsOf(status, loads, summary),
+            loads,
+          );
+          _snapshots[key] = snapshot;
+          return (snapshot, null);
+        } on Object catch (error, stackTrace) {
+          return (null, (error, stackTrace));
+        } finally {
+          _taking[key] = null;
+        }
+      }();
+      _taking[key] = taking;
     }
-    final next = () async {
-      try {
-        final status = await _status();
-        final loads = await _queueLoads(status);
-        final summary = (await _call('summary')) as Map? ?? const {};
-        final snapshot = _Snapshot(
-          now,
-          _statsOf(status, loads, summary),
-          loads,
-        );
-        _snapshots[key] = snapshot;
-        return snapshot;
-      } finally {
-        _taking[key] = null;
-      }
-    }();
-    _taking[key] = next;
-    return next;
+    final (snapshot, failure) = await taking;
+    if (failure != null) {
+      Error.throwWithStackTrace(failure.$1, failure.$2);
+    }
+    return snapshot!;
   }
 
   /// Each plan queue: its connection, size, workers and estimated wait.

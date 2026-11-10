@@ -45,4 +45,11 @@ void main() {
       ..connectionClosed('7')
       ..close();
   });
+
+  test('the card links to the Reverb dashboard by its route name', () {
+    final router = Router();
+    expect(Pulse.reverbPath(router), isNull);
+    router.get('/ops/reverb', (_) => 'page').name('reverb.index');
+    expect(Pulse.reverbPath(router), '/ops/reverb');
+  });
 }

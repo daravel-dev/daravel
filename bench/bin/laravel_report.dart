@@ -38,6 +38,7 @@ void main(List<String> args) {
     '3-store-validate-insert': 'validation + insert',
     '4-eager-loading': 'eager loading (20 posts)',
     '5-throttled': 'rate limited route',
+    '14-token-throttle-cache': 'token + rate limit + cache',
     '6-login-hash': 'login (bcrypt)',
   };
   final workers = {for (final key in results.keys) key.$3}.toList()..sort();

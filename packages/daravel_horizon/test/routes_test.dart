@@ -328,6 +328,20 @@ void main() {
     },
   );
 
+  test('a snapshot that fails fails every request waiting on it, none '
+      'hangs', () async {
+    await boot();
+    // The store answers rates of the wrong shape: the snapshot throws.
+    final channel = app.container.make<CoordinatorChannel>();
+    (channel as LocalCoordinatorChannel).coordinator.register(_BadRates());
+    final answers = await Future.wait([
+      client.get('/horizon/api/stats'),
+      client.get('/horizon/api/workload'),
+      client.get('/horizon/api/stats'),
+    ]).timeout(const Duration(seconds: 5));
+    expect(answers.map((r) => r.status), [500, 500, 500]);
+  });
+
   test('stats and workload read each queue once a second, however many '
       'clients ask', () async {
     freezeTime();
@@ -418,4 +432,20 @@ final class _CountingQueue implements QueueDriver {
 
   @override
   Future<int> clear(String queue) => _inner.clear(queue);
+}
+
+/// Horizon's store, answering `rates` with a run time that is not a
+/// number.
+final class _BadRates implements CoordinatorService {
+  @override
+  String get name => HorizonService.serviceName;
+
+  @override
+  Object? handle(String op, Map<String, Object?> args) => switch (op) {
+    'rates' => jsonEncode({'avg_ms': 'not a number'}),
+    _ => null,
+  };
+
+  @override
+  Map<String, Object?> stats() => const {};
 }

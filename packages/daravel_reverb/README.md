@@ -21,7 +21,7 @@ import 'package:daravel_reverb/daravel_reverb.dart';
 
 Application createApp() => Application.configure(basePath: basePath)
     .withBroadcasting(channels: registerChannels)
-    .withReverb()
+    .withReverb(middleware: ['auth', 'can:viewReverb']) // /reverb dashboard
     .create();
 ```
 
@@ -53,6 +53,7 @@ final List<CommandFactory> commands = [...reverbCommands];
 | `REVERB_APPS` | empty | A JSON list of applications, entries as in Reverb's `config/reverb.php`: `app_id`, `key`, `secret`, `allowed_origins`, `max_connections`, `max_message_size`, `activity_timeout`, `rate_limiting` (`enabled`, `max_attempts`, `decay_seconds`, `terminate_on_limit`), plus `encryption_master_key` (base64). The application of `REVERB_APP_*` is served beside them. |
 | `REVERB_APPS_PROVIDER` | `config` | `config` (`REVERB_APPS`) or `database` (the `reverb_apps` table of `CreateReverbAppsTable`). |
 | `REVERB_APPS_CACHE_TTL` | `60s` | How long an isolate keeps a row of `reverb_apps`, found or not. |
+| `REVERB_METRICS_URL` | | The `/metrics` of a `reverb:start` server, for the `/reverb` dashboard of the HTTP application; empty: its own. |
 
 The limits of the application of `REVERB_APP_*`, `REVERB_DRAIN_SPREAD` and
 `REVERB_PULSE_INGEST_INTERVAL` are `package:daravel`'s, as documented in the
@@ -60,6 +61,15 @@ The limits of the application of `REVERB_APP_*`, `REVERB_DRAIN_SPREAD` and
 check reports duplicate ids or keys and origins that are not host names,
 and warns of secrets under 32 bytes. `toMap()` (and `config:show`) never
 holds a secret.
+
+## Dashboard
+
+`/reverb` (`withReverb(dashboard: '/reverb', middleware: [...])`) shows connections per
+application and isolate, channels, messages per second, fan-out p50/p95,
+refusals and slow consumers, the applications without their secrets, and
+a button for `reverb:restart`. Outside `local` and `testing` it answers 403
+until `middleware:` guards it. Define the gate in `bootstrap/policies.dart`:
+`gate.define('viewReverb', (user, _) => ...)`.
 
 ## Several applications
 

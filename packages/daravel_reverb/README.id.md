@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:8f0d0cabfa5e -->
+<!-- source: README.md sha256:54201dbee5eb -->
 <img src="https://raw.githubusercontent.com/daravel-dev/daravel/main/docs/brand/png/daravel-icon-128.png" alt="Daravel" width="64" align="right">
 
 # daravel_reverb
@@ -23,7 +23,7 @@ import 'package:daravel_reverb/daravel_reverb.dart';
 
 Application createApp() => Application.configure(basePath: basePath)
     .withBroadcasting(channels: registerChannels)
-    .withReverb()
+    .withReverb(middleware: ['auth', 'can:viewReverb']) // dashboard /reverb
     .create();
 ```
 
@@ -55,6 +55,7 @@ final List<CommandFactory> commands = [...reverbCommands];
 | `REVERB_APPS` | kosong | Daftar aplikasi dalam JSON, entri seperti di `config/reverb.php` Reverb: `app_id`, `key`, `secret`, `allowed_origins`, `max_connections`, `max_message_size`, `activity_timeout`, `rate_limiting` (`enabled`, `max_attempts`, `decay_seconds`, `terminate_on_limit`), ditambah `encryption_master_key` (base64). Aplikasi dari `REVERB_APP_*` dilayani di sampingnya. |
 | `REVERB_APPS_PROVIDER` | `config` | `config` (`REVERB_APPS`) atau `database` (tabel `reverb_apps` dari `CreateReverbAppsTable`). |
 | `REVERB_APPS_CACHE_TTL` | `60s` | Lama satu isolate menyimpan baris `reverb_apps`, ditemukan atau tidak. |
+| `REVERB_METRICS_URL` | | `/metrics` dari server `reverb:start`, untuk dashboard `/reverb` aplikasi HTTP; kosong: `/metrics` aplikasi itu sendiri. |
 
 Batas aplikasi `REVERB_APP_*`, `REVERB_DRAIN_SPREAD`, dan
 `REVERB_PULSE_INGEST_INTERVAL` berasal dari `package:daravel`, seperti di
@@ -62,6 +63,15 @@ Batas aplikasi `REVERB_APP_*`, `REVERB_DRAIN_SPREAD`, dan
 konfigurasi melaporkan id atau key ganda dan origin yang bukan nama host,
 serta memperingatkan secret di bawah 32 byte. `toMap()` (dan
 `config:show`) tidak pernah memuat secret.
+
+## Dashboard
+
+`/reverb` (`withReverb(dashboard: '/reverb', middleware: [...])`) menampilkan koneksi
+per aplikasi dan isolate, channel, pesan per detik, fan-out p50/p95,
+penolakan dan slow consumer, daftar aplikasi tanpa secret-nya, dan tombol
+untuk `reverb:restart`. Di luar `local` dan `testing`, halaman ini menjawab
+403 sampai `middleware:` menjaganya. Definisikan gate di
+`bootstrap/policies.dart`: `gate.define('viewReverb', (user, _) => ...)`.
 
 ## Beberapa aplikasi
 
