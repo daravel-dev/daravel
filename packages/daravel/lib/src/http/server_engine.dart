@@ -9,6 +9,7 @@ import '../logging/logger.dart';
 import '../support/request_id.dart';
 import 'buffered_web_socket.dart';
 import 'exception_handler.dart';
+import 'graceful_server_socket.dart';
 import 'headers.dart';
 import 'http_exceptions.dart';
 import 'kernel.dart';
@@ -37,6 +38,7 @@ final class ServeOptions {
     this.maxQueueDelay,
     this.maxBodyBytes = defaultMaxBodyBytes,
     this.accessLog = true,
+    this.drainGrace = const Duration(milliseconds: 250),
   });
 
   /// The body limit a request starts with: [Request.defaultMaxBodyBytes]
@@ -160,6 +162,12 @@ final class ServeOptions {
   /// How long shutdown waits for requests in progress (`SHUTDOWN_TIMEOUT`).
   final Duration shutdownTimeout;
 
+  /// How long a drain keeps the connections accepted just before it, while
+  /// no new one is accepted, so their requests arrive and are answered
+  /// ([GracefulServerSocket]); bounded by [shutdownTimeout]. Zero closes the
+  /// idle ones at once, as before.
+  final Duration drainGrace;
+
   /// Default handler timeout (routes may override with `RouteEntry.timeout`);
   /// `null` disables it.
   final Duration? requestTimeout;
@@ -280,6 +288,7 @@ final class ServerEngine {
   final void Function()? onShed;
 
   HttpServer? _server;
+  GracefulServerSocket? _socket;
   final Completer<void> _done = Completer<void>();
   final List<StreamSubscription<ProcessSignal>> _signals =
       <StreamSubscription<ProcessSignal>>[];
@@ -548,16 +557,23 @@ final class ServerEngine {
   /// The bound port (useful when `port: 0` was requested).
   int? get port => _server?.port;
 
+  /// Connections this engine accepted (its [GracefulServerSocket]).
+  int get acceptedConnections => _socket?.accepted ?? 0;
+
   /// Binds and starts listening.
   Future<void> start() async {
     if (_server != null) {
       throw StateError('ServerEngine is already running.');
     }
-    final server = await HttpServer.bind(
+    // Through a socket whose stream outlives its accepting, so a drain can
+    // stop new connections and still answer those just accepted.
+    final socket = await GracefulServerSocket.bind(
       options.host,
       options.port,
       shared: options.shared,
     );
+    _socket = socket;
+    final server = HttpServer.listenOn(socket);
     server.idleTimeout = options.idleTimeout;
     // dart:io starts every response from these defaults (X-Frame-Options:
     // SAMEORIGIN, ...) and shares their value lists, so adding to a response
@@ -714,6 +730,21 @@ final class ServerEngine {
     }
     final server = _server;
     if (server != null) {
+      // Readiness already fails (markDraining above). Accept no new
+      // connection; keep the ones accepted just before for drainGrace, so
+      // their requests are read and answered (with `Connection: close`)
+      // instead of the connection closing on them; then the idle ones go.
+      final socket = _socket;
+      if (socket != null && !force) {
+        await socket.stopAccepting();
+        final grace = options.drainGrace < options.shutdownTimeout
+            ? options.drainGrace
+            : options.shutdownTimeout;
+        if (grace > Duration.zero) {
+          await Future<void>.delayed(grace);
+        }
+        await socket.finish();
+      }
       try {
         try {
           await Future<void>(() async {
@@ -787,6 +818,11 @@ final class ServerEngine {
   }
 
   void _handle(HttpRequest httpRequest) {
+    if (_stopping) {
+      // Draining: the client opens a new connection for its next request
+      // (to another isolate or server) instead of sending it on this one.
+      httpRequest.response.persistentConnection = false;
+    }
     if (_mustShed(httpRequest)) {
       _shedRequest(httpRequest);
       return;
@@ -869,6 +905,10 @@ final class ServerEngine {
                       response.body is! StreamBody) {
                     await _writeClosing(raw!, response);
                   } else {
+                    if (_stopping) {
+                      // A request in flight when the drain began.
+                      raw!.response.persistentConnection = false;
+                    }
                     await response.writeTo(raw!.response);
                   }
                 } catch (error) {
