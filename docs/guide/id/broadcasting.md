@@ -1,4 +1,4 @@
-<!-- source: broadcasting.md sha256:4f27dfda5b37 -->
+<!-- source: broadcasting.md sha256:810f4be05fd6 -->
 # Broadcasting
 
 Daravel berbicara dengan protokol Pusher, seperti Laravel Reverb, di port
@@ -125,9 +125,11 @@ menjawab tepat waktu), request yang mengirimnya tidak gagal. Broadcast itu
 dilepas, dicatat di log (warning paling banyak sekali per detik), dihitung
 di `broadcast_shed_total{reason}`, dan dipancarkan sebagai event
 `BroadcastShed` (berisi event, channel, dan alasannya), misalnya untuk
-meminta klien di channel itu memuat ulang. Di dalam job queue, galatnya
-justru dilempar sehingga job di-retry: aplikasi yang tidak boleh
-kehilangan event sebaiknya mengirimnya dari job. Galat lain, dan koneksi
+meminta klien di channel itu memuat ulang. Di dalam job yang dijalankan
+worker, galatnya justru dilempar sehingga job di-retry: aplikasi yang
+tidak boleh kehilangan event sebaiknya mengirimnya dari job di queue
+sungguhan (job `sync` berjalan langsung di pemanggilnya dan tidak pernah
+di-retry, jadi di sana broadcast-nya dilepas seperti pada request). Galat lain, dan koneksi
 lainnya, berperilaku seperti sebelumnya.
 
 Laravel mem-broadcast lewat Daravel dengan cara yang sama:
