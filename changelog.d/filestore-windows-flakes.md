@@ -1,0 +1,3 @@
+### Fixed
+
+- `FileStore` on Windows: a process waiting for a key's lock (`increment`, `decrement`, `add`, `touch`) no longer starves while other processes take the key over and over, which failed it with `PathAccessException: lock failed` (errno 33) after 30 s. A Windows timer fires on the 15.6 ms system tick at the earliest, so a waiter polled the lock that often while a holder took it back at once. A caller now joins the processes already waiting (a shared lock on a second byte of the lock file) instead of overtaking them, and they take the lock in turn. Exclusivity still rests on the same OS lock, nothing blocks an I/O thread, and Linux and macOS lock as before.

@@ -1,0 +1,42 @@
+work=$HOME/k1b-cache-20261111-151307
+main_ceiling-cache_1 load: 0.81 0.61 0.87
+main_ceiling-cache_1 exit=0
+k1b_ceiling-cache_1 load: 1.35 0.75 0.92
+k1b_ceiling-cache_1 exit=0
+k1b_ceiling-cache_2 load: 1.71 0.86 0.95
+k1b_ceiling-cache_2 exit=0
+main_ceiling-cache_2 load: 1.66 0.95 0.98
+main_ceiling-cache_2 exit=0
+main_ceiling-cache_3 load: 1.70 1.01 1.00
+main_ceiling-cache_3 exit=0
+k1b_ceiling-cache_3 load: 1.86 1.09 1.02
+k1b_ceiling-cache_3 exit=0
+k1b_ceiling-cache_4 load: 1.90 1.15 1.05
+k1b_ceiling-cache_4 exit=0
+main_ceiling-cache_4 load: 1.83 1.24 1.08
+main_ceiling-cache_4 exit=0
+main_ceiling-cache_5 load: 1.88 1.29 1.10
+main_ceiling-cache_5 exit=0
+k1b_ceiling-cache_5 load: 1.91 1.33 1.12
+k1b_ceiling-cache_5 exit=0
+k1b_ceiling-cache_6 load: 1.80 1.39 1.15
+k1b_ceiling-cache_6 exit=0
+main_ceiling-cache_6 load: 1.76 1.43 1.17
+main_ceiling-cache_6 exit=0
+main_ceiling-cache_7 load: 1.90 1.49 1.20
+main_ceiling-cache_7 exit=0
+k1b_ceiling-cache_7 load: 1.86 1.51 1.21
+k1b_ceiling-cache_7 exit=0
+k1b_ceiling-cache_8 load: 1.95 1.57 1.24
+k1b_ceiling-cache_8 exit=0
+main_ceiling-cache_8 load: 1.67 1.56 1.25
+main_ceiling-cache_8 exit=0
+main_ceiling-cache_9 load: 1.78 1.59 1.27
+main_ceiling-cache_9 exit=0
+k1b_ceiling-cache_9 load: 1.68 1.60 1.28
+k1b_ceiling-cache_9 exit=0
+k1b_ceiling-cache_10 load: 1.83 1.64 1.31
+k1b_ceiling-cache_10 exit=0
+main_ceiling-cache_10 load: 1.76 1.66 1.33
+main_ceiling-cache_10 exit=0
+done

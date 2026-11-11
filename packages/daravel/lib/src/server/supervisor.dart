@@ -46,8 +46,10 @@ Coordinator createStandardCoordinator({
   int processCacheMaxEntries = 10000,
   int jwtDenylistMaxEntries = 100000,
   void Function(String message)? onWarning,
+  Duration lagWarn = const Duration(milliseconds: 5),
+  Duration lagShed = const Duration(milliseconds: 50),
 }) {
-  final coordinator = Coordinator();
+  final coordinator = Coordinator(lagWarn: lagWarn, lagShed: lagShed);
   // Registered before the channel membership, so a crashed worker's ports
   // are gone when its members are announced as removed.
   final broadcast = BroadcastService();
@@ -628,7 +630,10 @@ final class Supervisor {
 
   static Future<void> _workerMain(_WorkerSpawn spawn) async {
     final control = ReceivePort('daravel-worker-${spawn.index}');
-    final channel = RemoteCoordinatorChannel(spawn.coordinator);
+    final channel = RemoteCoordinatorChannel(
+      spawn.coordinator,
+      worker: 'daravel-worker-${spawn.index}',
+    );
     final Application app;
     try {
       app = spawn.factory();

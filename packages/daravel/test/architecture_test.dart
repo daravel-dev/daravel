@@ -291,9 +291,9 @@ const Map<String, (int, String)> _knownLongLived = {
   'replication/replicator.dart': (1, 'the replication loop of its command'),
   'server/broadcast.dart': (1, 'per WebSocket connection (serve)'),
   'server/coordinator.dart': (
-    3,
-    'the coordinator, its channels and its lag probe (_probeLag), created '
-        'at boot',
+    2,
+    'the coordinator and its lag probe (_probeLag), created at boot; the '
+        "channels' timeout sweep runs detached",
   ),
   'server/process_supervisor.dart': (5, 'the process supervisor'),
   'server/supervisor.dart': (7, 'the isolate supervisor'),

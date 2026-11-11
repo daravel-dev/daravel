@@ -6,3 +6,6 @@ tags:
   security:
   # Needs a database server (DARAVEL_TEST_PG); skipped without it.
   integration:
+  # Analyzer checks that misspelt or mistyped uses of the typed API (wave 9)
+  # do not compile (test/typed_api/).
+  typed-api:

@@ -1,0 +1,202 @@
+{
+  "dart": "3.13.4",
+  "aot": true,
+  "processors": 16,
+  "duration_s": 5.0,
+  "in_flight_per_client": 16,
+  "bulk_window": 8,
+  "ceiling": {
+    "rate": {
+      "1": {
+        "ops_per_s": 181935,
+        "messages_per_s": 181935,
+        "p50_us": 66,
+        "p99_us": 405,
+        "errors": 0
+      },
+      "8": {
+        "ops_per_s": 31450,
+        "messages_per_s": 31450,
+        "p50_us": 3299,
+        "p99_us": 15159,
+        "errors": 0
+      },
+      "16": {
+        "ops_per_s": 36194,
+        "messages_per_s": 5703,
+        "p50_us": 45,
+        "p99_us": 47574,
+        "errors": 0
+      }
+    },
+    "lock": {
+      "1": {
+        "ops_per_s": 21198,
+        "messages_per_s": 42396,
+        "p50_us": 718,
+        "p99_us": 2048,
+        "errors": 0
+      },
+      "8": {
+        "ops_per_s": 20790,
+        "messages_per_s": 41581,
+        "p50_us": 5313,
+        "p99_us": 26855,
+        "errors": 0
+      },
+      "16": {
+        "ops_per_s": 17125,
+        "messages_per_s": 34251,
+        "p50_us": 15159,
+        "p99_us": 22194,
+        "errors": 0
+      }
+    },
+    "cache": {
+      "1": {
+        "ops_per_s": 178075,
+        "messages_per_s": 178075,
+        "p50_us": 73,
+        "p99_us": 252,
+        "errors": 0
+      },
+      "8": {
+        "ops_per_s": 42369,
+        "messages_per_s": 42369,
+        "p50_us": 2999,
+        "p99_us": 5844,
+        "errors": 0
+      },
+      "16": {
+        "ops_per_s": 30189,
+        "messages_per_s": 30189,
+        "p50_us": 9412,
+        "p99_us": 12528,
+        "errors": 0
+      }
+    },
+    "publish": {
+      "1": {
+        "ops_per_s": 170805,
+        "messages_per_s": 170805,
+        "p50_us": 80,
+        "p99_us": 277,
+        "errors": 0
+      },
+      "8": {
+        "ops_per_s": 52282,
+        "messages_per_s": 52282,
+        "p50_us": 2479,
+        "p99_us": 4391,
+        "errors": 0
+      },
+      "16": {
+        "ops_per_s": 42914,
+        "messages_per_s": 42914,
+        "p50_us": 6429,
+        "p99_us": 10354,
+        "errors": 0
+      }
+    },
+    "noop": {
+      "1": {
+        "ops_per_s": 223534,
+        "messages_per_s": 223534,
+        "p50_us": 60,
+        "p99_us": 208,
+        "errors": 0
+      },
+      "8": {
+        "ops_per_s": 52090,
+        "messages_per_s": 52090,
+        "p50_us": 2479,
+        "p99_us": 4391,
+        "errors": 0
+      },
+      "16": {
+        "ops_per_s": 37651,
+        "messages_per_s": 37651,
+        "p50_us": 7072,
+        "p99_us": 10354,
+        "errors": 0
+      }
+    },
+    "send": {
+      "1": {
+        "ops_per_s": 1818378,
+        "messages_per_s": 18004,
+        "p50_us": 956,
+        "p99_us": 1399,
+        "errors": 0
+      },
+      "8": {
+        "ops_per_s": 395200,
+        "messages_per_s": 3913,
+        "p50_us": 32494,
+        "p99_us": 57565,
+        "errors": 0
+      },
+      "16": {
+        "ops_per_s": 786550,
+        "messages_per_s": 7788,
+        "p50_us": 32494,
+        "p99_us": 92709,
+        "errors": 0
+      }
+    }
+  },
+  "saturation": {
+    "flood_isolates": 16,
+    "publish_per_s": 80597,
+    "messages_per_s": 81314,
+    "port_messages_per_1000_publishes": 259,
+    "publish_refused": 0,
+    "rate_alone": {
+      "p50_us": 45,
+      "p99_us": 97
+    },
+    "rate_under_flood": {
+      "p50_us": 1399,
+      "p99_us": 4391,
+      "errors": 0
+    }
+  },
+  "lease": {
+    "60/min x4": {
+      "attempts": 4589971,
+      "allowed": 60,
+      "over_limit": 0,
+      "messages_per_decision": 0.0
+    },
+    "60/min x16": {
+      "attempts": 2098197,
+      "allowed": 60,
+      "over_limit": 0,
+      "messages_per_decision": 0.0002
+    },
+    "1000/min x4": {
+      "attempts": 3590983,
+      "allowed": 1000,
+      "over_limit": 0,
+      "messages_per_decision": 0.0
+    },
+    "1000/min x16": {
+      "attempts": 946608,
+      "allowed": 1000,
+      "over_limit": 0,
+      "messages_per_decision": 0.0002
+    },
+    "10000/min x4": {
+      "attempts": 4174106,
+      "allowed": 10000,
+      "over_limit": 0,
+      "messages_per_decision": 0.0002
+    },
+    "10000/min x16": {
+      "attempts": 1932214,
+      "allowed": 10000,
+      "over_limit": 0,
+      "messages_per_decision": 0.0005
+    }
+  }
+}

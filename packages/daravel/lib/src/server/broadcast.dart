@@ -13,7 +13,19 @@ import 'coordinator.dart';
 /// An isolate registers its port for a channel when its first local
 /// listener subscribes and removes it when the last one leaves, so a
 /// message only crosses to isolates that have someone listening.
-final class BroadcastService implements CoordinatorService, WorkerAwareService {
+final class BroadcastService
+    with PrioritizedService
+    implements CoordinatorService, WorkerAwareService {
+  /// Bulk: fan-out waits while the coordinator lags, and is refused while
+  /// it is saturated, so rate limits and locks keep their answers.
+  @override
+  // Subscriptions are answered under load; the fan-out is what may wait
+  // or be dropped (ACK 235, Addendum 1).
+  CoordinatorPriority get priority => CoordinatorPriority.normal;
+
+  @override
+  Set<String> get bulkOperations => const {'publish'};
+
   final Map<String, Set<SendPort>> _channels = <String, Set<SendPort>>{};
 
   /// The ports each worker registered (`subscribe`'s `worker`), so a
@@ -148,7 +160,7 @@ final class Broadcaster {
   /// is, anything else as JSON. Returns how many isolates received it.
   Future<int> publish(String channel, Object? message) async {
     final text = message is String ? message : jsonEncode(message);
-    final receivers = await _coordinator.call('broadcast', 'publish', {
+    final receivers = await _coordinator.callBulk('broadcast', 'publish', {
       'channel': channel,
       'message': text,
     });

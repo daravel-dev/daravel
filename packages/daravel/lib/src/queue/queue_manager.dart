@@ -13,6 +13,7 @@ import '../events/events.dart';
 import '../foundation/config.dart';
 import '../foundation/config_validator.dart';
 import '../foundation/container.dart';
+import '../foundation/retryable_job.dart';
 import '../foundation/env.dart';
 import '../foundation/exceptions.dart';
 import '../logging/context.dart';
@@ -467,32 +468,38 @@ final class JobProcessor {
     var running = true;
     try {
       await ctx.cancellation.run(
-        () => container.runScoped<void>(
-          'job',
-          (_) async {
-            Context.current.hydrate(payload.context);
-            await _runWithMiddleware(ctx, job, () async {
-              try {
-                await job.handle(ctx).timeout(limit);
-              } on TimeoutException {
-                ctx.cancelled = true;
-                timedOut = true;
-                rethrow;
+        // Whether a failure is retried: not on `sync`, which runs the job
+        // inline in its caller (a broadcast the coordinator sheds there is
+        // dropped and told, as in a request, not raised for a retry).
+        () => runZoned(
+          zoneValues: {retryableJobKey: driver is! SyncQueue},
+          () => container.runScoped<void>(
+            'job',
+            (_) async {
+              Context.current.hydrate(payload.context);
+              await _runWithMiddleware(ctx, job, () async {
+                try {
+                  await job.handle(ctx).timeout(limit);
+                } on TimeoutException {
+                  ctx.cancelled = true;
+                  timedOut = true;
+                  rethrow;
+                }
+              });
+            },
+            onUncaughtError: (e, s) {
+              if (running && stray == null) {
+                stray = (e, s);
+              } else {
+                logger?.error(
+                  'Uncaught asynchronous error in job ${payload.displayName}',
+                  error: e,
+                  stackTrace: s,
+                  context: <String, Object?>{'job_id': queued.id},
+                );
               }
-            });
-          },
-          onUncaughtError: (e, s) {
-            if (running && stray == null) {
-              stray = (e, s);
-            } else {
-              logger?.error(
-                'Uncaught asynchronous error in job ${payload.displayName}',
-                error: e,
-                stackTrace: s,
-                context: <String, Object?>{'job_id': queued.id},
-              );
-            }
-          },
+            },
+          ),
         ),
       );
     } catch (e, s) {
