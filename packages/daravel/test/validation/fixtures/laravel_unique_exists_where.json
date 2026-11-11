@@ -1,0 +1,633 @@
+{
+    "laravel": "13.40.0",
+    "php": "8.3.35",
+    "schema": "CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT, account_id INTEGER, active INTEGER, role TEXT, deleted_at TEXT)",
+    "rows": [
+        {
+            "id": 1,
+            "email": "a@x.io",
+            "account_id": 1,
+            "active": 1,
+            "role": "admin",
+            "deleted_at": null
+        },
+        {
+            "id": 2,
+            "email": "b@x.io",
+            "account_id": 1,
+            "active": 0,
+            "role": "user",
+            "deleted_at": "2026-01-01"
+        },
+        {
+            "id": 3,
+            "email": "c@x.io",
+            "account_id": 2,
+            "active": 1,
+            "role": "user",
+            "deleted_at": null
+        }
+    ],
+    "cases": [
+        {
+            "rule": "exists:users,email",
+            "value": "a@x.io",
+            "errors": {}
+        },
+        {
+            "rule": "exists:users,email",
+            "value": "b@x.io",
+            "errors": {}
+        },
+        {
+            "rule": "exists:users,email",
+            "value": "c@x.io",
+            "errors": {}
+        },
+        {
+            "rule": "exists:users,email",
+            "value": "z@x.io",
+            "errors": {
+                "email": [
+                    "The selected email is invalid."
+                ]
+            }
+        },
+        {
+            "rule": "exists:users,email,active,1",
+            "value": "a@x.io",
+            "errors": {}
+        },
+        {
+            "rule": "exists:users,email,active,1",
+            "value": "b@x.io",
+            "errors": {
+                "email": [
+                    "The selected email is invalid."
+                ]
+            }
+        },
+        {
+            "rule": "exists:users,email,active,1",
+            "value": "c@x.io",
+            "errors": {}
+        },
+        {
+            "rule": "exists:users,email,active,1",
+            "value": "z@x.io",
+            "errors": {
+                "email": [
+                    "The selected email is invalid."
+                ]
+            }
+        },
+        {
+            "rule": "exists:users,email,deleted_at,NULL",
+            "value": "a@x.io",
+            "errors": {}
+        },
+        {
+            "rule": "exists:users,email,deleted_at,NULL",
+            "value": "b@x.io",
+            "errors": {
+                "email": [
+                    "The selected email is invalid."
+                ]
+            }
+        },
+        {
+            "rule": "exists:users,email,deleted_at,NULL",
+            "value": "c@x.io",
+            "errors": {}
+        },
+        {
+            "rule": "exists:users,email,deleted_at,NULL",
+            "value": "z@x.io",
+            "errors": {
+                "email": [
+                    "The selected email is invalid."
+                ]
+            }
+        },
+        {
+            "rule": "exists:users,email,deleted_at,NOT_NULL",
+            "value": "a@x.io",
+            "errors": {
+                "email": [
+                    "The selected email is invalid."
+                ]
+            }
+        },
+        {
+            "rule": "exists:users,email,deleted_at,NOT_NULL",
+            "value": "b@x.io",
+            "errors": {}
+        },
+        {
+            "rule": "exists:users,email,deleted_at,NOT_NULL",
+            "value": "c@x.io",
+            "errors": {
+                "email": [
+                    "The selected email is invalid."
+                ]
+            }
+        },
+        {
+            "rule": "exists:users,email,deleted_at,NOT_NULL",
+            "value": "z@x.io",
+            "errors": {
+                "email": [
+                    "The selected email is invalid."
+                ]
+            }
+        },
+        {
+            "rule": "exists:users,email,role,!admin",
+            "value": "a@x.io",
+            "errors": {
+                "email": [
+                    "The selected email is invalid."
+                ]
+            }
+        },
+        {
+            "rule": "exists:users,email,role,!admin",
+            "value": "b@x.io",
+            "errors": {}
+        },
+        {
+            "rule": "exists:users,email,role,!admin",
+            "value": "c@x.io",
+            "errors": {}
+        },
+        {
+            "rule": "exists:users,email,role,!admin",
+            "value": "z@x.io",
+            "errors": {
+                "email": [
+                    "The selected email is invalid."
+                ]
+            }
+        },
+        {
+            "rule": "exists:users,email,account_id,1",
+            "value": "a@x.io",
+            "errors": {}
+        },
+        {
+            "rule": "exists:users,email,account_id,1",
+            "value": "b@x.io",
+            "errors": {}
+        },
+        {
+            "rule": "exists:users,email,account_id,1",
+            "value": "c@x.io",
+            "errors": {
+                "email": [
+                    "The selected email is invalid."
+                ]
+            }
+        },
+        {
+            "rule": "exists:users,email,account_id,1",
+            "value": "z@x.io",
+            "errors": {
+                "email": [
+                    "The selected email is invalid."
+                ]
+            }
+        },
+        {
+            "rule": "exists:users,email,account_id,1,active,1",
+            "value": "a@x.io",
+            "errors": {}
+        },
+        {
+            "rule": "exists:users,email,account_id,1,active,1",
+            "value": "b@x.io",
+            "errors": {
+                "email": [
+                    "The selected email is invalid."
+                ]
+            }
+        },
+        {
+            "rule": "exists:users,email,account_id,1,active,1",
+            "value": "c@x.io",
+            "errors": {
+                "email": [
+                    "The selected email is invalid."
+                ]
+            }
+        },
+        {
+            "rule": "exists:users,email,account_id,1,active,1",
+            "value": "z@x.io",
+            "errors": {
+                "email": [
+                    "The selected email is invalid."
+                ]
+            }
+        },
+        {
+            "rule": "exists:users,email,role,admin,role,user",
+            "value": "a@x.io",
+            "errors": {
+                "email": [
+                    "The selected email is invalid."
+                ]
+            }
+        },
+        {
+            "rule": "exists:users,email,role,admin,role,user",
+            "value": "b@x.io",
+            "errors": {}
+        },
+        {
+            "rule": "exists:users,email,role,admin,role,user",
+            "value": "c@x.io",
+            "errors": {}
+        },
+        {
+            "rule": "exists:users,email,role,admin,role,user",
+            "value": "z@x.io",
+            "errors": {
+                "email": [
+                    "The selected email is invalid."
+                ]
+            }
+        },
+        {
+            "rule": "exists:users,email,active",
+            "value": "a@x.io",
+            "throws": "ErrorException"
+        },
+        {
+            "rule": "exists:users,email,active",
+            "value": "b@x.io",
+            "throws": "ErrorException"
+        },
+        {
+            "rule": "exists:users,email,active",
+            "value": "c@x.io",
+            "throws": "ErrorException"
+        },
+        {
+            "rule": "exists:users,email,active",
+            "value": "z@x.io",
+            "throws": "ErrorException"
+        },
+        {
+            "rule": "unique:users,email",
+            "value": "a@x.io",
+            "errors": {
+                "email": [
+                    "The email has already been taken."
+                ]
+            }
+        },
+        {
+            "rule": "unique:users,email",
+            "value": "b@x.io",
+            "errors": {
+                "email": [
+                    "The email has already been taken."
+                ]
+            }
+        },
+        {
+            "rule": "unique:users,email",
+            "value": "c@x.io",
+            "errors": {
+                "email": [
+                    "The email has already been taken."
+                ]
+            }
+        },
+        {
+            "rule": "unique:users,email",
+            "value": "z@x.io",
+            "errors": {}
+        },
+        {
+            "rule": "unique:users,email,NULL,id,deleted_at,NULL",
+            "value": "a@x.io",
+            "errors": {
+                "email": [
+                    "The email has already been taken."
+                ]
+            }
+        },
+        {
+            "rule": "unique:users,email,NULL,id,deleted_at,NULL",
+            "value": "b@x.io",
+            "errors": {}
+        },
+        {
+            "rule": "unique:users,email,NULL,id,deleted_at,NULL",
+            "value": "c@x.io",
+            "errors": {
+                "email": [
+                    "The email has already been taken."
+                ]
+            }
+        },
+        {
+            "rule": "unique:users,email,NULL,id,deleted_at,NULL",
+            "value": "z@x.io",
+            "errors": {}
+        },
+        {
+            "rule": "unique:users,email,1,id,account_id,1",
+            "value": "a@x.io",
+            "errors": {}
+        },
+        {
+            "rule": "unique:users,email,1,id,account_id,1",
+            "value": "b@x.io",
+            "errors": {
+                "email": [
+                    "The email has already been taken."
+                ]
+            }
+        },
+        {
+            "rule": "unique:users,email,1,id,account_id,1",
+            "value": "c@x.io",
+            "errors": {}
+        },
+        {
+            "rule": "unique:users,email,1,id,account_id,1",
+            "value": "z@x.io",
+            "errors": {}
+        },
+        {
+            "rule": "unique:users,email,NULL,id,account_id,2",
+            "value": "a@x.io",
+            "errors": {}
+        },
+        {
+            "rule": "unique:users,email,NULL,id,account_id,2",
+            "value": "b@x.io",
+            "errors": {}
+        },
+        {
+            "rule": "unique:users,email,NULL,id,account_id,2",
+            "value": "c@x.io",
+            "errors": {
+                "email": [
+                    "The email has already been taken."
+                ]
+            }
+        },
+        {
+            "rule": "unique:users,email,NULL,id,account_id,2",
+            "value": "z@x.io",
+            "errors": {}
+        },
+        {
+            "rule": "unique:users,email,NULL,id,role,!admin",
+            "value": "a@x.io",
+            "errors": {}
+        },
+        {
+            "rule": "unique:users,email,NULL,id,role,!admin",
+            "value": "b@x.io",
+            "errors": {
+                "email": [
+                    "The email has already been taken."
+                ]
+            }
+        },
+        {
+            "rule": "unique:users,email,NULL,id,role,!admin",
+            "value": "c@x.io",
+            "errors": {
+                "email": [
+                    "The email has already been taken."
+                ]
+            }
+        },
+        {
+            "rule": "unique:users,email,NULL,id,role,!admin",
+            "value": "z@x.io",
+            "errors": {}
+        },
+        {
+            "rule": "unique:users,email,NULL,id,deleted_at,NOT_NULL",
+            "value": "a@x.io",
+            "errors": {}
+        },
+        {
+            "rule": "unique:users,email,NULL,id,deleted_at,NOT_NULL",
+            "value": "b@x.io",
+            "errors": {
+                "email": [
+                    "The email has already been taken."
+                ]
+            }
+        },
+        {
+            "rule": "unique:users,email,NULL,id,deleted_at,NOT_NULL",
+            "value": "c@x.io",
+            "errors": {}
+        },
+        {
+            "rule": "unique:users,email,NULL,id,deleted_at,NOT_NULL",
+            "value": "z@x.io",
+            "errors": {}
+        },
+        {
+            "rule": "unique:users,email,1",
+            "value": "a@x.io",
+            "errors": {}
+        },
+        {
+            "rule": "unique:users,email,1",
+            "value": "b@x.io",
+            "errors": {
+                "email": [
+                    "The email has already been taken."
+                ]
+            }
+        },
+        {
+            "rule": "unique:users,email,1",
+            "value": "c@x.io",
+            "errors": {
+                "email": [
+                    "The email has already been taken."
+                ]
+            }
+        },
+        {
+            "rule": "unique:users,email,1",
+            "value": "z@x.io",
+            "errors": {}
+        },
+        {
+            "rule": "unique:users,email,2,id",
+            "value": "a@x.io",
+            "errors": {
+                "email": [
+                    "The email has already been taken."
+                ]
+            }
+        },
+        {
+            "rule": "unique:users,email,2,id",
+            "value": "b@x.io",
+            "errors": {}
+        },
+        {
+            "rule": "unique:users,email,2,id",
+            "value": "c@x.io",
+            "errors": {
+                "email": [
+                    "The email has already been taken."
+                ]
+            }
+        },
+        {
+            "rule": "unique:users,email,2,id",
+            "value": "z@x.io",
+            "errors": {}
+        },
+        {
+            "rule": "unique:users,email,NULL",
+            "value": "a@x.io",
+            "errors": {
+                "email": [
+                    "The email has already been taken."
+                ]
+            }
+        },
+        {
+            "rule": "unique:users,email,NULL",
+            "value": "b@x.io",
+            "errors": {
+                "email": [
+                    "The email has already been taken."
+                ]
+            }
+        },
+        {
+            "rule": "unique:users,email,NULL",
+            "value": "c@x.io",
+            "errors": {
+                "email": [
+                    "The email has already been taken."
+                ]
+            }
+        },
+        {
+            "rule": "unique:users,email,NULL",
+            "value": "z@x.io",
+            "errors": {}
+        },
+        {
+            "rule": "unique:users,email,1,account_id",
+            "value": "a@x.io",
+            "errors": {}
+        },
+        {
+            "rule": "unique:users,email,1,account_id",
+            "value": "b@x.io",
+            "errors": {}
+        },
+        {
+            "rule": "unique:users,email,1,account_id",
+            "value": "c@x.io",
+            "errors": {
+                "email": [
+                    "The email has already been taken."
+                ]
+            }
+        },
+        {
+            "rule": "unique:users,email,1,account_id",
+            "value": "z@x.io",
+            "errors": {}
+        },
+        {
+            "rule": "unique:users,email,2,account_id",
+            "value": "a@x.io",
+            "errors": {
+                "email": [
+                    "The email has already been taken."
+                ]
+            }
+        },
+        {
+            "rule": "unique:users,email,2,account_id",
+            "value": "b@x.io",
+            "errors": {
+                "email": [
+                    "The email has already been taken."
+                ]
+            }
+        },
+        {
+            "rule": "unique:users,email,2,account_id",
+            "value": "c@x.io",
+            "errors": {}
+        },
+        {
+            "rule": "unique:users,email,2,account_id",
+            "value": "z@x.io",
+            "errors": {}
+        },
+        {
+            "rule": "unique:users,email,NULL,account_id,active,1",
+            "value": "a@x.io",
+            "errors": {
+                "email": [
+                    "The email has already been taken."
+                ]
+            }
+        },
+        {
+            "rule": "unique:users,email,NULL,account_id,active,1",
+            "value": "b@x.io",
+            "errors": {}
+        },
+        {
+            "rule": "unique:users,email,NULL,account_id,active,1",
+            "value": "c@x.io",
+            "errors": {
+                "email": [
+                    "The email has already been taken."
+                ]
+            }
+        },
+        {
+            "rule": "unique:users,email,NULL,account_id,active,1",
+            "value": "z@x.io",
+            "errors": {}
+        },
+        {
+            "rule": "unique:users,email,1,account_id,role,user",
+            "value": "a@x.io",
+            "errors": {}
+        },
+        {
+            "rule": "unique:users,email,1,account_id,role,user",
+            "value": "b@x.io",
+            "errors": {}
+        },
+        {
+            "rule": "unique:users,email,1,account_id,role,user",
+            "value": "c@x.io",
+            "errors": {
+                "email": [
+                    "The email has already been taken."
+                ]
+            }
+        },
+        {
+            "rule": "unique:users,email,1,account_id,role,user",
+            "value": "z@x.io",
+            "errors": {}
+        }
+    ]
+}

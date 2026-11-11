@@ -68,6 +68,27 @@ void main() {
     await db.closeAll();
   });
 
+  test('unique/exists where pairs from a string: values bound, a column '
+      'that is not an identifier refused', () async {
+    const hostile = "b'; DROP TABLE my_items; --";
+    await db.table('my_items').insert([
+      {'name': 'a', 'qty': 1},
+      {'name': hostile, 'qty': 2},
+    ]);
+    final container = Container()..instance<DatabaseManager>(db);
+    Future<Map<String, List<String>>> check(Object? value, String rule) =>
+        Validator({'name': value}, {'name': rule}, container: container).run();
+    expect(await check('a', 'exists:my_items,name,qty,1'), isEmpty);
+    expect(await check('a', 'exists:my_items,name,qty,2'), isNotEmpty);
+    expect(await check('a', 'unique:my_items,name,NULL,id,qty,!1'), isEmpty);
+    expect(await check(hostile, 'exists:my_items,name,name,$hostile'), isEmpty);
+    await expectLater(
+      check('a', 'exists:my_items,name,qty";DROP TABLE my_items;--,1'),
+      throwsArgumentError,
+    );
+    expect(await db.table('my_items').count(), 2);
+  });
+
   test('CRUD, ids, upsert, named bindings and value types', () async {
     final id = await db.table('my_items').insertGetId({
       'name': 'a',

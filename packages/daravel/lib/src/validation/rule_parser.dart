@@ -1,3 +1,4 @@
+import '../database/query/query_builder.dart';
 import 'rule_builder.dart';
 import 'rule.dart';
 import 'rules.dart';
@@ -166,18 +167,24 @@ abstract final class RuleParser {
       'after_or_equal' => Rules.afterOrEqual(args[0]),
       'before' => Rules.before(args[0]),
       'before_or_equal' => Rules.beforeOrEqual(args[0]),
-      // Laravel reads the arguments after these as `column,value` where
-      // conditions (getExtraConditions). Ignoring them would loosen the
-      // rule, so the string form refuses them: use the object form.
-      'unique' when args.length > 4 => throw _extraConditions(segment),
-      'exists' when args.length > 2 => throw _extraConditions(segment),
-      'unique' => Rules.unique(
-        args[0],
-        args.length > 1 && args[1] != 'NULL' ? args[1] : null,
-        args.length > 2 && args[2] != 'NULL' ? args[2] : null,
-        args.length > 3 ? args[3] : 'id',
+      // The arguments after these are `column,value` where conditions
+      // (13.x ValidatesAttributes::getUniqueExtra 1172-1179,
+      // getExistCount 1071-1082, getExtraConditions 1243-1254).
+      'unique' => _withConditions(
+        Rules.unique(
+          args[0],
+          args.length > 1 && args[1] != 'NULL' ? args[1] : null,
+          args.length > 2 && args[2] != 'NULL' ? args[2] : null,
+          args.length > 3 ? args[3] : 'id',
+        ),
+        args.length > 4 ? args.sublist(4) : const [],
+        segment,
       ),
-      'exists' => Rules.exists(args[0], args.length > 1 ? args[1] : null),
+      'exists' => _withConditions(
+        Rules.exists(args[0], args.length > 1 ? args[1] : null),
+        args.length > 2 ? args.sublist(2) : const [],
+        segment,
+      ),
       'password' => Rules.password(min: args.isEmpty ? 8 : integer(0)),
       _ => throw ArgumentError.value(
         segment,
@@ -187,14 +194,50 @@ abstract final class RuleParser {
     };
   }
 
-  /// `unique`/`exists` with where conditions in the string.
-  static ArgumentError _extraConditions(String segment) => ArgumentError.value(
-    segment,
-    'rule',
-    'Where conditions in the string form of unique/exists are not '
-        'supported: use Rules.unique(...).where(...) or '
-        'Rules.exists(...).where(...)',
-  );
+  /// [rule] with the `column,value` pairs of [extra] as where conditions,
+  /// as Laravel builds them:
+  ///
+  /// - `getExtraConditions` (1243-1254) makes a PHP array of the pairs, so
+  ///   a column given twice keeps its first place and its last value (as a
+  ///   Dart map does);
+  /// - `DatabasePresenceVerifier::addWhere` (13.x, 102-115) reads `NULL`
+  ///   as `whereNull`, `NOT_NULL` as `whereNotNull`, a `!` prefix as
+  ///   `!=`, and any other value as `=`.
+  ///
+  /// An odd number of arguments has no value for its last column (Laravel
+  /// reads past the array, an error), so it is refused.
+  static Rule _withConditions(Rule rule, List<String> extra, String segment) {
+    if (extra.length.isOdd) {
+      throw ArgumentError.value(
+        segment,
+        'rule',
+        'The where conditions of unique/exists come in column,value pairs; '
+            '"${extra.last}" has no value',
+      );
+    }
+    final conditions = <String, String>{
+      for (var i = 0; i < extra.length; i += 2) extra[i]: extra[i + 1],
+    };
+    var result = rule;
+    for (final MapEntry(key: column, value: value) in conditions.entries) {
+      QueryBuilder condition(QueryBuilder query) => switch (value) {
+        'NULL' => query.whereNull(column),
+        'NOT_NULL' => query.whereNotNull(column),
+        _ when value.startsWith('!') => query.where(
+          column,
+          '!=',
+          value.substring(1),
+        ),
+        _ => query.where(column, value),
+      };
+      result = switch (result) {
+        final UniqueRule unique => unique.where(condition),
+        final ExistsRule exists => exists.where(condition),
+        _ => result,
+      };
+    }
+    return result;
+  }
 
   /// `timezone:Asia`; `per_country` needs data this database does not have.
   static String _timezoneGroup(List<String> args) {

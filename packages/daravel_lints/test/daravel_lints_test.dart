@@ -452,7 +452,7 @@ void f(String sort) {
   });
 
   test(
-    'invalid_validation_rule: where conditions in a string unique/exists',
+    'invalid_validation_rule: where conditions of unique/exists in pairs',
     () {
       const source = '''
 void routes(Router r) {
@@ -460,13 +460,14 @@ void routes(Router r) {
     'a': 'unique:users,email,NULL,id,account_id,1',
     'b': 'exists:users,id,active,1',
     'c': 'unique:users,email,NULL,id|exists:users,id',
+    'd': 'unique:users,email,NULL,id,account_id',
+    'e': 'exists:users,id,active',
   });
 }
 ''';
       final issues = lintSource(source, 'lib/app/http/routes.dart');
-      expect(issues.map((i) => i.line), [3, 4]);
-      expect(issues.first.message, contains('Rules.unique(...).where(...)'));
-      expect(issues.last.message, contains('Rules.exists(...).where(...)'));
+      expect(issues.map((i) => i.line), [6, 7]);
+      expect(issues.first.message, contains('column,value pairs'));
     },
   );
 }

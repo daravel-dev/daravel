@@ -902,10 +902,16 @@ final class InvalidValidationRule extends LintRule {
       final parts = colon == -1
           ? 0
           : segment.substring(colon + 1).split(',').length;
-      if ((rule == 'unique' && parts > 4) || (rule == 'exists' && parts > 2)) {
-        return 'Where conditions in the string form of $rule are not '
-            'supported (Daravel would loosen the rule): use '
-            'Rules.$rule(...).where(...) in "$dsl".';
+      // The parts after unique's fourth or exists' second are column,value
+      // where conditions; an odd count leaves a column without a value.
+      final conditions = switch (rule) {
+        'unique' => parts - 4,
+        'exists' => parts - 2,
+        _ => 0,
+      };
+      if (conditions > 0 && conditions.isOdd) {
+        return 'The where conditions of $rule come in column,value pairs; '
+            'one has no value in "$dsl".';
       }
       if (rule == 'encoding' &&
           arguments.isNotEmpty &&
