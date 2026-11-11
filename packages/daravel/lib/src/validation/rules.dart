@@ -740,6 +740,8 @@ Map<String, Object?> _otherParameters(ValidationContext c, String other) => {
   'value': switch (c.root(other)) {
     null => 'empty',
     List<Object?>() || Map<Object?, Object?>() => 'array',
+    // getDisplayableValue's (string) cast: 5.0 is "5", as PHP writes it.
+    final num value => _phpNumberString(value),
     final value => '$value',
   },
 };
