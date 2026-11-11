@@ -595,29 +595,37 @@ final class HorizonMaster {
     // Spawned paused, so its exit is reported on the report port, after
     // its Exited if it sent one (one port keeps the order): an exit
     // without Exited first is a crash.
-    final isolate = await Isolate.spawn(
-      horizonWorkerMain,
-      HorizonWorkerStart(
-        factory: factory,
-        name: worker.name,
-        queues: queues,
-        master: _reports.sendPort,
-        heartbeat: config.heartbeat,
-        coordinator: coordinator,
-        connection: plan.connection,
-        tries: plan.tries,
-        backoffSeconds: plan.backoff == null
-            ? null
-            : [for (final b in plan.backoff!) b.inSeconds],
-        timeout: plan.timeout,
-        sleep: plan.sleep,
-        maxJobs: plan.maxJobs,
-        maxTime: plan.maxTime,
-        idleTransactionTimeout: workerIdleTransactionTimeout,
-      ),
-      debugName: worker.name,
-      paused: true,
-    );
+    final Isolate isolate;
+    try {
+      isolate = await Isolate.spawn(
+        horizonWorkerMain,
+        HorizonWorkerStart(
+          factory: factory,
+          name: worker.name,
+          queues: queues,
+          master: _reports.sendPort,
+          heartbeat: config.heartbeat,
+          coordinator: coordinator,
+          connection: plan.connection,
+          tries: plan.tries,
+          backoffSeconds: plan.backoff == null
+              ? null
+              : [for (final b in plan.backoff!) b.inSeconds],
+          timeout: plan.timeout,
+          sleep: plan.sleep,
+          maxJobs: plan.maxJobs,
+          maxTime: plan.maxTime,
+          idleTransactionTimeout: workerIdleTransactionTimeout,
+        ),
+        debugName: worker.name,
+        paused: true,
+      );
+    } on Object {
+      // Never started: a worker left in the pool without an isolate would
+      // count as running for ever (a resize would never replace it).
+      _pools[planName]?.remove(worker);
+      rethrow;
+    }
     isolate
       ..addOnExitListener(
         _reports.sendPort,

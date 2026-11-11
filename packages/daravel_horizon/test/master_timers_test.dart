@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:daravel/daravel.dart';
 import 'package:daravel_horizon/daravel_horizon.dart';
@@ -108,6 +109,32 @@ Future<void> until(bool Function() done, String what) async {
 /// What happens when the work of a periodic timer takes longer than its
 /// period: a second run must not start beside the first (Review #148, #153).
 void main() {
+  test('a worker whose spawn throws leaves the pool: it would count as '
+      'running for ever, and no resize would replace it', () async {
+    final port = ReceivePort();
+    addTearDown(port.close);
+    final master = HorizonMaster(
+      unsendable(port),
+      const HorizonConfig(
+        plans: [
+          SupervisorPlan(
+            name: SupervisorName('s'),
+            queues: [QueueName('a')],
+            minProcesses: 2,
+            maxProcesses: 2,
+          ),
+        ],
+        heartbeat: Duration(seconds: 1),
+      ),
+      driver: (_) => _HeldDriver(),
+      logger: Logger(minimumLevel: LogLevel.critical),
+      store: _CountingChannel(),
+    );
+    addTearDown(() => master.stop(timeout: const Duration(seconds: 20)));
+    await expectLater(master.start(), throwsA(anything));
+    expect(master.workers('s'), isEmpty, reason: 'no worker without isolate');
+  });
+
   test('a balance slower than its cooldown does not overlap the next one: '
       'the pool never grows past maxProcesses', () async {
     final driver = _HeldDriver();
@@ -227,3 +254,10 @@ void main() {
     expect(channel.snapshots, 1, reason: 'the command ran once');
   }, timeout: const Timeout(Duration(minutes: 2)));
 }
+
+/// A factory the worker isolate cannot receive (it holds a port): its spawn
+/// throws.
+ApplicationFactory unsendable(ReceivePort port) => () {
+  port.hashCode;
+  return timersApp();
+};
