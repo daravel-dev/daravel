@@ -42,7 +42,9 @@ class DaravelQueryException implements Exception {
 /// on, so the same builder works on SQLite, PostgreSQL and MySQL.
 ///
 /// Every column parameter takes a string or a [SqlIdentifier] (which is a
-/// string checked when it is made), with the same SQL for both.
+/// string checked when it is made), with the same SQL for both. Those typed
+/// `Object` also take a model's typed column (`User.cols.email`), which is
+/// a string at run time.
 final class QueryBuilder {
   /// A query on [table] through the database manager; `DB.table(...)` creates
   /// it, on the given connection or the default one.
@@ -617,11 +619,11 @@ final class QueryBuilder {
   QueryBuilder orderByDesc(Object column) => orderBy(column, 'desc');
 
   /// Newest first, by [column] (`created_at`).
-  QueryBuilder latest([String column = 'created_at']) =>
+  QueryBuilder latest([Object column = 'created_at']) =>
       orderBy(column, 'desc');
 
   /// Oldest first, by [column] (`created_at`).
-  QueryBuilder oldest([String column = 'created_at']) => orderBy(column, 'asc');
+  QueryBuilder oldest([Object column = 'created_at']) => orderBy(column, 'asc');
 
   /// A raw `ORDER BY` expression with `?` [bindings].
   QueryBuilder orderByRaw(String sql, [List<Object?> bindings = const []]) {
@@ -847,13 +849,20 @@ final class QueryBuilder {
       clone().where(column, id).first();
 
   /// The value of [column] in the first row, or null.
-  Future<T?> value<T>(String column) async {
-    final row = await clone().select([column]).first();
+  Future<T?> value<T>(Object column) async {
+    final row = await clone().select([columnName(column, 'column')]).first();
     return row?.values.first as T?;
   }
 
   /// Values of [column]; keyed by [key] when given.
-  Future<Object> pluck(String column, [String? key]) async {
+  Future<Object> pluck(Object column, [Object? key]) async {
+    return _pluck(
+      columnName(column, 'column'),
+      key == null ? null : columnName(key, 'key'),
+    );
+  }
+
+  Future<Object> _pluck(String column, String? key) async {
     final rows = await clone().select([column, ?key]).get();
     final columnName = column.split(' as ').last.split('.').last;
     if (key == null) {
@@ -1246,6 +1255,19 @@ final class QueryBuilder {
     _ast.wheres.add(clause);
     return this;
   }
+
+  /// [column] as the column name a parameter typed `Object` takes: a
+  /// string, which a model's typed column (`User.cols.email`) is at run
+  /// time. Anything else is an [ArgumentError] naming [parameter].
+  static String columnName(Object column, String parameter) => switch (column) {
+    final String name => name,
+    _ => throw ArgumentError.value(
+      column,
+      parameter,
+      'Not a column name (a String or a typed column such as '
+      'User.cols.email)',
+    ),
+  };
 
   static (String, Object?) _operatorAndValue(
     Object? operatorOrValue,

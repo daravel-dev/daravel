@@ -818,6 +818,17 @@ final class User extends Model with AuthenticatableModel {
   // </dartisan:statics>
 
   // <dartisan:accessors>
+  /// The columns of `users`, for typed queries: `User.cols.id`.
+  static const cols = (
+    id: ModelColumn<User, int>('id'),
+    name: ModelColumn<User, String>('name'),
+    email: ModelColumn<User, String>('email'),
+    emailVerifiedAt: ModelColumn<User, DateTime?>('email_verified_at'),
+    password: ModelColumn<User, String>('password'),
+    rememberToken: ModelColumn<User, String?>('remember_token'),
+    createdAt: ModelColumn<User, DateTime?>('created_at'),
+    updatedAt: ModelColumn<User, DateTime?>('updated_at'),
+  );
   int get id => getAttr('id');
   String get name => getAttr('name');
   set name(String value) => setAttr('name', value);
