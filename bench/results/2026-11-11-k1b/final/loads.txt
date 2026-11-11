@@ -1,0 +1,112 @@
+work=$HOME/k1b-final-20261111-123152
+main_ceiling-rate_1 load: 0.91 1.63 1.82
+main_ceiling-rate_1 exit=0
+k1b_ceiling-rate_1 load: 1.69 1.81 1.87
+k1b_ceiling-rate_1 exit=0
+main_ceiling-cache_1 load: 1.64 1.84 1.88
+main_ceiling-cache_1 exit=0
+k1b_ceiling-cache_1 load: 1.69 1.89 1.90
+k1b_ceiling-cache_1 exit=0
+main_ceiling-noop_1 load: 1.64 1.91 1.91
+main_ceiling-noop_1 exit=0
+k1b_ceiling-noop_1 load: 1.78 1.93 1.92
+k1b_ceiling-noop_1 exit=0
+main_ceiling-publish_1 load: 1.74 1.98 1.94
+main_ceiling-publish_1 exit=0
+k1b_ceiling-publish_1 load: 1.76 2.03 1.97
+k1b_ceiling-publish_1 exit=0
+main_saturation_1 load: 1.81 2.09 2.01
+main_saturation_1 exit=0
+k1b_saturation_1 load: 1.82 2.06 2.00
+k1b_saturation_1 exit=0
+k1b_overflow_1 load: 1.66 2.00 1.98
+k1b_overflow_1 exit=0
+main_starved_1 load: 1.76 2.21 2.08
+main_starved_1 exit=0
+k1b_starved_1 load: 1.63 2.45 2.22
+k1b_starved_1 exit=0
+main_lease_1 load: 1.84 2.75 2.39
+main_lease_1 exit=0
+k1b_lease_1 load: 1.79 2.66 2.37
+k1b_lease_1 exit=0
+main_ceiling-cache_2 load: 1.90 2.63 2.37
+main_ceiling-cache_2 exit=0
+k1b_ceiling-cache_2 load: 1.97 2.50 2.35
+k1b_ceiling-cache_2 exit=0
+main_ceiling-noop_2 load: 1.80 2.38 2.32
+main_ceiling-noop_2 exit=0
+k1b_ceiling-noop_2 load: 1.99 2.39 2.34
+k1b_ceiling-noop_2 exit=0
+main_ceiling-publish_2 load: 1.69 2.26 2.30
+main_ceiling-publish_2 exit=0
+k1b_ceiling-publish_2 load: 1.61 2.20 2.28
+k1b_ceiling-publish_2 exit=0
+main_ceiling-rate_2 load: 1.69 2.15 2.26
+main_ceiling-rate_2 exit=0
+k1b_ceiling-rate_2 load: 1.81 2.13 2.24
+k1b_ceiling-rate_2 exit=0
+main_saturation_2 load: 1.79 2.09 2.22
+main_saturation_2 exit=0
+k1b_saturation_2 load: 1.87 2.08 2.21
+k1b_saturation_2 exit=0
+main_starved_2 load: 1.72 2.03 2.19
+main_starved_2 exit=0
+k1b_starved_2 load: 1.80 2.54 2.40
+k1b_starved_2 exit=0
+main_ceiling-noop_3 load: 1.72 2.72 2.52
+main_ceiling-noop_3 exit=0
+k1b_ceiling-noop_3 load: 1.76 2.54 2.47
+k1b_ceiling-noop_3 exit=0
+main_ceiling-publish_3 load: 1.63 2.37 2.42
+main_ceiling-publish_3 exit=0
+k1b_ceiling-publish_3 load: 1.96 2.34 2.41
+k1b_ceiling-publish_3 exit=0
+main_ceiling-rate_3 load: 1.98 2.34 2.41
+main_ceiling-rate_3 exit=0
+k1b_ceiling-rate_3 load: 1.78 2.25 2.37
+k1b_ceiling-rate_3 exit=0
+main_ceiling-cache_3 load: 1.87 2.23 2.36
+main_ceiling-cache_3 exit=0
+k1b_ceiling-cache_3 load: 1.64 2.15 2.32
+k1b_ceiling-cache_3 exit=0
+main_saturation_3 load: 1.91 2.22 2.33
+main_saturation_3 exit=0
+k1b_saturation_3 load: 1.84 2.17 2.31
+k1b_saturation_3 exit=0
+main_starved_3 load: 1.57 2.08 2.27
+main_starved_3 exit=0
+k1b_starved_3 load: 1.97 2.62 2.49
+k1b_starved_3 exit=0
+main_ceiling-publish_4 load: 1.60 2.74 2.59
+main_ceiling-publish_4 exit=0
+k1b_ceiling-publish_4 load: 1.89 2.61 2.55
+k1b_ceiling-publish_4 exit=0
+main_ceiling-rate_4 load: 1.99 2.53 2.53
+main_ceiling-rate_4 exit=0
+k1b_ceiling-rate_4 load: 1.65 2.43 2.50
+k1b_ceiling-rate_4 exit=0
+main_ceiling-cache_4 load: 1.84 2.33 2.47
+main_ceiling-cache_4 exit=0
+k1b_ceiling-cache_4 load: 1.94 2.34 2.46
+k1b_ceiling-cache_4 exit=0
+main_ceiling-noop_4 load: 1.75 2.25 2.42
+main_ceiling-noop_4 exit=0
+k1b_ceiling-noop_4 load: 1.97 2.30 2.43
+k1b_ceiling-noop_4 exit=0
+main_ceiling-rate_5 load: 1.93 2.28 2.42
+main_ceiling-rate_5 exit=0
+k1b_ceiling-rate_5 load: 1.81 2.21 2.38
+k1b_ceiling-rate_5 exit=0
+main_ceiling-cache_5 load: 1.69 2.16 2.35
+main_ceiling-cache_5 exit=0
+k1b_ceiling-cache_5 load: 1.61 2.11 2.32
+k1b_ceiling-cache_5 exit=0
+main_ceiling-noop_5 load: 1.68 2.10 2.30
+main_ceiling-noop_5 exit=0
+k1b_ceiling-noop_5 load: 1.88 2.12 2.30
+k1b_ceiling-noop_5 exit=0
+main_ceiling-publish_5 load: 1.75 2.15 2.30
+main_ceiling-publish_5 exit=0
+k1b_ceiling-publish_5 load: 1.88 2.16 2.29
+k1b_ceiling-publish_5 exit=0
+done
