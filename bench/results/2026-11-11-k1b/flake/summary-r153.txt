@@ -1,0 +1,32 @@
+supervisor_test "process-scope state" 30x on K1b 9758215b (Review 153 fixes) under 16 CPU burners (Windows, 2026-11-11)
+r153 1 exit=0
+r153 2 exit=0
+r153 3 exit=0
+r153 4 exit=0
+r153 5 exit=0
+r153 6 exit=0
+r153 7 exit=0
+r153 8 exit=0
+r153 9 exit=0
+r153 10 exit=0
+r153 11 exit=0
+r153 12 exit=0
+r153 13 exit=0
+r153 14 exit=0
+r153 15 exit=0
+r153 16 exit=0
+r153 17 exit=0
+r153 18 exit=0
+r153 19 exit=0
+r153 20 exit=0
+r153 21 exit=0
+r153 22 exit=0
+r153 23 exit=0
+r153 24 exit=0
+r153 25 exit=0
+r153 26 exit=0
+r153 27 exit=0
+r153 28 exit=0
+r153 29 exit=0
+r153 30 exit=0
+done
