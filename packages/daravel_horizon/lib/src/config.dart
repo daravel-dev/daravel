@@ -399,6 +399,17 @@ final class HorizonConfig implements ConfigSection {
     'idle_tx_timeout': workerIdleTransactionTimeout?.inSeconds ?? 0,
   };
 
+  /// Why `HORIZON_STORE=process` shows nothing in a dashboard served by
+  /// another process than the one running Horizon.
+  static const String storeProcessWarning =
+      'HORIZON_STORE=process keeps what Horizon records in the coordinator '
+      'of the process running it: when Horizon runs in a process of its own '
+      '(`dartisan horizon`), a dashboard served by another process (`serve`) '
+      'shows no jobs or metrics. Use HORIZON_STORE=database (with the '
+      'CreateHorizonTables migration) or redis, serve the dashboard from '
+      'that process (`dartisan horizon --dashboard=:8090`), or embed Horizon '
+      'in the server (`serve --embed-worker=horizon`).';
+
   /// Problems `ConfigValidator` reports: bounds of each plan, plan names
   /// used twice, [waits] for queues no plan works, and the store.
   static Iterable<ConfigIssue> check(Env env, ConfigRepository config) {
@@ -505,6 +516,9 @@ final class HorizonConfig implements ConfigSection {
     if (embedded && embedRefused(config)) {
       issues.add(ConfigIssue(ConfigIssueLevel.error, embedSqliteMessage));
     }
+    // HORIZON_STORE=process is wrong only for a `dartisan horizon` serving
+    // no dashboard of its own, which configuration cannot tell:
+    // [storeProcessWarning] is printed by that command when it starts so.
     if (horizon.heartbeat < minimumHeartbeat &&
         env.string('APP_ENV', 'production') != 'testing') {
       issues.add(
