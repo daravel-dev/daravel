@@ -578,7 +578,10 @@ final class Coordinator {
 
   /// A worker the coordinator forgot ([maxPeers]) is learnt again from a
   /// call while it is not healthy, the only time announcements matter: a
-  /// set lookup off the healthy path.
+  /// set lookup off the healthy path. Learnt this way it is keyed by its
+  /// port, not its name (a call does not carry the name), so
+  /// [forgetWorker] cannot drop it; it leaves through the [maxPeers] limit,
+  /// oldest first (Review #153).
   void _relearn(SendPort replyTo) {
     if (_state != CoordinatorState.healthy && !_peerPorts.contains(replyTo)) {
       _learnPeer(replyTo, replyTo);
