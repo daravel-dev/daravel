@@ -33,6 +33,11 @@ void main() {
         for (final row in golden['rows']! as List<Object?>)
           (row! as Map<String, Object?>),
       ]);
+      await DB.statement(golden['accounts']! as String);
+      await DB.table('accounts').insert([
+        for (final row in golden['accountRows']! as List<Object?>)
+          (row! as Map<String, Object?>),
+      ]);
     });
   });
 
@@ -69,6 +74,32 @@ void main() {
         _ => <String, List<String>>{},
       };
       expect(await run(), expected);
+    });
+  }
+
+  // The key `unique` skips, as Laravel's prepareUniqueId reads it: from
+  // the input (`[id]`, `[user.id]`), `null` in any case, an integer with
+  // whitespace or a sign, text such as `01` or `1abc`, a backslash, a
+  // custom key column and a uuid key.
+  for (final c
+      in (golden['ignoreCases']! as List<Object?>)
+          .cast<Map<String, Object?>>()) {
+    final rule = c['rule']! as String;
+    final data = (c['data']! as Map<String, Object?>);
+    test('ignore: $rule with $data', () async {
+      final expected = switch (c['errors']) {
+        final Map<String, Object?> map => {
+          for (final MapEntry(:key, value: list) in map.entries)
+            key: (list! as List<Object?>).cast<String>(),
+        },
+        _ => <String, List<String>>{},
+      };
+      final errors = await app.run(
+        () => Validator(data, {
+          'email': rule,
+        }, container: Container.current).run(),
+      );
+      expect(errors, expected);
     });
   }
 }

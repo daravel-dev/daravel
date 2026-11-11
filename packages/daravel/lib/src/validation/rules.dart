@@ -2091,7 +2091,48 @@ final class UniqueRule extends Rule {
     Object? ignore,
     this.idColumn = 'id',
     this.constraints = const <QueryConstraint>[],
+    this.ignoreFrom,
   }) : ignored = ignore;
+
+  /// The input field whose value is the key to skip (`unique:users,email,
+  /// [id]` in the string form): read when the rule runs, as Laravel's
+  /// `prepareUniqueId` does. When set, [ignored] is not used.
+  final String? ignoreFrom;
+
+  /// The key Laravel's validateUnique skips for [raw], an ignore written
+  /// in the string form or read from the input: `null` (in any case) or a
+  /// missing value skips nothing; otherwise PHP's string of it with
+  /// `stripslashes` applied (13.x prepareUniqueId 1149-1164, then
+  /// validateUnique 1107-1113). The integer cast in between is undone by
+  /// `stripslashes`, which returns a string.
+  static String? skippedKey(Object? raw) {
+    if (raw == null) {
+      return null;
+    }
+    final text = switch (raw) {
+      true => '1',
+      false => '',
+      final double value
+          when value.isFinite && value == value.truncateToDouble() =>
+        value.toInt().toString(),
+      _ => '$raw',
+    };
+    if (text.toLowerCase() == 'null') {
+      return null;
+    }
+    // FILTER_VALIDATE_INT: surrounding whitespace, a sign, no leading
+    // zero (`' 1'` and `'+1'` are 1, `'01'` stays text); cast to int and
+    // back to text by stripslashes.
+    final integer = RegExp(
+      r'^[ \t\n\r\x0B]*([+-]?(?:0|[1-9][0-9]*))[ \t\n\r\x0B]*$',
+    ).firstMatch(text);
+    final number = integer == null ? null : int.tryParse(integer[1]!);
+    if (number != null) {
+      return '$number';
+    }
+    // stripslashes: `\x` becomes `x`, `\\` a single backslash.
+    return text.replaceAllMapped(RegExp(r'\\(.?)'), (m) => m[1]!);
+  }
 
   /// The table queried; `schema.table` is allowed.
   final String table;
@@ -2124,6 +2165,7 @@ final class UniqueRule extends Rule {
     ignore: ignored,
     idColumn: idColumn,
     constraints: [...constraints, constraint],
+    ignoreFrom: ignoreFrom,
   );
   @override
   String get name => 'unique';
@@ -2137,8 +2179,11 @@ final class UniqueRule extends Rule {
     final col = _columnFor(c, column);
     // The builder quotes identifiers for the connection's dialect.
     var query = db.table(_table(table)).where(_identifier(col), c.value);
-    if (ignored != null) {
-      query = query.where(_identifier(idColumn), '<>', ignored);
+    final skipped = ignoreFrom != null
+        ? skippedKey(c.root(ignoreFrom!))
+        : ignored;
+    if (skipped != null) {
+      query = query.where(_identifier(idColumn), '<>', skipped);
     }
     query = _constrained(query, constraints);
     return await query.count() > 0 ? 'unique' : null;

@@ -8,3 +8,7 @@
 ### Changed
 
 - An odd number of condition arguments (a column without a value, `exists:users,id,active`) is an `ArgumentError` when the rule is parsed; Laravel fails there too. The `invalid_validation_rule` lint reports it. Before this change, any condition argument was refused.
+
+### Fixed
+
+- `unique:table,column,[id]` read the key to skip from the input field `id` in Laravel and as the literal text `[id]` here, so updating a row with its own unchanged value failed. The ignore now follows Laravel's `prepareUniqueId`: `[field]` (also `[user.id]`) is read from the input when the rule runs; `null` in any case skips nothing; an integer with surrounding whitespace or a sign is that integer (`' 1'` is `1`; `'01'` stays text); backslashes are stripped.

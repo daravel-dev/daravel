@@ -171,12 +171,7 @@ abstract final class RuleParser {
       // (13.x ValidatesAttributes::getUniqueExtra 1172-1179,
       // getExistCount 1071-1082, getExtraConditions 1243-1254).
       'unique' => _withConditions(
-        Rules.unique(
-          args[0],
-          args.length > 1 && args[1] != 'NULL' ? args[1] : null,
-          args.length > 2 && args[2] != 'NULL' ? args[2] : null,
-          args.length > 3 ? args[3] : 'id',
-        ),
+        _unique(args),
         args.length > 4 ? args.sublist(4) : const [],
         segment,
       ),
@@ -192,6 +187,32 @@ abstract final class RuleParser {
         'Unknown validation rule "$name"',
       ),
     };
+  }
+
+  /// `unique:table,column,ignore,idColumn`. The ignore is Laravel's
+  /// (13.x getUniqueIds 1136-1141, prepareUniqueId 1149-1164): `[field]`
+  /// reads the key from that input field when the rule runs; otherwise
+  /// [UniqueRule.skippedKey] (`null` in any case skips nothing).
+  static UniqueRule _unique(List<String> args) {
+    final column = args.length > 1 && args[1] != 'NULL' ? args[1] : null;
+    final idColumn = args.length > 3 ? args[3] : 'id';
+    if (args.length < 3) {
+      return Rules.unique(args[0], column, null, idColumn);
+    }
+    final field = RegExp(r'\[(.*)\]').firstMatch(args[2])?[1];
+    return field != null
+        ? UniqueRule(
+            args[0],
+            column: column,
+            idColumn: idColumn,
+            ignoreFrom: field,
+          )
+        : Rules.unique(
+            args[0],
+            column,
+            UniqueRule.skippedKey(args[2]),
+            idColumn,
+          );
   }
 
   /// [rule] with the `column,value` pairs of [extra] as where conditions,
