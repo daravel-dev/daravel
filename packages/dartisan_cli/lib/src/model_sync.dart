@@ -510,6 +510,9 @@ AccessorPlan typedWriteLines(
                 '${p.getter}.value,'
           : "    '${p.column.name}': ?${p.getter},",
   ];
+  // Only a nullable column is a Patch parameter; the doc mentions Patch
+  // only when there is one.
+  final hasPatch = params.any((p) => p.column.nullable);
   return AccessorPlan([
     '  /// Creates and saves a `$className` (`create` with a map, checked by',
     '  /// the compiler): a `required` column has no default.',
@@ -524,8 +527,11 @@ AccessorPlan typedWriteLines(
     '  }) => definition.query().make(<String, Object?>{',
     ...createMap,
     '  });',
-    '  /// Fills the given columns (`fill`); `Patch(null)` sets a nullable',
-    '  /// one to null.',
+    if (hasPatch) ...[
+      '  /// Fills the given columns (`fill`); `Patch(null)` sets a nullable',
+      '  /// one to null.',
+    ] else
+      '  /// Fills the given columns (`fill`).',
     '  $className fillWith({',
     ...patchParams,
     '  }) {',
@@ -534,8 +540,11 @@ AccessorPlan typedWriteLines(
     '    });',
     '    return this;',
     '  }',
-    '  /// Updates the given columns and saves (`update`); `Patch(null)` sets a',
-    '  /// nullable one to null.',
+    if (hasPatch) ...[
+      '  /// Updates the given columns and saves (`update`); `Patch(null)` sets',
+      '  /// a nullable one to null.',
+    ] else
+      '  /// Updates the given columns and saves (`update`).',
     '  Future<bool> updateWith({',
     ...patchParams,
     '  }) => update(<String, Object?>{',
