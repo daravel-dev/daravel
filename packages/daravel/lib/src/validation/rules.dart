@@ -185,9 +185,24 @@ abstract final class Rules {
   static Rule excludeWith(String other) =>
       ExcludeRule('exclude_with', other: other);
 
-  /// `exclude_without`: leaves the field out when [other] is absent.
+  /// `exclude_without`: leaves the field out when [other] is absent or
+  /// empty.
   static Rule excludeWithout(String other) =>
       ExcludeRule('exclude_without', other: other);
+
+  /// `exclude_without:a,b`: leaves the field out when any of [others] is
+  /// absent or empty (Laravel's `anyFailingRequired`).
+  static Rule excludeWithoutAny(List<String> others) => others.isEmpty
+      ? throw ArgumentError.value(
+          others,
+          'others',
+          'Validation rule exclude_without requires at least 1 parameters.',
+        )
+      : ExcludeRule(
+          'exclude_without',
+          other: others.first,
+          values: List.unmodifiable(others.skip(1)),
+        );
 
   /// `Rule::enum()`: the value is the enum's name, or [toValue] of it.
   static EnumRule<E> enum_<E extends Enum>(
@@ -371,11 +386,20 @@ abstract final class Rules {
   /// `confirmed`: equals `<field>_confirmation`, or [field] when given.
   static Rule confirmed([String? field]) => ConfirmedRule(field);
 
-  /// `same`: equals [other].
+  /// `same`: identical to [other] (PHP's `===`: `5` is not `'5'`).
   static Rule same(String other) => SameRule(other);
 
-  /// `different`: differs from [other].
+  /// `different`: not identical to [other] when [other] is present.
   static Rule different(String other) => SameRule(other, negate: true);
+
+  /// `different:a,b`: not identical to any of [others] that is present.
+  static Rule differentFrom(List<String> others) => others.isEmpty
+      ? throw ArgumentError.value(
+          others,
+          'others',
+          'Validation rule different requires at least 1 parameters.',
+        )
+      : SameRule.differentFrom(others.first, List.unmodifiable(others.skip(1)));
 
   /// `starts_with`: starts with one of [prefixes].
   static Rule startsWith(List<String> prefixes) => StartsWithRule(prefixes);
@@ -1302,22 +1326,71 @@ final class ConfirmedRule extends Rule {
 /// `same` and `different`: see [Rules.same].
 final class SameRule extends Rule {
   /// Equal to [other], or different when [negate].
-  const SameRule(this.other, {this.negate = false});
+  const SameRule(this.other, {this.negate = false}) : others = const [];
 
-  /// The field compared.
+  /// `different:a,b`: different from each of [other] and [others] that is
+  /// present.
+  const SameRule.differentFrom(this.other, this.others) : negate = true;
+
+  /// The field compared (the first, for `different`).
   final String other;
+
+  /// The further fields of `different`.
+  final List<String> others;
 
   /// Whether it is `different`.
   final bool negate;
   @override
   String get name => negate ? 'different' : 'same';
+  // replaceSame/replaceDifferent: `:other` is the first field.
   @override
   Map<String, Object?> get parameters => {'other': other};
   @override
   String? passes(ValidationContext c) {
-    final equal = '${c.root(other)}' == '${c.value}';
-    return equal != negate ? null : name;
+    if (!negate) {
+      // 13.x validateSame (2624-2631): `$value === Arr::get(data, other)`.
+      return _phpIdentical(c.value, c.root(other)) ? null : name;
+    }
+    // 13.x validateDifferent (732-745): each field that is present must
+    // not be identical to the value.
+    for (final field in [other, ...others]) {
+      if (c.has(field) && _phpIdentical(c.value, c.root(field))) {
+        return name;
+      }
+    }
+    return null;
   }
+}
+
+/// PHP's `===` between two input values: the same type (an int is not a
+/// float, `'5'` is not `5`) and the same value; lists and maps
+/// element by element, maps in the same key order.
+bool _phpIdentical(Object? a, Object? b) => switch ((a, b)) {
+  (null, null) => true,
+  (final bool x, final bool y) => x == y,
+  (final int x, final int y) => x == y,
+  (final double x, final double y) => x == y,
+  (final String x, final String y) => x == y,
+  (final List<Object?> x, final List<Object?> y) =>
+    x.length == y.length &&
+        [for (var i = 0; i < x.length; i++) _phpIdentical(x[i], y[i])]
+            .every((same) => same),
+  (final Map<Object?, Object?> x, final Map<Object?, Object?> y) =>
+    x.length == y.length &&
+        _sameKeyOrder(x.keys, y.keys) &&
+        x.keys.every((key) => _phpIdentical(x[key], y[key])),
+  _ => false,
+};
+
+bool _sameKeyOrder(Iterable<Object?> a, Iterable<Object?> b) {
+  final left = a.toList();
+  final right = b.toList();
+  for (var i = 0; i < left.length; i++) {
+    if ('${left[i]}' != '${right[i]}') {
+      return false;
+    }
+  }
+  return true;
 }
 
 /// `starts_with`: see [Rules.startsWith].
@@ -1936,7 +2009,12 @@ final class ExcludeRule extends Rule {
             _otherMatches(c, other, values),
       'exclude_unless' => !_otherMatches(c, other!, values),
       'exclude_with' => ValidationContext.exists(c.data, other!),
-      'exclude_without' => isEmptyValue(c.root(other!)),
+      // 13.x validateExcludeWithout (2453-2462): anyFailingRequired over
+      // every field.
+      'exclude_without' => [
+        other!,
+        ...values,
+      ].any((field) => isEmptyValue(c.root(field))),
       _ => true,
     };
     return excluded ? name : null;
