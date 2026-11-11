@@ -116,6 +116,24 @@ final class HorizonService
   /// The newest record of each job still kept, by uuid.
   final Map<String, RecordedJob> _latest = {};
 
+  /// What the counts read ([rates], [summary], [snapshot]): every job that
+  /// finished, once per uuid and status, never replaced. A job that failed
+  /// and then completed is listed once (completed), and counted as failed
+  /// and as completed: its failure happened. Trimmed as the lists are.
+  final Map<String, List<RecordedJob>> _counted = {
+    'completed': [],
+    'failed': [],
+    'silenced': [],
+  };
+
+  /// The `uuid|status` of the entries of [_counted], so a record sent twice
+  /// counts once.
+  final Set<String> _countedKeys = {};
+
+  /// How many jobs the uuid index holds: as many as the lists, since a
+  /// record trimmed from them leaves the index too.
+  int get indexedJobs => _latest.length;
+
   /// Tags whose jobs are kept apart, with the failed retention.
   final Set<String> _monitored = {};
 
@@ -150,6 +168,14 @@ final class HorizonService
         // One record per job: the newest replaces the one before it
         // (whatever its status), and an older one, arriving late from
         // another worker, never replaces a newer one.
+        if (_countedKeys.add('${job.uuid}|${job.status}')) {
+          final counted = _counted.putIfAbsent(job.status, () => [])..add(job);
+          _trimTo(
+            counted,
+            job.status == 'failed' ? failedRetention : retention,
+            countedKeys: true,
+          );
+        }
         final previous = _latest[job.uuid];
         if (previous != null) {
           if (previous.at > job.at) {
@@ -223,7 +249,7 @@ final class HorizonService
     var total = 0;
     var timed = 0;
     for (final status in const ['completed', 'failed', 'silenced']) {
-      for (final job in _jobs[status] ?? const <RecordedJob>[]) {
+      for (final job in _counted[status] ?? const <RecordedJob>[]) {
         if (job.queue == queue && job.at >= since) {
           count++;
           final ms = job.durationMs;
@@ -248,10 +274,18 @@ final class HorizonService
 
   /// Drops the records of [list] older than [keep], then the oldest past
   /// [maxPerStatus]; [indexed] (a status list) forgets them in [_latest].
-  void _trimTo(List<RecordedJob> list, Duration keep, {bool indexed = false}) {
+  void _trimTo(
+    List<RecordedJob> list,
+    Duration keep, {
+    bool indexed = false,
+    bool countedKeys = false,
+  }) {
     void forget(RecordedJob job) {
       if (indexed && identical(_latest[job.uuid], job)) {
         _latest.remove(job.uuid);
+      }
+      if (countedKeys) {
+        _countedKeys.remove('${job.uuid}|${job.status}');
       }
     }
 
@@ -279,11 +313,11 @@ final class HorizonService
     final now = _now;
     int within(Iterable<RecordedJob> jobs, Duration window) =>
         jobs.where((job) => job.at >= now - window.inMilliseconds).length;
-    final finished = [for (final list in _jobs.values) ...list];
+    final finished = [for (final list in _counted.values) ...list];
     return {
       'jobs_per_minute': within(finished, const Duration(minutes: 1)),
       'jobs_past_hour': within(finished, const Duration(hours: 1)),
-      'failed_past_week': within(_jobs['failed']!, const Duration(days: 7)),
+      'failed_past_week': within(_counted['failed']!, const Duration(days: 7)),
     };
   }
 
@@ -296,7 +330,7 @@ final class HorizonService
     _lastSnapshotAt = now;
     final byJob = <String, List<RecordedJob>>{};
     final byQueue = <String, List<RecordedJob>>{};
-    for (final list in _jobs.values) {
+    for (final list in _counted.values) {
       for (final job in list) {
         if (job.at > since && job.at <= now) {
           byJob.putIfAbsent(job.name, () => []).add(job);

@@ -17,6 +17,7 @@ void main() {
     return (
       store: ProcessHorizonStore(() => channel) as HorizonStore,
       setNow: (DateTime at) => now = at,
+      settle: () async {},
     );
   }, tearDownStore: () async => coordinator.close());
 

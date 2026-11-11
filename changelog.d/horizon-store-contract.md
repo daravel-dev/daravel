@@ -4,7 +4,7 @@
 
 ### Changed
 
-- `daravel_horizon`: the `process` store keeps one record per job uuid: a job recorded again replaces its record (in whichever status), and an older record arriving late from another worker never replaces a newer one. Before, a second record of the same job was listed twice.
+- `daravel_horizon`: the `process` store keeps one record per job uuid: a job recorded again replaces its record (in whichever status), and an older record arriving late from another worker never replaces a newer one. Before, a second record of the same job was listed twice. The lists are replaced, the counts are not: the rates, the summary (`jobs_per_minute`, `jobs_past_hour`, `failed_past_week`) and the snapshots count every job that finished, once per uuid and status, so a job that failed and then completed is listed once (completed) and its failure is still counted. A record sent twice counts once.
 
 ### Upgrade notes
 

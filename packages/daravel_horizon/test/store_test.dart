@@ -174,4 +174,19 @@ void main() {
       3,
     );
   });
+
+  test('the uuid index holds no more jobs than the lists: a record trimmed '
+      'from them leaves it too', () {
+    for (var i = 0; i < 10; i++) {
+      record('completed');
+    }
+    // maxPerStatus is 3.
+    expect(recent('completed'), hasLength(3));
+    expect(service.indexedJobs, 3);
+    now = now.add(const Duration(minutes: 61));
+    record('failed');
+    record('completed');
+    expect(recent('completed'), hasLength(1), reason: 'the old ones expired');
+    expect(service.indexedJobs, 2);
+  });
 }
