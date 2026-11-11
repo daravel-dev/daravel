@@ -966,10 +966,21 @@ final class FileStore
     }
   }
 
-  /// Polls a non-blocking lock: a blocking one parks a thread per waiting
-  /// key, and the kernel reports a deadlock (EDEADLK) when two processes
-  /// each wait for a key the other holds, although each call holds only one.
-  static Future<void> _lock(RandomAccessFile handle) async {
+  /// Takes the exclusive OS lock on [handle]: POSIX polls ([_lockPolled]),
+  /// Windows takes turns ([_lockInTurn]).
+  static Future<void> _lock(RandomAccessFile handle) =>
+      Platform.isWindows ? _lockInTurn(handle) : _lockPolled(handle);
+
+  /// Releases what [_lock] took.
+  static Future<void> _unlock(RandomAccessFile handle) => Platform.isWindows
+      ? handle.unlock(_mutexByte, _mutexByte + 1)
+      : handle.unlock();
+
+  /// POSIX: polls a non-blocking lock: a blocking one parks a thread per
+  /// waiting key, and the kernel reports a deadlock (EDEADLK) when two
+  /// processes each wait for a key the other holds, although each call
+  /// holds only one.
+  static Future<void> _lockPolled(RandomAccessFile handle) async {
     // A Stopwatch, not Clock.now(): a test that freezes the clock still
     // gives up.
     final waited = Stopwatch()..start();
@@ -985,6 +996,72 @@ final class FileStore
       await Future<void>.delayed(Duration(milliseconds: wait));
     }
   }
+
+  /// Windows: polls too, but in turn with the processes already waiting.
+  /// A plain poll starves a waiter there: a timer fires on the 15.6 ms
+  /// system tick at the earliest, while a holder that unlocks takes the
+  /// lock back at once, so under load one process lost every poll for 30 s.
+  /// A blocking request would queue fairly but parks an I/O thread, and
+  /// some 32 parked requests stall every file operation of the process,
+  /// the holder's too.
+  ///
+  /// The mutex is byte [_mutexByte]; a waiter holds a shared lock on byte
+  /// [_queueByte]. A caller takes the mutex at once only when it can lock
+  /// the queue byte exclusively, i.e. nobody waits; otherwise it joins the
+  /// waiters, and all of them try the mutex on the same tick, so each
+  /// handover goes to one of them. The mutex alone keeps the processes
+  /// apart, so a race on the queue byte costs a turn, never exclusivity.
+  static Future<void> _lockInTurn(RandomAccessFile handle) async {
+    if (await _tryLock(handle, FileLock.exclusive, _queueByte)) {
+      await handle.unlock(_queueByte, _queueByte + 1);
+      if (await _tryLock(handle, FileLock.exclusive, _mutexByte)) {
+        return;
+      }
+    }
+    // A Stopwatch, not Clock.now(): a test that freezes the clock still
+    // gives up.
+    final waited = Stopwatch()..start();
+    var queued = false;
+    try {
+      while (true) {
+        queued = queued || await _tryLock(handle, FileLock.shared, _queueByte);
+        // Windows rounds the wait up to the next system tick.
+        await Future<void>.delayed(const Duration(milliseconds: 1));
+        try {
+          await handle.lock(FileLock.exclusive, _mutexByte, _mutexByte + 1);
+          return;
+        } on FileSystemException {
+          if (waited.elapsed > _lockTimeout) {
+            rethrow;
+          }
+        }
+      }
+    } finally {
+      if (queued) {
+        try {
+          await handle.unlock(_queueByte, _queueByte + 1);
+        } on FileSystemException {
+          // Closing the handle releases the lock as well.
+        }
+      }
+    }
+  }
+
+  static Future<bool> _tryLock(
+    RandomAccessFile handle,
+    FileLock mode,
+    int byte,
+  ) async {
+    try {
+      await handle.lock(mode, byte, byte + 1);
+      return true;
+    } on FileSystemException {
+      return false;
+    }
+  }
+
+  static const int _mutexByte = 0;
+  static const int _queueByte = 1;
 
   static const Duration _lockTimeout = Duration(seconds: 30);
 
@@ -1006,7 +1083,7 @@ final class FileStore
       return await body();
     } finally {
       try {
-        await handle.unlock();
+        await _unlock(handle);
       } on FileSystemException {
         // Closing the handle releases the lock as well.
       }
