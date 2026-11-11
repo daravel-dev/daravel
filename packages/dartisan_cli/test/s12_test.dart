@@ -1012,10 +1012,22 @@ final class Score extends Model {
   });
 }
 
-/// [warnings] without the note `model:sync` prints for a model with no
-/// fillable column (no `createWith` written, W9.13), which these older
-/// tests do not look at.
-List<String> _withoutFillableNote(List<String> warnings) => [
-  for (final w in warnings)
-    if (!w.contains('no fillable column')) w,
-];
+/// [warnings] of a model that declares no `fillable:` list (the models of
+/// these tests, as `make:model` writes them): it must hold the W9.13 note
+/// that no `createWith` was written, exactly once; the other warnings are
+/// returned for the test to check.
+List<String> _withoutFillableNote(List<String> warnings) {
+  final notes = [
+    for (final w in warnings)
+      if (w.contains('no fillable column')) w,
+  ];
+  expect(notes, hasLength(1), reason: 'the model declares no fillable list');
+  expect(
+    notes.single,
+    contains('createWith, makeWith, fillWith and updateWith'),
+  );
+  return [
+    for (final w in warnings)
+      if (!w.contains('no fillable column')) w,
+  ];
+}
