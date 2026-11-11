@@ -120,6 +120,25 @@ await Broadcast.send('price.updated', ['prices'], {'sku': 'A1', 'price': 12});
 | `log` | the log |
 | `null` | nowhere |
 
+With `daravel`, a broadcast is best effort: when the server's coordinator
+cannot take it (it sheds broadcasts under a flood, or does not answer in
+time), the request that sent it does not fail. The broadcast is dropped,
+logged (a warning at most once a second), counted in
+`broadcast_shed_total{reason}` and dispatched as a `BroadcastShed` event
+(its event, channels and reason), for instance to tell those clients to
+reload. Inside a job a worker runs the error is raised instead, so the job
+is retried: an application that must not lose an event sends it from a
+job on a real queue (a `sync` job runs inline and is never retried, so
+there it is dropped as in a request).
+Other errors, and the other connections, behave as before.
+
+A shed broadcast means "back off or drop". Code that calls
+`Broadcaster.publish` itself and catches `CoordinatorOverloaded` must not
+publish again at once in a loop. A refusal decided in the worker (a full
+bulk buffer, a saturated coordinator) arrives on the next turn of the event
+loop, not at once, so such a loop still lets the isolate's timers and
+sockets run, but it gains nothing.
+
 Laravel broadcasts through Daravel the same way: `BROADCAST_CONNECTION=reverb`
 with `REVERB_HOST` pointing at the Daravel server, and the same app id, key
 and secret. Daravel checks the request signatures as Pusher does, and also

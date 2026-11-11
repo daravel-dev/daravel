@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:daravel/daravel.dart';
 import 'package:daravel_horizon/daravel_horizon.dart';
 import 'package:test/test.dart';
 
@@ -63,6 +64,20 @@ void main() {
     record('failed');
     expect(recent('completed'), hasLength(1));
     expect(recent('failed'), hasLength(2));
+  });
+
+  test('a busy coordinator may drop records, never the reads', () {
+    expect(service.priority, CoordinatorPriority.normal);
+    expect(
+      service.priorityFor('record', const <String, Object?>{}),
+      CoordinatorPriority.bulk,
+    );
+    for (final op in const ['recent', 'rates']) {
+      expect(
+        service.priorityFor(op, const <String, Object?>{}),
+        CoordinatorPriority.normal,
+      );
+    }
   });
 
   void recordJob(

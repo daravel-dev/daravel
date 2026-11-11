@@ -1,0 +1,50 @@
+work=$HOME/k1b-variants-20261111-120056
+main_ceiling-publish_1 load: 0.89 0.86 0.98
+main_ceiling-publish_1 exit=0
+k1b_ceiling-publish_1 load: 1.82 1.21 1.10
+k1b_ceiling-publish_1 exit=0
+a_ceiling-publish_1 load: 1.99 1.50 1.21
+a_ceiling-publish_1 exit=0
+b_ceiling-publish_1 load: 1.88 1.64 1.29
+b_ceiling-publish_1 exit=0
+main_saturation_1 load: 1.69 1.73 1.36
+main_saturation_1 exit=0
+k1b_saturation_1 load: 1.72 1.79 1.41
+k1b_saturation_1 exit=0
+a_saturation_1 load: 1.89 1.85 1.45
+a_saturation_1 exit=0
+b_saturation_1 load: 1.70 1.83 1.47
+b_saturation_1 exit=0
+k1b_ceiling-publish_2 load: 1.84 1.87 1.50
+k1b_ceiling-publish_2 exit=0
+a_ceiling-publish_2 load: 1.97 1.93 1.56
+a_ceiling-publish_2 exit=0
+b_ceiling-publish_2 load: 1.93 2.03 1.63
+b_ceiling-publish_2 exit=0
+main_ceiling-publish_2 load: 1.75 2.13 1.72
+main_ceiling-publish_2 exit=0
+k1b_saturation_2 load: 1.68 2.10 1.76
+k1b_saturation_2 exit=0
+a_saturation_2 load: 1.78 2.08 1.77
+a_saturation_2 exit=0
+b_saturation_2 load: 1.87 2.07 1.79
+b_saturation_2 exit=0
+main_saturation_2 load: 1.79 2.05 1.81
+main_saturation_2 exit=0
+a_ceiling-publish_3 load: 1.96 2.08 1.83
+a_ceiling-publish_3 exit=0
+b_ceiling-publish_3 load: 1.82 2.05 1.85
+b_ceiling-publish_3 exit=0
+main_ceiling-publish_3 load: 1.87 2.08 1.88
+main_ceiling-publish_3 exit=0
+k1b_ceiling-publish_3 load: 1.76 2.10 1.91
+k1b_ceiling-publish_3 exit=0
+a_saturation_3 load: 1.79 2.09 1.93
+a_saturation_3 exit=0
+b_saturation_3 load: 1.65 2.07 1.94
+b_saturation_3 exit=0
+main_saturation_3 load: 1.84 2.07 1.95
+main_saturation_3 exit=0
+k1b_saturation_3 load: 1.94 2.08 1.96
+k1b_saturation_3 exit=0
+done

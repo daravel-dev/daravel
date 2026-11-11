@@ -1,0 +1,22 @@
+work=$HOME/k1b-refusal-20261111-140327
+p_overflow_1 load: 0.71 1.38 1.95
+p_overflow_1 exit=0
+p1ms_overflow_1 load: 1.98 1.91 2.10
+p1ms_overflow_1 exit=0
+p_overflow_2 load: 1.82 2.05 2.14
+p_overflow_2 exit=0
+p1ms_overflow_2 load: 1.68 2.30 2.25
+p1ms_overflow_2 exit=0
+p_overflow_3 load: 1.96 2.29 2.25
+p_overflow_3 exit=0
+p1ms_overflow_3 load: 1.74 2.51 2.36
+p1ms_overflow_3 exit=0
+p_starved_1 load: 1.77 2.42 2.35
+p_starved_1 exit=0
+p_starved_2 load: 1.88 2.73 2.50
+p_starved_2 exit=0
+p_starved_3 load: 1.75 2.85 2.61
+p_starved_3 exit=0
+p_saturation_1 load: 1.83 3.08 2.77
+p_saturation_1 exit=0
+done

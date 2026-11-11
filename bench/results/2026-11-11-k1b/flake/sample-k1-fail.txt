@@ -1,0 +1,21 @@
+Running build hooks...Running build hooks...00:00 +0: loading test/server/supervisor_test.dart
+00:00 +0: supervisor runs 2 workers on one port with process-scope state
+2026-11-11T00:11:09.156731Z [WARNING] Config: APP_KEY is not set. Run `dartisan key:generate` before using encryption, signed URLs or tokens.
+2026-11-11T00:11:09.156731Z [WARNING] Config: APP_KEY is not set. Run `dartisan key:generate` before using encryption, signed URLs or tokens.
+2026-11-11T00:11:09.729901Z [WARNING] Rate limiter could not count an attempt (it goes through unless its limit fails closed): CoordinatorOverloaded: Coordinator overloaded: [rateLimiter] calls are shed. {"request_id":"955e350ebf14dd27127c0d2d"}
+2026-11-11T00:11:09.739822Z [WARNING] Rate limiter could not count an attempt (it goes through unless its limit fails closed): CoordinatorOverloaded: Coordinator overloaded: [rateLimiter] calls are shed. {"request_id":"be042ee88d6a388e3b5cfef9"}
+00:00 +0 -1: supervisor runs 2 workers on one port with process-scope state [E]
+  Expected: [200, 200, 200, 429, 429]
+    Actual: [200, 200, 200, 200, 200]
+     Which: at location [3] is <200> instead of <429>
+  
+  package:matcher                        expect
+  test\server\supervisor_test.dart 92:7  main.<fn>
+  
+00:01 +0 -1: Some tests failed.
+
+Failing tests:
+  test/server/supervisor_test.dart: supervisor runs 2 workers on one port with process-scope state
+
+Consider enabling the flag chain-stack-traces to receive more detailed exceptions.
+For example, 'dart test --chain-stack-traces'.

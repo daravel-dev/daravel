@@ -611,6 +611,18 @@ final class Application {
           http: c.make<HttpClientFactory>(),
           logger: c.make<Logger>(),
           database: c.tryMake<DatabaseManager>(),
+          // A broadcast the coordinator could not take: counted, and told
+          // to the application (BroadcastShed), the request going on.
+          onShed: (shed) {
+            metrics.recordBroadcastShed(shed.reason);
+            unawaited(
+              events.dispatch(shed).catchError((Object error) {
+                c.make<Logger>().warning(
+                  'A BroadcastShed listener failed: $error',
+                );
+              }),
+            );
+          },
         );
       })
       ..instance<EventDispatcher>(events)
@@ -1452,6 +1464,13 @@ final class Application {
           processCacheMaxEntries: cacheConfig.processMaxEntries,
           jwtDenylistMaxEntries: cacheConfig.jwtDenylistMaxEntries,
           onWarning: probe.logger.warning,
+          // Blueprint #141 K1: when bulk calls wait, then are refused.
+          lagWarn: Duration(
+            milliseconds: probe.env.integer('COORDINATOR_LAG_WARN_MS', 5),
+          ),
+          lagShed: Duration(
+            milliseconds: probe.env.integer('COORDINATOR_LAG_SHED_MS', 50),
+          ),
         ),
       );
     }
@@ -1748,6 +1767,13 @@ final class Application {
   Future<void> _closeResources() async {
     _metricsTimer?.cancel();
     _metricsTimer = null;
+    // A worker's last bulk calls (its final reports, records, metrics)
+    // reach the coordinator before it says it exited (K1b), bounded; first,
+    // while the channel's timeout sweep (a detached task) still runs.
+    final channel = coordinator;
+    if (channel is RemoteCoordinatorChannel) {
+      await channel.flush();
+    }
     // Timers and loops started outside requests (runDetached), before the
     // database and the coordinator they use close.
     await container.resolved<DetachedTasks>()?.cancelAll();

@@ -1,0 +1,6 @@
+work=$HOME/k1b-control-20261111-154653
+k1b_overflow_1 load: 1.06 1.15 1.19
+k1b_overflow_1 exit=0
+k1b_saturation_1 load: 1.63 1.39 1.28
+k1b_saturation_1 exit=0
+done

@@ -1,0 +1,58 @@
+{
+  "dart": "3.13.4",
+  "aot": true,
+  "processors": 16,
+  "duration_s": 20.0,
+  "in_flight_per_client": 16,
+  "bulk_window": 16,
+  "bulk_buffer": 1024,
+  "ops": [
+    "rate",
+    "lock",
+    "cache",
+    "publish",
+    "noop",
+    "send"
+  ],
+  "sections": [
+    "lease"
+  ],
+  "lease": {
+    "60/min x4": {
+      "attempts": 909004,
+      "allowed": 60,
+      "over_limit": 0,
+      "messages_per_decision": 0.0001
+    },
+    "60/min x16": {
+      "attempts": 1246079,
+      "allowed": 60,
+      "over_limit": 0,
+      "messages_per_decision": 0.0002
+    },
+    "1000/min x4": {
+      "attempts": 2592033,
+      "allowed": 1000,
+      "over_limit": 0,
+      "messages_per_decision": 0.0001
+    },
+    "1000/min x16": {
+      "attempts": 765956,
+      "allowed": 1000,
+      "over_limit": 0,
+      "messages_per_decision": 0.0003
+    },
+    "10000/min x4": {
+      "attempts": 2795804,
+      "allowed": 10000,
+      "over_limit": 0,
+      "messages_per_decision": 0.0003
+    },
+    "10000/min x16": {
+      "attempts": 580442,
+      "allowed": 10000,
+      "over_limit": 0,
+      "messages_per_decision": 0.0012
+    }
+  }
+}

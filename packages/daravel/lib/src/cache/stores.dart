@@ -282,7 +282,21 @@ final class MemoryStore
 /// [ProcessStore.encodeWire] (mostly JSON strings) and are kept as they
 /// are: this isolate never decodes or copies them.
 final class ProcessCacheService
+    with PrioritizedService
     implements TypedCoordinatorService<LockMessage> {
+  /// The JWT denylist and every lock call are critical; the cache is
+  /// normal (Blueprint #141, K1).
+  @override
+  CoordinatorPriority get priority => name == jwtDenylistServiceName
+      ? CoordinatorPriority.critical
+      : CoordinatorPriority.normal;
+
+  @override
+  CoordinatorPriority priorityFor(String op, Object args) =>
+      args is LockMessage || op.endsWith('Lock') || op == 'lockOwner'
+      ? CoordinatorPriority.critical
+      : priority;
+
   /// A service over [store], or a new memory store.
   ProcessCacheService([MemoryStore? store, this.name = serviceName])
     : store = store ?? MemoryStore();
