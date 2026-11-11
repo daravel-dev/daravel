@@ -24,6 +24,7 @@ final class CoordinatorRequest {
     required this.op,
     required this.args,
     required this.replyTo,
+    this.deadline = 0,
   });
 
   /// The call's id, matching its reply.
@@ -32,14 +33,23 @@ final class CoordinatorRequest {
   /// The service called.
   final String service;
 
-  /// The operation.
+  /// The operation; empty for a typed message, which names its own.
   final String op;
 
-  /// Its arguments.
-  final Map<String, Object?> args;
+  /// Its arguments: a `Map<String, Object?>` for
+  /// [CoordinatorService.handle], or the typed message of a
+  /// [TypedCoordinatorService] ([TypedCoordinatorChannel.callTyped]).
+  final Object args;
 
   /// Where the reply goes.
   final SendPort replyTo;
+
+  /// When the caller stops waiting, in microseconds since the epoch (wall
+  /// clock, which every isolate of the process shares); 0 for never. Set
+  /// for an [ExpiringCoordinatorMessage]: the coordinator drops such a
+  /// request unanswered once it has passed, instead of doing work nobody
+  /// waits for any more.
+  final int deadline;
 }
 
 /// Reply to a [CoordinatorRequest].
@@ -73,6 +83,47 @@ final class CoordinatorTimeoutException extends CoordinatorException {
       );
 }
 
+/// Marks a typed coordinator message (ADR-032): an object sent to a
+/// [TypedCoordinatorService] through [TypedCoordinatorChannel.callTyped],
+/// or returned by one.
+///
+/// The contract, which the VM checks once the pragma is present:
+/// - the class is `final` and annotated `@pragma('vm:deeply-immutable')`;
+/// - its fields are final and only `int`, `double`, `bool`, `String` (or
+///   nullable ones) or other `@pragma('vm:deeply-immutable')` classes. No
+///   `List`, `Map` or `Set`: the compiler rejects them, so a collection
+///   travels as a JSON `String` or a nested immutable class.
+///
+/// Such an object crosses to another isolate of the process by reference
+/// instead of being copied, so a batch of them (a `List` of 10 000
+/// messages) costs little more than the copy of the list itself, many
+/// times less than plain objects (`bench/bin/isolate_payload.dart`). For
+/// one small message the port's own overhead dominates and a map costs
+/// about the same.
+///
+/// Implement it (`final class M implements CoordinatorMessage`) rather
+/// than extend it: a deeply-immutable class may only extend another
+/// deeply-immutable class, which must itself be `final` or `sealed` and so
+/// cannot be extended from another library. Custom coordinator services
+/// may send their own such classes. `test/server/deeply_immutable_test.dart`
+/// checks that every implementation in the framework carries the pragma.
+/// The pragma is a VM contract, not a language feature: keep it on
+/// coordinator messages, not on an application's models or DTOs.
+abstract interface class CoordinatorMessage {}
+
+/// A [CoordinatorMessage] the coordinator may drop, unanswered, once its
+/// caller has stopped waiting for it (#148): a [RemoteCoordinatorChannel]
+/// sends it with the call's deadline, and a request still queued after that
+/// deadline is not handled (`coordinator_expired_total`). Only for
+/// operations whose effect nobody needs once the caller gave up: a lock
+/// acquisition or a rate-limit attempt that the worker already treated as
+/// failed, never a release.
+abstract interface class ExpiringCoordinatorMessage
+    implements CoordinatorMessage {
+  /// Whether this message is dropped once its deadline has passed.
+  bool get expiresWithCall;
+}
+
 /// A service hosted by the [Coordinator] (rate limiter, locks, cache...).
 abstract interface class CoordinatorService {
   /// The service's name.
@@ -83,6 +134,21 @@ abstract interface class CoordinatorService {
 
   /// Debug snapshot (`dartisan coordinator:stats`).
   Map<String, Object?> stats();
+}
+
+/// A [CoordinatorService] that also answers typed messages of type [M]
+/// (ADR-031): one small immutable object per call instead of a map whose
+/// entries the VM copies, used on the hottest paths (rate limits, locks).
+/// [CoordinatorService.handle] keeps answering the same operations as maps,
+/// for channels that are not a [TypedCoordinatorChannel].
+///
+/// A message class marked `@pragma('vm:deeply-immutable')` (final fields of
+/// strings, numbers, booleans and null only) crosses to the coordinator
+/// isolate by reference, without a copy.
+abstract interface class TypedCoordinatorService<M extends Object>
+    implements CoordinatorService {
+  /// Handles [message] and returns a sendable result.
+  FutureOr<Object?> handleTyped(M message);
 }
 
 /// A [CoordinatorService] holding state on behalf of worker isolates
@@ -106,11 +172,22 @@ final class Coordinator {
 
   final Map<String, CoordinatorService> _services =
       <String, CoordinatorService>{};
-  ReceivePort? _port;
+  RawReceivePort? _port;
   int _inFlight = 0;
   int _peakInFlight = 0;
   int _handled = 0;
   int _rejected = 0;
+  int _expired = 0;
+
+  /// How late the lag probe's last timer fired, and the latest it ever did:
+  /// how long a message waits behind the others in the coordinator's
+  /// event loop, synchronous services included.
+  Duration _lag = Duration.zero;
+  Duration _lagPeak = Duration.zero;
+  Timer? _lagProbe;
+
+  /// How often [listen]'s lag probe measures the event loop.
+  static const Duration lagProbeInterval = Duration(milliseconds: 100);
 
   /// Since construction, for the message rate in [stats] (wall clock: not
   /// domain time, so not `Clock`).
@@ -137,7 +214,18 @@ final class Coordinator {
   }
 
   /// Dispatches directly (used by [LocalCoordinatorChannel]).
-  Future<Object?> handle(String service, String op, Map<String, Object?> args) {
+  Future<Object?> handle(
+    String service,
+    String op,
+    Map<String, Object?> args,
+  ) => _handleHere(service, op, args);
+
+  /// Dispatches a typed [message] directly to [service], a
+  /// [TypedCoordinatorService] (used by [LocalCoordinatorChannel]).
+  Future<Object?> handleTyped(String service, Object message) =>
+      _handleHere(service, '', message);
+
+  Future<Object?> _handleHere(String service, String op, Object args) {
     try {
       final result = _invoke(service, op, args);
       return result is Future<Object?> ? result : Future<Object?>.value(result);
@@ -146,17 +234,25 @@ final class Coordinator {
     }
   }
 
-  FutureOr<Object?> _invoke(
-    String service,
-    String op,
-    Map<String, Object?> args,
-  ) {
+  /// A map goes to [CoordinatorService.handle], anything else to
+  /// [TypedCoordinatorService.handleTyped]; a message of another type than
+  /// the service's fails that call's parameter check (a `TypeError`).
+  FutureOr<Object?> _invoke(String service, String op, Object args) {
     final target = _services[service];
     if (target == null) {
       throw CoordinatorException('Unknown coordinator service [$service].');
     }
     _handled++;
-    return target.handle(op, args);
+    if (args is Map<String, Object?>) {
+      return target.handle(op, args);
+    }
+    if (target is TypedCoordinatorService<Object>) {
+      return target.handleTyped(args);
+    }
+    throw CoordinatorException(
+      'Coordinator service [$service] takes no typed messages '
+      '(got ${args.runtimeType}).',
+    );
   }
 
   /// Starts listening for remote requests and returns the port workers
@@ -166,10 +262,23 @@ final class Coordinator {
     if (existing != null) {
       return existing.sendPort;
     }
-    final port = ReceivePort('daravel-coordinator');
+    // A raw port: no stream machinery between the message and the
+    // dispatch, on the path every throttled request takes.
+    final port = RawReceivePort(null, 'daravel-coordinator');
     _port = port;
-    port.listen((Object? message) {
+    _probeLag();
+    port.handler = (Object? message) {
       if (message is! CoordinatorRequest) {
+        return;
+      }
+      final args = message.args;
+      if (message.deadline != 0 &&
+          args is ExpiringCoordinatorMessage &&
+          args.expiresWithCall &&
+          DateTime.now().microsecondsSinceEpoch > message.deadline) {
+        // The worker has given up on it: answering would only be work
+        // (a lock taken, a hit counted) nobody waits for.
+        _expired++;
         return;
       }
       if (_inFlight >= maxQueue) {
@@ -184,7 +293,7 @@ final class Coordinator {
       // inline: no Future or microtask per message.
       final FutureOr<Object?> result;
       try {
-        result = _invoke(message.service, message.op, message.args);
+        result = _invoke(message.service, message.op, args);
       } on Object catch (error) {
         _reply(message, CoordinatorReply(message.id, error: '$error'));
         return;
@@ -197,7 +306,7 @@ final class Coordinator {
         _peakInFlight = _inFlight;
       }
       unawaited(_dispatch(message, result));
-    });
+    };
     return port.sendPort;
   }
 
@@ -234,16 +343,37 @@ final class Coordinator {
     }
   }
 
+  /// Measures how late a timer fires on this event loop, every
+  /// [lagProbeInterval] while listening: a timer's wake-up waits behind the
+  /// messages queued before it, so its delay is the coordinator's queue
+  /// lag, which [maxQueue] does not see for synchronous services.
+  void _probeLag() {
+    final watch = Stopwatch()..start();
+    _lagProbe = Timer(lagProbeInterval, () {
+      final late = watch.elapsed - lagProbeInterval;
+      _lag = late.isNegative ? Duration.zero : late;
+      if (_lag > _lagPeak) {
+        _lagPeak = _lag;
+      }
+      if (_port != null) {
+        _probeLag();
+      }
+    });
+  }
+
   /// Counters, the message rate and each service's snapshot. `messages`
   /// (handled plus rejected) only grows; with `uptime_s`, or by reading the
   /// stats twice, it shows a flood of messages from the workers, which the
   /// coordinator answers on the supervisor's own event loop.
   Map<String, Object?> stats() {
-    final messages = _handled + _rejected;
+    final messages = _handled + _rejected + _expired;
     final seconds = _uptime.elapsedMicroseconds / 1e6;
     return <String, Object?>{
       'handled': _handled,
       'rejected': _rejected,
+      // Requests dropped unanswered because their caller had stopped
+      // waiting (an [ExpiringCoordinatorMessage] past its deadline).
+      'expired': _expired,
       'messages': messages,
       'uptime_s': double.parse(seconds.toStringAsFixed(1)),
       'messages_per_second': seconds == 0
@@ -254,6 +384,10 @@ final class Coordinator {
       // start to be refused.
       'in_flight_peak': _peakInFlight,
       'max_queue': maxQueue,
+      // How long a message waits in the event loop (the lag probe): the
+      // backlog of synchronous services, which never count in in_flight.
+      'queue_lag_ms': _lag.inMicroseconds / 1000,
+      'queue_lag_peak_ms': _lagPeak.inMicroseconds / 1000,
       'services': <String, Object?>{
         for (final entry in _services.entries) entry.key: entry.value.stats(),
       },
@@ -267,6 +401,8 @@ final class Coordinator {
 
   /// Stops the coordinator.
   void close() {
+    _lagProbe?.cancel();
+    _lagProbe = null;
     _port?.close();
     _port = null;
   }
@@ -289,8 +425,24 @@ abstract interface class CoordinatorChannel {
   });
 }
 
+/// A [CoordinatorChannel] that also sends typed messages to a
+/// [TypedCoordinatorService]. [LocalCoordinatorChannel] and
+/// [RemoteCoordinatorChannel] are both. A channel that is only a
+/// [CoordinatorChannel] (an application's own, a test double) keeps
+/// working: the framework's stores send it the same operation as a map
+/// through [call].
+abstract interface class TypedCoordinatorChannel implements CoordinatorChannel {
+  /// Sends [message] (not a `Map`: maps go through [call]) to the
+  /// [TypedCoordinatorService] named [service].
+  Future<Object?> callTyped(
+    String service,
+    Object message, {
+    Duration timeout = const Duration(seconds: 1),
+  });
+}
+
 /// Direct in-process calls (single isolate / tests): no message hop.
-final class LocalCoordinatorChannel implements CoordinatorChannel {
+final class LocalCoordinatorChannel implements TypedCoordinatorChannel {
   /// A channel to [coordinator] in this isolate.
   const LocalCoordinatorChannel(this.coordinator);
 
@@ -310,10 +462,17 @@ final class LocalCoordinatorChannel implements CoordinatorChannel {
     Map<String, Object?> args, {
     Duration timeout = const Duration(seconds: 1),
   }) => coordinator.handle(service, op, args);
+
+  @override
+  Future<Object?> callTyped(
+    String service,
+    Object message, {
+    Duration timeout = const Duration(seconds: 1),
+  }) => coordinator.handleTyped(service, message);
 }
 
 /// Request/response over [SendPort] with correlation ids and timeouts.
-final class RemoteCoordinatorChannel implements CoordinatorChannel {
+final class RemoteCoordinatorChannel implements TypedCoordinatorChannel {
   /// A channel to a coordinator in another isolate.
   RemoteCoordinatorChannel(this._target) {
     _replies = ReceivePort('daravel-coordinator-client');
@@ -357,7 +516,21 @@ final class RemoteCoordinatorChannel implements CoordinatorChannel {
     String op,
     Map<String, Object?> args, {
     Duration timeout = const Duration(seconds: 1),
-  }) {
+  }) => _send(service, op, args, timeout);
+
+  @override
+  Future<Object?> callTyped(
+    String service,
+    Object message, {
+    Duration timeout = const Duration(seconds: 1),
+  }) => _send(service, '', message, timeout);
+
+  Future<Object?> _send(
+    String service,
+    String op,
+    Object args,
+    Duration timeout,
+  ) {
     if (_closed) {
       // After close() no reply can arrive: fail now rather than after the
       // timeout (and without restarting the sweeper).
@@ -382,6 +555,9 @@ final class RemoteCoordinatorChannel implements CoordinatorChannel {
         op: op,
         args: args,
         replyTo: _replies.sendPort,
+        deadline: args is ExpiringCoordinatorMessage
+            ? DateTime.now().microsecondsSinceEpoch + timeout.inMicroseconds
+            : 0,
       ),
     );
     return call.completer.future;

@@ -17,6 +17,7 @@ String renderStub(String template, Map<String, String> values) =>
 /// Stub name → template.
 const Map<String, String> builtInStubs = <String, String>{
   'model': _model,
+  'model.id': _modelId,
   'migration': _migration,
   'migration.create': _migrationCreate,
   'migration.update': _migrationUpdate,
@@ -28,6 +29,7 @@ const Map<String, String> builtInStubs = <String, String>{
   'request': _request,
   'middleware': _middleware,
   'job': _job,
+  'job.model': _jobModel,
   'policy': _policy,
   'policy.model': _policyModel,
   'query-filter': _queryFilter,
@@ -80,6 +82,19 @@ final class {{ class }} extends Model {
   DateTime? get createdAt => getAttr('created_at');
   DateTime? get updatedAt => getAttr('updated_at');
   // </dartisan:accessors>
+}
+''';
+
+/// The typed id `model:sync --typed-ids` writes into the `<dartisan:ids>`
+/// region of a model file (`{{ idType }}` is `int` or `String`).
+const String _modelId = r'''
+/// The primary key of [{{ class }}]: an id of another model passed where a
+/// [{{ class }}Id] is expected does not compile. Erased to its
+/// [{{ idType }}] at runtime.
+extension type const {{ class }}Id({{ idType }} value) implements {{ idType }} {
+  /// Parses a route parameter; throws a [FormatException] when [raw] is
+  /// not a valid id.
+  static {{ class }}Id parse(String raw) => {{ class }}Id({{ idParse }});
 }
 ''';
 
@@ -309,6 +324,48 @@ final class {{ class }} extends Job {
 
   @override
   Future<void> handle(JobContext ctx) async {
+    // Do the work here.
+  }
+}
+''';
+
+const String _jobModel = r'''
+{{ imports }}
+
+/// Queued job; dispatch with
+/// `await Queue.dispatch({{ class }}({{ dispatch }}))`.
+final class {{ class }} extends Job {
+  const {{ class }}({{{ params }}});
+
+  /// Stable registry key (see bootstrap/jobs.dart).
+  static const String name = '{{ jobName }}';
+
+  factory {{ class }}.fromJson(Map<String, Object?> json) => {{ class }}(
+{{ fromJson }}
+  );
+
+{{ fields }}
+
+  @override
+  String get jobName => name;
+
+  @override
+  int get tries => 3;
+
+  @override
+  List<Duration> get backoff => const [Duration(seconds: 10), Duration(seconds: 60)];
+
+  @override
+  List<String> get tags => [{{ tags }}];
+
+  @override
+  Map<String, Object?> toJson() => <String, Object?>{
+{{ toJson }}
+  };
+
+  @override
+  Future<void> handle(JobContext ctx) async {
+{{ resolve }}
     // Do the work here.
   }
 }

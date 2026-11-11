@@ -103,6 +103,46 @@ Size production from the binary, not from the development server:
 isolates (115 MB with one, about 330 MB with eight, on the same
 application).
 
+### Build on one OS, run on another
+
+`--target-os` and `--target-arch` build a bundle for another machine, for
+example a Linux server from a Windows laptop:
+
+```bash
+dart run bin/dartisan.dart build --target-os=linux                    # Linux x64 from Windows x64
+dart run bin/dartisan.dart build --target-os=linux --target-arch=arm64
+dart run bin/dartisan.dart build --target-os=linux --no-sqlite --force  # PostgreSQL/MySQL: no SQLite download
+```
+
+Both options go to `dart build cli`, which compiles for the target and runs
+the build hooks for it: the bundled SQLite is the target's prebuilt
+(`libsqlite3.so` for Linux), and the executable is `bin/server`, with
+`.exe` only for Windows. The Dart SDK cross-compiles to Linux only
+(x64, arm64): a macOS or Windows bundle is built on that system.
+
+Measured with the starter on Windows x64 (Dart 3.13.4, build hooks already
+cached):
+
+| Command | Bundle | Build time |
+| :-- | :-- | :-- |
+| `build` (host, Windows x64) | `server.exe` 10.5 MB + `sqlite3.dll` 1.6 MB | about 45 s |
+| `build --target-os=linux` | ELF x86-64 `server` 10.9 MB + `libsqlite3.so` 1.7 MB | about 20 s |
+| `build --target-os=linux --target-arch=arm64` | ELF arm64 `server` 10.6 MB + `libsqlite3.so` 1.8 MB | about 25 s |
+| `build --target-os=linux --no-sqlite --force` | ELF x86-64 `server` 10.9 MB | about 40 s, including `dart run` of `dartisan` |
+| `build --target-os=macos` | refused by the SDK: cross-compiling targets Linux only | |
+
+The Linux x64 bundles ran on WSL (Ubuntu 22.04), and CI builds the
+`--no-sqlite` bundle on Windows and smoke-tests it on Linux. A
+`--no-sqlite` bundle that opens SQLite needs `libsqlite3.so` on the server
+(Debian/Ubuntu: `libsqlite3-dev`, or a `libsqlite3.so` link to
+`libsqlite3.so.0`).
+
+If a build stops with "Hash of downloaded file libsqlite3...", the SQLite
+download from GitHub failed: `package:sqlite3` 3.8.0 does not check the
+HTTP status, so an error response shows up as a wrong hash. `dartisan
+build` says so; run it again, or build with `--no-sqlite --force` when the
+application uses PostgreSQL or MySQL.
+
 ## Docker
 
 `dartisan build --docker` writes a multi-stage `Dockerfile` (Dart SDK
@@ -208,6 +248,30 @@ warning at most once a second, naming the limit that was hit; a steady
 stream of them means the server needs more isolates or instances, not a
 higher limit.
 
+## Graceful shutdown and rolling deploys
+
+On `SIGTERM` (or `Application.restart`, `reverb:restart`) the server
+drains in this order:
+
+1. `/up` and `/up/ready` answer `503`, so the load balancer or the
+   platform stops sending new traffic here.
+2. It stops accepting new connections. The connections accepted just
+   before, whose request is still on its way, are kept and answered, for
+   up to `ServeOptions.drainGrace` (250 ms by default, bounded by
+   `SHUTDOWN_TIMEOUT`).
+3. Every response during the drain carries `Connection: close`, so a
+   keep-alive client opens its next connection elsewhere instead of
+   sending it on one about to close.
+4. Requests in progress finish within `SHUTDOWN_TIMEOUT`; open WebSockets
+   are told the server is going away (spread over `REVERB_DRAIN_SPREAD`
+   for the Pusher server).
+
+A connection that is still in the kernel's accept queue when step 2
+begins is refused: point the load balancer's health check at `/up/ready`
+and give it time to take the server out of rotation before the signal
+(Kubernetes: a short `preStop` sleep; systemd and Caddy: Caddy's active
+health check). The server speaks plain HTTP; TLS is ended in front of it.
+
 ## Topology
 
 Run Daravel behind a reverse proxy (Caddy, nginx) that terminates TLS and
@@ -258,12 +322,19 @@ The queue worker (on `SERVER_EMBED_QUEUES`, default the default queue) and
 the scheduler each run in their own isolate, so jobs never block the HTTP
 event loop. They share the server's coordinator, so the `process` cache
 store, rate limits and locks are the same ones the HTTP workers see: a
-token a job revokes is refused on the next request. A crashed isolate is
-respawned; on `SIGTERM` the current job or tick finishes before the process
+token a job revokes is refused on the next request. An isolate that ends on
+its own (a worker restarting after `queue:restart` or after a job timed out)
+is started again at once; a crashed one after a second per crash in the last
+minute, and once a minute, logged as an error each time, after more than
+five crashes in a minute, so it is never given up while the server runs. An
+uncaught asynchronous error in either isolate (a fire-and-forget future in a
+listener or a background task) is logged instead of ending it. On `SIGTERM` the current job or tick finishes before the process
 exits. Scheduled console commands run when
 the server is started with `dartisan serve`; started as `bin/server`, the
 embedded scheduler runs jobs, closures and `exec` tasks. Embedding needs a
-file or PostgreSQL database (an in-memory SQLite database is refused). For
+file or PostgreSQL database (an in-memory SQLite database is refused) and a
+queue other than `memory`, whose jobs stay in the isolate that dispatched
+them (`serve` refuses it, as it does with `APP_ISOLATES` above 1). For
 several instances, keep one embedded scheduler (or run `schedule:work`
 separately) and scale queue workers on their own.
 
@@ -459,6 +530,9 @@ on each.
 - `dart run bin/dartisan.dart doctor --production` checks configuration,
   database reachability, public `/metrics`, `QUEUE_CONNECTION=sync` and
   more; run it in the container entrypoint.
-- Health endpoints: `/up` (liveness) and `/up/ready` (readiness).
+- Health endpoints: `/up` (liveness) and `/up/ready` (readiness). Each
+  worker runs the readiness checks once at a time and answers the probes of
+  the next second from that result, so frequent probes cost one run per
+  second, not one per probe.
 - Run `queue:work` and `schedule:work` as separate processes.
 - Logs: `LOG_STACK=json` for structured logs; secrets are redacted.

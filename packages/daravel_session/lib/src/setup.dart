@@ -39,8 +39,8 @@ Future<Response?> redirectInvalidRequest(
 extension SessionApplicationBuilder on ApplicationBuilder {
   /// Adds Laravel-compatible sessions (`SESSION_*` settings):
   ///
-  /// - the [SessionManager] with the `file`, `database` and `array`
-  ///   drivers;
+  /// - the [SessionManager] with the `file`, `database`, `cache` and
+  ///   `array` drivers (`withRedis()` from `daravel_redis` adds `redis`);
   /// - the `encrypt_cookies`, `session` and `csrf` middleware aliases, and
   ///   the `web` group that runs the three in Laravel's order;
   /// - `request.session` and `Session.current` inside those routes.

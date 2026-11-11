@@ -10,10 +10,14 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:crypto/crypto.dart';
 import 'package:daravel/daravel.dart';
 import 'package:test/test.dart';
 
+import 'src/cookie_jar.dart';
+
 export 'src/architecture.dart';
+export 'src/cookie_jar.dart';
 export 'src/database.dart';
 export 'src/time.dart';
 
@@ -44,12 +48,46 @@ final class TestClient {
     this.guard,
     this.handleExceptions = true,
     TestTransport? transport,
+    this.cookieJar,
+    this.followRedirects = false,
   }) : _defaultHeaders = <String, String>{...?defaultHeaders},
-       transport = transport ?? TestTransport.fromEnvironment;
+       transport = transport ?? TestTransport.fromEnvironment,
+       _cookies = const <String, String>{},
+       _unencryptedCookies = const <String, String>{},
+       _session = null,
+       _xsrf = true;
+
+  TestClient._with(
+    this.app, {
+    required this._defaultHeaders,
+    required this.user,
+    required this.guard,
+    required this.handleExceptions,
+    required this.transport,
+    required this.cookieJar,
+    required this.followRedirects,
+    required this._cookies,
+    required this._unencryptedCookies,
+    required this._session,
+    required this._xsrf,
+  });
 
   /// The application under test.
   final Application app;
   final Map<String, String> _defaultHeaders;
+
+  /// The cookies kept between requests, as a browser keeps them (see
+  /// [browser]); `null` when every request starts without cookies.
+  final CookieJar? cookieJar;
+
+  /// Whether a redirect is followed with a `GET` until a response that is
+  /// not one (see [followingRedirects]).
+  final bool followRedirects;
+
+  final Map<String, String> _cookies;
+  final Map<String, String> _unencryptedCookies;
+  final _SessionSeed? _session;
+  final bool _xsrf;
 
   /// In process or over a socket (see [TestTransport]).
   final TestTransport transport;
@@ -69,13 +107,82 @@ final class TestClient {
     Authenticatable? user,
     String? guard,
     bool? handleExceptions,
-  }) => TestClient(
+    CookieJar? cookieJar,
+    bool? followRedirects,
+    Map<String, String>? cookies,
+    Map<String, String>? unencryptedCookies,
+    _SessionSeed? session,
+    bool? xsrf,
+  }) => TestClient._with(
     app,
     defaultHeaders: <String, String>{..._defaultHeaders, ...?headers},
     user: user ?? this.user,
     guard: guard ?? this.guard,
     handleExceptions: handleExceptions ?? this.handleExceptions,
     transport: transport,
+    cookieJar: cookieJar ?? this.cookieJar,
+    followRedirects: followRedirects ?? this.followRedirects,
+    cookies: <String, String>{..._cookies, ...?cookies},
+    unencryptedCookies: <String, String>{
+      ..._unencryptedCookies,
+      ...?unencryptedCookies,
+    },
+    session: session ?? _session,
+    xsrf: xsrf ?? _xsrf,
+  );
+
+  /// Returns a client that behaves like a browser: it keeps the cookies
+  /// the application sets (the session, `XSRF-TOKEN`, remember-me) in a
+  /// [CookieJar] and sends them back, asks for HTML instead of JSON (a
+  /// request with a JSON body still asks for JSON), and sends the
+  /// `XSRF-TOKEN` cookie back as the `X-XSRF-TOKEN` header on `POST`,
+  /// `PUT`, `PATCH` and `DELETE`, as Axios does, so `VerifyCsrfToken`
+  /// accepts form posts. With [xsrf] false no header is added, to test the
+  /// `419` of a missing token.
+  ///
+  /// Laravel needs none of this: its session store outlives a request in a
+  /// test and `VerifyCsrfToken` skips unit tests. Daravel reads the
+  /// session from the cookie on every request and checks CSRF in tests
+  /// too, as a browser would meet it.
+  ///
+  /// Copies of the returned client ([withHeaders], [actingAs], ...) share
+  /// its jar; call `browser()` again for a second browser.
+  TestClient browser({bool xsrf = true}) =>
+      _copy(cookieJar: CookieJar(), xsrf: xsrf);
+
+  /// Returns a client that follows redirects with `GET` requests and
+  /// returns the last response (Laravel `followingRedirects`). With a
+  /// [browser] client the cookies of every hop are kept.
+  TestClient followingRedirects() => _copy(followRedirects: true);
+
+  /// Returns a client that sends cookie [name] with [value] on every
+  /// request, encrypted as `EncryptCookies` expects (Laravel `withCookie`):
+  /// `Crypt` with the application key, behind Laravel's `CookieValuePrefix`.
+  TestClient withCookie(String name, String value) =>
+      withCookies(<String, String>{name: value});
+
+  /// [withCookie] for each entry of [cookies] (Laravel `withCookies`).
+  TestClient withCookies(Map<String, String> cookies) =>
+      _copy(cookies: cookies);
+
+  /// Returns a client that sends cookie [name] with [value] as it is
+  /// (Laravel `withUnencryptedCookie`), for cookies `EncryptCookies` leaves
+  /// alone or an application without it.
+  TestClient withUnencryptedCookie(String name, String value) =>
+      withUnencryptedCookies(<String, String>{name: value});
+
+  /// [withUnencryptedCookie] for each entry of [cookies].
+  TestClient withUnencryptedCookies(Map<String, String> cookies) =>
+      _copy(unencryptedCookies: cookies);
+
+  /// Returns a client whose session holds [data] (Laravel `withSession`):
+  /// the session middleware (`daravel_session`'s `web` group) puts each
+  /// entry into the session it starts. A [browser] client seeds the
+  /// session of its next request only, which then lives on in the cookie;
+  /// any other client seeds every request, since each one starts a new
+  /// session.
+  TestClient withSession(Map<String, Object?> data) => _copy(
+    session: _SessionSeed(<String, Object?>{...?_session?.data, ...data}),
   );
 
   /// Returns a client that always sends [headers].
@@ -154,7 +261,15 @@ final class TestClient {
     Map<String, String>? headers,
   }) => send('DELETE', uri, json: json, headers: headers);
 
-  /// Sends a request. JSON requests automatically ask for JSON responses.
+  /// The `Accept` header of a [browser] page request.
+  static const String browserAccept =
+      'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
+
+  /// The most redirects [followingRedirects] follows for one request.
+  static const int maxRedirects = 20;
+
+  /// Sends a request. JSON requests automatically ask for JSON responses,
+  /// and so does every request of a client that is not a [browser].
   Future<TestResponse> send(
     String method,
     String uri, {
@@ -164,6 +279,83 @@ final class TestClient {
     String? body,
     Map<String, String>? headers,
   }) async {
+    var response = await _send(
+      method,
+      uri,
+      json: json,
+      form: form,
+      files: files,
+      body: body,
+      headers: headers,
+    );
+    if (!followRedirects) {
+      return response;
+    }
+    for (var hops = 0; ; hops++) {
+      final location = response.headers.first('location');
+      if (!_followable.contains(response.status) || location == null) {
+        return response;
+      }
+      if (hops == maxRedirects) {
+        fail(
+          'More than $maxRedirects redirects from $method $uri; the last '
+          'one went to $location.',
+        );
+      }
+      final target = response.request.uri.resolve(location);
+      response = await _send(
+        'GET',
+        target.hasQuery ? '${target.path}?${target.query}' : target.path,
+      );
+    }
+  }
+
+  /// The redirects [followingRedirects] follows.
+  static const Set<int> _followable = {301, 302, 303, 307, 308};
+
+  Future<TestResponse> _send(
+    String method,
+    String uri, {
+    Object? json,
+    Map<String, String>? form,
+    Map<String, Object>? files,
+    String? body,
+    Map<String, String>? headers,
+  }) async {
+    final jar = cookieJar;
+    final target = Uri.parse(
+      uri.startsWith('/') ? 'http://localhost$uri' : 'http://localhost/$uri',
+    );
+    final requestHeaders = <String, String>{
+      'accept': jar == null || json != null
+          ? 'application/json'
+          : browserAccept,
+      ..._defaultHeaders,
+      ...?headers,
+    };
+    final cookies = await _cookiePairs(target);
+    if (cookies.isNotEmpty) {
+      final own = requestHeaders.remove('cookie');
+      requestHeaders['cookie'] = [...cookies, ?own].join('; ');
+    }
+    final xsrfCookie = jar?['XSRF-TOKEN'];
+    if (_xsrf &&
+        xsrfCookie != null &&
+        !const {'GET', 'HEAD', 'OPTIONS'}.contains(method.toUpperCase()) &&
+        !requestHeaders.containsKey('x-xsrf-token') &&
+        !requestHeaders.containsKey('x-csrf-token')) {
+      requestHeaders['x-xsrf-token'] = xsrfCookie;
+    }
+    final seed = _session;
+    final Map<String, Object?>? sessionData;
+    if (seed != null && (jar == null || !seed.applied)) {
+      sessionData = seed.data;
+      if (jar != null) {
+        seed.applied = true;
+      }
+    } else {
+      sessionData = null;
+    }
     final request = Request.fake(
       method: method,
       path: uri,
@@ -171,12 +363,9 @@ final class TestClient {
       form: form,
       files: files,
       body: body,
-      headers: <String, String>{
-        'accept': 'application/json',
-        ..._defaultHeaders,
-        ...?headers,
-      },
+      headers: requestHeaders,
     );
+    final TestResponse response;
     // Exceptions cannot cross a socket: withoutExceptionHandling stays in
     // process.
     // Header values HttpClient refuses to send (non-ASCII, control
@@ -184,28 +373,136 @@ final class TestClient {
     if (transport == TestTransport.socket &&
         handleExceptions &&
         _sendable(request.headers)) {
-      return _SocketHarness.of(app).send(request, user, guard);
+      response = await _SocketHarness.of(app)
+          .send(request, user, guard, sessionData);
+    } else {
+      if (!handleExceptions) {
+        request.attributes[ExceptionHandler.rethrowAttribute] = true;
+      }
+      final capture = _Capture();
+      final handled = await app.handle(
+        request,
+        prepare: () => capture.prepare(request, user, guard, sessionData),
+      );
+      response = capture.response(
+        status: handled.status,
+        headers: handled.headers,
+        bodyBytes: await handled.bodyBytes(),
+        request: request,
+      );
     }
-    if (!handleExceptions) {
-      request.attributes[ExceptionHandler.rethrowAttribute] = true;
+    jar?.receive(response.headers.all('set-cookie'), request.uri);
+    return response;
+  }
+
+  /// The `name=value` pairs of the jar and of [withCookie] /
+  /// [withUnencryptedCookie] for [target].
+  Future<List<String>> _cookiePairs(Uri target) async {
+    final pairs = <String, String>{};
+    for (final pair in cookieJar?.pairsFor(target) ?? const <String>[]) {
+      final separator = pair.indexOf('=');
+      pairs[pair.substring(0, separator)] = pair.substring(separator + 1);
     }
-    final actor = user;
-    final response = await app.handle(
-      request,
-      prepare: actor == null
-          ? null
-          : () {
-              final auth = Container.current.make<AuthManager>();
-              final name = guard ?? auth.defaultGuard;
-              auth.guard(name).setUser(actor);
-              auth.useForRequest(name);
-            },
-    );
+    if (_cookies.isNotEmpty) {
+      final encrypted = await app.run(
+        () async => <String, String>{
+          for (final MapEntry(key: name, :value) in _cookies.entries)
+            name: await encryptCookieValue(name, value),
+        },
+      );
+      for (final MapEntry(key: name, :value) in encrypted.entries) {
+        pairs[name] = phpRawUrlEncode(value);
+      }
+    }
+    for (final MapEntry(key: name, :value) in _unencryptedCookies.entries) {
+      pairs[name] = phpRawUrlEncode(value);
+    }
+    return [
+      for (final MapEntry(key: name, :value) in pairs.entries) '$name=$value',
+    ];
+  }
+}
+
+/// Encrypts [value] as Laravel's `EncryptCookies` does for cookie [name]:
+/// `Crypt::encrypt(CookieValuePrefix::create($name, $key).$value, false)`,
+/// the prefix being `hash_hmac('sha1', $name.'v2', $key).'|'`. Needs an
+/// active application (`app.run`).
+Future<String> encryptCookieValue(String name, String value) {
+  final encrypter = Crypt.encrypter;
+  final prefix = Hmac(sha1, encrypter.key).convert(utf8.encode('${name}v2'));
+  return encrypter.encryptString('$prefix|$value');
+}
+
+/// The data of [TestClient.withSession], seeded once by a browser client.
+final class _SessionSeed {
+  _SessionSeed(this.data);
+
+  final Map<String, Object?> data;
+  bool applied = false;
+}
+
+/// What a test client learns inside the request scope: the server's
+/// [Request] (and through it the session) and, when the scope ends, the
+/// user each guard resolved.
+final class _Capture {
+  Request? request;
+  Map<String, Authenticatable?>? guards;
+  String? defaultGuard;
+  final Completer<void> done = Completer<void>();
+
+  /// Runs inside the request scope before the kernel (`Application.handle`
+  /// and `ServerEngine`'s `prepare`).
+  void prepare(
+    Request request,
+    Authenticatable? user,
+    String? guard,
+    Map<String, Object?>? session,
+  ) {
+    this.request = request;
+    final container = Container.current;
+    final auth = container.bound<AuthManager>()
+        ? container.make<AuthManager>()
+        : null;
+    if (user != null) {
+      final manager = auth ?? container.make<AuthManager>();
+      final name = guard ?? manager.defaultGuard;
+      manager.guard(name).setUser(user);
+      manager.useForRequest(name);
+    }
+    if (session != null) {
+      request.attributes[SessionStore.seedAttribute] = <String, Object?>{
+        ...session,
+      };
+    }
+    // Created now, so the guards of the request share it and it is still
+    // there when the scope is disposed.
+    final state = AuthScope.state();
+    container.currentScope?.onDispose(() {
+      if (auth != null) {
+        defaultGuard = auth.defaultGuard;
+        guards = {for (final name in state.resolved) name: state.users[name]};
+      }
+      if (!done.isCompleted) {
+        done.complete();
+      }
+    });
+  }
+
+  TestResponse response({
+    required int status,
+    required Headers headers,
+    required List<int> bodyBytes,
+    required Request request,
+  }) {
+    final session = this.request?.attributes[SessionStore.attribute];
     return TestResponse(
-      status: response.status,
-      headers: response.headers,
-      bodyBytes: await response.bodyBytes(),
+      status: status,
+      headers: headers,
+      bodyBytes: bodyBytes,
       request: request,
+      session: session is SessionStore ? session : null,
+      guards: guards,
+      defaultGuard: defaultGuard,
     );
   }
 }
@@ -230,13 +527,20 @@ final class _SocketHarness {
       _byApp[app] ??= _SocketHarness._(app);
 
   final Application app;
-  final Map<String, (Authenticatable, String?)> _actors = {};
+  final Map<
+    String,
+    (_Capture, Authenticatable?, String?, Map<String, Object?>?)
+  >
+  _pending = {};
   final Random _random = Random.secure();
   ServerEngine? _engine;
   HttpClient? _client;
   Future<void>? _starting;
 
-  static const String actorHeader = 'x-daravel-test-actor';
+  /// Names the request's entry in [_pending]; removed before the
+  /// application sees the request, so it sees the same headers as in
+  /// process.
+  static const String requestHeader = 'x-daravel-test-request';
 
   Future<void> _start() async {
     final engine = ServerEngine(
@@ -245,16 +549,14 @@ final class _SocketHarness {
       kernel: app.kernel,
       logger: Logger(minimumLevel: LogLevel.critical),
       prepare: (request) {
-        final token = request.header(actorHeader);
-        final actor = token == null ? null : _actors.remove(token);
-        if (actor == null) {
+        final token = request.header(requestHeader);
+        final pending = token == null ? null : _pending.remove(token);
+        if (pending == null) {
           return;
         }
-        final (user, guard) = actor;
-        final auth = Container.current.make<AuthManager>();
-        final name = guard ?? auth.defaultGuard;
-        auth.guard(name).setUser(user);
-        auth.useForRequest(name);
+        request.headers.remove(requestHeader);
+        final (capture, user, guard, session) = pending;
+        capture.prepare(request, user, guard, session);
       },
     );
     await engine.start();
@@ -276,6 +578,7 @@ final class _SocketHarness {
     Request fake,
     Authenticatable? user,
     String? guard,
+    Map<String, Object?>? session,
   ) async {
     await (_starting ??= _start());
     final url = fake.uri.replace(
@@ -303,14 +606,13 @@ final class _SocketHarness {
         outgoing.headers.add(name, value);
       }
     }
-    if (user != null) {
-      final token = List<int>.generate(
-        16,
-        (_) => _random.nextInt(256),
-      ).map((b) => b.toRadixString(16).padLeft(2, '0')).join();
-      _actors[token] = (user, guard);
-      outgoing.headers.set(actorHeader, token);
-    }
+    final capture = _Capture();
+    final token = List<int>.generate(
+      16,
+      (_) => _random.nextInt(256),
+    ).map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+    _pending[token] = (capture, user, guard, session);
+    outgoing.headers.set(requestHeader, token);
     final body = await fake.bytes();
     if (body.isNotEmpty) {
       outgoing.contentLength = body.length;
@@ -327,7 +629,16 @@ final class _SocketHarness {
         headers.add(name, value);
       }
     });
-    return TestResponse(
+    _pending.remove(token);
+    if (capture.request != null) {
+      // The engine writes the response before it disposes the scope, where
+      // the guards are read.
+      await capture.done.future.timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {},
+      );
+    }
+    return capture.response(
       status: incoming.statusCode,
       headers: headers,
       bodyBytes: bytes,
@@ -345,10 +656,27 @@ final class TestResponse {
     required this.headers,
     required this.bodyBytes,
     required this.request,
+    this.session,
+    this.guards,
+    this.defaultGuard,
   });
 
   /// The status code.
   final int status;
+
+  /// The session of the request as the session middleware left it (after
+  /// saving it), or `null` when the route started none (Laravel's
+  /// `$response->session()`).
+  final SessionStore? session;
+
+  /// The user each guard asked during the request had when the request
+  /// ended (`null` for a guest), by guard name; `null` when the
+  /// application has no `AuthManager`. A guard nothing asked is missing.
+  final Map<String, Authenticatable?>? guards;
+
+  /// The default guard of the application, which [assertAuthenticated]
+  /// and [assertGuest] check without a `guard`.
+  final String? defaultGuard;
 
   /// The headers.
   final Headers headers;
@@ -588,13 +916,305 @@ final class TestResponse {
   TestResponse assertInvalid(Object errors) =>
       assertJsonValidationErrors(errors);
 
-  /// A 3xx response, optionally to [location] (`assertRedirect`).
+  /// A 3xx response, optionally to [location] (`assertRedirect`). As
+  /// Laravel's `assertLocation` compares `url()->to()` of both, a path and
+  /// the absolute URL of the same page match (`/login` and
+  /// `http://localhost/login`).
   TestResponse assertRedirect([String? location]) {
+    _assertIsRedirect();
+    if (location != null) {
+      final actual = headers.first('location') ?? '';
+      if (_absoluteUrl(actual) != _absoluteUrl(location)) {
+        fail('Expected a redirect to [$location] but it went to [$actual].');
+      }
+    }
+    return this;
+  }
+
+  /// A 3xx response whose `Location` contains [fragment]
+  /// (`assertRedirectContains`).
+  TestResponse assertRedirectContains(String fragment) {
+    _assertIsRedirect();
+    final actual = headers.first('location') ?? '';
+    if (!actual.contains(fragment)) {
+      fail('Redirect location [$actual] does not contain [$fragment].');
+    }
+    return this;
+  }
+
+  void _assertIsRedirect() {
     if (status < 300 || status >= 400) {
       fail('Expected a redirect but got HTTP $status.\nBody: $body');
     }
-    if (location != null) {
-      assertHeader('location', location);
+  }
+
+  String _absoluteUrl(String location) {
+    final resolved = request.uri.resolve(location);
+    final text = resolved.replace(fragment: '').toString();
+    final clean = text.endsWith('#')
+        ? text.substring(0, text.length - 1)
+        : text;
+    return clean.endsWith('/') ? clean.substring(0, clean.length - 1) : clean;
+  }
+
+  // -- Cookies ----------------------------------------------------------------
+
+  /// The `Set-Cookie` headers of the response, by name (the last wins).
+  Map<String, ResponseCookie> get cookies => {
+    for (final cookie in headers.all('set-cookie').map(ResponseCookie.parse))
+      ?cookie?.name: ?cookie,
+  };
+
+  ResponseCookie _cookie(String name) =>
+      cookies[name] ??
+      fail(
+        'Cookie [$name] not present on response; it set '
+        '${cookies.keys.toList()}.',
+      );
+
+  /// The response sets cookie [name] (`assertCookie`; an encrypted value is
+  /// not compared: read it with the next request of a `browser()` client).
+  TestResponse assertCookie(String name) {
+    _cookie(name);
+    return this;
+  }
+
+  /// The response sets cookie [name] unencrypted, with [value] when given
+  /// (`assertPlainCookie`).
+  TestResponse assertPlainCookie(String name, [String? value]) {
+    final cookie = _cookie(name);
+    if (value != null && cookie.value != value) {
+      fail(
+        'Cookie [$name] was found, but value [${cookie.value}] does not '
+        'match [$value].',
+      );
+    }
+    return this;
+  }
+
+  /// The response deletes cookie [name] (`assertCookieExpired`).
+  TestResponse assertCookieExpired(String name) {
+    if (!_cookie(name).expired) {
+      fail(
+        'Cookie [$name] is not expired, it expires at '
+        '[${_cookie(name).expiresAt(Clock.now())}].',
+      );
+    }
+    return this;
+  }
+
+  /// The response sets cookie [name] without deleting it
+  /// (`assertCookieNotExpired`).
+  TestResponse assertCookieNotExpired(String name) {
+    if (_cookie(name).expired) {
+      fail('Cookie [$name] is expired.');
+    }
+    return this;
+  }
+
+  /// The response does not set cookie [name] (`assertCookieMissing`).
+  TestResponse assertCookieMissing(String name) {
+    if (cookies.containsKey(name)) {
+      fail('Cookie [$name] is present on response.');
+    }
+    return this;
+  }
+
+  // -- Session ----------------------------------------------------------------
+
+  SessionStore get _session =>
+      session ??
+      fail(
+        'No session on ${request.method} ${request.path}: the route has no '
+        "session middleware (daravel_session's `web` group).",
+      );
+
+  static void _expectValue(Object? actual, Object expected, String reason) {
+    if (expected is bool Function(Object?)) {
+      expect(expected(actual), isTrue, reason: reason);
+    } else {
+      expect(actual, expected, reason: reason);
+    }
+  }
+
+  /// The session has a non-null [key] (dotted), equal to [value] when
+  /// given (`assertSessionHas`). [value] may be a `Matcher` or a
+  /// `bool Function(Object?)`, Laravel's closure.
+  TestResponse assertSessionHas(String key, [Object? value]) {
+    final store = _session;
+    if (value == null) {
+      if (!store.has(key)) {
+        fail('Session is missing expected key [$key].\nSession: ${store.all}');
+      }
+    } else {
+      _expectValue(store.get<Object>(key), value, 'Session key [$key]');
+    }
+    return this;
+  }
+
+  /// [assertSessionHas] for each entry of [values] (`assertSessionHasAll`).
+  TestResponse assertSessionHasAll(Map<String, Object?> values) {
+    for (final MapEntry(:key, :value) in values.entries) {
+      assertSessionHas(key, value);
+    }
+    return this;
+  }
+
+  /// The session lacks [key], or holds something other than [value] when
+  /// given (`assertSessionMissing`).
+  TestResponse assertSessionMissing(String key, [Object? value]) {
+    final store = _session;
+    if (value == null) {
+      if (store.has(key)) {
+        fail('Session has unexpected key [$key].');
+      }
+    } else if (value is bool Function(Object?)) {
+      expect(value(store.get<Object>(key)), isFalse, reason: 'Session [$key]');
+    } else {
+      expect(store.get<Object>(key), isNot(value), reason: 'Session [$key]');
+    }
+    return this;
+  }
+
+  /// The failed request flashed input [key] (`old('key')`), equal to
+  /// [value] when given (`assertSessionHasInput`).
+  TestResponse assertSessionHasInput(String key, [Object? value]) {
+    final old = _session.old<Object>(key);
+    if (value == null) {
+      if (old == null) {
+        fail('Session is missing expected old input [$key].');
+      }
+    } else {
+      _expectValue(old, value, 'Old input [$key]');
+    }
+    return this;
+  }
+
+  Map<String, List<String>> get _sessionErrors => {
+    for (final MapEntry(:key, :value) in _session.errors.entries)
+      key: value is List<Object?>
+          ? [for (final message in value) '$message']
+          : ['$value'],
+  };
+
+  static Map<String, Object?> _errorKeys(Object keys) => switch (keys) {
+    final String key => {key: null},
+    final Map<Object?, Object?> map => {
+      for (final MapEntry(:key, :value) in map.entries) '$key': value,
+    },
+    final Iterable<Object?> list => {for (final key in list) '$key': null},
+    _ => throw ArgumentError.value(keys, 'keys', 'a String, List or Map'),
+  };
+
+  /// The session holds validation errors (flashed by a form post that
+  /// failed validation), for every field of [keys] when given
+  /// (`assertSessionHasErrors`): a field name, a list of them, or a map of
+  /// field to one of its messages.
+  TestResponse assertSessionHasErrors([Object keys = const <String>[]]) {
+    final errors = _sessionErrors;
+    if (errors.isEmpty) {
+      fail('Session has no validation errors.\nSession: ${_session.all}');
+    }
+    for (final MapEntry(key: field, value: message) in _errorKeys(
+      keys,
+    ).entries) {
+      final messages = errors[field];
+      if (messages == null) {
+        fail('Session missing error: $field. Errors: $errors');
+      }
+      if (message != null && !messages.contains('$message')) {
+        fail('Session error [$field] is $messages, without "$message".');
+      }
+    }
+    return this;
+  }
+
+  /// The session holds no validation errors for [keys], or none at all
+  /// without [keys] (`assertSessionDoesntHaveErrors`).
+  TestResponse assertSessionDoesntHaveErrors([Object keys = const <String>[]]) {
+    final wanted = _errorKeys(keys);
+    if (wanted.isEmpty) {
+      return assertSessionHasNoErrors();
+    }
+    final errors = _sessionErrors;
+    for (final MapEntry(key: field, value: message) in wanted.entries) {
+      final messages = errors[field];
+      if (messages == null) {
+        continue;
+      }
+      if (message == null || messages.contains('$message')) {
+        fail('Session has unexpected error: $field $messages');
+      }
+    }
+    return this;
+  }
+
+  /// The session holds no validation errors (`assertSessionHasNoErrors`).
+  TestResponse assertSessionHasNoErrors() {
+    final errors = _sessionErrors;
+    if (errors.isNotEmpty) {
+      fail('Session has unexpected errors: $errors');
+    }
+    return this;
+  }
+
+  // -- Authentication -----------------------------------------------------------
+
+  Authenticatable? _guardUser(String? guard, {required bool require}) {
+    final known = guards;
+    if (known == null) {
+      fail('The application has no AuthManager (withAuth).');
+    }
+    final name = guard ?? defaultGuard!;
+    if (!known.containsKey(name)) {
+      if (!require) {
+        return null;
+      }
+      fail(
+        'The guard [$name] was not asked during ${request.method} '
+        '${request.path}, so it did not authenticate anyone. A guard reads '
+        'its user when something asks (the auth middleware, Auth.user(), a '
+        'login): assert on such a request.',
+      );
+    }
+    return known[name];
+  }
+
+  /// The guard [guard] (the default one without it) had a user when the
+  /// request ended (`assertAuthenticated`): after a login, or on a route
+  /// that resolved the user. Unlike Laravel's, whose guard outlives the
+  /// request, a guard nothing asked during the request fails this.
+  TestResponse assertAuthenticated({String? guard}) {
+    if (_guardUser(guard, require: true) == null) {
+      fail('The user is not authenticated.');
+    }
+    return this;
+  }
+
+  /// The guard had no user when the request ended (`assertGuest`): after a
+  /// logout, or a guard nothing asked.
+  TestResponse assertGuest({String? guard}) {
+    final user = _guardUser(guard, require: false);
+    if (user != null) {
+      fail('The user is authenticated (id ${user.authIdentifier}).');
+    }
+    return this;
+  }
+
+  /// The guard's user is [user]: the same type and identifier
+  /// (`assertAuthenticatedAs`).
+  TestResponse assertAuthenticatedAs(Authenticatable user, {String? guard}) {
+    final actual = _guardUser(guard, require: true);
+    if (actual == null) {
+      fail('The current user is not authenticated.');
+    }
+    if (actual.runtimeType != user.runtimeType ||
+        '${actual.authIdentifier}' != '${user.authIdentifier}') {
+      fail(
+        'The authenticated user is ${actual.runtimeType} '
+        '#${actual.authIdentifier}, expected ${user.runtimeType} '
+        '#${user.authIdentifier}.',
+      );
     }
     return this;
   }

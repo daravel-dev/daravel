@@ -87,6 +87,30 @@ time per request (measured as `1/rps` on one isolate, since latency percentiles
 under concurrent load are mostly queueing), and four
 isolates give ≥ 3× the ping throughput of one on a 4+ core machine.
 
+### Sending values between isolates
+
+`bin/isolate_payload.dart` measures the round trip of one JSON document
+to another isolate and back as a `Map`, a `String`, a `Uint8List` and a
+`TransferableTypedData`, and of the same rows as a `List` of objects of a
+plain final class and of a `@pragma('vm:deeply-immutable')` class (an
+immutable class graph). Measured on 2026-11-05 (Dart 3.13.4 AOT, Windows
+x64; the two object rows are the range of three runs of
+`dart build cli -t bin/isolate_payload.dart`):
+
+| Payload | 1 KB | 85 KB | 888 KB |
+| :-- | --: | --: | --: |
+| `Map<String, Object?>` (copied by the sender) | 18 µs | 480 µs | 9 000 µs |
+| `String` (shared between the isolates of a process) | 4 µs | 5 µs | 6 µs |
+| `Uint8List` (copied) | 5 µs | 30 µs | 900 µs |
+| `TransferableTypedData` (moved, then materialized) | 9 µs | 50 µs | 250 µs |
+| `List` of plain objects (copied) | 5–6 µs | 108–113 µs | 1 420–1 870 µs |
+| `List` of deeply-immutable objects (shared; only the list is copied) | 4–6 µs | 10–12 µs | 62–72 µs |
+
+The `process` cache store sends values as JSON strings because of this
+(ADR-031); `TransferableTypedData` pays off only for large binary data.
+Typed coordinator messages are deeply-immutable classes
+(`CoordinatorMessage`, ADR-032), so a batch of them is not copied either.
+
 ### Scenario 13 and isolates
 
 `bin/wide_profile.dart` splits scenario 13 into query, row decoding and
@@ -127,6 +151,51 @@ to 46 req/s with two (2026-10-29):
 ```bash
 dart run bin/bench.dart --scenarios=13 --isolates=1 --processes=2
 ```
+
+### Horizon worker isolates and SQLite
+
+`bin/horizon_isolates.dart` measures what `daravel_horizon`'s worker
+isolates cost: start-up until every worker is ready, and the process's
+resident memory, idle and under a backlog of 200 short jobs per worker, for
+1, 4 and 8 workers. `BENCH_PG=<url>` queues on PostgreSQL instead of a
+SQLite file. Measured on 2026-11-06 (Dart 3.13.4 AOT, Windows 11, 16 CPUs,
+PostgreSQL 16 in Docker under WSL; the median of three runs):
+
+| Workers | Spawn + boot (all ready) | RSS idle | RSS busy |
+| --: | --: | --: | --: |
+| none (the process alone) | | 20.5 MB | |
+| 1 | 4 ms | 21.4 MB | 21.5 MB |
+| 4 | 14 ms | 30.1 MB | 30.4 MB |
+| 8 | 11 ms | 32.2 MB | 56.9 MB |
+
+The workers share the process's heap (one isolate group), so these are the
+whole process's numbers, not a worker's. A worker opens its database
+connection at its first poll, after it reports ready.
+
+```bash
+dart build cli -t bin/horizon_isolates.dart -o build/horizon_isolates
+BENCH_PG=postgres://user:pass@127.0.0.1:5432/db build/horizon_isolates/bundle/bin/horizon_isolates
+```
+
+On Windows with a SQLite file queue it twice ended in a native crash inside
+`sqlite3.dll`. `bin/sqlite_isolates_repro.dart` reproduces the setup
+without Daravel (8 isolates of one process on one WAL file), in four
+variants for how an isolate ends:
+
+```bash
+dart run bin/sqlite_isolates_repro.dart a   # close() before the isolate ends
+dart run bin/sqlite_isolates_repro.dart b   # no close(): finalizers only
+dart run bin/sqlite_isolates_repro.dart c   # Isolate.kill while writing
+dart run bin/sqlite_isolates_repro.dart d   # Isolate.exit with a statement open
+```
+
+The crash did not come back in 20 runs. Variant `c` shows the lasting
+problem: an isolate killed while it holds a write transaction keeps the
+file's write lock for the rest of the process, and every later write
+fails with `database is locked`. Horizon therefore refuses to embed its
+workers on SQLite, warns when it runs them standalone (`HORIZON_ALLOW_SQLITE`),
+and exits with code 75 after such a kill, so the process manager starts a
+fresh process.
 
 ## Interop with Laravel's broadcasting
 
@@ -192,6 +261,114 @@ PostgreSQL container (`PG_IMAGE`, default `postgres:17`, port 18632, on the
 servers' cores) and points both sides at it through `DB_URL`: Daravel with a
 pool of 4 connections per isolate, Laravel with one connection per Octane
 worker, or one per request in classic mode.
+
+Laravel's settings (`APP_KEY`, the cache and session stores, the log
+channel) are passed by `compare.sh` as environment variables, not read
+from an `.env` in the overlay: that file is git-ignored, so a fresh clone
+or worktree had none and Octane stopped on boot (`MissingAppKeyException`).
+The key is the benchmark's throwaway one, the same 32 bytes as Daravel's.
+`compare.sh` stops with the server's log when Laravel never answers `/up`.
+
+
+## The coordinator: ceiling, census and saturation (Blueprint #141, K0)
+
+Measured on 2026-11-10 on one machine: Intel i7-10875H (8 cores, 16
+threads) under WSL 2 (Linux 6.18.58), Docker, servers pinned to cores 0-3
+and the load generators to 4-11. Daravel 1.27 from this branch, AOT, Dart
+3.13.7 (the `dart:stable` image of that day; the repository pins 3.13.4 in
+`.fvmrc`); Laravel 12.71.0, Octane 2.23.0 on FrankenPHP 1.13.3, PHP 8.4.27
+with OPcache, Sanctum 4.3.3; PostgreSQL 17.11, Redis 7.4.10. One machine,
+loopback, three scenarios: these are not general claims.
+
+### Daravel and Laravel, with the coordinator in the path
+
+Scenario 14 (`token + rate limit + cache`): a Sanctum-style bearer token,
+a rate limit, and a cached read. `CACHE_VARIANT=redis` puts the cache and
+the limiter of both sides on one Redis; `DB=pgsql` puts both on one
+PostgreSQL. Median of three runs, each started with a 1-minute load under
+2 (1.89 to 1.95), errors 0 throughout, with the lowest and highest run:
+
+| 4 workers, `pgsql` + `redis` | Daravel | Octane | classic | Daravel ÷ Octane |
+| :-- | --: | --: | --: | --: |
+| `GET /ping` | 11 005 req/s [10 498–11 401], p99 13.7 ms | 1 948 [1 835–1 998], p99 44.8 ms | 784 [783–784], p99 115.7 ms | 5.6× |
+| rate limited | 7 424 [7 362–7 480], p99 18.2 ms | 763 [714–769], p99 98.9 ms | 510 [506–511], p99 154.6 ms | 9.7× |
+| token + rate limit + cache | 2 078 [1 959–2 119], p99 49.8 ms | 377 [370–383], p99 192.9 ms | 174 [170–176], p99 420.5 ms | 5.5× |
+
+With one worker: 5 596 vs 738 req/s (7.6×), 4 578 vs 251 (18.2×) and
+1 091 vs 127 (8.6×).
+
+- **`last_used_at`.** Sanctum writes `personal_access_tokens.last_used_at` on
+  every authenticated request (`config('sanctum.last_used_at', true)`);
+  Daravel writes it at most once a minute per token. That is a difference
+  in behaviour. With `SANCTUM_LAST_USED_AT=false` Laravel barely changes
+  (Octane 372 req/s, classic 168), so the write is not what limits it here.
+  In that variant two cells spread more than 10 % over the three runs:
+  Octane's token scenario with one worker (17.7 %) and Daravel's rate
+  limited route with one worker (17.7 %).
+- **SQLite against PostgreSQL.** On SQLite (`CACHE_VARIANT=redis`, three
+  runs) Daravel's scenario 14 reaches 4 009 req/s with 4 isolates (Octane
+  523); on PostgreSQL it is 2 078. The difference is the token query to
+  PostgreSQL, with a pool of 4 connections per isolate (`PG_POOL`); ping
+  and the rate limit barely change. It is not a regression. An explainer,
+  not a headline (one run each): a pool of 8 gives 2 162 req/s against
+  1 957 with 4, about 10 % more, so the pool is not the main limit; the
+  query's latency is.
+- **The `process` cache.** With Daravel's `process` store (shared by its
+  isolates through the coordinator) against Laravel's `array` store (one
+  per worker), SQLite, 4 workers, three runs: ping 10 733 req/s against
+  Octane 1 904 (5.6×), rate limited 10 311 against 1 458 (7.1×), token +
+  rate limit + cache 5 103 against 952 (5.4×). Three Laravel cells spread
+  more than 10 % over the runs (classic token 16.1 %, Octane rate limited
+  16.5 %, classic rate limited 11.2 %).
+- **Runs left out.** Three SQLite runs fell about 4× on both sides at once
+  while the Windows host compiled and generated docs (the VM shares its
+  cores) and were redone. Two runs overlapped short work on the host and
+  were kept, as their numbers match the others: `redis-1b` (a docs
+  generation as it started) and `process-1b` (an analysis of two files).
+
+### Coordinator messages per request (census)
+
+`bin/coordinator_census.dart` reads the coordinator's message counters
+(`coordinator_call_duration_seconds_count`) before and after 20 000
+requests on 4 isolates; identical in three runs:
+
+| Scenario | Messages per request |
+| :-- | --: |
+| `GET /ping`-like JSON route (2) | 0 |
+| rate limited (5) | 0.063 (rate limiter leases) |
+| token + rate limit + `process` cache (14) | 1.063 (1.0 the cache read) |
+| the same with a JWT guard | 2.06 (1.0 more for the denylist) |
+| metrics | 0.0015 |
+
+### The coordinator's ceiling
+
+`bin/coordinator_ceiling.dart` (AOT, `dart build cli`) drives one
+coordinator from 1, 4, 8 and 16 client isolates, 16 calls in flight each,
+5 s per point. Median of three runs, thousands of operations per second:
+
+| Operation | 1 | 4 | 8 | 16 |
+| :-- | --: | --: | --: | --: |
+| rate limit attempt (no lease) | 184 | 90 | 47 | 34 |
+| `process` cache get | 168 | 88 | 43 | 31 |
+| broadcast publish | 171 | 101 | 50 | 39 |
+| a service that does nothing (`noop`) | 224 | 99 | 56 | 43 |
+| one-way messages (`send`) | 1 629 | 434 | 365 | 800 |
+
+Throughput falls as senders are added, and the empty service falls as the
+rate limiter does: the cost is the round trip between isolates (the reply
+to another port and waking its isolate), not the service. At 8 senders
+there is no oversubscription of the 8 physical cores, and it has fallen
+already. One-way messages cost far less. Leases stay exact: limits of 60,
+1 000 and 10 000 per minute from 4 and 16 isolates never allowed one
+attempt over the limit, at no more than 0.0006 coordinator messages per
+decision.
+
+**Saturation.** A rate limit attempt alone answers in p99 88-107 µs; while
+16 isolates publish broadcasts as fast as they can (about 44 000 a second)
+its p99 is 32.5-35.7 ms. Priorities in the coordinator (K1) leave it about
+the same (29.5-32.5 ms): the waiting happens in the coordinator's port,
+before any priority applies, so the pressure has to be held back at the
+senders (K1b).
 
 ## Public run
 

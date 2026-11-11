@@ -10,6 +10,12 @@ final class JobProcessing {
     required this.jobName,
     required this.jobId,
     required this.attempt,
+    this.uuid,
+    this.displayName,
+    this.tags = const <String>[],
+    this.pushedAt,
+    this.context,
+    this.timeout,
   });
 
   /// The queue connection.
@@ -26,6 +32,27 @@ final class JobProcessing {
 
   /// The attempt number, from 1.
   final int attempt;
+
+  /// The dispatch's UUID, kept across retries (null when not known).
+  final String? uuid;
+
+  /// The name shown in logs and dashboards (null when not known).
+  final String? displayName;
+
+  /// The job's monitoring tags (`Job.tags`).
+  final List<String> tags;
+
+  /// When the job was first pushed (UTC), when the payload says.
+  final DateTime? pushedAt;
+
+  /// The dispatching scope's `Context`, as the payload carries it.
+  final Map<String, Object?>? context;
+
+  /// How long the handler may run: the worker's `--timeout` when it was
+  /// given one, otherwise the job's own (`Job.timeout`). Past it the
+  /// attempt is abandoned; a supervisor (Horizon) kills a worker whose
+  /// handler blocks beyond it. Null when not known.
+  final Duration? timeout;
 }
 
 /// A job finished without error.
@@ -37,6 +64,8 @@ final class JobProcessed {
     required this.jobName,
     required this.jobId,
     required this.duration,
+    this.uuid,
+    this.attempt,
   });
 
   /// The queue connection.
@@ -53,6 +82,12 @@ final class JobProcessed {
 
   /// How long it ran.
   final Duration duration;
+
+  /// The dispatch's UUID (null when not known).
+  final String? uuid;
+
+  /// The attempt that succeeded, from 1 (null when not known).
+  final int? attempt;
 }
 
 /// A job threw; [willRetry] tells whether it was released for another try.
@@ -65,6 +100,9 @@ final class JobExceptionOccurred {
     required this.jobId,
     required this.error,
     required this.willRetry,
+    this.uuid,
+    this.attempt,
+    this.stackTrace,
   });
 
   /// The queue connection.
@@ -84,6 +122,15 @@ final class JobExceptionOccurred {
 
   /// Whether the job will be attempted again.
   final bool willRetry;
+
+  /// The dispatch's UUID (null when not known).
+  final String? uuid;
+
+  /// The attempt that threw, from 1 (null when not known).
+  final int? attempt;
+
+  /// Where [error] was thrown (null when not known).
+  final StackTrace? stackTrace;
 }
 
 /// A job exhausted its attempts and was recorded in `failed_jobs`.
@@ -95,6 +142,9 @@ final class JobFailed {
     required this.jobName,
     required this.jobId,
     required this.error,
+    this.uuid,
+    this.stackTrace,
+    this.failedId,
   });
 
   /// The queue connection.
@@ -111,6 +161,15 @@ final class JobFailed {
 
   /// The last error.
   final Object error;
+
+  /// The dispatch's UUID (null when not known).
+  final String? uuid;
+
+  /// Where [error] was thrown (null when not known).
+  final StackTrace? stackTrace;
+
+  /// The id of its `failed_jobs` entry (null when not recorded).
+  final Object? failedId;
 }
 
 /// A scheduled task is about to run.

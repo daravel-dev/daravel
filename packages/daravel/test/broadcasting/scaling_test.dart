@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:daravel/daravel.dart';
 import 'package:test/test.dart';
@@ -185,6 +186,26 @@ void scalingTests({
     await onB.close();
   });
 
+  test('the relay started by the first connection keeps relaying after that '
+      'connection (its request) has ended', () async {
+    // Starts server a's relay, in the zone of this connection's request.
+    final first = await connect(0);
+    await first.close();
+    // The request is over; the relay must still read the other servers.
+    await Future<void>.delayed(const Duration(seconds: 2));
+    final later = await connect(0);
+    await later.subscribe('news');
+    final (status, body) = await api(1, 'POST', '/apps/$appId/events', {
+      'name': 'published',
+      'data': '{"title":"late"}',
+      'channels': ['news'],
+    });
+    expect(status, 200, reason: body);
+    final received = await later.next().timeout(const Duration(seconds: 5));
+    expect(received['event'], 'published');
+    await later.close();
+  });
+
   test('presence members, member_added and member_removed across servers, '
       'and the channels API of either server', () async {
     final teo = await connect(0);
@@ -242,6 +263,149 @@ void scalingTests({
     expect(cached['event'], 'price');
     await late.close();
   });
+
+  final redis = env['REVERB_SCALING_DRIVER'] == 'redis';
+
+  Future<T> onServer<T>(int index, Future<T> Function(DatabaseManager db) fn) =>
+      servers[index].$1.run(() => fn(App.make<DatabaseManager>()));
+
+  test('the group runs on the database it names', () async {
+    final config = servers[0].$1.config.section<DatabaseConfig>();
+    final driver = config.connections[config.defaultConnection]!.driver;
+    final runtime = await onServer(
+      0,
+      (db) async => (await db.connection()).runtimeType.toString(),
+    );
+    if (databaseUrl == null) {
+      expect((driver, runtime), ('sqlite', 'SqliteDriver'));
+    } else {
+      // DB_URL gives the default connection (named sqlite) its driver.
+      expect(driver, isNot('sqlite'));
+      expect(runtime, isNot('SqliteDriver'));
+      expect(databaseUrl, startsWith(driver == 'pgsql' ? 'postgres' : driver));
+    }
+  });
+
+  test('the relay a connection starts reads with no request scope after '
+      'that connection ended (Review #149)', () async {
+    final scopes = <Scope?>[];
+    final stop = await onServer(
+      0,
+      (db) async => db.listen((event) {
+        if (event.sql.contains('broadcast_messages')) {
+          scopes.add(Container.currentOrNull?.currentScope);
+        }
+      }),
+    );
+    addTearDown(stop);
+    final first = await connect(0); // starts server a's relay
+    await first.close();
+    scopes.clear();
+    final deadline = DateTime.now().add(const Duration(seconds: 5));
+    while (scopes.isEmpty && DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
+    expect(scopes, isNotEmpty, reason: 'the relay reads');
+    expect(scopes, everyElement(isNull), reason: 'not the request\'s scope');
+  }, skip: redis ? 'database relay' : false);
+
+  Future<int> memberRows() => onServer(
+    0,
+    (db) async => (await db.table('broadcast_members').get()).length,
+  );
+
+  Future<void> eventually(Future<bool> Function() condition) async {
+    final deadline = DateTime.now().add(const Duration(seconds: 5));
+    while (!await condition() && DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
+    expect(await condition(), isTrue);
+  }
+
+  test('subscribing twice to a channel leaves one member row, and none '
+      'after close (#153)', () async {
+    final client = await connect(0);
+    final first = await joinPresence(client, 'presence-dup', 1, 'Teo');
+    final again = await joinPresence(client, 'presence-dup', 1, 'Teo');
+    expect(_presence(first)['count'], 1);
+    expect(_presence(again)['count'], 1);
+    expect(await memberRows(), 1);
+    await client.close();
+    await eventually(() async => await memberRows() == 0);
+    final (_, body) = await api(
+      1,
+      'GET',
+      '/apps/$appId/channels/presence-dup',
+      null,
+      {'info': 'user_count'},
+    );
+    expect(jsonDecode(body), {'occupied': false, 'user_count': 0});
+  }, skip: redis ? 'database rows' : false);
+
+  test('a worker forgets the members its previous life left (#153)', () async {
+    // What a crashed worker of the same name left: its rows count while
+    // the process beats, so the respawned worker deletes them.
+    final worker = Isolate.current.debugName;
+    final instance = worker == null ? 'a' : 'a/$worker';
+    await onServer(0, (db) async {
+      await db.table('broadcast_members').insert(<String, Object?>{
+        'server': instance,
+        'socket': '9.9',
+        'channel': 'presence-ghost',
+        'user_id': '9',
+        'user_info': null,
+        'created_at': 0,
+      });
+      await db
+          .table('broadcast_servers')
+          .upsert(
+            <String, Object?>{
+              'server': instance,
+              'seen_at': DateTime.now().millisecondsSinceEpoch ~/ 1000,
+            },
+            const ['server'],
+          );
+    });
+    expect(await memberRows(), 1);
+    // The first client starts the relay, whose first beat forgets them.
+    final client = await connect(0);
+    expect(await memberRows(), 0);
+    final (_, body) = await api(
+      1,
+      'GET',
+      '/apps/$appId/channels/presence-ghost',
+      null,
+      {'info': 'user_count'},
+    );
+    expect(jsonDecode(body), {'occupied': false, 'user_count': 0});
+    await client.close();
+  }, skip: redis ? 'database rows' : false);
+
+  test('an idle relay reads less and less often, and close() waits for '
+      'its loop (#153)', () async {
+    final client = await connect(0); // starts server a's relay
+    var reads = 0;
+    await onServer(0, (db) async {
+      db.listen((event) {
+        if (event.sql.contains('broadcast_messages')) {
+          reads++;
+        }
+      });
+    });
+    // At REVERB_SCALING_POLL=20ms an idle relay read about 75 times in
+    // 1.5 s; backing off to one read a second it reads a handful.
+    await Future<void>.delayed(const Duration(milliseconds: 1500));
+    expect(reads, lessThan(15));
+    await client.close();
+    final relay = servers[0].$1.container
+        .make<BroadcastManager>()
+        .server!
+        .relay!;
+    await relay.close();
+    final after = reads;
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    expect(reads, after, reason: 'nothing reads after close()');
+  }, skip: redis ? 'database relay' : false);
 }
 
 Map<String, Object?> _presence(Map<String, Object?> succeeded) =>

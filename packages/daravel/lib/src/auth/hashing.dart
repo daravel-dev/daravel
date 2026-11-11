@@ -1,15 +1,19 @@
+import 'dart:async';
 import 'dart:convert';
-import 'dart:isolate';
+import 'dart:io' show Platform;
 import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart' as cg;
 import 'package:cryptography/dart.dart' as cgd;
 
+import '../concurrency/compute_pool.dart';
 import '../foundation/config.dart';
 import 'bcrypt.dart';
 import '../foundation/env.dart';
+import '../foundation/shared_result.dart';
 import '../foundation/exceptions.dart';
+import '../http/http_exceptions.dart';
 
 /// Password hashing drivers (ADR-008). Every driver produces a self-describing
 /// string so that [HashManager.check] can detect the driver from its prefix.
@@ -53,7 +57,16 @@ final class HashConfig implements ConfigSection {
     this.argonThreads = 1,
     this.pbkdf2Iterations = 600000,
     this.verify = true,
+    this.concurrency,
+    this.maxQueue = defaultMaxQueue,
+    this.queueTimeout = defaultQueueTimeout,
   });
+
+  /// Hashes waiting for a busy hashing isolate before more are refused.
+  static const int defaultMaxQueue = 1024;
+
+  /// How long a hash waits for a hashing isolate before it is refused.
+  static const Duration defaultQueueTimeout = Duration(seconds: 30);
 
   /// Reads the environment; `APP_ENV=testing` lowers every cost so test
   /// suites stay fast (Laravel does the same in `phpunit.xml`).
@@ -79,6 +92,23 @@ final class HashConfig implements ConfigSection {
         testing ? 1000 : 600000,
       ),
       verify: env.boolean('HASH_VERIFY', true),
+      concurrency: switch (env.integer('HASH_CONCURRENCY', 0)) {
+        < 0 => throw const ConfigException(
+          'HASH_CONCURRENCY must be a positive number of isolates, or 0 for '
+          'one per processor.',
+        ),
+        0 => null,
+        final int n => n,
+      },
+      maxQueue: switch (env.integer('HASH_QUEUE', defaultMaxQueue)) {
+        < 0 => throw const ConfigException(
+          'HASH_QUEUE must be a positive number of waiting hashes, or 0 for '
+          'no limit.',
+        ),
+        0 => null,
+        final int n => n,
+      },
+      queueTimeout: env.duration('HASH_QUEUE_TIMEOUT', defaultQueueTimeout),
     );
   }
 
@@ -107,6 +137,24 @@ final class HashConfig implements ConfigSection {
   /// `rehashPasswordIfRequired` can upgrade them at login.
   final bool verify;
 
+  /// How many hashes run at once, each in its own warm isolate
+  /// (`HASH_CONCURRENCY`); null means one per processor. A login burst
+  /// waits for these isolates instead of spawning one per attempt, which
+  /// with argon2id (64 MiB each) could exhaust memory.
+  final int? concurrency;
+
+  /// The most hashes waiting for an isolate (`HASH_QUEUE`, 1024); null
+  /// means no limit. Past it [HashManager.make] and [HashManager.check]
+  /// throw [HashingSaturatedException] at once.
+  final int? maxQueue;
+
+  /// How long a hash waits for an isolate before [HashingSaturatedException]
+  /// (`HASH_QUEUE_TIMEOUT`, 30 s).
+  final Duration queueTimeout;
+
+  /// [concurrency], or the number of processors.
+  int get effectiveConcurrency => concurrency ?? Platform.numberOfProcessors;
+
   @override
   String get key => 'hashing';
 
@@ -130,9 +178,12 @@ const Set<HashDriver> strongDrivers = {HashDriver.bcrypt, HashDriver.argon2id};
 
 /// Creates and verifies password hashes off the event loop.
 ///
-/// Both [make] and [check] run in a compute isolate ([Isolate.run]) so a
-/// 100 ms Argon2id derivation never stalls other requests on the HTTP
-/// isolate (ADR-004/ADR-008).
+/// Both [make] and [check] run in warm compute isolates, so a 100 ms
+/// Argon2id derivation never stalls other requests on the HTTP isolate
+/// (ADR-004/ADR-008). At most [HashConfig.concurrency] run at once; others
+/// wait, up to [HashConfig.maxQueue] of them for [HashConfig.queueTimeout],
+/// and past that fail with [HashingSaturatedException] (a `503`), so a
+/// login burst queues instead of spawning an isolate per attempt.
 final class HashManager {
   /// A manager hashing with [config].
   HashManager(this.config);
@@ -140,12 +191,47 @@ final class HashManager {
   /// The hash settings.
   final HashConfig config;
 
+  late final ComputePool _pool = ComputePool(
+    () => config.effectiveConcurrency,
+    maxQueue: () => config.maxQueue,
+  );
+
+  /// Hashing isolates alive right now.
+  int get isolates => _pool.size;
+
+  /// Hashes waiting for an isolate right now.
+  int get waiting => _pool.waiting;
+
   /// Hashes [plain] with the configured driver (or [driver]).
-  Future<String> make(String plain, {HashDriver? driver}) {
-    final target = driver ?? config.driver;
-    final cfg = config;
-    return Isolate.run(() => _make(plain, target, cfg));
+  Future<String> make(String plain, {HashDriver? driver}) =>
+      _run(_makeTask(plain, driver ?? config.driver, config));
+
+  /// Stops the hashing isolates (`Application.shutdown`); the next hash
+  /// starts them again.
+  Future<void> close() => _pool.shutdown();
+
+  Future<T> _run<T>(FutureOr<T> Function() task) async {
+    try {
+      return await _pool.run(task, queueTimeout: config.queueTimeout);
+    } on ComputePoolSaturatedError catch (error) {
+      throw HashingSaturatedException(error.message);
+    }
   }
+
+  // Built in static functions, so a task captures its arguments alone.
+  static FutureOr<String> Function() _makeTask(
+    String plain,
+    HashDriver driver,
+    HashConfig cfg,
+  ) =>
+      () => _make(plain, driver, cfg);
+
+  static FutureOr<bool> Function() _checkTask(
+    String plain,
+    String hashed,
+    HashDriver driver,
+  ) =>
+      () => _check(plain, hashed, driver);
 
   /// Verifies [plain] against [hashed]; the driver is detected from the
   /// hash prefix. Unknown or malformed hashes never match.
@@ -162,17 +248,33 @@ final class HashManager {
         'Set HASH_VERIFY=false to accept ${detected.name} hashes.',
       );
     }
-    return Isolate.run(() => _check(plain, hashed, detected));
+    return _run(_checkTask(plain, hashed, detected));
   }
 
-  Future<String>? _dummy;
+  // Shared by every login with no matching user: a SharedResult, so a
+  // failing first hash (HashingSaturatedException) reaches all of them, as
+  // the same error, instead of hanging those waiting from another zone.
+  SharedResult<String>? _dummy;
 
   /// Spends the same time as a real [check] of [plain], for when no user
   /// matched the credentials, so response timing does not reveal which
-  /// accounts exist (BLUEPRINT_V2 §9.2 item 9). Always completes normally.
+  /// accounts exist (BLUEPRINT_V2 §9.2 item 9). Completes normally, whatever
+  /// [plain] is, unless hashing itself fails ([HashingSaturatedException]);
+  /// a failed dummy hash is made again by the next call.
   Future<void> checkAgainstDummy(String plain) async {
-    final dummy = _dummy ??= make('daravel-timing-equalizer');
-    await check(plain, await dummy);
+    final dummy = _dummy ??= SharedResult<String>(
+      () => make('daravel-timing-equalizer'),
+    );
+    final String hashed;
+    try {
+      hashed = await dummy.value;
+    } catch (_) {
+      if (identical(_dummy, dummy)) {
+        _dummy = null;
+      }
+      rethrow;
+    }
+    await check(plain, hashed);
   }
 
   /// Whether [hashed] was produced by a different driver or cost than the
@@ -363,6 +465,25 @@ final class HashManager {
 final class HashException extends DaravelException {
   /// A hash that cannot be made or read.
   const HashException(super.message);
+}
+
+/// Every hashing isolate is busy and the wait queue is full, or a hash
+/// waited longer than `HASH_QUEUE_TIMEOUT` ([HashConfig]): answered as
+/// `503 Service Unavailable` with `Retry-After: 1`.
+final class HashingSaturatedException extends HttpException {
+  /// Hashing refused a password; [reason] says why (logged, not sent).
+  const HashingSaturatedException(this.reason)
+    : super(
+        503,
+        'Service Unavailable',
+        headers: const <String, String>{'Retry-After': '1'},
+      );
+
+  /// Why the hash was refused.
+  final String reason;
+
+  @override
+  String toString() => 'HashingSaturatedException: $reason';
 }
 
 /// Compares two strings without leaking their common-prefix length through

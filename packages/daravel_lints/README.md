@@ -19,6 +19,23 @@ run by `dartisan lint` and in tests (they are not an IDE analyzer plugin).
 | `no_inline_js_interpolation` | a value interpolated into an inline `on*=` handler of generated HTML, where HTML escaping does not stop a quote from ending the JavaScript string (use a `data-*` attribute and `addEventListener`) |
 | `registry_entry_missing` | migrations, jobs, policies, listeners or commands left out of `bootstrap/` |
 
+### Opt-in rules
+
+These run only when a project enables them, in an architecture test
+(`expectLintClean(null, ['prefer_sql_identifier'])` from `daravel_test`) or
+through `lintProject(root, rules: rulesWith(['prefer_sql_identifier']))`.
+`dartisan lint` runs the default rules only.
+
+| Rule | Catches |
+| :-- | :-- |
+| `prefer_sql_identifier` | a column name passed to a query builder method (`where`, `orderBy`, `select`, `pluck`, ...) that is neither a string literal, a `const`, a choice between literals (`sort == 'name' ? 'name' : 'id'`) nor a `SqlIdentifier` |
+
+`SqlIdentifier('users.id')` checks a name once, where it is made (plain
+names joined by dots, else an `ArgumentError`), and the builder quotes it
+as it quotes the same string. A list of allowed columns is still the
+better check for a name that comes from a request: `SqlIdentifier` only
+keeps odd characters out, any existing column still passes.
+
 Suppress a finding with `// daravel-lint-ignore: <rule>` on the same line or the
 line above.
 

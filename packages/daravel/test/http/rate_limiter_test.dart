@@ -65,17 +65,11 @@ void main() {
       expect(first.headers['x-ratelimit-limit'], '2');
       expect(first.headers['x-ratelimit-remaining'], '1');
       await middleware.handle(Request.fake(path: '/a'), next);
-      // A different path has its own signature.
-      expect(
-        (await middleware.handle(
-          Request.fake(path: '/b'),
-          next,
-        )).headers['x-ratelimit-remaining'],
-        '1',
-      );
+      // Like Laravel, the signature is the route's domain and the client's
+      // address: another path (or method) shares the bucket.
       now = now.add(const Duration(seconds: 15));
       await expectLater(
-        () => middleware.handle(Request.fake(path: '/a'), next),
+        () => middleware.handle(Request.fake(method: 'POST', path: '/b'), next),
         throwsA(
           isA<ThrottleRequestsException>()
               .having((e) => e.status, 'status', 429)
@@ -89,6 +83,50 @@ void main() {
       );
     },
   );
+
+  test('the throttle signature ignores the Host header the client sends '
+      '(#168)', () async {
+    final middleware = ThrottleMiddleware(maxAttempts: 2, limiter: limiter);
+    Future<Response> next(Request _) async => Response.text('ok');
+    var status = <int>[];
+    for (var i = 0; i < 3; i++) {
+      try {
+        status.add(
+          (await middleware.handle(
+            Request.fake(headers: {'host': 'h$i.example.com'}, ip: '9.9.9.9'),
+            next,
+          )).status,
+        );
+      } on ThrottleRequestsException catch (e) {
+        status.add(e.status);
+      }
+    }
+    expect(status, [200, 200, 429]);
+
+    // Routes on different route domains count apart, as in Laravel
+    // (`$route->getDomain().'|'.$request->ip()`).
+    Request on(String? domain) {
+      final request = Request.fake(ip: '8.8.8.8');
+      final route = RouteEntry(
+        methods: const ['GET'],
+        path: '/',
+        handler: (_) => Response.text('ok'),
+        domain: domain,
+      );
+      request.bindRoute(route, const {});
+      return request;
+    }
+
+    status = [];
+    for (final domain in ['admin.example.com', 'admin.example.com', null]) {
+      status.add((await middleware.handle(on(domain), next)).status);
+    }
+    expect(status, [200, 200, 200]);
+    await expectLater(
+      () => middleware.handle(on('admin.example.com'), next),
+      throwsA(isA<ThrottleRequestsException>()),
+    );
+  });
 
   test(
     'named throttle keys by the limit key and supports custom responses',

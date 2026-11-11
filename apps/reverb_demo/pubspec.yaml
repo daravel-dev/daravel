@@ -1,0 +1,18 @@
+name: reverb_demo
+description: A Daravel Reverb demo application (a WebSocket server of its own, two Pusher applications and the dashboard).
+version: 1.27.0
+publish_to: none
+
+environment:
+  sdk: ^3.13.0
+resolution: workspace
+
+dependencies:
+  daravel: any
+  daravel_reverb: any
+  dartisan_cli: any
+
+dev_dependencies:
+  daravel_test: any
+  lints: ^6.0.0
+  test: ^1.33.0

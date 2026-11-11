@@ -100,3 +100,5 @@ To copy this folder instead: remove the line `resolution: workspace` from
 `pubspec.yaml`, change each `any` constraint on a Daravel package to the
 current release (for example `^1.24.0`), and run `dart pub get` in the
 folder.
+
+Daravel is kept going by its sponsors: [github.com/sponsors/daravel-dev](https://github.com/sponsors/daravel-dev) (`dartisan sponsor`).

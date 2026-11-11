@@ -9,6 +9,8 @@ final class CoordinatorReport {
     required this.inFlightPeak,
     required this.maxQueue,
     required this.calls,
+    this.expired = 0,
+    this.queueLagPeak = Duration.zero,
   });
 
   /// Reads the `coordinator_*` series of a `/metrics` response.
@@ -53,6 +55,12 @@ final class CoordinatorReport {
       inFlight: scalars['coordinator_in_flight']?.toInt() ?? 0,
       inFlightPeak: scalars['coordinator_in_flight_peak']?.toInt() ?? 0,
       maxQueue: scalars['coordinator_max_queue']?.toInt() ?? 0,
+      expired: scalars['coordinator_expired_total']?.toInt() ?? 0,
+      queueLagPeak: Duration(
+        microseconds:
+            ((scalars['coordinator_queue_lag_peak_seconds'] ?? 0) * 1e6)
+                .round(),
+      ),
       calls: {
         for (final service in {...counts.keys, ...timeouts.keys})
           service: ServiceCalls(
@@ -80,6 +88,13 @@ final class CoordinatorReport {
   /// The most calls the queue holds.
   final int maxQueue;
 
+  /// Requests dropped unanswered because their caller had stopped waiting.
+  final int expired;
+
+  /// The longest a message waited in the coordinator's event loop (its
+  /// backlog, synchronous services included).
+  final Duration queueLagPeak;
+
   /// Round trips from the workers, by coordinator service. Empty with one
   /// isolate, where the coordinator answers in place.
   final Map<String, ServiceCalls> calls;
@@ -89,8 +104,19 @@ final class CoordinatorReport {
   /// process cache waits for it.
   static const Duration slowP99 = Duration(milliseconds: 2);
 
+  /// A queue lag above this means callers start to time out (rate limits
+  /// wait 50 ms).
+  static const Duration slowQueueLag = Duration(milliseconds: 25);
+
   /// What to do about it; empty when nothing needs doing.
   List<String> advice() => [
+    if (expired > 0 || queueLagPeak >= slowQueueLag)
+      'The coordinator fell behind: messages waited up to '
+          '${_ms(queueLagPeak.inMicroseconds / 1e6)} in its event loop'
+          '${expired > 0 ? ' and $expired request(s) expired before an answer' : ''}. '
+          'Rate limits fail open meanwhile: move the busiest state to a '
+          'cluster store (CACHE_LIMITER=redis), or run fewer isolates per '
+          'process.',
     if (rejected > 0)
       '$rejected call(s) were refused because $inFlight of $maxQueue '
           'pending calls filled the queue: move the busiest state off the '
@@ -132,7 +158,9 @@ final class CoordinatorReport {
       ..writeln('Coordinator')
       ..writeln('  messages       $messages')
       ..writeln('  rejected       $rejected')
-      ..writeln('  in flight      $inFlight (peak $inFlightPeak of $maxQueue)');
+      ..writeln('  in flight      $inFlight (peak $inFlightPeak of $maxQueue)')
+      ..writeln('  expired        $expired')
+      ..writeln('  queue lag peak ${_ms(queueLagPeak.inMicroseconds / 1e6)}');
     if (calls.isEmpty) {
       out.writeln(
         '  No round trips recorded: one isolate (the coordinator answers in '

@@ -3,6 +3,7 @@ import 'package:dartisan_cli/dartisan_cli.dart';
 import 'package:test/test.dart';
 
 void main() {
+  fallingBehindTests();
   test('reads what a server under a supervisor reports', () async {
     final coordinator = createStandardCoordinator();
     final channel = RemoteCoordinatorChannel(coordinator.listen());
@@ -68,5 +69,21 @@ coordinator_call_timeouts_total{service="processCache"} 3
     final report = CoordinatorReport.parse('coordinator_max_queue 10000\n');
     expect(report.advice(), isEmpty);
     expect(report.render(), contains('No action needed.'));
+  });
+}
+
+void fallingBehindTests() {
+  test('advice when the coordinator falls behind (#148)', () {
+    const text = '''
+coordinator_expired_total 7
+coordinator_queue_lag_seconds 0.01
+coordinator_queue_lag_peak_seconds 0.08
+''';
+    final report = CoordinatorReport.parse(text);
+    expect(report.expired, 7);
+    expect(report.queueLagPeak, const Duration(milliseconds: 80));
+    expect(report.advice().single, contains('7 request(s) expired'));
+    expect(report.render(), contains('expired        7'));
+    expect(CoordinatorReport.parse('').advice(), isEmpty);
   });
 }

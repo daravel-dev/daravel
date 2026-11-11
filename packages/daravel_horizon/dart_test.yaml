@@ -1,0 +1,5 @@
+tags:
+  # Needs PostgreSQL (DARAVEL_TEST_PG); skipped without it.
+  integration:
+  # Security regression tests (BLUEPRINT_V2 §9.3).
+  security:

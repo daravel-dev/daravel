@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:daravel_bench/bench_app.dart' show benchToken;
 import 'package:daravel_bench/load.dart';
 import 'package:path/path.dart' as p;
 
@@ -281,6 +282,15 @@ final List<(String, LoadSpec)> _scenarios = [
   ),
   ('4-eager-loading', const LoadSpec('GET', '/api/posts')),
   ('5-throttled', const LoadSpec('GET', '/api/throttled')),
+  // Blueprint #141 K0: token, rate limit and cache per request.
+  (
+    '14-token-throttle-cache',
+    const LoadSpec(
+      'GET',
+      '/api/session',
+      headers: {'Authorization': 'Bearer $benchToken'},
+    ),
+  ),
   ('6-login-hash', const LoadSpec('POST', '/api/login')),
   ('7-multipart-upload', LoadSpec.upload('/api/upload')),
   ('8-sse-stream', const LoadSpec('GET', '/api/events')),

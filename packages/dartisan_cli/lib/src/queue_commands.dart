@@ -25,6 +25,10 @@ final class QueueWorkCommand extends DaravelCommand {
       )
       ..addOption('max-jobs', help: 'Stop after this many jobs.')
       ..addOption('max-time', help: 'Stop after this many seconds.')
+      ..addOption(
+        'memory',
+        help: 'Stop (exit code 12) once memory use reaches this many MB.',
+      )
       ..addFlag(
         'once',
         negatable: false,
@@ -44,12 +48,26 @@ final class QueueWorkCommand extends DaravelCommand {
   String get description => 'Start processing jobs on the queue.';
 
   @override
-  Future<int> run() => withApp((app) async {
+  Future<int> run() async {
+    final code = await _work();
+    if (code == 1) {
+      // A restart: a handler given up past its timeout may still hold a
+      // timer or a socket that would keep the VM alive, so the process
+      // manager would wait for it before starting a fresh worker. The
+      // application is shut down already; end the process here.
+      await stdout.flush();
+      exit(code);
+    }
+    return code;
+  }
+
+  Future<int> _work() => withApp((app) async {
     final r = argResults!;
     final connection = r.rest.isEmpty ? null : r.rest.first;
     final tries = int.tryParse(r['tries'] as String? ?? '');
     final timeout = int.tryParse(r['timeout'] as String? ?? '');
     final maxTime = int.tryParse(r['max-time'] as String? ?? '');
+    final memory = int.tryParse(r['memory'] as String? ?? '');
     final options = WorkerOptions(
       connection: connection,
       queues: (r['queue'] as String? ?? 'default')
@@ -68,6 +86,7 @@ final class QueueWorkCommand extends DaravelCommand {
           : int.tryParse(r['max-jobs'] as String? ?? ''),
       maxTime: maxTime == null ? null : Duration(seconds: maxTime),
       stopWhenEmpty: r['stop-when-empty'] as bool || r['once'] as bool,
+      memory: memory,
     );
     final worker = QueueWorker(App.make<QueueManager>(), logger: app.logger);
     final stopWatching = watchStopSignals(worker.stop);
@@ -131,22 +150,10 @@ final class QueueRetryCommand extends DaravelCommand {
       usageException('Provide a failed job id/uuid or `all`.');
     }
     final manager = App.make<QueueManager>();
-    final provider = manager.processor.failedJobs;
     final targets = ids.length == 1 && ids.first == 'all'
-        ? await provider.all()
-        : [for (final id in ids) ?await provider.find(id)];
+        ? await manager.retryAllFailed()
+        : [for (final id in ids) ?await manager.retryFailed(id)];
     for (final failed in targets) {
-      final payload = JobPayload.decode(failed.payload);
-      await manager
-          .connection(failed.connection)
-          .push(
-            JobPayload.fromJson(<String, Object?>{
-              ...payload.toJson(),
-              'uniqueKey': null,
-            }),
-            queue: failed.queue,
-          );
-      await provider.forget(failed.id);
       stdout.writeln(
         'The failed job [${failed.uuid}] has been pushed back onto the queue.',
       );
@@ -367,13 +374,50 @@ final class ScheduleWorkCommand extends DaravelCommand {
   String get description => 'Start the schedule worker (runs every minute).';
 
   @override
+  Future<int> run() async {
+    var abandoned = false;
+    final code = await withApp((app) async {
+      final scheduler = app.scheduler(commandRunner: dartisan.runNamed);
+      final stopWatching = watchStopSignals(scheduler.stop);
+      stdout.writeln(
+        'Schedule worker started (${app.config.section<AppConfig>().env}).',
+      );
+      await scheduler.work().whenComplete(stopWatching);
+      abandoned = scheduler.runningTasks > 0;
+      return 0;
+    });
+    if (abandoned) {
+      // Tasks still running after the drain had their locks released: end
+      // them with the process rather than let them run on unprotected.
+      await stdout.flush();
+      exit(code);
+    }
+    return code;
+  }
+}
+
+/// `schedule:clear-cache` — releases the overlap locks left behind.
+final class ScheduleClearCacheCommand extends DaravelCommand {
+  /// The `dartisan schedule:clear-cache` command.
+  ScheduleClearCacheCommand(super.createApp);
+
+  @override
+  String get name => 'schedule:clear-cache';
+
+  @override
+  String get description =>
+      'Delete the cached mutex files created by scheduler (the overlap '
+      'locks of withoutOverlapping tasks).';
+
+  @override
   Future<int> run() => withApp((app) async {
-    final scheduler = app.scheduler(commandRunner: dartisan.runNamed);
-    final stopWatching = watchStopSignals(scheduler.stop);
-    stdout.writeln(
-      'Schedule worker started (${app.config.section<AppConfig>().env}).',
-    );
-    await scheduler.work().whenComplete(stopWatching);
+    final cleared = await app.scheduler().clearCache();
+    if (cleared.isEmpty) {
+      stdout.writeln('No mutex files were found.');
+    }
+    for (final task in cleared) {
+      stdout.writeln('Deleting mutex for [$task]');
+    }
     return 0;
   });
 }

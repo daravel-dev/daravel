@@ -1,0 +1,97 @@
+{
+  "meta": {
+    "date": "2026-11-10T12:28:29.269289Z",
+    "os": "linux Linux 6.18.58.1-microsoft-standard-WSL2 #1 SMP PREEMPT_DYNAMIC Tue Oct 27 00:24:11 UTC 2026",
+    "cpus": 16,
+    "duration_s": 10,
+    "connections": [
+      64
+    ]
+  },
+  "results": [
+    {
+      "target": "laravel-octane",
+      "scenario": "1-ping",
+      "isolates": 4,
+      "connections": 64,
+      "requests": 9475,
+      "errors": 0,
+      "rps": 941,
+      "p50_us": 66299,
+      "p95_us": 78990,
+      "p99_us": 108704
+    },
+    {
+      "target": "laravel-octane",
+      "scenario": "2-show-json-query",
+      "isolates": 4,
+      "connections": 64,
+      "requests": 7794,
+      "errors": 0,
+      "rps": 773,
+      "p50_us": 81761,
+      "p95_us": 95379,
+      "p99_us": 102960
+    },
+    {
+      "target": "laravel-octane",
+      "scenario": "3-store-validate-insert",
+      "isolates": 4,
+      "connections": 64,
+      "requests": 4558,
+      "errors": 0,
+      "rps": 449,
+      "p50_us": 140311,
+      "p95_us": 161636,
+      "p99_us": 169512
+    },
+    {
+      "target": "laravel-octane",
+      "scenario": "4-eager-loading",
+      "isolates": 4,
+      "connections": 64,
+      "requests": 1903,
+      "errors": 0,
+      "rps": 184,
+      "p50_us": 342807,
+      "p95_us": 405982,
+      "p99_us": 460154
+    },
+    {
+      "target": "laravel-octane",
+      "scenario": "5-throttled",
+      "isolates": 4,
+      "connections": 64,
+      "requests": 3900,
+      "errors": 0,
+      "rps": 383,
+      "p50_us": 166096,
+      "p95_us": 179899,
+      "p99_us": 186455
+    },
+    {
+      "target": "laravel-octane",
+      "scenario": "14-token-throttle-cache",
+      "isolates": 4,
+      "connections": 64,
+      "requests": 2889,
+      "errors": 0,
+      "rps": 283,
+      "p50_us": 225232,
+      "p95_us": 244049,
+      "p99_us": 248691
+    },
+    {
+      "target": "laravel-octane",
+      "scenario": "6-login-hash",
+      "isolates": 4,
+      "connections": 64,
+      "requests": 447,
+      "errors": 0,
+      "rps": 38,
+      "p50_us": 1668224,
+      "p95_us": 1774826,
+      "p99_us": 1788454
+    }
+  ]
+}

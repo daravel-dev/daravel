@@ -16,6 +16,29 @@ final class _SlowService implements CoordinatorService {
   Map<String, Object?> stats() => const {};
 }
 
+/// Delegates to [inner] and keeps what each `publish` carried.
+final class _SpyService implements CoordinatorService {
+  _SpyService(this.inner, this.field);
+
+  final CoordinatorService inner;
+  final String field;
+  final List<Object?> published = [];
+
+  @override
+  String get name => inner.name;
+
+  @override
+  FutureOr<Object?> handle(String op, Map<String, Object?> args) {
+    if (op == 'publish') {
+      published.add(args[field]);
+    }
+    return inner.handle(op, args);
+  }
+
+  @override
+  Map<String, Object?> stats() => inner.stats();
+}
+
 void main() {
   coordinatorRobustnessTests();
   cacheFrameTests();
@@ -79,6 +102,122 @@ void main() {
     coordinator.forgetWorker('daravel-worker-1');
     expect(await two.collect('pulse'), isEmpty);
     expect(await two.collect('other'), isEmpty);
+  });
+
+  test(
+    'worker reports cross isolates as JSON text and decode unchanged',
+    () async {
+      final spy = _SpyService(WorkerReportService(), 'report');
+      final own = Coordinator()..register(spy);
+      addTearDown(own.close);
+      final channel = RemoteCoordinatorChannel(own.listen());
+      addTearDown(channel.close);
+      final reports = WorkerReports(channel, worker: 'daravel-worker-0');
+      final report = <String, Object?>{
+        'worker': 'daravel-worker-0',
+        'requests_total': 3,
+        'memory_bytes': 123456789012,
+        'avg_ms': 1.5,
+        'max_ms': 2.0,
+        'minutes': [
+          [29000000, 3, 0, 1, 4500],
+        ],
+        'buckets': [
+          {
+            'at': 1740000000000,
+            'requests': [
+              {'key': 'GET /a"b', 'count': 1, 'total_ms': 0.25, 'ok': true},
+            ],
+          },
+        ],
+        'none': null,
+      };
+      await reports.publish('pulse', report);
+      expect(spy.published.single, isA<String>());
+      expect(await reports.collect('pulse'), {'daravel-worker-0': report});
+      final decoded =
+          (await reports.collect('pulse'))['daravel-worker-0']!
+              as Map<String, Object?>;
+      expect(decoded['max_ms'], isA<double>());
+      expect(decoded['memory_bytes'], isA<int>());
+
+      // Scalars travel as they are; strings and values JSON cannot hold
+      // still come back as published.
+      for (final value in <Object?>[7, 0.5, true, null, 'text', '"quoted"']) {
+        await reports.publish('scalar', value);
+        expect((await reports.collect('scalar'))['daravel-worker-0'], value);
+      }
+      expect(spy.published.sublist(1, 5), [7, 0.5, true, null]);
+      expect(spy.published[5], '"text"');
+      await reports.publish('nan', {'v': double.nan});
+      expect(spy.published.last, isA<Map<Object?, Object?>>());
+      expect(
+        ((await reports.collect('nan'))['daravel-worker-0']! as Map)['v'],
+        isNaN,
+      );
+    },
+  );
+
+  test('metrics snapshots reach the coordinator as JSON text', () async {
+    final spy = _SpyService(MetricsService(), 'snapshot');
+    final own = Coordinator()..register(spy);
+    addTearDown(own.close);
+    final channel = RemoteCoordinatorChannel(own.listen());
+    addTearDown(channel.close);
+    final metrics = AppMetrics(MetricsRegistry(), channel: channel);
+    metrics.jobs.inc({'status': 'processed'}, 2);
+    metrics.registry.histogram('lat', 'Latency.').observe(0.2);
+    final text = await metrics.render();
+    expect(spy.published.single, isA<String>());
+    expect(text, contains('queue_jobs_total{status="processed"} 2'));
+    expect(text, contains('lat_bucket{le="0.25"} 1'));
+    expect(text, contains('lat_count 1'));
+
+    // A NaN gauge cannot be JSON: that snapshot goes as a map, as before.
+    metrics.registry.gauge('broken', 'Not a number.').set(double.nan);
+    expect(await metrics.render(), contains('broken NaN'));
+    expect(spy.published.last, isA<Map<Object?, Object?>>());
+
+    final timer = metrics.startPublishing(
+      every: const Duration(milliseconds: 10),
+    );
+    addTearDown(() => timer?.cancel());
+    metrics.registry.gauge('broken', 'Not a number.').set(1);
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    expect(spy.published.last, isA<String>());
+  });
+
+  test('an idle worker publishes its metrics on change and on the '
+      'heartbeat, not every tick (#149)', () async {
+    final spy = _SpyService(MetricsService(), 'snapshot');
+    final own = Coordinator()..register(spy);
+    addTearDown(own.close);
+    final channel = RemoteCoordinatorChannel(own.listen());
+    addTearDown(channel.close);
+    final metrics = AppMetrics(MetricsRegistry(), channel: channel);
+    final timer = metrics.startPublishing(
+      every: const Duration(milliseconds: 5),
+      heartbeat: 1000,
+    );
+    addTearDown(() => timer?.cancel());
+    Future<void> waitFor(int count) async {
+      final deadline = Stopwatch()..start();
+      while (spy.published.length < count &&
+          deadline.elapsed < const Duration(seconds: 10)) {
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+      expect(spy.published, hasLength(count));
+    }
+
+    await waitFor(1);
+    // About 20 idle ticks: the publish's own round trip is not a change.
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    expect(spy.published, hasLength(1));
+    metrics.jobs.inc({'status': 'processed'});
+    await waitFor(2);
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    expect(spy.published, hasLength(2));
+    expect(spy.published.last, contains('queue_jobs_total'));
   });
 
   test('merged metrics carry the coordinator message counters', () async {
@@ -550,9 +689,11 @@ void workerExitTests() {
       await channel.call('channels', 'channel', {'channel': 'presence-room'}),
       {'occupied': false, 'subscription_count': 0, 'user_count': 0},
     );
+    // Two publishes here, and a member_removed for each member a worker
+    // took with it (bo, cy, then ana), which no port listened to.
     expect((coordinator.stats()['services'] as Map)['broadcast'], {
       'channels': 0,
-      'published': 2,
+      'published': 5,
       'delivered': 3,
     });
     // Unknown workers are a no-op.
@@ -664,5 +805,44 @@ void cacheFrameTests() {
     call('cache_set', {'channel': 'cache-doc-fresh', 'frame': 'fresh'});
     expect(service.cachedFrames, 1);
     expect(call('cache_get', {'channel': 'cache-doc-fresh'}), 'fresh');
+  });
+
+  test('presence members are kept per user as sockets come and go (#152)', () {
+    final service = ChannelMembershipService();
+    Map<Object?, Object?> call(String op, Map<String, Object?> args) =>
+        (service.handle(op, args) ?? const {}) as Map;
+    Map<Object?, Object?> join(String socket, String user, String worker) =>
+        call('join', {
+          'channel': 'presence-room',
+          'socket': socket,
+          'user_id': user,
+          'user_info': {'name': user},
+          'worker': worker,
+        });
+    Map<Object?, Object?> leave(String socket) =>
+        call('leave', {'channel': 'presence-room', 'socket': socket});
+
+    expect(join('1.1', 'teo', 'w1')['added'], isTrue);
+    expect(join('1.2', 'teo', 'w2')['added'], isFalse, reason: 'second tab');
+    expect(join('1.1', 'teo', 'w1')['added'], isFalse, reason: 'again');
+    expect(join('2.1', 'ana', 'w1'), {
+      'added': true,
+      'members': {
+        'teo': {'name': 'teo'},
+        'ana': {'name': 'ana'},
+      },
+    });
+    expect(call('channel', {'channel': 'presence-room'}), {
+      'occupied': true,
+      'subscription_count': 3,
+      'user_count': 2,
+    });
+    expect(service.stats(), {'channels': 1, 'connections': 3});
+
+    expect(leave('1.1'), {'removed': null}, reason: 'teo has a tab left');
+    service.forgetWorker('w2'); // teo's last tab
+    expect(call('channel', {'channel': 'presence-room'})['user_count'], 1);
+    expect(leave('2.1'), {'removed': 'ana'});
+    expect(service.stats(), {'channels': 0, 'connections': 0});
   });
 }

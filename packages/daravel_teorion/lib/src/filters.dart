@@ -2,6 +2,9 @@ import 'dart:async';
 
 import 'package:daravel/daravel.dart';
 
+import 'exceptions.dart';
+import 'query_filter.dart' show TeorionConfig;
+
 /// One declared request filter of a [QueryFilter]: applied when its
 /// parameter is in the request (laravel-teorion's `BaseFilter`).
 ///
@@ -133,8 +136,18 @@ abstract base class Filter {
   static Filter callback(FilterCallback callback) => _Callback(callback);
 
   /// The model's scope [name] (`scopes:` of its definition), given the
-  /// request.
+  /// request, as laravel-teorion's `ScopeFilter` calls `$query->$method($request)`;
+  /// the scope reads its own parameter. See [scopeValue] for a scope given
+  /// the value.
   static Filter scope(String name) => _Scope(name);
+
+  /// The model's scope [name] given the filter's value, after [alias] and
+  /// [withDefault], as a Laravel scope takes its argument
+  /// (`scopeSearch($query, $term)`): the model knows nothing of the request
+  /// or the parameter's name. Daravel-only. A scope the model does not
+  /// define is skipped, or throws [ScopeMethodNotFoundException] in strict
+  /// mode (`TEORION_STRICT`).
+  static Filter scopeValue(String name) => _ScopeValue(name);
 
   /// A filter type registered with [FilterMacroRegistry.register].
   static Filter macro(String name) => _Callback(FilterMacroRegistry.get(name));
@@ -432,6 +445,30 @@ final class _Scope extends Filter {
   void apply(ModelQuery<Model> query, Object? value, String param, Request r) {
     if (query.definition.scopes.containsKey(name)) {
       query.scope(name, [r]);
+    }
+  }
+}
+
+final class _ScopeValue extends Filter {
+  _ScopeValue(this.name);
+
+  final String name;
+
+  @override
+  void apply(
+    ModelQuery<Model> query,
+    Object? value,
+    String param,
+    Request request,
+  ) {
+    if (query.definition.scopes.containsKey(name)) {
+      query.scope(name, [value]);
+      return;
+    }
+    final config = Container.current.make<ConfigRepository>();
+    if (config.hasSection<TeorionConfig>() &&
+        config.section<TeorionConfig>().strict) {
+      throw ScopeMethodNotFoundException(name, query.definition.table);
     }
   }
 }

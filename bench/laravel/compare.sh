@@ -23,10 +23,13 @@ WORKERS=${WORKERS:-4}
 WORKER_COUNTS=${WORKER_COUNTS:-1,$WORKERS}
 CONNECTIONS=${CONNECTIONS:-64}
 DART_IMAGE=${DART_IMAGE:-dart:stable}
-SCENARIOS=${SCENARIOS:-1,2,3,4,5,6}
+SCENARIOS=${SCENARIOS:-1,2,3,4,5,6,14}
 DB=${DB:-sqlite}
 PG_IMAGE=${PG_IMAGE:-postgres:17}
 PG_PORT=18632
+# Daravel's PostgreSQL pool per isolate (PG_POOL=8 for the pool-size
+# explainer of scenario 14, not a headline).
+PG_POOL=${PG_POOL:-4}
 SERVER_CPUS=${SERVER_CPUS:-0-3}
 CLIENT_CPUS=${CLIENT_CPUS:-4-11}
 WORK=${WORK:-$HOME/daravel-bench}
@@ -48,7 +51,7 @@ tar -C "$REPO" --exclude=.git --exclude=.dart_tool --exclude=build \
 docker build --network=host -q -t daravel-bench-laravel "$REPO/bench/laravel" >/dev/null
 
 dart_run() {
-  docker run --rm --network host \
+  docker run --rm --network host "${DARAVEL_ENV[@]}" \
     -v "$WORK/src:/src" -v "$WORK/data:/data" -v "$WORK/pub-cache:/root/.pub-cache" \
     -w /src/bench "$DART_IMAGE" sh -c "$1"
 }
@@ -72,10 +75,32 @@ if [ "$DB" = pgsql ]; then
   URL="pgsql://bench:bench@127.0.0.1:$PG_PORT/bench"
   # Daravel: a pool of 4 per isolate; Laravel: one connection per worker or
   # per request, as PHP has.
-  DARAVEL_DB="--db-url='$URL?pool=4'"
+  DARAVEL_DB="--db-url='$URL?pool=$PG_POOL'"
   LARAVEL_DB="-e DB_CONNECTION=pgsql -e DB_URL=$URL"
 fi
 
+
+# Scenario 14's cache and rate limiter (Blueprint #141 K0):
+#   CACHE_VARIANT=process: Daravel's `process` store (shared by its isolates
+#     through the coordinator) against Laravel's `array` store (per worker);
+#   CACHE_VARIANT=redis: both on one Redis (REDIS_IMAGE, port 18679, on the
+#     servers' cores), cache and limiter alike.
+# SANCTUM_LAST_USED_AT (true, Sanctum's default) writes last_used_at on every
+# request; Daravel writes it at most once a minute per token.
+CACHE_VARIANT=${CACHE_VARIANT:-process}
+REDIS_IMAGE=${REDIS_IMAGE:-redis:7}
+REDIS_PORT=18679
+DARAVEL_ENV=(-e BENCH_CACHE_STORE=process)
+LARAVEL_ENV=(-e BENCH_CACHE_STORE=array -e SANCTUM_LAST_USED_AT="${SANCTUM_LAST_USED_AT:-true}")
+if [ "$CACHE_VARIANT" = redis ]; then
+  docker rm -f daravel-bench-redis >/dev/null 2>&1 || true
+  docker run -d --name daravel-bench-redis --network host --cpuset-cpus="$SERVER_CPUS" \
+    "$REDIS_IMAGE" redis-server --port "$REDIS_PORT" --save '' --appendonly no >/dev/null
+  trap 'docker rm -f daravel-bench-redis daravel-bench-postgres >/dev/null 2>&1 || true' EXIT
+  DARAVEL_ENV=(-e REDIS_HOST=127.0.0.1 -e REDIS_PORT=$REDIS_PORT -e BENCH_CACHE_STORE=redis -e CACHE_LIMITER=redis)
+  LARAVEL_ENV=(-e REDIS_HOST=127.0.0.1 -e REDIS_PORT=$REDIS_PORT -e REDIS_CLIENT=phpredis
+    -e BENCH_CACHE_STORE=redis -e CACHE_STORE=redis -e SANCTUM_LAST_USED_AT="${SANCTUM_LAST_USED_AT:-true}")
+fi
 echo "== Daravel (AOT, isolates $WORKER_COUNTS, cores $SERVER_CPUS, $DB)"
 dart_run "dart pub get >/dev/null && taskset -c $CLIENT_CPUS dart run bin/bench.dart \
   $DARAVEL_DB --server-cpus=$SERVER_CPUS --isolates=$WORKER_COUNTS \
@@ -83,11 +108,36 @@ dart_run "dart pub get >/dev/null && taskset -c $CLIENT_CPUS dart run bin/bench.
   --overload-connections=${OVERLOAD_CONNECTIONS:-512} --max-in-flight=${MAX_IN_FLIGHT:-32} \
   --max-queue-delay=${MAX_QUEUE_DELAY:-50} --out=/data/daravel.json"
 
+# Laravel's settings, given here rather than in an overlay .env (git-ignored,
+# so a fresh clone or worktree had none and Octane failed to boot on
+# MissingAppKeyException). The key is the bench's throwaway one, the same
+# 32 bytes as Daravel's in bin/bench.dart, not a secret.
+LARAVEL_BASE_ENV=(-e APP_NAME=Laravel -e APP_ENV=production -e APP_DEBUG=false
+  -e "APP_KEY=base64:$(head -c 32 /dev/zero | tr '\0' '\7' | base64)"
+  -e APP_URL=http://127.0.0.1 -e LOG_CHANNEL=stderr -e LOG_LEVEL=error
+  -e DB_CONNECTION=sqlite -e DB_DATABASE=/data/bench.sqlite -e SESSION_DRIVER=array
+  -e CACHE_STORE=array -e QUEUE_CONNECTION=sync -e BCRYPT_ROUNDS=10)
+
 laravel() { # name mode workers
   docker rm -f daravel-bench-laravel-run >/dev/null 2>&1 || true
   docker run -d --name daravel-bench-laravel-run --network host \
-    --cpuset-cpus="$SERVER_CPUS" -v "$WORK/data:/data" $LARAVEL_DB \
+    --cpuset-cpus="$SERVER_CPUS" -v "$WORK/data:/data" "${LARAVEL_BASE_ENV[@]}" \
+    $LARAVEL_DB "${LARAVEL_ENV[@]}" \
     -e MODE="$2" -e WORKERS="$3" -e PORT=$PORT daravel-bench-laravel >/dev/null
+  # Fail fast, with the server's log, when it never answers /up (a missing
+  # setting makes Octane exit on boot, and the load would only see errors).
+  local up=""
+  for _ in $(seq 1 120); do
+    up=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT/up" || true)
+    [ "$up" = 200 ] && break
+    sleep 0.5
+  done
+  if [ "$up" != 200 ]; then
+    echo "$1 ($2, $3 workers) does not answer /up (last status: ${up:-none}):" >&2
+    docker logs --tail 40 daravel-bench-laravel-run >&2 || true
+    docker rm -f daravel-bench-laravel-run >/dev/null 2>&1 || true
+    exit 1
+  fi
   dart_run "taskset -c $CLIENT_CPUS dart run bin/bench.dart --external=$1:$PORT \
     --isolates=$3 --duration=$DURATION --scenarios=$SCENARIOS \
     --connections=$CONNECTIONS --out=/data/$1-$3.json"

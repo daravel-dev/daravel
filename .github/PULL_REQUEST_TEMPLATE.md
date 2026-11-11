@@ -6,7 +6,7 @@
 
 - [ ] `dart format --output=none --set-exit-if-changed .` and `dart analyze --fatal-infos` pass
 - [ ] Tests added or updated, and every package's `dart test` passes
-- [ ] A line in the `Unreleased` section of CHANGELOG.md for user-visible changes
+- [ ] A changelog fragment `changelog.d/<branch>.md` for user-visible changes (`changelog.d/README.md`; upgrade notes for new exports)
 - [ ] Laravel-facing formats (errors, pagination, tokens, `Crypt`, shared tables) unchanged, or the conformance contract updated on purpose
 - [ ] Docs updated (`docs/guide`, then `dart run tool/docs/generate.dart`)
 - [ ] Commits signed off (`git commit -s`), see CONTRIBUTING.md

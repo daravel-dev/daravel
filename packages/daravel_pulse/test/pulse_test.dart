@@ -142,6 +142,50 @@ void main() {
         ['daravel-worker-0', 'daravel-worker-1'],
       );
     });
+
+    test('a report is unchanged after crossing the coordinator', () async {
+      // ADR-031: WorkerReports sends the report as JSON text.
+      Clock.fake(DateTime.utc(2026, 10, 29, 8));
+      final recorder = PulseRecorder(worker: 'daravel-worker-1')
+        ..recordRequest(
+          method: 'GET',
+          route: '/users/{id}',
+          status: 200,
+          duration: const Duration(microseconds: 1500250),
+          slow: true,
+        )
+        ..recordQuery('select "a"\n from b', 'pgsql', Duration(seconds: 2))
+        ..recordJob('SendInvoice', 'default', Duration.zero, failed: true)
+        ..recordPoolWait('pgsql', const Duration(milliseconds: 3));
+      try {
+        throw StateError('boom');
+      } on StateError catch (error, stack) {
+        recorder.recordException(error, stack);
+      }
+      final coordinator = createStandardCoordinator();
+      addTearDown(coordinator.close);
+      final channel = RemoteCoordinatorChannel(coordinator.listen());
+      addTearDown(channel.close);
+      final reports = WorkerReports(channel, worker: recorder.worker);
+      final report = recorder.report();
+      await reports.publish(Pulse.topic, report);
+      final back =
+          (await reports.collect(Pulse.topic))[recorder.worker]!
+              as Map<String, Object?>;
+      expect(back, report);
+      expect(
+        PulseSnapshot.build(
+          [back],
+          window: const Duration(hours: 1),
+          now: Clock.now(),
+        ),
+        PulseSnapshot.build(
+          [report],
+          window: const Duration(hours: 1),
+          now: Clock.now(),
+        ),
+      );
+    });
   });
 
   group('HTTP', () {
@@ -230,6 +274,7 @@ void main() {
         exceptions.single,
         containsPair('message', 'Bad state: Something broke'),
       );
+      expect(data['horizon_path'], isNull, reason: 'no daravel_horizon');
       expect(data['queues'], [
         {'connection': 'sync', 'queue': 'default', 'size': 0},
       ]);

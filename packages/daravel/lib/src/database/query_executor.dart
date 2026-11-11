@@ -67,6 +67,27 @@ abstract interface class NotifyingDriver implements DatabaseDriver {
   Stream<String> listen(String channel);
 }
 
+/// A driver whose server sessions can be ended from another connection
+/// (PostgreSQL's `pg_terminate_backend`, MySQL's `KILL CONNECTION`).
+///
+/// Killing an isolate does not close its sockets while the process lives:
+/// a connection it left inside a transaction stays open on the server,
+/// still holding its locks. A supervisor that kills a worker isolate asks
+/// the worker for its [sessionIds] beforehand (through
+/// `DatabaseManager.openSessions`) and ends them afterwards with
+/// [terminateSession] on a driver of its own, so the server rolls their
+/// transactions back at once.
+abstract interface class SessionTerminatingDriver implements DatabaseDriver {
+  /// The server's ids of the sessions this driver's pool holds open
+  /// (PostgreSQL backend pids, MySQL connection ids), as strings.
+  List<String> sessionIds();
+
+  /// Ends the server session [id] (from [sessionIds] of a driver on the same
+  /// server), rolling back its transaction. `false` when the server knows
+  /// no such session; throws when the user may not end it.
+  Future<bool> terminateSession(String id);
+}
+
 /// A query that ran (Laravel's `QueryExecuted`), passed to
 /// `DatabaseManager.listen` / `DB.listen` listeners: SQL with its bindings,
 /// duration and connection. For debugging, slow-query logging, N+1
@@ -293,6 +314,32 @@ final class UniqueConstraintViolationException extends QueryException {
     super.bindings,
     super.previous,
   );
+}
+
+/// No connection of the pool became free within the connect timeout
+/// (`DB_CONNECT_TIMEOUT`): every connection is held by a query or a
+/// transaction. Distinct from a slow query; raise `DB_POOL_SIZE` or keep
+/// transactions short (`DB.transaction(timeout:)`). [sql] is empty when
+/// the connection was wanted for a transaction.
+final class PoolExhaustedException extends QueryException {
+  /// The pool of [connectionName] had no free connection for [waited].
+  PoolExhaustedException(
+    String connectionName,
+    this.waited, {
+    String sql = '',
+    List<Object?> bindings = const <Object?>[],
+  }) : super(
+         connectionName,
+         sql,
+         bindings,
+         TimeoutException(
+           'No connection of the pool became free within $waited',
+           waited,
+         ),
+       );
+
+  /// How long the caller waited for a connection.
+  final Duration waited;
 }
 
 /// Wraps an executor so a failing query throws [QueryException], or

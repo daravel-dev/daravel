@@ -61,7 +61,7 @@ const String _packageJson = '''{
     "report": "playwright show-report report"
   },
   "devDependencies": {
-    "@playwright/test": "^1.48.0"
+    "@playwright/test": "~1.64.1"
   }
 }
 ''';

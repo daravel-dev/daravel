@@ -46,6 +46,17 @@ void main() {
         'signature': 'app:thing',
         'description': 'thing',
         'subject': 'Thing',
+        'idType': 'int',
+        'idParse': 'int.parse(raw)',
+        // job.model (make:job --model)
+        'imports': "import 'package:daravel/daravel.dart';",
+        'params': 'required this.user',
+        'fromJson': 'user: ModelRef<User>(() => User.definition, 1),',
+        'fields': 'final ModelRef<User> user;',
+        'tags': "'User:1'",
+        'toJson': "'user': user.toJson(),",
+        'dispatch': 'user: ModelRef.of(user)',
+        'resolve': '// final user = await this.user.resolve();',
       };
       for (final entry in builtInStubs.entries) {
         expect(
@@ -537,6 +548,135 @@ final class Score extends Model {
           '  // </dartisan:statics>\n';
       expect(fillStatics(custom, 'X'), custom);
       expect(fillStatics('class X {}', 'X'), 'class X {}');
+    });
+
+    group('--typed-ids', () {
+      final made = renderStub(builtInStubs['model']!, {
+        'class': 'Lesson',
+        'table': 'lessons',
+        'softDeletes': '',
+      });
+      final model = ModelSource.parse(made)!;
+      const columns = [
+        ColumnInfo(
+          name: 'id',
+          type: 'INTEGER',
+          nullable: false,
+          primary: true,
+          autoIncrement: true,
+        ),
+        ColumnInfo(name: 'title', type: 'VARCHAR', nullable: false),
+      ];
+      final idStub = builtInStubs['model.id']!;
+
+      test('without the flag the output is what it was', () {
+        final sync = syncModelSource(made, model, columns);
+        final plan = planAccessors(model, columns);
+        expect(
+          sync.source,
+          replaceAccessors(fillStatics(made, 'Lesson'), plan.lines),
+        );
+        expect(sync.source, isNot(contains('dartisan:ids')));
+        expect(sync.source, contains('find(Object id)'));
+        expect(sync.plan.lines, plan.lines);
+        const empty =
+            'final class Lesson extends Model {\n'
+            '  // <dartisan:statics>\n'
+            '  // </dartisan:statics>\n'
+            '  // <dartisan:accessors>\n'
+            '  // </dartisan:accessors>\n'
+            '}\n';
+        expect(
+          syncModelSource(empty, model, columns).source,
+          replaceAccessors(fillStatics(empty, 'Lesson'), plan.lines),
+        );
+      });
+
+      test('writes the id region and types the key, find and findOrFail', () {
+        final sync = syncModelSource(made, model, columns, idStub: idStub);
+        final source = sync.source!;
+        expect(sync.warnings, isEmpty);
+        expect(
+          source,
+          allOf(
+            contains(
+              '// <dartisan:ids>\n'
+              '/// The primary key of [Lesson]',
+            ),
+            contains(
+              'extension type const LessonId(int value) implements int {',
+            ),
+            contains(
+              'static LessonId parse(String raw) => LessonId(int.parse(raw));',
+            ),
+            endsWith('}\n// </dartisan:ids>\n'),
+            contains('static Future<Lesson?> find(LessonId id) =>'),
+          ),
+        );
+        expect(
+          source,
+          allOf(
+            contains('static Future<Lesson> findOrFail(LessonId id) =>'),
+            contains("  LessonId get id => getAttr('id');"),
+            contains("  String get title => getAttr('title');"),
+          ),
+        );
+        expect(source, isNot(contains('Object id')));
+        // Idempotent: a second run rewrites the region in place.
+        final again = syncModelSource(source, model, columns, idStub: idStub);
+        expect(again.source, source);
+        expect('dartisan:ids>'.allMatches(source), hasLength(2));
+      });
+
+      test('an empty statics region is filled typed', () {
+        const empty =
+            'final class Lesson extends Model {\n'
+            '  // <dartisan:statics>\n'
+            '  // </dartisan:statics>\n'
+            '  // <dartisan:accessors>\n'
+            '  // </dartisan:accessors>\n'
+            '}\n';
+        final source = syncModelSource(
+          empty,
+          model,
+          columns,
+          idStub: idStub,
+        ).source!;
+        expect(source, contains('find(LessonId id) => query().find(id);'));
+        expect(source, contains('static ModelQuery<Lesson> where('));
+      });
+
+      test('a string key parses non-empty text; other keys warn', () {
+        final source = syncModelSource(made, model, const [
+          ColumnInfo(name: 'id', type: 'TEXT', nullable: false),
+        ], idStub: idStub).source!;
+        expect(
+          source,
+          contains(
+            'extension type const LessonId(String value) implements String {',
+          ),
+        );
+        expect(source, contains("raw.isEmpty ? throw const FormatException("));
+        final blob = syncModelSource(made, model, const [
+          ColumnInfo(name: 'id', type: 'BLOB', nullable: false),
+        ], idStub: idStub);
+        expect(blob.warnings.single, contains('no typed id'));
+        expect(blob.source, isNot(contains('dartisan:ids')));
+        expect(blob.source, contains('find(Object id)'));
+      });
+
+      test('statics the application wrote keep their types', () {
+        const custom =
+            '  // <dartisan:statics>\n'
+            '  static Future<X?> find(Object id) => query().find(id);\n'
+            '  static Future<X?> byOwner(Object id) => query().find(id);\n'
+            '  // </dartisan:statics>\n'
+            'Future<X?> find(Object id) => X.find(id);\n';
+        final typed = typeStatics(custom, 'XId');
+        expect(typed, contains('find(XId id) => query()'));
+        expect(typed, contains('byOwner(Object id)'));
+        expect(typed, endsWith('Future<X?> find(Object id) => X.find(id);\n'));
+      });
     });
   });
 

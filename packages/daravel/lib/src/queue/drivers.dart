@@ -75,7 +75,7 @@ final class JobPayload {
     displayName: json['displayName'] as String? ?? json['job'] as String,
     data: (json['data'] as Map<String, Object?>?) ?? const {},
     maxTries: (json['maxTries'] as num?)?.toInt() ?? 1,
-    maxExceptions: (json['maxExceptions'] as num?)?.toInt() ?? 1,
+    maxExceptions: (json['maxExceptions'] as num?)?.toInt(),
     failOnTimeout: json['failOnTimeout'] as bool? ?? false,
     backoffSeconds: _backoff(json['backoff']),
     timeout: Duration(
@@ -127,8 +127,9 @@ final class JobPayload {
   /// How many times the job may be attempted.
   final int maxTries;
 
-  /// How many exceptions the job may throw before it fails.
-  final int maxExceptions;
+  /// How many exceptions the job may throw before it fails (null: no
+  /// limit beyond [maxTries]).
+  final int? maxExceptions;
 
   /// Whether a timeout fails the job at once instead of retrying it.
   final bool failOnTimeout;
@@ -283,6 +284,171 @@ abstract interface class WakeableQueueDriver implements QueueDriver {
   Future<void> stopWaiting();
 }
 
+/// A driver that reserves a popped job for [retryAfter] (`retry_after`)
+/// and hands it to another worker once that passes, taking it for
+/// abandoned: the database and Redis queues.
+///
+/// The worker [touch]es the reservation of a running job every half
+/// [retryAfter], so a job that runs longer than [retryAfter] is not run a
+/// second time beside itself.
+abstract interface class ReservingQueueDriver implements QueueDriver {
+  /// How long a reservation lasts before the job runs again elsewhere.
+  Duration get retryAfter;
+
+  /// Extends [job]'s reservation to [retryAfter] from now; does nothing
+  /// once the job is gone or reserved again by another worker.
+  Future<void> touch(QueuedJob job);
+}
+
+/// A job waiting in a queue, as a dashboard lists it
+/// ([BrowsableQueueDriver]). Reading it reserves nothing.
+///
+/// The fields come from the stored payload, read leniently: a job pushed by
+/// a Laravel app sharing the queue is listed too, with its PHP handler as
+/// [jobName].
+final class QueuedJobView {
+  /// A waiting job [id] of [queue].
+  const QueuedJobView({
+    required this.id,
+    required this.uuid,
+    required this.jobName,
+    required this.displayName,
+    required this.queue,
+    required this.tags,
+    required this.pushedAt,
+    required this.availableAt,
+    required this.attempts,
+    required this.payload,
+  });
+
+  /// The view of the stored [payload] JSON of job [id] on [queue].
+  factory QueuedJobView.fromStored({
+    required Object id,
+    required String queue,
+    required String payload,
+    required int attempts,
+    required DateTime availableAt,
+  }) {
+    Object? decoded;
+    try {
+      decoded = jsonDecode(payload);
+    } on FormatException {
+      decoded = null;
+    }
+    final json = decoded is Map<String, Object?>
+        ? decoded
+        : const <String, Object?>{};
+    final job = json['job'];
+    final jobName = job is String ? job : '';
+    final display = json['displayName'];
+    final pushed = json['pushedAt'];
+    return QueuedJobView(
+      id: id,
+      uuid: json['uuid'] is String ? json['uuid']! as String : '',
+      jobName: jobName,
+      displayName: display is String ? display : jobName,
+      queue: queue,
+      tags: [
+        for (final tag
+            in json['tags'] is List<Object?>
+                ? json['tags']! as List<Object?>
+                : const <Object?>[])
+          if (tag is String) tag,
+      ],
+      pushedAt: pushed is num && pushed > 0
+          ? DateTime.fromMillisecondsSinceEpoch(
+              pushed.toInt() * 1000,
+              isUtc: true,
+            )
+          : null,
+      availableAt: availableAt,
+      attempts: attempts,
+      payload: payload,
+    );
+  }
+
+  /// The job's id in its queue (what [ReclaimableQueueDriver.reclaim]
+  /// takes).
+  final Object id;
+
+  /// The dispatch's UUID (empty when the payload has none).
+  final String uuid;
+
+  /// The registered job name.
+  final String jobName;
+
+  /// The name shown in dashboards.
+  final String displayName;
+
+  /// The queue it waits on.
+  final String queue;
+
+  /// Its monitoring tags ([Job.tags]).
+  final List<String> tags;
+
+  /// When it was first pushed (UTC), when the payload says.
+  final DateTime? pushedAt;
+
+  /// When it may run (UTC); later than now for a delayed job.
+  final DateTime availableAt;
+
+  /// How many times it was reserved so far.
+  final int attempts;
+
+  /// The stored payload JSON, unchanged.
+  final String payload;
+
+  /// The view as JSON, for dashboards.
+  Map<String, Object?> toJson() => <String, Object?>{
+    'id': id,
+    'uuid': uuid,
+    'name': jobName,
+    'displayName': displayName,
+    'queue': queue,
+    'tags': tags,
+    'pushedAt': pushedAt?.toIso8601String(),
+    'availableAt': availableAt.toIso8601String(),
+    'attempts': attempts,
+    'payload': payload,
+  };
+}
+
+/// A driver whose waiting jobs can be listed without reserving them, for
+/// queue dashboards (`daravel_horizon`'s pending and delayed lists).
+abstract interface class BrowsableQueueDriver implements QueueDriver {
+  /// Jobs of [queue] ready to run, in the order they would be popped,
+  /// skipping [offset] and returning at most [limit].
+  Future<List<QueuedJobView>> pending(
+    String queue, {
+    int limit = 50,
+    int offset = 0,
+  });
+
+  /// Jobs of [queue] waiting for their delay, soonest first.
+  Future<List<QueuedJobView>> delayed(
+    String queue, {
+    int limit = 50,
+    int offset = 0,
+  });
+}
+
+/// A driver that can hand a reserved job back at once, without waiting
+/// for `retry_after`: for a supervisor that knows the job's worker is gone
+/// (`daravel_horizon` after a worker isolate stops answering). The job's
+/// attempts are kept, so `tries` still counts the lost attempt.
+///
+/// Only for a job whose worker is gone: a worker still running it would
+/// run it a second time beside the next one.
+abstract interface class ReclaimableQueueDriver implements QueueDriver {
+  /// Makes the reserved job [jobId] of [queue] available again; returns
+  /// whether it was reserved (false when it finished or was never there).
+  Future<bool> reclaim(String queue, Object jobId);
+}
+
+/// Clamps a page request to sane values.
+(int, int) _page(int limit, int offset) =>
+    (limit < 0 ? 0 : limit, offset < 0 ? 0 : offset);
+
 /// Completes the first of [wake] and [maxWait].
 Future<void> _within(Future<void> wake, Duration maxWait) {
   final done = Completer<void>();
@@ -313,9 +479,15 @@ final class _MemoryEntry {
   bool reserved = false;
 }
 
-/// In-memory queue (scope `isolate`): tests and `--embed-queue` style
-/// single-process setups.
-final class MemoryQueue implements WakeableQueueDriver {
+/// In-memory queue (scope `isolate`): tests, and a worker in the isolate
+/// that dispatches (`QueueWorker` run beside the code that pushes). Every
+/// isolate has its own, so `serve` refuses it with several isolates or
+/// `--embed-queue`, whose worker runs in an isolate of its own.
+final class MemoryQueue
+    implements
+        WakeableQueueDriver,
+        BrowsableQueueDriver,
+        ReclaimableQueueDriver {
   /// A queue in this isolate's memory; [clock] is for tests.
   MemoryQueue({DateTime Function()? clock}) : _clock = clock ?? _utcNow;
 
@@ -432,13 +604,82 @@ final class MemoryQueue implements WakeableQueueDriver {
     return before - _entries.length;
   }
 
+  @override
+  Future<List<QueuedJobView>> pending(
+    String queue, {
+    int limit = 50,
+    int offset = 0,
+  }) async {
+    final now = _now;
+    // pop takes the first match in insertion order.
+    return _views(
+      _entries.where(
+        (e) => e.queue == queue && !e.reserved && e.availableAt <= now,
+      ),
+      limit,
+      offset,
+    );
+  }
+
+  @override
+  Future<List<QueuedJobView>> delayed(
+    String queue, {
+    int limit = 50,
+    int offset = 0,
+  }) async {
+    final now = _now;
+    final waiting = [
+      for (final e in _entries)
+        if (e.queue == queue && !e.reserved && e.availableAt > now) e,
+    ]..sort((a, b) => a.availableAt.compareTo(b.availableAt));
+    return _views(waiting, limit, offset);
+  }
+
+  List<QueuedJobView> _views(
+    Iterable<_MemoryEntry> entries,
+    int limit,
+    int offset,
+  ) {
+    final (take, skip) = _page(limit, offset);
+    return [
+      for (final e in entries.skip(skip).take(take))
+        QueuedJobView.fromStored(
+          id: e.id,
+          queue: e.queue,
+          payload: e.payload.encode(),
+          attempts: e.attempts,
+          availableAt: DateTime.fromMillisecondsSinceEpoch(
+            e.availableAt,
+            isUtc: true,
+          ),
+        ),
+    ];
+  }
+
+  @override
+  Future<bool> reclaim(String queue, Object jobId) async {
+    for (final entry in _entries) {
+      if (entry.id == jobId && entry.queue == queue && entry.reserved) {
+        entry.reserved = false;
+        _wake(queue);
+        return true;
+      }
+    }
+    return false;
+  }
+
   static DateTime _utcNow() => Clock.now().toUtc();
 }
 
 /// Laravel-compatible `jobs` table (scope `cluster`). Reservation is an
 /// optimistic `UPDATE … WHERE reserved_at IS NULL`, so several workers
 /// never process the same row twice.
-final class DatabaseQueue implements WakeableQueueDriver {
+final class DatabaseQueue
+    implements
+        WakeableQueueDriver,
+        ReservingQueueDriver,
+        BrowsableQueueDriver,
+        ReclaimableQueueDriver {
   /// A queue in the [table] (`jobs`) of [db], shared with Laravel's
   /// database queue.
   DatabaseQueue(
@@ -447,6 +688,7 @@ final class DatabaseQueue implements WakeableQueueDriver {
     this.connection,
     this.retryAfter = const Duration(seconds: 90),
     this.onForeignJob,
+    this.listenRetry = const Duration(seconds: 30),
     DateTime Function()? clock,
   }) : _clock = clock ?? _utcNow;
 
@@ -460,7 +702,12 @@ final class DatabaseQueue implements WakeableQueueDriver {
   final String? connection;
 
   /// Reserved jobs older than this are considered abandoned and re-queued.
+  @override
   final Duration retryAfter;
+
+  /// How long after a `LISTEN` that failed or dropped (PostgreSQL) the
+  /// next wait listens again.
+  final Duration listenRetry;
 
   /// Called once per foreign job (pushed by a Laravel app sharing the
   /// `jobs` table) that this worker skipped; see [isForeignPayload].
@@ -536,30 +783,26 @@ final class DatabaseQueue implements WakeableQueueDriver {
   String get _channel => 'daravel_queue_$table';
 
   StreamSubscription<String>? _notifications;
-  bool _listening = false;
   final Map<String, List<Completer<void>>> _waiting = {};
+
+  /// False once the database answered that it has no notifications.
+  bool _notifiable = true;
+
+  /// The subscription being opened, shared by concurrent waits.
+  Future<void>? _subscribing;
+
+  /// No `LISTEN` before this (wall clock): set after one failed or dropped.
+  DateTime? _listenAfter;
 
   /// Waits for a `NOTIFY` from a push on PostgreSQL, through one connection
   /// kept until [stopWaiting]; other databases sleep [maxWait], as before.
+  /// A `LISTEN` that cannot be opened (the database is down) or that drops
+  /// is tried again after [listenRetry]; meanwhile the wait is a sleep.
   @override
   Future<void> waitForWork(List<String> queues, Duration maxWait) async {
-    if (!_listening) {
-      _listening = true;
-      final stream = await db.notifications(_channel, connection: connection);
-      _notifications = stream?.listen(
-        (queue) {
-          for (final waiter
-              in _waiting.remove(queue) ?? const <Completer<void>>[]) {
-            if (!waiter.isCompleted) {
-              waiter.complete();
-            }
-          }
-        },
-        // A dropped connection: sleep and poll from now on.
-        onError: (Object _) => unawaited(_dropNotifications()),
-        onDone: () => unawaited(_dropNotifications()),
-      );
-    }
+    await (_subscribing ??= _subscribe().whenComplete(
+      () => _subscribing = null,
+    ));
     if (_notifications == null) {
       return Future<void>.delayed(maxWait);
     }
@@ -573,14 +816,53 @@ final class DatabaseQueue implements WakeableQueueDriver {
     }
   }
 
-  Future<void> _dropNotifications() async {
-    await _notifications?.cancel();
+  Future<void> _subscribe() async {
+    final after = _listenAfter;
+    if (_notifications != null ||
+        !_notifiable ||
+        (after != null && DateTime.now().isBefore(after))) {
+      return;
+    }
+    final Stream<String>? stream;
+    try {
+      stream = await db.notifications(_channel, connection: connection);
+    } on Object {
+      _listenAfter = DateTime.now().add(listenRetry);
+      return;
+    }
+    if (stream == null) {
+      _notifiable = false;
+      return;
+    }
+    _listenAfter = null;
+    _notifications = stream.listen(
+      (queue) {
+        for (final waiter
+            in _waiting.remove(queue) ?? const <Completer<void>>[]) {
+          if (!waiter.isCompleted) {
+            waiter.complete();
+          }
+        }
+      },
+      // A dropped connection: sleep and poll, and listen again later.
+      onError: (Object _) => unawaited(_dropNotifications(retry: true)),
+      onDone: () => unawaited(_dropNotifications(retry: true)),
+    );
+  }
+
+  Future<void> _dropNotifications({bool retry = false}) async {
+    if (retry) {
+      _listenAfter = DateTime.now().add(listenRetry);
+    }
+    final cancelled = _notifications?.cancel();
     _notifications = null;
+    await cancelled;
   }
 
   @override
   Future<void> stopWaiting() async {
-    _listening = false;
+    _listenAfter = null;
+    _notifiable = true;
     await _dropNotifications();
   }
 
@@ -688,6 +970,18 @@ final class DatabaseQueue implements WakeableQueueDriver {
     onForeignJob?.call(queue, id, handler);
   }
 
+  /// Moves `reserved_at` to now while the row is still this reservation:
+  /// `attempts` grows with every reservation, so a row another worker took
+  /// meanwhile is left alone.
+  @override
+  Future<void> touch(QueuedJob job) async {
+    await _query()
+        .where('id', job.id)
+        .where('attempts', job.attempts)
+        .whereNotNull('reserved_at')
+        .update(<String, Object?>{'reserved_at': _now});
+  }
+
   @override
   Future<void> release(QueuedJob job, Duration delay) async {
     await _query().where('id', job.id).update(<String, Object?>{
@@ -721,6 +1015,71 @@ final class DatabaseQueue implements WakeableQueueDriver {
 
   @override
   Future<int> clear(String queue) => _query().where('queue', queue).delete();
+
+  /// Unreserved rows whose `available_at` has come, by `available_at` and
+  /// then `id`. Rows pushed by Laravel are listed as well.
+  @override
+  Future<List<QueuedJobView>> pending(
+    String queue, {
+    int limit = 50,
+    int offset = 0,
+  }) => _browse(queue, limit, offset, due: true);
+
+  /// Unreserved rows whose `available_at` is still ahead, soonest first.
+  @override
+  Future<List<QueuedJobView>> delayed(
+    String queue, {
+    int limit = 50,
+    int offset = 0,
+  }) => _browse(queue, limit, offset, due: false);
+
+  Future<List<QueuedJobView>> _browse(
+    String queue,
+    int limit,
+    int offset, {
+    required bool due,
+  }) async {
+    final (take, skip) = _page(limit, offset);
+    if (take == 0) {
+      return const [];
+    }
+    final rows = await _query()
+        .where('queue', queue)
+        .whereNull('reserved_at')
+        .where('available_at', due ? '<=' : '>', _now)
+        .orderBy('available_at')
+        .orderBy('id')
+        .offset(skip)
+        .limit(take)
+        .get();
+    return [
+      for (final row in rows)
+        QueuedJobView.fromStored(
+          id: row['id']!,
+          queue: queue,
+          payload: row['payload']! as String,
+          attempts: (row['attempts'] as num).toInt(),
+          availableAt: DateTime.fromMillisecondsSinceEpoch(
+            (row['available_at']! as num).toInt() * 1000,
+            isUtc: true,
+          ),
+        ),
+    ];
+  }
+
+  /// Clears `reserved_at` of the row; `attempts` and `available_at` stay.
+  @override
+  Future<bool> reclaim(String queue, Object jobId) async {
+    final reclaimed = await _query()
+        .where('id', jobId)
+        .where('queue', queue)
+        .whereNotNull('reserved_at')
+        .update(<String, Object?>{'reserved_at': null});
+    if (reclaimed > 0) {
+      await db.notify(_channel, queue, connection);
+    }
+    return reclaimed > 0;
+  }
 
   static DateTime _utcNow() => Clock.now().toUtc();
 }

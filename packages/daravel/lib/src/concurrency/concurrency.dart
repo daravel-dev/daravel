@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io' show Platform, stderr;
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import '../foundation/container.dart';
 import '../http/request.dart';
@@ -61,7 +62,25 @@ abstract final class Concurrency {
 
   static int _maxWorkers = math.min(Platform.numberOfProcessors, 4);
 
-  static final ComputePool _pool = ComputePool(() => _maxWorkers);
+  /// The most tasks waiting for a busy worker, across every caller of this
+  /// isolate; `null` (the default) sets no limit. Past it a task fails at
+  /// once with a `StateError` (`ComputePoolSaturatedError`) instead of
+  /// queueing behind the others.
+  static int? get maxQueue => _maxQueue;
+
+  static set maxQueue(int? value) {
+    if (value != null && value < 0) {
+      throw RangeError.range(value, 0, null, 'maxQueue');
+    }
+    _maxQueue = value;
+  }
+
+  static int? _maxQueue;
+
+  static final ComputePool _pool = ComputePool(
+    () => _maxWorkers,
+    maxQueue: () => _maxQueue,
+  );
 
   static final Object _zoneKey = Object();
 
@@ -70,12 +89,48 @@ abstract final class Concurrency {
 
   /// Runs [tasks] at once and returns their results in the same order. Every
   /// task runs; then the first failure, by position, is rethrown with its
-  /// stack trace. A task past [timeout] fails with a `TimeoutException`.
+  /// stack trace. A task past [timeout] fails with a `TimeoutException`; the
+  /// timeout starts when the task is handed to the pool, so it includes the
+  /// wait for a worker other callers keep busy. Without [concurrency] a call
+  /// hands the pool at most [maxWorkers] tasks at a time.
   static Future<List<T>> run<T>(
     List<FutureOr<T> Function()> tasks, {
     int? concurrency,
     Duration? timeout,
-  }) async {
+  }) => _runAll(
+    tasks,
+    concurrency,
+    (task) => _pool.run<T>(task, timeout: timeout),
+  );
+
+  /// [run] for tasks whose result is binary: a PDF, a CSV, an image, a
+  /// compressed body. A result of `IsolatePayload.transferThreshold` (32 KB)
+  /// or more comes back as a `TransferableTypedData`, copied once in the
+  /// worker and moved here without a second copy; a smaller one is copied
+  /// as `run` copies it. Give text (JSON) to [run], whose `String` results
+  /// the VM shares without copying. Serve a result with `Response.computed`.
+  ///
+  /// ```dart
+  /// final [pdf] = await Concurrency.runBytes([() => renderInvoice(data)]);
+  /// return Response.computed(pdf, contentType: 'application/pdf');
+  /// ```
+  ///
+  /// Order, failures, [concurrency] and [timeout] are as in [run].
+  static Future<List<Uint8List>> runBytes(
+    List<FutureOr<Uint8List> Function()> tasks, {
+    int? concurrency,
+    Duration? timeout,
+  }) => _runAll(
+    tasks,
+    concurrency,
+    (task) => _pool.runBytes(task, timeout: timeout),
+  );
+
+  static Future<List<T>> _runAll<T>(
+    List<FutureOr<T> Function()> tasks,
+    int? concurrency,
+    Future<T> Function(FutureOr<T> Function() task) runOne,
+  ) async {
     if (concurrency != null && concurrency < 1) {
       throw RangeError.range(concurrency, 1, null, 'concurrency');
     }
@@ -92,7 +147,7 @@ abstract final class Concurrency {
       while (next < tasks.length) {
         final index = next++;
         try {
-          results[index] = await _pool.run(tasks[index], timeout: timeout);
+          results[index] = await runOne(tasks[index]);
         } catch (error, stackTrace) {
           failures[index] = (error, stackTrace);
         }
@@ -102,7 +157,9 @@ abstract final class Concurrency {
     await Future.wait([
       for (
         var i = 0;
-        i < math.min(concurrency ?? tasks.length, tasks.length);
+        // More lanes than workers would only queue in the pool, where a
+        // task's timeout already runs.
+        i < math.min(concurrency ?? _maxWorkers, tasks.length);
         i++
       )
         lane(),

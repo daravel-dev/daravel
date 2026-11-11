@@ -1,8 +1,11 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import '../foundation/cancellation.dart';
 import '../foundation/clock.dart';
 import '../foundation/container.dart';
+import '../foundation/detached.dart';
+import '../foundation/shared_result.dart';
 import '../foundation/exceptions.dart';
 import '../logging/logger.dart';
 import 'database_config.dart';
@@ -62,8 +65,11 @@ final class DatabaseManager {
   final DatabaseConfig config;
   final Logger? _logger;
   final Map<String, DatabaseDriver> _connections = <String, DatabaseDriver>{};
-  final Map<String, Future<DatabaseDriver>> _connecting =
-      <String, Future<DatabaseDriver>>{};
+  // Shared by the requests that ask while it opens: a SharedResult, so a
+  // connection that fails to open fails every one of them (a failing
+  // future would hang those waiting from another request's zone).
+  final Map<String, SharedResult<DatabaseDriver>> _connecting =
+      <String, SharedResult<DatabaseDriver>>{};
 
   /// A separate manager whose only (and default) connection is [connection]
   /// under [name], with this manager's registered drivers: for tools that
@@ -79,6 +85,21 @@ final class DatabaseManager {
         drivers: _driverFactories,
       );
 
+  /// The server sessions the open connections hold, by connection name, for
+  /// the drivers that can end them from elsewhere
+  /// ([SessionTerminatingDriver]); connections not opened yet and other
+  /// drivers are left out.
+  Map<String, List<String>> openSessions() => <String, List<String>>{
+    for (final MapEntry(:key, :value) in _connections.entries)
+      if (value case final SessionTerminatingDriver driver)
+        if (driver.sessionIds() case final ids when ids.isNotEmpty) key: ids,
+  };
+
+  /// A connection in logs: its name, then its driver (`[sqlite] (pgsql)`
+  /// when `DB_URL` gives the connection named `sqlite` a PostgreSQL URL).
+  String _described(String name) =>
+      '[$name] (${config.connections[name]?.driver ?? 'unknown'})';
+
   /// Returns the (lazily connected) driver for [name] or the default
   /// connection.
   Future<DatabaseDriver> connection([String? name]) {
@@ -89,47 +110,80 @@ final class DatabaseManager {
     }
     final pending = _connecting[connectionName];
     if (pending != null) {
-      return pending;
+      return pending.value;
     }
-    final future = () async {
-      final driver = _createDriver(connectionName);
-      try {
-        await driver.connect();
-        _connections[connectionName] = driver;
-        _logger?.debug('Database connection [$connectionName] opened.');
-        return driver;
-      } finally {
-        unawaited(_connecting.remove(connectionName));
-      }
-    }();
-    _connecting[connectionName] = future;
-    return future;
+    // In a microtask, so that it is registered below before it can finish:
+    // a factory that throws (a secret not there yet) ended it at once, its
+    // `finally` removed nothing, and the failure stayed cached for good.
+    // Detached: the connection outlives the request that opens it, and its
+    // socket's listeners would live on in that request's zone (its log
+    // context, its cancellation token; Review #149).
+    final shared = SharedResult<DatabaseDriver>(
+      () => runDetachedAsync(
+        () => Future<DatabaseDriver>.microtask(() async {
+          try {
+            final driver = _createDriver(connectionName);
+            await driver.connect();
+            _connections[connectionName] = driver;
+            _logger?.debug(
+              'Database connection ${_described(connectionName)} opened.',
+            );
+            return driver;
+          } finally {
+            _connecting.remove(connectionName);
+          }
+        }),
+        name: 'database connection [$connectionName]',
+      ).value,
+    );
+    _connecting[connectionName] = shared;
+    return shared.value;
   }
 
-  final List<void Function(QueryExecuted event)> _queryListeners =
-      <void Function(QueryExecuted event)>[];
+  // Copied on write: a query reads them without copying, and a listener
+  // removed while they are being called is still called this once.
+  List<void Function(QueryExecuted event)> _queryListeners =
+      const <void Function(QueryExecuted event)>[];
 
   /// Calls [listener] after every query (`DB::listen`). Listeners run
   /// synchronously on the query's isolate; keep them cheap.
-  void listen(void Function(QueryExecuted event) listener) =>
-      _queryListeners.add(listener);
+  ///
+  /// Register listeners once (in a service provider's `boot`): each one
+  /// runs for every query of the isolate until removed. The returned
+  /// function removes this one.
+  void Function() listen(void Function(QueryExecuted event) listener) {
+    _queryListeners = [..._queryListeners, listener];
+    return () => _queryListeners = [
+      for (final other in _queryListeners)
+        if (!identical(other, listener)) other,
+    ];
+  }
 
-  final List<void Function(TransactionEvent event)> _transactionListeners =
-      <void Function(TransactionEvent event)>[];
+  List<void Function(TransactionEvent event)> _transactionListeners =
+      const <void Function(TransactionEvent event)>[];
 
   /// Calls [listener] when a transaction or savepoint begins, commits and
-  /// rolls back, synchronously; keep it cheap.
-  void listenTransactions(void Function(TransactionEvent event) listener) =>
-      _transactionListeners.add(listener);
+  /// rolls back, synchronously; keep it cheap. Register it once; the
+  /// returned function removes it.
+  void Function() listenTransactions(
+    void Function(TransactionEvent event) listener,
+  ) {
+    _transactionListeners = [..._transactionListeners, listener];
+    return () => _transactionListeners = [
+      for (final other in _transactionListeners)
+        if (!identical(other, listener)) other,
+    ];
+  }
 
   void _notifyTransaction(TransactionEvent event) {
-    for (final listener in List.of(_transactionListeners)) {
+    for (final listener in _transactionListeners) {
       listener(event);
     }
   }
 
   /// Removes every query listener.
-  void forgetListeners() => _queryListeners.clear();
+  void forgetListeners() =>
+      _queryListeners = const <void Function(QueryExecuted event)>[];
 
   static const Symbol _captureKey = #daravel.queryCapture;
 
@@ -150,17 +204,24 @@ final class DatabaseManager {
     return (result, captured);
   }
 
-  final List<(Duration, void Function(QueryExecuted event))> _durationHandlers =
-      [];
+  List<_DurationHandler> _durationHandlers = const <_DurationHandler>[];
   final _QueryTime _isolateQueryTime = _QueryTime();
 
   /// Calls [handler] once the queries of the current request, job or
   /// command have taken more than [threshold] in total (Laravel's
-  /// `DB::whenQueryingForLongerThan`), once per scope.
-  void whenQueryingForLongerThan(
+  /// `DB::whenQueryingForLongerThan`), once per scope. Register it once;
+  /// the returned function removes it.
+  void Function() whenQueryingForLongerThan(
     Duration threshold,
     void Function(QueryExecuted event) handler,
-  ) => _durationHandlers.add((threshold, handler));
+  ) {
+    final entry = _DurationHandler(threshold, handler);
+    _durationHandlers = [..._durationHandlers, entry];
+    return () => _durationHandlers = [
+      for (final other in _durationHandlers)
+        if (!identical(other, entry)) other,
+    ];
+  }
 
   /// Time spent in queries by the current request, job or command (the
   /// isolate's total outside a scope).
@@ -188,7 +249,7 @@ final class DatabaseManager {
   /// Reports [event] to listeners, captures and duration handlers. Runs in
   /// the zone of the query.
   void _dispatch(QueryExecuted event) {
-    for (final listener in List.of(_queryListeners)) {
+    for (final listener in _queryListeners) {
       listener(event);
     }
     final captures = Zone.current[_captureKey] as List<List<QueryExecuted>>?;
@@ -197,12 +258,12 @@ final class DatabaseManager {
         captured.add(event);
       }
     }
-    if (_durationHandlers.isNotEmpty) {
+    final handlers = _durationHandlers;
+    if (handlers.isNotEmpty) {
       final time = _queryTime()..total += event.time;
-      for (var i = 0; i < _durationHandlers.length; i++) {
-        final (threshold, handler) = _durationHandlers[i];
-        if (time.total > threshold && time.fired.add(i)) {
-          handler(event);
+      for (final entry in handlers) {
+        if (time.total > entry.threshold && time.fired.add(entry)) {
+          entry.handler(event);
         }
       }
     }
@@ -439,7 +500,7 @@ final class DatabaseManager {
         final scope = _TransactionScope(tx, this, connectionName);
         return _bounded(
           runZoned<Future<T>>(
-            body,
+            _unlessCancelled(body),
             zoneValues: <Object?, Object?>{
               transactionKey: scope.executor,
               _scopeKey: scope,
@@ -533,21 +594,42 @@ final class DatabaseManager {
     return done.future;
   }
 
+  /// [body] between two checks of the zone's [CancellationToken]: work that
+  /// was given up (a job past its timeout) neither starts a transaction nor
+  /// commits one; the [OperationCancelledException] rolls it back instead.
+  static Future<T> Function() _unlessCancelled<T>(Future<T> Function() body) =>
+      () async {
+        final token = CancellationToken.current;
+        token?.throwIfCancelled();
+        final result = await body();
+        token?.throwIfCancelled();
+        return result;
+      };
+
   Future<T> _savepoint<T>(Future<T> Function() body, Duration? timeout) {
     final parent = Zone.current[_scopeKey]! as _TransactionScope;
     return parent.runChild(() async {
+      // The level this savepoint would live in has ended (timed out, or its
+      // body returned without awaiting this call): a SAVEPOINT now would
+      // run outside any transaction, or in the one around it, and commit.
+      parent.ensureOpen('SAVEPOINT');
       final tx = parent.connection;
       final depth = transactionDepth + 1;
       final name = 'daravel_sp_$depth';
       final callbacks = <FutureOr<void> Function()>[];
-      final scope = _TransactionScope(tx, this, parent.connectionName);
-      await tx.execute('SAVEPOINT $name');
+      final scope = _TransactionScope(tx, this, parent.connectionName, parent);
+      try {
+        await tx.execute('SAVEPOINT $name');
+      } catch (_) {
+        scope.close();
+        rethrow;
+      }
       final watch = Stopwatch()..start();
       _notifyTransaction(DbTransactionBeginning(parent.connectionName, depth));
       try {
         final result = await _bounded(
           runZoned<Future<T>>(
-            body,
+            _unlessCancelled(body),
             zoneValues: <Object?, Object?>{
               transactionKey: scope.executor,
               _scopeKey: scope,
@@ -559,6 +641,9 @@ final class DatabaseManager {
           scope,
         );
         scope.close();
+        // The parent ended while the body ran: the savepoint went with it,
+        // and so did the body's writes.
+        parent.ensureOpen('RELEASE SAVEPOINT');
         await tx.execute('RELEASE SAVEPOINT $name');
         _notifyTransaction(
           DbTransactionCommitted(parent.connectionName, depth, watch.elapsed),
@@ -574,9 +659,26 @@ final class DatabaseManager {
           pending?.addAll(callbacks);
         }
         return result;
-      } catch (error) {
+      } catch (error, stack) {
         scope.close();
-        await tx.execute('ROLLBACK TO SAVEPOINT $name');
+        // A parent that ended took the savepoint with it.
+        if (!parent.isClosed) {
+          try {
+            await tx.execute('ROLLBACK TO SAVEPOINT $name');
+          } on Object catch (rollbackError) {
+            // The database ended the transaction itself (SQLite on
+            // SQLITE_FULL), or the connection broke: the levels above are
+            // gone too, so their later queries must fail rather than run
+            // outside a transaction. The body's error is still the one
+            // the caller sees.
+            parent.close(
+              StateError(
+                'The transaction can no longer be used: rolling back '
+                'savepoint $name failed ($rollbackError) after: $error',
+              ),
+            );
+          }
+        }
         _notifyTransaction(
           DbTransactionRolledBack(
             parent.connectionName,
@@ -585,7 +687,7 @@ final class DatabaseManager {
             error,
           ),
         );
-        rethrow;
+        Error.throwWithStackTrace(error, stack);
       }
     });
   }
@@ -655,13 +757,37 @@ final class DatabaseManager {
   /// Whether any connection has been opened.
   bool get hasOpenConnections => _connections.isNotEmpty;
 
-  /// Closes every open connection.
-  Future<void> closeAll() async {
+  /// How long [closeAll] waits for one connection by default.
+  static const Duration closeTimeout = Duration(seconds: 10);
+
+  /// Closes every open connection, each within [timeout]: a driver that
+  /// throws or takes longer (a pool waiting for an abandoned transaction)
+  /// is logged and left behind, and the others are still closed. The first
+  /// error is rethrown once all were tried; a timeout is only logged.
+  Future<void> closeAll({Duration timeout = closeTimeout}) async {
     final drivers = List<DatabaseDriver>.of(_connections.values);
     _connections.clear();
+    (Object, StackTrace)? failure;
     for (final driver in drivers) {
-      await driver.close();
-      _logger?.debug('Database connection [${driver.name}] closed.');
+      try {
+        await driver.close().timeout(timeout);
+        _logger?.debug(
+          'Database connection ${_described(driver.name)} closed.',
+        );
+      } on TimeoutException {
+        _logger?.warning(
+          'Database connection [${driver.name}] did not close within '
+          '$timeout; leaving it behind.',
+        );
+      } on Object catch (error, stack) {
+        _logger?.warning(
+          'Database connection [${driver.name}] failed to close: $error',
+        );
+        failure ??= (error, stack);
+      }
+    }
+    if (failure case (final error, final stack)) {
+      Error.throwWithStackTrace(error, stack);
     }
   }
 
@@ -711,8 +837,14 @@ final class _RollbackSignal implements Exception {
 /// a time ([runChild]), and queries of this level wait while a child is
 /// open, so none lands inside a savepoint that is then rolled back.
 final class _TransactionScope {
-  _TransactionScope(this.connection, this.owner, this.connectionName) {
+  _TransactionScope(
+    this.connection,
+    this.owner,
+    this.connectionName, [
+    this._parent,
+  ]) {
     executor = _ScopedExecutor(this);
+    _parent?._open.add(this);
   }
 
   /// The driver's transaction executor (shared by every level).
@@ -722,27 +854,36 @@ final class _TransactionScope {
   /// another connection (or another manager) never join it.
   final DatabaseManager owner;
   final String connectionName;
+  final _TransactionScope? _parent;
   late final QueryExecutor executor;
   bool _closed = false;
-  TransactionTimeoutException? _closedBy;
+  Object? _closedBy;
   Future<void> _children = Future<void>.value();
 
-  /// Closes the level; [error] (a timeout) is what a later query throws.
-  void close([TransactionTimeoutException? error]) {
-    _closed = true;
+  /// Child savepoints still open: they end with this level.
+  final Set<_TransactionScope> _open = <_TransactionScope>{};
+
+  /// Whether the level has ended.
+  bool get isClosed => _closed;
+
+  /// Closes the level and every savepoint still open under it; [error] (a
+  /// timeout) is what a later query of any of them throws.
+  void close([Object? error]) {
     _closedBy ??= error;
+    if (_closed) {
+      return;
+    }
+    _closed = true;
+    _parent?._open.remove(this);
+    for (final child in List<_TransactionScope>.of(_open)) {
+      child.close(_closedBy);
+    }
+    _open.clear();
   }
 
-  Future<T> runChild<T>(Future<T> Function() body) {
-    final previous = _children;
-    final done = Completer<void>();
-    _children = done.future;
-    return previous.then((_) => body()).whenComplete(done.complete);
-  }
-
-  /// Waits for open child savepoints, then checks that the level is open.
-  Future<void> _ready(String sql) async {
-    await _children;
+  /// Throws when the level has ended: its timeout, or a [StateError] for
+  /// [sql], a statement that outlived it.
+  void ensureOpen(String sql) {
     if (_closed) {
       final closedBy = _closedBy;
       if (closedBy != null) {
@@ -753,6 +894,22 @@ final class _TransactionScope {
         'inside DB.transaction: $sql',
       );
     }
+  }
+
+  Future<T> runChild<T>(Future<T> Function() body) {
+    final previous = _children;
+    final done = Completer<void>();
+    _children = done.future;
+    return previous.then((_) => body()).whenComplete(done.complete);
+  }
+
+  /// Checks that the level is open (failing at once when it has ended),
+  /// waits for open child savepoints, then checks again: the level may
+  /// have ended meanwhile.
+  Future<void> _ready(String sql) async {
+    ensureOpen(sql);
+    await _children;
+    ensureOpen(sql);
   }
 }
 
@@ -795,5 +952,14 @@ final class _ScopedExecutor implements QueryExecutor {
 /// Query time of one scope, and which duration handlers already fired.
 final class _QueryTime {
   Duration total = Duration.zero;
-  final Set<int> fired = <int>{};
+  final Set<_DurationHandler> fired = <_DurationHandler>{};
+}
+
+/// A `whenQueryingForLongerThan` registration; its identity marks it as
+/// fired in a scope.
+final class _DurationHandler {
+  _DurationHandler(this.threshold, this.handler);
+
+  final Duration threshold;
+  final void Function(QueryExecuted event) handler;
 }

@@ -1,4 +1,4 @@
-<!-- source: background.md sha256:fe9fa9a1144b -->
+<!-- source: background.md sha256:259322196e9f -->
 # Cache, event, queue, dan penjadwalan
 
 <!-- include: packages/daravel/test/docs/guide_examples_test.dart#cache-events-queue -->
@@ -20,11 +20,36 @@ Store: `memory` (per isolate, LRU), `process` (dibagi semua isolate server
 melalui coordinator), `file`, dan `database` (tabel `cache` dari Laravel).
 `Cache.remember`, `flexible` (stale-while-revalidate), `increment`, `pull`,
 dan `lock` (atomic lock, gagal tertutup) mengikuti Laravel.
+Di store `process`, lock yang diberikan coordinator setelah jawabannya
+timeout langsung dilepas alih-alih tertahan sampai TTL-nya habis, dan
+`lock.block` menganggap percobaan itu tidak berhasil lalu mencoba lagi.
 `Cache.tags(['people', 'artists']).put(...)` memberi tag pada entri dan
 `Cache.tags(['people']).flush()` melupakannya, di store `memory` dan
 `process` serta dengan [Redis](redis.md#cache-tags), dengan key yang sama
 seperti Laravel; `file` dan `database` tidak bisa memberi tag, seperti di
 Laravel.
+
+`Cache.flexible` menyajikan nilai stale sementara satu refresh di latar
+belakang per key berjalan. Jika refresh itu gagal, error-nya dicatat di log
+(pemanggil sudah mendapat nilainya) dan key tersebut tidak di-refresh lagi
+selama 5 detik, sehingga loader yang gagal tidak dijalankan di setiap
+request; setelah jendela stale berakhir, nilainya dihitung inline dan
+error-nya sampai ke pemanggil. `Cache.remember` membiarkan satu pemanggil
+menghitung nilai yang hilang: miss yang bersamaan dalam satu isolate
+berbagi perhitungan itu, dan pemanggil di tempat lain mengecek nilainya
+(awalnya setiap 10 ms, hingga setiap 100 ms) sampai nilai itu tersimpan
+atau batas waktu lock habis.
+
+`Cache.flush()` dan `dartisan cache:clear` menghapus nilai tetapi
+mempertahankan lock, seperti store array dan database di Laravel, sehingga
+clear di production tidak menyerahkan lock yang sedang dipegang kepada
+pemegang kedua; `Cache.flushLocks()` dan `cache:clear --locks` melepasnya.
+Store `database` dan `file` menghapus entri yang kedaluwarsa saat entri itu
+dibaca; key yang ditulis sekali dan jarang dibaca lagi (jendela rate limit,
+id token yang dicabut) dihapus oleh `dartisan cache:prune-expired [store]`
+(jadwalkan setiap jam), oleh lotre pada 2 dari 100 penulisan database
+(seperti Laravel membersihkan `cache_locks`), dan oleh proses latar belakang
+file store paling sering sekali per jam.
 
 ## Event
 
@@ -64,6 +89,78 @@ job, job middleware, `queue:work`, `queue:failed`, `queue:retry`, dan
 `queue:restart` didukung. Dispatch di dalam transaksi secara default ditunda
 sampai commit.
 
+### Percobaan, timeout, dan `retry_after`
+
+- `tries` menghitung setiap reservasi, termasuk release oleh middleware
+  (`WithoutOverlapping`, `RateLimitedJob`) atau `ctx.release()`. Job yang
+  direservasi lagi setelah percobaan terakhirnya gagal dengan
+  `MaxAttemptsExceededException` tanpa dijalankan, seperti di Laravel, begitu
+  pula job yang direservasi setelah `retryUntil`-nya lewat; job yang
+  di-release sampai sebuah lock bebas membutuhkan `tries` (atau `retryUntil`)
+  yang mencakup waktu tunggu itu. `int? get maxExceptions` menggagalkan job
+  setelah exception sebanyak itu, berapa pun sisa percobaannya.
+- Dart tidak bisa menghentikan future yang sedang berjalan, sehingga handler
+  yang melewati `timeout`-nya tetap berjalan. `ctx.cancelled`-nya di-set, dan
+  handler itu berjalan dengan `ctx.cancellation` sebagai
+  `CancellationToken.current`: `DB.transaction` yang masih dijalankannya
+  di-rollback dengan `OperationCancelledException` alih-alih di-commit, dan
+  `WithoutOverlapping` menahan lock-nya sampai `expiresAfter`. Worker yang
+  job-nya timeout lalu di-release berhenti dengan exit code 1 (`queue:work`
+  mengakhiri prosesnya), sehingga process manager menjalankan worker baru.
+- Handler yang mengerjakan kerja sinkron panjang (membuat PDF, meng-encode
+  JSON besar) memblok isolate-nya: timeout-nya sendiri tidak bisa terpicu
+  sampai handler selesai. Di `daravel_horizon`, master menilai worker yang
+  sedang menjalankan job berdasarkan timeout job itu (`timeout` plan bila
+  di-set, selain itu milik job), bukan berdasarkan heartbeat-nya. Master
+  membunuh worker itu setelah job berjalan melewati timeout tersebut ditambah
+  `HORIZON_KILL_GRACE` (10 detik), dan paling lambat satu heartbeat (minimal
+  satu detik) sebelum `QUEUE_RETRY_AFTER`, karena sejak saat itu worker lain
+  boleh mengambil job tersebut.
+  - Percobaan yang dibunuh dihitung satu kali, dan job langsung tersedia lagi
+    (tanpa backoff); job yang dibunuh sedekat itu dengan `QUEUE_RETRY_AFTER`
+    justru dibiarkan sampai `QUEUE_RETRY_AFTER`, sehingga master tidak pernah
+    melepas reservasi yang mungkin sudah dipegang worker lain. Job yang percobaannya sudah habis gagal pada pop
+    berikutnya dengan `MaxAttemptsExceededException` ("may have previously
+    timed out"), dan listener `JobFailed` dijalankan.
+  - Percobaan yang dibunuh tidak memancarkan `JobExceptionOccurred`, dan
+    `failOnTimeout` tidak berlaku: job dicoba lagi sampai percobaannya habis.
+  - `dartisan horizon:list` menampilkan worker seperti itu sebagai busy dan
+    "not reporting for N s", serta mendaftar percobaan yang dibunuh karena
+    melewati timeout.
+  - Hanya worker idle yang berhenti menjawab yang dibunuh setelah tiga
+    heartbeat (lease-nya). Worker melaporkan job begitu driver
+    mereservasinya, sebelum `fromJson`: worker yang terblok di `fromJson`
+    sudah dikenal menjalankan job itu, dinilai dengan timeout job, dan
+    job-nya langsung tersedia lagi. Yang tersisa hanya celah di dalam I/O
+    driver sebelum pop kembali, tanpa kode aplikasi di sana.
+  - `HORIZON_HEARTBEAT_MS` di bawah beberapa ratus milidetik membuat worker
+    sehat dibunuh pada host yang sibuk (lease-nya hanya empat heartbeat);
+    `dartisan doctor` dan boot memberi peringatan di bawah 250 ms di luar
+    `APP_ENV=testing`.
+  - Batas di master dihitung dari saat job *direservasi*, sama dengan
+    `retry_after` driver; margin sebelum `QUEUE_RETRY_AFTER` hanya cadangan
+    untuk dua jam dan laporan yang sedang dikirim. Timeout processor
+    dihitung dari awal `handle`, jadi batas master lebih awal sebesar
+    `fromJson` dan middleware; `HORIZON_KILL_GRACE` menutup selisih normal.
+  - Kerja sinkron yang tidak boleh membuat worker diam sebaiknya dijalankan di
+    isolate tersendiri (`Concurrency.run`).
+- Error asinkron yang dibiarkan tidak tertangkap oleh handler (future yang
+  tidak di-await) menggagalkan percobaan setelah handler selesai, tidak
+  pernah selagi handler masih berjalan.
+- Queue database dan Redis menyerahkan job yang direservasi ke worker lain
+  setelah `QUEUE_RETRY_AFTER` (90 detik). Selama job berjalan, worker
+  memperpanjang reservasinya setiap setengah `retry_after`, sehingga job yang
+  lama tidak dijalankan dua kali sekaligus; job dari worker yang berhenti
+  merespons menunggu `retry_after`. Seperti di Laravel, jaga
+  `QUEUE_RETRY_AFTER` di atas `timeout` job yang paling lama: worker
+  memperingatkan bila timeout sebuah job (atau `--timeout`) tidak di
+  bawahnya.
+- `Queue.dispatch(job)` mem-push job meskipun tidak ada yang meng-await-nya
+  (dalam microtask, setelah setter yang dirangkai padanya), seperti Laravel
+  mem-push `PendingDispatch` saat keluar dari scope. Meng-await-nya memberi
+  id job atau error dari push; push yang gagal dan tidak di-await dicatat ke
+  log.
+
 Worker yang menganggur menunggu paling lama `--sleep` (3 detik, seperti
 Laravel) di antara polling yang kosong, tetapi push langsung
 membangunkannya: di PostgreSQL queue database mengirim `NOTIFY` yang
@@ -77,6 +174,34 @@ database, lock unique job disimpan di cache store `database` (tabel
 `cache_locks` dari Laravel), dan sinyal `queue:restart` / `queue:pause` di
 store `file`, yang menjangkau semua worker di mesin yang sama;
 `QUEUE_SIGNAL_STORE=database` menjangkau worker di semua mesin.
+
+Bila pembukuan worker sendiri gagal, job tidak hilang dan worker tidak
+berhenti:
+
+- Listener `JobProcessing`, `JobProcessed`, `JobExceptionOccurred`, atau
+  `JobFailed` yang melempar exception dicatat ke log; job tetap dihapus,
+  di-release, atau dicatat sebagai gagal, dan unique lock-nya dilepas.
+- Bila database atau cache gagal (worker yang dijalankan saat outage, signal
+  store di disk yang penuh), worker mencatat error pertama beserta stack
+  trace-nya lalu paling banyak satu per menit, menunggu lebih lama di antara
+  polling (`--sleep`, dua kali lipat setelah setiap error berikutnya, paling
+  lama satu menit, dengan jitter), dan melanjutkan begitu keduanya pulih.
+  Flag `queue:pause` yang tidak bisa dibaca dianggap tidak di-pause. Di
+  PostgreSQL, `LISTEN` yang tidak bisa dibuka, atau yang terputus, dibuka
+  lagi 30 detik kemudian (`DatabaseQueue(listenRetry:)`); sementara itu
+  worker melakukan polling.
+- Push yang gagal melepas unique lock yang diambilnya dan mengembalikan
+  pemilik debounce yang digantikannya, sehingga dispatch berikutnya dari
+  unique job tidak dilewati dan dispatch debounced yang sudah ada di queue
+  tetap berjalan.
+- Di queue Redis, seperti di queue database, job yang payload-nya tidak bisa
+  di-decode dihapus dan dicatat di `failed_jobs`.
+- `serve` menolak `QUEUE_UNIQUE_LOCK_STORE=memory` dengan beberapa isolate
+  atau dengan queue worker embedded: setiap isolate akan menyimpan lock-nya
+  sendiri.
+- `queue:work --memory=128` menghentikan worker dengan exit code 12 begitu
+  prosesnya memakai sebanyak itu megabyte, seperti `--memory` di Laravel
+  (tanpa batas secara default).
 
 Untuk monitoring dan operasional (hook yang menjadi dasar dashboard ala
 Horizon):
@@ -118,6 +243,11 @@ ulang beserta stack trace-nya. Task yang melewati `timeout` gagal dengan
 `Concurrency.maxWorkers` membatasi pool, secara default yang lebih kecil antara
 jumlah prosesor dan 4. Dengan `serve --isolates=N`, setiap isolate punya pool
 sendiri.
+Timeout mulai berjalan saat task diserahkan ke pool, sehingga ikut membatasi
+waktu menunggu worker yang sedang dipakai pemanggil lain.
+`Concurrency.maxQueue` (default tanpa batas) membatasi jumlah task yang
+menunggu worker; lewat dari itu task langsung gagal dengan `StateError`
+alih-alih mengantre.
 
 Task berjalan di isolate lain, dan di sinilah bedanya dengan Laravel, yang
 mem-boot aplikasi untuk setiap task:
@@ -139,6 +269,27 @@ worker.
 Di test, `Concurrency.sync(body)` menjalankan task satu per satu di isolate ini,
 dan `Concurrency.fake((fake) async { … })` juga menghitungnya dengan
 `assertRanCount` dan `assertDeferredCount`.
+
+### Hasil biner
+
+`Concurrency.runBytes` adalah `run` untuk task yang mengembalikan `Uint8List`:
+PDF, CSV, gambar, atau body terkompresi. Hasil berukuran 32 KB atau lebih kembali
+sebagai `TransferableTypedData`, disalin sekali di worker lalu dipindahkan ke
+pemanggil tanpa salinan kedua. `Response.computed` mengirimnya sebagai body, juga
+tanpa salinan:
+
+```dart
+final [pdf] = await Concurrency.runBytes([() => renderInvoice(data)]);
+return Response.computed(pdf, contentType: 'application/pdf');
+```
+
+Kembalikan teks, termasuk JSON, dari `run` sebagai `String`: VM membagikan string
+antar-isolate alih-alih menyalinnya, dan itu lebih cepat daripada transfer byte
+apa pun. `IsolatePayload.text` dan `IsolatePayload.bytes` menerapkan aturan yang
+sama untuk `SendPort` Anda sendiri: kirim `toWire()`, lalu panggil
+`IsolatePayload.fromWire` sekali, di handler port penerima. Sebuah transferable
+hanya bisa diterima sekali, jadi pesan yang dikirim ke banyak port tetap berupa
+`String`.
 
 ## Context
 
@@ -176,6 +327,22 @@ void consoleRoutes(Schedule schedule) {
 Jalankan dengan `schedule:work` (berjalan terus) atau `schedule:run` dari
 cron; `schedule:list` menampilkan jadwal berikutnya beserta zona setiap
 task.
+
+Saat `SIGTERM`, `schedule:work` (dan scheduler embedded) tidak memulai task
+baru dan menunggu task yang sedang berjalan, termasuk yang di background,
+paling lama 30 detik (`Scheduler.stop(drain:)`; scheduler embedded memakai
+tiga perempat dari shutdown timeout). Lock `withoutOverlapping` dari task
+yang masih berjalan setelah itu dilepas dan task tersebut berakhir bersama
+prosesnya, alih-alih menghalangi run berikutnya sampai lock-nya kedaluwarsa;
+`dartisan schedule:clear-cache` melepas lock overlap yang tertinggal dari
+scheduler yang di-kill. Task yang filter-nya (`when`, `skip`), lock-nya, atau
+event listener-nya melempar exception dicatat ke log dan dilewati
+(`ScheduledTaskSkipped` dengan alasan `error`), dan task lain di menit itu
+tetap berjalan. Seperti di Laravel, lock `onOneServer` memakai ekspresi dan
+nama task serta menit saat run dimulai, sehingga task lambat sebelumnya
+tidak bisa menggesernya ke menit berikutnya di satu server; job tanpa nama
+dari class yang sama dibedakan lewat datanya, dan closure tanpa nama
+membutuhkan `named(...)`.
 
 Ekspresi cron dibaca dalam `SCHEDULE_TIMEZONE` (`app.schedule_timezone`
 dari Laravel), atau dalam UTC bila tidak di-set, kecuali sebuah task

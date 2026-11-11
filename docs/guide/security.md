@@ -14,7 +14,7 @@ Daravel is built with a **secure-by-default, defense-in-depth architecture**. Ra
 | 1 | **Production Debug Guard** | `APP_DEBUG=true` combined with `APP_ENV=production` halts boot immediately | `ConfigValidator` |
 | 2 | **Cryptographic Key Strength** | `APP_KEY` must be exactly 32 bytes (AES-256); weak/short keys are rejected | `Encrypter` |
 | 3 | **CORS Lockdown** | Rejects all origins by default until explicitly whitelisted; wildcard `*` with credentials is refused | `CorsMiddleware` |
-| 4 | **HTTP Security Headers** | Injects `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `X-Frame-Options: DENY` (HTML only), and HSTS on HTTPS | `SecurityHeadersMiddleware` |
+| 4 | **HTTP Security Headers** | Injects `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `X-Frame-Options: DENY` (HTML only), HSTS on HTTPS, and a [Content-Security-Policy](#content-security-policy) with per-request nonces when configured | `SecurityHeadersMiddleware` |
 | 5 | **Strict Header Isolation (v1.4.1)** | Clears `dart:io` default headers and replaces values per response to prevent cross-request header accumulation | `ServerEngine`, `Response` |
 | 6 | **Abuse & Rate Limiting** | Starter template throttles `login` (5/min per e-mail + IP) and `register` (5/min per IP) | `bootstrap/app.dart` |
 | 7 | **Audit Log Sanitization** | Automatic redaction of secrets, passwords, tokens; request bodies are never logged to stdout | `Logger` |
@@ -68,6 +68,57 @@ In Daravel `1.4.1` (Blueprint #22):
 2. **Replace Semantics**: `Response.writeTo()` performs `out.headers.removeAll(key)` before adding new headers.
 3. **Semantics-Aware Frame Headers**: `X-Frame-Options` is only added to HTML responses; JSON API endpoints omit it cleanly.
 4. **Obsolete Headers Retired**: Deprecated headers like `X-XSS-Protection: 1; mode=block` are no longer emitted.
+
+---
+
+## Content-Security-Policy
+
+`SecurityHeadersMiddleware` sends no `Content-Security-Policy` unless you give
+it one. With `contentSecurityPolicy:` it adds the header to HTML responses
+(JSON answers do not need one), and keeps a policy a handler set itself:
+
+```dart
+// bootstrap/app.dart
+final csp = Csp()
+  ..defaultSrc(['self'])
+  ..scriptSrc(['self', Csp.nonce])          // the request's 'nonce-...'
+  ..styleSrc(['self', 'unsafe-inline'])
+  ..imgSrc(['self', 'data:'])
+  ..connectSrc(['self'])
+  ..formAction(['self', 'https://pay.example.com'])
+  ..frameAncestors(['none'])
+  ..baseUri(['none']);
+
+middleware.use([SecurityHeadersMiddleware(contentSecurityPolicy: csp)]);
+```
+
+The builder quotes the keywords (`self` is sent as `'self'`, likewise `none`,
+`unsafe-inline`, `strict-dynamic`, `sha256-...` and `nonce-...`) and writes
+hosts and schemes (`https://cdn.example.com`, `data:`) as given. A source with
+whitespace, `;`, `,` or a stray quote throws, so a value read from
+configuration cannot add a directive. `directive(name, sources)` covers any
+directive without its own method. `Csp.strict()` is a starting point
+(`default-src 'self'`, scripts and styles with the nonce, `data:` images,
+`object-src`, `base-uri` and `frame-ancestors` `'none'`, `form-action
+'self'`), and `Csp(reportOnly: true)` sends the policy as
+`Content-Security-Policy-Report-Only`, which reports violations without
+blocking anything, to try it on a live site first.
+
+**Nonces.** `Csp.nonce` stands for `request.cspNonce`: 16 bytes from a
+CSPRNG in base64, made on first read and the same for the rest of the
+request, so each page gets a new one. Put it on the inline scripts and
+styles you write, and they run without `'unsafe-inline'`:
+
+```dart
+router.get('/', (request) => Response.html(
+  '<script nonce="${request.cspNonce}">start()</script>',
+));
+```
+
+**`form-action` and redirects.** Chrome applies `form-action` to the
+redirects that follow a form `POST` too. A form whose answer redirects to a
+payment gateway or an identity provider is blocked unless that host is in
+`form-action`, even though the form itself posts to your own site.
 
 ---
 

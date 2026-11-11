@@ -79,6 +79,9 @@ final class Response {
     this.webSocket,
     this.webSocketCompression = true,
     this.webSocketMaxPayloadBytes = defaultWebSocketMaxPayloadBytes,
+    this.webSocketMaxBufferedBytes = defaultWebSocketMaxBufferedBytes,
+    this.webSocketSlowClientCode = 1008,
+    this.webSocketDrainSpread,
     this.exception,
   }) : headers = headers ?? Headers();
 
@@ -98,6 +101,17 @@ final class Response {
   /// `dart.io.default.ws.max.payload.length`), so one client could make a
   /// worker buffer a frame of any size.
   static const int defaultWebSocketMaxPayloadBytes = 1 << 20;
+
+  /// How much a WebSocket may have waiting to be sent, unless its route
+  /// says otherwise: 4 MiB. A client that reads slower than the server
+  /// writes (a bad network, a paused tab) made `dart:io` queue every frame
+  /// in memory; past this the connection is closed instead
+  /// ([webSocketSlowClientCode]) and the client reconnects.
+  static const int defaultWebSocketMaxBufferedBytes = 4 << 20;
+
+  /// How far a server-sent event stream may fall behind its client before
+  /// it ends with a `retry:` line ([Response.sse]): 1 MiB.
+  static const int defaultSseMaxBufferedBytes = 1 << 20;
 
   /// JSON response (`application/json`). [data] may contain maps, lists,
   /// numbers, strings, booleans, `null`, [DateTime] (ISO-8601 UTC), enums and
@@ -224,7 +238,8 @@ final class Response {
     request: request,
   );
 
-  /// A binary response of [bytes], with the given content type.
+  /// A binary response of [bytes], with the given content type. [bytes]
+  /// become the body as they are, without a copy: do not change them after.
   factory Response.bytes(
     List<int> bytes, {
     required String contentType,
@@ -236,6 +251,22 @@ final class Response {
     body: BytesBody(bytes),
   );
 
+  /// A binary response of [bytes] made on another isolate: a PDF, a CSV, an
+  /// image or a compressed body from `Concurrency.runBytes` (ADR-031). As
+  /// [Response.bytes], which it is, [bytes] become the body without a copy,
+  /// so the buffer moved from the worker is the one written to the socket.
+  factory Response.computed(
+    Uint8List bytes, {
+    required String contentType,
+    int status = 200,
+    Map<String, String>? headers,
+  }) => Response.bytes(
+    bytes,
+    contentType: contentType,
+    status: status,
+    headers: headers,
+  );
+
   /// Server-sent events (Laravel's `response()->eventStream()`): each item of
   /// [events] (an [SseEvent], or a value sent as an `update` event) is
   /// written as it comes, a `: keep-alive` comment every [heartbeat] keeps
@@ -243,12 +274,17 @@ final class Response {
   /// as Laravel; `null` for none) closes it. The stream also ends when the
   /// server starts draining, so `EventSource` reconnects elsewhere. A client
   /// that went away is noticed at the next event or heartbeat (TCP reports
-  /// nothing on an idle connection), which then cancels [events].
+  /// nothing on an idle connection), which then cancels [events]. A client
+  /// more than [maxBufferedBytes] behind gets a `retry:` line and the end of
+  /// the stream, so it reconnects instead of the server queueing for it
+  /// ([defaultSseMaxBufferedBytes]; null pauses [events] instead, see
+  /// [sseStream]).
   factory Response.sse(
     Stream<Object?> events, {
     Object? endStreamWith = '</stream>',
     Duration? heartbeat = const Duration(seconds: 15),
     Map<String, String>? headers,
+    int? maxBufferedBytes = defaultSseMaxBufferedBytes,
   }) => Response(
     headers: Headers(<String, Object>{
       ...?headers,
@@ -257,7 +293,12 @@ final class Response {
       'x-accel-buffering': 'no',
     }),
     body: StreamBody(
-      sseStream(events, endStreamWith: endStreamWith, heartbeat: heartbeat),
+      sseStream(
+        events,
+        endStreamWith: endStreamWith,
+        heartbeat: heartbeat,
+        maxBufferedBytes: maxBufferedBytes,
+      ),
     ),
   );
 
@@ -265,15 +306,25 @@ final class Response {
   /// the route's middleware passed); [handler] gets the socket inside the
   /// request's scope. [compress] false turns permessage-deflate off: no
   /// compression state per connection, which matters with many of them.
+  /// Once more than [maxBufferedBytes] wait to be sent (the client reads
+  /// too slowly) the connection is closed with [slowClientCode].
+  /// [drainSpread] spreads the close when the server shuts down
+  /// ([webSocketDrainSpread]).
   factory Response.webSocket(
     WebSocketHandler handler, {
     bool compress = true,
     int maxPayloadBytes = defaultWebSocketMaxPayloadBytes,
+    int maxBufferedBytes = defaultWebSocketMaxBufferedBytes,
+    int slowClientCode = 1008,
+    Duration? drainSpread,
   }) => Response(
     status: 101,
     webSocket: handler,
     webSocketCompression: compress,
     webSocketMaxPayloadBytes: maxPayloadBytes,
+    webSocketMaxBufferedBytes: maxBufferedBytes,
+    webSocketSlowClientCode: slowClientCode,
+    webSocketDrainSpread: drainSpread,
   );
 
   /// Streamed body with an explicit content type.
@@ -328,6 +379,22 @@ final class Response {
   /// The largest frame the WebSocket accepts (uncompressed bytes); a
   /// larger one fails the connection ([defaultWebSocketMaxPayloadBytes]).
   final int webSocketMaxPayloadBytes;
+
+  /// How many bytes (characters, for text frames) may wait to be sent
+  /// before the WebSocket is closed as a slow client
+  /// ([defaultWebSocketMaxBufferedBytes]).
+  final int webSocketMaxBufferedBytes;
+
+  /// The close code a slow client gets: 1008 (policy violation) unless the
+  /// route says otherwise (the Pusher server sends 4100, which Pusher
+  /// clients answer by reconnecting after a backoff).
+  final int webSocketSlowClientCode;
+
+  /// Over how long a shutting-down server spreads closing these
+  /// WebSockets (each at a random moment within it, bounded by the shutdown
+  /// timeout), so their clients do not all reconnect at once; null closes
+  /// them at once, with 1001.
+  final Duration? webSocketDrainSpread;
 
   /// Content length to advertise when the body was stripped (HEAD requests).
   final int? contentLengthOverride;
@@ -466,6 +533,9 @@ final class Response {
         webSocket: webSocket,
         webSocketCompression: webSocketCompression,
         webSocketMaxPayloadBytes: webSocketMaxPayloadBytes,
+        webSocketMaxBufferedBytes: webSocketMaxBufferedBytes,
+        webSocketSlowClientCode: webSocketSlowClientCode,
+        webSocketDrainSpread: webSocketDrainSpread,
         exception: exception ?? this.exception,
       );
 

@@ -27,6 +27,11 @@ final class StartSessionMiddleware implements RunsBeforeBindings {
     final config = manager.config;
     final session = manager.session(request.cookie(config.cookie));
     await session.start();
+    // `TestClient.withSession`: put there in process, never by a client.
+    final seed = request.attributes.remove(SessionStore.seedAttribute);
+    if (seed is Map<String, Object?>) {
+      seed.forEach(session.put);
+    }
     request.attributes[RequestSession.sessionAttribute] = session;
     Container.current.currentScope?.put<Session>(session);
     await _collectGarbage(manager, config);

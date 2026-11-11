@@ -51,12 +51,14 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `$request->ip()` | `request.ip` |  |
 | `$request->url()` | `request.url` |  |
 | `$request->route('id')` | `request.param<int>('id')` |  |
+| `(none)` | `request.param<PostId>('post', parse: PostId.parse); .withIds((ids) => ids.register<PostId>('post', PostId.parse))` | Daravel-only, opt-in: typed id parsers by route parameter name (bootstrap/ids.dart); a parser that throws answers 404. |
 | `$request->expectsJson()` | `request.expectsJson` |  |
 | `$request->cookie('theme') / ->cookies->all()` | `request.cookie('theme') / request.cookies` | Decoded like $_COOKIE; EncryptCookies is not applied. |
 | `response(...)->withCookie(cookie('theme', 'dark', 60))` | `response.withCookie('theme', 'dark', maxAge: Duration(minutes: 60))` | Same Set-Cookie text as Symfony's Cookie. |
 | `response(...)->withoutCookie('theme') / Cookie::forget('theme')` | `response.withoutCookie('theme')` |  |
 | `response()->json($data, $status)` | `Response.json(data, status: status)` | phpCompatible: true writes json_encode's bytes (\/, \u escapes, [] for an empty map). |
 | `Blade views ({{ $name }}, {!! $html !!})` | `div([user.name]) / raw(html) from package:daravel/html.dart` | Typed builder, escaped by default; a separate import. |
+| `e($value)` | `escapeHtml(value)` | Same entities as htmlspecialchars with ENT_QUOTES; exported by package:daravel/daravel.dart and package:daravel/html.dart. |
 | `response()->noContent()` | `Response.noContent()` |  |
 | `redirect($to)` | `Response.redirect(to)` |  |
 | `response()->streamDownload(...)` | `Response.stream(...)` |  |
@@ -93,7 +95,16 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | Laravel | Daravel | Notes |
 | :-- | :-- | :-- |
 | `php artisan reverb:start (Laravel Reverb)` | `.withBroadcasting(...) with REVERB_APP_ID / _KEY / _SECRET` | The Pusher protocol on the HTTP port; Laravel Echo and pusher-js connect unchanged. |
+| `php artisan reverb:start --host= --port= --debug` | `dartisan reverb:start [--host] [--port] [--path] [--isolates] [--debug] (daravel_reverb)` | The Pusher server in a process of its own: broadcasting, /up and /metrics only, in worker isolates; --debug logs frames with signatures masked. |
+| `php artisan reverb:restart` | `dartisan reverb:restart (daravel_reverb)` | Each isolate closes its connections over REVERB_DRAIN_SPREAD and is spawned again. |
+| `(none)` | `createApp()..serveBroadcastingOnly(path: '/ws', auth: false, debug: false)` | Daravel-only: the same application serving only its Pusher server, /up, /up/ready and /metrics (what reverb:start runs); app.router keeps every route. |
+| `(none)` | `await app.restart()` | Daravel-only: drain and start again; a supervisor worker is spawned again at once, not counted as a crash. |
+| `config/reverb.php 'apps' => ['apps' => [...]] from .env` | `.withReverb() with REVERB_APPS (JSON) or REVERB_APPS_PROVIDER=database (daravel_reverb)` | The entries of config/reverb.php as JSON, or a reverb_apps table read per key and cached 60 s. |
 | `Broadcast::channel('orders.{id}', fn ($user, $id) => ...)` | `channels.channel('orders.{id}', (user, p) => ...)` | routes/channels.php: false refuses, true admits, a map is the presence member. |
+| `(none)` | `channels.channel('orders.{id}', ..., type: 'private', events: [BroadcastEventSchema('OrderShipped', data: ...)])` | Daravel-only: channel type and event schemas for tools; dartisan route:list --channels. |
+| `config/reverb.php 'apps' => ['apps' => [...]] (Reverb)` | `.withBroadcasting(apps: ListAppProvider([BroadcastApp(id:, key:, secret:), ...]))` | Several Pusher applications on one server, each with its own secret, origins and limits; their channels are apart. |
+| `(none; Event::fake() for ShouldBroadcast events)` | `final broadcasts = Broadcast.fake(); broadcasts.assertBroadcasted<OrderShipped>(channel: 'private-orders.7')` | Daravel-only: records what would be sent (a broadcast rolled back with its transaction is not), with assertBroadcastedTimes, assertSent, assertNothingBroadcastedTo. |
+| `Reverb's Pulse recorders (reverb_connections, reverb_messages)` | `/metrics reverb_connections, reverb_channels, reverb_messages_total, reverb_fanout_seconds; Pulse's Reverb card` | REVERB_PULSE_INGEST_INTERVAL as Reverb; reported only while the isolate has connections. |
 | `class OrderShipped implements ShouldBroadcast` | `final class OrderShipped with ShouldBroadcast` | broadcastWith says what to send (no reflection); broadcast when dispatched. |
 | `broadcast(new OrderShipped($order))->toOthers()` | `await Broadcast.event(OrderShipped(order).toOthers())` | **async** |
 | `BROADCAST_CONNECTION=reverb / pusher / log / null` | `BROADCAST_CONNECTION=daravel / reverb / pusher / log / null` | **async**; daravel: this server; reverb and pusher: their HTTP API, signed as pusher-php-server. |
@@ -102,6 +113,10 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `Echo.encryptedPrivate('orders.7') with encryption_master_key_base64` | `REVERB_ENCRYPTION_MASTER_KEY_BASE64` | private-encrypted- channels, sealed with libsodium's secretbox. |
 | `REVERB_SCALING_ENABLED=true (Reverb with Redis)` | `REVERB_SCALING_ENABLED=true (the database)` | Frames, presence members (here included) and cache channels span every server; PostgreSQL NOTIFY, MySQL polling. |
 | `(Reverb's internal pub/sub)` | `await Broadcast.publish('orders.7', data)` | **async**; Daravel's own channels between isolates, for custom WebSocket and SSE routes. |
+| `new PrivateChannel('orders.7') / PresenceChannel / EncryptedPrivateChannel` | `Channels.private('orders.7') / Channels.presence / Channels.encrypted` |  |
+| `'max_connections' => env('REVERB_APP_MAX_CONNECTIONS')` | `REVERB_APP_MAX_CONNECTIONS` | 4004 Application is over connection quota, counted over every worker isolate of the server. |
+| `'rate_limiting' => [...] (REVERB_APP_RATE_LIMITING_ENABLED, REVERB_APP_RATE_LIMIT_*)` | `the same variables` | Every message counts, pusher:ping included; 4301 Rate limit exceeded. |
+| `ShouldDispatchAfterCommit on a broadcast event` | `BROADCAST_AFTER_COMMIT=true (default)` | Every broadcast inside a transaction waits for the commit and is dropped on rollback. |
 
 ## Scout (daravel_scout)
 
@@ -124,6 +139,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `Redis::subscribe([...], fn ($message) => ...)` | `Redis.subscribe([...]).messages.listen(...)` | Subscribes again after the connection drops. |
 | `CACHE_STORE=redis` | `CACHE_STORE=redis with .withRedis()` | Numbers stored raw; cache:clear deletes the cache's keys, not the database (no FLUSHDB). |
 | `Cache::lock('report')->get(...) on Redis` | `Cache.lock('report') on CACHE_STORE=redis` | **async**; Laravel's RedisLock: the same keys and release script. |
+| `SESSION_DRIVER=redis (SESSION_CONNECTION)` | `SESSION_DRIVER=redis with .withSession() and .withRedis()` | Laravel's key layout: REDIS_PREFIX + CACHE_PREFIX + session id, serialize($payload), SETEX for SESSION_LIFETIME, on the default connection unless SESSION_CONNECTION names one: both frameworks share sessions. |
 | `QUEUE_CONNECTION=redis` | `QUEUE_CONNECTION=redis` | BLPOP wakes idle workers; keys under daravel:, apart from Laravel's queues:. |
 | `REVERB_SCALING_ENABLED=true (Redis)` | `REVERB_SCALING_DRIVER=redis` | Pub/Sub between servers; presence members shared across them. |
 
@@ -141,6 +157,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `EncryptCookies middleware` | `EncryptCookiesMiddleware` | Crypt payload with CookieValuePrefix (hmac_sha1(name.'v2', key).'|'), so cookies are shared with the Laravel app. |
 | `VerifyCsrfToken ($except, X-CSRF-TOKEN, X-XSRF-TOKEN)` | `VerifyCsrfTokenMiddleware(except: [...])` | 419 CSRF token mismatch.; the XSRF-TOKEN cookie is set on every response. |
 | `SESSION_DRIVER=file\|database` | `SESSION_DRIVER=file\|database (array for tests)` | Laravel's sessions table (payload base64(serialize()) or base64(json_encode()), last_activity) and file format; extend() adds a driver. |
+| `CacheBasedSessionHandler (SESSION_STORE)` | `SESSION_DRIVER=cache, SESSION_STORE=<store>` | Any Cache store, the default one without SESSION_STORE; the entry expires with SESSION_LIFETIME. Laravel reaches it through the apc, memcached, dynamodb and redis drivers. |
 | `create_sessions_table migration` | `CreateSessionsTable` | Does nothing when the table exists already. |
 
 ## Permissions (daravel_permission)
@@ -224,6 +241,9 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `Post::findFiltered($request, $id)` | `await Post.definition.query().findFiltered(request, id)` | **async** |
 | `class PostQueryFilter extends QueryFilter` | `final class PostQueryFilter extends QueryFilter<Post>` |  |
 | `Filter::multiLike(['title'])->alias('q')` | `Filter.multiLike(['title']).alias('q')` | default() is withDefault(); enum/in/null are enum_/in_/null_. |
+| `Filter::scope('published')` | `Filter.scope('published')` | The scope is given the request, as ScopeFilter calls $query->$method($request). |
+| `(none)` | `Filter.scopeValue('search').alias('q')` | Daravel-only: the scope is given the value, after alias and withDefault (scopeSearch($query, $term)). |
+| `(none)` | `String? get sortScope => 'sortBy';` | Daravel-only: every allowed sort without a customSorts entry calls the scope with [column, direction]; laravel-teorion routes sorts to sortBy<Column> methods (customSorts). |
 | `FilterMacroRegistry::register('phone', fn ...)` | `FilterMacroRegistry.register('phone', (q, value, param, request) {...})` |  |
 | `php artisan make:query-filter PostQueryFilter` | `dartisan make:query-filter Post` | Registered in bootstrap/query_filters.dart (no reflection). |
 
@@ -267,6 +287,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `class User extends Model` | `final class User extends Model` |  |
 | `protected $table / $fillable / $hidden / $casts` | `ModelDefinition<User>(table:, fillable:, hidden:, casts:)` |  |
 | `protected $attributes = ['status' => 'draft']` | `ModelDefinition<Exam>(attributes: {'status': 'draft'})` | Stored values, before casts; a new model starts with them. |
+| `(none)` | `dartisan model:sync --typed-ids; ModelDefinition<Post>(idType: IdType.integer(PostId.new))` | Daravel-only, opt-in: an extension type per primary key (TypedId<T> for generic code), so a wrong-typed id is caught at compile time; erased to the plain key at runtime. |
 | `$table->vector('embedding', dimensions: 1536)` | `table.vector('embedding', dimensions: 1536)` |  |
 | `$table->vectorIndex('embedding')` | `table.vectorIndex('embedding')` |  |
 | `->whereVectorSimilarTo('embedding', $vector, 0.7)` | `.whereVectorSimilarTo('embedding', vector, minSimilarity: 0.7)` |  |
@@ -328,6 +349,9 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `DB::listen(...) for transactions` | `DB.listenTransactions((e) {...})` | with poolWait |
 | `DB::listen(fn (QueryExecuted $q) => ...)` | `DB.listen((QueryExecuted q) {...})` |  |
 | `DB::whenQueryingForLongerThan(500, fn)` | `DB.whenQueryingForLongerThan(const Duration(milliseconds: 500), (q) {...})` | Total per request, job or command; once. |
+| `(none)` | `DB_IDLE_TRANSACTION_TIMEOUT=15` | Daravel-only: the server ends a session idle inside a transaction this long (PostgreSQL, MariaDB; MySQL has no such setting). |
+| `(none)` | `DB.manager.openSessions(); (driver as SessionTerminatingDriver).terminateSession(id)` | **async**; Daravel-only: ends the server session of a connection left inside a transaction (pg_terminate_backend, KILL CONNECTION), for supervisors that kill isolates. |
+| `(none)` | `app.overrideEnv({...}) before app.boot()` | Daravel-only: environment overrides for a host given a built Application (a worker isolate, a test harness); they win over withEnv. |
 | `DB::enableQueryLog(); ... count(DB::getQueryLog())` | `final (result, count, queries) = await DB.withQueryCount(() => ...)` |  |
 | `->whereToday('starts_at') / wherePast / whereFuture / whereBeforeToday` | `.whereToday('starts_at') / wherePast / whereFuture / whereBeforeToday` | Against Clock.now(). |
 | `->insertGetId($values)` | `await DB.table(t).insertGetId(values)` | **async** |
@@ -396,7 +420,17 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `#[DebounceFor(60)]` | `Duration? get debounceFor => ...` |  |
 | `Queue::later($delay, $job)` | `await Queue.later(delay, job)` | **async** |
 | `public function tags() (Horizon)` | `List<String> get tags` |  |
+| `Queue::size('default')` | `await Queue.connection().size('default')` | **async** |
+| `(none)` | `await (Queue.connection() as BrowsableQueueDriver).pending('default', limit: 50)` | **async**; Daravel-only: the waiting jobs of a queue without reserving them (memory, database, redis), for queue dashboards such as daravel_horizon. |
+| `php artisan queue:retry {id\|all}` | `await App.make<QueueManager>().retryFailed(uuid) / retryAllFailed()` | **async**; What queue:retry and the Horizon dashboard's retry use. |
+| `Horizon's routes/web.php (horizon.stats.index, horizon.failed-jobs.show, horizon.retry-jobs.show, ...)` | `.withHorizon(createApp: createApp, middleware: ['auth', 'can:viewHorizon'])` | daravel_horizon: the same route names under HORIZON_PATH, plus horizon.stream (server-sent events) and horizon.retry-all; batches wait for a core batch repository. |
+| `(none)` | `await (Queue.connection() as ReclaimableQueueDriver).reclaim('default', jobId)` | **async**; Daravel-only: a reserved job of a worker known to be gone is available again at once, attempts kept, instead of after retry_after. |
+| `(none)` | `worker.reassign(['high', 'default'])` | Daravel-only: a running worker polls other queues from its next job on (daravel_horizon auto-scaling). |
 | `php artisan queue:pause database:default / queue:continue` | `dartisan queue:pause database:default / queue:continue` |  |
+| `public $maxExceptions = 3;` | `int? get maxExceptions => 3;` |  |
+| `php artisan queue:work --memory=128` | `dartisan queue:work --memory=128` |  |
+| `(none)` | `.withEmbeddedWorker('indexer', (app, control) async {...}); dartisan serve --embed-worker=indexer` | Daravel-only: an isolate of a package or the application beside the HTTP server, with the queue worker's respawn and stop (daravel_horizon's supervisor). |
+| `(none)` | `.withCoordinatorService(MyService.new)` | Daravel-only: process-wide state every worker isolate reaches, in every topology. |
 | `class SendEmail implements ShouldQueue` | `final class SendEmail extends Job` |  |
 | `event(new OrderShipped($order))` | `await Event.dispatch(OrderShipped(order))` | **async** |
 | `Event::listen(OrderShipped::class, fn)` | `Event.listen<OrderShipped>((e) async {...})` |  |
@@ -406,6 +440,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `->withoutOverlapping() / onOneServer()` | `.withoutOverlapping() / .onOneServer()` |  |
 | `->timezone('America/New_York')` | `.timezone('America/New_York')` |  |
 | `config('app.schedule_timezone')` | `SCHEDULE_TIMEZONE` | No fallback to APP_TIMEZONE in 1.x (doctor warns). |
+| `php artisan schedule:clear-cache` | `dartisan schedule:clear-cache` |  |
 
 ## Resources, storage, logging, config
 
@@ -429,9 +464,15 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `Storage::response($path)` | `await Storage.response(path, request: request)` |  |
 | `response()->download($path, $name)->deleteFileAfterSend()` | `await Response.download(path, name: name, deleteFileAfterSend: true)` |  |
 | `response()->file($path)` | `await Response.file(path, request: request)` |  |
+| `public/ (served by the web server)` | `.withStatic('public', prefix: '/assets')` | Scanned at boot, served by name only; dartisan static:hash writes the versions for production. |
+| `asset('css/app.css')` | `asset('css/app.css')` | Adds ?v= with a SHA-256 prefix; that URL is cached for a year (immutable). |
+| `Vite::asset('resources/js/app.js')` | `Assets.vite('resources/js/app.js')` | Reads public/build/manifest.json. |
 | `Storage::disk('s3')->temporaryUrl($path, now()->addMinutes(30))` | `Storage.disk('s3').temporaryUrl(path, expiration: 30.minutes.fromNow)` | package:daravel_s3 (withS3()); same AWS_* variables. |
 | `Storage::disk('s3')->temporaryUploadUrl($path, $expiration)` | `Storage.disk('s3').temporaryUploadUrl(path, expiration: ...)` | Returns url and headers, as Laravel's array. |
 | `Http::withToken($t)->retry(3, 100)->post($url, $data)` | `await Http.withToken(t).retry(3).post(url, json: data)` | **async** |
+| `Http::retry(3, [100, 200, 500])` | `Http.retry(3, backoff: Http.backoffSequence([...]))` |  |
+| `Http::retry(3, 100, fn ($exception, $request) => ...)` | `Http.retry(3, when: (response, error) => ...)` | Every failed response is retried by default, as in Laravel; when: Http.retryOnConnectionOr5xx leaves other 4xx alone. |
+| `(none)` | `Http.retry(5, backoff: Http.exponentialBackoff(), jitter: 0.2, honorRetryAfter: true)` | Daravel-only: exponential waits, jitter and Retry-After on 429/503. |
 | `Http::fake([...]) / Http::assertSent(...)` | `Http.fake({...}).assertSent(...)` |  |
 | `php artisan down --secret / up` | `dartisan down --secret / up` | Same storage/framework/down file; bypass cookie daravel_maintenance. |
 | `Log::info($message, $context)` | `Log.info(message, context)` |  |
@@ -497,6 +538,17 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `$this->getJson('/api/users')` | `await client.get('/api/users')` | **async** |
 | `$this->postJson($uri, $data)` | `await client.post(uri, json: data)` | **async** |
 | `$this->actingAs($user)` | `client.actingAs(user)` |  |
+| `$this->get('/login') (session kept in memory, CSRF skipped)` | `client.browser().get('/login')` | **async**; A CookieJar keeps the cookies the application sets and the XSRF-TOKEN cookie goes back as X-XSRF-TOKEN, since Daravel reads the session from its cookie and checks CSRF in tests too. browser(xsrf: false) tests the 419. |
+| `$this->followingRedirects()` | `client.followingRedirects()` |  |
+| `$this->withSession(['cart' => [...]])` | `client.withSession({'cart': [...]})` | Needs daravel_session's web group on the route. |
+| `$this->withCookie($name, $value) / withCookies` | `client.withCookie(name, value) / withCookies` | Encrypted with Laravel's CookieValuePrefix, as EncryptCookies expects. |
+| `$this->withUnencryptedCookie($name, $value) / withUnencryptedCookies` | `client.withUnencryptedCookie(name, value) / withUnencryptedCookies` |  |
+| `->assertSessionHas($key, $value) / assertSessionHasAll / assertSessionMissing` | `.assertSessionHas(key, value) / assertSessionHasAll / assertSessionMissing` | A value, a Matcher or a bool Function(Object?) (Laravel's closure). |
+| `->assertSessionHasErrors(['email']) / assertSessionHasNoErrors / assertSessionDoesntHaveErrors` | `.assertSessionHasErrors(['email']) / assertSessionHasNoErrors / assertSessionDoesntHaveErrors` |  |
+| `->assertSessionHasInput('email')` | `.assertSessionHasInput('email')` |  |
+| `$this->assertAuthenticated('web') / assertGuest / assertAuthenticatedAs($user)` | `response.assertAuthenticated(guard: 'web') / assertGuest / assertAuthenticatedAs(user)` | On the response: the user each guard had when the request ended; a guard nothing asked counts as a guest. |
+| `->assertRedirect('/path') / assertRedirectContains` | `.assertRedirect('/path') / assertRedirectContains` | Compares absolute URLs, as assertLocation does. |
+| `->assertCookie / assertPlainCookie / assertCookieExpired / assertCookieMissing` | `.assertCookie / assertPlainCookie / assertCookieExpired / assertCookieMissing` |  |
 | `->assertOk() / assertCreated() / assertUnprocessable()` | `.assertOk() / .assertCreated() / .assertUnprocessable()` |  |
 | `->assertJsonPath('data.id', 1)` | `.assertJsonPath('data.id', 1)` |  |
 | `use RefreshDatabase;` | `refreshDatabase(() => app)` |  |

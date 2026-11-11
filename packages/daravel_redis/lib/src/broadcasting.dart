@@ -16,13 +16,29 @@ import 'client.dart';
 final class RedisChannelState implements ChannelState {
   /// Channel state of the server [server] in Redis, keys prefixed with
   /// [prefix].
-  RedisChannelState(this.client, {required this.server, this.prefix = ''});
+  RedisChannelState(
+    this.client, {
+    required this.server,
+    this.worker,
+    this.prefix = '',
+  });
 
   /// The Redis connection.
   final RedisClient client;
 
   /// This server's id.
   final String server;
+
+  /// The worker isolate holding this state's connections, when known.
+  final String? worker;
+
+  /// Who holds the connections this state records: `<server>/<worker>`.
+  /// Each worker isolate beats on its own, so the connections of one that
+  /// crashed are dropped once its heartbeat key expires, and a respawned
+  /// worker (the same name) forgets its previous life at its first beat.
+  String get instance => worker == null ? server : '$server/$worker';
+
+  bool _started = false;
 
   /// The key prefix.
   final String prefix;
@@ -40,8 +56,37 @@ final class RedisChannelState implements ChannelState {
   String _server(String name) => '${_base}server:$name';
   String _cache(String channel) => '${_base}cache:$channel';
 
-  /// Says this server is alive.
-  Future<void> beat() => client.set(_server(server), '1', ttl: liveness);
+  /// Says this isolate is alive. The first beat also drops what a previous
+  /// isolate of the same name left (it crashed and this one replaces it).
+  Future<void> beat() async {
+    if (!_started) {
+      await _forgetPreviousLife();
+      _started = true;
+    }
+    await client.set(_server(instance), '1', ttl: liveness);
+  }
+
+  Future<void> _forgetPreviousLife() async {
+    final names = ((await client.command(['SMEMBERS', _channels]))! as List)
+        .cast<String>();
+    for (final name in names) {
+      final reply = (await client.command(['HGETALL', _members(name)]))!;
+      final fields = reply is Map
+          ? [
+              for (final e in reply.entries) ...[e.key, e.value],
+            ]
+          : reply as List;
+      final mine = [
+        for (var i = 0; i + 1 < fields.length; i += 2)
+          if (_Member.decode('${fields[i]}', '${fields[i + 1]}').server ==
+              instance)
+            '${fields[i]}',
+      ];
+      if (mine.isNotEmpty) {
+        await client.command(['HDEL', _members(name), ...mine]);
+      }
+    }
+  }
 
   /// The live connections of [channel], in join order; drops those of
   /// servers that stopped beating.
@@ -56,7 +101,7 @@ final class RedisChannelState implements ChannelState {
       for (var i = 0; i + 1 < fields.length; i += 2)
         _Member.decode('${fields[i]}', '${fields[i + 1]}'),
     ];
-    final servers = {for (final m in members) m.server}..remove(server);
+    final servers = {for (final m in members) m.server}..remove(instance);
     if (servers.isEmpty) {
       return members..sort((a, b) => a.order.compareTo(b.order));
     }
@@ -89,14 +134,22 @@ final class RedisChannelState implements ChannelState {
       case 'join':
         final channel = args['channel']! as String;
         final userId = args['user_id'] as String?;
+        final socket = args['socket']! as String;
+        // A connection subscribing again replaces its entry (HSET), and is
+        // not announced again, as in Reverb.
+        final previous = await client.command([
+          'HGET',
+          _members(channel),
+          socket,
+        ]);
         final order = (await client.command(['INCR', _sequence]))! as int;
         await (
           client.command([
             'HSET',
             _members(channel),
-            args['socket']! as String,
+            socket,
             jsonEncode({
-              's': server,
+              's': instance,
               'u': userId,
               'i': args['user_info'],
               'n': order,
@@ -110,7 +163,10 @@ final class RedisChannelState implements ChannelState {
         final members = await _live(channel);
         return {
           // The user's first connection on any server.
-          'added': members.where((m) => m.userId == userId).length == 1,
+          'added':
+              members.where((m) => m.userId == userId).length == 1 &&
+              (previous is! String ||
+                  _Member.decode(socket, previous).userId != userId),
           'members': _users(members),
         };
       case 'leave':

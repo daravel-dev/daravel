@@ -9,6 +9,7 @@ final class SessionConfig implements ConfigSection {
     this.expireOnClose = false,
     this.files = 'storage/framework/sessions',
     this.connection,
+    this.store,
     this.table = 'sessions',
     this.cookie = 'daravel_session',
     this.path = '/',
@@ -36,6 +37,10 @@ final class SessionConfig implements ConfigSection {
       expireOnClose: env.boolean('SESSION_EXPIRE_ON_CLOSE', false),
       files: env.string('SESSION_FILES', 'storage/framework/sessions'),
       connection: env.maybeString('SESSION_CONNECTION'),
+      store: switch (env.maybeString('SESSION_STORE')) {
+        null || '' => null,
+        final store => store,
+      },
       table: env.string('SESSION_TABLE', 'sessions'),
       cookie: env.string('SESSION_COOKIE', '${slug(appName)}_session'),
       path: env.string('SESSION_PATH', '/'),
@@ -60,8 +65,9 @@ final class SessionConfig implements ConfigSection {
     );
   }
 
-  /// `file`, `database`, `array` (tests) or a driver registered with
-  /// [SessionManager.extend].
+  /// `file`, `database`, `cache` (the store [store] names), `array`
+  /// (tests) or a driver registered with [SessionManager.extend]
+  /// (`redis` with `daravel_redis`).
   final String driver;
 
   /// How long an idle session lasts (`SESSION_LIFETIME`).
@@ -74,9 +80,14 @@ final class SessionConfig implements ConfigSection {
   /// path.
   final String files;
 
-  /// Database connection of the `database` driver (default connection
-  /// when `null`).
+  /// `SESSION_CONNECTION`: the database connection of the `database`
+  /// driver, or the Redis connection of the `redis` driver (the default
+  /// connection when `null`, as in Laravel).
   final String? connection;
+
+  /// `SESSION_STORE`: the cache store of the `cache` driver (the default
+  /// store, `CACHE_STORE`, when `null`). Laravel's `session.store`.
+  final String? store;
 
   /// The sessions table (`sessions`).
   final String table;
@@ -133,6 +144,7 @@ final class SessionConfig implements ConfigSection {
     'expire_on_close': expireOnClose,
     'files': files,
     'connection': connection,
+    'store': store,
     'table': table,
     'cookie': cookie,
     'path': path,

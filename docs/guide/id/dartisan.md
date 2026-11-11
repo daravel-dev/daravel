@@ -1,4 +1,4 @@
-<!-- source: dartisan.md sha256:f9c37c98110c -->
+<!-- source: dartisan.md sha256:27a39a56355a -->
 # dartisan
 
 `dartisan` adalah `artisan`-nya Daravel. Pasang sekali, lalu pakai di proyek
@@ -82,7 +82,7 @@ sebelum pindah ke versi minor baru.
 | :-- | :-- |
 | `serve [--watch] [--isolates=N] [--embed-queue] [--embed-scheduler]` | Server HTTP; `--watch` melakukan hot reload |
 | `test [--conformance] [--security] [--coverage]` | Menjalankan test |
-| `build [--with-cli] [--docker [--distroless]] [--no-sqlite]` | Bundle native di `build/server/bundle`, opsional `Dockerfile` (`--distroless`: tanpa shell, non-root, lihat [Deployment](deployment.md#docker)); `--no-sqlite` tidak menyertakan library SQLite (aplikasi PostgreSQL/MySQL) |
+| `build [--with-cli] [--docker [--distroless]] [--no-sqlite] [--target-os] [--target-arch]` | Bundle native di `build/server/bundle`, opsional `Dockerfile` (`--distroless`: tanpa shell, non-root, lihat [Deployment](deployment.md#docker)); `--no-sqlite` tidak menyertakan library SQLite (aplikasi PostgreSQL/MySQL); `--target-os=linux` (dan `--target-arch=x64` atau `arm64`) mem-build untuk mesin lain, lihat [Deployment](deployment.md#build-di-satu-os-jalankan-di-os-lain) |
 | `route:list` | Tabel route |
 | `openapi:generate [--output]` | OpenAPI 3.1 dari route dan metadata yang dideklarasikan |
 | `client:flutter [--output] [--package-name] [--prefix] [--state] [--watch]` | Paket client Dart/Flutter bertipe dari route, dengan rule validasi milik server ([Client Flutter](flutter-client.md)) |
@@ -101,7 +101,7 @@ sebelum pindah ke versi minor baru.
 | `db:transfer --from --to [--dry-run] [--truncate] [--tables] [--no-migrate]` | Menyalin data ke database lain, setelah lebih dulu memigrasinya ([Database](database.md#menyalin-data-antar-database)) |
 | `db:backup [--output] [--keep=N]` | Backup database SQLite saat server berjalan ke `storage/backups` (lihat [Deployment](deployment.md#backup)) |
 | `tinker "<expression>"` | Mengevaluasi ekspresi Dart di aplikasi yang sudah di-boot |
-| `model:sync [Model]` | Membangkitkan ulang accessor bertipe sebuah model dari tabelnya, dan mengisi region `<dartisan:statics>` yang kosong |
+| `model:sync [Model] [--typed-ids]` | Membangkitkan ulang accessor bertipe sebuah model dari tabelnya, dan mengisi region `<dartisan:statics>` yang kosong; `--typed-ids` menambahkan ID bertipe ([Database](database.md#id-bertipe-opt-in)) |
 | `model:show <Model> [--json]` | Tabel, atribut (tipe, cast, fillable, hidden), dan relasi sebuah model, dari `bootstrap/models.dart` |
 | `daragic:export [--out] [--only]` | Model aplikasi (DAM) untuk `daragic`: route, model, migrasi, skema, jadwal, ... (lihat [Migrasi dari Laravel](migrating-from-laravel.md#model-aplikasi-daragic)) |
 
@@ -109,11 +109,11 @@ sebelum pindah ke versi minor baru.
 
 | Command | Fungsinya |
 | :-- | :-- |
-| `queue:work [--queue] [--tries] [--max-time] [--stop-when-empty]` | Memproses job; berhenti setelah job yang sedang berjalan saat `SIGTERM` |
+| `queue:work [--queue] [--tries] [--max-time] [--memory] [--stop-when-empty]` | Memproses job; berhenti setelah job yang sedang berjalan saat `SIGTERM`; `--memory=128` menghentikannya (exit code 12) begitu memakai sebanyak itu MB |
 | `queue:failed`, `queue:retry`, `queue:forget`, `queue:flush` | Job yang gagal |
 | `queue:clear`, `queue:pause`, `queue:continue`, `queue:restart` | Kendali queue |
-| `schedule:work`, `schedule:run`, `schedule:list` | Scheduler |
-| `cache:clear`, `storage:link`, `coordinator:stats [--url] [--token] [--json]` | Cache, link storage publik, coordinator server yang sedang berjalan beserta saran ([Operasional](operations.md#yang-dipantau)) |
+| `schedule:work`, `schedule:run`, `schedule:list`, `schedule:clear-cache` | Scheduler; `schedule:clear-cache` melepas lock `withoutOverlapping` yang tertinggal |
+| `cache:clear [--locks]`, `cache:prune-expired [store]`, `storage:link`, `static:hash`, `coordinator:stats [--url] [--token] [--json]` | Cache (lock tetap ada kecuali dengan `--locks`; entri kedaluwarsa dari store `database` dan `file`, lihat [Cache](background.md#cache)), link storage publik, versi file statis ([Respons](responses.md#file-statis)), coordinator server yang sedang berjalan beserta saran ([Operasional](operations.md#yang-dipantau)) |
 
 ## Generator
 
@@ -217,6 +217,45 @@ diganti, karena tidak bisa berjalan di sana. Entri yang sudah Anda ubah
 dipertahankan. Setelah menambahkan DDEV ke proyek yang sudah ada, jalankan
 lagi `ddev dartisan mcp:install`. `dartisan new --mcp` berjalan sebelum DDEV
 dikonfigurasi, jadi yang ditulis adalah entri untuk host.
+
+## Tampilan dan sponsor
+
+Di terminal, `dartisan` tanpa command menampilkan word-mark singkat beserta
+versi Daravel, Dart, dan OS, lalu command yang dikelompokkan menurut bagian
+namanya sebelum `:`, seperti `php artisan list`, dengan command Anda sendiri
+di bagian akhir pada kelompok `project`:
+
+```text
+ _| _. ._|_ o _  _. ._
+(_|(_|| |_ |_> (_|| |   Daravel <version> · Dart <sdk> · <os>
+                        Made with the help of our sponsors ♥ github.com/sponsors/daravel-dev
+```
+
+Saat di-pipe atau di CI, command yang sama mencetak teks usage polos, sehingga
+skrip melihat keluaran yang sama seperti sebelumnya. `dartisan list`
+menampilkan kelompoknya; `list --raw` memberi nama saja, satu per baris (untuk
+shell completion), dan `list --format=json` memberi `[{name, description,
+group}]`.
+
+Warna dipakai di terminal yang mendukung escape ANSI. `--no-color`,
+`NO_COLOR`, `DARTISAN_NO_COLOR=1`, atau `TERM=dumb` mematikannya; `--ansi`
+memaksanya, untuk pager seperti `less -R`. Flag ini boleh diletakkan di mana
+saja sebelum `--`. Keluaran command lain tidak berubah karenanya.
+
+`dartisan about` diakhiri bagian **Daravel** (versi, Dart SDK, OS, arsitektur,
+AOT atau JIT, `APP_ENV`), yang berguna ditempel di laporan bug, dan bagian
+**Community** berisi dokumentasi, issue tracker, dan halaman sponsor;
+`about --json` mencetak semuanya.
+
+Daravel berjalan berkat para sponsornya. `dartisan sponsor` menunjukkan cara
+membantu (`--open` membuka halamannya). Setelah `build`, `upgrade`,
+`self-update`, `test`, atau `migrate` pertama di sebuah proyek berhasil, satu
+baris redup berterima kasih kepada mereka, diikuti cara menyembunyikannya.
+Baris itu tidak pernah muncul setelah kegagalan, di CI, di luar terminal, atau
+lebih dari sekali sehari, dan CLI tidak melakukan panggilan jaringan untuknya.
+Matikan selamanya dengan `dartisan sponsor --hide` (disimpan di
+`~/.dartisan/config.json`; `--show` mengembalikannya, `--status`
+memberitahukan statusnya) atau dengan `DARTISAN_NO_NUDGE=1`.
 
 ## Command buatan sendiri
 
