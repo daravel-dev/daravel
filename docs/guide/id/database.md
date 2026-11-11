@@ -1,4 +1,4 @@
-<!-- source: database.md sha256:ce4768b52a3f -->
+<!-- source: database.md sha256:1563d273a438 -->
 # Database
 
 `DB_CONNECTION` memilih SQLite (`sqlite`, default), PostgreSQL (`pgsql`),
@@ -120,6 +120,44 @@ Laravel sendiri:
 
 Seperti di Laravel, `DB_URL` berlaku untuk setiap koneksi bawaan, dan
 `DB_CONNECTION` memilih mana yang dipakai.
+
+### TLS ke server database
+
+`DB_SSLMODE` (atau `?sslmode=` di `DB_URL`) mengatur TLS untuk PostgreSQL
+dan MySQL/MariaDB, dengan nama-nama libpq:
+
+| `DB_SSLMODE` | PostgreSQL | MySQL dan MariaDB |
+| :-- | :-- | :-- |
+| `disable` (MySQL: `DISABLED`) | tanpa TLS | tanpa TLS |
+| `require` (MySQL: `REQUIRED`, `PREFERRED`) | TLS, sertifikat tidak diperiksa | TLS, sertifikat tidak diperiksa, kecuali CA diberikan |
+| `verify-full` (MySQL: `VERIFY_IDENTITY`, `VERIFY_CA`, `verify-ca`) | TLS, sertifikat dan nama host diperiksa | TLS, sertifikat dan nama host diperiksa |
+| tidak diisi | tanpa TLS | tanpa TLS; dengan CA, seperti `verify-full` |
+| nilai lain | tanpa TLS | berawalan `verify`: seperti `verify-full`; selain itu seperti `require`; keduanya dengan peringatan saat boot |
+
+`require` mengenkripsi lalu lintas tetapi tidak menghentikan penyerang
+aktif: siapa pun di antara aplikasi dan server bisa menyodorkan
+sertifikatnya sendiri lalu membaca password dan data. Pakai `verify-full`
+di produksi.
+
+MySQL dan MariaDB mengambil CA yang menandatangani sertifikat server dari
+`DB_SSLROOTCERT`, atau dari `MYSQL_ATTR_SSL_CA`, nama di
+`config/database.php` Laravel, sehingga `.env` bersama bekerja untuk
+keduanya. Seperti PDO MySQL, CA tanpa `DB_SSLMODE` berarti server
+diverifikasi. `verify-ca` diperiksa seketat `verify-full`: lapisan TLS Dart
+melaporkan rantai yang salah dan nama host yang salah dengan cara yang
+sama, sehingga pemeriksaan host tidak bisa dilewati.
+
+```dotenv
+DB_CONNECTION=mysql
+DB_HOST=db.internal
+DB_SSLMODE=verify-full
+DB_SSLROOTCERT=/etc/ssl/db-ca.pem
+```
+
+Server di Docker atau di host yang sama sering memakai sertifikat yang
+dibangkitkan MySQL atau MariaDB saat pertama kali jalan, yang tidak
+ditandatangani CA mana pun: `require` tersambung ke server itu,
+`verify-full` menolaknya sebelum password dikirim.
 
 ### Beberapa database sekaligus
 

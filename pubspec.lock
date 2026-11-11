@@ -277,10 +277,10 @@ packages:
     dependency: transitive
     description:
       name: mysql_dart
-      sha256: ecde5adf1f289e4055508a03783df04fb18af99b97724cca156646122b6e7e22
+      sha256: "9039ea301202d4a7c90e390d4fdae19678b8cc4b5a7a60e6c2e45556f9f8388a"
       url: "https://pub.dev"
     source: hosted
-    version: "3.0.3"
+    version: "4.0.1"
   native_toolchain_c:
     dependency: transitive
     description:

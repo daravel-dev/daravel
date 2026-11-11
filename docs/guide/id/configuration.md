@@ -1,4 +1,4 @@
-<!-- source: configuration.md sha256:66c269c3bdee -->
+<!-- source: configuration.md sha256:1342dbfd7f4b -->
 # Konfigurasi
 
 ## File environment
@@ -94,7 +94,8 @@ setelah boot.
 | `REVERB_ENCRYPTION_MASTER_KEY_BASE64` | tidak ada | 32 byte dalam base64 untuk mengenkripsi channel `private-encrypted-` (`PUSHER_ENCRYPTION_MASTER_KEY_BASE64` dengan `pusher`) |
 | `DB_CHARSET`, `DB_COLLATION`, `DB_TIMEZONE` | `utf8mb4`, `utf8mb4_unicode_ci`, server | MySQL dan MariaDB, sebagaimana dibaca Laravel |
 | `DB_STRICT`, `DB_SQL_MODES`, `DB_ISOLATION_LEVEL` | dari server | Pengaturan session MySQL dan MariaDB, seperti `'strict'`, `'modes'`, dan `'isolation_level'` di Laravel ([Database](database.md)) |
-| `DB_POOL_SIZE`, `DB_SSLMODE` | `10`, `disable` | Pool koneksi per isolate, TLS (`require`, `verify-full`) |
+| `DB_POOL_SIZE`, `DB_SSLMODE` | `10`, tidak diisi | Pool koneksi per isolate; TLS: `disable`, `require` (terenkripsi, tidak diperiksa), `verify-full` ([Database](database.md#tls-ke-server-database)) |
+| `DB_SSLROOTCERT` (MySQL juga `MYSQL_ATTR_SSL_CA`) | | Berkas CA yang menandatangani sertifikat server database; di MySQL dan MariaDB, bila diisi tanpa `DB_SSLMODE`, berarti `verify-full` |
 | `DB_SEARCH_PATH` (atau `DB_SCHEMA`) | dari server | Schema PostgreSQL pada setiap koneksi (`billing, hr, public`), `'search_path'` dari Laravel |
 | `DB_CONNECT_TIMEOUT`, `DB_QUERY_TIMEOUT` | `10`, `30` | Detik yang boleh dipakai koneksi PostgreSQL atau MySQL untuk terbuka, dan sebuah statement untuk berjalan (`0` untuk tanpa batas; statement yang macet akan menahan koneksi pool-nya selamanya) |
 | `DB_IDLE_TRANSACTION_TIMEOUT` | tidak ada | Detik sebuah session PostgreSQL atau MariaDB boleh menganggur di dalam transaksi sebelum server mengakhirinya dan melakukan rollback (`0` untuk tidak ada; MySQL tidak punya pengaturan ini) ([Database](database.md#transaksi-yang-tertinggal-terbuka)) |

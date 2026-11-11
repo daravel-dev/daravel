@@ -250,7 +250,13 @@ final class DatabaseConfig implements ConfigSection {
           password: env.maybeString('DB_PASSWORD'),
           options: <String, Object?>{
             'pool': env.integer('DB_POOL_SIZE', 10),
-            'sslmode': env.string('DB_SSLMODE', 'disable'),
+            // Unset stays null: with a CA and no mode, the driver verifies
+            // the server, as PDO MySQL does with MYSQL_ATTR_SSL_CA.
+            'sslmode': env.maybeString('DB_SSLMODE'),
+            // Laravel's config/database.php names the CA MYSQL_ATTR_SSL_CA.
+            'sslrootcert':
+                env.maybeString('DB_SSLROOTCERT') ??
+                env.maybeString('MYSQL_ATTR_SSL_CA'),
             'connect_timeout': env.maybeString('DB_CONNECT_TIMEOUT'),
             'query_timeout': env.maybeString('DB_QUERY_TIMEOUT'),
             'idle_transaction_timeout': env.maybeString(

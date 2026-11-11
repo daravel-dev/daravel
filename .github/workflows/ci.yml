@@ -383,6 +383,36 @@ jobs:
       - name: Resolve workspace
         run: dart pub get
 
+      # mysql_dart 4 verifies server certificates (B4): a second server with
+      # a certificate a throwaway CA signed for `localhost` only, so
+      # verify-full is tested both ways (mysql_tls_test.dart).
+      - name: Start ${{ matrix.server }} with a test CA
+        run: |
+          tls="$RUNNER_TEMP/tls"
+          mkdir -p "$tls" && cd "$tls"
+          openssl req -x509 -newkey rsa:2048 -nodes -days 2 \
+            -keyout ca-key.pem -out ca.pem -subj "/CN=Daravel CI test CA"
+          openssl req -newkey rsa:2048 -nodes \
+            -keyout server-key.pem -out server.csr -subj "/CN=localhost"
+          printf 'subjectAltName=DNS:localhost\nbasicConstraints=CA:FALSE\nextendedKeyUsage=serverAuth\n' > server.ext
+          openssl x509 -req -in server.csr -CA ca.pem -CAkey ca-key.pem \
+            -CAcreateserial -days 2 -extfile server.ext -out server.pem
+          chmod 644 ./*.pem
+          docker run -d --name tlsdb -p 3307:3306 -v "$tls:/tls:ro" \
+            -e MYSQL_ROOT_PASSWORD=secret -e MYSQL_DATABASE=daravel_test \
+            -e MYSQL_USER=daravel -e MYSQL_PASSWORD=secret \
+            -e MARIADB_ROOT_PASSWORD=secret -e MARIADB_DATABASE=daravel_test \
+            -e MARIADB_USER=daravel -e MARIADB_PASSWORD=secret \
+            ${{ matrix.server }} \
+            --ssl-ca=/tls/ca.pem --ssl-cert=/tls/server.pem --ssl-key=/tls/server-key.pem
+          for _ in $(seq 1 90); do
+            docker exec tlsdb sh -c 'mysqladmin ping -h 127.0.0.1 -psecret || mariadb-admin ping -h 127.0.0.1 -psecret' >/dev/null 2>&1 && break
+            sleep 1
+          done
+          docker exec tlsdb sh -c 'mysqladmin ping -h 127.0.0.1 -psecret || mariadb-admin ping -h 127.0.0.1 -psecret' || { docker logs tlsdb; exit 1; }
+          echo "DARAVEL_TEST_MYSQL_TLS=mysql://daravel:secret@localhost:3307/daravel_test" >> "$GITHUB_ENV"
+          echo "DARAVEL_TEST_MYSQL_TLS_CA=$tls/ca.pem" >> "$GITHUB_ENV"
+
       - name: Test against ${{ matrix.server }}
         run: |
           (cd packages/daravel_mysql && dart test --tags integration --reporter=expanded)

@@ -97,6 +97,154 @@ void main() {
     expect(plain.timeZone, isNull, reason: "the server's zone, as Laravel");
   });
 
+  group('DB_SSLMODE and the CA (mysql_dart 4 verifies by default)', () {
+    test('every mode that names verification verifies', () {
+      for (final mode in [
+        'verify-full',
+        'VERIFY_IDENTITY',
+        'verify_identity',
+        'verify-ca',
+        'VERIFY_CA',
+        'verifyFull',
+      ]) {
+        final ssl = MySqlDriver.sslOptions(mode);
+        expect(
+          (ssl.secure, ssl.verify, ssl.warning),
+          (true, true, null),
+          reason: mode,
+        );
+      }
+    });
+
+    test('require and its MySQL names encrypt without checking', () {
+      for (final mode in ['require', 'REQUIRED', 'prefer', 'PREFERRED']) {
+        final ssl = MySqlDriver.sslOptions(mode);
+        expect(
+          (ssl.secure, ssl.verify, ssl.warning),
+          (true, false, null),
+          reason: mode,
+        );
+      }
+    });
+
+    test('disable and DISABLED turn TLS off, as an unset mode does', () {
+      for (final mode in ['disable', 'DISABLED', null, '']) {
+        final ssl = MySqlDriver.sslOptions(mode);
+        expect((ssl.secure, ssl.verify), (false, false), reason: '$mode');
+      }
+    });
+
+    test(
+      'a CA without a mode verifies, as PDO MySQL with MYSQL_ATTR_SSL_CA',
+      () {
+        final ssl = MySqlDriver.sslOptions(null, ca: '/etc/ssl/db-ca.pem');
+        expect((ssl.secure, ssl.verify), (true, true));
+        expect(
+          MySqlDriver.sslOptions('require', ca: '/etc/ssl/db-ca.pem').verify,
+          isTrue,
+          reason: 'require with a CA checks it, as libpq and the MySQL client',
+        );
+        expect(MySqlDriver.sslOptions('disable', ca: '/x.pem').secure, isFalse);
+      },
+    );
+
+    MySqlDriver withMode(String mode, List<String> warnings) =>
+        MySqlDriver.fromConfig(
+          'mysql',
+          ConnectionConfig(
+            driver: 'mysql',
+            database: 'shop',
+            options: {'sslmode': mode},
+          ),
+          onWarning: warnings.add,
+        );
+
+    test('a misspelt verify mode still verifies, with one warning', () {
+      final warnings = <String>[];
+      final driver = withMode('verify-fulll', warnings);
+      expect(driver.secure, isTrue);
+      expect(driver.verifyServerCertificate, isTrue);
+      expect(warnings, hasLength(1));
+      expect(warnings.single, contains('"verify-fulll"'));
+      expect(warnings.single, contains('verify-full'));
+    });
+
+    test('another unknown mode is require, with one warning naming it', () {
+      final warnings = <String>[];
+      final driver = withMode('requird', warnings);
+      expect(driver.secure, isTrue);
+      expect(driver.verifyServerCertificate, isFalse);
+      expect(warnings, hasLength(1));
+      expect(warnings.single, contains('"requird"'));
+    });
+
+    test('an unreadable CA file names the connection, path and settings', () {
+      final driver = MySqlDriver(
+        name: 'legacy',
+        host: 'h',
+        database: 'd',
+        secure: true,
+        sslCa: 'no/such/ca.pem',
+      );
+      expect(
+        driver.tlsContext,
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            allOf(
+              contains('[legacy]'),
+              contains('no/such/ca.pem'),
+              contains('DB_SSLROOTCERT'),
+              contains('MYSQL_ATTR_SSL_CA'),
+            ),
+          ),
+        ),
+      );
+    });
+
+    test('fromConfig passes the CA and the verification to the driver', () {
+      final driver = MySqlDriver.fromConfig(
+        'mysql',
+        const ConnectionConfig(
+          driver: 'mysql',
+          database: 'shop',
+          options: {'sslrootcert': '/etc/ssl/db-ca.pem'},
+        ),
+      );
+      expect(driver.secure, isTrue);
+      expect(driver.verifyServerCertificate, isTrue);
+      expect(driver.sslCa, '/etc/ssl/db-ca.pem');
+    });
+
+    test('the constructor verifies by default, as mysql_dart 4', () {
+      final driver = MySqlDriver(host: 'h', database: 'd', secure: true);
+      expect(driver.verifyServerCertificate, isTrue);
+      expect(driver.tlsContext(), isNull, reason: 'the system roots');
+    });
+
+    test(
+      'DB_SSLROOTCERT, or Laravel MYSQL_ATTR_SSL_CA, reaches the options',
+      () {
+        ConnectionConfig mysql(Map<String, String> env) =>
+            DatabaseConfig.fromEnv(
+              Env.fromMap({'DB_CONNECTION': 'mysql', ...env}),
+              basePath: '.',
+            ).connections['mysql']!;
+        expect(
+          mysql({'MYSQL_ATTR_SSL_CA': '/a.pem'}).options['sslrootcert'],
+          '/a.pem',
+        );
+        expect(
+          mysql({'DB_SSLROOTCERT': '/b.pem', 'MYSQL_ATTR_SSL_CA': '/a.pem'})
+              .options['sslrootcert'],
+          '/b.pem',
+        );
+        expect(mysql({}).options['sslmode'], isNull);
+      },
+    );
+  });
+
   test('DB_IDLE_TRANSACTION_TIMEOUT: MariaDB sets it, MySQL has none', () {
     MySqlDriver of(String driver, Map<String, Object?> options) =>
         MySqlDriver.fromConfig(
