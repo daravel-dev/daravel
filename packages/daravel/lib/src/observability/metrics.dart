@@ -606,6 +606,11 @@ final class AppMetrics {
       'Requests currently being handled, by worker isolate.',
     );
     jobs = registry.counter('queue_jobs_total', 'Queue jobs by status.');
+    afterCommitPushFailures = registry.counter(
+      'queue_after_commit_push_failures_total',
+      'Jobs dispatched inside a transaction that could not be pushed after '
+          'the commit, by connection (their locks were given back).',
+    );
     shed = registry.counter(
       'http_requests_shed_total',
       'Requests refused with 503 by load shedding '
@@ -711,6 +716,9 @@ final class AppMetrics {
 
   /// Jobs by outcome.
   late final Counter jobs;
+
+  /// Jobs a transaction dispatched that could not be pushed after commit.
+  late final Counter afterCommitPushFailures;
 
   /// Requests shed under load.
   late final Counter shed;

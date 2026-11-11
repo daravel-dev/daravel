@@ -918,9 +918,34 @@ final class QueueManager {
     final deferToCommit =
         (afterCommit ?? config.afterCommit) && db != null && db.inTransaction;
     if (deferToCommit) {
-      await db.afterCommit(
-        () => _pushNow(job, targetQueue, targetConnection, delay),
-      );
+      // Laravel's PendingDispatch::shouldDispatch and Queue::enqueueUsing:
+      // the unique lock (and the debounce owner) is taken now, at dispatch,
+      // so a second transaction dispatching the same id is refused here and
+      // not after its commit; a rollback gives it back, before a retry of
+      // `transaction(attempts:)` runs the body again; the push itself waits
+      // for the commit (G1.5).
+      final locks = await _takeLocks(job, delay);
+      if (locks == null) {
+        return null;
+      }
+      db.afterRollback(locks.release);
+      await db.afterCommit(() async {
+        try {
+          await _pushHeld(job, targetQueue, targetConnection, locks);
+        } on Object catch (error) {
+          // Logged once, by the database manager (an after-commit callback
+          // that failed); counted here.
+          await events.dispatch(
+            JobPushFailedAfterCommit(
+              connection: targetConnection,
+              queue: targetQueue,
+              jobName: job.jobName,
+              error: error,
+            ),
+          );
+          rethrow;
+        }
+      });
       return null;
     }
     return _pushNow(job, targetQueue, targetConnection, delay);
@@ -987,6 +1012,16 @@ final class QueueManager {
     String connection,
     Duration? delay,
   ) async {
+    final locks = await _takeLocks(job, delay);
+    if (locks == null) {
+      return null;
+    }
+    return _pushHeld(job, queue, connection, locks);
+  }
+
+  /// Takes [job]'s unique lock and debounce owner: null when the unique
+  /// lock is held by a dispatch still pending (the job is skipped).
+  Future<_DispatchLocks?> _takeLocks(Job job, Duration? delay) async {
     String? uniqueKey;
     Lock? unique;
     final uniqueId = job.uniqueId;
@@ -1007,9 +1042,7 @@ final class QueueManager {
         return null;
       }
     }
-    String? owner;
-    Future<void> Function()? undoDebounce;
-    var wait = delay;
+    final locks = _DispatchLocks(uniqueKey, unique, delay, job, logger);
     try {
       final debounce = job.debounceFor;
       if (debounce != null) {
@@ -1022,32 +1055,39 @@ final class QueueManager {
           job,
           debounce,
         );
-        owner = token;
-        undoDebounce = undo;
-        wait ??= overdue ? Duration.zero : debounce;
+        locks
+          ..owner = token
+          ..undoDebounce = undo
+          ..wait ??= overdue ? Duration.zero : debounce;
       }
+    } catch (_) {
+      await locks.release();
+      rethrow;
+    }
+    return locks;
+  }
+
+  /// Pushes [job] holding [locks]; a failed push gives them back.
+  Future<Object?> _pushHeld(
+    Job job,
+    String queue,
+    String connection,
+    _DispatchLocks locks,
+  ) async {
+    try {
       final payload = JobPayload.forJob(
         job,
-        uniqueKey: uniqueKey,
-        debounceOwner: owner,
+        uniqueKey: locks.uniqueKey,
+        debounceOwner: locks.owner,
       );
       return await this
           .connection(connection)
-          .push(payload, queue: queue, delay: wait);
+          .push(payload, queue: queue, delay: locks.wait);
     } catch (_) {
       // Nothing was queued: a unique lock left behind would skip every
       // dispatch of this id for `uniqueFor` (a year by default), and a
       // debounce owner left behind would drop the dispatch still queued.
-      try {
-        await unique?.release();
-        await undoDebounce?.call();
-      } on Object catch (error, stackTrace) {
-        logger?.error(
-          'Could not undo the locks of a failed push of ${job.displayName}',
-          error: error,
-          stackTrace: stackTrace,
-        );
-      }
+      await locks.release();
       rethrow;
     }
   }
@@ -1586,5 +1626,38 @@ final class QueueWorker {
       }
     }
     return false;
+  }
+}
+
+/// The unique lock and debounce owner one dispatch holds until its push
+/// (G1.5): given back when the push fails or its transaction rolls back.
+final class _DispatchLocks {
+  _DispatchLocks(this.uniqueKey, this.unique, this.wait, this.job, this.logger);
+
+  final String? uniqueKey;
+  final Lock? unique;
+  Duration? wait;
+  final Job job;
+  final Logger? logger;
+  String? owner;
+  Future<void> Function()? undoDebounce;
+  bool _released = false;
+
+  /// Gives both back, once.
+  Future<void> release() async {
+    if (_released) {
+      return;
+    }
+    _released = true;
+    try {
+      await unique?.release();
+      await undoDebounce?.call();
+    } on Object catch (error, stackTrace) {
+      logger?.error(
+        'Could not undo the locks of a failed push of ${job.displayName}',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
   }
 }
