@@ -6,16 +6,23 @@ import 'mail_config.dart';
 import 'message.dart';
 import 'transport.dart';
 
-/// An SMTP reply the transport did not expect.
+/// An SMTP reply the transport did not expect, or a connection that failed.
 final class SmtpException implements Exception {
   /// An SMTP failure with [message] and the server's [code].
-  const SmtpException(this.message, [this.code]);
+  const SmtpException(this.message, [this.code]) : cause = null;
+
+  /// A failure of the connection itself ([cause]: the `SocketException`,
+  /// `HandshakeException` or `TimeoutException` it came from).
+  const SmtpException.connection(this.message, Object this.cause) : code = null;
 
   /// What failed.
   final String message;
 
   /// The reply code (`535`, `550`, ...), when the server sent one.
   final int? code;
+
+  /// The socket or TLS error behind a connection failure.
+  final Object? cause;
 
   @override
   String toString() =>
@@ -62,23 +69,39 @@ final class _SmtpSession {
   /// Connects; the session owns the socket and closes it in [close].
   static Future<_SmtpSession> open(SmtpTransport transport) async {
     final config = transport.config;
-    return _SmtpSession(
-      transport,
-      config.implicitTls
-          ? await SecureSocket.connect(
-              config.host,
-              config.port,
-              context: transport.securityContext,
-              onBadCertificate: transport.onBadCertificate,
-              timeout: config.timeout,
-            )
-          : await Socket.connect(
-              config.host,
-              config.port,
-              timeout: config.timeout,
-            ),
-    );
+    try {
+      return _SmtpSession(
+        transport,
+        config.implicitTls
+            ? await SecureSocket.connect(
+                config.host,
+                config.port,
+                context: transport.securityContext,
+                onBadCertificate: transport.onBadCertificate,
+                timeout: config.timeout,
+              )
+            : await Socket.connect(
+                config.host,
+                config.port,
+                timeout: config.timeout,
+              ),
+      );
+    } on Object catch (error) {
+      if (!_isConnectionError(error)) {
+        rethrow;
+      }
+      throw SmtpException.connection(
+        'Cannot connect to ${config.host}:${config.port}: $error',
+        error,
+      );
+    }
   }
+
+  /// The errors a socket or a TLS handshake fails with.
+  static bool _isConnectionError(Object error) =>
+      error is SocketException ||
+      error is TlsException ||
+      error is TimeoutException;
 
   final SmtpTransport _transport;
   Socket _socket;
@@ -92,6 +115,19 @@ final class _SmtpSession {
   MailConfig get _config => _transport.config;
 
   void _listen() {
+    // A write to a connection the server reset or closed fails on the
+    // socket's done future, not in the write; unobserved, that error
+    // escapes to the caller's zone as a bare SocketException. It fails the
+    // next reply instead, as a read error does.
+    unawaited(
+      _socket.done.then<void>(
+        (_) {},
+        onError: (Object error) {
+          _error ??= error;
+          _wake();
+        },
+      ),
+    );
     _subscription = _socket.listen(
       (bytes) {
         _buffer.write(latin1.decode(bytes));
@@ -129,8 +165,8 @@ final class _SmtpSession {
     final text = <String>[];
     while (true) {
       while (_lines.isEmpty) {
-        if (_error != null) {
-          throw SmtpException('Connection failed: $_error');
+        if (_error case final error?) {
+          throw SmtpException.connection('Connection failed: $error', error);
         }
         if (_done) {
           throw const SmtpException('The server closed the connection.');
@@ -196,12 +232,26 @@ final class _SmtpSession {
       await _subscription?.cancel();
       // Bounded like every other step: a server that answers 220 and then
       // stalls the handshake would hold the send (and its job) for ever.
-      _socket = await SecureSocket.secure(
-        _socket,
-        host: _config.host,
-        context: _transport.securityContext,
-        onBadCertificate: _transport.onBadCertificate,
-      ).timeout(_config.timeout);
+      try {
+        _socket = await SecureSocket.secure(
+          _socket,
+          host: _config.host,
+          context: _transport.securityContext,
+          onBadCertificate: _transport.onBadCertificate,
+        ).timeout(_config.timeout);
+      } on Object catch (error) {
+        if (!_isConnectionError(error)) {
+          rethrow;
+        }
+        // The plain socket was handed to the handshake; nothing else will
+        // close it.
+        _done = true;
+        _socket.destroy();
+        throw SmtpException.connection(
+          'STARTTLS handshake failed: $error',
+          error,
+        );
+      }
       _lines.clear();
       _buffer.clear();
       _listen();
