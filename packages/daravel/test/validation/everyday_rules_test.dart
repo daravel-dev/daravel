@@ -208,6 +208,40 @@ void main() {
       expect(await kept({'a': 1}, {'a': 'exclude_if:b,x'}), {'a': 1});
     });
 
+    test('exclude_if and exclude_with read * as the same item', () async {
+      // Laravel replaces the asterisks of these dependent rules with the
+      // attribute's own keys before Arr::has. A wildcard rule also keeps
+      // its parents, so the excluded item stays as an empty map.
+      final ifRules = {'items.*.note': 'exclude_if:items.*.on,true|required'};
+      expect(
+        await errors({
+          'items': [
+            {'on': true},
+            {'on': false, 'note': 'b'},
+          ],
+        }, ifRules),
+        isEmpty,
+      );
+      expect(
+        (await errors({
+          'items': [
+            {'on': false},
+          ],
+        }, ifRules)).keys,
+        ['items.0.note'],
+      );
+      final withRules = {'items.*.note': 'exclude_with:items.*.x|required'};
+      expect(
+        await errors({
+          'items': [
+            {'x': 1},
+            {'note': 'b'},
+          ],
+        }, withRules),
+        isEmpty,
+      );
+    });
+
     test('a later rule sees the attribute as gone', () async {
       final result = await errors(
         {'a': 'x'},

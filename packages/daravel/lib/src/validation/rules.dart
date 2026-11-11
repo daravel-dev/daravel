@@ -619,7 +619,9 @@ final class RequiredUnlessRule extends Rule {
 /// and `false` compare as booleans, so `'1'` matches `true`.
 bool _otherMatches(ValidationContext c, String other, List<String> values) {
   final value = c.root(other);
-  if (c.booleans.contains(other)) {
+  // Laravel reads the rules of the parameter with `*` replaced; a pattern
+  // (`items.*.on`) is kept too.
+  if (c.booleans.contains(c.resolve(other)) || c.booleans.contains(other)) {
     final flag = BooleanRule.asBool(value);
     if (flag != null && values.contains('$flag')) {
       return true;
@@ -1991,11 +1993,11 @@ final class ExcludeRule extends Rule {
   String? passes(ValidationContext c) {
     final other = this.other;
     final excluded = switch (name) {
-      'exclude_if' =>
-        ValidationContext.exists(c.data, other!) &&
-            _otherMatches(c, other, values),
+      // `has` resolves `*` to the attribute's own item, as Laravel's
+      // replaceAsterisksInParameters does for these dependent rules.
+      'exclude_if' => c.has(other!) && _otherMatches(c, other, values),
       'exclude_unless' => !_otherMatches(c, other!, values),
-      'exclude_with' => ValidationContext.exists(c.data, other!),
+      'exclude_with' => c.has(other!),
       'exclude_without' => isEmptyValue(c.root(other!)),
       _ => true,
     };
