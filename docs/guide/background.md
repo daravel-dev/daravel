@@ -110,11 +110,11 @@ until commit by default.
   heartbeat (at least a second) before `QUEUE_RETRY_AFTER`, since another
   worker may take the job from then on.
   - The killed attempt counts once. The master then decides, from the
-    job's payload alone, what Laravel's timeout handler decides: the job
-    fails when its tries are used up or its `retryUntil` has passed, when
-    this timeout is its last allowed exception (`maxExceptions`), or when
-    it has `failOnTimeout`. Otherwise it is available again at once (no
-    backoff).
+    job's retry settings alone (never its data), what Laravel's timeout
+    handler decides: the job fails when its tries are used up or its
+    `retryUntil` has passed, when this timeout is its last allowed
+    exception (`maxExceptions`), or when it has `failOnTimeout`. Otherwise
+    it is available again at once (no backoff).
   - A job that fails is marked first, and the worker that reserves it next
     fails it without running it, with `TimeoutExceededException` ("NAME
     has timed out."): its `failed_jobs` row, its `failed()` hook and the

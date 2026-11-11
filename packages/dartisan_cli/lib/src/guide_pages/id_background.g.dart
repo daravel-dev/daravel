@@ -3,7 +3,7 @@
 
 /// `docs/guide/id/background.md`.
 const String pageIdBackground =
-    r'''<!-- source: background.md sha256:93d71c0230cc -->
+    r'''<!-- source: background.md sha256:35ae143b39b8 -->
 # Cache, event, queue, dan penjadwalan
 
 <!-- include: packages/daravel/test/docs/guide_examples_test.dart#cache-events-queue -->
@@ -122,11 +122,11 @@ sampai commit.
   satu detik) sebelum `QUEUE_RETRY_AFTER`, karena sejak saat itu worker lain
   boleh mengambil job tersebut.
   - Percobaan yang dibunuh dihitung satu kali. Master lalu memutuskan, hanya
-    dari payload job, hal yang sama dengan timeout handler Laravel: job gagal
-    bila percobaannya habis atau `retryUntil` sudah lewat, bila timeout ini
-    adalah exception terakhir yang diizinkan (`maxExceptions`), atau bila job
-    memakai `failOnTimeout`. Selain itu job langsung tersedia lagi (tanpa
-    backoff).
+    dari pengaturan retry job (tidak pernah datanya), hal yang sama dengan
+    timeout handler Laravel: job gagal bila percobaannya habis atau
+    `retryUntil` sudah lewat, bila timeout ini adalah exception terakhir
+    yang diizinkan (`maxExceptions`), atau bila job memakai `failOnTimeout`.
+    Selain itu job langsung tersedia lagi (tanpa backoff).
   - Job yang gagal ditandai lebih dulu, dan worker yang mereservasinya
     berikutnya menggagalkannya tanpa menjalankannya, dengan
     `TimeoutExceededException` ("NAME has timed out."): baris `failed_jobs`,

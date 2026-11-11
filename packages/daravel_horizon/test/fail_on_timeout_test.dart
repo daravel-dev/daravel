@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:daravel/daravel.dart';
+import 'package:daravel_horizon/commands.dart' show horizonWorkerLines;
 import 'package:daravel_horizon/daravel_horizon.dart';
 import 'package:test/test.dart';
 
@@ -32,17 +34,26 @@ void log(String line) =>
 /// timer never fires, so only the master's kill ends it); later attempts
 /// return at once.
 final class Blocks extends Job {
-  const Blocks(this.label, {this.failsOnTimeout = false, this.maxTries = 3});
+  const Blocks(
+    this.label, {
+    this.failsOnTimeout = false,
+    this.maxTries = 3,
+    this.note = '',
+  });
 
   factory Blocks.fromJson(Map<String, Object?> json) => Blocks(
     json['label']! as String,
     failsOnTimeout: json['fot'] == true,
     maxTries: (json['tries']! as num).toInt(),
+    note: json['note'] as String? ?? '',
   );
 
   final String label;
   final bool failsOnTimeout;
   final int maxTries;
+
+  /// Data of the job's own, which must never reach the master.
+  final String note;
 
   @override
   String get jobName => 'blocks';
@@ -58,6 +69,7 @@ final class Blocks extends Job {
     'label': label,
     'fot': failsOnTimeout,
     'tries': maxTries,
+    'note': note,
   };
 
   @override
@@ -73,6 +85,9 @@ final class Blocks extends Job {
   Future<void> failed(Object error, StackTrace stackTrace) async =>
       log('failed:$label:${error.runtimeType}');
 }
+
+/// A value of the job's data the master must never see.
+const String secretNote = 'job-data-marker-4f1c';
 
 Application fotApp() =>
     Application.configure(basePath: Directory.systemTemp.path)
@@ -111,10 +126,12 @@ Future<void> until(
 void main() {
   late Application app;
   final events = <(String, Map<String, Object?>)>[];
+  final masterLog = StringBuffer();
   var tests = 0;
 
   setUp(() async {
     events.clear();
+    masterLog.clear();
     File(_dbMarker)
         .writeAsStringSync('${_temp}horizon_fot_${pid}_${++tests}.sqlite');
     for (final path in [dbPath, logPath]) {
@@ -170,7 +187,11 @@ void main() {
         killGrace: const Duration(seconds: 1),
       ),
       driver: queues.connection,
-      logger: Logger(minimumLevel: LogLevel.critical),
+      logger: Logger(
+        minimumLevel: LogLevel.debug,
+        out: masterLog,
+        err: masterLog,
+      ),
       coordinator: coordinator.listen(),
       store: LocalCoordinatorChannel(coordinator),
       failedJobs: queues.processor.failedJobs,
@@ -194,7 +215,10 @@ void main() {
       'reservation, without running again: TimeoutExceededException in '
       'failed_jobs, its failed() hook run by a worker', () async {
     await app.run(
-      () => Queue.push(const Blocks('fot', failsOnTimeout: true), queue: 'a'),
+      () => Queue.push(
+        const Blocks('fot', failsOnTimeout: true, note: secretNote),
+        queue: 'a',
+      ),
     );
     final m = master();
     addTearDown(() => m.stop(timeout: const Duration(seconds: 20)));
@@ -215,6 +239,27 @@ void main() {
       'start:fot:1',
     ], reason: 'never run again');
     expect(timedOut().single['fate'], 'will fail on next reservation');
+    // The job's own data reaches none of what the master keeps, shows or
+    // logs: it decides from the retry settings alone.
+    final shown = <String, String>{
+      'status': jsonEncode(m.status()),
+      'stored status': jsonEncode(
+        await HorizonSignals.status(
+          app.container.make<QueueManager>().signalStore,
+          'horizon',
+        ),
+      ),
+      'horizon:list': horizonWorkerLines(m.status())
+          .join(String.fromCharCode(10)),
+      'events': events
+          .map((e) => '${e.$1} ${jsonEncode(e.$2)}')
+          .join(String.fromCharCode(10)),
+      'master log': '$masterLog',
+    };
+    for (final MapEntry(:key, :value) in shown.entries) {
+      expect(value, isNot(contains(secretNote)), reason: key);
+    }
+    expect(shown['events'], contains('JobTimedOut'), reason: 'not empty');
     // Removed once the job failed (not when it was read).
     final key = HorizonSignals.timedOutKey('${timedOut().single['job']}');
     await until(

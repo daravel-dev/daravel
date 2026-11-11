@@ -882,7 +882,7 @@ final class HorizonMaster {
   /// master does what a timeout does in `queue:work`:
   /// - the attempt counts once: attempts go up when a job is reserved, and
   ///   the reclaim keeps them;
-  /// - the master decides, from the payload the worker reported and
+  /// - the master decides, from the retry settings the worker reported and
   ///   nothing else, whether the job fails now, by the rule of Laravel's
   ///   timeout handler ([failsAfterTimeout]: tries used up or `retryUntil`
   ///   passed, the last allowed exception, `failOnTimeout`);
@@ -967,28 +967,42 @@ final class HorizonMaster {
   }
 
   /// Marks [w]'s job to fail on its next reservation when it fails after
-  /// this timeout ([failsAfterTimeout] on the payload [w] reported); true
+  /// this timeout ([failsAfterTimeout] on the retry settings [w] reported); true
   /// when marked. Nothing is marked once `retry_after` has passed (the job
-  /// may be another worker's), without a store, a rule or a payload, or
-  /// when the payload does not decode (the job is then made available
-  /// again, as before).
+  /// may be another worker's), without a store, a rule or the job's retry
+  /// settings, or when deciding or marking fails (the job is then made
+  /// available again, as before).
   Future<bool> _markIfFails(HorizonWorker w, Duration? limit) async {
     final job = w.last;
     final store = signals;
     final decide = failsAfterTimeout;
-    final raw = job?.jobPayload;
     final uuid = job?.jobUuid;
     if (job == null ||
         store == null ||
         decide == null ||
-        raw == null ||
         uuid == null ||
+        job.jobMaxTries == null ||
         _pastReclaimWindow(w)) {
       return false;
     }
     final attempt = job.attempt ?? 1;
+    // The job's retry settings, as the worker reported them: the rule reads
+    // nothing else of a payload, and the master never sees the job's data.
+    final settings = JobPayload(
+      uuid: uuid,
+      jobName: job.jobName ?? '',
+      displayName: job.jobName ?? '',
+      data: const <String, Object?>{},
+      maxTries: job.jobMaxTries!,
+      maxExceptions: job.jobMaxExceptions,
+      failOnTimeout: job.jobFailsOnTimeout ?? false,
+      backoffSeconds: const <int>[],
+      timeout: Duration.zero,
+      pushedAt: 0,
+      retryUntil: job.jobRetryUntil,
+    );
     try {
-      if (!await decide(JobPayload.decode(raw), attempt, tries: w.plan.tries)) {
+      if (!await decide(settings, attempt, tries: w.plan.tries)) {
         return false;
       }
       final retryAfter = _retryAfter(w) ?? Duration.zero;

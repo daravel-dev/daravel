@@ -117,7 +117,7 @@ Future<void> horizonWorkerMain(HorizonWorkerStart start) async {
     int? timeoutMs;
     String? jobName;
     int? attempt;
-    String? payload;
+    JobPayload? payload;
     void clear() {
       jobId = jobUuid = queue = jobName = payload = null;
       reservedAt = timeoutMs = attempt = null;
@@ -134,7 +134,10 @@ Future<void> horizonWorkerMain(HorizonWorkerStart start) async {
         jobTimeoutMs: timeoutMs,
         jobName: jobName,
         attempt: attempt,
-        jobPayload: payload,
+        jobMaxTries: payload?.maxTries,
+        jobRetryUntil: payload?.retryUntil,
+        jobMaxExceptions: payload?.maxExceptions,
+        jobFailsOnTimeout: payload?.failOnTimeout,
         sessions: sessions(),
       ),
     );
@@ -253,7 +256,7 @@ Future<void> horizonWorkerMain(HorizonWorkerStart start) async {
             timeoutMs = (start.timeout ?? job.payload.timeout).inMilliseconds;
             jobName = job.payload.displayName;
             attempt = job.attempts;
-            payload = job.raw;
+            payload = job.payload;
             report();
           },
           // A job whose last worker the master killed past a timeout it
