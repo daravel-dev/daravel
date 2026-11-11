@@ -3,7 +3,7 @@
 
 /// `docs/guide/id/validation.md`.
 const String pageIdValidation =
-    r'''<!-- source: validation.md sha256:9d8e838e0b83 -->
+    r'''<!-- source: validation.md sha256:30dd75c6f4f8 -->
 # Validasi
 
 Validasi request secara inline dengan string rule Laravel, atau dengan objek
@@ -147,6 +147,43 @@ mengembalikan data yang sudah divalidasi.
 Sebagai gantinya, deklarasikan di route dengan
 `.validates(const StorePostRequest())` lalu baca `request.validated()` di
 handler; lihat [Routing](routing.md#validasi-dan-respons-yang-dideklarasikan).
+
+### Input bertipe
+
+`make:request` menulis request bertipe: setiap input adalah konstanta
+`Field<T>`, rule-nya memakai field tersebut sebagai kunci, dan input type-nya
+punya satu getter bertipe per field.
+
+```dart
+final class StoreNoteRequest extends FormRequest<StoreNoteRequestInput> {
+  const StoreNoteRequest();
+
+  static const title = Field<String>('title');
+  static const stars = Field<int?>('stars');
+
+  @override
+  Map<String, Object> rules(Request request) => {
+    title: [Rules.required(), Rules.string()],
+    stars: [Rules.nullable(), Rules.integer()],
+  };
+}
+
+// <dartisan:input>
+extension type const StoreNoteRequestInput(ValidatedData _data)
+    implements ValidatedData {
+  String get title => _data.field(StoreNoteRequest.title);
+  int? get stars => _data.field(StoreNoteRequest.stars);
+}
+// </dartisan:input>
+```
+
+`await const StoreNoteRequest().validateRequest(request)` mengembalikan input
+bertipe (`input.stars` adalah `int?`, dikonversi dari `'4'`).
+`dart run bin/dartisan.dart request:sync` menulis ulang region
+`<dartisan:input>` setelah Anda menambah, mengganti nama, atau mengubah tipe
+sebuah field; `request:sync --check` tidak menulis apa pun dan keluar dengan
+kode 1 bila ada region yang usang, untuk CI. Input type yang Anda deklarasikan
+sendiri, tanpa region, dibiarkan apa adanya.
 
 ## Upload file
 

@@ -141,6 +141,42 @@ Declare it on the route with `.validates(const StorePostRequest())` instead
 and read `request.validated()` in the handler; see
 [Routing](routing.md#declared-validation-and-responses).
 
+### Typed input
+
+`make:request` writes a typed request: each input is a `Field<T>`
+constant, the rules are keyed by those fields, and the input type has one
+typed getter per field.
+
+```dart
+final class StoreNoteRequest extends FormRequest<StoreNoteRequestInput> {
+  const StoreNoteRequest();
+
+  static const title = Field<String>('title');
+  static const stars = Field<int?>('stars');
+
+  @override
+  Map<String, Object> rules(Request request) => {
+    title: [Rules.required(), Rules.string()],
+    stars: [Rules.nullable(), Rules.integer()],
+  };
+}
+
+// <dartisan:input>
+extension type const StoreNoteRequestInput(ValidatedData _data)
+    implements ValidatedData {
+  String get title => _data.field(StoreNoteRequest.title);
+  int? get stars => _data.field(StoreNoteRequest.stars);
+}
+// </dartisan:input>
+```
+
+`await const StoreNoteRequest().validateRequest(request)` returns the typed
+input (`input.stars` is an `int?`, converted from `'4'`).
+`dart run bin/dartisan.dart request:sync` rewrites the `<dartisan:input>`
+region after you add, rename or retype a field; `request:sync --check`
+writes nothing and exits 1 when a region is out of date, for CI. An input
+type you declare yourself, without the region, is left as it is.
+
 ## File uploads
 
 `multipart/form-data` bodies are parsed as they arrive: fields become input

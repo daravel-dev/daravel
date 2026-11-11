@@ -17,6 +17,40 @@ final class _SlowService implements CoordinatorService {
 }
 
 /// Delegates to [inner] and keeps what each `publish` carried.
+/// A remote channel whose first [failures] metrics publishes fail, as a
+/// timed-out or refused bulk call does; it records every publish it took.
+final class _FlakyPublishChannel implements CoordinatorChannel {
+  _FlakyPublishChannel(this.failures);
+
+  int failures;
+  int attempts = 0;
+  final List<Object?> taken = [];
+
+  @override
+  StateScope get scope => StateScope.process;
+
+  @override
+  bool get isRemote => true;
+
+  @override
+  Future<Object?> call(
+    String service,
+    String op,
+    Map<String, Object?> args, {
+    Duration timeout = const Duration(seconds: 1),
+  }) async {
+    if (service == MetricsService.serviceName && op == 'publish') {
+      attempts++;
+      if (failures > 0) {
+        failures--;
+        throw CoordinatorTimeoutException(service, timeout);
+      }
+      taken.add(args['snapshot']);
+    }
+    return null;
+  }
+}
+
 final class _SpyService implements CoordinatorService {
   _SpyService(this.inner, this.field);
 
@@ -218,6 +252,29 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 100));
     expect(spy.published, hasLength(2));
     expect(spy.published.last, contains('queue_jobs_total'));
+  });
+
+  test('a publish the coordinator did not take is sent again on the next '
+      'tick, not at the next heartbeat', () async {
+    final channel = _FlakyPublishChannel(1);
+    final metrics = AppMetrics(MetricsRegistry(), channel: channel);
+    final timer = metrics.startPublishing(
+      every: const Duration(milliseconds: 5),
+      heartbeat: 1000,
+    );
+    addTearDown(() => timer?.cancel());
+    final deadline = Stopwatch()..start();
+    while (channel.taken.isEmpty &&
+        deadline.elapsed < const Duration(seconds: 2)) {
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+    }
+    // No registry change in between: only the failure makes it resend.
+    expect(channel.taken, hasLength(1));
+    expect(channel.attempts, greaterThanOrEqualTo(2));
+    // Taken: idle again until a change or the heartbeat.
+    final attempts = channel.attempts;
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    expect(channel.attempts, attempts);
   });
 
   test('merged metrics carry the coordinator message counters', () async {
