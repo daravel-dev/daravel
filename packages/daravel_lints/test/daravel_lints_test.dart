@@ -450,4 +450,52 @@ void f(String sort) {
       expect(lintSource(source, 'lib/src/a.dart', rules: rule), isEmpty);
     });
   });
+
+  group('LintConfig', () {
+    test('defaults, opt-in rules on, default rules off', () {
+      expect(LintConfig().rules.map((r) => r.name), [
+        for (final r in defaultRules) r.name,
+      ]);
+      final config = LintConfig(
+        enabled: ['prefer_sql_identifier'],
+        disabled: ['no_print_in_app', registryRuleName],
+      );
+      final names = config.rules.map((r) => r.name);
+      expect(names, contains('prefer_sql_identifier'));
+      expect(names, isNot(contains('no_print_in_app')));
+      expect(config.registries, isFalse);
+    });
+
+    test('overrides go on top; a name in both is off', () {
+      final config = LintConfig(disabled: ['no_print_in_app']).withOverrides(
+        enable: ['no_print_in_app', 'prefer_sql_identifier'],
+        disable: ['prefer_sql_identifier'],
+      );
+      final names = config.rules.map((r) => r.name);
+      expect(names, contains('no_print_in_app'));
+      expect(names, isNot(contains('prefer_sql_identifier')));
+    });
+
+    test('an unknown name throws, listing the names', () {
+      expect(
+        () => LintConfig(enabled: ['nope']),
+        throwsA(
+          isA<ArgumentError>().having(
+            (e) => '${e.message}',
+            'message',
+            contains('prefer_sql_identifier'),
+          ),
+        ),
+      );
+    });
+
+    test('a project without analysis_options.yaml runs the defaults', () {
+      final root = Directory.systemTemp.createTempSync('lint_config');
+      addTearDown(() => root.deleteSync(recursive: true));
+      final config = lintConfig(root.path);
+      expect(config.source, isNull);
+      expect(config.rules.length, defaultRules.length);
+      expect(config.warnings, isEmpty);
+    });
+  });
 }

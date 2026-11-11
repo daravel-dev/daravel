@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:01c7ce4adace -->
+<!-- source: README.md sha256:bd0b68ca67a4 -->
 <img src="https://raw.githubusercontent.com/daravel-dev/daravel/main/docs/brand/png/daravel-icon-128.png" alt="Daravel" width="64" align="right">
 
 # daravel_lints
@@ -22,10 +22,26 @@ dijalankan oleh `dartisan lint` dan di test (bukan plugin analyzer IDE).
 
 ### Rule opt-in
 
-Rule berikut hanya berjalan bila proyek mengaktifkannya, di test arsitektur
-(`expectLintClean(null, ['prefer_sql_identifier'])` dari `daravel_test`)
-atau lewat `lintProject(root, rules: rulesWith(['prefer_sql_identifier']))`.
-`dartisan lint` hanya menjalankan rule default.
+Rule berikut hanya berjalan bila proyek mengaktifkannya, di bawah
+`diagnostics:` dalam `analysis_options.yaml`, yang dibaca `dartisan lint`
+dan `expectLintClean()` dari `daravel_test` (plugin editor membaca bentuk
+`plugins:`):
+
+```yaml
+daravel_lints:              # atau plugins: daravel_lints_plugin:, dengan plugin
+  diagnostics:
+    prefer_sql_identifier: true   # rule opt-in menyala
+    no_print_in_app: false        # rule default mati
+```
+
+Bila proyek memakai plugin, blok `plugins: daravel_lints_plugin:
+diagnostics:` yang dibaca (blok `daravel_lints:` di sebelahnya diabaikan,
+dengan peringatan). Hanya berkas proyek itu sendiri yang dibaca: `include:`
+tidak ditelusuri, dan di pub workspace yang dibaca adalah berkas paket
+tempat `dartisan` dijalankan. `dartisan lint --enable=<rule>` dan
+`--disable=<rule>` mengubah satu kali jalan, dan baris ringkasannya menyebut
+rule opt-in yang dijalankan. Di kode: `lintProject(root, rules:
+lintConfig(root).rules)`.
 
 | Rule | Menangkap |
 | :-- | :-- |

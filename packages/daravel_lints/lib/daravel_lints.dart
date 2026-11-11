@@ -20,6 +20,8 @@ import 'package:path/path.dart' as p;
 import 'package:timezone/data/latest_all.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
 
+export 'src/lint_config.dart';
+
 /// One finding.
 final class LintIssue {
   /// A finding of [rule] at a line and column.
@@ -1483,7 +1485,10 @@ bool _suppressed(List<String> lines, CharacterLocation location, String rule) {
   return mentions(location.lineNumber - 1) || mentions(location.lineNumber - 2);
 }
 
-/// Lints every Dart file under [directories] of the project at [root].
+/// Lints every Dart file under [directories] of the project at [root], then
+/// runs the registry check ([checkRegistries]) unless [registries] is
+/// `false`. `lintProject(root, rules: config.rules, registries:
+/// config.registries)` runs what the project's [lintConfig] enables.
 List<LintIssue> lintProject(
   String root, {
   List<String> directories = const <String>[
@@ -1494,6 +1499,7 @@ List<LintIssue> lintProject(
     'database',
   ],
   List<LintRule> rules = defaultRules,
+  bool registries = true,
 }) {
   final issues = <LintIssue>[];
   for (final directory in directories) {
@@ -1518,7 +1524,7 @@ List<LintIssue> lintProject(
       );
     }
   }
-  return issues..addAll(checkRegistries(root));
+  return [...issues, if (registries) ...checkRegistries(root)];
 }
 
 /// Convention folder → registry file that must import every file in it.
