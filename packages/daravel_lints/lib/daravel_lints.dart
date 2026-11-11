@@ -135,6 +135,91 @@ final class NoPrintInApp extends LintRule {
   }
 }
 
+/// An environment variable read in application code outside `lib/config/`:
+/// `env('APP_URL')`, `EnvKeys.appUrl`, `make<Env>()` or
+/// `Platform.environment`.
+///
+/// As in Laravel, the environment is read by the configuration only: the
+/// config sections are validated at boot (`ConfigValidator`) and frozen,
+/// so a value read elsewhere skips that check, is read again on every
+/// call, and cannot be overridden in a test through the config. Put the
+/// value in a config section and read the section.
+///
+/// Opt-in (on in new projects): enable it by name
+/// (`expectLintClean(null, ['raw_env_outside_config'])`).
+final class RawEnvOutsideConfig extends LintRule {
+  /// `raw_env_outside_config`: the environment is read in `lib/config/`.
+  const RawEnvOutsideConfig();
+
+  @override
+  String get name => 'raw_env_outside_config';
+
+  @override
+  String get description =>
+      'Read environment variables in lib/config/ only, through a config '
+      'section.';
+
+  @override
+  bool appliesTo(String relativePath) =>
+      relativePath.startsWith('lib/') &&
+      !relativePath.startsWith('lib/config/') &&
+      !relativePath.startsWith('lib/src/');
+
+  /// What the finding says.
+  static const String message =
+      'Environment variable read outside lib/config/: put the value in a '
+      'config section (validated at boot, frozen) and read the section.';
+
+  @override
+  void check(CompilationUnit unit, void Function(AstNode, String) report) {
+    unit.accept(_EnvReadVisitor((node) => report(node, message)));
+  }
+}
+
+final class _EnvReadVisitor extends RecursiveAstVisitor<void> {
+  _EnvReadVisitor(this.found);
+
+  final void Function(AstNode) found;
+
+  @override
+  void visitMethodInvocation(MethodInvocation node) {
+    final name = node.methodName.name;
+    final typeArguments =
+        node.typeArguments?.arguments ?? const <TypeAnnotation>[];
+    if ((node.target == null && name == 'env') ||
+        (name == 'make' &&
+            typeArguments.length == 1 &&
+            typeArguments.first.toSource() == 'Env')) {
+      found(node);
+    }
+    super.visitMethodInvocation(node);
+  }
+
+  @override
+  void visitPrefixedIdentifier(PrefixedIdentifier node) {
+    final prefix = node.prefix.name;
+    if (prefix == 'EnvKeys' ||
+        (prefix == 'Platform' && node.identifier.name == 'environment')) {
+      found(node);
+      return;
+    }
+    super.visitPrefixedIdentifier(node);
+  }
+
+  @override
+  void visitPropertyAccess(PropertyAccess node) {
+    // `io.Platform.environment`.
+    final target = node.target;
+    if (node.propertyName.name == 'environment' &&
+        target is PrefixedIdentifier &&
+        target.identifier.name == 'Platform') {
+      found(node);
+      return;
+    }
+    super.visitPropertyAccess(node);
+  }
+}
+
 /// Mutable statics leak state between requests in long-running workers
 /// (Octane-style pitfall).
 final class NoMutableStaticInApp extends LintRule {
@@ -1388,7 +1473,10 @@ const List<LintRule> defaultRules = <LintRule>[
 
 /// Opt-in rules: not run unless enabled by name ([rulesWith]) or passed in
 /// `rules:`.
-const List<LintRule> optionalRules = <LintRule>[PreferSqlIdentifier()];
+const List<LintRule> optionalRules = <LintRule>[
+  PreferSqlIdentifier(),
+  RawEnvOutsideConfig(),
+];
 
 /// [defaultRules] plus the [optionalRules] named in [enable]
 /// (`['prefer_sql_identifier']`); an unknown name throws an [ArgumentError].

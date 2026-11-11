@@ -450,4 +450,67 @@ void f(String sort) {
       expect(lintSource(source, 'lib/src/a.dart', rules: rule), isEmpty);
     });
   });
+
+  group('raw_env_outside_config', () {
+    const rule = [RawEnvOutsideConfig()];
+    const source = r'''
+import 'dart:io' as io;
+import 'dart:io';
+
+String? f(Container c) {
+  final a = env('APP_URL');
+  final b = c.make<Env>().string('APP_NAME');
+  final d = c.make<Env>().of(EnvKeys.appDebug);
+  final e = Platform.environment['HOME'];
+  final g = io.Platform.environment['HOME'];
+  return a;
+}
+''';
+
+    test('is opt-in and enabled by name', () {
+      expect(
+        defaultRules.map((r) => r.name),
+        isNot(contains('raw_env_outside_config')),
+      );
+      expect(lintSource(source, 'lib/app/a.dart'), isEmpty);
+      expect(
+        rulesWith(['raw_env_outside_config']).map((r) => r.name),
+        contains('raw_env_outside_config'),
+      );
+    });
+
+    test('reports env(), make<Env>(), EnvKeys and Platform.environment in '
+        'application code', () {
+      final issues = lintSource(source, 'lib/app/a.dart', rules: rule);
+      // Line 7 holds two reads: make<Env>() and EnvKeys.appDebug.
+      expect([for (final i in issues) i.line], [5, 6, 7, 7, 8, 9]);
+      expect(issues.first.message, contains('config section'));
+    });
+
+    test('lib/config/ (and lib/src/, the framework) may read it', () {
+      expect(lintSource(source, 'lib/config/app.dart', rules: rule), isEmpty);
+      expect(
+        lintSource(source, 'lib/config/env_keys.dart', rules: rule),
+        isEmpty,
+      );
+      expect(lintSource(source, 'lib/src/env.dart', rules: rule), isEmpty);
+      expect(lintSource(source, 'bin/server.dart', rules: rule), isEmpty);
+    });
+
+    test('a method named env on an object, and a config read, are clean', () {
+      const clean = r'''
+String f(Settings s, Config config) =>
+    '${s.env('x')} ${config.get('app.url')} ${Config.string('app.name')}';
+''';
+      expect(lintSource(clean, 'lib/app/a.dart', rules: rule), isEmpty);
+    });
+
+    test('daravel-lint-ignore silences it', () {
+      const ignored = '''
+// daravel-lint-ignore: raw_env_outside_config
+final home = env('HOME');
+''';
+      expect(lintSource(ignored, 'lib/app/a.dart', rules: rule), isEmpty);
+    });
+  });
 }

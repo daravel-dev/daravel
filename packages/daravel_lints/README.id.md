@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:01c7ce4adace -->
+<!-- source: README.md sha256:bf6a9b02b1d7 -->
 <img src="https://raw.githubusercontent.com/daravel-dev/daravel/main/docs/brand/png/daravel-icon-128.png" alt="Daravel" width="64" align="right">
 
 # daravel_lints
@@ -30,6 +30,7 @@ atau lewat `lintProject(root, rules: rulesWith(['prefer_sql_identifier']))`.
 | Rule | Menangkap |
 | :-- | :-- |
 | `prefer_sql_identifier` | nama kolom yang diberikan ke method query builder (`where`, `orderBy`, `select`, `pluck`, ...) yang bukan string literal, bukan `const`, bukan pilihan di antara literal (`sort == 'name' ? 'name' : 'id'`), dan bukan `SqlIdentifier` |
+| `raw_env_outside_config` | variabel environment yang dibaca di kode aplikasi di luar `lib/config/` (`env('X')`, `make<Env>()`, `EnvKeys.*`, `Platform.environment`): bagian config divalidasi saat boot lalu dibekukan, jadi baca nilainya lewat bagian config. Menyala di proyek baru |
 
 `SqlIdentifier('users.id')` memeriksa sebuah nama sekali, saat dibuat (nama
 polos yang digabung dengan titik, selain itu `ArgumentError`), dan builder

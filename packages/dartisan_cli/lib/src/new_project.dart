@@ -1158,7 +1158,7 @@ import 'package:test/test.dart';
 
 /// Architecture rules (`dart run bin/dartisan.dart lint` runs the same).
 void main() {
-  test('passes every Daravel lint rule', expectLintClean);
+  test('passes every Daravel lint rule, with the opt-in ones new projects use', () => expectLintClean(null, ['raw_env_outside_config']));
   test('keeps no mutable static state in lib/app', expectNoMutableStatics);
   test('registers every migration, seeder, job and command', expectRegistryComplete);
 }

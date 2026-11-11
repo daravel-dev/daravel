@@ -1,4 +1,4 @@
-<!-- source: configuration.md sha256:6a1962d1f2a9 -->
+<!-- source: configuration.md sha256:51b174e6ce88 -->
 # Konfigurasi
 
 ## File environment
@@ -42,7 +42,9 @@ mungkin berupa kredensial (`int` atau `bool`, atau string pendek tanpa `://`
 atau `@` yang namanya tidak memuat `KEY`, `SECRET`, `PASSWORD`, `TOKEN`,
 `URL`, ...). `env:sync --check` keluar dengan kode 1 bila berkasnya usang,
 untuk CI. Baca environment di konfigurasi, bukan di controller: bagian
-config bertipe di bawah adalah cara menjangkaunya dari tempat lain.
+config bertipe di bawah adalah cara menjangkaunya dari tempat lain. Lint
+opt-in `raw_env_outside_config` (menyala di proyek baru) melaporkan
+pembacaan di luar `lib/config/`.
 
 ## File environment terenkripsi
 

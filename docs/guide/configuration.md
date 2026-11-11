@@ -40,6 +40,8 @@ without `://` or `@` whose name has no `KEY`, `SECRET`, `PASSWORD`,
 `TOKEN`, `URL`, ...). `env:sync --check` exits 1 when the file is out of
 date, for CI. Read the environment in your configuration, not in
 controllers: the typed sections below are the way to reach it elsewhere.
+The opt-in lint `raw_env_outside_config` (on in new projects) reports a
+read outside `lib/config/`.
 
 ## Encrypted environment files
 

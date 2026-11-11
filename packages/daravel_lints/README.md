@@ -29,6 +29,7 @@ through `lintProject(root, rules: rulesWith(['prefer_sql_identifier']))`.
 | Rule | Catches |
 | :-- | :-- |
 | `prefer_sql_identifier` | a column name passed to a query builder method (`where`, `orderBy`, `select`, `pluck`, ...) that is neither a string literal, a `const`, a choice between literals (`sort == 'name' ? 'name' : 'id'`) nor a `SqlIdentifier` |
+| `raw_env_outside_config` | an environment variable read in application code outside `lib/config/` (`env('X')`, `make<Env>()`, `EnvKeys.*`, `Platform.environment`): the config sections are validated at boot and frozen, so read the value through a section. On in new projects |
 
 `SqlIdentifier('users.id')` checks a name once, where it is made (plain
 names joined by dots, else an `ArgumentError`), and the builder quotes it
