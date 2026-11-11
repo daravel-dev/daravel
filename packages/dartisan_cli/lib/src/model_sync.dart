@@ -13,6 +13,8 @@ final class ModelSource {
     required this.primaryKey,
     required this.authenticatable,
     this.defaults = const <String>{},
+    this.fillable = const <String>[],
+    this.guarded = const <String>['*'],
   });
 
   /// Parses `final class X extends Model`, `table: '...'`, the casts map
@@ -45,7 +47,20 @@ final class ModelSource {
           for (final m in RegExp(r"'(\w+)'\s*:").allMatches(attributes))
             m.group(1)!,
       },
+      fillable: _stringList(source, 'fillable') ?? const <String>[],
+      guarded: _stringList(source, 'guarded') ?? const <String>['*'],
     );
+  }
+
+  /// The strings of the `[key]: [...]` list in [source], or null when it
+  /// declares none.
+  static List<String>? _stringList(String source, String key) {
+    final list = RegExp(
+      '\\b$key:\\s*(?:const\\s*)?(?:<String>\\s*)?\\[([^\\]]*)\\]',
+    ).firstMatch(source)?.group(1);
+    return list == null
+        ? null
+        : [for (final m in RegExp(r"'([^']*)'").allMatches(list)) m.group(1)!];
   }
 
   /// The model's class name.
@@ -65,6 +80,23 @@ final class ModelSource {
 
   /// The columns its `attributes:` map gives a default.
   final Set<String> defaults;
+
+  /// Its `fillable:` list (empty when not declared).
+  final List<String> fillable;
+
+  /// Its `guarded:` list (`['*']` when not declared).
+  final List<String> guarded;
+
+  /// Whether [column] may be mass assigned, as `ModelDefinition.isFillable`.
+  bool isFillable(String column) {
+    if (fillable.contains(column)) {
+      return true;
+    }
+    if (fillable.isNotEmpty) {
+      return false;
+    }
+    return !guarded.contains('*') && !guarded.contains(column);
+  }
 }
 
 /// Accessor names that would clash with `Model`/`Authenticatable` members
@@ -395,7 +427,130 @@ AccessorPlan planAccessors(
       );
     }
   }
+  final writes = typedWriteLines(
+    model,
+    names,
+    dialect: dialect,
+    idType: idType,
+  );
+  lines.addAll(writes.lines);
+  warnings.addAll(writes.warnings);
   return AccessorPlan(lines, warnings);
+}
+
+/// `createWith`, `makeWith`, `fillWith` and `updateWith` of [model]: the
+/// mass-assignable columns as typed named parameters (W9.13), through
+/// `create`, `make`, `fill` and `update`, so fillable, events and
+/// timestamps are those of the map forms.
+///
+/// A column is a parameter when it has an accessor, is not the primary key
+/// or a timestamp, and is fillable under the model's `fillable:` and
+/// `guarded:` lists as `ModelDefinition.isFillable` reads them, so `fill`
+/// never drops one. It is `required` in `createWith`/`makeWith` when it is
+/// `NOT NULL` with no database default and no `attributes:` default. In
+/// `fillWith`/`updateWith` every parameter is optional, and a nullable
+/// column is a [Patch] so it can be set to null. Without a fillable column
+/// nothing is written, and [AccessorPlan.warnings] says why.
+AccessorPlan typedWriteLines(
+  ModelSource model,
+  List<ColumnNames> names, {
+  SqlDialect dialect = SqlDialect.sqlite,
+  String? idType,
+}) {
+  const timestamps = {'created_at', 'updated_at', 'deleted_at'};
+  final params = [
+    for (final (:column, :getter, field: _) in names)
+      if (getter != null &&
+          column.name != model.primaryKey &&
+          !timestamps.contains(column.name) &&
+          model.isFillable(column.name))
+        (
+          column: column,
+          getter: getter,
+          type: columnType(model, column, dialect: dialect, idType: idType),
+          required:
+              !column.nullable &&
+              column.defaultValue == null &&
+              !column.autoIncrement &&
+              !model.defaults.contains(column.name),
+        ),
+  ];
+  final className = model.className;
+  if (params.isEmpty) {
+    return AccessorPlan(const [], [
+      '$className: no fillable column (fillable: [], guarded: '
+          "${model.guarded.map((g) => "'$g'").toList()}); createWith, makeWith, "
+          'fillWith and updateWith not generated.',
+    ]);
+  }
+  String base(String type) =>
+      type.endsWith('?') ? type.substring(0, type.length - 1) : type;
+  final createParams = [
+    for (final p in params)
+      p.required
+          ? '    required ${base(p.type)} ${p.getter},'
+          : '    ${base(p.type)}? ${p.getter},',
+  ];
+  final createMap = [
+    for (final p in params)
+      p.required
+          ? "    '${p.column.name}': ${p.getter},"
+          : "    '${p.column.name}': ?${p.getter},",
+  ];
+  final patchParams = [
+    for (final p in params)
+      p.column.nullable
+          ? '    Patch<${base(p.type)}?> ${p.getter} = const Patch.absent(),'
+          : '    ${base(p.type)}? ${p.getter},',
+  ];
+  final patchMap = [
+    for (final p in params)
+      p.column.nullable
+          ? "    if (${p.getter}.isPresent) '${p.column.name}': "
+                '${p.getter}.value,'
+          : "    '${p.column.name}': ?${p.getter},",
+  ];
+  // Only a nullable column is a Patch parameter; the doc mentions Patch
+  // only when there is one.
+  final hasPatch = params.any((p) => p.column.nullable);
+  return AccessorPlan([
+    '  /// Creates and saves a `$className` (`create` with a map, checked by',
+    '  /// the compiler): a `required` column has no default.',
+    '  static Future<$className> createWith({',
+    ...createParams,
+    '  }) => definition.query().create(<String, Object?>{',
+    ...createMap,
+    '  });',
+    '  /// [createWith] without saving (`make`).',
+    '  static $className makeWith({',
+    ...createParams,
+    '  }) => definition.query().make(<String, Object?>{',
+    ...createMap,
+    '  });',
+    if (hasPatch) ...[
+      '  /// Fills the given columns (`fill`); `Patch(null)` sets a nullable',
+      '  /// one to null.',
+    ] else
+      '  /// Fills the given columns (`fill`).',
+    '  $className fillWith({',
+    ...patchParams,
+    '  }) {',
+    '    fill(<String, Object?>{',
+    ...patchMap.map((l) => '  $l'),
+    '    });',
+    '    return this;',
+    '  }',
+    if (hasPatch) ...[
+      '  /// Updates the given columns and saves (`update`); `Patch(null)` sets',
+      '  /// a nullable one to null.',
+    ] else
+      '  /// Updates the given columns and saves (`update`).',
+    '  Future<bool> updateWith({',
+    ...patchParams,
+    '  }) => update(<String, Object?>{',
+    ...patchMap,
+    '  });',
+  ], const []);
 }
 
 const String _accessorsStart = '// <dartisan:accessors>';
@@ -432,10 +587,47 @@ List<String> staticLines(String className, {String? idType}) => [
   '  static Future<$className> create(Map<String, Object?> attributes) =>',
   '      query().create(attributes);',
   '  static Future<ModelCollection<$className>> all() => query().get();',
-  '  static ModelQuery<$className> where(Object column, '
-      '[Object? op, Object? value]) =>',
-  '      query().where(column, op, value);',
+  ...whereStaticLines(className),
 ];
+
+/// The `where` static of [className]. Its optional arguments default to
+/// [QueryBuilder.absent], so `User.where('a', '<>')` (two arguments) and
+/// `User.where('a', '<>', null)` (`IS NOT NULL`) reach the query builder
+/// apart.
+List<String> whereStaticLines(String className) => [
+  '  static ModelQuery<$className> where(',
+  '    Object column, [',
+  '    Object? operatorOrValue = QueryBuilder.absent,',
+  '    Object? value = QueryBuilder.absent,',
+  '  ]) => query().where(column, operatorOrValue, value);',
+];
+
+/// A `where` static written before `QueryBuilder.absent` (Daravel 1.27 and
+/// earlier): it passes `null` on for a left-out argument, so two and three
+/// arguments look the same to the query builder.
+final RegExp _nullForwardingWhere = RegExp(
+  r'static\s+ModelQuery<\w+>\s+where\(\s*Object\s+\w+,\s*\[\s*Object\?\s+(\w+),'
+  r'\s*Object\?\s+(\w+),?\s*\]\s*\)\s*=>\s*query\(\)\.where\(',
+);
+
+/// The warning `model:sync` prints for a model whose statics region still
+/// holds a `where` static that passes `null` on, with the lines to paste
+/// instead; null when the region has none.
+String? whereStaticWarning(String source, String className) {
+  final start = source.indexOf(_staticsStart);
+  final end = source.indexOf(_staticsEnd);
+  if (start == -1 || end < start) {
+    return null;
+  }
+  final match = _nullForwardingWhere.firstMatch(source.substring(start, end));
+  if (match == null || match[0]!.contains('QueryBuilder.absent')) {
+    return null;
+  }
+  return '$className: the where static passes null on for a left-out '
+      "argument, so $className.where('a', '<>') and "
+      "$className.where('a', '<>', null) look the same. Replace it with:\n"
+      '${whereStaticLines(className).join('\n')}';
+}
 
 /// Fills an empty statics region of [source] with [staticLines]. A region
 /// that holds anything belongs to the application and is left alone, as is
@@ -565,7 +757,7 @@ ModelSync syncModelSource(
   SqlDialect dialect = SqlDialect.sqlite,
   String? idStub,
 }) {
-  final warnings = <String>[];
+  final warnings = <String>[?whereStaticWarning(source, model.className)];
   String? idType;
   var next = source;
   if (idStub != null) {

@@ -813,8 +813,11 @@ final class User extends Model with AuthenticatableModel {
   static Future<User> create(Map<String, Object?> attributes) =>
       query().create(attributes);
   static Future<ModelCollection<User>> all() => query().get();
-  static ModelQuery<User> where(Object column, [Object? op, Object? value]) =>
-      query().where(column, op, value);
+  static ModelQuery<User> where(
+    Object column, [
+    Object? operatorOrValue = QueryBuilder.absent,
+    Object? value = QueryBuilder.absent,
+  ]) => query().where(column, operatorOrValue, value);
   // </dartisan:statics>
 
   // <dartisan:accessors>
@@ -840,6 +843,50 @@ final class User extends Model with AuthenticatableModel {
   set password(String value) => setAttr('password', value);
   DateTime? get createdAt => getAttr('created_at');
   DateTime? get updatedAt => getAttr('updated_at');
+  /// Creates and saves a `User` (`create` with a map, checked by
+  /// the compiler): a `required` column has no default.
+  static Future<User> createWith({
+    required String name,
+    required String email,
+    required String password,
+  }) => definition.query().create(<String, Object?>{
+    'name': name,
+    'email': email,
+    'password': password,
+  });
+  /// [createWith] without saving (`make`).
+  static User makeWith({
+    required String name,
+    required String email,
+    required String password,
+  }) => definition.query().make(<String, Object?>{
+    'name': name,
+    'email': email,
+    'password': password,
+  });
+  /// Fills the given columns (`fill`).
+  User fillWith({
+    String? name,
+    String? email,
+    String? password,
+  }) {
+    fill(<String, Object?>{
+      'name': ?name,
+      'email': ?email,
+      'password': ?password,
+    });
+    return this;
+  }
+  /// Updates the given columns and saves (`update`).
+  Future<bool> updateWith({
+    String? name,
+    String? email,
+    String? password,
+  }) => update(<String, Object?>{
+    'name': ?name,
+    'email': ?email,
+    'password': ?password,
+  });
   // </dartisan:accessors>
 }
 ''';
@@ -873,11 +920,11 @@ final class AuthController {
     final password = await Hash.make(data.string('password'));
     // The user and its first token commit together, or not at all.
     final (user, token) = await DB.transaction(() async {
-      final user = await User.create({
-        'name': data.string('name'),
-        'email': data.string('email'),
-        'password': password,
-      });
+      final user = await User.createWith(
+        name: data.string('name'),
+        email: data.string('email'),
+        password: password,
+      );
       return (user, await Auth.issueToken(user, 'api'));
     });
     return Response.created(<String, Object?>{

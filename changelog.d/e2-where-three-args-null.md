@@ -1,0 +1,12 @@
+### Fixed
+
+- Query builder: `where('deleted_at', '!=', null)` and `where('deleted_at', '<>', null)` meant `deleted_at = '!='` (and `<>`), a query that silently matched the wrong rows; they are now `IS NOT NULL`, and `where(col, '=', null)` is `IS NULL`, as in Laravel. `where` and its relatives count their arguments as Laravel's `func_num_args()` does, through a default marker: two arguments still mean `col = second` (`where('a', '>')` is `a = '>'`, `where('a', null)` is `IS NULL`); three arguments with a null value and another operator (`'>'`, `'like'`) are an `ArgumentError`, Laravel's "Illegal operator and value combination". Applies to `where`, `orWhere`, `whereDate`, `whereYear`, `whereMonth`, `whereDay`, `whereJsonLength` on `QueryBuilder`, and their `ModelQuery` forms. A map given to `where` is `key = value` for each entry, as `addArrayOfWheres`.
+
+### Added
+
+- `QueryBuilder.absent`: the default of the optional operator and value of `where` and its relatives, which tells a left-out argument from `null`; a method that passes them on (a model's `where` static) uses it as its own default.
+
+### Upgrade notes
+
+- A query written `where(column, '!=', null)` or `where(column, '<>', null)` returned rows where the column equals the text `!=` (or `<>`), in practice none; it now returns the rows where the column is not null. `where(column, '>', null)` (or another operator with null as third argument) now throws instead of comparing with the operator text.
+- A model's generated `where` static (`static ModelQuery<User> where(Object column, [Object? op, Object? value]) => query().where(column, op, value)`) passes `null` on for a left-out argument. Through it, `User.where('a', 1)` and `User.where('a', null)` are unchanged, `User.where('a', '!=', null)` is now `IS NOT NULL`, and the two-argument `User.where('a', '<>')` (rare) is read as `IS NOT NULL` instead of `a = '<>'`; call `User.query().where(...)` for the exact two-argument meaning. `dartisan model:sync` now warns once per model whose `where` static still passes `null` on, and prints the lines to paste instead; `make:model`, `dartisan new` and the starter write the new form, whose optional arguments default to `QueryBuilder.absent`.

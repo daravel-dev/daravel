@@ -28,8 +28,11 @@ final class User extends Model with AuthenticatableModel {
   static Future<User> create(Map<String, Object?> attributes) =>
       query().create(attributes);
   static Future<ModelCollection<User>> all() => query().get();
-  static ModelQuery<User> where(Object column, [Object? op, Object? value]) =>
-      query().where(column, op, value);
+  static ModelQuery<User> where(
+    Object column, [
+    Object? operatorOrValue = QueryBuilder.absent,
+    Object? value = QueryBuilder.absent,
+  ]) => query().where(column, operatorOrValue, value);
   // </dartisan:statics>
 
   // <dartisan:accessors>
@@ -54,5 +57,46 @@ final class User extends Model with AuthenticatableModel {
   DateTime? get emailVerifiedAt => getAttr('email_verified_at');
   DateTime? get createdAt => getAttr('created_at');
   DateTime? get updatedAt => getAttr('updated_at');
+
+  /// Creates and saves a `User` (`create` with a map, checked by
+  /// the compiler): a `required` column has no default.
+  static Future<User> createWith({
+    required String name,
+    required String email,
+    required String password,
+  }) => definition.query().create(<String, Object?>{
+    'name': name,
+    'email': email,
+    'password': password,
+  });
+
+  /// [createWith] without saving (`make`).
+  static User makeWith({
+    required String name,
+    required String email,
+    required String password,
+  }) => definition.query().make(<String, Object?>{
+    'name': name,
+    'email': email,
+    'password': password,
+  });
+
+  /// Fills the given columns (`fill`).
+  User fillWith({String? name, String? email, String? password}) {
+    fill(<String, Object?>{
+      'name': ?name,
+      'email': ?email,
+      'password': ?password,
+    });
+    return this;
+  }
+
+  /// Updates the given columns and saves (`update`).
+  Future<bool> updateWith({String? name, String? email, String? password}) =>
+      update(<String, Object?>{
+        'name': ?name,
+        'email': ?email,
+        'password': ?password,
+      });
   // </dartisan:accessors>
 }

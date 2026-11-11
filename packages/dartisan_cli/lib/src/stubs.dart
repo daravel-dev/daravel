@@ -74,8 +74,11 @@ final class {{ class }} extends Model {
   static Future<{{ class }}> create(Map<String, Object?> attributes) =>
       query().create(attributes);
   static Future<ModelCollection<{{ class }}>> all() => query().get();
-  static ModelQuery<{{ class }}> where(Object column, [Object? op, Object? value]) =>
-      query().where(column, op, value);
+  static ModelQuery<{{ class }}> where(
+    Object column, [
+    Object? operatorOrValue = QueryBuilder.absent,
+    Object? value = QueryBuilder.absent,
+  ]) => query().where(column, operatorOrValue, value);
   // </dartisan:statics>
 
   // <dartisan:accessors>

@@ -278,7 +278,8 @@ void selfRelationAndAggregateTests(DatabaseOpener open) {
     final members = await Member.definition
         .query(db: db)
         .withSum('orders', 'total')
-        .withAvg('orders', 'total')
+        // A typed column (W9.1) is the name at run time.
+        .withAvg('orders', const ModelColumn<Model, num>('total'))
         .withMin('orders', 'total')
         .withMax({
           'orders': (ModelQuery<Model> q) => q.where('total', '<', 50),
