@@ -57,7 +57,11 @@ final class ModelQuery<T extends Model> {
 
   /// `where('col', value)`, `where('col', '>', value)`, a map of columns to
   /// values, or a closure for a nested group, as [QueryBuilder.where].
-  ModelQuery<T> where(Object column, [Object? operatorOrValue, Object? value]) {
+  ModelQuery<T> where(
+    Object column, [
+    Object? operatorOrValue = QueryBuilder.absent,
+    Object? value = QueryBuilder.absent,
+  ]) {
     builder.where(column, operatorOrValue, value);
     return this;
   }
@@ -65,8 +69,8 @@ final class ModelQuery<T extends Model> {
   /// [where] joined with `OR`.
   ModelQuery<T> orWhere(
     Object column, [
-    Object? operatorOrValue,
-    Object? value,
+    Object? operatorOrValue = QueryBuilder.absent,
+    Object? value = QueryBuilder.absent,
   ]) {
     builder.orWhere(column, operatorOrValue, value);
     return this;
@@ -165,7 +169,7 @@ final class ModelQuery<T extends Model> {
   ModelQuery<T> whereDate(
     String column,
     String operatorOrValue, [
-    Object? value,
+    Object? value = QueryBuilder.absent,
   ]) {
     builder.whereDate(column, operatorOrValue, value);
     return this;
@@ -175,21 +179,21 @@ final class ModelQuery<T extends Model> {
   ModelQuery<T> whereYear(
     String column,
     Object operatorOrValue, [
-    Object? value,
+    Object? value = QueryBuilder.absent,
   ]) => _on((b) => b.whereYear(column, operatorOrValue, value));
 
   /// Compares the month of a date column.
   ModelQuery<T> whereMonth(
     String column,
     Object operatorOrValue, [
-    Object? value,
+    Object? value = QueryBuilder.absent,
   ]) => _on((b) => b.whereMonth(column, operatorOrValue, value));
 
   /// Compares the day of the month of a date column.
   ModelQuery<T> whereDay(
     String column,
     Object operatorOrValue, [
-    Object? value,
+    Object? value = QueryBuilder.absent,
   ]) => _on((b) => b.whereDay(column, operatorOrValue, value));
 
   // Laravel 11's date shortcuts, against Clock.now(); [columns] is a column
