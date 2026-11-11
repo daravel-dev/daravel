@@ -35,6 +35,8 @@ void main() {
         'name': 'n',
         'model': 'Thing',
         'modelFile': 'thing',
+        // request.test (make:request --test)
+        'file': 'thing_request',
         'function': 'thingFactory',
         'package': 'demo',
         'param': 'thing',
