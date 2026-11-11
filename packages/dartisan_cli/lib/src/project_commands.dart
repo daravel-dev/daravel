@@ -7,6 +7,7 @@ import 'package:daravel_lints/daravel_lints.dart';
 import 'package:path/path.dart' as p;
 
 import '../dartisan_cli.dart';
+import 'region_format.dart';
 
 /// Sets `KEY=value` in a `.env` file body (replacing or appending).
 String setEnvValue(String content, String key, String value) {
@@ -1452,6 +1453,7 @@ final class ModelSyncCommand extends DaravelCommand {
     }
     final dryRun = argResults!['dry-run'] as bool;
     final typedIds = argResults!['typed-ids'] as bool;
+    final formatter = RegionFormatter.forProject(paths.root);
     var synced = 0;
     for (final file in dir.listSync().whereType<File>().where(
       (f) => f.path.endsWith('.dart'),
@@ -1477,6 +1479,7 @@ final class ModelSyncCommand extends DaravelCommand {
         await Schema.getColumns(model.table),
         dialect: App.make<DatabaseManager>().dialectOf(),
         idStub: typedIds ? _idStub(paths) : null,
+        formatter: formatter,
       );
       final plan = sync.plan;
       for (final warning in sync.warnings) {
