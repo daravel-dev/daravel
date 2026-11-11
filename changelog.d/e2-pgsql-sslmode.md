@@ -10,3 +10,4 @@
 
 - PostgreSQL with `DB_SSLMODE=verify-ca`: the connection was not encrypted before; it is now encrypted and verified, so it fails at boot when the server certificate does not chain to a trusted root or does not name `DB_HOST`. Set `DB_SSLMODE=require` for encryption without checks, or fix the certificate.
 - `DB_SSLMODE=REQUIRE` (upper case) and `verify_full` were read as `disable`; they now mean what they say.
+- `dartisan adopt` no longer forces `disable` when `DB_SSLMODE` is unset, and passes `DB_SSLROOTCERT` (or Laravel's `MYSQL_ATTR_SSL_CA`) on, so it connects to the Laravel database as the application will.

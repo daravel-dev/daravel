@@ -1,4 +1,4 @@
-<!-- source: database.md sha256:1563d273a438 -->
+<!-- source: database.md sha256:9cdcc0423cd0 -->
 # Database
 
 `DB_CONNECTION` memilih SQLite (`sqlite`, default), PostgreSQL (`pgsql`),
@@ -130,9 +130,11 @@ dan MySQL/MariaDB, dengan nama-nama libpq:
 | :-- | :-- | :-- |
 | `disable` (MySQL: `DISABLED`) | tanpa TLS | tanpa TLS |
 | `require` (MySQL: `REQUIRED`, `PREFERRED`) | TLS, sertifikat tidak diperiksa | TLS, sertifikat tidak diperiksa, kecuali CA diberikan |
-| `verify-full` (MySQL: `VERIFY_IDENTITY`, `VERIFY_CA`, `verify-ca`) | TLS, sertifikat dan nama host diperiksa | TLS, sertifikat dan nama host diperiksa |
+| `verify-full`, `verify-ca` (MySQL: `VERIFY_IDENTITY`, `VERIFY_CA`) | TLS, sertifikat dan nama host diperiksa (`verify-ca` juga, dengan peringatan saat boot) | TLS, sertifikat dan nama host diperiksa |
 | tidak diisi | tanpa TLS | tanpa TLS; dengan CA, seperti `verify-full` |
-| nilai lain | tanpa TLS | berawalan `verify`: seperti `verify-full`; selain itu seperti `require`; keduanya dengan peringatan saat boot |
+| nilai lain | berawalan `verify`: seperti `verify-full`; selain itu tanpa TLS (termasuk `prefer` dan `allow`); keduanya dengan peringatan saat boot | berawalan `verify`: seperti `verify-full`; selain itu seperti `require`; keduanya dengan peringatan saat boot |
+
+Mode dibaca tanpa membedakan huruf besar/kecil, dengan `-` atau `_` (`REQUIRE`, `verify_full`).
 
 `require` mengenkripsi lalu lintas tetapi tidak menghentikan penyerang
 aktif: siapa pun di antara aplikasi dan server bisa menyodorkan
