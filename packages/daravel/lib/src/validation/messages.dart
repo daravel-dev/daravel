@@ -123,6 +123,29 @@ abstract final class ValidationMessages {
       'prohibits': 'The :attribute field prohibits :other from being present.',
       'required_if_accepted':
           'The :attribute field is required when :other is accepted.',
+      'missing': 'The :attribute field must be missing.',
+      'missing_if':
+          'The :attribute field must be missing when :other is :value.',
+      'missing_unless':
+          'The :attribute field must be missing unless :other is :value.',
+      'missing_with':
+          'The :attribute field must be missing when :values is present.',
+      'missing_with_all':
+          'The :attribute field must be missing when :values are present.',
+      'present_unless':
+          'The :attribute field must be present unless :other is :value.',
+      'present_with':
+          'The :attribute field must be present when :values is present.',
+      'present_with_all':
+          'The :attribute field must be present when :values are present.',
+      'prohibited_if_accepted':
+          'The :attribute field is prohibited when :other is accepted.',
+      'prohibited_if_declined':
+          'The :attribute field is prohibited when :other is declined.',
+      'required_if_declined':
+          'The :attribute field is required when :other is declined.',
+      'required_array_keys':
+          'The :attribute field must contain entries for: :values.',
       'required_with_all':
           'The :attribute field is required when :values are present.',
       'required_without_all':
@@ -260,6 +283,27 @@ abstract final class ValidationMessages {
       'prohibits': 'Kolom :attribute melarang :other untuk diisi.',
       'required_if_accepted':
           'Kolom :attribute wajib diisi ketika :other diterima.',
+      'missing': 'Kolom :attribute tidak boleh ada.',
+      'missing_if':
+          'Kolom :attribute tidak boleh ada ketika :other bernilai :value.',
+      'missing_unless':
+          'Kolom :attribute tidak boleh ada kecuali :other bernilai :value.',
+      'missing_with': 'Kolom :attribute tidak boleh ada ketika :values ada.',
+      'missing_with_all':
+          'Kolom :attribute tidak boleh ada ketika semua :values ada.',
+      'present_unless':
+          'Kolom :attribute harus ada kecuali :other bernilai :value.',
+      'present_with': 'Kolom :attribute harus ada ketika :values ada.',
+      'present_with_all':
+          'Kolom :attribute harus ada ketika semua :values ada.',
+      'prohibited_if_accepted':
+          'Kolom :attribute dilarang ketika :other diterima.',
+      'prohibited_if_declined':
+          'Kolom :attribute dilarang ketika :other ditolak.',
+      'required_if_declined':
+          'Kolom :attribute wajib diisi ketika :other ditolak.',
+      'required_array_keys':
+          'Kolom :attribute harus memuat entri untuk: :values.',
       'required_with_all': 'Kolom :attribute wajib diisi ketika :values ada.',
       'required_without_all': 'Kolom :attribute wajib diisi ketika tidak ada satu pun dari :values.',
       'timezone': 'Kolom :attribute harus berupa zona waktu yang valid.',
