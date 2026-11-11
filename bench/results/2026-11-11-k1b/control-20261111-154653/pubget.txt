@@ -1,0 +1,14 @@
+Resolving dependencies...
+Downloading packages...
+  _fe_analyzer_shared 110.0.0 (111.0.0 available)
+  analyzer 14.6.0 (14.7.0 available)
+  archive 4.5.2 (4.6.0 available)
+  code_assets 2.1.0 (2.2.0 available)
+  crypto 3.0.7 (3.0.8 available)
+  mysql_dart 3.0.3 (4.0.1 available)
+  native_toolchain_c 0.19.5 (0.19.6 available)
+  postgres 3.5.20 (3.6.0 available)
+  sqlite3 3.8.0 (3.9.1 available)
+Got dependencies!
+9 packages have newer versions incompatible with dependency constraints.
+Try `dart pub outdated` for more information.

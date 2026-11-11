@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:d240f0d6d1b2 -->
+<!-- source: README.md sha256:1ef39a9f835b -->
 # Daravel starter
 
 [English](README.md) · Bahasa Indonesia
@@ -102,3 +102,5 @@ Kalau ingin menyalin folder ini: hapus baris `resolution: workspace` dari
 `pubspec.yaml`, ganti setiap constraint `any` pada paket Daravel dengan
 rilis terkini (misalnya `^1.24.0`), lalu jalankan `dart pub get` di folder
 tersebut.
+
+Daravel berjalan berkat para sponsornya: [github.com/sponsors/daravel-dev](https://github.com/sponsors/daravel-dev) (`dartisan sponsor`).

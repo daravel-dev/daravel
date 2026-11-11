@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io' show stderr;
+import 'dart:io' show SecurityContext, stderr;
 import 'dart:typed_data';
 
 import 'package:daravel/daravel.dart';
@@ -23,8 +23,16 @@ import 'package:mysql_dart/mysql_dart.dart' as my;
 /// ORM parses as UTC. The session time zone is left to the server unless
 /// `DB_TIMEZONE` is set, as in Laravel, so `TIMESTAMP` columns read the same
 /// from both applications.
+///
+/// Pool connections opened on demand: the first connection is opened
+/// detached (`DatabaseManager`, Review #149), but a further connection the
+/// pool opens under load is opened by the query that needed it, in that
+/// query's zone (a request's, a job's). The driver touches neither the
+/// container nor the log on that path, so no request scope or `request_id`
+/// is kept by the connection; an error its socket raises later that the
+/// client package leaves unhandled would reach that zone's error handler.
 final class MySqlDriver
-    implements DatabaseDriver, RetryableErrors, QueryErrors {
+    implements SessionTerminatingDriver, RetryableErrors, QueryErrors {
   /// A pooled MySQL or MariaDB connection; usually made by
   /// [MySqlDriver.fromConfig] from the `DB_*` settings.
   MySqlDriver({
@@ -36,6 +44,9 @@ final class MySqlDriver
     this.name = 'mysql',
     this.maxConnections = 10,
     this.secure = false,
+    this.verifyServerCertificate = true,
+    this.securityContext,
+    this.sslCa,
     this.collation = 'utf8mb4_unicode_ci',
     this.timeZone,
     this.connectTimeout = const Duration(seconds: 10),
@@ -45,6 +56,7 @@ final class MySqlDriver
     this.isolationLevel,
     this.initCommands = const [],
     this.onConnectionOpen,
+    this.idleTransactionTimeout,
     this.dialect = SqlDialect.mysql,
     this.statementTimeoutMode = StatementTimeoutMode.server,
     this.onWarning,
@@ -52,11 +64,26 @@ final class MySqlDriver
 
   /// Builds the driver from a connection of `config/database` (`DB_*`).
   ///
-  /// `DB_SSLMODE` other than `disable` turns TLS on; without TLS the client
-  /// may fetch the server's RSA key, which MySQL 8's default
-  /// `caching_sha2_password` needs on a first login.
-  factory MySqlDriver.fromConfig(String name, ConnectionConfig connection) {
-    final sslMode = '${connection.options['sslmode'] ?? 'disable'}';
+  /// TLS follows `DB_SSLMODE` as [sslOptions] reads it, with the CA of
+  /// `DB_SSLROOTCERT` (or Laravel's `MYSQL_ATTR_SSL_CA`). Without TLS the
+  /// client may fetch the server's RSA key, which MySQL 8's default
+  /// `caching_sha2_password` needs on a first login. An unknown
+  /// `DB_SSLMODE` is reported once, at boot, through [onWarning] (standard
+  /// error by default).
+  factory MySqlDriver.fromConfig(
+    String name,
+    ConnectionConfig connection, {
+    void Function(String message)? onWarning,
+  }) {
+    final ca = switch (connection.options['sslrootcert']) {
+      final String path when path.isNotEmpty => path,
+      _ => null,
+    };
+    final ssl = sslOptions(connection.options['sslmode'], ca: ca);
+    if (ssl.warning case final warning?) {
+      final void Function(String) warn = onWarning ?? stderr.writeln;
+      warn('[$name] $warning');
+    }
     return MySqlDriver(
       name: name,
       dialect: connection.driver == 'mariadb'
@@ -68,7 +95,10 @@ final class MySqlDriver
       username: connection.username,
       password: connection.password,
       maxConnections: (connection.options['pool'] as int?) ?? 10,
-      secure: sslMode != 'disable',
+      secure: ssl.secure,
+      verifyServerCertificate: ssl.verify,
+      sslCa: ca,
+      onWarning: onWarning,
       collation:
           (connection.options['collation'] as String?) ?? 'utf8mb4_unicode_ci',
       timeZone: connection.options['timezone'] as String?,
@@ -96,6 +126,9 @@ final class MySqlDriver
         _ => null,
       },
       isolationLevel: connection.options['isolation_level'] as String?,
+      idleTransactionTimeout: PostgresDriver.idleTransactionTimeoutOption(
+        connection.options['idle_transaction_timeout'],
+      ),
       statementTimeoutMode:
           switch (connection.options['statement_timeout_mode']) {
             'client' => StatementTimeoutMode.client,
@@ -124,6 +157,75 @@ final class MySqlDriver
 
   /// Whether TLS is used.
   final bool secure;
+
+  /// With [secure], whether the server certificate must chain to a trusted
+  /// root ([securityContext], [sslCa], or the system roots) and name
+  /// [host]. `false` keeps the traffic encrypted but accepts any
+  /// certificate, which does not stop an active attacker. True by default,
+  /// as in `mysql_dart` 4.
+  final bool verifyServerCertificate;
+
+  /// The trusted roots for [verifyServerCertificate]; the system roots
+  /// (plus [sslCa]) when null.
+  final SecurityContext? securityContext;
+
+  /// A PEM file of the CA that signed the server certificate
+  /// (`DB_SSLROOTCERT`, `MYSQL_ATTR_SSL_CA`), trusted beside the system
+  /// roots when [securityContext] is null.
+  final String? sslCa;
+
+  /// How `DB_SSLMODE` (any case, `-` or `_`) and a CA map to TLS, the same
+  /// as the PostgreSQL driver and libpq, with MySQL's `--ssl-mode` names:
+  ///
+  /// - `disable`, `disabled`: no TLS.
+  /// - `require`, `required`, `prefer`, `preferred`, `allow`: TLS without
+  ///   checking the certificate (encrypted, but open to an active
+  ///   attacker); with a [ca], checked, as libpq and the MySQL client do.
+  /// - `verify-full`, `verify-identity`, `verify-ca`: TLS with the
+  ///   certificate checked against the CA and the host name. `verify-ca` is
+  ///   checked as strictly: `dart:io` reports a bad chain and a wrong host
+  ///   name through the same callback, so the host cannot be left out.
+  /// - empty: no TLS, or checked TLS when a [ca] is given, as PDO MySQL
+  ///   (mysqlnd) verifies the server when `MYSQL_ATTR_SSL_CA` is set.
+  /// - another value starting with `verify` (a misspelt `verify-full`):
+  ///   checked, with a [warning] naming the value. A typo must not weaken
+  ///   the check it asked for.
+  /// - anything else: as `require`, with a [warning] naming the value.
+  static ({bool secure, bool verify, String? warning}) sslOptions(
+    Object? sslmode, {
+    String? ca,
+  }) {
+    final mode = '${sslmode ?? ''}'.trim().toLowerCase().replaceAll('_', '-');
+    final hasCa = ca != null && ca.isNotEmpty;
+    return switch (mode) {
+      '' => (secure: hasCa, verify: hasCa, warning: null),
+      'disable' || 'disabled' => (secure: false, verify: false, warning: null),
+      'require' ||
+      'required' ||
+      'prefer' ||
+      'preferred' ||
+      'allow' => (secure: true, verify: hasCa, warning: null),
+      'verify-full' ||
+      'verifyfull' ||
+      'verify-identity' ||
+      'verify-ca' => (secure: true, verify: true, warning: null),
+      _ when mode.startsWith('verify') => (
+        secure: true,
+        verify: true,
+        warning:
+            'DB_SSLMODE "$sslmode" is not a known mode; using "verify-full" '
+            '(TLS with the certificate and host name checked).',
+      ),
+      _ => (
+        secure: true,
+        verify: hasCa,
+        warning:
+            'DB_SSLMODE "$sslmode" is not a known mode; using "require" '
+            '(TLS without certificate checks). Use disable, require or '
+            'verify-full.',
+      ),
+    };
+  }
 
   /// The connection collation (`utf8mb4_unicode_ci`).
   final String collation;
@@ -166,6 +268,9 @@ final class MySqlDriver
   /// False once the server refused the session timeout variable.
   bool _serverTimeouts = true;
   bool _warned = false;
+
+  /// The server's `VERSION()`, read once by the first connection that
+  /// needs it (strict sql_mode, the session timeout, MariaDB detection).
   String? _version;
 
   /// Whether statements are bounded by the server right now.
@@ -181,10 +286,7 @@ final class MySqlDriver
     required String? version,
     SqlDialect dialect = SqlDialect.mysql,
   }) {
-    final mariadb =
-        dialect == SqlDialect.mariadb ||
-        (version ?? '').toLowerCase().contains('mariadb');
-    if (mariadb) {
+    if (isMariaDb(version, dialect)) {
       final seconds = timeout.inMicroseconds / Duration.microsecondsPerSecond;
       return 'SET SESSION max_statement_time = $seconds';
     }
@@ -209,6 +311,18 @@ final class MySqlDriver
   /// Laravel's `'isolation_level'` (`DB_ISOLATION_LEVEL`), e.g.
   /// `READ COMMITTED`.
   final String? isolationLevel;
+
+  /// MariaDB's `idle_transaction_timeout` (10.3+) for every connection of
+  /// the pool (`DB_IDLE_TRANSACTION_TIMEOUT`, whole seconds, rounded up), on
+  /// a `mariadb` connection or a server whose `VERSION()` says MariaDB:
+  /// the server closes a connection that stays idle inside a transaction
+  /// this long, rolling it back. MySQL has no such setting and ignores it
+  /// (its `wait_timeout` closes idle connections outside transactions too).
+  /// `null` keeps the server's setting.
+  final Duration? idleTransactionTimeout;
+
+  /// MySQL connection ids of the pool's open connections, for [sessionIds].
+  final Map<my.MySQLConnection, int> _sessions = <my.MySQLConnection, int>{};
 
   /// Statements run on every new connection, after the session settings.
   final List<String> initCommands;
@@ -264,15 +378,31 @@ final class MySqlDriver
       if (isolationLevel != null)
         'SET SESSION TRANSACTION ISOLATION LEVEL $isolationLevel',
       if (mode != null) "SET SESSION sql_mode='$mode'",
+      if (idleTransactionTimeout case final idle?
+          when isMariaDb(version, dialect))
+        'SET SESSION idle_transaction_timeout = '
+            '${(idle.inMilliseconds / 1000).ceil()}',
       ...initCommands,
     ];
   }
 
+  /// Whether a server of [version] is MariaDB: a `mariadb` connection, or a
+  /// `mysql` one whose `VERSION()` says so.
+  static bool isMariaDb(String? version, SqlDialect dialect) =>
+      dialect == SqlDialect.mariadb ||
+      (version ?? '').toLowerCase().contains('mariadb');
+
   Future<void> _configure(my.MySQLConnection connection) async {
     final timeout = queryTimeout;
     final serverTimeout = serverSideTimeouts && timeout != null;
+    // One VERSION() read for every need: the strict sql_mode, the server
+    // side statement timeout, and whether a `mysql` connection is MariaDB
+    // (its idle_transaction_timeout).
     if (_version == null &&
-        ((strict == true && modes == null) || serverTimeout)) {
+        ((strict == true && modes == null) ||
+            serverTimeout ||
+            (idleTransactionTimeout != null &&
+                dialect != SqlDialect.mariadb))) {
       final result = await connection.execute('SELECT VERSION() AS v');
       _version = result.rows.first.colByName('v') as String?;
     }
@@ -302,6 +432,34 @@ final class MySqlDriver
       }
     }
     await onConnectionOpen?.call(connection);
+    final result = await connection.execute('SELECT CONNECTION_ID() AS id');
+    _sessions[connection] = int.parse('${result.rows.first.colByName('id')}');
+    connection.onClose(() => _sessions.remove(connection));
+  }
+
+  @override
+  List<String> sessionIds() => [
+    for (final entry in _sessions.entries)
+      if (entry.key.connected) '${entry.value}',
+  ];
+
+  /// `KILL CONNECTION` of [id], from another connection of the pool;
+  /// `false` for an id the server does not know (`ER_NO_SUCH_THREAD`).
+  @override
+  Future<bool> terminateSession(String id) async {
+    final connectionId = int.tryParse(id);
+    if (connectionId == null) {
+      return false;
+    }
+    try {
+      await execute('KILL CONNECTION $connectionId');
+      return true;
+    } on MySQLServerException catch (error) {
+      if (error.errorCode == 1094) {
+        return false;
+      }
+      rethrow;
+    }
   }
 
   @override
@@ -329,6 +487,26 @@ final class MySqlDriver
   bool isUniqueConstraintError(Object error) =>
       error is MySQLServerException && error.errorCode == 1062;
 
+  /// The roots the server certificate is checked against: [securityContext],
+  /// or the system roots plus [sslCa]; null (the system roots) without
+  /// either. A CA file that cannot be read throws a [StateError] naming the
+  /// connection, the path and the settings it comes from.
+  SecurityContext? tlsContext() {
+    final ca = sslCa;
+    if (securityContext != null || ca == null) {
+      return securityContext;
+    }
+    try {
+      return SecurityContext(withTrustedRoots: true)
+        ..setTrustedCertificates(ca);
+    } on Object catch (error) {
+      throw StateError(
+        'MySQL connection [$name]: cannot read the CA file "$ca" '
+        '(DB_SSLROOTCERT or MYSQL_ATTR_SSL_CA): $error',
+      );
+    }
+  }
+
   @override
   Future<void> connect() async {
     if (_pool != null) {
@@ -342,6 +520,8 @@ final class MySqlDriver
       maxConnections: maxConnections,
       databaseName: database,
       secure: secure,
+      verifyServerCertificate: verifyServerCertificate,
+      securityContext: tlsContext(),
       collation: collation,
       timeoutMs: connectTimeout.inMilliseconds,
       allowPublicKeyRetrieval: !secure,
@@ -350,9 +530,9 @@ final class MySqlDriver
     );
     try {
       // Fail fast on bad credentials or hosts instead of at the first query.
-      // Bounded: mysql_dart opens its socket without a timeout, so a host
-      // that accepts the TCP connection and never answers the handshake
-      // would hold connect() for ever.
+      // Bounded: mysql_dart 3 opened its socket without a timeout; 4 bounds
+      // the TCP connect, TLS and authentication with timeoutMs, and this
+      // stays as a second guard until the 4.x follow-up review.
       await pool.execute('SELECT 1').timeout(connectTimeout + probeGrace);
     } catch (_) {
       await pool.close();

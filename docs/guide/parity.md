@@ -95,10 +95,19 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | Laravel | Daravel | Notes |
 | :-- | :-- | :-- |
 | `php artisan reverb:start (Laravel Reverb)` | `.withBroadcasting(...) with REVERB_APP_ID / _KEY / _SECRET` | The Pusher protocol on the HTTP port; Laravel Echo and pusher-js connect unchanged. |
+| `php artisan reverb:start --host= --port= --debug` | `dartisan reverb:start [--host] [--port] [--path] [--isolates] [--debug] (daravel_reverb)` | The Pusher server in a process of its own: broadcasting, /up and /metrics only, in worker isolates; --debug logs frames with signatures masked. |
+| `php artisan reverb:restart` | `dartisan reverb:restart (daravel_reverb)` | Each isolate closes its connections over REVERB_DRAIN_SPREAD and is spawned again. |
+| `(none)` | `createApp()..serveBroadcastingOnly(path: '/ws', auth: false, debug: false)` | Daravel-only: the same application serving only its Pusher server, /up, /up/ready and /metrics (what reverb:start runs); app.router keeps every route. |
+| `(none)` | `await app.restart()` | Daravel-only: drain and start again; a supervisor worker is spawned again at once, not counted as a crash. |
+| `config/reverb.php 'apps' => ['apps' => [...]] from .env` | `.withReverb() with REVERB_APPS (JSON) or REVERB_APPS_PROVIDER=database (daravel_reverb)` | The entries of config/reverb.php as JSON, or a reverb_apps table read per key and cached 60 s. |
 | `Echo.private('orders.42').listen('OrderShipped', cb) (laravel-echo)` | `Echo.reverb(key:, host:, auth: EchoAuth.bearer(...)).private('orders.42').listen('OrderShipped', cb) (daravel_reverb_client)` | Dart and Flutter (VM, mobile, desktop, web) against Laravel Reverb or Daravel; Echo's event names, whispers, notifications. |
 | `Echo.join('room').here(cb).joining(cb).leaving(cb)` | `echo.join('room')..here(cb)..joining(cb)..leaving(cb)` | Presence members, one join per user. |
 | `Echo.encryptedPrivate('chat.9')` | `echo.encryptedPrivate('chat.9')` | Opened with the shared_secret of /broadcasting/auth, as pusher-js. |
 | `Broadcast::channel('orders.{id}', fn ($user, $id) => ...)` | `channels.channel('orders.{id}', (user, p) => ...)` | routes/channels.php: false refuses, true admits, a map is the presence member. |
+| `(none)` | `channels.channel('orders.{id}', ..., type: 'private', events: [BroadcastEventSchema('OrderShipped', data: ...)])` | Daravel-only: channel type and event schemas for tools; dartisan route:list --channels. |
+| `config/reverb.php 'apps' => ['apps' => [...]] (Reverb)` | `.withBroadcasting(apps: ListAppProvider([BroadcastApp(id:, key:, secret:), ...]))` | Several Pusher applications on one server, each with its own secret, origins and limits; their channels are apart. |
+| `(none; Event::fake() for ShouldBroadcast events)` | `final broadcasts = Broadcast.fake(); broadcasts.assertBroadcasted<OrderShipped>(channel: 'private-orders.7')` | Daravel-only: records what would be sent (a broadcast rolled back with its transaction is not), with assertBroadcastedTimes, assertSent, assertNothingBroadcastedTo. |
+| `Reverb's Pulse recorders (reverb_connections, reverb_messages)` | `/metrics reverb_connections, reverb_channels, reverb_messages_total, reverb_fanout_seconds; Pulse's Reverb card` | REVERB_PULSE_INGEST_INTERVAL as Reverb; reported only while the isolate has connections. |
 | `class OrderShipped implements ShouldBroadcast` | `final class OrderShipped with ShouldBroadcast` | broadcastWith says what to send (no reflection); broadcast when dispatched. |
 | `broadcast(new OrderShipped($order))->toOthers()` | `await Broadcast.event(OrderShipped(order).toOthers())` | **async** |
 | `BROADCAST_CONNECTION=reverb / pusher / log / null` | `BROADCAST_CONNECTION=daravel / reverb / pusher / log / null` | **async**; daravel: this server; reverb and pusher: their HTTP API, signed as pusher-php-server. |
@@ -235,6 +244,9 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `Post::findFiltered($request, $id)` | `await Post.definition.query().findFiltered(request, id)` | **async** |
 | `class PostQueryFilter extends QueryFilter` | `final class PostQueryFilter extends QueryFilter<Post>` |  |
 | `Filter::multiLike(['title'])->alias('q')` | `Filter.multiLike(['title']).alias('q')` | default() is withDefault(); enum/in/null are enum_/in_/null_. |
+| `Filter::scope('published')` | `Filter.scope('published')` | The scope is given the request, as ScopeFilter calls $query->$method($request). |
+| `(none)` | `Filter.scopeValue('search').alias('q')` | Daravel-only: the scope is given the value, after alias and withDefault (scopeSearch($query, $term)). |
+| `(none)` | `String? get sortScope => 'sortBy';` | Daravel-only: every allowed sort without a customSorts entry calls the scope with [column, direction]; laravel-teorion routes sorts to sortBy<Column> methods (customSorts). |
 | `FilterMacroRegistry::register('phone', fn ...)` | `FilterMacroRegistry.register('phone', (q, value, param, request) {...})` |  |
 | `php artisan make:query-filter PostQueryFilter` | `dartisan make:query-filter Post` | Registered in bootstrap/query_filters.dart (no reflection). |
 
@@ -270,6 +282,10 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `Rule::unique('users')->ignore($id)->where(fn ($q) => $q->whereNull('deleted_at'))` | `Rules.unique('users').ignore(id).where((QueryBuilder q) => q.whereNull('deleted_at'))` |  |
 | `['required', 'email', 'max:255']` | `Rules.required().email().max(255)` | Chained rule objects, checked by the compiler. |
 | `'accepted' / 'accepted_if:plan,paid' / 'declined' / 'declined_if:plan,paid'` | `the same strings, or Rules.accepted() / acceptedIf('plan', ['paid']) / declined() / declinedIf(...)` |  |
+| `'missing' / 'missing_if:a,x' / 'missing_unless:a,x' / 'missing_with:a,b' / 'missing_with_all:a,b'` | `the same strings, or Rules.missing() / missingIf('a', ['x']) / missingUnless(...) / missingWith(['a', 'b']) / missingWithAll(...)` | Presence is the key's, as Arr::has: a key with a null value is present. |
+| `'present_unless:a,x' / 'present_with:a,b' / 'present_with_all:a,b'` | `the same strings, or Rules.presentUnless('a', ['x']) / presentWith(['a', 'b']) / presentWithAll(...)` |  |
+| `'prohibited_if_accepted:a' / 'prohibited_if_declined:a' / 'required_if_declined:a'` | `the same strings, or Rules.prohibitedIfAccepted('a') / prohibitedIfDeclined('a') / requiredIfDeclined('a')` |  |
+| `'required_array_keys:name,email'` | `the same string, or Rules.requiredArrayKeys(['name', 'email'])` |  |
 
 ## Eloquent
 
@@ -330,6 +346,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `DB::select($sql, $bindings)` | `await DB.select(sql, bindings)` | **async** |
 | `DB::statement($sql)` | `await DB.statement(sql)` | **async** |
 | `DB::transaction(fn)` | `await DB.transaction(() async {...})` | **async** |
+| `DB::afterRollBack(fn)` | `DB.afterRollback(fn)` | Runs when the active level rolls back and before a transaction(attempts:) retry; a released savepoint passes its callbacks to the level around it (Laravel drops them). |
 | `DB_CONNECTION=mysql / mariadb` | `withDatabaseDriver('mysql', MySqlDriver.fromConfig)` | package:daravel_mysql; registered by new projects. |
 | `DB::connection('legacy')->table('orders')` | `DB.table('orders', connection: 'legacy')` |  |
 | `DB_URL=postgres://user:pass@host/db (ConfigurationUrlParser)` | `DB_URL, ConnectionConfig.withUrl(url)` | Merged like Laravel 12: URL parts replace DB_* values, the rest stay. |
@@ -340,6 +357,9 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `DB::listen(...) for transactions` | `DB.listenTransactions((e) {...})` | with poolWait |
 | `DB::listen(fn (QueryExecuted $q) => ...)` | `DB.listen((QueryExecuted q) {...})` |  |
 | `DB::whenQueryingForLongerThan(500, fn)` | `DB.whenQueryingForLongerThan(const Duration(milliseconds: 500), (q) {...})` | Total per request, job or command; once. |
+| `(none)` | `DB_IDLE_TRANSACTION_TIMEOUT=15` | Daravel-only: the server ends a session idle inside a transaction this long (PostgreSQL, MariaDB; MySQL has no such setting). |
+| `(none)` | `DB.manager.openSessions(); (driver as SessionTerminatingDriver).terminateSession(id)` | **async**; Daravel-only: ends the server session of a connection left inside a transaction (pg_terminate_backend, KILL CONNECTION), for supervisors that kill isolates. |
+| `(none)` | `app.overrideEnv({...}) before app.boot()` | Daravel-only: environment overrides for a host given a built Application (a worker isolate, a test harness); they win over withEnv. |
 | `DB::enableQueryLog(); ... count(DB::getQueryLog())` | `final (result, count, queries) = await DB.withQueryCount(() => ...)` |  |
 | `->whereToday('starts_at') / wherePast / whereFuture / whereBeforeToday` | `.whereToday('starts_at') / wherePast / whereFuture / whereBeforeToday` | Against Clock.now(). |
 | `->insertGetId($values)` | `await DB.table(t).insertGetId(values)` | **async** |
@@ -410,6 +430,8 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `public function tags() (Horizon)` | `List<String> get tags` |  |
 | `Queue::size('default')` | `await Queue.connection().size('default')` | **async** |
 | `(none)` | `await (Queue.connection() as BrowsableQueueDriver).pending('default', limit: 50)` | **async**; Daravel-only: the waiting jobs of a queue without reserving them (memory, database, redis), for queue dashboards such as daravel_horizon. |
+| `php artisan queue:retry {id\|all}` | `await App.make<QueueManager>().retryFailed(uuid) / retryAllFailed()` | **async**; What queue:retry and the Horizon dashboard's retry use. |
+| `Horizon's routes/web.php (horizon.stats.index, horizon.failed-jobs.show, horizon.retry-jobs.show, ...)` | `.withHorizon(createApp: createApp, middleware: ['auth', 'can:viewHorizon'])` | daravel_horizon: the same route names under HORIZON_PATH, plus horizon.stream (server-sent events) and horizon.retry-all; batches wait for a core batch repository. |
 | `(none)` | `await (Queue.connection() as ReclaimableQueueDriver).reclaim('default', jobId)` | **async**; Daravel-only: a reserved job of a worker known to be gone is available again at once, attempts kept, instead of after retry_after. |
 | `(none)` | `worker.reassign(['high', 'default'])` | Daravel-only: a running worker polls other queues from its next job on (daravel_horizon auto-scaling). |
 | `php artisan queue:pause database:default / queue:continue` | `dartisan queue:pause database:default / queue:continue` |  |

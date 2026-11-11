@@ -91,9 +91,11 @@ frozen after boot.
 | `REVERB_ENCRYPTION_MASTER_KEY_BASE64` | none | 32 bytes in base64 that `private-encrypted-` channels are encrypted with (`PUSHER_ENCRYPTION_MASTER_KEY_BASE64` with `pusher`) |
 | `DB_CHARSET`, `DB_COLLATION`, `DB_TIMEZONE` | `utf8mb4`, `utf8mb4_unicode_ci`, server | MySQL and MariaDB, as Laravel reads them |
 | `DB_STRICT`, `DB_SQL_MODES`, `DB_ISOLATION_LEVEL` | server's | MySQL and MariaDB session settings, as Laravel's `'strict'`, `'modes'` and `'isolation_level'` ([Database](database.md)) |
-| `DB_POOL_SIZE`, `DB_SSLMODE` | `10`, `disable` | Connection pool per isolate, TLS (`require`, `verify-full`) |
+| `DB_POOL_SIZE`, `DB_SSLMODE` | `10`, unset | Connection pool per isolate; TLS: `disable`, `require` (encrypted, not checked), `verify-full` ([Database](database.md#tls-to-the-database-server)) |
+| `DB_SSLROOTCERT` (MySQL also `MYSQL_ATTR_SSL_CA`) | | CA file that signed the database server certificate; on MySQL and MariaDB, given without `DB_SSLMODE` it means `verify-full` |
 | `DB_SEARCH_PATH` (or `DB_SCHEMA`) | server's | PostgreSQL schemas of every connection (`billing, hr, public`), Laravel's `'search_path'` |
 | `DB_CONNECT_TIMEOUT`, `DB_QUERY_TIMEOUT` | `10`, `30` | Seconds a PostgreSQL or MySQL connection may take to open, and a statement to run (`0` for none; a stuck statement would otherwise hold its pooled connection for ever) |
+| `DB_IDLE_TRANSACTION_TIMEOUT` | none | Seconds a PostgreSQL or MariaDB session may stay idle inside a transaction before the server ends it and rolls back (`0` for none; MySQL has no such setting) ([Database](database.md#transactions-left-open)) |
 | `CACHE_STORE`, `CACHE_PREFIX` | `memory` | Cache store (`memory`, `process`, `file`, `database`, `redis`; Laravel's `array` is `memory`) and key prefix |
 | `CACHE_PROCESS_MAX_ENTRIES` | `10000` | Entries the `process` store keeps for the whole server; the least recently used go first, so raise it when it holds many keys that must last until they expire (per-client counters), or keep those in `database` or Redis |
 | `JWT_DENYLIST_MAX_ENTRIES` | `100000` | Revoked JWT ids kept for the whole server when the cache store is in memory, in a store of their own that application keys cannot evict; expired ids go first, and dropping a live one logs a warning once ([Authentication](auth.md)) |

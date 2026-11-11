@@ -1,4 +1,4 @@
-<!-- source: database.md sha256:e3048ae21715 -->
+<!-- source: database.md sha256:1563d273a438 -->
 # Database
 
 `DB_CONNECTION` memilih SQLite (`sqlite`, default), PostgreSQL (`pgsql`),
@@ -120,6 +120,44 @@ Laravel sendiri:
 
 Seperti di Laravel, `DB_URL` berlaku untuk setiap koneksi bawaan, dan
 `DB_CONNECTION` memilih mana yang dipakai.
+
+### TLS ke server database
+
+`DB_SSLMODE` (atau `?sslmode=` di `DB_URL`) mengatur TLS untuk PostgreSQL
+dan MySQL/MariaDB, dengan nama-nama libpq:
+
+| `DB_SSLMODE` | PostgreSQL | MySQL dan MariaDB |
+| :-- | :-- | :-- |
+| `disable` (MySQL: `DISABLED`) | tanpa TLS | tanpa TLS |
+| `require` (MySQL: `REQUIRED`, `PREFERRED`) | TLS, sertifikat tidak diperiksa | TLS, sertifikat tidak diperiksa, kecuali CA diberikan |
+| `verify-full` (MySQL: `VERIFY_IDENTITY`, `VERIFY_CA`, `verify-ca`) | TLS, sertifikat dan nama host diperiksa | TLS, sertifikat dan nama host diperiksa |
+| tidak diisi | tanpa TLS | tanpa TLS; dengan CA, seperti `verify-full` |
+| nilai lain | tanpa TLS | berawalan `verify`: seperti `verify-full`; selain itu seperti `require`; keduanya dengan peringatan saat boot |
+
+`require` mengenkripsi lalu lintas tetapi tidak menghentikan penyerang
+aktif: siapa pun di antara aplikasi dan server bisa menyodorkan
+sertifikatnya sendiri lalu membaca password dan data. Pakai `verify-full`
+di produksi.
+
+MySQL dan MariaDB mengambil CA yang menandatangani sertifikat server dari
+`DB_SSLROOTCERT`, atau dari `MYSQL_ATTR_SSL_CA`, nama di
+`config/database.php` Laravel, sehingga `.env` bersama bekerja untuk
+keduanya. Seperti PDO MySQL, CA tanpa `DB_SSLMODE` berarti server
+diverifikasi. `verify-ca` diperiksa seketat `verify-full`: lapisan TLS Dart
+melaporkan rantai yang salah dan nama host yang salah dengan cara yang
+sama, sehingga pemeriksaan host tidak bisa dilewati.
+
+```dotenv
+DB_CONNECTION=mysql
+DB_HOST=db.internal
+DB_SSLMODE=verify-full
+DB_SSLROOTCERT=/etc/ssl/db-ca.pem
+```
+
+Server di Docker atau di host yang sama sering memakai sertifikat yang
+dibangkitkan MySQL atau MariaDB saat pertama kali jalan, yang tidak
+ditandatangani CA mana pun: `require` tersambung ke server itu,
+`verify-full` menolaknya sebelum password dikirim.
 
 ### Beberapa database sekaligus
 
@@ -589,6 +627,31 @@ mengulang.
 `query.poolWait` pada `DB.listen` adalah waktu menunggu koneksi, terpisah dari
 `query.time`: nilai tinggi berarti pool terlalu kecil, bukan database yang lambat.
 Nilainya nol di dalam transaksi, yang memegang koneksinya sendiri, dan di SQLite.
+
+## Transaksi yang tertinggal terbuka
+
+Koneksi yang pemiliknya berhenti di tengah transaksi tetap terbuka di server,
+menganggur di dalam transaksi itu, dan tetap memegang lock barisnya: server
+baru melakukan rollback saat koneksi ditutup. Membunuh isolate tidak menutup
+socket-nya selama prosesnya masih hidup, sehingga worker isolate yang dibunuh
+di tengah transaksi memblokir semua penulisan berikutnya ke baris yang
+disentuhnya.
+
+`DB_IDLE_TRANSACTION_TIMEOUT` (detik, tidak di-set secara default) meminta
+server mengakhiri session seperti itu, pada setiap koneksi pool:
+`idle_in_transaction_session_timeout` di PostgreSQL dan
+`idle_transaction_timeout` di MariaDB (10.3+). MySQL tidak punya pengaturan
+seperti ini dan mengabaikannya (`dartisan doctor` menyebutkannya). Set nilainya
+di atas jeda terlama yang dibuat kode Anda sendiri di dalam transaksi, karena
+server juga memutus transaksi sah yang menganggur lebih lama dari itu.
+
+Supervisor yang membunuh isolate sendiri dapat langsung mengakhiri session
+isolate itu: `DB.manager.openSessions()` mendaftar id server dari koneksi
+yang terbuka (pid backend, id koneksi), yang dilaporkan worker sebelumnya, dan
+driver yang mengimplementasikan `SessionTerminatingDriver` (PostgreSQL, MySQL,
+dan MariaDB) mengakhirinya dengan `terminateSession(id)`
+(`pg_terminate_backend`, `KILL CONNECTION`) dari koneksinya sendiri.
+`daravel_horizon` melakukan keduanya.
 
 ## Mendengarkan query
 

@@ -4,6 +4,8 @@ import 'dart:math' as math;
 import '../foundation/cancellation.dart';
 import '../foundation/clock.dart';
 import '../foundation/container.dart';
+import '../foundation/detached.dart';
+import '../foundation/shared_result.dart';
 import '../foundation/exceptions.dart';
 import '../logging/logger.dart';
 import 'database_config.dart';
@@ -53,6 +55,10 @@ final class DatabaseManager {
   /// Zone key marking the callbacks list of a test baseline transaction.
   static const Object baselineKey = #daravelBaselineTransaction;
 
+  /// Zone key holding the rollback callbacks of the active transaction
+  /// level ([afterRollback]).
+  static const Object afterRollbackKey = #daravelAfterRollback;
+
   /// Zone key tracking the savepoint depth of the active transaction.
   static const Symbol depthKey = #daravel.txDepth;
 
@@ -63,8 +69,11 @@ final class DatabaseManager {
   final DatabaseConfig config;
   final Logger? _logger;
   final Map<String, DatabaseDriver> _connections = <String, DatabaseDriver>{};
-  final Map<String, Future<DatabaseDriver>> _connecting =
-      <String, Future<DatabaseDriver>>{};
+  // Shared by the requests that ask while it opens: a SharedResult, so a
+  // connection that fails to open fails every one of them (a failing
+  // future would hang those waiting from another request's zone).
+  final Map<String, SharedResult<DatabaseDriver>> _connecting =
+      <String, SharedResult<DatabaseDriver>>{};
 
   /// A separate manager whose only (and default) connection is [connection]
   /// under [name], with this manager's registered drivers: for tools that
@@ -80,6 +89,21 @@ final class DatabaseManager {
         drivers: _driverFactories,
       );
 
+  /// The server sessions the open connections hold, by connection name, for
+  /// the drivers that can end them from elsewhere
+  /// ([SessionTerminatingDriver]); connections not opened yet and other
+  /// drivers are left out.
+  Map<String, List<String>> openSessions() => <String, List<String>>{
+    for (final MapEntry(:key, :value) in _connections.entries)
+      if (value case final SessionTerminatingDriver driver)
+        if (driver.sessionIds() case final ids when ids.isNotEmpty) key: ids,
+  };
+
+  /// A connection in logs: its name, then its driver (`[sqlite] (pgsql)`
+  /// when `DB_URL` gives the connection named `sqlite` a PostgreSQL URL).
+  String _described(String name) =>
+      '[$name] (${config.connections[name]?.driver ?? 'unknown'})';
+
   /// Returns the (lazily connected) driver for [name] or the default
   /// connection.
   Future<DatabaseDriver> connection([String? name]) {
@@ -90,24 +114,34 @@ final class DatabaseManager {
     }
     final pending = _connecting[connectionName];
     if (pending != null) {
-      return pending;
+      return pending.value;
     }
     // In a microtask, so that it is registered below before it can finish:
     // a factory that throws (a secret not there yet) ended it at once, its
     // `finally` removed nothing, and the failure stayed cached for good.
-    final future = Future<DatabaseDriver>.microtask(() async {
-      try {
-        final driver = _createDriver(connectionName);
-        await driver.connect();
-        _connections[connectionName] = driver;
-        _logger?.debug('Database connection [$connectionName] opened.');
-        return driver;
-      } finally {
-        unawaited(_connecting.remove(connectionName));
-      }
-    });
-    _connecting[connectionName] = future;
-    return future;
+    // Detached: the connection outlives the request that opens it, and its
+    // socket's listeners would live on in that request's zone (its log
+    // context, its cancellation token; Review #149).
+    final shared = SharedResult<DatabaseDriver>(
+      () => runDetachedAsync(
+        () => Future<DatabaseDriver>.microtask(() async {
+          try {
+            final driver = _createDriver(connectionName);
+            await driver.connect();
+            _connections[connectionName] = driver;
+            _logger?.debug(
+              'Database connection ${_described(connectionName)} opened.',
+            );
+            return driver;
+          } finally {
+            _connecting.remove(connectionName);
+          }
+        }),
+        name: 'database connection [$connectionName]',
+      ).value,
+    );
+    _connecting[connectionName] = shared;
+    return shared.value;
   }
 
   // Copied on write: a query reads them without copying, and a listener
@@ -454,6 +488,7 @@ final class DatabaseManager {
     var wait = retryBaseDelay;
     for (var attempt = 1; ; attempt++) {
       final callbacks = <FutureOr<void> Function()>[];
+      final rollbacks = <FutureOr<void> Function()>[];
       final T result;
       final probe = PoolWaitProbe();
       final watch = Stopwatch();
@@ -476,6 +511,7 @@ final class DatabaseManager {
               _scopeKey: scope,
               depthKey: 1,
               afterCommitKey: callbacks,
+              afterRollbackKey: rollbacks,
             },
           ),
           timeout,
@@ -490,6 +526,11 @@ final class DatabaseManager {
           );
         }
       } catch (error) {
+        // Rolled back: what the body did for this attempt is undone (a
+        // unique lock taken at dispatch), before any retry runs the body
+        // again. Their errors are logged; the transaction's is the one the
+        // caller sees.
+        await _runRollbackCallbacks(rollbacks);
         // No connection, no BEGIN: nothing to pair a rollback with.
         if (begun) {
           _notifyTransaction(
@@ -512,11 +553,8 @@ final class DatabaseManager {
       }
       // Committed. The callbacks run outside the retry above: one that
       // fails with a deadlock or busy error (a query of its own) must not
-      // run the body, and its writes, a second time. As in Laravel, the
-      // first callback to throw stops the rest and surfaces to the caller.
-      for (final callback in callbacks) {
-        await callback();
-      }
+      // run the body, and its writes, a second time.
+      await _runAfterCommitCallbacks(callbacks);
       return result;
     }
   }
@@ -587,6 +625,7 @@ final class DatabaseManager {
       final depth = transactionDepth + 1;
       final name = 'daravel_sp_$depth';
       final callbacks = <FutureOr<void> Function()>[];
+      final rollbacks = <FutureOr<void> Function()>[];
       final scope = _TransactionScope(tx, this, parent.connectionName, parent);
       try {
         await tx.execute('SAVEPOINT $name');
@@ -605,6 +644,7 @@ final class DatabaseManager {
               _scopeKey: scope,
               depthKey: depth,
               afterCommitKey: callbacks,
+              afterRollbackKey: rollbacks,
             },
           ),
           timeout,
@@ -621,12 +661,18 @@ final class DatabaseManager {
         final pending =
             Zone.current[afterCommitKey] as List<FutureOr<void> Function()>?;
         if (pending != null && identical(pending, Zone.current[baselineKey])) {
-          // The app-level transaction "committed" inside a test baseline.
-          for (final callback in callbacks) {
-            await callback();
-          }
+          // The app-level transaction "committed" inside a test baseline:
+          // its rollback callbacks are dropped with it.
+          await _runAfterCommitCallbacks(callbacks);
         } else {
           pending?.addAll(callbacks);
+          // Released, not committed: a rollback of the level around it
+          // still undoes what it did. Laravel drops these (a committed
+          // savepoint's rollback callbacks never run when its parent rolls
+          // back, `DatabaseTransactionsManager::removeCommittedTransactions
+          // ThatAreChildrenOf`); Daravel keeps them on purpose (ACK 245).
+          (Zone.current[afterRollbackKey] as List<FutureOr<void> Function()>?)
+              ?.addAll(rollbacks);
         }
         return result;
       } catch (error, stack) {
@@ -657,6 +703,7 @@ final class DatabaseManager {
             error,
           ),
         );
+        await _runRollbackCallbacks(rollbacks);
         Error.throwWithStackTrace(error, stack);
       }
     });
@@ -674,6 +721,68 @@ final class DatabaseManager {
       return;
     }
     pending.add(callback);
+  }
+
+  /// Runs [callback] if the active transaction level (a savepoint, or the
+  /// transaction itself) rolls back, before a retry of
+  /// `transaction(attempts:)` runs the body again: to undo what the body
+  /// did outside the database, such as a unique lock taken at dispatch
+  /// (Laravel's `addCallbackForRollback`). A savepoint that is released
+  /// passes its callbacks to the level around it, so that level's rollback
+  /// still runs them; a commit drops them. Outside a transaction (or
+  /// directly inside a test baseline, which is not the application's) it
+  /// does nothing. A callback that throws is logged and the others still
+  /// run; the error that caused the rollback is the one the caller sees.
+  void afterRollback(FutureOr<void> Function() callback) {
+    if (!inTransaction) {
+      return;
+    }
+    final pending =
+        Zone.current[afterRollbackKey] as List<FutureOr<void> Function()>?;
+    pending?.add(callback);
+  }
+
+  Future<void> _runRollbackCallbacks(
+    List<FutureOr<void> Function()> callbacks,
+  ) async {
+    for (final callback in callbacks) {
+      try {
+        await callback();
+      } on Object catch (error, stackTrace) {
+        _logger?.error(
+          'A transaction rollback callback failed',
+          error: error,
+          stackTrace: stackTrace,
+        );
+      }
+    }
+    callbacks.clear();
+  }
+
+  /// Runs every after-commit callback even when one throws: each error is
+  /// logged, and the first is rethrown to the caller of `transaction()`
+  /// once all have run. Laravel stops at the first (`executeCallbacks` is a
+  /// plain `foreach`); with unique locks taken at dispatch that would leave
+  /// the next job unpushed and its lock held until `uniqueFor`.
+  Future<void> _runAfterCommitCallbacks(
+    List<FutureOr<void> Function()> callbacks,
+  ) async {
+    (Object, StackTrace)? first;
+    for (final callback in callbacks) {
+      try {
+        await callback();
+      } on Object catch (error, stackTrace) {
+        _logger?.error(
+          'An after-commit callback failed',
+          error: error,
+          stackTrace: stackTrace,
+        );
+        first ??= (error, stackTrace);
+      }
+    }
+    if (first case (final error, final stackTrace)) {
+      Error.throwWithStackTrace(error, stackTrace);
+    }
   }
 
   /// Runs [body] in a transaction that is always rolled back (Laravel
@@ -741,7 +850,9 @@ final class DatabaseManager {
     for (final driver in drivers) {
       try {
         await driver.close().timeout(timeout);
-        _logger?.debug('Database connection [${driver.name}] closed.');
+        _logger?.debug(
+          'Database connection ${_described(driver.name)} closed.',
+        );
       } on TimeoutException {
         _logger?.warning(
           'Database connection [${driver.name}] did not close within '

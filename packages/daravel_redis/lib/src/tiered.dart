@@ -53,7 +53,10 @@ final class RedisInvalidations {
       return;
     }
     _started = true;
-    unawaited(_run());
+    // Detached: the loop (its connections, keep-alive timers and reconnects)
+    // outlives the request whose first read starts it (Review #149). It
+    // ends once the client closes.
+    runDetached(() => unawaited(_run()), name: 'redis cache invalidations');
   }
 
   Future<void> _run() async {

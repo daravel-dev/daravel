@@ -322,6 +322,22 @@ void main() {
     },
   );
 
+  test('1001 (goingAway: a server draining for a rolling restart): '
+      'reconnects and subscribes again', () async {
+    // What a Daravel or Reverb worker going down sends to its clients, at
+    // a random moment within the drain spread: the client reconnects
+    // (to another worker) after a backoff, as for a lost connection.
+    final client = echo(base: const Duration(milliseconds: 20));
+    client.channel('news');
+    await connected(client);
+    await server.next((f) => subscribeTo(f, 'news'));
+    final first = client.socketId;
+    await server.drop(1001);
+    await server.next((f) => subscribeTo(f, 'news'), skip: 1);
+    expect(client.socketId, isNot(first));
+    expect(client.connectionState, EchoConnectionState.connected);
+  });
+
   test('4200-4299: reconnects at once', () async {
     final client = echo(base: const Duration(seconds: 5));
     await connected(client);

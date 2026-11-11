@@ -1,0 +1,10 @@
+## publish ceiling, ops/s: median (min-max) [diff vs main]
+x1: main 170.1k (160-170) | k1b 159.9k (156-172) [-6.0 %] | a 166.4k (160-172) [-2.2 %] | b 168.1k (160-169) [-1.2 %]
+x8: main 57.7k (57-60) | k1b 56.9k (57-57) [-1.4 %] | a 54.9k (54-57) [-4.9 %] | b 56.6k (56-60) [-1.9 %]
+x16: main 40.7k (40-41) | k1b 44.0k (44-45) [8.2 %] | a 43.3k (42-45) [6.3 %] | b 44.6k (44-45) [9.6 %]
+
+## saturation
+main: p99 rate under flood [32494, 29540, 39318] us; alone [73, 73, 80]; publish/s [40813, 42365, 41630]; refused [0, 0, 0]; errors [0, 0, 0]
+k1b: p99 rate under flood [3992, 3992, 4391] us; alone [80, 80, 97]; publish/s [162757, 165976, 154593]; refused [0, 0, 0]; errors [0, 0, 0]
+a: p99 rate under flood [3992, 3992, 3629] us; alone [80, 80, 80]; publish/s [163877, 163969, 168244]; refused [0, 0, 0]; errors [0, 0, 0]
+b: p99 rate under flood [4830, 4391, 4830] us; alone [80, 80, 80]; publish/s [102495, 109138, 106835]; refused [0, 0, 0]; errors [0, 0, 0]

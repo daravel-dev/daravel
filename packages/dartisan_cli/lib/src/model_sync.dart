@@ -219,25 +219,150 @@ String _postgresType(String dataType) => switch (dataType) {
   _ => 'Object',
 };
 
+/// The members of `Object`, which a record field may not be named after.
+const Set<String> _objectMembers = <String>{
+  'hashCode',
+  'runtimeType',
+  'toString',
+  'noSuchMethod',
+};
+
+/// Dart's reserved words, which are not identifiers at all.
+const Set<String> _reservedWords = <String>{
+  'assert', 'break', 'case', 'catch', 'class', 'const', 'continue', //
+  'default', 'do', 'else', 'enum', 'extends', 'false', 'final', 'finally',
+  'for', 'if', 'in', 'is', 'new', 'null', 'rethrow', 'return', 'super',
+  'switch', 'this', 'throw', 'true', 'try', 'var', 'void', 'while', 'with',
+};
+
+/// What `model:sync` names one column: its accessor [getter] (null when the
+/// column gets none) and its [field] in the `cols` record.
+typedef ColumnNames = ({ColumnInfo column, String? getter, String field});
+
+/// The names of [columns], from one rule so `user.x` and `User.cols.x`
+/// always mean the same column: a column whose camelCase name is free and
+/// not reserved gets that name as its accessor and its `cols` field. The
+/// others (a `Model` member, a keyword, a name an earlier column took) get
+/// no accessor, and a `cols` field from [Naming.camel] made valid for a
+/// record: `c` before a leading digit, `Column` after an `Object` member, a
+/// reserved word or a taken name, then a number until it is free. The
+/// result follows the order of [columns], so it is the same on every sync.
+List<ColumnNames> columnNames(List<ColumnInfo> columns) {
+  final taken = <String>{};
+  final getters = <String?>[
+    for (final column in columns)
+      switch (Naming.camel(column.name)) {
+        final name
+            when _identifier.hasMatch(name) &&
+                !reservedAccessors.contains(name) &&
+                !_objectMembers.contains(name) &&
+                taken.add(name) =>
+          name,
+        _ => null,
+      },
+  ];
+  return [
+    for (var i = 0; i < columns.length; i++)
+      (
+        column: columns[i],
+        getter: getters[i],
+        field: getters[i] ?? _freeField(Naming.camel(columns[i].name), taken),
+      ),
+  ];
+}
+
+/// A Dart identifier that is not private (no leading `_` or digit).
+final RegExp _identifier = RegExp(r'^[A-Za-z$][A-Za-z0-9_$]*$');
+
+String _freeField(String camel, Set<String> taken) {
+  var base = camel.isEmpty ? 'column' : camel;
+  if (RegExp(r'^[0-9]').hasMatch(base)) {
+    base = 'c$base';
+  }
+  if (_objectMembers.contains(base) || _reservedWords.contains(base)) {
+    base = '${base}Column';
+  }
+  var name = base;
+  if (taken.contains(name)) {
+    name = '${base}Column';
+  }
+  for (var n = 2; taken.contains(name); n++) {
+    name = '${base}Column$n';
+  }
+  taken.add(name);
+  return name;
+}
+
+/// The Dart type `model:sync` gives [column] of [model]: its cast or
+/// database type, nullable as the column is; [idType] for the primary key
+/// with `--typed-ids`.
+String columnType(
+  ModelSource model,
+  ColumnInfo column, {
+  SqlDialect dialect = SqlDialect.sqlite,
+  String? idType,
+}) {
+  if (idType != null && column.name == model.primaryKey) {
+    return idType;
+  }
+  final mapped = dartTypeFor(
+    column,
+    model.casts[column.name],
+    dialect: dialect,
+  );
+  return mapped.type == 'Object'
+      ? 'Object?'
+      : (column.nullable ? '${mapped.type}?' : mapped.type);
+}
+
+/// The `static const cols = (...)` lines of [model] for [names]: one typed
+/// column token per column (`User.cols.email`). Empty without columns.
+List<String> colsLines(
+  ModelSource model,
+  List<ColumnNames> names, {
+  SqlDialect dialect = SqlDialect.sqlite,
+  String? idType,
+}) => names.isEmpty
+    ? const <String>[]
+    : [
+        '  /// The columns of `${model.table}`, for typed queries: '
+            '`${model.className}.cols.${names.first.field}`.',
+        '  static const cols = (',
+        for (final (:column, getter: _, :field) in names)
+          '    $field: ModelColumn<${model.className}, '
+              '${columnType(model, column, dialect: dialect, idType: idType)}>'
+              "('${column.name}'),",
+        '  );',
+      ];
+
 /// Accessor lines for [columns] (getters for all, setters except for the
 /// primary key and timestamps), typed for the [dialect] the columns come
-/// from. With [idType] (`--typed-ids`) the primary key getter returns that
-/// extension type instead.
+/// from, after the `cols` record of [colsLines]. With [idType]
+/// (`--typed-ids`) the primary key getter returns that extension type
+/// instead.
 AccessorPlan planAccessors(
   ModelSource model,
   List<ColumnInfo> columns, {
   SqlDialect dialect = SqlDialect.sqlite,
   String? idType,
 }) {
-  final lines = <String>[];
+  final names = columnNames(columns);
+  final lines = <String>[
+    ...colsLines(model, names, dialect: dialect, idType: idType),
+  ];
   final warnings = <String>[];
   const readOnly = {'created_at', 'updated_at', 'deleted_at'};
-  for (final column in columns) {
-    final getter = Naming.camel(column.name);
-    if (getter.isEmpty || reservedAccessors.contains(getter)) {
+  for (final (:column, :getter, :field) in names) {
+    if (getter == null) {
+      final camel = Naming.camel(column.name);
       warnings.add(
-        'Skipped column [${column.name}]: accessor `$getter` clashes with a '
-        'Model member or keyword.',
+        names.any((other) => other.getter == camel)
+            ? 'Skipped column [${column.name}]: accessor `$camel` is '
+                  'already the accessor of another column; use '
+                  '${model.className}.cols.$field.'
+            : 'Skipped column [${column.name}]: accessor `$camel` clashes '
+                  'with a Model member or keyword, or is not a Dart name; '
+                  'use ${model.className}.cols.$field.',
       );
       continue;
     }
@@ -249,11 +374,7 @@ AccessorPlan planAccessors(
     if (mapped.hint != null) {
       warnings.add('Column [${column.name}]: ${mapped.hint}.');
     }
-    final type = idType != null && column.name == model.primaryKey
-        ? idType
-        : mapped.type == 'Object'
-        ? 'Object?'
-        : (column.nullable ? '${mapped.type}?' : mapped.type);
+    final type = columnType(model, column, dialect: dialect, idType: idType);
     if (column.defaultValue != null &&
         !type.endsWith('?') &&
         !column.autoIncrement &&

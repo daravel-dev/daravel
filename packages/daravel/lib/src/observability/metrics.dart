@@ -420,7 +420,19 @@ Map<String, Object?> _decodeSnapshot(Object wire) => wire is String
 /// previous one stays), so one worker cannot make every scrape merge and
 /// render megabytes on the supervisor's event loop. A worker that exits is
 /// forgotten, so its last `http_requests_in_flight` is not served on.
-final class MetricsService implements CoordinatorService, WorkerAwareService {
+final class MetricsService
+    with PrioritizedService
+    implements CoordinatorService, WorkerAwareService {
+  /// Bulk: put off while lagging, refused while saturated.
+  @override
+  // One collect per scrape, answered at once: /metrics must work when the
+  // coordinator is overloaded, which is when it is needed. Each worker's
+  // periodic publish is what may wait or be dropped.
+  CoordinatorPriority get priority => CoordinatorPriority.critical;
+
+  @override
+  Set<String> get bulkOperations => const {'publish'};
+
   /// A service merging the workers' metrics.
   MetricsService({
     this.coordinatorStats,
@@ -500,6 +512,58 @@ final class MetricsService implements CoordinatorService, WorkerAwareService {
         'The longest a message waited in the coordinator event loop.',
         'queue_lag_peak_ms',
       ),
+      // Blueprint #141 §6.6: a wait that was no queue (a busy host, a GC
+      // pause, a late timer), never a reason to refuse work.
+      'coordinator_starved_seconds': seconds(
+        'How long the coordinator last waited for CPU with no queue behind.',
+        'starved_ms',
+      ),
+      'coordinator_starved_peak_seconds': seconds(
+        'The longest the coordinator waited for CPU with no queue behind.',
+        'starved_peak_ms',
+      ),
+      // Blueprint #141 K1.
+      'coordinator_health': <String, Object?>{
+        'type': 'gauge',
+        'help':
+            'The coordinator state (1 for the current one: healthy, '
+            'lagging, saturated).',
+        'series': <String, Object?>{
+          for (final s in CoordinatorState.values)
+            'state="${s.name}"': s.name == stats['state'] ? 1.0 : 0.0,
+        },
+      },
+      'coordinator_deferred': metric(
+        'gauge',
+        'Calls put off by the coordinator while lagging or saturated.',
+        'deferred',
+      ),
+      'coordinator_deferred_peak': metric(
+        'gauge',
+        'The most calls put off at once.',
+        'deferred_peak',
+      ),
+      'coordinator_shed_total': <String, Object?>{
+        'type': 'counter',
+        'help':
+            'Calls refused while the coordinator was saturated, by service.',
+        'series': <String, Object?>{
+          for (final MapEntry(:key, :value)
+              in ((stats['shed'] as Map<String, Object?>?) ?? const {}).entries)
+            'service="$key"': (value! as num).toDouble(),
+        },
+      },
+      'coordinator_served_total': <String, Object?>{
+        'type': 'counter',
+        'help': 'Calls the coordinator answered, by priority.',
+        'series': <String, Object?>{
+          for (final MapEntry(:key, :value)
+              in ((stats['served_by_priority'] as Map<String, Object?>?) ??
+                      const {})
+                  .entries)
+            'priority="$key"': (value! as num).toDouble(),
+        },
+      },
     };
   }
 
@@ -625,6 +689,31 @@ final class AppMetrics {
       'reverb_rate_limited_total',
       'Pusher messages refused with 4301 Rate limit exceeded, by app.',
     );
+    broadcastShed = registry.counter(
+      'broadcast_shed_total',
+      'Broadcasts dropped because the coordinator could not take them, by '
+          'reason (overloaded, timeout).',
+    );
+    reverbConnections = registry.gauge(
+      'reverb_connections',
+      'Open Pusher connections, by app and worker isolate.',
+    );
+    reverbChannels = registry.gauge(
+      'reverb_channels',
+      'Pusher channel subscriptions, by app and channel type (public, '
+          'private, presence, encrypted).',
+    );
+    reverbMessages = registry.counter(
+      'reverb_messages_total',
+      'Pusher messages, by app and direction (in: from clients, out: frames '
+          'sent to clients).',
+    );
+    reverbFanout = registry.histogram(
+      'reverb_fanout_seconds',
+      'Time to hand one frame to every isolate (and the other servers) '
+          'subscribed to its channel, by app.',
+      buckets: coordinatorBuckets,
+    );
     registry.counter(
       'log_lines_dropped_total',
       'Log lines dropped because the output (stdout, stderr, the log file) '
@@ -654,6 +743,53 @@ final class AppMetrics {
           calls.observe(roundTrip.inMicroseconds / 1e6, {'service': service});
       remote.onCallTimeout = (String service) =>
           timeouts.inc({'service': service});
+      // Blueprint #141 K1: what the coordinator last said of its health,
+      // and the calls this worker failed at once instead of waiting.
+      final state = registry.gauge(
+        'coordinator_state',
+        'The coordinator state this worker last heard (1 for the current '
+            'one: healthy, lagging, saturated).',
+      );
+      final shortCircuits = registry.counter(
+        'coordinator_short_circuit_total',
+        'Coordinator calls this worker failed at once because the '
+            'coordinator was saturated, by service.',
+      );
+      void showState(CoordinatorState current) {
+        for (final s in CoordinatorState.values) {
+          state.set(s == current ? 1 : 0, {'state': s.name});
+        }
+      }
+
+      showState(remote.coordinatorState);
+      // Blueprint #141 K1b: bulk calls a full buffer dropped or refused
+      // (worker reports, metrics snapshots and Horizon records are dropped
+      // without telling their callers, so this is their only trace;
+      // Review #153), and the window and buffer as they are now.
+      final dropped = registry.counter(
+        'coordinator_bulk_dropped_total',
+        'Bulk calls this worker dropped or refused because its bulk buffer '
+            'was full, by service and overflow policy.',
+      );
+      registry
+        ..gauge(
+          'coordinator_bulk_waiting',
+          'Bulk calls of this worker waiting for credit.',
+          collect: () => remote.bulkWaiting.toDouble(),
+        )
+        ..gauge(
+          'coordinator_bulk_in_flight',
+          'Bulk calls of this worker sent and not answered yet.',
+          collect: () => remote.bulkInFlight.toDouble(),
+        );
+      remote
+        ..onStateChange = showState
+        ..onShortCircuit = (String service) {
+          shortCircuits.inc({'service': service});
+        }
+        ..onBulkOverflow = (String service, BulkOverflow overflow) {
+          dropped.inc({'service': service, 'overflow': overflow.name});
+        };
     }
   }
 
@@ -703,6 +839,42 @@ final class AppMetrics {
 
   /// Pusher messages refused for a rate limit.
   late final Counter reverbRateLimited;
+
+  /// Broadcasts dropped because the coordinator could not take them.
+  late final Counter broadcastShed;
+
+  /// Counts one broadcast dropped for [reason] (`overloaded`, `timeout`).
+  void recordBroadcastShed(String reason) =>
+      broadcastShed.inc({'reason': reason});
+
+  /// Open Pusher connections (`reverb_connections{app,worker}`).
+  late final Gauge reverbConnections;
+
+  /// Channel subscriptions (`reverb_channels{app,type}`).
+  late final Gauge reverbChannels;
+
+  /// Messages in and out (`reverb_messages_total{app,direction}`).
+  late final Counter reverbMessages;
+
+  /// Fan-out time of one frame (`reverb_fanout_seconds{app}`).
+  late final Histogram reverbFanout;
+
+  /// Counts [delta] (1 or -1) open connections of [app] on this worker.
+  void recordReverbConnection(String app, int delta) =>
+      reverbConnections.inc({'app': app, 'worker': _worker}, delta.toDouble());
+
+  /// Counts [delta] (1 or -1) subscriptions of [app] to a channel of
+  /// [type].
+  void recordReverbSubscription(String app, String type, int delta) =>
+      reverbChannels.inc({'app': app, 'type': type}, delta.toDouble());
+
+  /// Counts one message of [app] in [direction] (`in`, `out`).
+  void recordReverbMessage(String app, String direction) =>
+      reverbMessages.inc({'app': app, 'direction': direction});
+
+  /// Records the fan-out of one frame of [app].
+  void recordReverbFanout(String app, Duration took) =>
+      reverbFanout.observe(took.inMicroseconds / 1e6, {'app': app});
 
   /// The `worker` label of [inFlight] and [shed]: the isolate's name
   /// (`daravel-worker-N` under a supervisor, the same after a respawn, so
@@ -757,7 +929,7 @@ final class AppMetrics {
   /// (`PusherServer.onRejected`); both rate limits also count in
   /// `reverb_rate_limited_total`.
   void recordReverbRejected(String reason, {String app = ''}) {
-    reverbRejected.inc({'reason': reason});
+    reverbRejected.inc({'app': app, 'reason': reason});
     if (reason == 'rate_limit' || reason == 'client_event_rate') {
       reverbRateLimited.inc({'app': app});
     }
@@ -818,10 +990,16 @@ final class AppMetrics {
       published = changes;
       idleTicks = 0;
       remote
-          .call(MetricsService.serviceName, 'publish', {
-            'worker': _worker,
-            'snapshot': _encodeSnapshot(registry.snapshot()),
-          })
+          .callBulk(
+            MetricsService.serviceName,
+            'publish',
+            {
+              'worker': _worker,
+              'snapshot': _encodeSnapshot(registry.snapshot()),
+            },
+            // The next snapshot supersedes it.
+            overflow: BulkOverflow.dropOldest,
+          )
           .whenComplete(() {
             // The publish's own round trip (or timeout) is one update of
             // `coordinator_call_*`: alone, it is not worth a publish.

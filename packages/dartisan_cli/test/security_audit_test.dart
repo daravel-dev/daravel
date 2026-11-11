@@ -147,6 +147,25 @@ void main() {
     expect(result.failsAt(AuditSeverity.critical), isTrue);
 
     final text = renderAudit(result);
+    // Byte for byte as before the move to Console (Blueprint #137, C3).
+    for (final color in [false, true]) {
+      final golden = File(
+        'test/goldens/audit_${color ? 'color' : 'plain'}.txt',
+      );
+      final rendered = renderAudit(
+        result,
+        color: color,
+      ).replaceAll(':${server.port}', ':PORT');
+      if (Platform.environment['UPDATE_GOLDENS'] == '1') {
+        golden
+          ..createSync(recursive: true)
+          ..writeAsStringSync(rendered);
+      }
+      expect(
+        rendered,
+        golden.readAsStringSync().replaceAll(String.fromCharCode(13), ''),
+      );
+    }
     expect(text, contains('FAIL  DARAVEL-SEC-003  Sensitive files served'));
     expect(text, contains('Fix: Serve only the public directory'));
 

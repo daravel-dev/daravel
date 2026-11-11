@@ -295,7 +295,7 @@ Future<void> _embeddedMain(_EmbeddedStart start) async {
   try {
     app = start.factory();
     if (start.coordinator case final port?) {
-      app.coordinator = RemoteCoordinatorChannel(port);
+      app.coordinator = RemoteCoordinatorChannel(port, worker: start.name);
     }
     final booted = app;
     await booted.boot();

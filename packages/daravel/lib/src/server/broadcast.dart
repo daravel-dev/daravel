@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 
+import '../foundation/detached.dart';
+import '../foundation/shared_result.dart';
 import 'coordinator.dart';
 
 /// Coordinator side of [Broadcaster]: which isolates listen to which
@@ -11,7 +13,19 @@ import 'coordinator.dart';
 /// An isolate registers its port for a channel when its first local
 /// listener subscribes and removes it when the last one leaves, so a
 /// message only crosses to isolates that have someone listening.
-final class BroadcastService implements CoordinatorService, WorkerAwareService {
+final class BroadcastService
+    with PrioritizedService
+    implements CoordinatorService, WorkerAwareService {
+  /// Bulk: fan-out waits while the coordinator lags, and is refused while
+  /// it is saturated, so rate limits and locks keep their answers.
+  @override
+  // Subscriptions are answered under load; the fan-out is what may wait
+  // or be dropped (ACK 235, Addendum 1).
+  CoordinatorPriority get priority => CoordinatorPriority.normal;
+
+  @override
+  Set<String> get bulkOperations => const {'publish'};
+
   final Map<String, Set<SendPort>> _channels = <String, Set<SendPort>>{};
 
   /// The ports each worker registered (`subscribe`'s `worker`), so a
@@ -104,7 +118,11 @@ final class Broadcaster {
   final CoordinatorChannel _coordinator;
   final Map<String, Set<StreamController<String>>> _local =
       <String, Set<StreamController<String>>>{};
-  final Map<String, Future<void>> _registering = <String, Future<void>>{};
+  // Shared by the subscribers of a channel in this isolate, from different
+  // connections: a SharedResult, so a failed registration reaches each of
+  // them (as a failing future it would hang those of another zone).
+  final Map<String, SharedResult<void>> _registering =
+      <String, SharedResult<void>>{};
   final Map<String, Future<void>> _leaving = <String, Future<void>>{};
   final Set<String> _straying = <String>{};
   ReceivePort? _port;
@@ -114,19 +132,26 @@ final class Broadcaster {
     if (existing != null) {
       return existing.sendPort;
     }
-    final port = ReceivePort('daravel-broadcast');
-    port.listen((Object? message) {
-      if (message case [final String channel, final String text]) {
-        final listeners = _local[channel];
-        if (listeners == null) {
-          _stray(channel);
-          return;
-        }
-        for (final listener in [...listeners]) {
-          listener.add(text);
-        }
-      }
-    });
+    // Detached: one port for the isolate, opened by its first subscriber,
+    // whose request's zone would otherwise handle every frame for the life
+    // of the process (Review #149).
+    final port = runDetached(
+      () => ReceivePort('daravel-broadcast')
+        ..listen((Object? message) {
+          if (message case [final String channel, final String text]) {
+            final listeners = _local[channel];
+            if (listeners == null) {
+              _stray(channel);
+              return;
+            }
+            for (final listener in [...listeners]) {
+              listener.add(text);
+            }
+          }
+        }),
+      name: 'broadcast receiver',
+      stop: (port) => port.close(),
+    ).value;
     _port = port;
     return port.sendPort;
   }
@@ -135,7 +160,7 @@ final class Broadcaster {
   /// is, anything else as JSON. Returns how many isolates received it.
   Future<int> publish(String channel, Object? message) async {
     final text = message is String ? message : jsonEncode(message);
-    final receivers = await _coordinator.call('broadcast', 'publish', {
+    final receivers = await _coordinator.callBulk('broadcast', 'publish', {
       'channel': channel,
       'message': text,
     });
@@ -167,14 +192,16 @@ final class Broadcaster {
       () => <StreamController<String>>{},
     );
     listeners.add(controller);
-    final registration = _registering[channel] ??= _register(channel);
+    final registration = _registering[channel] ??= SharedResult<void>(
+      () => _register(channel),
+    );
     try {
-      await registration;
+      await registration.value;
     } on Object {
       // Undone here, or every later subscriber of this isolate would wait
       // on the same failed registration for ever.
       if (identical(_registering[channel], registration)) {
-        unawaited(_registering.remove(channel));
+        _registering.remove(channel);
       }
       final current = _local[channel];
       if (current != null && current.remove(controller) && current.isEmpty) {
@@ -275,10 +302,13 @@ final class Broadcaster {
   /// has landed. A failure is not the caller's: the port stays registered,
   /// and the next message for the channel unsubscribes it again (see
   /// [_stray]).
-  Future<void> _unregister(String channel, Future<void>? registration) async {
+  Future<void> _unregister(
+    String channel,
+    SharedResult<void>? registration,
+  ) async {
     // Let the registration finish first, so it cannot land after this.
     try {
-      await registration;
+      await registration?.value;
     } on Object {
       // It failed: the subscriber has the error. It may still land late;
       // a message that then arrives unsubscribes again.

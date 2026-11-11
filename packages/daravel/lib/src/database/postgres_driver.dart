@@ -26,7 +26,16 @@ enum PostgresSslMode {
 /// grammar emits them; raw SQL is expanded by `SqlBindings`). Transactions
 /// run on a dedicated pooled connection; the executor passed to the callback
 /// is the only object that may issue queries inside the transaction.
-final class PostgresDriver implements NotifyingDriver, QueryErrors {
+///
+/// Pool connections opened on demand: the first connection is opened
+/// detached (`DatabaseManager`, Review #149), but a further connection the
+/// pool opens under load is opened by the query that needed it, in that
+/// query's zone (a request's, a job's). The driver touches neither the
+/// container nor the log on that path, so no request scope or `request_id`
+/// is kept by the connection; an error its socket raises later that the
+/// client package leaves unhandled would reach that zone's error handler.
+final class PostgresDriver
+    implements NotifyingDriver, SessionTerminatingDriver, QueryErrors {
   /// SQLSTATE 23505 (`unique_violation`), as Laravel checks it.
   @override
   bool isUniqueConstraintError(Object error) =>
@@ -47,6 +56,7 @@ final class PostgresDriver implements NotifyingDriver, QueryErrors {
     this.queryTimeout = const Duration(seconds: 30),
     this.applicationName = 'daravel',
     this.searchPath = const <String>[],
+    this.idleTransactionTimeout,
   });
 
   /// The driver for a configured connection (`DB_HOST`, `DB_PORT`,
@@ -79,6 +89,9 @@ final class PostgresDriver implements NotifyingDriver, QueryErrors {
             ) ??
             noTimeout,
         searchPath: parseSearchPath(connection.options['search_path']),
+        idleTransactionTimeout: idleTransactionTimeoutOption(
+          connection.options['idle_transaction_timeout'],
+        ),
       );
 
   /// `DB_SEARCH_PATH` (`billing, hr, public`), as Laravel's
@@ -108,6 +121,18 @@ final class PostgresDriver implements NotifyingDriver, QueryErrors {
     }
     return seconds <= 0 ? null : Duration(seconds: seconds);
   }
+
+  /// `DB_IDLE_TRANSACTION_TIMEOUT` in seconds: unset, unreadable or `0`
+  /// mean none.
+  static Duration? idleTransactionTimeoutOption(Object? value) =>
+      timeoutOption(value, Duration.zero) == Duration.zero
+      ? null
+      : timeoutOption(value, Duration.zero);
+
+  /// `SET idle_in_transaction_session_timeout` for [timeout], in
+  /// milliseconds as the server takes it.
+  static String idleTransactionStatement(Duration timeout) =>
+      'set idle_in_transaction_session_timeout = ${timeout.inMilliseconds}';
 
   /// The server host.
   final String host;
@@ -142,6 +167,15 @@ final class PostgresDriver implements NotifyingDriver, QueryErrors {
   /// Set on every connection of the pool; the server's default when empty.
   final List<String> searchPath;
 
+  /// `idle_in_transaction_session_timeout` of every connection of the pool
+  /// (`DB_IDLE_TRANSACTION_TIMEOUT`): the server ends a session that stays
+  /// idle inside a transaction this long, rolling it back. `null` keeps the
+  /// server's setting.
+  final Duration? idleTransactionTimeout;
+
+  /// Backend pids of the pool's open connections, for [sessionIds].
+  final Map<pg.Connection, int> _backends = <pg.Connection, int>{};
+
   @override
   final String name;
 
@@ -174,6 +208,42 @@ final class PostgresDriver implements NotifyingDriver, QueryErrors {
   static bool isRetryable(Object error) =>
       error is pg.ServerException && retryableCodes.contains(error.code);
 
+  Future<void> _configure(pg.Connection connection) async {
+    if (searchPath.isNotEmpty) {
+      await connection.execute(searchPathStatement(searchPath));
+    }
+    final idle = idleTransactionTimeout;
+    if (idle != null) {
+      await connection.execute(idleTransactionStatement(idle));
+    }
+    final result = await connection.execute('SELECT pg_backend_pid()');
+    _backends[connection] = result.first.first! as int;
+    unawaited(
+      connection.closed.whenComplete(() => _backends.remove(connection)),
+    );
+  }
+
+  @override
+  List<String> sessionIds() => [
+    for (final entry in _backends.entries)
+      if (entry.key.isOpen) '${entry.value}',
+  ];
+
+  @override
+  Future<bool> terminateSession(String id) async {
+    final pid = int.tryParse(id);
+    if (pid == null) {
+      return false;
+    }
+    // Runs on another connection of the pool; for a pid the server does not
+    // know it returns false (with a warning), not an error.
+    final rows = await select(
+      r'SELECT pg_terminate_backend($1::int) AS ended',
+      [pid],
+    );
+    return rows.first['ended'] == true;
+  }
+
   @override
   Future<void> connect() async {
     if (_pool != null) {
@@ -191,11 +261,7 @@ final class PostgresDriver implements NotifyingDriver, QueryErrors {
         connectTimeout: connectTimeout,
         queryTimeout: queryTimeout,
         applicationName: applicationName,
-        onOpen: searchPath.isEmpty
-            ? null
-            : (connection) async {
-                await connection.execute(searchPathStatement(searchPath));
-              },
+        onOpen: _configure,
       ),
     );
     // Fail fast on bad credentials/hosts instead of at the first query.

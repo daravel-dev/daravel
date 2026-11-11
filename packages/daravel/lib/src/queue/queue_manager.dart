@@ -13,6 +13,7 @@ import '../events/events.dart';
 import '../foundation/config.dart';
 import '../foundation/config_validator.dart';
 import '../foundation/container.dart';
+import '../foundation/retryable_job.dart';
 import '../foundation/env.dart';
 import '../foundation/exceptions.dart';
 import '../logging/context.dart';
@@ -419,6 +420,7 @@ final class JobProcessor {
               )
             : null,
         context: payload.context,
+        timeout: timeout ?? payload.timeout,
       ),
     );
     if (_alreadyExceeded(payload, queued.attempts, maxTries)) {
@@ -456,32 +458,38 @@ final class JobProcessor {
     var running = true;
     try {
       await ctx.cancellation.run(
-        () => container.runScoped<void>(
-          'job',
-          (_) async {
-            Context.current.hydrate(payload.context);
-            await _runWithMiddleware(ctx, job, () async {
-              try {
-                await job.handle(ctx).timeout(limit);
-              } on TimeoutException {
-                ctx.cancelled = true;
-                timedOut = true;
-                rethrow;
+        // Whether a failure is retried: not on `sync`, which runs the job
+        // inline in its caller (a broadcast the coordinator sheds there is
+        // dropped and told, as in a request, not raised for a retry).
+        () => runZoned(
+          zoneValues: {retryableJobKey: driver is! SyncQueue},
+          () => container.runScoped<void>(
+            'job',
+            (_) async {
+              Context.current.hydrate(payload.context);
+              await _runWithMiddleware(ctx, job, () async {
+                try {
+                  await job.handle(ctx).timeout(limit);
+                } on TimeoutException {
+                  ctx.cancelled = true;
+                  timedOut = true;
+                  rethrow;
+                }
+              });
+            },
+            onUncaughtError: (e, s) {
+              if (running && stray == null) {
+                stray = (e, s);
+              } else {
+                logger?.error(
+                  'Uncaught asynchronous error in job ${payload.displayName}',
+                  error: e,
+                  stackTrace: s,
+                  context: <String, Object?>{'job_id': queued.id},
+                );
               }
-            });
-          },
-          onUncaughtError: (e, s) {
-            if (running && stray == null) {
-              stray = (e, s);
-            } else {
-              logger?.error(
-                'Uncaught asynchronous error in job ${payload.displayName}',
-                error: e,
-                stackTrace: s,
-                context: <String, Object?>{'job_id': queued.id},
-              );
-            }
-          },
+            },
+          ),
         ),
       );
     } catch (e, s) {
@@ -812,6 +820,41 @@ final class QueueManager {
   /// The names of the configured connections.
   Iterable<String> get connectionNames => _factories.keys;
 
+  /// Pushes the failed job [id] (its `failed_jobs` id or uuid) back onto
+  /// the queue it failed on and forgets it, as `queue:retry` does (its
+  /// unique lock is not taken again); the job, or null when no failed job
+  /// matches.
+  Future<FailedJob?> retryFailed(Object id) async {
+    final failed = await processor.failedJobs.find(id);
+    if (failed == null) {
+      return null;
+    }
+    await _retry(failed);
+    return failed;
+  }
+
+  /// [retryFailed] for every failed job (`queue:retry all`); the jobs
+  /// pushed back.
+  Future<List<FailedJob>> retryAllFailed() async {
+    final all = await processor.failedJobs.all();
+    for (final failed in all) {
+      await _retry(failed);
+    }
+    return all;
+  }
+
+  Future<void> _retry(FailedJob failed) async {
+    final payload = JobPayload.decode(failed.payload);
+    await connection(failed.connection).push(
+      JobPayload.fromJson(<String, Object?>{
+        ...payload.toJson(),
+        'uniqueKey': null,
+      }),
+      queue: failed.queue,
+    );
+    await processor.failedJobs.forget(failed.id);
+  }
+
   /// The connection named [name] (default: `QUEUE_CONNECTION`).
   QueueDriver connection([String? name]) {
     final resolved = name ?? config.defaultConnection;
@@ -1119,7 +1162,27 @@ final class WorkerOptions {
     this.maxTime,
     this.stopWhenEmpty = false,
     this.memory,
+    this.onReserved,
+    this.onFinished,
   });
+
+  /// Called with each job the moment the driver reserved it, before it is
+  /// decoded into a job (`fromJson`), announced (`JobProcessing`) or run:
+  /// synchronously, so a supervisor hears of the job before anything of the
+  /// job's own can block the isolate (`daravel_horizon` reports it then).
+  /// An error it throws is logged and the job is processed all the same.
+  /// Not called for a reservation the driver makes but has not returned
+  /// yet (inside its own I/O).
+  final void Function(QueuedJob job)? onReserved;
+
+  /// Called with each job [onReserved] was told of once the worker is done
+  /// with it, whatever happened: processed, failed, released, deleted
+  /// (a superseded debounce), or failed before it ran (an unknown name,
+  /// `fromJson` throwing, its tries used up). Synchronously, after
+  /// `JobProcessed`/`JobFailed` when there are any; not every way out has
+  /// an event, so a supervisor clears what it reported here. An error it
+  /// throws is logged.
+  final void Function(QueuedJob job)? onFinished;
 
   /// The connection worked; the default one when null.
   final String? connection;
@@ -1453,14 +1516,42 @@ final class QueueWorker {
         if (job == null) {
           continue;
         }
+        final reserved = options.onReserved;
+        if (reserved != null) {
+          try {
+            reserved(job);
+          } on Object catch (error, stackTrace) {
+            // A listener's failure must not lose the job it was told of.
+            _logger?.error(
+              'onReserved failed for job ${job.id}',
+              error: error,
+              stackTrace: stackTrace,
+            );
+          }
+        }
         final before = processor.timedOutAndReleased;
-        await processor.process(
-          driver,
-          job,
-          tries: options.tries,
-          backoff: options.backoff,
-          timeout: options.timeout,
-        );
+        try {
+          await processor.process(
+            driver,
+            job,
+            tries: options.tries,
+            backoff: options.backoff,
+            timeout: options.timeout,
+          );
+        } finally {
+          final finished = options.onFinished;
+          if (finished != null) {
+            try {
+              finished(job);
+            } on Object catch (error, stackTrace) {
+              _logger?.error(
+                'onFinished failed for job ${job.id}',
+                error: error,
+                stackTrace: stackTrace,
+              );
+            }
+          }
+        }
         if (processor.timedOutAndReleased != before) {
           _logger?.warning(
             'Job ${job.payload.displayName} timed out and was released while '

@@ -1,0 +1,13 @@
+pgsql-redis-1 load: 1.90 2.03 3.35
+pgsql-redis-1 exit=0
+pgsql-redis-nolastused-1 load: 1.95 3.22 3.68
+pgsql-redis-nolastused-1 exit=0
+pgsql-redis-2 load: 1.95 4.03 4.14
+pgsql-redis-2 exit=0
+pgsql-redis-nolastused-2 load: 1.95 3.96 4.31
+pgsql-redis-nolastused-2 exit=0
+pgsql-redis-3 load: 1.89 3.84 4.34
+pgsql-redis-3 exit=0
+pgsql-redis-nolastused-3 load: 1.93 3.93 4.43
+pgsql-redis-nolastused-3 exit=0
+done

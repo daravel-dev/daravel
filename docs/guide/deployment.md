@@ -248,6 +248,30 @@ warning at most once a second, naming the limit that was hit; a steady
 stream of them means the server needs more isolates or instances, not a
 higher limit.
 
+## Graceful shutdown and rolling deploys
+
+On `SIGTERM` (or `Application.restart`, `reverb:restart`) the server
+drains in this order:
+
+1. `/up` and `/up/ready` answer `503`, so the load balancer or the
+   platform stops sending new traffic here.
+2. It stops accepting new connections. The connections accepted just
+   before, whose request is still on its way, are kept and answered, for
+   up to `ServeOptions.drainGrace` (250 ms by default, bounded by
+   `SHUTDOWN_TIMEOUT`).
+3. Every response during the drain carries `Connection: close`, so a
+   keep-alive client opens its next connection elsewhere instead of
+   sending it on one about to close.
+4. Requests in progress finish within `SHUTDOWN_TIMEOUT`; open WebSockets
+   are told the server is going away (spread over `REVERB_DRAIN_SPREAD`
+   for the Pusher server).
+
+A connection that is still in the kernel's accept queue when step 2
+begins is refused: point the load balancer's health check at `/up/ready`
+and give it time to take the server out of rotation before the signal
+(Kubernetes: a short `preStop` sleep; systemd and Caddy: Caddy's active
+health check). The server speaks plain HTTP; TLS is ended in front of it.
+
 ## Topology
 
 Run Daravel behind a reverse proxy (Caddy, nginx) that terminates TLS and

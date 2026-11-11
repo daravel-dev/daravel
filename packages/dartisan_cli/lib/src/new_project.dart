@@ -4,6 +4,8 @@ import 'package:args/command_runner.dart';
 import 'package:daravel/daravel.dart' show Encrypter, daravelVersion;
 import 'package:path/path.dart' as p;
 
+import 'console/nudges.dart';
+import 'console/runner_console.dart' show consoleOf;
 import 'generator.dart';
 import 'mcp_server.dart';
 import 'project_commands.dart';
@@ -289,6 +291,9 @@ final class NewCommand extends Command<int> {
   dartisan migrate${r['template'] == 'api' ? ' --seed' : ''}
   dartisan serve --watch
 ''');
+    if (Nudges(consoleOf(this)).newProjectLine case final line?) {
+      stdout.writeln(line);
+    }
     return 0;
   }
 }
@@ -813,6 +818,17 @@ final class User extends Model with AuthenticatableModel {
   // </dartisan:statics>
 
   // <dartisan:accessors>
+  /// The columns of `users`, for typed queries: `User.cols.id`.
+  static const cols = (
+    id: ModelColumn<User, int>('id'),
+    name: ModelColumn<User, String>('name'),
+    email: ModelColumn<User, String>('email'),
+    emailVerifiedAt: ModelColumn<User, DateTime?>('email_verified_at'),
+    password: ModelColumn<User, String>('password'),
+    rememberToken: ModelColumn<User, String?>('remember_token'),
+    createdAt: ModelColumn<User, DateTime?>('created_at'),
+    updatedAt: ModelColumn<User, DateTime?>('updated_at'),
+  );
   int get id => getAttr('id');
   String get name => getAttr('name');
   set name(String value) => setAttr('name', value);

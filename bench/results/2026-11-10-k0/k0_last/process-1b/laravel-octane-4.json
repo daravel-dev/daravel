@@ -1,0 +1,97 @@
+{
+  "meta": {
+    "date": "2026-11-10T16:49:20.283282Z",
+    "os": "linux Linux 6.18.58.1-microsoft-standard-WSL2 #1 SMP PREEMPT_DYNAMIC Tue Oct 27 00:24:11 UTC 2026",
+    "cpus": 16,
+    "duration_s": 10,
+    "connections": [
+      64
+    ]
+  },
+  "results": [
+    {
+      "target": "laravel-octane",
+      "scenario": "1-ping",
+      "isolates": 4,
+      "connections": 64,
+      "requests": 19367,
+      "errors": 0,
+      "rps": 1927,
+      "p50_us": 32632,
+      "p95_us": 40579,
+      "p99_us": 45056
+    },
+    {
+      "target": "laravel-octane",
+      "scenario": "2-show-json-query",
+      "isolates": 4,
+      "connections": 64,
+      "requests": 15045,
+      "errors": 0,
+      "rps": 1498,
+      "p50_us": 42238,
+      "p95_us": 51602,
+      "p99_us": 57162
+    },
+    {
+      "target": "laravel-octane",
+      "scenario": "3-store-validate-insert",
+      "isolates": 4,
+      "connections": 64,
+      "requests": 10282,
+      "errors": 0,
+      "rps": 1021,
+      "p50_us": 61965,
+      "p95_us": 77262,
+      "p99_us": 84579
+    },
+    {
+      "target": "laravel-octane",
+      "scenario": "4-eager-loading",
+      "isolates": 4,
+      "connections": 64,
+      "requests": 3604,
+      "errors": 0,
+      "rps": 354,
+      "p50_us": 180512,
+      "p95_us": 212698,
+      "p99_us": 236132
+    },
+    {
+      "target": "laravel-octane",
+      "scenario": "5-throttled",
+      "isolates": 4,
+      "connections": 64,
+      "requests": 16206,
+      "errors": 0,
+      "rps": 1616,
+      "p50_us": 39450,
+      "p95_us": 48709,
+      "p99_us": 52547
+    },
+    {
+      "target": "laravel-octane",
+      "scenario": "14-token-throttle-cache",
+      "isolates": 4,
+      "connections": 64,
+      "requests": 9583,
+      "errors": 0,
+      "rps": 952,
+      "p50_us": 67014,
+      "p95_us": 78686,
+      "p99_us": 83931
+    },
+    {
+      "target": "laravel-octane",
+      "scenario": "6-login-hash",
+      "isolates": 4,
+      "connections": 64,
+      "requests": 710,
+      "errors": 0,
+      "rps": 65,
+      "p50_us": 982970,
+      "p95_us": 1065364,
+      "p99_us": 1079692
+    }
+  ]
+}

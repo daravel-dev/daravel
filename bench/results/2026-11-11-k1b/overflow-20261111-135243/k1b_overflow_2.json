@@ -1,0 +1,36 @@
+{
+  "dart": "3.13.4",
+  "aot": true,
+  "processors": 16,
+  "duration_s": 20.0,
+  "in_flight_per_client": 16,
+  "bulk_window": 16,
+  "bulk_buffer": 16,
+  "ops": [
+    "rate",
+    "lock",
+    "cache",
+    "publish",
+    "noop",
+    "send"
+  ],
+  "sections": [
+    "saturation"
+  ],
+  "saturation": {
+    "flood_isolates": 16,
+    "publish_per_s": 391,
+    "messages_per_s": 702,
+    "port_messages_per_1000_publishes": 270,
+    "publish_refused": 7174693,
+    "rate_alone": {
+      "p50_us": 37,
+      "p99_us": 80
+    },
+    "rate_under_flood": {
+      "p50_us": 88,
+      "p99_us": 1957439,
+      "errors": 0
+    }
+  }
+}

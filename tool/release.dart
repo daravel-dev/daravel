@@ -19,7 +19,9 @@ import 'publish_checks.dart';
 /// each package's CHANGELOG.md or else adds the version there (unless it
 /// already has an entry), and adds
 /// the summary to the release table of the guide in both languages. The
-/// release notes themselves are written by hand under `## Unreleased`
+/// release notes themselves are written by hand under `## Unreleased`, or
+/// one fragment per pull request in `changelog.d/` (assembled into the
+/// version and removed with `git rm`),
 /// before; the tool refuses to run without them. Sub-headers left empty
 /// are dropped from the version's notes, and a fresh empty
 /// `## Unreleased` (tool/changelog.dart) goes back on top.
@@ -75,9 +77,24 @@ void main(List<String> args) {
   }
   final changelog = _read('CHANGELOG.md');
   final unreleased = unreleasedBody(changelog);
-  if (unreleased == null || !hasNotes(unreleased)) {
+  // The notes of each pull request, in changelog.d/ (Blueprint #142).
+  final fragmentErrors = <String>[];
+  final fragments = readFragments(
+    Directory(fragmentsDirectory),
+    problems: fragmentErrors,
+  );
+  if (fragmentErrors.isNotEmpty) {
+    stderr.writeln('Fix the fragments first:');
+    for (final problem in fragmentErrors) {
+      stderr.writeln('- $problem');
+    }
+    exitCode = 1;
+    return;
+  }
+  if (unreleased == null || (!hasNotes(unreleased) && fragments.isEmpty)) {
     stderr.writeln(
-      'CHANGELOG.md has no notes under "## Unreleased"; write them first.',
+      'CHANGELOG.md has no notes under "## Unreleased" and changelog.d/ no '
+      'fragment; write them first.',
     );
     exitCode = 1;
     return;
@@ -114,7 +131,24 @@ void main(List<String> args) {
     'placeholder: $version',
   );
   // The notes become the version's; an empty `## Unreleased` stays on top.
-  _write('CHANGELOG.md', releaseChangelog(changelog, version));
+  _write(
+    'CHANGELOG.md',
+    releaseChangelog(changelog, version, fragments: fragments),
+  );
+  // The fragments are now the version's notes: they leave with the release
+  // commit (changelog.d/README.md stays).
+  if (fragments.isNotEmpty) {
+    final removed = Process.runSync('git', [
+      'rm',
+      '-q',
+      for (final f in fragments) '$fragmentsDirectory/${f.name}.md',
+    ]);
+    if (removed.exitCode != 0) {
+      stderr.writeln('git rm of the fragments failed: ${removed.stderr}');
+      exitCode = 1;
+      return;
+    }
+  }
 
   for (final member in members.where((m) => m.startsWith('packages/'))) {
     final path = '$member/CHANGELOG.md';
@@ -122,6 +156,16 @@ void main(List<String> args) {
     // Notes written ahead under `## Unreleased` become the version's.
     if (text.contains('## Unreleased\n') && !text.contains('## $version\n')) {
       _replace(path, '## Unreleased\n', '## $version\n');
+      // A package not yet on pub.dev says so under `## Unreleased`, which
+      // keeps `dart pub publish --dry-run` content (its CHANGELOG must name
+      // the current version); released, the sentence no longer holds.
+      _write(
+        path,
+        _read(path).replaceFirst(
+          RegExp(r'^Not on pub\.dev yet:[^\n]*\n\n?', multiLine: true),
+          '',
+        ),
+      );
       text = _read(path);
     }
     if (!text.contains('## $version\n')) {

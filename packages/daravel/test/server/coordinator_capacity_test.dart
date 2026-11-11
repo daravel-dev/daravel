@@ -101,17 +101,21 @@ void main() {
     expect(coordinator.stats()['expired'], 0);
   });
 
-  test('the queue lag of a stalled event loop is measured', () async {
-    expect(coordinator.stats()['queue_lag_peak_ms'], 0);
+  test('a stalled event loop with no queue is starvation, not lag '
+      '(§6.6)', () async {
+    expect(coordinator.stats()['starved_peak_ms'], 0);
     // Longer than the probe interval: the probe fires late by at least the
-    // difference.
+    // difference, with nothing queued behind it.
     stall(Coordinator.lagProbeInterval * 3);
     await eventually(
-      () => (coordinator.stats()['queue_lag_peak_ms']! as num) >= 100,
+      () => (coordinator.stats()['starved_peak_ms']! as num) >= 100,
     );
+    expect(coordinator.stats()['queue_lag_peak_ms'], 0);
+    expect(coordinator.state, CoordinatorState.healthy);
     final metrics = MetricsRegistry.renderSnapshot(
       MetricsService.coordinatorSnapshot(coordinator.stats()),
     );
+    expect(metrics, contains('coordinator_starved_peak_seconds'));
     expect(metrics, contains('coordinator_queue_lag_peak_seconds'));
   });
 }

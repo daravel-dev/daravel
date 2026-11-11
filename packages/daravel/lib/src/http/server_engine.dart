@@ -9,6 +9,7 @@ import '../logging/logger.dart';
 import '../support/request_id.dart';
 import 'buffered_web_socket.dart';
 import 'exception_handler.dart';
+import 'graceful_server_socket.dart';
 import 'headers.dart';
 import 'http_exceptions.dart';
 import 'kernel.dart';
@@ -37,6 +38,7 @@ final class ServeOptions {
     this.maxQueueDelay,
     this.maxBodyBytes = defaultMaxBodyBytes,
     this.accessLog = true,
+    this.drainGrace = const Duration(milliseconds: 250),
   });
 
   /// The body limit a request starts with: [Request.defaultMaxBodyBytes]
@@ -160,6 +162,12 @@ final class ServeOptions {
   /// How long shutdown waits for requests in progress (`SHUTDOWN_TIMEOUT`).
   final Duration shutdownTimeout;
 
+  /// How long a drain keeps the connections accepted just before it, while
+  /// no new one is accepted, so their requests arrive and are answered
+  /// ([GracefulServerSocket]); bounded by [shutdownTimeout]. Zero closes the
+  /// idle ones at once, as before.
+  final Duration drainGrace;
+
   /// Default handler timeout (routes may override with `RouteEntry.timeout`);
   /// `null` disables it.
   final Duration? requestTimeout;
@@ -280,6 +288,7 @@ final class ServerEngine {
   final void Function()? onShed;
 
   HttpServer? _server;
+  GracefulServerSocket? _socket;
   final Completer<void> _done = Completer<void>();
   final List<StreamSubscription<ProcessSignal>> _signals =
       <StreamSubscription<ProcessSignal>>[];
@@ -548,16 +557,25 @@ final class ServerEngine {
   /// The bound port (useful when `port: 0` was requested).
   int? get port => _server?.port;
 
+  /// How many connections this engine accepted since [start]: it only
+  /// grows, and is not the number of connections open now (a connection
+  /// closed long ago still counts). For metrics and tests.
+  int get acceptedConnections => _socket?.accepted ?? 0;
+
   /// Binds and starts listening.
   Future<void> start() async {
     if (_server != null) {
       throw StateError('ServerEngine is already running.');
     }
-    final server = await HttpServer.bind(
+    // Through a socket whose stream outlives its accepting, so a drain can
+    // stop new connections and still answer those just accepted.
+    final socket = await GracefulServerSocket.bind(
       options.host,
       options.port,
       shared: options.shared,
     );
+    _socket = socket;
+    final server = HttpServer.listenOn(socket);
     server.idleTimeout = options.idleTimeout;
     // dart:io starts every response from these defaults (X-Frame-Options:
     // SAMEORIGIN, ...) and shares their value lists, so adding to a response
@@ -598,13 +616,21 @@ final class ServerEngine {
   /// Upgrades [httpRequest] (its middleware has passed); null when it is
   /// not a WebSocket request, which gets `426 Upgrade Required`, or the
   /// upgrade fails.
+  ///
+  /// A WebSocket request read while the server stops (accepted just before
+  /// it stopped accepting) is upgraded too, and closed `goingAway` within
+  /// its route's drain spread like the sockets already open ([_session]):
+  /// its client reconnects to another worker. It used to get 426, which
+  /// tells a client asking for an upgrade that it must upgrade: Pusher
+  /// clients took that as a failure, and a rolling restart refused the
+  /// connections that landed on the worker going down.
   Future<WebSocket?> _upgrade(
     HttpRequest httpRequest,
     Request request,
     Response response,
     String id,
   ) async {
-    if (!WebSocketTransformer.isUpgradeRequest(httpRequest) || _stopping) {
+    if (!WebSocketTransformer.isUpgradeRequest(httpRequest)) {
       final refusal = Response.json(const <String, Object?>{
         'message': 'Upgrade Required',
       }, status: 426).withHeader('upgrade', 'websocket');
@@ -663,7 +689,22 @@ final class ServerEngine {
       <String, Object?>{'request_id': id},
     );
     try {
-      await handler(socket, request);
+      final handled = Future<void>.sync(() => handler(socket, request));
+      if (_stopping) {
+        // Upgraded during the drain: told to go away like the others, once
+        // its handler has greeted it (a Pusher server's
+        // `connection_established`), or after [drainGreeting] for a handler
+        // that runs until the socket closes.
+        unawaited(
+          Future.any<void>(
+            [
+              handled.then<void>((_) {}, onError: (Object _) {}),
+              Future<void>.delayed(drainGreeting),
+            ],
+          ).then((_) => _closeGoingAway(socket, response.webSocketDrainSpread)),
+        );
+      }
+      await handled;
       await socket.done;
     } catch (error, stackTrace) {
       logger.error(
@@ -697,28 +738,36 @@ final class ServerEngine {
     // clients the server is going away so they reconnect elsewhere. Those
     // of a route with a drain spread (the Pusher server) close at random
     // moments within it, so their clients do not all reconnect at once.
-    final random = Random();
     for (final MapEntry(key: socket, value: spread)
         in _sockets.entries.toList()) {
-      void close() => unawaited(
-        socket.close(WebSocketStatus.goingAway, 'Server shutting down'),
-      );
-      final bound = spread == null || spread < options.shutdownTimeout
-          ? spread
-          : options.shutdownTimeout;
-      if (bound == null || bound <= Duration.zero) {
-        close();
-      } else {
-        Timer(bound * random.nextDouble(), close);
-      }
+      _closeGoingAway(socket, spread);
     }
     final server = _server;
     if (server != null) {
+      // Readiness already fails (markDraining above). Accept no new
+      // connection; keep the ones accepted just before for drainGrace, so
+      // their requests are read and answered (with `Connection: close`)
+      // instead of the connection closing on them; then the idle ones go.
+      final socket = _socket;
+      final drainWatch = Stopwatch()..start();
+      if (socket != null && !force) {
+        await socket.stopAccepting();
+        final grace = options.drainGrace < options.shutdownTimeout
+            ? options.drainGrace
+            : options.shutdownTimeout;
+        if (grace > Duration.zero) {
+          await Future<void>.delayed(grace);
+        }
+        await socket.finish();
+      }
+      // What is left of the shutdown timeout once the grace was spent, so
+      // the whole drain stays within it.
+      final left = options.shutdownTimeout - drainWatch.elapsed;
       try {
         try {
           await Future<void>(() async {
             await server.close(force: force);
-          }).timeout(options.shutdownTimeout);
+          }).timeout(left.isNegative ? Duration.zero : left);
         } on TimeoutException {
           logger.warning(
             'Shutdown timeout reached; closing remaining connections.',
@@ -731,10 +780,39 @@ final class ServerEngine {
           error: error,
           stackTrace: stackTrace,
         );
+      } finally {
+        // HttpServer.close does not close a socket given to listenOn (it
+        // stays the caller's): without this a forced stop, or a close that
+        // threw, left the port bound and accepting connections nobody
+        // served. Idempotent after the drain above.
+        await socket?.finish();
       }
     }
     if (!_done.isCompleted) {
       _done.complete();
+    }
+  }
+
+  final Random _drainRandom = Random();
+
+  /// How long a WebSocket upgraded during the drain is given to greet its
+  /// client before it is told to go away, when its handler has not returned
+  /// by then (one that runs until the socket closes).
+  static const Duration drainGreeting = Duration(milliseconds: 100);
+
+  /// Closes [socket] `goingAway` at once, or at a random moment within its
+  /// route's drain [spread] (bounded by the shutdown timeout).
+  void _closeGoingAway(WebSocket socket, Duration? spread) {
+    void close() => unawaited(
+      socket.close(WebSocketStatus.goingAway, 'Server shutting down'),
+    );
+    final bound = spread == null || spread < options.shutdownTimeout
+        ? spread
+        : options.shutdownTimeout;
+    if (bound == null || bound <= Duration.zero) {
+      close();
+    } else {
+      Timer(bound * _drainRandom.nextDouble(), close);
     }
   }
 
@@ -787,6 +865,13 @@ final class ServerEngine {
   }
 
   void _handle(HttpRequest httpRequest) {
+    if (_stopping && !WebSocketTransformer.isUpgradeRequest(httpRequest)) {
+      // Draining: the client opens a new connection for its next request
+      // (to another isolate or server) instead of sending it on this one.
+      // Not for an upgrade: its connection becomes the WebSocket, which the
+      // drain closes `goingAway` itself ([_upgrade]).
+      httpRequest.response.persistentConnection = false;
+    }
     if (_mustShed(httpRequest)) {
       _shedRequest(httpRequest);
       return;
@@ -869,6 +954,10 @@ final class ServerEngine {
                       response.body is! StreamBody) {
                     await _writeClosing(raw!, response);
                   } else {
+                    if (_stopping) {
+                      // A request in flight when the drain began.
+                      raw!.response.persistentConnection = false;
+                    }
                     await response.writeTo(raw!.response);
                   }
                 } catch (error) {

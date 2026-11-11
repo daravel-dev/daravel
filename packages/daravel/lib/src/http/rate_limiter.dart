@@ -2,6 +2,8 @@ import 'dart:async';
 
 import '../foundation/clock.dart';
 import '../foundation/container.dart';
+import '../foundation/detached.dart';
+import '../foundation/shared_result.dart';
 
 import '../server/coordinator.dart';
 import 'http_exceptions.dart';
@@ -496,7 +498,12 @@ final class RateLimitMessage implements ExpiringCoordinatorMessage {
 /// Workers send it [RateLimitMessage]s; [handle] answers the same
 /// operations given as maps.
 final class RateLimitService
+    with PrioritizedService
     implements TypedCoordinatorService<RateLimitMessage> {
+  /// Critical: answered at once even when the coordinator is behind.
+  @override
+  CoordinatorPriority get priority => CoordinatorPriority.critical;
+
   /// A service over [store], or a new memory store.
   RateLimitService([MemoryRateLimitStore? store])
     : store = store ?? MemoryRateLimitStore();
@@ -660,14 +667,15 @@ final class ProcessRateLimitStore implements RateLimitStore {
   final Stopwatch _monotonic = Stopwatch()..start();
 
   /// The lease request in flight per key (single flight).
-  final Map<String, Future<void>> _acquiring = <String, Future<void>>{};
+  final Map<String, SharedResult<void>> _acquiring =
+      <String, SharedResult<void>>{};
 
   /// Attempts waiting for the lease request of their key.
   final Map<String, int> _waiting = <String, int>{};
 
   /// Retires expired leases and blocks every [leaseTtl] while there are
-  /// any.
-  Timer? _reaper;
+  /// any, detached from the request whose lease starts it (Review #149).
+  Detached<Timer>? _reaper;
 
   /// How long a lease request may still be answered after [timeout], so
   /// that a late grant is given back instead of lost.
@@ -708,6 +716,12 @@ final class ProcessRateLimitStore implements RateLimitStore {
   /// [CoordinatorChannel].
   Future<Object?> _call(RateLimitMessage message, {Duration? wait}) {
     final target = channel;
+    // Always asked, whatever the coordinator's state: a rate limit is
+    // critical, served at once in every state, and with the bulk credit
+    // window (K1b) it no longer waits behind a flood. Failing it here when
+    // the coordinator said "saturated" turned limits off on a merely busy
+    // host (Blueprint #141 §6.6); only its own [timeout] applies the
+    // limit's failure policy now, as before K1.
     wait ??= target.isRemote ? timeout : const Duration(seconds: 5);
     return target is TypedCoordinatorChannel
         ? target.callTyped(RateLimitService.serviceName, message, timeout: wait)
@@ -792,7 +806,9 @@ final class ProcessRateLimitStore implements RateLimitStore {
       if (inFlight != null) {
         _waiting[key] = (_waiting[key] ?? 0) + 1;
         try {
-          await inFlight;
+          // Its error, if any, raised here in this caller's zone: the
+          // attempts of other requests wait on it too.
+          await inFlight.value;
         } finally {
           final left = (_waiting[key] ?? 1) - 1;
           if (left > 0) {
@@ -803,13 +819,18 @@ final class ProcessRateLimitStore implements RateLimitStore {
         }
         continue;
       }
-      final acquiring = _acquire(key, maxAttempts, decay, now);
+      // Shared with the concurrent misses of other requests, so it never
+      // fails as a future (an error would not reach a request waiting from
+      // another zone, which would hang instead of failing open).
+      final acquiring = SharedResult<void>(
+        () => _acquire(key, maxAttempts, decay, now),
+      );
       _acquiring[key] = acquiring;
       try {
-        await acquiring;
+        await acquiring.value;
       } finally {
         if (identical(_acquiring[key], acquiring)) {
-          _acquiring.remove(key)?.ignore(); // Completed: awaited above.
+          _acquiring.remove(key);
         }
       }
     }
@@ -890,8 +911,10 @@ final class ProcessRateLimitStore implements RateLimitStore {
   }
 
   /// Starts the timer that retires expired leases and blocks.
-  void _startReaper() =>
-      _reaper ??= Timer.periodic(leaseTtl, (_) => retireExpired());
+  void _startReaper() => _reaper ??= runDetached(
+    () => Timer.periodic(leaseTtl, (_) => retireExpired()),
+    name: 'rate limit lease reaper',
+  );
 
   /// Gives back the unused hits of every expired lease and forgets expired
   /// blocks. A timer calls it every [leaseTtl] while this worker holds
@@ -905,7 +928,7 @@ final class ProcessRateLimitStore implements RateLimitStore {
     }
     _blocked.removeWhere((_, blocked) => now >= blocked.$1);
     if (_leases.isEmpty && _blocked.isEmpty) {
-      _reaper?.cancel();
+      _reaper?.cancel().ignore();
       _reaper = null;
     }
   }
