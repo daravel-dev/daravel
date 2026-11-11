@@ -1987,7 +1987,8 @@ final class ExcludeRule extends Rule {
   /// The field compared, for the conditional forms.
   final String? other;
 
-  /// The values of [other] that exclude the field.
+  /// The values of [other] that exclude the field (`exclude_if`,
+  /// `exclude_unless`); for `exclude_without`, the fields after [other].
   final List<String> values;
 
   /// `Validator::$excludeRules`.
