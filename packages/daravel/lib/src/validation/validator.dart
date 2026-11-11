@@ -75,9 +75,11 @@ final class Validator {
   final Map<String, List<String>> _failed = {};
 
   /// The rules that failed in the last [run], by attribute: rule names
-  /// only, never the input (Laravel's `$validator->failed()`, without the
-  /// rule parameters). An error added with [addError] has no rule and is
-  /// not listed.
+  /// only, never the input. Laravel's `$validator->failed()` keys each
+  /// failure by its rule class name with its parameters
+  /// (`['email' => ['Required' => []]]`); this lists the rule names as
+  /// written (`{'email': ['required']}`). An error added with [addError]
+  /// has no rule and is not listed.
   Map<String, List<String>> failed() => {
     for (final entry in _failed.entries) entry.key: List.of(entry.value),
   };
