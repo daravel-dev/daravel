@@ -588,6 +588,11 @@ final class BroadcastFake {
 /// A broadcast dropped because the coordinator could not take it
 /// ([BroadcastManager]'s best effort): dispatched as an application event,
 /// for instance to tell the clients of [channels] to reload.
+///
+/// A shed broadcast means "back off or drop": a listener (or a caller of
+/// `Broadcaster.publish` catching `CoordinatorOverloaded`) must not publish
+/// again at once in a loop. The refusal arrives on the next turn of the
+/// event loop, not synchronously.
 final class BroadcastShed {
   /// [event] on [channels], dropped for [reason] (`overloaded`, `timeout`).
   const BroadcastShed({

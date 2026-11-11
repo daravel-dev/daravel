@@ -557,4 +557,114 @@ void main() {
       throwsA(isA<CoordinatorOverloaded>()),
     );
   });
+  group('a refusal decided in the worker arrives on the next turn', () {
+    test(
+      'a sender retrying at once in a loop still lets a timer fire',
+      () async {
+        final remote = channel(window: 1, buffer: 1);
+        final held1 = remote.callBulk('held', 'x', {'n': 0});
+        final held2 = remote.callBulk('held', 'x', {'n': 1});
+        await until(() => held.received.isNotEmpty, 'the first call');
+        var fired = false;
+        Timer(const Duration(milliseconds: 10), () => fired = true);
+        final watch = Stopwatch()..start();
+        var refused = 0;
+        // No other await: before, an already failed future kept this loop in
+        // microtasks and the timer never fired.
+        while (!fired && watch.elapsed < const Duration(seconds: 2)) {
+          try {
+            await remote.callBulk('held', 'x', {'n': 2});
+          } on CoordinatorOverloaded {
+            refused++;
+          }
+        }
+        expect(fired, isTrue, reason: 'the event loop ran ($refused refused)');
+        expect(refused, greaterThan(0));
+        held.hold = false;
+        held.releaseAll();
+        await Future.wait([held1, held2]);
+      },
+    );
+
+    test('two callers in their own zones refused in one turn each get '
+        'their error; none hangs', () async {
+      final remote = channel(window: 1, buffer: 1);
+      final held1 = remote.callBulk('held', 'x', {'n': 0});
+      final held2 = remote.callBulk('held', 'x', {'n': 1});
+      await until(() => held.received.isNotEmpty, 'the first call');
+      final uncaught = <Object>[];
+      Future<Object?> inZone() {
+        final result = Completer<Object?>();
+        runZonedGuarded(() async {
+          try {
+            await remote.callBulk('held', 'x', {'n': 9});
+            result.complete('answered');
+          } on CoordinatorOverloaded catch (error) {
+            result.complete(error);
+          }
+        }, (error, _) => uncaught.add(error));
+        return result.future;
+      }
+
+      // Both refused synchronously within this turn, failed by one timer.
+      final first = inZone();
+      final second = inZone();
+      final outcomes = await Future.wait([first, second])
+          .timeout(const Duration(seconds: 5));
+      expect(outcomes, everyElement(isA<CoordinatorOverloaded>()));
+      expect(uncaught, isEmpty);
+      held.hold = false;
+      held.releaseAll();
+      await Future.wait([held1, held2]);
+    });
+
+    test('a refused call fails after the current turn, not at once', () async {
+      final remote = channel(window: 1, buffer: 1);
+      final held1 = remote.callBulk('held', 'x', {'n': 0});
+      final held2 = remote.callBulk('held', 'x', {'n': 1});
+      await until(() => held.received.isNotEmpty, 'the first call');
+      var failed = false;
+      unawaited(
+        remote
+            .callBulk('held', 'x', {'n': 2})
+            .catchError((Object _) => failed = true),
+      );
+      // Microtasks alone do not deliver it.
+      await Future<void>.microtask(() {});
+      await Future<void>.microtask(() {});
+      expect(failed, isFalse);
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+      expect(failed, isTrue);
+      held.hold = false;
+      held.releaseAll();
+      await Future.wait([held1, held2]);
+    });
+
+    test(
+      'the oldest call dropped for a new one fails on the next turn',
+      () async {
+        final remote = channel(window: 1, buffer: 1);
+        final held1 = remote.callBulk('held', 'x', {'n': 0});
+        await until(() => held.received.isNotEmpty, 'the first call');
+        var dropped = false;
+        final oldest = remote
+            .sendBulk('held', 'x', {'n': 1}, overflow: BulkOverflow.dropOldest)
+            .catchError((Object _) {
+              dropped = true;
+              return null;
+            });
+        final newest = remote.sendBulk('held', 'x', {
+          'n': 2,
+        }, overflow: BulkOverflow.dropOldest);
+        await Future<void>.microtask(() {});
+        expect(dropped, isFalse);
+        await oldest;
+        expect(dropped, isTrue);
+        held.hold = false;
+        held.releaseAll();
+        await Future.wait([held1, newest]);
+      },
+    );
+  });
 }

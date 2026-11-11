@@ -275,7 +275,13 @@ final class CoordinatorHealth implements CoordinatorMessage {
 }
 
 /// A call the coordinator refused because it is saturated, or that the
-/// worker did not send because the coordinator said so.
+/// worker did not send because the coordinator said so (or because its bulk
+/// buffer was full).
+///
+/// It means "back off or drop": catch it and do something else, never call
+/// again at once in a loop. A refusal decided in the worker arrives on the
+/// next turn of the event loop, not at once, so even such a loop lets the
+/// isolate's timers and sockets run.
 final class CoordinatorOverloaded extends CoordinatorException {
   /// A refused call to [service].
   const CoordinatorOverloaded(String service)
@@ -1216,7 +1222,7 @@ final class RemoteCoordinatorChannel implements TypedCoordinatorChannel {
     BulkOverflow overflow = BulkOverflow.refuse,
   }) {
     if (shortCircuits(service, op)) {
-      return Future<Object?>.error(shortCircuit(service));
+      return _refuseOnNextTurn(shortCircuit(service));
     }
     if (_closed) {
       return Future<Object?>.error(
@@ -1231,10 +1237,12 @@ final class RemoteCoordinatorChannel implements TypedCoordinatorChannel {
       _bulkDropped++;
       onBulkOverflow?.call(service, overflow);
       if (overflow == BulkOverflow.refuse) {
-        return Future<Object?>.error(CoordinatorOverloaded(service));
+        return _refuseOnNextTurn(CoordinatorOverloaded(service));
       }
       final oldest = _bulkWaiting.removeFirst();
-      oldest.completer.completeError(CoordinatorOverloaded(oldest.service));
+      // Its caller is told on the next turn too: two senders dropping each
+      // other's oldest call would otherwise take turns in microtasks.
+      _failOnNextTurn(oldest.completer, CoordinatorOverloaded(oldest.service));
     }
     final waiting = _BufferedBulk(
       service,
@@ -1386,10 +1394,11 @@ final class RemoteCoordinatorChannel implements TypedCoordinatorChannel {
     Duration timeout, {
     bool bulk = false,
   }) {
-    // The coordinator refuses this service while saturated: fail now
-    // instead of queueing behind the flood and waiting for the refusal.
+    // The coordinator refuses this service while saturated: fail on the
+    // next turn instead of queueing behind the flood and waiting for the
+    // refusal.
     if (shortCircuits(service, op)) {
-      return Future<Object?>.error(shortCircuit(service));
+      return _refuseOnNextTurn(shortCircuit(service));
     }
     if (_closed) {
       // After close() no reply can arrive: fail now rather than after the
@@ -1588,6 +1597,47 @@ final class RemoteCoordinatorChannel implements TypedCoordinatorChannel {
     }
     _bulkInFlight = 0;
   }
+}
+
+/// Bulk refusals of this isolate made during the current turn of its event
+/// loop, failed together on the next turn ([_failOnNextTurn]).
+List<(Completer<Object?>, Object, StackTrace)>? _refusalsThisTurn;
+
+/// Fails [completer] with [error] on the next turn of the event loop, with
+/// every other bulk refusal of this turn, from one timer.
+///
+/// A refusal (a full bulk buffer, a saturated coordinator) used to be an
+/// already failed future: a caller that caught it and tried again at once
+/// never let its isolate's event loop run (timers, sockets, heartbeats),
+/// and 16 such senders took a 16-core machine (K1b overflow series, ACK
+/// 247 §3). The completer is the caller's own, made in its zone, so the
+/// error reaches it there whichever request's refusal started the timer
+/// (Review #147); the timer runs in the root zone, owned by none of them.
+void _failOnNextTurn(Completer<Object?> completer, Object error) {
+  final trace = StackTrace.current;
+  final pending = _refusalsThisTurn;
+  if (pending != null) {
+    pending.add((completer, error, trace));
+    return;
+  }
+  final batch = [(completer, error, trace)];
+  _refusalsThisTurn = batch;
+  Zone.root.run(
+    () => Timer.run(() {
+      _refusalsThisTurn = null;
+      for (final (refused, error, trace) in batch) {
+        refused.completeError(error, trace);
+      }
+    }),
+  );
+}
+
+/// A future of the caller's zone failing with [error] on the next turn
+/// ([_failOnNextTurn]).
+Future<Object?> _refuseOnNextTurn(Object error) {
+  final refused = Completer<Object?>();
+  _failOnNextTurn(refused, error);
+  return refused.future;
 }
 
 /// An in-flight [RemoteCoordinatorChannel.call].

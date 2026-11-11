@@ -132,6 +132,13 @@ sungguhan (job `sync` berjalan langsung di pemanggilnya dan tidak pernah
 di-retry, jadi di sana broadcast-nya dilepas seperti pada request). Galat lain, dan koneksi
 lainnya, berperilaku seperti sebelumnya.
 
+Broadcast yang dilepas berarti "beri jeda atau buang". Kode yang memanggil
+`Broadcaster.publish` sendiri dan menangkap `CoordinatorOverloaded` tidak
+boleh langsung mengirim lagi di dalam loop. Penolakan yang diputuskan di
+worker (buffer bulk penuh, coordinator jenuh) datang pada giliran event
+loop berikutnya, bukan seketika, sehingga loop seperti itu tetap memberi
+kesempatan pada timer dan socket isolate, tetapi tidak menghasilkan apa-apa.
+
 Laravel mem-broadcast lewat Daravel dengan cara yang sama:
 `BROADCAST_CONNECTION=reverb` dengan `REVERB_HOST` menunjuk ke server
 Daravel, dan app id, key, serta secret yang sama. Daravel mengecek tanda
