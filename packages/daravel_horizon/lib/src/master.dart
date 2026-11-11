@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io' show ProcessInfo;
 import 'dart:isolate';
 
@@ -9,7 +8,7 @@ import 'auto_scaler.dart';
 import 'config.dart';
 import 'messages.dart';
 import 'signals.dart';
-import 'store/process_store.dart';
+import 'store/horizon_store.dart';
 import 'worker_isolate.dart';
 
 /// A worker isolate as the master sees it.
@@ -110,6 +109,7 @@ final class HorizonMaster {
     required this.logger,
     this.coordinator,
     this.store,
+    HorizonStore? horizonStore,
     this.failedJobs,
     this.signals,
     this.name = 'horizon',
@@ -121,7 +121,10 @@ final class HorizonMaster {
     this.onEvent,
     this.failsAfterTimeout,
     Duration Function(int crashes)? crashDelay,
-  }) : _crashDelay = crashDelay ?? _defaultCrashDelay;
+  }) : _crashDelay = crashDelay ?? _defaultCrashDelay,
+       horizonStore =
+           horizonStore ??
+           (store == null ? null : ProcessHorizonStore(() => store));
 
   /// Builds each worker's application (`createApp`, top-level).
   final ApplicationFactory factory;
@@ -138,9 +141,14 @@ final class HorizonMaster {
   /// The process's coordinator, shared with the workers.
   final SendPort? coordinator;
 
-  /// Where the rates of the auto-scaler come from: the [HorizonService] the
-  /// workers record into. Without it, no rate is measured.
+  /// The coordinator of the `process` store ([ProcessHorizonStore]), when
+  /// no [horizonStore] is given. Without either, no rate is measured.
   final CoordinatorChannel? store;
+
+  /// Where the rates of the auto-scaler come from and where snapshots are
+  /// taken: the store the workers record into (`HORIZON_STORE`), else the
+  /// `process` store behind [store].
+  final HorizonStore? horizonStore;
 
   /// Where a quarantined job is recorded (`failed_jobs`).
   final FailedJobProvider? failedJobs;
@@ -295,7 +303,7 @@ final class HorizonMaster {
   /// Takes a metric snapshot in the store (`horizon:snapshot`).
   Future<void> snapshot() async {
     try {
-      await store?.call(HorizonService.serviceName, 'snapshot', const {});
+      await horizonStore?.snapshot();
     } on Object catch (e) {
       logger.warning('Horizon snapshot failed: $e');
     }
@@ -476,15 +484,12 @@ final class HorizonMaster {
   /// The jobs a second and the average run time of [queue] over the last
   /// minute, from the store; nulls when none is measured.
   Future<(double?, Duration?)> _rates(String queue) async {
-    final store = this.store;
+    final store = horizonStore;
     if (store == null) {
       return (null, null);
     }
     try {
-      final raw = await store.call(HorizonService.serviceName, 'rates', {
-        'queue': queue,
-      });
-      final rates = jsonDecode(raw! as String) as Map<String, Object?>;
+      final rates = await store.rates(queue);
       final avg = rates['avg_ms'] as num?;
       return (
         (rates['per_second'] as num?)?.toDouble(),
