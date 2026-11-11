@@ -3,7 +3,7 @@
 
 /// `docs/guide/id/validation.md`.
 const String pageIdValidation =
-    r'''<!-- source: validation.md sha256:7f14650c5357 -->
+    r'''<!-- source: validation.md sha256:ab07d39d52eb -->
 # Validasi
 
 Validasi request secara inline dengan string rule Laravel, atau dengan objek
@@ -108,7 +108,10 @@ Rules.exists('billing.invoices', 'id').where((QueryBuilder q) => q.where('open',
 dan `rfc` berlaku bila tidak ada mode.
 
 - `filter` dan `filter_unicode` adalah `FILTER_VALIDATE_EMAIL` dari PHP
-  (dengan `FILTER_FLAG_EMAIL_UNICODE`).
+  (dengan `FILTER_FLAG_EMAIL_UNICODE`), dibaca dalam satu lintasan atas
+  alamat, bukan dengan regex PHP, yang backtracking secara eksponensial pada
+  sebagian input; hasilnya dibandingkan dengan PHP 8.3 pada lebih dari 3 800
+  alamat.
 - `dns` memeriksa domain seperti `DNSCheckValidation` (egulias) di Laravel:
   nama cadangan (`test`, `example`, `localhost`, `local`, ...) dan domain satu
   label gagal, dan domain itu atau salah satu nama induknya harus punya record
@@ -117,8 +120,9 @@ dan `rfc` berlaku bila tidak ada mode.
 - `rfc` dan `strict` untuk sementara adalah pemeriksaan bergaya HTML, lebih
   ketat daripada parser RFC di Laravel: local part bertanda kutip atau domain
   satu label gagal.
-- `spoof` membutuhkan ICU, yang tidak ada di Dart: aturan ini melempar galat,
-  dan `dartisan lint` melaporkannya.
+- `spoof` membutuhkan ICU, yang tidak ada di Dart: membangun aturannya
+  melempar `UnsupportedError` (pada request pertama yang memvalidasi dengannya,
+  di test, atau saat membuat OpenAPI), dan `dartisan lint` melaporkannya.
 
 `active_url` lolos bila host dari URL punya record A atau AAAA; alamat IP
 gagal, seperti di Laravel.

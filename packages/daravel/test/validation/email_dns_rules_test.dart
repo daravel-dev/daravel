@@ -126,11 +126,15 @@ void main() {
       expect(dns.lookups, isEmpty);
     });
 
-    test('spoof is not supported and says so', () {
+    test('spoof is not supported and says so when the rules are built', () {
+      // Not on each value checked: building the rules fails, before any
+      // request data is read.
       expect(
-        valid('ana@example.com', 'email:spoof'),
+        () => Validator({'v': 'ana@example.com'}, {'v': 'email:rfc,spoof'}),
         throwsA(isA<UnsupportedError>()),
       );
+      expect(() => Rules.email(spoof: true), throwsUnsupportedError);
+      expect(() => Rules.string().email(spoof: true), throwsUnsupportedError);
     });
 
     test('the builder takes the same modes', () async {
