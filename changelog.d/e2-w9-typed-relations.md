@@ -4,6 +4,7 @@
 
 ### Changed
 
+- A relation read before it is loaded (`Model.related`, and the generated getters) names the ways to load it: `loadPosts()`, `load(['posts'])` or `with_([User.rels.posts])`.
 - `ModelQuery.whereHas`, `orWhereHas`, `has`, `whereDoesntHave`, `orWhereDoesntHave` and `doesntHave` take `Object` relations (a `String` or a typed relation); anything else is an `ArgumentError` naming the parameter.
 
 ### Upgrade notes

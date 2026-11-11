@@ -59,7 +59,10 @@ extension type const RelationToken<P extends Model, C extends Model>._(
 
   /// This relation, eager loaded with only [columns] of [C]:
   /// `User.rels.posts.only([Post.cols.id, Post.cols.title])` is
-  /// `posts:id,title`, for `with_`.
+  /// `posts:id,title`, for `with_`. The key the relation matches on (the
+  /// foreign key of `HasMany`, the owner key of `BelongsTo`, ...) is added
+  /// when left out, so the relation is never empty for lack of it; Laravel
+  /// asks for it to be listed.
   RelationColumns<P> only(List<ModelColumn<C, Object?>> columns) =>
       RelationColumns<P>._(
         '$name:${[for (final column in columns) column.name].join(',')}',

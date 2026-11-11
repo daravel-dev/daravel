@@ -151,6 +151,38 @@ void main() {
     expect(ana.books, hasLength(2));
   });
 
+  test(
+    'only() without the matching key still loads (the key is added)',
+    () async {
+      final ana = await Author.definition
+          .query(db: db)
+          .with_([
+            Author.rels.books.only([Book.cols.title]),
+          ])
+          .orderBy('id')
+          .first();
+      expect(ana!.books.map((b) => b.getAttr<String>('title')), ['One', 'Two']);
+    },
+  );
+
+  test('a relation getter before loading names the ways to load it', () async {
+    final ana = (await Author.definition.query(db: db).orderBy('id').first())!;
+    expect(
+      () => ana.books,
+      throwsA(
+        isA<StateError>().having(
+          (e) => e.message,
+          'message',
+          allOf(
+            contains('loadBooks()'),
+            contains("load(['books'])"),
+            contains('with_([Author.rels.books])'),
+          ),
+        ),
+      ),
+    );
+  });
+
   test('a relation argument that is not a name is refused', () {
     expect(
       () => Author.definition.query(db: db).whereHas(42),
