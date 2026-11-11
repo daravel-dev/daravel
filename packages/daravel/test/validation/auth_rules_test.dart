@@ -198,10 +198,10 @@ void main() {
           })
           .withMigrations(const [CreateUsers()])
           .withAuth((auth) {
-            auth.token<Member>(
-              'token',
-              ModelUserProvider<Member>(Member.definition),
-            );
+            final members = ModelUserProvider<Member>(Member.definition);
+            auth
+              ..token<Member>('token', members)
+              ..token<Member>('admin', members);
           })
           .withPolicies(
             (gate) => gate.define(
@@ -244,6 +244,38 @@ void main() {
         );
       });
     });
+
+    test(
+      'current_password:guard checks that guard, not the active one',
+      () async {
+        await app.run(() async {
+          Future<Member> member(String name, String password) async =>
+              await Member.definition.query().create({
+                'name': name,
+                'email': '$name@example.com',
+                'password': await Hash.make(password),
+              });
+          final ana = await member('ana', 'ana-secret');
+          final bo = await member('bo', 'bo-secret');
+          Auth.setUser(ana, guard: 'token');
+          Auth.setUser(bo, guard: 'admin');
+          Future<bool> passes(String password, Object rule) async =>
+              (await errorsOf({'p': password}, {'p': rule})).isEmpty;
+          expect(await passes('ana-secret', 'current_password:token'), isTrue);
+          expect(await passes('bo-secret', 'current_password:token'), isFalse);
+          expect(await passes('bo-secret', 'current_password:admin'), isTrue);
+          expect(
+            await passes('ana-secret', Rules.currentPassword(guard: 'admin')),
+            isFalse,
+          );
+          // The default guard is token: ana's.
+          expect(await passes('ana-secret', 'current_password'), isTrue);
+          Auth.forgetUser(guard: 'admin');
+          expect(await passes('bo-secret', 'current_password:admin'), isFalse);
+          expect(await passes('ana-secret', 'current_password:token'), isTrue);
+        });
+      },
+    );
 
     test('can asks the gate for the current user', () async {
       await app.run(() async {
