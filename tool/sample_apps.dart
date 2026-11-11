@@ -10,6 +10,9 @@ const Set<String> everyApp = {
   'daravel',
   'daravel_test',
   'daravel_lints',
+  // A dev tool enabled in analysis_options.yaml (plugins:), like the
+  // lints themselves: it needs no sample of its own.
+  'daravel_lints_plugin',
   'dartisan_cli',
 };
 
