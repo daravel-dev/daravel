@@ -3,7 +3,7 @@
 
 /// `docs/guide/id/validation.md`.
 const String pageIdValidation =
-    r'''<!-- source: validation.md sha256:9d8e838e0b83 -->
+    r'''<!-- source: validation.md sha256:ae7d3ca2ab74 -->
 # Validasi
 
 Validasi request secara inline dengan string rule Laravel, atau dengan objek
@@ -100,6 +100,38 @@ Rules.unique('users', 'email').ignore(id, idColumn: 'staff_id');
 Rules.unique('users', 'email').where((QueryBuilder q) => q.whereNull('deleted_at'));
 Rules.exists('billing.invoices', 'id').where((QueryBuilder q) => q.where('open', true));
 ```
+
+### Mode email dan `active_url`
+
+`email` menerima mode dari Laravel, `email:rfc,dns` atau
+`Rules.email(rfc: true, dns: true)`; setiap mode yang diberikan harus lolos,
+dan `rfc` berlaku bila tidak ada mode.
+
+- `filter` dan `filter_unicode` adalah `FILTER_VALIDATE_EMAIL` dari PHP
+  (dengan `FILTER_FLAG_EMAIL_UNICODE`).
+- `dns` memeriksa domain seperti `DNSCheckValidation` (egulias) di Laravel:
+  nama cadangan (`test`, `example`, `localhost`, `local`, ...) dan domain satu
+  label gagal, dan domain itu atau salah satu nama induknya harus punya record
+  MX, A, atau AAAA tanpa null MX. Seperti di Laravel, `dns` saja tidak
+  memeriksa sintaks: tulis `email:rfc,dns`.
+- `rfc` dan `strict` untuk sementara adalah pemeriksaan bergaya HTML, lebih
+  ketat daripada parser RFC di Laravel: local part bertanda kutip atau domain
+  satu label gagal.
+- `spoof` membutuhkan ICU, yang tidak ada di Dart: aturan ini melempar galat,
+  dan `dartisan lint` melaporkannya.
+
+`active_url` lolos bila host dari URL punya record A atau AAAA; alamat IP
+gagal, seperti di Laravel.
+
+Keduanya membuat server mencari nama yang dikirim pengguna. Setiap lookup
+menambah latensi request (paling lama 2 detik, lalu aturannya gagal), jadi
+letakkan route yang memakainya di balik rate limit. Lookup berjalan lewat
+`DnsResolver` yang terdaftar di container (bawaannya `SystemDnsResolver`);
+di test, daftarkan `FakeDnsResolver` dari `daravel_test`, padanan
+`fakeDnsLookups` di Laravel. Dua perbedaan dari PHP: lookup sistem juga
+membaca `/etc/hosts`; dan di Windows, yang tidak punya `/etc/resolv.conf`
+untuk menanyakan record MX, `dns` hanya melihat A dan AAAA (domain yang hanya
+punya MX gagal, dan null MX tidak terlihat).
 
 Aturan yang bergantung pada input atau pada setiap elemen, seperti
 `Rule::when`, `Rule::unless`, `Rule::forEach`, dan `Rule::anyOf` di Laravel:

@@ -106,7 +106,26 @@ final class RuleBuilder {
   RuleBuilder map() => _add(Rules.map());
 
   /// Appends [Rules.email].
-  RuleBuilder email() => _add(Rules.email());
+  RuleBuilder email({
+    bool rfc = false,
+    bool strict = false,
+    bool dns = false,
+    bool spoof = false,
+    bool filter = false,
+    bool filterUnicode = false,
+  }) => _add(
+    Rules.email(
+      rfc: rfc,
+      strict: strict,
+      dns: dns,
+      spoof: spoof,
+      filter: filter,
+      filterUnicode: filterUnicode,
+    ),
+  );
+
+  /// Appends [Rules.activeUrl].
+  RuleBuilder activeUrl() => _add(Rules.activeUrl());
 
   /// Appends [Rules.url].
   RuleBuilder url() => _add(Rules.url());
@@ -559,7 +578,24 @@ extension RuleChain on Rule {
   RuleBuilder map() => _chain.map();
 
   /// This rule followed by [Rules.email].
-  RuleBuilder email() => _chain.email();
+  RuleBuilder email({
+    bool rfc = false,
+    bool strict = false,
+    bool dns = false,
+    bool spoof = false,
+    bool filter = false,
+    bool filterUnicode = false,
+  }) => _chain.email(
+    rfc: rfc,
+    strict: strict,
+    dns: dns,
+    spoof: spoof,
+    filter: filter,
+    filterUnicode: filterUnicode,
+  );
+
+  /// This rule followed by [Rules.activeUrl].
+  RuleBuilder activeUrl() => _chain.activeUrl();
 
   /// This rule followed by [Rules.url].
   RuleBuilder url() => _chain.url();

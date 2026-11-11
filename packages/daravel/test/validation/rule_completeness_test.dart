@@ -139,7 +139,6 @@ const Map<String, String> _laravelPending = {
   'uploaded': 'a message, not a rule (a failed upload)',
   'can': 'W9.4a external (Rule::can, needs the Gate)',
   'current_password': 'W9.4a external (needs the guard and Hash)',
-  'active_url': 'W9.4a external (DNS)',
   'dimensions': 'W9.4a external (image headers)',
 };
 
@@ -229,6 +228,7 @@ Map<String, Rule Function()> _sampleBuilders() => {
   'map': Rules.map,
   'email': Rules.email,
   'url': Rules.url,
+  'activeUrl': Rules.activeUrl,
   'file': Rules.file,
   'image': Rules.image,
   'mimes': () => Rules.mimes(['pdf']),
