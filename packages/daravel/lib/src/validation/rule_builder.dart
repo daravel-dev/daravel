@@ -402,6 +402,42 @@ final class RuleBuilder {
   /// Appends [Rules.dateFormat].
   RuleBuilder dateFormat(List<String> formats) =>
       _add(Rules.dateFormat(formats));
+
+  /// Appends [Rules.contains].
+  RuleBuilder contains(List<String> values) => _add(Rules.contains(values));
+
+  /// Appends [Rules.doesntContain].
+  RuleBuilder doesntContain(List<String> values) =>
+      _add(Rules.doesntContain(values));
+
+  /// Appends [Rules.doesntStartWith].
+  RuleBuilder doesntStartWith(List<String> prefixes) =>
+      _add(Rules.doesntStartWith(prefixes));
+
+  /// Appends [Rules.doesntEndWith].
+  RuleBuilder doesntEndWith(List<String> suffixes) =>
+      _add(Rules.doesntEndWith(suffixes));
+
+  /// Appends [Rules.inArray].
+  RuleBuilder inArray(String other) => _add(Rules.inArray(other));
+
+  /// Appends [Rules.inArrayKeys].
+  RuleBuilder inArrayKeys(List<String> keys) => _add(Rules.inArrayKeys(keys));
+
+  /// Appends [Rules.arrayKeys].
+  RuleBuilder arrayKeys(List<String> keys) => _add(Rules.arrayKeys(keys));
+
+  /// Appends [Rules.hexColor].
+  RuleBuilder hexColor() => _add(Rules.hexColor());
+
+  /// Appends [Rules.macAddress].
+  RuleBuilder macAddress() => _add(Rules.macAddress());
+
+  /// Appends [Rules.encoding].
+  RuleBuilder encoding(String encoding) => _add(Rules.encoding(encoding));
+
+  /// Appends [Rules.base64].
+  RuleBuilder base64() => _add(Rules.base64());
 }
 
 /// Starts a [RuleBuilder] from any rule: `Rules.required().email()`.
@@ -769,4 +805,40 @@ extension RuleChain on Rule {
 
   /// This rule followed by [Rules.array].
   RuleBuilder array([List<String>? keys]) => _chain.array(keys);
+
+  /// This rule followed by [Rules.contains].
+  RuleBuilder contains(List<String> values) => _chain.contains(values);
+
+  /// This rule followed by [Rules.doesntContain].
+  RuleBuilder doesntContain(List<String> values) =>
+      _chain.doesntContain(values);
+
+  /// This rule followed by [Rules.doesntStartWith].
+  RuleBuilder doesntStartWith(List<String> prefixes) =>
+      _chain.doesntStartWith(prefixes);
+
+  /// This rule followed by [Rules.doesntEndWith].
+  RuleBuilder doesntEndWith(List<String> suffixes) =>
+      _chain.doesntEndWith(suffixes);
+
+  /// This rule followed by [Rules.inArray].
+  RuleBuilder inArray(String other) => _chain.inArray(other);
+
+  /// This rule followed by [Rules.inArrayKeys].
+  RuleBuilder inArrayKeys(List<String> keys) => _chain.inArrayKeys(keys);
+
+  /// This rule followed by [Rules.arrayKeys].
+  RuleBuilder arrayKeys(List<String> keys) => _chain.arrayKeys(keys);
+
+  /// This rule followed by [Rules.hexColor].
+  RuleBuilder hexColor() => _chain.hexColor();
+
+  /// This rule followed by [Rules.macAddress].
+  RuleBuilder macAddress() => _chain.macAddress();
+
+  /// This rule followed by [Rules.encoding].
+  RuleBuilder encoding(String encoding) => _chain.encoding(encoding);
+
+  /// This rule followed by [Rules.base64].
+  RuleBuilder base64() => _chain.base64();
 }
