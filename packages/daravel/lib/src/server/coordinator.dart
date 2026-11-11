@@ -1156,6 +1156,22 @@ final class LocalCoordinatorChannel implements TypedCoordinatorChannel {
 
 /// Request/response over [SendPort] with correlation ids and timeouts.
 final class RemoteCoordinatorChannel implements TypedCoordinatorChannel {
+  /// The shortest time between two refusal ticks of an isolate while its
+  /// bulk calls keep being refused: a bulk call the worker refuses itself
+  /// fails on the next turn of the event loop, or after this spacing when
+  /// the previous refusal tick fired less than this ago (a storm). Measured
+  /// in the K1b overflow series (ACK 248): with refusals on the next turn
+  /// only, 16 senders retrying at once still took a 16-core machine (a
+  /// rate limit waited 2-4.6 s); one millisecond between ticks bounds such
+  /// a sender to about a thousand attempts a second.
+  static const Duration refusalStormSpacing = Duration(milliseconds: 1);
+
+  /// Refusal ticks of this isolate so far, and how many of them waited
+  /// [refusalStormSpacing] (a storm); for tests, counted rather than timed.
+  @visibleForTesting
+  static ({int ticks, int stormTicks}) get refusalTickCounts =>
+      (ticks: _refusalTicks, stormTicks: _refusalStormTicks);
+
   /// A channel to a coordinator in another isolate, holding at most
   /// [bulkWindow] bulk calls unanswered and [bulkBuffer] more waiting
   /// ([sendBulk]).
@@ -1613,6 +1629,13 @@ List<(Completer<Object?>, Object, StackTrace)>? _refusalsThisTurn;
 /// 247 §3). The completer is the caller's own, made in its zone, so the
 /// error reaches it there whichever request's refusal started the timer
 /// (Review #147); the timer runs in the root zone, owned by none of them.
+///
+/// The refusals of a turn are failed on one "refusal tick": the next turn
+/// when the previous tick fired more than
+/// [RemoteCoordinatorChannel.refusalStormSpacing] ago (an
+/// occasional refusal costs one turn), else after that spacing (a
+/// storm: a sender retrying at once is held to about one attempt per
+/// spacing, so it cannot take the machine's CPU).
 void _failOnNextTurn(Completer<Object?> completer, Object error) {
   final trace = StackTrace.current;
   final pending = _refusalsThisTurn;
@@ -1622,15 +1645,36 @@ void _failOnNextTurn(Completer<Object?> completer, Object error) {
   }
   final batch = [(completer, error, trace)];
   _refusalsThisTurn = batch;
+  void tick() {
+    // Emptied first: a refusal made while these callers run joins the
+    // next tick, never this list.
+    _refusalsThisTurn = null;
+    _lastRefusalTick = _refusalClock.elapsedMicroseconds;
+    for (final (refused, error, trace) in batch) {
+      refused.completeError(error, trace);
+    }
+  }
+
+  final storm =
+      _refusalClock.elapsedMicroseconds - _lastRefusalTick <
+      RemoteCoordinatorChannel.refusalStormSpacing.inMicroseconds;
+  _refusalTicks++;
+  if (storm) {
+    _refusalStormTicks++;
+  }
   Zone.root.run(
-    () => Timer.run(() {
-      _refusalsThisTurn = null;
-      for (final (refused, error, trace) in batch) {
-        refused.completeError(error, trace);
-      }
-    }),
+    () => storm
+        ? Timer(RemoteCoordinatorChannel.refusalStormSpacing, tick)
+        : Timer.run(tick),
   );
 }
+
+/// Wall clock of this isolate's refusal ticks (not `Clock`: a frozen test
+/// clock must not hold refusals back).
+final Stopwatch _refusalClock = Stopwatch()..start();
+int _lastRefusalTick = -(1 << 40);
+int _refusalTicks = 0;
+int _refusalStormTicks = 0;
 
 /// A future of the caller's zone failing with [error] on the next turn
 /// ([_failOnNextTurn]).

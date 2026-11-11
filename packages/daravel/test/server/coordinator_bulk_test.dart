@@ -633,9 +633,8 @@ void main() {
       await Future<void>.microtask(() {});
       await Future<void>.microtask(() {});
       expect(failed, isFalse);
-      await Future<void>.delayed(Duration.zero);
-      await Future<void>.delayed(Duration.zero);
-      expect(failed, isTrue);
+      // A turn, or a storm spacing when an earlier test refused just now.
+      await until(() => failed, 'the refusal');
       held.hold = false;
       held.releaseAll();
       await Future.wait([held1, held2]);
@@ -666,5 +665,70 @@ void main() {
         await Future.wait([held1, newest]);
       },
     );
+    test(
+      'an occasional refusal costs one turn, not the storm spacing',
+      () async {
+        final remote = channel(window: 1, buffer: 1);
+        final held1 = remote.callBulk('held', 'x', {'n': 0});
+        final held2 = remote.callBulk('held', 'x', {'n': 1});
+        await until(() => held.received.isNotEmpty, 'the first call');
+        // Quiet: no refusal tick for well over the spacing.
+        await Future<void>.delayed(
+          RemoteCoordinatorChannel.refusalStormSpacing * 20,
+        );
+        final before = RemoteCoordinatorChannel.refusalTickCounts;
+        await expectLater(
+          remote.callBulk('held', 'x', {'n': 2}),
+          throwsA(isA<CoordinatorOverloaded>()),
+        );
+        final after = RemoteCoordinatorChannel.refusalTickCounts;
+        expect(after.ticks - before.ticks, 1);
+        expect(after.stormTicks - before.stormTicks, 0);
+        held.hold = false;
+        held.releaseAll();
+        await Future.wait([held1, held2]);
+      },
+    );
+
+    test('a storm: senders retrying at once share one tick per round, each '
+        'after the storm spacing', () async {
+      final remote = channel(window: 1, buffer: 1);
+      final held1 = remote.callBulk('held', 'x', {'n': 0});
+      final held2 = remote.callBulk('held', 'x', {'n': 1});
+      await until(() => held.received.isNotEmpty, 'the first call');
+      const rounds = 20;
+      const lanes = 8;
+      final before = RemoteCoordinatorChannel.refusalTickCounts;
+      Future<void> lane() async {
+        for (var i = 0; i < rounds; i++) {
+          try {
+            await remote.callBulk('held', 'x', {'n': 2});
+          } on CoordinatorOverloaded {
+            // Retried at once.
+          }
+        }
+      }
+
+      await Future.wait([for (var i = 0; i < lanes; i++) lane()]);
+      final after = RemoteCoordinatorChannel.refusalTickCounts;
+      final ticks = after.ticks - before.ticks;
+      // Derived from the rule, not from a run: the lanes start in one turn,
+      // so their first refusals share one tick. A tick fails all of them,
+      // and each lane's next call runs in the microtasks of that tick's
+      // timer, so the next refusals again share one tick: one tick per
+      // round, `rounds` in all, not one per refusal (`rounds * lanes`).
+      // One more is allowed for a lane whose first call was not refused in
+      // the first turn. The counts are differences taken in this test, so
+      // other tests and the order of files do not matter.
+      expect(ticks, lessThanOrEqualTo(rounds + 1));
+      // Every tick after the first follows the previous one at once.
+      expect(
+        after.stormTicks - before.stormTicks,
+        greaterThanOrEqualTo(ticks - 1),
+      );
+      held.hold = false;
+      held.releaseAll();
+      await Future.wait([held1, held2]);
+    });
   });
 }
