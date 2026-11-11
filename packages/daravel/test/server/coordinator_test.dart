@@ -17,6 +17,45 @@ final class _SlowService implements CoordinatorService {
 }
 
 /// Delegates to [inner] and keeps what each `publish` carried.
+/// A remote channel whose first [failures] metrics publishes fail, as a
+/// timed-out or refused bulk call does; it records every publish it took.
+final class _FlakyPublishChannel implements CoordinatorChannel {
+  _FlakyPublishChannel(this.failures);
+
+  int failures;
+  int attempts = 0;
+  final List<Object?> taken = [];
+
+  /// While set, a publish answers only once it completes: a coordinator
+  /// slower than the publishing tick.
+  Completer<void>? hold;
+
+  @override
+  StateScope get scope => StateScope.process;
+
+  @override
+  bool get isRemote => true;
+
+  @override
+  Future<Object?> call(
+    String service,
+    String op,
+    Map<String, Object?> args, {
+    Duration timeout = const Duration(seconds: 1),
+  }) async {
+    if (service == MetricsService.serviceName && op == 'publish') {
+      attempts++;
+      await hold?.future;
+      if (failures > 0) {
+        failures--;
+        throw CoordinatorTimeoutException(service, timeout);
+      }
+      taken.add(args['snapshot']);
+    }
+    return null;
+  }
+}
+
 final class _SpyService implements CoordinatorService {
   _SpyService(this.inner, this.field);
 
@@ -218,6 +257,61 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 100));
     expect(spy.published, hasLength(2));
     expect(spy.published.last, contains('queue_jobs_total'));
+  });
+
+  test('while a publish waits for its answer no other is sent, however many '
+      'ticks pass and whatever changes', () async {
+    final channel = _FlakyPublishChannel(0)..hold = Completer<void>();
+    final registry = MetricsRegistry();
+    final metrics = AppMetrics(registry, channel: channel);
+    final timer = metrics.startPublishing(
+      every: const Duration(milliseconds: 5),
+      heartbeat: 1000,
+    );
+    addTearDown(() => timer?.cancel());
+    final deadline = Stopwatch()..start();
+    while (channel.attempts == 0 &&
+        deadline.elapsed < const Duration(seconds: 2)) {
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+    }
+    // About 20 ticks, and changes, while the first is unanswered.
+    for (var i = 0; i < 4; i++) {
+      metrics.jobs.inc({'status': 'processed'});
+      await Future<void>.delayed(const Duration(milliseconds: 25));
+    }
+    expect(channel.attempts, 1, reason: 'one publish in flight at a time');
+    channel.hold!.complete();
+    channel.hold = null;
+    // Answered: the changes made meanwhile go with the next tick.
+    while (channel.attempts < 2 &&
+        deadline.elapsed < const Duration(seconds: 4)) {
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+    }
+    expect(channel.attempts, 2);
+    expect(channel.taken.last, contains('processed'));
+  });
+
+  test('a publish the coordinator did not take is sent again on the next '
+      'tick, not at the next heartbeat', () async {
+    final channel = _FlakyPublishChannel(1);
+    final metrics = AppMetrics(MetricsRegistry(), channel: channel);
+    final timer = metrics.startPublishing(
+      every: const Duration(milliseconds: 5),
+      heartbeat: 1000,
+    );
+    addTearDown(() => timer?.cancel());
+    final deadline = Stopwatch()..start();
+    while (channel.taken.isEmpty &&
+        deadline.elapsed < const Duration(seconds: 2)) {
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+    }
+    // No registry change in between: only the failure makes it resend.
+    expect(channel.taken, hasLength(1));
+    expect(channel.attempts, greaterThanOrEqualTo(2));
+    // Taken: idle again until a change or the heartbeat.
+    final attempts = channel.attempts;
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    expect(channel.attempts, attempts);
   });
 
   test('merged metrics carry the coordinator message counters', () async {

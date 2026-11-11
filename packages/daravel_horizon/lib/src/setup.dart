@@ -196,6 +196,7 @@ Future<int> runHorizon(
     signals: queues.signalStore,
     name: config.name ?? 'horizon',
     onEvent: horizonEvents(app),
+    failsAfterTimeout: queues.processor.failsAfterTimeout,
   );
   await master.start();
   final commands = control.messages.listen((message) {

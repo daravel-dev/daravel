@@ -823,6 +823,13 @@ final class DatabaseManager {
     return result;
   }
 
+  /// Whether [error], thrown by a statement on [connection], is one a retry
+  /// may clear: a deadlock or serialization failure, SQLite busy or locked
+  /// (what `transaction(attempts:)` retries). For a statement run alone,
+  /// such as a queue row's delete after its job ran.
+  Future<bool> isRetryable(Object error, {String? connection}) async =>
+      _isRetryable(await this.connection(connection), error);
+
   static bool _isRetryable(DatabaseDriver driver, Object error) {
     // A statement's error arrives wrapped; the driver knows its own.
     final cause = error is QueryException ? error.previous : error;

@@ -1,0 +1,438 @@
+{
+    "laravel": "13.40.0",
+    "php": "8.3.35",
+    "cases": [
+        {
+            "data": {
+                "role": "owner"
+            },
+            "rules": {
+                "x": "required_if:role,admin,owner"
+            },
+            "errors": {
+                "x": [
+                    "The x field is required when role is owner."
+                ]
+            }
+        },
+        {
+            "data": {
+                "role": "admin"
+            },
+            "rules": {
+                "x": "required_if:role,admin,owner"
+            },
+            "errors": {
+                "x": [
+                    "The x field is required when role is admin."
+                ]
+            }
+        },
+        {
+            "data": {
+                "role": "guest"
+            },
+            "rules": {
+                "x": "required_if:role,admin,owner"
+            },
+            "errors": {}
+        },
+        {
+            "data": [],
+            "rules": {
+                "x": "required_if:role,admin"
+            },
+            "errors": {}
+        },
+        {
+            "data": {
+                "role": null
+            },
+            "rules": {
+                "x": "required_if:role,null"
+            },
+            "errors": {
+                "x": [
+                    "The x field is required when role is empty."
+                ]
+            }
+        },
+        {
+            "data": {
+                "role": null
+            },
+            "rules": {
+                "x": "required_if:role,NULL"
+            },
+            "errors": {
+                "x": [
+                    "The x field is required when role is empty."
+                ]
+            }
+        },
+        {
+            "data": {
+                "role": null
+            },
+            "rules": {
+                "x": "required_if:role,admin"
+            },
+            "errors": {}
+        },
+        {
+            "data": {
+                "role": null
+            },
+            "rules": {
+                "x": "required_if:role,"
+            },
+            "errors": {}
+        },
+        {
+            "data": {
+                "flag": true
+            },
+            "rules": {
+                "x": "required_if:flag,true"
+            },
+            "errors": {
+                "x": [
+                    "The x field is required when flag is true."
+                ]
+            }
+        },
+        {
+            "data": {
+                "flag": false
+            },
+            "rules": {
+                "x": "required_if:flag,false"
+            },
+            "errors": {
+                "x": [
+                    "The x field is required when flag is false."
+                ]
+            }
+        },
+        {
+            "data": {
+                "flag": true
+            },
+            "rules": {
+                "x": "required_if:flag,1"
+            },
+            "errors": {}
+        },
+        {
+            "data": {
+                "flag": "1"
+            },
+            "rules": {
+                "x": "required_if:flag,true"
+            },
+            "errors": {}
+        },
+        {
+            "data": {
+                "flag": "1"
+            },
+            "rules": {
+                "x": "required_if:flag,true",
+                "flag": "boolean"
+            },
+            "errors": {
+                "x": [
+                    "The x field is required when flag is 1."
+                ]
+            }
+        },
+        {
+            "data": {
+                "flag": "0"
+            },
+            "rules": {
+                "x": "required_if:flag,false",
+                "flag": "boolean"
+            },
+            "errors": {
+                "x": [
+                    "The x field is required when flag is 0."
+                ]
+            }
+        },
+        {
+            "data": {
+                "flag": "0"
+            },
+            "rules": {
+                "x": "required_if:flag,true",
+                "flag": "boolean"
+            },
+            "errors": {}
+        },
+        {
+            "data": {
+                "flag": "on"
+            },
+            "rules": {
+                "x": "required_if:flag,true",
+                "flag": "boolean"
+            },
+            "errors": {
+                "x": [
+                    "The x field is required when flag is on."
+                ],
+                "flag": [
+                    "The flag field must be true or false."
+                ]
+            }
+        },
+        {
+            "data": {
+                "qty": 5
+            },
+            "rules": {
+                "x": "required_if:qty,5"
+            },
+            "errors": {
+                "x": [
+                    "The x field is required when qty is 5."
+                ]
+            }
+        },
+        {
+            "data": {
+                "qty": 5.0
+            },
+            "rules": {
+                "x": "required_if:qty,5"
+            },
+            "errors": {
+                "x": [
+                    "The x field is required when qty is 5."
+                ]
+            }
+        },
+        {
+            "data": {
+                "qty": "05"
+            },
+            "rules": {
+                "x": "required_if:qty,5"
+            },
+            "errors": {
+                "x": [
+                    "The x field is required when qty is 05."
+                ]
+            }
+        },
+        {
+            "data": {
+                "qty": " 5"
+            },
+            "rules": {
+                "x": "required_if:qty,5"
+            },
+            "errors": {
+                "x": [
+                    "The x field is required when qty is  5."
+                ]
+            }
+        },
+        {
+            "data": {
+                "qty": "5 "
+            },
+            "rules": {
+                "x": "required_if:qty,5"
+            },
+            "errors": {
+                "x": [
+                    "The x field is required when qty is 5 ."
+                ]
+            }
+        },
+        {
+            "data": {
+                "qty": "1e1"
+            },
+            "rules": {
+                "x": "required_if:qty,10"
+            },
+            "errors": {
+                "x": [
+                    "The x field is required when qty is 1e1."
+                ]
+            }
+        },
+        {
+            "data": {
+                "qty": "0x1A"
+            },
+            "rules": {
+                "x": "required_if:qty,26"
+            },
+            "errors": {}
+        },
+        {
+            "data": {
+                "qty": "abc"
+            },
+            "rules": {
+                "x": "required_if:qty,0"
+            },
+            "errors": {}
+        },
+        {
+            "data": {
+                "qty": 0
+            },
+            "rules": {
+                "x": "required_if:qty,abc"
+            },
+            "errors": {}
+        },
+        {
+            "data": {
+                "qty": 0
+            },
+            "rules": {
+                "x": "required_if:qty,"
+            },
+            "errors": {}
+        },
+        {
+            "data": {
+                "qty": 1.5
+            },
+            "rules": {
+                "x": "required_if:qty,1.50"
+            },
+            "errors": {
+                "x": [
+                    "The x field is required when qty is 1.5."
+                ]
+            }
+        },
+        {
+            "data": {
+                "tags": [
+                    "a"
+                ]
+            },
+            "rules": {
+                "x": "required_if:tags,a"
+            },
+            "errors": {}
+        },
+        {
+            "data": {
+                "role": "bot"
+            },
+            "rules": {
+                "x": "required_unless:role,guest,bot"
+            },
+            "errors": {}
+        },
+        {
+            "data": {
+                "role": "admin"
+            },
+            "rules": {
+                "x": "required_unless:role,guest,bot"
+            },
+            "errors": {
+                "x": [
+                    "The x field is required unless role is in guest, bot."
+                ]
+            }
+        },
+        {
+            "data": [],
+            "rules": {
+                "x": "required_unless:role,guest"
+            },
+            "errors": {
+                "x": [
+                    "The x field is required unless role is in guest."
+                ]
+            }
+        },
+        {
+            "data": {
+                "role": null
+            },
+            "rules": {
+                "x": "required_unless:role,null"
+            },
+            "errors": {}
+        },
+        {
+            "data": {
+                "qty": "05"
+            },
+            "rules": {
+                "x": "required_unless:qty,5"
+            },
+            "errors": {}
+        },
+        {
+            "data": {
+                "items": [
+                    {
+                        "type": "paid"
+                    },
+                    {
+                        "type": "free"
+                    }
+                ]
+            },
+            "rules": {
+                "items.*.price": "required_if:items.*.type,paid,premium"
+            },
+            "errors": {
+                "items.0.price": [
+                    "The items.0.price field is required when items.0.type is paid."
+                ]
+            }
+        },
+        {
+            "data": {
+                "role": "owner",
+                "x": "given"
+            },
+            "rules": {
+                "x": "required_if:role,admin,owner"
+            },
+            "errors": {}
+        },
+        {
+            "data": {
+                "role": "owner",
+                "x": ""
+            },
+            "rules": {
+                "x": "required_if:role,admin,owner"
+            },
+            "errors": {
+                "x": [
+                    "The x field is required when role is owner."
+                ]
+            }
+        },
+        {
+            "data": {
+                "role": "owner",
+                "x": []
+            },
+            "rules": {
+                "x": "required_if:role,admin,owner"
+            },
+            "errors": {
+                "x": [
+                    "The x field is required when role is owner."
+                ]
+            }
+        }
+    ]
+}

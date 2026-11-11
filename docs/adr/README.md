@@ -16,3 +16,4 @@ record is a bug.
 | [ADR-003](0003-state-scopes.md) | State scopes: `isolate`, `process` (the coordinator) and `cluster`; rate-limit leases |
 | [ADR-004](0004-supervisor-and-workers.md) | A supervisor isolate, N worker isolates on one port, and the coordinator |
 | [ADR-024](0024-laravel-coexistence-defaults.md) | Laravel's defaults for `Crypt` (AES-256-CBC) and hashing (bcrypt) |
+| [ADR-041](0041-laravel-queue-lock-keys.md) | Laravel's cache keys for unique, overlap and debounce locks, with a two-key transition |

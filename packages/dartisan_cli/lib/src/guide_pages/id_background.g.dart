@@ -3,7 +3,7 @@
 
 /// `docs/guide/id/background.md`.
 const String pageIdBackground =
-    r'''<!-- source: background.md sha256:259322196e9f -->
+    r'''<!-- source: background.md sha256:35ae143b39b8 -->
 # Cache, event, queue, dan penjadwalan
 
 <!-- include: packages/daravel/test/docs/guide_examples_test.dart#cache-events-queue -->
@@ -121,14 +121,31 @@ sampai commit.
   `HORIZON_KILL_GRACE` (10 detik), dan paling lambat satu heartbeat (minimal
   satu detik) sebelum `QUEUE_RETRY_AFTER`, karena sejak saat itu worker lain
   boleh mengambil job tersebut.
-  - Percobaan yang dibunuh dihitung satu kali, dan job langsung tersedia lagi
-    (tanpa backoff); job yang dibunuh sedekat itu dengan `QUEUE_RETRY_AFTER`
-    justru dibiarkan sampai `QUEUE_RETRY_AFTER`, sehingga master tidak pernah
-    melepas reservasi yang mungkin sudah dipegang worker lain. Job yang percobaannya sudah habis gagal pada pop
-    berikutnya dengan `MaxAttemptsExceededException` ("may have previously
-    timed out"), dan listener `JobFailed` dijalankan.
-  - Percobaan yang dibunuh tidak memancarkan `JobExceptionOccurred`, dan
-    `failOnTimeout` tidak berlaku: job dicoba lagi sampai percobaannya habis.
+  - Percobaan yang dibunuh dihitung satu kali. Master lalu memutuskan, hanya
+    dari pengaturan retry job (tidak pernah datanya), hal yang sama dengan
+    timeout handler Laravel: job gagal bila percobaannya habis atau
+    `retryUntil` sudah lewat, bila timeout ini adalah exception terakhir
+    yang diizinkan (`maxExceptions`), atau bila job memakai `failOnTimeout`.
+    Selain itu job langsung tersedia lagi (tanpa backoff).
+  - Job yang gagal ditandai lebih dulu, dan worker yang mereservasinya
+    berikutnya menggagalkannya tanpa menjalankannya, dengan
+    `TimeoutExceededException` ("NAME has timed out."): baris `failed_jobs`,
+    hook `failed()` dan listener `JobFailed` berjalan di aplikasi worker itu.
+    Master tidak menjalankan kode job sama sekali, karena job yang memblok
+    isolate-nya bisa memblok isolate master dengan cara yang sama. Berbeda
+    dengan Laravel, kegagalan itu dicatat saat reservasi berikutnya, bukan
+    pada detik timeout; di antara keduanya job tampak tersedia.
+  - Job yang dibunuh sedekat itu dengan `QUEUE_RETRY_AFTER` justru dibiarkan
+    sampai `QUEUE_RETRY_AFTER`, sehingga master tidak pernah melepas reservasi
+    yang mungkin sudah dipegang worker lain. Dalam hal itu tidak ada tanda:
+    job yang percobaannya sudah habis gagal pada pop berikutnya dengan
+    `MaxAttemptsExceededException` ("may have previously timed out"), dan job
+    `failOnTimeout` yang percobaannya masih tersisa berjalan lagi. Hal yang
+    sama berlaku bila queue tidak punya signal store (`QUEUE_SIGNAL_STORE`).
+  - Percobaan yang dibunuh tidak memancarkan `JobExceptionOccurred`.
+    `horizon:list` dan event `JobTimedOut` menampilkan setiap percobaan
+    seperti itu beserta nasibnya: "will fail on next reservation", "made
+    available again" atau "left to retry_after".
   - `dartisan horizon:list` menampilkan worker seperti itu sebagai busy dan
     "not reporting for N s", serta mendaftar percobaan yang dibunuh karena
     melewati timeout.

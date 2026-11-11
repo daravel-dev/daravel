@@ -158,6 +158,7 @@ final class HorizonCommand extends DaravelCommand {
       signals: queues.signalStore,
       name: _name(app),
       onEvent: horizonEvents(app),
+      failsAfterTimeout: queues.processor.failsAfterTimeout,
       onTerminate: () {
         if (!done.isCompleted) {
           done.complete();
@@ -292,7 +293,8 @@ List<String> horizonWorkerLines(Map<String, Object?> state) {
     for (final t in timedOut.cast<Map<String, Object?>>()) {
       lines.add(
         '  ${t['name']} ${t['job']} attempt ${t['attempt']}, limit '
-        '${t['limitSeconds']}s, on ${t['worker']}',
+        '${t['limitSeconds']}s, on ${t['worker']}'
+        '${t['fate'] == null ? '' : ': ${t['fate']}'}',
       );
     }
   }

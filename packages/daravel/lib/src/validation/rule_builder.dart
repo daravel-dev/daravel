@@ -76,6 +76,14 @@ final class RuleBuilder {
   RuleBuilder requiredUnless(String other, Object? value) =>
       _add(Rules.requiredUnless(other, value));
 
+  /// Appends [Rules.requiredIfIn].
+  RuleBuilder requiredIfIn(String other, List<Object?> values) =>
+      _add(Rules.requiredIfIn(other, values));
+
+  /// Appends [Rules.requiredUnlessIn].
+  RuleBuilder requiredUnlessIn(String other, List<Object?> values) =>
+      _add(Rules.requiredUnlessIn(other, values));
+
   /// Appends [Rules.requiredWith].
   RuleBuilder requiredWith(List<String> others) =>
       _add(Rules.requiredWith(others));
@@ -551,6 +559,14 @@ extension RuleChain on Rule {
   /// This rule followed by [Rules.requiredUnless].
   RuleBuilder requiredUnless(String other, Object? value) =>
       _chain.requiredUnless(other, value);
+
+  /// This rule followed by [Rules.requiredIfIn].
+  RuleBuilder requiredIfIn(String other, List<Object?> values) =>
+      _chain.requiredIfIn(other, values);
+
+  /// This rule followed by [Rules.requiredUnlessIn].
+  RuleBuilder requiredUnlessIn(String other, List<Object?> values) =>
+      _chain.requiredUnlessIn(other, values);
 
   /// This rule followed by [Rules.requiredWith].
   RuleBuilder requiredWith(List<String> others) => _chain.requiredWith(others);

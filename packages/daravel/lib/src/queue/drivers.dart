@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 
 import '../foundation/clock.dart';
 
@@ -983,17 +984,47 @@ final class DatabaseQueue
   }
 
   @override
-  Future<void> release(QueuedJob job, Duration delay) async {
-    await _query().where('id', job.id).update(<String, Object?>{
-      'reserved_at': null,
-      'available_at': _now + delay.inSeconds,
-    });
-  }
+  Future<void> release(QueuedJob job, Duration delay) =>
+      _whileReserved(() async {
+        await _query().where('id', job.id).update(<String, Object?>{
+          'reserved_at': null,
+          'available_at': _now + delay.inSeconds,
+        });
+      });
 
   @override
-  Future<void> delete(QueuedJob job) async {
+  Future<void> delete(QueuedJob job) => _whileReserved(() async {
     await _query().where('id', job.id).delete();
+  });
+
+  /// Runs [body] (the delete or release of a job this worker ran) again
+  /// after a transient error (a deadlock, SQLite busy or locked) for as long
+  /// as the reservation is safely ours: half of [retryAfter]. Before, one
+  /// such error after the job ran left its row reserved, and the job ran a
+  /// second time once [retryAfter] passed: a "completed 301 of 300" with no
+  /// worker killed (Horizon `master_test` on Windows, SQLite busy on the
+  /// DELETE). Past that bound the job may run again, which is the queue's
+  /// at-least-once guarantee, as in Laravel.
+  Future<void> _whileReserved(Future<void> Function() body) async {
+    final watch = Stopwatch()..start();
+    final limit = retryAfter ~/ 2;
+    var wait = DatabaseManager.retryBaseDelay;
+    while (true) {
+      try {
+        await body();
+        return;
+      } on Object catch (error) {
+        if (watch.elapsed + wait >= limit ||
+            !await db.isRetryable(error, connection: connection)) {
+          rethrow;
+        }
+      }
+      await Future<void>.delayed(wait);
+      wait = DatabaseManager.retryDelay(wait, _retryRandom);
+    }
   }
+
+  static final math.Random _retryRandom = math.Random();
 
   @override
   Future<int> size(String queue) => _query().where('queue', queue).count();
