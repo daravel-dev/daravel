@@ -50,6 +50,7 @@ final class ClientJob {
     required this.inFlight,
     this.limit = 0,
     this.window = RemoteCoordinatorChannel.defaultBulkWindow,
+    this.buffer = RemoteCoordinatorChannel.defaultBulkBuffer,
   });
 
   final SendPort coordinator;
@@ -64,12 +65,16 @@ final class ClientJob {
 
   /// The channel's bulk credit window (K1b; `--window`).
   final int window;
+
+  /// The channel's bulk buffer (K1b; `--buffer`, for the flood only).
+  final int buffer;
 }
 
 Future<void> client(ClientJob job) async {
   final channel = RemoteCoordinatorChannel(
     job.coordinator,
     bulkWindow: job.window,
+    bulkBuffer: job.buffer,
   );
   final buckets = List<int>.filled(bucketCount, 0);
   var count = 0;
@@ -234,6 +239,17 @@ Future<void> main(List<String> args) async {
   final window = int.parse(
     option('window', '${RemoteCoordinatorChannel.defaultBulkWindow}'),
   );
+  // A small one makes the flood overflow it (refuse, dropOldest, _defer).
+  final buffer = int.parse(
+    option('buffer', '${RemoteCoordinatorChannel.defaultBulkBuffer}'),
+  );
+  // Run only some operations or sections, so a harness can let the load
+  // settle between them (ACK 235, Addendum 2 A.3).
+  final ops = option('ops', 'rate,lock,cache,publish,noop,send').split(',');
+  final sections = option(
+    'sections',
+    'ceiling,saturation,starved,lease',
+  ).split(',');
   final json = args.contains('--json');
   final out = <String, Object?>{
     'dart': Platform.version.split(' ').first,
@@ -242,6 +258,9 @@ Future<void> main(List<String> args) async {
     'duration_s': millis / 1000,
     'in_flight_per_client': inFlight,
     'bulk_window': window,
+    'bulk_buffer': buffer,
+    'ops': ops,
+    'sections': sections,
   };
 
   Future<RunResult> fresh(
@@ -261,147 +280,219 @@ Future<void> main(List<String> args) async {
     }
   }
 
-  // 1. Ceiling per operation and client count.
-  final ceiling = <String, Object?>{};
-  for (final op in ['rate', 'lock', 'cache', 'publish', 'noop', 'send']) {
-    final byClients = <String, Object?>{};
-    for (final n in clients) {
-      final r = await fresh([
-        for (var i = 0; i < n; i++)
-          (c, reply) => ClientJob(
-            coordinator: c,
-            reply: reply,
-            op: op,
-            index: i,
-            millis: millis,
-            inFlight: inFlight,
-          ),
-      ]);
-      byClients['$n'] = r.toJson();
-      if (!json) {
-        stdout.writeln('ceiling $op x$n: ${jsonEncode(r.toJson())}');
+  if (sections.contains('ceiling')) {
+    // 1. Ceiling per operation and client count.
+    final ceiling = <String, Object?>{};
+    for (final op in ops) {
+      final byClients = <String, Object?>{};
+      for (final n in clients) {
+        final r = await fresh([
+          for (var i = 0; i < n; i++)
+            (c, reply) => ClientJob(
+              coordinator: c,
+              reply: reply,
+              op: op,
+              index: i,
+              millis: millis,
+              inFlight: inFlight,
+              window: window,
+            ),
+        ]);
+        byClients['$n'] = r.toJson();
+        if (!json) {
+          stdout.writeln('ceiling $op x$n: ${jsonEncode(r.toJson())}');
+        }
+      }
+      ceiling[op] = byClients;
+    }
+    out['ceiling'] = ceiling;
+  }
+
+  if (sections.contains('saturation')) {
+    // 3. A rate limit probe, alone and under a publish flood.
+    final flood = clients.where((n) => n > 1).fold<int>(4, max);
+    ClientJob probe(SendPort c, SendPort reply) => ClientJob(
+      coordinator: c,
+      reply: reply,
+      op: 'rate',
+      index: 0,
+      millis: millis,
+      inFlight: 1,
+    );
+    final alone = await fresh([probe]);
+    final coordinator = createStandardCoordinator();
+    final port = coordinator.listen();
+    final probeReplies = ReceivePort();
+    final floodReplies = ReceivePort();
+    final before = coordinator.stats()['messages']! as int;
+    final portBefore = coordinator.stats()['port_messages'] as int? ?? 0;
+    final watch = Stopwatch()..start();
+    await Isolate.spawn(client, probe(port, probeReplies.sendPort));
+    for (var i = 0; i < flood; i++) {
+      await Isolate.spawn(
+        client,
+        ClientJob(
+          coordinator: port,
+          reply: floodReplies.sendPort,
+          op: 'publish',
+          index: i + 1,
+          millis: millis,
+          inFlight: 64,
+          window: window,
+          buffer: buffer,
+        ),
+      );
+    }
+    final probed = await probeReplies.first as List<Object?>;
+    var published = 0;
+    var refused = 0;
+    var left = flood;
+    await for (final m in floodReplies) {
+      published += (m as List<Object?>)[1]! as int;
+      refused += m[3]! as int;
+      if (--left == 0) {
+        break;
       }
     }
-    ceiling[op] = byClients;
+    final seconds = watch.elapsedMicroseconds / 1e6;
+    final messages = (coordinator.stats()['messages']! as int) - before;
+    final portMessages =
+        (coordinator.stats()['port_messages'] as int? ?? 0) - portBefore;
+    coordinator.close();
+    probeReplies.close();
+    floodReplies.close();
+    final underFlood = RunResult(
+      probed[1]! as int,
+      0,
+      probed[3]! as int,
+      probed[4]! as List<int>,
+      seconds,
+      messages,
+    );
+    out['saturation'] = {
+      'flood_isolates': flood,
+      'publish_per_s': (published / seconds).round(),
+      'messages_per_s': (messages / seconds).round(),
+      // Port messages (a batch is one) per 1 000 publishes: what K1b's
+      // grouping saves.
+      'port_messages_per_1000_publishes': published == 0
+          ? null
+          : (portMessages * 1000 / published).round(),
+      // Publishes refused (a full bulk buffer, or a saturated coordinator).
+      'publish_refused': refused,
+      'rate_alone': {
+        'p50_us': alone.percentile(0.5).round(),
+        'p99_us': alone.percentile(0.99).round(),
+      },
+      'rate_under_flood': {
+        'p50_us': underFlood.percentile(0.5).round(),
+        'p99_us': underFlood.percentile(0.99).round(),
+        'errors': underFlood.errors,
+      },
+    };
+    if (!json) {
+      stdout.writeln('saturation: ${jsonEncode(out['saturation'])}');
+    }
   }
-  out['ceiling'] = ceiling;
-
-  // 3. A rate limit probe, alone and under a publish flood.
-  final flood = clients.where((n) => n > 1).fold<int>(4, max);
-  ClientJob probe(SendPort c, SendPort reply) => ClientJob(
-    coordinator: c,
-    reply: reply,
-    op: 'rate',
-    index: 0,
-    millis: millis,
-    inFlight: 1,
-  );
-  final alone = await fresh([probe]);
-  final coordinator = createStandardCoordinator();
-  final port = coordinator.listen();
-  final probeReplies = ReceivePort();
-  final floodReplies = ReceivePort();
-  final before = coordinator.stats()['messages']! as int;
-  final portBefore = coordinator.stats()['port_messages']! as int;
-  final watch = Stopwatch()..start();
-  await Isolate.spawn(client, probe(port, probeReplies.sendPort));
-  for (var i = 0; i < flood; i++) {
+  if (sections.contains('starved')) {
+    // 3b. A busy host, no flood (ACK 236 §2): 16 isolates burn CPU while
+    // one client publishes slowly and the rate probe runs. The coordinator
+    // has no queue; it must not call itself saturated and refuse bulk.
+    final coordinator = createStandardCoordinator();
+    final port = coordinator.listen();
+    final probeReplies = ReceivePort();
+    final publisherReplies = ReceivePort();
+    final burners = <Isolate>[];
+    for (var i = 0; i < 16; i++) {
+      burners.add(await Isolate.spawn(burn, millis + 2000));
+    }
+    final states = <String>{};
+    final watchStates = Timer.periodic(
+      const Duration(milliseconds: 100),
+      (_) =>
+          states.add(coordinator.stats()['state'] as String? ?? 'none (main)'),
+    );
     await Isolate.spawn(
       client,
       ClientJob(
         coordinator: port,
-        reply: floodReplies.sendPort,
-        op: 'publish',
-        index: i + 1,
+        reply: probeReplies.sendPort,
+        op: 'rate',
+        index: 0,
         millis: millis,
-        inFlight: 64,
+        inFlight: 1,
+      ),
+    );
+    await Isolate.spawn(
+      client,
+      ClientJob(
+        coordinator: port,
+        reply: publisherReplies.sendPort,
+        op: 'publish',
+        index: 1,
+        millis: millis,
+        inFlight: 1,
         window: window,
       ),
     );
-  }
-  final probed = await probeReplies.first as List<Object?>;
-  var published = 0;
-  var refused = 0;
-  var left = flood;
-  await for (final m in floodReplies) {
-    published += (m as List<Object?>)[1]! as int;
-    refused += m[3]! as int;
-    if (--left == 0) {
-      break;
+    final probed = await probeReplies.first as List<Object?>;
+    final published = await publisherReplies.first as List<Object?>;
+    watchStates.cancel();
+    final stats = coordinator.stats();
+    coordinator.close();
+    probeReplies.close();
+    publisherReplies.close();
+    for (final b in burners) {
+      b.kill(priority: Isolate.immediate);
+    }
+    out['starved'] = {
+      'burner_isolates': 16,
+      'states_seen': states.toList()..sort(),
+      'shed': stats['shed'],
+      'queue_lag_peak_ms': stats['queue_lag_peak_ms'],
+      'publish_ok': published[1],
+      'publish_errors': published[3],
+      'rate_ok': probed[1],
+      'rate_errors': probed[3],
+    };
+    if (!json) {
+      stdout.writeln('starved: ${jsonEncode(out['starved'])}');
     }
   }
-  final seconds = watch.elapsedMicroseconds / 1e6;
-  final messages = (coordinator.stats()['messages']! as int) - before;
-  final portMessages =
-      (coordinator.stats()['port_messages']! as int) - portBefore;
-  coordinator.close();
-  probeReplies.close();
-  floodReplies.close();
-  final underFlood = RunResult(
-    probed[1]! as int,
-    0,
-    probed[3]! as int,
-    probed[4]! as List<int>,
-    seconds,
-    messages,
-  );
-  out['saturation'] = {
-    'flood_isolates': flood,
-    'publish_per_s': (published / seconds).round(),
-    'messages_per_s': (messages / seconds).round(),
-    // Port messages (a batch is one) per 1 000 publishes: what K1b's
-    // grouping saves.
-    'port_messages_per_1000_publishes': published == 0
-        ? null
-        : (portMessages * 1000 / published).round(),
-    // Publishes refused (a full bulk buffer, or a saturated coordinator).
-    'publish_refused': refused,
-    'rate_alone': {
-      'p50_us': alone.percentile(0.5).round(),
-      'p99_us': alone.percentile(0.99).round(),
-    },
-    'rate_under_flood': {
-      'p50_us': underFlood.percentile(0.5).round(),
-      'p99_us': underFlood.percentile(0.99).round(),
-      'errors': underFlood.errors,
-    },
-  };
-  if (!json) {
-    stdout.writeln('saturation: ${jsonEncode(out['saturation'])}');
-  }
-
-  // 4. Leases: how many get past the limit, messages per decision.
-  final lease = <String, Object?>{};
-  for (final limit in [60, 1000, 10000]) {
-    for (final n in [4, 16]) {
-      final r = await fresh([
-        for (var i = 0; i < n; i++)
-          (c, reply) => ClientJob(
-            coordinator: c,
-            reply: reply,
-            op: 'lease',
-            index: i,
-            millis: min(millis, 2000),
-            inFlight: 4,
-            limit: limit,
-          ),
-      ]);
-      lease['$limit/min x$n'] = {
-        'attempts': r.ops,
-        'allowed': r.allowed,
-        'over_limit': max(0, r.allowed - limit),
-        'messages_per_decision': r.ops == 0
-            ? 0
-            : double.parse((r.messages / r.ops).toStringAsFixed(4)),
-      };
-      if (!json) {
-        stdout.writeln(
-          'lease $limit/min x$n: ${jsonEncode(lease['$limit/min x$n'])}',
-        );
+  if (sections.contains('lease')) {
+    // 4. Leases: how many get past the limit, messages per decision.
+    final lease = <String, Object?>{};
+    for (final limit in [60, 1000, 10000]) {
+      for (final n in [4, 16]) {
+        final r = await fresh([
+          for (var i = 0; i < n; i++)
+            (c, reply) => ClientJob(
+              coordinator: c,
+              reply: reply,
+              op: 'lease',
+              index: i,
+              millis: min(millis, 2000),
+              inFlight: 4,
+              limit: limit,
+            ),
+        ]);
+        lease['$limit/min x$n'] = {
+          'attempts': r.ops,
+          'allowed': r.allowed,
+          'over_limit': max(0, r.allowed - limit),
+          'messages_per_decision': r.ops == 0
+              ? 0
+              : double.parse((r.messages / r.ops).toStringAsFixed(4)),
+        };
+        if (!json) {
+          stdout.writeln(
+            'lease $limit/min x$n: ${jsonEncode(lease['$limit/min x$n'])}',
+          );
+        }
       }
     }
+    out['lease'] = lease;
   }
-  out['lease'] = lease;
   if (json) {
     stdout.writeln(const JsonEncoder.withIndent('  ').convert(out));
   }
@@ -423,4 +514,17 @@ final class _Noop implements CoordinatorService {
 
   @override
   Map<String, Object?> stats() => const {};
+}
+
+/// Burns this isolate's CPU for [millis] (the `starved` section's busy
+/// host).
+void burn(int millis) {
+  final watch = Stopwatch()..start();
+  var x = 0;
+  while (watch.elapsedMilliseconds < millis) {
+    x = (x * 31 + 7) & 0xffff;
+  }
+  if (x == -1) {
+    throw StateError('unreachable');
+  }
 }
