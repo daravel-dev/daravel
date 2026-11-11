@@ -3,7 +3,7 @@
 
 /// `docs/guide/id/validation.md`.
 const String pageIdValidation =
-    r'''<!-- source: validation.md sha256:ae7d3ca2ab74 -->
+    r'''<!-- source: validation.md sha256:ece8d57117f3 -->
 # Validasi
 
 Validasi request secara inline dengan string rule Laravel, atau dengan objek
@@ -114,9 +114,11 @@ dan `rfc` berlaku bila tidak ada mode.
   label gagal, dan domain itu atau salah satu nama induknya harus punya record
   MX, A, atau AAAA tanpa null MX. Seperti di Laravel, `dns` saja tidak
   memeriksa sintaks: tulis `email:rfc,dns`.
-- `rfc` dan `strict` untuk sementara adalah pemeriksaan bergaya HTML, lebih
-  ketat daripada parser RFC di Laravel: local part bertanda kutip atau domain
-  satu label gagal.
+- `rfc` (dan `email` tanpa mode) adalah parser RFC dari Laravel, port dari
+  egulias/EmailValidator 4: local part bertanda kutip, komentar, literal
+  domain, dan domain satu label (`a@b`) lolos seperti di Laravel. `strict`
+  memakai parser yang sama tanpa membolehkan peringatan RFC, sehingga
+  bentuk-bentuk tadi gagal.
 - `spoof` membutuhkan ICU, yang tidak ada di Dart: aturan ini melempar galat,
   dan `dartisan lint` melaporkannya.
 

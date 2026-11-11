@@ -115,8 +115,13 @@ void main() {
       },
     );
 
-    test('rfc and strict are the current check for now', () async {
-      expect(await valid('a@b', 'email:rfc'), isFalse);
+    test('rfc is egulias\' parser; strict refuses its warnings', () async {
+      // A single-label domain is RFC-valid with a TLD warning.
+      expect(await valid('a@b', 'email:rfc'), isTrue);
+      expect(await valid('a@b', 'email:strict'), isFalse);
+      expect(await valid('"ana b"@example.com', 'email'), isTrue);
+      expect(await valid('"ana b"@example.com', 'email:strict'), isFalse);
+      expect(await valid('a..b@example.com', 'email'), isFalse);
       expect(await valid('ana@example.com', 'email:strict'), isTrue);
     });
 

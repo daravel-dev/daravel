@@ -1,0 +1,993 @@
+{
+  "source": "The email addresses of the data providers of egulias/EmailValidator 4.0.4 (tests/EmailValidator/Validation/RFCValidationTest.php, RFCValidationDomainPartTest.php, NoRFCWarningsValidationTest.php), run through Laravel's Validator with the rules email, email:rfc and email:strict in the daravel-interop-laravel-12 image (docker run --rm --network=none).",
+  "license": "The addresses come from egulias/EmailValidator, MIT License, Copyright (c) 2013-2023 Eduardo Gulias Davis.",
+  "laravel": "12.71.0.0",
+  "egulias": "4.0.4.0",
+  "php": "8.2.33",
+  "cases": [
+    {
+      "email": "w6JAaWFuYS5vcmc=",
+      "from": "RFCValidationTest::getValidEmails",
+      "email:rfc": true,
+      "email:strict": true
+    },
+    {
+      "email": "ZmFiaWVuQHN5bWZvbnkuY29t",
+      "from": "RFCValidationDomainPartTest::getValidEmails",
+      "email:rfc": true,
+      "email:strict": true
+    },
+    {
+      "email": "ZXhhbXBsZUBleGFtcGxlLmNvLnVr",
+      "from": "RFCValidationDomainPartTest::getValidEmails",
+      "email:rfc": true,
+      "email:strict": true
+    },
+    {
+      "email": "ZmFiaWVuX3BvdGVuY2llckBleGFtcGxlLmZy",
+      "from": "RFCValidationTest::getValidEmails",
+      "email:rfc": true,
+      "email:strict": true
+    },
+    {
+      "email": "ZmFiJ2llbkBzeW1mb255LmNvbQ==",
+      "from": "RFCValidationTest::getValidEmails",
+      "email:rfc": true,
+      "email:strict": true
+    },
+    {
+      "email": "ZmFiXCBpZW5Ac3ltZm9ueS5jb20=",
+      "from": "RFCValidationTest::getValidEmails",
+      "email:rfc": true,
+      "email:strict": true
+    },
+    {
+      "email": "ZXhhbXBsZSgoZXhhbXBsZSkpQGZha2VkZmFrZS5jby51aw==",
+      "from": "RFCValidationTest::getValidEmails",
+      "email:rfc": true,
+      "email:strict": false
+    },
+    {
+      "email": "ZmFiaWVuK2FAc3ltZm9ueS5jb20=",
+      "from": "RFCValidationTest::getValidEmails",
+      "email:rfc": true,
+      "email:strict": true
+    },
+    {
+      "email": "ZXhhbXBsPWVAZXhhbXBsZS5jb20=",
+      "from": "RFCValidationTest::getValidEmails",
+      "email:rfc": true,
+      "email:strict": true
+    },
+    {
+      "email": "0LjQvdGE0L5A0L/QuNGB0YzQvNC+LtGA0YQ=",
+      "from": "RFCValidationDomainPartTest::getValidEmails",
+      "email:rfc": true,
+      "email:strict": true
+    },
+    {
+      "email": "InVzZXJuYW1lIkBleGFtcGxlLmNvbQ==",
+      "from": "RFCValidationTest::getValidEmails",
+      "email:rfc": true,
+      "email:strict": false
+    },
+    {
+      "email": "InVzZXIsbmFtZSJAZXhhbXBsZS5jb20=",
+      "from": "RFCValidationTest::getValidEmails",
+      "email:rfc": true,
+      "email:strict": false
+    },
+    {
+      "email": "InVzZXIgbmFtZSJAZXhhbXBsZS5jb20=",
+      "from": "RFCValidationTest::getValidEmails",
+      "email:rfc": true,
+      "email:strict": false
+    },
+    {
+      "email": "InVzZXJAbmFtZSJAZXhhbXBsZS5jb20=",
+      "from": "RFCValidationTest::getValidEmails",
+      "email:rfc": true,
+      "email:strict": false
+    },
+    {
+      "email": "InVzZXJcIm5hbWUiQGV4YW1wbGUuY29t",
+      "from": "RFCValidationTest::getValidEmails",
+      "email:rfc": true,
+      "email:strict": false
+    },
+    {
+      "email": "IlxhIkBpYW5hLm9yZw==",
+      "from": "RFCValidationTest::getValidEmails",
+      "email:rfc": true,
+      "email:strict": false
+    },
+    {
+      "email": "InRlc3RcIHRlc3QiQGlhbmEub3Jn",
+      "from": "RFCValidationTest::getValidEmails",
+      "email:rfc": true,
+      "email:strict": false
+    },
+    {
+      "email": "IiJAaWFuYS5vcmc=",
+      "from": "RFCValidationTest::getValidEmails",
+      "email:rfc": true,
+      "email:strict": false
+    },
+    {
+      "email": "IlwiIkBpYW5hLm9yZw==",
+      "from": "RFCValidationTest::getValidEmails",
+      "email:rfc": true,
+      "email:strict": false
+    },
+    {
+      "email": "bcO8bGxlckBtw7ZsbGVyLmRl",
+      "from": "RFCValidationDomainPartTest::getValidEmails",
+      "email:rfc": true,
+      "email:strict": true
+    },
+    {
+      "email": "MTUwMDExMUDQv9GA0L7RhNC4LdC40L3QstC10YHRgi7RgNGE",
+      "from": "RFCValidationDomainPartTest::getValidEmails",
+      "email:rfc": true,
+      "email:strict": true
+    },
+    {
+      "email": "ZXhhbXBsZUDRitGK0YrRitGK0YrRitGK0YrRitGK0YrRitGK0YrRitGK0YrRitGK0YrRitGK0YrRitGK0YrRitGK0YrRitGK0YrRitGK0YrRitGK0YrRii5jb20=",
+      "from": "NoRFCWarningsValidationTest::getValidEmailsWithoutWarnings",
+      "email:rfc": true,
+      "email:strict": true
+    },
+    {
+      "email": "YTVhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFAZXhhbXBsZS5jb20=",
+      "from": "RFCValidationTest::getValidEmailsWithWarnings",
+      "email:rfc": true,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhhbXBsZUBleGFtcGxl",
+      "from": "RFCValidationTest::getValidEmailsWithWarnings",
+      "email:rfc": true,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhhbXBsZSBAaW52YWxpZC5leGFtcGxlLmNvbQ==",
+      "from": "RFCValidationTest::getValidEmailsWithWarnings",
+      "email:rfc": true,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhhbXBsZShleGFtcGxlY29tbWVudClAaW52YWxpZC5leGFtcGxlLmNvbQ==",
+      "from": "RFCValidationTest::getValidEmailsWithWarnings",
+      "email:rfc": true,
+      "email:strict": false
+    },
+    {
+      "email": "IgkiQGludmFsaWQuZXhhbXBsZS5jb20=",
+      "from": "RFCValidationTest::getValidEmailsWithWarnings",
+      "email:rfc": true,
+      "email:strict": false
+    },
+    {
+      "email": "Ig0iQGludmFsaWQuZXhhbXBsZS5jb20=",
+      "from": "RFCValidationTest::getValidEmailsWithWarnings",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "ImV4YW1wbGUiQGludmFsaWQuZXhhbXBsZS5jb20=",
+      "from": "RFCValidationTest::getValidEmailsWithWarnings",
+      "email:rfc": true,
+      "email:strict": false
+    },
+    {
+      "email": "dG9vX2xvbmdfbG9jYWxwYXJ0X3Rvb19sb25nX2xvY2FscGFydF90b29fbG9uZ19sb2NhbHBhcnRfdG9vX2xvbmdfbG9jYWxwYXJ0QGludmFsaWQuZXhhbXBsZS5jb20=",
+      "from": "RFCValidationTest::getValidEmailsWithWarnings",
+      "email:rfc": true,
+      "email:strict": false
+    },
+    {
+      "email": "dXNlciAgbmFtZUBleGFtcGxlLmNvbQ==",
+      "from": "RFCValidationTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "dXNlciAgIG5hbWVAZXhhbXBsZS5jb20=",
+      "from": "RFCValidationTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhhbXBsZS5AZXhhbXBsZS5jby51aw==",
+      "from": "RFCValidationTest::getInvalidEmailsWithErrors",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhhbXBsZUBleGFtcGxlQGV4YW1wbGUuY28udWs=",
+      "from": "RFCValidationDomainPartTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "KHRlc3RfZXhhbXBlbEBleGFtcGxlLmZy",
+      "from": "RFCValidationTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhhbXBsZShleGFtcGxlXWV4YW1wbGVAZXhhbXBsZS5jby51aw==",
+      "from": "RFCValidationTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "LmV4YW1wbGVAbG9jYWxob3N0",
+      "from": "RFCValidationTest::getInvalidEmailsWithErrors",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhcYW1wbGVAbG9jYWxob3N0",
+      "from": "RFCValidationTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "dXNlciBuYW1lQGV4YW1wbGUuY29t",
+      "from": "RFCValidationTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "dXNlcm4sYW1lQGV4YW1wbGUuY29t",
+      "from": "RFCValidationTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "dXNlcltuYV1tZUBleGFtcGxlLmNvbQ==",
+      "from": "RFCValidationTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "IiIiQGlhbmEub3Jn",
+      "from": "RFCValidationTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "IlwiQGlhbmEub3Jn",
+      "from": "RFCValidationTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "InRlc3QidGVzdEBpYW5hLm9yZw==",
+      "from": "RFCValidationTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "InRlc3QiInRlc3QiQGlhbmEub3Jn",
+      "from": "RFCValidationTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "InRlc3QiLiJ0ZXN0IkBpYW5hLm9yZw==",
+      "from": "RFCValidationTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "InRlc3QiLnRlc3RAaWFuYS5vcmc=",
+      "from": "RFCValidationTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "InRlc3QiAEBpYW5hLm9yZw==",
+      "from": "RFCValidationTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "InRlc3RcIkBpYW5hLm9yZw==",
+      "from": "RFCValidationTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "4kBpYW5hLm9yZw==",
+      "from": "RFCValidationTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "XHJcbnRlc3RAaWFuYS5vcmc=",
+      "from": "RFCValidationTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "XHJcbiB0ZXN0QGlhbmEub3Jn",
+      "from": "RFCValidationTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "XHJcbiBcclxudGVzdEBpYW5hLm9yZw==",
+      "from": "RFCValidationTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "XHJcbiBcclxuIHRlc3RAaWFuYS5vcmc=",
+      "from": "RFCValidationTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "dGVzdDsxMjNAZm9vYmFyLmNvbQ==",
+      "from": "RFCValidationTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhhbXDilZFsZUBzeW1mb255LmNvbQ==",
+      "from": "RFCValidationTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhhbXBsZUBpbnZhbGlkLS5kb21haW4uY29t",
+      "from": "RFCValidationTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhhbXBsZUAtaW52YWxpZC5jb20=",
+      "from": "RFCValidationTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "MA==",
+      "from": "RFCValidationTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "QGV4YW1wbGUuY28udWs=",
+      "from": "RFCValidationTest::getInvalidEmailsWithErrors",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhhbXBsZS4uZXhhbXBsZUBleGFtcGxlLmNvLnVr",
+      "from": "RFCValidationTest::getInvalidEmailsWithErrors",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "PGV4YW1wbGVfZXhhbXBsZT5AZXhhbXBsZS5mcg==",
+      "from": "RFCValidationTest::getInvalidEmailsWithErrors",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "KGV4YW1wbGVAbG9jYWxob3N0",
+      "from": "RFCValidationTest::getInvalidEmailsWithErrors",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "ImV4YW1wbGVAbG9jYWxob3N0",
+      "from": "RFCValidationTest::getInvalidEmailsWithErrors",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhhIm1wbGVAbG9jYWxob3N0",
+      "from": "RFCValidationTest::getInvalidEmailsWithErrors",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "Y29tbWVudClleGFtcGxlQGxvY2FsaG9zdA==",
+      "from": "RFCValidationTest::getInvalidEmailsWithErrors",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhhbXBsZShjb21tZW50KSlAbG9jYWxob3N0",
+      "from": "RFCValidationTest::getInvalidEmailsWithErrors",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhhbXBsCmVAZXhhbXBsZS5jby51aw==",
+      "from": "RFCValidationTest::getInvalidEmailsWithErrors",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhhbXBsCWVAZXhhbXBsZS5jby51aw==",
+      "from": "RFCValidationTest::getInvalidEmailsWithErrors",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhhbQ1wbGVAZXhhbXBsZS5jby51aw==",
+      "from": "RFCValidationTest::getInvalidEmailsWithErrors",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhhbXBsZUBsb2NhbGhvc3Q=",
+      "from": "RFCValidationDomainPartTest::getValidEmails",
+      "email:rfc": true,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhhbXBsZUBmYWtlZChmYWtlKS5jby51aw==",
+      "from": "RFCValidationDomainPartTest::getValidEmails",
+      "email:rfc": true,
+      "email:strict": false
+    },
+    {
+      "email": "dmFsaWRpcHY2QFtJUHY2OjIwMDE6ZGI4OjFmZjo6YTBiOmRiZDBd",
+      "from": "RFCValidationDomainPartTest::getValidEmails",
+      "email:rfc": true,
+      "email:strict": false
+    },
+    {
+      "email": "dmFsaWRpcHY0QFsxMjcuMC4wLjBd",
+      "from": "RFCValidationDomainPartTest::getValidEmails",
+      "email:rfc": true,
+      "email:strict": false
+    },
+    {
+      "email": "dmFsaWRpcHY0QDEyNy4wLjAuMA==",
+      "from": "RFCValidationDomainPartTest::getValidEmails",
+      "email:rfc": true,
+      "email:strict": true
+    },
+    {
+      "email": "d2l0aGh5cGhlbkBkb21haW4tZXhhbS5jb20=",
+      "from": "RFCValidationDomainPartTest::getValidEmails",
+      "email:rfc": true,
+      "email:strict": true
+    },
+    {
+      "email": "dmFsaWRfbG9uZ19kb21haW5ANzE4NDZqbnJzb2o5MXlmaGMxOHJrYnJmOTB1ZTNvbmw4eTQ2anMzOGthZThpbnowdDEuNWEteGR5Y3VhdS5uYTQ5LmxlLmV4YW1wbGUuY29t",
+      "from": "RFCValidationDomainPartTest::getValidEmails",
+      "email:rfc": true,
+      "email:strict": true
+    },
+    {
+      "email": "dGVzdEBleGFtcGxlLmNvbSB0ZXN0",
+      "from": "RFCValidationDomainPartTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "dGVzdF9leGFtcGVsQGV4YW1wbGUuZnJd",
+      "from": "RFCValidationDomainPartTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhhbXBsZUBsb2NhbFxob3N0",
+      "from": "RFCValidationDomainPartTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhhbXBsZUBsb2NhbGhvc3Rc",
+      "from": "RFCValidationDomainPartTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhhbXBsZUBsb2NhbGhvc3Qu",
+      "from": "RFCValidationDomainPartTest::getInvalidEmailsWithErrors",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "dXNlcm5hbWVAIGV4YW1wbGUgLiBjb20=",
+      "from": "RFCValidationDomainPartTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "dXNlcm5hbWVAIGV4YW1wbGUuY29t",
+      "from": "RFCValidationDomainPartTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhhbXBsZUAoZmFrZV0uY29t",
+      "from": "RFCValidationDomainPartTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhhbXBsZUAoZmFrZS5jb20=",
+      "from": "RFCValidationDomainPartTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "dXNlcm5hbWVAZXhhbXBsZSxjb20=",
+      "from": "RFCValidationDomainPartTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "dGVzdEDiLm9yZw==",
+      "from": "RFCValidationDomainPartTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "dGVzdEBpYW5hLm9yZyBcclxu",
+      "from": "RFCValidationDomainPartTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "dGVzdEBpYW5hLm9yZyBcclxuIA==",
+      "from": "RFCValidationDomainPartTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "dGVzdEBpYW5hLm9yZyBcclxuIFxyXG4=",
+      "from": "RFCValidationDomainPartTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "dGVzdEBpYW5hLm9yZyBcclxuXHJcbg==",
+      "from": "RFCValidationDomainPartTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "dGVzdEBpYW5hLm9yZyAgXHJcblxyXG4g",
+      "from": "RFCValidationDomainPartTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "dGVzdEBpYW5hL2ljYW5uLm9yZw==",
+      "from": "RFCValidationDomainPartTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "dGVzdEBmb287YmFyLmNvbQ==",
+      "from": "RFCValidationDomainPartTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "dGVzdEBleGFtcGxlLi5jb20=",
+      "from": "RFCValidationDomainPartTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "dGVzdEBleGFtcCdsZS5jb20=",
+      "from": "RFCValidationDomainPartTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "ZW1haWwuZW1haWxAZW1haWwuIg==",
+      "from": "RFCValidationDomainPartTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "dGVzdEBlbWFpbD4=",
+      "from": "RFCValidationDomainPartTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "dGVzdEBlbWFpbDw=",
+      "from": "RFCValidationDomainPartTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "dGVzdEBlbWFpbHs=",
+      "from": "RFCValidationDomainPartTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "dXNlcm5hbWVAZXhhbXAsbGUuY29t",
+      "from": "RFCValidationDomainPartTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "dGVzdEAg",
+      "from": "RFCValidationDomainPartTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "aW52YWxpZGlwdjRAWzEyNy5cMC4wLjBd",
+      "from": "RFCValidationDomainPartTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "dGVzdEBleGFtcGxlLmNvbSBbXQ==",
+      "from": "RFCValidationDomainPartTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "dGVzdEBleGFtcGxlLmNvbS4gW10=",
+      "from": "RFCValidationDomainPartTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "dGVzdEB0ZXN0LiBleGFtcGxlLmNvbQ==",
+      "from": "RFCValidationDomainPartTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhhbXBsZUB0b29sb25nbG9jYWxwYXJ0dG9vbG9uZ2xvY2FscGFydHRvb2xvbmdsb2NhbHBhcnR0b29sb25nbG9jYWxwYXJ0dG9vbG9uZ2xvY2FscGFydHRvb2xvbmdsb2NhbHBhcnR0b29sb25nbG9jYWxwYXJ0dG9vbG9uZ2xvY2FscGFydHRvb2xvbmdsb2NhbHBhcnR0b29sb25nbG9jYWxwYXJ0dG9vbG9uZ2xvY2FscGFydHRvb2xvbmdsb2NhbHBhcnR0b29sb25nbG9jYWxwYXJ0dG9vbG9uZ2xvY2FscGFydHRvb2xvbmdsb2NhbHBhcnR0b29sb25nbG9jYWxwYXI=",
+      "from": "RFCValidationDomainPartTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhhbXBsZUB0b29sb25nbG9jYWxwYXJ0dG9vbG9uZ2xvY2FscGFydHRvb2xvbmdsb2NhbHBhcnR0b29sb25nbG9jYWxwYXJ0LmNvLnVr",
+      "from": "RFCValidationDomainPartTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhhbXBsZUB0b29sb25nbG9jYWxwYXJ0dG9vbG9uZ2xvY2FscGFydHRvb2xvbmdsb2NhbHBhcnR0b29sb25nbG9jYWxwYXJ0LnRlc3QuY28udWs=",
+      "from": "RFCValidationDomainPartTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhhbXBsZUB0ZXN0LnRvb2xvbmdsb2NhbHBhcnR0b29sb25nbG9jYWxwYXJ0dG9vbG9uZ2xvY2FscGFydHRvb2xvbmdsb2NhbHBhcnQuY28udWs=",
+      "from": "RFCValidationDomainPartTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "dGVzdEBlbWFpbCphLmNvbQ==",
+      "from": "RFCValidationDomainPartTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "dGVzdEBlbWFpbCFhLmNvbQ==",
+      "from": "RFCValidationDomainPartTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "dGVzdEBlbWFpbCZhLmNvbQ==",
+      "from": "RFCValidationDomainPartTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "dGVzdEBlbWFpbF5hLmNvbQ==",
+      "from": "RFCValidationDomainPartTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "dGVzdEBlbWFpbCVhLmNvbQ==",
+      "from": "RFCValidationDomainPartTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "dGVzdEBlbWFpbCRhLmNvbQ==",
+      "from": "RFCValidationDomainPartTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "dGVzdEBlbWFpbGBhLmNvbQ==",
+      "from": "RFCValidationDomainPartTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "dGVzdEBlbWFpbHxhLmNvbQ==",
+      "from": "RFCValidationDomainPartTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "dGVzdEBlbWFpbH5hLmNvbQ==",
+      "from": "RFCValidationDomainPartTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "dGVzdEBlbWFpbHthLmNvbQ==",
+      "from": "RFCValidationDomainPartTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "dGVzdEBlbWFpbH1hLmNvbQ==",
+      "from": "RFCValidationDomainPartTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "dGVzdEBlbWFpbD1hLmNvbQ==",
+      "from": "RFCValidationDomainPartTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "dGVzdEBlbWFpbCthLmNvbQ==",
+      "from": "RFCValidationDomainPartTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "dGVzdEBlbWFpbF9hLmNvbQ==",
+      "from": "RFCValidationDomainPartTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "dGVzdEBlbWFpbMKhYS5jb20=",
+      "from": "RFCValidationDomainPartTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "dGVzdEBlbWFpbD9hLmNvbQ==",
+      "from": "RFCValidationDomainPartTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "dGVzdEBlbWFpbCNhLmNvbQ==",
+      "from": "RFCValidationDomainPartTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "dGVzdEBlbWFpbMKoYS5jb20=",
+      "from": "RFCValidationDomainPartTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "dGVzdEBlbWFpbOKCrGEuY29t",
+      "from": "RFCValidationDomainPartTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "dGVzdEBlbWFpbMKjYS5jb20=",
+      "from": "RFCValidationDomainPartTest::getInvalidEmails",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhhbXBsZUA=",
+      "from": "RFCValidationDomainPartTest::getInvalidEmailsWithErrors",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhhbXBsZUBleGFtcGxlLS5jby51aw==",
+      "from": "RFCValidationDomainPartTest::getInvalidEmailsWithErrors",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhhbXBsZUBleGFtcGxlDS5jb20=",
+      "from": "RFCValidationDomainPartTest::getInvalidEmailsWithErrors",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhhbXBsZUBleGFtcGxlLQ==",
+      "from": "RFCValidationDomainPartTest::getInvalidEmailsWithErrors",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhhbXBsZUBAZXhhbXBsZS5jby51aw==",
+      "from": "RFCValidationDomainPartTest::getInvalidEmailsWithErrors",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhhbXBsZUBleGFtcGxlLi5jby51aw==",
+      "from": "RFCValidationDomainPartTest::getInvalidEmailsWithErrors",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhhbXBsZUAubG9jYWxob3N0",
+      "from": "RFCValidationDomainPartTest::getInvalidEmailsWithErrors",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhhbXBsZUAtbG9jYWxob3N0",
+      "from": "RFCValidationDomainPartTest::getInvalidEmailsWithErrors",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhhbXBsZUBjb21tZW50KWxvY2FsaG9zdA==",
+      "from": "RFCValidationDomainPartTest::getInvalidEmailsWithErrors",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhhbXBsZUBsb2NhbGhvc3QoY29tbWVudCkp",
+      "from": "RFCValidationDomainPartTest::getInvalidEmailsWithErrors",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhhbXBsZUAoY29tbWVudCkpZXhhbXBsZS5jb20=",
+      "from": "RFCValidationDomainPartTest::getInvalidEmailsWithErrors",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhhbXBsZUBbW10=",
+      "from": "RFCValidationDomainPartTest::getInvalidEmailsWithErrors",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhhbXBsZUBleGENbXBsZS5jby51aw==",
+      "from": "RFCValidationDomainPartTest::getInvalidEmailsWithErrors",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhhbXBsZUBbDV0=",
+      "from": "RFCValidationDomainPartTest::getInvalidEmailsWithErrors",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhhbXBsZUBleGFtLHBsZS5jb20=",
+      "from": "RFCValidationDomainPartTest::getInvalidEmailsWithErrors",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "dGVzdEBleGFtcGxlLmNvbSc=",
+      "from": "RFCValidationDomainPartTest::getInvalidEmailsWithErrors",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhhbXBsZUDRitGK0YrRitGK0YrRitGK0YrRitGK0YrRitGK0YrRitGK0YrRitGK0YrRitGK0YrRitGK0YrRitGK0YrRitGK0YrRitGK0YrRitGK0YrRitGK0YrRitGK0YrRitGK0YrRitGK0YrRitGK0YrRitGK0YrRitGK0YrRitGK0YrRii5jb20=",
+      "from": "RFCValidationDomainPartTest::getInvalidEmailsWithErrors",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhhbXBsZUBhNHRhNHRhNHRhNHRhNHRhNHRhNHRhNHRhNHRhNHRhNHRhNHRhNHRhNHRhNHRhNHRhNHRhNHRhNHRhNHRhNHRhNHQuY29t",
+      "from": "RFCValidationDomainPartTest::getInvalidEmailsWithErrors",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhhbXBsZUBhNHRhNHRhNHRhNHRhNHRhNHRhNHRhNHRhNHRhNHRhNHRhNHRhNHRhNHRhNHRhNHRhNHRhNHRhNHRhNHRhNHRhNHQ=",
+      "from": "RFCValidationDomainPartTest::getInvalidEmailsWithErrors",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhhbXBsZUBpbnZhbGlkLmV4YW1wbGUoZXhhbXBsZWNvbW1lbnQpLmNvbQ==",
+      "from": "RFCValidationDomainPartTest::getValidEmailsWithWarnings",
+      "email:rfc": true,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhhbXBsZUBbMTI3LjAuMC4xXQ==",
+      "from": "RFCValidationDomainPartTest::getValidEmailsWithWarnings",
+      "email:rfc": true,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhhbXBsZUBbSVB2NjoyMDAxOjBkYjg6ODVhMzowMDAwOjAwMDA6OGEyZTowMzcwOjczMzRd",
+      "from": "RFCValidationDomainPartTest::getValidEmailsWithWarnings",
+      "email:rfc": true,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhhbXBsZUBbSVB2NjoyMDAxOjBkYjg6ODVhMzowMDAwOjAwMDA6OGEyZTowMzcwOjpd",
+      "from": "RFCValidationDomainPartTest::getValidEmailsWithWarnings",
+      "email:rfc": true,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhhbXBsZUBbSVB2NjoyMDAxOjBkYjg6ODVhMzowMDAwOjAwMDA6OGEyZTowMzcwOjczMzQ6Ol0=",
+      "from": "RFCValidationDomainPartTest::getValidEmailsWithWarnings",
+      "email:rfc": true,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhhbXBsZUBbSVB2NjoxOjoxOjoxXQ==",
+      "from": "RFCValidationDomainPartTest::getValidEmailsWithWarnings",
+      "email:rfc": true,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhhbXBsZUBbCl0=",
+      "from": "RFCValidationDomainPartTest::getValidEmailsWithWarnings",
+      "email:rfc": false,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhhbXBsZUBbOjoxXQ==",
+      "from": "RFCValidationDomainPartTest::getValidEmailsWithWarnings",
+      "email:rfc": true,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhhbXBsZUBbOjoxMjMuNDUuNjcuMTc4XQ==",
+      "from": "RFCValidationDomainPartTest::getValidEmailsWithWarnings",
+      "email:rfc": true,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhhbXBsZUBbSVB2Njo6MjAwMTowZGI4Ojg1YTM6MDAwMDowMDAwOjhhMmU6MDM3MDo3MzM0XQ==",
+      "from": "RFCValidationDomainPartTest::getValidEmailsWithWarnings",
+      "email:rfc": true,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhhbXBsZUBbSVB2Njp6MDAxOjBkYjg6ODVhMzowMDAwOjAwMDA6OGEyZTowMzcwOjczMzRd",
+      "from": "RFCValidationDomainPartTest::getValidEmailsWithWarnings",
+      "email:rfc": true,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhhbXBsZUBbSVB2NjoyMDAxOjBkYjg6ODVhMzowMDAwOjAwMDA6OGEyZTowMzcwOl0=",
+      "from": "RFCValidationDomainPartTest::getValidEmailsWithWarnings",
+      "email:rfc": true,
+      "email:strict": false
+    },
+    {
+      "email": "ZXhhbXBsZUBzeW3Gkm9ueS5jb20=",
+      "from": "RFCValidationDomainPartTest::invalidUTF16Chars",
+      "email:rfc": true,
+      "email:strict": true
+    },
+    {
+      "email": "ZXhhbXBsZUBleGFtcGxlLmNvbQ==",
+      "from": "NoRFCWarningsValidationTest::getValidEmailsWithoutWarnings",
+      "email:rfc": true,
+      "email:strict": true
+    }
+  ]
+}

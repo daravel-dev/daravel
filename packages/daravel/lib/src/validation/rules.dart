@@ -7,6 +7,7 @@ import '../database/query/query_builder.dart';
 import '../foundation/clock.dart';
 import '../http/uploaded_file.dart';
 import 'dns.dart';
+import 'email_rfc.dart';
 import 'object_rules.dart';
 import 'php_date_format.dart';
 import 'rule.dart';
@@ -276,8 +277,8 @@ abstract final class Rules {
   /// `DNSCheckValidation` (through the container's [DnsResolver]); it is
   /// checked last and, as in Laravel, alone it does not check the syntax
   /// (`email:rfc,dns` does both). [spoof] needs ICU and throws
-  /// [UnsupportedError]. [rfc] and [strict] are, for now, the same
-  /// HTML-style check, stricter than egulias' RFC parser.
+  /// [UnsupportedError]. [rfc] is egulias' RFC parser (a port of
+  /// egulias/EmailValidator 4), [strict] the same with no RFC warning.
   static Rule email({
     bool rfc = false,
     bool strict = false,
@@ -931,13 +932,6 @@ final class EmailRule extends Rule {
     'filter_unicode',
   };
 
-  // `rfc` and `strict` until egulias/EmailValidator's RFC parser is ported:
-  // an address of HTML's `type=email` (no quoted local part, no domain
-  // literal, at least two labels), stricter than egulias' RFCValidation.
-  static final RegExp _rfc = RegExp(
-    r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$",
-  );
-
   // PHP's FILTER_VALIDATE_EMAIL (ext/filter/logical_filters.c,
   // php_filter_validate_email), whose regex is based on one by Michael
   // Rushton: "Copyright © Michael Rushton 2009-10 http://squiloople.com/
@@ -1000,8 +994,12 @@ final class EmailRule extends Rule {
         'Daravel does not check it (dartisan lint reports it).',
       );
     }
-    if ((checks.contains('rfc') || checks.contains('strict')) &&
-        !_rfc.hasMatch(value)) {
+    // egulias/EmailValidator 4's RFCValidation and NoRFCWarningsValidation
+    // (ported in email_rfc.dart).
+    if (checks.contains('rfc') && !rfcEmailValid(value)) {
+      return name;
+    }
+    if (checks.contains('strict') && !strictEmailValid(value)) {
       return name;
     }
     if (checks.contains('filter') && !_filterOk(value, _filter)) {
