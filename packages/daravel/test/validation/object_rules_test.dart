@@ -287,4 +287,54 @@ void main() {
     };
     expect((await errorsOf({'a': 'abc'}, rules)).keys, ['a']);
   });
+
+  group('a boolean rule given by when or forEach', () {
+    // Laravel 13's addRules runs filterConditionalRules and explode before
+    // any rule, so shouldConvertToBoolean (parseDependentRuleParameters)
+    // sees a `boolean` rule however it was given: `'1'` then matches
+    // `true` (PHP's loose in_array).
+    test(
+      'when: a dependent rule compares the other field as a boolean',
+      () async {
+        final rules = <String, Object>{
+          'flag': Rules.whenInput((input) => input['flag'] != null, [
+            Rules.boolean(),
+          ]),
+          'terms': 'accepted_if:flag,true',
+        };
+        expect((await errorsOf({'flag': '1', 'terms': 'no'}, rules)).keys, [
+          'terms',
+        ]);
+        expect(await errorsOf({'flag': '0', 'terms': 'no'}, rules), isEmpty);
+      },
+    );
+
+    test('forEach: exclude_if sees the boolean the callback gave', () async {
+      final rules = <String, Object>{
+        'items.*': Rules.forEachNested(
+          (_) => {
+            'on': [Rules.boolean()],
+          },
+        ),
+        'items.*.note': 'exclude_if:items.*.on,true|required',
+      };
+      // `on: '1'` is true: the note is excluded, so its absence is fine.
+      expect(
+        await errorsOf({
+          'items': [
+            {'on': '1'},
+          ],
+        }, rules),
+        isEmpty,
+      );
+      expect(
+        (await errorsOf({
+          'items': [
+            {'on': '0'},
+          ],
+        }, rules)).keys,
+        ['items.0.note'],
+      );
+    });
+  });
 }

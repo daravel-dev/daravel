@@ -3,6 +3,72 @@ import 'package:test/test.dart';
 
 void main() {
   timeoutOptionTests();
+  group('DB_SSLMODE', () {
+    ({PostgresSslMode mode, String? warning}) of(Object? mode) =>
+        PostgresDriver.sslModeOf(mode);
+
+    test('the libpq modes, in any case, without a warning', () {
+      for (final (value, mode) in [
+        (null, PostgresSslMode.disable),
+        ('', PostgresSslMode.disable),
+        ('disable', PostgresSslMode.disable),
+        ('DISABLE', PostgresSslMode.disable),
+        ('require', PostgresSslMode.require),
+        ('REQUIRE', PostgresSslMode.require),
+        ('verify-full', PostgresSslMode.verifyFull),
+        ('verify_full', PostgresSslMode.verifyFull),
+        ('verifyFull', PostgresSslMode.verifyFull),
+      ]) {
+        expect(
+          (of(value).mode, of(value).warning),
+          (mode, null),
+          reason: '$value',
+        );
+      }
+    });
+
+    test('verify-ca and misspelt verify modes verify, with a warning', () {
+      for (final value in ['verify-ca', 'VERIFY_CA', 'verify-fulll']) {
+        expect(of(value).mode, PostgresSslMode.verifyFull, reason: value);
+        expect(of(value).warning, isNotNull, reason: value);
+      }
+      expect(of('verify-fulll').warning, contains('"verify-fulll"'));
+    });
+
+    test(
+      'prefer, allow and unknown values stay without TLS, with a warning',
+      () {
+        for (final value in ['prefer', 'allow', 'requird']) {
+          expect(of(value).mode, PostgresSslMode.disable, reason: value);
+          expect(
+            of(value).warning,
+            allOf(
+              contains('"$value"'),
+              contains('require'),
+              contains('verify-full'),
+            ),
+            reason: value,
+          );
+        }
+      },
+    );
+
+    test('fromConfig warns once, naming the connection', () {
+      final warnings = <String>[];
+      final driver = PostgresDriver.fromConfig(
+        'reporting',
+        const ConnectionConfig(
+          driver: 'pgsql',
+          database: 'd',
+          options: {'sslmode': 'verify-ca'},
+        ),
+        onWarning: warnings.add,
+      );
+      expect(driver.sslMode, PostgresSslMode.verifyFull);
+      expect(warnings, hasLength(1));
+      expect(warnings.single, startsWith('[reporting] '));
+    });
+  });
   group('PostgresDriver unix sockets', () {
     PostgresDriver driver(String host, {int port = 5432}) =>
         PostgresDriver(host: host, port: port, database: 'app');

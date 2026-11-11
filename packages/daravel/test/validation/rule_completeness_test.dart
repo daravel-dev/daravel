@@ -61,7 +61,7 @@ void main() {
     final builders = _sampleBuilders();
     expect(
       builders.keys.toSet(),
-      _rulesStatics(),
+      _rulesStatics().difference(_notRuleBuilders),
       reason:
           'a Rules static was added or removed: add it to _sampleBuilders '
           'with a sample call',
@@ -89,7 +89,7 @@ void main() {
   });
 
   test('4. every Rules builder is a chain step', () {
-    final statics = _rulesStatics();
+    final statics = _rulesStatics().difference(_notRuleBuilders);
     final builder = _methodsOf('RuleBuilder');
     final chain = _methodsOf('RuleChain');
     expect(statics.difference(builder), isEmpty, reason: 'RuleBuilder');
@@ -133,6 +133,11 @@ Set<String> _methodsOf(String target) {
       if (!m.name.lexeme.startsWith('_')) m.name.lexeme,
   };
 }
+
+/// `Rules` statics that make no single rule: `Rules.of(definition)` gives
+/// the typed `unique`/`exists` of a model (W9.4b), whose results are the
+/// same `UniqueRule`/`ExistsRule` as `Rules.unique`/`Rules.exists`.
+const Set<String> _notRuleBuilders = {'of'};
 
 /// Laravel 13 message keys without a Daravel string rule yet, and why.
 /// Shrinks with each W9.4a pull request; empty when the slice is done.

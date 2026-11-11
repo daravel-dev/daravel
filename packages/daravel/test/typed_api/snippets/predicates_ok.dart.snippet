@@ -1,0 +1,13 @@
+// expect: none
+import 'package:daravel/daravel.dart';
+
+import '_models.dart';
+
+ModelQuery<User> adults() => User.definition
+    .query()
+    .where(User.cols.age.gte(18))
+    .where(User.cols.email.endsWith('@example.com'))
+    .where(User.cols.email.contains('x'))
+    .where(User.cols.age.isNotNull())
+    .where(User.cols.id.inValues([1, 2]))
+    .orWhere(User.cols.createdAt.lt(DateTime.utc(2026)));

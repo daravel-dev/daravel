@@ -389,7 +389,11 @@ final class Application {
         (e) =>
             metrics.jobs.inc({'status': e.willRetry ? 'released' : 'errored'}),
       )
-      ..listen<JobFailed>((_) => metrics.jobs.inc({'status': 'failed'}));
+      ..listen<JobFailed>((_) => metrics.jobs.inc({'status': 'failed'}))
+      ..listen<JobPushFailedAfterCommit>(
+        (e) =>
+            metrics.afterCommitPushFailures.inc({'connection': e.connection}),
+      );
     // The framework's own jobs (queued mail and notifications) first.
     final jobs = JobRegistry([
       SendQueuedMail.definition,
