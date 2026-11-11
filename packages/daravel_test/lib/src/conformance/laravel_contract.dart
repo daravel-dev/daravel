@@ -46,6 +46,15 @@ abstract final class LaravelContract {
       'No query results for model [$model]'
       '${ids.isEmpty ? '.' : ' ${ids.join(', ')}'}';
 
+  /// `Queue/TimeoutExceededException.php` `forJob` (`$job->resolveName().'
+  /// has timed out.'`): the error of a job failed for running past its
+  /// timeout, which `Queue/Worker.php` `registerTimeoutHandler` gives to
+  /// `markJobAsFailedIfWillExceedMaxAttempts`,
+  /// `markJobAsFailedIfWillExceedMaxExceptions` and
+  /// `markJobAsFailedIfItShouldFailOnTimeout`, in that order (12.x and
+  /// 13.x alike).
+  static String jobTimedOut(String name) => '$name has timed out.';
+
   /// `ValidationException::summarize`: first message plus
   /// `(and N more error[s])`.
   static String validationSummary(List<String> messages) {
