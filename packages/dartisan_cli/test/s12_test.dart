@@ -825,10 +825,18 @@ final class Score extends Model {
             ]),
             0,
           );
-          // Generated mail and notifications compile in a new project.
+          // Generated mail, notifications and a form request (with its
+          // expectFormRequestTyped test) compile and pass in a new project.
           Generator(ProjectPaths.locate(target))
             ..mail('OrderShipped')
-            ..notification('InvoicePaid');
+            ..notification('InvoicePaid')
+            ..request('StoreNote');
+          expect(
+            File(
+              p.join(target, 'test/unit/requests/store_note_request_test.dart'),
+            ).existsSync(),
+            isTrue,
+          );
           final analyze = await Process.run(dartExecutable(), const [
             'analyze',
             '--fatal-infos',

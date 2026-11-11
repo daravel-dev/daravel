@@ -60,22 +60,75 @@ const String _inputStart = '// <dartisan:input>';
 const String _inputEnd = '// </dartisan:input>';
 
 /// The `<dartisan:input>` region of [request]: its input type with one
-/// getter per field.
+/// getter per field, and `typed`, every field by its input key (left out
+/// when a field is itself named `typed`). Lines are laid out as
+/// `dart format` would, so a synced file stays format-clean.
 String inputRegion(RequestSource request) {
   final getters = [
     for (final f in request.fields)
-      '  ${f.type} get ${f.name} => _data.field(${request.className}.${f.name});',
+      _fit(
+        '  ${f.type} get ${f.name} =>',
+        '_data.field(${request.className}.${f.name});',
+      ),
   ];
   return [
     _inputStart,
     '/// The validated input of [${request.className}], one getter per `Field`',
     '/// (written by `dartisan request:sync`; edit the fields, not this).',
-    'extension type const ${request.inputType}(ValidatedData _data)',
-    '    implements ValidatedData {',
+    ..._header(request.inputType),
     ...getters,
+    if (!_hidesTyped(request)) ..._typed(request),
     '}',
     _inputEnd,
   ].join('\n');
+}
+
+/// The extension type header in the layout `dart format` picks for its
+/// length: one line, `implements` on the next, or the parameter split out.
+List<String> _header(String type) {
+  final head = 'extension type const $type(ValidatedData _data)';
+  if ('$head implements ValidatedData {'.length <= 80) {
+    return ['$head implements ValidatedData {'];
+  }
+  if (head.length <= 80) {
+    return [head, '    implements ValidatedData {'];
+  }
+  return [
+    'extension type const $type(',
+    '  ValidatedData _data,',
+    ') implements ValidatedData {',
+  ];
+}
+
+bool _hidesTyped(RequestSource request) =>
+    request.fields.any((f) => f.name == 'typed');
+
+/// `head body` on one line when it fits in 80 columns, else the body on
+/// the next line, indented four more.
+String _fit(String head, String body) {
+  final line = '$head $body';
+  return line.length <= 80 ? line : '$head\n      $body';
+}
+
+List<String> _typed(RequestSource request) {
+  String key(String k) =>
+      "'${k.replaceAll(r'\', r'\\').replaceAll(r'$', r'\$')}'";
+  final entries = [for (final f in request.fields) '${key(f.key)}: ${f.name}'];
+  const head = '  Map<String, Object?> get typed =>';
+  final oneLine = '$head {${entries.join(', ')}};';
+  return [
+    '',
+    '  /// Every field by its input key, as its declared type: the values are',
+    "  /// converted (`'4'` is `4` for a `Field<int>`), unlike the raw map of",
+    '  /// [ValidatedData]. `expectFormRequestTyped` reads every field with it.',
+    if (oneLine.length <= 80 || entries.isEmpty)
+      oneLine
+    else ...[
+      '$head {',
+      for (final e in entries) '    $e,',
+      '  };',
+    ],
+  ];
 }
 
 /// What `request:sync` makes of one request file: the new [source] (null
@@ -92,6 +145,10 @@ RequestSync syncRequestSource(String source) {
     return (source: null, note: 'no `extends FormRequest<Input>`; skipped');
   }
   final region = inputRegion(request);
+  final note = _hidesTyped(request)
+      ? 'a field is named `typed`, so ${request.inputType} has no `typed` '
+            'map; pass your own read: to expectFormRequestTyped'
+      : null;
   final start = source.indexOf(_inputStart);
   final end = source.indexOf(_inputEnd);
   if (start != -1 && end > start) {
@@ -99,7 +156,7 @@ RequestSync syncRequestSource(String source) {
       source:
           '${source.substring(0, start)}$region'
           '${source.substring(end + _inputEnd.length)}',
-      note: null,
+      note: note,
     );
   }
   if (RegExp('extension\\s+type\\s+(const\\s+)?${request.inputType}\\b')
@@ -112,7 +169,7 @@ RequestSync syncRequestSource(String source) {
     );
   }
   final base = source.endsWith('\n') ? source : '$source\n';
-  return (source: '$base\n$region\n', note: null);
+  return (source: '$base\n$region\n', note: note);
 }
 
 /// `request:sync [Request] [--check]`: writes the typed input of each form
@@ -173,6 +230,9 @@ final class RequestSyncCommand extends Command<int> {
       } else {
         file.writeAsStringSync(updated);
         stdout.writeln('$name: input type written.');
+      }
+      if (sync.note != null) {
+        stdout.writeln('$name: ${sync.note}.');
       }
     }
     return stale == 0 ? 0 : 1;

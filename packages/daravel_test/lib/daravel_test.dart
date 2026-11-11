@@ -19,6 +19,7 @@ import 'src/cookie_jar.dart';
 export 'src/architecture.dart';
 export 'src/cookie_jar.dart';
 export 'src/database.dart';
+export 'src/form_request.dart';
 export 'src/time.dart';
 
 /// How a [TestClient] reaches the application.

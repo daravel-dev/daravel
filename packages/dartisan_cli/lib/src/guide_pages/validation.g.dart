@@ -145,6 +145,8 @@ extension type const StoreNoteRequestInput(ValidatedData _data)
     implements ValidatedData {
   String get title => _data.field(StoreNoteRequest.title);
   int? get stars => _data.field(StoreNoteRequest.stars);
+
+  Map<String, Object?> get typed => {'title': title, 'stars': stars};
 }
 // </dartisan:input>
 ```
@@ -155,6 +157,26 @@ input (`input.stars` is an `int?`, converted from `'4'`).
 region after you add, rename or retype a field; `request:sync --check`
 writes nothing and exits 1 when a region is out of date, for CI. An input
 type you declare yourself, without the region, is left as it is.
+
+`typed` holds every field by its input key, already converted to its
+declared type. A field's type and its rules can still disagree (a
+`Field<int>` with only `required`): validation passes and the getter
+throws, a 500. `make:request` also writes a test that catches this, with
+`daravel_test`:
+
+```dart
+test('StoreNoteRequest reads every field as its declared type', () async {
+  await expectFormRequestTyped(const StoreNoteRequest(), {
+    'title': 'Hello',
+    'stars': '4',
+  }, read: (input) => input.typed);
+});
+```
+
+The test is as strong as its sample input: add one call per branch of an
+optional rule (a `nullable` field sent and not). A failure names the
+request, and the failed rules or the mistyped field, never the input
+values.
 
 ## File uploads
 
