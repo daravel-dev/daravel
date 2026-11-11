@@ -1,0 +1,3 @@
+### Added
+
+- Validation: typed form requests (wave 9, W9.5). `FormRequest<D extends ValidatedData>`: a request names its input type `D`, an extension type over `ValidatedData` with one getter per `Field`, and `validateRequest(request)` returns it (no conversion: it is the same object). `ValidatedData.field<T>(Field<T>)` reads a field as its declared type, converting as the typed accessors do; a value the field's rules let through but `T` cannot hold (a `Field<int>` without `integer`), or a missing value of a non-nullable field, is a `StateError` naming the field, the declared type and the value. `extends FormRequest` without a type argument is `FormRequest<ValidatedData>`, as before.

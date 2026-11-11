@@ -1,6 +1,7 @@
 import '../http/uploaded_file.dart';
 import 'rule.dart';
 import 'rules.dart';
+import 'typed_rules.dart';
 
 /// Validated input with typed accessors (ADR-011). Only attributes that had
 /// rules are included (Laravel `$request->validated()` parity).
@@ -103,6 +104,65 @@ extension type const ValidatedData(Map<String, Object?> _data)
   /// The data as JSON, for `Response.json(request.validated())`.
   Map<String, Object?> toJson() => toMap();
 
+  /// The value of [field] as its declared type [T], converted as the typed
+  /// accessors do (`int` from `'42'`, `bool` from `'1'`, `DateTime` from a
+  /// date string, ...). Null only when [T] is nullable and the value is
+  /// missing or null.
+  ///
+  /// A value the rules let through but [T] cannot hold (a `Field<int>`
+  /// whose rules do not include `integer`) is a [StateError] naming the
+  /// field, the declared type and the value, so the mismatch between the
+  /// field's type and its rules shows in development, not as a cast error.
+  T field<T>(Field<T> field) {
+    final raw = get(field);
+    final nullable = null is T;
+    if (raw == null) {
+      if (nullable) {
+        return null as T;
+      }
+      throw StateError(
+        'Validated attribute [$field] (Field<$T>) is missing or null; '
+        'declare it Field<$T?> or make it required.',
+      );
+    }
+    final Object? converted = switch (_base<T>()) {
+      _Kind.string => raw is String ? raw : null,
+      _Kind.integer => IntegerRule.asInt(raw),
+      _Kind.float => NumericRule.asNum(raw)?.toDouble(),
+      _Kind.number => NumericRule.asNum(raw),
+      _Kind.boolean => BooleanRule.asBool(raw),
+      _Kind.dateTime => parseDate(raw),
+      _Kind.data => switch (raw) {
+        Map<String, Object?>() => ValidatedData(raw),
+        Map<Object?, Object?>() => ValidatedData(
+          raw.map((k, v) => MapEntry('$k', v)),
+        ),
+        _ => null,
+      },
+      _Kind.other => raw,
+    };
+    if (converted is T) {
+      return converted;
+    }
+    throw StateError(
+      'Validated attribute [$field] is declared Field<$T> but holds '
+      '${raw is String ? '"$raw"' : raw} (${raw.runtimeType}); add the rule '
+      'that guarantees $T, or change the field type.',
+    );
+  }
+
+  static _Kind _base<T>() {
+    bool isType<B>() => T == B || _typeOf<T>() == _typeOf<B?>();
+    if (isType<String>()) return _Kind.string;
+    if (isType<int>()) return _Kind.integer;
+    if (isType<double>()) return _Kind.float;
+    if (isType<num>()) return _Kind.number;
+    if (isType<bool>()) return _Kind.boolean;
+    if (isType<DateTime>()) return _Kind.dateTime;
+    if (isType<ValidatedData>()) return _Kind.data;
+    return _Kind.other;
+  }
+
   T _require<T>(
     String path,
     T? Function(Object? value) convert, {
@@ -119,3 +179,8 @@ extension type const ValidatedData(Map<String, Object?> _data)
     return converted;
   }
 }
+
+/// The conversions of [ValidatedData.field].
+enum _Kind { string, integer, float, number, boolean, dateTime, data, other }
+
+Type _typeOf<T>() => T;
