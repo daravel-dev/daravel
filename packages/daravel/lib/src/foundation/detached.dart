@@ -159,6 +159,14 @@ Detached<T> runDetached<T>(
 /// connection waits for), wrap it in a `SharedResult`:
 /// `SharedResult(() => runDetachedAsync(open, name: ...).value)`, so each
 /// gets the error in its own zone (Review #147).
+///
+/// The caller must handle [Detached.value]: await it, or attach a handler.
+/// Its error is delivered there and nowhere else (not to
+/// [DetachedTasks.onError]). A [Detached.value] that fails with no handler
+/// is an uncaught error of the caller's zone, which ends up in the request's,
+/// job's or command's error handler, or ends the isolate outside one, as
+/// any unhandled future does. Only what [body] starts and leaves uncaught,
+/// beyond its returned future, goes to [DetachedTasks.onError].
 Detached<Future<T>> runDetachedAsync<T>(
   Future<T> Function() body, {
   required String name,
@@ -166,20 +174,32 @@ Detached<Future<T>> runDetachedAsync<T>(
 }) {
   final done = Completer<T>(); // the caller's zone
   late final Detached<Future<T>> task;
+  // Forgotten once the body completes, from the body's future: a listener
+  // on [done]'s future would count as the caller's handler and swallow an
+  // error nobody awaits.
+  void forget() {
+    if (stop == null) {
+      task._tasks?._running.remove(task);
+    }
+  }
+
   task = runDetached<Future<T>>(
     () {
-      body().then(done.complete, onError: done.completeError);
+      body().then(
+        (value) {
+          forget();
+          done.complete(value);
+        },
+        onError: (Object error, StackTrace stackTrace) {
+          forget();
+          done.completeError(error, stackTrace);
+        },
+      );
       return done.future;
     },
     name: name,
     stop: stop == null ? (_) {} : (_) => stop(),
   );
-  if (stop == null) {
-    done.future.then<void>(
-      (_) => task._tasks?._running.remove(task),
-      onError: (Object _) => task._tasks?._running.remove(task),
-    );
-  }
   return task;
 }
 

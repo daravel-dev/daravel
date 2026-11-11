@@ -25,7 +25,14 @@ enum PostgresSslMode {
 /// SQL handed to this driver must already use `$n` placeholders (the query
 /// grammar emits them; raw SQL is expanded by `SqlBindings`). Transactions
 /// run on a dedicated pooled connection; the executor passed to the callback
-/// is the only object that may issue queries inside the transaction.
+/// is the only object that may issue queries inside the transaction.///
+/// Pool connections opened on demand: the first connection is opened
+/// detached (`DatabaseManager`, Review #149), but a further connection the
+/// pool opens under load is opened by the query that needed it, in that
+/// query's zone (a request's, a job's). The driver touches neither the
+/// container nor the log on that path, so no request scope or `request_id`
+/// is kept by the connection; an error its socket raises later that the
+/// client package leaves unhandled would reach that zone's error handler.
 final class PostgresDriver
     implements NotifyingDriver, SessionTerminatingDriver, QueryErrors {
   /// SQLSTATE 23505 (`unique_violation`), as Laravel checks it.
