@@ -6,3 +6,7 @@
 ### Upgrade notes
 
 - `package:daravel` exports four new rule classes: `MissingRule`, `PresenceWithRule`, `AcceptanceConditionRule`, `RequiredArrayKeysRule`. An application class of the same name now needs a prefix or `hide`.
+
+### Fixed
+
+- Validation: a `*` in the other field of a dependent rule (`required_with:items.*.b` on `items.*.a`) now means the same item, as Laravel's `getExplicitKeys`/`replaceAsterisksInParameters` do for `$dependentRules`, in the check and in the message (`:other`, `:values`); before, such a field was never found.

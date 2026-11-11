@@ -1694,8 +1694,7 @@ final class PresenceWithRule extends Rule {
 
   @override
   String? passes(ValidationContext c) {
-    bool has(String other) => ValidationContext.exists(c.data, other);
-    final on = name.endsWith('_all') ? others.every(has) : others.any(has);
+    final on = name.endsWith('_all') ? others.every(c.has) : others.any(c.has);
     if (!on) {
       return null;
     }
@@ -1755,8 +1754,10 @@ final class RequiredArrayKeysRule extends Rule {
     final value = c.value;
     bool has(String key) => switch (value) {
       Map<Object?, Object?>() => value.containsKey(key),
+      // `array_key_exists` on a list: only the canonical integer form of an
+      // index matches ('1', not '01' or '+1').
       List<Object?>() => switch (int.tryParse(key)) {
-        final int i => i >= 0 && i < value.length,
+        final int i => '$i' == key && i >= 0 && i < value.length,
         null => false,
       },
       _ => false,

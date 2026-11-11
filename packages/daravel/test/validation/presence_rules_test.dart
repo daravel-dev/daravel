@@ -2,7 +2,7 @@ import 'package:daravel/daravel.dart';
 import 'package:test/test.dart';
 
 /// The presence rules of laravel/framework 13.x `ValidatesAttributes` that
-/// Daravel lacked before Blueprint #151 (W9.4a): `missing*`, `present_*`,
+/// Daravel lacked before W9.4a: `missing*`, `present_*`,
 /// `prohibited_if_accepted`/`_declined`, `required_if_declined`,
 /// `required_array_keys`. Messages are Laravel 13's `lang/en/validation.php`
 /// with its `ReplacesAttributes` placeholders.
@@ -200,6 +200,104 @@ void main() {
           'a': ['The a field must contain entries for: x, y.'],
         },
       );
+    });
+
+    test('a list index matches only in its canonical form', () async {
+      // `array_key_exists('01', ['p', 'q'])` is false in PHP.
+      for (final key in ['01', '+1', '-0']) {
+        expect(
+          await ok({
+            'a': ['p', 'q'],
+          }, 'required_array_keys:$key'),
+          isFalse,
+          reason: key,
+        );
+      }
+      expect(
+        await ok({
+          'a': ['p', 'q'],
+        }, 'required_array_keys:1'),
+        isTrue,
+      );
+    });
+  });
+
+  group(r'wildcard parameters (Laravel $dependentRules)', () {
+    // `items.*.b` in a parameter is the `b` of the same item as `items.*.a`
+    // (Validator::getExplicitKeys, replaceAsterisksInParameters).
+    Map<String, Object?> items(List<Map<String, Object?>> list) => {
+      'items': list,
+    };
+
+    test('missing_with', () async {
+      final result = await errors(
+        items([
+          {'a': 1, 'b': 1},
+          {'a': 1},
+        ]),
+        {'items.*.a': 'missing_with:items.*.b'},
+      );
+      expect(result, {
+        'items.0.a': [
+          'The items.0.a field must be missing when items.0.b is present.',
+        ],
+      });
+    });
+
+    test('present_with', () async {
+      final result = await errors(
+        items([
+          {'b': 1},
+          <String, Object?>{},
+        ]),
+        {'items.*.a': 'present_with:items.*.b'},
+      );
+      expect(result, {
+        'items.0.a': [
+          'The items.0.a field must be present when items.0.b is present.',
+        ],
+      });
+    });
+
+    test('prohibited_if_accepted', () async {
+      final result = await errors(
+        items([
+          {'a': 'x', 'b': 'yes'},
+          {'a': 'x', 'b': 'no'},
+        ]),
+        {'items.*.a': 'prohibited_if_accepted:items.*.b'},
+      );
+      expect(result, {
+        'items.0.a': [
+          'The items.0.a field is prohibited when items.0.b is accepted.',
+        ],
+      });
+    });
+
+    test('missing_if', () async {
+      final result = await errors(
+        items([
+          {'a': 1, 'b': 'y'},
+          {'a': 1, 'b': 'x'},
+        ]),
+        {'items.*.a': 'missing_if:items.*.b,x'},
+      );
+      expect(result, {
+        'items.1.a': [
+          'The items.1.a field must be missing when items.1.b is x.',
+        ],
+      });
+    });
+
+    test('an existing dependent rule (required_with) resolves too', () async {
+      final result = await errors(
+        items([
+          {'b': 1},
+          <String, Object?>{},
+        ]),
+        {'items.*.a': 'required_with:items.*.b'},
+      );
+      expect(result.keys, ['items.0.a']);
     });
   });
 
