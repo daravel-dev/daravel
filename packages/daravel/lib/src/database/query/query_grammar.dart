@@ -304,10 +304,11 @@ abstract class QueryGrammar {
   }
 
   String _where(WhereClause where, Compilation c) => switch (where) {
-    BasicWhere(:final column, :final operator, :final value) =>
+    BasicWhere(:final column, :final operator, :final value, :final escaped) =>
       '${column is RawExpression ? c.raw(column) : wrap(column)} '
           '${SqlTokens.operator(operator)} '
-          '${value is RawExpression ? c.raw(value) : c.bind(_operand(column, value))}',
+          '${value is RawExpression ? c.raw(value) : c.bind(_operand(column, value))}'
+          "${escaped ? " ESCAPE '${BasicWhere.likeEscape}'" : ''}",
     ColumnWhere(:final first, :final operator, :final second) =>
       '${wrap(first)} ${SqlTokens.operator(operator)} ${wrap(second)}',
     InWhere(:final column, :final values, :final subQuery, :final not) => _in(

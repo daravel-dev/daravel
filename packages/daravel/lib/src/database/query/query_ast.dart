@@ -129,7 +129,13 @@ sealed class WhereClause {
 /// `column operator value` (`where('votes', '>', 100)`).
 final class BasicWhere extends WhereClause {
   /// Compares [column] with the bound [value] using [operator].
-  const BasicWhere(this.column, this.operator, this.value, {super.boolean});
+  const BasicWhere(
+    this.column,
+    this.operator,
+    this.value, {
+    super.boolean,
+    this.escaped = false,
+  });
 
   /// The column name, or a [RawExpression].
   final Object column;
@@ -139,6 +145,20 @@ final class BasicWhere extends WhereClause {
 
   /// The bound value.
   final Object? value;
+
+  /// Whether [value] is a `LIKE` pattern escaped with [likeEscape], so the
+  /// SQL adds `ESCAPE '!'` (a typed column's `startsWith`, `endsWith` and
+  /// `contains`).
+  final bool escaped;
+
+  /// The `LIKE` escape character: the same on SQLite, PostgreSQL and MySQL
+  /// (whatever `NO_BACKSLASH_ESCAPES` says), unlike a backslash.
+  static const String likeEscape = '!';
+
+  /// [text] with the `LIKE` wildcards `%` and `_` (and [likeEscape]
+  /// itself) escaped, to match literally inside an [escaped] pattern.
+  static String escapeLike(String text) =>
+      text.replaceAllMapped(RegExp('[!%_]'), (m) => '$likeEscape${m[0]}');
 }
 
 /// `first operator second` between two columns (`whereColumn`).
