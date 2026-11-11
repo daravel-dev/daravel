@@ -263,6 +263,133 @@
                 "x": "exclude_without:a|required"
             },
             "errors": {}
+        },
+        {
+            "data": {
+                "password": "secret",
+                "password_confirmation": "secret"
+            },
+            "rules": {
+                "password": "confirmed"
+            },
+            "errors": {}
+        },
+        {
+            "data": {
+                "password": "secret",
+                "password_confirmation": "Secret"
+            },
+            "rules": {
+                "password": "confirmed"
+            },
+            "errors": {
+                "password": [
+                    "The password field confirmation does not match."
+                ]
+            }
+        },
+        {
+            "data": {
+                "password": "secret"
+            },
+            "rules": {
+                "password": "confirmed"
+            },
+            "errors": {
+                "password": [
+                    "The password field confirmation does not match."
+                ]
+            }
+        },
+        {
+            "data": {
+                "pin": 1234,
+                "pin_confirmation": "1234"
+            },
+            "rules": {
+                "pin": "confirmed"
+            },
+            "errors": {
+                "pin": [
+                    "The pin field confirmation does not match."
+                ]
+            }
+        },
+        {
+            "data": {
+                "pin": "1234",
+                "pin_confirmation": "1234"
+            },
+            "rules": {
+                "pin": "confirmed"
+            },
+            "errors": {}
+        },
+        {
+            "data": {
+                "email": "a@b.c",
+                "repeat": "a@b.c"
+            },
+            "rules": {
+                "email": "confirmed:repeat"
+            },
+            "errors": {}
+        },
+        {
+            "data": {
+                "items": [
+                    {
+                        "code": "x",
+                        "code_confirmation": "x"
+                    },
+                    {
+                        "code": "y",
+                        "code_confirmation": "z"
+                    }
+                ]
+            },
+            "rules": {
+                "items.*.code": "confirmed"
+            },
+            "errors": {
+                "items.1.code": [
+                    "The items.1.code field confirmation does not match."
+                ]
+            }
+        },
+        {
+            "data": {
+                "a": "hello",
+                "b": "hello"
+            },
+            "rules": {
+                "a": "same:b"
+            },
+            "errors": {}
+        },
+        {
+            "data": {
+                "a": "",
+                "b": ""
+            },
+            "rules": {
+                "a": "same:b"
+            },
+            "errors": {}
+        },
+        {
+            "data": {
+                "a": "x",
+                "b": "X"
+            },
+            "rules": {
+                "a": "same:b"
+            },
+            "errors": {
+                "a": [
+                    "The a field must match b."
+                ]
+            }
         }
     ]
 }

@@ -1318,8 +1318,9 @@ final class ConfirmedRule extends Rule {
   String get name => 'confirmed';
   @override
   String? passes(ValidationContext c) {
+    // 13.x validateConfirmed calls validateSame: `===`.
     final other = field ?? '${c.attribute}_confirmation';
-    return '${c.root(other)}' == '${c.value}' ? null : 'confirmed';
+    return _phpIdentical(c.value, c.root(other)) ? null : 'confirmed';
   }
 }
 
@@ -1363,8 +1364,10 @@ final class SameRule extends Rule {
 }
 
 /// PHP's `===` between two input values: the same type (an int is not a
-/// float, `'5'` is not `5`) and the same value; lists and maps
-/// element by element, maps in the same key order.
+/// float, `'5'` is not `5`) and the same value. For arrays the PHP manual
+/// (Comparison Operators) defines `$a === $b` as "the same key/value pairs
+/// in the same order and of the same types", so lists and maps compare
+/// element by element and maps in the same key order.
 bool _phpIdentical(Object? a, Object? b) => switch ((a, b)) {
   (null, null) => true,
   (final bool x, final bool y) => x == y,
