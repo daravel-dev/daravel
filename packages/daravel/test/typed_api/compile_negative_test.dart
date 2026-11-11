@@ -22,6 +22,10 @@ import 'package:test/test.dart';
 /// errors; this test copies them into `.dart_tool/typed_api_snippets/` of
 /// this package, where `package:daravel` resolves, and analyzes them with
 /// `package:analyzer`, no build step.
+///
+/// Codes are those of the `analyzer` package this test runs on, which can
+/// differ from `dart analyze` in the SDK: analyzer 14.7 says
+/// `undefined_instance_member_read` where the SDK says `undefined_getter`.
 void main() {
   final source = Directory('test/typed_api/snippets');
   final target = Directory('.dart_tool/typed_api_snippets');

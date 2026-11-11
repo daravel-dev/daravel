@@ -1,0 +1,9 @@
+// expect: none
+import '_models.dart';
+
+// Known limit: `==` on a typed column is a Dart bool, which where(Object)
+// accepts at compile time. QueryBuilder.where refuses it at run time with
+// an ArgumentError (typed_columns_test.dart); a lint follows in W9.8.
+void f() {
+  User.definition.query().where(User.cols.email == 'ana@example.com');
+}

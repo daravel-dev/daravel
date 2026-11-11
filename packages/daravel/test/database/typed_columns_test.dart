@@ -105,6 +105,22 @@ void main() {
     }
   });
 
+  test('where(column == value) is refused, pointing at the right form', () {
+    // `==` on a typed column is a Dart comparison, always false here.
+    final comparison = Person.cols.name == 'Ana';
+    final refusal = isA<ArgumentError>().having(
+      (e) => '${e.message}',
+      'message',
+      contains('where(User.cols.email, value)'),
+    );
+    expect(() => db.table('people').where(comparison), throwsA(refusal));
+    expect(() => db.table('people').orWhere(comparison), throwsA(refusal));
+    expect(
+      () => Person.definition.query(db: db).where(comparison),
+      throwsA(refusal),
+    );
+  });
+
   test('a value that is not a column name is refused by parameter', () {
     expect(
       () => db.table('people').pluck(42),

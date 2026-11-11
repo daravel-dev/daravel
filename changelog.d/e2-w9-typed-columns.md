@@ -6,6 +6,7 @@
 ### Changed
 
 - `QueryBuilder.latest`/`oldest`/`value`/`pluck` and `ModelQuery.latest`/`oldest`/`pluck` take `Object` columns (a `String` or a typed column); anything else is an `ArgumentError` naming the parameter.
+- `where` (and `orWhere`) refuse a `bool` with an `ArgumentError`: `where(User.cols.email == value)` compares in Dart (always false) instead of building a condition; the message shows `where(User.cols.email, value)`.
 - `model:sync` names accessors and `cols` fields with one rule: a column whose camelCase name is an `Object` member (`to_string`), not a Dart name (`1st_name`) or already taken by an earlier column gets no accessor (such a file did not compile before) and a `cols` field that is valid (`toStringColumn`, `c1stName`, `lftColumn`), with a warning naming it.
 
 ### Upgrade notes

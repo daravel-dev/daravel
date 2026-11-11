@@ -128,12 +128,25 @@ final class QueryBuilder {
 
   /// `where('col', value)`, `where('col', '>', value)` or
   /// `where((q) => q.where(...).orWhere(...))` for a nested group.
+  ///
+  /// A `bool` is refused: `where(User.cols.email == value)` compares the
+  /// typed column with the value in Dart (always `false`) instead of
+  /// building a condition.
   QueryBuilder where(
     Object column, [
     Object? operatorOrValue,
     Object? value,
     String boolean = 'AND',
   ]) {
+    if (column is bool) {
+      throw ArgumentError.value(
+        column,
+        'column',
+        'A bool is not a column. To compare a typed column, write '
+            'where(User.cols.email, value), not where(User.cols.email == '
+            'value)',
+      );
+    }
     if (column is void Function(QueryBuilder)) {
       final nested = QueryBuilder(_db, _ast.table, connection: _connection);
       column(nested);
@@ -850,15 +863,15 @@ final class QueryBuilder {
 
   /// The value of [column] in the first row, or null.
   Future<T?> value<T>(Object column) async {
-    final row = await clone().select([columnName(column, 'column')]).first();
+    final row = await clone().select([_columnName(column, 'column')]).first();
     return row?.values.first as T?;
   }
 
   /// Values of [column]; keyed by [key] when given.
   Future<Object> pluck(Object column, [Object? key]) async {
     return _pluck(
-      columnName(column, 'column'),
-      key == null ? null : columnName(key, 'key'),
+      _columnName(column, 'column'),
+      key == null ? null : _columnName(key, 'key'),
     );
   }
 
@@ -1259,15 +1272,16 @@ final class QueryBuilder {
   /// [column] as the column name a parameter typed `Object` takes: a
   /// string, which a model's typed column (`User.cols.email`) is at run
   /// time. Anything else is an [ArgumentError] naming [parameter].
-  static String columnName(Object column, String parameter) => switch (column) {
-    final String name => name,
-    _ => throw ArgumentError.value(
-      column,
-      parameter,
-      'Not a column name (a String or a typed column such as '
-      'User.cols.email)',
-    ),
-  };
+  static String _columnName(Object column, String parameter) =>
+      switch (column) {
+        final String name => name,
+        _ => throw ArgumentError.value(
+          column,
+          parameter,
+          'Not a column name (a String or a typed column such as '
+          'User.cols.email)',
+        ),
+      };
 
   static (String, Object?) _operatorAndValue(
     Object? operatorOrValue,
