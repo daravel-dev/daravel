@@ -32,8 +32,9 @@ final class Settle extends Job {
   @override
   String get jobName => 'settle';
 
+  /// Short, so a test can run the job at once.
   @override
-  Duration? get debounceFor => const Duration(seconds: 30);
+  Duration? get debounceFor => const Duration(milliseconds: 1);
 
   @override
   String get debounceId => id;
@@ -42,8 +43,11 @@ final class Settle extends Job {
   Map<String, Object?> toJson() => {'id': id};
 
   @override
-  Future<void> handle(JobContext ctx) async {}
+  Future<void> handle(JobContext ctx) async => settled.add(id);
 }
+
+/// What the [Settle] jobs did.
+final List<String> settled = <String>[];
 
 /// G1.5 (b): inside a transaction, a unique job's lock (and a debounced
 /// job's owner) is taken at dispatch, given back on rollback, and the push
@@ -168,27 +172,66 @@ void main() {
     });
   });
 
-  test('debounce: the owner is taken at dispatch; a rollback gives the key '
-      'back to the dispatch still queued', () async {
+  /// Runs the queued jobs that are due, a moment after their debounce.
+  Future<void> runDue() async {
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    final worker = QueueWorker(queue());
+    final driver = queue().connection('memory');
+    while (await worker.runNextJob(driver, const WorkerOptions())) {}
+  }
+
+  test('debounce, rollback: the job already queued still runs while the '
+      'transaction is open, and nothing is lost (ACK 262)', () async {
+    settled.clear();
     await app.run(() async {
-      final store = app.container.make<CacheManager>().store('process');
-      final key = JobProcessor.debounceKey(const Settle('d'));
+      // J1 queued, owning the key.
       await queue().push(const Settle('d'));
-      final first = await store.get<String>(key);
-      expect(first, isNotNull);
       await expectLater(
         db().transaction(() async {
+          // J2 dispatched inside: the owner does not move yet.
           await queue().push(const Settle('d'), afterCommit: true);
-          expect(
-            await store.get<String>(key),
-            isNot(first),
-            reason: 'taken at dispatch',
-          );
+          // J1 falls due while the transaction is open: it is still the
+          // owner, so it runs.
+          await Zone.root.run(runDue);
+          expect(settled, ['d']);
           throw StateError('rolled back');
         }),
         throwsStateError,
       );
-      expect(await store.get<String>(key), first);
+      await runDue();
+      expect(settled, ['d'], reason: 'the work ran exactly once');
+    });
+  });
+
+  test('debounce, commit: the job already queued drops itself, the one '
+      'pushed at the commit runs', () async {
+    settled.clear();
+    await app.run(() async {
+      await queue().push(const Settle('e'));
+      await db().transaction(() async {
+        await queue().push(const Settle('e'), afterCommit: true);
+      });
+      await runDue();
+      expect(settled, ['e'], reason: 'J2 ran; J1 dropped itself');
+    });
+  });
+
+  test('a JobPushFailedAfterCommit listener that throws does not replace '
+      "the push's own error", () async {
+    app.container.make<EventDispatcher>().listen<JobPushFailedAfterCommit>(
+      (_) => throw StateError('listener bug'),
+    );
+    await app.run(() async {
+      await expectLater(
+        db().transaction(() async {
+          await queue().push(
+            const Only('f'),
+            afterCommit: true,
+            connection: 'no-such-connection',
+          );
+        }),
+        throwsA(isA<ConfigException>()),
+      );
     });
   });
 }

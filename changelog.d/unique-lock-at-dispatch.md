@@ -1,10 +1,10 @@
 ### Added
 
-- `JobPushFailedAfterCommit` event and `queue_after_commit_push_failures_total{connection}` on `/metrics`: a job dispatched inside a transaction that could not be pushed after the commit (its unique lock and debounce owner were given back; the error reaches the caller of `transaction()`, logged once).
+- `JobPushFailedAfterCommit` event and `queue_after_commit_push_failures_total{connection}` on `/metrics`: a job dispatched inside a transaction that could not be pushed after the commit (its unique lock and debounce owner were given back; the error reaches the caller of `transaction()`, logged once; a listener that throws does not replace it).
 
 ### Changed
 
-- Inside a transaction, a unique job's lock (and a debounced job's owner) is taken at dispatch, as Laravel's `PendingDispatch::shouldDispatch` does, and given back when the transaction (or the savepoint that dispatched it) rolls back, before a retry of `transaction(attempts:)` runs the body again; only the push waits for the commit (`Queue::enqueueUsing`). Before, the lock was taken at commit, so two transactions dispatching the same id both appeared to succeed and the later one was dropped silently after its commit. A savepoint released and then rolled back with its parent gives its lock back too (Laravel keeps it until `uniqueFor`).
+- Inside a transaction, a unique job's lock is taken at dispatch, as Laravel's `PendingDispatch::shouldDispatch` does, and given back when the transaction (or the savepoint that dispatched it) rolls back, before a retry of `transaction(attempts:)` runs the body again; only the push waits for the commit (`Queue::enqueueUsing`). Before, the lock was taken at commit, so two transactions dispatching the same id both appeared to succeed and the later one was dropped silently after its commit. A savepoint released and then rolled back with its parent gives its lock back too (Laravel keeps it until `uniqueFor`). A debounced job's owner still moves at the push, after the commit: moved at the dispatch, the job already queued would drop itself while the transaction is open and a rollback would lose both.
 
 ### Upgrade notes
 
