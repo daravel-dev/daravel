@@ -135,6 +135,13 @@ const List<String> convertible = [
   'exists:users,id',
   'password',
   'password:12',
+  // Numbers RuleParser reads but whose text is not the Dart literal: the
+  // parsed value is written (`+5` would not compile).
+  'digits:+5',
+  'password:+12',
+  'max:1e3',
+  'between:+1,2.50',
+  'min_digits:0x10',
   // Quotes, dollars and backslashes in a value stay what they were.
   r"in:it's,$x,a\b",
   // A chain, and the spaces around segments.
@@ -149,8 +156,10 @@ const List<String> notConvertible = [
   'not_regex:/x/',
   'no_such_rule',
   'min:abc',
-  'max:1e3',
+  'max:Infinity',
+  'size:NaN',
   'digits:x',
+  'digits:1.5',
   'password:x',
   'timezone:per_country,ID',
   'image:svg',
