@@ -300,26 +300,40 @@ final class WithoutOverlapping implements JobMiddleware {
 
   @override
   Future<void> handle(JobContext ctx, Job job, JobNext next) async {
-    final lock = Container.current
-        .make<CacheManager>()
-        .store(
-          store ??
-              Container.current
-                  .make<ConfigRepository>()
-                  .section<QueueConfig>()
-                  .uniqueLockStore,
-        )
-        .lock(
-          shared ? 'overlap:$key' : 'overlap:${job.jobName}:$key',
+    final cache = Container.current.make<CacheManager>().store(
+      store ??
+          Container.current
+              .make<ConfigRepository>()
+              .section<QueueConfig>()
+              .uniqueLockStore,
+    );
+    // The previous release's key first, then Laravel's (ADR-041): an
+    // instance of either release excludes the other during a deploy.
+    final locks = [
+      if (QueueLockKeys.legacyKeys)
+        cache.lock(
+          QueueLockKeys.legacyOverlap(job.jobName, key, shared: shared),
           ttl: expiresAfter,
-        );
-    if (!await lock.acquire()) {
-      if (dontRelease) {
-        ctx.delete();
-      } else {
-        ctx.release(releaseAfter);
+        ),
+      cache.lock(
+        QueueLockKeys.overlap(job.displayName, key, shared: shared),
+        ttl: expiresAfter,
+      ),
+    ];
+    final held = <Lock>[];
+    for (final lock in locks) {
+      if (!await lock.acquire()) {
+        for (final taken in held.reversed) {
+          await taken.release();
+        }
+        if (dontRelease) {
+          ctx.delete();
+        } else {
+          ctx.release(releaseAfter);
+        }
+        return;
       }
-      return;
+      held.add(lock);
     }
     try {
       await next();
@@ -328,7 +342,9 @@ final class WithoutOverlapping implements JobMiddleware {
       // [expiresAfter], as when Laravel kills the worker, so the retry does
       // not run next to it.
       if (!ctx.cancelled) {
-        await lock.release();
+        for (final lock in held.reversed) {
+          await lock.release();
+        }
       }
     }
   }
@@ -395,4 +411,105 @@ final class ModelRef<T extends Model> {
 
   /// The id, as stored in the payload.
   Object toJson() => id;
+}
+
+/// The cache keys of a job's unique lock, `WithoutOverlapping` lock and
+/// debounce owner, in Laravel's format (ADR-041), so a Laravel and a
+/// Daravel application sharing a cache (same `CACHE_PREFIX`) see each
+/// other's locks:
+///
+/// - unique: `laravel_unique_job:<displayName>:<uniqueId>`
+///   (`Illuminate\Bus\UniqueLock::getKey`, 12.x lines 66-77);
+/// - overlap: `laravel-queue-overlap:<displayName>:<key>`, or
+///   `laravel-queue-overlap:<key>` when shared
+///   (`Illuminate\Queue\Middleware\WithoutOverlapping`, 12.x lines 41 and
+///   157-168);
+/// - debounce: `laravel_debounced_job:<displayName>:<debounceId>`
+///   (`Illuminate\Bus\DebounceLock::getKey`, 13.x lines 159-170; 12.x has
+///   no debounce).
+///
+/// `<displayName>` is the job's [Job.displayName], the payload's
+/// `displayName`, which is the class name on the Laravel side: Laravel uses
+/// the class name, unhashed, for a job without a `displayName()` method,
+/// which is the usual case. Its `xxh128(displayName())` branch, for a job
+/// class that defines one, is not followed yet.
+///
+/// Until [legacyKeys] is removed (ADR-041: the minor release after 1.28.0),
+/// the keys Daravel used before (`unique:<jobName>:<id>`,
+/// `overlap:[<jobName>:]<key>`, `debounced_job:<jobName>:<id>`) are taken
+/// and written too, so an instance of the previous release, still running
+/// during a rolling deploy, and a new one exclude each other in both
+/// directions.
+abstract final class QueueLockKeys {
+  /// Whether the keys of the previous release are taken and written too
+  /// (the transition of ADR-041). Removed in the minor release after
+  /// 1.28.0.
+  static const bool legacyKeys = true;
+
+  /// How long a previous-release key taken by this release lives at most
+  /// (its own TTL when shorter). Such a key only refuses the previous
+  /// release's dispatches during a deploy; a worker of the previous release
+  /// does not know it and leaves it behind when it finishes a job this
+  /// release dispatched, so without this bound the id stayed refused for
+  /// the job's `uniqueFor` (365 days for 0). ADR-041.
+  static const Duration legacyWindow = Duration(hours: 1);
+
+  /// [ttl] bounded by [legacyWindow].
+  static Duration legacyTtl(Duration ttl) =>
+      ttl < legacyWindow ? ttl : legacyWindow;
+
+  /// The unique lock of [displayName] with [uniqueId].
+  static String unique(String displayName, String uniqueId) =>
+      'laravel_unique_job:$displayName:$uniqueId';
+
+  /// The unique lock of the previous release.
+  static String legacyUnique(String jobName, String uniqueId) =>
+      'unique:$jobName:$uniqueId';
+
+  /// The `WithoutOverlapping` lock of [key]: shared across job classes, or
+  /// of [displayName] only.
+  static String overlap(
+    String displayName,
+    String key, {
+    bool shared = false,
+  }) => shared
+      ? 'laravel-queue-overlap:$key'
+      : 'laravel-queue-overlap:$displayName:$key';
+
+  /// The `WithoutOverlapping` lock of the previous release.
+  static String legacyOverlap(
+    String jobName,
+    String key, {
+    bool shared = false,
+  }) => shared ? 'overlap:$key' : 'overlap:$jobName:$key';
+
+  /// The debounce owner of [displayName] with [debounceId].
+  static String debounce(String displayName, String debounceId) =>
+      'laravel_debounced_job:$displayName:$debounceId';
+
+  /// The debounce owner of the previous release.
+  static String legacyDebounce(String jobName, String debounceId) =>
+      'debounced_job:$jobName:$debounceId';
+
+  /// Both unique-lock keys of a queued job from its payload's
+  /// [uniqueKey] (in either format), [displayName] and [jobName]: what a
+  /// worker releases, whichever release dispatched it. Just [uniqueKey]
+  /// when it is in neither format.
+  static List<String> uniqueKeysOf(
+    String uniqueKey, {
+    required String displayName,
+    required String jobName,
+  }) {
+    final current = 'laravel_unique_job:$displayName:';
+    final legacy = 'unique:$jobName:';
+    if (uniqueKey.startsWith(current)) {
+      final id = uniqueKey.substring(current.length);
+      return [uniqueKey, if (legacyKeys) legacyUnique(jobName, id)];
+    }
+    if (uniqueKey.startsWith(legacy)) {
+      final id = uniqueKey.substring(legacy.length);
+      return [unique(displayName, id), uniqueKey];
+    }
+    return [uniqueKey];
+  }
 }
