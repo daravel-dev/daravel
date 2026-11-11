@@ -3,6 +3,7 @@ import 'dart:async';
 import '../http/middleware.dart';
 import '../http/request.dart';
 import '../validation/form_request.dart';
+import '../validation/validated_data.dart';
 import 'domain_pattern.dart';
 import 'radix_tree.dart';
 
@@ -10,6 +11,13 @@ import 'radix_tree.dart';
 /// value (`Map`, `List`, `num`, `bool`, `JsonSerializable`), a `String`
 /// (text) or `null` (empty 200).
 typedef Handler = FutureOr<Object?> Function(Request request);
+
+/// A route handler that receives the validated input [D] of the route's
+/// form request (`Router.postValidated` and its relatives).
+typedef ValidatedHandler<D extends ValidatedData> = FutureOr<Object?> Function(
+  Request request,
+  D data,
+);
 
 /// Well-known parameter patterns (Laravel `whereNumber`, `whereUuid`, ...).
 abstract final class RoutePatterns {
