@@ -80,6 +80,14 @@ workspace of about thirty packages, on Windows, with the rules of
   building the plugin once per plugin version is an assumption, not
   measured.
 
+Measured again with this repository's rules (`dependency_overrides`
+above, after the change that walks each file once per rule), three
+series: 20 and 29 ms per edit (median), and 148 ms in a first series
+whose spread (13 to 318 ms) suggests a busy machine; a working set of
+1.17 to 1.23 GB; a start-up of 1.9 to 10.5 s, longer than with the
+published package (that the server resolves the overridden path again
+is an assumption, not measured).
+
 A large workspace on a machine with little memory may prefer to keep the
 plugin off and run `dartisan lint` instead; the rules are the same.
 
