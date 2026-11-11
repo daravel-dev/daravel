@@ -35,11 +35,37 @@ this package only runs them for the analysis server, which resolves it
 apart from your application, so its pinned `analyzer` never reaches your
 dependencies.
 
+## Working on the rules
+
+The analysis server builds the plugin in a space of its own and resolves
+its dependencies there, from pub.dev, even when `analysis_options.yaml`
+points at the plugin with `path:`. A rule changed in this repository's
+`daravel_lints` therefore does not reach the editor until it is
+released, and a plugin that uses a newer `daravel_lints` API fails to
+build in the analysis server ("isn't defined"). To try unreleased rules,
+override the dependency for the plugin too:
+
+```yaml
+plugins:
+  daravel_lints_plugin:
+    path: packages/daravel_lints_plugin
+  dependency_overrides:
+    daravel_lints:
+      path: packages/daravel_lints
+```
+
+`dart test` in this package uses the workspace's `daravel_lints`, so the
+tests guard the code being changed. For the same reason, the published
+plugin requires the `daravel_lints` of its own release (`^<version>`,
+checked by `tool/publish_checks.dart`), and `daravel_lints` is published
+first.
+
 ## What it costs
 
 Measured with `tool/editor_latency.dart` (the analysis server over LSP, as
 the editors run it, 10 edits per series) on the Daravel repository, a
-workspace of about thirty packages, on Windows:
+workspace of about thirty packages, on Windows, with the rules of
+`daravel_lints` 1.27.0 as published (see above):
 
 - **Per edit: nothing measurable.** The plugin's findings arrive in the
   same diagnostics message as the analyzer's: 15 to 21 ms (median) with

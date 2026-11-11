@@ -11,7 +11,9 @@ import 'dart:io';
 /// has an `example/` (10 points) and a job in `.github/workflows/publish.yml`
 /// whose `needs:` reach the jobs of the workspace packages it depends on,
 /// so pub.dev never analyses it before they exist (a package analysed
-/// without its dependencies scores 50).
+/// without its dependencies scores 50), and requires `^<workspace
+/// version>` of each, so the published package never resolves a release
+/// without the API it uses.
 ///
 /// `--ready packages/<pkg>` asks pub.dev whether the versions its
 /// workspace dependencies require are published, for the first, manual
@@ -32,7 +34,8 @@ Future<void> main(List<String> args) async {
   final problems = publishProblems(Directory.current.path);
   if (problems.isEmpty) {
     stdout.writeln(
-      'Every published package has an example and a publish job after its dependencies.',
+      'Every published package has an example, a publish job after its '
+      'dependencies and requires their workspace version.',
     );
     return;
   }
@@ -72,6 +75,20 @@ List<String> publishProblems(String root) {
       continue;
     }
     for (final dependency in _workspaceDependencies(pubspec, names)) {
+      // Published, a package resolves its workspace dependencies from
+      // pub.dev (the analysis server does so even for a plugin enabled by
+      // path): a lower bound below the workspace version can select a
+      // release without the API this code uses. tool/release.dart writes
+      // ^<version> everywhere; this catches a bound set by hand.
+      final version = _version(packages[dependency]!);
+      final constraint = _constraint(pubspec, dependency);
+      if (version != null && constraint != '^$version') {
+        problems.add(
+          'packages/$name depends on $dependency: $constraint, but the '
+          'workspace is at $version: write ^$version, or the published '
+          'package may resolve a $dependency without the API it uses.',
+        );
+      }
       final target = jobOf['packages/$dependency'];
       if (target == null) {
         continue;
@@ -108,6 +125,26 @@ Map<String, String> _publishedPackages(String root) {
     result[name] = text;
   }
   return result;
+}
+
+/// The `version:` of [pubspec].
+String? _version(String pubspec) =>
+    RegExp(r'^version:\s*(\S+)', multiLine: true).firstMatch(pubspec)?[1];
+
+/// The constraint [pubspec] puts on [dependency] in `dependencies:` (the
+/// text after the colon, `<none>` for a map or a missing value).
+String _constraint(String pubspec, String dependency) {
+  final section =
+      RegExp(
+        r'^dependencies:\n((?:[ \t]+.*\n?|\n)*)',
+        multiLine: true,
+      ).firstMatch(pubspec)?[1] ??
+      '';
+  final value = RegExp(
+    '^  ${RegExp.escape(dependency)}:[ \\t]*(.*)\$',
+    multiLine: true,
+  ).firstMatch(section)?[1]?.trim();
+  return value == null || value.isEmpty ? '<none>' : value;
 }
 
 /// The workspace packages [pubspec] depends on (not dev dependencies:
