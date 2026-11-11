@@ -32,7 +32,9 @@ abstract final class Mw {
       MiddlewareToken('throttle:$limiter');
 
   /// `throttle:60,1`: [maxAttempts] per [decayMinutes] (fractions allowed),
-  /// without a named limiter.
+  /// without a named limiter. As in Laravel, the count is kept per client
+  /// (user or IP), not per route: two routes with an unnamed limit share
+  /// it. Give a route its own count with a named limiter ([throttle]).
   static MiddlewareToken throttleLimit({
     required int maxAttempts,
     num decayMinutes = 1,
