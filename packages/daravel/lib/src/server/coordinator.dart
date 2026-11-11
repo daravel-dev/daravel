@@ -1238,6 +1238,13 @@ final class RemoteCoordinatorChannel implements TypedCoordinatorChannel {
   static ({int ticks, int stormTicks}) get refusalTickCounts =>
       (ticks: _refusalTicks, stormTicks: _refusalStormTicks);
 
+  /// Replaces the wall clock that tells a storm (microseconds) in a test:
+  /// whether a refusal comes less than [refusalStormSpacing] after the last
+  /// tick then follows the test's clock, not how the operating system
+  /// scheduled the isolate. Null (the default) is the wall clock.
+  @visibleForTesting
+  static int Function()? refusalClockForTesting;
+
   /// A channel to a coordinator in another isolate, holding at most
   /// [bulkWindow] bulk calls unanswered and [bulkBuffer] more waiting
   /// ([sendBulk]).
@@ -1764,14 +1771,14 @@ void _failOnNextTurn(Completer<Object?> completer, Object error) {
     // Emptied first: a refusal made while these callers run joins the
     // next tick, never this list.
     _refusalsThisTurn = null;
-    _lastRefusalTick = _refusalClock.elapsedMicroseconds;
+    _lastRefusalTick = _refusalMicros();
     for (final (refused, error) in batch) {
       refused.completeError(error);
     }
   }
 
   final storm =
-      _refusalClock.elapsedMicroseconds - _lastRefusalTick <
+      _refusalMicros() - _lastRefusalTick <
       RemoteCoordinatorChannel.refusalStormSpacing.inMicroseconds;
   _refusalTicks++;
   if (storm) {
@@ -1787,6 +1794,12 @@ void _failOnNextTurn(Completer<Object?> completer, Object error) {
 /// Wall clock of this isolate's refusal ticks (not `Clock`: a frozen test
 /// clock must not hold refusals back).
 final Stopwatch _refusalClock = Stopwatch()..start();
+
+/// The refusal clock now (microseconds): [_refusalClock], or the test's
+/// [RemoteCoordinatorChannel.refusalClockForTesting].
+int _refusalMicros() =>
+    RemoteCoordinatorChannel.refusalClockForTesting?.call() ??
+    _refusalClock.elapsedMicroseconds;
 int _lastRefusalTick = -(1 << 40);
 int _refusalTicks = 0;
 int _refusalStormTicks = 0;
