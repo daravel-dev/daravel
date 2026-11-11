@@ -390,6 +390,106 @@
                     "The a field must match b."
                 ]
             }
+        },
+        {
+            "data": {
+                "items": [
+                    {
+                        "a": "x",
+                        "b": "x"
+                    },
+                    {
+                        "a": "y",
+                        "b": "z"
+                    }
+                ]
+            },
+            "rules": {
+                "items.*.b": "different:items.*.a"
+            },
+            "errors": {
+                "items.0.b": [
+                    "The items.0.b field and items.0.a must be different."
+                ]
+            }
+        },
+        {
+            "data": {
+                "items": [
+                    {
+                        "a": "x",
+                        "b": "x",
+                        "c": "q"
+                    }
+                ]
+            },
+            "rules": {
+                "items.*.c": "different:items.*.a,items.*.b"
+            },
+            "errors": {}
+        },
+        {
+            "data": {
+                "items": [
+                    {
+                        "b": "x"
+                    }
+                ]
+            },
+            "rules": {
+                "items.*.b": "different:items.*.a"
+            },
+            "errors": {}
+        },
+        {
+            "data": {
+                "a": {
+                    "1": "x",
+                    "2": "y"
+                },
+                "b": {
+                    "1": "x",
+                    "2": "y"
+                }
+            },
+            "rules": {
+                "a": "same:b"
+            },
+            "errors": {}
+        },
+        {
+            "data": {
+                "a": {
+                    "1": "x",
+                    "2": "y"
+                },
+                "b": {
+                    "2": "y",
+                    "1": "x"
+                }
+            },
+            "rules": {
+                "a": "same:b"
+            },
+            "errors": {
+                "a": [
+                    "The a field must match b."
+                ]
+            }
+        },
+        {
+            "data": {
+                "a": [
+                    "x"
+                ],
+                "b": [
+                    "x"
+                ]
+            },
+            "rules": {
+                "a": "same:b"
+            },
+            "errors": {}
         }
     ]
 }

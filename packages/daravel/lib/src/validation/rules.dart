@@ -1346,6 +1346,13 @@ final class SameRule extends Rule {
   // replaceSame/replaceDifferent: `:other` is the first field.
   @override
   Map<String, Object?> get parameters => {'other': other};
+
+  // getDisplayableAttribute of the field with its asterisks replaced
+  // (`items.0.a`), as Laravel writes it.
+  @override
+  Map<String, Object?> parametersFor(ValidationContext context) => {
+    'other': context.displayName(other),
+  };
   @override
   String? passes(ValidationContext c) {
     if (!negate) {
