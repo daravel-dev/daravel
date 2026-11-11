@@ -938,6 +938,11 @@ final class EmailRule extends Rule {
     r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$",
   );
 
+  /// The pattern a client checks before sending (`dartisan client:flutter`
+  /// writes it into the Flutter form validators); the server's check,
+  /// with its modes, decides.
+  RegExp get pattern => _rfc;
+
   // PHP's FILTER_VALIDATE_EMAIL (ext/filter/logical_filters.c,
   // php_filter_validate_email), whose regex is based on one by Michael
   // Rushton: "Copyright © Michael Rushton 2009-10 http://squiloople.com/
