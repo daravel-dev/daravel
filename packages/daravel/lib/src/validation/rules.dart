@@ -674,7 +674,14 @@ final class RequiredWithRule extends Rule {
   @override
   bool get implicit => true;
   @override
-  Map<String, Object?> get parameters => {'values': others.join(', ')};
+  Map<String, Object?> get parameters => {'values': others.join(' / ')};
+
+  // replaceRequiredWith (13.x 509-520): getAttributeList, asterisks
+  // replaced, joined with ' / '.
+  @override
+  Map<String, Object?> parametersFor(ValidationContext context) => {
+    'values': _attributeList(context, others),
+  };
   @override
   String? passes(ValidationContext c) {
     final anyPresent = others.any((o) => !isEmptyValue(c.root(o)));
@@ -694,7 +701,14 @@ final class RequiredWithoutRule extends Rule {
   @override
   bool get implicit => true;
   @override
-  Map<String, Object?> get parameters => {'values': others.join(', ')};
+  Map<String, Object?> get parameters => {'values': others.join(' / ')};
+
+  // replaceRequiredWith (13.x 509-520): getAttributeList, asterisks
+  // replaced, joined with ' / '.
+  @override
+  Map<String, Object?> parametersFor(ValidationContext context) => {
+    'values': _attributeList(context, others),
+  };
   @override
   String? passes(ValidationContext c) {
     final anyMissing = others.any((o) => isEmptyValue(c.root(o)));
@@ -1370,6 +1384,12 @@ final class SameRule extends Rule {
   }
 }
 
+/// Laravel's `getAttributeList` joined with `' / '`: each field's
+/// displayable name (custom name, or `_` as spaces) with its asterisks
+/// replaced by the attribute's own keys.
+String _attributeList(ValidationContext context, List<String> fields) =>
+    fields.map(context.displayName).join(' / ');
+
 /// PHP's `===` between two input values: the same type (an int is not a
 /// float, `'5'` is not `5`) and the same value. For arrays the PHP manual
 /// (Comparison Operators) defines `$a === $b` as "the same key/value pairs
@@ -1481,6 +1501,24 @@ final class DateCompareRule extends Rule {
   String get name => operator;
   @override
   Map<String, Object?> get parameters => {'date': dateOrField};
+
+  // replaceBefore (13.x 818-825; date_equals uses it too): a date is
+  // written as it is, a field as its displayable name. Laravel replaces
+  // the asterisks of before/after/*_or_equal ($dependentRules), not of
+  // date_equals.
+  @override
+  Map<String, Object?> parametersFor(ValidationContext context) {
+    if (parseDate(dateOrField) != null) {
+      return {'date': dateOrField};
+    }
+    return {
+      'date': operator == 'date_equals'
+          ? context.attributeNames[dateOrField] ??
+                dateOrField.replaceAll('_', ' ')
+          : context.displayName(dateOrField),
+    };
+  }
+
   @override
   String? passes(ValidationContext c) {
     final value = parseDate(c.value);
@@ -1936,6 +1974,13 @@ final class RequiredWithAllRule extends Rule {
   bool get implicit => true;
   @override
   Map<String, Object?> get parameters => {'values': others.join(' / ')};
+
+  // replaceRequiredWith (13.x 509-520): getAttributeList, asterisks
+  // replaced, joined with ' / '.
+  @override
+  Map<String, Object?> parametersFor(ValidationContext context) => {
+    'values': _attributeList(context, others),
+  };
   @override
   String? passes(ValidationContext c) =>
       others.every((o) => !isEmptyValue(c.root(o))) && isEmptyValue(c.value)
@@ -1956,6 +2001,13 @@ final class RequiredWithoutAllRule extends Rule {
   bool get implicit => true;
   @override
   Map<String, Object?> get parameters => {'values': others.join(' / ')};
+
+  // replaceRequiredWith (13.x 509-520): getAttributeList, asterisks
+  // replaced, joined with ' / '.
+  @override
+  Map<String, Object?> parametersFor(ValidationContext context) => {
+    'values': _attributeList(context, others),
+  };
   @override
   String? passes(ValidationContext c) =>
       others.every((o) => isEmptyValue(c.root(o))) && isEmptyValue(c.value)
