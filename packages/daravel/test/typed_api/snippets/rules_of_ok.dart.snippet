@@ -1,0 +1,14 @@
+// expect: none
+import 'package:daravel/daravel.dart';
+
+import '_models.dart';
+
+const email = Field<String>('email');
+
+Map<String, Object> rules() => {
+  email: [
+    Rules.required(),
+    Rules.of(User.definition).unique(User.cols.email, ignore: 1),
+  ],
+  'user_id': [Rules.of(User.definition).exists(User.cols.id)],
+};

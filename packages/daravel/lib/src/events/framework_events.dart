@@ -172,6 +172,32 @@ final class JobFailed {
   final Object? failedId;
 }
 
+/// A job dispatched inside a transaction could not be pushed after the
+/// commit (G1.5): its unique lock and debounce owner were given back, and
+/// the error reached the caller of `transaction()`.
+/// `queue_after_commit_push_failures_total` counts these.
+final class JobPushFailedAfterCommit {
+  /// [jobName] was not pushed to [queue] on [connection] because of [error].
+  const JobPushFailedAfterCommit({
+    required this.connection,
+    required this.queue,
+    required this.jobName,
+    required this.error,
+  });
+
+  /// The queue connection.
+  final String connection;
+
+  /// The queue.
+  final String queue;
+
+  /// The job's name.
+  final String jobName;
+
+  /// Why the push failed.
+  final Object error;
+}
+
 /// A scheduled task is about to run.
 final class ScheduledTaskStarting {
   /// The scheduled [task] is starting.
