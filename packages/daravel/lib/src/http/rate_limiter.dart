@@ -716,14 +716,12 @@ final class ProcessRateLimitStore implements RateLimitStore {
   /// [CoordinatorChannel].
   Future<Object?> _call(RateLimitMessage message, {Duration? wait}) {
     final target = channel;
-    // The coordinator said it is saturated: its answer would come after the
-    // flood ahead of it, past [timeout]. Apply the limit's failure policy
-    // now (open, or closed with failClosed) instead of waiting for it
-    // (Blueprint #141, K1); leases already held still serve.
-    if (target is RemoteCoordinatorChannel &&
-        target.coordinatorState == CoordinatorState.saturated) {
-      throw target.shortCircuit(RateLimitService.serviceName);
-    }
+    // Always asked, whatever the coordinator's state: a rate limit is
+    // critical, served at once in every state, and with the bulk credit
+    // window (K1b) it no longer waits behind a flood. Failing it here when
+    // the coordinator said "saturated" turned limits off on a merely busy
+    // host (Blueprint #141 §6.6); only its own [timeout] applies the
+    // limit's failure policy now, as before K1.
     wait ??= target.isRemote ? timeout : const Duration(seconds: 5);
     return target is TypedCoordinatorChannel
         ? target.callTyped(RateLimitService.serviceName, message, timeout: wait)

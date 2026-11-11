@@ -19,7 +19,12 @@ final class BroadcastService
   /// Bulk: fan-out waits while the coordinator lags, and is refused while
   /// it is saturated, so rate limits and locks keep their answers.
   @override
-  CoordinatorPriority get priority => CoordinatorPriority.bulk;
+  // Subscriptions are answered under load; the fan-out is what may wait
+  // or be dropped (ACK 235, Addendum 1).
+  CoordinatorPriority get priority => CoordinatorPriority.normal;
+
+  @override
+  Set<String> get bulkOperations => const {'publish'};
 
   final Map<String, Set<SendPort>> _channels = <String, Set<SendPort>>{};
 

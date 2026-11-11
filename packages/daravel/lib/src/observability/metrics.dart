@@ -425,7 +425,13 @@ final class MetricsService
     implements CoordinatorService, WorkerAwareService {
   /// Bulk: put off while lagging, refused while saturated.
   @override
-  CoordinatorPriority get priority => CoordinatorPriority.bulk;
+  // One collect per scrape, answered at once: /metrics must work when the
+  // coordinator is overloaded, which is when it is needed. Each worker's
+  // periodic publish is what may wait or be dropped.
+  CoordinatorPriority get priority => CoordinatorPriority.critical;
+
+  @override
+  Set<String> get bulkOperations => const {'publish'};
 
   /// A service merging the workers' metrics.
   MetricsService({
@@ -505,6 +511,16 @@ final class MetricsService
       'coordinator_queue_lag_peak_seconds': seconds(
         'The longest a message waited in the coordinator event loop.',
         'queue_lag_peak_ms',
+      ),
+      // Blueprint #141 §6.6: a wait that was no queue (a busy host, a GC
+      // pause, a late timer), never a reason to refuse work.
+      'coordinator_starved_seconds': seconds(
+        'How long the coordinator last waited for CPU with no queue behind.',
+        'starved_ms',
+      ),
+      'coordinator_starved_peak_seconds': seconds(
+        'The longest the coordinator waited for CPU with no queue behind.',
+        'starved_peak_ms',
       ),
       // Blueprint #141 K1.
       'coordinator_health': <String, Object?>{

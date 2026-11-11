@@ -22,7 +22,12 @@ final class WorkerReportService
     implements CoordinatorService, WorkerAwareService {
   /// Bulk: put off while lagging, refused while saturated.
   @override
-  CoordinatorPriority get priority => CoordinatorPriority.bulk;
+  // Reading and forgetting reports are answered; publishing one is what
+  // may wait or be dropped.
+  CoordinatorPriority get priority => CoordinatorPriority.normal;
+
+  @override
+  Set<String> get bulkOperations => const {'publish'};
 
   /// The coordinator service name.
   static const String serviceName = 'worker_reports';

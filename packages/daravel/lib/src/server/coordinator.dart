@@ -4,6 +4,7 @@ import 'dart:isolate';
 
 import 'package:meta/meta.dart';
 
+import '../foundation/detached.dart';
 import '../foundation/exceptions.dart';
 
 /// Where a piece of state lives (ADR-003).
@@ -55,6 +56,23 @@ final class CoordinatorRequest {
   final int deadline;
 }
 
+/// The kinds of failure a [CoordinatorReply] reports, as small integers
+/// (sent between isolates as they are).
+abstract final class CoordinatorErrorKind {
+  /// No error.
+  static const int none = 0;
+
+  /// The service failed ([CoordinatorException]).
+  static const int failed = 1;
+
+  /// The call was refused because the coordinator is saturated
+  /// ([CoordinatorOverloaded]).
+  static const int overloaded = 2;
+
+  /// The coordinator's queue was full ([CoordinatorException]).
+  static const int queueFull = 3;
+}
+
 /// Bulk calls of one worker sent as one message (Blueprint #141 K1b): the
 /// calls its credit window held back, sent together once credit came back.
 /// Each is served as if sent alone; the answers that are ready at once come
@@ -94,7 +112,16 @@ final class CoordinatorHello {
 /// Reply to a [CoordinatorRequest].
 final class CoordinatorReply {
   /// The reply to call [id]: a [result] or an [error].
-  const CoordinatorReply(this.id, {this.result, this.error});
+  const CoordinatorReply(
+    this.id, {
+    this.result,
+    this.error,
+    this.errorKind = CoordinatorErrorKind.none,
+  });
+
+  /// What kind of failure [error] is ([CoordinatorErrorKind]): what the
+  /// caller's exception is chosen by; [error] is only for people.
+  final int errorKind;
 
   /// The call's id.
   final int id;
@@ -192,8 +219,16 @@ abstract mixin class PrioritizedService {
   /// workers stop calling while it is saturated.
   CoordinatorPriority get priority;
 
+  /// The operations that are bulk whatever [priority] says (a publish, a
+  /// periodic report): put off while the coordinator lags, refused while
+  /// it is saturated, and failed at once then by the workers, which hear
+  /// them named in its announcements. The rest of the service (reads,
+  /// subscriptions, the scrape of `/metrics`) keeps [priority].
+  Set<String> get bulkOperations => const <String>{};
+
   /// The priority of one call ([op] and [args], a map or a typed message).
-  CoordinatorPriority priorityFor(String op, Object args) => priority;
+  CoordinatorPriority priorityFor(String op, Object args) =>
+      bulkOperations.contains(op) ? CoordinatorPriority.bulk : priority;
 }
 
 /// How far behind the coordinator is, from how late its event loop runs
@@ -328,9 +363,19 @@ final class Coordinator {
   static const int recoverySamples = 3;
   int _epoch = 0;
   int _unhealthyProbes = 0;
-  final List<CoordinatorRequest> _deferred = <CoordinatorRequest>[];
-  int _deferredHead = 0;
+
+  /// Calls put off, one queue per class: normal ones are served first, and
+  /// each class keeps its order (ACK 238, Addendum 1).
+  final ListQueue<CoordinatorRequest> _deferredNormal =
+      ListQueue<CoordinatorRequest>();
+  final ListQueue<CoordinatorRequest> _deferredBulk =
+      ListQueue<CoordinatorRequest>();
   int _deferredPeak = 0;
+
+  /// Calls taken off the port and dealt with (served, put off, refused),
+  /// each call of a batch and of the queues put off counted: the evidence
+  /// of a queue the lag probe weighs ([queueEvidence]).
+  int _callsHandled = 0;
   bool _draining = false;
   final Map<String, int> _shed = <String, int>{};
   final List<int> _byPriority = List<int>.filled(
@@ -348,8 +393,13 @@ final class Coordinator {
   /// How far behind the coordinator is.
   CoordinatorState get state => _state;
 
+  /// Calls dealt with so far, each call of a batch and of the queues put
+  /// off counted (the probe's evidence of a queue).
+  @visibleForTesting
+  int get callsHandled => _callsHandled;
+
   /// Calls put off now.
-  int get deferred => _deferred.length - _deferredHead;
+  int get deferred => _deferredNormal.length + _deferredBulk.length;
 
   final Map<String, CoordinatorService> _services =
       <String, CoordinatorService>{};
@@ -476,27 +526,38 @@ final class Coordinator {
   }
 
   void _onRequest(CoordinatorRequest message) {
+    _callsHandled++;
     if (_expiredNow(message)) {
       return;
     }
-    // Healthy: no priority to work out (served as it comes).
-    if (_state == CoordinatorState.healthy) {
+    // Healthy, nothing put off: no priority to work out (served as it
+    // comes).
+    if (_state == CoordinatorState.healthy && deferred == 0) {
       _serve(message, null);
       return;
     }
     final priority = _priorityOfCall(message);
-    if (priority == CoordinatorPriority.bulk &&
-        _state == CoordinatorState.saturated) {
-      _refuse(message);
-      return;
+    switch (priority) {
+      case CoordinatorPriority.critical:
+        // Never put off, never refused.
+        _serve(message, priority);
+      case CoordinatorPriority.bulk when _state == CoordinatorState.saturated:
+        _refuse(message);
+      case CoordinatorPriority.bulk
+          when _state == CoordinatorState.lagging || _deferredBulk.isNotEmpty:
+        // Behind the bulk calls already put off, whatever the state now:
+        // one worker's bulk calls keep their order (ACK 235, Addendum 2
+        // B.6).
+        _defer(message, priority);
+      case CoordinatorPriority.normal
+          when _state == CoordinatorState.saturated ||
+              _deferredNormal.isNotEmpty:
+        // Behind the normal calls put off (after a saturation); never
+        // behind bulk calls alone (ACK 238).
+        _defer(message, priority);
+      case _:
+        _serve(message, priority);
     }
-    if (priority == CoordinatorPriority.bulk ||
-        (priority == CoordinatorPriority.normal &&
-            _state == CoordinatorState.saturated)) {
-      _defer(message, priority);
-      return;
-    }
-    _serve(message, priority);
   }
 
   /// A worker's bulk calls sent together (K1b). Each is served as if sent
@@ -505,6 +566,7 @@ final class Coordinator {
   void _onBatch(CoordinatorBatch batch) {
     final ready = <CoordinatorReply>[];
     for (final message in batch.requests) {
+      _callsHandled++;
       if (_expiredNow(message)) {
         continue;
       }
@@ -514,11 +576,13 @@ final class Coordinator {
           CoordinatorReply(
             message.id,
             error: CoordinatorOverloaded(message.service).message,
+            errorKind: CoordinatorErrorKind.overloaded,
           ),
         );
         continue;
       }
-      if (_state == CoordinatorState.lagging) {
+      // Behind the bulk calls already put off too, so the order holds.
+      if (_state == CoordinatorState.lagging || _deferredBulk.isNotEmpty) {
         _defer(message, CoordinatorPriority.bulk);
         continue;
       }
@@ -581,6 +645,7 @@ final class Coordinator {
       CoordinatorReply(
         message.id,
         error: CoordinatorOverloaded(message.service).message,
+        errorKind: CoordinatorErrorKind.overloaded,
       ),
     );
   }
@@ -596,45 +661,70 @@ final class Coordinator {
         _rejected++;
         _reply(
           message,
-          CoordinatorReply(message.id, error: 'Coordinator queue is full.'),
+          CoordinatorReply(
+            message.id,
+            error: 'Coordinator queue is full.',
+            errorKind: CoordinatorErrorKind.queueFull,
+          ),
         );
       }
       return;
     }
-    _deferred.add(message);
+    final queue = priority == CoordinatorPriority.normal
+        ? _deferredNormal
+        : _deferredBulk;
+    queue.add(message);
     if (deferred > _deferredPeak) {
       _deferredPeak = deferred;
     }
-    if (!_draining) {
+    // Catch up two for one: a call joining the tail lets two be served
+    // from the head of its class when the state allows it, so a queue fed
+    // without pause (a closed system: credit back, new bulk calls) still
+    // empties, in order (ACK 238, Addendum 1). Only once healthy again:
+    // while lagging or saturated the calls stay put off.
+    if (_state == CoordinatorState.healthy) {
+      for (var i = 0; i < 2 && queue.isNotEmpty; i++) {
+        _serveDeferred(queue.removeFirst());
+      }
+    }
+    if (deferred > 0 && !_draining) {
       _draining = true;
       Timer.run(_drain);
     }
   }
 
-  /// Serves up to [drainBatch] calls put off, then lets the messages that
-  /// arrived meanwhile through before the next batch.
+  /// Serves [message], taken off a queue of calls put off: refused instead
+  /// when it is bulk and the coordinator saturated.
+  void _serveDeferred(CoordinatorRequest message) {
+    _callsHandled++;
+    if (_expiredNow(message)) {
+      return;
+    }
+    final priority = _priorityOfCall(message);
+    if (_state == CoordinatorState.saturated &&
+        priority == CoordinatorPriority.bulk) {
+      _refuse(message);
+      return;
+    }
+    _serve(message, priority);
+  }
+
+  /// Serves up to [drainBatch] calls put off, normal ones first, then lets
+  /// the messages that arrived meanwhile through before the next batch.
   void _drain() {
     var served = 0;
     while (deferred > 0 && served < drainBatch) {
-      final message = _deferred[_deferredHead++];
       served++;
-      if (_expiredNow(message)) {
-        continue;
-      }
-      final priority = _priorityOfCall(message);
-      if (_state == CoordinatorState.saturated &&
-          priority == CoordinatorPriority.bulk) {
-        _refuse(message);
-        continue;
-      }
-      _serve(message, priority);
+      _serveDeferred(
+        _deferredNormal.isNotEmpty
+            ? _deferredNormal.removeFirst()
+            : _deferredBulk.removeFirst(),
+      );
     }
     if (deferred > 0) {
       Timer.run(_drain);
       return;
     }
-    _deferred.clear();
-    _deferredHead = 0;
     _draining = false;
   }
 
@@ -667,7 +757,11 @@ final class Coordinator {
       _rejected++;
       _reply(
         message,
-        CoordinatorReply(message.id, error: 'Coordinator queue is full.'),
+        CoordinatorReply(
+          message.id,
+          error: 'Coordinator queue is full.',
+          errorKind: CoordinatorErrorKind.queueFull,
+        ),
       );
       return;
     }
@@ -677,7 +771,11 @@ final class Coordinator {
     try {
       result = _invoke(message.service, message.op, message.args);
     } on Object catch (error) {
-      final reply = CoordinatorReply(message.id, error: '$error');
+      final reply = CoordinatorReply(
+        message.id,
+        error: '$error',
+        errorKind: CoordinatorErrorKind.failed,
+      );
       into == null ? _reply(message, reply) : into.add(reply);
       return;
     }
@@ -710,6 +808,7 @@ final class Coordinator {
           error:
               'Coordinator service [${request.service}] returned a value '
               'that cannot be sent to a worker: $error',
+          errorKind: CoordinatorErrorKind.failed,
         ),
       );
     }
@@ -723,7 +822,14 @@ final class Coordinator {
       final result = await pending;
       _reply(request, CoordinatorReply(request.id, result: result));
     } catch (error) {
-      _reply(request, CoordinatorReply(request.id, error: '$error'));
+      _reply(
+        request,
+        CoordinatorReply(
+          request.id,
+          error: '$error',
+          errorKind: CoordinatorErrorKind.failed,
+        ),
+      );
     } finally {
       _inFlight--;
     }
@@ -737,20 +843,50 @@ final class Coordinator {
   /// past [timerSlack], for one long call that blocks the loop with nothing
   /// queued behind it.
   void _probeLag() {
+    // One port, kept: the probe's message goes to it each time.
+    final probe = _probePort ??= RawReceivePort(
+      null,
+      'daravel-coordinator-probe',
+    );
     final watch = Stopwatch()..start();
     _lagProbe = Timer(probeEvery, () {
       final late = watch.elapsed - probeEvery;
       final sent = Stopwatch()..start();
-      final probe = RawReceivePort(null, 'daravel-coordinator-probe');
+      final handledBefore = _callsHandled;
       probe.handler = (Object? _) {
-        probe.close();
-        observeLag(lagOf(late, sent.elapsed, timerSlack));
+        final waited = sent.elapsed;
+        final handled = _callsHandled - handledBefore;
+        _observeStarvation(starvationOf(late, waited, handled, timerSlack));
+        observeLag(lagOf(waited, handled));
         if (_port != null) {
           _probeLag();
         }
       };
       probe.sendPort.send(null);
     });
+  }
+
+  RawReceivePort? _probePort;
+
+  /// How many calls the coordinator must have dealt with while the probe
+  /// waited (each call of a batch and of the queues put off counted) for
+  /// its wait to count as a queue (Blueprint #141 §6.6): a long
+  /// wait with fewer handled means the isolate was not scheduled (a busy
+  /// host, a GC pause, a sleeping machine), which refusing work would not
+  /// help. 16: a few workers' bursts, well above the one or two messages
+  /// an idle server handles in 100 ms, well below a flood.
+  static const int queueEvidence = 16;
+
+  /// The last and largest wait that was not a queue ([starvationOf]): the
+  /// isolate starved of CPU, or a timer late (`coordinator_starved_ms`).
+  Duration _starved = Duration.zero;
+  Duration _starvedPeak = Duration.zero;
+
+  void _observeStarvation(Duration starved) {
+    _starved = starved;
+    if (starved > _starvedPeak) {
+      _starvedPeak = starved;
+    }
   }
 
   /// How late a timer may fire without the loop being behind: the
@@ -760,12 +896,27 @@ final class Coordinator {
   /// which the probe would otherwise have read as lag.
   static const Duration defaultTimerSlack = Duration(milliseconds: 16);
 
-  /// One probe's lag: how long its message waited ([waited]), or how late
-  /// its timer fired ([timerLate]) past [slack], whichever is larger.
+  /// One probe's queue lag, what the state follows: how long its message
+  /// waited ([waited]), when the coordinator handled at least
+  /// [queueEvidence] other messages meanwhile ([handled]); zero otherwise.
   @visibleForTesting
-  static Duration lagOf(Duration timerLate, Duration waited, Duration slack) {
+  static Duration lagOf(Duration waited, int handled) =>
+      handled >= queueEvidence ? waited : Duration.zero;
+
+  /// One probe's wait that was not a queue, for metrics only: the wait
+  /// with fewer than [queueEvidence] messages handled, or how late its
+  /// timer fired ([timerLate]) past [slack] (one long call blocking the
+  /// loop), whichever is larger.
+  @visibleForTesting
+  static Duration starvationOf(
+    Duration timerLate,
+    Duration waited,
+    int handled,
+    Duration slack,
+  ) {
     final late = timerLate - slack;
-    return late > waited ? late : waited;
+    final idle = handled < queueEvidence ? waited : Duration.zero;
+    return late > idle ? late : idle;
   }
 
   /// Takes one measurement of the queue lag, [lag]: what the probe does
@@ -799,11 +950,18 @@ final class Coordinator {
     final CoordinatorState next;
     if (shedding) {
       next = CoordinatorState.saturated;
-    } else if (_calm >= recoverySamples) {
-      next = CoordinatorState.healthy;
     } else if (_state == CoordinatorState.saturated &&
         _belowShed < recoverySamples) {
+      // Saturated stays until recoverySamples measurements in a row below
+      // it, checked before calm: a saturation from a full queue of calls
+      // put off, with a low lag, would otherwise turn healthy at once and
+      // swing with every message (ACK 235, Addendum 2 B.5).
       next = CoordinatorState.saturated;
+    } else if (_calm >= recoverySamples) {
+      // Healthy even with calls still put off: in a closed system their
+      // queue never empties while traffic flows, and they keep their order
+      // anyway (each class's queue, two served per call joining it).
+      next = CoordinatorState.healthy;
     } else if (_lagWarnings >= 3 || _state != CoordinatorState.healthy) {
       next = CoordinatorState.lagging;
     } else {
@@ -845,8 +1003,11 @@ final class Coordinator {
     _lag.inMicroseconds,
     ++_epoch,
     [
-      for (final name in _services.keys)
-        if (priorityOf(name) == CoordinatorPriority.bulk) name,
+      for (final MapEntry(key: name, value: service) in _services.entries)
+        if (priorityOf(name) == CoordinatorPriority.bulk)
+          name
+        else if (service case final PrioritizedService prioritized)
+          for (final op in prioritized.bulkOperations) '$name.$op',
     ].join(','),
   );
 
@@ -889,6 +1050,10 @@ final class Coordinator {
       // lateness alone, several ms on an idle Windows loop).
       'queue_lag_ms': _lag.inMicroseconds / 1000,
       'queue_lag_peak_ms': _lagPeak.inMicroseconds / 1000,
+      // Waits that were not a queue (a busy host, a late timer): shown,
+      // never a reason to refuse work (§6.6).
+      'starved_ms': _starved.inMicroseconds / 1000,
+      'starved_peak_ms': _starvedPeak.inMicroseconds / 1000,
       // Blueprint #141 K1: health, calls put off, and calls refused.
       'state': _state.name,
       'deferred': deferred,
@@ -913,6 +1078,8 @@ final class Coordinator {
   void close() {
     _lagProbe?.cancel();
     _lagProbe = null;
+    _probePort?.close();
+    _probePort = null;
     _port?.close();
     _port = null;
   }
@@ -1048,7 +1215,7 @@ final class RemoteCoordinatorChannel implements TypedCoordinatorChannel {
     Duration timeout = const Duration(seconds: 1),
     BulkOverflow overflow = BulkOverflow.refuse,
   }) {
-    if (shortCircuits(service)) {
+    if (shortCircuits(service, op)) {
       return Future<Object?>.error(shortCircuit(service));
     }
     if (_closed) {
@@ -1077,7 +1244,7 @@ final class RemoteCoordinatorChannel implements TypedCoordinatorChannel {
       _clock.elapsedMicroseconds + timeout.inMicroseconds,
     );
     _bulkWaiting.add(waiting);
-    _sweeper ??= Timer.periodic(sweepInterval, (_) => _sweep());
+    _startSweeper();
     return waiting.completer.future;
   }
 
@@ -1110,6 +1277,11 @@ final class RemoteCoordinatorChannel implements TypedCoordinatorChannel {
           CoordinatorTimeoutException(waiting.service, waiting.timeout),
         );
         onCallTimeout?.call(waiting.service);
+        continue;
+      }
+      // Refused now rather than sent to be refused (ACK 238, Addendum 1).
+      if (shortCircuits(waiting.service, waiting.op)) {
+        waiting.completer.completeError(shortCircuit(waiting.service));
         continue;
       }
       final id = _nextId++;
@@ -1170,7 +1342,15 @@ final class RemoteCoordinatorChannel implements TypedCoordinatorChannel {
   /// Monotonic clock for deadlines; one sweep [Timer] enforces every call's
   /// timeout instead of a timer per call (the happy path allocates none).
   final Stopwatch _clock = Stopwatch()..start();
-  Timer? _sweeper;
+  Detached<Timer>? _sweeper;
+
+  /// Starts the timeout sweep, once, outside the request or job whose call
+  /// starts it: it lives as long as calls are pending, not as long as that
+  /// request (Review #149).
+  void _startSweeper() => _sweeper ??= runDetached(
+    () => Timer.periodic(sweepInterval, (_) => _sweep()),
+    name: 'coordinator call timeouts',
+  );
 
   /// Interval of the timeout sweep (timeouts fire within this much).
   static const Duration sweepInterval = Duration(milliseconds: 10);
@@ -1208,7 +1388,7 @@ final class RemoteCoordinatorChannel implements TypedCoordinatorChannel {
   }) {
     // The coordinator refuses this service while saturated: fail now
     // instead of queueing behind the flood and waiting for the refusal.
-    if (shortCircuits(service)) {
+    if (shortCircuits(service, op)) {
       return Future<Object?>.error(shortCircuit(service));
     }
     if (_closed) {
@@ -1228,7 +1408,7 @@ final class RemoteCoordinatorChannel implements TypedCoordinatorChannel {
       bulk: bulk,
     );
     _pending[id] = call;
-    _sweeper ??= Timer.periodic(sweepInterval, (_) => _sweep());
+    _startSweeper();
     _target.send(
       CoordinatorRequest(
         id: id,
@@ -1274,7 +1454,7 @@ final class RemoteCoordinatorChannel implements TypedCoordinatorChannel {
       _creditBack();
     }
     if (_pending.isEmpty && _bulkWaiting.isEmpty) {
-      _sweeper?.cancel();
+      _sweeper?.cancel().ignore();
       _sweeper = null;
     }
   }
@@ -1316,7 +1496,7 @@ final class RemoteCoordinatorChannel implements TypedCoordinatorChannel {
     final error = reply.error;
     if (error != null) {
       call.completer.completeError(
-        error.startsWith('Coordinator overloaded:')
+        reply.errorKind == CoordinatorErrorKind.overloaded
             ? CoordinatorOverloaded(call.service)
             : CoordinatorException(error),
       );
@@ -1343,9 +1523,10 @@ final class RemoteCoordinatorChannel implements TypedCoordinatorChannel {
   void Function(String service)? onShortCircuit;
 
   void _onHealth(CoordinatorHealth health) {
-    // Announcements cross one port in order, but a respawned coordinator
-    // starts its epochs again: a lower one is a new coordinator's.
-    if (health.epoch <= _epoch && health.epoch > 1) {
+    // Announcements cross one port in order: only a newer one counts. The
+    // coordinator lives as long as the process, so its epochs never start
+    // again; a channel starts from -1.
+    if (health.epoch <= _epoch) {
       return;
     }
     _epoch = health.epoch;
@@ -1357,12 +1538,29 @@ final class RemoteCoordinatorChannel implements TypedCoordinatorChannel {
       _state = next;
       onStateChange?.call(next);
     }
+    if (next == CoordinatorState.saturated && _bulkWaiting.isNotEmpty) {
+      // The bulk calls waiting for credit that the coordinator now refuses
+      // fail at once (counted as short-circuits), not when sent.
+      final kept = ListQueue<_BufferedBulk>();
+      for (final waiting in _bulkWaiting) {
+        if (shortCircuits(waiting.service, waiting.op)) {
+          waiting.completer.completeError(shortCircuit(waiting.service));
+        } else {
+          kept.add(waiting);
+        }
+      }
+      _bulkWaiting
+        ..clear()
+        ..addAll(kept);
+    }
   }
 
   /// Whether a call to [service] is failed at once: the coordinator is
   /// saturated and refuses that service's calls.
-  bool shortCircuits(String service) =>
-      _state == CoordinatorState.saturated && _shedServices.contains(service);
+  bool shortCircuits(String service, [String op = '']) =>
+      _state == CoordinatorState.saturated &&
+      (_shedServices.contains(service) ||
+          _shedServices.contains('$service.$op'));
 
   /// Records a call failed at once ([shortCircuits], or a store deciding
   /// so for a call it would otherwise wait on) and returns its error.
@@ -1374,7 +1572,7 @@ final class RemoteCoordinatorChannel implements TypedCoordinatorChannel {
   /// Closes the channel.
   void close() {
     _closed = true;
-    _sweeper?.cancel();
+    _sweeper?.cancel().ignore();
     _sweeper = null;
     _replies.close();
     for (final call in _pending.values) {

@@ -227,8 +227,8 @@ final class BroadcastManager {
             data,
             exceptSocket: exceptSocket,
           );
-        } on CoordinatorException catch (error) {
-          _shedOrRethrow(event, channels, error);
+        } on CoordinatorException catch (error, stackTrace) {
+          _shedOrRethrow(event, channels, error, stackTrace);
         }
       case 'reverb' || 'pusher':
         await _post(event, channels, data, exceptSocket);
@@ -263,6 +263,7 @@ final class BroadcastManager {
     String event,
     List<String> channels,
     CoordinatorException error,
+    StackTrace stackTrace,
   ) {
     final reason = switch (error) {
       CoordinatorTimeoutException() => 'timeout',
@@ -270,7 +271,8 @@ final class BroadcastManager {
       _ => null,
     };
     if (reason == null || inRetryableJob) {
-      throw error;
+      // Rethrown with the stack of the call that failed, not this one.
+      Error.throwWithStackTrace(error, stackTrace);
     }
     _shedSinceWarning++;
     final now = DateTime.now();

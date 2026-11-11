@@ -135,8 +135,7 @@ final class HorizonService
   CoordinatorPriority get priority => CoordinatorPriority.normal;
 
   @override
-  CoordinatorPriority priorityFor(String op, Object args) =>
-      op == 'record' ? CoordinatorPriority.bulk : priority;
+  Set<String> get bulkOperations => const {'record'};
 
   @override
   Object? handle(String op, Map<String, Object?> args) {

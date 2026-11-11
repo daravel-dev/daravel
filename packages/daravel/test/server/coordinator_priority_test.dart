@@ -192,8 +192,28 @@ void main() {
       CoordinatorPriority.normal,
     );
     expect(c.priorityOf('channels'), CoordinatorPriority.normal);
-    expect(c.priorityOf('broadcast'), CoordinatorPriority.bulk);
-    expect(c.priorityOf(MetricsService.serviceName), CoordinatorPriority.bulk);
+    // Broadcasting and metrics: bulk per operation, their publish only.
+    expect(c.priorityOf('broadcast'), CoordinatorPriority.normal);
+    final broadcast = c.service('broadcast')! as PrioritizedService;
+    expect(
+      broadcast.priorityFor('publish', const {}),
+      CoordinatorPriority.bulk,
+    );
+    expect(
+      broadcast.priorityFor('subscribe', const {}),
+      CoordinatorPriority.normal,
+    );
+    expect(
+      c.priorityOf(MetricsService.serviceName),
+      CoordinatorPriority.critical,
+    );
+    final metrics =
+        c.service(MetricsService.serviceName)! as PrioritizedService;
+    expect(metrics.priorityFor('publish', const {}), CoordinatorPriority.bulk);
+    expect(
+      metrics.priorityFor('collect', const {}),
+      CoordinatorPriority.critical,
+    );
     expect(c.priorityOf('plain'), CoordinatorPriority.normal);
     expect(c.priorityOf('bulk'), CoordinatorPriority.bulk);
     // The process cache's locks are critical, its reads normal.
@@ -246,16 +266,16 @@ void main() {
       isTrue,
     );
 
-    // Rate limit: the limit's failure policy at once, not after its
-    // timeout (an hour here: waiting for it would time the test out).
+    // Rate limit: still asked and answered (no short-circuit: on a busy
+    // host it turned limits off, K1's regression).
     final limits = ProcessRateLimitStore(
       channel,
       timeout: const Duration(hours: 1),
     );
     final result = await limits.attempt('k1', 5, const Duration(minutes: 1));
-    expect(result.degraded, isTrue);
+    expect(result.degraded, isFalse);
     expect(result.allowed, isTrue);
-    expect(shortCircuited, contains(RateLimitService.serviceName));
+    expect(shortCircuited, isNot(contains(RateLimitService.serviceName)));
 
     // Quiet again: healthy, and bulk calls go through.
     observe(c, _quiet, Coordinator.recoverySamples);
@@ -379,44 +399,32 @@ void main() {
     expect(c.state, CoordinatorState.healthy);
   });
 
-  test('Windows: a timer late within its slack, with no message waiting, '
-      'is no lag', () {
-    // An idle 100 ms timer on Windows fires 5 to 8 ms late.
-    for (final late in const [5, 7, 8, 15]) {
-      expect(
-        Coordinator.lagOf(
-          Duration(milliseconds: late),
-          Duration.zero,
-          Coordinator.defaultTimerSlack,
-        ),
-        lessThanOrEqualTo(Duration.zero),
-      );
+  test('Windows: a late timer is starvation, never lag', () {
+    // An idle 100 ms timer on Windows fires 5 to 8 ms late; a late timer
+    // with no queue (no message handled meanwhile) is no lag at all.
+    for (final late in const [5, 7, 8, 15, 116]) {
+      expect(Coordinator.lagOf(Duration(milliseconds: late), 0), Duration.zero);
     }
     final c = coordinator();
     for (var i = 0; i < 10; i++) {
-      c.observeLag(
-        Coordinator.lagOf(
-          const Duration(milliseconds: 8),
-          Duration.zero,
-          Coordinator.defaultTimerSlack,
-        ),
-      );
+      c.observeLag(Coordinator.lagOf(const Duration(milliseconds: 116), 0));
     }
     expect(c.state, CoordinatorState.healthy);
-    // Past the slack, or a message that waited, still counts.
+    // Past the slack it counts as starvation, for metrics only.
     expect(
-      Coordinator.lagOf(
+      Coordinator.starvationOf(
         const Duration(milliseconds: 116),
         Duration.zero,
+        0,
         Coordinator.defaultTimerSlack,
       ),
       const Duration(milliseconds: 100),
     );
+    // A wait with a queue behind it still counts as lag.
     expect(
       Coordinator.lagOf(
-        const Duration(milliseconds: 8),
         const Duration(milliseconds: 30),
-        Coordinator.defaultTimerSlack,
+        Coordinator.queueEvidence,
       ),
       const Duration(milliseconds: 30),
     );
