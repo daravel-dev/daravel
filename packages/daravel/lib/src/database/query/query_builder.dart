@@ -2,8 +2,6 @@ import 'dart:convert';
 
 import 'dart:async';
 
-import 'package:meta/meta.dart';
-
 import '../../foundation/clock.dart';
 import '../../http/http_exceptions.dart';
 import '../../http/json_stream.dart';
@@ -16,6 +14,9 @@ import 'sql_tokens.dart';
 /// The type of [QueryBuilder.absent].
 final class _Absent {
   const _Absent();
+
+  @override
+  String toString() => 'QueryBuilder.absent (an argument left out)';
 }
 
 /// Thrown by `firstOrFail()` / `sole()`.
@@ -188,11 +189,12 @@ final class QueryBuilder {
     Object? value = absent,
   ]) => where(column, operatorOrValue, value, 'OR');
 
-  /// The default of the optional operator and value parameters of [where]
-  /// and its relatives, which tells an argument left out from an explicit
-  /// `null` (PHP's `func_num_args()`). Forwarding methods use it as their
-  /// own default so the count reaches [where].
-  @internal
+  /// An argument that was not given: the default of the operator and value
+  /// of [where] and its relatives, so `where('a', '<>')` (the value is
+  /// `'<>'`) differs from `where('a', '<>', null)` (`IS NOT NULL`), as
+  /// PHP's `func_num_args()` does in Laravel. A method that passes these
+  /// arguments on, such as a model's generated `where` static, uses it as
+  /// its own default so the difference reaches [where].
   static const Object absent = _Absent();
 
   /// Negates a nested group: `WHERE NOT (...)`.

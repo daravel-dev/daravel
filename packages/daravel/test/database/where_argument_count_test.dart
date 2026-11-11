@@ -125,10 +125,35 @@ void main() {
       throwsA(isA<ArgumentError>()),
     );
   });
+
+  test('a generated where static with the absent defaults keeps the count', () {
+    _Post.db = db;
+    expect(_Post.where('title', '<>').builder.getBindings(), ['<>']);
+    expect(
+      _Post.where('deleted_at', '<>', null).builder.toSql(),
+      contains('IS NOT NULL'),
+    );
+    expect('${QueryBuilder.absent}', contains('left out'));
+  });
 }
 
 final class _Post extends Model {
+  static late DatabaseManager db;
+
+  static final ModelDefinition<_Post> definition = ModelDefinition<_Post>(
+    table: 'posts',
+    factory: _Post.new,
+  );
+
   @override
-  ModelDefinition<_Post> get modelDefinition =>
-      ModelDefinition<_Post>(table: 'posts', factory: _Post.new);
+  ModelDefinition<_Post> get modelDefinition => definition;
+
+  static ModelQuery<_Post> query() => definition.query(db: db);
+
+  // As `make:model` writes it.
+  static ModelQuery<_Post> where(
+    Object column, [
+    Object? operatorOrValue = QueryBuilder.absent,
+    Object? value = QueryBuilder.absent,
+  ]) => query().where(column, operatorOrValue, value);
 }
