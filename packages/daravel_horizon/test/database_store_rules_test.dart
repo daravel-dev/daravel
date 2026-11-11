@@ -154,37 +154,6 @@ void main() {
   );
 
   test(
-    'each write trims at most trimBatch old rows; prune trims all',
-    () async {
-      final start = DateTime.utc(2026, 11, 12, 9);
-      Clock.travelTo(start);
-      final store = DatabaseHorizonStore(
-        db,
-        trimBatch: 2,
-        flushEvery: const Duration(hours: 1),
-      );
-      for (var i = 0; i < 5; i++) {
-        await store.record(job('old$i'));
-      }
-      await store.record(job('oldfail', status: 'failed'));
-      await store.flush();
-      expect(await rows('horizon_jobs'), 6);
-      // Past the completed retention, not the failed one.
-      Clock.travelTo(start.add(const Duration(minutes: 61)));
-      await store.record(job('new'));
-      await store.flush();
-      expect(await rows('horizon_jobs'), 5, reason: '2 trimmed by the write');
-      // The 3 old jobs left, and their 3 rows in horizon_job_counts.
-      expect(await store.prune(), 6);
-      expect(
-        [for (final j in await store.recent('completed')) j.uuid],
-        ['new'],
-      );
-      expect((await store.job('oldfail'))?.status, 'failed', reason: 'kept');
-    },
-  );
-
-  test(
     'close writes what is buffered; later records are dropped, counted',
     () async {
       final store = DatabaseHorizonStore(

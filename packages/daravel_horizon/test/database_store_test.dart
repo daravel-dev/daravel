@@ -4,6 +4,7 @@ import 'package:daravel/daravel.dart';
 import 'package:daravel_horizon/daravel_horizon.dart';
 import 'package:daravel_mysql/daravel_mysql.dart';
 import 'package:path/path.dart' as p;
+import 'package:test/test.dart';
 
 import 'support/store_contract.dart';
 
@@ -78,5 +79,57 @@ void main() {
         await app.shutdown();
       },
     );
+
+    // The trim is two statements per table (ids with LIMIT, then a delete
+    // by id): DELETE … LIMIT is not portable, so each dialect runs it.
+    test('$name: each write trims at most trimBatch old rows; prune trims '
+        'all', () async {
+      final trimmed = Application.configure(basePath: Directory.systemTemp.path)
+          .withEnv({'APP_ENV': 'testing', ...env()})
+          .withLogLevel(LogLevel.critical)
+          .withDatabaseDriver('mysql', MySqlDriver.fromConfig)
+          .create();
+      await trimmed.boot();
+      addTearDown(() async {
+        Clock.restore();
+        await trimmed.run(
+          () async => const CreateHorizonTables().down(await Schema.builder()),
+        );
+        await trimmed.shutdown();
+      });
+      await trimmed.run(() async {
+        final schema = await Schema.builder();
+        await const CreateHorizonTables().down(schema);
+        await const CreateHorizonTables().up(schema);
+      });
+      Future<int> rows() => trimmed.run(() => DB.table('horizon_jobs').count());
+      final start = DateTime.utc(2026, 11, 12, 9);
+      Clock.travelTo(start);
+      final store = DatabaseHorizonStore(
+        trimmed.container.make<DatabaseManager>(),
+        trimBatch: 2,
+        flushEvery: const Duration(hours: 1),
+      );
+      RecordedJob at(String uuid, String status) => RecordedJob(
+        uuid: uuid,
+        name: 'SendInvoice',
+        queue: 'default',
+        status: status,
+        at: Clock.now().millisecondsSinceEpoch,
+      );
+      for (var i = 0; i < 5; i++) {
+        await store.record(at('old$i', 'completed'));
+      }
+      await store.record(at('oldfail', 'failed'));
+      await store.flush();
+      expect(await rows(), 6);
+      Clock.travelTo(start.add(const Duration(minutes: 61)));
+      await store.record(at('new', 'completed'));
+      await store.flush();
+      expect(await rows(), 5, reason: '2 trimmed by the write');
+      // The 3 old jobs left, and their 3 rows in horizon_job_counts.
+      expect(await store.prune(), 6);
+      expect(await rows(), 2, reason: 'new, and the failed one kept');
+    });
   }
 }
