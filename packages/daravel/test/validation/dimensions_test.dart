@@ -109,6 +109,7 @@ UploadedFile upload(List<int> bytes, [String name = 'a.bin']) =>
 
 void main() {
   phpGolden();
+  laravelRatioGolden();
 
   group('header sizes, as getimagesize', () {
     test('every format', () {
@@ -338,6 +339,38 @@ void phpGolden() {
       final ours = size == null ? null : [size.width, size.height];
       if (php?.join('x') != ours?.join('x')) {
         disagreements.add('$name: PHP $php, Daravel $ours');
+      }
+    }
+    expect(disagreements, isEmpty);
+  });
+}
+
+/// `ratio`, `min_ratio` and `max_ratio` against Laravel 13 itself: each
+/// case of `fixtures/laravel_dimensions_ratio.json` (13 sizes, 17
+/// constraint sets) was run through `Validator::make` in Laravel 13.40.0 /
+/// PHP 8.3 with the same PNG header as [png], without network. Laravel 12
+/// compares `min_ratio`/`max_ratio` the other way round; 13.x, which this
+/// wave follows, reads them as written, with the `ratio` precision.
+void laravelRatioGolden() {
+  test('ratio, min_ratio and max_ratio agree with Laravel 13', () async {
+    final fixture = jsonDecode(
+      File('test/validation/fixtures/laravel_dimensions_ratio.json')
+          .readAsStringSync(),
+    ) as Map<String, Object?>;
+    expect(fixture['laravel'], startsWith('13.'));
+    final cases = (fixture['cases']! as List<Object?>)
+        .cast<Map<String, Object?>>();
+    expect(cases, hasLength(greaterThan(200)));
+    final disagreements = <String>[];
+    for (final c in cases) {
+      final (w, h) = (c['width']! as int, c['height']! as int);
+      final rule = c['rule']! as String;
+      final errors = await Validator(
+        {'photo': upload(png(w, h), 'photo.png')},
+        {'photo': rule},
+      ).run();
+      if (errors.isEmpty != c['passes']) {
+        disagreements.add('${w}x$h $rule: Laravel ${c['passes']}');
       }
     }
     expect(disagreements, isEmpty);
