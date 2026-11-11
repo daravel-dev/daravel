@@ -6,6 +6,12 @@ import 'dart:typed_data';
 
 /// NaCl's `crypto_secretbox` (XSalsa20-Poly1305), in libsodium's
 /// combined format: the 16-byte tag, then the ciphertext.
+///
+/// Only for sealing and opening the events of Pusher's encrypted channels
+/// (`private-encrypted-*`), with the shared secret of the channel's
+/// authorization: not a general cryptography library, and not exported. It
+/// is checked against NaCl's own test vector, RFC 8439's Poly1305 vector
+/// and PHP's `sodium_crypto_secretbox` (test/secretbox_test.dart).
 abstract final class Secretbox {
   /// Encrypts [message] with a 32-byte [key] and a 24-byte [nonce].
   static Uint8List seal(List<int> message, List<int> nonce, List<int> key) {
