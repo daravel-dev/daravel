@@ -7,6 +7,7 @@ import 'package:daravel/daravel.dart';
 
 import 'config.dart';
 import 'messages.dart';
+import 'signals.dart';
 import 'store/process_store.dart';
 
 /// What a worker isolate gets when it is spawned. Sent once, at spawn, so
@@ -99,6 +100,9 @@ Future<void> horizonWorkerMain(HorizonWorkerStart start) async {
     await booted.boot();
     final database = booted.container.make<DatabaseManager>();
     String sessions() => encodeSessions(database.openSessions());
+    final signals = booted.container.make<QueueManager>().signalStore;
+    // Jobs failing for a timeout mark, until their mark is removed.
+    final failing = <String>{};
     final worker = QueueWorker(
       booted.container.make<QueueManager>(),
       logger: booted.logger,
@@ -113,8 +117,9 @@ Future<void> horizonWorkerMain(HorizonWorkerStart start) async {
     int? timeoutMs;
     String? jobName;
     int? attempt;
+    String? payload;
     void clear() {
-      jobId = jobUuid = queue = jobName = null;
+      jobId = jobUuid = queue = jobName = payload = null;
       reservedAt = timeoutMs = attempt = null;
     }
 
@@ -129,6 +134,7 @@ Future<void> horizonWorkerMain(HorizonWorkerStart start) async {
         jobTimeoutMs: timeoutMs,
         jobName: jobName,
         attempt: attempt,
+        jobPayload: payload,
         sessions: sessions(),
       ),
     );
@@ -247,13 +253,46 @@ Future<void> horizonWorkerMain(HorizonWorkerStart start) async {
             timeoutMs = (start.timeout ?? job.payload.timeout).inMilliseconds;
             jobName = job.payload.displayName;
             attempt = job.attempts;
+            payload = job.raw;
             report();
           },
+          // A job whose last worker the master killed past a timeout it
+          // fails on: failed here, by its own application (failed_jobs, its
+          // failed() hook, JobFailed), never by the master. Only a job
+          // reserved before (attempts > 1) can be marked: a new one costs
+          // no read.
+          failBeforeRun: signals == null
+              ? null
+              : (job) async {
+                  if (job.attempts <= 1) {
+                    return null;
+                  }
+                  final error = await HorizonSignals.timedOutError(
+                    signals,
+                    job,
+                  );
+                  if (error != null) {
+                    failing.add(job.payload.uuid);
+                  }
+                  return error;
+                },
           // Whatever way the job left (processed, failed, released, deleted,
           // failed before it ran: not every way has an event), this worker
           // runs nothing now: an idle worker must not look busy, or the
           // master would kill it past a job that is over.
-          onFinished: (_) => clear(),
+          // A marked job's mark goes once it has failed, not before: a
+          // worker dying in between leaves it for the next reservation.
+          onFinished: (job) {
+            clear();
+            if (signals != null && failing.remove(job.payload.uuid)) {
+              unawaited(
+                HorizonSignals.unmarkTimedOut(
+                  signals,
+                  job.payload.uuid,
+                ).then((_) {}, onError: (Object _) {}),
+              );
+            }
+          },
         ),
       ),
       onUncaughtError: (error, stackTrace) => booted.logger.error(
