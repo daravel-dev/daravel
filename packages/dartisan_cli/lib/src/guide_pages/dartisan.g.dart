@@ -105,6 +105,7 @@ before moving to a new minor version.
 | `db:backup [--output] [--keep=N]` | Hot backup of the SQLite database into `storage/backups` (see [Deployment](deployment.md#backups)) |
 | `tinker "<expression>"` | Evaluates a Dart expression in the booted application |
 | `model:sync [Model] [--typed-ids]` | Regenerates a model's typed accessors from its table, and fills an empty `<dartisan:statics>` region; `--typed-ids` adds a typed id ([Database](database.md#typed-ids-opt-in)) |
+| `request:sync [Request] [--check]` | Rewrites the typed input (`<dartisan:input>` region) of form requests from their `Field` constants; `--check` exits 1 when one is out of date ([Validation](validation.md#typed-input)) |
 | `model:show <Model> [--json]` | A model's table, attributes (type, cast, fillable, hidden) and relations, from `bootstrap/models.dart` |
 | `daragic:export [--out] [--only]` | The application model (DAM) for `daragic`: routes, models, migrations, schema, schedule, ... (see [Migrating from Laravel](migrating-from-laravel.md#the-application-model-daragic)) |
 

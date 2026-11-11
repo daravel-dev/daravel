@@ -101,6 +101,8 @@ Available commands:
   queue:work            Start processing jobs on the queue.
  redis
   redis:install         Add Redis or Valkey (daravel_redis) for several servers.
+ request
+  request:sync          Write the typed input of form requests from their Field constants.
  route
   route:diff            Compare the Laravel application's routes with this one's.
   route:list            List all registered routes.

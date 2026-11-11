@@ -78,6 +78,12 @@ final both = await Scout.search(Post.definition, 'deploying apps')
 does. Neither combines with `orderBy`. The column comes from `table.vector`
 ([Database](database.md#vector-columns)); on SQLite these throw.
 
+`hybrid(rerank: true)` then orders the first 1 000 fused models by their cosine
+similarity to the query's vector, computed in Dart (`Float32x4`) on the vectors the
+database returned with them, so the embedding column must stay selected. The
+[package README](https://github.com/daravel-dev/daravel/blob/main/packages/daravel_scout/README.md#rerank)
+has the measured cost.
+
 ## Laravel equivalents
 
 More of Laravel that this works with, and the API to look up on pub.dev.

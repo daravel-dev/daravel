@@ -1,4 +1,4 @@
-<!-- source: scout.md sha256:a045738a8244 -->
+<!-- source: scout.md sha256:fbf1d437b52d -->
 # Pencarian (daravel_scout)
 
 `daravel_scout` adalah engine `database` dari Laravel Scout: pencarian berjalan di
@@ -78,6 +78,12 @@ lebih dulu. `hybrid` menggabungkan peringkat teks dan makna dengan reciprocal ra
 fusion, seperti Scout. Keduanya tidak bisa digabung dengan `orderBy`. Kolomnya
 berasal dari `table.vector` ([Database](database.md#kolom-vector)); di SQLite
 keduanya melempar error.
+
+`hybrid(rerank: true)` lalu mengurutkan 1 000 model hasil fusion pertama berdasarkan
+cosine similarity terhadap vector query, dihitung di Dart (`Float32x4`) pada vector
+yang dikembalikan database bersama modelnya, jadi kolom embedding harus tetap
+ter-select. Biayanya yang terukur ada di
+[README paket](https://github.com/daravel-dev/daravel/blob/main/packages/daravel_scout/README.id.md#rerank).
 
 ## Padanan Laravel
 
