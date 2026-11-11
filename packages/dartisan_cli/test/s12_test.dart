@@ -490,9 +490,11 @@ final class Exam extends Model {
           defaultValue: "'-'",
         ),
       ]);
-      expect(plan.warnings, hasLength(1));
+      // Besides the no-fillable-column note (W9.13), one warning.
+      final defaults = _withoutFillableNote(plan.warnings);
+      expect(defaults, hasLength(1));
       expect(
-        plan.warnings.single,
+        defaults.single,
         allOf(
           contains('[duration_mode]'),
           contains("attributes: {'duration_mode': ...}"),
@@ -609,7 +611,7 @@ final class Score extends Model {
       test('writes the id region and types the key, find and findOrFail', () {
         final sync = syncModelSource(made, model, columns, idStub: idStub);
         final source = sync.source!;
-        expect(sync.warnings, isEmpty);
+        expect(_withoutFillableNote(sync.warnings), isEmpty);
         expect(
           source,
           allOf(
@@ -674,7 +676,10 @@ final class Score extends Model {
         final blob = syncModelSource(made, model, const [
           ColumnInfo(name: 'id', type: 'BLOB', nullable: false),
         ], idStub: idStub);
-        expect(blob.warnings.single, contains('no typed id'));
+        expect(
+          _withoutFillableNote(blob.warnings).single,
+          contains('no typed id'),
+        );
         expect(blob.source, isNot(contains('dartisan:ids')));
         expect(blob.source, contains('find(Object id)'));
       });
@@ -1006,3 +1011,11 @@ final class Score extends Model {
     });
   });
 }
+
+/// [warnings] without the note `model:sync` prints for a model with no
+/// fillable column (no `createWith` written, W9.13), which these older
+/// tests do not look at.
+List<String> _withoutFillableNote(List<String> warnings) => [
+  for (final w in warnings)
+    if (!w.contains('no fillable column')) w,
+];
