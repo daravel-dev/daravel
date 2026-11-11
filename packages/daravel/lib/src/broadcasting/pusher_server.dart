@@ -5,6 +5,7 @@ import 'dart:isolate';
 import 'dart:math';
 
 import '../foundation/clock.dart';
+import '../foundation/glob.dart';
 import '../http/request.dart';
 import '../http/response.dart';
 import '../server/broadcast.dart';
@@ -190,11 +191,8 @@ final class PusherServer {
     if (host == null || host.isEmpty) {
       return false;
     }
-    return config.allowedOrigins.any(
-      (pattern) =>
-          RegExp('^${pattern.split('*').map(RegExp.escape).join('.*')}\$')
-              .hasMatch(host),
-    );
+    // Linear: the host comes from the handshake's Origin header.
+    return config.allowedOrigins.any((pattern) => globMatches(pattern, host));
   }
 
   static String _error(int code, String message) => jsonEncode({
