@@ -471,6 +471,25 @@ void main() {
       {'three': 3},
     ]);
   });
+
+  test('typed text conditions match literally (ESCAPE)', () async {
+    const name = ModelColumn<Model, String>('name');
+    await db.table('pg_items').insert([
+      {'name': '100% cotton'},
+      {'name': '1000 cotton'},
+      {'name': 'snake_case'},
+      {'name': 'snakeXcase'},
+      {'name': 'wow!'},
+    ]);
+    Future<List<Object?>> names(ColumnPredicate<Model> p) async =>
+        await db.table('pg_items').where(p).orderBy('id').pluck('name')
+            as List<Object?>;
+    expect(await names(name.startsWith('100%')), ['100% cotton']);
+    expect(await names(name.contains('_')), ['snake_case']);
+    expect(await names(name.endsWith('!')), ['wow!']);
+    // LIKE is case-sensitive on PostgreSQL.
+    expect(await names(name.like('SNAKE%')), isEmpty);
+  });
 }
 
 final class _Item extends Model {

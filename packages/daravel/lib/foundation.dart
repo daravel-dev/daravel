@@ -22,6 +22,7 @@ export 'src/foundation/shared_result.dart';
 export 'src/foundation/php.dart';
 export 'src/foundation/php_serialize.dart';
 export 'src/foundation/version.dart';
+export 'src/foundation/xxh128.dart';
 export 'src/foundation/clock.dart';
 export 'src/support/facades.dart';
 export 'src/logging/context.dart';

@@ -103,7 +103,7 @@ void main() {
   });
 
   test(
-    'a failing callback does not undo the commit; the rest are skipped',
+    'a failing callback does not undo the commit; the rest still run',
     () async {
       final ran = <String>[];
       await expectLater(
@@ -115,8 +115,10 @@ void main() {
         throwsStateError,
       );
       expect(await count(), 1, reason: 'the row was committed before');
-      // As in Laravel (executeCallbacks runs them in order without catching).
-      expect(ran, isEmpty);
+      // Unlike Laravel (executeCallbacks stops at the first error): a job
+      // pushed after commit must not be lost because an earlier callback
+      // failed (G1.5, ACK 254).
+      expect(ran, ['after the failure']);
     },
   );
 

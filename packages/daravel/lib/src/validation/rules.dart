@@ -125,6 +125,51 @@ abstract final class Rules {
   static Rule requiredArrayKeys(List<String> keys) =>
       RequiredArrayKeysRule(keys);
 
+  /// `contains`: an array holding every one of [values] (compared loosely,
+  /// as PHP's `in_array`).
+  static Rule contains(List<String> values) =>
+      ArrayValuesRule('contains', values);
+
+  /// `doesnt_contain`: an array holding none of [values] (compared
+  /// strictly).
+  static Rule doesntContain(List<String> values) =>
+      ArrayValuesRule('doesnt_contain', values);
+
+  /// `doesnt_start_with`: text that starts with none of [prefixes].
+  static Rule doesntStartWith(List<String> prefixes) =>
+      DoesntAffixRule('doesnt_start_with', prefixes);
+
+  /// `doesnt_end_with`: text that ends with none of [suffixes].
+  static Rule doesntEndWith(List<String> suffixes) =>
+      DoesntAffixRule('doesnt_end_with', suffixes);
+
+  /// `in_array`: one of the values at [other], a path with `*`
+  /// (`in_array:items.*.id`), compared strictly.
+  static Rule inArray(String other) => InArrayRule(other);
+
+  /// `in_array_keys`: an array with at least one of [keys].
+  static Rule inArrayKeys(List<String> keys) =>
+      ArrayKeysRule('in_array_keys', keys);
+
+  /// `array_keys`: an array with no key but [keys] (Laravel 13).
+  static Rule arrayKeys(List<String> keys) => ArrayKeysRule('array_keys', keys);
+
+  /// `hex_color`: `#rgb`, `#rgba`, `#rrggbb` or `#rrggbbaa`.
+  static Rule hexColor() => const HexColorRule();
+
+  /// `mac_address`: six hex pairs joined by `:` or `-`, or three hex
+  /// quads joined by `.` (PHP's `FILTER_VALIDATE_MAC`).
+  static Rule macAddress() => const MacAddressRule();
+
+  /// `encoding:UTF-8`: text (or an uploaded file's bytes) valid in
+  /// [encoding]: `UTF-8`, `ASCII` or `ISO-8859-1`; any other name is an
+  /// [ArgumentError], as Laravel throws for an unknown one.
+  static Rule encoding(String encoding) => EncodingRule(encoding);
+
+  /// `base64`: text that decodes as standard Base64 and encodes back to the
+  /// same text (Laravel 13).
+  static Rule base64() => const Base64Rule();
+
   /// `exclude`: leaves the field out of the validated data.
   static Rule exclude() => const ExcludeRule('exclude');
 
@@ -2305,5 +2350,386 @@ final class DateFormatRule extends Rule {
     return formats.any((format) => phpDateMatchesFormat(text, format))
         ? null
         : 'date_format';
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Laravel 13 content rules (W9.4a)
+// ---------------------------------------------------------------------------
+
+/// [value] as PHP's loose `==` sees it against a rule's string parameter:
+/// the same text, or the same number.
+bool _looselyEquals(Object? value, String parameter) {
+  if ('$value' == parameter) {
+    return true;
+  }
+  final number = num.tryParse(parameter);
+  return number != null && value is num && value == number;
+}
+
+/// The values of an array (JSON list or object), or null for anything else.
+Iterable<Object?>? _arrayValues(Object? value) => switch (value) {
+  List<Object?>() => value,
+  Map<Object?, Object?>() => value.values,
+  _ => null,
+};
+
+/// `contains` and `doesnt_contain`: see [Rules.contains].
+final class ArrayValuesRule extends Rule {
+  /// The rule [name] over [values].
+  const ArrayValuesRule(this.name, this.values);
+  @override
+  final String name;
+
+  /// The values looked for.
+  final List<String> values;
+
+  // `contains` names nothing; `doesnt_contain` uses replaceIn.
+  @override
+  Map<String, Object?> get parameters => {'values': values.join(', ')};
+
+  @override
+  String? passes(ValidationContext c) {
+    final items = _arrayValues(c.value);
+    if (items == null) {
+      return name;
+    }
+    final ok = name == 'contains'
+        ? values.every((v) => items.any((item) => _looselyEquals(item, v)))
+        // `in_array(..., true)`: a parameter is a string, so only an equal
+        // string matches.
+        : values.every(
+            (v) => !items.any((item) => item is String && item == v),
+          );
+    return ok ? null : name;
+  }
+}
+
+/// `doesnt_start_with` and `doesnt_end_with`: see [Rules.doesntStartWith].
+final class DoesntAffixRule extends Rule {
+  /// The rule [name] over [affixes].
+  const DoesntAffixRule(this.name, this.affixes);
+  @override
+  final String name;
+
+  /// The prefixes (or suffixes) refused.
+  final List<String> affixes;
+
+  @override
+  Map<String, Object?> get parameters => {'values': affixes.join(', ')};
+
+  @override
+  String? passes(ValidationContext c) {
+    final value = c.value;
+    // `is_string($value) || is_numeric($value)`.
+    final text = switch (value) {
+      String() => value,
+      // PHP's (string) of a whole float has no ".0": JSON 1.0 is "1".
+      double() when value.isFinite && value == value.truncateToDouble() =>
+        '${value.toInt()}',
+      num() => '$value',
+      _ => null,
+    };
+    if (text == null) {
+      return name;
+    }
+    // `Str::startsWith` ignores an empty needle.
+    bool hit(String a) =>
+        a.isNotEmpty &&
+        (name == 'doesnt_start_with' ? text.startsWith(a) : text.endsWith(a));
+    return affixes.any(hit) ? name : null;
+  }
+}
+
+/// `in_array`: see [Rules.inArray].
+final class InArrayRule extends Rule {
+  /// One of the values at [other].
+  const InArrayRule(this.other);
+
+  /// The path of the values, with `*` (`items.*.id`).
+  final String other;
+  @override
+  String get name => 'in_array';
+
+  // `replaceInArray`: the parameter as written, not resolved (`in_array` is
+  // not one of Laravel's dependent rules).
+  @override
+  Map<String, Object?> parametersFor(ValidationContext context) => {
+    'other': context.attributeNames[other] ?? other.replaceAll('_', ' '),
+  };
+
+  @override
+  String? passes(ValidationContext c) {
+    // `Arr::dot` of the data, keys matched by `Str::is` (`*` is any text).
+    final pattern = RegExp(
+      '^${other.split('*').map(RegExp.escape).join('.*')}\$',
+    );
+    final values = <Object?>[];
+    void walk(Object? node, String path) {
+      switch (node) {
+        case Map<Object?, Object?>() when node.isNotEmpty:
+          for (final MapEntry(:key, :value) in node.entries) {
+            walk(value, path.isEmpty ? '$key' : '$path.$key');
+          }
+        case List<Object?>() when node.isNotEmpty:
+          for (var i = 0; i < node.length; i++) {
+            walk(node[i], path.isEmpty ? '$i' : '$path.$i');
+          }
+        default:
+          if (pattern.hasMatch(path)) {
+            values.add(node);
+          }
+      }
+    }
+
+    walk(c.data, '');
+    return values.contains(c.value) ? null : name;
+  }
+}
+
+/// `in_array_keys` and `array_keys`: see [Rules.inArrayKeys].
+final class ArrayKeysRule extends Rule {
+  /// The rule [name] over [keys].
+  const ArrayKeysRule(this.name, this.keys);
+  @override
+  final String name;
+
+  /// The keys looked for (`in_array_keys`) or allowed (`array_keys`).
+  final List<String> keys;
+
+  /// The keys of an array value; list indexes as their decimal text.
+  static List<String>? _keysOf(Object? value) => switch (value) {
+    Map<Object?, Object?>() => [for (final k in value.keys) '$k'],
+    List<Object?>() => [for (var i = 0; i < value.length; i++) '$i'],
+    _ => null,
+  };
+
+  // `replaceArrayKeys` also fills `:unexpected`, the keys that are not
+  // allowed.
+  @override
+  Map<String, Object?> parametersFor(ValidationContext context) => {
+    'values': keys.join(', '),
+    if (name == 'array_keys')
+      'unexpected': [
+        for (final k in _keysOf(context.value) ?? const <String>[])
+          if (!keys.contains(k)) k,
+      ].join(', '),
+  };
+
+  @override
+  String? passes(ValidationContext c) {
+    final present = _keysOf(c.value);
+    if (present == null || (name == 'in_array_keys' && keys.isEmpty)) {
+      return name;
+    }
+    final ok = name == 'in_array_keys'
+        ? keys.any(present.contains)
+        : present.every(keys.contains);
+    return ok ? null : name;
+  }
+}
+
+/// `hex_color`: see [Rules.hexColor].
+final class HexColorRule extends Rule {
+  /// The hex color rule; use [Rules.hexColor].
+  const HexColorRule();
+  @override
+  String get name => 'hex_color';
+
+  static final RegExp _pattern = RegExp(
+    r'^#(?:(?:[0-9a-f]{3}){1,2}|(?:[0-9a-f]{4}){1,2})$',
+    caseSensitive: false,
+  );
+
+  @override
+  String? passes(ValidationContext c) {
+    final value = c.value;
+    return value is String && _pattern.hasMatch(value) ? null : name;
+  }
+}
+
+/// `mac_address`: see [Rules.macAddress].
+final class MacAddressRule extends Rule {
+  /// The MAC address rule; use [Rules.macAddress].
+  const MacAddressRule();
+  @override
+  String get name => 'mac_address';
+
+  static final RegExp _pattern = RegExp(
+    r'^(?:[0-9a-f]{2}(?::[0-9a-f]{2}){5}|[0-9a-f]{2}(?:-[0-9a-f]{2}){5}|'
+    r'[0-9a-f]{4}(?:\.[0-9a-f]{4}){2})$',
+    caseSensitive: false,
+  );
+
+  @override
+  String? passes(ValidationContext c) {
+    final value = c.value;
+    return value is String && _pattern.hasMatch(value) ? null : name;
+  }
+}
+
+/// `encoding`: see [Rules.encoding].
+final class EncodingRule extends Rule {
+  /// Valid in [encoding], checked when the rule runs (as Laravel does): a
+  /// name that is not an encoding is an [ArgumentError] (Laravel's
+  /// InvalidArgumentException); an encoding PHP knows but Daravel does not
+  /// check yet is an [UnsupportedError]. `invalid_validation_rule` flags
+  /// both in rule strings before they run.
+  const EncodingRule(this.encoding);
+
+  /// The encoding name, as written.
+  final String encoding;
+
+  /// The encodings Daravel checks, normalized.
+  static const Set<String> supported = {'utf8', 'ascii', 'iso88591', 'latin1'};
+
+  /// Common names of PHP's `mb_list_encodings()` (mbstring) that Daravel
+  /// does not check yet, normalized: a rule naming one is valid in Laravel.
+  static const Set<String> knownToPhp = {
+    'utf16',
+    'utf16be',
+    'utf16le',
+    'utf32',
+    'utf32be',
+    'utf32le',
+    'ucs2',
+    'ucs2be',
+    'ucs2le',
+    'ucs4',
+    'ucs4be',
+    'ucs4le',
+    'utf7',
+    'utf7imap',
+    'windows1252',
+    'cp1252',
+    'windows1251',
+    'cp1251',
+    'windows1254',
+    'iso88592',
+    'iso88593',
+    'iso88594',
+    'iso88595',
+    'iso88596',
+    'iso88597',
+    'iso88598',
+    'iso88599',
+    'iso885910',
+    'iso885913',
+    'iso885914',
+    'iso885915',
+    'iso885916',
+    'sjis',
+    'shiftjis',
+    'eucjp',
+    'jis',
+    'iso2022jp',
+    'euckr',
+    'big5',
+    'gb18030',
+    'cp936',
+    'euccn',
+    'koi8r',
+    'koi8u',
+    'cp866',
+    '7bit',
+    '8bit',
+  };
+
+  /// [name] without case and punctuation (`UTF-8` and `utf8` match).
+  static String normalized(String name) =>
+      name.toLowerCase().replaceAll(RegExp('[^a-z0-9]'), '');
+
+  @override
+  String get name => 'encoding';
+  @override
+  Map<String, Object?> get parameters => {'encoding': encoding};
+
+  @override
+  String? passes(ValidationContext c) {
+    final key = normalized(encoding);
+    if (knownToPhp.contains(key)) {
+      throw UnsupportedError(
+        'Validation rule encoding [$encoding] is not supported by Daravel '
+        'yet; supported: UTF-8, ASCII, ISO-8859-1',
+      );
+    }
+    if (!supported.contains(key)) {
+      throw ArgumentError.value(
+        encoding,
+        'encoding',
+        'Validation rule encoding parameter [$encoding] is not a valid '
+            'encoding',
+      );
+    }
+    final value = c.value;
+    final List<int> units;
+    final bool bytes;
+    switch (value) {
+      case UploadedFile():
+        units = value.readAsBytesSync();
+        bytes = true;
+      case String():
+        units = value.codeUnits;
+        bytes = false;
+      default:
+        return name;
+    }
+    final ok = switch (key) {
+      'ascii' => units.every((u) => u < 0x80),
+      // mb_check_encoding looks at bytes, and every byte sequence is valid
+      // ISO-8859-1: a string (sent as UTF-8 bytes) always passes in Laravel.
+      'iso88591' || 'latin1' => true,
+      _ => bytes ? _utf8(units) : _wellFormed(units),
+    };
+    return ok ? null : name;
+  }
+
+  static bool _utf8(List<int> bytes) {
+    try {
+      utf8.decode(bytes);
+      return true;
+    } on FormatException {
+      return false;
+    }
+  }
+
+  /// UTF-16 code units with no lone surrogate: text UTF-8 can hold.
+  static bool _wellFormed(List<int> units) {
+    for (var i = 0; i < units.length; i++) {
+      final u = units[i];
+      if (u >= 0xD800 && u <= 0xDBFF) {
+        final next = i + 1 < units.length ? units[i + 1] : 0;
+        if (next < 0xDC00 || next > 0xDFFF) {
+          return false;
+        }
+        i++;
+      } else if (u >= 0xDC00 && u <= 0xDFFF) {
+        return false;
+      }
+    }
+    return true;
+  }
+}
+
+/// `base64`: see [Rules.base64].
+final class Base64Rule extends Rule {
+  /// The Base64 rule; use [Rules.base64].
+  const Base64Rule();
+  @override
+  String get name => 'base64';
+
+  @override
+  String? passes(ValidationContext c) {
+    final value = c.value;
+    if (value is! String || value.isEmpty) {
+      return name;
+    }
+    try {
+      // `base64_decode($value, true)` then `base64_encode` back: only the
+      // canonical standard alphabet with padding passes.
+      return base64Encode(base64Decode(value)) == value ? null : name;
+    } on FormatException {
+      return name;
+    }
   }
 }

@@ -283,6 +283,12 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `'present_unless:a,x' / 'present_with:a,b' / 'present_with_all:a,b'` | `the same strings, or Rules.presentUnless('a', ['x']) / presentWith(['a', 'b']) / presentWithAll(...)` |  |
 | `'prohibited_if_accepted:a' / 'prohibited_if_declined:a' / 'required_if_declined:a'` | `the same strings, or Rules.prohibitedIfAccepted('a') / prohibitedIfDeclined('a') / requiredIfDeclined('a')` |  |
 | `'required_array_keys:name,email'` | `the same string, or Rules.requiredArrayKeys(['name', 'email'])` |  |
+| `'contains:a,b' / 'doesnt_contain:a,b'` | `the same strings, or Rules.contains(['a', 'b']) / doesntContain(...)` | contains compares loosely, doesnt_contain strictly, as Laravel's in_array calls. |
+| `'doesnt_start_with:a' / 'doesnt_end_with:a'` | `the same strings, or Rules.doesntStartWith(['a']) / doesntEndWith(...)` |  |
+| `'in_array:items.*.id'` | `the same string, or Rules.inArray('items.*.id')` |  |
+| `'in_array_keys:en,id' / 'array_keys:en,id' (13.x)` | `the same strings, or Rules.inArrayKeys([...]) / arrayKeys([...])` |  |
+| `'hex_color' / 'mac_address' / 'base64' (13.x)` | `the same strings, or Rules.hexColor() / macAddress() / base64()` |  |
+| `'encoding:UTF-8'` | `the same string, or Rules.encoding('UTF-8')` | UTF-8, ASCII and ISO-8859-1 (any string passes ISO-8859-1, as mb_check_encoding on bytes). Another encoding PHP knows (UTF-16, Windows-1252, SJIS...) throws UnsupportedError when the rule runs, and invalid_validation_rule flags it; a name that is no encoding throws ArgumentError, as Laravel. |
 
 ## Eloquent
 
@@ -343,6 +349,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `DB::select($sql, $bindings)` | `await DB.select(sql, bindings)` | **async** |
 | `DB::statement($sql)` | `await DB.statement(sql)` | **async** |
 | `DB::transaction(fn)` | `await DB.transaction(() async {...})` | **async** |
+| `DB::afterRollBack(fn)` | `DB.afterRollback(fn)` | Runs when the active level rolls back and before a transaction(attempts:) retry; a released savepoint passes its callbacks to the level around it (Laravel drops them). |
 | `DB_CONNECTION=mysql / mariadb` | `withDatabaseDriver('mysql', MySqlDriver.fromConfig)` | package:daravel_mysql; registered by new projects. |
 | `DB::connection('legacy')->table('orders')` | `DB.table('orders', connection: 'legacy')` |  |
 | `DB_URL=postgres://user:pass@host/db (ConfigurationUrlParser)` | `DB_URL, ConnectionConfig.withUrl(url)` | Merged like Laravel 12: URL parts replace DB_* values, the rest stay. |

@@ -25,6 +25,9 @@ replaces the two default constants by 16 and 1024.
 | `refusal2-20261111-142313/` | refusal ticks, pa (committed, 0de7d0d3) against p1ms (1 ms always): overflow 3 each, alternating; pa starved 3, saturation 1 (`refusal2.sh`) | overflow, refusal ticks |
 | `refusal-20261111-140327/` | refusal on the next turn only (p, 75ef695a) against p1ms: overflow 3 each; p starved 3, saturation 1 (`refusal.sh`) | the "before" of refusal ticks |
 | `overflow-20261111-135243/` | overflow 3 with the harness yielding one turn after a refusal (16323917, reverted in 79a977b0) | the "before" |
+| `cache-20261111-151307/` | `cache` × 1 alone, 10 rounds alternating, main against K1b (`cache.sh`) | the `cache` × 1 criterion (−0.7 %) |
+| `control-20261111-154653/` | overflow and saturation once each after the Review #153 fixes (lib 9758215b) | control |
+| `publish10-20261111-174524/` | `publish` × 1/× 8, 10 rounds alternating, main before and after #239 (own README) | K2 input: no cost of the credit window on the healthy path |
 | `variants/` | publish refill variants (a) and (b) against main and K1b, 3 rounds | choosing the refill rule (K1b unchanged kept, ACK 244) |
 | `remeasure2-before-b/` | 61 runs on the code before B (§6.6 queue evidence) | "before" evidence only |
 | `series1/` | W 8/16/32, 5 s per point | not used: load 4.3–7.4 at start from run 2 on; W 8/W 32 ceiling clients ran with W 16 (harness bug, fixed) |
