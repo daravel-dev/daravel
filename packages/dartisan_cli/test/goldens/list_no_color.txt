@@ -48,6 +48,7 @@ Available commands:
   env:decrypt           Decrypt an encrypted environment file.
   env:encrypt           Encrypt an environment file.
   env:obfuscate         Generate a Dart class with XOR-masked environment values.
+  env:sync              Write typed environment keys (EnvKeys) from .env.example.
  key
   key:generate          Set the application key.
  make

@@ -6,7 +6,9 @@ import 'package:args/command_runner.dart';
 import 'package:daravel/daravel.dart';
 import 'package:path/path.dart' as p;
 
+import 'env_sync.dart';
 import 'generator.dart';
+import 'region_format.dart';
 
 String _envFile(String root, String? environment) =>
     p.join(root, environment == null ? '.env' : '.env.$environment');
@@ -333,5 +335,64 @@ final class EnvObfuscateCommand extends Command<int> {
         '${part[0].toUpperCase()}${part.substring(1)}',
     ].join();
     return RegExp(r'^[0-9]').hasMatch(camel) ? 'v$camel' : camel;
+  }
+}
+
+/// `dartisan env:sync [--check]`: writes `lib/config/env_keys.dart`, one
+/// `EnvKey<T>` per variable of `.env.example` with the comments above it as
+/// documentation (wave 9, W9.7). Only `.env.example` is read, never `.env`;
+/// an example value is copied only when it cannot be a credential. With
+/// `--check` nothing is written and the exit code is 1 when the file is out
+/// of date (for CI).
+final class EnvSyncCommand extends Command<int> {
+  /// The `dartisan env:sync` command.
+  EnvSyncCommand() {
+    argParser.addFlag(
+      'check',
+      negatable: false,
+      help: 'Write nothing; exit 1 when lib/config/env_keys.dart is stale.',
+    );
+  }
+
+  @override
+  String get name => 'env:sync';
+
+  @override
+  String get description =>
+      'Write typed environment keys (EnvKeys) from .env.example.';
+
+  @override
+  Future<int> run() async {
+    final paths = ProjectPaths.locate();
+    final example = File(p.join(paths.root, '.env.example'));
+    if (!example.existsSync()) {
+      stderr.writeln('env:sync: no .env.example in ${paths.root}.');
+      return 1;
+    }
+    final file = File(p.join(paths.root, 'lib', 'config', 'env_keys.dart'));
+    final current = file.existsSync() ? file.readAsStringSync() : null;
+    final sync = syncEnvSource(
+      current,
+      example.readAsStringSync(),
+      formatter: RegionFormatter.forProject(paths.root),
+    );
+    if (sync.warning case final warning?) {
+      stdout.writeln(warning);
+    }
+    if (sync.source == current) {
+      stdout.writeln('lib/config/env_keys.dart: up to date.');
+      return 0;
+    }
+    if (argResults!['check'] as bool) {
+      stdout.writeln(
+        'lib/config/env_keys.dart: out of date; run dartisan env:sync.',
+      );
+      return 1;
+    }
+    file
+      ..createSync(recursive: true)
+      ..writeAsStringSync(sync.source);
+    stdout.writeln('lib/config/env_keys.dart: written.');
+    return 0;
   }
 }

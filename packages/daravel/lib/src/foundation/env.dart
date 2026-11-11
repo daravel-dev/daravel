@@ -8,6 +8,14 @@ import 'exceptions.dart';
 /// (`EnvironmentEncrypter.decrypt` in the application).
 typedef EnvDecrypter = Future<String> Function(String contents, String key);
 
+/// An environment variable name with the type of its value: `EnvKeys.appDebug`
+/// (`EnvKey<bool>`), which `dartisan env:sync` writes from `.env.example`.
+/// It is the name itself (`implements String`), so it goes wherever a name
+/// goes; [Env.of] reads it as its type.
+extension type const EnvKey<T>(String name) implements String {}
+
+Type _typeOf<T>() => T;
+
 /// Typed access to environment variables loaded from `.env` files, the OS
 /// environment and explicit overrides (BLUEPRINT_V2 §7.1.3).
 ///
@@ -240,6 +248,34 @@ final class Env {
 
   /// Whether [key] is defined (possibly with an empty value).
   bool has(String key) => _values.containsKey(key);
+
+  /// The value of [key] as its type: a `String`, an `int` or a `bool`, read
+  /// as [string], [integer] and [boolean] read them, with [fallback] when
+  /// it is not set. A nullable key (`EnvKey<int?>`, a variable commented
+  /// out in `.env.example`) is null when it is not set and has no
+  /// fallback.
+  T of<T>(EnvKey<T> key, [T? fallback]) {
+    final name = key.name;
+    if (null is T && fallback == null && (_values[name] ?? '').isEmpty) {
+      return null as T;
+    }
+    bool isA<B>() => T == B || T == _typeOf<B?>();
+    final Object value;
+    if (isA<int>()) {
+      value = integer(name, fallback as int?);
+    } else if (isA<bool>()) {
+      value = boolean(name, (fallback as bool?) ?? false);
+    } else if (isA<String>()) {
+      value = string(name, fallback as String?);
+    } else {
+      throw ArgumentError.value(
+        key,
+        'key',
+        'Env.of reads String, int and bool variables, not $T',
+      );
+    }
+    return value as T;
+  }
 
   /// The raw value of [key], or `null`.
   String? maybeString(String key) => _values[key];

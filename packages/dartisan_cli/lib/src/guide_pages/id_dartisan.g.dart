@@ -3,7 +3,7 @@
 
 /// `docs/guide/id/dartisan.md`.
 const String pageIdDartisan =
-    r'''<!-- source: dartisan.md sha256:27a39a56355a -->
+    r'''<!-- source: dartisan.md sha256:b6142fdb575a -->
 # dartisan
 
 `dartisan` adalah `artisan`-nya Daravel. Pasang sekali, lalu pakai di proyek
@@ -28,6 +28,7 @@ sebuah command.
 | `doctor [--production]` | Mengecek konfigurasi, database, storage, dan port |
 | `key:generate [--show] [--force]` | Menulis `APP_KEY` baru |
 | `env:encrypt`, `env:decrypt`, `env:obfuscate` | File `.env` terenkripsi, lihat [Konfigurasi](configuration.md) |
+| `env:sync [--check]` | Menulis `lib/config/env_keys.dart`, satu `EnvKey` bertipe per variabel `.env.example` ([Konfigurasi](configuration.md#kunci-bertipe-envsync)) |
 | `adopt <laravel-path> [--check]` | Berbagi database dan kunci dengan aplikasi Laravel, lihat [Migrasi dari Laravel](migrating-from-laravel.md) |
 | `down [--secret] [--retry]`, `up` | Mode maintenance, lihat [Deployment](deployment.md#mode-maintenance) |
 | `stub:publish` | Menyalin template generator ke `stubs/` |

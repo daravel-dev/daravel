@@ -160,6 +160,7 @@ final class DartisanRunner extends CommandRunner<int> with DartisanConsole {
     addCommand(EnvEncryptCommand());
     addCommand(EnvDecryptCommand());
     addCommand(EnvObfuscateCommand());
+    addCommand(EnvSyncCommand());
     addCommand(AdoptCommand());
     addCommand(DownCommand());
     addCommand(UpCommand());

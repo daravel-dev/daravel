@@ -21,6 +21,30 @@ a password such as `p$ss` reads the same in Laravel and Daravel.
 `dartisan key:generate` writes a fresh `APP_KEY`. Without a `.env`,
 `APP_ENV` defaults to `production`.
 
+### Typed keys: `env:sync`
+
+`dart run bin/dartisan.dart env:sync` reads `.env.example` and writes
+`lib/config/env_keys.dart`: an `EnvKey<T>` per variable, with the comments
+above it as its documentation, so `EnvKeys.` lists every variable in the
+editor and `env.of(EnvKeys.appPort)` reads it as its type:
+
+```dart
+final int port = env.of(EnvKeys.appPort);          // APP_PORT=8000
+final bool debug = env.of(EnvKeys.appDebug);       // APP_DEBUG=true
+final int? compat = env.of(EnvKeys.compatLaravelVersion); // commented out
+```
+
+The type comes from the example value (a whole number is `int`, `true` or
+`false` is `bool`, anything else `String`); write `# @type String` above a
+variable to keep a number a string. A variable commented out
+(`# KEY=value`) is optional, and its key nullable. Only `.env.example` is
+read, never `.env`, and an example value is copied into the documentation
+only when it cannot be a credential (an `int` or `bool`, or a short string
+without `://` or `@` whose name has no `KEY`, `SECRET`, `PASSWORD`,
+`TOKEN`, `URL`, ...). `env:sync --check` exits 1 when the file is out of
+date, for CI. Read the environment in your configuration, not in
+controllers: the typed sections below are the way to reach it elsewhere.
+
 ## Encrypted environment files
 
 `dartisan env:encrypt` writes `.env.encrypted` in the format of

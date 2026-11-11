@@ -3,7 +3,7 @@
 
 /// `docs/guide/id/configuration.md`.
 const String pageIdConfiguration =
-    r'''<!-- source: configuration.md sha256:1342dbfd7f4b -->
+    r'''<!-- source: configuration.md sha256:6a1962d1f2a9 -->
 # Konfigurasi
 
 ## File environment
@@ -24,6 +24,30 @@ sama di Laravel dan Daravel.
 
 `dartisan key:generate` menulis `APP_KEY` baru. Tanpa `.env`, `APP_ENV`
 default-nya `production`.
+
+### Kunci bertipe: `env:sync`
+
+`dart run bin/dartisan.dart env:sync` membaca `.env.example` dan menulis
+`lib/config/env_keys.dart`: satu `EnvKey<T>` per variabel, dengan komentar
+di atasnya sebagai dokumentasi, sehingga `EnvKeys.` menampilkan setiap
+variabel di editor dan `env.of(EnvKeys.appPort)` membacanya sesuai tipenya:
+
+```dart
+final int port = env.of(EnvKeys.appPort);          // APP_PORT=8000
+final bool debug = env.of(EnvKeys.appDebug);       // APP_DEBUG=true
+final int? compat = env.of(EnvKeys.compatLaravelVersion); // dikomentari
+```
+
+Tipe diambil dari nilai contoh (bilangan bulat menjadi `int`, `true` atau
+`false` menjadi `bool`, selain itu `String`); tulis `# @type String` di atas
+variabel agar angka tetap string. Variabel yang dikomentari (`# KEY=value`)
+bersifat opsional dan kuncinya nullable. Hanya `.env.example` yang dibaca,
+tidak pernah `.env`, dan nilai contoh disalin ke dokumentasi hanya bila tidak
+mungkin berupa kredensial (`int` atau `bool`, atau string pendek tanpa `://`
+atau `@` yang namanya tidak memuat `KEY`, `SECRET`, `PASSWORD`, `TOKEN`,
+`URL`, ...). `env:sync --check` keluar dengan kode 1 bila berkasnya usang,
+untuk CI. Baca environment di konfigurasi, bukan di controller: bagian
+config bertipe di bawah adalah cara menjangkaunya dari tempat lain.
 
 ## File environment terenkripsi
 

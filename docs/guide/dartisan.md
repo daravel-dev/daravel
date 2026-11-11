@@ -22,6 +22,7 @@ options.
 | `doctor [--production]` | Checks configuration, database, storage and the port |
 | `key:generate [--show] [--force]` | Writes a new `APP_KEY` |
 | `env:encrypt`, `env:decrypt`, `env:obfuscate` | Encrypted `.env` files, see [Configuration](configuration.md) |
+| `env:sync [--check]` | Writes `lib/config/env_keys.dart`, a typed `EnvKey` per variable of `.env.example` ([Configuration](configuration.md#typed-keys-envsync)) |
 | `adopt <laravel-path> [--check]` | Shares the database and keys of a Laravel app, see [Migrating from Laravel](migrating-from-laravel.md) |
 | `down [--secret] [--retry]`, `up` | Maintenance mode, see [Deployment](deployment.md#maintenance-mode) |
 | `stub:publish` | Copies the generator templates into `stubs/` |
