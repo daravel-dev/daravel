@@ -73,8 +73,11 @@ final class {{ class }} extends Model {
   static Future<{{ class }}> create(Map<String, Object?> attributes) =>
       query().create(attributes);
   static Future<ModelCollection<{{ class }}>> all() => query().get();
-  static ModelQuery<{{ class }}> where(Object column, [Object? op, Object? value]) =>
-      query().where(column, op, value);
+  static ModelQuery<{{ class }}> where(
+    Object column, [
+    Object? operatorOrValue = QueryBuilder.absent,
+    Object? value = QueryBuilder.absent,
+  ]) => query().where(column, operatorOrValue, value);
   // </dartisan:statics>
 
   // <dartisan:accessors>
@@ -271,17 +274,30 @@ import 'dart:async';
 
 import 'package:daravel/daravel.dart';
 
-final class {{ class }} extends FormRequest {
+final class {{ class }} extends FormRequest<{{ class }}Input> {
   const {{ class }}();
+
+  /// One `Field` per input; `dartisan request:sync` writes the typed
+  /// getters of [{{ class }}Input] from them.
+  static const name = Field<String>('name');
 
   @override
   FutureOr<bool> authorize(Request request) => true;
 
   @override
   Map<String, Object> rules(Request request) => {
-    // 'email': 'required|email',
+    name: [Rules.required(), Rules.string()],
   };
 }
+
+// <dartisan:input>
+/// The validated input of [{{ class }}], one getter per `Field`
+/// (written by `dartisan request:sync`; edit the fields, not this).
+extension type const {{ class }}Input(ValidatedData _data)
+    implements ValidatedData {
+  String get name => _data.field({{ class }}.name);
+}
+// </dartisan:input>
 ''';
 
 const String _middleware = r'''

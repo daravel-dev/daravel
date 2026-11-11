@@ -1,0 +1,13 @@
+// expect: none
+import 'package:daravel/daravel.dart';
+
+import '_models.dart';
+
+ModelQuery<User> withPosts() => User.definition
+    .query()
+    .with_([
+      UserRels.rels.posts.nested(Post.rels.comments),
+      UserRels.rels.posts.only([Post.cols.id, Post.cols.title]),
+    ])
+    .whereHas(UserRels.rels.posts)
+    .withCount(UserRels.rels.posts);

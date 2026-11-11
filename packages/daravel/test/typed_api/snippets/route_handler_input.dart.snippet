@@ -1,0 +1,30 @@
+// expect: argument_type_not_assignable @29
+import 'dart:async';
+
+import 'package:daravel/daravel.dart';
+
+final class NoteRequest extends FormRequest<NoteInput> {
+  static const title = Field<String>('title');
+
+  @override
+  Map<String, Object> rules(Request request) => {title: 'required'};
+}
+
+extension type const NoteInput(ValidatedData _data) implements ValidatedData {
+  String get title => _data.field(NoteRequest.title);
+}
+
+final class OtherRequest extends FormRequest<OtherInput> {
+  @override
+  Map<String, Object> rules(Request request) => {'x': 'required'};
+}
+
+extension type const OtherInput(ValidatedData _data) implements ValidatedData {}
+
+FutureOr<Object?> store(Request request, NoteInput data) => data.title;
+
+void routes(Router router) {
+  router.postValidated('/notes', NoteRequest(), store);
+  // A handler written for NoteInput, with another request's form.
+  router.postValidated<OtherInput>('/other', OtherRequest(), store);
+}

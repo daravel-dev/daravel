@@ -378,6 +378,11 @@ final class _Worker {
       return Future<void>.value();
     }
     final stopped = _stopped ??= Completer<void>();
+    // Waited for now: the exit port, idle so far so an idle pool never held
+    // the isolate open, must keep it alive until the exit arrives. Otherwise
+    // an isolate with nothing else to do ends inside this wait, and the
+    // caller's shutdown never returns (a command's last output was lost).
+    _exit.keepIsolateAlive = true;
     _kill();
     return stopped.future;
   }

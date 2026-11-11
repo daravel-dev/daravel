@@ -20,6 +20,7 @@ workspace:
   - packages/daravel_pulse
   - packages/daravel_horizon
   - packages/daravel_reverb
+  - packages/daravel_reverb_client
   - packages/daravel_payments
   - packages/daravel_medialibrary
   - packages/daravel_postgres
