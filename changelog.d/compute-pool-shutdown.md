@@ -1,0 +1,3 @@
+### Fixed
+
+- `Application.shutdown()` after a password was hashed (or anything else ran in the compute pool) could end the process before it returned: the pool waited for its workers' exit on a port that does not keep the isolate alive, so a program with nothing else to do (a command whose last step is the shutdown) ended inside that wait, skipping the rest of the shutdown and whatever came after it, such as the command's output. Seen every time on Linux, and in a test on Windows. A worker being stopped now keeps the isolate alive until its exit arrives; an idle pool still never holds the isolate open.
