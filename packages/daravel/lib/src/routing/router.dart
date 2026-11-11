@@ -13,6 +13,8 @@ import '../http/middleware.dart';
 import '../http/realtime.dart';
 import '../http/request.dart';
 import '../http/response.dart';
+import '../validation/form_request.dart';
+import '../validation/validated_data.dart';
 import 'domain_pattern.dart';
 import 'radix_tree.dart';
 import 'resource_controller.dart';
@@ -146,6 +148,54 @@ final class Router {
   /// A `DELETE` route.
   RouteEntry delete(String path, Handler handler) =>
       match(const <String>['DELETE'], path, handler);
+
+  /// A `POST` route validated by [form], whose [handler] receives the
+  /// validated input as the request's input type [D]:
+  ///
+  /// ```dart
+  /// router.postValidated('/users', const StoreUserRequest(), users.store);
+  ///
+  /// Future<Object?> store(Request request, StoreUserInput data) async =>
+  ///     UserResource(await User.createWith(name: data.name, ...));
+  /// ```
+  ///
+  /// The same as `post(path, ...).validates(form)` (403 when [form] does not
+  /// authorize, 422 when the input is invalid, the rules in OpenAPI), with
+  /// [D] tied to [form]: a handler written for another request's input does
+  /// not compile.
+  RouteEntry postValidated<D extends ValidatedData>(
+    String path,
+    FormRequest<D> form,
+    ValidatedHandler<D> handler,
+  ) => post(path, _validated(handler)).validates(form);
+
+  /// [postValidated] for `PUT`.
+  RouteEntry putValidated<D extends ValidatedData>(
+    String path,
+    FormRequest<D> form,
+    ValidatedHandler<D> handler,
+  ) => put(path, _validated(handler)).validates(form);
+
+  /// [postValidated] for `PATCH`.
+  RouteEntry patchValidated<D extends ValidatedData>(
+    String path,
+    FormRequest<D> form,
+    ValidatedHandler<D> handler,
+  ) => patch(path, _validated(handler)).validates(form);
+
+  /// [postValidated] for `DELETE`.
+  RouteEntry deleteValidated<D extends ValidatedData>(
+    String path,
+    FormRequest<D> form,
+    ValidatedHandler<D> handler,
+  ) => delete(path, _validated(handler)).validates(form);
+
+  /// The kernel validates before the handler runs (`.validates`), so the
+  /// input is there; [D] is an extension type over it, so the cast holds.
+  static Handler _validated<D extends ValidatedData>(
+    ValidatedHandler<D> handler,
+  ) =>
+      (request) => handler(request, request.validated() as D);
 
   /// An `OPTIONS` route.
   RouteEntry options(String path, Handler handler) =>
