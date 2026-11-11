@@ -59,5 +59,7 @@ plugin off and run `dartisan lint` instead; the rules are the same.
 
 `dart analyze` runs the plugin too, so its findings appear there as
 `info`, and `dart analyze --fatal-infos` fails on them, as `dartisan lint`
-does. A CI job that already runs `dartisan lint` reports each finding
-twice; either is enough.
+does. A CI job that runs both reports each finding twice, which is
+harmless: both fail on it. Keep `dartisan lint` in CI either way, since
+it also runs the registry check (`registry_entry_missing`), which the
+plugin does not.
