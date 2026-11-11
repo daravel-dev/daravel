@@ -28,8 +28,11 @@ final class User extends Model with AuthenticatableModel {
   static Future<User> create(Map<String, Object?> attributes) =>
       query().create(attributes);
   static Future<ModelCollection<User>> all() => query().get();
-  static ModelQuery<User> where(Object column, [Object? op, Object? value]) =>
-      query().where(column, op, value);
+  static ModelQuery<User> where(
+    Object column, [
+    Object? operatorOrValue = QueryBuilder.absent,
+    Object? value = QueryBuilder.absent,
+  ]) => query().where(column, operatorOrValue, value);
   // </dartisan:statics>
 
   // <dartisan:accessors>
