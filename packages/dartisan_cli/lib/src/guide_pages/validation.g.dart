@@ -94,6 +94,27 @@ Rules.unique('users', 'email').where((QueryBuilder q) => q.whereNull('deleted_at
 Rules.exists('billing.invoices', 'id').where((QueryBuilder q) => q.where('open', true));
 ```
 
+Rules that depend on the input or on each element, as Laravel's `Rule::when`,
+`Rule::unless`, `Rule::forEach` and `Rule::anyOf`:
+
+```dart
+'company': Rules.whenInput((input) => input['type'] == 'business',
+    [Rules.required(), Rules.string()]),
+'notes': Rules.when(isAdmin, [Rules.nullable()], otherwise: [Rules.prohibited()]),
+'items.*.qty': Rules.forEach((item) =>
+    item.value == 0 ? [Rules.integer(), Rules.min(1)] : [Rules.integer()]),
+'items.*': Rules.forEachNested((item) => {'sku': [Rules.required()]}),
+'login': Rules.anyOf([[Rules.email()], [Rules.integer(), Rules.min(1)]]),
+```
+
+A condition is decided once per validation, on the whole input (after
+`prepare`). `forEachNested` validates keys of each element (`items.2.sku`),
+and those keys are part of `validated()`. Each `anyOf` alternative is
+validated on the value alone, as in Laravel: a rule inside it that names
+another field does not see that field. A `forEach` that keeps returning
+`forEach` stops with an error after `Validator.maxRuleNesting` (8) levels;
+Laravel has no limit.
+
 ## Form requests
 
 <!-- include: packages/daravel/test/docs/guide_examples_test.dart#form-request -->

@@ -20,6 +20,10 @@ import 'package:path/path.dart' as p;
 import 'package:timezone/data/latest_all.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
 
+import 'src/rule_chain.dart';
+
+export 'src/rule_chain.dart' show ruleChainSource;
+
 /// One finding.
 final class LintIssue {
   /// A finding of [rule] at a line and column.
@@ -101,6 +105,38 @@ final class NoDartMirrors extends LintRule {
         );
       }
     }
+  }
+}
+
+/// A string rule list (`'required|email|max:255'`) where a `Rules` chain
+/// means the same: `Rules.required().email().max(255)`, which the editor
+/// completes and the compiler checks. Reported only where
+/// [ruleChainSource] writes that chain (not for `regex`, an unknown rule
+/// or a non-numeric `min`), so the editor's fix always keeps the meaning.
+///
+/// Opt-in (on in new projects): `diagnostics: string_validation_rule: true`.
+final class StringValidationRule extends LintRule {
+  /// `string_validation_rule`: rules as a `Rules` chain.
+  const StringValidationRule();
+
+  @override
+  String get name => 'string_validation_rule';
+
+  @override
+  String get description =>
+      'Write validation rules as a Rules chain, not a string.';
+
+  @override
+  bool appliesTo(String relativePath) => !relativePath.startsWith('lib/src/');
+
+  @override
+  void check(CompilationUnit unit, void Function(AstNode, String) report) {
+    InvalidValidationRule.forEachRuleString(unit, (literal, dsl) {
+      final chain = ruleChainSource(dsl);
+      if (chain != null) {
+        report(literal, 'Write the rules as a Rules chain: $chain');
+      }
+    });
   }
 }
 
@@ -800,6 +836,21 @@ final class InvalidValidationRule extends LintRule {
 
   @override
   void check(CompilationUnit unit, void Function(AstNode, String) report) {
+    forEachRuleString(unit, (literal, dsl) {
+      final problem = problemIn(dsl);
+      if (problem != null) {
+        report(literal, problem);
+      }
+    });
+  }
+
+  /// Calls [found] with each string rule list of [unit] (`'required|email'`
+  /// in a `rules()`/`validate()`/`Validator(...)` map, alone or in a list)
+  /// and its text.
+  static void forEachRuleString(
+    CompilationUnit unit,
+    void Function(Expression literal, String dsl) found,
+  ) {
     void checkMap(Expression? expression) {
       if (expression is! SetOrMapLiteral) {
         return;
@@ -814,12 +865,8 @@ final class InvalidValidationRule extends LintRule {
             : [value];
         for (final literal in strings) {
           final dsl = _literalText(literal);
-          if (dsl == null) {
-            continue;
-          }
-          final problem = problemIn(dsl);
-          if (problem != null) {
-            report(literal, problem);
+          if (dsl != null) {
+            found(literal, dsl);
           }
         }
       }
@@ -1419,7 +1466,10 @@ const List<LintRule> defaultRules = <LintRule>[
 
 /// Opt-in rules: not run unless enabled by name ([rulesWith]) or passed in
 /// `rules:`.
-const List<LintRule> optionalRules = <LintRule>[PreferSqlIdentifier()];
+const List<LintRule> optionalRules = <LintRule>[
+  PreferSqlIdentifier(),
+  StringValidationRule(),
+];
 
 /// [defaultRules] plus the [optionalRules] named in [enable]
 /// (`['prefer_sql_identifier']`); an unknown name throws an [ArgumentError].
