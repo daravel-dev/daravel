@@ -11,6 +11,7 @@ import '../http/uploaded_file.dart';
 import 'dns.dart';
 import 'object_rules.dart';
 import 'php_date_format.dart';
+import 'php_email_filter.dart';
 import 'rule.dart';
 import 'typed_rules.dart';
 
@@ -290,9 +291,10 @@ abstract final class Rules {
   /// must pass, `rfc` when none is. [dns] looks the domain up as egulias'
   /// `DNSCheckValidation` (through the container's [DnsResolver]); it is
   /// checked last and, as in Laravel, alone it does not check the syntax
-  /// (`email:rfc,dns` does both). [spoof] needs ICU and throws
-  /// [UnsupportedError]. [rfc] and [strict] are, for now, the same
-  /// HTML-style check, stricter than egulias' RFC parser.
+  /// (`email:rfc,dns` does both). [spoof] needs ICU: it throws
+  /// [UnsupportedError] here, when the rule is built. [rfc] and [strict]
+  /// are, for now, the same HTML-style check, stricter than egulias' RFC
+  /// parser.
   static Rule email({
     bool rfc = false,
     bool strict = false,
@@ -300,16 +302,14 @@ abstract final class Rules {
     bool spoof = false,
     bool filter = false,
     bool filterUnicode = false,
-  }) => EmailRule(
-    modes: {
-      if (rfc) 'rfc',
-      if (strict) 'strict',
-      if (dns) 'dns',
-      if (spoof) 'spoof',
-      if (filter) 'filter',
-      if (filterUnicode) 'filter_unicode',
-    },
-  );
+  }) => EmailRule.checked({
+    if (rfc) 'rfc',
+    if (strict) 'strict',
+    if (dns) 'dns',
+    if (spoof) 'spoof',
+    if (filter) 'filter',
+    if (filterUnicode) 'filter_unicode',
+  });
 
   /// `active_url`: a URL whose host has an A or AAAA record (one lookup
   /// through the container's [DnsResolver]; an IP address fails, as in
@@ -1099,6 +1099,20 @@ final class EmailRule extends Rule {
   /// `filter`, `filter_unicode`.
   final Set<String> modes;
 
+  /// The rule with [modes], refusing `spoof` at once: [Rules.email] and
+  /// the string parser build it this way, so the error comes when the
+  /// rules are built (a `Validator`, OpenAPI), not on each value checked.
+  static EmailRule checked(Set<String> modes) {
+    if (modes.contains('spoof')) {
+      throw UnsupportedError(_spoofUnsupported);
+    }
+    return EmailRule(modes: modes);
+  }
+
+  static const String _spoofUnsupported =
+      'email:spoof needs ICU\'s Spoofchecker, which Dart does not have; '
+      'Daravel does not check it (dartisan lint reports it).';
+
   /// The modes Daravel checks; `spoof` throws [UnsupportedError].
   static const Set<String> knownModes = {
     'rfc',
@@ -1121,43 +1135,6 @@ final class EmailRule extends Rule {
   /// with its modes, decides.
   RegExp get pattern => _rfc;
 
-  // PHP's FILTER_VALIDATE_EMAIL (ext/filter/logical_filters.c,
-  // php_filter_validate_email), whose regex is based on one by Michael
-  // Rushton: "Copyright © Michael Rushton 2009-10 http://squiloople.com/
-  // Feel free to use and redistribute this code. But please keep this
-  // copyright notice." The unicode variant (FILTER_FLAG_EMAIL_UNICODE) also
-  // allows letters and digits of any script in the local part.
-  static String _filterSource(String extra) =>
-      r'^(?!(?:(?:\x22?\x5C[\x00-\x7E]\x22?)|(?:\x22?[^\x5C\x22]\x22?)){255,})'
-      r'(?!(?:(?:\x22?\x5C[\x00-\x7E]\x22?)|(?:\x22?[^\x5C\x22]\x22?)){65,}@)'
-      r'(?:(?:[\x21\x23-\x27\x2A\x2B\x2D\x2F-\x39\x3D\x3F\x5E-\x7E'
-      '$extra'
-      r']+)|(?:\x22(?:[\x01-\x08\x0B\x0C\x0E-\x1F\x21\x23-\x5B\x5D-\x7F'
-      '$extra'
-      r']|(?:\x5C[\x00-\x7F]))*\x22))'
-      r'(?:\.(?:(?:[\x21\x23-\x27\x2A\x2B\x2D\x2F-\x39\x3D\x3F\x5E-\x7E'
-      '$extra'
-      r']+)|(?:\x22(?:[\x01-\x08\x0B\x0C\x0E-\x1F\x21\x23-\x5B\x5D-\x7F'
-      '$extra'
-      r']|(?:\x5C[\x00-\x7F]))*\x22)))*'
-      r'@(?:(?:(?!.*[^.]{64,})(?:(?:(?:xn--)?[a-z0-9]+(?:-+[a-z0-9]+)*\.){1,126}){1,}'
-      r'(?:(?:[a-z][a-z0-9]*)|(?:(?:xn--)[a-z0-9]+))(?:-+[a-z0-9]+)*)'
-      r'|(?:\[(?:(?:IPv6:(?:(?:[a-f0-9]{1,4}(?::[a-f0-9]{1,4}){7})'
-      r'|(?:(?!(?:.*[a-f0-9][:\]]){7,})(?:[a-f0-9]{1,4}(?::[a-f0-9]{1,4}){0,5})?::'
-      r'(?:[a-f0-9]{1,4}(?::[a-f0-9]{1,4}){0,5})?)))'
-      r'|(?:(?:IPv6:(?:(?:[a-f0-9]{1,4}(?::[a-f0-9]{1,4}){5}:)'
-      r'|(?:(?!(?:.*[a-f0-9]:){5,})(?:[a-f0-9]{1,4}(?::[a-f0-9]{1,4}){0,3})?::'
-      r'(?:[a-f0-9]{1,4}(?::[a-f0-9]{1,4}){0,3}:)?)))?'
-      r'(?:(?:25[0-5])|(?:2[0-4][0-9])|(?:1[0-9]{2})|(?:[1-9]?[0-9]))'
-      r'(?:\.(?:(?:25[0-5])|(?:2[0-4][0-9])|(?:1[0-9]{2})|(?:[1-9]?[0-9]))){3}))\]))$';
-
-  static final RegExp _filter = RegExp(_filterSource(''), caseSensitive: false);
-  static final RegExp _filterUnicode = RegExp(
-    _filterSource(r'\p{L}\p{N}'),
-    caseSensitive: false,
-    unicode: true,
-  );
-
   @override
   String get name => 'email';
 
@@ -1177,21 +1154,21 @@ final class EmailRule extends Rule {
       for (final mode in modes.isEmpty ? const {'rfc'} : modes)
         knownModes.contains(mode) ? mode : 'rfc',
     };
+    // Reached only by a `const EmailRule(modes: {'spoof'})` built directly.
     if (checks.contains('spoof')) {
-      throw UnsupportedError(
-        'email:spoof needs ICU\'s Spoofchecker, which Dart does not have; '
-        'Daravel does not check it (dartisan lint reports it).',
-      );
+      throw UnsupportedError(_spoofUnsupported);
     }
     if ((checks.contains('rfc') || checks.contains('strict')) &&
         !_rfc.hasMatch(value)) {
       return name;
     }
-    if (checks.contains('filter') && !_filterOk(value, _filter)) {
+    // PHP's FILTER_VALIDATE_EMAIL, read in one pass: PHP's regex
+    // backtracks exponentially, and Dart's engine has no limit to stop it.
+    if (checks.contains('filter') && !phpFilterEmail(value)) {
       return name;
     }
     if (checks.contains('filter_unicode') &&
-        !_filterOk(value, _filterUnicode)) {
+        !phpFilterEmail(value, unicode: true)) {
       return name;
     }
     // Last, so an address that fails the cheap checks costs no lookup.
@@ -1201,10 +1178,6 @@ final class EmailRule extends Rule {
     }
     return null;
   }
-
-  // PHP refuses more than 320 octets before the regex (RFC 2821).
-  static bool _filterOk(String value, RegExp pattern) =>
-      utf8.encode(value).length <= 320 && pattern.hasMatch(value);
 }
 
 /// The [DnsResolver] bound in the container of [context], or the shared

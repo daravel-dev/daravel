@@ -96,7 +96,9 @@ Rules.exists('billing.invoices', 'id').where((QueryBuilder q) => q.where('open',
 dns: true)`; every mode given must pass, and `rfc` applies when none is.
 
 - `filter` and `filter_unicode` are PHP's `FILTER_VALIDATE_EMAIL` (with
-  `FILTER_FLAG_EMAIL_UNICODE`).
+  `FILTER_FLAG_EMAIL_UNICODE`), read in one pass over the address instead
+  of with PHP's regex, which backtracks exponentially on some inputs; they
+  are compared with PHP 8.3 on more than 3 800 addresses.
 - `dns` checks the domain as Laravel's (egulias) `DNSCheckValidation`:
   reserved names (`test`, `example`, `localhost`, `local`, ...) and
   single-label domains fail, and the domain or one of its parent names needs
@@ -104,8 +106,9 @@ dns: true)`; every mode given must pass, and `rfc` applies when none is.
   no syntax: write `email:rfc,dns`.
 - `rfc` and `strict` are, for now, an HTML-style check, stricter than
   Laravel's RFC parser: a quoted local part or a single-label domain fails.
-- `spoof` needs ICU, which Dart does not have: it throws, and `dartisan
-  lint` reports it.
+- `spoof` needs ICU, which Dart does not have: building the rules throws
+  `UnsupportedError` (the first request that validates with it, a test, or
+  OpenAPI generation), and `dartisan lint` reports it.
 
 `active_url` passes when the URL's host has an A or AAAA record; an IP
 address fails, as in Laravel.
