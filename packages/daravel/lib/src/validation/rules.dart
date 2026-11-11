@@ -932,6 +932,16 @@ final class EmailRule extends Rule {
     'filter_unicode',
   };
 
+  // Something, an `@`, then a domain without spaces: looser than the RFC
+  // parser on purpose, so a client never refuses an address the server
+  // accepts (a quoted local part with a space, a domain literal).
+  static final RegExp _client = RegExp(r'^.+@[^@\s]+$');
+
+  /// The pattern a client checks before sending (`dartisan client:flutter`
+  /// writes it into the Flutter form validators): a loose shape only; the
+  /// server's check, with its modes, decides.
+  RegExp get pattern => _client;
+
   // PHP's FILTER_VALIDATE_EMAIL (ext/filter/logical_filters.c,
   // php_filter_validate_email), whose regex is based on one by Michael
   // Rushton: "Copyright © Michael Rushton 2009-10 http://squiloople.com/

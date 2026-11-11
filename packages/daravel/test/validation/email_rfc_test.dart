@@ -10,6 +10,7 @@ import 'package:test/test.dart';
 /// `email`, `email:rfc` and `email:strict` (see the fixture's `source`).
 void main() {
   ruleGolden();
+  upgradeNoteRows();
 
   final fixture = jsonDecode(
     File('test/validation/fixtures/laravel_email_rfc.json').readAsStringSync(),
@@ -19,11 +20,12 @@ void main() {
         in (fixture['cases']! as List<Object?>).cast<Map<String, Object?>>())
       // Laravel input arrives as text: an address that is not valid UTF-8
       // cannot reach the rule, so it is not compared.
-      if (_decode(c['email']! as String) case final email?)
+      if (_decode(c['address']! as String) case final email?)
         (
           email: email,
           rfc: c['email:rfc']! as bool,
           strict: c['email:strict']! as bool,
+          plain: c['email']! as bool,
         ),
   ];
 
@@ -41,6 +43,15 @@ void main() {
       if (!c.email.contains('\r') && !c.email.contains('\n')) c,
   ];
 
+  test('plain email agrees with Laravel on every address', () {
+    final wrong = [
+      for (final c in parsed)
+        if (rfcEmailValid(c.email) != c.plain)
+          '${jsonEncode(c.email)}: Laravel email ${c.plain}',
+    ];
+    expect(wrong, isEmpty, reason: '${wrong.length} of ${parsed.length}');
+  });
+
   test('rfc agrees with Laravel on every address', () {
     final wrong = [
       for (final c in parsed)
@@ -48,6 +59,15 @@ void main() {
           '${jsonEncode(c.email)}: Laravel ${c.rfc}',
     ];
     expect(wrong, isEmpty, reason: '${wrong.length} of ${parsed.length}');
+  });
+
+  test('the client pattern never refuses an address Laravel accepts', () {
+    final pattern = const EmailRule().pattern;
+    final refused = [
+      for (final c in parsed)
+        if (c.rfc && !pattern.hasMatch(c.email)) jsonEncode(c.email),
+    ];
+    expect(refused, isEmpty);
   });
 
   test('strict agrees with Laravel on every address', () {
@@ -82,14 +102,14 @@ void ruleGolden() {
     var compared = 0;
     for (final c
         in (fixture['cases']! as List<Object?>).cast<Map<String, Object?>>()) {
-      final email = _decode(c['email']! as String);
+      final email = _decode(c['address']! as String);
       if (email == null || email.isEmpty) {
         // Not valid UTF-8 (cannot arrive as text), or empty (a rule that is
         // not implicit skips it).
         continue;
       }
       compared++;
-      for (final rule in ['email:rfc', 'email:strict']) {
+      for (final rule in ['email', 'email:rfc', 'email:strict']) {
         final passes = (await Validator(
           {'e': email},
           {'e': rule},
@@ -100,6 +120,27 @@ void ruleGolden() {
       }
     }
     expect(compared, greaterThan(150));
-    expect(wrong, isEmpty, reason: '${wrong.length} of ${compared * 2}');
+    expect(wrong, isEmpty, reason: '${wrong.length} of ${compared * 3}');
+  });
+}
+
+/// The rows of the upgrade note (changelog.d/e2-w9-email-rfc.md).
+void upgradeNoteRows() {
+  test('the upgrade note table holds', () async {
+    Future<bool> passes(String email, String rule) async =>
+        (await Validator({'e': email}, {'e': rule}).run()).isEmpty;
+    for (final email in [
+      'user@localhost',
+      '"first last"@example.com',
+      'user@[127.0.0.1]',
+      'user(comment)@example.com',
+    ]) {
+      expect(await passes(email, 'email'), isTrue, reason: email);
+      expect(await passes(email, 'email:strict'), isFalse, reason: email);
+    }
+    for (final email in ['a..b@example.com', 'not-an-email']) {
+      expect(await passes(email, 'email'), isFalse, reason: email);
+    }
+    expect(await passes('user@localhost', 'email:filter'), isFalse);
   });
 }
