@@ -61,3 +61,4 @@ replaces the two default constants by 16 and 1024.
 | K1b before the §6.6 fix | 21 / 26 |
 | K1b e735517a | 0 / 30 |
 | K1b 0de7d0d3 (refusal ticks) | 0 / 30 |
+| K1b 9758215b (Review #153 fixes) | 0 / 30 |
