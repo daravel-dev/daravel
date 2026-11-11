@@ -102,4 +102,28 @@ void main() {
       expect(errors, expected);
     });
   }
+
+  // exists on a list of values (Laravel's getMultiCount: whereIn and a
+  // distinct count), with and without where conditions.
+  for (final c
+      in (golden['arrayCases']! as List<Object?>)
+          .cast<Map<String, Object?>>()) {
+    final rule = c['rule']! as String;
+    final data = (c['data']! as Map<String, Object?>);
+    test('array: $rule with $data', () async {
+      final expected = switch (c['errors']) {
+        final Map<String, Object?> map => {
+          for (final MapEntry(:key, value: list) in map.entries)
+            key: (list! as List<Object?>).cast<String>(),
+        },
+        _ => <String, List<String>>{},
+      };
+      final errors = await app.run(
+        () => Validator(data, {
+          data.keys.first: rule,
+        }, container: Container.current).run(),
+      );
+      expect(errors, expected);
+    });
+  }
 }

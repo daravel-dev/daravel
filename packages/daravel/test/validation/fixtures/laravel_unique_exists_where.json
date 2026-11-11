@@ -844,5 +844,119 @@
             "rule": "unique:accounts,email,u-1,uid",
             "errors": {}
         }
+    ],
+    "arrayCases": [
+        {
+            "data": {
+                "email": [
+                    "a@x.io",
+                    "c@x.io"
+                ]
+            },
+            "rule": "exists:users,email",
+            "errors": {}
+        },
+        {
+            "data": {
+                "email": [
+                    "a@x.io",
+                    "z@x.io"
+                ]
+            },
+            "rule": "exists:users,email",
+            "errors": {
+                "email": [
+                    "The selected email is invalid."
+                ]
+            }
+        },
+        {
+            "data": {
+                "email": [
+                    "a@x.io",
+                    "a@x.io"
+                ]
+            },
+            "rule": "exists:users,email",
+            "errors": {}
+        },
+        {
+            "data": {
+                "email": []
+            },
+            "rule": "exists:users,email",
+            "errors": {}
+        },
+        {
+            "data": {
+                "email": [
+                    "a@x.io",
+                    "b@x.io"
+                ]
+            },
+            "rule": "exists:users,email,deleted_at,NULL",
+            "errors": {
+                "email": [
+                    "The selected email is invalid."
+                ]
+            }
+        },
+        {
+            "data": {
+                "email": [
+                    "a@x.io",
+                    "c@x.io"
+                ]
+            },
+            "rule": "exists:users,email,deleted_at,NULL",
+            "errors": {}
+        },
+        {
+            "data": {
+                "email": [
+                    "a@x.io",
+                    "c@x.io"
+                ]
+            },
+            "rule": "exists:users,email,account_id,1",
+            "errors": {
+                "email": [
+                    "The selected email is invalid."
+                ]
+            }
+        },
+        {
+            "data": {
+                "email": [
+                    "b@x.io"
+                ]
+            },
+            "rule": "exists:users,email,role,!admin",
+            "errors": {}
+        },
+        {
+            "data": {
+                "ids": [
+                    1,
+                    3
+                ]
+            },
+            "rule": "exists:users,id,deleted_at,NULL",
+            "errors": {}
+        },
+        {
+            "data": {
+                "ids": [
+                    1,
+                    2
+                ]
+            },
+            "rule": "exists:users,id,deleted_at,NULL",
+            "errors": {
+                "ids": [
+                    "The selected ids is invalid."
+                ]
+            }
+        }
     ]
 }

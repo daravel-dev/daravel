@@ -282,6 +282,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `$model->updateQuietly($attrs) / deleteQuietly()` | `model.updateQuietly(attrs) / deleteQuietly()` |  |
 | `withoutGlobalScope('active')` | `withoutGlobalScope('active')` |  |
 | `Rule::unique('users')->ignore($id)->where(fn ($q) => $q->whereNull('deleted_at'))` | `Rules.unique('users').ignore(id).where((QueryBuilder q) => q.whereNull('deleted_at'))` |  |
+| `'unique:users,email,[id],id,deleted_at,NULL' / 'exists:users,id,active,1'` | `the same strings` | The column,value where conditions and the [field] ignore as Laravel 13 reads them. Two differences: a [field] whose value is a list skips nothing here (Laravel's strtolower throws, a 500), and a \0 in the ignore stays 0 (PHP's stripslashes makes it NUL). |
 | `['required', 'email', 'max:255']` | `Rules.required().email().max(255)` | Chained rule objects, checked by the compiler. |
 | `'accepted' / 'accepted_if:plan,paid' / 'declined' / 'declined_if:plan,paid'` | `the same strings, or Rules.accepted() / acceptedIf('plan', ['paid']) / declined() / declinedIf(...)` |  |
 | `'missing' / 'missing_if:a,x' / 'missing_unless:a,x' / 'missing_with:a,b' / 'missing_with_all:a,b'` | `the same strings, or Rules.missing() / missingIf('a', ['x']) / missingUnless(...) / missingWith(['a', 'b']) / missingWithAll(...)` | Presence is the key's, as Arr::has: a key with a null value is present. |

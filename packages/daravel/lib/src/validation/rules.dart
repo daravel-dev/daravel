@@ -2224,8 +2224,23 @@ final class ExistsRule extends Rule {
     }
     final db = container.make<DatabaseManager>();
     final col = _columnFor(c, column);
+    final value = c.value;
+    if (value is List<Object?>) {
+      // 13.x validateExists (1039-1059) and getMultiCount: every distinct
+      // value (array_unique compares as text) must be found, counted with
+      // whereIn and a distinct count.
+      final expected = {for (final v in value) '$v'}.length;
+      if (expected == 0) {
+        return null;
+      }
+      final found = await _constrained(
+        db.table(_table(table)).whereIn(_identifier(col), value),
+        constraints,
+      ).distinct().count(_identifier(col));
+      return found >= expected ? null : 'exists';
+    }
     final count = await _constrained(
-      db.table(_table(table)).where(_identifier(col), c.value),
+      db.table(_table(table)).where(_identifier(col), value),
       constraints,
     ).count();
     return count > 0 ? null : 'exists';
