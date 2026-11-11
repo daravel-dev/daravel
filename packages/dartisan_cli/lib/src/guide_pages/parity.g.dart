@@ -284,6 +284,10 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `Rule::unique('users')->ignore($id)->where(fn ($q) => $q->whereNull('deleted_at'))` | `Rules.unique('users').ignore(id).where((QueryBuilder q) => q.whereNull('deleted_at'))` |  |
 | `['required', 'email', 'max:255']` | `Rules.required().email().max(255)` | Chained rule objects, checked by the compiler. |
 | `'accepted' / 'accepted_if:plan,paid' / 'declined' / 'declined_if:plan,paid'` | `the same strings, or Rules.accepted() / acceptedIf('plan', ['paid']) / declined() / declinedIf(...)` |  |
+| `'missing' / 'missing_if:a,x' / 'missing_unless:a,x' / 'missing_with:a,b' / 'missing_with_all:a,b'` | `the same strings, or Rules.missing() / missingIf('a', ['x']) / missingUnless(...) / missingWith(['a', 'b']) / missingWithAll(...)` | Presence is the key's, as Arr::has: a key with a null value is present. |
+| `'present_unless:a,x' / 'present_with:a,b' / 'present_with_all:a,b'` | `the same strings, or Rules.presentUnless('a', ['x']) / presentWith(['a', 'b']) / presentWithAll(...)` |  |
+| `'prohibited_if_accepted:a' / 'prohibited_if_declined:a' / 'required_if_declined:a'` | `the same strings, or Rules.prohibitedIfAccepted('a') / prohibitedIfDeclined('a') / requiredIfDeclined('a')` |  |
+| `'required_array_keys:name,email'` | `the same string, or Rules.requiredArrayKeys(['name', 'email'])` |  |
 
 ## Eloquent
 
