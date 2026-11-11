@@ -53,7 +53,7 @@ void main() {
     final builders = _sampleBuilders();
     expect(
       builders.keys.toSet(),
-      _rulesStatics(),
+      _rulesStatics().difference(_notRuleBuilders),
       reason:
           'a Rules static was added or removed: add it to _sampleBuilders '
           'with a sample call',
@@ -81,7 +81,7 @@ void main() {
   });
 
   test('4. every Rules builder is a chain step', () {
-    final statics = _rulesStatics();
+    final statics = _rulesStatics().difference(_notRuleBuilders);
     final builder = _methodsOf('RuleBuilder');
     final chain = _methodsOf('RuleChain');
     expect(statics.difference(builder), isEmpty, reason: 'RuleBuilder');
@@ -126,6 +126,11 @@ Set<String> _methodsOf(String target) {
   };
 }
 
+/// `Rules` statics that make no single rule: `Rules.of(definition)` gives
+/// the typed `unique`/`exists` of a model (W9.4b), whose results are the
+/// same `UniqueRule`/`ExistsRule` as `Rules.unique`/`Rules.exists`.
+const Set<String> _notRuleBuilders = {'of'};
+
 /// Laravel 13 message keys without a Daravel string rule yet, and why.
 /// Shrinks with each W9.4a pull request; empty when the slice is done.
 const Map<String, String> _laravelPending = {
@@ -135,17 +140,6 @@ const Map<String, String> _laravelPending = {
   'current_password': 'W9.4a external (needs the guard and Hash)',
   'active_url': 'W9.4a external (DNS)',
   'dimensions': 'W9.4a external (image headers)',
-  'contains': 'W9.4a content',
-  'doesnt_contain': 'W9.4a content',
-  'doesnt_start_with': 'W9.4a content',
-  'doesnt_end_with': 'W9.4a content',
-  'in_array': 'W9.4a content',
-  'in_array_keys': 'W9.4a content',
-  'hex_color': 'W9.4a content',
-  'mac_address': 'W9.4a content',
-  'encoding': 'W9.4a content',
-  'array_keys': 'W9.4a content (13.x only)',
-  'base64': 'W9.4a content (13.x only)',
 };
 
 /// The static methods of `abstract final class Rules`, from its source.
@@ -193,6 +187,17 @@ Map<String, Rule Function()> _sampleBuilders() => {
   'prohibitedIfDeclined': () => Rules.prohibitedIfDeclined('b'),
   'requiredIfDeclined': () => Rules.requiredIfDeclined('b'),
   'requiredArrayKeys': () => Rules.requiredArrayKeys(['x']),
+  'contains': () => Rules.contains(['x']),
+  'doesntContain': () => Rules.doesntContain(['x']),
+  'doesntStartWith': () => Rules.doesntStartWith(['x']),
+  'doesntEndWith': () => Rules.doesntEndWith(['x']),
+  'inArray': () => Rules.inArray('items.*'),
+  'inArrayKeys': () => Rules.inArrayKeys(['x']),
+  'arrayKeys': () => Rules.arrayKeys(['x']),
+  'hexColor': Rules.hexColor,
+  'macAddress': Rules.macAddress,
+  'encoding': () => Rules.encoding('UTF-8'),
+  'base64': Rules.base64,
   'exclude': Rules.exclude,
   'excludeIf': () => Rules.excludeIf('b', ['x']),
   'excludeUnless': () => Rules.excludeUnless('b', ['x']),

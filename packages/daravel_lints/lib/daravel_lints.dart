@@ -691,6 +691,17 @@ final class InvalidValidationRule extends LintRule {
     'prohibited_if_declined',
     'required_if_declined',
     'required_array_keys',
+    'contains',
+    'doesnt_contain',
+    'doesnt_start_with',
+    'doesnt_end_with',
+    'in_array',
+    'in_array_keys',
+    'array_keys',
+    'hex_color',
+    'mac_address',
+    'encoding',
+    'base64',
     'exclude',
     'exclude_if',
     'exclude_unless',
@@ -735,6 +746,9 @@ final class InvalidValidationRule extends LintRule {
     'prohibited_if_accepted': 1,
     'prohibited_if_declined': 1,
     'required_if_declined': 1,
+    'in_array': 1,
+    'encoding': 1,
+    'array_keys': 1,
     'mimes': 1,
     'mimetypes': 1,
     'extensions': 1,
@@ -884,9 +898,26 @@ final class InvalidValidationRule extends LintRule {
         return 'Validation rule "$rule" expects a number, got '
             '"${badNumber.first}" in "$dsl".';
       }
+      if (rule == 'encoding' &&
+          arguments.isNotEmpty &&
+          !supportedEncodings.contains(
+            arguments.first.toLowerCase().replaceAll(RegExp('[^a-z0-9]'), ''),
+          )) {
+        return 'Validation rule "encoding:${arguments.first}" is not checked '
+            'by Daravel (UTF-8, ASCII, ISO-8859-1) in "$dsl".';
+      }
     }
     return null;
   }
+
+  /// The encodings `EncodingRule` checks, normalized (kept equal by
+  /// `packages/daravel/test/validation/rule_names_lint_test.dart`).
+  static const Set<String> supportedEncodings = {
+    'utf8',
+    'ascii',
+    'iso88591',
+    'latin1',
+  };
 
   static String? _literalText(Expression expression) => switch (expression) {
     SimpleStringLiteral(:final value) => value,

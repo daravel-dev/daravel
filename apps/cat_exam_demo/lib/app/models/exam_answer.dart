@@ -37,9 +37,9 @@ final class ExamAnswer extends Model {
   static Future<ModelCollection<ExamAnswer>> all() => query().get();
   static ModelQuery<ExamAnswer> where(
     Object column, [
-    Object? op,
-    Object? value,
-  ]) => query().where(column, op, value);
+    Object? operatorOrValue = QueryBuilder.absent,
+    Object? value = QueryBuilder.absent,
+  ]) => query().where(column, operatorOrValue, value);
 
   int get id => getAttr('id') as int;
 
