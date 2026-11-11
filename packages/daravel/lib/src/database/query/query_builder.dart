@@ -153,6 +153,14 @@ final class QueryBuilder {
       );
     }
     if (column is WhereClause) {
+      if (operatorOrValue != null || value != null) {
+        throw ArgumentError.value(
+          operatorOrValue ?? value,
+          'operatorOrValue',
+          'A typed condition (User.cols.age.gte(18)) takes no operator or '
+              'value of its own',
+        );
+      }
       return _add(
         column.boolean == boolean ? column : _joinedWith(column, boolean),
       );

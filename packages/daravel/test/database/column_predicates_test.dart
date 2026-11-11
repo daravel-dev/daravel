@@ -197,6 +197,19 @@ void main() {
     );
   });
 
+  test('a condition with an extra operator or value is refused', () {
+    final refusal = isA<ArgumentError>().having(
+      (e) => '${e.message}',
+      'message',
+      contains('takes no operator or value'),
+    );
+    final gte = Item.cols.qty.gte(3);
+    expect(() => db.table('items').where(gte, 5), throwsA(refusal));
+    expect(() => db.table('items').where(gte, '>', 5), throwsA(refusal));
+    expect(() => db.table('items').orWhere(gte, 5), throwsA(refusal));
+    expect(() => Item.definition.query(db: db).where(gte, 5), throwsA(refusal));
+  });
+
   test('ModelQuery and the model statics take conditions', () async {
     final names = await Item.definition
         .query(db: db)
