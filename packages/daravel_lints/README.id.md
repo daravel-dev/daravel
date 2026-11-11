@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:b67a3a68e932 -->
+<!-- source: README.md sha256:145a97900a33 -->
 <img src="https://raw.githubusercontent.com/daravel-dev/daravel/main/docs/brand/png/daravel-icon-128.png" alt="Daravel" width="64" align="right">
 
 # daravel_lints
@@ -50,6 +50,7 @@ lintConfig(root).rules)`.
 | Rule | Menangkap |
 | :-- | :-- |
 | `prefer_sql_identifier` | nama kolom yang diberikan ke method query builder (`where`, `orderBy`, `select`, `pluck`, ...) yang bukan string literal, bukan `const`, bukan pilihan di antara literal (`sort == 'name' ? 'name' : 'id'`), dan bukan `SqlIdentifier` |
+| `string_validation_rule` | daftar rule berupa string (`'required\|email\|max:255'`) yang bisa diganti rantai `Rules` dengan arti yang sama (`Rules.required().email().max(255)`), yang dilengkapi editor dan diperiksa compiler; pesannya menyebut rantai itu. Tidak dilaporkan bila tidak ada rantai yang persis sama (`regex`, rule yang tidak dikenal, `min` yang bukan angka) |
 
 `SqlIdentifier('users.id')` memeriksa sebuah nama sekali, saat dibuat (nama
 polos yang digabung dengan titik, selain itu `ArgumentError`), dan builder

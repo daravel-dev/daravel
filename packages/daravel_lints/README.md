@@ -47,6 +47,7 @@ rules it ran. In code: `lintProject(root, rules: lintConfig(root).rules)`.
 | Rule | Catches |
 | :-- | :-- |
 | `prefer_sql_identifier` | a column name passed to a query builder method (`where`, `orderBy`, `select`, `pluck`, ...) that is neither a string literal, a `const`, a choice between literals (`sort == 'name' ? 'name' : 'id'`) nor a `SqlIdentifier` |
+| `string_validation_rule` | a string rule list (`'required\|email\|max:255'`) where a `Rules` chain means the same (`Rules.required().email().max(255)`), which the editor completes and the compiler checks; the message names the chain. Not reported where no exact chain exists (`regex`, an unknown rule, a non-numeric `min`) |
 
 `SqlIdentifier('users.id')` checks a name once, where it is made (plain
 names joined by dots, else an `ArgumentError`), and the builder quotes it
