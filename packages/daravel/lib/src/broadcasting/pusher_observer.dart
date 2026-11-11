@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import '../foundation/detached.dart';
 import '../server/coordinator.dart';
 import '../server/worker_reports.dart';
 
@@ -214,7 +215,10 @@ final class ReverbStats extends PusherObserver {
 
   final WorkerReports _reports;
   final Map<String, _AppStats> _apps = {};
-  Timer? _timer;
+
+  /// The periodic flush, detached from the connection that starts it (its
+  /// request's zone would outlive it otherwise, Review #149).
+  Detached<Timer>? _timer;
 
   _AppStats _of(String app) => _apps[app] ??= _AppStats();
 
@@ -225,7 +229,10 @@ final class ReverbStats extends PusherObserver {
   @override
   void connectionOpened(String app) {
     _of(app).connections++;
-    _timer ??= Timer.periodic(interval, (_) => flush().ignore());
+    _timer ??= runDetached(
+      () => Timer.periodic(interval, (_) => flush().ignore()),
+      name: 'pusher metrics flush',
+    );
   }
 
   @override
@@ -236,7 +243,7 @@ final class ReverbStats extends PusherObserver {
     }
     if (connections == 0) {
       // One last report with the zero, then quiet until the next client.
-      _timer?.cancel();
+      _timer?.cancel().ignore();
       _timer = null;
       flush().ignore();
     }
@@ -309,7 +316,7 @@ final class ReverbStats extends PusherObserver {
 
   /// Stops the timer (application shutdown).
   void close() {
-    _timer?.cancel();
+    _timer?.cancel().ignore();
     _timer = null;
   }
 

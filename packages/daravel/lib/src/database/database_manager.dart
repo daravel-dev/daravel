@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import '../foundation/cancellation.dart';
 import '../foundation/clock.dart';
 import '../foundation/container.dart';
+import '../foundation/detached.dart';
 import '../foundation/shared_result.dart';
 import '../foundation/exceptions.dart';
 import '../logging/logger.dart';
@@ -94,6 +95,11 @@ final class DatabaseManager {
         if (driver.sessionIds() case final ids when ids.isNotEmpty) key: ids,
   };
 
+  /// A connection in logs: its name, then its driver (`[sqlite] (pgsql)`
+  /// when `DB_URL` gives the connection named `sqlite` a PostgreSQL URL).
+  String _described(String name) =>
+      '[$name] (${config.connections[name]?.driver ?? 'unknown'})';
+
   /// Returns the (lazily connected) driver for [name] or the default
   /// connection.
   Future<DatabaseDriver> connection([String? name]) {
@@ -109,18 +115,26 @@ final class DatabaseManager {
     // In a microtask, so that it is registered below before it can finish:
     // a factory that throws (a secret not there yet) ended it at once, its
     // `finally` removed nothing, and the failure stayed cached for good.
+    // Detached: the connection outlives the request that opens it, and its
+    // socket's listeners would live on in that request's zone (its log
+    // context, its cancellation token; Review #149).
     final shared = SharedResult<DatabaseDriver>(
-      () => Future<DatabaseDriver>.microtask(() async {
-        try {
-          final driver = _createDriver(connectionName);
-          await driver.connect();
-          _connections[connectionName] = driver;
-          _logger?.debug('Database connection [$connectionName] opened.');
-          return driver;
-        } finally {
-          _connecting.remove(connectionName);
-        }
-      }),
+      () => runDetachedAsync(
+        () => Future<DatabaseDriver>.microtask(() async {
+          try {
+            final driver = _createDriver(connectionName);
+            await driver.connect();
+            _connections[connectionName] = driver;
+            _logger?.debug(
+              'Database connection ${_described(connectionName)} opened.',
+            );
+            return driver;
+          } finally {
+            _connecting.remove(connectionName);
+          }
+        }),
+        name: 'database connection [$connectionName]',
+      ).value,
     );
     _connecting[connectionName] = shared;
     return shared.value;
@@ -757,7 +771,9 @@ final class DatabaseManager {
     for (final driver in drivers) {
       try {
         await driver.close().timeout(timeout);
-        _logger?.debug('Database connection [${driver.name}] closed.');
+        _logger?.debug(
+          'Database connection ${_described(driver.name)} closed.',
+        );
       } on TimeoutException {
         _logger?.warning(
           'Database connection [${driver.name}] did not close within '

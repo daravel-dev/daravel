@@ -14,8 +14,8 @@ final String? pgUrl = Platform.environment['DARAVEL_TEST_PG'];
 final String marksPath =
     '${Directory.systemTemp.path}${Platform.pathSeparator}horizon_pg_marks_$pid.txt';
 
-/// Blocks its worker on its first attempt, inside a transaction holding a
-/// row lock; the next attempt updates the same row.
+/// Blocks its worker past its timeout on its first attempt, inside a
+/// transaction holding a row lock; the next attempt updates the same row.
 final class Locker extends Job {
   const Locker();
   @override
@@ -110,10 +110,15 @@ void main() {
               queues: [QueueName('a')],
               balance: BalanceStrategy.off,
               maxProcesses: 1,
+              // The first attempt blocks 20 s inside its transaction: the
+              // master kills it past its timeout (2 s + killGrace 1 s), well
+              // inside retry_after (90 s), so the job is reclaimed at once.
+              timeout: Duration(seconds: 2),
               sleep: Duration(milliseconds: 50),
             ),
           ],
           heartbeat: const Duration(milliseconds: 200),
+          killGrace: const Duration(seconds: 1),
         ),
         driver: (c) => app.container.make<QueueManager>().connection(c),
         terminateSession: (connection, id) async {
@@ -143,7 +148,9 @@ void main() {
       }
       final finishedAt = DateTime.now();
       final killed = events.where((e) => e.$1 == 'WorkerKilled').single.$2;
-      expect(killed['reason'], 'lease');
+      expect(killed['reason'], 'timeout');
+      final timedOut = events.where((e) => e.$1 == 'JobTimedOut').single.$2;
+      expect(timedOut['reclaimed'], isTrue, reason: 'reclaimed, not left');
       expect(killed['sessionsTerminated'], greaterThanOrEqualTo(1));
       expect(killed['failed'], 0);
       expect(

@@ -56,6 +56,11 @@ abstract class Job {
   bool get deleteWhenMissingModels => false;
 
   /// Whether a timeout fails the job immediately instead of retrying.
+  ///
+  /// Under `daravel_horizon`, a job that blocks its isolate past its
+  /// timeout (synchronous work the processor cannot interrupt) has its
+  /// worker killed by the master, and is tried again until its tries are
+  /// used up, whatever this says.
   bool get failOnTimeout => false;
 
   /// Middleware wrapping [handle]: [WithoutOverlapping], [RateLimitedJob]...

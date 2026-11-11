@@ -6,16 +6,41 @@ import 'package:daravel/daravel.dart';
 import 'package:daravel_horizon/daravel_horizon.dart';
 import 'package:test/test.dart';
 
-final String dbPath =
-    '${Directory.systemTemp.path}${Platform.pathSeparator}horizon_master_$pid.sqlite';
+final String _temp = '${Directory.systemTemp.path}${Platform.pathSeparator}';
+
+/// Where the running test's database file is named, for the worker
+/// isolates (they build their application from this file's top-level
+/// code, so they read it rather than share a variable).
+final String _dbMarker = '${_temp}horizon_master_db_$pid.txt';
+
+/// The running test's database: a file of its own per test. A worker the
+/// master killed keeps its SQLite handle open while the process lives, and
+/// on Windows such a file cannot be deleted; the next test must not need
+/// to (one stalled test used to fail every later one in `setUp`).
+String get dbPath {
+  final marker = File(_dbMarker);
+  return marker.existsSync()
+      ? marker.readAsStringSync()
+      : '${_temp}horizon_master_$pid.sqlite';
+}
+
 final String marksPath =
     '${Directory.systemTemp.path}${Platform.pathSeparator}horizon_master_marks_$pid.txt';
 
 /// Blocks its isolate's event loop (no heartbeat) on its first attempt.
 final class Hang extends Job {
   const Hang(this.label, {this.ms = 0});
-  factory Hang.fromJson(Map<String, Object?> json) =>
-      Hang(json['label']! as String, ms: (json['ms'] as num?)?.toInt() ?? 0);
+  factory Hang.fromJson(Map<String, Object?> json) {
+    final label = json['label']! as String;
+    if (label == 'stuck-pop' && !File(stuckPath).existsSync()) {
+      // Blocks between the pop and the JobProcessing report, once: the
+      // master sees an idle worker that stopped answering.
+      File(stuckPath).writeAsStringSync('');
+      final watch = Stopwatch()..start();
+      while (watch.elapsed < const Duration(seconds: 3)) {}
+    }
+    return Hang(label, ms: (json['ms'] as num?)?.toInt() ?? 0);
+  }
   final String label;
   final int ms;
   @override
@@ -23,13 +48,35 @@ final class Hang extends Job {
   @override
   int get tries => 3;
   @override
+  List<JobMiddleware> get middleware =>
+      label == 'released' ? const [_ReleaseFirst()] : const [];
+  @override
   Map<String, Object?> toJson() => {'label': label, 'ms': ms};
   @override
   Future<void> handle(JobContext ctx) async {
+    if (label == 'cap') {
+      // Each execution's start, to check that none overlaps another.
+      File(startsPath).writeAsStringSync(
+        '${ctx.attempt}@${DateTime.now().millisecondsSinceEpoch}'
+        '${String.fromCharCode(10)}',
+        mode: FileMode.append,
+      );
+      if (ctx.attempt == 1) {
+        final watch = Stopwatch()..start();
+        while (watch.elapsed < const Duration(milliseconds: 2500)) {}
+      }
+    }
     if (label == 'boom') {
       // Brings its worker down on every attempt.
       Isolate.current.kill(priority: Isolate.immediate);
       await Completer<void>().future;
+    }
+    if (label == 'slow' || label == 'over') {
+      // Synchronous work on every attempt (a PDF, a big JSON), from the
+      // handler's first line: 5 s, or 6 s for one past its timeout.
+      final watch = Stopwatch()..start();
+      final length = Duration(seconds: label == 'slow' ? 5 : 6);
+      while (watch.elapsed < length) {}
     }
     if (label == 'hang' && ctx.attempt == 1) {
       final watch = Stopwatch()..start();
@@ -43,18 +90,30 @@ final class Hang extends Job {
   }
 }
 
-Application masterApp() => Application.configure(basePath: _basePath())
-    .withEnv({
-      'APP_ENV': 'testing',
-      'DB_CONNECTION': 'sqlite',
-      'DB_DATABASE': dbPath,
-      'QUEUE_CONNECTION': 'database',
-      'CACHE_STORE': 'file',
-    })
-    .withLogLevel(LogLevel.error)
-    .withMigrations(const [CreateJobsTable(), CreateCacheTable()])
-    .withJobs([JobDefinition('hang', Hang.fromJson)])
-    .create();
+final String stuckPath =
+    '${Directory.systemTemp.path}${Platform.pathSeparator}horizon_master_stuck_$pid';
+final String startsPath =
+    '${Directory.systemTemp.path}${Platform.pathSeparator}horizon_master_starts_$pid';
+
+Application masterApp() => _masterApp('90s');
+
+/// Workers whose queue hands a reserved job to another after 3 s.
+Application shortRetryApp() => _masterApp('3s');
+
+Application _masterApp(String retryAfter) =>
+    Application.configure(basePath: _basePath())
+        .withEnv({
+          'APP_ENV': 'testing',
+          'DB_CONNECTION': 'sqlite',
+          'DB_DATABASE': dbPath,
+          'QUEUE_CONNECTION': 'database',
+          'QUEUE_RETRY_AFTER': retryAfter,
+          'CACHE_STORE': 'file',
+        })
+        .withLogLevel(LogLevel.error)
+        .withMigrations(const [CreateJobsTable(), CreateCacheTable()])
+        .withJobs([JobDefinition('hang', Hang.fromJson)])
+        .create();
 
 /// The marks the jobs wrote. Several worker isolates append to one file at
 /// once, and on Windows some appends are lost: check what a mark says, never
@@ -86,10 +145,13 @@ void main() {
   // out (it is quiet otherwise).
   final masterLog = StringBuffer();
 
+  var tests = 0;
   setUp(() async {
     events.clear();
     masterLog.clear();
-    for (final path in [dbPath, marksPath]) {
+    File(_dbMarker)
+        .writeAsStringSync('${_temp}horizon_master_${pid}_${++tests}.sqlite');
+    for (final path in [dbPath, marksPath, stuckPath, startsPath]) {
       if (File(path).existsSync()) {
         File(path).deleteSync();
       }
@@ -99,7 +161,22 @@ void main() {
     await app.run(() => App.make<Migrator>().run());
   });
 
-  tearDown(() => app.shutdown());
+  tearDown(() async {
+    await app.shutdown();
+    // Best effort: a killed worker may still hold it (see dbPath).
+    try {
+      File(dbPath).deleteSync();
+    } on FileSystemException {
+      // Left for the temporary directory's own cleanup.
+    }
+  });
+  tearDownAll(() {
+    try {
+      File(_dbMarker).deleteSync();
+    } on FileSystemException {
+      // Already gone.
+    }
+  });
 
   // The process's coordinator with Horizon's store, shared with the
   // workers (as `withCoordinatorService` registers it).
@@ -109,16 +186,24 @@ void main() {
   );
   tearDown(() => coordinator.close());
 
-  HorizonMaster master(SupervisorPlan plan) => HorizonMaster(
-    masterApp,
+  HorizonMaster master(
+    SupervisorPlan plan, {
+    Duration heartbeat = const Duration(milliseconds: 100),
+    Duration killGrace = const Duration(seconds: 10),
+    ApplicationFactory factory = masterApp,
+    Application? driverApp,
+  }) => HorizonMaster(
+    factory,
     HorizonConfig(
       plans: [plan],
-      heartbeat: const Duration(milliseconds: 100),
+      heartbeat: heartbeat,
+      killGrace: killGrace,
       // A short target wait, so a backlog of 20 ms jobs needs workers.
       waits: const {'database:a': Duration(seconds: 1)},
     ),
-    driver: (connection) =>
-        app.container.make<QueueManager>().connection(connection),
+    driver: (connection) => (driverApp ?? app).container
+        .make<QueueManager>()
+        .connection(connection),
     logger: Logger(
       minimumLevel: LogLevel.warning,
       out: masterLog,
@@ -198,6 +283,14 @@ void main() {
           balanceCooldown: Duration(milliseconds: 300),
           sleep: Duration(milliseconds: 50),
         ),
+        // Not about kills: a heartbeat a loaded runner keeps up with (at
+        // 100 ms its lease is 400 ms, and healthy workers were killed one
+        // after another on a stalled Windows runner)...
+        heartbeat: const Duration(milliseconds: 500),
+        // ...and a job a killed worker had reserved but not reported yet
+        // (the master cannot reclaim it) back within the test, not after
+        // the default 90 s.
+        factory: shortRetryApp,
       );
       addTearDown(() => m.stop(timeout: const Duration(seconds: 20)));
       await m.start();
@@ -258,20 +351,75 @@ void main() {
     },
   );
 
+  List<Map<String, Object?>> eventsNamed(String name) => [
+    for (final (event, data) in events)
+      if (event == name) data,
+  ];
+
+  SupervisorPlan plan({Duration? timeout, int? tries}) => SupervisorPlan(
+    name: const SupervisorName('s'),
+    queues: const [QueueName('a')],
+    balance: BalanceStrategy.off,
+    maxProcesses: 1,
+    timeout: timeout,
+    tries: tries,
+    sleep: const Duration(milliseconds: 50),
+  );
+
   test(
-    'a worker that stops answering is killed and its job reclaimed at '
-    'once',
+    'a job blocking its isolate (5 s, heartbeat 1 s, timeout 60 s) finishes '
+    'once: no kill, no rerun; the master knew it started, and shows the '
+    'worker busy, not lost',
+    timeout: const Timeout(Duration(minutes: 2)),
+    () async {
+      await app.run(() => Queue.push(const Hang('slow'), queue: 'a'));
+      final m = master(
+        plan(timeout: const Duration(seconds: 60)),
+        heartbeat: const Duration(seconds: 1),
+      );
+      addTearDown(() => m.stop(timeout: const Duration(seconds: 20)));
+      await m.start();
+      Map<String, Object?>? worker() {
+        final workers =
+            (m.status()['supervisors']! as Map<String, Object?>)['s']
+                as List<Object?>?;
+        return workers == null || workers.isEmpty
+            ? null
+            : workers.first! as Map<String, Object?>;
+      }
+
+      // The job blocks from the first line of handle: the report made when
+      // it started (JobProcessing, before the middleware and handle) is
+      // all the master hears, and enough.
+      await until(
+        () => worker()?['silentMs'] != null,
+        'the busy worker shown as not reporting',
+        diagnose: () => diagnosis(m, 's', {'status': m.status()}),
+      );
+      expect(worker()!['busy'], isTrue);
+      expect(m.workers('s').single.last?.jobReservedAtMs, isNotNull);
+      await until(() => marks().contains('a:slow:1'), 'the job done');
+      // Time for a wrong kill or a rerun to show.
+      await Future<void>.delayed(const Duration(seconds: 3));
+      await m.stop(timeout: const Duration(seconds: 20));
+      expect(eventsNamed('WorkerKilled'), isEmpty);
+      expect(marks(), ['a:slow:1']);
+      expect(
+        await app.run(() async => (await DB.table('failed_jobs').get()).length),
+        0,
+      );
+    },
+  );
+
+  test(
+    'a job blocking past its timeout is killed after timeout + killGrace '
+    '(reason timeout), reclaimed at once and tried again; not a crash',
     timeout: const Timeout(Duration(minutes: 2)),
     () async {
       await app.run(() => Queue.push(const Hang('hang'), queue: 'a'));
       final m = master(
-        const SupervisorPlan(
-          name: SupervisorName('s'),
-          queues: [QueueName('a')],
-          balance: BalanceStrategy.off,
-          maxProcesses: 1,
-          sleep: Duration(milliseconds: 50),
-        ),
+        plan(timeout: const Duration(seconds: 2)),
+        killGrace: const Duration(seconds: 1),
       );
       final watch = Stopwatch()..start();
       addTearDown(() => m.stop(timeout: const Duration(seconds: 20)));
@@ -279,16 +427,241 @@ void main() {
       await until(
         () => marks().contains('a:hang:2'),
         'attempt 2 on a new worker',
+        diagnose: () => diagnosis(m, 's', const {}),
       );
       // retry_after is 90 s: only the reclaim brings it back this soon.
       expect(watch.elapsed, lessThan(const Duration(seconds: 30)));
-      final killed = [
-        for (final (event, data) in events)
-          if (event == 'WorkerKilled') data,
-      ];
-      expect(killed.single['reason'], 'lease');
+      expect(watch.elapsed, greaterThan(const Duration(seconds: 3)));
+      final killed = eventsNamed('WorkerKilled');
+      expect(killed.single['reason'], 'timeout');
       expect(killed.single['job'], isNotNull);
+      final timedOut = eventsNamed('JobTimedOut').single;
+      expect(timedOut['attempt'], 1);
+      expect(timedOut['limitSeconds'], 3);
+      expect(timedOut['reclaimed'], isTrue);
+      expect(eventsNamed('JobQuarantined'), isEmpty);
+      expect(m.status()['timedOut'], hasLength(1));
       await m.stop(timeout: const Duration(seconds: 20));
+    },
+  );
+
+  test(
+    'tries 2: each attempt past its timeout is killed and counted once, then '
+    'the job fails as after a timeout (failed_jobs, not quarantined)',
+    timeout: const Timeout(Duration(minutes: 2)),
+    () async {
+      await app.run(() => Queue.push(const Hang('over'), queue: 'a'));
+      final m = master(
+        plan(timeout: const Duration(seconds: 2), tries: 2),
+        killGrace: const Duration(seconds: 1),
+      );
+      addTearDown(() => m.stop(timeout: const Duration(seconds: 20)));
+      await m.start();
+      // The table is read between polls (`until` takes a getter).
+      var rows = const <Map<String, Object?>>[];
+      final deadline = DateTime.now().add(const Duration(seconds: 60));
+      while (rows.isEmpty && DateTime.now().isBefore(deadline)) {
+        rows = await app.run(() => DB.table('failed_jobs').get());
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+      }
+      await m.stop(timeout: const Duration(seconds: 20));
+      expect(rows, hasLength(1), reason: await diagnosis(m, 's', const {}));
+      expect(
+        '${rows.single['exception']}',
+        contains('attempted too many times'),
+      );
+      final killed = eventsNamed('WorkerKilled');
+      expect(killed.map((k) => k['reason']), ['timeout', 'timeout']);
+      expect(eventsNamed('JobTimedOut').map((t) => t['attempt']), [
+        1,
+        2,
+      ], reason: 'each attempt counted once');
+      expect(eventsNamed('JobQuarantined'), isEmpty);
+      expect(marks(), isEmpty, reason: 'no attempt finished');
+      expect(await app.run(() => Queue.size('a')), 0);
+    },
+  );
+
+  test(
+    'a job that leaves without a lifecycle event (unknown name, tries used '
+    'up on its pop, released by middleware) leaves the worker idle: no kill '
+    'once its limit has passed',
+    timeout: const Timeout(Duration(minutes: 2)),
+    () async {
+      // Each alone: a later job's own events would clear a report left
+      // behind and hide it.
+      for (final (what, push, handled)
+          in <(String, Future<void> Function(), Future<bool> Function())>[
+            (
+              'an unknown job name',
+              () => Queue.push(const _Stranger(), queue: 'a'),
+              () async => (await DB.table('failed_jobs').get()).length == 1,
+            ),
+            (
+              'tries used up on its pop',
+              () async {
+                await Queue.push(const Hang('used-up'), queue: 'a');
+                await DB.table('jobs').update({'attempts': 3});
+              },
+              () async => (await DB.table('failed_jobs').get()).length == 1,
+            ),
+            (
+              'released by middleware, unrun',
+              () => Queue.push(const Hang('released'), queue: 'a'),
+              () async {
+                final row = await DB.table('jobs').first();
+                return row != null &&
+                    row['reserved_at'] == null &&
+                    row['attempts'] == 1;
+              },
+            ),
+          ]) {
+        await app.run(() async {
+          await DB.table('jobs').delete();
+          await DB.table('failed_jobs').delete();
+          await push();
+        });
+        events.clear();
+        // A limit of 2 s from the reservation (timeout 1 s + killGrace 1 s).
+        final m = master(
+          plan(timeout: const Duration(seconds: 1)),
+          killGrace: const Duration(seconds: 1),
+        );
+        await m.start();
+        final deadline = DateTime.now().add(const Duration(seconds: 30));
+        while (!await app.run(handled) && DateTime.now().isBefore(deadline)) {
+          await Future<void>.delayed(const Duration(milliseconds: 100));
+        }
+        expect(await app.run(handled), isTrue, reason: what);
+        // Past its limit: a report left behind would have the master kill
+        // the idle worker now.
+        await Future<void>.delayed(const Duration(seconds: 3));
+        expect(eventsNamed('WorkerKilled'), isEmpty, reason: what);
+        expect(m.workers('s').single.busy, isFalse, reason: what);
+        await m.stop(timeout: const Duration(seconds: 20));
+      }
+      expect(marks(), isEmpty, reason: 'none of them ran');
+    },
+  );
+
+  test(
+    'a worker blocked in a job\'s fromJson is known to run that job (it '
+    'reported it at the reservation): killed past its timeout, the job '
+    'reclaimed at once, not after retry_after',
+    timeout: const Timeout(Duration(minutes: 2)),
+    () async {
+      await app.run(() => Queue.push(const Hang('stuck-pop'), queue: 'a'));
+      // retry_after is 90 s: only a reclaim brings attempt 2 this soon.
+      final m = master(
+        plan(timeout: const Duration(seconds: 1)),
+        killGrace: const Duration(seconds: 1),
+      );
+      final watch = Stopwatch()..start();
+      addTearDown(() => m.stop(timeout: const Duration(seconds: 20)));
+      await m.start();
+      await until(
+        () => marks().contains('a:stuck-pop:2'),
+        'the job done on its second attempt',
+        diagnose: () => diagnosis(m, 's', const {}),
+      );
+      expect(watch.elapsed, lessThan(const Duration(seconds: 30)));
+      final killed = eventsNamed('WorkerKilled');
+      expect(killed.single['reason'], 'timeout');
+      expect(
+        killed.single['job'],
+        isNotNull,
+        reason: 'the worker reported the job when it reserved it',
+      );
+      expect(eventsNamed('JobTimedOut').single['reclaimed'], isTrue);
+      await m.stop(timeout: const Duration(seconds: 20));
+    },
+  );
+
+  test(
+    'retry_after caps the limit: the blocked worker is killed a margin '
+    'before it (reason timeout), and its job left to retry_after',
+    timeout: const Timeout(Duration(minutes: 2)),
+    () async {
+      // The master reads retry_after (3 s) from the connection it watches.
+      final short = shortRetryApp();
+      await short.boot();
+      addTearDown(short.shutdown);
+      await app.run(() => Queue.push(const Hang('over'), queue: 'a'));
+      final m = master(
+        plan(timeout: const Duration(seconds: 60)),
+        driverApp: short,
+      );
+      final watch = Stopwatch()..start();
+      addTearDown(() => m.stop(timeout: const Duration(seconds: 20)));
+      await m.start();
+      await until(
+        () => eventsNamed('JobTimedOut').isNotEmpty,
+        'the kill before retry_after',
+        diagnose: () => diagnosis(m, 's', const {}),
+      );
+      // The job blocks 6 s; the kill came at 3 s less the margin (1 s),
+      // not at 60 s + killGrace.
+      expect(watch.elapsed, lessThan(const Duration(seconds: 6)));
+      expect(eventsNamed('WorkerKilled').first['reason'], 'timeout');
+      final timedOut = eventsNamed('JobTimedOut').first;
+      expect(timedOut['limitSeconds'], 2);
+      expect(timedOut['reclaimed'], isFalse);
+      expect(timedOut['leftToRetryAfter'], isTrue);
+      await m.stop(timeout: const Duration(seconds: 20));
+    },
+  );
+
+  test(
+    'with two workers and retry_after 3 s, a job killed at the cap runs '
+    'exactly twice and never beside itself: no reclaim after the limit',
+    timeout: const Timeout(Duration(minutes: 2)),
+    () async {
+      final short = shortRetryApp();
+      await short.boot();
+      addTearDown(short.shutdown);
+      await app.run(() => Queue.push(const Hang('cap'), queue: 'a'));
+      // Workers whose queue hands a reserved job to another after 3 s, as
+      // the master's own connection says.
+      final m = master(
+        SupervisorPlan(
+          name: const SupervisorName('s'),
+          queues: const [QueueName('a')],
+          balance: BalanceStrategy.off,
+          minProcesses: 2,
+          maxProcesses: 2,
+          timeout: const Duration(seconds: 60),
+          sleep: const Duration(milliseconds: 50),
+        ),
+        factory: shortRetryApp,
+        driverApp: short,
+      );
+      addTearDown(() => m.stop(timeout: const Duration(seconds: 20)));
+      await m.start();
+      await until(
+        () => marks().contains('a:cap:2'),
+        'attempt 2 after retry_after',
+        diagnose: () => diagnosis(m, 's', const {}),
+      );
+      // Time for a third execution to show, if a reclaim freed attempt 2.
+      await Future<void>.delayed(const Duration(seconds: 4));
+      await m.stop(timeout: const Duration(seconds: 20));
+      final starts = [
+        for (final line in File(startsPath).readAsLinesSync())
+          (int.parse(line.split('@')[0]), int.parse(line.split('@')[1])),
+      ];
+      expect(starts.map((s) => s.$1), [1, 2], reason: 'exactly two runs');
+      // Attempt 1 ran until its kill, 2 s (the cap) after it started:
+      // attempt 2 began after that, so the two never ran side by side. It
+      // came from the driver's retry_after, not from a reclaim (below).
+      expect(
+        starts[1].$2 - starts[0].$2,
+        greaterThanOrEqualTo(2000),
+        reason: 'attempt 2 started after attempt 1 was killed',
+      );
+      final timedOut = eventsNamed('JobTimedOut').single;
+      expect(timedOut['reclaimed'], isFalse);
+      expect(timedOut['leftToRetryAfter'], isTrue);
+      expect(marks(), ['a:cap:2']);
     },
   );
 
@@ -466,3 +839,25 @@ void main() {
 String _basePath() => (Directory(
   '${Directory.systemTemp.path}${Platform.pathSeparator}horizon_master_base_$pid',
 )..createSync(recursive: true)).path;
+
+/// Releases the job for an hour without running it (as a rate limit or
+/// `WithoutOverlapping` does): a way out with no lifecycle event after
+/// `JobProcessing`.
+final class _ReleaseFirst implements JobMiddleware {
+  const _ReleaseFirst();
+
+  @override
+  Future<void> handle(JobContext ctx, Job job, JobNext next) async =>
+      ctx.release(const Duration(hours: 1));
+}
+
+/// A job the workers' registry does not know: it fails before it runs.
+final class _Stranger extends Job {
+  const _Stranger();
+  @override
+  String get jobName => 'stranger';
+  @override
+  Map<String, Object?> toJson() => const {};
+  @override
+  Future<void> handle(JobContext ctx) async {}
+}
