@@ -210,6 +210,23 @@ void main() {
     expect(() => Item.definition.query(db: db).where(gte, 5), throwsA(refusal));
   });
 
+  test('the absent marker is no argument; an explicit null is one', () {
+    // where's defaults are QueryBuilder.absent (argument counting, as
+    // PHP's func_num_args), so a condition alone must pass and any
+    // argument given, null included, must be refused.
+    final refusal = throwsA(isA<ArgumentError>());
+    final gte = Item.cols.qty.gte(3);
+    final query = Item.definition.query(db: db);
+    expect(() => db.table('items').where(gte), returnsNormally);
+    expect(() => db.table('items').orWhere(gte), returnsNormally);
+    expect(() => query.where(gte).orWhere(gte), returnsNormally);
+    expect(() => db.table('items').where(gte, null), refusal);
+    expect(() => db.table('items').where(gte, '=', null), refusal);
+    expect(() => db.table('items').orWhere(gte, null), refusal);
+    expect(() => query.where(gte, null), refusal);
+    expect(() => query.orWhere(gte, null, null), refusal);
+  });
+
   test('ModelQuery and the model statics take conditions', () async {
     final names = await Item.definition
         .query(db: db)

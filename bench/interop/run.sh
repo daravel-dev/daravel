@@ -12,6 +12,9 @@
 #    broadcasts through Daravel and reads its channels API.
 # C. Daravel with BROADCAST_CONNECTION=reverb broadcasts through Laravel
 #    Reverb, and Echo, connected to Reverb, receives it.
+# A2, C2. daravel_reverb_client (Dart, interop/echo_dart_test.dart): the
+#    scenarios of A against Daravel, and against Laravel Reverb with the
+#    Daravel application of C authorizing and publishing.
 # D. Two Daravel servers with REVERB_SCALING_ENABLED (one database): Echo
 #    connected to one receives an event published on the other.
 # E. Limits: the third connection over REVERB_APP_MAX_CONNECTIONS=2 gets
@@ -34,6 +37,9 @@ KEYS=(-e REVERB_APP_ID=app1 -e REVERB_APP_KEY=key1 -e REVERB_APP_SECRET=secret1
 
 # A copy of the working tree, so the container's `pub get` never touches
 # the checkout's .dart_tool; its files are root's, so a container removes it.
+# $WORK is made first: a bind mount of a missing directory creates it as
+# root, and the mkdir below then fails.
+mkdir -p "$WORK"
 docker run --rm -v "$WORK:/w" dart:stable rm -rf /w/src >/dev/null
 mkdir -p "$WORK/src" "$WORK/pub-cache" "$WORK/npm"
 tar -C "$REPO" --exclude=.git --exclude=.dart_tool --exclude=build \
@@ -73,6 +79,11 @@ echo_client() { # env... (runs echo_test.mjs)
       cp /test/echo_test.mjs . && node echo_test.mjs'
 }
 
+dart_client() { # env... (runs echo_dart_test.dart: daravel_reverb_client)
+  docker run --rm --network host -v "$WORK/src:/src" -v "$WORK/pub-cache:/root/.pub-cache" \
+    -w /src/bench "$@" dart:stable sh -c 'dart pub get >/dev/null 2>&1; dart run interop/echo_dart_test.dart'
+}
+
 listener() { # port event output: waits until subscribed
   echo_client -e PORT="$1" -e KEY=key1 -e MODE=listen -e EVENT="$2" >"$3" 2>&1 &
   for _ in $(seq 1 120); do
@@ -91,6 +102,9 @@ status=0
 echo "== A: Laravel Echo and pusher-js against Daravel"
 daravel daravel-interop 18700 || exit 1
 echo_client -e PORT=18700 -e KEY=key1 || status=1
+
+echo "== A2: daravel_reverb_client (Dart) against Daravel"
+dart_client -e PORT=18700 -e KEY=key1 || status=1
 
 echo "== B: Laravel broadcasts through Daravel"
 listener 18700 .FromLaravel "$WORK/b.out" || exit 1
@@ -115,6 +129,9 @@ curl -s -o /dev/null -X POST http://127.0.0.1:18701/api/publish
 wait
 cat "$WORK/c.out"
 grep -q "1 passed, 0 failed" "$WORK/c.out" || status=1
+
+echo "== C2: daravel_reverb_client (Dart) against Laravel Reverb (the Daravel app authorizes and publishes)"
+dart_client -e PORT=18800 -e KEY=key1 -e API=http://127.0.0.1:18701 || status=1
 
 echo "== D: two Daravel servers, one database (REVERB_SCALING_ENABLED)"
 SCALE=(-e REVERB_SCALING_ENABLED=true -e DB_DATABASE=/src/build-scale.sqlite)

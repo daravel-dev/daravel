@@ -223,13 +223,25 @@ abstract final class Rules {
   /// `prohibited`: must be empty or absent.
   static Rule prohibited() => const ProhibitedRule();
 
-  /// `required_if`: required when [other] equals [value].
+  /// `required_if:other,value`: required when [other] is [value], compared
+  /// as Laravel compares them (`'true'` matches a boolean input, `'null'`
+  /// a null one, `'5'` the number 5). A missing [other] never requires it.
   static Rule requiredIf(String other, Object? value) =>
       RequiredIfRule(other, value);
 
-  /// `required_unless`: required unless [other] equals [value].
+  /// `required_if:role,admin,owner`: required when [other] is one of
+  /// [values].
+  static Rule requiredIfIn(String other, List<Object?> values) =>
+      RequiredIfRule.oneOf(other, _atLeastOne('required_if', values));
+
+  /// `required_unless:other,value`: required unless [other] is [value].
   static Rule requiredUnless(String other, Object? value) =>
       RequiredUnlessRule(other, value);
+
+  /// `required_unless:role,guest,bot`: required unless [other] is one of
+  /// [values].
+  static Rule requiredUnlessIn(String other, List<Object?> values) =>
+      RequiredUnlessRule.oneOf(other, _atLeastOne('required_unless', values));
 
   /// `accepted`: `yes`, `on`, `1`, `true` (checkboxes, terms).
   static Rule accepted() => const AcceptanceRule('accepted', _isAccepted);
@@ -637,55 +649,209 @@ final class ProhibitedRule extends Rule {
       c.present && !isEmptyValue(c.value) ? 'prohibited' : null;
 }
 
-/// `required_if`: see [Rules.requiredIf].
+/// `required_if`: see [Rules.requiredIf] and [Rules.requiredIfIn].
 final class RequiredIfRule extends Rule {
-  /// Required when [other] equals [expected].
-  const RequiredIfRule(this.other, this.expected);
+  /// Required when [other] is [expected].
+  const RequiredIfRule(this.other, Object? expected)
+    : _one = expected,
+      _many = null;
+
+  /// Required when [other] is one of [values]
+  /// (`required_if:role,admin,owner`); use [Rules.requiredIfIn].
+  const RequiredIfRule.oneOf(this.other, List<Object?> values)
+    : _one = null,
+      _many = values;
+
+  final Object? _one;
+  final List<Object?>? _many;
 
   /// The field compared.
   final String other;
 
-  /// The value that makes this field required.
-  final Object? expected;
+  /// The values that make this field required, as written in the rule
+  /// (`true`, `null`, `5`), compared as Laravel compares them.
+  List<String> get values => [
+    for (final value in _many ?? [_one]) '$value',
+  ];
+
+  /// The first of [values].
+  Object? get expected => _many == null ? _one : _many.first;
+
   @override
   String get name => 'required_if';
   @override
   bool get implicit => true;
   @override
-  Map<String, Object?> get parameters => {'other': other, 'value': expected};
+  Map<String, Object?> get parameters => {
+    'other': other,
+    'value': values.first,
+  };
+
+  // Laravel's replaceRequiredIf is replaceAcceptedIf: `:value` is the
+  // other field's input.
+  @override
+  Map<String, Object?> parametersFor(ValidationContext context) =>
+      _otherParameters(context, other);
+
   @override
   String? passes(ValidationContext c) {
-    if ('${c.root(other)}' == '$expected' && isEmptyValue(c.value)) {
-      return 'required_if';
+    // 13.x ValidatesAttributes::validateRequiredIf (2189-2204): a missing
+    // other field never requires this one.
+    if (!c.has(other)) {
+      return null;
     }
-    return null;
+    return _dependentMatches(c, other, values) && isEmptyValue(c.value)
+        ? 'required_if'
+        : null;
   }
 }
 
-/// `required_unless`: see [Rules.requiredUnless].
+/// `required_unless`: see [Rules.requiredUnless] and
+/// [Rules.requiredUnlessIn].
 final class RequiredUnlessRule extends Rule {
-  /// Required unless [other] equals [expected].
-  const RequiredUnlessRule(this.other, this.expected);
+  /// Required unless [other] is [expected].
+  const RequiredUnlessRule(this.other, Object? expected)
+    : _one = expected,
+      _many = null;
+
+  /// Required unless [other] is one of [values]
+  /// (`required_unless:role,guest,bot`); use [Rules.requiredUnlessIn].
+  const RequiredUnlessRule.oneOf(this.other, List<Object?> values)
+    : _one = null,
+      _many = values;
+
+  final Object? _one;
+  final List<Object?>? _many;
 
   /// The field compared.
   final String other;
 
-  /// The value that makes this field optional.
-  final Object? expected;
+  /// The values that make this field optional, as written in the rule.
+  List<String> get values => [
+    for (final value in _many ?? [_one]) '$value',
+  ];
+
+  /// The first of [values].
+  Object? get expected => _many == null ? _one : _many.first;
+
   @override
   String get name => 'required_unless';
   @override
   bool get implicit => true;
   @override
-  Map<String, Object?> get parameters => {'other': other, 'values': expected};
+  Map<String, Object?> get parameters => {
+    'other': other,
+    'values': values.join(', '),
+  };
+
+  // Laravel's replaceRequiredUnless: the other field's display name and
+  // the rule's values, joined.
   @override
-  String? passes(ValidationContext c) {
-    if ('${c.root(other)}' != '$expected' && isEmptyValue(c.value)) {
-      return 'required_unless';
-    }
+  Map<String, Object?> parametersFor(ValidationContext context) => {
+    'other': context.displayName(other),
+    'values': values.join(', '),
+  };
+
+  @override
+  String? passes(ValidationContext c) =>
+      // 13.x ValidatesAttributes::validateRequiredUnless (2413-2424).
+      !_dependentMatches(c, other, values) && isEmptyValue(c.value)
+      ? 'required_unless'
+      : null;
+}
+
+/// [values], refused when empty as Laravel's `requireParameterCount(2)`.
+List<Object?> _atLeastOne(String rule, List<Object?> values) =>
+    values.isNotEmpty
+    ? List.unmodifiable(values)
+    : throw ArgumentError.value(
+        values,
+        'values',
+        'Validation rule $rule requires at least 2 parameters.',
+      );
+
+/// Whether [other]'s input is one of [values], as Laravel 13.x decides it:
+/// `parseDependentRuleParameters` (ValidatesAttributes.php 2470-2485)
+/// converts `'true'`/`'false'` to booleans when [other] has a `boolean`
+/// rule or its input is a bool, and `'null'` to null when the input is
+/// null; then `in_array($other, $values, is_bool($other) ||
+/// is_null($other))` compares strictly for a bool or null input and with
+/// PHP's loose `==` otherwise.
+bool _dependentMatches(ValidationContext c, String other, List<String> values) {
+  final input = c.root(other);
+  final toBool =
+      input is bool ||
+      c.booleans.contains(c.resolve(other)) ||
+      c.booleans.contains(other);
+  final converted = [
+    for (final value in values)
+      switch (value) {
+        'true' when toBool => true,
+        'false' when toBool => false,
+        _ when input == null && value.toLowerCase() == 'null' => null,
+        _ => value,
+      },
+  ];
+  if (input == null || input is bool) {
+    return converted.any(
+      (value) => value == input && (value == null) == (input == null),
+    );
+  }
+  return converted.any((value) => _phpLooseEquals(input, value));
+}
+
+/// PHP 8's `==` between an input value ([a]: a string, number, list or
+/// map) and a rule value ([b]: a string or a bool), for `in_array`
+/// without strict.
+bool _phpLooseEquals(Object a, Object? b) {
+  if (b is bool) {
+    return _phpTruthy(a) == b;
+  }
+  if (b is! String) {
+    return a == b;
+  }
+  final bNumber = _phpNumeric(b);
+  return switch (a) {
+    String() => switch ((_phpNumeric(a), bNumber)) {
+      (final num x, final num y) => x == y,
+      _ => a == b,
+    },
+    num() => bNumber != null ? a == bNumber : _phpNumberString(a) == b,
+    _ => false,
+  };
+}
+
+/// PHP's truthiness of an input value: `''`, `'0'`, `0`, `0.0` and an
+/// empty list or map are false.
+bool _phpTruthy(Object? value) => switch (value) {
+  null || false || '' || '0' => false,
+  num() => value != 0,
+  List<Object?>() => value.isNotEmpty,
+  Map<Object?, Object?>() => value.isNotEmpty,
+  _ => true,
+};
+
+/// The number of a PHP 8 numeric string (`'5'`, `' 1.5 '`, `'1e3'`,
+/// `'.5'`), `null` for any other (`'0x1A'`, `'1,5'`, `'abc'`).
+num? _phpNumeric(String value) {
+  final match = RegExp(
+    r'^[ \t\n\r\v\f]*([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)'
+    r'[ \t\n\r\v\f]*$',
+  ).firstMatch(value);
+  if (match == null) {
     return null;
   }
+  final text = match[1]!;
+  return text.contains(RegExp('[.eE]'))
+      ? double.parse(text.endsWith('.') ? '${text}0' : text)
+      : int.parse(text);
 }
+
+/// A number as PHP writes it in a string comparison (`1.0` is `'1'`).
+String _phpNumberString(num value) =>
+    value is double && value.isFinite && value == value.truncateToDouble()
+    ? value.toInt().toString()
+    : '$value';
 
 /// `parseDependentRuleParameters`: with a `boolean` rule on [other], `true`
 /// and `false` compare as booleans, so `'1'` matches `true`.
@@ -708,6 +874,8 @@ Map<String, Object?> _otherParameters(ValidationContext c, String other) => {
   'value': switch (c.root(other)) {
     null => 'empty',
     List<Object?>() || Map<Object?, Object?>() => 'array',
+    // getDisplayableValue's (string) cast: 5.0 is "5", as PHP writes it.
+    final num value => _phpNumberString(value),
     final value => '$value',
   },
 };

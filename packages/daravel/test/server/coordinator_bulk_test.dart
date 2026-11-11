@@ -701,6 +701,13 @@ void main() {
       await until(() => held.received.isNotEmpty, 'the first call');
       const rounds = 20;
       const lanes = 8;
+      // The storm is judged on a clock the test holds still: each tick then
+      // comes "less than the spacing" after the previous one, as on an idle
+      // machine. On the wall clock, a loaded machine (CI) can deschedule
+      // the isolate for over a millisecond between two ticks, which the
+      // rule rightly counts as no storm (seen: 18 storm ticks of 20).
+      RemoteCoordinatorChannel.refusalClockForTesting = () => 0;
+      addTearDown(() => RemoteCoordinatorChannel.refusalClockForTesting = null);
       final before = RemoteCoordinatorChannel.refusalTickCounts;
       Future<void> lane() async {
         for (var i = 0; i < rounds; i++) {
