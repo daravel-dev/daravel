@@ -33,7 +33,10 @@ void main() {
 
 @reflectiveTest
 class NoSqlStringInterpolationTest extends AnalysisRuleTest {
-  // The `whereRaw` call starts at 98; its interpolated SQL at 111.
+  // The lint points at the interpolated SQL literal. Its offset is taken
+  // from the text the analyzer sees: `newFile` normalizes line endings to
+  // the platform's (`\r\n` on Windows), so a fixed number holds on one
+  // platform only.
   static String _query([String comment = '']) =>
       '''
 class Db {
@@ -53,10 +56,11 @@ Future<void> f(Db db, String id) => db.whereRaw('id = \$id');$comment
 
   Future<void> test_reports_on_the_node_with_the_rule_message() async {
     newFile(_appFile, _query());
+    final sql = normalizeSource(_query()).indexOf("'id = ");
     await assertDiagnosticsInFile(_appFile, [
       lint(
-        111,
-        10,
+        sql,
+        "'id = \$id'".length,
         messageContainsAll: [
           'SQL passed to whereRaw is built with interpolation',
         ],
