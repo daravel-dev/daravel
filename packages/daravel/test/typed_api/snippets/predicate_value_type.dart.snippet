@@ -1,0 +1,8 @@
+// expect: argument_type_not_assignable @7
+import 'package:daravel/daravel.dart';
+
+import '_models.dart';
+
+void f() {
+  User.definition.query().where(User.cols.age.gte('18'));
+}

@@ -1,0 +1,9 @@
+// expect: undefined_instance_member_read @8
+import 'package:daravel/daravel.dart';
+
+import '_models.dart';
+
+void f() {
+  final ModelQuery<User> query = User.definition.query();
+  query.where(User.cols.id.startsWith('1'));
+}

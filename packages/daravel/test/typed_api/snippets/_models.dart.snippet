@@ -13,6 +13,7 @@ final class User extends Model {
   static const cols = (
     id: ModelColumn<User, int>('id'),
     email: ModelColumn<User, String>('email'),
+    age: ModelColumn<User, int?>('age'),
     createdAt: ModelColumn<User, DateTime?>('created_at'),
   );
 }
