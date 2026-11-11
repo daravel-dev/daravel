@@ -2,7 +2,7 @@
 // Do not edit; run `dart run tool/docs/generate.dart`.
 
 /// `docs/guide/id/routing.md`.
-const String pageIdRouting = r'''<!-- source: routing.md sha256:d962973353d3 -->
+const String pageIdRouting = r'''<!-- source: routing.md sha256:c76ddcad0ef3 -->
 # Routing
 
 Route didaftarkan di `routes/api.dart` (di-mount di bawah `/api`) dan
@@ -182,8 +182,9 @@ r.patch('/posts/{post}', update).middleware([
 
 Setiap token adalah string alias itu sendiri, jadi token dan string bisa
 dicampur dalam satu list. `Mw` mencakup alias yang didaftarkan Daravel
-(`auth`, `can`, `throttle`, `cache.headers`, `feature`, `signed`); paket yang
-mendaftarkan alias sendiri menyediakan tokennya sendiri.
+(`auth`, `can`, `throttle`, `cache.headers`, `feature`, `signed`). Alias yang
+didaftarkan paket (`role`, `permission`, `session`, `csrf`, `teobiefy`, ...)
+ditulis sebagai string: paket-paket itu belum punya token.
 
 ## Rate limiting
 

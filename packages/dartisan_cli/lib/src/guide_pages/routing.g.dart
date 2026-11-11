@@ -169,8 +169,9 @@ r.patch('/posts/{post}', update).middleware([
 
 Each token is the alias string itself, so tokens and strings mix in one
 list. `Mw` covers the aliases Daravel registers (`auth`, `can`, `throttle`,
-`cache.headers`, `feature`, `signed`); a package that registers its own
-aliases offers its own tokens.
+`cache.headers`, `feature`, `signed`). The aliases a package registers
+(`role`, `permission`, `session`, `csrf`, `teobiefy`, ...) are written as
+strings: those packages have no tokens yet.
 
 An exception becomes a response where it was thrown, so outer middleware still
 finish and a `try` around `next` catches nothing. Read `response.exception`

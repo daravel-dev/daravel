@@ -1,4 +1,4 @@
-<!-- source: routing.md sha256:d962973353d3 -->
+<!-- source: routing.md sha256:c76ddcad0ef3 -->
 # Routing
 
 Route didaftarkan di `routes/api.dart` (di-mount di bawah `/api`) dan
