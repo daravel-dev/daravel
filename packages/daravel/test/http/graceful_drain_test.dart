@@ -69,6 +69,7 @@ Application drainApp() =>
           apiPrefix: '',
           api: (router) => router
             ..get('/ping', (_) => 'pong')
+            ..ws('/ws', (socket, _) => socket.add('hello'))
             // Its headers go out at once, its body over half a second.
             ..get(
               '/stream',
@@ -238,6 +239,58 @@ void main() {
         answers.every((a) => a.toLowerCase().contains('connection: close')),
         isTrue,
       );
+    });
+
+    test('a WebSocket handshake read during the drain is upgraded and told '
+        'to go away, not refused with 426', () async {
+      final (_, engine) = await serving();
+      final port = engine.port!;
+      final send = Completer<void>();
+      Future<String> handshake() async {
+        final socket = await Socket.connect(InternetAddress.loopbackIPv4, port);
+        try {
+          await send.future;
+          socket.write(
+            'GET /ws HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\n'
+            'Connection: Upgrade\r\n'
+            'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n'
+            'Sec-WebSocket-Version: 13\r\n\r\n',
+          );
+          await socket.flush();
+          // Everything until the server closes: the 101, the frame it sent
+          // and its close frame (goingAway, 1001).
+          final bytes = await socket
+              .fold<List<int>>(<int>[], (all, chunk) => all..addAll(chunk))
+              .timeout(const Duration(seconds: 10));
+          return latin1.decode(bytes);
+        } on Object catch (error) {
+          return 'error: $error';
+        } finally {
+          socket.destroy();
+        }
+      }
+
+      final pending = [for (var i = 0; i < 5; i++) handshake()];
+      await until(
+        () => engine.acceptedConnections == 5,
+        'the 5 connections accepted',
+      );
+      final stopping = engine.stop();
+      send.complete();
+      final answers = await Future.wait(pending);
+      await stopping;
+      for (final answer in answers) {
+        expect(answer, startsWith('HTTP/1.1 101'), reason: answer);
+        expect(answer, isNot(contains('426')));
+        final frames = answer.substring(answer.indexOf('\r\n\r\n') + 4);
+        expect(
+          answer,
+          contains('hello'),
+          reason: 'after the headers: ${frames.codeUnits}',
+        );
+        // The close frame's status code, 1001 (goingAway), big-endian.
+        expect(answer, contains(String.fromCharCodes(const [0x03, 0xE9])));
+      }
     });
 
     test('a keep-alive client sending all along gets every answer: told to '

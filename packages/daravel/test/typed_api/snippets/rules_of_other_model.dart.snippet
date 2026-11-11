@@ -1,0 +1,22 @@
+// expect: argument_type_not_assignable @21
+import 'package:daravel/daravel.dart';
+
+import '_models.dart';
+
+final class Team extends Model {
+  static final ModelDefinition<Team> definition = ModelDefinition<Team>(
+    table: 'teams',
+    factory: Team.new,
+  );
+
+  @override
+  ModelDefinition<Team> get modelDefinition => Team.definition;
+
+  static const cols = (name: ModelColumn<Team, String>('name'));
+}
+
+void f() {
+  print(Team.cols.name);
+  // A column of User checked against the teams table.
+  Rules.of(Team.definition).unique(User.cols.email);
+}

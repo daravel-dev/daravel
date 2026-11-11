@@ -281,7 +281,13 @@ final class AdoptCommand extends Command<int> {
             port: int.tryParse(env['DB_PORT'] ?? ''),
             username: env['DB_USERNAME'],
             password: env['DB_PASSWORD'],
-            options: {'sslmode': env['DB_SSLMODE'] ?? 'disable', 'pool': 1},
+            options: {
+              // As DatabaseConfig.fromEnv: no forced 'disable', so a
+              // Laravel .env with MYSQL_ATTR_SSL_CA and no mode verifies.
+              'sslmode': env['DB_SSLMODE'],
+              'sslrootcert': env['DB_SSLROOTCERT'] ?? env['MYSQL_ATTR_SSL_CA'],
+              'pool': 1,
+            },
           ),
         },
       ),

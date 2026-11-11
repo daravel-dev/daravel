@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../database/database_manager.dart';
+import '../database/orm/model.dart';
+import '../database/orm/model_definition.dart';
 import '../database/query/query_builder.dart';
 import '../foundation/clock.dart';
 import '../http/uploaded_file.dart';
@@ -11,6 +13,7 @@ import 'dns.dart';
 import 'object_rules.dart';
 import 'php_date_format.dart';
 import 'rule.dart';
+import 'typed_rules.dart';
 
 /// Factory facade for built-in rules (`Rule.required()`, `Rule.email()`...).
 /// Each factory returns a `const`-friendly [Rule] subclass that can be
@@ -478,6 +481,11 @@ abstract final class Rules {
     symbols: symbols,
   );
 
+  /// The rules that read [definition]'s table, typed by its columns:
+  /// `Rules.of(User.definition).unique(User.cols.email)`.
+  static ModelRules<M> of<M extends Model>(ModelDefinition<M> definition) =>
+      ModelRules<M>(definition);
+
   /// A rule of your own: [check] returns an error message, or null when the
   /// value passes; [name] keys its translations.
   static Rule custom(
@@ -656,7 +664,9 @@ final class RequiredUnlessRule extends Rule {
 /// and `false` compare as booleans, so `'1'` matches `true`.
 bool _otherMatches(ValidationContext c, String other, List<String> values) {
   final value = c.root(other);
-  if (c.booleans.contains(other)) {
+  // Laravel reads the rules of the parameter with `*` replaced; a pattern
+  // (`items.*.on`) is kept too.
+  if (c.booleans.contains(c.resolve(other)) || c.booleans.contains(other)) {
     final flag = BooleanRule.asBool(value);
     if (flag != null && values.contains('$flag')) {
       return true;
@@ -2171,11 +2181,11 @@ final class ExcludeRule extends Rule {
   String? passes(ValidationContext c) {
     final other = this.other;
     final excluded = switch (name) {
-      'exclude_if' =>
-        ValidationContext.exists(c.data, other!) &&
-            _otherMatches(c, other, values),
+      // `has` resolves `*` to the attribute's own item, as Laravel's
+      // replaceAsterisksInParameters does for these dependent rules.
+      'exclude_if' => c.has(other!) && _otherMatches(c, other, values),
       'exclude_unless' => !_otherMatches(c, other!, values),
-      'exclude_with' => ValidationContext.exists(c.data, other!),
+      'exclude_with' => c.has(other!),
       'exclude_without' => isEmptyValue(c.root(other!)),
       _ => true,
     };

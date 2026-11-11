@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'dart:async';
 
+import 'package:meta/meta.dart';
+
 import '../../foundation/clock.dart';
 import '../../http/http_exceptions.dart';
 import '../../http/json_stream.dart';
@@ -129,6 +131,9 @@ final class QueryBuilder {
   /// `where('col', value)`, `where('col', '>', value)` or
   /// `where((q) => q.where(...).orWhere(...))` for a nested group.
   ///
+  /// A typed column's condition (`where(User.cols.age.gte(18))`) is added
+  /// as built, joined with `OR` by [orWhere].
+  ///
   /// A `bool` is refused: `where(User.cols.email == value)` compares the
   /// typed column with the value in Dart (always `false`) instead of
   /// building a condition.
@@ -143,8 +148,21 @@ final class QueryBuilder {
         column,
         'column',
         'A bool is not a column. To compare a typed column, write '
-            'where(User.cols.email, value), not where(User.cols.email == '
-            'value)',
+            'where(User.cols.email.eq(value)) or where(User.cols.email, '
+            'value), not where(User.cols.email == value)',
+      );
+    }
+    if (column is WhereClause) {
+      if (operatorOrValue != null || value != null) {
+        throw ArgumentError.value(
+          operatorOrValue ?? value,
+          'operatorOrValue',
+          'A typed condition (User.cols.age.gte(18)) takes no operator or '
+              'value of its own',
+        );
+      }
+      return _add(
+        column.boolean == boolean ? column : _joinedWith(column, boolean),
       );
     }
     if (column is void Function(QueryBuilder)) {
@@ -159,12 +177,52 @@ final class QueryBuilder {
       return this;
     }
     final (operator, actual) = _operatorAndValue(operatorOrValue, value);
-    if (actual == null &&
-        (operator == '=' || operator == '!=' || operator == '<>')) {
-      return _add(NullWhere('$column', not: operator != '=', boolean: boolean));
-    }
-    return _add(BasicWhere(column, operator, actual, boolean: boolean));
+    return _add(whereClause(column, operator, actual, boolean: boolean));
   }
+
+  /// The condition `where(column, operator, value)` adds: `IS [NOT] NULL`
+  /// for a null [value] with `=`, `!=` or `<>`, otherwise a [BasicWhere]
+  /// ([escaped] for an escaped `LIKE` pattern). The typed column
+  /// conditions are built here too, so they bind values exactly as the
+  /// string form does.
+  @internal
+  static WhereClause whereClause(
+    Object column,
+    String operator,
+    Object? value, {
+    String boolean = 'AND',
+    bool escaped = false,
+  }) {
+    final op = SqlTokens.operator(operator);
+    if (value == null && (op == '=' || op == '!=' || op == '<>')) {
+      return NullWhere('$column', not: op != '=', boolean: boolean);
+    }
+    return BasicWhere(column, op, value, boolean: boolean, escaped: escaped);
+  }
+
+  /// [clause] joined with [boolean] instead of its own: a typed condition
+  /// is built `AND` and [orWhere] needs it `OR`.
+  static WhereClause _joinedWith(
+    WhereClause clause,
+    String boolean,
+  ) => switch (clause) {
+    BasicWhere(:final column, :final operator, :final value, :final escaped) =>
+      BasicWhere(column, operator, value, boolean: boolean, escaped: escaped),
+    NullWhere(:final column, :final not) => NullWhere(
+      column,
+      not: not,
+      boolean: boolean,
+    ),
+    InWhere(:final column, :final values, :final not, :final subQuery) =>
+      InWhere(column, values, not: not, subQuery: subQuery, boolean: boolean),
+    BetweenWhere(:final column, :final from, :final to, :final not) =>
+      BetweenWhere(column, from, to, not: not, boolean: boolean),
+    _ => throw ArgumentError.value(
+      clause,
+      'column',
+      'Not a condition a typed column builds',
+    ),
+  };
 
   /// [where] joined with `OR`.
   QueryBuilder orWhere(
