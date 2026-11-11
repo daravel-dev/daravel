@@ -54,37 +54,91 @@ final class PostgresDriver
   /// The driver for a configured connection (`DB_HOST`, `DB_PORT`,
   /// `DB_POOL_SIZE`, `DB_SSLMODE`, ...), as a `DatabaseDriverFactory`:
   /// `withDatabaseDriver('pgsql', PostgresDriver.fromConfig)`.
-  factory PostgresDriver.fromConfig(String name, ConnectionConfig connection) =>
-      PostgresDriver(
-        name: name,
-        host: connection.host ?? '127.0.0.1',
-        port: connection.port ?? 5432,
-        database: connection.database,
-        username: connection.username,
-        password: connection.password,
-        maxConnections: (connection.options['pool'] as int?) ?? 10,
-        sslMode: switch (connection.options['sslmode']) {
-          'require' => PostgresSslMode.require,
-          'verify-full' || 'verifyFull' => PostgresSslMode.verifyFull,
-          _ => PostgresSslMode.disable,
-        },
-        connectTimeout:
-            timeoutOption(
-              connection.options['connect_timeout'],
-              const Duration(seconds: 10),
-            ) ??
-            noTimeout,
-        queryTimeout:
-            timeoutOption(
-              connection.options['query_timeout'],
-              const Duration(seconds: 30),
-            ) ??
-            noTimeout,
-        searchPath: parseSearchPath(connection.options['search_path']),
-        idleTransactionTimeout: idleTransactionTimeoutOption(
-          connection.options['idle_transaction_timeout'],
-        ),
-      );
+  ///
+  /// `DB_SSLMODE` is read by [sslModeOf]; a value it does not know exactly
+  /// is reported once, at boot, through [onWarning] (standard error by
+  /// default).
+  factory PostgresDriver.fromConfig(
+    String name,
+    ConnectionConfig connection, {
+    void Function(String message)? onWarning,
+  }) {
+    final ssl = sslModeOf(connection.options['sslmode']);
+    if (ssl.warning case final warning?) {
+      final void Function(String) warn = onWarning ?? stderr.writeln;
+      warn('[$name] $warning');
+    }
+    return PostgresDriver(
+      name: name,
+      host: connection.host ?? '127.0.0.1',
+      port: connection.port ?? 5432,
+      database: connection.database,
+      username: connection.username,
+      password: connection.password,
+      maxConnections: (connection.options['pool'] as int?) ?? 10,
+      sslMode: ssl.mode,
+      connectTimeout:
+          timeoutOption(
+            connection.options['connect_timeout'],
+            const Duration(seconds: 10),
+          ) ??
+          noTimeout,
+      queryTimeout:
+          timeoutOption(
+            connection.options['query_timeout'],
+            const Duration(seconds: 30),
+          ) ??
+          noTimeout,
+      searchPath: parseSearchPath(connection.options['search_path']),
+      idleTransactionTimeout: idleTransactionTimeoutOption(
+        connection.options['idle_transaction_timeout'],
+      ),
+    );
+  }
+
+  /// How `DB_SSLMODE` (any case, `-` or `_`) maps to a [PostgresSslMode],
+  /// with libpq's names:
+  ///
+  /// - unset, `disable`: no TLS.
+  /// - `require`: TLS without checking the certificate.
+  /// - `verify-full`, and `verify-ca` and any other value starting with
+  ///   `verify`: TLS with the certificate and host name checked. The
+  ///   `postgres` package has no chain-only check, so `verify-ca` is as
+  ///   strict as `verify-full`; a misspelt verify mode must not weaken the
+  ///   check it asked for. Only `verify-full` itself has no [warning].
+  /// - `prefer`, `allow` and anything else: no TLS, as before, with a
+  ///   [warning] that names the value and the modes that encrypt. libpq
+  ///   tries TLS first for `prefer`; this driver cannot fall back, so
+  ///   turning TLS on would cut off servers without it.
+  static ({PostgresSslMode mode, String? warning}) sslModeOf(Object? sslmode) {
+    final raw = '${sslmode ?? ''}'.trim();
+    final mode = raw.toLowerCase().replaceAll('_', '-');
+    return switch (mode) {
+      '' || 'disable' => (mode: PostgresSslMode.disable, warning: null),
+      'require' => (mode: PostgresSslMode.require, warning: null),
+      'verify-full' ||
+      'verifyfull' => (mode: PostgresSslMode.verifyFull, warning: null),
+      'verify-ca' => (
+        mode: PostgresSslMode.verifyFull,
+        warning:
+            'DB_SSLMODE "verify-ca" checks the host name too, as '
+            'verify-full (the PostgreSQL client has no chain-only check).',
+      ),
+      _ when mode.startsWith('verify') => (
+        mode: PostgresSslMode.verifyFull,
+        warning:
+            'DB_SSLMODE "$raw" is not a known mode; using "verify-full" '
+            '(TLS with the certificate and host name checked).',
+      ),
+      _ => (
+        mode: PostgresSslMode.disable,
+        warning:
+            'DB_SSLMODE "$raw" does not encrypt the connection to PostgreSQL '
+            '(no TLS). Use require (encrypted) or verify-full (encrypted and '
+            'checked); disable to silence this warning.',
+      ),
+    };
+  }
 
   /// `DB_SEARCH_PATH` (`billing, hr, public`), as Laravel's
   /// `ParsesSearchPath`: names separated by commas or spaces, quotes dropped.
