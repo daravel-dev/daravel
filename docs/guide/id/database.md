@@ -1,4 +1,4 @@
-<!-- source: database.md sha256:30a823296aac -->
+<!-- source: database.md sha256:1563d273a438 -->
 # Database
 
 `DB_CONNECTION` memilih SQLite (`sqlite`, default), PostgreSQL (`pgsql`),
@@ -132,7 +132,7 @@ dan MySQL/MariaDB, dengan nama-nama libpq:
 | `require` (MySQL: `REQUIRED`, `PREFERRED`) | TLS, sertifikat tidak diperiksa | TLS, sertifikat tidak diperiksa, kecuali CA diberikan |
 | `verify-full` (MySQL: `VERIFY_IDENTITY`, `VERIFY_CA`, `verify-ca`) | TLS, sertifikat dan nama host diperiksa | TLS, sertifikat dan nama host diperiksa |
 | tidak diisi | tanpa TLS | tanpa TLS; dengan CA, seperti `verify-full` |
-| nilai lain | tanpa TLS | seperti `require`, dengan peringatan saat boot |
+| nilai lain | tanpa TLS | berawalan `verify`: seperti `verify-full`; selain itu seperti `require`; keduanya dengan peringatan saat boot |
 
 `require` mengenkripsi lalu lintas tetapi tidak menghentikan penyerang
 aktif: siapa pun di antara aplikasi dan server bisa menyodorkan

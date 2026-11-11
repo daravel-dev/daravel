@@ -148,21 +148,59 @@ void main() {
       },
     );
 
-    test('an unknown mode is require, with one warning naming it', () {
+    MySqlDriver withMode(String mode, List<String> warnings) =>
+        MySqlDriver.fromConfig(
+          'mysql',
+          ConnectionConfig(
+            driver: 'mysql',
+            database: 'shop',
+            options: {'sslmode': mode},
+          ),
+          onWarning: warnings.add,
+        );
+
+    test('a misspelt verify mode still verifies, with one warning', () {
       final warnings = <String>[];
-      final driver = MySqlDriver.fromConfig(
-        'mysql',
-        const ConnectionConfig(
-          driver: 'mysql',
-          database: 'shop',
-          options: {'sslmode': 'verify-fulll'},
-        ),
-        onWarning: warnings.add,
-      );
+      final driver = withMode('verify-fulll', warnings);
+      expect(driver.secure, isTrue);
+      expect(driver.verifyServerCertificate, isTrue);
+      expect(warnings, hasLength(1));
+      expect(warnings.single, contains('"verify-fulll"'));
+      expect(warnings.single, contains('verify-full'));
+    });
+
+    test('another unknown mode is require, with one warning naming it', () {
+      final warnings = <String>[];
+      final driver = withMode('requird', warnings);
       expect(driver.secure, isTrue);
       expect(driver.verifyServerCertificate, isFalse);
       expect(warnings, hasLength(1));
-      expect(warnings.single, contains('"verify-fulll"'));
+      expect(warnings.single, contains('"requird"'));
+    });
+
+    test('an unreadable CA file names the connection, path and settings', () {
+      final driver = MySqlDriver(
+        name: 'legacy',
+        host: 'h',
+        database: 'd',
+        secure: true,
+        sslCa: 'no/such/ca.pem',
+      );
+      expect(
+        driver.tlsContext,
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            allOf(
+              contains('[legacy]'),
+              contains('no/such/ca.pem'),
+              contains('DB_SSLROOTCERT'),
+              contains('MYSQL_ATTR_SSL_CA'),
+            ),
+          ),
+        ),
+      );
     });
 
     test('fromConfig passes the CA and the verification to the driver', () {

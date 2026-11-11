@@ -179,6 +179,9 @@ final class MySqlDriver
   ///   name through the same callback, so the host cannot be left out.
   /// - empty: no TLS, or checked TLS when a [ca] is given, as PDO MySQL
   ///   (mysqlnd) verifies the server when `MYSQL_ATTR_SSL_CA` is set.
+  /// - another value starting with `verify` (a misspelt `verify-full`):
+  ///   checked, with a [warning] naming the value. A typo must not weaken
+  ///   the check it asked for.
   /// - anything else: as `require`, with a [warning] naming the value.
   static ({bool secure, bool verify, String? warning}) sslOptions(
     Object? sslmode, {
@@ -198,6 +201,13 @@ final class MySqlDriver
       'verifyfull' ||
       'verify-identity' ||
       'verify-ca' => (secure: true, verify: true, warning: null),
+      _ when mode.startsWith('verify') => (
+        secure: true,
+        verify: true,
+        warning:
+            'DB_SSLMODE "$sslmode" is not a known mode; using "verify-full" '
+            '(TLS with the certificate and host name checked).',
+      ),
       _ => (
         secure: true,
         verify: hasCa,
@@ -471,13 +481,22 @@ final class MySqlDriver
 
   /// The roots the server certificate is checked against: [securityContext],
   /// or the system roots plus [sslCa]; null (the system roots) without
-  /// either.
+  /// either. A CA file that cannot be read throws a [StateError] naming the
+  /// connection, the path and the settings it comes from.
   SecurityContext? tlsContext() {
-    if (securityContext != null || sslCa == null) {
+    final ca = sslCa;
+    if (securityContext != null || ca == null) {
       return securityContext;
     }
-    return SecurityContext(withTrustedRoots: true)
-      ..setTrustedCertificates(sslCa!);
+    try {
+      return SecurityContext(withTrustedRoots: true)
+        ..setTrustedCertificates(ca);
+    } on Object catch (error) {
+      throw StateError(
+        'MySQL connection [$name]: cannot read the CA file "$ca" '
+        '(DB_SSLROOTCERT or MYSQL_ATTR_SSL_CA): $error',
+      );
+    }
   }
 
   @override
