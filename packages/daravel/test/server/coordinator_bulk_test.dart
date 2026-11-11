@@ -280,7 +280,10 @@ void main() {
             ),
         ], replies.sendPort),
       );
-      final reply = await replies.first as CoordinatorBatchReply;
+      // A port the coordinator did not know is told the state first.
+      final reply = await replies.firstWhere(
+        (m) => m is CoordinatorBatchReply,
+      ) as CoordinatorBatchReply;
       expect([for (final r in reply.replies) r.id], [0, 1, 2]);
       expect([
         for (final r in reply.replies) r.errorKind,
@@ -729,6 +732,186 @@ void main() {
       held.hold = false;
       held.releaseAll();
       await Future.wait([held1, held2]);
+    });
+  });
+  group('Review #153', () {
+    test('a worker no longer told of the state stops believing saturated '
+        'after staleHealthAfter', () async {
+      final remote = channel();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      coordinator.observeLag(const Duration(seconds: 1));
+      await until(
+        () => remote.coordinatorState == CoordinatorState.saturated,
+        'the announcement',
+      );
+      expect(remote.shortCircuits('held', 'x'), isTrue);
+      final states = <CoordinatorState>[];
+      remote.onStateChange = states.add;
+      // No announcement for longer than the limit (the coordinator forgot
+      // this worker, or the message was lost).
+      remote.ageLastHealth(
+        RemoteCoordinatorChannel.staleHealthAfter + const Duration(seconds: 1),
+      );
+      expect(remote.shortCircuits('held', 'x'), isFalse);
+      expect(remote.coordinatorState, CoordinatorState.healthy);
+      expect(states, [CoordinatorState.healthy]);
+    });
+
+    test('past maxPeers only the oldest peer is forgotten; a live worker '
+        'forgotten is learnt again from its next call', () async {
+      final first = channel();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      final port = coordinator.listen();
+      final ports = <RawReceivePort>[];
+      addTearDown(() {
+        for (final p in ports) {
+          p.close();
+        }
+      });
+      for (var i = 0; i < Coordinator.maxPeers; i++) {
+        final p = RawReceivePort((Object? _) {});
+        ports.add(p);
+        port.send(CoordinatorHello(p.sendPort));
+      }
+      await until(
+        () => coordinator.peerCount == Coordinator.maxPeers,
+        'the hellos',
+      );
+      // Not cleared: still maxPeers, the first (oldest) forgotten.
+      coordinator.observeLag(const Duration(seconds: 1));
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(coordinator.peerCount, Coordinator.maxPeers);
+      expect(first.coordinatorState, CoordinatorState.healthy);
+      // Its next call while saturated: learnt again and told.
+      await first
+          .call('unknown', 'x', const {})
+          .then<Object?>((value) => value, onError: (Object _) => null);
+      await until(
+        () => first.coordinatorState == CoordinatorState.saturated,
+        'the announcement to the forgotten worker',
+      );
+    });
+
+    test('a named worker restarted replaces its port; forgetWorker forgets '
+        'it', () async {
+      final port = coordinator.listen();
+      final a = RawReceivePort((Object? _) {});
+      final b = RawReceivePort((Object? _) {});
+      addTearDown(a.close);
+      addTearDown(b.close);
+      port
+        ..send(CoordinatorHello(a.sendPort, 'daravel-worker-1'))
+        ..send(CoordinatorHello(b.sendPort, 'daravel-worker-1'));
+      await until(() => coordinator.peerCount == 1, 'one peer');
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(coordinator.peerCount, 1);
+      coordinator.forgetWorker('daravel-worker-1');
+      expect(coordinator.peerCount, 0);
+    });
+
+    test('a critical call inside a batch is served while saturated', () async {
+      coordinator.register(_Counted());
+      final port = coordinator.listen();
+      final replies = ReceivePort();
+      addTearDown(replies.close);
+      coordinator.observeLag(const Duration(seconds: 1));
+      port.send(
+        CoordinatorBatch([
+          CoordinatorRequest(
+            id: 1,
+            service: 'counted',
+            op: 'x',
+            args: const <String, Object?>{},
+            replyTo: replies.sendPort,
+          ),
+          CoordinatorRequest(
+            id: 2,
+            service: 'held',
+            op: 'x',
+            args: const {'n': 0},
+            replyTo: replies.sendPort,
+          ),
+        ], replies.sendPort),
+      );
+      final received = <CoordinatorReply>[];
+      final done = Completer<void>();
+      final sub = replies.listen((Object? m) {
+        switch (m) {
+          case final CoordinatorBatchReply batch:
+            received.addAll(batch.replies);
+          case final CoordinatorReply reply:
+            received.add(reply);
+        }
+        if (received.length == 2 && !done.isCompleted) {
+          done.complete();
+        }
+      });
+      addTearDown(sub.cancel);
+      await done.future.timeout(const Duration(seconds: 5));
+      final byId = {for (final r in received) r.id: r};
+      expect(byId[1]!.error, isNull);
+      expect(byId[1]!.errorKind, CoordinatorErrorKind.none);
+      expect(byId[2]!.errorKind, CoordinatorErrorKind.overloaded);
+    });
+
+    test('a waiting bulk call times out at its own deadline, not behind the '
+        'head of the queue', () async {
+      final remote = channel(window: 1);
+      final inFlight = remote.callBulk('held', 'x', {'n': 0});
+      await until(() => held.received.isNotEmpty, 'the first call');
+      final slow = remote.callBulk('held', 'x', {
+        'n': 1,
+      }, timeout: const Duration(seconds: 30));
+      var shortFailed = false;
+      unawaited(
+        remote
+            .callBulk('held', 'x', {
+              'n': 2,
+            }, timeout: const Duration(milliseconds: 100))
+            .then<void>((_) {}, onError: (Object _) => shortFailed = true),
+      );
+      await until(() => shortFailed, 'the short call to time out');
+      expect(remote.bulkWaiting, 1, reason: 'the long one still waits');
+      held.hold = false;
+      held.releaseAll();
+      await Future.wait([inFlight, slow]);
+    });
+
+    test('bulk calls a full buffer drops are counted on /metrics', () async {
+      final remote = channel(window: 1, buffer: 1);
+      final metrics = AppMetrics(MetricsRegistry(), channel: remote);
+      Future<Object?> quiet(Future<Object?> call) =>
+          call.then<Object?>((value) => value, onError: (Object _) => null);
+      final inFlight = remote.callBulk('held', 'x', {'n': 0});
+      await until(() => held.received.isNotEmpty, 'the first call');
+      final calls = <Future<Object?>>[
+        for (var n = 1; n < 5; n++)
+          quiet(
+            remote.sendBulk('held', 'x', {
+              'n': n,
+            }, overflow: BulkOverflow.dropOldest),
+          ),
+        quiet(remote.sendBulk('held', 'x', {'n': 9})),
+      ];
+      final text = metrics.registry.render();
+      expect(
+        text,
+        contains(
+          'coordinator_bulk_dropped_total{overflow="dropOldest",'
+          'service="held"} 3',
+        ),
+      );
+      expect(
+        text,
+        contains(
+          'coordinator_bulk_dropped_total{overflow="refuse",service="held"} 1',
+        ),
+      );
+      expect(text, contains('coordinator_bulk_waiting 1'));
+      expect(text, contains('coordinator_bulk_in_flight 1'));
+      held.hold = false;
+      held.releaseAll();
+      await Future.wait([inFlight, ...calls]);
     });
   });
 }

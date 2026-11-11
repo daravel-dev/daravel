@@ -102,11 +102,16 @@ final class CoordinatorBatchReply {
 /// health announcements go, so the coordinator does not have to learn its
 /// peers from every request.
 final class CoordinatorHello {
-  /// A worker whose replies arrive on [replyTo].
-  const CoordinatorHello(this.replyTo);
+  /// A worker whose replies arrive on [replyTo], named [worker] when its
+  /// supervisor names it (`daravel-worker-1`, a Horizon worker).
+  const CoordinatorHello(this.replyTo, [this.worker]);
 
   /// The worker's reply port.
   final SendPort replyTo;
+
+  /// The worker's name, or null: a restarted worker of the same name
+  /// replaces its old port, and [Coordinator.forgetWorker] forgets it.
+  final String? worker;
 }
 
 /// Reply to a [CoordinatorRequest].
@@ -389,12 +394,41 @@ final class Coordinator {
     0,
   );
 
-  /// The workers' reply ports: where health announcements go.
-  final Set<SendPort> _peers = <SendPort>{};
+  /// The workers' reply ports, where health announcements go, keyed by
+  /// worker name (or by the port itself for an unnamed worker), oldest
+  /// first.
+  final Map<Object, SendPort> _peers = <Object, SendPort>{};
 
-  /// The most peers remembered; past it the set starts over (dead
-  /// isolates' ports would otherwise only accumulate).
+  /// The ports in [_peers], to recognise a worker the coordinator forgot.
+  final Set<SendPort> _peerPorts = <SendPort>{};
+
+  /// The most peers remembered. Past it the oldest is forgotten, never all
+  /// of them (Review #153): a live worker forgotten that way is learnt
+  /// again from its next call while the coordinator is not healthy, and
+  /// its own view of the state expires anyway
+  /// ([RemoteCoordinatorChannel.staleHealthAfter]).
   static const int maxPeers = 4096;
+
+  /// The workers the coordinator announces its health to (for tests).
+  @visibleForTesting
+  int get peerCount => _peers.length;
+
+  /// Remembers [port] under [key]; a worker heard from for the first time
+  /// while the coordinator is not healthy is told at once.
+  void _learnPeer(Object key, SendPort port) {
+    final previous = _peers.remove(key);
+    if (previous != null && previous != port) {
+      _peerPorts.remove(previous);
+    }
+    if (_peers.length >= maxPeers) {
+      final oldest = _peers.keys.first;
+      _peerPorts.remove(_peers.remove(oldest));
+    }
+    _peers[key] = port;
+    if (_peerPorts.add(port) && _state != CoordinatorState.healthy) {
+      _tell(port, _health());
+    }
+  }
 
   /// How far behind the coordinator is.
   CoordinatorState get state => _state;
@@ -447,6 +481,7 @@ final class Coordinator {
   /// Tells every [WorkerAwareService] that [worker] is gone (the
   /// supervisor calls it on a worker's exit).
   void forgetWorker(String worker) {
+    _peerPorts.remove(_peers.remove(worker));
     for (final service in _services.values) {
       if (service is WorkerAwareService) {
         (service as WorkerAwareService).forgetWorker(worker);
@@ -515,17 +550,12 @@ final class Coordinator {
           _onRequest(request);
         case final CoordinatorBatch batch:
           _onBatch(batch);
-        case CoordinatorHello(:final replyTo):
+        case CoordinatorHello(:final replyTo, :final worker):
           // Known once, when its channel opens, not from every request
           // (a SendPort hash per message on the hottest path). A worker
           // first heard from while the coordinator is not healthy is told
           // at once, before any reply.
-          if (_peers.length >= maxPeers) {
-            _peers.clear();
-          }
-          if (_peers.add(replyTo) && _state != CoordinatorState.healthy) {
-            _tell(replyTo, _health());
-          }
+          _learnPeer(worker ?? replyTo, replyTo);
       }
     };
     return port.sendPort;
@@ -542,7 +572,21 @@ final class Coordinator {
       _serve(message, null);
       return;
     }
-    final priority = _priorityOfCall(message);
+    _relearn(message.replyTo);
+    _route(message, _priorityOfCall(message));
+  }
+
+  /// A worker the coordinator forgot ([maxPeers]) is learnt again from a
+  /// call while it is not healthy, the only time announcements matter: a
+  /// set lookup off the healthy path.
+  void _relearn(SendPort replyTo) {
+    if (_state != CoordinatorState.healthy && !_peerPorts.contains(replyTo)) {
+      _learnPeer(replyTo, replyTo);
+    }
+  }
+
+  /// Serves, puts off or refuses [message] by its [priority] and the state.
+  void _route(CoordinatorRequest message, CoordinatorPriority priority) {
     switch (priority) {
       case CoordinatorPriority.critical:
         // Never put off, never refused.
@@ -571,10 +615,23 @@ final class Coordinator {
   /// [CoordinatorBatchReply], the others each in its own reply later.
   void _onBatch(CoordinatorBatch batch) {
     final ready = <CoordinatorReply>[];
+    final judged = _state != CoordinatorState.healthy || deferred > 0;
+    if (judged) {
+      _relearn(batch.replyTo);
+    }
     for (final message in batch.requests) {
       _callsHandled++;
       if (_expiredNow(message)) {
         continue;
+      }
+      // Off the healthy path each call is judged by its own priority, as
+      // when sent alone: `callBulk` is open to any operation (Review #153).
+      if (judged) {
+        final priority = _priorityOfCall(message);
+        if (priority != CoordinatorPriority.bulk) {
+          _route(message, priority);
+          continue;
+        }
       }
       if (_state == CoordinatorState.saturated) {
         _shed[message.service] = (_shed[message.service] ?? 0) + 1;
@@ -881,6 +938,12 @@ final class Coordinator {
   /// host, a GC pause, a sleeping machine), which refusing work would not
   /// help. 16: a few workers' bursts, well above the one or two messages
   /// an idle server handles in 100 ms, well below a flood.
+  ///
+  /// The evidence counts calls, not time: a few calls that are each heavy
+  /// (say ten of 20 ms) read as starvation, so critical calls wait 200 ms
+  /// with nothing refused. Refusing bulk calls would not always help
+  /// there; evidence in time spent serving is a follow-up (Blueprint #141
+  /// K2, Review #153).
   static const int queueEvidence = 16;
 
   /// The last and largest wait that was not a queue ([starvationOf]): the
@@ -999,7 +1062,7 @@ final class Coordinator {
   void _announce() {
     _unhealthyProbes = 0;
     final health = _health();
-    for (final peer in _peers) {
+    for (final peer in _peers.values) {
       _tell(peer, health);
     }
   }
@@ -1175,15 +1238,20 @@ final class RemoteCoordinatorChannel implements TypedCoordinatorChannel {
   /// A channel to a coordinator in another isolate, holding at most
   /// [bulkWindow] bulk calls unanswered and [bulkBuffer] more waiting
   /// ([sendBulk]).
+  ///
+  /// [worker] names this worker to the coordinator (its supervisor's name
+  /// for it), so a restarted worker replaces its old port and the
+  /// coordinator forgets it when it exits ([Coordinator.forgetWorker]).
   RemoteCoordinatorChannel(
     this._target, {
     this.bulkWindow = defaultBulkWindow,
     this.bulkBuffer = defaultBulkBuffer,
+    String? worker,
   }) {
     _replies = ReceivePort('daravel-coordinator-client');
     _replies.listen(_onReply);
     // Known to the coordinator once, for its health announcements.
-    _target.send(CoordinatorHello(_replies.sendPort));
+    _target.send(CoordinatorHello(_replies.sendPort, worker));
   }
 
   final SendPort _target;
@@ -1465,13 +1533,20 @@ final class RemoteCoordinatorChannel implements TypedCoordinatorChannel {
       }
       return true;
     });
-    // Bulk calls still waiting for credit time out too.
-    while (_bulkWaiting.isNotEmpty && now >= _bulkWaiting.first.deadline) {
-      final waiting = _bulkWaiting.removeFirst();
-      waiting.completer.completeError(
-        CoordinatorTimeoutException(waiting.service, waiting.timeout),
-      );
-      onCallTimeout?.call(waiting.service);
+    // Bulk calls still waiting for credit time out too, each at its own
+    // deadline: timeouts differ per call, so not only the head of the queue
+    // (at most bulkBuffer calls, and only while some wait; Review #153).
+    if (_bulkWaiting.isNotEmpty) {
+      _bulkWaiting.removeWhere((waiting) {
+        if (now < waiting.deadline) {
+          return false;
+        }
+        waiting.completer.completeError(
+          CoordinatorTimeoutException(waiting.service, waiting.timeout),
+        );
+        onCallTimeout?.call(waiting.service);
+        return true;
+      });
     }
     // A timed-out call gives its credit back (ACK 206: not a refill on a
     // timer, which would fire exactly when the coordinator is slow).
@@ -1534,9 +1609,39 @@ final class RemoteCoordinatorChannel implements TypedCoordinatorChannel {
   CoordinatorState _state = CoordinatorState.healthy;
   int _epoch = -1;
   Set<String> _shedServices = const {};
+  int _healthAt = 0;
 
-  /// The coordinator's state as it last announced it (Blueprint #141, K1).
-  CoordinatorState get coordinatorState => _state;
+  /// How long an announced state other than healthy holds without being
+  /// announced again. The coordinator announces such a state every second;
+  /// one this old means its announcements no longer reach this worker
+  /// (it forgot the worker, or a message was lost), and a worker must not
+  /// refuse its own bulk calls forever on a stale word (Review #153).
+  static const Duration staleHealthAfter = Duration(seconds: 3);
+
+  /// The coordinator's state as it last announced it (Blueprint #141, K1),
+  /// healthy once an unhealthy announcement is older than
+  /// [staleHealthAfter].
+  CoordinatorState get coordinatorState {
+    _expireStaleHealth();
+    return _state;
+  }
+
+  /// Makes the last announcement [by] older (for tests, instead of waiting
+  /// [staleHealthAfter]).
+  @visibleForTesting
+  void ageLastHealth(Duration by) => _healthAt -= by.inMicroseconds;
+
+  /// Off the healthy path only: one clock read while the last announced
+  /// state is not healthy.
+  void _expireStaleHealth() {
+    if (_state != CoordinatorState.healthy &&
+        _clock.elapsedMicroseconds - _healthAt >
+            staleHealthAfter.inMicroseconds) {
+      _state = CoordinatorState.healthy;
+      _shedServices = const {};
+      onStateChange?.call(CoordinatorState.healthy);
+    }
+  }
 
   /// Receives each change of [coordinatorState]
   /// (`coordinator_state{state}` on `/metrics`).
@@ -1555,6 +1660,7 @@ final class RemoteCoordinatorChannel implements TypedCoordinatorChannel {
       return;
     }
     _epoch = health.epoch;
+    _healthAt = _clock.elapsedMicroseconds;
     _shedServices = health.shedServices.isEmpty
         ? const {}
         : health.shedServices.split(',').toSet();
@@ -1582,10 +1688,15 @@ final class RemoteCoordinatorChannel implements TypedCoordinatorChannel {
 
   /// Whether a call to [service] is failed at once: the coordinator is
   /// saturated and refuses that service's calls.
-  bool shortCircuits(String service, [String op = '']) =>
-      _state == CoordinatorState.saturated &&
-      (_shedServices.contains(service) ||
-          _shedServices.contains('$service.$op'));
+  bool shortCircuits(String service, [String op = '']) {
+    if (_state != CoordinatorState.saturated) {
+      return false;
+    }
+    _expireStaleHealth();
+    return _state == CoordinatorState.saturated &&
+        (_shedServices.contains(service) ||
+            _shedServices.contains('$service.$op'));
+  }
 
   /// Records a call failed at once ([shortCircuits], or a store deciding
   /// so for a call it would otherwise wait on) and returns its error.
@@ -1617,7 +1728,7 @@ final class RemoteCoordinatorChannel implements TypedCoordinatorChannel {
 
 /// Bulk refusals of this isolate made during the current turn of its event
 /// loop, failed together on the next turn ([_failOnNextTurn]).
-List<(Completer<Object?>, Object, StackTrace)>? _refusalsThisTurn;
+List<(Completer<Object?>, Object)>? _refusalsThisTurn;
 
 /// Fails [completer] with [error] on the next turn of the event loop, with
 /// every other bulk refusal of this turn, from one timer.
@@ -1637,21 +1748,22 @@ List<(Completer<Object?>, Object, StackTrace)>? _refusalsThisTurn;
 /// storm: a sender retrying at once is held to about one attempt per
 /// spacing, so it cannot take the machine's CPU).
 void _failOnNextTurn(Completer<Object?> completer, Object error) {
-  final trace = StackTrace.current;
+  // No stack trace: "refused here" tells the caller nothing, and this path
+  // runs millions of times a run under overload (Review #153).
   final pending = _refusalsThisTurn;
   if (pending != null) {
-    pending.add((completer, error, trace));
+    pending.add((completer, error));
     return;
   }
-  final batch = [(completer, error, trace)];
+  final batch = [(completer, error)];
   _refusalsThisTurn = batch;
   void tick() {
     // Emptied first: a refusal made while these callers run joins the
     // next tick, never this list.
     _refusalsThisTurn = null;
     _lastRefusalTick = _refusalClock.elapsedMicroseconds;
-    for (final (refused, error, trace) in batch) {
-      refused.completeError(error, trace);
+    for (final (refused, error) in batch) {
+      refused.completeError(error);
     }
   }
 

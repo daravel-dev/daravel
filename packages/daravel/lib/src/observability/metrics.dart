@@ -762,10 +762,34 @@ final class AppMetrics {
       }
 
       showState(remote.coordinatorState);
+      // Blueprint #141 K1b: bulk calls a full buffer dropped or refused
+      // (worker reports, metrics snapshots and Horizon records are dropped
+      // without telling their callers, so this is their only trace;
+      // Review #153), and the window and buffer as they are now.
+      final dropped = registry.counter(
+        'coordinator_bulk_dropped_total',
+        'Bulk calls this worker dropped or refused because its bulk buffer '
+            'was full, by service and overflow policy.',
+      );
+      registry
+        ..gauge(
+          'coordinator_bulk_waiting',
+          'Bulk calls of this worker waiting for credit.',
+          collect: () => remote.bulkWaiting.toDouble(),
+        )
+        ..gauge(
+          'coordinator_bulk_in_flight',
+          'Bulk calls of this worker sent and not answered yet.',
+          collect: () => remote.bulkInFlight.toDouble(),
+        );
       remote
         ..onStateChange = showState
-        ..onShortCircuit = (String service) =>
-            shortCircuits.inc({'service': service});
+        ..onShortCircuit = (String service) {
+          shortCircuits.inc({'service': service});
+        }
+        ..onBulkOverflow = (String service, BulkOverflow overflow) {
+          dropped.inc({'service': service, 'overflow': overflow.name});
+        };
     }
   }
 

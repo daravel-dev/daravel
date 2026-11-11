@@ -630,7 +630,10 @@ final class Supervisor {
 
   static Future<void> _workerMain(_WorkerSpawn spawn) async {
     final control = ReceivePort('daravel-worker-${spawn.index}');
-    final channel = RemoteCoordinatorChannel(spawn.coordinator);
+    final channel = RemoteCoordinatorChannel(
+      spawn.coordinator,
+      worker: 'daravel-worker-${spawn.index}',
+    );
     final Application app;
     try {
       app = spawn.factory();

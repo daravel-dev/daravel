@@ -93,7 +93,7 @@ Future<void> horizonWorkerMain(HorizonWorkerStart start) async {
       app.overrideEnv({'DB_IDLE_TRANSACTION_TIMEOUT': '${idle.inSeconds}'});
     }
     if (start.coordinator case final port?) {
-      app.coordinator = RemoteCoordinatorChannel(port);
+      app.coordinator = RemoteCoordinatorChannel(port, worker: start.name);
     }
     final booted = app;
     await booted.boot();
