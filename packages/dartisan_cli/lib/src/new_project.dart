@@ -861,8 +861,7 @@ final class User extends Model with AuthenticatableModel {
     'email': email,
     'password': password,
   });
-  /// Fills the given columns (`fill`); `Patch(null)` sets a nullable
-  /// one to null.
+  /// Fills the given columns (`fill`).
   User fillWith({
     String? name,
     String? email,
@@ -875,8 +874,7 @@ final class User extends Model with AuthenticatableModel {
     });
     return this;
   }
-  /// Updates the given columns and saves (`update`); `Patch(null)` sets a
-  /// nullable one to null.
+  /// Updates the given columns and saves (`update`).
   Future<bool> updateWith({
     String? name,
     String? email,
