@@ -4,14 +4,5 @@
 
 ### Upgrade notes
 
-- `email` (and `email:rfc`) now accepts what Laravel accepts and the old pattern refused:
-
-  | Address | Before | Now (as Laravel) |
-  | :-- | :-- | :-- |
-  | `user@localhost` | refused | accepted |
-  | `"first last"@example.com` | refused | accepted |
-  | `user@[127.0.0.1]` | refused | accepted |
-  | `user(comment)@example.com` | refused | accepted |
-  | `a..b@example.com`, `not-an-email` | refused | refused |
-
-  For the stricter check, use `email:strict` (no RFC warning: refuses the four accepted forms above) or `email:filter` (PHP's `FILTER_VALIDATE_EMAIL`, which needs a dot in the domain). The pattern `client:flutter` writes into Flutter form validators is now a loose shape (`something@domain`), so the client never refuses an address the server accepts.
+- `email` (and `email:rfc`) now accepts, as Laravel does, addresses the old pattern refused: before, `user@localhost`, `"first last"@example.com`, `user@[127.0.0.1]` and `user(comment)@example.com` were refused; now they are accepted. `a..b@example.com` and `not-an-email` are still refused. For the stricter check use `email:strict` (no RFC warning: it refuses those four) or `email:filter` (PHP's `FILTER_VALIDATE_EMAIL`, which needs a dot in the domain).
+- The pattern `client:flutter` writes into Flutter form validators for `email` is now a loose shape (`something@domain`), so the client never refuses an address the server accepts.
