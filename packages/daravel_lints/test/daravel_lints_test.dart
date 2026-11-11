@@ -450,4 +450,23 @@ void f(String sort) {
       expect(lintSource(source, 'lib/src/a.dart', rules: rule), isEmpty);
     });
   });
+
+  test(
+    'invalid_validation_rule: where conditions in a string unique/exists',
+    () {
+      const source = '''
+void routes(Router r) {
+  r.post('/users', create).rules({
+    'a': 'unique:users,email,NULL,id,account_id,1',
+    'b': 'exists:users,id,active,1',
+    'c': 'unique:users,email,NULL,id|exists:users,id',
+  });
+}
+''';
+      final issues = lintSource(source, 'lib/app/http/routes.dart');
+      expect(issues.map((i) => i.line), [3, 4]);
+      expect(issues.first.message, contains('Rules.unique(...).where(...)'));
+      expect(issues.last.message, contains('Rules.exists(...).where(...)'));
+    },
+  );
 }
