@@ -10,6 +10,12 @@ import 'package:postgres/postgres.dart' as pg;
 /// view is not 16-byte aligned, go through [cosineScalar]. A zero vector is
 /// alike to nothing: 0.
 ///
+/// The lanes sum in float32 (what `Float32x4` holds), [cosineScalar] in
+/// doubles, so the two differ by up to about 1e-5 for 3 072 dimensions:
+/// two models whose scores are that close may be ordered differently by
+/// either path. The rerank reads vectors aligned ([vectorOf]), so it always
+/// takes this one.
+///
 /// Internal to `hybrid(rerank: true)`: not exported.
 double cosineF32x4(Float32List a, Float32List b) {
   final length = _sameLength(a, b);

@@ -30,6 +30,11 @@ already returned with the models. Nothing else is queried and nothing is kept
 in memory, so keep the embedding column selected in `constrain()`; models
 without a vector follow in fused order.
 
+The `Float32x4` lanes sum in float32 and the scalar loop in doubles, so a
+score can differ from a double-precision cosine by up to about 1e-5 (3 072
+dimensions). Two models whose scores are closer than that are a near-tie
+whose order is not guaranteed; equal scores keep their fused order.
+
 `bench/bin/scout_rerank.dart`, 1 000 candidates, measured on 2026-11-06
 (Dart 3.13.4 AOT, Windows x64):
 
