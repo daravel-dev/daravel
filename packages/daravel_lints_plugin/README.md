@@ -2,6 +2,8 @@
 
 # daravel_lints_plugin
 
+English · [Bahasa Indonesia](https://github.com/daravel-dev/daravel/blob/main/packages/daravel_lints_plugin/README.id.md)
+
 The [`daravel_lints`](https://pub.dev/packages/daravel_lints) rules in the
 editor: a Dart analysis server plugin (`analysis_server_plugin`), so the
 findings of `dartisan lint` appear as you type, in VS Code, Android Studio
