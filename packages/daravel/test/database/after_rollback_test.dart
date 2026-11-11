@@ -122,21 +122,24 @@ void main() {
     expect(ran, ['inner']);
   });
 
-  test('a savepoint released, then its parent rolled back: its callbacks '
-      'still run (Laravel drops them; Daravel keeps them on purpose)', () async {
-    final ran = <String>[];
-    await expectLater(
-      db.transaction(() async {
-        await db.transaction(() async {
-          db.afterRollback(() => ran.add('released savepoint'));
-        });
-        db.afterRollback(() => ran.add('outer'));
-        throw StateError('outer fails');
-      }),
-      throwsStateError,
-    );
-    expect(ran, unorderedEquals(['released savepoint', 'outer']));
-  });
+  test(
+    'a savepoint released, then its parent rolled back: its callbacks '
+    'still run (Laravel drops them; Daravel keeps them on purpose)',
+    () async {
+      final ran = <String>[];
+      await expectLater(
+        db.transaction(() async {
+          await db.transaction(() async {
+            db.afterRollback(() => ran.add('released savepoint'));
+          });
+          db.afterRollback(() => ran.add('outer'));
+          throw StateError('outer fails');
+        }),
+        throwsStateError,
+      );
+      expect(ran, unorderedEquals(['released savepoint', 'outer']));
+    },
+  );
 
   test('a retried transaction runs them before the body runs again', () async {
     final events = <String>[];
@@ -177,7 +180,11 @@ void main() {
         await db.afterCommit(() => throw StateError('third push fails'));
       }),
       throwsA(
-        isA<StateError>().having((e) => e.message, 'message', 'first push fails'),
+        isA<StateError>().having(
+          (e) => e.message,
+          'message',
+          'first push fails',
+        ),
       ),
     );
     expect(ran, ['second push']);
