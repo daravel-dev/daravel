@@ -351,9 +351,13 @@ final class JobProcessor {
   /// The `retry_after` warnings already given, per connection and job.
   final Set<String> _retryAfterWarned = <String>{};
 
-  /// The cache key debouncing [job].
+  /// The cache key debouncing [job] (Laravel's, ADR-041).
   static String debounceKey(Job job) =>
-      'debounced_job:${job.jobName}:${job.debounceId}';
+      QueueLockKeys.debounce(job.displayName, job.debounceId);
+
+  /// The key the previous release debounced [job] under (ADR-041).
+  static String legacyDebounceKey(Job job) =>
+      QueueLockKeys.legacyDebounce(job.jobName, job.debounceId);
   final DateTime Function() _clock;
 
   /// How many jobs were released after a timeout with their handler still
@@ -387,7 +391,13 @@ final class JobProcessor {
     if (debounce != null) {
       // A newer dispatch took over. No owner at all is run: the cache may
       // have lost it, and a lost update is worse than an extra run.
-      final current = await debounce.get<String>(debounced);
+      // Laravel's key, else the previous release's (a dispatch made by an
+      // instance of it during a deploy; ADR-041).
+      final current =
+          await debounce.get<String>(debounced) ??
+          (QueueLockKeys.legacyKeys
+              ? await debounce.get<String>(legacyDebounceKey(job))
+              : null);
       if (current != null && current != owner) {
         await _finish(driver, queued, payload);
         return .deleted;
@@ -713,7 +723,14 @@ final class JobProcessor {
     await driver.delete(queued);
     final unique = payload.uniqueKey;
     if (unique != null) {
-      await uniqueLockRelease?.call(unique);
+      // Both formats, whichever release dispatched it (ADR-041).
+      for (final key in QueueLockKeys.uniqueKeysOf(
+        unique,
+        displayName: payload.displayName,
+        jobName: payload.jobName,
+      )) {
+        await uniqueLockRelease?.call(key);
+      }
     }
   }
 
@@ -986,6 +1003,17 @@ final class QueueManager {
     final owner = const Uuid().v4();
     final previous = await store.get<String>(key);
     await store.put(key, owner, ttl: ttl);
+    // The previous release's key too, for its workers during a deploy
+    // (ADR-041); `first_dispatched_at` lives under Laravel's key only.
+    final legacy = QueueLockKeys.legacyKeys
+        ? JobProcessor.legacyDebounceKey(job)
+        : null;
+    final previousLegacy = legacy == null
+        ? null
+        : await store.get<String>(legacy);
+    if (legacy != null) {
+      await store.put(legacy, owner, ttl: QueueLockKeys.legacyTtl(ttl));
+    }
     final firstKey = '$key:first_dispatched_at';
     int? restoreFirst;
     var forgetFirst = false;
@@ -995,6 +1023,17 @@ final class QueueManager {
           await store.forget(key);
         } else {
           await store.put(key, previous, ttl: ttl);
+        }
+      }
+      if (legacy != null && await store.get<String>(legacy) == owner) {
+        if (previousLegacy == null) {
+          await store.forget(legacy);
+        } else {
+          await store.put(
+            legacy,
+            previousLegacy,
+            ttl: QueueLockKeys.legacyTtl(ttl),
+          );
         }
       }
       if (forgetFirst) {
@@ -1044,25 +1083,46 @@ final class QueueManager {
   Future<_DispatchLocks?> _takeLocks(Job job, Duration? delay) async {
     String? uniqueKey;
     Lock? unique;
+    Lock? legacyUnique;
     final uniqueId = job.uniqueId;
     if (uniqueId != null) {
       final store = lockStore;
       if (store == null) {
         throw const ConfigException('Unique jobs need a cache lock store.');
       }
-      uniqueKey = 'unique:${job.jobName}:$uniqueId';
+      uniqueKey = QueueLockKeys.unique(job.displayName, uniqueId);
+      // Laravel's `uniqueFor` 0 is a lock that never expires; 365 days
+      // here, so a lock left behind recovers (a deliberate difference,
+      // ADR-041).
       final ttl = job.uniqueFor == Duration.zero
           ? const Duration(days: 365)
           : job.uniqueFor;
+      // The previous release's key first, then Laravel's: an instance of
+      // either release refuses the other's dispatch during a deploy.
+      if (QueueLockKeys.legacyKeys) {
+        legacyUnique = store.lock(
+          QueueLockKeys.legacyUnique(job.jobName, uniqueId),
+          ttl: QueueLockKeys.legacyTtl(ttl),
+        );
+        if (!await legacyUnique.acquire()) {
+          logger?.debug(
+            'Unique job ${job.displayName} [$uniqueId] already pending; '
+            'skipped.',
+          );
+          return null;
+        }
+      }
       unique = store.lock(uniqueKey, ttl: ttl);
       if (!await unique.acquire()) {
+        await legacyUnique?.release();
         logger?.debug(
           'Unique job ${job.displayName} [$uniqueId] already pending; skipped.',
         );
         return null;
       }
     }
-    return _DispatchLocks(uniqueKey, unique, delay, job, logger);
+    return _DispatchLocks(uniqueKey, unique, delay, job, logger)
+      ..legacyUnique = legacyUnique;
   }
 
   /// Pushes [job] holding [locks], taking its debounce owner first; a
@@ -1656,6 +1716,9 @@ final class _DispatchLocks {
   final Logger? logger;
   String? owner;
   Future<void> Function()? undoDebounce;
+
+  /// The previous release's unique lock, taken with [unique] (ADR-041).
+  Lock? legacyUnique;
   bool _released = false;
 
   /// Gives both back, once.
@@ -1666,6 +1729,7 @@ final class _DispatchLocks {
     _released = true;
     try {
       await unique?.release();
+      await legacyUnique?.release();
       await undoDebounce?.call();
     } on Object catch (error, stackTrace) {
       logger?.error(
