@@ -181,7 +181,7 @@ void main() {
   }
 
   test('debounce, rollback: the job already queued still runs while the '
-      'transaction is open, and nothing is lost (ACK 262)', () async {
+      'transaction is open, and nothing is lost', () async {
     settled.clear();
     await app.run(() async {
       // J1 queued, owning the key.

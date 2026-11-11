@@ -1072,7 +1072,7 @@ final class QueueManager {
   /// pending (the job is skipped). The debounce owner is not taken here but
   /// at the push ([_pushHeld]): taken at a dispatch inside a transaction, it
   /// would make the job still queued drop itself while the transaction is
-  /// open, and a rollback would then lose both (ACK 262).
+  /// open, and a rollback would then lose both.
   Future<_DispatchLocks?> _takeLocks(Job job, Duration? delay) async {
     String? uniqueKey;
     Lock? unique;
