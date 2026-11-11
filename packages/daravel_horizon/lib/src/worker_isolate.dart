@@ -194,6 +194,18 @@ Future<void> horizonWorkerMain(HorizonWorkerStart start) async {
       })
       ..listen<JobFailed>((e) {
         clear();
+        // A job failed for its timeout mark: the mark goes now, not before
+        // (a worker dying first leaves it for the next reservation), and
+        // not when failing threw (failed_jobs could not be written: the job
+        // must fail at its next reservation, not run again).
+        if (signals != null && failing.remove(e.uuid)) {
+          unawaited(
+            HorizonSignals.unmarkTimedOut(
+              signals,
+              e.uuid!,
+            ).then((_) {}, onError: (Object _) {}),
+          );
+        }
         final (name, tags) =
             running.remove(e.uuid) ?? (e.jobName, const <String>[]);
         record(
@@ -283,18 +295,11 @@ Future<void> horizonWorkerMain(HorizonWorkerStart start) async {
           // failed before it ran: not every way has an event), this worker
           // runs nothing now: an idle worker must not look busy, or the
           // master would kill it past a job that is over.
-          // A marked job's mark goes once it has failed, not before: a
-          // worker dying in between leaves it for the next reservation.
+          // A marked job leaves `failing` whatever happened; its mark goes
+          // only at JobFailed (above), once failed_jobs has its row.
           onFinished: (job) {
             clear();
-            if (signals != null && failing.remove(job.payload.uuid)) {
-              unawaited(
-                HorizonSignals.unmarkTimedOut(
-                  signals,
-                  job.payload.uuid,
-                ).then((_) {}, onError: (Object _) {}),
-              );
-            }
+            failing.remove(job.payload.uuid);
           },
         ),
       ),
