@@ -37,6 +37,9 @@ KEYS=(-e REVERB_APP_ID=app1 -e REVERB_APP_KEY=key1 -e REVERB_APP_SECRET=secret1
 
 # A copy of the working tree, so the container's `pub get` never touches
 # the checkout's .dart_tool; its files are root's, so a container removes it.
+# $WORK is made first: a bind mount of a missing directory creates it as
+# root, and the mkdir below then fails.
+mkdir -p "$WORK"
 docker run --rm -v "$WORK:/w" dart:stable rm -rf /w/src >/dev/null
 mkdir -p "$WORK/src" "$WORK/pub-cache" "$WORK/npm"
 tar -C "$REPO" --exclude=.git --exclude=.dart_tool --exclude=build \
