@@ -271,17 +271,30 @@ import 'dart:async';
 
 import 'package:daravel/daravel.dart';
 
-final class {{ class }} extends FormRequest {
+final class {{ class }} extends FormRequest<{{ class }}Input> {
   const {{ class }}();
+
+  /// One `Field` per input; `dartisan request:sync` writes the typed
+  /// getters of [{{ class }}Input] from them.
+  static const name = Field<String>('name');
 
   @override
   FutureOr<bool> authorize(Request request) => true;
 
   @override
   Map<String, Object> rules(Request request) => {
-    // 'email': 'required|email',
+    name: [Rules.required(), Rules.string()],
   };
 }
+
+// <dartisan:input>
+/// The validated input of [{{ class }}], one getter per `Field`
+/// (written by `dartisan request:sync`; edit the fields, not this).
+extension type const {{ class }}Input(ValidatedData _data)
+    implements ValidatedData {
+  String get name => _data.field({{ class }}.name);
+}
+// </dartisan:input>
 ''';
 
 const String _middleware = r'''
