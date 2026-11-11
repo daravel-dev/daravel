@@ -86,6 +86,14 @@ void main() {
       check('a', 'exists:my_items,name,qty";DROP TABLE my_items;--,1'),
       throwsArgumentError,
     );
+    // exists on a list: every distinct value must be found (getMultiCount).
+    expect(await check(['a', hostile], 'exists:my_items,name'), isEmpty);
+    expect(await check(['a', 'a'], 'exists:my_items,name,qty,1'), isEmpty);
+    expect(
+      await check(['a', hostile], 'exists:my_items,name,qty,1'),
+      isNotEmpty,
+    );
+    expect(await check(['a', 'zzz'], 'exists:my_items,name'), isNotEmpty);
     expect(await db.table('my_items').count(), 2);
   });
 

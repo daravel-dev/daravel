@@ -271,6 +271,14 @@ void main() {
       check('a', 'exists:pg_items,name,qty";DROP TABLE pg_items;--,1'),
       throwsArgumentError,
     );
+    // exists on a list: every distinct value must be found (getMultiCount).
+    expect(await check(['a', hostile], 'exists:pg_items,name'), isEmpty);
+    expect(await check(['a', 'a'], 'exists:pg_items,name,qty,1'), isEmpty);
+    expect(
+      await check(['a', hostile], 'exists:pg_items,name,qty,1'),
+      isNotEmpty,
+    );
+    expect(await check(['a', 'zzz'], 'exists:pg_items,name'), isNotEmpty);
     expect(await db.table('pg_items').count(), 2);
   });
 
