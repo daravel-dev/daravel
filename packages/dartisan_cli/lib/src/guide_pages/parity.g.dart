@@ -24,6 +24,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `Route::resource(...)` | `router.resource(name, controller)` |  |
 | `->name('users.show')` | `.name('users.show')` |  |
 | `->middleware(['auth'])` | `.middleware(const ['auth'])` |  |
+| `->middleware(['auth:sanctum', 'throttle:login', 'can:update,post'])` | `.middleware([Mw.auth(['token']), Mw.throttle('login'), Mw.can('update', ['post'])])` | Each Mw token is the alias string, so tokens and strings mix in one list. |
 | `TrimStrings ($except: current_password, password, password_confirmation)` | `TrimStringsMiddleware(except: {...TrimStringsMiddleware.defaultExcept, 'pin'})` | except names dotted paths (user.password), as TransformsRequest::cleanArray passes them. |
 | `->where('id', '[0-9]+') / ->whereNumber('id')` | `.where('id', r'\d+') / .whereNumber('id')` |  |
 | `->whereUuid('id')` | `.whereUuid('id')` |  |
