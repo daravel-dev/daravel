@@ -27,9 +27,40 @@ final class ValidationContext {
   /// The custom attribute names of this validation.
   final Map<String, String> attributeNames;
 
-  /// [attribute] as a message shows it.
-  String displayName(String attribute) =>
-      attributeNames[attribute] ?? attribute.replaceAll('_', ' ');
+  /// [attribute] as a message shows it, with its `*` replaced as [resolve]
+  /// does (a custom name given for the resolved path wins, then one for the
+  /// path as written).
+  String displayName(String attribute) {
+    final resolved = resolve(attribute);
+    return attributeNames[resolved] ??
+        attributeNames[attribute] ??
+        resolved.replaceAll('_', ' ');
+  }
+
+  /// [path] with each `*` replaced by the key the current [attribute] has
+  /// at the matching `*` of its [pattern], in order: `items.*.b` is
+  /// `items.2.b` while validating `items.2.a` of `items.*.a` (Laravel's
+  /// `getExplicitKeys` and `replaceAsterisksInParameters`, which the
+  /// dependent rules' other fields go through). Without a `*`, or when the
+  /// pattern has none, [path] is returned as is.
+  String resolve(String path) {
+    if (!path.contains('*') || !pattern.contains('*')) {
+      return path;
+    }
+    final keys = <String>[];
+    final patternParts = pattern.split('.');
+    final attributeParts = attribute.split('.');
+    for (var i = 0; i < patternParts.length && i < attributeParts.length; i++) {
+      if (patternParts[i] == '*') {
+        keys.add(attributeParts[i]);
+      }
+    }
+    var next = 0;
+    return path.replaceAllMapped(
+      '*',
+      (m) => next < keys.length ? keys[next++] : '*',
+    );
+  }
 
   /// Whether the attribute also carries a `numeric` or `integer` rule, so
   /// size rules (`min`, `max`, `between`, `size`) measure a string by its
@@ -57,8 +88,13 @@ final class ValidationContext {
   /// Locale used for messages.
   final String locale;
 
-  /// Looks up another attribute by dot path from the root.
-  Object? root(String path) => dig(data, path);
+  /// Looks up another attribute by dot path from the root; a `*` in [path]
+  /// is [resolve]d first.
+  Object? root(String path) => dig(data, resolve(path));
+
+  /// Whether another attribute's key exists, by dot path from the root
+  /// (Laravel's `Arr::has`); a `*` in [path] is [resolve]d first.
+  bool has(String path) => exists(data, resolve(path));
 
   /// Looks up a sibling of the current attribute (`items.2.qty` from
   /// `items.2.id` when [key] is `qty`).
