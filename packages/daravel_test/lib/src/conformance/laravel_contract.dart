@@ -180,6 +180,36 @@ abstract final class LaravelContract {
   /// Default morph class of a model (`tokenable_type`).
   static String morphClass(String model) => 'App\\Models\\$model';
 
+  // -- Queue locks (laravel/framework 12.x, 13.x) -------------------------
+
+  /// `Illuminate\Bus\UniqueLock::getKey` (12.x `src/Illuminate/Bus/
+  /// UniqueLock.php` lines 66-77, the same in 13.x) for a job class without
+  /// `displayName()`: `'laravel_unique_job:'.get_class($job).':'.$uniqueId`.
+  static String uniqueJobLock(String jobClass, String uniqueId) =>
+      'laravel_unique_job:$jobClass:$uniqueId';
+
+  /// `Illuminate\Queue\Middleware\WithoutOverlapping::getLockKey` (12.x
+  /// lines 41 and 157-168): prefix `laravel-queue-overlap:`, then the job
+  /// class and the key, or only the key when `shared()`.
+  static String overlapLock(
+    String jobClass,
+    String key, {
+    bool shared = false,
+  }) => shared
+      ? 'laravel-queue-overlap:$key'
+      : 'laravel-queue-overlap:$jobClass:$key';
+
+  /// `Illuminate\Bus\DebounceLock::getKey` (13.x `src/Illuminate/Bus/
+  /// DebounceLock.php` lines 159-170; 12.x has none) for a job class without
+  /// `displayName()`.
+  static String debouncedJobKey(String jobClass, String debounceId) =>
+      'laravel_debounced_job:$jobClass:$debounceId';
+
+  /// `DebounceLock::maxWaitExceeded`/`releaseMaxWait` (13.x lines 67 and
+  /// 128): the first dispatch of a burst, under the owner's key.
+  static String debouncedJobFirstDispatch(String jobClass, String debounceId) =>
+      '${debouncedJobKey(jobClass, debounceId)}:first_dispatched_at';
+
   // -- Dates (Carbon::toJSON) ---------------------------------------------
 
   /// `2026-01-02T03:04:05.000000Z`: UTC with microseconds.

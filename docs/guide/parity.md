@@ -19,6 +19,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `Route::resource(...)` | `router.resource(name, controller)` |  |
 | `->name('users.show')` | `.name('users.show')` |  |
 | `->middleware(['auth'])` | `.middleware(const ['auth'])` |  |
+| `->middleware(['auth:sanctum', 'throttle:login', 'can:update,post'])` | `.middleware([Mw.auth(['token']), Mw.throttle('login'), Mw.can('update', ['post'])])` | Each Mw token is the alias string, so tokens and strings mix in one list. |
 | `TrimStrings ($except: current_password, password, password_confirmation)` | `TrimStringsMiddleware(except: {...TrimStringsMiddleware.defaultExcept, 'pin'})` | except names dotted paths (user.password), as TransformsRequest::cleanArray passes them. |
 | `->where('id', '[0-9]+') / ->whereNumber('id')` | `.where('id', r'\d+') / .whereNumber('id')` |  |
 | `->whereUuid('id')` | `.whereUuid('id')` |  |
@@ -100,6 +101,9 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `(none)` | `createApp()..serveBroadcastingOnly(path: '/ws', auth: false, debug: false)` | Daravel-only: the same application serving only its Pusher server, /up, /up/ready and /metrics (what reverb:start runs); app.router keeps every route. |
 | `(none)` | `await app.restart()` | Daravel-only: drain and start again; a supervisor worker is spawned again at once, not counted as a crash. |
 | `config/reverb.php 'apps' => ['apps' => [...]] from .env` | `.withReverb() with REVERB_APPS (JSON) or REVERB_APPS_PROVIDER=database (daravel_reverb)` | The entries of config/reverb.php as JSON, or a reverb_apps table read per key and cached 60 s. |
+| `Echo.private('orders.42').listen('OrderShipped', cb) (laravel-echo)` | `Echo.reverb(key:, host:, auth: EchoAuth.bearer(...)).private('orders.42').listen('OrderShipped', cb) (daravel_reverb_client)` | Dart and Flutter (VM, mobile, desktop, web) against Laravel Reverb or Daravel; Echo's event names, whispers, notifications. |
+| `Echo.join('room').here(cb).joining(cb).leaving(cb)` | `echo.join('room')..here(cb)..joining(cb)..leaving(cb)` | Presence members, one join per user. |
+| `Echo.encryptedPrivate('chat.9')` | `echo.encryptedPrivate('chat.9')` | Opened with the shared_secret of /broadcasting/auth, as pusher-js. |
 | `Broadcast::channel('orders.{id}', fn ($user, $id) => ...)` | `channels.channel('orders.{id}', (user, p) => ...)` | routes/channels.php: false refuses, true admits, a map is the presence member. |
 | `(none)` | `channels.channel('orders.{id}', ..., type: 'private', events: [BroadcastEventSchema('OrderShipped', data: ...)])` | Daravel-only: channel type and event schemas for tools; dartisan route:list --channels. |
 | `config/reverb.php 'apps' => ['apps' => [...]] (Reverb)` | `.withBroadcasting(apps: ListAppProvider([BroadcastApp(id:, key:, secret:), ...]))` | Several Pusher applications on one server, each with its own secret, origins and limits; their channels are apart. |
@@ -278,7 +282,8 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `withoutGlobalScope('active')` | `withoutGlobalScope('active')` |  |
 | `Rule::unique('users')->ignore($id)->where(fn ($q) => $q->whereNull('deleted_at'))` | `Rules.unique('users').ignore(id).where((QueryBuilder q) => q.whereNull('deleted_at'))` |  |
 | `['required', 'email', 'max:255']` | `Rules.required().email().max(255)` | Chained rule objects, checked by the compiler. |
-| `'accepted' / 'accepted_if:plan,paid' / 'declined' / 'declined_if:plan,paid'` | `the same strings, or Rules.accepted() / acceptedIf('plan', ['paid']) / declined() / declinedIf(...)` |  |
+| `'accepted' / 'accepted_if:plan,paid' / 'declined' / 'declined_if:plan,paid'` | `the same strings, or Rules.accepted() / acceptedIf('plan', ['paid']) / declined() / declinedIf(...)` | With a boolean rule on the other field, '1' and '0' match true and false; PHP's loose == also matches 'on' or 'yes' to true there, which Daravel does not (such input fails that field's boolean rule). |
+| `'required_if:role,admin,owner' / 'required_unless:role,guest,bot'` | `the same strings, or Rules.requiredIfIn('role', ['admin', 'owner']) / requiredUnlessIn(...), Rules.requiredIf('role', 'admin') for one value` | Compared as Laravel 13's parseDependentRuleParameters: 'true'/'false' as booleans for a bool input or a field with a boolean rule, 'null' as null, strictly for a bool or null input and with PHP's loose == otherwise ('05' is 5); a missing field never requires the other for required_if. |
 | `'missing' / 'missing_if:a,x' / 'missing_unless:a,x' / 'missing_with:a,b' / 'missing_with_all:a,b'` | `the same strings, or Rules.missing() / missingIf('a', ['x']) / missingUnless(...) / missingWith(['a', 'b']) / missingWithAll(...)` | Presence is the key's, as Arr::has: a key with a null value is present. |
 | `'present_unless:a,x' / 'present_with:a,b' / 'present_with_all:a,b'` | `the same strings, or Rules.presentUnless('a', ['x']) / presentWith(['a', 'b']) / presentWithAll(...)` |  |
 | `'prohibited_if_accepted:a' / 'prohibited_if_declined:a' / 'required_if_declined:a'` | `the same strings, or Rules.prohibitedIfAccepted('a') / prohibitedIfDeclined('a') / requiredIfDeclined('a')` |  |
