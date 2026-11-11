@@ -144,10 +144,13 @@ extension type const ValidatedData(Map<String, Object?> _data)
     if (converted is T) {
       return converted;
     }
+    // Never the value itself: it is user input (a password or a token on a
+    // misdeclared field) and this error reaches the log. Its runtime type,
+    // and a string's length, are enough to see the mismatch.
     throw StateError(
-      'Validated attribute [$field] is declared Field<$T> but holds '
-      '${raw is String ? '"$raw"' : raw} (${raw.runtimeType}); add the rule '
-      'that guarantees $T, or change the field type.',
+      'Validated attribute [$field] is declared Field<$T> but holds a '
+      '${raw.runtimeType}${raw is String ? ' of length ${raw.length}' : ''}; '
+      'add the rule that guarantees $T, or change the field type.',
     );
   }
 

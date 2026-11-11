@@ -97,10 +97,10 @@ void main() {
   });
 
   test(
-    'a field its rules do not guarantee names field, type and value',
+    'a field its rules do not guarantee names field and types, never the value',
     () async {
       final data = await const LooseRequest().validateRequest(
-        post({'age': 'forty'}),
+        post({'age': 's3cret-token'}),
       );
       expect(
         () => data.field(LooseRequest.age),
@@ -111,7 +111,9 @@ void main() {
             allOf(
               contains('[age]'),
               contains('Field<int>'),
-              contains('"forty"'),
+              contains('String of length 12'),
+              // User input may be a secret and this error reaches the log.
+              isNot(contains('s3cret')),
             ),
           ),
         ),
