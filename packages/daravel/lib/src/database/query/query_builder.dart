@@ -168,9 +168,16 @@ final class QueryBuilder {
       );
     }
     if (column is WhereClause) {
-      if (operatorOrValue != null || value != null) {
+      // Any argument given counts, an explicit null included: the defaults
+      // are the [absent] marker, not null.
+      final extra = !identical(operatorOrValue, absent)
+          ? operatorOrValue
+          : !identical(value, absent)
+          ? value
+          : absent;
+      if (!identical(extra, absent)) {
         throw ArgumentError.value(
-          operatorOrValue ?? value,
+          extra,
           'operatorOrValue',
           'A typed condition (User.cols.age.gte(18)) takes no operator or '
               'value of its own',
