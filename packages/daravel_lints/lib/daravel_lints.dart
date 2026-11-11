@@ -70,9 +70,16 @@ abstract base class LintRule {
     void Function(AstNode node, String message) report,
   );
 
+  /// Whether [checkAt] reports offsets other than the starts of the nodes
+  /// [check] names, as a rule overriding it does. When `false` (the
+  /// default), a runner that needs the nodes (the editor plugin, for the
+  /// span to underline) calls [check] alone and walks the file once.
+  bool get reportsInsideNodes => false;
+
   /// Reports findings at a source offset, for rules that point inside a
   /// node (a position in a long string literal). The default reports each
-  /// [check] finding at the start of its node.
+  /// [check] finding at the start of its node. A rule that overrides it
+  /// also overrides [reportsInsideNodes] to return `true`.
   void checkAt(
     CompilationUnit unit,
     void Function(int offset, String message) report,
@@ -1247,6 +1254,9 @@ final class NoInlineJsInterpolation extends LintRule {
       }),
     );
   }
+
+  @override
+  bool get reportsInsideNodes => true;
 
   @override
   void checkAt(CompilationUnit unit, void Function(int, String) report) {

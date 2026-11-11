@@ -7,6 +7,7 @@ import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/dart/ast/token.dart';
 import 'package:analyzer/dart/ast/visitor.dart';
 import 'package:analyzer/error/error.dart';
+import 'package:analyzer/source/line_info.dart';
 import 'package:daravel_lints/daravel_lints.dart';
 import 'package:path/path.dart' as p;
 
@@ -57,6 +58,11 @@ final class DaravelAnalysisRule extends AnalysisRule {
   /// The `daravel_lints` rule run.
   final LintRule rule;
 
+  /// `// daravel-lint-ignore: <rule>` (other rules may share the comment).
+  late final RegExp ignored = RegExp(
+    'daravel-lint-ignore:[^\\n]*\\b${RegExp.escape(rule.name)}\\b',
+  );
+
   // One code per rule name, kept for the life of the isolate: the analysis
   // server matches codes by identity (and `// ignore:` relies on it).
   static final Map<String, LintCode> _codes = {};
@@ -94,10 +100,22 @@ final class _Visitor extends SimpleAstVisitor<void> {
     if (!rule.appliesTo(relative.replaceAll(r'\', '/'))) {
       return;
     }
-    final lines = unit.content.split('\n');
-    final ignored = RegExp(
-      'daravel-lint-ignore:[^\\n]*\\b${RegExp.escape(rule.name)}\\b',
-    );
+    final content = unit.content;
+    void report(int offset, int length, String message) {
+      if (!_ignored(content, node.lineInfo, offset)) {
+        analysisRule.reportAtOffset(offset, length, arguments: [message]);
+      }
+    }
+
+    if (!rule.reportsInsideNodes) {
+      // checkAt would only repeat check's walk: one walk, each finding's
+      // squiggle covering the node it names.
+      rule.check(
+        node,
+        (found, message) => report(found.offset, found.length, message),
+      );
+      return;
+    }
     // The node each finding of check() names, by offset and message, so the
     // squiggle covers that node; a finding check() does not name (one that
     // points inside a node, through checkAt) covers its token.
@@ -107,14 +125,24 @@ final class _Visitor extends SimpleAstVisitor<void> {
       (found, message) => nodes[(found.offset, message)] ??= found,
     );
     rule.checkAt(node, (offset, message) {
-      final line = node.lineInfo.getLocation(offset).lineNumber - 1;
-      if (line >= 0 && line < lines.length && ignored.hasMatch(lines[line])) {
-        return;
-      }
       final found = nodes[(offset, message)];
       final length = found != null ? found.length : _tokenLength(node, offset);
-      analysisRule.reportAtOffset(offset, length, arguments: [message]);
+      report(offset, length, message);
     });
+  }
+
+  /// Whether the line holding [offset] carries
+  /// `daravel-lint-ignore: <rule>`; reads that line only, not every line.
+  bool _ignored(String content, LineInfo lineInfo, int offset) {
+    if (offset < 0 || offset > content.length) {
+      return false;
+    }
+    final line = lineInfo.getLocation(offset).lineNumber - 1;
+    final start = lineInfo.getOffsetOfLine(line);
+    final end = content.indexOf('\n', start);
+    return analysisRule.ignored.hasMatch(
+      content.substring(start, end == -1 ? content.length : end),
+    );
   }
 
   /// The length from [offset] to the end of the token that holds it.
