@@ -186,6 +186,12 @@ abstract final class DB {
   /// Whether the current zone is inside a transaction.
   static bool get inTransaction => manager.inTransaction;
 
+  /// Runs [callback] if the active transaction level rolls back
+  /// (`DB::afterRollBack`, [DatabaseManager.afterRollback]); nothing
+  /// outside a transaction.
+  static void afterRollback(FutureOr<void> Function() callback) =>
+      manager.afterRollback(callback);
+
   /// Calls [listener] after every query (`DB::listen`): SQL, bindings,
   /// duration and connection, for debugging and slow-query logging.
   /// Register it once (in a provider); the returned function removes it.
