@@ -32,3 +32,32 @@ A finding is silenced as with `dartisan lint`
 this package only runs them for the analysis server, which resolves it
 apart from your application, so its pinned `analyzer` never reaches your
 dependencies.
+
+## What it costs
+
+Measured with `tool/editor_latency.dart` (the analysis server over LSP, as
+the editors run it, 10 edits per series) on the Daravel repository, a
+workspace of about thirty packages, on Windows:
+
+- **Per edit: nothing measurable.** The plugin's findings arrive in the
+  same diagnostics message as the analyzer's: 15 to 21 ms (median) with
+  the plugin, 34 to 35 ms without it, which is noise between series.
+- **Memory: the analysis server's working set grows by about 430 to
+  700 MB** (1.16 to 1.44 GB with the plugin, 0.73 to 0.83 GB without). The
+  plugin runs in its own isolate with its own copy of the analysis.
+- **Start-up: the first start can take tens of seconds.** In the first
+  series after the plugin was enabled, its first finding came 15 s after
+  the edit (an earlier one timed out at 30 s). Later starts took 0.06 to
+  0.23 s after the server's own analysis. That the cost is the server
+  building the plugin once per plugin version is an assumption, not
+  measured.
+
+A large workspace on a machine with little memory may prefer to keep the
+plugin off and run `dartisan lint` instead; the rules are the same.
+
+## In CI
+
+`dart analyze` runs the plugin too, so its findings appear there as
+`info`, and `dart analyze --fatal-infos` fails on them, as `dartisan lint`
+does. A CI job that already runs `dartisan lint` reports each finding
+twice; either is enough.
