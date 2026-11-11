@@ -148,6 +148,42 @@ void main() {
       });
     });
 
+    test('a job this release dispatched and a worker of the previous '
+        'release finished: the old key it leaves behind lapses after '
+        'legacyWindow, not after uniqueFor (SEQ 268)', () async {
+      Clock.freeze();
+      addTearDown(Clock.restore);
+      await app.run(() async {
+        await app.container.make<QueueManager>().push(const SendInvoice('44'));
+        // The previous release's worker releases only payload.uniqueKey
+        // (Laravel's key): it does not know uniqueKeysOf.
+        await locks()
+            .lock(LaravelContract.uniqueJobLock(r'App\Jobs\SendInvoice', '44'))
+            .forceRelease();
+        // Within the window the old key still refuses the id.
+        Clock.travel(QueueLockKeys.legacyWindow - const Duration(minutes: 1));
+        await app.container.make<QueueManager>().push(const SendInvoice('44'));
+        expect(await size(), 1, reason: 'refused within the window');
+        // Past it the id is accepted again (SendInvoice has uniqueFor 0:
+        // 365 days before this bound).
+        Clock.travel(const Duration(minutes: 2));
+        await app.container.make<QueueManager>().push(const SendInvoice('44'));
+        expect(await size(), 2, reason: 'accepted after the window');
+      });
+    });
+
+    test('the debounce owner under the old key lapses after legacyWindow '
+        "too; Laravel's key keeps its own TTL", () async {
+      expect(
+        QueueLockKeys.legacyTtl(const Duration(days: 365)),
+        QueueLockKeys.legacyWindow,
+      );
+      expect(
+        QueueLockKeys.legacyTtl(const Duration(minutes: 5)),
+        const Duration(minutes: 5),
+      );
+    });
+
     test("this release's dispatch holds the old key, so the previous "
         'release (and Laravel, on the new key) refuse theirs', () async {
       await app.run(() async {

@@ -30,6 +30,13 @@ During a deploy, instances of the previous release know only the old keys. Check
   - a worker reads Laravel's key and falls back to the old one;
   - `first_dispatched_at` (`debounceMaxWait`) lives under Laravel's key only.
   - **Limit:** while both releases dispatch the same debounce id in the same burst, an instance of the previous release reads only the old key, so one extra run (or one dropped duplicate) of that burst is possible during the deploy window.
+- **Window on the old keys** (`QueueLockKeys.legacyWindow`, 1 hour; the old keys this release takes or writes live `min(ttl, legacyWindow)`):
+  - **The gap it closes:** a unique job dispatched by this release but finished by a worker of the previous release. That worker releases only the payload's `uniqueKey` (Laravel's key), so the old key it does not know is left behind. Without the bound it would refuse the id for the job's `uniqueFor` (365 days for 0), and the next dispatch would be dropped with only a debug log line.
+  - **What remains:** for up to one hour after the last worker of the previous release stopped, such an id can still be refused.
+  - **The other side of the bound:** a duplicate is possible only if an instance of the previous release still dispatches the same unique id more than one hour after this release created it.
+  - **The other direction:** dispatched by the previous release and run by this release, both keys are released (`uniqueKeysOf`).
+  - **Debounce:** the old key holds the same owner as Laravel's (written together), so a worker of the previous release reading only the old key keeps the burst's last dispatch. Past the window the old key is gone, and such a worker runs the job (no owner means run, by design), so at most one extra run is possible.
+  - **`WithoutOverlapping`:** its two locks are taken and released by the same worker around the job, so nothing is left behind when a worker of the other release runs the next job. A worker killed mid-job leaves them until `expiresAfter`, as Laravel does.
 - **Removal:** the transition is one constant, `QueueLockKeys.legacyKeys`. It is removed in the minor release after 1.28.0, which then takes and writes Laravel's keys only.
 
 ## Consequences

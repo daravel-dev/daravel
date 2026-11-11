@@ -446,6 +446,19 @@ abstract final class QueueLockKeys {
   /// 1.28.0.
   static const bool legacyKeys = true;
 
+  /// How long a previous-release key taken by this release lives at most
+  /// (its own TTL when shorter). Such a key only refuses the previous
+  /// release's dispatches during a deploy; a worker of the previous release
+  /// does not know it and leaves it behind when it finishes a job this
+  /// release dispatched, so without this bound the id stayed refused for
+  /// the job's `uniqueFor` (365 days for 0). ADR-041, Tech Lead's answer to
+  /// SEQ 268.
+  static const Duration legacyWindow = Duration(hours: 1);
+
+  /// [ttl] bounded by [legacyWindow].
+  static Duration legacyTtl(Duration ttl) =>
+      ttl < legacyWindow ? ttl : legacyWindow;
+
   /// The unique lock of [displayName] with [uniqueId].
   static String unique(String displayName, String uniqueId) =>
       'laravel_unique_job:$displayName:$uniqueId';

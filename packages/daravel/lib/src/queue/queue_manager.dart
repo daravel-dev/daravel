@@ -1005,7 +1005,7 @@ final class QueueManager {
         ? null
         : await store.get<String>(legacy);
     if (legacy != null) {
-      await store.put(legacy, owner, ttl: ttl);
+      await store.put(legacy, owner, ttl: QueueLockKeys.legacyTtl(ttl));
     }
     final firstKey = '$key:first_dispatched_at';
     int? restoreFirst;
@@ -1022,7 +1022,11 @@ final class QueueManager {
         if (previousLegacy == null) {
           await store.forget(legacy);
         } else {
-          await store.put(legacy, previousLegacy, ttl: ttl);
+          await store.put(
+            legacy,
+            previousLegacy,
+            ttl: QueueLockKeys.legacyTtl(ttl),
+          );
         }
       }
       if (forgetFirst) {
@@ -1091,7 +1095,7 @@ final class QueueManager {
       if (QueueLockKeys.legacyKeys) {
         legacyUnique = store.lock(
           QueueLockKeys.legacyUnique(job.jobName, uniqueId),
-          ttl: ttl,
+          ttl: QueueLockKeys.legacyTtl(ttl),
         );
         if (!await legacyUnique.acquire()) {
           logger?.debug(
