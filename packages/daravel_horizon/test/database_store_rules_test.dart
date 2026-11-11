@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:daravel/daravel.dart';
@@ -151,6 +152,38 @@ void main() {
       expect(dropped('error'), 1);
     },
     timeout: const Timeout(Duration(seconds: 30)),
+  );
+
+  test(
+    'a flush waiting for the database never holds the worker: recording '
+    'returns at once, and the batch is written once the database is free',
+    () async {
+      final store = DatabaseHorizonStore(
+        db,
+        flushEvery: const Duration(milliseconds: 20),
+      );
+      final release = Completer<void>();
+      // Another holder of the one SQLite connection, for a second.
+      final holding = app.run(
+        () => DB.transaction(() async {
+          await DB.table('horizon_monitored_tags').get();
+          await release.future;
+        }),
+      );
+      final watch = Stopwatch()..start();
+      for (var i = 0; i < 50; i++) {
+        await store.record(job('j$i'));
+        // The job path never waits for the write.
+        expect(watch.elapsed, lessThan(const Duration(milliseconds: 500)));
+      }
+      expect(watch.elapsed, lessThan(const Duration(milliseconds: 500)));
+      // The timer's flush is waiting on the lock meanwhile.
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      release.complete();
+      await holding;
+      await store.flush();
+      expect(await rows('horizon_jobs'), 50, reason: 'nothing dropped');
+    },
   );
 
   test(
