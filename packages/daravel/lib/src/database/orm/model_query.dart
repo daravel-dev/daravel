@@ -563,32 +563,44 @@ final class ModelQuery<T extends Model> {
   /// (`posts.comments`): each level becomes an `EXISTS` inside the previous
   /// one, and [constraint] applies to the last.
   ModelQuery<T> whereHas(
-    String relation, [
+    Object relation, [
     RelationConstraint? constraint,
     String boolean = 'AND',
-  ]) => _has(relation, constraint, boolean: boolean);
+  ]) => _has(_relationName(relation), constraint, boolean: boolean);
 
   /// [whereHas] joined with `OR`.
-  ModelQuery<T> orWhereHas(String relation, [RelationConstraint? constraint]) =>
+  ModelQuery<T> orWhereHas(Object relation, [RelationConstraint? constraint]) =>
       whereHas(relation, constraint, 'OR');
 
   /// Models with at least one related row through [relation].
-  ModelQuery<T> has(String relation) => whereHas(relation);
+  ModelQuery<T> has(Object relation) => whereHas(relation);
 
   /// Models with no related row matching [constraint] through [relation].
   ModelQuery<T> whereDoesntHave(
-    String relation, [
+    Object relation, [
     RelationConstraint? constraint,
-  ]) => _has(relation, constraint, not: true);
+  ]) => _has(_relationName(relation), constraint, not: true);
 
   /// [whereDoesntHave] joined with `OR`.
   ModelQuery<T> orWhereDoesntHave(
-    String relation, [
+    Object relation, [
     RelationConstraint? constraint,
-  ]) => _has(relation, constraint, not: true, boolean: 'OR');
+  ]) => _has(_relationName(relation), constraint, not: true, boolean: 'OR');
 
   /// Models with no related row through [relation].
-  ModelQuery<T> doesntHave(String relation) => whereDoesntHave(relation);
+  ModelQuery<T> doesntHave(Object relation) => whereDoesntHave(relation);
+
+  /// [relation] as a name: a string, which a typed relation
+  /// (`User.rels.posts`) is at run time; anything else is an [ArgumentError].
+  static String _relationName(Object relation) => switch (relation) {
+    final String name => name,
+    _ => throw ArgumentError.value(
+      relation,
+      'relation',
+      'Not a relation name (a String or a typed relation such as '
+          'User.rels.posts)',
+    ),
+  };
 
   /// Filters on a `MorphTo` relation whose owner is one of [types] and
   /// matches [constraint] (called with each type).
