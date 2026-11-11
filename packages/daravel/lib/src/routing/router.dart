@@ -162,7 +162,9 @@ final class Router {
   /// The same as `post(path, ...).validates(form)` (403 when [form] does not
   /// authorize, 422 when the input is invalid, the rules in OpenAPI), with
   /// [D] tied to [form]: a handler written for another request's input does
-  /// not compile.
+  /// not compile. The input reaches the handler through an unchecked cast
+  /// (an input type is an extension type, erased at run time); it is safe
+  /// because the signature makes [D] the input type of [form].
   RouteEntry postValidated<D extends ValidatedData>(
     String path,
     FormRequest<D> form,
