@@ -24,11 +24,11 @@ final class UserController {
     // Validated by the route's .validates(StoreUserRequest()).
     final data = request.validated();
     final user = await DB.transaction(
-      () async => User.create({
-        'name': data.string('name'),
-        'email': data.string('email'),
-        'password': await Hash.make(data.string('password')),
-      }),
+      () async => User.createWith(
+        name: data.string('name'),
+        email: data.string('email'),
+        password: await Hash.make(data.string('password')),
+      ),
     );
     return UserResource(user);
   }
@@ -40,7 +40,7 @@ final class UserController {
     final data = await request.validate({
       'name': 'required|string|min:2|max:100',
     });
-    await user.update({'name': data.string('name')});
+    await user.updateWith(name: data.string('name'));
     return UserResource(user);
   }
 }

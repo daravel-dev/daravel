@@ -1,0 +1,8 @@
+// expect: undefined_static_member_read @8
+import 'package:daravel/daravel.dart';
+
+abstract final class StoreUser {
+  static const email = Field<String>('email');
+}
+
+final rule = Rules.same(StoreUser.emial);

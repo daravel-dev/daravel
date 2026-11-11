@@ -616,13 +616,21 @@ final class ServerEngine {
   /// Upgrades [httpRequest] (its middleware has passed); null when it is
   /// not a WebSocket request, which gets `426 Upgrade Required`, or the
   /// upgrade fails.
+  ///
+  /// A WebSocket request read while the server stops (accepted just before
+  /// it stopped accepting) is upgraded too, and closed `goingAway` within
+  /// its route's drain spread like the sockets already open ([_session]):
+  /// its client reconnects to another worker. It used to get 426, which
+  /// tells a client asking for an upgrade that it must upgrade: Pusher
+  /// clients took that as a failure, and a rolling restart refused the
+  /// connections that landed on the worker going down.
   Future<WebSocket?> _upgrade(
     HttpRequest httpRequest,
     Request request,
     Response response,
     String id,
   ) async {
-    if (!WebSocketTransformer.isUpgradeRequest(httpRequest) || _stopping) {
+    if (!WebSocketTransformer.isUpgradeRequest(httpRequest)) {
       final refusal = Response.json(const <String, Object?>{
         'message': 'Upgrade Required',
       }, status: 426).withHeader('upgrade', 'websocket');
@@ -681,7 +689,22 @@ final class ServerEngine {
       <String, Object?>{'request_id': id},
     );
     try {
-      await handler(socket, request);
+      final handled = Future<void>.sync(() => handler(socket, request));
+      if (_stopping) {
+        // Upgraded during the drain: told to go away like the others, once
+        // its handler has greeted it (a Pusher server's
+        // `connection_established`), or after [drainGreeting] for a handler
+        // that runs until the socket closes.
+        unawaited(
+          Future.any<void>(
+            [
+              handled.then<void>((_) {}, onError: (Object _) {}),
+              Future<void>.delayed(drainGreeting),
+            ],
+          ).then((_) => _closeGoingAway(socket, response.webSocketDrainSpread)),
+        );
+      }
+      await handled;
       await socket.done;
     } catch (error, stackTrace) {
       logger.error(
@@ -715,20 +738,9 @@ final class ServerEngine {
     // clients the server is going away so they reconnect elsewhere. Those
     // of a route with a drain spread (the Pusher server) close at random
     // moments within it, so their clients do not all reconnect at once.
-    final random = Random();
     for (final MapEntry(key: socket, value: spread)
         in _sockets.entries.toList()) {
-      void close() => unawaited(
-        socket.close(WebSocketStatus.goingAway, 'Server shutting down'),
-      );
-      final bound = spread == null || spread < options.shutdownTimeout
-          ? spread
-          : options.shutdownTimeout;
-      if (bound == null || bound <= Duration.zero) {
-        close();
-      } else {
-        Timer(bound * random.nextDouble(), close);
-      }
+      _closeGoingAway(socket, spread);
     }
     final server = _server;
     if (server != null) {
@@ -781,6 +793,29 @@ final class ServerEngine {
     }
   }
 
+  final Random _drainRandom = Random();
+
+  /// How long a WebSocket upgraded during the drain is given to greet its
+  /// client before it is told to go away, when its handler has not returned
+  /// by then (one that runs until the socket closes).
+  static const Duration drainGreeting = Duration(milliseconds: 100);
+
+  /// Closes [socket] `goingAway` at once, or at a random moment within its
+  /// route's drain [spread] (bounded by the shutdown timeout).
+  void _closeGoingAway(WebSocket socket, Duration? spread) {
+    void close() => unawaited(
+      socket.close(WebSocketStatus.goingAway, 'Server shutting down'),
+    );
+    final bound = spread == null || spread < options.shutdownTimeout
+        ? spread
+        : options.shutdownTimeout;
+    if (bound == null || bound <= Duration.zero) {
+      close();
+    } else {
+      Timer(bound * _drainRandom.nextDouble(), close);
+    }
+  }
+
   void _installSignalHandlers() {
     _signals.add(
       ProcessSignal.sigint.watch().listen((_) => _onSignal('SIGINT')),
@@ -830,9 +865,11 @@ final class ServerEngine {
   }
 
   void _handle(HttpRequest httpRequest) {
-    if (_stopping) {
+    if (_stopping && !WebSocketTransformer.isUpgradeRequest(httpRequest)) {
       // Draining: the client opens a new connection for its next request
       // (to another isolate or server) instead of sending it on this one.
+      // Not for an upgrade: its connection becomes the WebSocket, which the
+      // drain closes `goingAway` itself ([_upgrade]).
       httpRequest.response.persistentConnection = false;
     }
     if (_mustShed(httpRequest)) {

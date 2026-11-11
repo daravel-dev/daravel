@@ -323,6 +323,7 @@ sections:
       - { php: "DB::select($sql, $bindings)", dart: "await DB.select(sql, bindings)", symbol: DB.select, async: true }
       - { php: "DB::statement($sql)", dart: "await DB.statement(sql)", symbol: DB.statement, async: true }
       - { php: "DB::transaction(fn)", dart: "await DB.transaction(() async {...})", symbol: DB.transaction, async: true }
+      - { php: "DB::afterRollBack(fn)", dart: "DB.afterRollback(fn)", symbol: DB.afterRollback, note: "Runs when the active level rolls back and before a transaction(attempts:) retry; a released savepoint passes its callbacks to the level around it (Laravel drops them)." }
       - { php: "DB_CONNECTION=mysql / mariadb", dart: "withDatabaseDriver('mysql', MySqlDriver.fromConfig)", symbol: ApplicationBuilder.withDatabaseDriver, note: "package:daravel_mysql; registered by new projects." }
       - { php: "DB::connection('legacy')->table('orders')", dart: "DB.table('orders', connection: 'legacy')", symbol: DB.table }
       - { php: "DB_URL=postgres://user:pass@host/db (ConfigurationUrlParser)", dart: "DB_URL, ConnectionConfig.withUrl(url)", symbol: ConnectionConfig.withUrl, note: "Merged like Laravel 12: URL parts replace DB_* values, the rest stay." }
