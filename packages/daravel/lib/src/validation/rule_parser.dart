@@ -127,6 +127,9 @@ abstract final class RuleParser {
       'map' || 'object' => Rules.map(),
       'email' => EmailRule(modes: {...args}),
       'active_url' => Rules.activeUrl(),
+      'current_password' => Rules.currentPassword(
+        guard: args.isEmpty ? null : args.first,
+      ),
       'url' => Rules.url(),
       'file' => Rules.file(),
       'image' => Rules.image(allowSvg: args.contains('allow_svg')),

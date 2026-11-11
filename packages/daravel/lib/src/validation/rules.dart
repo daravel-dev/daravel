@@ -6,6 +6,7 @@ import '../database/database_manager.dart';
 import '../database/query/query_builder.dart';
 import '../foundation/clock.dart';
 import '../http/uploaded_file.dart';
+import 'auth_rules.dart';
 import 'dns.dart';
 import 'object_rules.dart';
 import 'php_date_format.dart';
@@ -300,6 +301,22 @@ abstract final class Rules {
   /// through the container's [DnsResolver]; an IP address fails, as in
   /// Laravel).
   static Rule activeUrl() => const ActiveUrlRule();
+
+  /// `current_password` / `current_password:guard`: the password of the
+  /// user signed in on [guard] (the default guard when null); a guest
+  /// fails. Needs a [CurrentPasswordVerifier] in the container, which an
+  /// `Application` binds; without one it throws [StateError].
+  static Rule currentPassword({String? guard}) =>
+      CurrentPasswordRule(guard: guard);
+
+  /// `Rule::can($ability, $model, ...)`: the current user may perform
+  /// [ability] with [arguments] and the value (in that order; `null`,
+  /// `false`, `0`, `''`, `'0'` and empty collections are dropped, as PHP's
+  /// `array_filter` in Laravel's rule). Needs an [AbilityChecker] in the
+  /// container, which an `Application` binds; without one it throws
+  /// [StateError].
+  static Rule can(String ability, [List<Object?> arguments = const []]) =>
+      CanRule(ability, arguments);
 
   /// `url`: an absolute URL with a scheme and host.
   static Rule url() => const UrlRule();

@@ -119,6 +119,22 @@ differences from PHP: the system lookup also reads `/etc/hosts`; and on
 Windows, which has no `/etc/resolv.conf` to ask for MX records, `dns` sees
 A and AAAA only (a domain with only an MX fails, and a null MX goes unseen).
 
+### The signed-in user: `current_password` and `can`
+
+```dart
+'current_password': 'required|current_password',      // or current_password:api
+'tag': [Rules.required(), Rules.can('attach-tag', [post])],
+```
+
+`current_password` passes when the value is the password of the user
+signed in on the guard (the default one without an argument); a guest
+fails. `Rules.can` asks the gate whether the current user may perform the
+ability with the arguments and then the value; as in Laravel, `null`,
+`false`, `0`, `''`, `'0'` and empty lists are left out of the arguments.
+Both work wherever an `Application` runs (a request, a job, a command,
+`TestClient`, `app.run`); a bare `Validator` outside one throws a
+`StateError` saying what to bind, rather than letting the value through.
+
 Rules that depend on the input or on each element, as Laravel's `Rule::when`,
 `Rule::unless`, `Rule::forEach` and `Rule::anyOf`:
 
