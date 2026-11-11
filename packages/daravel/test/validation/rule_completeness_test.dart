@@ -213,6 +213,8 @@ Map<String, Rule Function()> _sampleBuilders() => {
   'prohibited': Rules.prohibited,
   'requiredIf': () => Rules.requiredIf('b', 'x'),
   'requiredUnless': () => Rules.requiredUnless('b', 'x'),
+  'requiredIfIn': () => Rules.requiredIfIn('b', ['x', 'y']),
+  'requiredUnlessIn': () => Rules.requiredUnlessIn('b', ['x', 'y']),
   'accepted': Rules.accepted,
   'acceptedIf': () => Rules.acceptedIf('b', ['x']),
   'declined': Rules.declined,
