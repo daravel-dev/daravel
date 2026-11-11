@@ -982,7 +982,10 @@ final class AppMetrics {
   /// per tick. A publish that fails (a timeout on a busy machine, a full
   /// bulk buffer, a refusal) is sent again on the next tick: only a
   /// snapshot the coordinator took counts as published, or the merged
-  /// `/metrics` would lack this worker until the next heartbeat.
+  /// `/metrics` would lack this worker until the next heartbeat. While a
+  /// publish waits for its answer no other is sent: a coordinator slower
+  /// than a tick would otherwise get the same snapshot once per tick,
+  /// more load exactly when it is slow.
   Timer? startPublishing({
     Duration every = const Duration(seconds: 1),
     int heartbeat = 15,
@@ -993,12 +996,17 @@ final class AppMetrics {
     }
     int? published;
     var idleTicks = 0;
+    var inFlight = false;
     return Timer.periodic(every, (_) {
+      if (inFlight) {
+        return;
+      }
       final changes = registry._changes;
       if (changes == published && ++idleTicks < heartbeat) {
         return;
       }
       idleTicks = 0;
+      inFlight = true;
       remote
           .callBulk(
             MetricsService.serviceName,
@@ -1021,6 +1029,7 @@ final class AppMetrics {
             // Not taken: `published` stays, so the next tick sends again.
             onError: (Object _) {},
           )
+          .whenComplete(() => inFlight = false)
           .ignore();
     });
   }
