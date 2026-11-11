@@ -13,6 +13,7 @@ export 'src/validation/schema.dart';
 export 'src/validation/rule_parser.dart';
 export 'src/validation/rule_builder.dart';
 export 'src/validation/rules.dart';
+export 'src/validation/typed_rules.dart';
 export 'src/validation/validated_data.dart';
 export 'src/validation/validation_exception.dart';
 export 'src/validation/validator.dart';
