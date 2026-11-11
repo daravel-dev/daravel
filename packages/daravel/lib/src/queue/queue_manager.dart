@@ -478,13 +478,22 @@ final class JobProcessor {
             (_) async {
               Context.current.hydrate(payload.context);
               await _runWithMiddleware(ctx, job, () async {
-                try {
-                  await job.handle(ctx).timeout(limit);
-                } on TimeoutException {
-                  ctx.cancelled = true;
-                  timedOut = true;
-                  rethrow;
-                }
+                // Only this timer is the job's timeout: a TimeoutException
+                // of the handler's own (an HTTP client's) is an ordinary
+                // failure, retried with backoff, as it was not before.
+                await job
+                    .handle(ctx)
+                    .timeout(
+                      limit,
+                      onTimeout: () {
+                        ctx.cancelled = true;
+                        timedOut = true;
+                        throw TimeoutExceededException(
+                          payload.displayName,
+                          limit,
+                        );
+                      },
+                    );
               });
             },
             onUncaughtError: (e, s) {
@@ -551,14 +560,15 @@ final class JobProcessor {
       await _finish(driver, queued, payload);
       return .deleted;
     }
-    var exhausted =
-        _exhausted(payload, queued.attempts, maxTries) ||
+    // A timeout counts towards maxExceptions too, as in Laravel's timeout
+    // handler (failsAfterTimeout, for a worker killed past it, is this rule).
+    final exhausted =
         failure != null ||
         missingModel ||
-        (timedOut && payload.failOnTimeout);
-    if (!exhausted && !timedOut) {
-      exhausted = await _exceptionsExhausted(payload);
-    }
+        (timedOut
+            ? await failsAfterTimeout(payload, queued.attempts, tries: maxTries)
+            : _exhausted(payload, queued.attempts, maxTries) ||
+                  await _exceptionsExhausted(payload));
     await _announce(
       JobExceptionOccurred(
         connection: driver.name,
@@ -610,6 +620,66 @@ final class JobProcessor {
       return _clock().millisecondsSinceEpoch ~/ 1000 > retryUntil;
     }
     return maxTries > 0 && attempts > maxTries;
+  }
+
+  /// Whether a job that ran past its timeout on attempt [attempts] fails
+  /// now rather than being tried again: Laravel's timeout handler, in its
+  /// order:
+  /// 1. its tries are used up, or `retryUntil` has passed ([tries], when
+  ///    given, overriding the job's own as `--tries` does);
+  /// 2. this timeout is its last allowed exception (`maxExceptions`, the
+  ///    `job-exceptions:<uuid>` count goes up by one);
+  /// 3. it fails on a timeout ([Job.failOnTimeout]).
+  ///
+  /// [process] applies it to a timeout its own timer saw. A supervisor that
+  /// killed a worker blocked past the timeout asks it for the job the worker
+  /// held: it reads only [payload] and the exception count, never the job's
+  /// code (no `fromJson`, no hook, no listener).
+  Future<bool> failsAfterTimeout(
+    JobPayload payload,
+    int attempts, {
+    int? tries,
+  }) async =>
+      _exhausted(payload, attempts, tries ?? payload.maxTries) ||
+      await _exceptionsExhausted(payload) ||
+      payload.failOnTimeout;
+
+  /// Fails [queued], just reserved, without running it, with [error]:
+  /// `failed_jobs`, the job's `failed()` hook and `JobFailed`, as a job that
+  /// fails after running does, and its unique lock and debounce released.
+  /// For a job a supervisor decided must fail ([WorkerOptions.failBeforeRun]),
+  /// such as one whose worker was killed past its timeout. A job that cannot
+  /// be built (`fromJson` throws) fails without its hook.
+  Future<void> failReserved(
+    QueueDriver driver,
+    QueuedJob queued,
+    Object error, [
+    StackTrace? stackTrace,
+  ]) async {
+    final payload = queued.payload;
+    Job? job;
+    try {
+      job = registry.make(payload.jobName, payload.data);
+    } on Object {
+      job = null;
+    }
+    final owner = payload.debounceOwner;
+    final debounce = owner == null || job == null
+        ? null
+        : debounceStore?.call();
+    if (debounce != null) {
+      final key = debounceKey(job!);
+      if (await debounce.get<String>(key) == owner) {
+        await debounce.forget(key);
+      }
+    }
+    await _fail(
+      driver,
+      queued,
+      error,
+      stackTrace ?? StackTrace.current,
+      job: job,
+    );
   }
 
   /// Laravel's `markJobAsFailedIfWillExceedMaxExceptions`: counts this
@@ -1271,8 +1341,18 @@ final class WorkerOptions {
     this.stopWhenEmpty = false,
     this.memory,
     this.onReserved,
+    this.failBeforeRun,
     this.onFinished,
   });
+
+  /// Asked about each job after [onReserved] and before it is processed:
+  /// an error to fail it with at once, without running it
+  /// ([JobProcessor.failReserved]), or null to process it. For a supervisor
+  /// that decided a job's fate while it could not act on it itself
+  /// (`daravel_horizon` fails a job here whose last worker it killed past
+  /// a timeout the job fails on). An error it throws is logged and the job
+  /// is processed.
+  final FutureOr<Object?> Function(QueuedJob job)? failBeforeRun;
 
   /// Called with each job the moment the driver reserved it, before it is
   /// decoded into a job (`fromJson`), announced (`JobProcessing`) or run:
@@ -1639,13 +1719,29 @@ final class QueueWorker {
         }
         final before = processor.timedOutAndReleased;
         try {
-          await processor.process(
-            driver,
-            job,
-            tries: options.tries,
-            backoff: options.backoff,
-            timeout: options.timeout,
-          );
+          Object? failWith;
+          if (options.failBeforeRun case final ask?) {
+            try {
+              failWith = await ask(job);
+            } on Object catch (error, stackTrace) {
+              _logger?.error(
+                'failBeforeRun failed for job ${job.id}; it runs',
+                error: error,
+                stackTrace: stackTrace,
+              );
+            }
+          }
+          if (failWith != null) {
+            await processor.failReserved(driver, job, failWith);
+          } else {
+            await processor.process(
+              driver,
+              job,
+              tries: options.tries,
+              backoff: options.backoff,
+              timeout: options.timeout,
+            );
+          }
         } finally {
           final finished = options.onFinished;
           if (finished != null) {

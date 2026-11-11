@@ -81,6 +81,10 @@ final class Heartbeat implements WorkerReport {
     this.jobTimeoutMs,
     this.jobName,
     this.attempt,
+    this.jobMaxTries,
+    this.jobRetryUntil,
+    this.jobMaxExceptions,
+    this.jobFailsOnTimeout,
     this.sessions = '',
   });
 
@@ -114,6 +118,23 @@ final class Heartbeat implements WorkerReport {
 
   /// That job's attempt, from 1.
   final int? attempt;
+
+  // What the master decides the job's fate from after it killed this
+  // worker past the timeout (`JobProcessor.failsAfterTimeout`): the job's
+  // retry settings only, never its payload, whose data may be large or
+  // private and has no business in the master.
+
+  /// That job's `tries` (0: unlimited).
+  final int? jobMaxTries;
+
+  /// That job's `retryUntil` (epoch seconds), or null.
+  final int? jobRetryUntil;
+
+  /// That job's `maxExceptions`, or null.
+  final int? jobMaxExceptions;
+
+  /// Whether that job fails on a timeout (`failOnTimeout`).
+  final bool? jobFailsOnTimeout;
 
   /// The server sessions of its open database connections
   /// ([encodeSessions]), for the master to end them after a kill.

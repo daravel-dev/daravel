@@ -147,6 +147,28 @@ final class MaxAttemptsExceededException extends DaravelException {
       );
 }
 
+/// Laravel's `TimeoutExceededException::forJob`: a job ran past its timeout
+/// and failed for it (`<name> has timed out.`), because it fails on a
+/// timeout ([Job.failOnTimeout]) or that attempt was its last. The error
+/// in `failed_jobs`, `JobFailed` and `failed()` for such a job, whether the
+/// worker's own timer saw it or a supervisor killed a blocked worker.
+///
+/// It is a [TimeoutException], so code catching the `dart:async` one, as
+/// it did before this class, still catches it.
+final class TimeoutExceededException extends DaravelException
+    implements TimeoutException {
+  /// [jobName] (its display name) ran past [duration].
+  TimeoutExceededException(this.jobName, [this.duration])
+    : super('$jobName has timed out.');
+
+  /// The job's display name.
+  final String jobName;
+
+  /// The timeout it ran past, when known.
+  @override
+  final Duration? duration;
+}
+
 /// Explicit job registry (ADR-002).
 final class JobRegistry {
   /// A registry of [definitions].
