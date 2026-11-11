@@ -93,7 +93,7 @@ final class LintConfig {
 /// plugins:
 ///   daravel_lints_plugin:
 ///     diagnostics:
-///       raw_env_outside_config: true   # an opt-in rule on
+///       prefer_sql_identifier: true    # an opt-in rule on
 ///       no_print_in_app: false         # a default rule off
 /// ```
 ///
@@ -145,16 +145,10 @@ LintConfig lintConfig(String root) {
   final (values, source) = plugin != null
       ? (plugin, pluginSource)
       : (own!, ownSource);
-  final settings = <String, bool>{};
-  for (final MapEntry(:key, :value) in values.entries) {
-    if (value is! bool) {
-      throw FormatException(
-        'analysis_options.yaml ($source): $key must be true or false, '
-        'not $value',
-      );
-    }
-    settings['$key'] = value;
-  }
+  final settings = <String, bool>{
+    for (final MapEntry(:key, :value) in values.entries)
+      key: _enabled(source, key, value),
+  };
   return LintConfig(
     enabled: [
       for (final e in settings.entries)
@@ -184,20 +178,50 @@ Object? _path(YamlMap yaml, List<String> keys) {
   return node;
 }
 
-/// The `diagnostics:` map under [block], `null` when there is none.
-YamlMap? _diagnostics(Object? block) {
+/// The `diagnostics:` entries under [block] as name → value, `null` when
+/// there is none. Like the analyzer, a list of names (`- rule`) enables
+/// each.
+Map<String, Object?>? _diagnostics(Object? block) {
   if (block is! YamlMap) {
     return null;
   }
   final diagnostics = block['diagnostics'];
-  if (diagnostics == null) {
-    return null;
-  }
-  if (diagnostics is! YamlMap) {
-    throw const FormatException(
+  return switch (diagnostics) {
+    null => null,
+    YamlMap() => {
+      for (final MapEntry(:key, :value) in diagnostics.entries) '$key': value,
+    },
+    YamlList() => {for (final name in diagnostics) '$name': true},
+    _ => throw const FormatException(
       'analysis_options.yaml: diagnostics: must map rule names to true or '
-      'false',
-    );
+      'false, or list the rules to enable',
+    ),
+  };
+}
+
+/// Whether [value] turns the rule [name] on, read as the analyzer reads a
+/// plugin's `diagnostics:` (analyzer 14.6): `true` or a severity (`info`,
+/// `warning`, `error`) is on, `false` off.
+///
+/// `ignore` is refused: the analyzer accepts it there without a warning
+/// but turns the rule **on** (only `false` turns a plugin rule off), so
+/// whoever wrote it meant the opposite of what the editor does.
+bool _enabled(String source, String name, Object? value) {
+  switch (value) {
+    case bool():
+      return value;
+    case String()
+        when const {'info', 'warning', 'error'}.contains(value.toLowerCase()):
+      return true;
+    case String() when value.toLowerCase() == 'ignore':
+      throw FormatException(
+        'analysis_options.yaml ($source): write $name: false to turn it '
+        'off; the analysis server reads `ignore` here as on.',
+      );
+    default:
+      throw FormatException(
+        'analysis_options.yaml ($source): $name must be true, false, '
+        'info, warning or error, not $value',
+      );
   }
-  return diagnostics;
 }

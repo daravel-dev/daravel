@@ -34,7 +34,11 @@ daravel_lints:              # or plugins: daravel_lints_plugin:, with the plugin
 
 When the project enables the plugin, its `plugins: daravel_lints_plugin:
 diagnostics:` block is the one read (a `daravel_lints:` block next to it
-is ignored, with a warning). Only the project's own file is read:
+is ignored, with a warning). As in the analyzer, a severity (`info`,
+`warning`, `error`) or a list of names also turns a rule on; write
+`false`, not `ignore`, to turn one off (the analysis server reads
+`ignore` there as on, so `dartisan lint` refuses it). Only the project's
+own file is read:
 `include:` is not followed, and in a pub workspace the file is the one of
 the package `dartisan` runs in. `dartisan lint --enable=<rule>` and
 `--disable=<rule>` change one run, and its summary line names the opt-in

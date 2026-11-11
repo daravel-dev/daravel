@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:bd0b68ca67a4 -->
+<!-- source: README.md sha256:b67a3a68e932 -->
 <img src="https://raw.githubusercontent.com/daravel-dev/daravel/main/docs/brand/png/daravel-icon-128.png" alt="Daravel" width="64" align="right">
 
 # daravel_lints
@@ -36,7 +36,11 @@ daravel_lints:              # atau plugins: daravel_lints_plugin:, dengan plugin
 
 Bila proyek memakai plugin, blok `plugins: daravel_lints_plugin:
 diagnostics:` yang dibaca (blok `daravel_lints:` di sebelahnya diabaikan,
-dengan peringatan). Hanya berkas proyek itu sendiri yang dibaca: `include:`
+dengan peringatan). Seperti di analyzer, severity (`info`, `warning`,
+`error`) atau daftar nama juga menyalakan rule; untuk mematikannya tulis
+`false`, bukan `ignore` (analysis server membaca `ignore` di sana sebagai
+menyala, sehingga `dartisan lint` menolaknya). Hanya berkas proyek itu
+sendiri yang dibaca: `include:`
 tidak ditelusuri, dan di pub workspace yang dibaca adalah berkas paket
 tempat `dartisan` dijalankan. `dartisan lint --enable=<rule>` dan
 `--disable=<rule>` mengubah satu kali jalan, dan baris ringkasannya menyebut

@@ -171,12 +171,35 @@ daravel_lints:
       expect((await lint(['--enable=nope'])).$1, 64);
     });
 
-    test('a value other than true or false is an error', () async {
-      options(
+    test('values as the analyzer reads them: severities and a list of '
+        'names turn a rule on', () async {
+      writeSort();
+      for (final yaml in [
         'daravel_lints:\n  diagnostics:\n    prefer_sql_identifier: warning\n',
+        'daravel_lints:\n  diagnostics:\n    prefer_sql_identifier: error\n',
+        'daravel_lints:\n  diagnostics:\n    - prefer_sql_identifier\n',
+      ]) {
+        options(yaml);
+        final (code, output) = await lint([]);
+        expect(code, 1, reason: yaml);
+        expect(output, contains('opt-in rules on: prefer_sql_identifier'));
+      }
+    });
+
+    test('ignore is refused: the analysis server reads it as on', () async {
+      options(
+        'daravel_lints:\n  diagnostics:\n    prefer_sql_identifier: ignore\n',
       );
       expect((await lint([])).$1, 64);
-      expect(errors.toString(), contains('must be true or false'));
+      expect(errors.toString(), contains('prefer_sql_identifier: false'));
+    });
+
+    test('any other value is an error', () async {
+      options(
+        'daravel_lints:\n  diagnostics:\n    prefer_sql_identifier: maybe\n',
+      );
+      expect((await lint([])).$1, 64);
+      expect(errors.toString(), contains('must be true, false'));
     });
 
     test('a local include: is not followed, and says so when the file '
