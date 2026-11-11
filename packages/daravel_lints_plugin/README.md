@@ -79,7 +79,8 @@ workspace of about thirty packages, on Windows, with the rules of
   10 to 49 s after the server's own analysis, the first time even past
   30 s; a start with the configuration of the run before took 0.06 to
   4.9 s. Alternating two configurations makes every start slow, with or
-  without `dependency_overrides`.
+  without `dependency_overrides`. In practice: expect 10 to 50 s after
+  changing `plugins:` or the plugin version, under 5 s after that.
 
 Measured again with this repository's rules (`dependency_overrides`
 above, after the change that walks each file once per rule): 17 to 29 ms

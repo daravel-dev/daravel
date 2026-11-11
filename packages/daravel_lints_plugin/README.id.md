@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:2c8708eb5970 -->
+<!-- source: README.md sha256:ac349931bb59 -->
 <img src="https://raw.githubusercontent.com/daravel-dev/daravel/main/docs/brand/png/daravel-icon-128.png" alt="Daravel" width="64" align="right">
 
 # daravel_lints_plugin
@@ -82,7 +82,9 @@ workspace berisi sekitar tiga puluh paket, di Windows, dengan rule
   kali bahkan lebih dari 30 detik; start dengan konfigurasi yang sama
   seperti run sebelumnya memakan 0,06 sampai 4,9 detik. Bergantian antara
   dua konfigurasi membuat setiap start lambat, dengan atau tanpa
-  `dependency_overrides`.
+  `dependency_overrides`. Dalam praktik: siapkan 10 sampai 50 detik
+  setelah mengubah `plugins:` atau versi plugin, dan di bawah 5 detik
+  sesudahnya.
 
 Diukur lagi dengan rule repositori ini (`dependency_overrides` di atas,
 setelah perubahan yang menelusuri setiap berkas sekali per rule): 17
