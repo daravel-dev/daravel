@@ -234,7 +234,7 @@ final class HorizonMaster {
       await _resize(plan, plan.minProcesses, _spreadAll(plan));
       if (plan.balance == BalanceStrategy.auto) {
         _timers.add(
-          Timer.periodic(plan.balanceCooldown, (_) => unawaited(balance(plan))),
+          Timer.periodic(plan.balanceCooldown, (_) => unawaited(_tick(plan))),
         );
       } else {
         await balance(plan);
@@ -245,16 +245,28 @@ final class HorizonMaster {
       // Commands sent before this master started are not its own.
       _signalAt = (await _readSignal())?.$2 ?? 0;
       _timers.add(
-        Timer.periodic(const Duration(seconds: 1), (_) => unawaited(_poll())),
+        Timer.periodic(const Duration(seconds: 1), (_) {
+          // A read slower than a second must not let a second poll read the
+          // same command and run it again.
+          if (_polling) {
+            return;
+          }
+          _polling = true;
+          unawaited(_poll().whenComplete(() => _polling = false));
+        }),
       );
       // Its state, for `horizon:status` and `horizon:list` in any process
       // that shares the store.
       await _publishStatus();
       _timers.add(
-        Timer.periodic(
-          HorizonSignals.statusEvery,
-          (_) => unawaited(_publishStatus()),
-        ),
+        Timer.periodic(HorizonSignals.statusEvery, (_) {
+          // A slow store gets one status at a time, not a pile of them.
+          if (_publishing) {
+            return;
+          }
+          _publishing = true;
+          unawaited(_publishStatus().whenComplete(() => _publishing = false));
+        }),
       );
     }
     if (config.memoryLimit > 0) {
@@ -265,6 +277,32 @@ final class HorizonMaster {
   // -- Commands from other processes (HorizonSignals) --------------------
 
   int _signalAt = 0;
+
+  /// Whether a poll of the signal store is under way.
+  bool _polling = false;
+
+  /// Whether a status publish is under way.
+  bool _publishing = false;
+
+  /// The plans whose periodic evaluation is under way.
+  final Set<String> _balancing = {};
+
+  /// The periodic evaluation of [plan]: skipped while the previous one
+  /// still runs (a queue slower than the cooldown), since two evaluations
+  /// read the same pool and would both resize it.
+  Future<void> _tick(SupervisorPlan plan) async {
+    final name = plan.name.value;
+    if (!_balancing.add(name)) {
+      return;
+    }
+    try {
+      await balance(plan);
+    } on Object catch (e) {
+      logger.warning('Horizon could not balance [$name]: $e');
+    } finally {
+      _balancing.remove(name);
+    }
+  }
 
   Future<(String, int)?> _readSignal() async {
     try {
@@ -534,8 +572,12 @@ final class HorizonMaster {
         keep[i]._send(Assign(queues));
       }
     }
-    for (var i = keep.length; i < total; i++) {
-      await _spawn(plan, queuesFor(i));
+    // Counted again on each spawn: a worker joins the pool before its
+    // spawn is awaited, and a resize the caller did not wait for may run
+    // beside this one.
+    int running() => pool.where((w) => !w.stopping).length;
+    while (running() < total && !_stopping) {
+      await _spawn(plan, queuesFor(running()));
     }
   }
 
