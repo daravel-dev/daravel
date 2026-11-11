@@ -2416,6 +2416,9 @@ final class DoesntAffixRule extends Rule {
     // `is_string($value) || is_numeric($value)`.
     final text = switch (value) {
       String() => value,
+      // PHP's (string) of a whole float has no ".0": JSON 1.0 is "1".
+      double() when value.isFinite && value == value.truncateToDouble() =>
+        '${value.toInt()}',
       num() => '$value',
       _ => null,
     };
@@ -2559,15 +2562,73 @@ final class MacAddressRule extends Rule {
 
 /// `encoding`: see [Rules.encoding].
 final class EncodingRule extends Rule {
-  /// Valid in [encoding]; an unsupported name is an [ArgumentError] when
-  /// the rule runs, as Laravel throws its InvalidArgumentException then.
+  /// Valid in [encoding], checked when the rule runs (as Laravel does): a
+  /// name that is not an encoding is an [ArgumentError] (Laravel's
+  /// InvalidArgumentException); an encoding PHP knows but Daravel does not
+  /// check yet is an [UnsupportedError]. `invalid_validation_rule` flags
+  /// both in rule strings before they run.
   const EncodingRule(this.encoding);
 
   /// The encoding name, as written.
   final String encoding;
 
-  static const Set<String> _known = {'utf8', 'ascii', 'iso88591', 'latin1'};
-  static String _normalized(String name) =>
+  /// The encodings Daravel checks, normalized.
+  static const Set<String> supported = {'utf8', 'ascii', 'iso88591', 'latin1'};
+
+  /// Common names of PHP's `mb_list_encodings()` (mbstring) that Daravel
+  /// does not check yet, normalized: a rule naming one is valid in Laravel.
+  static const Set<String> knownToPhp = {
+    'utf16',
+    'utf16be',
+    'utf16le',
+    'utf32',
+    'utf32be',
+    'utf32le',
+    'ucs2',
+    'ucs2be',
+    'ucs2le',
+    'ucs4',
+    'ucs4be',
+    'ucs4le',
+    'utf7',
+    'utf7imap',
+    'windows1252',
+    'cp1252',
+    'windows1251',
+    'cp1251',
+    'windows1254',
+    'iso88592',
+    'iso88593',
+    'iso88594',
+    'iso88595',
+    'iso88596',
+    'iso88597',
+    'iso88598',
+    'iso88599',
+    'iso885910',
+    'iso885913',
+    'iso885914',
+    'iso885915',
+    'iso885916',
+    'sjis',
+    'shiftjis',
+    'eucjp',
+    'jis',
+    'iso2022jp',
+    'euckr',
+    'big5',
+    'gb18030',
+    'cp936',
+    'euccn',
+    'koi8r',
+    'koi8u',
+    'cp866',
+    '7bit',
+    '8bit',
+  };
+
+  /// [name] without case and punctuation (`UTF-8` and `utf8` match).
+  static String normalized(String name) =>
       name.toLowerCase().replaceAll(RegExp('[^a-z0-9]'), '');
 
   @override
@@ -2577,12 +2638,19 @@ final class EncodingRule extends Rule {
 
   @override
   String? passes(ValidationContext c) {
-    if (!_known.contains(_normalized(encoding))) {
+    final key = normalized(encoding);
+    if (knownToPhp.contains(key)) {
+      throw UnsupportedError(
+        'Validation rule encoding [$encoding] is not supported by Daravel '
+        'yet; supported: UTF-8, ASCII, ISO-8859-1',
+      );
+    }
+    if (!supported.contains(key)) {
       throw ArgumentError.value(
         encoding,
         'encoding',
-        'Validation rule encoding parameter [$encoding] is not a supported '
-            'encoding (UTF-8, ASCII, ISO-8859-1)',
+        'Validation rule encoding parameter [$encoding] is not a valid '
+            'encoding',
       );
     }
     final value = c.value;
@@ -2598,9 +2666,11 @@ final class EncodingRule extends Rule {
       default:
         return name;
     }
-    final ok = switch (_normalized(encoding)) {
+    final ok = switch (key) {
       'ascii' => units.every((u) => u < 0x80),
-      'iso88591' || 'latin1' => bytes || units.every((u) => u < 0x100),
+      // mb_check_encoding looks at bytes, and every byte sequence is valid
+      // ISO-8859-1: a string (sent as UTF-8 bytes) always passes in Laravel.
+      'iso88591' || 'latin1' => true,
       _ => bytes ? _utf8(units) : _wellFormed(units),
     };
     return ok ? null : name;

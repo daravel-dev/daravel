@@ -144,15 +144,36 @@ void main() {
     expect(await ok('héllo', 'encoding:UTF-8'), isTrue);
     expect(await ok('héllo', 'encoding:ASCII'), isFalse);
     expect(await ok('héllo', 'encoding:ISO-8859-1'), isTrue);
-    expect(await ok('\u{1F600}', 'encoding:ISO-8859-1'), isFalse);
+    // mb_check_encoding looks at bytes, and every byte sequence is valid
+    // ISO-8859-1: any string passes in Laravel, the euro sign included.
+    expect(await ok('\u{1F600} €', 'encoding:ISO-8859-1'), isTrue);
     expect(await ok(String.fromCharCode(0xD800), 'encoding:UTF-8'), isFalse);
     expect(await errors({'a': 'é'}, {'a': 'encoding:ASCII'}), {
       'a': ['The a field must be encoded in ASCII.'],
     });
+    // Not an encoding: Laravel's InvalidArgumentException.
     expect(
       () => errors({'a': 'x'}, {'a': 'encoding:KLINGON'}),
       throwsA(isA<ArgumentError>()),
     );
+    // Valid in Laravel (mb_list_encodings), not checked by Daravel yet.
+    expect(
+      () => errors({'a': 'x'}, {'a': 'encoding:UTF-16'}),
+      throwsA(
+        isA<UnsupportedError>().having(
+          (e) => e.message,
+          'message',
+          contains('supported: UTF-8, ASCII, ISO-8859-1'),
+        ),
+      ),
+    );
+  });
+
+  test('doesnt_start_with on a whole float reads it as PHP does', () async {
+    // JSON 1.0 arrives as the double 1.0; (string) 1.0 is "1" in PHP.
+    expect(await ok(1.0, 'doesnt_start_with:1.'), isTrue);
+    expect(await ok(1.0, 'doesnt_end_with:1'), isFalse);
+    expect(await ok(1.5, 'doesnt_end_with:.5'), isFalse);
   });
 
   test('base64: canonical standard Base64 only', () async {
