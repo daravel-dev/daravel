@@ -72,6 +72,56 @@ abstract final class Rules {
   /// `prohibits`: when present, every one of [others] must be absent.
   static Rule prohibits(List<String> others) => ProhibitsRule(others);
 
+  /// `missing`: the key must not be in the input at all.
+  static Rule missing() => const MissingRule();
+
+  /// `missing_if`: missing when [other] is one of [values].
+  static Rule missingIf(String other, List<String> values) =>
+      DependentRule('missing_if', other, values);
+
+  /// `missing_unless`: missing unless [other] is one of [values].
+  static Rule missingUnless(String other, List<String> values) =>
+      DependentRule('missing_unless', other, values);
+
+  /// `missing_with`: missing when any of [others] is present.
+  static Rule missingWith(List<String> others) =>
+      PresenceWithRule('missing_with', others);
+
+  /// `missing_with_all`: missing when all of [others] are present.
+  static Rule missingWithAll(List<String> others) =>
+      PresenceWithRule('missing_with_all', others);
+
+  /// `present_unless`: present unless [other] is one of [values].
+  static Rule presentUnless(String other, List<String> values) =>
+      DependentRule('present_unless', other, values);
+
+  /// `present_with`: present when any of [others] is present.
+  static Rule presentWith(List<String> others) =>
+      PresenceWithRule('present_with', others);
+
+  /// `present_with_all`: present when all of [others] are present.
+  static Rule presentWithAll(List<String> others) =>
+      PresenceWithRule('present_with_all', others);
+
+  /// `prohibited_if_accepted`: must be empty or absent when [other] is
+  /// accepted.
+  static Rule prohibitedIfAccepted(String other) =>
+      AcceptanceConditionRule('prohibited_if_accepted', other);
+
+  /// `prohibited_if_declined`: must be empty or absent when [other] is
+  /// declined.
+  static Rule prohibitedIfDeclined(String other) =>
+      AcceptanceConditionRule('prohibited_if_declined', other);
+
+  /// `required_if_declined`: required when [other] is declined.
+  static Rule requiredIfDeclined(String other) =>
+      AcceptanceConditionRule('required_if_declined', other);
+
+  /// `required_array_keys`: an array (JSON object or list) with every one
+  /// of [keys].
+  static Rule requiredArrayKeys(List<String> keys) =>
+      RequiredArrayKeysRule(keys);
+
   /// `exclude`: leaves the field out of the validated data.
   static Rule exclude() => const ExcludeRule('exclude');
 
@@ -1573,21 +1623,146 @@ final class DependentRule extends Rule {
 
   @override
   Map<String, Object?> parametersFor(ValidationContext context) =>
-      name == 'prohibited_unless'
-      ? {'other': context.displayName(other), 'values': values.join(', ')}
-      : _otherParameters(context, other);
+      switch (name) {
+        'prohibited_unless' => {
+          'other': context.displayName(other),
+          'values': values.join(', '),
+        },
+        // `replaceMissingUnless`: `:value` is the rule's first value, not
+        // the input.
+        'missing_unless' || 'present_unless' => {
+          'other': context.displayName(other),
+          'value': values.isEmpty ? '' : values.first,
+        },
+        _ => _otherParameters(context, other),
+      };
 
+  // Laravel's `Validator::$implicitRules` holds the presence forms, not
+  // the prohibited ones.
   @override
-  bool get implicit => name == 'present_if';
+  bool get implicit =>
+      name.startsWith('present_') || name.startsWith('missing_');
 
   @override
   String? passes(ValidationContext c) {
     final matches = _otherMatches(c, other, values);
     return switch (name) {
       'present_if' => matches && !c.present ? name : null,
+      'present_unless' => !matches && !c.present ? name : null,
+      'missing_if' => matches && c.present ? name : null,
+      'missing_unless' => !matches && c.present ? name : null,
       'prohibited_if' => matches && !isEmptyValue(c.value) ? name : null,
       _ => !matches && !isEmptyValue(c.value) ? name : null,
     };
+  }
+}
+
+/// `missing`: see [Rules.missing].
+final class MissingRule extends Rule {
+  /// The missing rule; use [Rules.missing].
+  const MissingRule();
+  @override
+  String get name => 'missing';
+  @override
+  bool get implicit => true;
+  @override
+  String? passes(ValidationContext c) => c.present ? 'missing' : null;
+}
+
+/// `missing_with`, `missing_with_all`, `present_with` and
+/// `present_with_all`: the key must be missing (or present) while any (or
+/// all) of [others] are in the input. Presence is the key's, as Laravel's
+/// `Arr::hasAny`/`Arr::has`: a key with a null or empty value counts.
+final class PresenceWithRule extends Rule {
+  /// The rule [name] over [others].
+  const PresenceWithRule(this.name, this.others);
+  @override
+  final String name;
+
+  /// The fields whose presence turns the rule on.
+  final List<String> others;
+
+  @override
+  bool get implicit => true;
+
+  // `replaceMissingWith` / `replacePresentWith`: display names joined with
+  // ' / '.
+  @override
+  Map<String, Object?> parametersFor(ValidationContext context) => {
+    'values': others.map(context.displayName).join(' / '),
+  };
+
+  @override
+  String? passes(ValidationContext c) {
+    bool has(String other) => ValidationContext.exists(c.data, other);
+    final on = name.endsWith('_all') ? others.every(has) : others.any(has);
+    if (!on) {
+      return null;
+    }
+    final mustBeMissing = name.startsWith('missing');
+    return c.present == mustBeMissing ? name : null;
+  }
+}
+
+/// `prohibited_if_accepted`, `prohibited_if_declined` and
+/// `required_if_declined`: [other] accepted (or declined) makes this field
+/// prohibited (or required).
+final class AcceptanceConditionRule extends Rule {
+  /// The rule [name] on [other].
+  const AcceptanceConditionRule(this.name, this.other);
+  @override
+  final String name;
+
+  /// The field that must be accepted or declined.
+  final String other;
+
+  // Only `required_if_declined` is in Laravel's `$implicitRules`.
+  @override
+  bool get implicit => name == 'required_if_declined';
+
+  @override
+  Map<String, Object?> parametersFor(ValidationContext context) => {
+    'other': context.displayName(other),
+  };
+
+  @override
+  String? passes(ValidationContext c) {
+    final otherValue = c.root(other);
+    final on = name == 'prohibited_if_accepted'
+        ? _isAccepted(otherValue)
+        : _isDeclined(otherValue);
+    if (!on) {
+      return null;
+    }
+    final empty = isEmptyValue(c.value);
+    return (name == 'required_if_declined' ? empty : !empty) ? name : null;
+  }
+}
+
+/// `required_array_keys`: see [Rules.requiredArrayKeys].
+final class RequiredArrayKeysRule extends Rule {
+  /// An array with every one of [keys].
+  const RequiredArrayKeysRule(this.keys);
+
+  /// The keys the array must have.
+  final List<String> keys;
+  @override
+  String get name => 'required_array_keys';
+  @override
+  Map<String, Object?> get parameters => {'values': keys.join(', ')};
+  @override
+  String? passes(ValidationContext c) {
+    final value = c.value;
+    bool has(String key) => switch (value) {
+      Map<Object?, Object?>() => value.containsKey(key),
+      List<Object?>() => switch (int.tryParse(key)) {
+        final int i => i >= 0 && i < value.length,
+        null => false,
+      },
+      _ => false,
+    };
+    final isArray = value is Map<Object?, Object?> || value is List<Object?>;
+    return isArray && keys.every(has) ? null : name;
   }
 }
 
