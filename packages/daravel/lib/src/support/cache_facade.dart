@@ -64,8 +64,15 @@ abstract final class Cache {
   static Future<T?> pull<T>(String key, [T? fallback]) =>
       store().pull<T>(key, fallback);
 
-  /// Removes every value of the default store.
+  /// Removes every value of the default store; its locks stay.
   static Future<void> flush() => store().flush();
+
+  /// Releases every lock of the default store ([flush] keeps them).
+  static Future<void> flushLocks() => store().flushLocks();
+
+  /// Deletes the expired entries and locks of the default store; returns
+  /// how many (see [CacheRepository.pruneExpired]).
+  static Future<int> pruneExpired() => store().pruneExpired();
 
   /// The value of [key], or the callback's result stored for the given
   /// ttl: `Cache.remember('stats', 10.minutes, () => compute())`.

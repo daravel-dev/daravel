@@ -13,10 +13,14 @@ abstract final class Number {
   static String _locale = 'en';
   static String _currency = 'USD';
 
-  /// The default locale (`Number::useLocale`): `en` or `id`.
+  /// The default locale (`Number::useLocale`): `en` or `id`. It holds for
+  /// the whole isolate, every request it serves included, as Laravel's does
+  /// for a PHP process: set it at boot (a provider); for one request, pass
+  /// `locale:` to the call instead.
   static void useLocale(String locale) => _locale = _localeOf(locale);
 
-  /// The default currency of [currency] (`Number::useCurrency`).
+  /// The default currency of [currency] (`Number::useCurrency`), for the
+  /// whole isolate like [useLocale]: per request, pass `code:`.
   static void useCurrency(String code) => _currency = code.toUpperCase();
 
   /// The locale [Number] formats with by default.

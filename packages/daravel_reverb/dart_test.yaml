@@ -1,0 +1,4 @@
+# Test tags (`dart test --tags security`).
+tags:
+  # Secrets never shown; the dashboard refuses without middleware.
+  security:

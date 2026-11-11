@@ -171,13 +171,19 @@ limiter.define(
 
 Responses carry `X-RateLimit-Limit` and `X-RateLimit-Remaining`; a limited
 request gets `429 {"message": "Too Many Attempts."}` with `Retry-After` and
-`X-RateLimit-Reset`. Limits are shared by every isolate of the process
+`X-RateLimit-Reset`. `throttle:60,1` (no named limiter) counts per client as
+Laravel does: the matched route's domain and the client address, never the
+`Host` header the client sends, so every route under that limit on one
+domain shares the client's bucket; a named limiter keys by its own
+`Limit.by(...)`. Limits are shared by every isolate of the process
 through the coordinator. Like Laravel, a window starts with the first hit
 and resets `decay` later. With several isolates, keys with generous limits
 (32 or more attempts) are served from small local leases that grow on hot
 keys and give unused hits back: the limit is never exceeded (a hit leased by
-one worker may briefly be unavailable to another, for at most 200 ms), and
-the coordinator is no longer on every request.
+one worker may briefly be unavailable to another, for at most 200 ms, even
+when that worker goes quiet), and the coordinator is no longer on every
+request: concurrent requests for one key on one worker share a single lease
+request.
 
 A fixed window lets up to twice the limit through around a reset.
 `Limit.perMinute(60).slidingWindow()` also weighs the previous window, and
@@ -188,7 +194,10 @@ other stores count them as a fixed window.
 
 When the coordinator cannot answer in time (an overloaded process, say),
 rate limiting fails open: the request goes through uncounted and a warning
-is logged, so a slow coordinator never takes the site down. A limit that
+is logged (at most once a second, counting the ones it skipped), so a
+slow coordinator never takes the site down. The same holds when the cache
+store behind `CACHE_LIMITER=database` or `redis` fails: the request goes
+through instead of failing with a `500`. A limit that
 guards credentials (login, OTP, password reset) should fail closed, so that
 flooding the server does not lift it: such a request gets the `429` with
 `Retry-After: 1` instead.

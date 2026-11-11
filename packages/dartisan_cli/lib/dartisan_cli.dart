@@ -6,6 +6,7 @@ library;
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:ffi' show Abi;
 import 'dart:io';
 
 import 'package:args/args.dart';
@@ -18,6 +19,10 @@ import 'src/generator.dart';
 import 'src/project_commands.dart';
 import 'src/upgrade_command.dart';
 import 'src/cache_commands.dart';
+import 'src/console/brand.dart';
+import 'src/console/console.dart';
+import 'src/console/nudges.dart';
+import 'src/console/runner_console.dart';
 import 'src/security_audit_command.dart';
 import 'src/adopt_command.dart';
 import 'src/env_commands.dart';
@@ -68,6 +73,11 @@ export 'src/e2e.dart';
 export 'src/mcp_server.dart';
 export 'src/redis_install.dart';
 export 'src/upgrade_command.dart';
+export 'src/console/brand.dart' show sponsorUrl;
+export 'src/console/console.dart';
+export 'src/console/nudges.dart';
+export 'src/console/runner_console.dart' show DartisanConsole;
+export 'src/console/sponsor.dart';
 
 /// Creates an unbooted [Application] (a project's `createApp()`).
 typedef AppFactory = Application Function();
@@ -77,12 +87,15 @@ typedef AppFactory = Application Function();
 typedef CommandFactory = Command<int> Function(AppFactory createApp);
 
 /// Command runner wired to a project's application factory.
-final class DartisanRunner extends CommandRunner<int> {
+final class DartisanRunner extends CommandRunner<int> with DartisanConsole {
   /// A runner of the built-in commands and the project's own, for the
-  /// application [createApp] builds.
+  /// application [createApp] builds. [console] replaces the one detected
+  /// from the terminal and the `--no-color` and `--ansi` flags (tests).
   DartisanRunner(
     AppFactory createApp, {
     List<CommandFactory> commands = const <CommandFactory>[],
+    Console? console,
+    Nudges Function(Console console)? nudges,
   }) : super('dartisan', 'Daravel command-line interface.') {
     argParser.addFlag(
       'version',
@@ -111,9 +124,11 @@ final class DartisanRunner extends CommandRunner<int> {
     addCommand(DbTransferCommand(createApp));
     addCommand(ClientFlutterCommand(createApp));
     addCommand(CacheClearCommand(createApp));
+    addCommand(CachePruneExpiredCommand(createApp));
     addCommand(CoordinatorStatsCommand(createApp));
     addCommand(SecurityAuditCommand(createApp));
     addCommand(StorageLinkCommand(createApp));
+    addCommand(StaticHashCommand(createApp));
     addCommand(QueueWorkCommand(createApp));
     addCommand(QueueFailedCommand(createApp));
     addCommand(QueueRetryCommand(createApp));
@@ -125,6 +140,7 @@ final class DartisanRunner extends CommandRunner<int> {
     addCommand(QueueContinueCommand(createApp));
     addCommand(ScheduleRunCommand(createApp, this));
     addCommand(ScheduleWorkCommand(createApp, this));
+    addCommand(ScheduleClearCacheCommand(createApp));
     addCommand(ScheduleListCommand(createApp));
     addCommand(MakeJobCommand());
     addCommand(MakeModelCommand());
@@ -162,9 +178,13 @@ final class DartisanRunner extends CommandRunner<int> {
     addCommand(SelfUpdateCommand());
     addCommand(McpServeCommand(createApp));
     addCommand(McpInstallCommand());
+    final project = <String>{};
     for (final factory in commands) {
-      addCommand(factory(createApp));
+      final command = factory(createApp);
+      addCommand(command);
+      project.add(command.name);
     }
+    setUpConsole(console: console, project: project, nudges: nudges);
   }
 
   @override
@@ -307,6 +327,14 @@ final class ServeCommand extends DaravelCommand {
         'embed-scheduler',
         negatable: false,
         help: 'Also run the scheduler in its own isolate (SERVER_EMBED_SCHEDULER).',
+      )
+      ..addMultiOption(
+        'embed-worker',
+        help:
+            'Also run this embedded worker (registered with '
+            'withEmbeddedWorker, such as horizon) in its own isolate; '
+            'repeatable (SERVER_EMBED_WORKERS).',
+        valueHelp: 'name',
       );
   }
 
@@ -389,6 +417,10 @@ final class ServeCommand extends DaravelCommand {
       isolates: isolates,
       embedQueue: (results['embed-queue'] as bool) ? true : null,
       embedScheduler: (results['embed-scheduler'] as bool) ? true : null,
+      embedWorkers: switch (results['embed-worker'] as List<String>) {
+        final List<String> names when names.isNotEmpty => names,
+        _ => null,
+      },
       // 0 on the command line means "no limit" even when the .env sets one.
       maxInFlight: maxInFlight,
       maxQueueDelay: maxQueueDelay,
@@ -409,7 +441,12 @@ final class RouteListCommand extends DaravelCommand {
       ..addOption('path', help: 'Only routes whose URI contains this.')
       ..addOption('method', help: 'Only routes answering this method.')
       ..addOption('name', help: 'Only routes whose name contains this.')
-      ..addFlag('json', negatable: false, help: 'Output JSON.');
+      ..addFlag('json', negatable: false, help: 'Output JSON.')
+      ..addFlag(
+        'channels',
+        negatable: false,
+        help: 'The broadcast channels instead (withBroadcasting(channels:)).',
+      );
   }
 
   @override
@@ -421,6 +458,31 @@ final class RouteListCommand extends DaravelCommand {
   @override
   Future<int> run() => withApp((app) {
     final r = argResults!;
+    if (r['channels'] as bool) {
+      final channels = app.broadcastChannels.describe();
+      if (r['json'] as bool) {
+        stdout.writeln(
+          const JsonEncoder.withIndent('  ')
+              .convert([for (final c in channels) c.toJson()]),
+        );
+      } else if (channels.isEmpty) {
+        stdout.writeln('No broadcast channels.');
+      } else {
+        stdout.write(
+          renderTable(<List<String>>[
+            <String>['Channel', 'Type', 'Parameters', 'Events'],
+            for (final c in channels)
+              <String>[
+                c.channel,
+                c.type ?? 'private or presence',
+                c.parameters.join(', '),
+                [for (final e in c.events) e.name].join(', '),
+              ],
+          ]),
+        );
+      }
+      return 0;
+    }
     final path = r['path'] as String?;
     final method = (r['method'] as String?)?.toUpperCase();
     final name = r['name'] as String?;
@@ -495,6 +557,8 @@ final class MigrateCommand extends DaravelCommand {
         refuseInProduction(app, argResults!, 'migrate --seed')) {
       return 1;
     }
+    // The first migrate of a project ends with a closing line (ADR-036).
+    final first = !await (await Schema.builder()).hasTable('migrations');
     final migrated = await App.make<Migrator>().run();
     if (migrated.isEmpty) {
       stdout.writeln('Nothing to migrate.');
@@ -507,6 +571,9 @@ final class MigrateCommand extends DaravelCommand {
       for (final seeder in await App.make<SeederRegistry>().run()) {
         stdout.writeln('Seeded: $seeder');
       }
+    }
+    if (runner case final DartisanConsole cli when first) {
+      cli.celebrate();
     }
     return 0;
   });
@@ -647,7 +714,9 @@ String renderTable(List<List<String>> rows) {
 /// `dartisan about` — summarizes the application environment.
 final class AboutCommand extends DaravelCommand {
   /// The `dartisan about` command.
-  AboutCommand(super.createApp);
+  AboutCommand(super.createApp) {
+    argParser.addFlag('json', negatable: false, help: 'The same, as JSON.');
+  }
 
   @override
   String get name => 'about';
@@ -660,26 +729,59 @@ final class AboutCommand extends DaravelCommand {
     final appConfig = app.config.section<AppConfig>();
     final db = app.config.section<DatabaseConfig>();
     final connection = db.connections[db.defaultConnection];
-    stdout.write(
-      renderTable(<List<String>>[
-        <String>['Key', 'Value'],
-        <String>['Application', appConfig.name],
-        <String>['Environment', appConfig.env],
-        <String>['Debug mode', appConfig.debug ? 'ENABLED' : 'OFF'],
-        <String>['URL', appConfig.url],
-        <String>['Timezone', appConfig.timezone],
-        <String>['Locale', appConfig.locale],
-        <String>['Dart', Platform.version.split(' ').first],
-        <String>['Daravel', daravelVersion],
-        <String>[
-          'Database',
-          '${db.defaultConnection} (${connection?.driver ?? '?'})',
-        ],
-        <String>['Routes', '${app.router.routes.length}'],
-        <String>['Migrations', '${App.make<Migrator>().migrations.length}'],
-        <String>['Base path', app.basePath],
-      ]),
+    final application = <List<String>>[
+      <String>['Application', appConfig.name],
+      <String>['Environment', appConfig.env],
+      <String>['Debug mode', appConfig.debug ? 'ENABLED' : 'OFF'],
+      <String>['URL', appConfig.url],
+      <String>['Timezone', appConfig.timezone],
+      <String>['Locale', appConfig.locale],
+      <String>['Dart', Platform.version.split(' ').first],
+      <String>['Daravel', daravelVersion],
+      <String>[
+        'Database',
+        '${db.defaultConnection} (${connection?.driver ?? '?'})',
+      ],
+      <String>['Routes', '${app.router.routes.length}'],
+      <String>['Migrations', '${App.make<Migrator>().migrations.length}'],
+      <String>['Base path', app.basePath],
+    ];
+    final daravel = aboutDaravel(
+      app.env.maybeString('APP_ENV') ?? appConfig.env,
     );
+    const community = aboutCommunity;
+    if (argResults!['json'] == true) {
+      Map<String, String> section(List<List<String>> rows) => {
+        for (final row in rows) row[0]: row[1],
+      };
+      stdout.writeln(
+        const JsonEncoder.withIndent('  ').convert({
+          'application': section(application),
+          'daravel': section(daravel),
+          'community': section(community),
+        }),
+      );
+      return 0;
+    }
+    stdout
+      ..write(
+        renderTable(<List<String>>[
+          <String>['Key', 'Value'],
+          ...application,
+        ]),
+      )
+      ..write(
+        renderTable(<List<String>>[
+          <String>['Daravel', ''],
+          ...daravel,
+        ]),
+      )
+      ..write(
+        renderTable(<List<String>>[
+          <String>['Community', ''],
+          ...community,
+        ]),
+      );
     return 0;
   });
 }
@@ -700,3 +802,23 @@ List<String> _withoutProcesses(List<String> arguments) {
   }
   return result;
 }
+
+/// The **Daravel** section of `dartisan about`: what a bug report needs.
+List<List<String>> aboutDaravel(String environment) => [
+  ['Version', daravelVersion],
+  ['Dart SDK', Platform.version.split(' ').first],
+  ['OS', '${Platform.operatingSystem} ${Platform.operatingSystemVersion}'],
+  ['Architecture', Abi.current().toString()],
+  [
+    'Mode',
+    const bool.fromEnvironment('dart.vm.product') ? 'AOT (compiled)' : 'JIT',
+  ],
+  ['APP_ENV', environment],
+];
+
+/// The **Community** section of `dartisan about`.
+const List<List<String>> aboutCommunity = [
+  ['Docs', 'https://daravel.dev'],
+  ['Issues', 'https://github.com/daravel-dev/daravel/issues'],
+  ['Sponsor', 'https://$sponsorUrl'],
+];

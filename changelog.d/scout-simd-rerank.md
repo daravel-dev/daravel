@@ -1,0 +1,3 @@
+### Added
+
+- `daravel_scout`: `hybrid(rerank: true)` orders the first 1 000 fused models by their cosine similarity to the query's vector, computed in Dart with `Float32x4` (a scalar loop for the dimensions past the last multiple of four) on the vectors the database already returned with the models, so no other query runs and no vector store is kept in memory. Models without a vector (the embedding column not selected in `constrain()`) follow in fused order. About 3× faster than a scalar cosine for 1 000 candidates of 1 536 or 3 072 dimensions (Windows x64 AOT, `bench/bin/scout_rerank.dart`; numbers in the package README). Without `rerank` nothing changes. `daravel_scout` now depends on `postgres` directly, to read pgvector's binary form. No new export.

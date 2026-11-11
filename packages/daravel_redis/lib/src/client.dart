@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:math';
 
 import 'package:crypto/crypto.dart';
+import 'package:daravel/daravel.dart' show SharedResult, runDetachedAsync;
 
 import 'config.dart';
 import 'connection.dart';
@@ -252,7 +253,7 @@ final class RedisNodeClient extends RedisClient {
   RedisNodeClient(super.config) : _sentinels = [...config.nodes], super._();
 
   RedisConnection? _connection;
-  Future<RedisConnection>? _opening;
+  SharedResult<RedisConnection>? _opening;
   bool _closed = false;
   final Set<RedisConnection> _dedicated = {};
   final Set<RedisSubscription> _subscriptions = {};
@@ -331,12 +332,21 @@ final class RedisNodeClient extends RedisClient {
     if (_closed) {
       return Future.error(const RedisConnectionException('Client closed.'));
     }
-    return _opening ??= connect()
-        .then((connection) {
-          _connection = connection;
-          return connection;
-        })
-        .whenComplete(() => _opening = null);
+    // Shared by every command waiting for the connection, from any zone: a
+    // SharedResult, so a failed connect reaches each of them.
+    final opening = _opening ??= SharedResult(() async {
+      try {
+        // Detached: the connection's socket listeners outlive the command
+        // (and the request) that opens it (Review #149).
+        return _connection = await runDetachedAsync(
+          connect,
+          name: 'redis connection',
+        ).value;
+      } finally {
+        _opening = null;
+      }
+    });
+    return opening.value;
   }
 
   /// Whether [error] says the server stopped being the master.
@@ -543,7 +553,7 @@ final class RedisClusterClient extends RedisClient {
 
   /// The master of each slot (`host:port`, empty when none serves it).
   List<String>? _slots;
-  Future<void>? _refreshing;
+  SharedResult<void>? _refreshing;
   final Set<RedisSubscription> _subscriptions = {};
   int _refreshes = 0;
   int _redirects = 0;
@@ -584,9 +594,15 @@ final class RedisClusterClient extends RedisClient {
     }
   }
 
-  /// Reads the slot map again, from the first node that answers.
-  Future<void> refresh() =>
-      _refreshing ??= _refresh().whenComplete(() => _refreshing = null);
+  /// Reads the slot map again, from the first node that answers. Calls
+  /// meanwhile, from any zone, share the read and get its error too.
+  Future<void> refresh() => (_refreshing ??= SharedResult(() async {
+    try {
+      await _refresh();
+    } finally {
+      _refreshing = null;
+    }
+  })).value;
 
   Future<void> _refresh() async {
     final seeds = {for (final n in config.nodes) '${n.host}:${n.port}'};

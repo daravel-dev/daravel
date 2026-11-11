@@ -1,4 +1,4 @@
-<!-- source: migrating-from-laravel.md sha256:c79bc5c695d1 -->
+<!-- source: migrating-from-laravel.md sha256:b735d58d480f -->
 # Migrasi dari Laravel, route demi route
 
 Anda tidak harus menulis ulang aplikasi Laravel sekaligus. Karena Daravel
@@ -208,7 +208,10 @@ menerima alamat klien di `X-Forwarded-For`, `-Proto`, `-Host`, dan `-Port`,
 jadi percayai Daravel di middleware `TrustProxies` Laravel
 (`$middleware->trustProxies(at: '127.0.0.1')`). Jika Laravel tidak
 menjawab, klien menerima 502; jika terlalu lambat (`timeout:`, 60 detik),
-504. WebSocket tidak diteruskan.
+504, dan koneksi ke Laravel ditutup, sehingga worker PHP-FPM yang macet
+tidak terus sibuk untuk klien yang sudah pergi. Laravel punya 5 detik untuk
+menerima koneksi, dan body respons yang berhenti mengalir selama `timeout`
+mengakhiri respons. WebSocket tidak diteruskan.
 
 ### Bandingkan route yang sudah pindah dengan Laravel
 

@@ -27,6 +27,22 @@ void main() {
         isNot(QueryTally.fingerprint('SELECT * FROM b WHERE id = ?')),
       );
     });
+
+    test('a repeated statement is fingerprinted once, and the memo stays '
+        'bounded (#165)', () {
+      const sql = r'SELECT *  FROM a WHERE id = $1';
+      final first = QueryTally.fingerprint(sql);
+      expect(identical(QueryTally.fingerprint(sql), first), isTrue);
+      expect(first, 'SELECT * FROM a WHERE id = ?');
+      // Statements with inlined values never repeat; the memo starts over.
+      for (var i = 0; i < QueryTally.fingerprintCacheSize * 2; i++) {
+        expect(
+          QueryTally.fingerprint('SELECT * FROM a WHERE id = $i'),
+          'SELECT * FROM a WHERE id = $i',
+        );
+      }
+      expect(QueryTally.fingerprint(sql), first);
+    });
   });
 
   group('per request', () {

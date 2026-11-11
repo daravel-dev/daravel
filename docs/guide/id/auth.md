@@ -1,4 +1,4 @@
-<!-- source: auth.md sha256:86ca56dc93c9 -->
+<!-- source: auth.md sha256:0136fbb6015c -->
 # Autentikasi dan otorisasi
 
 Guard didaftarkan di `bootstrap/app.dart`:
@@ -56,9 +56,16 @@ baik akunnya ada maupun tidak.
 Verifikasi menolak `alg: none`, algoritma tanpa kunci yang dikonfigurasi,
 tanda tangan yang salah, dan token kedaluwarsa.
 `Auth.jwtGuard().invalidate()` mencabut token sampai kedaluwarsa (ditambah
-leeway): denylist disimpan di cache store default, atau di store `process`
-bila store default-nya `memory`, sehingga semua worker isolate menolak token
-itu; dengan `CACHE_STORE=database`, semua mesin menolaknya.
+leeway): denylist disimpan di cache store default, sehingga dengan
+`CACHE_STORE=database` (atau Redis) semua mesin menolak token itu. Bila
+cache store-nya ada di memori (`memory` atau `process`), id yang dicabut
+mendapat store tersendiri di coordinator, sehingga semua worker isolate
+menolak token itu dan key yang di-cache aplikasi tidak dapat
+menggusurnya. Store itu menyimpan `JWT_DENYLIST_MAX_ENTRIES` id (100.000):
+id yang kedaluwarsa dibuang lebih dulu, dan bila id yang masih berlaku
+harus dibuang, server mencatat peringatan satu kali. Tentukan ukurannya
+dari masa berlaku token dikali jumlah logout per detik, atau pakai
+`database` atau Redis.
 
 Aplikasi Laravel yang memakai tymon/jwt-auth (guard `jwt` dengan
 `lock_subject`) dapat berbagi token dengan Daravel bila keduanya memakai
@@ -86,6 +93,15 @@ password yang ada tetap valid, sementara `Hash.needsRehash` dan
 `rehashPasswordIfRequired` meng-upgrade hash saat login. Tetap pakai bcrypt
 selama aplikasi Laravel berbagi tabel users: secara default Laravel hanya
 memverifikasi bcrypt.
+
+Paling banyak `HASH_CONCURRENCY` hash (default: satu per prosesor) berjalan
+bersamaan, masing-masing di isolate hangat yang dipakai ulang, sehingga
+lonjakan login menunggu giliran alih-alih menjalankan satu isolate per
+percobaan (dengan argon2id, 64 MiB per hash, cukup untuk menghabiskan
+memori). Sampai `HASH_QUEUE` hash (1024; `0` untuk tanpa batas) menunggu,
+masing-masing paling lama `HASH_QUEUE_TIMEOUT` (`30s`); lewat dari salah
+satunya `Hash.make` dan `Hash.check` melempar `HashingSaturatedException`,
+yang dijawab `503` dengan `Retry-After: 1`.
 
 Di Linux, bcrypt dijalankan oleh library C milik sistem (`crypt_rn` dari
 libxcrypt, implementasi yang juga dipakai PHP), sehingga biaya sebuah login

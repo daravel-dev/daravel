@@ -82,7 +82,9 @@ post.createdAt.diffForHumans(locale: 'id');         // 5 menit yang lalu
 ## `Number`
 
 Laravel's `Number`, with the same output as Laravel's intl formatting for
-the `en` and `id` locales (`Number.useLocale('id')` sets the default):
+the `en` and `id` locales (`Number.useLocale('id')` sets the default for
+the whole isolate, every request included: call it at boot, and pass
+`locale:` for one call):
 
 | Call | Result |
 | :-- | :-- |

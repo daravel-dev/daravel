@@ -191,8 +191,19 @@ final class MakeMigrationCommand extends MakeCommand {
   }
 }
 
-/// `make:job Name`
+/// `make:job Name [--model=User:candidate ...]`
 final class MakeJobCommand extends MakeCommand {
+  /// The `dartisan make:job` command.
+  MakeJobCommand() {
+    argParser.addMultiOption(
+      'model',
+      help:
+          'A model the job carries, as Model or Model:field (repeatable): a '
+          'ModelRef field, reloaded when the job runs, and a monitoring tag.',
+      splitCommas: false,
+    );
+  }
+
   @override
   String get name => 'make:job';
 
@@ -201,8 +212,22 @@ final class MakeJobCommand extends MakeCommand {
 
   @override
   Future<int> run() async {
+    final models = <JobModelField>[];
+    for (final spec in argResults!['model'] as List<String>) {
+      final field = JobModelField.tryParse(spec);
+      if (field == null) {
+        usageException(
+          'Invalid --model=$spec: use Model or Model:field, such as '
+          'User:candidate.',
+        );
+      }
+      if (models.any((m) => m.field == field.field)) {
+        usageException('--model names the field ${field.field} twice.');
+      }
+      models.add(field);
+    }
     final gen = generator();
-    gen.job(nameArgument);
+    gen.job(nameArgument, models: models);
     return report(gen);
   }
 }

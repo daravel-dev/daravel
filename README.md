@@ -51,7 +51,7 @@ what makes Laravel loved and adds what only Dart can offer: one native executabl
 from the route to the database, and every CPU core on one port.
 
 > **Status.** Daravel is stable since `1.0.0`; the current release is
-> `<!-- release -->1.25.0<!-- /release -->`, published on
+> `<!-- release -->1.27.0<!-- /release -->`, published on
 > [pub.dev](https://pub.dev/packages/daravel) by the verified publisher
 > `framework.daravel.dev`. The Dart API follows SemVer on the `1.x` line; the Laravel-facing
 > formats are locked by the conformance suite.
@@ -469,6 +469,7 @@ The monorepo is a Dart pub workspace:
 | [`packages/daravel_excel`](packages/daravel_excel) | Excel and CSV exports and imports with Laravel Excel's concerns, streamed with constant memory |
 | [`packages/daravel_log_viewer`](packages/daravel_log_viewer) | A log viewer page: files read from their end, filters, live tail, secrets masked |
 | [`packages/daravel_pulse`](packages/daravel_pulse) | A dashboard after Laravel Pulse: requests, slow requests and queries, exceptions, queues, across every isolate |
+| [`packages/daravel_reverb`](packages/daravel_reverb) | The Pusher server in a process of its own after Laravel Reverb: `reverb:start`, several applications, spread restarts, stats per isolate |
 | [`packages/daravel_payments`](packages/daravel_payments) | Midtrans, Xendit and Stripe behind one API; webhooks verified, applied once, amounts checked |
 | [`packages/daravel_medialibrary`](packages/daravel_medialibrary) | Files and images attached to models on spatie/laravel-medialibrary's media table, conversions in pure Dart |
 | [`packages/daravel_teorion`](packages/daravel_teorion) | Request-driven query filters, laravel-teorion's format |
@@ -515,6 +516,16 @@ server framework for Linux, macOS and Windows.
 
 ## dartisan CLI
 
+On a terminal, `dartisan` opens with a short banner and the commands grouped
+like `php artisan list` (plain usage text when piped or in CI; `--no-color`
+or `NO_COLOR` for no colour):
+
+```text
+ _| _. ._|_ o _  _. ._
+(_|(_|| |_ |_> (_|| |   Daravel <version> · Dart <sdk> · <os>
+                        Made with the help of our sponsors ♥ github.com/sponsors/daravel-dev
+```
+
 | Group | Commands |
 | :-- | :-- |
 | Project | `new <name> [--template=api\|minimal] [--path] [--git]`, `about`, `doctor [--production]`, `key:generate [--show] [--force]`, `stub:publish`, `env:encrypt`, `env:decrypt`, `env:obfuscate`, `adopt <laravel-path> [--check]`, `down [--secret] [--retry]`, `up`, `tinker "<expr>"` |
@@ -523,7 +534,7 @@ server framework for Linux, macOS and Windows.
 | Generators | `make:model [-m -f -s -c -p -r --api --all]`, `make:migration`, `make:seeder`, `make:factory`, `make:controller [--api --resource --model]`, `make:request`, `make:middleware`, `make:job`, `make:policy`, `make:event`, `make:listener [--event]`, `make:resource`, `make:rule`, `make:observer`, `make:provider`, `make:command`, `make:test [--unit]` |
 | Queue | `queue:work [--queue --tries --backoff --timeout --max-jobs --once]`, `queue:failed`, `queue:retry`, `queue:forget`, `queue:flush`, `queue:clear`, `queue:restart` |
 | Schedule | `schedule:run`, `schedule:work`, `schedule:list` |
-| Cache & files | `cache:clear [store]`, `storage:link` |
+| Cache & files | `cache:clear [store]`, `storage:link`, `static:hash` |
 
 Generators update the registries in `bootstrap/` (migrations, seeders, jobs, policies, listeners
 and custom commands) through marked regions, so a new class is wired up the moment it is created.
@@ -570,7 +581,7 @@ created lib/app/http/resources/post_resource.dart
 | **0** | Walking skeleton: container, HTTP kernel, router, SQLite, migrations, test client, CLI, CI | ✅ done |
 | **1** | S1 foundation · S2 HTTP hardening · S3 routing · S4 validation · S5 database · S6 ORM · S7 schema, seeding & generators · S8 auth · S9 multi-isolate & cache · S10 events, queue & scheduler · S11 resources, storage & observability · S12 CLI (`new`, hot reload, `build --docker`, `doctor`, `openapi:generate`, `model:sync`, stubs) · S13 testing toolkit, lints & architecture tests | ✅ done |
 | **1** | S14 conformance suite, security suite, `parity.yaml`, benchmark harness, documentation site, `api`/`minimal` templates → first public beta, then **1.0.0** | ✅ done |
-| **1.x** | Released after 1.0: localization, feature flags, SSE and WebSockets, the Flutter client generator, driver packages and `db:transfer`, mail and notifications, Laravel Echo broadcasting, Redis and Valkey (`daravel_redis`), roles and permissions (`daravel_permission`), an activity log (`daravel_activitylog`), query filters (`daravel_teorion`); latest **<!-- release -->1.25.0<!-- /release -->** | ✅ done |
+| **1.x** | Released after 1.0: localization, feature flags, SSE and WebSockets, the Flutter client generator, driver packages and `db:transfer`, mail and notifications, Laravel Echo broadcasting, Redis and Valkey (`daravel_redis`), roles and permissions (`daravel_permission`), an activity log (`daravel_activitylog`), query filters (`daravel_teorion`); latest **<!-- release -->1.27.0<!-- /release -->** | ✅ done |
 | **2** | Sessions/CSRF, S3, OpenTelemetry, Blade-compatible compiled views; database clients only in the driver packages | planned |
 | **daragic** | Bidirectional Laravel ⇄ Daravel generator: runtime introspection → IR → generated project, converted tests, differential replay | designed |
 | **Ecosystem** | First-party packages under `daravel-dev`: `daravel_horizon` (queue supervisor and dashboard), `daravel_socialite` (OAuth and Sign in with Apple/Google), then `daravel_telescope` and `daravel_scout` | planned |

@@ -50,15 +50,21 @@ final class UpstreamProxy {
     this.preserveHost = false,
     Iterable<String> stripResponseHeaders = const ['x-powered-by'],
     this.timeout = const Duration(seconds: 60),
+    Duration? bodyIdleTimeout,
+    Duration connectTimeout = const Duration(seconds: 5),
+    int? maxConnectionsPerHost,
     HttpClient? client,
   }) : stripResponseHeaders = {
          for (final name in stripResponseHeaders) name.toLowerCase(),
        },
+       bodyIdleTimeout = bodyIdleTimeout ?? timeout,
        _client =
            client ??
            (HttpClient()
              ..autoUncompress = false
-             ..idleTimeout = const Duration(seconds: 15)) {
+             ..idleTimeout = const Duration(seconds: 15)
+             ..connectionTimeout = connectTimeout
+             ..maxConnectionsPerHost = maxConnectionsPerHost) {
     if (!upstream.hasScheme || upstream.host.isEmpty) {
       throw ArgumentError.value(
         '$upstream',
@@ -78,8 +84,14 @@ final class UpstreamProxy {
   /// Response headers removed before they reach the client.
   final Set<String> stripResponseHeaders;
 
-  /// How long the upstream has to start answering (then 504).
+  /// How long the upstream has to take the request and start answering
+  /// (then 504, and the upstream connection is closed).
   final Duration timeout;
+
+  /// How long the upstream may pause while streaming a response body (by
+  /// default [timeout]); then the response to the client ends with an error
+  /// and the upstream connection is closed.
+  final Duration bodyIdleTimeout;
 
   final HttpClient _client;
 
@@ -117,73 +129,142 @@ final class UpstreamProxy {
   /// a multipart body only for a `POST`.
   Future<Response> forward(Request request) async {
     final HttpClientResponse answer;
+    final deadline = Stopwatch()..start();
+    HttpClientRequest? outgoing;
     try {
-      final outgoing = await _client
-          .openUrl(request.originalMethod, target(request))
-          .timeout(timeout);
-      outgoing
-        ..followRedirects = false
-        ..persistentConnection = true;
-      _copyRequestHeaders(request, outgoing.headers);
+      final sending = await _open(request, timeout);
+      outgoing = sending;
+      _copyRequestHeaders(request, sending.headers);
       // A body is announced by a length or by chunked encoding.
       final length = request.contentLength;
       final chunked = request.headers.first('transfer-encoding') != null;
       if (length != null) {
-        outgoing.contentLength = length;
+        sending.contentLength = length;
       } else if (chunked) {
-        outgoing.headers.chunkedTransferEncoding = true;
+        sending.headers.chunkedTransferEncoding = true;
       }
-      if ((length ?? 0) > 0 || (length == null && chunked)) {
-        await outgoing.addStream(request.bodyStream());
-      }
-      answer = await outgoing.close().timeout(timeout);
+      // One deadline for sending the body and getting the answer.
+      answer = await Future<HttpClientResponse>(() async {
+        if ((length ?? 0) > 0 || (length == null && chunked)) {
+          await sending.addStream(request.bodyStream());
+        }
+        return sending.close();
+      }).timeout(_left(deadline));
     } on TimeoutException {
+      // Without this the upstream keeps the connection (and, behind
+      // PHP-FPM, a worker) until it answers a client that is gone.
+      outgoing?.abort();
       throw const HttpException(504, 'Gateway Timeout');
     } on IOException {
+      outgoing?.abort();
       throw const HttpException(502, 'Bad Gateway');
     }
     final headers = Headers();
+    final dropped = _connectionHeaders(
+      answer.headers[HttpHeaders.connectionHeader],
+    );
     answer.headers.forEach((name, values) {
-      if (!hopByHop.contains(name) && !stripResponseHeaders.contains(name)) {
+      if (!hopByHop.contains(name) &&
+          !stripResponseHeaders.contains(name) &&
+          !dropped.contains(name)) {
         for (final value in values) {
           headers.add(name, value);
         }
       }
     });
     final length = answer.contentLength;
+    final upstreamRequest = outgoing;
+    // An upstream that stalls mid-body ends the response instead of
+    // holding both connections open.
+    final body = answer.timeout(
+      bodyIdleTimeout,
+      onTimeout: (sink) {
+        upstreamRequest.abort();
+        sink
+          ..addError(
+            TimeoutException(
+              'The upstream stalled while sending the body.',
+              bodyIdleTimeout,
+            ),
+          )
+          ..close();
+      },
+    );
     return Response(
       status: answer.statusCode,
       headers: headers,
-      body: StreamBody(answer, contentLength: length >= 0 ? length : null),
+      body: StreamBody(body, contentLength: length >= 0 ? length : null),
     );
   }
 
+  /// What is left of [timeout] since [started]; throws once it is spent.
+  Duration _left(Stopwatch started) {
+    final left = timeout - started.elapsed;
+    if (left <= Duration.zero) {
+      throw TimeoutException('The upstream did not answer in time.', timeout);
+    }
+    return left;
+  }
+
+  /// Opens a request to the upstream within [within]. A connection that
+  /// opens after the timeout is closed at once instead of left behind.
+  Future<HttpClientRequest> _open(Request request, Duration within) async {
+    final opening = _client.openUrl(request.originalMethod, target(request));
+    // ignore: close_sinks (returned; the caller closes or aborts it)
+    final HttpClientRequest outgoing;
+    try {
+      outgoing = await opening.timeout(within);
+    } on TimeoutException {
+      unawaited(
+        opening.then<void>((late) => late.abort(), onError: (Object _) {}),
+      );
+      rethrow;
+    }
+    return outgoing
+      ..followRedirects = false
+      ..persistentConnection = true;
+  }
+
+  /// The header names a `Connection` header lists: they describe this
+  /// connection only, so they are not passed on (RFC 9110 §7.6.1).
+  static Set<String> _connectionHeaders(Iterable<String>? values) => {
+    for (final value in values ?? const <String>[])
+      for (final name in value.split(','))
+        if (name.trim().isNotEmpty) name.trim().toLowerCase(),
+  };
+
   /// Replays [request] and reads the answer, or null when there is none to
   /// compare: the upstream failed, took too long, or sent over [maxBytes].
+  /// In each of those cases the upstream connection is closed.
   Future<ShadowAnswer?> shadow(Request request, {required int maxBytes}) async {
+    final deadline = Stopwatch()..start();
+    HttpClientRequest? outgoing;
+    var complete = false;
     try {
-      final outgoing = await _client
-          .openUrl(request.originalMethod, target(request))
-          .timeout(timeout);
-      outgoing
-        ..followRedirects = false
-        ..persistentConnection = true;
-      _copyRequestHeaders(request, outgoing.headers);
-      outgoing.headers
+      final sending = await _open(request, timeout);
+      outgoing = sending;
+      _copyRequestHeaders(request, sending.headers);
+      sending.headers
         ..set(ShadowParityRunner.header, '1')
         // A body to compare, not to decompress.
         ..set(HttpHeaders.acceptEncodingHeader, 'identity');
-      final answer = await outgoing.close().timeout(timeout);
+      final answer = await sending.close().timeout(_left(deadline));
       final body = BytesBuilder(copy: false);
-      await for (final chunk in answer.timeout(timeout)) {
+      await for (final chunk in answer.timeout(_left(deadline))) {
         body.add(chunk);
         if (body.length > maxBytes) {
           return null;
         }
       }
+      complete = true;
       final headers = <String, List<String>>{};
+      final dropped = _connectionHeaders(
+        answer.headers[HttpHeaders.connectionHeader],
+      );
       answer.headers.forEach((name, values) {
-        if (!hopByHop.contains(name) && !stripResponseHeaders.contains(name)) {
+        if (!hopByHop.contains(name) &&
+            !stripResponseHeaders.contains(name) &&
+            !dropped.contains(name)) {
           headers[name] = List<String>.of(values);
         }
       });
@@ -197,12 +278,19 @@ final class UpstreamProxy {
       return null;
     } on IOException {
       return null;
+    } finally {
+      if (!complete) {
+        outgoing?.abort();
+      }
     }
   }
 
   void _copyRequestHeaders(Request request, HttpHeaders out) {
+    final dropped = _connectionHeaders(request.headers.all('connection'));
     for (final MapEntry(key: name, value: values) in request.headers.entries) {
-      if (hopByHop.contains(name) || name.startsWith('x-forwarded-')) {
+      if (hopByHop.contains(name) ||
+          dropped.contains(name) ||
+          name.startsWith('x-forwarded-')) {
         continue;
       }
       if (name == 'host') {

@@ -1,0 +1,40 @@
+{
+  "dart": "3.13.4",
+  "aot": true,
+  "processors": 16,
+  "duration_s": 20.0,
+  "in_flight_per_client": 16,
+  "bulk_window": 16,
+  "bulk_buffer": 1024,
+  "ops": [
+    "publish"
+  ],
+  "sections": [
+    "ceiling"
+  ],
+  "ceiling": {
+    "publish": {
+      "1": {
+        "ops_per_s": 163627,
+        "messages_per_s": 163627,
+        "p50_us": 80,
+        "p99_us": 405,
+        "errors": 0
+      },
+      "8": {
+        "ops_per_s": 58643,
+        "messages_per_s": 58643,
+        "p50_us": 2253,
+        "p99_us": 3992,
+        "errors": 0
+      },
+      "16": {
+        "ops_per_s": 40500,
+        "messages_per_s": 40500,
+        "p50_us": 6429,
+        "p99_us": 9412,
+        "errors": 0
+      }
+    }
+  }
+}

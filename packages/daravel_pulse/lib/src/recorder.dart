@@ -148,10 +148,12 @@ final class PulseRecorder {
     _recorded(now);
   }
 
+  static final RegExp _whitespace = RegExp(r'\s+');
+
   /// Records a query on [connection].
   void recordQuery(String sql, String connection, Duration duration) {
     final now = Clock.now();
-    final text = sql.replaceAll(RegExp(r'\s+'), ' ').trim();
+    final text = sql.replaceAll(_whitespace, ' ').trim();
     _group('queries', '$connection\u0000${_clip(text, 1000)}', now, duration, {
       'sql': _clip(text, 1000),
       'connection': connection,

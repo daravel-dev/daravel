@@ -26,7 +26,16 @@ enum PostgresSslMode {
 /// grammar emits them; raw SQL is expanded by `SqlBindings`). Transactions
 /// run on a dedicated pooled connection; the executor passed to the callback
 /// is the only object that may issue queries inside the transaction.
-final class PostgresDriver implements NotifyingDriver, QueryErrors {
+///
+/// Pool connections opened on demand: the first connection is opened
+/// detached (`DatabaseManager`, Review #149), but a further connection the
+/// pool opens under load is opened by the query that needed it, in that
+/// query's zone (a request's, a job's). The driver touches neither the
+/// container nor the log on that path, so no request scope or `request_id`
+/// is kept by the connection; an error its socket raises later that the
+/// client package leaves unhandled would reach that zone's error handler.
+final class PostgresDriver
+    implements NotifyingDriver, SessionTerminatingDriver, QueryErrors {
   /// SQLSTATE 23505 (`unique_violation`), as Laravel checks it.
   @override
   bool isUniqueConstraintError(Object error) =>
@@ -47,6 +56,7 @@ final class PostgresDriver implements NotifyingDriver, QueryErrors {
     this.queryTimeout = const Duration(seconds: 30),
     this.applicationName = 'daravel',
     this.searchPath = const <String>[],
+    this.idleTransactionTimeout,
   });
 
   /// The driver for a configured connection (`DB_HOST`, `DB_PORT`,
@@ -79,6 +89,9 @@ final class PostgresDriver implements NotifyingDriver, QueryErrors {
             ) ??
             noTimeout,
         searchPath: parseSearchPath(connection.options['search_path']),
+        idleTransactionTimeout: idleTransactionTimeoutOption(
+          connection.options['idle_transaction_timeout'],
+        ),
       );
 
   /// `DB_SEARCH_PATH` (`billing, hr, public`), as Laravel's
@@ -108,6 +121,18 @@ final class PostgresDriver implements NotifyingDriver, QueryErrors {
     }
     return seconds <= 0 ? null : Duration(seconds: seconds);
   }
+
+  /// `DB_IDLE_TRANSACTION_TIMEOUT` in seconds: unset, unreadable or `0`
+  /// mean none.
+  static Duration? idleTransactionTimeoutOption(Object? value) =>
+      timeoutOption(value, Duration.zero) == Duration.zero
+      ? null
+      : timeoutOption(value, Duration.zero);
+
+  /// `SET idle_in_transaction_session_timeout` for [timeout], in
+  /// milliseconds as the server takes it.
+  static String idleTransactionStatement(Duration timeout) =>
+      'set idle_in_transaction_session_timeout = ${timeout.inMilliseconds}';
 
   /// The server host.
   final String host;
@@ -142,6 +167,15 @@ final class PostgresDriver implements NotifyingDriver, QueryErrors {
   /// Set on every connection of the pool; the server's default when empty.
   final List<String> searchPath;
 
+  /// `idle_in_transaction_session_timeout` of every connection of the pool
+  /// (`DB_IDLE_TRANSACTION_TIMEOUT`): the server ends a session that stays
+  /// idle inside a transaction this long, rolling it back. `null` keeps the
+  /// server's setting.
+  final Duration? idleTransactionTimeout;
+
+  /// Backend pids of the pool's open connections, for [sessionIds].
+  final Map<pg.Connection, int> _backends = <pg.Connection, int>{};
+
   @override
   final String name;
 
@@ -174,6 +208,42 @@ final class PostgresDriver implements NotifyingDriver, QueryErrors {
   static bool isRetryable(Object error) =>
       error is pg.ServerException && retryableCodes.contains(error.code);
 
+  Future<void> _configure(pg.Connection connection) async {
+    if (searchPath.isNotEmpty) {
+      await connection.execute(searchPathStatement(searchPath));
+    }
+    final idle = idleTransactionTimeout;
+    if (idle != null) {
+      await connection.execute(idleTransactionStatement(idle));
+    }
+    final result = await connection.execute('SELECT pg_backend_pid()');
+    _backends[connection] = result.first.first! as int;
+    unawaited(
+      connection.closed.whenComplete(() => _backends.remove(connection)),
+    );
+  }
+
+  @override
+  List<String> sessionIds() => [
+    for (final entry in _backends.entries)
+      if (entry.key.isOpen) '${entry.value}',
+  ];
+
+  @override
+  Future<bool> terminateSession(String id) async {
+    final pid = int.tryParse(id);
+    if (pid == null) {
+      return false;
+    }
+    // Runs on another connection of the pool; for a pid the server does not
+    // know it returns false (with a warning), not an error.
+    final rows = await select(
+      r'SELECT pg_terminate_backend($1::int) AS ended',
+      [pid],
+    );
+    return rows.first['ended'] == true;
+  }
+
   @override
   Future<void> connect() async {
     if (_pool != null) {
@@ -191,11 +261,7 @@ final class PostgresDriver implements NotifyingDriver, QueryErrors {
         connectTimeout: connectTimeout,
         queryTimeout: queryTimeout,
         applicationName: applicationName,
-        onOpen: searchPath.isEmpty
-            ? null
-            : (connection) async {
-                await connection.execute(searchPathStatement(searchPath));
-              },
+        onOpen: _configure,
       ),
     );
     // Fail fast on bad credentials/hosts instead of at the first query.
@@ -211,11 +277,24 @@ final class PostgresDriver implements NotifyingDriver, QueryErrors {
     _pool = pool;
   }
 
+  /// How long [close] lets connections in use finish before closing them
+  /// under their queries.
+  static const Duration closeTimeout = Duration(seconds: 5);
+
   @override
   Future<void> close() async {
     final pool = _pool;
     _pool = null;
-    await pool?.close();
+    if (pool == null) {
+      return;
+    }
+    try {
+      // Waits for the connections in use: an abandoned transaction would
+      // hold the shutdown for ever.
+      await pool.close().timeout(closeTimeout);
+    } on TimeoutException {
+      await pool.close(force: true);
+    }
   }
 
   pg.Endpoint get _endpoint => pg.Endpoint(
@@ -289,45 +368,130 @@ final class PostgresDriver implements NotifyingDriver, QueryErrors {
   Future<List<Map<String, Object?>>> select(
     String sql, [
     List<Object?> bindings = const [],
-  ]) => _measured((e) => e.select(sql, bindings));
+  ]) => _measured(sql, bindings, (e) => e.select(sql, bindings));
 
   @override
   Future<int> execute(String sql, [List<Object?> bindings = const []]) =>
-      _measured((e) => e.execute(sql, bindings));
+      _measured(sql, bindings, (e) => e.execute(sql, bindings));
 
   @override
   Future<Object?> insertGetId(
     String sql, [
     List<Object?> bindings = const [],
-  ]) => _measured((e) => e.insertGetId(sql, bindings));
+  ]) => _measured(sql, bindings, (e) => e.insertGetId(sql, bindings));
+
+  /// What `package:postgres` says when no connection became free within
+  /// [connectTimeout].
+  static const String _poolTimeout = 'Failed to acquire pool lock.';
+
+  /// [run], with the pool's wait for a connection reported as a
+  /// [PoolExhaustedException] rather than an anonymous `TimeoutException`
+  /// that reads like a slow query.
+  Future<T> _acquiring<T>(
+    Future<T> Function() run, {
+    String sql = '',
+    List<Object?> bindings = const [],
+  }) async {
+    try {
+      return await run();
+    } on TimeoutException catch (error, stack) {
+      if (error.message != _poolTimeout) {
+        rethrow;
+      }
+      Error.throwWithStackTrace(
+        PoolExhaustedException(
+          name,
+          connectTimeout,
+          sql: sql,
+          bindings: bindings,
+        ),
+        stack,
+      );
+    }
+  }
 
   /// Asks for the connection itself when a listener wants the wait; the
   /// pool's own `execute` hides it.
-  Future<T> _measured<T>(Future<T> Function(_PgExecutor executor) run) {
+  Future<T> _measured<T>(
+    String sql,
+    List<Object?> bindings,
+    Future<T> Function(_PgExecutor executor) run,
+  ) {
     final pool = _session;
     final probe = PoolWaitProbe.current;
     if (probe == null) {
-      return run(_PgExecutor(pool));
+      return _acquiring(
+        () => run(_PgExecutor(pool)),
+        sql: sql,
+        bindings: bindings,
+      );
     }
     final watch = Stopwatch()..start();
-    return pool.withConnection((connection) {
-      probe.waited = watch.elapsed;
-      return run(_PgExecutor(connection));
-    });
+    return _acquiring(
+      () => pool.withConnection((connection) {
+        probe.waited = watch.elapsed;
+        return run(_PgExecutor(connection));
+      }),
+      sql: sql,
+      bindings: bindings,
+    );
   }
 
+  /// Runs [body] in a transaction on a pooled connection.
+  ///
+  /// The pool closes the connection behind any error that is not a
+  /// `PgException`, and the body's errors never are: queries arrive
+  /// wrapped in [QueryException], timeouts and application errors are the
+  /// application's own. `runTx` has rolled back by then, so the connection
+  /// is clean; the error is carried out of the pool as a value instead and
+  /// rethrown here, and only a connection the error broke (a fatal server
+  /// error, a lost socket, a failed `ROLLBACK`) is still discarded.
   @override
-  Future<T> transaction<T>(Future<T> Function(QueryExecutor tx) body) {
+  Future<T> transaction<T>(Future<T> Function(QueryExecutor tx) body) async {
     final pool = _session;
     final probe = PoolWaitProbe.current;
-    if (probe == null) {
-      return pool.runTx<T>((session) => body(_PgExecutor(session)));
+    final watch = probe == null ? null : (Stopwatch()..start());
+    final outcome = await _acquiring(
+      () => pool.withConnection((connection) async {
+        if (probe != null) {
+          probe.waited = watch!.elapsed;
+        }
+        try {
+          return _TxOutcome<T>.value(
+            await connection.runTx<T>((session) => body(_PgExecutor(session))),
+          );
+        } on pg.PgException {
+          // The pool's own judgement: it keeps the connection unless the
+          // error broke it.
+          rethrow;
+        } catch (error, stack) {
+          // A connection the error did break (a fatal server error behind a
+          // QueryException, a failed ROLLBACK) is closed by now, and the
+          // pool discards closed connections whatever the outcome.
+          return _TxOutcome<T>.error(error, stack);
+        }
+      }),
+    );
+    return outcome.unwrap();
+  }
+}
+
+/// What a transaction body ended with, carried out of the pool's
+/// `withConnection` so that an error does not cost the connection.
+final class _TxOutcome<T> {
+  _TxOutcome.value(T this._value) : _error = null, _stack = null;
+  _TxOutcome.error(Object this._error, StackTrace this._stack) : _value = null;
+
+  final T? _value;
+  final Object? _error;
+  final StackTrace? _stack;
+
+  T unwrap() {
+    final error = _error;
+    if (error != null) {
+      Error.throwWithStackTrace(error, _stack!);
     }
-    final watch = Stopwatch()..start();
-    return pool.withConnection((connection) {
-      probe.waited = watch.elapsed;
-      return connection.runTx<T>((session) => body(_PgExecutor(session)));
-    });
+    return _value as T;
   }
 }
 

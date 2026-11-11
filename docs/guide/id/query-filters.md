@@ -1,4 +1,4 @@
-<!-- source: query-filters.md sha256:7c259c30b77a -->
+<!-- source: query-filters.md sha256:d257f5014332 -->
 # Query filter
 
 `daravel_teorion` mengubah query string sebuah listing menjadi filter, eager
@@ -126,11 +126,52 @@ Map<String, List<String>> get allowedWithColumns => {
 | `Filter.has('comments')` | `EXISTS` / `NOT EXISTS` |
 | `Filter.jsonContains()` | `whereJsonContains(col, value)` |
 | `Filter.callback((query, value, param, request) {...})` | Milik Anda |
-| `Filter.scope('name')`, `Filter.macro('name')` | Scope model; tipe yang didaftarkan dengan `FilterMacroRegistry.register` |
+| `Filter.scope('name')` | Scope model, diberi request (`ScopeFilter` di laravel-teorion) |
+| `Filter.scopeValue('name')` | Scope model, diberi nilai filter setelah `alias` dan `withDefault` (khusus Daravel) |
+| `Filter.macro('name')` | Tipe yang didaftarkan dengan `FilterMacroRegistry.register` |
 
 Masing-masing menerima `.alias('q')`, `.withDefault(value)`, dan
 `.required()`. Nama dengan garis bawah (`enum_`, `in_`, `null_`) menghindari
 keyword Dart.
+
+### Scope dan sort di model
+
+Agar query listing tetap berada di model, sebagai scope Laravel yang
+menerima argumennya, petakan parameter URL ke scope tersebut:
+`Filter.scopeValue` memanggil scope dengan nilainya, dan `sortScope`
+mengirim setiap sort yang diizinkan ke satu scope dengan `[column,
+direction]`. Model pun tidak perlu tahu apa pun tentang request atau nama
+parameternya.
+
+```dart
+// Di definisi model:
+scopes: {
+  'search': (q, args) => q.where('title', 'like', '%${args.first}%'),
+  'sortBy': (q, args) => switch (args[0]) {
+    'popularity' => q.orderBy('views', args[1]! as String),
+    final column => q.orderBy(column! as String, args[1]! as String),
+  },
+},
+
+final class PostQueryFilter extends QueryFilter<Post> {
+  @override
+  Map<String, Filter> get filters => {
+    'search': Filter.scopeValue('search').alias('q'),
+  };
+
+  @override
+  List<String> get allowedSorts => ['title', 'popularity'];
+
+  @override
+  String? get sortScope => 'sortBy';
+}
+```
+
+Sebuah sort lebih dulu menuju entri `customSorts`-nya, lalu ke `sortScope`,
+lalu ke `ORDER BY column`; sort default menempuh jalur yang sama, dan hanya
+`allowedSorts` yang sampai ke salah satunya. `Filter.scope` tetap mengikuti
+perilaku laravel-teorion dan meneruskan request. Scope yang tidak
+didefinisikan model dilewati, kecuali `TEORION_STRICT` menolaknya.
 
 ## Validasi, dokumentasi, dan audit
 

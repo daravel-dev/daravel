@@ -1,6 +1,7 @@
 import 'package:daravel/daravel.dart';
 
 import 'generator.dart';
+import 'stubs.dart';
 
 /// What `model:sync` needs from a model source file.
 final class ModelSource {
@@ -218,23 +219,150 @@ String _postgresType(String dataType) => switch (dataType) {
   _ => 'Object',
 };
 
+/// The members of `Object`, which a record field may not be named after.
+const Set<String> _objectMembers = <String>{
+  'hashCode',
+  'runtimeType',
+  'toString',
+  'noSuchMethod',
+};
+
+/// Dart's reserved words, which are not identifiers at all.
+const Set<String> _reservedWords = <String>{
+  'assert', 'break', 'case', 'catch', 'class', 'const', 'continue', //
+  'default', 'do', 'else', 'enum', 'extends', 'false', 'final', 'finally',
+  'for', 'if', 'in', 'is', 'new', 'null', 'rethrow', 'return', 'super',
+  'switch', 'this', 'throw', 'true', 'try', 'var', 'void', 'while', 'with',
+};
+
+/// What `model:sync` names one column: its accessor [getter] (null when the
+/// column gets none) and its [field] in the `cols` record.
+typedef ColumnNames = ({ColumnInfo column, String? getter, String field});
+
+/// The names of [columns], from one rule so `user.x` and `User.cols.x`
+/// always mean the same column: a column whose camelCase name is free and
+/// not reserved gets that name as its accessor and its `cols` field. The
+/// others (a `Model` member, a keyword, a name an earlier column took) get
+/// no accessor, and a `cols` field from [Naming.camel] made valid for a
+/// record: `c` before a leading digit, `Column` after an `Object` member, a
+/// reserved word or a taken name, then a number until it is free. The
+/// result follows the order of [columns], so it is the same on every sync.
+List<ColumnNames> columnNames(List<ColumnInfo> columns) {
+  final taken = <String>{};
+  final getters = <String?>[
+    for (final column in columns)
+      switch (Naming.camel(column.name)) {
+        final name
+            when _identifier.hasMatch(name) &&
+                !reservedAccessors.contains(name) &&
+                !_objectMembers.contains(name) &&
+                taken.add(name) =>
+          name,
+        _ => null,
+      },
+  ];
+  return [
+    for (var i = 0; i < columns.length; i++)
+      (
+        column: columns[i],
+        getter: getters[i],
+        field: getters[i] ?? _freeField(Naming.camel(columns[i].name), taken),
+      ),
+  ];
+}
+
+/// A Dart identifier that is not private (no leading `_` or digit).
+final RegExp _identifier = RegExp(r'^[A-Za-z$][A-Za-z0-9_$]*$');
+
+String _freeField(String camel, Set<String> taken) {
+  var base = camel.isEmpty ? 'column' : camel;
+  if (RegExp(r'^[0-9]').hasMatch(base)) {
+    base = 'c$base';
+  }
+  if (_objectMembers.contains(base) || _reservedWords.contains(base)) {
+    base = '${base}Column';
+  }
+  var name = base;
+  if (taken.contains(name)) {
+    name = '${base}Column';
+  }
+  for (var n = 2; taken.contains(name); n++) {
+    name = '${base}Column$n';
+  }
+  taken.add(name);
+  return name;
+}
+
+/// The Dart type `model:sync` gives [column] of [model]: its cast or
+/// database type, nullable as the column is; [idType] for the primary key
+/// with `--typed-ids`.
+String columnType(
+  ModelSource model,
+  ColumnInfo column, {
+  SqlDialect dialect = SqlDialect.sqlite,
+  String? idType,
+}) {
+  if (idType != null && column.name == model.primaryKey) {
+    return idType;
+  }
+  final mapped = dartTypeFor(
+    column,
+    model.casts[column.name],
+    dialect: dialect,
+  );
+  return mapped.type == 'Object'
+      ? 'Object?'
+      : (column.nullable ? '${mapped.type}?' : mapped.type);
+}
+
+/// The `static const cols = (...)` lines of [model] for [names]: one typed
+/// column token per column (`User.cols.email`). Empty without columns.
+List<String> colsLines(
+  ModelSource model,
+  List<ColumnNames> names, {
+  SqlDialect dialect = SqlDialect.sqlite,
+  String? idType,
+}) => names.isEmpty
+    ? const <String>[]
+    : [
+        '  /// The columns of `${model.table}`, for typed queries: '
+            '`${model.className}.cols.${names.first.field}`.',
+        '  static const cols = (',
+        for (final (:column, getter: _, :field) in names)
+          '    $field: ModelColumn<${model.className}, '
+              '${columnType(model, column, dialect: dialect, idType: idType)}>'
+              "('${column.name}'),",
+        '  );',
+      ];
+
 /// Accessor lines for [columns] (getters for all, setters except for the
 /// primary key and timestamps), typed for the [dialect] the columns come
-/// from.
+/// from, after the `cols` record of [colsLines]. With [idType]
+/// (`--typed-ids`) the primary key getter returns that extension type
+/// instead.
 AccessorPlan planAccessors(
   ModelSource model,
   List<ColumnInfo> columns, {
   SqlDialect dialect = SqlDialect.sqlite,
+  String? idType,
 }) {
-  final lines = <String>[];
+  final names = columnNames(columns);
+  final lines = <String>[
+    ...colsLines(model, names, dialect: dialect, idType: idType),
+  ];
   final warnings = <String>[];
   const readOnly = {'created_at', 'updated_at', 'deleted_at'};
-  for (final column in columns) {
-    final getter = Naming.camel(column.name);
-    if (getter.isEmpty || reservedAccessors.contains(getter)) {
+  for (final (:column, :getter, :field) in names) {
+    if (getter == null) {
+      final camel = Naming.camel(column.name);
       warnings.add(
-        'Skipped column [${column.name}]: accessor `$getter` clashes with a '
-        'Model member or keyword.',
+        names.any((other) => other.getter == camel)
+            ? 'Skipped column [${column.name}]: accessor `$camel` is '
+                  'already the accessor of another column; use '
+                  '${model.className}.cols.$field.'
+            : 'Skipped column [${column.name}]: accessor `$camel` clashes '
+                  'with a Model member or keyword, or is not a Dart name; '
+                  'use ${model.className}.cols.$field.',
       );
       continue;
     }
@@ -246,9 +374,7 @@ AccessorPlan planAccessors(
     if (mapped.hint != null) {
       warnings.add('Column [${column.name}]: ${mapped.hint}.');
     }
-    final type = mapped.type == 'Object'
-        ? 'Object?'
-        : (column.nullable ? '${mapped.type}?' : mapped.type);
+    final type = columnType(model, column, dialect: dialect, idType: idType);
     if (column.defaultValue != null &&
         !type.endsWith('?') &&
         !column.autoIncrement &&
@@ -295,11 +421,13 @@ const String _staticsStart = '// <dartisan:statics>';
 const String _staticsEnd = '// </dartisan:statics>';
 
 /// The query shortcuts `make:model` writes into the statics region of
-/// [className] (`User.find(1)`, `User.where(...)`).
-List<String> staticLines(String className) => [
+/// [className] (`User.find(1)`, `User.where(...)`). With [idType]
+/// (`--typed-ids`), `find` and `findOrFail` take that type.
+List<String> staticLines(String className, {String? idType}) => [
   '  static ModelQuery<$className> query() => definition.query();',
-  '  static Future<$className?> find(Object id) => query().find(id);',
-  '  static Future<$className> findOrFail(Object id) => '
+  '  static Future<$className?> find(${idType ?? 'Object'} id) => '
+      'query().find(id);',
+  '  static Future<$className> findOrFail(${idType ?? 'Object'} id) => '
       'query().findOrFail(id);',
   '  static Future<$className> create(Map<String, Object?> attributes) =>',
   '      query().create(attributes);',
@@ -312,7 +440,7 @@ List<String> staticLines(String className) => [
 /// Fills an empty statics region of [source] with [staticLines]. A region
 /// that holds anything belongs to the application and is left alone, as is
 /// a source without the markers: both return [source] unchanged.
-String fillStatics(String source, String className) {
+String fillStatics(String source, String className, {String? idType}) {
   final start = source.indexOf(_staticsStart);
   final end = source.indexOf(_staticsEnd);
   if (start == -1 || end == -1 || end < start) {
@@ -324,7 +452,144 @@ String fillStatics(String source, String className) {
   final lineStart = source.lastIndexOf('\n', end - 1) + 1;
   final indent = source.substring(lineStart, end);
   return '${source.substring(0, start + _staticsStart.length)}\n'
-      '${staticLines(className).join('\n')}\n'
+      '${staticLines(className, idType: idType).join('\n')}\n'
       '${indent.trim().isEmpty ? indent : ''}'
       '${source.substring(end)}';
+}
+
+/// `find(Object id)` and `findOrFail(Object id)` as `make:model` writes them.
+final RegExp _untypedFinders = RegExp(
+  r'(\b(?:find|findOrFail)\(\s*)Object(\s+id\s*\))',
+);
+
+/// Retypes the generated `find(Object id)` and `findOrFail(Object id)` of
+/// the statics region of [source] to take [idType] (`--typed-ids`). Other
+/// statics, and code outside the region, are left alone.
+String typeStatics(String source, String idType) {
+  final start = source.indexOf(_staticsStart);
+  final end = source.indexOf(_staticsEnd);
+  if (start == -1 || end == -1 || end < start) {
+    return source;
+  }
+  final region = source
+      .substring(start, end)
+      .replaceAllMapped(
+        _untypedFinders,
+        (m) => '${m.group(1)}$idType${m.group(2)}',
+      );
+  return '${source.substring(0, start)}$region${source.substring(end)}';
+}
+
+const String _idsStart = '// <dartisan:ids>';
+const String _idsEnd = '// </dartisan:ids>';
+
+/// The name of [className]'s typed id (`UserId`).
+String idTypeName(String className) => '${className}Id';
+
+/// The typed id of [model] for `--typed-ids`: the representation (`int` or
+/// `String`) of its primary key among [columns], or a [warning] when the
+/// key has no column or another type.
+({String? representation, String? warning}) typedIdRepresentation(
+  ModelSource model,
+  List<ColumnInfo> columns, {
+  SqlDialect dialect = SqlDialect.sqlite,
+}) {
+  for (final column in columns) {
+    if (column.name != model.primaryKey) {
+      continue;
+    }
+    final type = dartTypeFor(
+      column,
+      model.casts[column.name],
+      dialect: dialect,
+    ).type;
+    if (type == 'int' || type == 'String') {
+      return (representation: type, warning: null);
+    }
+    return (
+      representation: null,
+      warning:
+          'Primary key [${model.primaryKey}] is a $type, not an int or a '
+          'String: no typed id.',
+    );
+  }
+  return (
+    representation: null,
+    warning: 'No column for primary key [${model.primaryKey}]: no typed id.',
+  );
+}
+
+/// The values the `model.id` stub is rendered with.
+Map<String, String> idStubValues(String className, String representation) => {
+  'class': className,
+  'idType': representation,
+  'idParse': representation == 'int'
+      ? 'int.parse(raw)'
+      : "raw.isEmpty ? throw const FormatException('Empty id.') : raw",
+};
+
+/// Replaces the `<dartisan:ids>` region of [source] with [code], or appends
+/// the region at the end of the file when it has none (extension types are
+/// top-level declarations, so the region sits outside the class).
+String replaceIds(String source, String code) {
+  final body = code.trimRight();
+  final start = source.indexOf(_idsStart);
+  final end = source.indexOf(_idsEnd);
+  if (start != -1 && end > start) {
+    return '${source.substring(0, start + _idsStart.length)}\n'
+        '$body\n'
+        '${source.substring(end)}';
+  }
+  final base = source.endsWith('\n') ? source : '$source\n';
+  return '$base\n$_idsStart\n$body\n$_idsEnd\n';
+}
+
+/// What `model:sync` makes of one model file.
+typedef ModelSync = ({
+  String? source,
+  AccessorPlan plan,
+  List<String> warnings,
+});
+
+/// Syncs [source] (a model file parsed as [model]) with its table's
+/// [columns]: fills an empty statics region and rewrites the accessors.
+/// With [idStub] (the `model.id` template, `--typed-ids`), also writes the
+/// typed id into the `<dartisan:ids>` region and types the primary key
+/// getter, `find` and `findOrFail` with it. Without it the result is the
+/// same as before typed ids existed. `source` is `null` when the file has
+/// no accessors region.
+ModelSync syncModelSource(
+  String source,
+  ModelSource model,
+  List<ColumnInfo> columns, {
+  SqlDialect dialect = SqlDialect.sqlite,
+  String? idStub,
+}) {
+  final warnings = <String>[];
+  String? idType;
+  var next = source;
+  if (idStub != null) {
+    final typed = typedIdRepresentation(model, columns, dialect: dialect);
+    if (typed.warning != null) {
+      warnings.add(typed.warning!);
+    }
+    final representation = typed.representation;
+    if (representation != null) {
+      idType = idTypeName(model.className);
+      next = replaceIds(
+        typeStatics(fillStatics(next, model.className, idType: idType), idType),
+        renderStub(idStub, idStubValues(model.className, representation)),
+      );
+    }
+  }
+  if (idType == null) {
+    next = fillStatics(next, model.className);
+  }
+  final plan = planAccessors(model, columns, dialect: dialect, idType: idType);
+  warnings.insertAll(0, plan.warnings);
+  return (
+    source: replaceAccessors(next, plan.lines),
+    plan: plan,
+    warnings: warnings,
+  );
 }

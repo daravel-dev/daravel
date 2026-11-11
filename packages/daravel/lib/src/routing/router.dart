@@ -100,13 +100,19 @@ final class Router {
   /// runs first, then the connection is upgraded and [handler] gets the
   /// socket and the request (route parameters, `Auth.user()`) in the
   /// request's scope. A plain request gets `426 Upgrade Required`.
-  /// A WebSocket route; [compress] false turns permessage-deflate off (see
-  /// [Response.webSocket]).
+  /// A WebSocket route; [compress] false turns permessage-deflate off, and
+  /// a client with more than [maxBufferedBytes] waiting to be sent is
+  /// closed with [slowClientCode] (see [Response.webSocket]). With
+  /// [drainSpread] a shutting-down server closes these sockets at random
+  /// moments within it instead of all at once.
   RouteEntry ws(
     String path,
     WebSocketHandler handler, {
     bool compress = true,
     int maxPayloadBytes = Response.defaultWebSocketMaxPayloadBytes,
+    int maxBufferedBytes = Response.defaultWebSocketMaxBufferedBytes,
+    int slowClientCode = 1008,
+    Duration? drainSpread,
   }) => match(const <String>['GET'], path, (request) {
     if (!isWebSocketUpgrade(request)) {
       return Response.json(
@@ -119,6 +125,9 @@ final class Router {
       handler,
       compress: compress,
       maxPayloadBytes: maxPayloadBytes,
+      maxBufferedBytes: maxBufferedBytes,
+      slowClientCode: slowClientCode,
+      drainSpread: drainSpread,
     );
   })..markWebSocket();
 
@@ -418,6 +427,16 @@ final class Router {
     String column,
     String value,
   ) {
+    final idType = definition.idType;
+    if (idType != null && column == definition.primaryKey) {
+      try {
+        return idType.parse(value);
+      } on FormatException {
+        return null;
+      } on ArgumentError {
+        return null;
+      }
+    }
     final integer =
         column == definition.primaryKey &&
         const {KeyType.autoInt, KeyType.manualInt}.contains(definition.keyType);

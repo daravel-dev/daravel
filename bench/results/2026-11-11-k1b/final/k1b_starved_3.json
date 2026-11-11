@@ -1,0 +1,32 @@
+{
+  "dart": "3.13.4",
+  "aot": true,
+  "processors": 16,
+  "duration_s": 20.0,
+  "in_flight_per_client": 16,
+  "bulk_window": 16,
+  "bulk_buffer": 1024,
+  "ops": [
+    "rate",
+    "lock",
+    "cache",
+    "publish",
+    "noop",
+    "send"
+  ],
+  "sections": [
+    "starved"
+  ],
+  "starved": {
+    "burner_isolates": 16,
+    "states_seen": [
+      "healthy"
+    ],
+    "shed": {},
+    "queue_lag_peak_ms": 0.0,
+    "publish_ok": 189845,
+    "publish_errors": 0,
+    "rate_ok": 211405,
+    "rate_errors": 0
+  }
+}

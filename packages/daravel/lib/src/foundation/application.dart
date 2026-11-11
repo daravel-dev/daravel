@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 
+import 'package:path/path.dart' as p;
+
 import 'clock.dart';
 
 import '../auth/auth_manager.dart';
@@ -13,6 +15,7 @@ import '../auth/env_encryption.dart';
 import '../auth/hashing.dart';
 import '../auth/jwt.dart';
 import '../cache/cache.dart';
+import '../cache/stores.dart';
 import '../database/database_config.dart';
 import '../concurrency/concurrency.dart';
 import '../database/database_manager.dart';
@@ -37,6 +40,7 @@ import '../http/middleware/maintenance_mode.dart';
 import '../http/middleware/method_override.dart';
 import '../http/middleware/validate_signature.dart';
 import '../http/kernel.dart';
+import '../http/realtime.dart';
 import '../features/feature.dart';
 import '../http/middleware.dart';
 import '../http/middleware/cache_headers.dart';
@@ -44,6 +48,7 @@ import '../http/rate_limiter.dart';
 import '../http/request.dart';
 import '../http/response.dart';
 import '../http/server_engine.dart';
+import '../http/static_files.dart';
 import '../notifications/notification_manager.dart';
 import '../mail/mail_config.dart';
 import '../mail/mailer.dart';
@@ -51,6 +56,7 @@ import '../mail/smtp.dart';
 import '../mail/theme.dart';
 import '../mail/transport.dart';
 import '../logging/logger.dart';
+import '../logging/throttled_reporter.dart';
 import '../queue/drivers.dart';
 import '../queue/job.dart';
 import '../queue/queue_manager.dart';
@@ -58,10 +64,12 @@ import '../routing/openapi.dart';
 import '../routing/router.dart';
 import '../routing/url_signer.dart';
 import '../schedule/schedule.dart';
+import '../broadcasting/app_provider.dart';
 import '../broadcasting/broadcast_config.dart';
 import '../broadcasting/broadcast_manager.dart';
 import '../broadcasting/channel_registry.dart';
 import '../broadcasting/cluster.dart';
+import '../broadcasting/pusher_observer.dart';
 import '../broadcasting/pusher_server.dart';
 import '../server/broadcast.dart';
 import '../server/coordinator.dart';
@@ -70,9 +78,11 @@ import '../server/supervisor.dart';
 import 'config.dart';
 import 'config_validator.dart';
 import 'container.dart';
+import 'detached.dart';
 import 'drain.dart';
 import 'locale.dart';
 import 'env.dart';
+import 'ids.dart';
 import 'exceptions.dart';
 import 'service_provider.dart';
 
@@ -152,6 +162,25 @@ final class Application {
   /// cache). Set by the [Supervisor] before boot; in-process otherwise.
   CoordinatorChannel? coordinator;
 
+  bool _supervised = false;
+
+  /// Whether this is a worker isolate of a [Supervisor] (`APP_ISOLATES` >
+  /// 1), set before [boot] and fixed after it: what the supervisor does
+  /// for all of its workers (a rolling restart, through
+  /// [ApplicationBuilder.withSupervisorHook]) a worker need not do on its
+  /// own. False with one isolate, in the main isolate, and in embedded
+  /// workers (`SERVER_EMBED_*`).
+  bool get supervised => _supervised;
+
+  /// Marks this application as a [Supervisor]'s worker; the supervisor
+  /// calls it before [boot]. Throws a [StateError] once booting started.
+  void markSupervised() {
+    if (_booting != null) {
+      throw StateError('markSupervised() must be called before boot().');
+    }
+    _supervised = true;
+  }
+
   Timer? _metricsTimer;
 
   /// Whether [boot] has completed.
@@ -167,6 +196,92 @@ final class Application {
   /// The running server engine, if any.
   ServerEngine? get engine => _engine;
 
+  /// Adds environment overrides to an application that has not started
+  /// booting, for a host that receives a built [Application] rather than
+  /// its builder (a worker isolate, a test harness, `serveWith`).
+  ///
+  /// The highest precedence, as [ApplicationBuilder.withEnv]: an override
+  /// wins over the process environment and the `.env` file, and since it is
+  /// applied last it also wins over a `withEnv` value of the same name.
+  /// Throws a [StateError] once [boot] was called.
+  void overrideEnv(Map<String, String> overrides) {
+    if (_booting != null) {
+      throw StateError(
+        'overrideEnv() must be called before boot(): the environment is '
+        'read once, when the application boots.',
+      );
+    }
+    _envOverrides = <String, String>{..._envOverrides, ...overrides};
+  }
+
+  Map<String, String> _envOverrides = const <String, String>{};
+  ({String path, bool auth, bool debug})? _broadcastingOnly;
+  bool _restartRequested = false;
+
+  /// Before [boot]: serves only the Pusher server of
+  /// [ApplicationBuilder.withBroadcasting] (`/app/{key}` and `/apps/{id}/*`
+  /// under [path], and `/broadcasting/auth` when [auth]), the health probes
+  /// (`/up`, `/up/ready`) and `/metrics`: a WebSocket server of its own, as
+  /// `dartisan reverb:start` runs. The application's routes, the routes of
+  /// its providers, static files and `withUpstream` are not served; [router]
+  /// still holds them, for `route:list`. With [debug] every frame is logged
+  /// at `info`, signatures masked ([PusherFrameLog]).
+  void serveBroadcastingOnly({
+    String path = '',
+    bool auth = false,
+    bool debug = false,
+  }) {
+    if (_booting != null) {
+      throw StateError('serveBroadcastingOnly() must be called before boot.');
+    }
+    final trimmed = path.endsWith('/')
+        ? path.substring(0, path.length - 1)
+        : path;
+    if (trimmed.isNotEmpty && !trimmed.startsWith('/')) {
+      throw ArgumentError.value(path, 'path', 'must start with /');
+    }
+    _broadcastingOnly = (path: trimmed, auth: auth, debug: debug);
+  }
+
+  BroadcastAppProvider? _broadcastApps;
+
+  /// `withBroadcasting(apps:)`, else the provider of
+  /// [ApplicationBuilder.withBroadcastApps] (made once), else null.
+  BroadcastAppProvider? _broadcastAppProvider() {
+    if (_builder._broadcasting == null) {
+      return null;
+    }
+    final factory = _builder._broadcastApps;
+    return _builder._broadcasting?.apps ??
+        (factory == null ? null : _broadcastApps ??= factory(container));
+  }
+
+  /// Whether [serveBroadcastingOnly] was called.
+  bool get servesBroadcastingOnly => _broadcastingOnly != null;
+
+  /// The configuration checks [boot] runs besides `ConfigValidator`'s
+  /// defaults: the database's, the queue's and those packages registered
+  /// with [ApplicationBuilder.withConfigCheck]. `dartisan doctor` runs
+  /// them too.
+  List<ConfigCheck> get configChecks => List.unmodifiable([
+    DatabaseConfig.check,
+    QueueConfig.check,
+    ..._builder._configChecks,
+  ]);
+
+  /// Stops serving to be started again (`reverb:restart`): the server
+  /// drains as at shutdown and [serve] returns. A worker isolate of the
+  /// supervisor is then spawned again at once, without counting as a
+  /// crash; a server of one isolate ends, for its process manager to start
+  /// it again (as Laravel's `reverb:restart`).
+  Future<void> restart() async {
+    _restartRequested = true;
+    await _engine?.stop();
+  }
+
+  /// Whether [restart] was called.
+  bool get restartRequested => _restartRequested;
+
   /// Boots the application exactly once (safe to call concurrently). Boot
   /// runs with this container as [Container.current], so facades work in
   /// providers, bindings and routing callbacks.
@@ -175,7 +290,7 @@ final class Application {
   Future<void> _boot() async {
     env = await Env.load(
       basePath: basePath,
-      overrides: _builder._envOverrides,
+      overrides: <String, String>{..._builder._envOverrides, ..._envOverrides},
       decrypt: (contents, key) => EnvironmentEncrypter(key).decrypt(contents),
     );
     final loggingConfig = LoggingConfig.fromEnv(env);
@@ -211,13 +326,7 @@ final class Application {
     final appConfig = config.section<AppConfig>();
     exceptions.debug = appConfig.debug;
 
-    final validator = ConfigValidator(
-      extraChecks: [
-        DatabaseConfig.check,
-        QueueConfig.check,
-        ..._builder._configChecks,
-      ],
-    );
+    final validator = ConfigValidator(extraChecks: configChecks);
     for (final issue in validator.validateOrThrow(env, config)) {
       logger.warning('Config: ${issue.message}');
     }
@@ -227,26 +336,52 @@ final class Application {
       appKey: env.maybeString('APP_KEY'),
       // A revoked JWT is refused on every isolate (and every machine with
       // a shared store), not only on the one that handled the logout.
+      // In memory (the `memory` or `process` store), the ids get a store of
+      // their own on the coordinator: in the shared LRU cache, enough
+      // application keys evicted them and revoked tokens came back (#169).
       jwtDenylist: CacheJwtDenylist(() {
         final cache = container.make<CacheManager>();
-        final store = cache.store();
-        return store.scope == StateScope.isolate
-            ? cache.store('process').store
-            : store.store;
+        final store = cache.store().store;
+        if (store is! MemoryStore && store is! ProcessStore) {
+          return store;
+        }
+        final channel = container.make<CoordinatorChannel>();
+        final dedicated = switch (channel) {
+          // A coordinator of the application's own may lack the service.
+          LocalCoordinatorChannel(:final coordinator) =>
+            coordinator.service(ProcessCacheService.jwtDenylistServiceName) !=
+                null,
+          _ => true,
+        };
+        return dedicated
+            ? ProcessStore(
+                channel,
+                service: ProcessCacheService.jwtDenylistServiceName,
+              )
+            : cache.store('process').store;
       }, prefix: '${config.section<CacheConfig>().prefix}jwt_denylist:'),
     );
     final gate = AuthorizationGate(userResolver: () => _currentUser(auth));
     final channel =
         coordinator ??
         LocalCoordinatorChannel(
-          createStandardCoordinator(
-            processCacheMaxEntries: config
-                .section<CacheConfig>()
-                .processMaxEntries,
+          _registerCoordinatorServices(
+            createStandardCoordinator(
+              jwtDenylistMaxEntries: config
+                  .section<CacheConfig>()
+                  .jwtDenylistMaxEntries,
+              onWarning: logger.warning,
+              processCacheMaxEntries: config
+                  .section<CacheConfig>()
+                  .processMaxEntries,
+            ),
           ),
         );
     final events = EventDispatcher();
-    final metrics = AppMetrics(MetricsRegistry(), channel: channel);
+    final metrics = AppMetrics(
+      MetricsRegistry(maxSeries: config.section<MetricsConfig>().maxSeries),
+      channel: channel,
+    );
     events
       ..listen<JobProcessed>((_) => metrics.jobs.inc({'status': 'processed'}))
       ..listen<JobExceptionOccurred>(
@@ -267,27 +402,52 @@ final class Application {
     );
     final cacheConfig = config.section<CacheConfig>();
     final limiterStore = cacheConfig.limiter;
+    // One warning a second at most: when the coordinator is saturated every
+    // attempt fails, and a line per attempt would add to the overload
+    // (`coordinator_call_timeouts_total` counts them all).
+    final limiterWarning = ThrottledReporter(
+      (error, skipped) => logger.warning(
+        'Rate limiter could not count an attempt (it goes through unless '
+        'its limit fails closed): $error'
+        '${skipped == 0 ? '' : ' ($skipped more since the last warning)'}',
+      ),
+    );
     final rateLimiter = RateLimiter(
       store: limiterStore == null || limiterStore == 'process'
-          ? ProcessRateLimitStore(
-              channel,
-              onError: (error) => logger.warning(
-                'Rate limiter could not count an attempt (it goes through '
-                'unless its limit fails closed): $error',
-              ),
-            )
+          ? ProcessRateLimitStore(channel, onError: limiterWarning.call)
           // CACHE_LIMITER=database (or another store): limits shared
           // wherever that store is.
           : CacheRateLimitStore(
               () => container.make<CacheManager>().store(limiterStore).store,
               prefix: '${cacheConfig.prefix}rate_limiter:',
+              onError: limiterWarning.call,
             ),
     );
+    final ids = IdParsers();
+    for (final configure in _builder._idsConfigs) {
+      configure(ids);
+    }
     container
       ..instance<Application>(this)
+      ..instance<IdParsers>(ids)
       ..instance<Env>(env)
       ..instance<ConfigRepository>(config)
       ..instance<Logger>(logger)
+      // Work started outside requests (runDetached): its errors to the
+      // log, with no request context; stopped at shutdown.
+      ..instance<DetachedTasks>(
+        DetachedTasks(
+          onError: (name, error, stackTrace) => logger.error(
+            'Detached task $name failed',
+            error: error,
+            stackTrace: stackTrace,
+          ),
+          // Interrupted by the shutdown: expected.
+          onStopError: (name, error, _) => logger.debug(
+            'Detached task $name stopped by the shutdown: $error',
+          ),
+        ),
+      )
       ..instance<Router>(router)
       ..instance<MiddlewareRegistry>(middleware)
       ..instance<ExceptionHandler>(exceptions)
@@ -411,6 +571,8 @@ final class Application {
           final state = DatabaseChannelState(
             c.make<DatabaseManager>(),
             server: server,
+            // Per isolate: a crashed worker's connections stop counting.
+            worker: Isolate.current.debugName,
             connection: broadcasting.scalingConnection,
           );
           shared = state;
@@ -423,23 +585,60 @@ final class Application {
                 c.make<Logger>().warning('Broadcast relay: $error'),
           );
         }
+        final apps = _broadcastAppProvider();
         return BroadcastManager(
           broadcasting,
-          server: broadcasting.serves
+          server: broadcasting.serves || apps != null
               ? PusherServer(
                   broadcasting,
                   c.make<Broadcaster>(),
                   c.make<CoordinatorChannel>(),
                   state: shared,
                   relay: relay,
+                  apps: apps,
+                  onError: (message, error) =>
+                      c.make<Logger>().warning('$message: $error'),
+                  // Metrics by application, and this isolate's report to
+                  // the coordinator for Pulse and the dashboard.
+                  observer: PusherObservers([
+                    _ReverbMetrics(metrics),
+                    if (_broadcastingOnly?.debug ?? false)
+                      PusherFrameLog(c.make<Logger>().info),
+                    c.make<ReverbStats>(),
+                  ]),
                 )
               : null,
           http: c.make<HttpClientFactory>(),
           logger: c.make<Logger>(),
+          database: c.tryMake<DatabaseManager>(),
+          // A broadcast the coordinator could not take: counted, and told
+          // to the application (BroadcastShed), the request going on.
+          onShed: (shed) {
+            metrics.recordBroadcastShed(shed.reason);
+            unawaited(
+              events.dispatch(shed).catchError((Object error) {
+                c.make<Logger>().warning(
+                  'A BroadcastShed listener failed: $error',
+                );
+              }),
+            );
+          },
         );
       })
       ..instance<EventDispatcher>(events)
       ..instance<AppMetrics>(metrics)
+      ..singleton<ReverbStats>(
+        (c) => ReverbStats(
+          c.make<CoordinatorChannel>(),
+          interval: c
+              .make<ConfigRepository>()
+              .section<BroadcastConfig>()
+              .pulseIngestInterval,
+        ),
+      )
+      ..instance<SlowClients>(
+        SlowClients(onSlowClient: metrics.recordSlowClient),
+      )
       ..singleton<StorageManager>(
         (c) => StorageManager(
           c.make<ConfigRepository>().section<StorageConfig>(),
@@ -450,12 +649,20 @@ final class Application {
       ..instance<Schedule>(schedule)
       ..singleton<QueueManager>((c) => _buildQueue(c, events, jobs))
       ..singleton<CacheManager>((c) {
-        final manager = CacheManager.fromConfig(
-          c.make<ConfigRepository>().section<CacheConfig>(),
-          basePath: basePath,
-          database: () => c.make<DatabaseManager>(),
-          channel: channel,
-        );
+        final manager =
+            CacheManager.fromConfig(
+                c.make<ConfigRepository>().section<CacheConfig>(),
+                basePath: basePath,
+                database: () => c.make<DatabaseManager>(),
+                channel: channel,
+              )
+              ..onRefreshError = (key, error, stack) => logger.error(
+                'Cache: the background refresh of [$key] failed; the stale value '
+                'is served until it succeeds.',
+                error: error,
+                stackTrace: stack,
+                context: {'key': key},
+              );
         for (final MapEntry(key: name, value: factory)
             in _builder._cacheStores.entries) {
           manager.extend(name, () => factory(c));
@@ -553,16 +760,28 @@ final class Application {
       middleware.alias('signed', ValidateSignatureMiddleware(signer));
     }
     _registerRoutes();
+    _registerStatic(appConfig);
     router.compile(middleware);
+    final only = _broadcastingOnly;
+    final Router served;
+    if (only == null) {
+      served = router;
+    } else {
+      served = Router()
+        ..baseUrl = router.baseUrl
+        ..signer = router.signer;
+      _registerBroadcastingOnly(served, only.path, auth: only.auth);
+      served.compile(middleware);
+    }
     kernel = HttpKernel(
-      router: router,
+      router: served,
       middleware: middleware,
       exceptions: exceptions,
       logger: logger,
     );
     container.instance<HttpKernel>(kernel);
     final upstream = _builder._upstream;
-    if (upstream != null) {
+    if (upstream != null && only == null) {
       final url = upstream.url ?? env.maybeString('UPSTREAM_URL');
       if (url == null || url.isEmpty) {
         throw const ConfigException(
@@ -588,7 +807,7 @@ final class Application {
       }
       if (sample > 0) {
         final dispatcher = container.make<EventDispatcher>();
-        kernel.observeRoute = ShadowParityRunner(
+        final runner = ShadowParityRunner(
           proxy,
           sampleRate: sample,
           maxConcurrency:
@@ -630,7 +849,22 @@ final class Application {
               },
           logger: logger,
           onDrift: (drift) => unawaited(dispatcher.dispatch(drift)),
-        ).observe;
+        );
+        kernel.observeRoute = runner.observe;
+        final registry = container.make<AppMetrics>().registry;
+        registry
+          ..counter(
+            'shadow_replays_dropped_total',
+            'Shadow replays skipped because UPSTREAM_SHADOW_MAX_CONCURRENCY '
+                'were already running.',
+            collect: () => runner.dropped.toDouble(),
+          )
+          ..counter(
+            'shadow_replays_failed_total',
+            'Shadow replays the upstream did not answer (an error, a '
+                'timeout or a body over the limit).',
+            collect: () => runner.failed.toDouble(),
+          );
       }
     }
 
@@ -672,6 +906,7 @@ final class Application {
       container: c,
       logger: logger,
       debounceStore: () => lockStore,
+      exceptionStore: () => lockStore,
       uniqueLockRelease: (key) => manager.releaseUniqueLock(key),
     );
     manager =
@@ -752,9 +987,58 @@ final class Application {
     );
   }
 
+  /// The directories of [ApplicationBuilder.withStatic], scanned now and
+  /// served by name; the registry is bound for `asset()` even without any.
+  void _registerStatic(AppConfig appConfig) {
+    final assets = StaticAssets();
+    for (final entry in _builder._static) {
+      final directory = p.isAbsolute(entry.directory)
+          ? entry.directory
+          : p.join(basePath, entry.directory);
+      final files = StaticFiles(
+        directory,
+        prefix: entry.prefix,
+        maxAge: entry.maxAge,
+        rescan: entry.rescan ?? appConfig.env == 'local',
+        buildDirectory: entry.buildDirectory,
+      );
+      try {
+        files.scan();
+      } on FileSystemException catch (error) {
+        throw ConfigException(
+          'withStatic(${entry.directory}): ${error.message} '
+          '(${error.path}).',
+        );
+      }
+      assets.directories.add(files);
+      router.get(
+        files.route,
+        (request) => files.serve(request, request.routeParams['path'] ?? ''),
+      );
+    }
+    container.instance<StaticAssets>(assets);
+  }
+
+  /// What [serveBroadcastingOnly] serves: the Pusher server under [path],
+  /// the health probes and `/metrics`.
+  void _registerBroadcastingOnly(
+    Router target,
+    String path, {
+    required bool auth,
+  }) {
+    _registerBroadcastingRoutes(target, prefix: path, auth: auth);
+    final health = _builder._routing?.health ?? '/up';
+    target.get(health, _health);
+    target.get('${health == '/' ? '' : health}/ready', _ready);
+    final metricsConfig = config.section<MetricsConfig>();
+    if (metricsConfig.enabled) {
+      target.get(metricsConfig.path, _metrics);
+    }
+  }
+
   void _registerRoutes() {
     // Also without withRouting: a server may only serve broadcasting.
-    _registerBroadcastingRoutes();
+    _registerBroadcastingRoutes(router);
     final routing = _builder._routing;
     if (routing == null) {
       return;
@@ -792,15 +1076,40 @@ final class Application {
     }
   }
 
+  /// The broadcast channels `withBroadcasting(channels:)` registers, for
+  /// `dartisan route:list --channels` and other tools; empty without
+  /// broadcasting. Built anew on each call, from the registration
+  /// function.
+  ChannelRegistry get broadcastChannels {
+    final registry = ChannelRegistry();
+    _builder._broadcasting?.channels?.call(registry);
+    return registry;
+  }
+
   /// The Pusher protocol server and Laravel's `/broadcasting/auth`, when
   /// [ApplicationBuilder.withBroadcasting] was called and REVERB_APP_KEY
-  /// and REVERB_APP_SECRET are set.
-  void _registerBroadcastingRoutes() {
+  /// and REVERB_APP_SECRET are set: on [target], the Pusher routes under
+  /// [prefix], `/broadcasting/auth` unless [auth] is false.
+  void _registerBroadcastingRoutes(
+    Router target, {
+    String prefix = '',
+    bool auth = true,
+  }) {
     final setup = _builder._broadcasting;
     final broadcasting = config.section<BroadcastConfig>();
-    if (setup == null || !broadcasting.serves) {
+    final apps = _broadcastAppProvider();
+    if (setup == null || !(broadcasting.serves || apps != null)) {
       return;
     }
+    // The largest message any application allows, when the provider says
+    // (an application's own limit is checked on each message).
+    final maxMessageSize = switch (apps) {
+      final ListAppProvider list => list.apps.fold(
+        broadcasting.maxMessageSize,
+        (most, app) => app.maxMessageSize > most ? app.maxMessageSize : most,
+      ),
+      _ => broadcasting.maxMessageSize,
+    };
     final server = container.make<BroadcastManager>().server!;
     final channels = ChannelRegistry();
     setup.channels?.call(channels);
@@ -809,32 +1118,39 @@ final class Application {
       channels,
       container.make<AuthManager>(),
     );
-    router
+    target
       ..ws(
-        '/app/{key}',
+        '$prefix/app/{key}',
         (socket, request) =>
             server.connect(socket, request, request.param<String>('key')),
         // As Reverb: no permessage-deflate, so no zlib state per connection.
         compress: false,
         // Pusher messages are small; a frame past the limit fails the
         // connection before it is buffered, not after.
-        maxPayloadBytes: broadcasting.maxMessageSize + 1024,
+        maxPayloadBytes: maxMessageSize + 1024,
+        // A client too slow to read what it is sent is closed with 4100
+        // ("over capacity"): Pusher clients reconnect after a backoff.
+        maxBufferedBytes: broadcasting.maxBufferedBytes,
+        slowClientCode: PusherServer.slowClientCode,
+        // Closed at random moments of REVERB_DRAIN_SPREAD at shutdown, so
+        // the clients do not all reconnect to the next server at once.
+        drainSpread: broadcasting.drainSpread,
       ).name('daravel.broadcasting.connect')
       ..post(
-        '/apps/{appId}/events',
+        '$prefix/apps/{appId}/events',
         (request) => server.events(request, request.param<String>('appId')),
       )
       ..post(
-        '/apps/{appId}/batch_events',
+        '$prefix/apps/{appId}/batch_events',
         (request) =>
             server.batchEvents(request, request.param<String>('appId')),
       )
       ..get(
-        '/apps/{appId}/channels',
+        '$prefix/apps/{appId}/channels',
         (request) => server.channels(request, request.param<String>('appId')),
       )
       ..get(
-        '/apps/{appId}/channels/{channel}',
+        '$prefix/apps/{appId}/channels/{channel}',
         (request) => server.channel(
           request,
           request.param<String>('appId'),
@@ -842,17 +1158,21 @@ final class Application {
         ),
       )
       ..get(
-        '/apps/{appId}/channels/{channel}/users',
+        '$prefix/apps/{appId}/channels/{channel}/users',
         (request) => server.users(
           request,
           request.param<String>('appId'),
           request.param<String>('channel'),
         ),
-      )
-      ..post(
-        setup.authPath,
-        authorization.handle,
-      ).name('broadcasting.auth').middleware(setup.authMiddleware);
+      );
+    // Signed with the settings' secret: the application's own channels
+    // (another application's are authorized by its own backend).
+    if (auth && broadcasting.serves) {
+      target
+          .post(setup.authPath, authorization.handle)
+          .name('broadcasting.auth')
+          .middleware(setup.authMiddleware);
+    }
   }
 
   /// The translator: `APP_LOCALE`, `APP_FALLBACK_LOCALE`, the lines from
@@ -947,8 +1267,36 @@ final class Application {
         'status': 'draining',
       }, status: 503);
     }
-    final result = await healthChecker.run();
+    final result = await _readiness();
     return Response.json(result.body, status: result.healthy ? 200 : 503);
+  }
+
+  /// How long a readiness result answers further probes.
+  static const Duration readinessCacheTtl = Duration(seconds: 1);
+
+  Future<({bool healthy, Map<String, Object?> body})>? _readinessRun;
+  ({bool healthy, Map<String, Object?> body})? _readinessResult;
+  final Stopwatch _readinessAge = Stopwatch();
+
+  /// The checks run once at a time per worker, and their result answers
+  /// the probes of the next [readinessCacheTtl]: every probe used to run
+  /// `SELECT 1` and a cache write, read and delete, in parallel, so a
+  /// slow database pinned a pool connection per probe (#165).
+  Future<({bool healthy, Map<String, Object?> body})> _readiness() {
+    final cached = _readinessResult;
+    if (cached != null && _readinessAge.elapsed < readinessCacheTtl) {
+      return Future.value(cached);
+    }
+    return _readinessRun ??= healthChecker
+        .run()
+        .then((result) {
+          _readinessResult = result;
+          _readinessAge
+            ..reset()
+            ..start();
+          return result;
+        })
+        .whenComplete(() => _readinessRun = null);
   }
 
   /// The configured readiness checks.
@@ -1014,6 +1362,9 @@ final class Application {
   /// own isolates in the same process and stop with the server.
   /// [commandRunner] lets the embedded scheduler run console commands (the
   /// CLI passes its own); without it, scheduled commands fail and are logged.
+  /// [embedWorkers] (`serve --embed-worker`, `SERVER_EMBED_WORKERS`) names
+  /// isolates registered with [ApplicationBuilder.withEmbeddedWorker]; a
+  /// name nothing registered is a [ConfigException].
   static Future<int> serveWith(
     ApplicationFactory factory, {
     String? host,
@@ -1021,6 +1372,7 @@ final class Application {
     int? isolates,
     bool? embedQueue,
     bool? embedScheduler,
+    List<String>? embedWorkers,
     int? maxInFlight,
     Duration? maxQueueDelay,
     ScheduleCommandRunner? commandRunner,
@@ -1028,6 +1380,11 @@ final class Application {
     List<String> childArguments = const <String>[],
   }) async {
     final probe = factory();
+    if (embedWorkers != null && embedWorkers.isNotEmpty) {
+      // A command-line flag: the config checks at boot see the embedded
+      // workers too, not only the environment's.
+      probe.overrideEnv({'SERVER_EMBED_WORKERS': embedWorkers.join(',')});
+    }
     await probe.boot();
     // ADR-027: several processes on consecutive ports behind a proxy. A
     // child (DARAVEL_PROCESS_INDEX set) serves normally.
@@ -1048,6 +1405,8 @@ final class Application {
           if (embedQueue != null) 'SERVER_EMBED_QUEUE': '$embedQueue',
           if (embedScheduler != null)
             'SERVER_EMBED_SCHEDULER': '$embedScheduler',
+          if (embedWorkers != null)
+            'SERVER_EMBED_WORKERS': embedWorkers.join(','),
           if (maxInFlight != null) 'HTTP_MAX_IN_FLIGHT': '$maxInFlight',
           if (maxQueueDelay != null)
             'HTTP_MAX_QUEUE_DELAY': '${maxQueueDelay.inMilliseconds}ms',
@@ -1061,10 +1420,12 @@ final class Application {
       isolates: isolates,
       embedQueue: embedQueue,
       embedScheduler: embedScheduler,
+      embedWorkers: embedWorkers,
       maxInFlight: maxInFlight,
       maxQueueDelay: maxQueueDelay,
     );
     probe._ensureServeable(options);
+    probe._ensureEmbeddedWorkers(options.embedWorkers);
     // Once, here in the main isolate, rather than in every worker.
     if (probe.config.section<DatabaseConfig>().sharesSqliteFile(
       options.isolates,
@@ -1097,17 +1458,28 @@ final class Application {
           ? channel.coordinator
           : null;
     } else {
-      coordinator = createStandardCoordinator(
-        processCacheMaxEntries: probe.config
-            .section<CacheConfig>()
-            .processMaxEntries,
+      final cacheConfig = probe.config.section<CacheConfig>();
+      coordinator = probe._registerCoordinatorServices(
+        createStandardCoordinator(
+          processCacheMaxEntries: cacheConfig.processMaxEntries,
+          jwtDenylistMaxEntries: cacheConfig.jwtDenylistMaxEntries,
+          onWarning: probe.logger.warning,
+          // Blueprint #141 K1: when bulk calls wait, then are refused.
+          lagWarn: Duration(
+            milliseconds: probe.env.integer('COORDINATOR_LAG_WARN_MS', 5),
+          ),
+          lagShed: Duration(
+            milliseconds: probe.env.integer('COORDINATOR_LAG_SHED_MS', 50),
+          ),
+        ),
       );
     }
-    final embedded = roles.isEmpty
+    final embedded = roles.isEmpty && options.embedWorkers.isEmpty
         ? null
         : EmbeddedWorkers(
             factory,
             roles: roles,
+            custom: options.embedWorkers,
             logger: probe.logger,
             commandRunner: commandRunner,
             coordinator: coordinator?.listen(),
@@ -1127,14 +1499,58 @@ final class Application {
         return 0;
       }
       final logger = probe.logger;
-      await probe.shutdown();
-      supervisor = Supervisor(
+      final hooks = probe._builder._supervisorHooks;
+      if (hooks.isEmpty) {
+        await probe.shutdown();
+      }
+      final started = supervisor = Supervisor(
         factory,
         options,
         logger: logger,
         coordinator: coordinator,
       );
-      return await supervisor.run();
+      if (hooks.isEmpty) {
+        return await started.run();
+      }
+      await started.start();
+      final stops = await _installSupervisorHooks(
+        hooks,
+        probe,
+        started,
+        logger,
+      );
+      if (stops.isEmpty) {
+        // No hook kept anything running: no pool held for nothing.
+        await probe.shutdown();
+        await started.done;
+        return started.exitCode;
+      }
+      started.onRollingRestart = (result) => unawaited(
+        probe.container
+            .make<EventDispatcher>()
+            .dispatch(WorkersRestarted(result))
+            .catchError((Object error, StackTrace stackTrace) {
+              logger.error(
+                'WorkersRestarted listener failed',
+                error: error,
+                stackTrace: stackTrace,
+              );
+            }),
+      );
+      await started.done;
+      for (final stop in stops) {
+        try {
+          stop();
+        } on Object catch (error, stackTrace) {
+          logger.error(
+            'Supervisor hook stop failed',
+            error: error,
+            stackTrace: stackTrace,
+          );
+        }
+      }
+      await probe.shutdown();
+      return started.exitCode;
     } finally {
       await embedded?.stop(timeout: options.shutdownTimeout);
       // With one isolate the embedded workers listened on the application's
@@ -1142,6 +1558,47 @@ final class Application {
       // the server stopped. (The supervisor closes its own coordinator.)
       coordinator?.close();
     }
+  }
+
+  /// Installs [hooks], each in a zone of its own, so an error in a hook
+  /// or in what it starts (a timer, a stream) is logged rather than ending
+  /// the main isolate; returns their stop functions. A hook's result goes
+  /// through a completer made outside its zone: awaiting a future of the
+  /// guarded zone from outside it would never see a hook's error, and
+  /// serveWith would hang on a hook that throws (do not "simplify" it).
+  static Future<List<void Function()>> _installSupervisorHooks(
+    List<SupervisorHook> hooks,
+    Application probe,
+    Supervisor supervisor,
+    Logger logger,
+  ) async {
+    final stops = <void Function()>[];
+    for (final hook in hooks) {
+      void failed(Object error, StackTrace stackTrace) => logger.error(
+        'Supervisor hook failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      // Created outside the guarded zone: a future of an error zone never
+      // hands its error to a listener outside it, so awaiting the hook's
+      // own future would hang on a hook that throws.
+      final installed = Completer<void Function()?>();
+      runZonedGuarded(() {
+        unawaited(() async {
+          try {
+            installed.complete(await hook(probe, supervisor));
+          } on Object catch (error, stackTrace) {
+            failed(error, stackTrace);
+            installed.complete(null);
+          }
+        }());
+      }, failed);
+      final stop = await installed.future;
+      if (stop != null) {
+        stops.add(stop);
+      }
+    }
+    return stops;
   }
 
   /// Boots, serves HTTP until the engine stops, then releases resources.
@@ -1200,7 +1657,37 @@ final class Application {
     }
   }
 
+  /// Registers the [ApplicationBuilder.withCoordinatorService] services
+  /// on [coordinator] and returns it.
+  Coordinator _registerCoordinatorServices(Coordinator coordinator) {
+    for (final factory in _builder._coordinatorServices) {
+      coordinator.register(factory());
+    }
+    return coordinator;
+  }
+
+  /// The names [ApplicationBuilder.withEmbeddedWorker] registered.
+  Iterable<String> get embeddedWorkerNames => _builder._embeddedWorkers.keys;
+
+  /// Refuses an embedded worker name nothing registered.
+  void _ensureEmbeddedWorkers(List<String> names) {
+    final unknown = [
+      for (final name in names)
+        if (!_builder._embeddedWorkers.containsKey(name)) name,
+    ];
+    if (unknown.isNotEmpty) {
+      final known = _builder._embeddedWorkers.keys;
+      throw ConfigException(
+        'Unknown embedded worker [${unknown.join(', ')}] '
+        '(serve --embed-worker, SERVER_EMBED_WORKERS); registered: '
+        '${known.isEmpty ? 'none' : known.join(', ')}. Packages register '
+        'theirs with ApplicationBuilder.withEmbeddedWorker.',
+      );
+    }
+  }
+
   void _ensureServeable(ServeOptions resolved) {
+    _ensureQueueServeable(resolved);
     final db = config.section<DatabaseConfig>();
     final connection = db.connections[db.defaultConnection];
     if (connection?.driver != 'sqlite' || connection?.database != ':memory:') {
@@ -1217,6 +1704,42 @@ final class Application {
       throw const ConfigException(
         'An in-memory SQLite database cannot be shared with the embedded '
         'queue or scheduler isolate. Use a file database.',
+      );
+    }
+  }
+
+  /// Queue state kept in one isolate cannot serve several isolates (HTTP
+  /// workers, the embedded queue worker): refuse it at start rather than
+  /// let jobs or their locks go missing.
+  void _ensureQueueServeable(ServeOptions resolved) {
+    final isolates = resolved.isolates > 1;
+    if (!isolates && !resolved.embedQueue) {
+      return;
+    }
+    final where = [
+      if (isolates) '${resolved.isolates} isolates',
+      if (resolved.embedQueue) 'the embedded queue worker',
+    ].join(' and ');
+    final queue = config.section<QueueConfig>();
+    final driver = container.make<QueueManager>().connection(
+      queue.defaultConnection,
+    );
+    if (driver is! SyncQueue && driver.scope == StateScope.isolate) {
+      throw ConfigException(
+        'QUEUE_CONNECTION=${queue.defaultConnection} keeps its jobs in the '
+        'isolate that dispatches them, so with $where they would never be '
+        'processed (the embedded worker and every HTTP isolate have a queue '
+        'of their own). Use the database or redis queue.',
+      );
+    }
+    final locks = container.make<CacheManager>().store(queue.uniqueLockStore);
+    if (locks.scope == StateScope.isolate) {
+      throw ConfigException(
+        'QUEUE_UNIQUE_LOCK_STORE=${queue.uniqueLockStore} keeps unique-job '
+        'and debounce locks in one isolate, so with $where a unique job can '
+        'be dispatched once per isolate and its lock is never released by '
+        'the worker that runs it. Use process (the default), database or '
+        'redis.',
       );
     }
   }
@@ -1244,6 +1767,16 @@ final class Application {
   Future<void> _closeResources() async {
     _metricsTimer?.cancel();
     _metricsTimer = null;
+    // A worker's last bulk calls (its final reports, records, metrics)
+    // reach the coordinator before it says it exited (K1b), bounded; first,
+    // while the channel's timeout sweep (a detached task) still runs.
+    final channel = coordinator;
+    if (channel is RemoteCoordinatorChannel) {
+      await channel.flush();
+    }
+    // Timers and loops started outside requests (runDetached), before the
+    // database and the coordinator they use close.
+    await container.resolved<DetachedTasks>()?.cancelAll();
     container.resolved<HttpClientFactory>()?.close();
     container.resolved<UpstreamProxy>()?.close();
     await container.resolved<Mailer>()?.transport.close();
@@ -1252,6 +1785,7 @@ final class Application {
     for (final hook in _builder._shutdownHooks) {
       await hook(container);
     }
+    await container.resolved<HashManager>()?.close();
     await Concurrency.shutdown();
     final db = container.resolved<DatabaseManager>();
     if (db != null) {
@@ -1276,6 +1810,16 @@ final class ApplicationBuilder {
 
   Map<String, String> _envOverrides = const <String, String>{};
   _RoutingConfig? _routing;
+  final List<
+    ({
+      String directory,
+      String prefix,
+      Duration maxAge,
+      bool? rescan,
+      String buildDirectory,
+    })
+  >
+  _static = [];
   // Every call adds one, run in order: packages (daravel_permission) add
   // middleware aliases, guards and gate hooks next to the application's.
   final List<void Function(MiddlewareRegistry middleware)> _middlewareConfigs =
@@ -1283,6 +1827,7 @@ final class ApplicationBuilder {
   void Function(ExceptionHandler exceptions)? _exceptionsConfig;
   final List<void Function(AuthManager auth)> _authConfigs = [];
   final List<void Function(AuthorizationGate gate)> _policiesConfigs = [];
+  final List<void Function(IdParsers ids)> _idsConfigs = [];
   void Function(RateLimiter limiter)? _rateLimitsConfig;
   void Function(EventDispatcher events)? _eventsConfig;
   void Function(JobRegistry jobs)? _jobsConfig;
@@ -1318,6 +1863,7 @@ final class ApplicationBuilder {
     void Function(ChannelRegistry channels)? channels,
     List<String> authMiddleware,
     String authPath,
+    BroadcastAppProvider? apps,
   })?
   _broadcasting;
   final List<Seeder> _seeders = <Seeder>[];
@@ -1351,6 +1897,14 @@ final class ApplicationBuilder {
   /// calls all apply, in order.
   ApplicationBuilder withAuth(void Function(AuthManager auth) configure) {
     _authConfigs.add(configure);
+    return this;
+  }
+
+  /// Registers route parameter parsers for typed ids (`bootstrap/ids.dart`,
+  /// opt-in), read by `request.param<T>(name)`. Several calls all apply,
+  /// in order.
+  ApplicationBuilder withIds(void Function(IdParsers ids) configure) {
+    _idsConfigs.add(configure);
     return this;
   }
 
@@ -1460,7 +2014,27 @@ final class ApplicationBuilder {
   final List<void Function(Env env, ConfigRepository config)> _configFactories =
       [];
   final List<ConfigCheck> _configChecks = <ConfigCheck>[];
+  final List<SupervisorHook> _supervisorHooks = <SupervisorHook>[];
   LogLevel? _logLevel;
+
+  /// Runs [hook] in the main isolate once the [Supervisor] of
+  /// `serveWith` has started its workers (`APP_ISOLATES` > 1; never with
+  /// one isolate): with the booted application of the main isolate (one
+  /// connection to the signal store per process, not one per worker) and
+  /// the supervisor, for instance to call [Supervisor.rollingRestart].
+  ///
+  /// A hook that needs that application after it returns **must** return a
+  /// function, called at shutdown before the application closes: the
+  /// application is kept only while at least one hook returned one, and is
+  /// shut down at once (no pool held) when every hook returned null. Only
+  /// while it is kept is [WorkersRestarted] dispatched through it; else a
+  /// rolling restart is only logged. An error of a hook, while it is
+  /// installed or later in what it started, and of its function, is
+  /// logged: the server keeps serving.
+  ApplicationBuilder withSupervisorHook(SupervisorHook hook) {
+    _supervisorHooks.add(hook);
+    return this;
+  }
 
   /// Adds a configuration check run at boot (errors abort the boot).
   ApplicationBuilder withConfigCheck(ConfigCheck check) {
@@ -1490,6 +2064,34 @@ final class ApplicationBuilder {
       health: health,
       then: then,
     );
+    return this;
+  }
+
+  /// Serves the files under [directory] (relative to the base path, like
+  /// Laravel's `public/`) at [prefix]: `withStatic('public', prefix:
+  /// '/assets')` answers `/assets/neo.css` from `public/neo.css`, and
+  /// `asset('neo.css')` gives `/assets/neo.css?v=<sha256 prefix>`.
+  ///
+  /// The directory is scanned at boot and only the files found are served,
+  /// looked up by name (see [StaticFiles]). A request carrying the current
+  /// version is cacheable for a year (`immutable`), any other for [maxAge].
+  /// [rescan] (default: `APP_ENV=local`) picks up new and edited files
+  /// without a restart. `dartisan static:hash` writes the versions for a
+  /// production boot that reads no file. Several calls add directories.
+  ApplicationBuilder withStatic(
+    String directory, {
+    String prefix = '/assets',
+    Duration maxAge = const Duration(minutes: 5),
+    bool? rescan,
+    String buildDirectory = 'build',
+  }) {
+    _static.add((
+      directory: directory,
+      prefix: prefix,
+      maxAge: maxAge,
+      rescan: rescan,
+      buildDirectory: buildDirectory,
+    ));
     return this;
   }
 
@@ -1588,17 +2190,38 @@ final class ApplicationBuilder {
   /// HTTP API at `/apps/{id}/...`, and `/broadcasting/auth` for private and
   /// presence channels, which [channels] authorizes (Laravel's
   /// `routes/channels.php`). Needs REVERB_APP_ID, REVERB_APP_KEY and
-  /// REVERB_APP_SECRET.
+  /// REVERB_APP_SECRET, or [apps].
+  ///
+  /// [apps] serves several Pusher applications on this server, as Reverb's
+  /// `reverb.apps.apps` (each with its own key, secret, origins and
+  /// limits; their channels are apart): `ListAppProvider([...])`, or a
+  /// provider reading them from a table. Without it the server serves the
+  /// one application of the `REVERB_APP_*` settings, as before.
   ApplicationBuilder withBroadcasting({
     void Function(ChannelRegistry channels)? channels,
     List<String> authMiddleware = const ['auth'],
     String authPath = '/broadcasting/auth',
+    BroadcastAppProvider? apps,
   }) {
     _broadcasting = (
       channels: channels,
       authMiddleware: authMiddleware,
       authPath: authPath,
+      apps: apps,
     );
+    return this;
+  }
+
+  BroadcastAppProvider Function(Container c)? _broadcastApps;
+
+  /// The applications the Pusher server of [withBroadcasting] serves, made
+  /// at boot from the container (configuration loaded): what
+  /// `daravel_reverb`'s `withReverb()` gives (`REVERB_APPS`, a table).
+  /// `withBroadcasting(apps:)`, when given, wins.
+  ApplicationBuilder withBroadcastApps(
+    BroadcastAppProvider Function(Container c) factory,
+  ) {
+    _broadcastApps = factory;
     return this;
   }
 
@@ -1660,6 +2283,47 @@ final class ApplicationBuilder {
     return this;
   }
 
+  final Map<String, EmbeddedWorkerEntry> _embeddedWorkers = {};
+  final List<CoordinatorService Function()> _coordinatorServices = [];
+
+  /// Registers an embedded isolate named [name] that runs [entry] beside
+  /// the HTTP server when `serve --embed-worker=<name>` (or
+  /// `SERVER_EMBED_WORKERS`) asks for it, as `--embed-queue` runs the queue
+  /// worker: its own application from `createApp`, booted, the server's
+  /// coordinator, and the same respawn, crash backoff and stop. Packages
+  /// use it (`daravel_horizon`'s supervisor). [name] is lower case letters,
+  /// digits, `-` and `_`, other than `queue` and `scheduler`.
+  ApplicationBuilder withEmbeddedWorker(
+    String name,
+    EmbeddedWorkerEntry entry,
+  ) {
+    if (!RegExp(r'^[a-z0-9][a-z0-9_-]*$').hasMatch(name) ||
+        name == EmbeddedRole.queue.name ||
+        name == EmbeddedRole.scheduler.name) {
+      throw ArgumentError.value(
+        name,
+        'name',
+        'An embedded worker name is lower case letters, digits, - and _, '
+            'other than queue and scheduler.',
+      );
+    }
+    _embeddedWorkers[name] = entry;
+    return this;
+  }
+
+  /// Registers a coordinator service built by [factory] on the process's
+  /// coordinator, in every topology: the application's own coordinator
+  /// with one isolate (tests included), the supervisor's with several, and
+  /// so the embedded workers' too. A [WorkerAwareService] hears when a
+  /// worker isolate exits. Worker isolates reach it through
+  /// `CoordinatorChannel.call(service.name, op, args)`.
+  ApplicationBuilder withCoordinatorService(
+    CoordinatorService Function() factory,
+  ) {
+    _coordinatorServices.add(factory);
+    return this;
+  }
+
   /// Registers an additional typed configuration section.
   ApplicationBuilder withConfig<T extends ConfigSection>(
     T Function(Env env) factory,
@@ -1706,4 +2370,41 @@ final class _UpstreamConfig {
   final Set<String>? shadowIgnoreHeaders;
   final Set<String> Function(Request request)? shadowNormalizeKeys;
   final Set<String>? shadowFreshCookies;
+}
+
+/// The Pusher server's activity as `/metrics` series
+/// (`reverb_connections`, `reverb_channels`, `reverb_messages_total`,
+/// `reverb_fanout_seconds`, `reverb_rejected_total`).
+final class _ReverbMetrics extends PusherObserver {
+  _ReverbMetrics(this._metrics);
+
+  final AppMetrics _metrics;
+
+  @override
+  void connectionOpened(String app) => _metrics.recordReverbConnection(app, 1);
+
+  @override
+  void connectionClosed(String app) => _metrics.recordReverbConnection(app, -1);
+
+  @override
+  void subscribed(String app, String channel) => _metrics
+      .recordReverbSubscription(app, PusherObserver.channelType(channel), 1);
+
+  @override
+  void unsubscribed(String app, String channel) => _metrics
+      .recordReverbSubscription(app, PusherObserver.channelType(channel), -1);
+
+  @override
+  void received(String app) => _metrics.recordReverbMessage(app, 'in');
+
+  @override
+  void sent(String app) => _metrics.recordReverbMessage(app, 'out');
+
+  @override
+  void published(String app, Duration took) =>
+      _metrics.recordReverbFanout(app, took);
+
+  @override
+  void rejected(String app, String reason) =>
+      _metrics.recordReverbRejected(reason, app: app);
 }

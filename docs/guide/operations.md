@@ -27,7 +27,11 @@ isolate leaves the other cores idle.
   or run several server processes behind the
   proxy instead of more isolates: `APP_PROCESSES=N`
   ([Deployment](deployment.md#several-processes)); benchmark scenario 13
-  measures it (`bench/README.md`).
+  measures it (`bench/README.md`). `dartisan doctor --production` suggests
+  `APP_PROCESSES` (half the cores, with `APP_ISOLATES=2`) when one process
+  runs four or more isolates, and with more than one worker it notes
+  `DART_VM_OPTIONS=--new_gen_semi_max_size=128`, a larger new generation
+  that shortened those requests a little (81–90 ms to 70–77 ms).
 - Each isolate has its own memory, so state an application keeps in a
   static (a revoked-token list, a counter, a cached value) exists once per
   isolate. Keep it in a shared store before raising `APP_ISOLATES`:
@@ -55,6 +59,38 @@ isolate leaves the other cores idle.
   compute task) should do the same: a string for anything JSON can
   express, `TransferableTypedData` for large binary data, a map only for
   small arguments.
+
+### Embedded workers and coordinator services
+
+Packages (and applications) can add an isolate of their own beside the
+HTTP server, as `serve --embed-queue` adds the queue worker, and a service
+to the coordinator every worker reaches:
+
+```dart
+Application createApp() => Application.configure(basePath: '.')
+    .withEmbeddedWorker('indexer', (app, control) async {
+      // Its own booted application; its CoordinatorChannel reaches the
+      // server's coordinator.
+      await for (final message in control.messages) {
+        if (message == 'stop') break; // the server is shutting down
+      }
+      return 0;
+    })
+    .withCoordinatorService(SearchStatsService.new)
+    .create();
+```
+
+`dartisan serve --embed-worker=indexer` (repeatable, or
+`SERVER_EMBED_WORKERS=indexer`) starts it; a name nothing registered
+stops the server at start with a configuration error. The isolate is
+named `daravel-<name>` and gets the respawn, crash backoff and stop of the
+queue worker. `EmbeddedWorkers.send(name, message)` reaches its
+`control.messages`. A coordinator service is registered on whichever
+coordinator the process has (the application's own with one isolate and in
+tests, the supervisor's with several), so workers call it with
+`App.make<CoordinatorChannel>().call(name, op, args)`; a
+`WorkerAwareService` hears when a worker isolate exits, and
+`dartisan coordinator:stats` lists it.
 
 ## Database connections
 
@@ -138,10 +174,27 @@ of every worker are merged.
 | `http_requests_in_flight{worker}` | one worker much busier than the others: connection distribution (see above) |
 | `http_requests_total{status}` | the share of `5xx` |
 | `process_resident_memory_bytes` | steady growth over hours or days |
+| `log_lines_dropped_total` | any increase: stdout, stderr or the log file fell behind or failed (an undrained pipe, a full disk), so log lines were dropped rather than blocking a worker or filling its memory |
+| `shadow_replays_dropped_total`, `shadow_replays_failed_total` | with `withUpstream` shadow replays: a steady rate of skipped replays (raise `UPSTREAM_SHADOW_MAX_CONCURRENCY` or lower the sample rate) or of replays Laravel did not answer |
 | `coordinator_messages_total` | its rate (`rate(...[1m])`) climbing with traffic: every worker asks the coordinator, which answers on the supervisor's event loop |
 | `coordinator_call_duration_seconds{service}` | p99 above about 2 ms: rate limits, process cache reads and locks wait for the coordinator |
 | `coordinator_rejected_total`, `coordinator_in_flight_peak` against `coordinator_max_queue` | any refusal, or a peak near the limit |
 | `coordinator_call_timeouts_total{service}` | any steady rate |
+| `metrics_series_dropped_total{metric}` | anything above zero: a label of that metric takes unbounded values |
+| `coordinator_queue_lag_seconds`, `coordinator_queue_lag_peak_seconds` | above about 25 ms: messages wait that long in the coordinator's event loop (synchronous services such as rate limits and locks included, which `coordinator_in_flight` does not count), and rate limits, which wait 50 ms, start to fail open |
+| `coordinator_expired_total` | any steady rate: the coordinator dropped rate-limit attempts and lock acquisitions whose callers had already timed out, instead of counting or granting them for nobody |
+
+Every metric keeps at most `METRICS_MAX_SERIES` label sets per worker
+(10 000 by default, `0` for no limit). Updates for a new label set beyond
+that are counted in the metric's `{overflow="true"}` series and in
+`metrics_series_dropped_total`, so a label fed from user input (a path, a
+user id) costs one series instead of one per value on every worker and on
+the coordinator. The `method` label of the HTTP metrics is `GET`, `HEAD`,
+`POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS` or `other`, since a client can
+send any token as a method. Under a supervisor each worker publishes its
+numbers when they changed (and every 15 s regardless), and the series of
+every worker are summed: give a gauge that is not a total a `worker`
+label.
 
 `dartisan coordinator:stats --url=http://127.0.0.1:8000/metrics` reads
 these from a running server and says what to do: back the rate limiter

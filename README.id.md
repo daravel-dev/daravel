@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:c88771f138e8 -->
+<!-- source: README.md sha256:4052bbef47ee -->
 | [`packages/daravel_session`](packages/daravel_session) | Session yang kompatibel dengan Laravel (file atau tabel `sessions`), cookie terenkripsi, dan proteksi CSRF |
 <!-- source: README.md sha256:5b04c2e6d073 -->
 <p align="center">
@@ -54,7 +54,7 @@ diberikan Dart: satu executable native, tipe statis dari route sampai database, 
 di satu port.
 
 > **Status.** Daravel stabil sejak `1.0.0`; rilis saat ini adalah
-> `<!-- release -->1.25.0<!-- /release -->`, dipublikasikan di
+> `<!-- release -->1.27.0<!-- /release -->`, dipublikasikan di
 > [pub.dev](https://pub.dev/packages/daravel) oleh publisher terverifikasi
 > `framework.daravel.dev`. API Dart mengikuti SemVer di lini `1.x`; format yang berhadapan
 > dengan Laravel dikunci oleh suite konformansi.
@@ -476,6 +476,7 @@ Monorepo ini adalah pub workspace Dart:
 | [`packages/daravel_excel`](packages/daravel_excel) | Ekspor dan impor Excel dan CSV dengan concern Laravel Excel, di-stream dengan memori konstan |
 | [`packages/daravel_log_viewer`](packages/daravel_log_viewer) | Halaman log viewer: file dibaca dari ujungnya, filter, live tail, data rahasia disensor |
 | [`packages/daravel_pulse`](packages/daravel_pulse) | Dashboard seperti Laravel Pulse: request, request dan query lambat, exception, queue, dari semua isolate |
+| [`packages/daravel_reverb`](packages/daravel_reverb) | Server Pusher dalam proses tersendiri seperti Laravel Reverb: `reverb:start`, beberapa aplikasi, restart tersebar, statistik per isolate |
 | [`packages/daravel_payments`](packages/daravel_payments) | Midtrans, Xendit, dan Stripe di balik satu API; webhook diverifikasi, diterapkan sekali, jumlah dicek |
 | [`packages/daravel_medialibrary`](packages/daravel_medialibrary) | File dan gambar yang dilekatkan ke model di tabel media spatie/laravel-medialibrary, konversi murni Dart |
 | [`packages/daravel_teorion`](packages/daravel_teorion) | Query filter dari request, format laravel-teorion |
@@ -522,6 +523,16 @@ macOS, dan Windows.
 
 ## CLI dartisan
 
+Di terminal, `dartisan` dibuka dengan banner singkat dan command yang
+dikelompokkan seperti `php artisan list` (teks usage polos saat di-pipe atau
+di CI; `--no-color` atau `NO_COLOR` untuk tanpa warna):
+
+```text
+ _| _. ._|_ o _  _. ._
+(_|(_|| |_ |_> (_|| |   Daravel <version> · Dart <sdk> · <os>
+                        Made with the help of our sponsors ♥ github.com/sponsors/daravel-dev
+```
+
 | Kelompok | Command |
 | :-- | :-- |
 | Proyek | `new <name> [--template=api\|minimal] [--path] [--git]`, `about`, `doctor [--production]`, `key:generate [--show] [--force]`, `stub:publish`, `env:encrypt`, `env:decrypt`, `env:obfuscate`, `adopt <laravel-path> [--check]`, `down [--secret] [--retry]`, `up`, `tinker "<expr>"` |
@@ -530,7 +541,7 @@ macOS, dan Windows.
 | Generator | `make:model [-m -f -s -c -p -r --api --all]`, `make:migration`, `make:seeder`, `make:factory`, `make:controller [--api --resource --model]`, `make:request`, `make:middleware`, `make:job`, `make:policy`, `make:event`, `make:listener [--event]`, `make:resource`, `make:rule`, `make:observer`, `make:provider`, `make:command`, `make:test [--unit]` |
 | Queue | `queue:work [--queue --tries --backoff --timeout --max-jobs --once]`, `queue:failed`, `queue:retry`, `queue:forget`, `queue:flush`, `queue:clear`, `queue:restart` |
 | Jadwal | `schedule:run`, `schedule:work`, `schedule:list` |
-| Cache & file | `cache:clear [store]`, `storage:link` |
+| Cache & file | `cache:clear [store]`, `storage:link`, `static:hash` |
 
 Generator memperbarui registry di `bootstrap/` (migrasi, seeder, job, policy, listener, dan
 command buatan sendiri) melalui region yang ditandai, sehingga kelas baru langsung terhubung saat
@@ -578,7 +589,7 @@ created lib/app/http/resources/post_resource.dart
 | **0** | Kerangka berjalan: container, kernel HTTP, router, SQLite, migrasi, test client, CLI, CI | ✅ selesai |
 | **1** | S1 fondasi · S2 pengerasan HTTP · S3 routing · S4 validasi · S5 database · S6 ORM · S7 skema, seeding & generator · S8 auth · S9 multi-isolate & cache · S10 event, queue & scheduler · S11 resource, storage & observabilitas · S12 CLI (`new`, hot reload, `build --docker`, `doctor`, `openapi:generate`, `model:sync`, stub) · S13 toolkit testing, lint & test arsitektur | ✅ selesai |
 | **1** | S14 suite konformansi, suite keamanan, `parity.yaml`, harness benchmark, situs dokumentasi, template `api`/`minimal` → beta publik pertama, lalu **1.0.0** | ✅ selesai |
-| **1.x** | Dirilis setelah 1.0: lokalisasi, feature flag, SSE dan WebSocket, generator client Flutter, paket driver dan `db:transfer`, mail dan notifikasi, broadcasting untuk Laravel Echo, Redis dan Valkey (`daravel_redis`), role dan permission (`daravel_permission`), activity log (`daravel_activitylog`), query filter (`daravel_teorion`); terbaru **<!-- release -->1.25.0<!-- /release -->** | ✅ selesai |
+| **1.x** | Dirilis setelah 1.0: lokalisasi, feature flag, SSE dan WebSocket, generator client Flutter, paket driver dan `db:transfer`, mail dan notifikasi, broadcasting untuk Laravel Echo, Redis dan Valkey (`daravel_redis`), role dan permission (`daravel_permission`), activity log (`daravel_activitylog`), query filter (`daravel_teorion`); terbaru **<!-- release -->1.27.0<!-- /release -->** | ✅ selesai |
 | **2** | Session/CSRF, S3, OpenTelemetry, view terkompilasi yang kompatibel dengan Blade; client database hanya di paket driver | direncanakan |
 | **daragic** | Generator dua arah Laravel ⇄ Daravel: introspeksi runtime → IR → proyek hasil generate, test yang dikonversi, differential replay | sudah didesain |
 | **Ekosistem** | Paket first-party di bawah `daravel-dev`: `daravel_horizon` (supervisor dan dashboard queue), `daravel_socialite` (OAuth dan Sign in with Apple/Google), lalu `daravel_telescope` dan `daravel_scout` | direncanakan |

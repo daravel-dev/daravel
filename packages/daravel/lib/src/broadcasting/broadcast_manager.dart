@@ -3,6 +3,8 @@ import 'dart:convert';
 
 import '../auth/auth_manager.dart';
 import '../auth/contracts.dart';
+import '../database/database_manager.dart';
+import '../foundation/retryable_job.dart';
 import '../http/client.dart';
 import '../http/http_exceptions.dart';
 import '../http/request.dart';
@@ -13,6 +15,7 @@ import 'channel_registry.dart';
 import 'pusher_server.dart';
 import 'pusher_signature.dart';
 import 'secretbox.dart';
+import '../server/coordinator.dart';
 
 /// An event that is broadcast when it is dispatched (Laravel's
 /// `ShouldBroadcast`): `Event.dispatch(OrderShipped(order))` also sends it
@@ -65,7 +68,25 @@ abstract mixin class ShouldBroadcast {
 final class BroadcastManager {
   /// A manager broadcasting with [config], through the built-in [server]
   /// when there is one.
-  BroadcastManager(this.config, {this.server, this._http, this._logger});
+  BroadcastManager(
+    this.config, {
+    this.server,
+    this._http,
+    this._logger,
+    this.database,
+    this.onShed,
+  });
+
+  /// Told of each broadcast dropped because the coordinator could not
+  /// take it (the application counts it and dispatches [BroadcastShed]).
+  final void Function(BroadcastShed shed)? onShed;
+
+  int _shedSinceWarning = 0;
+  DateTime? _lastShedWarning;
+
+  /// The database whose transactions broadcasts wait for
+  /// ([BroadcastConfig.afterCommit]); none waits without it.
+  final DatabaseManager? database;
 
   /// The broadcasting settings.
   final BroadcastConfig config;
@@ -76,15 +97,77 @@ final class BroadcastManager {
   final HttpClientFactory? _http;
   final Logger? _logger;
 
+  BroadcastFake? _fake;
+
+  /// Records broadcasts instead of sending them (`Broadcast.fake()`), with
+  /// the transaction rules kept: one made in a transaction that rolls back
+  /// is not recorded, as it would not be sent.
+  BroadcastFake fake() => _fake = BroadcastFake();
+
+  /// Undoes [fake].
+  void restore() => _fake = null;
+
+  /// The fake recording now, if any.
+  BroadcastFake? get faked => _fake;
+
   /// Sends [event] with [data] to [channels]; [exceptSocket] leaves that
   /// connection out.
+  ///
+  /// Inside a database transaction it is sent once the transaction commits,
+  /// and dropped when it rolls back, unless [afterCommit] (default
+  /// [BroadcastConfig.afterCommit], `BROADCAST_AFTER_COMMIT`) is false.
   Future<void> send(
     String event,
     List<String> channels,
     Object? data, {
     String? exceptSocket,
+    bool? afterCommit,
+  }) => _send(
+    event,
+    channels,
+    data,
+    exceptSocket: exceptSocket,
+    afterCommit: afterCommit,
+  );
+
+  Future<void> _send(
+    String event,
+    List<String> channels,
+    Object? data, {
+    String? exceptSocket,
+    bool? afterCommit,
+    ShouldBroadcast? source,
   }) async {
     if (channels.isEmpty) {
+      return;
+    }
+    final db = database;
+    if ((afterCommit ?? config.afterCommit) && db != null && db.inTransaction) {
+      await db.afterCommit(
+        () => _sendNow(event, channels, data, exceptSocket, source),
+      );
+      return;
+    }
+    await _sendNow(event, channels, data, exceptSocket, source);
+  }
+
+  Future<void> _sendNow(
+    String event,
+    List<String> channels,
+    Object? data,
+    String? exceptSocket, [
+    ShouldBroadcast? source,
+  ]) async {
+    if (_fake case final fake?) {
+      fake.broadcasts.add(
+        BroadcastRecord(
+          event: event,
+          channels: List.unmodifiable(channels),
+          data: data,
+          exceptSocket: exceptSocket,
+          source: source,
+        ),
+      );
       return;
     }
     // Each end-to-end encrypted channel has its own key, so its own
@@ -137,7 +220,16 @@ final class BroadcastManager {
             'and REVERB_APP_SECRET.',
           );
         }
-        await server.publish(event, channels, data, exceptSocket: exceptSocket);
+        try {
+          await server.publish(
+            event,
+            channels,
+            data,
+            exceptSocket: exceptSocket,
+          );
+        } on CoordinatorException catch (error, stackTrace) {
+          _shedOrRethrow(event, channels, error, stackTrace);
+        }
       case 'reverb' || 'pusher':
         await _post(event, channels, data, exceptSocket);
       case 'log':
@@ -154,16 +246,65 @@ final class BroadcastManager {
     }
   }
 
+  /// A broadcast through this server is best effort: when the coordinator
+  /// cannot take it (it sheds bulk calls, [CoordinatorOverloaded], or does
+  /// not answer in time, [CoordinatorTimeoutException]), it never fails
+  /// the request that sent it, and is not lost in silence either: it is
+  /// logged (a `warning` at most once a second, with the count),
+  /// counted (`broadcast_shed_total`) and told ([onShed], the application's
+  /// [BroadcastShed] event), and the request goes on. Inside a job whose
+  /// failure is retried it is rethrown instead, so the job is retried by
+  /// its `tries` and `backoff`: an application that must not lose an event
+  /// sends it from a queued job. A `sync` job runs inline in its caller and
+  /// cannot be retried, so there it is dropped and told as in a request. Any other error (a bad channel, a programming error) is
+  /// rethrown everywhere. The other connections (`reverb`, `pusher`,
+  /// `log`, `null`) are unchanged.
+  void _shedOrRethrow(
+    String event,
+    List<String> channels,
+    CoordinatorException error,
+    StackTrace stackTrace,
+  ) {
+    final reason = switch (error) {
+      CoordinatorTimeoutException() => 'timeout',
+      CoordinatorOverloaded() => 'overloaded',
+      _ => null,
+    };
+    if (reason == null || inRetryableJob) {
+      // Rethrown with the stack of the call that failed, not this one.
+      Error.throwWithStackTrace(error, stackTrace);
+    }
+    _shedSinceWarning++;
+    final now = DateTime.now();
+    final last = _lastShedWarning;
+    if (last == null || now.difference(last) >= const Duration(seconds: 1)) {
+      _logger?.warning(
+        'Broadcast [$event] dropped: the coordinator could not take it '
+        '($reason); $_shedSinceWarning dropped since the last warning.',
+      );
+      _lastShedWarning = now;
+      _shedSinceWarning = 0;
+    }
+    onShed?.call(
+      BroadcastShed(
+        event: event,
+        channels: List.unmodifiable(channels),
+        reason: reason,
+      ),
+    );
+  }
+
   /// Sends a [ShouldBroadcast] event, unless its `broadcastWhen` is false.
   Future<void> broadcast(ShouldBroadcast event) async {
     if (!event.broadcastWhen()) {
       return;
     }
-    await send(
+    await _send(
       event.broadcastAs(),
       event.broadcastOn(),
       event.broadcastWith(),
       exceptSocket: event.broadcastSocket,
+      source: event,
     );
   }
 
@@ -294,4 +435,178 @@ final class BroadcastAuthorization {
       ),
     );
   }
+}
+
+/// Channel names with their Pusher prefix, for `broadcastOn` and
+/// `Broadcast.send`: Laravel's `new PrivateChannel('orders.1')`,
+/// `PresenceChannel` and `EncryptedPrivateChannel`.
+///
+/// ```dart
+/// List<String> broadcastOn() => [Channels.private('orders.${order.id}')];
+/// ```
+abstract final class Channels {
+  /// `private-<name>`.
+  static String private(String name) => 'private-$name';
+
+  /// `presence-<name>`.
+  static String presence(String name) => 'presence-$name';
+
+  /// `private-encrypted-<name>`.
+  static String encrypted(String name) => 'private-encrypted-$name';
+}
+
+/// One broadcast `Broadcast.fake()` recorded.
+final class BroadcastRecord {
+  /// [event] with [data] to [channels], leaving out [exceptSocket]; [source]
+  /// is the [ShouldBroadcast] it came from, when it did.
+  const BroadcastRecord({
+    required this.event,
+    required this.channels,
+    required this.data,
+    this.exceptSocket,
+    this.source,
+  });
+
+  /// The event name (`broadcastAs`).
+  final String event;
+
+  /// The channels, with their prefixes.
+  final List<String> channels;
+
+  /// The payload.
+  final Object? data;
+
+  /// The connection left out (`toOthers()`).
+  final String? exceptSocket;
+
+  /// The event object, for `Broadcast.event(...)` and `ShouldBroadcast`
+  /// events; null for `Broadcast.send(...)`.
+  final ShouldBroadcast? source;
+}
+
+/// What `Broadcast.fake()` recorded, with assertions in the manner of
+/// `Mail.fake()` and `Queue.fake()`.
+final class BroadcastFake {
+  /// The broadcasts, in order.
+  final List<BroadcastRecord> broadcasts = [];
+
+  /// The events of type [E] broadcast (on [channel], matching [where]).
+  List<E> broadcasted<E extends ShouldBroadcast>({
+    String? channel,
+    bool Function(E event)? where,
+  }) => [
+    for (final record in broadcasts)
+      if (record.source case final E event
+          when (channel == null || record.channels.contains(channel)) &&
+              (where == null || where(event)))
+        event,
+  ];
+
+  /// The broadcasts named [event] (`Broadcast.send` or `broadcastAs`), on
+  /// [channel] when given.
+  List<BroadcastRecord> named(String event, {String? channel}) => [
+    for (final record in broadcasts)
+      if (record.event == event &&
+          (channel == null || record.channels.contains(channel)))
+        record,
+  ];
+
+  /// Fails unless an event of type [E] (on [channel], matching [where]) was
+  /// broadcast.
+  void assertBroadcasted<E extends ShouldBroadcast>({
+    String? channel,
+    bool Function(E event)? where,
+  }) {
+    if (broadcasted<E>(channel: channel, where: where).isEmpty) {
+      throw StateError(
+        'Expected [$E] to be broadcast'
+        '${channel == null ? '' : ' on [$channel]'}; it was not.',
+      );
+    }
+  }
+
+  /// Fails unless an event of type [E] (on [channel]) was broadcast [times]
+  /// times.
+  void assertBroadcastedTimes<E extends ShouldBroadcast>(
+    int times, {
+    String? channel,
+  }) {
+    final count = broadcasted<E>(channel: channel).length;
+    if (count != times) {
+      throw StateError(
+        'Expected [$E] broadcast $times time(s); it was $count.',
+      );
+    }
+  }
+
+  /// Fails unless something named [event] was sent (on [channel]), for
+  /// `Broadcast.send(...)`.
+  void assertSent(String event, {String? channel}) {
+    if (named(event, channel: channel).isEmpty) {
+      throw StateError(
+        'Expected [$event] to be broadcast'
+        '${channel == null ? '' : ' on [$channel]'}; it was not.',
+      );
+    }
+  }
+
+  /// Fails if an event of type [E] (on [channel], matching [where]) was
+  /// broadcast.
+  void assertNotBroadcasted<E extends ShouldBroadcast>({
+    String? channel,
+    bool Function(E event)? where,
+  }) {
+    if (broadcasted<E>(channel: channel, where: where).isNotEmpty) {
+      throw StateError('Expected [$E] not to be broadcast; it was.');
+    }
+  }
+
+  /// Fails if anything was broadcast on [channel].
+  void assertNothingBroadcastedTo(String channel) {
+    final on = [
+      for (final record in broadcasts)
+        if (record.channels.contains(channel)) record.event,
+    ];
+    if (on.isNotEmpty) {
+      throw StateError(
+        'Expected nothing broadcast on [$channel]; got ${on.join(', ')}.',
+      );
+    }
+  }
+
+  /// Fails if anything was broadcast.
+  void assertNothingBroadcasted() {
+    if (broadcasts.isNotEmpty) {
+      throw StateError(
+        'Expected no broadcasts; got '
+        '${[for (final r in broadcasts) r.event].join(', ')}.',
+      );
+    }
+  }
+}
+
+/// A broadcast dropped because the coordinator could not take it
+/// ([BroadcastManager]'s best effort): dispatched as an application event,
+/// for instance to tell the clients of [channels] to reload.
+///
+/// A shed broadcast means "back off or drop": a listener (or a caller of
+/// `Broadcaster.publish` catching `CoordinatorOverloaded`) must not publish
+/// again at once in a loop. The refusal arrives on the next turn of the
+/// event loop, not synchronously.
+final class BroadcastShed {
+  /// [event] on [channels], dropped for [reason] (`overloaded`, `timeout`).
+  const BroadcastShed({
+    required this.event,
+    required this.channels,
+    required this.reason,
+  });
+
+  /// The event's name.
+  final String event;
+
+  /// Where it was going.
+  final List<String> channels;
+
+  /// `overloaded` or `timeout`.
+  final String reason;
 }

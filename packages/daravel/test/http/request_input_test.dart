@@ -110,6 +110,38 @@ void main() {
       );
     });
 
+    test('[] appends one past the highest integer key, per map', () {
+      expect(
+        parseQueryString(
+          'a[5]=x&a[]=y&b[]=1&b[k]=2&b[]=3&c[-3]=x&c[]=y'
+          '&d=1&d[]=2&e[0][]=p&e[0][]=q&e[]=r',
+        ),
+        {
+          'a': {'5': 'x', '6': 'y'},
+          'b': {'0': '1', 'k': '2', '1': '3'},
+          'c': {'-3': 'x', '0': 'y'},
+          'd': ['2'],
+          'e': [
+            ['p', 'q'],
+            'r',
+          ],
+        },
+      );
+    });
+
+    test('many [] appends parse in linear time (issue #166)', () {
+      const count = 100000;
+      final query = List.filled(count, 'a[]=v').join('&');
+      final watch = Stopwatch()..start();
+      final parsed = parseQueryString(query);
+      watch.stop();
+      expect(parsed['a'], hasLength(count));
+      expect((parsed['a']! as List<Object?>).last, 'v');
+      // The quadratic scan took over a minute for this input; linear
+      // parsing takes milliseconds, so the bound only catches a regression.
+      expect(watch.elapsed, lessThan(const Duration(seconds: 10)));
+    });
+
     test('decodes, tolerates junk and limits depth', () {
       expect(parseQueryString('a%5B%5D=1&b=x+y&c&&d=%ZZ'), {
         'a': ['1'],

@@ -43,7 +43,12 @@ enum RedisQueueEngine {
 ///
 /// Delivery is at least once: a reserved job not deleted within
 /// [retryAfter] runs again, as with the database queue.
-final class RedisQueue implements WakeableQueueDriver {
+final class RedisQueue
+    implements
+        WakeableQueueDriver,
+        ReservingQueueDriver,
+        BrowsableQueueDriver,
+        ReclaimableQueueDriver {
   /// A queue in Redis, as Laravel's `redis` queue driver.
   RedisQueue(
     this.client, {
@@ -51,7 +56,15 @@ final class RedisQueue implements WakeableQueueDriver {
     this.namespace = 'daravel',
     this.retryAfter = const Duration(seconds: 90),
     this.engine = RedisQueueEngine.list,
+    this.logger,
   });
+
+  /// Where an unexpected error of the blocking wait is told (at most once a
+  /// second); none when null.
+  final Logger? logger;
+
+  /// When an unexpected wait error was last logged (wall clock).
+  DateTime? _waitErrorLogged;
 
   /// The Redis connection.
   final RedisClient client;
@@ -63,6 +76,7 @@ final class RedisQueue implements WakeableQueueDriver {
   final String namespace;
 
   /// How long a reserved job may run before another worker takes it.
+  @override
   final Duration retryAfter;
 
   /// Lists (Laravel's layout) or streams.
@@ -203,11 +217,27 @@ return false''');
     if (reply is! List || reply.length < 3) {
       return null;
     }
+    final id = reply[0]! as String;
     final raw = reply[1]! as String;
+    final JobPayload payload;
+    try {
+      payload = JobPayload.decode(raw);
+    } on Object catch (error) {
+      // A payload that does not decode would stay reserved and be popped
+      // again after every retry_after, for ever. It is removed here, and
+      // the worker records it in failed_jobs, as with the database queue.
+      await _remove(queue, id);
+      throw CorruptPayloadException(
+        id: id,
+        queue: queue,
+        raw: raw,
+        cause: error,
+      );
+    }
     return QueuedJob(
-      id: reply[0]! as String,
+      id: id,
       queue: queue,
-      payload: JobPayload.decode(raw),
+      payload: payload,
       attempts: reply[2]! as int,
       raw: raw,
     );
@@ -253,6 +283,43 @@ return 1''');
     );
   }
 
+  /// Extends a reservation that is still the worker's own (the job's
+  /// `attempts` grow with every reservation): the reserved score, or the
+  /// stream entry's idle time (`XCLAIM ... JUSTID`, which leaves the
+  /// delivery count alone).
+  static final RedisScript _touch = RedisScript('''
+if redis.call('HGET', KEYS[2], 'attempts') ~= ARGV[3] then
+  return 0
+end
+if ARGV[4] == 'stream' then
+  local entry = redis.call('HGET', KEYS[2], 'entry')
+  if entry then
+    redis.call('XCLAIM', KEYS[1], ARGV[5], ARGV[5], 0, entry, 'JUSTID')
+  end
+  return 1
+end
+redis.call('ZADD', KEYS[3], 'XX', ARGV[1], ARGV[2])
+return 1''');
+
+  @override
+  Future<void> touch(QueuedJob job) async {
+    await client.eval(
+      _touch,
+      keys: [
+        _list(job.queue),
+        '${_jobPrefix(job.queue)}${job.id}',
+        _reserved(job.queue),
+      ],
+      args: [
+        _now + retryAfter.inMilliseconds,
+        job.id,
+        '${job.attempts}',
+        engine.name,
+        _group,
+      ],
+    );
+  }
+
   static final RedisScript _streamDelete = RedisScript('''
 local entry = redis.call('HGET', KEYS[2], 'entry')
 if entry then
@@ -262,18 +329,20 @@ end
 return redis.call('DEL', KEYS[2])''');
 
   @override
-  Future<void> delete(QueuedJob job) async {
+  Future<void> delete(QueuedJob job) => _remove(job.queue, '${job.id}');
+
+  Future<void> _remove(String queue, String id) async {
     if (_stream) {
       await client.eval(
         _streamDelete,
-        keys: [_list(job.queue), '${_jobPrefix(job.queue)}${job.id}'],
+        keys: [_list(queue), '${_jobPrefix(queue)}$id'],
         args: [_group],
       );
       return;
     }
     await (
-      client.command(['ZREM', _reserved(job.queue), job.id]),
-      client.del(['${_jobPrefix(job.queue)}${job.id}']),
+      client.command(['ZREM', _reserved(queue), id]),
+      client.del(['${_jobPrefix(queue)}$id']),
     ).wait;
   }
 
@@ -383,6 +452,151 @@ return #ids''');
           as int;
 
   // -------------------------------------------------------------------
+  // Browsing and reclaiming (daravel_horizon).
+
+  /// The jobs of a page of ids: `{id, payload, attempts, available_at}`
+  /// for each id whose hash still exists. `ARGV[1]`/`ARGV[2]` bound the
+  /// page; `ARGV[3]` is the job hash prefix; `ARGV[4]` picks the source:
+  /// `list` (ready ids of the list engine), `zset` (the delayed set) or
+  /// `stream` (entries the consumer group has not read yet).
+  static final RedisScript _browse = RedisScript('''
+local first, last = tonumber(ARGV[1]), tonumber(ARGV[2])
+local ids = {}
+if ARGV[4] == 'list' then
+  ids = redis.call('LRANGE', KEYS[1], first, last)
+elseif ARGV[4] == 'zset' then
+  ids = redis.call('ZRANGE', KEYS[1], first, last)
+else
+  local after = '-'
+  local groups = redis.pcall('XINFO', 'GROUPS', KEYS[1])
+  if type(groups) == 'table' and not groups.err then
+    for _, group in ipairs(groups) do
+      local fields = {}
+      for i = 1, #group, 2 do
+        fields[group[i]] = group[i + 1]
+      end
+      if fields['name'] == ARGV[5] and fields['last-delivered-id'] ~= '0-0' then
+        after = '(' .. fields['last-delivered-id']
+      end
+    end
+  end
+  local entries = redis.pcall('XRANGE', KEYS[1], after, '+', 'COUNT', last + 1)
+  if type(entries) == 'table' and not entries.err then
+    for i = first + 1, #entries do
+      if entries[i][2] then
+        table.insert(ids, entries[i][2][2])
+      end
+    end
+  end
+end
+local out = {}
+for _, id in ipairs(ids) do
+  local job = redis.call('HMGET', ARGV[3] .. id, 'payload', 'attempts', 'available_at')
+  if job[1] then
+    table.insert(out, {id, job[1], job[2] or '0', job[3] or '0'})
+  end
+end
+return out''');
+
+  /// Ready jobs: the list in pop order, or the stream entries the group
+  /// has not read yet. Due delayed jobs and expired reservations are moved
+  /// to the list by the next pop, so they show under [delayed] until then.
+  @override
+  Future<List<QueuedJobView>> pending(
+    String queue, {
+    int limit = 50,
+    int offset = 0,
+  }) => _views(queue, _list(queue), _stream ? 'stream' : 'list', limit, offset);
+
+  /// Delayed jobs, by the time they become ready.
+  @override
+  Future<List<QueuedJobView>> delayed(
+    String queue, {
+    int limit = 50,
+    int offset = 0,
+  }) => _views(queue, _delayed(queue), 'zset', limit, offset);
+
+  Future<List<QueuedJobView>> _views(
+    String queue,
+    String key,
+    String source,
+    int limit,
+    int offset,
+  ) async {
+    final skip = max(0, offset);
+    if (limit <= 0) {
+      return const [];
+    }
+    final reply = await client.eval(
+      _browse,
+      keys: [key],
+      args: [skip, skip + limit - 1, _jobPrefix(queue), source, _group],
+    );
+    return [
+      for (final row in reply is List ? reply : const <Object?>[])
+        if (row case [
+          final String id,
+          final String payload,
+          final Object? attempts,
+          final Object? available,
+        ])
+          QueuedJobView.fromStored(
+            id: id,
+            queue: queue,
+            payload: payload,
+            attempts: int.tryParse('$attempts') ?? 0,
+            availableAt: DateTime.fromMillisecondsSinceEpoch(
+              int.tryParse('$available') ?? 0,
+              isUtc: true,
+            ),
+          ),
+    ];
+  }
+
+  /// Hands a reserved job back: on the list engine it leaves the reserved
+  /// set for the end of the list; on the stream engine its pending entry is
+  /// acknowledged and the id added again (as [release] does, without
+  /// `XCLAIM`). `attempts` and `available_at` are left alone; waiting
+  /// workers are woken.
+  static final RedisScript _reclaim = RedisScript('''
+if ARGV[2] == 'stream' then
+  local entry = redis.call('HGET', KEYS[4], 'entry')
+  if not entry then
+    return 0
+  end
+  local pending = redis.call('XPENDING', KEYS[1], ARGV[3], entry, entry, 1)
+  if not pending[1] then
+    return 0
+  end
+  redis.call('XACK', KEYS[1], ARGV[3], entry)
+  redis.call('XDEL', KEYS[1], entry)
+  redis.call('HDEL', KEYS[4], 'entry')
+  redis.call('XADD', KEYS[1], '*', 'id', ARGV[1])
+else
+  if redis.call('ZREM', KEYS[2], ARGV[1]) == 0 then
+    return 0
+  end
+  redis.call('RPUSH', KEYS[1], ARGV[1])
+end
+redis.call('RPUSH', KEYS[3], 1)
+redis.call('LTRIM', KEYS[3], -100, -1)
+return 1''');
+
+  @override
+  Future<bool> reclaim(String queue, Object jobId) async =>
+      await client.eval(
+        _reclaim,
+        keys: [
+          _list(queue),
+          _reserved(queue),
+          _notify(queue),
+          '${_jobPrefix(queue)}$jobId',
+        ],
+        args: ['$jobId', engine.name, _group],
+      ) ==
+      1;
+
+  // -------------------------------------------------------------------
   // Waking idle workers.
 
   /// One blocking connection per hash slot of the queues' notify lists
@@ -460,10 +674,28 @@ return #ids''');
     } on RedisConnectionException {
       // Stopped, or the connection dropped: open another next time.
       _blocking.remove(slot);
-    } on RedisCommandException {
-      // A slot moved (MOVED) or the server refused: another connection
-      // next time, after a pause so a lasting error does not spin.
-      await _blocking.remove(slot)?.close();
+    } on Object catch (error) {
+      // A slot moved (MOVED), the server refused, or anything else: another
+      // connection next time, after a pause so a lasting error does not
+      // spin. Never rethrown: this wait is shared by the workers waiting on
+      // the slot, each in a zone of its own, which an error would not reach.
+      if (error is! RedisCommandException) {
+        final now = DateTime.now();
+        final last = _waitErrorLogged;
+        if (last == null ||
+            now.difference(last) >= const Duration(seconds: 1)) {
+          _waitErrorLogged = now;
+          logger?.warning(
+            'Redis queue wait failed (${error.runtimeType}); waiting with a '
+            'new connection next time.',
+          );
+        }
+      }
+      try {
+        await _blocking.remove(slot)?.close();
+      } on Object {
+        // Closing a broken connection: nothing more to do.
+      }
       await Future<void>.delayed(
         wait < const Duration(seconds: 1) ? wait : const Duration(seconds: 1),
       );

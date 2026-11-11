@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io' as io;
+import 'dart:math' as math;
+import 'dart:typed_data';
 
 import '../foundation/container.dart';
 import '../foundation/exceptions.dart';
@@ -54,12 +56,59 @@ abstract final class Http {
   /// A request that fails after [timeout].
   static PendingRequest timeout(Duration timeout) => request().timeout(timeout);
 
-  /// A request retried on connection errors and failed responses.
+  /// A request retried on connection errors and failed responses (see
+  /// [PendingRequest.retry]).
   static PendingRequest retry(
     int times, {
     Duration delay = const Duration(milliseconds: 100),
     bool Function(ClientResponse? response, Object? error)? when,
-  }) => request().retry(times, delay: delay, when: when);
+    Duration Function(int attempt)? backoff,
+    double jitter = 0,
+    bool honorRetryAfter = false,
+    Duration maxRetryAfter = const Duration(seconds: 10),
+  }) => request().retry(
+    times,
+    delay: delay,
+    when: when,
+    backoff: backoff,
+    jitter: jitter,
+    honorRetryAfter: honorRetryAfter,
+    maxRetryAfter: maxRetryAfter,
+  );
+
+  /// Waits of [base], then [factor] times longer after each try, at most
+  /// [max]: `retry(5, backoff: Http.exponentialBackoff())` waits 100, 200,
+  /// 400 and 800 ms.
+  static Duration Function(int attempt) exponentialBackoff({
+    Duration base = const Duration(milliseconds: 100),
+    Duration max = const Duration(seconds: 10),
+    double factor = 2,
+  }) => (attempt) {
+    final micros =
+        base.inMicroseconds * math.pow(factor, attempt < 1 ? 0 : attempt - 1);
+    return micros >= max.inMicroseconds
+        ? max
+        : Duration(microseconds: micros.round());
+  };
+
+  /// Laravel's `retry(3, [100, 200, 500])`: the waits in order, the last
+  /// one again once they run out.
+  static Duration Function(int attempt) backoffSequence(List<Duration> waits) {
+    final copy = List<Duration>.unmodifiable(waits);
+    return (attempt) => copy.isEmpty
+        ? Duration.zero
+        : copy[(attempt < 1 ? 1 : attempt).clamp(1, copy.length) - 1];
+  }
+
+  /// A `when:` that retries a connection error, `429` and `5xx`, and not
+  /// the other client errors, which another try does not change.
+  static bool retryOnConnectionOr5xx(ClientResponse? response, Object? error) =>
+      error != null ||
+      (response != null && (response.status == 429 || response.status >= 500));
+
+  /// A `when:` that retries only when the connection failed.
+  static bool retryOnConnectionOnly(ClientResponse? response, Object? error) =>
+      error != null;
 
   /// Sends `GET` [url] with the [query] parameters.
   static Future<ClientResponse> get(
@@ -133,8 +182,20 @@ abstract final class Http {
 final class HttpClientFactory {
   /// A factory sending through `dart:io`, or through clients from
   /// [clientFactory] in tests.
-  HttpClientFactory({io.HttpClient Function()? clientFactory})
-    : _clientFactory = clientFactory ?? io.HttpClient.new;
+  /// [random] draws the retry jitter and [sleep] waits between tries;
+  /// tests pass their own.
+  HttpClientFactory({
+    io.HttpClient Function()? clientFactory,
+    math.Random? random,
+    Future<void> Function(Duration wait)? sleep,
+  }) : _clientFactory = clientFactory ?? io.HttpClient.new,
+       _random = random ?? math.Random(),
+       _sleep = sleep ?? _delay;
+
+  final math.Random _random;
+  final Future<void> Function(Duration wait) _sleep;
+
+  static Future<void> _delay(Duration wait) => Future<void>.delayed(wait);
 
   final io.HttpClient Function() _clientFactory;
   io.HttpClient? _client;
@@ -167,17 +228,58 @@ final class HttpClientFactory {
     _preventStray = false;
   }
 
-  Future<ClientResponse> _send(ClientRequest request, Duration timeout) async {
+  /// The largest response body read by default (32 MiB); larger ones throw
+  /// [ResponseTooLargeException]. `PendingRequest.maxResponseSize` changes
+  /// it per request.
+  static const int defaultMaxResponseBytes = 32 * 1024 * 1024;
+
+  /// The body limit of requests that do not set their own; `null` for none.
+  int? maxResponseBytes = defaultMaxResponseBytes;
+
+  /// How long opening a connection may take, within the request's own
+  /// timeout (10 s, Laravel's `connect_timeout`). Read when the pooled
+  /// client is created.
+  Duration connectTimeout = const Duration(seconds: 10);
+
+  /// The most connections to one host at once (`null`: no limit); further
+  /// requests wait for one. Read when the pooled client is created.
+  int? maxConnectionsPerHost;
+
+  Future<ClientResponse> _send(
+    ClientRequest request,
+    Duration timeout,
+    int? maxBytes,
+  ) async {
     final fake = _fake;
     if (fake != null) {
       return fake._answer(request, preventStray: _preventStray);
     }
     final client = _client ??= _clientFactory()
-      ..idleTimeout = const Duration(seconds: 5);
+      ..idleTimeout = const Duration(seconds: 5)
+      ..connectionTimeout = connectTimeout
+      ..maxConnectionsPerHost = maxConnectionsPerHost;
+    // One deadline for the whole request: each phase gets what is left.
+    final elapsed = Stopwatch()..start();
+    Duration left() {
+      final remaining = timeout - elapsed.elapsed;
+      if (remaining <= Duration.zero) {
+        throw TimeoutException('The request ran out of time.', timeout);
+      }
+      return remaining;
+    }
+
+    io.HttpClientRequest? outgoing;
     try {
-      final outgoing = await client
-          .openUrl(request.method, request.url)
-          .timeout(timeout);
+      final opening = client.openUrl(request.method, request.url);
+      try {
+        outgoing = await opening.timeout(left());
+      } on TimeoutException {
+        // The connection may still open: close it then.
+        unawaited(
+          opening.then<void>((late) => late.abort(), onError: (Object _) {}),
+        );
+        rethrow;
+      }
       for (final MapEntry(:key, :value) in request.headers.entries) {
         for (final item in value) {
           outgoing.headers.add(key, item);
@@ -189,29 +291,113 @@ final class HttpClientFactory {
           ..contentLength = bytes.length
           ..add(bytes);
       }
-      final incoming = await outgoing.close().timeout(timeout);
-      final body = await utf8.decoder.bind(incoming).join().timeout(timeout);
+      final incoming = await outgoing.close().timeout(left());
+      final bytes = await _readBody(
+        incoming,
+        left(),
+        maxBytes,
+        request.url,
+        outgoing,
+      );
       final headers = Headers();
       incoming.headers.forEach((name, values) {
         for (final value in values) {
           headers.add(name, value);
         }
       });
-      return ClientResponse(incoming.statusCode, body, headers: headers);
+      return ClientResponse(
+        incoming.statusCode,
+        utf8.decode(bytes, allowMalformed: true),
+        headers: headers,
+        bodyBytes: bytes,
+      );
     } on TimeoutException {
+      // Stop the exchange: the server sees the connection close, and no
+      // more of the body is read into memory.
+      outgoing?.abort();
       throw ConnectionException(
         'Request to ${request.url} timed out after ${timeout.inSeconds}s.',
         isTimeout: true,
       );
     } on io.SocketException catch (error) {
+      outgoing?.abort();
       throw ConnectionException(
         'Could not reach ${request.url}: ${error.message}',
       );
     } on io.HttpException catch (error) {
+      outgoing?.abort();
       throw ConnectionException(
         'HTTP error for ${request.url}: ${error.message}',
       );
+    } on io.IOException catch (error) {
+      // TLS failures (HandshakeException, CertificateException) and other
+      // I/O errors, so retry() and callers see them as connection errors.
+      outgoing?.abort();
+      throw ConnectionException('Could not reach ${request.url}: $error');
     }
+  }
+
+  /// Reads [incoming] within [timeout], refusing more than [maxBytes]. On
+  /// either, the subscription is cancelled and the request aborted, so the
+  /// connection closes instead of streaming on into this isolate.
+  static Future<Uint8List> _readBody(
+    io.HttpClientResponse incoming,
+    Duration timeout,
+    int? maxBytes,
+    Uri url,
+    io.HttpClientRequest outgoing,
+  ) {
+    if (maxBytes != null && incoming.contentLength > maxBytes) {
+      // Not a byte of it is read: the socket is closed under the client.
+      unawaited(
+        incoming.detachSocket().then<void>(
+          (socket) => socket.destroy(),
+          onError: (Object _) {},
+        ),
+      );
+      throw ResponseTooLargeException(url, maxBytes);
+    }
+    final done = Completer<Uint8List>();
+    final body = BytesBuilder(copy: false);
+    late final StreamSubscription<List<int>> subscription;
+    late final Timer timer;
+
+    void fail(Object error) {
+      if (done.isCompleted) {
+        return;
+      }
+      timer.cancel();
+      unawaited(subscription.cancel().catchError((Object _) {}));
+      outgoing.abort();
+      done.completeError(error);
+    }
+
+    timer = Timer(
+      timeout,
+      () => fail(TimeoutException('The response body was too slow.', timeout)),
+    );
+    subscription = incoming.listen(
+      (chunk) {
+        body.add(chunk);
+        if (maxBytes != null && body.length > maxBytes) {
+          fail(ResponseTooLargeException(url, maxBytes));
+        }
+      },
+      onError: (Object error) {
+        if (!done.isCompleted) {
+          timer.cancel();
+          done.completeError(error);
+        }
+      },
+      onDone: () {
+        if (!done.isCompleted) {
+          timer.cancel();
+          done.complete(body.takeBytes());
+        }
+      },
+      cancelOnError: true,
+    );
+    return done.future;
   }
 
   /// Closes pooled connections (called when the application shuts down).
@@ -232,6 +418,10 @@ final class PendingRequest {
   int _tries = 1;
   Duration _retryDelay = Duration.zero;
   bool Function(ClientResponse? response, Object? error)? _retryWhen;
+  Duration Function(int attempt)? _retryBackoff;
+  double _retryJitter = 0;
+  bool _honorRetryAfter = false;
+  Duration _maxRetryAfter = const Duration(seconds: 10);
   bool _asForm = false;
 
   /// Resolves relative URLs against [url].
@@ -288,25 +478,96 @@ final class PendingRequest {
     return this;
   }
 
-  /// Fails a request (connect, send and read) after [timeout]; 30 s by
-  /// default, as in Laravel.
+  /// Fails a request after [timeout]; 30 s by default, as in Laravel. It is
+  /// one deadline for connecting, sending and reading the whole body, and
+  /// when it passes the connection is closed, so the server stops sending.
   PendingRequest timeout(Duration timeout) {
     _timeout = timeout;
     return this;
   }
 
+  /// Refuses a response body over [bytes] with [ResponseTooLargeException],
+  /// closing the connection (`null` for no limit). The default is the
+  /// factory's `maxResponseBytes`, 32 MiB.
+  PendingRequest maxResponseSize(int? bytes) {
+    if (bytes != null && bytes < 0) {
+      throw RangeError.range(bytes, 0, null, 'bytes');
+    }
+    _maxResponseBytes = bytes;
+    _maxResponseBytesSet = true;
+    return this;
+  }
+
+  int? _maxResponseBytes;
+  bool _maxResponseBytesSet = false;
+
   /// Tries up to [times] times in total, waiting [delay] between tries, when
   /// the connection fails or the response is a client or server error (or
-  /// when [when] says so). The last response is returned either way.
+  /// when [when] says so: [Http.retryOnConnectionOr5xx] leaves other 4xx
+  /// alone). The last response is returned either way; the default retries
+  /// every failed response, as Laravel's `Http::retry()` does.
+  ///
+  /// [backoff] gives the wait after try `attempt` (from 1) instead of
+  /// [delay] ([Http.exponentialBackoff], [Http.backoffSequence]); [jitter]
+  /// (0 to 1) spreads each wait by up to that fraction either way, so
+  /// clients that failed together do not retry together. With
+  /// [honorRetryAfter], a `429` or `503` carrying `Retry-After` waits what
+  /// it says instead, at most [maxRetryAfter].
   PendingRequest retry(
     int times, {
     Duration delay = const Duration(milliseconds: 100),
     bool Function(ClientResponse? response, Object? error)? when,
+    Duration Function(int attempt)? backoff,
+    double jitter = 0,
+    bool honorRetryAfter = false,
+    Duration maxRetryAfter = const Duration(seconds: 10),
   }) {
+    if (jitter < 0 || jitter > 1) {
+      throw ArgumentError.value(jitter, 'jitter', 'must be from 0 to 1');
+    }
     _tries = times < 1 ? 1 : times;
     _retryDelay = delay;
     _retryWhen = when;
+    _retryBackoff = backoff;
+    _retryJitter = jitter;
+    _honorRetryAfter = honorRetryAfter;
+    _maxRetryAfter = maxRetryAfter;
     return this;
+  }
+
+  /// The wait after try [attempt], which got [response].
+  Duration _retryWait(int attempt, ClientResponse? response) {
+    if (_honorRetryAfter &&
+        response != null &&
+        (response.status == 429 || response.status == 503)) {
+      final asked = _retryAfter(response.header('retry-after'));
+      if (asked != null) {
+        return asked > _maxRetryAfter ? _maxRetryAfter : asked;
+      }
+    }
+    final wait = _retryBackoff?.call(attempt) ?? _retryDelay;
+    if (_retryJitter == 0 || wait <= Duration.zero) {
+      return wait;
+    }
+    final spread = 1 + (_factory._random.nextDouble() * 2 - 1) * _retryJitter;
+    return Duration(microseconds: (wait.inMicroseconds * spread).round());
+  }
+
+  /// `Retry-After` as seconds or an HTTP date; null when absent or bad.
+  static Duration? _retryAfter(String? value) {
+    if (value == null) {
+      return null;
+    }
+    final seconds = int.tryParse(value.trim());
+    if (seconds != null) {
+      return Duration(seconds: seconds < 0 ? 0 : seconds);
+    }
+    try {
+      final left = io.HttpDate.parse(value.trim()).difference(DateTime.now());
+      return left.isNegative ? Duration.zero : left;
+    } on Object {
+      return null;
+    }
   }
 
   /// Sends `GET` [url] with the [query] parameters.
@@ -363,7 +624,11 @@ final class PendingRequest {
       Object? error;
       StackTrace? stackTrace;
       try {
-        response = await _factory._send(request, _timeout);
+        response = await _factory._send(
+          request,
+          _timeout,
+          _maxResponseBytesSet ? _maxResponseBytes : _factory.maxResponseBytes,
+        );
       } on ConnectionException catch (e, s) {
         error = e;
         stackTrace = s;
@@ -377,8 +642,9 @@ final class PendingRequest {
         }
         return response!;
       }
-      if (_retryDelay > Duration.zero) {
-        await Future<void>.delayed(_retryDelay);
+      final wait = _retryWait(attempt, response);
+      if (wait > Duration.zero) {
+        await _factory._sleep(wait);
       }
     }
   }
@@ -481,7 +747,7 @@ final class ClientRequest {
 /// A response to an outgoing request (Laravel's `Http\Client\Response`).
 final class ClientResponse {
   /// A response with [status] and [body]; tests build them for fakes.
-  ClientResponse(this.status, this.body, {Headers? headers})
+  ClientResponse(this.status, this.body, {Headers? headers, this._bodyBytes})
     : headers = headers ?? Headers();
 
   /// A stubbed response: maps and lists become JSON.
@@ -508,8 +774,14 @@ final class ClientResponse {
   /// The status code.
   final int status;
 
-  /// The body as text.
+  /// The body as text (UTF-8; malformed bytes become U+FFFD).
   final String body;
+
+  final Uint8List? _bodyBytes;
+
+  /// The body as received, for binary responses (an image, a PDF); for a
+  /// response built from text, its UTF-8 encoding.
+  Uint8List get bodyBytes => _bodyBytes ?? utf8.encode(body);
 
   /// The response headers.
   final Headers headers;
@@ -684,6 +956,21 @@ final class ConnectionException extends DaravelException {
   /// reset before anything was sent, so a caller retrying must not
   /// assume it was not.
   final bool isTimeout;
+}
+
+/// A response body larger than the request allows
+/// (`PendingRequest.maxResponseSize`, `HttpClientFactory.maxResponseBytes`).
+/// The connection is closed when it is thrown; it is not retried.
+final class ResponseTooLargeException extends DaravelException {
+  /// The response from [url] went past [maxBytes].
+  ResponseTooLargeException(this.url, this.maxBytes)
+    : super('The response from $url is larger than $maxBytes bytes.');
+
+  /// The URL requested.
+  final Uri url;
+
+  /// The limit it went past.
+  final int maxBytes;
 }
 
 /// A 4xx or 5xx response, thrown by [ClientResponse.throwIfFailed].

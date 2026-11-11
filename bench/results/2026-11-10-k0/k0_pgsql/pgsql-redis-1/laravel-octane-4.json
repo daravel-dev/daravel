@@ -1,0 +1,49 @@
+{
+  "meta": {
+    "date": "2026-11-10T13:32:51.271894Z",
+    "os": "linux Linux 6.18.58.1-microsoft-standard-WSL2 #1 SMP PREEMPT_DYNAMIC Tue Oct 27 00:24:11 UTC 2026",
+    "cpus": 16,
+    "duration_s": 10,
+    "connections": [
+      64
+    ]
+  },
+  "results": [
+    {
+      "target": "laravel-octane",
+      "scenario": "1-ping",
+      "isolates": 4,
+      "connections": 64,
+      "requests": 19547,
+      "errors": 0,
+      "rps": 1948,
+      "p50_us": 32326,
+      "p95_us": 40533,
+      "p99_us": 44814
+    },
+    {
+      "target": "laravel-octane",
+      "scenario": "5-throttled",
+      "isolates": 4,
+      "connections": 64,
+      "requests": 7695,
+      "errors": 0,
+      "rps": 763,
+      "p50_us": 83186,
+      "p95_us": 94017,
+      "p99_us": 98878
+    },
+    {
+      "target": "laravel-octane",
+      "scenario": "14-token-throttle-cache",
+      "isolates": 4,
+      "connections": 64,
+      "requests": 3769,
+      "errors": 0,
+      "rps": 370,
+      "p50_us": 171643,
+      "p95_us": 196257,
+      "p99_us": 201519
+    }
+  ]
+}

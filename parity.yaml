@@ -56,12 +56,14 @@ sections:
       - { php: "$request->ip()", dart: "request.ip", symbol: Request.ip }
       - { php: "$request->url()", dart: "request.url", symbol: Request.url }
       - { php: "$request->route('id')", dart: "request.param<int>('id')", symbol: Request.param }
+      - { php: "(none)", dart: "request.param<PostId>('post', parse: PostId.parse); .withIds((ids) => ids.register<PostId>('post', PostId.parse))", symbol: IdParsers.register, note: "Daravel-only, opt-in: typed id parsers by route parameter name (bootstrap/ids.dart); a parser that throws answers 404." }
       - { php: "$request->expectsJson()", dart: "request.expectsJson", symbol: Request.expectsJson }
       - { php: "$request->cookie('theme') / ->cookies->all()", dart: "request.cookie('theme') / request.cookies", symbol: Request.cookie, note: "Decoded like $_COOKIE; EncryptCookies is not applied." }
       - { php: "response(...)->withCookie(cookie('theme', 'dark', 60))", dart: "response.withCookie('theme', 'dark', maxAge: Duration(minutes: 60))", symbol: Response.withCookie, note: "Same Set-Cookie text as Symfony's Cookie." }
       - { php: "response(...)->withoutCookie('theme') / Cookie::forget('theme')", dart: "response.withoutCookie('theme')", symbol: Response.withoutCookie }
       - { php: "response()->json($data, $status)", dart: "Response.json(data, status: status)", symbol: Response.json, note: "phpCompatible: true writes json_encode's bytes (\\/, \\u escapes, [] for an empty map)." }
       - { php: "Blade views ({{ $name }}, {!! $html !!})", dart: "div([user.name]) / raw(html) from package:daravel/html.dart", symbol: HtmlNode, note: "Typed builder, escaped by default; a separate import." }
+      - { php: "e($value)", dart: "escapeHtml(value)", symbol: escapeHtml, note: "Same entities as htmlspecialchars with ENT_QUOTES; exported by package:daravel/daravel.dart and package:daravel/html.dart." }
       - { php: "response()->noContent()", dart: "Response.noContent()", symbol: Response.noContent }
       - { php: "redirect($to)", dart: "Response.redirect(to)", symbol: Response.redirect }
       - { php: "response()->streamDownload(...)", dart: "Response.stream(...)", symbol: Response.stream }
@@ -94,7 +96,16 @@ sections:
   - name: Broadcasting
     symbols:
       - { php: "php artisan reverb:start (Laravel Reverb)", dart: ".withBroadcasting(...) with REVERB_APP_ID / _KEY / _SECRET", symbol: PusherServer, note: "The Pusher protocol on the HTTP port; Laravel Echo and pusher-js connect unchanged." }
+      - { php: "php artisan reverb:start --host= --port= --debug", dart: "dartisan reverb:start [--host] [--port] [--path] [--isolates] [--debug] (daravel_reverb)", symbol: ReverbStartCommand, note: "The Pusher server in a process of its own: broadcasting, /up and /metrics only, in worker isolates; --debug logs frames with signatures masked." }
+      - { php: "php artisan reverb:restart", dart: "dartisan reverb:restart (daravel_reverb)", symbol: ReverbRestartCommand, note: "Each isolate closes its connections over REVERB_DRAIN_SPREAD and is spawned again." }
+      - { php: "(none)", dart: "createApp()..serveBroadcastingOnly(path: '/ws', auth: false, debug: false)", symbol: Application.serveBroadcastingOnly, note: "Daravel-only: the same application serving only its Pusher server, /up, /up/ready and /metrics (what reverb:start runs); app.router keeps every route." }
+      - { php: "(none)", dart: "await app.restart()", symbol: Application.restart, note: "Daravel-only: drain and start again; a supervisor worker is spawned again at once, not counted as a crash." }
+      - { php: "config/reverb.php 'apps' => ['apps' => [...]] from .env", dart: ".withReverb() with REVERB_APPS (JSON) or REVERB_APPS_PROVIDER=database (daravel_reverb)", symbol: ReverbApps.fromEnv, note: "The entries of config/reverb.php as JSON, or a reverb_apps table read per key and cached 60 s." }
       - { php: "Broadcast::channel('orders.{id}', fn ($user, $id) => ...)", dart: "channels.channel('orders.{id}', (user, p) => ...)", symbol: ChannelRegistry.channel, note: "routes/channels.php: false refuses, true admits, a map is the presence member." }
+      - { php: "(none)", dart: "channels.channel('orders.{id}', ..., type: 'private', events: [BroadcastEventSchema('OrderShipped', data: ...)])", symbol: ChannelRegistry.describe, note: "Daravel-only: channel type and event schemas for tools; dartisan route:list --channels." }
+      - { php: "config/reverb.php 'apps' => ['apps' => [...]] (Reverb)", dart: ".withBroadcasting(apps: ListAppProvider([BroadcastApp(id:, key:, secret:), ...]))", symbol: BroadcastAppProvider.byKey, note: "Several Pusher applications on one server, each with its own secret, origins and limits; their channels are apart." }
+      - { php: "(none; Event::fake() for ShouldBroadcast events)", dart: "final broadcasts = Broadcast.fake(); broadcasts.assertBroadcasted<OrderShipped>(channel: 'private-orders.7')", symbol: BroadcastFake.assertBroadcasted, note: "Daravel-only: records what would be sent (a broadcast rolled back with its transaction is not), with assertBroadcastedTimes, assertSent, assertNothingBroadcastedTo." }
+      - { php: "Reverb's Pulse recorders (reverb_connections, reverb_messages)", dart: "/metrics reverb_connections, reverb_channels, reverb_messages_total, reverb_fanout_seconds; Pulse's Reverb card", symbol: ReverbStats, note: "REVERB_PULSE_INGEST_INTERVAL as Reverb; reported only while the isolate has connections." }
       - { php: "class OrderShipped implements ShouldBroadcast", dart: "final class OrderShipped with ShouldBroadcast", symbol: ShouldBroadcast, note: "broadcastWith says what to send (no reflection); broadcast when dispatched." }
       - { php: "broadcast(new OrderShipped($order))->toOthers()", dart: "await Broadcast.event(OrderShipped(order).toOthers())", symbol: Broadcast.event, async: true }
       - { php: "BROADCAST_CONNECTION=reverb / pusher / log / null", dart: "BROADCAST_CONNECTION=daravel / reverb / pusher / log / null", symbol: BroadcastManager.send, async: true, note: "daravel: this server; reverb and pusher: their HTTP API, signed as pusher-php-server." }
@@ -103,6 +114,10 @@ sections:
       - { php: "Echo.encryptedPrivate('orders.7') with encryption_master_key_base64", dart: "REVERB_ENCRYPTION_MASTER_KEY_BASE64", symbol: BroadcastConfig.encryptionMasterKey, note: "private-encrypted- channels, sealed with libsodium's secretbox." }
       - { php: "REVERB_SCALING_ENABLED=true (Reverb with Redis)", dart: "REVERB_SCALING_ENABLED=true (the database)", symbol: DatabaseBroadcastRelay, note: "Frames, presence members (here included) and cache channels span every server; PostgreSQL NOTIFY, MySQL polling." }
       - { php: "(Reverb's internal pub/sub)", dart: "await Broadcast.publish('orders.7', data)", symbol: Broadcast.publish, async: true, note: "Daravel's own channels between isolates, for custom WebSocket and SSE routes." }
+      - { php: "new PrivateChannel('orders.7') / PresenceChannel / EncryptedPrivateChannel", dart: "Channels.private('orders.7') / Channels.presence / Channels.encrypted", symbol: Channels.private }
+      - { php: "'max_connections' => env('REVERB_APP_MAX_CONNECTIONS')", dart: "REVERB_APP_MAX_CONNECTIONS", symbol: BroadcastConfig.maxConnections, note: "4004 Application is over connection quota, counted over every worker isolate of the server." }
+      - { php: "'rate_limiting' => [...] (REVERB_APP_RATE_LIMITING_ENABLED, REVERB_APP_RATE_LIMIT_*)", dart: "the same variables", symbol: BroadcastConfig.rateLimiting, note: "Every message counts, pusher:ping included; 4301 Rate limit exceeded." }
+      - { php: "ShouldDispatchAfterCommit on a broadcast event", dart: "BROADCAST_AFTER_COMMIT=true (default)", symbol: BroadcastConfig.afterCommit, note: "Every broadcast inside a transaction waits for the commit and is dropped on rollback." }
 
   - name: Scout (daravel_scout)
     symbols:
@@ -120,6 +135,7 @@ sections:
       - { php: "Redis::subscribe([...], fn ($message) => ...)", dart: "Redis.subscribe([...]).messages.listen(...)", symbol: Redis.subscribe, note: "Subscribes again after the connection drops." }
       - { php: "CACHE_STORE=redis", dart: "CACHE_STORE=redis with .withRedis()", symbol: RedisStore, note: "Numbers stored raw; cache:clear deletes the cache's keys, not the database (no FLUSHDB)." }
       - { php: "Cache::lock('report')->get(...) on Redis", dart: "Cache.lock('report') on CACHE_STORE=redis", symbol: RedisStore.acquireLock, async: true, note: "Laravel's RedisLock: the same keys and release script." }
+      - { php: "SESSION_DRIVER=redis (SESSION_CONNECTION)", dart: "SESSION_DRIVER=redis with .withSession() and .withRedis()", symbol: redisSessionHandler, note: "Laravel's key layout: REDIS_PREFIX + CACHE_PREFIX + session id, serialize($payload), SETEX for SESSION_LIFETIME, on the default connection unless SESSION_CONNECTION names one: both frameworks share sessions." }
       - { php: "QUEUE_CONNECTION=redis", dart: "QUEUE_CONNECTION=redis", symbol: RedisQueue, note: "BLPOP wakes idle workers; keys under daravel:, apart from Laravel's queues:." }
       - { php: "REVERB_SCALING_ENABLED=true (Redis)", dart: "REVERB_SCALING_DRIVER=redis", symbol: RedisBroadcastRelay, note: "Pub/Sub between servers; presence members shared across them." }
 
@@ -135,6 +151,7 @@ sections:
       - { php: "EncryptCookies middleware", dart: "EncryptCookiesMiddleware", symbol: EncryptCookiesMiddleware, note: "Crypt payload with CookieValuePrefix (hmac_sha1(name.'v2', key).'|'), so cookies are shared with the Laravel app." }
       - { php: "VerifyCsrfToken ($except, X-CSRF-TOKEN, X-XSRF-TOKEN)", dart: "VerifyCsrfTokenMiddleware(except: [...])", symbol: VerifyCsrfTokenMiddleware, note: "419 CSRF token mismatch.; the XSRF-TOKEN cookie is set on every response." }
       - { php: "SESSION_DRIVER=file|database", dart: "SESSION_DRIVER=file|database (array for tests)", symbol: SessionManager.extend, note: "Laravel's sessions table (payload base64(serialize()) or base64(json_encode()), last_activity) and file format; extend() adds a driver." }
+      - { php: "CacheBasedSessionHandler (SESSION_STORE)", dart: "SESSION_DRIVER=cache, SESSION_STORE=<store>", symbol: CacheSessionHandler, note: "Any Cache store, the default one without SESSION_STORE; the entry expires with SESSION_LIFETIME. Laravel reaches it through the apc, memcached, dynamodb and redis drivers." }
       - { php: "create_sessions_table migration", dart: "CreateSessionsTable", symbol: CreateSessionsTable, note: "Does nothing when the table exists already." }
 
   - name: Permissions (daravel_permission)
@@ -201,6 +218,9 @@ sections:
       - { php: "Post::findFiltered($request, $id)", dart: "await Post.definition.query().findFiltered(request, id)", symbol: FilterableQuery.findFiltered, async: true }
       - { php: "class PostQueryFilter extends QueryFilter", dart: "final class PostQueryFilter extends QueryFilter<Post>", symbol: QueryFilter }
       - { php: "Filter::multiLike(['title'])->alias('q')", dart: "Filter.multiLike(['title']).alias('q')", symbol: Filter.multiLike, note: "default() is withDefault(); enum/in/null are enum_/in_/null_." }
+      - { php: "Filter::scope('published')", dart: "Filter.scope('published')", symbol: Filter.scope, note: "The scope is given the request, as ScopeFilter calls $query->$method($request)." }
+      - { php: "(none)", dart: "Filter.scopeValue('search').alias('q')", symbol: Filter.scopeValue, note: "Daravel-only: the scope is given the value, after alias and withDefault (scopeSearch($query, $term))." }
+      - { php: "(none)", dart: "String? get sortScope => 'sortBy';", symbol: QueryFilter.sortScope, note: "Daravel-only: every allowed sort without a customSorts entry calls the scope with [column, direction]; laravel-teorion routes sorts to sortBy<Column> methods (customSorts)." }
       - { php: "FilterMacroRegistry::register('phone', fn ...)", dart: "FilterMacroRegistry.register('phone', (q, value, param, request) {...})", symbol: FilterMacroRegistry.register }
       - { php: "php artisan make:query-filter PostQueryFilter", dart: "dartisan make:query-filter Post", symbol: QueryFilterRegistry, note: "Registered in bootstrap/query_filters.dart (no reflection)." }
 
@@ -234,12 +254,17 @@ sections:
       - { php: "Rule::unique('users')->ignore($id)->where(fn ($q) => $q->whereNull('deleted_at'))", dart: "Rules.unique('users').ignore(id).where((QueryBuilder q) => q.whereNull('deleted_at'))", symbol: UniqueRule.ignore }
       - { php: "['required', 'email', 'max:255']", dart: "Rules.required().email().max(255)", symbol: RuleBuilder, note: "Chained rule objects, checked by the compiler." }
       - { php: "'accepted' / 'accepted_if:plan,paid' / 'declined' / 'declined_if:plan,paid'", dart: "the same strings, or Rules.accepted() / acceptedIf('plan', ['paid']) / declined() / declinedIf(...)", symbol: AcceptanceRule }
+      - { php: "'missing' / 'missing_if:a,x' / 'missing_unless:a,x' / 'missing_with:a,b' / 'missing_with_all:a,b'", dart: "the same strings, or Rules.missing() / missingIf('a', ['x']) / missingUnless(...) / missingWith(['a', 'b']) / missingWithAll(...)", symbol: PresenceWithRule, note: "Presence is the key's, as Arr::has: a key with a null value is present." }
+      - { php: "'present_unless:a,x' / 'present_with:a,b' / 'present_with_all:a,b'", dart: "the same strings, or Rules.presentUnless('a', ['x']) / presentWith(['a', 'b']) / presentWithAll(...)", symbol: Rules.presentWith }
+      - { php: "'prohibited_if_accepted:a' / 'prohibited_if_declined:a' / 'required_if_declined:a'", dart: "the same strings, or Rules.prohibitedIfAccepted('a') / prohibitedIfDeclined('a') / requiredIfDeclined('a')", symbol: AcceptanceConditionRule }
+      - { php: "'required_array_keys:name,email'", dart: "the same string, or Rules.requiredArrayKeys(['name', 'email'])", symbol: RequiredArrayKeysRule }
 
   - name: Eloquent
     symbols:
       - { php: "class User extends Model", dart: "final class User extends Model", symbol: Model }
       - { php: "protected $table / $fillable / $hidden / $casts", dart: "ModelDefinition<User>(table:, fillable:, hidden:, casts:)", symbol: ModelDefinition }
       - { php: "protected $attributes = ['status' => 'draft']", dart: "ModelDefinition<Exam>(attributes: {'status': 'draft'})", symbol: ModelDefinition.attributes, note: "Stored values, before casts; a new model starts with them." }
+      - { php: "(none)", dart: "dartisan model:sync --typed-ids; ModelDefinition<Post>(idType: IdType.integer(PostId.new))", symbol: ModelDefinition.idType, note: "Daravel-only, opt-in: an extension type per primary key (TypedId<T> for generic code), so a wrong-typed id is caught at compile time; erased to the plain key at runtime." }
       - { php: "$table->vector('embedding', dimensions: 1536)", dart: "table.vector('embedding', dimensions: 1536)", symbol: Blueprint.vector }
       - { php: "$table->vectorIndex('embedding')", dart: "table.vectorIndex('embedding')", symbol: Blueprint.vectorIndex }
       - { php: "->whereVectorSimilarTo('embedding', $vector, 0.7)", dart: ".whereVectorSimilarTo('embedding', vector, minSimilarity: 0.7)", symbol: QueryBuilder.whereVectorSimilarTo }
@@ -289,6 +314,7 @@ sections:
       - { php: "DB::select($sql, $bindings)", dart: "await DB.select(sql, bindings)", symbol: DB.select, async: true }
       - { php: "DB::statement($sql)", dart: "await DB.statement(sql)", symbol: DB.statement, async: true }
       - { php: "DB::transaction(fn)", dart: "await DB.transaction(() async {...})", symbol: DB.transaction, async: true }
+      - { php: "DB::afterRollBack(fn)", dart: "DB.afterRollback(fn)", symbol: DB.afterRollback, note: "Runs when the active level rolls back and before a transaction(attempts:) retry; a released savepoint passes its callbacks to the level around it (Laravel drops them)." }
       - { php: "DB_CONNECTION=mysql / mariadb", dart: "withDatabaseDriver('mysql', MySqlDriver.fromConfig)", symbol: ApplicationBuilder.withDatabaseDriver, note: "package:daravel_mysql; registered by new projects." }
       - { php: "DB::connection('legacy')->table('orders')", dart: "DB.table('orders', connection: 'legacy')", symbol: DB.table }
       - { php: "DB_URL=postgres://user:pass@host/db (ConfigurationUrlParser)", dart: "DB_URL, ConnectionConfig.withUrl(url)", symbol: ConnectionConfig.withUrl, note: "Merged like Laravel 12: URL parts replace DB_* values, the rest stay." }
@@ -299,6 +325,9 @@ sections:
       - { php: "DB::listen(...) for transactions", dart: "DB.listenTransactions((e) {...})", symbol: DB.listenTransactions, note: "with poolWait" }
       - { php: "DB::listen(fn (QueryExecuted $q) => ...)", dart: "DB.listen((QueryExecuted q) {...})", symbol: DB.listen }
       - { php: "DB::whenQueryingForLongerThan(500, fn)", dart: "DB.whenQueryingForLongerThan(const Duration(milliseconds: 500), (q) {...})", symbol: DB.whenQueryingForLongerThan, note: "Total per request, job or command; once." }
+      - { php: "(none)", dart: "DB_IDLE_TRANSACTION_TIMEOUT=15", symbol: PostgresDriver.idleTransactionTimeout, note: "Daravel-only: the server ends a session idle inside a transaction this long (PostgreSQL, MariaDB; MySQL has no such setting)." }
+      - { php: "(none)", dart: "DB.manager.openSessions(); (driver as SessionTerminatingDriver).terminateSession(id)", symbol: SessionTerminatingDriver.terminateSession, async: true, note: "Daravel-only: ends the server session of a connection left inside a transaction (pg_terminate_backend, KILL CONNECTION), for supervisors that kill isolates." }
+      - { php: "(none)", dart: "app.overrideEnv({...}) before app.boot()", symbol: Application.overrideEnv, note: "Daravel-only: environment overrides for a host given a built Application (a worker isolate, a test harness); they win over withEnv." }
       - { php: "DB::enableQueryLog(); ... count(DB::getQueryLog())", dart: "final (result, count, queries) = await DB.withQueryCount(() => ...)", symbol: DB.withQueryCount }
       - { php: "->whereToday('starts_at') / wherePast / whereFuture / whereBeforeToday", dart: ".whereToday('starts_at') / wherePast / whereFuture / whereBeforeToday", symbol: QueryBuilder.whereToday, note: "Against Clock.now()." }
       - { php: "->insertGetId($values)", dart: "await DB.table(t).insertGetId(values)", symbol: QueryBuilder.insertGetId, async: true }
@@ -361,7 +390,17 @@ sections:
       - { php: "#[DebounceFor(60)]", dart: "Duration? get debounceFor => ...", symbol: Job.debounceFor }
       - { php: "Queue::later($delay, $job)", dart: "await Queue.later(delay, job)", symbol: Queue.later, async: true }
       - { php: "public function tags() (Horizon)", dart: "List<String> get tags", symbol: Job.tags }
+      - { php: "Queue::size('default')", dart: "await Queue.connection().size('default')", symbol: QueueDriver.size, async: true }
+      - { php: "(none)", dart: "await (Queue.connection() as BrowsableQueueDriver).pending('default', limit: 50)", symbol: BrowsableQueueDriver.pending, async: true, note: "Daravel-only: the waiting jobs of a queue without reserving them (memory, database, redis), for queue dashboards such as daravel_horizon." }
+      - { php: "php artisan queue:retry {id|all}", dart: "await App.make<QueueManager>().retryFailed(uuid) / retryAllFailed()", symbol: QueueManager.retryFailed, async: true, note: "What queue:retry and the Horizon dashboard's retry use." }
+      - { php: "Horizon's routes/web.php (horizon.stats.index, horizon.failed-jobs.show, horizon.retry-jobs.show, ...)", dart: ".withHorizon(createApp: createApp, middleware: ['auth', 'can:viewHorizon'])", symbol: HorizonDashboard.routes, note: "daravel_horizon: the same route names under HORIZON_PATH, plus horizon.stream (server-sent events) and horizon.retry-all; batches wait for a core batch repository." }
+      - { php: "(none)", dart: "await (Queue.connection() as ReclaimableQueueDriver).reclaim('default', jobId)", symbol: ReclaimableQueueDriver.reclaim, async: true, note: "Daravel-only: a reserved job of a worker known to be gone is available again at once, attempts kept, instead of after retry_after." }
+      - { php: "(none)", dart: "worker.reassign(['high', 'default'])", symbol: QueueWorker.reassign, note: "Daravel-only: a running worker polls other queues from its next job on (daravel_horizon auto-scaling)." }
       - { php: "php artisan queue:pause database:default / queue:continue", dart: "dartisan queue:pause database:default / queue:continue", symbol: QueueManager.pause }
+      - { php: "public $maxExceptions = 3;", dart: "int? get maxExceptions => 3;", symbol: Job.maxExceptions }
+      - { php: "php artisan queue:work --memory=128", dart: "dartisan queue:work --memory=128", symbol: WorkerOptions.memory }
+      - { php: "(none)", dart: ".withEmbeddedWorker('indexer', (app, control) async {...}); dartisan serve --embed-worker=indexer", symbol: ApplicationBuilder.withEmbeddedWorker, note: "Daravel-only: an isolate of a package or the application beside the HTTP server, with the queue worker's respawn and stop (daravel_horizon's supervisor)." }
+      - { php: "(none)", dart: ".withCoordinatorService(MyService.new)", symbol: ApplicationBuilder.withCoordinatorService, note: "Daravel-only: process-wide state every worker isolate reaches, in every topology." }
       - { php: "class SendEmail implements ShouldQueue", dart: "final class SendEmail extends Job", symbol: Job }
       - { php: "event(new OrderShipped($order))", dart: "await Event.dispatch(OrderShipped(order))", symbol: Event.dispatch, async: true }
       - { php: "Event::listen(OrderShipped::class, fn)", dart: "Event.listen<OrderShipped>((e) async {...})", symbol: Event.listen }
@@ -371,6 +410,7 @@ sections:
       - { php: "->withoutOverlapping() / onOneServer()", dart: ".withoutOverlapping() / .onOneServer()", symbol: ScheduledTask.withoutOverlapping }
       - { php: "->timezone('America/New_York')", dart: ".timezone('America/New_York')", symbol: ScheduledTask.timezone }
       - { php: "config('app.schedule_timezone')", dart: "SCHEDULE_TIMEZONE", symbol: Schedule.timezone, note: "No fallback to APP_TIMEZONE in 1.x (doctor warns)." }
+      - { php: "php artisan schedule:clear-cache", dart: "dartisan schedule:clear-cache", symbol: Scheduler.clearCache }
 
   - name: Resources, storage, logging, config
     symbols:
@@ -392,9 +432,15 @@ sections:
       - { php: "Storage::response($path)", dart: "await Storage.response(path, request: request)", symbol: Storage.response }
       - { php: "response()->download($path, $name)->deleteFileAfterSend()", dart: "await Response.download(path, name: name, deleteFileAfterSend: true)", symbol: Response.download }
       - { php: "response()->file($path)", dart: "await Response.file(path, request: request)", symbol: Response.file }
+      - { php: "public/ (served by the web server)", dart: ".withStatic('public', prefix: '/assets')", symbol: ApplicationBuilder.withStatic, note: "Scanned at boot, served by name only; dartisan static:hash writes the versions for production." }
+      - { php: "asset('css/app.css')", dart: "asset('css/app.css')", symbol: asset, note: "Adds ?v= with a SHA-256 prefix; that URL is cached for a year (immutable)." }
+      - { php: "Vite::asset('resources/js/app.js')", dart: "Assets.vite('resources/js/app.js')", symbol: Assets.vite, note: "Reads public/build/manifest.json." }
       - { php: "Storage::disk('s3')->temporaryUrl($path, now()->addMinutes(30))", dart: "Storage.disk('s3').temporaryUrl(path, expiration: 30.minutes.fromNow)", symbol: S3Disk.temporaryUrl, note: "package:daravel_s3 (withS3()); same AWS_* variables." }
       - { php: "Storage::disk('s3')->temporaryUploadUrl($path, $expiration)", dart: "Storage.disk('s3').temporaryUploadUrl(path, expiration: ...)", symbol: S3Disk.temporaryUploadUrl, note: "Returns url and headers, as Laravel's array." }
       - { php: "Http::withToken($t)->retry(3, 100)->post($url, $data)", dart: "await Http.withToken(t).retry(3).post(url, json: data)", symbol: Http.withToken, async: true }
+      - { php: "Http::retry(3, [100, 200, 500])", dart: "Http.retry(3, backoff: Http.backoffSequence([...]))", symbol: Http.backoffSequence }
+      - { php: "Http::retry(3, 100, fn ($exception, $request) => ...)", dart: "Http.retry(3, when: (response, error) => ...)", symbol: PendingRequest.retry, note: "Every failed response is retried by default, as in Laravel; when: Http.retryOnConnectionOr5xx leaves other 4xx alone." }
+      - { php: "(none)", dart: "Http.retry(5, backoff: Http.exponentialBackoff(), jitter: 0.2, honorRetryAfter: true)", symbol: Http.exponentialBackoff, note: "Daravel-only: exponential waits, jitter and Retry-After on 429/503." }
       - { php: "Http::fake([...]) / Http::assertSent(...)", dart: "Http.fake({...}).assertSent(...)", symbol: Http.fake }
       - { php: "php artisan down --secret / up", dart: "dartisan down --secret / up", symbol: PreventRequestsDuringMaintenance, note: "Same storage/framework/down file; bypass cookie daravel_maintenance." }
       - { php: "Log::info($message, $context)", dart: "Log.info(message, context)", symbol: Log.info }
@@ -450,6 +496,17 @@ sections:
       - { php: "$this->getJson('/api/users')", dart: "await client.get('/api/users')", symbol: TestClient.get, async: true }
       - { php: "$this->postJson($uri, $data)", dart: "await client.post(uri, json: data)", symbol: TestClient.post, async: true }
       - { php: "$this->actingAs($user)", dart: "client.actingAs(user)", symbol: TestClient.actingAs }
+      - { php: "$this->get('/login') (session kept in memory, CSRF skipped)", dart: "client.browser().get('/login')", symbol: TestClient.browser, async: true, note: "A CookieJar keeps the cookies the application sets and the XSRF-TOKEN cookie goes back as X-XSRF-TOKEN, since Daravel reads the session from its cookie and checks CSRF in tests too. browser(xsrf: false) tests the 419." }
+      - { php: "$this->followingRedirects()", dart: "client.followingRedirects()", symbol: TestClient.followingRedirects }
+      - { php: "$this->withSession(['cart' => [...]])", dart: "client.withSession({'cart': [...]})", symbol: TestClient.withSession, note: "Needs daravel_session's web group on the route." }
+      - { php: "$this->withCookie($name, $value) / withCookies", dart: "client.withCookie(name, value) / withCookies", symbol: TestClient.withCookie, note: "Encrypted with Laravel's CookieValuePrefix, as EncryptCookies expects." }
+      - { php: "$this->withUnencryptedCookie($name, $value) / withUnencryptedCookies", dart: "client.withUnencryptedCookie(name, value) / withUnencryptedCookies", symbol: TestClient.withUnencryptedCookie }
+      - { php: "->assertSessionHas($key, $value) / assertSessionHasAll / assertSessionMissing", dart: ".assertSessionHas(key, value) / assertSessionHasAll / assertSessionMissing", symbol: TestResponse.assertSessionHas, note: "A value, a Matcher or a bool Function(Object?) (Laravel's closure)." }
+      - { php: "->assertSessionHasErrors(['email']) / assertSessionHasNoErrors / assertSessionDoesntHaveErrors", dart: ".assertSessionHasErrors(['email']) / assertSessionHasNoErrors / assertSessionDoesntHaveErrors", symbol: TestResponse.assertSessionHasErrors }
+      - { php: "->assertSessionHasInput('email')", dart: ".assertSessionHasInput('email')", symbol: TestResponse.assertSessionHasInput }
+      - { php: "$this->assertAuthenticated('web') / assertGuest / assertAuthenticatedAs($user)", dart: "response.assertAuthenticated(guard: 'web') / assertGuest / assertAuthenticatedAs(user)", symbol: TestResponse.assertAuthenticated, note: "On the response: the user each guard had when the request ended; a guard nothing asked counts as a guest." }
+      - { php: "->assertRedirect('/path') / assertRedirectContains", dart: ".assertRedirect('/path') / assertRedirectContains", symbol: TestResponse.assertRedirectContains, note: "Compares absolute URLs, as assertLocation does." }
+      - { php: "->assertCookie / assertPlainCookie / assertCookieExpired / assertCookieMissing", dart: ".assertCookie / assertPlainCookie / assertCookieExpired / assertCookieMissing", symbol: TestResponse.assertCookieExpired }
       - { php: "->assertOk() / assertCreated() / assertUnprocessable()", dart: ".assertOk() / .assertCreated() / .assertUnprocessable()", symbol: TestResponse.assertUnprocessable }
       - { php: "->assertJsonPath('data.id', 1)", dart: ".assertJsonPath('data.id', 1)", symbol: TestResponse.assertJsonPath }
       - { php: "use RefreshDatabase;", dart: "refreshDatabase(() => app)", symbol: refreshDatabase }

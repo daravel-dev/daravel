@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:isolate';
 
 import 'coordinator.dart';
@@ -6,7 +7,10 @@ import 'coordinator.dart';
 /// publishes what it measured on its own ([WorkerReports.publish]) and any
 /// worker collects all
 /// of them, so a page served by one worker can show the whole process.
-/// Reports must be sendable (maps, lists, strings, numbers, booleans).
+/// Reports must be sendable (maps, lists, strings, numbers, booleans). The
+/// worker sends a report JSON can hold as JSON text, which the VM shares
+/// between isolates instead of deep-copying it (ADR-031); the coordinator
+/// keeps that text as is and the collecting worker decodes it.
 ///
 /// ```dart
 /// final reports = WorkerReports(container.make<CoordinatorChannel>());
@@ -14,7 +18,17 @@ import 'coordinator.dart';
 /// final all = await reports.collect('pulse'); // {worker: report}
 /// ```
 final class WorkerReportService
+    with PrioritizedService
     implements CoordinatorService, WorkerAwareService {
+  /// Bulk: put off while lagging, refused while saturated.
+  @override
+  // Reading and forgetting reports are answered; publishing one is what
+  // may wait or be dropped.
+  CoordinatorPriority get priority => CoordinatorPriority.normal;
+
+  @override
+  Set<String> get bulkOperations => const {'publish'};
+
   /// The coordinator service name.
   static const String serviceName = 'worker_reports';
 
@@ -69,13 +83,34 @@ final class WorkerReports {
   static String _isolateName() =>
       Isolate.current.debugName ?? '${Isolate.current.hashCode}';
 
+  /// Numbers, booleans and null as they are (no copy to save), the rest as
+  /// JSON text. A plain string is encoded too, so [_decode] can tell it
+  /// apart; a value JSON cannot hold travels as itself.
+  static Object? _encode(Object? report) {
+    switch (report) {
+      case null || num() || bool():
+        return report;
+      default:
+        try {
+          return jsonEncode(report);
+        } on JsonUnsupportedObjectError {
+          return report;
+        }
+    }
+  }
+
+  static Object? _decode(Object? wire) =>
+      wire is String ? jsonDecode(wire) : wire;
+
   /// Replaces this worker's report on [topic].
   Future<void> publish(String topic, Object? report) async {
-    await channel.call(WorkerReportService.serviceName, 'publish', {
-      'topic': topic,
-      'worker': worker,
-      'report': report,
-    });
+    await channel.callBulk(
+      WorkerReportService.serviceName,
+      'publish',
+      {'topic': topic, 'worker': worker, 'report': _encode(report)},
+      // The next report supersedes it.
+      overflow: BulkOverflow.dropOldest,
+    );
   }
 
   /// Every worker's latest report on [topic], by worker name.
@@ -85,7 +120,11 @@ final class WorkerReports {
       'collect',
       {'topic': topic},
     );
-    return result! as Map<String, Object?>;
+    return <String, Object?>{
+      for (final MapEntry(:key, :value)
+          in (result! as Map<String, Object?>).entries)
+        key: _decode(value),
+    };
   }
 
   /// Drops this worker's report on [topic] (on shutdown).

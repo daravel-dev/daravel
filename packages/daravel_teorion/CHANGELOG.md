@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.27.0
+
+- Version aligned with Daravel 1.27.0; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).
+
+## 1.26.0
+
+- Version aligned with Daravel 1.26.0; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).
+
 ## 1.25.0
 
 - Version aligned with Daravel 1.25.0; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).

@@ -360,11 +360,11 @@ final class ModelQuery<T extends Model> {
   }
 
   /// Newest first, by [column] or the model's `created_at` column.
-  ModelQuery<T> latest([String? column]) =>
+  ModelQuery<T> latest([Object? column]) =>
       orderBy(column ?? definition.createdAt, 'desc');
 
   /// Oldest first, by [column] or the model's `created_at` column.
-  ModelQuery<T> oldest([String? column]) =>
+  ModelQuery<T> oldest([Object? column]) =>
       orderBy(column ?? definition.createdAt, 'asc');
 
   /// Random order.
@@ -1007,7 +1007,7 @@ final class ModelQuery<T extends Model> {
       whereIn(_qualify(definition.primaryKey), ids).get();
 
   /// The values of [column]: a list, or a map keyed by [key] when given.
-  Future<Object> pluck(String column, [String? key]) =>
+  Future<Object> pluck(Object column, [Object? key]) =>
       prepared().pluck(column, key);
 
   /// The number of matching models.

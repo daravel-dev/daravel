@@ -229,6 +229,10 @@ final class DatabaseConfig implements ConfigSection {
           // Seconds; 0 for none. The drivers' defaults apply when unset.
           'connect_timeout': env.maybeString('DB_CONNECT_TIMEOUT'),
           'query_timeout': env.maybeString('DB_QUERY_TIMEOUT'),
+          // Seconds; unset or 0 for none (the server's setting).
+          'idle_transaction_timeout': env.maybeString(
+            'DB_IDLE_TRANSACTION_TIMEOUT',
+          ),
           // Laravel's 'search_path' (8 calls it 'schema').
           'search_path':
               env.maybeString('DB_SEARCH_PATH') ?? env.maybeString('DB_SCHEMA'),
@@ -246,9 +250,18 @@ final class DatabaseConfig implements ConfigSection {
           password: env.maybeString('DB_PASSWORD'),
           options: <String, Object?>{
             'pool': env.integer('DB_POOL_SIZE', 10),
-            'sslmode': env.string('DB_SSLMODE', 'disable'),
+            // Unset stays null: with a CA and no mode, the driver verifies
+            // the server, as PDO MySQL does with MYSQL_ATTR_SSL_CA.
+            'sslmode': env.maybeString('DB_SSLMODE'),
+            // Laravel's config/database.php names the CA MYSQL_ATTR_SSL_CA.
+            'sslrootcert':
+                env.maybeString('DB_SSLROOTCERT') ??
+                env.maybeString('MYSQL_ATTR_SSL_CA'),
             'connect_timeout': env.maybeString('DB_CONNECT_TIMEOUT'),
             'query_timeout': env.maybeString('DB_QUERY_TIMEOUT'),
+            'idle_transaction_timeout': env.maybeString(
+              'DB_IDLE_TRANSACTION_TIMEOUT',
+            ),
             'charset': env.string('DB_CHARSET', 'utf8mb4'),
             'collation': env.string('DB_COLLATION', 'utf8mb4_unicode_ci'),
             'timezone': env.maybeString('DB_TIMEZONE'),

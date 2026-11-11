@@ -1,4 +1,4 @@
-<!-- source: operations.md sha256:a31fbd41dcc6 -->
+<!-- source: operations.md sha256:867444c8e4b4 -->
 # Operasional
 
 Menjalankan Daravel di bawah trafik nyata: berapa isolate, berapa koneksi
@@ -31,7 +31,13 @@ banyak satu core; satu isolate membiarkan core lainnya menganggur.
   beberapa proses server di belakang proxy
   alih-alih menambah isolate: `APP_PROCESSES=N`
   ([Deployment](deployment.md#beberapa-proses)); skenario benchmark 13
-  mengukurnya (`bench/README.md`).
+  mengukurnya (`bench/README.md`). `dartisan doctor --production`
+  menyarankan `APP_PROCESSES` (setengah jumlah core, dengan
+  `APP_ISOLATES=2`) bila satu proses menjalankan empat isolate atau lebih,
+  dan bila ada lebih dari satu worker mencatat
+  `DART_VM_OPTIONS=--new_gen_semi_max_size=128`, new generation yang lebih
+  besar yang sedikit mempersingkat request tersebut (81–90 ms menjadi
+  70–77 ms).
 - Setiap isolate punya memori sendiri, sehingga state yang disimpan aplikasi
   di static (daftar token yang dicabut, counter, nilai cache) ada satu per
   isolate. Simpan state itu di penyimpanan bersama sebelum menaikkan
@@ -59,6 +65,39 @@ banyak satu core; satu isolate membiarkan core lainnya menganggur.
   sebaiknya mengikuti pola yang sama: string untuk apa pun yang bisa
   diwakili JSON, `TransferableTypedData` untuk data biner besar, dan map
   hanya untuk argumen kecil.
+
+### Embedded worker dan coordinator service
+
+Paket (dan aplikasi) bisa menambahkan isolate sendiri di samping server
+HTTP, seperti `serve --embed-queue` menambahkan queue worker, serta sebuah
+service di coordinator yang bisa dijangkau setiap worker:
+
+```dart
+Application createApp() => Application.configure(basePath: '.')
+    .withEmbeddedWorker('indexer', (app, control) async {
+      // Its own booted application; its CoordinatorChannel reaches the
+      // server's coordinator.
+      await for (final message in control.messages) {
+        if (message == 'stop') break; // the server is shutting down
+      }
+      return 0;
+    })
+    .withCoordinatorService(SearchStatsService.new)
+    .create();
+```
+
+`dartisan serve --embed-worker=indexer` (bisa diulang, atau
+`SERVER_EMBED_WORKERS=indexer`) menjalankannya; nama yang tidak terdaftar
+membuat server berhenti saat start dengan error konfigurasi. Isolate-nya
+bernama `daravel-<name>` dan mendapat respawn, crash backoff, dan stop yang
+sama dengan queue worker. `EmbeddedWorkers.send(name, message)` sampai ke
+`control.messages`-nya. Coordinator service didaftarkan di coordinator
+mana pun yang dimiliki proses (coordinator aplikasi sendiri dengan satu
+isolate dan di test, coordinator supervisor dengan beberapa isolate),
+sehingga worker memanggilnya dengan
+`App.make<CoordinatorChannel>().call(name, op, args)`; sebuah
+`WorkerAwareService` diberi tahu saat worker isolate keluar, dan
+`dartisan coordinator:stats` menampilkannya.
 
 ## Koneksi database
 
@@ -145,10 +184,28 @@ setiap worker digabungkan.
 | `http_requests_in_flight{worker}` | satu worker jauh lebih sibuk daripada yang lain: distribusi koneksi (lihat di atas) |
 | `http_requests_total{status}` | porsi `5xx` |
 | `process_resident_memory_bytes` | pertumbuhan terus-menerus selama berjam-jam atau berhari-hari |
+| `log_lines_dropped_total` | kenaikan apa pun: stdout, stderr, atau file log tertinggal atau gagal (pipe yang tidak dibaca, disk penuh), sehingga baris log dibuang alih-alih memblokir worker atau memenuhi memorinya |
+| `shadow_replays_dropped_total`, `shadow_replays_failed_total` | dengan replay shadow `withUpstream`: laju replay yang dilewati yang terus-menerus (naikkan `UPSTREAM_SHADOW_MAX_CONCURRENCY` atau turunkan sample rate) atau replay yang tidak dijawab Laravel |
 | `coordinator_messages_total` | lajunya (`rate(...[1m])`) yang ikut naik bersama trafik: setiap worker bertanya ke coordinator, yang menjawab di event loop supervisor |
 | `coordinator_call_duration_seconds{service}` | p99 di atas sekitar 2 ms: rate limit, baca cache process, dan lock menunggu coordinator |
 | `coordinator_rejected_total`, `coordinator_in_flight_peak` dibandingkan `coordinator_max_queue` | penolakan apa pun, atau puncak yang mendekati batas |
 | `coordinator_call_timeouts_total{service}` | laju yang terus-menerus |
+| `metrics_series_dropped_total{metric}` | nilai apa pun di atas nol: sebuah label dari metrik itu menerima nilai yang tidak terbatas |
+| `coordinator_queue_lag_seconds`, `coordinator_queue_lag_peak_seconds` | di atas sekitar 25 ms: pesan menunggu selama itu di event loop coordinator (termasuk service sinkron seperti rate limit dan lock, yang tidak dihitung `coordinator_in_flight`), dan rate limit, yang menunggu 50 ms, mulai fail-open |
+| `coordinator_expired_total` | laju yang terus-menerus: coordinator membuang percobaan rate limit dan pengambilan lock yang pemanggilnya sudah timeout, alih-alih menghitung atau memberikannya padahal tidak ada lagi yang menunggu |
+
+Setiap metrik menyimpan paling banyak `METRICS_MAX_SERIES` set label per
+worker (10 000 secara default, `0` berarti tanpa batas). Update untuk set
+label baru di atas batas itu dihitung di series `{overflow="true"}` dari
+metrik tersebut dan di `metrics_series_dropped_total`, sehingga label yang
+diisi dari input user (sebuah path, sebuah id user) hanya memakan satu
+series, bukan satu per nilai di setiap worker dan di coordinator. Label
+`method` pada metrik HTTP bernilai `GET`, `HEAD`, `POST`, `PUT`, `PATCH`,
+`DELETE`, `OPTIONS` atau `other`, karena client dapat mengirim token apa
+pun sebagai method. Di bawah supervisor, setiap worker mengirim angkanya
+saat angka itu berubah (dan setiap 15 detik apa pun yang terjadi), dan
+series dari setiap worker dijumlahkan: beri gauge yang bukan total sebuah
+label `worker`.
 
 `dartisan coordinator:stats --url=http://127.0.0.1:8000/metrics` membaca
 angka-angka ini dari server yang sedang berjalan dan memberi saran:

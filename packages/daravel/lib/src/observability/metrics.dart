@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 
@@ -7,6 +8,7 @@ import '../foundation/env.dart';
 import '../http/middleware.dart';
 import '../http/request.dart';
 import '../http/response.dart';
+import '../logging/logger.dart';
 import '../server/coordinator.dart';
 
 /// Default histogram buckets in seconds (Prometheus client defaults).
@@ -24,33 +26,89 @@ const List<double> defaultBuckets = <double>[
   10,
 ];
 
+/// A label value escaped for the exposition format.
+String _escapeLabel(String value) => value
+    .replaceAll(r'\', r'\\')
+    .replaceAll('"', r'\"')
+    .replaceAll('\n', r'\n');
+
 String _labelKey(Map<String, String> labels) {
   if (labels.isEmpty) {
     return '';
   }
+  if (labels.length == 1) {
+    final entry = labels.entries.first;
+    return '${entry.key}="${_escapeLabel(entry.value)}"';
+  }
   final keys = labels.keys.toList()..sort();
-  return keys
-      .map(
-        (k) =>
-            '$k="${labels[k]!.replaceAll(r'\', r'\\').replaceAll('"', r'\"').replaceAll('\n', r'\n')}"',
-      )
-      .join(',');
+  return keys.map((k) => '$k="${_escapeLabel(labels[k]!)}"').join(',');
 }
 
-/// Monotonic counter.
-final class Counter {
-  Counter._(this.name, this.help);
+/// The series a metric counts new label sets in once it holds
+/// [MetricsRegistry.maxSeries] series.
+const String overflowSeries = 'overflow="true"';
+
+/// The behaviour shared by [Counter], [Gauge] and [Histogram]: the series
+/// limit and the change count [AppMetrics.startPublishing] reads.
+abstract base class _Metric {
+  _Metric(this.name, this.help, this._registry, [this._limited = true]);
 
   /// The metric's name.
   final String name;
 
   /// The metric's help text.
   final String help;
+
+  final MetricsRegistry _registry;
+  final bool _limited;
+
+  int get _seriesCount;
+  bool _hasSeries(String key);
+
+  /// [key], or [overflowSeries] when [key] is a new series beyond the
+  /// registry's limit (counted in `metrics_series_dropped_total`). An
+  /// unbounded label (a raw path, a user id) then costs one series, not
+  /// one per value, on every worker and on the coordinator.
+  String _admit(String key) {
+    _registry._changes++;
+    final max = _registry.maxSeries;
+    if (!_limited ||
+        max <= 0 ||
+        _seriesCount < max ||
+        identical(key, overflowSeries) ||
+        _hasSeries(key)) {
+      return key;
+    }
+    _registry._dropped.inc({'metric': name});
+    return overflowSeries;
+  }
+}
+
+/// Monotonic counter.
+final class Counter extends _Metric {
+  Counter._(
+    String name,
+    String help,
+    MetricsRegistry registry, {
+    bool limited = true,
+    this._collect,
+  }) : super(name, help, registry, limited);
+
+  final double Function()? _collect;
   final Map<String, double> _values = <String, double>{};
 
+  @override
+  int get _seriesCount => _values.length;
+
+  @override
+  bool _hasSeries(String key) => _values.containsKey(key);
+
   /// Adds [by] to the series of [labels].
-  void inc([Map<String, String> labels = const {}, double by = 1]) {
-    final key = _labelKey(labels);
+  void inc([Map<String, String> labels = const {}, double by = 1]) =>
+      _incKey(_labelKey(labels), by);
+
+  void _incKey(String labelKey, [double by = 1]) {
+    final key = _admit(labelKey);
     _values[key] = (_values[key] ?? 0) + by;
   }
 
@@ -60,24 +118,32 @@ final class Counter {
 }
 
 /// Value that goes up and down.
-final class Gauge {
-  Gauge._(this.name, this.help, this._collect);
+///
+/// Under a supervisor the series of every worker are summed: give a gauge
+/// that is not a total (a temperature, a configured limit) a `worker`
+/// label, or read it per worker.
+final class Gauge extends _Metric {
+  Gauge._(super.name, super.help, super._registry, this._collect);
 
-  /// The metric's name.
-  final String name;
-
-  /// The metric's help text.
-  final String help;
   final double Function()? _collect;
   final Map<String, double> _values = <String, double>{};
 
+  @override
+  int get _seriesCount => _values.length;
+
+  @override
+  bool _hasSeries(String key) => _values.containsKey(key);
+
   /// Sets the series of [labels] to [value].
   void set(double value, [Map<String, String> labels = const {}]) =>
-      _values[_labelKey(labels)] = value;
+      _values[_admit(_labelKey(labels))] = value;
 
   /// Adds [by] to the series of [labels].
-  void inc([Map<String, String> labels = const {}, double by = 1]) {
-    final key = _labelKey(labels);
+  void inc([Map<String, String> labels = const {}, double by = 1]) =>
+      _incKey(_labelKey(labels), by);
+
+  void _incKey(String labelKey, double by) {
+    final key = _admit(labelKey);
     _values[key] = (_values[key] ?? 0) + by;
   }
 
@@ -98,23 +164,26 @@ final class _HistogramSeries {
 }
 
 /// Cumulative histogram with fixed buckets.
-final class Histogram {
-  Histogram._(this.name, this.help, this.buckets);
-
-  /// The metric's name.
-  final String name;
-
-  /// The metric's help text.
-  final String help;
+final class Histogram extends _Metric {
+  Histogram._(super.name, super.help, super._registry, this.buckets);
 
   /// The bucket upper bounds.
   final List<double> buckets;
   final Map<String, _HistogramSeries> _series = {};
 
+  @override
+  int get _seriesCount => _series.length;
+
+  @override
+  bool _hasSeries(String key) => _series.containsKey(key);
+
   /// Records [value] in the series of [labels].
-  void observe(double value, [Map<String, String> labels = const {}]) {
+  void observe(double value, [Map<String, String> labels = const {}]) =>
+      _observeKey(value, _labelKey(labels));
+
+  void _observeKey(double value, String labelKey) {
     final series = _series.putIfAbsent(
-      _labelKey(labels),
+      _admit(labelKey),
       () => _HistogramSeries(buckets.length),
     );
     for (var i = 0; i < buckets.length; i++) {
@@ -138,24 +207,58 @@ final class Histogram {
 /// merge the registries of every worker ([MetricsRegistry.render] of merged
 /// snapshots).
 final class MetricsRegistry {
+  /// A registry keeping at most [maxSeries] series per metric (`0`: no
+  /// limit); see [overflowSeries].
+  MetricsRegistry({this.maxSeries = defaultMaxSeries});
+
+  /// The default of [maxSeries] (`METRICS_MAX_SERIES`).
+  static const int defaultMaxSeries = 10000;
+
+  /// Series per metric beyond which new label sets are counted in
+  /// [overflowSeries] (`0`: no limit).
+  final int maxSeries;
+
   final Map<String, Counter> _counters = <String, Counter>{};
   final Map<String, Gauge> _gauges = <String, Gauge>{};
   final Map<String, Histogram> _histograms = <String, Histogram>{};
 
-  /// The counter [name], created on first use.
-  Counter counter(String name, String help) =>
-      _counters.putIfAbsent(name, () => Counter._(name, help));
+  /// Bumped on every update, so a worker publishes only when it changed.
+  int _changes = 0;
+
+  /// New series refused by [maxSeries], by metric name (bounded by the
+  /// number of metrics, so itself unlimited).
+  late final Counter _dropped = _counters.putIfAbsent(
+    'metrics_series_dropped_total',
+    () => Counter._(
+      'metrics_series_dropped_total',
+      'Updates counted in the overflow series because the metric reached '
+          'METRICS_MAX_SERIES, by metric.',
+      this,
+      limited: false,
+    ),
+  );
+
+  /// The counter [name], created on first use; [collect] reads its
+  /// unlabelled value at render time (a count kept elsewhere).
+  Counter counter(String name, String help, {double Function()? collect}) =>
+      _counters.putIfAbsent(
+        name,
+        () => Counter._(name, help, this, collect: collect),
+      );
 
   /// [collect] computes the value at render time (e.g. memory).
   Gauge gauge(String name, String help, {double Function()? collect}) =>
-      _gauges.putIfAbsent(name, () => Gauge._(name, help, collect));
+      _gauges.putIfAbsent(name, () => Gauge._(name, help, this, collect));
 
   /// The histogram [name], created on first use.
   Histogram histogram(
     String name,
     String help, {
     List<double> buckets = defaultBuckets,
-  }) => _histograms.putIfAbsent(name, () => Histogram._(name, help, buckets));
+  }) => _histograms.putIfAbsent(
+    name,
+    () => Histogram._(name, help, this, buckets),
+  );
 
   /// Plain-data view of every metric.
   Map<String, Object?> snapshot() => <String, Object?>{
@@ -163,7 +266,10 @@ final class MetricsRegistry {
       c.name: <String, Object?>{
         'type': 'counter',
         'help': c.help,
-        'series': Map<String, Object?>.of(c._values),
+        'series': <String, Object?>{
+          ...c._values,
+          if (c._collect != null) '': c._collect(),
+        },
       },
     for (final g in _gauges.values)
       g.name: <String, Object?>{
@@ -288,17 +394,61 @@ final class MetricsRegistry {
   }
 }
 
+/// [snapshot] as JSON text, which the VM shares between isolates instead of
+/// deep-copying a map on every publish (ADR-031). A snapshot JSON cannot
+/// hold (a NaN or infinite value) travels as the map itself.
+Object _encodeSnapshot(Map<String, Object?> snapshot) {
+  try {
+    return jsonEncode(snapshot);
+  } on JsonUnsupportedObjectError {
+    return snapshot;
+  }
+}
+
+/// The snapshot map of an [_encodeSnapshot] value.
+Map<String, Object?> _decodeSnapshot(Object wire) => wire is String
+    ? jsonDecode(wire) as Map<String, Object?>
+    : wire as Map<String, Object?>;
+
 /// Coordinator service collecting worker snapshots (`process` scope).
 ///
 /// With [coordinatorStats] (the standard coordinator passes its own
 /// `stats`), `collect` adds the coordinator's message counters, so a flood
 /// of messages from the workers shows on `/metrics`.
-final class MetricsService implements CoordinatorService {
+///
+/// A snapshot larger than [maxSnapshotBytes] is refused (the worker's
+/// previous one stays), so one worker cannot make every scrape merge and
+/// render megabytes on the supervisor's event loop. A worker that exits is
+/// forgotten, so its last `http_requests_in_flight` is not served on.
+final class MetricsService
+    with PrioritizedService
+    implements CoordinatorService, WorkerAwareService {
+  /// Bulk: put off while lagging, refused while saturated.
+  @override
+  // One collect per scrape, answered at once: /metrics must work when the
+  // coordinator is overloaded, which is when it is needed. Each worker's
+  // periodic publish is what may wait or be dropped.
+  CoordinatorPriority get priority => CoordinatorPriority.critical;
+
+  @override
+  Set<String> get bulkOperations => const {'publish'};
+
   /// A service merging the workers' metrics.
-  MetricsService({this.coordinatorStats});
+  MetricsService({
+    this.coordinatorStats,
+    this.maxSnapshotBytes = defaultMaxSnapshotBytes,
+  });
 
   /// The coordinator service name.
   static const String serviceName = 'metrics';
+
+  /// The default of [maxSnapshotBytes]: 16 MiB.
+  static const int defaultMaxSnapshotBytes = 16 * 1024 * 1024;
+
+  /// The largest snapshot (JSON characters) a worker may publish.
+  final int maxSnapshotBytes;
+
+  int _refused = 0;
 
   /// Adds the coordinator's own numbers to the output.
   final Map<String, Object?> Function()? coordinatorStats;
@@ -316,6 +466,11 @@ final class MetricsService implements CoordinatorService {
       'type': type,
       'help': help,
       'series': <String, Object?>{'': ((stats[key] ?? 0) as num).toDouble()},
+    };
+    Map<String, Object?> seconds(String help, String key) => <String, Object?>{
+      'type': 'gauge',
+      'help': help,
+      'series': <String, Object?>{'': ((stats[key] ?? 0) as num) / 1000},
     };
     return <String, Object?>{
       'coordinator_messages_total': metric(
@@ -343,10 +498,78 @@ final class MetricsService implements CoordinatorService {
         'Pending calls above which the coordinator refuses new ones.',
         'max_queue',
       ),
+      'coordinator_expired_total': metric(
+        'counter',
+        'Requests dropped unanswered because their caller had stopped '
+            'waiting.',
+        'expired',
+      ),
+      'coordinator_queue_lag_seconds': seconds(
+        'How long a message last waited in the coordinator event loop.',
+        'queue_lag_ms',
+      ),
+      'coordinator_queue_lag_peak_seconds': seconds(
+        'The longest a message waited in the coordinator event loop.',
+        'queue_lag_peak_ms',
+      ),
+      // Blueprint #141 §6.6: a wait that was no queue (a busy host, a GC
+      // pause, a late timer), never a reason to refuse work.
+      'coordinator_starved_seconds': seconds(
+        'How long the coordinator last waited for CPU with no queue behind.',
+        'starved_ms',
+      ),
+      'coordinator_starved_peak_seconds': seconds(
+        'The longest the coordinator waited for CPU with no queue behind.',
+        'starved_peak_ms',
+      ),
+      // Blueprint #141 K1.
+      'coordinator_health': <String, Object?>{
+        'type': 'gauge',
+        'help':
+            'The coordinator state (1 for the current one: healthy, '
+            'lagging, saturated).',
+        'series': <String, Object?>{
+          for (final s in CoordinatorState.values)
+            'state="${s.name}"': s.name == stats['state'] ? 1.0 : 0.0,
+        },
+      },
+      'coordinator_deferred': metric(
+        'gauge',
+        'Calls put off by the coordinator while lagging or saturated.',
+        'deferred',
+      ),
+      'coordinator_deferred_peak': metric(
+        'gauge',
+        'The most calls put off at once.',
+        'deferred_peak',
+      ),
+      'coordinator_shed_total': <String, Object?>{
+        'type': 'counter',
+        'help':
+            'Calls refused while the coordinator was saturated, by service.',
+        'series': <String, Object?>{
+          for (final MapEntry(:key, :value)
+              in ((stats['shed'] as Map<String, Object?>?) ?? const {}).entries)
+            'service="$key"': (value! as num).toDouble(),
+        },
+      },
+      'coordinator_served_total': <String, Object?>{
+        'type': 'counter',
+        'help': 'Calls the coordinator answered, by priority.',
+        'series': <String, Object?>{
+          for (final MapEntry(:key, :value)
+              in ((stats['served_by_priority'] as Map<String, Object?>?) ??
+                      const {})
+                  .entries)
+            'priority="$key"': (value! as num).toDouble(),
+        },
+      },
     };
   }
 
-  final Map<String, Map<String, Object?>> _snapshots = {};
+  /// The latest snapshot of each worker as it arrived: JSON text from
+  /// [_encodeSnapshot] (or a plain map), decoded only on `collect`.
+  final Map<String, Object> _snapshots = {};
 
   @override
   String get name => serviceName;
@@ -355,13 +578,18 @@ final class MetricsService implements CoordinatorService {
   Object? handle(String op, Map<String, Object?> args) {
     switch (op) {
       case 'publish':
-        _snapshots[args['worker']! as String] =
-            args['snapshot']! as Map<String, Object?>;
+        final snapshot = args['snapshot']!;
+        if (snapshot is String && snapshot.length > maxSnapshotBytes) {
+          _refused++;
+          return false;
+        }
+        _snapshots[args['worker']! as String] = snapshot;
         return null;
       case 'collect':
         final stats = coordinatorStats;
         return <String, Object?>{
-          ...MetricsRegistry.merge(_snapshots.values),
+          // Decoded on a scrape (rare), not on every publish (each second).
+          ...MetricsRegistry.merge(_snapshots.values.map(_decodeSnapshot)),
           if (stats != null) ...coordinatorSnapshot(stats()),
         };
       default:
@@ -370,8 +598,12 @@ final class MetricsService implements CoordinatorService {
   }
 
   @override
+  void forgetWorker(String worker) => _snapshots.remove(worker);
+
+  @override
   Map<String, Object?> stats() => <String, Object?>{
     'workers': _snapshots.length,
+    'refused': _refused,
   };
 }
 
@@ -382,6 +614,7 @@ final class MetricsConfig implements ConfigSection {
     this.enabled = false,
     this.path = '/metrics',
     this.token,
+    this.maxSeries = MetricsRegistry.defaultMaxSeries,
   });
 
   /// The settings in `METRICS_*`.
@@ -389,7 +622,15 @@ final class MetricsConfig implements ConfigSection {
     enabled: env.boolean('METRICS_ENABLED', false),
     path: env.string('METRICS_PATH', '/metrics'),
     token: env.maybeString('METRICS_TOKEN'),
+    maxSeries: env.integer(
+      'METRICS_MAX_SERIES',
+      MetricsRegistry.defaultMaxSeries,
+    ),
   );
+
+  /// Series per metric and worker before new label sets are counted in
+  /// [overflowSeries] (`METRICS_MAX_SERIES`, `0`: no limit).
+  final int maxSeries;
 
   /// Whether `/metrics` is served.
   final bool enabled;
@@ -408,6 +649,7 @@ final class MetricsConfig implements ConfigSection {
     'enabled': enabled,
     'path': path,
     'protected': token != null,
+    'max_series': maxSeries,
   };
 }
 
@@ -433,6 +675,51 @@ final class AppMetrics {
       'Requests refused with 503 by load shedding '
           '(HTTP_MAX_IN_FLIGHT, HTTP_MAX_QUEUE_DELAY), by worker isolate.',
     );
+    slowClients = registry.counter(
+      'realtime_slow_clients_total',
+      'WebSockets and server-sent event streams closed because the client '
+          'read too slowly, by transport and worker isolate.',
+    );
+    reverbRejected = registry.counter(
+      'reverb_rejected_total',
+      'Pusher connections, messages and subscriptions refused, by reason '
+          '(connection_quota, rate_limit, client_event_rate, channel_limit).',
+    );
+    reverbRateLimited = registry.counter(
+      'reverb_rate_limited_total',
+      'Pusher messages refused with 4301 Rate limit exceeded, by app.',
+    );
+    broadcastShed = registry.counter(
+      'broadcast_shed_total',
+      'Broadcasts dropped because the coordinator could not take them, by '
+          'reason (overloaded, timeout).',
+    );
+    reverbConnections = registry.gauge(
+      'reverb_connections',
+      'Open Pusher connections, by app and worker isolate.',
+    );
+    reverbChannels = registry.gauge(
+      'reverb_channels',
+      'Pusher channel subscriptions, by app and channel type (public, '
+          'private, presence, encrypted).',
+    );
+    reverbMessages = registry.counter(
+      'reverb_messages_total',
+      'Pusher messages, by app and direction (in: from clients, out: frames '
+          'sent to clients).',
+    );
+    reverbFanout = registry.histogram(
+      'reverb_fanout_seconds',
+      'Time to hand one frame to every isolate (and the other servers) '
+          'subscribed to its channel, by app.',
+      buckets: coordinatorBuckets,
+    );
+    registry.counter(
+      'log_lines_dropped_total',
+      'Log lines dropped because the output (stdout, stderr, the log file) '
+          'fell behind or failed.',
+      collect: () => LogLineQueue.droppedTotal.toDouble(),
+    );
     registry.gauge(
       'process_resident_memory_bytes',
       'Resident set size of the process.',
@@ -456,6 +743,53 @@ final class AppMetrics {
           calls.observe(roundTrip.inMicroseconds / 1e6, {'service': service});
       remote.onCallTimeout = (String service) =>
           timeouts.inc({'service': service});
+      // Blueprint #141 K1: what the coordinator last said of its health,
+      // and the calls this worker failed at once instead of waiting.
+      final state = registry.gauge(
+        'coordinator_state',
+        'The coordinator state this worker last heard (1 for the current '
+            'one: healthy, lagging, saturated).',
+      );
+      final shortCircuits = registry.counter(
+        'coordinator_short_circuit_total',
+        'Coordinator calls this worker failed at once because the '
+            'coordinator was saturated, by service.',
+      );
+      void showState(CoordinatorState current) {
+        for (final s in CoordinatorState.values) {
+          state.set(s == current ? 1 : 0, {'state': s.name});
+        }
+      }
+
+      showState(remote.coordinatorState);
+      // Blueprint #141 K1b: bulk calls a full buffer dropped or refused
+      // (worker reports, metrics snapshots and Horizon records are dropped
+      // without telling their callers, so this is their only trace;
+      // Review #153), and the window and buffer as they are now.
+      final dropped = registry.counter(
+        'coordinator_bulk_dropped_total',
+        'Bulk calls this worker dropped or refused because its bulk buffer '
+            'was full, by service and overflow policy.',
+      );
+      registry
+        ..gauge(
+          'coordinator_bulk_waiting',
+          'Bulk calls of this worker waiting for credit.',
+          collect: () => remote.bulkWaiting.toDouble(),
+        )
+        ..gauge(
+          'coordinator_bulk_in_flight',
+          'Bulk calls of this worker sent and not answered yet.',
+          collect: () => remote.bulkInFlight.toDouble(),
+        );
+      remote
+        ..onStateChange = showState
+        ..onShortCircuit = (String service) {
+          shortCircuits.inc({'service': service});
+        }
+        ..onBulkOverflow = (String service, BulkOverflow overflow) {
+          dropped.inc({'service': service, 'overflow': overflow.name});
+        };
     }
   }
 
@@ -497,6 +831,51 @@ final class AppMetrics {
   /// Requests shed under load.
   late final Counter shed;
 
+  /// Realtime clients closed for reading too slowly.
+  late final Counter slowClients;
+
+  /// Pusher connections, messages and subscriptions refused.
+  late final Counter reverbRejected;
+
+  /// Pusher messages refused for a rate limit.
+  late final Counter reverbRateLimited;
+
+  /// Broadcasts dropped because the coordinator could not take them.
+  late final Counter broadcastShed;
+
+  /// Counts one broadcast dropped for [reason] (`overloaded`, `timeout`).
+  void recordBroadcastShed(String reason) =>
+      broadcastShed.inc({'reason': reason});
+
+  /// Open Pusher connections (`reverb_connections{app,worker}`).
+  late final Gauge reverbConnections;
+
+  /// Channel subscriptions (`reverb_channels{app,type}`).
+  late final Gauge reverbChannels;
+
+  /// Messages in and out (`reverb_messages_total{app,direction}`).
+  late final Counter reverbMessages;
+
+  /// Fan-out time of one frame (`reverb_fanout_seconds{app}`).
+  late final Histogram reverbFanout;
+
+  /// Counts [delta] (1 or -1) open connections of [app] on this worker.
+  void recordReverbConnection(String app, int delta) =>
+      reverbConnections.inc({'app': app, 'worker': _worker}, delta.toDouble());
+
+  /// Counts [delta] (1 or -1) subscriptions of [app] to a channel of
+  /// [type].
+  void recordReverbSubscription(String app, String type, int delta) =>
+      reverbChannels.inc({'app': app, 'type': type}, delta.toDouble());
+
+  /// Counts one message of [app] in [direction] (`in`, `out`).
+  void recordReverbMessage(String app, String direction) =>
+      reverbMessages.inc({'app': app, 'direction': direction});
+
+  /// Records the fan-out of one frame of [app].
+  void recordReverbFanout(String app, Duration took) =>
+      reverbFanout.observe(took.inMicroseconds / 1e6, {'app': app});
+
   /// The `worker` label of [inFlight] and [shed]: the isolate's name
   /// (`daravel-worker-N` under a supervisor, the same after a respawn, so
   /// there is one value per worker). Workers share the port, which spreads
@@ -504,8 +883,57 @@ final class AppMetrics {
   late final String _worker =
       Isolate.current.debugName ?? '${Isolate.current.hashCode}';
 
+  /// The label key of `{'worker': _worker}`, built once.
+  late final String _workerKey = _labelKey({'worker': _worker});
+
+  /// The escaped `route` label of each route pattern (bounded by the route
+  /// table, plus `unmatched`), so a request does not escape it again.
+  final Map<String, String> _routeLabels = <String, String>{};
+
+  /// HTTP methods recorded under their own name; any other token (which
+  /// `dart:io` accepts and the kernel answers with 404/405) is `other`, so
+  /// the `method` label stays bounded.
+  static const Set<String> knownMethods = <String>{
+    'GET',
+    'HEAD',
+    'POST',
+    'PUT',
+    'PATCH',
+    'DELETE',
+    'OPTIONS',
+  };
+
+  /// The `method` label of [method]: itself when in [knownMethods],
+  /// `other` otherwise.
+  static String methodLabel(String method) =>
+      knownMethods.contains(method) ? method : 'other';
+
   /// Counts one request refused by load shedding on this worker.
-  void recordShed() => shed.inc({'worker': _worker});
+  void recordShed() => shed._incKey(_workerKey);
+
+  /// Records one finished request (what [MetricsMiddleware] does).
+  void recordRequest(String method, String route, int status, double seconds) {
+    final routeLabel = _routeLabels[route] ??= _escapeLabel(route);
+    final methodAndRoute =
+        'method="${methodLabel(method)}",route="$routeLabel"';
+    requests._incKey('$methodAndRoute,status="$status"');
+    duration._observeKey(seconds, methodAndRoute);
+  }
+
+  /// Counts one realtime client of [transport] (`websocket`, `sse`) closed
+  /// on this worker for reading too slowly.
+  void recordSlowClient(String transport) =>
+      slowClients.inc({'transport': transport, 'worker': _worker});
+
+  /// Counts one refusal of the Pusher server of [app], for [reason]
+  /// (`PusherServer.onRejected`); both rate limits also count in
+  /// `reverb_rate_limited_total`.
+  void recordReverbRejected(String reason, {String app = ''}) {
+    reverbRejected.inc({'app': app, 'reason': reason});
+    if (reason == 'rate_limit' || reason == 'client_event_rate') {
+      reverbRateLimited.inc({'app': app});
+    }
+  }
 
   /// Exposition text: merged across workers under a supervisor.
   Future<String> render() async {
@@ -524,7 +952,7 @@ final class AppMetrics {
     final own = registry.snapshot();
     await remote.call(MetricsService.serviceName, 'publish', {
       'worker': _worker,
-      'snapshot': own,
+      'snapshot': _encodeSnapshot(own),
     });
     final merged = await remote.call(
       MetricsService.serviceName,
@@ -539,24 +967,55 @@ final class AppMetrics {
     return MetricsRegistry.renderSnapshot(result);
   }
 
-  /// Publishes this worker's snapshot periodically (supervisor mode).
-  Timer? startPublishing({Duration every = const Duration(seconds: 1)}) {
+  /// Publishes this worker's snapshot periodically (supervisor mode): on
+  /// a tick after a change, and on every [heartbeat]th tick regardless
+  /// (gauges computed at render time change without an update). An idle
+  /// worker therefore sends one snapshot per [heartbeat] ticks, not one
+  /// per tick.
+  Timer? startPublishing({
+    Duration every = const Duration(seconds: 1),
+    int heartbeat = 15,
+  }) {
     final remote = channel;
     if (remote == null || !remote.isRemote) {
       return null;
     }
+    int? published;
+    var idleTicks = 0;
     return Timer.periodic(every, (_) {
-      remote.call(MetricsService.serviceName, 'publish', {
-        'worker': _worker,
-        'snapshot': registry.snapshot(),
-      }).ignore();
+      final changes = registry._changes;
+      if (changes == published && ++idleTicks < heartbeat) {
+        return;
+      }
+      published = changes;
+      idleTicks = 0;
+      remote
+          .callBulk(
+            MetricsService.serviceName,
+            'publish',
+            {
+              'worker': _worker,
+              'snapshot': _encodeSnapshot(registry.snapshot()),
+            },
+            // The next snapshot supersedes it.
+            overflow: BulkOverflow.dropOldest,
+          )
+          .whenComplete(() {
+            // The publish's own round trip (or timeout) is one update of
+            // `coordinator_call_*`: alone, it is not worth a publish.
+            if (registry._changes == changes + 1) {
+              published = changes + 1;
+            }
+          })
+          .ignore();
     });
   }
 }
 
 /// Records request count, latency and in-flight gauge. The `route` label is
 /// the route pattern (`/users/{id}`), never the raw path, to bound
-/// cardinality; unmatched requests use `unmatched`.
+/// cardinality; unmatched requests use `unmatched`. The `method` label is
+/// one of [AppMetrics.knownMethods] or `other`.
 final class MetricsMiddleware implements Middleware {
   /// Counts every request in [metrics].
   const MetricsMiddleware(this.metrics);
@@ -567,25 +1026,22 @@ final class MetricsMiddleware implements Middleware {
   @override
   Future<Response> handle(Request request, Next next) async {
     final stopwatch = Stopwatch()..start();
-    final worker = {'worker': metrics._worker};
-    metrics.inFlight.inc(worker);
+    final inFlight = metrics.inFlight;
+    final worker = metrics._workerKey;
+    inFlight._incKey(worker, 1);
     var status = 500;
     try {
       final response = await next(request);
       status = response.status;
       return response;
     } finally {
-      metrics.inFlight.dec(worker);
-      final route = request.route?.path ?? 'unmatched';
-      metrics.requests.inc({
-        'method': request.method,
-        'route': route,
-        'status': '$status',
-      });
-      metrics.duration.observe(stopwatch.elapsedMicroseconds / 1e6, {
-        'method': request.method,
-        'route': route,
-      });
+      inFlight._incKey(worker, -1);
+      metrics.recordRequest(
+        request.method,
+        request.route?.path ?? 'unmatched',
+        status,
+        stopwatch.elapsedMicroseconds / 1e6,
+      );
     }
   }
 }

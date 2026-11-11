@@ -81,7 +81,7 @@ before moving to a new minor version.
 | :-- | :-- |
 | `serve [--watch] [--isolates=N] [--embed-queue] [--embed-scheduler]` | HTTP server; `--watch` hot-reloads |
 | `test [--conformance] [--security] [--coverage]` | Runs the tests |
-| `build [--with-cli] [--docker [--distroless]] [--no-sqlite]` | Native bundle in `build/server/bundle`, optional `Dockerfile` (`--distroless`: no shell, non-root, see [Deployment](deployment.md#docker)); `--no-sqlite` leaves the SQLite library out (PostgreSQL/MySQL apps) |
+| `build [--with-cli] [--docker [--distroless]] [--no-sqlite] [--target-os] [--target-arch]` | Native bundle in `build/server/bundle`, optional `Dockerfile` (`--distroless`: no shell, non-root, see [Deployment](deployment.md#docker)); `--no-sqlite` leaves the SQLite library out (PostgreSQL/MySQL apps); `--target-os=linux` (and `--target-arch=x64` or `arm64`) builds for another machine, see [Deployment](deployment.md#build-on-one-os-run-on-another) |
 | `route:list` | The route table |
 | `openapi:generate [--output]` | OpenAPI 3.1 from the routes and their declared metadata |
 | `client:flutter [--output] [--package-name] [--prefix] [--state] [--watch]` | A typed Dart/Flutter client package from the routes, with the server's validation rules ([Flutter client](flutter-client.md)) |
@@ -100,7 +100,7 @@ before moving to a new minor version.
 | `db:transfer --from --to [--dry-run] [--truncate] [--tables] [--no-migrate]` | Copies the data to another database, migrating it first ([Database](database.md#copying-data-between-databases)) |
 | `db:backup [--output] [--keep=N]` | Hot backup of the SQLite database into `storage/backups` (see [Deployment](deployment.md#backups)) |
 | `tinker "<expression>"` | Evaluates a Dart expression in the booted application |
-| `model:sync [Model]` | Regenerates a model's typed accessors from its table, and fills an empty `<dartisan:statics>` region |
+| `model:sync [Model] [--typed-ids]` | Regenerates a model's typed accessors from its table, and fills an empty `<dartisan:statics>` region; `--typed-ids` adds a typed id ([Database](database.md#typed-ids-opt-in)) |
 | `model:show <Model> [--json]` | A model's table, attributes (type, cast, fillable, hidden) and relations, from `bootstrap/models.dart` |
 | `daragic:export [--out] [--only]` | The application model (DAM) for `daragic`: routes, models, migrations, schema, schedule, ... (see [Migrating from Laravel](migrating-from-laravel.md#the-application-model-daragic)) |
 
@@ -108,11 +108,11 @@ before moving to a new minor version.
 
 | Command | What it does |
 | :-- | :-- |
-| `queue:work [--queue] [--tries] [--max-time] [--stop-when-empty]` | Processes jobs; stops after the current job on `SIGTERM` |
+| `queue:work [--queue] [--tries] [--max-time] [--memory] [--stop-when-empty]` | Processes jobs; stops after the current job on `SIGTERM`; `--memory=128` stops it (exit code 12) once it uses that many MB |
 | `queue:failed`, `queue:retry`, `queue:forget`, `queue:flush` | Failed jobs |
 | `queue:clear`, `queue:pause`, `queue:continue`, `queue:restart` | Queue control |
-| `schedule:work`, `schedule:run`, `schedule:list` | The scheduler |
-| `cache:clear`, `storage:link`, `coordinator:stats [--url] [--token] [--json]` | Cache, public storage link, the running server's coordinator with advice ([Operations](operations.md#what-to-watch)) |
+| `schedule:work`, `schedule:run`, `schedule:list`, `schedule:clear-cache` | The scheduler; `schedule:clear-cache` releases `withoutOverlapping` locks left behind |
+| `cache:clear [--locks]`, `cache:prune-expired [store]`, `storage:link`, `static:hash`, `coordinator:stats [--url] [--token] [--json]` | Cache (locks stay unless `--locks`; expired entries of the `database` and `file` stores, see [Cache](background.md#cache)), public storage link, static file versions ([Responses](responses.md#static-files)), the running server's coordinator with advice ([Operations](operations.md#what-to-watch)) |
 
 ## Generators
 
@@ -213,6 +213,43 @@ replaced, because it cannot work there. An entry you changed is kept.
 After adding DDEV to an existing project, run
 `ddev dartisan mcp:install` again. `dartisan new --mcp` runs before DDEV
 is configured, so it writes the host entry.
+
+## Appearance and sponsoring
+
+On a terminal, `dartisan` with no command shows a short word-mark with the
+Daravel, Dart and OS versions, then the commands grouped by the part of
+their name before `:`, as `php artisan list` does, with your own commands
+last under `project`:
+
+```text
+ _| _. ._|_ o _  _. ._
+(_|(_|| |_ |_> (_|| |   Daravel <version> · Dart <sdk> · <os>
+                        Made with the help of our sponsors ♥ github.com/sponsors/daravel-dev
+```
+
+Piped or in CI, the same command prints the plain usage text, so scripts see
+what they always saw. `dartisan list` shows the groups; `list --raw` gives the
+names one per line (for shell completion) and `list --format=json` gives
+`[{name, description, group}]`.
+
+Colour is used on a terminal that takes ANSI escapes. `--no-color`,
+`NO_COLOR`, `DARTISAN_NO_COLOR=1` or `TERM=dumb` turn it off; `--ansi` forces
+it, for a pager such as `less -R`. The flags may come anywhere before `--`.
+No other command's output changes with this.
+
+`dartisan about` ends with a **Daravel** section (version, Dart SDK, OS,
+architecture, AOT or JIT, `APP_ENV`), worth pasting into a bug report, and a
+**Community** section with the docs, the issue tracker and the sponsor page;
+`about --json` prints all of it.
+
+Daravel is kept going by its sponsors. `dartisan sponsor` says where to help
+(`--open` opens the page). After a successful `build`, `upgrade`,
+`self-update`, `test` or a project's first `migrate`, one dim line thanks
+them, followed by how to hide it. It never appears after a failure, in CI,
+off a terminal, or more than once a day, and the CLI makes no network call for
+it. Turn it off for good with `dartisan sponsor --hide` (kept in
+`~/.dartisan/config.json`; `--show` brings it back, `--status` says which) or
+with `DARTISAN_NO_NUDGE=1`.
 
 ## Your own commands
 

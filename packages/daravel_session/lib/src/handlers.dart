@@ -105,9 +105,20 @@ final class DatabaseSessionHandler implements SessionHandler {
 
   int get _now => Clock.now().millisecondsSinceEpoch ~/ 1000;
 
+  /// Whether [read] found a row, per session id, until the [write] of the
+  /// same request (Laravel's `$exists`; one handler serves every request
+  /// of the isolate, so it is kept per id rather than per instance).
+  final Map<String, bool> _exists = {};
+
+  /// How many ids [_exists] keeps for reads that no write followed (a
+  /// request that failed before saving). The oldest go first; a write
+  /// whose id was dropped looks the row up again.
+  static const int _maxRemembered = 10000;
+
   @override
   Future<String?> read(String id) async {
     final row = await _query.where('id', id).first();
+    _remember(id, exists: row != null);
     if (row == null) {
       return null;
     }
@@ -122,6 +133,10 @@ final class DatabaseSessionHandler implements SessionHandler {
     return utf8.decode(base64.decode('$payload'));
   }
 
+  /// Updates the row when it exists and inserts it otherwise, as Laravel's
+  /// `DatabaseSessionHandler::write` does. The row count of an UPDATE
+  /// cannot decide it: MySQL and MariaDB count changed rows, so an
+  /// unchanged payload in the same second reports 0 for a row that exists.
   @override
   Future<void> write(String id, String payload, {Request? request}) async {
     final values = <String, Object?>{
@@ -133,14 +148,31 @@ final class DatabaseSessionHandler implements SessionHandler {
         'user_agent': _cut(request.header('user-agent'), 500),
       },
     };
-    final updated = await _query.where('id', id).update(values);
-    if (updated == 0) {
-      await _query.insert({'id': id, ...values});
+    final exists = _exists.remove(id) ?? await _query.where('id', id).exists();
+    if (exists) {
+      await _query.where('id', id).update(values);
+      return;
     }
+    try {
+      await _query.insert({'id': id, ...values});
+    } on UniqueConstraintViolationException {
+      // Another request created the row after this one read it
+      // (Laravel's performInsert falls back to performUpdate likewise).
+      await _query.where('id', id).update(values);
+    }
+  }
+
+  void _remember(String id, {required bool exists}) {
+    _exists.remove(id);
+    if (_exists.length >= _maxRemembered) {
+      _exists.remove(_exists.keys.first);
+    }
+    _exists[id] = exists;
   }
 
   @override
   Future<void> destroy(String id) async {
+    _exists.remove(id);
     await _query.where('id', id).delete();
   }
 
@@ -176,6 +208,42 @@ final class DatabaseSessionHandler implements SessionHandler {
       value == null || value.length <= length
       ? value
       : value.substring(0, length);
+}
+
+/// Sessions in a cache store, Laravel's `CacheBasedSessionHandler`: the
+/// payload is the value under the session id (after the store's and the
+/// repository's prefixes) and expires after [lifetime], renewed by every
+/// write. The `cache` driver uses the store `SESSION_STORE` names;
+/// `daravel_redis` builds the `redis` driver on it with Laravel's key
+/// layout.
+final class CacheSessionHandler implements SessionHandler {
+  /// Sessions in [cache], each kept for [lifetime] after its last write.
+  CacheSessionHandler(this.cache, {required this.lifetime});
+
+  /// The cache holding the sessions.
+  final CacheRepository cache;
+
+  /// How long a session lasts (the entry's TTL).
+  final Duration lifetime;
+
+  @override
+  Future<String?> read(String id) async {
+    final value = await cache.get<Object>(id);
+    return value is String ? value : null;
+  }
+
+  @override
+  Future<void> write(String id, String payload, {Request? request}) =>
+      cache.put(id, payload, ttl: lifetime);
+
+  @override
+  Future<void> destroy(String id) async {
+    await cache.forget(id);
+  }
+
+  /// Nothing to do: the store expires sessions (Laravel returns 0).
+  @override
+  Future<void> gc(Duration lifetime) async {}
 }
 
 /// Sessions in this isolate's memory: tests and tools. Laravel's `array`
