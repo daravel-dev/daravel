@@ -1,0 +1,42 @@
+work=$HOME/publish10-20261111-174524
+before_ceiling-publish_1 load: 0.99 0.68 0.59
+before_ceiling-publish_1 exit=0
+after_ceiling-publish_1 load: 1.92 1.01 0.71
+after_ceiling-publish_1 exit=0
+after_ceiling-publish_2 load: 1.79 1.21 0.81
+after_ceiling-publish_2 exit=0
+before_ceiling-publish_2 load: 1.83 1.46 0.94
+before_ceiling-publish_2 exit=0
+before_ceiling-publish_3 load: 1.87 1.52 0.98
+before_ceiling-publish_3 exit=0
+after_ceiling-publish_3 load: 1.59 1.56 1.04
+after_ceiling-publish_3 exit=0
+after_ceiling-publish_4 load: 1.63 1.57 1.07
+after_ceiling-publish_4 exit=0
+before_ceiling-publish_4 load: 1.72 1.73 1.17
+before_ceiling-publish_4 exit=0
+before_ceiling-publish_5 load: 1.91 1.76 1.21
+before_ceiling-publish_5 exit=0
+after_ceiling-publish_5 load: 1.74 1.85 1.30
+after_ceiling-publish_5 exit=0
+after_ceiling-publish_6 load: 1.74 1.87 1.34
+after_ceiling-publish_6 exit=0
+before_ceiling-publish_6 load: 1.56 1.85 1.37
+before_ceiling-publish_6 exit=0
+before_ceiling-publish_7 load: 1.78 1.94 1.44
+before_ceiling-publish_7 exit=0
+after_ceiling-publish_7 load: 1.81 1.94 1.47
+after_ceiling-publish_7 exit=0
+after_ceiling-publish_8 load: 1.76 1.94 1.50
+after_ceiling-publish_8 exit=0
+before_ceiling-publish_8 load: 1.67 1.92 1.52
+before_ceiling-publish_8 exit=0
+before_ceiling-publish_9 load: 1.92 1.97 1.57
+before_ceiling-publish_9 exit=0
+after_ceiling-publish_9 load: 1.78 1.98 1.60
+after_ceiling-publish_9 exit=0
+after_ceiling-publish_10 load: 1.69 1.97 1.63
+after_ceiling-publish_10 exit=0
+before_ceiling-publish_10 load: 1.69 1.95 1.64
+before_ceiling-publish_10 exit=0
+done
