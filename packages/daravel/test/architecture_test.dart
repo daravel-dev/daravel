@@ -298,6 +298,11 @@ const Map<String, (int, String)> _knownLongLived = {
   'server/process_supervisor.dart': (5, 'the process supervisor'),
   'server/supervisor.dart': (7, 'the isolate supervisor'),
   'support/facades.dart': (1, 'DB.listen, a call'),
+  'validation/dns.dart': (
+    1,
+    'per MX lookup: its UDP socket, cancelled and closed when the lookup '
+        'ends (answer, timeout or error)',
+  ),
 };
 
 /// The Future and Completer fields of lib/src, each with why it is safe to

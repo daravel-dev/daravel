@@ -65,6 +65,9 @@ Uint8List buildMxQuery(int id, String name) {
 }
 
 /// Reads [packet] as the answer to the MX query [id] for [name].
+///
+/// The owner of an MX record is not matched against [name]: an MX reached
+/// through a CNAME in the same answer counts, as a resolver returns it.
 MxAnswer parseMxAnswer(
   Uint8List packet, {
   required int id,
