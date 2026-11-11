@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io' show stderr;
+import 'dart:io' show SecurityContext, stderr;
 import 'dart:typed_data';
 
 import 'package:daravel/daravel.dart';
@@ -36,6 +36,9 @@ final class MySqlDriver
     this.name = 'mysql',
     this.maxConnections = 10,
     this.secure = false,
+    this.verifyServerCertificate = true,
+    this.securityContext,
+    this.sslCa,
     this.collation = 'utf8mb4_unicode_ci',
     this.timeZone,
     this.connectTimeout = const Duration(seconds: 10),
@@ -53,11 +56,26 @@ final class MySqlDriver
 
   /// Builds the driver from a connection of `config/database` (`DB_*`).
   ///
-  /// `DB_SSLMODE` other than `disable` turns TLS on; without TLS the client
-  /// may fetch the server's RSA key, which MySQL 8's default
-  /// `caching_sha2_password` needs on a first login.
-  factory MySqlDriver.fromConfig(String name, ConnectionConfig connection) {
-    final sslMode = '${connection.options['sslmode'] ?? 'disable'}';
+  /// TLS follows `DB_SSLMODE` as [sslOptions] reads it, with the CA of
+  /// `DB_SSLROOTCERT` (or Laravel's `MYSQL_ATTR_SSL_CA`). Without TLS the
+  /// client may fetch the server's RSA key, which MySQL 8's default
+  /// `caching_sha2_password` needs on a first login. An unknown
+  /// `DB_SSLMODE` is reported once, at boot, through [onWarning] (standard
+  /// error by default).
+  factory MySqlDriver.fromConfig(
+    String name,
+    ConnectionConfig connection, {
+    void Function(String message)? onWarning,
+  }) {
+    final ca = switch (connection.options['sslrootcert']) {
+      final String path when path.isNotEmpty => path,
+      _ => null,
+    };
+    final ssl = sslOptions(connection.options['sslmode'], ca: ca);
+    if (ssl.warning case final warning?) {
+      final void Function(String) warn = onWarning ?? stderr.writeln;
+      warn('[$name] $warning');
+    }
     return MySqlDriver(
       name: name,
       dialect: connection.driver == 'mariadb'
@@ -69,7 +87,10 @@ final class MySqlDriver
       username: connection.username,
       password: connection.password,
       maxConnections: (connection.options['pool'] as int?) ?? 10,
-      secure: sslMode != 'disable',
+      secure: ssl.secure,
+      verifyServerCertificate: ssl.verify,
+      sslCa: ca,
+      onWarning: onWarning,
       collation:
           (connection.options['collation'] as String?) ?? 'utf8mb4_unicode_ci',
       timeZone: connection.options['timezone'] as String?,
@@ -128,6 +149,65 @@ final class MySqlDriver
 
   /// Whether TLS is used.
   final bool secure;
+
+  /// With [secure], whether the server certificate must chain to a trusted
+  /// root ([securityContext], [sslCa], or the system roots) and name
+  /// [host]. `false` keeps the traffic encrypted but accepts any
+  /// certificate, which does not stop an active attacker. True by default,
+  /// as in `mysql_dart` 4.
+  final bool verifyServerCertificate;
+
+  /// The trusted roots for [verifyServerCertificate]; the system roots
+  /// (plus [sslCa]) when null.
+  final SecurityContext? securityContext;
+
+  /// A PEM file of the CA that signed the server certificate
+  /// (`DB_SSLROOTCERT`, `MYSQL_ATTR_SSL_CA`), trusted beside the system
+  /// roots when [securityContext] is null.
+  final String? sslCa;
+
+  /// How `DB_SSLMODE` (any case, `-` or `_`) and a CA map to TLS, the same
+  /// as the PostgreSQL driver and libpq, with MySQL's `--ssl-mode` names:
+  ///
+  /// - `disable`, `disabled`: no TLS.
+  /// - `require`, `required`, `prefer`, `preferred`, `allow`: TLS without
+  ///   checking the certificate (encrypted, but open to an active
+  ///   attacker); with a [ca], checked, as libpq and the MySQL client do.
+  /// - `verify-full`, `verify-identity`, `verify-ca`: TLS with the
+  ///   certificate checked against the CA and the host name. `verify-ca` is
+  ///   checked as strictly: `dart:io` reports a bad chain and a wrong host
+  ///   name through the same callback, so the host cannot be left out.
+  /// - empty: no TLS, or checked TLS when a [ca] is given, as PDO MySQL
+  ///   (mysqlnd) verifies the server when `MYSQL_ATTR_SSL_CA` is set.
+  /// - anything else: as `require`, with a [warning] naming the value.
+  static ({bool secure, bool verify, String? warning}) sslOptions(
+    Object? sslmode, {
+    String? ca,
+  }) {
+    final mode = '${sslmode ?? ''}'.trim().toLowerCase().replaceAll('_', '-');
+    final hasCa = ca != null && ca.isNotEmpty;
+    return switch (mode) {
+      '' => (secure: hasCa, verify: hasCa, warning: null),
+      'disable' || 'disabled' => (secure: false, verify: false, warning: null),
+      'require' ||
+      'required' ||
+      'prefer' ||
+      'preferred' ||
+      'allow' => (secure: true, verify: hasCa, warning: null),
+      'verify-full' ||
+      'verifyfull' ||
+      'verify-identity' ||
+      'verify-ca' => (secure: true, verify: true, warning: null),
+      _ => (
+        secure: true,
+        verify: hasCa,
+        warning:
+            'DB_SSLMODE "$sslmode" is not a known mode; using "require" '
+            '(TLS without certificate checks). Use disable, require or '
+            'verify-full.',
+      ),
+    };
+  }
 
   /// The connection collation (`utf8mb4_unicode_ci`).
   final String collation;
@@ -389,6 +469,17 @@ final class MySqlDriver
   bool isUniqueConstraintError(Object error) =>
       error is MySQLServerException && error.errorCode == 1062;
 
+  /// The roots the server certificate is checked against: [securityContext],
+  /// or the system roots plus [sslCa]; null (the system roots) without
+  /// either.
+  SecurityContext? tlsContext() {
+    if (securityContext != null || sslCa == null) {
+      return securityContext;
+    }
+    return SecurityContext(withTrustedRoots: true)
+      ..setTrustedCertificates(sslCa!);
+  }
+
   @override
   Future<void> connect() async {
     if (_pool != null) {
@@ -402,6 +493,8 @@ final class MySqlDriver
       maxConnections: maxConnections,
       databaseName: database,
       secure: secure,
+      verifyServerCertificate: verifyServerCertificate,
+      securityContext: tlsContext(),
       collation: collation,
       timeoutMs: connectTimeout.inMilliseconds,
       allowPublicKeyRetrieval: !secure,
@@ -410,9 +503,9 @@ final class MySqlDriver
     );
     try {
       // Fail fast on bad credentials or hosts instead of at the first query.
-      // Bounded: mysql_dart opens its socket without a timeout, so a host
-      // that accepts the TCP connection and never answers the handshake
-      // would hold connect() for ever.
+      // Bounded: mysql_dart 3 opened its socket without a timeout; 4 bounds
+      // the TCP connect, TLS and authentication with timeoutMs, and this
+      // stays as a second guard until the 4.x follow-up review.
       await pool.execute('SELECT 1').timeout(connectTimeout + probeGrace);
     } catch (_) {
       await pool.close();

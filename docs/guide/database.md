@@ -113,6 +113,41 @@ Daravel's tests compare the result with Laravel's own:
 As in Laravel, `DB_URL` applies to every built-in connection, and
 `DB_CONNECTION` picks which one is used.
 
+### TLS to the database server
+
+`DB_SSLMODE` (or `?sslmode=` in `DB_URL`) sets TLS for PostgreSQL and
+MySQL/MariaDB, with libpq's names:
+
+| `DB_SSLMODE` | PostgreSQL | MySQL and MariaDB |
+| :-- | :-- | :-- |
+| `disable` (MySQL: `DISABLED`) | no TLS | no TLS |
+| `require` (MySQL: `REQUIRED`, `PREFERRED`) | TLS, certificate not checked | TLS, certificate not checked, unless a CA is given |
+| `verify-full` (MySQL: `VERIFY_IDENTITY`, `VERIFY_CA`, `verify-ca`) | TLS, certificate and host name checked | TLS, certificate and host name checked |
+| unset | no TLS | no TLS; with a CA, as `verify-full` |
+| another value | no TLS | as `require`, with a warning at boot |
+
+`require` encrypts the traffic but does not stop an active attacker: anyone
+between the application and the server can present a certificate of their
+own and read the password and the data. Use `verify-full` in production.
+
+MySQL and MariaDB take the CA that signed the server certificate from
+`DB_SSLROOTCERT`, or from `MYSQL_ATTR_SSL_CA`, the name of Laravel's
+`config/database.php`, so a shared `.env` works for both. As PDO MySQL does,
+a CA without `DB_SSLMODE` means the server is verified. `verify-ca` is
+checked as strictly as `verify-full`: the TLS layer of Dart reports a wrong
+chain and a wrong host name the same way, so the host cannot be skipped.
+
+```dotenv
+DB_CONNECTION=mysql
+DB_HOST=db.internal
+DB_SSLMODE=verify-full
+DB_SSLROOTCERT=/etc/ssl/db-ca.pem
+```
+
+A server in Docker or on the same host often uses the certificate MySQL or
+MariaDB generates on first start, which no CA signed: `require` connects to
+it, `verify-full` refuses it before the password is sent.
+
 ### Several databases at once
 
 The `DB_*` keys configure one database. Add others with their own settings
