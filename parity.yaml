@@ -254,6 +254,10 @@ sections:
       - { php: "Rule::unique('users')->ignore($id)->where(fn ($q) => $q->whereNull('deleted_at'))", dart: "Rules.unique('users').ignore(id).where((QueryBuilder q) => q.whereNull('deleted_at'))", symbol: UniqueRule.ignore }
       - { php: "['required', 'email', 'max:255']", dart: "Rules.required().email().max(255)", symbol: RuleBuilder, note: "Chained rule objects, checked by the compiler." }
       - { php: "'accepted' / 'accepted_if:plan,paid' / 'declined' / 'declined_if:plan,paid'", dart: "the same strings, or Rules.accepted() / acceptedIf('plan', ['paid']) / declined() / declinedIf(...)", symbol: AcceptanceRule }
+      - { php: "'missing' / 'missing_if:a,x' / 'missing_unless:a,x' / 'missing_with:a,b' / 'missing_with_all:a,b'", dart: "the same strings, or Rules.missing() / missingIf('a', ['x']) / missingUnless(...) / missingWith(['a', 'b']) / missingWithAll(...)", symbol: PresenceWithRule, note: "Presence is the key's, as Arr::has: a key with a null value is present." }
+      - { php: "'present_unless:a,x' / 'present_with:a,b' / 'present_with_all:a,b'", dart: "the same strings, or Rules.presentUnless('a', ['x']) / presentWith(['a', 'b']) / presentWithAll(...)", symbol: Rules.presentWith }
+      - { php: "'prohibited_if_accepted:a' / 'prohibited_if_declined:a' / 'required_if_declined:a'", dart: "the same strings, or Rules.prohibitedIfAccepted('a') / prohibitedIfDeclined('a') / requiredIfDeclined('a')", symbol: AcceptanceConditionRule }
+      - { php: "'required_array_keys:name,email'", dart: "the same string, or Rules.requiredArrayKeys(['name', 'email'])", symbol: RequiredArrayKeysRule }
 
   - name: Eloquent
     symbols:
