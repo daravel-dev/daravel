@@ -303,9 +303,18 @@ jobs:
 
       - name: Install Playwright and Chromium
         working-directory: apps/daravel_starter/tests/e2e
+        # The system libraries come from apt; when the runner's Ubuntu mirror
+        # is down (azure.archive.ubuntu.com did not resolve for hours on
+        # 2026-11-11, failing every run and so the merge queue), the browser
+        # is installed alone: the ubuntu-latest image ships Google Chrome
+        # and the libraries Chromium needs. A missing library still fails
+        # the suite below, so nothing passes unchecked.
         run: |
           npm install --no-audit --no-fund
-          npx playwright install --with-deps chromium
+          if ! npx playwright install --with-deps chromium; then
+            echo "::warning::apt failed; installing Chromium without its system dependencies"
+            npx playwright install chromium
+          fi
 
       - name: Run the suite (starts the starter on a fresh database)
         working-directory: apps/daravel_starter
