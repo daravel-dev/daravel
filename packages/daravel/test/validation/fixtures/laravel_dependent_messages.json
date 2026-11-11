@@ -14,6 +14,7 @@
             "rules": {
                 "items.*.x": "same:items.*.o"
             },
+            "attributes": null,
             "errors": {
                 "items.0.x": [
                     "The items.0.x field must match items.0.o."
@@ -32,6 +33,7 @@
             "rules": {
                 "items.*.x": "different:items.*.o"
             },
+            "attributes": null,
             "errors": {
                 "items.0.x": [
                     "The items.0.x field and items.0.o must be different."
@@ -49,6 +51,7 @@
             "rules": {
                 "items.*.x": "required_if:items.*.o,v"
             },
+            "attributes": null,
             "errors": {
                 "items.0.x": [
                     "The items.0.x field is required when items.0.o is v."
@@ -66,6 +69,7 @@
             "rules": {
                 "items.*.x": "required_unless:items.*.o,v"
             },
+            "attributes": null,
             "errors": {
                 "items.0.x": [
                     "The items.0.x field is required unless items.0.o is in v."
@@ -83,6 +87,7 @@
             "rules": {
                 "items.*.x": "required_with:items.*.o"
             },
+            "attributes": null,
             "errors": {
                 "items.0.x": [
                     "The items.0.x field is required when items.0.o is present."
@@ -101,6 +106,7 @@
             "rules": {
                 "items.*.x": "required_with_all:items.*.o,items.*.p"
             },
+            "attributes": null,
             "errors": {
                 "items.0.x": [
                     "The items.0.x field is required when items.0.o / items.0.p are present."
@@ -118,6 +124,7 @@
             "rules": {
                 "items.*.x": "required_without:items.*.o"
             },
+            "attributes": null,
             "errors": {
                 "items.0.x": [
                     "The items.0.x field is required when items.0.o is not present."
@@ -135,6 +142,7 @@
             "rules": {
                 "items.*.x": "required_without_all:items.*.o,items.*.p"
             },
+            "attributes": null,
             "errors": {
                 "items.0.x": [
                     "The items.0.x field is required when none of items.0.o / items.0.p are present."
@@ -152,6 +160,7 @@
             "rules": {
                 "items.*.x": "required_if_accepted:items.*.o"
             },
+            "attributes": null,
             "errors": {
                 "items.0.x": [
                     "The items.0.x field is required when items.0.o is accepted."
@@ -169,6 +178,7 @@
             "rules": {
                 "items.*.x": "required_if_declined:items.*.o"
             },
+            "attributes": null,
             "errors": {
                 "items.0.x": [
                     "The items.0.x field is required when items.0.o is declined."
@@ -187,6 +197,7 @@
             "rules": {
                 "items.*.x": "prohibited_if:items.*.o,v"
             },
+            "attributes": null,
             "errors": {
                 "items.0.x": [
                     "The items.0.x field is prohibited when items.0.o is v."
@@ -205,6 +216,7 @@
             "rules": {
                 "items.*.x": "prohibited_unless:items.*.o,v"
             },
+            "attributes": null,
             "errors": {
                 "items.0.x": [
                     "The items.0.x field is prohibited unless items.0.o is in v."
@@ -223,6 +235,7 @@
             "rules": {
                 "items.*.x": "prohibited_if_accepted:items.*.o"
             },
+            "attributes": null,
             "errors": {
                 "items.0.x": [
                     "The items.0.x field is prohibited when items.0.o is accepted."
@@ -241,6 +254,7 @@
             "rules": {
                 "items.*.x": "prohibits:items.*.o"
             },
+            "attributes": null,
             "errors": {
                 "items.0.x": [
                     "The items.0.x field prohibits items.0.o from being present."
@@ -259,6 +273,7 @@
             "rules": {
                 "items.*.x": "gt:items.*.o"
             },
+            "attributes": null,
             "errors": {
                 "items.0.x": [
                     "The items.0.x field must be greater than 2."
@@ -277,6 +292,7 @@
             "rules": {
                 "items.*.x": "gte:items.*.o"
             },
+            "attributes": null,
             "errors": {
                 "items.0.x": [
                     "The items.0.x field must be greater than or equal to 2."
@@ -295,6 +311,7 @@
             "rules": {
                 "items.*.x": "lt:items.*.o"
             },
+            "attributes": null,
             "errors": {
                 "items.0.x": [
                     "The items.0.x field must be less than 2."
@@ -313,6 +330,7 @@
             "rules": {
                 "items.*.x": "lte:items.*.o"
             },
+            "attributes": null,
             "errors": {
                 "items.0.x": [
                     "The items.0.x field must be less than or equal to 2."
@@ -331,6 +349,7 @@
             "rules": {
                 "items.*.x": "in_array:items.*.o"
             },
+            "attributes": null,
             "errors": {
                 "items.0.x": [
                     "The items.0.x field must exist in items.*.o."
@@ -349,6 +368,7 @@
             "rules": {
                 "items.*.x": "before:items.*.o"
             },
+            "attributes": null,
             "errors": {
                 "items.0.x": [
                     "The items.0.x field must be a date before items.0.o."
@@ -367,6 +387,7 @@
             "rules": {
                 "items.*.x": "after:items.*.o"
             },
+            "attributes": null,
             "errors": {
                 "items.0.x": [
                     "The items.0.x field must be a date after items.0.o."
@@ -385,6 +406,7 @@
             "rules": {
                 "items.*.x": "before_or_equal:items.*.o"
             },
+            "attributes": null,
             "errors": {
                 "items.0.x": [
                     "The items.0.x field must be a date before or equal to items.0.o."
@@ -403,6 +425,7 @@
             "rules": {
                 "items.*.x": "after_or_equal:items.*.o"
             },
+            "attributes": null,
             "errors": {
                 "items.0.x": [
                     "The items.0.x field must be a date after or equal to items.0.o."
@@ -421,6 +444,7 @@
             "rules": {
                 "items.*.x": "date_equals:items.*.o"
             },
+            "attributes": null,
             "errors": {
                 "items.0.x": [
                     "The items.0.x field must be a date equal to items.*.o."
@@ -439,6 +463,7 @@
             "rules": {
                 "items.*.x": "accepted_if:items.*.o,v"
             },
+            "attributes": null,
             "errors": {
                 "items.0.x": [
                     "The items.0.x field must be accepted when items.0.o is v."
@@ -457,6 +482,7 @@
             "rules": {
                 "items.*.x": "declined_if:items.*.o,v"
             },
+            "attributes": null,
             "errors": {
                 "items.0.x": [
                     "The items.0.x field must be declined when items.0.o is v."
@@ -474,6 +500,7 @@
             "rules": {
                 "items.*.x": "present_if:items.*.o,v"
             },
+            "attributes": null,
             "errors": {
                 "items.0.x": [
                     "The items.0.x field must be present when items.0.o is v."
@@ -491,6 +518,7 @@
             "rules": {
                 "items.*.x": "present_unless:items.*.o,v"
             },
+            "attributes": null,
             "errors": {
                 "items.0.x": [
                     "The items.0.x field must be present unless items.0.o is v."
@@ -508,6 +536,7 @@
             "rules": {
                 "items.*.x": "present_with:items.*.o"
             },
+            "attributes": null,
             "errors": {
                 "items.0.x": [
                     "The items.0.x field must be present when items.0.o is present."
@@ -526,6 +555,7 @@
             "rules": {
                 "items.*.x": "present_with_all:items.*.o,items.*.p"
             },
+            "attributes": null,
             "errors": {
                 "items.0.x": [
                     "The items.0.x field must be present when items.0.o / items.0.p are present."
@@ -544,6 +574,7 @@
             "rules": {
                 "items.*.x": "missing_if:items.*.o,v"
             },
+            "attributes": null,
             "errors": {
                 "items.0.x": [
                     "The items.0.x field must be missing when items.0.o is v."
@@ -562,6 +593,7 @@
             "rules": {
                 "items.*.x": "missing_unless:items.*.o,v"
             },
+            "attributes": null,
             "errors": {
                 "items.0.x": [
                     "The items.0.x field must be missing unless items.0.o is v."
@@ -580,6 +612,7 @@
             "rules": {
                 "items.*.x": "missing_with:items.*.o"
             },
+            "attributes": null,
             "errors": {
                 "items.0.x": [
                     "The items.0.x field must be missing when items.0.o is present."
@@ -599,6 +632,7 @@
             "rules": {
                 "items.*.x": "missing_with_all:items.*.o,items.*.p"
             },
+            "attributes": null,
             "errors": {
                 "items.0.x": [
                     "The items.0.x field must be missing when items.0.o / items.0.p are present."
@@ -616,6 +650,7 @@
             "rules": {
                 "items.*.x": "confirmed"
             },
+            "attributes": null,
             "errors": {
                 "items.0.x": [
                     "The items.0.x field confirmation does not match."
@@ -633,6 +668,7 @@
             "rules": {
                 "items.*.x": "required_with:items.*.o,items.*.p"
             },
+            "attributes": null,
             "errors": {
                 "items.0.x": [
                     "The items.0.x field is required when items.0.o / items.0.p is present."
@@ -650,6 +686,7 @@
             "rules": {
                 "items.*.x": "required_without:items.*.o,items.*.p"
             },
+            "attributes": null,
             "errors": {
                 "items.0.x": [
                     "The items.0.x field is required when items.0.o / items.0.p is not present."
@@ -664,6 +701,7 @@
             "rules": {
                 "start_date": "before:end_date"
             },
+            "attributes": null,
             "errors": {
                 "start_date": [
                     "The start date field must be a date before end date."
@@ -678,6 +716,7 @@
             "rules": {
                 "start_date": "date_equals:end_date"
             },
+            "attributes": null,
             "errors": {
                 "start_date": [
                     "The start date field must be a date equal to end date."
@@ -691,6 +730,7 @@
             "rules": {
                 "start_date": "before:2020-01-01"
             },
+            "attributes": null,
             "errors": {
                 "start_date": [
                     "The start date field must be a date before 2020-01-01."
@@ -704,6 +744,7 @@
             "rules": {
                 "x": "required_with:first_name,last_name"
             },
+            "attributes": null,
             "errors": {
                 "x": [
                     "The x field is required when first name / last name is present."
@@ -722,9 +763,65 @@
             "rules": {
                 "items.*.x": "date_equals:items.*.o_date"
             },
+            "attributes": null,
             "errors": {
                 "items.0.x": [
                     "The items.0.x field must be a date equal to items.*.o date."
+                ]
+            }
+        },
+        {
+            "data": {
+                "first_name": "a"
+            },
+            "rules": {
+                "x": "required_with:first_name,last_name"
+            },
+            "attributes": {
+                "first_name": "given name",
+                "last_name": "family name"
+            },
+            "errors": {
+                "x": [
+                    "The x field is required when given name / family name is present."
+                ]
+            }
+        },
+        {
+            "data": {
+                "items": [
+                    {
+                        "o": "v"
+                    }
+                ]
+            },
+            "rules": {
+                "items.*.x": "required_with:items.*.o,items.*.p"
+            },
+            "attributes": {
+                "items.*.o": "option",
+                "items.0.p": "price"
+            },
+            "errors": {
+                "items.0.x": [
+                    "The items.0.x field is required when option / price is present."
+                ]
+            }
+        },
+        {
+            "data": {
+                "start_date": "2020-01-02",
+                "end_date": "2020-01-01"
+            },
+            "rules": {
+                "start_date": "before:end_date"
+            },
+            "attributes": {
+                "end_date": "the end"
+            },
+            "errors": {
+                "start_date": [
+                    "The start date field must be a date before the end."
                 ]
             }
         }

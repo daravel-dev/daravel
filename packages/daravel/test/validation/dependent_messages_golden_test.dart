@@ -38,9 +38,16 @@ void main() {
       _ => <String, List<String>>{},
     };
     final rule = '${rules.values.first}';
+    final attributes = switch (c['attributes']) {
+      final Map<String, Object?> map => map.cast<String, String>(),
+      _ => const <String, String>{},
+    };
     test(
-      '$rules with $data',
-      () async => expect(await Validator(data, rules).run(), expected),
+      '$rules with $data${attributes.isEmpty ? '' : ' named $attributes'}',
+      () async => expect(
+        await Validator(data, rules, attributes: attributes).run(),
+        expected,
+      ),
       skip:
           rule.startsWith('required_if:') || rule.startsWith('required_unless:')
           ? 'required_if/required_unless messages are fixed by the PR '
