@@ -138,7 +138,6 @@ Set<String> _methodsOf(String target) {
 /// Shrinks with each W9.4a pull request; empty when the slice is done.
 const Map<String, String> _laravelPending = {
   'uploaded': 'a message, not a rule (a failed upload)',
-  'dimensions': 'W9.4a external (image headers)',
 };
 
 /// The static methods of `abstract final class Rules`, from its source.
@@ -230,6 +229,7 @@ Map<String, Rule Function()> _sampleBuilders() => {
   'activeUrl': Rules.activeUrl,
   'currentPassword': Rules.currentPassword,
   'can': () => Rules.can('update'),
+  'dimensions': () => Rules.dimensions(minWidth: 1),
   'file': Rules.file,
   'image': Rules.image,
   'mimes': () => Rules.mimes(['pdf']),

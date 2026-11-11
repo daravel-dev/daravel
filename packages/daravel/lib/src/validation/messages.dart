@@ -41,6 +41,7 @@ abstract final class ValidationMessages {
       'active_url': 'The :attribute field must be a valid URL.',
       'current_password': 'The password is incorrect.',
       'can': 'The :attribute field contains an unauthorized value.',
+      'dimensions': 'The :attribute field has invalid image dimensions.',
       'uuid': 'The :attribute field must be a valid UUID.',
       'ulid': 'The :attribute field must be a valid ULID.',
       'ip': 'The :attribute field must be a valid IP address.',
@@ -220,6 +221,8 @@ abstract final class ValidationMessages {
       'active_url': 'Kolom :attribute harus berupa URL yang valid.',
       'current_password': 'Kata sandi salah.',
       'can': 'Kolom :attribute berisi nilai yang tidak diizinkan.',
+      'dimensions':
+          'Kolom :attribute memiliki dimensi gambar yang tidak valid.',
       'uuid': 'Kolom :attribute harus berupa UUID yang valid.',
       'ulid': 'Kolom :attribute harus berupa ULID yang valid.',
       'ip': 'Kolom :attribute harus berupa alamat IP yang valid.',

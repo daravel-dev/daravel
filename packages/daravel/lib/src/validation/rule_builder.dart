@@ -145,6 +145,31 @@ final class RuleBuilder {
   RuleBuilder image({bool allowSvg = false}) =>
       _add(Rules.image(allowSvg: allowSvg));
 
+  /// Appends [Rules.dimensions].
+  RuleBuilder dimensions({
+    int? width,
+    int? height,
+    int? minWidth,
+    int? maxWidth,
+    int? minHeight,
+    int? maxHeight,
+    String? ratio,
+    String? minRatio,
+    String? maxRatio,
+  }) => _add(
+    Rules.dimensions(
+      width: width,
+      height: height,
+      minWidth: minWidth,
+      maxWidth: maxWidth,
+      minHeight: minHeight,
+      maxHeight: maxHeight,
+      ratio: ratio,
+      minRatio: minRatio,
+      maxRatio: maxRatio,
+    ),
+  );
+
   /// Appends [Rules.mimes].
   RuleBuilder mimes(List<String> extensions) => _add(Rules.mimes(extensions));
 
@@ -622,6 +647,29 @@ extension RuleChain on Rule {
   /// This rule followed by [Rules.image].
   RuleBuilder image({bool allowSvg = false}) =>
       _chain.image(allowSvg: allowSvg);
+
+  /// This rule followed by [Rules.dimensions].
+  RuleBuilder dimensions({
+    int? width,
+    int? height,
+    int? minWidth,
+    int? maxWidth,
+    int? minHeight,
+    int? maxHeight,
+    String? ratio,
+    String? minRatio,
+    String? maxRatio,
+  }) => _chain.dimensions(
+    width: width,
+    height: height,
+    minWidth: minWidth,
+    maxWidth: maxWidth,
+    minHeight: minHeight,
+    maxHeight: maxHeight,
+    ratio: ratio,
+    minRatio: minRatio,
+    maxRatio: maxRatio,
+  );
 
   /// This rule followed by [Rules.mimes].
   RuleBuilder mimes(List<String> extensions) => _chain.mimes(extensions);

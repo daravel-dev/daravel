@@ -269,6 +269,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `Validator::$fakeDnsLookups = true` | `container.instance<DnsResolver>(FakeDnsResolver())` |  |
 | `'current_password' / 'current_password:api'` | `same strings, or Rules.currentPassword(guard: 'api')` | Through CurrentPasswordVerifier, which the Application binds from AuthManager and Hash; outside an Application it throws instead of passing. |
 | `Rule::can('update', $post)` | `Rules.can('update', [post])` | The gate gets the arguments and the value, without PHP's empty values (array_filter), as Laravel. |
+| `'dimensions:min_width=100,ratio=3/2' / Rule::dimensions()->minWidth(100)` | `same string, or Rules.dimensions(minWidth: 100, ratio: '3/2')` | PNG, GIF, JPEG, WebP and BMP headers as getimagesize, from the first 256 KiB; an SVG passes. |
 | `'array' / 'array:name,email' / 'list'` | `same strings, or Rules.array(['name', 'email']) / Rules.list()` | array is a JSON array or object, as a PHP array; list only a JSON array. |
 | `->withoutMiddleware('csrf')` | `.withoutMiddleware(['csrf'])` |  |
 | `Route::get('/posts/{post}', fn (Post $post) => ...)` | `router.bindModel('post', Post.definition)` |  |

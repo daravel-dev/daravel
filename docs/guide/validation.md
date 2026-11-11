@@ -208,6 +208,12 @@ router.post('/avatar', (request) async {
   detected type), `mimetypes:image/*`, `extensions:csv,txt` (the client's
   file name), and `min`, `max`, `size`, `between` in kilobytes. PHP files are
   refused unless `php` is listed.
+- `dimensions:min_width=100,max_height=800,ratio=3/2` (or
+  `Rules.dimensions(minWidth: 100, ratio: '3/2')`) reads the size from the
+  image header as PHP's `getimagesize`, for PNG, GIF, JPEG, WebP and BMP; an
+  SVG passes, as in Laravel. Only the first 256 KiB of the upload are read:
+  a JPEG whose metadata is longer than that before the image has no size and
+  fails, and so does any other format.
 - Types are detected from the content (PDF, images, Office and OpenDocument
   files, archives, text), never from the file name: a text file named
   `photo.png` is not an image.
