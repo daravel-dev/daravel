@@ -113,6 +113,9 @@ final class HorizonService
     'silenced': [],
   };
 
+  /// The newest record of each job still kept, by uuid.
+  final Map<String, RecordedJob> _latest = {};
+
   /// Tags whose jobs are kept apart, with the failed retention.
   final Set<String> _monitored = {};
 
@@ -144,6 +147,18 @@ final class HorizonService
         final job = RecordedJob.fromJson(
           jsonDecode(args['job']! as String) as Map<String, Object?>,
         );
+        // One record per job: the newest replaces the one before it
+        // (whatever its status), and an older one, arriving late from
+        // another worker, never replaces a newer one.
+        final previous = _latest[job.uuid];
+        if (previous != null) {
+          if (previous.at > job.at) {
+            return null;
+          }
+          _jobs[previous.status]?.remove(previous);
+          _tagged.remove(previous);
+        }
+        _latest[job.uuid] = job;
         final list = _jobs.putIfAbsent(job.status, () => [])..add(job);
         _trim(job.status, list);
         if (job.tags.any(_monitored.contains)) {
@@ -225,28 +240,38 @@ final class HorizonService
     };
   }
 
-  void _trim(String status, List<RecordedJob> list) =>
-      _trimTo(list, status == 'failed' ? failedRetention : retention);
+  void _trim(String status, List<RecordedJob> list) => _trimTo(
+    list,
+    status == 'failed' ? failedRetention : retention,
+    indexed: true,
+  );
 
-  void _trimTo(List<RecordedJob> list, Duration keep) {
+  /// Drops the records of [list] older than [keep], then the oldest past
+  /// [maxPerStatus]; [indexed] (a status list) forgets them in [_latest].
+  void _trimTo(List<RecordedJob> list, Duration keep, {bool indexed = false}) {
+    void forget(RecordedJob job) {
+      if (indexed && identical(_latest[job.uuid], job)) {
+        _latest.remove(job.uuid);
+      }
+    }
+
     final cutoff = _now - keep.inMilliseconds;
-    list.removeWhere((job) => job.at < cutoff);
+    list.removeWhere((job) {
+      if (job.at >= cutoff) {
+        return false;
+      }
+      forget(job);
+      return true;
+    });
     if (list.length > maxPerStatus) {
-      list.removeRange(0, list.length - maxPerStatus);
+      final excess = list.length - maxPerStatus;
+      list.take(excess).forEach(forget);
+      list.removeRange(0, excess);
     }
   }
 
   /// The recorded job [uuid] (completed, failed or silenced), or null.
-  RecordedJob? job(String uuid) {
-    for (final list in _jobs.values) {
-      for (final job in list.reversed) {
-        if (job.uuid == uuid) {
-          return job;
-        }
-      }
-    }
-    return null;
-  }
+  RecordedJob? job(String uuid) => _latest[uuid];
 
   /// `jobs_per_minute` (finished in the last minute), `jobs_past_hour`
   /// and `failed_past_week`.

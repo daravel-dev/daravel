@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 
@@ -8,6 +7,7 @@ import 'package:daravel/daravel.dart';
 import 'config.dart';
 import 'messages.dart';
 import 'signals.dart';
+import 'store/horizon_store.dart';
 import 'store/process_store.dart';
 
 /// What a worker isolate gets when it is spawned. Sent once, at spawn, so
@@ -148,19 +148,10 @@ Future<void> horizonWorkerMain(HorizonWorkerStart start) async {
         : null;
     final silencedNames = {...?horizon?.silenced};
     final silencedTags = {...?horizon?.silencedTags};
-    final store = booted.container.make<CoordinatorChannel>();
+    final store = horizonStoreOf(booted.container);
     final running = <String, (String, List<String>)>{};
-    void record(RecordedJob job) => unawaited(
-      store
-          .callBulk(
-            HorizonService.serviceName,
-            'record',
-            {'job': jsonEncode(job.toJson())},
-            // A flood of finished jobs keeps the newest records.
-            overflow: BulkOverflow.dropOldest,
-          )
-          .then<void>((_) {}, onError: (Object _) {}),
-    );
+    // Best effort, never awaited: a store that fails never holds a job.
+    void record(RecordedJob job) => unawaited(store.record(job));
     booted.container.make<EventDispatcher>()
       ..listen<JobProcessing>((e) {
         // Reported already, at the reservation (onReserved below): only

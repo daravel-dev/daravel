@@ -13,11 +13,14 @@ void main() {
     service = HorizonService(maxPerStatus: 3, clock: () => now);
   });
 
+  // A new uuid each time: every call is another job (the store keeps one
+  // record per uuid).
+  var jobs = 0;
   void record(String status, {String queue = 'a', int? ms, int ago = 0}) =>
       service.handle('record', {
         'job': jsonEncode(
           RecordedJob(
-            uuid: 'u${now.microsecond}$status$ago',
+            uuid: 'u${jobs++}',
             name: 'mark',
             queue: queue,
             status: status,
