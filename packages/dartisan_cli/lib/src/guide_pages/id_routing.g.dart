@@ -2,7 +2,7 @@
 // Do not edit; run `dart run tool/docs/generate.dart`.
 
 /// `docs/guide/id/routing.md`.
-const String pageIdRouting = r'''<!-- source: routing.md sha256:75d62680e65a -->
+const String pageIdRouting = r'''<!-- source: routing.md sha256:d962973353d3 -->
 # Routing
 
 Route didaftarkan di `routes/api.dart` (di-mount di bawah `/api`) dan
@@ -167,6 +167,23 @@ selesai dan `try` di sekitar `next` tidak menangkap apa pun. Baca
 `response.exception`, sama seperti Laravel.
 `.withoutMiddleware(['csrf'])` melepas middleware dari sebuah route, berupa
 alias, group, tipe, atau instance, juga yang berasal dari group di luarnya.
+
+Alias juga bisa ditulis dengan `Mw`, sehingga editor menampilkan daftar alias
+beserta parameternya dan alias yang salah ketik tidak bisa dikompilasi:
+
+```dart
+r.patch('/posts/{post}', update).middleware([
+  Mw.auth(['token']),             // 'auth:token'
+  Mw.can('update', ['post']),     // 'can:update,post'
+  Mw.throttle('writes'),          // 'throttle:writes'
+  Mw.cacheHeaders(noStore: true), // 'cache.headers:no_store'
+]);
+```
+
+Setiap token adalah string alias itu sendiri, jadi token dan string bisa
+dicampur dalam satu list. `Mw` mencakup alias yang didaftarkan Daravel
+(`auth`, `can`, `throttle`, `cache.headers`, `feature`, `signed`); paket yang
+mendaftarkan alias sendiri menyediakan tokennya sendiri.
 
 ## Rate limiting
 

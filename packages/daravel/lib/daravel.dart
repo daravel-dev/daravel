@@ -41,6 +41,7 @@ export 'src/http/kernel.dart';
 export 'src/http/proxy/shadow_parity.dart';
 export 'src/http/proxy/upstream_proxy.dart';
 export 'src/http/middleware.dart';
+export 'src/http/middleware_tokens.dart';
 export 'src/http/multipart.dart' show MultipartLimits, multipartBoundary;
 export 'src/http/realtime.dart';
 export 'src/http/request.dart';

@@ -151,6 +151,23 @@ is global → group → route, sorted by the middleware priority list.
 `.withoutMiddleware(['csrf'])` takes one off a route, as an alias, a group, a
 type or an instance, also when an outer group brought it in.
 
+The aliases can also be written with `Mw`, so the editor lists them and
+their parameters and a misspelled alias does not compile:
+
+```dart
+r.patch('/posts/{post}', update).middleware([
+  Mw.auth(['token']),             // 'auth:token'
+  Mw.can('update', ['post']),     // 'can:update,post'
+  Mw.throttle('writes'),          // 'throttle:writes'
+  Mw.cacheHeaders(noStore: true), // 'cache.headers:no_store'
+]);
+```
+
+Each token is the alias string itself, so tokens and strings mix in one
+list. `Mw` covers the aliases Daravel registers (`auth`, `can`, `throttle`,
+`cache.headers`, `feature`, `signed`); a package that registers its own
+aliases offers its own tokens.
+
 An exception becomes a response where it was thrown, so outer middleware still
 finish and a `try` around `next` catches nothing. Read `response.exception`
 instead, as in Laravel.
