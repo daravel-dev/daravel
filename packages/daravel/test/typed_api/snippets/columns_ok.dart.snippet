@@ -1,0 +1,17 @@
+// expect: none
+import 'package:daravel/daravel.dart';
+
+import '_models.dart';
+
+Future<void> columns() async {
+  final query = User.definition
+      .query()
+      .where(User.cols.email, 'ana@example.com')
+      .orderByDesc(User.cols.id)
+      .latest(User.cols.createdAt);
+  await query.pluck(User.cols.email, User.cols.id);
+  await DB.table('users').value<int>(User.cols.id);
+  await DB.table('users').whereIn(User.cols.id.name, [1, 2]).get();
+  final String name = User.cols.email.name;
+  print(name);
+}

@@ -20,7 +20,7 @@ resolution: workspace
 
 dependencies:
   daravel: ^1.27.0
-  mysql_dart: ^3.0.3
+  mysql_dart: ^4.0.1
 
 dev_dependencies:
   test: ^1.33.0

@@ -93,7 +93,7 @@ Future<void> horizonWorkerMain(HorizonWorkerStart start) async {
       app.overrideEnv({'DB_IDLE_TRANSACTION_TIMEOUT': '${idle.inSeconds}'});
     }
     if (start.coordinator case final port?) {
-      app.coordinator = RemoteCoordinatorChannel(port);
+      app.coordinator = RemoteCoordinatorChannel(port, worker: start.name);
     }
     final booted = app;
     await booted.boot();
@@ -143,9 +143,13 @@ Future<void> horizonWorkerMain(HorizonWorkerStart start) async {
     final running = <String, (String, List<String>)>{};
     void record(RecordedJob job) => unawaited(
       store
-          .call(HorizonService.serviceName, 'record', {
-            'job': jsonEncode(job.toJson()),
-          })
+          .callBulk(
+            HorizonService.serviceName,
+            'record',
+            {'job': jsonEncode(job.toJson())},
+            // A flood of finished jobs keeps the newest records.
+            overflow: BulkOverflow.dropOldest,
+          )
           .then<void>((_) {}, onError: (Object _) {}),
     );
     booted.container.make<EventDispatcher>()

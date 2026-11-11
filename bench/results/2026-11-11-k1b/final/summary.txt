@@ -1,0 +1,32 @@
+## Healthy ceiling, ops/s: median (min-max) [diff vs main]
+rate x1: k1b 204.5k (189-211k) [4.1 %] | main 196.4k (157-202k)
+rate x8: k1b 50.5k (47-51k) [5.3 %] | main 47.9k (41-52k)
+rate x16: k1b 32.5k (29-33k) [2.9 %] | main 31.6k (31-34k)
+cache x1: k1b 162.1k (126-179k) [-8.7 %] | main 177.6k (161-181k)
+cache x8: k1b 47.4k (43-49k) [-3.0 %] | main 48.8k (45-51k)
+cache x16: k1b 30.8k (28-32k) [-3.2 %] | main 31.8k (29-32k)
+noop x1: k1b 223.2k (187-250k) [-0.4 %] | main 224.1k (186-250k)
+noop x8: k1b 56.6k (55-58k) [-3.6 %] | main 58.8k (53-61k)
+noop x16: k1b 39.3k (38-39k) [-4.6 %] | main 41.1k (34-42k)
+publish x1: k1b 154.3k (139-178k) [-8.2 %] | main 168.1k (164-175k)
+publish x8: k1b 53.7k (47-58k) [-8.5 %] | main 58.7k (57-60k)
+publish x16: k1b 42.9k (40-45k) [5.9 %] | main 40.5k (34-42k)
+
+## saturation
+k1b: p99 rate under flood 3992.0 us (3992-4391); alone p99 80.0 us; publish/s 155922.0 (153519-163417); refused 0/0/0; errors 0/0/0
+main: p99 rate under flood 32494.0 us (32494-32494); alone p99 80.0 us; publish/s 39848.0 (39549-42390); refused 0/0/0; errors 0/0/0
+
+## overflow
+k1b: p99 rate under flood 21208271.0 us (21208271-21208271); alone p99 88.0 us; publish/s 12.0 (12-12); refused 6648616; errors 0
+
+## starved (16 CPU burners, no flood)
+k1b k1b_starved_1.json: states [healthy], shed {}, publish errors 0, rate errors 0
+k1b k1b_starved_2.json: states [healthy], shed {}, publish errors 0, rate errors 0
+k1b k1b_starved_3.json: states [healthy], shed {}, publish errors 0, rate errors 0
+main main_starved_1.json: states [none (main)], shed null, publish errors 0, rate errors 0
+main main_starved_2.json: states [none (main)], shed null, publish errors 0, rate errors 0
+main main_starved_3.json: states [none (main)], shed null, publish errors 0, rate errors 0
+
+## leases
+k1b k1b_lease_1.json: max over_limit 0
+main main_lease_1.json: max over_limit 0

@@ -110,14 +110,11 @@ void main() {
     });
 
     test('locks use exclusive file creation', () async {
-      expect(
-        await store.acquireLock('job', 'w1', const Duration(seconds: 5)),
-        isTrue,
-      );
-      expect(
-        await store.acquireLock('job', 'w2', const Duration(seconds: 5)),
-        isFalse,
-      );
+      // Minutes, not seconds: a loaded runner stalled more than 5 s between
+      // these calls, so the lock had rightly expired when w2 asked for it.
+      const held = Duration(minutes: 10);
+      expect(await store.acquireLock('job', 'w1', held), isTrue);
+      expect(await store.acquireLock('job', 'w2', held), isFalse);
       expect(await store.lockOwner('job'), 'w1');
       expect(await store.releaseLock('job', 'w2'), isFalse);
       expect(await store.releaseLock('job', 'w1'), isTrue);
@@ -127,10 +124,7 @@ void main() {
       );
       await Future<void>.delayed(const Duration(milliseconds: 5));
       // Expired locks can be taken over.
-      expect(
-        await store.acquireLock('job', 'w3', const Duration(seconds: 5)),
-        isTrue,
-      );
+      expect(await store.acquireLock('job', 'w3', held), isTrue);
       expect(await store.lockOwner('job'), 'w3');
     });
   });

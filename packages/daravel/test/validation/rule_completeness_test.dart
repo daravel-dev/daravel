@@ -9,15 +9,17 @@ import 'package:test/test.dart';
 
 enum _Status { draft }
 
-/// Rule completeness in three directions (Blueprint #151, W9.4c), so a rule
-/// that exists only as a string, only as a builder, or only in Laravel is
-/// seen at once:
+/// Rule completeness in four directions (W9.4c), so a rule that exists only
+/// as a string, only as a builder, only in Laravel, or only outside the
+/// chain is seen at once:
 ///
 /// 1. every string name `RuleParser` accepts builds a rule of that name;
 /// 2. every `Rules.*` builder makes a rule whose name the parser accepts
 ///    (or one of the named object-only rules);
 /// 3. every rule of Laravel 13's `lang/en/validation.php` is known, or
-///    named in [_laravelPending] with the slice that adds it.
+///    named in [_laravelPending] with the slice that adds it;
+/// 4. every `Rules.*` builder is also a step of the chain, on `RuleBuilder`
+///    and on any rule (`RuleChain`), so `Rules.required().` lists them all.
 ///
 /// Without reflection: the list of builders is read from the source of
 /// `rules.dart`, like `architecture_test.dart` reads imports.
@@ -77,6 +79,51 @@ void main() {
         .toSet();
     expect(missing, _laravelPending.keys.toSet());
   });
+
+  test('4. every Rules builder is a chain step', () {
+    final statics = _rulesStatics();
+    final builder = _methodsOf('RuleBuilder');
+    final chain = _methodsOf('RuleChain');
+    expect(statics.difference(builder), isEmpty, reason: 'RuleBuilder');
+    expect(statics.difference(chain), isEmpty, reason: 'RuleChain');
+  });
+
+  test('4. a chain step adds the same rule as its builder', () {
+    final chained = Rules.required()
+        .missingIf('b', ['x'])
+        .requiredArrayKeys(['k'])
+        .gt('b')
+        .presentWith(['c'])
+        .toList();
+    expect(chained.map((r) => r.name), [
+      'required',
+      'missing_if',
+      'required_array_keys',
+      'gt',
+      'present_with',
+    ]);
+  });
+}
+
+/// The public methods of the class or extension [target] of
+/// `rule_builder.dart`, from its source.
+Set<String> _methodsOf(String target) {
+  final unit = parseString(
+    content: File('lib/src/validation/rule_builder.dart').readAsStringSync(),
+  ).unit;
+  final members = [
+    for (final declaration in unit.declarations)
+      if (declaration case ClassDeclaration(:final namePart, :final body)
+          when namePart.typeName.lexeme == target)
+        ...body.members
+      else if (declaration case ExtensionDeclaration(:final name?, :final body)
+          when name.lexeme == target)
+        ...body.members,
+  ];
+  return {
+    for (final m in members.whereType<MethodDeclaration>())
+      if (!m.name.lexeme.startsWith('_')) m.name.lexeme,
+  };
 }
 
 /// Laravel 13 message keys without a Daravel string rule yet, and why.

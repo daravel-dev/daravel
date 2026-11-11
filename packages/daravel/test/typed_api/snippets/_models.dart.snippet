@@ -1,0 +1,18 @@
+// Shared models of the snippets (not a snippet itself).
+import 'package:daravel/daravel.dart';
+
+final class User extends Model {
+  static final ModelDefinition<User> definition = ModelDefinition<User>(
+    table: 'users',
+    factory: User.new,
+  );
+
+  @override
+  ModelDefinition<User> get modelDefinition => User.definition;
+
+  static const cols = (
+    id: ModelColumn<User, int>('id'),
+    email: ModelColumn<User, String>('email'),
+    createdAt: ModelColumn<User, DateTime?>('created_at'),
+  );
+}

@@ -18,7 +18,17 @@ import 'coordinator.dart';
 /// final all = await reports.collect('pulse'); // {worker: report}
 /// ```
 final class WorkerReportService
+    with PrioritizedService
     implements CoordinatorService, WorkerAwareService {
+  /// Bulk: put off while lagging, refused while saturated.
+  @override
+  // Reading and forgetting reports are answered; publishing one is what
+  // may wait or be dropped.
+  CoordinatorPriority get priority => CoordinatorPriority.normal;
+
+  @override
+  Set<String> get bulkOperations => const {'publish'};
+
   /// The coordinator service name.
   static const String serviceName = 'worker_reports';
 
@@ -94,11 +104,13 @@ final class WorkerReports {
 
   /// Replaces this worker's report on [topic].
   Future<void> publish(String topic, Object? report) async {
-    await channel.call(WorkerReportService.serviceName, 'publish', {
-      'topic': topic,
-      'worker': worker,
-      'report': _encode(report),
-    });
+    await channel.callBulk(
+      WorkerReportService.serviceName,
+      'publish',
+      {'topic': topic, 'worker': worker, 'report': _encode(report)},
+      // The next report supersedes it.
+      overflow: BulkOverflow.dropOldest,
+    );
   }
 
   /// Every worker's latest report on [topic], by worker name.

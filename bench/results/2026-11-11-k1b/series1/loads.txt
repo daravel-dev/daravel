@@ -1,0 +1,26 @@
+work=$HOME/k1b-bench-20261111-074622 out=$SCRATCH/k1b_bench/results-20261111-074622
+main_1 load: 2.02 2.00 1.96
+main_1 exit=0
+k1b-w8_1 load: 4.35 2.81 2.25
+k1b-w8_1 exit=0
+k1b-w16_1 load: 4.97 3.48 2.56
+k1b-w16_1 exit=0
+k1b-w32_1 load: 7.35 4.54 3.04
+k1b-w32_1 exit=0
+main_2 load: 5.25 4.55 3.21
+main_2 exit=0
+k1b-w8_2 load: 6.41 4.98 3.51
+k1b-w8_2 exit=0
+k1b-w16_2 load: 5.51 5.06 3.71
+k1b-w16_2 exit=0
+k1b-w32_2 load: 6.43 5.28 3.93
+k1b-w32_2 exit=0
+main_3 load: 5.10 5.10 4.02
+main_3 exit=0
+k1b-w8_3 load: 6.86 5.50 4.27
+k1b-w8_3 exit=0
+k1b-w16_3 load: 5.73 5.42 4.37
+k1b-w16_3 exit=0
+k1b-w32_3 load: 4.98 5.17 4.40
+k1b-w32_3 exit=0
+done

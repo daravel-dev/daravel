@@ -411,7 +411,21 @@ final class Post extends Model with AuthenticatableModel {
       );
       expect(plan.lines, isNot(contains(contains('set id('))));
       expect(plan.lines, isNot(contains(contains('set createdAt('))));
-      expect(plan.lines, isNot(contains(contains('rememberToken'))));
+      // No accessor (it would clash with Authenticatable), but a column.
+      expect(plan.lines, isNot(contains(contains('get rememberToken'))));
+      expect(
+        plan.lines,
+        contains(
+          "    rememberToken: ModelColumn<Post, String?>('remember_token'),",
+        ),
+      );
+      expect(plan.lines, contains('  static const cols = ('));
+      expect(
+        plan.lines,
+        contains(
+          "    publishedAt: ModelColumn<Post, DateTime?>('published_at'),",
+        ),
+      );
       expect(
         plan.warnings.join('\n'),
         allOf(

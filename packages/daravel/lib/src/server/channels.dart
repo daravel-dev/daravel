@@ -11,7 +11,12 @@ import 'coordinator.dart';
 /// one member, added with the first connection and removed with the last,
 /// as Laravel Reverb counts them.
 final class ChannelMembershipService
+    with PrioritizedService
     implements CoordinatorService, WorkerAwareService {
+  /// Normal: put off only while the coordinator is saturated.
+  @override
+  CoordinatorPriority get priority => CoordinatorPriority.normal;
+
   /// The membership of every channel; with [broadcast], the members a
   /// crashed worker held are announced as removed ([forgetWorker]).
   ChannelMembershipService({this.broadcast});

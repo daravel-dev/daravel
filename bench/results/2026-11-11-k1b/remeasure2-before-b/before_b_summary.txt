@@ -1,0 +1,36 @@
+## Healthy ceiling, ops/s: median (min-max) [diff vs main]
+rate x1: k1b 202.6k (97-215k) [1.6 %] | main 199.4k (88-214k)
+rate x8: k1b 48.5k (29-51k) [-1.6 %] | main 49.4k (30-52k)
+rate x16: k1b 32.4k (14-33k) [-2.5 %] | main 33.3k (15-34k)
+cache x1: k1b 165.8k (32-182k) [-5.5 %] | main 175.5k (34-183k)
+cache x8: k1b 47.5k (13-49k) [0.2 %] | main 47.4k (13-51k)
+cache x16: k1b 30.4k (8-32k) [-3.8 %] | main 31.5k (8-33k)
+noop x1: k1b 209.0k (46-230k) [7.5 %] | main 194.4k (42-232k)
+noop x8: k1b 56.7k (53-59k) [7.8 %] | main 52.6k (16-59k)
+noop x16: k1b 38.9k (37-41k) [3.9 %] | main 37.5k (10-41k)
+publish x1: k1b 151.7k (142-168k) [-10.8 %] | main 170.0k (165-173k)
+publish x8: k1b 54.2k (52-56k) [-7.8 %] | main 58.8k (57-61k)
+publish x16: k1b 43.9k (40-45k) [8.1 %] | main 40.6k (40-43k)
+
+## saturation
+k1b: p99 rate under flood 3992.0 us (3992-4830); alone p99 80.0 us; publish/s 160053.0 (142475-166359); refused 0/0/0; errors 0/0/0
+main: p99 rate under flood 32494.0 us (29540-39318); alone p99 80.0 us; publish/s 42850.0 (36379-43256); refused 0/0/0; errors 0/0/0
+
+## overflow
+k1b: p99 rate under flood 3992.0 us (3992-5313); alone p99 80.0 us; publish/s 164406.0 (129418-167966); refused 0/0/0; errors 0/0/0
+
+## starved (16 CPU burners, no flood)
+k1b k1b_starved_1.json: states [healthy, saturated], shed {broadcast: 1}, publish errors 7404979, rate errors 0
+k1b k1b_starved_2.json: states [healthy, saturated], shed {broadcast: 1}, publish errors 6184301, rate errors 0
+k1b k1b_starved_3.json: states [healthy, saturated], shed {broadcast: 1}, publish errors 9392393, rate errors 0
+main main_starved_1.json: states [none (main)], shed null, publish errors 0, rate errors 0
+main main_starved_2.json: states [none (main)], shed null, publish errors 0, rate errors 0
+main main_starved_3.json: states [none (main)], shed null, publish errors 0, rate errors 0
+
+## leases
+k1b k1b_lease_1.json: max over_limit 0
+k1b k1b_lease_2.json: max over_limit 0
+k1b k1b_lease_3.json: max over_limit 0
+main main_lease_1.json: max over_limit 0
+main main_lease_2.json: max over_limit 0
+main main_lease_3.json: max over_limit 0
