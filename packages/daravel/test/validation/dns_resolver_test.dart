@@ -154,4 +154,87 @@ void main() {
   test('no nameserver: unknown', () async {
     expect(await SystemDnsResolver(nameservers: const []).mx('x.com'), isNull);
   });
+
+  test('a server that does not listen: unknown within the timeout', () async {
+    // A port that was just free. (Dart does not report ICMP "port
+    // unreachable" on an unconnected UDP socket, on Windows or Linux: the
+    // query goes unanswered. The error path is tested with a socket that
+    // fails below.)
+    final closed = await RawDatagramSocket.bind(loopback, 0);
+    final port = closed.port;
+    closed.close();
+    final clock = Stopwatch()..start();
+    final dns = SystemDnsResolver(
+      timeout: const Duration(milliseconds: 500),
+      nameservers: [(loopback, port)],
+    );
+    expect(await dns.mx('example.com'), isNull);
+    expect(clock.elapsed, lessThan(const Duration(seconds: 3)));
+  });
+
+  for (final (label, socket) in [
+    ('an error event', () => _FailingSocket(onReceive: false)),
+    ('receive() throwing', () => _FailingSocket(onReceive: true)),
+  ]) {
+    test(
+      'a socket error ($label) is unknown, never an error in the zone',
+      () async {
+        final clock = Stopwatch()..start();
+        final dns = SystemDnsResolver(
+          timeout: const Duration(seconds: 2),
+          nameservers: [(loopback, 53)],
+          bind: (_, _) async => socket(),
+        );
+        // An unhandled socket error would fail this test from its zone.
+        expect(await dns.mx('example.com'), isNull);
+        // Answered at once, not after the timeout.
+        expect(clock.elapsed, lessThan(const Duration(seconds: 1)));
+      },
+    );
+  }
+}
+
+/// A UDP socket whose query fails: an error event on its stream, or a
+/// read event whose `receive()` throws, as an ICMP error would.
+final class _FailingSocket extends Stream<RawSocketEvent>
+    implements RawDatagramSocket {
+  _FailingSocket({required this.onReceive});
+
+  final bool onReceive;
+  final _events = StreamController<RawSocketEvent>();
+  static const _error = SocketException('Connection reset by peer');
+
+  @override
+  StreamSubscription<RawSocketEvent> listen(
+    void Function(RawSocketEvent event)? onData, {
+    Function? onError,
+    void Function()? onDone,
+    bool? cancelOnError,
+  }) => _events.stream.listen(
+    onData,
+    onError: onError,
+    onDone: onDone,
+    cancelOnError: cancelOnError,
+  );
+
+  @override
+  int send(List<int> buffer, InternetAddress address, int port) {
+    scheduleMicrotask(() {
+      if (onReceive) {
+        _events.add(RawSocketEvent.read);
+      } else {
+        _events.addError(_error);
+      }
+    });
+    return buffer.length;
+  }
+
+  @override
+  Datagram? receive() => onReceive ? throw _error : null;
+
+  @override
+  void close() => unawaited(_events.close());
+
+  @override
+  Object? noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

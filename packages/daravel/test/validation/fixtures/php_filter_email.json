@@ -1,0 +1,205 @@
+{
+    "php": "8.2.33",
+    "cases": [
+        {
+            "email": "ana@example.com",
+            "filter": true,
+            "filter_unicode": true
+        },
+        {
+            "email": "\"ana.b\"@example.com",
+            "filter": true,
+            "filter_unicode": true
+        },
+        {
+            "email": "\"ana b\"@example.com",
+            "filter": false,
+            "filter_unicode": false
+        },
+        {
+            "email": "\"ana\\ b\"@example.com",
+            "filter": true,
+            "filter_unicode": true
+        },
+        {
+            "email": "\"a@b\"@example.com",
+            "filter": true,
+            "filter_unicode": true
+        },
+        {
+            "email": "a@[127.0.0.1]",
+            "filter": true,
+            "filter_unicode": true
+        },
+        {
+            "email": "a@[300.1.1.1]",
+            "filter": false,
+            "filter_unicode": false
+        },
+        {
+            "email": "a@[IPv6:2001:db8::1]",
+            "filter": true,
+            "filter_unicode": true
+        },
+        {
+            "email": "a@[IPv6:::1]",
+            "filter": true,
+            "filter_unicode": true
+        },
+        {
+            "email": "a@localhost",
+            "filter": false,
+            "filter_unicode": false
+        },
+        {
+            "email": "a..b@example.com",
+            "filter": false,
+            "filter_unicode": false
+        },
+        {
+            "email": ".a@example.com",
+            "filter": false,
+            "filter_unicode": false
+        },
+        {
+            "email": "a.@example.com",
+            "filter": false,
+            "filter_unicode": false
+        },
+        {
+            "email": "a+tag@example.com",
+            "filter": true,
+            "filter_unicode": true
+        },
+        {
+            "email": "A@EXAMPLE.COM",
+            "filter": true,
+            "filter_unicode": true
+        },
+        {
+            "email": "a@example.com.",
+            "filter": false,
+            "filter_unicode": false
+        },
+        {
+            "email": "a@example.c",
+            "filter": true,
+            "filter_unicode": true
+        },
+        {
+            "email": "a@example.co",
+            "filter": true,
+            "filter_unicode": true
+        },
+        {
+            "email": "a@example.123",
+            "filter": false,
+            "filter_unicode": false
+        },
+        {
+            "email": "a@1example.com",
+            "filter": true,
+            "filter_unicode": true
+        },
+        {
+            "email": "a@-example.com",
+            "filter": false,
+            "filter_unicode": false
+        },
+        {
+            "email": "a@example-.com",
+            "filter": false,
+            "filter_unicode": false
+        },
+        {
+            "email": "a@ex--ample.com",
+            "filter": true,
+            "filter_unicode": true
+        },
+        {
+            "email": "a@xn--bcher-kva.de",
+            "filter": true,
+            "filter_unicode": true
+        },
+        {
+            "email": "a@b.c.d.e.f",
+            "filter": true,
+            "filter_unicode": true
+        },
+        {
+            "email": "ü@example.com",
+            "filter": false,
+            "filter_unicode": true
+        },
+        {
+            "email": "ü@exämple.com",
+            "filter": false,
+            "filter_unicode": false
+        },
+        {
+            "email": "用户@example.com",
+            "filter": false,
+            "filter_unicode": true
+        },
+        {
+            "email": "test@例え.jp",
+            "filter": false,
+            "filter_unicode": false
+        },
+        {
+            "email": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@example.com",
+            "filter": true,
+            "filter_unicode": true
+        },
+        {
+            "email": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@example.com",
+            "filter": false,
+            "filter_unicode": false
+        },
+        {
+            "email": "a@bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.com",
+            "filter": true,
+            "filter_unicode": true
+        },
+        {
+            "email": "a@bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.com",
+            "filter": false,
+            "filter_unicode": false
+        },
+        {
+            "email": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.com",
+            "filter": false,
+            "filter_unicode": false
+        },
+        {
+            "email": "a b@example.com",
+            "filter": false,
+            "filter_unicode": false
+        },
+        {
+            "email": "a@exa mple.com",
+            "filter": false,
+            "filter_unicode": false
+        },
+        {
+            "email": "",
+            "filter": false,
+            "filter_unicode": false
+        },
+        {
+            "email": "@example.com",
+            "filter": false,
+            "filter_unicode": false
+        },
+        {
+            "email": "a@",
+            "filter": false,
+            "filter_unicode": false
+        },
+        {
+            "email": "a@@example.com",
+            "filter": false,
+            "filter_unicode": false
+        }
+    ]
+}

@@ -3,6 +3,8 @@ import 'dart:developer' as developer;
 import 'dart:io';
 import 'dart:math';
 
+import 'package:meta/meta.dart';
+
 import 'dns_wire.dart';
 
 /// The DNS lookups of `active_url` and `email:dns`. Bind your own in the
@@ -40,7 +42,13 @@ final class SystemDnsResolver implements DnsResolver {
     this.timeout = const Duration(seconds: 2),
     this.nameservers,
     Random? random,
-  }) : _random = random ?? Random.secure();
+    @visibleForTesting
+    Future<RawDatagramSocket> Function(InternetAddress host, int port)? bind,
+  }) : _random = random ?? Random.secure(),
+       _bind = bind ?? RawDatagramSocket.bind;
+
+  final Future<RawDatagramSocket> Function(InternetAddress host, int port)
+  _bind;
 
   /// The shared instance the rules use when the container binds none.
   static final SystemDnsResolver instance = SystemDnsResolver();
@@ -113,7 +121,7 @@ final class SystemDnsResolver implements DnsResolver {
     final RawDatagramSocket socket;
     try {
       // Port 0: the system picks a random source port.
-      socket = await RawDatagramSocket.bind(
+      socket = await _bind(
         address.type == InternetAddressType.IPv6
             ? InternetAddress.anyIPv6
             : InternetAddress.anyIPv4,
@@ -124,21 +132,35 @@ final class SystemDnsResolver implements DnsResolver {
     }
     final id = _random.nextInt(0x10000);
     final done = Completer<MxAnswer?>();
+    // A socket error (an ICMP "port unreachable" from a server that does
+    // not listen arrives as one on Windows) is "unknown", never an error
+    // in the caller's zone.
+    void unknown(Object error) {
+      if (!done.isCompleted) {
+        done.complete(null);
+      }
+    }
+
     final subscription = socket.listen((event) {
       if (event != RawSocketEvent.read) {
         return;
       }
-      // Every datagram waiting, so one forged packet cannot hide the answer.
-      for (var d = socket.receive(); d != null; d = socket.receive()) {
-        if (done.isCompleted || d.address != address || d.port != port) {
-          continue;
+      try {
+        // Every datagram waiting, so one forged packet cannot hide the
+        // answer.
+        for (var d = socket.receive(); d != null; d = socket.receive()) {
+          if (done.isCompleted || d.address != address || d.port != port) {
+            continue;
+          }
+          final answer = parseMxAnswer(d.data, id: id, name: host);
+          if (answer is! MxMismatch) {
+            done.complete(answer);
+          }
         }
-        final answer = parseMxAnswer(d.data, id: id, name: host);
-        if (answer is! MxMismatch) {
-          done.complete(answer);
-        }
+      } on SocketException catch (e) {
+        unknown(e);
       }
-    });
+    }, onError: unknown);
     try {
       socket.send(buildMxQuery(id, host), address, port);
       return await done.future.timeout(wait, onTimeout: () => null);
@@ -178,8 +200,12 @@ const int maxHostLength = 253;
 /// [host] as the ASCII name DNS asks for, or null when it cannot be one:
 /// lower case, a trailing dot dropped, each non-ASCII label in punycode
 /// (`bücher` → `xn--bcher-kva`), labels of 1 to 63 characters, at most
-/// [maxHostLength] in all. Not the full UTS #46 mapping of PHP's
-/// `idn_to_ascii`: only lower-casing before punycode.
+/// [maxHostLength] in all.
+///
+/// Not the IDNA mapping of PHP's `idn_to_ascii` (UTS #46): no NFC
+/// normalization and no character mapping beyond lower case, so a name
+/// written with combining marks or full-width letters can differ from the
+/// name PHP looks up.
 String? toAsciiHost(String host) {
   var name = host.toLowerCase();
   if (name.endsWith('.')) {

@@ -177,6 +177,44 @@ void main() {
       expect(toAsciiHost('例え.テスト'), 'xn--r8jz45g.xn--zckzah');
     });
 
+    test('the sample strings of RFC 3492 §7.1', () {
+      // Code points as the RFC lists them; ASCII keeps its case.
+      final samples = <List<int>, String>{
+        // (A) Arabic (Egyptian).
+        [
+          0x0644, 0x064A, 0x0647, 0x0645, 0x0627, 0x0628, 0x062A, 0x0643, //
+          0x0644, 0x0645, 0x0648, 0x0634, 0x0639, 0x0631, 0x0628, 0x064A,
+          0x061F,
+        ]: 'egbpdaj6bu4bxfgehfvwxn',
+        // (B) Chinese (simplified).
+        [
+          0x4ED6, 0x4EEC, 0x4E3A, 0x4EC0, 0x4E48, 0x4E0D, 0x8BF4, 0x4E2D, //
+          0x6587,
+        ]: 'ihqwcrb4cv8a8dqg056pqjye',
+        // (C) Chinese (traditional).
+        [
+          0x4ED6, 0x5011, 0x7232, 0x4EC0, 0x9EBD, 0x4E0D, 0x8AAA, 0x4E2D, //
+          0x6587,
+        ]: 'ihqwctvzc91f659drss3x8bo0yb',
+        // (L) 3<nen>B<gumi><kinpachi><sensei>.
+        [0x0033, 0x5E74, 0x0042, 0x7D44, 0x91D1, 0x516B, 0x5148, 0x751F]:
+            '3B-ww4c5e180e575a65lsy2b',
+        // (M) <amuro><namie>-with-SUPER-MONKEYS.
+        [
+          0x5B89, 0x5BA4, 0x5948, 0x7F8E, 0x6075, //
+          ...'-with-SUPER-MONKEYS'.codeUnits,
+        ]: '-with-SUPER-MONKEYS-pc58ag80a8qai00g7n9n',
+        // (R) <sono><supiido><de>.
+        [0x305D, 0x306E, 0x30B9, 0x30D4, 0x30FC, 0x30C9, 0x3067]:
+            'd9juau41awczczp',
+        // (S) -> $1.00 <- (all basic code points).
+        '-> \$1.00 <-'.codeUnits: '-> \$1.00 <--',
+      };
+      for (final MapEntry(key: points, value: encoded) in samples.entries) {
+        expect(punycode(String.fromCharCodes(points)), encoded);
+      }
+    });
+
     test('a name DNS cannot carry is refused', () {
       expect(toAsciiHost(''), isNull);
       expect(toAsciiHost('a..b'), isNull);
