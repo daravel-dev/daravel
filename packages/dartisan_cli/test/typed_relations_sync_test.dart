@@ -67,6 +67,78 @@ final class Book extends Model {
     ColumnInfo(name: 'writer_id', type: 'INTEGER', nullable: false),
   ];
 
+  const shelf = '''
+import 'package:daravel/daravel.dart';
+
+import 'book.dart';
+
+final class Shelf extends Model {
+  static final ModelDefinition<Shelf> definition = ModelDefinition<Shelf>(
+    table: 'shelves',
+    factory: Shelf.new,
+    relations: {
+      'cols': () => HasMany<Book>(() => Book.definition, foreignKey: 'shelf_id'),
+      'posts': () => HasMany<Book>(() => Book.definition, foreignKey: 'a'),
+      'pages':
+          () =>
+              HasMany<Book>(() => Book.definition, foreignKey: 'b'),
+    },
+  );
+
+  @override
+  ModelDefinition<Shelf> get modelDefinition => Shelf.definition;
+
+  // <dartisan:accessors>
+  // </dartisan:accessors>
+}
+''';
+  const shelfColumns = [
+    ColumnInfo(name: 'id', type: 'INTEGER', nullable: false, primary: true),
+    ColumnInfo(name: 'cols', type: 'VARCHAR', nullable: true),
+    ColumnInfo(name: 'load_posts', type: 'INTEGER', nullable: true),
+  ];
+
+  test('cols, rels and loader clashes are left out, each with a warning; '
+      'a relation written over several lines is read', () {
+    final model = ModelSource.parse(shelf)!;
+    expect(model.relations.map((r) => r.name), ['cols', 'posts', 'pages']);
+    final plan = planAccessors(model, shelfColumns);
+    // The column `cols` keeps its record field but no accessor; the
+    // relation `cols` is left out; `posts` has no loader, since
+    // `loadPosts` is the accessor of the column `load_posts`.
+    expect(
+      plan.lines,
+      contains("    cols: ModelColumn<Shelf, String?>('cols'),"),
+    );
+    expect(plan.lines, isNot(contains(contains('get cols'))));
+    expect(plan.lines, isNot(contains(contains("('cols'),\n"))));
+    expect(
+      plan.lines,
+      isNot(contains(contains('RelationToken<Shelf, Book>(\'cols\')'))),
+    );
+    expect(
+      plan.lines,
+      contains("  ModelCollection<Book> get posts => related('posts');"),
+    );
+    expect(
+      plan.lines,
+      contains('  Future<ModelCollection<Book>> loadPages() async {'),
+    );
+    // `loadPosts` is the column's (field, getter, setter), never a loader.
+    expect(plan.lines, isNot(contains(contains('loadPosts() async'))));
+    expect(
+      plan.warnings,
+      containsAll([
+        contains('Skipped column [cols]'),
+        contains('Skipped relation [cols]'),
+        contains(
+          'Relation [posts]: no loadPosts(), the name of the column '
+          'accessor loadPosts',
+        ),
+      ]),
+    );
+  });
+
   test('parses the relations map', () {
     expect(ModelSource.parse(writer)!.relations, [
       (name: 'books', kind: 'HasMany', related: 'Book'),
@@ -128,6 +200,8 @@ final class Book extends Model {
           .writeAsStringSync(sync(writer, writerColumns));
       File(p.join(dir.path, 'book.dart'))
           .writeAsStringSync(sync(book, bookColumns));
+      File(p.join(dir.path, 'shelf.dart'))
+          .writeAsStringSync(sync(shelf, shelfColumns));
       File(p.join(dir.path, 'use.dart')).writeAsStringSync('''
 import 'package:daravel/daravel.dart';
 
@@ -151,7 +225,12 @@ Future<void> use(Writer writer) async {
 ''');
       final collection = AnalysisContextCollection(includedPaths: [dir.path]);
       final found = <String>[];
-      for (final name in ['writer.dart', 'book.dart', 'use.dart']) {
+      for (final name in [
+        'writer.dart',
+        'book.dart',
+        'shelf.dart',
+        'use.dart',
+      ]) {
         final path = p.join(dir.path, name);
         final result = await collection
             .contextFor(path)

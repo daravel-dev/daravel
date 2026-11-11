@@ -138,6 +138,10 @@ const Set<String> reservedAccessors = <String>{
   'authPassword',
   'authPasswordName',
   'rememberToken',
+  // The static records model:sync writes: an instance member of the same
+  // name does not compile.
+  'cols',
+  'rels',
   'class',
   'default',
   'new',
@@ -460,6 +464,10 @@ AccessorPlan planAccessors(
   return AccessorPlan(lines, warnings);
 }
 
+/// The loaders `Model` has; a relation loader of the same name would
+/// hide them.
+const Set<String> _modelLoaders = {'load', 'loadMissing'};
+
 /// The relation classes whose result is a collection; the others give one
 /// model or null.
 const Set<String> _manyRelations = {
@@ -511,18 +519,28 @@ AccessorPlan relationLines(ModelSource model, Set<String> columnGetters) {
       "    ${r.name}: RelationToken<$className, ${related(r)}>('${r.name}'),",
     '  );',
   ];
+  // What a loader must not be: a Model loader, a column accessor, a
+  // relation getter or an earlier loader (each would be a second member
+  // of that name, which does not compile).
+  final owners = <String, String>{
+    for (final name in _modelLoaders) name: 'Model.$name',
+    for (final getter in columnGetters) getter: 'the column accessor $getter',
+    for (final r in kept) r.name: 'the relation ${r.name}',
+  };
   for (final r in kept) {
     final many = _manyRelations.contains(r.kind);
     final type = many ? 'ModelCollection<${related(r)}>' : '${related(r)}?';
     lines.add("  $type get ${r.name} => related('${r.name}');");
     final loader = 'load${r.name[0].toUpperCase()}${r.name.substring(1)}';
-    if (loader == 'loadMissing') {
+    final owner = owners[loader];
+    if (owner != null) {
       warnings.add(
-        'Relation [${r.name}]: no $loader() (Model.loadMissing); use '
+        'Relation [${r.name}]: no $loader(), the name of $owner; use '
         'load([$className.rels.${r.name}]).',
       );
       continue;
     }
+    owners[loader] = 'the loader of the relation ${r.name}';
     lines
       ..add('  Future<$type> $loader() async {')
       ..add('    await load([rels.${r.name}]);')
