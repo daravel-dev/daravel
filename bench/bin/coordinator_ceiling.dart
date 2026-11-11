@@ -135,12 +135,6 @@ Future<void> client(ClientJob job) async {
         buckets[bucketOf(watch.elapsedMicroseconds - start)]++;
       } on Object {
         errors++;
-        // A refusal (a full bulk buffer) fails at once, with an already
-        // failed future: without a turn of the event loop this lane would
-        // spin in microtasks at full CPU, starving the coordinator and the
-        // probes of the same machine. A real sender does something else
-        // after a refusal; one turn models that (K1b overflow series).
-        await Future<void>.delayed(Duration.zero);
       }
     }
   }
