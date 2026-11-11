@@ -1,4 +1,4 @@
-<!-- source: broadcasting.md sha256:86335e653488 -->
+<!-- source: broadcasting.md sha256:febfefd346cf -->
 # Broadcasting
 
 Daravel berbicara dengan protokol Pusher, seperti Laravel Reverb, di port
