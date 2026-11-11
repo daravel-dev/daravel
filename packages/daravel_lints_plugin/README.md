@@ -73,20 +73,19 @@ workspace of about thirty packages, on Windows, with the rules of
 - **Memory: the analysis server's working set grows by about 430 to
   700 MB** (1.16 to 1.44 GB with the plugin, 0.73 to 0.83 GB without). The
   plugin runs in its own isolate with its own copy of the analysis.
-- **Start-up: the first start can take tens of seconds.** In the first
-  series after the plugin was enabled, its first finding came 15 s after
-  the edit (an earlier one timed out at 30 s). Later starts took 0.06 to
-  0.23 s after the server's own analysis. That the cost is the server
-  building the plugin once per plugin version is an assumption, not
-  measured.
+- **Start-up: tens of seconds after the plugin's configuration changes,
+  seconds otherwise.** The first start after the `plugins:` block changed
+  (the plugin enabled, its source or `dependency_overrides` changed) took
+  10 to 49 s after the server's own analysis, the first time even past
+  30 s; a start with the configuration of the run before took 0.06 to
+  4.9 s. Alternating two configurations makes every start slow, with or
+  without `dependency_overrides`.
 
 Measured again with this repository's rules (`dependency_overrides`
-above, after the change that walks each file once per rule), three
-series: 20 and 29 ms per edit (median), and 148 ms in a first series
-whose spread (13 to 318 ms) suggests a busy machine; a working set of
-1.17 to 1.23 GB; a start-up of 1.9 to 10.5 s, longer than with the
-published package (that the server resolves the overridden path again
-is an assumption, not measured).
+above, after the change that walks each file once per rule): 17 to 29 ms
+per edit (median) in eight series, a working set of 1.17 to 1.68 GB, and
+the same start-up pattern. One earlier series at 148 ms, taken while the
+machine was busy, was repeated on a quiet machine: 20 ms.
 
 A large workspace on a machine with little memory may prefer to keep the
 plugin off and run `dartisan lint` instead; the rules are the same.

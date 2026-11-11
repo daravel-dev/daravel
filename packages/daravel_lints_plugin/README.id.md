@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:12cea4b7cba1 -->
+<!-- source: README.md sha256:2c8708eb5970 -->
 <img src="https://raw.githubusercontent.com/daravel-dev/daravel/main/docs/brand/png/daravel-icon-128.png" alt="Daravel" width="64" align="right">
 
 # daravel_lints_plugin
@@ -75,20 +75,20 @@ workspace berisi sekitar tiga puluh paket, di Windows, dengan rule
   700 MB** (1,16 sampai 1,44 GB dengan plugin, 0,73 sampai 0,83 GB tanpa
   plugin). Plugin berjalan di isolate-nya sendiri dengan salinan
   analisisnya sendiri.
-- **Start-up: start pertama bisa memakan puluhan detik.** Di seri pertama
-  setelah plugin diaktifkan, temuan pertamanya datang 15 detik setelah
-  edit (satu edit sebelumnya habis waktu di 30 detik). Start berikutnya
-  memakan 0,06 sampai 0,23 detik setelah analisis server sendiri. Bahwa
-  biayanya adalah server membangun plugin sekali per versi plugin adalah
-  dugaan, belum diukur.
+- **Start-up: puluhan detik setelah konfigurasi plugin berubah, beberapa
+  detik bila tidak.** Start pertama setelah blok `plugins:` berubah
+  (plugin diaktifkan, sumbernya atau `dependency_overrides` berubah)
+  memakan 10 sampai 49 detik setelah analisis server sendiri, yang pertama
+  kali bahkan lebih dari 30 detik; start dengan konfigurasi yang sama
+  seperti run sebelumnya memakan 0,06 sampai 4,9 detik. Bergantian antara
+  dua konfigurasi membuat setiap start lambat, dengan atau tanpa
+  `dependency_overrides`.
 
 Diukur lagi dengan rule repositori ini (`dependency_overrides` di atas,
-setelah perubahan yang menelusuri setiap berkas sekali per rule), tiga
-seri: 20 dan 29 ms per edit (median), dan 148 ms di seri pertama yang
-sebarannya (13 sampai 318 ms) menunjukkan mesin yang sedang sibuk;
-working set 1,17 sampai 1,23 GB; start-up 1,9 sampai 10,5 detik, lebih
-lama daripada dengan paket yang terbit (bahwa server me-resolve ulang
-path yang di-override adalah dugaan, belum diukur).
+setelah perubahan yang menelusuri setiap berkas sekali per rule): 17
+sampai 29 ms per edit (median) dalam delapan seri, working set 1,17
+sampai 1,68 GB, dan pola start-up yang sama. Satu seri sebelumnya dengan
+148 ms, diambil saat mesin sibuk, diulang di mesin yang diam: 20 ms.
 
 Workspace besar di mesin dengan memori kecil mungkin lebih baik mematikan
 plugin dan menjalankan `dartisan lint`; rule-nya sama.
