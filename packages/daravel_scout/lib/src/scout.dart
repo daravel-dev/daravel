@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:daravel/daravel.dart';
 
+import 'rerank.dart';
 import 'searchable.dart';
 
 /// Scout's `ScoutException`: a search that cannot run as asked.
@@ -153,6 +154,7 @@ final class ScoutBuilder<T extends Model> {
   bool _semantic = false;
   double? _minimumSimilarity;
   (num, num)? _hybrid;
+  bool _rerank = false;
   void Function(ModelQuery<T> query)? _callback;
 
   late final Searchable _model = _searchable(definition.factory());
@@ -210,10 +212,17 @@ final class ScoutBuilder<T extends Model> {
   }
 
   /// Text and meaning together, fused by rank.
+  ///
+  /// With [rerank], the first 1 000 fused models are then ordered by their
+  /// cosine similarity to the query's vector, computed here (`Float32x4`) on
+  /// the vectors the database already returned with them: the embedding
+  /// column must stay selected, and models without a vector follow in fused
+  /// order.
   ScoutBuilder<T> hybrid({
     num textWeight = 1,
     num semanticWeight = 1,
     double? minSimilarity,
+    bool rerank = false,
   }) {
     if (query.trim().isEmpty) {
       throw const ScoutException('Hybrid searches require a non-empty query.');
@@ -226,6 +235,7 @@ final class ScoutBuilder<T extends Model> {
     _semantic = false;
     _minimumSimilarity = minSimilarity;
     _hybrid = (textWeight, semanticWeight);
+    _rerank = rerank;
     return this;
   }
 
@@ -473,11 +483,20 @@ final class ScoutBuilder<T extends Model> {
       ..orderBy(_qualify(definition.primaryKey))
       ..take(1000);
     final (weightText, weightSemantic) = _hybrid!;
-    return Scout.fuse(
+    final fused = Scout.fuse(
       (await _constrained(text).get()).toList(),
       (await _constrained(semantic).get()).toList(),
       textWeight: weightText,
       semanticWeight: weightSemantic,
-    ).take(limit).toList();
+    );
+    final ranked = _rerank
+        ? rerankByCosine(
+            fused.take(1000).toList(),
+            vector,
+            // The row's key, without a table prefix.
+            _model.searchableEmbeddingColumn!.split('.').last,
+          )
+        : fused;
+    return ranked.take(limit).toList();
   }
 }
