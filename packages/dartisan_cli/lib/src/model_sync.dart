@@ -14,6 +14,8 @@ final class ModelSource {
     required this.authenticatable,
     this.defaults = const <String>{},
     this.relations = const <ModelRelation>[],
+    this.fillable = const <String>[],
+    this.guarded = const <String>['*'],
   });
 
   /// Parses `final class X extends Model`, `table: '...'`, the casts map
@@ -50,7 +52,20 @@ final class ModelSource {
         for (final m in _relationEntry.allMatches(source))
           (name: m.group(1)!, kind: m.group(2)!, related: m.group(3)),
       ],
+      fillable: _stringList(source, 'fillable') ?? const <String>[],
+      guarded: _stringList(source, 'guarded') ?? const <String>['*'],
     );
+  }
+
+  /// The strings of the `[key]: [...]` list in [source], or null when it
+  /// declares none.
+  static List<String>? _stringList(String source, String key) {
+    final list = RegExp(
+      '\\b$key:\\s*(?:const\\s*)?(?:<String>\\s*)?\\[([^\\]]*)\\]',
+    ).firstMatch(source)?.group(1);
+    return list == null
+        ? null
+        : [for (final m in RegExp(r"'([^']*)'").allMatches(list)) m.group(1)!];
   }
 
   /// The model's class name.
@@ -73,6 +88,23 @@ final class ModelSource {
 
   /// Its relations, from `relations: {'posts': () => HasMany<Post>(...)}`.
   final List<ModelRelation> relations;
+
+  /// Its `fillable:` list (empty when not declared).
+  final List<String> fillable;
+
+  /// Its `guarded:` list (`['*']` when not declared).
+  final List<String> guarded;
+
+  /// Whether [column] may be mass assigned, as `ModelDefinition.isFillable`.
+  bool isFillable(String column) {
+    if (fillable.contains(column)) {
+      return true;
+    }
+    if (fillable.isNotEmpty) {
+      return false;
+    }
+    return !guarded.contains('*') && !guarded.contains(column);
+  }
 }
 
 /// One entry of a model's `relations:` map: its [name], the relation class
@@ -414,6 +446,14 @@ AccessorPlan planAccessors(
       );
     }
   }
+  final writes = typedWriteLines(
+    model,
+    names,
+    dialect: dialect,
+    idType: idType,
+  );
+  lines.addAll(writes.lines);
+  warnings.addAll(writes.warnings);
   final relations = relationLines(model, {for (final n in names) ?n.getter});
   lines.addAll(relations.lines);
   warnings.addAll(relations.warnings);
@@ -490,6 +530,112 @@ AccessorPlan relationLines(ModelSource model, Set<String> columnGetters) {
       ..add('  }');
   }
   return AccessorPlan(lines, warnings);
+}
+
+/// `createWith`, `makeWith`, `fillWith` and `updateWith` of [model]: the
+/// mass-assignable columns as typed named parameters (W9.13), through
+/// `create`, `make`, `fill` and `update`, so fillable, events and
+/// timestamps are those of the map forms.
+///
+/// A column is a parameter when it has an accessor, is not the primary key
+/// or a timestamp, and is fillable under the model's `fillable:` and
+/// `guarded:` lists as `ModelDefinition.isFillable` reads them, so `fill`
+/// never drops one. It is `required` in `createWith`/`makeWith` when it is
+/// `NOT NULL` with no database default and no `attributes:` default. In
+/// `fillWith`/`updateWith` every parameter is optional, and a nullable
+/// column is a [Patch] so it can be set to null. Without a fillable column
+/// nothing is written, and [AccessorPlan.warnings] says why.
+AccessorPlan typedWriteLines(
+  ModelSource model,
+  List<ColumnNames> names, {
+  SqlDialect dialect = SqlDialect.sqlite,
+  String? idType,
+}) {
+  const timestamps = {'created_at', 'updated_at', 'deleted_at'};
+  final params = [
+    for (final (:column, :getter, field: _) in names)
+      if (getter != null &&
+          column.name != model.primaryKey &&
+          !timestamps.contains(column.name) &&
+          model.isFillable(column.name))
+        (
+          column: column,
+          getter: getter,
+          type: columnType(model, column, dialect: dialect, idType: idType),
+          required:
+              !column.nullable &&
+              column.defaultValue == null &&
+              !column.autoIncrement &&
+              !model.defaults.contains(column.name),
+        ),
+  ];
+  final className = model.className;
+  if (params.isEmpty) {
+    return AccessorPlan(const [], [
+      '$className: no fillable column (fillable: [], guarded: '
+          "${model.guarded.map((g) => "'$g'").toList()}); createWith, makeWith, "
+          'fillWith and updateWith not generated.',
+    ]);
+  }
+  String base(String type) =>
+      type.endsWith('?') ? type.substring(0, type.length - 1) : type;
+  final createParams = [
+    for (final p in params)
+      p.required
+          ? '    required ${base(p.type)} ${p.getter},'
+          : '    ${base(p.type)}? ${p.getter},',
+  ];
+  final createMap = [
+    for (final p in params)
+      p.required
+          ? "    '${p.column.name}': ${p.getter},"
+          : "    '${p.column.name}': ?${p.getter},",
+  ];
+  final patchParams = [
+    for (final p in params)
+      p.column.nullable
+          ? '    Patch<${base(p.type)}?> ${p.getter} = const Patch.absent(),'
+          : '    ${base(p.type)}? ${p.getter},',
+  ];
+  final patchMap = [
+    for (final p in params)
+      p.column.nullable
+          ? "    if (${p.getter}.isPresent) '${p.column.name}': "
+                '${p.getter}.value,'
+          : "    '${p.column.name}': ?${p.getter},",
+  ];
+  return AccessorPlan([
+    '  /// Creates and saves a `$className` (`create` with a map, checked by',
+    '  /// the compiler): a `required` column has no default.',
+    '  static Future<$className> createWith({',
+    ...createParams,
+    '  }) => definition.query().create(<String, Object?>{',
+    ...createMap,
+    '  });',
+    '  /// [createWith] without saving (`make`).',
+    '  static $className makeWith({',
+    ...createParams,
+    '  }) => definition.query().make(<String, Object?>{',
+    ...createMap,
+    '  });',
+    '  /// Fills the given columns (`fill`); `Patch(null)` sets a nullable',
+    '  /// one to null.',
+    '  $className fillWith({',
+    ...patchParams,
+    '  }) {',
+    '    fill(<String, Object?>{',
+    ...patchMap.map((l) => '  $l'),
+    '    });',
+    '    return this;',
+    '  }',
+    '  /// Updates the given columns and saves (`update`); `Patch(null)` sets a',
+    '  /// nullable one to null.',
+    '  Future<bool> updateWith({',
+    ...patchParams,
+    '  }) => update(<String, Object?>{',
+    ...patchMap,
+    '  });',
+  ], const []);
 }
 
 const String _accessorsStart = '// <dartisan:accessors>';
