@@ -870,7 +870,19 @@ final class DatabaseManager {
     }
   }
 
+  String? _refusal;
+
+  /// Makes every later attempt to open a connection throw a [StateError]
+  /// that says [reason] (`Application.bootForInspection`: tooling that
+  /// boots the application to read its registrations must not connect).
+  /// Connections already open are not touched.
+  void refuseConnections(String reason) => _refusal = reason;
+
   DatabaseDriver _createDriver(String name) {
+    final refusal = _refusal;
+    if (refusal != null) {
+      throw StateError('Database connection [$name] refused: $refusal');
+    }
     final connection = config.connections[name];
     if (connection == null) {
       throw ConfigException('Database connection [$name] is not configured.');

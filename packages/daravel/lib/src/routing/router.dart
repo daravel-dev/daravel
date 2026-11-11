@@ -733,3 +733,25 @@ final class Router {
     }
   }
 }
+
+/// The URL of the route named [name] in the running application, for the
+/// `Routes.*` builders `dartisan names:sync` writes: the [Router] of
+/// [Container.current] (a request, a job, a command or a test), as
+/// [Router.url]. Outside a booted application it throws a [StateError]
+/// that says so.
+String routeUrl(
+  String name, {
+  Map<String, Object?> params = const <String, Object?>{},
+  Map<String, Object?> query = const <String, Object?>{},
+  bool absolute = false,
+}) {
+  final router = Container.currentOrNull?.tryMake<Router>();
+  if (router == null) {
+    throw StateError(
+      'The URL of route [$name] needs a booted Application (a request, a '
+      'job, a command or a test): it comes from the router the '
+      'application builds.',
+    );
+  }
+  return router.url(name, params: params, query: query, absolute: absolute);
+}

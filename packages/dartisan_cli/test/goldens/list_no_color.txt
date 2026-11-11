@@ -83,6 +83,8 @@ Available commands:
  model
   model:show            Show information about a model.
   model:sync            Sync model accessors with the database schema.
+ names
+  names:sync            Write route, ability, limiter, guard, disk and connection names.
  openapi
   openapi:generate      Generate an OpenAPI 3.1 document from the routes.
  pub

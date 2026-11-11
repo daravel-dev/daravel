@@ -173,6 +173,7 @@ final class DartisanRunner extends CommandRunner<int> with DartisanConsole {
     addCommand(MakeE2eCommand());
     addCommand(OpenApiGenerateCommand(createApp));
     addCommand(ModelSyncCommand(createApp));
+    addCommand(NamesSyncCommand(createApp));
     addCommand(LintCommand());
     addCommand(UpgradeCommand());
     addCommand(SelfUpdateCommand());
@@ -273,6 +274,28 @@ abstract class DaravelCommand extends Command<int> {
     final app = createApp();
     try {
       await app.boot();
+      return await app.run<int>(() => body(app));
+    } finally {
+      await app.shutdown();
+    }
+  }
+
+  /// As [withApp], for a command that only reads the application's
+  /// registrations: the application boots for inspection
+  /// (`Application.bootForInspection`: no database connection, no metrics
+  /// publisher). A boot that fails (a provider that needs the database)
+  /// prints its reason and returns 1, not a raw stack.
+  Future<int> withAppForInspection(
+    FutureOr<int> Function(Application app) body,
+  ) async {
+    final app = createApp();
+    try {
+      try {
+        await app.bootForInspection();
+      } on Object catch (error) {
+        stderr.writeln('$name: the application could not boot: $error');
+        return 1;
+      }
       return await app.run<int>(() => body(app));
     } finally {
       await app.shutdown();
@@ -456,7 +479,7 @@ final class RouteListCommand extends DaravelCommand {
   String get description => 'List all registered routes.';
 
   @override
-  Future<int> run() => withApp((app) {
+  Future<int> run() => withAppForInspection((app) {
     final r = argResults!;
     if (r['channels'] as bool) {
       final channels = app.broadcastChannels.describe();
