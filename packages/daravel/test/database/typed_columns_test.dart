@@ -121,6 +121,32 @@ void main() {
     );
   });
 
+  test(
+    'increment and decrement take tokens (QueryBuilder, ModelQuery)',
+    () async {
+      await db
+          .table('people')
+          .where(Person.cols.id, 1)
+          .increment(Person.cols.id, 10);
+      expect(
+        await db.table('people').oldest(Person.cols.id).pluck(Person.cols.id),
+        [2, 11],
+      );
+      await Person.definition
+          .query(db: db)
+          .where(Person.cols.id, 11)
+          .decrement(Person.cols.id, 8);
+      expect(
+        await db.table('people').oldest(Person.cols.id).pluck(Person.cols.id),
+        [2, 3],
+      );
+      expect(
+        () => db.table('people').increment(1.5),
+        throwsA(isA<ArgumentError>().having((e) => e.name, 'name', 'column')),
+      );
+    },
+  );
+
   test('a value that is not a column name is refused by parameter', () {
     expect(
       () => db.table('people').pluck(42),

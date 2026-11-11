@@ -505,20 +505,32 @@ final class ModelQuery<T extends Model> {
       _withAggregate(relations, 'count', '*');
 
   /// Adds `<relation>_sum_<column>` columns.
-  ModelQuery<T> withSum(Object relations, String column) =>
-      _withAggregate(relations, 'sum', column);
+  ModelQuery<T> withSum(Object relations, Object column) => _withAggregate(
+    relations,
+    'sum',
+    QueryBuilder.columnName(column, 'column'),
+  );
 
   /// Adds `<relation>_avg_<column>` columns.
-  ModelQuery<T> withAvg(Object relations, String column) =>
-      _withAggregate(relations, 'avg', column);
+  ModelQuery<T> withAvg(Object relations, Object column) => _withAggregate(
+    relations,
+    'avg',
+    QueryBuilder.columnName(column, 'column'),
+  );
 
   /// Adds `<relation>_min_<column>` columns.
-  ModelQuery<T> withMin(Object relations, String column) =>
-      _withAggregate(relations, 'min', column);
+  ModelQuery<T> withMin(Object relations, Object column) => _withAggregate(
+    relations,
+    'min',
+    QueryBuilder.columnName(column, 'column'),
+  );
 
   /// Adds `<relation>_max_<column>` columns.
-  ModelQuery<T> withMax(Object relations, String column) =>
-      _withAggregate(relations, 'max', column);
+  ModelQuery<T> withMax(Object relations, Object column) => _withAggregate(
+    relations,
+    'max',
+    QueryBuilder.columnName(column, 'column'),
+  );
 
   /// Adds boolean `<relation>_exists` columns.
   ModelQuery<T> withExists(Object relations) =>
@@ -1255,11 +1267,11 @@ final class ModelQuery<T extends Model> {
   });
 
   /// Adds [amount] to [column] of the matching rows.
-  Future<int> increment(String column, [num amount = 1]) =>
+  Future<int> increment(Object column, [num amount = 1]) =>
       prepared().increment(column, amount);
 
   /// Subtracts [amount] from [column] of the matching rows.
-  Future<int> decrement(String column, [num amount = 1]) =>
+  Future<int> decrement(Object column, [num amount = 1]) =>
       prepared().decrement(column, amount);
 
   ModelQuery<T> _copy() {
