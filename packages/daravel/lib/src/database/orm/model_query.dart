@@ -57,7 +57,11 @@ final class ModelQuery<T extends Model> {
 
   /// `where('col', value)`, `where('col', '>', value)`, a map of columns to
   /// values, or a closure for a nested group, as [QueryBuilder.where].
-  ModelQuery<T> where(Object column, [Object? operatorOrValue, Object? value]) {
+  ModelQuery<T> where(
+    Object column, [
+    Object? operatorOrValue = QueryBuilder.absent,
+    Object? value = QueryBuilder.absent,
+  ]) {
     builder.where(column, operatorOrValue, value);
     return this;
   }
@@ -65,8 +69,8 @@ final class ModelQuery<T extends Model> {
   /// [where] joined with `OR`.
   ModelQuery<T> orWhere(
     Object column, [
-    Object? operatorOrValue,
-    Object? value,
+    Object? operatorOrValue = QueryBuilder.absent,
+    Object? value = QueryBuilder.absent,
   ]) {
     builder.orWhere(column, operatorOrValue, value);
     return this;
@@ -165,7 +169,7 @@ final class ModelQuery<T extends Model> {
   ModelQuery<T> whereDate(
     String column,
     String operatorOrValue, [
-    Object? value,
+    Object? value = QueryBuilder.absent,
   ]) {
     builder.whereDate(column, operatorOrValue, value);
     return this;
@@ -175,21 +179,21 @@ final class ModelQuery<T extends Model> {
   ModelQuery<T> whereYear(
     String column,
     Object operatorOrValue, [
-    Object? value,
+    Object? value = QueryBuilder.absent,
   ]) => _on((b) => b.whereYear(column, operatorOrValue, value));
 
   /// Compares the month of a date column.
   ModelQuery<T> whereMonth(
     String column,
     Object operatorOrValue, [
-    Object? value,
+    Object? value = QueryBuilder.absent,
   ]) => _on((b) => b.whereMonth(column, operatorOrValue, value));
 
   /// Compares the day of the month of a date column.
   ModelQuery<T> whereDay(
     String column,
     Object operatorOrValue, [
-    Object? value,
+    Object? value = QueryBuilder.absent,
   ]) => _on((b) => b.whereDay(column, operatorOrValue, value));
 
   // Laravel 11's date shortcuts, against Clock.now(); [columns] is a column
@@ -505,20 +509,32 @@ final class ModelQuery<T extends Model> {
       _withAggregate(relations, 'count', '*');
 
   /// Adds `<relation>_sum_<column>` columns.
-  ModelQuery<T> withSum(Object relations, String column) =>
-      _withAggregate(relations, 'sum', column);
+  ModelQuery<T> withSum(Object relations, Object column) => _withAggregate(
+    relations,
+    'sum',
+    QueryBuilder.columnName(column, 'column'),
+  );
 
   /// Adds `<relation>_avg_<column>` columns.
-  ModelQuery<T> withAvg(Object relations, String column) =>
-      _withAggregate(relations, 'avg', column);
+  ModelQuery<T> withAvg(Object relations, Object column) => _withAggregate(
+    relations,
+    'avg',
+    QueryBuilder.columnName(column, 'column'),
+  );
 
   /// Adds `<relation>_min_<column>` columns.
-  ModelQuery<T> withMin(Object relations, String column) =>
-      _withAggregate(relations, 'min', column);
+  ModelQuery<T> withMin(Object relations, Object column) => _withAggregate(
+    relations,
+    'min',
+    QueryBuilder.columnName(column, 'column'),
+  );
 
   /// Adds `<relation>_max_<column>` columns.
-  ModelQuery<T> withMax(Object relations, String column) =>
-      _withAggregate(relations, 'max', column);
+  ModelQuery<T> withMax(Object relations, Object column) => _withAggregate(
+    relations,
+    'max',
+    QueryBuilder.columnName(column, 'column'),
+  );
 
   /// Adds boolean `<relation>_exists` columns.
   ModelQuery<T> withExists(Object relations) =>
@@ -1255,11 +1271,11 @@ final class ModelQuery<T extends Model> {
   });
 
   /// Adds [amount] to [column] of the matching rows.
-  Future<int> increment(String column, [num amount = 1]) =>
+  Future<int> increment(Object column, [num amount = 1]) =>
       prepared().increment(column, amount);
 
   /// Subtracts [amount] from [column] of the matching rows.
-  Future<int> decrement(String column, [num amount = 1]) =>
+  Future<int> decrement(Object column, [num amount = 1]) =>
       prepared().decrement(column, amount);
 
   ModelQuery<T> _copy() {

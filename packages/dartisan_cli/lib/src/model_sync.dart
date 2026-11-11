@@ -510,6 +510,9 @@ AccessorPlan typedWriteLines(
                 '${p.getter}.value,'
           : "    '${p.column.name}': ?${p.getter},",
   ];
+  // Only a nullable column is a Patch parameter; the doc mentions Patch
+  // only when there is one.
+  final hasPatch = params.any((p) => p.column.nullable);
   return AccessorPlan([
     '  /// Creates and saves a `$className` (`create` with a map, checked by',
     '  /// the compiler): a `required` column has no default.',
@@ -524,8 +527,11 @@ AccessorPlan typedWriteLines(
     '  }) => definition.query().make(<String, Object?>{',
     ...createMap,
     '  });',
-    '  /// Fills the given columns (`fill`); `Patch(null)` sets a nullable',
-    '  /// one to null.',
+    if (hasPatch) ...[
+      '  /// Fills the given columns (`fill`); `Patch(null)` sets a nullable',
+      '  /// one to null.',
+    ] else
+      '  /// Fills the given columns (`fill`).',
     '  $className fillWith({',
     ...patchParams,
     '  }) {',
@@ -534,8 +540,11 @@ AccessorPlan typedWriteLines(
     '    });',
     '    return this;',
     '  }',
-    '  /// Updates the given columns and saves (`update`); `Patch(null)` sets a',
-    '  /// nullable one to null.',
+    if (hasPatch) ...[
+      '  /// Updates the given columns and saves (`update`); `Patch(null)` sets',
+      '  /// a nullable one to null.',
+    ] else
+      '  /// Updates the given columns and saves (`update`).',
     '  Future<bool> updateWith({',
     ...patchParams,
     '  }) => update(<String, Object?>{',
@@ -578,10 +587,47 @@ List<String> staticLines(String className, {String? idType}) => [
   '  static Future<$className> create(Map<String, Object?> attributes) =>',
   '      query().create(attributes);',
   '  static Future<ModelCollection<$className>> all() => query().get();',
-  '  static ModelQuery<$className> where(Object column, '
-      '[Object? op, Object? value]) =>',
-  '      query().where(column, op, value);',
+  ...whereStaticLines(className),
 ];
+
+/// The `where` static of [className]. Its optional arguments default to
+/// [QueryBuilder.absent], so `User.where('a', '<>')` (two arguments) and
+/// `User.where('a', '<>', null)` (`IS NOT NULL`) reach the query builder
+/// apart.
+List<String> whereStaticLines(String className) => [
+  '  static ModelQuery<$className> where(',
+  '    Object column, [',
+  '    Object? operatorOrValue = QueryBuilder.absent,',
+  '    Object? value = QueryBuilder.absent,',
+  '  ]) => query().where(column, operatorOrValue, value);',
+];
+
+/// A `where` static written before `QueryBuilder.absent` (Daravel 1.27 and
+/// earlier): it passes `null` on for a left-out argument, so two and three
+/// arguments look the same to the query builder.
+final RegExp _nullForwardingWhere = RegExp(
+  r'static\s+ModelQuery<\w+>\s+where\(\s*Object\s+\w+,\s*\[\s*Object\?\s+(\w+),'
+  r'\s*Object\?\s+(\w+),?\s*\]\s*\)\s*=>\s*query\(\)\.where\(',
+);
+
+/// The warning `model:sync` prints for a model whose statics region still
+/// holds a `where` static that passes `null` on, with the lines to paste
+/// instead; null when the region has none.
+String? whereStaticWarning(String source, String className) {
+  final start = source.indexOf(_staticsStart);
+  final end = source.indexOf(_staticsEnd);
+  if (start == -1 || end < start) {
+    return null;
+  }
+  final match = _nullForwardingWhere.firstMatch(source.substring(start, end));
+  if (match == null || match[0]!.contains('QueryBuilder.absent')) {
+    return null;
+  }
+  return '$className: the where static passes null on for a left-out '
+      "argument, so $className.where('a', '<>') and "
+      "$className.where('a', '<>', null) look the same. Replace it with:\n"
+      '${whereStaticLines(className).join('\n')}';
+}
 
 /// Fills an empty statics region of [source] with [staticLines]. A region
 /// that holds anything belongs to the application and is left alone, as is
@@ -711,7 +757,7 @@ ModelSync syncModelSource(
   SqlDialect dialect = SqlDialect.sqlite,
   String? idStub,
 }) {
-  final warnings = <String>[];
+  final warnings = <String>[?whereStaticWarning(source, model.className)];
   String? idType;
   var next = source;
   if (idStub != null) {

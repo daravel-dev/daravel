@@ -462,6 +462,7 @@ The monorepo is a Dart pub workspace:
 | [`packages/daravel`](packages/daravel) | Framework core |
 | [`packages/daravel_test`](packages/daravel_test) | Testing toolkit: `TestClient`, assertions, `refreshDatabase`, time travel, architecture helpers |
 | [`packages/daravel_lints`](packages/daravel_lints) | AST-based lint rules and registry checks, run by `dartisan lint` and in tests |
+| [`packages/daravel_lints_plugin`](packages/daravel_lints_plugin) | The `daravel_lints` rules in the editor and in `dart analyze`, as an analysis server plugin |
 | [`packages/dartisan_cli`](packages/dartisan_cli) | The `dartisan` command-line interface and code generators |
 | [`packages/daravel_mysql`](packages/daravel_mysql) | MySQL and MariaDB driver |
 | [`packages/daravel_permission`](packages/daravel_permission) | Roles and permissions on spatie/laravel-permission's tables |
@@ -470,6 +471,7 @@ The monorepo is a Dart pub workspace:
 | [`packages/daravel_log_viewer`](packages/daravel_log_viewer) | A log viewer page: files read from their end, filters, live tail, secrets masked |
 | [`packages/daravel_pulse`](packages/daravel_pulse) | A dashboard after Laravel Pulse: requests, slow requests and queries, exceptions, queues, across every isolate |
 | [`packages/daravel_reverb`](packages/daravel_reverb) | The Pusher server in a process of its own after Laravel Reverb: `reverb:start`, several applications, spread restarts, stats per isolate |
+| [`packages/daravel_reverb_client`](packages/daravel_reverb_client) | A Pusher client after Laravel Echo for Dart and Flutter (VM, mobile, desktop, web), for Laravel Reverb and Daravel |
 | [`packages/daravel_payments`](packages/daravel_payments) | Midtrans, Xendit and Stripe behind one API; webhooks verified, applied once, amounts checked |
 | [`packages/daravel_medialibrary`](packages/daravel_medialibrary) | Files and images attached to models on spatie/laravel-medialibrary's media table, conversions in pure Dart |
 | [`packages/daravel_teorion`](packages/daravel_teorion) | Request-driven query filters, laravel-teorion's format |

@@ -2,6 +2,7 @@ import 'package:collection/collection.dart';
 
 import '../../http/request.dart';
 import '../../http/response.dart';
+import '../query/query_builder.dart';
 import 'model.dart';
 
 /// A list of models with Laravel `Collection` conveniences.
@@ -50,9 +51,12 @@ final class ModelCollection<T extends Model> extends DelegatingList<T>
     return this;
   }
 
-  /// Loads [relations] only on models that do not have them yet.
-  Future<ModelCollection<T>> loadMissing(List<String> relations) async {
-    for (final relation in relations) {
+  /// Loads [relations] only on models that do not have them yet: names, or
+  /// a model's typed relations, which are names at run time.
+  Future<ModelCollection<T>> loadMissing(List<Object> relations) async {
+    for (final relation in [
+      for (final r in relations) QueryBuilder.columnName(r, 'relations'),
+    ]) {
       final pending = where(
         (model) => !model.relationLoaded(relation.split('.').first),
       ).toList();

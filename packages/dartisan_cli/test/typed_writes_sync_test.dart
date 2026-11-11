@@ -101,6 +101,25 @@ final class Member extends Model {
     expect(lines, isNot(contains('isAdmin')));
   });
 
+  test('the docs mention Patch(null) only when there is a Patch', () {
+    final model = ModelSource.parse(source)!;
+    final withNullable = planAccessors(model, columns).lines.join('\n');
+    expect(withNullable, contains('`Patch(null)`'));
+    final onlyRequired = planAccessors(
+      ModelSource.parse(
+        source.replaceFirst(
+          "fillable: ['name', 'email', 'nickname', 'status', 'verified_at'],",
+          "fillable: ['name', 'email'],",
+        ),
+      )!,
+      columns,
+    ).lines.join('\n');
+    // name and email are NOT NULL: no Patch parameter, so no Patch in docs.
+    expect(onlyRequired, isNot(contains('Patch<')));
+    expect(onlyRequired, isNot(contains('Patch(null)')));
+    expect(onlyRequired, contains('/// Fills the given columns (`fill`).'));
+  });
+
   test('without a fillable column nothing is written, with one warning', () {
     final model = ModelSource.parse(
       source.replaceFirst(
