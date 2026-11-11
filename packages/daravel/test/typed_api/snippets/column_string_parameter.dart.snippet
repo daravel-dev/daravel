@@ -1,0 +1,6 @@
+// expect: argument_type_not_assignable @6
+import 'package:daravel/daravel.dart';
+
+import '_models.dart';
+
+final q = DB.table('users').whereIn(User.cols.id, [1]);
