@@ -3,7 +3,7 @@
 
 /// `docs/guide/id/validation.md`.
 const String pageIdValidation =
-    r'''<!-- source: validation.md sha256:0df3a3511dbb -->
+    r'''<!-- source: validation.md sha256:9d8e838e0b83 -->
 # Validasi
 
 Validasi request secara inline dengan string rule Laravel, atau dengan objek
@@ -100,6 +100,27 @@ Rules.unique('users', 'email').ignore(id, idColumn: 'staff_id');
 Rules.unique('users', 'email').where((QueryBuilder q) => q.whereNull('deleted_at'));
 Rules.exists('billing.invoices', 'id').where((QueryBuilder q) => q.where('open', true));
 ```
+
+Aturan yang bergantung pada input atau pada setiap elemen, seperti
+`Rule::when`, `Rule::unless`, `Rule::forEach`, dan `Rule::anyOf` di Laravel:
+
+```dart
+'company': Rules.whenInput((input) => input['type'] == 'business',
+    [Rules.required(), Rules.string()]),
+'notes': Rules.when(isAdmin, [Rules.nullable()], otherwise: [Rules.prohibited()]),
+'items.*.qty': Rules.forEach((item) =>
+    item.value == 0 ? [Rules.integer(), Rules.min(1)] : [Rules.integer()]),
+'items.*': Rules.forEachNested((item) => {'sku': [Rules.required()]}),
+'login': Rules.anyOf([[Rules.email()], [Rules.integer(), Rules.min(1)]]),
+```
+
+Kondisi diputuskan sekali per validasi, atas seluruh input (sesudah
+`prepare`). `forEachNested` memvalidasi key dari setiap elemen
+(`items.2.sku`), dan key tersebut ikut masuk `validated()`. Setiap alternatif
+`anyOf` divalidasi atas nilainya saja, sama seperti di Laravel: aturan di
+dalamnya yang menyebut field lain tidak melihat field tersebut. `forEach` yang
+terus mengembalikan `forEach` berhenti dengan galat setelah
+`Validator.maxRuleNesting` (8) tingkat; Laravel tidak punya batas.
 
 ## Form request
 

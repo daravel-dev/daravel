@@ -2,6 +2,7 @@ import 'dart:async';
 
 import '../foundation/container.dart';
 import 'messages.dart';
+import 'object_rules.dart';
 import 'rule.dart';
 import 'rule_parser.dart';
 import 'rules.dart' show BooleanRule, ExcludeRule, IntegerRule, NumericRule;
@@ -76,14 +77,21 @@ final class Validator {
   Future<Map<String, List<String>>> run() async {
     _errors = {};
     _excluded.clear();
+    _nestedPatterns.clear();
     _input = data;
+    // Laravel's filterConditionalRules: `when`/`unless` are decided once,
+    // on the whole input, before any rule runs.
+    final resolved = {
+      for (final MapEntry(:key, :value) in rules.entries)
+        key: _resolveConditionals(value, key),
+    };
     outer:
-    for (final entry in rules.entries) {
-      for (final attribute in expandPattern(_input, entry.key).toList()) {
+    for (final MapEntry(key: pattern, value: list) in resolved.entries) {
+      for (final attribute in expandPattern(_input, pattern).toList()) {
         if (_isExcluded(attribute)) {
           continue;
         }
-        await _validateAttribute(attribute, entry.key, entry.value);
+        await _validateExpanded(attribute, pattern, list);
         if (stopOnFirstFailure && _errors!.isNotEmpty) {
           break outer;
         }
@@ -114,7 +122,7 @@ final class Validator {
   /// The subset of [data] covered by rules, keeping nested structure.
   ValidatedData validated() {
     final result = <String, Object?>{};
-    for (final pattern in rules.keys) {
+    for (final pattern in [...rules.keys, ..._nestedPatterns]) {
       for (final attribute in expandPattern(_input, pattern)) {
         if (_isExcluded(attribute) ||
             !ValidationContext.exists(_input, attribute)) {
@@ -134,6 +142,96 @@ final class Validator {
   /// a later rule sees them as missing. [data] itself stays as given.
   late Map<String, Object?> _input = data;
   final Set<String> _excluded = <String>{};
+
+  /// The attributes `forEachNested` gave rules in the last [run]
+  /// (`items.2.meta`); [validated] includes them, as Laravel merges
+  /// compiled rules into the validator's rules.
+  final Set<String> _nestedPatterns = <String>{};
+
+  /// How deep `when`, `unless` and `forEach` may nest in one another. Laravel
+  /// sets no limit; one here turns a `forEach` callback that returns itself
+  /// into an error naming the attribute instead of an endless loop. The
+  /// nesting comes from the application's rules, never from the input.
+  static const int maxRuleNesting = 8;
+
+  void _checkNesting(int depth, String pattern) {
+    if (depth >= maxRuleNesting) {
+      throw StateError(
+        'The rules of [$pattern] nest when/unless/forEach more than '
+        '$maxRuleNesting levels deep; a forEach callback that returns '
+        'forEach again does this.',
+      );
+    }
+  }
+
+  List<Rule> _resolveConditionals(
+    List<Rule> list,
+    String pattern, [
+    int depth = 0,
+  ]) {
+    if (!list.any((rule) => rule is ConditionalRule)) {
+      return list;
+    }
+    _checkNesting(depth, pattern);
+    return [
+      for (final rule in list)
+        if (rule is ConditionalRule)
+          ..._resolveConditionals(rule.choose(data), pattern, depth + 1)
+        else
+          rule,
+    ];
+  }
+
+  /// [list] on [attribute], with each `forEach` compiled for its value
+  /// first (Laravel's explodeWildcardRules): the rules it gives the element
+  /// run with the others, then the rules it gives the element's keys, in
+  /// the order Laravel merges them.
+  Future<void> _validateExpanded(
+    String attribute,
+    String pattern,
+    List<Rule> list, [
+    int depth = 0,
+  ]) async {
+    if (!list.any((rule) => rule is ForEachRule)) {
+      await _validateAttribute(attribute, pattern, list);
+      return;
+    }
+    _checkNesting(depth, pattern);
+    final dot = attribute.lastIndexOf('.');
+    final ForEachItem item = (
+      value: ValidationContext.dig(_input, attribute),
+      attribute: attribute,
+      parent: dot == -1
+          ? null
+          : ValidationContext.dig(_input, attribute.substring(0, dot)),
+      input: data,
+    );
+    final own = <Rule>[];
+    final nested = <String, List<Rule>>{};
+    for (final rule in list) {
+      if (rule is! ForEachRule) {
+        own.add(rule);
+        continue;
+      }
+      final compiled = rule.compile(item);
+      own.addAll(_resolveConditionals(compiled.own, pattern, depth + 1));
+      for (final MapEntry(:key, :value) in compiled.nested.entries) {
+        (nested[key] ??= []).addAll(
+          _resolveConditionals(value, '$pattern.$key', depth + 1),
+        );
+      }
+    }
+    await _validateExpanded(attribute, pattern, own, depth + 1);
+    for (final MapEntry(:key, value: rules) in nested.entries) {
+      final keyPattern = '$attribute.$key';
+      _nestedPatterns.add(keyPattern);
+      for (final concrete in expandPattern(_input, keyPattern).toList()) {
+        if (!_isExcluded(concrete)) {
+          await _validateExpanded(concrete, '$pattern.$key', rules, depth + 1);
+        }
+      }
+    }
+  }
 
   bool _isExcluded(String attribute) =>
       _excluded.any((e) => attribute == e || attribute.startsWith('$e.'));

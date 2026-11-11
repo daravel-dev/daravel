@@ -6,6 +6,7 @@ import '../database/database_manager.dart';
 import '../database/query/query_builder.dart';
 import '../foundation/clock.dart';
 import '../http/uploaded_file.dart';
+import 'object_rules.dart';
 import 'php_date_format.dart';
 import 'rule.dart';
 
@@ -438,6 +439,65 @@ abstract final class Rules {
     FutureOr<String?> Function(ValidationContext context) check, {
     String name = 'custom',
   }) => ClosureRule(check, name: name);
+
+  /// `Rule::when($condition, $rules, $defaultRules)`: [rules] when
+  /// [condition] is true, [otherwise] when it is false. For a condition on
+  /// the input, use [whenInput].
+  static Rule when(
+    bool condition,
+    List<Rule> rules, {
+    List<Rule> otherwise = const [],
+  }) => ConditionalRule('when', (_) => condition, rules, otherwise);
+
+  /// `Rule::when(fn ($input) => ..., $rules, $defaultRules)`: [rules] when
+  /// [condition] holds for the whole input, [otherwise] when it does not.
+  /// Decided once per validation, before any rule runs, on the input after
+  /// `FormRequest.prepare` (Laravel's `filterConditionalRules`).
+  static Rule whenInput(
+    bool Function(Map<String, Object?> input) condition,
+    List<Rule> rules, {
+    List<Rule> otherwise = const [],
+  }) => ConditionalRule('when', condition, rules, otherwise);
+
+  /// `Rule::unless($condition, $rules, $defaultRules)`: [rules] when
+  /// [condition] is false, [otherwise] when it is true.
+  static Rule unless(
+    bool condition,
+    List<Rule> rules, {
+    List<Rule> otherwise = const [],
+  }) => ConditionalRule('unless', (_) => !condition, rules, otherwise);
+
+  /// `Rule::unless(fn ($input) => ..., $rules, $defaultRules)`: [whenInput]
+  /// with the condition inverted.
+  static Rule unlessInput(
+    bool Function(Map<String, Object?> input) condition,
+    List<Rule> rules, {
+    List<Rule> otherwise = const [],
+  }) =>
+      ConditionalRule('unless', (input) => !condition(input), rules, otherwise);
+
+  /// `Rule::forEach(fn ($value, $attribute) => [...])`: rules for each
+  /// element of an array attribute (`'items.*.id': Rules.forEach(...)`),
+  /// built from the element's value, attribute, parent and the input.
+  static Rule forEach(List<Rule> Function(ForEachItem item) rules) =>
+      ForEachRule.own(rules);
+
+  /// `Rule::forEach` returning keyed rules: rules for keys of each element
+  /// (`{'meta': [...]}` validates `items.2.meta`); those attributes are part
+  /// of the validated data, as in Laravel.
+  static Rule forEachNested(
+    Map<String, List<Rule>> Function(ForEachItem item) rules,
+  ) => ForEachRule.nested(rules);
+
+  /// `Rule::anyOf([...])`: the value passes when it passes one of
+  /// [alternatives]. Each is validated on the value alone, as Laravel does:
+  /// a rule naming another field does not see the rest of the input.
+  static Rule anyOf(List<List<Rule>> alternatives) => AnyOfRule(alternatives);
+
+  /// `Rule::anyOf` with keyed alternatives: a map value passes when its keys
+  /// pass one of [alternatives] (`[{'type': [...], 'id': [...]}, ...]`).
+  static Rule anyOfKeyed(List<Map<String, List<Rule>>> alternatives) =>
+      AnyOfRule.keyed(alternatives);
 }
 
 // ---------------------------------------------------------------------------

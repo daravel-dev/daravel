@@ -97,6 +97,7 @@ export 'src/routing/url_signer.dart';
 export 'src/json_schema/json_schema.dart';
 export 'src/validation/form_request.dart';
 export 'src/validation/messages.dart';
+export 'src/validation/object_rules.dart';
 export 'src/validation/php_date_format.dart';
 export 'src/validation/rule.dart';
 export 'src/validation/schema.dart';
