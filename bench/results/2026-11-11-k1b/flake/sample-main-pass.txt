@@ -1,0 +1,30 @@
+Running build hooks...Running build hooks...00:00 +0: loading test/server/supervisor_test.dart
+00:00 +0: supervisor runs 2 workers on one port with process-scope state
+2026-11-11T01:17:02.556192Z [WARNING] Config: APP_KEY is not set. Run `dartisan key:generate` before using encryption, signed URLs or tokens.
+2026-11-11T01:17:02.556192Z [WARNING] Config: APP_KEY is not set. Run `dartisan key:generate` before using encryption, signed URLs or tokens.
+2026-11-11T01:17:04.865244Z [ERROR] Unhandled exception while handling GET /boom {"request_id":"c38370ebd47696f2baee56fc"}
+  error: Bad state: boom
+#0      supervisedApp.<anonymous closure>.<anonymous closure> (file:///$WORKTREE/packages/daravel/test/server/supervisor_test.dart:27:36)
+#1      HttpKernel._dispatch.run.<anonymous closure> (package:daravel/src/http/kernel.dart:179:45)
+#2      MiddlewarePipeline.run.guarded.<anonymous closure> (package:daravel/src/http/middleware.dart:68:32)
+#3      MiddlewarePipeline.run (package:daravel/src/http/middleware.dart:82:16)
+#4      HttpKernel._dispatch.run (package:daravel/src/http/kernel.dart:170:52)
+#5      HttpKernel._dispatch (package:daravel/src/http/kernel.dart:190:36)
+#6      MiddlewarePipeline.run.guarded.<anonymous closure> (package:daravel/src/http/middleware.dart:68:32)
+#7      MethodOverrideMiddleware.handle (package:daravel/src/http/middleware/method_override.dart:37:16)
+#8      MiddlewarePipeline.run.<anonymous closure> (package:daravel/src/http/middleware.dart:80:45)
+#9      MiddlewarePipeline.run.guarded.<anonymous closure> (package:daravel/src/http/middleware.dart:68:32)
+#10     PreventRequestsDuringMaintenance.handle (package:daravel/src/http/middleware/maintenance_mode.dart:120:18)
+#11     MiddlewarePipeline.run.<anonymous closure> (package:daravel/src/http/middleware.dart:80:45)
+#12     MiddlewarePipeline.run.guarded.<anonymous closure> (package:daravel/src/http/middleware.dart:68:32)
+#13     MetricsMiddleware.handle (package:daravel/src/observability/metrics.dart:905:34)
+#14     MiddlewarePipeline.run.<anonymous closure> (package:daravel/src/http/middleware.dart:80:45)
+#15     MiddlewarePipeline.run.guarded.<anonymous closure> (package:daravel/src/http/middleware.dart:68:32)
+#16     MiddlewarePipeline.run (package:daravel/src/http/middleware.dart:82:16)
+#17     HttpKernel.handle (package:daravel/src/http/kernel.dart:76:43)
+#18     ServerEngine._handle.<anonymous closure> (package:daravel/src/http/server_engine.dart:884:43)
+<asynchronous suspension>
+#19     Container.runScoped.<anonymous closure> (package:daravel/src/foundation/container.dart:337:22)
+<asynchronous suspension>
+
+00:05 +1: All tests passed!
