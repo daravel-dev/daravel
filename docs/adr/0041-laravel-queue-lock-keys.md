@@ -1,6 +1,6 @@
 # ADR-041: Laravel's cache keys for unique, overlap and debounce locks
 
-- **Status:** accepted by the Tech Lead (ACK 245, ACK 254 §2.4–2.8), 2026-11-11; part of the 1.28.0 gate (G1.5).
+- **Status:** accepted 2026-11-11; part of the 1.28.0 gate (G1.5).
 - **Context:** Daravel and Laravel are meant to run side by side on the same database and cache. A queued job's unique lock, `WithoutOverlapping` lock and debounce owner are cache entries. Daravel named them its own way, so a Laravel and a Daravel application sharing a cache did not see each other's locks: the same unique job could be pending on both sides.
 
 ## Decision

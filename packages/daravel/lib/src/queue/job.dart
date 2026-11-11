@@ -451,8 +451,7 @@ abstract final class QueueLockKeys {
   /// release's dispatches during a deploy; a worker of the previous release
   /// does not know it and leaves it behind when it finishes a job this
   /// release dispatched, so without this bound the id stayed refused for
-  /// the job's `uniqueFor` (365 days for 0). ADR-041, Tech Lead's answer to
-  /// SEQ 268.
+  /// the job's `uniqueFor` (365 days for 0). ADR-041.
   static const Duration legacyWindow = Duration(hours: 1);
 
   /// [ttl] bounded by [legacyWindow].

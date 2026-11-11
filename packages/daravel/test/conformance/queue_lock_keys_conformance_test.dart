@@ -150,7 +150,7 @@ void main() {
 
     test('a job this release dispatched and a worker of the previous '
         'release finished: the old key it leaves behind lapses after '
-        'legacyWindow, not after uniqueFor (SEQ 268)', () async {
+        'legacyWindow, not after uniqueFor', () async {
       Clock.freeze();
       addTearDown(Clock.restore);
       await app.run(() async {
