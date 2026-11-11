@@ -54,5 +54,48 @@ final class User extends Model with AuthenticatableModel {
   DateTime? get emailVerifiedAt => getAttr('email_verified_at');
   DateTime? get createdAt => getAttr('created_at');
   DateTime? get updatedAt => getAttr('updated_at');
+
+  /// Creates and saves a `User` (`create` with a map, checked by
+  /// the compiler): a `required` column has no default.
+  static Future<User> createWith({
+    required String name,
+    required String email,
+    required String password,
+  }) => definition.query().create(<String, Object?>{
+    'name': name,
+    'email': email,
+    'password': password,
+  });
+
+  /// [createWith] without saving (`make`).
+  static User makeWith({
+    required String name,
+    required String email,
+    required String password,
+  }) => definition.query().make(<String, Object?>{
+    'name': name,
+    'email': email,
+    'password': password,
+  });
+
+  /// Fills the given columns (`fill`); `Patch(null)` sets a nullable
+  /// one to null.
+  User fillWith({String? name, String? email, String? password}) {
+    fill(<String, Object?>{
+      'name': ?name,
+      'email': ?email,
+      'password': ?password,
+    });
+    return this;
+  }
+
+  /// Updates the given columns and saves (`update`); `Patch(null)` sets a
+  /// nullable one to null.
+  Future<bool> updateWith({String? name, String? email, String? password}) =>
+      update(<String, Object?>{
+        'name': ?name,
+        'email': ?email,
+        'password': ?password,
+      });
   // </dartisan:accessors>
 }
