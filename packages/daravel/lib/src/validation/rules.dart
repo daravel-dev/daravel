@@ -3,11 +3,14 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../database/database_manager.dart';
+import '../database/orm/model.dart';
+import '../database/orm/model_definition.dart';
 import '../database/query/query_builder.dart';
 import '../foundation/clock.dart';
 import '../http/uploaded_file.dart';
 import 'php_date_format.dart';
 import 'rule.dart';
+import 'typed_rules.dart';
 
 /// Factory facade for built-in rules (`Rule.required()`, `Rule.email()`...).
 /// Each factory returns a `const`-friendly [Rule] subclass that can be
@@ -386,6 +389,11 @@ abstract final class Rules {
     numbers: numbers,
     symbols: symbols,
   );
+
+  /// The rules that read [definition]'s table, typed by its columns:
+  /// `Rules.of(User.definition).unique(User.cols.email)`.
+  static ModelRules<M> of<M extends Model>(ModelDefinition<M> definition) =>
+      ModelRules<M>(definition);
 
   /// A rule of your own: [check] returns an error message, or null when the
   /// value passes; [name] keys its translations.
