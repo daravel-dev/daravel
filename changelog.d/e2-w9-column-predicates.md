@@ -6,8 +6,8 @@
 ### Changed
 
 - `QueryBuilder.where`/`orWhere` take a typed condition (`ColumnPredicate`); the refusal of a `bool` now also shows `where(User.cols.email.eq(value))`.
+- `where(column, operator, value)` checks the operator when it is called (`ArgumentError` "Unsupported SQL operator"), as the typed conditions do, instead of when the query is compiled; same error type and message, earlier. A typed condition given an extra operator or value (`where(User.cols.age.gte(18), 5)`) is an `ArgumentError` instead of the extra argument being ignored.
 
 ### Upgrade notes
 
 - `package:daravel` exports `ColumnPredicate` and the extensions `NullableColumnConditions`, `ComparableColumnConditions`, `TextColumnConditions`; `BasicWhere` has a new named parameter `escaped` (default false). An application type of one of these names now needs a prefix or `hide`.
-- `where(column, operator, value)` checks the operator when it is called (`ArgumentError` "Unsupported SQL operator"), as the typed conditions do, instead of when the query is compiled; same error type and message, earlier. A typed condition given an extra operator or value (`where(User.cols.age.gte(18), 5)`) is an `ArgumentError` instead of the extra argument being ignored.
