@@ -86,6 +86,26 @@ final class _Ordered implements CoordinatorService {
   Map<String, Object?> stats() => const {};
 }
 
+/// A bulk service recording each worker's calls in the order served.
+final class _OrderedBulk with PrioritizedService implements CoordinatorService {
+  final Map<Object?, List<int>> byWorker = {};
+
+  @override
+  CoordinatorPriority get priority => CoordinatorPriority.bulk;
+
+  @override
+  String get name => 'orderedbulk';
+
+  @override
+  Object? handle(String op, Map<String, Object?> args) {
+    (byWorker[args['w']] ??= []).add(args['n']! as int);
+    return null;
+  }
+
+  @override
+  Map<String, Object?> stats() => const {};
+}
+
 /// Counts priority lookups (the healthy path makes few).
 final class _Counted with PrioritizedService implements CoordinatorService {
   int lookups = 0;
@@ -440,8 +460,10 @@ void main() {
   });
 
   test('under bulk traffic that never pauses, the coordinator turns healthy '
-      'once the lag is gone, and its calls put off still run out', () async {
-    held.hold = false;
+      'once the lag is gone, its calls put off still run out, and each '
+      "worker's calls keep their order", () async {
+    final ordered = _OrderedBulk();
+    coordinator.register(ordered);
     for (var i = 0; i < 3; i++) {
       coordinator.observeLag(const Duration(milliseconds: 10));
     }
@@ -450,10 +472,15 @@ void main() {
     final senders = [
       for (var w = 0; w < 8; w++)
         () async {
+          // A full window and more at a time: calls wait in the buffer
+          // and go as batches.
           final remote = channel(window: 16);
           var n = 0;
           while (running) {
-            await remote.callBulk('held', 'x', {'n': n++});
+            await Future.wait([
+              for (var i = 0; i < 24; i++)
+                remote.callBulk('orderedbulk', 'x', {'w': w, 'n': n++}),
+            ]);
           }
         }(),
     ];
@@ -466,9 +493,14 @@ void main() {
       CoordinatorState.healthy,
       reason: 'not held lagging by the calls put off',
     );
+    // Bounded: within a few drain turns, while the traffic goes on.
     await until(() => coordinator.deferred == 0, 'the queue run out');
     running = false;
     await Future.wait(senders);
+    expect(ordered.byWorker, hasLength(8));
+    for (final MapEntry(key: w, value: ns) in ordered.byWorker.entries) {
+      expect(ns, [for (var n = 0; n < ns.length; n++) n], reason: 'worker $w');
+    }
   });
 
   test('the evidence of a queue counts every call of a batch', () async {
