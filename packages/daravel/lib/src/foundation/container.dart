@@ -372,6 +372,14 @@ final class Container {
     return completer.future;
   }
 
+  /// A zone forked from [Zone.root] whose only value is this container: no
+  /// scope, no cancellation token, no transaction, no query capture of
+  /// whoever forks it. For [runDetached].
+  Zone forkDetached(ZoneSpecification specification) => Zone.root.fork(
+    specification: specification,
+    zoneValues: <Object?, Object?>{_containerKey: this},
+  );
+
   /// The container of the current zone, falling back to the isolate root.
   static Container get current {
     final zoned = Zone.current[_containerKey] as Container?;

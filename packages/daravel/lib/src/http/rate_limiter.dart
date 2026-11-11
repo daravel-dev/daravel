@@ -2,6 +2,7 @@ import 'dart:async';
 
 import '../foundation/clock.dart';
 import '../foundation/container.dart';
+import '../foundation/detached.dart';
 import '../foundation/shared_result.dart';
 
 import '../server/coordinator.dart';
@@ -673,8 +674,8 @@ final class ProcessRateLimitStore implements RateLimitStore {
   final Map<String, int> _waiting = <String, int>{};
 
   /// Retires expired leases and blocks every [leaseTtl] while there are
-  /// any.
-  Timer? _reaper;
+  /// any, detached from the request whose lease starts it (Review #149).
+  Detached<Timer>? _reaper;
 
   /// How long a lease request may still be answered after [timeout], so
   /// that a late grant is given back instead of lost.
@@ -912,8 +913,10 @@ final class ProcessRateLimitStore implements RateLimitStore {
   }
 
   /// Starts the timer that retires expired leases and blocks.
-  void _startReaper() =>
-      _reaper ??= Timer.periodic(leaseTtl, (_) => retireExpired());
+  void _startReaper() => _reaper ??= runDetached(
+    () => Timer.periodic(leaseTtl, (_) => retireExpired()),
+    name: 'rate limit lease reaper',
+  );
 
   /// Gives back the unused hits of every expired lease and forgets expired
   /// blocks. A timer calls it every [leaseTtl] while this worker holds
@@ -927,7 +930,7 @@ final class ProcessRateLimitStore implements RateLimitStore {
     }
     _blocked.removeWhere((_, blocked) => now >= blocked.$1);
     if (_leases.isEmpty && _blocked.isEmpty) {
-      _reaper?.cancel();
+      _reaper?.cancel().ignore();
       _reaper = null;
     }
   }

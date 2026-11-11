@@ -47,12 +47,32 @@ void main() {
     expect((map['defaults']! as List).length, 3);
   });
 
-  Future<List<ConfigIssue>> issues(HorizonConfig horizon) async {
+  Future<List<ConfigIssue>> issues(
+    HorizonConfig horizon, {
+    Map<String, String> env = const {},
+  }) async {
     final config = ConfigRepository()
       ..register<HorizonConfig>(horizon)
       ..register<QueueConfig>(const QueueConfig(defaultConnection: 'database'));
-    return HorizonConfig.check(Env.fromMap({}), config).toList();
+    return HorizonConfig.check(Env.fromMap(env), config).toList();
   }
+
+  test(
+    'check: a heartbeat under 250 ms is a warning, except in testing',
+    () async {
+      const fast = HorizonConfig(heartbeat: Duration(milliseconds: 100));
+      final found = await issues(fast);
+      expect(found.single.level, ConfigIssueLevel.warning);
+      expect(found.single.message, contains('HORIZON_HEARTBEAT_MS=100'));
+      expect(await issues(fast, env: const {'APP_ENV': 'testing'}), isEmpty);
+      expect(
+        await issues(
+          const HorizonConfig(heartbeat: Duration(milliseconds: 250)),
+        ),
+        isEmpty,
+      );
+    },
+  );
 
   test('check: bounds, names, waits and the store', () async {
     expect(await issues(const HorizonConfig()), isEmpty);
@@ -81,6 +101,28 @@ void main() {
       startsWith('warning: Horizon waits names [database:reports]'),
       contains('HORIZON_STORE=memcached'),
     ]);
+  });
+
+  test('check: a plan timeout plus killGrace past QUEUE_RETRY_AFTER is a '
+      'warning (a blocked worker is killed at retry_after)', () async {
+    final found = await issues(
+      const HorizonConfig(
+        plans: [
+          SupervisorPlan(
+            name: SupervisorName('long'),
+            timeout: Duration(seconds: 85),
+          ),
+          SupervisorPlan(
+            name: SupervisorName('short'),
+            timeout: Duration(seconds: 70),
+          ),
+        ],
+      ),
+    );
+    // retry_after 90 s by default; killGrace 10 s.
+    expect(found.single.level, ConfigIssueLevel.warning);
+    expect(found.single.message, contains('[long]'));
+    expect(found.single.message, contains('QUEUE_RETRY_AFTER (90s)'));
   });
 
   test('HORIZON_IDLE_TX_TIMEOUT: by default the longest plan timeout plus '

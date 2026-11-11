@@ -120,7 +120,7 @@ void main() {
       );
       expect(running.jobUuid, isNotEmpty);
       expect(running.jobId, isNotNull);
-      expect(running.jobStartedAtMs, isNotNull);
+      expect(running.jobReservedAtMs, isNotNull);
       await until(() => marks().contains('b:b1'), 'the job on b');
 
       worker.send(const Stop());
@@ -128,6 +128,51 @@ void main() {
       final exited = received.whereType<Exited>().single;
       expect((exited.worker, exited.code), ('horizon-test-1', 0));
       expect(received.whereType<Heartbeat>().last.processed, 2);
+      reports.close();
+    },
+  );
+
+  test(
+    'a job reports once, at its reservation: as many messages per job as '
+    'when it reported at JobProcessing',
+    timeout: const Timeout(Duration(minutes: 1)),
+    () async {
+      await app.run(() => Queue.push(const Mark('a1'), queue: 'a'));
+      final reports = ReceivePort();
+      final received = <Object?>[];
+      final port = Completer<SendPort>();
+      reports.listen((m) {
+        if (m case [final String _, final SendPort p]) {
+          port.complete(p);
+        } else {
+          received.add(m);
+        }
+      });
+      await Isolate.spawn(
+        horizonWorkerMain,
+        HorizonWorkerStart(
+          factory: testApp,
+          name: 'horizon-test-2',
+          queues: 'a',
+          master: reports.sendPort,
+          // No periodic heartbeat in this test: only the immediate ones.
+          heartbeat: const Duration(hours: 1),
+          sleep: const Duration(milliseconds: 50),
+        ),
+        debugName: 'horizon-test-2',
+      );
+      final worker = await port.future.timeout(const Duration(seconds: 10));
+      await until(() => marks().contains('a:a1'), 'the job');
+      worker.send(const Stop());
+      await until(() => received.whereType<Exited>().isNotEmpty, 'Exited');
+      final withJob = [
+        for (final h in received.whereType<Heartbeat>())
+          if (h.jobId != null) h,
+      ];
+      expect(withJob, hasLength(1), reason: 'one report per job');
+      expect(withJob.single.jobReservedAtMs, isNotNull);
+      expect(withJob.single.attempt, 1);
+      expect(withJob.single.jobTimeoutMs, 60000, reason: "the job's own");
       reports.close();
     },
   );

@@ -78,6 +78,7 @@ extension RedisApplicationBuilder on ApplicationBuilder {
           namespace: redis.queueNamespace,
           retryAfter: config.section<QueueConfig>().retryAfter,
           engine: redis.queueEngine,
+          logger: c.make<Logger>(),
         );
       })
       .withBroadcastScaling('redis', (c, broadcasting, server) {

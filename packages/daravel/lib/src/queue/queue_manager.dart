@@ -420,6 +420,7 @@ final class JobProcessor {
               )
             : null,
         context: payload.context,
+        timeout: timeout ?? payload.timeout,
       ),
     );
     if (_alreadyExceeded(payload, queued.attempts, maxTries)) {
@@ -1161,7 +1162,27 @@ final class WorkerOptions {
     this.maxTime,
     this.stopWhenEmpty = false,
     this.memory,
+    this.onReserved,
+    this.onFinished,
   });
+
+  /// Called with each job the moment the driver reserved it, before it is
+  /// decoded into a job (`fromJson`), announced (`JobProcessing`) or run:
+  /// synchronously, so a supervisor hears of the job before anything of the
+  /// job's own can block the isolate (`daravel_horizon` reports it then).
+  /// An error it throws is logged and the job is processed all the same.
+  /// Not called for a reservation the driver makes but has not returned
+  /// yet (inside its own I/O).
+  final void Function(QueuedJob job)? onReserved;
+
+  /// Called with each job [onReserved] was told of once the worker is done
+  /// with it, whatever happened: processed, failed, released, deleted
+  /// (a superseded debounce), or failed before it ran (an unknown name,
+  /// `fromJson` throwing, its tries used up). Synchronously, after
+  /// `JobProcessed`/`JobFailed` when there are any; not every way out has
+  /// an event, so a supervisor clears what it reported here. An error it
+  /// throws is logged.
+  final void Function(QueuedJob job)? onFinished;
 
   /// The connection worked; the default one when null.
   final String? connection;
@@ -1495,14 +1516,42 @@ final class QueueWorker {
         if (job == null) {
           continue;
         }
+        final reserved = options.onReserved;
+        if (reserved != null) {
+          try {
+            reserved(job);
+          } on Object catch (error, stackTrace) {
+            // A listener's failure must not lose the job it was told of.
+            _logger?.error(
+              'onReserved failed for job ${job.id}',
+              error: error,
+              stackTrace: stackTrace,
+            );
+          }
+        }
         final before = processor.timedOutAndReleased;
-        await processor.process(
-          driver,
-          job,
-          tries: options.tries,
-          backoff: options.backoff,
-          timeout: options.timeout,
-        );
+        try {
+          await processor.process(
+            driver,
+            job,
+            tries: options.tries,
+            backoff: options.backoff,
+            timeout: options.timeout,
+          );
+        } finally {
+          final finished = options.onFinished;
+          if (finished != null) {
+            try {
+              finished(job);
+            } on Object catch (error, stackTrace) {
+              _logger?.error(
+                'onFinished failed for job ${job.id}',
+                error: error,
+                stackTrace: stackTrace,
+              );
+            }
+          }
+        }
         if (processor.timedOutAndReleased != before) {
           _logger?.warning(
             'Job ${job.payload.displayName} timed out and was released while '
