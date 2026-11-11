@@ -17,6 +17,8 @@ void main() {
       Mw.throttleLimit(maxAttempts: 5, decayMinutes: 0.5): 'throttle:5,0.5',
       Mw.cacheHeaders(public: true, maxAge: 3600, etag: true):
           'cache.headers:public;max_age=3600;etag',
+      // No options: the bare alias, not 'cache.headers:'.
+      Mw.cacheHeaders(): 'cache.headers',
       Mw.feature(['beta', 'new-checkout']): 'feature:beta,new-checkout',
       Mw.signed: 'signed',
     };
@@ -27,7 +29,10 @@ void main() {
   });
 
   test('a token resolves to the middleware its string resolves to', () {
+    final signer = UrlSigner(List<int>.filled(32, 7));
     final registry = MiddlewareRegistry()
+      ..aliasFactory('auth', AuthenticateMiddleware.new)
+      ..alias('signed', ValidateSignatureMiddleware(signer))
       ..aliasFactory('can', AuthorizeMiddleware.fromParams)
       ..aliasFactory('cache.headers', CacheHeadersMiddleware.fromParams)
       ..aliasFactory('throttle', ThrottleMiddleware.fromParams)
@@ -55,6 +60,17 @@ void main() {
     });
     final feature = registry.resolve(Mw.feature(['a', 'b'])).single;
     expect((feature as EnsureFeaturesAreActive).features, ['a', 'b']);
+    final auth = registry.resolve(Mw.auth()).single;
+    expect((auth as AuthenticateMiddleware).guards, isEmpty);
+    final guarded = registry.resolve(Mw.auth(['token', 'jwt'])).single;
+    expect((guarded as AuthenticateMiddleware).guards, ['token', 'jwt']);
+    final signed = registry.resolve(Mw.signed).single;
+    expect((signed as ValidateSignatureMiddleware).signer, same(signer));
+    // No options and the string with an empty list parse alike.
+    final bare = registry.resolve(Mw.cacheHeaders()).single;
+    final colon = registry.resolve('cache.headers:').single;
+    expect((bare as CacheHeadersMiddleware).options, isEmpty);
+    expect((colon as CacheHeadersMiddleware).options, isEmpty);
   });
 
   test('tokens and strings mix in a route\'s middleware', () async {

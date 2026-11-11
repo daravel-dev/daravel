@@ -178,8 +178,9 @@ r.patch('/posts/{post}', update).middleware([
 
 Setiap token adalah string alias itu sendiri, jadi token dan string bisa
 dicampur dalam satu list. `Mw` mencakup alias yang didaftarkan Daravel
-(`auth`, `can`, `throttle`, `cache.headers`, `feature`, `signed`); paket yang
-mendaftarkan alias sendiri menyediakan tokennya sendiri.
+(`auth`, `can`, `throttle`, `cache.headers`, `feature`, `signed`). Alias yang
+didaftarkan paket (`role`, `permission`, `session`, `csrf`, `teobiefy`, ...)
+ditulis sebagai string: paket-paket itu belum punya token.
 
 ## Rate limiting
 

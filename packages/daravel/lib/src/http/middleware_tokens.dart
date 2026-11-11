@@ -9,10 +9,13 @@ library;
 /// `.middleware([...])`, `group(middleware: [...])`, `middleware.group`.
 extension type const MiddlewareToken(String value) implements String {}
 
-/// The middleware aliases Daravel registers, as [MiddlewareToken]s. Each
-/// returns the string its alias parses (`Mw.can('update', ['post'])` is
-/// `'can:update,post'`), so both forms can be mixed in one list. A package
-/// that registers aliases offers its own tokens (`SessionMw`, ...).
+/// The middleware aliases the framework registers (`auth`, `can`,
+/// `throttle`, `cache.headers`, `feature`, `signed`), as
+/// [MiddlewareToken]s. Each returns the string its alias parses
+/// (`Mw.can('update', ['post'])` is `'can:update,post'`), so both forms
+/// can be mixed in one list. The aliases a package registers (`role`,
+/// `permission`, `session`, `csrf`, `teobiefy`, ...) are written as
+/// strings: those packages have no tokens yet.
 abstract final class Mw {
   /// `auth`, or `auth:token,jwt`: an authenticated user on the first of
   /// [guards] that has one (the default guard when empty).
@@ -21,7 +24,7 @@ abstract final class Mw {
 
   /// `can:update,post`: 403 unless the user may perform [ability], with the
   /// route parameters [routeParams] (bound models or raw values) as its
-  /// arguments.
+  /// arguments. A `,` inside [ability] splits it, as in the string form.
   static MiddlewareToken can(
     String ability, [
     List<String> routeParams = const [],
@@ -76,7 +79,10 @@ abstract final class Mw {
       if (etag) 'etag',
       if (lastModified != null) 'last_modified=$lastModified',
     ];
-    return MiddlewareToken('cache.headers:${options.join(';')}');
+    // No options: the bare alias, which parses to the same (no) options.
+    return MiddlewareToken(
+      options.isEmpty ? 'cache.headers' : 'cache.headers:${options.join(';')}',
+    );
   }
 
   /// `feature:beta,new-checkout`: 400 unless every one of [features] is
