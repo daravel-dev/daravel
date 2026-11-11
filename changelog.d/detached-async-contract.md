@@ -1,0 +1,3 @@
+### Changed
+
+- `runDetachedAsync` without `stop` no longer swallows the error of a `Detached.value` nobody handles: its own bookkeeping listened to that future and so counted as its handler. The error is now an uncaught error of the caller's zone (its request's, job's or command's handler), as it already was with `stop`. The documentation states the contract: the caller must await `Detached.value` or attach a handler; only what the body starts and leaves uncaught goes to `DetachedTasks.onError`. `PostgresDriver` and `MySqlDriver` document that a further pool connection opened under load is opened in the zone of the query that needed it (Review #149).

@@ -132,6 +132,37 @@ void main() {
     expect(uncaught, isEmpty);
   });
 
+  test('runDetachedAsync: a value nobody handles fails in the caller\'s '
+      'zone only, not in the detached tasks\' log', () async {
+    await inRequest(() {
+      // Not awaited, no handler: the caller broke the contract.
+      runDetachedAsync<void>(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        throw StateError('nobody waits');
+      }, name: 'unwatched start');
+    });
+    await until(() => uncaught.isNotEmpty);
+    expect(uncaught.single, isA<StateError>());
+    expect(logs.matching(LogLevel.error, 'Detached task'), isEmpty);
+  });
+
+  test('runDetachedAsync: what the body starts and leaves uncaught goes to '
+      'the detached tasks\' log, not to the caller', () async {
+    final value = await inRequest(
+      () => runDetachedAsync<int>(() async {
+        Timer(Duration.zero, () => throw StateError('left behind'));
+        return 1;
+      }, name: 'leaves a timer').value,
+    );
+    expect(value, 1);
+    await until(
+      () => logs
+          .matching(LogLevel.error, 'Detached task leaves a timer')
+          .isNotEmpty,
+    );
+    expect(uncaught, isEmpty);
+  });
+
   test('the rate limit lease reaper a request starts gives leases back from '
       'no scope (not the request\'s)', () async {
     final coordinator = createStandardCoordinator();

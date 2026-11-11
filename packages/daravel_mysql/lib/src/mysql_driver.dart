@@ -23,6 +23,14 @@ import 'package:mysql_dart/mysql_dart.dart' as my;
 /// ORM parses as UTC. The session time zone is left to the server unless
 /// `DB_TIMEZONE` is set, as in Laravel, so `TIMESTAMP` columns read the same
 /// from both applications.
+///
+/// Pool connections opened on demand: the first connection is opened
+/// detached (`DatabaseManager`, Review #149), but a further connection the
+/// pool opens under load is opened by the query that needed it, in that
+/// query's zone (a request's, a job's). The driver touches neither the
+/// container nor the log on that path, so no request scope or `request_id`
+/// is kept by the connection; an error its socket raises later that the
+/// client package leaves unhandled would reach that zone's error handler.
 final class MySqlDriver
     implements SessionTerminatingDriver, RetryableErrors, QueryErrors {
   /// A pooled MySQL or MariaDB connection; usually made by
