@@ -29,11 +29,11 @@ final class AuthController {
     final password = await Hash.make(data.string('password'));
     // The user and its first token commit together, or not at all.
     final (user, token) = await DB.transaction(() async {
-      final user = await User.create({
-        'name': data.string('name'),
-        'email': data.string('email'),
-        'password': password,
-      });
+      final user = await User.createWith(
+        name: data.string('name'),
+        email: data.string('email'),
+        password: password,
+      );
       return (user, await Auth.issueToken(user, 'api'));
     });
     await Event.dispatch(UserRegistered(user.id, user.email));
