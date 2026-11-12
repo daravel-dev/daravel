@@ -66,6 +66,26 @@ final class Hang extends Job {
         while (watch.elapsed < const Duration(milliseconds: 2500)) {}
       }
     }
+    if (label == 'silent') {
+      File(startsPath).writeAsStringSync(
+        '${ctx.attempt}@${DateTime.now().millisecondsSinceEpoch}'
+        '${String.fromCharCode(10)}',
+        mode: FileMode.append,
+      );
+      if (ctx.attempt == 1) {
+        // An extension whose report never reaches the master: the row is
+        // kept a second longer, then the isolate blocks, so the worker
+        // neither extends nor reports anything more.
+        final row = await DB.table('jobs').where('id', ctx.id).first();
+        final extended = (row!['reserved_at']! as num).toInt() + 1;
+        await DB.table('jobs').where('id', ctx.id).update({
+          'reserved_at': extended,
+        });
+        File(extendedPath).writeAsStringSync('$extended');
+        final watch = Stopwatch()..start();
+        while (watch.elapsed < const Duration(seconds: 6)) {}
+      }
+    }
     if (label == 'boom') {
       // Brings its worker down on every attempt.
       Isolate.current.kill(priority: Isolate.immediate);
@@ -92,6 +112,8 @@ final class Hang extends Job {
 
 final String stuckPath =
     '${Directory.systemTemp.path}${Platform.pathSeparator}horizon_master_stuck_$pid';
+final String extendedPath =
+    '${Directory.systemTemp.path}${Platform.pathSeparator}horizon_master_extended_$pid';
 final String startsPath =
     '${Directory.systemTemp.path}${Platform.pathSeparator}horizon_master_starts_$pid';
 
@@ -151,7 +173,13 @@ void main() {
     masterLog.clear();
     File(_dbMarker)
         .writeAsStringSync('${_temp}horizon_master_${pid}_${++tests}.sqlite');
-    for (final path in [dbPath, marksPath, stuckPath, startsPath]) {
+    for (final path in [
+      dbPath,
+      marksPath,
+      stuckPath,
+      startsPath,
+      extendedPath,
+    ]) {
       if (File(path).existsSync()) {
         File(path).deleteSync();
       }
@@ -582,7 +610,9 @@ void main() {
     'before it (reason timeout), and its job left to retry_after',
     timeout: const Timeout(Duration(minutes: 2)),
     () async {
-      // The master reads retry_after (3 s) from the connection it watches.
+      // The master's connection says retry_after 3 s, its workers' 90 s:
+      // the master trusts what a worker's driver reports only when both
+      // say the same, and otherwise kills by the earlier of the two.
       final short = shortRetryApp();
       await short.boot();
       addTearDown(short.shutdown);
@@ -599,15 +629,149 @@ void main() {
         'the kill before retry_after',
         diagnose: () => diagnosis(m, 's', const {}),
       );
-      // The job blocks 6 s; the kill came at 3 s less the margin (1 s),
-      // not at 60 s + killGrace.
+      // The job blocks 6 s; the kill came by the master's 3 s, taken to
+      // count whole seconds (a second less), less the margin (1 s): about
+      // 1 s after the reservation, not at 60 s + killGrace.
       expect(watch.elapsed, lessThan(const Duration(seconds: 6)));
       expect(eventsNamed('WorkerKilled').first['reason'], 'timeout');
       final timedOut = eventsNamed('JobTimedOut').first;
-      expect(timedOut['limitSeconds'], 2);
+      expect(timedOut['limitSeconds'], 1);
+      expect(
+        '$masterLog',
+        contains(
+          "its workers' queue counts retry_after as 90000 ms, the "
+          "master's connection as 3000 ms",
+        ),
+      );
       expect(timedOut['reclaimed'], isFalse);
       expect(timedOut['leftToRetryAfter'], isTrue);
       await m.stop(timeout: const Duration(seconds: 20));
+    },
+  );
+
+  test(
+    'workers and master on different retry_after: one warning per '
+    'supervisor however many jobs are killed; no limit timer after stop',
+    timeout: const Timeout(Duration(minutes: 2)),
+    () async {
+      final short = shortRetryApp();
+      await short.boot();
+      addTearDown(short.shutdown);
+      await app.run(() async {
+        await Queue.push(const Hang('over'), queue: 'a');
+        await Queue.push(const Hang('over'), queue: 'a');
+      });
+      final m = master(
+        plan(timeout: const Duration(seconds: 60)),
+        driverApp: short,
+      );
+      addTearDown(() => m.stop(timeout: const Duration(seconds: 20)));
+      await m.start();
+      await until(
+        () => eventsNamed('JobTimedOut').length == 2,
+        'two kills before retry_after',
+        diagnose: () => diagnosis(m, 's', const {}),
+      );
+      expect(
+        "its workers' queue counts retry_after".allMatches('$masterLog'),
+        hasLength(1),
+      );
+      final workers = [...m.workers('s')];
+      await m.stop(timeout: const Duration(seconds: 20));
+      expect([for (final w in workers) w.limitArmed], everyElement(isFalse));
+    },
+  );
+
+  test(
+    'the same retry_after on both sides: a job that ends before its limit '
+    'is not killed, and its timer goes with it',
+    timeout: const Timeout(Duration(minutes: 2)),
+    () async {
+      final short = shortRetryApp();
+      await short.boot();
+      addTearDown(short.shutdown);
+      await app.run(() => Queue.push(const Hang('quick', ms: 200), queue: 'a'));
+      final m = master(
+        plan(timeout: const Duration(seconds: 60)),
+        factory: shortRetryApp,
+        driverApp: short,
+      );
+      addTearDown(() => m.stop(timeout: const Duration(seconds: 20)));
+      await m.start();
+      await until(() => marks().contains('a:quick:1'), 'the job ran');
+      // Past the end of its reservation (3 s at most): a timer left armed
+      // would have fired by now.
+      await Future<void>.delayed(const Duration(milliseconds: 3500));
+      expect(eventsNamed('WorkerKilled'), isEmpty);
+      expect(eventsNamed('JobTimedOut'), isEmpty);
+      expect('$masterLog', isNot(contains('retry_after as')));
+      expect([for (final w in m.workers('s')) w.limitArmed], [false]);
+    },
+  );
+
+  test(
+    'retry_after 3 s: a job awaiting 5 s keeps extending its reservation, '
+    'the master follows, and it runs once without a kill',
+    timeout: const Timeout(Duration(minutes: 2)),
+    () async {
+      final short = shortRetryApp();
+      await short.boot();
+      addTearDown(short.shutdown);
+      await app.run(
+        () => Queue.push(const Hang('awaits', ms: 5000), queue: 'a'),
+      );
+      final m = master(
+        plan(timeout: const Duration(seconds: 60)),
+        factory: shortRetryApp,
+        driverApp: short,
+      );
+      addTearDown(() => m.stop(timeout: const Duration(seconds: 20)));
+      await m.start();
+      await until(
+        () => marks().contains('a:awaits:1'),
+        'the job done',
+        diagnose: () => diagnosis(m, 's', const {}),
+      );
+      // Past any second reservation it could have been handed out on.
+      await Future<void>.delayed(const Duration(seconds: 3));
+      expect(eventsNamed('WorkerKilled'), isEmpty);
+      expect(eventsNamed('JobTimedOut'), isEmpty);
+      expect(marks(), ['a:awaits:1']);
+    },
+  );
+
+  test(
+    'an extension the master never hears of: the job is killed by its first '
+    'reservation and runs again only after the extended one ends',
+    timeout: const Timeout(Duration(minutes: 2)),
+    () async {
+      final short = shortRetryApp();
+      await short.boot();
+      addTearDown(short.shutdown);
+      await app.run(() => Queue.push(const Hang('silent'), queue: 'a'));
+      final m = master(
+        plan(timeout: const Duration(seconds: 60)),
+        factory: shortRetryApp,
+        driverApp: short,
+      );
+      addTearDown(() => m.stop(timeout: const Duration(seconds: 20)));
+      await m.start();
+      await until(
+        () => marks().contains('a:silent:2'),
+        'attempt 2',
+        diagnose: () => diagnosis(m, 's', const {}),
+      );
+      await m.stop(timeout: const Duration(seconds: 20));
+      expect(eventsNamed('JobTimedOut').single['leftToRetryAfter'], isTrue);
+      final starts = [
+        for (final line in File(startsPath).readAsLinesSync())
+          (int.parse(line.split('@')[0]), int.parse(line.split('@')[1])),
+      ];
+      expect(starts.map((s) => s.$1), [1, 2]);
+      // reserved_at moved to second e: no worker may take the job before
+      // second e + 3, although attempt 1 was killed a second or more before.
+      final extended = int.parse(File(extendedPath).readAsStringSync());
+      expect(starts[1].$2, greaterThanOrEqualTo((extended + 3) * 1000));
     },
   );
 

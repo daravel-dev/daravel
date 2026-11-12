@@ -16,6 +16,7 @@ import '../validation/validator.dart';
 import 'cookies.dart';
 import 'csp.dart';
 import 'headers.dart';
+import 'host_header.dart';
 import 'http_exceptions.dart';
 import 'json_nesting.dart';
 import 'multipart.dart';
@@ -47,21 +48,38 @@ final class Request {
 
   /// Wraps a `dart:io` request.
   ///
+  /// [uri] comes from the request line, the `Host` header and the listener
+  /// ([secure]: whether it is TLS; [listenerAuthority]: its address, for a
+  /// request without `Host`), never from `X-Forwarded-*` headers, which
+  /// any client can send: only `TrustProxiesMiddleware` applies them, for a
+  /// trusted peer. `HttpRequest.requestedUri` is not used, because it reads
+  /// `X-Forwarded-Proto` and `X-Forwarded-Host` from whoever sent them.
+  ///
   /// Throws [BadRequestHttpException] for a request `dart:io` accepted but
-  /// that cannot be represented: `HttpRequest.requestedUri` parses the
-  /// `Host`, `X-Forwarded-Host` and `X-Forwarded-Proto` headers with
-  /// `Uri.parse` (an unterminated `[::1` or a space throws), and [Headers]
-  /// refuses control characters in values. The engine answers 400; without
-  /// this the error would escape the server's listen callback and take the
-  /// serving isolate down.
+  /// that cannot be represented: a `Host` (or absolute-form authority) that
+  /// is not `uri-host [":" port]`, which could otherwise change the path or
+  /// host the application sees (`/`, `?`, `#`, `@`, a backslash, spaces;
+  /// see `parseHostAuthority`), userinfo in an absolute-form target, or a
+  /// header value [Headers] refuses (control characters). The path and
+  /// query always come from the request line. (Of several `Host` headers `dart:io` keeps the
+  /// last; RFC 9112 §3.2 asks for 400, which it does not give.) The
+  /// engine answers 400; without this the error would escape the server's
+  /// listen callback and take the serving isolate down.
   factory Request.fromHttpRequest(
     HttpRequest httpRequest, {
     required String id,
+    bool secure = false,
+    String listenerAuthority = 'localhost',
   }) {
     final Uri uri;
     final Headers headers;
     try {
-      uri = httpRequest.requestedUri;
+      uri = _requestUri(
+        httpRequest.uri,
+        httpRequest.headers[HttpHeaders.hostHeader],
+        secure: secure,
+        listenerAuthority: listenerAuthority,
+      );
       headers = Headers.fromHttpHeaders(httpRequest.headers);
     } on FormatException {
       throw const BadRequestHttpException('Malformed request URI or Host.');
@@ -280,6 +298,7 @@ final class Request {
   List<String> _forwardedIps = const <String>[];
   String? _forwardedScheme;
   String? _forwardedHost;
+  bool _fromTrustedProxy = false;
 
   final List<InputTransformer> _inputTransformers = <InputTransformer>[];
 
@@ -363,6 +382,12 @@ final class Request {
     return base.endsWith('/') ? base.replaceAll(RegExp(r'/+$'), '') : base;
   }
 
+  /// Whether a trusted proxy's forwarding headers were applied to this
+  /// request (`TrustProxiesMiddleware`; Laravel's `isFromTrustedProxy()`).
+  /// Without it [scheme], [host] and [url] come from the request line,
+  /// the `Host` header and the listener only.
+  bool get isFromTrustedProxy => _fromTrustedProxy;
+
   /// Records forwarding information. Called by `TrustProxiesMiddleware`.
   void applyForwarded({
     String? ip,
@@ -370,6 +395,7 @@ final class Request {
     String? scheme,
     String? host,
   }) {
+    _fromTrustedProxy = true;
     if (ip != null) {
       _forwardedIp = ip;
     }
@@ -663,9 +689,11 @@ final class Request {
     _transformedQuery = null;
   }
 
-  /// Merged input: query parameters overlaid by body fields (body wins),
-  /// with input transformers applied. Computed once per request (until a
-  /// transformer is added); each call returns a fresh top-level map.
+  /// Merged input: the body fields, then the query parameters the body does
+  /// not have (Laravel's `input + query`: the body wins key by key, and its
+  /// keys come first), with input transformers applied. Computed once per
+  /// request (until a transformer is added); each call returns a fresh
+  /// top-level map.
   ///
   /// Transformers apply to the input as the client sent it, like Laravel's
   /// `TransformsRequest`, which rewrites the request's parameter bags when
@@ -676,7 +704,12 @@ final class Request {
     if (cached != null) {
       return <String, Object?>{...cached};
     }
-    final input = <String, Object?>{..._query, ...await bodyInput()};
+    final body = await bodyInput();
+    final input = <String, Object?>{
+      ...body,
+      for (final MapEntry(:key, :value) in _query.entries)
+        if (!body.containsKey(key)) key: value,
+    };
     _allInput = input;
     return <String, Object?>{...input};
   }
@@ -687,11 +720,19 @@ final class Request {
   /// a [replace]d one only those registered since. A middleware that
   /// rebuilds the body with [replace] starts from this, so the fields the
   /// client sent keep what `TrimStrings` made of them.
+  ///
+  /// A JSON body that is a list at the top (`[{"email": ...}, ...]`, a bulk
+  /// import) gives its elements under the keys `'0'`, `'1'`, ..., as PHP
+  /// reads a list: `input('0.email')` and a rule on `*.email` reach them,
+  /// and next to the query the body wins key by key, as Laravel's
+  /// `input + query` does.
   Future<Map<String, Object?>> bodyInput() async {
     final parsed = await body();
     final fields = <String, Object?>{
       if (parsed is Map<Object?, Object?>)
-        for (final MapEntry(:key, :value) in parsed.entries) '$key': value,
+        for (final MapEntry(:key, :value) in parsed.entries) '$key': value
+      else if (parsed is List<Object?>)
+        for (final (index, value) in parsed.indexed) '$index': value,
     };
     if (_bodyTransformedBy >= _inputTransformers.length) {
       return fields;
@@ -1213,3 +1254,67 @@ List<int> _fakeMultipart(
   text('--$boundary--\r\n');
   return out.takeBytes();
 }
+
+/// The URI of a request read off a socket, built from parts, never by
+/// joining strings a client sent:
+///
+/// - the scheme of the listener ([secure]); the scheme an absolute-form
+///   target writes is not taken (a client can write `https://` on a plain
+///   listener);
+/// - the authority of the request line's target when it is in absolute
+///   form (RFC 9112 §3.2.2: the `Host` header is then ignored), else of the
+///   `Host` header ([hosts]), else [listenerAuthority] (HTTP/1.0). It must
+///   be `uri-host [":" port]` ([parseHostAuthority]); anything else, and
+///   userinfo in an absolute-form target, throws [FormatException];
+/// - the path and query of the target, as written.
+Uri _requestUri(
+  Uri target,
+  List<String>? hosts, {
+  required bool secure,
+  required String listenerAuthority,
+}) {
+  final scheme = secure ? 'https' : 'http';
+  final HostAuthority? authority;
+  final String raw;
+  if (target.hasScheme) {
+    if (target.userInfo.isNotEmpty) {
+      throw const FormatException('Userinfo in the request target.');
+    }
+    authority = parseHostAuthority(
+      target.hasPort ? target.authority : _bracketed(target.host),
+    );
+    raw = _pathAndQuery(target);
+  } else {
+    authority = parseHostAuthority(
+      hosts == null || hosts.isEmpty ? listenerAuthority : hosts.first,
+    );
+    // `//x/y` is a path here, though Uri.parse reads `x` as an authority.
+    raw = target.toString();
+  }
+  if (authority == null) {
+    throw const FormatException('Malformed Host.');
+  }
+  final hash = raw.indexOf('#');
+  final end = hash < 0 ? raw.length : hash;
+  final found = raw.indexOf('?');
+  final mark = found < 0 || found > end ? -1 : found;
+  final query = mark < 0 ? null : raw.substring(mark + 1, end);
+  final uri = Uri(
+    scheme: scheme,
+    host: authority.host,
+    port: authority.port,
+    path: raw.substring(0, mark < 0 ? end : mark),
+    query: query == null || query.isEmpty ? null : query,
+  );
+  // `Uri` built from parts drops an empty query; the request line kept it
+  // (`/p?`). Appended to a URI already built, it changes nothing else.
+  return query != null && query.isEmpty ? Uri.parse('$uri?') : uri;
+}
+
+/// [host] as an authority writes it: an IPv6 address in brackets.
+String _bracketed(String host) => host.contains(':') ? '[$host]' : host;
+
+/// The path and query of an absolute-form [target], as written.
+String _pathAndQuery(Uri target) =>
+    '${target.path.isEmpty ? '/' : target.path}'
+    '${target.hasQuery ? '?${target.query}' : ''}';

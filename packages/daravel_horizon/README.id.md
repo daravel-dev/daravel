@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:3c5f1aba763f -->
+<!-- source: README.md sha256:cf4dd29e14a7 -->
 <img src="https://raw.githubusercontent.com/daravel-dev/daravel/main/docs/brand/png/daravel-icon-128.png" alt="Daravel" width="64" align="right">
 
 # daravel_horizon
@@ -99,6 +99,22 @@ Laravel Horizon mendaftar job selesai selama 60 menit tanpa batas jumlah
 jumlahnya. Sebuah record dihitung sekali per job dan status; hal itu diingat
 bersama job-nya, sehingga duplikat yang datang setelah job keluar dari semua
 daftar dihitung lagi.
+
+## `retry_after`
+
+Master membunuh worker yang terblok pada sebuah job satu heartbeat (minimal
+satu detik) sebelum queue boleh memberikan job itu ke worker lain, pada saat
+yang dinyatakan driver queue (`QueuedJob.reservedUntil`: detik bulat di queue
+database, milidetik di Redis). Master dan worker-nya harus memakai
+`QUEUE_RETRY_AFTER` yang sama; bila tidak, master memakai yang lebih awal dan
+memberi peringatan. Worker memperpanjang reservasi job yang masih berjalan dan
+memberi tahu master, yang mengikutinya: setiap setengah dari waktu yang
+disisakan master untuk job itu, jadi `retry_after` kecil berarti penulisan
+yang sering (3 detik di queue database: dua per detik per job yang berjalan).
+Tidak tertutup: worker di proses atau host lain yang jamnya lebih cepat
+(margin hanya menutupnya selama selisihnya lebih kecil dari margin), proses
+yang ditangguhkan melewati reservasi, dan engine stream Redis pada jam server
+yang berjalan cepat atau melompat maju.
 
 ## Lisensi
 

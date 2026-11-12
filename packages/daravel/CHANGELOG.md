@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.27.2
+
+A security patch; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).
+
+- Security: broadcast channel patterns are matched in time linear in the channel name, and `POST /broadcasting/auth` refuses (403) a name the Pusher protocol does not allow; before, a pattern with placeholders not separated by `.` let one request from a logged-in user hold a worker for hours (since 1.10.0).
+- Security: the validation rule `distinct` runs in time linear in the list's length; 16 000 items took up to 55 s before (since 1.0.0).
+- Fixed: `sum()` and `avg()` no longer throw on PostgreSQL and MySQL when the database returns a decimal (since 1.0.0); `sum()` without rows stays `null`.
+
 ## 1.27.1
 
 A security patch; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).

@@ -7,6 +7,7 @@ import 'package:daravel_lints/daravel_lints.dart';
 import 'package:path/path.dart' as p;
 
 import '../dartisan_cli.dart';
+import 'names_sync.dart';
 import 'region_format.dart';
 
 /// Sets `KEY=value` in a `.env` file body (replacing or appending).
@@ -797,6 +798,17 @@ final class DoctorCommand extends DaravelCommand {
           CheckStatus.notice,
           'APP_URL=${appConfig.url} is plain http',
           'Signed URLs, redirects and links will be served without TLS.',
+        ),
+      );
+    }
+    if (Uri.tryParse(appConfig.url)?.scheme == 'https') {
+      checks.add(
+        const DoctorCheck(
+          CheckStatus.notice,
+          'APP_URL is https; the server itself speaks plain HTTP',
+          'TLS ends at a proxy in front of it. Requests see https and the '
+              'public host only from a proxy TrustProxiesMiddleware trusts '
+              '(X-Forwarded-Proto and -Host from anyone else are ignored).',
         ),
       );
     }
@@ -1834,4 +1846,122 @@ DoctorCheck? horizonSqliteCheck(Application app, {required bool production}) {
     'QUEUE_CONNECTION=redis, or serve --embed-queue; '
     'HORIZON_ALLOW_SQLITE=1 for development only.',
   );
+}
+
+/// `dartisan names:sync [--check]`: writes the application's names into
+/// `lib/app/names.dart` (wave 9, W9.6): `Routes.*` URL builders and
+/// `RouteNames`, `Abilities`, `RateLimiters`, `Guards`, `Disks` and
+/// `Connections`. It boots the application for inspection
+/// (`Application.bootForInspection`): no database connection, no metrics
+/// publisher, nothing sent; a provider that needs the database at boot
+/// makes it fail with that reason, and `--boot` boots it fully instead.
+/// With `--check` it writes nothing and exits 1 when the file is out of
+/// date (for CI). Routes are code, so the application must compile:
+/// add a route, run names:sync, then use `Routes.x`.
+final class NamesSyncCommand extends DaravelCommand {
+  /// The `dartisan names:sync` command.
+  NamesSyncCommand(super.createApp) {
+    argParser
+      ..addFlag(
+        'check',
+        negatable: false,
+        help: 'Write nothing; exit 1 when lib/app/names.dart is out of date.',
+      )
+      ..addFlag(
+        'boot',
+        negatable: false,
+        help:
+            'Boot the application fully (it may connect), for a provider '
+            'that needs the database while booting.',
+      );
+  }
+
+  @override
+  String get name => 'names:sync';
+
+  @override
+  String get description => '''
+Write route, ability, limiter, guard, disk and connection names.
+
+The names come from the application booted with this machine's
+environment: disks, connections, guards and routes or limiters registered
+only in some environments (only with APP_DEBUG, say) come and go with it.
+Run names:sync and names:sync --check with the same environment (for
+example APP_ENV=testing in both); a failed --check lists the names that
+differ.''';
+
+  /// The names registered in [app] (booted).
+  static AppNames readNames(Application app) {
+    final c = app.container;
+    final gate = c.make<AuthorizationGate>();
+    final seen = <String>{};
+    return (
+      routes: [
+        for (final route in c.make<Router>().routes)
+          if (route.routeName case final name? when seen.add(name))
+            (name: name, methods: route.methods, path: route.path),
+      ],
+      abilities: gate.abilities.toList(),
+      policies: gate.hasPolicies,
+      rateLimiters: c.make<RateLimiter>().names.toList(),
+      guards: c.make<AuthManager>().guardNames.toList(),
+      disks: c.make<StorageManager>().diskNames.toList(),
+      connections: c
+          .make<ConfigRepository>()
+          .section<DatabaseConfig>()
+          .connections
+          .keys
+          .toList(),
+    );
+  }
+
+  @override
+  Future<int> run() => argResults!['boot'] as bool
+      ? withApp(_sync)
+      : withAppForInspection(_sync, hint: 'run dartisan names:sync --boot');
+
+  Future<int> _sync(Application app) async {
+    final unnamed = app.container
+        .make<Router>()
+        .routes
+        .where((route) => route.routeName == null)
+        .length;
+    if (unnamed > 0) {
+      stdout.writeln(
+        '$unnamed route${unnamed == 1 ? '' : 's'} without a name: no '
+        'builder for ${unnamed == 1 ? 'it' : 'them'}.',
+      );
+    }
+    final paths = ProjectPaths.locate(app.basePath);
+    final file = File(p.join(paths.root, 'lib', 'app', 'names.dart'));
+    final current = file.existsSync() ? file.readAsStringSync() : null;
+    final sync = syncNamesSource(
+      current,
+      readNames(app),
+      formatter: RegionFormatter.forProject(paths.root),
+    );
+    for (final warning in sync.warnings) {
+      stdout.writeln(warning);
+    }
+    if (sync.source == current) {
+      stdout.writeln('lib/app/names.dart: up to date.');
+      return 0;
+    }
+    if (argResults!['check'] as bool) {
+      stdout.writeln(
+        'lib/app/names.dart: out of date; run dartisan names:sync.',
+      );
+      // What differs, so a name registered only in some environments (a
+      // disk, a debug route) is seen as such, not as a stale file.
+      for (final line in namesDiff(current, sync.source)) {
+        stdout.writeln('  $line');
+      }
+      return 1;
+    }
+    file
+      ..createSync(recursive: true)
+      ..writeAsStringSync(sync.source);
+    stdout.writeln('lib/app/names.dart: written.');
+    return 0;
+  }
 }

@@ -95,7 +95,8 @@ String? _call(String segment) {
     'ascii' => none('ascii'),
     'lowercase' => none('lowercase'),
     'uppercase' => none('uppercase'),
-    'distinct' => none('distinct'),
+    'distinct' when args.every((a) => a == 'strict' || a == 'ignore_case') =>
+      'distinct(${[if (args.contains('strict')) 'strict: true', if (args.contains('ignore_case')) 'ignoreCase: true'].join(', ')})',
     'date' => none('date'),
     'required_if' when args.length == 2 => 'requiredIf(${s(0)}, ${s(1)})',
     'required_unless' when args.length == 2 =>
