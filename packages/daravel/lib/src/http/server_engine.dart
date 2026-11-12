@@ -271,7 +271,9 @@ final class ServerEngine {
   /// (HTTP/1.0): what [Request.fromHttpRequest] puts in its URI then.
   String _listenerAuthority = 'localhost';
 
-  bool _forwardingWarned = false;
+  /// Once per isolate, however many servers it runs: a client cannot fill
+  /// the log with it. The message carries no header value.
+  static bool _forwardingWarned = false;
 
   /// Says once that a request carried `X-Forwarded-Proto` or
   /// `X-Forwarded-Host` that no trusted proxy applied: behind a proxy the
