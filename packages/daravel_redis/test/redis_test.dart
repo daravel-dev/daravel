@@ -252,18 +252,37 @@ void main() {
     late RedisStore store;
     setUp(() => store = RedisStore(client, prefix: prefix));
 
+    /// The server's clock in milliseconds: `TIME`, which the GCRA and
+    /// sliding window scripts read.
+    Future<int> serverMs() async {
+      final [seconds, micros] = ((await client.command(['TIME']))! as List)
+          .cast<String>();
+      return int.parse(seconds) * 1000 + int.parse(micros) ~/ 1000;
+    }
+
+    /// Waits until the server's clock is [wait] past [from]. A timer on
+    /// this side is not enough: the clock of a Redis in a VM (Docker on
+    /// WSL 2) was measured running 3.8 % slower than the test's, so 800 ms
+    /// here were 770 ms there.
+    Future<void> serverWait(int from, Duration wait) async {
+      final until = from + wait.inMilliseconds;
+      for (var now = await serverMs(); now < until; now = await serverMs()) {
+        await Future<void>.delayed(Duration(milliseconds: until - now));
+      }
+    }
+
     test('GCRA spreads the limit; a refused hit is not counted', () async {
       const window = Duration(milliseconds: 600);
       final hits = [
         for (var i = 0; i < 4; i++) await store.hitGcra('g', 3, window),
       ];
+      // At or after the refused hit on the server's clock.
+      final refusedAt = await serverMs();
       expect([for (final h in hits) h.allowed], [true, true, true, false]);
       expect([for (final h in hits) h.remaining], [2, 1, 0, 0]);
       // One hit every 200ms once the burst is spent.
       expect(hits[3].retryAfter.inMilliseconds, inInclusiveRange(1, 200));
-      await Future<void>.delayed(
-        hits[3].retryAfter + const Duration(milliseconds: 20),
-      );
+      await serverWait(refusedAt, hits[3].retryAfter);
       expect((await store.hitGcra('g', 3, window)).allowed, isTrue);
       expect((await store.hitGcra('g', 3, window)).allowed, isFalse);
     });
@@ -274,13 +293,14 @@ void main() {
         for (var i = 0; i < 5; i++)
           await store.hitSlidingWindow('s', 4, window),
       ];
+      final refusedAt = await serverMs();
       expect(
         [for (final h in hits) h.allowed],
         [true, true, true, true, false],
       );
       final wait = hits[4].retryAfter;
       expect(wait, greaterThan(Duration.zero));
-      await Future<void>.delayed(wait + const Duration(milliseconds: 30));
+      await serverWait(refusedAt, wait);
       expect((await store.hitSlidingWindow('s', 4, window)).allowed, isTrue);
     });
   });
