@@ -27,6 +27,7 @@ const Map<String, String> builtInStubs = <String, String>{
   'controller.api': _controllerApi,
   'controller.model.api': _controllerModelApi,
   'request': _request,
+  'request.test': _requestTest,
   'middleware': _middleware,
   'job': _job,
   'job.model': _jobModel,
@@ -296,8 +297,29 @@ final class {{ class }} extends FormRequest<{{ class }}Input> {
 extension type const {{ class }}Input(ValidatedData _data)
     implements ValidatedData {
   String get name => _data.field({{ class }}.name);
+
+  /// Every field by its input key, as its declared type: the values are
+  /// converted (`'4'` is `4` for a `Field<int>`), unlike the raw map of
+  /// [ValidatedData]. `expectFormRequestTyped` reads every field with it.
+  Map<String, Object?> get typed => {'name': name};
 }
 // </dartisan:input>
+''';
+
+const String _requestTest = r'''
+import 'package:daravel_test/daravel_test.dart';
+import 'package:test/test.dart';
+import 'package:{{ package }}/app/http/requests/{{ file }}.dart';
+
+void main() {
+  // As strong as its samples: add one per branch of an optional rule
+  // (a nullable field sent and not, a sometimes field present and absent).
+  test('{{ class }} reads every field as its declared type', () async {
+    await expectFormRequestTyped(const {{ class }}(), {
+      'name': 'Ana',
+    }, read: (input) => input.typed);
+  });
+}
 ''';
 
 const String _middleware = r'''

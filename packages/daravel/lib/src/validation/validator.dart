@@ -78,9 +78,22 @@ final class Validator {
   /// Errors from the last [run] (empty when valid).
   Map<String, List<String>> get errors => Map.unmodifiable(_errors ?? const {});
 
+  final Map<String, List<String>> _failed = {};
+
+  /// The rules that failed in the last [run], by attribute: rule names
+  /// only, never the input. Laravel's `$validator->failed()` keys each
+  /// failure by its rule class name with its parameters
+  /// (`['email' => ['Required' => []]]`); this lists the rule names as
+  /// written (`{'email': ['required']}`). An error added with [addError]
+  /// has no rule and is not listed.
+  Map<String, List<String>> failed() => {
+    for (final entry in _failed.entries) entry.key: List.of(entry.value),
+  };
+
   /// Runs validation and returns the errors (empty when valid).
   Future<Map<String, List<String>>> run() async {
     _errors = {};
+    _failed.clear();
     _excluded.clear();
     _nestedPatterns.clear();
     _input = data;
@@ -335,6 +348,7 @@ final class Validator {
       }
       if (failure != null) {
         addError(attribute, _message(failure, context, rule));
+        _failed.putIfAbsent(attribute, () => []).add(rule.name);
         // Laravel's shouldStopValidating: `bail` stops at any failure; a
         // failed rule of Laravel's $implicitRules stops too, since the other
         // rules would only describe the empty field again ("must be a

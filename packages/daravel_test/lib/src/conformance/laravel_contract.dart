@@ -197,6 +197,13 @@ abstract final class LaravelContract {
   static String uniqueJobLock(String jobClass, String uniqueId) =>
       'laravel_unique_job:$jobClass:$uniqueId';
 
+  /// The same for a job class that defines `displayName()`: its name is
+  /// `hash('xxh128', $job->displayName())`. The value PHP 8.2.33 gives for
+  /// `hash('xxh128', 'Send invoice to customer #42')`, taken from the
+  /// interop harness image (`daravel-interop-laravel-12`, no network).
+  static const String uniqueJobLockHashedSample =
+      'laravel_unique_job:fea1a00a16e1af75dea119255a9a933a:42';
+
   /// `Illuminate\Queue\Middleware\WithoutOverlapping::getLockKey` (12.x
   /// lines 41 and 157-168): prefix `laravel-queue-overlap:`, then the job
   /// class and the key, or only the key when `shared()`.

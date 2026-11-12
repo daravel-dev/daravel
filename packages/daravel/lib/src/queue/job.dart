@@ -7,6 +7,7 @@ import '../foundation/cancellation.dart';
 import '../foundation/config.dart';
 import '../foundation/container.dart';
 import '../foundation/exceptions.dart';
+import '../foundation/xxh128.dart';
 import '../http/rate_limiter.dart';
 import 'queue_manager.dart';
 
@@ -90,6 +91,14 @@ abstract class Job {
 
   /// Human readable name (`displayName` in the payload).
   String get displayName => runtimeType.toString();
+
+  /// Whether the unique lock names this job by the XXH3-128 hash of its
+  /// [displayName], as Laravel does for a job class that defines
+  /// `displayName()` (`UniqueLock::getKey`: `hash('xxh128',
+  /// $job->displayName())`). Set it on the job that shares its unique lock
+  /// with such a Laravel class; otherwise the lock names it by
+  /// [displayName] itself, as Laravel names a class without that method.
+  bool get uniqueKeyHashesDisplayName => false;
 
   /// Tags for monitoring and filtering (`tags()` in Laravel Horizon), such
   /// as `['user:42', 'billing']`. Stored in the payload's `tags` key.
@@ -480,9 +489,16 @@ abstract final class QueueLockKeys {
   static Duration legacyTtl(Duration ttl) =>
       ttl < legacyWindow ? ttl : legacyWindow;
 
-  /// The unique lock of [displayName] with [uniqueId].
-  static String unique(String displayName, String uniqueId) =>
-      'laravel_unique_job:$displayName:$uniqueId';
+  /// The unique lock of [displayName] with [uniqueId]; [hashed] names the
+  /// job by the XXH3-128 hex of [displayName], as Laravel does for a job
+  /// class that defines `displayName()` ([Job.uniqueKeyHashesDisplayName]).
+  static String unique(
+    String displayName,
+    String uniqueId, {
+    bool hashed = false,
+  }) =>
+      'laravel_unique_job:${hashed ? Xxh128.hex(displayName) : displayName}'
+      ':$uniqueId';
 
   /// The unique lock of the previous release.
   static String legacyUnique(String jobName, String uniqueId) =>
@@ -515,22 +531,33 @@ abstract final class QueueLockKeys {
 
   /// Both unique-lock keys of a queued job from its payload's
   /// [uniqueKey] (in either format), [displayName] and [jobName]: what a
-  /// worker releases, whichever release dispatched it. Just [uniqueKey]
-  /// when it is in neither format.
+  /// worker releases, whichever release dispatched it. The current format
+  /// names the job by [displayName] or by its XXH3-128 hex
+  /// ([Job.uniqueKeyHashesDisplayName]); a key of the previous release
+  /// releases both current forms, as that release could not tell which
+  /// one this one takes. Just [uniqueKey] when it is in no known format.
   static List<String> uniqueKeysOf(
     String uniqueKey, {
     required String displayName,
     required String jobName,
   }) {
-    final current = 'laravel_unique_job:$displayName:';
     final legacy = 'unique:$jobName:';
-    if (uniqueKey.startsWith(current)) {
-      final id = uniqueKey.substring(current.length);
-      return [uniqueKey, if (legacyKeys) legacyUnique(jobName, id)];
+    for (final current in [
+      'laravel_unique_job:$displayName:',
+      'laravel_unique_job:${Xxh128.hex(displayName)}:',
+    ]) {
+      if (uniqueKey.startsWith(current)) {
+        final id = uniqueKey.substring(current.length);
+        return [uniqueKey, if (legacyKeys) legacyUnique(jobName, id)];
+      }
     }
     if (uniqueKey.startsWith(legacy)) {
       final id = uniqueKey.substring(legacy.length);
-      return [unique(displayName, id), uniqueKey];
+      return [
+        unique(displayName, id),
+        unique(displayName, id, hashed: true),
+        uniqueKey,
+      ];
     }
     return [uniqueKey];
   }

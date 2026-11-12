@@ -1,0 +1,3 @@
+### Fixed
+
+- `daravel_horizon`: the master's periodic work no longer overlaps itself when it takes longer than its period. A supervisor's evaluation slower than its `balanceCooldown` (a slow queue size) started the next one beside it (a test saw eight at once), and two evaluations resizing together spawned past the target (six workers for `maxProcesses: 4`): evaluations of a plan now run one at a time, and a resize counts the live workers again before each spawn. A signal read slower than the one-second poll let two polls run the same command (`horizon:snapshot`, `horizon:terminate`) twice (a test saw three reads at once): polls and status publishes now run one at a time.

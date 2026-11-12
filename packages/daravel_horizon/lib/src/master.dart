@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io' show ProcessInfo;
 import 'dart:isolate';
 
@@ -9,7 +8,7 @@ import 'auto_scaler.dart';
 import 'config.dart';
 import 'messages.dart';
 import 'signals.dart';
-import 'store/process_store.dart';
+import 'store/horizon_store.dart';
 import 'worker_isolate.dart';
 
 /// A worker isolate as the master sees it.
@@ -110,6 +109,7 @@ final class HorizonMaster {
     required this.logger,
     this.coordinator,
     this.store,
+    HorizonStore? horizonStore,
     this.failedJobs,
     this.signals,
     this.name = 'horizon',
@@ -121,7 +121,10 @@ final class HorizonMaster {
     this.onEvent,
     this.failsAfterTimeout,
     Duration Function(int crashes)? crashDelay,
-  }) : _crashDelay = crashDelay ?? _defaultCrashDelay;
+  }) : _crashDelay = crashDelay ?? _defaultCrashDelay,
+       horizonStore =
+           horizonStore ??
+           (store == null ? null : ProcessHorizonStore(() => store));
 
   /// Builds each worker's application (`createApp`, top-level).
   final ApplicationFactory factory;
@@ -138,9 +141,14 @@ final class HorizonMaster {
   /// The process's coordinator, shared with the workers.
   final SendPort? coordinator;
 
-  /// Where the rates of the auto-scaler come from: the [HorizonService] the
-  /// workers record into. Without it, no rate is measured.
+  /// The coordinator of the `process` store ([ProcessHorizonStore]), when
+  /// no [horizonStore] is given. Without either, no rate is measured.
   final CoordinatorChannel? store;
+
+  /// Where the rates of the auto-scaler come from and where snapshots are
+  /// taken: the store the workers record into (`HORIZON_STORE`), else the
+  /// `process` store behind [store].
+  final HorizonStore? horizonStore;
 
   /// Where a quarantined job is recorded (`failed_jobs`).
   final FailedJobProvider? failedJobs;
@@ -184,7 +192,12 @@ final class HorizonMaster {
 
   /// Whether a job whose worker was killed past its timeout fails now
   /// (`JobProcessor.failsAfterTimeout`, the rule `queue:work` applies to
-  /// its own timeouts): it reads the payload and the exception count only.
+  /// its own timeouts): it reads the job's retry settings and the
+  /// `job-exceptions:<uuid>` count only. That count lives in the queue's
+  /// unique-lock store (`QUEUE_UNIQUE_LOCK_STORE`: `database`, `redis` or
+  /// `process` by default), which the master and the workers of a process
+  /// share; an isolate-scoped `memory` store would count apart in each
+  /// isolate, as it already does between workers.
   /// Without it, every such job is made available again.
   final Future<bool> Function(JobPayload payload, int attempts, {int? tries})?
   failsAfterTimeout;
@@ -226,7 +239,7 @@ final class HorizonMaster {
       await _resize(plan, plan.minProcesses, _spreadAll(plan));
       if (plan.balance == BalanceStrategy.auto) {
         _timers.add(
-          Timer.periodic(plan.balanceCooldown, (_) => unawaited(balance(plan))),
+          Timer.periodic(plan.balanceCooldown, (_) => unawaited(_tick(plan))),
         );
       } else {
         await balance(plan);
@@ -237,16 +250,28 @@ final class HorizonMaster {
       // Commands sent before this master started are not its own.
       _signalAt = (await _readSignal())?.$2 ?? 0;
       _timers.add(
-        Timer.periodic(const Duration(seconds: 1), (_) => unawaited(_poll())),
+        Timer.periodic(const Duration(seconds: 1), (_) {
+          // A read slower than a second must not let a second poll read the
+          // same command and run it again.
+          if (_polling) {
+            return;
+          }
+          _polling = true;
+          unawaited(_poll().whenComplete(() => _polling = false));
+        }),
       );
       // Its state, for `horizon:status` and `horizon:list` in any process
       // that shares the store.
       await _publishStatus();
       _timers.add(
-        Timer.periodic(
-          HorizonSignals.statusEvery,
-          (_) => unawaited(_publishStatus()),
-        ),
+        Timer.periodic(HorizonSignals.statusEvery, (_) {
+          // A slow store gets one status at a time, not a pile of them.
+          if (_publishing) {
+            return;
+          }
+          _publishing = true;
+          unawaited(_publishStatus().whenComplete(() => _publishing = false));
+        }),
       );
     }
     if (config.memoryLimit > 0) {
@@ -257,6 +282,32 @@ final class HorizonMaster {
   // -- Commands from other processes (HorizonSignals) --------------------
 
   int _signalAt = 0;
+
+  /// Whether a poll of the signal store is under way.
+  bool _polling = false;
+
+  /// Whether a status publish is under way.
+  bool _publishing = false;
+
+  /// The plans whose periodic evaluation is under way.
+  final Set<String> _balancing = {};
+
+  /// The periodic evaluation of [plan]: skipped while the previous one
+  /// still runs (a queue slower than the cooldown), since two evaluations
+  /// read the same pool and would both resize it.
+  Future<void> _tick(SupervisorPlan plan) async {
+    final name = plan.name.value;
+    if (!_balancing.add(name)) {
+      return;
+    }
+    try {
+      await balance(plan);
+    } on Object catch (e) {
+      logger.warning('Horizon could not balance [$name]: $e');
+    } finally {
+      _balancing.remove(name);
+    }
+  }
 
   Future<(String, int)?> _readSignal() async {
     try {
@@ -295,7 +346,7 @@ final class HorizonMaster {
   /// Takes a metric snapshot in the store (`horizon:snapshot`).
   Future<void> snapshot() async {
     try {
-      await store?.call(HorizonService.serviceName, 'snapshot', const {});
+      await horizonStore?.snapshot();
     } on Object catch (e) {
       logger.warning('Horizon snapshot failed: $e');
     }
@@ -476,15 +527,12 @@ final class HorizonMaster {
   /// The jobs a second and the average run time of [queue] over the last
   /// minute, from the store; nulls when none is measured.
   Future<(double?, Duration?)> _rates(String queue) async {
-    final store = this.store;
+    final store = horizonStore;
     if (store == null) {
       return (null, null);
     }
     try {
-      final raw = await store.call(HorizonService.serviceName, 'rates', {
-        'queue': queue,
-      });
-      final rates = jsonDecode(raw! as String) as Map<String, Object?>;
+      final rates = await store.rates(queue);
       final avg = rates['avg_ms'] as num?;
       return (
         (rates['per_second'] as num?)?.toDouble(),
@@ -529,8 +577,12 @@ final class HorizonMaster {
         keep[i]._send(Assign(queues));
       }
     }
-    for (var i = keep.length; i < total; i++) {
-      await _spawn(plan, queuesFor(i));
+    // Counted again on each spawn: a worker joins the pool before its
+    // spawn is awaited, and a resize the caller did not wait for may run
+    // beside this one.
+    int running() => pool.where((w) => !w.stopping).length;
+    while (running() < total && !_stopping) {
+      await _spawn(plan, queuesFor(running()));
     }
   }
 
@@ -801,7 +853,10 @@ final class HorizonMaster {
   /// another worker already, whose reservation a reclaim would release
   /// (a third worker could then run it beside the second). Then the job is
   /// left to `retry_after`, and [HorizonWorker._leftToRetryAfter] is set.
-  Future<bool> _reclaim(HorizonWorker w) async {
+  ///
+  /// [pastWindow], when given, is the caller's own reading of
+  /// [_pastReclaimWindow], used instead of reading it again.
+  Future<bool> _reclaim(HorizonWorker w, {bool? pastWindow}) async {
     final job = w.last;
     final queue = job?.queue;
     final id = job?.jobId;
@@ -809,7 +864,7 @@ final class HorizonMaster {
     if (queue == null || id == null || target is! ReclaimableQueueDriver) {
       return false;
     }
-    if (_pastReclaimWindow(w)) {
+    if (pastWindow ?? _pastReclaimWindow(w)) {
       w._leftToRetryAfter = true;
       logger.info(
         'Job ${job?.jobUuid} of ${w.name} left to retry_after: it may '
@@ -913,8 +968,13 @@ final class HorizonMaster {
       final job = w.last!;
       await w._sessionsEnded;
       final limit = _jobLimit(w);
-      final marked = await _markIfFails(w, limit);
-      final reclaimed = await _reclaim(w);
+      // Judged once, for the mark and the reclaim alike: judged twice, the
+      // window could pass in between, and a job marked to fail would be
+      // left to retry_after unmarked. The reclaim margin (a heartbeat, at
+      // least a second) covers the moment the mark takes.
+      final past = _pastReclaimWindow(w);
+      final marked = !past && await _markIfFails(w, limit);
+      final reclaimed = await _reclaim(w, pastWindow: past);
       final store = signals;
       var willFail = marked;
       if (marked && !reclaimed && !w._reclaimFailed && store != null) {
@@ -968,8 +1028,8 @@ final class HorizonMaster {
 
   /// Marks [w]'s job to fail on its next reservation when it fails after
   /// this timeout ([failsAfterTimeout] on the retry settings [w] reported); true
-  /// when marked. Nothing is marked once `retry_after` has passed (the job
-  /// may be another worker's), without a store, a rule or the job's retry
+  /// when marked. The caller does not ask once `retry_after` has passed (the
+  /// job may be another worker's). Nothing is marked without a store, a rule or the job's retry
   /// settings, or when deciding or marking fails (the job is then made
   /// available again, as before).
   Future<bool> _markIfFails(HorizonWorker w, Duration? limit) async {
@@ -981,8 +1041,7 @@ final class HorizonMaster {
         store == null ||
         decide == null ||
         uuid == null ||
-        job.jobMaxTries == null ||
-        _pastReclaimWindow(w)) {
+        job.jobMaxTries == null) {
       return false;
     }
     final attempt = job.attempt ?? 1;
