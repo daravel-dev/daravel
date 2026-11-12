@@ -1,4 +1,4 @@
-<!-- source: testing.md sha256:f05a8c7d6f02 -->
+<!-- source: testing.md sha256:bb41440a6600 -->
 # Testing
 
 `package:daravel_test` menjalankan aplikasi Anda tanpa membuka socket:
@@ -35,6 +35,12 @@
 - Waktu: `freezeTime()`, `travel(duration)`, `travelTo(time)`; waktu domain
   membaca `Clock.now()`.
 - Arsitektur: `expectRegistryComplete()` dan lint lewat `dartisan lint`.
+- Form request: `expectFormRequestTyped(form, sampleInput, read: (input)
+  => input.typed)` memvalidasi sebuah contoh input lalu membaca setiap
+  field sebagai tipe yang dideklarasikan, sehingga `Field<int>` yang
+  rule-nya meloloskan string gagal di sini, bukan sebagai 500 di produksi
+  ([Validasi](validation.md#input-bertipe)). `make:request` menulis satu
+  test seperti itu.
 
 Jalankan suite-nya dengan `dartisan test` (`--coverage` menulis
 `coverage/`).

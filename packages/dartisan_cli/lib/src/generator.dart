@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:daravel/daravel.dart' show Str;
 import 'package:path/path.dart' as p;
 
+import 'request_sync.dart';
 import 'stubs.dart';
 
 /// Locates a Daravel project (BLUEPRINT_V2 §8.3): a directory with a
@@ -566,13 +567,28 @@ final class Generator {
   }
 
   /// A form request (`make:request`).
+  ///
+  /// With `daravel_test` in the project, also its test
+  /// (`test/unit/requests/<name>_test.dart`): `expectFormRequestTyped`
+  /// reads every field of a valid sample input as its declared type.
   GeneratedFile request(String name) {
     final className = Naming.withSuffix(name, 'Request');
-    return _render(
-      p.join(paths.requests, '${Naming.snake(className)}.dart'),
-      'request',
-      {'class': className},
+    final snake = Naming.snake(className);
+    final made = renderStub(stub('request'), {'class': className});
+    // The region as request:sync writes it (its lines depend on the length
+    // of the class name), so a fresh request is already in sync.
+    final file = _write(
+      p.join(paths.requests, '$snake.dart'),
+      syncRequestSource(made).source ?? made,
     );
+    if (_dependsOn('daravel_test')) {
+      _render(
+        p.join(paths.unitTests, 'requests', '${snake}_test.dart'),
+        'request.test',
+        {'class': className, 'file': snake, 'package': _package},
+      );
+    }
+    return file;
   }
 
   /// A middleware (`make:middleware`).
