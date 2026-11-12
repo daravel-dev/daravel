@@ -373,6 +373,8 @@ final class JobProcessor {
     int? tries,
     List<Duration>? backoff,
     Duration? timeout,
+    Duration? extendEvery,
+    void Function(QueuedJob job, DateTime until)? onReservationExtended,
   }) async {
     final payload = queued.payload;
     final Job job;
@@ -455,7 +457,12 @@ final class JobProcessor {
     }
     final limit = timeout ?? payload.timeout;
     _warnRetryAfter(driver, payload.displayName, limit);
-    final heartbeat = _heartbeat(driver, queued);
+    final heartbeat = _heartbeat(
+      driver,
+      queued,
+      every: extendEvery,
+      onExtended: onReservationExtended,
+    );
     final stopwatch = Stopwatch()..start();
     Object? error;
     StackTrace? trace;
@@ -719,29 +726,62 @@ final class JobProcessor {
     );
   }
 
-  /// Keeps [queued] reserved while it runs: touches it every half
-  /// `retry_after`, so a job running longer than that is not reserved
-  /// again by another worker and run twice at once.
-  Timer? _heartbeat(QueueDriver driver, QueuedJob queued) {
+  /// Keeps [queued] reserved while it runs: extends it every [every]
+  /// (half `retry_after` by default), so a job running longer than that is
+  /// not reserved again by another worker and run twice at once. An
+  /// [ExtendingQueueDriver] says until when; [onExtended] hears it.
+  ///
+  /// One extension at a time: a tick while the previous one is still on
+  /// its way (a slow database) is skipped, not queued behind it.
+  Timer? _heartbeat(
+    QueueDriver driver,
+    QueuedJob queued, {
+    Duration? every,
+    void Function(QueuedJob job, DateTime until)? onExtended,
+  }) {
     if (driver is! ReservingQueueDriver) {
       return null;
     }
-    final every = driver.retryAfter ~/ 2;
-    if (every <= Duration.zero) {
+    final interval = every ?? driver.retryAfter ~/ 2;
+    if (interval <= Duration.zero) {
       return null;
     }
+    var inFlight = false;
+    Future<void> extendOnce() async {
+      DateTime? until;
+      try {
+        if (driver is ExtendingQueueDriver) {
+          until = await driver.extend(queued);
+        } else {
+          await driver.touch(queued);
+        }
+      } on Object catch (error) {
+        logger?.warning(
+          'Could not extend the reservation of job ${queued.id}: $error',
+        );
+      } finally {
+        inFlight = false;
+      }
+      if (until != null && onExtended != null) {
+        try {
+          onExtended(queued, until);
+        } on Object catch (error, stackTrace) {
+          logger?.error(
+            'onReservationExtended failed for job ${queued.id}',
+            error: error,
+            stackTrace: stackTrace,
+          );
+        }
+      }
+    }
+
     // A wall-clock timer: a frozen test clock must not stop it.
-    return Timer.periodic(every, (_) {
-      unawaited(
-        driver
-            .touch(queued)
-            .then<void>(
-              (_) {},
-              onError: (Object error, StackTrace stackTrace) => logger?.warning(
-                'Could not extend the reservation of job ${queued.id}: $error',
-              ),
-            ),
-      );
+    return Timer.periodic(interval, (_) {
+      if (inFlight) {
+        return;
+      }
+      inFlight = true;
+      unawaited(extendOnce());
     });
   }
 
@@ -1347,6 +1387,8 @@ final class WorkerOptions {
     this.onReserved,
     this.failBeforeRun,
     this.onFinished,
+    this.extendEvery,
+    this.onReservationExtended,
   });
 
   /// Asked about each job after [onReserved] and before it is processed:
@@ -1375,6 +1417,19 @@ final class WorkerOptions {
   /// an event, so a supervisor clears what it reported here. An error it
   /// throws is logged.
   final void Function(QueuedJob job)? onFinished;
+
+  /// How often a running job's reservation is extended on a queue that
+  /// reserves (`ReservingQueueDriver.touch`): half `retry_after` when
+  /// null. A supervisor that kills a blocked job before its reservation
+  /// ends (`daravel_horizon`) extends more often, so an extension reaches
+  /// it in time. Must be above zero ([QueueWorker.run] refuses it
+  /// otherwise); each extension is one write to the queue per running job.
+  final Duration? extendEvery;
+
+  /// Called with a running job and the new end of its reservation each time
+  /// an [ExtendingQueueDriver] extended it (not when nothing changed). An
+  /// error it throws is logged.
+  final void Function(QueuedJob job, DateTime until)? onReservationExtended;
 
   /// The connection worked; the default one when null.
   final String? connection;
@@ -1514,6 +1569,9 @@ final class QueueWorker {
   /// started during an outage, a signal store that fails) are logged and
   /// retried with a growing wait; they do not end it.
   Future<int> run(WorkerOptions options) async {
+    if (options.extendEvery case final every? when every <= Duration.zero) {
+      throw ArgumentError.value(every, 'extendEvery', 'must be above zero');
+    }
     _stop = false;
     _restart = false;
     _errors = 0;
@@ -1744,6 +1802,8 @@ final class QueueWorker {
               tries: options.tries,
               backoff: options.backoff,
               timeout: options.timeout,
+              extendEvery: options.extendEvery,
+              onReservationExtended: options.onReservationExtended,
             );
           }
         } finally {
