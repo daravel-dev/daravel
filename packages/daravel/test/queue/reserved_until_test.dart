@@ -24,14 +24,22 @@ void main() {
   forEachDatabase((open) {
     late DatabaseManager db;
 
+    // A table of its own: other test files use `jobs` on the same server
+    // database at the same time.
+    const table = 'reserved_until_jobs';
     setUp(() async {
       db = open();
-      final schema = await freshSchema(db, [
-        'jobs',
-        'job_batches',
-        'failed_jobs',
-      ]);
-      await const CreateJobsTable().up(schema);
+      final schema = await freshSchema(db, [table]);
+      // The columns of CreateJobsTable's `jobs`.
+      await schema.create(table, (t) {
+        t.id();
+        t.string('queue').index();
+        t.longText('payload');
+        t.tinyInteger('attempts').unsigned();
+        t.unsignedInteger('reserved_at').nullable();
+        t.unsignedInteger('available_at');
+        t.unsignedInteger('created_at');
+      });
     });
     tearDown(() => db.closeAll());
 
@@ -53,6 +61,7 @@ void main() {
         );
         final queue = DatabaseQueue(
           db,
+          table: table,
           retryAfter: retryAfter,
           clock: () => now,
         );
