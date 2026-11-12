@@ -74,20 +74,23 @@ void main() {
     expect(ChannelPattern('orders.{id}').names, ['id']);
   });
 
-  // Time for n and 2n characters on a name that does not match: about
-  // twice as long when linear; the regular expression took 4 times as
-  // long (two placeholders) and 8 to 10 times (three).
+  // Time for n and 4n characters on a name that does not match: about 4
+  // times as long when linear; the regular expression took 16 times as long
+  // (two placeholders) and 64 (three). The limit of 10 sits far from both.
   group('linear in the name', () {
+    /// The fastest of three runs: interference only slows a run down.
     double ms(ChannelPattern pattern, String name) {
       pattern.match(name);
-      final times = <double>[];
-      for (var i = 0; i < 5; i++) {
+      var best = double.infinity;
+      for (var i = 0; i < 3; i++) {
         final watch = Stopwatch()..start();
         pattern.match(name);
-        times.add(watch.elapsedMicroseconds / 1000);
+        final time = watch.elapsedMicroseconds / 1000;
+        if (time < best) {
+          best = time;
+        }
       }
-      times.sort();
-      return times[2];
+      return best;
     }
 
     for (final (label, pattern, name) in [
@@ -98,16 +101,17 @@ void main() {
       test(label, () {
         final compiled = ChannelPattern(pattern);
         expect(compiled.match(name(10)), isNull);
-        final small = ms(compiled, name(100000));
+        final small = ms(compiled, name(50000));
         final large = ms(compiled, name(200000));
         expect(
           large / small,
-          lessThan(3.5),
+          lessThan(10),
           reason:
-              '100 000 chars: ${small.toStringAsFixed(1)} ms, '
+              '50 000 chars: ${small.toStringAsFixed(1)} ms, '
               '200 000: ${large.toStringAsFixed(1)} ms',
         );
-        expect(large, lessThan(500), reason: '200 000 characters');
+        // About 15 ms linear; the regular expression took hours.
+        expect(large, lessThan(1000), reason: '200 000 characters');
       });
     }
   });

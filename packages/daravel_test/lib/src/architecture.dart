@@ -12,14 +12,22 @@ void _expectNoIssues(List<LintIssue> issues, String what) {
   }
 }
 
-/// Every `daravel_lints` rule passes for the project (`dartisan lint`).
+/// The project passes the `daravel_lints` rules it enables, as
+/// `dartisan lint` runs them: the default rules and the registry check,
+/// with the `diagnostics:` of its `analysis_options.yaml` ([lintConfig]).
 /// [enable] names opt-in rules to run as well:
 /// `expectLintClean(null, ['prefer_sql_identifier'])`.
-void expectLintClean([String? root, Iterable<String> enable = const []]) =>
-    _expectNoIssues(
-      lintProject(_root(root), rules: rulesWith(enable)),
-      'Lint findings',
-    );
+void expectLintClean([String? root, Iterable<String> enable = const []]) {
+  final path = _root(root);
+  final config = lintConfig(path).withOverrides(enable: enable);
+  for (final warning in config.warnings) {
+    printOnFailure(warning);
+  }
+  _expectNoIssues(
+    lintProject(path, rules: config.rules, registries: config.registries),
+    'Lint findings',
+  );
+}
 
 /// No mutable static or top-level state in `lib/app` (state would leak
 /// between requests served by the same isolate).

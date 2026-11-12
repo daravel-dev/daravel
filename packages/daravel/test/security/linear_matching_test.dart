@@ -67,7 +67,9 @@ void main() {
       final host = '${'a.' * 32000}x';
       final watch = Stopwatch()..start();
       expect(globMatches('*.*.*.example.com', host), isFalse);
-      expect(watch.elapsed, lessThan(const Duration(milliseconds: 200)));
+      // Linear: a few ms (cold); the regular expression took 79 to over
+      // 100 s. 1 s leaves room for a slow CI runner.
+      expect(watch.elapsed, lessThan(const Duration(seconds: 1)));
     });
   });
 
@@ -109,7 +111,9 @@ void main() {
       final header = 'a' * 64000;
       final watch = Stopwatch()..start();
       expect(dispositionParameters(header), isEmpty);
-      expect(watch.elapsed, lessThan(const Duration(milliseconds: 200)));
+      // Linear: a few ms (cold); the regular expression took 79 to over
+      // 100 s. 1 s leaves room for a slow CI runner.
+      expect(watch.elapsed, lessThan(const Duration(seconds: 1)));
     });
   });
 }

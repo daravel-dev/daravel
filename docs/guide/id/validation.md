@@ -1,4 +1,4 @@
-<!-- source: validation.md sha256:2dba069ae62d -->
+<!-- source: validation.md sha256:3073d4c168af -->
 # Validasi
 
 Validasi request secara inline dengan string rule Laravel, atau dengan objek
@@ -118,15 +118,21 @@ dan `rfc` berlaku bila tidak ada mode.
   label gagal, dan domain itu atau salah satu nama induknya harus punya record
   MX, A, atau AAAA tanpa null MX. Seperti di Laravel, `dns` saja tidak
   memeriksa sintaks: tulis `email:rfc,dns`.
-- `rfc` dan `strict` untuk sementara adalah pemeriksaan bergaya HTML, lebih
-  ketat daripada parser RFC di Laravel: local part bertanda kutip atau domain
-  satu label gagal.
+- `rfc` (dan `email` tanpa mode) adalah parser RFC dari Laravel, port dari
+  egulias/EmailValidator 4: local part bertanda kutip, komentar, literal
+  domain, dan domain satu label (`a@b`) lolos seperti di Laravel. `strict`
+  memakai parser yang sama tanpa membolehkan peringatan RFC, sehingga
+  bentuk-bentuk tadi gagal.
 - `spoof` membutuhkan ICU, yang tidak ada di Dart: membangun aturannya
   melempar `UnsupportedError` (pada request pertama yang memvalidasi dengannya,
   di test, atau saat membuat OpenAPI), dan `dartisan lint` melaporkannya.
 
 `active_url` lolos bila host dari URL punya record A atau AAAA; alamat IP
-gagal, seperti di Laravel.
+gagal, seperti di Laravel. Host-nya adalah host yang diberikan `parse_url`
+PHP, dicari apa adanya seperti di Laravel: host internasional (`bücher.de`)
+atau host dengan escape persen tidak dikonversi, sehingga gagal di keduanya,
+di sini tanpa lookup. `email:dns` justru mengonversinya (punycode), seperti
+egulias.
 
 Keduanya membuat server mencari nama yang dikirim pengguna. Setiap lookup
 menambah latensi request (paling lama 2 detik, lalu aturannya gagal), jadi

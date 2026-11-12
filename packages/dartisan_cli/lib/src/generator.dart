@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:daravel/daravel.dart' show Str;
 import 'package:path/path.dart' as p;
 
+import 'region_format.dart';
 import 'request_sync.dart';
 import 'stubs.dart';
 
@@ -579,7 +580,11 @@ final class Generator {
     // of the class name), so a fresh request is already in sync.
     final file = _write(
       p.join(paths.requests, '$snake.dart'),
-      syncRequestSource(made).source ?? made,
+      syncRequestSource(
+            made,
+            formatter: RegionFormatter.forProject(paths.root),
+          ).source ??
+          made,
     );
     if (_dependsOn('daravel_test')) {
       _render(

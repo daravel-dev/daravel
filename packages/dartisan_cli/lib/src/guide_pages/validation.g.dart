@@ -113,14 +113,20 @@ dns: true)`; every mode given must pass, and `rfc` applies when none is.
   single-label domains fail, and the domain or one of its parent names needs
   an MX, A or AAAA record and no null MX. As in Laravel, `dns` alone checks
   no syntax: write `email:rfc,dns`.
-- `rfc` and `strict` are, for now, an HTML-style check, stricter than
-  Laravel's RFC parser: a quoted local part or a single-label domain fails.
+- `rfc` (and plain `email`) is Laravel's RFC parser, a port of
+  egulias/EmailValidator 4: quoted local parts, comments, domain literals
+  and single-label domains (`a@b`) pass as in Laravel. `strict` is the same
+  parser with no RFC warning allowed, so those forms fail it.
 - `spoof` needs ICU, which Dart does not have: building the rules throws
   `UnsupportedError` (the first request that validates with it, a test, or
   OpenAPI generation), and `dartisan lint` reports it.
 
 `active_url` passes when the URL's host has an A or AAAA record; an IP
-address fails, as in Laravel.
+address fails, as in Laravel. The host is the one PHP's `parse_url` gives,
+looked up as written, as Laravel does: an internationalized host
+(`bücher.de`) or a percent-escaped one is not converted, so it fails in
+both, without a lookup here. `email:dns` does convert it (punycode), as
+egulias does.
 
 Both make the server look up a name the user sent. Each lookup adds latency
 to the request (at most 2 seconds, then the rule fails), so put routes that

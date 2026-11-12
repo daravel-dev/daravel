@@ -21,10 +21,28 @@ run by `dartisan lint` and in tests (they are not an IDE analyzer plugin).
 
 ### Opt-in rules
 
-These run only when a project enables them, in an architecture test
-(`expectLintClean(null, ['prefer_sql_identifier'])` from `daravel_test`) or
-through `lintProject(root, rules: rulesWith(['prefer_sql_identifier']))`.
-`dartisan lint` runs the default rules only.
+These run only when a project enables them, under `diagnostics:` in its
+`analysis_options.yaml`, read by `dartisan lint` and by `expectLintClean()`
+from `daravel_test` (the editor plugin reads the `plugins:` form):
+
+```yaml
+daravel_lints:              # or plugins: daravel_lints_plugin:, with the plugin
+  diagnostics:
+    prefer_sql_identifier: true   # an opt-in rule on
+    no_print_in_app: false        # a default rule off
+```
+
+When the project enables the plugin, its `plugins: daravel_lints_plugin:
+diagnostics:` block is the one read (a `daravel_lints:` block next to it
+is ignored, with a warning). As in the analyzer, a severity (`info`,
+`warning`, `error`) or a list of names also turns a rule on; write
+`false`, not `ignore`, to turn one off (the analysis server reads
+`ignore` there as on, so `dartisan lint` refuses it). Only the project's
+own file is read:
+`include:` is not followed, and in a pub workspace the file is the one of
+the package `dartisan` runs in. `dartisan lint --enable=<rule>` and
+`--disable=<rule>` change one run, and its summary line names the opt-in
+rules it ran. In code: `lintProject(root, rules: lintConfig(root).rules)`.
 
 | Rule | Catches |
 | :-- | :-- |
