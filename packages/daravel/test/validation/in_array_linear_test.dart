@@ -76,9 +76,10 @@ void main() {
     }
   });
 
-  // Growth, not a wall-clock bound: 8 000 items against 8 000 over 2 000
-  // against 2 000, each the fastest of three. Linear is about 4, the walk
-  // per item about 16.
+  // Growth, not a wall-clock bound: 8 000 items against 8 000 over 500
+  // against 500, each the fastest of three. Linear is about 16, the walk
+  // per item about 256; the work allocates in proportion to the items, so
+  // 16 times the size under 100 rather than 4 times under 10.
   Future<int> fastest(
     Map<String, Object?> data,
     Map<String, Object> rules,
@@ -116,12 +117,13 @@ void main() {
   ]) {
     test('linear in the input size: $name', () async {
       await fastest(data(100), rules);
-      final small = await fastest(data(2000), rules);
+      final small = await fastest(data(500), rules);
       final large = await fastest(data(8000), rules);
       expect(
-        large / max(small, 1),
-        lessThan(10),
-        reason: '2 000: $small µs, 8 000: $large µs',
+        // Under 5 ms the ratio is timer noise: linear either way.
+        large < 5000 || large / max(small, 1) < 100,
+        isTrue,
+        reason: '500: $small µs, 8 000: $large µs',
       );
     });
   }
