@@ -1,4 +1,4 @@
-<!-- source: background.md sha256:c6d3cfe87885 -->
+<!-- source: background.md sha256:ca4ef80badd7 -->
 # Cache, event, queue, dan penjadwalan
 
 <!-- include: packages/daravel/test/docs/guide_examples_test.dart#cache-events-queue -->
@@ -91,6 +91,16 @@ sampai commit.
 
 ### Percobaan, timeout, dan `retry_after`
 
+- Queue database menjalankan setiap job paling sedikit sekali, seperti di
+  Laravel, bukan tepat sekali: worker yang kehilangan koneksi setelah job
+  berjalan, atau yang dibunuh, membuat job berjalan lagi setelah
+  `retry_after`. Galat sementara pada penghapusan setelah job berjalan
+  (deadlock, SQLite busy atau locked) diulang selama setengah `retry_after`,
+  sehingga tidak lagi membuat job berjalan dua kali, tetapi job tetap harus
+  idempoten: buat jalan kedua tidak berbahaya (periksa apakah pekerjaannya
+  sudah selesai, kunci idempotensi di kolom unik) atau batasi satu dispatch
+  pada satu waktu (`ShouldBeUnique`). SQLite dengan beberapa worker membuat
+  galat busy, dan karena itu pengulangan ini, lebih mungkin terjadi.
 - Job yang gagal untuk selamanya dihapus dari `jobs` lebih dulu, lalu ditulis
   ke `failed_jobs`, seperti di Laravel. Bila penulisan itu gagal (tabelnya
   tidak ada, database menolak), job hilang tanpa catatan: worker mencatat
