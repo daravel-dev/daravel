@@ -337,6 +337,13 @@ analyzer:
     strict-casts: true
     strict-inference: true
     strict-raw-types: true
+
+# Opt-in Daravel lints, read by `dartisan lint` and `expectLintClean()`:
+# rules as a `Rules` chain, and computed column names as `SqlIdentifier`s.
+daravel_lints:
+  diagnostics:
+    string_validation_rule: true
+    prefer_sql_identifier: true
 ''';
 
 const String _gitignore = r'''

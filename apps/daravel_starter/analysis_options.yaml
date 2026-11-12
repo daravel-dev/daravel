@@ -1,0 +1,8 @@
+include: ../../analysis_options.yaml
+
+# Opt-in Daravel lints, read by `dartisan lint` and `expectLintClean()`:
+# rules as a `Rules` chain, and computed column names as `SqlIdentifier`s.
+daravel_lints:
+  diagnostics:
+    string_validation_rule: true
+    prefer_sql_identifier: true
