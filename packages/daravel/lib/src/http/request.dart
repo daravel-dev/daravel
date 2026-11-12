@@ -183,6 +183,12 @@ final class Request {
 
   String? _cspNonce;
 
+  /// The limits a multipart body is read with ([body], [file], [all]):
+  /// the defaults, until the kernel sets the application's
+  /// (`HTTP_MULTIPART_*`, [MultipartLimits.fromEnv]) on every request,
+  /// served or from the test client.
+  MultipartLimits multipartLimits = const MultipartLimits();
+
   /// Maximum body size accepted by [bytes]; `null` means unlimited.
   int? maxBodyBytes = defaultMaxBodyBytes;
 
@@ -541,7 +547,11 @@ final class Request {
     final boundary = multipartBoundary(headers.contentType);
     if (boundary != null) {
       _bodyParsed = true;
-      final multipart = await parseMultipart(_limitedBody(), boundary);
+      final multipart = await parseMultipart(
+        _limitedBody(),
+        boundary,
+        limits: multipartLimits,
+      );
       _uploads.addAll(multipart.files);
       if (multipart.files.isNotEmpty) {
         _scheduleCleanup();
