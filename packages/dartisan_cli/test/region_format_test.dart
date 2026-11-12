@@ -186,4 +186,54 @@ void main() {
     expect(project.pageWidth, 120);
     expect(project.languageVersion, Version(3, 6, 0));
   });
+
+  group('the SDK lower bound of unusual pubspecs', () {
+    late Directory root;
+    setUp(() => root = Directory.systemTemp.createTempSync('region_sdk_'));
+    tearDown(() => root.deleteSync(recursive: true));
+
+    RegionFormatter withPubspec(String pubspec) {
+      File(p.join(root.path, 'pubspec.yaml')).writeAsStringSync(pubspec);
+      return RegionFormatter.forProject(root.path);
+    }
+
+    const member = '  int get value => 1;';
+
+    test('newer than this dart_style knows: the latest it knows', () {
+      final formatter = withPubspec('name: x\nenvironment:\n  sdk: ^9.0.0\n');
+      expect(formatter.languageVersion, DartFormatter.latestLanguageVersion);
+      expect(formatter.members(member), member);
+      expect(formatter.lastFailure, isNull);
+    });
+
+    test('very old: kept, and still formats', () {
+      final formatter = withPubspec(
+        "name: x\nenvironment:\n  sdk: '>=2.19.0 <4.0.0'\n",
+      );
+      expect(formatter.languageVersion, Version(2, 19, 0));
+      expect(formatter.members(member), member);
+      expect(formatter.lastFailure, isNull);
+    });
+
+    test('a dependency on an SDK above environment is not read', () {
+      final formatter = withPubspec(
+        'name: x\n'
+        'dependencies:\n'
+        '  flutter:\n'
+        '    sdk: flutter\n'
+        '# a comment at column 0\n'
+        'environment:\n'
+        '  # the Dart SDK\n'
+        '  sdk: ^3.8.0\n',
+      );
+      expect(formatter.languageVersion, Version(3, 8, 0));
+    });
+
+    test('no environment: the latest', () {
+      final formatter = withPubspec(
+        'name: x\ndependencies:\n  flutter:\n    sdk: flutter\n',
+      );
+      expect(formatter.languageVersion, DartFormatter.latestLanguageVersion);
+    });
+  });
 }

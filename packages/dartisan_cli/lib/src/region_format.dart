@@ -12,10 +12,15 @@ import 'package:pub_semver/pub_semver.dart';
 /// Formats generated region code with the project's language version and
 /// page width. Only the code given is formatted, never the file around it.
 final class RegionFormatter {
-  /// A formatter for [languageVersion] (the latest when null) and
-  /// [pageWidth].
+  /// A formatter for [languageVersion] and [pageWidth]. The version is the
+  /// latest this `dart_style` knows when null or newer (a project whose
+  /// `sdk:` lower bound is above the SDK `dartisan` was built with).
   RegionFormatter({Version? languageVersion, this.pageWidth = 80})
-    : languageVersion = languageVersion ?? DartFormatter.latestLanguageVersion;
+    : languageVersion =
+          languageVersion == null ||
+              languageVersion > DartFormatter.latestLanguageVersion
+          ? DartFormatter.latestLanguageVersion
+          : languageVersion;
 
   /// The formatter `dart format` uses in the project at [root]: the lower
   /// bound of the `sdk:` constraint in its `pubspec.yaml`, and the
@@ -55,6 +60,11 @@ final class RegionFormatter {
     } on FormatterException catch (e) {
       lastFailure = e.message();
       return members;
+    } on Object catch (e) {
+      // Anything else the formatter throws: written as generated, with a
+      // warning, never a failed sync.
+      lastFailure = '$e';
+      return members;
     }
   }
 
@@ -68,22 +78,39 @@ final class RegionFormatter {
     } on FormatterException catch (e) {
       lastFailure = e.message();
       return code;
+    } on Object catch (e) {
+      lastFailure = '$e';
+      return code;
     }
   }
 
+  /// The lower bound of the `sdk:` under `environment:` (not a
+  /// `sdk: flutter` of a dependency).
   static Version? _sdkLowerBound(File pubspec) {
     if (!pubspec.existsSync()) {
       return null;
     }
-    final match = RegExp(
-      r'''^\s+sdk:\s*['"]?([^'"\n]+)''',
-      multiLine: true,
-    ).firstMatch(pubspec.readAsStringSync());
-    if (match == null) {
+    String? sdk;
+    var inEnvironment = false;
+    for (final line in pubspec.readAsLinesSync()) {
+      if (line.trimLeft().startsWith('#') || line.trim().isEmpty) {
+        continue;
+      }
+      if (RegExp(r'^\S').hasMatch(line)) {
+        inEnvironment = RegExp(r'^environment\s*:').hasMatch(line);
+        continue;
+      }
+      final match = RegExp(r'''^\s+sdk:\s*['"]?([^'"#]+)''').firstMatch(line);
+      if (inEnvironment && match != null) {
+        sdk = match.group(1);
+        break;
+      }
+    }
+    if (sdk == null) {
       return null;
     }
     try {
-      final constraint = VersionConstraint.parse(match.group(1)!.trim());
+      final constraint = VersionConstraint.parse(sdk.trim());
       final min = constraint is VersionRange ? constraint.min : null;
       return min == null ? null : Version(min.major, min.minor, 0);
     } on FormatException {
