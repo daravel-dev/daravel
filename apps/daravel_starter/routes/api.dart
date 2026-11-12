@@ -15,17 +15,15 @@ void apiRoutes(Router router) {
   router.get('/ping', ping.ping).name('ping');
 
   router
-      .post('/auth/register', auth.register)
+      .postValidated('/auth/register', const StoreUserRequest(), auth.register)
       .name('auth.register')
-      .middleware(const ['throttle:register'])
-      .validates(const StoreUserRequest())
+      .middleware([Mw.throttle('register')])
       .returns(AuthController.tokenSchema, name: 'AuthToken', shape: .raw)
       .action('AuthController@register');
   router
-      .post('/auth/login', auth.login)
+      .postValidated('/auth/login', const LoginRequest(), auth.login)
       .name('auth.login')
-      .middleware(const ['throttle:login'])
-      .validates(const LoginRequest())
+      .middleware([Mw.throttle('login')])
       .returns(
         AuthController.tokenSchema,
         name: 'AuthToken',
@@ -44,7 +42,7 @@ void apiRoutes(Router router) {
         .name('auth.logout')
         .returns(const <String, Object?>{}, status: 204)
         .action('AuthController@logout');
-  }, middleware: const ['auth']);
+  }, middleware: [Mw.auth()]);
 
   router
       .get('/users', users.index)
@@ -58,14 +56,13 @@ void apiRoutes(Router router) {
       .returns(UserResource.schema, name: 'User')
       .action('UserController@show');
   router
-      .post('/users', users.store)
+      .postValidated('/users', const StoreUserRequest(), users.store)
       .name('users.store')
-      .validates(const StoreUserRequest())
       .returns(UserResource.schema, name: 'User')
       .action('UserController@store');
   router
       .patch('/users/{id}', users.update)
       .name('users.update')
       .whereNumber('id')
-      .middleware(const ['auth']);
+      .middleware([Mw.auth()]);
 }

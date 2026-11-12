@@ -658,13 +658,15 @@ final class PreferSqlIdentifier extends LintRule {
       }
     }
 
+    final generated = _staticsRegions(unit);
     unit.accept(
       _Visitor(
         onMethod: (node) {
           final method = node.methodName.name;
           final positions = columnArguments[method];
           if (positions == null ||
-              !NoSqlStringInterpolation._isDbReceiver(node.realTarget)) {
+              !NoSqlStringInterpolation._isDbReceiver(node.realTarget) ||
+              generated.any((r) => node.offset >= r.$1 && node.end <= r.$2)) {
             return;
           }
           final positional = node.argumentList.arguments
@@ -681,6 +683,40 @@ final class PreferSqlIdentifier extends LintRule {
     );
   }
 
+  /// The `// <dartisan:statics>` regions of [unit] (start and end offsets):
+  /// make:model's `where` static there forwards its argument, so the
+  /// rule reports the caller, not the forwarding.
+  static List<(int, int)> _staticsRegions(CompilationUnit unit) {
+    final regions = <(int, int)>[];
+    int? start;
+    for (Token? token = unit.beginToken; token != null; token = token.next) {
+      for (Token? c = token.precedingComments; c != null; c = c.next) {
+        final text = c.lexeme.trim();
+        if (text == '// <dartisan:statics>') {
+          start = c.offset;
+        } else if (text == '// </dartisan:statics>' && start != null) {
+          regions.add((start, c.end));
+          start = null;
+        }
+      }
+      if (token.isEof) {
+        break;
+      }
+    }
+    return regions;
+  }
+
+  /// `User.cols.email`, or `cols.email` inside the model: a column token
+  /// `dartisan model:sync` generated, which `string_column_name`
+  /// recommends; the compiler checks its name.
+  static bool _isTypedColumn(Expression? expression) => switch (expression) {
+    PropertyAccess(:final target) =>
+      (target is PrefixedIdentifier && target.identifier.name == 'cols') ||
+          (target is SimpleIdentifier && target.name == 'cols'),
+    PrefixedIdentifier(:final prefix) => prefix.name == 'cols',
+    _ => false,
+  };
+
   static bool _accepted(
     Expression column,
     Set<String> constants,
@@ -691,6 +727,9 @@ final class PreferSqlIdentifier extends LintRule {
       constants,
       identifiers,
     ),
+    // A typed column, or a condition on one (`User.cols.age.gte(18)`).
+    _ when _isTypedColumn(column) => true,
+    MethodInvocation(:final target) when _isTypedColumn(target) => true,
     // Closures (`where((q) {...})`), maps (`where({...})`) and raw SQL,
     // which `no_sql_string_interpolation` checks.
     FunctionExpression() || SetOrMapLiteral() || NullLiteral() => true,
