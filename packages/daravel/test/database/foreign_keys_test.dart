@@ -51,7 +51,18 @@ void main() {
       final found = [
         for (final key in await builder.getForeignKeys(table)) asLaravel(key),
       ];
-      expect(found, keys, reason: table);
+      // One difference, on purpose: a key that leaves its referenced
+      // columns out (`REFERENCES assessments`) is ['' ] in Laravel
+      // (`explode` of null) and empty here.
+      final laravel = [
+        for (final key in (keys! as List<Object?>).cast<Map<String, Object?>>())
+          {
+            ...key,
+            if (key['foreign_columns'] case [''])
+              'foreign_columns': const <String>[],
+          },
+      ];
+      expect(found, laravel, reason: table);
     }
   });
 
@@ -88,6 +99,28 @@ void main() {
     );
   });
 
+  test('a key without referenced columns has none', () async {
+    final key = (await (await schema()).getForeignKeys('kids')).single;
+    expect(key.columns, ['assessment_id']);
+    expect(key.foreignTable, 'assessments');
+    expect(key.foreignColumns, isEmpty);
+    expect(key.onDelete, 'cascade');
+  });
+
+  test('a grammar written elsewhere still compiles and says it has no '
+      'foreign keys', () {
+    expect(
+      () => const _ThirdPartyGrammar().compileForeignKeys(),
+      throwsA(
+        isA<UnsupportedError>().having(
+          (e) => e.message,
+          'message',
+          contains('does not report foreign keys'),
+        ),
+      ),
+    );
+  });
+
   test('PostgreSQL names its one-letter actions as Laravel does', () {
     const grammar = PostgresSchemaGrammar();
     expect(
@@ -98,4 +131,38 @@ void main() {
       ['no action', 'restrict', 'cascade', 'set null', 'set default', null],
     );
   });
+}
+
+/// A grammar as one written outside Daravel before `compileForeignKeys`:
+/// it implements only what was abstract then, and still compiles.
+final class _ThirdPartyGrammar extends SchemaGrammar {
+  const _ThirdPartyGrammar();
+
+  @override
+  SqlDialect get dialect => SqlDialect.sqlite;
+
+  @override
+  String typeFor(ColumnDefinition column) => 'text';
+
+  @override
+  String get autoIncrementClause => '';
+
+  @override
+  String compileTableExists() => 'select 1';
+
+  @override
+  String compileViewExists() => 'select 1';
+
+  @override
+  String compileListTables() => 'select 1';
+
+  @override
+  String compileColumns() => 'select 1';
+
+  @override
+  ColumnInfo columnInfo(Map<String, Object?> row) =>
+      const ColumnInfo(name: 'x', type: 'text', nullable: true);
+
+  @override
+  List<String> compileChange(String table, ColumnDefinition column) => const [];
 }

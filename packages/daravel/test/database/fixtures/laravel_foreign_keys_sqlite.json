@@ -5,7 +5,8 @@
         "create table \"assessments\" (\"id\" integer primary key autoincrement not null, \"title\" varchar not null)",
         "create table \"sessions\" (\"id\" integer primary key autoincrement not null, \"assessment_id\" integer not null, \"user_id\" integer, \"parent_id\" integer, foreign key(\"assessment_id\") references \"assessments\"(\"id\") on delete cascade, foreign key(\"user_id\") references \"users\"(\"id\") on delete set null on update cascade, foreign key(\"parent_id\") references \"sessions\"(\"id\"))",
         "create table \"grades\" (\"id\" integer primary key autoincrement not null, \"session_id\" integer not null, \"assessment_id\" integer not null, \"note\" varchar, foreign key(\"session_id\", \"assessment_id\") references \"pairs\"(\"a\", \"b\") on delete restrict)",
-        "create table \"plain\" (\"id\" integer primary key autoincrement not null, \"commentable_type\" varchar, \"commentable_id\" integer)"
+        "create table \"plain\" (\"id\" integer primary key autoincrement not null, \"commentable_type\" varchar, \"commentable_id\" integer)",
+        "create table \"kids\" (\"id\" integer primary key autoincrement not null, \"assessment_id\" integer references \"assessments\" on delete cascade)"
     ],
     "foreign_keys": {
         "users": [],
@@ -68,6 +69,21 @@
             }
         ],
         "plain": [],
+        "kids": [
+            {
+                "name": null,
+                "columns": [
+                    "assessment_id"
+                ],
+                "foreign_schema": "main",
+                "foreign_table": "assessments",
+                "foreign_columns": [
+                    ""
+                ],
+                "on_update": "no action",
+                "on_delete": "cascade"
+            }
+        ],
         "missing": []
     }
 }

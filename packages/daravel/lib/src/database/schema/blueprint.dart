@@ -814,21 +814,35 @@ abstract class SchemaGrammar {
   /// ([foreignKeyBindings]): `name`, `columns` and `foreign_columns`
   /// (comma-separated, in order), `foreign_schema`, `foreign_table`,
   /// `on_update`, `on_delete`, as Laravel 13's `compileForeignKeys`.
-  String compileForeignKeys();
+  ///
+  /// The grammars of Daravel implement it; a grammar written elsewhere
+  /// that does not throws [UnsupportedError], and callers that only use
+  /// the keys as a hint (`model:sync` typing a foreign key) carry on
+  /// without them.
+  String compileForeignKeys() => throw UnsupportedError(
+    'This schema grammar ($runtimeType) does not report foreign keys.',
+  );
 
   /// The bindings of [compileForeignKeys] for [table].
   List<Object?> foreignKeyBindings(String table) => tableBindings(table);
 
   /// Normalizes a raw row from [compileForeignKeys], as Laravel's
   /// `processForeignKeys`.
+  ///
+  /// A key whose referenced columns the DDL leaves out (`REFERENCES parent`
+  /// on SQLite, which then means its primary key) has empty
+  /// [ForeignKeyInfo.foreignColumns]; Laravel 13 gives `['']` there
+  /// (`explode` of null).
   ForeignKeyInfo foreignKeyInfo(Map<String, Object?> row) {
     String? text(String key) => row[key] == null ? null : '${row[key]}';
+    List<String> names(String key) =>
+        row[key] == null ? const <String>[] : '${row[key]}'.split(',');
     return ForeignKeyInfo(
       name: text('name'),
-      columns: '${row['columns']}'.split(','),
+      columns: names('columns'),
       foreignSchema: text('foreign_schema'),
       foreignTable: '${row['foreign_table']}',
-      foreignColumns: '${row['foreign_columns']}'.split(','),
+      foreignColumns: names('foreign_columns'),
       onUpdate: foreignKeyAction(text('on_update')),
       onDelete: foreignKeyAction(text('on_delete')),
     );
