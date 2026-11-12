@@ -878,21 +878,38 @@ final class QueryBuilder {
 
   /// The number of matching rows, or of non-null values of [column].
   Future<int> count([Object column = '*']) async =>
-      ((await _aggregate('count', column)) as num? ?? 0).toInt();
+      (_numeric(await _aggregate('count', column)) ?? 0).toInt();
 
   /// The sum of [column], or null without rows.
   Future<num?> sum(Object column) async =>
-      (await _aggregate('sum', column)) as num?;
+      _numeric(await _aggregate('sum', column));
 
   /// The average of [column], or null without rows.
   Future<num?> avg(Object column) async =>
-      (await _aggregate('avg', column)) as num?;
+      _numeric(await _aggregate('avg', column));
 
-  /// The smallest value of [column], or null without rows.
+  /// The smallest value of [column], or null without rows: the driver's
+  /// value as it is (a `decimal` column on PostgreSQL or MySQL is a string),
+  /// as Laravel's `min`.
   Future<Object?> min(Object column) => _aggregate('min', column);
 
-  /// The largest value of [column], or null without rows.
+  /// The largest value of [column], or null without rows; see [min].
   Future<Object?> max(Object column) => _aggregate('max', column);
+
+  /// An aggregate's value as a number, by Laravel's `numericAggregate`
+  /// rule: a number as it is; a string (PostgreSQL's `numeric`, MySQL's
+  /// `DECIMAL`, which `SUM` and `AVG` return) an `int` without a `.` and a
+  /// `double` with one. An integer string beyond 64 bits becomes a
+  /// `double`, as PHP's `(int)` cannot hold it either.
+  static num? _numeric(Object? value) => switch (value) {
+    null => null,
+    final num n => n,
+    final String s when !s.contains('.') => int.tryParse(s) ?? double.parse(s),
+    final String s => double.parse(s),
+    _ => throw StateError(
+      'An aggregate returned ${value.runtimeType}, not a number: $value',
+    ),
+  };
 
   Future<Object?> _aggregate(String function, Object column) async {
     final query = _ast.clone()
