@@ -663,9 +663,11 @@ final class Request {
     _transformedQuery = null;
   }
 
-  /// Merged input: query parameters overlaid by body fields (body wins),
-  /// with input transformers applied. Computed once per request (until a
-  /// transformer is added); each call returns a fresh top-level map.
+  /// Merged input: the body fields, then the query parameters the body does
+  /// not have (Laravel's `input + query`: the body wins key by key, and its
+  /// keys come first), with input transformers applied. Computed once per
+  /// request (until a transformer is added); each call returns a fresh
+  /// top-level map.
   ///
   /// Transformers apply to the input as the client sent it, like Laravel's
   /// `TransformsRequest`, which rewrites the request's parameter bags when
@@ -676,7 +678,12 @@ final class Request {
     if (cached != null) {
       return <String, Object?>{...cached};
     }
-    final input = <String, Object?>{..._query, ...await bodyInput()};
+    final body = await bodyInput();
+    final input = <String, Object?>{
+      ...body,
+      for (final MapEntry(:key, :value) in _query.entries)
+        if (!body.containsKey(key)) key: value,
+    };
     _allInput = input;
     return <String, Object?>{...input};
   }
@@ -687,11 +694,19 @@ final class Request {
   /// a [replace]d one only those registered since. A middleware that
   /// rebuilds the body with [replace] starts from this, so the fields the
   /// client sent keep what `TrimStrings` made of them.
+  ///
+  /// A JSON body that is a list at the top (`[{"email": ...}, ...]`, a bulk
+  /// import) gives its elements under the keys `'0'`, `'1'`, ..., as PHP
+  /// reads a list: `input('0.email')` and a rule on `*.email` reach them,
+  /// and next to the query the body wins key by key, as Laravel's
+  /// `input + query` does.
   Future<Map<String, Object?>> bodyInput() async {
     final parsed = await body();
     final fields = <String, Object?>{
       if (parsed is Map<Object?, Object?>)
-        for (final MapEntry(:key, :value) in parsed.entries) '$key': value,
+        for (final MapEntry(:key, :value) in parsed.entries) '$key': value
+      else if (parsed is List<Object?>)
+        for (final (index, value) in parsed.indexed) '$index': value,
     };
     if (_bodyTransformedBy >= _inputTransformers.length) {
       return fields;
