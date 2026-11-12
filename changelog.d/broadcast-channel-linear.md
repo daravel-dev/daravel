@@ -1,0 +1,3 @@
+### Fixed
+
+- Security: `POST /broadcasting/auth` passed a channel name of any length (up to the form body limit, 1 MiB) to the channel patterns of `routes/channels.dart`, whose matching time grows faster than linearly with the name for a pattern with two or more parameters not separated by `.` (`chat-{a}-{b}`) or side by side (`{a}{b}`): one request from any logged-in user could hold a worker for hours. A name the Pusher protocol does not allow (more than 164 characters, prefixes included, or a character other than `A-Z a-z 0-9 _ - = @ , . ;`) is now refused with `403` before it reaches the patterns, as the WebSocket server already refused it. Since 1.10.0.
