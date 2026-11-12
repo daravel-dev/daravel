@@ -45,6 +45,7 @@ import 'src/request_sync.dart';
 export 'src/database_commands.dart';
 export 'src/dev_server.dart';
 export 'src/model_sync.dart';
+export 'src/model_sync_entry.dart';
 export 'src/request_sync.dart';
 export 'src/new_project.dart';
 export 'src/openapi.dart';

@@ -138,6 +138,7 @@ Map<String, String> newProjectFiles({
     'bootstrap/seeders.dart': api ? _seedersRegistry : _emptySeeders,
     'bootstrap/jobs.dart': _jobsRegistry,
     'bootstrap/models.dart': api ? _modelsRegistry : _emptyModels,
+    'bootstrap/database.dart': _databaseRegistry,
     'lib/app/models/models.dart': api ? _modelsBarrel : _emptyModelsBarrel,
     'bootstrap/listeners.dart': _listenersRegistry,
     'bootstrap/commands.dart': _commandsRegistry,
@@ -465,12 +466,12 @@ const String _bootstrapApi = r'''
 import 'dart:io';
 
 import 'package:daravel/daravel.dart';
-import 'package:daravel_mysql/daravel_mysql.dart';
 import 'package:{{ package }}/app/models/user.dart';
 
 import '../routes/api.dart';
 import '../routes/console.dart';
 import '../routes/web.dart';
+import 'database.dart';
 import 'jobs.dart';
 import 'listeners.dart';
 import 'migrations.dart';
@@ -483,8 +484,7 @@ Application createApp({String? basePath, Map<String, String>? env}) =>
     Application.configure(basePath: basePath ?? Directory.current.path)
         .withEnv(env ?? const <String, String>{})
         // DB_CONNECTION=mysql or mariadb (sqlite and pgsql are built in).
-        .withDatabaseDriver('mysql', MySqlDriver.fromConfig)
-        .withDatabaseDriver('mariadb', MySqlDriver.fromConfig)
+        .withDatabaseDrivers(databaseDrivers)
         .withMigrations(migrations)
         .withSeeders(seeders)
         .withModels(models)
@@ -522,11 +522,11 @@ const String _bootstrapMinimal = r'''
 import 'dart:io';
 
 import 'package:daravel/daravel.dart';
-import 'package:daravel_mysql/daravel_mysql.dart';
 
 import '../routes/api.dart';
 import '../routes/console.dart';
 import '../routes/web.dart';
+import 'database.dart';
 import 'jobs.dart';
 import 'listeners.dart';
 import 'migrations.dart';
@@ -539,8 +539,7 @@ Application createApp({String? basePath, Map<String, String>? env}) =>
     Application.configure(basePath: basePath ?? Directory.current.path)
         .withEnv(env ?? const <String, String>{})
         // DB_CONNECTION=mysql or mariadb (sqlite and pgsql are built in).
-        .withDatabaseDriver('mysql', MySqlDriver.fromConfig)
-        .withDatabaseDriver('mariadb', MySqlDriver.fromConfig)
+        .withDatabaseDrivers(databaseDrivers)
         .withMigrations(migrations)
         .withSeeders(seeders)
         .withModels(models)
@@ -656,6 +655,22 @@ library;
 
 // <dartisan:exports>
 // </dartisan:exports>
+''';
+
+/// `bootstrap/database.dart`, as in the starter.
+const String _databaseRegistry = r'''
+// Database drivers (explicit, AOT-friendly): read by createApp and by
+// `dartisan model:sync`, which syncs the models without compiling the rest
+// of the application. sqlite and pgsql are built into package:daravel.
+import 'package:daravel/daravel.dart';
+import 'package:daravel_mysql/daravel_mysql.dart';
+
+/// The drivers by the connection `driver` they serve: `DB_CONNECTION=mysql`
+/// or `mariadb`.
+final Map<String, DatabaseDriverFactory> databaseDrivers = {
+  'mysql': MySqlDriver.fromConfig,
+  'mariadb': MySqlDriver.fromConfig,
+};
 ''';
 
 const String _emptyModels = r'''

@@ -247,9 +247,9 @@ run the same from the project directory:
 dart run dartisan_cli:dartisan request:sync
 ```
 
-which always works, as it compiles only `dartisan_cli`. (`model:sync`
-reads the database through the application's connection, so it needs a
-project that compiles.)
+which always works, as it compiles only `dartisan_cli`. (`model:sync` does
+not compile the application either: see
+[Database](database.md#syncing-models).)
 
 `typed` holds every field by its input key, already converted to its
 declared type. A field's type and its rules can still disagree (a

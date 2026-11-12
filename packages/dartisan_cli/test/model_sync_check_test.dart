@@ -76,10 +76,10 @@ void main() {
 
   test('--check fails while out of date and writes nothing', () async {
     expect(await run(['migrate']), 0);
-    expect(await run(['model:sync', '--check']), 1);
+    expect(await run(['model:sync', '--boot', '--check']), 1);
     expect(model.readAsStringSync(), _model, reason: 'nothing written');
-    expect(await run(['model:sync']), 0);
+    expect(await run(['model:sync', '--boot']), 0);
     expect(model.readAsStringSync(), contains('String get text'));
-    expect(await run(['model:sync', '--check']), 0);
+    expect(await run(['model:sync', '--boot', '--check']), 0);
   });
 }

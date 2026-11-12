@@ -3,7 +3,7 @@
 
 /// `docs/guide/id/validation.md`.
 const String pageIdValidation =
-    r'''<!-- source: validation.md sha256:1a674a00c4dc -->
+    r'''<!-- source: validation.md sha256:0c7ce8646fa7 -->
 # Validasi
 
 Validasi request secara inline dengan string rule Laravel, atau dengan objek
@@ -266,8 +266,8 @@ dart run dartisan_cli:dartisan request:sync
 ```
 
 yang selalu berjalan, karena hanya `dartisan_cli` yang dikompilasi.
-(`model:sync` membaca database lewat koneksi aplikasi, jadi butuh proyek
-yang bisa dikompilasi.)
+(`model:sync` juga tidak mengompilasi aplikasi: lihat
+[Database](database.md#menyinkronkan-model).)
 
 `typed` memuat setiap field menurut kunci input-nya, sudah dikonversi ke
 tipe yang dideklarasikan. Tipe sebuah field dan rule-nya masih bisa tidak

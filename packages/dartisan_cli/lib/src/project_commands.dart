@@ -1461,6 +1461,11 @@ final class OpenApiGenerateCommand extends DaravelCommand {
 /// region of models from the database schema (BLUEPRINT_V2 §8.3) and fills
 /// an empty statics region with the query shortcuts `make:model` writes.
 /// `--typed-ids` (opt-in, ADR-032) also writes a typed id per model.
+///
+/// It does not compile the application (#329): the models are read from
+/// their sources, and the schema through a program in `.dart_tool` that
+/// imports only the framework, the CLI and the database drivers
+/// ([spawnModelSync]). `--boot` reads through the application instead.
 final class ModelSyncCommand extends DaravelCommand {
   /// The `dartisan model:sync` command.
   ModelSyncCommand(super.createApp) {
@@ -1470,6 +1475,21 @@ final class ModelSyncCommand extends DaravelCommand {
         negatable: false,
         help: 'Print the accessors without writing.',
       )
+      ..addFlag(
+        'boot',
+        negatable: false,
+        help:
+            "Read the schema through the application (it must compile), "
+            'for a connection the application configures in code.',
+      )
+      ..addFlag(
+        'reset-regions',
+        negatable: false,
+        help:
+            'Empty the generated accessors and relation-path regions (not '
+            'statics), so an application they broke compiles again.',
+      )
+      ..addFlag(inEntryFlag.substring(2), negatable: false, hide: true)
       ..addFlag(
         'check',
         negatable: false,
@@ -1499,17 +1519,73 @@ final class ModelSyncCommand extends DaravelCommand {
   @override
   String get name => 'model:sync';
 
+  /// Passed by the program [spawnModelSync] runs: sync here, in the
+  /// application it built from the environment and the drivers.
+  static const String inEntryFlag = '--in-entry';
+
   @override
   String get description => '''
 Sync model accessors with the database schema.
 
-It reads the tables through the application's database connection, so
-the application must compile: fix a model that does not by hand first.
-(request:sync reads sources only and runs without compiling the
-application.)''';
+The models are read from their sources and the tables through a database
+connection from the environment (.env, DB_*), without compiling the
+application: output that no longer compiles is repaired by syncing
+again. --boot reads through the application instead (it must compile), for
+a connection configured in code; --reset-regions empties the generated
+regions.''';
 
   @override
-  Future<int> run() => withApp((app) async {
+  Future<int> run() async {
+    final args = argResults!;
+    if (args['reset-regions'] as bool) {
+      final paths = ProjectPaths.locate();
+      final dryRun = args['dry-run'] as bool;
+      final emptied = resetModelRegions(
+        Directory(paths.models),
+        only: args.rest.isEmpty ? null : Naming.snake(args.rest.first),
+        dryRun: dryRun,
+      );
+      for (final line in emptied) {
+        stdout.writeln('${dryRun ? 'Would empty' : 'Emptied'} $line.');
+      }
+      if (emptied.isEmpty) {
+        stdout.writeln('No generated region to empty.');
+      } else if (!dryRun) {
+        stdout.writeln('Run dartisan model:sync to write them again.');
+      }
+      return 0;
+    }
+    final inEntry = args[inEntryFlag.substring(2)] as bool;
+    if (!inEntry && !(args['boot'] as bool)) {
+      return spawnModelSync(ProjectPaths.locate().root, [
+        for (final a in args.arguments)
+          if (a != '--boot') a,
+      ]);
+    }
+    return _syncInApp(inEntry: inEntry);
+  }
+
+  Future<int> _syncInApp({required bool inEntry}) => withApp((app) async {
+    if (!inEntry) {
+      return _sync(app);
+    }
+    try {
+      return await _sync(app);
+    } on Object catch (error) {
+      stderr
+        ..writeln(
+          'model:sync: the schema could not be read without the '
+          'application: $error',
+        )
+        ..writeln(
+          'model:sync: a connection or driver the application sets up in '
+          'code is not seen here; run dartisan model:sync --boot.',
+        );
+      return 1;
+    }
+  });
+
+  Future<int> _sync(Application app) async {
     final paths = ProjectPaths.locate(app.basePath);
     final only = argResults!.rest.isEmpty
         ? null
@@ -1597,7 +1673,7 @@ application.)''';
       return only == null ? 0 : 1;
     }
     return stale == 0 ? 0 : 1;
-  });
+  }
 }
 
 /// One `dartisan lint` finding as `dart analyze` prints one:

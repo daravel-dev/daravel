@@ -898,6 +898,42 @@ final class Score extends Model {
               request.readAsStringSync(),
               contains('extension type const LoginInput('),
             );
+
+            // model:sync repairs generated code that no longer compiles
+            // (#329): the accessors region gets a line the application
+            // rejects; the application cannot boot, model:sync still runs.
+            final migrate = await Process.run(dartExecutable(), const [
+              'run',
+              'bin/dartisan.dart',
+              'migrate',
+            ], workingDirectory: target);
+            expect(migrate.exitCode, 0, reason: '${migrate.stdout}');
+            final user = File(p.join(target, 'lib/app/models/user.dart'));
+            const accessors = '// </dartisan:accessors>';
+            final synced = user.readAsStringSync();
+            user.writeAsStringSync(
+              synced.replaceFirst(
+                accessors,
+                "int get brokenByASync => 'not an int';\n  $accessors",
+              ),
+            );
+            final booted = await Process.run(dartExecutable(), const [
+              'run',
+              'bin/dartisan.dart',
+              'model:sync',
+              '--boot',
+            ], workingDirectory: target);
+            expect(
+              booted.exitCode,
+              isNot(0),
+              reason: 'the application does not compile',
+            );
+            expect(
+              await runner.execute(['model:sync'], directory: target),
+              0,
+              reason: 'model:sync compiles no application code',
+            );
+            expect(user.readAsStringSync(), isNot(contains('brokenByASync')));
           }
           final analyze = await Process.run(dartExecutable(), const [
             'analyze',
@@ -1009,9 +1045,18 @@ final class Score extends Model {
           reason: '$args',
         );
       }
-      // model:sync reads the database through the application.
+      // model:sync runs from the project's package too (#329), unless
+      // --boot asks for the application.
+      expect(
+        GlobalDartisanRunner.runsFromSource(['model:sync'], inProject: true),
+        isTrue,
+      );
+      expect(
+        GlobalDartisanRunner.delegates(['model:sync'], inProject: true),
+        isFalse,
+      );
       for (final args in [
-        ['model:sync'],
+        ['model:sync', '--boot'],
         ['migrate'],
         <String>[],
       ]) {

@@ -3,7 +3,7 @@
 
 /// `docs/guide/id/dartisan.md`.
 const String pageIdDartisan =
-    r'''<!-- source: dartisan.md sha256:253f5a7c7f7d -->
+    r'''<!-- source: dartisan.md sha256:218807050582 -->
 # dartisan
 
 `dartisan` adalah `artisan`-nya Daravel. Pasang sekali, lalu pakai di proyek
@@ -114,7 +114,7 @@ sebelum pindah ke versi minor baru.
 | `db:transfer --from --to [--dry-run] [--truncate] [--tables] [--no-migrate]` | Menyalin data ke database lain, setelah lebih dulu memigrasinya ([Database](database.md#menyalin-data-antar-database)) |
 | `db:backup [--output] [--keep=N]` | Backup database SQLite saat server berjalan ke `storage/backups` (lihat [Deployment](deployment.md#backup)) |
 | `tinker "<expression>"` | Mengevaluasi ekspresi Dart di aplikasi yang sudah di-boot |
-| `model:sync [Model] [--typed-ids]` | Membangkitkan ulang accessor bertipe sebuah model dari tabelnya, dan mengisi region `<dartisan:statics>` yang kosong; `--typed-ids` menambahkan ID bertipe ([Database](database.md#id-bertipe-opt-in)) |
+| `model:sync [Model] [--typed-ids] [--check] [--boot] [--reset-regions]` | Membangkitkan ulang accessor bertipe sebuah model dari tabelnya, dan mengisi region `<dartisan:statics>` yang kosong, tanpa mengompilasi aplikasi (`--boot`: lewat aplikasi); `--typed-ids` menambahkan ID bertipe ([Database](database.md#menyinkronkan-model)) |
 | `request:sync [Request] [--check]` | Menulis ulang input bertipe (region `<dartisan:input>`) form request dari konstanta `Field`-nya; `--check` keluar dengan kode 1 bila ada yang usang ([Validasi](validation.md#input-bertipe)) |
 | `model:show <Model> [--json]` | Tabel, atribut (tipe, cast, fillable, hidden), dan relasi sebuah model, dari `bootstrap/models.dart` |
 | `daragic:export [--out] [--only]` | Model aplikasi (DAM) untuk `daragic`: route, model, migrasi, skema, jadwal, ... (lihat [Migrasi dari Laravel](migrating-from-laravel.md#model-aplikasi-daragic)) |

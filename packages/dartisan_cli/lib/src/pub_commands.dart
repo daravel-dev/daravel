@@ -740,15 +740,30 @@ final class PubAddCommand extends Command<int> {
     );
     if (manifest.registration.isNotEmpty) {
       final bootstrap = File(p.join(root, 'bootstrap', 'app.dart'));
-      if (bootstrap.existsSync()) {
-        final driver = DriverPackage(
-          package: manifest.package,
-          title: manifest.title,
-          connection: manifest.id,
-          note: manifest.title,
-          registration: manifest.registration,
-          env: manifest.env,
-        );
+      final driver = DriverPackage(
+        package: manifest.package,
+        title: manifest.title,
+        connection: manifest.id,
+        note: manifest.title,
+        registration: manifest.registration,
+        env: manifest.env,
+      );
+      // The bootstrap/database.dart registry, which model:sync reads too,
+      // when the project has one and the driver registers by name.
+      final registryFile = File(p.join(root, 'bootstrap', 'database.dart'));
+      final registry = registryFile.existsSync()
+          ? registryFile.readAsStringSync()
+          : null;
+      final entries = registry == null
+          ? null
+          : registerDriverEntries(registry, driver);
+      if (entries != null) {
+        if (entries != registry) {
+          registryFile.writeAsStringSync(entries);
+          _touched.add('bootstrap/database.dart');
+          changes.add('bootstrap/database.dart (databaseDrivers)');
+        }
+      } else if (bootstrap.existsSync()) {
         final source = bootstrap.readAsStringSync();
         final registered = registerDriver(source, driver);
         if (registered == null) {

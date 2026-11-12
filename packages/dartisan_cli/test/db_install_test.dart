@@ -7,12 +7,16 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 /// The `bootstrap/app.dart` of a new `api` project.
-String newBootstrap() => newProjectFiles(
+Map<String, String> _newFiles() => newProjectFiles(
   package: 'shop',
   appName: 'Shop',
   source: const PubHostedSource(),
   appKey: 'base64:test',
-)['bootstrap/app.dart']!;
+);
+
+String newBootstrap() => _newFiles()['bootstrap/app.dart']!;
+
+String newRegistry() => _newFiles()['bootstrap/database.dart']!;
 
 void main() {
   group('registerDriver', () {
@@ -45,10 +49,44 @@ void main() {
     test('is idempotent and leaves registered drivers alone', () {
       final once = registerDriver(newBootstrap(), driverPackages['sqlite']!)!;
       expect(registerDriver(once, driverPackages['sqlite']!), once);
-      // New projects already register MySQL and MariaDB.
-      final mysql = registerDriver(newBootstrap(), driverPackages['mysql']!);
-      expect(mysql, newBootstrap());
+      // New projects already register MySQL and MariaDB, in their
+      // bootstrap/database.dart registry.
+      expect(
+        registerDriverEntries(newRegistry(), driverPackages['mysql']!),
+        newRegistry(),
+      );
+      expect(
+        registerDriverEntries(newRegistry(), driverPackages['mariadb']!),
+        newRegistry(),
+      );
     });
+
+    test(
+      'a by-name driver goes into the registry; others stay in app.dart',
+      () {
+        const empty = '''
+import 'package:daravel/daravel.dart';
+
+final Map<String, DatabaseDriverFactory> databaseDrivers = {};
+''';
+        final mysql = registerDriverEntries(empty, driverPackages['mysql']!)!;
+        expect(
+          mysql,
+          allOf(
+            contains("import 'package:daravel_mysql/daravel_mysql.dart';"),
+            contains("  'mysql': MySqlDriver.fromConfig,\n"),
+            contains("  'mariadb': MySqlDriver.fromConfig,\n"),
+          ),
+        );
+        expect(registerDriverEntries(mysql, driverPackages['mysql']!), mysql);
+        // .withPostgres() is not a map entry: app.dart keeps it.
+        expect(registerDriverEntries(empty, driverPackages['pgsql']!), isNull);
+        expect(
+          registerDriverEntries('void main() {}', driverPackages['mysql']!),
+          isNull,
+        );
+      },
+    );
 
     test('skips parentheses inside strings when finding configure(...)', () {
       const source = '''
