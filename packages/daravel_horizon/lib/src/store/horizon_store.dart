@@ -22,7 +22,9 @@ abstract interface class HorizonStore {
   /// is harmless, so a store may drop it under load or on an error, and
   /// never throws. Idempotent per job: recording the same uuid again
   /// replaces its record, and an older record (an earlier `at`) never
-  /// replaces a newer one.
+  /// replaces a newer one. Such an older record still counts ([rates],
+  /// [summary], snapshots: what it reports happened), but joins neither
+  /// the lists nor a monitored tag's jobs.
   Future<void> record(RecordedJob job);
 
   /// The recorded jobs of [status] (`completed`, `failed`, `silenced`),
@@ -40,7 +42,11 @@ abstract interface class HorizonStore {
   /// average run time `avg_ms` (null without one).
   Future<Map<String, Object?>> rates(String queue);
 
-  /// `jobs_per_minute`, `jobs_past_hour` and `failed_past_week`.
+  /// `jobs_per_minute`, `jobs_past_hour` and `failed_past_week`. The
+  /// `process` store keeps at most `HorizonService.maxPerStatus` (1 000)
+  /// jobs of each status, so its counts stop there, as before; the
+  /// `database` store counts every row of `horizon_job_counts` within the
+  /// retention, without that cap.
   Future<Map<String, Object?>> summary();
 
   /// Keeps the jobs carrying [tag] apart, with the failed retention.
