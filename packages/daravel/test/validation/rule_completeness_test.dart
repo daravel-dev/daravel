@@ -34,7 +34,7 @@ void main() {
   };
 
   // Builders with no string form, in Laravel as here (`Rule::enum`, a
-  // closure, `Rule::when`/`unless`/`forEach`/`anyOf`).
+  // closure, `Rule::when`/`unless`/`forEach`/`anyOf`/`can`).
   const objectOnly = <String>{
     'enum',
     'custom',
@@ -42,6 +42,7 @@ void main() {
     'unless',
     'for_each',
     'any_of',
+    'can',
   };
 
   test('1. every string name builds a rule of that name', () {
@@ -142,8 +143,6 @@ const Set<String> _notRuleBuilders = {'of'};
 /// Shrinks with each W9.4a pull request; empty when the slice is done.
 const Map<String, String> _laravelPending = {
   'uploaded': 'a message, not a rule (a failed upload)',
-  'can': 'W9.4a external (Rule::can, needs the Gate)',
-  'current_password': 'W9.4a external (needs the guard and Hash)',
   'dimensions': 'W9.4a external (image headers)',
 };
 
@@ -237,6 +236,8 @@ Map<String, Rule Function()> _sampleBuilders() => {
   'email': Rules.email,
   'url': Rules.url,
   'activeUrl': Rules.activeUrl,
+  'currentPassword': Rules.currentPassword,
+  'can': () => Rules.can('update'),
   'file': Rules.file,
   'image': Rules.image,
   'mimes': () => Rules.mimes(['pdf']),

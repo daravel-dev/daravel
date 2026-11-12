@@ -3,7 +3,7 @@
 
 /// `docs/guide/id/validation.md`.
 const String pageIdValidation =
-    r'''<!-- source: validation.md sha256:748c8a1d6376 -->
+    r'''<!-- source: validation.md sha256:0782d21e9eb6 -->
 # Validasi
 
 Validasi request secara inline dengan string rule Laravel, atau dengan objek
@@ -136,6 +136,23 @@ di test, daftarkan `FakeDnsResolver` dari `daravel_test`, padanan
 membaca `/etc/hosts`; dan di Windows, yang tidak punya `/etc/resolv.conf`
 untuk menanyakan record MX, `dns` hanya melihat A dan AAAA (domain yang hanya
 punya MX gagal, dan null MX tidak terlihat).
+
+### User yang sedang login: `current_password` dan `can`
+
+```dart
+'current_password': 'required|current_password',      // atau current_password:api
+'tag': [Rules.required(), Rules.can('attach-tag', [post])],
+```
+
+`current_password` lolos bila nilainya adalah password user yang sedang
+login pada guard tersebut (guard bawaan bila tanpa argumen); guest gagal.
+`Rules.can` menanyakan gate apakah user saat ini boleh menjalankan ability
+dengan argumen yang diberikan lalu nilainya; seperti di Laravel, `null`,
+`false`, `0`, `''`, `'0'`, dan list kosong dibuang dari argumen. Keduanya
+berjalan di mana pun sebuah `Application` berjalan (request, job, command,
+`TestClient`, `app.run`); `Validator` biasa di luar `Application` melempar
+`StateError` yang menyebut apa yang harus didaftarkan, alih-alih meloloskan
+nilainya.
 
 Aturan yang bergantung pada input atau pada setiap elemen, seperti
 `Rule::when`, `Rule::unless`, `Rule::forEach`, dan `Rule::anyOf` di Laravel:

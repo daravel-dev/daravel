@@ -656,6 +656,7 @@ final class InvalidValidationRule extends LintRule {
     'accepted',
     'accepted_if',
     'active_url',
+    'current_password',
     'declined',
     'declined_if',
     'required_if',

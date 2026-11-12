@@ -276,6 +276,8 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `'email:rfc,dns' / 'email:filter' / 'email:filter_unicode'` | `same strings, or Rules.email(rfc: true, dns: true)` | dns as egulias DNSCheckValidation (suffix walk capped at 4); filter is PHP's FILTER_VALIDATE_EMAIL, read in one pass instead of with PHP's regex (which backtracks exponentially) and compared with PHP 8.3; rfc and strict are an HTML-style check until the egulias RFC parser is ported; spoof needs ICU and throws when the rules are built. |
 | `'active_url'` | `same string, or Rules.activeUrl()` | A/AAAA through the OS resolver, which also reads /etc/hosts; an IP address fails, as in Laravel. |
 | `Validator::$fakeDnsLookups = true` | `container.instance<DnsResolver>(FakeDnsResolver())` |  |
+| `'current_password' / 'current_password:api'` | `same strings, or Rules.currentPassword(guard: 'api')` | Through CurrentPasswordVerifier, which the Application binds from AuthManager and Hash; outside an Application it throws instead of passing. |
+| `Rule::can('update', $post)` | `Rules.can('update', [post])` | The gate gets the arguments and the value, without PHP's empty values (array_filter), as Laravel. |
 | `'array' / 'array:name,email' / 'list'` | `same strings, or Rules.array(['name', 'email']) / Rules.list()` | array is a JSON array or object, as a PHP array; list only a JSON array. |
 | `->withoutMiddleware('csrf')` | `.withoutMiddleware(['csrf'])` |  |
 | `Route::get('/posts/{post}', fn (Post $post) => ...)` | `router.bindModel('post', Post.definition)` |  |

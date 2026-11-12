@@ -135,6 +135,14 @@ final class RuleBuilder {
   /// Appends [Rules.activeUrl].
   RuleBuilder activeUrl() => _add(Rules.activeUrl());
 
+  /// Appends [Rules.currentPassword].
+  RuleBuilder currentPassword({String? guard}) =>
+      _add(Rules.currentPassword(guard: guard));
+
+  /// Appends [Rules.can].
+  RuleBuilder can(String ability, [List<Object?> arguments = const []]) =>
+      _add(Rules.can(ability, arguments));
+
   /// Appends [Rules.url].
   RuleBuilder url() => _add(Rules.url());
 
@@ -620,6 +628,14 @@ extension RuleChain on Rule {
 
   /// This rule followed by [Rules.activeUrl].
   RuleBuilder activeUrl() => _chain.activeUrl();
+
+  /// This rule followed by [Rules.currentPassword].
+  RuleBuilder currentPassword({String? guard}) =>
+      _chain.currentPassword(guard: guard);
+
+  /// This rule followed by [Rules.can].
+  RuleBuilder can(String ability, [List<Object?> arguments = const []]) =>
+      _chain.can(ability, arguments);
 
   /// This rule followed by [Rules.url].
   RuleBuilder url() => _chain.url();
