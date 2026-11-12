@@ -1500,7 +1500,13 @@ final class ModelSyncCommand extends DaravelCommand {
   String get name => 'model:sync';
 
   @override
-  String get description => 'Sync model accessors with the database schema.';
+  String get description => '''
+Sync model accessors with the database schema.
+
+It reads the tables through the application's database connection, so
+the application must compile: fix a model that does not by hand first.
+(request:sync reads sources only and runs without compiling the
+application.)''';
 
   @override
   Future<int> run() => withApp((app) async {
