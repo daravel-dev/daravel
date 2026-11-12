@@ -15,6 +15,7 @@ publisher `framework.daravel.dev`.
 
 | Version | Highlights |
 | :-- | :-- |
+| `1.27.2` | Security fixes: broadcast channel names and linear-time channel patterns, distinct in linear time; sum and avg on PostgreSQL and MySQL; sequential publishing |
 | `1.27.1` | Security fixes: linear-time matching for multipart part headers, numeric validation rules and WebSocket origin patterns; shutdown after password hashing |
 | `1.27.0` | Bounded buffers, series and queues for production load, Laravel-faithful queue attempts with cancellation, SQLite IMMEDIATE transactions and busy retries, Pusher connection limits, SqlIdentifier, typed ids and cross-OS builds |
 | `1.26.0` | Static files with versioned URLs, redis and cache session drivers, CSP with nonces, browser-style TestClient, consistent html.dart helpers with htmx, fail-closed rate limits, transaction timeouts, typed coordinator messages and isolate payloads |
