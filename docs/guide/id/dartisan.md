@@ -1,4 +1,4 @@
-<!-- source: dartisan.md sha256:f064579e8d15 -->
+<!-- source: dartisan.md sha256:6558de8b2df3 -->
 # dartisan
 
 `dartisan` adalah `artisan`-nya Daravel. Pasang sekali, lalu pakai di proyek
@@ -109,7 +109,7 @@ sebelum pindah ke versi minor baru.
 | `db:transfer --from --to [--dry-run] [--truncate] [--tables] [--no-migrate]` | Menyalin data ke database lain, setelah lebih dulu memigrasinya ([Database](database.md#menyalin-data-antar-database)) |
 | `db:backup [--output] [--keep=N]` | Backup database SQLite saat server berjalan ke `storage/backups` (lihat [Deployment](deployment.md#backup)) |
 | `tinker "<expression>"` | Mengevaluasi ekspresi Dart di aplikasi yang sudah di-boot |
-| `model:sync [Model] [--typed-ids] [--check] [--boot] [--reset-regions]` | Membangkitkan ulang accessor bertipe sebuah model dari tabelnya, dan mengisi region `<dartisan:statics>` yang kosong, tanpa mengompilasi aplikasi (`--boot`: lewat aplikasi); `--typed-ids` menambahkan ID bertipe ([Database](database.md#menyinkronkan-model)) |
+| `model:sync [Model...] [--typed-ids] [--check] [--boot] [--reset-regions]` | Membangkitkan ulang accessor bertipe sebuah model dari tabelnya, dan mengisi region `<dartisan:statics>` yang kosong, tanpa mengompilasi aplikasi (`--boot`: lewat aplikasi); `--typed-ids` mengikutsertakan model yang disinkronkan ke ID bertipe, dipertahankan run berikutnya, dan memberi tipe foreign key ke model itu ([Database](database.md#id-bertipe-opt-in)) |
 | `request:sync [Request] [--check]` | Menulis ulang input bertipe (region `<dartisan:input>`) form request dari konstanta `Field`-nya; `--check` keluar dengan kode 1 bila ada yang usang ([Validasi](validation.md#input-bertipe)) |
 | `names:sync [--check] [--boot]` | Menulis `lib/app/names.dart` (pembangun URL `Routes.*`, `RouteNames`, `Abilities`, `RateLimiters`, `Guards`, `Disks`, `Connections`) dari aplikasi yang di-boot untuk inspeksi, tanpa koneksi (`--boot`: boot penuh) ([Routing](routing.md#fitur-route)) |
 | `model:show <Model> [--json]` | Tabel, atribut (tipe, cast, fillable, hidden), dan relasi sebuah model, dari `bootstrap/models.dart` |

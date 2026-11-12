@@ -220,6 +220,61 @@ final class Response {
     deleteAfterSend: deleteFileAfterSend,
   );
 
+  /// A download of content made in memory for this request (a generated
+  /// configuration file, a small export): [bytes] as an attachment called
+  /// [name]. [contentType] defaults to the type of [name]'s extension
+  /// ([mimeTypeOf]), else `application/octet-stream`; the
+  /// `Content-Disposition` is [contentDisposition], which also carries a
+  /// non-ASCII [name]. [bytes] become the body without a copy.
+  ///
+  /// ```dart
+  /// return Response.downloadBytes(utf8.encode(plist), name: 'exam.seb');
+  /// ```
+  factory Response.downloadBytes(
+    List<int> bytes, {
+    required String name,
+    String? contentType,
+    int status = 200,
+    Map<String, String>? headers,
+  }) => Response.bytes(
+    bytes,
+    contentType: contentType ?? mimeTypeOf(name),
+    status: status,
+    headers: {'content-disposition': contentDisposition(name), ...?headers},
+  );
+
+  /// Laravel's `response()->streamDownload()`: [body] written to the client
+  /// as it is produced, never held whole (a large CSV export), as an
+  /// attachment called [name]. [contentType] defaults to the type of
+  /// [name]'s extension ([mimeTypeOf]), else `application/octet-stream`
+  /// (Laravel's leaves it to Symfony's `text/html`); [contentLength], when
+  /// known, lets the client show progress.
+  ///
+  /// A client that goes away cancels [body]'s subscription, so an
+  /// `async*` producer stops at its next `yield`; a `HEAD` request gets the
+  /// headers and never listens to [body].
+  ///
+  /// ```dart
+  /// return Response.streamDownload(
+  ///   DB.table('orders').lazy().map((row) => utf8.encode(csvLine(row))),
+  ///   name: 'orders.csv',
+  /// );
+  /// ```
+  factory Response.streamDownload(
+    Stream<List<int>> body, {
+    required String name,
+    String? contentType,
+    int? contentLength,
+    int status = 200,
+    Map<String, String>? headers,
+  }) => Response.stream(
+    body,
+    contentType: contentType ?? mimeTypeOf(name),
+    status: status,
+    contentLength: contentLength,
+    headers: {'content-disposition': contentDisposition(name), ...?headers},
+  );
+
   /// `response()->file()`: shown by the browser. Pass [request] to answer
   /// `Range` (206), which PDF viewers and iOS media players need, and
   /// conditional requests. Never build [fileOrPath] from user input.

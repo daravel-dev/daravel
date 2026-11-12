@@ -691,6 +691,51 @@ final class ColumnInfo {
   String toString() => 'ColumnInfo($name $type${nullable ? ' null' : ''})';
 }
 
+/// A foreign key of a table, as `Schema.getForeignKeys` returns it, in the
+/// shape of Laravel's `Schema::getForeignKeys`: [name] (null on SQLite,
+/// which does not report it), the [columns] and the [foreignColumns] of
+/// [foreignTable] they reference, in order, and the actions
+/// ([onUpdate], [onDelete]) in lower case (`cascade`, `set null`,
+/// `no action`, ...).
+final class ForeignKeyInfo {
+  /// One foreign key, as `Schema.getForeignKeys` returns it.
+  const ForeignKeyInfo({
+    required this.name,
+    required this.columns,
+    required this.foreignSchema,
+    required this.foreignTable,
+    required this.foreignColumns,
+    required this.onUpdate,
+    required this.onDelete,
+  });
+
+  /// The constraint name, or null (SQLite).
+  final String? name;
+
+  /// The referencing columns of this table, in order.
+  final List<String> columns;
+
+  /// The schema of [foreignTable] (`main` on SQLite).
+  final String? foreignSchema;
+
+  /// The referenced table.
+  final String foreignTable;
+
+  /// The referenced columns, matching [columns] one by one.
+  final List<String> foreignColumns;
+
+  /// The `ON UPDATE` action, in lower case.
+  final String? onUpdate;
+
+  /// The `ON DELETE` action, in lower case.
+  final String? onDelete;
+
+  @override
+  String toString() =>
+      'ForeignKeyInfo(${columns.join(',')} -> '
+      '$foreignTable(${foreignColumns.join(',')}))';
+}
+
 /// Compiles blueprints into DDL for one dialect.
 abstract class SchemaGrammar {
   /// Grammars are stateless; [forDialect] picks one.
@@ -764,6 +809,47 @@ abstract class SchemaGrammar {
 
   /// Normalizes a raw column row from [compileColumns].
   ColumnInfo columnInfo(Map<String, Object?> row);
+
+  /// Query returning one row per foreign key of a table
+  /// ([foreignKeyBindings]): `name`, `columns` and `foreign_columns`
+  /// (comma-separated, in order), `foreign_schema`, `foreign_table`,
+  /// `on_update`, `on_delete`, as Laravel 13's `compileForeignKeys`.
+  ///
+  /// The grammars of Daravel implement it; a grammar written elsewhere
+  /// that does not throws [UnsupportedError], and callers that only use
+  /// the keys as a hint (`model:sync` typing a foreign key) carry on
+  /// without them.
+  String compileForeignKeys() => throw UnsupportedError(
+    'This schema grammar ($runtimeType) does not report foreign keys.',
+  );
+
+  /// The bindings of [compileForeignKeys] for [table].
+  List<Object?> foreignKeyBindings(String table) => tableBindings(table);
+
+  /// Normalizes a raw row from [compileForeignKeys], as Laravel's
+  /// `processForeignKeys`.
+  ///
+  /// A key whose referenced columns the DDL leaves out (`REFERENCES parent`
+  /// on SQLite, which then means its primary key) has empty
+  /// [ForeignKeyInfo.foreignColumns]; Laravel 13 gives `['']` there
+  /// (`explode` of null).
+  ForeignKeyInfo foreignKeyInfo(Map<String, Object?> row) {
+    String? text(String key) => row[key] == null ? null : '${row[key]}';
+    List<String> names(String key) =>
+        row[key] == null ? const <String>[] : '${row[key]}'.split(',');
+    return ForeignKeyInfo(
+      name: text('name'),
+      columns: names('columns'),
+      foreignSchema: text('foreign_schema'),
+      foreignTable: '${row['foreign_table']}',
+      foreignColumns: names('foreign_columns'),
+      onUpdate: foreignKeyAction(text('on_update')),
+      onDelete: foreignKeyAction(text('on_delete')),
+    );
+  }
+
+  /// A referential action as Laravel reports it: in lower case.
+  String? foreignKeyAction(String? raw) => raw?.toLowerCase();
 
   /// `ALTER TABLE ... RENAME TO ...` for `Schema.rename`.
   String compileRename(String from, String to) =>

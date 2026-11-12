@@ -1,4 +1,5 @@
 import '../http/request.dart';
+import '../foundation/slashes.dart';
 import '../http/response.dart';
 
 /// `Illuminate\Support\Uri`: an immutable URI to read and change one part at
@@ -38,7 +39,7 @@ final class DaravelUri {
 
   /// The path without its outer slashes; `/` for the root.
   String get path {
-    final trimmed = raw.path.replaceAll(RegExp(r'^/+|/+$'), '');
+    final trimmed = trimSlashes(raw.path);
     return trimmed.isEmpty ? '/' : trimmed;
   }
 

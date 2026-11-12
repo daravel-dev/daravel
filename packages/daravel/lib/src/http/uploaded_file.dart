@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:mime/mime.dart' as mime;
 import 'package:path/path.dart' as p;
 
+import '../foundation/slashes.dart';
 import '../foundation/container.dart';
 import '../storage/storage.dart';
 
@@ -142,7 +143,7 @@ final class UploadedFile {
   String toString() => 'UploadedFile($clientName, $size bytes)';
 
   static String _join(String directory, String name) {
-    final dir = directory.replaceAll(RegExp(r'^/+|/+$'), '');
+    final dir = trimSlashes(directory);
     return dir.isEmpty ? name : '$dir/$name';
   }
 
