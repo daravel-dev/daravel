@@ -1,4 +1,4 @@
-<!-- source: background.md sha256:c0c4d0ea4dcb -->
+<!-- source: background.md sha256:8a3fc2c8043e -->
 # Cache, event, queue, dan penjadwalan
 
 <!-- include: packages/daravel/test/docs/guide_examples_test.dart#cache-events-queue -->
@@ -143,7 +143,7 @@ sampai commit.
   terblok) dan memberi tahu master, yang ikut menggeser batasnya: di Horizon
   setiap setengah dari waktu yang disisakan master untuk job itu, jadi dengan
   `QUEUE_RETRY_AFTER` 3 detik di queue database setiap 0,5 detik, dua
-  penulisan per detik per job yang berjalan (45 detik untuk bawaan 90
+  penulisan per detik per job yang berjalan (44 detik untuk bawaan 90
   detik). Perpanjangan yang tidak sampai ke master tepat waktu hanya membuat
   master membunuh lebih awal, tidak pernah menjalankan job dua kali.
   - Percobaan yang dibunuh dihitung satu kali. Master lalu memutuskan, hanya

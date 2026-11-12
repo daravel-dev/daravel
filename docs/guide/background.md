@@ -135,7 +135,7 @@ until commit by default.
   not blocked) and tells the master, which moves its limit along: under
   Horizon every half of what the master leaves the job, so with a
   `QUEUE_RETRY_AFTER` of 3 s on the database queue every 0.5 s, two writes
-  a second per running job (45 s for the default 90 s). An extension the
+  a second per running job (44 s for the default 90 s). An extension the
   master does not hear of in time only makes it kill early, never run the
   job twice.
   - The killed attempt counts once. The master then decides, from the
