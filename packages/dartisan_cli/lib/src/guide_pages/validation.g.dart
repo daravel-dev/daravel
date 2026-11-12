@@ -78,7 +78,10 @@ upstream file). Indonesian ships as the second locale: set
   `array` accepts any PHP array; `array:name,email` allows only those keys (a
   list's keys are its indexes). `list` accepts only a JSON array and `map`
   (Daravel) only a JSON object. `min`, `max`, `between` and `size` count the
-  items of either.
+  items of either. `distinct` decides as Laravel 13 does: on `items.*.tags.*`
+  it compares the tags of all items, and `1`, `1.0`, `'1.0'` and `true` are
+  one value unless you write `distinct:strict`; `distinct:ignore_case` ignores
+  case. `in_array:others.*` compares strictly (`1` is not `'1'`).
 - **Others:** `date_equals`, and `timezone` or `timezone:Asia`. It also accepts
   old IANA aliases such as `Asia/Calcutta`, and not `per_country`.
 
