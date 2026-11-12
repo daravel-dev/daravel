@@ -241,6 +241,23 @@ region after you add, rename or retype a field; `request:sync --check`
 writes nothing and exits 1 when a region is out of date, for CI. An input
 type you declare yourself, without the region, is left as it is.
 
+`request:sync` only reads and writes sources, so the global `dartisan`
+runs it in the project's own `dartisan_cli` (`dart run
+dartisan_cli:dartisan`) without compiling the application. It works while
+the project does not compile, for example after you change a request to
+`FormRequest<StoreNoteRequestInput>` before that type exists: `dartisan
+request:sync` writes it, where `dart run bin/dartisan.dart request:sync`
+first compiles the application and fails. Without the global `dartisan`,
+run the same from the project directory:
+
+```bash
+dart run dartisan_cli:dartisan request:sync
+```
+
+which always works, as it compiles only `dartisan_cli`. (`model:sync`
+reads the database through the application's connection, so it needs a
+project that compiles.)
+
 `typed` holds every field by its input key, already converted to its
 declared type. A field's type and its rules can still disagree (a
 `Field<int>` with only `required`): validation passes and the getter

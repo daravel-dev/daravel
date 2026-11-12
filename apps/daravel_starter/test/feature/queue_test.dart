@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:daravel/daravel.dart';
 import 'package:daravel_starter/app/jobs/send_welcome_email.dart';
 import 'package:daravel_test/daravel_test.dart';
@@ -12,16 +10,7 @@ void main() {
   late TestClient client;
 
   Future<void> boot(Map<String, String> env) async {
-    app = createApp(
-      basePath: Directory.current.path,
-      env: <String, String>{
-        'APP_ENV': 'testing',
-        'DB_CONNECTION': 'sqlite',
-        'DB_URL': 'sqlite::memory:',
-        ...env,
-      },
-    );
-    await app.boot();
+    app = await bootTestApp(createApp, env: env);
     await app.run(() => App.make<Migrator>().run());
     client = TestClient(app);
   }

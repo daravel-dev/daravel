@@ -35,6 +35,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `$request->validate($rules)` | `await request.validate(rules)` | **async** |
 | `$request->all()` | `await request.all()` | **async** |
 | `$request->input('a.b')` | `await request.input<T>('a.b')` | **async** |
+| `$request->json() (json_decode depth 512)` | `request.jsonMaxDepth (HTTP_JSON_MAX_DEPTH, 512)` | As PHP's json_decode $depth: 511 nested levels are read, 512 or deeper are no input (not a 400). Counted on the bytes before decoding. A malformed JSON body stays a 400, where Laravel reads no input: a deliberate difference. |
 | `$request->merge([...])` | `await request.merge({...})` | **async** |
 | `$request->replace([...])` | `request.replace({...})` |  |
 | `$request->has('key')` | `await request.has('key')` | **async** |
@@ -331,6 +332,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `User::createOrFirst($attributes, $values)` | `await User.query().createOrFirst(attributes, values)` | **async**; In a savepoint inside a transaction. |
 | `catch (UniqueConstraintViolationException $e)` | `on UniqueConstraintViolationException catch (e)` | Extends QueryException (sql, bindings, connectionName, previous); the message keeps the ? placeholders. |
 | `->with(['posts'])` | `.with_(['posts'])` | `with` is a reserved word in Dart. |
+| `->with('posts.comments.author')` | `.with_([User.rels.posts.comments.author])` | Daravel-only, opt-in: dartisan model:sync writes a relation path getter per relation (<Model>RelationPath), checked at each step; the path is the string at run time, which stays accepted. |
 | `->with('user:id,name')` | `.with_('user:id,name')` | Keys the relation matches on are added when the selection leaves them out. |
 | `->withCount('posts')` | `.withCount('posts')` |  |
 | `->withSum('orders', 'total') / withAvg / withMin / withMax / withExists` | `.withSum('orders', 'total') / withAvg / withMin / withMax / withExists` |  |

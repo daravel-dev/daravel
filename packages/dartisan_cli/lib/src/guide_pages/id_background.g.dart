@@ -3,7 +3,7 @@
 
 /// `docs/guide/id/background.md`.
 const String pageIdBackground =
-    r'''<!-- source: background.md sha256:ca4ef80badd7 -->
+    r'''<!-- source: background.md sha256:7bf569088125 -->
 # Cache, event, queue, dan penjadwalan
 
 <!-- include: packages/daravel/test/docs/guide_examples_test.dart#cache-events-queue -->
@@ -134,8 +134,16 @@ sampai commit.
   di-set, selain itu milik job), bukan berdasarkan heartbeat-nya. Master
   membunuh worker itu setelah job berjalan melewati timeout tersebut ditambah
   `HORIZON_KILL_GRACE` (10 detik), dan paling lambat satu heartbeat (minimal
-  satu detik) sebelum `QUEUE_RETRY_AFTER`, karena sejak saat itu worker lain
-  boleh mengambil job tersebut.
+  satu detik) sebelum queue boleh memberikan job itu ke worker lain:
+  `QUEUE_RETRY_AFTER` setelah reservasi di Redis, dan sampai satu detik lebih
+  awal di queue database, yang menyimpan reservasi dalam detik bulat (2
+  sampai 3 detik untuk `retry_after` 3 detik). Driver menyatakan saatnya
+  (`QueuedJob.reservedUntil`), dan master memasang timer untuk tiap job.
+  Boot menolak `QUEUE_RETRY_AFTER` yang menyisakan kurang dari satu detik
+  untuk menjalankan job. Master dan worker-nya harus memakai
+  `QUEUE_RETRY_AFTER` yang sama; bila tidak, master membunuh menurut yang
+  lebih awal (sampai satu detik lebih cepat) dan memberi peringatan sekali
+  per supervisor.
   - Percobaan yang dibunuh dihitung satu kali. Master lalu memutuskan, hanya
     dari pengaturan retry job (tidak pernah datanya), hal yang sama dengan
     timeout handler Laravel: job gagal bila percobaannya habis atau
@@ -175,12 +183,22 @@ sampai commit.
     `dartisan doctor` dan boot memberi peringatan di bawah 250 ms di luar
     `APP_ENV=testing`.
   - Batas di master dihitung dari saat job *direservasi*, sama dengan
-    `retry_after` driver; margin sebelum `QUEUE_RETRY_AFTER` hanya cadangan
-    untuk dua jam dan laporan yang sedang dikirim. Timeout processor
-    dihitung dari awal `handle`, jadi batas master lebih awal sebesar
-    `fromJson` dan middleware; `HORIZON_KILL_GRACE` menutup selisih normal.
+    `retry_after` driver; margin hanya cadangan untuk master yang terlambat
+    memutuskan dan untuk pembunuhan itu sendiri (sekitar 0,1 ms). Timeout
+    processor dihitung dari awal `handle`, jadi batas master lebih awal
+    sebesar `fromJson` dan middleware; `HORIZON_KILL_GRACE` menutup selisih normal.
   - Kerja sinkron yang tidak boleh membuat worker diam sebaiknya dijalankan di
     isolate tersendiri (`Concurrency.run`).
+  - Batas yang diketahui: worker di proses atau host lain (server lain,
+    worker Laravel pada tabel yang sama) yang jamnya δ lebih cepat bisa
+    mengambil job δ lebih awal; margin hanya menutupnya selama δ lebih kecil
+    dari margin dikurangi keterlambatan master. Proses yang ditangguhkan
+    melewati akhir reservasi (laptop tidur, VM dijeda) dilanjutkan dengan
+    pembunuhan dan `pop` worker lain yang berlomba. Job yang memperpanjang
+    reservasinya (`touch`, setiap setengah `retry_after`) tetap dibunuh pada
+    akhir reservasi pertamanya. Engine stream Redis menghitung reservasi
+    dengan jam server Redis, jadi jam server yang berjalan cepat atau
+    melompat maju memperpendeknya.
 - Error asinkron yang dibiarkan tidak tertangkap oleh handler (future yang
   tidak di-await) menggagalkan percobaan setelah handler selesai, tidak
   pernah selagi handler masih berjalan.

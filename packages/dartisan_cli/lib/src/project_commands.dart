@@ -849,6 +849,23 @@ final class DoctorCommand extends DaravelCommand {
         ),
       );
     }
+    // Measured on Dart 3.13 with the limit off: `distinct` over `a.*`
+    // answered 500 (a stack overflow) from 2 345 nested levels, a response
+    // echoing the input from 3 433. 1 024 keeps a wide margin.
+    const deepestSafeJson = 1024;
+    final jsonDepth = Request.jsonMaxDepthFromEnv(app.env);
+    if (jsonDepth == null || jsonDepth > deepestSafeJson) {
+      checks.add(
+        DoctorCheck(
+          CheckStatus.warning,
+          'HTTP_JSON_MAX_DEPTH=${jsonDepth ?? 0} in production',
+          'A JSON body nested a few thousand levels deep can overflow the '
+              'stack in validation or when echoed (a 500). Leave it unset '
+              '(512, as Laravel reads JSON) or keep it at most '
+              '$deepestSafeJson.',
+        ),
+      );
+    }
     if (paths != null &&
         File(p.join(paths.root, '.env')).existsSync() &&
         !File(p.join(paths.root, '.env.encrypted')).existsSync()) {
@@ -1483,7 +1500,13 @@ final class ModelSyncCommand extends DaravelCommand {
   String get name => 'model:sync';
 
   @override
-  String get description => 'Sync model accessors with the database schema.';
+  String get description => '''
+Sync model accessors with the database schema.
+
+It reads the tables through the application's database connection, so
+the application must compile: fix a model that does not by hand first.
+(request:sync reads sources only and runs without compiling the
+application.)''';
 
   @override
   Future<int> run() => withApp((app) async {
@@ -1501,6 +1524,7 @@ final class ModelSyncCommand extends DaravelCommand {
     final typedIds = argResults!['typed-ids'] as bool;
     final formatter = RegionFormatter.forProject(paths.root);
     var synced = 0;
+    var withPaths = 0;
     var stale = 0;
     for (final file in dir.listSync().whereType<File>().where(
       (f) => f.path.endsWith('.dart'),
@@ -1554,7 +1578,17 @@ final class ModelSyncCommand extends DaravelCommand {
       } else {
         stdout.writeln('${model.className}: up to date.');
       }
+      if (hasRelationPath(updated, model.className)) {
+        withPaths++;
+      }
       synced++;
+    }
+    if (withPaths > 0 && !File(paths.modelsBarrel).existsSync()) {
+      stdout.writeln(
+        'Tip: a lib/app/models/models.dart exporting every model lets one '
+        'import bring every relation path (User.rels.posts.comments); new '
+        'projects have it and make:model keeps it.',
+      );
     }
     if (synced == 0) {
       stdout.writeln(

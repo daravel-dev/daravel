@@ -138,6 +138,7 @@ Map<String, String> newProjectFiles({
     'bootstrap/seeders.dart': api ? _seedersRegistry : _emptySeeders,
     'bootstrap/jobs.dart': _jobsRegistry,
     'bootstrap/models.dart': api ? _modelsRegistry : _emptyModels,
+    'lib/app/models/models.dart': api ? _modelsBarrel : _emptyModelsBarrel,
     'bootstrap/listeners.dart': _listenersRegistry,
     'bootstrap/commands.dart': _commandsRegistry,
     'routes/web.dart': _webRoutes,
@@ -633,6 +634,28 @@ final List<ModelDefinition<Model>> models = <ModelDefinition<Model>>[
   User.definition,
   // </dartisan:entries>
 ];
+''';
+
+const String _modelsBarrel = r'''
+/// Every model of the application in one import, with the relation path
+/// getters `dartisan model:sync` writes next to each model
+/// (`User.rels.posts.comments`). Maintained by `dartisan make:model`.
+library;
+
+// <dartisan:exports>
+export 'user.dart';
+
+// </dartisan:exports>
+''';
+
+const String _emptyModelsBarrel = r'''
+/// Every model of the application in one import, with the relation path
+/// getters `dartisan model:sync` writes next to each model
+/// (`User.rels.posts.comments`). Maintained by `dartisan make:model`.
+library;
+
+// <dartisan:exports>
+// </dartisan:exports>
 ''';
 
 const String _emptyModels = r'''
@@ -1158,8 +1181,6 @@ final class DatabaseSeeder extends Seeder {
 ''';
 
 const String _authTest = r'''
-import 'dart:io';
-
 import 'package:daravel/daravel.dart';
 import 'package:daravel_test/daravel_test.dart';
 import 'package:test/test.dart';
@@ -1171,15 +1192,7 @@ void main() {
   late TestClient client;
 
   setUp(() async {
-    app = createApp(
-      basePath: Directory.current.path,
-      env: <String, String>{
-        'APP_ENV': 'testing',
-        'DB_CONNECTION': 'sqlite',
-        'DB_URL': 'sqlite::memory:',
-      },
-    );
-    await app.boot();
+    app = await bootTestApp(createApp);
     await app.run(() => App.make<Migrator>().run());
     client = TestClient(app);
   });
@@ -1221,8 +1234,6 @@ void main() {
 ''';
 
 const String _pingTest = r'''
-import 'dart:io';
-
 import 'package:daravel/daravel.dart';
 import 'package:daravel_test/daravel_test.dart';
 import 'package:test/test.dart';
@@ -1233,15 +1244,7 @@ void main() {
   late Application app;
 
   setUp(() async {
-    app = createApp(
-      basePath: Directory.current.path,
-      env: <String, String>{
-        'APP_ENV': 'testing',
-        'DB_CONNECTION': 'sqlite',
-        'DB_URL': 'sqlite::memory:',
-      },
-    );
-    await app.boot();
+    app = await bootTestApp(createApp);
   });
 
   tearDown(() => app.shutdown());
@@ -1265,8 +1268,6 @@ const String _conformanceTest = r'''
 @Tags(['conformance'])
 library;
 
-import 'dart:io';
-
 import 'package:daravel/daravel.dart';
 import 'package:daravel_test/conformance.dart';
 import 'package:daravel_test/daravel_test.dart';
@@ -1282,15 +1283,7 @@ void main() {
   late TestClient client;
 
   setUp(() async {
-    app = createApp(
-      basePath: Directory.current.path,
-      env: <String, String>{
-        'APP_ENV': 'testing',
-        'DB_CONNECTION': 'sqlite',
-        'DB_URL': 'sqlite::memory:',
-      },
-    );
-    await app.boot();
+    app = await bootTestApp(createApp);
     await app.run(() => App.make<Migrator>().run());
     client = TestClient(app);
   });
@@ -1557,8 +1550,6 @@ final class WelcomeController {
 ''';
 
 const String _welcomeTest = r'''
-import 'dart:io';
-
 import 'package:daravel/daravel.dart';
 import 'package:daravel_test/daravel_test.dart';
 import 'package:test/test.dart';
@@ -1569,15 +1560,7 @@ void main() {
   late Application app;
 
   setUp(() async {
-    app = createApp(
-      basePath: Directory.current.path,
-      env: <String, String>{
-        'APP_ENV': 'testing',
-        'DB_CONNECTION': 'sqlite',
-        'DB_URL': 'sqlite::memory:',
-      },
-    );
-    await app.boot();
+    app = await bootTestApp(createApp);
   });
 
   tearDown(() => app.shutdown());

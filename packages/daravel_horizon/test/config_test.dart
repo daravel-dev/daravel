@@ -125,6 +125,39 @@ void main() {
     expect(found.single.message, contains('QUEUE_RETRY_AFTER (90s)'));
   });
 
+  test('check: QUEUE_RETRY_AFTER leaving a job under a second before the '
+      'kill is an error; the database queue counts a second less', () {
+    List<ConfigIssue> of(String connection, Duration retryAfter) {
+      final config = ConfigRepository()
+        ..register<HorizonConfig>(const HorizonConfig())
+        ..register<QueueConfig>(
+          QueueConfig(defaultConnection: connection, retryAfter: retryAfter),
+        );
+      return HorizonConfig.retryAfterIssues(config);
+    }
+
+    // Database: whole seconds, so 3 s leaves 3 - 1 - 1 (margin) = 1 s.
+    expect(of('database', const Duration(seconds: 3)), isEmpty);
+    final two = of('database', const Duration(seconds: 2));
+    expect(two.single.level, ConfigIssueLevel.error);
+    expect(
+      two.single.message,
+      allOf(
+        contains('QUEUE_RETRY_AFTER=2 leaves Horizon 0 ms'),
+        contains('whole seconds'),
+        contains('Set it to at least 3.'),
+      ),
+    );
+    // Redis: milliseconds, so 2 s leaves 1 s.
+    expect(of('redis', const Duration(seconds: 2)), isEmpty);
+    expect(
+      of('redis', const Duration(milliseconds: 1500)).single.message,
+      allOf(contains('leaves Horizon 500 ms'), contains('at least 2.')),
+    );
+    // A queue that does not reserve is not checked.
+    expect(of('sync', Duration.zero), isEmpty);
+  });
+
   test('HORIZON_IDLE_TX_TIMEOUT: by default the longest plan timeout plus '
       'killGrace and three heartbeats; 0 turns it off', () {
     HorizonConfig of(Map<String, String> env, {List<SupervisorPlan>? plans}) =>

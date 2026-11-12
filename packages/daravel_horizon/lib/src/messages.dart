@@ -78,6 +78,8 @@ final class Heartbeat implements WorkerReport {
     this.jobUuid,
     this.queue,
     this.jobReservedAtMs,
+    this.jobReservedUntilMs,
+    this.jobRetryAfterMs,
     this.jobTimeoutMs,
     this.jobName,
     this.attempt,
@@ -108,6 +110,16 @@ final class Heartbeat implements WorkerReport {
   /// decoded or run. The master counts the job's limit from here, as the
   /// driver counts `retry_after`.
   final int? jobReservedAtMs;
+
+  /// Until when the driver keeps that job from other workers (epoch
+  /// milliseconds; `QueuedJob.reservedUntil`), or null when the driver
+  /// does not say. The master kills a blocked worker a margin before it.
+  final int? jobReservedUntilMs;
+
+  /// The `retry_after` of the worker's queue driver (milliseconds), which
+  /// [jobReservedUntilMs] was counted with: the master trusts that value
+  /// only when its own connection says the same.
+  final int? jobRetryAfterMs;
 
   /// How long that job may run (milliseconds): the timeout the processor
   /// enforces (the plan's, otherwise the job's own; `JobProcessing.timeout`), which the master uses as is.

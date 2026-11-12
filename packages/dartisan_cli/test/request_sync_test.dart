@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:analyzer/dart/analysis/analysis_context_collection.dart';
 import 'package:analyzer/dart/analysis/results.dart';
 import 'package:args/command_runner.dart';
+import 'package:dartisan_cli/src/global_runner.dart';
 import 'package:dartisan_cli/src/request_sync.dart';
 import 'package:dartisan_cli/src/stubs.dart';
 import 'package:path/path.dart' as p;
@@ -171,6 +172,43 @@ extension type const RInput(ValidatedData _d) implements ValidatedData {}
 
     test('a named request that is not the stale one checks clean', () async {
       expect(await run(['LegacyRequest', '--check']), 0);
+    });
+
+    test('the global dartisan writes the input while the project does not '
+        'compile', () async {
+      // The request names StoreNoteRequestInput, which no file declares,
+      // and bin/dartisan.dart imports the application: every command of
+      // the project CLI fails to compile. The global dartisan runs
+      // request:sync in the project's own dartisan_cli instead, which
+      // compiles no application code (here: in-process, as that run).
+      final source = withField(made());
+      final start = source.indexOf('// <dartisan:input>');
+      final end = source.indexOf('// </dartisan:input>');
+      file.writeAsStringSync(
+        source.replaceRange(start, end + '// </dartisan:input>'.length, ''),
+      );
+      expect(
+        file.readAsStringSync(),
+        isNot(contains('extension type const StoreNoteRequestInput(')),
+      );
+      Directory(p.join(project.path, 'bin')).createSync();
+      File(p.join(project.path, 'bin', 'dartisan.dart')).writeAsStringSync(
+        "import '../bootstrap/app.dart';\nvoid main() => createApp();\n",
+      );
+      final runner = GlobalDartisanRunner();
+      final inPackage = {GlobalDartisanRunner.inProjectPackage: '1'};
+      Future<int> sync([List<String> args = const []]) =>
+          runner.execute(['request:sync', ...args], environment: inPackage);
+      expect(await sync(['--check']), 1);
+      expect(await sync(), 0);
+      expect(
+        file.readAsStringSync(),
+        allOf(
+          contains('extension type const StoreNoteRequestInput('),
+          contains('int? get stars'),
+        ),
+      );
+      expect(await sync(['--check']), 0);
     });
   });
 

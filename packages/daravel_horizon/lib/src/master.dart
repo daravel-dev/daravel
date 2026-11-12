@@ -7,6 +7,7 @@ import 'package:daravel/daravel.dart';
 import 'auto_scaler.dart';
 import 'config.dart';
 import 'messages.dart';
+import 'reservation.dart';
 import 'signals.dart';
 import 'store/horizon_store.dart';
 import 'worker_isolate.dart';
@@ -59,6 +60,15 @@ final class HorizonWorker {
   /// Whether the master killed it for running past its job's timeout: the
   /// job's attempt failed, which is not a crash.
   bool _timedOut = false;
+
+  /// Fires when its job reaches its limit ([HorizonMaster._armLimit]), for
+  /// the job named by [_limitFor] (its id and reservation).
+  Timer? _limitTimer;
+  String? _limitFor;
+
+  /// Whether a timer waits for its job's limit: while it runs a job of a
+  /// queue that reserves, never once the job ended or the master stopped.
+  bool get limitArmed => _limitTimer != null;
 
   /// Whether its job was left to `retry_after` rather than reclaimed (too
   /// late: another worker may hold it already).
@@ -690,9 +700,10 @@ final class HorizonMaster {
   /// How long, from its reservation, the job [w] runs may go on before its
   /// isolate is killed: the timeout the processor enforces for it (the
   /// plan's `timeout` when set, otherwise the job's own) plus `killGrace`,
-  /// but never later than [_reclaimMargin] before the connection's
-  /// `retry_after`: from then on the driver may give the job to another
-  /// worker, which would run it beside this one. Null when [w] runs no job.
+  /// but never later than [_reclaimMargin] before the driver's reservation
+  /// ends ([_reservationExpiry]): from then on the driver may give the job
+  /// to another worker, which would run it beside this one. Null when [w]
+  /// runs no job.
   ///
   /// The processor counts its timeout from the start of `handle`, this
   /// limit from the reservation: earlier by the job's `fromJson` and its
@@ -711,12 +722,58 @@ final class HorizonMaster {
       null => w.plan.timeout ?? const Duration(minutes: 1),
     };
     final limit = timeout + config.killGrace;
-    final retryAfter = _retryAfter(w);
-    if (retryAfter == null) {
+    final expiry = _reservationExpiry(w);
+    if (expiry == null) {
       return limit;
     }
-    final cap = retryAfter - _reclaimMargin;
+    final cap = expiry
+        .subtract(_reclaimMargin)
+        .difference(DateTime.fromMillisecondsSinceEpoch(beat.jobReservedAtMs!));
     return limit < cap ? limit : cap;
+  }
+
+  /// When the driver may give [w]'s job to another worker
+  /// ([reservationExpiry], with this connection's `retry_after`); a worker
+  /// whose driver counts with another `retry_after` is warned about once
+  /// per supervisor ([_warnRetryAfter]). Null for a driver that does not
+  /// reserve.
+  ///
+  /// The time is the clock of the process that pops next. Horizon's
+  /// workers run in this process, on this clock; a worker in another
+  /// process or host whose clock is δ ahead may take the job δ earlier,
+  /// which only [_reclaimMargin] (less the master's own lateness) covers.
+  DateTime? _reservationExpiry(HorizonWorker w) {
+    final retryAfter = _retryAfter(w);
+    final beat = w.last;
+    if (retryAfter == null || beat == null) {
+      return null;
+    }
+    final (:expiry, :mismatch) = reservationExpiry(
+      retryAfter: retryAfter,
+      reservedAtMs: beat.jobReservedAtMs,
+      reservedUntilMs: beat.jobReservedUntilMs,
+      reportedRetryAfterMs: beat.jobRetryAfterMs,
+    );
+    if (mismatch) {
+      _warnRetryAfter(w, beat.jobRetryAfterMs!, retryAfter);
+    }
+    return expiry;
+  }
+
+  /// The supervisors already warned by [_warnRetryAfter].
+  final Set<String> _retryAfterWarned = <String>{};
+
+  void _warnRetryAfter(HorizonWorker w, int theirsMs, Duration ours) {
+    if (!_retryAfterWarned.add(w.plan.name.value)) {
+      return;
+    }
+    logger.warning(
+      'Horizon supervisor ${w.plan.name.value}: its workers\' queue counts '
+      'retry_after as $theirsMs ms, the master\'s connection as '
+      '${ours.inMilliseconds} ms. The master kills a blocked job by the '
+      'earlier of the two, up to a second early; give both the same '
+      'QUEUE_RETRY_AFTER.',
+    );
   }
 
   /// The `retry_after` of [w]'s connection, for a driver that reserves.
@@ -725,25 +782,25 @@ final class HorizonMaster {
     _ => null,
   };
 
-  /// How long before `retry_after` the master kills a blocked worker, and
-  /// after which it no longer reclaims its job: a heartbeat, at least a
-  /// second. The job's time counts from its reservation, as the driver's
-  /// `retry_after` does, so the margin is only a reserve for the two
-  /// clocks and the report on its way.
-  Duration get _reclaimMargin => config.heartbeat > const Duration(seconds: 1)
-      ? config.heartbeat
-      : const Duration(seconds: 1);
+  /// How long before the reservation ends ([_reservationExpiry]) the master
+  /// kills a blocked worker, and after which it no longer reclaims its job:
+  /// a heartbeat, at least a second. It covers the master deciding late
+  /// (a timer per job, [_armLimit], fires on time unless this isolate is
+  /// busy) and the kill itself (an isolate in a synchronous loop exits
+  /// about 0.1 ms after `Isolate.kill`, 1 ms at most in 30 runs).
+  Duration get _reclaimMargin => config.reclaimMargin;
 
   /// A worker running a job is judged by that job's contract, not by its
   /// heartbeats: a handler doing synchronous work sends none, and is
   /// killed only past [_jobLimit] (reason `timeout`). Called on each
-  /// heartbeat and by the master's own timer, so a worker that has gone
-  /// silent is judged too.
+  /// heartbeat, by the master's periodic timer and by the job's own timer
+  /// ([_armLimit]), so a worker that has gone silent is judged on time.
   ///
   /// Returns whether [w] runs a job (then the lease does not apply).
   bool _checkGrace(HorizonWorker w) {
     final limit = _jobLimit(w);
     if (limit == null) {
+      _disarmLimit(w);
       return false;
     }
     final started = DateTime.fromMillisecondsSinceEpoch(
@@ -752,8 +809,40 @@ final class HorizonMaster {
     if (w._isolate != null && DateTime.now().difference(started) > limit) {
       w._timedOut = true;
       _kill(w, 'timeout', reclaim: false);
+    } else {
+      _armLimit(w, started.add(limit));
     }
     return true;
+  }
+
+  /// Runs [_checkGrace] for [w] just past [deadline], once per job: a
+  /// blocked worker sends no heartbeat, and the periodic check alone could
+  /// come a whole heartbeat late, which is the whole [_reclaimMargin].
+  void _armLimit(HorizonWorker w, DateTime deadline) {
+    final beat = w.last!;
+    final key = '${beat.jobId}@${beat.jobReservedAtMs}';
+    if (w._limitFor == key && w._limitTimer != null) {
+      return;
+    }
+    _disarmLimit(w);
+    w._limitFor = key;
+    final wait = deadline.difference(DateTime.now());
+    w._limitTimer = Timer(
+      (wait.isNegative ? Duration.zero : wait) +
+          const Duration(milliseconds: 1),
+      () {
+        w._limitTimer = null;
+        if (w._limitFor == key && w._isolate != null) {
+          _checkGrace(w);
+        }
+      },
+    );
+  }
+
+  void _disarmLimit(HorizonWorker w) {
+    w._limitTimer?.cancel();
+    w._limitTimer = null;
+    w._limitFor = null;
   }
 
   /// Idle workers silent for three heartbeats (beyond the next one) are
@@ -779,6 +868,7 @@ final class HorizonMaster {
   }
 
   void _kill(HorizonWorker w, String reason, {required bool reclaim}) {
+    _disarmLimit(w);
     final isolate = w._isolate;
     if (isolate == null) {
       return;
@@ -856,9 +946,9 @@ final class HorizonMaster {
   /// Makes the job [w] held available again at once; true when it was
   /// still reserved.
   ///
-  /// The driver reclaims by id: once `retry_after` (less [_reclaimMargin])
-  /// has passed since the job was reserved, the driver may have given it to
-  /// another worker already, whose reservation a reclaim would release
+  /// The driver reclaims by id: within [_reclaimMargin] of the end of the
+  /// job's reservation ([_reservationExpiry]) the driver may have given it
+  /// to another worker already, whose reservation a reclaim would release
   /// (a third worker could then run it beside the second). Then the job is
   /// left to `retry_after`, and [HorizonWorker._leftToRetryAfter] is set.
   ///
@@ -894,19 +984,15 @@ final class HorizonMaster {
     }
   }
 
-  /// Whether `retry_after` (less [_reclaimMargin]) has passed since [w]'s
-  /// job was reserved: the driver may have given it to another worker, so
-  /// the master no longer acts on it.
+  /// Whether [w]'s job is within [_reclaimMargin] of the end of its
+  /// reservation ([_reservationExpiry]) or past it: the driver may have
+  /// given it to another worker, so the master no longer acts on it.
   bool _pastReclaimWindow(HorizonWorker w) {
-    final started = w.last?.jobReservedAtMs;
-    final retryAfter = _retryAfter(w);
-    if (started == null || retryAfter == null) {
+    final expiry = _reservationExpiry(w);
+    if (expiry == null) {
       return false;
     }
-    final ran = DateTime.now().difference(
-      DateTime.fromMillisecondsSinceEpoch(started),
-    );
-    return ran >= retryAfter - _reclaimMargin;
+    return !DateTime.now().isBefore(expiry.subtract(_reclaimMargin));
   }
 
   /// The id as the driver stores it: a number for the database queue.
@@ -1153,6 +1239,7 @@ final class HorizonMaster {
   }
 
   void _onGone(HorizonWorker w, {required bool crashed}) {
+    _disarmLimit(w);
     if (!w._exited.isCompleted) {
       w._exited.complete();
     }
@@ -1274,6 +1361,9 @@ final class HorizonMaster {
       },
     );
     await Future.wait([for (final w in all) ?w._sessionsEnded]);
+    for (final w in all) {
+      _disarmLimit(w);
+    }
     _reports.close();
   }
 }

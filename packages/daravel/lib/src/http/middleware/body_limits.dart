@@ -29,7 +29,9 @@ final class BodyLimitsMiddleware implements Middleware {
   /// The largest body of any other type, in bytes.
   final int other;
 
-  /// The deepest nesting a JSON body may have.
+  /// The deepest nesting a JSON body may have; deeper is refused with 400.
+  /// Apart from it, a body nested `Request.jsonMaxDepth` (512) deep or
+  /// deeper is read as no input, as Laravel reads it.
   final int jsonDepth;
 
   /// Byte limit that applies to [request] based on its content type.
