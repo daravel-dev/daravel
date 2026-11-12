@@ -219,6 +219,7 @@ final class QueuedJob {
     required this.payload,
     required this.attempts,
     required this.raw,
+    this.reservedUntil,
   });
 
   /// The job's id in its queue.
@@ -235,6 +236,17 @@ final class QueuedJob {
 
   /// Stored JSON (for `failed_jobs`).
   final String raw;
+
+  /// For a [ReservingQueueDriver]: the driver never hands this job to
+  /// another worker before this moment, on the clock of the process that
+  /// pops next (the reservation as the driver stored it, which may be
+  /// coarser than [ReservingQueueDriver.retryAfter] suggests: the database
+  /// queue counts whole seconds). `null` when the driver does not say.
+  ///
+  /// It is the reservation taken by the pop; a later
+  /// [ReservingQueueDriver.touch] extends the stored reservation but not
+  /// this value.
+  final DateTime? reservedUntil;
 }
 
 /// Queue backend (BLUEPRINT_V2 §7.9.1).
@@ -946,11 +958,28 @@ final class DatabaseQueue
           payload: payload,
           attempts: (row['attempts'] as num).toInt() + 1,
           raw: raw,
+          reservedUntil: _reservedUntil(now),
         );
       }
     }
     return null;
   }
+
+  /// When a job reserved at [reservedAt] (`reserved_at`, whole seconds)
+  /// can first be popped again.
+  ///
+  /// With r = [reservedAt] and R = `retryAfter.inSeconds` (whole seconds:
+  /// a `retry_after` of 2.5 s counts as 2), [pop] at m milliseconds takes
+  /// the job iff r <= floor(m / 1000) - R, that is floor(m / 1000) >= r + R,
+  /// that is m >= 1000 * (r + R) (floor(x) >= k iff x >= k for a whole k).
+  /// So the job is never handed out before 1000 * (r + R) ms and may be at
+  /// that moment: between R - 1 and R seconds after the pop that reserved
+  /// it, depending on where in its second the pop fell.
+  DateTime _reservedUntil(int reservedAt) =>
+      DateTime.fromMillisecondsSinceEpoch(
+        (reservedAt + retryAfter.inSeconds) * 1000,
+        isUtc: true,
+      );
 
   void _rememberForeign(String queue, Map<String, Object?> row) {
     final ids = _foreign.putIfAbsent(queue, () => <Object>{});

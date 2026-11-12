@@ -125,8 +125,16 @@ until commit by default.
   job's timeout (the plan's `timeout` when set, otherwise the job's own),
   not by its heartbeats. It kills the worker once the job has run past that
   timeout plus `HORIZON_KILL_GRACE` (10 seconds), and at the latest one
-  heartbeat (at least a second) before `QUEUE_RETRY_AFTER`, since another
-  worker may take the job from then on.
+  heartbeat (at least a second) before the queue may give the job to
+  another worker: `QUEUE_RETRY_AFTER` after the reservation on Redis, and
+  up to a second earlier on the database queue, which stores the
+  reservation in whole seconds (2 to 3 s for a `retry_after` of 3 s). The
+  driver says when (`QueuedJob.reservedUntil`), and the master sets a timer
+  for each job. Boot refuses a `QUEUE_RETRY_AFTER` that would leave a job
+  less than a second.
+  The master and its workers must use the same `QUEUE_RETRY_AFTER`; when
+  they do not, the master kills by the earlier of the two (up to a second
+  early) and warns once per supervisor.
   - The killed attempt counts once. The master then decides, from the
     job's retry settings alone (never its data), what Laravel's timeout
     handler decides: the job fails when its tries are used up or its
@@ -163,13 +171,23 @@ until commit by default.
     workers killed on a busy host (their lease is four heartbeats);
     `dartisan doctor` and boot warn under 250 ms outside `APP_ENV=testing`.
   - The master's limit counts from the job's *reservation*, as the driver's
-    `retry_after` does; the margin before `QUEUE_RETRY_AFTER` is only a
-    reserve for the two clocks and the report on its way. The processor's
+    `retry_after` does; the margin is only a reserve for the master
+    deciding late and the kill (about 0.1 ms). The processor's
     timeout counts from the start of `handle`, so the master's limit comes
     earlier by `fromJson` and the middleware; `HORIZON_KILL_GRACE` covers
     the usual difference.
   - Synchronous work that must not keep a worker silent belongs in an
     isolate of its own (`Concurrency.run`).
+  - Known limits: a worker in another process or on another host (another
+    server, a Laravel worker on the same table) whose clock is δ ahead may
+    take the job δ early, which the margin covers only while δ stays below
+    it less the master's lateness. A process suspended past the end of a
+    reservation (a sleeping laptop, a paused VM) resumes with the kill and
+    another worker's pop racing. A job that extends its reservation
+    (`touch`, every half `retry_after`) is still killed by the end of its
+    first reservation. The Redis stream engine counts the reservation on
+    the Redis server's clock, so a server clock that runs fast or jumps
+    ahead shortens it.
 - An asynchronous error that a handler leaves uncaught (a future it does not
   await) fails the attempt once the handler has returned, never while it
   still runs.

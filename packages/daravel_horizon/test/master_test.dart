@@ -582,7 +582,9 @@ void main() {
     'before it (reason timeout), and its job left to retry_after',
     timeout: const Timeout(Duration(minutes: 2)),
     () async {
-      // The master reads retry_after (3 s) from the connection it watches.
+      // The master's connection says retry_after 3 s, its workers' 90 s:
+      // the master trusts what a worker's driver reports only when both
+      // say the same, and otherwise kills by the earlier of the two.
       final short = shortRetryApp();
       await short.boot();
       addTearDown(short.shutdown);
@@ -599,15 +601,83 @@ void main() {
         'the kill before retry_after',
         diagnose: () => diagnosis(m, 's', const {}),
       );
-      // The job blocks 6 s; the kill came at 3 s less the margin (1 s),
-      // not at 60 s + killGrace.
+      // The job blocks 6 s; the kill came by the master's 3 s, taken to
+      // count whole seconds (a second less), less the margin (1 s): about
+      // 1 s after the reservation, not at 60 s + killGrace.
       expect(watch.elapsed, lessThan(const Duration(seconds: 6)));
       expect(eventsNamed('WorkerKilled').first['reason'], 'timeout');
       final timedOut = eventsNamed('JobTimedOut').first;
-      expect(timedOut['limitSeconds'], 2);
+      expect(timedOut['limitSeconds'], 1);
+      expect(
+        '$masterLog',
+        contains(
+          "its workers' queue counts retry_after as 90000 ms, the "
+          "master's connection as 3000 ms",
+        ),
+      );
       expect(timedOut['reclaimed'], isFalse);
       expect(timedOut['leftToRetryAfter'], isTrue);
       await m.stop(timeout: const Duration(seconds: 20));
+    },
+  );
+
+  test(
+    'workers and master on different retry_after: one warning per '
+    'supervisor however many jobs are killed; no limit timer after stop',
+    timeout: const Timeout(Duration(minutes: 2)),
+    () async {
+      final short = shortRetryApp();
+      await short.boot();
+      addTearDown(short.shutdown);
+      await app.run(() async {
+        await Queue.push(const Hang('over'), queue: 'a');
+        await Queue.push(const Hang('over'), queue: 'a');
+      });
+      final m = master(
+        plan(timeout: const Duration(seconds: 60)),
+        driverApp: short,
+      );
+      addTearDown(() => m.stop(timeout: const Duration(seconds: 20)));
+      await m.start();
+      await until(
+        () => eventsNamed('JobTimedOut').length == 2,
+        'two kills before retry_after',
+        diagnose: () => diagnosis(m, 's', const {}),
+      );
+      expect(
+        "its workers' queue counts retry_after".allMatches('$masterLog'),
+        hasLength(1),
+      );
+      final workers = [...m.workers('s')];
+      await m.stop(timeout: const Duration(seconds: 20));
+      expect([for (final w in workers) w.limitArmed], everyElement(isFalse));
+    },
+  );
+
+  test(
+    'the same retry_after on both sides: a job that ends before its limit '
+    'is not killed, and its timer goes with it',
+    timeout: const Timeout(Duration(minutes: 2)),
+    () async {
+      final short = shortRetryApp();
+      await short.boot();
+      addTearDown(short.shutdown);
+      await app.run(() => Queue.push(const Hang('quick', ms: 200), queue: 'a'));
+      final m = master(
+        plan(timeout: const Duration(seconds: 60)),
+        factory: shortRetryApp,
+        driverApp: short,
+      );
+      addTearDown(() => m.stop(timeout: const Duration(seconds: 20)));
+      await m.start();
+      await until(() => marks().contains('a:quick:1'), 'the job ran');
+      // Past the end of its reservation (3 s at most): a timer left armed
+      // would have fired by now.
+      await Future<void>.delayed(const Duration(milliseconds: 3500));
+      expect(eventsNamed('WorkerKilled'), isEmpty);
+      expect(eventsNamed('JobTimedOut'), isEmpty);
+      expect('$masterLog', isNot(contains('retry_after as')));
+      expect([for (final w in m.workers('s')) w.limitArmed], [false]);
     },
   );
 
