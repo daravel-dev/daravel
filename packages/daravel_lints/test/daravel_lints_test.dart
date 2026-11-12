@@ -437,6 +437,51 @@ Future<void> f(String input, SqlIdentifier typed, List<int> ids) async {
       expect(lintSource(source, 'lib/app/a.dart', rules: rule), isEmpty);
     });
 
+    // string_column_name recommends these, so this rule must not report
+    // them: a typed column is a name the code wrote, checked by the
+    // compiler.
+    test('accepts typed columns and their conditions', () {
+      const source = r'''
+Future<void> f(String sort) async {
+  await User.query()
+      .orderByDesc(User.cols.id)
+      .where(User.cols.email, 'a')
+      .where(User.cols.age.gte(18))
+      .orWhere(User.cols.name.startsWith('A'))
+      .select([User.cols.id, User.cols.name])
+      .get();
+  await User.query().orderBy(sort).get();
+}
+''';
+      final issues = lintSource(source, 'lib/app/a.dart', rules: rule);
+      expect([for (final i in issues) i.line], [9]);
+    });
+
+    // The `where` static make:model writes forwards its argument; the
+    // rule reports the caller instead.
+    test('skips the statics region dartisan writes', () {
+      const source = r'''
+final class User extends Model {
+  // <dartisan:statics>
+  static ModelQuery<User> where(
+    Object column, [
+    Object? operatorOrValue = QueryBuilder.absent,
+    Object? value = QueryBuilder.absent,
+  ]) => query().where(column, operatorOrValue, value);
+  // </dartisan:statics>
+
+  static ModelQuery<User> byColumn(Object column) =>
+      query().where(column, 1);
+}
+''';
+      final issues = lintSource(
+        source,
+        'lib/app/models/user.dart',
+        rules: rule,
+      );
+      expect([for (final i in issues) i.line], [11]);
+    });
+
     test('is silenced by an ignore comment and skips lib/src', () {
       const source = '''
 void f(String sort) {
