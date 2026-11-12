@@ -122,10 +122,12 @@ List<String> unpinnedActions(String workflow) => [
 ];
 
 /// The package directories [workflow] publishes, in the order of its steps
-/// (each `working-directory:`).
+/// (each `working-directory:` line; whole lines only, as the dry-run step
+/// of publish.yml reads them, so a command quoting the key is not one).
 List<String> publishOrder(String workflow) => [
   for (final match in RegExp(
-    r'working-directory:\s*(\S+)',
+    r'^ +working-directory: (packages/[a-z0-9_]+)$',
+    multiLine: true,
   ).allMatches(workflow))
     match[1]!,
 ];

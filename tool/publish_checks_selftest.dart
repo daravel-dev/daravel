@@ -54,6 +54,16 @@ void main() {
     publishOrder('    steps:\n${step('daravel')}${step('daravel_test')}'),
     ['packages/daravel', 'packages/daravel_test'],
   );
+  // The dry-run step greps for the key: its own line is not a step. A
+  // first version of it matched itself and would have run in packages/.
+  check(
+    'a command quoting the key is not a step',
+    publishOrder(
+      "          for dir in \$(grep -E '^ +working-directory: "
+      "packages/[a-z0-9_]+\$' x); do\n${step('daravel')}",
+    ),
+    ['packages/daravel'],
+  );
   check(
     'one job with steps uses nothing forbidden',
     forbiddenInPublish(
