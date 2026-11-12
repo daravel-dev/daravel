@@ -43,6 +43,7 @@ import '../http/kernel.dart';
 import '../http/realtime.dart';
 import '../features/feature.dart';
 import '../http/middleware.dart';
+import '../http/multipart.dart';
 import '../http/middleware/cache_headers.dart';
 import '../http/rate_limiter.dart';
 import '../http/request.dart';
@@ -792,6 +793,7 @@ final class Application {
       middleware: middleware,
       exceptions: exceptions,
       logger: logger,
+      multipartLimits: MultipartLimits.fromEnv(env),
     );
     container.instance<HttpKernel>(kernel);
     final upstream = _builder._upstream;

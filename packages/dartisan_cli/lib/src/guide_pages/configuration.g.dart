@@ -118,6 +118,11 @@ frozen after boot.
 | `HTTP_MAX_HEADER_BYTES` | `32768` (32 KiB) | The request line and headers together; above it `431 Request Header Fields Too Large` before routing, for a WebSocket handshake too (`0` for none). It bounds what the application parses, not what `dart:io` reads (up to 1 MiB) |
 | `HTTP_MAX_HEADER_LINE_BYTES` | `16384` (16 KiB) | One header, name and value; `431` above it (`0` for none). nginx's default is 8 KiB per line |
 | `HTTP_MAX_HEADERS` | `100` | The number of headers, as Apache's `LimitRequestFields`; `431` above it (`0` for none) |
+| `HTTP_MULTIPART_MAX_PARTS` | `1000` | Parts of one multipart body; `400` above it (PHP keeps the parts read so far and stops; Daravel refuses). `0` for none |
+| `HTTP_MULTIPART_MAX_FILES` | `20` | Files of one multipart body, as PHP's `max_file_uploads`; `400` above it. `0` for none |
+| `HTTP_MULTIPART_MAX_FIELD_BYTES` | `1048576` (1 MiB) | One field's value; `413` above it. `0` for none |
+| `HTTP_MULTIPART_MAX_PART_HEADER_BYTES` | `16384` (16 KiB) | One part's header block, as busboy; `400` above it, before it is buffered. `0` for none |
+| `HTTP_MULTIPART_MAX_PART_HEADERS` | `100` | Header lines of one part; `400` above it. `0` for none |
 | `HTTP_MAX_QUEUE_DELAY`, `HTTP_MAX_IN_FLIGHT` | off (`200ms` in new projects), off | [Load shedding](deployment.md#load-shedding): `503` while a worker's event loop is this late, or above this many requests at once |
 | `SERVER_EMBED_QUEUE`, `SERVER_EMBED_SCHEDULER` | `false` | Queue worker and scheduler in the server process |
 
