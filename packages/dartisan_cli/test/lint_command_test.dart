@@ -393,6 +393,31 @@ Future<void> store(Form form) => form.validate({'email': 'required'});
       expect(file.readAsStringSync(), contains('Rules.required().email()'));
     }, timeout: const Timeout(Duration(minutes: 3)));
 
+    test(
+      'a temporary file a killed run left is removed on the next run',
+      () async {
+        final stale = File('${file.path}.lint-fix.tmp')
+          ..writeAsStringSync('half');
+        final (_, dry) = await lint(['--fix', '--dry-run']);
+        expect(
+          dry,
+          contains(
+            'Would remove lib/app/controller.dart.lint-fix.tmp, left by a '
+            'lint --fix that did not finish.',
+          ),
+        );
+        expect(stale.existsSync(), isTrue, reason: '--dry-run writes nothing');
+        await commitAll();
+        final (_, output) = await lint(['--fix', '--force']);
+        expect(
+          output,
+          contains('Removed lib/app/controller.dart.lint-fix.tmp'),
+        );
+        expect(stale.existsSync(), isFalse);
+      },
+      timeout: const Timeout(Duration(minutes: 3)),
+    );
+
     test('a file is replaced whole, with no temporary file left', () {
       writeFileAtomically(file.path, 'replaced\n');
       expect(file.readAsStringSync(), 'replaced\n');

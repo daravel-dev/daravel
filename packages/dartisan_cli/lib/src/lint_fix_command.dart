@@ -114,6 +114,31 @@ void writeFileAtomically(String path, String content) {
   temp.renameSync(path);
 }
 
+/// Deletes the `*.lint-fix.tmp` files a killed `lint --fix` left in the
+/// folders it writes ([lintDirectories]) of the project at [root], and
+/// returns their project-relative paths ([dryRun]: only lists them). The
+/// file each sat next to is
+/// whole (the old text or the fixed one), so the temporary copy is safe to
+/// drop.
+List<String> removeStaleLintFixFiles(String root, {bool dryRun = false}) {
+  final removed = <String>[];
+  for (final directory in lintDirectories) {
+    final dir = Directory(p.join(root, directory));
+    if (!dir.existsSync()) {
+      continue;
+    }
+    for (final file in dir.listSync(recursive: true).whereType<File>()) {
+      if (file.path.endsWith('.lint-fix.tmp')) {
+        if (!dryRun) {
+          file.deleteSync();
+        }
+        removed.add(p.relative(file.path, from: root).replaceAll(r'\', '/'));
+      }
+    }
+  }
+  return removed..sort();
+}
+
 /// The project files among [paths] that git sees as changed (modified,
 /// staged or untracked): `--fix` leaves them alone without `--force`, so
 /// `git checkout` can always undo it. `null` when [root] is not in a git

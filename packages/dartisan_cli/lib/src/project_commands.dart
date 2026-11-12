@@ -1834,6 +1834,13 @@ final class LintCommand extends Command<int> {
   /// an exit code when it refuses to write, otherwise `null` and the
   /// command goes on to report what is left.
   Future<int?> _fix(String root, List<LintRule> rules) async {
+    final dryRun = argResults!['dry-run'] as bool;
+    for (final stale in removeStaleLintFixFiles(root, dryRun: dryRun)) {
+      stdout.writeln(
+        '${dryRun ? 'Would remove' : 'Removed'} $stale, left by a lint --fix '
+        'that did not finish.',
+      );
+    }
     final changes = planLintFixes(root, rules);
     final count = changes.fold(0, (n, c) => n + c.messages.length);
     String summary(String verb) =>
