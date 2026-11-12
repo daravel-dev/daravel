@@ -23,6 +23,7 @@ dependencies:
   daravel_scout: any
   daravel_session: any
   daravel_test: any
+  dartisan_cli: any
   image: ^4.8.0
   path: ^1.9.0
   sqlite3: ^3.8.0
