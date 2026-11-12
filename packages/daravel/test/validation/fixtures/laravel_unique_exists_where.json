@@ -957,6 +957,300 @@
                     "The selected ids is invalid."
                 ]
             }
+        },
+        {
+            "data": {
+                "email": [
+                    [
+                        "a@x.io"
+                    ]
+                ]
+            },
+            "rule": "exists:users,email",
+            "errors": {}
+        },
+        {
+            "data": {
+                "email": [
+                    {
+                        "k": "a@x.io"
+                    }
+                ]
+            },
+            "rule": "exists:users,email",
+            "errors": {}
+        },
+        {
+            "data": {
+                "email": [
+                    "a@x.io",
+                    [
+                        "c@x.io"
+                    ]
+                ]
+            },
+            "rule": "exists:users,email",
+            "throws": "ErrorException"
+        },
+        {
+            "data": {
+                "email": {
+                    "k": "a@x.io",
+                    "j": "c@x.io"
+                }
+            },
+            "rule": "exists:users,email",
+            "errors": {}
+        },
+        {
+            "data": {
+                "email": {
+                    "k": "a@x.io",
+                    "j": "z@x.io"
+                }
+            },
+            "rule": "exists:users,email",
+            "errors": {
+                "email": [
+                    "The selected email is invalid."
+                ]
+            }
+        },
+        {
+            "data": {
+                "email": [
+                    "a@x.io",
+                    null
+                ]
+            },
+            "rule": "exists:users,email",
+            "errors": {
+                "email": [
+                    "The selected email is invalid."
+                ]
+            }
+        },
+        {
+            "data": {
+                "email": [
+                    null
+                ]
+            },
+            "rule": "exists:users,email",
+            "errors": {
+                "email": [
+                    "The selected email is invalid."
+                ]
+            }
+        },
+        {
+            "data": {
+                "id": [
+                    1,
+                    true
+                ]
+            },
+            "rule": "exists:users,id",
+            "errors": {}
+        },
+        {
+            "data": {
+                "id": [
+                    true
+                ]
+            },
+            "rule": "exists:users,id",
+            "errors": {}
+        },
+        {
+            "data": {
+                "id": [
+                    1,
+                    1,
+                    "1"
+                ]
+            },
+            "rule": "exists:users,id",
+            "errors": {}
+        },
+        {
+            "data": {
+                "id": [
+                    1,
+                    2.5
+                ]
+            },
+            "rule": "exists:users,id",
+            "errors": {
+                "id": [
+                    "The selected id is invalid."
+                ]
+            }
+        },
+        {
+            "data": {
+                "id": [
+                    [
+                        1
+                    ],
+                    [
+                        3
+                    ]
+                ]
+            },
+            "rule": "exists:users,id",
+            "throws": "ErrorException"
+        },
+        {
+            "data": {
+                "id": [
+                    1,
+                    {
+                        "a": 3
+                    }
+                ]
+            },
+            "rule": "exists:users,id,active,1",
+            "throws": "ErrorException"
+        },
+        {
+            "data": {
+                "email": [
+                    "a@x.io"
+                ]
+            },
+            "rule": "unique:users,email",
+            "errors": {
+                "email": [
+                    "The email has already been taken."
+                ]
+            }
+        },
+        {
+            "data": {
+                "email": [
+                    "z@x.io"
+                ]
+            },
+            "rule": "unique:users,email",
+            "errors": {}
+        },
+        {
+            "data": {
+                "email": {
+                    "k": "z@x.io"
+                }
+            },
+            "rule": "unique:users,email",
+            "errors": {}
+        },
+        {
+            "data": {
+                "email": [
+                    "a@x.io",
+                    "z@x.io"
+                ]
+            },
+            "rule": "unique:users,email",
+            "errors": {
+                "email": [
+                    "The email has already been taken."
+                ]
+            }
+        },
+        {
+            "data": {
+                "email": [
+                    "z@x.io",
+                    "y@x.io"
+                ]
+            },
+            "rule": "unique:users,email",
+            "errors": {}
+        },
+        {
+            "data": {
+                "email": [
+                    [
+                        "z@x.io"
+                    ]
+                ]
+            },
+            "rule": "unique:users,email",
+            "errors": {}
+        },
+        {
+            "data": {
+                "email": []
+            },
+            "rule": "unique:users,email",
+            "errors": {}
+        },
+        {
+            "data": {
+                "id": [
+                    1,
+                    false
+                ]
+            },
+            "rule": "exists:users,id",
+            "errors": {
+                "id": [
+                    "The selected id is invalid."
+                ]
+            }
+        },
+        {
+            "data": {
+                "id": [
+                    false
+                ]
+            },
+            "rule": "exists:users,id",
+            "errors": {
+                "id": [
+                    "The selected id is invalid."
+                ]
+            }
+        },
+        {
+            "data": {
+                "id": true
+            },
+            "rule": "exists:users,id",
+            "errors": {}
+        },
+        {
+            "data": {
+                "id": false
+            },
+            "rule": "exists:users,id",
+            "errors": {
+                "id": [
+                    "The selected id is invalid."
+                ]
+            }
+        },
+        {
+            "data": {
+                "id": 1
+            },
+            "rule": "exists:users,id",
+            "errors": {}
+        },
+        {
+            "data": {
+                "email": true
+            },
+            "rule": "unique:users,email",
+            "errors": {}
+        },
+        {
+            "data": {
+                "id": false
+            },
+            "rule": "unique:users,id",
+            "errors": {}
         }
     ]
 }

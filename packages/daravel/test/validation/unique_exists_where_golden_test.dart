@@ -104,26 +104,116 @@ void main() {
   }
 
   // exists on a list of values (Laravel's getMultiCount: whereIn and a
-  // distinct count), with and without where conditions.
+  // distinct count), with and without where conditions; values sent as
+  // lists, maps and booleans to exists and unique.
+  //
+  // Where Daravel parts from Laravel on purpose: an exists list holding a
+  // list or a map fails the rule. Laravel throws for it (ErrorException
+  // from array_unique, a 500) or, with one nested element, accepts it
+  // because whereIn flattens it.
+  bool nested(Object? value) => switch (value) {
+    final List<Object?> list => list.any(
+      (v) => v is List<Object?> || v is Map<Object?, Object?>,
+    ),
+    final Map<Object?, Object?> map => map.values.any(
+      (v) => v is List<Object?> || v is Map<Object?, Object?>,
+    ),
+    _ => false,
+  };
   for (final c
       in (golden['arrayCases']! as List<Object?>)
           .cast<Map<String, Object?>>()) {
     final rule = c['rule']! as String;
     final data = (c['data']! as Map<String, Object?>);
-    test('array: $rule with $data', () async {
-      final expected = switch (c['errors']) {
-        final Map<String, Object?> map => {
-          for (final MapEntry(:key, value: list) in map.entries)
-            key: (list! as List<Object?>).cast<String>(),
-        },
-        _ => <String, List<String>>{},
-      };
-      final errors = await app.run(
-        () => Validator(data, {
-          data.keys.first: rule,
-        }, container: Container.current).run(),
-      );
-      expect(errors, expected);
-    });
+    final field = data.keys.first;
+    final departs = rule.startsWith('exists:') && nested(data[field]);
+    test(
+      'array: $rule with $data${departs ? ' (fails, unlike Laravel)' : ''}',
+      () async {
+        final expected = departs
+            ? {
+                field: ['The selected $field is invalid.'],
+              }
+            : switch (c['errors']) {
+                final Map<String, Object?> map => {
+                  for (final MapEntry(:key, value: list) in map.entries)
+                    key: (list! as List<Object?>).cast<String>(),
+                },
+                _ => <String, List<String>>{},
+              };
+        if (c.containsKey('throws')) {
+          expect(
+            departs,
+            isTrue,
+            reason:
+                'Laravel throws (${c['throws']}) only where Daravel departs',
+          );
+        }
+        final errors = await app.run(
+          () => Validator(data, {
+            data.keys.first: rule,
+          }, container: Container.current).run(),
+        );
+        expect(errors, expected);
+      },
+    );
   }
+
+  // A list longer than the placeholders a driver takes (SQLite 32 766)
+  // made a database error, a 500, in Laravel and here. Above
+  // ExistsRule.maxListValues distinct values the rule fails without a
+  // query; up to it, one query.
+  group('exists on a long list', () {
+    const rows = ExistsRule.maxListValues + 1;
+    setUpAll(() async {
+      await app.run(() async {
+        await DB.statement('CREATE TABLE many (id INTEGER PRIMARY KEY)');
+        for (var start = 1; start <= rows; start += 500) {
+          await DB.table('many').insert([
+            for (var id = start; id < start + 500 && id <= rows; id++)
+              {'id': id},
+          ]);
+        }
+      });
+    });
+
+    Future<Map<String, List<String>>> check(List<Object?> ids) => app.run(
+      () => Validator(
+        {'ids': ids},
+        {'ids': 'exists:many,id'},
+        container: Container.current,
+      ).run(),
+    );
+
+    test('up to the limit: one query, every value found', () async {
+      expect(
+        await check([
+          for (var id = 1; id <= ExistsRule.maxListValues; id++) id,
+        ]),
+        isEmpty,
+      );
+    });
+
+    test('above it: fails, though every value is in the table', () async {
+      expect(await check([for (var id = 1; id <= rows; id++) id]), {
+        'ids': ['The selected ids is invalid.'],
+      });
+    });
+
+    test(
+      'far above what a driver binds: fails, not a database error',
+      () async {
+        expect(await check([for (var id = 1; id <= 40000; id++) id]), {
+          'ids': ['The selected ids is invalid.'],
+        });
+      },
+    );
+
+    test('repeated values count once', () async {
+      expect(
+        await check([for (var i = 0; i < 40000; i++) (i % 5) + 1]),
+        isEmpty,
+      );
+    });
+  });
 }

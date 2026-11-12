@@ -94,6 +94,32 @@ void main() {
       isNotEmpty,
     );
     expect(await check(['a', 'zzz'], 'exists:my_items,name'), isNotEmpty);
+    // Request values that are not plain: a list inside the list fails the
+    // rule, a map is its values, unique reads the first value, `true`
+    // binds as 1, and a list longer than a query's placeholders (65 535
+    // here) fails, not an error.
+    expect(
+      await check([
+        ['a'],
+      ], 'exists:my_items,name'),
+      isNotEmpty,
+    );
+    expect(await check({'k': 'a'}, 'exists:my_items,name'), isEmpty);
+    expect(await check(['a', 'zzz'], 'unique:my_items,name'), isNotEmpty);
+    expect(await check(<Object?>[], 'unique:my_items,name'), isEmpty);
+    Future<Map<String, List<String>>> checkId(Object? value) => Validator(
+      {'id': value},
+      {'id': 'exists:my_items,id'},
+      container: container,
+    ).run();
+    expect(await checkId(true), isEmpty);
+    expect(await checkId([1, true]), isEmpty);
+    expect(await checkId([1, false]), isNotEmpty);
+    expect(
+      await checkId([for (var i = 1; i <= ExistsRule.maxListValues; i++) i]),
+      isNotEmpty,
+    );
+    expect(await checkId([for (var i = 1; i <= 70000; i++) i]), isNotEmpty);
     expect(await db.table('my_items').count(), 2);
   });
 
