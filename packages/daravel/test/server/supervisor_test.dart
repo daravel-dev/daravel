@@ -102,16 +102,24 @@ void main() {
       // The request is bound in its scope (guards rely on it).
       expect(jsonDecode((await get('/scope')).$2), {'same': true});
 
-      // Metrics are merged across workers by the coordinator (snapshots are
-      // published every second; the answering worker publishes fresh).
-      await Future<void>.delayed(const Duration(milliseconds: 1500));
-      final metrics = (await get("/metrics")).$2;
-      expect(
-        metrics,
-        contains(
-          'http_requests_total{method="GET",route="/whoami",status="200"} 40',
-        ),
-      );
+      // Metrics are merged across workers by the coordinator. The answering
+      // worker publishes its own snapshot fresh; the other one publishes on
+      // its next tick (every second) once a publish still waiting for its
+      // answer is done, which a loaded machine can push past any fixed
+      // wait. So the merged view is asked again until it holds both, within
+      // a bound far past a few ticks.
+      const whoami =
+          'http_requests_total{method="GET",route="/whoami",status="200"} 40';
+      var metrics = '';
+      final deadline = DateTime.now().add(const Duration(seconds: 15));
+      while (DateTime.now().isBefore(deadline)) {
+        metrics = (await get('/metrics')).$2;
+        if (metrics.contains(whoami)) {
+          break;
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 250));
+      }
+      expect(metrics, contains(whoami));
       expect(
         RegExp(
           '^process_resident_memory_bytes ',
