@@ -104,4 +104,94 @@ void main() {
       second + 500 + retryAfter.inMilliseconds,
     );
   });
+
+  for (final fraction in [0, 500, 999]) {
+    test('list engine, extended at .$fraction s: kept until exactly the '
+        'extension plus retry_after', () async {
+      final queue = RedisQueue(
+        client,
+        prefix: prefix,
+        retryAfter: retryAfter,
+        engine: RedisQueueEngine.list,
+      );
+      addTearDown(queue.stopWaiting);
+      Clock.travelTo(DateTime.fromMillisecondsSinceEpoch(second, isUtc: true));
+      await queue.push(JobPayload.forJob(const Ping()), queue: 'default');
+      final job = (await queue.pop('default'))!;
+
+      final at = second + 1000 + fraction;
+      Clock.travelTo(DateTime.fromMillisecondsSinceEpoch(at, isUtc: true));
+      final until = await queue.extend(job);
+      final expected = at + retryAfter.inMilliseconds;
+      expect(until!.millisecondsSinceEpoch, expected);
+
+      Clock.travelTo(
+        DateTime.fromMillisecondsSinceEpoch(expected - 1, isUtc: true),
+      );
+      expect(await queue.pop('default'), isNull, reason: '1 ms before');
+      Clock.travelTo(
+        DateTime.fromMillisecondsSinceEpoch(expected, isUtc: true),
+      );
+      expect((await queue.pop('default'))!.id, job.id);
+    });
+  }
+
+  for (final engine in RedisQueueEngine.values) {
+    test(
+      '${engine.name} engine: extend after the job was deleted is null',
+      () async {
+        final queue = RedisQueue(
+          client,
+          prefix: prefix,
+          retryAfter: retryAfter,
+          engine: engine,
+        );
+        addTearDown(queue.stopWaiting);
+        Clock.travelTo(
+          DateTime.fromMillisecondsSinceEpoch(second, isUtc: true),
+        );
+        await queue.push(JobPayload.forJob(const Ping()), queue: 'default');
+        final done = (await queue.pop('default'))!;
+        // Later than the pop: in the same millisecond nothing would move.
+        Clock.travelTo(
+          DateTime.fromMillisecondsSinceEpoch(second + 100, isUtc: true),
+        );
+        expect(await queue.extend(done), isNotNull, reason: 'still mine');
+        await queue.delete(done);
+        expect(await queue.extend(done), isNull);
+      },
+    );
+  }
+
+  test('list engine: extend once the reservation ended is null, whether the '
+      'job waits in the list again or another worker reserved it', () async {
+    final queue = RedisQueue(
+      client,
+      prefix: prefix,
+      retryAfter: retryAfter,
+      engine: RedisQueueEngine.list,
+    );
+    addTearDown(queue.stopWaiting);
+    Clock.travelTo(DateTime.fromMillisecondsSinceEpoch(second, isUtc: true));
+    await queue.push(JobPayload.forJob(const Ping()), queue: 'default');
+    final mine = (await queue.pop('default'))!;
+    await queue.push(JobPayload.forJob(const Ping()), queue: 'default');
+
+    // Past its end, a pop moves it back behind the other job and takes
+    // that one: it waits in the list, its attempts unchanged.
+    Clock.travelTo(
+      DateTime.fromMillisecondsSinceEpoch(
+        second + retryAfter.inMilliseconds,
+        isUtc: true,
+      ),
+    );
+    final other = (await queue.pop('default'))!;
+    expect(other.id, isNot(mine.id));
+    expect(await queue.extend(mine), isNull, reason: 'back in the list');
+
+    final theirs = (await queue.pop('default'))!;
+    expect(theirs.id, mine.id);
+    expect(theirs.attempts, 2);
+    expect(await queue.extend(mine), isNull, reason: 'reserved again');
+  });
 }

@@ -66,5 +66,55 @@ void main() {
         expect(again.attempts, 2);
       });
     }
+
+    // extend: reserved_at becomes the extension's second, so the job is
+    // kept until exactly that second + R, wherever in it the extension fell.
+    for (final fraction in [0, 500, 999]) {
+      test('extended at .$fraction s of the next second: kept until exactly '
+          'that second + 3 s', () async {
+        var now = DateTime.fromMillisecondsSinceEpoch(second, isUtc: true);
+        final queue = DatabaseQueue(
+          db,
+          retryAfter: const Duration(seconds: 3),
+          clock: () => now,
+        );
+        await queue.push(JobPayload.forJob(const Ping()), queue: 'default');
+        final job = (await queue.pop('default'))!;
+
+        now = DateTime.fromMillisecondsSinceEpoch(
+          second + 1000 + fraction,
+          isUtc: true,
+        );
+        final until = await queue.extend(job);
+        const expected = second + 1000 + 3000;
+        expect(until!.millisecondsSinceEpoch, expected);
+
+        now = DateTime.fromMillisecondsSinceEpoch(expected - 1, isUtc: true);
+        expect(await queue.pop('default'), isNull, reason: '1 ms before');
+        now = DateTime.fromMillisecondsSinceEpoch(expected, isUtc: true);
+        expect((await queue.pop('default'))!.id, job.id);
+      });
+    }
+
+    test('extend once another worker reserved the job: null, and its '
+        'reservation is left alone', () async {
+      var now = DateTime.fromMillisecondsSinceEpoch(second, isUtc: true);
+      final queue = DatabaseQueue(
+        db,
+        retryAfter: const Duration(seconds: 3),
+        clock: () => now,
+      );
+      await queue.push(JobPayload.forJob(const Ping()), queue: 'default');
+      final mine = (await queue.pop('default'))!;
+      now = DateTime.fromMillisecondsSinceEpoch(second + 3000, isUtc: true);
+      final theirs = (await queue.pop('default'))!;
+      expect(theirs.attempts, 2);
+
+      now = DateTime.fromMillisecondsSinceEpoch(second + 4000, isUtc: true);
+      expect(await queue.extend(mine), isNull);
+      // Still theirs until second 3 + 3: not moved to second 4 + 3.
+      now = DateTime.fromMillisecondsSinceEpoch(second + 6000, isUtc: true);
+      expect((await queue.pop('default'))!.attempts, 3);
+    });
   });
 }

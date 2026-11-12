@@ -235,11 +235,40 @@ Future<void> horizonWorkerMain(HorizonWorkerStart start) async {
     });
     start.master.send(Ready(start.name, sessions: sessions()));
     report();
+    // How often a running job's reservation is extended: half of what the
+    // master leaves it (the shortest reservation less its margin), so an
+    // extension reaches the master well before it would kill the job. A
+    // driver of its own is extended every half retry_after, as elsewhere.
+    final connectionName =
+        start.connection ??
+        booted.config.section<QueueConfig>().defaultConnection;
+    final extendEvery = switch (queues.connection(start.connection)) {
+      final ReservingQueueDriver reserving =>
+        switch (HorizonConfig.shortestReservation(
+          connectionName,
+          reserving.retryAfter,
+        )) {
+          final Duration shortest
+              when shortest > HorizonConfig.marginFor(start.heartbeat) =>
+            (shortest - HorizonConfig.marginFor(start.heartbeat)) ~/ 2,
+          _ => null,
+        },
+      _ => null,
+    };
     code = await booted.container.runScoped<int>(
       'job',
       (_) => worker.run(
         WorkerOptions(
           connection: start.connection,
+          extendEvery: extendEvery,
+          // The master follows an extended reservation: it would otherwise
+          // kill the job by the end of the first one.
+          onReservationExtended: (job, until) {
+            if ('${job.id}' == jobId && job.attempts == attempt) {
+              reservedUntil = until.millisecondsSinceEpoch;
+              report();
+            }
+          },
           queues: worker.queues,
           tries: start.tries,
           backoff: start.backoffSeconds == null

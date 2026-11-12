@@ -742,6 +742,9 @@ final class HorizonMaster {
   /// workers run in this process, on this clock; a worker in another
   /// process or host whose clock is δ ahead may take the job δ earlier,
   /// which only [_reclaimMargin] (less the master's own lateness) covers.
+  /// The master compares with `DateTime.now()`, the drivers write with
+  /// `Clock.now()`: the same in production, not while an application
+  /// freezes or moves its `Clock` (a test) with Horizon running.
   DateTime? _reservationExpiry(HorizonWorker w) {
     final retryAfter = _retryAfter(w);
     final beat = w.last;
@@ -820,7 +823,9 @@ final class HorizonMaster {
   /// come a whole heartbeat late, which is the whole [_reclaimMargin].
   void _armLimit(HorizonWorker w, DateTime deadline) {
     final beat = w.last!;
-    final key = '${beat.jobId}@${beat.jobReservedAtMs}';
+    // A new job, or the same one whose reservation was extended.
+    final key =
+        '${beat.jobId}@${beat.jobReservedAtMs}:${beat.jobReservedUntilMs}';
     if (w._limitFor == key && w._limitTimer != null) {
       return;
     }

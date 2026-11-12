@@ -303,9 +303,27 @@ final class HorizonConfig implements ConfigSection {
   /// How long before a job's reservation ends (when the queue may hand it
   /// to another worker) the master kills a worker blocked on it: a
   /// [heartbeat], at least a second.
-  Duration get reclaimMargin => heartbeat > const Duration(seconds: 1)
+  Duration get reclaimMargin => marginFor(heartbeat);
+
+  /// [reclaimMargin] for a [heartbeat]: the heartbeat, at least a second.
+  static Duration marginFor(Duration heartbeat) =>
+      heartbeat > const Duration(seconds: 1)
       ? heartbeat
       : const Duration(seconds: 1);
+
+  /// The shortest time the queue named [connection] keeps a job reserved
+  /// after its pop or an extension, for a [retryAfter]: a second less on
+  /// the database queue, which counts whole seconds; [retryAfter] on Redis.
+  /// Chosen by the connection's name, which is the built-in driver's:
+  /// null for any other (a driver of your own is not judged here).
+  static Duration? shortestReservation(
+    String connection,
+    Duration retryAfter,
+  ) => switch (connection) {
+    'database' => Duration(seconds: retryAfter.inSeconds - 1),
+    'redis' => retryAfter,
+    _ => null,
+  };
 
   /// The smoothing of arrival rates and service times
   /// (`HORIZON_EWMA_ALPHA`, 0.3).
@@ -546,7 +564,9 @@ final class HorizonConfig implements ConfigSection {
   /// blocked on a job [reclaimMargin] before the queue may hand the job to
   /// another worker, and less than a second would be left to run it. The
   /// database queue counts whole seconds, so a job may be handed out again
-  /// up to a second before `retry_after`.
+  /// up to a second before `retry_after`. Only the built-in database and
+  /// Redis queues are checked ([shortestReservation] goes by the
+  /// connection's name); a queue driver of your own is not.
   static List<ConfigIssue> retryAfterIssues(ConfigRepository config) {
     final horizon = config.section<HorizonConfig>();
     final queue = config.section<QueueConfig>();
@@ -557,12 +577,7 @@ final class HorizonConfig implements ConfigSection {
         plan.connection ?? queue.defaultConnection,
     };
     for (final connection in connections) {
-      // The shortest reservation the queue keeps, from the pop.
-      final reserved = switch (connection) {
-        'database' => Duration(seconds: queue.retryAfter.inSeconds - 1),
-        'redis' => queue.retryAfter,
-        _ => null,
-      };
+      final reserved = shortestReservation(connection, queue.retryAfter);
       if (reserved == null) {
         continue;
       }

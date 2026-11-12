@@ -46,7 +46,7 @@ enum RedisQueueEngine {
 final class RedisQueue
     implements
         WakeableQueueDriver,
-        ReservingQueueDriver,
+        ExtendingQueueDriver,
         BrowsableQueueDriver,
         ReclaimableQueueDriver {
   /// A queue in Redis, as Laravel's `redis` queue driver.
@@ -299,38 +299,44 @@ return 1''');
   /// Extends a reservation that is still the worker's own (the job's
   /// `attempts` grow with every reservation): the reserved score, or the
   /// stream entry's idle time (`XCLAIM ... JUSTID`, which leaves the
-  /// delivery count alone).
+  /// delivery count alone). Returns 1 when the reservation moved, 0 when
+  /// it is no longer the worker's: a job taken back to the list (`ZADD XX
+  /// CH` counts no change for a member it did not find) or an entry no
+  /// longer pending.
   static final RedisScript _touch = RedisScript('''
 if redis.call('HGET', KEYS[2], 'attempts') ~= ARGV[3] then
   return 0
 end
 if ARGV[4] == 'stream' then
   local entry = redis.call('HGET', KEYS[2], 'entry')
-  if entry then
-    redis.call('XCLAIM', KEYS[1], ARGV[5], ARGV[5], 0, entry, 'JUSTID')
+  if not entry then
+    return 0
   end
-  return 1
+  return #redis.call('XCLAIM', KEYS[1], ARGV[5], ARGV[5], 0, entry, 'JUSTID')
 end
-redis.call('ZADD', KEYS[3], 'XX', ARGV[1], ARGV[2])
-return 1''');
+return redis.call('ZADD', KEYS[3], 'XX', 'CH', ARGV[1], ARGV[2])''');
 
   @override
-  Future<void> touch(QueuedJob job) async {
-    await client.eval(
+  Future<void> touch(QueuedJob job) => extend(job);
+
+  /// [touch], and the new reservation's end: now plus [retryAfter] to the
+  /// millisecond (the list engine's score; the stream engine resets the
+  /// entry's idle time on the Redis server's clock, as for a pop).
+  @override
+  Future<DateTime?> extend(QueuedJob job) async {
+    final until = _now + retryAfter.inMilliseconds;
+    final done = await client.eval(
       _touch,
       keys: [
         _list(job.queue),
         '${_jobPrefix(job.queue)}${job.id}',
         _reserved(job.queue),
       ],
-      args: [
-        _now + retryAfter.inMilliseconds,
-        job.id,
-        '${job.attempts}',
-        engine.name,
-        _group,
-      ],
+      args: [until, job.id, '${job.attempts}', engine.name, _group],
     );
+    return done == 1
+        ? DateTime.fromMillisecondsSinceEpoch(until, isUtc: true)
+        : null;
   }
 
   static final RedisScript _streamDelete = RedisScript('''

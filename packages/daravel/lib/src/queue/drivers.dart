@@ -245,7 +245,7 @@ final class QueuedJob {
   ///
   /// It is the reservation taken by the pop; a later
   /// [ReservingQueueDriver.touch] extends the stored reservation but not
-  /// this value.
+  /// this value ([ExtendingQueueDriver.extend] returns the new end).
   final DateTime? reservedUntil;
 }
 
@@ -311,6 +311,18 @@ abstract interface class ReservingQueueDriver implements QueueDriver {
   /// Extends [job]'s reservation to [retryAfter] from now; does nothing
   /// once the job is gone or reserved again by another worker.
   Future<void> touch(QueuedJob job);
+}
+
+/// A [ReservingQueueDriver] that says how far it extended a reservation,
+/// so a supervisor watching a running job (`daravel_horizon`) can follow
+/// it: the database and Redis queues.
+abstract interface class ExtendingQueueDriver implements ReservingQueueDriver {
+  /// Extends [job]'s reservation as [touch] does and returns until when the
+  /// driver now keeps it from other workers, with the guarantee of
+  /// [QueuedJob.reservedUntil]; null when nothing changed: the reservation
+  /// is no longer this job's (gone, or reserved again by another worker),
+  /// or it already ends there (the end told before stands).
+  Future<DateTime?> extend(QueuedJob job);
 }
 
 /// A job waiting in a queue, as a dashboard lists it
@@ -690,7 +702,7 @@ final class MemoryQueue
 final class DatabaseQueue
     implements
         WakeableQueueDriver,
-        ReservingQueueDriver,
+        ExtendingQueueDriver,
         BrowsableQueueDriver,
         ReclaimableQueueDriver {
   /// A queue in the [table] (`jobs`) of [db], shared with Laravel's
@@ -1004,12 +1016,22 @@ final class DatabaseQueue
   /// `attempts` grows with every reservation, so a row another worker took
   /// meanwhile is left alone.
   @override
-  Future<void> touch(QueuedJob job) async {
-    await _query()
+  Future<void> touch(QueuedJob job) => extend(job);
+
+  /// [touch], and the new reservation's end: `reserved_at` becomes now in
+  /// whole seconds, so the job is kept until exactly 1000 * (now + R) ms,
+  /// as for a pop ([_reservedUntil]). Within the second it was reserved or
+  /// last extended, MySQL counts the row as unchanged and this returns
+  /// null: the reservation's end did not move.
+  @override
+  Future<DateTime?> extend(QueuedJob job) async {
+    final now = _now;
+    final updated = await _query()
         .where('id', job.id)
         .where('attempts', job.attempts)
         .whereNotNull('reserved_at')
-        .update(<String, Object?>{'reserved_at': _now});
+        .update(<String, Object?>{'reserved_at': now});
+    return updated == 1 ? _reservedUntil(now) : null;
   }
 
   @override

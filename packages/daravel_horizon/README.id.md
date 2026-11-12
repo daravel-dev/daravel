@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:5dd8ab83e05f -->
+<!-- source: README.md sha256:5c062bb9652d -->
 <img src="https://raw.githubusercontent.com/daravel-dev/daravel/main/docs/brand/png/daravel-icon-128.png" alt="Daravel" width="64" align="right">
 
 # daravel_horizon
@@ -83,10 +83,13 @@ satu detik) sebelum queue boleh memberikan job itu ke worker lain, pada saat
 yang dinyatakan driver queue (`QueuedJob.reservedUntil`: detik bulat di queue
 database, milidetik di Redis). Master dan worker-nya harus memakai
 `QUEUE_RETRY_AFTER` yang sama; bila tidak, master memakai yang lebih awal dan
-memberi peringatan. Tidak tertutup: worker di proses atau host lain yang
-jamnya lebih cepat (margin hanya menutupnya selama selisihnya lebih kecil
-dari margin), proses yang ditangguhkan melewati reservasi, job yang
-memperpanjang reservasinya (`touch`), dan engine stream Redis pada jam server
+memberi peringatan. Worker memperpanjang reservasi job yang masih berjalan dan
+memberi tahu master, yang mengikutinya: setiap setengah dari waktu yang
+disisakan master untuk job itu, jadi `retry_after` kecil berarti penulisan
+yang sering (3 detik di queue database: dua per detik per job yang berjalan).
+Tidak tertutup: worker di proses atau host lain yang jamnya lebih cepat
+(margin hanya menutupnya selama selisihnya lebih kecil dari margin), proses
+yang ditangguhkan melewati reservasi, dan engine stream Redis pada jam server
 yang berjalan cepat atau melompat maju.
 
 ## Lisensi
