@@ -384,6 +384,21 @@ Future<void> store(Form form) => form.validate({'email': 'required'});
       expect(file.readAsStringSync(), strings);
     }, timeout: const Timeout(Duration(minutes: 3)));
 
+    test('an error the file already had does not undo the fix', () async {
+      file.writeAsStringSync("$controller\nconst int broken = 'not an int';\n");
+      await commitAll();
+      final (_, output) = await lint(['--fix']);
+      expect(errors.toString(), isNot(contains('did not compile')));
+      expect(output, contains('Fixed 2 findings in 1 file.'));
+      expect(file.readAsStringSync(), contains('Rules.required().email()'));
+    }, timeout: const Timeout(Duration(minutes: 3)));
+
+    test('a file is replaced whole, with no temporary file left', () {
+      writeFileAtomically(file.path, 'replaced\n');
+      expect(file.readAsStringSync(), 'replaced\n');
+      expect(File('${file.path}.lint-fix.tmp').existsSync(), isFalse);
+    });
+
     test('--dry-run and --force without --fix are refused', () async {
       expect((await lint(['--dry-run'])).$1, 64);
       expect((await lint(['--force'])).$1, 64);

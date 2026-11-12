@@ -1872,21 +1872,47 @@ final class LintCommand extends Command<int> {
         return 1;
       }
     }
-    final errorsBefore = await analyzeErrors(root, paths);
     for (final change in changes) {
-      File(p.join(root, change.path)).writeAsStringSync(change.after);
+      writeFileAtomically(p.join(root, change.path), change.after);
     }
     await Process.run(dartExecutable(), [
       'format',
       ...paths,
     ], workingDirectory: root);
+    // One analysis in the common case: a file without errors after the
+    // fix is kept as it is. Only a file with errors is put back (from the
+    // text this process read, not git) and analyzed again; it keeps the
+    // fix when it had as many errors before.
     final errorsAfter = await analyzeErrors(root, paths);
+    final suspects = [
+      for (final change in changes)
+        if ((errorsAfter[change.path] ?? 0) > 0) change,
+    ];
+    final formatted = {
+      for (final change in suspects)
+        change.path: File(p.join(root, change.path)).readAsStringSync(),
+    };
+    for (final change in suspects) {
+      writeFileAtomically(p.join(root, change.path), change.before);
+    }
+    final errorsBefore = suspects.isEmpty
+        ? const <String, int>{}
+        : await analyzeErrors(root, [for (final c in suspects) c.path]);
+    final broken = {
+      for (final change in suspects)
+        if (errorsAfter[change.path]! > (errorsBefore[change.path] ?? 0))
+          change.path,
+    };
+    for (final change in suspects) {
+      if (!broken.contains(change.path)) {
+        writeFileAtomically(p.join(root, change.path), formatted[change.path]!);
+      }
+    }
     var fixed = 0;
     var files = 0;
     var reverted = 0;
     for (final change in changes) {
-      if ((errorsAfter[change.path] ?? 0) > (errorsBefore[change.path] ?? 0)) {
-        File(p.join(root, change.path)).writeAsStringSync(change.before);
+      if (broken.contains(change.path)) {
         reverted++;
         stderr.writeln(
           'lint --fix: ${change.path} did not compile after the fix; '

@@ -104,6 +104,16 @@ String lintFixDiff(String path, String before, String after) {
   return out.toString();
 }
 
+/// Writes [content] to [path] so the file is never half written: into a
+/// file next to it first, then renamed over it (a rename on one volume
+/// replaces the file at once). A process killed in between leaves the old
+/// file and a stray `*.lint-fix.tmp`, never a cut-off one.
+void writeFileAtomically(String path, String content) {
+  final temp = File('$path.lint-fix.tmp')
+    ..writeAsStringSync(content, flush: true);
+  temp.renameSync(path);
+}
+
 /// The project files among [paths] that git sees as changed (modified,
 /// staged or untracked): `--fix` leaves them alone without `--force`, so
 /// `git checkout` can always undo it. `null` when [root] is not in a git
