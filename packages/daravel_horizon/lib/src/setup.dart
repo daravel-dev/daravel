@@ -6,6 +6,7 @@ import 'config.dart';
 import 'events.dart';
 import 'master.dart';
 import 'routes.dart';
+import 'store/horizon_store.dart';
 import 'store/process_store.dart';
 
 /// `withHorizon()` (Blueprint #134 §3.2).
@@ -43,6 +44,12 @@ extension HorizonApplicationBuilder on ApplicationBuilder {
           )
           .withConfigCheck(HorizonConfig.check)
           .withCoordinatorService(HorizonService.new)
+          // HORIZON_STORE: `process`, this process's coordinator.
+          .withBindings(
+            (container) => container.singleton<HorizonStore>(
+              (c) => ProcessHorizonStore(() => c.make<CoordinatorChannel>()),
+            ),
+          )
           .withEmbeddedWorker(
             'horizon',
             (app, control) => runHorizon(app, control, createApp),
@@ -192,10 +199,12 @@ Future<int> runHorizon(
     logger: app.logger,
     coordinator: control.coordinator,
     store: app.container.make<CoordinatorChannel>(),
+    horizonStore: horizonStoreOf(app.container),
     failedJobs: queues.processor.failedJobs,
     signals: queues.signalStore,
     name: config.name ?? 'horizon',
     onEvent: horizonEvents(app),
+    failsAfterTimeout: queues.processor.failsAfterTimeout,
   );
   await master.start();
   final commands = control.messages.listen((message) {

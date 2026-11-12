@@ -596,7 +596,8 @@ void main() {
         await QueueWorker(Queue.manager)
             .run(const WorkerOptions(stopWhenEmpty: true));
         final failed = await Queue.manager.processor.failedJobs.all();
-        expect(failed.single.exception, contains('TimeoutException'));
+        expect(failed.single.exception, contains('TimeoutExceededException: '));
+        expect(failed.single.exception, contains(' has timed out.'));
         await Future<void>.delayed(const Duration(milliseconds: 250));
         expect(log, ['slow:cancelled']);
       });

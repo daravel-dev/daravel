@@ -7,7 +7,7 @@ import 'package:daravel/daravel.dart';
 import 'config.dart';
 import 'signals.dart';
 import 'ui.dart';
-import 'store/process_store.dart';
+import 'store/horizon_store.dart';
 
 /// The dashboard's JSON API (Blueprint #134 §3.7), under `HORIZON_PATH`
 /// with Laravel Horizon's route names (`horizon.*`).
@@ -174,14 +174,13 @@ abstract final class HorizonDashboard {
     };
   }
 
-  static Future<Object?> _call(String op, [Map<String, Object?>? args]) async {
+  /// [read] from the store, or null when it fails.
+  static Future<T?> _call<T>(
+    String op,
+    Future<T> Function(HorizonStore store) read,
+  ) async {
     try {
-      final answer = await Container.current.make<CoordinatorChannel>().call(
-        HorizonService.serviceName,
-        op,
-        args ?? const {},
-      );
-      return answer is String ? jsonDecode(answer) : answer;
+      return await read(horizonStoreOf(Container.current));
     } on CoordinatorException catch (error) {
       // No Horizon store in this process (Horizon runs elsewhere with the
       // process store): empty rather than a 500.
@@ -252,7 +251,7 @@ abstract final class HorizonDashboard {
       try {
         final status = await _status();
         final loads = await _queueLoads(status);
-        final summary = (await _call('summary')) as Map? ?? const {};
+        final summary = await _call('summary', (s) => s.summary()) ?? const {};
         return _snapshots[key] = _Snapshot(
           now,
           _statsOf(status, loads, summary),
@@ -281,7 +280,7 @@ abstract final class HorizonDashboard {
         } on Object {
           size = null;
         }
-        final rates = (await _call('rates', {'queue': queue.value})) as Map?;
+        final rates = await _call('rates', (s) => s.rates(queue.value));
         final avg = (rates?['avg_ms'] as num?)?.toDouble();
         final processes = workers.where((w) {
           final queues = (w as Map?)?['queues'];
@@ -363,33 +362,33 @@ abstract final class HorizonDashboard {
   };
 
   static Future<Object?> _monitored(Request request) async =>
-      await _call('monitored') ?? const <Object?>[];
+      await _call('monitored', (s) => s.monitored()) ?? const <Object?>[];
 
   static Future<Object?> _monitor(Request request) async {
     final tag = await request.input<Object?>('tag');
     if (tag is! String || tag.trim().isEmpty) {
       return Response.json({'message': 'A tag is required.'}, status: 422);
     }
-    await _call('monitor', {'tag': tag.trim()});
+    await _call('monitor', (s) => s.monitor(tag.trim()));
     return Response.noContent();
   }
 
   static Future<Object?> _unmonitor(Request request) async {
-    await _call('unmonitor', {'tag': request.param<String>('tag')});
+    await _call('unmonitor', (s) => s.unmonitor(request.param<String>('tag')));
     return Response.noContent();
   }
 
   static Future<Object?> _tagged(Request request) async => {
     'jobs':
-        await _call('tagged', {
-          'tag': request.param<String>('tag'),
-          'limit': _limit(request),
-        }) ??
+        (await _call(
+          'tagged',
+          (s) => s.tagged(request.param<String>('tag'), limit: _limit(request)),
+        ))?.map((job) => job.toJson()).toList() ??
         const <Object?>[],
   };
 
   static Future<Map<String, Object?>> _metrics() async =>
-      ((await _call('metrics')) as Map<String, Object?>?) ??
+      await _call('metrics', (s) => s.metrics()) ??
       const {'jobs': <String, Object?>{}, 'queues': <String, Object?>{}};
 
   static Future<Object?> _jobMetrics(Request request) async =>
@@ -431,23 +430,26 @@ abstract final class HorizonDashboard {
 
   static Future<Object?> _recent(Request request, String status) async => {
     'jobs':
-        await _call('recent', {
-          'status': status,
-          'limit': _limit(request),
-          'offset': int.tryParse(request.query['starting_at'] ?? '') ?? 0,
-        }) ??
+        (await _call(
+          'recent',
+          (s) => s.recent(
+            status,
+            limit: _limit(request),
+            offset: int.tryParse(request.query['starting_at'] ?? '') ?? 0,
+          ),
+        ))?.map((job) => job.toJson()).toList() ??
         const <Object?>[],
   };
 
   static Future<Object?> _failedJob(Request request) async {
     final uuid = request.param<String>('uuid');
-    final recorded = await _call('job', {'uuid': uuid});
+    final recorded = (await _call('job', (s) => s.job(uuid)))?.toJson();
     final failed = await _queues.processor.failedJobs.find(uuid);
     if (recorded == null && failed == null) {
       throw NotFoundHttpException();
     }
     return {
-      ...?(recorded as Map<String, Object?>?),
+      ...?recorded,
       if (failed != null) ...{
         'id': '${failed.id}',
         'connection': failed.connection,
@@ -460,13 +462,14 @@ abstract final class HorizonDashboard {
   }
 
   static Future<Object?> _job(Request request) async {
-    final recorded = await _call('job', {
-      'uuid': request.param<String>('uuid'),
-    });
+    final recorded = await _call(
+      'job',
+      (s) => s.job(request.param<String>('uuid')),
+    );
     if (recorded == null) {
       throw NotFoundHttpException();
     }
-    return recorded;
+    return recorded.toJson();
   }
 
   static Future<Object?> _retry(Request request) async {

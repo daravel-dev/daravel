@@ -6,6 +6,7 @@ import 'dart:typed_data';
 
 import '../foundation/container.dart';
 import '../foundation/exceptions.dart';
+import '../foundation/glob.dart';
 import 'headers.dart';
 
 /// Outgoing HTTP requests, like Laravel's `Http` facade:
@@ -908,10 +909,7 @@ final class HttpFake {
   /// Laravel's `Str::is(Str::start($pattern, '*'), $url)`.
   static bool _matches(String pattern, String url) {
     final start = pattern.startsWith('*') ? pattern : '*$pattern';
-    final regex = RegExp(
-      '^${start.split('*').map(RegExp.escape).join('.*')}\$',
-    );
-    return regex.hasMatch(url);
+    return globMatches(start, url);
   }
 
   /// Requests matching [test].

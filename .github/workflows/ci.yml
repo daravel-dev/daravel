@@ -85,7 +85,9 @@ jobs:
 
       # The example applications are what users copy, so they pass the same
       # lint rules as a user's project (no_inline_js_interpolation included).
+      # Once, on Linux: the rules read source, the same on every OS.
       - name: Lint the example applications
+        if: runner.os == 'Linux' && matrix.sdk == 'stable'
         run: |
           for app in apps/*/; do
             if [ -f "$app/bin/dartisan.dart" ]; then
@@ -99,7 +101,15 @@ jobs:
           # `dartisan new` end-to-end (pub get + analyze + test of a generated
           # project) runs once, on Linux.
           DARAVEL_E2E: ${{ runner.os == 'Linux' && matrix.sdk == 'stable' && '1' || '0' }}
+        # The oldest SDK (3.13.0) runs every suite where the result is kept
+        # (merge queue, main, release branches); on a pull request only the
+        # core's, as analyze above already checks the whole workspace on it.
         run: |
+          if [ "${{ matrix.sdk }}" != stable ] && [ "${{ github.event_name }}" = pull_request ]; then
+            echo "== packages/daravel (oldest SDK, pull request)"
+            (cd packages/daravel && dart test --reporter=expanded)
+            exit 0
+          fi
           for pkg in packages/daravel packages/daravel_lints packages/daravel_lints_plugin packages/daravel_test packages/daravel_mysql packages/daravel_permission packages/daravel_activitylog packages/daravel_excel packages/daravel_log_viewer packages/daravel_pulse packages/daravel_horizon packages/daravel_reverb packages/daravel_reverb_client packages/daravel_payments packages/daravel_medialibrary packages/daravel_redis packages/daravel_sqlite packages/daravel_postgres packages/daravel_teorion packages/daravel_livekit packages/daravel_google packages/daravel_teobiefy packages/daravel_s3 packages/daravel_scout packages/daravel_session packages/dartisan_cli apps/daravel_starter apps/virtual_classroom apps/websocket_demo apps/cat_exam_demo apps/horizon_demo apps/reverb_demo; do
             if [ -d "$pkg/test" ]; then
               echo "== $pkg"

@@ -208,6 +208,101 @@ void main() {
       expect(await kept({'a': 1}, {'a': 'exclude_if:b,x'}), {'a': 1});
     });
 
+    test('every exclude_* reads * as the same item', () async {
+      // Laravel 13 lists ExcludeIf, ExcludeUnless, ExcludeWith and
+      // ExcludeWithout in Validator::$dependentRules (Validator.php
+      // 239-249), so it replaces their asterisks with the attribute's own
+      // keys before reading the other field. exclude_if and exclude_with
+      // did not here; exclude_unless and exclude_without already read
+      // through ValidationContext.root, which resolves *.
+      final ifRules = {'items.*.note': 'exclude_if:items.*.on,true|required'};
+      expect(
+        await errors({
+          'items': [
+            {'on': true},
+            {'on': false, 'note': 'b'},
+          ],
+        }, ifRules),
+        isEmpty,
+      );
+      expect(
+        (await errors({
+          'items': [
+            {'on': false},
+          ],
+        }, ifRules)).keys,
+        ['items.0.note'],
+      );
+      final withRules = {'items.*.note': 'exclude_with:items.*.x|required'};
+      expect(
+        await errors({
+          'items': [
+            {'x': 1},
+            {'note': 'b'},
+          ],
+        }, withRules),
+        isEmpty,
+      );
+      final unlessRules = {
+        'items.*.note': 'exclude_unless:items.*.on,true|required',
+      };
+      expect(
+        await errors({
+          'items': [
+            {'on': false},
+            {'on': true, 'note': 'b'},
+          ],
+        }, unlessRules),
+        isEmpty,
+      );
+      expect(
+        (await errors({
+          'items': [
+            {'on': true},
+          ],
+        }, unlessRules)).keys,
+        ['items.0.note'],
+      );
+      final withoutRules = {
+        'items.*.note': 'exclude_without:items.*.x|required',
+      };
+      expect(
+        await errors({
+          'items': [
+            <String, Object?>{},
+            {'x': 1, 'note': 'b'},
+          ],
+        }, withoutRules),
+        isEmpty,
+      );
+      expect(
+        (await errors({
+          'items': [
+            {'x': 1},
+          ],
+        }, withoutRules)).keys,
+        ['items.0.note'],
+      );
+    });
+
+    test('the order of the messages is the order of the rules and the '
+        'attributes, with when and forEach among them', () async {
+      final errors = await Validator(
+        {
+          'items': [
+            {'qty': 0},
+          ],
+        },
+        {
+          'name': 'required|string',
+          'items.*.qty': Rules.forEach((_) => [Rules.integer(), Rules.min(1)]),
+          'email': Rules.whenInput((_) => true, [Rules.required()]),
+          'age': 'required|integer',
+        },
+      ).run();
+      expect(errors.keys, ['name', 'items.0.qty', 'email', 'age']);
+    });
+
     test('a later rule sees the attribute as gone', () async {
       final result = await errors(
         {'a': 'x'},
