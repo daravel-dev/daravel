@@ -1,7 +1,7 @@
 ### Added
 
 - `daravel_lints` fixes (W9.8): `LintRule.fixFor(unit, node)` returns a `LintFix` (message and text edits, `apply(source)`), `LintRule.fixesIn(unit)` every fix in a file, and `LintFixMerger` combines them so an edit two fixes share is made once; `daravelName` and `leaveConstantContext` are the helpers a fix uses to name a `package:daravel` member and to leave a constant context.
-- `string_validation_rule` offers its fix: the string rule list becomes the `Rules` chain the finding names (`ruleChainSource`), with the import's prefix or an added import. Not offered for interpolated or adjacent strings, in a list or map typed to hold strings (also through a `rules()` return type), in a `const` variable or `const` constructor call, or when the import hides `Rules`; a `const` list or map loses its `const` when that is enough.
+- `string_validation_rule` offers its fix: the string rule list becomes the `Rules` chain the finding names (`ruleChainSource`), with the import's prefix or an added import. Not offered for interpolated or adjacent strings, in a list or map typed to hold strings (by its type arguments, or by the variable, field, method, getter or function it initializes or returns from), in a `const` variable or `const` constructor call, or when the import hides `Rules`; a `const` list or map loses its `const` when that is enough, and the message then says `(removes const)`.
 - `daravel_lints_plugin` offers each rule's fix as a quick fix, with "Fix all in file" (`DaravelFix`); today that is `string_validation_rule`.
 
 ### Upgrade notes

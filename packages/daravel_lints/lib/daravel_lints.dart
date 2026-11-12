@@ -308,12 +308,24 @@ final class StringValidationRule extends LintRule {
   /// code's meaning:
   /// - a string that is not one plain literal (interpolated, adjacent
   ///   strings, a concatenation);
-  /// - a list or map typed to hold strings (`<String>[...]`,
-  ///   `<String, String>{...}`, a `rules()` declared to return
-  ///   `Map<String, String>`);
+  /// - a list or map typed to hold strings, by its own type arguments
+  ///   (`<String>[...]`, `<String, String>{...}`) or by the declaration it
+  ///   initializes or returns from: a variable or field
+  ///   (`final Map<String, String> r = {...}`, `List<String> x = [...]`),
+  ///   a method, getter or function, top-level or local (an override of
+  ///   `rules()` may narrow it to `Map<String, String>`), since the literal
+  ///   is inferred from that type;
   /// - a constant context it cannot leave by removing the `const` of the
   ///   enclosing literal (a `const` variable, a `const` constructor call);
+  ///   when the fix removes that `const`, its message says so;
   /// - a file whose import of `package:daravel/daravel.dart` hides `Rules`.
+  ///
+  /// Limit: without resolution the rule cannot see a type that reaches the
+  /// literal from elsewhere, such as a map passed to a parameter typed
+  /// `Map<String, String>` of the application's own function, or assigned
+  /// to an existing variable. There the fix can produce code that does not
+  /// compile; the editor shows the error at once, and `dartisan lint --fix`
+  /// analyzes the result again and reverts a file it broke.
   @override
   LintFix? fixFor(CompilationUnit unit, AstNode node) {
     if (node is! SimpleStringLiteral) {
@@ -329,62 +341,76 @@ final class StringValidationRule extends LintRule {
       return null;
     }
     final text = '${name.prefix}$chain';
-    return LintFix('Write as $text', [
-      LintEdit(node.offset, node.length, text),
-      ...leave,
-      ?name.addImport,
-    ]);
+    return LintFix(
+      leave.isEmpty ? 'Write as $text' : 'Write as $text (removes const)',
+      [LintEdit(node.offset, node.length, text), ...leave, ?name.addImport],
+    );
   }
 
-  /// Whether [literal] sits in a list or map whose type arguments make it
-  /// hold strings, where a `Rule` would not compile.
+  /// Whether [literal] sits in a list or map typed to hold strings, where a
+  /// `Rule` would not compile.
   static bool _typedAsStrings(SimpleStringLiteral literal) {
     bool strings(TypeAnnotation? type) =>
-        type?.toSource().replaceAll(' ', '') == 'String';
+        RegExp(r'^String\??$')
+            .hasMatch(type?.toSource().replaceAll(' ', '') ?? '');
     bool stringLists(TypeAnnotation? type) =>
-        type?.toSource().replaceAll(' ', '').contains('<String>') ?? false;
+        RegExp(r'<String\??>')
+            .hasMatch(type?.toSource().replaceAll(' ', '') ?? '');
     final parent = literal.parent;
     if (parent is ListLiteral) {
-      if (strings(parent.typeArguments?.arguments.firstOrNull)) {
-        return true;
+      if (parent.typeArguments case TypeArgumentList(:final arguments)) {
+        return arguments.length == 1 && strings(arguments.single);
       }
       final entry = parent.parent;
       if (entry is MapLiteralEntry && entry.parent is SetOrMapLiteral) {
-        return stringLists(_mapValueType(entry.parent! as SetOrMapLiteral));
+        final types = _typeArguments(entry.parent! as SetOrMapLiteral);
+        return types.length == 2 && stringLists(types[1]);
       }
-      return false;
+      final types = _typeArguments(parent);
+      return types.length == 1 && strings(types.single);
     }
     if (parent is MapLiteralEntry && parent.parent is SetOrMapLiteral) {
-      return strings(_mapValueType(parent.parent! as SetOrMapLiteral));
+      final types = _typeArguments(parent.parent! as SetOrMapLiteral);
+      return types.length == 2 && strings(types[1]);
     }
     return false;
   }
 
-  /// The value type [map] holds: its own type arguments, or, for a map a
-  /// `rules()` method returns, the method's return type (an override may
-  /// narrow it to `Map<String, String>`, and the map is inferred from it).
-  static TypeAnnotation? _mapValueType(SetOrMapLiteral map) {
-    if (map.typeArguments case TypeArgumentList(:final arguments)) {
-      return arguments.length == 2 ? arguments[1] : null;
+  /// The type arguments [literal] has: its own, or those of the type
+  /// declared where it is written, since it is inferred from that type.
+  static List<TypeAnnotation> _typeArguments(TypedLiteral literal) {
+    if (literal.typeArguments case TypeArgumentList(:final arguments)) {
+      return arguments;
     }
-    final method = switch (map.parent) {
-      ExpressionFunctionBody(parent: final MethodDeclaration m) => m,
-      ReturnStatement(
-        parent: Block(
-          parent: BlockFunctionBody(parent: final MethodDeclaration m),
-        ),
-      ) =>
-        m,
+    final declared = _declaredType(literal);
+    return declared is NamedType
+        ? declared.typeArguments?.arguments ?? const []
+        : const [];
+  }
+
+  /// The type declared for the place [expression] is written in: the
+  /// variable or field it initializes, or the method, getter or function
+  /// (top-level or local) it is returned from.
+  static TypeAnnotation? _declaredType(Expression expression) {
+    TypeAnnotation? returnType(FunctionBody? body) => switch (body?.parent) {
+      MethodDeclaration(:final returnType) => returnType,
+      FunctionExpression(parent: FunctionDeclaration(:final returnType)) =>
+        returnType,
       _ => null,
     };
-    final returns = method?.returnType;
-    if (returns is NamedType) {
-      final arguments = returns.typeArguments?.arguments;
-      if (arguments != null && arguments.length == 2) {
-        return arguments[1];
-      }
-    }
-    return null;
+    return switch (expression.parent) {
+      VariableDeclaration(
+        parent: VariableDeclarationList(:final type),
+        :final initializer,
+      )
+          when identical(initializer, expression) =>
+        type,
+      final ExpressionFunctionBody body => returnType(body),
+      final ReturnStatement statement => returnType(
+        statement.thisOrAncestorOfType<FunctionBody>(),
+      ),
+      _ => null,
+    };
   }
 }
 

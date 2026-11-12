@@ -62,15 +62,24 @@ keeps odd characters out, any existing column still passes.
 plugin offers as a quick fix, for one finding or all in the file. The fix
 is offered only where the chain compiles and means the same:
 - one plain string literal (not interpolated, not adjacent strings);
-- not in a list or map typed to hold strings (`<String>[...]`,
-  `<String, String>{...}`, a `rules()` declared to return
-  `Map<String, String>`);
+- not in a list or map typed to hold strings, by its own type arguments
+  (`<String>[...]`, `<String, String>{...}`) or by the declaration it
+  initializes or returns from (a variable or field typed
+  `Map<String, String>`, a method, getter or function declared to return
+  one, such as a `rules()` override);
 - in a `const` context only when removing the `const` of the enclosing
   list or map is enough, never in a `const` variable or a `const`
-  constructor call;
+  constructor call. The message then ends in `(removes const)`: the other
+  elements lose their constant context too, so `[Foo(), 'required']` makes
+  a new `Foo` each time;
 - not when the file's import of `package:daravel/daravel.dart` hides
   `Rules`. The import's prefix is used, and the import is added when
   missing.
+
+Without resolution, the rule cannot see a type that reaches the literal
+from elsewhere, such as a map passed to your own function's parameter
+typed `Map<String, String>`. There the fix can produce code that does not
+compile, and the editor shows the error at once.
 
 `rule.fixesIn(unit)` returns every fix in a file, and `LintFixMerger`
 combines them, making an edit two fixes share only once. The other rules

@@ -166,6 +166,13 @@ final class LintFixMerger {
 /// (a `const` variable, a `const` constructor call, an annotation, a
 /// default value). Returns an empty list outside a constant context and
 /// `null` when the context cannot be left by one edit.
+///
+/// Removing that `const` changes more than [expression]: the literal is no
+/// longer canonicalized or unmodifiable, and every other element loses its
+/// constant context too, so a constant constructor call written without
+/// `const` (`[Foo(), 'required']`) makes a new instance each time. The code
+/// still compiles; a fix that uses this edit says so in its message
+/// ("(removes const)").
 List<LintEdit>? leaveConstantContext(Expression expression) {
   if (!expression.inConstantContext) {
     return const [];

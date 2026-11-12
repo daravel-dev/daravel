@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:d03e91cb2260 -->
+<!-- source: README.md sha256:f0c16011cdd1 -->
 <img src="https://raw.githubusercontent.com/daravel-dev/daravel/main/docs/brand/png/daravel-icon-128.png" alt="Daravel" width="64" align="right">
 
 # daravel_lints
@@ -67,15 +67,25 @@ plugin editor sebagai quick fix, untuk satu temuan atau semua temuan dalam
 berkas. Fix hanya ditawarkan bila rantainya compile dan artinya sama:
 - satu string literal polos (bukan interpolasi, bukan string yang
   berdampingan);
-- tidak berada di list atau map yang bertipe string (`<String>[...]`,
-  `<String, String>{...}`, `rules()` yang dideklarasikan mengembalikan
-  `Map<String, String>`);
+- tidak berada di list atau map yang bertipe string, baik lewat argumen
+  tipenya sendiri (`<String>[...]`, `<String, String>{...}`) maupun lewat
+  deklarasi yang diinisialisasi atau dikembalikannya (variabel atau field
+  bertipe `Map<String, String>`, method, getter, atau fungsi yang
+  dideklarasikan mengembalikan tipe itu, misalnya override `rules()`);
 - di konteks `const` hanya bila cukup dengan menghapus `const` pada list
   atau map yang membungkusnya, tidak pernah di variabel `const` atau
-  pemanggilan constructor `const`;
+  pemanggilan constructor `const`. Pesannya kemudian diakhiri
+  `(removes const)`: elemen lain juga kehilangan konteks konstannya,
+  sehingga `[Foo(), 'required']` membuat `Foo` baru setiap kali;
 - tidak bila import `package:daravel/daravel.dart` di berkas itu
   menyembunyikan `Rules`. Prefix import dipakai, dan import ditambahkan
   bila belum ada.
+
+Tanpa resolusi, rule ini tidak bisa melihat tipe yang datang dari tempat
+lain, misalnya map yang diberikan ke parameter bertipe
+`Map<String, String>` di fungsi Anda sendiri. Di sana fix bisa
+menghasilkan kode yang tidak compile, dan editor langsung menunjukkan
+galatnya.
 
 `rule.fixesIn(unit)` mengembalikan semua fix dalam satu berkas, dan
 `LintFixMerger` menggabungkannya sehingga edit yang sama dari dua fix hanya

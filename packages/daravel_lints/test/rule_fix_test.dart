@@ -105,7 +105,13 @@ Future<void> f(Request request) => request.validate(const {
   'b': ['required', 'email'],
 });
 ''';
-    final fixed = fix(literal).fixed;
+    final constFix = fix(literal);
+    // The message says the const goes.
+    expect(
+      constFix.fixes.first!.message,
+      'Write as Rules.required() (removes const)',
+    );
+    final fixed = constFix.fixed;
     expect(fixed, contains('request.validate({'));
     expect(fixed, contains("'a': Rules.required(),"));
     expect(fixed, contains("'b': [Rules.required(), Rules.email()],"));
@@ -165,6 +171,59 @@ final class B extends FormRequest {
     expect(result.fixes, hasLength(6));
     expect(result.fixes.whereType<LintFix>(), isEmpty);
     expect(result.fixed, source);
+  });
+
+  group('typed by the declaration the literal is written in', () {
+    /// The fix of the `'required'` literal in [declaration], asked directly
+    /// (most of these places are not reported by the rule; the fix still
+    /// refuses them).
+    LintFix? fixIn(String declaration) {
+      final source = "import 'package:daravel/daravel.dart';\n\n$declaration\n";
+      final unit = parseString(content: source).unit;
+      final literals = <SimpleStringLiteral>[];
+      unit.accept(_Literals(literals));
+      return rule.fixFor(
+        unit,
+        literals.singleWhere((l) => l.value == 'required'),
+      );
+    }
+
+    final refused = {
+      'local variable':
+          "void f() {\n  final Map<String, String> r = {'a': 'required'};\n}",
+      'nullable value type':
+          "void f() {\n  Map<String, String?>? r = {'a': 'required'};\n}",
+      'local list': "void f() {\n  List<String> x = ['required'];\n}",
+      'list in a map':
+          "final Map<String, List<String>> r = {'a': ['required']};",
+      'top-level variable': "final Map<String, String> r = {'a': 'required'};",
+      'field':
+          "final class C {\n  static final Map<String, String> r = "
+          "{'a': 'required'};\n}",
+      'top-level function': "Map<String, String> rules() => {'a': 'required'};",
+      'top-level getter': "Map<String, String> get rules => {'a': 'required'};",
+      'method getter':
+          "final class C {\n  Map<String, String> get rules => "
+          "{'a': 'required'};\n}",
+      'local function':
+          "void f() {\n  Map<String, String> rules() {\n"
+          "    return {'a': 'required'};\n  }\n}",
+    };
+    for (final MapEntry(key: form, value: declaration) in refused.entries) {
+      test('not offered: $form', () => expect(fixIn(declaration), isNull));
+    }
+
+    final offered = {
+      'Object values': "final Map<String, Object> r = {'a': 'required'};",
+      'no type': "final r = {'a': 'required'};",
+      'a local function typed Object inside a typed one':
+          "Map<String, String> f() {\n"
+          "  Object g() {\n    return {'a': 'required'};\n  }\n"
+          "  return {};\n}",
+    };
+    for (final MapEntry(key: form, value: declaration) in offered.entries) {
+      test('offered: $form', () => expect(fixIn(declaration), isNotNull));
+    }
   });
 
   test(

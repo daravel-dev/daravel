@@ -84,7 +84,9 @@ Future<void> f(Request request) =>
     final producer = _producer(unit, library, found.first);
     final builder = ChangeBuilder(session: unit.session);
     await producer.compute(builder);
-    expect(producer.fixArguments, ['Write as Rules.required().email()']);
+    expect(producer.fixArguments, [
+      'Write as Rules.required().email() (removes const)',
+    ]);
     expect(producer.canBeAppliedAcrossSingleFile, isTrue);
     expect(
       _applied(builder),
