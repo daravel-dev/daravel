@@ -269,8 +269,22 @@ final class DbInstallCommand extends Command<int> {
       changed.add('pubspec.yaml (${driver.package}: ^$daravelVersion)');
     }
 
+    // The bootstrap/database.dart registry, which model:sync reads too,
+    // when the project has one and the driver registers by name.
+    final registryFile = File(p.join(root, 'bootstrap', 'database.dart'));
+    final registry = registryFile.existsSync()
+        ? registryFile.readAsStringSync()
+        : null;
+    final entries = registry == null
+        ? null
+        : registerDriverEntries(registry, driver);
     final bootstrap = File(p.join(root, 'bootstrap', 'app.dart'));
-    if (bootstrap.existsSync()) {
+    if (entries != null) {
+      if (entries != registry) {
+        registryFile.writeAsStringSync(entries);
+        changed.add('bootstrap/database.dart (databaseDrivers)');
+      }
+    } else if (bootstrap.existsSync()) {
       final source = bootstrap.readAsStringSync();
       final registered = registerDriver(source, driver);
       if (registered == null) {
@@ -323,4 +337,55 @@ final class DbInstallCommand extends Command<int> {
     );
     return 0;
   }
+}
+
+/// [registry] (`bootstrap/database.dart`) with the drivers of [driver] as
+/// entries of its `databaseDrivers` map (`'mysql': MySqlDriver.fromConfig,`)
+/// and the package import; entries and imports already there are not
+/// repeated. `null` when [driver] does not register through
+/// `withDatabaseDriver(name, factory)` calls only (`.withPostgres()`: those
+/// stay in `bootstrap/app.dart`) or the file has no `databaseDrivers` map.
+String? registerDriverEntries(String registry, DriverPackage driver) {
+  final call = RegExp(r"^\.withDatabaseDriver\('([^']+)',\s*([\w.]+)\)$");
+  final entries = <String>[];
+  for (final registration in driver.registration) {
+    final match = call.firstMatch(registration.trim());
+    if (match == null) {
+      return null;
+    }
+    entries.add("'${match[1]}': ${match[2]},");
+  }
+  final map = RegExp(r'databaseDrivers\s*=\s*(?:<[^>]*>\s*)?\{')
+      .firstMatch(registry);
+  if (map == null) {
+    return null;
+  }
+  final close = registry.indexOf('};', map.end);
+  if (close < 0) {
+    return null;
+  }
+  final body = registry.substring(map.end, close);
+  final missing = [
+    for (final entry in entries)
+      if (!body.contains(entry.substring(0, entry.indexOf(':') + 1))) entry,
+  ];
+  var result = registry;
+  if (missing.isNotEmpty) {
+    final insert = [for (final entry in missing) '  $entry\n'].join();
+    final at = body.trimRight().isEmpty ? map.end : close;
+    result = result.replaceRange(
+      at,
+      at,
+      body.trimRight().isEmpty ? '\n$insert' : insert,
+    );
+  }
+  if (!result.contains(driver.import)) {
+    final imports = RegExp(
+      r"^import 'package:[^']+';\r?\n",
+      multiLine: true,
+    ).allMatches(result).toList();
+    final at = imports.isEmpty ? 0 : imports.last.end;
+    result = result.replaceRange(at, at, '${driver.import}\n');
+  }
+  return result;
 }

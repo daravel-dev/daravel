@@ -165,8 +165,8 @@ project's dartisan_cli without compiling the application, so it works
 while a request names an input type that does not exist yet. Without the
 global dartisan, `dart run dartisan_cli:dartisan request:sync` from the
 project does the same; `dart run bin/dartisan.dart request:sync` compiles
-the application first. (model:sync reads the database, so it needs the
-application to compile.)''';
+the application first. (model:sync does not compile it either: it reads
+the schema through a connection from the environment.)''';
 
   @override
   Future<int> run() async {
