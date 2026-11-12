@@ -369,6 +369,7 @@ sections:
       - { php: "->selectSub($query, 'alias')", dart: ".selectSub(query, 'alias')", symbol: QueryBuilder.selectSub }
       - { php: "Schema::create('users', fn (Blueprint $table) => ...)", dart: "schema.create('users', (table) {...})", symbol: SchemaBuilder.create, async: true }
       - { php: "Schema::table / dropIfExists / hasTable / hasColumn", dart: "schema.table / dropIfExists / hasTable / hasColumn", symbol: SchemaBuilder.hasColumn, async: true }
+      - { php: "Schema::getForeignKeys('sessions')", dart: "await Schema.getForeignKeys('sessions')", symbol: SchemaBuilder.getForeignKeys, async: true, note: "Laravel 13's shape (name, columns, foreign_schema, foreign_table, foreign_columns, on_update, on_delete) as a ForeignKeyInfo; name is null on SQLite, as in Laravel." }
       - { php: "$table->id() / string() / foreignId()->constrained()", dart: "table.id() / string() / foreignId().constrained()", symbol: Blueprint.foreignId }
       - { php: "$table->morphs('taggable') / nullableMorphs / uuidMorphs / ulidMorphs", dart: "table.morphs('taggable') / nullableMorphs / uuidMorphs / ulidMorphs", symbol: Blueprint.nullableMorphs }
       - { php: "$table->timestamps() / softDeletes() / rememberToken()", dart: "table.timestamps() / softDeletes() / rememberToken()", symbol: Blueprint.softDeletes }

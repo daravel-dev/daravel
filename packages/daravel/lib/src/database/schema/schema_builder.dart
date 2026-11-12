@@ -139,6 +139,17 @@ final class SchemaBuilder {
     return [for (final row in rows) g.columnInfo(row)];
   }
 
+  /// The foreign keys of [table], as Laravel's `Schema::getForeignKeys`
+  /// (empty when it has none or does not exist).
+  Future<List<ForeignKeyInfo>> getForeignKeys(String table) async {
+    final g = grammar;
+    final rows = await _executor.select(
+      g.compileForeignKeys(),
+      g.foreignKeyBindings(table),
+    );
+    return [for (final row in rows) g.foreignKeyInfo(row)];
+  }
+
   /// Names of the user tables.
   Future<List<String>> getTables() async {
     final rows = await _executor.select(grammar.compileListTables());

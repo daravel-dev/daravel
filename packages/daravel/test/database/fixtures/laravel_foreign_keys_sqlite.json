@@ -1,0 +1,73 @@
+{
+    "source": "Laravel 13.40.0, PHP 8.3.35, SQLite 3.46.1",
+    "statements": [
+        "create table \"users\" (\"id\" integer primary key autoincrement not null, \"name\" varchar not null)",
+        "create table \"assessments\" (\"id\" integer primary key autoincrement not null, \"title\" varchar not null)",
+        "create table \"sessions\" (\"id\" integer primary key autoincrement not null, \"assessment_id\" integer not null, \"user_id\" integer, \"parent_id\" integer, foreign key(\"assessment_id\") references \"assessments\"(\"id\") on delete cascade, foreign key(\"user_id\") references \"users\"(\"id\") on delete set null on update cascade, foreign key(\"parent_id\") references \"sessions\"(\"id\"))",
+        "create table \"grades\" (\"id\" integer primary key autoincrement not null, \"session_id\" integer not null, \"assessment_id\" integer not null, \"note\" varchar, foreign key(\"session_id\", \"assessment_id\") references \"pairs\"(\"a\", \"b\") on delete restrict)",
+        "create table \"plain\" (\"id\" integer primary key autoincrement not null, \"commentable_type\" varchar, \"commentable_id\" integer)"
+    ],
+    "foreign_keys": {
+        "users": [],
+        "sessions": [
+            {
+                "name": null,
+                "columns": [
+                    "parent_id"
+                ],
+                "foreign_schema": "main",
+                "foreign_table": "sessions",
+                "foreign_columns": [
+                    "id"
+                ],
+                "on_update": "no action",
+                "on_delete": "no action"
+            },
+            {
+                "name": null,
+                "columns": [
+                    "user_id"
+                ],
+                "foreign_schema": "main",
+                "foreign_table": "users",
+                "foreign_columns": [
+                    "id"
+                ],
+                "on_update": "cascade",
+                "on_delete": "set null"
+            },
+            {
+                "name": null,
+                "columns": [
+                    "assessment_id"
+                ],
+                "foreign_schema": "main",
+                "foreign_table": "assessments",
+                "foreign_columns": [
+                    "id"
+                ],
+                "on_update": "no action",
+                "on_delete": "cascade"
+            }
+        ],
+        "grades": [
+            {
+                "name": null,
+                "columns": [
+                    "session_id",
+                    "assessment_id"
+                ],
+                "foreign_schema": "main",
+                "foreign_table": "pairs",
+                "foreign_columns": [
+                    "a",
+                    "b"
+                ],
+                "on_update": "no action",
+                "on_delete": "restrict"
+            }
+        ],
+        "plain": [],
+        "missing": []
+    }
+}

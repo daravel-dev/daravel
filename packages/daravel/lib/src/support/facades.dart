@@ -256,6 +256,10 @@ abstract final class Schema {
   static Future<List<ColumnInfo>> getColumns(String table) async =>
       (await builder()).getColumns(table);
 
+  /// Foreign keys of [table] (`Schema::getForeignKeys`).
+  static Future<List<ForeignKeyInfo>> getForeignKeys(String table) async =>
+      (await builder()).getForeignKeys(table);
+
   /// Whether [table] exists.
   static Future<bool> hasTable(String table) async =>
       (await builder()).hasTable(table);
