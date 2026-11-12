@@ -1891,10 +1891,8 @@ final class StartsWithRule extends Rule {
   @override
   Map<String, Object?> get parameters => {'values': prefixes.join(', ')};
   @override
-  String? passes(ValidationContext c) {
-    final value = c.value;
-    return value is String && prefixes.any(value.startsWith) ? null : name;
-  }
+  String? passes(ValidationContext c) =>
+      _hasAffix(c.value, prefixes, start: true) ?? false ? null : name;
 }
 
 /// `ends_with`: see [Rules.endsWith].
@@ -1909,10 +1907,30 @@ final class EndsWithRule extends Rule {
   @override
   Map<String, Object?> get parameters => {'values': suffixes.join(', ')};
   @override
-  String? passes(ValidationContext c) {
-    final value = c.value;
-    return value is String && suffixes.any(value.endsWith) ? null : name;
+  String? passes(ValidationContext c) =>
+      _hasAffix(c.value, suffixes, start: false) ?? false ? null : name;
+}
+
+/// Laravel 13's `Str::startsWith` / `endsWith` over a validated value:
+/// null when the value is neither a string nor a number (the four rules
+/// fail it); otherwise whether its text, as PHP's `(string)` writes it,
+/// starts (or ends) with one of [affixes], an empty one matching nothing.
+bool? _hasAffix(Object? value, List<String> affixes, {required bool start}) {
+  // `is_string($value) || is_numeric($value)`.
+  final text = switch (value) {
+    String() => value,
+    // PHP's (string) of a whole float has no ".0": JSON 1.0 is "1".
+    double() when value.isFinite && value == value.truncateToDouble() =>
+      '${value.toInt()}',
+    num() => '$value',
+    _ => null,
+  };
+  if (text == null) {
+    return null;
   }
+  return affixes.any(
+    (a) => a.isNotEmpty && (start ? text.startsWith(a) : text.endsWith(a)),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -3301,26 +3319,10 @@ final class DoesntAffixRule extends Rule {
   Map<String, Object?> get parameters => {'values': affixes.join(', ')};
 
   @override
-  String? passes(ValidationContext c) {
-    final value = c.value;
-    // `is_string($value) || is_numeric($value)`.
-    final text = switch (value) {
-      String() => value,
-      // PHP's (string) of a whole float has no ".0": JSON 1.0 is "1".
-      double() when value.isFinite && value == value.truncateToDouble() =>
-        '${value.toInt()}',
-      num() => '$value',
-      _ => null,
-    };
-    if (text == null) {
-      return name;
-    }
-    // `Str::startsWith` ignores an empty needle.
-    bool hit(String a) =>
-        a.isNotEmpty &&
-        (name == 'doesnt_start_with' ? text.startsWith(a) : text.endsWith(a));
-    return affixes.any(hit) ? name : null;
-  }
+  String? passes(ValidationContext c) =>
+      _hasAffix(c.value, affixes, start: name == 'doesnt_start_with') ?? true
+      ? name
+      : null;
 }
 
 /// `in_array`: see [Rules.inArray].

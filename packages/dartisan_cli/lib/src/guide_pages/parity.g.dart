@@ -304,6 +304,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `'prohibited_if_accepted:a' / 'prohibited_if_declined:a' / 'required_if_declined:a'` | `the same strings, or Rules.prohibitedIfAccepted('a') / prohibitedIfDeclined('a') / requiredIfDeclined('a')` |  |
 | `'required_array_keys:name,email'` | `the same string, or Rules.requiredArrayKeys(['name', 'email'])` |  |
 | `'contains:a,b' / 'doesnt_contain:a,b'` | `the same strings, or Rules.contains(['a', 'b']) / doesntContain(...)` | contains compares loosely, doesnt_contain strictly, as Laravel's in_array calls. |
+| `'starts_with:a' / 'ends_with:a'` | `the same strings, or Rules.startsWith(['a']) / endsWith(...)` | As Laravel 13 (a golden of 1 344 cases, with doesnt_*): a number is cast to text as PHP casts it (123 starts with 1), anything else but a string fails, and an empty parameter matches nothing. |
 | `'doesnt_start_with:a' / 'doesnt_end_with:a'` | `the same strings, or Rules.doesntStartWith(['a']) / doesntEndWith(...)` |  |
 | `'in_array:items.*.id'` | `the same string, or Rules.inArray('items.*.id')` | a * here does not match across a line break in a key, where Laravel's Str::is (flags su) does. |
 | `'in_array_keys:en,id' / 'array_keys:en,id' (13.x)` | `the same strings, or Rules.inArrayKeys([...]) / arrayKeys([...])` |  |
