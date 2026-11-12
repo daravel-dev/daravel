@@ -378,6 +378,22 @@ void main() {
     );
   });
 
+  test('production: a JSON depth off or above 1 024 warns', () async {
+    Future<List<String>> warned(Map<String, String> env) async => titled(
+      await diagnose({'APP_ENV': 'production', ...env}),
+      CheckStatus.warning,
+    ).where((title) => title.startsWith('HTTP_JSON_MAX_DEPTH')).toList();
+    expect(await warned(const {}), isEmpty, reason: 'the default, 512');
+    expect(await warned(const {'HTTP_JSON_MAX_DEPTH': '1024'}), isEmpty);
+    expect(await warned(const {'HTTP_JSON_MAX_DEPTH': '64'}), isEmpty);
+    expect(await warned(const {'HTTP_JSON_MAX_DEPTH': '1025'}), [
+      'HTTP_JSON_MAX_DEPTH=1025 in production',
+    ]);
+    expect(await warned(const {'HTTP_JSON_MAX_DEPTH': '0'}), [
+      'HTTP_JSON_MAX_DEPTH=0 in production',
+    ]);
+  });
+
   test('production: no APP_KEY is an error, weak hashing warns', () async {
     final checks = await diagnose({
       'APP_ENV': 'production',
