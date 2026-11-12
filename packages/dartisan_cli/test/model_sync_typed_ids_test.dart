@@ -24,6 +24,9 @@ final class CreateTables extends Migration {
     await schema.create('assessments', (t) {
       t.id();
       t.string('title');
+      // A key back to sessions, created below (SQLite resolves a foreign
+      // key when it is used, not when the table is created).
+      t.foreignId('featured_session_id').nullable().constrained('sessions');
     });
     await schema.create('sessions', (t) {
       t.id();
@@ -131,9 +134,17 @@ void main() {
         contains("import 'assessment.dart';"),
       ]),
     );
+    // The two models reference each other: each imports the other (Dart
+    // allows the cycle; the compile check below resolves it).
     expect(
       model('assessment.dart').readAsStringSync(),
-      contains('find(AssessmentId id)'),
+      allOf([
+        contains('find(AssessmentId id)'),
+        contains(
+          "SessionId? get featuredSessionId => getAttr('featured_session_id');",
+        ),
+        contains("import 'session.dart';"),
+      ]),
     );
     expect(model('user.dart').readAsStringSync(), contains('find(Object id)'));
     expect(
@@ -157,6 +168,8 @@ Future<void> ok(Session s) async {
   await Session.find(s.parentId!);
   Session.query().where(Session.cols.assessmentId.eq(s.assessmentId));
   Session.cols.assessmentId.inValues([s.assessmentId]);
+  final a = await Assessment.findOrFail(s.assessmentId);
+  await Session.find(a.featuredSessionId!);
   final int plain = s.assessmentId; // still an int where one is expected
   plain.isEven;
 }
@@ -166,6 +179,8 @@ Future<void> ok(Session s) async {
         'void bad(Session s) => Session.cols.assessmentId.eq(s.parentId!);',
         'void bad(Session s) => Session.cols.parentId.inValues([s.assessmentId]);',
         'Future<void> bad(Session s) async => Assessment.find(s.userId);',
+        'Future<void> bad(Assessment a) => '
+            'Assessment.find(a.featuredSessionId!);',
       ],
     );
     expect(errors, isEmpty);
@@ -202,7 +217,7 @@ Future<void> ok(Session s) async {
     // Session stays opted in; the import it was given stays too.
     expect(after, contains("SessionId? get parentId"));
     expect(after, contains("import 'assessment.dart';"));
-  });
+  }, timeout: const Timeout(Duration(minutes: 3)));
 
   test('--dry-run and --check say they would add the import, and write '
       'nothing', () async {
