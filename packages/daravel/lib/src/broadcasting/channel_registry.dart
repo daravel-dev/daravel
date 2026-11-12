@@ -113,6 +113,12 @@ final class ChannelPattern {
 
   /// The placeholders' values when [name] matches the whole pattern, in
   /// the order of [names]; `null` when it does not.
+  ///
+  /// Time and memory are O(k·n) per call, for k literal parts and
+  /// placeholders and a name of n characters: the table is allocated per
+  /// call. `/broadcasting/auth` passes names of at most 164 characters;
+  /// code calling [ChannelRegistry.authorize] with longer names pays for
+  /// their length, linearly.
   List<String>? match(String name) {
     final n = name.length;
     final k = _tokens.length;
