@@ -1,0 +1,757 @@
+{
+    "source": "Laravel 13.40.0, PHP 8.3.35: Request::json() = (array) json_decode($content, true), default depth 512",
+    "cases": [
+        {
+            "shape": "arrays",
+            "levels": 1,
+            "leaf": "1",
+            "bytes": 3,
+            "read": true,
+            "required_a_fails": true
+        },
+        {
+            "shape": "arrays",
+            "levels": 1,
+            "leaf": "\"[[[{{\\\"}\"",
+            "bytes": 12,
+            "read": true,
+            "required_a_fails": true
+        },
+        {
+            "shape": "arrays",
+            "levels": 1,
+            "leaf": "",
+            "bytes": 2,
+            "read": false,
+            "required_a_fails": true
+        },
+        {
+            "shape": "arrays",
+            "levels": 2,
+            "leaf": "1",
+            "bytes": 5,
+            "read": true,
+            "required_a_fails": true
+        },
+        {
+            "shape": "arrays",
+            "levels": 2,
+            "leaf": "\"[[[{{\\\"}\"",
+            "bytes": 14,
+            "read": true,
+            "required_a_fails": true
+        },
+        {
+            "shape": "arrays",
+            "levels": 2,
+            "leaf": "",
+            "bytes": 4,
+            "read": true,
+            "required_a_fails": true
+        },
+        {
+            "shape": "arrays",
+            "levels": 64,
+            "leaf": "1",
+            "bytes": 129,
+            "read": true,
+            "required_a_fails": true
+        },
+        {
+            "shape": "arrays",
+            "levels": 64,
+            "leaf": "\"[[[{{\\\"}\"",
+            "bytes": 138,
+            "read": true,
+            "required_a_fails": true
+        },
+        {
+            "shape": "arrays",
+            "levels": 64,
+            "leaf": "",
+            "bytes": 128,
+            "read": true,
+            "required_a_fails": true
+        },
+        {
+            "shape": "arrays",
+            "levels": 65,
+            "leaf": "1",
+            "bytes": 131,
+            "read": true,
+            "required_a_fails": true
+        },
+        {
+            "shape": "arrays",
+            "levels": 65,
+            "leaf": "\"[[[{{\\\"}\"",
+            "bytes": 140,
+            "read": true,
+            "required_a_fails": true
+        },
+        {
+            "shape": "arrays",
+            "levels": 65,
+            "leaf": "",
+            "bytes": 130,
+            "read": true,
+            "required_a_fails": true
+        },
+        {
+            "shape": "arrays",
+            "levels": 510,
+            "leaf": "1",
+            "bytes": 1021,
+            "read": true,
+            "required_a_fails": true
+        },
+        {
+            "shape": "arrays",
+            "levels": 510,
+            "leaf": "\"[[[{{\\\"}\"",
+            "bytes": 1030,
+            "read": true,
+            "required_a_fails": true
+        },
+        {
+            "shape": "arrays",
+            "levels": 510,
+            "leaf": "",
+            "bytes": 1020,
+            "read": true,
+            "required_a_fails": true
+        },
+        {
+            "shape": "arrays",
+            "levels": 511,
+            "leaf": "1",
+            "bytes": 1023,
+            "read": true,
+            "required_a_fails": true
+        },
+        {
+            "shape": "arrays",
+            "levels": 511,
+            "leaf": "\"[[[{{\\\"}\"",
+            "bytes": 1032,
+            "read": true,
+            "required_a_fails": true
+        },
+        {
+            "shape": "arrays",
+            "levels": 511,
+            "leaf": "",
+            "bytes": 1022,
+            "read": true,
+            "required_a_fails": true
+        },
+        {
+            "shape": "arrays",
+            "levels": 512,
+            "leaf": "1",
+            "bytes": 1025,
+            "read": false,
+            "required_a_fails": true
+        },
+        {
+            "shape": "arrays",
+            "levels": 512,
+            "leaf": "\"[[[{{\\\"}\"",
+            "bytes": 1034,
+            "read": false,
+            "required_a_fails": true
+        },
+        {
+            "shape": "arrays",
+            "levels": 512,
+            "leaf": "",
+            "bytes": 1024,
+            "read": false,
+            "required_a_fails": true
+        },
+        {
+            "shape": "arrays",
+            "levels": 513,
+            "leaf": "1",
+            "bytes": 1027,
+            "read": false,
+            "required_a_fails": true
+        },
+        {
+            "shape": "arrays",
+            "levels": 513,
+            "leaf": "\"[[[{{\\\"}\"",
+            "bytes": 1036,
+            "read": false,
+            "required_a_fails": true
+        },
+        {
+            "shape": "arrays",
+            "levels": 513,
+            "leaf": "",
+            "bytes": 1026,
+            "read": false,
+            "required_a_fails": true
+        },
+        {
+            "shape": "arrays",
+            "levels": 600,
+            "leaf": "1",
+            "bytes": 1201,
+            "read": false,
+            "required_a_fails": true
+        },
+        {
+            "shape": "arrays",
+            "levels": 600,
+            "leaf": "\"[[[{{\\\"}\"",
+            "bytes": 1210,
+            "read": false,
+            "required_a_fails": true
+        },
+        {
+            "shape": "arrays",
+            "levels": 600,
+            "leaf": "",
+            "bytes": 1200,
+            "read": false,
+            "required_a_fails": true
+        },
+        {
+            "shape": "objects",
+            "levels": 1,
+            "leaf": "1",
+            "bytes": 7,
+            "read": true,
+            "required_a_fails": false
+        },
+        {
+            "shape": "objects",
+            "levels": 1,
+            "leaf": "\"[[[{{\\\"}\"",
+            "bytes": 16,
+            "read": true,
+            "required_a_fails": false
+        },
+        {
+            "shape": "objects",
+            "levels": 2,
+            "leaf": "1",
+            "bytes": 13,
+            "read": true,
+            "required_a_fails": false
+        },
+        {
+            "shape": "objects",
+            "levels": 2,
+            "leaf": "\"[[[{{\\\"}\"",
+            "bytes": 22,
+            "read": true,
+            "required_a_fails": false
+        },
+        {
+            "shape": "objects",
+            "levels": 64,
+            "leaf": "1",
+            "bytes": 385,
+            "read": true,
+            "required_a_fails": false
+        },
+        {
+            "shape": "objects",
+            "levels": 64,
+            "leaf": "\"[[[{{\\\"}\"",
+            "bytes": 394,
+            "read": true,
+            "required_a_fails": false
+        },
+        {
+            "shape": "objects",
+            "levels": 65,
+            "leaf": "1",
+            "bytes": 391,
+            "read": true,
+            "required_a_fails": false
+        },
+        {
+            "shape": "objects",
+            "levels": 65,
+            "leaf": "\"[[[{{\\\"}\"",
+            "bytes": 400,
+            "read": true,
+            "required_a_fails": false
+        },
+        {
+            "shape": "objects",
+            "levels": 510,
+            "leaf": "1",
+            "bytes": 3061,
+            "read": true,
+            "required_a_fails": false
+        },
+        {
+            "shape": "objects",
+            "levels": 510,
+            "leaf": "\"[[[{{\\\"}\"",
+            "bytes": 3070,
+            "read": true,
+            "required_a_fails": false
+        },
+        {
+            "shape": "objects",
+            "levels": 511,
+            "leaf": "1",
+            "bytes": 3067,
+            "read": true,
+            "required_a_fails": false
+        },
+        {
+            "shape": "objects",
+            "levels": 511,
+            "leaf": "\"[[[{{\\\"}\"",
+            "bytes": 3076,
+            "read": true,
+            "required_a_fails": false
+        },
+        {
+            "shape": "objects",
+            "levels": 512,
+            "leaf": "1",
+            "bytes": 3073,
+            "read": false,
+            "required_a_fails": true
+        },
+        {
+            "shape": "objects",
+            "levels": 512,
+            "leaf": "\"[[[{{\\\"}\"",
+            "bytes": 3082,
+            "read": false,
+            "required_a_fails": true
+        },
+        {
+            "shape": "objects",
+            "levels": 513,
+            "leaf": "1",
+            "bytes": 3079,
+            "read": false,
+            "required_a_fails": true
+        },
+        {
+            "shape": "objects",
+            "levels": 513,
+            "leaf": "\"[[[{{\\\"}\"",
+            "bytes": 3088,
+            "read": false,
+            "required_a_fails": true
+        },
+        {
+            "shape": "objects",
+            "levels": 600,
+            "leaf": "1",
+            "bytes": 3601,
+            "read": false,
+            "required_a_fails": true
+        },
+        {
+            "shape": "objects",
+            "levels": 600,
+            "leaf": "\"[[[{{\\\"}\"",
+            "bytes": 3610,
+            "read": false,
+            "required_a_fails": true
+        },
+        {
+            "shape": "object_arrays",
+            "levels": 1,
+            "leaf": "1",
+            "bytes": 7,
+            "read": true,
+            "required_a_fails": false
+        },
+        {
+            "shape": "object_arrays",
+            "levels": 1,
+            "leaf": "\"[[[{{\\\"}\"",
+            "bytes": 16,
+            "read": true,
+            "required_a_fails": false
+        },
+        {
+            "shape": "object_arrays",
+            "levels": 2,
+            "leaf": "1",
+            "bytes": 9,
+            "read": true,
+            "required_a_fails": false
+        },
+        {
+            "shape": "object_arrays",
+            "levels": 2,
+            "leaf": "\"[[[{{\\\"}\"",
+            "bytes": 18,
+            "read": true,
+            "required_a_fails": false
+        },
+        {
+            "shape": "object_arrays",
+            "levels": 2,
+            "leaf": "",
+            "bytes": 8,
+            "read": true,
+            "required_a_fails": true
+        },
+        {
+            "shape": "object_arrays",
+            "levels": 64,
+            "leaf": "1",
+            "bytes": 133,
+            "read": true,
+            "required_a_fails": false
+        },
+        {
+            "shape": "object_arrays",
+            "levels": 64,
+            "leaf": "\"[[[{{\\\"}\"",
+            "bytes": 142,
+            "read": true,
+            "required_a_fails": false
+        },
+        {
+            "shape": "object_arrays",
+            "levels": 64,
+            "leaf": "",
+            "bytes": 132,
+            "read": true,
+            "required_a_fails": false
+        },
+        {
+            "shape": "object_arrays",
+            "levels": 65,
+            "leaf": "1",
+            "bytes": 135,
+            "read": true,
+            "required_a_fails": false
+        },
+        {
+            "shape": "object_arrays",
+            "levels": 65,
+            "leaf": "\"[[[{{\\\"}\"",
+            "bytes": 144,
+            "read": true,
+            "required_a_fails": false
+        },
+        {
+            "shape": "object_arrays",
+            "levels": 65,
+            "leaf": "",
+            "bytes": 134,
+            "read": true,
+            "required_a_fails": false
+        },
+        {
+            "shape": "object_arrays",
+            "levels": 510,
+            "leaf": "1",
+            "bytes": 1025,
+            "read": true,
+            "required_a_fails": false
+        },
+        {
+            "shape": "object_arrays",
+            "levels": 510,
+            "leaf": "\"[[[{{\\\"}\"",
+            "bytes": 1034,
+            "read": true,
+            "required_a_fails": false
+        },
+        {
+            "shape": "object_arrays",
+            "levels": 510,
+            "leaf": "",
+            "bytes": 1024,
+            "read": true,
+            "required_a_fails": false
+        },
+        {
+            "shape": "object_arrays",
+            "levels": 511,
+            "leaf": "1",
+            "bytes": 1027,
+            "read": true,
+            "required_a_fails": false
+        },
+        {
+            "shape": "object_arrays",
+            "levels": 511,
+            "leaf": "\"[[[{{\\\"}\"",
+            "bytes": 1036,
+            "read": true,
+            "required_a_fails": false
+        },
+        {
+            "shape": "object_arrays",
+            "levels": 511,
+            "leaf": "",
+            "bytes": 1026,
+            "read": true,
+            "required_a_fails": false
+        },
+        {
+            "shape": "object_arrays",
+            "levels": 512,
+            "leaf": "1",
+            "bytes": 1029,
+            "read": false,
+            "required_a_fails": true
+        },
+        {
+            "shape": "object_arrays",
+            "levels": 512,
+            "leaf": "\"[[[{{\\\"}\"",
+            "bytes": 1038,
+            "read": false,
+            "required_a_fails": true
+        },
+        {
+            "shape": "object_arrays",
+            "levels": 512,
+            "leaf": "",
+            "bytes": 1028,
+            "read": false,
+            "required_a_fails": true
+        },
+        {
+            "shape": "object_arrays",
+            "levels": 513,
+            "leaf": "1",
+            "bytes": 1031,
+            "read": false,
+            "required_a_fails": true
+        },
+        {
+            "shape": "object_arrays",
+            "levels": 513,
+            "leaf": "\"[[[{{\\\"}\"",
+            "bytes": 1040,
+            "read": false,
+            "required_a_fails": true
+        },
+        {
+            "shape": "object_arrays",
+            "levels": 513,
+            "leaf": "",
+            "bytes": 1030,
+            "read": false,
+            "required_a_fails": true
+        },
+        {
+            "shape": "object_arrays",
+            "levels": 600,
+            "leaf": "1",
+            "bytes": 1205,
+            "read": false,
+            "required_a_fails": true
+        },
+        {
+            "shape": "object_arrays",
+            "levels": 600,
+            "leaf": "\"[[[{{\\\"}\"",
+            "bytes": 1214,
+            "read": false,
+            "required_a_fails": true
+        },
+        {
+            "shape": "object_arrays",
+            "levels": 600,
+            "leaf": "",
+            "bytes": 1204,
+            "read": false,
+            "required_a_fails": true
+        },
+        {
+            "shape": "mixed",
+            "levels": 1,
+            "leaf": "1",
+            "bytes": 7,
+            "read": true,
+            "required_a_fails": false
+        },
+        {
+            "shape": "mixed",
+            "levels": 1,
+            "leaf": "\"[[[{{\\\"}\"",
+            "bytes": 16,
+            "read": true,
+            "required_a_fails": false
+        },
+        {
+            "shape": "mixed",
+            "levels": 2,
+            "leaf": "1",
+            "bytes": 9,
+            "read": true,
+            "required_a_fails": false
+        },
+        {
+            "shape": "mixed",
+            "levels": 2,
+            "leaf": "\"[[[{{\\\"}\"",
+            "bytes": 18,
+            "read": true,
+            "required_a_fails": false
+        },
+        {
+            "shape": "mixed",
+            "levels": 2,
+            "leaf": "",
+            "bytes": 8,
+            "read": true,
+            "required_a_fails": true
+        },
+        {
+            "shape": "mixed",
+            "levels": 64,
+            "leaf": "1",
+            "bytes": 257,
+            "read": true,
+            "required_a_fails": false
+        },
+        {
+            "shape": "mixed",
+            "levels": 64,
+            "leaf": "\"[[[{{\\\"}\"",
+            "bytes": 266,
+            "read": true,
+            "required_a_fails": false
+        },
+        {
+            "shape": "mixed",
+            "levels": 64,
+            "leaf": "",
+            "bytes": 256,
+            "read": true,
+            "required_a_fails": false
+        },
+        {
+            "shape": "mixed",
+            "levels": 65,
+            "leaf": "1",
+            "bytes": 263,
+            "read": true,
+            "required_a_fails": false
+        },
+        {
+            "shape": "mixed",
+            "levels": 65,
+            "leaf": "\"[[[{{\\\"}\"",
+            "bytes": 272,
+            "read": true,
+            "required_a_fails": false
+        },
+        {
+            "shape": "mixed",
+            "levels": 510,
+            "leaf": "1",
+            "bytes": 2041,
+            "read": true,
+            "required_a_fails": false
+        },
+        {
+            "shape": "mixed",
+            "levels": 510,
+            "leaf": "\"[[[{{\\\"}\"",
+            "bytes": 2050,
+            "read": true,
+            "required_a_fails": false
+        },
+        {
+            "shape": "mixed",
+            "levels": 510,
+            "leaf": "",
+            "bytes": 2040,
+            "read": true,
+            "required_a_fails": false
+        },
+        {
+            "shape": "mixed",
+            "levels": 511,
+            "leaf": "1",
+            "bytes": 2047,
+            "read": true,
+            "required_a_fails": false
+        },
+        {
+            "shape": "mixed",
+            "levels": 511,
+            "leaf": "\"[[[{{\\\"}\"",
+            "bytes": 2056,
+            "read": true,
+            "required_a_fails": false
+        },
+        {
+            "shape": "mixed",
+            "levels": 512,
+            "leaf": "1",
+            "bytes": 2049,
+            "read": false,
+            "required_a_fails": true
+        },
+        {
+            "shape": "mixed",
+            "levels": 512,
+            "leaf": "\"[[[{{\\\"}\"",
+            "bytes": 2058,
+            "read": false,
+            "required_a_fails": true
+        },
+        {
+            "shape": "mixed",
+            "levels": 512,
+            "leaf": "",
+            "bytes": 2048,
+            "read": false,
+            "required_a_fails": true
+        },
+        {
+            "shape": "mixed",
+            "levels": 513,
+            "leaf": "1",
+            "bytes": 2055,
+            "read": false,
+            "required_a_fails": true
+        },
+        {
+            "shape": "mixed",
+            "levels": 513,
+            "leaf": "\"[[[{{\\\"}\"",
+            "bytes": 2064,
+            "read": false,
+            "required_a_fails": true
+        },
+        {
+            "shape": "mixed",
+            "levels": 600,
+            "leaf": "1",
+            "bytes": 2401,
+            "read": false,
+            "required_a_fails": true
+        },
+        {
+            "shape": "mixed",
+            "levels": 600,
+            "leaf": "\"[[[{{\\\"}\"",
+            "bytes": 2410,
+            "read": false,
+            "required_a_fails": true
+        },
+        {
+            "shape": "mixed",
+            "levels": 600,
+            "leaf": "",
+            "bytes": 2400,
+            "read": false,
+            "required_a_fails": true
+        }
+    ]
+}

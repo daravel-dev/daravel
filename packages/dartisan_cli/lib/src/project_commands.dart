@@ -849,6 +849,23 @@ final class DoctorCommand extends DaravelCommand {
         ),
       );
     }
+    // Measured on Dart 3.13 with the limit off: `distinct` over `a.*`
+    // answered 500 (a stack overflow) from 2 345 nested levels, a response
+    // echoing the input from 3 433. 1 024 keeps a wide margin.
+    const deepestSafeJson = 1024;
+    final jsonDepth = Request.jsonMaxDepthFromEnv(app.env);
+    if (jsonDepth == null || jsonDepth > deepestSafeJson) {
+      checks.add(
+        DoctorCheck(
+          CheckStatus.warning,
+          'HTTP_JSON_MAX_DEPTH=${jsonDepth ?? 0} in production',
+          'A JSON body nested a few thousand levels deep can overflow the '
+              'stack in validation or when echoed (a 500). Leave it unset '
+              '(512, as Laravel reads JSON) or keep it at most '
+              '$deepestSafeJson.',
+        ),
+      );
+    }
     if (paths != null &&
         File(p.join(paths.root, '.env')).existsSync() &&
         !File(p.join(paths.root, '.env.encrypted')).existsSync()) {

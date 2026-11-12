@@ -35,6 +35,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `$request->validate($rules)` | `await request.validate(rules)` | **async** |
 | `$request->all()` | `await request.all()` | **async** |
 | `$request->input('a.b')` | `await request.input<T>('a.b')` | **async** |
+| `$request->json() (json_decode depth 512)` | `request.jsonMaxDepth (HTTP_JSON_MAX_DEPTH, 512)` | As PHP's json_decode $depth: 511 nested levels are read, 512 or deeper are no input (not a 400). Counted on the bytes before decoding. |
 | `$request->merge([...])` | `await request.merge({...})` | **async** |
 | `$request->replace([...])` | `request.replace({...})` |  |
 | `$request->has('key')` | `await request.has('key')` | **async** |

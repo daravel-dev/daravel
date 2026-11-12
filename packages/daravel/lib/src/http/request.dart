@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
+import 'dart:math' as math;
 import 'dart:io';
 import 'dart:typed_data';
 
 import '../foundation/container.dart';
+import '../foundation/env.dart';
 import '../foundation/ids.dart';
 import '../foundation/locale.dart';
 import '../routing/domain_pattern.dart';
@@ -15,6 +17,7 @@ import 'cookies.dart';
 import 'csp.dart';
 import 'headers.dart';
 import 'http_exceptions.dart';
+import 'json_nesting.dart';
 import 'multipart.dart';
 import 'uploaded_file.dart';
 
@@ -211,8 +214,51 @@ final class Request {
     }
   }
 
-  /// Maximum JSON nesting depth accepted by [body]; `null` means unlimited.
+  /// The deepest nesting [body] accepts with a `400` (Bad Request), set by
+  /// `BodyLimitsMiddleware` (`jsonDepth`, 64); `null` (the default) means
+  /// this check is off and only [jsonMaxDepth] applies.
   int? maxJsonDepth;
+
+  /// The JSON depth of the body, with the meaning of PHP's `json_decode`
+  /// `$depth` (Laravel's `Request::json()` uses its default, 512): a body
+  /// whose arrays and objects nest [jsonMaxDepth] deep **or deeper** is
+  /// read as no input at all, as Laravel reads it, not refused. With 512,
+  /// `{"a":[[…1…]]}` holding 510 arrays (511 levels) is read, and one more
+  /// array (512 levels) gives empty input, so `required` fails with a 422.
+  /// This is PHP's count, checked against Laravel 13.40; it is not off by
+  /// one.
+  ///
+  /// The nesting is counted on the bytes before they are decoded, in one
+  /// pass without recursion. A body past it never reaches code that walks
+  /// the input recursively: measured on Dart 3.13 with the limit off,
+  /// `distinct` over `a.*` overflowed the stack (a 500) from 2 345 nested
+  /// levels and a response echoing the input from 3 433, so `dartisan
+  /// doctor` warns in production above 1 024.
+  ///
+  /// The default, [defaultJsonMaxDepth], applies to every request, served
+  /// or synthetic; the kernel sets the application's (`HTTP_JSON_MAX_DEPTH`,
+  /// [jsonMaxDepthFromEnv]) on each one. `null` turns it off. Form and
+  /// multipart bodies are not affected.
+  int? jsonMaxDepth = defaultJsonMaxDepth;
+
+  /// PHP's `json_decode` default depth, which Laravel reads request bodies
+  /// with: 512 (511 nested levels are read, 512 are not).
+  static const int defaultJsonMaxDepth = 512;
+
+  /// [jsonMaxDepth] from `HTTP_JSON_MAX_DEPTH`: unset means
+  /// [defaultJsonMaxDepth], `0` no limit; a negative value is an error at
+  /// boot.
+  static int? jsonMaxDepthFromEnv(Env env) {
+    final value = env.integer('HTTP_JSON_MAX_DEPTH', defaultJsonMaxDepth);
+    if (value < 0) {
+      throw ArgumentError.value(
+        value,
+        'HTTP_JSON_MAX_DEPTH',
+        'must be a positive depth, or 0 for no limit',
+      );
+    }
+    return value == 0 ? null : value;
+  }
 
   Stream<List<int>>? _bodyStream;
   List<int>? _bodyBytes;
@@ -565,17 +611,34 @@ final class Request {
     }
     final contentType = (headers.contentType ?? '').toLowerCase();
     if (contentType.contains('json')) {
+      final refuseAbove = maxJsonDepth;
+      final emptyFrom = jsonMaxDepth;
+      if (refuseAbove != null || emptyFrom != null) {
+        // Counted on the bytes, before decoding: nothing that walks the
+        // decoded value recursively ever sees a nesting past the limits.
+        final nesting = jsonNesting(
+          raw,
+          stopAt: math.max(
+            refuseAbove == null ? 0 : refuseAbove + 1,
+            emptyFrom ?? 0,
+          ),
+        );
+        if (refuseAbove != null && nesting > refuseAbove) {
+          throw BadRequestHttpException(
+            'JSON body nesting exceeds the limit of $refuseAbove levels.',
+          );
+        }
+        if (emptyFrom != null && nesting >= emptyFrom) {
+          // PHP's json_decode gives null past its depth, and Laravel's
+          // `(array) null` is no input at all.
+          return _parsedBody = <String, Object?>{};
+        }
+      }
       final Object? decoded;
       try {
         decoded = jsonDecode(utf8.decode(raw), reviver: _finiteNumbers);
       } on FormatException catch (error) {
         throw BadRequestHttpException('Malformed JSON body: ${error.message}');
-      }
-      final depthLimit = maxJsonDepth;
-      if (depthLimit != null && _depth(decoded) > depthLimit) {
-        throw BadRequestHttpException(
-          'JSON body nesting exceeds the limit of $depthLimit levels.',
-        );
       }
       return _parsedBody = decoded;
     }
@@ -957,30 +1020,6 @@ final class Request {
       throw const FormatException('Number out of range');
     }
     return value;
-  }
-
-  static int _depth(Object? value) {
-    if (value is Map<Object?, Object?>) {
-      var max = 0;
-      for (final child in value.values) {
-        final depth = _depth(child);
-        if (depth > max) {
-          max = depth;
-        }
-      }
-      return max + 1;
-    }
-    if (value is List<Object?>) {
-      var max = 0;
-      for (final child in value) {
-        final depth = _depth(child);
-        if (depth > max) {
-          max = depth;
-        }
-      }
-      return max + 1;
-    }
-    return 0;
   }
 
   static Object? _dig(Object? source, String key) {
