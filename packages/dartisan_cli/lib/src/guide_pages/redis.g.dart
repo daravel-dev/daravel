@@ -70,6 +70,15 @@ The cache uses the `cache` connection (`REDIS_CACHE_DB`, 1 by default), so
 `dartisan cache:clear` deletes only the cache's keys (`SCAN` and `UNLINK`
 on its prefix, never `FLUSHDB`) and never queued jobs.
 
+Laravel's own `php artisan cache:clear` is not as careful: its Redis store
+flushes the whole cache database (`RedisStore::flush()` is
+`$this->connection()->flushdb();` in Laravel 13). With both on the same
+Redis it deletes Daravel's cache entries too (the cache database is shared
+on purpose). Queues and Horizon live in `REDIS_DB` and are untouched, unless
+the cache shares their database: `REDIS_CACHE_DB` equal to `REDIS_DB`, or a
+Redis Cluster, which has only database 0. There, clear the cache from
+Daravel (`dartisan cache:clear`) rather than from Laravel.
+
 ## Configuration
 
 | Variable | Default | Purpose |
