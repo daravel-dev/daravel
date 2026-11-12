@@ -29,7 +29,7 @@ A security patch: fixes only. Upgrade every application served by `dartisan serv
 
 ### Added
 
-- `Request.isFromTrustedProxy` (Laravel's `isFromTrustedProxy()`), which the fix needs: whether `TrustProxiesMiddleware` applied a trusted proxy's forwarding headers. The server logs one warning when a request carries `X-Forwarded-Proto` or `X-Forwarded-Host` that no trusted proxy applied.
+- `Request.isFromTrustedProxy` (Laravel's `isFromTrustedProxy()`), which the fix needs: whether `TrustProxiesMiddleware` applied a trusted proxy's forwarding headers. The server logs one warning when a request carries `X-Forwarded-Proto` or `X-Forwarded-Host` that no trusted proxy applied. It is said once per isolate and carries no header value. `dartisan doctor`, in production with an `https` `APP_URL`, notes that the server speaks plain HTTP and that requests see `https` and the public host only from a proxy `TrustProxiesMiddleware` trusts.
 
 ### Changed
 
