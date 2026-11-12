@@ -26,7 +26,11 @@ void main() {
 
     setUp(() async {
       db = open();
-      final schema = await freshSchema(db, ['jobs', 'job_batches']);
+      final schema = await freshSchema(db, [
+        'jobs',
+        'job_batches',
+        'failed_jobs',
+      ]);
       await const CreateJobsTable().up(schema);
     });
     tearDown(() => db.closeAll());
