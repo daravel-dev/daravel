@@ -8,6 +8,7 @@ import 'dart:math';
 
 import 'package:daravel/daravel.dart';
 import 'package:daravel/src/auth/bearer.dart';
+import 'package:daravel/src/foundation/regexp_chars.dart';
 import 'package:test/test.dart';
 
 final class Member extends Model with AuthenticatableModel {

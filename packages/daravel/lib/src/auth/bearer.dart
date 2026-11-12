@@ -1,3 +1,5 @@
+import '../foundation/regexp_chars.dart';
+
 /// The token of an `Authorization` header value: what
 /// `RegExp(r'^\s*Bearer\s+(.+?)\s*$', caseSensitive: false)` captured, or
 /// null where it did not match, in one pass and the same on every input.
@@ -61,27 +63,3 @@ String? bearerTokenFromHeader(String header) {
   }
   return null;
 }
-
-/// Whether [codeUnit] is white space to Dart's `RegExp` `\s`: tab, line
-/// feed, vertical tab, form feed, carriage return, space, U+00A0, U+1680,
-/// U+2000 to U+200A, U+2028, U+2029, U+202F, U+205F, U+3000 and U+FEFF.
-bool isRegExpSpace(int codeUnit) =>
-    codeUnit == 0x20 ||
-    (codeUnit >= 0x09 && codeUnit <= 0x0D) ||
-    codeUnit == 0xA0 ||
-    codeUnit == 0x1680 ||
-    (codeUnit >= 0x2000 && codeUnit <= 0x200A) ||
-    codeUnit == 0x2028 ||
-    codeUnit == 0x2029 ||
-    codeUnit == 0x202F ||
-    codeUnit == 0x205F ||
-    codeUnit == 0x3000 ||
-    codeUnit == 0xFEFF;
-
-/// Whether [codeUnit] is a line terminator, which `RegExp`'s `.` does not
-/// match: line feed, carriage return, U+2028 and U+2029.
-bool isLineTerminator(int codeUnit) =>
-    codeUnit == 0x0A ||
-    codeUnit == 0x0D ||
-    codeUnit == 0x2028 ||
-    codeUnit == 0x2029;

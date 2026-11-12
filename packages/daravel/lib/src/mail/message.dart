@@ -4,6 +4,8 @@ import 'dart:math';
 
 import 'package:mime/mime.dart';
 
+import 'one_pass.dart';
+
 /// An email address with an optional display name: `Teo <teo@example.com>`.
 final class MailAddress {
   /// Throws [ArgumentError] for an address that is not `local@domain` or
@@ -18,17 +20,18 @@ final class MailAddress {
     }
   }
 
-  /// `teo@example.com` or `Teo Prayoga <teo@example.com>`.
+  /// `teo@example.com` or `Teo Prayoga <teo@example.com>`, read in one pass
+  /// ([nameAndAddress]).
   factory MailAddress.parse(String value) {
-    final match = RegExp(r'^\s*(.*?)\s*<([^<>]+)>\s*$').firstMatch(value);
-    if (match == null) {
+    final parts = nameAndAddress(value);
+    if (parts == null) {
       return MailAddress(value);
     }
-    var name = match[1]!;
+    var (name, address) = parts;
     if (name.length >= 2 && name.startsWith('"') && name.endsWith('"')) {
       name = name.substring(1, name.length - 1).replaceAll(r'\"', '"');
     }
-    return MailAddress(match[2]!, name.isEmpty ? null : name);
+    return MailAddress(address, name.isEmpty ? null : name);
   }
 
   static final RegExp _valid = RegExp(r'^[^\s@<>()",;:\\]+@[^\s@<>()",;:\\]+$');
