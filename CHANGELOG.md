@@ -11,7 +11,7 @@ match Laravel more closely.
 
 ## Unreleased
 
-A security patch: fixes only. Upgrade every application that accepts multipart uploads or configures WebSocket origins with wildcards.
+A security patch: fixes only. Upgrade every application that accepts multipart uploads, validates numbers sent by clients (`decimal`, `multiple_of`, `gt`, `gte`, `lt`, `lte`) or configures WebSocket origins with wildcards.
 
 ### Added
 
@@ -23,9 +23,10 @@ A security patch: fixes only. Upgrade every application that accepts multipart u
 
 - Matching time that grows faster than linearly with the input, reachable from a client, so one request could hold a worker for minutes (a denial of service):
   - the parameters of a multipart part's `Content-Disposition` header: any route that reads multipart input (`request.all()`, `input()`, `file()`), with the default configuration; since 1.0.0;
-  - the WebSocket origin check of the Pusher server, when `REVERB_ALLOWED_ORIGINS` (or `BroadcastApp.allowedOrigins`) holds a pattern with two or more `*`; the default `*` is not affected; since 1.10.0.
+  - the WebSocket origin check of the Pusher server, when `REVERB_ALLOWED_ORIGINS` (or `BroadcastApp.allowedOrigins`) holds a pattern with two or more `*`; the default `*` is not affected; since 1.10.0;
+  - the validation rules `decimal`, `multiple_of`, `gt`, `gte`, `lt` and `lte` on a field a client sends (a JSON or form body within the default size limit is enough); since 1.22.0.
 
-  Both are now matched in time linear in the input, with the same results as before. `Http::fake` URL patterns use the same linear matcher.
+  All are now matched in time linear in the input, with the same results as before. `Http::fake` URL patterns use the same linear matcher.
 
 ### Fixed
 
