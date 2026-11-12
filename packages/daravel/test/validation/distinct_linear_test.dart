@@ -3,15 +3,15 @@ import 'dart:math';
 import 'package:daravel/daravel.dart';
 import 'package:test/test.dart';
 
-/// `distinct` counts the list once per validation run (in
-/// `ValidationContext.memo`) instead of scanning it for every item, which
-/// took time quadratic in its length: 16 000 numbers took 15 s, 16 000
-/// `items.*.id` 55 s. What it compares is unchanged: the items' text, among
-/// the siblings of the enclosing list.
+/// `distinct` counts the values once per validation run (in
+/// `ValidationContext.memo`) instead of scanning them for every item, which
+/// took time quadratic in their number: 16 000 numbers took 15 s, 16 000
+/// `items.*.id` 55 s. What it decides is checked against Laravel in
+/// `distinct_in_array_golden_test.dart` and `_reference_test.dart`.
 void main() {
-  // The rule as it decided before: one scan of the list per item, through
-  // a context without a memo, for the attributes the validator checks (a
-  // rule that is not implicit skips an absent value and a blank string).
+  // The rule through a context without a memo, so it counts the values for
+  // every item, for the attributes the validator checks (a rule that is
+  // not implicit skips an absent value and a blank string).
   bool checked(Map<String, Object?> data, String attribute) {
     if (!ValidationContext.exists(data, attribute)) {
       return false;
@@ -36,7 +36,7 @@ void main() {
         attribute,
   };
 
-  test('the same failures as one scan per item', () async {
+  test('the same failures with and without the memo', () async {
     final random = Random(20261112);
     final values = <Object?>[
       1,
@@ -123,6 +123,32 @@ void main() {
         ],
       },
       <String, Object>{'items.*.id': 'distinct'},
+    ),
+    (
+      'strict',
+      (int n) => <String, Object?>{
+        'items': [for (var i = 0; i < n; i++) i.isEven ? i : '$i'],
+      },
+      <String, Object>{'items.*': 'distinct:strict'},
+    ),
+    (
+      'ignore_case, distinct strings',
+      (int n) => <String, Object?>{
+        'items': [for (var i = 0; i < n; i++) 'Name$i'],
+      },
+      <String, Object>{'items.*': 'distinct:ignore_case'},
+    ),
+    (
+      'items.*.tags.* across items',
+      (int n) => <String, Object?>{
+        'items': [
+          for (var i = 0; i < n ~/ 4; i++)
+            {
+              'tags': [for (var j = 0; j < 4; j++) i * 4 + j],
+            },
+        ],
+      },
+      <String, Object>{'items.*.tags.*': 'distinct'},
     ),
   ]) {
     test('linear in the list length: $name', () async {

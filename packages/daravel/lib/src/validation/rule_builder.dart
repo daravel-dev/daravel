@@ -260,7 +260,8 @@ final class RuleBuilder {
       _add(Rules.enumValues(values));
 
   /// Appends [Rules.distinct].
-  RuleBuilder distinct() => _add(Rules.distinct());
+  RuleBuilder distinct({bool strict = false, bool ignoreCase = false}) =>
+      _add(Rules.distinct(strict: strict, ignoreCase: ignoreCase));
 
   /// Appends [Rules.confirmed].
   RuleBuilder confirmed([String? field]) => _add(Rules.confirmed(field));
@@ -776,7 +777,8 @@ extension RuleChain on Rule {
       _chain.enumValues(values);
 
   /// This rule followed by [Rules.distinct].
-  RuleBuilder distinct() => _chain.distinct();
+  RuleBuilder distinct({bool strict = false, bool ignoreCase = false}) =>
+      _chain.distinct(strict: strict, ignoreCase: ignoreCase);
 
   /// This rule followed by [Rules.confirmed].
   RuleBuilder confirmed([String? field]) => _chain.confirmed(field);

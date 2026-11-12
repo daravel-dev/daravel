@@ -165,7 +165,10 @@ abstract final class RuleParser {
       'digits_between' => Rules.digitsBetween(integer(0), integer(1)),
       'in' => Rules.inList(args),
       'not_in' => Rules.notIn(args),
-      'distinct' => Rules.distinct(),
+      'distinct' => Rules.distinct(
+        strict: args.contains('strict'),
+        ignoreCase: args.contains('ignore_case'),
+      ),
       'confirmed' => Rules.confirmed(args.isEmpty ? null : args[0]),
       'same' => Rules.same(args[0]),
       'different' => Rules.differentFrom(args),
