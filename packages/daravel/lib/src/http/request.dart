@@ -47,21 +47,35 @@ final class Request {
 
   /// Wraps a `dart:io` request.
   ///
+  /// [uri] comes from the request line, the `Host` header and the listener
+  /// ([secure]: whether it is TLS; [listenerAuthority]: its address, for a
+  /// request without `Host`), never from `X-Forwarded-*` headers, which
+  /// any client can send: only `TrustProxiesMiddleware` applies them, for a
+  /// trusted peer. `HttpRequest.requestedUri` is not used, because it reads
+  /// `X-Forwarded-Proto` and `X-Forwarded-Host` from whoever sent them.
+  ///
   /// Throws [BadRequestHttpException] for a request `dart:io` accepted but
-  /// that cannot be represented: `HttpRequest.requestedUri` parses the
-  /// `Host`, `X-Forwarded-Host` and `X-Forwarded-Proto` headers with
-  /// `Uri.parse` (an unterminated `[::1` or a space throws), and [Headers]
-  /// refuses control characters in values. The engine answers 400; without
-  /// this the error would escape the server's listen callback and take the
-  /// serving isolate down.
+  /// that cannot be represented: a `Host` that `Uri.parse` refuses (an
+  /// unterminated `[::1` or a space), or a header value [Headers] refuses
+  /// (control characters). (Of several `Host` headers `dart:io` keeps the
+  /// last; RFC 9112 §3.2 asks for 400, which it does not give.) The
+  /// engine answers 400; without this the error would escape the server's
+  /// listen callback and take the serving isolate down.
   factory Request.fromHttpRequest(
     HttpRequest httpRequest, {
     required String id,
+    bool secure = false,
+    String listenerAuthority = 'localhost',
   }) {
     final Uri uri;
     final Headers headers;
     try {
-      uri = httpRequest.requestedUri;
+      uri = _requestUri(
+        httpRequest.uri,
+        httpRequest.headers[HttpHeaders.hostHeader],
+        secure: secure,
+        listenerAuthority: listenerAuthority,
+      );
       headers = Headers.fromHttpHeaders(httpRequest.headers);
     } on FormatException {
       throw const BadRequestHttpException('Malformed request URI or Host.');
@@ -280,6 +294,7 @@ final class Request {
   List<String> _forwardedIps = const <String>[];
   String? _forwardedScheme;
   String? _forwardedHost;
+  bool _fromTrustedProxy = false;
 
   final List<InputTransformer> _inputTransformers = <InputTransformer>[];
 
@@ -363,6 +378,12 @@ final class Request {
     return base.endsWith('/') ? base.replaceAll(RegExp(r'/+$'), '') : base;
   }
 
+  /// Whether a trusted proxy's forwarding headers were applied to this
+  /// request (`TrustProxiesMiddleware`; Laravel's `isFromTrustedProxy()`).
+  /// Without it [scheme], [host] and [url] come from the request line,
+  /// the `Host` header and the listener only.
+  bool get isFromTrustedProxy => _fromTrustedProxy;
+
   /// Records forwarding information. Called by `TrustProxiesMiddleware`.
   void applyForwarded({
     String? ip,
@@ -370,6 +391,7 @@ final class Request {
     String? scheme,
     String? host,
   }) {
+    _fromTrustedProxy = true;
     if (ip != null) {
       _forwardedIp = ip;
     }
@@ -1212,4 +1234,27 @@ List<int> _fakeMultipart(
   }
   text('--$boundary--\r\n');
   return out.takeBytes();
+}
+
+/// The URI of a request read off a socket: the scheme of the listener
+/// ([secure]), the authority of the request line's target when it is in
+/// absolute form (RFC 9112 §3.2.2: the `Host` header is then ignored) or
+/// else of the `Host` header ([hosts]; [listenerAuthority] without one, as
+/// HTTP/1.0 allows), and the target's path and query.
+///
+/// The scheme of an absolute-form target is not taken: a client can write
+/// `https://` on a plain listener. Throws [FormatException] for an
+/// authority `Uri.parse` refuses.
+Uri _requestUri(
+  Uri target,
+  List<String>? hosts, {
+  required bool secure,
+  required String listenerAuthority,
+}) {
+  final scheme = secure ? 'https' : 'http';
+  if (target.hasScheme) {
+    return target.replace(scheme: scheme);
+  }
+  final host = hosts == null || hosts.isEmpty ? listenerAuthority : hosts.first;
+  return Uri.parse('$scheme://$host$target');
 }

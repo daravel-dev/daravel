@@ -1,0 +1,12 @@
+### Security
+
+- The request's URI, `scheme`, `host`, `url` and `isSecure` came from `dart:io`'s `HttpRequest.requestedUri`, which reads `X-Forwarded-Proto` and `X-Forwarded-Host` from any client, also without `TrustProxiesMiddleware` and from a peer it does not trust. They now come from the request line, the `Host` header and the listener; forwarded values count only when `TrustProxiesMiddleware` trusts the peer, as in Laravel (Symfony's `Request::getHost()` and `isSecure()` read them only from a trusted proxy). This also covers domain routes, the host of signed URLs on domain routes, `Response.back`, the session's previous URL, the HSTS header and `UpstreamProxy`. Since 1.0.0.
+
+### Added
+
+- `Request.isFromTrustedProxy` (Laravel's `isFromTrustedProxy()`): whether `TrustProxiesMiddleware` applied a trusted proxy's forwarding headers.
+- The server logs one warning when a request carries `X-Forwarded-Proto` or `X-Forwarded-Host` that no trusted proxy applied.
+
+### Upgrade notes
+
+- **Upgrading can change what an application sees behind a proxy.** Without `TrustProxiesMiddleware`, an application behind a proxy that sends `X-Forwarded-Proto`/`X-Forwarded-Host` used to see the client's scheme and host from those headers; it now sees `http` and the `Host` the proxy connects with (which may be an internal host and port), and `isSecure` is false, until it trusts the proxy: `middleware.use([TrustProxiesMiddleware(proxies: ['10.0.0.0/8']), ...])` (the starter has this line as a comment, and the deployment guide shows it). URLs built from `APP_URL` (`route()`, signed URLs, mail, storage) are not affected.
