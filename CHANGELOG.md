@@ -19,6 +19,24 @@ match Laravel more closely.
 
 ### Fixed
 
+## 1.27.3
+
+A security patch: fixes only. Upgrade every application served by `dartisan serve` or the AOT server, above all those behind a proxy or load balancer and those with domain routes.
+
+### Security
+
+- A request's URI, `scheme`, `host`, `url` and `isSecure` came from `dart:io`'s `HttpRequest.requestedUri`, which reads `X-Forwarded-Proto` and `X-Forwarded-Host` from any client, also without `TrustProxiesMiddleware` and from a peer it does not trust. Domain routes, the host of signed URLs on domain routes, `Response.back`, the session's previous URL, the HSTS header and `UpstreamProxy` followed them. They now come from the request line, the `Host` header and the listener; forwarded values count only when `TrustProxiesMiddleware` trusts the peer, as in Laravel (Symfony's `Request::getHost()` and `isSecure()` read them only from a trusted proxy). Since 1.0.0. Before upgrading, take public URLs from `APP_URL` (as `route()`, signed URLs, mail and storage already do), or have the edge proxy drop `X-Forwarded-Proto` and `X-Forwarded-Host` from clients.
+
+### Added
+
+- `Request.isFromTrustedProxy` (Laravel's `isFromTrustedProxy()`), which the fix needs: whether `TrustProxiesMiddleware` applied a trusted proxy's forwarding headers. The server logs one warning when a request carries `X-Forwarded-Proto` or `X-Forwarded-Host` that no trusted proxy applied.
+
+### Changed
+
+**Upgrading can change what an application sees:**
+
+- Without `TrustProxiesMiddleware`, an application behind a proxy that sends `X-Forwarded-Proto`/`X-Forwarded-Host` used to see the client's scheme and host from those headers; it now sees `http` and the `Host` the proxy connects with (which may be an internal host and port), and `isSecure` is false, until it trusts the proxy: `middleware.use([TrustProxiesMiddleware(proxies: ['10.0.0.0/8']), ...])` (the starter has this line as a comment, and the deployment guide shows it). URLs built from `APP_URL` are not affected.
+
 ## 1.27.2
 
 A security patch: fixes only. Upgrade every application that validates lists with `distinct`, authorizes broadcast channels (`routes/channels.dart`) or reads `sum()` or `avg()` on PostgreSQL or MySQL.

@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.27.3
+
+A security patch; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).
+
+- Security: a request's URI, scheme, host, `url` and `isSecure` no longer follow `X-Forwarded-Proto`/`X-Forwarded-Host` sent by any client (`dart:io`'s `requestedUri`); they come from the request line, `Host` and the listener, and forwarded values only from a proxy `TrustProxiesMiddleware` trusts (since 1.0.0). Behind a proxy without that middleware, the application now sees `http` and the proxy's `Host` until it trusts the proxy.
+- Added: `Request.isFromTrustedProxy`; one warning per server for forwarding headers no trusted proxy applied.
+
 ## 1.27.2
 
 A security patch; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).

@@ -11,6 +11,7 @@ publisher `framework.daravel.dev`.
 
 | Version | Highlights |
 | :-- | :-- |
+| `1.27.3` | Security fix: the request URL from the request line, Host and the listener, forwarded headers only from trusted proxies |
 | `1.27.2` | Security fixes: broadcast channel names and linear-time channel patterns, distinct in linear time; sum and avg on PostgreSQL and MySQL; sequential publishing |
 | `1.27.1` | Security fixes: linear-time matching for multipart part headers, numeric validation rules and WebSocket origin patterns; shutdown after password hashing |
 | `1.27.0` | Bounded buffers, series and queues for production load, Laravel-faithful queue attempts with cancellation, SQLite IMMEDIATE transactions and busy retries, Pusher connection limits, SqlIdentifier, typed ids and cross-OS builds |
