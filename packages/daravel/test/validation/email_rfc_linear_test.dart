@@ -81,6 +81,10 @@ void main() {
       'IPv6 literal': (n) => 'a@[IPv6:${'1:' * (n ~/ 2)}1]',
       'unclosed bracket': (n) => 'a@[${'1.' * (n ~/ 2)}',
       'non-ASCII letters': (n) => '${String.fromCharCode(0xE9) * n}@x.com',
+      // Punycode's time grows with the square of the distinct code points:
+      // a domain label of n different letters (surrogates skipped).
+      'distinct non-ASCII label': (n) =>
+          'a@${String.fromCharCodes([for (var i = 0; i < n; i++) 0x4E00 + i + (0x4E00 + i >= 0xD800 ? 0x800 : 0)])}.com',
     };
     Future<int> fastest(String value, String rule) async {
       var best = 1 << 62;

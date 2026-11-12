@@ -735,8 +735,15 @@ final class _DomainPart extends _PartParser {
     // usual ASCII label (its octets are its length).
     if (label.codeUnits.any((c) => c > 0x7F)) {
       // idn_to_ascii's IDNA_ERROR_LABEL_TOO_LONG: the ASCII form of the
-      // label is longer than 63 octets.
-      return 'xn--${punycode(label.toLowerCase())}'.length > 63;
+      // label is longer than 63 octets. Punycode writes at least one
+      // character per code point, so a label of more than 59 is too long
+      // without encoding it (punycode's time grows with the square of the
+      // distinct code points, as in `toAsciiHost`).
+      final lower = label.toLowerCase();
+      if (lower.runes.length > 63 - 'xn--'.length) {
+        return true;
+      }
+      return 'xn--${punycode(lower)}'.length > 63;
     }
     return label.length > 63;
   }
