@@ -400,6 +400,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `->selectSub($query, 'alias')` | `.selectSub(query, 'alias')` |  |
 | `Schema::create('users', fn (Blueprint $table) => ...)` | `schema.create('users', (table) {...})` | **async** |
 | `Schema::table / dropIfExists / hasTable / hasColumn` | `schema.table / dropIfExists / hasTable / hasColumn` | **async** |
+| `Schema::getForeignKeys('sessions')` | `await Schema.getForeignKeys('sessions')` | **async**; Laravel 13's shape (name, columns, foreign_schema, foreign_table, foreign_columns, on_update, on_delete) as a ForeignKeyInfo; name is null on SQLite, as in Laravel. |
 | `$table->id() / string() / foreignId()->constrained()` | `table.id() / string() / foreignId().constrained()` |  |
 | `$table->morphs('taggable') / nullableMorphs / uuidMorphs / ulidMorphs` | `table.morphs('taggable') / nullableMorphs / uuidMorphs / ulidMorphs` |  |
 | `$table->timestamps() / softDeletes() / rememberToken()` | `table.timestamps() / softDeletes() / rememberToken()` |  |

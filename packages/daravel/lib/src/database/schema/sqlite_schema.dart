@@ -51,6 +51,18 @@ final class SqliteSchemaGrammar extends SchemaGrammar {
   @override
   String compileColumns() => 'PRAGMA table_info(?)';
 
+  /// Laravel 13's `SQLiteGrammar::compileForeignKeys`: one row per foreign
+  /// key of `pragma_foreign_key_list`, with no name (SQLite has none to
+  /// report).
+  @override
+  String compileForeignKeys() =>
+      'select group_concat("from") as columns, '
+      "'main' as foreign_schema, \"table\" as foreign_table, "
+      'group_concat("to") as foreign_columns, on_update, on_delete '
+      "from (select * from pragma_foreign_key_list(?, 'main') "
+      'order by id desc, seq) '
+      'group by id, "table", on_update, on_delete';
+
   @override
   ColumnInfo columnInfo(Map<String, Object?> row) => ColumnInfo(
     name: row['name'] as String,
