@@ -11,13 +11,17 @@ match Laravel more closely.
 
 ## Unreleased
 
-A security patch: fixes only. Upgrade every application that accepts multipart uploads, validates numbers sent by clients (`decimal`, `multiple_of`, `gt`, `gte`, `lt`, `lte`) or configures WebSocket origins with wildcards.
-
 ### Added
 
 ### Changed
 
 **Upgrading can change what an application sees:**
+
+### Fixed
+
+## 1.27.1
+
+A security patch: fixes only. Upgrade every application that accepts multipart uploads, validates numbers sent by clients (`decimal`, `multiple_of`, `gt`, `gte`, `lt`, `lte`) or configures WebSocket origins with wildcards.
 
 ### Security
 

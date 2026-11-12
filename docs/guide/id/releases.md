@@ -1,4 +1,4 @@
-<!-- source: releases.md sha256:15ffcfc855dd -->
+<!-- source: releases.md sha256:3da8dfc142e8 -->
 # Rilis dan versioning
 
 Daravel `1.x` adalah lini rilis stabil. Kedua belas paket (`daravel`,
@@ -12,6 +12,7 @@ terverifikasi `framework.daravel.dev`.
 
 | Versi | Sorotan |
 | :-- | :-- |
+| `1.27.1` | Perbaikan keamanan: pencocokan waktu linear untuk header part multipart, aturan validasi numerik, dan pola origin WebSocket; shutdown sesudah hashing password |
 | `1.27.0` | Buffer, series, dan antrean yang dibatasi untuk beban production, hitungan attempt queue setia Laravel dengan pembatalan, transaksi SQLite IMMEDIATE dan retry busy, batas koneksi Pusher, SqlIdentifier, typed id, dan build lintas OS |
 | `1.26.0` | File statis dengan URL berversi, driver session redis dan cache, CSP dengan nonce, TestClient bergaya browser, helper html.dart yang seragam dengan htmx, rate limit fail-closed, timeout transaksi, pesan coordinator bertipe dan payload isolate |
 | `1.25.0` | JWT yang dipakai bersama tymon/jwt-auth, proxy strangler yang meneruskan form, upload, dan Host klien apa adanya, shadow parity per byte, interop Sanctum dan JWT diuji di Laravel 8 sampai 13, pemeriksaan JS inline dan SRI |
