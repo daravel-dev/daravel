@@ -84,6 +84,11 @@ packages:
   group('upgrade', () {
     late Directory project;
     late List<(List<String>, String?)> calls;
+    // What pub.dev has, as package@version; null: every one asked for.
+    Set<String>? onPubDev;
+    Object? pubDevError;
+    var pubUpgradeExit = 0;
+    late List<String> asked;
 
     Future<int> run(List<String> args) {
       final runner = CommandRunner<int>('dartisan', 'test')
@@ -92,7 +97,14 @@ packages:
             latest: () async => '1.9.0',
             dart: (args, {workingDirectory}) async {
               calls.add((args, workingDirectory));
-              return 0;
+              return args.join(' ') == 'pub upgrade' ? pubUpgradeExit : 0;
+            },
+            published: (package, version) async {
+              asked.add('$package@$version');
+              if (pubDevError case final error?) {
+                throw error;
+              }
+              return onPubDev?.contains('$package@$version') ?? true;
             },
           ),
         );
@@ -104,6 +116,10 @@ packages:
 
     setUp(() {
       calls = [];
+      asked = [];
+      onPubDev = null;
+      pubDevError = null;
+      pubUpgradeExit = 0;
       project = Directory.systemTemp.createTempSync('upgrade_test');
       File(p.join(project.path, 'pubspec.yaml')).writeAsStringSync(_pubspec);
       File(p.join(project.path, 'pubspec.lock')).writeAsStringSync(
@@ -152,6 +168,54 @@ packages:
       );
       expect(calls, isEmpty);
       expect(await run(['upgrade', '--to=latest']), 64);
+    });
+
+    String pubspec() =>
+        File(p.join(project.path, 'pubspec.yaml')).readAsStringSync();
+    String lock() =>
+        File(p.join(project.path, 'pubspec.lock')).readAsStringSync();
+
+    test('asks pub.dev for every package it moves, and the CLI', () async {
+      expect(await run(['upgrade']), 0);
+      // daravel_lints comes from git: not moved, not asked.
+      expect(asked.toSet(), {
+        'daravel@1.9.0',
+        'daravel_mysql@1.9.0',
+        'daravel_test@1.9.0',
+        'dartisan_cli@1.9.0',
+      });
+    });
+
+    test('a package not on pub.dev at the target yet changes nothing '
+        '(a release half published, as 1.27.1 was for an hour)', () async {
+      onPubDev = {'daravel@1.9.0', 'daravel_test@1.9.0', 'dartisan_cli@1.9.0'};
+      expect(await run(['upgrade']), 1);
+      expect(pubspec(), _pubspec);
+      expect(calls, isEmpty, reason: 'no pub upgrade, no global activate');
+    });
+
+    test('pub.dev out of reach changes nothing', () async {
+      pubDevError = const SocketException('offline');
+      expect(await run(['upgrade']), 1);
+      expect(pubspec(), _pubspec);
+      expect(calls, isEmpty);
+    });
+
+    test('a failing pub upgrade puts pubspec.yaml and pubspec.lock back, '
+        'and the CLI is not activated', () async {
+      final lockBefore = lock();
+      pubUpgradeExit = 65;
+      expect(await run(['upgrade']), 65);
+      expect(pubspec(), _pubspec);
+      expect(lock(), lockBefore);
+      expect(calls.map((c) => c.$1.join(' ')), ['pub upgrade']);
+    });
+
+    test('--no-global does not ask for dartisan_cli', () async {
+      onPubDev = {'daravel@1.9.0', 'daravel_mysql@1.9.0', 'daravel_test@1.9.0'};
+      expect(await run(['upgrade', '--no-global']), 0);
+      expect(asked, isNot(contains('dartisan_cli@1.9.0')));
+      expect(pubspec(), contains('  daravel: ^1.9.0'));
     });
   });
 

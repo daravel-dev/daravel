@@ -37,11 +37,38 @@ const List<String> daravelPackages = [
 /// Reads the latest stable `daravel` version from pub.dev.
 typedef LatestVersion = Future<String> Function();
 
+/// Whether [package] is on pub.dev at [version].
+typedef PublishedVersion = Future<bool> Function(
+  String package,
+  String version,
+);
+
 /// Runs `dart <args>` in a directory and returns its exit code.
 typedef DartRunner = Future<int> Function(
   List<String> args, {
   String? workingDirectory,
 });
+
+/// Whether pub.dev has [package] at [version]: `true` for 200, `false`
+/// for 404, an error for anything else.
+Future<bool> pubDevHasVersion(String package, String version) async {
+  final client = HttpClient()..connectionTimeout = const Duration(seconds: 5);
+  try {
+    final request = await client.getUrl(
+      Uri.parse('https://pub.dev/api/packages/$package/versions/$version'),
+    );
+    request.headers.set('accept', 'application/vnd.pub.v2+json');
+    final response = await request.close().timeout(const Duration(seconds: 10));
+    await response.drain<void>();
+    return switch (response.statusCode) {
+      200 => true,
+      404 => false,
+      final status => throw HttpException('pub.dev answered $status.'),
+    };
+  } finally {
+    client.close(force: true);
+  }
+}
 
 /// The latest version of `daravel` on pub.dev.
 Future<String> pubDevLatest() async {
@@ -155,9 +182,13 @@ String? lockedVersion(String lock) => RegExp(
 /// release (BLUEPRINT #12).
 final class UpgradeCommand extends Command<int> {
   /// The `dartisan upgrade` command.
-  UpgradeCommand({LatestVersion? latest, DartRunner? dart})
-    : _latest = latest ?? pubDevLatest,
-      _dart = dart ?? runDart {
+  UpgradeCommand({
+    LatestVersion? latest,
+    DartRunner? dart,
+    PublishedVersion? published,
+  }) : _latest = latest ?? pubDevLatest,
+       _dart = dart ?? runDart,
+       _published = published ?? pubDevHasVersion {
     argParser
       ..addFlag(
         'check',
@@ -175,6 +206,7 @@ final class UpgradeCommand extends Command<int> {
 
   final LatestVersion _latest;
   final DartRunner _dart;
+  final PublishedVersion _published;
 
   @override
   String get name => 'upgrade';
@@ -210,12 +242,39 @@ final class UpgradeCommand extends Command<int> {
       return 0;
     }
 
-    final rewrite = rewriteConstraints(pubspecFile.readAsStringSync(), target);
+    final original = pubspecFile.readAsStringSync();
+    final rewrite = rewriteConstraints(original, target);
     if (rewrite.local.isNotEmpty) {
       stdout.writeln(
         'From git or a path, not changed: ${rewrite.local.join(', ')}.',
       );
     }
+    // Every package a release moves comes out one after the other: until
+    // the last is on pub.dev, a project naming one not there yet cannot
+    // resolve. Nothing is written before they all are.
+    final global = argResults!['global'] as bool;
+    final List<String> missing;
+    try {
+      missing = [
+        for (final package in {...rewrite.updated, if (global) 'dartisan_cli'})
+          if (!await _published(package, target)) package,
+      ];
+    } on Object catch (error) {
+      stderr.writeln(
+        'Could not ask pub.dev which packages are at $target ($error); '
+        'nothing changed.',
+      );
+      return 1;
+    }
+    if (missing.isNotEmpty) {
+      stderr.writeln(
+        'Not on pub.dev at $target yet: ${missing.join(', ')}. A release '
+        'reaches pub.dev package by package; try again later. Nothing '
+        'changed. `dart pub upgrade daravel` takes what is there now.',
+      );
+      return 1;
+    }
+    final lockText = lock?.readAsStringSync();
     if (rewrite.updated.isNotEmpty) {
       pubspecFile.writeAsStringSync(rewrite.pubspec);
       stdout.writeln('pubspec.yaml: ${rewrite.updated.join(', ')} → ^$target');
@@ -223,6 +282,15 @@ final class UpgradeCommand extends Command<int> {
     if (argResults!['get'] as bool) {
       final code = await _dart(['pub', 'upgrade'], workingDirectory: root);
       if (code != 0) {
+        // Leave the project as it was, not half moved.
+        pubspecFile.writeAsStringSync(original);
+        if (lock != null && lockText != null) {
+          lock.writeAsStringSync(lockText);
+        }
+        stderr.writeln(
+          '`dart pub upgrade` failed; pubspec.yaml'
+          '${lock != null ? ' and pubspec.lock' : ''} restored.',
+        );
         return code;
       }
     }
