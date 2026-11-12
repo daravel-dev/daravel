@@ -157,8 +157,13 @@ final class RequestSyncCommand extends Command<int> {
   String get name => 'request:sync';
 
   @override
-  String get description =>
-      'Write the typed input of form requests from their Field constants.';
+  String get description => '''
+Write the typed input of form requests from their Field constants.
+
+Only sources are read and written: the global dartisan runs it in the
+project's dartisan_cli without compiling the application, so it works
+while a request names an input type that does not exist yet. (model:sync
+reads the database, so it needs the application to compile.)''';
 
   @override
   Future<int> run() async {

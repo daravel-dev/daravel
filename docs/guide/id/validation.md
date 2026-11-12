@@ -1,4 +1,4 @@
-<!-- source: validation.md sha256:3073d4c168af -->
+<!-- source: validation.md sha256:1e76de2df0ba -->
 # Validasi
 
 Validasi request secara inline dengan string rule Laravel, atau dengan objek
@@ -246,6 +246,16 @@ bertipe (`input.stars` adalah `int?`, dikonversi dari `'4'`).
 sebuah field; `request:sync --check` tidak menulis apa pun dan keluar dengan
 kode 1 bila ada region yang usang, untuk CI. Input type yang Anda deklarasikan
 sendiri, tanpa region, dibiarkan apa adanya.
+
+`request:sync` hanya membaca dan menulis kode sumber, sehingga `dartisan`
+global menjalankannya di `dartisan_cli` milik proyek (`dart run
+dartisan_cli:dartisan`) tanpa mengompilasi aplikasi. Perintah ini tetap
+berjalan saat proyek tidak bisa dikompilasi, misalnya setelah Anda mengubah
+sebuah request menjadi `FormRequest<StoreNoteRequestInput>` sebelum tipe itu
+ada: `dartisan request:sync` menuliskannya, sedangkan `dart run
+bin/dartisan.dart request:sync` mengompilasi aplikasi lebih dulu dan gagal.
+(`model:sync` membaca database lewat koneksi aplikasi, jadi butuh proyek
+yang bisa dikompilasi.)
 
 `typed` memuat setiap field menurut kunci input-nya, sudah dikonversi ke
 tipe yang dideklarasikan. Tipe sebuah field dan rule-nya masih bisa tidak
