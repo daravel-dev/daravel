@@ -7,14 +7,7 @@ import '../../bootstrap/app.dart';
 /// One app per file, migrated once; every test is rolled back.
 void main() {
   final db = refreshDatabase(
-    () => createApp(
-      basePath: Directory.current.path,
-      env: <String, String>{
-        'APP_ENV': 'testing',
-        'DB_CONNECTION': 'sqlite',
-        'DB_URL': 'sqlite::memory:',
-      },
-    ),
+    () => createApp(basePath: Directory.current.path, env: testEnv()),
   );
 
   const ana = <String, Object?>{

@@ -78,7 +78,10 @@ upstream file). Indonesian ships as the second locale: set
   `array` accepts any PHP array; `array:name,email` allows only those keys (a
   list's keys are its indexes). `list` accepts only a JSON array and `map`
   (Daravel) only a JSON object. `min`, `max`, `between` and `size` count the
-  items of either.
+  items of either. `distinct` decides as Laravel 13 does: on `items.*.tags.*`
+  it compares the tags of all items, and `1`, `1.0`, `'1.0'` and `true` are
+  one value unless you write `distinct:strict`; `distinct:ignore_case` ignores
+  case. `in_array:others.*` compares strictly (`1` is not `'1'`).
 - **Others:** `date_equals`, and `timezone` or `timezone:Asia`. It also accepts
   old IANA aliases such as `Asia/Calcutta`, and not `per_country`.
 
@@ -251,9 +254,9 @@ run the same from the project directory:
 dart run dartisan_cli:dartisan request:sync
 ```
 
-which always works, as it compiles only `dartisan_cli`. (`model:sync`
-reads the database through the application's connection, so it needs a
-project that compiles.)
+which always works, as it compiles only `dartisan_cli`. (`model:sync` does
+not compile the application either: see
+[Database](database.md#syncing-models).)
 
 `typed` holds every field by its input key, already converted to its
 declared type. A field's type and its rules can still disagree (a

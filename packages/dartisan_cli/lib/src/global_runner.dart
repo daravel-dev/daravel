@@ -1,8 +1,9 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:args/args.dart';
 import 'package:args/command_runner.dart';
-import 'package:daravel/daravel.dart' show daravelVersion;
+import 'package:daravel/daravel.dart' show Application, daravelVersion;
 import 'package:path/path.dart' as p;
 
 import 'console/console.dart';
@@ -10,6 +11,7 @@ import 'console/nudges.dart';
 import 'console/runner_console.dart';
 import 'generator.dart';
 import 'make_commands.dart';
+import 'model_sync_entry.dart';
 import 'new_project.dart';
 import 'project_commands.dart';
 import 'request_sync.dart';
@@ -43,6 +45,9 @@ final class GlobalDartisanRunner extends CommandRunner<int>
     addCommand(MakeModelCommand());
     addCommand(StubPublishCommand());
     addCommand(RequestSyncCommand());
+    // Runs model:sync's program in the project (never --boot here: that
+    // goes to the project's bin/dartisan.dart); no application is built.
+    addCommand(ModelSyncCommand(_noApplication));
     addCommand(UpgradeCommand());
     addCommand(SelfUpdateCommand());
     setUpConsole(console: console, nudges: nudges);
@@ -67,7 +72,8 @@ final class GlobalDartisanRunner extends CommandRunner<int>
       return false;
     }
     final command = _command(args);
-    return !_globalOnly.contains(command) && !_fromSource.contains(command);
+    return !_globalOnly.contains(command) &&
+        !runsFromSource(args, inProject: true);
   }
 
   /// Whether [args] name a command that only reads and writes the
@@ -78,8 +84,21 @@ final class GlobalDartisanRunner extends CommandRunner<int>
   /// before `StoreNoteRequestInput` exists stops every command of the
   /// project's `bin/dartisan.dart` from compiling, the one that writes the
   /// type included.
-  static bool runsFromSource(List<String> args, {required bool inProject}) =>
-      inProject && _fromSource.contains(_command(args));
+  ///
+  /// `model:sync` is one too (#329): it reads the models from their
+  /// sources and the schema through a program that compiles only the
+  /// framework, the CLI and the database drivers; `model:sync --boot`
+  /// reads through the application, in its `bin/dartisan.dart`.
+  static bool runsFromSource(List<String> args, {required bool inProject}) {
+    if (!inProject) {
+      return false;
+    }
+    final command = _command(args);
+    if (command == 'model:sync') {
+      return !args.contains('--boot');
+    }
+    return _fromSource.contains(command);
+  }
 
   static String? _command(List<String> args) {
     final first = args.firstOrNull;
@@ -105,6 +124,11 @@ final class GlobalDartisanRunner extends CommandRunner<int>
     String? directory,
   }) async {
     final project = _projectCli(directory);
+    if (project != null &&
+        delegates(args, inProject: true) &&
+        _command(args) == 'model:sync') {
+      return _modelSyncBooted(project, args);
+    }
     if (project != null && delegates(args, inProject: true)) {
       final process = await Process.start(
         dartExecutable(),
@@ -139,6 +163,33 @@ final class GlobalDartisanRunner extends CommandRunner<int>
     }
   }
 
+  /// `model:sync --boot` in the project's `bin/dartisan.dart`, its output
+  /// passed on; when the application does not compile because of lines
+  /// `model:sync` wrote, says so and how to get out.
+  static Future<int> _modelSyncBooted(String project, List<String> args) async {
+    final process = await Process.start(dartExecutable(), [
+      'run',
+      p.join('bin', 'dartisan.dart'),
+      ...args,
+    ], workingDirectory: project);
+    final seen = StringBuffer();
+    await Future.wait([
+      process.stdout.forEach((bytes) {
+        stdout.add(bytes);
+        seen.write(utf8.decode(bytes, allowMalformed: true));
+      }),
+      process.stderr.forEach((bytes) {
+        stderr.add(bytes);
+        seen.write(utf8.decode(bytes, allowMalformed: true));
+      }),
+    ]);
+    final code = await process.exitCode;
+    if (code != 0) {
+      bootFailureHints(seen.toString(), project).forEach(stderr.writeln);
+    }
+    return code;
+  }
+
   static String? _projectCli([String? directory]) {
     try {
       final root = ProjectPaths.locate(directory).root;
@@ -150,3 +201,9 @@ final class GlobalDartisanRunner extends CommandRunner<int>
     }
   }
 }
+
+/// The application of a global command that never builds one.
+Application _noApplication() => throw StateError(
+  'The global dartisan builds no application; model:sync --boot runs in '
+  "the project's bin/dartisan.dart.",
+);

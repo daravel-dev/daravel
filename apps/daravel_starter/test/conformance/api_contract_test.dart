@@ -1,8 +1,6 @@
 @Tags(['conformance'])
 library;
 
-import 'dart:io';
-
 import 'package:daravel/daravel.dart';
 import 'package:daravel_test/conformance.dart';
 import 'package:daravel_test/daravel_test.dart';
@@ -18,15 +16,7 @@ void main() {
   late TestClient client;
 
   setUp(() async {
-    app = createApp(
-      basePath: Directory.current.path,
-      env: <String, String>{
-        'APP_ENV': 'testing',
-        'DB_CONNECTION': 'sqlite',
-        'DB_URL': 'sqlite::memory:',
-      },
-    );
-    await app.boot();
+    app = await bootTestApp(createApp);
     await app.run(() => App.make<Migrator>().run());
     client = TestClient(app);
   });

@@ -1,0 +1,199 @@
+{
+    "source": "Laravel 13.40.0, PHP 8.3.35",
+    "cases": [
+        {
+            "label": "list of objects",
+            "body": "[{\"email\":\"a@x.com\"},{\"email\":\"b\"}]",
+            "query": "",
+            "all": [
+                {
+                    "email": "a@x.com"
+                },
+                {
+                    "email": "b"
+                }
+            ],
+            "input_0_email": "a@x.com",
+            "input_1": {
+                "email": "b"
+            },
+            "has_0": true,
+            "keys": [
+                0,
+                1
+            ],
+            "errors_star_email": {
+                "1.email": [
+                    "The 1.email field must be a valid email address."
+                ]
+            },
+            "errors_required_0": {},
+            "errors_array_min": {}
+        },
+        {
+            "label": "list of scalars",
+            "body": "[1,\"two\",null]",
+            "query": "",
+            "all": [
+                1,
+                "two",
+                null
+            ],
+            "input_0_email": null,
+            "input_1": "two",
+            "has_0": true,
+            "keys": [
+                0,
+                1,
+                2
+            ],
+            "errors_star_email": {
+                "0.email": [
+                    "The 0.email field is required."
+                ],
+                "1.email": [
+                    "The 1.email field is required."
+                ],
+                "2.email": [
+                    "The 2.email field is required."
+                ]
+            },
+            "errors_required_0": {},
+            "errors_array_min": {
+                "0": [
+                    "The 0 field must be an array."
+                ],
+                "1": [
+                    "The 1 field must be an array."
+                ],
+                "2": [
+                    "The 2 field must be an array."
+                ]
+            }
+        },
+        {
+            "label": "empty list",
+            "body": "[]",
+            "query": "",
+            "all": [],
+            "input_0_email": null,
+            "input_1": null,
+            "has_0": false,
+            "keys": [],
+            "errors_star_email": {},
+            "errors_required_0": {
+                "0": [
+                    "The 0 field is required."
+                ]
+            },
+            "errors_array_min": {}
+        },
+        {
+            "label": "list and query",
+            "body": "[{\"email\":\"a@x.com\"}]",
+            "query": "page=2&0[name]=q",
+            "all": {
+                "0": {
+                    "email": "a@x.com"
+                },
+                "page": "2"
+            },
+            "input_0_email": "a@x.com",
+            "input_1": null,
+            "has_0": true,
+            "keys": [
+                0,
+                "page"
+            ],
+            "errors_star_email": {
+                "page.email": [
+                    "The page.email field is required."
+                ]
+            },
+            "errors_required_0": {},
+            "errors_array_min": {
+                "page": [
+                    "The page field must be an array."
+                ]
+            }
+        },
+        {
+            "label": "nested lists",
+            "body": "[[1,2],[3]]",
+            "query": "",
+            "all": [
+                [
+                    1,
+                    2
+                ],
+                [
+                    3
+                ]
+            ],
+            "input_0_email": null,
+            "input_1": [
+                3
+            ],
+            "has_0": true,
+            "keys": [
+                0,
+                1
+            ],
+            "errors_star_email": {
+                "0.email": [
+                    "The 0.email field is required."
+                ],
+                "1.email": [
+                    "The 1.email field is required."
+                ]
+            },
+            "errors_required_0": {},
+            "errors_array_min": {}
+        },
+        {
+            "label": "object and query: body keys first",
+            "body": "{\"b\":1,\"a\":2}",
+            "query": "a=9&c=3&b=8",
+            "all": {
+                "b": 1,
+                "a": 2,
+                "c": "3"
+            },
+            "input_0_email": null,
+            "input_1": null,
+            "has_0": false,
+            "keys": [
+                "b",
+                "a",
+                "c"
+            ],
+            "errors_star_email": {
+                "b.email": [
+                    "The b.email field is required."
+                ],
+                "a.email": [
+                    "The a.email field is required."
+                ],
+                "c.email": [
+                    "The c.email field is required."
+                ]
+            },
+            "errors_required_0": {
+                "0": [
+                    "The 0 field is required."
+                ]
+            },
+            "errors_array_min": {
+                "b": [
+                    "The b field must be an array."
+                ],
+                "a": [
+                    "The a field must be an array."
+                ],
+                "c": [
+                    "The c field must be an array."
+                ]
+            }
+        }
+    ]
+}

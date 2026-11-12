@@ -3,7 +3,7 @@
 
 /// `docs/guide/id/responses.md`.
 const String pageIdResponses =
-    r'''<!-- source: responses.md sha256:20ad021b724b -->
+    r'''<!-- source: responses.md sha256:4d45c2662557 -->
 # Respons dan resource
 
 Handler bisa mengembalikan `Response.json(data, status: 201)`,
@@ -516,6 +516,28 @@ karena range kecil pertama dari penampil akan menghapusnya.
 Disk membaca dari awal untuk mencapai sebuah range, yang di S3 berarti mengunduh
 bagian sebelumnya. Jangan menyusun path `Response.file` dari input pengguna; disk
 memeriksa path-nya sendiri.
+
+### Konten yang dibuat untuk request
+
+File yang tidak pernah ada di disk, dibuat untuk request ini, diunduh tanpa
+ditulis lebih dulu:
+
+```dart
+return Response.downloadBytes(utf8.encode(plist), name: 'exam.seb');
+
+return Response.streamDownload(            // streamDownload dari Laravel
+  DB.table('orders').lazy().map((row) => utf8.encode(csvLine(row))),
+  name: 'orders.csv',
+);
+```
+
+Keduanya mengambil tipe dari nama (`text/csv`), atau
+`application/octet-stream`, kecuali `contentType` menentukan lain, dan mengirim
+`Content-Disposition` yang ditulis `contentDisposition(name)` (juga diekspor,
+untuk respons yang disusun sendiri). `downloadBytes` menyimpan byte-nya.
+`streamDownload` menulis stream selagi dihasilkan: klien yang pergi
+membatalkannya, sehingga produsen `async*` berhenti di `yield` berikutnya, dan
+request `HEAD` mendapat header tanpa memulainya.
 
 ## File statis
 

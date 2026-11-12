@@ -138,6 +138,7 @@ Map<String, String> newProjectFiles({
     'bootstrap/seeders.dart': api ? _seedersRegistry : _emptySeeders,
     'bootstrap/jobs.dart': _jobsRegistry,
     'bootstrap/models.dart': api ? _modelsRegistry : _emptyModels,
+    'bootstrap/database.dart': _databaseRegistry,
     'lib/app/models/models.dart': api ? _modelsBarrel : _emptyModelsBarrel,
     'bootstrap/listeners.dart': _listenersRegistry,
     'bootstrap/commands.dart': _commandsRegistry,
@@ -149,6 +150,7 @@ Map<String, String> newProjectFiles({
     'storage/.gitignore': '*\n!.gitignore\n',
     'test/architecture_test.dart': _architectureTest,
     'test/feature/welcome_test.dart': _welcomeTest,
+    'lib/app/names.dart': api ? _namesApi : _namesMinimal,
     'dart_test.yaml': _dartTestYaml,
     '.github/workflows/ci.yml': _ciWorkflow,
     if (api) ...{
@@ -465,12 +467,12 @@ const String _bootstrapApi = r'''
 import 'dart:io';
 
 import 'package:daravel/daravel.dart';
-import 'package:daravel_mysql/daravel_mysql.dart';
 import 'package:{{ package }}/app/models/user.dart';
 
 import '../routes/api.dart';
 import '../routes/console.dart';
 import '../routes/web.dart';
+import 'database.dart';
 import 'jobs.dart';
 import 'listeners.dart';
 import 'migrations.dart';
@@ -483,8 +485,7 @@ Application createApp({String? basePath, Map<String, String>? env}) =>
     Application.configure(basePath: basePath ?? Directory.current.path)
         .withEnv(env ?? const <String, String>{})
         // DB_CONNECTION=mysql or mariadb (sqlite and pgsql are built in).
-        .withDatabaseDriver('mysql', MySqlDriver.fromConfig)
-        .withDatabaseDriver('mariadb', MySqlDriver.fromConfig)
+        .withDatabaseDrivers(databaseDrivers)
         .withMigrations(migrations)
         .withSeeders(seeders)
         .withModels(models)
@@ -522,11 +523,11 @@ const String _bootstrapMinimal = r'''
 import 'dart:io';
 
 import 'package:daravel/daravel.dart';
-import 'package:daravel_mysql/daravel_mysql.dart';
 
 import '../routes/api.dart';
 import '../routes/console.dart';
 import '../routes/web.dart';
+import 'database.dart';
 import 'jobs.dart';
 import 'listeners.dart';
 import 'migrations.dart';
@@ -539,8 +540,7 @@ Application createApp({String? basePath, Map<String, String>? env}) =>
     Application.configure(basePath: basePath ?? Directory.current.path)
         .withEnv(env ?? const <String, String>{})
         // DB_CONNECTION=mysql or mariadb (sqlite and pgsql are built in).
-        .withDatabaseDriver('mysql', MySqlDriver.fromConfig)
-        .withDatabaseDriver('mariadb', MySqlDriver.fromConfig)
+        .withDatabaseDrivers(databaseDrivers)
         .withMigrations(migrations)
         .withSeeders(seeders)
         .withModels(models)
@@ -656,6 +656,22 @@ library;
 
 // <dartisan:exports>
 // </dartisan:exports>
+''';
+
+/// `bootstrap/database.dart`, as in the starter.
+const String _databaseRegistry = r'''
+// Database drivers (explicit, AOT-friendly): read by createApp and by
+// `dartisan model:sync`, which syncs the models without compiling the rest
+// of the application. sqlite and pgsql are built into package:daravel.
+import 'package:daravel/daravel.dart';
+import 'package:daravel_mysql/daravel_mysql.dart';
+
+/// The drivers by the connection `driver` they serve: `DB_CONNECTION=mysql`
+/// or `mariadb`.
+final Map<String, DatabaseDriverFactory> databaseDrivers = {
+  'mysql': MySqlDriver.fromConfig,
+  'mariadb': MySqlDriver.fromConfig,
+};
 ''';
 
 const String _emptyModels = r'''
@@ -1181,8 +1197,6 @@ final class DatabaseSeeder extends Seeder {
 ''';
 
 const String _authTest = r'''
-import 'dart:io';
-
 import 'package:daravel/daravel.dart';
 import 'package:daravel_test/daravel_test.dart';
 import 'package:test/test.dart';
@@ -1194,15 +1208,7 @@ void main() {
   late TestClient client;
 
   setUp(() async {
-    app = createApp(
-      basePath: Directory.current.path,
-      env: <String, String>{
-        'APP_ENV': 'testing',
-        'DB_CONNECTION': 'sqlite',
-        'DB_URL': 'sqlite::memory:',
-      },
-    );
-    await app.boot();
+    app = await bootTestApp(createApp);
     await app.run(() => App.make<Migrator>().run());
     client = TestClient(app);
   });
@@ -1244,8 +1250,6 @@ void main() {
 ''';
 
 const String _pingTest = r'''
-import 'dart:io';
-
 import 'package:daravel/daravel.dart';
 import 'package:daravel_test/daravel_test.dart';
 import 'package:test/test.dart';
@@ -1256,15 +1260,7 @@ void main() {
   late Application app;
 
   setUp(() async {
-    app = createApp(
-      basePath: Directory.current.path,
-      env: <String, String>{
-        'APP_ENV': 'testing',
-        'DB_CONNECTION': 'sqlite',
-        'DB_URL': 'sqlite::memory:',
-      },
-    );
-    await app.boot();
+    app = await bootTestApp(createApp);
   });
 
   tearDown(() => app.shutdown());
@@ -1288,8 +1284,6 @@ const String _conformanceTest = r'''
 @Tags(['conformance'])
 library;
 
-import 'dart:io';
-
 import 'package:daravel/daravel.dart';
 import 'package:daravel_test/conformance.dart';
 import 'package:daravel_test/daravel_test.dart';
@@ -1305,15 +1299,7 @@ void main() {
   late TestClient client;
 
   setUp(() async {
-    app = createApp(
-      basePath: Directory.current.path,
-      env: <String, String>{
-        'APP_ENV': 'testing',
-        'DB_CONNECTION': 'sqlite',
-        'DB_URL': 'sqlite::memory:',
-      },
-    );
-    await app.boot();
+    app = await bootTestApp(createApp);
     await app.run(() => App.make<Migrator>().run());
     client = TestClient(app);
   });
@@ -1579,12 +1565,202 @@ final class WelcomeController {
 }
 ''';
 
-const String _welcomeTest = r'''
-import 'dart:io';
+// What names:sync writes for each template (the e2e test runs
+// names:sync --check on a new project, so these stay in step).
+const String _namesApi = r'''
+import 'package:daravel/daravel.dart';
 
+// <dartisan:names>
+/// The named routes, as URL builders (written by `dartisan names:sync`).
+abstract final class Routes {
+  /// `POST /api/auth/login` (`auth.login`).
+  static String authLogin({
+    Map<String, Object?> query = const {},
+    bool absolute = false,
+  }) => routeUrl('auth.login', params: {}, query: query, absolute: absolute);
+
+  /// `POST /api/auth/logout` (`auth.logout`).
+  static String authLogout({
+    Map<String, Object?> query = const {},
+    bool absolute = false,
+  }) => routeUrl('auth.logout', params: {}, query: query, absolute: absolute);
+
+  /// `GET|HEAD /api/auth/me` (`auth.me`).
+  static String authMe({
+    Map<String, Object?> query = const {},
+    bool absolute = false,
+  }) => routeUrl('auth.me', params: {}, query: query, absolute: absolute);
+
+  /// `POST /api/auth/register` (`auth.register`).
+  static String authRegister({
+    Map<String, Object?> query = const {},
+    bool absolute = false,
+  }) => routeUrl('auth.register', params: {}, query: query, absolute: absolute);
+
+  /// `GET|HEAD /docs/api` (`daravel.api-docs`).
+  static String daravelApiDocs({
+    Map<String, Object?> query = const {},
+    bool absolute = false,
+  }) => routeUrl(
+    'daravel.api-docs',
+    params: {},
+    query: query,
+    absolute: absolute,
+  );
+
+  /// `GET|HEAD /docs/api.json` (`daravel.api-docs.json`).
+  static String daravelApiDocsJson({
+    Map<String, Object?> query = const {},
+    bool absolute = false,
+  }) => routeUrl(
+    'daravel.api-docs.json',
+    params: {},
+    query: query,
+    absolute: absolute,
+  );
+
+  /// `GET|HEAD /api/ping` (`ping`).
+  static String ping({
+    Map<String, Object?> query = const {},
+    bool absolute = false,
+  }) => routeUrl('ping', params: {}, query: query, absolute: absolute);
+
+  /// `GET|HEAD /` (`welcome`).
+  static String welcome({
+    Map<String, Object?> query = const {},
+    bool absolute = false,
+  }) => routeUrl('welcome', params: {}, query: query, absolute: absolute);
+}
+
+/// The route names, for APIs that take a name (written by `dartisan names:sync`).
+abstract final class RouteNames {
+  static const authLogin = 'auth.login';
+  static const authLogout = 'auth.logout';
+  static const authMe = 'auth.me';
+  static const authRegister = 'auth.register';
+  static const daravelApiDocs = 'daravel.api-docs';
+  static const daravelApiDocsJson = 'daravel.api-docs.json';
+  static const ping = 'ping';
+  static const welcome = 'welcome';
+}
+
+/// The abilities: `Gate.define` names, then the policy abilities (written by `dartisan names:sync`).
+abstract final class Abilities {
+  static const create = Ability('create');
+  static const delete = Ability('delete');
+  static const forceDelete = Ability('forceDelete');
+  static const restore = Ability('restore');
+  static const update = Ability('update');
+  static const view = Ability('view');
+  static const viewAny = Ability('viewAny');
+}
+
+/// The named rate limiters, for `Mw.throttle(...)` (written by `dartisan names:sync`).
+abstract final class RateLimiters {
+  static const login = 'login';
+  static const register = 'register';
+}
+
+/// The configured auth guards (written by `dartisan names:sync`).
+abstract final class Guards {
+  static const token = 'token';
+}
+
+/// The configured storage disks (written by `dartisan names:sync`).
+abstract final class Disks {
+  static const local = 'local';
+  static const public = 'public';
+}
+
+/// The configured database connections (written by `dartisan names:sync`).
+abstract final class Connections {
+  static const mariadb = 'mariadb';
+  static const mysql = 'mysql';
+  static const pgsql = 'pgsql';
+  static const sqlite = 'sqlite';
+}
+// </dartisan:names>
+''';
+
+const String _namesMinimal = r'''
+import 'package:daravel/daravel.dart';
+
+// <dartisan:names>
+/// The named routes, as URL builders (written by `dartisan names:sync`).
+abstract final class Routes {
+  /// `GET|HEAD /docs/api` (`daravel.api-docs`).
+  static String daravelApiDocs({
+    Map<String, Object?> query = const {},
+    bool absolute = false,
+  }) => routeUrl(
+    'daravel.api-docs',
+    params: {},
+    query: query,
+    absolute: absolute,
+  );
+
+  /// `GET|HEAD /docs/api.json` (`daravel.api-docs.json`).
+  static String daravelApiDocsJson({
+    Map<String, Object?> query = const {},
+    bool absolute = false,
+  }) => routeUrl(
+    'daravel.api-docs.json',
+    params: {},
+    query: query,
+    absolute: absolute,
+  );
+
+  /// `GET|HEAD /api/ping` (`ping`).
+  static String ping({
+    Map<String, Object?> query = const {},
+    bool absolute = false,
+  }) => routeUrl('ping', params: {}, query: query, absolute: absolute);
+
+  /// `GET|HEAD /` (`welcome`).
+  static String welcome({
+    Map<String, Object?> query = const {},
+    bool absolute = false,
+  }) => routeUrl('welcome', params: {}, query: query, absolute: absolute);
+}
+
+/// The route names, for APIs that take a name (written by `dartisan names:sync`).
+abstract final class RouteNames {
+  static const daravelApiDocs = 'daravel.api-docs';
+  static const daravelApiDocsJson = 'daravel.api-docs.json';
+  static const ping = 'ping';
+  static const welcome = 'welcome';
+}
+
+/// The abilities: `Gate.define` names, then the policy abilities (written by `dartisan names:sync`).
+abstract final class Abilities {}
+
+/// The named rate limiters, for `Mw.throttle(...)` (written by `dartisan names:sync`).
+abstract final class RateLimiters {}
+
+/// The configured auth guards (written by `dartisan names:sync`).
+abstract final class Guards {}
+
+/// The configured storage disks (written by `dartisan names:sync`).
+abstract final class Disks {
+  static const local = 'local';
+  static const public = 'public';
+}
+
+/// The configured database connections (written by `dartisan names:sync`).
+abstract final class Connections {
+  static const mariadb = 'mariadb';
+  static const mysql = 'mysql';
+  static const pgsql = 'pgsql';
+  static const sqlite = 'sqlite';
+}
+// </dartisan:names>
+''';
+
+const String _welcomeTest = r'''
 import 'package:daravel/daravel.dart';
 import 'package:daravel_test/daravel_test.dart';
 import 'package:test/test.dart';
+import 'package:{{ package }}/app/names.dart';
 
 import '../../bootstrap/app.dart';
 
@@ -1592,21 +1768,17 @@ void main() {
   late Application app;
 
   setUp(() async {
-    app = createApp(
-      basePath: Directory.current.path,
-      env: <String, String>{
-        'APP_ENV': 'testing',
-        'DB_CONNECTION': 'sqlite',
-        'DB_URL': 'sqlite::memory:',
-      },
-    );
-    await app.boot();
+    app = await bootTestApp(createApp);
   });
 
   tearDown(() => app.shutdown());
 
   test('GET / renders the welcome page for browsers', () async {
-    (await TestClient(app).get('/', headers: {'accept': 'text/html'}))
+    // The URL from the route's name (lib/app/names.dart, names:sync).
+    (await TestClient(app).get(
+      Routes.welcome(),
+      headers: {'accept': 'text/html'},
+    ))
         .assertOk()
         .assertHeader('content-type', 'text/html; charset=utf-8')
         .assertSee('compiled to native Dart');

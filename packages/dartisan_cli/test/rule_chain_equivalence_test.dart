@@ -49,6 +49,21 @@ void main() {
     ('lowercase', 'Rules.lowercase()', Rules.lowercase()),
     ('uppercase', 'Rules.uppercase()', Rules.uppercase()),
     ('distinct', 'Rules.distinct()', Rules.distinct()),
+    (
+      'distinct:strict',
+      'Rules.distinct(strict: true)',
+      Rules.distinct(strict: true),
+    ),
+    (
+      'distinct:ignore_case',
+      'Rules.distinct(ignoreCase: true)',
+      Rules.distinct(ignoreCase: true),
+    ),
+    (
+      'distinct:strict,ignore_case',
+      'Rules.distinct(strict: true, ignoreCase: true)',
+      Rules.distinct(strict: true, ignoreCase: true),
+    ),
     ('date', 'Rules.date()', Rules.date()),
     (
       'required_if:role,admin',

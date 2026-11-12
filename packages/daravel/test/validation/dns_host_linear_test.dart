@@ -76,9 +76,11 @@ void main() {
   });
 
   // Growth, not a wall-clock bound: the time for 16 000 distinct code points
-  // over the time for 4 000, each the fastest of three. Punycode before the
-  // refusal grew about 16 times for 4 times the code points (267 ms and
-  // 4 143 ms); when both are under a few milliseconds the ratio is noise.
+  // over the time for 1 000, each the fastest of three, under 100. Punycode
+  // before the refusal grew about 16 times for 4 times the code points
+  // (267 ms and 4 143 ms), so about 256 for 16 times; linear is about 16.
+  // The work allocates in proportion to the input, which makes one step of
+  // 4 noisy; when both are under a few milliseconds the ratio is noise.
   Future<int> fastest(Future<void> Function() run) async {
     var best = 1 << 62;
     for (var i = 0; i < 3; i++) {
@@ -92,12 +94,12 @@ void main() {
   void linear(String name, Future<void> Function(String label) run) {
     test('$name: linear in the distinct code points of a label', () async {
       await run(distinct(100));
-      final small = await fastest(() => run(distinct(4000)));
+      final small = await fastest(() => run(distinct(1000)));
       final large = await fastest(() => run(distinct(16000)));
       expect(
-        large < 5000 || large / max(small, 1) < 10,
+        large < 5000 || large / max(small, 1) < 100,
         isTrue,
-        reason: '4 000: $small µs, 16 000: $large µs',
+        reason: '1 000: $small µs, 16 000: $large µs',
       );
     });
   }
@@ -124,12 +126,12 @@ void main() {
   ]) {
     test('active_url: linear in the length of the host, $name', () async {
       await validate(url(1000), 'active_url');
-      final small = await fastest(() => validate(url(25000), 'active_url'));
+      final small = await fastest(() => validate(url(6250), 'active_url'));
       final large = await fastest(() => validate(url(100000), 'active_url'));
       expect(
-        large < 5000 || large / max(small, 1) < 10,
+        large < 5000 || large / max(small, 1) < 100,
         isTrue,
-        reason: '25 000: $small µs, 100 000: $large µs',
+        reason: '6 250: $small µs, 100 000: $large µs',
       );
     });
   }

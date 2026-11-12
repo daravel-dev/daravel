@@ -98,6 +98,21 @@ the number either. A record counts once per job and status; that is
 remembered with the job, so a duplicate arriving after the job left every
 list counts again.
 
+## `retry_after`
+
+The master kills a worker blocked on a job a heartbeat (at least a second)
+before the queue may hand the job to another worker, at the moment the queue
+driver states (`QueuedJob.reservedUntil`: whole seconds on the database
+queue, milliseconds on Redis). The master and its workers must use the same
+`QUEUE_RETRY_AFTER`; when they do not, the master uses the earlier and warns.
+A worker extends the reservation of a job that keeps running and tells the
+master, which follows it: every half of what the master leaves the job, so a
+small `retry_after` means frequent writes (3 s on the database queue: two a
+second per running job). Not covered: a worker in another process or host
+whose clock runs ahead (the margin covers it only while the difference stays
+below it), a process suspended past a reservation, and the Redis stream engine
+on a server clock that runs fast or jumps ahead.
+
 ## License
 
 MIT.

@@ -7,6 +7,7 @@ import 'package:daravel_lints/daravel_lints.dart';
 import 'package:path/path.dart' as p;
 
 import '../dartisan_cli.dart';
+import 'names_sync.dart';
 import 'region_format.dart';
 
 /// Sets `KEY=value` in a `.env` file body (replacing or appending).
@@ -800,6 +801,17 @@ final class DoctorCommand extends DaravelCommand {
         ),
       );
     }
+    if (Uri.tryParse(appConfig.url)?.scheme == 'https') {
+      checks.add(
+        const DoctorCheck(
+          CheckStatus.notice,
+          'APP_URL is https; the server itself speaks plain HTTP',
+          'TLS ends at a proxy in front of it. Requests see https and the '
+              'public host only from a proxy TrustProxiesMiddleware trusts '
+              '(X-Forwarded-Proto and -Host from anyone else are ignored).',
+        ),
+      );
+    }
     final serve = ServeOptions.fromEnv(app.env);
     if (serve.maxBodyBytes == null) {
       checks.add(
@@ -1461,6 +1473,11 @@ final class OpenApiGenerateCommand extends DaravelCommand {
 /// region of models from the database schema (BLUEPRINT_V2 §8.3) and fills
 /// an empty statics region with the query shortcuts `make:model` writes.
 /// `--typed-ids` (opt-in, ADR-032) also writes a typed id per model.
+///
+/// It does not compile the application (#329): the models are read from
+/// their sources, and the schema through a program in `.dart_tool` that
+/// imports only the framework, the CLI and the database drivers
+/// ([spawnModelSync]). `--boot` reads through the application instead.
 final class ModelSyncCommand extends DaravelCommand {
   /// The `dartisan model:sync` command.
   ModelSyncCommand(super.createApp) {
@@ -1470,6 +1487,21 @@ final class ModelSyncCommand extends DaravelCommand {
         negatable: false,
         help: 'Print the accessors without writing.',
       )
+      ..addFlag(
+        'boot',
+        negatable: false,
+        help:
+            "Read the schema through the application (it must compile), "
+            'for a connection the application configures in code.',
+      )
+      ..addFlag(
+        'reset-regions',
+        negatable: false,
+        help:
+            'Empty the generated accessors and relation-path regions (not '
+            'statics), so an application they broke compiles again.',
+      )
+      ..addFlag(inEntryFlag.substring(2), negatable: false, hide: true)
       ..addFlag(
         'check',
         negatable: false,
@@ -1499,17 +1531,73 @@ final class ModelSyncCommand extends DaravelCommand {
   @override
   String get name => 'model:sync';
 
+  /// Passed by the program [spawnModelSync] runs: sync here, in the
+  /// application it built from the environment and the drivers.
+  static const String inEntryFlag = '--in-entry';
+
   @override
   String get description => '''
 Sync model accessors with the database schema.
 
-It reads the tables through the application's database connection, so
-the application must compile: fix a model that does not by hand first.
-(request:sync reads sources only and runs without compiling the
-application.)''';
+The models are read from their sources and the tables through a database
+connection from the environment (.env, DB_*), without compiling the
+application: output that no longer compiles is repaired by syncing
+again. --boot reads through the application instead (it must compile), for
+a connection configured in code; --reset-regions empties the generated
+regions.''';
 
   @override
-  Future<int> run() => withApp((app) async {
+  Future<int> run() async {
+    final args = argResults!;
+    if (args['reset-regions'] as bool) {
+      final paths = ProjectPaths.locate();
+      final dryRun = args['dry-run'] as bool;
+      final emptied = resetModelRegions(
+        Directory(paths.models),
+        only: args.rest.isEmpty ? null : Naming.snake(args.rest.first),
+        dryRun: dryRun,
+      );
+      for (final line in emptied) {
+        stdout.writeln('${dryRun ? 'Would empty' : 'Emptied'} $line.');
+      }
+      if (emptied.isEmpty) {
+        stdout.writeln('No generated region to empty.');
+      } else if (!dryRun) {
+        stdout.writeln('Run dartisan model:sync to write them again.');
+      }
+      return 0;
+    }
+    final inEntry = args[inEntryFlag.substring(2)] as bool;
+    if (!inEntry && !(args['boot'] as bool)) {
+      return spawnModelSync(ProjectPaths.locate().root, [
+        for (final a in args.arguments)
+          if (a != '--boot') a,
+      ]);
+    }
+    return _syncInApp(inEntry: inEntry);
+  }
+
+  Future<int> _syncInApp({required bool inEntry}) => withApp((app) async {
+    if (!inEntry) {
+      return _sync(app);
+    }
+    try {
+      return await _sync(app);
+    } on Object catch (error) {
+      stderr
+        ..writeln(
+          'model:sync: the schema could not be read without the '
+          'application: $error',
+        )
+        ..writeln(
+          'model:sync: a connection or driver the application sets up in '
+          'code is not seen here; run dartisan model:sync --boot.',
+        );
+      return 1;
+    }
+  });
+
+  Future<int> _sync(Application app) async {
     final paths = ProjectPaths.locate(app.basePath);
     final only = argResults!.rest.isEmpty
         ? null
@@ -1597,7 +1685,7 @@ application.)''';
       return only == null ? 0 : 1;
     }
     return stale == 0 ? 0 : 1;
-  });
+  }
 }
 
 /// One `dartisan lint` finding as `dart analyze` prints one:
@@ -1834,4 +1922,122 @@ DoctorCheck? horizonSqliteCheck(Application app, {required bool production}) {
     'QUEUE_CONNECTION=redis, or serve --embed-queue; '
     'HORIZON_ALLOW_SQLITE=1 for development only.',
   );
+}
+
+/// `dartisan names:sync [--check]`: writes the application's names into
+/// `lib/app/names.dart` (wave 9, W9.6): `Routes.*` URL builders and
+/// `RouteNames`, `Abilities`, `RateLimiters`, `Guards`, `Disks` and
+/// `Connections`. It boots the application for inspection
+/// (`Application.bootForInspection`): no database connection, no metrics
+/// publisher, nothing sent; a provider that needs the database at boot
+/// makes it fail with that reason, and `--boot` boots it fully instead.
+/// With `--check` it writes nothing and exits 1 when the file is out of
+/// date (for CI). Routes are code, so the application must compile:
+/// add a route, run names:sync, then use `Routes.x`.
+final class NamesSyncCommand extends DaravelCommand {
+  /// The `dartisan names:sync` command.
+  NamesSyncCommand(super.createApp) {
+    argParser
+      ..addFlag(
+        'check',
+        negatable: false,
+        help: 'Write nothing; exit 1 when lib/app/names.dart is out of date.',
+      )
+      ..addFlag(
+        'boot',
+        negatable: false,
+        help:
+            'Boot the application fully (it may connect), for a provider '
+            'that needs the database while booting.',
+      );
+  }
+
+  @override
+  String get name => 'names:sync';
+
+  @override
+  String get description => '''
+Write route, ability, limiter, guard, disk and connection names.
+
+The names come from the application booted with this machine's
+environment: disks, connections, guards and routes or limiters registered
+only in some environments (only with APP_DEBUG, say) come and go with it.
+Run names:sync and names:sync --check with the same environment (for
+example APP_ENV=testing in both); a failed --check lists the names that
+differ.''';
+
+  /// The names registered in [app] (booted).
+  static AppNames readNames(Application app) {
+    final c = app.container;
+    final gate = c.make<AuthorizationGate>();
+    final seen = <String>{};
+    return (
+      routes: [
+        for (final route in c.make<Router>().routes)
+          if (route.routeName case final name? when seen.add(name))
+            (name: name, methods: route.methods, path: route.path),
+      ],
+      abilities: gate.abilities.toList(),
+      policies: gate.hasPolicies,
+      rateLimiters: c.make<RateLimiter>().names.toList(),
+      guards: c.make<AuthManager>().guardNames.toList(),
+      disks: c.make<StorageManager>().diskNames.toList(),
+      connections: c
+          .make<ConfigRepository>()
+          .section<DatabaseConfig>()
+          .connections
+          .keys
+          .toList(),
+    );
+  }
+
+  @override
+  Future<int> run() => argResults!['boot'] as bool
+      ? withApp(_sync)
+      : withAppForInspection(_sync, hint: 'run dartisan names:sync --boot');
+
+  Future<int> _sync(Application app) async {
+    final unnamed = app.container
+        .make<Router>()
+        .routes
+        .where((route) => route.routeName == null)
+        .length;
+    if (unnamed > 0) {
+      stdout.writeln(
+        '$unnamed route${unnamed == 1 ? '' : 's'} without a name: no '
+        'builder for ${unnamed == 1 ? 'it' : 'them'}.',
+      );
+    }
+    final paths = ProjectPaths.locate(app.basePath);
+    final file = File(p.join(paths.root, 'lib', 'app', 'names.dart'));
+    final current = file.existsSync() ? file.readAsStringSync() : null;
+    final sync = syncNamesSource(
+      current,
+      readNames(app),
+      formatter: RegionFormatter.forProject(paths.root),
+    );
+    for (final warning in sync.warnings) {
+      stdout.writeln(warning);
+    }
+    if (sync.source == current) {
+      stdout.writeln('lib/app/names.dart: up to date.');
+      return 0;
+    }
+    if (argResults!['check'] as bool) {
+      stdout.writeln(
+        'lib/app/names.dart: out of date; run dartisan names:sync.',
+      );
+      // What differs, so a name registered only in some environments (a
+      // disk, a debug route) is seen as such, not as a stale file.
+      for (final line in namesDiff(current, sync.source)) {
+        stdout.writeln('  $line');
+      }
+      return 1;
+    }
+    file
+      ..createSync(recursive: true)
+      ..writeAsStringSync(sync.source);
+    stdout.writeln('lib/app/names.dart: written.');
+    return 0;
+  }
 }

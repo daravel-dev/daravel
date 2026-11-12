@@ -330,6 +330,29 @@ word in Dart). Soft deletes, observers, model events, global scopes,
 the model an alias, and used in
 `No query results for model [App\Models\Post] 1`.
 
+### Syncing models
+
+`dartisan model:sync` rewrites the generated regions of each model from its
+table. It does not compile the application: it reads the models from their
+sources and the tables through a connection the environment configures
+(`.env`, `DB_*`), with the drivers of `bootstrap/database.dart`
+(`databaseDrivers`; new projects have it). So generated code the
+application no longer accepts, say an accessor whose type changed, is
+repaired by syncing again.
+
+- `--check` writes nothing and exits 1 when a model is out of date (CI).
+- `--boot` reads the schema through the application instead (it must
+  compile), for a connection the application configures in code.
+- `--reset-regions` empties the generated `accessors` and `relation-path`
+  regions (never `statics`), with `--dry-run` to see which first.
+- A project without `bootstrap/database.dart` still syncs: `sqlite` and
+  `pgsql` are built in, and `daravel_mysql` is used when `pubspec.yaml`
+  depends on it.
+
+Without a global `dartisan`, `dart run dartisan_cli:dartisan model:sync`
+does the same from the project directory; `dart run bin/dartisan.dart
+model:sync` compiles the application first.
+
 ### Typed ids (opt-in)
 
 A Daravel-only option: with `dartisan model:sync --typed-ids`, each model

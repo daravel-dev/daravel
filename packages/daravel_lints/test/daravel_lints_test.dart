@@ -500,6 +500,34 @@ final class User extends Model {
       expect([for (final i in issues) i.line], [11]);
     });
 
+    // The `where` static 1.27 wrote (#322), still in models synced then:
+    // the same region, so the same skip, whatever its parameters are named.
+    test('skips the 1.27 where static of the statics region (#322)', () {
+      const source = r'''
+final class Region extends Model {
+  // <dartisan:statics>
+  static ModelQuery<Region> query() => definition.query();
+  static ModelQuery<Region> where(Object column, [Object? op, Object? value]) =>
+      query().where(column, op, value);
+  // </dartisan:statics>
+}
+
+Future<void> f(String sort) async {
+  await Region.where('code', 'x').get();
+  await Region.where(sort).get();
+}
+''';
+      final issues = lintSource(
+        source,
+        'lib/app/models/region.dart',
+        rules: rule,
+      );
+      // Nothing in the region. (A call through the model class, as
+      // Region.where(sort), is not judged yet: the rule reads receivers
+      // named like a query or database, not class names.)
+      expect(issues, isEmpty);
+    });
+
     test('is silenced by an ignore comment and skips lib/src', () {
       const source = '''
 void f(String sort) {

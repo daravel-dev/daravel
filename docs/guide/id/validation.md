@@ -1,4 +1,4 @@
-<!-- source: validation.md sha256:1a674a00c4dc -->
+<!-- source: validation.md sha256:106391edc4d6 -->
 # Validasi
 
 Validasi request secara inline dengan string rule Laravel, atau dengan objek
@@ -79,7 +79,11 @@ sebuah middleware).
   `array` di Laravel yang menerima array PHP apa pun; `array:name,email` hanya
   mengizinkan key tersebut (key sebuah list adalah indeksnya). `list` hanya
   menerima array JSON dan `map` (khas Daravel) hanya objek JSON. `min`, `max`,
-  `between`, dan `size` menghitung jumlah item keduanya.
+  `between`, dan `size` menghitung jumlah item keduanya. `distinct` memutuskan
+  seperti Laravel 13: pada `items.*.tags.*`, tag dari semua item dibandingkan,
+  dan `1`, `1.0`, `'1.0'`, serta `true` dianggap satu nilai kecuali Anda
+  menulis `distinct:strict`; `distinct:ignore_case` mengabaikan huruf besar
+  kecil. `in_array:others.*` membandingkan secara ketat (`1` bukan `'1'`).
 - **Lainnya:** `date_equals`, dan `timezone` atau `timezone:Asia`. Aturan ini juga
   menerima alias IANA lama seperti `Asia/Calcutta`, dan tidak mendukung
   `per_country`.
@@ -261,8 +265,8 @@ dart run dartisan_cli:dartisan request:sync
 ```
 
 yang selalu berjalan, karena hanya `dartisan_cli` yang dikompilasi.
-(`model:sync` membaca database lewat koneksi aplikasi, jadi butuh proyek
-yang bisa dikompilasi.)
+(`model:sync` juga tidak mengompilasi aplikasi: lihat
+[Database](database.md#menyinkronkan-model).)
 
 `typed` memuat setiap field menurut kunci input-nya, sudah dikonversi ke
 tipe yang dideklarasikan. Tipe sebuah field dan rule-nya masih bisa tidak

@@ -3,7 +3,7 @@
 
 /// `docs/guide/id/database.md`.
 const String pageIdDatabase =
-    r'''<!-- source: database.md sha256:9cdcc0423cd0 -->
+    r'''<!-- source: database.md sha256:386237c4b48b -->
 # Database
 
 `DB_CONNECTION` memilih SQLite (`sqlite`, default), PostgreSQL (`pgsql`),
@@ -343,6 +343,31 @@ yang dicadangkan di Dart). Soft delete, observer, event model, global scope,
 seperti `personal_access_tokens.tokenable_type`, kecuali `Relation.morphMap`
 memberi model itu alias, dan dipakai di
 `No query results for model [App\Models\Post] 1`.
+
+### Menyinkronkan model
+
+`dartisan model:sync` menulis ulang region bangkitan setiap model dari
+tabelnya. Perintah ini tidak mengompilasi aplikasi: ia membaca model dari
+kode sumbernya dan tabel lewat koneksi yang dikonfigurasi environment
+(`.env`, `DB_*`), dengan driver dari `bootstrap/database.dart`
+(`databaseDrivers`; proyek baru sudah memilikinya). Jadi kode bangkitan
+yang tidak lagi diterima aplikasi, misalnya accessor yang tipenya berubah,
+diperbaiki dengan sync ulang.
+
+- `--check` tidak menulis apa pun dan keluar dengan kode 1 bila ada model
+  yang usang (CI).
+- `--boot` membaca skema lewat aplikasi (yang harus bisa dikompilasi),
+  untuk koneksi yang dikonfigurasi aplikasi di dalam kode.
+- `--reset-regions` mengosongkan region bangkitan `accessors` dan
+  `relation-path` (tidak pernah `statics`), dengan `--dry-run` untuk
+  melihat dulu mana saja.
+- Proyek tanpa `bootstrap/database.dart` tetap bisa sync: `sqlite` dan
+  `pgsql` sudah bawaan, dan `daravel_mysql` dipakai bila `pubspec.yaml`
+  bergantung padanya.
+
+Tanpa `dartisan` global, `dart run dartisan_cli:dartisan model:sync`
+melakukan hal yang sama dari direktori proyek; `dart run bin/dartisan.dart
+model:sync` mengompilasi aplikasi lebih dulu.
 
 ### ID bertipe (opt-in)
 

@@ -100,7 +100,8 @@ Future<void> horizonWorkerMain(HorizonWorkerStart start) async {
     await booted.boot();
     final database = booted.container.make<DatabaseManager>();
     String sessions() => encodeSessions(database.openSessions());
-    final signals = booted.container.make<QueueManager>().signalStore;
+    final queues = booted.container.make<QueueManager>();
+    final signals = queues.signalStore;
     // Jobs failing for a timeout mark, until their mark is removed.
     final failing = <String>{};
     final worker = QueueWorker(
@@ -114,13 +115,15 @@ Future<void> horizonWorkerMain(HorizonWorkerStart start) async {
     String? jobUuid;
     String? queue;
     int? reservedAt;
+    int? reservedUntil;
+    int? retryAfterMs;
     int? timeoutMs;
     String? jobName;
     int? attempt;
     JobPayload? payload;
     void clear() {
       jobId = jobUuid = queue = jobName = payload = null;
-      reservedAt = timeoutMs = attempt = null;
+      reservedAt = reservedUntil = retryAfterMs = timeoutMs = attempt = null;
     }
 
     void report() => start.master.send(
@@ -131,6 +134,8 @@ Future<void> horizonWorkerMain(HorizonWorkerStart start) async {
         jobUuid: jobUuid,
         queue: queue,
         jobReservedAtMs: reservedAt,
+        jobReservedUntilMs: reservedUntil,
+        jobRetryAfterMs: retryAfterMs,
         jobTimeoutMs: timeoutMs,
         jobName: jobName,
         attempt: attempt,
@@ -230,11 +235,40 @@ Future<void> horizonWorkerMain(HorizonWorkerStart start) async {
     });
     start.master.send(Ready(start.name, sessions: sessions()));
     report();
+    // How often a running job's reservation is extended: half of what the
+    // master leaves it (the shortest reservation less its margin), so an
+    // extension reaches the master well before it would kill the job. A
+    // driver of its own is extended every half retry_after, as elsewhere.
+    final connectionName =
+        start.connection ??
+        booted.config.section<QueueConfig>().defaultConnection;
+    final extendEvery = switch (queues.connection(start.connection)) {
+      final ReservingQueueDriver reserving =>
+        switch (HorizonConfig.shortestReservation(
+          connectionName,
+          reserving.retryAfter,
+        )) {
+          final Duration shortest
+              when shortest > HorizonConfig.marginFor(start.heartbeat) =>
+            (shortest - HorizonConfig.marginFor(start.heartbeat)) ~/ 2,
+          _ => null,
+        },
+      _ => null,
+    };
     code = await booted.container.runScoped<int>(
       'job',
       (_) => worker.run(
         WorkerOptions(
           connection: start.connection,
+          extendEvery: extendEvery,
+          // The master follows an extended reservation: it would otherwise
+          // kill the job by the end of the first one.
+          onReservationExtended: (job, until) {
+            if ('${job.id}' == jobId && job.attempts == attempt) {
+              reservedUntil = until.millisecondsSinceEpoch;
+              report();
+            }
+          },
           queues: worker.queues,
           tries: start.tries,
           backoff: start.backoffSeconds == null
@@ -254,6 +288,12 @@ Future<void> horizonWorkerMain(HorizonWorkerStart start) async {
             jobUuid = job.payload.uuid;
             queue = job.queue;
             reservedAt = DateTime.now().millisecondsSinceEpoch;
+            reservedUntil = job.reservedUntil?.millisecondsSinceEpoch;
+            retryAfterMs = switch (queues.connection(start.connection)) {
+              final ReservingQueueDriver reserving =>
+                reserving.retryAfter.inMilliseconds,
+              _ => null,
+            };
             // The timeout the processor will enforce: the plan's, otherwise
             // the job's own (as JobProcessing.timeout says).
             timeoutMs = (start.timeout ?? job.payload.timeout).inMilliseconds;

@@ -187,6 +187,20 @@ final class TouchCounting implements ReservingQueueDriver {
   Future<int> clear(String queue) => inner.clear(queue);
 }
 
+/// A [TouchCounting] that says until when it extended, and whose
+/// extensions wait for [answer] to be completed.
+final class HangingExtender extends TouchCounting
+    implements ExtendingQueueDriver {
+  HangingExtender(super.inner);
+  int extensions = 0;
+  Completer<DateTime?> answer = Completer<DateTime?>();
+  @override
+  Future<DateTime?> extend(QueuedJob job) {
+    extensions++;
+    return answer.future;
+  }
+}
+
 final List<JobDefinition> definitions = [
   JobDefinition('late-writer', (_) => const LateWriter()),
   JobDefinition('faf', (_) => const FireAndForget()),
@@ -386,6 +400,58 @@ void main() {
       final after = driver.touches;
       await Future<void>.delayed(const Duration(milliseconds: 40));
       expect(driver.touches, after, reason: 'stops with the job');
+    });
+  });
+
+  test('one extension at a time: ticks during a slow one are skipped; '
+      'each extension is told with its end', () async {
+    await boot('memory');
+    await app!.run(() async {
+      final driver = HangingExtender(MemoryQueue());
+      Queue.manager.extend('extending', () => driver);
+      await Queue.push(const Long(), connection: 'extending');
+      final told = <DateTime>[];
+      final done = QueueWorker(Queue.manager).run(
+        WorkerOptions(
+          connection: 'extending',
+          stopWhenEmpty: true,
+          extendEvery: const Duration(milliseconds: 5),
+          onReservationExtended: (_, until) => told.add(until),
+        ),
+      );
+      for (var i = 0; i < 200 && driver.extensions < 1; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+      // Ten ticks while the first extension hangs.
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(driver.extensions, 1);
+      expect(driver.touches, 0, reason: 'extend, not touch');
+      final until = DateTime.utc(2030);
+      final first = driver.answer;
+      driver.answer = Completer<DateTime?>();
+      first.complete(until);
+      for (var i = 0; i < 200 && driver.extensions < 2; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+      expect(driver.extensions, greaterThanOrEqualTo(2));
+      expect(told, [until]);
+      driver.answer.complete(null);
+      gate.complete();
+      await done;
+      expect(told, [until], reason: 'null: nothing to tell');
+    });
+  });
+
+  test('extendEvery must be above zero', () async {
+    await boot('memory');
+    await app!.run(() async {
+      for (final every in [Duration.zero, const Duration(milliseconds: -1)]) {
+        await expectLater(
+          QueueWorker(Queue.manager)
+              .run(WorkerOptions(extendEvery: every, stopWhenEmpty: true)),
+          throwsArgumentError,
+        );
+      }
     });
   });
 

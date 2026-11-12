@@ -13,7 +13,9 @@ import 'auth_rules.dart';
 import 'dns.dart';
 import 'email_rfc.dart';
 import 'image_size.dart';
+import 'key_pattern.dart';
 import 'object_rules.dart';
+import 'php_compare.dart';
 import 'php_date_format.dart';
 import 'php_email_filter.dart';
 import 'php_url.dart';
@@ -467,8 +469,12 @@ abstract final class Rules {
   static Rule enumValues<E extends Enum>(List<E> values) =>
       InRule(values.map((v) => v.name).toList());
 
-  /// `distinct`: no duplicates among the list's items (`items.*`).
-  static Rule distinct() => const DistinctRule();
+  /// `distinct`: no other value of the rule's pattern (`items.*`,
+  /// `items.*.tags.*` across every item) equals this one, loosely as PHP 8;
+  /// by `===` with [strict] (`distinct:strict`), and for strings whatever
+  /// their case with [ignoreCase] (`distinct:ignore_case`).
+  static Rule distinct({bool strict = false, bool ignoreCase = false}) =>
+      DistinctRule(strict: strict, ignoreCase: ignoreCase);
 
   /// `confirmed`: equals `<field>_confirmation`, or [field] when given.
   static Rule confirmed([String? field]) => ConfirmedRule(field);
@@ -831,53 +837,22 @@ bool _dependentMatches(ValidationContext c, String other, List<String> values) {
 /// without strict.
 bool _phpLooseEquals(Object a, Object? b) {
   if (b is bool) {
-    return _phpTruthy(a) == b;
+    return phpTruthy(a) == b;
   }
   if (b is! String) {
     return a == b;
   }
-  final bNumber = _phpNumeric(b);
+  final bNumber = phpNumeric(b);
   return switch (a) {
-    String() => switch ((_phpNumeric(a), bNumber)) {
-      (final num x, final num y) => x == y,
+    String() => switch ((phpNumeric(a), bNumber)) {
+      (final num x, final num y) => phpNumbersEqual(x, y),
       _ => a == b,
     },
-    num() => bNumber != null ? a == bNumber : _phpNumberString(a) == b,
+    num() =>
+      bNumber != null ? phpNumbersEqual(a, bNumber) : phpNumberString(a) == b,
     _ => false,
   };
 }
-
-/// PHP's truthiness of an input value: `''`, `'0'`, `0`, `0.0` and an
-/// empty list or map are false.
-bool _phpTruthy(Object? value) => switch (value) {
-  null || false || '' || '0' => false,
-  num() => value != 0,
-  List<Object?>() => value.isNotEmpty,
-  Map<Object?, Object?>() => value.isNotEmpty,
-  _ => true,
-};
-
-/// The number of a PHP 8 numeric string (`'5'`, `' 1.5 '`, `'1e3'`,
-/// `'.5'`), `null` for any other (`'0x1A'`, `'1,5'`, `'abc'`).
-num? _phpNumeric(String value) {
-  final match = RegExp(
-    r'^[ \t\n\r\v\f]*([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)'
-    r'[ \t\n\r\v\f]*$',
-  ).firstMatch(value);
-  if (match == null) {
-    return null;
-  }
-  final text = match[1]!;
-  return text.contains(RegExp('[.eE]'))
-      ? double.parse(text.endsWith('.') ? '${text}0' : text)
-      : int.parse(text);
-}
-
-/// A number as PHP writes it in a string comparison (`1.0` is `'1'`).
-String _phpNumberString(num value) =>
-    value is double && value.isFinite && value == value.truncateToDouble()
-    ? value.toInt().toString()
-    : '$value';
 
 /// `parseDependentRuleParameters`: with a `boolean` rule on [other], `true`
 /// and `false` compare as booleans, so `'1'` matches `true`.
@@ -901,7 +876,7 @@ Map<String, Object?> _otherParameters(ValidationContext c, String other) => {
     null => 'empty',
     List<Object?>() || Map<Object?, Object?>() => 'array',
     // getDisplayableValue's (string) cast: 5.0 is "5", as PHP writes it.
-    final num value => _phpNumberString(value),
+    final num value => phpNumberString(value),
     final value => '$value',
   },
 };
@@ -1716,65 +1691,114 @@ final class InRule extends Rule {
 }
 
 /// `distinct`: see [Rules.distinct].
+///
+/// As Laravel 13's `validateDistinct`: the value is compared with every
+/// value of the input whose key matches the rule's pattern (`items.*.id`,
+/// each `*` one key, across all the items: `getDistinctValues`), its own
+/// key left out. Loosely as PHP 8's `in_array` does, by `===` with
+/// [strict], and, for a string, ignoring case with [ignoreCase]
+/// (`preg_grep` with `/iu`; a list or map among the values is never equal
+/// there, where Laravel's request fails on PHP's array-to-string warning).
 final class DistinctRule extends Rule {
   /// The distinct rule; use [Rules.distinct].
-  const DistinctRule();
+  const DistinctRule({this.strict = false, this.ignoreCase = false});
+
+  /// `distinct:strict`: values equal only by `===` (`1` is not `'1'`).
+  final bool strict;
+
+  /// `distinct:ignore_case`: strings equal whatever their case.
+  final bool ignoreCase;
+
   @override
   String get name => 'distinct';
+
   @override
   String? passes(ValidationContext c) {
-    // Compare against siblings in the enclosing list.
-    final lastDot = c.attribute.lastIndexOf('.');
-    if (lastDot == -1) {
-      return null;
+    // The values of the pattern's keys, read once per run (in the memo),
+    // so each item is checked in constant time: scanning them for every
+    // item took time quadratic in their number.
+    final (:keys, :index) = _valuesOf(c);
+    final value = c.value;
+    final self = keys.contains(c.attribute);
+    final int others;
+    if (ignoreCase && value is String && _wellFormed(value)) {
+      others = index.caseInsensitive(value) - (self ? 1 : 0);
+    } else if (strict) {
+      others =
+          index.identical(value) - (self && phpIdentical(value, value) ? 1 : 0);
+    } else {
+      others =
+          index.loose(value) - (self && phpLooseEquals(value, value) ? 1 : 0);
     }
-    final parentPath = c.attribute.substring(0, lastDot);
-    final leaf = c.attribute.substring(lastDot + 1);
-    final parentDot = parentPath.lastIndexOf('.');
-    final listPath = parentDot == -1
-        ? null
-        : parentPath.substring(0, parentDot);
-    final list = listPath == null ? c.root(parentPath) : c.root(listPath);
-    if (list is! List<Object?>) {
-      return null;
+    return others > 0 ? name : null;
+  }
+
+  ({Set<String> keys, PhpValueIndex index}) _valuesOf(ValidationContext c) {
+    ({Set<String> keys, PhpValueIndex index}) build() {
+      final leaves = _leavesMatching(c.data, c.pattern, crossDots: false);
+      return (keys: leaves.keys.toSet(), index: PhpValueIndex(leaves.values));
     }
-    String textOf(Object? item) =>
-        '${listPath == null ? item : ValidationContext.dig(item, leaf)}';
+
     final memo = c.memo;
     if (memo == null) {
-      var seen = 0;
-      for (final item in list) {
-        if (textOf(item) == '${c.value}') {
-          seen++;
-        }
-      }
-      return seen > 1 ? 'distinct' : null;
+      return build();
     }
-    // The list counted once per run, not once per item: scanning it for
-    // every item took time quadratic in its length (16 000 numbers: 15 s).
-    // The same comparison: the items' text, counted.
-    final counts =
-        memo.putIfAbsent(
-              // The leaf names the compared key only inside items
-              // (`items.*.id`); for a list of scalars it is the index.
-              (
-                'distinct',
-                c.data,
-                listPath ?? parentPath,
-                listPath == null ? null : leaf,
-              ),
-              () {
-                final counts = <String, int>{};
-                for (final item in list) {
-                  final text = textOf(item);
-                  counts[text] = (counts[text] ?? 0) + 1;
-                }
-                return counts;
-              },
-            )!
-            as Map<String, int>;
-    return (counts['${c.value}'] ?? 0) > 1 ? 'distinct' : null;
+    return memo.putIfAbsent(('distinct', c.data, c.pattern), build)!
+        as ({Set<String> keys, PhpValueIndex index});
   }
+
+  // mb_check_encoding($value, 'UTF-8'): no lone surrogate.
+  static bool _wellFormed(String value) {
+    for (var i = 0; i < value.length; i++) {
+      final unit = value.codeUnitAt(i);
+      if (unit >= 0xD800 && unit <= 0xDBFF) {
+        if (i + 1 >= value.length ||
+            value.codeUnitAt(i + 1) < 0xDC00 ||
+            value.codeUnitAt(i + 1) > 0xDFFF) {
+          return false;
+        }
+        i++;
+      } else if (unit >= 0xDC00 && unit <= 0xDFFF) {
+        return false;
+      }
+    }
+    return true;
+  }
+}
+
+/// Laravel's `Arr::dot` of [data] (a non-empty list or map is walked; any
+/// other value, an empty list or map too, is a leaf), the leaves whose key
+/// matches [pattern]: each `*` is one key (`[^.]+`, `getDistinctValues`),
+/// or with [crossDots] any text, dots and line breaks included (`Str::is`
+/// with `su`, `in_array`'s parameter).
+Map<String, Object?> _leavesMatching(
+  Map<String, Object?> data,
+  String pattern, {
+  required bool crossDots,
+}) {
+  // Not a RegExp: one with two `*` and a literal tail backtracks
+  // quadratically on a long key, which the client writes ([KeyPattern]).
+  final keys = KeyPattern(pattern, crossDots: crossDots);
+  final leaves = <String, Object?>{};
+  void walk(Object? node, String path) {
+    switch (node) {
+      case Map<Object?, Object?>() when node.isNotEmpty:
+        for (final MapEntry(:key, :value) in node.entries) {
+          walk(value, path.isEmpty ? '$key' : '$path.$key');
+        }
+      case List<Object?>() when node.isNotEmpty:
+        for (var i = 0; i < node.length; i++) {
+          walk(node[i], path.isEmpty ? '$i' : '$path.$i');
+        }
+      default:
+        if (keys.matches(path)) {
+          leaves[path] = node;
+        }
+    }
+  }
+
+  walk(data, '');
+  return leaves;
 }
 
 /// `confirmed`: see [Rules.confirmed].
@@ -1919,10 +1943,8 @@ bool? _hasAffix(Object? value, List<String> affixes, {required bool start}) {
   // `is_string($value) || is_numeric($value)`.
   final text = switch (value) {
     String() => value,
-    // PHP's (string) of a whole float has no ".0": JSON 1.0 is "1".
-    double() when value.isFinite && value == value.truncateToDouble() =>
-      '${value.toInt()}',
-    num() => '$value',
+    // PHP's (string) of a number: JSON 1.0 is "1", 1e14 is "1.0E+14".
+    num() => phpNumberString(value),
     _ => null,
   };
   if (text == null) {
@@ -2678,9 +2700,7 @@ final class UniqueRule extends Rule {
     final text = switch (raw) {
       true => '1',
       false => '',
-      final double value
-          when value.isFinite && value == value.truncateToDouble() =>
-        value.toInt().toString(),
+      final num value => phpNumberString(value),
       _ => '$raw',
     };
     if (text.toLowerCase() == 'null') {
@@ -2806,14 +2826,9 @@ Object? _firstFlat(Object? value) {
 }
 
 /// A value as PHP's `(string)` cast writes it, which `array_unique`
-/// compares: `true` is `"1"`, `false` and `null` are `""`, a whole float
-/// has no point (`1.0` is `"1"`).
-String _phpText(Object? value) => switch (value) {
-  null || false => '',
-  true => '1',
-  final double d when d.isFinite && d == d.truncateToDouble() => '${d.toInt()}',
-  _ => '$value',
-};
+/// compares: `true` is `"1"`, `false` and `null` are `""`, a float has 14
+/// significant digits (`1.0` is `"1"`, see [phpNumberString]).
+String _phpText(Object? value) => phpStringForm(value) ?? '$value';
 
 /// `exists:table,column` — the value must be present in the table.
 final class ExistsRule extends Rule {
@@ -3344,68 +3359,19 @@ final class InArrayRule extends Rule {
 
   @override
   String? passes(ValidationContext c) {
+    // Laravel 13's validateInArray: the leaves of the input whose key
+    // matches [other] by `Str::is` (`*` is any text, dots and line breaks
+    // included), and `in_array($value, $others, true)`: strict, so `1` is
+    // not `1.0` or `'1'`. Gathered once per run (in the memo): walking the
+    // input for every item took time quadratic in its size.
+    PhpValueIndex build() =>
+        PhpValueIndex(_leavesMatching(c.data, other, crossDots: true).values);
     final memo = c.memo;
-    if (memo == null) {
-      return _values(c.data).contains(c.value) ? null : name;
-    }
-    // The other values gathered once per run, not once per item: walking
-    // the whole input for every item took time quadratic in its size (8 000
-    // numbers against 8 000: 52 s). The same test: `List.contains`, with a
-    // Set for the values whose `==` is symmetric and agrees with their hash.
-    final (:scalars, :rest) =
-        memo.putIfAbsent(('in_array', c.data, other), () {
-              final scalars = <Object?>{};
-              final rest = <Object?>[];
-              for (final value in _values(c.data)) {
-                if (_hashable(value)) {
-                  scalars.add(value);
-                } else {
-                  rest.add(value);
-                }
-              }
-              return (scalars: scalars, rest: rest);
-            })!
-            as ({Set<Object?> scalars, List<Object?> rest});
-    final value = c.value;
-    final found =
-        (_hashable(value) && scalars.contains(value)) ||
-        rest.any((other) => other == value);
-    return found ? null : name;
-  }
-
-  // A value a Set may hold in place of a list scan: null, a bool, a String
-  // or a number other than NaN (NaN is never equal to itself).
-  static bool _hashable(Object? value) =>
-      value == null ||
-      value is bool ||
-      value is String ||
-      (value is num && !value.isNaN);
-
-  // `Arr::dot` of the data, keys matched by `Str::is` (`*` is any text).
-  List<Object?> _values(Map<String, Object?> data) {
-    final pattern = RegExp(
-      '^${other.split('*').map(RegExp.escape).join('.*')}\$',
-    );
-    final values = <Object?>[];
-    void walk(Object? node, String path) {
-      switch (node) {
-        case Map<Object?, Object?>() when node.isNotEmpty:
-          for (final MapEntry(:key, :value) in node.entries) {
-            walk(value, path.isEmpty ? '$key' : '$path.$key');
-          }
-        case List<Object?>() when node.isNotEmpty:
-          for (var i = 0; i < node.length; i++) {
-            walk(node[i], path.isEmpty ? '$i' : '$path.$i');
-          }
-        default:
-          if (pattern.hasMatch(path)) {
-            values.add(node);
-          }
-      }
-    }
-
-    walk(data, '');
-    return values;
+    final index = memo == null
+        ? build()
+        : memo.putIfAbsent(('in_array', c.data, other), build)!
+              as PhpValueIndex;
+    return index.identical(c.value) > 0 ? null : name;
   }
 }
 

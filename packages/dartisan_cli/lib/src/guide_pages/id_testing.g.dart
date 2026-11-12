@@ -2,7 +2,7 @@
 // Do not edit; run `dart run tool/docs/generate.dart`.
 
 /// `docs/guide/id/testing.md`.
-const String pageIdTesting = r'''<!-- source: testing.md sha256:bb41440a6600 -->
+const String pageIdTesting = r'''<!-- source: testing.md sha256:2403fb92a6d6 -->
 # Testing
 
 `package:daravel_test` menjalankan aplikasi Anda tanpa membuka socket:
@@ -31,8 +31,8 @@ const String pageIdTesting = r'''<!-- source: testing.md sha256:bb41440a6600 -->
   `assertJsonValidationErrors`, header, cookie, `assertRedirect`, session
   (`assertSessionHas`, `assertSessionHasErrors`), dan guard
   (`assertAuthenticated`, `assertGuest`).
-- `refreshDatabase(createApp)` menjalankan setiap test di dalam transaksi
-  yang di-rollback (`RefreshDatabase` dari Laravel); `assertDatabaseHas` /
+- `refreshDatabase(() => createApp(...))` menjalankan setiap test di dalam
+  transaksi yang di-rollback (`RefreshDatabase` dari Laravel); `assertDatabaseHas` /
   `assertDatabaseMissing` / `assertDatabaseCount`.
 - Fake: `Event.fake()`, `Queue.fake()`, `Storage.fake()`, dengan
   `assertDispatched`, `assertPushed`, ...
@@ -48,6 +48,52 @@ const String pageIdTesting = r'''<!-- source: testing.md sha256:bb41440a6600 -->
 
 Jalankan suite-nya dengan `dartisan test` (`--coverage` menulis
 `coverage/`).
+
+### Aplikasi untuk test
+
+`bootTestApp(createApp)` membuat aplikasi dengan environment test lalu
+mem-boot-nya. `createApp` adalah fungsi di `bootstrap/app.dart`, bertipe
+`TestAppFactory`. Environment-nya `testEnv()`:
+
+- `APP_ENV=testing`
+- `DB_CONNECTION=sqlite`
+- `DB_URL=sqlite::memory:`, database baru untuk setiap aplikasi
+
+Base path-nya direktori saat ini, yang oleh `dart test` diatur ke root
+package. Sebelum:
+
+```dart
+setUp(() async {
+  app = createApp(
+    basePath: Directory.current.path,
+    env: <String, String>{
+      'APP_ENV': 'testing',
+      'APP_NAME': 'Starter',
+      'DB_CONNECTION': 'sqlite',
+      'DB_URL': 'sqlite::memory:',
+    },
+  );
+  await app.boot();
+  client = TestClient(app);
+});
+tearDown(() => app.shutdown());
+```
+
+Sesudah:
+
+```dart
+setUp(() async {
+  app = await bootTestApp(createApp, env: {'APP_NAME': 'Starter'});
+  client = TestClient(app);
+});
+tearDown(() => app.shutdown());
+```
+
+Nilai `env` diterapkan sesudah environment test, sehingga bisa
+menggantinya. Mematikan aplikasi tetap menjadi langkah test, di dekat
+tempat ia dijalankan. Dengan `refreshDatabase`, berikan `testEnv()`
+sendiri: `refreshDatabase(() => createApp(basePath: Directory.current.path,
+env: testEnv()))`.
 
 ## Route web: cookie, session, dan CSRF
 

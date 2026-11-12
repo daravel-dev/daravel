@@ -27,6 +27,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `$request->validated()` | `request.validated()` |  |
 | `(Scribe / Scramble response annotations)` | `.returns(schema, name:, shape:)` | Used by dartisan openapi:generate. |
 | `route('users.show', ['id' => 1])` | `router.url('users.show', {'id': 1})` |  |
+| `route('users.show', $user) (names checked by the IDE plugin)` | `Routes.usersShow(user: user), written by dartisan names:sync` | names:sync boots the application for inspection (Application.bootForInspection): no connection, nothing sent. |
 
 ## Requests & responses
 
@@ -302,7 +303,8 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `'contains:a,b' / 'doesnt_contain:a,b'` | `the same strings, or Rules.contains(['a', 'b']) / doesntContain(...)` | contains compares loosely, doesnt_contain strictly, as Laravel's in_array calls. |
 | `'starts_with:a' / 'ends_with:a'` | `the same strings, or Rules.startsWith(['a']) / endsWith(...)` | As Laravel 13 (a golden of 1 344 cases, with doesnt_*): a number is cast to text as PHP casts it (123 starts with 1), anything else but a string fails, and an empty parameter matches nothing. |
 | `'doesnt_start_with:a' / 'doesnt_end_with:a'` | `the same strings, or Rules.doesntStartWith(['a']) / doesntEndWith(...)` |  |
-| `'in_array:items.*.id'` | `the same string, or Rules.inArray('items.*.id')` | a * here does not match across a line break in a key, where Laravel's Str::is (flags su) does. |
+| `'distinct' / 'distinct:strict' / 'distinct:ignore_case'` | `the same strings, or Rules.distinct() / distinct(strict: true) / distinct(ignoreCase: true)` | As Laravel 13 decides it (a golden of 1 149 cases): the values are every key the attribute's pattern matches, across items for items.*.tags.*; compared by PHP 8's == (1, 1.0, '1.0' and true are one value), by === with strict, and case-insensitively as PHP writes them with ignore_case (0.1 + 0.2 is '0.3'). Difference: where a list or map is among the values of ignore_case, Laravel throws (a 500); Daravel validates. |
+| `'in_array:items.*.id'` | `the same string, or Rules.inArray('items.*.id')` | Strict, as Laravel 13's validateInArray: 1 is not 1.0 or '1'. A * matches any text, dots included (Str::is). |
 | `'in_array_keys:en,id' / 'array_keys:en,id' (13.x)` | `the same strings, or Rules.inArrayKeys([...]) / arrayKeys([...])` |  |
 | `'hex_color' / 'mac_address' / 'base64' (13.x)` | `the same strings, or Rules.hexColor() / macAddress() / base64()` |  |
 | `'encoding:UTF-8'` | `the same string, or Rules.encoding('UTF-8')` | UTF-8, ASCII and ISO-8859-1 (any string passes ISO-8859-1, as mb_check_encoding on bytes). Another encoding PHP knows (UTF-16, Windows-1252, SJIS...) throws UnsupportedError when the rule runs, and invalid_validation_rule flags it; a name that is no encoding throws ArgumentError, as Laravel. |
@@ -398,6 +400,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `->selectSub($query, 'alias')` | `.selectSub(query, 'alias')` |  |
 | `Schema::create('users', fn (Blueprint $table) => ...)` | `schema.create('users', (table) {...})` | **async** |
 | `Schema::table / dropIfExists / hasTable / hasColumn` | `schema.table / dropIfExists / hasTable / hasColumn` | **async** |
+| `Schema::getForeignKeys('sessions')` | `await Schema.getForeignKeys('sessions')` | **async**; Laravel 13's shape (name, columns, foreign_schema, foreign_table, foreign_columns, on_update, on_delete) as a ForeignKeyInfo; name is null on SQLite, as in Laravel. |
 | `$table->id() / string() / foreignId()->constrained()` | `table.id() / string() / foreignId().constrained()` |  |
 | `$table->morphs('taggable') / nullableMorphs / uuidMorphs / ulidMorphs` | `table.morphs('taggable') / nullableMorphs / uuidMorphs / ulidMorphs` |  |
 | `$table->timestamps() / softDeletes() / rememberToken()` | `table.timestamps() / softDeletes() / rememberToken()` |  |
@@ -492,6 +495,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `Storage::download($path, $name)` | `await Storage.download(path, name: name)` |  |
 | `Storage::response($path)` | `await Storage.response(path, request: request)` |  |
 | `response()->download($path, $name)->deleteFileAfterSend()` | `await Response.download(path, name: name, deleteFileAfterSend: true)` |  |
+| `response()->streamDownload($callback, $name)` | `Response.streamDownload(stream, name: name) / Response.downloadBytes(bytes, name: name)` | The content type comes from the name (else application/octet-stream), where Laravel leaves Symfony's text/html; a stream instead of a callback that echoes. |
 | `response()->file($path)` | `await Response.file(path, request: request)` |  |
 | `public/ (served by the web server)` | `.withStatic('public', prefix: '/assets')` | Scanned at boot, served by name only; dartisan static:hash writes the versions for production. |
 | `asset('css/app.css')` | `asset('css/app.css')` | Adds ?v= with a SHA-256 prefix; that URL is cached for a year (immutable). |
