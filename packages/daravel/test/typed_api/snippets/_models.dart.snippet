@@ -43,9 +43,30 @@ final class Comment extends Model {
 
   @override
   ModelDefinition<Comment> get modelDefinition => Comment.definition;
+
+  static const cols = (
+    id: ModelColumn<Comment, int>('id'),
+    body: ModelColumn<Comment, String>('body'),
+  );
+
+  static const rels = (author: RelationToken<Comment, User>('author'));
 }
 
 /// The relations of User, as model:sync writes them.
 abstract final class UserRels {
   static const rels = (posts: RelationToken<User, Post>('posts'));
+}
+
+// The relation paths, as model:sync writes them next to each model.
+extension UserRelationPath<Root extends Model> on RelationToken<Root, User> {
+  RelationToken<Root, Post> get posts => nested(UserRels.rels.posts);
+}
+
+extension PostRelationPath<Root extends Model> on RelationToken<Root, Post> {
+  RelationToken<Root, Comment> get comments => nested(Post.rels.comments);
+}
+
+extension CommentRelationPath<Root extends Model>
+    on RelationToken<Root, Comment> {
+  RelationToken<Root, User> get author => nested(Comment.rels.author);
 }

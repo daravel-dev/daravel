@@ -194,6 +194,48 @@ following users) works too: the inner table gets an alias, as Laravel's
 `laravel_reserved_N`, so `whereHas('children')` compares a child with its
 outer parent rather than with itself.
 
+### Typed relation paths
+
+`dartisan model:sync` writes a `rels` record into each model
+(`User.rels.posts`, a `RelationToken<User, Post>`) and, after the class, a
+`<Model>RelationPath` extension with one getter per relation. A path then
+reads like the string it stands for, with the editor offering the relations
+of each model in turn, and a step that does not follow the models does not
+compile:
+
+```dart
+final users = await User.query()
+    .with_([
+      User.rels.posts.comments.author,                    // 'posts.comments.author'
+      User.rels.posts.only([Post.cols.id, Post.cols.title]), // 'posts:id,title'
+    ])
+    .whereHas(User.rels.posts.comments)
+    .get();
+```
+
+At run time a path is its string, so `with_`, `whereHas`, `has`, `load` and
+the others behave exactly as with `'posts.comments.author'`, which stays
+accepted. `nested(...)` builds the same path from tokens
+(`User.rels.posts.nested(Post.rels.comments)`), for paths composed at run
+time.
+
+- **Imports.** The getters of `Post` live in `post.dart`, so a file using
+  `User.rels.posts.comments` imports it. New projects have
+  `lib/app/models/models.dart`, which exports every model and which
+  `make:model` keeps up to date; one import brings every path. In older
+  projects `model:sync` suggests adding it.
+- **Names.** A relation named like a member of `RelationToken` (`name`,
+  `nested`, `only`, or a member of `Object`) gets no getter, since the
+  member would always win; `model:sync` warns, and `nested(...)` reaches it.
+- **`MorphTo`.** Its model is only known at run time, so the path stops
+  there; continue with `nested(...)` or a string.
+- **Relations `model:sync` cannot read** (a closure with a body, a relation
+  built by a helper) get no `rels` entry or getter, and `model:sync` says so.
+- **What is checked.** Relation paths and column predicates
+  (`User.cols.age.gte(18)`) are checked by the compiler. The two-argument
+  `where(User.cols.firstName, 'Budi')` checks the column name but not the
+  value's type: `where(User.cols.age, 'abc')` compiles.
+
 ### Relation aggregates
 
 `withCount`, `withSum`, `withAvg`, `withMin`, `withMax` and `withExists` add
