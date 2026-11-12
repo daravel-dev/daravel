@@ -3,9 +3,10 @@ import 'dart:math';
 import 'package:daravel/daravel.dart';
 import 'package:test/test.dart';
 
-/// The numeric reading of the comparison rules (`size`, `min`, `max`,
-/// `between`, `gt`/`gte`/`lt`/`lte`, `multiple_of`, `decimal`) is linear in
-/// the length of the value. Two regexes were quadratic: `^\s*…\s*$` retried
+/// The exact-decimal reading of `decimal`, `multiple_of` and
+/// `gt`/`gte`/`lt`/`lte` is linear in the length of the value (`size`,
+/// `min`, `max` and `between` measure with `num.tryParse` and never used
+/// it). Two regexes were quadratic: `^\s*…\s*$` retried
 /// the trailing spaces for every leading one (100 000 spaces and a letter:
 /// 53 s), and `decimal`'s `\d*\.?(\d*)` split a run of digits every way
 /// (100 000 digits and a letter: 89 s). A JSON body may be 1 MiB.
