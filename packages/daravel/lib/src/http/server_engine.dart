@@ -266,6 +266,36 @@ final class ServerEngine {
   final void Function()? onShed;
 
   HttpServer? _server;
+
+  /// The listening address as `host:port`, for a request without `Host`
+  /// (HTTP/1.0): what [Request.fromHttpRequest] puts in its URI then.
+  String _listenerAuthority = 'localhost';
+
+  bool _forwardingWarned = false;
+
+  /// Says once that a request carried `X-Forwarded-Proto` or
+  /// `X-Forwarded-Host` that no trusted proxy applied: behind a proxy the
+  /// application then sees the scheme and host the proxy connected with,
+  /// not the client's, until `TrustProxiesMiddleware` trusts that proxy.
+  void _warnUntrustedForwarding(Request request) {
+    if (_forwardingWarned || request.isFromTrustedProxy) {
+      return;
+    }
+    final headers = request.headers;
+    if (headers.first('x-forwarded-proto') == null &&
+        headers.first('x-forwarded-host') == null) {
+      return;
+    }
+    _forwardingWarned = true;
+    logger.warning(
+      'A request from ${request.remoteAddress} carried X-Forwarded-Proto or '
+      'X-Forwarded-Host, and no trusted proxy applied them: its scheme and '
+      'host come from the request line, the Host header and the listener. '
+      'Behind a proxy, trust it with TrustProxiesMiddleware(proxies: [...]). '
+      'Said once per server.',
+    );
+  }
+
   final Completer<void> _done = Completer<void>();
   final List<StreamSubscription<ProcessSignal>> _signals =
       <StreamSubscription<ProcessSignal>>[];
@@ -552,6 +582,10 @@ final class ServerEngine {
     server.defaultResponseHeaders.clear();
     kernel.defaultTimeout = options.requestTimeout;
     _server = server;
+    final address = server.address;
+    _listenerAuthority = address.type == InternetAddressType.IPv6
+        ? '[${address.host}]:${server.port}'
+        : '${address.host}:${server.port}';
     _startLagTimer();
     if (options.handleSignals) {
       _installSignalHandlers();
@@ -780,7 +814,13 @@ final class ServerEngine {
     final id = RequestId.generate();
     final Request request;
     try {
-      request = Request.fromHttpRequest(httpRequest, id: id);
+      // The listener is plain TCP (GracefulServerSocket): TLS ends in front
+      // of it, and only a trusted proxy may say otherwise.
+      request = Request.fromHttpRequest(
+        httpRequest,
+        id: id,
+        listenerAuthority: _listenerAuthority,
+      );
     } on Object catch (error) {
       // This runs inside the server's listen callback: an error thrown here
       // is uncaught and ends the isolate (the whole process with one
@@ -806,6 +846,7 @@ final class ServerEngine {
                 try {
                   await prepare?.call(request);
                   response = await kernel.handle(request);
+                  _warnUntrustedForwarding(request);
                 } catch (error, stackTrace) {
                   logger.error(
                     'Unhandled error while handling ${request.method} ${request.path}',
