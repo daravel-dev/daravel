@@ -1477,9 +1477,11 @@ final class DecimalRule extends Rule {
   };
   @override
   String? passes(ValidationContext c) {
-    // Not `\d*\.?(\d*)`: two digit runs with an optional point between
+    // Laravel 13 writes `^[+-]?\d*+\.?+(\d*+)$`: possessive, so PCRE never
+    // backtracks. Dart has no possessive quantifiers, and `\d*\.?(\d*)`
     // split a run of digits every way, quadratic in its length (100 000
-    // digits and a letter took 89 s). The same strings match.
+    // digits and a letter took 89 s). This form matches the same strings
+    // with the same capture, without backtracking.
     final match = _decimalPlaces.firstMatch('${c.value}');
     if (_decimalOf(c.value) == null || match == null) {
       return 'decimal';
