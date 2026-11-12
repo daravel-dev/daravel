@@ -499,6 +499,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `Storage::download($path, $name)` | `await Storage.download(path, name: name)` |  |
 | `Storage::response($path)` | `await Storage.response(path, request: request)` |  |
 | `response()->download($path, $name)->deleteFileAfterSend()` | `await Response.download(path, name: name, deleteFileAfterSend: true)` |  |
+| `response()->streamDownload($callback, $name)` | `Response.streamDownload(stream, name: name) / Response.downloadBytes(bytes, name: name)` | The content type comes from the name (else application/octet-stream), where Laravel leaves Symfony's text/html; a stream instead of a callback that echoes. |
 | `response()->file($path)` | `await Response.file(path, request: request)` |  |
 | `public/ (served by the web server)` | `.withStatic('public', prefix: '/assets')` | Scanned at boot, served by name only; dartisan static:hash writes the versions for production. |
 | `asset('css/app.css')` | `asset('css/app.css')` | Adds ?v= with a SHA-256 prefix; that URL is cached for a year (immutable). |
