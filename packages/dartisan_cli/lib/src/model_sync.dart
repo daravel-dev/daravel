@@ -1,6 +1,7 @@
 import 'package:daravel/daravel.dart';
 
 import 'generator.dart';
+import 'region_format.dart';
 import 'stubs.dart';
 
 /// What `model:sync` needs from a model source file.
@@ -743,8 +744,14 @@ String? whereStaticWarning(String source, String className) {
 
 /// Fills an empty statics region of [source] with [staticLines]. A region
 /// that holds anything belongs to the application and is left alone, as is
-/// a source without the markers: both return [source] unchanged.
-String fillStatics(String source, String className, {String? idType}) {
+/// a source without the markers: both return [source] unchanged. [lines]
+/// replaces [staticLines] (`model:sync` passes them formatted).
+String fillStatics(
+  String source,
+  String className, {
+  String? idType,
+  List<String>? lines,
+}) {
   final start = source.indexOf(_staticsStart);
   final end = source.indexOf(_staticsEnd);
   if (start == -1 || end == -1 || end < start) {
@@ -756,7 +763,7 @@ String fillStatics(String source, String className, {String? idType}) {
   final lineStart = source.lastIndexOf('\n', end - 1) + 1;
   final indent = source.substring(lineStart, end);
   return '${source.substring(0, start + _staticsStart.length)}\n'
-      '${staticLines(className, idType: idType).join('\n')}\n'
+      '${(lines ?? staticLines(className, idType: idType)).join('\n')}\n'
       '${indent.trim().isEmpty ? indent : ''}'
       '${source.substring(end)}';
 }
@@ -862,14 +869,34 @@ typedef ModelSync = ({
 /// getter, `find` and `findOrFail` with it. Without it the result is the
 /// same as before typed ids existed. `source` is `null` when the file has
 /// no accessors region.
+///
+/// With [formatter] (`model:sync` passes the project's), the code written
+/// into each region is laid out as `dart format` would, so a synced model
+/// stays format-clean; code outside the regions is never touched. A region
+/// the formatter cannot parse is written as generated, with a warning.
 ModelSync syncModelSource(
   String source,
   ModelSource model,
   List<ColumnInfo> columns, {
   SqlDialect dialect = SqlDialect.sqlite,
   String? idStub,
+  RegionFormatter? formatter,
 }) {
   final warnings = <String>[?whereStaticWarning(source, model.className)];
+  List<String> members(List<String> lines, String region) {
+    if (formatter == null) {
+      return lines;
+    }
+    final formatted = formatter.members(lines.join('\n'));
+    if (formatter.lastFailure != null) {
+      warnings.add(
+        'The $region region could not be formatted (${formatter.lastFailure}); '
+        'written as generated.',
+      );
+    }
+    return formatted.split('\n');
+  }
+
   String? idType;
   var next = source;
   if (idStub != null) {
@@ -880,19 +907,47 @@ ModelSync syncModelSource(
     final representation = typed.representation;
     if (representation != null) {
       idType = idTypeName(model.className);
+      var ids = renderStub(
+        idStub,
+        idStubValues(model.className, representation),
+      );
+      if (formatter != null) {
+        ids = formatter.topLevel(ids);
+        if (formatter.lastFailure != null) {
+          warnings.add(
+            'The ids region could not be formatted '
+            '(${formatter.lastFailure}); written as generated.',
+          );
+        }
+      }
       next = replaceIds(
-        typeStatics(fillStatics(next, model.className, idType: idType), idType),
-        renderStub(idStub, idStubValues(model.className, representation)),
+        typeStatics(
+          fillStatics(
+            next,
+            model.className,
+            idType: idType,
+            lines: members(
+              staticLines(model.className, idType: idType),
+              'statics',
+            ),
+          ),
+          idType,
+        ),
+        ids,
       );
     }
   }
   if (idType == null) {
-    next = fillStatics(next, model.className);
+    next = fillStatics(
+      next,
+      model.className,
+      lines: members(staticLines(model.className), 'statics'),
+    );
   }
   final plan = planAccessors(model, columns, dialect: dialect, idType: idType);
   warnings.insertAll(0, plan.warnings);
   return (
-    source: replaceAccessors(next, plan.lines),
+    source: replaceAccessors(next, members(plan.lines, 'accessors')),
     plan: plan,
     warnings: warnings,
   );
