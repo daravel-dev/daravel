@@ -4,4 +4,4 @@
 
 ### Upgrade notes
 
-- New public names `PublishedVersion` and `pubDevHasVersion` in `package:dartisan_cli`: a project command file that declares one of them and imports the barrel gets an ambiguous-import error (`hide` them or rename yours). `dartisan upgrade` now needs pub.dev to answer for each package; offline it changes nothing and says so.
+- New public names `PublishedVersion` and `pubDevHasVersion` in `package:dartisan_cli`, and `UpgradeCommand(checkDeadline:)` (30 s) with `UpgradeCommand.checkBatch` (8 requests at once): a project command file that declares one of them and imports the barrel gets an ambiguous-import error (`hide` them or rename yours). `dartisan upgrade` now needs pub.dev to answer for each package; offline it changes nothing and says so.

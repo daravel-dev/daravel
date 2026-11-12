@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -50,9 +51,14 @@ typedef DartRunner = Future<int> Function(
 });
 
 /// Whether pub.dev has [package] at [version]: `true` for 200, `false`
-/// for 404, an error for anything else.
+/// for 404, an error for anything else. The request carries the package
+/// name and version in its path and nothing about the project: a fixed
+/// `User-Agent`, no cookies, no body. Connecting is bounded by 5 s and the
+/// answer by 10 s.
 Future<bool> pubDevHasVersion(String package, String version) async {
-  final client = HttpClient()..connectionTimeout = const Duration(seconds: 5);
+  final client = HttpClient()
+    ..connectionTimeout = const Duration(seconds: 5)
+    ..userAgent = 'dartisan-upgrade';
   try {
     final request = await client.getUrl(
       Uri.parse('https://pub.dev/api/packages/$package/versions/$version'),
@@ -186,6 +192,7 @@ final class UpgradeCommand extends Command<int> {
     LatestVersion? latest,
     DartRunner? dart,
     PublishedVersion? published,
+    this.checkDeadline = const Duration(seconds: 30),
   }) : _latest = latest ?? pubDevLatest,
        _dart = dart ?? runDart,
        _published = published ?? pubDevHasVersion {
@@ -207,6 +214,12 @@ final class UpgradeCommand extends Command<int> {
   final LatestVersion _latest;
   final DartRunner _dart;
   final PublishedVersion _published;
+
+  /// The most pub.dev requests the version check makes at once.
+  static const int checkBatch = 8;
+
+  /// How long the whole version check may take (30 s).
+  final Duration checkDeadline;
 
   @override
   String get name => 'upgrade';
@@ -253,11 +266,31 @@ final class UpgradeCommand extends Command<int> {
     // the last is on pub.dev, a project naming one not there yet cannot
     // resolve. Nothing is written before they all are.
     final global = argResults!['global'] as bool;
+    final asked = [
+      ...{...rewrite.updated, if (global) 'dartisan_cli'},
+    ];
     final List<String> missing;
     try {
+      // At most [checkBatch] requests at once (a project names a few
+      // dozen packages at most), and the whole check within
+      // [checkDeadline], so a bad network ends in a message, not a hang.
+      final found = <bool>[];
+      final deadline = DateTime.now().add(checkDeadline);
+      for (var i = 0; i < asked.length; i += checkBatch) {
+        final left = deadline.difference(DateTime.now());
+        if (left <= Duration.zero) {
+          throw TimeoutException('pub.dev did not answer', checkDeadline);
+        }
+        found.addAll(
+          await Future.wait([
+            for (final package in asked.skip(i).take(checkBatch))
+              _published(package, target),
+          ]).timeout(left),
+        );
+      }
       missing = [
-        for (final package in {...rewrite.updated, if (global) 'dartisan_cli'})
-          if (!await _published(package, target)) package,
+        for (var i = 0; i < asked.length; i++)
+          if (!found[i]) asked[i],
       ];
     } on Object catch (error) {
       stderr.writeln(

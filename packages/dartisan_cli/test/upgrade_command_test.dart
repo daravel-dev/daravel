@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
@@ -89,8 +90,16 @@ packages:
     Object? pubDevError;
     var pubUpgradeExit = 0;
     late List<String> asked;
+    // A pub.dev that never answers.
+    var hang = false;
+    // Requests in flight at once, and the most seen.
+    var inFlight = 0;
+    var peak = 0;
 
-    Future<int> run(List<String> args) {
+    Future<int> run(
+      List<String> args, {
+      Duration checkDeadline = const Duration(seconds: 30),
+    }) {
       final runner = CommandRunner<int>('dartisan', 'test')
         ..addCommand(
           UpgradeCommand(
@@ -101,11 +110,22 @@ packages:
             },
             published: (package, version) async {
               asked.add('$package@$version');
-              if (pubDevError case final error?) {
-                throw error;
+              inFlight++;
+              peak = inFlight > peak ? inFlight : peak;
+              try {
+                if (hang) {
+                  await Completer<void>().future;
+                }
+                await Future<void>.delayed(const Duration(milliseconds: 5));
+                if (pubDevError case final error?) {
+                  throw error;
+                }
+                return onPubDev?.contains('$package@$version') ?? true;
+              } finally {
+                inFlight--;
               }
-              return onPubDev?.contains('$package@$version') ?? true;
             },
+            checkDeadline: checkDeadline,
           ),
         );
       return IOOverrides.runZoned(
@@ -120,6 +140,9 @@ packages:
       onPubDev = null;
       pubDevError = null;
       pubUpgradeExit = 0;
+      hang = false;
+      inFlight = 0;
+      peak = 0;
       project = Directory.systemTemp.createTempSync('upgrade_test');
       File(p.join(project.path, 'pubspec.yaml')).writeAsStringSync(_pubspec);
       File(p.join(project.path, 'pubspec.lock')).writeAsStringSync(
@@ -216,6 +239,40 @@ packages:
       expect(await run(['upgrade', '--no-global']), 0);
       expect(asked, isNot(contains('dartisan_cli@1.9.0')));
       expect(pubspec(), contains('  daravel: ^1.9.0'));
+    });
+
+    test('a pub.dev that never answers ends at the deadline, nothing '
+        'changed', () async {
+      hang = true;
+      final watch = Stopwatch()..start();
+      expect(
+        await run([
+          'upgrade',
+        ], checkDeadline: const Duration(milliseconds: 200)),
+        1,
+      );
+      expect(watch.elapsed, lessThan(const Duration(seconds: 5)));
+      expect(pubspec(), _pubspec);
+      expect(calls, isEmpty);
+    });
+
+    test('every Daravel package is asked for, at most 8 at once', () async {
+      File(p.join(project.path, 'pubspec.yaml')).writeAsStringSync(
+        'name: shop\n'
+        'environment:\n  sdk: ^3.13.0\n\n'
+        'dependencies:\n'
+        '${[for (final name in daravelPackages) '  $name: ^1.7.0'].join('\n')}\n',
+      );
+      expect(await run(['upgrade']), 0);
+      expect(asked.toSet(), {
+        for (final name in daravelPackages) '$name@1.9.0',
+      });
+      expect(peak, inInclusiveRange(1, UpgradeCommand.checkBatch));
+      expect(
+        daravelPackages.length,
+        greaterThan(UpgradeCommand.checkBatch),
+        reason: 'the batching is exercised',
+      );
     });
   });
 
