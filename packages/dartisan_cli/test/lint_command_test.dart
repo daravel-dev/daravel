@@ -123,6 +123,31 @@ final class Assets {
       );
     });
 
+    test('string_column_name reads the project models once enabled', () async {
+      File(p.join(root.path, 'lib', 'app', 'models', 'user.dart'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('''
+final class User extends Model {
+  static const cols = (email: ModelColumn<User, String>('email'));
+}
+''');
+      File(p.join(root.path, 'lib', 'app', 'query.dart')).writeAsStringSync(
+        "Future<void> f() => User.query().where('email', 1).get();\n",
+      );
+      expect(await lint([]), (0, 'No issues found.\n'));
+      options('daravel_lints:\n  diagnostics:\n    string_column_name: true\n');
+      final (code, output) = await lint([]);
+      expect(code, 1);
+      expect(output, contains('Use User.cols.email'));
+      expect(
+        const LineSplitter().convert(output).last,
+        '1 issue found (opt-in rules on: string_column_name).',
+      );
+      // --enable works for it as for the other opt-in rules.
+      options('');
+      expect((await lint(['--enable=string_column_name'])).$1, 1);
+    });
+
     test("the plugin's block is the one read when both exist", () async {
       writeSort();
       writeAssets();

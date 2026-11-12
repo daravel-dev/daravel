@@ -2,4 +2,5 @@
 library;
 
 export 'src/fix.dart';
+export 'src/model_index.dart';
 export 'src/plugin.dart';

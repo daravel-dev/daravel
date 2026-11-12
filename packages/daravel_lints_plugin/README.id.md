@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:9f624776aac5 -->
+<!-- source: README.md sha256:ed6ae0543c4f -->
 <img src="https://raw.githubusercontent.com/daravel-dev/daravel/main/docs/brand/png/daravel-icon-128.png" alt="Daravel" width="64" align="right">
 
 # daravel_lints_plugin
@@ -19,7 +19,8 @@ plugins:
 ```
 
 Rule yang dijalankan `dartisan lint` secara default langsung menyala. Rule
-opt-in (`prefer_sql_identifier`) dinyalakan lewat namanya:
+opt-in (`prefer_sql_identifier`, `string_validation_rule`,
+`string_column_name`) dinyalakan lewat namanya:
 
 ```yaml
 plugins:
@@ -27,7 +28,12 @@ plugins:
     version: ^1.27.0
     diagnostics:
       prefer_sql_identifier: true
+      string_column_name: true
 ```
+
+`string_column_name` membaca model (`lib/app/models`) dari paket tempat
+tiap berkas berada. Model dibaca sebagaimana dipegang editor, termasuk
+perubahan yang belum disimpan, dan dibaca ulang bila berubah.
 
 Temuan dibungkam seperti di `dartisan lint`
 (`// daravel-lint-ignore: <rule>` di barisnya) atau dengan `// ignore: <rule>`
@@ -37,8 +43,11 @@ terpisah dari aplikasi Anda, sehingga `analyzer` yang di-pin paket ini tidak
 pernah masuk ke dependency Anda.
 
 Bila sebuah rule menawarkan fix, editor menawarkannya sebagai quick fix,
-termasuk "Fix all ... in file". Sejauh ini rule itu adalah
-`string_validation_rule`, yang mengganti string dengan rantai `Rules`-nya.
+termasuk "Fix all ... in file". Sejauh ini ada dua:
+- `string_validation_rule` mengganti string dengan rantai `Rules`-nya;
+- `string_column_name` mengganti string kolom dengan token model
+  (`User.cols.email`).
+
 Editnya berasal dari rule itu sendiri (`LintRule.fixFor` di
-`daravel_lints`), sehingga fix hanya ditawarkan bila rantainya compile dan
+`daravel_lints`), sehingga fix hanya ditawarkan bila hasilnya compile dan
 artinya tetap sama.

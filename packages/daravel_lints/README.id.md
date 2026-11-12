@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:f0c16011cdd1 -->
+<!-- source: README.md sha256:a2cff384d56a -->
 <img src="https://raw.githubusercontent.com/daravel-dev/daravel/main/docs/brand/png/daravel-icon-128.png" alt="Daravel" width="64" align="right">
 
 # daravel_lints
@@ -51,7 +51,7 @@ lintConfig(root).rules)`.
 | :-- | :-- |
 | `prefer_sql_identifier` | nama kolom yang diberikan ke method query builder (`where`, `orderBy`, `select`, `pluck`, ...) yang bukan string literal, bukan `const`, bukan pilihan di antara literal (`sort == 'name' ? 'name' : 'id'`), dan bukan `SqlIdentifier` |
 | `string_validation_rule` | daftar rule berupa string (`'required\|email\|max:255'`) yang bisa diganti rantai `Rules` dengan arti yang sama (`Rules.required().email().max(255)`), yang dilengkapi editor dan diperiksa compiler; pesannya menyebut rantai itu. Tidak dilaporkan bila tidak ada rantai yang persis sama (`regex`, rule yang tidak dikenal, `min` yang bukan angka) |
-| `string_column_name` | nama kolom yang ditulis sebagai string di query model (`User.query().where('email', x)`, `User.where(...)`) bila record `cols` model itu memuat kolom tersebut, di method yang menerima kolom bertipe (`where`, `orWhere`, `orderBy`, `latest`, `pluck`, `select`, `count`, ...): pesannya menyebut tokennya (`User.cols.email`). Rule ini membaca `lib/app/models` proyek (`StringColumnName.forProject(root)`); `whereIn`, `whereNull`, dan sejenisnya menerima `String` sehingga tidak dilaporkan |
+| `string_column_name` | nama kolom yang ditulis sebagai string di query model (`User.query().where('email', x)`, `User.where(...)`) bila record `cols` model itu memuat kolom tersebut, di method yang menerima kolom bertipe (`where`, `orWhere`, `orderBy`, `latest`, `pluck`, `select`, `count`, ...): pesannya menyebut tokennya (`User.cols.email`). Rule ini membaca `lib/app/models` proyek (`StringColumnName.forProject(root)`, yang dibangun `LintConfig.rulesIn(root)` begitu rule ini dinyalakan, di `dartisan lint` dan `expectLintClean()`; plugin editor membaca paket tiap berkas dan membaca ulang model yang berubah). Fix-nya menulis token itu (`(removes const)` bila `const` list `select([...])` ikut dihapus; tidak di list bertipe `<String>`); `whereIn`, `whereNull`, dan sejenisnya menerima `String` sehingga tidak dilaporkan |
 
 `SqlIdentifier('users.id')` memeriksa sebuah nama sekali, saat dibuat (nama
 polos yang digabung dengan titik, selain itu `ArgumentError`), dan builder
@@ -89,8 +89,9 @@ galatnya.
 
 `rule.fixesIn(unit)` mengembalikan semua fix dalam satu berkas, dan
 `LintFixMerger` menggabungkannya sehingga edit yang sama dari dua fix hanya
-dibuat sekali. Rule lain tidak menawarkan fix (alasannya untuk tiap rule
-ada di `LintRule.fixFor`).
+dibuat sekali. `string_column_name` juga menawarkan fix (lihat tabel); rule
+lain tidak menawarkan fix (alasannya untuk tiap rule ada di
+`LintRule.fixFor`).
 
 Abaikan sebuah temuan dengan `// daravel-lint-ignore: <rule>` di baris yang
 sama atau di baris atasnya.
