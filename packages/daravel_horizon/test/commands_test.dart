@@ -7,8 +7,22 @@ import 'package:daravel_horizon/commands.dart';
 import 'package:daravel_horizon/daravel_horizon.dart';
 import 'package:test/test.dart';
 
-final String dbPath =
-    '${Directory.systemTemp.path}${Platform.pathSeparator}horizon_cmd_$pid.sqlite';
+final String _temp = '${Directory.systemTemp.path}${Platform.pathSeparator}';
+
+/// The database of the current test, kept in a file every isolate reads (a
+/// top-level initializer runs again in each worker isolate). One per test:
+/// a test that kills a worker on SQLite leaves the file open in this
+/// process until it ends (why `dartisan horizon` then exits 75), and on
+/// Windows the next test could not delete it.
+final String _dbMarker = '${_temp}horizon_cmd_db_$pid.txt';
+
+String get dbPath {
+  final marker = File(_dbMarker);
+  return marker.existsSync()
+      ? marker.readAsStringSync()
+      : '${_temp}horizon_cmd_$pid.sqlite';
+}
+
 final String marksPath =
     '${Directory.systemTemp.path}${Platform.pathSeparator}horizon_cmd_marks_$pid.txt';
 
@@ -86,7 +100,10 @@ Future<void> until(bool Function() done, String what) async {
 void main() {
   late Application app;
 
+  var tests = 0;
   setUp(() async {
+    File(_dbMarker)
+        .writeAsStringSync('${_temp}horizon_cmd_${pid}_${++tests}.sqlite');
     for (final path in [dbPath, marksPath]) {
       if (File(path).existsSync()) {
         File(path).deleteSync();
@@ -97,7 +114,22 @@ void main() {
     await app.run(() => App.make<Migrator>().run());
   });
 
-  tearDown(() => app.shutdown());
+  tearDown(() async {
+    await app.shutdown();
+    try {
+      File(dbPath).deleteSync();
+    } on FileSystemException {
+      // A killed worker may still hold it; the temporary directory's own
+      // cleanup takes it.
+    }
+  });
+  tearDownAll(() {
+    try {
+      File(_dbMarker).deleteSync();
+    } on FileSystemException {
+      // Already gone.
+    }
+  });
 
   test('horizon:list marks a busy worker that does not report as running a '
       'job that blocks it, and lists the jobs killed past their timeout', () {
