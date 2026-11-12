@@ -155,7 +155,8 @@ void main() {
         0,
       );
       // The unpublished packages from this checkout. daravel_redis depends
-      // on daravel_session by name, so that one needs an override too.
+      // on daravel_session and daravel_horizon by name, so those need an
+      // override too.
       final pubspec = File(p.join(target, 'pubspec.yaml'));
       String local(String package) =>
           p.join(repo, 'packages', package).replaceAll(r'\', '/');
@@ -170,7 +171,8 @@ void main() {
             .replaceFirst(
               'dependency_overrides:\n',
               'dependency_overrides:\n'
-                  '  daravel_session: {path: ${local('daravel_session')}}\n',
+                  '  daravel_session: {path: ${local('daravel_session')}}\n'
+                  '  daravel_horizon: {path: ${local('daravel_horizon')}}\n',
             ),
       );
       Future<ProcessResult> dart(List<String> args) =>
