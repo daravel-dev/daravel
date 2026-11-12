@@ -11,7 +11,7 @@ match Laravel more closely.
 
 ## Unreleased
 
-A security patch: fixes only. Upgrade every application that authorizes broadcast channels (`routes/channels.dart`) or reads `sum()` or `avg()` on PostgreSQL or MySQL.
+A security patch: fixes only. Upgrade every application that validates lists with `distinct`, authorizes broadcast channels (`routes/channels.dart`) or reads `sum()` or `avg()` on PostgreSQL or MySQL.
 
 ### Added
 
@@ -24,6 +24,7 @@ A security patch: fixes only. Upgrade every application that authorizes broadcas
 ### Security
 
 - Channel patterns took time growing faster than linearly with the channel name: a pattern with two or more placeholders not separated by `.` (`chat-{a}-{b}`, quadratic) or side by side (`{a}{b}{c}`, cubic: 4.6 s for 1 000 characters). `POST /broadcasting/auth` passed a name of any length (up to the form body limit) to them, so one request from any logged-in user could hold a worker for hours in an application with such a pattern. Names are now checked as above, and patterns are matched in time linear in the name with the same matches and values as before. Since 1.10.0.
+- The validation rule `distinct` scanned the whole list for each item, so its time grew with the square of the list length: 16 000 numbers took 15 s and 16 000 `items.*.id` 55 s, from a JSON body of under 100 KB, with the default configuration. It now counts the list once per validation run (`ValidationContext.memo`, new and optional) and decides exactly as before. Since 1.0.0.
 
 ### Fixed
 
