@@ -247,6 +247,8 @@ void main() {
       ('[::1', 'an unclosed IPv6 literal'),
       ('[fe80::1%eth0]', 'an IPv6 zone'),
       ('bücher.example', 'a raw IDN (Symfony refuses it too)'),
+      ('${'a' * 251}.ex', 'a host of 254 characters, longer than a DNS name'),
+      ('${'a-' * 7000}a.example', 'a host of 14 000 characters'),
     ]) {
       test('$why: 400', () async {
         final (engine, _, _) = await serve();
@@ -263,6 +265,21 @@ void main() {
       );
     });
 
+    test('a host longer than 253 characters: 400 in an absolute-form '
+        "target, ignored in a trusted proxy's X-Forwarded-Host", () async {
+      final (engine, _, _) = await serve(trustedProxies: ['127.0.0.1']);
+      final long = '${'a' * 251}.ex';
+      expect(
+        await send(engine, get('http://$long/echo', [])),
+        startsWith('HTTP/1.1 400'),
+      );
+      final forwarded = await send(
+        engine,
+        get('/echo', ['Host: app.example', 'X-Forwarded-Host: $long']),
+      );
+      expect(body(forwarded), containsPair('host', 'app.example'));
+    });
+
     test('accepted: underscores, a final dot, IPv4, IPv6 with a port, an '
         'empty port', () async {
       final (engine, _, _) = await serve();
@@ -272,6 +289,7 @@ void main() {
         ('10.0.0.1:8080', '10.0.0.1'),
         ('[2001:db8::1]:8443', '2001:db8::1'),
         ('app.example:', 'app.example'),
+        ('${'a' * 250}.ex:80', '${'a' * 250}.ex'),
       ]) {
         final reply = await send(engine, get('/public', ['Host: $hostHeader']));
         expect(reply, startsWith('HTTP/1.1 200'), reason: hostHeader);

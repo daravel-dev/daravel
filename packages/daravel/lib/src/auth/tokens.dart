@@ -12,20 +12,14 @@ import '../database/schema/migration.dart';
 import '../database/schema/schema_builder.dart';
 import '../foundation/container.dart';
 import '../http/request.dart';
+import 'bearer.dart';
 import 'contracts.dart';
 import 'hashing.dart';
 
 /// Extracts the `Authorization: Bearer <token>` value, if any.
 String? bearerTokenOf(Request request) {
   final header = request.headers['authorization'];
-  if (header == null) {
-    return null;
-  }
-  final match = RegExp(
-    r'^\s*Bearer\s+(.+?)\s*$',
-    caseSensitive: false,
-  ).firstMatch(header);
-  return match?.group(1);
+  return header == null ? null : bearerTokenFromHeader(header);
 }
 
 /// A row of `personal_access_tokens` (Sanctum-compatible schema).
