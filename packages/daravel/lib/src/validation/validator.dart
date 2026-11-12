@@ -133,6 +133,10 @@ final class Validator {
   /// [data] without the excluded attributes, as Laravel's `removeAttribute`:
   /// a later rule sees them as missing. [data] itself stays as given.
   late Map<String, Object?> _input = data;
+
+  // ValidationContext.memo, one per run: keyed by the errors map, which
+  // each run makes anew.
+  final Expando<Map<Object, Object?>> _memos = Expando();
   final Set<String> _excluded = <String>{};
 
   bool _isExcluded(String attribute) =>
@@ -215,6 +219,7 @@ final class Validator {
         numeric: numeric,
         booleans: _booleans,
         attributeNames: attributes,
+        memo: _memos[_errors!] ??= {},
       );
       final failure = await rule.passes(context);
       if (failure != null && ExcludeRule.names.contains(rule.name)) {

@@ -18,6 +18,7 @@ final class ValidationContext {
     this.numeric = false,
     this.booleans = const <String>{},
     this.attributeNames = const <String, String>{},
+    this.memo,
   });
 
   /// The attributes with a `boolean` rule (Laravel's
@@ -53,6 +54,13 @@ final class ValidationContext {
 
   /// Container for rules that need services (`unique`, `exists`).
   final Container? container;
+
+  /// Values a rule computes once per validation run and reuses for every
+  /// attribute (`distinct` counts a list once, not once per item). A fresh
+  /// map for each `Validator.run`; null for a context built elsewhere, where
+  /// a rule computes as before. Keys hold [data] itself, so the input an
+  /// excluded attribute leaves behind (a new map) gets entries of its own.
+  final Map<Object, Object?>? memo;
 
   /// Locale used for messages.
   final String locale;
