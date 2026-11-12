@@ -506,13 +506,24 @@ abstract final class Str {
   }
 
   /// Applies [rule] to the last word of [value] (`blog_post` → `blog_posts`).
+  ///
+  /// The last word is the run of ASCII letters that ends [value], found
+  /// backwards in one pass: `RegExp(r'([A-Za-z]+)$')` took time quadratic in
+  /// a run of letters that does not end the value (64 000 letters and a
+  /// digit: 71 s).
   static String _inflect(String value, String Function(String) rule) {
-    final match = RegExp(r'([A-Za-z]+)$').firstMatch(value);
-    if (match == null) {
+    var start = value.length;
+    while (start > 0 && _isAsciiLetter(value.codeUnitAt(start - 1))) {
+      start--;
+    }
+    if (start == value.length) {
       return value;
     }
-    return value.substring(0, match.start) + rule(match[1]!);
+    return value.substring(0, start) + rule(value.substring(start));
   }
+
+  static bool _isAsciiLetter(int c) =>
+      (c >= 0x41 && c <= 0x5A) || (c >= 0x61 && c <= 0x7A);
 
   static String _pluralOf(String word) {
     final lower = word.toLowerCase();
