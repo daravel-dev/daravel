@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.27.3
+
+A security patch of the core; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).
+
+- `doctor`, in production with an `https` `APP_URL`: a notice that the server speaks plain HTTP and that requests see `https` and the public host only from a proxy `TrustProxiesMiddleware` trusts.
+
 ## 1.27.2
 
 - Version aligned with Daravel 1.27.2; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).
