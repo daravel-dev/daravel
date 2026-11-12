@@ -5,6 +5,7 @@ import 'dart:math' as math;
 import 'dart:io';
 import 'dart:typed_data';
 
+import '../foundation/slashes.dart';
 import '../foundation/container.dart';
 import '../foundation/env.dart';
 import '../foundation/ids.dart';
@@ -379,7 +380,7 @@ final class Request {
             ? '${uri.host}:${uri.port}'
             : uri.host);
     final base = '$scheme://$authority${uri.path}';
-    return base.endsWith('/') ? base.replaceAll(RegExp(r'/+$'), '') : base;
+    return trimTrailingSlashes(base);
   }
 
   /// Whether a trusted proxy's forwarding headers were applied to this
