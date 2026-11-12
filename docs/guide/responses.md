@@ -492,6 +492,28 @@ A disk reads from the start to reach a range, which on S3 means downloading what
 comes before it. Do not build the path of `Response.file` from user input; a
 disk checks its paths.
 
+### Content made for the request
+
+A file that never exists on disk, built for this request, is downloaded
+without writing it first:
+
+```dart
+return Response.downloadBytes(utf8.encode(plist), name: 'exam.seb');
+
+return Response.streamDownload(            // Laravel's streamDownload
+  DB.table('orders').lazy().map((row) => utf8.encode(csvLine(row))),
+  name: 'orders.csv',
+);
+```
+
+Both take the type from the name (`text/csv`), else
+`application/octet-stream`, unless `contentType` says otherwise, and send the
+`Content-Disposition` that `contentDisposition(name)` writes (also exported, for
+a response built by hand). `downloadBytes` holds the bytes. `streamDownload`
+writes the stream as it is produced: a client that goes away cancels it, so an
+`async*` producer stops at its next `yield`, and a `HEAD` request gets the
+headers without starting it.
+
 ## Static files
 
 Laravel leaves `public/` to the web server. A Daravel application is the web
