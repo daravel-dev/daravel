@@ -131,6 +131,13 @@ until commit by default.
   The master and its workers must use the same `QUEUE_RETRY_AFTER`; when
   they do not, the master kills by the earlier of the two (up to a second
   early) and warns once per supervisor.
+  A worker extends the reservation of a job that keeps running (awaiting,
+  not blocked) and tells the master, which moves its limit along: under
+  Horizon every half of what the master leaves the job, so with a
+  `QUEUE_RETRY_AFTER` of 3 s on the database queue every 0.5 s, two writes
+  a second per running job (44 s for the default 90 s). An extension the
+  master does not hear of in time only makes it kill early, never run the
+  job twice.
   - The killed attempt counts once. The master then decides, from the
     job's retry settings alone (never its data), what Laravel's timeout
     handler decides: the job fails when its tries are used up or its
@@ -179,9 +186,7 @@ until commit by default.
     take the job δ early, which the margin covers only while δ stays below
     it less the master's lateness. A process suspended past the end of a
     reservation (a sleeping laptop, a paused VM) resumes with the kill and
-    another worker's pop racing. A job that extends its reservation
-    (`touch`, every half `retry_after`) is still killed by the end of its
-    first reservation. The Redis stream engine counts the reservation on
+    another worker's pop racing. The Redis stream engine counts the reservation on
     the Redis server's clock, so a server clock that runs fast or jumps
     ahead shortens it.
 - An asynchronous error that a handler leaves uncaught (a future it does not

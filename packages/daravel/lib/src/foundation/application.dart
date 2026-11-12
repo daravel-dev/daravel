@@ -2201,6 +2201,24 @@ final class ApplicationBuilder {
     return this;
   }
 
+  /// Registers every driver of [drivers], by the connection `driver` it
+  /// serves: the `databaseDrivers` registry of `bootstrap/database.dart`,
+  /// which `dartisan model:sync` also reads without compiling the rest of
+  /// the application:
+  ///
+  /// ```dart
+  /// final databaseDrivers = <String, DatabaseDriverFactory>{
+  ///   'mysql': MySqlDriver.fromConfig,
+  ///   'mariadb': MySqlDriver.fromConfig,
+  /// };
+  /// ```
+  ApplicationBuilder withDatabaseDrivers(
+    Map<String, DatabaseDriverFactory> drivers,
+  ) {
+    _databaseDrivers.addAll(drivers);
+    return this;
+  }
+
   /// Adds a database connection [name] with its own settings, next to the
   /// ones `DB_*` configures; select it with `DB.table(t, connection: name)`
   /// or a model's `connection:`. [connection] reads the environment:

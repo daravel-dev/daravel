@@ -13,6 +13,12 @@
 /// second less, from [reservedAtMs], when the worker saw the reservation),
 /// which may come up to a second early; [mismatch] is then true when both
 /// values were known and differ. Null when nothing was reported.
+///
+/// [reservedAtMs] is when the worker saw the reservation, after the pop
+/// returned: later than the driver's own time by the pop's latency, so the
+/// estimate may come that much late too. That path (a mismatch, or a
+/// driver that does not report [reservedUntilMs]) relies on the margin
+/// for it.
 ({DateTime? expiry, bool mismatch}) reservationExpiry({
   required Duration retryAfter,
   int? reservedAtMs,

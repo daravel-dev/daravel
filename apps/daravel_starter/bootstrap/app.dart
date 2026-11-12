@@ -1,12 +1,12 @@
 import 'dart:io';
 
 import 'package:daravel/daravel.dart';
-import 'package:daravel_mysql/daravel_mysql.dart';
 import 'package:daravel_starter/app/models/user.dart';
 
 import '../routes/api.dart';
 import '../routes/console.dart';
 import '../routes/web.dart';
+import 'database.dart';
 import 'jobs.dart';
 import 'listeners.dart';
 import 'migrations.dart';
@@ -22,8 +22,7 @@ Application createApp({String? basePath, Map<String, String>? env}) =>
     Application.configure(basePath: basePath ?? Directory.current.path)
         .withEnv(env ?? const <String, String>{})
         // DB_CONNECTION=mysql or mariadb (sqlite and pgsql are built in).
-        .withDatabaseDriver('mysql', MySqlDriver.fromConfig)
-        .withDatabaseDriver('mariadb', MySqlDriver.fromConfig)
+        .withDatabaseDrivers(databaseDrivers)
         .withMigrations(migrations)
         .withSeeders(seeders)
         .withModels(models)

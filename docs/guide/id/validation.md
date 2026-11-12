@@ -1,4 +1,4 @@
-<!-- source: validation.md sha256:71d6cf0e234c -->
+<!-- source: validation.md sha256:106391edc4d6 -->
 # Validasi
 
 Validasi request secara inline dengan string rule Laravel, atau dengan objek
@@ -265,8 +265,8 @@ dart run dartisan_cli:dartisan request:sync
 ```
 
 yang selalu berjalan, karena hanya `dartisan_cli` yang dikompilasi.
-(`model:sync` membaca database lewat koneksi aplikasi, jadi butuh proyek
-yang bisa dikompilasi.)
+(`model:sync` juga tidak mengompilasi aplikasi: lihat
+[Database](database.md#menyinkronkan-model).)
 
 `typed` memuat setiap field menurut kunci input-nya, sudah dikonversi ke
 tipe yang dideklarasikan. Tipe sebuah field dan rule-nya masih bisa tidak

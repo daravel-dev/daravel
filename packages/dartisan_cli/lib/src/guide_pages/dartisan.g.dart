@@ -111,7 +111,7 @@ before moving to a new minor version.
 | `db:transfer --from --to [--dry-run] [--truncate] [--tables] [--no-migrate]` | Copies the data to another database, migrating it first ([Database](database.md#copying-data-between-databases)) |
 | `db:backup [--output] [--keep=N]` | Hot backup of the SQLite database into `storage/backups` (see [Deployment](deployment.md#backups)) |
 | `tinker "<expression>"` | Evaluates a Dart expression in the booted application |
-| `model:sync [Model] [--typed-ids]` | Regenerates a model's typed accessors from its table, and fills an empty `<dartisan:statics>` region; `--typed-ids` adds a typed id ([Database](database.md#typed-ids-opt-in)) |
+| `model:sync [Model] [--typed-ids] [--check] [--boot] [--reset-regions]` | Regenerates a model's typed accessors from its table, and fills an empty `<dartisan:statics>` region, without compiling the application (`--boot`: through it); `--typed-ids` adds a typed id ([Database](database.md#syncing-models)) |
 | `request:sync [Request] [--check]` | Rewrites the typed input (`<dartisan:input>` region) of form requests from their `Field` constants; `--check` exits 1 when one is out of date ([Validation](validation.md#typed-input)) |
 | `names:sync [--check] [--boot]` | Writes `lib/app/names.dart` (`Routes.*` URL builders, `RouteNames`, `Abilities`, `RateLimiters`, `Guards`, `Disks`, `Connections`) from an application booted for inspection, with no connection (`--boot`: a full boot) ([Routing](routing.md#route-features)) |
 | `model:show <Model> [--json]` | A model's table, attributes (type, cast, fillable, hidden) and relations, from `bootstrap/models.dart` |
