@@ -271,6 +271,15 @@ Future<void> f(Request request, Map<String, Object?> data) async {
       "/// Every model.\nlibrary;\n\n// <dartisan:exports>\n"
           "export 'post.dart';\nexport 'user.dart';\n// </dartisan:exports>\n",
     );
+    // Neither do an enum, a typedef or an extension next to the models
+    // (every registry registers classes); these were reported before.
+    write('lib/app/models/status.dart', 'enum Status { draft, published }\n');
+    write(
+      'lib/app/models/scopes.dart',
+      'typedef Scope = void Function();\nextension PostScopes on Object {}\n',
+    );
+    // A sealed or abstract base class still counts.
+    write('lib/app/models/base.dart', 'abstract base class Base {}\n');
     expect(checkRegistries(root.path), isEmpty, reason: 'no registry yet');
 
     write(
@@ -278,8 +287,11 @@ Future<void> f(Request request, Map<String, Object?> data) async {
       "import 'package:demo/app/models/user.dart';\n",
     );
     final issues = checkRegistries(root.path);
-    expect(issues.map((i) => i.path), ['lib/app/models/post.dart']);
-    expect(issues.single.message, contains('bootstrap/models.dart'));
+    expect(issues.map((i) => i.path).toList()..sort(), [
+      'lib/app/models/base.dart',
+      'lib/app/models/post.dart',
+    ]);
+    expect(issues.first.message, contains('bootstrap/models.dart'));
   });
   test('invalid_timezone checks scheduler zone names', () {
     const source = '''
