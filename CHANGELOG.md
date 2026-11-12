@@ -44,6 +44,23 @@ match Laravel more closely.
 
 ### Fixed
 
+## 1.27.1
+
+A security patch: fixes only. Upgrade every application that accepts multipart uploads, validates numbers sent by clients (`decimal`, `multiple_of`, `gt`, `gte`, `lt`, `lte`) or configures WebSocket origins with wildcards.
+
+### Security
+
+- Matching time that grows faster than linearly with the input, reachable from a client, so one request could hold a worker for minutes (a denial of service):
+  - the parameters of a multipart part's `Content-Disposition` header: any route that reads multipart input (`request.all()`, `input()`, `file()`), with the default configuration; since 1.0.0;
+  - the WebSocket origin check of the Pusher server, when `REVERB_ALLOWED_ORIGINS` (or `BroadcastApp.allowedOrigins`) holds a pattern with two or more `*`; the default `*` is not affected; since 1.10.0;
+  - the validation rules `decimal`, `multiple_of`, `gt`, `gte`, `lt` and `lte` on a field a client sends (a JSON or form body within the default size limit is enough); since 1.22.0.
+
+  All are now matched in time linear in the input, with the same results as before. `Http::fake` URL patterns use the same linear matcher.
+
+### Fixed
+
+- `Application.shutdown()` after a password was hashed could end the process before it returned, silently and with exit code 0: a command or seeder that hashed (`Hash.make`/`check`) and then shut down as its last step lost everything after the shutdown, its own output and the database connections' close included. Seen every time on Linux; a server is not affected. Since 1.27.0 for password hashing (since 1.23.0 for `Concurrency.run`).
+
 ## 1.27.0
 
 For servers under real load, from a robustness audit of the foundations (#170). Every resource that could grow without bound now has a limit with a Laravel- or Pusher-like default: WebSocket and SSE send buffers, Pusher channels and client events per connection, metric series, log buffering, hashing isolates, outbound response bodies, and the JWT denylist, which no longer shares an evictable cache. Queue workers follow Laravel's attempt accounting and stop a timed-out job from committing (`CancellationToken`); SQLite transactions begin `IMMEDIATE`, retry busy errors and store dates as Laravel does; PostgreSQL keeps its pooled connections; the coordinator drops work whose caller already gave up; and unread or truncated request bodies no longer hold a worker. ADR-032 adds `SqlIdentifier`, opt-in typed model ids and `dartisan build --target-os` for cross-compiled bundles. Read Changed before upgrading: several defaults are new.
