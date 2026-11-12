@@ -329,19 +329,24 @@ void main() {
   test('the database queue on MySQL: reservedUntil and extend in whole '
       'seconds; an extension within the same second changes nothing', () async {
     final schema = SchemaBuilder(await db.executor());
-    for (final table in ['jobs', 'job_batches', 'failed_jobs']) {
-      await schema.dropIfExists(table);
-    }
-    await const CreateJobsTable().up(schema);
-    addTearDown(() async {
-      for (final table in ['jobs', 'job_batches', 'failed_jobs']) {
-        await schema.dropIfExists(table);
-      }
+    // A table of its own, with the columns of CreateJobsTable's `jobs`.
+    const table = 'my_reserved_jobs';
+    await schema.dropIfExists(table);
+    await schema.create(table, (t) {
+      t.id();
+      t.string('queue').index();
+      t.longText('payload');
+      t.tinyInteger('attempts').unsigned();
+      t.unsignedInteger('reserved_at').nullable();
+      t.unsignedInteger('available_at');
+      t.unsignedInteger('created_at');
     });
+    addTearDown(() => schema.dropIfExists(table));
     const second = 1800000000 * 1000;
     var now = DateTime.fromMillisecondsSinceEpoch(second + 999, isUtc: true);
     final queue = DatabaseQueue(
       db,
+      table: table,
       retryAfter: const Duration(seconds: 3),
       clock: () => now,
     );

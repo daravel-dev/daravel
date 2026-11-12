@@ -88,6 +88,7 @@ void main() {
         var now = DateTime.fromMillisecondsSinceEpoch(second, isUtc: true);
         final queue = DatabaseQueue(
           db,
+          table: table,
           retryAfter: const Duration(seconds: 3),
           clock: () => now,
         );
@@ -114,6 +115,7 @@ void main() {
       var now = DateTime.fromMillisecondsSinceEpoch(second, isUtc: true);
       final queue = DatabaseQueue(
         db,
+        table: table,
         retryAfter: const Duration(seconds: 3),
         clock: () => now,
       );
