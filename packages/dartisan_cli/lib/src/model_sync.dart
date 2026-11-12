@@ -540,22 +540,34 @@ AccessorPlan relationPathPlan(ModelSource model, Set<String> columnGetters) {
     return AccessorPlan(const [], warnings);
   }
   final className = model.className;
+  // The type parameter must not hide a type the extension names: a model
+  // called Root would otherwise read RelationToken<Root, Root>.
+  final named = {className, for (final r in getters) r.related ?? 'Model'};
+  var root = 'Root';
+  for (var n = 1; named.contains(root); n++) {
+    root = n == 1 ? 'PathRoot' : 'PathRoot$n';
+  }
   return AccessorPlan([
     '/// The relations of [$className] after any relation path that ends at',
     '/// one: the path, then `${getters.first.name}` (written by `dartisan '
         'model:sync`',
     '/// from `$className.rels`).',
-    'extension ${className}RelationPath<Root extends Model>',
-    '    on RelationToken<Root, $className> {',
+    'extension ${className}RelationPath<$root extends Model>',
+    '    on RelationToken<$root, $className> {',
     for (final (i, r) in getters.indexed) ...[
       if (i > 0) '',
       '  /// The path, then `${r.name}`: `<path>.${r.name}`.',
-      '  RelationToken<Root, ${r.related ?? 'Model'}> get ${r.name} =>',
+      '  RelationToken<$root, ${r.related ?? 'Model'}> get ${r.name} =>',
       '      nested($className.rels.${r.name});',
     ],
     '}',
   ], warnings);
 }
+
+/// Whether [source], a model file, has the relation path extension of
+/// [className], whatever its type parameter is named.
+bool hasRelationPath(String source, String className) =>
+    source.contains('extension ${className}RelationPath<');
 
 /// The keys of the `relations:` map of [source] that [ModelSource.parse]
 /// did not read as a relation (a closure with a body, a relation built by a
@@ -570,6 +582,10 @@ List<String> unreadRelations(String source, ModelSource model) {
 }
 
 /// The string keys at the top level of the `relations: {...}` map.
+///
+/// A light scan, enough for a warning: it skips line comments and plain
+/// quoted strings, but not block comments (`/* ... */`) or raw and
+/// triple-quoted strings, where a quote or bracket can mislead it.
 List<String> _relationKeys(String source) {
   final start = RegExp(r'\brelations:\s*(?:const\s*)?(?:<[^>{]*>\s*)?\{')
       .firstMatch(source);

@@ -354,4 +354,109 @@ void wrong() {
       ),
     ]);
   }, timeout: const Timeout(Duration(minutes: 3)));
+
+  test('a model named Root: the type parameter does not hide it', () async {
+    const root = '''
+import 'package:daravel/daravel.dart';
+
+import 'path_root.dart';
+
+final class Root extends Model {
+  static final ModelDefinition<Root> definition = ModelDefinition<Root>(
+    table: 'roots',
+    factory: Root.new,
+    relations: {
+      'parent': () => BelongsTo<Root>(() => Root.definition, foreignKey: 'parent_id'),
+      'leaves': () => HasMany<PathRoot>(() => PathRoot.definition, foreignKey: 'root_id'),
+    },
+  );
+
+  @override
+  ModelDefinition<Root> get modelDefinition => Root.definition;
+
+  // <dartisan:accessors>
+  // </dartisan:accessors>
+}
+''';
+    // A second model named like the first fallback, related both ways.
+    const leaf = '''
+import 'package:daravel/daravel.dart';
+
+import 'root.dart';
+
+final class PathRoot extends Model {
+  static final ModelDefinition<PathRoot> definition =
+      ModelDefinition<PathRoot>(
+        table: 'path_roots',
+        factory: PathRoot.new,
+        relations: {
+          'root': () => BelongsTo<Root>(() => Root.definition, foreignKey: 'root_id'),
+        },
+      );
+
+  @override
+  ModelDefinition<PathRoot> get modelDefinition => PathRoot.definition;
+
+  // <dartisan:accessors>
+  // </dartisan:accessors>
+}
+''';
+    const rootColumns = [
+      id,
+      ColumnInfo(name: 'parent_id', type: 'INTEGER', nullable: true),
+    ];
+    const leafColumns = [
+      id,
+      ColumnInfo(name: 'root_id', type: 'INTEGER', nullable: false),
+    ];
+    final syncedRoot = sync(root, rootColumns).source!;
+    final syncedLeaf = sync(leaf, leafColumns).source!;
+    // Root names Root and PathRoot: the parameter is PathRoot2.
+    expect(
+      flat(region(syncedRoot)),
+      contains(
+        'extension RootRelationPath<PathRoot2 extends Model> '
+        'on RelationToken<PathRoot2, Root> {',
+      ),
+    );
+    expect(hasRelationPath(syncedRoot, 'Root'), isTrue);
+    expect(hasRelationPath(syncedLeaf, 'PathRoot'), isTrue);
+    expect(hasRelationPath(syncedLeaf, 'Root'), isFalse);
+
+    final dir = Directory(
+      p.normalize(p.absolute('.dart_tool/typed_api_paths_root')),
+    );
+    if (dir.existsSync()) {
+      dir.deleteSync(recursive: true);
+    }
+    dir.createSync(recursive: true);
+    File(p.join(dir.path, 'root.dart')).writeAsStringSync(syncedRoot);
+    File(p.join(dir.path, 'path_root.dart')).writeAsStringSync(syncedLeaf);
+    File(p.join(dir.path, 'use.dart')).writeAsStringSync('''
+import 'package:daravel/daravel.dart';
+
+import 'path_root.dart';
+import 'root.dart';
+
+final RelationToken<Root, Root> up = Root.rels.parent.parent;
+final RelationToken<Root, PathRoot> down = Root.rels.parent.leaves;
+final RelationToken<PathRoot, Root> round = PathRoot.rels.root.leaves.root;
+final List<String> names = [up.name, down.name, round.name];
+''');
+    final collection = AnalysisContextCollection(includedPaths: [dir.path]);
+    final found = <String>[];
+    for (final name in ['root.dart', 'path_root.dart', 'use.dart']) {
+      final path = p.join(dir.path, name);
+      final result = await collection
+          .contextFor(path)
+          .currentSession
+          .getErrors(path);
+      if (result is ErrorsResult) {
+        for (final d in result.diagnostics) {
+          found.add('$name: ${d.diagnosticCode.lowerCaseName}: ${d.message}');
+        }
+      }
+    }
+    expect(found, isEmpty);
+  }, timeout: const Timeout(Duration(minutes: 3)));
 }

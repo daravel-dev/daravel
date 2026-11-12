@@ -1555,7 +1555,7 @@ final class ModelSyncCommand extends DaravelCommand {
       } else {
         stdout.writeln('${model.className}: up to date.');
       }
-      if (updated.contains('RelationPath<Root extends Model>')) {
+      if (hasRelationPath(updated, model.className)) {
         withPaths++;
       }
       synced++;

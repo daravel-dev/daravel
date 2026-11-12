@@ -11,4 +11,4 @@
 ### Upgrade notes
 
 - After upgrading, `model:sync` adds a `// <dartisan:relation-path>` region at the end of each model file with relations, so `model:sync --check` reports models as out of date until it runs once.
-- New public names: `relationTokenMembers` in `package:daravel/daravel.dart`; `ModelsBarrel`, `ProjectPaths.modelsBarrel`, `relationPathPlan`, `replaceRelationPath` and `unreadRelations` in `package:dartisan_cli`.
+- New public names: `relationTokenMembers` in `package:daravel/daravel.dart`; `ModelsBarrel`, `ProjectPaths.modelsBarrel`, `relationPathPlan`, `hasRelationPath`, `replaceRelationPath` and `unreadRelations` in `package:dartisan_cli`.
