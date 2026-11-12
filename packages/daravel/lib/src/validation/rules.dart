@@ -1339,6 +1339,11 @@ String _withoutOuterSpace(String text) {
 
 /// An exact decimal, as Brick's `BigDecimal` in Laravel: `0.3` is a multiple
 /// of `0.1` here, and never in floating point. `null` unless `is_numeric`.
+///
+/// Laravel trims and calls PHP's `is_numeric` and Brick, both linear. A
+/// single `^\s*…\s*$` regex in their place took time quadratic in the
+/// length of the value (from 1.22.0 until this was fixed): the spaces
+/// around are stripped first now.
 (BigInt, int)? _decimalOf(Object? value) {
   if (value is! String && value is! num) {
     return null;
@@ -1445,6 +1450,14 @@ final class CompareRule extends Rule {
 }
 
 /// `decimal:2` and `decimal:0,4`.
+///
+/// Laravel 13's `validateDecimal` reads the places with the possessive
+/// `/^[+-]?\d*+\.?+(\d*+)$/`, which PCRE never backtracks into. Dart's
+/// `RegExp` has no possessive quantifiers, and the plain `\d*\.?(\d*)` the
+/// port first used took time quadratic in the length of the value (from
+/// 1.22.0 until this was fixed). The pattern here has one way to match each
+/// string, so it is linear, and it matches the same strings with the same
+/// capture.
 final class DecimalRule extends Rule {
   /// [min] to [max] digits after the decimal point.
   const DecimalRule(this.min, [this.max]);
