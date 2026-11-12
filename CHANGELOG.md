@@ -55,7 +55,7 @@ A security patch: fixes only. Upgrade every application that accepts multipart u
   - the WebSocket origin check of the Pusher server, when `REVERB_ALLOWED_ORIGINS` (or `BroadcastApp.allowedOrigins`) holds a pattern with two or more `*`; the default `*` is not affected; since 1.10.0;
   - the validation rules `decimal`, `multiple_of`, `gt`, `gte`, `lt` and `lte` on a field a client sends (a JSON or form body within the default size limit is enough); since 1.22.0.
 
-  All are now matched in time linear in the input, with the same results as before. `Http::fake` URL patterns use the same linear matcher.
+  All are now matched in time linear in the input, with the same results as before. `Http::fake` URL patterns use the same linear matcher. One difference: a `*` in an origin or URL pattern now also spans a line break, which a host or URL cannot hold.
 
 ### Fixed
 
