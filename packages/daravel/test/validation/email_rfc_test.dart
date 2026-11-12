@@ -6,7 +6,7 @@ import 'package:daravel/src/validation/email_rfc.dart';
 import 'package:test/test.dart';
 
 /// The egulias/EmailValidator 4 port against Laravel itself: each address
-/// of `fixtures/laravel_email_rfc.json` was validated by Laravel 12 with
+/// of `fixtures/laravel_email_rfc.json` was validated by Laravel 13.40 with
 /// `email`, `email:rfc` and `email:strict` (see the fixture's `source`).
 void main() {
   ruleGolden();
@@ -30,6 +30,7 @@ void main() {
   ];
 
   test('the fixture is Laravel\'s', () {
+    expect(fixture['laravel'], startsWith('13.'));
     expect(fixture['egulias'], startsWith('4.'));
     expect(cases.length, greaterThan(150));
     expect(cases.where((c) => c.rfc), isNotEmpty);

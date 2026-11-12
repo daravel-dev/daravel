@@ -1,9 +1,9 @@
 {
-  "source": "The email addresses of the data providers of egulias/EmailValidator 4.0.4 (tests/EmailValidator/Validation/RFCValidationTest.php, RFCValidationDomainPartTest.php, NoRFCWarningsValidationTest.php), run through Laravel's Validator with the rules email, email:rfc and email:strict in the daravel-interop-laravel-12 image (docker run --rm --network=none).",
+  "source": "The email addresses of the data providers of egulias/EmailValidator 4.0.4 (tests/EmailValidator/Validation/RFCValidationTest.php, RFCValidationDomainPartTest.php, NoRFCWarningsValidationTest.php), run through Laravel 13's Validator with the rules email, email:rfc and email:strict in the daravel-interop-laravel-13 image (docker run --rm --network=none).",
   "license": "The addresses come from egulias/EmailValidator, MIT License, Copyright (c) 2013-2023 Eduardo Gulias Davis.",
-  "laravel": "12.71.0.0",
+  "laravel": "13.40.0.0",
   "egulias": "4.0.4.0",
-  "php": "8.2.33",
+  "php": "8.3.35",
   "cases": [
     {
       "address": "w6JAaWFuYS5vcmc=",

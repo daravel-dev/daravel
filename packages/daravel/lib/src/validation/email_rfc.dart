@@ -147,46 +147,98 @@ final class _Token {
 
 const _Token _nullToken = _Token('', _sEmpty);
 
-// doctrine's scan: preg_split over the catchable patterns (captured) and the
-// non-catchable ones (dropped), with egulias' patterns and `iu`.
-final RegExp _scanner = RegExp(
-  r'([a-zA-Z]+[46]?)|([^\x00-\x7F])|([0-9]+)|(\r\n)|(::)|(\s+?)|(.)'
-  r'|[\xA0-\xff]+',
-  caseSensitive: false,
-  unicode: true,
-);
+/// doctrine's scan (preg_split over egulias' catchable patterns, flags
+/// `iu`), the pattern the lexer below splits by hand:
+/// `([a-zA-Z]+[46]?)|([^\x00-\x7F])|([0-9]+)|(\r\n)|(::)|(\s+?)|(.)`
+/// `|[\xA0-\xff]+`. Every position starts a match of one capturing
+/// alternative, so no text falls between tokens.
+const String emailRfcScanPattern =
+    r'([a-zA-Z]+[46]?)|([^\x00-\x7F])|([0-9]+)|(\r\n)|(::)|(\s+?)|(.)'
+    r'|[\xA0-\xff]+';
+
+/// The tokens the lexer splits [input] into (for the test that compares
+/// them with [emailRfcScanPattern]).
+List<String> emailRfcTokens(String input) => [
+  for (final token in _Lexer(input)._tokens) token.value,
+];
 
 // EmailLexer::INVALID_CHARS_REGEX: a token made of symbols and controls only.
 final RegExp _hasValidChar = RegExp(r'[^\p{S}\p{C}]+', unicode: true);
 
 final class _Lexer {
+  /// Splits [input] as [emailRfcScanPattern] does, by hand. A regex match
+  /// per character cost 60 to 100 ms on 100 000 characters; this is the
+  /// same split in one pass.
   _Lexer(String input) {
-    var last = 0;
-    for (final m in _scanner.allMatches(input)) {
-      if (m.start > last) {
-        _add(input.substring(last, m.start));
+    final n = input.length;
+    var i = 0;
+    while (i < n) {
+      final start = i;
+      final c = input.codeUnitAt(i);
+      if (_letter(input, i)) {
+        // ([a-zA-Z]+[46]?) under /iu: letters, ſ and the Kelvin sign.
+        while (i < n && _letter(input, i)) {
+          i++;
+        }
+        if (i < n &&
+            (input.codeUnitAt(i) == 0x34 || input.codeUnitAt(i) == 0x36)) {
+          i++;
+        }
+        _add(input.substring(start, i), alphanumeric: true);
+      } else if (c >= 0x80) {
+        // ([^\x00-\x7F]): one code point, a surrogate pair included.
+        i +=
+            c >= 0xD800 &&
+                c <= 0xDBFF &&
+                i + 1 < n &&
+                input.codeUnitAt(i + 1) >= 0xDC00 &&
+                input.codeUnitAt(i + 1) <= 0xDFFF
+            ? 2
+            : 1;
+        _add(input.substring(start, i));
+      } else if (c >= 0x30 && c <= 0x39) {
+        // ([0-9]+)
+        while (i < n &&
+            input.codeUnitAt(i) >= 0x30 &&
+            input.codeUnitAt(i) <= 0x39) {
+          i++;
+        }
+        _add(input.substring(start, i), alphanumeric: true);
+      } else if (c == 0x0D && i + 1 < n && input.codeUnitAt(i + 1) == 0x0A) {
+        // (\r\n)
+        i += 2;
+        _add('\r\n');
+      } else if (c == 0x3A && i + 1 < n && input.codeUnitAt(i + 1) == 0x3A) {
+        // (::)
+        i += 2;
+        _add('::');
+      } else {
+        // (\s+?) takes one ASCII space, (.) any other character: one each.
+        i++;
+        _add(input.substring(start, i));
       }
-      final captured = [for (var g = 1; g <= 7; g++) m.group(g)]
-          .firstWhere((s) => s != null && s.isNotEmpty, orElse: () => null);
-      if (captured != null) {
-        _add(captured);
-      }
-      last = m.end;
-    }
-    if (last < input.length) {
-      _add(input.substring(last));
     }
   }
 
+  /// Whether a letter of `[a-zA-Z]` under `/iu` starts at [i]: an ASCII
+  /// letter, `ſ` (U+017F, folds to s) or the Kelvin sign (U+212A, to k).
+  static bool _letter(String input, int i) {
+    final c = input.codeUnitAt(i);
+    return (c >= 0x41 && c <= 0x5A) ||
+        (c >= 0x61 && c <= 0x7A) ||
+        c == 0x017F ||
+        c == 0x212A;
+  }
+
+  /// A lexer at the same place as [other], to look ahead without moving
+  /// it. It records nothing: what it reads is never kept.
   _Lexer._copy(_Lexer other)
     : _tokens = other._tokens,
       _position = other._position,
       _lookahead = other._lookahead,
       hasInvalidTokens = other.hasInvalidTokens,
       current = other.current,
-      previous = other.previous,
-      _accumulator = other._accumulator,
-      _recording = other._recording;
+      previous = other.previous;
 
   List<_Token> _tokens = [];
   int _position = 0;
@@ -194,18 +246,27 @@ final class _Lexer {
   bool hasInvalidTokens = false;
   _Token current = _nullToken;
   _Token previous = _nullToken;
-  String _accumulator = '';
+
+  /// What is recorded, appended token by token: a buffer, as appending to
+  /// a String copies it whole each time (quadratic in the input's length;
+  /// PHP appends in place).
+  final StringBuffer _accumulator = StringBuffer();
   bool _recording = false;
 
-  void _add(String value) => _tokens.add(_Token(value, _typeOf(value)));
+  void _add(String value, {bool alphanumeric = false}) =>
+      _tokens.add(_Token(value, _typeOf(value, alphanumeric: alphanumeric)));
 
-  int _typeOf(String value) {
+  int _typeOf(String value, {bool alphanumeric = false}) {
     final known = _charValue[value];
     if (known != null) {
       return known;
     }
     if (value == '\u0000') {
       return _cNul;
+    }
+    // Letters and digits are neither symbols nor controls.
+    if (alphanumeric) {
+      return _generic;
     }
     if (!_hasValidChar.hasMatch(value)) {
       hasInvalidTokens = true;
@@ -216,7 +277,7 @@ final class _Lexer {
 
   bool moveNext() {
     if (_recording && identical(previous, _nullToken)) {
-      _accumulator += current.value;
+      _accumulator.write(current.value);
     }
     previous = current;
     _lookahead ??= _nullToken;
@@ -226,7 +287,7 @@ final class _Lexer {
     final hasNext = _lookahead != null;
     current = token ?? _nullToken;
     if (_recording) {
-      _accumulator += current.value;
+      _accumulator.write(current.value);
     }
     return hasNext;
   }
@@ -249,8 +310,8 @@ final class _Lexer {
 
   void startRecording() => _recording = true;
   void stopRecording() => _recording = false;
-  void clearRecorded() => _accumulator = '';
-  String get accumulated => _accumulator;
+  void clearRecorded() => _accumulator.clear();
+  String get accumulated => _accumulator.toString();
 }
 
 /// An exception the PHP parser lets reach RFCValidation (which catches it).
@@ -311,6 +372,12 @@ abstract base class _PartParser {
   final Set<String> warnings = {};
 
   bool parseFws() {
+    // _FoldingWhiteSpace.parse's first test, before building one: most
+    // tokens are not white space, and this runs for every token.
+    if (escaped() ||
+        !_FoldingWhiteSpace._fwsTypes.contains(lexer.current.type)) {
+      return true;
+    }
     final fws = _FoldingWhiteSpace(lexer);
     final valid = fws.parse();
     warnings.addAll(fws.warnings);
@@ -535,7 +602,8 @@ final class _DomainPart extends _PartParser {
   _DomainPart(super.lexer);
 
   String domainPart = '';
-  String _label = '';
+  // Buffers: appending to a String copies it whole (see _Lexer).
+  final StringBuffer _label = StringBuffer();
 
   bool parse() {
     lexer
@@ -575,7 +643,7 @@ final class _DomainPart extends _PartParser {
   bool _doParseDomainPart() {
     var tldMissing = true;
     var hasComments = false;
-    var domain = '';
+    final domain = StringBuffer();
     do {
       final prev = lexer.previous;
       if (lexer.current.isA(_sBackslash) || lexer.current.isA(_sSlash)) {
@@ -615,7 +683,7 @@ final class _DomainPart extends _PartParser {
       if (!parseFws()) {
         return false;
       }
-      domain += lexer.current.value;
+      domain.write(lexer.current.value);
       if (lexer.current.isA(_sDot) && lexer.isNextToken(_generic)) {
         tldMissing = false;
       }
@@ -629,13 +697,14 @@ final class _DomainPart extends _PartParser {
       if (lexer.current.isA(_sBackslash) && lexer.isNextToken(_generic)) {
         return false;
       }
-      final validTypes = [
-        _generic,
-        _sHyphen,
-        _sDot,
-        if (hasComments) ...[_sOpenParenthesis, _sCloseParenthesis],
-      ];
-      if (!validTypes.contains(lexer.current.type)) {
+      final type = lexer.current.type;
+      final valid =
+          type == _generic ||
+          type == _sHyphen ||
+          type == _sDot ||
+          (hasComments &&
+              (type == _sOpenParenthesis || type == _sCloseParenthesis));
+      if (!valid) {
         return false; // Invalid token in domain
       }
       lexer.moveNext();
@@ -646,28 +715,30 @@ final class _DomainPart extends _PartParser {
     if (tldMissing) {
       warnings.add('TLD');
     }
-    domainPart = domain;
+    domainPart = domain.toString();
     return true;
   }
 
   bool _checkLabelLength({bool endOfDomain = false}) {
     if (lexer.current.isA(_sDot) || endOfDomain) {
-      if (_labelTooLong(_label)) {
+      if (_labelTooLong(_label.toString())) {
         return false; // LabelTooLong
       }
-      _label = '';
+      _label.clear();
     }
-    _label += lexer.current.value;
+    _label.write(lexer.current.value);
     return true;
   }
 
   static bool _labelTooLong(String label) {
-    if (RegExp(r'[^\x00-\x7F]').hasMatch(label)) {
+    // Checked once per label: no regex built, no bytes encoded, for the
+    // usual ASCII label (its octets are its length).
+    if (label.codeUnits.any((c) => c > 0x7F)) {
       // idn_to_ascii's IDNA_ERROR_LABEL_TOO_LONG: the ASCII form of the
       // label is longer than 63 octets.
       return 'xn--${punycode(label.toLowerCase())}'.length > 63;
     }
-    return _bytes(label) > 63;
+    return label.length > 63;
   }
 }
 
@@ -692,7 +763,7 @@ final class _DomainLiteral extends _PartParser {
       }
     }
     var ipv6Tag = false;
-    var addressLiteral = '';
+    final literal = StringBuffer();
     do {
       if (lexer.current.isA(_cNul)) {
         return false;
@@ -719,9 +790,9 @@ final class _DomainLiteral extends _PartParser {
       if (lexer.current.isA(_sCloseBracket)) {
         break;
       }
-      addressLiteral += lexer.current.value;
+      literal.write(lexer.current.value);
     } while (lexer.moveNext());
-    addressLiteral = addressLiteral.replaceAll('[', '');
+    var addressLiteral = literal.toString().replaceAll('[', '');
     if (!_checkIpv4Tag(addressLiteral)) {
       return true;
     }
