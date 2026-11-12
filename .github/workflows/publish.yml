@@ -3,9 +3,10 @@ name: Publish to pub.dev
 # Automated publishing with GitHub OIDC (no stored credentials). One-time
 # setup per package on pub.dev: Admin → Automated publishing → enable GitHub
 # Actions for repository daravel-dev/daravel with tag pattern `v{{version}}`.
-# Then push a tag such as `v1.0.1` to publish all ten packages in
-# dependency order. Versions already on pub.dev are skipped, so re-running
-# the workflow after a partly manual release publishes the rest.
+# Then push a tag such as `v1.0.1` to publish every package, one after the
+# other in dependency order (tool/publish_checks.dart checks the order).
+# Versions already on pub.dev are skipped, so re-running the workflow after
+# a partly published release publishes the rest.
 on:
   push:
     tags: ["v[0-9]+.[0-9]+.[0-9]+*"]
@@ -47,6 +48,18 @@ jobs:
         with:
           sdk: stable
       - run: dart pub get
+      # Every package, before `publish` starts (it needs this job): a
+      # problem stops the release before anything reaches pub.dev, as the
+      # reusable workflow's validate job did per package. Here, without the
+      # token. The list is the working directories of the publish job's
+      # steps.
+      - name: Dry-run every package
+        run: |
+          # Whole lines only, so this command's own text is not one.
+          for dir in $(grep -E '^ +working-directory: packages/[a-z0-9_]+$' .github/workflows/publish.yml | awk '{print $2}'); do
+            echo "== $dir"
+            (cd "$dir" && dart pub publish --dry-run)
+          done
       - name: Tag matches daravelVersion
         run: |
           version=$(sed -n "s/^const String daravelVersion = '\(.*\)';/\1/p" packages/daravel/lib/src/foundation/version.dart)
@@ -58,6 +71,15 @@ jobs:
         run: |
           version="${GITHUB_REF_NAME#v}"
           for package in daravel_lints daravel daravel_test daravel_mysql daravel_sqlite daravel_postgres dartisan_cli daravel_teorion daravel_permission daravel_activitylog daravel_redis daravel_livekit daravel_google daravel_teobiefy daravel_s3 daravel_scout daravel_session daravel_excel daravel_log_viewer daravel_pulse daravel_payments daravel_medialibrary; do
+            # A package not on pub.dev at all cannot be published by this
+            # workflow (automated publishing is enabled per package, after
+            # a first manual publish): skip it instead of failing the run.
+            exists=$(curl -s -o /dev/null -w '%{http_code}' "https://pub.dev/api/packages/$package")
+            if [ "$exists" = "404" ]; then
+              echo "::notice::$package is not on pub.dev yet: first publish is manual"
+              echo "$package=published" >> "$GITHUB_OUTPUT"
+              continue
+            fi
             status=$(curl -s -o /dev/null -w '%{http_code}' "https://pub.dev/api/packages/$package/versions/$version")
             if [ "$status" = "200" ]; then state=published; else state=pending; fi
             echo "$package $version: $state"
@@ -71,8 +93,17 @@ jobs:
   # a re-run's download takes an older attempt's archive. A step that fails
   # stops the ones after it; a re-run skips what is on pub.dev already.
   # This job holds the OIDC token and runs no package code: only
-  # `dart pub get` and `dart pub publish`. Tests and analysis run in
+  # `dart pub get` and `dart pub publish`, each publish with a token of its
+  # own (tool/ci/pub_publish.sh). Tests, analysis and the dry-runs run in
   # `verify`, which has no `id-token`.
+  #
+  # A package not on pub.dev yet is skipped (verify's notice): its first
+  # publish is manual. After it, enable automated publishing for it on
+  # pub.dev before the next tag, or its step fails and the packages after
+  # it are not published (stop and report; re-run once it is enabled).
+  # So the packages not yet released come last (their dependencies
+  # allowing): one not yet enabled holds back only the others like it.
+  # A new package's step goes after them. Recovery: CONTRIBUTING.md.
   publish:
     needs: verify
     runs-on: ubuntu-latest
@@ -90,88 +121,88 @@ jobs:
       - name: daravel_lints
         if: needs.verify.outputs.daravel_lints != 'published'
         working-directory: packages/daravel_lints
-        run: dart pub publish --force
+        run: bash ../../tool/ci/pub_publish.sh
       - name: daravel
         if: needs.verify.outputs.daravel != 'published'
         working-directory: packages/daravel
-        run: dart pub publish --force
+        run: bash ../../tool/ci/pub_publish.sh
       - name: daravel_test
         if: needs.verify.outputs.daravel_test != 'published'
         working-directory: packages/daravel_test
-        run: dart pub publish --force
+        run: bash ../../tool/ci/pub_publish.sh
       - name: daravel_mysql
         if: needs.verify.outputs.daravel_mysql != 'published'
         working-directory: packages/daravel_mysql
-        run: dart pub publish --force
+        run: bash ../../tool/ci/pub_publish.sh
       - name: daravel_sqlite
         if: needs.verify.outputs.daravel_sqlite != 'published'
         working-directory: packages/daravel_sqlite
-        run: dart pub publish --force
+        run: bash ../../tool/ci/pub_publish.sh
       - name: daravel_postgres
         if: needs.verify.outputs.daravel_postgres != 'published'
         working-directory: packages/daravel_postgres
-        run: dart pub publish --force
+        run: bash ../../tool/ci/pub_publish.sh
       - name: dartisan_cli
         if: needs.verify.outputs.dartisan_cli != 'published'
         working-directory: packages/dartisan_cli
-        run: dart pub publish --force
+        run: bash ../../tool/ci/pub_publish.sh
       - name: daravel_teorion
         if: needs.verify.outputs.daravel_teorion != 'published'
         working-directory: packages/daravel_teorion
-        run: dart pub publish --force
+        run: bash ../../tool/ci/pub_publish.sh
       - name: daravel_permission
         if: needs.verify.outputs.daravel_permission != 'published'
         working-directory: packages/daravel_permission
-        run: dart pub publish --force
+        run: bash ../../tool/ci/pub_publish.sh
       - name: daravel_activitylog
         if: needs.verify.outputs.daravel_activitylog != 'published'
         working-directory: packages/daravel_activitylog
-        run: dart pub publish --force
+        run: bash ../../tool/ci/pub_publish.sh
       - name: daravel_livekit
         if: needs.verify.outputs.daravel_livekit != 'published'
         working-directory: packages/daravel_livekit
-        run: dart pub publish --force
+        run: bash ../../tool/ci/pub_publish.sh
       - name: daravel_google
         if: needs.verify.outputs.daravel_google != 'published'
         working-directory: packages/daravel_google
-        run: dart pub publish --force
+        run: bash ../../tool/ci/pub_publish.sh
       - name: daravel_teobiefy
         if: needs.verify.outputs.daravel_teobiefy != 'published'
         working-directory: packages/daravel_teobiefy
-        run: dart pub publish --force
+        run: bash ../../tool/ci/pub_publish.sh
       - name: daravel_s3
         if: needs.verify.outputs.daravel_s3 != 'published'
         working-directory: packages/daravel_s3
-        run: dart pub publish --force
+        run: bash ../../tool/ci/pub_publish.sh
       - name: daravel_scout
         if: needs.verify.outputs.daravel_scout != 'published'
         working-directory: packages/daravel_scout
-        run: dart pub publish --force
+        run: bash ../../tool/ci/pub_publish.sh
       - name: daravel_session
         if: needs.verify.outputs.daravel_session != 'published'
         working-directory: packages/daravel_session
-        run: dart pub publish --force
+        run: bash ../../tool/ci/pub_publish.sh
       - name: daravel_redis
         if: needs.verify.outputs.daravel_redis != 'published'
         working-directory: packages/daravel_redis
-        run: dart pub publish --force
+        run: bash ../../tool/ci/pub_publish.sh
       - name: daravel_excel
         if: needs.verify.outputs.daravel_excel != 'published'
         working-directory: packages/daravel_excel
-        run: dart pub publish --force
+        run: bash ../../tool/ci/pub_publish.sh
       - name: daravel_log_viewer
         if: needs.verify.outputs.daravel_log_viewer != 'published'
         working-directory: packages/daravel_log_viewer
-        run: dart pub publish --force
+        run: bash ../../tool/ci/pub_publish.sh
       - name: daravel_pulse
         if: needs.verify.outputs.daravel_pulse != 'published'
         working-directory: packages/daravel_pulse
-        run: dart pub publish --force
+        run: bash ../../tool/ci/pub_publish.sh
       - name: daravel_payments
         if: needs.verify.outputs.daravel_payments != 'published'
         working-directory: packages/daravel_payments
-        run: dart pub publish --force
+        run: bash ../../tool/ci/pub_publish.sh
       - name: daravel_medialibrary
         if: needs.verify.outputs.daravel_medialibrary != 'published'
         working-directory: packages/daravel_medialibrary
-        run: dart pub publish --force
+        run: bash ../../tool/ci/pub_publish.sh
