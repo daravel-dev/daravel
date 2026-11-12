@@ -1,6 +1,6 @@
-### Security
+### Fixed
 
-- The request's URI, `scheme`, `host`, `url` and `isSecure` came from `dart:io`'s `HttpRequest.requestedUri`, which reads `X-Forwarded-Proto` and `X-Forwarded-Host` from any client, also without `TrustProxiesMiddleware` and from a peer it does not trust. They now come from the request line, the `Host` header and the listener; forwarded values count only when `TrustProxiesMiddleware` trusts the peer, as in Laravel (Symfony's `Request::getHost()` and `isSecure()` read them only from a trusted proxy). This also covers domain routes, the host of signed URLs on domain routes, `Response.back`, the session's previous URL, the HSTS header and `UpstreamProxy`. Since 1.0.0.
+- Security: the request's URI, `scheme`, `host`, `url` and `isSecure` came from `dart:io`'s `HttpRequest.requestedUri`, which reads `X-Forwarded-Proto` and `X-Forwarded-Host` from any client, also without `TrustProxiesMiddleware` and from a peer it does not trust. They now come from the request line, the `Host` header and the listener; forwarded values count only when `TrustProxiesMiddleware` trusts the peer, as in Laravel (Symfony's `Request::getHost()` and `isSecure()` read them only from a trusted proxy). This also covers domain routes, the host of signed URLs on domain routes, `Response.back`, the session's previous URL, the HSTS header and `UpstreamProxy`. Since 1.0.0.
 
 ### Added
 
