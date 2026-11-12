@@ -1,6 +1,6 @@
 name: websocket_demo
 description: A clean, working Daravel WebSocket and Broadcasting demo application.
-version: 1.27.2
+version: 1.27.3
 publish_to: none
 
 environment:
