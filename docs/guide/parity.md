@@ -294,7 +294,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `'required_array_keys:name,email'` | `the same string, or Rules.requiredArrayKeys(['name', 'email'])` |  |
 | `'contains:a,b' / 'doesnt_contain:a,b'` | `the same strings, or Rules.contains(['a', 'b']) / doesntContain(...)` | contains compares loosely, doesnt_contain strictly, as Laravel's in_array calls. |
 | `'doesnt_start_with:a' / 'doesnt_end_with:a'` | `the same strings, or Rules.doesntStartWith(['a']) / doesntEndWith(...)` |  |
-| `'in_array:items.*.id'` | `the same string, or Rules.inArray('items.*.id')` |  |
+| `'in_array:items.*.id'` | `the same string, or Rules.inArray('items.*.id')` | a * here does not match across a line break in a key, where Laravel's Str::is (flags su) does. |
 | `'in_array_keys:en,id' / 'array_keys:en,id' (13.x)` | `the same strings, or Rules.inArrayKeys([...]) / arrayKeys([...])` |  |
 | `'hex_color' / 'mac_address' / 'base64' (13.x)` | `the same strings, or Rules.hexColor() / macAddress() / base64()` |  |
 | `'encoding:UTF-8'` | `the same string, or Rules.encoding('UTF-8')` | UTF-8, ASCII and ISO-8859-1 (any string passes ISO-8859-1, as mb_check_encoding on bytes). Another encoding PHP knows (UTF-16, Windows-1252, SJIS...) throws UnsupportedError when the rule runs, and invalid_validation_rule flags it; a name that is no encoding throws ArgumentError, as Laravel. |
