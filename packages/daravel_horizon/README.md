@@ -74,6 +74,18 @@ PostgreSQL or MySQL, or `redis`. Laravel Horizon keeps its data in Redis and
 creates no table, so a database shared with Laravel has no `horizon_*` table
 to collide with.
 
+## `retry_after`
+
+The master kills a worker blocked on a job a heartbeat (at least a second)
+before the queue may hand the job to another worker, at the moment the queue
+driver states (`QueuedJob.reservedUntil`: whole seconds on the database
+queue, milliseconds on Redis). The master and its workers must use the same
+`QUEUE_RETRY_AFTER`; when they do not, the master uses the earlier and warns.
+Not covered: a worker in another process or host whose clock runs ahead (the
+margin covers it only while the difference stays below it), a process
+suspended past a reservation, a job that extends its reservation (`touch`),
+and the Redis stream engine on a server clock that runs fast or jumps ahead.
+
 ## License
 
 MIT.

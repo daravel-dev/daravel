@@ -76,6 +76,19 @@ untuk produksi dengan beberapa proses pakai PostgreSQL atau MySQL, atau
 sehingga database yang dipakai bersama Laravel tidak punya tabel `horizon_*`
 yang bisa bertabrakan.
 
+## `retry_after`
+
+Master membunuh worker yang terblok pada sebuah job satu heartbeat (minimal
+satu detik) sebelum queue boleh memberikan job itu ke worker lain, pada saat
+yang dinyatakan driver queue (`QueuedJob.reservedUntil`: detik bulat di queue
+database, milidetik di Redis). Master dan worker-nya harus memakai
+`QUEUE_RETRY_AFTER` yang sama; bila tidak, master memakai yang lebih awal dan
+memberi peringatan. Tidak tertutup: worker di proses atau host lain yang
+jamnya lebih cepat (margin hanya menutupnya selama selisihnya lebih kecil
+dari margin), proses yang ditangguhkan melewati reservasi, job yang
+memperpanjang reservasinya (`touch`), dan engine stream Redis pada jam server
+yang berjalan cepat atau melompat maju.
+
 ## Lisensi
 
 MIT.

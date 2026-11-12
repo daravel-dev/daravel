@@ -203,16 +203,17 @@ return false''');
 
   @override
   Future<QueuedJob?> pop(String queue) async {
+    final now = _now;
     final reply = _stream
         ? await client.eval(
             _streamPop,
             keys: [_list(queue), _delayed(queue)],
-            args: [_now, retryAfter.inMilliseconds, _jobPrefix(queue), _group],
+            args: [now, retryAfter.inMilliseconds, _jobPrefix(queue), _group],
           )
         : await client.eval(
             _pop,
             keys: [_list(queue), _delayed(queue), _reserved(queue)],
-            args: [_now, retryAfter.inMilliseconds, _jobPrefix(queue)],
+            args: [now, retryAfter.inMilliseconds, _jobPrefix(queue)],
           );
     if (reply is! List || reply.length < 3) {
       return null;
@@ -234,12 +235,24 @@ return false''');
         cause: error,
       );
     }
+    // List engine: the reservation's score is s = now + R (R =
+    // retryAfter in ms), and a pop at m moves it back only once s <= m
+    // (ZRANGEBYSCORE -inf m), that is m >= now + R: never before, on the
+    // clock of the process that pops next. Stream engine: XAUTOCLAIM takes
+    // an entry idle for R ms on the Redis server's clock, counted from its
+    // delivery, which is not before now on a server whose clock runs with
+    // this process's; a server clock that runs fast or jumps ahead (Docker
+    // on WSL 2 was measured jumping 1.45 s) takes it back earlier.
     return QueuedJob(
       id: id,
       queue: queue,
       payload: payload,
       attempts: reply[2]! as int,
       raw: raw,
+      reservedUntil: DateTime.fromMillisecondsSinceEpoch(
+        now + retryAfter.inMilliseconds,
+        isUtc: true,
+      ),
     );
   }
 

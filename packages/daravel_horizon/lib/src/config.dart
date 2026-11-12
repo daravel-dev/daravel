@@ -300,6 +300,13 @@ final class HorizonConfig implements ConfigSection {
   /// its isolate and its heartbeats.
   final Duration heartbeat;
 
+  /// How long before a job's reservation ends (when the queue may hand it
+  /// to another worker) the master kills a worker blocked on it: a
+  /// [heartbeat], at least a second.
+  Duration get reclaimMargin => heartbeat > const Duration(seconds: 1)
+      ? heartbeat
+      : const Duration(seconds: 1);
+
   /// The smoothing of arrival rates and service times
   /// (`HORIZON_EWMA_ALPHA`, 0.3).
   final double ewmaAlpha;
@@ -530,6 +537,59 @@ final class HorizonConfig implements ConfigSection {
           '${minimumHeartbeat.inMilliseconds} ms or more (1000 by default).',
         ),
       );
+    }
+    issues.addAll(retryAfterIssues(config));
+    return issues;
+  }
+
+  /// `QUEUE_RETRY_AFTER` too short for Horizon: the master kills a worker
+  /// blocked on a job [reclaimMargin] before the queue may hand the job to
+  /// another worker, and less than a second would be left to run it. The
+  /// database queue counts whole seconds, so a job may be handed out again
+  /// up to a second before `retry_after`.
+  static List<ConfigIssue> retryAfterIssues(ConfigRepository config) {
+    final horizon = config.section<HorizonConfig>();
+    final queue = config.section<QueueConfig>();
+    final margin = horizon.reclaimMargin;
+    final issues = <ConfigIssue>[];
+    final connections = {
+      for (final plan in horizon.plans)
+        plan.connection ?? queue.defaultConnection,
+    };
+    for (final connection in connections) {
+      // The shortest reservation the queue keeps, from the pop.
+      final reserved = switch (connection) {
+        'database' => Duration(seconds: queue.retryAfter.inSeconds - 1),
+        'redis' => queue.retryAfter,
+        _ => null,
+      };
+      if (reserved == null) {
+        continue;
+      }
+      final note = connection == 'database'
+          ? ' (the database queue counts whole seconds: it may hand a job '
+                'out a second early)'
+          : '';
+      final left = reserved - margin;
+      if (left < const Duration(seconds: 1)) {
+        final least = Duration(
+          milliseconds:
+              margin.inMilliseconds +
+              1000 +
+              (connection == 'database' ? 1000 : 0),
+        );
+        issues.add(
+          ConfigIssue(
+            ConfigIssueLevel.error,
+            'QUEUE_RETRY_AFTER=${queue.retryAfter.inSeconds} leaves Horizon '
+            '${left.isNegative ? 0 : left.inMilliseconds} ms to run a job on '
+            'the $connection queue before it kills the worker, '
+            '${margin.inMilliseconds} ms before the queue may hand the job '
+            'to another$note. Set it to at least '
+            '${(least.inMilliseconds / 1000).ceil()}.',
+          ),
+        );
+      }
     }
     return issues;
   }
