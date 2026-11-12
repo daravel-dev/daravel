@@ -52,6 +52,28 @@ middleware protects it. Metric snapshots are taken by the running Horizon:
 `dartisan horizon:snapshot` only asks it to, so schedule it every five
 minutes.
 
+## Store
+
+`HORIZON_STORE` says where Horizon keeps the jobs it shows, their counts,
+the monitored tags and the snapshots:
+
+| Store | Where | For |
+| :-- | :-- | :-- |
+| `process` (default) | the coordinator of the process running Horizon | one process: `serve --embed-worker=horizon`, or `dartisan horizon --dashboard=:8090` |
+| `database` | the `horizon_*` tables of `CreateHorizonTables` (add it to the migrations), on `HORIZON_STORE_CONNECTION` | a dashboard served by another process than `dartisan horizon` |
+| `redis` | `daravel_redis` (`withRedis()`) | the same, on Redis |
+
+The `database` store writes in batches (every 250 ms or 100 jobs), outside
+the job's transaction, and at shutdown before the connections close; a record
+it has to drop is counted in `horizon_store_dropped_total`. Writes trim (at
+most once a second per store) the rows past `HorizonConfig.trim` (completed,
+failed, monitored);
+`dartisan horizon:prune` trims all, daily. On SQLite it suits development:
+SQLite has one writer, so for production with several processes use
+PostgreSQL or MySQL, or `redis`. Laravel Horizon keeps its data in Redis and
+creates no table, so a database shared with Laravel has no `horizon_*` table
+to collide with.
+
 ## License
 
 MIT.

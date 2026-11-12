@@ -1,0 +1,6 @@
+// expect: list_element_type_not_assignable @5
+import '_models.dart';
+
+void f() {
+  UserRels.rels.posts.only([User.cols.email]);
+}

@@ -34,8 +34,16 @@ void main() {
   };
 
   // Builders with no string form, in Laravel as here (`Rule::enum`, a
-  // closure).
-  const objectOnly = <String>{'enum', 'custom'};
+  // closure, `Rule::when`/`unless`/`forEach`/`anyOf`/`can`).
+  const objectOnly = <String>{
+    'enum',
+    'custom',
+    'when',
+    'unless',
+    'for_each',
+    'any_of',
+    'can',
+  };
 
   test('1. every string name builds a rule of that name', () {
     for (final name in known) {
@@ -135,11 +143,6 @@ const Set<String> _notRuleBuilders = {'of'};
 /// Shrinks with each W9.4a pull request; empty when the slice is done.
 const Map<String, String> _laravelPending = {
   'uploaded': 'a message, not a rule (a failed upload)',
-  'any_of': 'W9.4a objects (Rule::anyOf)',
-  'can': 'W9.4a external (Rule::can, needs the Gate)',
-  'current_password': 'W9.4a external (needs the guard and Hash)',
-  'active_url': 'W9.4a external (DNS)',
-  'dimensions': 'W9.4a external (image headers)',
 };
 
 /// The static methods of `abstract final class Rules`, from its source.
@@ -203,6 +206,7 @@ Map<String, Rule Function()> _sampleBuilders() => {
   'excludeUnless': () => Rules.excludeUnless('b', ['x']),
   'excludeWith': () => Rules.excludeWith('b'),
   'excludeWithout': () => Rules.excludeWithout('b'),
+  'excludeWithoutAny': () => Rules.excludeWithoutAny(['b', 'c']),
   'enum_': () => Rules.enum_(_Status.values),
   'required': Rules.required,
   'nullable': Rules.nullable,
@@ -213,6 +217,8 @@ Map<String, Rule Function()> _sampleBuilders() => {
   'prohibited': Rules.prohibited,
   'requiredIf': () => Rules.requiredIf('b', 'x'),
   'requiredUnless': () => Rules.requiredUnless('b', 'x'),
+  'requiredIfIn': () => Rules.requiredIfIn('b', ['x', 'y']),
+  'requiredUnlessIn': () => Rules.requiredUnlessIn('b', ['x', 'y']),
   'accepted': Rules.accepted,
   'acceptedIf': () => Rules.acceptedIf('b', ['x']),
   'declined': Rules.declined,
@@ -228,6 +234,10 @@ Map<String, Rule Function()> _sampleBuilders() => {
   'map': Rules.map,
   'email': Rules.email,
   'url': Rules.url,
+  'activeUrl': Rules.activeUrl,
+  'currentPassword': Rules.currentPassword,
+  'can': () => Rules.can('update'),
+  'dimensions': () => Rules.dimensions(minWidth: 1),
   'file': Rules.file,
   'image': Rules.image,
   'mimes': () => Rules.mimes(['pdf']),
@@ -260,6 +270,7 @@ Map<String, Rule Function()> _sampleBuilders() => {
   'confirmed': Rules.confirmed,
   'same': () => Rules.same('b'),
   'different': () => Rules.different('b'),
+  'differentFrom': () => Rules.differentFrom(['b', 'c']),
   'startsWith': () => Rules.startsWith(['x']),
   'endsWith': () => Rules.endsWith(['x']),
   'date': Rules.date,
@@ -272,4 +283,22 @@ Map<String, Rule Function()> _sampleBuilders() => {
   'exists': () => Rules.exists('users'),
   'password': Rules.password,
   'custom': () => Rules.custom((ValidationContext c) => null),
+  'when': () => Rules.when(true, [Rules.string()]),
+  'whenInput': () => Rules.whenInput((input) => true, [Rules.string()]),
+  'unless': () => Rules.unless(true, [Rules.string()]),
+  'unlessInput': () => Rules.unlessInput((input) => true, [Rules.string()]),
+  'forEach': () => Rules.forEach((item) => [Rules.string()]),
+  'forEachNested': () => Rules.forEachNested(
+    (item) => {
+      'a': [Rules.string()],
+    },
+  ),
+  'anyOf': () => Rules.anyOf([
+    [Rules.string()],
+  ]),
+  'anyOfKeyed': () => Rules.anyOfKeyed([
+    {
+      'a': [Rules.string()],
+    },
+  ]),
 };

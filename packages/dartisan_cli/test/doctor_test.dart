@@ -350,6 +350,34 @@ void main() {
     );
   });
 
+  test('production: header and multipart limits turned off warn', () async {
+    final checks = await diagnose({
+      'APP_ENV': 'production',
+      'HTTP_MAX_HEADER_BYTES': '0',
+      'HTTP_MAX_HEADERS': '0',
+      'HTTP_MULTIPART_MAX_PARTS': '0',
+      'HTTP_MULTIPART_MAX_PART_HEADER_BYTES': '0',
+    });
+    expect(
+      titled(checks, CheckStatus.warning),
+      containsAll([
+        'HTTP_MAX_HEADER_BYTES, HTTP_MAX_HEADERS=0 in production',
+        'HTTP_MULTIPART_MAX_PARTS, HTTP_MULTIPART_MAX_PART_HEADER_BYTES=0 '
+            'in production',
+      ]),
+    );
+    // The defaults (unset) do not warn.
+    final defaults = await diagnose({'APP_ENV': 'production'});
+    expect(
+      titled(defaults, CheckStatus.warning),
+      isNot(contains(contains('HTTP_MAX_HEADER'))),
+    );
+    expect(
+      titled(defaults, CheckStatus.warning),
+      isNot(contains(contains('HTTP_MULTIPART'))),
+    );
+  });
+
   test('production: no APP_KEY is an error, weak hashing warns', () async {
     final checks = await diagnose({
       'APP_ENV': 'production',

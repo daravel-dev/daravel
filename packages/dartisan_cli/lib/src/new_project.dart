@@ -356,6 +356,18 @@ HTTP_MAX_QUEUE_DELAY=200ms
 # Request body limit in bytes (50 MiB; 0 for none). BodyLimitsMiddleware
 # tightens it to 1 MiB for JSON and forms.
 # HTTP_MAX_BODY=52428800
+# Request headers: 431 above 32 KiB in all, 16 KiB for one header or
+# 100 headers (0 for none).
+# HTTP_MAX_HEADER_BYTES=32768
+# HTTP_MAX_HEADER_LINE_BYTES=16384
+# HTTP_MAX_HEADERS=100
+# Multipart uploads: parts, files, one field, one part's headers (0 for
+# none; 400 above them, 413 for a field).
+# HTTP_MULTIPART_MAX_PARTS=1000
+# HTTP_MULTIPART_MAX_FILES=20
+# HTTP_MULTIPART_MAX_FIELD_BYTES=1048576
+# HTTP_MULTIPART_MAX_PART_HEADER_BYTES=16384
+# HTTP_MULTIPART_MAX_PART_HEADERS=100
 # Seconds a keep-alive connection may sit idle before the server closes it.
 # HTTP_IDLE_TIMEOUT=60
 

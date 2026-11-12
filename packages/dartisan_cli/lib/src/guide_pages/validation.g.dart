@@ -94,6 +94,80 @@ Rules.unique('users', 'email').where((QueryBuilder q) => q.whereNull('deleted_at
 Rules.exists('billing.invoices', 'id').where((QueryBuilder q) => q.where('open', true));
 ```
 
+On a list (`items.*` with `unique` or `exists`), each item is one query,
+as in Laravel. Bound the list with `max` (`'items': 'array|max:100'`) and
+index the column checked. `exists` on a list value (`ids: [1, 3]`) is one
+query for the whole list.
+
+### Email modes and `active_url`
+
+`email` takes Laravel's modes, `email:rfc,dns` or `Rules.email(rfc: true,
+dns: true)`; every mode given must pass, and `rfc` applies when none is.
+
+- `filter` and `filter_unicode` are PHP's `FILTER_VALIDATE_EMAIL` (with
+  `FILTER_FLAG_EMAIL_UNICODE`), read in one pass over the address instead
+  of with PHP's regex, which backtracks exponentially on some inputs; they
+  are compared with PHP 8.3 on more than 3 800 addresses.
+- `dns` checks the domain as Laravel's (egulias) `DNSCheckValidation`:
+  reserved names (`test`, `example`, `localhost`, `local`, ...) and
+  single-label domains fail, and the domain or one of its parent names needs
+  an MX, A or AAAA record and no null MX. As in Laravel, `dns` alone checks
+  no syntax: write `email:rfc,dns`.
+- `rfc` and `strict` are, for now, an HTML-style check, stricter than
+  Laravel's RFC parser: a quoted local part or a single-label domain fails.
+- `spoof` needs ICU, which Dart does not have: building the rules throws
+  `UnsupportedError` (the first request that validates with it, a test, or
+  OpenAPI generation), and `dartisan lint` reports it.
+
+`active_url` passes when the URL's host has an A or AAAA record; an IP
+address fails, as in Laravel.
+
+Both make the server look up a name the user sent. Each lookup adds latency
+to the request (at most 2 seconds, then the rule fails), so put routes that
+use them behind a rate limit. Lookups go through the `DnsResolver` bound in
+the container (`SystemDnsResolver` by default); in tests, bind
+`FakeDnsResolver` from `daravel_test`, Laravel's `fakeDnsLookups`. Two
+differences from PHP: the system lookup also reads `/etc/hosts`; and on
+Windows, which has no `/etc/resolv.conf` to ask for MX records, `dns` sees
+A and AAAA only (a domain with only an MX fails, and a null MX goes unseen).
+
+### The signed-in user: `current_password` and `can`
+
+```dart
+'current_password': 'required|current_password',      // or current_password:api
+'tag': [Rules.required(), Rules.can('attach-tag', [post])],
+```
+
+`current_password` passes when the value is the password of the user
+signed in on the guard (the default one without an argument); a guest
+fails. `Rules.can` asks the gate whether the current user may perform the
+ability with the arguments and then the value; as in Laravel, `null`,
+`false`, `0`, `''`, `'0'` and empty lists are left out of the arguments.
+Both work wherever an `Application` runs (a request, a job, a command,
+`TestClient`, `app.run`); a bare `Validator` outside one throws a
+`StateError` saying what to bind, rather than letting the value through.
+
+Rules that depend on the input or on each element, as Laravel's `Rule::when`,
+`Rule::unless`, `Rule::forEach` and `Rule::anyOf`:
+
+```dart
+'company': Rules.whenInput((input) => input['type'] == 'business',
+    [Rules.required(), Rules.string()]),
+'notes': Rules.when(isAdmin, [Rules.nullable()], otherwise: [Rules.prohibited()]),
+'items.*.qty': Rules.forEach((item) =>
+    item.value == 0 ? [Rules.integer(), Rules.min(1)] : [Rules.integer()]),
+'items.*': Rules.forEachNested((item) => {'sku': [Rules.required()]}),
+'login': Rules.anyOf([[Rules.email()], [Rules.integer(), Rules.min(1)]]),
+```
+
+A condition is decided once per validation, on the whole input (after
+`prepare`). `forEachNested` validates keys of each element (`items.2.sku`),
+and those keys are part of `validated()`. Each `anyOf` alternative is
+validated on the value alone, as in Laravel: a rule inside it that names
+another field does not see that field. A `forEach` that keeps returning
+`forEach` stops with an error after `Validator.maxRuleNesting` (8) levels;
+Laravel has no limit.
+
 ## Form requests
 
 <!-- include: packages/daravel/test/docs/guide_examples_test.dart#form-request -->
@@ -145,6 +219,8 @@ extension type const StoreNoteRequestInput(ValidatedData _data)
     implements ValidatedData {
   String get title => _data.field(StoreNoteRequest.title);
   int? get stars => _data.field(StoreNoteRequest.stars);
+
+  Map<String, Object?> get typed => {'title': title, 'stars': stars};
 }
 // </dartisan:input>
 ```
@@ -155,6 +231,26 @@ input (`input.stars` is an `int?`, converted from `'4'`).
 region after you add, rename or retype a field; `request:sync --check`
 writes nothing and exits 1 when a region is out of date, for CI. An input
 type you declare yourself, without the region, is left as it is.
+
+`typed` holds every field by its input key, already converted to its
+declared type. A field's type and its rules can still disagree (a
+`Field<int>` with only `required`): validation passes and the getter
+throws, a 500. `make:request` also writes a test that catches this, with
+`daravel_test`:
+
+```dart
+test('StoreNoteRequest reads every field as its declared type', () async {
+  await expectFormRequestTyped(const StoreNoteRequest(), {
+    'title': 'Hello',
+    'stars': '4',
+  }, read: (input) => input.typed);
+});
+```
+
+The test is as strong as its sample input: add one call per branch of an
+optional rule (a `nullable` field sent and not). A failure names the
+request, and the failed rules or the mistyped field, never the input
+values.
 
 ## File uploads
 
@@ -182,6 +278,12 @@ router.post('/avatar', (request) async {
   detected type), `mimetypes:image/*`, `extensions:csv,txt` (the client's
   file name), and `min`, `max`, `size`, `between` in kilobytes. PHP files are
   refused unless `php` is listed.
+- `dimensions:min_width=100,max_height=800,ratio=3/2` (or
+  `Rules.dimensions(minWidth: 100, ratio: '3/2')`) reads the size from the
+  image header as PHP's `getimagesize`, for PNG, GIF, JPEG, WebP and BMP; an
+  SVG passes, as in Laravel. Only the first 256 KiB of the upload are read:
+  a JPEG whose metadata is longer than that before the image has no size and
+  fails, and so does any other format.
 - Types are detected from the content (PDF, images, Office and OpenDocument
   files, archives, text), never from the file name: a text file named
   `photo.png` is not an image.

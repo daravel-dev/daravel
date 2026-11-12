@@ -11,6 +11,8 @@ import 'master.dart';
 import 'routes.dart';
 import 'setup.dart' show HorizonRoutes, horizonKillPolicy;
 import 'signals.dart';
+import 'store/database_store.dart';
+import 'store/horizon_store.dart';
 import 'store/process_store.dart';
 
 /// The `horizon:*` commands, for `bootstrap/commands.dart`:
@@ -31,6 +33,7 @@ const List<CommandFactory> horizonCommands = [
   HorizonClearCommand.new,
   HorizonForgetCommand.new,
   HorizonSnapshotCommand.new,
+  HorizonPruneCommand.new,
 ];
 
 /// `horizon:snapshot`: the running Horizon takes a metric snapshot (per job
@@ -142,6 +145,9 @@ final class HorizonCommand extends DaravelCommand {
     final policy = await horizonKillPolicy(app);
     final sqlite = policy.restartAfterKill == 'sqlite_lock';
     var code = 0;
+    if (config.store == 'process' && address == null) {
+      stderr.writeln('Warning: ${HorizonConfig.storeProcessWarning}');
+    }
     if (sqlite) {
       stderr.writeln('Warning: ${HorizonConfig.sqliteWarning}');
     }
@@ -154,10 +160,12 @@ final class HorizonCommand extends DaravelCommand {
           ? channel.coordinator.listen()
           : null,
       store: channel,
+      horizonStore: horizonStoreOf(app.container),
       failedJobs: queues.processor.failedJobs,
       signals: queues.signalStore,
       name: _name(app),
       onEvent: horizonEvents(app),
+      failsAfterTimeout: queues.processor.failsAfterTimeout,
       onTerminate: () {
         if (!done.isCompleted) {
           done.complete();
@@ -292,7 +300,8 @@ List<String> horizonWorkerLines(Map<String, Object?> state) {
     for (final t in timedOut.cast<Map<String, Object?>>()) {
       lines.add(
         '  ${t['name']} ${t['job']} attempt ${t['attempt']}, limit '
-        '${t['limitSeconds']}s, on ${t['worker']}',
+        '${t['limitSeconds']}s, on ${t['worker']}'
+        '${t['fate'] == null ? '' : ': ${t['fate']}'}',
       );
     }
   }
@@ -505,17 +514,8 @@ final class HorizonForgetCommand extends DaravelCommand {
 }
 
 /// The recent jobs of [status] in the store of [app], newest first.
-Future<List<RecordedJob>> recentJobs(Application app, String status) async {
-  final raw = await app.container.make<CoordinatorChannel>().call(
-    HorizonService.serviceName,
-    'recent',
-    {'status': status},
-  );
-  return [
-    for (final job in (jsonDecodeList(raw! as String)))
-      RecordedJob.fromJson(job),
-  ];
-}
+Future<List<RecordedJob>> recentJobs(Application app, String status) =>
+    horizonStoreOf(app.container).recent(status);
 
 /// [text] as a list of JSON objects.
 List<Map<String, Object?>> jsonDecodeList(String text) => [
@@ -592,6 +592,37 @@ final class HorizonContinueSupervisorCommand extends DaravelCommand {
       return 1;
     }
     stdout.writeln('Sent continue to supervisor [$plan].');
+    return 0;
+  });
+}
+
+/// `horizon:prune`: deletes the `database` store's rows past their
+/// retention (`HorizonConfig.trim`). Each write trims some already; schedule
+/// this daily to keep the tables small after a quiet spell. The `process`
+/// store trims itself and has nothing to prune.
+final class HorizonPruneCommand extends DaravelCommand {
+  /// The `dartisan horizon:prune` command.
+  HorizonPruneCommand(super.createApp);
+
+  @override
+  String get name => 'horizon:prune';
+
+  @override
+  String get description =>
+      "Deletes the Horizon store's records past their retention.";
+
+  @override
+  Future<int> run() => withApp((app) async {
+    final store = horizonStoreOf(app.container);
+    if (store is! DatabaseHorizonStore) {
+      stdout.writeln(
+        'The ${app.config.section<HorizonConfig>().store} store trims '
+        'itself: nothing to prune.',
+      );
+      return 0;
+    }
+    final deleted = await store.prune();
+    stdout.writeln('Pruned $deleted Horizon record(s).');
     return 0;
   });
 }

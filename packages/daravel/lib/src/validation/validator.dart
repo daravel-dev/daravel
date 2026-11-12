@@ -2,6 +2,7 @@ import 'dart:async';
 
 import '../foundation/container.dart';
 import 'messages.dart';
+import 'object_rules.dart';
 import 'rule.dart';
 import 'rule_parser.dart';
 import 'rules.dart' show BooleanRule, ExcludeRule, IntegerRule, NumericRule;
@@ -17,6 +18,10 @@ import 'validation_exception.dart';
 /// other rules are skipped for absent attributes and empty strings;
 /// `nullable` stops on `null`; `sometimes` skips absent attributes; `bail`
 /// stops after the first failure of an attribute.
+/// One attribute and the rules it runs, once `when`, `unless` and `forEach`
+/// are expanded.
+typedef _Planned = ({String attribute, String pattern, List<Rule> rules});
+
 final class Validator {
   /// Validates [data] against [rules] (strings, [Rule]s or `RuleBuilder`s per
   /// key), with custom messages and attribute names.
@@ -36,10 +41,11 @@ final class Validator {
   /// The parsed rules by key.
   final Map<String, List<Rule>> rules;
 
-  late final Set<String> _booleans = {
-    for (final MapEntry(:key, :value) in rules.entries)
-      if (value.any((rule) => rule is BooleanRule)) key,
-  };
+  /// The attributes (and patterns) with a `boolean` rule after `when`,
+  /// `unless` and `forEach` are expanded, as Laravel's
+  /// `shouldConvertToBoolean` reads `$this->rules` once they are; filled
+  /// by [run].
+  Set<String> _booleans = const <String>{};
 
   /// Custom messages keyed by `attribute.rule` or `rule`.
   final Map<String, String> messages;
@@ -72,21 +78,51 @@ final class Validator {
   /// Errors from the last [run] (empty when valid).
   Map<String, List<String>> get errors => Map.unmodifiable(_errors ?? const {});
 
+  final Map<String, List<String>> _failed = {};
+
+  /// The rules that failed in the last [run], by attribute: rule names
+  /// only, never the input. Laravel's `$validator->failed()` keys each
+  /// failure by its rule class name with its parameters
+  /// (`['email' => ['Required' => []]]`); this lists the rule names as
+  /// written (`{'email': ['required']}`). An error added with [addError]
+  /// has no rule and is not listed.
+  Map<String, List<String>> failed() => {
+    for (final entry in _failed.entries) entry.key: List.of(entry.value),
+  };
+
   /// Runs validation and returns the errors (empty when valid).
   Future<Map<String, List<String>>> run() async {
     _errors = {};
+    _failed.clear();
     _excluded.clear();
+    _nestedPatterns.clear();
     _input = data;
-    outer:
-    for (final entry in rules.entries) {
-      for (final attribute in expandPattern(_input, entry.key).toList()) {
-        if (_isExcluded(attribute)) {
-          continue;
-        }
-        await _validateAttribute(attribute, entry.key, entry.value);
-        if (stopOnFirstFailure && _errors!.isNotEmpty) {
-          break outer;
-        }
+    // Laravel's filterConditionalRules: `when`/`unless` are decided once,
+    // on the whole input, before any rule runs.
+    final resolved = {
+      for (final MapEntry(:key, :value) in rules.entries)
+        key: _resolveConditionals(value, key),
+    };
+    // Laravel's explodeWildcardRules: every `forEach` is compiled before
+    // any rule runs, so a dependent rule (`required_if:flag,true`) sees a
+    // `boolean` rule whichever `when` or `forEach` gave it.
+    final plan = <_Planned>[];
+    for (final MapEntry(key: pattern, value: list) in resolved.entries) {
+      for (final attribute in expandPattern(_input, pattern).toList()) {
+        _plan(attribute, pattern, list, plan);
+      }
+    }
+    _booleans = {
+      for (final (:attribute, :pattern, :rules) in plan)
+        if (rules.any((rule) => rule is BooleanRule)) ...[attribute, pattern],
+    };
+    for (final (:attribute, :pattern, :rules) in plan) {
+      if (_isExcluded(attribute)) {
+        continue;
+      }
+      await _validateAttribute(attribute, pattern, rules);
+      if (stopOnFirstFailure && _errors!.isNotEmpty) {
+        break;
       }
     }
     for (final hook in _after) {
@@ -114,7 +150,7 @@ final class Validator {
   /// The subset of [data] covered by rules, keeping nested structure.
   ValidatedData validated() {
     final result = <String, Object?>{};
-    for (final pattern in rules.keys) {
+    for (final pattern in [...rules.keys, ..._nestedPatterns]) {
       for (final attribute in expandPattern(_input, pattern)) {
         if (_isExcluded(attribute) ||
             !ValidationContext.exists(_input, attribute)) {
@@ -133,7 +169,100 @@ final class Validator {
   /// [data] without the excluded attributes, as Laravel's `removeAttribute`:
   /// a later rule sees them as missing. [data] itself stays as given.
   late Map<String, Object?> _input = data;
+
+  // ValidationContext.memo, one per run: keyed by the errors map, which
+  // each run makes anew.
+  final Expando<Map<Object, Object?>> _memos = Expando();
   final Set<String> _excluded = <String>{};
+
+  /// The attributes `forEachNested` gave rules in the last [run]
+  /// (`items.2.meta`); [validated] includes them, as Laravel merges
+  /// compiled rules into the validator's rules.
+  final Set<String> _nestedPatterns = <String>{};
+
+  /// How deep `when`, `unless` and `forEach` may nest in one another. Laravel
+  /// sets no limit; one here turns a `forEach` callback that returns itself
+  /// into an error naming the attribute instead of an endless loop. The
+  /// nesting comes from the application's rules, never from the input.
+  static const int maxRuleNesting = 8;
+
+  void _checkNesting(int depth, String pattern) {
+    if (depth >= maxRuleNesting) {
+      throw StateError(
+        'The rules of [$pattern] nest when/unless/forEach more than '
+        '$maxRuleNesting levels deep; a forEach callback that returns '
+        'forEach again does this.',
+      );
+    }
+  }
+
+  List<Rule> _resolveConditionals(
+    List<Rule> list,
+    String pattern, [
+    int depth = 0,
+  ]) {
+    if (!list.any((rule) => rule is ConditionalRule)) {
+      return list;
+    }
+    _checkNesting(depth, pattern);
+    return [
+      for (final rule in list)
+        if (rule is ConditionalRule)
+          ..._resolveConditionals(rule.choose(data), pattern, depth + 1)
+        else
+          rule,
+    ];
+  }
+
+  /// Adds [list] on [attribute] to [plan], with each `forEach` compiled for
+  /// its value first (Laravel's explodeWildcardRules): the rules it gives
+  /// the element run with the others, then the rules it gives the
+  /// element's keys, in the order Laravel merges them.
+  void _plan(
+    String attribute,
+    String pattern,
+    List<Rule> list,
+    List<_Planned> plan, [
+    int depth = 0,
+  ]) {
+    if (!list.any((rule) => rule is ForEachRule)) {
+      plan.add((attribute: attribute, pattern: pattern, rules: list));
+      return;
+    }
+    _checkNesting(depth, pattern);
+    final dot = attribute.lastIndexOf('.');
+    final ForEachItem item = (
+      value: ValidationContext.dig(_input, attribute),
+      attribute: attribute,
+      parent: dot == -1
+          ? null
+          : ValidationContext.dig(_input, attribute.substring(0, dot)),
+      input: data,
+    );
+    final own = <Rule>[];
+    final nested = <String, List<Rule>>{};
+    for (final rule in list) {
+      if (rule is! ForEachRule) {
+        own.add(rule);
+        continue;
+      }
+      final compiled = rule.compile(item);
+      own.addAll(_resolveConditionals(compiled.own, pattern, depth + 1));
+      for (final MapEntry(:key, :value) in compiled.nested.entries) {
+        (nested[key] ??= []).addAll(
+          _resolveConditionals(value, '$pattern.$key', depth + 1),
+        );
+      }
+    }
+    _plan(attribute, pattern, own, plan, depth + 1);
+    for (final MapEntry(:key, value: rules) in nested.entries) {
+      final keyPattern = '$attribute.$key';
+      _nestedPatterns.add(keyPattern);
+      for (final concrete in expandPattern(_input, keyPattern).toList()) {
+        _plan(concrete, '$pattern.$key', rules, plan, depth + 1);
+      }
+    }
+  }
 
   bool _isExcluded(String attribute) =>
       _excluded.any((e) => attribute == e || attribute.startsWith('$e.'));
@@ -215,6 +344,7 @@ final class Validator {
         numeric: numeric,
         booleans: _booleans,
         attributeNames: attributes,
+        memo: _memos[_errors!] ??= {},
       );
       final failure = await rule.passes(context);
       if (failure != null && ExcludeRule.names.contains(rule.name)) {
@@ -223,6 +353,7 @@ final class Validator {
       }
       if (failure != null) {
         addError(attribute, _message(failure, context, rule));
+        _failed.putIfAbsent(attribute, () => []).add(rule.name);
         // Laravel's shouldStopValidating: `bail` stops at any failure; a
         // failed rule of Laravel's $implicitRules stops too, since the other
         // rules would only describe the empty field again ("must be a

@@ -14,6 +14,8 @@ export 'src/messages.dart';
 export 'src/routes.dart';
 export 'src/setup.dart';
 export 'src/signals.dart';
+export 'src/store/database_store.dart';
+export 'src/store/horizon_store.dart';
 export 'src/store/process_store.dart';
 export 'src/tags.dart';
 export 'src/ui.dart';

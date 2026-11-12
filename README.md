@@ -51,7 +51,7 @@ what makes Laravel loved and adds what only Dart can offer: one native executabl
 from the route to the database, and every CPU core on one port.
 
 > **Status.** Daravel is stable since `1.0.0`; the current release is
-> `<!-- release -->1.27.0<!-- /release -->`, published on
+> `<!-- release -->1.27.1<!-- /release -->`, published on
 > [pub.dev](https://pub.dev/packages/daravel) by the verified publisher
 > `framework.daravel.dev`. The Dart API follows SemVer on the `1.x` line; the Laravel-facing
 > formats are locked by the conformance suite.
@@ -462,6 +462,7 @@ The monorepo is a Dart pub workspace:
 | [`packages/daravel`](packages/daravel) | Framework core |
 | [`packages/daravel_test`](packages/daravel_test) | Testing toolkit: `TestClient`, assertions, `refreshDatabase`, time travel, architecture helpers |
 | [`packages/daravel_lints`](packages/daravel_lints) | AST-based lint rules and registry checks, run by `dartisan lint` and in tests |
+| [`packages/daravel_lints_plugin`](packages/daravel_lints_plugin) | The `daravel_lints` rules in the editor and in `dart analyze`, as an analysis server plugin |
 | [`packages/dartisan_cli`](packages/dartisan_cli) | The `dartisan` command-line interface and code generators |
 | [`packages/daravel_mysql`](packages/daravel_mysql) | MySQL and MariaDB driver |
 | [`packages/daravel_permission`](packages/daravel_permission) | Roles and permissions on spatie/laravel-permission's tables |
@@ -582,7 +583,7 @@ created lib/app/http/resources/post_resource.dart
 | **0** | Walking skeleton: container, HTTP kernel, router, SQLite, migrations, test client, CLI, CI | ✅ done |
 | **1** | S1 foundation · S2 HTTP hardening · S3 routing · S4 validation · S5 database · S6 ORM · S7 schema, seeding & generators · S8 auth · S9 multi-isolate & cache · S10 events, queue & scheduler · S11 resources, storage & observability · S12 CLI (`new`, hot reload, `build --docker`, `doctor`, `openapi:generate`, `model:sync`, stubs) · S13 testing toolkit, lints & architecture tests | ✅ done |
 | **1** | S14 conformance suite, security suite, `parity.yaml`, benchmark harness, documentation site, `api`/`minimal` templates → first public beta, then **1.0.0** | ✅ done |
-| **1.x** | Released after 1.0: localization, feature flags, SSE and WebSockets, the Flutter client generator, driver packages and `db:transfer`, mail and notifications, Laravel Echo broadcasting, Redis and Valkey (`daravel_redis`), roles and permissions (`daravel_permission`), an activity log (`daravel_activitylog`), query filters (`daravel_teorion`); latest **<!-- release -->1.27.0<!-- /release -->** | ✅ done |
+| **1.x** | Released after 1.0: localization, feature flags, SSE and WebSockets, the Flutter client generator, driver packages and `db:transfer`, mail and notifications, Laravel Echo broadcasting, Redis and Valkey (`daravel_redis`), roles and permissions (`daravel_permission`), an activity log (`daravel_activitylog`), query filters (`daravel_teorion`); latest **<!-- release -->1.27.1<!-- /release -->** | ✅ done |
 | **2** | Sessions/CSRF, S3, OpenTelemetry, Blade-compatible compiled views; database clients only in the driver packages | planned |
 | **daragic** | Bidirectional Laravel ⇄ Daravel generator: runtime introspection → IR → generated project, converted tests, differential replay | designed |
 | **Ecosystem** | First-party packages under `daravel-dev`: `daravel_horizon` (queue supervisor and dashboard), `daravel_socialite` (OAuth and Sign in with Apple/Google), then `daravel_telescope` and `daravel_scout` | planned |

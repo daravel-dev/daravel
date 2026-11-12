@@ -14,7 +14,7 @@ The keys follow Laravel. The cache prefix is the store's own (`CACHE_PREFIX` mus
 | debounce | `'laravel_debounced_job:'.$jobName.':'.$debounceId` (`src/Illuminate/Bus/DebounceLock.php`, **13.x**, lines 159–170; 12.x has no `DebounceLock`) | `debounced_job:<jobName>:<debounceId>` | `laravel_debounced_job:<displayName>:<debounceId>` |
 
 - **`<displayName>`:** the job's `displayName`, which is the payload's `displayName` that the queue format already shares with Laravel: the class name on the Laravel side. A Laravel job class without a `displayName()` method (the usual case: neither `Queueable` trait defines one) uses its class name unhashed, so the keys match when the Daravel job's `displayName` is that class name, as queue interop already requires.
-- **Not followed yet:** the `xxh128(displayName())` branch, for a Laravel job class that defines `displayName()`. It needs XXH3-128 in pure Dart, which is a separate change (G1.5 d): a per-job option then hashes the name.
+- **The `xxh128(displayName())` branch**, for a Laravel job class that defines `displayName()`: a job opts in with `Job.uniqueKeyHashesDisplayName`, and its unique lock is named by `Xxh128.hex(displayName)` (XXH3-128, ported from `xxhash.h` v0.8.2). It is opt-in, not inferred, because Dart cannot tell whether the Laravel class defines `displayName()`. The conformance test checks the key against the value PHP 8.2's `hash('xxh128', …)` gives. A worker frees the hashed key with the previous release's; a key of the previous release frees both current forms, since that release could not know which one this release takes.
 - **`uniqueFor` 0:**
   - Laravel locks forever.
   - Daravel keeps 365 days, so a lock left behind by a crash recovers. This is a deliberate difference.

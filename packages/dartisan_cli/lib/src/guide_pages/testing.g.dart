@@ -38,6 +38,11 @@ const String pageTesting = r'''# Testing
 - Time: `freezeTime()`, `travel(duration)`, `travelTo(time)`; domain time
   reads `Clock.now()`.
 - Architecture: `expectRegistryComplete()` and lints via `dartisan lint`.
+- Form requests: `expectFormRequestTyped(form, sampleInput, read: (input)
+  => input.typed)` validates a sample and reads every field as its declared
+  type, so a `Field<int>` whose rules let a string through fails here, not
+  as a 500 in production ([Validation](validation.md#typed-input)).
+  `make:request` writes one such test.
 
 Run the suite with `dartisan test` (`--coverage` writes `coverage/`).
 

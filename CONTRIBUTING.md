@@ -108,9 +108,41 @@ Daravel follows Laravel's branch model, one branch per major version:
   published its dependencies, then gets automated publishing enabled.
   `dart run tool/publish_checks.dart --ready packages/<package>` asks
   pub.dev whether they are there.
-- Every published package needs an `example/` and a job in `publish.yml`
-  that `needs:` the jobs of the workspace packages it depends on. CI and
-  `tool/release.dart` check both (`dart run tool/publish_checks.dart`).
+- Every published package needs an `example/` and a step in the one
+  publish job of `publish.yml`, after the steps of the workspace packages
+  it depends on. CI and `tool/release.dart` check both
+  (`dart run tool/publish_checks.dart`).
+- The release workflows run what they pin: every `uses:` in `publish.yml`,
+  `release.yml` and `ci.yml` names a commit SHA (with the tag as a
+  comment), and `publish.yml` publishes from one job without artifacts.
+  Both are checked by `tool/publish_checks.dart`. The 1.27.1 release is why:
+  `dart-lang/setup-dart`'s floating `@v1` changed its reusable publish
+  workflow to pass the archive between jobs under one artifact name, so
+  the packages published in parallel uploaded each other's archives, and
+  only 4 of 22 were published. A re-run did not repair it: the artifacts
+  of the attempts piled up and the newest upload was not the one
+  downloaded. To move a pinned action, update the SHA and the comment
+  together, after reading what changed.
+- The packages not yet released have their publish steps last, after
+  every released package (as their dependencies allow); a new package's
+  step goes there too, so a package whose automated publishing is not yet
+  enabled cannot hold back the released ones.
+- If a release's `publish.yml` run fails partway:
+  1. Read the failed step's log; do not delete or move the tag.
+  2. Fix the cause outside the run: enable automated publishing for the
+     package on pub.dev, or wait out a pub.dev outage. A problem in the
+     package itself is not fixed under the same tag: report it and release
+     a patch.
+  3. Re-run the whole workflow (`gh run rerun <id>`, not single jobs).
+     `verify` marks every version already on pub.dev as published, its
+     dry-runs check the rest again, and `publish` runs only their steps,
+     with a fresh token each. There are no artifacts, so there is nothing
+     to clean up first.
+  4. Check every package's version on pub.dev
+     (`https://pub.dev/api/packages/<package>/versions/<version>`).
+
+  `release.yml` (the GitHub release and fast-forwarding `1.x`) does not
+  depend on `publish.yml` and does not need re-running.
 
 Projects that depend on Daravel through git can pin the release line with
 `dartisan new --source=git --ref=1.x`.

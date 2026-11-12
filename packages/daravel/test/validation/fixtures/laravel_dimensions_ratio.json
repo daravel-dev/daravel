@@ -1,0 +1,1332 @@
+{
+    "laravel": "13.40.0",
+    "php": "8.3.35",
+    "cases": [
+        {
+            "width": 300,
+            "height": 200,
+            "rule": "dimensions:ratio=1/1",
+            "passes": false
+        },
+        {
+            "width": 300,
+            "height": 200,
+            "rule": "dimensions:ratio=3/2",
+            "passes": true
+        },
+        {
+            "width": 300,
+            "height": 200,
+            "rule": "dimensions:ratio=2/3",
+            "passes": false
+        },
+        {
+            "width": 300,
+            "height": 200,
+            "rule": "dimensions:ratio=1.5",
+            "passes": true
+        },
+        {
+            "width": 300,
+            "height": 200,
+            "rule": "dimensions:ratio=16/9",
+            "passes": false
+        },
+        {
+            "width": 300,
+            "height": 200,
+            "rule": "dimensions:ratio=4/3",
+            "passes": false
+        },
+        {
+            "width": 300,
+            "height": 200,
+            "rule": "dimensions:ratio=2",
+            "passes": false
+        },
+        {
+            "width": 300,
+            "height": 200,
+            "rule": "dimensions:min_ratio=1/1",
+            "passes": true
+        },
+        {
+            "width": 300,
+            "height": 200,
+            "rule": "dimensions:min_ratio=2/1",
+            "passes": false
+        },
+        {
+            "width": 300,
+            "height": 200,
+            "rule": "dimensions:min_ratio=1/2",
+            "passes": true
+        },
+        {
+            "width": 300,
+            "height": 200,
+            "rule": "dimensions:min_ratio=3/2",
+            "passes": true
+        },
+        {
+            "width": 300,
+            "height": 200,
+            "rule": "dimensions:max_ratio=1/1",
+            "passes": false
+        },
+        {
+            "width": 300,
+            "height": 200,
+            "rule": "dimensions:max_ratio=2/1",
+            "passes": true
+        },
+        {
+            "width": 300,
+            "height": 200,
+            "rule": "dimensions:max_ratio=1/2",
+            "passes": false
+        },
+        {
+            "width": 300,
+            "height": 200,
+            "rule": "dimensions:max_ratio=3/2",
+            "passes": true
+        },
+        {
+            "width": 300,
+            "height": 200,
+            "rule": "dimensions:min_ratio=1/1,max_ratio=2/1",
+            "passes": true
+        },
+        {
+            "width": 300,
+            "height": 200,
+            "rule": "dimensions:min_ratio=1/2,max_ratio=1/1",
+            "passes": false
+        },
+        {
+            "width": 200,
+            "height": 300,
+            "rule": "dimensions:ratio=1/1",
+            "passes": false
+        },
+        {
+            "width": 200,
+            "height": 300,
+            "rule": "dimensions:ratio=3/2",
+            "passes": false
+        },
+        {
+            "width": 200,
+            "height": 300,
+            "rule": "dimensions:ratio=2/3",
+            "passes": true
+        },
+        {
+            "width": 200,
+            "height": 300,
+            "rule": "dimensions:ratio=1.5",
+            "passes": false
+        },
+        {
+            "width": 200,
+            "height": 300,
+            "rule": "dimensions:ratio=16/9",
+            "passes": false
+        },
+        {
+            "width": 200,
+            "height": 300,
+            "rule": "dimensions:ratio=4/3",
+            "passes": false
+        },
+        {
+            "width": 200,
+            "height": 300,
+            "rule": "dimensions:ratio=2",
+            "passes": false
+        },
+        {
+            "width": 200,
+            "height": 300,
+            "rule": "dimensions:min_ratio=1/1",
+            "passes": false
+        },
+        {
+            "width": 200,
+            "height": 300,
+            "rule": "dimensions:min_ratio=2/1",
+            "passes": false
+        },
+        {
+            "width": 200,
+            "height": 300,
+            "rule": "dimensions:min_ratio=1/2",
+            "passes": true
+        },
+        {
+            "width": 200,
+            "height": 300,
+            "rule": "dimensions:min_ratio=3/2",
+            "passes": false
+        },
+        {
+            "width": 200,
+            "height": 300,
+            "rule": "dimensions:max_ratio=1/1",
+            "passes": true
+        },
+        {
+            "width": 200,
+            "height": 300,
+            "rule": "dimensions:max_ratio=2/1",
+            "passes": true
+        },
+        {
+            "width": 200,
+            "height": 300,
+            "rule": "dimensions:max_ratio=1/2",
+            "passes": false
+        },
+        {
+            "width": 200,
+            "height": 300,
+            "rule": "dimensions:max_ratio=3/2",
+            "passes": true
+        },
+        {
+            "width": 200,
+            "height": 300,
+            "rule": "dimensions:min_ratio=1/1,max_ratio=2/1",
+            "passes": false
+        },
+        {
+            "width": 200,
+            "height": 300,
+            "rule": "dimensions:min_ratio=1/2,max_ratio=1/1",
+            "passes": true
+        },
+        {
+            "width": 100,
+            "height": 100,
+            "rule": "dimensions:ratio=1/1",
+            "passes": true
+        },
+        {
+            "width": 100,
+            "height": 100,
+            "rule": "dimensions:ratio=3/2",
+            "passes": false
+        },
+        {
+            "width": 100,
+            "height": 100,
+            "rule": "dimensions:ratio=2/3",
+            "passes": false
+        },
+        {
+            "width": 100,
+            "height": 100,
+            "rule": "dimensions:ratio=1.5",
+            "passes": false
+        },
+        {
+            "width": 100,
+            "height": 100,
+            "rule": "dimensions:ratio=16/9",
+            "passes": false
+        },
+        {
+            "width": 100,
+            "height": 100,
+            "rule": "dimensions:ratio=4/3",
+            "passes": false
+        },
+        {
+            "width": 100,
+            "height": 100,
+            "rule": "dimensions:ratio=2",
+            "passes": false
+        },
+        {
+            "width": 100,
+            "height": 100,
+            "rule": "dimensions:min_ratio=1/1",
+            "passes": true
+        },
+        {
+            "width": 100,
+            "height": 100,
+            "rule": "dimensions:min_ratio=2/1",
+            "passes": false
+        },
+        {
+            "width": 100,
+            "height": 100,
+            "rule": "dimensions:min_ratio=1/2",
+            "passes": true
+        },
+        {
+            "width": 100,
+            "height": 100,
+            "rule": "dimensions:min_ratio=3/2",
+            "passes": false
+        },
+        {
+            "width": 100,
+            "height": 100,
+            "rule": "dimensions:max_ratio=1/1",
+            "passes": true
+        },
+        {
+            "width": 100,
+            "height": 100,
+            "rule": "dimensions:max_ratio=2/1",
+            "passes": true
+        },
+        {
+            "width": 100,
+            "height": 100,
+            "rule": "dimensions:max_ratio=1/2",
+            "passes": false
+        },
+        {
+            "width": 100,
+            "height": 100,
+            "rule": "dimensions:max_ratio=3/2",
+            "passes": true
+        },
+        {
+            "width": 100,
+            "height": 100,
+            "rule": "dimensions:min_ratio=1/1,max_ratio=2/1",
+            "passes": true
+        },
+        {
+            "width": 100,
+            "height": 100,
+            "rule": "dimensions:min_ratio=1/2,max_ratio=1/1",
+            "passes": true
+        },
+        {
+            "width": 101,
+            "height": 100,
+            "rule": "dimensions:ratio=1/1",
+            "passes": false
+        },
+        {
+            "width": 101,
+            "height": 100,
+            "rule": "dimensions:ratio=3/2",
+            "passes": false
+        },
+        {
+            "width": 101,
+            "height": 100,
+            "rule": "dimensions:ratio=2/3",
+            "passes": false
+        },
+        {
+            "width": 101,
+            "height": 100,
+            "rule": "dimensions:ratio=1.5",
+            "passes": false
+        },
+        {
+            "width": 101,
+            "height": 100,
+            "rule": "dimensions:ratio=16/9",
+            "passes": false
+        },
+        {
+            "width": 101,
+            "height": 100,
+            "rule": "dimensions:ratio=4/3",
+            "passes": false
+        },
+        {
+            "width": 101,
+            "height": 100,
+            "rule": "dimensions:ratio=2",
+            "passes": false
+        },
+        {
+            "width": 101,
+            "height": 100,
+            "rule": "dimensions:min_ratio=1/1",
+            "passes": true
+        },
+        {
+            "width": 101,
+            "height": 100,
+            "rule": "dimensions:min_ratio=2/1",
+            "passes": false
+        },
+        {
+            "width": 101,
+            "height": 100,
+            "rule": "dimensions:min_ratio=1/2",
+            "passes": true
+        },
+        {
+            "width": 101,
+            "height": 100,
+            "rule": "dimensions:min_ratio=3/2",
+            "passes": false
+        },
+        {
+            "width": 101,
+            "height": 100,
+            "rule": "dimensions:max_ratio=1/1",
+            "passes": false
+        },
+        {
+            "width": 101,
+            "height": 100,
+            "rule": "dimensions:max_ratio=2/1",
+            "passes": true
+        },
+        {
+            "width": 101,
+            "height": 100,
+            "rule": "dimensions:max_ratio=1/2",
+            "passes": false
+        },
+        {
+            "width": 101,
+            "height": 100,
+            "rule": "dimensions:max_ratio=3/2",
+            "passes": true
+        },
+        {
+            "width": 101,
+            "height": 100,
+            "rule": "dimensions:min_ratio=1/1,max_ratio=2/1",
+            "passes": true
+        },
+        {
+            "width": 101,
+            "height": 100,
+            "rule": "dimensions:min_ratio=1/2,max_ratio=1/1",
+            "passes": false
+        },
+        {
+            "width": 100,
+            "height": 101,
+            "rule": "dimensions:ratio=1/1",
+            "passes": false
+        },
+        {
+            "width": 100,
+            "height": 101,
+            "rule": "dimensions:ratio=3/2",
+            "passes": false
+        },
+        {
+            "width": 100,
+            "height": 101,
+            "rule": "dimensions:ratio=2/3",
+            "passes": false
+        },
+        {
+            "width": 100,
+            "height": 101,
+            "rule": "dimensions:ratio=1.5",
+            "passes": false
+        },
+        {
+            "width": 100,
+            "height": 101,
+            "rule": "dimensions:ratio=16/9",
+            "passes": false
+        },
+        {
+            "width": 100,
+            "height": 101,
+            "rule": "dimensions:ratio=4/3",
+            "passes": false
+        },
+        {
+            "width": 100,
+            "height": 101,
+            "rule": "dimensions:ratio=2",
+            "passes": false
+        },
+        {
+            "width": 100,
+            "height": 101,
+            "rule": "dimensions:min_ratio=1/1",
+            "passes": false
+        },
+        {
+            "width": 100,
+            "height": 101,
+            "rule": "dimensions:min_ratio=2/1",
+            "passes": false
+        },
+        {
+            "width": 100,
+            "height": 101,
+            "rule": "dimensions:min_ratio=1/2",
+            "passes": true
+        },
+        {
+            "width": 100,
+            "height": 101,
+            "rule": "dimensions:min_ratio=3/2",
+            "passes": false
+        },
+        {
+            "width": 100,
+            "height": 101,
+            "rule": "dimensions:max_ratio=1/1",
+            "passes": true
+        },
+        {
+            "width": 100,
+            "height": 101,
+            "rule": "dimensions:max_ratio=2/1",
+            "passes": true
+        },
+        {
+            "width": 100,
+            "height": 101,
+            "rule": "dimensions:max_ratio=1/2",
+            "passes": false
+        },
+        {
+            "width": 100,
+            "height": 101,
+            "rule": "dimensions:max_ratio=3/2",
+            "passes": true
+        },
+        {
+            "width": 100,
+            "height": 101,
+            "rule": "dimensions:min_ratio=1/1,max_ratio=2/1",
+            "passes": false
+        },
+        {
+            "width": 100,
+            "height": 101,
+            "rule": "dimensions:min_ratio=1/2,max_ratio=1/1",
+            "passes": true
+        },
+        {
+            "width": 201,
+            "height": 100,
+            "rule": "dimensions:ratio=1/1",
+            "passes": false
+        },
+        {
+            "width": 201,
+            "height": 100,
+            "rule": "dimensions:ratio=3/2",
+            "passes": false
+        },
+        {
+            "width": 201,
+            "height": 100,
+            "rule": "dimensions:ratio=2/3",
+            "passes": false
+        },
+        {
+            "width": 201,
+            "height": 100,
+            "rule": "dimensions:ratio=1.5",
+            "passes": false
+        },
+        {
+            "width": 201,
+            "height": 100,
+            "rule": "dimensions:ratio=16/9",
+            "passes": false
+        },
+        {
+            "width": 201,
+            "height": 100,
+            "rule": "dimensions:ratio=4/3",
+            "passes": false
+        },
+        {
+            "width": 201,
+            "height": 100,
+            "rule": "dimensions:ratio=2",
+            "passes": false
+        },
+        {
+            "width": 201,
+            "height": 100,
+            "rule": "dimensions:min_ratio=1/1",
+            "passes": true
+        },
+        {
+            "width": 201,
+            "height": 100,
+            "rule": "dimensions:min_ratio=2/1",
+            "passes": true
+        },
+        {
+            "width": 201,
+            "height": 100,
+            "rule": "dimensions:min_ratio=1/2",
+            "passes": true
+        },
+        {
+            "width": 201,
+            "height": 100,
+            "rule": "dimensions:min_ratio=3/2",
+            "passes": true
+        },
+        {
+            "width": 201,
+            "height": 100,
+            "rule": "dimensions:max_ratio=1/1",
+            "passes": false
+        },
+        {
+            "width": 201,
+            "height": 100,
+            "rule": "dimensions:max_ratio=2/1",
+            "passes": false
+        },
+        {
+            "width": 201,
+            "height": 100,
+            "rule": "dimensions:max_ratio=1/2",
+            "passes": false
+        },
+        {
+            "width": 201,
+            "height": 100,
+            "rule": "dimensions:max_ratio=3/2",
+            "passes": false
+        },
+        {
+            "width": 201,
+            "height": 100,
+            "rule": "dimensions:min_ratio=1/1,max_ratio=2/1",
+            "passes": false
+        },
+        {
+            "width": 201,
+            "height": 100,
+            "rule": "dimensions:min_ratio=1/2,max_ratio=1/1",
+            "passes": false
+        },
+        {
+            "width": 199,
+            "height": 100,
+            "rule": "dimensions:ratio=1/1",
+            "passes": false
+        },
+        {
+            "width": 199,
+            "height": 100,
+            "rule": "dimensions:ratio=3/2",
+            "passes": false
+        },
+        {
+            "width": 199,
+            "height": 100,
+            "rule": "dimensions:ratio=2/3",
+            "passes": false
+        },
+        {
+            "width": 199,
+            "height": 100,
+            "rule": "dimensions:ratio=1.5",
+            "passes": false
+        },
+        {
+            "width": 199,
+            "height": 100,
+            "rule": "dimensions:ratio=16/9",
+            "passes": false
+        },
+        {
+            "width": 199,
+            "height": 100,
+            "rule": "dimensions:ratio=4/3",
+            "passes": false
+        },
+        {
+            "width": 199,
+            "height": 100,
+            "rule": "dimensions:ratio=2",
+            "passes": false
+        },
+        {
+            "width": 199,
+            "height": 100,
+            "rule": "dimensions:min_ratio=1/1",
+            "passes": true
+        },
+        {
+            "width": 199,
+            "height": 100,
+            "rule": "dimensions:min_ratio=2/1",
+            "passes": false
+        },
+        {
+            "width": 199,
+            "height": 100,
+            "rule": "dimensions:min_ratio=1/2",
+            "passes": true
+        },
+        {
+            "width": 199,
+            "height": 100,
+            "rule": "dimensions:min_ratio=3/2",
+            "passes": true
+        },
+        {
+            "width": 199,
+            "height": 100,
+            "rule": "dimensions:max_ratio=1/1",
+            "passes": false
+        },
+        {
+            "width": 199,
+            "height": 100,
+            "rule": "dimensions:max_ratio=2/1",
+            "passes": true
+        },
+        {
+            "width": 199,
+            "height": 100,
+            "rule": "dimensions:max_ratio=1/2",
+            "passes": false
+        },
+        {
+            "width": 199,
+            "height": 100,
+            "rule": "dimensions:max_ratio=3/2",
+            "passes": false
+        },
+        {
+            "width": 199,
+            "height": 100,
+            "rule": "dimensions:min_ratio=1/1,max_ratio=2/1",
+            "passes": true
+        },
+        {
+            "width": 199,
+            "height": 100,
+            "rule": "dimensions:min_ratio=1/2,max_ratio=1/1",
+            "passes": false
+        },
+        {
+            "width": 1000,
+            "height": 1,
+            "rule": "dimensions:ratio=1/1",
+            "passes": false
+        },
+        {
+            "width": 1000,
+            "height": 1,
+            "rule": "dimensions:ratio=3/2",
+            "passes": false
+        },
+        {
+            "width": 1000,
+            "height": 1,
+            "rule": "dimensions:ratio=2/3",
+            "passes": false
+        },
+        {
+            "width": 1000,
+            "height": 1,
+            "rule": "dimensions:ratio=1.5",
+            "passes": false
+        },
+        {
+            "width": 1000,
+            "height": 1,
+            "rule": "dimensions:ratio=16/9",
+            "passes": false
+        },
+        {
+            "width": 1000,
+            "height": 1,
+            "rule": "dimensions:ratio=4/3",
+            "passes": false
+        },
+        {
+            "width": 1000,
+            "height": 1,
+            "rule": "dimensions:ratio=2",
+            "passes": false
+        },
+        {
+            "width": 1000,
+            "height": 1,
+            "rule": "dimensions:min_ratio=1/1",
+            "passes": true
+        },
+        {
+            "width": 1000,
+            "height": 1,
+            "rule": "dimensions:min_ratio=2/1",
+            "passes": true
+        },
+        {
+            "width": 1000,
+            "height": 1,
+            "rule": "dimensions:min_ratio=1/2",
+            "passes": true
+        },
+        {
+            "width": 1000,
+            "height": 1,
+            "rule": "dimensions:min_ratio=3/2",
+            "passes": true
+        },
+        {
+            "width": 1000,
+            "height": 1,
+            "rule": "dimensions:max_ratio=1/1",
+            "passes": false
+        },
+        {
+            "width": 1000,
+            "height": 1,
+            "rule": "dimensions:max_ratio=2/1",
+            "passes": false
+        },
+        {
+            "width": 1000,
+            "height": 1,
+            "rule": "dimensions:max_ratio=1/2",
+            "passes": false
+        },
+        {
+            "width": 1000,
+            "height": 1,
+            "rule": "dimensions:max_ratio=3/2",
+            "passes": false
+        },
+        {
+            "width": 1000,
+            "height": 1,
+            "rule": "dimensions:min_ratio=1/1,max_ratio=2/1",
+            "passes": false
+        },
+        {
+            "width": 1000,
+            "height": 1,
+            "rule": "dimensions:min_ratio=1/2,max_ratio=1/1",
+            "passes": false
+        },
+        {
+            "width": 1,
+            "height": 1000,
+            "rule": "dimensions:ratio=1/1",
+            "passes": false
+        },
+        {
+            "width": 1,
+            "height": 1000,
+            "rule": "dimensions:ratio=3/2",
+            "passes": false
+        },
+        {
+            "width": 1,
+            "height": 1000,
+            "rule": "dimensions:ratio=2/3",
+            "passes": false
+        },
+        {
+            "width": 1,
+            "height": 1000,
+            "rule": "dimensions:ratio=1.5",
+            "passes": false
+        },
+        {
+            "width": 1,
+            "height": 1000,
+            "rule": "dimensions:ratio=16/9",
+            "passes": false
+        },
+        {
+            "width": 1,
+            "height": 1000,
+            "rule": "dimensions:ratio=4/3",
+            "passes": false
+        },
+        {
+            "width": 1,
+            "height": 1000,
+            "rule": "dimensions:ratio=2",
+            "passes": false
+        },
+        {
+            "width": 1,
+            "height": 1000,
+            "rule": "dimensions:min_ratio=1/1",
+            "passes": false
+        },
+        {
+            "width": 1,
+            "height": 1000,
+            "rule": "dimensions:min_ratio=2/1",
+            "passes": false
+        },
+        {
+            "width": 1,
+            "height": 1000,
+            "rule": "dimensions:min_ratio=1/2",
+            "passes": false
+        },
+        {
+            "width": 1,
+            "height": 1000,
+            "rule": "dimensions:min_ratio=3/2",
+            "passes": false
+        },
+        {
+            "width": 1,
+            "height": 1000,
+            "rule": "dimensions:max_ratio=1/1",
+            "passes": true
+        },
+        {
+            "width": 1,
+            "height": 1000,
+            "rule": "dimensions:max_ratio=2/1",
+            "passes": true
+        },
+        {
+            "width": 1,
+            "height": 1000,
+            "rule": "dimensions:max_ratio=1/2",
+            "passes": true
+        },
+        {
+            "width": 1,
+            "height": 1000,
+            "rule": "dimensions:max_ratio=3/2",
+            "passes": true
+        },
+        {
+            "width": 1,
+            "height": 1000,
+            "rule": "dimensions:min_ratio=1/1,max_ratio=2/1",
+            "passes": false
+        },
+        {
+            "width": 1,
+            "height": 1000,
+            "rule": "dimensions:min_ratio=1/2,max_ratio=1/1",
+            "passes": false
+        },
+        {
+            "width": 1001,
+            "height": 1000,
+            "rule": "dimensions:ratio=1/1",
+            "passes": false
+        },
+        {
+            "width": 1001,
+            "height": 1000,
+            "rule": "dimensions:ratio=3/2",
+            "passes": false
+        },
+        {
+            "width": 1001,
+            "height": 1000,
+            "rule": "dimensions:ratio=2/3",
+            "passes": false
+        },
+        {
+            "width": 1001,
+            "height": 1000,
+            "rule": "dimensions:ratio=1.5",
+            "passes": false
+        },
+        {
+            "width": 1001,
+            "height": 1000,
+            "rule": "dimensions:ratio=16/9",
+            "passes": false
+        },
+        {
+            "width": 1001,
+            "height": 1000,
+            "rule": "dimensions:ratio=4/3",
+            "passes": false
+        },
+        {
+            "width": 1001,
+            "height": 1000,
+            "rule": "dimensions:ratio=2",
+            "passes": false
+        },
+        {
+            "width": 1001,
+            "height": 1000,
+            "rule": "dimensions:min_ratio=1/1",
+            "passes": true
+        },
+        {
+            "width": 1001,
+            "height": 1000,
+            "rule": "dimensions:min_ratio=2/1",
+            "passes": false
+        },
+        {
+            "width": 1001,
+            "height": 1000,
+            "rule": "dimensions:min_ratio=1/2",
+            "passes": true
+        },
+        {
+            "width": 1001,
+            "height": 1000,
+            "rule": "dimensions:min_ratio=3/2",
+            "passes": false
+        },
+        {
+            "width": 1001,
+            "height": 1000,
+            "rule": "dimensions:max_ratio=1/1",
+            "passes": false
+        },
+        {
+            "width": 1001,
+            "height": 1000,
+            "rule": "dimensions:max_ratio=2/1",
+            "passes": true
+        },
+        {
+            "width": 1001,
+            "height": 1000,
+            "rule": "dimensions:max_ratio=1/2",
+            "passes": false
+        },
+        {
+            "width": 1001,
+            "height": 1000,
+            "rule": "dimensions:max_ratio=3/2",
+            "passes": true
+        },
+        {
+            "width": 1001,
+            "height": 1000,
+            "rule": "dimensions:min_ratio=1/1,max_ratio=2/1",
+            "passes": true
+        },
+        {
+            "width": 1001,
+            "height": 1000,
+            "rule": "dimensions:min_ratio=1/2,max_ratio=1/1",
+            "passes": false
+        },
+        {
+            "width": 1000,
+            "height": 1001,
+            "rule": "dimensions:ratio=1/1",
+            "passes": false
+        },
+        {
+            "width": 1000,
+            "height": 1001,
+            "rule": "dimensions:ratio=3/2",
+            "passes": false
+        },
+        {
+            "width": 1000,
+            "height": 1001,
+            "rule": "dimensions:ratio=2/3",
+            "passes": false
+        },
+        {
+            "width": 1000,
+            "height": 1001,
+            "rule": "dimensions:ratio=1.5",
+            "passes": false
+        },
+        {
+            "width": 1000,
+            "height": 1001,
+            "rule": "dimensions:ratio=16/9",
+            "passes": false
+        },
+        {
+            "width": 1000,
+            "height": 1001,
+            "rule": "dimensions:ratio=4/3",
+            "passes": false
+        },
+        {
+            "width": 1000,
+            "height": 1001,
+            "rule": "dimensions:ratio=2",
+            "passes": false
+        },
+        {
+            "width": 1000,
+            "height": 1001,
+            "rule": "dimensions:min_ratio=1/1",
+            "passes": false
+        },
+        {
+            "width": 1000,
+            "height": 1001,
+            "rule": "dimensions:min_ratio=2/1",
+            "passes": false
+        },
+        {
+            "width": 1000,
+            "height": 1001,
+            "rule": "dimensions:min_ratio=1/2",
+            "passes": true
+        },
+        {
+            "width": 1000,
+            "height": 1001,
+            "rule": "dimensions:min_ratio=3/2",
+            "passes": false
+        },
+        {
+            "width": 1000,
+            "height": 1001,
+            "rule": "dimensions:max_ratio=1/1",
+            "passes": true
+        },
+        {
+            "width": 1000,
+            "height": 1001,
+            "rule": "dimensions:max_ratio=2/1",
+            "passes": true
+        },
+        {
+            "width": 1000,
+            "height": 1001,
+            "rule": "dimensions:max_ratio=1/2",
+            "passes": false
+        },
+        {
+            "width": 1000,
+            "height": 1001,
+            "rule": "dimensions:max_ratio=3/2",
+            "passes": true
+        },
+        {
+            "width": 1000,
+            "height": 1001,
+            "rule": "dimensions:min_ratio=1/1,max_ratio=2/1",
+            "passes": false
+        },
+        {
+            "width": 1000,
+            "height": 1001,
+            "rule": "dimensions:min_ratio=1/2,max_ratio=1/1",
+            "passes": true
+        },
+        {
+            "width": 16,
+            "height": 9,
+            "rule": "dimensions:ratio=1/1",
+            "passes": false
+        },
+        {
+            "width": 16,
+            "height": 9,
+            "rule": "dimensions:ratio=3/2",
+            "passes": false
+        },
+        {
+            "width": 16,
+            "height": 9,
+            "rule": "dimensions:ratio=2/3",
+            "passes": false
+        },
+        {
+            "width": 16,
+            "height": 9,
+            "rule": "dimensions:ratio=1.5",
+            "passes": false
+        },
+        {
+            "width": 16,
+            "height": 9,
+            "rule": "dimensions:ratio=16/9",
+            "passes": true
+        },
+        {
+            "width": 16,
+            "height": 9,
+            "rule": "dimensions:ratio=4/3",
+            "passes": false
+        },
+        {
+            "width": 16,
+            "height": 9,
+            "rule": "dimensions:ratio=2",
+            "passes": false
+        },
+        {
+            "width": 16,
+            "height": 9,
+            "rule": "dimensions:min_ratio=1/1",
+            "passes": true
+        },
+        {
+            "width": 16,
+            "height": 9,
+            "rule": "dimensions:min_ratio=2/1",
+            "passes": false
+        },
+        {
+            "width": 16,
+            "height": 9,
+            "rule": "dimensions:min_ratio=1/2",
+            "passes": true
+        },
+        {
+            "width": 16,
+            "height": 9,
+            "rule": "dimensions:min_ratio=3/2",
+            "passes": true
+        },
+        {
+            "width": 16,
+            "height": 9,
+            "rule": "dimensions:max_ratio=1/1",
+            "passes": false
+        },
+        {
+            "width": 16,
+            "height": 9,
+            "rule": "dimensions:max_ratio=2/1",
+            "passes": true
+        },
+        {
+            "width": 16,
+            "height": 9,
+            "rule": "dimensions:max_ratio=1/2",
+            "passes": false
+        },
+        {
+            "width": 16,
+            "height": 9,
+            "rule": "dimensions:max_ratio=3/2",
+            "passes": false
+        },
+        {
+            "width": 16,
+            "height": 9,
+            "rule": "dimensions:min_ratio=1/1,max_ratio=2/1",
+            "passes": true
+        },
+        {
+            "width": 16,
+            "height": 9,
+            "rule": "dimensions:min_ratio=1/2,max_ratio=1/1",
+            "passes": false
+        },
+        {
+            "width": 4,
+            "height": 3,
+            "rule": "dimensions:ratio=1/1",
+            "passes": false
+        },
+        {
+            "width": 4,
+            "height": 3,
+            "rule": "dimensions:ratio=3/2",
+            "passes": true
+        },
+        {
+            "width": 4,
+            "height": 3,
+            "rule": "dimensions:ratio=2/3",
+            "passes": false
+        },
+        {
+            "width": 4,
+            "height": 3,
+            "rule": "dimensions:ratio=1.5",
+            "passes": true
+        },
+        {
+            "width": 4,
+            "height": 3,
+            "rule": "dimensions:ratio=16/9",
+            "passes": false
+        },
+        {
+            "width": 4,
+            "height": 3,
+            "rule": "dimensions:ratio=4/3",
+            "passes": true
+        },
+        {
+            "width": 4,
+            "height": 3,
+            "rule": "dimensions:ratio=2",
+            "passes": false
+        },
+        {
+            "width": 4,
+            "height": 3,
+            "rule": "dimensions:min_ratio=1/1",
+            "passes": true
+        },
+        {
+            "width": 4,
+            "height": 3,
+            "rule": "dimensions:min_ratio=2/1",
+            "passes": false
+        },
+        {
+            "width": 4,
+            "height": 3,
+            "rule": "dimensions:min_ratio=1/2",
+            "passes": true
+        },
+        {
+            "width": 4,
+            "height": 3,
+            "rule": "dimensions:min_ratio=3/2",
+            "passes": true
+        },
+        {
+            "width": 4,
+            "height": 3,
+            "rule": "dimensions:max_ratio=1/1",
+            "passes": false
+        },
+        {
+            "width": 4,
+            "height": 3,
+            "rule": "dimensions:max_ratio=2/1",
+            "passes": true
+        },
+        {
+            "width": 4,
+            "height": 3,
+            "rule": "dimensions:max_ratio=1/2",
+            "passes": false
+        },
+        {
+            "width": 4,
+            "height": 3,
+            "rule": "dimensions:max_ratio=3/2",
+            "passes": true
+        },
+        {
+            "width": 4,
+            "height": 3,
+            "rule": "dimensions:min_ratio=1/1,max_ratio=2/1",
+            "passes": true
+        },
+        {
+            "width": 4,
+            "height": 3,
+            "rule": "dimensions:min_ratio=1/2,max_ratio=1/1",
+            "passes": false
+        }
+    ]
+}

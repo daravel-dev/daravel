@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:f943a3636a02 -->
+<!-- source: README.md sha256:8b7fbdeaa2f1 -->
 | [`packages/daravel_session`](packages/daravel_session) | Session yang kompatibel dengan Laravel (file atau tabel `sessions`), cookie terenkripsi, dan proteksi CSRF |
 <!-- source: README.md sha256:5b04c2e6d073 -->
 <p align="center">
@@ -54,7 +54,7 @@ diberikan Dart: satu executable native, tipe statis dari route sampai database, 
 di satu port.
 
 > **Status.** Daravel stabil sejak `1.0.0`; rilis saat ini adalah
-> `<!-- release -->1.27.0<!-- /release -->`, dipublikasikan di
+> `<!-- release -->1.27.1<!-- /release -->`, dipublikasikan di
 > [pub.dev](https://pub.dev/packages/daravel) oleh publisher terverifikasi
 > `framework.daravel.dev`. API Dart mengikuti SemVer di lini `1.x`; format yang berhadapan
 > dengan Laravel dikunci oleh suite konformansi.
@@ -469,6 +469,7 @@ Monorepo ini adalah pub workspace Dart:
 | [`packages/daravel`](packages/daravel) | Inti framework |
 | [`packages/daravel_test`](packages/daravel_test) | Toolkit testing: `TestClient`, assertion, `refreshDatabase`, time travel, helper arsitektur |
 | [`packages/daravel_lints`](packages/daravel_lints) | Rule lint berbasis AST dan pengecekan registry, dijalankan oleh `dartisan lint` dan di test |
+| [`packages/daravel_lints_plugin`](packages/daravel_lints_plugin) | Rule `daravel_lints` di editor dan di `dart analyze`, sebagai plugin analysis server |
 | [`packages/dartisan_cli`](packages/dartisan_cli) | Command-line interface `dartisan` dan generator kode |
 | [`packages/daravel_mysql`](packages/daravel_mysql) | Driver MySQL dan MariaDB |
 | [`packages/daravel_permission`](packages/daravel_permission) | Role dan permission pada tabel spatie/laravel-permission |
@@ -590,7 +591,7 @@ created lib/app/http/resources/post_resource.dart
 | **0** | Kerangka berjalan: container, kernel HTTP, router, SQLite, migrasi, test client, CLI, CI | ✅ selesai |
 | **1** | S1 fondasi · S2 pengerasan HTTP · S3 routing · S4 validasi · S5 database · S6 ORM · S7 skema, seeding & generator · S8 auth · S9 multi-isolate & cache · S10 event, queue & scheduler · S11 resource, storage & observabilitas · S12 CLI (`new`, hot reload, `build --docker`, `doctor`, `openapi:generate`, `model:sync`, stub) · S13 toolkit testing, lint & test arsitektur | ✅ selesai |
 | **1** | S14 suite konformansi, suite keamanan, `parity.yaml`, harness benchmark, situs dokumentasi, template `api`/`minimal` → beta publik pertama, lalu **1.0.0** | ✅ selesai |
-| **1.x** | Dirilis setelah 1.0: lokalisasi, feature flag, SSE dan WebSocket, generator client Flutter, paket driver dan `db:transfer`, mail dan notifikasi, broadcasting untuk Laravel Echo, Redis dan Valkey (`daravel_redis`), role dan permission (`daravel_permission`), activity log (`daravel_activitylog`), query filter (`daravel_teorion`); terbaru **<!-- release -->1.27.0<!-- /release -->** | ✅ selesai |
+| **1.x** | Dirilis setelah 1.0: lokalisasi, feature flag, SSE dan WebSocket, generator client Flutter, paket driver dan `db:transfer`, mail dan notifikasi, broadcasting untuk Laravel Echo, Redis dan Valkey (`daravel_redis`), role dan permission (`daravel_permission`), activity log (`daravel_activitylog`), query filter (`daravel_teorion`); terbaru **<!-- release -->1.27.1<!-- /release -->** | ✅ selesai |
 | **2** | Session/CSRF, S3, OpenTelemetry, view terkompilasi yang kompatibel dengan Blade; client database hanya di paket driver | direncanakan |
 | **daragic** | Generator dua arah Laravel ⇄ Daravel: introspeksi runtime → IR → proyek hasil generate, test yang dikonversi, differential replay | sudah didesain |
 | **Ekosistem** | Paket first-party di bawah `daravel-dev`: `daravel_horizon` (supervisor dan dashboard queue), `daravel_socialite` (OAuth dan Sign in with Apple/Google), lalu `daravel_telescope` dan `daravel_scout` | direncanakan |

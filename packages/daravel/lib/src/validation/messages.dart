@@ -38,6 +38,10 @@ abstract final class ValidationMessages {
       'map': 'The :attribute field must be an object.',
       'email': 'The :attribute field must be a valid email address.',
       'url': 'The :attribute field must be a valid URL.',
+      'active_url': 'The :attribute field must be a valid URL.',
+      'current_password': 'The password is incorrect.',
+      'can': 'The :attribute field contains an unauthorized value.',
+      'dimensions': 'The :attribute field has invalid image dimensions.',
       'uuid': 'The :attribute field must be a valid UUID.',
       'ulid': 'The :attribute field must be a valid ULID.',
       'ip': 'The :attribute field must be a valid IP address.',
@@ -156,6 +160,7 @@ abstract final class ValidationMessages {
           'The :attribute field must only contain the following keys: :values.',
       'hex_color': 'The :attribute field must be a valid hexadecimal color.',
       'mac_address': 'The :attribute field must be a valid MAC address.',
+      'any_of': 'The :attribute field is invalid.',
       'encoding': 'The :attribute field must be encoded in :encoding.',
       'base64': 'The :attribute field must be a valid Base64 string.',
       'required_with_all':
@@ -213,6 +218,11 @@ abstract final class ValidationMessages {
       'map': 'Kolom :attribute harus berupa objek.',
       'email': 'Kolom :attribute harus berupa alamat email yang valid.',
       'url': 'Kolom :attribute harus berupa URL yang valid.',
+      'active_url': 'Kolom :attribute harus berupa URL yang valid.',
+      'current_password': 'Kata sandi salah.',
+      'can': 'Kolom :attribute berisi nilai yang tidak diizinkan.',
+      'dimensions':
+          'Kolom :attribute memiliki dimensi gambar yang tidak valid.',
       'uuid': 'Kolom :attribute harus berupa UUID yang valid.',
       'ulid': 'Kolom :attribute harus berupa ULID yang valid.',
       'ip': 'Kolom :attribute harus berupa alamat IP yang valid.',
@@ -329,6 +339,7 @@ abstract final class ValidationMessages {
       'hex_color':
           'Kolom :attribute harus berupa warna heksadesimal yang valid.',
       'mac_address': 'Kolom :attribute harus berupa alamat MAC yang valid.',
+      'any_of': 'Kolom :attribute tidak valid.',
       'encoding': 'Kolom :attribute harus dikodekan dalam :encoding.',
       'base64': 'Kolom :attribute harus berupa teks Base64 yang valid.',
       'required_with_all': 'Kolom :attribute wajib diisi ketika :values ada.',

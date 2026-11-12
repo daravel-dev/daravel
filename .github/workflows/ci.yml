@@ -34,12 +34,12 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           # The Changelog step compares a pull request with its base.
           fetch-depth: 2
 
-      - uses: dart-lang/setup-dart@v1
+      - uses: dart-lang/setup-dart@2286a0c042b44434fe26d292bbce8d34f7ec662b # v1
         with:
           sdk: ${{ matrix.sdk }}
 
@@ -59,8 +59,12 @@ jobs:
           dart run tool/docs/guide_pages_selftest.dart
           dart run tool/docs/generate.dart --check
 
+      # Also: every `uses:` of publish.yml, release.yml and ci.yml pinned to
+      # a commit SHA, and no cycle in the publish jobs' needs.
       - name: Every package has an example and a publish job after its dependencies
-        run: dart run tool/publish_checks.dart
+        run: |
+          dart run tool/publish_checks_selftest.dart
+          dart run tool/publish_checks.dart
 
       # Blueprint #136: every package has a sample app (or a planned one) and
       # apps/README.md is the generated matrix.
@@ -85,7 +89,9 @@ jobs:
 
       # The example applications are what users copy, so they pass the same
       # lint rules as a user's project (no_inline_js_interpolation included).
+      # Once, on Linux: the rules read source, the same on every OS.
       - name: Lint the example applications
+        if: runner.os == 'Linux' && matrix.sdk == 'stable'
         run: |
           for app in apps/*/; do
             if [ -f "$app/bin/dartisan.dart" ]; then
@@ -99,8 +105,16 @@ jobs:
           # `dartisan new` end-to-end (pub get + analyze + test of a generated
           # project) runs once, on Linux.
           DARAVEL_E2E: ${{ runner.os == 'Linux' && matrix.sdk == 'stable' && '1' || '0' }}
+        # The oldest SDK (3.13.0) runs every suite where the result is kept
+        # (merge queue, main, release branches); on a pull request only the
+        # core's, as analyze above already checks the whole workspace on it.
         run: |
-          for pkg in packages/daravel packages/daravel_lints packages/daravel_test packages/daravel_mysql packages/daravel_permission packages/daravel_activitylog packages/daravel_excel packages/daravel_log_viewer packages/daravel_pulse packages/daravel_horizon packages/daravel_reverb packages/daravel_reverb_client packages/daravel_payments packages/daravel_medialibrary packages/daravel_redis packages/daravel_sqlite packages/daravel_postgres packages/daravel_teorion packages/daravel_livekit packages/daravel_google packages/daravel_teobiefy packages/daravel_s3 packages/daravel_scout packages/daravel_session packages/dartisan_cli apps/daravel_starter apps/virtual_classroom apps/websocket_demo apps/cat_exam_demo apps/horizon_demo apps/reverb_demo; do
+          if [ "${{ matrix.sdk }}" != stable ] && [ "${{ github.event_name }}" = pull_request ]; then
+            echo "== packages/daravel (oldest SDK, pull request)"
+            (cd packages/daravel && dart test --reporter=expanded)
+            exit 0
+          fi
+          for pkg in packages/daravel packages/daravel_lints packages/daravel_lints_plugin packages/daravel_test packages/daravel_mysql packages/daravel_permission packages/daravel_activitylog packages/daravel_excel packages/daravel_log_viewer packages/daravel_pulse packages/daravel_horizon packages/daravel_reverb packages/daravel_reverb_client packages/daravel_payments packages/daravel_medialibrary packages/daravel_redis packages/daravel_sqlite packages/daravel_postgres packages/daravel_teorion packages/daravel_livekit packages/daravel_google packages/daravel_teobiefy packages/daravel_s3 packages/daravel_scout packages/daravel_session packages/dartisan_cli apps/daravel_starter apps/virtual_classroom apps/websocket_demo apps/cat_exam_demo apps/horizon_demo apps/reverb_demo; do
             if [ -d "$pkg/test" ]; then
               echo "== $pkg"
               (cd "$pkg" && dart test --reporter=expanded)
@@ -123,7 +137,7 @@ jobs:
       - name: Verify pub.dev packaging (dry-run)
         if: runner.os == 'Linux' && matrix.sdk == 'stable'
         run: |
-          for pkg in packages/daravel_lints packages/daravel packages/daravel_test packages/daravel_mysql packages/daravel_permission packages/daravel_activitylog packages/daravel_excel packages/daravel_log_viewer packages/daravel_pulse packages/daravel_horizon packages/daravel_reverb packages/daravel_reverb_client packages/daravel_payments packages/daravel_medialibrary packages/daravel_redis packages/daravel_sqlite packages/daravel_postgres packages/daravel_teorion packages/daravel_livekit packages/daravel_google packages/daravel_teobiefy packages/daravel_s3 packages/daravel_scout packages/daravel_session packages/dartisan_cli; do
+          for pkg in packages/daravel_lints packages/daravel_lints_plugin packages/daravel packages/daravel_test packages/daravel_mysql packages/daravel_permission packages/daravel_activitylog packages/daravel_excel packages/daravel_log_viewer packages/daravel_pulse packages/daravel_horizon packages/daravel_reverb packages/daravel_reverb_client packages/daravel_payments packages/daravel_medialibrary packages/daravel_redis packages/daravel_sqlite packages/daravel_postgres packages/daravel_teorion packages/daravel_livekit packages/daravel_google packages/daravel_teobiefy packages/daravel_s3 packages/daravel_scout packages/daravel_session packages/dartisan_cli; do
             echo "== $pkg"
             (cd "$pkg" && dart pub publish --dry-run)
           done
@@ -147,9 +161,9 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: dart-lang/setup-dart@v1
+      - uses: dart-lang/setup-dart@2286a0c042b44434fe26d292bbce8d34f7ec662b # v1
 
       - name: Resolve workspace
         run: dart pub get
@@ -158,7 +172,7 @@ jobs:
         working-directory: apps/daravel_starter
         run: dart run bin/dartisan.dart build --target-os=linux --no-sqlite --force
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: starter-linux-bundle
           path: apps/daravel_starter/build/server/bundle
@@ -169,11 +183,11 @@ jobs:
     needs: cross-build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: dart-lang/setup-dart@v1
+      - uses: dart-lang/setup-dart@2286a0c042b44434fe26d292bbce8d34f7ec662b # v1
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: starter-linux-bundle
           path: bundle
@@ -207,9 +221,9 @@ jobs:
     env:
       DARAVEL_TEST_PG: postgres://daravel:secret@127.0.0.1:5432/daravel_test
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: dart-lang/setup-dart@v1
+      - uses: dart-lang/setup-dart@2286a0c042b44434fe26d292bbce8d34f7ec662b # v1
 
       - name: Resolve workspace
         run: dart pub get
@@ -248,9 +262,9 @@ jobs:
       DARAVEL_TEST_REDIS_CLUSTER: redis+cluster://127.0.0.1:17001,127.0.0.1:17002
       DARAVEL_TEST_REDIS_SENTINEL: redis+sentinel://127.0.0.1:17020/mymaster
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: dart-lang/setup-dart@v1
+      - uses: dart-lang/setup-dart@2286a0c042b44434fe26d292bbce8d34f7ec662b # v1
 
       - name: Resolve workspace
         run: dart pub get
@@ -268,9 +282,9 @@ jobs:
     env:
       DARAVEL_TEST_LIVEKIT: http://127.0.0.1:7880
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: dart-lang/setup-dart@v1
+      - uses: dart-lang/setup-dart@2286a0c042b44434fe26d292bbce8d34f7ec662b # v1
 
       - name: Resolve workspace
         run: dart pub get
@@ -290,11 +304,11 @@ jobs:
     name: Playwright E2E
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: dart-lang/setup-dart@v1
+      - uses: dart-lang/setup-dart@2286a0c042b44434fe26d292bbce8d34f7ec662b # v1
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 20
 
@@ -322,7 +336,7 @@ jobs:
 
       - name: Keep the report
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: playwright-report
           path: apps/daravel_starter/tests/e2e/report
@@ -337,9 +351,9 @@ jobs:
     env:
       DARAVEL_TEST_S3: http://127.0.0.1:9000
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: dart-lang/setup-dart@v1
+      - uses: dart-lang/setup-dart@2286a0c042b44434fe26d292bbce8d34f7ec662b # v1
 
       - name: Resolve workspace
         run: dart pub get
@@ -385,9 +399,9 @@ jobs:
       DARAVEL_TEST_MYSQL: mysql://daravel:secret@127.0.0.1:3306/daravel_test
       DARAVEL_TEST_MARIADB: ${{ startsWith(matrix.server, 'mariadb') && '1' || '' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: dart-lang/setup-dart@v1
+      - uses: dart-lang/setup-dart@2286a0c042b44434fe26d292bbce8d34f7ec662b # v1
 
       - name: Resolve workspace
         run: dart pub get

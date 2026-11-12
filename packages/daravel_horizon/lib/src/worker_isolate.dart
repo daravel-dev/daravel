@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 
@@ -7,6 +6,8 @@ import 'package:daravel/daravel.dart';
 
 import 'config.dart';
 import 'messages.dart';
+import 'signals.dart';
+import 'store/horizon_store.dart';
 import 'store/process_store.dart';
 
 /// What a worker isolate gets when it is spawned. Sent once, at spawn, so
@@ -99,6 +100,9 @@ Future<void> horizonWorkerMain(HorizonWorkerStart start) async {
     await booted.boot();
     final database = booted.container.make<DatabaseManager>();
     String sessions() => encodeSessions(database.openSessions());
+    final signals = booted.container.make<QueueManager>().signalStore;
+    // Jobs failing for a timeout mark, until their mark is removed.
+    final failing = <String>{};
     final worker = QueueWorker(
       booted.container.make<QueueManager>(),
       logger: booted.logger,
@@ -113,8 +117,9 @@ Future<void> horizonWorkerMain(HorizonWorkerStart start) async {
     int? timeoutMs;
     String? jobName;
     int? attempt;
+    JobPayload? payload;
     void clear() {
-      jobId = jobUuid = queue = jobName = null;
+      jobId = jobUuid = queue = jobName = payload = null;
       reservedAt = timeoutMs = attempt = null;
     }
 
@@ -129,6 +134,10 @@ Future<void> horizonWorkerMain(HorizonWorkerStart start) async {
         jobTimeoutMs: timeoutMs,
         jobName: jobName,
         attempt: attempt,
+        jobMaxTries: payload?.maxTries,
+        jobRetryUntil: payload?.retryUntil,
+        jobMaxExceptions: payload?.maxExceptions,
+        jobFailsOnTimeout: payload?.failOnTimeout,
         sessions: sessions(),
       ),
     );
@@ -139,19 +148,10 @@ Future<void> horizonWorkerMain(HorizonWorkerStart start) async {
         : null;
     final silencedNames = {...?horizon?.silenced};
     final silencedTags = {...?horizon?.silencedTags};
-    final store = booted.container.make<CoordinatorChannel>();
+    final store = horizonStoreOf(booted.container);
     final running = <String, (String, List<String>)>{};
-    void record(RecordedJob job) => unawaited(
-      store
-          .callBulk(
-            HorizonService.serviceName,
-            'record',
-            {'job': jsonEncode(job.toJson())},
-            // A flood of finished jobs keeps the newest records.
-            overflow: BulkOverflow.dropOldest,
-          )
-          .then<void>((_) {}, onError: (Object _) {}),
-    );
+    // Best effort, never awaited: a store that fails never holds a job.
+    void record(RecordedJob job) => unawaited(store.record(job));
     booted.container.make<EventDispatcher>()
       ..listen<JobProcessing>((e) {
         // Reported already, at the reservation (onReserved below): only
@@ -185,6 +185,18 @@ Future<void> horizonWorkerMain(HorizonWorkerStart start) async {
       })
       ..listen<JobFailed>((e) {
         clear();
+        // A job failed for its timeout mark: the mark goes now, not before
+        // (a worker dying first leaves it for the next reservation), and
+        // not when failing threw (failed_jobs could not be written: the job
+        // must fail at its next reservation, not run again).
+        if (signals != null && failing.remove(e.uuid)) {
+          unawaited(
+            HorizonSignals.unmarkTimedOut(
+              signals,
+              e.uuid!,
+            ).then((_) {}, onError: (Object _) {}),
+          );
+        }
         final (name, tags) =
             running.remove(e.uuid) ?? (e.jobName, const <String>[]);
         record(
@@ -247,13 +259,39 @@ Future<void> horizonWorkerMain(HorizonWorkerStart start) async {
             timeoutMs = (start.timeout ?? job.payload.timeout).inMilliseconds;
             jobName = job.payload.displayName;
             attempt = job.attempts;
+            payload = job.payload;
             report();
           },
+          // A job whose last worker the master killed past a timeout it
+          // fails on: failed here, by its own application (failed_jobs, its
+          // failed() hook, JobFailed), never by the master. Only a job
+          // reserved before (attempts > 1) can be marked: a new one costs
+          // no read.
+          failBeforeRun: signals == null
+              ? null
+              : (job) async {
+                  if (job.attempts <= 1) {
+                    return null;
+                  }
+                  final error = await HorizonSignals.timedOutError(
+                    signals,
+                    job,
+                  );
+                  if (error != null) {
+                    failing.add(job.payload.uuid);
+                  }
+                  return error;
+                },
           // Whatever way the job left (processed, failed, released, deleted,
           // failed before it ran: not every way has an event), this worker
           // runs nothing now: an idle worker must not look busy, or the
           // master would kill it past a job that is over.
-          onFinished: (_) => clear(),
+          // A marked job leaves `failing` whatever happened; its mark goes
+          // only at JobFailed (above), once failed_jobs has its row.
+          onFinished: (job) {
+            clear();
+            failing.remove(job.payload.uuid);
+          },
         ),
       ),
       onUncaughtError: (error, stackTrace) => booted.logger.error(

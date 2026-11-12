@@ -3,7 +3,7 @@
 
 /// `docs/guide/id/validation.md`.
 const String pageIdValidation =
-    r'''<!-- source: validation.md sha256:389697af2e00 -->
+    r'''<!-- source: validation.md sha256:2dba069ae62d -->
 # Validasi
 
 Validasi request secara inline dengan string rule Laravel, atau dengan objek
@@ -101,6 +101,86 @@ Rules.unique('users', 'email').where((QueryBuilder q) => q.whereNull('deleted_at
 Rules.exists('billing.invoices', 'id').where((QueryBuilder q) => q.where('open', true));
 ```
 
+Pada list (`items.*` dengan `unique` atau `exists`), setiap item adalah
+satu query, seperti di Laravel. Batasi panjang list dengan `max`
+(`'items': 'array|max:100'`) dan beri indeks pada kolom yang diperiksa.
+`exists` atas nilai list (`ids: [1, 3]`) adalah satu query untuk seluruh
+list.
+
+### Mode email dan `active_url`
+
+`email` menerima mode dari Laravel, `email:rfc,dns` atau
+`Rules.email(rfc: true, dns: true)`; setiap mode yang diberikan harus lolos,
+dan `rfc` berlaku bila tidak ada mode.
+
+- `filter` dan `filter_unicode` adalah `FILTER_VALIDATE_EMAIL` dari PHP
+  (dengan `FILTER_FLAG_EMAIL_UNICODE`), dibaca dalam satu lintasan atas
+  alamat, bukan dengan regex PHP, yang backtracking secara eksponensial pada
+  sebagian input; hasilnya dibandingkan dengan PHP 8.3 pada lebih dari 3 800
+  alamat.
+- `dns` memeriksa domain seperti `DNSCheckValidation` (egulias) di Laravel:
+  nama cadangan (`test`, `example`, `localhost`, `local`, ...) dan domain satu
+  label gagal, dan domain itu atau salah satu nama induknya harus punya record
+  MX, A, atau AAAA tanpa null MX. Seperti di Laravel, `dns` saja tidak
+  memeriksa sintaks: tulis `email:rfc,dns`.
+- `rfc` dan `strict` untuk sementara adalah pemeriksaan bergaya HTML, lebih
+  ketat daripada parser RFC di Laravel: local part bertanda kutip atau domain
+  satu label gagal.
+- `spoof` membutuhkan ICU, yang tidak ada di Dart: membangun aturannya
+  melempar `UnsupportedError` (pada request pertama yang memvalidasi dengannya,
+  di test, atau saat membuat OpenAPI), dan `dartisan lint` melaporkannya.
+
+`active_url` lolos bila host dari URL punya record A atau AAAA; alamat IP
+gagal, seperti di Laravel.
+
+Keduanya membuat server mencari nama yang dikirim pengguna. Setiap lookup
+menambah latensi request (paling lama 2 detik, lalu aturannya gagal), jadi
+letakkan route yang memakainya di balik rate limit. Lookup berjalan lewat
+`DnsResolver` yang terdaftar di container (bawaannya `SystemDnsResolver`);
+di test, daftarkan `FakeDnsResolver` dari `daravel_test`, padanan
+`fakeDnsLookups` di Laravel. Dua perbedaan dari PHP: lookup sistem juga
+membaca `/etc/hosts`; dan di Windows, yang tidak punya `/etc/resolv.conf`
+untuk menanyakan record MX, `dns` hanya melihat A dan AAAA (domain yang hanya
+punya MX gagal, dan null MX tidak terlihat).
+
+### User yang sedang login: `current_password` dan `can`
+
+```dart
+'current_password': 'required|current_password',      // atau current_password:api
+'tag': [Rules.required(), Rules.can('attach-tag', [post])],
+```
+
+`current_password` lolos bila nilainya adalah password user yang sedang
+login pada guard tersebut (guard bawaan bila tanpa argumen); guest gagal.
+`Rules.can` menanyakan gate apakah user saat ini boleh menjalankan ability
+dengan argumen yang diberikan lalu nilainya; seperti di Laravel, `null`,
+`false`, `0`, `''`, `'0'`, dan list kosong dibuang dari argumen. Keduanya
+berjalan di mana pun sebuah `Application` berjalan (request, job, command,
+`TestClient`, `app.run`); `Validator` biasa di luar `Application` melempar
+`StateError` yang menyebut apa yang harus didaftarkan, alih-alih meloloskan
+nilainya.
+
+Aturan yang bergantung pada input atau pada setiap elemen, seperti
+`Rule::when`, `Rule::unless`, `Rule::forEach`, dan `Rule::anyOf` di Laravel:
+
+```dart
+'company': Rules.whenInput((input) => input['type'] == 'business',
+    [Rules.required(), Rules.string()]),
+'notes': Rules.when(isAdmin, [Rules.nullable()], otherwise: [Rules.prohibited()]),
+'items.*.qty': Rules.forEach((item) =>
+    item.value == 0 ? [Rules.integer(), Rules.min(1)] : [Rules.integer()]),
+'items.*': Rules.forEachNested((item) => {'sku': [Rules.required()]}),
+'login': Rules.anyOf([[Rules.email()], [Rules.integer(), Rules.min(1)]]),
+```
+
+Kondisi diputuskan sekali per validasi, atas seluruh input (sesudah
+`prepare`). `forEachNested` memvalidasi key dari setiap elemen
+(`items.2.sku`), dan key tersebut ikut masuk `validated()`. Setiap alternatif
+`anyOf` divalidasi atas nilainya saja, sama seperti di Laravel: aturan di
+dalamnya yang menyebut field lain tidak melihat field tersebut. `forEach` yang
+terus mengembalikan `forEach` berhenti dengan galat setelah
+`Validator.maxRuleNesting` (8) tingkat; Laravel tidak punya batas.
+
 ## Form request
 
 <!-- include: packages/daravel/test/docs/guide_examples_test.dart#form-request -->
@@ -152,6 +232,8 @@ extension type const StoreNoteRequestInput(ValidatedData _data)
     implements ValidatedData {
   String get title => _data.field(StoreNoteRequest.title);
   int? get stars => _data.field(StoreNoteRequest.stars);
+
+  Map<String, Object?> get typed => {'title': title, 'stars': stars};
 }
 // </dartisan:input>
 ```
@@ -163,6 +245,26 @@ bertipe (`input.stars` adalah `int?`, dikonversi dari `'4'`).
 sebuah field; `request:sync --check` tidak menulis apa pun dan keluar dengan
 kode 1 bila ada region yang usang, untuk CI. Input type yang Anda deklarasikan
 sendiri, tanpa region, dibiarkan apa adanya.
+
+`typed` memuat setiap field menurut kunci input-nya, sudah dikonversi ke
+tipe yang dideklarasikan. Tipe sebuah field dan rule-nya masih bisa tidak
+cocok (`Field<int>` yang hanya `required`): validasi lolos lalu getter-nya
+melempar, menjadi 500. Dengan `daravel_test`, `make:request` juga menulis
+test yang menangkap hal ini:
+
+```dart
+test('StoreNoteRequest reads every field as its declared type', () async {
+  await expectFormRequestTyped(const StoreNoteRequest(), {
+    'title': 'Hello',
+    'stars': '4',
+  }, read: (input) => input.typed);
+});
+```
+
+Test ini sekuat contoh input-nya: tambahkan satu pemanggilan per cabang
+rule yang opsional (field `nullable` yang dikirim dan yang tidak). Kegagalan
+menyebut nama request, dan rule yang gagal atau field yang salah tipe,
+tidak pernah nilai input-nya.
 
 ## Upload file
 
@@ -190,6 +292,12 @@ router.post('/avatar', (request) async {
   tipe yang terdeteksi), `mimetypes:image/*`, `extensions:csv,txt` (nama file
   dari client), serta `min`, `max`, `size`, `between` dalam kilobyte. File
   PHP ditolak kecuali `php` dicantumkan.
+- `dimensions:min_width=100,max_height=800,ratio=3/2` (atau
+  `Rules.dimensions(minWidth: 100, ratio: '3/2')`) membaca ukuran dari header
+  gambar seperti `getimagesize` di PHP, untuk PNG, GIF, JPEG, WebP, dan BMP;
+  SVG lolos, seperti di Laravel. Hanya 256 KiB pertama dari upload yang
+  dibaca: JPEG yang metadata-nya lebih panjang dari itu sebelum gambarnya
+  tidak punya ukuran dan gagal, begitu pula format lain.
 - Tipe dideteksi dari isinya (PDF, gambar, file Office dan OpenDocument,
   arsip, teks), tidak pernah dari nama file: file teks bernama `photo.png`
   bukan gambar.
