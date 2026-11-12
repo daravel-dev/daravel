@@ -11,7 +11,6 @@ on:
     tags: ["v[0-9]+.[0-9]+.[0-9]+*"]
 
 permissions:
-  id-token: write
   contents: read
 jobs:
   verify:
@@ -43,8 +42,8 @@ jobs:
       daravel_payments: ${{ steps.published.outputs.daravel_payments }}
       daravel_medialibrary: ${{ steps.published.outputs.daravel_medialibrary }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: dart-lang/setup-dart@v1
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dart-lang/setup-dart@2286a0c042b44434fe26d292bbce8d34f7ec662b # v1
         with:
           sdk: stable
       - run: dart pub get
@@ -65,159 +64,114 @@ jobs:
             echo "$package=$state" >> "$GITHUB_OUTPUT"
           done
 
-  lints:
+  # One job, one package after the other in dependency order, from this
+  # checkout: no artifact passes between jobs. setup-dart's reusable
+  # workflow (one call per package) shares one artifact name across a
+  # run, so parallel calls published each other's archives in 1.27.1, and
+  # a re-run's download takes an older attempt's archive. A step that fails
+  # stops the ones after it; a re-run skips what is on pub.dev already.
+  # This job holds the OIDC token and runs no package code: only
+  # `dart pub get` and `dart pub publish`. Tests and analysis run in
+  # `verify`, which has no `id-token`.
+  publish:
     needs: verify
-    if: needs.verify.outputs.daravel_lints != 'published'
-    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
-    with:
-      working-directory: packages/daravel_lints
-
-  # `!failure() && !cancelled()`: a skipped (already published) dependency
-  # does not stop the packages after it.
-  daravel:
-    needs: [verify, lints]
-    if: ${{ !failure() && !cancelled() && needs.verify.outputs.daravel != 'published' }}
-    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
-    with:
-      working-directory: packages/daravel
-
-  daravel_test:
-    needs: [verify, daravel]
-    if: ${{ !failure() && !cancelled() && needs.verify.outputs.daravel_test != 'published' }}
-    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
-    with:
-      working-directory: packages/daravel_test
-
-  daravel_mysql:
-    needs: [verify, daravel]
-    if: ${{ !failure() && !cancelled() && needs.verify.outputs.daravel_mysql != 'published' }}
-    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
-    with:
-      working-directory: packages/daravel_mysql
-
-  daravel_sqlite:
-    needs: [verify, daravel]
-    if: ${{ !failure() && !cancelled() && needs.verify.outputs.daravel_sqlite != 'published' }}
-    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
-    with:
-      working-directory: packages/daravel_sqlite
-
-  daravel_postgres:
-    needs: [verify, daravel]
-    if: ${{ !failure() && !cancelled() && needs.verify.outputs.daravel_postgres != 'published' }}
-    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
-    with:
-      working-directory: packages/daravel_postgres
-
-  dartisan_cli:
-    needs: [verify, daravel, daravel_mysql]
-    if: ${{ !failure() && !cancelled() && needs.verify.outputs.dartisan_cli != 'published' }}
-    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
-    with:
-      working-directory: packages/dartisan_cli
-
-  daravel_teorion:
-    needs: [verify, daravel]
-    if: ${{ !failure() && !cancelled() && needs.verify.outputs.daravel_teorion != 'published' }}
-    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
-    with:
-      working-directory: packages/daravel_teorion
-
-  # The commands of these three build on dartisan_cli.
-  daravel_permission:
-    needs: [verify, daravel, dartisan_cli]
-    if: ${{ !failure() && !cancelled() && needs.verify.outputs.daravel_permission != 'published' }}
-    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
-    with:
-      working-directory: packages/daravel_permission
-
-  daravel_activitylog:
-    needs: [verify, daravel, dartisan_cli]
-    if: ${{ !failure() && !cancelled() && needs.verify.outputs.daravel_activitylog != 'published' }}
-    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
-    with:
-      working-directory: packages/daravel_activitylog
-
-  daravel_redis:
-    needs: [verify, daravel, dartisan_cli, daravel_session]
-    if: ${{ !failure() && !cancelled() && needs.verify.outputs.daravel_redis != 'published' }}
-    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
-    with:
-      working-directory: packages/daravel_redis
-
-  daravel_livekit:
-    needs: [verify, daravel]
-    if: ${{ !failure() && !cancelled() && needs.verify.outputs.daravel_livekit != 'published' }}
-    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
-    with:
-      working-directory: packages/daravel_livekit
-
-  daravel_google:
-    needs: [verify, daravel]
-    if: ${{ !failure() && !cancelled() && needs.verify.outputs.daravel_google != 'published' }}
-    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
-    with:
-      working-directory: packages/daravel_google
-
-  daravel_teobiefy:
-    needs: [verify, daravel]
-    if: ${{ !failure() && !cancelled() && needs.verify.outputs.daravel_teobiefy != 'published' }}
-    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
-    with:
-      working-directory: packages/daravel_teobiefy
-
-  daravel_s3:
-    needs: [verify, daravel]
-    if: ${{ !failure() && !cancelled() && needs.verify.outputs.daravel_s3 != 'published' }}
-    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
-    with:
-      working-directory: packages/daravel_s3
-
-  daravel_scout:
-    needs: [verify, daravel]
-    if: ${{ !failure() && !cancelled() && needs.verify.outputs.daravel_scout != 'published' }}
-    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
-    with:
-      working-directory: packages/daravel_scout
-
-  daravel_session:
-    needs: [verify, daravel]
-    if: ${{ !failure() && !cancelled() && needs.verify.outputs.daravel_session != 'published' }}
-    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
-    with:
-      working-directory: packages/daravel_session
-
-  daravel_excel:
-    needs: [verify, daravel, dartisan_cli]
-    if: ${{ !failure() && !cancelled() && needs.verify.outputs.daravel_excel != 'published' }}
-    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
-    with:
-      working-directory: packages/daravel_excel
-
-  daravel_log_viewer:
-    needs: [verify, daravel]
-    if: ${{ !failure() && !cancelled() && needs.verify.outputs.daravel_log_viewer != 'published' }}
-    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
-    with:
-      working-directory: packages/daravel_log_viewer
-
-  daravel_pulse:
-    needs: [verify, daravel]
-    if: ${{ !failure() && !cancelled() && needs.verify.outputs.daravel_pulse != 'published' }}
-    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
-    with:
-      working-directory: packages/daravel_pulse
-
-  daravel_payments:
-    needs: [verify, daravel, dartisan_cli]
-    if: ${{ !failure() && !cancelled() && needs.verify.outputs.daravel_payments != 'published' }}
-    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
-    with:
-      working-directory: packages/daravel_payments
-
-  daravel_medialibrary:
-    needs: [verify, daravel, dartisan_cli]
-    if: ${{ !failure() && !cancelled() && needs.verify.outputs.daravel_medialibrary != 'published' }}
-    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
-    with:
-      working-directory: packages/daravel_medialibrary
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      # Creates the pub.dev token from the job's OIDC token (PUB_TOKEN,
+      # `dart pub token add https://pub.dev --env-var PUB_TOKEN`).
+      - uses: dart-lang/setup-dart@2286a0c042b44434fe26d292bbce8d34f7ec662b # v1
+        with:
+          sdk: stable
+      - run: dart pub get
+      - name: daravel_lints
+        if: needs.verify.outputs.daravel_lints != 'published'
+        working-directory: packages/daravel_lints
+        run: dart pub publish --force
+      - name: daravel
+        if: needs.verify.outputs.daravel != 'published'
+        working-directory: packages/daravel
+        run: dart pub publish --force
+      - name: daravel_test
+        if: needs.verify.outputs.daravel_test != 'published'
+        working-directory: packages/daravel_test
+        run: dart pub publish --force
+      - name: daravel_mysql
+        if: needs.verify.outputs.daravel_mysql != 'published'
+        working-directory: packages/daravel_mysql
+        run: dart pub publish --force
+      - name: daravel_sqlite
+        if: needs.verify.outputs.daravel_sqlite != 'published'
+        working-directory: packages/daravel_sqlite
+        run: dart pub publish --force
+      - name: daravel_postgres
+        if: needs.verify.outputs.daravel_postgres != 'published'
+        working-directory: packages/daravel_postgres
+        run: dart pub publish --force
+      - name: dartisan_cli
+        if: needs.verify.outputs.dartisan_cli != 'published'
+        working-directory: packages/dartisan_cli
+        run: dart pub publish --force
+      - name: daravel_teorion
+        if: needs.verify.outputs.daravel_teorion != 'published'
+        working-directory: packages/daravel_teorion
+        run: dart pub publish --force
+      - name: daravel_permission
+        if: needs.verify.outputs.daravel_permission != 'published'
+        working-directory: packages/daravel_permission
+        run: dart pub publish --force
+      - name: daravel_activitylog
+        if: needs.verify.outputs.daravel_activitylog != 'published'
+        working-directory: packages/daravel_activitylog
+        run: dart pub publish --force
+      - name: daravel_livekit
+        if: needs.verify.outputs.daravel_livekit != 'published'
+        working-directory: packages/daravel_livekit
+        run: dart pub publish --force
+      - name: daravel_google
+        if: needs.verify.outputs.daravel_google != 'published'
+        working-directory: packages/daravel_google
+        run: dart pub publish --force
+      - name: daravel_teobiefy
+        if: needs.verify.outputs.daravel_teobiefy != 'published'
+        working-directory: packages/daravel_teobiefy
+        run: dart pub publish --force
+      - name: daravel_s3
+        if: needs.verify.outputs.daravel_s3 != 'published'
+        working-directory: packages/daravel_s3
+        run: dart pub publish --force
+      - name: daravel_scout
+        if: needs.verify.outputs.daravel_scout != 'published'
+        working-directory: packages/daravel_scout
+        run: dart pub publish --force
+      - name: daravel_session
+        if: needs.verify.outputs.daravel_session != 'published'
+        working-directory: packages/daravel_session
+        run: dart pub publish --force
+      - name: daravel_redis
+        if: needs.verify.outputs.daravel_redis != 'published'
+        working-directory: packages/daravel_redis
+        run: dart pub publish --force
+      - name: daravel_excel
+        if: needs.verify.outputs.daravel_excel != 'published'
+        working-directory: packages/daravel_excel
+        run: dart pub publish --force
+      - name: daravel_log_viewer
+        if: needs.verify.outputs.daravel_log_viewer != 'published'
+        working-directory: packages/daravel_log_viewer
+        run: dart pub publish --force
+      - name: daravel_pulse
+        if: needs.verify.outputs.daravel_pulse != 'published'
+        working-directory: packages/daravel_pulse
+        run: dart pub publish --force
+      - name: daravel_payments
+        if: needs.verify.outputs.daravel_payments != 'published'
+        working-directory: packages/daravel_payments
+        run: dart pub publish --force
+      - name: daravel_medialibrary
+        if: needs.verify.outputs.daravel_medialibrary != 'published'
+        working-directory: packages/daravel_medialibrary
+        run: dart pub publish --force
