@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.27.1
+
+A security patch; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).
+
+- Security: a multipart part's `Content-Disposition` parameters (since 1.0.0), the validation rules `decimal`, `multiple_of`, `gt`, `gte`, `lt` and `lte` (since 1.22.0) and WebSocket origin patterns with two or more `*` (since 1.10.0) are matched in time linear in the input; before, one request could hold a worker for minutes.
+- Fixed: `Application.shutdown()` after password hashing no longer ends the process before it returns (since 1.27.0).
+
 ## 1.27.0
 
 - Version aligned with Daravel 1.27.0; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).

@@ -799,7 +799,8 @@ final class DoctorCommand extends DaravelCommand {
         ),
       );
     }
-    if (ServeOptions.fromEnv(app.env).maxBodyBytes == null) {
+    final serve = ServeOptions.fromEnv(app.env);
+    if (serve.maxBodyBytes == null) {
       checks.add(
         const DoctorCheck(
           CheckStatus.warning,
@@ -807,6 +808,43 @@ final class DoctorCommand extends DaravelCommand {
           'Requests have no body limit: a client can make a worker buffer '
               'gigabytes. Leave it unset (50 MiB) or set the largest upload '
               'you accept.',
+        ),
+      );
+    }
+    final headerLimitsOff = [
+      if (serve.maxHeaderBytes == null) 'HTTP_MAX_HEADER_BYTES',
+      if (serve.maxHeaderLineBytes == null) 'HTTP_MAX_HEADER_LINE_BYTES',
+      if (serve.maxHeaders == null) 'HTTP_MAX_HEADERS',
+    ];
+    if (headerLimitsOff.isNotEmpty) {
+      checks.add(
+        DoctorCheck(
+          CheckStatus.warning,
+          '${headerLimitsOff.join(', ')}=0 in production',
+          'Request headers reach the application up to the 1 MiB dart:io '
+              'reads. Leave them unset (32 KiB, 16 KiB, 100), unless a proxy '
+              'in front limits headers already.',
+        ),
+      );
+    }
+    final multipartOff = [
+      for (final name in const [
+        'HTTP_MULTIPART_MAX_PARTS',
+        'HTTP_MULTIPART_MAX_FILES',
+        'HTTP_MULTIPART_MAX_FIELD_BYTES',
+        'HTTP_MULTIPART_MAX_PART_HEADER_BYTES',
+        'HTTP_MULTIPART_MAX_PART_HEADERS',
+      ])
+        if (app.env.maybeString(name)?.trim() == '0') name,
+    ];
+    if (multipartOff.isNotEmpty) {
+      checks.add(
+        DoctorCheck(
+          CheckStatus.warning,
+          '${multipartOff.join(', ')}=0 in production',
+          'A multipart upload is read without that limit, up to the body '
+              'limit. Leave it unset (MultipartLimits defaults) or set the '
+              'largest value you accept.',
         ),
       );
     }

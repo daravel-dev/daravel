@@ -63,6 +63,13 @@ runs `dart pub upgrade`, and activates the same version of the global
 `dartisan`. Packages from git or a path, and `dependency_overrides`, are
 left as they are.
 
+A release reaches pub.dev package by package. Before it writes anything,
+`upgrade` asks pub.dev for each package it would move (and `dartisan_cli`
+unless `--no-global`) at the target version; when one is not there yet, it
+names it and changes nothing, so try again a little later (or take only the
+core with `dart pub upgrade daravel`). When `dart pub upgrade` fails,
+`pubspec.yaml` and `pubspec.lock` are put back as they were.
+
 ```bash
 dartisan upgrade --check        # installed and latest version, nothing changes
 dartisan upgrade                # the latest release

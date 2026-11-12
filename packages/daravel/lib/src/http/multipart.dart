@@ -7,6 +7,7 @@ import 'dart:typed_data';
 import 'package:meta/meta.dart';
 import 'package:mime/mime.dart';
 
+import '../foundation/env.dart';
 import 'http_exceptions.dart';
 import 'request.dart';
 import 'uploaded_file.dart';
@@ -35,6 +36,55 @@ final class MultipartLimits {
     this.maxPartHeaderBytes = 16 * 1024,
     this.maxPartHeaders = 100,
   });
+
+  /// The limits from the environment, each defaulting to the constructor's:
+  /// `HTTP_MULTIPART_MAX_PARTS` (1 000), `HTTP_MULTIPART_MAX_FILES` (20),
+  /// `HTTP_MULTIPART_MAX_FIELD_BYTES` (1 MiB),
+  /// `HTTP_MULTIPART_MAX_PART_HEADER_BYTES` (16 KiB) and
+  /// `HTTP_MULTIPART_MAX_PART_HEADERS` (100). `0` sets no limit, as for
+  /// `HTTP_MAX_BODY`; a negative value is an error at boot.
+  factory MultipartLimits.fromEnv(Env env) {
+    const defaults = MultipartLimits();
+    int read(String name, int fallback) {
+      final value = env.integer(name, fallback);
+      if (value < 0) {
+        throw ArgumentError.value(
+          value,
+          name,
+          'must be a positive number, or 0 for no limit',
+        );
+      }
+      return value == 0 ? unlimited : value;
+    }
+
+    return MultipartLimits(
+      maxParts: read('HTTP_MULTIPART_MAX_PARTS', defaults.maxParts),
+      maxFiles: read('HTTP_MULTIPART_MAX_FILES', defaults.maxFiles),
+      maxFieldBytes: read(
+        'HTTP_MULTIPART_MAX_FIELD_BYTES',
+        defaults.maxFieldBytes,
+      ),
+      maxPartHeaderBytes: read(
+        'HTTP_MULTIPART_MAX_PART_HEADER_BYTES',
+        defaults.maxPartHeaderBytes,
+      ),
+      maxPartHeaders: read(
+        'HTTP_MULTIPART_MAX_PART_HEADERS',
+        defaults.maxPartHeaders,
+      ),
+    );
+  }
+
+  /// What `0` in the environment stands for: no limit.
+  static const int unlimited = 1 << 52;
+
+  /// Whether any limit is off ([unlimited]), for `dartisan doctor`.
+  bool get anyUnlimited =>
+      maxParts == unlimited ||
+      maxFiles == unlimited ||
+      maxFieldBytes == unlimited ||
+      maxPartHeaderBytes == unlimited ||
+      maxPartHeaders == unlimited;
 
   /// The most parts a body may have; beyond it the body is refused with
   /// 400. PHP's default is 1 020 (`max_multipart_body_parts` -1 is

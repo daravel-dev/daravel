@@ -62,7 +62,7 @@ void main(List<String> args) {
     exitCode = 1;
     return;
   }
-  // A package without an example or a publish job, or published before
+  // A package without an example or a publish step, or published before
   // its dependencies, loses pub points (Blueprint #55).
   final problems = publishProblems(Directory.current.path);
   if (problems.isNotEmpty) {

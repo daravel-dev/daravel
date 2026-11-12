@@ -206,19 +206,30 @@ const int maxHostLength = 253;
 /// normalization and no character mapping beyond lower case, so a name
 /// written with combining marks or full-width letters can differ from the
 /// name PHP looks up.
+///
+/// A name that cannot fit is refused before [punycode] runs, as punycode
+/// takes time quadratic in the distinct code points of a label (16 000 of
+/// them took 4 s). Its output holds every basic code point of the label and
+/// at least one digit for each other one, so a label of n code points is at
+/// least n long, `xn--` and n + 4 when it is not ASCII:
+/// - a non-ASCII label of more than 59 code points is over 63 characters;
+/// - a name of more than [maxHostLength] code points is over that length
+///   (each label at least its code points long, plus the dots).
 String? toAsciiHost(String host) {
   var name = host.toLowerCase();
   if (name.endsWith('.')) {
     name = name.substring(0, name.length - 1);
   }
-  if (name.isEmpty) {
+  if (name.isEmpty || name.runes.length > maxHostLength) {
     return null;
   }
   final labels = <String>[];
   for (final label in name.split('.')) {
-    final ascii = label.codeUnits.every((c) => c < 0x80)
-        ? label
-        : 'xn--${punycode(label)}';
+    final isAscii = label.codeUnits.every((c) => c < 0x80);
+    if (!isAscii && label.runes.length > 63 - 'xn--'.length) {
+      return null;
+    }
+    final ascii = isAscii ? label : 'xn--${punycode(label)}';
     if (ascii.isEmpty || ascii.length > 63) {
       return null;
     }
