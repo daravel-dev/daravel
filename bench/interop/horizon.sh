@@ -11,7 +11,7 @@
 #       failed_jobs on either side
 #  b    Daravel running, and its own commands (horizon:clear, horizon:snapshot,
 #       horizon:terminate, queue:clear) leave Laravel Horizon's keys
-#       (`laravel_horizon:*`) as Laravel left them (names and types)
+#       (`laravel_horizon:*`) as Laravel left them (names, types, contents)
 #  c    every key of Daravel's Horizon store has a TTL, but `monitored`
 #  d    both dashboards answer, each with its own jobs only
 #  e    Laravel Horizon starting, stopping, and horizon:clear, horizon:purge,
@@ -123,10 +123,13 @@ daravel_detached() { # name [env...] -- args...
 redis() { docker exec horizon-redis redis-cli -p $REDIS_PORT "$@"; }
 psql() { docker exec horizon-pg psql -p $PG_PORT -U interop -d interop -tAc "$1"; }
 
-# Key names and types under a pattern, sorted: what is compared.
+# Key names, types and contents (a digest of DUMP) under a pattern, sorted:
+# what is compared. Once a side has stopped nothing writes its keys any more,
+# and its short-lived ones have expired (see settled), so every key's
+# content is compared, not only its name.
 snapshot() { # pattern
   redis --scan --pattern "$1" | sort | while read -r key; do
-    echo "$key $(redis type "$key")"
+    echo "$key $(redis type "$key") $(redis --no-raw dump "$key" | sha1sum | cut -c1-12)"
   done
 }
 # How many keys under a pattern expire within five minutes: heartbeats,
