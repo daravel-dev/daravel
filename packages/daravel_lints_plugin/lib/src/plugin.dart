@@ -48,7 +48,10 @@ final class DaravelLintsPlugin extends Plugin {
       _registerFix(registry, analysisRule);
     }
     for (final analysisRule in [
-      for (final rule in lints) DaravelAnalysisRule(rule),
+      for (final rule in lints)
+        rule is PreferSqlIdentifier
+            ? DaravelAnalysisRule.preferSqlIdentifier()
+            : DaravelAnalysisRule(rule),
       DaravelAnalysisRule.stringColumnName(),
     ]) {
       registry.registerLintRule(analysisRule);
@@ -89,6 +92,17 @@ final class DaravelAnalysisRule extends AnalysisRule {
     return DaravelAnalysisRule(
       StringColumnName(ModelColumnIndex(const {})),
       ruleIn: (file, unit) => StringColumnName(models.indexFor(file, unit)),
+    );
+  }
+
+  /// `prefer_sql_identifier` knowing the model classes each file names, so
+  /// `Region.where(sort)` is judged at the caller (#322).
+  factory DaravelAnalysisRule.preferSqlIdentifier([ModelIndexCache? cache]) {
+    final models = cache ?? _models;
+    return DaravelAnalysisRule(
+      const PreferSqlIdentifier(),
+      ruleIn: (file, unit) =>
+          PreferSqlIdentifier(modelClasses: models.modelClassesIn(file, unit)),
     );
   }
 

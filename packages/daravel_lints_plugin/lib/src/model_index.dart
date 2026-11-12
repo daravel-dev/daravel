@@ -46,6 +46,33 @@ final class ModelIndexCache {
     ]);
   }
 
+  /// The model classes [unit] (resolved, of [file]) names: classes declared
+  /// under `lib/app/models` of its package that have `Model` among their
+  /// supertypes, however indirectly (the resolved class answers it, so a
+  /// base class elsewhere counts too). For `prefer_sql_identifier`, which
+  /// judges `Region.where(sort)` at the caller (#322).
+  Set<String> modelClassesIn(File file, CompilationUnit unit) {
+    final root = _rootOf(file.parent);
+    if (root == null) {
+      return const {};
+    }
+    final context = file.provider.pathContext;
+    final models = context.join(root.path, 'lib', 'app', 'models');
+    final classes = <String>{};
+    unit.accept(
+      _Classes((element) {
+        final path = element.firstFragment.libraryFragment.source.fullName;
+        final name = element.name;
+        if (name != null &&
+            context.isWithin(models, path) &&
+            element.allSupertypes.any((t) => t.element.name == 'Model')) {
+          classes.add(name);
+        }
+      }),
+    );
+    return classes;
+  }
+
   /// The index of the model [files]: each parsed once per modification
   /// stamp; one that cannot be read counts as no model.
   ModelColumnIndex indexOfFiles(Iterable<File> files) =>
@@ -94,6 +121,20 @@ final class _References extends RecursiveAstVisitor<void> {
   void visitSimpleIdentifier(SimpleIdentifier node) {
     if (node.element case final InterfaceElement element) {
       found(element.firstFragment.libraryFragment.source.fullName);
+    }
+  }
+}
+
+/// The classes a unit names.
+final class _Classes extends RecursiveAstVisitor<void> {
+  _Classes(this.found);
+
+  final void Function(InterfaceElement element) found;
+
+  @override
+  void visitSimpleIdentifier(SimpleIdentifier node) {
+    if (node.element case final InterfaceElement element) {
+      found(element);
     }
   }
 }

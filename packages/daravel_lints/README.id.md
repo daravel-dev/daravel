@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:bd74bfc8f6c5 -->
+<!-- source: README.md sha256:de3907ecbed3 -->
 <img src="https://raw.githubusercontent.com/daravel-dev/daravel/main/docs/brand/png/daravel-icon-128.png" alt="Daravel" width="64" align="right">
 
 # daravel_lints
@@ -49,7 +49,7 @@ lintConfig(root).rules)`.
 
 | Rule | Menangkap |
 | :-- | :-- |
-| `prefer_sql_identifier` | nama kolom yang diberikan ke method query builder (`where`, `orderBy`, `select`, `pluck`, ...) yang bukan string literal, bukan `const`, bukan pilihan di antara literal (`sort == 'name' ? 'name' : 'id'`), dan bukan `SqlIdentifier` |
+| `prefer_sql_identifier` | nama kolom yang diberikan ke method query builder (`where`, `orderBy`, `select`, `pluck`, ...) yang bukan string literal, bukan `const`, bukan pilihan di antara literal (`sort == 'name' ? 'name' : 'id'`), dan bukan `SqlIdentifier`. Query yang diawali static model (`Region.where(sort)`, passthrough yang ditulis `make:model`) dinilai di pemanggilnya, bukan di passthrough-nya: model adalah kelas di `lib/app/models` yang `extends Model`, langsung atau lewat kelas di folder itu (plugin editor menanyakan kelas yang ter-resolve) |
 | `string_validation_rule` | daftar rule berupa string (`'required\|email\|max:255'`) yang bisa diganti rantai `Rules` dengan arti yang sama (`Rules.required().email().max(255)`), yang dilengkapi editor dan diperiksa compiler; pesannya menyebut rantai itu. Tidak dilaporkan bila tidak ada rantai yang persis sama (`regex`, rule yang tidak dikenal, `min` yang bukan angka) |
 | `string_column_name` | nama kolom yang ditulis sebagai string di query model (`User.query().where('email', x)`, `User.where(...)`) bila record `cols` model itu memuat kolom tersebut, di method yang menerima kolom bertipe (`where`, `orWhere`, `orderBy`, `latest`, `pluck`, `select`, `count`, ...): pesannya menyebut tokennya (`User.cols.email`). Rule ini membaca `lib/app/models` proyek (`StringColumnName.forProject(root)`, yang dibangun `LintConfig.rulesIn(root)` begitu rule ini dinyalakan, di `dartisan lint` dan `expectLintClean()`; plugin editor hanya membaca model yang dirujuk tiap berkas, di bawah `lib/app/models` paketnya, dan membaca ulang model yang berubah). Fix-nya menulis token itu (`(removes const)` bila `const` list `select([...])` ikut dihapus; tidak di list bertipe `<String>`); `whereIn`, `whereNull`, dan sejenisnya menerima `String` sehingga tidak dilaporkan |
 
