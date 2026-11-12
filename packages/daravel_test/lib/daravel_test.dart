@@ -20,6 +20,7 @@ export 'src/architecture.dart';
 export 'src/cookie_jar.dart';
 export 'src/database.dart';
 export 'src/dns.dart';
+export 'src/form_request.dart';
 export 'src/process.dart';
 export 'src/time.dart';
 

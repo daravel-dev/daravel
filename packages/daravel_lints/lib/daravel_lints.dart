@@ -947,6 +947,15 @@ final class InvalidValidationRule extends LintRule {
         return 'Validation rule "$rule" expects a number, got '
             '"${badNumber.first}" in "$dsl".';
       }
+      // RuleParser counts every comma-separated part, empty ones too.
+      final parts = colon == -1
+          ? 0
+          : segment.substring(colon + 1).split(',').length;
+      if ((rule == 'unique' && parts > 4) || (rule == 'exists' && parts > 2)) {
+        return 'Where conditions in the string form of $rule are not '
+            'supported (Daravel would loosen the rule): use '
+            'Rules.$rule(...).where(...) in "$dsl".';
+      }
       if (rule == 'encoding' &&
           arguments.isNotEmpty &&
           !supportedEncodings.contains(

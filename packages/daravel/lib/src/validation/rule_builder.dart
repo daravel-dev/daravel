@@ -246,6 +246,10 @@ final class RuleBuilder {
   /// Appends [Rules.different].
   RuleBuilder different(String other) => _add(Rules.different(other));
 
+  /// Appends [Rules.differentFrom].
+  RuleBuilder differentFrom(List<String> others) =>
+      _add(Rules.differentFrom(others));
+
   /// Appends [Rules.startsWith].
   RuleBuilder startsWith(List<String> prefixes) =>
       _add(Rules.startsWith(prefixes));
@@ -471,6 +475,10 @@ final class RuleBuilder {
 
   /// Appends [Rules.excludeWithout].
   RuleBuilder excludeWithout(String other) => _add(Rules.excludeWithout(other));
+
+  /// Appends [Rules.excludeWithoutAny].
+  RuleBuilder excludeWithoutAny(List<String> others) =>
+      _add(Rules.excludeWithoutAny(others));
 
   /// Appends [Rules.enum_].
   RuleBuilder enum_<E extends Enum>(
@@ -731,6 +739,10 @@ extension RuleChain on Rule {
   /// This rule followed by [Rules.different].
   RuleBuilder different(String other) => _chain.different(other);
 
+  /// This rule followed by [Rules.differentFrom].
+  RuleBuilder differentFrom(List<String> others) =>
+      _chain.differentFrom(others);
+
   /// This rule followed by [Rules.startsWith].
   RuleBuilder startsWith(List<String> prefixes) => _chain.startsWith(prefixes);
 
@@ -950,6 +962,10 @@ extension RuleChain on Rule {
 
   /// This rule followed by [Rules.excludeWithout].
   RuleBuilder excludeWithout(String other) => _chain.excludeWithout(other);
+
+  /// This rule followed by [Rules.excludeWithoutAny].
+  RuleBuilder excludeWithoutAny(List<String> others) =>
+      _chain.excludeWithoutAny(others);
 
   /// This rule followed by [Rules.enum_].
   RuleBuilder enum_<E extends Enum>(
