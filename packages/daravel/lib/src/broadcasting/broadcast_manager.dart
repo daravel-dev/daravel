@@ -380,7 +380,13 @@ final class BroadcastAuthorization {
     final input = await request.all();
     final socketId = '${input['socket_id'] ?? ''}';
     final channel = '${input['channel_name'] ?? ''}';
-    if (!RegExp(r'^\d+\.\d+$').hasMatch(socketId) || channel.isEmpty) {
+    // A name the Pusher protocol does not allow (more than 164 characters,
+    // or others than `A-Z a-z 0-9 _ - = @ , . ;`) is refused before it
+    // reaches the channel patterns: no client subscribes with one, and the
+    // patterns' matching time grows with the name's length. 403, as
+    // Laravel answers every refusal on this route.
+    if (!RegExp(r'^\d+\.\d+$').hasMatch(socketId) ||
+        !PusherServer.isValidChannelName(channel)) {
       throw const HttpException(403, '');
     }
     final user = await _auth.user<Authenticatable>();
