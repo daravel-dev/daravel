@@ -88,7 +88,7 @@ final class DaravelAnalysisRule extends AnalysisRule {
     final models = cache ?? _models;
     return DaravelAnalysisRule(
       StringColumnName(ModelColumnIndex(const {})),
-      ruleIn: (file) => StringColumnName(models.indexFor(file)),
+      ruleIn: (file, unit) => StringColumnName(models.indexFor(file, unit)),
     );
   }
 
@@ -99,7 +99,7 @@ final class DaravelAnalysisRule extends AnalysisRule {
   final LintRule rule;
 
   /// The rule run on a file, when it depends on the file's package.
-  final LintRule Function(File file)? ruleIn;
+  final LintRule Function(File file, CompilationUnit unit)? ruleIn;
 
   // One code per rule name, kept for the life of the isolate: the analysis
   // server matches codes by identity (and `// ignore:` relies on it).
@@ -134,7 +134,8 @@ final class _Visitor extends SimpleAstVisitor<void> {
     final relative = root == null
         ? unit.file.path
         : p.relative(unit.file.path, from: root);
-    final rule = analysisRule.ruleIn?.call(unit.file) ?? analysisRule.rule;
+    final rule =
+        analysisRule.ruleIn?.call(unit.file, node) ?? analysisRule.rule;
     if (!rule.appliesTo(relative.replaceAll(r'\', '/'))) {
       return;
     }

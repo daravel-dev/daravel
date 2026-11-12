@@ -4,6 +4,7 @@
 
 import 'package:analysis_server_plugin/edit/dart/correction_producer.dart';
 import 'package:analyzer/dart/analysis/results.dart';
+import 'package:analyzer/file_system/file_system.dart';
 import 'package:analyzer/file_system/memory_file_system.dart';
 import 'package:analyzer_plugin/protocol/protocol_common.dart';
 import 'package:analyzer_plugin/utilities/change_builder/change_builder_core.dart';
@@ -30,41 +31,45 @@ final class User extends Model {
 }
 ''';
 
+    late File userFile;
+    late File postFile;
+
     setUp(() {
       provider = MemoryResourceProvider();
-      provider.newFile(path('/app/pubspec.yaml'), 'name: app\n');
-      provider.newFile(path('/app/lib/app/models/user.dart'), user);
-    });
-
-    test('per package, cached, rebuilt when a model changes', () {
-      final cache = ModelIndexCache();
-      final file = provider.newFile(path('/app/lib/app/q.dart'), '');
-      final first = cache.indexFor(file);
-      expect(first.fieldOf('User', 'email'), 'email');
-      // Unchanged models: the same index.
-      expect(identical(cache.indexFor(file), first), isTrue);
-      // A changed model (as an unsaved edit reaches the server): rebuilt.
-      provider.modifyFile(
-        path('/app/lib/app/models/user.dart'),
-        user.replaceFirst('email: ', 'mail: '),
-      );
-      expect(cache.indexFor(file).fieldOf('User', 'email'), 'mail');
-      // A new model file counts too.
-      provider.newFile(path('/app/lib/app/models/post/post.dart'), '''
+      userFile = provider.newFile(path('/app/lib/app/models/user.dart'), user);
+      postFile = provider.newFile(path('/app/lib/app/models/post.dart'), '''
 final class Post extends Model {
   static const cols = (title: ModelColumn<Post, String>('title'));
 }
 ''');
-      expect(cache.indexFor(file).fieldOf('Post', 'title'), 'title');
     });
 
-    test('empty outside a package or without models', () {
+    test('each model file parsed once per stamp', () {
       final cache = ModelIndexCache();
-      final loose = provider.newFile(path('/loose/a.dart'), '');
-      expect(cache.indexFor(loose).models, isEmpty);
-      provider.newFile(path('/other/pubspec.yaml'), 'name: other\n');
-      final other = provider.newFile(path('/other/lib/a.dart'), '');
-      expect(cache.indexFor(other).models, isEmpty);
+      final both = cache.indexOfFiles([userFile, postFile]);
+      expect(both.fieldOf('User', 'email'), 'email');
+      expect(both.fieldOf('Post', 'title'), 'title');
+      expect(cache.parses, 2);
+      // Unchanged: nothing parsed again.
+      cache.indexOfFiles([userFile, postFile]);
+      expect(cache.parses, 2);
+      // One changed (as an unsaved edit reaches the server): that one only.
+      provider.modifyFile(
+        userFile.path,
+        user.replaceFirst('email: ', 'mail: '),
+      );
+      expect(
+        cache.indexOfFiles([userFile, postFile]).fieldOf('User', 'email'),
+        'mail',
+      );
+      expect(cache.parses, 3);
+    });
+
+    test('a model file that is gone counts as no model', () {
+      final cache = ModelIndexCache();
+      cache.indexOfFiles([userFile]);
+      userFile.delete();
+      expect(cache.indexOfFiles([userFile, postFile]).models, ['Post']);
     });
   });
 }
@@ -77,10 +82,18 @@ import 'models/user.dart';
 Future<void> f() => User.query().select(const ['id', 'email']).get();
 ''';
 
+  final ModelIndexCache _cache = ModelIndexCache();
+
   @override
   void setUp() {
-    rule = DaravelAnalysisRule.stringColumnName(ModelIndexCache());
+    rule = DaravelAnalysisRule.stringColumnName(_cache);
     super.setUp();
+    // A model the query file does not refer to: never read.
+    newFile('$testPackageRootPath/lib/app/models/post.dart', '''
+final class Post {
+  static const cols = (title: ModelColumn<Post, String>('title'));
+}
+''');
     newFile('$testPackageRootPath/lib/app/models/user.dart', '''
 class ModelColumn<M, T> {
   const ModelColumn(this.name);
@@ -109,6 +122,22 @@ final class User {
       lint(source.indexOf("'id'"), 4),
       lint(source.indexOf("'email'"), 7),
     ]);
+    // Only the model the file refers to was read.
+    expect(_cache.parses, 1);
+  }
+
+  Future<void> test_a_class_outside_lib_app_models_is_not_a_model() async {
+    newFile('$testPackageRootPath/lib/app/other.dart', '''
+import 'models/user.dart';
+
+final class Admin {
+  static Query query() => Query();
+  static const cols = (email: ModelColumn<Admin, String>('email'));
+}
+
+Future<void> f() => Admin.query().select(['email']).get();
+''');
+    await assertNoDiagnosticsInFile('$testPackageRootPath/lib/app/other.dart');
   }
 
   Future<void> test_fix_all_in_file() async {

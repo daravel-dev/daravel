@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:ed6ae0543c4f -->
+<!-- source: README.md sha256:a0857a9b21f6 -->
 <img src="https://raw.githubusercontent.com/daravel-dev/daravel/main/docs/brand/png/daravel-icon-128.png" alt="Daravel" width="64" align="right">
 
 # daravel_lints_plugin
@@ -31,9 +31,12 @@ plugins:
       string_column_name: true
 ```
 
-`string_column_name` membaca model (`lib/app/models`) dari paket tempat
-tiap berkas berada. Model dibaca sebagaimana dipegang editor, termasuk
-perubahan yang belum disimpan, dan dibaca ulang bila berubah.
+`string_column_name` hanya membaca model yang dirujuk sebuah berkas, dari
+`lib/app/models` paket berkas itu. Model dibaca sebagaimana dipegang
+editor, termasuk perubahan yang belum disimpan, dan hanya dibaca ulang
+bila berubah. Model yang tidak diimpor berkas itu tidak ter-resolve,
+sehingga editor tidak melaporkannya; `dartisan lint` tetap
+melaporkannya.
 
 Temuan dibungkam seperti di `dartisan lint`
 (`// daravel-lint-ignore: <rule>` di barisnya) atau dengan `// ignore: <rule>`

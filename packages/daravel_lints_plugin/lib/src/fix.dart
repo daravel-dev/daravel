@@ -19,7 +19,7 @@ final class DaravelFix extends ResolvedCorrectionProducer {
 
   /// The rule run on a file, when it depends on the file's package
   /// (`string_column_name` and the models it reads).
-  final LintRule Function(File file)? ruleIn;
+  final LintRule Function(File file, CompilationUnit unit)? ruleIn;
 
   // The edits taken so far for one "fix all in file" (the analysis server
   // runs one producer per finding on one builder): an edit two findings
@@ -54,7 +54,7 @@ final class DaravelFix extends ResolvedCorrectionProducer {
       return;
     }
     final unit = this.unit;
-    final rule = ruleIn?.call(unitResult.file) ?? this.rule;
+    final rule = ruleIn?.call(unitResult.file, unit) ?? this.rule;
     AstNode? found;
     rule.check(unit, (node, _) {
       if (node.offset == offset && node.length == length) {

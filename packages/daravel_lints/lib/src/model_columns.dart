@@ -47,13 +47,15 @@ final class ModelColumnIndex {
   /// path order (a class declared twice: the later one wins, as in
   /// [ModelColumnIndex.scan]). The editor plugin reads the files through
   /// the analysis server, so unsaved changes count.
-  factory ModelColumnIndex.ofSources(Iterable<String> sources) {
-    final fields = <String, Map<String, String>>{};
-    for (final source in sources) {
-      fields.addAll(ModelColumnIndex.ofSource(source)._fields);
-    }
-    return ModelColumnIndex(fields);
-  }
+  factory ModelColumnIndex.ofSources(Iterable<String> sources) =>
+      ModelColumnIndex.merge([
+        for (final source in sources) ModelColumnIndex.ofSource(source),
+      ]);
+
+  /// One index of the models of [indexes] (a class in two: the later one
+  /// wins).
+  factory ModelColumnIndex.merge(Iterable<ModelColumnIndex> indexes) =>
+      ModelColumnIndex({for (final index in indexes) ...index._fields});
 
   /// The `cols` records of the classes in [source].
   factory ModelColumnIndex.ofSource(String source) {

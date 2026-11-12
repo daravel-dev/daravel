@@ -30,9 +30,11 @@ plugins:
       string_column_name: true
 ```
 
-`string_column_name` reads the models (`lib/app/models`) of the package
-each file belongs to. It reads them as the editor holds them, unsaved
-changes included, and reads a model again when it changes.
+`string_column_name` reads only the models a file refers to, from
+`lib/app/models` of the file's package. It reads them as the editor holds
+them, unsaved changes included, and reads a model again only when it
+changes. A model the file does not import is not resolved, so the editor
+does not report it; `dartisan lint` still does.
 
 A finding is silenced as with `dartisan lint`
 (`// daravel-lint-ignore: <rule>` on its line) or with the analyzer's
