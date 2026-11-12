@@ -1009,7 +1009,7 @@ final class Score extends Model {
           'docker-compose.yml',
         ]),
       );
-      expect(api['routes/api.dart'], contains('throttle:register'));
+      expect(api['routes/api.dart'], contains("Mw.throttle('register')"));
       final minimal = newProjectFiles(
         package: 'tiny',
         appName: 'Tiny',

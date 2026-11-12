@@ -23,6 +23,7 @@ import 'package:timezone/timezone.dart' as tz;
 import 'src/model_columns.dart';
 import 'src/rule_chain.dart';
 
+export 'src/lint_config.dart';
 export 'src/model_columns.dart';
 export 'src/rule_chain.dart' show ruleChainSource;
 
@@ -658,13 +659,15 @@ final class PreferSqlIdentifier extends LintRule {
       }
     }
 
+    final generated = _staticsRegions(unit);
     unit.accept(
       _Visitor(
         onMethod: (node) {
           final method = node.methodName.name;
           final positions = columnArguments[method];
           if (positions == null ||
-              !NoSqlStringInterpolation._isDbReceiver(node.realTarget)) {
+              !NoSqlStringInterpolation._isDbReceiver(node.realTarget) ||
+              generated.any((r) => node.offset >= r.$1 && node.end <= r.$2)) {
             return;
           }
           final positional = node.argumentList.arguments
@@ -681,6 +684,40 @@ final class PreferSqlIdentifier extends LintRule {
     );
   }
 
+  /// The `// <dartisan:statics>` regions of [unit] (start and end offsets):
+  /// make:model's `where` static there forwards its argument, so the
+  /// rule reports the caller, not the forwarding.
+  static List<(int, int)> _staticsRegions(CompilationUnit unit) {
+    final regions = <(int, int)>[];
+    int? start;
+    for (Token? token = unit.beginToken; token != null; token = token.next) {
+      for (Token? c = token.precedingComments; c != null; c = c.next) {
+        final text = c.lexeme.trim();
+        if (text == '// <dartisan:statics>') {
+          start = c.offset;
+        } else if (text == '// </dartisan:statics>' && start != null) {
+          regions.add((start, c.end));
+          start = null;
+        }
+      }
+      if (token.isEof) {
+        break;
+      }
+    }
+    return regions;
+  }
+
+  /// `User.cols.email`, or `cols.email` inside the model: a column token
+  /// `dartisan model:sync` generated, which `string_column_name`
+  /// recommends; the compiler checks its name.
+  static bool _isTypedColumn(Expression? expression) => switch (expression) {
+    PropertyAccess(:final target) =>
+      (target is PrefixedIdentifier && target.identifier.name == 'cols') ||
+          (target is SimpleIdentifier && target.name == 'cols'),
+    PrefixedIdentifier(:final prefix) => prefix.name == 'cols',
+    _ => false,
+  };
+
   static bool _accepted(
     Expression column,
     Set<String> constants,
@@ -691,6 +728,9 @@ final class PreferSqlIdentifier extends LintRule {
       constants,
       identifiers,
     ),
+    // A typed column, or a condition on one (`User.cols.age.gte(18)`).
+    _ when _isTypedColumn(column) => true,
+    MethodInvocation(:final target) when _isTypedColumn(target) => true,
     // Closures (`where((q) {...})`), maps (`where({...})`) and raw SQL,
     // which `no_sql_string_interpolation` checks.
     FunctionExpression() || SetOrMapLiteral() || NullLiteral() => true,
@@ -1708,7 +1748,10 @@ bool _suppressed(List<String> lines, CharacterLocation location, String rule) {
   return mentions(location.lineNumber - 1) || mentions(location.lineNumber - 2);
 }
 
-/// Lints every Dart file under [directories] of the project at [root].
+/// Lints every Dart file under [directories] of the project at [root], then
+/// runs the registry check ([checkRegistries]) unless [registries] is
+/// `false`. `lintProject(root, rules: config.rules, registries:
+/// config.registries)` runs what the project's [lintConfig] enables.
 List<LintIssue> lintProject(
   String root, {
   List<String> directories = const <String>[
@@ -1719,6 +1762,7 @@ List<LintIssue> lintProject(
     'database',
   ],
   List<LintRule> rules = defaultRules,
+  bool registries = true,
 }) {
   final issues = <LintIssue>[];
   for (final directory in directories) {
@@ -1743,7 +1787,7 @@ List<LintIssue> lintProject(
       );
     }
   }
-  return issues..addAll(checkRegistries(root));
+  return [...issues, if (registries) ...checkRegistries(root)];
 }
 
 /// Convention folder → registry file that must import every file in it.

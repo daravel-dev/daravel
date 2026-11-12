@@ -1,0 +1,1234 @@
+{
+    "source": "The is_email test set 3.05 (Dominic Sayers, http://isemail.info; tests 1-100 by Michael Rushton) as shipped in egulias/EmailValidator tests/resources/is_email_tests.xml (master 0dbf5d78455d4d6a41d186da50adc1122ec066f4; the file is not in tag 4.0.4), control characters restored from their U+2400 symbols, and addresses of 300 and 1 000 characters; each run through Laravel 13's Validator with email, email:rfc and email:strict in the daravel-interop-laravel-13 image (docker run --rm --network=none).",
+    "license": "egulias/EmailValidator, MIT License, Copyright (c) 2013-2023 Eduardo Gulias Davis.",
+    "laravel": "13.40.0.0",
+    "egulias": "4.0.4.0",
+    "php": "8.3.35",
+    "cases": [
+        {
+            "address": "",
+            "from": "is_email #1",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": true
+        },
+        {
+            "address": "dGVzdA==",
+            "from": "is_email #2",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "QA==",
+            "from": "is_email #3",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEA=",
+            "from": "is_email #4",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBpbw==",
+            "from": "is_email #5",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": false
+        },
+        {
+            "address": "QGlv",
+            "from": "is_email #6",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "QGlhbmEub3Jn",
+            "from": "is_email #7",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBpYW5hLm9yZw==",
+            "from": "is_email #8",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": true
+        },
+        {
+            "address": "dGVzdEBub21pbmV0Lm9yZy51aw==",
+            "from": "is_email #9",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": true
+        },
+        {
+            "address": "dGVzdEBhYm91dC5tdXNldW0=",
+            "from": "is_email #10",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": true
+        },
+        {
+            "address": "YUBpYW5hLm9yZw==",
+            "from": "is_email #11",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": true
+        },
+        {
+            "address": "dGVzdEBlLmNvbQ==",
+            "from": "is_email #12",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": true
+        },
+        {
+            "address": "dGVzdEBpYW5hLmE=",
+            "from": "is_email #13",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": true
+        },
+        {
+            "address": "dGVzdC50ZXN0QGlhbmEub3Jn",
+            "from": "is_email #14",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": true
+        },
+        {
+            "address": "LnRlc3RAaWFuYS5vcmc=",
+            "from": "is_email #15",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdC5AaWFuYS5vcmc=",
+            "from": "is_email #16",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdC4uaWFuYS5vcmc=",
+            "from": "is_email #17",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdF9leGEtbXBsZS5jb20=",
+            "from": "is_email #18",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "ISMkJSZgKisvPT9eYHt8fX5AaWFuYS5vcmc=",
+            "from": "is_email #19",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": true
+        },
+        {
+            "address": "dGVzdFxAdGVzdEBpYW5hLm9yZw==",
+            "from": "is_email #20",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "MTIzQGlhbmEub3Jn",
+            "from": "is_email #21",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": true
+        },
+        {
+            "address": "dGVzdEAxMjMuY29t",
+            "from": "is_email #22",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": true
+        },
+        {
+            "address": "dGVzdEBpYW5hLjEyMw==",
+            "from": "is_email #23",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": true
+        },
+        {
+            "address": "dGVzdEAyNTUuMjU1LjI1NS4yNTU=",
+            "from": "is_email #24",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": true
+        },
+        {
+            "address": "YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXphYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5emFiY2RlZmdoaWtsbUBpYW5hLm9yZw==",
+            "from": "is_email #25",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": true
+        },
+        {
+            "address": "YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXphYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5emFiY2RlZmdoaWtsbW5AaWFuYS5vcmc=",
+            "from": "is_email #26",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBhYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5emFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6YWJjZGVmZ2hpa2wuY29t",
+            "from": "is_email #27",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": true
+        },
+        {
+            "address": "dGVzdEBhYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5emFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6YWJjZGVmZ2hpa2xtLmNvbQ==",
+            "from": "is_email #28",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBtYXNvbi1kaXhvbi5jb20=",
+            "from": "is_email #29",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": true
+        },
+        {
+            "address": "dGVzdEAtaWFuYS5vcmc=",
+            "from": "is_email #30",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBpYW5hLS5jb20=",
+            "from": "is_email #31",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBjLS1uLmNvbQ==",
+            "from": "is_email #32",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": true
+        },
+        {
+            "address": "dGVzdEBpYW5hLmNvLXVr",
+            "from": "is_email #33",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": true
+        },
+        {
+            "address": "dGVzdEAuaWFuYS5vcmc=",
+            "from": "is_email #34",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBpYW5hLm9yZy4=",
+            "from": "is_email #35",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBpYW5hLi5jb20=",
+            "from": "is_email #36",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "YUBhLmIuYy5kLmUuZi5nLmguaS5qLmsubC5tLm4uby5wLnEuci5zLnQudS52LncueC55LnouYS5iLmMuZC5lLmYuZy5oLmkuai5rLmwubS5uLm8ucC5xLnIucy50LnUudi53LngueS56LmEuYi5jLmQuZS5mLmcuaC5pLmouay5sLm0ubi5vLnAucS5yLnMudC51LnYudy54Lnkuei5hLmIuYy5kLmUuZi5nLmguaS5qLmsubC5tLm4uby5wLnEuci5zLnQudS52LncueC55LnouYS5iLmMuZC5lLmYuZy5oLmkuai5rLmwubS5uLm8ucC5xLnIucy50LnUudg==",
+            "from": "is_email #37",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": true
+        },
+        {
+            "address": "YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXphYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5emFiY2RlZmdoaWtsbUBhYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5emFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6YWJjZGVmZ2hpa2wuYWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXphYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5emFiY2RlZmdoaWtsLmFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXphYmNkZWZnaGk=",
+            "from": "is_email #38",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXphYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5emFiY2RlZmdoaWtsbUBhYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5emFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6YWJjZGVmZ2hpa2wuYWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXphYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5emFiY2RlZmdoaWtsLmFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXphYmNkZWZnaGlq",
+            "from": "is_email #39",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "YUBhYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5emFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6YWJjZGVmZ2hpa2wuYWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXphYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5emFiY2RlZmdoaWtsLmFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXphYmNkZWZnaGlrbC5hYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5emFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6YWJjZGVmZy5oaWo=",
+            "from": "is_email #40",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "YUBhYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5emFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6YWJjZGVmZ2hpa2wuYWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXphYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5emFiY2RlZmdoaWtsLmFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXphYmNkZWZnaGlrbC5hYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5emFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6YWJjZGVmZy5oaWpr",
+            "from": "is_email #41",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "InRlc3QiQGlhbmEub3Jn",
+            "from": "is_email #42",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": false
+        },
+        {
+            "address": "IiJAaWFuYS5vcmc=",
+            "from": "is_email #43",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": false
+        },
+        {
+            "address": "IiIiQGlhbmEub3Jn",
+            "from": "is_email #44",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "IlxhIkBpYW5hLm9yZw==",
+            "from": "is_email #45",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": false
+        },
+        {
+            "address": "IlwiIkBpYW5hLm9yZw==",
+            "from": "is_email #46",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": false
+        },
+        {
+            "address": "IlwiQGlhbmEub3Jn",
+            "from": "is_email #47",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "IlxcIkBpYW5hLm9yZw==",
+            "from": "is_email #48",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdCJAaWFuYS5vcmc=",
+            "from": "is_email #49",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "InRlc3RAaWFuYS5vcmc=",
+            "from": "is_email #103",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "InRlc3QidGVzdEBpYW5hLm9yZw==",
+            "from": "is_email #51",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdCJ0ZXh0IkBpYW5hLm9yZw==",
+            "from": "is_email #52",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "InRlc3QiInRlc3QiQGlhbmEub3Jn",
+            "from": "is_email #53",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "InRlc3QiLiJ0ZXN0IkBpYW5hLm9yZw==",
+            "from": "is_email #54",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "InRlc3RcIHRlc3QiQGlhbmEub3Jn",
+            "from": "is_email #55",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": false
+        },
+        {
+            "address": "InRlc3QiLnRlc3RAaWFuYS5vcmc=",
+            "from": "is_email #56",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "InRlc3QAIkBpYW5hLm9yZw==",
+            "from": "is_email #57",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "InRlc3RcACJAaWFuYS5vcmc=",
+            "from": "is_email #58",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": false
+        },
+        {
+            "address": "ImFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6IGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6IGFiY2RlZmdoaiJAaWFuYS5vcmc=",
+            "from": "is_email #59",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": false
+        },
+        {
+            "address": "ImFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6IGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6IGFiY2RlZmdcaCJAaWFuYS5vcmc=",
+            "from": "is_email #60",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBbMjU1LjI1NS4yNTUuMjU1XQ==",
+            "from": "is_email #61",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBhWzI1NS4yNTUuMjU1LjI1NV0=",
+            "from": "is_email #62",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBbMjU1LjI1NS4yNTVd",
+            "from": "is_email #63",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBbMjU1LjI1NS4yNTUuMjU1LjI1NV0=",
+            "from": "is_email #64",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBbMjU1LjI1NS4yNTUuMjU2XQ==",
+            "from": "is_email #65",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBbMTExMToyMjIyOjMzMzM6NDQ0NDo1NTU1OjY2NjY6Nzc3Nzo4ODg4XQ==",
+            "from": "is_email #66",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBbSVB2NjoxMTExOjIyMjI6MzMzMzo0NDQ0OjU1NTU6NjY2Njo3Nzc3XQ==",
+            "from": "is_email #67",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBbSVB2NjoxMTExOjIyMjI6MzMzMzo0NDQ0OjU1NTU6NjY2Njo3Nzc3Ojg4ODhd",
+            "from": "is_email #68",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBbSVB2NjoxMTExOjIyMjI6MzMzMzo0NDQ0OjU1NTU6NjY2Njo3Nzc3Ojg4ODg6OTk5OV0=",
+            "from": "is_email #69",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBbSVB2NjoxMTExOjIyMjI6MzMzMzo0NDQ0OjU1NTU6NjY2Njo3Nzc3Ojg4OEdd",
+            "from": "is_email #70",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBbSVB2NjoxMTExOjIyMjI6MzMzMzo0NDQ0OjU1NTU6NjY2Njo6ODg4OF0=",
+            "from": "is_email #71",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBbSVB2NjoxMTExOjIyMjI6MzMzMzo0NDQ0OjU1NTU6Ojg4ODhd",
+            "from": "is_email #72",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBbSVB2NjoxMTExOjIyMjI6MzMzMzo0NDQ0OjU1NTU6NjY2Njo6Nzc3Nzo4ODg4XQ==",
+            "from": "is_email #73",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBbSVB2Njo6MzMzMzo0NDQ0OjU1NTU6NjY2Njo3Nzc3Ojg4ODhd",
+            "from": "is_email #74",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBbSVB2Njo6OjMzMzM6NDQ0NDo1NTU1OjY2NjY6Nzc3Nzo4ODg4XQ==",
+            "from": "is_email #75",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBbSVB2NjoxMTExOjo0NDQ0OjU1NTU6Ojg4ODhd",
+            "from": "is_email #76",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBbSVB2Njo6Ol0=",
+            "from": "is_email #77",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBbSVB2NjoxMTExOjIyMjI6MzMzMzo0NDQ0OjU1NTU6MjU1LjI1NS4yNTUuMjU1XQ==",
+            "from": "is_email #78",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBbSVB2NjoxMTExOjIyMjI6MzMzMzo0NDQ0OjU1NTU6NjY2NjoyNTUuMjU1LjI1NS4yNTVd",
+            "from": "is_email #79",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBbSVB2NjoxMTExOjIyMjI6MzMzMzo0NDQ0OjU1NTU6NjY2Njo3Nzc3OjI1NS4yNTUuMjU1LjI1NV0=",
+            "from": "is_email #80",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBbSVB2NjoxMTExOjIyMjI6MzMzMzo0NDQ0OjoyNTUuMjU1LjI1NS4yNTVd",
+            "from": "is_email #81",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBbSVB2NjoxMTExOjIyMjI6MzMzMzo0NDQ0OjU1NTU6NjY2Njo6MjU1LjI1NS4yNTUuMjU1XQ==",
+            "from": "is_email #82",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBbSVB2NjoxMTExOjIyMjI6MzMzMzo0NDQ0Ojo6MjU1LjI1NS4yNTUuMjU1XQ==",
+            "from": "is_email #83",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBbSVB2Njo6MjU1LjI1NS4yNTUuMjU1XQ==",
+            "from": "is_email #84",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": false
+        },
+        {
+            "address": "IHRlc3QgQGlhbmEub3Jn",
+            "from": "is_email #85",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEAgaWFuYSAuY29t",
+            "from": "is_email #86",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdCAuIHRlc3RAaWFuYS5vcmc=",
+            "from": "is_email #87",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "DQogdGVzdEBpYW5hLm9yZw==",
+            "from": "is_email #88",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "DQogDQogdGVzdEBpYW5hLm9yZw==",
+            "from": "is_email #89",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "KGNvbW1lbnQpdGVzdEBpYW5hLm9yZw==",
+            "from": "is_email #90",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": false
+        },
+        {
+            "address": "KChjb21tZW50KXRlc3RAaWFuYS5vcmc=",
+            "from": "is_email #91",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "KGNvbW1lbnQoY29tbWVudCkpdGVzdEBpYW5hLm9yZw==",
+            "from": "is_email #92",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEAoY29tbWVudClpYW5hLm9yZw==",
+            "from": "is_email #93",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdChjb21tZW50KXRlc3RAaWFuYS5vcmc=",
+            "from": "is_email #94",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEAoY29tbWVudClbMjU1LjI1NS4yNTUuMjU1XQ==",
+            "from": "is_email #95",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "KGNvbW1lbnQpYWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXphYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5emFiY2RlZmdoaWtsbUBpYW5hLm9yZw==",
+            "from": "is_email #96",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEAoY29tbWVudClhYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5emFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6YWJjZGVmZ2hpa2wuY29t",
+            "from": "is_email #97",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": false
+        },
+        {
+            "address": "KGNvbW1lbnQpdGVzdEBhYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5emFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6YWJjZGVmZ2hpay5hYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5emFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6YWJjZGVmZ2hpay5hYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5emFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6YWJjZGVmZ2hpamsuYWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXphYmNkZWZnaGlqay5hYmNkZWZnaGlqa2xtbm9wcXJzdHU=",
+            "from": "is_email #98",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBpYW5hLm9yZwo=",
+            "from": "is_email #99",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEB4bi0taHhhamJoZWcyYXozYWwueG4tLWp4YWxwZGxw",
+            "from": "is_email #100",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": true
+        },
+        {
+            "address": "eG4tLXRlc3RAaWFuYS5vcmc=",
+            "from": "is_email #101",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": true
+        },
+        {
+            "address": "dGVzdEBpYW5hLm9yZy0=",
+            "from": "is_email #102",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "KHRlc3RAaWFuYS5vcmc=",
+            "from": "is_email #104",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEAoaWFuYS5vcmc=",
+            "from": "is_email #105",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBbMS4yLjMuNA==",
+            "from": "is_email #106",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "InRlc3RcIkBpYW5hLm9yZw==",
+            "from": "is_email #107",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "KGNvbW1lbnRcKXRlc3RAaWFuYS5vcmc=",
+            "from": "is_email #108",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBpYW5hLm9yZyhjb21tZW50XCk=",
+            "from": "is_email #109",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBpYW5hLm9yZyhjb21tZW50XA==",
+            "from": "is_email #110",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBbUkZDLTUzMjItZG9tYWluLWxpdGVyYWxd",
+            "from": "is_email #112",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBbUkZDLTUzMjJdLWRvbWFpbi1saXRlcmFsXQ==",
+            "from": "is_email #113",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBbUkZDLTUzMjItW2RvbWFpbi1saXRlcmFsXQ==",
+            "from": "is_email #114",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBbUkZDLTUzMjItXActZG9tYWluLWxpdGVyYWxd",
+            "from": "is_email #115",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBbUkZDLTUzMjItXAktZG9tYWluLWxpdGVyYWxd",
+            "from": "is_email #116",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBbUkZDLTUzMjItXF0tZG9tYWluLWxpdGVyYWxd",
+            "from": "is_email #117",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBbUkZDLTUzMjItZG9tYWluLWxpdGVyYWxcXQ==",
+            "from": "is_email #118",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBbUkZDLTUzMjItZG9tYWluLWxpdGVyYWxc",
+            "from": "is_email #119",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBbUkZDIDUzMjIgZG9tYWluIGxpdGVyYWxd",
+            "from": "is_email #120",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBbUkZDLTUzMjItZG9tYWluLWxpdGVyYWxdIChjb21tZW50KQ==",
+            "from": "is_email #121",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": false
+        },
+        {
+            "address": "f0BpYW5hLm9yZw==",
+            "from": "is_email #122",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEB/Lm9yZw==",
+            "from": "is_email #123",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "In8iQGlhbmEub3Jn",
+            "from": "is_email #124",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "Ilx/IkBpYW5hLm9yZw==",
+            "from": "is_email #125",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "KH8pdGVzdEBpYW5hLm9yZw==",
+            "from": "is_email #126",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBpYW5hLm9yZw0=",
+            "from": "is_email #127",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "DXRlc3RAaWFuYS5vcmc=",
+            "from": "is_email #128",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "Ig10ZXN0IkBpYW5hLm9yZw==",
+            "from": "is_email #129",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "KA0pdGVzdEBpYW5hLm9yZw==",
+            "from": "is_email #130",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBpYW5hLm9yZygNKQ==",
+            "from": "is_email #131",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "CnRlc3RAaWFuYS5vcmc=",
+            "from": "is_email #132",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "IgoiQGlhbmEub3Jn",
+            "from": "is_email #133",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "IlwKIkBpYW5hLm9yZw==",
+            "from": "is_email #134",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "KAopdGVzdEBpYW5hLm9yZw==",
+            "from": "is_email #135",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "B0BpYW5hLm9yZw==",
+            "from": "is_email #136",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEAHLm9yZw==",
+            "from": "is_email #137",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "IgciQGlhbmEub3Jn",
+            "from": "is_email #138",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "IlwHIkBpYW5hLm9yZw==",
+            "from": "is_email #139",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "KAcpdGVzdEBpYW5hLm9yZw==",
+            "from": "is_email #140",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "DQp0ZXN0QGlhbmEub3Jn",
+            "from": "is_email #141",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "DQogDQp0ZXN0QGlhbmEub3Jn",
+            "from": "is_email #142",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "IA0KdGVzdEBpYW5hLm9yZw==",
+            "from": "is_email #143",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "IA0KIHRlc3RAaWFuYS5vcmc=",
+            "from": "is_email #144",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "IA0KIA0KdGVzdEBpYW5hLm9yZw==",
+            "from": "is_email #145",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "IA0KDQp0ZXN0QGlhbmEub3Jn",
+            "from": "is_email #146",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "IA0KDQogdGVzdEBpYW5hLm9yZw==",
+            "from": "is_email #147",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBpYW5hLm9yZw0KIA==",
+            "from": "is_email #148",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBpYW5hLm9yZw0KIA0KIA==",
+            "from": "is_email #149",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBpYW5hLm9yZw0K",
+            "from": "is_email #150",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBpYW5hLm9yZw0KIA0K",
+            "from": "is_email #151",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBpYW5hLm9yZyANCg==",
+            "from": "is_email #152",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBpYW5hLm9yZyANCiA=",
+            "from": "is_email #153",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBpYW5hLm9yZyANCiANCg==",
+            "from": "is_email #154",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBpYW5hLm9yZyANCg0K",
+            "from": "is_email #155",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBpYW5hLm9yZyANCg0KIA==",
+            "from": "is_email #156",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "IHRlc3RAaWFuYS5vcmc=",
+            "from": "is_email #157",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBpYW5hLm9yZyA=",
+            "from": "is_email #158",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBbSVB2NjoxOjoyOl0=",
+            "from": "is_email #159",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": false
+        },
+        {
+            "address": "InRlc3RcwqkiQGlhbmEub3Jn",
+            "from": "is_email #160",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBpYW5hL2ljYW5uLm9yZw==",
+            "from": "is_email #161",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdC4oY29tbWVudCl0ZXN0QGlhbmEub3Jn",
+            "from": "is_email #165",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEBvcmc=",
+            "from": "is_email #166",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": false
+        },
+        {
+            "address": "dGVzdEB0ZXN0LmNvbQ==",
+            "from": "is_email #167",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": true
+        },
+        {
+            "address": "dGVzdEBuaWMubm8=",
+            "from": "is_email #168",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": true
+        },
+        {
+            "address": "YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhQGV4YW1wbGUuY29t",
+            "from": "local part of 300",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": false
+        },
+        {
+            "address": "YUBiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYi5iYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYi5iYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYi5iYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYi5iYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYi5jb20=",
+            "from": "domain of about 300",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "KGNjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjYylhQGV4YW1wbGUuY29t",
+            "from": "comment of 300 before the local part",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": false
+        },
+        {
+            "address": "YShjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2MpQGV4YW1wbGUuY29t",
+            "from": "comment of 300 after the local part",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": false
+        },
+        {
+            "address": "InFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcSJAZXhhbXBsZS5jb20=",
+            "from": "quoted local part of 300",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": false
+        },
+        {
+            "address": "YUBbSVB2NjoxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxXQ==",
+            "from": "domain literal of 300",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYUBleGFtcGxlLmNvbQ==",
+            "from": "local part of 1000",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": false
+        },
+        {
+            "address": "YUBiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYi5iYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYi5iYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYi5iYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYi5iYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYi5iYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYi5iYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYi5iYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYi5iYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYi5iYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYi5iYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYi5iYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYi5iYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYi5iYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYi5iYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYi5iYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYi5iYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYi5iYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYi5iYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYi5jb20=",
+            "from": "domain of about 1000",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        },
+        {
+            "address": "KGNjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2MpYUBleGFtcGxlLmNvbQ==",
+            "from": "comment of 1000 before the local part",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": false
+        },
+        {
+            "address": "YShjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjKUBleGFtcGxlLmNvbQ==",
+            "from": "comment of 1000 after the local part",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": false
+        },
+        {
+            "address": "InFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXEiQGV4YW1wbGUuY29t",
+            "from": "quoted local part of 1000",
+            "email": true,
+            "email:rfc": true,
+            "email:strict": false
+        },
+        {
+            "address": "YUBbSVB2NjoxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MToxOjE6MV0=",
+            "from": "domain literal of 1000",
+            "email": false,
+            "email:rfc": false,
+            "email:strict": false
+        }
+    ]
+}

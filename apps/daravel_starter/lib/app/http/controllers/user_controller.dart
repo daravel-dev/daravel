@@ -1,4 +1,6 @@
 import 'package:daravel/daravel.dart';
+import 'package:daravel_starter/app/http/requests/store_user_request.dart';
+import 'package:daravel_starter/app/http/requests/update_user_request.dart';
 import 'package:daravel_starter/app/http/resources/user_resource.dart';
 import 'package:daravel_starter/app/models/user.dart';
 
@@ -6,7 +8,7 @@ import 'package:daravel_starter/app/models/user.dart';
 final class UserController {
   /// `GET /api/users` — paginated `{data, links, meta}`.
   Future<Object?> index(Request request) async => JsonResource.collection(
-    await User.query().orderByDesc('id').paginate(perPage: 15),
+    await User.query().orderByDesc(User.cols.id).paginate(perPage: 15),
     UserResource.new,
   );
 
@@ -19,28 +21,26 @@ final class UserController {
     return UserResource(user);
   }
 
-  /// `POST /api/users` — 201 because the model was just created.
-  Future<Object?> store(Request request) async {
-    // Validated by the route's .validates(StoreUserRequest()).
-    final data = request.validated();
+  /// `POST /api/users` — 201 because the model was just created. The route
+  /// validates [StoreUserRequest] first and hands over its typed input.
+  Future<Object?> store(Request request, StoreUserInput data) async {
     final user = await DB.transaction(
       () async => User.createWith(
-        name: data.string('name'),
-        email: data.string('email'),
-        password: await Hash.make(data.string('password')),
+        name: data.name,
+        email: data.email,
+        password: await Hash.make(data.password),
       ),
     );
     return UserResource(user);
   }
 
   /// `PATCH /api/users/{id}` — only the owner may update (see `UserPolicy`).
+  /// The policy is checked before the input, so a stranger gets 403.
   Future<Object?> update(Request request) async {
     final user = await User.findOrFail(request.param<int>('id'));
     await request.authorize('update', [user]);
-    final data = await request.validate({
-      'name': 'required|string|min:2|max:100',
-    });
-    await user.updateWith(name: data.string('name'));
+    final data = await const UpdateUserRequest().validateRequest(request);
+    await user.updateWith(name: data.name);
     return UserResource(user);
   }
 }

@@ -7,6 +7,7 @@ import 'package:daravel_lints/daravel_lints.dart';
 import 'package:path/path.dart' as p;
 
 import '../dartisan_cli.dart';
+import 'region_format.dart';
 
 /// Sets `KEY=value` in a `.env` file body (replacing or appending).
 String setEnvValue(String content, String key, String value) {
@@ -1453,6 +1454,13 @@ final class ModelSyncCommand extends DaravelCommand {
         help: 'Print the accessors without writing.',
       )
       ..addFlag(
+        'check',
+        negatable: false,
+        help:
+            'Write nothing; exit 1 when a model is out of date with the '
+            'schema (for CI).',
+      )
+      ..addFlag(
         'typed-ids',
         negatable: false,
         help:
@@ -1489,8 +1497,11 @@ final class ModelSyncCommand extends DaravelCommand {
       return 0;
     }
     final dryRun = argResults!['dry-run'] as bool;
+    final check = argResults!['check'] as bool;
     final typedIds = argResults!['typed-ids'] as bool;
+    final formatter = RegionFormatter.forProject(paths.root);
     var synced = 0;
+    var stale = 0;
     for (final file in dir.listSync().whereType<File>().where(
       (f) => f.path.endsWith('.dart'),
     )) {
@@ -1515,6 +1526,7 @@ final class ModelSyncCommand extends DaravelCommand {
         await Schema.getColumns(model.table),
         dialect: App.make<DatabaseManager>().dialectOf(),
         idStub: typedIds ? _idStub(paths) : null,
+        formatter: formatter,
       );
       final plan = sync.plan;
       for (final warning in sync.warnings) {
@@ -1529,6 +1541,11 @@ final class ModelSyncCommand extends DaravelCommand {
       }
       if (dryRun) {
         stdout.writeln('--- ${model.className}\n${plan.lines.join('\n')}');
+      } else if (check && updated != source) {
+        stale++;
+        stdout.writeln(
+          '${model.className}: out of date; run dartisan model:sync.',
+        );
       } else if (updated != source) {
         file.writeAsStringSync(updated);
         stdout.writeln(
@@ -1545,7 +1562,7 @@ final class ModelSyncCommand extends DaravelCommand {
       );
       return only == null ? 0 : 1;
     }
-    return 0;
+    return stale == 0 ? 0 : 1;
   });
 }
 
@@ -1557,11 +1574,27 @@ String formatLintIssue(LintIssue issue) =>
     '  info - ${issue.path.replaceAll(r'\', '/')}:${issue.line}:${issue.column}'
     ' - ${issue.message} - ${issue.rule}';
 
-/// `lint [--json]` — runs `daravel_lints` over the project.
+/// `lint [--json] [--enable=a,b] [--disable=c]` — runs `daravel_lints` over
+/// the project: the default rules and the registry check, with the
+/// `diagnostics:` of the project's `analysis_options.yaml` ([lintConfig]),
+/// then `--enable`/`--disable` for this run.
 final class LintCommand extends Command<int> {
   /// The `dartisan lint` command.
   LintCommand() {
-    argParser.addFlag('json', negatable: false, help: 'Output JSON.');
+    argParser
+      ..addFlag('json', negatable: false, help: 'Output JSON.')
+      ..addMultiOption(
+        'enable',
+        help:
+            'Also run these rules for this run (opt-in rules are enabled '
+            'for good under diagnostics: in analysis_options.yaml).',
+        valueHelp: 'rule',
+      )
+      ..addMultiOption(
+        'disable',
+        help: 'Skip these rules for this run.',
+        valueHelp: 'rule',
+      );
   }
 
   @override
@@ -1574,7 +1607,41 @@ final class LintCommand extends Command<int> {
   @override
   Future<int> run() async {
     final root = ProjectPaths.locate().root;
-    final issues = lintProject(root);
+    final LintConfig config;
+    try {
+      config = lintConfig(root).withOverrides(
+        enable: argResults!['enable'] as List<String>,
+        disable: argResults!['disable'] as List<String>,
+      );
+    } on FormatException catch (error) {
+      stderr.writeln(error.message);
+      return 64;
+    } on ArgumentError catch (error) {
+      stderr.writeln('${error.message}');
+      return 64;
+    }
+    for (final warning in config.warnings) {
+      stderr.writeln('Warning: $warning');
+    }
+    final issues = lintProject(
+      root,
+      rules: config.rules,
+      registries: config.registries,
+    );
+    final optIn = [
+      for (final rule in config.rules)
+        if (optionalRules.any((o) => o.name == rule.name)) rule.name,
+    ];
+    final off = [
+      for (final rule in defaultRules)
+        if (config.disabled.contains(rule.name)) rule.name,
+      if (!config.registries) registryRuleName,
+    ];
+    final checked = [
+      if (optIn.isNotEmpty) 'opt-in rules on: ${optIn.join(', ')}',
+      if (off.isNotEmpty) 'rules off: ${off.join(', ')}',
+    ];
+    final scope = checked.isEmpty ? '' : ' (${checked.join('; ')})';
     if (argResults!['json'] as bool) {
       stdout.writeln(
         jsonEncode([
@@ -1597,8 +1664,9 @@ final class LintCommand extends Command<int> {
       }
       stdout.writeln(
         issues.isEmpty
-            ? 'No issues found.'
-            : '${issues.length} issue${issues.length == 1 ? '' : 's'} found.',
+            ? 'No issues found$scope.'
+            : '${issues.length} issue${issues.length == 1 ? '' : 's'} '
+                  'found$scope.',
       );
     }
     // Any finding fails the command, as `dart analyze --fatal-infos` does,
