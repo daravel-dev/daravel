@@ -378,6 +378,19 @@ void main() {
         'Secrets are in a plain .env',
       ]),
     );
+    expect(
+      notices(checks),
+      isNot(contains('APP_URL is https; the server itself speaks plain HTTP')),
+    );
+    // TLS ends at a proxy: requests see https only from a trusted one.
+    final https = await diagnose({
+      'APP_ENV': 'production',
+      'APP_URL': 'https://api.example.test',
+    });
+    expect(
+      notices(https),
+      contains('APP_URL is https; the server itself speaks plain HTTP'),
+    );
     // Laravel's defaults pass, and none of it fires outside production.
     final defaults = await diagnose({'APP_ENV': 'production'});
     expect(
