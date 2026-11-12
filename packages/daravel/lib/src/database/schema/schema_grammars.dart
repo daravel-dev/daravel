@@ -79,6 +79,41 @@ final class PostgresSchemaGrammar extends SchemaGrammar {
       'SELECT column_name AS name, data_type AS type, is_nullable AS nullable, column_default AS dflt '
       r'FROM information_schema.columns WHERE table_schema = COALESCE($1::text, current_schema()) AND table_name = $2::text ORDER BY ordinal_position';
 
+  /// Laravel 13's `PostgresGrammar::compileForeignKeys`, the schema bound
+  /// as for [compileColumns], and the actions cast to `text` (the same
+  /// letters; the Dart driver does not decode the one-byte `"char"` type).
+  @override
+  String compileForeignKeys() =>
+      'select c.conname as name, '
+      "string_agg(la.attname, ',' order by conseq.ord) as columns, "
+      'fn.nspname as foreign_schema, fc.relname as foreign_table, '
+      "string_agg(fa.attname, ',' order by conseq.ord) as foreign_columns, "
+      // ::text: the driver returns the one-byte "char" type undecoded.
+      'c.confupdtype::text as on_update, c.confdeltype::text as on_delete '
+      'from pg_constraint c '
+      'join pg_class tc on c.conrelid = tc.oid '
+      'join pg_namespace tn on tn.oid = tc.relnamespace '
+      'join pg_class fc on c.confrelid = fc.oid '
+      'join pg_namespace fn on fn.oid = fc.relnamespace '
+      'join lateral unnest(c.conkey) with ordinality as conseq(num, ord) on true '
+      'join pg_attribute la on la.attrelid = c.conrelid and la.attnum = conseq.num '
+      'join pg_attribute fa on fa.attrelid = c.confrelid and fa.attnum = c.confkey[conseq.ord] '
+      r"where c.contype = 'f' and tc.relname = $2::text "
+      r'and tn.nspname = COALESCE($1::text, current_schema()) '
+      'group by c.conname, fn.nspname, fc.relname, c.confupdtype, c.confdeltype';
+
+  /// PostgreSQL reports an action as one letter; Laravel's
+  /// `PostgresProcessor::processForeignKeys` names it.
+  @override
+  String? foreignKeyAction(String? raw) => switch (raw?.toLowerCase()) {
+    'a' => 'no action',
+    'r' => 'restrict',
+    'c' => 'cascade',
+    'n' => 'set null',
+    'd' => 'set default',
+    _ => null,
+  };
+
   @override
   ColumnInfo columnInfo(Map<String, Object?> row) {
     final dflt = row['dflt'] as String?;
@@ -206,6 +241,26 @@ final class MySqlSchemaGrammar extends SchemaGrammar {
       'SELECT column_name AS name, column_type AS type, is_nullable AS nullable, '
       'column_default AS dflt, extra AS extra, column_key AS ckey '
       'FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ? ORDER BY ordinal_position';
+
+  /// Laravel 13's `MySqlGrammar::compileForeignKeys`, in the current
+  /// database (Laravel's `schema()`, a synonym of `DATABASE()`).
+  @override
+  String compileForeignKeys() =>
+      'select kc.constraint_name as `name`, '
+      'group_concat(kc.column_name order by kc.ordinal_position) as `columns`, '
+      'kc.referenced_table_schema as `foreign_schema`, '
+      'kc.referenced_table_name as `foreign_table`, '
+      'group_concat(kc.referenced_column_name order by kc.ordinal_position) as `foreign_columns`, '
+      'rc.update_rule as `on_update`, '
+      'rc.delete_rule as `on_delete` '
+      'from information_schema.key_column_usage kc join information_schema.referential_constraints rc '
+      'on kc.constraint_schema = rc.constraint_schema and kc.constraint_name = rc.constraint_name '
+      'where kc.table_schema = DATABASE() and kc.table_name = ? and kc.referenced_table_name is not null '
+      'and rc.constraint_schema = DATABASE() and rc.table_name = ? '
+      'group by kc.constraint_name, kc.referenced_table_schema, kc.referenced_table_name, rc.update_rule, rc.delete_rule';
+
+  @override
+  List<Object?> foreignKeyBindings(String table) => <Object?>[table, table];
 
   @override
   ColumnInfo columnInfo(Map<String, Object?> row) => ColumnInfo(

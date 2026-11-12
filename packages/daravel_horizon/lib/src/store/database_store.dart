@@ -126,7 +126,7 @@ enum HorizonStoreDrop {
 /// Each write trims the rows past their retention, at most [trimBatch] per
 /// table, so the tables stay bounded without a scheduler; `horizon:prune`
 /// trims all. Retention and snapshot times are domain time ([Clock.now]).
-final class DatabaseHorizonStore implements HorizonStore {
+final class DatabaseHorizonStore implements BufferedHorizonStore {
   /// The store on [connection] (the default one when null) of [database].
   DatabaseHorizonStore(
     this.database, {
@@ -442,6 +442,7 @@ final class DatabaseHorizonStore implements HorizonStore {
 
   /// Writes what is buffered and stops buffering: later records are
   /// dropped (counted). Called at shutdown, before the connections close.
+  @override
   Future<void> close() async {
     _timer?.cancel();
     _timer = null;

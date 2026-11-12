@@ -369,6 +369,7 @@ sections:
       - { php: "->selectSub($query, 'alias')", dart: ".selectSub(query, 'alias')", symbol: QueryBuilder.selectSub }
       - { php: "Schema::create('users', fn (Blueprint $table) => ...)", dart: "schema.create('users', (table) {...})", symbol: SchemaBuilder.create, async: true }
       - { php: "Schema::table / dropIfExists / hasTable / hasColumn", dart: "schema.table / dropIfExists / hasTable / hasColumn", symbol: SchemaBuilder.hasColumn, async: true }
+      - { php: "Schema::getForeignKeys('sessions')", dart: "await Schema.getForeignKeys('sessions')", symbol: SchemaBuilder.getForeignKeys, async: true, note: "Laravel 13's shape (name, columns, foreign_schema, foreign_table, foreign_columns, on_update, on_delete) as a ForeignKeyInfo; name is null on SQLite, as in Laravel." }
       - { php: "$table->id() / string() / foreignId()->constrained()", dart: "table.id() / string() / foreignId().constrained()", symbol: Blueprint.foreignId }
       - { php: "$table->morphs('taggable') / nullableMorphs / uuidMorphs / ulidMorphs", dart: "table.morphs('taggable') / nullableMorphs / uuidMorphs / ulidMorphs", symbol: Blueprint.nullableMorphs }
       - { php: "$table->timestamps() / softDeletes() / rememberToken()", dart: "table.timestamps() / softDeletes() / rememberToken()", symbol: Blueprint.softDeletes }
@@ -457,6 +458,7 @@ sections:
       - { php: "Storage::download($path, $name)", dart: "await Storage.download(path, name: name)", symbol: Storage.download }
       - { php: "Storage::response($path)", dart: "await Storage.response(path, request: request)", symbol: Storage.response }
       - { php: "response()->download($path, $name)->deleteFileAfterSend()", dart: "await Response.download(path, name: name, deleteFileAfterSend: true)", symbol: Response.download }
+      - { php: "response()->streamDownload($callback, $name)", dart: "Response.streamDownload(stream, name: name) / Response.downloadBytes(bytes, name: name)", symbol: Response.streamDownload, note: "The content type comes from the name (else application/octet-stream), where Laravel leaves Symfony's text/html; a stream instead of a callback that echoes." }
       - { php: "response()->file($path)", dart: "await Response.file(path, request: request)", symbol: Response.file }
       - { php: "public/ (served by the web server)", dart: ".withStatic('public', prefix: '/assets')", symbol: ApplicationBuilder.withStatic, note: "Scanned at boot, served by name only; dartisan static:hash writes the versions for production." }
       - { php: "asset('css/app.css')", dart: "asset('css/app.css')", symbol: asset, note: "Adds ?v= with a SHA-256 prefix; that URL is cached for a year (immutable)." }

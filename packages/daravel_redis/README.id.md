@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:6d63c5879d42 -->
+<!-- source: README.md sha256:f13109c7812f -->
 <img src="https://raw.githubusercontent.com/daravel-dev/daravel/main/docs/brand/png/daravel-icon-128.png" alt="Daravel" width="64" align="right">
 
 # daravel_redis
@@ -59,6 +59,10 @@ REVERB_SCALING_DRIVER=redis
   database; `redis:ping`, `redis:stats`, `redis:keys-audit`,
   `redis:inspect` (juga tool MCP untuk agen AI), `cache:prune-stale-tags`,
   dan `redis:cli` yang read-only (`package:daravel_redis/commands.dart`).
+- `HORIZON_STORE=redis` untuk `daravel_horizon` (`RedisHorizonStore`): apa
+  yang ditampilkan Horizon, dalam key di bawah hash tag `{daravel:horizon}`
+  (satu slot di Redis Cluster) yang kedaluwarsa sendiri, dengan daftar job
+  yang ukurannya dibatasi (`HORIZON_STORE_MAX_PER_STATUS`).
 
 Dokumentasi: <https://github.com/daravel-dev/daravel/blob/main/docs/guide/id/redis.md>.
 

@@ -13,6 +13,7 @@ export 'src/config.dart';
 export 'src/limiters.dart';
 export 'src/connection.dart';
 export 'src/events.dart';
+export 'src/horizon_store.dart';
 export 'src/queue.dart';
 export 'src/resp.dart';
 export 'src/serializer.dart';
