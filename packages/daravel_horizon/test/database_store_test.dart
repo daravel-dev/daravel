@@ -80,6 +80,72 @@ void main() {
       },
     );
 
+    // Two workers flush the same job at once (failed on one, retried at
+    // once on the other): neither sees the other's row before it commits.
+    // Only a server with several connections can show it, not SQLite.
+    test('$name: two stores flushing the same job at once lose no other '
+        'record, and the newest one wins', () async {
+      Application open() =>
+          Application.configure(basePath: Directory.systemTemp.path)
+              .withEnv({'APP_ENV': 'testing', ...env()})
+              .withLogLevel(LogLevel.critical)
+              .withDatabaseDriver('mysql', MySqlDriver.fromConfig)
+              .create();
+      final first = open();
+      final second = open();
+      await first.boot();
+      await second.boot();
+      addTearDown(() async {
+        await first.run(
+          () async => const CreateHorizonTables().down(await Schema.builder()),
+        );
+        await first.shutdown();
+        await second.shutdown();
+      });
+      await first.run(() async {
+        final schema = await Schema.builder();
+        await const CreateHorizonTables().down(schema);
+        await const CreateHorizonTables().up(schema);
+      });
+      DatabaseHorizonStore store(Application app) => DatabaseHorizonStore(
+        app.container.make<DatabaseManager>(),
+        flushEvery: const Duration(hours: 1),
+        appMetrics: app.container.make<AppMetrics>(),
+      );
+      final a = store(first);
+      final b = store(second);
+      final now = DateTime.now().millisecondsSinceEpoch;
+      RecordedJob job(String uuid, String status, int at) => RecordedJob(
+        uuid: uuid,
+        name: 'SendInvoice',
+        queue: 'default',
+        status: status,
+        at: at,
+      );
+      for (var round = 0; round < 10; round++) {
+        for (var i = 0; i < 99; i++) {
+          await a.record(job('a$round-$i', 'completed', now));
+          await b.record(job('b$round-$i', 'completed', now));
+        }
+        // The same job: failed on the first, completed later on the
+        // second.
+        await a.record(job('x$round', 'failed', now));
+        await b.record(job('x$round', 'completed', now + 1));
+        await Future.wait([a.flush(), b.flush()]);
+      }
+      final rows = await first.run(() => DB.table('horizon_jobs').count());
+      expect(rows, 10 * (99 + 99 + 1), reason: 'no batch dropped');
+      for (var round = 0; round < 10; round++) {
+        expect((await a.job('x$round'))?.status, 'completed');
+      }
+      double dropped(Application app) => app.container
+          .make<AppMetrics>()
+          .registry
+          .counter('horizon_store_dropped_total', '')
+          .value({'store': 'database', 'reason': 'error'});
+      expect(dropped(first) + dropped(second), 0);
+    }, skip: name.contains('SQLite') ? 'one connection: no race' : null);
+
     // The trim is two statements per table (ids with LIMIT, then a delete
     // by id): DELETE … LIMIT is not portable, so each dialect runs it.
     test('$name: each write trims at most trimBatch old rows; prune trims '
@@ -108,6 +174,7 @@ void main() {
       final store = DatabaseHorizonStore(
         trimmed.container.make<DatabaseManager>(),
         trimBatch: 2,
+        trimEvery: Duration.zero,
         flushEvery: const Duration(hours: 1),
       );
       RecordedJob at(String uuid, String status) => RecordedJob(

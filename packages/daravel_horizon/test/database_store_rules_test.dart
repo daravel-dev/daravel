@@ -198,7 +198,10 @@ void main() {
       await store.close();
       expect(await rows('horizon_jobs'), 1);
       await store.record(job('b'));
-      expect(dropped('overflow'), 1);
+      // Its own reason: a full buffer and a closed store are different
+      // problems to whoever reads the metric.
+      expect(dropped('closed'), 1);
+      expect(dropped('overflow'), 0);
     },
   );
 }

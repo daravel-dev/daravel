@@ -48,7 +48,9 @@ final class CreateHorizonTables extends Migration {
       table.integer('duration_ms').nullable();
       table.unique(['uuid', 'status']);
       table.index(['status', 'at']);
-      table.index(['queue', 'at']);
+      // Covers `rates` (COUNT and AVG of a queue's last minute) from the
+      // index alone: without duration_ms, MySQL scanned the whole table.
+      table.index(['queue', 'at', 'duration_ms']);
     });
     await schema.create('horizon_job_tags', (table) {
       table.id();
@@ -94,6 +96,10 @@ enum HorizonStoreDrop {
 
   /// Writing failed (the database refused or was unreachable).
   error,
+
+  /// Recorded after [DatabaseHorizonStore.close] (the application shutting
+  /// down): nothing writes it any more.
+  closed,
 }
 
 /// The `database` store (`HORIZON_STORE=database`): the tables of
@@ -132,6 +138,7 @@ final class DatabaseHorizonStore implements HorizonStore {
     this.batchSize = 100,
     this.maxBuffered = 10000,
     this.trimBatch = 100,
+    this.trimEvery = const Duration(seconds: 1),
     this.maxSnapshots = HorizonService.maxSnapshots,
     this.appMetrics,
     this.logger,
@@ -165,6 +172,9 @@ final class DatabaseHorizonStore implements HorizonStore {
   /// The most rows one write trims per table.
   final int trimBatch;
 
+  /// The least time between two trims of this store (wall clock).
+  final Duration trimEvery;
+
   /// The snapshots kept per job name and per queue.
   final int maxSnapshots;
 
@@ -190,7 +200,7 @@ final class DatabaseHorizonStore implements HorizonStore {
   @override
   Future<void> record(RecordedJob job) async {
     if (_closed) {
-      _dropped(HorizonStoreDrop.overflow, 1);
+      _dropped(HorizonStoreDrop.closed, 1);
       return;
     }
     _buffer.add(job);
@@ -270,25 +280,12 @@ final class DatabaseHorizonStore implements HorizonStore {
             'duration_ms': job.durationMs,
           },
       ]);
-      final existing = {
-        for (final row in await _table(
-          'horizon_jobs',
-        ).whereIn('uuid', newest.keys.toList()).select(['uuid', 'at']).get())
-          '${row['uuid']}': (row['at']! as num).toInt(),
-      };
-      // An older record arriving late never replaces a newer one.
-      newest.removeWhere((uuid, job) => (existing[uuid] ?? -1) > job.at);
-      if (newest.isEmpty) {
-        return;
-      }
-      final replaced = [
-        for (final uuid in newest.keys)
-          if (existing.containsKey(uuid)) uuid,
-      ];
-      if (replaced.isNotEmpty) {
-        await _table('horizon_jobs').whereIn('uuid', replaced).delete();
-      }
-      await _table('horizon_jobs').insert([
+      // Two workers may write the same job at once (a job failed on one and
+      // retried at once on another): neither sees the other's row before
+      // it commits. So rows are inserted unless there, then each is made
+      // the newest record with a conditional update, atomic per row: no
+      // unique-key violation drops the batch, and no status steps back.
+      final rows = [
         for (final job in newest.values)
           {
             'uuid': job.uuid,
@@ -299,7 +296,12 @@ final class DatabaseHorizonStore implements HorizonStore {
             'duration_ms': job.durationMs,
             'record': jsonEncode(job.toJson()),
           },
-      ]);
+      ];
+      await _upsertNewest(
+        'horizon_jobs',
+        rows,
+        where: (row, query) => query.where('uuid', row['uuid']),
+      );
       final tagged = [
         for (final job in newest.values)
           for (final tag in job.tags)
@@ -312,12 +314,56 @@ final class DatabaseHorizonStore implements HorizonStore {
               },
       ];
       if (tagged.isNotEmpty) {
-        final uuids = {for (final row in tagged) row['job_uuid']!}.toList();
-        await _table('horizon_job_tags').whereIn('job_uuid', uuids).delete();
-        await _table('horizon_job_tags').insert(tagged);
+        await _upsertNewest(
+          'horizon_job_tags',
+          tagged,
+          where: (row, query) =>
+              query.where('tag', row['tag']).where('job_uuid', row['job_uuid']),
+        );
       }
     }, connection: connection);
-    await _trim();
+    await _maybeTrim();
+  }
+
+  /// Inserts [rows] into [table] unless a row with their key ([where]) is
+  /// there, then updates each such row whose record is older than or as
+  /// old as this one (`at`): the newest record wins, whichever writer
+  /// commits first. The updates are skipped when every row was new.
+  Future<void> _upsertNewest(
+    String table,
+    List<Map<String, Object?>> rows, {
+    required QueryBuilder Function(Map<String, Object?> row, QueryBuilder q)
+    where,
+  }) async {
+    final inserted = await _table(table).insertOrIgnore(rows);
+    if (inserted == rows.length) {
+      return;
+    }
+    for (final row in rows) {
+      await where(row, _table(table)).where('at', '<=', row['at']).update({
+        for (final e in row.entries) e.key: e.value,
+      });
+    }
+  }
+
+  DateTime? _trimmedAt;
+
+  /// Trims at most once per [trimEvery] (wall clock) and store: a select
+  /// and a delete per table on every flush of every worker would cost more
+  /// than the rows they remove. A trim that fails is logged; the next one
+  /// takes those rows.
+  Future<void> _maybeTrim() async {
+    final now = DateTime.now();
+    final last = _trimmedAt;
+    if (last != null && now.difference(last) < trimEvery) {
+      return;
+    }
+    _trimmedAt = now;
+    try {
+      await _trim();
+    } on Object catch (e) {
+      logger?.warning('Horizon could not trim its database store: $e');
+    }
   }
 
   /// Deletes up to [limit] rows of each table past their retention; the
@@ -456,22 +502,30 @@ final class DatabaseHorizonStore implements HorizonStore {
 
   @override
   Future<Map<String, Object?>> rates(String queue) async {
-    final rows = await _table('horizon_job_counts')
+    // Counted by the database: the master asks for each queue on every
+    // evaluation, and a busy minute holds many thousands of rows.
+    // One statement; AVG skips NULL: the average of the jobs that have a
+    // run time.
+    final row = await _table('horizon_job_counts')
         .where('queue', queue)
         .where('at', '>=', _now - 60000)
-        .select(['duration_ms'])
-        .get();
-    final timed = [
-      for (final row in rows)
-        if (row['duration_ms'] case final num ms) ms,
-    ];
+        .selectRaw('COUNT(*) AS jobs, AVG(duration_ms) AS avg_ms')
+        .first();
+    final count = _number(row?['jobs'])?.toInt() ?? 0;
     return {
-      'per_second': rows.length / 60,
-      'avg_ms': timed.isEmpty
-          ? null
-          : timed.reduce((a, b) => a + b) / timed.length,
+      'per_second': count / 60,
+      'avg_ms': _number(row?['avg_ms'])?.toDouble(),
     };
   }
+
+  /// An aggregate's value: PostgreSQL returns `AVG` (and `SUM`, `COUNT`
+  /// on some drivers) as `numeric`, which arrives as a string.
+  static num? _number(Object? value) => switch (value) {
+    null => null,
+    final num n => n,
+    final String s => num.parse(s),
+    _ => throw StateError('Not a number from the database: $value'),
+  };
 
   @override
   Future<Map<String, Object?>> summary() async {
@@ -497,10 +551,8 @@ final class DatabaseHorizonStore implements HorizonStore {
 
   @override
   Future<void> monitor(String tag) => Zone.root.run(() async {
-    if (await _table('horizon_monitored_tags').where('tag', tag).exists()) {
-      return;
-    }
-    await _table('horizon_monitored_tags').insert({'tag': tag});
+    // Two dashboards may monitor the same tag at once.
+    await _table('horizon_monitored_tags').insertOrIgnore({'tag': tag});
   });
 
   @override
@@ -540,19 +592,23 @@ final class DatabaseHorizonStore implements HorizonStore {
     final last = await _table('horizon_snapshots').max('taken_at');
     final since = last == null
         ? now - retention.inMilliseconds
-        : (last as num).toInt();
-    final rows = await _table('horizon_job_counts')
-        .where('at', '>', since)
-        .where('at', '<=', now)
-        .select(['name', 'queue', 'duration_ms'])
-        .get();
+        : _number(last)!.toInt();
     Future<void> add(String kind, String column) async {
-      final groups = <String, List<num?>>{};
-      for (final row in rows) {
-        groups
-            .putIfAbsent('${row[column]}', () => [])
-            .add(row['duration_ms'] as num?);
-      }
+      // Grouped by the database, not read row by row.
+      final groups = <String, ({int count, double? avg})>{
+        for (final row
+            in await _table('horizon_job_counts')
+                .where('at', '>', since)
+                .where('at', '<=', now)
+                .select([column])
+                .selectRaw('COUNT(*) AS jobs, AVG(duration_ms) AS avg_ms')
+                .groupBy([column])
+                .get())
+          '${row[column]}': (
+            count: _number(row['jobs'])!.toInt(),
+            avg: _number(row['avg_ms'])?.toDouble(),
+          ),
+      };
       // A key with no job since keeps its series going, as the process
       // store's does.
       final known = {
@@ -567,19 +623,13 @@ final class DatabaseHorizonStore implements HorizonStore {
       }
       await _table('horizon_snapshots').insert([
         for (final key in keys)
-          () {
-            final durations = groups[key] ?? const <num?>[];
-            final timed = [for (final d in durations) ?d];
-            return {
-              'kind': kind,
-              'key': key,
-              'taken_at': now,
-              'count': durations.length,
-              'avg_ms': timed.isEmpty
-                  ? null
-                  : timed.reduce((a, b) => a + b) / timed.length,
-            };
-          }(),
+          {
+            'kind': kind,
+            'key': key,
+            'taken_at': now,
+            'count': groups[key]?.count ?? 0,
+            'avg_ms': groups[key]?.avg,
+          },
       ]);
       for (final key in keys) {
         final old = [
