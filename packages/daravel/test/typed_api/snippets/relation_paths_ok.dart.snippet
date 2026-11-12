@@ -1,0 +1,17 @@
+// expect: none
+import 'package:daravel/daravel.dart';
+
+import '_models.dart';
+
+// Two, three and five levels, going round; only after a path; a path
+// keeps its root and its last model.
+ModelQuery<User> withPaths() => User.definition
+    .query()
+    .with_([
+      UserRels.rels.posts.comments,
+      UserRels.rels.posts.comments.author.posts.comments,
+      UserRels.rels.posts.comments.only([Comment.cols.id, Comment.cols.body]),
+    ])
+    .whereHas(UserRels.rels.posts.comments.author);
+
+final RelationToken<User, User> roundTrip = UserRels.rels.posts.comments.author;

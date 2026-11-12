@@ -302,6 +302,7 @@ sections:
       - { php: "User::createOrFirst($attributes, $values)", dart: "await User.query().createOrFirst(attributes, values)", symbol: ModelQuery.createOrFirst, async: true, note: "In a savepoint inside a transaction." }
       - { php: "catch (UniqueConstraintViolationException $e)", dart: "on UniqueConstraintViolationException catch (e)", symbol: UniqueConstraintViolationException, note: "Extends QueryException (sql, bindings, connectionName, previous); the message keeps the ? placeholders." }
       - { php: "->with(['posts'])", dart: ".with_(['posts'])", symbol: ModelQuery.with_, note: "`with` is a reserved word in Dart." }
+      - { php: "->with('posts.comments.author')", dart: ".with_([User.rels.posts.comments.author])", symbol: relationTokenMembers, note: "Daravel-only, opt-in: dartisan model:sync writes a relation path getter per relation (<Model>RelationPath), checked at each step; the path is the string at run time, which stays accepted." }
       - { php: "->with('user:id,name')", dart: ".with_('user:id,name')", symbol: ModelQuery.parseWith, note: "Keys the relation matches on are added when the selection leaves them out." }
       - { php: "->withCount('posts')", dart: ".withCount('posts')", symbol: ModelQuery.withCount }
       - { php: "->withSum('orders', 'total') / withAvg / withMin / withMax / withExists", dart: ".withSum('orders', 'total') / withAvg / withMin / withMax / withExists", symbol: ModelQuery.withExists }

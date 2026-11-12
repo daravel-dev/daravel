@@ -334,6 +334,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `User::createOrFirst($attributes, $values)` | `await User.query().createOrFirst(attributes, values)` | **async**; In a savepoint inside a transaction. |
 | `catch (UniqueConstraintViolationException $e)` | `on UniqueConstraintViolationException catch (e)` | Extends QueryException (sql, bindings, connectionName, previous); the message keeps the ? placeholders. |
 | `->with(['posts'])` | `.with_(['posts'])` | `with` is a reserved word in Dart. |
+| `->with('posts.comments.author')` | `.with_([User.rels.posts.comments.author])` | Daravel-only, opt-in: dartisan model:sync writes a relation path getter per relation (<Model>RelationPath), checked at each step; the path is the string at run time, which stays accepted. |
 | `->with('user:id,name')` | `.with_('user:id,name')` | Keys the relation matches on are added when the selection leaves them out. |
 | `->withCount('posts')` | `.withCount('posts')` |  |
 | `->withSum('orders', 'total') / withAvg / withMin / withMax / withExists` | `.withSum('orders', 'total') / withAvg / withMin / withMax / withExists` |  |

@@ -145,6 +145,17 @@ extension TextColumnConditions<M extends Model> on ModelColumn<M, String?> {
 /// not compile. At run time the token is its [name], a plain `String`, so
 /// `with_`, `withCount`, `whereHas`, `load` and the others see the string
 /// they always saw.
+///
+/// A path goes on with the relations of [C] as getters, which `model:sync`
+/// writes next to each model (`<Model>RelationPath`):
+/// `User.rels.posts.comments.author` is `posts.comments.author`, checked at
+/// every step, and typing `User.rels.posts.` lists the relations of `Post`.
+/// The getters of a model are in its file, so the file using the path
+/// imports it (or the models barrel, `lib/app/models/models.dart`). A
+/// relation named like a member of this type ([relationTokenMembers]) has
+/// no getter, since the member would always win; `nested` reaches it, as it
+/// reaches any relation. After a `MorphTo` relation, whose model is only
+/// known at run time, the path stops; `nested` or a string goes on.
 extension type const RelationToken<P extends Model, C extends Model>._(
   String name,
 ) implements Object {
@@ -167,6 +178,24 @@ extension type const RelationToken<P extends Model, C extends Model>._(
         '$name:${[for (final column in columns) column.name].join(',')}',
       );
 }
+
+/// The names a relation path getter cannot have: the members of
+/// [RelationToken], its own and those of `Object`. A member always wins
+/// over an extension getter of the same name, without an error, so
+/// `User.rels.posts.name` would be the token's text, never a relation
+/// named `name`. `dartisan model:sync` writes no getter for such a
+/// relation and says so; `nested(Post.rels.name)` reaches it.
+///
+/// A test keeps this set equal to the members [RelationToken] declares.
+const Set<String> relationTokenMembers = {
+  'name',
+  'nested',
+  'only',
+  'hashCode',
+  'runtimeType',
+  'toString',
+  'noSuchMethod',
+};
 
 /// A relation of [P] with the columns to load (`posts:id,title`), made by
 /// [RelationToken.only] for `with_`.

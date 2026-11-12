@@ -263,8 +263,14 @@ Future<void> f(Request request, Map<String, Object?> data) async {
       file.writeAsStringSync(content);
     }
 
-    write('lib/app/models/user.dart', 'class User {}\n');
+    write('lib/app/models/user.dart', 'final class User {}\n');
     write('lib/app/models/post.dart', 'class Post {}\n');
+    // The models barrel declares no class: nothing to register.
+    write(
+      'lib/app/models/models.dart',
+      "/// Every model.\nlibrary;\n\n// <dartisan:exports>\n"
+          "export 'post.dart';\nexport 'user.dart';\n// </dartisan:exports>\n",
+    );
     expect(checkRegistries(root.path), isEmpty, reason: 'no registry yet');
 
     write(

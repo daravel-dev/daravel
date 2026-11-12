@@ -1804,6 +1804,12 @@ const Map<String, String> optionalRegistryConventions = <String, String>{
   'lib/app/models': 'bootstrap/models.dart',
 };
 
+/// A class declaration at the start of a line, with any modifiers.
+final RegExp _declaresClass = RegExp(
+  r'^(?:abstract\s+|base\s+|final\s+|interface\s+|sealed\s+|mixin\s+)*class\s',
+  multiLine: true,
+);
+
 /// `registry_entry_missing`: classes in convention folders that no registry
 /// imports (they would silently never run — ADR-002).
 ///
@@ -1830,10 +1836,16 @@ List<LintIssue> checkRegistries(
       continue;
     }
     final registered = registry.existsSync() ? registry.readAsStringSync() : '';
+    // A file that declares no class (the models barrel, which only
+    // exports) has nothing to register.
     final files = dir
         .listSync()
         .whereType<File>()
-        .where((f) => f.path.endsWith('.dart'))
+        .where(
+          (f) =>
+              f.path.endsWith('.dart') &&
+              _declaresClass.hasMatch(f.readAsStringSync()),
+        )
         .toList();
     final sources = {
       for (final f in files) p.basename(f.path): f.readAsStringSync(),

@@ -1501,6 +1501,7 @@ final class ModelSyncCommand extends DaravelCommand {
     final typedIds = argResults!['typed-ids'] as bool;
     final formatter = RegionFormatter.forProject(paths.root);
     var synced = 0;
+    var withPaths = 0;
     var stale = 0;
     for (final file in dir.listSync().whereType<File>().where(
       (f) => f.path.endsWith('.dart'),
@@ -1554,7 +1555,17 @@ final class ModelSyncCommand extends DaravelCommand {
       } else {
         stdout.writeln('${model.className}: up to date.');
       }
+      if (updated.contains('RelationPath<Root extends Model>')) {
+        withPaths++;
+      }
       synced++;
+    }
+    if (withPaths > 0 && !File(paths.modelsBarrel).existsSync()) {
+      stdout.writeln(
+        'Tip: a lib/app/models/models.dart exporting every model lets one '
+        'import bring every relation path (User.rels.posts.comments); new '
+        'projects have it and make:model keeps it.',
+      );
     }
     if (synced == 0) {
       stdout.writeln(
