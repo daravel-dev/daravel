@@ -74,9 +74,13 @@ void main() {
     expect(ChannelPattern('orders.{id}').names, ['id']);
   });
 
-  // Time for n and 4n characters on a name that does not match: about 4
-  // times as long when linear; the regular expression took 16 times as long
-  // (two placeholders) and 64 (three). The limit of 10 sits far from both.
+  // Time for n and 16n characters on a name that does not match: about 16
+  // times as long when linear; the regular expression took 256 times as
+  // long (two placeholders) and 4 096 (three). The matcher allocates a table
+  // in proportion to the name, and one step of 4n crossed an allocation
+  // threshold at x7 to x13 (12 500 to 50 000 characters on a laptop, 50 000
+  // to 200 000 on a macOS runner), so the limit of 100 leaves room for one
+  // such jump and still sits far below quadratic.
   group('linear in the name', () {
     /// The fastest of three runs: interference only slows a run down.
     double ms(ChannelPattern pattern, String name) {
@@ -101,17 +105,17 @@ void main() {
       test(label, () {
         final compiled = ChannelPattern(pattern);
         expect(compiled.match(name(10)), isNull);
-        final small = ms(compiled, name(50000));
-        final large = ms(compiled, name(200000));
+        final small = ms(compiled, name(25000));
+        final large = ms(compiled, name(400000));
         expect(
           large / small,
-          lessThan(10),
+          lessThan(100),
           reason:
-              '50 000 chars: ${small.toStringAsFixed(1)} ms, '
-              '200 000: ${large.toStringAsFixed(1)} ms',
+              '25 000 chars: ${small.toStringAsFixed(1)} ms, '
+              '400 000: ${large.toStringAsFixed(1)} ms',
         );
-        // About 15 ms linear; the regular expression took hours.
-        expect(large, lessThan(1000), reason: '200 000 characters');
+        // About 40 ms linear; the regular expression took hours.
+        expect(large, lessThan(3000), reason: '400 000 characters');
       });
     }
   });
