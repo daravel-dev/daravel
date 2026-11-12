@@ -125,7 +125,7 @@ abstract final class RuleParser {
       'array' => Rules.array(args.isEmpty ? null : args),
       'list' => Rules.list(),
       'map' || 'object' => Rules.map(),
-      'email' => EmailRule(modes: {...args}),
+      'email' => EmailRule.checked({...args}),
       'active_url' => Rules.activeUrl(),
       'current_password' => Rules.currentPassword(
         guard: args.isEmpty ? null : args.first,
