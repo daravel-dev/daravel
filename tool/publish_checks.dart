@@ -89,6 +89,18 @@ List<String> publishProblems(String root) {
       }
     }
   }
+  // The other way round: a step for a package that is not here (or not
+  // published) would run in a directory that does not exist and stop the
+  // release. A cherry-pick onto a release branch can bring one.
+  for (final directory in order) {
+    if (!names.contains(directory.replaceFirst('packages/', ''))) {
+      problems.add(
+        '.github/workflows/publish.yml publishes $directory, which is not a '
+        'published package of this workspace: its step would fail the '
+        'release.',
+      );
+    }
+  }
   for (final name in pinnedWorkflows) {
     final file = File('$root/.github/workflows/$name');
     if (!file.existsSync()) {

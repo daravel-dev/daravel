@@ -105,6 +105,9 @@ jobs:
   # publish is manual. After it, enable automated publishing for it on
   # pub.dev before the next tag, or its step fails and the packages after
   # it are not published (stop and report; re-run once it is enabled).
+  # So the packages not yet released come last (their dependencies
+  # allowing): one not yet enabled holds back only the others like it.
+  # A new package's step goes after them. Recovery: CONTRIBUTING.md.
   publish:
     needs: verify
     runs-on: ubuntu-latest
@@ -122,10 +125,6 @@ jobs:
       - name: daravel_lints
         if: needs.verify.outputs.daravel_lints != 'published'
         working-directory: packages/daravel_lints
-        run: bash ../../tool/ci/pub_publish.sh
-      - name: daravel_lints_plugin
-        if: needs.verify.outputs.daravel_lints_plugin != 'published'
-        working-directory: packages/daravel_lints_plugin
         run: bash ../../tool/ci/pub_publish.sh
       - name: daravel
         if: needs.verify.outputs.daravel != 'published'
@@ -199,6 +198,18 @@ jobs:
         if: needs.verify.outputs.daravel_pulse != 'published'
         working-directory: packages/daravel_pulse
         run: bash ../../tool/ci/pub_publish.sh
+      - name: daravel_payments
+        if: needs.verify.outputs.daravel_payments != 'published'
+        working-directory: packages/daravel_payments
+        run: bash ../../tool/ci/pub_publish.sh
+      - name: daravel_medialibrary
+        if: needs.verify.outputs.daravel_medialibrary != 'published'
+        working-directory: packages/daravel_medialibrary
+        run: bash ../../tool/ci/pub_publish.sh
+      - name: daravel_lints_plugin
+        if: needs.verify.outputs.daravel_lints_plugin != 'published'
+        working-directory: packages/daravel_lints_plugin
+        run: bash ../../tool/ci/pub_publish.sh
       - name: daravel_horizon
         if: needs.verify.outputs.daravel_horizon != 'published'
         working-directory: packages/daravel_horizon
@@ -207,19 +218,11 @@ jobs:
         if: needs.verify.outputs.daravel_redis != 'published'
         working-directory: packages/daravel_redis
         run: bash ../../tool/ci/pub_publish.sh
-      - name: daravel_reverb
-        if: needs.verify.outputs.daravel_reverb != 'published'
-        working-directory: packages/daravel_reverb
-        run: bash ../../tool/ci/pub_publish.sh
       - name: daravel_reverb_client
         if: needs.verify.outputs.daravel_reverb_client != 'published'
         working-directory: packages/daravel_reverb_client
         run: bash ../../tool/ci/pub_publish.sh
-      - name: daravel_payments
-        if: needs.verify.outputs.daravel_payments != 'published'
-        working-directory: packages/daravel_payments
-        run: bash ../../tool/ci/pub_publish.sh
-      - name: daravel_medialibrary
-        if: needs.verify.outputs.daravel_medialibrary != 'published'
-        working-directory: packages/daravel_medialibrary
+      - name: daravel_reverb
+        if: needs.verify.outputs.daravel_reverb != 'published'
+        working-directory: packages/daravel_reverb
         run: bash ../../tool/ci/pub_publish.sh

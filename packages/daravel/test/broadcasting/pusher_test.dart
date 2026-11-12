@@ -315,6 +315,29 @@ void main() {
     },
   );
 
+  // Pusher: at most 164 characters, prefixes included, of `A-Z a-z 0-9`
+  // and `_ - = @ , . ;`. A longer name never reaches the channel patterns,
+  // whose matching time grows with it.
+  test('/broadcasting/auth refuses a name Pusher does not allow', () async {
+    final client = await connect();
+    Future<int> status(String channel) async =>
+        (await authorize(client.socketId, channel, token: 'user-1')).$1;
+    const prefix = 'private-chat.';
+    expect(status('$prefix${'r' * (164 - prefix.length)}'), completion(200));
+    expect(
+      await status('$prefix${'r' * (165 - prefix.length)}'),
+      403,
+      reason: '165 characters',
+    );
+    expect(await status('${prefix}r%23oom'), 403, reason: '# is reserved');
+    expect(
+      await status('$prefix${'r' * 100000}'),
+      403,
+      reason: 'answered at once, not matched',
+    );
+    await client.close();
+  });
+
   test('a private channel needs a valid signature', () async {
     final client = await connect();
     client.send({
