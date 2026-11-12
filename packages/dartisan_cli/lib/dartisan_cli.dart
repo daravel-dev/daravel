@@ -55,6 +55,7 @@ export 'src/project_commands.dart';
 export 'src/stubs.dart';
 export 'src/generator.dart';
 export 'src/global_runner.dart';
+export 'src/lint_fix_command.dart';
 export 'src/cache_commands.dart';
 export 'src/coordinator_report.dart';
 export 'src/security_audit.dart';

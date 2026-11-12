@@ -84,7 +84,9 @@ compile, and the editor shows the error at once.
 `rule.fixesIn(unit)` returns every fix in a file, and `LintFixMerger`
 combines them, making an edit two fixes share only once. `string_column_name`
 also offers a fix (see the table); the other rules offer none
-(`LintRule.fixFor` explains why for each).
+(`LintRule.fixFor` explains why for each). `fixSource(source, path,
+rules: ...)` applies every fix in a file, leaving the findings
+`// daravel-lint-ignore:` silences alone, as `dartisan lint --fix` does.
 
 Suppress a finding with `// daravel-lint-ignore: <rule>` on the same line or the
 line above.

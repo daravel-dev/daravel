@@ -1935,19 +1935,72 @@ bool _suppressed(List<String> lines, CharacterLocation location, String rule) {
   return mentions(location.lineNumber - 1) || mentions(location.lineNumber - 2);
 }
 
+/// [source] (project-relative [relativePath]) with the fix of every
+/// finding of [rules] that has one ([LintRule.fixFor]) applied, as
+/// `dartisan lint --fix` writes it; `null` when there is nothing to fix.
+/// A finding silenced with `// daravel-lint-ignore:` is left alone, as
+/// [lintSource] leaves it unreported. Fixes are combined with
+/// [LintFixMerger]; one left out because it overlapped another is taken in
+/// the next pass, on the source the earlier fixes produced (at most
+/// [passes]). `messages` holds each fix applied, `path:line: message`.
+({String source, List<String> messages})? fixSource(
+  String source,
+  String relativePath, {
+  List<LintRule> rules = defaultRules,
+  int passes = 5,
+}) {
+  final normalized = relativePath.replaceAll(r'\', '/');
+  final messages = <String>[];
+  var current = source;
+  for (var pass = 0; pass < passes; pass++) {
+    final parsed = parseString(
+      content: current,
+      path: normalized,
+      throwIfDiagnostics: false,
+    );
+    final lines = current.split('\n');
+    final merger = LintFixMerger();
+    var taken = 0;
+    for (final rule in rules) {
+      if (!rule.appliesTo(normalized)) {
+        continue;
+      }
+      rule.check(parsed.unit, (node, _) {
+        final location = parsed.lineInfo.getLocation(node.offset);
+        if (_suppressed(lines, location, rule.name)) {
+          return;
+        }
+        final fix = rule.fixFor(parsed.unit, node);
+        if (fix != null && merger.add(fix) != null) {
+          taken++;
+          messages.add('$normalized:${location.lineNumber}: ${fix.message}');
+        }
+      });
+    }
+    if (taken == 0) {
+      break;
+    }
+    current = LintFix('', merger.edits).apply(current);
+  }
+  return messages.isEmpty ? null : (source: current, messages: messages);
+}
+
+/// The project folders `dartisan lint` reads (and `--fix` writes).
+const List<String> lintDirectories = <String>[
+  'lib',
+  'bin',
+  'bootstrap',
+  'routes',
+  'database',
+];
+
 /// Lints every Dart file under [directories] of the project at [root], then
 /// runs the registry check ([checkRegistries]) unless [registries] is
 /// `false`. `lintProject(root, rules: config.rules, registries:
 /// config.registries)` runs what the project's [lintConfig] enables.
 List<LintIssue> lintProject(
   String root, {
-  List<String> directories = const <String>[
-    'lib',
-    'bin',
-    'bootstrap',
-    'routes',
-    'database',
-  ],
+  List<String> directories = lintDirectories,
   List<LintRule> rules = defaultRules,
   bool registries = true,
 }) {

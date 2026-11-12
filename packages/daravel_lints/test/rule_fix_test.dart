@@ -283,10 +283,95 @@ Future<void> f(dynamic request) =>
     expect(inserts.add(const LintFix('b', [LintEdit(5, 0, 'b')])), isNull);
   });
 
+  group('fixSource (dartisan lint --fix)', () {
+    test('every fix applied; a silenced finding left alone', () {
+      const source = '''
+import 'package:daravel/daravel.dart';
+
+Future<void> f(Request request) => request.validate({
+  'a': 'required',
+  // daravel-lint-ignore: string_validation_rule
+  'b': 'email',
+  'c': 'max:5',
+});
+''';
+      final fixed = fixSource(source, 'lib/app/a.dart', rules: [rule])!;
+      expect(fixed.source, contains("'a': Rules.required(),"));
+      expect(fixed.source, contains("'b': 'email',"));
+      expect(fixed.source, contains("'c': Rules.max(5),"));
+      expect(fixed.messages, [
+        'lib/app/a.dart:4: Write as Rules.required()',
+        'lib/app/a.dart:7: Write as Rules.max(5)',
+      ]);
+    });
+
+    test('null when nothing is fixed, or the rule skips the path', () {
+      const source =
+          "Future<void> f(dynamic r) => r.validate({'a': 'required'});";
+      expect(fixSource('void f() {}', 'lib/app/a.dart', rules: [rule]), isNull);
+      expect(fixSource(source, 'lib/src/a.dart', rules: [rule]), isNull);
+      expect(fixSource(source, 'lib/app/a.dart'), isNull, reason: 'defaults');
+    });
+
+    test('a fix left out for an overlap is taken in the next pass', () {
+      // Each fix rewrites the whole file: one is taken per pass.
+      const overlapping = _Overlapping();
+      final fixed = fixSource(
+        'final a = 1; final b = 2;',
+        'lib/app/a.dart',
+        rules: [overlapping],
+      )!;
+      expect(fixed.source, 'final A = 1; final B = 2;');
+      expect(fixed.messages, [
+        'lib/app/a.dart:1: Uppercase a',
+        'lib/app/a.dart:1: Uppercase b',
+      ]);
+    });
+  });
+
   test('LintFix applies its edits from the end', () {
     const fix = LintFix('x', [LintEdit(0, 1, 'AB'), LintEdit(2, 1, 'C')]);
     expect(fix.apply('abc'), 'ABbC');
   });
+}
+
+/// Reports each top-level variable with a lowercase name; its fix
+/// uppercases the name by rewriting the whole file, so any two of its
+/// fixes overlap.
+final class _Overlapping extends LintRule {
+  const _Overlapping();
+
+  @override
+  String get name => 'overlapping';
+
+  @override
+  String get description => 'test';
+
+  @override
+  void check(CompilationUnit unit, void Function(AstNode, String) report) {
+    for (final declaration
+        in unit.declarations.whereType<TopLevelVariableDeclaration>()) {
+      final variable = declaration.variables.variables.single;
+      if (variable.name.lexeme.toLowerCase() == variable.name.lexeme) {
+        report(declaration, 'lowercase');
+      }
+    }
+  }
+
+  @override
+  LintFix? fixFor(CompilationUnit unit, AstNode node) {
+    final variable =
+        (node as TopLevelVariableDeclaration).variables.variables.single;
+    final source = unit.toSource();
+    final name = variable.name.lexeme;
+    return LintFix('Uppercase $name', [
+      LintEdit(
+        0,
+        unit.end,
+        source.replaceFirst('$name =', '${name.toUpperCase()} ='),
+      ),
+    ]);
+  }
 }
 
 final class _Literals extends RecursiveAstVisitor<void> {

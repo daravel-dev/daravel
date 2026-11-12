@@ -279,6 +279,137 @@ daravel_lints:
       '  info - lib/app/x.dart:14:18 - m - r',
     );
   });
+
+  group('--fix (W9.8 PR 3)', () {
+    // A controller whose rules are strings; the project resolves
+    // package:daravel (a package config pointing at this workspace), so
+    // `dart analyze` sees what the fix really does.
+    const controller = '''
+import 'package:daravel/daravel.dart';
+
+Future<void> store(Request request) =>
+    request.validate({'email': 'required|email', 'name': 'required'});
+''';
+    late File file;
+
+    setUp(() {
+      File(p.join(root.path, 'analysis_options.yaml')).writeAsStringSync(
+        'daravel_lints:\n  diagnostics:\n    string_validation_rule: true\n',
+      );
+      file = File(p.join(root.path, 'lib', 'app', 'controller.dart'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync(controller);
+      _workspacePackageConfig(root.path);
+    });
+
+    Future<void> git(List<String> args) async {
+      final result = await Process.run('git', [
+        '-c',
+        'user.name=test',
+        '-c',
+        'user.email=test@example.invalid',
+        ...args,
+      ], workingDirectory: root.path);
+      expect(result.exitCode, 0, reason: '${result.stderr}');
+    }
+
+    Future<void> commitAll() async {
+      await git(['init', '-q']);
+      await git(['add', '-A']);
+      await git(['commit', '-q', '-m', 'start']);
+    }
+
+    test('--dry-run prints the change and writes nothing', () async {
+      final (code, output) = await lint(['--fix', '--dry-run']);
+      expect(code, 1, reason: 'the findings are still there');
+      expect(
+        output,
+        allOf([
+          contains('--- lib/app/controller.dart'),
+          contains("-    request.validate({'email': 'required|email', "),
+          contains('+    request.validate({'),
+          contains('Rules.required().email()'),
+          contains('Would fix 2 findings in 1 file.'),
+        ]),
+      );
+      expect(file.readAsStringSync(), controller);
+    });
+
+    test(
+      'refuses outside git and on uncommitted files, unless --force',
+      () async {
+        expect((await lint(['--fix'])).$1, 1);
+        expect(errors.toString(), contains('not a git work tree'));
+        expect(file.readAsStringSync(), controller);
+        await commitAll();
+        file.writeAsStringSync('$controller// edited\n');
+        expect((await lint(['--fix'])).$1, 1);
+        expect(errors.toString(), contains('lib/app/controller.dart'));
+        expect(file.readAsStringSync(), '$controller// edited\n');
+      },
+      timeout: const Timeout(Duration(minutes: 3)),
+    );
+
+    test('fixes, formats, and the project lints clean', () async {
+      await commitAll();
+      final (code, output) = await lint(['--fix']);
+      expect(code, 0, reason: output);
+      expect(output, contains('Fixed 2 findings in 1 file.'));
+      expect(output, contains('No issues found'));
+      final fixed = file.readAsStringSync();
+      expect(fixed, contains("'email': Rules.required().email(),"));
+      expect(fixed, contains("'name': Rules.required(),"));
+      // dart format ran on it: one entry per line once it is too long.
+      expect(fixed, contains('request.validate({\n'));
+    }, timeout: const Timeout(Duration(minutes: 3)));
+
+    test('a file the fix would break is left as it was', () async {
+      // The rule cannot see that this validate takes strings only (the
+      // limit fixFor documents): the fix does not compile, so it is undone.
+      const strings = '''
+import 'package:daravel/daravel.dart';
+
+final class Form {
+  Future<void> validate(Map<String, String> rules) async {}
+}
+
+Future<void> store(Form form) => form.validate({'email': 'required'});
+''';
+      file.writeAsStringSync(strings);
+      await commitAll();
+      final (code, output) = await lint(['--fix', '--force']);
+      expect(code, 1, reason: 'the finding stays');
+      expect(errors.toString(), contains('did not compile after the fix'));
+      expect(output, contains('Fixed 0 findings in 0 files; 1 file left'));
+      expect(file.readAsStringSync(), strings);
+    }, timeout: const Timeout(Duration(minutes: 3)));
+
+    test('--dry-run and --force without --fix are refused', () async {
+      expect((await lint(['--dry-run'])).$1, 64);
+      expect((await lint(['--force'])).$1, 64);
+    });
+  });
+}
+
+/// Writes `.dart_tool/package_config.json` into the project at [root]
+/// with the packages of this workspace (absolute URIs), so `dart analyze`
+/// resolves `package:daravel` there without `pub get`.
+void _workspacePackageConfig(String root) {
+  final workspace = p.normalize(p.join(Directory.current.path, '..', '..'));
+  final source = File(p.join(workspace, '.dart_tool', 'package_config.json'));
+  final config = jsonDecode(source.readAsStringSync()) as Map<String, Object?>;
+  final base = Uri.directory(p.join(workspace, '.dart_tool'));
+  final packages = [
+    for (final package
+        in (config['packages']! as List<Object?>).cast<Map<String, Object?>>())
+      {
+        ...package,
+        'rootUri': base.resolve(package['rootUri']! as String).toString(),
+      },
+  ];
+  File(p.join(root, '.dart_tool', 'package_config.json'))
+    ..createSync(recursive: true)
+    ..writeAsStringSync(jsonEncode({...config, 'packages': packages}));
 }
 
 /// Collects what a command prints.

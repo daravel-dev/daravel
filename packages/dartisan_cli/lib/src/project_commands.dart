@@ -1716,6 +1716,25 @@ final class LintCommand extends Command<int> {
         'disable',
         help: 'Skip these rules for this run.',
         valueHelp: 'rule',
+      )
+      ..addFlag(
+        'fix',
+        negatable: false,
+        help:
+            'Apply the fixes the rules offer (the editor quick fixes), '
+            'format the files changed, and undo a file the fix broke.',
+      )
+      ..addFlag(
+        'dry-run',
+        negatable: false,
+        help: 'With --fix: print the changes, write nothing.',
+      )
+      ..addFlag(
+        'force',
+        negatable: false,
+        help:
+            'With --fix: also change files with uncommitted changes, or '
+            'outside a git work tree (git checkout cannot undo that).',
       );
   }
 
@@ -1749,6 +1768,15 @@ final class LintCommand extends Command<int> {
       root,
       warn: (warning) => stderr.writeln('Warning: $warning'),
     );
+    if (argResults!['fix'] as bool) {
+      final refused = await _fix(root, rules);
+      if (refused != null) {
+        return refused;
+      }
+    } else if (argResults!['dry-run'] as bool || argResults!['force'] as bool) {
+      stderr.writeln('--dry-run and --force go with --fix.');
+      return 64;
+    }
     final issues = lintProject(
       root,
       rules: rules,
@@ -1800,6 +1828,86 @@ final class LintCommand extends Command<int> {
     // Any finding fails the command, as `dart analyze --fatal-infos` does,
     // so CI can run `dartisan lint` as a gate.
     return issues.isEmpty ? 0 : 1;
+  }
+
+  /// `--fix`: applies the fixes, or with `--dry-run` prints them. Returns
+  /// an exit code when it refuses to write, otherwise `null` and the
+  /// command goes on to report what is left.
+  Future<int?> _fix(String root, List<LintRule> rules) async {
+    final changes = planLintFixes(root, rules);
+    final count = changes.fold(0, (n, c) => n + c.messages.length);
+    String summary(String verb) =>
+        '$verb $count finding${count == 1 ? '' : 's'} in ${changes.length} '
+        'file${changes.length == 1 ? '' : 's'}.';
+    if (changes.isEmpty) {
+      stdout.writeln('Nothing to fix.');
+      return null;
+    }
+    if (argResults!['dry-run'] as bool) {
+      for (final change in changes) {
+        stdout.write(lintFixDiff(change.path, change.before, change.after));
+      }
+      stdout
+        ..writeln(summary('Would fix'))
+        ..writeln();
+      return null;
+    }
+    final paths = [for (final c in changes) c.path];
+    if (!(argResults!['force'] as bool)) {
+      final dirty = await uncommittedFiles(root, paths);
+      if (dirty == null) {
+        stderr.writeln(
+          'lint --fix: not a git work tree, so git checkout could not undo '
+          'the fixes; commit first, or pass --force.',
+        );
+        return 1;
+      }
+      if (dirty.isNotEmpty) {
+        stderr
+          ..writeln(
+            'lint --fix: these files have uncommitted changes; commit or '
+            'stash them first, or pass --force:',
+          )
+          ..writeln(dirty.map((d) => '  $d').join('\n'));
+        return 1;
+      }
+    }
+    final errorsBefore = await analyzeErrors(root, paths);
+    for (final change in changes) {
+      File(p.join(root, change.path)).writeAsStringSync(change.after);
+    }
+    await Process.run(dartExecutable(), [
+      'format',
+      ...paths,
+    ], workingDirectory: root);
+    final errorsAfter = await analyzeErrors(root, paths);
+    var fixed = 0;
+    var files = 0;
+    var reverted = 0;
+    for (final change in changes) {
+      if ((errorsAfter[change.path] ?? 0) > (errorsBefore[change.path] ?? 0)) {
+        File(p.join(root, change.path)).writeAsStringSync(change.before);
+        reverted++;
+        stderr.writeln(
+          'lint --fix: ${change.path} did not compile after the fix; '
+          'left as it was.',
+        );
+        continue;
+      }
+      files++;
+      fixed += change.messages.length;
+      for (final message in change.messages) {
+        stdout.writeln('  fixed - $message');
+      }
+    }
+    stdout
+      ..writeln(
+        'Fixed $fixed finding${fixed == 1 ? '' : 's'} in $files '
+        'file${files == 1 ? '' : 's'}'
+        '${reverted == 0 ? '' : '; $reverted file${reverted == 1 ? '' : 's'} left as it was'}.',
+      )
+      ..writeln();
+    return null;
   }
 }
 

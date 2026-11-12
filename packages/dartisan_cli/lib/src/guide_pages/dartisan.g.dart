@@ -29,7 +29,7 @@ options.
 | `adopt <laravel-path> [--check]` | Shares the database and keys of a Laravel app, see [Migrating from Laravel](migrating-from-laravel.md) |
 | `down [--secret] [--retry]`, `up` | Maintenance mode, see [Deployment](deployment.md#maintenance-mode) |
 | `stub:publish` | Copies the generator templates into `stubs/` |
-| `lint [--json] [--enable=rule] [--disable=rule]` | `daravel_lints` rules and registry checks; opt-in rules from `diagnostics:` in `analysis_options.yaml` |
+| `lint [--json] [--enable=rule] [--disable=rule] [--fix [--dry-run] [--force]]` | `daravel_lints` rules and registry checks; opt-in rules from `diagnostics:` in `analysis_options.yaml`. `--fix` applies the fixes the rules offer (the editor quick fixes), formats the files it changed, and undoes a file the fix broke; `--dry-run` prints the changes; it refuses files with uncommitted changes, or a project outside git, without `--force` |
 | `security:audit [--target] [--format=terminal\|json\|sarif] [--output] [--severity] [--only] [--json-path]` | Black-box audit of a running server for deployment mistakes, see [Security](security.md#auditing-a-running-server) |
 | `mcp:serve [--allow-write]`, `mcp:install` | Project context for AI coding agents over MCP, see [below](#ai-coding-agents-mcp) |
 | `upgrade [--check] [--to] [--no-global] [--no-get]`, `self-update` | Move the project and the global CLI to a release, see [below](#upgrading) |

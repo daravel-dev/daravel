@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:0486e9cb769c -->
+<!-- source: README.md sha256:bd74bfc8f6c5 -->
 <img src="https://raw.githubusercontent.com/daravel-dev/daravel/main/docs/brand/png/daravel-icon-128.png" alt="Daravel" width="64" align="right">
 
 # daravel_lints
@@ -91,7 +91,9 @@ galatnya.
 `LintFixMerger` menggabungkannya sehingga edit yang sama dari dua fix hanya
 dibuat sekali. `string_column_name` juga menawarkan fix (lihat tabel); rule
 lain tidak menawarkan fix (alasannya untuk tiap rule ada di
-`LintRule.fixFor`).
+`LintRule.fixFor`). `fixSource(source, path, rules: ...)` menerapkan semua
+fix dalam satu berkas, tanpa menyentuh temuan yang dibungkam
+`// daravel-lint-ignore:`, seperti `dartisan lint --fix`.
 
 Abaikan sebuah temuan dengan `// daravel-lint-ignore: <rule>` di baris yang
 sama atau di baris atasnya.
