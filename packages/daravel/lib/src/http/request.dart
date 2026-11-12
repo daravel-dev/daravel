@@ -298,6 +298,7 @@ final class Request {
   List<String> _forwardedIps = const <String>[];
   String? _forwardedScheme;
   String? _forwardedHost;
+  int? _forwardedPort;
   bool _fromTrustedProxy = false;
 
   final List<InputTransformer> _inputTransformers = <InputTransformer>[];
@@ -359,8 +360,25 @@ final class Request {
   /// Whether the request carries the cookie [name].
   bool hasCookie(String name) => cookies.containsKey(name);
 
-  /// Host as seen by the client (`X-Forwarded-Host` when trusted).
+  /// Host as seen by the client, without a port (`X-Forwarded-Host` when
+  /// trusted; Symfony's `getHost()`). An IPv6 address comes without its
+  /// brackets.
   String get host => _forwardedHost ?? uri.host;
+
+  /// Port as seen by the client (Symfony's `getPort()`): from a trusted
+  /// proxy's `X-Forwarded-Port`, else the port of its `X-Forwarded-Host`,
+  /// else the port of the request's `Host`, else the default of [scheme]
+  /// (443 for `https`, 80 otherwise).
+  int get port {
+    if (_forwardedPort case final int forwarded) {
+      return forwarded;
+    }
+    // A forwarded host without a port says nothing about the Host's.
+    if (_forwardedHost == null && uri.hasPort) {
+      return uri.port;
+    }
+    return scheme == 'https' ? 443 : 80;
+  }
 
   /// The host a signed URL of this route covers: the route's own, and
   /// none for a route that answers on any host.
@@ -371,13 +389,9 @@ final class Request {
   /// string or trailing slash (Laravel `$request->url()`), e.g.
   /// `http://localhost/api/users`.
   String get url {
-    final forwarded = _forwardedHost;
     final defaultPort = scheme == 'https' ? 443 : 80;
-    final authority =
-        forwarded ??
-        (uri.hasPort && uri.port != defaultPort
-            ? '${uri.host}:${uri.port}'
-            : uri.host);
+    final name = host.contains(':') ? '[$host]' : host;
+    final authority = port == defaultPort ? name : '$name:$port';
     final base = '$scheme://$authority${uri.path}';
     return base.endsWith('/') ? base.replaceAll(RegExp(r'/+$'), '') : base;
   }
@@ -389,13 +403,19 @@ final class Request {
   bool get isFromTrustedProxy => _fromTrustedProxy;
 
   /// Records forwarding information. Called by `TrustProxiesMiddleware`.
+  /// [host] is a host without a port; [port] the forwarded port (from
+  /// `X-Forwarded-Port`, else the port `X-Forwarded-Host` carried).
   void applyForwarded({
     String? ip,
     List<String>? ips,
     String? scheme,
     String? host,
+    int? port,
   }) {
     _fromTrustedProxy = true;
+    if (port != null) {
+      _forwardedPort = port;
+    }
     if (ip != null) {
       _forwardedIp = ip;
     }
