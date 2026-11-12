@@ -74,13 +74,14 @@ void main() {
     expect(ChannelPattern('orders.{id}').names, ['id']);
   });
 
-  // Time for n and 16n characters on a name that does not match: about 16
-  // times as long when linear; the regular expression took 256 times as
-  // long (two placeholders) and 4 096 (three). The matcher allocates a table
-  // in proportion to the name, and one step of 4n crossed an allocation
-  // threshold at x7 to x13 (12 500 to 50 000 characters on a laptop, 50 000
-  // to 200 000 on a macOS runner), so the limit of 100 leaves room for one
-  // such jump and still sits far below quadratic.
+  // Time for n, 8n and 64n characters on a name that does not match. The
+  // matcher allocates a table in proportion to the name, and the step
+  // that crosses an allocation threshold jumps (x7 to x13 for 4n, 12 500
+  // to 50 000 characters on a laptop, 50 000 to 200 000 on a macOS runner;
+  // 16n reached x103 on a Linux runner). So only the second step, 8n to
+  // 64n, past the threshold, is judged: about 8 when linear, 64 for the
+  // regular expression it replaced (two placeholders; three: 512). The
+  // limit of 32 sits between. The first step is only shown.
   group('linear in the name', () {
     /// The fastest of three runs: interference only slows a run down.
     double ms(ChannelPattern pattern, String name) {
@@ -105,17 +106,18 @@ void main() {
       test(label, () {
         final compiled = ChannelPattern(pattern);
         expect(compiled.match(name(10)), isNull);
-        final small = ms(compiled, name(25000));
-        final large = ms(compiled, name(400000));
-        expect(
-          large / small,
-          lessThan(100),
-          reason:
-              '25 000 chars: ${small.toStringAsFixed(1)} ms, '
-              '400 000: ${large.toStringAsFixed(1)} ms',
-        );
-        // About 40 ms linear; the regular expression took hours.
-        expect(large, lessThan(3000), reason: '400 000 characters');
+        final small = ms(compiled, name(12500));
+        final middle = ms(compiled, name(100000));
+        final large = ms(compiled, name(800000));
+        final shown =
+            '12 500 chars: ${small.toStringAsFixed(1)} ms, '
+            '100 000: ${middle.toStringAsFixed(1)} ms '
+            '(x${(middle / small).toStringAsFixed(1)}), '
+            '800 000: ${large.toStringAsFixed(1)} ms '
+            '(x${(large / middle).toStringAsFixed(1)})';
+        expect(large / middle, lessThan(32), reason: shown);
+        // About 0.1 to 0.4 s linear; the regular expression took hours.
+        expect(large, lessThan(5000), reason: '800 000 characters; $shown');
       });
     }
   });
