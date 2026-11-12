@@ -801,6 +801,17 @@ final class DoctorCommand extends DaravelCommand {
         ),
       );
     }
+    if (Uri.tryParse(appConfig.url)?.scheme == 'https') {
+      checks.add(
+        const DoctorCheck(
+          CheckStatus.notice,
+          'APP_URL is https; the server itself speaks plain HTTP',
+          'TLS ends at a proxy in front of it. Requests see https and the '
+              'public host only from a proxy TrustProxiesMiddleware trusts '
+              '(X-Forwarded-Proto and -Host from anyone else are ignored).',
+        ),
+      );
+    }
     final serve = ServeOptions.fromEnv(app.env);
     if (serve.maxBodyBytes == null) {
       checks.add(
