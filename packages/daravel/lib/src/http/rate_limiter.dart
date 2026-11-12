@@ -1012,6 +1012,10 @@ final class RateLimiter {
   /// The limiter registered as [name], or null.
   LimitResolver? limiter(String name) => _limiters[name];
 
+  /// The names of the registered limiters (read only; `dartisan
+  /// names:sync` writes `RateLimiters.*` from them).
+  Iterable<String> get names => _limiters.keys;
+
   /// Whether a limiter is registered as [name].
   bool hasLimiter(String name) => _limiters.containsKey(name);
 

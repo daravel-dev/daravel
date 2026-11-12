@@ -1,4 +1,4 @@
-<!-- source: routing.md sha256:c76ddcad0ef3 -->
+<!-- source: routing.md sha256:8ff00f9d6356 -->
 # Routing
 
 Route didaftarkan di `routes/api.dart` (di-mount di bawah `/api`) dan
@@ -74,6 +74,33 @@ dalam rantai pemanggilannya (sebuah helper, sebuah observer), seperti
 - `router.url('posts.show', {'id': 1})` membangun URL dari nama route; URL
   bertanda tangan (signed URL) tersedia untuk middleware `signed`.
 - `dart run bin/dartisan.dart route:list` mencetak tabelnya.
+- `dart run bin/dartisan.dart names:sync` menulis `lib/app/names.dart`: satu
+  pembangun URL per route bernama (`Routes.postsShow(post: 1)`; parameter
+  yang terlewat tidak bisa dikompilasi) serta `RouteNames`, `Abilities`,
+  `RateLimiters`, `Guards`, `Disks`, dan `Connections`, sehingga editor
+  menampilkan nama-nama milik aplikasi. Perintah ini mem-boot aplikasi untuk
+  inspeksi: tanpa koneksi database, tanpa publisher metrik, tanpa mengirim
+  apa pun; provider yang membutuhkan database saat boot membuatnya gagal
+  dengan alasan itu. `names:sync --check` keluar dengan kode 1 bila berkasnya
+  usang: di CI ia hanya butuh apa yang dibutuhkan boot (`.env` dengan
+  `APP_KEY` bila aplikasi membacanya), tanpa layanan yang berjalan.
+  `names:sync --boot` mem-boot aplikasi secara penuh, untuk provider yang
+  butuh database saat boot.
+  - Parameter: `{post}`, `:id`, `{post:slug}` (bernama `post`, dartdoc-nya
+    menyebut kolomnya) dan wildcard `{path*}`/`*path` wajib (router tidak
+    mencocokkan wildcard kosong); `{slug?}` opsional. Dartdoc setiap builder
+    menampilkan method dan polanya (`GET /posts/{post}`).
+  - Route adalah kode, jadi aplikasinya harus bisa dikompilasi: tambahkan
+    route, jalankan `names:sync`, lalu pakai `Routes.x`. Route yang dihapus
+    atau diganti namanya membuat kode pemakainya gagal dikompilasi, dan
+    memang itu tujuannya.
+  - Nama-nama itu diambil dari aplikasi yang di-boot dengan environment
+    mesin tersebut: disk, koneksi dan guard yang dikonfigurasi, serta route
+    atau limiter yang hanya didaftarkan di sebagian environment (misalnya
+    hanya dengan `APP_DEBUG`), muncul dan hilang mengikutinya. Jalankan
+    `names:sync` dan `names:sync --check` dengan environment yang sama,
+    misalnya `APP_ENV=testing` di keduanya. `--check` yang gagal
+    mencantumkan nama yang berbeda (`Disks -s3`, `Routes +posts.show`).
 
 Route yang tidak dikenal menjawab `404 {"message": "The route api/x could not
 be found."}`. Path yang dikenal dengan verb yang salah menjawab `405` dengan

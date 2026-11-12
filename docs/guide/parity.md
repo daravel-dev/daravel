@@ -27,6 +27,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `$request->validated()` | `request.validated()` |  |
 | `(Scribe / Scramble response annotations)` | `.returns(schema, name:, shape:)` | Used by dartisan openapi:generate. |
 | `route('users.show', ['id' => 1])` | `router.url('users.show', {'id': 1})` |  |
+| `route('users.show', $user) (names checked by the IDE plugin)` | `Routes.usersShow(user: user), written by dartisan names:sync` | names:sync boots the application for inspection (Application.bootForInspection): no connection, nothing sent. |
 
 ## Requests & responses
 

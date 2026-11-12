@@ -34,6 +34,7 @@ sections:
       - { php: "$request->validated()", dart: "request.validated()", symbol: Request.validated }
       - { php: "(Scribe / Scramble response annotations)", dart: ".returns(schema, name:, shape:)", symbol: RouteEntry.returns, note: "Used by dartisan openapi:generate." }
       - { php: "route('users.show', ['id' => 1])", dart: "router.url('users.show', {'id': 1})", symbol: Router.url }
+      - { php: "route('users.show', $user) (names checked by the IDE plugin)", dart: "Routes.usersShow(user: user), written by dartisan names:sync", symbol: routeUrl, note: "names:sync boots the application for inspection (Application.bootForInspection): no connection, nothing sent." }
 
   - name: Requests & responses
     symbols:
