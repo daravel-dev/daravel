@@ -98,6 +98,7 @@ export 'src/routing/resource_controller.dart';
 export 'src/routing/url_signer.dart';
 export 'src/json_schema/json_schema.dart';
 export 'src/validation/form_request.dart';
+export 'src/validation/auth_rules.dart';
 export 'src/validation/dns.dart' show DnsResolver, SystemDnsResolver;
 export 'src/validation/messages.dart';
 export 'src/validation/object_rules.dart';

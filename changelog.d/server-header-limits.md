@@ -1,0 +1,9 @@
+### Added
+
+- Request header limits in the server: `HTTP_MAX_HEADER_BYTES` (the request line and headers together, 32 KiB), `HTTP_MAX_HEADER_LINE_BYTES` (one header, 16 KiB) and `HTTP_MAX_HEADERS` (100, as Apache's `LimitRequestFields`); above any of them the request is refused with `431 Request Header Fields Too Large` and its connection closed, before routing, middleware and the request scope, for a WebSocket handshake too, and logged at most once a second without the header's value. `0` turns a limit off. They bound what the application parses (cookies, tokens, every middleware reading a header); `dart:io` still reads up to 1 MiB before the server sees a request. `ServeOptions.maxHeaderBytes`, `maxHeaderLineBytes`, `maxHeaders` and their defaults `ServeOptions.defaultMaxHeaderBytes`, `defaultMaxHeaderLineBytes`, `defaultMaxHeaders`.
+- Multipart part header limits: `MultipartLimits.maxPartHeaderBytes` (16 KiB, as busboy) and `maxPartHeaders` (100). A part whose header block goes past either is refused with `400` before `package:mime` buffers it; before, a part's headers were buffered up to the body limit (50 MiB). The body is scanned once, in linear time.
+
+### Upgrade notes
+
+- A request whose headers go past the new limits now gets `431` instead of reaching the application: one header above 16 KiB, more than 32 KiB of request line and headers, or more than 100 headers. A request that passes nginx's defaults (8 KiB per header line) passes here. An application behind a proxy that already limits headers, or one that needs larger cookies, raises the limits or sets them to `0`.
+- A multipart part with more than 16 KiB of headers, or more than 100 header lines, is refused with `400`. The part count limit (`MultipartLimits.maxParts`, 1 000) is unchanged and still refuses with `400`, where PHP (`max_multipart_body_parts`, 1 020 by default) stops reading and keeps the parts read so far.

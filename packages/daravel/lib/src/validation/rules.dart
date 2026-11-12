@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import '../database/database_manager.dart';
 import '../database/orm/model.dart';
@@ -8,7 +9,9 @@ import '../database/orm/model_definition.dart';
 import '../database/query/query_builder.dart';
 import '../foundation/clock.dart';
 import '../http/uploaded_file.dart';
+import 'auth_rules.dart';
 import 'dns.dart';
+import 'image_size.dart';
 import 'object_rules.dart';
 import 'php_date_format.dart';
 import 'php_email_filter.dart';
@@ -331,6 +334,22 @@ abstract final class Rules {
   /// Laravel).
   static Rule activeUrl() => const ActiveUrlRule();
 
+  /// `current_password` / `current_password:guard`: the password of the
+  /// user signed in on [guard] (the default guard when null); a guest
+  /// fails. Needs a [CurrentPasswordVerifier] in the container, which an
+  /// `Application` binds; without one it throws [StateError].
+  static Rule currentPassword({String? guard}) =>
+      CurrentPasswordRule(guard: guard);
+
+  /// `Rule::can($ability, $model, ...)`: the current user may perform
+  /// [ability] with [arguments] and the value (in that order; `null`,
+  /// `false`, `0`, `''`, `'0'` and empty collections are dropped, as PHP's
+  /// `array_filter` in Laravel's rule). Needs an [AbilityChecker] in the
+  /// container, which an `Application` binds; without one it throws
+  /// [StateError].
+  static Rule can(String ability, [List<Object?> arguments = const []]) =>
+      CanRule(ability, arguments);
+
   /// `url`: an absolute URL with a scheme and host.
   static Rule url() => const UrlRule();
 
@@ -340,6 +359,31 @@ abstract final class Rules {
   /// `image`: an uploaded jpg, jpeg, png, bmp, gif or webp; svg only when
   /// [allowSvg].
   static Rule image({bool allowSvg = false}) => ImageRule(allowSvg: allowSvg);
+
+  /// `dimensions` (`Rule::dimensions()`): an uploaded image whose size
+  /// meets every constraint given; an SVG passes. A ratio is written as
+  /// Laravel reads it (`'3/2'`, `'1.5'`).
+  static Rule dimensions({
+    int? width,
+    int? height,
+    int? minWidth,
+    int? maxWidth,
+    int? minHeight,
+    int? maxHeight,
+    String? ratio,
+    String? minRatio,
+    String? maxRatio,
+  }) => DimensionsRule({
+    'width': ?width?.toString(),
+    'height': ?height?.toString(),
+    'min_width': ?minWidth?.toString(),
+    'max_width': ?maxWidth?.toString(),
+    'min_height': ?minHeight?.toString(),
+    'max_height': ?maxHeight?.toString(),
+    'ratio': ?ratio,
+    'min_ratio': ?minRatio,
+    'max_ratio': ?maxRatio,
+  });
 
   /// `mimes`: an uploaded file whose content matches one of [extensions].
   static Rule mimes(List<String> extensions) => MimesRule(extensions);
@@ -1682,16 +1726,42 @@ final class DistinctRule extends Rule {
     if (list is! List<Object?>) {
       return null;
     }
-    var seen = 0;
-    for (final item in list) {
-      final candidate = listPath == null
-          ? item
-          : ValidationContext.dig(item, leaf);
-      if ('$candidate' == '${c.value}') {
-        seen++;
+    String textOf(Object? item) =>
+        '${listPath == null ? item : ValidationContext.dig(item, leaf)}';
+    final memo = c.memo;
+    if (memo == null) {
+      var seen = 0;
+      for (final item in list) {
+        if (textOf(item) == '${c.value}') {
+          seen++;
+        }
       }
+      return seen > 1 ? 'distinct' : null;
     }
-    return seen > 1 ? 'distinct' : null;
+    // The list counted once per run, not once per item: scanning it for
+    // every item took time quadratic in its length (16 000 numbers: 15 s).
+    // The same comparison: the items' text, counted.
+    final counts =
+        memo.putIfAbsent(
+              // The leaf names the compared key only inside items
+              // (`items.*.id`); for a list of scalars it is the index.
+              (
+                'distinct',
+                c.data,
+                listPath ?? parentPath,
+                listPath == null ? null : leaf,
+              ),
+              () {
+                final counts = <String, int>{};
+                for (final item in list) {
+                  final text = textOf(item);
+                  counts[text] = (counts[text] ?? 0) + 1;
+                }
+                return counts;
+              },
+            )!
+            as Map<String, int>;
+    return (counts['${c.value}'] ?? 0) > 1 ? 'distinct' : null;
   }
 }
 
@@ -2557,7 +2627,48 @@ final class UniqueRule extends Rule {
     Object? ignore,
     this.idColumn = 'id',
     this.constraints = const <QueryConstraint>[],
+    this.ignoreFrom,
   }) : ignored = ignore;
+
+  /// The input field whose value is the key to skip (`unique:users,email,
+  /// [id]` in the string form): read when the rule runs, as Laravel's
+  /// `prepareUniqueId` does. When set, [ignored] is not used.
+  final String? ignoreFrom;
+
+  /// The key Laravel's validateUnique skips for [raw], an ignore written
+  /// in the string form or read from the input: `null` (in any case) or a
+  /// missing value skips nothing; otherwise PHP's string of it with
+  /// `stripslashes` applied (13.x prepareUniqueId 1149-1164, then
+  /// validateUnique 1107-1113). The integer cast in between is undone by
+  /// `stripslashes`, which returns a string.
+  static String? skippedKey(Object? raw) {
+    if (raw == null) {
+      return null;
+    }
+    final text = switch (raw) {
+      true => '1',
+      false => '',
+      final double value
+          when value.isFinite && value == value.truncateToDouble() =>
+        value.toInt().toString(),
+      _ => '$raw',
+    };
+    if (text.toLowerCase() == 'null') {
+      return null;
+    }
+    // FILTER_VALIDATE_INT: surrounding whitespace, a sign, no leading
+    // zero (`' 1'` and `'+1'` are 1, `'01'` stays text); cast to int and
+    // back to text by stripslashes.
+    final integer = RegExp(
+      r'^[ \t\n\r\x0B]*([+-]?(?:0|[1-9][0-9]*))[ \t\n\r\x0B]*$',
+    ).firstMatch(text);
+    final number = integer == null ? null : int.tryParse(integer[1]!);
+    if (number != null) {
+      return '$number';
+    }
+    // stripslashes: `\x` becomes `x`, `\\` a single backslash.
+    return text.replaceAllMapped(RegExp(r'\\(.?)'), (m) => m[1]!);
+  }
 
   /// The table queried; `schema.table` is allowed.
   final String table;
@@ -2590,6 +2701,7 @@ final class UniqueRule extends Rule {
     ignore: ignored,
     idColumn: idColumn,
     constraints: [...constraints, constraint],
+    ignoreFrom: ignoreFrom,
   );
   @override
   String get name => 'unique';
@@ -2601,15 +2713,77 @@ final class UniqueRule extends Rule {
     }
     final db = container.make<DatabaseManager>();
     final col = _columnFor(c, column);
+    // A list or a map from the request: Laravel's `where` binds the first
+    // value of it, flattened (`Builder::flattenValue`); an empty one, and
+    // `false`, match nothing. Binding the list itself failed (a 500).
+    final value = _bindable(_firstFlat(c.value));
+    if (value == _noMatch) {
+      return null;
+    }
     // The builder quotes identifiers for the connection's dialect.
-    var query = db.table(_table(table)).where(_identifier(col), c.value);
-    if (ignored != null) {
-      query = query.where(_identifier(idColumn), '<>', ignored);
+    var query = db.table(_table(table)).where(_identifier(col), value);
+    final skipped = ignoreFrom != null
+        ? skippedKey(c.root(ignoreFrom!))
+        : ignored;
+    if (skipped != null) {
+      query = query.where(_identifier(idColumn), '<>', skipped);
     }
     query = _constrained(query, constraints);
     return await query.count() > 0 ? 'unique' : null;
   }
 }
+
+/// Stands for a request value no row can hold (`false`, an empty list), so
+/// no query is made for it.
+const Object _noMatch = Object();
+
+/// A scalar request value as a query binds it, as Laravel's PDO binding
+/// does in effect: `true` is `"1"` there, so `1` here (a boolean binding
+/// fails against a number column on PostgreSQL); `false` is `""`, which
+/// no key holds: [_noMatch].
+Object? _bindable(Object? value) => switch (value) {
+  true => 1,
+  false => _noMatch,
+  _ => value,
+};
+
+/// Laravel's `Builder::flattenValue` for `where`: a list or a map gives its
+/// first value, depth first; an empty one gives [_noMatch]. Other values
+/// are themselves.
+Object? _firstFlat(Object? value) {
+  Iterable<Object?>? items = switch (value) {
+    final List<Object?> list => list,
+    final Map<Object?, Object?> map => map.values,
+    _ => null,
+  };
+  if (items == null) {
+    return value;
+  }
+  while (true) {
+    if (items!.isEmpty) {
+      return _noMatch;
+    }
+    final first = items.first;
+    switch (first) {
+      case final List<Object?> list:
+        items = list;
+      case final Map<Object?, Object?> map:
+        items = map.values;
+      default:
+        return first;
+    }
+  }
+}
+
+/// A value as PHP's `(string)` cast writes it, which `array_unique`
+/// compares: `true` is `"1"`, `false` and `null` are `""`, a whole float
+/// has no point (`1.0` is `"1"`).
+String _phpText(Object? value) => switch (value) {
+  null || false => '',
+  true => '1',
+  final double d when d.isFinite && d == d.truncateToDouble() => '${d.toInt()}',
+  _ => '$value',
+};
 
 /// `exists:table,column` — the value must be present in the table.
 final class ExistsRule extends Rule {
@@ -2629,6 +2803,12 @@ final class ExistsRule extends Rule {
   /// Extra conditions on the query.
   final List<QueryConstraint> constraints;
 
+  /// The most distinct values a list may hold: one query binds them all,
+  /// and database drivers cap the placeholders of a query (SQLite 32 766,
+  /// PostgreSQL and MySQL 65 535). A longer list fails the rule, where
+  /// Laravel gets a database error.
+  static const int maxListValues = 10000;
+
   /// `->where(fn ($q) => $q->whereNull('deleted_at'))`.
   ExistsRule where(QueryConstraint constraint) => ExistsRule(
     table,
@@ -2645,8 +2825,55 @@ final class ExistsRule extends Rule {
     }
     final db = container.make<DatabaseManager>();
     final col = _columnFor(c, column);
+    // A map is a PHP array too: its values.
+    final value = switch (c.value) {
+      final Map<Object?, Object?> map => map.values.toList(),
+      final other => other,
+    };
+    if (value is List<Object?>) {
+      // 13.x validateExists (1039-1059) and getMultiCount: every distinct
+      // value (array_unique compares as text) must be found, counted with
+      // whereIn and a distinct count.
+      //
+      // Unlike Laravel, a list holding a list or a map fails: Laravel
+      // accepts one nested element by accident (`whereIn` flattens it) and
+      // throws for more (`array_unique` converts arrays to text).
+      if (value.any((v) => v is List<Object?> || v is Map<Object?, Object?>)) {
+        return 'exists';
+      }
+      final distinct = <String, Object?>{};
+      for (final v in value) {
+        distinct.putIfAbsent(_phpText(v), () => v);
+      }
+      if (distinct.isEmpty) {
+        return null;
+      }
+      // Each value is a placeholder, and drivers cap them (SQLite 32 766,
+      // PostgreSQL 65 535): above this many, the rule fails, where Laravel
+      // gets a database error.
+      if (distinct.length > maxListValues) {
+        return 'exists';
+      }
+      final bindings = [
+        for (final v in distinct.values)
+          if (_bindable(v) case final b? when b != _noMatch) b,
+      ];
+      if (bindings.length < distinct.length) {
+        // `false` or `null`: no row holds it.
+        return 'exists';
+      }
+      final found = await _constrained(
+        db.table(_table(table)).whereIn(_identifier(col), bindings),
+        constraints,
+      ).distinct().count(_identifier(col));
+      return found >= distinct.length ? null : 'exists';
+    }
+    final scalar = _bindable(value);
+    if (scalar == _noMatch) {
+      return 'exists';
+    }
     final count = await _constrained(
-      db.table(_table(table)).where(_identifier(col), c.value),
+      db.table(_table(table)).where(_identifier(col), scalar),
       constraints,
     ).count();
     return count > 0 ? null : 'exists';
@@ -2799,6 +3026,94 @@ final class MimesRule extends Rule {
       allowed.addAll(['jpg', 'jpeg']);
     }
     return allowed.contains(value.extension) ? null : name;
+  }
+}
+
+/// `dimensions:min_width=100,ratio=3/2`: see [Rules.dimensions].
+///
+/// As Laravel's `validateDimensions`: an SVG passes; anything else must be
+/// an upload whose header gives a size (`getimagesize`; here PNG, GIF,
+/// JPEG, WebP and BMP, read from at most [maxImageHeaderBytes]), and pass
+/// every constraint. A constraint that is not a number fails.
+final class DimensionsRule extends Rule {
+  /// The rule, with Laravel's constraint names (`min_width`, `ratio`, ...)
+  /// and their values as written; use [Rules.dimensions].
+  const DimensionsRule(this.constraints);
+
+  /// The constraints by Laravel's names; a name without `=value` is null.
+  final Map<String, String?> constraints;
+
+  @override
+  String get name => 'dimensions';
+
+  @override
+  Future<String?> passes(ValidationContext context) async {
+    final file = context.value;
+    if (file is! UploadedFile) {
+      return name;
+    }
+    if (file.mimeType == 'image/svg+xml' || file.mimeType == 'image/svg') {
+      return null;
+    }
+    final size = imageSize(await imageHeaderOf(file));
+    if (size == null) {
+      return name;
+    }
+    if (constraints.isEmpty) {
+      throw ArgumentError(
+        'Validation rule dimensions requires at least 1 parameters.',
+      );
+    }
+    final (:width, :height) = size;
+    bool fails(String key, bool Function(num limit) failsWith) {
+      final raw = constraints[key];
+      if (raw == null) {
+        return false;
+      }
+      final limit = num.tryParse(raw.trim());
+      return limit == null || failsWith(limit);
+    }
+
+    final precision = 1 / (max((width + height) / 2, height) + 1);
+    double? ratioOf(String key) {
+      final raw = constraints[key];
+      return raw == null ? null : phpRatio(raw);
+    }
+
+    final ratio = ratioOf('ratio');
+    final minRatio = ratioOf('min_ratio');
+    final maxRatio = ratioOf('max_ratio');
+    // A header declaring height 0 (PHP reports it as is): Laravel's ratio
+    // checks divide by it and throw; here a ratio constraint fails.
+    if (height == 0 && (ratio ?? minRatio ?? maxRatio) != null) {
+      return name;
+    }
+    final actual = width / height;
+    final failed =
+        fails('width', (v) => v != width) ||
+        fails('min_width', (v) => v > width) ||
+        fails('max_width', (v) => v < width) ||
+        fails('height', (v) => v != height) ||
+        fails('min_height', (v) => v > height) ||
+        fails('max_height', (v) => v < height) ||
+        (ratio != null && (ratio - actual).abs() > precision) ||
+        (minRatio != null && minRatio - actual > precision) ||
+        (maxRatio != null && actual - maxRatio > precision);
+    return failed ? name : null;
+  }
+
+  /// A ratio as Laravel reads it: `sscanf($value, '%f/%d')` with what PHP's
+  /// `array_filter` drops replaced by 1 (`'3/2'` is 1.5, `'1.5'` is 1.5/1,
+  /// `'0/2'` is 1/2, `'x'` is 1/1).
+  static double phpRatio(String value) {
+    final match = RegExp(
+      r'^\s*([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)(?:/\s*([+-]?\d+))?',
+    ).firstMatch(value);
+    final numerator = double.tryParse(match?.group(1) ?? '');
+    final denominator = int.tryParse(match?.group(2) ?? '');
+    final n = numerator == null || numerator == 0 ? 1.0 : numerator;
+    final d = denominator == null || denominator == 0 ? 1 : denominator;
+    return n / d;
   }
 }
 
@@ -3015,7 +3330,45 @@ final class InArrayRule extends Rule {
 
   @override
   String? passes(ValidationContext c) {
-    // `Arr::dot` of the data, keys matched by `Str::is` (`*` is any text).
+    final memo = c.memo;
+    if (memo == null) {
+      return _values(c.data).contains(c.value) ? null : name;
+    }
+    // The other values gathered once per run, not once per item: walking
+    // the whole input for every item took time quadratic in its size (8 000
+    // numbers against 8 000: 52 s). The same test: `List.contains`, with a
+    // Set for the values whose `==` is symmetric and agrees with their hash.
+    final (:scalars, :rest) =
+        memo.putIfAbsent(('in_array', c.data, other), () {
+              final scalars = <Object?>{};
+              final rest = <Object?>[];
+              for (final value in _values(c.data)) {
+                if (_hashable(value)) {
+                  scalars.add(value);
+                } else {
+                  rest.add(value);
+                }
+              }
+              return (scalars: scalars, rest: rest);
+            })!
+            as ({Set<Object?> scalars, List<Object?> rest});
+    final value = c.value;
+    final found =
+        (_hashable(value) && scalars.contains(value)) ||
+        rest.any((other) => other == value);
+    return found ? null : name;
+  }
+
+  // A value a Set may hold in place of a list scan: null, a bool, a String
+  // or a number other than NaN (NaN is never equal to itself).
+  static bool _hashable(Object? value) =>
+      value == null ||
+      value is bool ||
+      value is String ||
+      (value is num && !value.isNaN);
+
+  // `Arr::dot` of the data, keys matched by `Str::is` (`*` is any text).
+  List<Object?> _values(Map<String, Object?> data) {
     final pattern = RegExp(
       '^${other.split('*').map(RegExp.escape).join('.*')}\$',
     );
@@ -3037,8 +3390,8 @@ final class InArrayRule extends Rule {
       }
     }
 
-    walk(c.data, '');
-    return values.contains(c.value) ? null : name;
+    walk(data, '');
+    return values;
   }
 }
 

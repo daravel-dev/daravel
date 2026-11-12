@@ -1,6 +1,6 @@
 name: reverb_demo
 description: A Daravel Reverb demo application (a WebSocket server of its own, two Pusher applications and the dashboard).
-version: 1.27.0
+version: 1.27.1
 publish_to: none
 
 environment:

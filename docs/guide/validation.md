@@ -90,6 +90,11 @@ Rules.unique('users', 'email').where((QueryBuilder q) => q.whereNull('deleted_at
 Rules.exists('billing.invoices', 'id').where((QueryBuilder q) => q.where('open', true));
 ```
 
+On a list (`items.*` with `unique` or `exists`), each item is one query,
+as in Laravel. Bound the list with `max` (`'items': 'array|max:100'`) and
+index the column checked. `exists` on a list value (`ids: [1, 3]`) is one
+query for the whole list.
+
 ### Email modes and `active_url`
 
 `email` takes Laravel's modes, `email:rfc,dns` or `Rules.email(rfc: true,
@@ -121,6 +126,22 @@ the container (`SystemDnsResolver` by default); in tests, bind
 differences from PHP: the system lookup also reads `/etc/hosts`; and on
 Windows, which has no `/etc/resolv.conf` to ask for MX records, `dns` sees
 A and AAAA only (a domain with only an MX fails, and a null MX goes unseen).
+
+### The signed-in user: `current_password` and `can`
+
+```dart
+'current_password': 'required|current_password',      // or current_password:api
+'tag': [Rules.required(), Rules.can('attach-tag', [post])],
+```
+
+`current_password` passes when the value is the password of the user
+signed in on the guard (the default one without an argument); a guest
+fails. `Rules.can` asks the gate whether the current user may perform the
+ability with the arguments and then the value; as in Laravel, `null`,
+`false`, `0`, `''`, `'0'` and empty lists are left out of the arguments.
+Both work wherever an `Application` runs (a request, a job, a command,
+`TestClient`, `app.run`); a bare `Validator` outside one throws a
+`StateError` saying what to bind, rather than letting the value through.
 
 Rules that depend on the input or on each element, as Laravel's `Rule::when`,
 `Rule::unless`, `Rule::forEach` and `Rule::anyOf`:
@@ -253,6 +274,12 @@ router.post('/avatar', (request) async {
   detected type), `mimetypes:image/*`, `extensions:csv,txt` (the client's
   file name), and `min`, `max`, `size`, `between` in kilobytes. PHP files are
   refused unless `php` is listed.
+- `dimensions:min_width=100,max_height=800,ratio=3/2` (or
+  `Rules.dimensions(minWidth: 100, ratio: '3/2')`) reads the size from the
+  image header as PHP's `getimagesize`, for PNG, GIF, JPEG, WebP and BMP; an
+  SVG passes, as in Laravel. Only the first 256 KiB of the upload are read:
+  a JPEG whose metadata is longer than that before the image has no size and
+  fails, and so does any other format.
 - Types are detected from the content (PDF, images, Office and OpenDocument
   files, archives, text), never from the file name: a text file named
   `photo.png` is not an image.

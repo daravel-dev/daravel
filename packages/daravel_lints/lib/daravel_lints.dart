@@ -20,8 +20,10 @@ import 'package:path/path.dart' as p;
 import 'package:timezone/data/latest_all.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
 
+import 'src/model_columns.dart';
 import 'src/rule_chain.dart';
 
+export 'src/model_columns.dart';
 export 'src/rule_chain.dart' show ruleChainSource;
 
 /// One finding.
@@ -105,6 +107,138 @@ final class NoDartMirrors extends LintRule {
         );
       }
     }
+  }
+}
+
+/// A column name written as a string in a model query where the model's
+/// typed column means the same: `User.query().where('email', x)` →
+/// `User.where(User.cols.email, x)`, which the editor completes and the
+/// compiler checks (a misspelt column does not compile).
+///
+/// Reported only on a query rooted at a model of [index] (`User.query()`,
+/// `User.where(...)`), for a column that model's `cols` record holds, and
+/// in a method that takes a typed column ([firstArgument],
+/// [listArgument]); `whereIn`, `whereNull` and the like take a `String`
+/// and are left alone. So the editor's fix always compiles and keeps the
+/// query.
+///
+/// Opt-in (on in new projects). Built for a project by
+/// [StringColumnName.forProject], which reads its models.
+final class StringColumnName extends LintRule {
+  /// The rule over the models of [index].
+  StringColumnName(this.index);
+
+  /// The rule for the project at [root] and what went wrong reading its
+  /// models: a model that cannot be read leaves the rule silent for it,
+  /// with that warning, rather than failing the lint.
+  static (StringColumnName, String?) forProject(String root) {
+    try {
+      return (StringColumnName(ModelColumnIndex.scan(root)), null);
+    } on FileSystemException catch (error) {
+      return (
+        StringColumnName(
+          ModelColumnIndex(const <String, Map<String, String>>{}),
+        ),
+        'string_column_name: could not read the models (${error.message}); '
+            'the rule checks nothing.',
+      );
+    }
+  }
+
+  /// The models and their `cols`.
+  final ModelColumnIndex index;
+
+  /// Methods whose first argument is a column (`pluck` also its second).
+  static const Set<String> firstArgument = {
+    'where',
+    'orWhere',
+    'orderBy',
+    'orderByDesc',
+    'latest',
+    'oldest',
+    'pluck',
+    'increment',
+    'decrement',
+    'min',
+    'max',
+    'sum',
+    'avg',
+    'count',
+  };
+
+  /// Methods whose first argument is a list of columns.
+  static const Set<String> listArgument = {'select', 'groupBy'};
+
+  @override
+  String get name => 'string_column_name';
+
+  @override
+  String get description =>
+      'Write a model column as its typed token (User.cols.email), not a '
+      'string.';
+
+  @override
+  bool appliesTo(String relativePath) => !relativePath.startsWith('lib/src/');
+
+  @override
+  void check(CompilationUnit unit, void Function(AstNode, String) report) {
+    void column(String model, Expression? argument) {
+      if (argument is! SimpleStringLiteral) {
+        return;
+      }
+      final field = index.fieldOf(model, argument.value);
+      if (field != null) {
+        report(
+          argument,
+          'Use $model.cols.$field: the editor completes it and a misspelt '
+          'column does not compile.',
+        );
+      }
+    }
+
+    unit.accept(
+      _Visitor(
+        onMethod: (node) {
+          final method = node.methodName.name;
+          final isFirst = firstArgument.contains(method);
+          if (!isFirst && !listArgument.contains(method)) {
+            return;
+          }
+          final model = _modelOf(node.target);
+          final arguments = node.argumentList.arguments;
+          if (model == null || arguments.isEmpty) {
+            return;
+          }
+          final first = arguments.first.argumentExpression;
+          if (isFirst) {
+            column(model, first);
+            if (method == 'pluck' && arguments.length > 1) {
+              column(model, arguments[1].argumentExpression);
+            }
+          } else if (first is ListLiteral) {
+            for (final item in first.elements.whereType<Expression>()) {
+              column(model, item);
+            }
+          }
+        },
+      ),
+    );
+  }
+
+  /// The model a query chain starts from: `User` in `User.query()...` or
+  /// `User.where(...)...`.
+  String? _modelOf(Expression? target) {
+    var current = target;
+    while (current is MethodInvocation) {
+      final inner = current.target;
+      if (inner is SimpleIdentifier) {
+        return index.models.contains(inner.name) ? inner.name : null;
+      }
+      current = inner;
+    }
+    return current is SimpleIdentifier && index.models.contains(current.name)
+        ? current.name
+        : null;
   }
 }
 
@@ -656,6 +790,8 @@ final class InvalidValidationRule extends LintRule {
     'accepted',
     'accepted_if',
     'active_url',
+    'current_password',
+    'dimensions',
     'declined',
     'declined_if',
     'required_if',
@@ -785,6 +921,7 @@ final class InvalidValidationRule extends LintRule {
     'required_if_declined': 1,
     'in_array': 1,
     'encoding': 1,
+    'dimensions': 1,
     'array_keys': 1,
     'mimes': 1,
     'mimetypes': 1,
@@ -950,10 +1087,16 @@ final class InvalidValidationRule extends LintRule {
       final parts = colon == -1
           ? 0
           : segment.substring(colon + 1).split(',').length;
-      if ((rule == 'unique' && parts > 4) || (rule == 'exists' && parts > 2)) {
-        return 'Where conditions in the string form of $rule are not '
-            'supported (Daravel would loosen the rule): use '
-            'Rules.$rule(...).where(...) in "$dsl".';
+      // The parts after unique's fourth or exists' second are column,value
+      // where conditions; an odd count leaves a column without a value.
+      final conditions = switch (rule) {
+        'unique' => parts - 4,
+        'exists' => parts - 2,
+        _ => 0,
+      };
+      if (conditions > 0 && conditions.isOdd) {
+        return 'The where conditions of $rule come in column,value pairs; '
+            'one has no value in "$dsl".';
       }
       if (rule == 'encoding' &&
           arguments.isNotEmpty &&

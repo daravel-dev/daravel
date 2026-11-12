@@ -3,7 +3,7 @@
 
 /// `docs/guide/id/configuration.md`.
 const String pageIdConfiguration =
-    r'''<!-- source: configuration.md sha256:1342dbfd7f4b -->
+    r'''<!-- source: configuration.md sha256:3600e767e4f1 -->
 # Konfigurasi
 
 ## File environment
@@ -119,6 +119,14 @@ setelah boot.
 | `SHUTDOWN_TIMEOUT`, `HTTP_REQUEST_TIMEOUT` | `30s`, `30s` | Graceful shutdown dan timeout handler |
 | `HTTP_IDLE_TIMEOUT` | `60s` | Koneksi keep-alive yang menganggur selama ini di antara request ditutup oleh server. Di dalam request, body yang tidak dibaca aplikasi tidak ditunggu: server langsung menjawab (setelah paling lama 1 detik untuk body sampai 256 KiB, agar koneksi tetap terbuka) dan menutup koneksi jika body belum tiba |
 | `HTTP_MAX_BODY` | `52428800` (50 MiB) | Batas body yang dimiliki setiap request sejak awal (`413` di atasnya; `0` untuk tanpa batas); `BodyLimitsMiddleware` memperketatnya ke 1 MiB untuk JSON dan form |
+| `HTTP_MAX_HEADER_BYTES` | `32768` (32 KiB) | Baris request dan seluruh header; di atasnya `431 Request Header Fields Too Large` sebelum routing, juga untuk handshake WebSocket (`0` untuk tanpa batas). Ini membatasi apa yang diurai aplikasi, bukan apa yang dibaca `dart:io` (sampai 1 MiB) |
+| `HTTP_MAX_HEADER_LINE_BYTES` | `16384` (16 KiB) | Satu header, nama dan nilainya; `431` di atasnya (`0` untuk tanpa batas). Bawaan nginx adalah 8 KiB per baris |
+| `HTTP_MAX_HEADERS` | `100` | Jumlah header, seperti `LimitRequestFields` Apache; `431` di atasnya (`0` untuk tanpa batas) |
+| `HTTP_MULTIPART_MAX_PARTS` | `1000` | Jumlah part dalam satu body multipart; `400` di atasnya (PHP menyimpan part yang sudah terbaca lalu berhenti; Daravel menolak). `0` untuk tanpa batas |
+| `HTTP_MULTIPART_MAX_FILES` | `20` | Jumlah file dalam satu body multipart, seperti `max_file_uploads` PHP; `400` di atasnya. `0` untuk tanpa batas |
+| `HTTP_MULTIPART_MAX_FIELD_BYTES` | `1048576` (1 MiB) | Nilai satu field; `413` di atasnya. `0` untuk tanpa batas |
+| `HTTP_MULTIPART_MAX_PART_HEADER_BYTES` | `16384` (16 KiB) | Blok header satu part, seperti busboy; `400` di atasnya, sebelum di-buffer. `0` untuk tanpa batas |
+| `HTTP_MULTIPART_MAX_PART_HEADERS` | `100` | Baris header satu part; `400` di atasnya. `0` untuk tanpa batas |
 | `HTTP_MAX_QUEUE_DELAY`, `HTTP_MAX_IN_FLIGHT` | mati (`200ms` di proyek baru), mati | [Load shedding](deployment.md#load-shedding): `503` selama event loop worker terlambat sebanyak ini, atau di atas sekian request sekaligus |
 | `SERVER_EMBED_QUEUE`, `SERVER_EMBED_SCHEDULER` | `false` | Queue worker dan scheduler di dalam proses server |
 

@@ -452,7 +452,7 @@ void f(String sort) {
   });
 
   test(
-    'invalid_validation_rule: where conditions in a string unique/exists',
+    'invalid_validation_rule: where conditions of unique/exists in pairs',
     () {
       const source = '''
 void routes(Router r) {
@@ -460,13 +460,14 @@ void routes(Router r) {
     'a': 'unique:users,email,NULL,id,account_id,1',
     'b': 'exists:users,id,active,1',
     'c': 'unique:users,email,NULL,id|exists:users,id',
+    'd': 'unique:users,email,NULL,id,account_id',
+    'e': 'exists:users,id,active',
   });
 }
 ''';
       final issues = lintSource(source, 'lib/app/http/routes.dart');
-      expect(issues.map((i) => i.line), [3, 4]);
-      expect(issues.first.message, contains('Rules.unique(...).where(...)'));
-      expect(issues.last.message, contains('Rules.exists(...).where(...)'));
+      expect(issues.map((i) => i.line), [6, 7]);
+      expect(issues.first.message, contains('column,value pairs'));
     },
   );
 
@@ -521,6 +522,81 @@ final v = Validator({}, {'age': 'integer|min:18'});
       );
       expect(ruleChainSource('regex:/a/'), isNull);
       expect(ruleChainSource(''), isNull);
+    });
+  });
+
+  group('string_column_name', () {
+    const model = '''
+final class User extends Model {
+  static const cols = (
+    id: ModelColumn<User, int>('id'),
+    email: ModelColumn<User, String>('email'),
+    emailVerifiedAt: ModelColumn<User, DateTime?>('email_verified_at'),
+    // model:sync renamed a field that would clash.
+    hashCode2: ModelColumn<User, int>('hash_code'),
+  );
+}
+''';
+    final index = ModelColumnIndex.ofSource(model);
+    final rule = [StringColumnName(index)];
+
+    test('the index reads each field from cols, never from the name', () {
+      expect(index.models, ['User']);
+      expect(index.fieldOf('User', 'email_verified_at'), 'emailVerifiedAt');
+      expect(index.fieldOf('User', 'hash_code'), 'hashCode2');
+      expect(index.fieldOf('User', 'nope'), isNull);
+      expect(index.fieldOf('Post', 'id'), isNull);
+    });
+
+    test('reports a column string of a model query, naming the token', () {
+      const source = '''
+Future<void> f() async {
+  await User.query().where('email', 'a').orderBy('email_verified_at').get();
+  await User.where('id', 1).latest('id').pluck('email', 'id');
+  await User.query().select(['id', 'email']).count('id');
+}
+''';
+      final issues = lintSource(source, 'lib/app/a.dart', rules: rule);
+      expect([for (final i in issues) i.line], [2, 2, 3, 3, 3, 3, 4, 4, 4]);
+      // Within a line, in the order the calls are visited (outer first).
+      expect(
+        {for (final i in issues.take(2)) i.message.split(':').first},
+        {'Use User.cols.email', 'Use User.cols.emailVerifiedAt'},
+      );
+    });
+
+    test('leaves alone what the token cannot replace', () {
+      const source = '''
+Future<void> f(String column) async {
+  await User.query().whereIn('email', ['a']).whereNull('email').get();
+  await User.query().where('missing_column', 1).where(column, 1).get();
+  await DB.table('users').where('email', 'a').get();
+  await Post.query().where('email', 'a').get();
+  await User.query().where('users.email', 'a').get();
+}
+''';
+      expect(lintSource(source, 'lib/app/a.dart', rules: rule), isEmpty);
+      expect(
+        lintSource(
+          "final q = User.query().where('email', 1);",
+          'lib/src/x.dart',
+          rules: rule,
+        ),
+        isEmpty,
+      );
+    });
+
+    test('forProject reads lib/app/models', () {
+      final root = Directory.systemTemp.createTempSync('string_columns');
+      addTearDown(() => root.deleteSync(recursive: true));
+      File('${root.path}/lib/app/models/user.dart')
+        ..createSync(recursive: true)
+        ..writeAsStringSync(model);
+      final (found, warning) = StringColumnName.forProject(root.path);
+      expect(warning, isNull);
+      expect(found.index.fieldOf('User', 'email'), 'email');
+      final (empty, _) = StringColumnName.forProject('${root.path}/none');
+      expect(empty.index.models, isEmpty);
     });
   });
 }

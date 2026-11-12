@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:bb644185a631 -->
+<!-- source: README.md sha256:6306a30b972f -->
 <img src="https://raw.githubusercontent.com/daravel-dev/daravel/main/docs/brand/png/daravel-icon-128.png" alt="Daravel" width="64" align="right">
 
 # daravel_scout
@@ -30,6 +30,11 @@ cosine similarity terhadap vector query, dihitung di Dart dengan `Float32x4`
 dikembalikan database bersama modelnya. Tidak ada query tambahan dan tidak ada
 yang disimpan di memori, jadi biarkan kolom embedding tetap ter-select di
 `constrain()`; model tanpa vector menyusul dalam urutan fusion.
+
+Lane `Float32x4` menjumlah dalam float32 dan loop skalar dalam double, jadi
+sebuah skor bisa berbeda dari cosine presisi double sampai sekitar 1e-5 (3 072
+dimensi). Dua model yang skornya lebih dekat dari itu adalah hampir-seri yang
+urutannya tidak dijamin; skor yang sama persis mempertahankan urutan fusion.
 
 `bench/bin/scout_rerank.dart`, 1 000 kandidat, diukur pada 2026-11-06
 (Dart 3.13.4 AOT, Windows x64):
