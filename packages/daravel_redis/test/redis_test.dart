@@ -270,21 +270,30 @@ void main() {
     }
 
     /// Runs [scenario] on a fresh key until the server's clock did not
-    /// jump while it ran (at most three times). The clock of a Redis in a
-    /// VM (Docker on WSL 2) was measured running 3.8 % slower than the
-    /// test's and then jumping about 1.45 s ahead every 34 s; a jump opens
-    /// slots in the middle of a scenario.
+    /// jump while it ran (at most three times, then the test fails naming
+    /// the jumps). The clock of a Redis in a VM (Docker on WSL 2) was
+    /// measured running 3.8 % slower than the test's and then jumping about
+    /// 1.45 s ahead every 34 s; a jump opens slots in the middle of a
+    /// scenario.
     Future<T> steadyClock<T>(Future<T> Function(String key) scenario) async {
       final watch = Stopwatch()..start();
       Future<int> offset() async =>
           await serverMs() - watch.elapsedMilliseconds;
-      for (var attempt = 1; ; attempt++) {
+      final jumps = <int>[];
+      for (var attempt = 1; attempt <= 3; attempt++) {
         final before = await offset();
         final result = await scenario('k$attempt');
-        if (((await offset()) - before).abs() < 250 || attempt == 3) {
+        final jump = (await offset()) - before;
+        if (jump.abs() < 250) {
           return result;
         }
+        jumps.add(jump);
       }
+      fail(
+        "the server's clock jumped during each of three attempts "
+        '(${jumps.join(', ')} ms against this side), so the rate limit '
+        'could not be checked',
+      );
     }
 
     test('GCRA spreads the limit; a refused hit is not counted', () async {
