@@ -25,6 +25,12 @@ Float32List random(Random r, int length) => Float32List.fromList([
   for (var i = 0; i < length; i++) r.nextDouble() * 2 - 1,
 ]);
 
+/// How far [cosineF32x4] (float32 lane sums) may be from [cosineScalar]
+/// (double sums): float32 keeps about 7 significant digits, and summing
+/// 3 072 products in 768 lanes loses a few more. The README and the dartdoc
+/// state the same bound.
+const double float32Tolerance = 1e-5;
+
 void main() {
   const dimensions = [1, 3, 4, 5, 1536, 3072];
 
@@ -35,7 +41,10 @@ void main() {
         for (var round = 0; round < 20; round++) {
           final a = random(r, length);
           final b = random(r, length);
-          expect(cosineF32x4(a, b), closeTo(cosineScalar(a, b), 1e-5));
+          expect(
+            cosineF32x4(a, b),
+            closeTo(cosineScalar(a, b), float32Tolerance),
+          );
         }
       });
 
@@ -44,9 +53,9 @@ void main() {
         final negated = Float32List.fromList([for (final x in a) -x]);
         final scaled = Float32List.fromList([for (final x in a) x * 1000]);
         final zero = Float32List(length);
-        expect(cosineF32x4(a, a), closeTo(1, 1e-5));
-        expect(cosineF32x4(a, scaled), closeTo(1, 1e-5));
-        expect(cosineF32x4(a, negated), closeTo(-1, 1e-5));
+        expect(cosineF32x4(a, a), closeTo(1, float32Tolerance));
+        expect(cosineF32x4(a, scaled), closeTo(1, float32Tolerance));
+        expect(cosineF32x4(a, negated), closeTo(-1, float32Tolerance));
         expect(cosineF32x4(a, zero), 0);
         expect(cosineF32x4(zero, zero), 0);
         expect(cosineScalar(a, zero), 0);
@@ -149,7 +158,7 @@ void main() {
       for (var i = 0; i < ranked.length; i++) {
         final got = cosineScalar(query, vectorOf(ranked[i]['embedding'])!);
         final want = cosineScalar(query, vectorOf(expected[i]['embedding'])!);
-        expect(got, closeTo(want, 1e-5));
+        expect(got, closeTo(want, float32Tolerance));
       }
     });
   });
