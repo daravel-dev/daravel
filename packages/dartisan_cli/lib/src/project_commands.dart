@@ -1574,11 +1574,27 @@ String formatLintIssue(LintIssue issue) =>
     '  info - ${issue.path.replaceAll(r'\', '/')}:${issue.line}:${issue.column}'
     ' - ${issue.message} - ${issue.rule}';
 
-/// `lint [--json]` — runs `daravel_lints` over the project.
+/// `lint [--json] [--enable=a,b] [--disable=c]` — runs `daravel_lints` over
+/// the project: the default rules and the registry check, with the
+/// `diagnostics:` of the project's `analysis_options.yaml` ([lintConfig]),
+/// then `--enable`/`--disable` for this run.
 final class LintCommand extends Command<int> {
   /// The `dartisan lint` command.
   LintCommand() {
-    argParser.addFlag('json', negatable: false, help: 'Output JSON.');
+    argParser
+      ..addFlag('json', negatable: false, help: 'Output JSON.')
+      ..addMultiOption(
+        'enable',
+        help:
+            'Also run these rules for this run (opt-in rules are enabled '
+            'for good under diagnostics: in analysis_options.yaml).',
+        valueHelp: 'rule',
+      )
+      ..addMultiOption(
+        'disable',
+        help: 'Skip these rules for this run.',
+        valueHelp: 'rule',
+      );
   }
 
   @override
@@ -1591,7 +1607,41 @@ final class LintCommand extends Command<int> {
   @override
   Future<int> run() async {
     final root = ProjectPaths.locate().root;
-    final issues = lintProject(root);
+    final LintConfig config;
+    try {
+      config = lintConfig(root).withOverrides(
+        enable: argResults!['enable'] as List<String>,
+        disable: argResults!['disable'] as List<String>,
+      );
+    } on FormatException catch (error) {
+      stderr.writeln(error.message);
+      return 64;
+    } on ArgumentError catch (error) {
+      stderr.writeln('${error.message}');
+      return 64;
+    }
+    for (final warning in config.warnings) {
+      stderr.writeln('Warning: $warning');
+    }
+    final issues = lintProject(
+      root,
+      rules: config.rules,
+      registries: config.registries,
+    );
+    final optIn = [
+      for (final rule in config.rules)
+        if (optionalRules.any((o) => o.name == rule.name)) rule.name,
+    ];
+    final off = [
+      for (final rule in defaultRules)
+        if (config.disabled.contains(rule.name)) rule.name,
+      if (!config.registries) registryRuleName,
+    ];
+    final checked = [
+      if (optIn.isNotEmpty) 'opt-in rules on: ${optIn.join(', ')}',
+      if (off.isNotEmpty) 'rules off: ${off.join(', ')}',
+    ];
+    final scope = checked.isEmpty ? '' : ' (${checked.join('; ')})';
     if (argResults!['json'] as bool) {
       stdout.writeln(
         jsonEncode([
@@ -1614,8 +1664,9 @@ final class LintCommand extends Command<int> {
       }
       stdout.writeln(
         issues.isEmpty
-            ? 'No issues found.'
-            : '${issues.length} issue${issues.length == 1 ? '' : 's'} found.',
+            ? 'No issues found$scope.'
+            : '${issues.length} issue${issues.length == 1 ? '' : 's'} '
+                  'found$scope.',
       );
     }
     // Any finding fails the command, as `dart analyze --fatal-infos` does,
