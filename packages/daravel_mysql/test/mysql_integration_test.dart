@@ -326,6 +326,45 @@ void main() {
     await schema.dropIfExists('migrations');
   });
 
+  test('the database queue on MySQL: reservedUntil and extend in whole '
+      'seconds; an extension within the same second changes nothing', () async {
+    final schema = SchemaBuilder(await db.executor());
+    for (final table in ['jobs', 'job_batches', 'failed_jobs']) {
+      await schema.dropIfExists(table);
+    }
+    await const CreateJobsTable().up(schema);
+    addTearDown(() async {
+      for (final table in ['jobs', 'job_batches', 'failed_jobs']) {
+        await schema.dropIfExists(table);
+      }
+    });
+    const second = 1800000000 * 1000;
+    var now = DateTime.fromMillisecondsSinceEpoch(second + 999, isUtc: true);
+    final queue = DatabaseQueue(
+      db,
+      retryAfter: const Duration(seconds: 3),
+      clock: () => now,
+    );
+    await queue.push(JobPayload.forJob(const _Ping()), queue: 'default');
+    final job = (await queue.pop('default'))!;
+    expect(job.reservedUntil!.millisecondsSinceEpoch, second + 3000);
+
+    // The same second as the pop: MySQL counts the row as unchanged.
+    now = DateTime.fromMillisecondsSinceEpoch(second + 999, isUtc: true);
+    expect(await queue.extend(job), isNull);
+    now = DateTime.fromMillisecondsSinceEpoch(second + 2999, isUtc: true);
+    expect(await queue.pop('default'), isNull, reason: 'end unchanged');
+
+    // A later second moves it.
+    now = DateTime.fromMillisecondsSinceEpoch(second + 1500, isUtc: true);
+    final until = await queue.extend(job);
+    expect(until!.millisecondsSinceEpoch, second + 4000);
+    now = DateTime.fromMillisecondsSinceEpoch(second + 3999, isUtc: true);
+    expect(await queue.pop('default'), isNull, reason: '1 ms before');
+    now = DateTime.fromMillisecondsSinceEpoch(second + 4000, isUtc: true);
+    expect((await queue.pop('default'))!.id, job.id);
+  });
+
   test('an application uses the driver through withDatabaseDriver', () async {
     final app = Application.configure(basePath: Directory.systemTemp.path)
         .withEnv({
@@ -670,4 +709,17 @@ final class _Item extends Model {
 
   @override
   ModelDefinition<_Item> get modelDefinition => _Item.definition;
+}
+
+final class _Ping extends Job {
+  const _Ping();
+
+  @override
+  String get jobName => 'ping';
+
+  @override
+  Map<String, Object?> toJson() => const {};
+
+  @override
+  Future<void> handle(JobContext context) async {}
 }
