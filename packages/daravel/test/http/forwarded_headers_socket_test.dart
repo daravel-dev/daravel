@@ -39,6 +39,10 @@ void main() {
               },
             );
             router.get('/back', (q) => Response.back(q, fallback: '/home'));
+            // Any other path: the URI the application sees.
+            router.fallback(
+              (q) => {'uri': '${q.uri}', 'path': q.path, 'host': q.host},
+            );
             router.group((r) {
               r.get('/secret', (_) => 'admin only');
             }, domain: 'admin.example');
@@ -168,7 +172,9 @@ void main() {
       engine,
       get('/secret', ['Host: app.example', 'X-Forwarded-Host: admin.example']),
     );
-    expect(spoofedHost, startsWith('HTTP/1.1 404'));
+    // The fallback route of app.example answers, not admin.example's.
+    expect(spoofedHost, isNot(contains('admin only')));
+    expect(body(spoofedHost), containsPair('host', 'app.example'));
   });
 
   test('back() does not follow a foreign Referer that X-Forwarded-Host '
@@ -223,6 +229,86 @@ void main() {
     final v6 = await send(engine, get('/echo', ['Host: [::1]:8080']));
     expect(body(v6), containsPair('host', '::1'));
     expect(body(v6), containsPair('uri', 'http://[::1]:8080/echo'));
+  });
+
+  group('Host must be uri-host [":" port] (400 otherwise), and the path and '
+      'query come from the request line', () {
+    for (final (hostHeader, why) in [
+      ('app.example/admin?', 'a path and query in Host'),
+      ('app.example#', 'a fragment in Host'),
+      ('good.example@evil.example', 'userinfo in Host'),
+      (r'app.example\admin', 'a backslash'),
+      ('app.example\tadmin', 'a tab'),
+      ('app.example%2Fadmin', 'an encoded slash'),
+      ('app.example:8o', 'a port that is not digits'),
+      ('app.example:70000', 'a port past 65535'),
+      ('app..example', 'an empty label'),
+      ('1.2.3.999', 'a numeric last label that is no IPv4 address'),
+      ('[::1', 'an unclosed IPv6 literal'),
+      ('[fe80::1%eth0]', 'an IPv6 zone'),
+      ('bücher.example', 'a raw IDN (Symfony refuses it too)'),
+    ]) {
+      test('$why: 400', () async {
+        final (engine, _, _) = await serve();
+        final reply = await send(engine, get('/public', ['Host: $hostHeader']));
+        expect(reply, startsWith('HTTP/1.1 400'), reason: hostHeader);
+      });
+    }
+
+    test('userinfo in an absolute-form target: 400', () async {
+      final (engine, _, _) = await serve();
+      expect(
+        await send(engine, get('http://u:p@app.example/echo', [])),
+        startsWith('HTTP/1.1 400'),
+      );
+    });
+
+    test('accepted: underscores, a final dot, IPv4, IPv6 with a port, an '
+        'empty port', () async {
+      final (engine, _, _) = await serve();
+      for (final (hostHeader, host) in [
+        ('my_host.example', 'my_host.example'),
+        ('app.example.', 'app.example.'),
+        ('10.0.0.1:8080', '10.0.0.1'),
+        ('[2001:db8::1]:8443', '2001:db8::1'),
+        ('app.example:', 'app.example'),
+      ]) {
+        final reply = await send(engine, get('/public', ['Host: $hostHeader']));
+        expect(reply, startsWith('HTTP/1.1 200'), reason: hostHeader);
+        expect(body(reply), containsPair('host', host), reason: hostHeader);
+        expect(body(reply), containsPair('path', '/public'));
+      }
+    });
+
+    test('the path and query stay as the request line wrote them', () async {
+      final (engine, _, _) = await serve();
+      for (final (target, uri) in [
+        ('//double/slash', 'http://app.example//double/slash'),
+        ('/p?', 'http://app.example/p?'),
+        (
+          '/a//b%2Fc?x=%20&y&z=a+b',
+          'http://app.example/a//b%2Fc?x=%20&y&z=a+b',
+        ),
+      ]) {
+        final reply = await send(engine, get(target, ['Host: app.example']));
+        expect(body(reply), containsPair('uri', uri), reason: target);
+      }
+    });
+
+    test(
+      'a trusted proxy\'s X-Forwarded-Host that is no uri-host is ignored',
+      () async {
+        final (engine, _, _) = await serve(trustedProxies: ['127.0.0.1']);
+        final reply = await send(
+          engine,
+          get('/echo', [
+            'Host: app.example',
+            'X-Forwarded-Host: good.example@evil.example',
+          ]),
+        );
+        expect(body(reply), containsPair('host', 'app.example'));
+      },
+    );
   });
 
   test('the socket and Application.handle (the test client\'s path) agree '
