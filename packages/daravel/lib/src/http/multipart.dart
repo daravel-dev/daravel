@@ -32,9 +32,15 @@ final class MultipartLimits {
     this.maxParts = 1000,
     this.maxFiles = 20,
     this.maxFieldBytes = 1 << 20,
+    this.maxPartHeaderBytes = 16 * 1024,
+    this.maxPartHeaders = 100,
   });
 
-  /// The most parts a body may have.
+  /// The most parts a body may have; beyond it the body is refused with
+  /// 400. PHP's default is 1 020 (`max_multipart_body_parts` -1 is
+  /// `max_input_vars` 1 000 + `max_file_uploads` 20), and PHP stops
+  /// reading there and keeps the parts read so far; refusing instead never
+  /// validates a form cut short.
   final int maxParts;
 
   /// The most files a body may have.
@@ -42,6 +48,16 @@ final class MultipartLimits {
 
   /// The largest field value, in bytes.
   final int maxFieldBytes;
+
+  /// The most bytes of one part's header block, from its delimiter line to
+  /// the blank line after its headers: 16 KiB, as busboy (Node's multipart
+  /// parser). PHP's parser sets no limit. Beyond it the body is refused
+  /// with 400 before the headers are buffered.
+  final int maxPartHeaderBytes;
+
+  /// The most header lines of one part (100, as Apache's request header
+  /// default); refused like [maxPartHeaderBytes].
+  final int maxPartHeaders;
 }
 
 /// The boundary of a `multipart/form-data` content type, or `null`.
@@ -84,7 +100,8 @@ Future<MultipartBody> parseMultipart(
       try {
         final reader = parts = _Parts(
           // `bind` (not `transform`) also accepts a `Stream<Uint8List>`.
-          MimeMultipartTransformer(boundary).bind(body),
+          MimeMultipartTransformer(boundary)
+              .bind(limitPartHeaders(body, boundary, limits)),
         );
         result.complete(await _parse(reader, limits, tempDirectory, files));
       } catch (error, stack) {
@@ -109,6 +126,157 @@ Future<MultipartBody> parseMultipart(
   );
   return result.future;
 }
+
+/// [body] unchanged, failing with [BadRequestHttpException] as soon as a
+/// part's header block (from its delimiter line to the blank line ending
+/// its headers) holds more than [MultipartLimits.maxPartHeaderBytes] bytes
+/// or [MultipartLimits.maxPartHeaders] header lines.
+///
+/// `package:mime` buffers a part's headers without a limit, up to the
+/// body limit (50 MiB by default); this bounds them before it reads them.
+/// The bytes are scanned once, in time linear in the body: the delimiter
+/// is found with Knuth–Morris–Pratt, so a delimiter split across chunks is
+/// found as one that is not.
+@visibleForTesting
+Stream<List<int>> limitPartHeaders(
+  Stream<List<int>> body,
+  String boundary,
+  MultipartLimits limits,
+) async* {
+  final scanner = PartHeaderScanner(
+    boundary,
+    maxBytes: limits.maxPartHeaderBytes,
+    maxHeaders: limits.maxPartHeaders,
+  );
+  await for (final chunk in body) {
+    scanner.add(chunk);
+    yield chunk;
+  }
+}
+
+/// Follows a multipart body byte by byte and throws
+/// [BadRequestHttpException] when a part's header block is too large; see
+/// [limitPartHeaders].
+@visibleForTesting
+final class PartHeaderScanner {
+  /// A scanner for the body delimited by [boundary].
+  PartHeaderScanner(
+    String boundary, {
+    required this.maxBytes,
+    required this.maxHeaders,
+  }) : _delimiter = latin1.encode('\r\n--$boundary') {
+    _failure = List<int>.filled(_delimiter.length, 0);
+    for (var i = 1, k = 0; i < _delimiter.length; i++) {
+      while (k > 0 && _delimiter[i] != _delimiter[k]) {
+        k = _failure[k - 1];
+      }
+      if (_delimiter[i] == _delimiter[k]) {
+        k++;
+      }
+      _failure[i] = k;
+    }
+  }
+
+  /// The most bytes of one part's header block.
+  final int maxBytes;
+
+  /// The most header lines of one part.
+  final int maxHeaders;
+
+  final Uint8List _delimiter;
+  late final List<int> _failure;
+
+  // The body starts with `--boundary`, without the CRLF before it: the
+  // match starts as if that CRLF had been read.
+  int _matched = 2;
+  _ScanState _state = _ScanState.data;
+  int _headerBytes = 0;
+  int _headers = 0;
+  int _lineBytes = 0;
+  int _dashes = 0;
+
+  /// Reads [chunk]; throws when a header block goes past a limit.
+  void add(List<int> chunk) {
+    final n = chunk.length;
+    var i = 0;
+    while (i < n) {
+      if (_state == _ScanState.data && _matched == 0) {
+        // Nothing matched: a delimiter can only start at a CR. Skipping
+        // to it in a tight loop keeps the content's bytes cheap; each
+        // byte is still read once.
+        while (i < n && chunk[i] != 0x0d) {
+          i++;
+        }
+        if (i == n) {
+          return;
+        }
+      }
+      final byte = chunk[i++];
+      switch (_state) {
+        case _ScanState.data:
+          while (_matched > 0 && byte != _delimiter[_matched]) {
+            _matched = _failure[_matched - 1];
+          }
+          if (byte == _delimiter[_matched]) {
+            _matched++;
+          }
+          if (_matched == _delimiter.length) {
+            _matched = 0;
+            _state = _ScanState.delimiterLine;
+            _headerBytes = 0;
+            _headers = 0;
+            _dashes = 0;
+          }
+        case _ScanState.delimiterLine:
+          _count();
+          if (_dashes >= 0 && byte == 0x2d) {
+            // `--` right after the boundary closes the body.
+            if (++_dashes == 2) {
+              _state = _ScanState.epilogue;
+            }
+          } else {
+            _dashes = -1;
+            if (byte == 0x0a) {
+              _state = _ScanState.headers;
+              _lineBytes = 0;
+            }
+          }
+        case _ScanState.headers:
+          _count();
+          if (byte == 0x0a) {
+            if (_lineBytes == 0) {
+              // The blank line: the part's content starts.
+              _state = _ScanState.data;
+              _matched = 0;
+            } else if (++_headers > maxHeaders) {
+              throw BadRequestHttpException(
+                'Malformed multipart body: a part has more than $maxHeaders '
+                'headers.',
+              );
+            }
+            _lineBytes = 0;
+          } else if (byte != 0x0d) {
+            _lineBytes++;
+          }
+        case _ScanState.epilogue:
+          // What follows the closing delimiter is ignored, as by
+          // package:mime.
+          return;
+      }
+    }
+  }
+
+  void _count() {
+    if (++_headerBytes > maxBytes) {
+      throw BadRequestHttpException(
+        'Malformed multipart body: a part header holds more than $maxBytes '
+        'bytes.',
+      );
+    }
+  }
+}
+
+enum _ScanState { data, delimiterLine, headers, epilogue }
 
 /// A failure of the body or of its parsing as the client is told it.
 Object _bodyError(Object error) => switch (error) {
