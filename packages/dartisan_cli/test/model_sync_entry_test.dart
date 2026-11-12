@@ -168,6 +168,31 @@ void main() {
         '${p.join('lib', 'app', 'models', 'note.dart')}:16 (accessors)',
       ]);
     });
+
+    test('a failed --boot always says how to get out of a compile error, '
+        'and names generated lines when they are the cause', () {
+      // As reported in #329: the error is in code using an accessor, not
+      // in the generated lines.
+      const caller =
+          "lib/app/services/engine.dart:114:20: Error: A value of type 'int' "
+          "can't be assigned to a variable of type 'String'.";
+      final hints = bootFailureHints(caller, root.path);
+      expect(hints, hasLength(1));
+      expect(hints.single, contains('model:sync without --boot'));
+      expect(hints.single, contains('--reset-regions'));
+      // In a generated region: the stronger line first.
+      final inRegion = bootFailureHints(
+        'lib/app/models/note.dart:16:26: Error: A value of type',
+        root.path,
+      );
+      expect(inRegion, hasLength(2));
+      expect(inRegion.first, contains('because of lines model:sync wrote'));
+      // Another failure (no compile error): nothing.
+      expect(
+        bootFailureHints('table [notes] does not exist', root.path),
+        isEmpty,
+      );
+    });
   });
 
   test('a second sync of unchanged code is up to date, long lines '

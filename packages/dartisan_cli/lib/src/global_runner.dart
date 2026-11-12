@@ -185,18 +185,7 @@ final class GlobalDartisanRunner extends CommandRunner<int>
     ]);
     final code = await process.exitCode;
     if (code != 0) {
-      final generated = errorsInGeneratedRegions(seen.toString(), project);
-      if (generated.isNotEmpty) {
-        stderr
-          ..writeln(
-            'model:sync: the application does not compile because of lines '
-            'model:sync wrote: ${generated.join(', ')}.',
-          )
-          ..writeln(
-            'model:sync: run dartisan model:sync without --boot (it does not '
-            'compile the application), or model:sync --reset-regions.',
-          );
-      }
+      bootFailureHints(seen.toString(), project).forEach(stderr.writeln);
     }
     return code;
   }

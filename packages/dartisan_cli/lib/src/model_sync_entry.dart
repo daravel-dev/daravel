@@ -212,3 +212,23 @@ List<String> errorsInGeneratedRegions(String output, String root) {
   }
   return found.toSet().toList();
 }
+
+/// What `model:sync --boot` says after the project's CLI failed with
+/// [output]: when the application did not compile, always how to get out,
+/// since the error is often in code that uses a generated accessor, not
+/// in the generated lines (#329); and, when errors fall inside a generated
+/// region, which ones. Nothing for another failure.
+List<String> bootFailureHints(String output, String root) {
+  if (!RegExp(r'\.dart:\d+:\d+: Error', multiLine: true).hasMatch(output)) {
+    return const [];
+  }
+  final generated = errorsInGeneratedRegions(output, root);
+  return [
+    if (generated.isNotEmpty)
+      'model:sync: the application does not compile because of lines '
+          'model:sync wrote: ${generated.join(', ')}.',
+    'model:sync: if model:sync output is the cause (an accessor whose type '
+        'changed), run dartisan model:sync without --boot, which does not '
+        'compile the application, or model:sync --reset-regions.',
+  ];
+}
