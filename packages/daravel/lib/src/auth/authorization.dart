@@ -6,6 +6,12 @@ import '../http/request.dart';
 import '../http/response.dart';
 import 'contracts.dart';
 
+/// An ability name with the compiler's help: `Abilities.updatePost`, which
+/// `dartisan names:sync` writes from the gate. It is the name itself
+/// (`implements String`), so it goes wherever an ability name goes
+/// (`Gate.allows(Abilities.updatePost, [post])`, `Mw.can(...)`).
+extension type const Ability(String name) implements String {}
+
 /// Ability callback: returns `bool`, [AuthResponse] or `null` (= no opinion
 /// in `before`/`after` hooks, deny in abilities).
 typedef GateCallback = FutureOr<Object?> Function(
@@ -205,6 +211,15 @@ final class AuthorizationGate {
 
   /// Whether [ability] is defined.
   bool has(String ability) => _abilities.containsKey(ability);
+
+  /// The abilities defined with [define], in definition order (read
+  /// only; `dartisan names:sync` writes `Abilities.*` from them).
+  Iterable<String> get abilities => _abilities.keys;
+
+  /// Whether a policy is registered (its abilities are the policy
+  /// methods: `viewAny`, `view`, `create`, `update`, `delete`, `restore`,
+  /// `forceDelete`).
+  bool get hasPolicies => _policies.isNotEmpty;
 
   /// A gate that checks abilities for [user] instead of the current user.
   AuthorizationGate forUser(Authenticatable? user) =>

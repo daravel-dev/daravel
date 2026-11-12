@@ -289,6 +289,32 @@ final class Application {
   /// providers, bindings and routing callbacks.
   Future<void> boot() => _booting ??= container.runBound<Future<void>>(_boot);
 
+  bool _inspecting = false;
+
+  /// Whether this application was booted with [bootForInspection].
+  bool get inspecting => _inspecting;
+
+  /// Boots the application for tooling that only reads its registrations
+  /// (routes, abilities, guards, limiters: `dartisan names:sync`): as
+  /// [boot], except that the metrics publisher does not start and every
+  /// attempt to open a database connection throws a [StateError] saying
+  /// why. A provider that uses the database while booting therefore fails
+  /// with that error instead of connecting. Shut the application down
+  /// afterwards, as after [boot].
+  ///
+  /// The metrics publisher is the only timer [boot] itself starts. The
+  /// scheduler, queue workers, Horizon, Reverb, the coordinator and
+  /// replication start in `serve` or their own commands, never in a boot,
+  /// so an inspected application leaves no timer, socket or isolate
+  /// running once shut down.
+  Future<void> bootForInspection() {
+    if (_booting != null && !_inspecting) {
+      throw StateError('The application is already booted to run.');
+    }
+    _inspecting = true;
+    return boot();
+  }
+
   Future<void> _boot() async {
     env = await Env.load(
       basePath: basePath,
@@ -731,12 +757,23 @@ final class Application {
     final metricsConfig = config.section<MetricsConfig>();
     if (metricsConfig.enabled) {
       middleware.prepend(MetricsMiddleware(metrics));
-      _metricsTimer = metrics.startPublishing();
+      if (!_inspecting) {
+        _metricsTimer = metrics.startPublishing();
+      }
     }
     _builder._exceptionsConfig?.call(exceptions);
 
     for (final configure in _builder._bindings) {
       configure(container);
+    }
+    if (_inspecting) {
+      // Before any provider boots, so one that queries at boot is told.
+      container.make<DatabaseManager>().refuseConnections(
+        'the application was booted for inspection (bootForInspection, '
+        'used by dartisan names:sync), which reads its '
+        'registrations and opens no connection; a provider or binding '
+        'used the database while booting',
+      );
     }
     for (final provider in _builder._providers) {
       await provider.register(container);

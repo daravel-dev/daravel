@@ -72,6 +72,31 @@ outside a request.
 - `router.url('posts.show', {'id': 1})` builds URLs from names; signed URLs
   are available for the `signed` middleware.
 - `dart run bin/dartisan.dart route:list` prints the table.
+- `dart run bin/dartisan.dart names:sync` writes `lib/app/names.dart`: a URL
+  builder per named route (`Routes.postsShow(post: 1)`, a missing parameter
+  does not compile) and `RouteNames`, `Abilities`, `RateLimiters`, `Guards`,
+  `Disks` and `Connections`, so the editor lists the application's names.
+  It boots the application for inspection: no database connection, no
+  metrics publisher, nothing sent; a provider that needs the database at
+  boot makes it fail with that reason. `names:sync --check` exits 1 when
+  the file is out of date: in CI it needs only what boot needs (a `.env`
+  with `APP_KEY` when the application reads it), no running service.
+  `names:sync --boot` boots the application fully instead, for a provider
+  that needs the database while booting.
+  - Parameters: `{post}`, `:id`, `{post:slug}` (named `post`, its dartdoc
+    names the column) and the wildcards `{path*}`/`*path` are required
+    (the router matches no empty wildcard); `{slug?}` is optional. Each
+    builder's dartdoc shows its methods and pattern (`GET /posts/{post}`).
+  - Routes are code, so the application must compile: add a route, run
+    `names:sync`, then use `Routes.x`. A route removed or renamed makes the
+    code using it fail to compile, which is the point.
+  - The names come from the application booted with the machine's
+    environment: the configured disks, connections and guards, and routes
+    or limiters registered only in some environments (only with
+    `APP_DEBUG`, say), come and go with it. Run `names:sync` and
+    `names:sync --check` with the same environment, for example
+    `APP_ENV=testing` in both. A failed `--check` lists the names that
+    differ (`Disks -s3`, `Routes +posts.show`).
 
 Unknown routes answer `404 {"message": "The route api/x could not be
 found."}`. A known path with the wrong verb answers `405` with an `Allow`

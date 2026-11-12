@@ -177,6 +177,7 @@ final class DartisanRunner extends CommandRunner<int> with DartisanConsole {
     addCommand(OpenApiGenerateCommand(createApp));
     addCommand(ModelSyncCommand(createApp));
     addCommand(RequestSyncCommand());
+    addCommand(NamesSyncCommand(createApp));
     addCommand(LintCommand());
     addCommand(UpgradeCommand());
     addCommand(SelfUpdateCommand());
@@ -277,6 +278,37 @@ abstract class DaravelCommand extends Command<int> {
     final app = createApp();
     try {
       await app.boot();
+      return await app.run<int>(() => body(app));
+    } finally {
+      await app.shutdown();
+    }
+  }
+
+  /// As [withApp], for a command that only reads the application's
+  /// registrations: the application boots for inspection
+  /// (`Application.bootForInspection`: no database connection, no metrics
+  /// publisher). A boot that fails (a provider that needs the database)
+  /// prints its reason and returns 1, not a raw stack.
+  ///
+  /// [hint] follows the reason of a failed boot (`run dartisan names:sync
+  /// --boot`).
+  Future<int> withAppForInspection(
+    FutureOr<int> Function(Application app) body, {
+    String? hint,
+  }) async {
+    final app = createApp();
+    try {
+      try {
+        await app.bootForInspection();
+      } on Object catch (error) {
+        stderr.writeln(
+          '$name: the application could not boot for inspection: $error',
+        );
+        if (hint != null) {
+          stderr.writeln('$name: $hint');
+        }
+        return 1;
+      }
       return await app.run<int>(() => body(app));
     } finally {
       await app.shutdown();
