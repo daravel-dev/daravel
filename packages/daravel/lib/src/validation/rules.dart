@@ -3330,7 +3330,45 @@ final class InArrayRule extends Rule {
 
   @override
   String? passes(ValidationContext c) {
-    // `Arr::dot` of the data, keys matched by `Str::is` (`*` is any text).
+    final memo = c.memo;
+    if (memo == null) {
+      return _values(c.data).contains(c.value) ? null : name;
+    }
+    // The other values gathered once per run, not once per item: walking
+    // the whole input for every item took time quadratic in its size (8 000
+    // numbers against 8 000: 52 s). The same test: `List.contains`, with a
+    // Set for the values whose `==` is symmetric and agrees with their hash.
+    final (:scalars, :rest) =
+        memo.putIfAbsent(('in_array', c.data, other), () {
+              final scalars = <Object?>{};
+              final rest = <Object?>[];
+              for (final value in _values(c.data)) {
+                if (_hashable(value)) {
+                  scalars.add(value);
+                } else {
+                  rest.add(value);
+                }
+              }
+              return (scalars: scalars, rest: rest);
+            })!
+            as ({Set<Object?> scalars, List<Object?> rest});
+    final value = c.value;
+    final found =
+        (_hashable(value) && scalars.contains(value)) ||
+        rest.any((other) => other == value);
+    return found ? null : name;
+  }
+
+  // A value a Set may hold in place of a list scan: null, a bool, a String
+  // or a number other than NaN (NaN is never equal to itself).
+  static bool _hashable(Object? value) =>
+      value == null ||
+      value is bool ||
+      value is String ||
+      (value is num && !value.isNaN);
+
+  // `Arr::dot` of the data, keys matched by `Str::is` (`*` is any text).
+  List<Object?> _values(Map<String, Object?> data) {
     final pattern = RegExp(
       '^${other.split('*').map(RegExp.escape).join('.*')}\$',
     );
@@ -3352,8 +3390,8 @@ final class InArrayRule extends Rule {
       }
     }
 
-    walk(c.data, '');
-    return values.contains(c.value) ? null : name;
+    walk(data, '');
+    return values;
   }
 }
 
