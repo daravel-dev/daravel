@@ -26,11 +26,13 @@ void main() {
     return best.toDouble();
   }
 
-  // Growth, not a fixed time: from n to 4n characters a linear reading
-  // takes about 4 times as long and the quadratic one took 16 times
-  // (seconds); the limit of 10 sits far from both. A fixed 100 ms failed on
-  // a slow CI runner at 104 ms, and n to 2n under 3 failed there at 3.5.
-  const n = 12500;
+  // Growth, not a fixed time: from n to 16n characters a linear reading
+  // takes about 16 times as long and the quadratic one took 256 times
+  // (seconds); the limit of 100 sits far from both. A fixed 100 ms failed
+  // on a slow CI runner at 104 ms, and n to 2n under 3 failed there at
+  // 3.5; reading the text allocates in proportion to it, so one step of 4
+  // is noisy, and 16 times the size evens that out.
+  const n = 3125;
   for (final (rule, value) in [
     ('decimal:0,2', (int n) => '${'1' * n}x'),
     ('decimal:0,2', (int n) => '${'1' * (n ~/ 2)}.${'1' * (n ~/ 2)}x'),
@@ -38,16 +40,16 @@ void main() {
     ('multiple_of:5', (int n) => '${' ' * n}x'),
     ('gt:5', (int n) => '${' ' * n}x'),
   ]) {
-    test('$rule on ${value(n).length} and ${value(4 * n).length} '
+    test('$rule on ${value(n).length} and ${value(16 * n).length} '
         'characters: linear', () async {
       final small = await micros(value(n), rule);
-      final large = await micros(value(4 * n), rule);
+      final large = await micros(value(16 * n), rule);
       final shown =
           '${(small / 1000).toStringAsFixed(1)} ms, then '
           '${(large / 1000).toStringAsFixed(1)} ms';
       // Below 1 ms, timer noise decides the ratio: linear either way.
       if (large > 1000) {
-        expect(large / small, lessThan(10), reason: shown);
+        expect(large / small, lessThan(100), reason: shown);
       }
       expect(large, lessThan(1000000), reason: '$shown (at most 1 s)');
     });

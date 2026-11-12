@@ -66,8 +66,10 @@ void main() {
   });
 
   // Growth, not a wall-clock bound: the time for 100 000 characters over
-  // the time for 25 000, each the fastest of three runs. Linear gives about
-  // 4, quadratic about 16; a loaded machine slows both sizes alike.
+  // the time for 6 250, each the fastest of three runs, under 100. Linear
+  // gives about 16, quadratic about 256; a loaded machine slows both sizes
+  // alike. The lexer allocates per token, so one step of 4 read up to 7.3
+  // when a collection fell in it; 16 times the size evens that out.
   group('linear in the length of the address', () {
     final q = String.fromCharCode(0x22);
     final bs = String.fromCharCode(0x5C);
@@ -100,12 +102,12 @@ void main() {
       for (final rule in ['email:rfc', 'email:strict']) {
         test('$name, $rule', () async {
           await fastest(shape(1000), rule);
-          final small = await fastest(shape(25000), rule);
+          final small = await fastest(shape(6250), rule);
           final large = await fastest(shape(100000), rule);
           expect(
             large / max(small, 1),
-            lessThan(10),
-            reason: '25 000: $small µs, 100 000: $large µs',
+            lessThan(100),
+            reason: '6 250: $small µs, 100 000: $large µs',
           );
         });
       }

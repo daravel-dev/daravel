@@ -89,8 +89,11 @@ void main() {
     }
   });
 
-  // Growth, not a wall-clock bound: 16 000 items over 4 000, each the
-  // fastest of three. Linear is about 4, the scan per item about 16.
+  // Growth, not a wall-clock bound: 16 000 items over 1 000, each the
+  // fastest of three. Linear is about 16, the scan per item about 256. The
+  // work allocates in proportion to the items, so one step of 4 can read 6
+  // or 7 when a collection lands in it; 16 times the size under 100 holds
+  // through that and still fails a quadratic.
   Future<int> fastest(
     Map<String, Object?> data,
     Map<String, Object> rules,
@@ -124,12 +127,12 @@ void main() {
   ]) {
     test('linear in the list length: $name', () async {
       await fastest(data(100), rules);
-      final small = await fastest(data(4000), rules);
+      final small = await fastest(data(1000), rules);
       final large = await fastest(data(16000), rules);
       expect(
         large / max(small, 1),
-        lessThan(10),
-        reason: '4 000: $small µs, 16 000: $large µs',
+        lessThan(100),
+        reason: '1 000: $small µs, 16 000: $large µs',
       );
     });
   }
