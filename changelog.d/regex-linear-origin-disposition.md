@@ -1,3 +1,0 @@
-### Fixed
-
-- Two regular expressions that a client's input reaches backtracked for minutes on a few kilobytes, a denial of service: the WebSocket origin check of the Pusher server (`allowedOrigins` with several `*`, such as `*.*.example.com`, against the handshake's `Origin` host: 8 000 characters took 116 s) and the parameters of a multipart part's `Content-Disposition` header (64 000 letters without `=` took 79 s). Both are now linear: `*` patterns (Laravel's `Str::is`, also used by `Http::fake` URL patterns) are matched part by part, and the header is scanned once. Their results are the same as before (checked on 20 000 random inputs each), except that `*` now also spans a line break, which a host or URL cannot hold.
