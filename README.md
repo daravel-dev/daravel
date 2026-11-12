@@ -462,6 +462,7 @@ The monorepo is a Dart pub workspace:
 | [`packages/daravel`](packages/daravel) | Framework core |
 | [`packages/daravel_test`](packages/daravel_test) | Testing toolkit: `TestClient`, assertions, `refreshDatabase`, time travel, architecture helpers |
 | [`packages/daravel_lints`](packages/daravel_lints) | AST-based lint rules and registry checks, run by `dartisan lint` and in tests |
+| [`packages/daravel_lints_plugin`](packages/daravel_lints_plugin) | The `daravel_lints` rules in the editor and in `dart analyze`, as an analysis server plugin |
 | [`packages/dartisan_cli`](packages/dartisan_cli) | The `dartisan` command-line interface and code generators |
 | [`packages/daravel_mysql`](packages/daravel_mysql) | MySQL and MariaDB driver |
 | [`packages/daravel_permission`](packages/daravel_permission) | Roles and permissions on spatie/laravel-permission's tables |

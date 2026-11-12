@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:f943a3636a02 -->
+<!-- source: README.md sha256:8b7fbdeaa2f1 -->
 | [`packages/daravel_session`](packages/daravel_session) | Session yang kompatibel dengan Laravel (file atau tabel `sessions`), cookie terenkripsi, dan proteksi CSRF |
 <!-- source: README.md sha256:5b04c2e6d073 -->
 <p align="center">
@@ -469,6 +469,7 @@ Monorepo ini adalah pub workspace Dart:
 | [`packages/daravel`](packages/daravel) | Inti framework |
 | [`packages/daravel_test`](packages/daravel_test) | Toolkit testing: `TestClient`, assertion, `refreshDatabase`, time travel, helper arsitektur |
 | [`packages/daravel_lints`](packages/daravel_lints) | Rule lint berbasis AST dan pengecekan registry, dijalankan oleh `dartisan lint` dan di test |
+| [`packages/daravel_lints_plugin`](packages/daravel_lints_plugin) | Rule `daravel_lints` di editor dan di `dart analyze`, sebagai plugin analysis server |
 | [`packages/dartisan_cli`](packages/dartisan_cli) | Command-line interface `dartisan` dan generator kode |
 | [`packages/daravel_mysql`](packages/daravel_mysql) | Driver MySQL dan MariaDB |
 | [`packages/daravel_permission`](packages/daravel_permission) | Role dan permission pada tabel spatie/laravel-permission |

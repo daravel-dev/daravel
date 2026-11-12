@@ -1,0 +1,35 @@
+name: daravel_lints_plugin
+description: The Daravel lint rules in the editor, as a Dart analysis server plugin (analysis_server_plugin).
+version: 1.27.0
+homepage: https://daravel.dev
+repository: https://github.com/daravel-dev/daravel/tree/main/packages/daravel_lints_plugin
+issue_tracker: https://github.com/daravel-dev/daravel/issues
+funding:
+  - https://github.com/sponsors/daravel-dev
+documentation: https://daravel.dev
+topics: [lints, analyzer, ide, server, backend]
+
+platforms:
+  linux:
+  macos:
+  windows:
+
+environment:
+  sdk: ^3.13.0
+resolution: workspace
+
+dependencies:
+  # analysis_server_plugin pins analyzer to one exact version per release
+  # (0.3.25: analyzer 14.6.0; 0.3.26: 14.7.0), which is why the plugin is a
+  # package of its own: the analysis server resolves it apart from the
+  # application, so the pin never reaches an application's analyzer.
+  analysis_server_plugin: '>=0.3.25 <0.4.0'
+  analyzer: ^14.6.0
+  daravel_lints: ^1.27.0
+  path: ^1.9.0
+
+dev_dependencies:
+  analyzer_testing: '>=0.4.4 <0.5.0'
+  lints: ^6.0.0
+  test: ^1.33.0
+  test_reflective_loader: ^0.2.0
