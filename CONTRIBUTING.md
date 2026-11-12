@@ -123,6 +123,26 @@ Daravel follows Laravel's branch model, one branch per major version:
   of the attempts piled up and the newest upload was not the one
   downloaded. To move a pinned action, update the SHA and the comment
   together, after reading what changed.
+- The packages not yet released have their publish steps last, after
+  every released package (as their dependencies allow); a new package's
+  step goes there too, so a package whose automated publishing is not yet
+  enabled cannot hold back the released ones.
+- If a release's `publish.yml` run fails partway:
+  1. Read the failed step's log; do not delete or move the tag.
+  2. Fix the cause outside the run: enable automated publishing for the
+     package on pub.dev, or wait out a pub.dev outage. A problem in the
+     package itself is not fixed under the same tag: report it and release
+     a patch.
+  3. Re-run the whole workflow (`gh run rerun <id>`, not single jobs).
+     `verify` marks every version already on pub.dev as published, its
+     dry-runs check the rest again, and `publish` runs only their steps,
+     with a fresh token each. There are no artifacts, so there is nothing
+     to clean up first.
+  4. Check every package's version on pub.dev
+     (`https://pub.dev/api/packages/<package>/versions/<version>`).
+
+  `release.yml` (the GitHub release and fast-forwarding `1.x`) does not
+  depend on `publish.yml` and does not need re-running.
 
 Projects that depend on Daravel through git can pin the release line with
 `dartisan new --source=git --ref=1.x`.
