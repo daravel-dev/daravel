@@ -450,4 +450,77 @@ void f(String sort) {
       expect(lintSource(source, 'lib/src/a.dart', rules: rule), isEmpty);
     });
   });
+
+  test(
+    'invalid_validation_rule: where conditions in a string unique/exists',
+    () {
+      const source = '''
+void routes(Router r) {
+  r.post('/users', create).rules({
+    'a': 'unique:users,email,NULL,id,account_id,1',
+    'b': 'exists:users,id,active,1',
+    'c': 'unique:users,email,NULL,id|exists:users,id',
+  });
+}
+''';
+      final issues = lintSource(source, 'lib/app/http/routes.dart');
+      expect(issues.map((i) => i.line), [3, 4]);
+      expect(issues.first.message, contains('Rules.unique(...).where(...)'));
+      expect(issues.last.message, contains('Rules.exists(...).where(...)'));
+    },
+  );
+
+  group('string_validation_rule', () {
+    const rule = [StringValidationRule()];
+
+    test('is opt-in', () {
+      expect(
+        defaultRules.map((r) => r.name),
+        isNot(contains('string_validation_rule')),
+      );
+      expect(
+        optionalRules.map((r) => r.name),
+        contains('string_validation_rule'),
+      );
+    });
+
+    test('reports a string a chain can replace, naming the chain', () {
+      const source = r'''
+Future<void> f(Request request) => request.validate({
+  'email': 'required|email|max:255',
+  'tags': ['array', Rules.distinct()],
+  'slug': 'regex:/^[a-z]+$/',
+});
+''';
+      final issues = lintSource(source, 'lib/app/a.dart', rules: rule);
+      expect([for (final i in issues) i.line], [2, 3]);
+      expect(
+        issues.first.message,
+        'Write the rules as a Rules chain: '
+        'Rules.required().email().max(255)',
+      );
+      expect(issues.last.message, endsWith('Rules.array()'));
+    });
+
+    test('form request rules() and Validator maps too', () {
+      const source = '''
+final class StoreUser extends FormRequest {
+  @override
+  Map<String, Object> rules() => {'name': 'required|string'};
+}
+final v = Validator({}, {'age': 'integer|min:18'});
+''';
+      final issues = lintSource(source, 'lib/app/a.dart', rules: rule);
+      expect([for (final i in issues) i.line], [3, 5]);
+    });
+
+    test('ruleChainSource', () {
+      expect(
+        ruleChainSource('nullable|unique:users,email'),
+        "Rules.nullable().unique('users', 'email')",
+      );
+      expect(ruleChainSource('regex:/a/'), isNull);
+      expect(ruleChainSource(''), isNull);
+    });
+  });
 }

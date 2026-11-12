@@ -7,6 +7,7 @@ import '../foundation/cancellation.dart';
 import '../foundation/config.dart';
 import '../foundation/container.dart';
 import '../foundation/exceptions.dart';
+import '../foundation/xxh128.dart';
 import '../http/rate_limiter.dart';
 import 'queue_manager.dart';
 
@@ -91,6 +92,14 @@ abstract class Job {
   /// Human readable name (`displayName` in the payload).
   String get displayName => runtimeType.toString();
 
+  /// Whether the unique lock names this job by the XXH3-128 hash of its
+  /// [displayName], as Laravel does for a job class that defines
+  /// `displayName()` (`UniqueLock::getKey`: `hash('xxh128',
+  /// $job->displayName())`). Set it on the job that shares its unique lock
+  /// with such a Laravel class; otherwise the lock names it by
+  /// [displayName] itself, as Laravel names a class without that method.
+  bool get uniqueKeyHashesDisplayName => false;
+
   /// Tags for monitoring and filtering (`tags()` in Laravel Horizon), such
   /// as `['user:42', 'billing']`. Stored in the payload's `tags` key.
   List<String> get tags => const <String>[];
@@ -145,6 +154,28 @@ final class MaxAttemptsExceededException extends DaravelException {
         '$displayName has been attempted too many times or run too long '
         '($attempts attempts). The job may have previously timed out.',
       );
+}
+
+/// Laravel's `TimeoutExceededException::forJob`: a job ran past its timeout
+/// and failed for it (`<name> has timed out.`), because it fails on a
+/// timeout ([Job.failOnTimeout]) or that attempt was its last. The error
+/// in `failed_jobs`, `JobFailed` and `failed()` for such a job, whether the
+/// worker's own timer saw it or a supervisor killed a blocked worker.
+///
+/// It is a [TimeoutException], so code catching the `dart:async` one, as
+/// it did before this class, still catches it.
+final class TimeoutExceededException extends DaravelException
+    implements TimeoutException {
+  /// [jobName] (its display name) ran past [duration].
+  TimeoutExceededException(this.jobName, [this.duration])
+    : super('$jobName has timed out.');
+
+  /// The job's display name.
+  final String jobName;
+
+  /// The timeout it ran past, when known.
+  @override
+  final Duration? duration;
 }
 
 /// Explicit job registry (ADR-002).
@@ -300,26 +331,40 @@ final class WithoutOverlapping implements JobMiddleware {
 
   @override
   Future<void> handle(JobContext ctx, Job job, JobNext next) async {
-    final lock = Container.current
-        .make<CacheManager>()
-        .store(
-          store ??
-              Container.current
-                  .make<ConfigRepository>()
-                  .section<QueueConfig>()
-                  .uniqueLockStore,
-        )
-        .lock(
-          shared ? 'overlap:$key' : 'overlap:${job.jobName}:$key',
+    final cache = Container.current.make<CacheManager>().store(
+      store ??
+          Container.current
+              .make<ConfigRepository>()
+              .section<QueueConfig>()
+              .uniqueLockStore,
+    );
+    // The previous release's key first, then Laravel's (ADR-041): an
+    // instance of either release excludes the other during a deploy.
+    final locks = [
+      if (QueueLockKeys.legacyKeys)
+        cache.lock(
+          QueueLockKeys.legacyOverlap(job.jobName, key, shared: shared),
           ttl: expiresAfter,
-        );
-    if (!await lock.acquire()) {
-      if (dontRelease) {
-        ctx.delete();
-      } else {
-        ctx.release(releaseAfter);
+        ),
+      cache.lock(
+        QueueLockKeys.overlap(job.displayName, key, shared: shared),
+        ttl: expiresAfter,
+      ),
+    ];
+    final held = <Lock>[];
+    for (final lock in locks) {
+      if (!await lock.acquire()) {
+        for (final taken in held.reversed) {
+          await taken.release();
+        }
+        if (dontRelease) {
+          ctx.delete();
+        } else {
+          ctx.release(releaseAfter);
+        }
+        return;
       }
-      return;
+      held.add(lock);
     }
     try {
       await next();
@@ -328,7 +373,9 @@ final class WithoutOverlapping implements JobMiddleware {
       // [expiresAfter], as when Laravel kills the worker, so the retry does
       // not run next to it.
       if (!ctx.cancelled) {
-        await lock.release();
+        for (final lock in held.reversed) {
+          await lock.release();
+        }
       }
     }
   }
@@ -395,4 +442,123 @@ final class ModelRef<T extends Model> {
 
   /// The id, as stored in the payload.
   Object toJson() => id;
+}
+
+/// The cache keys of a job's unique lock, `WithoutOverlapping` lock and
+/// debounce owner, in Laravel's format (ADR-041), so a Laravel and a
+/// Daravel application sharing a cache (same `CACHE_PREFIX`) see each
+/// other's locks:
+///
+/// - unique: `laravel_unique_job:<displayName>:<uniqueId>`
+///   (`Illuminate\Bus\UniqueLock::getKey`, 12.x lines 66-77);
+/// - overlap: `laravel-queue-overlap:<displayName>:<key>`, or
+///   `laravel-queue-overlap:<key>` when shared
+///   (`Illuminate\Queue\Middleware\WithoutOverlapping`, 12.x lines 41 and
+///   157-168);
+/// - debounce: `laravel_debounced_job:<displayName>:<debounceId>`
+///   (`Illuminate\Bus\DebounceLock::getKey`, 13.x lines 159-170; 12.x has
+///   no debounce).
+///
+/// `<displayName>` is the job's [Job.displayName], the payload's
+/// `displayName`, which is the class name on the Laravel side: Laravel uses
+/// the class name, unhashed, for a job without a `displayName()` method,
+/// which is the usual case. Its `xxh128(displayName())` branch, for a job
+/// class that defines one, is not followed yet.
+///
+/// Until [legacyKeys] is removed (ADR-041: the minor release after 1.28.0),
+/// the keys Daravel used before (`unique:<jobName>:<id>`,
+/// `overlap:[<jobName>:]<key>`, `debounced_job:<jobName>:<id>`) are taken
+/// and written too, so an instance of the previous release, still running
+/// during a rolling deploy, and a new one exclude each other in both
+/// directions.
+abstract final class QueueLockKeys {
+  /// Whether the keys of the previous release are taken and written too
+  /// (the transition of ADR-041). Removed in the minor release after
+  /// 1.28.0.
+  static const bool legacyKeys = true;
+
+  /// How long a previous-release key taken by this release lives at most
+  /// (its own TTL when shorter). Such a key only refuses the previous
+  /// release's dispatches during a deploy; a worker of the previous release
+  /// does not know it and leaves it behind when it finishes a job this
+  /// release dispatched, so without this bound the id stayed refused for
+  /// the job's `uniqueFor` (365 days for 0). ADR-041.
+  static const Duration legacyWindow = Duration(hours: 1);
+
+  /// [ttl] bounded by [legacyWindow].
+  static Duration legacyTtl(Duration ttl) =>
+      ttl < legacyWindow ? ttl : legacyWindow;
+
+  /// The unique lock of [displayName] with [uniqueId]; [hashed] names the
+  /// job by the XXH3-128 hex of [displayName], as Laravel does for a job
+  /// class that defines `displayName()` ([Job.uniqueKeyHashesDisplayName]).
+  static String unique(
+    String displayName,
+    String uniqueId, {
+    bool hashed = false,
+  }) =>
+      'laravel_unique_job:${hashed ? Xxh128.hex(displayName) : displayName}'
+      ':$uniqueId';
+
+  /// The unique lock of the previous release.
+  static String legacyUnique(String jobName, String uniqueId) =>
+      'unique:$jobName:$uniqueId';
+
+  /// The `WithoutOverlapping` lock of [key]: shared across job classes, or
+  /// of [displayName] only.
+  static String overlap(
+    String displayName,
+    String key, {
+    bool shared = false,
+  }) => shared
+      ? 'laravel-queue-overlap:$key'
+      : 'laravel-queue-overlap:$displayName:$key';
+
+  /// The `WithoutOverlapping` lock of the previous release.
+  static String legacyOverlap(
+    String jobName,
+    String key, {
+    bool shared = false,
+  }) => shared ? 'overlap:$key' : 'overlap:$jobName:$key';
+
+  /// The debounce owner of [displayName] with [debounceId].
+  static String debounce(String displayName, String debounceId) =>
+      'laravel_debounced_job:$displayName:$debounceId';
+
+  /// The debounce owner of the previous release.
+  static String legacyDebounce(String jobName, String debounceId) =>
+      'debounced_job:$jobName:$debounceId';
+
+  /// Both unique-lock keys of a queued job from its payload's
+  /// [uniqueKey] (in either format), [displayName] and [jobName]: what a
+  /// worker releases, whichever release dispatched it. The current format
+  /// names the job by [displayName] or by its XXH3-128 hex
+  /// ([Job.uniqueKeyHashesDisplayName]); a key of the previous release
+  /// releases both current forms, as that release could not tell which
+  /// one this one takes. Just [uniqueKey] when it is in no known format.
+  static List<String> uniqueKeysOf(
+    String uniqueKey, {
+    required String displayName,
+    required String jobName,
+  }) {
+    final legacy = 'unique:$jobName:';
+    for (final current in [
+      'laravel_unique_job:$displayName:',
+      'laravel_unique_job:${Xxh128.hex(displayName)}:',
+    ]) {
+      if (uniqueKey.startsWith(current)) {
+        final id = uniqueKey.substring(current.length);
+        return [uniqueKey, if (legacyKeys) legacyUnique(jobName, id)];
+      }
+    }
+    if (uniqueKey.startsWith(legacy)) {
+      final id = uniqueKey.substring(legacy.length);
+      return [
+        unique(displayName, id),
+        unique(displayName, id, hashed: true),
+        uniqueKey,
+      ];
+    }
+    return [uniqueKey];
+  }
 }

@@ -57,7 +57,11 @@ final class ModelQuery<T extends Model> {
 
   /// `where('col', value)`, `where('col', '>', value)`, a map of columns to
   /// values, or a closure for a nested group, as [QueryBuilder.where].
-  ModelQuery<T> where(Object column, [Object? operatorOrValue, Object? value]) {
+  ModelQuery<T> where(
+    Object column, [
+    Object? operatorOrValue = QueryBuilder.absent,
+    Object? value = QueryBuilder.absent,
+  ]) {
     builder.where(column, operatorOrValue, value);
     return this;
   }
@@ -65,8 +69,8 @@ final class ModelQuery<T extends Model> {
   /// [where] joined with `OR`.
   ModelQuery<T> orWhere(
     Object column, [
-    Object? operatorOrValue,
-    Object? value,
+    Object? operatorOrValue = QueryBuilder.absent,
+    Object? value = QueryBuilder.absent,
   ]) {
     builder.orWhere(column, operatorOrValue, value);
     return this;
@@ -165,7 +169,7 @@ final class ModelQuery<T extends Model> {
   ModelQuery<T> whereDate(
     String column,
     String operatorOrValue, [
-    Object? value,
+    Object? value = QueryBuilder.absent,
   ]) {
     builder.whereDate(column, operatorOrValue, value);
     return this;
@@ -175,21 +179,21 @@ final class ModelQuery<T extends Model> {
   ModelQuery<T> whereYear(
     String column,
     Object operatorOrValue, [
-    Object? value,
+    Object? value = QueryBuilder.absent,
   ]) => _on((b) => b.whereYear(column, operatorOrValue, value));
 
   /// Compares the month of a date column.
   ModelQuery<T> whereMonth(
     String column,
     Object operatorOrValue, [
-    Object? value,
+    Object? value = QueryBuilder.absent,
   ]) => _on((b) => b.whereMonth(column, operatorOrValue, value));
 
   /// Compares the day of the month of a date column.
   ModelQuery<T> whereDay(
     String column,
     Object operatorOrValue, [
-    Object? value,
+    Object? value = QueryBuilder.absent,
   ]) => _on((b) => b.whereDay(column, operatorOrValue, value));
 
   // Laravel 11's date shortcuts, against Clock.now(); [columns] is a column
@@ -505,20 +509,32 @@ final class ModelQuery<T extends Model> {
       _withAggregate(relations, 'count', '*');
 
   /// Adds `<relation>_sum_<column>` columns.
-  ModelQuery<T> withSum(Object relations, String column) =>
-      _withAggregate(relations, 'sum', column);
+  ModelQuery<T> withSum(Object relations, Object column) => _withAggregate(
+    relations,
+    'sum',
+    QueryBuilder.columnName(column, 'column'),
+  );
 
   /// Adds `<relation>_avg_<column>` columns.
-  ModelQuery<T> withAvg(Object relations, String column) =>
-      _withAggregate(relations, 'avg', column);
+  ModelQuery<T> withAvg(Object relations, Object column) => _withAggregate(
+    relations,
+    'avg',
+    QueryBuilder.columnName(column, 'column'),
+  );
 
   /// Adds `<relation>_min_<column>` columns.
-  ModelQuery<T> withMin(Object relations, String column) =>
-      _withAggregate(relations, 'min', column);
+  ModelQuery<T> withMin(Object relations, Object column) => _withAggregate(
+    relations,
+    'min',
+    QueryBuilder.columnName(column, 'column'),
+  );
 
   /// Adds `<relation>_max_<column>` columns.
-  ModelQuery<T> withMax(Object relations, String column) =>
-      _withAggregate(relations, 'max', column);
+  ModelQuery<T> withMax(Object relations, Object column) => _withAggregate(
+    relations,
+    'max',
+    QueryBuilder.columnName(column, 'column'),
+  );
 
   /// Adds boolean `<relation>_exists` columns.
   ModelQuery<T> withExists(Object relations) =>
@@ -563,32 +579,44 @@ final class ModelQuery<T extends Model> {
   /// (`posts.comments`): each level becomes an `EXISTS` inside the previous
   /// one, and [constraint] applies to the last.
   ModelQuery<T> whereHas(
-    String relation, [
+    Object relation, [
     RelationConstraint? constraint,
     String boolean = 'AND',
-  ]) => _has(relation, constraint, boolean: boolean);
+  ]) => _has(_relationName(relation), constraint, boolean: boolean);
 
   /// [whereHas] joined with `OR`.
-  ModelQuery<T> orWhereHas(String relation, [RelationConstraint? constraint]) =>
+  ModelQuery<T> orWhereHas(Object relation, [RelationConstraint? constraint]) =>
       whereHas(relation, constraint, 'OR');
 
   /// Models with at least one related row through [relation].
-  ModelQuery<T> has(String relation) => whereHas(relation);
+  ModelQuery<T> has(Object relation) => whereHas(relation);
 
   /// Models with no related row matching [constraint] through [relation].
   ModelQuery<T> whereDoesntHave(
-    String relation, [
+    Object relation, [
     RelationConstraint? constraint,
-  ]) => _has(relation, constraint, not: true);
+  ]) => _has(_relationName(relation), constraint, not: true);
 
   /// [whereDoesntHave] joined with `OR`.
   ModelQuery<T> orWhereDoesntHave(
-    String relation, [
+    Object relation, [
     RelationConstraint? constraint,
-  ]) => _has(relation, constraint, not: true, boolean: 'OR');
+  ]) => _has(_relationName(relation), constraint, not: true, boolean: 'OR');
 
   /// Models with no related row through [relation].
-  ModelQuery<T> doesntHave(String relation) => whereDoesntHave(relation);
+  ModelQuery<T> doesntHave(Object relation) => whereDoesntHave(relation);
+
+  /// [relation] as a name: a string, which a typed relation
+  /// (`User.rels.posts`) is at run time; anything else is an [ArgumentError].
+  static String _relationName(Object relation) => switch (relation) {
+    final String name => name,
+    _ => throw ArgumentError.value(
+      relation,
+      'relation',
+      'Not a relation name (a String or a typed relation such as '
+          'User.rels.posts)',
+    ),
+  };
 
   /// Filters on a `MorphTo` relation whose owner is one of [types] and
   /// matches [constraint] (called with each type).
@@ -1255,11 +1283,11 @@ final class ModelQuery<T extends Model> {
   });
 
   /// Adds [amount] to [column] of the matching rows.
-  Future<int> increment(String column, [num amount = 1]) =>
+  Future<int> increment(Object column, [num amount = 1]) =>
       prepared().increment(column, amount);
 
   /// Subtracts [amount] from [column] of the matching rows.
-  Future<int> decrement(String column, [num amount = 1]) =>
+  Future<int> decrement(Object column, [num amount = 1]) =>
       prepared().decrement(column, amount);
 
   ModelQuery<T> _copy() {

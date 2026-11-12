@@ -4,6 +4,7 @@ import 'dart:io' show Directory, File, FileSystemException, IOException;
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:meta/meta.dart';
 import 'package:mime/mime.dart';
 
 import 'http_exceptions.dart';
@@ -390,16 +391,9 @@ Map<String, String> _parseDisposition(String? header) {
   if (header == null) {
     return result;
   }
-  final pattern = RegExp(
-    r'''([A-Za-z*]+)\s*=\s*(?:"((?:\\.|[^"\\])*)"|([^;]*))''',
-  );
-  for (final match in pattern.allMatches(header)) {
-    final key = match.group(1)!.toLowerCase();
-    var value =
-        match
-            .group(2)
-            ?.replaceAllMapped(RegExp(r'\\(.)'), (m) => m.group(1)!) ??
-        match.group(3)!.trim();
+  for (final (rawKey, rawValue) in dispositionParameters(header)) {
+    final key = rawKey.toLowerCase();
+    var value = rawValue;
     if (key == 'filename*') {
       final quote = value.indexOf("''");
       if (quote != -1) {
@@ -413,6 +407,81 @@ Map<String, String> _parseDisposition(String? header) {
     result[key] = value;
   }
   return result;
+}
+
+/// The `key=value` parameters of a `Content-Disposition` header, values
+/// unquoted and unescaped: what the regular expression
+/// `([A-Za-z*]+)\s*=\s*(?:"((?:\\.|[^"\\])*)"|([^;]*))` found, in one pass.
+/// That expression retried every position of a long run of letters without
+/// `=` (a client's part header), quadratic: 64 000 letters took 79 s. A
+/// quoted value without its closing quote is taken unquoted, as the
+/// expression's second branch did.
+@visibleForTesting
+Iterable<(String, String)> dispositionParameters(String header) sync* {
+  bool isKey(int c) =>
+      (c >= 0x41 && c <= 0x5a) || (c >= 0x61 && c <= 0x7a) || c == 0x2a;
+  bool isSpace(int c) => c == 0x20 || (c >= 0x09 && c <= 0x0d);
+  bool isLineEnd(int c) => c == 0x0a || c == 0x0d || c == 0x2028 || c == 0x2029;
+  final n = header.length;
+  var i = 0;
+  while (i < n) {
+    if (!isKey(header.codeUnitAt(i))) {
+      i++;
+      continue;
+    }
+    final keyStart = i;
+    while (i < n && isKey(header.codeUnitAt(i))) {
+      i++;
+    }
+    final key = header.substring(keyStart, i);
+    var j = i;
+    while (j < n && isSpace(header.codeUnitAt(j))) {
+      j++;
+    }
+    if (j >= n || header.codeUnitAt(j) != 0x3d) {
+      // No `=` after this key: a match cannot start inside it either, as
+      // the same text follows; go on after it.
+      continue;
+    }
+    j++;
+    while (j < n && isSpace(header.codeUnitAt(j))) {
+      j++;
+    }
+    if (j < n && header.codeUnitAt(j) == 0x22) {
+      final value = StringBuffer();
+      var k = j + 1;
+      var closed = false;
+      while (k < n) {
+        final c = header.codeUnitAt(k);
+        if (c == 0x22) {
+          closed = true;
+          k++;
+          break;
+        }
+        if (c == 0x5c) {
+          if (k + 1 >= n || isLineEnd(header.codeUnitAt(k + 1))) {
+            break;
+          }
+          value.writeCharCode(header.codeUnitAt(k + 1));
+          k += 2;
+          continue;
+        }
+        value.writeCharCode(c);
+        k++;
+      }
+      if (closed) {
+        yield (key, value.toString());
+        i = k;
+        continue;
+      }
+    }
+    var k = j;
+    while (k < n && header.codeUnitAt(k) != 0x3b) {
+      k++;
+    }
+    yield (key, header.substring(j, k).trim());
+    i = k;
+  }
 }
 
 /// The last path segment of a client file name (browsers on Windows may

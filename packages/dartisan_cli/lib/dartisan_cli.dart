@@ -40,10 +40,12 @@ import 'src/e2e.dart';
 import 'src/mcp_server.dart';
 import 'src/pub_commands.dart';
 import 'src/redis_install.dart';
+import 'src/request_sync.dart';
 
 export 'src/database_commands.dart';
 export 'src/dev_server.dart';
 export 'src/model_sync.dart';
+export 'src/request_sync.dart';
 export 'src/new_project.dart';
 export 'src/openapi.dart';
 export 'src/package_registry.dart';
@@ -173,6 +175,7 @@ final class DartisanRunner extends CommandRunner<int> with DartisanConsole {
     addCommand(MakeE2eCommand());
     addCommand(OpenApiGenerateCommand(createApp));
     addCommand(ModelSyncCommand(createApp));
+    addCommand(RequestSyncCommand());
     addCommand(LintCommand());
     addCommand(UpgradeCommand());
     addCommand(SelfUpdateCommand());

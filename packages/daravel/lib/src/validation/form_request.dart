@@ -20,9 +20,40 @@ import 'validator.dart';
 ///
 /// final data = await FormRequest.run(StoreUserRequest(), request);
 /// ```
-abstract class FormRequest {
+///
+/// Typed (wave 9): declare the fields once as [Field] constants and give
+/// the request its input type [D], an extension type over [ValidatedData]
+/// with one getter per field (`dartisan request:sync` writes it):
+///
+/// ```dart
+/// final class StoreUserRequest extends FormRequest<StoreUserInput> {
+///   static const email = Field<String>('email');
+///
+///   @override
+///   Map<String, Object> rules(Request request) => {
+///     email: [Rules.required(), Rules.email()],
+///   };
+/// }
+///
+/// extension type const StoreUserInput(ValidatedData _data)
+///     implements ValidatedData {
+///   String get email => _data.field(StoreUserRequest.email);
+/// }
+///
+/// final StoreUserInput data = await StoreUserRequest().validateRequest(request);
+/// ```
+///
+/// `extends FormRequest` without a type argument is `FormRequest<ValidatedData>`,
+/// as before.
+abstract class FormRequest<D extends ValidatedData> {
   /// Form requests are usually const.
   const FormRequest();
+
+  /// Runs this request against [request] as [run] does, and returns the
+  /// validated input as [D]. No conversion is needed: an input type is an
+  /// extension type over [ValidatedData], the same object at run time.
+  Future<D> validateRequest(Request request) async =>
+      await run(this, request) as D;
 
   /// Whether the current user may perform this request (`false` → 403).
   FutureOr<bool> authorize(Request request) => true;

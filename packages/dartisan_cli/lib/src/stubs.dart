@@ -27,6 +27,7 @@ const Map<String, String> builtInStubs = <String, String>{
   'controller.api': _controllerApi,
   'controller.model.api': _controllerModelApi,
   'request': _request,
+  'request.test': _requestTest,
   'middleware': _middleware,
   'job': _job,
   'job.model': _jobModel,
@@ -73,8 +74,11 @@ final class {{ class }} extends Model {
   static Future<{{ class }}> create(Map<String, Object?> attributes) =>
       query().create(attributes);
   static Future<ModelCollection<{{ class }}>> all() => query().get();
-  static ModelQuery<{{ class }}> where(Object column, [Object? op, Object? value]) =>
-      query().where(column, op, value);
+  static ModelQuery<{{ class }}> where(
+    Object column, [
+    Object? operatorOrValue = QueryBuilder.absent,
+    Object? value = QueryBuilder.absent,
+  ]) => query().where(column, operatorOrValue, value);
   // </dartisan:statics>
 
   // <dartisan:accessors>
@@ -271,16 +275,50 @@ import 'dart:async';
 
 import 'package:daravel/daravel.dart';
 
-final class {{ class }} extends FormRequest {
+final class {{ class }} extends FormRequest<{{ class }}Input> {
   const {{ class }}();
+
+  /// One `Field` per input; `dartisan request:sync` writes the typed
+  /// getters of [{{ class }}Input] from them.
+  static const name = Field<String>('name');
 
   @override
   FutureOr<bool> authorize(Request request) => true;
 
   @override
   Map<String, Object> rules(Request request) => {
-    // 'email': 'required|email',
+    name: [Rules.required(), Rules.string()],
   };
+}
+
+// <dartisan:input>
+/// The validated input of [{{ class }}], one getter per `Field`
+/// (written by `dartisan request:sync`; edit the fields, not this).
+extension type const {{ class }}Input(ValidatedData _data)
+    implements ValidatedData {
+  String get name => _data.field({{ class }}.name);
+
+  /// Every field by its input key, as its declared type: the values are
+  /// converted (`'4'` is `4` for a `Field<int>`), unlike the raw map of
+  /// [ValidatedData]. `expectFormRequestTyped` reads every field with it.
+  Map<String, Object?> get typed => {'name': name};
+}
+// </dartisan:input>
+''';
+
+const String _requestTest = r'''
+import 'package:daravel_test/daravel_test.dart';
+import 'package:test/test.dart';
+import 'package:{{ package }}/app/http/requests/{{ file }}.dart';
+
+void main() {
+  // As strong as its samples: add one per branch of an optional rule
+  // (a nullable field sent and not, a sometimes field present and absent).
+  test('{{ class }} reads every field as its declared type', () async {
+    await expectFormRequestTyped(const {{ class }}(), {
+      'name': 'Ana',
+    }, read: (input) => input.typed);
+  });
 }
 ''';
 

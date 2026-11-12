@@ -21,11 +21,48 @@ void main() {
     expect(InvalidValidationRule.knownRules, unorderedEquals(parserNames));
   });
 
+  test('the lint flags the encodings EncodingRule does not check', () {
+    expect(InvalidValidationRule.supportedEncodings, EncodingRule.supported);
+    for (final ok in [
+      'encoding:UTF-8',
+      'encoding:ascii',
+      'encoding:ISO-8859-1',
+    ]) {
+      expect(InvalidValidationRule.problemIn(ok), isNull, reason: ok);
+    }
+    for (final flagged in ['encoding:UTF-16', 'encoding:KLINGON']) {
+      expect(
+        InvalidValidationRule.problemIn(flagged),
+        contains('not checked by Daravel'),
+        reason: flagged,
+      );
+    }
+  });
+
+  test('the lint flags email modes EmailRule does not check', () {
+    expect({
+      ...InvalidValidationRule.emailModes,
+      'spoof',
+    }, EmailRule.knownModes);
+    for (final ok in ['email', 'email:rfc,dns', 'email:filter_unicode']) {
+      expect(InvalidValidationRule.problemIn(ok), isNull, reason: ok);
+    }
+    expect(
+      InvalidValidationRule.problemIn('email:rfc,spoof'),
+      contains('needs ICU'),
+    );
+    expect(
+      InvalidValidationRule.problemIn('email:dsn'),
+      contains('Unknown email mode "dsn"'),
+    );
+  });
+
   test('rules that need arguments parse with them and are flagged without', () {
     for (final MapEntry(key: rule, value: count)
         in InvalidValidationRule.requiredArguments.entries) {
       final args = switch (rule) {
         'regex' || 'not_regex' => '/x/',
+        'encoding' => 'UTF-8',
         _ => List.filled(count, '1').join(','),
       };
       expect(

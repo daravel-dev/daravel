@@ -6,13 +6,16 @@
 library;
 
 export 'src/validation/form_request.dart';
+export 'src/validation/dns.dart' show DnsResolver, SystemDnsResolver;
 export 'src/validation/messages.dart';
+export 'src/validation/object_rules.dart';
 export 'src/validation/php_date_format.dart';
 export 'src/validation/rule.dart';
 export 'src/validation/schema.dart';
 export 'src/validation/rule_parser.dart';
 export 'src/validation/rule_builder.dart';
 export 'src/validation/rules.dart';
+export 'src/validation/typed_rules.dart';
 export 'src/validation/validated_data.dart';
 export 'src/validation/validation_exception.dart';
 export 'src/validation/validator.dart';

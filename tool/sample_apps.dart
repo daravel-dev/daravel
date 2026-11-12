@@ -10,6 +10,9 @@ const Set<String> everyApp = {
   'daravel',
   'daravel_test',
   'daravel_lints',
+  // A dev tool enabled in analysis_options.yaml (plugins:), like the
+  // lints themselves: it needs no sample of its own.
+  'daravel_lints_plugin',
   'dartisan_cli',
 };
 
@@ -40,6 +43,7 @@ const Map<String, List<String>> planned = {
   'daravel_pulse': ['pulse_demo', 'ops_console'],
   'daravel_redis': ['redis_demo', 'ops_console', 'api_gateway_demo'],
   'daravel_reverb': ['ops_console'],
+  'daravel_reverb_client': ['reverb_client_demo'],
   'daravel_s3': ['s3_demo', 'storefront_demo'],
   'daravel_scout': ['scout_demo', 'api_gateway_demo'],
   'daravel_session': ['session_demo', 'storefront_demo'],

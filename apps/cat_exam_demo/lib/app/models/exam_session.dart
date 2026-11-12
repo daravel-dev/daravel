@@ -55,9 +55,9 @@ final class ExamSession extends Model {
   static Future<ModelCollection<ExamSession>> all() => query().get();
   static ModelQuery<ExamSession> where(
     Object column, [
-    Object? op,
-    Object? value,
-  ]) => query().where(column, op, value);
+    Object? operatorOrValue = QueryBuilder.absent,
+    Object? value = QueryBuilder.absent,
+  ]) => query().where(column, operatorOrValue, value);
 
   String get id => getAttr('id') as String;
   set id(String value) => setAttr('id', value);

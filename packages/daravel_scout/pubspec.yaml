@@ -20,6 +20,7 @@ resolution: workspace
 
 dependencies:
   daravel: ^1.27.0
+  postgres: ^3.5.20
 
 dev_dependencies:
   daravel_mysql: ^1.27.0

@@ -34,8 +34,15 @@ void main() {
   };
 
   // Builders with no string form, in Laravel as here (`Rule::enum`, a
-  // closure).
-  const objectOnly = <String>{'enum', 'custom'};
+  // closure, `Rule::when`/`unless`/`forEach`/`anyOf`).
+  const objectOnly = <String>{
+    'enum',
+    'custom',
+    'when',
+    'unless',
+    'for_each',
+    'any_of',
+  };
 
   test('1. every string name builds a rule of that name', () {
     for (final name in known) {
@@ -53,7 +60,7 @@ void main() {
     final builders = _sampleBuilders();
     expect(
       builders.keys.toSet(),
-      _rulesStatics(),
+      _rulesStatics().difference(_notRuleBuilders),
       reason:
           'a Rules static was added or removed: add it to _sampleBuilders '
           'with a sample call',
@@ -81,7 +88,7 @@ void main() {
   });
 
   test('4. every Rules builder is a chain step', () {
-    final statics = _rulesStatics();
+    final statics = _rulesStatics().difference(_notRuleBuilders);
     final builder = _methodsOf('RuleBuilder');
     final chain = _methodsOf('RuleChain');
     expect(statics.difference(builder), isEmpty, reason: 'RuleBuilder');
@@ -126,26 +133,18 @@ Set<String> _methodsOf(String target) {
   };
 }
 
+/// `Rules` statics that make no single rule: `Rules.of(definition)` gives
+/// the typed `unique`/`exists` of a model (W9.4b), whose results are the
+/// same `UniqueRule`/`ExistsRule` as `Rules.unique`/`Rules.exists`.
+const Set<String> _notRuleBuilders = {'of'};
+
 /// Laravel 13 message keys without a Daravel string rule yet, and why.
 /// Shrinks with each W9.4a pull request; empty when the slice is done.
 const Map<String, String> _laravelPending = {
   'uploaded': 'a message, not a rule (a failed upload)',
-  'any_of': 'W9.4a objects (Rule::anyOf)',
   'can': 'W9.4a external (Rule::can, needs the Gate)',
   'current_password': 'W9.4a external (needs the guard and Hash)',
-  'active_url': 'W9.4a external (DNS)',
   'dimensions': 'W9.4a external (image headers)',
-  'contains': 'W9.4a content',
-  'doesnt_contain': 'W9.4a content',
-  'doesnt_start_with': 'W9.4a content',
-  'doesnt_end_with': 'W9.4a content',
-  'in_array': 'W9.4a content',
-  'in_array_keys': 'W9.4a content',
-  'hex_color': 'W9.4a content',
-  'mac_address': 'W9.4a content',
-  'encoding': 'W9.4a content',
-  'array_keys': 'W9.4a content (13.x only)',
-  'base64': 'W9.4a content (13.x only)',
 };
 
 /// The static methods of `abstract final class Rules`, from its source.
@@ -193,11 +192,23 @@ Map<String, Rule Function()> _sampleBuilders() => {
   'prohibitedIfDeclined': () => Rules.prohibitedIfDeclined('b'),
   'requiredIfDeclined': () => Rules.requiredIfDeclined('b'),
   'requiredArrayKeys': () => Rules.requiredArrayKeys(['x']),
+  'contains': () => Rules.contains(['x']),
+  'doesntContain': () => Rules.doesntContain(['x']),
+  'doesntStartWith': () => Rules.doesntStartWith(['x']),
+  'doesntEndWith': () => Rules.doesntEndWith(['x']),
+  'inArray': () => Rules.inArray('items.*'),
+  'inArrayKeys': () => Rules.inArrayKeys(['x']),
+  'arrayKeys': () => Rules.arrayKeys(['x']),
+  'hexColor': Rules.hexColor,
+  'macAddress': Rules.macAddress,
+  'encoding': () => Rules.encoding('UTF-8'),
+  'base64': Rules.base64,
   'exclude': Rules.exclude,
   'excludeIf': () => Rules.excludeIf('b', ['x']),
   'excludeUnless': () => Rules.excludeUnless('b', ['x']),
   'excludeWith': () => Rules.excludeWith('b'),
   'excludeWithout': () => Rules.excludeWithout('b'),
+  'excludeWithoutAny': () => Rules.excludeWithoutAny(['b', 'c']),
   'enum_': () => Rules.enum_(_Status.values),
   'required': Rules.required,
   'nullable': Rules.nullable,
@@ -208,6 +219,8 @@ Map<String, Rule Function()> _sampleBuilders() => {
   'prohibited': Rules.prohibited,
   'requiredIf': () => Rules.requiredIf('b', 'x'),
   'requiredUnless': () => Rules.requiredUnless('b', 'x'),
+  'requiredIfIn': () => Rules.requiredIfIn('b', ['x', 'y']),
+  'requiredUnlessIn': () => Rules.requiredUnlessIn('b', ['x', 'y']),
   'accepted': Rules.accepted,
   'acceptedIf': () => Rules.acceptedIf('b', ['x']),
   'declined': Rules.declined,
@@ -223,6 +236,7 @@ Map<String, Rule Function()> _sampleBuilders() => {
   'map': Rules.map,
   'email': Rules.email,
   'url': Rules.url,
+  'activeUrl': Rules.activeUrl,
   'file': Rules.file,
   'image': Rules.image,
   'mimes': () => Rules.mimes(['pdf']),
@@ -255,6 +269,7 @@ Map<String, Rule Function()> _sampleBuilders() => {
   'confirmed': Rules.confirmed,
   'same': () => Rules.same('b'),
   'different': () => Rules.different('b'),
+  'differentFrom': () => Rules.differentFrom(['b', 'c']),
   'startsWith': () => Rules.startsWith(['x']),
   'endsWith': () => Rules.endsWith(['x']),
   'date': Rules.date,
@@ -267,4 +282,22 @@ Map<String, Rule Function()> _sampleBuilders() => {
   'exists': () => Rules.exists('users'),
   'password': Rules.password,
   'custom': () => Rules.custom((ValidationContext c) => null),
+  'when': () => Rules.when(true, [Rules.string()]),
+  'whenInput': () => Rules.whenInput((input) => true, [Rules.string()]),
+  'unless': () => Rules.unless(true, [Rules.string()]),
+  'unlessInput': () => Rules.unlessInput((input) => true, [Rules.string()]),
+  'forEach': () => Rules.forEach((item) => [Rules.string()]),
+  'forEachNested': () => Rules.forEachNested(
+    (item) => {
+      'a': [Rules.string()],
+    },
+  ),
+  'anyOf': () => Rules.anyOf([
+    [Rules.string()],
+  ]),
+  'anyOfKeyed': () => Rules.anyOfKeyed([
+    {
+      'a': [Rules.string()],
+    },
+  ]),
 };

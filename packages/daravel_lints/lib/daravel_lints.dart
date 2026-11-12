@@ -20,6 +20,10 @@ import 'package:path/path.dart' as p;
 import 'package:timezone/data/latest_all.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
 
+import 'src/rule_chain.dart';
+
+export 'src/rule_chain.dart' show ruleChainSource;
+
 /// One finding.
 final class LintIssue {
   /// A finding of [rule] at a line and column.
@@ -101,6 +105,38 @@ final class NoDartMirrors extends LintRule {
         );
       }
     }
+  }
+}
+
+/// A string rule list (`'required|email|max:255'`) where a `Rules` chain
+/// means the same: `Rules.required().email().max(255)`, which the editor
+/// completes and the compiler checks. Reported only where
+/// [ruleChainSource] writes that chain (not for `regex`, an unknown rule
+/// or a non-numeric `min`), so the editor's fix always keeps the meaning.
+///
+/// Opt-in (on in new projects): `diagnostics: string_validation_rule: true`.
+final class StringValidationRule extends LintRule {
+  /// `string_validation_rule`: rules as a `Rules` chain.
+  const StringValidationRule();
+
+  @override
+  String get name => 'string_validation_rule';
+
+  @override
+  String get description =>
+      'Write validation rules as a Rules chain, not a string.';
+
+  @override
+  bool appliesTo(String relativePath) => !relativePath.startsWith('lib/src/');
+
+  @override
+  void check(CompilationUnit unit, void Function(AstNode, String) report) {
+    InvalidValidationRule.forEachRuleString(unit, (literal, dsl) {
+      final chain = ruleChainSource(dsl);
+      if (chain != null) {
+        report(literal, 'Write the rules as a Rules chain: $chain');
+      }
+    });
   }
 }
 
@@ -619,6 +655,7 @@ final class InvalidValidationRule extends LintRule {
     'prohibited',
     'accepted',
     'accepted_if',
+    'active_url',
     'declined',
     'declined_if',
     'required_if',
@@ -691,6 +728,17 @@ final class InvalidValidationRule extends LintRule {
     'prohibited_if_declined',
     'required_if_declined',
     'required_array_keys',
+    'contains',
+    'doesnt_contain',
+    'doesnt_start_with',
+    'doesnt_end_with',
+    'in_array',
+    'in_array_keys',
+    'array_keys',
+    'hex_color',
+    'mac_address',
+    'encoding',
+    'base64',
     'exclude',
     'exclude_if',
     'exclude_unless',
@@ -735,6 +783,9 @@ final class InvalidValidationRule extends LintRule {
     'prohibited_if_accepted': 1,
     'prohibited_if_declined': 1,
     'required_if_declined': 1,
+    'in_array': 1,
+    'encoding': 1,
+    'array_keys': 1,
     'mimes': 1,
     'mimetypes': 1,
     'extensions': 1,
@@ -786,6 +837,21 @@ final class InvalidValidationRule extends LintRule {
 
   @override
   void check(CompilationUnit unit, void Function(AstNode, String) report) {
+    forEachRuleString(unit, (literal, dsl) {
+      final problem = problemIn(dsl);
+      if (problem != null) {
+        report(literal, problem);
+      }
+    });
+  }
+
+  /// Calls [found] with each string rule list of [unit] (`'required|email'`
+  /// in a `rules()`/`validate()`/`Validator(...)` map, alone or in a list)
+  /// and its text.
+  static void forEachRuleString(
+    CompilationUnit unit,
+    void Function(Expression literal, String dsl) found,
+  ) {
     void checkMap(Expression? expression) {
       if (expression is! SetOrMapLiteral) {
         return;
@@ -800,12 +866,8 @@ final class InvalidValidationRule extends LintRule {
             : [value];
         for (final literal in strings) {
           final dsl = _literalText(literal);
-          if (dsl == null) {
-            continue;
-          }
-          final problem = problemIn(dsl);
-          if (problem != null) {
-            report(literal, problem);
+          if (dsl != null) {
+            found(literal, dsl);
           }
         }
       }
@@ -884,9 +946,57 @@ final class InvalidValidationRule extends LintRule {
         return 'Validation rule "$rule" expects a number, got '
             '"${badNumber.first}" in "$dsl".';
       }
+      // RuleParser counts every comma-separated part, empty ones too.
+      final parts = colon == -1
+          ? 0
+          : segment.substring(colon + 1).split(',').length;
+      if ((rule == 'unique' && parts > 4) || (rule == 'exists' && parts > 2)) {
+        return 'Where conditions in the string form of $rule are not '
+            'supported (Daravel would loosen the rule): use '
+            'Rules.$rule(...).where(...) in "$dsl".';
+      }
+      if (rule == 'encoding' &&
+          arguments.isNotEmpty &&
+          !supportedEncodings.contains(
+            arguments.first.toLowerCase().replaceAll(RegExp('[^a-z0-9]'), ''),
+          )) {
+        return 'Validation rule "encoding:${arguments.first}" is not checked '
+            'by Daravel (UTF-8, ASCII, ISO-8859-1) in "$dsl".';
+      }
+      if (rule == 'email') {
+        for (final mode in arguments) {
+          if (mode == 'spoof') {
+            return 'Validation rule "email:spoof" needs ICU and is not '
+                'checked by Daravel (it throws) in "$dsl".';
+          }
+          if (!emailModes.contains(mode)) {
+            return 'Unknown email mode "$mode" (Laravel treats it as rfc; '
+                'use ${emailModes.join(', ')}) in "$dsl".';
+          }
+        }
+      }
     }
     return null;
   }
+
+  /// The `email:` modes `EmailRule` checks (kept equal, with `spoof`, by
+  /// `packages/daravel/test/validation/rule_names_lint_test.dart`).
+  static const Set<String> emailModes = {
+    'rfc',
+    'strict',
+    'dns',
+    'filter',
+    'filter_unicode',
+  };
+
+  /// The encodings `EncodingRule` checks, normalized (kept equal by
+  /// `packages/daravel/test/validation/rule_names_lint_test.dart`).
+  static const Set<String> supportedEncodings = {
+    'utf8',
+    'ascii',
+    'iso88591',
+    'latin1',
+  };
 
   static String? _literalText(Expression expression) => switch (expression) {
     SimpleStringLiteral(:final value) => value,
@@ -1388,7 +1498,10 @@ const List<LintRule> defaultRules = <LintRule>[
 
 /// Opt-in rules: not run unless enabled by name ([rulesWith]) or passed in
 /// `rules:`.
-const List<LintRule> optionalRules = <LintRule>[PreferSqlIdentifier()];
+const List<LintRule> optionalRules = <LintRule>[
+  PreferSqlIdentifier(),
+  StringValidationRule(),
+];
 
 /// [defaultRules] plus the [optionalRules] named in [enable]
 /// (`['prefer_sql_identifier']`); an unknown name throws an [ArgumentError].

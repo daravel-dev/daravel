@@ -6,6 +6,8 @@ import 'config.dart';
 import 'events.dart';
 import 'master.dart';
 import 'routes.dart';
+import 'store/database_store.dart';
+import 'store/horizon_store.dart';
 import 'store/process_store.dart';
 
 /// `withHorizon()` (Blueprint #134 §3.2).
@@ -43,11 +45,46 @@ extension HorizonApplicationBuilder on ApplicationBuilder {
           )
           .withConfigCheck(HorizonConfig.check)
           .withCoordinatorService(HorizonService.new)
+          // HORIZON_STORE: `process`, this process's coordinator.
+          .withBindings(
+            (container) => container.singleton<HorizonStore>(_storeFor),
+          )
+          // Before the connections close: what the workers recorded last
+          // is written, not lost with the process.
+          .withShutdown((c) async {
+            if (c.resolved<HorizonStore>() case final DatabaseHorizonStore s) {
+              await s.close();
+            }
+          })
           .withEmbeddedWorker(
             'horizon',
             (app, control) => runHorizon(app, control, createApp),
           )
           .withProviders([_HorizonRoutes(middleware)]);
+}
+
+/// The store `HORIZON_STORE` names: `process` (the default, this process's
+/// coordinator) or `database` (the tables of [CreateHorizonTables] on
+/// `HORIZON_STORE_CONNECTION`). `redis` is bound by `daravel_redis`'s
+/// `withRedis()`.
+HorizonStore _storeFor(Container c) {
+  final config = c.make<ConfigRepository>().section<HorizonConfig>();
+  return switch (config.store) {
+    'process' => ProcessHorizonStore(() => c.make<CoordinatorChannel>()),
+    'database' => DatabaseHorizonStore(
+      c.make<DatabaseManager>(),
+      connection: config.storeConnection,
+      retention: config.trim.completed,
+      failedRetention: config.trim.failed,
+      monitoredRetention: config.trim.monitored,
+      appMetrics: c.make<AppMetrics>(),
+      logger: c.make<Logger>(),
+    ),
+    final other => throw ConfigException(
+      'HORIZON_STORE=$other is not available: use process or database '
+      '(redis needs daravel_redis and withRedis()).',
+    ),
+  };
 }
 
 /// Registers the dashboard's routes at boot, where `HORIZON_PATH` is known.
@@ -58,6 +95,10 @@ final class _HorizonRoutes extends ServiceProvider {
 
   @override
   void boot(Container container) {
+    // HORIZON_STORE is resolved now: a store that cannot be built (redis
+    // without withRedis()) stops the boot with its ConfigException, rather
+    // than leaving the dashboard empty or failing at the first job.
+    container.make<HorizonStore>();
     final configured = container
         .make<ConfigRepository>()
         .section<HorizonConfig>()
@@ -192,10 +233,12 @@ Future<int> runHorizon(
     logger: app.logger,
     coordinator: control.coordinator,
     store: app.container.make<CoordinatorChannel>(),
+    horizonStore: horizonStoreOf(app.container),
     failedJobs: queues.processor.failedJobs,
     signals: queues.signalStore,
     name: config.name ?? 'horizon',
     onEvent: horizonEvents(app),
+    failsAfterTimeout: queues.processor.failsAfterTimeout,
   );
   await master.start();
   final commands = control.messages.listen((message) {

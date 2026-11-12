@@ -91,6 +91,20 @@ until commit by default.
 
 ### Attempts, timeouts and `retry_after`
 
+- The database queue runs each job at least once, as Laravel's does, not
+  exactly once: a worker that loses its connection after a job ran, or is
+  killed, leaves the job to run again after `retry_after`. A transient error
+  on the delete after a job ran (a deadlock, SQLite busy or locked) is
+  retried for half of `retry_after`, so it no longer runs a job twice, but
+  jobs must still be idempotent: make a second run harmless (check whether
+  the work is done, an idempotency key in a unique column) or keep one
+  dispatch at a time (`ShouldBeUnique`). SQLite with several workers makes
+  busy errors, and so these retries, more likely.
+- A job that fails for good is removed from `jobs` first and then written
+  to `failed_jobs`, as in Laravel. When that write fails (the table missing,
+  the database refusing), the job is gone without a record: the worker logs
+  the error at `error` level (at most one entry a minute, with the number
+  left out), so alert on those entries.
 - `tries` counts every reservation, including a release by middleware
   (`WithoutOverlapping`, `RateLimitedJob`) or `ctx.release()`. A job reserved
   again after its last try fails with `MaxAttemptsExceededException` without
@@ -113,15 +127,30 @@ until commit by default.
   timeout plus `HORIZON_KILL_GRACE` (10 seconds), and at the latest one
   heartbeat (at least a second) before `QUEUE_RETRY_AFTER`, since another
   worker may take the job from then on.
-  - The killed attempt counts once, and the job is available again at once
-    (no backoff); a job killed that close to `QUEUE_RETRY_AFTER` is left to
-    it instead, so the master never releases a reservation another worker
-    may hold already. A job with no tries left fails on its next pop with
-    `MaxAttemptsExceededException` ("may have previously timed out"), and
-    `JobFailed` listeners run.
-  - The killed attempt itself dispatches no `JobExceptionOccurred`, and
-    `failOnTimeout` does not apply: the job is tried again until its tries
-    are used up.
+  - The killed attempt counts once. The master then decides, from the
+    job's retry settings alone (never its data), what Laravel's timeout
+    handler decides: the job fails when its tries are used up or its
+    `retryUntil` has passed, when this timeout is its last allowed
+    exception (`maxExceptions`), or when it has `failOnTimeout`. Otherwise
+    it is available again at once (no backoff).
+  - A job that fails is marked first, and the worker that reserves it next
+    fails it without running it, with `TimeoutExceededException` ("NAME
+    has timed out."): its `failed_jobs` row, its `failed()` hook and the
+    `JobFailed` listeners run in that worker's application. The master runs
+    none of the job's code, since a job that blocked its isolate could
+    block the master's the same way. Unlike Laravel, the failure is
+    therefore recorded at that next reservation, not at the moment of the
+    timeout; in between the job looks available.
+  - A job killed that close to `QUEUE_RETRY_AFTER` is left to it instead, so
+    the master never releases a reservation another worker may hold
+    already. Nothing is marked then: a job with no tries left fails on its
+    next pop with `MaxAttemptsExceededException` ("may have previously
+    timed out"), and a `failOnTimeout` job with tries left runs again. The
+    same holds when the queue has no signal store (`QUEUE_SIGNAL_STORE`).
+  - The killed attempt itself dispatches no `JobExceptionOccurred`.
+    `horizon:list` and the `JobTimedOut` event show each such attempt with
+    its fate: "will fail on next reservation", "made available again" or
+    "left to retry_after".
   - `dartisan horizon:list` shows such a worker as busy and "not reporting
     for N s", and lists the attempts killed past their timeout.
   - Only an idle worker that stops answering is killed after three

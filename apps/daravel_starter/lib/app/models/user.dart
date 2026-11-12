@@ -28,8 +28,11 @@ final class User extends Model with AuthenticatableModel {
   static Future<User> create(Map<String, Object?> attributes) =>
       query().create(attributes);
   static Future<ModelCollection<User>> all() => query().get();
-  static ModelQuery<User> where(Object column, [Object? op, Object? value]) =>
-      query().where(column, op, value);
+  static ModelQuery<User> where(
+    Object column, [
+    Object? operatorOrValue = QueryBuilder.absent,
+    Object? value = QueryBuilder.absent,
+  ]) => query().where(column, operatorOrValue, value);
   // </dartisan:statics>
 
   // <dartisan:accessors>
@@ -78,8 +81,7 @@ final class User extends Model with AuthenticatableModel {
     'password': password,
   });
 
-  /// Fills the given columns (`fill`); `Patch(null)` sets a nullable
-  /// one to null.
+  /// Fills the given columns (`fill`).
   User fillWith({String? name, String? email, String? password}) {
     fill(<String, Object?>{
       'name': ?name,
@@ -89,8 +91,7 @@ final class User extends Model with AuthenticatableModel {
     return this;
   }
 
-  /// Updates the given columns and saves (`update`); `Patch(null)` sets a
-  /// nullable one to null.
+  /// Updates the given columns and saves (`update`).
   Future<bool> updateWith({String? name, String? email, String? password}) =>
       update(<String, Object?>{
         'name': ?name,

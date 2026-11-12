@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'object_rules.dart';
 import 'rule.dart';
 import 'rules.dart';
 
@@ -75,6 +76,14 @@ final class RuleBuilder {
   RuleBuilder requiredUnless(String other, Object? value) =>
       _add(Rules.requiredUnless(other, value));
 
+  /// Appends [Rules.requiredIfIn].
+  RuleBuilder requiredIfIn(String other, List<Object?> values) =>
+      _add(Rules.requiredIfIn(other, values));
+
+  /// Appends [Rules.requiredUnlessIn].
+  RuleBuilder requiredUnlessIn(String other, List<Object?> values) =>
+      _add(Rules.requiredUnlessIn(other, values));
+
   /// Appends [Rules.requiredWith].
   RuleBuilder requiredWith(List<String> others) =>
       _add(Rules.requiredWith(others));
@@ -105,7 +114,26 @@ final class RuleBuilder {
   RuleBuilder map() => _add(Rules.map());
 
   /// Appends [Rules.email].
-  RuleBuilder email() => _add(Rules.email());
+  RuleBuilder email({
+    bool rfc = false,
+    bool strict = false,
+    bool dns = false,
+    bool spoof = false,
+    bool filter = false,
+    bool filterUnicode = false,
+  }) => _add(
+    Rules.email(
+      rfc: rfc,
+      strict: strict,
+      dns: dns,
+      spoof: spoof,
+      filter: filter,
+      filterUnicode: filterUnicode,
+    ),
+  );
+
+  /// Appends [Rules.activeUrl].
+  RuleBuilder activeUrl() => _add(Rules.activeUrl());
 
   /// Appends [Rules.url].
   RuleBuilder url() => _add(Rules.url());
@@ -210,6 +238,10 @@ final class RuleBuilder {
   /// Appends [Rules.different].
   RuleBuilder different(String other) => _add(Rules.different(other));
 
+  /// Appends [Rules.differentFrom].
+  RuleBuilder differentFrom(List<String> others) =>
+      _add(Rules.differentFrom(others));
+
   /// Appends [Rules.startsWith].
   RuleBuilder startsWith(List<String> prefixes) =>
       _add(Rules.startsWith(prefixes));
@@ -268,6 +300,51 @@ final class RuleBuilder {
     FutureOr<String?> Function(ValidationContext context) check, {
     String name = 'custom',
   }) => _add(Rules.custom(check, name: name));
+
+  /// Appends [Rules.when].
+  RuleBuilder when(
+    bool condition,
+    List<Rule> rules, {
+    List<Rule> otherwise = const [],
+  }) => _add(Rules.when(condition, rules, otherwise: otherwise));
+
+  /// Appends [Rules.whenInput].
+  RuleBuilder whenInput(
+    bool Function(Map<String, Object?> input) condition,
+    List<Rule> rules, {
+    List<Rule> otherwise = const [],
+  }) => _add(Rules.whenInput(condition, rules, otherwise: otherwise));
+
+  /// Appends [Rules.unless].
+  RuleBuilder unless(
+    bool condition,
+    List<Rule> rules, {
+    List<Rule> otherwise = const [],
+  }) => _add(Rules.unless(condition, rules, otherwise: otherwise));
+
+  /// Appends [Rules.unlessInput].
+  RuleBuilder unlessInput(
+    bool Function(Map<String, Object?> input) condition,
+    List<Rule> rules, {
+    List<Rule> otherwise = const [],
+  }) => _add(Rules.unlessInput(condition, rules, otherwise: otherwise));
+
+  /// Appends [Rules.forEach].
+  RuleBuilder forEach(List<Rule> Function(ForEachItem item) rules) =>
+      _add(Rules.forEach(rules));
+
+  /// Appends [Rules.forEachNested].
+  RuleBuilder forEachNested(
+    Map<String, List<Rule>> Function(ForEachItem item) rules,
+  ) => _add(Rules.forEachNested(rules));
+
+  /// Appends [Rules.anyOf].
+  RuleBuilder anyOf(List<List<Rule>> alternatives) =>
+      _add(Rules.anyOf(alternatives));
+
+  /// Appends [Rules.anyOfKeyed].
+  RuleBuilder anyOfKeyed(List<Map<String, List<Rule>>> alternatives) =>
+      _add(Rules.anyOfKeyed(alternatives));
 
   /// Appends [Rules.gt].
   RuleBuilder gt(Object target) => _add(Rules.gt(target));
@@ -391,6 +468,10 @@ final class RuleBuilder {
   /// Appends [Rules.excludeWithout].
   RuleBuilder excludeWithout(String other) => _add(Rules.excludeWithout(other));
 
+  /// Appends [Rules.excludeWithoutAny].
+  RuleBuilder excludeWithoutAny(List<String> others) =>
+      _add(Rules.excludeWithoutAny(others));
+
   /// Appends [Rules.enum_].
   RuleBuilder enum_<E extends Enum>(
     List<E> values, {
@@ -402,6 +483,42 @@ final class RuleBuilder {
   /// Appends [Rules.dateFormat].
   RuleBuilder dateFormat(List<String> formats) =>
       _add(Rules.dateFormat(formats));
+
+  /// Appends [Rules.contains].
+  RuleBuilder contains(List<String> values) => _add(Rules.contains(values));
+
+  /// Appends [Rules.doesntContain].
+  RuleBuilder doesntContain(List<String> values) =>
+      _add(Rules.doesntContain(values));
+
+  /// Appends [Rules.doesntStartWith].
+  RuleBuilder doesntStartWith(List<String> prefixes) =>
+      _add(Rules.doesntStartWith(prefixes));
+
+  /// Appends [Rules.doesntEndWith].
+  RuleBuilder doesntEndWith(List<String> suffixes) =>
+      _add(Rules.doesntEndWith(suffixes));
+
+  /// Appends [Rules.inArray].
+  RuleBuilder inArray(String other) => _add(Rules.inArray(other));
+
+  /// Appends [Rules.inArrayKeys].
+  RuleBuilder inArrayKeys(List<String> keys) => _add(Rules.inArrayKeys(keys));
+
+  /// Appends [Rules.arrayKeys].
+  RuleBuilder arrayKeys(List<String> keys) => _add(Rules.arrayKeys(keys));
+
+  /// Appends [Rules.hexColor].
+  RuleBuilder hexColor() => _add(Rules.hexColor());
+
+  /// Appends [Rules.macAddress].
+  RuleBuilder macAddress() => _add(Rules.macAddress());
+
+  /// Appends [Rules.encoding].
+  RuleBuilder encoding(String encoding) => _add(Rules.encoding(encoding));
+
+  /// Appends [Rules.base64].
+  RuleBuilder base64() => _add(Rules.base64());
 }
 
 /// Starts a [RuleBuilder] from any rule: `Rules.required().email()`.
@@ -451,6 +568,14 @@ extension RuleChain on Rule {
   RuleBuilder requiredUnless(String other, Object? value) =>
       _chain.requiredUnless(other, value);
 
+  /// This rule followed by [Rules.requiredIfIn].
+  RuleBuilder requiredIfIn(String other, List<Object?> values) =>
+      _chain.requiredIfIn(other, values);
+
+  /// This rule followed by [Rules.requiredUnlessIn].
+  RuleBuilder requiredUnlessIn(String other, List<Object?> values) =>
+      _chain.requiredUnlessIn(other, values);
+
   /// This rule followed by [Rules.requiredWith].
   RuleBuilder requiredWith(List<String> others) => _chain.requiredWith(others);
 
@@ -477,7 +602,24 @@ extension RuleChain on Rule {
   RuleBuilder map() => _chain.map();
 
   /// This rule followed by [Rules.email].
-  RuleBuilder email() => _chain.email();
+  RuleBuilder email({
+    bool rfc = false,
+    bool strict = false,
+    bool dns = false,
+    bool spoof = false,
+    bool filter = false,
+    bool filterUnicode = false,
+  }) => _chain.email(
+    rfc: rfc,
+    strict: strict,
+    dns: dns,
+    spoof: spoof,
+    filter: filter,
+    filterUnicode: filterUnicode,
+  );
+
+  /// This rule followed by [Rules.activeUrl].
+  RuleBuilder activeUrl() => _chain.activeUrl();
 
   /// This rule followed by [Rules.url].
   RuleBuilder url() => _chain.url();
@@ -581,6 +723,10 @@ extension RuleChain on Rule {
   /// This rule followed by [Rules.different].
   RuleBuilder different(String other) => _chain.different(other);
 
+  /// This rule followed by [Rules.differentFrom].
+  RuleBuilder differentFrom(List<String> others) =>
+      _chain.differentFrom(others);
+
   /// This rule followed by [Rules.startsWith].
   RuleBuilder startsWith(List<String> prefixes) => _chain.startsWith(prefixes);
 
@@ -636,6 +782,51 @@ extension RuleChain on Rule {
     FutureOr<String?> Function(ValidationContext context) check, {
     String name = 'custom',
   }) => _chain.custom(check, name: name);
+
+  /// This rule followed by [Rules.when].
+  RuleBuilder when(
+    bool condition,
+    List<Rule> rules, {
+    List<Rule> otherwise = const [],
+  }) => _chain.when(condition, rules, otherwise: otherwise);
+
+  /// This rule followed by [Rules.whenInput].
+  RuleBuilder whenInput(
+    bool Function(Map<String, Object?> input) condition,
+    List<Rule> rules, {
+    List<Rule> otherwise = const [],
+  }) => _chain.whenInput(condition, rules, otherwise: otherwise);
+
+  /// This rule followed by [Rules.unless].
+  RuleBuilder unless(
+    bool condition,
+    List<Rule> rules, {
+    List<Rule> otherwise = const [],
+  }) => _chain.unless(condition, rules, otherwise: otherwise);
+
+  /// This rule followed by [Rules.unlessInput].
+  RuleBuilder unlessInput(
+    bool Function(Map<String, Object?> input) condition,
+    List<Rule> rules, {
+    List<Rule> otherwise = const [],
+  }) => _chain.unlessInput(condition, rules, otherwise: otherwise);
+
+  /// This rule followed by [Rules.forEach].
+  RuleBuilder forEach(List<Rule> Function(ForEachItem item) rules) =>
+      _chain.forEach(rules);
+
+  /// This rule followed by [Rules.forEachNested].
+  RuleBuilder forEachNested(
+    Map<String, List<Rule>> Function(ForEachItem item) rules,
+  ) => _chain.forEachNested(rules);
+
+  /// This rule followed by [Rules.anyOf].
+  RuleBuilder anyOf(List<List<Rule>> alternatives) =>
+      _chain.anyOf(alternatives);
+
+  /// This rule followed by [Rules.anyOfKeyed].
+  RuleBuilder anyOfKeyed(List<Map<String, List<Rule>>> alternatives) =>
+      _chain.anyOfKeyed(alternatives);
 
   /// This rule followed by [Rules.gt].
   RuleBuilder gt(Object target) => _chain.gt(target);
@@ -756,6 +947,10 @@ extension RuleChain on Rule {
   /// This rule followed by [Rules.excludeWithout].
   RuleBuilder excludeWithout(String other) => _chain.excludeWithout(other);
 
+  /// This rule followed by [Rules.excludeWithoutAny].
+  RuleBuilder excludeWithoutAny(List<String> others) =>
+      _chain.excludeWithoutAny(others);
+
   /// This rule followed by [Rules.enum_].
   RuleBuilder enum_<E extends Enum>(
     List<E> values, {
@@ -769,4 +964,40 @@ extension RuleChain on Rule {
 
   /// This rule followed by [Rules.array].
   RuleBuilder array([List<String>? keys]) => _chain.array(keys);
+
+  /// This rule followed by [Rules.contains].
+  RuleBuilder contains(List<String> values) => _chain.contains(values);
+
+  /// This rule followed by [Rules.doesntContain].
+  RuleBuilder doesntContain(List<String> values) =>
+      _chain.doesntContain(values);
+
+  /// This rule followed by [Rules.doesntStartWith].
+  RuleBuilder doesntStartWith(List<String> prefixes) =>
+      _chain.doesntStartWith(prefixes);
+
+  /// This rule followed by [Rules.doesntEndWith].
+  RuleBuilder doesntEndWith(List<String> suffixes) =>
+      _chain.doesntEndWith(suffixes);
+
+  /// This rule followed by [Rules.inArray].
+  RuleBuilder inArray(String other) => _chain.inArray(other);
+
+  /// This rule followed by [Rules.inArrayKeys].
+  RuleBuilder inArrayKeys(List<String> keys) => _chain.inArrayKeys(keys);
+
+  /// This rule followed by [Rules.arrayKeys].
+  RuleBuilder arrayKeys(List<String> keys) => _chain.arrayKeys(keys);
+
+  /// This rule followed by [Rules.hexColor].
+  RuleBuilder hexColor() => _chain.hexColor();
+
+  /// This rule followed by [Rules.macAddress].
+  RuleBuilder macAddress() => _chain.macAddress();
+
+  /// This rule followed by [Rules.encoding].
+  RuleBuilder encoding(String encoding) => _chain.encoding(encoding);
+
+  /// This rule followed by [Rules.base64].
+  RuleBuilder base64() => _chain.base64();
 }

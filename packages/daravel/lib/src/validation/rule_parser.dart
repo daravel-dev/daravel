@@ -62,8 +62,8 @@ abstract final class RuleParser {
       'present' => Rules.present(),
       'filled' => Rules.filled(),
       'prohibited' => Rules.prohibited(),
-      'required_if' => Rules.requiredIf(args[0], args[1]),
-      'required_unless' => Rules.requiredUnless(args[0], args[1]),
+      'required_if' => Rules.requiredIfIn(args[0], args.sublist(1)),
+      'required_unless' => Rules.requiredUnlessIn(args[0], args.sublist(1)),
       'accepted' => Rules.accepted(),
       'accepted_if' => Rules.acceptedIf(args[0], args.sublist(1)),
       'declined' => Rules.declined(),
@@ -88,11 +88,22 @@ abstract final class RuleParser {
       'prohibited_if_declined' => Rules.prohibitedIfDeclined(args[0]),
       'required_if_declined' => Rules.requiredIfDeclined(args[0]),
       'required_array_keys' => Rules.requiredArrayKeys(args),
+      'contains' => Rules.contains(args),
+      'doesnt_contain' => Rules.doesntContain(args),
+      'doesnt_start_with' => Rules.doesntStartWith(args),
+      'doesnt_end_with' => Rules.doesntEndWith(args),
+      'in_array' => Rules.inArray(args[0]),
+      'in_array_keys' => Rules.inArrayKeys(args),
+      'array_keys' => Rules.arrayKeys(args),
+      'hex_color' => Rules.hexColor(),
+      'mac_address' => Rules.macAddress(),
+      'encoding' => Rules.encoding(args[0]),
+      'base64' => Rules.base64(),
       'exclude' => Rules.exclude(),
       'exclude_if' => Rules.excludeIf(args[0], args.sublist(1)),
       'exclude_unless' => Rules.excludeUnless(args[0], args.sublist(1)),
       'exclude_with' => Rules.excludeWith(args[0]),
-      'exclude_without' => Rules.excludeWithout(args[0]),
+      'exclude_without' => Rules.excludeWithoutAny(args),
       'gt' => Rules.gt(args[0]),
       'gte' => Rules.gte(args[0]),
       'lt' => Rules.lt(args[0]),
@@ -114,7 +125,8 @@ abstract final class RuleParser {
       'array' => Rules.array(args.isEmpty ? null : args),
       'list' => Rules.list(),
       'map' || 'object' => Rules.map(),
-      'email' => Rules.email(),
+      'email' => EmailRule.checked({...args}),
+      'active_url' => Rules.activeUrl(),
       'url' => Rules.url(),
       'file' => Rules.file(),
       'image' => Rules.image(allowSvg: args.contains('allow_svg')),
@@ -146,7 +158,7 @@ abstract final class RuleParser {
       'distinct' => Rules.distinct(),
       'confirmed' => Rules.confirmed(args.isEmpty ? null : args[0]),
       'same' => Rules.same(args[0]),
-      'different' => Rules.different(args[0]),
+      'different' => Rules.differentFrom(args),
       'starts_with' => Rules.startsWith(args),
       'ends_with' => Rules.endsWith(args),
       'date' => Rules.date(),
@@ -155,6 +167,11 @@ abstract final class RuleParser {
       'after_or_equal' => Rules.afterOrEqual(args[0]),
       'before' => Rules.before(args[0]),
       'before_or_equal' => Rules.beforeOrEqual(args[0]),
+      // Laravel reads the arguments after these as `column,value` where
+      // conditions (getExtraConditions). Ignoring them would loosen the
+      // rule, so the string form refuses them: use the object form.
+      'unique' when args.length > 4 => throw _extraConditions(segment),
+      'exists' when args.length > 2 => throw _extraConditions(segment),
       'unique' => Rules.unique(
         args[0],
         args.length > 1 && args[1] != 'NULL' ? args[1] : null,
@@ -170,6 +187,15 @@ abstract final class RuleParser {
       ),
     };
   }
+
+  /// `unique`/`exists` with where conditions in the string.
+  static ArgumentError _extraConditions(String segment) => ArgumentError.value(
+    segment,
+    'rule',
+    'Where conditions in the string form of unique/exists are not '
+        'supported: use Rules.unique(...).where(...) or '
+        'Rules.exists(...).where(...)',
+  );
 
   /// `timezone:Asia`; `per_country` needs data this database does not have.
   static String _timezoneGroup(List<String> args) {

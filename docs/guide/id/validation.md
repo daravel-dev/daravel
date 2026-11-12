@@ -1,4 +1,4 @@
-<!-- source: validation.md sha256:0df3a3511dbb -->
+<!-- source: validation.md sha256:748c8a1d6376 -->
 # Validasi
 
 Validasi request secara inline dengan string rule Laravel, atau dengan objek
@@ -96,6 +96,63 @@ Rules.unique('users', 'email').where((QueryBuilder q) => q.whereNull('deleted_at
 Rules.exists('billing.invoices', 'id').where((QueryBuilder q) => q.where('open', true));
 ```
 
+### Mode email dan `active_url`
+
+`email` menerima mode dari Laravel, `email:rfc,dns` atau
+`Rules.email(rfc: true, dns: true)`; setiap mode yang diberikan harus lolos,
+dan `rfc` berlaku bila tidak ada mode.
+
+- `filter` dan `filter_unicode` adalah `FILTER_VALIDATE_EMAIL` dari PHP
+  (dengan `FILTER_FLAG_EMAIL_UNICODE`), dibaca dalam satu lintasan atas
+  alamat, bukan dengan regex PHP, yang backtracking secara eksponensial pada
+  sebagian input; hasilnya dibandingkan dengan PHP 8.3 pada lebih dari 3 800
+  alamat.
+- `dns` memeriksa domain seperti `DNSCheckValidation` (egulias) di Laravel:
+  nama cadangan (`test`, `example`, `localhost`, `local`, ...) dan domain satu
+  label gagal, dan domain itu atau salah satu nama induknya harus punya record
+  MX, A, atau AAAA tanpa null MX. Seperti di Laravel, `dns` saja tidak
+  memeriksa sintaks: tulis `email:rfc,dns`.
+- `rfc` dan `strict` untuk sementara adalah pemeriksaan bergaya HTML, lebih
+  ketat daripada parser RFC di Laravel: local part bertanda kutip atau domain
+  satu label gagal.
+- `spoof` membutuhkan ICU, yang tidak ada di Dart: membangun aturannya
+  melempar `UnsupportedError` (pada request pertama yang memvalidasi dengannya,
+  di test, atau saat membuat OpenAPI), dan `dartisan lint` melaporkannya.
+
+`active_url` lolos bila host dari URL punya record A atau AAAA; alamat IP
+gagal, seperti di Laravel.
+
+Keduanya membuat server mencari nama yang dikirim pengguna. Setiap lookup
+menambah latensi request (paling lama 2 detik, lalu aturannya gagal), jadi
+letakkan route yang memakainya di balik rate limit. Lookup berjalan lewat
+`DnsResolver` yang terdaftar di container (bawaannya `SystemDnsResolver`);
+di test, daftarkan `FakeDnsResolver` dari `daravel_test`, padanan
+`fakeDnsLookups` di Laravel. Dua perbedaan dari PHP: lookup sistem juga
+membaca `/etc/hosts`; dan di Windows, yang tidak punya `/etc/resolv.conf`
+untuk menanyakan record MX, `dns` hanya melihat A dan AAAA (domain yang hanya
+punya MX gagal, dan null MX tidak terlihat).
+
+Aturan yang bergantung pada input atau pada setiap elemen, seperti
+`Rule::when`, `Rule::unless`, `Rule::forEach`, dan `Rule::anyOf` di Laravel:
+
+```dart
+'company': Rules.whenInput((input) => input['type'] == 'business',
+    [Rules.required(), Rules.string()]),
+'notes': Rules.when(isAdmin, [Rules.nullable()], otherwise: [Rules.prohibited()]),
+'items.*.qty': Rules.forEach((item) =>
+    item.value == 0 ? [Rules.integer(), Rules.min(1)] : [Rules.integer()]),
+'items.*': Rules.forEachNested((item) => {'sku': [Rules.required()]}),
+'login': Rules.anyOf([[Rules.email()], [Rules.integer(), Rules.min(1)]]),
+```
+
+Kondisi diputuskan sekali per validasi, atas seluruh input (sesudah
+`prepare`). `forEachNested` memvalidasi key dari setiap elemen
+(`items.2.sku`), dan key tersebut ikut masuk `validated()`. Setiap alternatif
+`anyOf` divalidasi atas nilainya saja, sama seperti di Laravel: aturan di
+dalamnya yang menyebut field lain tidak melihat field tersebut. `forEach` yang
+terus mengembalikan `forEach` berhenti dengan galat setelah
+`Validator.maxRuleNesting` (8) tingkat; Laravel tidak punya batas.
+
 ## Form request
 
 <!-- include: packages/daravel/test/docs/guide_examples_test.dart#form-request -->
@@ -121,6 +178,65 @@ mengembalikan data yang sudah divalidasi.
 Sebagai gantinya, deklarasikan di route dengan
 `.validates(const StorePostRequest())` lalu baca `request.validated()` di
 handler; lihat [Routing](routing.md#validasi-dan-respons-yang-dideklarasikan).
+
+### Input bertipe
+
+`make:request` menulis request bertipe: setiap input adalah konstanta
+`Field<T>`, rule-nya memakai field tersebut sebagai kunci, dan input type-nya
+punya satu getter bertipe per field.
+
+```dart
+final class StoreNoteRequest extends FormRequest<StoreNoteRequestInput> {
+  const StoreNoteRequest();
+
+  static const title = Field<String>('title');
+  static const stars = Field<int?>('stars');
+
+  @override
+  Map<String, Object> rules(Request request) => {
+    title: [Rules.required(), Rules.string()],
+    stars: [Rules.nullable(), Rules.integer()],
+  };
+}
+
+// <dartisan:input>
+extension type const StoreNoteRequestInput(ValidatedData _data)
+    implements ValidatedData {
+  String get title => _data.field(StoreNoteRequest.title);
+  int? get stars => _data.field(StoreNoteRequest.stars);
+
+  Map<String, Object?> get typed => {'title': title, 'stars': stars};
+}
+// </dartisan:input>
+```
+
+`await const StoreNoteRequest().validateRequest(request)` mengembalikan input
+bertipe (`input.stars` adalah `int?`, dikonversi dari `'4'`).
+`dart run bin/dartisan.dart request:sync` menulis ulang region
+`<dartisan:input>` setelah Anda menambah, mengganti nama, atau mengubah tipe
+sebuah field; `request:sync --check` tidak menulis apa pun dan keluar dengan
+kode 1 bila ada region yang usang, untuk CI. Input type yang Anda deklarasikan
+sendiri, tanpa region, dibiarkan apa adanya.
+
+`typed` memuat setiap field menurut kunci input-nya, sudah dikonversi ke
+tipe yang dideklarasikan. Tipe sebuah field dan rule-nya masih bisa tidak
+cocok (`Field<int>` yang hanya `required`): validasi lolos lalu getter-nya
+melempar, menjadi 500. Dengan `daravel_test`, `make:request` juga menulis
+test yang menangkap hal ini:
+
+```dart
+test('StoreNoteRequest reads every field as its declared type', () async {
+  await expectFormRequestTyped(const StoreNoteRequest(), {
+    'title': 'Hello',
+    'stars': '4',
+  }, read: (input) => input.typed);
+});
+```
+
+Test ini sekuat contoh input-nya: tambahkan satu pemanggilan per cabang
+rule yang opsional (field `nullable` yang dikirim dan yang tidak). Kegagalan
+menyebut nama request, dan rule yang gagal atau field yang salah tipe,
+tidak pernah nilai input-nya.
 
 ## Upload file
 

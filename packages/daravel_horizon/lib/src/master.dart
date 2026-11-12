@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io' show ProcessInfo;
 import 'dart:isolate';
 
@@ -9,7 +8,7 @@ import 'auto_scaler.dart';
 import 'config.dart';
 import 'messages.dart';
 import 'signals.dart';
-import 'store/process_store.dart';
+import 'store/horizon_store.dart';
 import 'worker_isolate.dart';
 
 /// A worker isolate as the master sees it.
@@ -65,6 +64,10 @@ final class HorizonWorker {
   /// late: another worker may hold it already).
   bool _leftToRetryAfter = false;
 
+  /// Whether reclaiming its job threw (the job stays reserved until
+  /// `retry_after`).
+  bool _reclaimFailed = false;
+
   /// Whether it runs a job now.
   bool get busy => last?.jobId != null;
 
@@ -106,6 +109,7 @@ final class HorizonMaster {
     required this.logger,
     this.coordinator,
     this.store,
+    HorizonStore? horizonStore,
     this.failedJobs,
     this.signals,
     this.name = 'horizon',
@@ -115,8 +119,12 @@ final class HorizonMaster {
     this.terminateSession,
     this.workerIdleTransactionTimeout,
     this.onEvent,
+    this.failsAfterTimeout,
     Duration Function(int crashes)? crashDelay,
-  }) : _crashDelay = crashDelay ?? _defaultCrashDelay;
+  }) : _crashDelay = crashDelay ?? _defaultCrashDelay,
+       horizonStore =
+           horizonStore ??
+           (store == null ? null : ProcessHorizonStore(() => store));
 
   /// Builds each worker's application (`createApp`, top-level).
   final ApplicationFactory factory;
@@ -133,9 +141,14 @@ final class HorizonMaster {
   /// The process's coordinator, shared with the workers.
   final SendPort? coordinator;
 
-  /// Where the rates of the auto-scaler come from: the [HorizonService] the
-  /// workers record into. Without it, no rate is measured.
+  /// The coordinator of the `process` store ([ProcessHorizonStore]), when
+  /// no [horizonStore] is given. Without either, no rate is measured.
   final CoordinatorChannel? store;
+
+  /// Where the rates of the auto-scaler come from and where snapshots are
+  /// taken: the store the workers record into (`HORIZON_STORE`), else the
+  /// `process` store behind [store].
+  final HorizonStore? horizonStore;
 
   /// Where a quarantined job is recorded (`failed_jobs`).
   final FailedJobProvider? failedJobs;
@@ -177,6 +190,18 @@ final class HorizonMaster {
   /// Told about kills and scaling decisions.
   final HorizonEventSink? onEvent;
 
+  /// Whether a job whose worker was killed past its timeout fails now
+  /// (`JobProcessor.failsAfterTimeout`, the rule `queue:work` applies to
+  /// its own timeouts): it reads the job's retry settings and the
+  /// `job-exceptions:<uuid>` count only. That count lives in the queue's
+  /// unique-lock store (`QUEUE_UNIQUE_LOCK_STORE`: `database`, `redis` or
+  /// `process` by default), which the master and the workers of a process
+  /// share; an isolate-scoped `memory` store would count apart in each
+  /// isolate, as it already does between workers.
+  /// Without it, every such job is made available again.
+  final Future<bool> Function(JobPayload payload, int attempts, {int? tries})?
+  failsAfterTimeout;
+
   /// The least time between two `LongWaitDetected` of one queue.
   static const Duration longWaitEvery = Duration(minutes: 5);
 
@@ -214,7 +239,7 @@ final class HorizonMaster {
       await _resize(plan, plan.minProcesses, _spreadAll(plan));
       if (plan.balance == BalanceStrategy.auto) {
         _timers.add(
-          Timer.periodic(plan.balanceCooldown, (_) => unawaited(balance(plan))),
+          Timer.periodic(plan.balanceCooldown, (_) => unawaited(_tick(plan))),
         );
       } else {
         await balance(plan);
@@ -225,16 +250,28 @@ final class HorizonMaster {
       // Commands sent before this master started are not its own.
       _signalAt = (await _readSignal())?.$2 ?? 0;
       _timers.add(
-        Timer.periodic(const Duration(seconds: 1), (_) => unawaited(_poll())),
+        Timer.periodic(const Duration(seconds: 1), (_) {
+          // A read slower than a second must not let a second poll read the
+          // same command and run it again.
+          if (_polling) {
+            return;
+          }
+          _polling = true;
+          unawaited(_poll().whenComplete(() => _polling = false));
+        }),
       );
       // Its state, for `horizon:status` and `horizon:list` in any process
       // that shares the store.
       await _publishStatus();
       _timers.add(
-        Timer.periodic(
-          HorizonSignals.statusEvery,
-          (_) => unawaited(_publishStatus()),
-        ),
+        Timer.periodic(HorizonSignals.statusEvery, (_) {
+          // A slow store gets one status at a time, not a pile of them.
+          if (_publishing) {
+            return;
+          }
+          _publishing = true;
+          unawaited(_publishStatus().whenComplete(() => _publishing = false));
+        }),
       );
     }
     if (config.memoryLimit > 0) {
@@ -245,6 +282,32 @@ final class HorizonMaster {
   // -- Commands from other processes (HorizonSignals) --------------------
 
   int _signalAt = 0;
+
+  /// Whether a poll of the signal store is under way.
+  bool _polling = false;
+
+  /// Whether a status publish is under way.
+  bool _publishing = false;
+
+  /// The plans whose periodic evaluation is under way.
+  final Set<String> _balancing = {};
+
+  /// The periodic evaluation of [plan]: skipped while the previous one
+  /// still runs (a queue slower than the cooldown), since two evaluations
+  /// read the same pool and would both resize it.
+  Future<void> _tick(SupervisorPlan plan) async {
+    final name = plan.name.value;
+    if (!_balancing.add(name)) {
+      return;
+    }
+    try {
+      await balance(plan);
+    } on Object catch (e) {
+      logger.warning('Horizon could not balance [$name]: $e');
+    } finally {
+      _balancing.remove(name);
+    }
+  }
 
   Future<(String, int)?> _readSignal() async {
     try {
@@ -283,7 +346,7 @@ final class HorizonMaster {
   /// Takes a metric snapshot in the store (`horizon:snapshot`).
   Future<void> snapshot() async {
     try {
-      await store?.call(HorizonService.serviceName, 'snapshot', const {});
+      await horizonStore?.snapshot();
     } on Object catch (e) {
       logger.warning('Horizon snapshot failed: $e');
     }
@@ -464,15 +527,12 @@ final class HorizonMaster {
   /// The jobs a second and the average run time of [queue] over the last
   /// minute, from the store; nulls when none is measured.
   Future<(double?, Duration?)> _rates(String queue) async {
-    final store = this.store;
+    final store = horizonStore;
     if (store == null) {
       return (null, null);
     }
     try {
-      final raw = await store.call(HorizonService.serviceName, 'rates', {
-        'queue': queue,
-      });
-      final rates = jsonDecode(raw! as String) as Map<String, Object?>;
+      final rates = await store.rates(queue);
       final avg = rates['avg_ms'] as num?;
       return (
         (rates['per_second'] as num?)?.toDouble(),
@@ -517,8 +577,12 @@ final class HorizonMaster {
         keep[i]._send(Assign(queues));
       }
     }
-    for (var i = keep.length; i < total; i++) {
-      await _spawn(plan, queuesFor(i));
+    // Counted again on each spawn: a worker joins the pool before its
+    // spawn is awaited, and a resize the caller did not wait for may run
+    // beside this one.
+    int running() => pool.where((w) => !w.stopping).length;
+    while (running() < total && !_stopping) {
+      await _spawn(plan, queuesFor(running()));
     }
   }
 
@@ -531,29 +595,37 @@ final class HorizonMaster {
     // Spawned paused, so its exit is reported on the report port, after
     // its Exited if it sent one (one port keeps the order): an exit
     // without Exited first is a crash.
-    final isolate = await Isolate.spawn(
-      horizonWorkerMain,
-      HorizonWorkerStart(
-        factory: factory,
-        name: worker.name,
-        queues: queues,
-        master: _reports.sendPort,
-        heartbeat: config.heartbeat,
-        coordinator: coordinator,
-        connection: plan.connection,
-        tries: plan.tries,
-        backoffSeconds: plan.backoff == null
-            ? null
-            : [for (final b in plan.backoff!) b.inSeconds],
-        timeout: plan.timeout,
-        sleep: plan.sleep,
-        maxJobs: plan.maxJobs,
-        maxTime: plan.maxTime,
-        idleTransactionTimeout: workerIdleTransactionTimeout,
-      ),
-      debugName: worker.name,
-      paused: true,
-    );
+    final Isolate isolate;
+    try {
+      isolate = await Isolate.spawn(
+        horizonWorkerMain,
+        HorizonWorkerStart(
+          factory: factory,
+          name: worker.name,
+          queues: queues,
+          master: _reports.sendPort,
+          heartbeat: config.heartbeat,
+          coordinator: coordinator,
+          connection: plan.connection,
+          tries: plan.tries,
+          backoffSeconds: plan.backoff == null
+              ? null
+              : [for (final b in plan.backoff!) b.inSeconds],
+          timeout: plan.timeout,
+          sleep: plan.sleep,
+          maxJobs: plan.maxJobs,
+          maxTime: plan.maxTime,
+          idleTransactionTimeout: workerIdleTransactionTimeout,
+        ),
+        debugName: worker.name,
+        paused: true,
+      );
+    } on Object {
+      // Never started: a worker left in the pool without an isolate would
+      // count as running for ever (a resize would never replace it).
+      _pools[planName]?.remove(worker);
+      rethrow;
+    }
     isolate
       ..addOnExitListener(
         _reports.sendPort,
@@ -789,7 +861,10 @@ final class HorizonMaster {
   /// another worker already, whose reservation a reclaim would release
   /// (a third worker could then run it beside the second). Then the job is
   /// left to `retry_after`, and [HorizonWorker._leftToRetryAfter] is set.
-  Future<bool> _reclaim(HorizonWorker w) async {
+  ///
+  /// [pastWindow], when given, is the caller's own reading of
+  /// [_pastReclaimWindow], used instead of reading it again.
+  Future<bool> _reclaim(HorizonWorker w, {bool? pastWindow}) async {
     final job = w.last;
     final queue = job?.queue;
     final id = job?.jobId;
@@ -797,20 +872,13 @@ final class HorizonMaster {
     if (queue == null || id == null || target is! ReclaimableQueueDriver) {
       return false;
     }
-    final started = job?.jobReservedAtMs;
-    final retryAfter = _retryAfter(w);
-    if (started != null && retryAfter != null) {
-      final ran = DateTime.now().difference(
-        DateTime.fromMillisecondsSinceEpoch(started),
+    if (pastWindow ?? _pastReclaimWindow(w)) {
+      w._leftToRetryAfter = true;
+      logger.info(
+        'Job ${job?.jobUuid} of ${w.name} left to retry_after: it may '
+        'have been given to another worker already.',
       );
-      if (ran >= retryAfter - _reclaimMargin) {
-        w._leftToRetryAfter = true;
-        logger.info(
-          'Job ${job?.jobUuid} of ${w.name} left to retry_after: it may '
-          'have been given to another worker already.',
-        );
-        return false;
-      }
+      return false;
     }
     try {
       final done = await target.reclaim(queue, _key(id));
@@ -820,9 +888,25 @@ final class HorizonMaster {
       );
       return done;
     } on Object catch (e) {
+      w._reclaimFailed = true;
       logger.error('Could not reclaim job $id: $e');
       return false;
     }
+  }
+
+  /// Whether `retry_after` (less [_reclaimMargin]) has passed since [w]'s
+  /// job was reserved: the driver may have given it to another worker, so
+  /// the master no longer acts on it.
+  bool _pastReclaimWindow(HorizonWorker w) {
+    final started = w.last?.jobReservedAtMs;
+    final retryAfter = _retryAfter(w);
+    if (started == null || retryAfter == null) {
+      return false;
+    }
+    final ran = DateTime.now().difference(
+      DateTime.fromMillisecondsSinceEpoch(started),
+    );
+    return ran >= retryAfter - _reclaimMargin;
   }
 
   /// The id as the driver stores it: a number for the database queue.
@@ -861,27 +945,62 @@ final class HorizonMaster {
   /// master does what a timeout does in `queue:work`:
   /// - the attempt counts once: attempts go up when a job is reserved, and
   ///   the reclaim keeps them;
-  /// - the job is made available again at once (no backoff: the driver
-  ///   cannot release a reserved job with a delay from outside its
-  ///   worker), and a job with no tries left fails on its next pop with
-  ///   `MaxAttemptsExceededException` ("may have previously timed out"),
-  ///   with the failure events of the worker that pops it;
+  /// - the master decides, from the retry settings the worker reported and
+  ///   nothing else, whether the job fails now, by the rule of Laravel's
+  ///   timeout handler ([failsAfterTimeout]: tries used up or `retryUntil`
+  ///   passed, the last allowed exception, `failOnTimeout`);
+  /// - a job that fails is **marked** in [signals] before it is made
+  ///   available again, and the worker that reserves it next fails it
+  ///   without running it, with `TimeoutExceededException` ("NAME has
+  ///   timed out."): `failed_jobs`, its `failed()` hook and `JobFailed`
+  ///   run there, in a worker's application, never in the master (a job
+  ///   that blocked its isolate could block the master's the same way);
+  /// - any other job is made available again at once (no backoff: the
+  ///   driver cannot release a reserved job with a delay from outside its
+  ///   worker);
   /// - it is not a crash, and never counts towards `quarantineAfter`.
+  ///
+  /// Unlike Laravel, a failing job is recorded at its next reservation, not
+  /// at the moment of the timeout; in between it looks available. Without
+  /// [signals] or [failsAfterTimeout], or once `retry_after` has passed,
+  /// nothing is marked: a job with no tries left then fails on its next
+  /// pop with `MaxAttemptsExceededException`, and a `failOnTimeout` job
+  /// with tries left runs again.
   ///
   /// `JobExceptionOccurred` is not dispatched for the killed attempt (the
   /// master runs no worker application): the master logs a warning and
-  /// tells [onEvent] `JobTimedOut`.
+  /// tells [onEvent] `JobTimedOut`, with its `fate`.
   Future<void> _afterTimeout(HorizonWorker w) async {
     // Never fails: it runs unawaited in the master's zone.
     try {
       final job = w.last!;
       await w._sessionsEnded;
-      final reclaimed = await _reclaim(w);
       final limit = _jobLimit(w);
-      final fate = reclaimed
+      // Judged once, for the mark and the reclaim alike: judged twice, the
+      // window could pass in between, and a job marked to fail would be
+      // left to retry_after unmarked. The reclaim margin (a heartbeat, at
+      // least a second) covers the moment the mark takes.
+      final past = _pastReclaimWindow(w);
+      final marked = !past && await _markIfFails(w, limit);
+      final reclaimed = await _reclaim(w, pastWindow: past);
+      final store = signals;
+      var willFail = marked;
+      if (marked && !reclaimed && !w._reclaimFailed && store != null) {
+        // No longer reserved: the job ended just before the kill (its row
+        // is gone), so there is nothing of this attempt to fail. A reclaim
+        // that failed keeps the mark: the job comes back after retry_after
+        // and fails then.
+        await HorizonSignals.unmarkTimedOut(store, job.jobUuid!);
+        willFail = false;
+      }
+      final fate = willFail
+          ? 'will fail on next reservation'
+          : reclaimed
           ? 'made available again'
           : w._leftToRetryAfter
           ? 'left to retry_after'
+          : w._reclaimFailed
+          ? 'could not be made available again'
           : 'was no longer reserved';
       logger.warning(
         'Horizon job ${job.jobUuid ?? job.jobId} (${job.jobName}, attempt '
@@ -896,6 +1015,7 @@ final class HorizonMaster {
         'attempt': job.attempt,
         'limitSeconds': limit?.inSeconds,
         'reclaimed': reclaimed,
+        'fate': fate,
         if (w._leftToRetryAfter) 'leftToRetryAfter': true,
         'at': DateTime.now().millisecondsSinceEpoch,
       };
@@ -913,6 +1033,71 @@ final class HorizonMaster {
       );
     }
   }
+
+  /// Marks [w]'s job to fail on its next reservation when it fails after
+  /// this timeout ([failsAfterTimeout] on the retry settings [w] reported); true
+  /// when marked. The caller does not ask once `retry_after` has passed (the
+  /// job may be another worker's). Nothing is marked without a store, a rule or the job's retry
+  /// settings, or when deciding or marking fails (the job is then made
+  /// available again, as before).
+  Future<bool> _markIfFails(HorizonWorker w, Duration? limit) async {
+    final job = w.last;
+    final store = signals;
+    final decide = failsAfterTimeout;
+    final uuid = job?.jobUuid;
+    if (job == null ||
+        store == null ||
+        decide == null ||
+        uuid == null ||
+        job.jobMaxTries == null) {
+      return false;
+    }
+    final attempt = job.attempt ?? 1;
+    // The job's retry settings, as the worker reported them: the rule reads
+    // nothing else of a payload, and the master never sees the job's data.
+    final settings = JobPayload(
+      uuid: uuid,
+      jobName: job.jobName ?? '',
+      displayName: job.jobName ?? '',
+      data: const <String, Object?>{},
+      maxTries: job.jobMaxTries!,
+      maxExceptions: job.jobMaxExceptions,
+      failOnTimeout: job.jobFailsOnTimeout ?? false,
+      backoffSeconds: const <int>[],
+      timeout: Duration.zero,
+      pushedAt: 0,
+      retryUntil: job.jobRetryUntil,
+    );
+    try {
+      if (!await decide(settings, attempt, tries: w.plan.tries)) {
+        return false;
+      }
+      final retryAfter = _retryAfter(w) ?? Duration.zero;
+      await HorizonSignals.markTimedOut(
+        store,
+        uuid,
+        attempt: attempt,
+        limit: limit,
+        // Past the next reservation even when the reclaim fails and the job
+        // waits for retry_after.
+        ttl: retryAfter * 2 > timedOutMarkTtl
+            ? retryAfter * 2
+            : timedOutMarkTtl,
+      );
+      return true;
+    } on Object catch (e) {
+      logger.error(
+        'Could not decide or mark the timed-out job $uuid of ${w.name}: $e; '
+        'it is made available again.',
+      );
+      return false;
+    }
+  }
+
+  /// The least time a timed-out job's mark lives ([_markIfFails]): a job
+  /// nobody reserves for that long is no longer failed by it, and runs
+  /// again or fails by its tries.
+  static const Duration timedOutMarkTtl = Duration(hours: 1);
 
   /// Moves job [id] of [queue] to `failed_jobs` with a
   /// [JobQuarantinedException] and removes it, through the queue driver and

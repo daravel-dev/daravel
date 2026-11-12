@@ -32,9 +32,9 @@ final class Candidate extends Model {
   static Future<ModelCollection<Candidate>> all() => query().get();
   static ModelQuery<Candidate> where(
     Object column, [
-    Object? op,
-    Object? value,
-  ]) => query().where(column, op, value);
+    Object? operatorOrValue = QueryBuilder.absent,
+    Object? value = QueryBuilder.absent,
+  ]) => query().where(column, operatorOrValue, value);
   static ModelQuery<Candidate> whereIn(String column, Object values) =>
       query().whereIn(column, values);
 

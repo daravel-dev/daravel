@@ -3,11 +3,17 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../database/database_manager.dart';
+import '../database/orm/model.dart';
+import '../database/orm/model_definition.dart';
 import '../database/query/query_builder.dart';
 import '../foundation/clock.dart';
 import '../http/uploaded_file.dart';
+import 'dns.dart';
+import 'object_rules.dart';
 import 'php_date_format.dart';
+import 'php_email_filter.dart';
 import 'rule.dart';
+import 'typed_rules.dart';
 
 /// Factory facade for built-in rules (`Rule.required()`, `Rule.email()`...).
 /// Each factory returns a `const`-friendly [Rule] subclass that can be
@@ -122,6 +128,51 @@ abstract final class Rules {
   static Rule requiredArrayKeys(List<String> keys) =>
       RequiredArrayKeysRule(keys);
 
+  /// `contains`: an array holding every one of [values] (compared loosely,
+  /// as PHP's `in_array`).
+  static Rule contains(List<String> values) =>
+      ArrayValuesRule('contains', values);
+
+  /// `doesnt_contain`: an array holding none of [values] (compared
+  /// strictly).
+  static Rule doesntContain(List<String> values) =>
+      ArrayValuesRule('doesnt_contain', values);
+
+  /// `doesnt_start_with`: text that starts with none of [prefixes].
+  static Rule doesntStartWith(List<String> prefixes) =>
+      DoesntAffixRule('doesnt_start_with', prefixes);
+
+  /// `doesnt_end_with`: text that ends with none of [suffixes].
+  static Rule doesntEndWith(List<String> suffixes) =>
+      DoesntAffixRule('doesnt_end_with', suffixes);
+
+  /// `in_array`: one of the values at [other], a path with `*`
+  /// (`in_array:items.*.id`), compared strictly.
+  static Rule inArray(String other) => InArrayRule(other);
+
+  /// `in_array_keys`: an array with at least one of [keys].
+  static Rule inArrayKeys(List<String> keys) =>
+      ArrayKeysRule('in_array_keys', keys);
+
+  /// `array_keys`: an array with no key but [keys] (Laravel 13).
+  static Rule arrayKeys(List<String> keys) => ArrayKeysRule('array_keys', keys);
+
+  /// `hex_color`: `#rgb`, `#rgba`, `#rrggbb` or `#rrggbbaa`.
+  static Rule hexColor() => const HexColorRule();
+
+  /// `mac_address`: six hex pairs joined by `:` or `-`, or three hex
+  /// quads joined by `.` (PHP's `FILTER_VALIDATE_MAC`).
+  static Rule macAddress() => const MacAddressRule();
+
+  /// `encoding:UTF-8`: text (or an uploaded file's bytes) valid in
+  /// [encoding]: `UTF-8`, `ASCII` or `ISO-8859-1`; any other name is an
+  /// [ArgumentError], as Laravel throws for an unknown one.
+  static Rule encoding(String encoding) => EncodingRule(encoding);
+
+  /// `base64`: text that decodes as standard Base64 and encodes back to the
+  /// same text (Laravel 13).
+  static Rule base64() => const Base64Rule();
+
   /// `exclude`: leaves the field out of the validated data.
   static Rule exclude() => const ExcludeRule('exclude');
 
@@ -137,9 +188,24 @@ abstract final class Rules {
   static Rule excludeWith(String other) =>
       ExcludeRule('exclude_with', other: other);
 
-  /// `exclude_without`: leaves the field out when [other] is absent.
+  /// `exclude_without`: leaves the field out when [other] is absent or
+  /// empty.
   static Rule excludeWithout(String other) =>
       ExcludeRule('exclude_without', other: other);
+
+  /// `exclude_without:a,b`: leaves the field out when any of [others] is
+  /// absent or empty (Laravel's `anyFailingRequired`).
+  static Rule excludeWithoutAny(List<String> others) => others.isEmpty
+      ? throw ArgumentError.value(
+          others,
+          'others',
+          'Validation rule exclude_without requires at least 1 parameters.',
+        )
+      : ExcludeRule(
+          'exclude_without',
+          other: others.first,
+          values: List.unmodifiable(others.skip(1)),
+        );
 
   /// `Rule::enum()`: the value is the enum's name, or [toValue] of it.
   static EnumRule<E> enum_<E extends Enum>(
@@ -170,13 +236,25 @@ abstract final class Rules {
   /// `prohibited`: must be empty or absent.
   static Rule prohibited() => const ProhibitedRule();
 
-  /// `required_if`: required when [other] equals [value].
+  /// `required_if:other,value`: required when [other] is [value], compared
+  /// as Laravel compares them (`'true'` matches a boolean input, `'null'`
+  /// a null one, `'5'` the number 5). A missing [other] never requires it.
   static Rule requiredIf(String other, Object? value) =>
       RequiredIfRule(other, value);
 
-  /// `required_unless`: required unless [other] equals [value].
+  /// `required_if:role,admin,owner`: required when [other] is one of
+  /// [values].
+  static Rule requiredIfIn(String other, List<Object?> values) =>
+      RequiredIfRule.oneOf(other, _atLeastOne('required_if', values));
+
+  /// `required_unless:other,value`: required unless [other] is [value].
   static Rule requiredUnless(String other, Object? value) =>
       RequiredUnlessRule(other, value);
+
+  /// `required_unless:role,guest,bot`: required unless [other] is one of
+  /// [values].
+  static Rule requiredUnlessIn(String other, List<Object?> values) =>
+      RequiredUnlessRule.oneOf(other, _atLeastOne('required_unless', values));
 
   /// `accepted`: `yes`, `on`, `1`, `true` (checkboxes, terms).
   static Rule accepted() => const AcceptanceRule('accepted', _isAccepted);
@@ -224,8 +302,34 @@ abstract final class Rules {
   /// `map` (Daravel): a JSON object. A JSON array fails.
   static Rule map() => const MapRule();
 
-  /// `email`: an email address.
-  static Rule email() => const EmailRule();
+  /// `email`, or `email:rfc,dns,...` with the modes set: every mode given
+  /// must pass, `rfc` when none is. [dns] looks the domain up as egulias'
+  /// `DNSCheckValidation` (through the container's [DnsResolver]); it is
+  /// checked last and, as in Laravel, alone it does not check the syntax
+  /// (`email:rfc,dns` does both). [spoof] needs ICU: it throws
+  /// [UnsupportedError] here, when the rule is built. [rfc] and [strict]
+  /// are, for now, the same HTML-style check, stricter than egulias' RFC
+  /// parser.
+  static Rule email({
+    bool rfc = false,
+    bool strict = false,
+    bool dns = false,
+    bool spoof = false,
+    bool filter = false,
+    bool filterUnicode = false,
+  }) => EmailRule.checked({
+    if (rfc) 'rfc',
+    if (strict) 'strict',
+    if (dns) 'dns',
+    if (spoof) 'spoof',
+    if (filter) 'filter',
+    if (filterUnicode) 'filter_unicode',
+  });
+
+  /// `active_url`: a URL whose host has an A or AAAA record (one lookup
+  /// through the container's [DnsResolver]; an IP address fails, as in
+  /// Laravel).
+  static Rule activeUrl() => const ActiveUrlRule();
 
   /// `url`: an absolute URL with a scheme and host.
   static Rule url() => const UrlRule();
@@ -323,11 +427,20 @@ abstract final class Rules {
   /// `confirmed`: equals `<field>_confirmation`, or [field] when given.
   static Rule confirmed([String? field]) => ConfirmedRule(field);
 
-  /// `same`: equals [other].
+  /// `same`: identical to [other] (PHP's `===`: `5` is not `'5'`).
   static Rule same(String other) => SameRule(other);
 
-  /// `different`: differs from [other].
+  /// `different`: not identical to [other] when [other] is present.
   static Rule different(String other) => SameRule(other, negate: true);
+
+  /// `different:a,b`: not identical to any of [others] that is present.
+  static Rule differentFrom(List<String> others) => others.isEmpty
+      ? throw ArgumentError.value(
+          others,
+          'others',
+          'Validation rule different requires at least 1 parameters.',
+        )
+      : SameRule.differentFrom(others.first, List.unmodifiable(others.skip(1)));
 
   /// `starts_with`: starts with one of [prefixes].
   static Rule startsWith(List<String> prefixes) => StartsWithRule(prefixes);
@@ -387,12 +500,76 @@ abstract final class Rules {
     symbols: symbols,
   );
 
+  /// The rules that read [definition]'s table, typed by its columns:
+  /// `Rules.of(User.definition).unique(User.cols.email)`.
+  static ModelRules<M> of<M extends Model>(ModelDefinition<M> definition) =>
+      ModelRules<M>(definition);
+
   /// A rule of your own: [check] returns an error message, or null when the
   /// value passes; [name] keys its translations.
   static Rule custom(
     FutureOr<String?> Function(ValidationContext context) check, {
     String name = 'custom',
   }) => ClosureRule(check, name: name);
+
+  /// `Rule::when($condition, $rules, $defaultRules)`: [rules] when
+  /// [condition] is true, [otherwise] when it is false. For a condition on
+  /// the input, use [whenInput].
+  static Rule when(
+    bool condition,
+    List<Rule> rules, {
+    List<Rule> otherwise = const [],
+  }) => ConditionalRule('when', (_) => condition, rules, otherwise);
+
+  /// `Rule::when(fn ($input) => ..., $rules, $defaultRules)`: [rules] when
+  /// [condition] holds for the whole input, [otherwise] when it does not.
+  /// Decided once per validation, before any rule runs, on the input after
+  /// `FormRequest.prepare` (Laravel's `filterConditionalRules`).
+  static Rule whenInput(
+    bool Function(Map<String, Object?> input) condition,
+    List<Rule> rules, {
+    List<Rule> otherwise = const [],
+  }) => ConditionalRule('when', condition, rules, otherwise);
+
+  /// `Rule::unless($condition, $rules, $defaultRules)`: [rules] when
+  /// [condition] is false, [otherwise] when it is true.
+  static Rule unless(
+    bool condition,
+    List<Rule> rules, {
+    List<Rule> otherwise = const [],
+  }) => ConditionalRule('unless', (_) => !condition, rules, otherwise);
+
+  /// `Rule::unless(fn ($input) => ..., $rules, $defaultRules)`: [whenInput]
+  /// with the condition inverted.
+  static Rule unlessInput(
+    bool Function(Map<String, Object?> input) condition,
+    List<Rule> rules, {
+    List<Rule> otherwise = const [],
+  }) =>
+      ConditionalRule('unless', (input) => !condition(input), rules, otherwise);
+
+  /// `Rule::forEach(fn ($value, $attribute) => [...])`: rules for each
+  /// element of an array attribute (`'items.*.id': Rules.forEach(...)`),
+  /// built from the element's value, attribute, parent and the input.
+  static Rule forEach(List<Rule> Function(ForEachItem item) rules) =>
+      ForEachRule.own(rules);
+
+  /// `Rule::forEach` returning keyed rules: rules for keys of each element
+  /// (`{'meta': [...]}` validates `items.2.meta`); those attributes are part
+  /// of the validated data, as in Laravel.
+  static Rule forEachNested(
+    Map<String, List<Rule>> Function(ForEachItem item) rules,
+  ) => ForEachRule.nested(rules);
+
+  /// `Rule::anyOf([...])`: the value passes when it passes one of
+  /// [alternatives]. Each is validated on the value alone, as Laravel does:
+  /// a rule naming another field does not see the rest of the input.
+  static Rule anyOf(List<List<Rule>> alternatives) => AnyOfRule(alternatives);
+
+  /// `Rule::anyOf` with keyed alternatives: a map value passes when its keys
+  /// pass one of [alternatives] (`[{'type': [...], 'id': [...]}, ...]`).
+  static Rule anyOfKeyed(List<Map<String, List<Rule>>> alternatives) =>
+      AnyOfRule.keyed(alternatives);
 }
 
 // ---------------------------------------------------------------------------
@@ -452,61 +629,217 @@ final class ProhibitedRule extends Rule {
       c.present && !isEmptyValue(c.value) ? 'prohibited' : null;
 }
 
-/// `required_if`: see [Rules.requiredIf].
+/// `required_if`: see [Rules.requiredIf] and [Rules.requiredIfIn].
 final class RequiredIfRule extends Rule {
-  /// Required when [other] equals [expected].
-  const RequiredIfRule(this.other, this.expected);
+  /// Required when [other] is [expected].
+  const RequiredIfRule(this.other, Object? expected)
+    : _one = expected,
+      _many = null;
+
+  /// Required when [other] is one of [values]
+  /// (`required_if:role,admin,owner`); use [Rules.requiredIfIn].
+  const RequiredIfRule.oneOf(this.other, List<Object?> values)
+    : _one = null,
+      _many = values;
+
+  final Object? _one;
+  final List<Object?>? _many;
 
   /// The field compared.
   final String other;
 
-  /// The value that makes this field required.
-  final Object? expected;
+  /// The values that make this field required, as written in the rule
+  /// (`true`, `null`, `5`), compared as Laravel compares them.
+  List<String> get values => [
+    for (final value in _many ?? [_one]) '$value',
+  ];
+
+  /// The first of [values].
+  Object? get expected => _many == null ? _one : _many.first;
+
   @override
   String get name => 'required_if';
   @override
   bool get implicit => true;
   @override
-  Map<String, Object?> get parameters => {'other': other, 'value': expected};
+  Map<String, Object?> get parameters => {
+    'other': other,
+    'value': values.first,
+  };
+
+  // Laravel's replaceRequiredIf is replaceAcceptedIf: `:value` is the
+  // other field's input.
+  @override
+  Map<String, Object?> parametersFor(ValidationContext context) =>
+      _otherParameters(context, other);
+
   @override
   String? passes(ValidationContext c) {
-    if ('${c.root(other)}' == '$expected' && isEmptyValue(c.value)) {
-      return 'required_if';
+    // 13.x ValidatesAttributes::validateRequiredIf (2189-2204): a missing
+    // other field never requires this one.
+    if (!c.has(other)) {
+      return null;
     }
-    return null;
+    return _dependentMatches(c, other, values) && isEmptyValue(c.value)
+        ? 'required_if'
+        : null;
   }
 }
 
-/// `required_unless`: see [Rules.requiredUnless].
+/// `required_unless`: see [Rules.requiredUnless] and
+/// [Rules.requiredUnlessIn].
 final class RequiredUnlessRule extends Rule {
-  /// Required unless [other] equals [expected].
-  const RequiredUnlessRule(this.other, this.expected);
+  /// Required unless [other] is [expected].
+  const RequiredUnlessRule(this.other, Object? expected)
+    : _one = expected,
+      _many = null;
+
+  /// Required unless [other] is one of [values]
+  /// (`required_unless:role,guest,bot`); use [Rules.requiredUnlessIn].
+  const RequiredUnlessRule.oneOf(this.other, List<Object?> values)
+    : _one = null,
+      _many = values;
+
+  final Object? _one;
+  final List<Object?>? _many;
 
   /// The field compared.
   final String other;
 
-  /// The value that makes this field optional.
-  final Object? expected;
+  /// The values that make this field optional, as written in the rule.
+  List<String> get values => [
+    for (final value in _many ?? [_one]) '$value',
+  ];
+
+  /// The first of [values].
+  Object? get expected => _many == null ? _one : _many.first;
+
   @override
   String get name => 'required_unless';
   @override
   bool get implicit => true;
   @override
-  Map<String, Object?> get parameters => {'other': other, 'values': expected};
+  Map<String, Object?> get parameters => {
+    'other': other,
+    'values': values.join(', '),
+  };
+
+  // Laravel's replaceRequiredUnless: the other field's display name and
+  // the rule's values, joined.
   @override
-  String? passes(ValidationContext c) {
-    if ('${c.root(other)}' != '$expected' && isEmptyValue(c.value)) {
-      return 'required_unless';
-    }
+  Map<String, Object?> parametersFor(ValidationContext context) => {
+    'other': context.displayName(other),
+    'values': values.join(', '),
+  };
+
+  @override
+  String? passes(ValidationContext c) =>
+      // 13.x ValidatesAttributes::validateRequiredUnless (2413-2424).
+      !_dependentMatches(c, other, values) && isEmptyValue(c.value)
+      ? 'required_unless'
+      : null;
+}
+
+/// [values], refused when empty as Laravel's `requireParameterCount(2)`.
+List<Object?> _atLeastOne(String rule, List<Object?> values) =>
+    values.isNotEmpty
+    ? List.unmodifiable(values)
+    : throw ArgumentError.value(
+        values,
+        'values',
+        'Validation rule $rule requires at least 2 parameters.',
+      );
+
+/// Whether [other]'s input is one of [values], as Laravel 13.x decides it:
+/// `parseDependentRuleParameters` (ValidatesAttributes.php 2470-2485)
+/// converts `'true'`/`'false'` to booleans when [other] has a `boolean`
+/// rule or its input is a bool, and `'null'` to null when the input is
+/// null; then `in_array($other, $values, is_bool($other) ||
+/// is_null($other))` compares strictly for a bool or null input and with
+/// PHP's loose `==` otherwise.
+bool _dependentMatches(ValidationContext c, String other, List<String> values) {
+  final input = c.root(other);
+  final toBool =
+      input is bool ||
+      c.booleans.contains(c.resolve(other)) ||
+      c.booleans.contains(other);
+  final converted = [
+    for (final value in values)
+      switch (value) {
+        'true' when toBool => true,
+        'false' when toBool => false,
+        _ when input == null && value.toLowerCase() == 'null' => null,
+        _ => value,
+      },
+  ];
+  if (input == null || input is bool) {
+    return converted.any(
+      (value) => value == input && (value == null) == (input == null),
+    );
+  }
+  return converted.any((value) => _phpLooseEquals(input, value));
+}
+
+/// PHP 8's `==` between an input value ([a]: a string, number, list or
+/// map) and a rule value ([b]: a string or a bool), for `in_array`
+/// without strict.
+bool _phpLooseEquals(Object a, Object? b) {
+  if (b is bool) {
+    return _phpTruthy(a) == b;
+  }
+  if (b is! String) {
+    return a == b;
+  }
+  final bNumber = _phpNumeric(b);
+  return switch (a) {
+    String() => switch ((_phpNumeric(a), bNumber)) {
+      (final num x, final num y) => x == y,
+      _ => a == b,
+    },
+    num() => bNumber != null ? a == bNumber : _phpNumberString(a) == b,
+    _ => false,
+  };
+}
+
+/// PHP's truthiness of an input value: `''`, `'0'`, `0`, `0.0` and an
+/// empty list or map are false.
+bool _phpTruthy(Object? value) => switch (value) {
+  null || false || '' || '0' => false,
+  num() => value != 0,
+  List<Object?>() => value.isNotEmpty,
+  Map<Object?, Object?>() => value.isNotEmpty,
+  _ => true,
+};
+
+/// The number of a PHP 8 numeric string (`'5'`, `' 1.5 '`, `'1e3'`,
+/// `'.5'`), `null` for any other (`'0x1A'`, `'1,5'`, `'abc'`).
+num? _phpNumeric(String value) {
+  final match = RegExp(
+    r'^[ \t\n\r\v\f]*([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)'
+    r'[ \t\n\r\v\f]*$',
+  ).firstMatch(value);
+  if (match == null) {
     return null;
   }
+  final text = match[1]!;
+  return text.contains(RegExp('[.eE]'))
+      ? double.parse(text.endsWith('.') ? '${text}0' : text)
+      : int.parse(text);
 }
+
+/// A number as PHP writes it in a string comparison (`1.0` is `'1'`).
+String _phpNumberString(num value) =>
+    value is double && value.isFinite && value == value.truncateToDouble()
+    ? value.toInt().toString()
+    : '$value';
 
 /// `parseDependentRuleParameters`: with a `boolean` rule on [other], `true`
 /// and `false` compare as booleans, so `'1'` matches `true`.
 bool _otherMatches(ValidationContext c, String other, List<String> values) {
   final value = c.root(other);
-  if (c.booleans.contains(other)) {
+  // Laravel reads the rules of the parameter with `*` replaced; a pattern
+  // (`items.*.on`) is kept too.
+  if (c.booleans.contains(c.resolve(other)) || c.booleans.contains(other)) {
     final flag = BooleanRule.asBool(value);
     if (flag != null && values.contains('$flag')) {
       return true;
@@ -521,6 +854,8 @@ Map<String, Object?> _otherParameters(ValidationContext c, String other) => {
   'value': switch (c.root(other)) {
     null => 'empty',
     List<Object?>() || Map<Object?, Object?>() => 'array',
+    // getDisplayableValue's (string) cast: 5.0 is "5", as PHP writes it.
+    final num value => _phpNumberString(value),
     final value => '$value',
   },
 };
@@ -597,7 +932,14 @@ final class RequiredWithRule extends Rule {
   @override
   bool get implicit => true;
   @override
-  Map<String, Object?> get parameters => {'values': others.join(', ')};
+  Map<String, Object?> get parameters => {'values': others.join(' / ')};
+
+  // replaceRequiredWith (13.x 509-520): getAttributeList, asterisks
+  // replaced, joined with ' / '.
+  @override
+  Map<String, Object?> parametersFor(ValidationContext context) => {
+    'values': _attributeList(context, others),
+  };
   @override
   String? passes(ValidationContext c) {
     final anyPresent = others.any((o) => !isEmptyValue(c.root(o)));
@@ -617,7 +959,14 @@ final class RequiredWithoutRule extends Rule {
   @override
   bool get implicit => true;
   @override
-  Map<String, Object?> get parameters => {'values': others.join(', ')};
+  Map<String, Object?> get parameters => {'values': others.join(' / ')};
+
+  // replaceRequiredWith (13.x 509-520): getAttributeList, asterisks
+  // replaced, joined with ' / '.
+  @override
+  Map<String, Object?> parametersFor(ValidationContext context) => {
+    'values': _attributeList(context, others),
+  };
   @override
   String? passes(ValidationContext c) {
     final anyMissing = others.any((o) => isEmptyValue(c.root(o)));
@@ -775,22 +1124,138 @@ abstract class _PatternRule extends Rule {
   }
 }
 
-/// `email`: see [Rules.email].
-final class EmailRule extends _PatternRule {
+/// `email` and `email:rfc,dns,...`: see [Rules.email].
+///
+/// As Laravel's `validateEmail`: the value is a string without `\r` or
+/// `\n`, and passes **every** mode in [modes] (`rfc` when none is given; a
+/// name Laravel does not know is `rfc`, as Laravel's `default` arm).
+final class EmailRule extends Rule {
   /// The email rule; use [Rules.email].
-  const EmailRule();
-  static final RegExp _email = RegExp(
+  const EmailRule({this.modes = const <String>{}});
+
+  /// The modes, by Laravel's names: `rfc`, `strict`, `dns`, `spoof`,
+  /// `filter`, `filter_unicode`.
+  final Set<String> modes;
+
+  /// The rule with [modes], refusing `spoof` at once: [Rules.email] and
+  /// the string parser build it this way, so the error comes when the
+  /// rules are built (a `Validator`, OpenAPI), not on each value checked.
+  static EmailRule checked(Set<String> modes) {
+    if (modes.contains('spoof')) {
+      throw UnsupportedError(_spoofUnsupported);
+    }
+    return EmailRule(modes: modes);
+  }
+
+  static const String _spoofUnsupported =
+      'email:spoof needs ICU\'s Spoofchecker, which Dart does not have; '
+      'Daravel does not check it (dartisan lint reports it).';
+
+  /// The modes Daravel checks; `spoof` throws [UnsupportedError].
+  static const Set<String> knownModes = {
+    'rfc',
+    'strict',
+    'dns',
+    'spoof',
+    'filter',
+    'filter_unicode',
+  };
+
+  // `rfc` and `strict` until egulias/EmailValidator's RFC parser is ported:
+  // an address of HTML's `type=email` (no quoted local part, no domain
+  // literal, at least two labels), stricter than egulias' RFCValidation.
+  static final RegExp _rfc = RegExp(
     r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$",
   );
+
+  /// The pattern a client checks before sending (`dartisan client:flutter`
+  /// writes it into the Flutter form validators); the server's check,
+  /// with its modes, decides.
+  RegExp get pattern => _rfc;
+
   @override
   String get name => 'email';
-  @override
-  RegExp get pattern => _email;
+
   @override
   Map<String, Object?> get schemaHint => const {
     'type': 'string',
     'format': 'email',
   };
+
+  @override
+  Future<String?> passes(ValidationContext context) async {
+    final value = context.value;
+    if (value is! String || value.contains('\r') || value.contains('\n')) {
+      return name;
+    }
+    final checks = {
+      for (final mode in modes.isEmpty ? const {'rfc'} : modes)
+        knownModes.contains(mode) ? mode : 'rfc',
+    };
+    // Reached only by a `const EmailRule(modes: {'spoof'})` built directly.
+    if (checks.contains('spoof')) {
+      throw UnsupportedError(_spoofUnsupported);
+    }
+    if ((checks.contains('rfc') || checks.contains('strict')) &&
+        !_rfc.hasMatch(value)) {
+      return name;
+    }
+    // PHP's FILTER_VALIDATE_EMAIL, read in one pass: PHP's regex
+    // backtracks exponentially, and Dart's engine has no limit to stop it.
+    if (checks.contains('filter') && !phpFilterEmail(value)) {
+      return name;
+    }
+    if (checks.contains('filter_unicode') &&
+        !phpFilterEmail(value, unicode: true)) {
+      return name;
+    }
+    // Last, so an address that fails the cheap checks costs no lookup.
+    if (checks.contains('dns') &&
+        !await emailDomainResolves(value, _resolver(context))) {
+      return name;
+    }
+    return null;
+  }
+}
+
+/// The [DnsResolver] bound in the container of [context], or the shared
+/// [SystemDnsResolver].
+DnsResolver _resolver(ValidationContext context) =>
+    context.container?.tryMake<DnsResolver>() ?? SystemDnsResolver.instance;
+
+/// `active_url`: see [Rules.activeUrl].
+final class ActiveUrlRule extends Rule {
+  /// The active URL rule; use [Rules.activeUrl].
+  const ActiveUrlRule();
+
+  @override
+  String get name => 'active_url';
+
+  @override
+  Map<String, Object?> get schemaHint => const {
+    'type': 'string',
+    'format': 'uri',
+  };
+
+  @override
+  Future<String?> passes(ValidationContext context) async {
+    // Laravel: the host of parse_url, then dns_get_record(host, A|AAAA).
+    // An IP address is not a name DNS answers for, so it fails without a
+    // lookup, as it does in Laravel; so does a name DNS cannot carry.
+    final value = context.value;
+    if (value is! String) {
+      return name;
+    }
+    final host = Uri.tryParse(value)?.host ?? '';
+    if (host.isEmpty || isIpLiteral(host)) {
+      return name;
+    }
+    final ascii = toAsciiHost(host);
+    if (ascii == null) {
+      return name;
+    }
+    return await _resolver(context).hasAddress(ascii) ? null : name;
+  }
 }
 
 /// `url`: see [Rules.url].
@@ -1241,30 +1706,95 @@ final class ConfirmedRule extends Rule {
   String get name => 'confirmed';
   @override
   String? passes(ValidationContext c) {
+    // 13.x validateConfirmed calls validateSame: `===`.
     final other = field ?? '${c.attribute}_confirmation';
-    return '${c.root(other)}' == '${c.value}' ? null : 'confirmed';
+    return _phpIdentical(c.value, c.root(other)) ? null : 'confirmed';
   }
 }
 
 /// `same` and `different`: see [Rules.same].
 final class SameRule extends Rule {
   /// Equal to [other], or different when [negate].
-  const SameRule(this.other, {this.negate = false});
+  const SameRule(this.other, {this.negate = false}) : others = const [];
 
-  /// The field compared.
+  /// `different:a,b`: different from each of [other] and [others] that is
+  /// present.
+  const SameRule.differentFrom(this.other, this.others) : negate = true;
+
+  /// The field compared (the first, for `different`).
   final String other;
+
+  /// The further fields of `different`.
+  final List<String> others;
 
   /// Whether it is `different`.
   final bool negate;
   @override
   String get name => negate ? 'different' : 'same';
+  // replaceSame/replaceDifferent: `:other` is the first field.
   @override
   Map<String, Object?> get parameters => {'other': other};
+
+  // getDisplayableAttribute of the field with its asterisks replaced
+  // (`items.0.a`), as Laravel writes it.
+  @override
+  Map<String, Object?> parametersFor(ValidationContext context) => {
+    'other': context.displayName(other),
+  };
   @override
   String? passes(ValidationContext c) {
-    final equal = '${c.root(other)}' == '${c.value}';
-    return equal != negate ? null : name;
+    if (!negate) {
+      // 13.x validateSame (2624-2631): `$value === Arr::get(data, other)`.
+      return _phpIdentical(c.value, c.root(other)) ? null : name;
+    }
+    // 13.x validateDifferent (732-745): each field that is present must
+    // not be identical to the value.
+    for (final field in [other, ...others]) {
+      if (c.has(field) && _phpIdentical(c.value, c.root(field))) {
+        return name;
+      }
+    }
+    return null;
   }
+}
+
+/// Laravel's `getAttributeList` joined with `' / '`: each field's
+/// displayable name (custom name, or `_` as spaces) with its asterisks
+/// replaced by the attribute's own keys.
+String _attributeList(ValidationContext context, List<String> fields) =>
+    fields.map(context.displayName).join(' / ');
+
+/// PHP's `===` between two input values: the same type (an int is not a
+/// float, `'5'` is not `5`) and the same value. For arrays the PHP manual
+/// (Comparison Operators) defines `$a === $b` as "the same key/value pairs
+/// in the same order and of the same types", so lists and maps compare
+/// element by element and maps in the same key order.
+bool _phpIdentical(Object? a, Object? b) => switch ((a, b)) {
+  (null, null) => true,
+  (final bool x, final bool y) => x == y,
+  (final int x, final int y) => x == y,
+  (final double x, final double y) => x == y,
+  (final String x, final String y) => x == y,
+  (final List<Object?> x, final List<Object?> y) =>
+    x.length == y.length &&
+        [for (var i = 0; i < x.length; i++) _phpIdentical(x[i], y[i])]
+            .every((same) => same),
+  (final Map<Object?, Object?> x, final Map<Object?, Object?> y) =>
+    x.length == y.length &&
+        _sameKeyOrder(x.keys, y.keys) &&
+        x.keys.every((key) => _phpIdentical(x[key], y[key])),
+  _ => false,
+};
+
+bool _sameKeyOrder(Iterable<Object?> a, Iterable<Object?> b) {
+  final left = a.toList();
+  final right = b.toList();
+  for (var i = 0; i < left.length; i++) {
+    if ('${left[i]}' != '${right[i]}') {
+      return false;
+    }
+  }
+  return true;
 }
 
 /// `starts_with`: see [Rules.startsWith].
@@ -1345,6 +1875,24 @@ final class DateCompareRule extends Rule {
   String get name => operator;
   @override
   Map<String, Object?> get parameters => {'date': dateOrField};
+
+  // replaceBefore (13.x 818-825; date_equals uses it too): a date is
+  // written as it is, a field as its displayable name. Laravel replaces
+  // the asterisks of before/after/*_or_equal ($dependentRules), not of
+  // date_equals.
+  @override
+  Map<String, Object?> parametersFor(ValidationContext context) {
+    if (parseDate(dateOrField) != null) {
+      return {'date': dateOrField};
+    }
+    return {
+      'date': operator == 'date_equals'
+          ? context.attributeNames[dateOrField] ??
+                dateOrField.replaceAll('_', ' ')
+          : context.displayName(dateOrField),
+    };
+  }
+
   @override
   String? passes(ValidationContext c) {
     final value = parseDate(c.value);
@@ -1368,15 +1916,40 @@ final class DateCompareRule extends Rule {
 // Comparisons (laravel/framework `ValidatesAttributes`)
 // ---------------------------------------------------------------------------
 
+final RegExp _decimalPattern = RegExp(
+  r'^([+-]?)(\d*)(?:\.(\d*))?(?:[eE]([+-]?\d{1,4}))?$',
+);
+
+final RegExp _space = RegExp(r'\s');
+
+/// [text] without the characters `\s` matches at its start and end.
+String _withoutOuterSpace(String text) {
+  var start = 0;
+  var end = text.length;
+  while (start < end && _space.hasMatch(text[start])) {
+    start++;
+  }
+  while (end > start && _space.hasMatch(text[end - 1])) {
+    end--;
+  }
+  return text.substring(start, end);
+}
+
 /// An exact decimal, as Brick's `BigDecimal` in Laravel: `0.3` is a multiple
 /// of `0.1` here, and never in floating point. `null` unless `is_numeric`.
+///
+/// Laravel trims and calls PHP's `is_numeric` and Brick, both linear. A
+/// single `^\s*…\s*$` regex in their place took time quadratic in the
+/// length of the value (from 1.22.0 until this was fixed): the spaces
+/// around are stripped first now.
 (BigInt, int)? _decimalOf(Object? value) {
   if (value is! String && value is! num) {
     return null;
   }
-  final match = RegExp(
-    r'^\s*([+-]?)(\d*)(?:\.(\d*))?(?:[eE]([+-]?\d{1,4}))?\s*$',
-  ).firstMatch('$value');
+  // The spaces around are stripped first: `^\s*…\s*$` in one regex made
+  // every leading space retry the trailing `\s*`, quadratic in the length
+  // (100 000 spaces and a letter took 53 s). The number itself has none.
+  final match = _decimalPattern.firstMatch(_withoutOuterSpace('$value'));
   if (match == null) {
     return null;
   }
@@ -1475,6 +2048,14 @@ final class CompareRule extends Rule {
 }
 
 /// `decimal:2` and `decimal:0,4`.
+///
+/// Laravel 13's `validateDecimal` reads the places with the possessive
+/// `/^[+-]?\d*+\.?+(\d*+)$/`, which PCRE never backtracks into. Dart's
+/// `RegExp` has no possessive quantifiers, and the plain `\d*\.?(\d*)` the
+/// port first used took time quadratic in the length of the value (from
+/// 1.22.0 until this was fixed). The pattern here has one way to match each
+/// string, so it is linear, and it matches the same strings with the same
+/// capture.
 final class DecimalRule extends Rule {
   /// [min] to [max] digits after the decimal point.
   const DecimalRule(this.min, [this.max]);
@@ -1484,6 +2065,8 @@ final class DecimalRule extends Rule {
 
   /// The most digits after the point; exactly [min] when null.
   final int? max;
+
+  static final RegExp _decimalPlaces = RegExp(r'^[+-]?\d*(?:\.(\d*))?$');
   @override
   String get name => 'decimal';
   @override
@@ -1492,11 +2075,16 @@ final class DecimalRule extends Rule {
   };
   @override
   String? passes(ValidationContext c) {
-    final match = RegExp(r'^[+-]?\d*\.?(\d*)$').firstMatch('${c.value}');
+    // Laravel 13 writes `^[+-]?\d*+\.?+(\d*+)$`: possessive, so PCRE never
+    // backtracks. Dart has no possessive quantifiers, and `\d*\.?(\d*)`
+    // split a run of digits every way, quadratic in its length (100 000
+    // digits and a letter took 89 s). This form matches the same strings
+    // with the same capture, without backtracking.
+    final match = _decimalPlaces.firstMatch('${c.value}');
     if (_decimalOf(c.value) == null || match == null) {
       return 'decimal';
     }
-    final places = match[1]!.length;
+    final places = (match[1] ?? '').length;
     final ok = max == null ? places == min : places >= min && places <= max!;
     return ok ? null : 'decimal';
   }
@@ -1800,6 +2388,13 @@ final class RequiredWithAllRule extends Rule {
   bool get implicit => true;
   @override
   Map<String, Object?> get parameters => {'values': others.join(' / ')};
+
+  // replaceRequiredWith (13.x 509-520): getAttributeList, asterisks
+  // replaced, joined with ' / '.
+  @override
+  Map<String, Object?> parametersFor(ValidationContext context) => {
+    'values': _attributeList(context, others),
+  };
   @override
   String? passes(ValidationContext c) =>
       others.every((o) => !isEmptyValue(c.root(o))) && isEmptyValue(c.value)
@@ -1820,6 +2415,13 @@ final class RequiredWithoutAllRule extends Rule {
   bool get implicit => true;
   @override
   Map<String, Object?> get parameters => {'values': others.join(' / ')};
+
+  // replaceRequiredWith (13.x 509-520): getAttributeList, asterisks
+  // replaced, joined with ' / '.
+  @override
+  Map<String, Object?> parametersFor(ValidationContext context) => {
+    'values': _attributeList(context, others),
+  };
   @override
   String? passes(ValidationContext c) =>
       others.every((o) => isEmptyValue(c.root(o))) && isEmptyValue(c.value)
@@ -1858,7 +2460,8 @@ final class ExcludeRule extends Rule {
   /// The field compared, for the conditional forms.
   final String? other;
 
-  /// The values of [other] that exclude the field.
+  /// The values of [other] that exclude the field (`exclude_if`,
+  /// `exclude_unless`); for `exclude_without`, the fields after [other].
   final List<String> values;
 
   /// `Validator::$excludeRules`.
@@ -1878,12 +2481,17 @@ final class ExcludeRule extends Rule {
   String? passes(ValidationContext c) {
     final other = this.other;
     final excluded = switch (name) {
-      'exclude_if' =>
-        ValidationContext.exists(c.data, other!) &&
-            _otherMatches(c, other, values),
+      // `has` resolves `*` to the attribute's own item, as Laravel's
+      // replaceAsterisksInParameters does for these dependent rules.
+      'exclude_if' => c.has(other!) && _otherMatches(c, other, values),
       'exclude_unless' => !_otherMatches(c, other!, values),
-      'exclude_with' => ValidationContext.exists(c.data, other!),
-      'exclude_without' => isEmptyValue(c.root(other!)),
+      'exclude_with' => c.has(other!),
+      // 13.x validateExcludeWithout (2453-2462): anyFailingRequired over
+      // every field.
+      'exclude_without' => [
+        other!,
+        ...values,
+      ].any((field) => isEmptyValue(c.root(field))),
       _ => true,
     };
     return excluded ? name : null;
@@ -2297,5 +2905,386 @@ final class DateFormatRule extends Rule {
     return formats.any((format) => phpDateMatchesFormat(text, format))
         ? null
         : 'date_format';
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Laravel 13 content rules (W9.4a)
+// ---------------------------------------------------------------------------
+
+/// [value] as PHP's loose `==` sees it against a rule's string parameter:
+/// the same text, or the same number.
+bool _looselyEquals(Object? value, String parameter) {
+  if ('$value' == parameter) {
+    return true;
+  }
+  final number = num.tryParse(parameter);
+  return number != null && value is num && value == number;
+}
+
+/// The values of an array (JSON list or object), or null for anything else.
+Iterable<Object?>? _arrayValues(Object? value) => switch (value) {
+  List<Object?>() => value,
+  Map<Object?, Object?>() => value.values,
+  _ => null,
+};
+
+/// `contains` and `doesnt_contain`: see [Rules.contains].
+final class ArrayValuesRule extends Rule {
+  /// The rule [name] over [values].
+  const ArrayValuesRule(this.name, this.values);
+  @override
+  final String name;
+
+  /// The values looked for.
+  final List<String> values;
+
+  // `contains` names nothing; `doesnt_contain` uses replaceIn.
+  @override
+  Map<String, Object?> get parameters => {'values': values.join(', ')};
+
+  @override
+  String? passes(ValidationContext c) {
+    final items = _arrayValues(c.value);
+    if (items == null) {
+      return name;
+    }
+    final ok = name == 'contains'
+        ? values.every((v) => items.any((item) => _looselyEquals(item, v)))
+        // `in_array(..., true)`: a parameter is a string, so only an equal
+        // string matches.
+        : values.every(
+            (v) => !items.any((item) => item is String && item == v),
+          );
+    return ok ? null : name;
+  }
+}
+
+/// `doesnt_start_with` and `doesnt_end_with`: see [Rules.doesntStartWith].
+final class DoesntAffixRule extends Rule {
+  /// The rule [name] over [affixes].
+  const DoesntAffixRule(this.name, this.affixes);
+  @override
+  final String name;
+
+  /// The prefixes (or suffixes) refused.
+  final List<String> affixes;
+
+  @override
+  Map<String, Object?> get parameters => {'values': affixes.join(', ')};
+
+  @override
+  String? passes(ValidationContext c) {
+    final value = c.value;
+    // `is_string($value) || is_numeric($value)`.
+    final text = switch (value) {
+      String() => value,
+      // PHP's (string) of a whole float has no ".0": JSON 1.0 is "1".
+      double() when value.isFinite && value == value.truncateToDouble() =>
+        '${value.toInt()}',
+      num() => '$value',
+      _ => null,
+    };
+    if (text == null) {
+      return name;
+    }
+    // `Str::startsWith` ignores an empty needle.
+    bool hit(String a) =>
+        a.isNotEmpty &&
+        (name == 'doesnt_start_with' ? text.startsWith(a) : text.endsWith(a));
+    return affixes.any(hit) ? name : null;
+  }
+}
+
+/// `in_array`: see [Rules.inArray].
+final class InArrayRule extends Rule {
+  /// One of the values at [other].
+  const InArrayRule(this.other);
+
+  /// The path of the values, with `*` (`items.*.id`).
+  final String other;
+  @override
+  String get name => 'in_array';
+
+  // `replaceInArray`: the parameter as written, not resolved (`in_array` is
+  // not one of Laravel's dependent rules).
+  @override
+  Map<String, Object?> parametersFor(ValidationContext context) => {
+    'other': context.attributeNames[other] ?? other.replaceAll('_', ' '),
+  };
+
+  @override
+  String? passes(ValidationContext c) {
+    // `Arr::dot` of the data, keys matched by `Str::is` (`*` is any text).
+    final pattern = RegExp(
+      '^${other.split('*').map(RegExp.escape).join('.*')}\$',
+    );
+    final values = <Object?>[];
+    void walk(Object? node, String path) {
+      switch (node) {
+        case Map<Object?, Object?>() when node.isNotEmpty:
+          for (final MapEntry(:key, :value) in node.entries) {
+            walk(value, path.isEmpty ? '$key' : '$path.$key');
+          }
+        case List<Object?>() when node.isNotEmpty:
+          for (var i = 0; i < node.length; i++) {
+            walk(node[i], path.isEmpty ? '$i' : '$path.$i');
+          }
+        default:
+          if (pattern.hasMatch(path)) {
+            values.add(node);
+          }
+      }
+    }
+
+    walk(c.data, '');
+    return values.contains(c.value) ? null : name;
+  }
+}
+
+/// `in_array_keys` and `array_keys`: see [Rules.inArrayKeys].
+final class ArrayKeysRule extends Rule {
+  /// The rule [name] over [keys].
+  const ArrayKeysRule(this.name, this.keys);
+  @override
+  final String name;
+
+  /// The keys looked for (`in_array_keys`) or allowed (`array_keys`).
+  final List<String> keys;
+
+  /// The keys of an array value; list indexes as their decimal text.
+  static List<String>? _keysOf(Object? value) => switch (value) {
+    Map<Object?, Object?>() => [for (final k in value.keys) '$k'],
+    List<Object?>() => [for (var i = 0; i < value.length; i++) '$i'],
+    _ => null,
+  };
+
+  // `replaceArrayKeys` also fills `:unexpected`, the keys that are not
+  // allowed.
+  @override
+  Map<String, Object?> parametersFor(ValidationContext context) => {
+    'values': keys.join(', '),
+    if (name == 'array_keys')
+      'unexpected': [
+        for (final k in _keysOf(context.value) ?? const <String>[])
+          if (!keys.contains(k)) k,
+      ].join(', '),
+  };
+
+  @override
+  String? passes(ValidationContext c) {
+    final present = _keysOf(c.value);
+    if (present == null || (name == 'in_array_keys' && keys.isEmpty)) {
+      return name;
+    }
+    final ok = name == 'in_array_keys'
+        ? keys.any(present.contains)
+        : present.every(keys.contains);
+    return ok ? null : name;
+  }
+}
+
+/// `hex_color`: see [Rules.hexColor].
+final class HexColorRule extends Rule {
+  /// The hex color rule; use [Rules.hexColor].
+  const HexColorRule();
+  @override
+  String get name => 'hex_color';
+
+  static final RegExp _pattern = RegExp(
+    r'^#(?:(?:[0-9a-f]{3}){1,2}|(?:[0-9a-f]{4}){1,2})$',
+    caseSensitive: false,
+  );
+
+  @override
+  String? passes(ValidationContext c) {
+    final value = c.value;
+    return value is String && _pattern.hasMatch(value) ? null : name;
+  }
+}
+
+/// `mac_address`: see [Rules.macAddress].
+final class MacAddressRule extends Rule {
+  /// The MAC address rule; use [Rules.macAddress].
+  const MacAddressRule();
+  @override
+  String get name => 'mac_address';
+
+  static final RegExp _pattern = RegExp(
+    r'^(?:[0-9a-f]{2}(?::[0-9a-f]{2}){5}|[0-9a-f]{2}(?:-[0-9a-f]{2}){5}|'
+    r'[0-9a-f]{4}(?:\.[0-9a-f]{4}){2})$',
+    caseSensitive: false,
+  );
+
+  @override
+  String? passes(ValidationContext c) {
+    final value = c.value;
+    return value is String && _pattern.hasMatch(value) ? null : name;
+  }
+}
+
+/// `encoding`: see [Rules.encoding].
+final class EncodingRule extends Rule {
+  /// Valid in [encoding], checked when the rule runs (as Laravel does): a
+  /// name that is not an encoding is an [ArgumentError] (Laravel's
+  /// InvalidArgumentException); an encoding PHP knows but Daravel does not
+  /// check yet is an [UnsupportedError]. `invalid_validation_rule` flags
+  /// both in rule strings before they run.
+  const EncodingRule(this.encoding);
+
+  /// The encoding name, as written.
+  final String encoding;
+
+  /// The encodings Daravel checks, normalized.
+  static const Set<String> supported = {'utf8', 'ascii', 'iso88591', 'latin1'};
+
+  /// Common names of PHP's `mb_list_encodings()` (mbstring) that Daravel
+  /// does not check yet, normalized: a rule naming one is valid in Laravel.
+  static const Set<String> knownToPhp = {
+    'utf16',
+    'utf16be',
+    'utf16le',
+    'utf32',
+    'utf32be',
+    'utf32le',
+    'ucs2',
+    'ucs2be',
+    'ucs2le',
+    'ucs4',
+    'ucs4be',
+    'ucs4le',
+    'utf7',
+    'utf7imap',
+    'windows1252',
+    'cp1252',
+    'windows1251',
+    'cp1251',
+    'windows1254',
+    'iso88592',
+    'iso88593',
+    'iso88594',
+    'iso88595',
+    'iso88596',
+    'iso88597',
+    'iso88598',
+    'iso88599',
+    'iso885910',
+    'iso885913',
+    'iso885914',
+    'iso885915',
+    'iso885916',
+    'sjis',
+    'shiftjis',
+    'eucjp',
+    'jis',
+    'iso2022jp',
+    'euckr',
+    'big5',
+    'gb18030',
+    'cp936',
+    'euccn',
+    'koi8r',
+    'koi8u',
+    'cp866',
+    '7bit',
+    '8bit',
+  };
+
+  /// [name] without case and punctuation (`UTF-8` and `utf8` match).
+  static String normalized(String name) =>
+      name.toLowerCase().replaceAll(RegExp('[^a-z0-9]'), '');
+
+  @override
+  String get name => 'encoding';
+  @override
+  Map<String, Object?> get parameters => {'encoding': encoding};
+
+  @override
+  String? passes(ValidationContext c) {
+    final key = normalized(encoding);
+    if (knownToPhp.contains(key)) {
+      throw UnsupportedError(
+        'Validation rule encoding [$encoding] is not supported by Daravel '
+        'yet; supported: UTF-8, ASCII, ISO-8859-1',
+      );
+    }
+    if (!supported.contains(key)) {
+      throw ArgumentError.value(
+        encoding,
+        'encoding',
+        'Validation rule encoding parameter [$encoding] is not a valid '
+            'encoding',
+      );
+    }
+    final value = c.value;
+    final List<int> units;
+    final bool bytes;
+    switch (value) {
+      case UploadedFile():
+        units = value.readAsBytesSync();
+        bytes = true;
+      case String():
+        units = value.codeUnits;
+        bytes = false;
+      default:
+        return name;
+    }
+    final ok = switch (key) {
+      'ascii' => units.every((u) => u < 0x80),
+      // mb_check_encoding looks at bytes, and every byte sequence is valid
+      // ISO-8859-1: a string (sent as UTF-8 bytes) always passes in Laravel.
+      'iso88591' || 'latin1' => true,
+      _ => bytes ? _utf8(units) : _wellFormed(units),
+    };
+    return ok ? null : name;
+  }
+
+  static bool _utf8(List<int> bytes) {
+    try {
+      utf8.decode(bytes);
+      return true;
+    } on FormatException {
+      return false;
+    }
+  }
+
+  /// UTF-16 code units with no lone surrogate: text UTF-8 can hold.
+  static bool _wellFormed(List<int> units) {
+    for (var i = 0; i < units.length; i++) {
+      final u = units[i];
+      if (u >= 0xD800 && u <= 0xDBFF) {
+        final next = i + 1 < units.length ? units[i + 1] : 0;
+        if (next < 0xDC00 || next > 0xDFFF) {
+          return false;
+        }
+        i++;
+      } else if (u >= 0xDC00 && u <= 0xDFFF) {
+        return false;
+      }
+    }
+    return true;
+  }
+}
+
+/// `base64`: see [Rules.base64].
+final class Base64Rule extends Rule {
+  /// The Base64 rule; use [Rules.base64].
+  const Base64Rule();
+  @override
+  String get name => 'base64';
+
+  @override
+  String? passes(ValidationContext c) {
+    final value = c.value;
+    if (value is! String || value.isEmpty) {
+      return name;
+    }
+    try {
+      // `base64_decode($value, true)` then `base64_encode` back: only the
+      // canonical standard alphabet with padding passes.
+      return base64Encode(base64Decode(value)) == value ? null : name;
+    } on FormatException {
+      return name;
+    }
   }
 }
