@@ -1772,15 +1772,40 @@ final class DateCompareRule extends Rule {
 // Comparisons (laravel/framework `ValidatesAttributes`)
 // ---------------------------------------------------------------------------
 
+final RegExp _decimalPattern = RegExp(
+  r'^([+-]?)(\d*)(?:\.(\d*))?(?:[eE]([+-]?\d{1,4}))?$',
+);
+
+final RegExp _space = RegExp(r'\s');
+
+/// [text] without the characters `\s` matches at its start and end.
+String _withoutOuterSpace(String text) {
+  var start = 0;
+  var end = text.length;
+  while (start < end && _space.hasMatch(text[start])) {
+    start++;
+  }
+  while (end > start && _space.hasMatch(text[end - 1])) {
+    end--;
+  }
+  return text.substring(start, end);
+}
+
 /// An exact decimal, as Brick's `BigDecimal` in Laravel: `0.3` is a multiple
 /// of `0.1` here, and never in floating point. `null` unless `is_numeric`.
+///
+/// Laravel trims and calls PHP's `is_numeric` and Brick, both linear. A
+/// single `^\s*…\s*$` regex in their place took time quadratic in the
+/// length of the value (from 1.22.0 until this was fixed): the spaces
+/// around are stripped first now.
 (BigInt, int)? _decimalOf(Object? value) {
   if (value is! String && value is! num) {
     return null;
   }
-  final match = RegExp(
-    r'^\s*([+-]?)(\d*)(?:\.(\d*))?(?:[eE]([+-]?\d{1,4}))?\s*$',
-  ).firstMatch('$value');
+  // The spaces around are stripped first: `^\s*…\s*$` in one regex made
+  // every leading space retry the trailing `\s*`, quadratic in the length
+  // (100 000 spaces and a letter took 53 s). The number itself has none.
+  final match = _decimalPattern.firstMatch(_withoutOuterSpace('$value'));
   if (match == null) {
     return null;
   }
@@ -1879,6 +1904,14 @@ final class CompareRule extends Rule {
 }
 
 /// `decimal:2` and `decimal:0,4`.
+///
+/// Laravel 13's `validateDecimal` reads the places with the possessive
+/// `/^[+-]?\d*+\.?+(\d*+)$/`, which PCRE never backtracks into. Dart's
+/// `RegExp` has no possessive quantifiers, and the plain `\d*\.?(\d*)` the
+/// port first used took time quadratic in the length of the value (from
+/// 1.22.0 until this was fixed). The pattern here has one way to match each
+/// string, so it is linear, and it matches the same strings with the same
+/// capture.
 final class DecimalRule extends Rule {
   /// [min] to [max] digits after the decimal point.
   const DecimalRule(this.min, [this.max]);
@@ -1888,6 +1921,8 @@ final class DecimalRule extends Rule {
 
   /// The most digits after the point; exactly [min] when null.
   final int? max;
+
+  static final RegExp _decimalPlaces = RegExp(r'^[+-]?\d*(?:\.(\d*))?$');
   @override
   String get name => 'decimal';
   @override
@@ -1896,11 +1931,16 @@ final class DecimalRule extends Rule {
   };
   @override
   String? passes(ValidationContext c) {
-    final match = RegExp(r'^[+-]?\d*\.?(\d*)$').firstMatch('${c.value}');
+    // Laravel 13 writes `^[+-]?\d*+\.?+(\d*+)$`: possessive, so PCRE never
+    // backtracks. Dart has no possessive quantifiers, and `\d*\.?(\d*)`
+    // split a run of digits every way, quadratic in its length (100 000
+    // digits and a letter took 89 s). This form matches the same strings
+    // with the same capture, without backtracking.
+    final match = _decimalPlaces.firstMatch('${c.value}');
     if (_decimalOf(c.value) == null || match == null) {
       return 'decimal';
     }
-    final places = match[1]!.length;
+    final places = (match[1] ?? '').length;
     final ok = max == null ? places == min : places >= min && places <= max!;
     return ok ? null : 'decimal';
   }
