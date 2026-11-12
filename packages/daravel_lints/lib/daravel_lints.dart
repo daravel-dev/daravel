@@ -765,9 +765,18 @@ final class _ConstCollector extends RecursiveAstVisitor<void> {
 /// Opt-in: not part of [defaultRules]. Enable it with
 /// `lintProject(root, rules: rulesWith(['prefer_sql_identifier']))`
 /// or, in a test, `expectLintClean(null, ['prefer_sql_identifier'])`.
+///
+/// With [modelClasses] (the project's models: `dartisan lint` reads them
+/// from `lib/app/models`, the editor plugin from the resolved classes) a
+/// query that starts at a model's static (`Region.where(sort)`, the
+/// passthrough `make:model` writes) is judged too, at the caller (#322).
 final class PreferSqlIdentifier extends LintRule {
-  /// `prefer_sql_identifier`: computed column names are [SqlIdentifier]s.
-  const PreferSqlIdentifier();
+  /// `prefer_sql_identifier`: computed column names are [SqlIdentifier]s;
+  /// a static of one of [modelClasses] is a query too.
+  const PreferSqlIdentifier({this.modelClasses = const {}});
+
+  /// The model classes whose statics start a query (`Region.where`).
+  final Set<String> modelClasses;
 
   /// Builder methods and the positions of their column arguments.
   static const Map<String, List<int>> columnArguments = <String, List<int>>{
@@ -852,8 +861,12 @@ final class PreferSqlIdentifier extends LintRule {
         onMethod: (node) {
           final method = node.methodName.name;
           final positions = columnArguments[method];
+          final target = node.realTarget;
+          final modelStatic =
+              target is SimpleIdentifier && modelClasses.contains(target.name);
           if (positions == null ||
-              !NoSqlStringInterpolation._isDbReceiver(node.realTarget) ||
+              !(modelStatic ||
+                  NoSqlStringInterpolation._isDbReceiver(target)) ||
               generated.any((r) => node.offset >= r.$1 && node.end <= r.$2)) {
             return;
           }
