@@ -11,6 +11,7 @@ import 'master.dart';
 import 'routes.dart';
 import 'setup.dart' show HorizonRoutes, horizonKillPolicy;
 import 'signals.dart';
+import 'store/horizon_store.dart';
 import 'store/process_store.dart';
 
 /// The `horizon:*` commands, for `bootstrap/commands.dart`:
@@ -154,10 +155,12 @@ final class HorizonCommand extends DaravelCommand {
           ? channel.coordinator.listen()
           : null,
       store: channel,
+      horizonStore: horizonStoreOf(app.container),
       failedJobs: queues.processor.failedJobs,
       signals: queues.signalStore,
       name: _name(app),
       onEvent: horizonEvents(app),
+      failsAfterTimeout: queues.processor.failsAfterTimeout,
       onTerminate: () {
         if (!done.isCompleted) {
           done.complete();
@@ -292,7 +295,8 @@ List<String> horizonWorkerLines(Map<String, Object?> state) {
     for (final t in timedOut.cast<Map<String, Object?>>()) {
       lines.add(
         '  ${t['name']} ${t['job']} attempt ${t['attempt']}, limit '
-        '${t['limitSeconds']}s, on ${t['worker']}',
+        '${t['limitSeconds']}s, on ${t['worker']}'
+        '${t['fate'] == null ? '' : ': ${t['fate']}'}',
       );
     }
   }
@@ -505,17 +509,8 @@ final class HorizonForgetCommand extends DaravelCommand {
 }
 
 /// The recent jobs of [status] in the store of [app], newest first.
-Future<List<RecordedJob>> recentJobs(Application app, String status) async {
-  final raw = await app.container.make<CoordinatorChannel>().call(
-    HorizonService.serviceName,
-    'recent',
-    {'status': status},
-  );
-  return [
-    for (final job in (jsonDecodeList(raw! as String)))
-      RecordedJob.fromJson(job),
-  ];
-}
+Future<List<RecordedJob>> recentJobs(Application app, String status) =>
+    horizonStoreOf(app.container).recent(status);
 
 /// [text] as a list of JSON objects.
 List<Map<String, Object?>> jsonDecodeList(String text) => [

@@ -3,7 +3,7 @@
 
 /// `docs/guide/id/validation.md`.
 const String pageIdValidation =
-    r'''<!-- source: validation.md sha256:389697af2e00 -->
+    r'''<!-- source: validation.md sha256:1b9aed884db4 -->
 # Validasi
 
 Validasi request secara inline dengan string rule Laravel, atau dengan objek
@@ -101,6 +101,27 @@ Rules.unique('users', 'email').where((QueryBuilder q) => q.whereNull('deleted_at
 Rules.exists('billing.invoices', 'id').where((QueryBuilder q) => q.where('open', true));
 ```
 
+Aturan yang bergantung pada input atau pada setiap elemen, seperti
+`Rule::when`, `Rule::unless`, `Rule::forEach`, dan `Rule::anyOf` di Laravel:
+
+```dart
+'company': Rules.whenInput((input) => input['type'] == 'business',
+    [Rules.required(), Rules.string()]),
+'notes': Rules.when(isAdmin, [Rules.nullable()], otherwise: [Rules.prohibited()]),
+'items.*.qty': Rules.forEach((item) =>
+    item.value == 0 ? [Rules.integer(), Rules.min(1)] : [Rules.integer()]),
+'items.*': Rules.forEachNested((item) => {'sku': [Rules.required()]}),
+'login': Rules.anyOf([[Rules.email()], [Rules.integer(), Rules.min(1)]]),
+```
+
+Kondisi diputuskan sekali per validasi, atas seluruh input (sesudah
+`prepare`). `forEachNested` memvalidasi key dari setiap elemen
+(`items.2.sku`), dan key tersebut ikut masuk `validated()`. Setiap alternatif
+`anyOf` divalidasi atas nilainya saja, sama seperti di Laravel: aturan di
+dalamnya yang menyebut field lain tidak melihat field tersebut. `forEach` yang
+terus mengembalikan `forEach` berhenti dengan galat setelah
+`Validator.maxRuleNesting` (8) tingkat; Laravel tidak punya batas.
+
 ## Form request
 
 <!-- include: packages/daravel/test/docs/guide_examples_test.dart#form-request -->
@@ -152,6 +173,8 @@ extension type const StoreNoteRequestInput(ValidatedData _data)
     implements ValidatedData {
   String get title => _data.field(StoreNoteRequest.title);
   int? get stars => _data.field(StoreNoteRequest.stars);
+
+  Map<String, Object?> get typed => {'title': title, 'stars': stars};
 }
 // </dartisan:input>
 ```
@@ -163,6 +186,26 @@ bertipe (`input.stars` adalah `int?`, dikonversi dari `'4'`).
 sebuah field; `request:sync --check` tidak menulis apa pun dan keluar dengan
 kode 1 bila ada region yang usang, untuk CI. Input type yang Anda deklarasikan
 sendiri, tanpa region, dibiarkan apa adanya.
+
+`typed` memuat setiap field menurut kunci input-nya, sudah dikonversi ke
+tipe yang dideklarasikan. Tipe sebuah field dan rule-nya masih bisa tidak
+cocok (`Field<int>` yang hanya `required`): validasi lolos lalu getter-nya
+melempar, menjadi 500. Dengan `daravel_test`, `make:request` juga menulis
+test yang menangkap hal ini:
+
+```dart
+test('StoreNoteRequest reads every field as its declared type', () async {
+  await expectFormRequestTyped(const StoreNoteRequest(), {
+    'title': 'Hello',
+    'stars': '4',
+  }, read: (input) => input.typed);
+});
+```
+
+Test ini sekuat contoh input-nya: tambahkan satu pemanggilan per cabang
+rule yang opsional (field `nullable` yang dikirim dan yang tidak). Kegagalan
+menyebut nama request, dan rule yang gagal atau field yang salah tipe,
+tidak pernah nilai input-nya.
 
 ## Upload file
 

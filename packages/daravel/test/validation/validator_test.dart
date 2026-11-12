@@ -741,4 +741,27 @@ void numericSizeTests() {
     // the string's length rather than passing silently.
     expect(errors['word'], hasLength(2));
   });
+
+  test(
+    'failed() names the failed rules by attribute, never the input',
+    () async {
+      final validator = Validator(
+        {'title': 's3cret', 'stars': 'x'},
+        {
+          'title': 'required|string|max:3',
+          'stars': 'nullable|integer|min:2',
+          'name': 'required|string',
+        },
+      )..after((v) => v.addError('extra', 'From a hook.'));
+      await validator.run();
+      expect(validator.failed(), {
+        'title': ['max'],
+        'stars': ['integer', 'min'],
+        // required is implicit: the rules after it are not run.
+        'name': ['required'],
+      });
+      expect(validator.errors.keys, contains('extra'));
+      expect('${validator.failed()}', isNot(contains('s3cret')));
+    },
+  );
 }
