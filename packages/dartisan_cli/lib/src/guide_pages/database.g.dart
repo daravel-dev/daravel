@@ -126,9 +126,11 @@ MySQL/MariaDB, with libpq's names:
 | :-- | :-- | :-- |
 | `disable` (MySQL: `DISABLED`) | no TLS | no TLS |
 | `require` (MySQL: `REQUIRED`, `PREFERRED`) | TLS, certificate not checked | TLS, certificate not checked, unless a CA is given |
-| `verify-full` (MySQL: `VERIFY_IDENTITY`, `VERIFY_CA`, `verify-ca`) | TLS, certificate and host name checked | TLS, certificate and host name checked |
+| `verify-full`, `verify-ca` (MySQL: `VERIFY_IDENTITY`, `VERIFY_CA`) | TLS, certificate and host name checked (`verify-ca` too, with a warning at boot) | TLS, certificate and host name checked |
 | unset | no TLS | no TLS; with a CA, as `verify-full` |
-| another value | no TLS | starting with `verify`: as `verify-full`; otherwise as `require`; both with a warning at boot |
+| another value | starting with `verify`: as `verify-full`; otherwise no TLS (`prefer` and `allow` too); both with a warning at boot | starting with `verify`: as `verify-full`; otherwise as `require`; both with a warning at boot |
+
+The mode is read in any case, with `-` or `_` (`REQUIRE`, `verify_full`).
 
 `require` encrypts the traffic but does not stop an active attacker: anyone
 between the application and the server can present a certificate of their

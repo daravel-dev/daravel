@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:a09e3c4c0a96 -->
+<!-- source: README.md sha256:3505670b03a7 -->
 <img src="https://raw.githubusercontent.com/daravel-dev/daravel/main/docs/brand/png/daravel-icon-128.png" alt="Daravel" width="64" align="right">
 
 # daravel_horizon
@@ -52,6 +52,29 @@ lewat server-sent events setiap detik). Di luar `APP_ENV=local` dan `testing`,
 API menjawab 403 sampai middleware melindunginya. Snapshot metrik diambil oleh
 Horizon yang sedang berjalan: `dartisan horizon:snapshot` hanya memintanya,
 jadi jadwalkan perintah itu setiap lima menit.
+
+## Store
+
+`HORIZON_STORE` menentukan tempat Horizon menyimpan job yang ditampilkannya,
+hitungannya, tag yang dimonitor, dan snapshot:
+
+| Store | Tempat | Untuk |
+| :-- | :-- | :-- |
+| `process` (bawaan) | coordinator proses yang menjalankan Horizon | satu proses: `serve --embed-worker=horizon`, atau `dartisan horizon --dashboard=:8090` |
+| `database` | tabel `horizon_*` dari `CreateHorizonTables` (tambahkan ke daftar migrasi), pada `HORIZON_STORE_CONNECTION` | dashboard yang dilayani proses lain selain `dartisan horizon` |
+| `redis` | `daravel_redis` (`withRedis()`) | sama, di Redis |
+
+Store `database` menulis secara batch (setiap 250 ms atau 100 job), di luar
+transaksi job, dan saat shutdown sebelum koneksi ditutup; record yang terpaksa
+dibuang dihitung di `horizon_store_dropped_total`. Penulisan memangkas (paling
+sering sekali per detik per store) baris yang melewati `HorizonConfig.trim`
+(completed, failed, monitored);
+`dartisan horizon:prune` memangkas semuanya, jalankan setiap hari. Di SQLite
+store ini cocok untuk pengembangan: SQLite hanya punya satu penulis, jadi
+untuk produksi dengan beberapa proses pakai PostgreSQL atau MySQL, atau
+`redis`. Laravel Horizon menyimpan datanya di Redis dan tidak membuat tabel,
+sehingga database yang dipakai bersama Laravel tidak punya tabel `horizon_*`
+yang bisa bertabrakan.
 
 ## Lisensi
 

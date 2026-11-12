@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'dart:async';
 
+import 'package:meta/meta.dart';
+
 import '../../foundation/clock.dart';
 import '../../http/http_exceptions.dart';
 import '../../http/json_stream.dart';
@@ -10,6 +12,14 @@ import 'paginator.dart';
 import 'query_ast.dart';
 import 'query_grammar.dart';
 import 'sql_tokens.dart';
+
+/// The type of [QueryBuilder.absent].
+final class _Absent {
+  const _Absent();
+
+  @override
+  String toString() => 'QueryBuilder.absent (an argument left out)';
+}
 
 /// Thrown by `firstOrFail()` / `sole()`.
 final class RecordNotFoundException extends HttpException {
@@ -129,13 +139,23 @@ final class QueryBuilder {
   /// `where('col', value)`, `where('col', '>', value)` or
   /// `where((q) => q.where(...).orWhere(...))` for a nested group.
   ///
+  /// A typed column's condition (`where(User.cols.age.gte(18))`) is added
+  /// as built, joined with `OR` by [orWhere].
+  ///
   /// A `bool` is refused: `where(User.cols.email == value)` compares the
   /// typed column with the value in Dart (always `false`) instead of
   /// building a condition.
+  ///
+  /// As in Laravel, the number of arguments counts: with two,
+  /// `where('col', null)` is `col IS NULL` and the second argument is
+  /// always the value (`where('col', '<>')` is `col = '<>'`); with three,
+  /// a null value is `IS NULL` for `=` and `IS NOT NULL` for `<>` and `!=`
+  /// (`where('deleted_at', '!=', null)`), and another operator with null is
+  /// an `ArgumentError`.
   QueryBuilder where(
     Object column, [
-    Object? operatorOrValue,
-    Object? value,
+    Object? operatorOrValue = absent,
+    Object? value = absent,
     String boolean = 'AND',
   ]) {
     if (column is bool) {
@@ -143,8 +163,28 @@ final class QueryBuilder {
         column,
         'column',
         'A bool is not a column. To compare a typed column, write '
-            'where(User.cols.email, value), not where(User.cols.email == '
-            'value)',
+            'where(User.cols.email.eq(value)) or where(User.cols.email, '
+            'value), not where(User.cols.email == value)',
+      );
+    }
+    if (column is WhereClause) {
+      // Any argument given counts, an explicit null included: the defaults
+      // are the [absent] marker, not null.
+      final extra = !identical(operatorOrValue, absent)
+          ? operatorOrValue
+          : !identical(value, absent)
+          ? value
+          : absent;
+      if (!identical(extra, absent)) {
+        throw ArgumentError.value(
+          extra,
+          'operatorOrValue',
+          'A typed condition (User.cols.age.gte(18)) takes no operator or '
+              'value of its own',
+        );
+      }
+      return _add(
+        column.boolean == boolean ? column : _joinedWith(column, boolean),
       );
     }
     if (column is void Function(QueryBuilder)) {
@@ -153,25 +193,74 @@ final class QueryBuilder {
       return _add(NestedWhere(nested._ast.wheres, boolean: boolean));
     }
     if (column is Map<String, Object?>) {
+      // `addArrayOfWheres`: each entry is `key = value`.
       for (final entry in column.entries) {
-        where(entry.key, entry.value, null, boolean);
+        where(entry.key, '=', entry.value, boolean);
       }
       return this;
     }
     final (operator, actual) = _operatorAndValue(operatorOrValue, value);
-    if (actual == null &&
-        (operator == '=' || operator == '!=' || operator == '<>')) {
-      return _add(NullWhere('$column', not: operator != '=', boolean: boolean));
-    }
-    return _add(BasicWhere(column, operator, actual, boolean: boolean));
+    return _add(whereClause(column, operator, actual, boolean: boolean));
   }
+
+  /// The condition `where(column, operator, value)` adds: `IS [NOT] NULL`
+  /// for a null [value] with `=`, `!=` or `<>`, otherwise a [BasicWhere]
+  /// ([escaped] for an escaped `LIKE` pattern). The typed column
+  /// conditions are built here too, so they bind values exactly as the
+  /// string form does.
+  @internal
+  static WhereClause whereClause(
+    Object column,
+    String operator,
+    Object? value, {
+    String boolean = 'AND',
+    bool escaped = false,
+  }) {
+    final op = SqlTokens.operator(operator);
+    if (value == null && (op == '=' || op == '!=' || op == '<>')) {
+      return NullWhere('$column', not: op != '=', boolean: boolean);
+    }
+    return BasicWhere(column, op, value, boolean: boolean, escaped: escaped);
+  }
+
+  /// [clause] joined with [boolean] instead of its own: a typed condition
+  /// is built `AND` and [orWhere] needs it `OR`.
+  static WhereClause _joinedWith(
+    WhereClause clause,
+    String boolean,
+  ) => switch (clause) {
+    BasicWhere(:final column, :final operator, :final value, :final escaped) =>
+      BasicWhere(column, operator, value, boolean: boolean, escaped: escaped),
+    NullWhere(:final column, :final not) => NullWhere(
+      column,
+      not: not,
+      boolean: boolean,
+    ),
+    InWhere(:final column, :final values, :final not, :final subQuery) =>
+      InWhere(column, values, not: not, subQuery: subQuery, boolean: boolean),
+    BetweenWhere(:final column, :final from, :final to, :final not) =>
+      BetweenWhere(column, from, to, not: not, boolean: boolean),
+    _ => throw ArgumentError.value(
+      clause,
+      'column',
+      'Not a condition a typed column builds',
+    ),
+  };
 
   /// [where] joined with `OR`.
   QueryBuilder orWhere(
     Object column, [
-    Object? operatorOrValue,
-    Object? value,
+    Object? operatorOrValue = absent,
+    Object? value = absent,
   ]) => where(column, operatorOrValue, value, 'OR');
+
+  /// An argument that was not given: the default of the operator and value
+  /// of [where] and its relatives, so `where('a', '<>')` (the value is
+  /// `'<>'`) differs from `where('a', '<>', null)` (`IS NOT NULL`), as
+  /// PHP's `func_num_args()` does in Laravel. A method that passes these
+  /// arguments on, such as a model's generated `where` static, uses it as
+  /// its own default so the difference reaches [where].
+  static const Object absent = _Absent();
 
   /// Negates a nested group: `WHERE NOT (...)`.
   QueryBuilder whereNot(
@@ -305,7 +394,7 @@ final class QueryBuilder {
   QueryBuilder whereDate(
     String column,
     String operatorOrValue, [
-    Object? value,
+    Object? value = absent,
   ]) {
     final (operator, actual) = _operatorAndValue(operatorOrValue, value);
     return _add(DatePartWhere(column, 'date', operator, actual));
@@ -315,7 +404,7 @@ final class QueryBuilder {
   QueryBuilder whereYear(
     String column,
     Object operatorOrValue, [
-    Object? value,
+    Object? value = absent,
   ]) {
     final (operator, actual) = _operatorAndValue(operatorOrValue, value);
     return _add(DatePartWhere(column, 'year', operator, actual));
@@ -325,7 +414,7 @@ final class QueryBuilder {
   QueryBuilder whereMonth(
     String column,
     Object operatorOrValue, [
-    Object? value,
+    Object? value = absent,
   ]) {
     final (operator, actual) = _operatorAndValue(operatorOrValue, value);
     return _add(DatePartWhere(column, 'month', operator, actual));
@@ -335,7 +424,7 @@ final class QueryBuilder {
   QueryBuilder whereDay(
     String column,
     Object operatorOrValue, [
-    Object? value,
+    Object? value = absent,
   ]) {
     final (operator, actual) = _operatorAndValue(operatorOrValue, value);
     return _add(DatePartWhere(column, 'day', operator, actual));
@@ -454,7 +543,7 @@ final class QueryBuilder {
   QueryBuilder whereJsonLength(
     String column,
     Object operatorOrValue, [
-    Object? value,
+    Object? value = absent,
   ]) {
     final (operator, actual) = _operatorAndValue(operatorOrValue, value);
     return _add(JsonWhere(column, 'length', operator, actual));
@@ -863,15 +952,15 @@ final class QueryBuilder {
 
   /// The value of [column] in the first row, or null.
   Future<T?> value<T>(Object column) async {
-    final row = await clone().select([_columnName(column, 'column')]).first();
+    final row = await clone().select([columnName(column, 'column')]).first();
     return row?.values.first as T?;
   }
 
   /// Values of [column]; keyed by [key] when given.
   Future<Object> pluck(Object column, [Object? key]) async {
     return _pluck(
-      _columnName(column, 'column'),
-      key == null ? null : _columnName(key, 'key'),
+      columnName(column, 'column'),
+      key == null ? null : columnName(key, 'key'),
     );
   }
 
@@ -900,21 +989,40 @@ final class QueryBuilder {
 
   /// The number of matching rows, or of non-null values of [column].
   Future<int> count([Object column = '*']) async =>
-      ((await _aggregate('count', column)) as num? ?? 0).toInt();
+      (_numeric(await _aggregate('count', column)) ?? 0).toInt();
 
-  /// The sum of [column], or null without rows.
+  /// The sum of [column], `0` without rows (Laravel's `sum`: `$result ?: 0`).
+  ///
+  /// The type stays nullable for compatibility; it is never `null`.
   Future<num?> sum(Object column) async =>
-      (await _aggregate('sum', column)) as num?;
+      _numeric(await _aggregate('sum', column)) ?? 0;
 
   /// The average of [column], or null without rows.
   Future<num?> avg(Object column) async =>
-      (await _aggregate('avg', column)) as num?;
+      _numeric(await _aggregate('avg', column));
 
-  /// The smallest value of [column], or null without rows.
+  /// The smallest value of [column], or null without rows: the driver's
+  /// value as it is (a `decimal` column on PostgreSQL or MySQL is a string),
+  /// as Laravel's `min`.
   Future<Object?> min(Object column) => _aggregate('min', column);
 
-  /// The largest value of [column], or null without rows.
+  /// The largest value of [column], or null without rows; see [min].
   Future<Object?> max(Object column) => _aggregate('max', column);
+
+  /// An aggregate's value as a number, by Laravel's `numericAggregate`
+  /// rule: a number as it is; a string (PostgreSQL's `numeric`, MySQL's
+  /// `DECIMAL`, which `SUM` and `AVG` return) an `int` without a `.` and a
+  /// `double` with one. An integer string beyond 64 bits becomes a
+  /// `double`, as PHP's `(int)` cannot hold it either.
+  static num? _numeric(Object? value) => switch (value) {
+    null => null,
+    final num n => n,
+    final String s when !s.contains('.') => int.tryParse(s) ?? double.parse(s),
+    final String s => double.parse(s),
+    _ => throw StateError(
+      'An aggregate returned ${value.runtimeType}, not a number: $value',
+    ),
+  };
 
   Future<Object?> _aggregate(String function, Object column) async {
     final query = _ast.clone()
@@ -1214,13 +1322,14 @@ final class QueryBuilder {
   /// Adds [amount] to [column] of the matching rows in one statement, and
   /// sets [extra] columns too.
   Future<int> increment(
-    String column, [
+    Object column, [
     num amount = 1,
     Map<String, Object?> extra = const {},
   ]) {
-    final wrapped = _db.grammarFor(_connection).wrap(column);
+    final name = columnName(column, 'column');
+    final wrapped = _db.grammarFor(_connection).wrap(name);
     return update({
-      column: RawExpression('$wrapped + ?', [amount]),
+      name: RawExpression('$wrapped + ?', [amount]),
       ...extra,
     });
   }
@@ -1228,13 +1337,14 @@ final class QueryBuilder {
   /// Subtracts [amount] from [column] of the matching rows, and sets
   /// [extra] columns too.
   Future<int> decrement(
-    String column, [
+    Object column, [
     num amount = 1,
     Map<String, Object?> extra = const {},
   ]) {
-    final wrapped = _db.grammarFor(_connection).wrap(column);
+    final name = columnName(column, 'column');
+    final wrapped = _db.grammarFor(_connection).wrap(name);
     return update({
-      column: RawExpression('$wrapped - ?', [amount]),
+      name: RawExpression('$wrapped - ?', [amount]),
       ...extra,
     });
   }
@@ -1272,32 +1382,53 @@ final class QueryBuilder {
   /// [column] as the column name a parameter typed `Object` takes: a
   /// string, which a model's typed column (`User.cols.email`) is at run
   /// time. Anything else is an [ArgumentError] naming [parameter].
-  static String _columnName(Object column, String parameter) =>
-      switch (column) {
-        final String name => name,
-        _ => throw ArgumentError.value(
-          column,
-          parameter,
-          'Not a column name (a String or a typed column such as '
-          'User.cols.email)',
-        ),
-      };
+  @internal
+  static String columnName(Object column, String parameter) => switch (column) {
+    final String name => name,
+    _ => throw ArgumentError.value(
+      column,
+      parameter,
+      'Not a name (a String, or a typed column or relation such as '
+      'User.cols.email)',
+    ),
+  };
 
+  /// Laravel's `prepareValueAndOperator` and `invalidOperator`
+  /// (laravel/framework 13.x `Query/Builder.php`), with [absent] standing
+  /// for `func_num_args()`:
+  /// - no [value] argument: the second argument, if any, is the value
+  ///   (`where('col', '>')` is `col = '>'`, `where('col', null)` is null);
+  /// - a [value] argument and an operator: that operator; a null value is
+  ///   only legal with `=`, `<>`/`!=` (and `IS`, `IS NOT`), otherwise an
+  ///   [ArgumentError] (Laravel's "Illegal operator and value combination");
+  /// - a null [value] argument and no operator: `=` with the second
+  ///   argument as the value (`invalidOperator`), which also serves a model's
+  ///   generated `where` static that passes `null` on.
+  /// An unknown operator with a value is an [ArgumentError], not Laravel's
+  /// silent `=`.
   static (String, Object?) _operatorAndValue(
     Object? operatorOrValue,
     Object? value,
   ) {
+    final second = identical(operatorOrValue, absent) ? null : operatorOrValue;
+    if (identical(value, absent)) {
+      return ('=', second);
+    }
+    final isOperator = second is String && SqlTokens.isOperator(second);
+    if (!isOperator && value == null) {
+      return ('=', second);
+    }
+    final operator = SqlTokens.operator('$second');
     if (value == null &&
-        operatorOrValue is String &&
-        SqlTokens.isOperator(operatorOrValue)) {
-      // where('col', '>') without a value is ambiguous; treat as value.
-      return ('=', operatorOrValue);
+        !const {'=', '<>', 'IS', 'IS NOT'}.contains(operator)) {
+      throw ArgumentError.value(
+        operator,
+        'operator',
+        'Illegal operator and value combination: "$operator" with null '
+            '(only =, <> and != take null, as IS [NOT] NULL)',
+      );
     }
-    if (value != null ||
-        (operatorOrValue is String && SqlTokens.isOperator(operatorOrValue))) {
-      return (SqlTokens.operator('$operatorOrValue'), value);
-    }
-    return ('=', operatorOrValue);
+    return (operator, value);
   }
 
   static List<Map<String, Object?>> _rows(Object rows) => switch (rows) {

@@ -253,6 +253,61 @@ void main() {
     await db.closeAll();
   });
 
+  test('unique/exists where pairs from a string: values bound, a column '
+      'that is not an identifier refused', () async {
+    const hostile = "b'; DROP TABLE pg_items; --";
+    await db.table('pg_items').insert([
+      {'name': 'a', 'qty': 1},
+      {'name': hostile, 'qty': 2},
+    ]);
+    final container = Container()..instance<DatabaseManager>(db);
+    Future<Map<String, List<String>>> check(Object? value, String rule) =>
+        Validator({'name': value}, {'name': rule}, container: container).run();
+    expect(await check('a', 'exists:pg_items,name,qty,1'), isEmpty);
+    expect(await check('a', 'exists:pg_items,name,qty,2'), isNotEmpty);
+    expect(await check('a', 'unique:pg_items,name,NULL,id,qty,!1'), isEmpty);
+    expect(await check(hostile, 'exists:pg_items,name,name,$hostile'), isEmpty);
+    await expectLater(
+      check('a', 'exists:pg_items,name,qty";DROP TABLE pg_items;--,1'),
+      throwsArgumentError,
+    );
+    // exists on a list: every distinct value must be found (getMultiCount).
+    expect(await check(['a', hostile], 'exists:pg_items,name'), isEmpty);
+    expect(await check(['a', 'a'], 'exists:pg_items,name,qty,1'), isEmpty);
+    expect(
+      await check(['a', hostile], 'exists:pg_items,name,qty,1'),
+      isNotEmpty,
+    );
+    expect(await check(['a', 'zzz'], 'exists:pg_items,name'), isNotEmpty);
+    // Request values that are not plain: a list inside the list fails the
+    // rule, a map is its values, unique reads the first value, `true`
+    // binds as 1 (a boolean against an integer column is an error here),
+    // and a list longer than a query's placeholders fails, not an error.
+    expect(
+      await check([
+        ['a'],
+      ], 'exists:pg_items,name'),
+      isNotEmpty,
+    );
+    expect(await check({'k': 'a'}, 'exists:pg_items,name'), isEmpty);
+    expect(await check(['a', 'zzz'], 'unique:pg_items,name'), isNotEmpty);
+    expect(await check(<Object?>[], 'unique:pg_items,name'), isEmpty);
+    Future<Map<String, List<String>>> checkId(Object? value) => Validator(
+      {'id': value},
+      {'id': 'exists:pg_items,id'},
+      container: container,
+    ).run();
+    expect(await checkId(true), isEmpty);
+    expect(await checkId([1, true]), isEmpty);
+    expect(await checkId([1, false]), isNotEmpty);
+    expect(
+      await checkId([for (var i = 1; i <= ExistsRule.maxListValues; i++) i]),
+      isNotEmpty,
+    );
+    expect(await checkId([for (var i = 1; i <= 70000; i++) i]), isNotEmpty);
+    expect(await db.table('pg_items').count(), 2);
+  });
+
   test('CRUD, RETURNING ids, upsert, named bindings and savepoints', () async {
     final id = await db.table('pg_items').insertGetId({
       'name': 'a',
@@ -470,6 +525,25 @@ void main() {
     expect(await pooled.select('SELECT 3 AS three'), [
       {'three': 3},
     ]);
+  });
+
+  test('typed text conditions match literally (ESCAPE)', () async {
+    const name = ModelColumn<Model, String>('name');
+    await db.table('pg_items').insert([
+      {'name': '100% cotton'},
+      {'name': '1000 cotton'},
+      {'name': 'snake_case'},
+      {'name': 'snakeXcase'},
+      {'name': 'wow!'},
+    ]);
+    Future<List<Object?>> names(ColumnPredicate<Model> p) async =>
+        await db.table('pg_items').where(p).orderBy('id').pluck('name')
+            as List<Object?>;
+    expect(await names(name.startsWith('100%')), ['100% cotton']);
+    expect(await names(name.contains('_')), ['snake_case']);
+    expect(await names(name.endsWith('!')), ['wow!']);
+    // LIKE is case-sensitive on PostgreSQL.
+    expect(await names(name.like('SNAKE%')), isEmpty);
   });
 }
 

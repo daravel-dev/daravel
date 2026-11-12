@@ -1,3 +1,4 @@
+import '../database/query/query_builder.dart';
 import 'rule_builder.dart';
 import 'rule.dart';
 import 'rules.dart';
@@ -62,8 +63,8 @@ abstract final class RuleParser {
       'present' => Rules.present(),
       'filled' => Rules.filled(),
       'prohibited' => Rules.prohibited(),
-      'required_if' => Rules.requiredIf(args[0], args[1]),
-      'required_unless' => Rules.requiredUnless(args[0], args[1]),
+      'required_if' => Rules.requiredIfIn(args[0], args.sublist(1)),
+      'required_unless' => Rules.requiredUnlessIn(args[0], args.sublist(1)),
       'accepted' => Rules.accepted(),
       'accepted_if' => Rules.acceptedIf(args[0], args.sublist(1)),
       'declined' => Rules.declined(),
@@ -103,7 +104,7 @@ abstract final class RuleParser {
       'exclude_if' => Rules.excludeIf(args[0], args.sublist(1)),
       'exclude_unless' => Rules.excludeUnless(args[0], args.sublist(1)),
       'exclude_with' => Rules.excludeWith(args[0]),
-      'exclude_without' => Rules.excludeWithout(args[0]),
+      'exclude_without' => Rules.excludeWithoutAny(args),
       'gt' => Rules.gt(args[0]),
       'gte' => Rules.gte(args[0]),
       'lt' => Rules.lt(args[0]),
@@ -125,11 +126,20 @@ abstract final class RuleParser {
       'array' => Rules.array(args.isEmpty ? null : args),
       'list' => Rules.list(),
       'map' || 'object' => Rules.map(),
-      'email' => EmailRule(modes: {...args}),
+      'email' => EmailRule.checked({...args}),
       'active_url' => Rules.activeUrl(),
+      'current_password' => Rules.currentPassword(
+        guard: args.isEmpty ? null : args.first,
+      ),
       'url' => Rules.url(),
       'file' => Rules.file(),
       'image' => Rules.image(allowSvg: args.contains('allow_svg')),
+      'dimensions' => DimensionsRule({
+        for (final arg in args)
+          arg.split('=').first: arg.contains('=')
+              ? arg.substring(arg.indexOf('=') + 1)
+              : null,
+      }),
       'mimes' => Rules.mimes([for (final a in args) a.toLowerCase()]),
       'mimetypes' => Rules.mimetypes(args),
       'extensions' => Rules.extensions([for (final a in args) a.toLowerCase()]),
@@ -158,7 +168,7 @@ abstract final class RuleParser {
       'distinct' => Rules.distinct(),
       'confirmed' => Rules.confirmed(args.isEmpty ? null : args[0]),
       'same' => Rules.same(args[0]),
-      'different' => Rules.different(args[0]),
+      'different' => Rules.differentFrom(args),
       'starts_with' => Rules.startsWith(args),
       'ends_with' => Rules.endsWith(args),
       'date' => Rules.date(),
@@ -167,13 +177,19 @@ abstract final class RuleParser {
       'after_or_equal' => Rules.afterOrEqual(args[0]),
       'before' => Rules.before(args[0]),
       'before_or_equal' => Rules.beforeOrEqual(args[0]),
-      'unique' => Rules.unique(
-        args[0],
-        args.length > 1 && args[1] != 'NULL' ? args[1] : null,
-        args.length > 2 && args[2] != 'NULL' ? args[2] : null,
-        args.length > 3 ? args[3] : 'id',
+      // The arguments after these are `column,value` where conditions
+      // (13.x ValidatesAttributes::getUniqueExtra 1172-1179,
+      // getExistCount 1071-1082, getExtraConditions 1243-1254).
+      'unique' => _withConditions(
+        _unique(args),
+        args.length > 4 ? args.sublist(4) : const [],
+        segment,
       ),
-      'exists' => Rules.exists(args[0], args.length > 1 ? args[1] : null),
+      'exists' => _withConditions(
+        Rules.exists(args[0], args.length > 1 ? args[1] : null),
+        args.length > 2 ? args.sublist(2) : const [],
+        segment,
+      ),
       'password' => Rules.password(min: args.isEmpty ? 8 : integer(0)),
       _ => throw ArgumentError.value(
         segment,
@@ -181,6 +197,77 @@ abstract final class RuleParser {
         'Unknown validation rule "$name"',
       ),
     };
+  }
+
+  /// `unique:table,column,ignore,idColumn`. The ignore is Laravel's
+  /// (13.x getUniqueIds 1136-1141, prepareUniqueId 1149-1164): `[field]`
+  /// reads the key from that input field when the rule runs; otherwise
+  /// [UniqueRule.skippedKey] (`null` in any case skips nothing).
+  static UniqueRule _unique(List<String> args) {
+    final column = args.length > 1 && args[1] != 'NULL' ? args[1] : null;
+    final idColumn = args.length > 3 ? args[3] : 'id';
+    if (args.length < 3) {
+      return Rules.unique(args[0], column, null, idColumn);
+    }
+    final field = RegExp(r'\[(.*)\]').firstMatch(args[2])?[1];
+    return field != null
+        ? UniqueRule(
+            args[0],
+            column: column,
+            idColumn: idColumn,
+            ignoreFrom: field,
+          )
+        : Rules.unique(
+            args[0],
+            column,
+            UniqueRule.skippedKey(args[2]),
+            idColumn,
+          );
+  }
+
+  /// [rule] with the `column,value` pairs of [extra] as where conditions,
+  /// as Laravel builds them:
+  ///
+  /// - `getExtraConditions` (1243-1254) makes a PHP array of the pairs, so
+  ///   a column given twice keeps its first place and its last value (as a
+  ///   Dart map does);
+  /// - `DatabasePresenceVerifier::addWhere` (13.x, 102-115) reads `NULL`
+  ///   as `whereNull`, `NOT_NULL` as `whereNotNull`, a `!` prefix as
+  ///   `!=`, and any other value as `=`.
+  ///
+  /// An odd number of arguments has no value for its last column (Laravel
+  /// reads past the array, an error), so it is refused.
+  static Rule _withConditions(Rule rule, List<String> extra, String segment) {
+    if (extra.length.isOdd) {
+      throw ArgumentError.value(
+        segment,
+        'rule',
+        'The where conditions of unique/exists come in column,value pairs; '
+            '"${extra.last}" has no value',
+      );
+    }
+    final conditions = <String, String>{
+      for (var i = 0; i < extra.length; i += 2) extra[i]: extra[i + 1],
+    };
+    var result = rule;
+    for (final MapEntry(key: column, value: value) in conditions.entries) {
+      QueryBuilder condition(QueryBuilder query) => switch (value) {
+        'NULL' => query.whereNull(column),
+        'NOT_NULL' => query.whereNotNull(column),
+        _ when value.startsWith('!') => query.where(
+          column,
+          '!=',
+          value.substring(1),
+        ),
+        _ => query.where(column, value),
+      };
+      result = switch (result) {
+        final UniqueRule unique => unique.where(condition),
+        final ExistsRule exists => exists.where(condition),
+        _ => result,
+      };
+    }
+    return result;
   }
 
   /// `timezone:Asia`; `per_country` needs data this database does not have.

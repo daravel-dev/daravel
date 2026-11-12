@@ -1,0 +1,28 @@
+// expect: invalid_assignment @26
+import 'package:daravel/daravel.dart';
+
+final class StoreRequest extends FormRequest<StoreInput> {
+  static const email = Field<String>('email');
+
+  @override
+  Map<String, Object> rules(Request request) => {email: 'required|email'};
+}
+
+extension type const StoreInput(ValidatedData _data) implements ValidatedData {
+  String get email => _data.field(StoreRequest.email);
+}
+
+final class OtherRequest extends FormRequest {
+  @override
+  Map<String, Object> rules(Request request) => {'x': 'required'};
+}
+
+Future<void> f(Request request) async {
+  final StoreInput ok = await StoreRequest().validateRequest(request);
+  print(ok.email);
+  // The input of another request is not this request's input type.
+  final ValidatedData other = await OtherRequest().validateRequest(request);
+  print(other);
+  final StoreInput wrong = await OtherRequest().validateRequest(request);
+  print(wrong);
+}

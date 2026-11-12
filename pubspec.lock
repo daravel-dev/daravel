@@ -9,6 +9,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "110.0.0"
+  analysis_server_plugin:
+    dependency: transitive
+    description:
+      name: analysis_server_plugin
+      sha256: b94419fc81828edb7870340cb64b8648e9515613d7647309d3d0ea605c6d1f95
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.3.25"
   analyzer:
     dependency: transitive
     description:
@@ -17,6 +25,22 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "14.6.0"
+  analyzer_plugin:
+    dependency: transitive
+    description:
+      name: analyzer_plugin
+      sha256: d218f0916ff564cfd9dd032d11e5a990059cb66f88cc741ec6e5e55abdebefcc
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.14.19"
+  analyzer_testing:
+    dependency: transitive
+    description:
+      name: analyzer_testing
+      sha256: "79647f2465b2efe9b06500789c91774aebe300a37c3a3614090cd2697036b54a"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.4.4"
   archive:
     dependency: transitive
     description:
@@ -137,6 +161,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.9.0"
+  dart_style:
+    dependency: transitive
+    description:
+      name: dart_style
+      sha256: a0e4f65339b31eb6a9e6a12e14b4682a48d46fbc54a82f4a702396fbdbac63a7
+      url: "https://pub.dev"
+    source: hosted
+    version: "3.1.14"
   ffi:
     dependency: transitive
     description:
@@ -505,6 +537,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.6.21"
+  test_reflective_loader:
+    dependency: transitive
+    description:
+      name: test_reflective_loader
+      sha256: e2bb34c6d396eafd332f364ca71d17e70d37268f4ec8b04a00bb7f2d16df2510
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.2.3"
   timezone:
     dependency: transitive
     description:
@@ -593,5 +633,13 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.1.4"
+  yaml_edit:
+    dependency: transitive
+    description:
+      name: yaml_edit
+      sha256: "07c9e63ba42519745182b88ca12264a7ba2484d8239958778dfe4d44fe760488"
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.2.4"
 sdks:
   dart: ">=3.13.0 <4.0.0"

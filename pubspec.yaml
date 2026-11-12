@@ -9,6 +9,7 @@ workspace:
   - packages/daravel
   - packages/daravel_test
   - packages/daravel_lints
+  - packages/daravel_lints_plugin
   - packages/dartisan_cli
   - packages/daravel_mysql
   - packages/daravel_redis
@@ -20,6 +21,7 @@ workspace:
   - packages/daravel_pulse
   - packages/daravel_horizon
   - packages/daravel_reverb
+  - packages/daravel_reverb_client
   - packages/daravel_payments
   - packages/daravel_medialibrary
   - packages/daravel_postgres

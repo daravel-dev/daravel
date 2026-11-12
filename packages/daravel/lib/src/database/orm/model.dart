@@ -651,9 +651,14 @@ abstract base class Model implements JsonSerializable, Responsable {
           'Relation [$name] on [$table] was not eager loaded (preventLazyLoading).',
         );
       }
-      throw StateError(
-        'Relation [$name] on [$table] is not loaded; call load([\'$name\']) or with([...]).',
-      );
+      // The way out, in the typed form `model:sync` generates when the
+      // name allows it (`loadPosts()`, `with_([User.rels.posts])`).
+      final typed = RegExp(r'^[A-Za-z]\w*$').hasMatch(name)
+          ? 'await load${name[0].toUpperCase()}${name.substring(1)}() or '
+                "load(['$name']), or eager load it with "
+                'with_([$runtimeType.rels.$name])'
+          : "await load(['$name']), or eager load it with with_(['$name'])";
+      throw StateError('Relation [$name] on [$table] is not loaded: $typed.');
     }
     return _relations[name] as R;
   }

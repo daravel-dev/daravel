@@ -1,0 +1,3 @@
+Running build hooks...Running build hooks...Running link hooks...Running link hooks...Copying 1 build assets:
+package:sqlite3/src/ffi/libsqlite3.g.dart
+Generated: $HOME/publish10-20261111-174524/before/bench/build/ceiling/bundle/bin/coordinator_ceiling

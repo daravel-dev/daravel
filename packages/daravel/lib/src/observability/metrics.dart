@@ -670,6 +670,11 @@ final class AppMetrics {
       'Requests currently being handled, by worker isolate.',
     );
     jobs = registry.counter('queue_jobs_total', 'Queue jobs by status.');
+    afterCommitPushFailures = registry.counter(
+      'queue_after_commit_push_failures_total',
+      'Jobs dispatched inside a transaction that could not be pushed after '
+          'the commit, by connection (their locks were given back).',
+    );
     shed = registry.counter(
       'http_requests_shed_total',
       'Requests refused with 503 by load shedding '
@@ -828,6 +833,9 @@ final class AppMetrics {
   /// Jobs by outcome.
   late final Counter jobs;
 
+  /// Jobs a transaction dispatched that could not be pushed after commit.
+  late final Counter afterCommitPushFailures;
+
   /// Requests shed under load.
   late final Counter shed;
 
@@ -971,7 +979,13 @@ final class AppMetrics {
   /// a tick after a change, and on every [heartbeat]th tick regardless
   /// (gauges computed at render time change without an update). An idle
   /// worker therefore sends one snapshot per [heartbeat] ticks, not one
-  /// per tick.
+  /// per tick. A publish that fails (a timeout on a busy machine, a full
+  /// bulk buffer, a refusal) is sent again on the next tick: only a
+  /// snapshot the coordinator took counts as published, or the merged
+  /// `/metrics` would lack this worker until the next heartbeat. While a
+  /// publish waits for its answer no other is sent: a coordinator slower
+  /// than a tick would otherwise get the same snapshot once per tick,
+  /// more load exactly when it is slow.
   Timer? startPublishing({
     Duration every = const Duration(seconds: 1),
     int heartbeat = 15,
@@ -982,13 +996,17 @@ final class AppMetrics {
     }
     int? published;
     var idleTicks = 0;
+    var inFlight = false;
     return Timer.periodic(every, (_) {
+      if (inFlight) {
+        return;
+      }
       final changes = registry._changes;
       if (changes == published && ++idleTicks < heartbeat) {
         return;
       }
-      published = changes;
       idleTicks = 0;
+      inFlight = true;
       remote
           .callBulk(
             MetricsService.serviceName,
@@ -1000,13 +1018,18 @@ final class AppMetrics {
             // The next snapshot supersedes it.
             overflow: BulkOverflow.dropOldest,
           )
-          .whenComplete(() {
-            // The publish's own round trip (or timeout) is one update of
-            // `coordinator_call_*`: alone, it is not worth a publish.
-            if (registry._changes == changes + 1) {
-              published = changes + 1;
-            }
-          })
+          .then(
+            (_) {
+              // Taken. The publish's own round trip is one update of
+              // `coordinator_call_*`: alone, it is not worth a publish.
+              published = registry._changes == changes + 1
+                  ? changes + 1
+                  : changes;
+            },
+            // Not taken: `published` stays, so the next tick sends again.
+            onError: (Object _) {},
+          )
+          .whenComplete(() => inFlight = false)
           .ignore();
     });
   }

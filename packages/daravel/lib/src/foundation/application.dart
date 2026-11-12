@@ -75,6 +75,7 @@ import '../server/broadcast.dart';
 import '../server/coordinator.dart';
 import '../server/process_supervisor.dart';
 import '../server/supervisor.dart';
+import '../validation/auth_rules.dart';
 import 'config.dart';
 import 'config_validator.dart';
 import 'container.dart';
@@ -388,7 +389,11 @@ final class Application {
         (e) =>
             metrics.jobs.inc({'status': e.willRetry ? 'released' : 'errored'}),
       )
-      ..listen<JobFailed>((_) => metrics.jobs.inc({'status': 'failed'}));
+      ..listen<JobFailed>((_) => metrics.jobs.inc({'status': 'failed'}))
+      ..listen<JobPushFailedAfterCommit>(
+        (e) =>
+            metrics.afterCommitPushFailures.inc({'connection': e.connection}),
+      );
     // The framework's own jobs (queued mail and notifications) first.
     final jobs = JobRegistry([
       SendQueuedMail.definition,
@@ -545,6 +550,15 @@ final class Application {
       ..instance<RateLimiter>(rateLimiter)
       ..instance<AuthorizationGate>(gate)
       ..instance<AuthManager>(auth)
+      // `current_password` and `Rule::can`: the validation module asks
+      // through its own interfaces; the auth module answers here.
+      ..singleton<CurrentPasswordVerifier>(
+        (c) =>
+            _AuthCurrentPassword(c.make<AuthManager>(), c.make<HashManager>()),
+      )
+      ..singleton<AbilityChecker>(
+        (c) => _GateAbilities(c.make<AuthorizationGate>()),
+      )
       ..instance<CoordinatorChannel>(channel)
       ..singleton<Broadcaster>((c) => Broadcaster(c.make<CoordinatorChannel>()))
       ..singleton<BroadcastManager>((c) {
@@ -2407,4 +2421,34 @@ final class _ReverbMetrics extends PusherObserver {
   @override
   void rejected(String app, String reason) =>
       _metrics.recordReverbRejected(reason, app: app);
+}
+
+/// `current_password` from the auth module: the password of the guard's
+/// user, checked by the hasher (Laravel's validateCurrentPassword).
+final class _AuthCurrentPassword implements CurrentPasswordVerifier {
+  const _AuthCurrentPassword(this._auth, this._hash);
+
+  final AuthManager _auth;
+  final HashManager _hash;
+
+  @override
+  Future<bool> verify(String password, {String? guard}) async {
+    final hashed = (await _auth.user<Authenticatable>(guard: guard))
+        ?.authPassword;
+    if (hashed == null || hashed.isEmpty) {
+      return false;
+    }
+    return _hash.check(password, hashed);
+  }
+}
+
+/// `Rule::can` from the auth module: the gate, for the current user.
+final class _GateAbilities implements AbilityChecker {
+  const _GateAbilities(this._gate);
+
+  final AuthorizationGate _gate;
+
+  @override
+  Future<bool> allows(String ability, List<Object?> arguments) =>
+      _gate.allows(ability, arguments);
 }

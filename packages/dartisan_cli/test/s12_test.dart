@@ -35,6 +35,8 @@ void main() {
         'name': 'n',
         'model': 'Thing',
         'modelFile': 'thing',
+        // request.test (make:request --test)
+        'file': 'thing_request',
         'function': 'thingFactory',
         'package': 'demo',
         'param': 'thing',
@@ -490,9 +492,11 @@ final class Exam extends Model {
           defaultValue: "'-'",
         ),
       ]);
-      expect(plan.warnings, hasLength(1));
+      // Besides the no-fillable-column note (W9.13), one warning.
+      final defaults = _withoutFillableNote(plan.warnings);
+      expect(defaults, hasLength(1));
       expect(
-        plan.warnings.single,
+        defaults.single,
         allOf(
           contains('[duration_mode]'),
           contains("attributes: {'duration_mode': ...}"),
@@ -609,7 +613,7 @@ final class Score extends Model {
       test('writes the id region and types the key, find and findOrFail', () {
         final sync = syncModelSource(made, model, columns, idStub: idStub);
         final source = sync.source!;
-        expect(sync.warnings, isEmpty);
+        expect(_withoutFillableNote(sync.warnings), isEmpty);
         expect(
           source,
           allOf(
@@ -674,7 +678,10 @@ final class Score extends Model {
         final blob = syncModelSource(made, model, const [
           ColumnInfo(name: 'id', type: 'BLOB', nullable: false),
         ], idStub: idStub);
-        expect(blob.warnings.single, contains('no typed id'));
+        expect(
+          _withoutFillableNote(blob.warnings).single,
+          contains('no typed id'),
+        );
         expect(blob.source, isNot(contains('dartisan:ids')));
         expect(blob.source, contains('find(Object id)'));
       });
@@ -825,10 +832,18 @@ final class Score extends Model {
             ]),
             0,
           );
-          // Generated mail and notifications compile in a new project.
+          // Generated mail, notifications and a form request (with its
+          // expectFormRequestTyped test) compile and pass in a new project.
           Generator(ProjectPaths.locate(target))
             ..mail('OrderShipped')
-            ..notification('InvoicePaid');
+            ..notification('InvoicePaid')
+            ..request('StoreNote');
+          expect(
+            File(
+              p.join(target, 'test/unit/requests/store_note_request_test.dart'),
+            ).existsSync(),
+            isTrue,
+          );
           final analyze = await Process.run(dartExecutable(), const [
             'analyze',
             '--fatal-infos',
@@ -1005,4 +1020,24 @@ final class Score extends Model {
       expect(minimal.keys, isNot(contains('docker-compose.yml')));
     });
   });
+}
+
+/// [warnings] of a model that declares no `fillable:` list (the models of
+/// these tests, as `make:model` writes them): it must hold the W9.13 note
+/// that no `createWith` was written, exactly once; the other warnings are
+/// returned for the test to check.
+List<String> _withoutFillableNote(List<String> warnings) {
+  final notes = [
+    for (final w in warnings)
+      if (w.contains('no fillable column')) w,
+  ];
+  expect(notes, hasLength(1), reason: 'the model declares no fillable list');
+  expect(
+    notes.single,
+    contains('createWith, makeWith, fillWith and updateWith'),
+  );
+  return [
+    for (final w in warnings)
+      if (!w.contains('no fillable column')) w,
+  ];
 }

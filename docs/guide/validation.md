@@ -96,7 +96,9 @@ Rules.exists('billing.invoices', 'id').where((QueryBuilder q) => q.where('open',
 dns: true)`; every mode given must pass, and `rfc` applies when none is.
 
 - `filter` and `filter_unicode` are PHP's `FILTER_VALIDATE_EMAIL` (with
-  `FILTER_FLAG_EMAIL_UNICODE`).
+  `FILTER_FLAG_EMAIL_UNICODE`), read in one pass over the address instead
+  of with PHP's regex, which backtracks exponentially on some inputs; they
+  are compared with PHP 8.3 on more than 3 800 addresses.
 - `dns` checks the domain as Laravel's (egulias) `DNSCheckValidation`:
   reserved names (`test`, `example`, `localhost`, `local`, ...) and
   single-label domains fail, and the domain or one of its parent names needs
@@ -106,8 +108,9 @@ dns: true)`; every mode given must pass, and `rfc` applies when none is.
   egulias/EmailValidator 4: quoted local parts, comments, domain literals
   and single-label domains (`a@b`) pass as in Laravel. `strict` is the same
   parser with no RFC warning allowed, so those forms fail it.
-- `spoof` needs ICU, which Dart does not have: it throws, and `dartisan
-  lint` reports it.
+- `spoof` needs ICU, which Dart does not have: building the rules throws
+  `UnsupportedError` (the first request that validates with it, a test, or
+  OpenAPI generation), and `dartisan lint` reports it.
 
 `active_url` passes when the URL's host has an A or AAAA record; an IP
 address fails, as in Laravel.
@@ -120,6 +123,22 @@ the container (`SystemDnsResolver` by default); in tests, bind
 differences from PHP: the system lookup also reads `/etc/hosts`; and on
 Windows, which has no `/etc/resolv.conf` to ask for MX records, `dns` sees
 A and AAAA only (a domain with only an MX fails, and a null MX goes unseen).
+
+### The signed-in user: `current_password` and `can`
+
+```dart
+'current_password': 'required|current_password',      // or current_password:api
+'tag': [Rules.required(), Rules.can('attach-tag', [post])],
+```
+
+`current_password` passes when the value is the password of the user
+signed in on the guard (the default one without an argument); a guest
+fails. `Rules.can` asks the gate whether the current user may perform the
+ability with the arguments and then the value; as in Laravel, `null`,
+`false`, `0`, `''`, `'0'` and empty lists are left out of the arguments.
+Both work wherever an `Application` runs (a request, a job, a command,
+`TestClient`, `app.run`); a bare `Validator` outside one throws a
+`StateError` saying what to bind, rather than letting the value through.
 
 Rules that depend on the input or on each element, as Laravel's `Rule::when`,
 `Rule::unless`, `Rule::forEach` and `Rule::anyOf`:
@@ -168,6 +187,64 @@ Declare it on the route with `.validates(const StorePostRequest())` instead
 and read `request.validated()` in the handler; see
 [Routing](routing.md#declared-validation-and-responses).
 
+### Typed input
+
+`make:request` writes a typed request: each input is a `Field<T>`
+constant, the rules are keyed by those fields, and the input type has one
+typed getter per field.
+
+```dart
+final class StoreNoteRequest extends FormRequest<StoreNoteRequestInput> {
+  const StoreNoteRequest();
+
+  static const title = Field<String>('title');
+  static const stars = Field<int?>('stars');
+
+  @override
+  Map<String, Object> rules(Request request) => {
+    title: [Rules.required(), Rules.string()],
+    stars: [Rules.nullable(), Rules.integer()],
+  };
+}
+
+// <dartisan:input>
+extension type const StoreNoteRequestInput(ValidatedData _data)
+    implements ValidatedData {
+  String get title => _data.field(StoreNoteRequest.title);
+  int? get stars => _data.field(StoreNoteRequest.stars);
+
+  Map<String, Object?> get typed => {'title': title, 'stars': stars};
+}
+// </dartisan:input>
+```
+
+`await const StoreNoteRequest().validateRequest(request)` returns the typed
+input (`input.stars` is an `int?`, converted from `'4'`).
+`dart run bin/dartisan.dart request:sync` rewrites the `<dartisan:input>`
+region after you add, rename or retype a field; `request:sync --check`
+writes nothing and exits 1 when a region is out of date, for CI. An input
+type you declare yourself, without the region, is left as it is.
+
+`typed` holds every field by its input key, already converted to its
+declared type. A field's type and its rules can still disagree (a
+`Field<int>` with only `required`): validation passes and the getter
+throws, a 500. `make:request` also writes a test that catches this, with
+`daravel_test`:
+
+```dart
+test('StoreNoteRequest reads every field as its declared type', () async {
+  await expectFormRequestTyped(const StoreNoteRequest(), {
+    'title': 'Hello',
+    'stars': '4',
+  }, read: (input) => input.typed);
+});
+```
+
+The test is as strong as its sample input: add one call per branch of an
+optional rule (a `nullable` field sent and not). A failure names the
+request, and the failed rules or the mistyped field, never the input
+values.
+
 ## File uploads
 
 `multipart/form-data` bodies are parsed as they arrive: fields become input
@@ -194,6 +271,12 @@ router.post('/avatar', (request) async {
   detected type), `mimetypes:image/*`, `extensions:csv,txt` (the client's
   file name), and `min`, `max`, `size`, `between` in kilobytes. PHP files are
   refused unless `php` is listed.
+- `dimensions:min_width=100,max_height=800,ratio=3/2` (or
+  `Rules.dimensions(minWidth: 100, ratio: '3/2')`) reads the size from the
+  image header as PHP's `getimagesize`, for PNG, GIF, JPEG, WebP and BMP; an
+  SVG passes, as in Laravel. Only the first 256 KiB of the upload are read:
+  a JPEG whose metadata is longer than that before the image has no size and
+  fails, and so does any other format.
 - Types are detected from the content (PDF, images, Office and OpenDocument
   files, archives, text), never from the file name: a text file named
   `photo.png` is not an image.

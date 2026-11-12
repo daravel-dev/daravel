@@ -19,6 +19,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `Route::resource(...)` | `router.resource(name, controller)` |  |
 | `->name('users.show')` | `.name('users.show')` |  |
 | `->middleware(['auth'])` | `.middleware(const ['auth'])` |  |
+| `->middleware(['auth:sanctum', 'throttle:login', 'can:update,post'])` | `.middleware([Mw.auth(['token']), Mw.throttle('login'), Mw.can('update', ['post'])])` | Each Mw token is the alias string, so tokens and strings mix in one list. |
 | `TrimStrings ($except: current_password, password, password_confirmation)` | `TrimStringsMiddleware(except: {...TrimStringsMiddleware.defaultExcept, 'pin'})` | except names dotted paths (user.password), as TransformsRequest::cleanArray passes them. |
 | `->where('id', '[0-9]+') / ->whereNumber('id')` | `.where('id', r'\d+') / .whereNumber('id')` |  |
 | `->whereUuid('id')` | `.whereUuid('id')` |  |
@@ -100,6 +101,9 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `(none)` | `createApp()..serveBroadcastingOnly(path: '/ws', auth: false, debug: false)` | Daravel-only: the same application serving only its Pusher server, /up, /up/ready and /metrics (what reverb:start runs); app.router keeps every route. |
 | `(none)` | `await app.restart()` | Daravel-only: drain and start again; a supervisor worker is spawned again at once, not counted as a crash. |
 | `config/reverb.php 'apps' => ['apps' => [...]] from .env` | `.withReverb() with REVERB_APPS (JSON) or REVERB_APPS_PROVIDER=database (daravel_reverb)` | The entries of config/reverb.php as JSON, or a reverb_apps table read per key and cached 60 s. |
+| `Echo.private('orders.42').listen('OrderShipped', cb) (laravel-echo)` | `Echo.reverb(key:, host:, auth: EchoAuth.bearer(...)).private('orders.42').listen('OrderShipped', cb) (daravel_reverb_client)` | Dart and Flutter (VM, mobile, desktop, web) against Laravel Reverb or Daravel; Echo's event names, whispers, notifications. |
+| `Echo.join('room').here(cb).joining(cb).leaving(cb)` | `echo.join('room')..here(cb)..joining(cb)..leaving(cb)` | Presence members, one join per user. |
+| `Echo.encryptedPrivate('chat.9')` | `echo.encryptedPrivate('chat.9')` | Opened with the shared_secret of /broadcasting/auth, as pusher-js. |
 | `Broadcast::channel('orders.{id}', fn ($user, $id) => ...)` | `channels.channel('orders.{id}', (user, p) => ...)` | routes/channels.php: false refuses, true admits, a map is the presence member. |
 | `(none)` | `channels.channel('orders.{id}', ..., type: 'private', events: [BroadcastEventSchema('OrderShipped', data: ...)])` | Daravel-only: channel type and event schemas for tools; dartisan route:list --channels. |
 | `config/reverb.php 'apps' => ['apps' => [...]] (Reverb)` | `.withBroadcasting(apps: ListAppProvider([BroadcastApp(id:, key:, secret:), ...]))` | Several Pusher applications on one server, each with its own secret, origins and limits; their channels are apart. |
@@ -264,9 +268,12 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `Rule::when($condition, [...], [...]) / Rule::unless(...)` | `Rules.when(condition, [...], otherwise: [...]) / Rules.whenInput((input) => ..., [...]) / Rules.unless(...)` | Decided once per validation, on the whole input, as filterConditionalRules. |
 | `Rule::forEach(fn ($value, $attribute) => [...])` | `Rules.forEach((item) => [...]) / Rules.forEachNested((item) => {'key': [...]})` | Keyed rules validate keys of each element, which are part of validated(). |
 | `Rule::anyOf([[...], [...]])` | `Rules.anyOf([[...], [...]]) / Rules.anyOfKeyed([{...}, {...}])` | Each alternative is validated on the value alone, as Laravel's AnyOf. |
-| `'email:rfc,dns' / 'email:filter' / 'email:filter_unicode'` | `same strings, or Rules.email(rfc: true, dns: true)` | dns as egulias DNSCheckValidation (suffix walk capped at 4); filter is PHP's FILTER_VALIDATE_EMAIL regex; rfc is a port of egulias/EmailValidator 4's RFC parser and strict the same without warnings (155 addresses checked against Laravel 12); spoof needs ICU and throws. |
+| `'email:rfc,dns' / 'email:filter' / 'email:filter_unicode'` | `same strings, or Rules.email(rfc: true, dns: true)` | dns as egulias DNSCheckValidation (suffix walk capped at 4); filter is PHP's FILTER_VALIDATE_EMAIL, read in one pass instead of with PHP's regex (which backtracks exponentially) and compared with PHP 8.3; rfc is a port of egulias/EmailValidator 4's RFC parser and strict the same without warnings (155 addresses checked against Laravel 13.40), linear in the address length; spoof needs ICU and throws when the rules are built. |
 | `'active_url'` | `same string, or Rules.activeUrl()` | A/AAAA through the OS resolver, which also reads /etc/hosts; an IP address fails, as in Laravel. |
 | `Validator::$fakeDnsLookups = true` | `container.instance<DnsResolver>(FakeDnsResolver())` |  |
+| `'current_password' / 'current_password:api'` | `same strings, or Rules.currentPassword(guard: 'api')` | Through CurrentPasswordVerifier, which the Application binds from AuthManager and Hash; outside an Application it throws instead of passing. |
+| `Rule::can('update', $post)` | `Rules.can('update', [post])` | The gate gets the arguments and the value, without PHP's empty values (array_filter), as Laravel. |
+| `'dimensions:min_width=100,ratio=3/2' / Rule::dimensions()->minWidth(100)` | `same string, or Rules.dimensions(minWidth: 100, ratio: '3/2')` | PNG, GIF, JPEG, WebP and BMP headers as getimagesize, from the first 256 KiB; an SVG passes. A ratio over a declared height of 0 fails the rule (Laravel throws DivisionByZeroError, a 500). min_ratio and max_ratio follow Laravel 13 (a lower and an upper bound, with the ratio precision); Laravel 12 compares them the other way round. A bound that is not a number (max_width=abc) fails here, where PHP 8 compares it as text. |
 | `'array' / 'array:name,email' / 'list'` | `same strings, or Rules.array(['name', 'email']) / Rules.list()` | array is a JSON array or object, as a PHP array; list only a JSON array. |
 | `->withoutMiddleware('csrf')` | `.withoutMiddleware(['csrf'])` |  |
 | `Route::get('/posts/{post}', fn (Post $post) => ...)` | `router.bindModel('post', Post.definition)` |  |
@@ -283,15 +290,17 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `$model->updateQuietly($attrs) / deleteQuietly()` | `model.updateQuietly(attrs) / deleteQuietly()` |  |
 | `withoutGlobalScope('active')` | `withoutGlobalScope('active')` |  |
 | `Rule::unique('users')->ignore($id)->where(fn ($q) => $q->whereNull('deleted_at'))` | `Rules.unique('users').ignore(id).where((QueryBuilder q) => q.whereNull('deleted_at'))` |  |
+| `'unique:users,email,[id],id,deleted_at,NULL' / 'exists:users,id,active,1'` | `the same strings` | The column,value where conditions and the [field] ignore as Laravel 13 reads them. Differences: a [field] whose value is a list skips nothing here (Laravel's strtolower throws, a 500), and a \0 in the ignore stays 0 (PHP's stripslashes makes it NUL). With a list from the client, exists fails where an element is a list or a map (Laravel accepts one by accident and throws for more), and above ExistsRule.maxListValues distinct values (Laravel gets a database error). |
 | `['required', 'email', 'max:255']` | `Rules.required().email().max(255)` | Chained rule objects, checked by the compiler. |
-| `'accepted' / 'accepted_if:plan,paid' / 'declined' / 'declined_if:plan,paid'` | `the same strings, or Rules.accepted() / acceptedIf('plan', ['paid']) / declined() / declinedIf(...)` |  |
+| `'accepted' / 'accepted_if:plan,paid' / 'declined' / 'declined_if:plan,paid'` | `the same strings, or Rules.accepted() / acceptedIf('plan', ['paid']) / declined() / declinedIf(...)` | With a boolean rule on the other field, '1' and '0' match true and false; PHP's loose == also matches 'on' or 'yes' to true there, which Daravel does not (such input fails that field's boolean rule). |
+| `'required_if:role,admin,owner' / 'required_unless:role,guest,bot'` | `the same strings, or Rules.requiredIfIn('role', ['admin', 'owner']) / requiredUnlessIn(...), Rules.requiredIf('role', 'admin') for one value` | Compared as Laravel 13's parseDependentRuleParameters: 'true'/'false' as booleans for a bool input or a field with a boolean rule, 'null' as null, strictly for a bool or null input and with PHP's loose == otherwise ('05' is 5); a missing field never requires the other for required_if. |
 | `'missing' / 'missing_if:a,x' / 'missing_unless:a,x' / 'missing_with:a,b' / 'missing_with_all:a,b'` | `the same strings, or Rules.missing() / missingIf('a', ['x']) / missingUnless(...) / missingWith(['a', 'b']) / missingWithAll(...)` | Presence is the key's, as Arr::has: a key with a null value is present. |
 | `'present_unless:a,x' / 'present_with:a,b' / 'present_with_all:a,b'` | `the same strings, or Rules.presentUnless('a', ['x']) / presentWith(['a', 'b']) / presentWithAll(...)` |  |
 | `'prohibited_if_accepted:a' / 'prohibited_if_declined:a' / 'required_if_declined:a'` | `the same strings, or Rules.prohibitedIfAccepted('a') / prohibitedIfDeclined('a') / requiredIfDeclined('a')` |  |
 | `'required_array_keys:name,email'` | `the same string, or Rules.requiredArrayKeys(['name', 'email'])` |  |
 | `'contains:a,b' / 'doesnt_contain:a,b'` | `the same strings, or Rules.contains(['a', 'b']) / doesntContain(...)` | contains compares loosely, doesnt_contain strictly, as Laravel's in_array calls. |
 | `'doesnt_start_with:a' / 'doesnt_end_with:a'` | `the same strings, or Rules.doesntStartWith(['a']) / doesntEndWith(...)` |  |
-| `'in_array:items.*.id'` | `the same string, or Rules.inArray('items.*.id')` |  |
+| `'in_array:items.*.id'` | `the same string, or Rules.inArray('items.*.id')` | a * here does not match across a line break in a key, where Laravel's Str::is (flags su) does. |
 | `'in_array_keys:en,id' / 'array_keys:en,id' (13.x)` | `the same strings, or Rules.inArrayKeys([...]) / arrayKeys([...])` |  |
 | `'hex_color' / 'mac_address' / 'base64' (13.x)` | `the same strings, or Rules.hexColor() / macAddress() / base64()` |  |
 | `'encoding:UTF-8'` | `the same string, or Rules.encoding('UTF-8')` | UTF-8, ASCII and ISO-8859-1 (any string passes ISO-8859-1, as mb_check_encoding on bytes). Another encoding PHP knows (UTF-16, Windows-1252, SJIS...) throws UnsupportedError when the rule runs, and invalid_validation_rule flags it; a name that is no encoding throws ArgumentError, as Laravel. |
@@ -355,6 +364,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `DB::select($sql, $bindings)` | `await DB.select(sql, bindings)` | **async** |
 | `DB::statement($sql)` | `await DB.statement(sql)` | **async** |
 | `DB::transaction(fn)` | `await DB.transaction(() async {...})` | **async** |
+| `DB::afterRollBack(fn)` | `DB.afterRollback(fn)` | Runs when the active level rolls back and before a transaction(attempts:) retry; a released savepoint passes its callbacks to the level around it (Laravel drops them). |
 | `DB_CONNECTION=mysql / mariadb` | `withDatabaseDriver('mysql', MySqlDriver.fromConfig)` | package:daravel_mysql; registered by new projects. |
 | `DB::connection('legacy')->table('orders')` | `DB.table('orders', connection: 'legacy')` |  |
 | `DB_URL=postgres://user:pass@host/db (ConfigurationUrlParser)` | `DB_URL, ConnectionConfig.withUrl(url)` | Merged like Laravel 12: URL parts replace DB_* values, the rest stay. |

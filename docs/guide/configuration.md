@@ -111,6 +111,9 @@ frozen after boot.
 | `SHUTDOWN_TIMEOUT`, `HTTP_REQUEST_TIMEOUT` | `30s`, `30s` | Graceful shutdown and handler timeouts |
 | `HTTP_IDLE_TIMEOUT` | `60s` | A keep-alive connection idle this long between requests is closed by the server. Within a request, a body the application does not read is not waited for: the server answers at once (after up to 1 s for a body of at most 256 KiB, to keep the connection) and closes the connection if the body has not arrived |
 | `HTTP_MAX_BODY` | `52428800` (50 MiB) | The body limit every request starts with (`413` above it; `0` for none); `BodyLimitsMiddleware` tightens it to 1 MiB for JSON and forms |
+| `HTTP_MAX_HEADER_BYTES` | `32768` (32 KiB) | The request line and headers together; above it `431 Request Header Fields Too Large` before routing, for a WebSocket handshake too (`0` for none). It bounds what the application parses, not what `dart:io` reads (up to 1 MiB) |
+| `HTTP_MAX_HEADER_LINE_BYTES` | `16384` (16 KiB) | One header, name and value; `431` above it (`0` for none). nginx's default is 8 KiB per line |
+| `HTTP_MAX_HEADERS` | `100` | The number of headers, as Apache's `LimitRequestFields`; `431` above it (`0` for none) |
 | `HTTP_MAX_QUEUE_DELAY`, `HTTP_MAX_IN_FLIGHT` | off (`200ms` in new projects), off | [Load shedding](deployment.md#load-shedding): `503` while a worker's event loop is this late, or above this many requests at once |
 | `SERVER_EMBED_QUEUE`, `SERVER_EMBED_SCHEDULER` | `false` | Queue worker and scheduler in the server process |
 
