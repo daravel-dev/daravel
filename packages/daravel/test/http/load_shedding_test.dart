@@ -235,6 +235,32 @@ void main() {
       return request.close();
     }
 
+    /// Waits for the loop to be under the limit, then asks for `/fast` and
+    /// expects a 200 with no request shed in between. The lag is read when
+    /// the request reaches the engine, a moment after the check, and a slow
+    /// runner's timers can run a tick late again in between; an attempt
+    /// shed by such a spike is retried. An engine that keeps shedding fails
+    /// here.
+    Future<void> expectServedOnceCaughtUp() async {
+      const limit = Duration(milliseconds: 30);
+      final deadline = DateTime.now().add(const Duration(seconds: 10));
+      var status = 0;
+      var shedBefore = -1;
+      while (status != 200 && DateTime.now().isBefore(deadline)) {
+        await waitFor(() => lagged.queueDelay < limit);
+        shedBefore = lagged.shedRequests;
+        final response = await getLagged('/fast');
+        status = response.statusCode;
+        await response.drain<void>();
+      }
+      expect(status, 200, reason: 'requests are served');
+      expect(
+        lagged.shedRequests,
+        shedBefore,
+        reason: 'nothing shed after a reading under the limit',
+      );
+    }
+
     test('synchronous work never counts as in flight', () async {
       expect(lagged.inFlight, 0);
       final response = await getLagged('/spin');
@@ -269,32 +295,16 @@ void main() {
       expect(warning.message, contains('ms behind'));
 
       // Recovery: once the loop has caught up, requests are served again.
-      // The lag is read when the request reaches the engine, a moment after
-      // this check, and a slow runner's timers (macOS coalesces them) can
-      // run a tick late again in between; a request shed by such a spike is
-      // retried. An engine that kept shedding fails here.
-      final deadline = DateTime.now().add(const Duration(seconds: 10));
-      var status = 0;
-      while (status != 200 && DateTime.now().isBefore(deadline)) {
-        await waitFor(
-          () => lagged.queueDelay < const Duration(milliseconds: 30),
-        );
-        final after = await getLagged('/fast');
-        status = after.statusCode;
-        await after.drain<void>();
-      }
-      expect(status, 200, reason: 'requests are served again');
+      await expectServedOnceCaughtUp();
     });
 
-    test('an idle loop stays under the limit', () async {
-      await Future<void>.delayed(const Duration(milliseconds: 100));
-      // Windows' default timer resolution is 15.6 ms, so a 5 ms tick reads
-      // up to 10 ms late when no other process has raised it: the idle
-      // reading is bounded by that granularity, not zero.
-      expect(lagged.queueDelay, lessThan(const Duration(milliseconds: 20)));
-      final response = await getLagged('/fast');
-      expect(response.statusCode, 200);
-      await response.drain<void>();
+    test('an idle loop does not shed', () async {
+      // queueDelay is how late the 5 ms lag tick ran (a moving average), or
+      // how overdue the next tick is at the moment it is read. An idle loop
+      // has no work queued, but a busy runner can still run its timer late:
+      // macOS coalesces timers, and one reading there was 25 ms. What an
+      // idle loop must do is come back under the limit and serve.
+      await expectServedOnceCaughtUp();
     });
   });
 
