@@ -11,13 +11,25 @@ match Laravel more closely.
 
 ## Unreleased
 
+A security patch: fixes only. Upgrade every application that accepts multipart uploads or configures WebSocket origins with wildcards.
+
 ### Added
 
 ### Changed
 
 **Upgrading can change what an application sees:**
 
+### Security
+
+- Matching time that grows faster than linearly with the input, reachable from a client, so one request could hold a worker for minutes (a denial of service):
+  - the parameters of a multipart part's `Content-Disposition` header: any route that reads multipart input (`request.all()`, `input()`, `file()`), with the default configuration; since 1.0.0;
+  - the WebSocket origin check of the Pusher server, when `REVERB_ALLOWED_ORIGINS` (or `BroadcastApp.allowedOrigins`) holds a pattern with two or more `*`; the default `*` is not affected; since 1.10.0.
+
+  Both are now matched in time linear in the input, with the same results as before. `Http::fake` URL patterns use the same linear matcher.
+
 ### Fixed
+
+- `Application.shutdown()` after a password was hashed could end the process before it returned, silently and with exit code 0: a command or seeder that hashed (`Hash.make`/`check`) and then shut down as its last step lost everything after the shutdown, its own output and the database connections' close included. Seen every time on Linux; a server is not affected. Since 1.27.0 for password hashing (since 1.23.0 for `Concurrency.run`).
 
 ## 1.27.0
 
