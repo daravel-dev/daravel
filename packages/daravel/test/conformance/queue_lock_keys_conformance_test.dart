@@ -30,6 +30,32 @@ final class SendInvoice extends Job {
   Future<void> handle(JobContext ctx) async {}
 }
 
+/// A job whose Laravel class defines `displayName()`: Laravel names its
+/// unique lock by the XXH3-128 of that name.
+final class SendInvoiceNamed extends Job {
+  const SendInvoiceNamed(this.invoice);
+
+  final String invoice;
+
+  @override
+  String get jobName => 'send-invoice-named';
+
+  @override
+  String get displayName => 'Send invoice to customer #42';
+
+  @override
+  bool get uniqueKeyHashesDisplayName => true;
+
+  @override
+  String? get uniqueId => invoice;
+
+  @override
+  Map<String, Object?> toJson() => {'invoice': invoice};
+
+  @override
+  Future<void> handle(JobContext ctx) async {}
+}
+
 /// ADR-041: the unique, overlap and debounce keys are Laravel's, and during
 /// the transition the previous release's keys are taken too, so an
 /// instance of either release refuses the other's dispatch.
@@ -67,6 +93,32 @@ void main() {
       );
     });
 
+    test("unique, a job class with displayName(): hash('xxh128', "
+        r"$job->displayName()) (UniqueLock::getKey), the value PHP gives", () {
+      expect(
+        QueueLockKeys.unique(
+          'Send invoice to customer #42',
+          '42',
+          hashed: true,
+        ),
+        LaravelContract.uniqueJobLockHashedSample,
+      );
+    });
+
+    test('a worker releases the hashed key and the previous release\'s', () {
+      expect(
+        QueueLockKeys.uniqueKeysOf(
+          'laravel_unique_job:fea1a00a16e1af75dea119255a9a933a:42',
+          displayName: 'Send invoice to customer #42',
+          jobName: 'send-invoice-named',
+        ),
+        [
+          'laravel_unique_job:fea1a00a16e1af75dea119255a9a933a:42',
+          'unique:send-invoice-named:42',
+        ],
+      );
+    });
+
     test('a worker releases both formats, whichever release dispatched '
         'the job', () {
       expect(
@@ -88,6 +140,8 @@ void main() {
         ),
         [
           r'laravel_unique_job:App\Jobs\SendInvoice:42',
+          // The previous release could not know which form this one takes.
+          'laravel_unique_job:${Xxh128.hex(r'App\Jobs\SendInvoice')}:42',
           'unique:send-invoice:42',
         ],
       );
@@ -114,6 +168,10 @@ void main() {
                   'send-invoice',
                   (j) => SendInvoice(j['invoice']! as String),
                 ),
+                JobDefinition(
+                  'send-invoice-named',
+                  (j) => SendInvoiceNamed(j['invoice']! as String),
+                ),
               ])
               .create();
       await app.boot();
@@ -128,6 +186,30 @@ void main() {
     );
     Future<int> size() =>
         app.container.make<QueueManager>().connection('memory').size('default');
+
+    test('a job with uniqueKeyHashesDisplayName locks under the hashed key '
+        "(Laravel's for its class), and a worker frees both keys", () async {
+      await app.run(() async {
+        final queues = app.container.make<QueueManager>();
+        await queues.push(const SendInvoiceNamed('42'));
+        expect(await size(), 1);
+        final hashed = locks().lock(
+          'laravel_unique_job:fea1a00a16e1af75dea119255a9a933a:42',
+          ttl: const Duration(minutes: 1),
+        );
+        expect(await hashed.acquire(), isFalse, reason: 'held by the job');
+        await queues.push(const SendInvoiceNamed('42'));
+        expect(await size(), 1, reason: 'a second dispatch is refused');
+        await QueueWorker(queues)
+            .runNextJob(queues.connection('memory'), const WorkerOptions());
+        expect(await hashed.acquire(), isTrue, reason: 'freed');
+        final old = locks().lock(
+          'unique:send-invoice-named:42',
+          ttl: const Duration(minutes: 1),
+        );
+        expect(await old.acquire(), isTrue, reason: 'the old key freed too');
+      });
+    });
 
     test('an instance of the previous release holding the old key refuses '
         "this release's dispatch", () async {

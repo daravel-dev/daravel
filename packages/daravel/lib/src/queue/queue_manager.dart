@@ -1160,7 +1160,11 @@ final class QueueManager {
       if (store == null) {
         throw const ConfigException('Unique jobs need a cache lock store.');
       }
-      uniqueKey = QueueLockKeys.unique(job.displayName, uniqueId);
+      uniqueKey = QueueLockKeys.unique(
+        job.displayName,
+        uniqueId,
+        hashed: job.uniqueKeyHashesDisplayName,
+      );
       // Laravel's `uniqueFor` 0 is a lock that never expires; 365 days
       // here, so a lock left behind recovers (a deliberate difference,
       // ADR-041).

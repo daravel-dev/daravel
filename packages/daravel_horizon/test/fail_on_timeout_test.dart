@@ -302,6 +302,34 @@ void main() {
     expect(await HorizonSignals.timedOutError(store, reserved(3)), isNull);
   });
 
+  test('when failing the marked job throws (failed_jobs cannot be written), '
+      'the mark stays: no JobFailed, so the next reservation fails it again '
+      'rather than run it', () async {
+    await app.run(() async {
+      await Queue.push(const Blocks('lost', failsOnTimeout: true), queue: 'a');
+      await DB.statement('DROP TABLE failed_jobs');
+    });
+    final m = master();
+    addTearDown(() => m.stop(timeout: const Duration(seconds: 20)));
+    await m.start();
+    await until(() => timedOut().isNotEmpty, 'the kill past the timeout');
+    expect(timedOut().single['fate'], 'will fail on next reservation');
+    // Attempt 2 is reserved and failed before it runs: the row goes, the
+    // failed_jobs insert throws, JobFailed never comes.
+    await until(() async => await jobRows() == 0, 'the row gone');
+    await Future<void>.delayed(const Duration(seconds: 1));
+    final key = HorizonSignals.timedOutKey('${timedOut().single['job']}');
+    expect(
+      await app.run(() => Queue.manager.signalStore!.store.get(key)),
+      isNotNull,
+      reason: 'kept: the job was not recorded as failed',
+    );
+    expect(logged().where((l) => l.startsWith('start:')), [
+      'start:lost:1',
+    ], reason: 'never run again');
+    await m.stop(timeout: const Duration(seconds: 20));
+  }, timeout: const Timeout(Duration(minutes: 2)));
+
   test('a timeout on the last try fails with TimeoutExceededException, as '
       "Laravel's handler does, not MaxAttemptsExceededException", () async {
     await app.run(() => Queue.push(const Blocks('every'), queue: 'a'));
