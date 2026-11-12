@@ -9,7 +9,9 @@ library;
 import 'dart:typed_data';
 
 /// The number of a PHP 8 numeric string (`'5'`, `' 1.5 '`, `'1e3'`,
-/// `'.5'`), `null` for any other (`'0x1A'`, `'1,5'`, `'abc'`).
+/// `'.5'`), `null` for any other (`'0x1A'`, `'1,5'`, `'abc'`). An integer
+/// beyond 64 bits is a float, as in PHP (`'99999999999999999999'` is
+/// `1e20`).
 num? phpNumeric(String value) {
   final match = _numeric.firstMatch(value);
   if (match == null) {
@@ -18,13 +20,18 @@ num? phpNumeric(String value) {
   final text = match[1]!;
   return text.contains(RegExp('[.eE]'))
       ? double.parse(text.endsWith('.') ? '${text}0' : text)
-      : int.parse(text);
+      : int.tryParse(text) ?? double.parse(text);
 }
 
 final RegExp _numeric = RegExp(
   r'^[ \t\n\r\v\f]*([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)'
   r'[ \t\n\r\v\f]*$',
 );
+
+/// PHP 8's `==` between two numbers: two ints exactly, anything else as
+/// floats (`9007199254740993 == 9007199254740992.0` is true).
+bool phpNumbersEqual(num a, num b) =>
+    a is int && b is int ? a == b : a.toDouble() == b.toDouble();
 
 /// PHP's truthiness of an input value: `''`, `'0'`, `0`, `0.0` and an
 /// empty list or map are false.
@@ -164,15 +171,15 @@ bool phpLooseEquals(Object? a, Object? b) {
     return other is String ? other.isEmpty : !phpTruthy(other);
   }
   if (a is num && b is num) {
-    return a == b;
+    return phpNumbersEqual(a, b);
   }
   if (a is String && b is String) {
     final (x, y) = (phpNumeric(a), phpNumeric(b));
-    return x != null && y != null ? x == y : a == b;
+    return x != null && y != null ? phpNumbersEqual(x, y) : a == b;
   }
   if (a is num && b is String) {
     final y = phpNumeric(b);
-    return y != null ? a == y : phpNumberString(a) == b;
+    return y != null ? phpNumbersEqual(a, y) : phpNumberString(a) == b;
   }
   if (a is String && b is num) {
     return phpLooseEquals(b, a);
@@ -246,8 +253,8 @@ final class PhpValueIndex {
   int _trueBools = 0;
   int _falseBools = 0;
   int _emptyArrays = 0;
-  final Map<num, int> _numbers = {};
-  final Map<num, int> _numericStrings = {};
+  final _NumberCounts _numbers = _NumberCounts();
+  final _NumberCounts _numericStrings = _NumberCounts();
   final Map<String, int> _otherStrings = {};
   final Map<String, int> _numberForms = {};
   final List<Object?> _arrays = [];
@@ -266,11 +273,11 @@ final class PhpValueIndex {
       case false:
         _falseBools++;
       case final num n:
-        _count(_numbers, n);
+        _numbers.add(n);
         _count(_numberForms, phpNumberString(n));
       case final String s:
         if (phpNumeric(s) case final n?) {
-          _count(_numericStrings, n);
+          _numericStrings.add(n);
         } else {
           _count(_otherStrings, s);
         }
@@ -308,18 +315,18 @@ final class PhpValueIndex {
       _nulls +
           _falseBools +
           (_otherStrings[''] ?? 0) +
-          (_numbers[0] ?? 0) +
+          _numbers.equal(0) +
           _emptyArrays,
     final num n =>
       (phpTruthy(n) ? _trueBools : _falseBools + _nulls) +
-          (_numbers[n] ?? 0) +
-          (_numericStrings[n] ?? 0) +
+          _numbers.equal(n) +
+          _numericStrings.equal(n) +
           (_otherStrings[phpNumberString(n)] ?? 0),
     final String s => switch (phpNumeric(s)) {
       final n? =>
         (phpTruthy(s) ? _trueBools : _falseBools) +
-            (_numbers[n] ?? 0) +
-            (_numericStrings[n] ?? 0),
+            _numbers.equal(n) +
+            _numericStrings.equal(n),
       null =>
         (phpTruthy(s) ? _trueBools : _falseBools) +
             (s.isEmpty ? _nulls : 0) +
@@ -353,4 +360,30 @@ final class PhpValueIndex {
     }();
     return folded[phpCaseFold(value)] ?? 0;
   }
+}
+
+/// How many of a set of numbers equal one by PHP 8's `==`
+/// ([phpNumbersEqual]): an int against the ints exactly and against the
+/// floats as a float; a float against the floats and the ints as floats.
+/// Dart's `==` between an int and a double is exact, and an int beyond
+/// 2^53 is no double, so neither a `Map<num, int>` nor `==` will do.
+final class _NumberCounts {
+  final Map<int, int> _ints = {};
+  final Map<double, int> _doubles = {};
+  final Map<double, int> _intsAsDoubles = {};
+
+  void add(num value) {
+    switch (value) {
+      case final int i:
+        PhpValueIndex._count(_ints, i);
+        PhpValueIndex._count(_intsAsDoubles, i.toDouble());
+      case final double d:
+        PhpValueIndex._count(_doubles, d);
+    }
+  }
+
+  int equal(num value) => switch (value) {
+    final int i => (_ints[i] ?? 0) + (_doubles[i.toDouble()] ?? 0),
+    final double d => (_doubles[d] ?? 0) + (_intsAsDoubles[d] ?? 0),
+  };
 }

@@ -12,6 +12,7 @@ import '../http/uploaded_file.dart';
 import 'auth_rules.dart';
 import 'dns.dart';
 import 'image_size.dart';
+import 'key_pattern.dart';
 import 'object_rules.dart';
 import 'php_compare.dart';
 import 'php_date_format.dart';
@@ -842,10 +843,11 @@ bool _phpLooseEquals(Object a, Object? b) {
   final bNumber = phpNumeric(b);
   return switch (a) {
     String() => switch ((phpNumeric(a), bNumber)) {
-      (final num x, final num y) => x == y,
+      (final num x, final num y) => phpNumbersEqual(x, y),
       _ => a == b,
     },
-    num() => bNumber != null ? a == bNumber : phpNumberString(a) == b,
+    num() =>
+      bNumber != null ? phpNumbersEqual(a, bNumber) : phpNumberString(a) == b,
     _ => false,
   };
 }
@@ -1762,11 +1764,9 @@ Map<String, Object?> _leavesMatching(
   String pattern, {
   required bool crossDots,
 }) {
-  final regex = RegExp(
-    '^${pattern.split('*').map(RegExp.escape).join(crossDots ? '.*' : '[^.]+')}\$',
-    dotAll: true,
-    unicode: true,
-  );
+  // Not a RegExp: one with two `*` and a literal tail backtracks
+  // quadratically on a long key, which the client writes ([KeyPattern]).
+  final keys = KeyPattern(pattern, crossDots: crossDots);
   final leaves = <String, Object?>{};
   void walk(Object? node, String path) {
     switch (node) {
@@ -1779,7 +1779,7 @@ Map<String, Object?> _leavesMatching(
           walk(node[i], path.isEmpty ? '$i' : '$path.$i');
         }
       default:
-        if (regex.hasMatch(path)) {
+        if (keys.matches(path)) {
           leaves[path] = node;
         }
     }
