@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:4a4c9dcb337a -->
+<!-- source: README.md sha256:3505670b03a7 -->
 <img src="https://raw.githubusercontent.com/daravel-dev/daravel/main/docs/brand/png/daravel-icon-128.png" alt="Daravel" width="64" align="right">
 
 # daravel_horizon
@@ -66,8 +66,9 @@ hitungannya, tag yang dimonitor, dan snapshot:
 
 Store `database` menulis secara batch (setiap 250 ms atau 100 job), di luar
 transaksi job, dan saat shutdown sebelum koneksi ditutup; record yang terpaksa
-dibuang dihitung di `horizon_store_dropped_total`. Setiap penulisan memangkas
-baris yang melewati `HorizonConfig.trim` (completed, failed, monitored);
+dibuang dihitung di `horizon_store_dropped_total`. Penulisan memangkas (paling
+sering sekali per detik per store) baris yang melewati `HorizonConfig.trim`
+(completed, failed, monitored);
 `dartisan horizon:prune` memangkas semuanya, jalankan setiap hari. Di SQLite
 store ini cocok untuk pengembangan: SQLite hanya punya satu penulis, jadi
 untuk produksi dengan beberapa proses pakai PostgreSQL atau MySQL, atau

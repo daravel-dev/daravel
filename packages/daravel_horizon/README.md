@@ -65,8 +65,9 @@ the monitored tags and the snapshots:
 
 The `database` store writes in batches (every 250 ms or 100 jobs), outside
 the job's transaction, and at shutdown before the connections close; a record
-it has to drop is counted in `horizon_store_dropped_total`. Each write trims
-the rows past `HorizonConfig.trim` (completed, failed, monitored);
+it has to drop is counted in `horizon_store_dropped_total`. Writes trim (at
+most once a second per store) the rows past `HorizonConfig.trim` (completed,
+failed, monitored);
 `dartisan horizon:prune` trims all, daily. On SQLite it suits development:
 SQLite has one writer, so for production with several processes use
 PostgreSQL or MySQL, or `redis`. Laravel Horizon keeps its data in Redis and
