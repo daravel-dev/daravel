@@ -1726,16 +1726,42 @@ final class DistinctRule extends Rule {
     if (list is! List<Object?>) {
       return null;
     }
-    var seen = 0;
-    for (final item in list) {
-      final candidate = listPath == null
-          ? item
-          : ValidationContext.dig(item, leaf);
-      if ('$candidate' == '${c.value}') {
-        seen++;
+    String textOf(Object? item) =>
+        '${listPath == null ? item : ValidationContext.dig(item, leaf)}';
+    final memo = c.memo;
+    if (memo == null) {
+      var seen = 0;
+      for (final item in list) {
+        if (textOf(item) == '${c.value}') {
+          seen++;
+        }
       }
+      return seen > 1 ? 'distinct' : null;
     }
-    return seen > 1 ? 'distinct' : null;
+    // The list counted once per run, not once per item: scanning it for
+    // every item took time quadratic in its length (16 000 numbers: 15 s).
+    // The same comparison: the items' text, counted.
+    final counts =
+        memo.putIfAbsent(
+              // The leaf names the compared key only inside items
+              // (`items.*.id`); for a list of scalars it is the index.
+              (
+                'distinct',
+                c.data,
+                listPath ?? parentPath,
+                listPath == null ? null : leaf,
+              ),
+              () {
+                final counts = <String, int>{};
+                for (final item in list) {
+                  final text = textOf(item);
+                  counts[text] = (counts[text] ?? 0) + 1;
+                }
+                return counts;
+              },
+            )!
+            as Map<String, int>;
+    return (counts['${c.value}'] ?? 0) > 1 ? 'distinct' : null;
   }
 }
 
