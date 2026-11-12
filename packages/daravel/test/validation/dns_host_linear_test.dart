@@ -108,9 +108,31 @@ void main() {
 
   linear('toAsciiHost', (label) async => toAsciiHost('$label.com'));
   linear('email:dns', (label) => validate('a@$label.com', 'email:dns'));
-  // Uri percent-encodes a non-ASCII host, so active_url never reached
-  // punycode; kept so it stays that way.
+  // active_url fails a non-ASCII host without a lookup (Laravel asks for
+  // it as written), so it never reaches punycode; kept so it stays that way.
   linear('active_url', (label) => validate('http://$label.com', 'active_url'));
+
+  // parse_url's host and the name pattern on long hosts: dots, '@', ':', a
+  // long label, a bad character at the end.
+  for (final (name, url) in [
+    ('dotted labels', (int n) => 'http://${'a.' * (n ~/ 2)}com/'),
+    ('one long label', (int n) => 'http://${'a' * n}.com/'),
+    ('at signs', (int n) => 'http://${'@' * n}example.com/'),
+    ('colons', (int n) => 'http://${'a:' * (n ~/ 2)}80/'),
+    ('no scheme, a port', (int n) => '${'a' * n}:80'),
+    ('labels then a bad character', (int n) => 'http://${'a.' * (n ~/ 2)}!/'),
+  ]) {
+    test('active_url: linear in the length of the host, $name', () async {
+      await validate(url(1000), 'active_url');
+      final small = await fastest(() => validate(url(25000), 'active_url'));
+      final large = await fastest(() => validate(url(100000), 'active_url'));
+      expect(
+        large < 5000 || large / max(small, 1) < 10,
+        isTrue,
+        reason: '25 000: $small µs, 100 000: $large µs',
+      );
+    });
+  }
 
   test('100 000 distinct code points end at once', () async {
     final label = distinct(100000, 0x20000);

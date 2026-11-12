@@ -120,7 +120,11 @@ dns: true)`; every mode given must pass, and `rfc` applies when none is.
   OpenAPI generation), and `dartisan lint` reports it.
 
 `active_url` passes when the URL's host has an A or AAAA record; an IP
-address fails, as in Laravel.
+address fails, as in Laravel. The host is the one PHP's `parse_url` gives,
+looked up as written, as Laravel does: an internationalized host
+(`bücher.de`) or a percent-escaped one is not converted, so it fails in
+both, without a lookup here. `email:dns` does convert it (punycode), as
+egulias does.
 
 Both make the server look up a name the user sent. Each lookup adds latency
 to the request (at most 2 seconds, then the rule fails), so put routes that
