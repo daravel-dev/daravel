@@ -1,3 +1,5 @@
+import 'package:analyzer/dart/analysis/utilities.dart';
+import 'package:analyzer/dart/ast/ast.dart';
 import 'package:daravel/daravel.dart';
 
 import 'generator.dart';
@@ -351,15 +353,22 @@ String _freeField(String camel, Set<String> taken) {
 
 /// The Dart type `model:sync` gives [column] of [model]: its cast or
 /// database type, nullable as the column is; [idType] for the primary key
-/// with `--typed-ids`.
+/// with `--typed-ids`, and for a foreign key the typed id of the model it
+/// references ([foreignIds], column → `AssessmentId`, from
+/// [foreignIdTypes]), unless the model casts that column itself.
 String columnType(
   ModelSource model,
   ColumnInfo column, {
   SqlDialect dialect = SqlDialect.sqlite,
   String? idType,
+  Map<String, String> foreignIds = const {},
 }) {
   if (idType != null && column.name == model.primaryKey) {
     return idType;
+  }
+  final foreign = foreignIds[column.name];
+  if (foreign != null && !model.casts.containsKey(column.name)) {
+    return column.nullable ? '$foreign?' : foreign;
   }
   final mapped = dartTypeFor(
     column,
@@ -378,6 +387,7 @@ List<String> colsLines(
   List<ColumnNames> names, {
   SqlDialect dialect = SqlDialect.sqlite,
   String? idType,
+  Map<String, String> foreignIds = const {},
 }) => names.isEmpty
     ? const <String>[]
     : [
@@ -386,7 +396,7 @@ List<String> colsLines(
         '  static const cols = (',
         for (final (:column, getter: _, :field) in names)
           '    $field: ModelColumn<${model.className}, '
-              '${columnType(model, column, dialect: dialect, idType: idType)}>'
+              '${columnType(model, column, dialect: dialect, idType: idType, foreignIds: foreignIds)}>'
               "('${column.name}'),",
         '  );',
       ];
@@ -395,16 +405,24 @@ List<String> colsLines(
 /// primary key and timestamps), typed for the [dialect] the columns come
 /// from, after the `cols` record of [colsLines]. With [idType]
 /// (`--typed-ids`) the primary key getter returns that extension type
-/// instead.
+/// instead, and with [foreignIds] each foreign key the typed id of the
+/// model it references ([columnType]).
 AccessorPlan planAccessors(
   ModelSource model,
   List<ColumnInfo> columns, {
   SqlDialect dialect = SqlDialect.sqlite,
   String? idType,
+  Map<String, String> foreignIds = const {},
 }) {
   final names = columnNames(columns);
   final lines = <String>[
-    ...colsLines(model, names, dialect: dialect, idType: idType),
+    ...colsLines(
+      model,
+      names,
+      dialect: dialect,
+      idType: idType,
+      foreignIds: foreignIds,
+    ),
   ];
   final warnings = <String>[];
   const readOnly = {'created_at', 'updated_at', 'deleted_at'};
@@ -430,7 +448,13 @@ AccessorPlan planAccessors(
     if (mapped.hint != null) {
       warnings.add('Column [${column.name}]: ${mapped.hint}.');
     }
-    final type = columnType(model, column, dialect: dialect, idType: idType);
+    final type = columnType(
+      model,
+      column,
+      dialect: dialect,
+      idType: idType,
+      foreignIds: foreignIds,
+    );
     if (column.defaultValue != null &&
         !type.endsWith('?') &&
         !column.autoIncrement &&
@@ -456,6 +480,7 @@ AccessorPlan planAccessors(
     names,
     dialect: dialect,
     idType: idType,
+    foreignIds: foreignIds,
   );
   lines.addAll(writes.lines);
   warnings.addAll(writes.warnings);
@@ -727,6 +752,7 @@ AccessorPlan typedWriteLines(
   List<ColumnNames> names, {
   SqlDialect dialect = SqlDialect.sqlite,
   String? idType,
+  Map<String, String> foreignIds = const {},
 }) {
   const timestamps = {'created_at', 'updated_at', 'deleted_at'};
   final params = [
@@ -738,7 +764,13 @@ AccessorPlan typedWriteLines(
         (
           column: column,
           getter: getter,
-          type: columnType(model, column, dialect: dialect, idType: idType),
+          type: columnType(
+            model,
+            column,
+            dialect: dialect,
+            idType: idType,
+            foreignIds: foreignIds,
+          ),
           required:
               !column.nullable &&
               column.defaultValue == null &&
@@ -949,6 +981,217 @@ String typeStatics(String source, String idType) {
   return '${source.substring(0, start)}$region${source.substring(end)}';
 }
 
+/// The reverse of [typeStatics], for a model whose typed id was removed
+/// (its `<dartisan:ids>` region deleted): `find(UserId id)` and
+/// `findOrFail(UserId id)` in the statics region take `Object` again, so
+/// the file does not name a type that is gone. Other statics are left
+/// alone.
+String untypeStatics(String source, String idType) {
+  final start = source.indexOf(_staticsStart);
+  final end = source.indexOf(_staticsEnd);
+  if (start == -1 || end == -1 || end < start) {
+    return source;
+  }
+  final typed = RegExp(
+    r'(\b(?:find|findOrFail)\(\s*)' + RegExp.escape(idType) + r'(\s+id\s*\))',
+  );
+  final region = source
+      .substring(start, end)
+      .replaceAllMapped(typed, (m) => '${m.group(1)}Object${m.group(2)}');
+  return '${source.substring(0, start)}$region${source.substring(end)}';
+}
+
+/// Whether [source] has opted in to typed ids: it holds a
+/// `<dartisan:ids>` region (`--typed-ids` wrote it). `model:sync` keeps
+/// such a model typed without the flag; deleting the region (and the
+/// `idType:` of its definition) opts it out.
+bool hasTypedIds(String source) =>
+    source.contains(_idsStart) && source.contains(_idsEnd);
+
+/// A model as [foreignIdTypes] sees it: its class, table, primary key,
+/// typed id (`null` when it has none) and file name (`assessment.dart`).
+typedef TypedModel = ({
+  String className,
+  String table,
+  String primaryKey,
+  String? idType,
+  String file,
+});
+
+/// The typed foreign keys of [model], from the foreign keys of its table
+/// ([keys], `Schema.getForeignKeys`) and the project's models by table
+/// ([byTable]):
+/// - `types`: column → typed id of the referenced model
+///   (`assessment_id` → `AssessmentId`) for a one-column key to that
+///   model's primary key (or to its table with no column named), when the
+///   model has a typed id; a key to [model]'s own table takes its own;
+/// - `files`: the model files those types are declared in, other than
+///   [file] itself, with the typed id each provides
+///   (`assessment.dart` → `AssessmentId`), for [addModelImports];
+/// - `notes`: what was left untyped and why, one line each (a referenced
+///   model without a typed id; a table two models share);
+/// - `unmodelled`: keys to a table no model in `lib/app/models` maps,
+///   left untyped and counted (one summary line for the run).
+///
+/// Left untyped without a note: a composite key, a key to another column
+/// than the primary key, and a column [model] casts itself (`casts:`
+/// wins). A polymorphic key (`*_type` + `*_id`) has no foreign key
+/// constraint, so it never shows up here.
+({
+  Map<String, String> types,
+  Map<String, String> files,
+  List<String> notes,
+  int unmodelled,
+})
+foreignIdTypes(
+  ModelSource model,
+  String file,
+  List<ForeignKeyInfo> keys,
+  Map<String, List<TypedModel>> byTable,
+) {
+  final types = <String, String>{};
+  final files = <String, String>{};
+  final notes = <String>[];
+  var unmodelled = 0;
+  for (final key in keys) {
+    if (key.columns.length != 1 || key.foreignColumns.length > 1) {
+      continue;
+    }
+    final column = key.columns.single;
+    if (model.casts.containsKey(column)) {
+      continue;
+    }
+    final targets = byTable[key.foreignTable] ?? const <TypedModel>[];
+    if (targets.isEmpty) {
+      unmodelled++;
+      continue;
+    }
+    if (targets.length > 1) {
+      notes.add(
+        '[$column]: table [${key.foreignTable}] has more than one model '
+        '(${targets.map((t) => t.className).join(', ')}); left untyped.',
+      );
+      continue;
+    }
+    final target = targets.single;
+    if (key.foreignColumns case [final referenced]
+        when referenced != target.primaryKey) {
+      continue;
+    }
+    final idType = target.idType;
+    if (idType == null) {
+      notes.add(
+        '[$column]: ${target.className} has no typed id; left untyped.',
+      );
+      continue;
+    }
+    types[column] = idType;
+    if (target.file != file) {
+      files[target.file] = idType;
+    }
+  }
+  return (types: types, files: files, notes: notes, unmodelled: unmodelled);
+}
+
+/// [source] with an import of each model file in [idTypes] (file → the
+/// typed id it declares, `assessment.dart` → `AssessmentId`) whose typed
+/// id it does not see yet. It sees it through an import without a prefix
+/// of the file itself, or of the models barrel `models.dart` when
+/// [barrel] (its text) exports the file, whose `show`/`hide` lets the
+/// name through. Each import added is one line in the import block, at
+/// its sorted place when the block is sorted (`dart:`, `package:`, then
+/// relative, each alphabetically), otherwise after the last import; no
+/// import is removed or moved. `added` names the files imported.
+({String source, List<String> added}) addModelImports(
+  String source,
+  Map<String, String> idTypes, {
+  String? barrel,
+}) {
+  final unit = parseString(content: source, throwIfDiagnostics: false).unit;
+  final imports = unit.directives.whereType<ImportDirective>().toList();
+  bool lets(ImportDirective import, String name) => import.combinators.every(
+    (c) => switch (c) {
+      ShowCombinator(:final shownNames) => shownNames.any(
+        (n) => n.name == name,
+      ),
+      HideCombinator(:final hiddenNames) => !hiddenNames.any(
+        (n) => n.name == name,
+      ),
+    },
+  );
+  bool modelUri(String uri, String file) =>
+      uri == file ||
+      uri == './$file' ||
+      (uri.startsWith('package:') && uri.endsWith('/app/models/$file'));
+  bool exported(String file) =>
+      barrel != null &&
+      RegExp(
+        "^export\\s+'${RegExp.escape(file)}'\\s*;",
+        multiLine: true,
+      ).hasMatch(barrel);
+  bool sees(String file, String idType) => imports.any((import) {
+    final uri = import.uri.stringValue ?? '';
+    if (import.prefix != null || !lets(import, idType)) {
+      return false;
+    }
+    return modelUri(uri, file) ||
+        (modelUri(uri, 'models.dart') && exported(file));
+  });
+  final missing = [
+    for (final MapEntry(key: file, value: idType) in idTypes.entries)
+      if (!sees(file, idType)) file,
+  ]..sort();
+  if (missing.isEmpty) {
+    return (source: source, added: const []);
+  }
+  int group(String uri) => uri.startsWith('dart:')
+      ? 0
+      : uri.startsWith('package:')
+      ? 1
+      : 2;
+  int compare(String a, String b) {
+    final byGroup = group(a).compareTo(group(b));
+    return byGroup != 0 ? byGroup : a.compareTo(b);
+  }
+
+  final uris = [for (final i in imports) i.uri.stringValue ?? ''];
+  var sorted = true;
+  for (var i = 1; i < uris.length; i++) {
+    sorted &= compare(uris[i - 1], uris[i]) <= 0;
+  }
+  final inserts = <(int, int, String)>[];
+  for (final (index, file) in missing.indexed) {
+    final line = "import '$file';";
+    if (imports.isEmpty) {
+      final library = unit.directives.whereType<LibraryDirective>();
+      inserts.add(
+        library.isEmpty
+            ? (0, index, '$line\n${index == missing.length - 1 ? '\n' : ''}')
+            : (library.first.end, index, '\n${index == 0 ? '\n' : ''}$line'),
+      );
+      continue;
+    }
+    final after = sorted
+        ? imports.where((i) => compare(i.uri.stringValue ?? '', file) > 0)
+        : const <ImportDirective>[];
+    inserts.add(
+      after.isEmpty
+          ? (imports.last.end, index, '\n$line')
+          : (after.first.offset, index, '$line\n'),
+    );
+  }
+  // From the last offset back, so earlier offsets stay valid; at one
+  // offset the later file first, so the files end up in order.
+  inserts.sort(
+    (a, b) => a.$1 != b.$1 ? b.$1.compareTo(a.$1) : b.$2.compareTo(a.$2),
+  );
+  var result = source;
+  for (final (offset, _, text) in inserts) {
+    result = result.replaceRange(offset, offset, text);
+  }
+  return (source: result, added: missing);
+}
+
 const String _idsStart = '// <dartisan:ids>';
 const String _idsEnd = '// </dartisan:ids>';
 
@@ -1022,11 +1265,12 @@ typedef ModelSync = ({
 
 /// Syncs [source] (a model file parsed as [model]) with its table's
 /// [columns]: fills an empty statics region and rewrites the accessors.
-/// With [idStub] (the `model.id` template, `--typed-ids`), also writes the
-/// typed id into the `<dartisan:ids>` region and types the primary key
-/// getter, `find` and `findOrFail` with it. Without it the result is the
-/// same as before typed ids existed. `source` is `null` when the file has
-/// no accessors region.
+/// With [idStub] (the `model.id` template, for a model opted in to typed
+/// ids), also writes the typed id into the `<dartisan:ids>` region and
+/// types the primary key getter, `find` and `findOrFail` with it; without
+/// it a `find(UserId id)` left from an opt-out takes `Object` again
+/// ([untypeStatics]). [foreignIds] types foreign keys ([foreignIdTypes]).
+/// `source` is `null` when the file has no accessors region.
 ///
 /// With [formatter] (`model:sync` passes the project's), the code written
 /// into each region is laid out as `dart format` would, so a synced model
@@ -1039,6 +1283,7 @@ ModelSync syncModelSource(
   SqlDialect dialect = SqlDialect.sqlite,
   String? idStub,
   RegionFormatter? formatter,
+  Map<String, String> foreignIds = const {},
 }) {
   final warnings = <String>[?whereStaticWarning(source, model.className)];
   List<String> members(List<String> lines, String region) {
@@ -1097,12 +1342,18 @@ ModelSync syncModelSource(
   }
   if (idType == null) {
     next = fillStatics(
-      next,
+      untypeStatics(next, idTypeName(model.className)),
       model.className,
       lines: members(staticLines(model.className), 'statics'),
     );
   }
-  final plan = planAccessors(model, columns, dialect: dialect, idType: idType);
+  final plan = planAccessors(
+    model,
+    columns,
+    dialect: dialect,
+    idType: idType,
+    foreignIds: foreignIds,
+  );
   warnings.insertAll(0, plan.warnings);
   for (final key in unreadRelations(source, model)) {
     warnings.add(
