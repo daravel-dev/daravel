@@ -72,6 +72,24 @@ outside a request.
 - `router.url('posts.show', {'id': 1})` builds URLs from names; signed URLs
   are available for the `signed` middleware.
 - `dart run bin/dartisan.dart route:list` prints the table.
+- `dart run bin/dartisan.dart names:sync` writes `lib/app/names.dart`: a URL
+  builder per named route (`Routes.postsShow(post: 1)`, a missing parameter
+  does not compile) and `RouteNames`, `Abilities`, `RateLimiters`, `Guards`,
+  `Disks` and `Connections`, so the editor lists the application's names.
+  It boots the application for inspection: no database connection, no
+  metrics publisher, nothing sent; a provider that needs the database at
+  boot makes it fail with that reason. `names:sync --check` exits 1 when
+  the file is out of date: in CI it needs only what boot needs (a `.env`
+  with `APP_KEY` when the application reads it), no running service.
+  `names:sync --boot` boots the application fully instead, for a provider
+  that needs the database while booting.
+  - Parameters: `{post}`, `:id`, `{post:slug}` (named `post`, its dartdoc
+    names the column) and the wildcards `{path*}`/`*path` are required
+    (the router matches no empty wildcard); `{slug?}` is optional. Each
+    builder's dartdoc shows its methods and pattern (`GET /posts/{post}`).
+  - Routes are code, so the application must compile: add a route, run
+    `names:sync`, then use `Routes.x`. A route removed or renamed makes the
+    code using it fail to compile, which is the point.
 
 Unknown routes answer `404 {"message": "The route api/x could not be
 found."}`. A known path with the wrong verb answers `405` with an `Allow`

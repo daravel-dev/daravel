@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:daravel/daravel.dart';
 import 'package:daravel_test/daravel_test.dart';
+import 'package:daravel_starter/app/names.dart';
 import 'package:test/test.dart';
 
 import '../../bootstrap/app.dart';
@@ -35,7 +36,8 @@ void main() {
   });
 
   test('GET /api/ping pongs with request metadata', () async {
-    final response = (await client.get('/api/ping'))
+    // The URL from the route's name: lib/app/names.dart, by names:sync.
+    final response = (await client.get(Routes.ping()))
         .assertOk()
         .assertHeader('content-type', 'application/json')
         .assertJson(<String, Object?>{'message': 'pong', 'app': 'Starter'});

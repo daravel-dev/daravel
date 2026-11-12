@@ -832,6 +832,15 @@ final class Score extends Model {
             ]),
             0,
           );
+          // The names.dart the template writes is what names:sync writes
+          // for the new project.
+          final names = await Process.run(dartExecutable(), const [
+            'run',
+            'bin/dartisan.dart',
+            'names:sync',
+            '--check',
+          ], workingDirectory: target);
+          expect(names.exitCode, 0, reason: '${names.stdout}\n${names.stderr}');
           // Generated mail, notifications and a form request (with its
           // expectFormRequestTyped test) compile and pass in a new project.
           Generator(ProjectPaths.locate(target))
