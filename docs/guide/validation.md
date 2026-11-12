@@ -90,6 +90,11 @@ Rules.unique('users', 'email').where((QueryBuilder q) => q.whereNull('deleted_at
 Rules.exists('billing.invoices', 'id').where((QueryBuilder q) => q.where('open', true));
 ```
 
+On a list (`items.*` with `unique` or `exists`), each item is one query,
+as in Laravel. Bound the list with `max` (`'items': 'array|max:100'`) and
+index the column checked. `exists` on a list value (`ids: [1, 3]`) is one
+query for the whole list.
+
 ### Email modes and `active_url`
 
 `email` takes Laravel's modes, `email:rfc,dns` or `Rules.email(rfc: true,

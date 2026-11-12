@@ -3,7 +3,7 @@
 
 /// `docs/guide/id/validation.md`.
 const String pageIdValidation =
-    r'''<!-- source: validation.md sha256:b7fd3c465ae4 -->
+    r'''<!-- source: validation.md sha256:130df22648a1 -->
 # Validasi
 
 Validasi request secara inline dengan string rule Laravel, atau dengan objek
@@ -100,6 +100,12 @@ Rules.unique('users', 'email').ignore(id, idColumn: 'staff_id');
 Rules.unique('users', 'email').where((QueryBuilder q) => q.whereNull('deleted_at'));
 Rules.exists('billing.invoices', 'id').where((QueryBuilder q) => q.where('open', true));
 ```
+
+Pada list (`items.*` dengan `unique` atau `exists`), setiap item adalah
+satu query, seperti di Laravel. Batasi panjang list dengan `max`
+(`'items': 'array|max:100'`) dan beri indeks pada kolom yang diperiksa.
+`exists` atas nilai list (`ids: [1, 3]`) adalah satu query untuk seluruh
+list.
 
 ### Mode email dan `active_url`
 
