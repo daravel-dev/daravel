@@ -3,7 +3,7 @@
 
 /// `docs/guide/id/validation.md`.
 const String pageIdValidation =
-    r'''<!-- source: validation.md sha256:1e76de2df0ba -->
+    r'''<!-- source: validation.md sha256:1a674a00c4dc -->
 # Validasi
 
 Validasi request secara inline dengan string rule Laravel, atau dengan objek
@@ -259,6 +259,13 @@ berjalan saat proyek tidak bisa dikompilasi, misalnya setelah Anda mengubah
 sebuah request menjadi `FormRequest<StoreNoteRequestInput>` sebelum tipe itu
 ada: `dartisan request:sync` menuliskannya, sedangkan `dart run
 bin/dartisan.dart request:sync` mengompilasi aplikasi lebih dulu dan gagal.
+Tanpa `dartisan` global, jalankan hal yang sama dari direktori proyek:
+
+```bash
+dart run dartisan_cli:dartisan request:sync
+```
+
+yang selalu berjalan, karena hanya `dartisan_cli` yang dikompilasi.
 (`model:sync` membaca database lewat koneksi aplikasi, jadi butuh proyek
 yang bisa dikompilasi.)
 

@@ -854,13 +854,14 @@ final class Score extends Model {
             final made = request.readAsStringSync();
             const open = '// <dartisan:input>';
             const close = '// </dartisan:input>';
-            request.writeAsStringSync(
+            void dropInput() => request.writeAsStringSync(
               made.replaceRange(
                 made.indexOf(open),
                 made.indexOf(close) + close.length,
                 '',
               ),
             );
+            dropInput();
             final projectCli = await Process.run(dartExecutable(), const [
               'run',
               'bin/dartisan.dart',
@@ -875,6 +876,23 @@ final class Score extends Model {
               await runner.execute(['request:sync'], directory: target),
               0,
               reason: 'the global dartisan compiles no application code',
+            );
+            expect(
+              request.readAsStringSync(),
+              contains('extension type const LoginInput('),
+            );
+            // Without a global dartisan: the project's own dartisan_cli,
+            // the form the guide gives, works from the broken project too.
+            dropInput();
+            final packageCli = await Process.run(dartExecutable(), const [
+              'run',
+              'dartisan_cli:dartisan',
+              'request:sync',
+            ], workingDirectory: target);
+            expect(
+              packageCli.exitCode,
+              0,
+              reason: '${packageCli.stdout}\n${packageCli.stderr}',
             );
             expect(
               request.readAsStringSync(),

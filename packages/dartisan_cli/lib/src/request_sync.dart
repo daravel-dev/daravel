@@ -162,8 +162,11 @@ Write the typed input of form requests from their Field constants.
 
 Only sources are read and written: the global dartisan runs it in the
 project's dartisan_cli without compiling the application, so it works
-while a request names an input type that does not exist yet. (model:sync
-reads the database, so it needs the application to compile.)''';
+while a request names an input type that does not exist yet. Without the
+global dartisan, `dart run dartisan_cli:dartisan request:sync` from the
+project does the same; `dart run bin/dartisan.dart request:sync` compiles
+the application first. (model:sync reads the database, so it needs the
+application to compile.)''';
 
   @override
   Future<int> run() async {
