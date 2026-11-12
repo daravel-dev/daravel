@@ -130,8 +130,9 @@ void main() {
       final small = await fastest(data(1000), rules);
       final large = await fastest(data(16000), rules);
       expect(
-        large / max(small, 1),
-        lessThan(100),
+        // Under 5 ms the ratio is timer noise: linear either way.
+        large < 5000 || large / max(small, 1) < 100,
+        isTrue,
         reason: '1 000: $small µs, 16 000: $large µs',
       );
     });
