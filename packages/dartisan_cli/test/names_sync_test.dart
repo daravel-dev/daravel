@@ -113,6 +113,48 @@ void main() {
     );
   });
 
+  test('a failed --check says which names differ, by class', () {
+    String file({
+      required List<String> routes,
+      required List<String> disks,
+      List<String> abilities = const [],
+    }) => syncNamesSource(null, (
+      routes: [
+        for (final name in routes)
+          (name: name, methods: ['GET'], path: '/${name.replaceAll('.', '/')}'),
+      ],
+      abilities: abilities,
+      policies: false,
+      rateLimiters: const [],
+      guards: const [],
+      disks: disks,
+      connections: const [],
+    )).source;
+    final before = file(
+      routes: ['posts.index', 'posts.edit'],
+      disks: ['local', 's3'],
+    );
+    final after = file(
+      routes: ['posts.index', 'posts.show'],
+      disks: ['local'],
+      abilities: ['update-post'],
+    );
+    expect(regionNames(before)['Disks'], {'local', 's3'});
+    expect(regionNames(after)['Abilities'], {'update-post'});
+    expect(namesDiff(before, after), [
+      'Routes +posts.show -posts.edit',
+      'RouteNames +posts.show -posts.edit',
+      'Abilities +update-post',
+      'Disks -s3',
+    ]);
+    expect(namesDiff(null, after), contains('Disks +local'));
+    // Same names, other layout: said as such.
+    expect(namesDiff(before.replaceFirst('/// The', '/// the'), before), [
+      'the same names; only the layout or the documentation differs',
+    ]);
+    expect(namesDiff(before, before), isEmpty);
+  });
+
   test('the region: builders, constants and the policy abilities once', () {
     final code = namesRegion(names).code;
     expect(code, contains('static String postsShow({'));

@@ -309,9 +309,13 @@ String _literal(String value) =>
     'The named rate limiters, for `Mw.throttle(...)`',
     names.rateLimiters,
   );
-  constants('Guards', 'The auth guards', names.guards);
-  constants('Disks', 'The storage disks', names.disks);
-  constants('Connections', 'The database connections', names.connections);
+  constants('Guards', 'The configured auth guards', names.guards);
+  constants('Disks', 'The configured storage disks', names.disks);
+  constants(
+    'Connections',
+    'The configured database connections',
+    names.connections,
+  );
   out.write(_end);
   return (code: out.toString(), warnings: warnings);
 }
@@ -351,4 +355,58 @@ String _literal(String value) =>
   }
   final head = base.endsWith('\n') ? base : '$base\n';
   return (source: '$head\n$code\n', warnings: warnings);
+}
+
+/// The names in each class of the `<dartisan:names>` region of [source]:
+/// the route names of `Routes` and the values of the constants, by class.
+Map<String, Set<String>> regionNames(String? source) {
+  final names = <String, Set<String>>{};
+  if (source == null) {
+    return names;
+  }
+  final start = source.indexOf(_start);
+  final end = source.indexOf(_end);
+  if (start == -1 || end < start) {
+    return names;
+  }
+  final region = source.substring(start, end);
+  final classes = RegExp(r'abstract final class (\w+)').allMatches(region);
+  final routeName = RegExp(r"routeUrl\(\s*'([^']*)'");
+  final constant = RegExp(r"=\s*(?:Ability\()?'([^']*)'");
+  final list = classes.toList();
+  for (final (i, m) in list.indexed) {
+    final body = region.substring(
+      m.end,
+      i + 1 < list.length ? list[i + 1].start : region.length,
+    );
+    final pattern = m.group(1) == 'Routes' ? routeName : constant;
+    names[m.group(1)!] = {
+      for (final value in pattern.allMatches(body)) value.group(1)!,
+    };
+  }
+  return names;
+}
+
+/// What changed between [current] and [updated] (`lib/app/names.dart`),
+/// one line per class: `Routes +posts.show -posts.edit`, `Disks -s3`; or,
+/// when the names are the same, that only the layout or documentation
+/// differs. For `names:sync --check`, whose failure then says what to
+/// look at (often a name registered only in some environments).
+List<String> namesDiff(String? current, String updated) {
+  final before = regionNames(current);
+  final after = regionNames(updated);
+  final lines = <String>[
+    for (final type in {...before.keys, ...after.keys})
+      if ([
+            for (final n in (after[type] ?? const <String>{}).toList()..sort())
+              if (!(before[type] ?? const <String>{}).contains(n)) '+$n',
+            for (final n in (before[type] ?? const <String>{}).toList()..sort())
+              if (!(after[type] ?? const <String>{}).contains(n)) '-$n',
+          ]
+          case final changes when changes.isNotEmpty)
+        '$type ${changes.join(' ')}',
+  ];
+  return lines.isEmpty && current != updated
+      ? ['the same names; only the layout or the documentation differs']
+      : lines;
 }

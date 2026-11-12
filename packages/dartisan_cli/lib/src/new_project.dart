@@ -1676,18 +1676,18 @@ abstract final class RateLimiters {
   static const register = 'register';
 }
 
-/// The auth guards (written by `dartisan names:sync`).
+/// The configured auth guards (written by `dartisan names:sync`).
 abstract final class Guards {
   static const token = 'token';
 }
 
-/// The storage disks (written by `dartisan names:sync`).
+/// The configured storage disks (written by `dartisan names:sync`).
 abstract final class Disks {
   static const local = 'local';
   static const public = 'public';
 }
 
-/// The database connections (written by `dartisan names:sync`).
+/// The configured database connections (written by `dartisan names:sync`).
 abstract final class Connections {
   static const mariadb = 'mariadb';
   static const mysql = 'mysql';
@@ -1752,16 +1752,16 @@ abstract final class Abilities {}
 /// The named rate limiters, for `Mw.throttle(...)` (written by `dartisan names:sync`).
 abstract final class RateLimiters {}
 
-/// The auth guards (written by `dartisan names:sync`).
+/// The configured auth guards (written by `dartisan names:sync`).
 abstract final class Guards {}
 
-/// The storage disks (written by `dartisan names:sync`).
+/// The configured storage disks (written by `dartisan names:sync`).
 abstract final class Disks {
   static const local = 'local';
   static const public = 'public';
 }
 
-/// The database connections (written by `dartisan names:sync`).
+/// The configured database connections (written by `dartisan names:sync`).
 abstract final class Connections {
   static const mariadb = 'mariadb';
   static const mysql = 'mysql';

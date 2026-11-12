@@ -6,14 +6,14 @@ import '../http/request.dart';
 import '../http/response.dart';
 import 'contracts.dart';
 
-/// Ability callback: returns `bool`, [AuthResponse] or `null` (= no opinion
-/// in `before`/`after` hooks, deny in abilities).
 /// An ability name with the compiler's help: `Abilities.updatePost`, which
 /// `dartisan names:sync` writes from the gate. It is the name itself
 /// (`implements String`), so it goes wherever an ability name goes
 /// (`Gate.allows(Abilities.updatePost, [post])`, `Mw.can(...)`).
 extension type const Ability(String name) implements String {}
 
+/// Ability callback: returns `bool`, [AuthResponse] or `null` (= no opinion
+/// in `before`/`after` hooks, deny in abilities).
 typedef GateCallback = FutureOr<Object?> Function(
   Authenticatable? user,
   List<Object?> args,

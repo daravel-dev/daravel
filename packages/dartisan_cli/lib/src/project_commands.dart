@@ -1869,8 +1869,15 @@ final class NamesSyncCommand extends DaravelCommand {
   String get name => 'names:sync';
 
   @override
-  String get description =>
-      'Write route, ability, limiter, guard, disk and connection names.';
+  String get description => '''
+Write route, ability, limiter, guard, disk and connection names.
+
+The names come from the application booted with this machine's
+environment: disks, connections, guards and routes or limiters registered
+only in some environments (only with APP_DEBUG, say) come and go with it.
+Run names:sync and names:sync --check with the same environment (for
+example APP_ENV=testing in both); a failed --check lists the names that
+differ.''';
 
   /// The names registered in [app] (booted).
   static AppNames readNames(Application app) {
@@ -1933,6 +1940,11 @@ final class NamesSyncCommand extends DaravelCommand {
       stdout.writeln(
         'lib/app/names.dart: out of date; run dartisan names:sync.',
       );
+      // What differs, so a name registered only in some environments (a
+      // disk, a debug route) is seen as such, not as a stale file.
+      for (final line in namesDiff(current, sync.source)) {
+        stdout.writeln('  $line');
+      }
       return 1;
     }
     file

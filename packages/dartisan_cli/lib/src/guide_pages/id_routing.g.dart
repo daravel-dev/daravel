@@ -2,7 +2,7 @@
 // Do not edit; run `dart run tool/docs/generate.dart`.
 
 /// `docs/guide/id/routing.md`.
-const String pageIdRouting = r'''<!-- source: routing.md sha256:eae607eb06cd -->
+const String pageIdRouting = r'''<!-- source: routing.md sha256:8ff00f9d6356 -->
 # Routing
 
 Route didaftarkan di `routes/api.dart` (di-mount di bawah `/api`) dan
@@ -98,6 +98,13 @@ dalam rantai pemanggilannya (sebuah helper, sebuah observer), seperti
     route, jalankan `names:sync`, lalu pakai `Routes.x`. Route yang dihapus
     atau diganti namanya membuat kode pemakainya gagal dikompilasi, dan
     memang itu tujuannya.
+  - Nama-nama itu diambil dari aplikasi yang di-boot dengan environment
+    mesin tersebut: disk, koneksi dan guard yang dikonfigurasi, serta route
+    atau limiter yang hanya didaftarkan di sebagian environment (misalnya
+    hanya dengan `APP_DEBUG`), muncul dan hilang mengikutinya. Jalankan
+    `names:sync` dan `names:sync --check` dengan environment yang sama,
+    misalnya `APP_ENV=testing` di keduanya. `--check` yang gagal
+    mencantumkan nama yang berbeda (`Disks -s3`, `Routes +posts.show`).
 
 Route yang tidak dikenal menjawab `404 {"message": "The route api/x could not
 be found."}`. Path yang dikenal dengan verb yang salah menjawab `405` dengan

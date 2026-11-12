@@ -90,6 +90,13 @@ outside a request.
   - Routes are code, so the application must compile: add a route, run
     `names:sync`, then use `Routes.x`. A route removed or renamed makes the
     code using it fail to compile, which is the point.
+  - The names come from the application booted with the machine's
+    environment: the configured disks, connections and guards, and routes
+    or limiters registered only in some environments (only with
+    `APP_DEBUG`, say), come and go with it. Run `names:sync` and
+    `names:sync --check` with the same environment, for example
+    `APP_ENV=testing` in both. A failed `--check` lists the names that
+    differ (`Disks -s3`, `Routes +posts.show`).
 
 Unknown routes answer `404 {"message": "The route api/x could not be
 found."}`. A known path with the wrong verb answers `405` with an `Allow`
