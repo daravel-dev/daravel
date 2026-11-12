@@ -100,6 +100,20 @@ jobs:
             fi
           done
 
+      # The starter's generated regions match what its generators write now:
+      # model accessors for the migrated schema, and form request inputs.
+      # Once, on Linux: the output is the same on every OS.
+      - name: Generated regions of the starter are up to date
+        if: runner.os == 'Linux' && matrix.sdk == 'stable'
+        working-directory: apps/daravel_starter
+        env:
+          APP_ENV: local
+          DB_DATABASE: ${{ runner.temp }}/regions.sqlite
+        run: |
+          dart run bin/dartisan.dart migrate
+          dart run bin/dartisan.dart model:sync --check
+          dart run bin/dartisan.dart request:sync --check
+
       - name: Test (all packages)
         env:
           # `dartisan new` end-to-end (pub get + analyze + test of a generated

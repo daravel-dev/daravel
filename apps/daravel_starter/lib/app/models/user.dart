@@ -52,9 +52,10 @@ final class User extends Model with AuthenticatableModel {
   set name(String value) => setAttr('name', value);
   String get email => getAttr('email');
   set email(String value) => setAttr('email', value);
+  DateTime? get emailVerifiedAt => getAttr('email_verified_at');
+  set emailVerifiedAt(DateTime? value) => setAttr('email_verified_at', value);
   String get password => getAttr('password');
   set password(String value) => setAttr('password', value);
-  DateTime? get emailVerifiedAt => getAttr('email_verified_at');
   DateTime? get createdAt => getAttr('created_at');
   DateTime? get updatedAt => getAttr('updated_at');
 

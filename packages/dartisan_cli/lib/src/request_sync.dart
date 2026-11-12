@@ -9,6 +9,7 @@ import 'package:args/command_runner.dart';
 import 'package:path/path.dart' as p;
 
 import 'generator.dart';
+import 'region_format.dart';
 
 /// One `Field` of a request: its constant [name], its value [type] and its
 /// input [key].
@@ -61,75 +62,41 @@ const String _inputEnd = '// </dartisan:input>';
 
 /// The `<dartisan:input>` region of [request]: its input type with one
 /// getter per field, and `typed`, every field by its input key (left out
-/// when a field is itself named `typed`). Lines are laid out as
-/// `dart format` would, so a synced file stays format-clean.
-String inputRegion(RequestSource request) {
-  final getters = [
-    for (final f in request.fields)
-      _fit(
-        '  ${f.type} get ${f.name} =>',
-        '_data.field(${request.className}.${f.name});',
-      ),
-  ];
-  return [
+/// when a field is itself named `typed`). Laid out by [formatter] (the
+/// default `dart format` settings when null), so a synced file stays
+/// format-clean; written as generated when it cannot be formatted.
+String inputRegion(RequestSource request, {RegionFormatter? formatter}) {
+  String key(String k) =>
+      "'${k.replaceAll(r'\', r'\\').replaceAll(r'$', r'\$')}'";
+  final code = [
     _inputStart,
     '/// The validated input of [${request.className}], one getter per `Field`',
     '/// (written by `dartisan request:sync`; edit the fields, not this).',
-    ..._header(request.inputType),
-    ...getters,
-    if (!_hidesTyped(request)) ..._typed(request),
+    'extension type const ${request.inputType}(ValidatedData _data) '
+        'implements ValidatedData {',
+    for (final f in request.fields)
+      '  ${f.type} get ${f.name} => '
+          '_data.field(${request.className}.${f.name});',
+    if (!_hidesTyped(request)) ...[
+      '',
+      '  /// Every field by its input key, as its declared type: the values '
+          'are',
+      "  /// converted (`'4'` is `4` for a `Field<int>`), unlike the raw map "
+          'of',
+      '  /// [ValidatedData]. `expectFormRequestTyped` reads every field with '
+          'it.',
+      '  Map<String, Object?> get typed => {'
+          '${[for (final f in request.fields) '${key(f.key)}: ${f.name}'].join(', ')}'
+          '};',
+    ],
     '}',
     _inputEnd,
   ].join('\n');
-}
-
-/// The extension type header in the layout `dart format` picks for its
-/// length: one line, `implements` on the next, or the parameter split out.
-List<String> _header(String type) {
-  final head = 'extension type const $type(ValidatedData _data)';
-  if ('$head implements ValidatedData {'.length <= 80) {
-    return ['$head implements ValidatedData {'];
-  }
-  if (head.length <= 80) {
-    return [head, '    implements ValidatedData {'];
-  }
-  return [
-    'extension type const $type(',
-    '  ValidatedData _data,',
-    ') implements ValidatedData {',
-  ];
+  return (formatter ?? RegionFormatter()).topLevel(code);
 }
 
 bool _hidesTyped(RequestSource request) =>
     request.fields.any((f) => f.name == 'typed');
-
-/// `head body` on one line when it fits in 80 columns, else the body on
-/// the next line, indented four more.
-String _fit(String head, String body) {
-  final line = '$head $body';
-  return line.length <= 80 ? line : '$head\n      $body';
-}
-
-List<String> _typed(RequestSource request) {
-  String key(String k) =>
-      "'${k.replaceAll(r'\', r'\\').replaceAll(r'$', r'\$')}'";
-  final entries = [for (final f in request.fields) '${key(f.key)}: ${f.name}'];
-  const head = '  Map<String, Object?> get typed =>';
-  final oneLine = '$head {${entries.join(', ')}};';
-  return [
-    '',
-    '  /// Every field by its input key, as its declared type: the values are',
-    "  /// converted (`'4'` is `4` for a `Field<int>`), unlike the raw map of",
-    '  /// [ValidatedData]. `expectFormRequestTyped` reads every field with it.',
-    if (oneLine.length <= 80 || entries.isEmpty)
-      oneLine
-    else ...[
-      '$head {',
-      for (final e in entries) '    $e,',
-      '  };',
-    ],
-  ];
-}
 
 /// What `request:sync` makes of one request file: the new [source] (null
 /// when the file has no typed request or declares its input type by hand)
@@ -139,12 +106,12 @@ typedef RequestSync = ({String? source, String? note});
 /// [source] with its `<dartisan:input>` region written for its fields:
 /// replaced when present, appended at the end otherwise (an extension
 /// type is a top-level declaration).
-RequestSync syncRequestSource(String source) {
+RequestSync syncRequestSource(String source, {RegionFormatter? formatter}) {
   final request = RequestSource.parse(source);
   if (request == null) {
     return (source: null, note: 'no `extends FormRequest<Input>`; skipped');
   }
-  final region = inputRegion(request);
+  final region = inputRegion(request, formatter: formatter);
   final note = _hidesTyped(request)
       ? 'a field is named `typed`, so ${request.inputType} has no `typed` '
             'map; pass your own read: to expectFormRequestTyped'
@@ -205,6 +172,8 @@ final class RequestSyncCommand extends Command<int> {
         ? null
         : Naming.snake(argResults!.rest.first);
     final check = argResults!['check'] as bool;
+    // The project's language version and page width, as dart format.
+    final formatter = RegionFormatter.forProject(paths.root);
     var stale = 0;
     for (final file in dir.listSync().whereType<File>().where(
       (f) => f.path.endsWith('.dart'),
@@ -214,7 +183,7 @@ final class RequestSyncCommand extends Command<int> {
       }
       final name = p.basename(file.path);
       final source = file.readAsStringSync();
-      final sync = syncRequestSource(source);
+      final sync = syncRequestSource(source, formatter: formatter);
       final updated = sync.source;
       if (updated == null) {
         if (sync.note != null && RequestSource.parse(source) != null) {
