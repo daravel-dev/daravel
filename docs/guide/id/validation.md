@@ -1,4 +1,4 @@
-<!-- source: validation.md sha256:130df22648a1 -->
+<!-- source: validation.md sha256:3073d4c168af -->
 # Validasi
 
 Validasi request secara inline dengan string rule Laravel, atau dengan objek
@@ -128,7 +128,11 @@ dan `rfc` berlaku bila tidak ada mode.
   di test, atau saat membuat OpenAPI), dan `dartisan lint` melaporkannya.
 
 `active_url` lolos bila host dari URL punya record A atau AAAA; alamat IP
-gagal, seperti di Laravel.
+gagal, seperti di Laravel. Host-nya adalah host yang diberikan `parse_url`
+PHP, dicari apa adanya seperti di Laravel: host internasional (`bücher.de`)
+atau host dengan escape persen tidak dikonversi, sehingga gagal di keduanya,
+di sini tanpa lookup. `email:dns` justru mengonversinya (punycode), seperti
+egulias.
 
 Keduanya membuat server mencari nama yang dikirim pengguna. Setiap lookup
 menambah latensi request (paling lama 2 detik, lalu aturannya gagal), jadi

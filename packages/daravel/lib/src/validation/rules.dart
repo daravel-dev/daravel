@@ -16,6 +16,7 @@ import 'image_size.dart';
 import 'object_rules.dart';
 import 'php_date_format.dart';
 import 'php_email_filter.dart';
+import 'php_url.dart';
 import 'rule.dart';
 import 'typed_rules.dart';
 
@@ -1286,15 +1287,18 @@ final class ActiveUrlRule extends Rule {
 
   @override
   Future<String?> passes(ValidationContext context) async {
-    // Laravel: the host of parse_url, then dns_get_record(host, A|AAAA).
-    // An IP address is not a name DNS answers for, so it fails without a
-    // lookup, as it does in Laravel; so does a name DNS cannot carry.
+    // Laravel 13: dns_get_record(parse_url's host . '.', A|AAAA), the host
+    // as written: no IDN conversion and no percent-decoding. A name DNS
+    // cannot answer as written (`bücher.de`, `b%C3%BCcher.de`, an empty
+    // label as in `example.com.`, a space) never has an address there, so
+    // it fails here without a lookup; so does an IP address, which is not
+    // a name. Any other name is the one Laravel asks for.
     final value = context.value;
     if (value is! String) {
       return name;
     }
-    final host = Uri.tryParse(value)?.host ?? '';
-    if (host.isEmpty || isIpLiteral(host)) {
+    final host = phpUrlHost(value);
+    if (host == null || !_dnsName.hasMatch(host) || isIpLiteral(host)) {
       return name;
     }
     final ascii = toAsciiHost(host);
@@ -1303,6 +1307,11 @@ final class ActiveUrlRule extends Rule {
     }
     return await _resolver(context).hasAddress(ascii) ? null : name;
   }
+
+  // Labels of letters, digits, '-' and '_', none empty.
+  static final RegExp _dnsName = RegExp(
+    r'^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*$',
+  );
 }
 
 /// `url`: see [Rules.url].
