@@ -44,6 +44,26 @@ match Laravel more closely.
 
 ### Fixed
 
+## 1.27.2
+
+A security patch: fixes only. Upgrade every application that validates lists with `distinct`, authorizes broadcast channels (`routes/channels.dart`) or reads `sum()` or `avg()` on PostgreSQL or MySQL.
+
+### Changed
+
+**Upgrading can change what an application sees:**
+
+- `POST /broadcasting/auth` refuses with `403` a channel name the Pusher protocol does not allow (more than 164 characters with its prefix, or a character other than `A-Z a-z 0-9 _ - = @ , . ;`). No Pusher or Echo client sends one, and the WebSocket server already refused it.
+
+### Security
+
+- Channel patterns took time growing faster than linearly with the channel name: a pattern with two or more placeholders not separated by `.` (`chat-{a}-{b}`, quadratic) or side by side (`{a}{b}{c}`, cubic: 4.6 s for 1 000 characters). `POST /broadcasting/auth` passed a name of any length (up to the form body limit) to them, so one request from any logged-in user could hold a worker for hours in an application with such a pattern. Names are now checked as above, and patterns are matched in time linear in the name with the same matches and values as before. Since 1.10.0.
+- The validation rule `distinct` scanned the whole list for each item, so its time grew with the square of the list length: 16 000 numbers took 15 s and 16 000 `items.*.id` 55 s, from a JSON body of under 100 KB, with the default configuration. It now counts the list once per validation run (`ValidationContext.memo`, new and optional) and decides exactly as before. Since 1.0.0.
+
+### Fixed
+
+- `sum()` and `avg()` of the query builder and model queries threw a cast error on PostgreSQL and MySQL whenever the database returned a decimal: on MySQL every `sum()` and `avg()` of an integer or decimal column, on PostgreSQL `avg()` of an integer or decimal column and `sum()` of a `bigInteger` or `decimal` column. The value is now read as Laravel's `numericAggregate` reads it (no `.`: an `int`, otherwise a `double`). `sum()` without rows stays `null` on 1.x. Since 1.0.0.
+- The publish workflow publishes every package from one job, one after the other, with a fresh token per package, after a dry-run of all of them, and pins every action to a commit (1.27.1 published only 4 of its 22 packages at first, because a floating action version changed under it). Nothing changes for applications.
+
 ## 1.27.1
 
 A security patch: fixes only. Upgrade every application that accepts multipart uploads, validates numbers sent by clients (`decimal`, `multiple_of`, `gt`, `gte`, `lt`, `lte`) or configures WebSocket origins with wildcards.
