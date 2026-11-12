@@ -55,6 +55,10 @@ REVERB_SCALING_DRIVER=redis
   `redis:ping`, `redis:stats`, `redis:keys-audit`, `redis:inspect` (also an
   MCP tool for AI agents), `cache:prune-stale-tags` and a read-only
   `redis:cli` (`package:daravel_redis/commands.dart`).
+- `HORIZON_STORE=redis` for `daravel_horizon` (`RedisHorizonStore`): what
+  Horizon shows, in keys under the hash tag `{daravel:horizon}` (one slot on
+  a Redis Cluster) that expire by themselves, with job lists of bounded
+  size (`HORIZON_STORE_MAX_PER_STATUS`).
 
 Documentation: <https://github.com/daravel-dev/daravel/blob/main/docs/guide/redis.md>.
 

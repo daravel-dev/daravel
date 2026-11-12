@@ -45,14 +45,17 @@ extension HorizonApplicationBuilder on ApplicationBuilder {
           )
           .withConfigCheck(HorizonConfig.check)
           .withCoordinatorService(HorizonService.new)
-          // HORIZON_STORE: `process`, this process's coordinator.
+          // HORIZON_STORE: `process`, this process's coordinator; the
+          // stores other packages register come through the drivers.
           .withBindings(
-            (container) => container.singleton<HorizonStore>(_storeFor),
+            (container) => container
+              ..singleton<HorizonStoreDrivers>((_) => HorizonStoreDrivers())
+              ..singleton<HorizonStore>(_storeFor),
           )
           // Before the connections close: what the workers recorded last
           // is written, not lost with the process.
           .withShutdown((c) async {
-            if (c.resolved<HorizonStore>() case final DatabaseHorizonStore s) {
+            if (c.resolved<HorizonStore>() case final BufferedHorizonStore s) {
               await s.close();
             }
           })
@@ -65,10 +68,13 @@ extension HorizonApplicationBuilder on ApplicationBuilder {
 
 /// The store `HORIZON_STORE` names: `process` (the default, this process's
 /// coordinator) or `database` (the tables of [CreateHorizonTables] on
-/// `HORIZON_STORE_CONNECTION`). `redis` is bound by `daravel_redis`'s
-/// `withRedis()`.
+/// `HORIZON_STORE_CONNECTION`), or one registered in [HorizonStoreDrivers]:
+/// `redis` by `daravel_redis`'s `withRedis()`.
 HorizonStore _storeFor(Container c) {
   final config = c.make<ConfigRepository>().section<HorizonConfig>();
+  if (c.make<HorizonStoreDrivers>().make(config.store, c) case final store?) {
+    return store;
+  }
   return switch (config.store) {
     'process' => ProcessHorizonStore(() => c.make<CoordinatorChannel>()),
     'database' => DatabaseHorizonStore(

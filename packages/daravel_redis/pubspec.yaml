@@ -21,6 +21,7 @@ resolution: workspace
 dependencies:
   crypto: ^3.0.7
   daravel: ^1.27.1
+  daravel_horizon: ^1.27.1
   daravel_session: ^1.27.1
   dartisan_cli: ^1.27.1
 

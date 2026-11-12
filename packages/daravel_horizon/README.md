@@ -74,6 +74,30 @@ PostgreSQL or MySQL, or `redis`. Laravel Horizon keeps its data in Redis and
 creates no table, so a database shared with Laravel has no `horizon_*` table
 to collide with.
 
+The `redis` store (`HORIZON_STORE=redis`, with `withRedis()` from
+`daravel_redis`) writes in the same batches, one Lua script per batch. Its
+keys start with `REDIS_PREFIX` and the hash tag `{daravel:horizon}`: on a
+Redis Cluster they share one slot, so one node holds Horizon's data, and
+Laravel Horizon's own keys are never touched. Every key but the set of
+monitored tags expires by itself, so Redis cleans up after a Horizon that
+stopped. The job lists keep at most `HORIZON_STORE_MAX_PER_STATUS` jobs per
+status (10 000) besides their retention, and the counts behind the rates,
+the summary and the metric snapshots are kept apart, so they are never cut
+by that limit:
+
+| Jobs a second | Limit | Completed jobs listed | Redis memory of the lists, at most |
+| --: | --: | :-- | --: |
+| 2 | 10 000 | the full hour (7 200 jobs) | about 15 MB |
+| 10 | 10 000 | about 17 minutes | about 15 MB |
+| 1 000 | 10 000 | about 10 seconds | about 15 MB |
+| 1 000 | 100 000 | about 100 seconds | about 40 MB |
+
+Laravel Horizon lists completed jobs for 60 minutes with no limit on their
+number (gigabytes at a high rate), and the `database` store has no limit on
+the number either. A record counts once per job and status; that is
+remembered with the job, so a duplicate arriving after the job left every
+list counts again.
+
 ## License
 
 MIT.

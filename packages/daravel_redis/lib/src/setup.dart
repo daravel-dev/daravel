@@ -1,12 +1,14 @@
 import 'dart:isolate';
 
 import 'package:daravel/daravel.dart';
+import 'package:daravel_horizon/daravel_horizon.dart';
 import 'package:daravel_session/daravel_session.dart';
 
 import 'broadcasting.dart';
 import 'client.dart';
 import 'config.dart';
 import 'events.dart';
+import 'horizon_store.dart';
 import 'limiters.dart';
 import 'queue.dart';
 import 'session.dart';
@@ -50,6 +52,11 @@ extension RedisApplicationBuilder on ApplicationBuilder {
               'redis',
               (session) => redisSessionHandler(c, session),
             ),
+          )
+          // HORIZON_STORE=redis, whichever of withHorizon() and withRedis()
+          // comes first.
+          ..resolving<HorizonStoreDrivers>(
+            (drivers, c) => drivers.extend('redis', _horizonStore),
           );
       })
       .withCacheStore('redis', _redisStore)
@@ -107,6 +114,23 @@ extension RedisApplicationBuilder on ApplicationBuilder {
         }),
       ])
       .withShutdown((c) async => c.resolved<RedisManager>()?.close());
+}
+
+/// `HORIZON_STORE=redis`: on `HORIZON_STORE_CONNECTION` (the default
+/// connection when unset), after `REDIS_PREFIX`.
+HorizonStore _horizonStore(Container c) {
+  final config = c.make<ConfigRepository>();
+  final horizon = config.section<HorizonConfig>();
+  return RedisHorizonStore(
+    c.make<RedisManager>().connection(horizon.storeConnection ?? 'default'),
+    prefix: config.section<RedisConfig>().prefix,
+    retention: horizon.trim.completed,
+    failedRetention: horizon.trim.failed,
+    monitoredRetention: horizon.trim.monitored,
+    maxPerStatus: horizon.storeMaxPerStatus,
+    appMetrics: c.make<AppMetrics>(),
+    logger: c.make<Logger>(),
+  );
 }
 
 RedisStore _redisStore(Container c) {
