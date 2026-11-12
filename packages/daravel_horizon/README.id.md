@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:3505670b03a7 -->
+<!-- source: README.md sha256:5dd8ab83e05f -->
 <img src="https://raw.githubusercontent.com/daravel-dev/daravel/main/docs/brand/png/daravel-icon-128.png" alt="Daravel" width="64" align="right">
 
 # daravel_horizon
