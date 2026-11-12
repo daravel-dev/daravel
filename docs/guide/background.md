@@ -87,6 +87,15 @@ until commit by default.
 
 ### Attempts, timeouts and `retry_after`
 
+- The database queue runs each job at least once, as Laravel's does, not
+  exactly once: a worker that loses its connection after a job ran, or is
+  killed, leaves the job to run again after `retry_after`. A transient error
+  on the delete after a job ran (a deadlock, SQLite busy or locked) is
+  retried for half of `retry_after`, so it no longer runs a job twice, but
+  jobs must still be idempotent: make a second run harmless (check whether
+  the work is done, an idempotency key in a unique column) or keep one
+  dispatch at a time (`ShouldBeUnique`). SQLite with several workers makes
+  busy errors, and so these retries, more likely.
 - A job that fails for good is removed from `jobs` first and then written
   to `failed_jobs`, as in Laravel. When that write fails (the table missing,
   the database refusing), the job is gone without a record: the worker logs

@@ -998,13 +998,20 @@ final class DatabaseQueue
   });
 
   /// Runs [body] (the delete or release of a job this worker ran) again
-  /// after a transient error (a deadlock, SQLite busy or locked) for as long
-  /// as the reservation is safely ours: half of [retryAfter]. Before, one
-  /// such error after the job ran left its row reserved, and the job ran a
-  /// second time once [retryAfter] passed: a "completed 301 of 300" with no
-  /// worker killed (Horizon `master_test` on Windows, SQLite busy on the
-  /// DELETE). Past that bound the job may run again, which is the queue's
-  /// at-least-once guarantee, as in Laravel.
+  /// after a transient error (a deadlock, SQLite busy or locked), for at
+  /// most half of [retryAfter] counted from the first attempt of [body].
+  /// Before, one such error after the job ran left its row reserved, and the
+  /// job ran a second time once [retryAfter] passed: a "completed 301 of
+  /// 300" with no worker killed (Horizon `master_test` on Windows, SQLite
+  /// busy on the DELETE).
+  ///
+  /// The bound counts from here, not from the reservation (a [QueuedJob]
+  /// does not carry its reservation time, and a running job's heartbeat
+  /// moves it): a job that ran for most of [retryAfter] may be retried past
+  /// its reservation, when another worker may already have reserved it
+  /// again. That job then runs again, as it would have without the retry;
+  /// beyond the bound it may run again too. Both are the queue's
+  /// at-least-once guarantee, as in Laravel: jobs must be idempotent.
   Future<void> _whileReserved(Future<void> Function() body) async {
     final watch = Stopwatch()..start();
     final limit = retryAfter ~/ 2;
