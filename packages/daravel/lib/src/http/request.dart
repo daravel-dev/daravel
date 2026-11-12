@@ -14,6 +14,7 @@ import '../validation/validator.dart';
 import 'cookies.dart';
 import 'csp.dart';
 import 'headers.dart';
+import 'host_header.dart';
 import 'http_exceptions.dart';
 import 'multipart.dart';
 import 'uploaded_file.dart';
@@ -52,9 +53,12 @@ final class Request {
   /// `X-Forwarded-Proto` and `X-Forwarded-Host` from whoever sent them.
   ///
   /// Throws [BadRequestHttpException] for a request `dart:io` accepted but
-  /// that cannot be represented: a `Host` that `Uri.parse` refuses (an
-  /// unterminated `[::1` or a space), or a header value [Headers] refuses
-  /// (control characters). (Of several `Host` headers `dart:io` keeps the
+  /// that cannot be represented: a `Host` (or absolute-form authority) that
+  /// is not `uri-host [":" port]`, which could otherwise change the path or
+  /// host the application sees (`/`, `?`, `#`, `@`, a backslash, spaces;
+  /// see `parseHostAuthority`), userinfo in an absolute-form target, or a
+  /// header value [Headers] refuses (control characters). The path and
+  /// query always come from the request line. (Of several `Host` headers `dart:io` keeps the
   /// last; RFC 9112 §3.2 asks for 400, which it does not give.) The
   /// engine answers 400; without this the error would escape the server's
   /// listen callback and take the serving isolate down.
@@ -1180,15 +1184,18 @@ List<int> _fakeMultipart(
   return out.takeBytes();
 }
 
-/// The URI of a request read off a socket: the scheme of the listener
-/// ([secure]), the authority of the request line's target when it is in
-/// absolute form (RFC 9112 §3.2.2: the `Host` header is then ignored) or
-/// else of the `Host` header ([hosts]; [listenerAuthority] without one, as
-/// HTTP/1.0 allows), and the target's path and query.
+/// The URI of a request read off a socket, built from parts, never by
+/// joining strings a client sent:
 ///
-/// The scheme of an absolute-form target is not taken: a client can write
-/// `https://` on a plain listener. Throws [FormatException] for an
-/// authority `Uri.parse` refuses.
+/// - the scheme of the listener ([secure]); the scheme an absolute-form
+///   target writes is not taken (a client can write `https://` on a plain
+///   listener);
+/// - the authority of the request line's target when it is in absolute
+///   form (RFC 9112 §3.2.2: the `Host` header is then ignored), else of the
+///   `Host` header ([hosts]), else [listenerAuthority] (HTTP/1.0). It must
+///   be `uri-host [":" port]` ([parseHostAuthority]); anything else, and
+///   userinfo in an absolute-form target, throws [FormatException];
+/// - the path and query of the target, as written.
 Uri _requestUri(
   Uri target,
   List<String>? hosts, {
@@ -1196,9 +1203,47 @@ Uri _requestUri(
   required String listenerAuthority,
 }) {
   final scheme = secure ? 'https' : 'http';
+  final HostAuthority? authority;
+  final String raw;
   if (target.hasScheme) {
-    return target.replace(scheme: scheme);
+    if (target.userInfo.isNotEmpty) {
+      throw const FormatException('Userinfo in the request target.');
+    }
+    authority = parseHostAuthority(
+      target.hasPort ? target.authority : _bracketed(target.host),
+    );
+    raw = _pathAndQuery(target);
+  } else {
+    authority = parseHostAuthority(
+      hosts == null || hosts.isEmpty ? listenerAuthority : hosts.first,
+    );
+    // `//x/y` is a path here, though Uri.parse reads `x` as an authority.
+    raw = target.toString();
   }
-  final host = hosts == null || hosts.isEmpty ? listenerAuthority : hosts.first;
-  return Uri.parse('$scheme://$host$target');
+  if (authority == null) {
+    throw const FormatException('Malformed Host.');
+  }
+  final hash = raw.indexOf('#');
+  final end = hash < 0 ? raw.length : hash;
+  final found = raw.indexOf('?');
+  final mark = found < 0 || found > end ? -1 : found;
+  final query = mark < 0 ? null : raw.substring(mark + 1, end);
+  final uri = Uri(
+    scheme: scheme,
+    host: authority.host,
+    port: authority.port,
+    path: raw.substring(0, mark < 0 ? end : mark),
+    query: query == null || query.isEmpty ? null : query,
+  );
+  // `Uri` built from parts drops an empty query; the request line kept it
+  // (`/p?`). Appended to a URI already built, it changes nothing else.
+  return query != null && query.isEmpty ? Uri.parse('$uri?') : uri;
 }
+
+/// [host] as an authority writes it: an IPv6 address in brackets.
+String _bracketed(String host) => host.contains(':') ? '[$host]' : host;
+
+/// The path and query of an absolute-form [target], as written.
+String _pathAndQuery(Uri target) =>
+    '${target.path.isEmpty ? '/' : target.path}'
+    '${target.hasQuery ? '?${target.query}' : ''}';

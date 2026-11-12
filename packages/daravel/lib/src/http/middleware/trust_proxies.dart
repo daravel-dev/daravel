@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import '../host_header.dart';
 import '../middleware.dart';
 import '../request.dart';
 import '../response.dart';
@@ -155,9 +156,11 @@ final class TrustProxiesMiddleware implements Middleware {
           ?.split(',')
           .first
           .trim();
+      // Even from a trusted proxy, only `uri-host [":" port]`: a value that
+      // could change the path or host the application sees is ignored.
       if (value != null &&
           value.isNotEmpty &&
-          !value.contains(RegExp(r'[\s/\\]'))) {
+          parseHostAuthority(value) != null) {
         host = value;
       }
     }
