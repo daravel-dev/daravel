@@ -104,6 +104,14 @@ void main() {
       expect(await read(512), isEmpty);
       expect(await read(3, depth: 4), contains('a'));
       expect(await read(4, depth: 4), isEmpty);
+      // A body as long as the limit, all of it opening brackets: counted
+      // (a shorter one cannot nest that deep and is not).
+      final opens = Request.fake(
+        method: 'POST',
+        body: '[[[[',
+        headers: {'content-type': 'application/json'},
+      )..jsonMaxDepth = 4;
+      expect(await opens.body(), <String, Object?>{});
     });
 
     test('null turns the limit off', () async {

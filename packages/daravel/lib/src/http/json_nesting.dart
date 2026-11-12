@@ -2,6 +2,8 @@
 /// in one pass, before it is decoded.
 library;
 
+import 'dart:typed_data';
+
 /// The deepest nesting of arrays and objects in the UTF-8 JSON [bytes]:
 /// `1` for `[1]` or `{"a":1}`, `2` for `{"a":[1]}`, `0` for a scalar.
 ///
@@ -16,28 +18,31 @@ library;
 /// further than it must. Time and memory are linear in the length of
 /// [bytes], whatever the nesting, with no recursion.
 int jsonNesting(List<int> bytes, {int? stopAt}) {
+  // A request body is a Uint8List (BytesBuilder.takeBytes); indexing one
+  // through its own type is several times faster than through List<int>.
+  final data = bytes is Uint8List ? bytes : Uint8List.fromList(bytes);
+  final limit = stopAt ?? -1;
   var depth = 0;
   var deepest = 0;
-  var inString = false;
-  final length = bytes.length;
+  final length = data.length;
   for (var i = 0; i < length; i++) {
-    final byte = bytes[i];
-    if (inString) {
-      if (byte == _backslash) {
-        i++; // The escaped character, whatever it is.
-      } else if (byte == _quote) {
-        inString = false;
-      }
-      continue;
-    }
-    switch (byte) {
+    switch (data[i]) {
       case _quote:
-        inString = true;
+        // Skip the string: to its closing quote, past escaped characters.
+        for (i++; i < length; i++) {
+          final byte = data[i];
+          if (byte == _quote) {
+            break;
+          }
+          if (byte == _backslash) {
+            i++; // The escaped character, whatever it is.
+          }
+        }
       case _openArray || _openObject:
         depth++;
         if (depth > deepest) {
           deepest = depth;
-          if (stopAt != null && deepest >= stopAt) {
+          if (deepest == limit) {
             return deepest;
           }
         }

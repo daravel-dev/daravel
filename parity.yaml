@@ -40,7 +40,7 @@ sections:
       - { php: "$request->validate($rules)", dart: "await request.validate(rules)", symbol: Request.validate, async: true }
       - { php: "$request->all()", dart: "await request.all()", symbol: Request.all, async: true }
       - { php: "$request->input('a.b')", dart: "await request.input<T>('a.b')", symbol: Request.input, async: true }
-      - { php: "$request->json() (json_decode depth 512)", dart: "request.jsonMaxDepth (HTTP_JSON_MAX_DEPTH, 512)", symbol: Request.jsonMaxDepth, note: "As PHP's json_decode $depth: 511 nested levels are read, 512 or deeper are no input (not a 400). Counted on the bytes before decoding." }
+      - { php: "$request->json() (json_decode depth 512)", dart: "request.jsonMaxDepth (HTTP_JSON_MAX_DEPTH, 512)", symbol: Request.jsonMaxDepth, note: "As PHP's json_decode $depth: 511 nested levels are read, 512 or deeper are no input (not a 400). Counted on the bytes before decoding. A malformed JSON body stays a 400, where Laravel reads no input: a deliberate difference." }
       - { php: "$request->merge([...])", dart: "await request.merge({...})", symbol: Request.merge, async: true }
       - { php: "$request->replace([...])", dart: "request.replace({...})", symbol: Request.replace }
       - { php: "$request->has('key')", dart: "await request.has('key')", symbol: Request.has, async: true }

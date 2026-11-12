@@ -4,7 +4,8 @@
 
 ### Fixed
 
-- A JSON body nested a few thousand levels deep answered 500 (a stack overflow): from 2 345 levels in `distinct`, from 3 433 in a response echoing the input. The nesting is now counted on the bytes in one pass before decoding, so such a body never reaches code that walks the input recursively. `BodyLimitsMiddleware`'s `jsonDepth` check counts the same way, so a body far past it is a 400, never a 500.
+- A JSON body nested a few thousand levels deep answered 500 (a stack overflow): from 2 345 levels in `distinct`, from 3 433 in a response echoing the input. The nesting is now counted on the bytes in one pass before decoding, so such a body never reaches code that walks the input recursively.
+- `BodyLimitsMiddleware`'s `jsonDepth` check (a 400 above 64 levels) measured the nesting by walking the decoded body recursively, so a body nested a few thousand levels deep overflowed the stack in the check itself (a 500). It now counts on the bytes the same way: 400 at 65, 600 or 200 000 levels.
 
 ### Upgrade notes
 

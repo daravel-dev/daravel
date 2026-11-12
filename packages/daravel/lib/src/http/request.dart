@@ -233,7 +233,10 @@ final class Request {
   /// the input recursively: measured on Dart 3.13 with the limit off,
   /// `distinct` over `a.*` overflowed the stack (a 500) from 2 345 nested
   /// levels and a response echoing the input from 3 433, so `dartisan
-  /// doctor` warns in production above 1 024.
+  /// doctor` warns in production above 1 024. Counting costs about 1 ms
+  /// per MiB (AOT), a tenth of decoding a typical body; a body shorter
+  /// than the limit, which cannot nest that deep, and a request with no
+  /// limit are not counted.
   ///
   /// The default, [defaultJsonMaxDepth], applies to every request, served
   /// or synthetic; the kernel sets the application's (`HTTP_JSON_MAX_DEPTH`,
@@ -613,15 +616,19 @@ final class Request {
     if (contentType.contains('json')) {
       final refuseAbove = maxJsonDepth;
       final emptyFrom = jsonMaxDepth;
-      if (refuseAbove != null || emptyFrom != null) {
+      // The nesting at which a limit applies; each level takes a byte, so
+      // a body shorter than the lowest of them is not counted at all.
+      final refuseAt = refuseAbove == null ? null : refuseAbove + 1;
+      final lowest = [
+        ?refuseAt,
+        ?emptyFrom,
+      ].fold<int?>(null, (low, at) => low == null ? at : math.min(low, at));
+      if (lowest != null && raw.length >= lowest) {
         // Counted on the bytes, before decoding: nothing that walks the
         // decoded value recursively ever sees a nesting past the limits.
         final nesting = jsonNesting(
           raw,
-          stopAt: math.max(
-            refuseAbove == null ? 0 : refuseAbove + 1,
-            emptyFrom ?? 0,
-          ),
+          stopAt: math.max(refuseAt ?? 0, emptyFrom ?? 0),
         );
         if (refuseAbove != null && nesting > refuseAbove) {
           throw BadRequestHttpException(
