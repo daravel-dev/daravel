@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:meta/meta.dart';
+
 import '../foundation/application.dart';
 import '../foundation/env.dart';
 import '../logging/logger.dart';
@@ -37,6 +39,9 @@ final class ServeOptions {
     this.maxInFlight,
     this.maxQueueDelay,
     this.maxBodyBytes = defaultMaxBodyBytes,
+    this.maxHeaderBytes = defaultMaxHeaderBytes,
+    this.maxHeaderLineBytes = defaultMaxHeaderLineBytes,
+    this.maxHeaders = defaultMaxHeaders,
     this.accessLog = true,
     this.drainGrace = const Duration(milliseconds: 250),
   });
@@ -44,6 +49,21 @@ final class ServeOptions {
   /// The body limit a request starts with: [Request.defaultMaxBodyBytes]
   /// (50 MiB, the widest limit `BodyLimitsMiddleware` applies).
   static const int defaultMaxBodyBytes = Request.defaultMaxBodyBytes;
+
+  /// The default of [maxHeaderBytes]: 32 KiB, about what nginx's default
+  /// buffers hold (`large_client_header_buffers 4 8k`), twice Node's
+  /// default (16 KiB) and half of an AWS load balancer's (64 KiB).
+  static const int defaultMaxHeaderBytes = 32 * 1024;
+
+  /// The default of [maxHeaderLineBytes]: 16 KiB, an AWS load balancer's
+  /// limit for one header; nginx's default is 8 KiB per line, so a request
+  /// that passes nginx passes here.
+  static const int defaultMaxHeaderLineBytes = 16 * 1024;
+
+  /// The default of [maxHeaders]: 100, Apache's `LimitRequestFields`
+  /// (`DEFAULT_LIMIT_REQUEST_FIELDS` in httpd.h). `dart:io` sets no limit
+  /// on the number of headers, only on their total size (1 MiB).
+  static const int defaultMaxHeaders = 100;
 
   /// Reads `APP_HOST` / `APP_PORT`, overridable by explicit arguments.
   ///
@@ -101,8 +121,32 @@ final class ServeOptions {
           ? null
           : maxQueueDelay,
       maxBodyBytes: _maxBodyFromEnv(env),
+      maxHeaderBytes: _limitFromEnv(
+        env,
+        'HTTP_MAX_HEADER_BYTES',
+        defaultMaxHeaderBytes,
+      ),
+      maxHeaderLineBytes: _limitFromEnv(
+        env,
+        'HTTP_MAX_HEADER_LINE_BYTES',
+        defaultMaxHeaderLineBytes,
+      ),
+      maxHeaders: _limitFromEnv(env, 'HTTP_MAX_HEADERS', defaultMaxHeaders),
       accessLog: env.boolean('HTTP_ACCESS_LOG', true),
     );
+  }
+
+  /// A limit from [name]: unset means [fallback], `0` no limit.
+  static int? _limitFromEnv(Env env, String name, int fallback) {
+    final value = env.integer(name, fallback);
+    if (value < 0) {
+      throw ArgumentError.value(
+        value,
+        name,
+        'must be a positive number, or 0 for no limit',
+      );
+    }
+    return value == 0 ? null : value;
   }
 
   /// `HTTP_MAX_BODY` in bytes: unset means [defaultMaxBodyBytes], `0` no
@@ -222,6 +266,32 @@ final class ServeOptions {
   /// no limit.
   final int? maxBodyBytes;
 
+  /// The most bytes the request line and headers of a request may hold
+  /// together (`HTTP_MAX_HEADER_BYTES`, [defaultMaxHeaderBytes]): the
+  /// method, the target and, for each header, its name and value as
+  /// received. Above it the request is refused with `431 Request Header
+  /// Fields Too Large` and its connection closed, before routing,
+  /// middleware or a request scope run, and for a WebSocket handshake
+  /// before the upgrade. `null` (`HTTP_MAX_HEADER_BYTES=0`) sets no limit,
+  /// for a proxy in front that limits headers already.
+  ///
+  /// This bounds what the application parses (cookies, tokens, every
+  /// middleware reading a header), not what `dart:io` reads: it reads up
+  /// to 1 MiB of request line and headers before the engine sees the
+  /// request, and closes the connection without an answer beyond that.
+  final int? maxHeaderBytes;
+
+  /// The most bytes one header may hold, name and value
+  /// (`HTTP_MAX_HEADER_LINE_BYTES`, [defaultMaxHeaderLineBytes]); refused
+  /// like [maxHeaderBytes]. A header sent several times counts each time
+  /// on its own. `null` (`0`) sets no limit.
+  final int? maxHeaderLineBytes;
+
+  /// The most headers a request may have (`HTTP_MAX_HEADERS`,
+  /// [defaultMaxHeaders]), a header sent several times counting each
+  /// time; refused like [maxHeaderBytes]. `null` (`0`) sets no limit.
+  final int? maxHeaders;
+
   /// Whether every request is logged at `info` when it ends (method, path,
   /// status, time; `HTTP_ACCESS_LOG`, on by default). Turn it off when a
   /// proxy in front already writes an access log: the line costs CPU per
@@ -296,6 +366,8 @@ final class ServerEngine {
   int _inFlight = 0;
   int _shed = 0;
   int _lastShedLogMs = -1;
+  int _headerRefusals = 0;
+  int _lastHeaderLogMs = -1;
   late final Set<String> _neverShed = _healthPaths();
   Timer? _lagTimer;
   final Stopwatch _lagClock = Stopwatch();
@@ -864,6 +936,96 @@ final class ServerEngine {
     }
   }
 
+  /// Why [httpRequest]'s headers exceed [ServeOptions.maxHeaderBytes] or
+  /// [ServeOptions.maxHeaderLineBytes] (the largest header's name and size,
+  /// never its value), or `null` within both. One pass over what `dart:io`
+  /// parsed already; header strings hold one character per byte received.
+  String? _headersTooLarge(HttpRequest httpRequest) {
+    final total = options.maxHeaderBytes;
+    final line = options.maxHeaderLineBytes;
+    final count = options.maxHeaders;
+    if (total == null && line == null && count == null) {
+      return null;
+    }
+    var size = httpRequest.method.length + httpRequest.uri.toString().length;
+    var headers = 0;
+    var largest = '';
+    var largestSize = 0;
+    httpRequest.headers.forEach((name, values) {
+      for (final value in values) {
+        headers++;
+        final header = name.length + value.length;
+        size += header;
+        if (header > largestSize) {
+          largest = name;
+          largestSize = header;
+        }
+      }
+    });
+    if (count != null && headers > count) {
+      return '$headers headers, above $count';
+    }
+    final name = loggable(largest);
+    if (line != null && largestSize > line) {
+      return 'header "$name" holds $largestSize bytes, above $line';
+    }
+    if (total != null && size > total) {
+      return 'request line and headers hold $size bytes, above $total '
+          '(largest: "$name", $largestSize bytes)';
+    }
+    return null;
+  }
+
+  /// [text] from a client, fit for a log line: at most [max] characters
+  /// (then `…`), and every control or non-ASCII character as `?`, so a
+  /// header name or path cannot forge log lines or fill them.
+  @visibleForTesting
+  static String loggable(String text, {int max = 64}) {
+    final cut = text.length > max ? text.substring(0, max) : text;
+    final safe = String.fromCharCodes([
+      for (final unit in cut.codeUnits)
+        unit < 0x20 || unit > 0x7e ? 0x3f : unit,
+    ]);
+    return text.length > max ? '$safe…' : safe;
+  }
+
+  /// Answers `431 Request Header Fields Too Large` (RFC 6585 §5) and closes
+  /// the connection; logged at most once a second, so a client sending
+  /// large headers in a loop does not fill the log.
+  void _refuseHeaders(HttpRequest httpRequest, String reason) {
+    _discardBody(httpRequest);
+    _headerRefusals++;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (now - _lastHeaderLogMs >= 1000) {
+      _lastHeaderLogMs = now;
+      logger.warning(
+        'Request headers too large: $reason; refused '
+        '${loggable(httpRequest.method)} ${loggable(httpRequest.uri.path)} '
+        'with 431 '
+        '($_headerRefusals refused so far).',
+      );
+    }
+    try {
+      final response = httpRequest.response
+        ..statusCode = HttpStatus.requestHeaderFieldsTooLarge
+        ..headers.contentType = ContentType.json
+        ..headers.set(HttpHeaders.connectionHeader, 'close')
+        ..headers.set(HttpHeaders.cacheControlHeader, 'no-store');
+      response.write(
+        jsonEncode(<String, Object?>{
+          'message': 'Request Header Fields Too Large',
+        }),
+      );
+      unawaited(
+        response.close().catchError((Object _) {
+          // Client gone.
+        }),
+      );
+    } on Object {
+      // The socket is gone: nothing left to do.
+    }
+  }
+
   void _handle(HttpRequest httpRequest) {
     if (_stopping && !WebSocketTransformer.isUpgradeRequest(httpRequest)) {
       // Draining: the client opens a new connection for its next request
@@ -874,6 +1036,10 @@ final class ServerEngine {
     }
     if (_mustShed(httpRequest)) {
       _shedRequest(httpRequest);
+      return;
+    }
+    if (_headersTooLarge(httpRequest) case final reason?) {
+      _refuseHeaders(httpRequest, reason);
       return;
     }
     // The slot is held until the response is written and terminate() has
