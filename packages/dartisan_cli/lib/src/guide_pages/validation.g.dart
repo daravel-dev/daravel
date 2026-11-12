@@ -94,6 +94,27 @@ Rules.unique('users', 'email').where((QueryBuilder q) => q.whereNull('deleted_at
 Rules.exists('billing.invoices', 'id').where((QueryBuilder q) => q.where('open', true));
 ```
 
+Rules that depend on the input or on each element, as Laravel's `Rule::when`,
+`Rule::unless`, `Rule::forEach` and `Rule::anyOf`:
+
+```dart
+'company': Rules.whenInput((input) => input['type'] == 'business',
+    [Rules.required(), Rules.string()]),
+'notes': Rules.when(isAdmin, [Rules.nullable()], otherwise: [Rules.prohibited()]),
+'items.*.qty': Rules.forEach((item) =>
+    item.value == 0 ? [Rules.integer(), Rules.min(1)] : [Rules.integer()]),
+'items.*': Rules.forEachNested((item) => {'sku': [Rules.required()]}),
+'login': Rules.anyOf([[Rules.email()], [Rules.integer(), Rules.min(1)]]),
+```
+
+A condition is decided once per validation, on the whole input (after
+`prepare`). `forEachNested` validates keys of each element (`items.2.sku`),
+and those keys are part of `validated()`. Each `anyOf` alternative is
+validated on the value alone, as in Laravel: a rule inside it that names
+another field does not see that field. A `forEach` that keeps returning
+`forEach` stops with an error after `Validator.maxRuleNesting` (8) levels;
+Laravel has no limit.
+
 ## Form requests
 
 <!-- include: packages/daravel/test/docs/guide_examples_test.dart#form-request -->
@@ -119,6 +140,64 @@ creates one.
 Declare it on the route with `.validates(const StorePostRequest())` instead
 and read `request.validated()` in the handler; see
 [Routing](routing.md#declared-validation-and-responses).
+
+### Typed input
+
+`make:request` writes a typed request: each input is a `Field<T>`
+constant, the rules are keyed by those fields, and the input type has one
+typed getter per field.
+
+```dart
+final class StoreNoteRequest extends FormRequest<StoreNoteRequestInput> {
+  const StoreNoteRequest();
+
+  static const title = Field<String>('title');
+  static const stars = Field<int?>('stars');
+
+  @override
+  Map<String, Object> rules(Request request) => {
+    title: [Rules.required(), Rules.string()],
+    stars: [Rules.nullable(), Rules.integer()],
+  };
+}
+
+// <dartisan:input>
+extension type const StoreNoteRequestInput(ValidatedData _data)
+    implements ValidatedData {
+  String get title => _data.field(StoreNoteRequest.title);
+  int? get stars => _data.field(StoreNoteRequest.stars);
+
+  Map<String, Object?> get typed => {'title': title, 'stars': stars};
+}
+// </dartisan:input>
+```
+
+`await const StoreNoteRequest().validateRequest(request)` returns the typed
+input (`input.stars` is an `int?`, converted from `'4'`).
+`dart run bin/dartisan.dart request:sync` rewrites the `<dartisan:input>`
+region after you add, rename or retype a field; `request:sync --check`
+writes nothing and exits 1 when a region is out of date, for CI. An input
+type you declare yourself, without the region, is left as it is.
+
+`typed` holds every field by its input key, already converted to its
+declared type. A field's type and its rules can still disagree (a
+`Field<int>` with only `required`): validation passes and the getter
+throws, a 500. `make:request` also writes a test that catches this, with
+`daravel_test`:
+
+```dart
+test('StoreNoteRequest reads every field as its declared type', () async {
+  await expectFormRequestTyped(const StoreNoteRequest(), {
+    'title': 'Hello',
+    'stars': '4',
+  }, read: (input) => input.typed);
+});
+```
+
+The test is as strong as its sample input: add one call per branch of an
+optional rule (a `nullable` field sent and not). A failure names the
+request, and the failed rules or the mistyped field, never the input
+values.
 
 ## File uploads
 

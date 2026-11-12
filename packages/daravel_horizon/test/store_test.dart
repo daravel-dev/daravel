@@ -13,11 +13,14 @@ void main() {
     service = HorizonService(maxPerStatus: 3, clock: () => now);
   });
 
+  // A new uuid each time: every call is another job (the store keeps one
+  // record per uuid).
+  var jobs = 0;
   void record(String status, {String queue = 'a', int? ms, int ago = 0}) =>
       service.handle('record', {
         'job': jsonEncode(
           RecordedJob(
-            uuid: 'u${now.microsecond}$status$ago',
+            uuid: 'u${jobs++}',
             name: 'mark',
             queue: queue,
             status: status,
@@ -170,5 +173,20 @@ void main() {
       (((metrics['queues']! as Map)['q']! as List).first! as Map)['count'],
       3,
     );
+  });
+
+  test('the uuid index holds no more jobs than the lists: a record trimmed '
+      'from them leaves it too', () {
+    for (var i = 0; i < 10; i++) {
+      record('completed');
+    }
+    // maxPerStatus is 3.
+    expect(recent('completed'), hasLength(3));
+    expect(service.indexedJobs, 3);
+    now = now.add(const Duration(minutes: 61));
+    record('failed');
+    record('completed');
+    expect(recent('completed'), hasLength(1), reason: 'the old ones expired');
+    expect(service.indexedJobs, 2);
   });
 }

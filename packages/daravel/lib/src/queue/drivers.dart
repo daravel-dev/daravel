@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 
 import '../foundation/clock.dart';
 
@@ -983,17 +984,54 @@ final class DatabaseQueue
   }
 
   @override
-  Future<void> release(QueuedJob job, Duration delay) async {
-    await _query().where('id', job.id).update(<String, Object?>{
-      'reserved_at': null,
-      'available_at': _now + delay.inSeconds,
-    });
-  }
+  Future<void> release(QueuedJob job, Duration delay) =>
+      _whileReserved(() async {
+        await _query().where('id', job.id).update(<String, Object?>{
+          'reserved_at': null,
+          'available_at': _now + delay.inSeconds,
+        });
+      });
 
   @override
-  Future<void> delete(QueuedJob job) async {
+  Future<void> delete(QueuedJob job) => _whileReserved(() async {
     await _query().where('id', job.id).delete();
+  });
+
+  /// Runs [body] (the delete or release of a job this worker ran) again
+  /// after a transient error (a deadlock, SQLite busy or locked), for at
+  /// most half of [retryAfter] counted from the first attempt of [body].
+  /// Before, one such error after the job ran left its row reserved, and the
+  /// job ran a second time once [retryAfter] passed: a "completed 301 of
+  /// 300" with no worker killed (Horizon `master_test` on Windows, SQLite
+  /// busy on the DELETE).
+  ///
+  /// The bound counts from here, not from the reservation (a [QueuedJob]
+  /// does not carry its reservation time, and a running job's heartbeat
+  /// moves it): a job that ran for most of [retryAfter] may be retried past
+  /// its reservation, when another worker may already have reserved it
+  /// again. That job then runs again, as it would have without the retry;
+  /// beyond the bound it may run again too. Both are the queue's
+  /// at-least-once guarantee, as in Laravel: jobs must be idempotent.
+  Future<void> _whileReserved(Future<void> Function() body) async {
+    final watch = Stopwatch()..start();
+    final limit = retryAfter ~/ 2;
+    var wait = DatabaseManager.retryBaseDelay;
+    while (true) {
+      try {
+        await body();
+        return;
+      } on Object catch (error) {
+        if (watch.elapsed + wait >= limit ||
+            !await db.isRetryable(error, connection: connection)) {
+          rethrow;
+        }
+      }
+      await Future<void>.delayed(wait);
+      wait = DatabaseManager.retryDelay(wait, _retryRandom);
+    }
   }
+
+  static final math.Random _retryRandom = math.Random();
 
   @override
   Future<int> size(String queue) => _query().where('queue', queue).count();

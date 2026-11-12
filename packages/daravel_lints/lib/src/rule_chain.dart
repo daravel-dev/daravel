@@ -36,7 +36,7 @@ String? _call(String segment) {
   String s(int i) => _string(args[i]);
   String list([int from = 0]) => '[${args.skip(from).map(_string).join(', ')}]';
   String? n(int i) => _number(args[i]);
-  String? integer(int i) => int.tryParse(args[i]) == null ? null : args[i];
+  String? integer(int i) => _integer(args[i]);
   bool has(int count) => args.length >= count;
   String? none(String method) => args.isEmpty ? '$method()' : null;
   String? one(String method) => has(1) ? '$method(${s(0)})' : null;
@@ -183,7 +183,7 @@ String? _call(String segment) {
     'exists' when args.length == 2 => 'exists(${s(0)}, ${s(1)})',
     'password' when args.isEmpty => 'password()',
     'password' when args.length == 1 && integer(0) != null =>
-      'password(min: ${args[0]})',
+      'password(min: ${integer(0)})',
     _ => null,
   };
 }
@@ -206,9 +206,21 @@ String _unique(List<String> args) {
   return 'unique(${values.join(', ')})';
 }
 
-/// [value] as a Dart number literal, `null` when it is not a plain one.
-String? _number(String value) =>
-    RegExp(r'^-?\d+(\.\d+)?$').hasMatch(value) ? value : null;
+/// The number `RuleParser` reads from [value] (`num.parse`), written as a
+/// Dart literal: `+5` and `1e3` parse but are not the literal to write
+/// (`+5` does not compile), so the parsed value is written (`5`,
+/// `1000.0`). `null` when it does not parse or has no literal
+/// (`Infinity`, `NaN`).
+String? _number(String value) {
+  final number = num.tryParse(value);
+  return number == null || (number is double && !number.isFinite)
+      ? null
+      : '$number';
+}
+
+/// The integer `RuleParser` reads from [value] (`int.parse`), as a Dart
+/// literal (`+5` → `5`, `0x10` → `16`); `null` when it does not parse.
+String? _integer(String value) => int.tryParse(value)?.toString();
 
 /// [value] as a single-quoted Dart string literal.
 String _string(String value) {

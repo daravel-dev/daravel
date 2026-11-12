@@ -13,6 +13,7 @@ final class ModelSource {
     required this.primaryKey,
     required this.authenticatable,
     this.defaults = const <String>{},
+    this.relations = const <ModelRelation>[],
     this.fillable = const <String>[],
     this.guarded = const <String>['*'],
   });
@@ -47,6 +48,10 @@ final class ModelSource {
           for (final m in RegExp(r"'(\w+)'\s*:").allMatches(attributes))
             m.group(1)!,
       },
+      relations: [
+        for (final m in _relationEntry.allMatches(source))
+          (name: m.group(1)!, kind: m.group(2)!, related: m.group(3)),
+      ],
       fillable: _stringList(source, 'fillable') ?? const <String>[],
       guarded: _stringList(source, 'guarded') ?? const <String>['*'],
     );
@@ -81,6 +86,9 @@ final class ModelSource {
   /// The columns its `attributes:` map gives a default.
   final Set<String> defaults;
 
+  /// Its relations, from `relations: {'posts': () => HasMany<Post>(...)}`.
+  final List<ModelRelation> relations;
+
   /// Its `fillable:` list (empty when not declared).
   final List<String> fillable;
 
@@ -98,6 +106,17 @@ final class ModelSource {
     return !guarded.contains('*') && !guarded.contains(column);
   }
 }
+
+/// One entry of a model's `relations:` map: its [name], the relation class
+/// ([kind], `HasMany`) and the [related] model (null for `MorphTo`).
+typedef ModelRelation = ({String name, String kind, String? related});
+
+/// `'posts': () => HasMany<Post>(`, as `make:model` and the guide write it.
+final RegExp _relationEntry = RegExp(
+  r"'(\w+)'\s*:\s*\(\)\s*=>\s*(HasMany|HasOne|BelongsToMany|BelongsTo|"
+  r"HasManyThrough|HasOneThrough|MorphMany|MorphOne|MorphToMany|MorphedByMany|"
+  r"MorphTo)(?:<(\w+)>)?\(",
+);
 
 /// Accessor names that would clash with `Model`/`Authenticatable` members
 /// or Dart keywords; those columns are skipped with a warning.
@@ -119,6 +138,10 @@ const Set<String> reservedAccessors = <String>{
   'authPassword',
   'authPasswordName',
   'rememberToken',
+  // The static records model:sync writes: an instance member of the same
+  // name does not compile.
+  'cols',
+  'rels',
   'class',
   'default',
   'new',
@@ -435,6 +458,95 @@ AccessorPlan planAccessors(
   );
   lines.addAll(writes.lines);
   warnings.addAll(writes.warnings);
+  final relations = relationLines(model, {for (final n in names) ?n.getter});
+  lines.addAll(relations.lines);
+  warnings.addAll(relations.warnings);
+  return AccessorPlan(lines, warnings);
+}
+
+/// The loaders `Model` has; a relation loader of the same name would
+/// hide them.
+const Set<String> _modelLoaders = {'load', 'loadMissing'};
+
+/// The relation classes whose result is a collection; the others give one
+/// model or null.
+const Set<String> _manyRelations = {
+  'HasMany',
+  'BelongsToMany',
+  'HasManyThrough',
+  'MorphMany',
+  'MorphToMany',
+  'MorphedByMany',
+};
+
+/// The `static const rels = (...)` record of [model] (`User.rels.posts`),
+/// then a typed getter (`user.posts`) and loader (`user.loadPosts()`) per
+/// relation. A relation whose name is not a Dart name, is reserved, or is
+/// already a column accessor in [columnGetters] is left out with a warning;
+/// a loader that would clash with a `Model` member (`loadMissing`) is left
+/// out alone.
+AccessorPlan relationLines(ModelSource model, Set<String> columnGetters) {
+  final kept = <ModelRelation>[];
+  final warnings = <String>[];
+  for (final relation in model.relations) {
+    final name = relation.name;
+    if (!_identifier.hasMatch(name) ||
+        reservedAccessors.contains(name) ||
+        _objectMembers.contains(name) ||
+        _reservedWords.contains(name)) {
+      warnings.add(
+        'Skipped relation [$name]: not a Dart name, or it clashes with a '
+        'Model member or keyword.',
+      );
+    } else if (columnGetters.contains(name)) {
+      warnings.add(
+        'Skipped relation [$name]: `$name` is already a column accessor.',
+      );
+    } else {
+      kept.add(relation);
+    }
+  }
+  if (kept.isEmpty) {
+    return AccessorPlan(const [], warnings);
+  }
+  final className = model.className;
+  String related(ModelRelation r) => r.related ?? 'Model';
+  final lines = <String>[
+    '  /// The relations of `$className`, for typed eager loading: '
+        '`$className.rels.${kept.first.name}`.',
+    '  static const rels = (',
+    for (final r in kept)
+      "    ${r.name}: RelationToken<$className, ${related(r)}>('${r.name}'),",
+    '  );',
+  ];
+  // What a loader must not be: a Model loader, a column accessor, a
+  // relation getter or an earlier loader (each would be a second member
+  // of that name, which does not compile).
+  final owners = <String, String>{
+    for (final name in _modelLoaders) name: 'Model.$name',
+    for (final getter in columnGetters) getter: 'the column accessor $getter',
+    for (final r in kept) r.name: 'the relation ${r.name}',
+  };
+  for (final r in kept) {
+    final many = _manyRelations.contains(r.kind);
+    final type = many ? 'ModelCollection<${related(r)}>' : '${related(r)}?';
+    lines.add("  $type get ${r.name} => related('${r.name}');");
+    final loader = 'load${r.name[0].toUpperCase()}${r.name.substring(1)}';
+    final owner = owners[loader];
+    if (owner != null) {
+      warnings.add(
+        'Relation [${r.name}]: no $loader(), the name of $owner; use '
+        'load([$className.rels.${r.name}]).',
+      );
+      continue;
+    }
+    owners[loader] = 'the loader of the relation ${r.name}';
+    lines
+      ..add('  Future<$type> $loader() async {')
+      ..add('    await load([rels.${r.name}]);')
+      ..add('    return ${r.name};')
+      ..add('  }');
+  }
   return AccessorPlan(lines, warnings);
 }
 
