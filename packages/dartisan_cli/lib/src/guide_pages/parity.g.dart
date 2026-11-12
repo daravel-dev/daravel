@@ -40,6 +40,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `$request->validate($rules)` | `await request.validate(rules)` | **async** |
 | `$request->all()` | `await request.all()` | **async** |
 | `$request->input('a.b')` | `await request.input<T>('a.b')` | **async** |
+| `$request->json() (json_decode depth 512)` | `request.jsonMaxDepth (HTTP_JSON_MAX_DEPTH, 512)` | As PHP's json_decode $depth: 511 nested levels are read, 512 or deeper are no input (not a 400). Counted on the bytes before decoding. A malformed JSON body stays a 400, where Laravel reads no input: a deliberate difference. |
 | `$request->merge([...])` | `await request.merge({...})` | **async** |
 | `$request->replace([...])` | `request.replace({...})` |  |
 | `$request->has('key')` | `await request.has('key')` | **async** |
@@ -273,8 +274,8 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `Rule::when($condition, [...], [...]) / Rule::unless(...)` | `Rules.when(condition, [...], otherwise: [...]) / Rules.whenInput((input) => ..., [...]) / Rules.unless(...)` | Decided once per validation, on the whole input, as filterConditionalRules. |
 | `Rule::forEach(fn ($value, $attribute) => [...])` | `Rules.forEach((item) => [...]) / Rules.forEachNested((item) => {'key': [...]})` | Keyed rules validate keys of each element, which are part of validated(). |
 | `Rule::anyOf([[...], [...]])` | `Rules.anyOf([[...], [...]]) / Rules.anyOfKeyed([{...}, {...}])` | Each alternative is validated on the value alone, as Laravel's AnyOf. |
-| `'email:rfc,dns' / 'email:filter' / 'email:filter_unicode'` | `same strings, or Rules.email(rfc: true, dns: true)` | dns as egulias DNSCheckValidation (suffix walk capped at 4); filter is PHP's FILTER_VALIDATE_EMAIL, read in one pass instead of with PHP's regex (which backtracks exponentially) and compared with PHP 8.3; rfc and strict are an HTML-style check until the egulias RFC parser is ported; spoof needs ICU and throws when the rules are built. |
-| `'active_url'` | `same string, or Rules.activeUrl()` | A/AAAA through the OS resolver, which also reads /etc/hosts; an IP address fails, as in Laravel. |
+| `'email:rfc,dns' / 'email:filter' / 'email:filter_unicode'` | `same strings, or Rules.email(rfc: true, dns: true)` | dns as egulias DNSCheckValidation (suffix walk capped at 4); filter is PHP's FILTER_VALIDATE_EMAIL, read in one pass instead of with PHP's regex (which backtracks exponentially) and compared with PHP 8.3; rfc is a port of egulias/EmailValidator 4's RFC parser and strict the same without warnings (155 addresses checked against Laravel 13.40), linear in the address length; spoof needs ICU and throws when the rules are built. |
+| `'active_url'` | `same string, or Rules.activeUrl()` | A/AAAA through the OS resolver, which also reads /etc/hosts; an IP address fails, as in Laravel. The host is parse_url's, asked as written (Laravel passes it to dns_get_record with no IDN conversion or percent-decoding), so an internationalized or percent-escaped host never has an address and fails in both, here without a lookup (a golden of 91 URLs). Unlike email:dns, where egulias converts the domain with idn_to_ascii, as Daravel does: do not make the two alike. |
 | `Validator::$fakeDnsLookups = true` | `container.instance<DnsResolver>(FakeDnsResolver())` |  |
 | `'current_password' / 'current_password:api'` | `same strings, or Rules.currentPassword(guard: 'api')` | Through CurrentPasswordVerifier, which the Application binds from AuthManager and Hash; outside an Application it throws instead of passing. |
 | `Rule::can('update', $post)` | `Rules.can('update', [post])` | The gate gets the arguments and the value, without PHP's empty values (array_filter), as Laravel. |
@@ -304,6 +305,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `'prohibited_if_accepted:a' / 'prohibited_if_declined:a' / 'required_if_declined:a'` | `the same strings, or Rules.prohibitedIfAccepted('a') / prohibitedIfDeclined('a') / requiredIfDeclined('a')` |  |
 | `'required_array_keys:name,email'` | `the same string, or Rules.requiredArrayKeys(['name', 'email'])` |  |
 | `'contains:a,b' / 'doesnt_contain:a,b'` | `the same strings, or Rules.contains(['a', 'b']) / doesntContain(...)` | contains compares loosely, doesnt_contain strictly, as Laravel's in_array calls. |
+| `'starts_with:a' / 'ends_with:a'` | `the same strings, or Rules.startsWith(['a']) / endsWith(...)` | As Laravel 13 (a golden of 1 344 cases, with doesnt_*): a number is cast to text as PHP casts it (123 starts with 1), anything else but a string fails, and an empty parameter matches nothing. |
 | `'doesnt_start_with:a' / 'doesnt_end_with:a'` | `the same strings, or Rules.doesntStartWith(['a']) / doesntEndWith(...)` |  |
 | `'in_array:items.*.id'` | `the same string, or Rules.inArray('items.*.id')` | a * here does not match across a line break in a key, where Laravel's Str::is (flags su) does. |
 | `'in_array_keys:en,id' / 'array_keys:en,id' (13.x)` | `the same strings, or Rules.inArrayKeys([...]) / arrayKeys([...])` |  |
@@ -334,6 +336,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `User::createOrFirst($attributes, $values)` | `await User.query().createOrFirst(attributes, values)` | **async**; In a savepoint inside a transaction. |
 | `catch (UniqueConstraintViolationException $e)` | `on UniqueConstraintViolationException catch (e)` | Extends QueryException (sql, bindings, connectionName, previous); the message keeps the ? placeholders. |
 | `->with(['posts'])` | `.with_(['posts'])` | `with` is a reserved word in Dart. |
+| `->with('posts.comments.author')` | `.with_([User.rels.posts.comments.author])` | Daravel-only, opt-in: dartisan model:sync writes a relation path getter per relation (<Model>RelationPath), checked at each step; the path is the string at run time, which stays accepted. |
 | `->with('user:id,name')` | `.with_('user:id,name')` | Keys the relation matches on are added when the selection leaves them out. |
 | `->withCount('posts')` | `.withCount('posts')` |  |
 | `->withSum('orders', 'total') / withAvg / withMin / withMax / withExists` | `.withSum('orders', 'total') / withAvg / withMin / withMax / withExists` |  |

@@ -1,6 +1,7 @@
 import 'package:daravel/daravel.dart';
 
 import 'generator.dart';
+import 'region_format.dart';
 import 'stubs.dart';
 
 /// What `model:sync` needs from a model source file.
@@ -479,13 +480,13 @@ const Set<String> _manyRelations = {
   'MorphedByMany',
 };
 
-/// The `static const rels = (...)` record of [model] (`User.rels.posts`),
-/// then a typed getter (`user.posts`) and loader (`user.loadPosts()`) per
-/// relation. A relation whose name is not a Dart name, is reserved, or is
-/// already a column accessor in [columnGetters] is left out with a warning;
-/// a loader that would clash with a `Model` member (`loadMissing`) is left
-/// out alone.
-AccessorPlan relationLines(ModelSource model, Set<String> columnGetters) {
+/// The relations of [model] that get a `rels` entry, and why the others do
+/// not: a name that is not a Dart name, is reserved, or is already a column
+/// accessor in [columnGetters].
+({List<ModelRelation> kept, List<String> warnings}) _typedRelations(
+  ModelSource model,
+  Set<String> columnGetters,
+) {
   final kept = <ModelRelation>[];
   final warnings = <String>[];
   for (final relation in model.relations) {
@@ -506,6 +507,164 @@ AccessorPlan relationLines(ModelSource model, Set<String> columnGetters) {
       kept.add(relation);
     }
   }
+  return (kept: kept, warnings: warnings);
+}
+
+/// The relation path extension of [model] (Blueprint #155 Rev. 1): one
+/// getter per relation with a `rels` entry, on any relation path that ends
+/// at [model], so `User.rels.posts.comments` is `posts.comments`, checked
+/// at each step. A relation named like a member of `RelationToken`
+/// ([relationTokenMembers]) gets no getter, since the member would always
+/// win, and a warning; `nested(...)` reaches it. A `MorphTo` relation gets
+/// a getter whose model is `Model`, where the path stops: no extension is
+/// ever written on `RelationToken<Root, Model>`.
+///
+/// [AccessorPlan.lines] is the top-level code for the
+/// `<dartisan:relation-path>` region, empty when no relation qualifies.
+AccessorPlan relationPathPlan(ModelSource model, Set<String> columnGetters) {
+  final (:kept, warnings: _) = _typedRelations(model, columnGetters);
+  final warnings = <String>[];
+  final getters = <ModelRelation>[];
+  for (final relation in kept) {
+    if (relationTokenMembers.contains(relation.name)) {
+      warnings.add(
+        'Relation [${relation.name}]: no relation path getter, since '
+        '`${relation.name}` is a member of RelationToken; use '
+        '.nested(${model.className}.rels.${relation.name}).',
+      );
+    } else {
+      getters.add(relation);
+    }
+  }
+  if (getters.isEmpty) {
+    return AccessorPlan(const [], warnings);
+  }
+  final className = model.className;
+  // The type parameter must not hide a type the extension names: a model
+  // called Root would otherwise read RelationToken<Root, Root>.
+  final named = {className, for (final r in getters) r.related ?? 'Model'};
+  var root = 'Root';
+  for (var n = 1; named.contains(root); n++) {
+    root = n == 1 ? 'PathRoot' : 'PathRoot$n';
+  }
+  return AccessorPlan([
+    '/// The relations of [$className] after any relation path that ends at',
+    '/// one: the path, then `${getters.first.name}` (written by `dartisan '
+        'model:sync`',
+    '/// from `$className.rels`).',
+    'extension ${className}RelationPath<$root extends Model>',
+    '    on RelationToken<$root, $className> {',
+    for (final (i, r) in getters.indexed) ...[
+      if (i > 0) '',
+      '  /// The path, then `${r.name}`: `<path>.${r.name}`.',
+      '  RelationToken<$root, ${r.related ?? 'Model'}> get ${r.name} =>',
+      '      nested($className.rels.${r.name});',
+    ],
+    '}',
+  ], warnings);
+}
+
+/// Whether [source], a model file, has the relation path extension of
+/// [className], whatever its type parameter is named.
+bool hasRelationPath(String source, String className) =>
+    source.contains('extension ${className}RelationPath<');
+
+/// The keys of the `relations:` map of [source] that [ModelSource.parse]
+/// did not read as a relation (a closure with a body, a relation built by a
+/// helper): they get no `rels` entry, getter or path, and `model:sync`
+/// says so instead of leaving them out silently.
+List<String> unreadRelations(String source, ModelSource model) {
+  final read = {for (final r in model.relations) r.name};
+  return [
+    for (final key in _relationKeys(source))
+      if (!read.contains(key)) key,
+  ];
+}
+
+/// The string keys at the top level of the `relations: {...}` map.
+///
+/// A light scan, enough for a warning: it skips line comments and plain
+/// quoted strings, but not block comments (`/* ... */`) or raw and
+/// triple-quoted strings, where a quote or bracket can mislead it.
+List<String> _relationKeys(String source) {
+  final start = RegExp(r'\brelations:\s*(?:const\s*)?(?:<[^>{]*>\s*)?\{')
+      .firstMatch(source);
+  if (start == null) {
+    return const [];
+  }
+  final keys = <String>[];
+  var depth = 1;
+  var i = start.end;
+  while (i < source.length && depth > 0) {
+    final char = source[i];
+    if (char == "'" || char == '"') {
+      // A string literal; at the map's own level, followed by `:`, a key.
+      final quote = char;
+      final from = i + 1;
+      i++;
+      while (i < source.length && source[i] != quote) {
+        i += source[i] == r'\' ? 2 : 1;
+      }
+      final text = source.substring(from, i.clamp(from, source.length));
+      i++;
+      if (depth == 1) {
+        var j = i;
+        while (j < source.length && source[j].trim().isEmpty) {
+          j++;
+        }
+        if (j < source.length && source[j] == ':') {
+          keys.add(text);
+        }
+      }
+      continue;
+    }
+    if (char == '/' && i + 1 < source.length && source[i + 1] == '/') {
+      // A line comment.
+      final end = source.indexOf('\n', i);
+      i = end < 0 ? source.length : end;
+      continue;
+    }
+    if (char == '{' || char == '(' || char == '[') {
+      depth++;
+    } else if (char == '}' || char == ')' || char == ']') {
+      depth--;
+    }
+    i++;
+  }
+  return keys;
+}
+
+const String _relationPathStart = '// <dartisan:relation-path>';
+const String _relationPathEnd = '// </dartisan:relation-path>';
+
+/// Replaces the `<dartisan:relation-path>` region of [source] with [code]
+/// (empty when the model has no relation for a path), or, when the file
+/// has no region and [code] is not empty, appends the region after the
+/// class: the extension is a top-level declaration.
+String replaceRelationPath(String source, String code) {
+  final body = code.trimRight();
+  final start = source.indexOf(_relationPathStart);
+  final end = source.indexOf(_relationPathEnd);
+  if (start != -1 && end > start) {
+    return '${source.substring(0, start + _relationPathStart.length)}\n'
+        '${body.isEmpty ? '' : '$body\n'}'
+        '${source.substring(end)}';
+  }
+  if (body.isEmpty) {
+    return source;
+  }
+  final base = source.endsWith('\n') ? source : '$source\n';
+  return '$base\n$_relationPathStart\n$body\n$_relationPathEnd\n';
+}
+
+/// The `static const rels = (...)` record of [model] (`User.rels.posts`),
+/// then a typed getter (`user.posts`) and loader (`user.loadPosts()`) per
+/// relation. A relation whose name is not a Dart name, is reserved, or is
+/// already a column accessor in [columnGetters] is left out with a warning;
+/// a loader that would clash with a `Model` member (`loadMissing`) is left
+/// out alone.
+AccessorPlan relationLines(ModelSource model, Set<String> columnGetters) {
+  final (:kept, :warnings) = _typedRelations(model, columnGetters);
   if (kept.isEmpty) {
     return AccessorPlan(const [], warnings);
   }
@@ -743,8 +902,14 @@ String? whereStaticWarning(String source, String className) {
 
 /// Fills an empty statics region of [source] with [staticLines]. A region
 /// that holds anything belongs to the application and is left alone, as is
-/// a source without the markers: both return [source] unchanged.
-String fillStatics(String source, String className, {String? idType}) {
+/// a source without the markers: both return [source] unchanged. [lines]
+/// replaces [staticLines] (`model:sync` passes them formatted).
+String fillStatics(
+  String source,
+  String className, {
+  String? idType,
+  List<String>? lines,
+}) {
   final start = source.indexOf(_staticsStart);
   final end = source.indexOf(_staticsEnd);
   if (start == -1 || end == -1 || end < start) {
@@ -756,7 +921,7 @@ String fillStatics(String source, String className, {String? idType}) {
   final lineStart = source.lastIndexOf('\n', end - 1) + 1;
   final indent = source.substring(lineStart, end);
   return '${source.substring(0, start + _staticsStart.length)}\n'
-      '${staticLines(className, idType: idType).join('\n')}\n'
+      '${(lines ?? staticLines(className, idType: idType)).join('\n')}\n'
       '${indent.trim().isEmpty ? indent : ''}'
       '${source.substring(end)}';
 }
@@ -862,14 +1027,34 @@ typedef ModelSync = ({
 /// getter, `find` and `findOrFail` with it. Without it the result is the
 /// same as before typed ids existed. `source` is `null` when the file has
 /// no accessors region.
+///
+/// With [formatter] (`model:sync` passes the project's), the code written
+/// into each region is laid out as `dart format` would, so a synced model
+/// stays format-clean; code outside the regions is never touched. A region
+/// the formatter cannot parse is written as generated, with a warning.
 ModelSync syncModelSource(
   String source,
   ModelSource model,
   List<ColumnInfo> columns, {
   SqlDialect dialect = SqlDialect.sqlite,
   String? idStub,
+  RegionFormatter? formatter,
 }) {
   final warnings = <String>[?whereStaticWarning(source, model.className)];
+  List<String> members(List<String> lines, String region) {
+    if (formatter == null) {
+      return lines;
+    }
+    final formatted = formatter.members(lines.join('\n'));
+    if (formatter.lastFailure != null) {
+      warnings.add(
+        'The $region region could not be formatted (${formatter.lastFailure}); '
+        'written as generated.',
+      );
+    }
+    return formatted.split('\n');
+  }
+
   String? idType;
   var next = source;
   if (idStub != null) {
@@ -880,19 +1065,73 @@ ModelSync syncModelSource(
     final representation = typed.representation;
     if (representation != null) {
       idType = idTypeName(model.className);
+      var ids = renderStub(
+        idStub,
+        idStubValues(model.className, representation),
+      );
+      if (formatter != null) {
+        ids = formatter.topLevel(ids);
+        if (formatter.lastFailure != null) {
+          warnings.add(
+            'The ids region could not be formatted '
+            '(${formatter.lastFailure}); written as generated.',
+          );
+        }
+      }
       next = replaceIds(
-        typeStatics(fillStatics(next, model.className, idType: idType), idType),
-        renderStub(idStub, idStubValues(model.className, representation)),
+        typeStatics(
+          fillStatics(
+            next,
+            model.className,
+            idType: idType,
+            lines: members(
+              staticLines(model.className, idType: idType),
+              'statics',
+            ),
+          ),
+          idType,
+        ),
+        ids,
       );
     }
   }
   if (idType == null) {
-    next = fillStatics(next, model.className);
+    next = fillStatics(
+      next,
+      model.className,
+      lines: members(staticLines(model.className), 'statics'),
+    );
   }
   final plan = planAccessors(model, columns, dialect: dialect, idType: idType);
   warnings.insertAll(0, plan.warnings);
+  for (final key in unreadRelations(source, model)) {
+    warnings.add(
+      'Relation [$key] could not be read: model:sync reads '
+      "`'$key': () => HasMany<Post>(...)` and the other relation classes "
+      'written that way, so it has no rels entry, getter or relation path; '
+      "the string '$key' still loads it.",
+    );
+  }
+  final accessors = replaceAccessors(next, members(plan.lines, 'accessors'));
+  if (accessors == null) {
+    return (source: null, plan: plan, warnings: warnings);
+  }
+  final paths = relationPathPlan(model, {
+    for (final n in columnNames(columns)) ?n.getter,
+  });
+  warnings.addAll(paths.warnings);
+  var code = paths.lines.join('\n');
+  if (formatter != null && code.isNotEmpty) {
+    code = formatter.topLevel(code);
+    if (formatter.lastFailure != null) {
+      warnings.add(
+        'The relation-path region could not be formatted '
+        '(${formatter.lastFailure}); written as generated.',
+      );
+    }
+  }
   return (
-    source: replaceAccessors(next, plan.lines),
+    source: replaceRelationPath(accessors, code),
     plan: plan,
     warnings: warnings,
   );

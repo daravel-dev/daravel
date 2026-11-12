@@ -42,6 +42,7 @@ final class HttpKernel {
     required this.exceptions,
     this.logger,
     this.multipartLimits = const MultipartLimits(),
+    this.jsonMaxDepth = Request.defaultJsonMaxDepth,
   });
 
   /// The routes.
@@ -61,6 +62,11 @@ final class HttpKernel {
   /// same for a served request and one from the test client.
   final MultipartLimits multipartLimits;
 
+  /// Given to every request before the middleware runs
+  /// ([Request.jsonMaxDepth]): the application's `HTTP_JSON_MAX_DEPTH`,
+  /// the same for a served request and one from the test client.
+  final int? jsonMaxDepth;
+
   /// Default handler timeout applied when a route sets none (`null` = none).
   Duration? defaultTimeout;
 
@@ -79,6 +85,7 @@ final class HttpKernel {
   Future<Response> handle(Request request) async {
     _bindLogContext(request);
     request.multipartLimits = multipartLimits;
+    request.jsonMaxDepth = jsonMaxDepth;
     Response response;
     try {
       response = await MiddlewarePipeline.run(

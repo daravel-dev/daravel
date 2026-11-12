@@ -3,7 +3,7 @@
 
 /// `docs/guide/id/dartisan.md`.
 const String pageIdDartisan =
-    r'''<!-- source: dartisan.md sha256:f0233b1aa27e -->
+    r'''<!-- source: dartisan.md sha256:253f5a7c7f7d -->
 # dartisan
 
 `dartisan` adalah `artisan`-nya Daravel. Pasang sekali, lalu pakai di proyek
@@ -31,7 +31,7 @@ sebuah command.
 | `adopt <laravel-path> [--check]` | Berbagi database dan kunci dengan aplikasi Laravel, lihat [Migrasi dari Laravel](migrating-from-laravel.md) |
 | `down [--secret] [--retry]`, `up` | Mode maintenance, lihat [Deployment](deployment.md#mode-maintenance) |
 | `stub:publish` | Menyalin template generator ke `stubs/` |
-| `lint [--json]` | Rule `daravel_lints` dan pengecekan registry |
+| `lint [--json] [--enable=rule] [--disable=rule]` | Rule `daravel_lints` dan pengecekan registry; rule opt-in dari `diagnostics:` di `analysis_options.yaml` |
 | `security:audit [--target] [--format=terminal\|json\|sarif] [--output] [--severity] [--only] [--json-path]` | Audit black-box server yang sedang berjalan untuk kesalahan deployment, lihat [Keamanan](security.md#mengaudit-server-yang-sedang-berjalan) |
 | `mcp:serve [--allow-write]`, `mcp:install` | Konteks proyek untuk agen AI coding lewat MCP, lihat [di bawah](#agen-ai-coding-mcp) |
 | `upgrade [--check] [--to] [--no-global] [--no-get]`, `self-update` | Memindahkan proyek dan CLI global ke sebuah rilis, lihat [di bawah](#upgrade) |

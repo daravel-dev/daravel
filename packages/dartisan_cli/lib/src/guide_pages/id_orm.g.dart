@@ -2,7 +2,7 @@
 // Do not edit; run `dart run tool/docs/generate.dart`.
 
 /// `docs/guide/id/orm.md`.
-const String pageIdOrm = r'''<!-- source: orm.md sha256:10c1228ba946 -->
+const String pageIdOrm = r'''<!-- source: orm.md sha256:0dc2b3dea2ee -->
 # ORM
 
 Model mengikuti API Eloquent. Karena Dart tidak punya property ajaib, setiap
@@ -199,6 +199,50 @@ Relasi ke model yang sama (`Category` dengan `parent` dan `children`, user
 yang mengikuti user) juga bisa: tabel di dalamnya mendapat alias, seperti
 `laravel_reserved_N` dari Laravel, sehingga `whereHas('children')`
 membandingkan child dengan parent di luarnya, bukan dengan dirinya sendiri.
+
+### Jalur relasi bertipe
+
+`dartisan model:sync` menulis record `rels` ke setiap model
+(`User.rels.posts`, sebuah `RelationToken<User, Post>`) dan, sesudah kelasnya,
+ekstensi `<Model>RelationPath` dengan satu getter per relasi. Jalur lalu
+terbaca seperti string yang diwakilinya, editor menawarkan relasi setiap
+model secara bergiliran, dan langkah yang tidak mengikuti modelnya tidak
+lolos kompilasi:
+
+```dart
+final users = await User.query()
+    .with_([
+      User.rels.posts.comments.author,                    // 'posts.comments.author'
+      User.rels.posts.only([Post.cols.id, Post.cols.title]), // 'posts:id,title'
+    ])
+    .whereHas(User.rels.posts.comments)
+    .get();
+```
+
+Saat runtime, jalur adalah string-nya, sehingga `with_`, `whereHas`, `has`,
+`load` dan yang lain berperilaku persis seperti dengan
+`'posts.comments.author'`, yang tetap diterima. `nested(...)` membangun jalur
+yang sama dari token (`User.rels.posts.nested(Post.rels.comments)`), untuk
+jalur yang disusun saat runtime.
+
+- **Impor.** Getter milik `Post` ada di `post.dart`, jadi file yang memakai
+  `User.rels.posts.comments` mengimpornya. Proyek baru punya
+  `lib/app/models/models.dart`, yang meng-export semua model dan dijaga
+  `make:model`; satu impor membawa semua jalur. Di proyek lama `model:sync`
+  menyarankan untuk menambahkannya.
+- **Nama.** Relasi yang namanya sama dengan anggota `RelationToken` (`name`,
+  `nested`, `only`, atau anggota `Object`) tidak mendapat getter, karena
+  anggota itu selalu menang; `model:sync` memberi peringatan, dan
+  `nested(...)` tetap bisa menjangkaunya.
+- **`MorphTo`.** Modelnya baru diketahui saat runtime, jadi jalur berhenti di
+  sana; lanjutkan dengan `nested(...)` atau string.
+- **Relasi yang tidak terbaca `model:sync`** (closure dengan body, relasi yang
+  dibangun lewat fungsi bantu) tidak mendapat entri `rels` maupun getter, dan
+  `model:sync` menyebutkannya.
+- **Yang diperiksa.** Jalur relasi dan predikat kolom
+  (`User.cols.age.gte(18)`) diperiksa compiler. Bentuk dua argumen
+  `where(User.cols.firstName, 'Budi')` memeriksa nama kolom tetapi tidak
+  tipe nilainya: `where(User.cols.age, 'abc')` tetap lolos kompilasi.
 
 ### Agregat relasi
 

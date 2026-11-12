@@ -263,8 +263,23 @@ Future<void> f(Request request, Map<String, Object?> data) async {
       file.writeAsStringSync(content);
     }
 
-    write('lib/app/models/user.dart', 'class User {}\n');
+    write('lib/app/models/user.dart', 'final class User {}\n');
     write('lib/app/models/post.dart', 'class Post {}\n');
+    // The models barrel declares no class: nothing to register.
+    write(
+      'lib/app/models/models.dart',
+      "/// Every model.\nlibrary;\n\n// <dartisan:exports>\n"
+          "export 'post.dart';\nexport 'user.dart';\n// </dartisan:exports>\n",
+    );
+    // Neither do an enum, a typedef or an extension next to the models
+    // (every registry registers classes); these were reported before.
+    write('lib/app/models/status.dart', 'enum Status { draft, published }\n');
+    write(
+      'lib/app/models/scopes.dart',
+      'typedef Scope = void Function();\nextension PostScopes on Object {}\n',
+    );
+    // A sealed or abstract base class still counts.
+    write('lib/app/models/base.dart', 'abstract base class Base {}\n');
     expect(checkRegistries(root.path), isEmpty, reason: 'no registry yet');
 
     write(
@@ -272,8 +287,11 @@ Future<void> f(Request request, Map<String, Object?> data) async {
       "import 'package:demo/app/models/user.dart';\n",
     );
     final issues = checkRegistries(root.path);
-    expect(issues.map((i) => i.path), ['lib/app/models/post.dart']);
-    expect(issues.single.message, contains('bootstrap/models.dart'));
+    expect(issues.map((i) => i.path).toList()..sort(), [
+      'lib/app/models/base.dart',
+      'lib/app/models/post.dart',
+    ]);
+    expect(issues.first.message, contains('bootstrap/models.dart'));
   });
   test('invalid_timezone checks scheduler zone names', () {
     const source = '''
@@ -437,6 +455,51 @@ Future<void> f(String input, SqlIdentifier typed, List<int> ids) async {
       expect(lintSource(source, 'lib/app/a.dart', rules: rule), isEmpty);
     });
 
+    // string_column_name recommends these, so this rule must not report
+    // them: a typed column is a name the code wrote, checked by the
+    // compiler.
+    test('accepts typed columns and their conditions', () {
+      const source = r'''
+Future<void> f(String sort) async {
+  await User.query()
+      .orderByDesc(User.cols.id)
+      .where(User.cols.email, 'a')
+      .where(User.cols.age.gte(18))
+      .orWhere(User.cols.name.startsWith('A'))
+      .select([User.cols.id, User.cols.name])
+      .get();
+  await User.query().orderBy(sort).get();
+}
+''';
+      final issues = lintSource(source, 'lib/app/a.dart', rules: rule);
+      expect([for (final i in issues) i.line], [9]);
+    });
+
+    // The `where` static make:model writes forwards its argument; the
+    // rule reports the caller instead.
+    test('skips the statics region dartisan writes', () {
+      const source = r'''
+final class User extends Model {
+  // <dartisan:statics>
+  static ModelQuery<User> where(
+    Object column, [
+    Object? operatorOrValue = QueryBuilder.absent,
+    Object? value = QueryBuilder.absent,
+  ]) => query().where(column, operatorOrValue, value);
+  // </dartisan:statics>
+
+  static ModelQuery<User> byColumn(Object column) =>
+      query().where(column, 1);
+}
+''';
+      final issues = lintSource(
+        source,
+        'lib/app/models/user.dart',
+        rules: rule,
+      );
+      expect([for (final i in issues) i.line], [11]);
+    });
+
     test('is silenced by an ignore comment and skips lib/src', () {
       const source = '''
 void f(String sort) {
@@ -448,6 +511,54 @@ void f(String sort) {
       final issues = lintSource(source, 'lib/app/a.dart', rules: rule);
       expect([for (final i in issues) i.line], [4]);
       expect(lintSource(source, 'lib/src/a.dart', rules: rule), isEmpty);
+    });
+  });
+
+  group('LintConfig', () {
+    test('defaults, opt-in rules on, default rules off', () {
+      expect(LintConfig().rules.map((r) => r.name), [
+        for (final r in defaultRules) r.name,
+      ]);
+      final config = LintConfig(
+        enabled: ['prefer_sql_identifier'],
+        disabled: ['no_print_in_app', registryRuleName],
+      );
+      final names = config.rules.map((r) => r.name);
+      expect(names, contains('prefer_sql_identifier'));
+      expect(names, isNot(contains('no_print_in_app')));
+      expect(config.registries, isFalse);
+    });
+
+    test('overrides go on top; a name in both is off', () {
+      final config = LintConfig(disabled: ['no_print_in_app']).withOverrides(
+        enable: ['no_print_in_app', 'prefer_sql_identifier'],
+        disable: ['prefer_sql_identifier'],
+      );
+      final names = config.rules.map((r) => r.name);
+      expect(names, contains('no_print_in_app'));
+      expect(names, isNot(contains('prefer_sql_identifier')));
+    });
+
+    test('an unknown name throws, listing the names', () {
+      expect(
+        () => LintConfig(enabled: ['nope']),
+        throwsA(
+          isA<ArgumentError>().having(
+            (e) => '${e.message}',
+            'message',
+            contains('prefer_sql_identifier'),
+          ),
+        ),
+      );
+    });
+
+    test('a project without analysis_options.yaml runs the defaults', () {
+      final root = Directory.systemTemp.createTempSync('lint_config');
+      addTearDown(() => root.deleteSync(recursive: true));
+      final config = lintConfig(root.path);
+      expect(config.source, isNull);
+      expect(config.rules.length, defaultRules.length);
+      expect(config.warnings, isEmpty);
     });
   });
 

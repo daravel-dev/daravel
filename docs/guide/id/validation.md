@@ -1,4 +1,4 @@
-<!-- source: validation.md sha256:2dba069ae62d -->
+<!-- source: validation.md sha256:1a674a00c4dc -->
 # Validasi
 
 Validasi request secara inline dengan string rule Laravel, atau dengan objek
@@ -118,15 +118,21 @@ dan `rfc` berlaku bila tidak ada mode.
   label gagal, dan domain itu atau salah satu nama induknya harus punya record
   MX, A, atau AAAA tanpa null MX. Seperti di Laravel, `dns` saja tidak
   memeriksa sintaks: tulis `email:rfc,dns`.
-- `rfc` dan `strict` untuk sementara adalah pemeriksaan bergaya HTML, lebih
-  ketat daripada parser RFC di Laravel: local part bertanda kutip atau domain
-  satu label gagal.
+- `rfc` (dan `email` tanpa mode) adalah parser RFC dari Laravel, port dari
+  egulias/EmailValidator 4: local part bertanda kutip, komentar, literal
+  domain, dan domain satu label (`a@b`) lolos seperti di Laravel. `strict`
+  memakai parser yang sama tanpa membolehkan peringatan RFC, sehingga
+  bentuk-bentuk tadi gagal.
 - `spoof` membutuhkan ICU, yang tidak ada di Dart: membangun aturannya
   melempar `UnsupportedError` (pada request pertama yang memvalidasi dengannya,
   di test, atau saat membuat OpenAPI), dan `dartisan lint` melaporkannya.
 
 `active_url` lolos bila host dari URL punya record A atau AAAA; alamat IP
-gagal, seperti di Laravel.
+gagal, seperti di Laravel. Host-nya adalah host yang diberikan `parse_url`
+PHP, dicari apa adanya seperti di Laravel: host internasional (`bücher.de`)
+atau host dengan escape persen tidak dikonversi, sehingga gagal di keduanya,
+di sini tanpa lookup. `email:dns` justru mengonversinya (punycode), seperti
+egulias.
 
 Keduanya membuat server mencari nama yang dikirim pengguna. Setiap lookup
 menambah latensi request (paling lama 2 detik, lalu aturannya gagal), jadi
@@ -240,6 +246,23 @@ bertipe (`input.stars` adalah `int?`, dikonversi dari `'4'`).
 sebuah field; `request:sync --check` tidak menulis apa pun dan keluar dengan
 kode 1 bila ada region yang usang, untuk CI. Input type yang Anda deklarasikan
 sendiri, tanpa region, dibiarkan apa adanya.
+
+`request:sync` hanya membaca dan menulis kode sumber, sehingga `dartisan`
+global menjalankannya di `dartisan_cli` milik proyek (`dart run
+dartisan_cli:dartisan`) tanpa mengompilasi aplikasi. Perintah ini tetap
+berjalan saat proyek tidak bisa dikompilasi, misalnya setelah Anda mengubah
+sebuah request menjadi `FormRequest<StoreNoteRequestInput>` sebelum tipe itu
+ada: `dartisan request:sync` menuliskannya, sedangkan `dart run
+bin/dartisan.dart request:sync` mengompilasi aplikasi lebih dulu dan gagal.
+Tanpa `dartisan` global, jalankan hal yang sama dari direktori proyek:
+
+```bash
+dart run dartisan_cli:dartisan request:sync
+```
+
+yang selalu berjalan, karena hanya `dartisan_cli` yang dikompilasi.
+(`model:sync` membaca database lewat koneksi aplikasi, jadi butuh proyek
+yang bisa dikompilasi.)
 
 `typed` memuat setiap field menurut kunci input-nya, sudah dikonversi ke
 tipe yang dideklarasikan. Tipe sebuah field dan rule-nya masih bisa tidak

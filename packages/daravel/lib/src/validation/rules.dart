@@ -11,10 +11,12 @@ import '../foundation/clock.dart';
 import '../http/uploaded_file.dart';
 import 'auth_rules.dart';
 import 'dns.dart';
+import 'email_rfc.dart';
 import 'image_size.dart';
 import 'object_rules.dart';
 import 'php_date_format.dart';
 import 'php_email_filter.dart';
+import 'php_url.dart';
 import 'rule.dart';
 import 'typed_rules.dart';
 
@@ -310,9 +312,9 @@ abstract final class Rules {
   /// `DNSCheckValidation` (through the container's [DnsResolver]); it is
   /// checked last and, as in Laravel, alone it does not check the syntax
   /// (`email:rfc,dns` does both). [spoof] needs ICU: it throws
-  /// [UnsupportedError] here, when the rule is built. [rfc] and [strict]
-  /// are, for now, the same HTML-style check, stricter than egulias' RFC
-  /// parser.
+  /// [UnsupportedError] here, when the rule is built. [rfc] is egulias' RFC
+  /// parser (a port of egulias/EmailValidator 4), [strict] the same with no
+  /// RFC warning.
   static Rule email({
     bool rfc = false,
     bool strict = false,
@@ -1205,17 +1207,15 @@ final class EmailRule extends Rule {
     'filter_unicode',
   };
 
-  // `rfc` and `strict` until egulias/EmailValidator's RFC parser is ported:
-  // an address of HTML's `type=email` (no quoted local part, no domain
-  // literal, at least two labels), stricter than egulias' RFCValidation.
-  static final RegExp _rfc = RegExp(
-    r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$",
-  );
+  // Something, an `@`, then a domain without spaces: looser than the RFC
+  // parser on purpose, so a client never refuses an address the server
+  // accepts (a quoted local part with a space, a domain literal).
+  static final RegExp _client = RegExp(r'^.+@[^@\s]+$');
 
   /// The pattern a client checks before sending (`dartisan client:flutter`
-  /// writes it into the Flutter form validators); the server's check,
-  /// with its modes, decides.
-  RegExp get pattern => _rfc;
+  /// writes it into the Flutter form validators): a loose shape only; the
+  /// server's check, with its modes, decides.
+  RegExp get pattern => _client;
 
   @override
   String get name => 'email';
@@ -1240,8 +1240,12 @@ final class EmailRule extends Rule {
     if (checks.contains('spoof')) {
       throw UnsupportedError(_spoofUnsupported);
     }
-    if ((checks.contains('rfc') || checks.contains('strict')) &&
-        !_rfc.hasMatch(value)) {
+    // egulias/EmailValidator 4's RFCValidation and NoRFCWarningsValidation
+    // (ported in email_rfc.dart).
+    if (checks.contains('rfc') && !rfcEmailValid(value)) {
+      return name;
+    }
+    if (checks.contains('strict') && !strictEmailValid(value)) {
       return name;
     }
     // PHP's FILTER_VALIDATE_EMAIL, read in one pass: PHP's regex
@@ -1283,15 +1287,18 @@ final class ActiveUrlRule extends Rule {
 
   @override
   Future<String?> passes(ValidationContext context) async {
-    // Laravel: the host of parse_url, then dns_get_record(host, A|AAAA).
-    // An IP address is not a name DNS answers for, so it fails without a
-    // lookup, as it does in Laravel; so does a name DNS cannot carry.
+    // Laravel 13: dns_get_record(parse_url's host . '.', A|AAAA), the host
+    // as written: no IDN conversion and no percent-decoding. A name DNS
+    // cannot answer as written (`bücher.de`, `b%C3%BCcher.de`, an empty
+    // label as in `example.com.`, a space) never has an address there, so
+    // it fails here without a lookup; so does an IP address, which is not
+    // a name. Any other name is the one Laravel asks for.
     final value = context.value;
     if (value is! String) {
       return name;
     }
-    final host = Uri.tryParse(value)?.host ?? '';
-    if (host.isEmpty || isIpLiteral(host)) {
+    final host = phpUrlHost(value);
+    if (host == null || !_dnsName.hasMatch(host) || isIpLiteral(host)) {
       return name;
     }
     final ascii = toAsciiHost(host);
@@ -1300,6 +1307,11 @@ final class ActiveUrlRule extends Rule {
     }
     return await _resolver(context).hasAddress(ascii) ? null : name;
   }
+
+  // Labels of letters, digits, '-' and '_', none empty.
+  static final RegExp _dnsName = RegExp(
+    r'^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*$',
+  );
 }
 
 /// `url`: see [Rules.url].
@@ -1879,10 +1891,8 @@ final class StartsWithRule extends Rule {
   @override
   Map<String, Object?> get parameters => {'values': prefixes.join(', ')};
   @override
-  String? passes(ValidationContext c) {
-    final value = c.value;
-    return value is String && prefixes.any(value.startsWith) ? null : name;
-  }
+  String? passes(ValidationContext c) =>
+      _hasAffix(c.value, prefixes, start: true) ?? false ? null : name;
 }
 
 /// `ends_with`: see [Rules.endsWith].
@@ -1897,10 +1907,30 @@ final class EndsWithRule extends Rule {
   @override
   Map<String, Object?> get parameters => {'values': suffixes.join(', ')};
   @override
-  String? passes(ValidationContext c) {
-    final value = c.value;
-    return value is String && suffixes.any(value.endsWith) ? null : name;
+  String? passes(ValidationContext c) =>
+      _hasAffix(c.value, suffixes, start: false) ?? false ? null : name;
+}
+
+/// Laravel 13's `Str::startsWith` / `endsWith` over a validated value:
+/// null when the value is neither a string nor a number (the four rules
+/// fail it); otherwise whether its text, as PHP's `(string)` writes it,
+/// starts (or ends) with one of [affixes], an empty one matching nothing.
+bool? _hasAffix(Object? value, List<String> affixes, {required bool start}) {
+  // `is_string($value) || is_numeric($value)`.
+  final text = switch (value) {
+    String() => value,
+    // PHP's (string) of a whole float has no ".0": JSON 1.0 is "1".
+    double() when value.isFinite && value == value.truncateToDouble() =>
+      '${value.toInt()}',
+    num() => '$value',
+    _ => null,
+  };
+  if (text == null) {
+    return null;
   }
+  return affixes.any(
+    (a) => a.isNotEmpty && (start ? text.startsWith(a) : text.endsWith(a)),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -3289,26 +3319,10 @@ final class DoesntAffixRule extends Rule {
   Map<String, Object?> get parameters => {'values': affixes.join(', ')};
 
   @override
-  String? passes(ValidationContext c) {
-    final value = c.value;
-    // `is_string($value) || is_numeric($value)`.
-    final text = switch (value) {
-      String() => value,
-      // PHP's (string) of a whole float has no ".0": JSON 1.0 is "1".
-      double() when value.isFinite && value == value.truncateToDouble() =>
-        '${value.toInt()}',
-      num() => '$value',
-      _ => null,
-    };
-    if (text == null) {
-      return name;
-    }
-    // `Str::startsWith` ignores an empty needle.
-    bool hit(String a) =>
-        a.isNotEmpty &&
-        (name == 'doesnt_start_with' ? text.startsWith(a) : text.endsWith(a));
-    return affixes.any(hit) ? name : null;
-  }
+  String? passes(ValidationContext c) =>
+      _hasAffix(c.value, affixes, start: name == 'doesnt_start_with') ?? true
+      ? name
+      : null;
 }
 
 /// `in_array`: see [Rules.inArray].

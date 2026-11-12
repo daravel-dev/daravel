@@ -1,0 +1,6 @@
+// expect: undefined_instance_member_read @5
+import '_models.dart';
+
+void f() {
+  print(UserRels.rels.posts.comments.comments);
+}

@@ -9,6 +9,8 @@ import 'console/runner_console.dart' show consoleOf;
 import 'generator.dart';
 import 'mcp_server.dart';
 import 'project_commands.dart';
+import 'region_format.dart';
+import 'request_sync.dart';
 import 'stubs.dart';
 
 /// Where the framework packages come from in a generated `pubspec.yaml`.
@@ -136,6 +138,7 @@ Map<String, String> newProjectFiles({
     'bootstrap/seeders.dart': api ? _seedersRegistry : _emptySeeders,
     'bootstrap/jobs.dart': _jobsRegistry,
     'bootstrap/models.dart': api ? _modelsRegistry : _emptyModels,
+    'lib/app/models/models.dart': api ? _modelsBarrel : _emptyModelsBarrel,
     'bootstrap/listeners.dart': _listenersRegistry,
     'bootstrap/commands.dart': _commandsRegistry,
     'routes/web.dart': _webRoutes,
@@ -174,9 +177,20 @@ Map<String, String> newProjectFiles({
       'test/feature/ping_test.dart': _pingTest,
     },
   };
+  // A typed form request's input region, as `request:sync` writes it, so
+  // it never drifts from the generator.
+  final formatter = RegionFormatter();
+  String render(String path, String template) {
+    final text = renderStub(template, values);
+    if (!path.startsWith('lib/app/http/requests/')) {
+      return text;
+    }
+    return syncRequestSource(text, formatter: formatter).source ?? text;
+  }
+
   return <String, String>{
     for (final entry in files.entries)
-      entry.key: renderStub(entry.value, values),
+      entry.key: render(entry.key, entry.value),
     '.env': setEnvValue(renderStub(_envExample, values), 'APP_KEY', key),
   };
 }
@@ -324,6 +338,13 @@ analyzer:
     strict-casts: true
     strict-inference: true
     strict-raw-types: true
+
+# Opt-in Daravel lints, read by `dartisan lint` and `expectLintClean()`:
+# rules as a `Rules` chain, and computed column names as `SqlIdentifier`s.
+daravel_lints:
+  diagnostics:
+    string_validation_rule: true
+    prefer_sql_identifier: true
 ''';
 
 const String _gitignore = r'''
@@ -615,6 +636,28 @@ final List<ModelDefinition<Model>> models = <ModelDefinition<Model>>[
 ];
 ''';
 
+const String _modelsBarrel = r'''
+/// Every model of the application in one import, with the relation path
+/// getters `dartisan model:sync` writes next to each model
+/// (`User.rels.posts.comments`). Maintained by `dartisan make:model`.
+library;
+
+// <dartisan:exports>
+export 'user.dart';
+
+// </dartisan:exports>
+''';
+
+const String _emptyModelsBarrel = r'''
+/// Every model of the application in one import, with the relation path
+/// getters `dartisan model:sync` writes next to each model
+/// (`User.rels.posts.comments`). Maintained by `dartisan make:model`.
+library;
+
+// <dartisan:exports>
+// </dartisan:exports>
+''';
+
 const String _emptyModels = r'''
 // Model registry (explicit, AOT-friendly): read by `dartisan model:show`
 // and `dartisan mcp:serve`.
@@ -705,23 +748,22 @@ import 'package:{{ package }}/app/http/requests/login_request.dart';
 import 'package:{{ package }}/app/http/requests/register_request.dart';
 import 'package:{{ package }}/app/http/resources/user_resource.dart';
 
-/// API routes, mounted under `/api`. `.validates()` and `.returns()` also
-/// document them (`openapi:generate`, `client:flutter`).
+/// API routes, mounted under `/api`. A `postValidated` route validates its
+/// form request and hands the handler the typed input; with `.returns()`
+/// it also documents the route (`openapi:generate`, `client:flutter`).
 void apiRoutes(Router router) {
   final auth = AuthController();
 
   router.get('/ping', PingController().ping).name('ping');
   router
-      .post('/auth/register', auth.register)
+      .postValidated('/auth/register', const RegisterRequest(), auth.register)
       .name('auth.register')
-      .middleware(const ['throttle:register'])
-      .validates(const RegisterRequest())
+      .middleware([Mw.throttle('register')])
       .returns(AuthController.tokenSchema, name: 'AuthToken', shape: .raw);
   router
-      .post('/auth/login', auth.login)
+      .postValidated('/auth/login', const LoginRequest(), auth.login)
       .name('auth.login')
-      .middleware(const ['throttle:login'])
-      .validates(const LoginRequest())
+      .middleware([Mw.throttle('login')])
       .returns(
         AuthController.tokenSchema,
         name: 'AuthToken',
@@ -737,7 +779,7 @@ void apiRoutes(Router router) {
         .post('/auth/logout', auth.logout)
         .name('auth.logout')
         .returns(const <String, Object?>{}, status: 204);
-  }, middleware: const ['auth']);
+  }, middleware: [Mw.auth()]);
 }
 ''';
 
@@ -905,11 +947,14 @@ final class User extends Model with AuthenticatableModel {
 
 const String _authController = r'''
 import 'package:daravel/daravel.dart';
+import 'package:{{ package }}/app/http/requests/login_request.dart';
+import 'package:{{ package }}/app/http/requests/register_request.dart';
 import 'package:{{ package }}/app/http/resources/user_resource.dart';
 import 'package:{{ package }}/app/models/user.dart';
 
 /// Token authentication (Sanctum-style personal access tokens). The routes
-/// validate the input (`.validates(...)` in `routes/api.dart`).
+/// validate the input (`postValidated` in `routes/api.dart`) and hand each
+/// handler its form request's typed input.
 final class AuthController {
   /// JSON Schema of the register and login responses, for `.returns(...)`.
   static const Map<String, Object?> tokenSchema = {
@@ -926,15 +971,14 @@ final class AuthController {
     },
   };
 
-  Future<Object?> register(Request request) async {
-    final data = request.validated();
+  Future<Object?> register(Request request, RegisterInput data) async {
     // Hash before the transaction so the expensive work holds no locks.
-    final password = await Hash.make(data.string('password'));
+    final password = await Hash.make(data.password);
     // The user and its first token commit together, or not at all.
     final (user, token) = await DB.transaction(() async {
       final user = await User.createWith(
-        name: data.string('name'),
-        email: data.string('email'),
+        name: data.name,
+        email: data.email,
         password: password,
       );
       return (user, await Auth.issueToken(user, 'api'));
@@ -946,15 +990,14 @@ final class AuthController {
     });
   }
 
-  Future<Object?> login(Request request) async {
-    final data = request.validated();
+  Future<Object?> login(Request request, LoginInput data) async {
     final user = await Auth.retrieveByCredentials<User>({
-      'email': data.string('email'),
-      'password': data.string('password'),
+      LoginRequest.email: data.email,
+      LoginRequest.password: data.password,
     });
     if (user == null) {
       throw ValidationException.withMessages({
-        'email': ['These credentials do not match our records.'],
+        LoginRequest.email: ['These credentials do not match our records.'],
       });
     }
     final token = await Auth.issueToken(user, 'api');
@@ -977,31 +1020,54 @@ final class AuthController {
 
 const String _registerRequest = r'''
 import 'package:daravel/daravel.dart';
+import 'package:{{ package }}/app/models/user.dart';
 
-final class RegisterRequest extends FormRequest {
+/// Validates `POST /api/auth/register`.
+final class RegisterRequest extends FormRequest<RegisterInput> {
   const RegisterRequest();
+
+  /// One `Field` per input; `dartisan request:sync` writes the typed
+  /// getters of [RegisterInput] from them.
+  static const name = Field<String>('name');
+  static const email = Field<String>('email');
+  static const password = Field<String>('password');
 
   @override
   Map<String, Object> rules(Request request) => {
-    'name': 'required|string|max:255',
-    'email': 'required|email|max:255|unique:users,email',
-    'password': [Rules.required(), Rules.password(min: 8), Rules.confirmed()],
+    name: Rules.required().string().max(255),
+    email: [
+      Rules.required().email().max(255),
+      Rules.of(User.definition).unique(User.cols.email),
+    ],
+    password: [Rules.required(), Rules.password(min: 8), Rules.confirmed()],
   };
 }
+
+// <dartisan:input>
+// </dartisan:input>
 ''';
 
 const String _loginRequest = r'''
 import 'package:daravel/daravel.dart';
 
-final class LoginRequest extends FormRequest {
+/// Validates `POST /api/auth/login`.
+final class LoginRequest extends FormRequest<LoginInput> {
   const LoginRequest();
+
+  /// One `Field` per input; `dartisan request:sync` writes the typed
+  /// getters of [LoginInput] from them.
+  static const email = Field<String>('email');
+  static const password = Field<String>('password');
 
   @override
   Map<String, Object> rules(Request request) => {
-    'email': 'required|email',
-    'password': 'required|string',
+    email: Rules.required().email(),
+    password: Rules.required().string(),
   };
 }
+
+// <dartisan:input>
+// </dartisan:input>
 ''';
 
 const String _userResource = r'''

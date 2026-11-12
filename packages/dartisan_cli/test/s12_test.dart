@@ -844,6 +844,61 @@ final class Score extends Model {
             ).existsSync(),
             isTrue,
           );
+          if (template == 'api') {
+            // request:sync while the project does not compile: the login
+            // request, which the auth controller uses, names an input
+            // type that no file declares yet.
+            final request = File(
+              p.join(target, 'lib/app/http/requests/login_request.dart'),
+            );
+            final made = request.readAsStringSync();
+            const open = '// <dartisan:input>';
+            const close = '// </dartisan:input>';
+            void dropInput() => request.writeAsStringSync(
+              made.replaceRange(
+                made.indexOf(open),
+                made.indexOf(close) + close.length,
+                '',
+              ),
+            );
+            dropInput();
+            final projectCli = await Process.run(dartExecutable(), const [
+              'run',
+              'bin/dartisan.dart',
+              'request:sync',
+            ], workingDirectory: target);
+            expect(
+              projectCli.exitCode,
+              isNot(0),
+              reason: 'bin/dartisan.dart compiles the application',
+            );
+            expect(
+              await runner.execute(['request:sync'], directory: target),
+              0,
+              reason: 'the global dartisan compiles no application code',
+            );
+            expect(
+              request.readAsStringSync(),
+              contains('extension type const LoginInput('),
+            );
+            // Without a global dartisan: the project's own dartisan_cli,
+            // the form the guide gives, works from the broken project too.
+            dropInput();
+            final packageCli = await Process.run(dartExecutable(), const [
+              'run',
+              'dartisan_cli:dartisan',
+              'request:sync',
+            ], workingDirectory: target);
+            expect(
+              packageCli.exitCode,
+              0,
+              reason: '${packageCli.stdout}\n${packageCli.stderr}',
+            );
+            expect(
+              request.readAsStringSync(),
+              contains('extension type const LoginInput('),
+            );
+          }
           final analyze = await Process.run(dartExecutable(), const [
             'analyze',
             '--fatal-infos',
@@ -930,6 +985,48 @@ final class Score extends Model {
         isFalse,
       );
     });
+
+    test('request:sync runs from the project package, not its CLI', () {
+      for (final args in [
+        ['request:sync'],
+        ['request:sync', 'StoreNoteRequest', '--check'],
+        ['help', 'request:sync'],
+        ['request:sync', '--help'],
+      ]) {
+        expect(
+          GlobalDartisanRunner.delegates(args, inProject: true),
+          isFalse,
+          reason: '$args',
+        );
+        expect(
+          GlobalDartisanRunner.runsFromSource(args, inProject: true),
+          isTrue,
+          reason: '$args',
+        );
+        expect(
+          GlobalDartisanRunner.runsFromSource(args, inProject: false),
+          isFalse,
+          reason: '$args',
+        );
+      }
+      // model:sync reads the database through the application.
+      for (final args in [
+        ['model:sync'],
+        ['migrate'],
+        <String>[],
+      ]) {
+        expect(
+          GlobalDartisanRunner.runsFromSource(args, inProject: true),
+          isFalse,
+          reason: '$args',
+        );
+        expect(
+          GlobalDartisanRunner.delegates(args, inProject: true),
+          isTrue,
+          reason: '$args',
+        );
+      }
+    });
   });
 
   group('welcome page template', () {
@@ -1009,7 +1106,7 @@ final class Score extends Model {
           'docker-compose.yml',
         ]),
       );
-      expect(api['routes/api.dart'], contains('throttle:register'));
+      expect(api['routes/api.dart'], contains("Mw.throttle('register')"));
       final minimal = newProjectFiles(
         package: 'tiny',
         appName: 'Tiny',

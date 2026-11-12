@@ -11,23 +11,45 @@ import 'package:test/test.dart';
 /// 53 s), and `decimal`'s `\d*\.?(\d*)` split a run of digits every way
 /// (100 000 digits and a letter: 89 s). A JSON body may be 1 MiB.
 void main() {
-  Future<int> millis(Object? value, String rule) async {
+  /// The fastest of three runs, in microseconds: interference (GC, a busy
+  /// runner) only ever slows a run down.
+  Future<double> micros(Object? value, String rule) async {
     await Validator({'v': '1'}, {'v': rule}).run();
-    final watch = Stopwatch()..start();
-    await Validator({'v': value}, {'v': rule}).run();
-    return watch.elapsedMilliseconds;
+    var best = 1 << 62;
+    for (var i = 0; i < 3; i++) {
+      final watch = Stopwatch()..start();
+      await Validator({'v': value}, {'v': rule}).run();
+      if (watch.elapsedMicroseconds < best) {
+        best = watch.elapsedMicroseconds;
+      }
+    }
+    return best.toDouble();
   }
 
-  const n = 50000;
+  // Growth, not a fixed time: from n to 4n characters a linear reading
+  // takes about 4 times as long and the quadratic one took 16 times
+  // (seconds); the limit of 10 sits far from both. A fixed 100 ms failed on
+  // a slow CI runner at 104 ms, and n to 2n under 3 failed there at 3.5.
+  const n = 12500;
   for (final (rule, value) in [
-    ('decimal:0,2', '${'1' * n}x'),
-    ('decimal:0,2', '${'1' * (n ~/ 2)}.${'1' * (n ~/ 2)}x'),
-    ('decimal:0,2', '${' ' * n}x'),
-    ('multiple_of:5', '${' ' * n}x'),
-    ('gt:5', '${' ' * n}x'),
+    ('decimal:0,2', (int n) => '${'1' * n}x'),
+    ('decimal:0,2', (int n) => '${'1' * (n ~/ 2)}.${'1' * (n ~/ 2)}x'),
+    ('decimal:0,2', (int n) => '${' ' * n}x'),
+    ('multiple_of:5', (int n) => '${' ' * n}x'),
+    ('gt:5', (int n) => '${' ' * n}x'),
   ]) {
-    test('$rule on ${value.length} characters', () async {
-      expect(await millis(value, rule), lessThan(100));
+    test('$rule on ${value(n).length} and ${value(4 * n).length} '
+        'characters: linear', () async {
+      final small = await micros(value(n), rule);
+      final large = await micros(value(4 * n), rule);
+      final shown =
+          '${(small / 1000).toStringAsFixed(1)} ms, then '
+          '${(large / 1000).toStringAsFixed(1)} ms';
+      // Below 1 ms, timer noise decides the ratio: linear either way.
+      if (large > 1000) {
+        expect(large / small, lessThan(10), reason: shown);
+      }
+      expect(large, lessThan(1000000), reason: '$shown (at most 1 s)');
     });
   }
 

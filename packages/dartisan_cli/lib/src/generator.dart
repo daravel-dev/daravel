@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:daravel/daravel.dart' show Str;
 import 'package:path/path.dart' as p;
 
+import 'region_format.dart';
 import 'request_sync.dart';
 import 'stubs.dart';
 
@@ -125,6 +126,10 @@ final class ProjectPaths {
   /// `bootstrap/models.dart`.
   String get modelsRegistry => p.join(root, 'bootstrap', 'models.dart');
 
+  /// `lib/app/models/models.dart`: every model in one import, with the
+  /// relation path getters `model:sync` writes next to each.
+  String get modelsBarrel => p.join(models, 'models.dart');
+
   /// `bootstrap/policies.dart`.
   String get policiesRegistry => p.join(root, 'bootstrap', 'policies.dart');
 
@@ -243,6 +248,46 @@ final class GeneratedFile {
   String toString() => skipped
       ? 'skipped $path'
       : '${overwritten ? 'updated' : 'created'} $path';
+}
+
+/// The models barrel (`lib/app/models/models.dart`): one `export` per model
+/// between `// <dartisan:exports>` and `// </dartisan:exports>`, kept by
+/// `make:model`, so one import brings every model and its relation path
+/// getters.
+abstract final class ModelsBarrel {
+  /// The line opening the barrel's exports.
+  static const String start = '// <dartisan:exports>';
+
+  /// The line closing the barrel's exports.
+  static const String end = '// </dartisan:exports>';
+
+  /// [content] with `export '[file]';` among its exports, kept sorted; null
+  /// when it is there already or the file has no exports region.
+  static String? add(String content, String file) {
+    final from = content.indexOf(start);
+    final to = content.indexOf(end);
+    if (from == -1 || to < from) {
+      return null;
+    }
+    final newline = String.fromCharCode(10);
+    final line = "export '$file';";
+    final exports = {
+      for (final l in content.substring(from + start.length, to).split(newline))
+        if (l.trim().isNotEmpty) l.trim(),
+    };
+    if (!exports.add(line)) {
+      return null;
+    }
+    final sorted = exports.toList()..sort();
+    // dart format keeps a blank line between the last directive and the
+    // comment closing the region.
+    return [
+      content.substring(0, from + start.length),
+      ...sorted,
+      '',
+      content.substring(to),
+    ].join(newline);
+  }
 }
 
 /// Inserts import and entry lines into registry files that carry
@@ -463,6 +508,21 @@ final class Generator {
         '  $className.definition,',
       );
     }
+    // The models barrel, in projects that have one (`dartisan new` since
+    // 1.28): model:sync only hints at it, never creates it.
+    final barrel = File(paths.modelsBarrel);
+    if (updateRegistries && !file.skipped && barrel.existsSync()) {
+      final patched = ModelsBarrel.add(
+        barrel.readAsStringSync(),
+        '${Naming.snake(className)}.dart',
+      );
+      if (patched != null) {
+        if (!dryRun) {
+          barrel.writeAsStringSync(patched);
+        }
+        log.add(GeneratedFile(barrel.path, overwritten: true));
+      }
+    }
     return file;
   }
 
@@ -579,7 +639,11 @@ final class Generator {
     // of the class name), so a fresh request is already in sync.
     final file = _write(
       p.join(paths.requests, '$snake.dart'),
-      syncRequestSource(made).source ?? made,
+      syncRequestSource(
+            made,
+            formatter: RegionFormatter.forProject(paths.root),
+          ).source ??
+          made,
     );
     if (_dependsOn('daravel_test')) {
       _render(
