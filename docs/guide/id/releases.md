@@ -1,4 +1,4 @@
-<!-- source: releases.md sha256:ada9f6d8e7ca -->
+<!-- source: releases.md sha256:382e61ba9d18 -->
 # Rilis dan versioning
 
 Daravel `1.x` adalah lini rilis stabil. Kedua belas paket (`daravel`,
@@ -12,6 +12,7 @@ terverifikasi `framework.daravel.dev`.
 
 | Versi | Sorotan |
 | :-- | :-- |
+| `1.27.3` | Perbaikan keamanan: URL permintaan dari baris permintaan, Host yang sah dan listener; header terusan hanya dari proxy tepercaya |
 | `1.27.2` | Perbaikan keamanan: nama channel broadcast dan pola channel berwaktu linear, distinct berwaktu linear; sum dan avg di PostgreSQL dan MySQL; publish berurutan |
 | `1.27.1` | Perbaikan keamanan: pencocokan waktu linear untuk header part multipart, aturan validasi numerik, dan pola origin WebSocket; shutdown sesudah hashing password |
 | `1.27.0` | Buffer, series, dan antrean yang dibatasi untuk beban production, hitungan attempt queue setia Laravel dengan pembatalan, transaksi SQLite IMMEDIATE dan retry busy, batas koneksi Pusher, SqlIdentifier, typed id, dan build lintas OS |
