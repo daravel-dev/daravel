@@ -2672,9 +2672,7 @@ final class UniqueRule extends Rule {
     final text = switch (raw) {
       true => '1',
       false => '',
-      final double value
-          when value.isFinite && value == value.truncateToDouble() =>
-        value.toInt().toString(),
+      final num value => phpNumberString(value),
       _ => '$raw',
     };
     if (text.toLowerCase() == 'null') {
@@ -2800,14 +2798,9 @@ Object? _firstFlat(Object? value) {
 }
 
 /// A value as PHP's `(string)` cast writes it, which `array_unique`
-/// compares: `true` is `"1"`, `false` and `null` are `""`, a whole float
-/// has no point (`1.0` is `"1"`).
-String _phpText(Object? value) => switch (value) {
-  null || false => '',
-  true => '1',
-  final double d when d.isFinite && d == d.truncateToDouble() => '${d.toInt()}',
-  _ => '$value',
-};
+/// compares: `true` is `"1"`, `false` and `null` are `""`, a float has 14
+/// significant digits (`1.0` is `"1"`, see [phpNumberString]).
+String _phpText(Object? value) => phpStringForm(value) ?? '$value';
 
 /// `exists:table,column` — the value must be present in the table.
 final class ExistsRule extends Rule {
@@ -3318,10 +3311,8 @@ final class DoesntAffixRule extends Rule {
     // `is_string($value) || is_numeric($value)`.
     final text = switch (value) {
       String() => value,
-      // PHP's (string) of a whole float has no ".0": JSON 1.0 is "1".
-      double() when value.isFinite && value == value.truncateToDouble() =>
-        '${value.toInt()}',
-      num() => '$value',
+      // PHP's (string) of a float: JSON 1.0 is "1", 0.1 + 0.2 is "0.3".
+      num() => phpNumberString(value),
       _ => null,
     };
     if (text == null) {
