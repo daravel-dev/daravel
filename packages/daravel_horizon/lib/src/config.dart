@@ -175,6 +175,7 @@ final class HorizonConfig implements ConfigSection {
     this.path = '/horizon',
     this.store = 'process',
     this.storeConnection,
+    this.storeMaxPerStatus = 10000,
     this.plans = const [SupervisorPlan(name: SupervisorName('supervisor-1'))],
     this.waits = const {'database:default': Duration(seconds: 60)},
     this.trim = const HorizonTrim(),
@@ -207,6 +208,7 @@ final class HorizonConfig implements ConfigSection {
     path: env.string('HORIZON_PATH', '/horizon'),
     store: env.string('HORIZON_STORE', 'process'),
     storeConnection: env.maybeString('HORIZON_STORE_CONNECTION'),
+    storeMaxPerStatus: env.integer('HORIZON_STORE_MAX_PER_STATUS', 10000),
     plans: resolvePlans(
       defaults,
       environments[env.string('APP_ENV', 'production')] ?? const [],
@@ -260,6 +262,13 @@ final class HorizonConfig implements ConfigSection {
   /// The connection of a `database` or `redis` store
   /// (`HORIZON_STORE_CONNECTION`).
   final String? storeConnection;
+
+  /// The most jobs a `redis` store lists per status
+  /// (`HORIZON_STORE_MAX_PER_STATUS`, 10 000): about 15 MB of Redis for
+  /// the job lists at any rate, which at 1 000 jobs a second is about
+  /// ten seconds of completed jobs. Counts, rates and snapshots are not
+  /// limited by it.
+  final int storeMaxPerStatus;
 
   /// The supervisors, resolved for `APP_ENV`.
   final List<SupervisorPlan> plans;
@@ -381,6 +390,7 @@ final class HorizonConfig implements ConfigSection {
     'path': path,
     'store': store,
     'store_connection': storeConnection,
+    'store_max_per_status': storeMaxPerStatus,
     'defaults': [for (final plan in plans) plan.toMap()],
     'waits': {
       for (final MapEntry(:key, :value) in waits.entries) key: value.inSeconds,
@@ -499,6 +509,15 @@ final class HorizonConfig implements ConfigSection {
           ConfigIssueLevel.error,
           'HORIZON_STORE=${horizon.store} is not a Horizon store (process, '
           'database, redis).',
+        ),
+      );
+    }
+    if (horizon.storeMaxPerStatus < 1) {
+      issues.add(
+        ConfigIssue(
+          ConfigIssueLevel.error,
+          'HORIZON_STORE_MAX_PER_STATUS=${horizon.storeMaxPerStatus}: the '
+          'redis store lists at least one job per status.',
         ),
       );
     }

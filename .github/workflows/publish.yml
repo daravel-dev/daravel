@@ -187,10 +187,6 @@ jobs:
         if: needs.verify.outputs.daravel_session != 'published'
         working-directory: packages/daravel_session
         run: bash ../../tool/ci/pub_publish.sh
-      - name: daravel_redis
-        if: needs.verify.outputs.daravel_redis != 'published'
-        working-directory: packages/daravel_redis
-        run: bash ../../tool/ci/pub_publish.sh
       - name: daravel_excel
         if: needs.verify.outputs.daravel_excel != 'published'
         working-directory: packages/daravel_excel
@@ -206,6 +202,10 @@ jobs:
       - name: daravel_horizon
         if: needs.verify.outputs.daravel_horizon != 'published'
         working-directory: packages/daravel_horizon
+        run: bash ../../tool/ci/pub_publish.sh
+      - name: daravel_redis
+        if: needs.verify.outputs.daravel_redis != 'published'
+        working-directory: packages/daravel_redis
         run: bash ../../tool/ci/pub_publish.sh
       - name: daravel_reverb
         if: needs.verify.outputs.daravel_reverb != 'published'

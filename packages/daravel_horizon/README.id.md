@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:3505670b03a7 -->
+<!-- source: README.md sha256:3c5f1aba763f -->
 <img src="https://raw.githubusercontent.com/daravel-dev/daravel/main/docs/brand/png/daravel-icon-128.png" alt="Daravel" width="64" align="right">
 
 # daravel_horizon
@@ -75,6 +75,30 @@ untuk produksi dengan beberapa proses pakai PostgreSQL atau MySQL, atau
 `redis`. Laravel Horizon menyimpan datanya di Redis dan tidak membuat tabel,
 sehingga database yang dipakai bersama Laravel tidak punya tabel `horizon_*`
 yang bisa bertabrakan.
+
+Store `redis` (`HORIZON_STORE=redis`, dengan `withRedis()` dari
+`daravel_redis`) menulis dalam batch yang sama, satu skrip Lua per batch.
+Kuncinya diawali `REDIS_PREFIX` dan hash tag `{daravel:horizon}`: di Redis
+Cluster semuanya berada di satu slot, jadi satu node menyimpan data Horizon,
+dan kunci milik Laravel Horizon tidak pernah disentuh. Setiap kunci kecuali
+himpunan tag yang dipantau kedaluwarsa sendiri, sehingga Redis bersih sendiri
+bila Horizon berhenti. Daftar job menyimpan paling banyak
+`HORIZON_STORE_MAX_PER_STATUS` job per status (10 000) di samping masa
+simpannya, dan hitungan untuk rate, ringkasan, dan snapshot metrik disimpan
+terpisah, sehingga tidak pernah terpotong oleh batas itu:
+
+| Job per detik | Batas | Job selesai yang terdaftar | Memori Redis daftar, paling banyak |
+| --: | --: | :-- | --: |
+| 2 | 10 000 | satu jam penuh (7 200 job) | sekitar 15 MB |
+| 10 | 10 000 | sekitar 17 menit | sekitar 15 MB |
+| 1 000 | 10 000 | sekitar 10 detik | sekitar 15 MB |
+| 1 000 | 100 000 | sekitar 100 detik | sekitar 40 MB |
+
+Laravel Horizon mendaftar job selesai selama 60 menit tanpa batas jumlah
+(gigabyte pada laju tinggi), dan store `database` juga tidak membatasi
+jumlahnya. Sebuah record dihitung sekali per job dan status; hal itu diingat
+bersama job-nya, sehingga duplikat yang datang setelah job keluar dari semua
+daftar dihitung lagi.
 
 ## Lisensi
 

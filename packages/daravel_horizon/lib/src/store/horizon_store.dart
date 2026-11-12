@@ -69,6 +69,32 @@ abstract interface class HorizonStore {
   Future<Map<String, Object?>> metrics();
 }
 
+/// A store that buffers records and writes them in batches (`database`,
+/// `redis`): `withHorizon()` closes it at shutdown, before the connections
+/// close, so what the workers recorded last is written.
+abstract interface class BufferedHorizonStore implements HorizonStore {
+  /// Writes what is buffered and stops taking records.
+  Future<void> close();
+}
+
+/// The stores `HORIZON_STORE` can name besides `process` and `database`,
+/// registered by the packages that provide them (`daravel_redis`'s
+/// `withRedis()` adds `redis`).
+final class HorizonStoreDrivers {
+  final Map<String, HorizonStore Function(Container c)> _drivers = {};
+
+  /// Makes `HORIZON_STORE=[name]` build its store with [factory].
+  void extend(String name, HorizonStore Function(Container c) factory) {
+    _drivers[name] = factory;
+  }
+
+  /// The store [name] registered, built in [c]; null when none is.
+  HorizonStore? make(String name, Container c) => _drivers[name]?.call(c);
+
+  /// The names registered.
+  Iterable<String> get names => _drivers.keys;
+}
+
 /// The `process` store: [HorizonService] in this process's coordinator,
 /// reached through its [CoordinatorChannel] from any isolate of the
 /// process. What Horizon kept before the store had a contract.
