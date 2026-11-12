@@ -22,6 +22,7 @@ export 'src/database.dart';
 export 'src/dns.dart';
 export 'src/form_request.dart';
 export 'src/process.dart';
+export 'src/test_app.dart';
 export 'src/time.dart';
 
 /// How a [TestClient] reaches the application.

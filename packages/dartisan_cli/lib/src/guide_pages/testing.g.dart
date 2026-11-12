@@ -30,8 +30,8 @@ const String pageTesting = r'''# Testing
   `assertJsonValidationErrors`, headers, cookies, `assertRedirect`, the
   session (`assertSessionHas`, `assertSessionHasErrors`) and the guards
   (`assertAuthenticated`, `assertGuest`).
-- `refreshDatabase(createApp)` runs each test in a transaction that is
-  rolled back (Laravel's `RefreshDatabase`); `assertDatabaseHas` /
+- `refreshDatabase(() => createApp(...))` runs each test in a transaction
+  that is rolled back (Laravel's `RefreshDatabase`); `assertDatabaseHas` /
   `assertDatabaseMissing` / `assertDatabaseCount`.
 - Fakes: `Event.fake()`, `Queue.fake()`, `Storage.fake()`, with
   `assertDispatched`, `assertPushed`, ...
@@ -45,6 +45,52 @@ const String pageTesting = r'''# Testing
   `make:request` writes one such test.
 
 Run the suite with `dartisan test` (`--coverage` writes `coverage/`).
+
+### A test application
+
+`bootTestApp(createApp)` creates the application with the test environment
+and boots it. `createApp` is the one in `bootstrap/app.dart`, of type
+`TestAppFactory`. The environment is `testEnv()`:
+
+- `APP_ENV=testing`
+- `DB_CONNECTION=sqlite`
+- `DB_URL=sqlite::memory:`, a fresh database per application
+
+The base path is the current directory, which `dart test` sets to the
+package root. Before:
+
+```dart
+setUp(() async {
+  app = createApp(
+    basePath: Directory.current.path,
+    env: <String, String>{
+      'APP_ENV': 'testing',
+      'APP_NAME': 'Starter',
+      'DB_CONNECTION': 'sqlite',
+      'DB_URL': 'sqlite::memory:',
+    },
+  );
+  await app.boot();
+  client = TestClient(app);
+});
+tearDown(() => app.shutdown());
+```
+
+After:
+
+```dart
+setUp(() async {
+  app = await bootTestApp(createApp, env: {'APP_NAME': 'Starter'});
+  client = TestClient(app);
+});
+tearDown(() => app.shutdown());
+```
+
+`env` values are applied after the test environment, so they can replace
+it. Shutting the application down stays in the test, next to where it
+starts. With `refreshDatabase`, pass `testEnv()` yourself:
+`refreshDatabase(() => createApp(basePath: Directory.current.path, env:
+testEnv()))`.
 
 ## Web routes: cookies, session and CSRF
 
