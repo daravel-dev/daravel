@@ -1,4 +1,4 @@
-<!-- source: dartisan.md sha256:a6f8ebcb1a28 -->
+<!-- source: dartisan.md sha256:f0233b1aa27e -->
 # dartisan
 
 `dartisan` adalah `artisan`-nya Daravel. Pasang sekali, lalu pakai di proyek
@@ -63,6 +63,14 @@ paket Daravel di `pubspec.yaml` (`daravel`, `dartisan_cli`, `daravel_test`,
 `dart pub upgrade` dijalankan, dan versi yang sama dari `dartisan` global
 diaktifkan. Paket dari git atau path, serta `dependency_overrides`, tidak
 diubah.
+
+Sebuah rilis sampai di pub.dev paket demi paket. Sebelum menulis apa pun,
+`upgrade` menanyakan ke pub.dev setiap paket yang akan dipindahkannya (dan
+`dartisan_cli`, kecuali dengan `--no-global`) pada versi target; bila ada
+yang belum tersedia, paket itu disebut dan tidak ada yang diubah, jadi coba
+lagi sebentar kemudian (atau ambil inti saja dengan
+`dart pub upgrade daravel`). Bila `dart pub upgrade` gagal, `pubspec.yaml`
+dan `pubspec.lock` dikembalikan seperti semula.
 
 ```bash
 dartisan upgrade --check        # versi terpasang dan terbaru, tidak ada yang berubah
