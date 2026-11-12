@@ -3,7 +3,7 @@
 
 /// `docs/guide/id/background.md`.
 const String pageIdBackground =
-    r'''<!-- source: background.md sha256:35ae143b39b8 -->
+    r'''<!-- source: background.md sha256:c6d3cfe87885 -->
 # Cache, event, queue, dan penjadwalan
 
 <!-- include: packages/daravel/test/docs/guide_examples_test.dart#cache-events-queue -->
@@ -96,6 +96,11 @@ sampai commit.
 
 ### Percobaan, timeout, dan `retry_after`
 
+- Job yang gagal untuk selamanya dihapus dari `jobs` lebih dulu, lalu ditulis
+  ke `failed_jobs`, seperti di Laravel. Bila penulisan itu gagal (tabelnya
+  tidak ada, database menolak), job hilang tanpa catatan: worker mencatat
+  galatnya di level `error` (paling banyak satu entri per menit, dengan jumlah
+  yang terlewat), jadi pasang alert pada entri itu.
 - `tries` menghitung setiap reservasi, termasuk release oleh middleware
   (`WithoutOverlapping`, `RateLimitedJob`) atau `ctx.release()`. Job yang
   direservasi lagi setelah percobaan terakhirnya gagal dengan

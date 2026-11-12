@@ -35,13 +35,73 @@ void main() {
       synced,
       contains(
         '  String get name => _data.field(StoreNoteRequest.name);\n'
-        '  int? get stars => _data.field(StoreNoteRequest.stars);\n'
+        '  int? get stars => _data.field(StoreNoteRequest.stars);\n',
+      ),
+    );
+    expect(
+      synced,
+      contains(
+        "  Map<String, Object?> get typed => {'name': name, 'stars': stars};\n"
         '}\n'
         '// </dartisan:input>',
       ),
     );
     // Synced again: unchanged.
     expect(syncRequestSource(synced).source, synced);
+  });
+
+  test('long names are laid out as dart format would', () async {
+    const name = 'UpdateSubscriptionBillingAddressRequest';
+    final source = made(name).replaceFirst(
+      "  static const name = Field<String>('name');",
+      "  static const name = Field<String>('name');\n"
+          "  static const postalCode = Field<String?>('postal_code');\n"
+          "  static const countryCode = Field<String?>('country_code');",
+    );
+    final synced = syncRequestSource(source).source!;
+    expect(synced, contains('  String? get postalCode =>\n      _data.field('));
+    expect(synced, contains('  Map<String, Object?> get typed => {\n'));
+    expect(synced, contains("    'postal_code': postalCode,\n"));
+    // dart format leaves the region as written, whatever the name length
+    // (one-line, two-line and split extension type headers). The class
+    // header above it is the stub's, not request:sync's.
+    String region(String s) => s.substring(
+      s.indexOf('// <dartisan:input>'),
+      s.indexOf('// </dartisan:input>'),
+    );
+    final dir = Directory(p.normalize(p.absolute('.dart_tool/request_fmt')))
+      ..createSync(recursive: true);
+    final files = <File, String>{
+      for (final (i, text) in [
+        syncRequestSource(made('Note')).source!,
+        made(),
+        synced,
+      ].indexed)
+        File(p.join(dir.path, 'request_$i.dart'))..writeAsStringSync(text):
+            text,
+    };
+    expect(region(files.values.first), contains('_data) implements'));
+    expect(region(synced), contains('Input(\n  ValidatedData _data,\n)'));
+    final format = await Process.run(Platform.resolvedExecutable, [
+      'format',
+      for (final file in files.keys) file.path,
+    ]);
+    expect(format.exitCode, 0, reason: '${format.stderr}');
+    for (final MapEntry(key: file, value: text) in files.entries) {
+      expect(region(file.readAsStringSync()), region(text), reason: file.path);
+    }
+  });
+
+  test('a field named typed: no typed map, and a note', () {
+    final sync = syncRequestSource(
+      made().replaceFirst(
+        "  static const name = Field<String>('name');",
+        "  static const typed = Field<bool>('typed');",
+      ),
+    );
+    expect(sync.source, contains('  bool get typed =>'));
+    expect(sync.source, isNot(contains('Map<String, Object?> get typed')));
+    expect(sync.note, contains('pass your own read:'));
   });
 
   test('a file without the region gets it appended at the end', () {
@@ -134,7 +194,8 @@ Future<void> use(Request request) async {
       .validateRequest(request);
   final String name = data.name;
   final int? stars = data.stars;
-  print([name, stars, data.string('name')]);
+  final Map<String, Object?> all = data.typed;
+  print([name, stars, data.string('name'), all]);
 }
 ''');
     final collection = AnalysisContextCollection(includedPaths: [dir.path]);

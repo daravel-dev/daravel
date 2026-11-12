@@ -103,7 +103,7 @@ abstract final class RuleParser {
       'exclude_if' => Rules.excludeIf(args[0], args.sublist(1)),
       'exclude_unless' => Rules.excludeUnless(args[0], args.sublist(1)),
       'exclude_with' => Rules.excludeWith(args[0]),
-      'exclude_without' => Rules.excludeWithout(args[0]),
+      'exclude_without' => Rules.excludeWithoutAny(args),
       'gt' => Rules.gt(args[0]),
       'gte' => Rules.gte(args[0]),
       'lt' => Rules.lt(args[0]),
@@ -167,7 +167,7 @@ abstract final class RuleParser {
       'distinct' => Rules.distinct(),
       'confirmed' => Rules.confirmed(args.isEmpty ? null : args[0]),
       'same' => Rules.same(args[0]),
-      'different' => Rules.different(args[0]),
+      'different' => Rules.differentFrom(args),
       'starts_with' => Rules.startsWith(args),
       'ends_with' => Rules.endsWith(args),
       'date' => Rules.date(),
@@ -176,6 +176,11 @@ abstract final class RuleParser {
       'after_or_equal' => Rules.afterOrEqual(args[0]),
       'before' => Rules.before(args[0]),
       'before_or_equal' => Rules.beforeOrEqual(args[0]),
+      // Laravel reads the arguments after these as `column,value` where
+      // conditions (getExtraConditions). Ignoring them would loosen the
+      // rule, so the string form refuses them: use the object form.
+      'unique' when args.length > 4 => throw _extraConditions(segment),
+      'exists' when args.length > 2 => throw _extraConditions(segment),
       'unique' => Rules.unique(
         args[0],
         args.length > 1 && args[1] != 'NULL' ? args[1] : null,
@@ -191,6 +196,15 @@ abstract final class RuleParser {
       ),
     };
   }
+
+  /// `unique`/`exists` with where conditions in the string.
+  static ArgumentError _extraConditions(String segment) => ArgumentError.value(
+    segment,
+    'rule',
+    'Where conditions in the string form of unique/exists are not '
+        'supported: use Rules.unique(...).where(...) or '
+        'Rules.exists(...).where(...)',
+  );
 
   /// `timezone:Asia`; `per_country` needs data this database does not have.
   static String _timezoneGroup(List<String> args) {
