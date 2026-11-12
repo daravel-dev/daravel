@@ -202,6 +202,7 @@ Future<void> main(List<String> args) async {
     ..writeln('  for (final (dsl, source, chain) in cases) {')
     ..writeln("    test('\"\$dsl\" is \$source', () async {")
     ..writeln('      expect(ruleChainSource(dsl), source);')
+    ..writeln('      expect(fixedText(dsl), source);')
     ..writeln('      await expectSameRules(dsl, RuleParser.parseValue(chain));')
     ..writeln('    });')
     ..writeln('  }')

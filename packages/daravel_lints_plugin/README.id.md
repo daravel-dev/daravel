@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:be9b1a4eb33d -->
+<!-- source: README.md sha256:9f624776aac5 -->
 <img src="https://raw.githubusercontent.com/daravel-dev/daravel/main/docs/brand/png/daravel-icon-128.png" alt="Daravel" width="64" align="right">
 
 # daravel_lints_plugin
@@ -35,3 +35,10 @@ dari analyzer. Rule dan pemeriksaannya ada di `daravel_lints`; paket ini
 hanya menjalankannya untuk analysis server, yang me-resolve paket ini
 terpisah dari aplikasi Anda, sehingga `analyzer` yang di-pin paket ini tidak
 pernah masuk ke dependency Anda.
+
+Bila sebuah rule menawarkan fix, editor menawarkannya sebagai quick fix,
+termasuk "Fix all ... in file". Sejauh ini rule itu adalah
+`string_validation_rule`, yang mengganti string dengan rantai `Rules`-nya.
+Editnya berasal dari rule itu sendiri (`LintRule.fixFor` di
+`daravel_lints`), sehingga fix hanya ditawarkan bila rantainya compile dan
+artinya tetap sama.

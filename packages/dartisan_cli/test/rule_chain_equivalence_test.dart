@@ -382,6 +382,7 @@ void main() {
   for (final (dsl, source, chain) in cases) {
     test('"$dsl" is $source', () async {
       expect(ruleChainSource(dsl), source);
+      expect(fixedText(dsl), source);
       await expectSameRules(dsl, RuleParser.parseValue(chain));
     });
   }

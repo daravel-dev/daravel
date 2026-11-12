@@ -20,10 +20,12 @@ import 'package:path/path.dart' as p;
 import 'package:timezone/data/latest_all.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
 
+import 'src/lint_fix.dart';
 import 'src/model_columns.dart';
 import 'src/rule_chain.dart';
 
 export 'src/lint_config.dart';
+export 'src/lint_fix.dart';
 export 'src/model_columns.dart';
 export 'src/rule_chain.dart' show ruleChainSource;
 
@@ -84,6 +86,31 @@ abstract base class LintRule {
     CompilationUnit unit,
     void Function(int offset, String message) report,
   ) => check(unit, (node, message) => report(node.offset, message));
+
+  /// The fix for the finding [check] reported on [node] in [unit], or null
+  /// when the rule offers none there. A rule offers a fix only where it
+  /// certainly keeps the code's meaning and compiles; most rules offer
+  /// none:
+  /// - `prefer_sql_identifier`: whether a computed name is safe is the
+  ///   application's to decide;
+  /// - `no_print_in_app`: the log level cannot be guessed;
+  /// - `invalid_validation_rule`: a guessed rule name can be the wrong one;
+  /// - `registry_entry_missing`: not a finding in one file (`make:*` and
+  ///   the registries write the entry).
+  LintFix? fixFor(CompilationUnit unit, AstNode node) => null;
+
+  /// The fix of every finding in [unit] that has one, in the order [check]
+  /// reports them (combine them with [LintFixMerger]).
+  List<LintFix> fixesIn(CompilationUnit unit) {
+    final fixes = <LintFix>[];
+    check(unit, (node, _) {
+      final fix = fixFor(unit, node);
+      if (fix != null) {
+        fixes.add(fix);
+      }
+    });
+    return fixes;
+  }
 }
 
 /// `import 'dart:mirrors'` breaks AOT compilation (ADR: zero reflection).
@@ -272,6 +299,118 @@ final class StringValidationRule extends LintRule {
         report(literal, 'Write the rules as a Rules chain: $chain');
       }
     });
+  }
+
+  /// The literal replaced by its `Rules` chain ([ruleChainSource], the
+  /// text the finding shows), with `package:daravel/daravel.dart` named as
+  /// the file imports it (its prefix; an import added when there is none).
+  /// Not offered where the chain would not compile or would change the
+  /// code's meaning:
+  /// - a string that is not one plain literal (interpolated, adjacent
+  ///   strings, a concatenation);
+  /// - a list or map typed to hold strings, by its own type arguments
+  ///   (`<String>[...]`, `<String, String>{...}`) or by the declaration it
+  ///   initializes or returns from: a variable or field
+  ///   (`final Map<String, String> r = {...}`, `List<String> x = [...]`),
+  ///   a method, getter or function, top-level or local (an override of
+  ///   `rules()` may narrow it to `Map<String, String>`), since the literal
+  ///   is inferred from that type;
+  /// - a constant context it cannot leave by removing the `const` of the
+  ///   enclosing literal (a `const` variable, a `const` constructor call);
+  ///   when the fix removes that `const`, its message says so;
+  /// - a file whose import of `package:daravel/daravel.dart` hides `Rules`.
+  ///
+  /// Limit: without resolution the rule cannot see a type that reaches the
+  /// literal from elsewhere, such as a map passed to a parameter typed
+  /// `Map<String, String>` of the application's own function, or assigned
+  /// to an existing variable. There the fix can produce code that does not
+  /// compile; the editor shows the error at once, and `dartisan lint --fix`
+  /// analyzes the result again and reverts a file it broke.
+  @override
+  LintFix? fixFor(CompilationUnit unit, AstNode node) {
+    if (node is! SimpleStringLiteral) {
+      return null;
+    }
+    final chain = ruleChainSource(node.value);
+    if (chain == null || _typedAsStrings(node)) {
+      return null;
+    }
+    final name = daravelName(unit, 'Rules');
+    final leave = leaveConstantContext(node);
+    if (name == null || leave == null) {
+      return null;
+    }
+    final text = '${name.prefix}$chain';
+    return LintFix(
+      leave.isEmpty ? 'Write as $text' : 'Write as $text (removes const)',
+      [LintEdit(node.offset, node.length, text), ...leave, ?name.addImport],
+    );
+  }
+
+  /// Whether [literal] sits in a list or map typed to hold strings, where a
+  /// `Rule` would not compile.
+  static bool _typedAsStrings(SimpleStringLiteral literal) {
+    bool strings(TypeAnnotation? type) =>
+        RegExp(r'^String\??$')
+            .hasMatch(type?.toSource().replaceAll(' ', '') ?? '');
+    bool stringLists(TypeAnnotation? type) =>
+        RegExp(r'<String\??>')
+            .hasMatch(type?.toSource().replaceAll(' ', '') ?? '');
+    final parent = literal.parent;
+    if (parent is ListLiteral) {
+      if (parent.typeArguments case TypeArgumentList(:final arguments)) {
+        return arguments.length == 1 && strings(arguments.single);
+      }
+      final entry = parent.parent;
+      if (entry is MapLiteralEntry && entry.parent is SetOrMapLiteral) {
+        final types = _typeArguments(entry.parent! as SetOrMapLiteral);
+        return types.length == 2 && stringLists(types[1]);
+      }
+      final types = _typeArguments(parent);
+      return types.length == 1 && strings(types.single);
+    }
+    if (parent is MapLiteralEntry && parent.parent is SetOrMapLiteral) {
+      final types = _typeArguments(parent.parent! as SetOrMapLiteral);
+      return types.length == 2 && strings(types[1]);
+    }
+    return false;
+  }
+
+  /// The type arguments [literal] has: its own, or those of the type
+  /// declared where it is written, since it is inferred from that type.
+  static List<TypeAnnotation> _typeArguments(TypedLiteral literal) {
+    if (literal.typeArguments case TypeArgumentList(:final arguments)) {
+      return arguments;
+    }
+    final declared = _declaredType(literal);
+    return declared is NamedType
+        ? declared.typeArguments?.arguments ?? const []
+        : const [];
+  }
+
+  /// The type declared for the place [expression] is written in: the
+  /// variable or field it initializes, or the method, getter or function
+  /// (top-level or local) it is returned from.
+  static TypeAnnotation? _declaredType(Expression expression) {
+    TypeAnnotation? returnType(FunctionBody? body) => switch (body?.parent) {
+      MethodDeclaration(:final returnType) => returnType,
+      FunctionExpression(parent: FunctionDeclaration(:final returnType)) =>
+        returnType,
+      _ => null,
+    };
+    return switch (expression.parent) {
+      VariableDeclaration(
+        parent: VariableDeclarationList(:final type),
+        :final initializer,
+      )
+          when identical(initializer, expression) =>
+        type,
+      final ExpressionFunctionBody body => returnType(body),
+      final ReturnStatement statement => returnType(
+        statement.thisOrAncestorOfType<FunctionBody>(),
+      ),
+      _ => null,
+    };
   }
 }
 
