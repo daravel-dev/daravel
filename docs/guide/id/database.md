@@ -1,4 +1,4 @@
-<!-- source: database.md sha256:386237c4b48b -->
+<!-- source: database.md sha256:f372ec031fac -->
 # Database
 
 `DB_CONNECTION` memilih SQLite (`sqlite`, default), PostgreSQL (`pgsql`),
@@ -366,24 +366,53 @@ model:sync` mengompilasi aplikasi lebih dulu.
 
 ### ID bertipe (opt-in)
 
-Opsi khusus Daravel: dengan `dartisan model:sync --typed-ids`, setiap model
-mendapat [extension type](https://dart.dev/language/extension-types) untuk
-primary key-nya, sehingga ID salah tipe tertangkap saat kompilasi:
+Opsi khusus Daravel: dengan `dartisan model:sync --typed-ids`, sebuah
+model mendapat [extension type](https://dart.dev/language/extension-types)
+untuk primary key-nya, sehingga ID salah tipe tertangkap saat kompilasi:
 `Post.find(user.id)` tidak lagi bisa dikompilasi begitu `find` menerima
-`PostId`. Tanpa flag ini, `model:sync` menulis persis sama seperti
-sebelumnya.
+`PostId`. Model cukup sekali ikut serta dan tetap ikut serta. Flag ini
+menulis ID di region `// <dartisan:ids>` di file model, dan `model:sync`
+berikutnya mempertahankannya tanpa flag. Karena itu Anda bisa mencobanya
+pada beberapa model dulu:
 
 ```bash
-dart run bin/dartisan.dart model:sync --typed-ids        # semua model
-dart run bin/dartisan.dart model:sync Post --typed-ids   # satu model
+dart run bin/dartisan.dart model:sync --typed-ids                     # semua model
+dart run bin/dartisan.dart model:sync Attempt AttemptItem --typed-ids  # dua model ini
+dart run bin/dartisan.dart model:sync                                 # keduanya tetap
 ```
 
-Flag ini menulis ID di region `// <dartisan:ids>` di akhir file model (dari
-stub `model.id`, lihat `stub:publish`), memberi tipe pada getter primary
-key, dan mengganti tipe `find` dan `findOrFail` hasil generator di region
+Region itu ada di akhir file model (dari stub `model.id`, lihat
+`stub:publish`). Flag ini juga memberi tipe pada getter primary key dan
+mengganti tipe `find` dan `findOrFail` hasil generator di region
 `<dartisan:statics>`. Statics yang Anda tulis sendiri tetap dengan tipenya.
 Key yang bukan integer maupun teks mendapat peringatan dan tidak mendapat
 ID bertipe.
+
+Foreign key mendapat ID bertipe dari model yang dirujuknya, dibaca dari
+constraint foreign key tabel (`Schema.getForeignKeys`). Bila
+`assessment_id` di-constrain ke `assessments`,
+`Assessment.find(session.assessmentId)` bisa dikompilasi tanpa cast,
+sedangkan `Assessment.find(session.userId)` tidak. Ini berlaku untuk
+getter, setter, `cols` (`Session.cols.assessmentId.eq(...)` menerima
+`AssessmentId`), `createWith`, dan `updateWith`. Bila modelnya ada di file
+lain, `model:sync` menambahkan satu import file itu bila belum ada yang
+membawa tipenya ke file tersebut (import model itu, atau `models.dart`).
+Import yang ditambahkan dicetak, dan import Anda tidak pernah dihapus atau
+diurutkan ulang. Foreign key tetap `int` bila:
+- model yang dirujuk tidak punya ID bertipe (`model:sync` menyebutnya);
+- tidak ada model di `lib/app/models` untuk tabel yang dirujuk (satu
+  baris ringkasan), atau ada dua model untuk tabel itu (peringatan);
+- key-nya komposit, atau merujuk kolom selain primary key;
+- model meng-cast kolom itu sendiri (`casts:` yang menang);
+- driver database tidak melaporkan foreign key.
+
+Key polimorfik (`commentable_id` dengan `commentable_type`) tidak punya
+constraint, sehingga tetap tidak bertipe.
+
+Untuk mengeluarkan model dari opt-in, hapus region `<dartisan:ids>`-nya
+dan `idType:` yang Anda berikan ke `ModelDefinition`-nya, lalu jalankan
+`model:sync`: key-nya, `find`/`findOrFail`-nya, dan foreign key yang
+merujuknya kembali menjadi `int`/`Object`.
 
 ```dart
 // <dartisan:statics>
