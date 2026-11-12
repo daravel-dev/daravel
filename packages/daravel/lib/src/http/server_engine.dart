@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:meta/meta.dart';
+
 import '../foundation/application.dart';
 import '../foundation/env.dart';
 import '../logging/logger.dart';
@@ -963,14 +965,28 @@ final class ServerEngine {
     if (count != null && headers > count) {
       return '$headers headers, above $count';
     }
+    final name = loggable(largest);
     if (line != null && largestSize > line) {
-      return 'header "$largest" holds $largestSize bytes, above $line';
+      return 'header "$name" holds $largestSize bytes, above $line';
     }
     if (total != null && size > total) {
       return 'request line and headers hold $size bytes, above $total '
-          '(largest: "$largest", $largestSize bytes)';
+          '(largest: "$name", $largestSize bytes)';
     }
     return null;
+  }
+
+  /// [text] from a client, fit for a log line: at most [max] characters
+  /// (then `…`), and every control or non-ASCII character as `?`, so a
+  /// header name or path cannot forge log lines or fill them.
+  @visibleForTesting
+  static String loggable(String text, {int max = 64}) {
+    final cut = text.length > max ? text.substring(0, max) : text;
+    final safe = String.fromCharCodes([
+      for (final unit in cut.codeUnits)
+        unit < 0x20 || unit > 0x7e ? 0x3f : unit,
+    ]);
+    return text.length > max ? '$safe…' : safe;
   }
 
   /// Answers `431 Request Header Fields Too Large` (RFC 6585 §5) and closes
@@ -984,7 +1000,8 @@ final class ServerEngine {
       _lastHeaderLogMs = now;
       logger.warning(
         'Request headers too large: $reason; refused '
-        '${httpRequest.method} ${httpRequest.uri.path} with 431 '
+        '${loggable(httpRequest.method)} ${loggable(httpRequest.uri.path)} '
+        'with 431 '
         '($_headerRefusals refused so far).',
       );
     }

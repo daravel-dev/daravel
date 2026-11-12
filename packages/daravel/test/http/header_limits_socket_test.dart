@@ -166,6 +166,18 @@ void main() {
     expect(status(reply), 200);
   });
 
+  test('the log line gets the client header name and path cut to 64 '
+      'characters, control and non-ASCII characters as ?', () {
+    expect(ServerEngine.loggable('x-pad'), 'x-pad');
+    final forged = 'x-a\r\n[ERROR] forged ${'z' * 100}';
+    final logged = ServerEngine.loggable(forged);
+    expect(logged, startsWith('x-a??[ERROR] forged '));
+    expect(logged, hasLength(65));
+    expect(logged, endsWith('…'));
+    expect(logged.substring(0, 64), isNot(contains('\n')));
+    expect(ServerEngine.loggable('café\u0000'), 'caf??');
+  });
+
   test('fromEnv: defaults, and a negative limit is an error', () {
     final defaults = ServeOptions.fromEnv(
       Env.fromMap(const <String, String>{}),

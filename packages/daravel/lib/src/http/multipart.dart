@@ -137,6 +137,14 @@ Future<MultipartBody> parseMultipart(
 /// The bytes are scanned once, in time linear in the body: the delimiter
 /// is found with Knuth–Morris–Pratt, so a delimiter split across chunks is
 /// found as one that is not.
+///
+/// Only a delimiter after CRLF is recognised, as RFC 2046 writes it. A
+/// body that puts one elsewhere (right after a part's blank line, with no
+/// CRLF before it) escapes the limits for the parts after it, and is
+/// parsed by `package:mime` as before: the limits fail open there, the
+/// parsing does not change. A body that ends or fails inside a part,
+/// which leaves `package:mime`'s part pending, is failed by [_Parts]
+/// (`multipart_test.dart` and `multipart_socket_test.dart`, #145).
 @visibleForTesting
 Stream<List<int>> limitPartHeaders(
   Stream<List<int>> body,
