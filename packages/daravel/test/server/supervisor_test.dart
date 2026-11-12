@@ -46,6 +46,34 @@ void main() {
     'supervisor runs 2 workers on one port with process-scope state',
     () async {
       final port = await freePort();
+      // This test once hit its 2-minute timeout in a full run and did not
+      // again in 45 runs. Each step has a named timeout so the next one
+      // says which step it was, and whether the port still took
+      // connections then (another test file reusing it is a suspect).
+      Future<String> portState() async {
+        try {
+          final socket = await Socket.connect(
+            '127.0.0.1',
+            port,
+            timeout: const Duration(seconds: 1),
+          );
+          socket.destroy();
+          return 'still accepts connections';
+        } on Object catch (error) {
+          return 'refuses connections ($error)';
+        }
+      }
+
+      Future<T> step<T>(
+        String name,
+        Duration limit,
+        Future<T> Function() body,
+      ) => body().timeout(
+        limit,
+        onTimeout: () async => throw TimeoutException(
+          'step "$name" took over $limit; port $port ${await portState()}',
+        ),
+      );
       final supervisor = Supervisor(
         supervisedApp,
         ServeOptions(
@@ -58,19 +86,21 @@ void main() {
         ),
         logger: Logger(minimumLevel: .warning),
       );
-      await supervisor.start();
+      // Past its own readyTimeout (60 s), so that error shows first.
+      await step('start', const Duration(seconds: 75), supervisor.start);
       addTearDown(supervisor.stop);
       expect(supervisor.ports, [port, port]);
 
       final client = HttpClient();
       addTearDown(() => client.close(force: true));
-      Future<(int, String)> get(String path) async {
-        final request = await client.getUrl(
-          Uri.parse('http://127.0.0.1:$port$path'),
-        );
-        final response = await request.close();
-        return (response.statusCode, await utf8.decodeStream(response));
-      }
+      Future<(int, String)> get(String path) =>
+          step('GET $path', const Duration(seconds: 30), () async {
+            final request = await client.getUrl(
+              Uri.parse('http://127.0.0.1:$port$path'),
+            );
+            final response = await request.close();
+            return (response.statusCode, await utf8.decodeStream(response));
+          });
 
       final isolates = <String>{};
       for (var i = 0; i < 40; i++) {
@@ -132,7 +162,7 @@ void main() {
       expect((await get('/boom')).$1, 500);
       expect((await get('/whoami')).$1, 200);
 
-      await supervisor.stop();
+      await step('stop', const Duration(seconds: 20), supervisor.stop);
       expect(supervisor.exitCode, 0);
       // Nothing listens any more: the connection is refused, or a socket
       // the OS still had open is closed before any header (under load).
