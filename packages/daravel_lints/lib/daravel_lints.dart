@@ -655,6 +655,7 @@ final class InvalidValidationRule extends LintRule {
     'prohibited',
     'accepted',
     'accepted_if',
+    'active_url',
     'declined',
     'declined_if',
     'required_if',
@@ -962,9 +963,31 @@ final class InvalidValidationRule extends LintRule {
         return 'Validation rule "encoding:${arguments.first}" is not checked '
             'by Daravel (UTF-8, ASCII, ISO-8859-1) in "$dsl".';
       }
+      if (rule == 'email') {
+        for (final mode in arguments) {
+          if (mode == 'spoof') {
+            return 'Validation rule "email:spoof" needs ICU and is not '
+                'checked by Daravel (it throws) in "$dsl".';
+          }
+          if (!emailModes.contains(mode)) {
+            return 'Unknown email mode "$mode" (Laravel treats it as rfc; '
+                'use ${emailModes.join(', ')}) in "$dsl".';
+          }
+        }
+      }
     }
     return null;
   }
+
+  /// The `email:` modes `EmailRule` checks (kept equal, with `spoof`, by
+  /// `packages/daravel/test/validation/rule_names_lint_test.dart`).
+  static const Set<String> emailModes = {
+    'rfc',
+    'strict',
+    'dns',
+    'filter',
+    'filter_unicode',
+  };
 
   /// The encodings `EncodingRule` checks, normalized (kept equal by
   /// `packages/daravel/test/validation/rule_names_lint_test.dart`).

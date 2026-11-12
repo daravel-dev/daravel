@@ -39,6 +39,24 @@ void main() {
     }
   });
 
+  test('the lint flags email modes EmailRule does not check', () {
+    expect({
+      ...InvalidValidationRule.emailModes,
+      'spoof',
+    }, EmailRule.knownModes);
+    for (final ok in ['email', 'email:rfc,dns', 'email:filter_unicode']) {
+      expect(InvalidValidationRule.problemIn(ok), isNull, reason: ok);
+    }
+    expect(
+      InvalidValidationRule.problemIn('email:rfc,spoof'),
+      contains('needs ICU'),
+    );
+    expect(
+      InvalidValidationRule.problemIn('email:dsn'),
+      contains('Unknown email mode "dsn"'),
+    );
+  });
+
   test('rules that need arguments parse with them and are flagged without', () {
     for (final MapEntry(key: rule, value: count)
         in InvalidValidationRule.requiredArguments.entries) {

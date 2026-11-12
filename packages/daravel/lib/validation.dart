@@ -6,6 +6,7 @@
 library;
 
 export 'src/validation/form_request.dart';
+export 'src/validation/dns.dart' show DnsResolver, SystemDnsResolver;
 export 'src/validation/messages.dart';
 export 'src/validation/object_rules.dart';
 export 'src/validation/php_date_format.dart';

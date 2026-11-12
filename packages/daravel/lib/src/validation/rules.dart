@@ -8,8 +8,10 @@ import '../database/orm/model_definition.dart';
 import '../database/query/query_builder.dart';
 import '../foundation/clock.dart';
 import '../http/uploaded_file.dart';
+import 'dns.dart';
 import 'object_rules.dart';
 import 'php_date_format.dart';
+import 'php_email_filter.dart';
 import 'rule.dart';
 import 'typed_rules.dart';
 
@@ -300,8 +302,34 @@ abstract final class Rules {
   /// `map` (Daravel): a JSON object. A JSON array fails.
   static Rule map() => const MapRule();
 
-  /// `email`: an email address.
-  static Rule email() => const EmailRule();
+  /// `email`, or `email:rfc,dns,...` with the modes set: every mode given
+  /// must pass, `rfc` when none is. [dns] looks the domain up as egulias'
+  /// `DNSCheckValidation` (through the container's [DnsResolver]); it is
+  /// checked last and, as in Laravel, alone it does not check the syntax
+  /// (`email:rfc,dns` does both). [spoof] needs ICU: it throws
+  /// [UnsupportedError] here, when the rule is built. [rfc] and [strict]
+  /// are, for now, the same HTML-style check, stricter than egulias' RFC
+  /// parser.
+  static Rule email({
+    bool rfc = false,
+    bool strict = false,
+    bool dns = false,
+    bool spoof = false,
+    bool filter = false,
+    bool filterUnicode = false,
+  }) => EmailRule.checked({
+    if (rfc) 'rfc',
+    if (strict) 'strict',
+    if (dns) 'dns',
+    if (spoof) 'spoof',
+    if (filter) 'filter',
+    if (filterUnicode) 'filter_unicode',
+  });
+
+  /// `active_url`: a URL whose host has an A or AAAA record (one lookup
+  /// through the container's [DnsResolver]; an IP address fails, as in
+  /// Laravel).
+  static Rule activeUrl() => const ActiveUrlRule();
 
   /// `url`: an absolute URL with a scheme and host.
   static Rule url() => const UrlRule();
@@ -1096,22 +1124,138 @@ abstract class _PatternRule extends Rule {
   }
 }
 
-/// `email`: see [Rules.email].
-final class EmailRule extends _PatternRule {
+/// `email` and `email:rfc,dns,...`: see [Rules.email].
+///
+/// As Laravel's `validateEmail`: the value is a string without `\r` or
+/// `\n`, and passes **every** mode in [modes] (`rfc` when none is given; a
+/// name Laravel does not know is `rfc`, as Laravel's `default` arm).
+final class EmailRule extends Rule {
   /// The email rule; use [Rules.email].
-  const EmailRule();
-  static final RegExp _email = RegExp(
+  const EmailRule({this.modes = const <String>{}});
+
+  /// The modes, by Laravel's names: `rfc`, `strict`, `dns`, `spoof`,
+  /// `filter`, `filter_unicode`.
+  final Set<String> modes;
+
+  /// The rule with [modes], refusing `spoof` at once: [Rules.email] and
+  /// the string parser build it this way, so the error comes when the
+  /// rules are built (a `Validator`, OpenAPI), not on each value checked.
+  static EmailRule checked(Set<String> modes) {
+    if (modes.contains('spoof')) {
+      throw UnsupportedError(_spoofUnsupported);
+    }
+    return EmailRule(modes: modes);
+  }
+
+  static const String _spoofUnsupported =
+      'email:spoof needs ICU\'s Spoofchecker, which Dart does not have; '
+      'Daravel does not check it (dartisan lint reports it).';
+
+  /// The modes Daravel checks; `spoof` throws [UnsupportedError].
+  static const Set<String> knownModes = {
+    'rfc',
+    'strict',
+    'dns',
+    'spoof',
+    'filter',
+    'filter_unicode',
+  };
+
+  // `rfc` and `strict` until egulias/EmailValidator's RFC parser is ported:
+  // an address of HTML's `type=email` (no quoted local part, no domain
+  // literal, at least two labels), stricter than egulias' RFCValidation.
+  static final RegExp _rfc = RegExp(
     r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$",
   );
+
+  /// The pattern a client checks before sending (`dartisan client:flutter`
+  /// writes it into the Flutter form validators); the server's check,
+  /// with its modes, decides.
+  RegExp get pattern => _rfc;
+
   @override
   String get name => 'email';
-  @override
-  RegExp get pattern => _email;
+
   @override
   Map<String, Object?> get schemaHint => const {
     'type': 'string',
     'format': 'email',
   };
+
+  @override
+  Future<String?> passes(ValidationContext context) async {
+    final value = context.value;
+    if (value is! String || value.contains('\r') || value.contains('\n')) {
+      return name;
+    }
+    final checks = {
+      for (final mode in modes.isEmpty ? const {'rfc'} : modes)
+        knownModes.contains(mode) ? mode : 'rfc',
+    };
+    // Reached only by a `const EmailRule(modes: {'spoof'})` built directly.
+    if (checks.contains('spoof')) {
+      throw UnsupportedError(_spoofUnsupported);
+    }
+    if ((checks.contains('rfc') || checks.contains('strict')) &&
+        !_rfc.hasMatch(value)) {
+      return name;
+    }
+    // PHP's FILTER_VALIDATE_EMAIL, read in one pass: PHP's regex
+    // backtracks exponentially, and Dart's engine has no limit to stop it.
+    if (checks.contains('filter') && !phpFilterEmail(value)) {
+      return name;
+    }
+    if (checks.contains('filter_unicode') &&
+        !phpFilterEmail(value, unicode: true)) {
+      return name;
+    }
+    // Last, so an address that fails the cheap checks costs no lookup.
+    if (checks.contains('dns') &&
+        !await emailDomainResolves(value, _resolver(context))) {
+      return name;
+    }
+    return null;
+  }
+}
+
+/// The [DnsResolver] bound in the container of [context], or the shared
+/// [SystemDnsResolver].
+DnsResolver _resolver(ValidationContext context) =>
+    context.container?.tryMake<DnsResolver>() ?? SystemDnsResolver.instance;
+
+/// `active_url`: see [Rules.activeUrl].
+final class ActiveUrlRule extends Rule {
+  /// The active URL rule; use [Rules.activeUrl].
+  const ActiveUrlRule();
+
+  @override
+  String get name => 'active_url';
+
+  @override
+  Map<String, Object?> get schemaHint => const {
+    'type': 'string',
+    'format': 'uri',
+  };
+
+  @override
+  Future<String?> passes(ValidationContext context) async {
+    // Laravel: the host of parse_url, then dns_get_record(host, A|AAAA).
+    // An IP address is not a name DNS answers for, so it fails without a
+    // lookup, as it does in Laravel; so does a name DNS cannot carry.
+    final value = context.value;
+    if (value is! String) {
+      return name;
+    }
+    final host = Uri.tryParse(value)?.host ?? '';
+    if (host.isEmpty || isIpLiteral(host)) {
+      return name;
+    }
+    final ascii = toAsciiHost(host);
+    if (ascii == null) {
+      return name;
+    }
+    return await _resolver(context).hasAddress(ascii) ? null : name;
+  }
 }
 
 /// `url`: see [Rules.url].

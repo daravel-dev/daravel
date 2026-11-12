@@ -94,6 +94,38 @@ Rules.unique('users', 'email').where((QueryBuilder q) => q.whereNull('deleted_at
 Rules.exists('billing.invoices', 'id').where((QueryBuilder q) => q.where('open', true));
 ```
 
+### Email modes and `active_url`
+
+`email` takes Laravel's modes, `email:rfc,dns` or `Rules.email(rfc: true,
+dns: true)`; every mode given must pass, and `rfc` applies when none is.
+
+- `filter` and `filter_unicode` are PHP's `FILTER_VALIDATE_EMAIL` (with
+  `FILTER_FLAG_EMAIL_UNICODE`), read in one pass over the address instead
+  of with PHP's regex, which backtracks exponentially on some inputs; they
+  are compared with PHP 8.3 on more than 3 800 addresses.
+- `dns` checks the domain as Laravel's (egulias) `DNSCheckValidation`:
+  reserved names (`test`, `example`, `localhost`, `local`, ...) and
+  single-label domains fail, and the domain or one of its parent names needs
+  an MX, A or AAAA record and no null MX. As in Laravel, `dns` alone checks
+  no syntax: write `email:rfc,dns`.
+- `rfc` and `strict` are, for now, an HTML-style check, stricter than
+  Laravel's RFC parser: a quoted local part or a single-label domain fails.
+- `spoof` needs ICU, which Dart does not have: building the rules throws
+  `UnsupportedError` (the first request that validates with it, a test, or
+  OpenAPI generation), and `dartisan lint` reports it.
+
+`active_url` passes when the URL's host has an A or AAAA record; an IP
+address fails, as in Laravel.
+
+Both make the server look up a name the user sent. Each lookup adds latency
+to the request (at most 2 seconds, then the rule fails), so put routes that
+use them behind a rate limit. Lookups go through the `DnsResolver` bound in
+the container (`SystemDnsResolver` by default); in tests, bind
+`FakeDnsResolver` from `daravel_test`, Laravel's `fakeDnsLookups`. Two
+differences from PHP: the system lookup also reads `/etc/hosts`; and on
+Windows, which has no `/etc/resolv.conf` to ask for MX records, `dns` sees
+A and AAAA only (a domain with only an MX fails, and a null MX goes unseen).
+
 Rules that depend on the input or on each element, as Laravel's `Rule::when`,
 `Rule::unless`, `Rule::forEach` and `Rule::anyOf`:
 
