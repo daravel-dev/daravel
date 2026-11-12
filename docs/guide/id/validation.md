@@ -1,4 +1,4 @@
-<!-- source: validation.md sha256:0782d21e9eb6 -->
+<!-- source: validation.md sha256:6943ca67271a -->
 # Validasi
 
 Validasi request secara inline dengan string rule Laravel, atau dengan objek
@@ -281,6 +281,12 @@ router.post('/avatar', (request) async {
   tipe yang terdeteksi), `mimetypes:image/*`, `extensions:csv,txt` (nama file
   dari client), serta `min`, `max`, `size`, `between` dalam kilobyte. File
   PHP ditolak kecuali `php` dicantumkan.
+- `dimensions:min_width=100,max_height=800,ratio=3/2` (atau
+  `Rules.dimensions(minWidth: 100, ratio: '3/2')`) membaca ukuran dari header
+  gambar seperti `getimagesize` di PHP, untuk PNG, GIF, JPEG, WebP, dan BMP;
+  SVG lolos, seperti di Laravel. Hanya 256 KiB pertama dari upload yang
+  dibaca: JPEG yang metadata-nya lebih panjang dari itu sebelum gambarnya
+  tidak punya ukuran dan gagal, begitu pula format lain.
 - Tipe dideteksi dari isinya (PDF, gambar, file Office dan OpenDocument,
   arsip, teks), tidak pernah dari nama file: file teks bernama `photo.png`
   bukan gambar.

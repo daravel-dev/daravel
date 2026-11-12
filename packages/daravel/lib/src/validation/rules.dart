@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import '../database/database_manager.dart';
 import '../database/orm/model.dart';
@@ -10,6 +11,7 @@ import '../foundation/clock.dart';
 import '../http/uploaded_file.dart';
 import 'auth_rules.dart';
 import 'dns.dart';
+import 'image_size.dart';
 import 'object_rules.dart';
 import 'php_date_format.dart';
 import 'php_email_filter.dart';
@@ -357,6 +359,31 @@ abstract final class Rules {
   /// `image`: an uploaded jpg, jpeg, png, bmp, gif or webp; svg only when
   /// [allowSvg].
   static Rule image({bool allowSvg = false}) => ImageRule(allowSvg: allowSvg);
+
+  /// `dimensions` (`Rule::dimensions()`): an uploaded image whose size
+  /// meets every constraint given; an SVG passes. A ratio is written as
+  /// Laravel reads it (`'3/2'`, `'1.5'`).
+  static Rule dimensions({
+    int? width,
+    int? height,
+    int? minWidth,
+    int? maxWidth,
+    int? minHeight,
+    int? maxHeight,
+    String? ratio,
+    String? minRatio,
+    String? maxRatio,
+  }) => DimensionsRule({
+    'width': ?width?.toString(),
+    'height': ?height?.toString(),
+    'min_width': ?minWidth?.toString(),
+    'max_width': ?maxWidth?.toString(),
+    'min_height': ?minHeight?.toString(),
+    'max_height': ?maxHeight?.toString(),
+    'ratio': ?ratio,
+    'min_ratio': ?minRatio,
+    'max_ratio': ?maxRatio,
+  });
 
   /// `mimes`: an uploaded file whose content matches one of [extensions].
   static Rule mimes(List<String> extensions) => MimesRule(extensions);
@@ -2973,6 +3000,94 @@ final class MimesRule extends Rule {
       allowed.addAll(['jpg', 'jpeg']);
     }
     return allowed.contains(value.extension) ? null : name;
+  }
+}
+
+/// `dimensions:min_width=100,ratio=3/2`: see [Rules.dimensions].
+///
+/// As Laravel's `validateDimensions`: an SVG passes; anything else must be
+/// an upload whose header gives a size (`getimagesize`; here PNG, GIF,
+/// JPEG, WebP and BMP, read from at most [maxImageHeaderBytes]), and pass
+/// every constraint. A constraint that is not a number fails.
+final class DimensionsRule extends Rule {
+  /// The rule, with Laravel's constraint names (`min_width`, `ratio`, ...)
+  /// and their values as written; use [Rules.dimensions].
+  const DimensionsRule(this.constraints);
+
+  /// The constraints by Laravel's names; a name without `=value` is null.
+  final Map<String, String?> constraints;
+
+  @override
+  String get name => 'dimensions';
+
+  @override
+  Future<String?> passes(ValidationContext context) async {
+    final file = context.value;
+    if (file is! UploadedFile) {
+      return name;
+    }
+    if (file.mimeType == 'image/svg+xml' || file.mimeType == 'image/svg') {
+      return null;
+    }
+    final size = imageSize(await imageHeaderOf(file));
+    if (size == null) {
+      return name;
+    }
+    if (constraints.isEmpty) {
+      throw ArgumentError(
+        'Validation rule dimensions requires at least 1 parameters.',
+      );
+    }
+    final (:width, :height) = size;
+    bool fails(String key, bool Function(num limit) failsWith) {
+      final raw = constraints[key];
+      if (raw == null) {
+        return false;
+      }
+      final limit = num.tryParse(raw.trim());
+      return limit == null || failsWith(limit);
+    }
+
+    final precision = 1 / (max((width + height) / 2, height) + 1);
+    double? ratioOf(String key) {
+      final raw = constraints[key];
+      return raw == null ? null : phpRatio(raw);
+    }
+
+    final ratio = ratioOf('ratio');
+    final minRatio = ratioOf('min_ratio');
+    final maxRatio = ratioOf('max_ratio');
+    // A header declaring height 0 (PHP reports it as is): Laravel's ratio
+    // checks divide by it and throw; here a ratio constraint fails.
+    if (height == 0 && (ratio ?? minRatio ?? maxRatio) != null) {
+      return name;
+    }
+    final actual = width / height;
+    final failed =
+        fails('width', (v) => v != width) ||
+        fails('min_width', (v) => v > width) ||
+        fails('max_width', (v) => v < width) ||
+        fails('height', (v) => v != height) ||
+        fails('min_height', (v) => v > height) ||
+        fails('max_height', (v) => v < height) ||
+        (ratio != null && (ratio - actual).abs() > precision) ||
+        (minRatio != null && minRatio - actual > precision) ||
+        (maxRatio != null && actual - maxRatio > precision);
+    return failed ? name : null;
+  }
+
+  /// A ratio as Laravel reads it: `sscanf($value, '%f/%d')` with what PHP's
+  /// `array_filter` drops replaced by 1 (`'3/2'` is 1.5, `'1.5'` is 1.5/1,
+  /// `'0/2'` is 1/2, `'x'` is 1/1).
+  static double phpRatio(String value) {
+    final match = RegExp(
+      r'^\s*([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)(?:/\s*([+-]?\d+))?',
+    ).firstMatch(value);
+    final numerator = double.tryParse(match?.group(1) ?? '');
+    final denominator = int.tryParse(match?.group(2) ?? '');
+    final n = numerator == null || numerator == 0 ? 1.0 : numerator;
+    final d = denominator == null || denominator == 0 ? 1 : denominator;
+    return n / d;
   }
 }
 

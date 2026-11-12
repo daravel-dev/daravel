@@ -1,0 +1,96 @@
+{
+    "php": "8.2.33",
+    "cases": {
+        "png_640x480": {
+            "bytes": "iVBORw0KGgoAAAANSUhEUgAAAoAAAAHgCAIAAAA=",
+            "size": [
+                640,
+                480
+            ]
+        },
+        "png_cut_20": {
+            "bytes": "iVBORw0KGgoAAAANSUhEUgAAAoA=",
+            "size": null
+        },
+        "png_zero_w": {
+            "bytes": "iVBORw0KGgoAAAANSUhEUgAAAAAAAAAKCAIAAAA=",
+            "size": [
+                0,
+                10
+            ]
+        },
+        "gif_32x16": {
+            "bytes": "R0lGODlhIAAQAAAAAA==",
+            "size": [
+                32,
+                16
+            ]
+        },
+        "gif_cut_8": {
+            "bytes": "R0lGODlhIAA=",
+            "size": null
+        },
+        "jpeg_1024x768": {
+            "bytes": "/9j/4QASQUFBQUFBQUFBQUFBQUFBQf//wAARCAMABAADAAAAAAAAAAAA/9oAAg==",
+            "size": [
+                1024,
+                768
+            ]
+        },
+        "jpeg_cut_before_frame": {
+            "bytes": "/9j/4QASQUFBQUFBQUFBQUFBQUFBQf//",
+            "size": null
+        },
+        "jpeg_scan_first": {
+            "bytes": "/9j/2gACAAA=",
+            "size": null
+        },
+        "webp_lossy_300x200": {
+            "bytes": "UklGRh4AAABXRUJQVlA4IBIAAAAAAACdASosAcgAAAA=",
+            "size": [
+                300,
+                200
+            ]
+        },
+        "webp_lossless_300x200": {
+            "bytes": "UklGRh4AAABXRUJQVlA4TAoAAAAvK8ExAAAAAAAA",
+            "size": [
+                300,
+                200
+            ]
+        },
+        "webp_extended_5000x4000": {
+            "bytes": "UklGRh4AAABXRUJQVlA4WAoAAAAAAAAAhxMAnw8A",
+            "size": [
+                5000,
+                4000
+            ]
+        },
+        "webp_cut_24": {
+            "bytes": "UklGRh4AAABXRUJQVlA4IBIAAAAAAACd",
+            "size": null
+        },
+        "bmp_10x20": {
+            "bytes": "Qk02AAAAAAAAADYAAAAoAAAACgAAABQAAAABABgA",
+            "size": [
+                10,
+                20
+            ]
+        },
+        "bmp_topdown_10x20": {
+            "bytes": "Qk02AAAAAAAAADYAAAAoAAAACgAAAOz///8BABgA",
+            "size": [
+                10,
+                20
+            ]
+        },
+        "bmp_cut_20": {
+            "bytes": "Qk02AAAAAAAAADYAAAAoAAAACgA=",
+            "size": null
+        },
+        "not_image": {
+            "bytes": "PGh0bWw+PC9odG1sPg==",
+            "size": null
+        }
+    }
+}

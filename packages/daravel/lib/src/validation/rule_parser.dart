@@ -134,6 +134,12 @@ abstract final class RuleParser {
       'url' => Rules.url(),
       'file' => Rules.file(),
       'image' => Rules.image(allowSvg: args.contains('allow_svg')),
+      'dimensions' => DimensionsRule({
+        for (final arg in args)
+          arg.split('=').first: arg.contains('=')
+              ? arg.substring(arg.indexOf('=') + 1)
+              : null,
+      }),
       'mimes' => Rules.mimes([for (final a in args) a.toLowerCase()]),
       'mimetypes' => Rules.mimetypes(args),
       'extensions' => Rules.extensions([for (final a in args) a.toLowerCase()]),
