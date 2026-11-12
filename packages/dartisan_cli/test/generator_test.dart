@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:dart_style/dart_style.dart';
 import 'package:dartisan_cli/dartisan_cli.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -198,6 +199,58 @@ final List<ModelDefinition<Model>> models = <ModelDefinition<Model>>[
     );
     expect('Comment.definition,'.allMatches(registry), hasLength(1));
     expect(registry, isNot(contains('Post.definition')));
+  });
+
+  test('make:model adds the model to the models barrel when it exists', () {
+    // Without a barrel none is created (model:sync only hints at it).
+    Generator(paths).model('Post');
+    expect(File(paths.modelsBarrel).existsSync(), isFalse);
+    // The barrel dartisan new writes.
+    File(paths.modelsBarrel).writeAsStringSync('''
+/// Every model.
+library;
+
+// <dartisan:exports>
+export 'user.dart';
+
+// </dartisan:exports>
+''');
+    Generator(paths).model('Comment');
+    Generator(paths).model('Comment');
+    Generator(paths, dryRun: true).model('Ghost');
+    final barrel = File(paths.modelsBarrel).readAsStringSync();
+    expect(barrel, '''
+/// Every model.
+library;
+
+// <dartisan:exports>
+export 'comment.dart';
+export 'user.dart';
+
+// </dartisan:exports>
+''');
+    // As dart format lays it out.
+    expect(
+      DartFormatter(languageVersion: DartFormatter.latestLanguageVersion)
+          .format(barrel),
+      barrel,
+    );
+  });
+
+  test('ModelsBarrel.add keeps the exports sorted and once each', () {
+    const empty = 'library;\n\n// <dartisan:exports>\n// </dartisan:exports>\n';
+    final one = ModelsBarrel.add(empty, 'user.dart')!;
+    expect(
+      one,
+      'library;\n\n// <dartisan:exports>\nexport \'user.dart\';\n\n'
+      '// </dartisan:exports>\n',
+    );
+    expect(ModelsBarrel.add(one, 'user.dart'), isNull);
+    expect(
+      ModelsBarrel.add(one, 'author.dart'),
+      contains("export 'author.dart';\nexport 'user.dart';"),
+    );
+    expect(ModelsBarrel.add('library;\n', 'user.dart'), isNull);
   });
 
   group('make:job --model', () {

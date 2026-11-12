@@ -831,6 +831,7 @@ final class Application {
       exceptions: exceptions,
       logger: logger,
       multipartLimits: MultipartLimits.fromEnv(env),
+      jsonMaxDepth: Request.jsonMaxDepthFromEnv(env),
     );
     container.instance<HttpKernel>(kernel);
     final upstream = _builder._upstream;

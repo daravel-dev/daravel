@@ -111,6 +111,7 @@ frozen after boot.
 | `SHUTDOWN_TIMEOUT`, `HTTP_REQUEST_TIMEOUT` | `30s`, `30s` | Graceful shutdown and handler timeouts |
 | `HTTP_IDLE_TIMEOUT` | `60s` | A keep-alive connection idle this long between requests is closed by the server. Within a request, a body the application does not read is not waited for: the server answers at once (after up to 1 s for a body of at most 256 KiB, to keep the connection) and closes the connection if the body has not arrived |
 | `HTTP_MAX_BODY` | `52428800` (50 MiB) | The body limit every request starts with (`413` above it; `0` for none); `BodyLimitsMiddleware` tightens it to 1 MiB for JSON and forms |
+| `HTTP_JSON_MAX_DEPTH` | `512` | The depth of a JSON body, with the meaning of PHP's `json_decode` `$depth`, so a body reads as in Laravel: arrays and objects nested 511 deep are read, 512 or deeper give no input at all (validation runs on empty input, a `422` for `required`), not a `400`. Counted on the bytes before decoding; form and multipart bodies are not affected. A malformed JSON body is a `400` (`Malformed JSON body`), a deliberate difference: Laravel reads it as no input. `0` for none |
 | `HTTP_MAX_HEADER_BYTES` | `32768` (32 KiB) | The request line and headers together; above it `431 Request Header Fields Too Large` before routing, for a WebSocket handshake too (`0` for none). It bounds what the application parses, not what `dart:io` reads (up to 1 MiB) |
 | `HTTP_MAX_HEADER_LINE_BYTES` | `16384` (16 KiB) | One header, name and value; `431` above it (`0` for none). nginx's default is 8 KiB per line |
 | `HTTP_MAX_HEADERS` | `100` | The number of headers, as Apache's `LimitRequestFields`; `431` above it (`0` for none) |
@@ -126,7 +127,7 @@ frozen after boot.
 `doctor --production` treats warnings as failures and requires
 `APP_ENV=production`, since the checks that only apply there would
 otherwise be skipped. Under `APP_ENV=production` a missing `APP_KEY` is an
-error, `HASH_VERIFY=false`, `BCRYPT_ROUNDS` below 10 and `HTTP_MAX_BODY=0` are warnings, and a
+error, `HASH_VERIFY=false`, `BCRYPT_ROUNDS` below 10, `HTTP_MAX_BODY=0` and `HTTP_JSON_MAX_DEPTH` at `0` or above 1 024 (a JSON body a few thousand levels deep can overflow the stack) are warnings, and a
 plain-`http` `APP_URL`, `HASH_DRIVER=pbkdf2` and secrets in a plain `.env`
 are notes. Tuning advice (one isolate on a machine with more cores,
 `LOG_LEVEL` below `warning`, a SQLite file shared by several isolates, the
