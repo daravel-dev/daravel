@@ -42,10 +42,10 @@ void main() {
     });
   }
 
-  test('unique and exists refuse where conditions in the string form', () {
+  test('unique and exists refuse a condition column without a value', () {
     for (final rule in [
-      'unique:users,email,NULL,id,account_id,1',
-      'exists:users,id,active,1',
+      'unique:users,email,NULL,id,account_id',
+      'exists:users,id,active',
     ]) {
       expect(
         () => Validator({}, {'x': rule}),
@@ -53,14 +53,17 @@ void main() {
           isA<ArgumentError>().having(
             (e) => '${e.message}',
             'message',
-            contains('.where('),
+            contains('column,value pairs'),
           ),
         ),
         reason: rule,
       );
     }
-    // The forms without conditions still parse.
-    Validator({}, {'a': 'unique:users,email,NULL,id', 'b': 'exists:users,id'});
+    // Pairs parse (unique_exists_where_golden_test runs them).
+    Validator({}, {
+      'a': 'unique:users,email,NULL,id,account_id,1',
+      'b': 'exists:users,id,active,1',
+    });
   });
 
   test('the typed forms take several fields', () async {
