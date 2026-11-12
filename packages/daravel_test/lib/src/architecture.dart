@@ -24,7 +24,11 @@ void expectLintClean([String? root, Iterable<String> enable = const []]) {
     printOnFailure(warning);
   }
   _expectNoIssues(
-    lintProject(path, rules: config.rules, registries: config.registries),
+    lintProject(
+      path,
+      rules: config.rulesIn(path, warn: printOnFailure),
+      registries: config.registries,
+    ),
     'Lint findings',
   );
 }

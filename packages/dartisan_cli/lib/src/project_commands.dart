@@ -1861,14 +1861,20 @@ final class LintCommand extends Command<int> {
     for (final warning in config.warnings) {
       stderr.writeln('Warning: $warning');
     }
+    final rules = config.rulesIn(
+      root,
+      warn: (warning) => stderr.writeln('Warning: $warning'),
+    );
     final issues = lintProject(
       root,
-      rules: config.rules,
+      rules: rules,
       registries: config.registries,
     );
     final optIn = [
-      for (final rule in config.rules)
-        if (optionalRules.any((o) => o.name == rule.name)) rule.name,
+      for (final rule in rules)
+        if (optionalRules.any((o) => o.name == rule.name) ||
+            projectRuleNames.contains(rule.name))
+          rule.name,
     ];
     final off = [
       for (final rule in defaultRules)

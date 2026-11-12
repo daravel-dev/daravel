@@ -1,5 +1,6 @@
 import 'package:analysis_server_plugin/edit/dart/correction_producer.dart';
 import 'package:analyzer/dart/ast/ast.dart';
+import 'package:analyzer/file_system/file_system.dart';
 import 'package:analyzer/source/source_range.dart';
 import 'package:analyzer_plugin/utilities/change_builder/change_builder_core.dart';
 import 'package:analyzer_plugin/utilities/fixes/fixes.dart';
@@ -9,11 +10,16 @@ import 'package:daravel_lints/daravel_lints.dart';
 /// editor, with "fix all in file": the same edits `dartisan lint` would
 /// make. Offered only where the rule offers a fix.
 final class DaravelFix extends ResolvedCorrectionProducer {
-  /// The fix of [rule]'s finding the [context] points at.
-  DaravelFix(this.rule, {required super.context});
+  /// The fix of [rule]'s finding the [context] points at; [ruleIn] builds
+  /// the rule run on the file, for a rule that depends on its package.
+  DaravelFix(this.rule, {required super.context, this.ruleIn});
 
   /// The rule whose finding is fixed.
   final LintRule rule;
+
+  /// The rule run on a file, when it depends on the file's package
+  /// (`string_column_name` and the models it reads).
+  final LintRule Function(File file, CompilationUnit unit)? ruleIn;
 
   // The edits taken so far for one "fix all in file" (the analysis server
   // runs one producer per finding on one builder): an edit two findings
@@ -48,6 +54,7 @@ final class DaravelFix extends ResolvedCorrectionProducer {
       return;
     }
     final unit = this.unit;
+    final rule = ruleIn?.call(unitResult.file, unit) ?? this.rule;
     AstNode? found;
     rule.check(unit, (node, _) {
       if (node.offset == offset && node.length == length) {
