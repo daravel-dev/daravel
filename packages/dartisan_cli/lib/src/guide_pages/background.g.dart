@@ -91,6 +91,11 @@ until commit by default.
 
 ### Attempts, timeouts and `retry_after`
 
+- A job that fails for good is removed from `jobs` first and then written
+  to `failed_jobs`, as in Laravel. When that write fails (the table missing,
+  the database refusing), the job is gone without a record: the worker logs
+  the error at `error` level (at most one entry a minute, with the number
+  left out), so alert on those entries.
 - `tries` counts every reservation, including a release by middleware
   (`WithoutOverlapping`, `RateLimitedJob`) or `ctx.release()`. A job reserved
   again after its last try fails with `MaxAttemptsExceededException` without

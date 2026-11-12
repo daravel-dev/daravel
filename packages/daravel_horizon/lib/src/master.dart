@@ -192,7 +192,12 @@ final class HorizonMaster {
 
   /// Whether a job whose worker was killed past its timeout fails now
   /// (`JobProcessor.failsAfterTimeout`, the rule `queue:work` applies to
-  /// its own timeouts): it reads the payload and the exception count only.
+  /// its own timeouts): it reads the job's retry settings and the
+  /// `job-exceptions:<uuid>` count only. That count lives in the queue's
+  /// unique-lock store (`QUEUE_UNIQUE_LOCK_STORE`: `database`, `redis` or
+  /// `process` by default), which the master and the workers of a process
+  /// share; an isolate-scoped `memory` store would count apart in each
+  /// isolate, as it already does between workers.
   /// Without it, every such job is made available again.
   final Future<bool> Function(JobPayload payload, int attempts, {int? tries})?
   failsAfterTimeout;
@@ -848,7 +853,10 @@ final class HorizonMaster {
   /// another worker already, whose reservation a reclaim would release
   /// (a third worker could then run it beside the second). Then the job is
   /// left to `retry_after`, and [HorizonWorker._leftToRetryAfter] is set.
-  Future<bool> _reclaim(HorizonWorker w) async {
+  ///
+  /// [pastWindow], when given, is the caller's own reading of
+  /// [_pastReclaimWindow], used instead of reading it again.
+  Future<bool> _reclaim(HorizonWorker w, {bool? pastWindow}) async {
     final job = w.last;
     final queue = job?.queue;
     final id = job?.jobId;
@@ -856,7 +864,7 @@ final class HorizonMaster {
     if (queue == null || id == null || target is! ReclaimableQueueDriver) {
       return false;
     }
-    if (_pastReclaimWindow(w)) {
+    if (pastWindow ?? _pastReclaimWindow(w)) {
       w._leftToRetryAfter = true;
       logger.info(
         'Job ${job?.jobUuid} of ${w.name} left to retry_after: it may '
@@ -960,8 +968,13 @@ final class HorizonMaster {
       final job = w.last!;
       await w._sessionsEnded;
       final limit = _jobLimit(w);
-      final marked = await _markIfFails(w, limit);
-      final reclaimed = await _reclaim(w);
+      // Judged once, for the mark and the reclaim alike: judged twice, the
+      // window could pass in between, and a job marked to fail would be
+      // left to retry_after unmarked. The reclaim margin (a heartbeat, at
+      // least a second) covers the moment the mark takes.
+      final past = _pastReclaimWindow(w);
+      final marked = !past && await _markIfFails(w, limit);
+      final reclaimed = await _reclaim(w, pastWindow: past);
       final store = signals;
       var willFail = marked;
       if (marked && !reclaimed && !w._reclaimFailed && store != null) {
@@ -1015,8 +1028,8 @@ final class HorizonMaster {
 
   /// Marks [w]'s job to fail on its next reservation when it fails after
   /// this timeout ([failsAfterTimeout] on the retry settings [w] reported); true
-  /// when marked. Nothing is marked once `retry_after` has passed (the job
-  /// may be another worker's), without a store, a rule or the job's retry
+  /// when marked. The caller does not ask once `retry_after` has passed (the
+  /// job may be another worker's). Nothing is marked without a store, a rule or the job's retry
   /// settings, or when deciding or marking fails (the job is then made
   /// available again, as before).
   Future<bool> _markIfFails(HorizonWorker w, Duration? limit) async {
@@ -1028,8 +1041,7 @@ final class HorizonMaster {
         store == null ||
         decide == null ||
         uuid == null ||
-        job.jobMaxTries == null ||
-        _pastReclaimWindow(w)) {
+        job.jobMaxTries == null) {
       return false;
     }
     final attempt = job.attempt ?? 1;
