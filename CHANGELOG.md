@@ -11,9 +11,17 @@ match Laravel more closely.
 
 ## Unreleased
 
-A security patch: fixes only. Upgrade every application that validates lists with `distinct`, authorizes broadcast channels (`routes/channels.dart`) or reads `sum()` or `avg()` on PostgreSQL or MySQL.
-
 ### Added
+
+### Changed
+
+**Upgrading can change what an application sees:**
+
+### Fixed
+
+## 1.27.2
+
+A security patch: fixes only. Upgrade every application that validates lists with `distinct`, authorizes broadcast channels (`routes/channels.dart`) or reads `sum()` or `avg()` on PostgreSQL or MySQL.
 
 ### Changed
 
