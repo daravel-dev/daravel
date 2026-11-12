@@ -56,6 +56,26 @@ as it quotes the same string. A list of allowed columns is still the
 better check for a name that comes from a request: `SqlIdentifier` only
 keeps odd characters out, any existing column still passes.
 
+`string_validation_rule` also writes the chain for you:
+`rule.fixFor(unit, node)` returns a `LintFix` (a message such as
+`Write as Rules.required().email()` and its text edits), which the editor
+plugin offers as a quick fix, for one finding or all in the file. The fix
+is offered only where the chain compiles and means the same:
+- one plain string literal (not interpolated, not adjacent strings);
+- not in a list or map typed to hold strings (`<String>[...]`,
+  `<String, String>{...}`, a `rules()` declared to return
+  `Map<String, String>`);
+- in a `const` context only when removing the `const` of the enclosing
+  list or map is enough, never in a `const` variable or a `const`
+  constructor call;
+- not when the file's import of `package:daravel/daravel.dart` hides
+  `Rules`. The import's prefix is used, and the import is added when
+  missing.
+
+`rule.fixesIn(unit)` returns every fix in a file, and `LintFixMerger`
+combines them, making an edit two fixes share only once. The other rules
+offer no fix (`LintRule.fixFor` explains why for each).
+
 Suppress a finding with `// daravel-lint-ignore: <rule>` on the same line or the
 line above.
 

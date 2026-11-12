@@ -10,6 +10,8 @@ import 'package:analyzer/error/error.dart';
 import 'package:daravel_lints/daravel_lints.dart';
 import 'package:path/path.dart' as p;
 
+import 'fix.dart';
+
 /// The Daravel lint rules as a Dart analysis server plugin: the rules of
 /// `dartisan lint` reported in the editor (and by `dart analyze`) as they
 /// are typed. The rules themselves live in `package:daravel_lints`; this
@@ -37,12 +39,27 @@ final class DaravelLintsPlugin extends Plugin {
   @override
   void register(PluginRegistry registry) {
     for (final rule in warnings) {
-      registry.registerWarningRule(DaravelAnalysisRule(rule));
+      final analysisRule = DaravelAnalysisRule(rule);
+      registry.registerWarningRule(analysisRule);
+      _registerFix(registry, analysisRule);
     }
     for (final rule in lints) {
-      registry.registerLintRule(DaravelAnalysisRule(rule));
+      final analysisRule = DaravelAnalysisRule(rule);
+      registry.registerLintRule(analysisRule);
+      _registerFix(registry, analysisRule);
     }
   }
+
+  /// The quick fix of every rule: offered where the rule's
+  /// [LintRule.fixFor] gives one (`string_validation_rule`), nothing
+  /// elsewhere.
+  static void _registerFix(
+    PluginRegistry registry,
+    DaravelAnalysisRule analysisRule,
+  ) => registry.registerFixForRule(
+    analysisRule.diagnosticCode,
+    ({required context}) => DaravelFix(analysisRule.rule, context: context),
+  );
 }
 
 /// A `daravel_lints` [LintRule] as an analysis server rule. Each finding is

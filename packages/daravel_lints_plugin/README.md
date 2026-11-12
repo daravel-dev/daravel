@@ -34,3 +34,9 @@ A finding is silenced as with `dartisan lint`
 this package only runs them for the analysis server, which resolves it
 apart from your application, so its pinned `analyzer` never reaches your
 dependencies.
+
+Where a rule offers a fix, the editor offers it as a quick fix, including
+"Fix all ... in file". So far that is `string_validation_rule`, which turns
+the string into its `Rules` chain. The edits are the rule's own
+(`LintRule.fixFor` in `daravel_lints`), so the fix is offered only where the
+chain compiles and keeps the meaning.

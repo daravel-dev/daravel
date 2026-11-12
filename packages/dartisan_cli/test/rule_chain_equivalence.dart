@@ -1,4 +1,6 @@
+import 'package:analyzer/dart/analysis/utilities.dart';
 import 'package:daravel/daravel.dart';
+import 'package:daravel_lints/daravel_lints.dart';
 import 'package:test/test.dart';
 
 /// Rules that need a database (`unique`, `exists`): compared by their
@@ -73,4 +75,27 @@ Future<void> expectSameRules(String dsl, List<Rule> chain) async {
     final fromChain = await Validator(input, {'f': chain}).run();
     expect(fromChain, fromString, reason: '$input');
   }
+}
+
+/// The text the editor's fix of `string_validation_rule` writes for [dsl]
+/// written as a plain literal in a `validate` map: the same chain as
+/// [ruleChainSource], so the cases above hold for the fix too.
+String? fixedText(String dsl) {
+  final escaped = dsl
+      .replaceAll(r'\', r'\\')
+      .replaceAll("'", r"\'")
+      .replaceAll(r'$', r'\$');
+  final source =
+      "import 'package:daravel/daravel.dart';\n"
+      "Future<void> f(Request r) => r.validate({'f': '$escaped'});\n";
+  final unit = parseString(content: source).unit;
+  const rule = StringValidationRule();
+  String? text;
+  rule.check(unit, (node, _) {
+    final fix = rule.fixFor(unit, node);
+    if (fix != null && fix.edits.length == 1) {
+      text = fix.edits.single.replacement;
+    }
+  });
+  return text;
 }
