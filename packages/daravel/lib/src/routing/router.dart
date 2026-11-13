@@ -460,6 +460,11 @@ final class Router {
     var refusable = false;
     if (column == definition.primaryKey) {
       key = _keyValue(definition, column, value);
+      // A key kept as text (uuid and string keys) may be refused by the
+      // column, as `abc` by a PostgreSQL uuid; an integer key was parsed,
+      // and a ulid column is text. No schema read here: the lookup's SQL
+      // stays the same.
+      refusable = key is String && definition.keyType != KeyType.ulid;
     } else {
       // Another column (`{post:number}`): read the value as the column's
       // type, so a word for an integer column finds no row on every

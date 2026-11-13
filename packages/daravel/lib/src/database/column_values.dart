@@ -39,7 +39,9 @@ final class ColumnValueType {
   /// The smallest integer the column holds.
   final int? min;
 
-  /// The largest integer the column holds.
+  /// The largest integer the column holds. A MySQL `bigint unsigned` holds
+  /// up to 2^64 - 1, but a Dart `int` only up to 2^63 - 1: a value above
+  /// that is a 404.
   final int? max;
 
   /// The longest plain decimal read for a decimal column; any longer value
@@ -212,7 +214,13 @@ abstract final class ColumnValueTypes {
 
   /// The type of [column] of [table] on [connection] of [manager], or
   /// `null` when the database does not report it (a view, a missing
-  /// column).
+  /// column). Route model binding then compares the value as it is, as
+  /// before these types were read, and a data exception from the lookup
+  /// (SQLSTATE class 22) is still a 404; on MySQL a word compared with an
+  /// integer column of such a table is then read as 0, as in Laravel.
+  /// [table] is the
+  /// name the query uses (Daravel has no connection table prefix);
+  /// `schema.table` reads that schema's table.
   static Future<ColumnValueType?> of(
     DatabaseManager manager,
     String? connection,

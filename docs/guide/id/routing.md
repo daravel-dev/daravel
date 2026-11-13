@@ -1,4 +1,4 @@
-<!-- source: routing.md sha256:6240f8dc0309 -->
+<!-- source: routing.md sha256:1cb549c95f26 -->
 # Routing
 
 Route didaftarkan di `routes/api.dart` (di-mount di bawah `/api`) dan
@@ -323,7 +323,8 @@ kolom integer, nilainya harus berupa integer seperti yang dibaca PostgreSQL
 menemukan 7), dan kolom desimal menerima desimal polos. Nilai lain menjadi
 404 di semua database. Laravel menjawabnya dengan 500 di PostgreSQL, dan di
 MySQL mengikat baris hasil koersi nilai itu (`abc` menjadi 0). Kolom uuid,
-tanggal, atau boolean yang diberi nilai berbentuk lain juga menjadi 404.
+tanggal, atau boolean yang diberi nilai berbentuk lain juga menjadi 404, begitu
+pula primary key uuid.
 
 ## Padanan Laravel
 

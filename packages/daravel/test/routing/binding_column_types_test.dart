@@ -31,6 +31,18 @@ final class Item extends Model {
   ModelDefinition<Item> get modelDefinition => definition;
 }
 
+/// A model keyed by a uuid column.
+final class Ticket extends Model {
+  static final ModelDefinition<Ticket> definition = ModelDefinition<Ticket>(
+    table: 'bct_tickets',
+    factory: Ticket.new,
+    timestamps: false,
+    keyType: KeyType.uuid,
+  );
+  @override
+  ModelDefinition<Ticket> get modelDefinition => definition;
+}
+
 /// Runs the binding inside a transaction for `/tx/...`, then a query in the
 /// same transaction: on PostgreSQL a refused statement would abort it.
 final class _InTransaction implements Middleware {
@@ -255,6 +267,14 @@ void main() {
         final schema = await Schema.builder();
         await schema.dropIfExists('bct_items');
         await schema.dropIfExists('bct_owners');
+        await schema.dropIfExists('bct_tickets');
+        await schema.create('bct_tickets', (table) {
+          table.uuid('id').primary();
+          table.string('title');
+        });
+        await DB.table('bct_tickets').insert([
+          {'id': uuid7, 'title': 'seven'},
+        ]);
         await schema.create('bct_owners', (table) => table.id());
         await schema.create('bct_items', (table) {
           table.id();
@@ -314,6 +334,14 @@ void main() {
                 }
                 router.get('/by-id/{item}', found);
                 router.get('/owners/{owner}/items/{item:number}', found);
+                router.bindModel('ticket', Ticket.definition);
+                Map<String, Object?> ticket(Request r) => {
+                  'title': r
+                      .binding<Ticket>('ticket')
+                      .getAttr<Object?>('title'),
+                };
+                router.get('/tickets/{ticket}', ticket);
+                router.get('/tx/tickets/{ticket}', ticket);
               },
             )
             .create();
@@ -327,12 +355,51 @@ void main() {
           final schema = await Schema.builder();
           await schema.dropIfExists('bct_items');
           await schema.dropIfExists('bct_owners');
+          await schema.dropIfExists('bct_tickets');
         });
         await app.shutdown();
       });
 
       Future<TestResponse> get(String path, String value) =>
           client.get('$path/${Uri.encodeComponent(value)}');
+
+      test('a uuid primary key given another shape: a 404, in a '
+          'transaction too', () async {
+        for (final prefix in ['', '/tx']) {
+          for (final value in ['abc', '7', '$uuid7-x']) {
+            final response = await get('$prefix/tickets', value);
+            expect(response.status, 404, reason: '$prefix "$value"');
+          }
+          expect((await get('$prefix/tickets', uuid7)).json, {
+            'title': 'seven',
+          });
+        }
+      });
+
+      test('the column types of the table are found', () async {
+        // Not null: a type not found would silently compare the value as
+        // it is (on MySQL, a word as 0).
+        await app.run(() async {
+          final manager = Container.current.make<DatabaseManager>();
+          final type = await ColumnValueTypes.of(
+            manager,
+            null,
+            'bct_items',
+            'number',
+          );
+          expect(type?.kind, ColumnValueKind.integer);
+          if (name == 'PostgreSQL') {
+            // A schema-qualified name reads that schema's table.
+            final qualified = await ColumnValueTypes.of(
+              manager,
+              null,
+              'public.bct_items',
+              'number',
+            );
+            expect(qualified?.kind, ColumnValueKind.integer);
+          }
+        });
+      });
 
       test('an integer column: as Laravel on PostgreSQL, a 404 for its 500 '
           '(the Laravel 13.40 golden)', () async {

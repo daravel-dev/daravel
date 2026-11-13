@@ -308,7 +308,7 @@ For an integer column the value must be an integer as PostgreSQL reads one
 a decimal column takes a plain decimal. Anything else is a 404, on every
 database. Laravel answers those with a 500 on PostgreSQL, and on MySQL it
 binds the row the value coerces to (`abc` as 0). A uuid, date or boolean
-column given a value of another shape is a 404 too.
+column given a value of another shape is a 404 too, and so is a uuid primary key.
 
 ## Laravel equivalents
 
